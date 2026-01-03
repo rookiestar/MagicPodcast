@@ -42,10 +42,39 @@ func SetupRouter() *gin.Engine {
 			podcasts.GET("/:id", podcastHandler.Get)
 		}
 
-		// 其他路由（后续阶段实现）
-		// v1.GET("/episodes", episodeHandler.List)
-		// v1.GET("/tags", tagHandler.List)
-		// v1.GET("/workflows", workflowHandler.List)
+		// Tag 路由
+		tagHandler := handlers.NewTagHandler()
+		tags := v1.Group("/tags")
+		{
+			tags.GET("", tagHandler.List)
+			tags.POST("", tagHandler.Create)
+			tags.GET("/:id", tagHandler.Get)
+			tags.PUT("/:id", tagHandler.Update)
+			tags.DELETE("/:id", tagHandler.Delete)
+		}
+
+		// Note 路由
+		noteHandler := handlers.NewNoteHandler()
+		v1.PUT("/podcasts/:id/notes", noteHandler.UpdatePodcastNotes)
+		v1.GET("/podcasts/:id/notes", noteHandler.GetPodcastNotes)
+		v1.PUT("/episodes/:id/notes", noteHandler.UpdateEpisodeNotes)
+		v1.GET("/episodes/:id/notes", noteHandler.GetEpisodeNotes)
+
+		// Tag Relation 路由
+		tagRelationHandler := handlers.NewTagRelationHandler()
+		podcastTags := v1.Group("/podcasts/:id/tags")
+		{
+			podcastTags.GET("", tagRelationHandler.GetPodcastTags)
+			podcastTags.POST("", tagRelationHandler.AddTagToPodcast)
+			podcastTags.DELETE("/:tagId", tagRelationHandler.RemoveTagFromPodcast)
+		}
+
+		episodeTags := v1.Group("/episodes/:id/tags")
+		{
+			episodeTags.GET("", tagRelationHandler.GetEpisodeTags)
+			episodeTags.POST("", tagRelationHandler.AddTagToEpisode)
+			episodeTags.DELETE("/:tagId", tagRelationHandler.RemoveTagFromEpisode)
+		}
 	}
 
 	return r
