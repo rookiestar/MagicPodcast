@@ -2,23 +2,30 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { podcastApi } from '@/lib/api'
-import type { Podcast } from '@/types'
+import { podcastApi, tagApi } from '@/lib/api'
+import type { Podcast, Tag } from '@/types'
 
 export default function PodcastsPage() {
   const [podcasts, setPodcasts] = useState<Podcast[]>([])
+  const [tags, setTags] = useState<Tag[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
+  const [showAllTags, setShowAllTags] = useState(false)
 
   useEffect(() => {
     fetchPodcasts()
+    fetchTags()
   }, [])
 
-  const fetchPodcasts = async () => {
+  const fetchPodcasts = async (tagIds: number[] = []) => {
     try {
       setLoading(true)
       setError(null)
-      const data = await podcastApi.list()
+
+      // 如果选择了标签，传递所有选中的标签ID（AND逻辑）
+      const params = tagIds.length > 0 ? { tag_id: tagIds } : undefined
+      const data = await podcastApi.list(params)
       setPodcasts(data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -26,6 +33,41 @@ export default function PodcastsPage() {
       setLoading(false)
     }
   }
+
+  const fetchTags = async () => {
+    try {
+      const data = await tagApi.list()
+      setTags(data)
+    } catch (err) {
+      console.error('Failed to fetch tags:', err)
+    }
+  }
+
+  const handleTagToggle = (tagId: number | null) => {
+    if (tagId === null) {
+      // 点击"全部"，清除所有选择
+      setSelectedTagIds([])
+      fetchPodcasts([])
+    } else {
+      // 切换标签选择状态
+      if (selectedTagIds.includes(tagId)) {
+        // 取消选择
+        const newSelected = selectedTagIds.filter(id => id !== tagId)
+        setSelectedTagIds(newSelected)
+        fetchPodcasts(newSelected)
+      } else {
+        // 添加选择
+        const newSelected = [...selectedTagIds, tagId]
+        setSelectedTagIds(newSelected)
+        fetchPodcasts(newSelected)
+      }
+    }
+  }
+
+  // 默认显示的标签数量（不含"全部"）
+  const DEFAULT_TAG_COUNT = 8
+  const displayTags = showAllTags ? tags : tags.slice(0, DEFAULT_TAG_COUNT)
+  const hasMoreTags = tags.length > DEFAULT_TAG_COUNT
 
   return (
     <main className="min-h-screen bg-slate-50 dark:bg-slate-900">
@@ -42,9 +84,75 @@ export default function PodcastsPage() {
             我的订阅
           </h1>
           <p className="text-slate-600 dark:text-slate-400">
-            管理你的播客节目（当前显示假数据）
+            管理你的播客节目
           </p>
         </div>
+
+        {/* Tag Filter */}
+        {tags.length > 0 && (
+          <div className="mb-6">
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-sm text-slate-600 dark:text-slate-400">标签筛选:</span>
+
+              {/* 全部按钮 */}
+              <button
+                onClick={() => handleTagToggle(null)}
+                className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                  selectedTagIds.length === 0
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
+                }`}
+              >
+                全部
+              </button>
+
+              {/* 标签按钮 */}
+              {displayTags.map((tag) => {
+                const isSelected = selectedTagIds.includes(tag.id)
+                return (
+                  <button
+                    key={tag.id}
+                    onClick={() => handleTagToggle(tag.id)}
+                    className={`px-3 py-1 rounded-full text-sm transition-colors flex items-center gap-2 ${
+                      isSelected
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
+                    }`}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: tag.color }}
+                    />
+                    <span className="max-w-[100px] truncate">{tag.name}</span>
+                  </button>
+                )
+              })}
+
+              {/* 展开/折叠按钮 */}
+              {hasMoreTags && (
+                <button
+                  onClick={() => setShowAllTags(!showAllTags)}
+                  className="px-3 py-1 rounded-full text-sm transition-colors text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                >
+                  {showAllTags ? '收起' : `展开 (+${tags.length - DEFAULT_TAG_COUNT})`}
+                </button>
+              )}
+            </div>
+
+            {/* 已选择的标签提示 */}
+            {selectedTagIds.length > 0 && (
+              <div className="mt-2 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                <span>已选择 {selectedTagIds.length} 个标签</span>
+                <button
+                  onClick={() => handleTagToggle(null)}
+                  className="text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  清除筛选
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Loading State */}
         {loading && (
@@ -88,6 +196,10 @@ export default function PodcastsPage() {
 }
 
 function PodcastCard({ podcast }: { podcast: Podcast }) {
+  // 最多显示3个标签
+  const displayTags = podcast.tags?.slice(0, 3) || []
+  const remainingTags = (podcast.tags?.length || 0) - 3
+
   return (
     <Link href={`/podcasts/${podcast.id}`}>
       <div className="bg-white dark:bg-slate-800 rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer h-full">
@@ -117,6 +229,30 @@ function PodcastCard({ podcast }: { podcast: Podcast }) {
           <p className="text-sm text-slate-500 dark:text-slate-500 line-clamp-2">
             {podcast.description}
           </p>
+
+          {/* Tags - 新增 */}
+          {displayTags.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {displayTags.map((tag) => (
+                <span
+                  key={tag.id}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
+                  title={tag.name}
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: tag.color }}
+                  />
+                  <span className="max-w-[80px] truncate">{tag.name}</span>
+                </span>
+              ))}
+              {remainingTags > 0 && (
+                <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+                  +{remainingTags}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Stats */}
           <div className="mt-4 flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">

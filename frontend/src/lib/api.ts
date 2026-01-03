@@ -15,8 +15,23 @@ const api = axios.create({
 // API 方法
 export const podcastApi = {
   // 获取播客列表
-  list: async (): Promise<Podcast[]> => {
-    const response = await api.get<ApiResponse<Podcast[]>>('/api/v1/podcasts')
+  list: async (params?: { tag_id?: number | number[] }): Promise<Podcast[]> => {
+    const queryParams = new URLSearchParams()
+
+    if (params?.tag_id) {
+      // 支持多个tag_id（数组）
+      if (Array.isArray(params.tag_id)) {
+        params.tag_id.forEach(id => queryParams.append('tag_id', id.toString()))
+      } else {
+        queryParams.append('tag_id', params.tag_id.toString())
+      }
+    }
+
+    const url = queryParams.toString()
+      ? `/api/v1/podcasts?${queryParams.toString()}`
+      : '/api/v1/podcasts'
+
+    const response = await api.get<ApiResponse<Podcast[]>>(url)
     if (response.data.success && response.data.data) {
       return response.data.data
     }
@@ -76,6 +91,15 @@ export const podcastApi = {
 }
 
 export const episodeApi = {
+  // 获取播客的单集列表
+  listByPodcast: async (podcastId: number): Promise<Episode[]> => {
+    const response = await api.get<ApiResponse<Episode[]>>(`/api/v1/podcasts/${podcastId}/episodes`)
+    if (response.data.success && response.data.data) {
+      return response.data.data
+    }
+    throw new Error(response.data.error?.message || 'Failed to fetch episodes')
+  },
+
   // 获取单集备注
   getNotes: async (id: number): Promise<string> => {
     const response = await api.get<ApiResponse<{ id: number; notes: string }>>(`/api/v1/episodes/${id}/notes`)

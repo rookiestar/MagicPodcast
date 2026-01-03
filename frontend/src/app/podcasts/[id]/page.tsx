@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { podcastApi } from '@/lib/api'
-import type { Podcast, Tag } from '@/types'
+import { podcastApi, episodeApi } from '@/lib/api'
+import type { Podcast, Tag, Episode } from '@/types'
 import TagInput from '@/components/tags/TagInput'
 
 export default function PodcastDetailPage() {
@@ -15,6 +15,8 @@ export default function PodcastDetailPage() {
   const [tags, setTags] = useState<Tag[]>([])
   const [notes, setNotes] = useState('')
   const [isEditingNotes, setIsEditingNotes] = useState(false)
+  const [episodes, setEpisodes] = useState<Episode[]>([])
+  const [episodesLoading, setEpisodesLoading] = useState(true)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -23,6 +25,7 @@ export default function PodcastDetailPage() {
       fetchPodcast()
       fetchTags()
       fetchNotes()
+      fetchEpisodes()
     }
   }, [id])
 
@@ -57,6 +60,19 @@ export default function PodcastDetailPage() {
     } catch (err) {
       console.error('Failed to fetch notes:', err)
       setNotes('')
+    }
+  }
+
+  const fetchEpisodes = async () => {
+    try {
+      setEpisodesLoading(true)
+      const data = await episodeApi.listByPodcast(id)
+      setEpisodes(data)
+    } catch (err) {
+      console.error('Failed to fetch episodes:', err)
+      setEpisodes([])
+    } finally {
+      setEpisodesLoading(false)
     }
   }
 
@@ -263,6 +279,58 @@ export default function PodcastDetailPage() {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Episodes List - 新增section */}
+        {!loading && !error && podcast && (
+          <div className="mt-8">
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-50 mb-4">
+              单集列表 ({podcast.episode_count} 集)
+            </h2>
+
+            {episodesLoading ? (
+              <div className="text-center py-8">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">加载中...</p>
+              </div>
+            ) : episodes.length === 0 ? (
+              <div className="bg-white dark:bg-slate-800 rounded-lg p-8 text-center">
+                <p className="text-slate-600 dark:text-slate-400">暂无单集</p>
+              </div>
+            ) : (
+              <div className="bg-white dark:bg-slate-800 rounded-lg shadow overflow-hidden">
+                <div className="divide-y divide-slate-200 dark:divide-slate-700">
+                  {episodes.map((episode) => (
+                    <div key={episode.id} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-1 truncate">
+                            {episode.title}
+                          </h3>
+                          <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">
+                            {episode.episode_no} · {new Date(episode.published_date).toLocaleDateString()}
+                          </p>
+                          {episode.show_notes && (
+                            <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2">
+                              {episode.show_notes}
+                            </p>
+                          )}
+                        </div>
+                        {episode.medium_url && (
+                          <button
+                            onClick={() => window.open(episode.medium_url, '_blank')}
+                            className="flex-shrink-0 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+                          >
+                            播放
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

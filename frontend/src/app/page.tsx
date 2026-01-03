@@ -18,6 +18,12 @@ export default function Home() {
             >
               查看播客列表
             </Link>
+            <Link
+              href="/tags"
+              className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+            >
+              标签管理
+            </Link>
             <a
               href="http://localhost:8080/health"
               target="_blank"

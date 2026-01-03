@@ -9,6 +9,7 @@ export interface Podcast {
   episode_count: number
   newest_episode_date: string
   created_at: string
+  tags?: Tag[]
 }
 
 // API 响应类型
