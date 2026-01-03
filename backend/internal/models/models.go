@@ -6,6 +6,7 @@ var AllModels = []interface{}{
 	// 基础模型（无依赖）
 	Tag{},
 	Workflow{},
+	SyncConfig{},
 
 	// 依赖基础模型的
 	Podcast{},

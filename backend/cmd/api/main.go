@@ -47,8 +47,18 @@ func main() {
 
 	// 初始化数据库
 	fmt.Println("\n📊 Initializing database...")
-	_ = database.GetDB() // 初始化数据库连接
+	db := database.GetDB() // 初始化数据库连接
 	defer database.Close()
+
+	// 运行数据库迁移
+	if err := database.AutoMigrate(db); err != nil {
+		log.Fatalf("Failed to run database migrations: %v", err)
+	}
+
+	// 创建自定义索引
+	if err := database.CreateIndexes(db); err != nil {
+		log.Fatalf("Failed to create custom indexes: %v", err)
+	}
 
 	// 设置路由
 	fmt.Println("🔧 Setting up routes...")

@@ -45,6 +45,11 @@ sync:
   # 单次最大同步节目数（0 表示不限制）
   max_podcasts: 0
 
+podcast_index:
+  # PodcastIndex 数据库文件路径（可选，留空则不使用）
+  # 从 https://github.com/Podcastindex-org/database 下载
+  path: "./data/podcastindex_feeds.db"
+
 logging:
   # 日志级别: debug, info, warn, error
   level: info

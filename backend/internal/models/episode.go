@@ -22,6 +22,10 @@ type Episode struct {
 	ShowNotes     string `gorm:"type:text" json:"show_notes"`    // 节目详情/show notes
 	PublishedDate time.Time `json:"published_date"`              // 发布日期
 
+	// 同步相关
+	GUID       string     `gorm:"size:255;index" json:"guid"`     // RSS item GUID，用于去重
+	FetchedAt  *time.Time `json:"fetched_at"`                    // 抓取时间
+
 	// 用户自定义
 	MyRate int    `gorm:"default:0" json:"my_rate"` // 个人评分 (0-5)
 	Notes  string `gorm:"type:text" json:"notes"`   // 个人备注

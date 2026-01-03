@@ -31,6 +31,12 @@ type Podcast struct {
 	MyRate int    `gorm:"default:0" json:"my_rate"` // 个人评分 (0-5)
 	Notes  string `gorm:"type:text" json:"notes"`   // 个人备注
 
+	// 同步相关
+	FeedURLValid    bool       `gorm:"default:true" json:"feed_url_valid"`     // RSS feed是否有效
+	LastFetchedAt   *time.Time `json:"last_fetched_at"`                        // 最后抓取时间
+	FetchErrorCount int        `gorm:"default:0" json:"fetch_error_count"`     // 抓取失败次数
+	DataSource      string     `gorm:"size:20;default:'rss'" json:"data_source"` // 数据来源: podcastindex, rss, scraped
+
 	// 关联关系
 	Episodes []Episode `gorm:"foreignKey:PodcastID;constraint:OnDelete:CASCADE" json:"episodes,omitempty"`
 	Tags     []Tag     `gorm:"many2many:podcasts_tags;constraint:OnDelete:CASCADE" json:"tags,omitempty"`

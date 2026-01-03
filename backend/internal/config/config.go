@@ -9,12 +9,13 @@ import (
 
 // Config 表示应用程序的配置
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Database DatabaseConfig `mapstructure:"database"`
-	XYZAPI   XYZAPIConfig   `mapstructure:"xyz_api"`
-	Sync     SyncConfig     `mapstructure:"sync"`
-	Logging  LoggingConfig  `mapstructure:"logging"`
-	User     UserConfig     `mapstructure:"user"`
+	Server        ServerConfig        `mapstructure:"server"`
+	Database      DatabaseConfig      `mapstructure:"database"`
+	XYZAPI        XYZAPIConfig        `mapstructure:"xyz_api"`
+	Sync          SyncConfig          `mapstructure:"sync"`
+	PodcastIndex  PodcastIndexConfig  `mapstructure:"podcast_index"`
+	Logging       LoggingConfig       `mapstructure:"logging"`
+	User          UserConfig          `mapstructure:"user"`
 }
 
 // ServerConfig 服务器配置
@@ -49,6 +50,11 @@ type SyncConfig struct {
 	Concurrency      int    `mapstructure:"concurrency"`       // 并发数
 	RequestInterval  int    `mapstructure:"request_interval"`  // 毫秒
 	MaxPodcasts      int    `mapstructure:"max_podcasts"`      // 0 表示不限制
+}
+
+// PodcastIndexConfig PodcastIndex数据库配置
+type PodcastIndexConfig struct {
+	Path string `mapstructure:"path"` // PodcastIndex SQLite数据库文件路径
 }
 
 // LoggingConfig 日志配置

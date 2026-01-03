@@ -24,6 +24,12 @@ export default function Home() {
             >
               标签管理
             </Link>
+            <Link
+              href="/import"
+              className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              导入OPML
+            </Link>
             <a
               href="http://localhost:8080/health"
               target="_blank"

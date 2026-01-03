@@ -77,6 +77,19 @@ func SetupRouter() *gin.Engine {
 			episodeTags.POST("", tagRelationHandler.AddTagToEpisode)
 			episodeTags.DELETE("/:tagId", tagRelationHandler.RemoveTagFromEpisode)
 		}
+
+		// Sync 路由
+		syncHandler, err := handlers.NewSyncHandler()
+		if err != nil {
+			panic(err) // 同步服务初始化失败，无法继续
+		}
+		sync := v1.Group("/sync")
+		{
+			sync.POST("/import", syncHandler.ImportOPML)            // 导入OPML文件
+			sync.POST("/import-sse", syncHandler.ImportOPMLSSE)     // 导入OPML文件（SSE流式）
+			sync.POST("/subscriptions", syncHandler.SyncSubscriptions) // 同步所有订阅
+			sync.GET("/status", syncHandler.GetSyncStatus)         // 获取同步状态
+		}
 	}
 
 	return r
