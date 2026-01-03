@@ -1,0 +1,71 @@
+# MagicPodcast 后端配置文件示例
+# 复制此文件为 config.yaml 并根据实际情况修改
+
+server:
+  # 服务监听端口
+  port: 8080
+  # 运行模式: debug, release
+  mode: debug
+  # 读取超时（秒）
+  read_timeout: 60
+  # 写入超时（秒）
+  write_timeout: 60
+
+database:
+  # SQLite 数据库文件路径
+  path: ./data/magicpodcast.db
+  # 是否开启调试模式（打印 SQL）
+  debug: true
+  # 连接池最大空闲连接数
+  max_idle_conns: 10
+  # 连接池最大打开连接数
+  max_open_conns: 100
+  # 连接最大存活时间（秒）
+  conn_max_lifetime: 3600
+
+xyz_api:
+  # 小宇宙 API 服务地址
+  url: http://localhost:8081
+  # 请求超时（秒）
+  timeout: 30
+  # 最大重试次数
+  max_retries: 3
+  # 重试间隔（毫秒）
+  retry_interval: 1000
+
+sync:
+  # 是否启用定时同步
+  enabled: true
+  # Cron 表达式（默认每天凌晨 2 点）
+  schedule: "0 2 * * *"
+  # 每次同步的并发数
+  concurrency: 5
+  # 请求间隔（毫秒）
+  request_interval: 2000
+  # 单次最大同步节目数（0 表示不限制）
+  max_podcasts: 0
+
+logging:
+  # 日志级别: debug, info, warn, error
+  level: info
+  # 日志格式: json, text
+  format: text
+  # 日志输出路径（空表示输出到标准输出）
+  output: ""
+  # 是否启用文件轮转
+  rotate: true
+  # 最大文件大小（MB）
+  max_size: 100
+  # 最大保留天数
+  max_age: 30
+  # 最大保留文件数
+  max_backups: 10
+
+# 用户自定义配置
+user:
+  # 小宇宙手机号（用于登录）
+  phone: ""
+  # 小宇宙访问令牌（登录后自动保存）
+  access_token: ""
+  # 令牌刷新令牌
+  refresh_token: ""

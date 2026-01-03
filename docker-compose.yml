@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  # 小宇宙 API 代理服务
+  xyz-api:
+    image: ghcr.io/ultrazg/xyz:latest
+    container_name: magicpodcast-xyz-api
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+    networks:
+      - magicpodcast-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # 后端服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: magicpodcast-backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+    environment:
+      - XYZ_API_URL=http://xyz-api:8080
+      - DB_PATH=/app/data/magicpodcast.db
+      - GIN_MODE=release
+    depends_on:
+      xyz-api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - magicpodcast-network
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: magicpodcast-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8080
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - magicpodcast-network
+
+networks:
+  magicpodcast-network:
+    driver: bridge
+
+volumes:
+  data:
+    driver: local
