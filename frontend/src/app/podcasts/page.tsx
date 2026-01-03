@@ -113,7 +113,7 @@ export default function PodcastsPage() {
                   <button
                     key={tag.id}
                     onClick={() => handleTagToggle(tag.id)}
-                    className={`px-3 py-1 rounded-full text-sm transition-colors flex items-center gap-2 ${
+                    className={`px-3 py-1 rounded-full text-sm transition-colors flex items-center gap-2 group relative ${
                       isSelected
                         ? 'bg-blue-600 text-white'
                         : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
@@ -123,7 +123,11 @@ export default function PodcastsPage() {
                       className="w-2 h-2 rounded-full flex-shrink-0"
                       style={{ backgroundColor: tag.color }}
                     />
-                    <span className="max-w-[100px] truncate">{tag.name}</span>
+                    <span className="max-w-[100px] truncate" title={tag.name}>{tag.name}</span>
+                    {/* Tooltip for tag name */}
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
+                      {tag.name}
+                    </div>
                   </button>
                 )
               })}
@@ -236,14 +240,19 @@ function PodcastCard({ podcast }: { podcast: Podcast }) {
               {displayTags.map((tag) => (
                 <span
                   key={tag.id}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
-                  title={tag.name}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 group relative"
                 >
                   <span
                     className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                     style={{ backgroundColor: tag.color }}
                   />
-                  <span className="max-w-[80px] truncate">{tag.name}</span>
+                  <span className="max-w-[80px] truncate" title={tag.name}>
+                    {tag.name}
+                  </span>
+                  {/* 自定义 Tooltip */}
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                    {tag.name}
+                  </div>
                 </span>
               ))}
               {remainingTags > 0 && (

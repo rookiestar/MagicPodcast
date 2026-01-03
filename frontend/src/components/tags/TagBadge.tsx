@@ -20,6 +20,7 @@ export default function TagBadge({ tag, onRemove, size = 'md', removable = false
         inline-flex items-center gap-1.5 rounded-full font-medium
         ${sizeClasses[size]}
         transition-all duration-200
+        group relative
       `}
       style={{
         backgroundColor: `${tag.color}20`,
@@ -27,7 +28,16 @@ export default function TagBadge({ tag, onRemove, size = 'md', removable = false
         border: `1px solid ${tag.color}40`
       }}
     >
-      <span>{tag.name}</span>
+      <span
+        className="max-w-[120px] truncate"
+        title={tag.name}
+      >
+        {tag.name}
+      </span>
+      {/* 自定义 Tooltip */}
+      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+        {tag.name}
+      </div>
       {removable && onRemove && (
         <button
           onClick={() => onRemove(tag.id)}
