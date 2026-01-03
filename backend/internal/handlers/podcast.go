@@ -28,20 +28,40 @@ type PodcastResponse struct {
 	Description       string         `json:"description"`
 	Author            string         `json:"author"`
 	CoverURL          string         `json:"cover_url"`
+	FeedURL           string         `json:"feed_url,omitempty"`
 	EpisodeCount      int            `json:"episode_count"`
 	NewestEpisodeDate time.Time      `json:"newest_episode_date"`
 	CreatedAt         time.Time      `json:"created_at"`
+	AddedDate         time.Time      `json:"added_date,omitempty"`
+	IsSubscribed      bool           `json:"is_subscribed"`
+	IsDead            bool           `json:"is_dead"`
+	MyRate            int            `json:"my_rate,omitempty"`
+	Notes             string         `json:"notes,omitempty"`
+	DataSource        string         `json:"data_source,omitempty"`
+
+	// 🆕 PodcastIndex 新增字段（可选，使用 omitempty 保持向后兼容）
+	Link                    string     `json:"link,omitempty"`                              // 播客网站链接
+	NewestEnclosureURL      string     `json:"newest_enclosure_url,omitempty"`              // 最新单集音频URL
+	NewestEnclosureDuration int        `json:"newest_enclosure_duration,omitempty"`         // 最新单集时长（秒）
+	LastUpdate              *time.Time `json:"last_update,omitempty"`                       // Feed最后更新时间
+	OldestEpisodeDate       *time.Time `json:"oldest_episode_date,omitempty"`               // 最旧单集发布日期
+	PopularityScore         int        `json:"popularity_score,omitempty"`                  // 受欢迎程度 (0-10)
+	Priority                int        `json:"priority,omitempty"`                           // 抓取优先级 (0-10, -1=暂停)
+	UpdateFrequency         int        `json:"update_frequency,omitempty"`                  // 更新频率 (0-10)
+
 	Tags              []TagResponse  `json:"tags,omitempty"`
 }
 
 // List 获取播客节目列表
 // @Summary 获取播客节目列表
-// @Description 获取播客节目列表，支持按标签筛选（支持多选AND逻辑）和搜索
+// @Description 获取播客节目列表，支持按标签筛选（支持多选AND逻辑）、搜索和分页
 // @Tags Podcasts
 // @Accept json
 // @Produce json
 // @Param tag_id query []int false "标签ID列表（多个标签使用AND逻辑）"
 // @Param search query string false "搜索关键词"
+// @Param page query int false "页码（默认1）"
+// @Param page_size query int false "每页数量（默认15）"
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v1/podcasts [get]
 func (h *PodcastHandler) List(c *gin.Context) {
@@ -53,6 +73,18 @@ func (h *PodcastHandler) List(c *gin.Context) {
 	// 获取查询参数
 	tagIDStrs := c.QueryArray("tag_id")
 	searchKeyword := c.Query("search")
+
+	// 分页参数
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "15"))
+
+	// 验证分页参数
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 15
+	}
 
 	// 按标签筛选（AND逻辑：必须同时拥有所有选中的标签）
 	if len(tagIDStrs) > 0 {
@@ -92,9 +124,14 @@ func (h *PodcastHandler) List(c *gin.Context) {
 			searchPattern, searchPattern, searchPattern)
 	}
 
-	// 执行查询
+	// 获取总数
+	var total int64
+	query.Count(&total)
+
+	// 分页查询
 	var podcasts []models.Podcast
-	if err := query.Find(&podcasts).Error; err != nil {
+	offset := (page - 1) * pageSize
+	if err := query.Offset(offset).Limit(pageSize).Find(&podcasts).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -111,9 +148,21 @@ func (h *PodcastHandler) List(c *gin.Context) {
 		response[i] = h.modelToResponse(&podcast)
 	}
 
+	// 计算总页数
+	totalPages := int(total) / pageSize
+	if int(total)%pageSize > 0 {
+		totalPages++
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    response,
+		"pagination": gin.H{
+			"page":        page,
+			"page_size":   pageSize,
+			"total":       total,
+			"total_pages": totalPages,
+		},
 	})
 }
 
@@ -169,9 +218,27 @@ func (h *PodcastHandler) modelToResponse(podcast *models.Podcast) PodcastRespons
 		Description:       podcast.Description,
 		Author:            podcast.Author,
 		CoverURL:          podcast.CoverURL,
+		FeedURL:           podcast.FeedURL,
 		EpisodeCount:      podcast.EpisodeCount,
 		NewestEpisodeDate: podcast.NewestEpisodeDate,
 		CreatedAt:         podcast.CreatedAt,
-		Tags:              tags,
+		AddedDate:         podcast.AddedDate,
+		IsSubscribed:      podcast.IsSubscribed,
+		IsDead:            podcast.IsDead,
+		MyRate:            podcast.MyRate,
+		Notes:             podcast.Notes,
+		DataSource:        podcast.DataSource,
+
+		// 🆕 PodcastIndex 新增字段
+		Link:                    podcast.Link,
+		NewestEnclosureURL:      podcast.NewestEnclosureURL,
+		NewestEnclosureDuration: podcast.NewestEnclosureDuration,
+		LastUpdate:              podcast.LastUpdate,
+		OldestEpisodeDate:       podcast.OldestEpisodeDate,
+		PopularityScore:         podcast.PopularityScore,
+		Priority:                podcast.Priority,
+		UpdateFrequency:         podcast.UpdateFrequency,
+
+		Tags: tags,
 	}
 }

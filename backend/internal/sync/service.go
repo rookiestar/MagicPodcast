@@ -412,16 +412,57 @@ func (s *Service) saveEpisode(podcast *models.Podcast, item *gofeed.Item) error 
 
 // convertPodcastIndexToModel 将PodcastIndex信息转换为模型
 func (s *Service) convertPodcastIndexToModel(info *podcastindex.PodcastInfo) *models.Podcast {
-	return &models.Podcast{
-		Title:       info.Title,
-		Author:      info.Author,
-		Description: info.Description,
-		CoverURL:    info.CoverURL,
-		FeedURL:     info.FeedURL,
-		ITunesID:    fmt.Sprintf("%d", info.ITunesID),
-		IsSubscribed: true,
-		DataSource:  "podcastindex",
+	podcast := &models.Podcast{
+		Title:           info.Title,
+		Author:          info.Author,
+		Description:     info.Description,
+		CoverURL:        info.CoverURL,
+		FeedURL:         info.FeedURL,
+		ITunesID:        fmt.Sprintf("%d", info.ITunesID),
+		Link:            info.WebsiteURL,              // 🆕 播客网站链接
+		NewestEnclosureURL: info.NewestEnclosureURL,  // 🆕 最新单集音频URL
+		EpisodeCount:     info.EpisodeCount,          // 🆕 单集总数
+		IsSubscribed:     true,
+		DataSource:       "podcastindex",
 	}
+
+	// 🆕 处理时间戳字段
+	if info.NewestItemPubdate > 0 {
+		t := time.Unix(info.NewestItemPubdate, 0)
+		podcast.NewestEpisodeDate = t
+	}
+
+	if info.LastUpdate > 0 {
+		t := time.Unix(info.LastUpdate, 0)
+		podcast.LastUpdate = &t
+	}
+
+	if info.OldestItemPubdate > 0 {
+		t := time.Unix(info.OldestItemPubdate, 0)
+		podcast.OldestEpisodeDate = &t
+	}
+
+	// 🆕 处理评分字段
+	if info.PopularityScore > 0 {
+		podcast.PopularityScore = info.PopularityScore
+	}
+
+	// 🆕 处理优先级（允许 -1 表示暂停）
+	if info.Priority >= -1 {
+		podcast.Priority = info.Priority
+	}
+
+	// 🆕 处理更新频率
+	if info.UpdateFrequency >= 0 {
+		podcast.UpdateFrequency = info.UpdateFrequency
+	}
+
+	// 🆕 处理最新单集时长
+	if info.NewestEnclosureDuration > 0 {
+		podcast.NewestEnclosureDuration = info.NewestEnclosureDuration
+	}
+
+	return podcast
 }
 
 // convertGofeedToModel 将gofeed转换为模型

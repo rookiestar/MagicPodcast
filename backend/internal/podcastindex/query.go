@@ -23,7 +23,18 @@ type PodcastInfo struct {
 	FeedURL     string
 	ITunesID    int
 	Language    string
-	WebsiteURL  string
+	WebsiteURL  string // 网站链接（对应link字段）
+
+	// PodcastIndex 特有的新字段
+	NewestEnclosureURL      string // 最新单集音频URL
+	NewestEnclosureDuration int    // 最新单集时长
+	LastUpdate              int64  // Feed最后更新时间（Unix时间戳）
+	NewestItemPubdate       int64  // 最新单集发布时间
+	OldestItemPubdate       int64  // 最旧单集发布时间
+	EpisodeCount            int    // 单集总数
+	PopularityScore         int    // 受欢迎程度
+	Priority                int    // 优先级
+	UpdateFrequency         int    // 更新频率
 }
 
 // NewQuery 创建PodcastIndex查询器
@@ -56,8 +67,18 @@ func (q *Query) Close() error {
 
 // FindByFeedURL 根据Feed URL查找播客
 func (q *Query) FindByFeedURL(feedURL string) (*PodcastInfo, error) {
+	// 使用 CASE 语句处理空字符串的 itunesId
 	query := `
-		SELECT id, title, itunesAuthor, description, imageUrl, url, itunesId, language, link
+		SELECT id, title, itunesAuthor, description, imageUrl, url,
+			   CASE
+				   WHEN itunesId = '' THEN NULL
+				   WHEN typeof(itunesId) = 'text' THEN NULL
+				   ELSE CAST(itunesId AS INTEGER)
+			   END as itunesId,
+			   language, link,
+			   newestEnclosureUrl, newestEnclosureDuration, lastUpdate,
+			   newestItemPubdate, oldestItemPubdate, popularityScore,
+			   priority, updateFrequency, episodeCount
 		FROM podcasts
 		WHERE url = ?
 		LIMIT 1
@@ -69,6 +90,7 @@ func (q *Query) FindByFeedURL(feedURL string) (*PodcastInfo, error) {
 	var info PodcastInfo
 	var itunesID sql.NullInt64
 	var coverURL, websiteURL, language sql.NullString
+	var newestEnclosureURL sql.NullString
 
 	err := row.Scan(
 		&info.ID,
@@ -80,6 +102,15 @@ func (q *Query) FindByFeedURL(feedURL string) (*PodcastInfo, error) {
 		&itunesID,
 		&language,
 		&websiteURL,
+		&newestEnclosureURL,
+		&info.NewestEnclosureDuration,
+		&info.LastUpdate,
+		&info.NewestItemPubdate,
+		&info.OldestItemPubdate,
+		&info.PopularityScore,
+		&info.Priority,
+		&info.UpdateFrequency,
+		&info.EpisodeCount,
 	)
 
 	if err == sql.ErrNoRows {
@@ -103,6 +134,9 @@ func (q *Query) FindByFeedURL(feedURL string) (*PodcastInfo, error) {
 	if language.Valid {
 		info.Language = language.String
 	}
+	if newestEnclosureURL.Valid {
+		info.NewestEnclosureURL = newestEnclosureURL.String
+	}
 	if itunesID.Valid {
 		info.ITunesID = int(itunesID.Int64)
 	}
@@ -112,8 +146,18 @@ func (q *Query) FindByFeedURL(feedURL string) (*PodcastInfo, error) {
 
 // FindByTitle 根据标题模糊搜索播客（返回多个结果）
 func (q *Query) FindByTitle(title string) ([]*PodcastInfo, error) {
+	// 使用 CASE 语句处理空字符串的 itunesId
 	query := `
-		SELECT id, title, itunesAuthor, description, imageUrl, url, itunesId, language, link
+		SELECT id, title, itunesAuthor, description, imageUrl, url,
+			   CASE
+				   WHEN itunesId = '' THEN NULL
+				   WHEN typeof(itunesId) = 'text' THEN NULL
+				   ELSE CAST(itunesId AS INTEGER)
+			   END as itunesId,
+			   language, link,
+			   newestEnclosureUrl, newestEnclosureDuration, lastUpdate,
+			   newestItemPubdate, oldestItemPubdate, popularityScore,
+			   priority, updateFrequency, episodeCount
 		FROM podcasts
 		WHERE title LIKE ?
 		LIMIT 10
@@ -131,6 +175,7 @@ func (q *Query) FindByTitle(title string) ([]*PodcastInfo, error) {
 		var info PodcastInfo
 		var itunesID sql.NullInt64
 		var coverURL, websiteURL, language sql.NullString
+		var newestEnclosureURL sql.NullString
 
 		err := rows.Scan(
 			&info.ID,
@@ -142,6 +187,15 @@ func (q *Query) FindByTitle(title string) ([]*PodcastInfo, error) {
 			&itunesID,
 			&language,
 			&websiteURL,
+			&newestEnclosureURL,
+			&info.NewestEnclosureDuration,
+			&info.LastUpdate,
+			&info.NewestItemPubdate,
+			&info.OldestItemPubdate,
+			&info.PopularityScore,
+			&info.Priority,
+			&info.UpdateFrequency,
+			&info.EpisodeCount,
 		)
 
 		if err != nil {
@@ -157,6 +211,9 @@ func (q *Query) FindByTitle(title string) ([]*PodcastInfo, error) {
 		}
 		if language.Valid {
 			info.Language = language.String
+		}
+		if newestEnclosureURL.Valid {
+			info.NewestEnclosureURL = newestEnclosureURL.String
 		}
 		if itunesID.Valid {
 			info.ITunesID = int(itunesID.Int64)
@@ -175,7 +232,10 @@ func (q *Query) FindByTitle(title string) ([]*PodcastInfo, error) {
 // FindByITunesID 根据iTunes ID查找播客
 func (q *Query) FindByITunesID(itunesID int) (*PodcastInfo, error) {
 	query := `
-		SELECT id, title, itunesAuthor, description, imageUrl, url, itunesId, language, link
+		SELECT id, title, itunesAuthor, description, imageUrl, url, itunesId, language, link,
+			   newestEnclosureUrl, newestEnclosureDuration, lastUpdate,
+			   newestItemPubdate, oldestItemPubdate, popularityScore,
+			   priority, updateFrequency, episodeCount
 		FROM podcasts
 		WHERE itunesId = ?
 		LIMIT 1
@@ -186,6 +246,7 @@ func (q *Query) FindByITunesID(itunesID int) (*PodcastInfo, error) {
 	var info PodcastInfo
 	var dbItunesID sql.NullInt64
 	var coverURL, websiteURL, language sql.NullString
+	var newestEnclosureURL sql.NullString
 
 	err := row.Scan(
 		&info.ID,
@@ -197,6 +258,15 @@ func (q *Query) FindByITunesID(itunesID int) (*PodcastInfo, error) {
 		&dbItunesID,
 		&language,
 		&websiteURL,
+		&newestEnclosureURL,
+		&info.NewestEnclosureDuration,
+		&info.LastUpdate,
+		&info.NewestItemPubdate,
+		&info.OldestItemPubdate,
+		&info.PopularityScore,
+		&info.Priority,
+		&info.UpdateFrequency,
+		&info.EpisodeCount,
 	)
 
 	if err == sql.ErrNoRows {
@@ -215,6 +285,9 @@ func (q *Query) FindByITunesID(itunesID int) (*PodcastInfo, error) {
 	}
 	if language.Valid {
 		info.Language = language.String
+	}
+	if newestEnclosureURL.Valid {
+		info.NewestEnclosureURL = newestEnclosureURL.String
 	}
 	if dbItunesID.Valid {
 		info.ITunesID = int(dbItunesID.Int64)

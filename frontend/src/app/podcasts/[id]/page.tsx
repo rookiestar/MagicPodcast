@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { podcastApi, episodeApi } from '@/lib/api'
 import type { Podcast, Tag, Episode } from '@/types'
 import TagInput from '@/components/tags/TagInput'
+import RichText from '@/components/RichText'
 
 export default function PodcastDetailPage() {
   const params = useParams()
@@ -177,6 +178,7 @@ export default function PodcastDetailPage() {
                 </h1>
 
                 <div className="space-y-4 text-slate-600 dark:text-slate-400">
+                  {/* 主播信息 */}
                   <div>
                     <span className="font-semibold text-slate-900 dark:text-slate-50">
                       主播：
@@ -184,11 +186,69 @@ export default function PodcastDetailPage() {
                     {podcast.author}
                   </div>
 
+                  {/* 🆕 播客官网链接 */}
+                  {podcast.link && (
+                    <div>
+                      <span className="font-semibold text-slate-900 dark:text-slate-50">
+                        官网：
+                      </span>
+                      <a
+                        href={podcast.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 ml-2"
+                      >
+                        访问网站 →
+                      </a>
+                    </div>
+                  )}
+
+                  {/* 🆕 热门标签 */}
+                  {podcast.popularity_score && podcast.popularity_score >= 7 && (
+                    <div>
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                        🔥 热门播客 (热度: {podcast.popularity_score}/10)
+                      </span>
+                    </div>
+                  )}
+
+                  {/* 🆕 最新单集播放按钮 */}
+                  {podcast.newest_enclosure_url && (
+                    <div>
+                      <span className="font-semibold text-slate-900 dark:text-slate-50">
+                        最新一集：
+                      </span>
+                      <button
+                        onClick={() => window.open(podcast.newest_enclosure_url, '_blank')}
+                        className="ml-2 px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors inline-flex items-center gap-2"
+                      >
+                        ▶️ 播放
+                        {podcast.newest_enclosure_duration && (
+                          <span className="text-xs opacity-80">
+                            ({Math.floor(podcast.newest_enclosure_duration / 60)}分{podcast.newest_enclosure_duration % 60}秒)
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* 🆕 最后更新时间 */}
+                  {podcast.last_update && (
+                    <div>
+                      <span className="font-semibold text-slate-900 dark:text-slate-50">
+                        最后更新：
+                      </span>
+                      {new Date(podcast.last_update).toLocaleString()}
+                    </div>
+                  )}
+
                   <div>
                     <span className="font-semibold text-slate-900 dark:text-slate-50">
                       简介：
                     </span>
-                    <p className="mt-1">{podcast.description}</p>
+                    <div className="mt-1">
+                      <RichText html={podcast.description || '暂无简介'} />
+                    </div>
                   </div>
 
                   {/* 标签管理 */}
@@ -312,9 +372,12 @@ export default function PodcastDetailPage() {
                             {episode.episode_no} · {new Date(episode.published_date).toLocaleDateString()}
                           </p>
                           {episode.show_notes && (
-                            <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2">
-                              {episode.show_notes}
-                            </p>
+                            <div className="text-sm text-slate-600 dark:text-slate-400">
+                              <RichText
+                                html={episode.show_notes}
+                                className="line-clamp-2"
+                              />
+                            </div>
                           )}
                         </div>
                         {episode.medium_url && (

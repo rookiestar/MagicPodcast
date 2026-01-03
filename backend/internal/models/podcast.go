@@ -18,6 +18,16 @@ type Podcast struct {
 	Author      string `gorm:"size:255" json:"author"`                    // 作者/主播
 	CoverURL    string `gorm:"size:512" json:"cover_url"`                 // 封面图片 URL
 
+	// PodcastIndex 相关字段
+	Link                    string     `gorm:"size:512" json:"link"`                              // 播客网站链接
+	NewestEnclosureURL      string     `gorm:"size:512" json:"newest_enclosure_url"`              // 最新单集音频URL
+	NewestEnclosureDuration int        `json:"newest_enclosure_duration"`                       // 最新单集时长（秒）
+	LastUpdate              *time.Time `json:"last_update"`                                     // Feed最后更新时间
+	OldestEpisodeDate       *time.Time `json:"oldest_episode_date"`                             // 最旧单集发布日期
+	PopularityScore         int        `gorm:"default:0" json:"popularity_score"`                 // 受欢迎程度 (0-10)
+	Priority                int        `gorm:"default:5" json:"priority"`                         // 抓取优先级 (0-10, -1=暂停)
+	UpdateFrequency         int        `gorm:"default:0" json:"update_frequency"`                  // 更新频率 (0-10)
+
 	// 统计信息
 	AddedDate        time.Time `json:"added_date"`            // 添加日期
 	EpisodeCount     int       `gorm:"default:0" json:"episode_count"`     // 单集总数
