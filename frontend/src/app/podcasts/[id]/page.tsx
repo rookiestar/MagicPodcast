@@ -4,19 +4,25 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { podcastApi } from '@/lib/api'
-import type { Podcast } from '@/types'
+import type { Podcast, Tag } from '@/types'
+import TagInput from '@/components/tags/TagInput'
 
 export default function PodcastDetailPage() {
   const params = useParams()
   const id = parseInt(params.id as string)
 
   const [podcast, setPodcast] = useState<Podcast | null>(null)
+  const [tags, setTags] = useState<Tag[]>([])
+  const [notes, setNotes] = useState('')
+  const [isEditingNotes, setIsEditingNotes] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (id) {
       fetchPodcast()
+      fetchTags()
+      fetchNotes()
     }
   }, [id])
 
@@ -31,6 +37,70 @@ export default function PodcastDetailPage() {
       console.error('Failed to fetch podcast:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchTags = async () => {
+    try {
+      const data = await podcastApi.getTags(id)
+      setTags(data)
+    } catch (err) {
+      console.error('Failed to fetch tags:', err)
+      setTags([])
+    }
+  }
+
+  const fetchNotes = async () => {
+    try {
+      const data = await podcastApi.getNotes(id)
+      setNotes(data ?? '')
+    } catch (err) {
+      console.error('Failed to fetch notes:', err)
+      setNotes('')
+    }
+  }
+
+  // 处理标签变化（添加、移除、批量更新）
+  const handleTagsChange = async (newTags: Tag[]) => {
+    // 计算差异
+    const currentIds = new Set(tags.map(t => t.id))
+    const newIds = new Set(newTags.map(t => t.id))
+
+    // 找出需要添加的标签
+    const toAdd = newTags.filter(t => !currentIds.has(t.id))
+    // 找出需要移除的标签
+    const toRemove = tags.filter(t => !newIds.has(t.id))
+
+    try {
+      // 先添加新标签
+      for (const tag of toAdd) {
+        await podcastApi.addTag(id, tag.id)
+      }
+
+      // 再移除旧标签
+      for (const tag of toRemove) {
+        await podcastApi.removeTag(id, tag.id)
+      }
+
+      // 更新本地状态
+      setTags(newTags)
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : '更新标签失败'
+      alert(`标签更新失败: ${errorMsg}`)
+      console.error('Failed to update tags:', err)
+      // 刷新标签以恢复正确状态
+      await fetchTags()
+    }
+  }
+
+  const handleNotesSave = async () => {
+    try {
+      await podcastApi.updateNotes(id, notes)
+      setIsEditingNotes(false)
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : '保存备注失败'
+      alert(`保存失败: ${errorMsg}`)
+      console.error('Failed to save notes:', err)
     }
   }
 
@@ -103,6 +173,67 @@ export default function PodcastDetailPage() {
                       简介：
                     </span>
                     <p className="mt-1">{podcast.description}</p>
+                  </div>
+
+                  {/* 标签管理 */}
+                  <div>
+                    <span className="font-semibold text-slate-900 dark:text-slate-50 block mb-2">
+                      标签：
+                    </span>
+                    <TagInput
+                      selectedTags={tags}
+                      onTagsChange={handleTagsChange}
+                      placeholder="输入标签名按回车添加"
+                    />
+                  </div>
+
+                  {/* 备注编辑 */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-semibold text-slate-900 dark:text-slate-50">
+                        备注：
+                      </span>
+                      {!isEditingNotes && (
+                        <button
+                          onClick={() => setIsEditingNotes(true)}
+                          className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                        >
+                          编辑
+                        </button>
+                      )}
+                    </div>
+                    {isEditingNotes ? (
+                      <div className="space-y-2">
+                        <textarea
+                          value={notes}
+                          onChange={(e) => setNotes(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          rows={4}
+                          placeholder="添加备注..."
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handleNotesSave}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                          >
+                            保存
+                          </button>
+                          <button
+                            onClick={() => {
+                              setIsEditingNotes(false)
+                              fetchNotes() // 恢复原始内容
+                            }}
+                            className="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
+                          >
+                            取消
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg">
+                        {notes || '暂无备注'}
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex gap-6">
