@@ -22,11 +22,14 @@ backend/tmp/
 backend/bin/
 
 # Database files
+
+# Ignore entire data directory (contains large databases)
+backend/data/
+!backend/data/.gitkeep
 *.db
 *.sqlite
 *.sqlite3
-backend/data/*.db
-!backend/data/.gitkeep
+backend/data/*
 
 # Environment variables
 .env
@@ -85,3 +88,21 @@ coverage/
 # Build artifacts
 *.tar.gz
 *.zip
+
+# Temporary development docs
+ERROR_TYPE_REFACTOR.md
+IMPORT_FEATURE_SUMMARY.md
+IMPORT_FIXES.md
+IMPORT_IMPROVEMENTS.md
+NETWORK_ERROR_DEBUG.md
+PHASE2_SUMMARY.md
+PODCASTINDEX_SETUP.md
+TESTING_REPORT.md
+ULTIMATE_FIX.md
+TEMP_SOLUTION.ts
+
+# Test files
+backend/test_*.go
+backend/test_sse.sh
+# Unused modules
+backend/internal/scraper/
