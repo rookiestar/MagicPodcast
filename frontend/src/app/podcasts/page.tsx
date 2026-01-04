@@ -1,38 +1,97 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { podcastApi, tagApi } from '@/lib/api'
 import type { Podcast, Tag } from '@/types'
+
+const PAGE_SIZE = 15 // 默认每页15个（5行×3列）
 
 export default function PodcastsPage() {
   const [podcasts, setPodcasts] = useState<Podcast[]>([])
   const [tags, setTags] = useState<Tag[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
   const [showAllTags, setShowAllTags] = useState(false)
+
+  // 分页状态
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(false)
+  const [totalCount, setTotalCount] = useState(0)
+
+  // 用于无限滚动的 ref
+  const observerTarget = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     fetchPodcasts()
     fetchTags()
   }, [])
 
-  const fetchPodcasts = async (tagIds: number[] = []) => {
+  // 初始加载播客
+  const fetchPodcasts = async (tagIds: number[] = [], pageNum: number = 1) => {
     try {
-      setLoading(true)
+      if (pageNum === 1) {
+        setLoading(true)
+      } else {
+        setLoadingMore(true)
+      }
       setError(null)
 
       // 如果选择了标签，传递所有选中的标签ID（AND逻辑）
-      const params = tagIds.length > 0 ? { tag_id: tagIds } : undefined
-      const data = await podcastApi.list(params)
-      setPodcasts(data)
+      const params = tagIds.length > 0
+        ? { tag_id: tagIds, page: pageNum, page_size: PAGE_SIZE }
+        : { page: pageNum, page_size: PAGE_SIZE }
+
+      const result = await podcastApi.list(params)
+
+      if (pageNum === 1) {
+        setPodcasts(result.data)
+      } else {
+        setPodcasts(prev => [...prev, ...result.data])
+      }
+
+      setHasMore(result.pagination.page < result.pagination.total_pages)
+      setTotalCount(result.pagination.total)
+      setPage(pageNum)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setLoading(false)
+      setLoadingMore(false)
     }
   }
+
+  // 加载更多（用于无限滚动）
+  const loadMore = useCallback(() => {
+    if (!loadingMore && !loading && hasMore) {
+      fetchPodcasts(selectedTagIds, page + 1)
+    }
+  }, [loadingMore, loading, hasMore, page, selectedTagIds])
+
+  // 设置无限滚动观察器
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore) {
+          loadMore()
+        }
+      },
+      { rootMargin: '200px' } // 提前200px开始加载
+    )
+
+    const currentTarget = observerTarget.current
+    if (currentTarget) {
+      observer.observe(currentTarget)
+    }
+
+    return () => {
+      if (currentTarget) {
+        observer.unobserve(currentTarget)
+      }
+    }
+  }, [hasMore, loadingMore, loadMore])
 
   const fetchTags = async () => {
     try {
@@ -45,21 +104,24 @@ export default function PodcastsPage() {
 
   const handleTagToggle = (tagId: number | null) => {
     if (tagId === null) {
-      // 点击"全部"，清除所有选择
+      // 点击"全部"，清除所有选择，重新加载第一页
       setSelectedTagIds([])
-      fetchPodcasts([])
+      setPage(1)
+      fetchPodcasts([], 1)
     } else {
       // 切换标签选择状态
       if (selectedTagIds.includes(tagId)) {
         // 取消选择
         const newSelected = selectedTagIds.filter(id => id !== tagId)
         setSelectedTagIds(newSelected)
-        fetchPodcasts(newSelected)
+        setPage(1)
+        fetchPodcasts(newSelected, 1)
       } else {
         // 添加选择
         const newSelected = [...selectedTagIds, tagId]
         setSelectedTagIds(newSelected)
-        fetchPodcasts(newSelected)
+        setPage(1)
+        fetchPodcasts(newSelected, 1)
       }
     }
   }
@@ -172,7 +234,7 @@ export default function PodcastsPage() {
             <h3 className="text-red-800 font-semibold mb-2">加载失败</h3>
             <p className="text-red-600 mb-4">{error}</p>
             <button
-              onClick={fetchPodcasts}
+              onClick={() => fetchPodcasts(selectedTagIds, 1)}
               className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
             >
               重试
@@ -184,14 +246,32 @@ export default function PodcastsPage() {
         {!loading && !error && (
           <>
             <div className="mb-6 text-slate-600 dark:text-slate-400">
-              共 {podcasts.length} 个节目
+              共 {totalCount} 个节目
             </div>
 
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-5 gap-6">
               {podcasts.map((podcast) => (
                 <PodcastCard key={podcast.id} podcast={podcast} />
               ))}
             </div>
+
+            {/* Loading More Indicator */}
+            {loadingMore && (
+              <div className="text-center py-8">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">加载更多...</p>
+              </div>
+            )}
+
+            {/* Intersection Observer Target */}
+            <div ref={observerTarget} className="h-10" />
+
+            {/* No More Data Indicator */}
+            {!hasMore && podcasts.length > 0 && (
+              <div className="text-center py-8 text-slate-500 dark:text-slate-400">
+                已经到底了
+              </div>
+            )}
           </>
         )}
       </div>
@@ -206,7 +286,7 @@ function PodcastCard({ podcast }: { podcast: Podcast }) {
 
   return (
     <Link href={`/podcasts/${podcast.id}`}>
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer h-full">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer h-full flex flex-col">
         {/* Cover Image */}
         <div className="aspect-square bg-slate-200 dark:bg-slate-700 relative">
           {podcast.cover_url ? (
@@ -223,7 +303,7 @@ function PodcastCard({ podcast }: { podcast: Podcast }) {
         </div>
 
         {/* Content */}
-        <div className="p-4">
+        <div className="p-4 flex-1 flex flex-col">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-2 line-clamp-2">
             {podcast.title}
           </h3>
@@ -263,8 +343,8 @@ function PodcastCard({ podcast }: { podcast: Podcast }) {
             </div>
           )}
 
-          {/* Stats */}
-          <div className="mt-4 flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
+          {/* Stats - 吸底 */}
+          <div className="mt-auto pt-4 flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
             <span>{podcast.episode_count} 集</span>
             <span>
               {new Date(podcast.newest_episode_date).toLocaleDateString()}

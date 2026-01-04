@@ -3,6 +3,7 @@ package sync
 import (
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"magicpodcast/internal/feed"
@@ -29,6 +30,16 @@ var DefaultRetryConfig = RetryConfig{
 	InitialDelay:  1 * time.Second,
 	MaxDelay:      8 * time.Second,
 	BackoffFactor: 2.0,
+}
+
+// ImportConfig 导入配置
+type ImportConfig struct {
+	Concurrency int // 并发数（默认 10）
+}
+
+// DefaultImportConfig 默认导入配置
+var DefaultImportConfig = ImportConfig{
+	Concurrency: 10,
 }
 
 // Service 同步服务
@@ -78,12 +89,17 @@ func (s *Service) Close() error {
 
 // ImportOPML 导入OPML文件
 func (s *Service) ImportOPML(filePath string) (*SyncResult, error) {
-	return s.ImportOPMLWithProgress(filePath, NewLogProgressReporter())
+	return s.ImportOPMLWithProgress(filePath, NewLogProgressReporter(), DefaultImportConfig)
 }
 
-// ImportOPMLWithProgress 导入OPML文件（带进度报告）
+// ImportOPMLWithProgress 导入OPML文件（带进度报告，使用默认并发配置）
 func (s *Service) ImportOPMLWithProgress(filePath string, reporter ProgressReporter) (*SyncResult, error) {
-	log.Printf("🚀 开始导入OPML: %s", filePath)
+	return s.ImportOPMLWithProgressAndConfig(filePath, reporter, DefaultImportConfig)
+}
+
+// ImportOPMLWithProgressAndConfig 导入OPML文件（带进度报告和自定义并发配置）
+func (s *Service) ImportOPMLWithProgressAndConfig(filePath string, reporter ProgressReporter, config ImportConfig) (*SyncResult, error) {
+	log.Printf("🚀 开始导入OPML (并发度: %d): %s", config.Concurrency, filePath)
 	reporter.Report("开始导入OPML文件: " + filePath)
 
 	// 1. 解析OPML文件
@@ -96,59 +112,111 @@ func (s *Service) ImportOPMLWithProgress(filePath string, reporter ProgressRepor
 	log.Printf("📋 解析到 %d 个 RSS feed", len(outlines))
 	reporter.ReportSuccess(fmt.Sprintf("解析到 %d 个RSS feed", len(outlines)))
 
+	// 准备并发处理
 	result := &SyncResult{
 		TotalPodcasts: len(outlines),
 		Errors:       []string{},
 	}
 
-	// 统计信息
+	// 任务通道
+	taskChan := make(chan opml.Outline, len(outlines))
+	// 结果通道
+	type importResult struct {
+		podcast *models.Podcast
+		err     error
+		title   string
+	}
+	resultChan := make(chan importResult, len(outlines))
+
+	// 统计（使用 mutex 保护并发安全）
+	var mu sync.Mutex
 	fromPodcastIndex := 0
 	fromOnlineFetch := 0
 	skippedCount := 0
+	processedCount := 0
 
 	startTime := time.Now()
 
-	// 2. 对每个RSS feed进行数据获取
-	for i, outline := range outlines {
-		log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ [%d/%d] %s", i+1, len(outlines), outline.Title)
+	// 启动 worker pool
+	var wg sync.WaitGroup
+	for i := 0; i < config.Concurrency; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for outline := range taskChan {
+				title := outline.GetTitle()
+				log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ [Worker %d] %s", workerID, title)
 
-		reporter.ReportProgress(i+1, len(outlines),
-			fmt.Sprintf("正在处理: %s", outline.Title))
+				// 同步播客
+				podcast, err := s.syncPodcastFromFeedWithRetry(&outline, outline.XMLURL, reporter, DefaultRetryConfig)
 
-		podcast, err := s.syncPodcastFromFeedWithRetry(outline.XMLURL, outline.Title, reporter, DefaultRetryConfig)
-		if err != nil {
+				resultChan <- importResult{
+					podcast: podcast,
+					err:     err,
+					title:   title,
+				}
+			}
+		}(i)
+	}
+
+	// 发送任务到通道
+	for _, outline := range outlines {
+		taskChan <- outline
+	}
+	close(taskChan)
+
+	// 等待所有 worker 完成
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// 处理结果
+	for res := range resultChan {
+		mu.Lock()
+		processedCount++
+
+		// 更新进度
+		reporter.ReportProgress(processedCount, len(outlines),
+			fmt.Sprintf("正在处理: %s", res.title))
+
+		if res.err != nil {
 			// 检查是否应该跳过（不报错）
-			if shouldSkip, reasonStr, description := feed.GetSkipReasonFromError(err); shouldSkip {
+			if shouldSkip, reasonStr, description := feed.GetSkipReasonFromError(res.err); shouldSkip {
 				reason := SkipReason(reasonStr)
 				skippedCount++
-				reporter.ReportSkip(reason, fmt.Sprintf("%s - %s", outline.Title, description))
+				reporter.ReportSkip(reason, fmt.Sprintf("%s - %s", res.title, description))
+				mu.Unlock()
 				continue
 			}
 
 			// 其他错误
 			result.FailedPodcasts++
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", outline.Title, err))
-			reporter.ReportError(fmt.Sprintf("%s - %v", outline.Title, err))
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", res.title, res.err))
+			reporter.ReportError(fmt.Sprintf("%s - %v", res.title, res.err))
+			mu.Unlock()
 			continue
 		}
 
 		// 统计数据来源
-		if podcast.DataSource == "podcastindex" {
+		if res.podcast.DataSource == "podcastindex" {
 			fromPodcastIndex++
-		} else if podcast.DataSource == "rss" {
+		} else if res.podcast.DataSource == "rss" {
 			fromOnlineFetch++
 		}
 
 		// 保存到数据库
-		if err := s.saveOrUpdatePodcast(podcast); err != nil {
+		if err := s.saveOrUpdatePodcast(res.podcast); err != nil {
 			result.FailedPodcasts++
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: save failed - %v", outline.Title, err))
-			reporter.ReportError(fmt.Sprintf("保存失败: %s - %v", outline.Title, err))
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: save failed - %v", res.title, err))
+			reporter.ReportError(fmt.Sprintf("保存失败: %s - %v", res.title, err))
+			mu.Unlock()
 			continue
 		}
 
 		result.SuccessPodcasts++
-		reporter.ReportSuccess(fmt.Sprintf("成功导入: %s", outline.Title))
+		reporter.ReportSuccess(fmt.Sprintf("成功导入: %s", res.title))
+		mu.Unlock()
 	}
 
 	duration := time.Since(startTime)
@@ -161,6 +229,7 @@ func (s *Service) ImportOPMLWithProgress(filePath string, reporter ProgressRepor
 	log.Printf("📚 来自 PodcastIndex: %d (%.1f%%)", fromPodcastIndex, float64(fromPodcastIndex)*100/float64(len(outlines)))
 	log.Printf("🌐 来自在线抓取: %d (%.1f%%)", fromOnlineFetch, float64(fromOnlineFetch)*100/float64(len(outlines)))
 	log.Printf("⏱️  总耗时: %v", duration)
+	log.Printf("🚀 平均速度: %.2f 个/秒", float64(len(outlines))/duration.Seconds())
 	log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	reporter.ReportSuccess(fmt.Sprintf("导入完成！成功: %d, 失败: %d, 跳过: %d, 耗时: %v",
@@ -231,13 +300,18 @@ func (s *Service) SyncAllPodcasts() (*SyncResult, error) {
 
 // syncPodcastFromFeed 从RSS feed同步播客信息
 func (s *Service) syncPodcastFromFeed(feedURL string) (*models.Podcast, error) {
-	return s.syncPodcastFromFeedWithRetry(feedURL, "", NewLogProgressReporter(), DefaultRetryConfig)
+	return s.syncPodcastFromFeedWithRetry(nil, feedURL, NewLogProgressReporter(), DefaultRetryConfig)
 }
 
 // syncPodcastFromFeedWithRetry 从RSS feed同步播客信息（带重试）
-func (s *Service) syncPodcastFromFeedWithRetry(feedURL string, title string, reporter ProgressReporter, config RetryConfig) (*models.Podcast, error) {
+func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL string, reporter ProgressReporter, config RetryConfig) (*models.Podcast, error) {
 	var lastErr error
 	var delay time.Duration
+
+	title := ""
+	if outline != nil {
+		title = outline.GetTitle()
+	}
 
 	logPrefix := ""
 	if title != "" {
@@ -249,15 +323,37 @@ func (s *Service) syncPodcastFromFeedWithRetry(feedURL string, title string, rep
 	// 尝试从PodcastIndex查询（不重试，因为它是本地数据库）
 	if s.podcastIndexQuery != nil {
 		log.Printf("%s 📚 尝试从 PodcastIndex 查询...", logPrefix)
-		piInfo, err := s.podcastIndexQuery.FindByFeedURL(feedURL)
+
+		var piInfo *podcastindex.PodcastInfo
+		var err error
+
+		// 策略1: 优先使用 title 精准匹配
+		if title != "" {
+			log.Printf("%s   📌 尝试使用 title 匹配: %s", logPrefix, title)
+			piInfos, err := s.podcastIndexQuery.FindByTitle(title)
+			if err != nil {
+				log.Printf("%s   ⚠️  title 查询出错: %v", logPrefix, err)
+			} else if len(piInfos) > 0 {
+				// 找到匹配
+				log.Printf("%s   ✅ title 匹配成功: %s (作者: %s)", logPrefix, piInfos[0].Title, piInfos[0].Author)
+				reporter.Report(fmt.Sprintf("%s - 从本地数据库快速获取（title匹配）", title))
+				return s.createEnhancedPodcastFromOPML(piInfos[0], outline), nil
+			} else {
+				log.Printf("%s   📭 title 未找到，尝试 feed_url 匹配", logPrefix)
+			}
+		}
+
+		// 策略2: title 未匹配，使用 feed_url 匹配
+		log.Printf("%s   📌 尝试使用 feed_url 匹配: %s", logPrefix, feedURL)
+		piInfo, err = s.podcastIndexQuery.FindByFeedURL(feedURL)
 		if err != nil {
-			log.Printf("%s ⚠️  PodcastIndex 查询出错: %v", logPrefix, err)
+			log.Printf("%s   ⚠️  feed_url 查询出错: %v", logPrefix, err)
 		} else if piInfo != nil {
-			log.Printf("%s ✅ 从 PodcastIndex 找到: %s (作者: %s)", logPrefix, piInfo.Title, piInfo.Author)
-			reporter.Report(fmt.Sprintf("%s - 从本地数据库快速获取", title))
-			return s.convertPodcastIndexToModel(piInfo), nil
+			log.Printf("%s   ✅ feed_url 匹配成功: %s (作者: %s)", logPrefix, piInfo.Title, piInfo.Author)
+			reporter.Report(fmt.Sprintf("%s - 从本地数据库快速获取（feed_url匹配）", title))
+			return s.createEnhancedPodcastFromOPML(piInfo, outline), nil
 		} else {
-			log.Printf("%s 📭 PodcastIndex 中未找到，准备在线抓取", logPrefix)
+			log.Printf("%s   📭 feed_url 未找到，准备在线抓取", logPrefix)
 		}
 	} else {
 		log.Printf("%s ⚠️  PodcastIndex 未初始化，直接在线抓取", logPrefix)
@@ -408,6 +504,82 @@ func (s *Service) saveEpisode(podcast *models.Podcast, item *gofeed.Item) error 
 	episode.FetchedAt = &now
 
 	return s.db.Create(episode).Error
+}
+// createEnhancedPodcastFromOPML 从 PodcastIndex 和 OPML 创建播客
+// 策略：只保留 OPML 的核心字段（title, description, feed_url）
+//       所有其他元数据从 PodcastIndex 获取
+func (s *Service) createEnhancedPodcastFromOPML(
+	piInfo *podcastindex.PodcastInfo,
+	outline *opml.Outline,
+) *models.Podcast {
+	podcast := &models.Podcast{}
+
+	// === 从 OPML 保留（仅核心字段） ===
+	podcast.Title = outline.GetTitle()
+	podcast.FeedURL = outline.XMLURL
+
+	// description：保留 OPML 的（来自 text），如果为空则用 PodcastIndex 的
+	if outline.GetDescription() != "" {
+		podcast.Description = outline.GetDescription()
+	} else {
+		podcast.Description = piInfo.Description
+	}
+
+	// === 从 PodcastIndex 获取（所有其他字段） ===
+	// link（即使 OPML 有 htmlUrl，也用 PodcastIndex 的）
+	podcast.Link = piInfo.WebsiteURL
+
+	// author
+	podcast.Author = piInfo.Author
+
+	// cover_url
+	podcast.CoverURL = piInfo.CoverURL
+
+	// iTunes ID
+	if piInfo.ITunesID > 0 {
+		podcast.ITunesID = fmt.Sprintf("%d", piInfo.ITunesID)
+	}
+
+	// PodcastIndex 特有字段
+	podcast.NewestEnclosureURL = piInfo.NewestEnclosureURL
+	podcast.NewestEnclosureDuration = piInfo.NewestEnclosureDuration
+	podcast.EpisodeCount = piInfo.EpisodeCount
+
+	// 时间戳字段
+	if piInfo.NewestItemPubdate > 0 {
+		t := time.Unix(piInfo.NewestItemPubdate, 0)
+		podcast.NewestEpisodeDate = t
+	}
+
+	if piInfo.LastUpdate > 0 {
+		t := time.Unix(piInfo.LastUpdate, 0)
+		podcast.LastUpdate = &t
+	}
+
+	if piInfo.OldestItemPubdate > 0 {
+		t := time.Unix(piInfo.OldestItemPubdate, 0)
+		podcast.OldestEpisodeDate = &t
+	}
+
+	// 评分字段
+	if piInfo.PopularityScore > 0 {
+		podcast.PopularityScore = piInfo.PopularityScore
+	}
+
+	if piInfo.Priority >= -1 {
+		podcast.Priority = piInfo.Priority
+	}
+
+	if piInfo.UpdateFrequency >= 0 {
+		podcast.UpdateFrequency = piInfo.UpdateFrequency
+	}
+
+	// 元数据
+	podcast.DataSource = "podcastindex"
+	podcast.IsSubscribed = true
+	podcast.FeedURLValid = true
+
+	return podcast
 }
 
 // convertPodcastIndexToModel 将PodcastIndex信息转换为模型

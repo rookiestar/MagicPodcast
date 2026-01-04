@@ -8,13 +8,28 @@ import (
 	"github.com/gilliek/go-opml/opml"
 )
 
-// Outline OPML outline结构
+// Outline OPML outline结构（小宇宙格式）
+// 注意：小宇宙的 OPML 格式与标准 OPML 规范不同：
+// - title: 播客标题（短文本，如 "无时差研究所"）
+// - text: 播客描述（长文本，完整的节目介绍）
+// - xmlUrl: RSS Feed URL
+// - htmlUrl: 网站链接（可选）
 type Outline struct {
-	Text    string `xml:"text,attr"`
-	Title   string `xml:"title,attr"`
-	XMLURL  string `xml:"xmlUrl,attr"` // RSS feed URL
-	HTMLURL string `xml:"htmlUrl,attr"`
-	Type    string `xml:"type,attr"`
+	Text    string `xml:"text,attr"`     // 播客描述（长文本）
+	Title   string `xml:"title,attr"`    // 播客标题（短文本）
+	XMLURL  string `xml:"xmlUrl,attr"`   // Feed URL
+	HTMLURL string `xml:"htmlUrl,attr"`  // 网站链接（可选）
+	Type    string `xml:"type,attr"`     // 类型（通常为 "rss"）
+}
+
+// GetTitle 获取播客标题
+func (o *Outline) GetTitle() string {
+	return o.Title
+}
+
+// GetDescription 获取播客描述（从 text 字段）
+func (o *Outline) GetDescription() string {
+	return o.Text
 }
 
 // Parser OPML解析器

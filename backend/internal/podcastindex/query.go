@@ -144,7 +144,7 @@ func (q *Query) FindByFeedURL(feedURL string) (*PodcastInfo, error) {
 	return &info, nil
 }
 
-// FindByTitle 根据标题模糊搜索播客（返回多个结果）
+// FindByTitle 根据标题精准搜索播客（返回多个结果）
 func (q *Query) FindByTitle(title string) ([]*PodcastInfo, error) {
 	// 使用 CASE 语句处理空字符串的 itunesId
 	query := `
@@ -159,11 +159,11 @@ func (q *Query) FindByTitle(title string) ([]*PodcastInfo, error) {
 			   newestItemPubdate, oldestItemPubdate, popularityScore,
 			   priority, updateFrequency, episodeCount
 		FROM podcasts
-		WHERE title LIKE ?
+		WHERE title = ?
 		LIMIT 10
 	`
 
-	rows, err := q.db.Query(query, "%"+title+"%")
+	rows, err := q.db.Query(query, title)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query: %w", err)
 	}

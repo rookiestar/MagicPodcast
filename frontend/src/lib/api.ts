@@ -15,7 +15,11 @@ const api = axios.create({
 // API 方法
 export const podcastApi = {
   // 获取播客列表
-  list: async (params?: { tag_id?: number | number[] }): Promise<Podcast[]> => {
+  list: async (params?: {
+    tag_id?: number | number[]
+    page?: number
+    page_size?: number
+  }): Promise<{ data: Podcast[]; pagination: { page: number; page_size: number; total: number; total_pages: number } }> => {
     const queryParams = new URLSearchParams()
 
     if (params?.tag_id) {
@@ -27,13 +31,30 @@ export const podcastApi = {
       }
     }
 
+    // 添加分页参数
+    if (params?.page) queryParams.append('page', params.page.toString())
+    if (params?.page_size) queryParams.append('page_size', params.page_size.toString())
+
     const url = queryParams.toString()
       ? `/api/v1/podcasts?${queryParams.toString()}`
       : '/api/v1/podcasts'
 
-    const response = await api.get<ApiResponse<Podcast[]>>(url)
+    const response = await api.get<{
+      success: boolean
+      data: Podcast[]
+      pagination: { page: number; page_size: number; total: number; total_pages: number }
+    }>(url)
+
     if (response.data.success && response.data.data) {
-      return response.data.data
+      return {
+        data: response.data.data,
+        pagination: response.data.pagination || {
+          page: 1,
+          page_size: 15,
+          total: response.data.data.length,
+          total_pages: 1
+        }
+      }
     }
     throw new Error(response.data.error?.message || 'Failed to fetch podcasts')
   },
