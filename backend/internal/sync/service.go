@@ -3,6 +3,7 @@ package sync
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -839,12 +840,12 @@ func (s *Service) convertPodcastIndexToModel(info *podcastindex.PodcastInfo) *mo
 // convertGofeedToModel 将gofeed转换为模型
 func (s *Service) convertGofeedToModel(feed *gofeed.Feed, dataSource string, feedURL string) *models.Podcast {
 	podcast := &models.Podcast{
-		Title:       feed.Title,
-		Description: feed.Description,
-		FeedURL:     feedURL, // 使用传入的feedURL
-		Author:      feed.Author.Name,
+		Title:        feed.Title,
+		Description:  feed.Description,
+		FeedURL:      feedURL, // 使用传入的feedURL
+		Author:       feed.Author.Name,
 		IsSubscribed: true,
-		DataSource:  dataSource,
+		DataSource:   dataSource,
 	}
 
 	if feed.Image != nil {
@@ -860,5 +861,83 @@ func (s *Service) convertGofeedToModel(feed *gofeed.Feed, dataSource string, fee
 		}
 	}
 
+	// 提取单集统计信息和最新单集数据
+	if len(feed.Items) > 0 {
+		podcast.EpisodeCount = len(feed.Items)
+
+		// 查找最新单集（按发布时间排序）
+		var newestItem *gofeed.Item
+		var newestTime time.Time
+
+		for i, item := range feed.Items {
+			var itemTime time.Time
+			if item.UpdatedParsed != nil {
+				itemTime = *item.UpdatedParsed
+			} else if item.PublishedParsed != nil {
+				itemTime = *item.PublishedParsed
+			}
+
+			if i == 0 || itemTime.After(newestTime) {
+				newestTime = itemTime
+				newestItem = item
+			}
+		}
+
+		// 设置最新单集信息
+		if newestItem != nil {
+			if !newestTime.IsZero() {
+				podcast.NewestEpisodeDate = newestTime
+			}
+
+			// 获取最新单集的音频URL
+			if len(newestItem.Enclosures) > 0 {
+				podcast.NewestEnclosureURL = newestItem.Enclosures[0].URL
+			}
+
+			// 尝试从iTunes扩展获取时长（格式为HH:MM:SS或MM:SS或秒数）
+			if newestItem.ITunesExt != nil && newestItem.ITunesExt.Duration != "" {
+				podcast.NewestEnclosureDuration = parseITunesDuration(newestItem.ITunesExt.Duration)
+			}
+		}
+	}
+
 	return podcast
+}
+
+// parseITunesDuration 解析iTunes时长格式为秒数
+// 支持格式：HH:MM:SS, MM:SS, 或纯数字秒数
+func parseITunesDuration(duration string) int {
+	if duration == "" {
+		return 0
+	}
+
+	// 尝试按冒号分割
+	parts := strings.Split(duration, ":")
+	seconds := 0
+
+	switch len(parts) {
+	case 3: // HH:MM:SS
+		if h, err := strconv.Atoi(parts[0]); err == nil {
+			seconds += h * 3600
+		}
+		if m, err := strconv.Atoi(parts[1]); err == nil {
+			seconds += m * 60
+		}
+		if s, err := strconv.Atoi(parts[2]); err == nil {
+			seconds += s
+		}
+	case 2: // MM:SS
+		if m, err := strconv.Atoi(parts[0]); err == nil {
+			seconds += m * 60
+		}
+		if s, err := strconv.Atoi(parts[1]); err == nil {
+			seconds += s
+		}
+	case 1: // 纯数字秒数
+		if s, err := strconv.Atoi(parts[0]); err == nil {
+			seconds = s
+		}
+	}
+
+	return seconds
 }
