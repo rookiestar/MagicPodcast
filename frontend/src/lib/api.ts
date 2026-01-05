@@ -49,6 +49,7 @@ export const podcastApi = {
       success: boolean
       data: Podcast[]
       pagination: { page: number; page_size: number; total: number; total_pages: number }
+      error?: { message: string }
     }>(url)
 
     if (response.data.success && response.data.data) {
@@ -276,7 +277,8 @@ export const syncApi = {
 
           // 读取流
           function readStream() {
-            reader.read().then(({ done, value }) => {
+            // TypeScript type narrowing workaround: reader is non-null here
+            reader!.read().then(({ done, value }) => {
               if (done) {
                 const totalTime = Date.now() - startTime
                 console.log('[Import] 流结束，总耗时:', totalTime + 'ms', '消息数:', messageCount, 'completed:', completed)
@@ -333,7 +335,7 @@ export const syncApi = {
                         console.log('[Import] 收到complete消息，总耗时:', totalTime + 'ms', '总消息数:', messageCount)
                         completed = true
                         resolve()
-                        reader.cancel()
+                        reader!.cancel()
                         return
                       }
                     } catch (e) {

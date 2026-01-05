@@ -22,15 +22,6 @@ export default function ImportPage() {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [filter, setFilter] = useState<'all' | 'errors' | 'success' | 'skips'>('all')
   const [autoScroll, setAutoScroll] = useState(true)
-  const [debugInfo, setDebugInfo] = useState<string[]>([])  // 调试信息
-  const [result, setResult] = useState<{
-    success: boolean
-    message: string
-    total_podcasts: number
-    success_count: number
-    failed_count: number
-    errors?: string[]
-  } | null>(null)
   const logContainerRef = useRef<HTMLDivElement>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
 
@@ -111,15 +102,15 @@ export default function ImportPage() {
     return true
   })
 
-  // 统计信息 - 始终基于所有日志
+  // 统计信息 - 只统计最终的导入结果消息
   const stats = {
     total: logs.filter(l =>
-      l.type === 'success' ||
+      (l.type === 'success' && l.message.startsWith('成功导入:')) ||
       l.type === 'error' ||
       l.type.startsWith('skip_')
-    ).length,  // 只统计有意义的日志（成功、错误、跳过）
+    ).length,  // 只统计"成功导入:"开头的消息（每个播客一条）
     errors: logs.filter(l => l.type === 'error').length,
-    success: logs.filter(l => l.type === 'success').length,
+    success: logs.filter(l => l.type === 'success' && l.message.startsWith('成功导入:')).length,  // 只统计"成功导入:"开头的
     skips: logs.filter(l => l.type.startsWith('skip_')).length,
     skipPaid: logs.filter(l => l.type === 'skip_paid').length,
     skipCert: logs.filter(l => l.type === 'skip_cert').length,
@@ -139,9 +130,6 @@ export default function ImportPage() {
       total,
     }
 
-    // 调试：打印每条日志
-    console.log('[Import Log]', type, message, current, total, 'Total logs:', logs.length + 1)
-
     setLogs(prev => [...prev, newLog])
   }
 
@@ -158,7 +146,6 @@ export default function ImportPage() {
       }
 
       setFile(selectedFile)
-      setResult(null)
       setLogs([])
     }
   }
@@ -170,36 +157,18 @@ export default function ImportPage() {
     }
 
     setImporting(true)
-    setResult(null)
     setLogs([])
-    setDebugInfo([])
-
-    const addDebug = (msg: string) => {
-      const timestamp = new Date().toLocaleTimeString()
-      setDebugInfo(prev => [...prev, `[${timestamp}] ${msg}`])
-      console.log('[Debug]', msg)
-    }
 
     addLog('info', '开始导入...')
-    addDebug(`开始导入: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`)
 
     try {
       await syncApi.importOPMLSSE(file, (type, message, current, total) => {
         addLog(type as any, message, current, total)
-
-        // 每10条消息记录一次调试信息
-        if (logs.length % 10 === 0) {
-          addDebug(`已处理 ${logs.length} 条日志，最新类型: ${type}`)
-        }
       })
 
       addLog('success', '导入完成！')
-      addDebug('导入成功完成')
     } catch (error: any) {
       console.error('导入失败:', error)
-      addDebug(`捕获错误: ${error.message}`)
-      addDebug(`错误名称: ${error.name}`)
-      addDebug(`错误堆栈: ${error.stack}`)
 
       // 区分不同类型的错误
       if (error.message?.includes('超时')) {
@@ -208,7 +177,6 @@ export default function ImportPage() {
       } else if (error.message?.includes('Network') || error.message?.includes('fetch')) {
         addLog('error', '网络连接错误：' + (error.message || '未知错误'))
         addLog('info', '提示：请检查网络连接后重试')
-        addDebug('网络错误详情：' + JSON.stringify(error))
       } else if (error.message?.includes('abort') || error.message?.includes('取消')) {
         addLog('error', '导入被取消')
       } else {
@@ -353,7 +321,7 @@ export default function ImportPage() {
             </div>
 
             {/* 导入按钮 */}
-            <div className="flex justify-between items-center mb-6">
+            <div className="mb-6">
               <button
                 onClick={handleImport}
                 disabled={!file || importing}
@@ -365,32 +333,7 @@ export default function ImportPage() {
               >
                 {importing ? '导入中...' : '开始导入'}
               </button>
-
-              {/* 清空调试信息按钮 */}
-              {debugInfo.length > 0 && !importing && (
-                <button
-                  onClick={() => setDebugInfo([])}
-                  className="text-xs text-gray-500 hover:text-gray-700"
-                >
-                  清空调试信息
-                </button>
-              )}
             </div>
-
-            {/* 调试信息显示 */}
-            {debugInfo.length > 0 && (
-              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
-                <h4 className="text-xs font-medium text-yellow-900 mb-2">调试信息</h4>
-                <div className="text-xs font-mono text-yellow-800 space-y-1 max-h-40 overflow-y-auto">
-                  {debugInfo.slice(-10).map((info, index) => (
-                    <div key={index}>{info}</div>
-                  ))}
-                  {debugInfo.length > 10 && (
-                    <div className="text-gray-500">... ({debugInfo.length - 10} 条更多信息)</div>
-                  )}
-                </div>
-              </div>
-            )}
 
             {/* 实时日志 */}
             {logs.length > 0 && (
