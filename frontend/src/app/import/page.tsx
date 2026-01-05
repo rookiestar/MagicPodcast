@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import { syncApi } from '@/lib/api'
 
@@ -83,8 +83,8 @@ export default function ImportPage() {
     return true
   })
 
-  // 统计信息 - 统计导入和同步的结果消息（不包括总结消息）
-  const stats = {
+  // 统计信息 - 使用useMemo确保实时更新
+  const stats = useMemo(() => ({
     total: logs.filter(l =>
       (l.type === 'success' && (l.message.startsWith('成功导入:') || l.message.startsWith('成功同步:'))) ||
       l.type === 'error' ||
@@ -102,12 +102,12 @@ export default function ImportPage() {
     skipAccess: logs.filter(l => l.type === 'skip_access_denied').length,
     skipGeo: logs.filter(l => l.type === 'skip_geo_blocked').length,
     skipOther: logs.filter(l => l.type === 'skip_other' || l.type === 'skip_duplicate' || l.type === 'skip_invalid').length,
-  }
+  }), [logs])
 
-  const addLog = (type: 'info' | 'success' | 'error' | 'progress', message: string, current?: number, total?: number) => {
+  const addLog = (type: 'info' | 'success' | 'error' | 'progress' | LogEntry['type'], message: string, current?: number, total?: number) => {
     const newLog: LogEntry = {
       id: Date.now() + Math.random().toString(),
-      type,
+      type: type as LogEntry['type'],
       message,
       timestamp: new Date().toLocaleTimeString(),
       current,
