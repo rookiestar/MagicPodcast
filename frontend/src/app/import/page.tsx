@@ -138,6 +138,10 @@ export default function ImportPage() {
       current,
       total,
     }
+
+    // 调试：打印每条日志
+    console.log('[Import Log]', type, message, current, total, 'Total logs:', logs.length + 1)
+
     setLogs(prev => [...prev, newLog])
   }
 

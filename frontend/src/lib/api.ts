@@ -3,6 +3,12 @@ import type { ApiResponse, Podcast, Tag, Episode } from '@/types'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
+// 调试：输出API_URL
+if (typeof window !== 'undefined') {
+  console.log('🔧 API_URL:', API_URL)
+  console.log('🔧 Process env:', process.env.NEXT_PUBLIC_API_URL)
+}
+
 // 创建 axios 实例
 const api = axios.create({
   baseURL: API_URL,
@@ -241,6 +247,7 @@ export const syncApi = {
 
       const startTime = Date.now()
       let messageCount = 0
+      let completed = false // 标记是否收到complete消息
 
       // 使用fetch来获取stream
       fetch(`${API_URL}/api/v1/sync/import-sse`, {
@@ -272,8 +279,15 @@ export const syncApi = {
             reader.read().then(({ done, value }) => {
               if (done) {
                 const totalTime = Date.now() - startTime
-                console.log('[Import] 流结束，总耗时:', totalTime + 'ms', '消息数:', messageCount)
-                resolve()
+                console.log('[Import] 流结束，总耗时:', totalTime + 'ms', '消息数:', messageCount, 'completed:', completed)
+
+                // 如果收到过消息，即使没有收到complete也认为成功
+                if (messageCount > 0) {
+                  console.log('[Import] 导入完成（流正常结束）')
+                  resolve()
+                } else {
+                  reject(new Error('未收到任何导入消息'))
+                }
                 return
               }
 
@@ -306,16 +320,18 @@ export const syncApi = {
                       const { type, message, current, total } = data
                       messageCount++
 
-                      if (messageCount % 50 === 0) {
-                        console.log('[Import] 已处理', messageCount, '条消息，最新:', type, message)
+                      // 打印每条消息（前10条和每50条）
+                      if (messageCount <= 10 || messageCount % 50 === 0) {
+                        console.log(`[Import Msg #${messageCount}]`, type, message, 'current:', current, 'total:', total)
                       }
 
                       onProgress(type, message, current, total)
 
-                      // 如果是complete消息，结束流
-                      if (type === 'complete') {
+                      // 只在收到真正的complete消息时才结束（不要在每条success消息时结束）
+                      if (type === 'complete' || (type === 'success' && message.includes('导入完成'))) {
                         const totalTime = Date.now() - startTime
-                        console.log('[Import] 收到complete消息，总耗时:', totalTime + 'ms')
+                        console.log('[Import] 收到complete消息，总耗时:', totalTime + 'ms', '总消息数:', messageCount)
+                        completed = true
                         resolve()
                         reader.cancel()
                         return
@@ -331,14 +347,25 @@ export const syncApi = {
                 readStream()
               } catch (error) {
                 console.error('[Import] 流处理错误:', error)
-                reject(error)
+
+                // 如果已经收到过消息，认为是部分成功
+                if (messageCount > 0) {
+                  console.log('[Import] 流出错但已收到', messageCount, '条消息，视为成功')
+                  resolve()
+                } else {
+                  reject(error)
+                }
               }
             }).catch(error => {
               const totalTime = Date.now() - startTime
-              console.error('[Import] 读取错误:', error, '耗时:', totalTime + 'ms', '消息数:', messageCount)
+              console.error('[Import] 读取错误:', error, '耗时:', totalTime + 'ms', '消息数:', messageCount, 'completed:', completed)
 
               if (error.name === 'AbortError') {
                 reject(new Error('导入被取消'))
+              } else if (messageCount > 0) {
+                // 如果已经收到过消息，认为是部分成功
+                console.log('[Import] 连接错误但已收到', messageCount, '条消息，视为成功')
+                resolve()
               } else {
                 reject(error)
               }

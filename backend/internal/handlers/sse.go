@@ -6,9 +6,10 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"sync"
 	"time"
 
-	"magicpodcast/internal/sync"
+	syncpkg "magicpodcast/internal/sync"
 
 	"github.com/gin-gonic/gin"
 )
@@ -24,6 +25,7 @@ type SSEProgressMessage struct {
 
 // SSEProgressReporter SSE进度报告器
 type SSEProgressReporter struct {
+	mu         sync.Mutex      // 保护并发写入
 	flusher    http.Flusher
 	writer     http.ResponseWriter
 	closed     bool
@@ -76,9 +78,15 @@ func (r *SSEProgressReporter) startKeepalive() {
 }
 
 func (r *SSEProgressReporter) send(msgType string, message string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if r.closed {
+		log.Printf("[SSE] Skip sending (closed): %s - %s", msgType, message)
 		return
 	}
+
+	log.Printf("[SSE] Sending: %s - %s", msgType, message)
 
 	msg := SSEProgressMessage{
 		Type:      msgType,
@@ -104,9 +112,15 @@ func (r *SSEProgressReporter) ReportError(message string) {
 }
 
 func (r *SSEProgressReporter) ReportProgress(current, total int, message string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if r.closed {
+		log.Printf("[SSE] Skip ReportProgress (closed): [%d/%d] %s", current, total, message)
 		return
 	}
+
+	log.Printf("[SSE] ReportProgress: [%d/%d] %s", current, total, message)
 
 	msg := SSEProgressMessage{
 		Type:      "progress",
@@ -121,23 +135,23 @@ func (r *SSEProgressReporter) ReportProgress(current, total int, message string)
 	r.flusher.Flush()
 }
 
-func (r *SSEProgressReporter) ReportSkip(reason sync.SkipReason, message string) {
+func (r *SSEProgressReporter) ReportSkip(reason syncpkg.SkipReason, message string) {
 	// 根据跳过原因决定消息类型
 	var msgType string
 	switch reason {
-	case sync.SkipReasonPaid:
+	case syncpkg.SkipReasonPaid:
 		msgType = "skip_paid"
-	case sync.SkipReasonCertificate:
+	case syncpkg.SkipReasonCertificate:
 		msgType = "skip_cert"
-	case sync.SkipReasonNotFound:
+	case syncpkg.SkipReasonNotFound:
 		msgType = "skip_not_found"
-	case sync.SkipReasonAccessDenied:
+	case syncpkg.SkipReasonAccessDenied:
 		msgType = "skip_access_denied"
-	case sync.SkipReasonGeoBlocked:
+	case syncpkg.SkipReasonGeoBlocked:
 		msgType = "skip_geo_blocked"
-	case sync.SkipReasonDuplicate:
+	case syncpkg.SkipReasonDuplicate:
 		msgType = "skip_duplicate"
-	case sync.SkipReasonInvalidFormat:
+	case syncpkg.SkipReasonInvalidFormat:
 		msgType = "skip_invalid"
 	default:
 		msgType = "skip_other"
@@ -147,7 +161,10 @@ func (r *SSEProgressReporter) ReportSkip(reason sync.SkipReason, message string)
 	r.sendWithType(msgType, message, reason)
 }
 
-func (r *SSEProgressReporter) sendWithType(msgType string, message string, reason sync.SkipReason) {
+func (r *SSEProgressReporter) sendWithType(msgType string, message string, reason syncpkg.SkipReason) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if r.closed {
 		return
 	}
@@ -171,6 +188,9 @@ func (r *SSEProgressReporter) sendWithType(msgType string, message string, reaso
 }
 
 func (r *SSEProgressReporter) Close() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if r.closed {
 		return
 	}
@@ -230,7 +250,7 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 	// 在goroutine中执行导入，避免阻塞
 	// 但由于SSE需要保持连接，我们在这里同步执行
 	log.Printf("[SSE] 开始导入OPML: %s", file.Filename)
-	result, err := h.syncService.ImportOPMLWithProgress(tempFilePath, reporter)
+	result, err := h.syncService.ImportOPMLWithProgressAndConfig(tempFilePath, reporter, syncpkg.DefaultImportConfig)
 	if err != nil {
 		log.Printf("[SSE] 导入失败: %v", err)
 		reporter.ReportError("导入失败: " + err.Error())

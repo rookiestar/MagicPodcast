@@ -3,6 +3,7 @@ package sync
 import (
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -89,7 +90,7 @@ func (s *Service) Close() error {
 
 // ImportOPML 导入OPML文件
 func (s *Service) ImportOPML(filePath string) (*SyncResult, error) {
-	return s.ImportOPMLWithProgress(filePath, NewLogProgressReporter(), DefaultImportConfig)
+	return s.ImportOPMLWithProgressAndConfig(filePath, NewLogProgressReporter(), DefaultImportConfig)
 }
 
 // ImportOPMLWithProgress 导入OPML文件（带进度报告，使用默认并发配置）
@@ -327,28 +328,36 @@ func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL st
 		var piInfo *podcastindex.PodcastInfo
 		var err error
 
-		// 策略1: 优先使用 title 精准匹配
-		if title != "" {
-			log.Printf("%s   📌 尝试使用 title 匹配: %s", logPrefix, title)
-			piInfos, err := s.podcastIndexQuery.FindByTitle(title)
-			if err != nil {
-				log.Printf("%s   ⚠️  title 查询出错: %v", logPrefix, err)
-			} else if len(piInfos) > 0 {
-				// 找到匹配
-				log.Printf("%s   ✅ title 匹配成功: %s (作者: %s)", logPrefix, piInfos[0].Title, piInfos[0].Author)
-				reporter.Report(fmt.Sprintf("%s - 从本地数据库快速获取（title匹配）", title))
-				return s.createEnhancedPodcastFromOPML(piInfos[0], outline), nil
-			} else {
-				log.Printf("%s   📭 title 未找到，尝试 feed_url 匹配", logPrefix)
-			}
-		}
-
-		// 策略2: title 未匹配，使用 feed_url 匹配
+		// 策略: 使用 feed_url 匹配（带 http/https 转换）
 		log.Printf("%s   📌 尝试使用 feed_url 匹配: %s", logPrefix, feedURL)
+
+		// 1. 先尝试原始URL
 		piInfo, err = s.podcastIndexQuery.FindByFeedURL(feedURL)
 		if err != nil {
 			log.Printf("%s   ⚠️  feed_url 查询出错: %v", logPrefix, err)
-		} else if piInfo != nil {
+		}
+
+		// 2. 如果原始URL未匹配，尝试 http/https 互换
+		if piInfo == nil && err == nil {
+			var altURL string
+			if strings.HasPrefix(feedURL, "http://") {
+				altURL = strings.Replace(feedURL, "http://", "https://", 1)
+				log.Printf("%s   🔄 尝试 https 转换: %s", logPrefix, altURL)
+			} else if strings.HasPrefix(feedURL, "https://") {
+				altURL = strings.Replace(feedURL, "https://", "http://", 1)
+				log.Printf("%s   🔄 尝试 http 转换: %s", logPrefix, altURL)
+			}
+
+			if altURL != "" {
+				piInfo, err = s.podcastIndexQuery.FindByFeedURL(altURL)
+				if err != nil {
+					log.Printf("%s   ⚠️  转换URL查询出错: %v", logPrefix, err)
+				}
+			}
+		}
+
+		// 3. 检查匹配结果
+		if piInfo != nil {
 			log.Printf("%s   ✅ feed_url 匹配成功: %s (作者: %s)", logPrefix, piInfo.Title, piInfo.Author)
 			reporter.Report(fmt.Sprintf("%s - 从本地数据库快速获取（feed_url匹配）", title))
 			return s.createEnhancedPodcastFromOPML(piInfo, outline), nil
