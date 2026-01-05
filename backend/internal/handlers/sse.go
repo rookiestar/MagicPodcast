@@ -276,3 +276,35 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 
 	log.Printf("[SSE] 已发送complete消息")
 }
+
+// SyncPodcastsMetadataSSE 同步所有播客的元数据（SSE流式响应）
+// POST /api/v1/sync/podcasts/metadata-sse
+func (h *SyncHandler) SyncPodcastsMetadataSSE(c *gin.Context) {
+	// 创建SSE reporter
+	reporter := NewSSEProgressReporter(c)
+	defer reporter.Close()
+
+	log.Printf("[SSE] 开始同步所有播客元数据")
+
+	// 执行同步元数据任务
+	err := h.syncService.SyncPodcastsMetadataSSE(reporter)
+	if err != nil {
+		log.Printf("[SSE] 同步元数据失败: %v", err)
+		reporter.ReportError("同步元数据失败: " + err.Error())
+		return
+	}
+
+	log.Printf("[SSE] 同步元数据成功")
+
+	// 发送完成消息
+	resultMsg := SSEProgressMessage{
+		Type:      "complete",
+		Message:   "元数据同步完成",
+		Timestamp: time.Now().Format("15:04:05"),
+	}
+	resultData, _ := json.Marshal(resultMsg)
+	fmt.Fprintf(c.Writer, "data: %s\n\n", resultData)
+	c.Writer.(http.Flusher).Flush()
+
+	log.Printf("[SSE] 已发送complete消息")
+}

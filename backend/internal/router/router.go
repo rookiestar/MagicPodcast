@@ -85,10 +85,11 @@ func SetupRouter() *gin.Engine {
 		}
 		sync := v1.Group("/sync")
 		{
-			sync.POST("/import", syncHandler.ImportOPML)            // 导入OPML文件
-			sync.POST("/import-sse", syncHandler.ImportOPMLSSE)     // 导入OPML文件（SSE流式）
-			sync.POST("/subscriptions", syncHandler.SyncSubscriptions) // 同步所有订阅
-			sync.GET("/status", syncHandler.GetSyncStatus)         // 获取同步状态
+			sync.POST("/import", syncHandler.ImportOPML)                       // 导入OPML文件
+			sync.POST("/import-sse", syncHandler.ImportOPMLSSE)                // 导入OPML文件（SSE流式）
+			sync.POST("/subscriptions", syncHandler.SyncSubscriptions)         // 同步所有订阅
+			sync.GET("/status", syncHandler.GetSyncStatus)                     // 获取同步状态
+			sync.POST("/podcasts/metadata-sse", syncHandler.SyncPodcastsMetadataSSE) // 同步所有播客元数据（SSE流式）
 		}
 	}
 

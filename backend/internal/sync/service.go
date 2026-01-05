@@ -941,3 +941,138 @@ func parseITunesDuration(duration string) int {
 
 	return seconds
 }
+
+// SyncPodcastsMetadataSSE 同步所有播客的元数据（SSE流式进度报告）
+// 这个函数会在线抓取每个播客的RSS feed，更新元数据字段（episode_count, newest_episode_date等）
+func (s *Service) SyncPodcastsMetadataSSE(reporter ProgressReporter) error {
+	log.Println("🚀 开始同步所有播客的元数据...")
+	reporter.Report("开始同步所有播客的元数据...")
+
+	// 查询所有已订阅的播客
+	var podcasts []models.Podcast
+	if err := s.db.Where("is_subscribed = ?", true).Find(&podcasts).Error; err != nil {
+		errMsg := fmt.Sprintf("获取播客列表失败: %v", err)
+		reporter.ReportError(errMsg)
+		return fmt.Errorf("failed to fetch podcasts: %w", err)
+	}
+
+	total := len(podcasts)
+	if total == 0 {
+		reporter.Report("没有已订阅的播客")
+		return nil
+	}
+
+	log.Printf("📊 共 %d 个播客需要同步元数据", total)
+	reporter.Report(fmt.Sprintf("共 %d 个播客需要同步元数据", total))
+
+	// 定义结果类型
+	type syncResult struct {
+		podcast *models.Podcast
+		err     error
+	}
+
+	// 使用worker pool并发处理
+	concurrency := 10
+	taskChan := make(chan *models.Podcast, total)
+	resultChan := make(chan syncResult, total)
+
+	// 启动worker
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for podcast := range taskChan {
+				log.Printf("[Worker %d] 处理: %s", workerID, podcast.Title)
+				err := s.syncPodcastMetadata(podcast, reporter)
+				resultChan <- syncResult{
+					podcast: podcast,
+					err:     err,
+				}
+			}
+		}(i)
+	}
+
+	// 分发任务
+	for i := range podcasts {
+		taskChan <- &podcasts[i]
+	}
+	close(taskChan)
+
+	// 收集结果
+	successCount := 0
+	failedCount := 0
+	skippedCount := 0
+	current := 0
+
+	// 等待所有worker完成
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// 处理结果
+	for result := range resultChan {
+		current++
+		podcast := result.podcast
+
+		if result.err != nil {
+			// 检查是否是跳过类型的错误
+			if shouldSkip, reasonStr, _ := feed.GetSkipReasonFromError(result.err); shouldSkip {
+				skippedCount++
+				reason := SkipReason(reasonStr)
+				reporter.ReportSkip(reason, fmt.Sprintf("[%d/%d] %s - %s", current, total, podcast.Title, result.err.Error()))
+			} else {
+				failedCount++
+				reporter.ReportError(fmt.Sprintf("[%d/%d] %s - %s", current, total, podcast.Title, result.err.Error()))
+			}
+		} else {
+			successCount++
+			reporter.ReportSuccess(fmt.Sprintf("[%d/%d] 成功同步: %s", current, total, podcast.Title))
+		}
+
+		// 每10个播客报告一次进度
+		if current%10 == 0 || current == total {
+			reporter.ReportProgress(current, total, fmt.Sprintf("已处理 %d/%d", current, total))
+		}
+	}
+
+	// 发送最终结果
+	log.Printf("✅ 元数据同步完成: 成功=%d, 失败=%d, 跳过=%d", successCount, failedCount, skippedCount)
+	reporter.ReportSuccess(fmt.Sprintf("同步完成！成功: %d, 失败: %d, 跳过: %d", successCount, failedCount, skippedCount))
+
+	return nil
+}
+
+// syncPodcastMetadata 同步单个播客的元数据
+func (s *Service) syncPodcastMetadata(podcast *models.Podcast, reporter ProgressReporter) error {
+	reporter.Report(fmt.Sprintf("正在抓取: %s", podcast.Title))
+
+	// 在线抓取RSS feed（使用feedFetcher）
+	gofeed, err := s.feedFetcher.FetchFeed(podcast.FeedURL)
+	if err != nil {
+		return fmt.Errorf("fetch feed failed: %w", err)
+	}
+
+	// 使用convertGofeedToModel提取元数据
+	updatedPodcast := s.convertGofeedToModel(gofeed, podcast.DataSource, podcast.FeedURL)
+
+	// 只更新元数据字段，保留其他字段
+	updates := map[string]interface{}{
+		"episode_count":           updatedPodcast.EpisodeCount,
+		"newest_episode_date":     updatedPodcast.NewestEpisodeDate,
+		"newest_enclosure_url":    updatedPodcast.NewestEnclosureURL,
+		"newest_enclosure_duration": updatedPodcast.NewestEnclosureDuration,
+		"last_fetched_at":         time.Now(),
+		"fetch_error_count":       0,
+		"feed_url_valid":          true,
+	}
+
+	// 保存更新
+	if err := s.db.Model(podcast).Updates(updates).Error; err != nil {
+		return fmt.Errorf("failed to update podcast: %w", err)
+	}
+
+	log.Printf("✅ 成功更新元数据: %s (episode_count=%d)", podcast.Title, updatedPodcast.EpisodeCount)
+	return nil
+}
