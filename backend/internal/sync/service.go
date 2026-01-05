@@ -610,10 +610,14 @@ func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL
 		return s.createEnhancedPodcastFromOPML(piInfo, outline), nil
 	}
 
-	// 未找到
+	// 未找到 - 返回FeedError标记为not_found类型，这样会被识别为跳过而不是错误
 	log.Printf("%s   📭 本地数据库未找到", logPrefix)
 	reporter.Report(fmt.Sprintf("%s - 未在本地数据库找到（需要在线同步）", title))
-	return nil, fmt.Errorf("未在本地PodcastIndex数据库中找到: %s", feedURL)
+	return nil, &feed.FeedError{
+		Type:     feed.ErrorTypeNotFound,
+		FeedURL:  feedURL,
+		Message:  fmt.Sprintf("未在本地PodcastIndex数据库中找到（需要在线同步）: %s", feedURL),
+	}
 }
 
 // fetchNewEpisodes 获取新单集（增量）
