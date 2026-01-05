@@ -1052,31 +1052,49 @@ func (s *Service) SyncPodcastsMetadataSSE(reporter ProgressReporter) error {
 func (s *Service) syncPodcastMetadata(podcast *models.Podcast, reporter ProgressReporter) error {
 	reporter.Report(fmt.Sprintf("正在抓取: %s", podcast.Title))
 
-	// 在线抓取RSS feed（使用feedFetcher）
-	gofeed, err := s.feedFetcher.FetchFeed(podcast.FeedURL)
-	if err != nil {
+	// 添加超时控制：每个播客最多30秒
+	resultChan := make(chan *gofeed.Feed, 1)
+	errChan := make(chan error, 1)
+
+	go func() {
+		// 在线抓取RSS feed（使用feedFetcher）
+		gofeed, err := s.feedFetcher.FetchFeed(podcast.FeedURL)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		resultChan <- gofeed
+	}()
+
+	// 等待结果或超时
+	select {
+	case gofeed := <-resultChan:
+		// 使用convertGofeedToModel提取元数据
+		updatedPodcast := s.convertGofeedToModel(gofeed, podcast.DataSource, podcast.FeedURL)
+
+		// 只更新元数据字段，保留其他字段
+		updates := map[string]interface{}{
+			"episode_count":             updatedPodcast.EpisodeCount,
+			"newest_episode_date":       updatedPodcast.NewestEpisodeDate,
+			"newest_enclosure_url":      updatedPodcast.NewestEnclosureURL,
+			"newest_enclosure_duration": updatedPodcast.NewestEnclosureDuration,
+			"last_fetched_at":           time.Now(),
+			"fetch_error_count":         0,
+			"feed_url_valid":            true,
+		}
+
+		// 保存更新
+		if err := s.db.Model(podcast).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update podcast: %w", err)
+		}
+
+		log.Printf("✅ 成功更新元数据: %s (episode_count=%d)", podcast.Title, updatedPodcast.EpisodeCount)
+		return nil
+
+	case err := <-errChan:
 		return fmt.Errorf("fetch feed failed: %w", err)
+
+	case <-time.After(30 * time.Second):
+		return fmt.Errorf("fetch feed timeout after 30s")
 	}
-
-	// 使用convertGofeedToModel提取元数据
-	updatedPodcast := s.convertGofeedToModel(gofeed, podcast.DataSource, podcast.FeedURL)
-
-	// 只更新元数据字段，保留其他字段
-	updates := map[string]interface{}{
-		"episode_count":           updatedPodcast.EpisodeCount,
-		"newest_episode_date":     updatedPodcast.NewestEpisodeDate,
-		"newest_enclosure_url":    updatedPodcast.NewestEnclosureURL,
-		"newest_enclosure_duration": updatedPodcast.NewestEnclosureDuration,
-		"last_fetched_at":         time.Now(),
-		"fetch_error_count":       0,
-		"feed_url_valid":          true,
-	}
-
-	// 保存更新
-	if err := s.db.Model(podcast).Updates(updates).Error; err != nil {
-		return fmt.Errorf("failed to update podcast: %w", err)
-	}
-
-	log.Printf("✅ 成功更新元数据: %s (episode_count=%d)", podcast.Title, updatedPodcast.EpisodeCount)
-	return nil
 }

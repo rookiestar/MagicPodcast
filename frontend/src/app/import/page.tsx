@@ -84,26 +84,35 @@ export default function ImportPage() {
   })
 
   // 统计信息 - 使用useMemo确保实时更新
-  const stats = useMemo(() => ({
-    total: logs.filter(l =>
-      (l.type === 'success' && (l.message.includes('成功导入:') || l.message.includes('成功同步:')) && !l.message.includes('完成')) ||
-      l.type === 'error' ||
-      l.type.startsWith('skip_')
-    ).length,
-    errors: logs.filter(l => l.type === 'error').length,
-    success: logs.filter(l =>
+  const stats = useMemo(() => {
+    const successLogs = logs.filter(l =>
       l.type === 'success' &&
       (l.message.includes('成功导入:') || l.message.includes('成功同步:')) &&
       !l.message.includes('完成') // 排除总结消息
-    ).length,
-    skips: logs.filter(l => l.type.startsWith('skip_')).length,
-    skipPaid: logs.filter(l => l.type === 'skip_paid').length,
-    skipCert: logs.filter(l => l.type === 'skip_cert').length,
-    skipNotFound: logs.filter(l => l.type === 'skip_not_found').length,
-    skipAccess: logs.filter(l => l.type === 'skip_access_denied').length,
-    skipGeo: logs.filter(l => l.type === 'skip_geo_blocked').length,
-    skipOther: logs.filter(l => l.type === 'skip_other' || l.type === 'skip_duplicate' || l.type === 'skip_invalid').length,
-  }), [logs])
+    )
+
+    // 调试：打印匹配到的成功日志
+    if (successLogs.length > 0) {
+      console.log('[Debug] 匹配到的成功日志:', successLogs.map(l => l.message))
+    }
+
+    return {
+      total: logs.filter(l =>
+        (l.type === 'success' && (l.message.includes('成功导入:') || l.message.includes('成功同步:')) && !l.message.includes('完成')) ||
+        l.type === 'error' ||
+        l.type.startsWith('skip_')
+      ).length,
+      errors: logs.filter(l => l.type === 'error').length,
+      success: successLogs.length,
+      skips: logs.filter(l => l.type.startsWith('skip_')).length,
+      skipPaid: logs.filter(l => l.type === 'skip_paid').length,
+      skipCert: logs.filter(l => l.type === 'skip_cert').length,
+      skipNotFound: logs.filter(l => l.type === 'skip_not_found').length,
+      skipAccess: logs.filter(l => l.type === 'skip_access_denied').length,
+      skipGeo: logs.filter(l => l.type === 'skip_geo_blocked').length,
+      skipOther: logs.filter(l => l.type === 'skip_other' || l.type === 'skip_duplicate' || l.type === 'skip_invalid').length,
+    }
+  }, [logs])
 
   const addLog = (type: 'info' | 'success' | 'error' | 'progress' | LogEntry['type'], message: string, current?: number, total?: number) => {
     const newLog: LogEntry = {
@@ -177,14 +186,15 @@ export default function ImportPage() {
   // 同步元数据
   const handleSync = async () => {
     setSyncing(true)
-    setLogs([])
+    setLogs([])  // 清空日志
 
     addLog('info', '开始同步所有播客的元数据...')
+    console.log('[Debug] 清空日志，开始同步')
 
     try {
       await syncApi.syncPodcastsMetadataSSE((type, message, current, total, data) => {
+        console.log('[Debug] 收到消息:', { type, message, current, total, data })
         addLog(type as any, message, current, total)
-        // 注意：不需要在这里添加总结消息，后端会在SyncPodcastsMetadataSSE结束时发送准确的成功总结
       })
     } catch (error: any) {
       console.error('同步失败:', error)
