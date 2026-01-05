@@ -117,6 +117,16 @@ func ClassifyError(feedURL string, err error) *FeedError {
 
 	errMsg := err.Error()
 
+	// 检查是否为EOF错误（连接被服务器过早关闭）
+	if strings.Contains(errMsg, "EOF") || err.Error() == "EOF" {
+		return &FeedError{
+			Type:     ErrorTypeNetworkError,
+			FeedURL:  feedURL,
+			Original: err,
+			Message:  fmt.Sprintf("连接被服务器关闭（EOF）: %s", feedURL),
+		}
+	}
+
 	// 检查是否为402付费错误
 	if strings.Contains(errMsg, "402") || strings.Contains(errMsg, "Payment Required") {
 		return &FeedError{
@@ -172,7 +182,8 @@ func ClassifyError(feedURL string, err error) *FeedError {
 	if strings.Contains(errMsg, "connection refused") ||
 	   strings.Contains(errMsg, "no such host") ||
 	   strings.Contains(errMsg, "network is unreachable") ||
-	   strings.Contains(errMsg, "connection reset") {
+	   strings.Contains(errMsg, "connection reset") ||
+	   strings.Contains(errMsg, "broken pipe") {
 		return &FeedError{
 			Type:     ErrorTypeNetworkError,
 			FeedURL:  feedURL,
