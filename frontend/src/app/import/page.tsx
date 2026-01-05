@@ -86,14 +86,15 @@ export default function ImportPage() {
   // 统计信息 - 使用useMemo确保实时更新
   const stats = useMemo(() => ({
     total: logs.filter(l =>
-      (l.type === 'success' && (l.message.startsWith('成功导入:') || l.message.startsWith('成功同步:'))) ||
+      (l.type === 'success' && (l.message.includes('成功导入:') || l.message.includes('成功同步:')) && !l.message.includes('完成')) ||
       l.type === 'error' ||
       l.type.startsWith('skip_')
     ).length,
     errors: logs.filter(l => l.type === 'error').length,
     success: logs.filter(l =>
       l.type === 'success' &&
-      (l.message.startsWith('成功导入:') || l.message.startsWith('成功同步:'))
+      (l.message.includes('成功导入:') || l.message.includes('成功同步:')) &&
+      !l.message.includes('完成') // 排除总结消息
     ).length,
     skips: logs.filter(l => l.type.startsWith('skip_')).length,
     skipPaid: logs.filter(l => l.type === 'skip_paid').length,
