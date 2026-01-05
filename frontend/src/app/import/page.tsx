@@ -83,15 +83,18 @@ export default function ImportPage() {
     return true
   })
 
-  // 统计信息 - 只统计最终的导入结果消息
+  // 统计信息 - 统计导入和同步的结果消息（不包括总结消息）
   const stats = {
     total: logs.filter(l =>
-      (l.type === 'success' && l.message.startsWith('成功导入:')) ||
+      (l.type === 'success' && (l.message.startsWith('成功导入:') || l.message.startsWith('成功同步:'))) ||
       l.type === 'error' ||
       l.type.startsWith('skip_')
     ).length,
     errors: logs.filter(l => l.type === 'error').length,
-    success: logs.filter(l => l.type === 'success' && l.message.startsWith('成功导入:')).length,
+    success: logs.filter(l =>
+      l.type === 'success' &&
+      (l.message.startsWith('成功导入:') || l.message.startsWith('成功同步:'))
+    ).length,
     skips: logs.filter(l => l.type.startsWith('skip_')).length,
     skipPaid: logs.filter(l => l.type === 'skip_paid').length,
     skipCert: logs.filter(l => l.type === 'skip_cert').length,
@@ -145,9 +148,8 @@ export default function ImportPage() {
     try {
       await syncApi.importOPMLSSE(file, (type, message, current, total) => {
         addLog(type as any, message, current, total)
+        // 注意：不需要在这里添加总结消息，后端会在ImportOPMLSSE结束时发送准确的成功总结
       })
-
-      addLog('success', '导入完成！')
 
       // 导入完成后提示是否同步元数据
       setShowSyncPrompt(true)
@@ -181,11 +183,7 @@ export default function ImportPage() {
     try {
       await syncApi.syncPodcastsMetadataSSE((type, message, current, total, data) => {
         addLog(type as any, message, current, total)
-
-        // 接收最终统计数据
-        if (type === 'complete' && data) {
-          addLog('success', `同步完成！成功: ${data.success_count || 0}, 失败: ${data.failed_count || 0}, 跳过: ${data.skipped_count || 0}`)
-        }
+        // 注意：不需要在这里添加总结消息，后端会在SyncPodcastsMetadataSSE结束时发送准确的成功总结
       })
     } catch (error: any) {
       console.error('同步失败:', error)
