@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import Link from 'next/link'
 import { syncApi } from '@/lib/api'
 
 interface LogEntry {
@@ -16,23 +17,31 @@ interface LogEntry {
   reason?: string // 跳过原因
 }
 
+type TabType = 'import' | 'sync'
+
 export default function ImportPage() {
+  const [activeTab, setActiveTab] = useState<TabType>('import')
+
+  // 导入OPML状态
   const [file, setFile] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
+
+  // 同步元数据状态
+  const [syncing, setSyncing] = useState(false)
+
+  // 共享的日志和UI状态
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [filter, setFilter] = useState<'all' | 'errors' | 'success' | 'skips'>('all')
   const [autoScroll, setAutoScroll] = useState(true)
+  const [showSyncPrompt, setShowSyncPrompt] = useState(false)
+
   const logContainerRef = useRef<HTMLDivElement>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
 
-  // 自动滚动到底部（只在添加新日志时触发）
+  // 自动滚动到底部
   useEffect(() => {
-    // 如果自动滚动被禁用，则完全不滚动
-    if (!autoScroll) {
-      return
-    }
+    if (!autoScroll) return
 
-    // 使用requestAnimationFrame确保DOM更新后再滚动
     requestAnimationFrame(() => {
       if (logEndRef.current && autoScroll) {
         logEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' })
@@ -40,52 +49,24 @@ export default function ImportPage() {
     })
   }, [logs, autoScroll])
 
-  // 监听滚动事件 - 任何手动滚动都禁用自动滚动
+  // 监听滚动事件
   useEffect(() => {
     const container = logContainerRef.current
     if (!container) return
 
-    let isAutoScrolling = false // 标记是否是自动滚动
-
     const handleScroll = () => {
-      // 如果是自动滚动触发的，忽略
-      if (isAutoScrolling) {
-        return
-      }
-
-      // 任何手动滚动都禁用自动滚动
       if (autoScroll) {
         setAutoScroll(false)
       }
     }
 
-    // 监听滚动开始，区分自动滚动和手动滚动
-    const detectScrollStart = () => {
-      if (!autoScroll) return
-
-      // 延迟检查，如果是自动滚动，scrollTop会很快变化
-      setTimeout(() => {
-        const { scrollTop, scrollHeight, clientHeight } = container
-        const isAtBottom = scrollHeight - scrollTop <= clientHeight + 50
-
-        // 如果不在底部，说明是用户手动滚动
-        if (!isAtBottom) {
-          setAutoScroll(false)
-        }
-      }, 100)
-    }
-
     container.addEventListener('scroll', handleScroll, { passive: true })
-
-    return () => {
-      container.removeEventListener('scroll', handleScroll)
-    }
+    return () => container.removeEventListener('scroll', handleScroll)
   }, [autoScroll])
 
   // 恢复自动滚动
   const handleResumeAutoScroll = () => {
     setAutoScroll(true)
-    // 立即滚动到底部
     requestAnimationFrame(() => {
       if (logEndRef.current) {
         logEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -108,9 +89,9 @@ export default function ImportPage() {
       (l.type === 'success' && l.message.startsWith('成功导入:')) ||
       l.type === 'error' ||
       l.type.startsWith('skip_')
-    ).length,  // 只统计"成功导入:"开头的消息（每个播客一条）
+    ).length,
     errors: logs.filter(l => l.type === 'error').length,
-    success: logs.filter(l => l.type === 'success' && l.message.startsWith('成功导入:')).length,  // 只统计"成功导入:"开头的
+    success: logs.filter(l => l.type === 'success' && l.message.startsWith('成功导入:')).length,
     skips: logs.filter(l => l.type.startsWith('skip_')).length,
     skipPaid: logs.filter(l => l.type === 'skip_paid').length,
     skipCert: logs.filter(l => l.type === 'skip_cert').length,
@@ -136,7 +117,6 @@ export default function ImportPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
     if (selectedFile) {
-      // 验证文件类型
       const validTypes = ['application/xml', 'text/xml', 'text/opml', 'text/x-opml']
       const fileExt = selectedFile.name.split('.').pop()?.toLowerCase()
 
@@ -150,6 +130,7 @@ export default function ImportPage() {
     }
   }
 
+  // 导入OPML（仅本地匹配）
   const handleImport = async () => {
     if (!file) {
       alert('请先选择OPML文件')
@@ -159,7 +140,7 @@ export default function ImportPage() {
     setImporting(true)
     setLogs([])
 
-    addLog('info', '开始导入...')
+    addLog('info', '开始导入OPML（仅本地数据库匹配）...')
 
     try {
       await syncApi.importOPMLSSE(file, (type, message, current, total) => {
@@ -167,10 +148,12 @@ export default function ImportPage() {
       })
 
       addLog('success', '导入完成！')
+
+      // 导入完成后提示是否同步元数据
+      setShowSyncPrompt(true)
     } catch (error: any) {
       console.error('导入失败:', error)
 
-      // 区分不同类型的错误
       if (error.message?.includes('超时')) {
         addLog('error', '导入超时：可能是网络较慢或文件太大')
         addLog('info', '提示：您可以重新导入，系统会自动跳过已导入的播客')
@@ -188,84 +171,85 @@ export default function ImportPage() {
     }
   }
 
+  // 同步元数据
+  const handleSync = async () => {
+    setSyncing(true)
+    setLogs([])
+
+    addLog('info', '开始同步所有播客的元数据...')
+
+    try {
+      await syncApi.syncPodcastsMetadataSSE((type, message, current, total, data) => {
+        addLog(type as any, message, current, total)
+
+        // 接收最终统计数据
+        if (type === 'complete' && data) {
+          addLog('success', `同步完成！成功: ${data.success_count || 0}, 失败: ${data.failed_count || 0}, 跳过: ${data.skipped_count || 0}`)
+        }
+      })
+    } catch (error: any) {
+      console.error('同步失败:', error)
+      addLog('error', '同步失败：' + (error.message || '未知错误'))
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  // 从导入切换到同步
+  const handleSyncPromptConfirm = () => {
+    setShowSyncPrompt(false)
+    setActiveTab('sync')
+    // 清空导入日志，准备显示同步日志
+    setLogs([])
+    // 开始同步
+    setTimeout(() => handleSync(), 100)
+  }
+
   const getLogIcon = (type: LogEntry['type']) => {
     switch (type) {
-      case 'success':
-        return '✅'
-      case 'error':
-        return '❌'
-      case 'progress':
-        return '⏳'
-      case 'skip_paid':
-        return '💰'
-      case 'skip_cert':
-        return '🔐'
-      case 'skip_not_found':
-        return '🔍'
-      case 'skip_access_denied':
-        return '🚫'
-      case 'skip_geo_blocked':
-        return '🌍'
-      case 'skip_duplicate':
-        return '🔄'
-      case 'skip_invalid':
-        return '📄'
-      case 'skip_other':
-        return '⏭️'
-      default:
-        return 'ℹ️'
+      case 'success': return '✅'
+      case 'error': return '❌'
+      case 'progress': return '⏳'
+      case 'skip_paid': return '💰'
+      case 'skip_cert': return '🔐'
+      case 'skip_not_found': return '🔍'
+      case 'skip_access_denied': return '🚫'
+      case 'skip_geo_blocked': return '🌍'
+      case 'skip_duplicate': return '🔄'
+      case 'skip_invalid': return '📄'
+      case 'skip_other': return '⏭️'
+      default: return 'ℹ️'
     }
   }
 
   const getLogColor = (type: LogEntry['type']) => {
     switch (type) {
-      case 'success':
-        return 'text-green-700'
-      case 'error':
-        return 'text-red-700'
-      case 'progress':
-        return 'text-blue-700'
-      case 'skip_paid':
-        return 'text-yellow-700'
-      case 'skip_cert':
-        return 'text-orange-700'
-      case 'skip_not_found':
-        return 'text-gray-600'
-      case 'skip_access_denied':
-        return 'text-red-600'
-      case 'skip_geo_blocked':
-        return 'text-purple-700'
-      case 'skip_duplicate':
-        return 'text-cyan-700'
-      case 'skip_invalid':
-        return 'text-indigo-700'
-      case 'skip_other':
-        return 'text-gray-500'
-      default:
-        return 'text-gray-700'
+      case 'success': return 'text-green-700'
+      case 'error': return 'text-red-700'
+      case 'progress': return 'text-blue-700'
+      case 'skip_paid': return 'text-yellow-700'
+      case 'skip_cert': return 'text-orange-700'
+      case 'skip_not_found': return 'text-gray-600'
+      case 'skip_access_denied': return 'text-red-600'
+      case 'skip_geo_blocked': return 'text-purple-700'
+      case 'skip_duplicate': return 'text-cyan-700'
+      case 'skip_invalid': return 'text-indigo-700'
+      case 'skip_other': return 'text-gray-500'
+      default: return 'text-gray-700'
     }
   }
 
   const getLogTypeLabel = (type: LogEntry['type']) => {
     switch (type) {
-      case 'skip_paid':
-        return '付费播客'
-      case 'skip_cert':
-        return '证书过期'
-      case 'skip_not_found':
-        return '不存在'
-      case 'skip_access_denied':
-        return '访问拒绝'
-      case 'skip_geo_blocked':
-        return '地区限制'
-      case 'skip_duplicate':
-        return '重复'
-      case 'skip_invalid':
-        return '格式无效'
-      case 'skip_other':
-        return '其他'
-      default:
-        return ''
+      case 'skip_paid': return '付费播客'
+      case 'skip_cert': return '证书过期'
+      case 'skip_not_found': return '不存在'
+      case 'skip_access_denied': return '访问拒绝'
+      case 'skip_geo_blocked': return '地区限制'
+      case 'skip_duplicate': return '重复'
+      case 'skip_invalid': return '格式无效'
+      case 'skip_other': return '其他'
+      default: return ''
     }
   }
 
@@ -273,67 +257,136 @@ export default function ImportPage() {
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">
         <div className="bg-white shadow rounded-lg">
+          {/* Header */}
           <div className="px-6 py-4 border-b border-gray-200">
-            <h1 className="text-2xl font-bold text-gray-900">导入OPML文件</h1>
-            <p className="mt-1 text-sm text-gray-500">
-              从其他播客应用导出您的订阅列表
-            </p>
-          </div>
-
-          <div className="px-6 py-6">
-            {/* 说明部分 */}
-            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
-              <h3 className="text-sm font-medium text-blue-900 mb-2">
-                如何导出OPML文件？
-              </h3>
-              <ul className="text-xs text-blue-800 space-y-1 list-disc list-inside">
-                <li><strong>Apple Podcasts</strong>: 文件 → 库 → 导出播放列表 → 选择OPML格式</li>
-                <li><strong>Overcast</strong>: 设置 → 导出数据 → OPML</li>
-                <li><strong>Pocket Casts</strong>: 个人资料 → 设置 → 导出播客</li>
-                <li><strong>其他应用</strong>: 查找"导出OPML"或"导出订阅"选项</li>
-              </ul>
-            </div>
-
-            {/* 文件上传 */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                选择OPML文件
-              </label>
-              <input
-                type="file"
-                accept=".opml,.xml"
-                onChange={handleFileChange}
-                disabled={importing}
-                className="block w-full text-sm text-gray-500
-                  file:mr-4 file:py-2 file:px-4
-                  file:rounded-md file:border-0
-                  file:text-sm file:font-semibold
-                  file:bg-blue-50 file:text-blue-700
-                  hover:file:bg-blue-100
-                  disabled:file:bg-gray-100 disabled:file:text-gray-400
-                "
-              />
-              {file && (
-                <p className="mt-2 text-sm text-gray-600">
-                  已选择: {file.name} ({(file.size / 1024).toFixed(2)} KB)
-                </p>
-              )}
-            </div>
-
-            {/* 导入按钮 */}
-            <div className="mb-6">
-              <button
-                onClick={handleImport}
-                disabled={!file || importing}
-                className={`px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white
-                  ${!file || importing
-                    ? 'bg-gray-300 cursor-not-allowed'
-                    : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'
-                  }`}
+            <div className="flex items-center justify-between mb-4">
+              <h1 className="text-2xl font-bold text-gray-900">导入/同步</h1>
+              <Link
+                href="/"
+                className="text-sm text-blue-600 hover:text-blue-800"
               >
-                {importing ? '导入中...' : '开始导入'}
+                ← 返回首页
+              </Link>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setActiveTab('import')}
+                disabled={importing || syncing}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  activeTab === 'import'
+                    ? 'bg-green-600 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                } ${importing || syncing ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                📁 导入OPML
+              </button>
+              <button
+                onClick={() => setActiveTab('sync')}
+                disabled={importing || syncing}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  activeTab === 'sync'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                } ${importing || syncing ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                🔄 同步元数据
               </button>
             </div>
+          </div>
+
+          {/* Content */}
+          <div className="px-6 py-6">
+            {/* Import Tab */}
+            {activeTab === 'import' && (
+              <>
+                {/* 说明部分 */}
+                <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
+                  <h3 className="text-sm font-medium text-blue-900 mb-2">
+                    关于导入OPML
+                  </h3>
+                  <ul className="text-xs text-blue-800 space-y-1 list-disc list-inside">
+                    <li>仅从本地PodcastIndex数据库匹配播客信息（快速）</li>
+                    <li>导入完成后可选择是否在线同步最新元数据</li>
+                    <li>支持从小宇宙、Apple Podcasts等应用导出的OPML文件</li>
+                  </ul>
+                </div>
+
+                {/* 文件上传 */}
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    选择OPML文件
+                  </label>
+                  <input
+                    type="file"
+                    accept=".opml,.xml"
+                    onChange={handleFileChange}
+                    disabled={importing}
+                    className="block w-full text-sm text-gray-500
+                      file:mr-4 file:py-2 file:px-4
+                      file:rounded-md file:border-0
+                      file:text-sm file:font-semibold
+                      file:bg-blue-50 file:text-blue-700
+                      hover:file:bg-blue-100
+                      disabled:file:bg-gray-100 disabled:file:text-gray-400
+                    "
+                  />
+                  {file && (
+                    <p className="mt-2 text-sm text-gray-600">
+                      已选择: {file.name} ({(file.size / 1024).toFixed(2)} KB)
+                    </p>
+                  )}
+                </div>
+
+                {/* 导入按钮 */}
+                <div className="mb-6">
+                  <button
+                    onClick={handleImport}
+                    disabled={!file || importing}
+                    className={`px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white
+                      ${!file || importing
+                        ? 'bg-gray-300 cursor-not-allowed'
+                        : 'bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500'
+                      }`}
+                  >
+                    {importing ? '导入中...' : '开始导入'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Sync Tab */}
+            {activeTab === 'sync' && (
+              <>
+                {/* 说明部分 */}
+                <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
+                  <h3 className="text-sm font-medium text-blue-900 mb-2">
+                    关于同步元数据
+                  </h3>
+                  <ul className="text-xs text-blue-800 space-y-1 list-disc list-inside">
+                    <li>从在线RSS feed更新所有播客的最新元数据</li>
+                    <li>包括单集数量、最新发布时间、播客描述等信息</li>
+                    <li>可能需要较长时间，取决于播客数量和网络状况</li>
+                  </ul>
+                </div>
+
+                {/* 同步按钮 */}
+                <div className="mb-6">
+                  <button
+                    onClick={handleSync}
+                    disabled={syncing}
+                    className={`px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white
+                      ${syncing
+                        ? 'bg-gray-300 cursor-not-allowed'
+                        : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'
+                      }`}
+                  >
+                    {syncing ? '同步中...' : '开始同步'}
+                  </button>
+                </div>
+              </>
+            )}
 
             {/* 实时日志 */}
             {logs.length > 0 && (
@@ -341,8 +394,8 @@ export default function ImportPage() {
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center space-x-3">
                     <h3 className="text-sm font-medium text-gray-900">
-                      导入日志
-                      {importing && (
+                      {activeTab === 'import' ? '导入日志' : '同步日志'}
+                      {(importing || syncing) && (
                         <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
                           进行中
                         </span>
@@ -406,7 +459,7 @@ export default function ImportPage() {
                   </div>
 
                   <div className="flex items-center space-x-2">
-                    {!importing && (
+                    {!importing && !syncing && (
                       <button
                         onClick={() => {
                           setLogs([])
@@ -466,7 +519,7 @@ export default function ImportPage() {
                 </div>
 
                 {/* 自动滚动提示 */}
-                {importing && autoScroll && (
+                {(importing || syncing) && autoScroll && (
                   <div className="mt-2 text-xs text-gray-500 text-center flex items-center justify-center">
                     <span className="inline-block animate-pulse mr-1">⬇</span>
                     正在处理中，自动滚动...
@@ -476,17 +529,35 @@ export default function ImportPage() {
             )}
           </div>
         </div>
-
-        {/* 返回按钮 */}
-        <div className="mt-4 text-center">
-          <a
-            href="/"
-            className="text-sm text-blue-600 hover:text-blue-800"
-          >
-            ← 返回首页
-          </a>
-        </div>
       </div>
+
+      {/* 同步元数据提示 */}
+      {showSyncPrompt && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 className="text-xl font-bold text-gray-900 mb-3">
+              导入完成！🎉
+            </h3>
+            <p className="text-gray-600 mb-6">
+              是否要同步所有播客的最新元数据（单集数量、最新发布时间等）？
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowSyncPrompt(false)}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                跳过
+              </button>
+              <button
+                onClick={handleSyncPromptConfirm}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                同步元数据
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

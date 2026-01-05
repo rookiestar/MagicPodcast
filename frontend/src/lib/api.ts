@@ -438,4 +438,151 @@ export const syncApi = {
     const response = await api.get('/api/v1/sync/status')
     return response.data
   },
+
+  // 同步所有播客的单集元数据（SSE流式）
+  syncPodcastsMetadataSSE: async (
+    onProgress: (type: string, message: string, current?: number, total?: number, data?: any) => void
+  ): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      console.log('[Sync Metadata] 开始同步元数据')
+
+      // 使用AbortController设置超时
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => {
+        console.error('[Sync Metadata] 同步超时（10分钟）')
+        controller.abort()
+        reject(new Error('同步超时（10分钟）'))
+      }, 10 * 60 * 1000) // 10分钟超时
+
+      const startTime = Date.now()
+      let messageCount = 0
+      let completed = false
+
+      // 使用fetch来获取stream
+      fetch(`${API_URL}/api/v1/sync/podcasts/metadata-sse`, {
+        method: 'POST',
+        headers: {},
+        signal: controller.signal,
+      })
+        .then(response => {
+          clearTimeout(timeoutId)
+          const elapsedTime = Date.now() - startTime
+          console.log('[Sync Metadata] 收到响应，状态:', response.status, '耗时:', elapsedTime + 'ms')
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`)
+          }
+
+          const reader = response.body?.getReader()
+          const decoder = new TextDecoder()
+
+          if (!reader) {
+            throw new Error('Response body is null')
+          }
+
+          let buffer = '' // 缓冲区，用于处理被截断的消息
+
+          // 读取流
+          function readStream() {
+            reader!.read().then(({ done, value }) => {
+              if (done) {
+                const totalTime = Date.now() - startTime
+                console.log('[Sync Metadata] 流结束，总耗时:', totalTime + 'ms', '消息数:', messageCount, 'completed:', completed)
+
+                if (messageCount > 0) {
+                  console.log('[Sync Metadata] 同步完成（流正常结束）')
+                  resolve()
+                } else {
+                  reject(new Error('未收到任何同步消息'))
+                }
+                return
+              }
+
+              try {
+                // 解码数据并追加到缓冲区
+                buffer += decoder.decode(value, { stream: true })
+
+                // 按行分割，但保留最后一个可能不完整的行
+                const lines = buffer.split('\n')
+                buffer = lines.pop() || '' // 保留最后一个可能不完整的行
+
+                for (const line of lines) {
+                  const trimmedLine = line.trim()
+
+                  // 跳过空行
+                  if (!trimmedLine) {
+                    continue
+                  }
+
+                  // 跳过SSE注释（用于keepalive）
+                  if (trimmedLine.startsWith(':')) {
+                    continue
+                  }
+
+                  // 处理data消息
+                  if (trimmedLine.startsWith('data: ')) {
+                    try {
+                      const data = JSON.parse(trimmedLine.slice(6))
+                      const { type, message, current, total } = data
+                      messageCount++
+
+                      onProgress(type, message, current, total, data)
+
+                      // 只在收到真正的complete消息时才结束
+                      if (type === 'complete') {
+                        const totalTime = Date.now() - startTime
+                        console.log('[Sync Metadata] 收到complete消息，总耗时:', totalTime + 'ms', '总消息数:', messageCount)
+                        completed = true
+                        resolve()
+                        reader!.cancel()
+                        return
+                      }
+                    } catch (e) {
+                      console.error('[Sync Metadata] 解析SSE消息失败:', e, trimmedLine)
+                    }
+                  }
+                }
+
+                // 继续读取
+                readStream()
+              } catch (error) {
+                console.error('[Sync Metadata] 流处理错误:', error)
+
+                if (messageCount > 0) {
+                  console.log('[Sync Metadata] 流出错但已收到', messageCount, '条消息，视为成功')
+                  resolve()
+                } else {
+                  reject(error)
+                }
+              }
+            }).catch(error => {
+              const totalTime = Date.now() - startTime
+              console.error('[Sync Metadata] 读取错误:', error, '耗时:', totalTime + 'ms', '消息数:', messageCount)
+
+              if (error.name === 'AbortError') {
+                reject(new Error('同步被取消'))
+              } else if (messageCount > 0) {
+                console.log('[Sync Metadata] 连接错误但已收到', messageCount, '条消息，视为成功')
+                resolve()
+              } else {
+                reject(error)
+              }
+            })
+          }
+
+          readStream()
+        })
+        .catch(error => {
+          clearTimeout(timeoutId)
+          const totalTime = Date.now() - startTime
+          console.error('[Sync Metadata] Fetch错误:', error, '耗时:', totalTime + 'ms', '消息数:', messageCount)
+
+          if (error.name === 'AbortError') {
+            reject(new Error('同步超时被取消'))
+          } else {
+            reject(error)
+          }
+        })
+    })
+  },
 }

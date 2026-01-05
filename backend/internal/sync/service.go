@@ -239,6 +239,132 @@ func (s *Service) ImportOPMLWithProgressAndConfig(filePath string, reporter Prog
 	return result, nil
 }
 
+// ImportOPMLFromPodcastIndexOnly 仅从PodcastIndex本地数据库导入OPML（不在线抓取）
+func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter ProgressReporter) (*SyncResult, error) {
+	log.Printf("🚀 开始导入OPML（仅本地数据库）: %s", filePath)
+	reporter.Report("开始导入OPML文件（仅本地PodcastIndex匹配）: " + filePath)
+
+	// 1. 解析OPML文件
+	outlines, err := s.opmlParser.ParseFile(filePath)
+	if err != nil {
+		reporter.ReportError("解析OPML文件失败: " + err.Error())
+		return nil, fmt.Errorf("failed to parse OPML: %w", err)
+	}
+
+	log.Printf("📋 解析到 %d 个 RSS feed", len(outlines))
+	reporter.ReportSuccess(fmt.Sprintf("解析到 %d 个RSS feed", len(outlines)))
+
+	// 准备结果
+	result := &SyncResult{
+		TotalPodcasts: len(outlines),
+		Errors:       []string{},
+	}
+
+	// 任务通道
+	taskChan := make(chan opml.Outline, len(outlines))
+	// 结果通道
+	type importResult struct {
+		podcast *models.Podcast
+		err     error
+		title   string
+	}
+	resultChan := make(chan importResult, len(outlines))
+
+	// 统计（使用 mutex 保护并发安全）
+	var mu sync.Mutex
+	matchedCount := 0
+	notFoundCount := 0
+	processedCount := 0
+
+	startTime := time.Now()
+
+	// 启动 worker pool（使用较少的并发，因为是本地数据库查询）
+	concurrency := 10
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for outline := range taskChan {
+				title := outline.GetTitle()
+				log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ [Worker %d] %s", workerID, title)
+
+				// 仅从PodcastIndex查询，不在线抓取
+				podcast, err := s.syncPodcastFromPodcastIndexOnly(&outline, outline.XMLURL, reporter)
+
+				resultChan <- importResult{
+					podcast: podcast,
+					err:     err,
+					title:   title,
+				}
+			}
+		}(i)
+	}
+
+	// 发送任务到通道
+	for _, outline := range outlines {
+		taskChan <- outline
+	}
+	close(taskChan)
+
+	// 等待所有 worker 完成
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// 处理结果
+	for res := range resultChan {
+		mu.Lock()
+		processedCount++
+		reporter.ReportProgress(processedCount, len(outlines),
+			fmt.Sprintf("处理中: %d/%d", processedCount, len(outlines)))
+
+		if res.err != nil {
+			// 检查是否为跳过类型
+			if shouldSkip, reasonStr, _ := feed.GetSkipReasonFromError(res.err); shouldSkip {
+				notFoundCount++
+				reason := SkipReason(reasonStr)
+				reporter.ReportSkip(reason, fmt.Sprintf("%s - %s", res.title, res.err.Error()))
+				log.Printf("⏭️  [%d/%d] %s - 跳过: %v", processedCount, len(outlines), res.title, res.err)
+			} else {
+				result.FailedPodcasts++
+				result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", res.title, res.err))
+				reporter.ReportError(fmt.Sprintf("%s - %v", res.title, res.err))
+				log.Printf("❌ [%d/%d] %s - 失败: %v", processedCount, len(outlines), res.title, res.err)
+			}
+		} else if res.podcast != nil {
+			// 保存播客
+			if err := s.saveOrUpdatePodcast(res.podcast); err != nil {
+				result.FailedPodcasts++
+				result.Errors = append(result.Errors, fmt.Sprintf("%s: save failed - %v", res.title, err))
+				reporter.ReportError(fmt.Sprintf("保存失败: %s - %v", res.title, err))
+				log.Printf("❌ [%d/%d] %s - 保存失败: %v", processedCount, len(outlines), res.title, err)
+			} else {
+				matchedCount++
+				reporter.ReportSuccess(fmt.Sprintf("成功导入: %s", res.title))
+				log.Printf("✅ [%d/%d] %s - 成功", processedCount, len(outlines), res.title)
+			}
+		}
+		mu.Unlock()
+	}
+
+	duration := time.Since(startTime)
+
+	log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 📊 导入汇总")
+	log.Printf("✅ 匹配成功: %d", matchedCount)
+	log.Printf("📭 未找到: %d", notFoundCount)
+	log.Printf("❌ 失败: %d", result.FailedPodcasts)
+	log.Printf("⏱️  总耗时: %v", duration)
+	log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	reporter.ReportSuccess(fmt.Sprintf("导入完成！成功: %d, 未找到: %d, 失败: %d, 耗时: %v",
+		matchedCount, notFoundCount, result.FailedPodcasts, duration))
+
+	result.SuccessPodcasts = matchedCount
+	return result, nil
+}
+
 // SyncAllPodcasts 同步所有订阅的播客（定时任务）
 func (s *Service) SyncAllPodcasts() (*SyncResult, error) {
 	log.Println("开始同步所有播客...")
@@ -423,6 +549,70 @@ func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL st
 	}
 
 	return nil, lastErr
+}
+
+// syncPodcastFromPodcastIndexOnly 仅从PodcastIndex本地数据库查询播客信息（不在线抓取）
+func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL string, reporter ProgressReporter) (*models.Podcast, error) {
+	title := ""
+	if outline != nil {
+		title = outline.GetTitle()
+	}
+
+	logPrefix := ""
+	if title != "" {
+		logPrefix = fmt.Sprintf("[%s]", title)
+	}
+
+	log.Printf("%s 🔍 从本地数据库查询: %s", logPrefix, feedURL)
+
+	// 如果PodcastIndex未初始化，返回错误
+	if s.podcastIndexQuery == nil {
+		err := fmt.Errorf("PodcastIndex未初始化")
+		log.Printf("%s ❌ %v", logPrefix, err)
+		reporter.Report(fmt.Sprintf("%s - 未在本地数据库找到", title))
+		return nil, err
+	}
+
+	// 尝试从PodcastIndex查询
+	var piInfo *podcastindex.PodcastInfo
+	var err error
+
+	// 1. 先尝试原始URL
+	piInfo, err = s.podcastIndexQuery.FindByFeedURL(feedURL)
+	if err != nil {
+		log.Printf("%s   ⚠️  feed_url 查询出错: %v", logPrefix, err)
+	}
+
+	// 2. 如果原始URL未匹配，尝试 http/https 互换
+	if piInfo == nil && err == nil {
+		var altURL string
+		if strings.HasPrefix(feedURL, "http://") {
+			altURL = strings.Replace(feedURL, "http://", "https://", 1)
+			log.Printf("%s   🔄 尝试 https 转换: %s", logPrefix, altURL)
+		} else if strings.HasPrefix(feedURL, "https://") {
+			altURL = strings.Replace(feedURL, "https://", "http://", 1)
+			log.Printf("%s   🔄 尝试 http 转换: %s", logPrefix, altURL)
+		}
+
+		if altURL != "" {
+			piInfo, err = s.podcastIndexQuery.FindByFeedURL(altURL)
+			if err != nil {
+				log.Printf("%s   ⚠️  转换URL查询出错: %v", logPrefix, err)
+			}
+		}
+	}
+
+	// 3. 检查匹配结果
+	if piInfo != nil {
+		log.Printf("%s   ✅ 本地数据库匹配成功: %s (作者: %s)", logPrefix, piInfo.Title, piInfo.Author)
+		reporter.Report(fmt.Sprintf("%s - 从本地数据库获取", title))
+		return s.createEnhancedPodcastFromOPML(piInfo, outline), nil
+	}
+
+	// 未找到
+	log.Printf("%s   📭 本地数据库未找到", logPrefix)
+	reporter.Report(fmt.Sprintf("%s - 未在本地数据库找到（需要在线同步）", title))
+	return nil, fmt.Errorf("未在本地PodcastIndex数据库中找到: %s", feedURL)
 }
 
 // fetchNewEpisodes 获取新单集（增量）

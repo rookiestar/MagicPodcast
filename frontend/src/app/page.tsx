@@ -28,7 +28,7 @@ export default function Home() {
               href="/import"
               className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
             >
-              导入OPML
+              导入/同步
             </Link>
             <a
               href="http://localhost:8080/health"

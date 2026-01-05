@@ -249,8 +249,8 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 
 	// 在goroutine中执行导入，避免阻塞
 	// 但由于SSE需要保持连接，我们在这里同步执行
-	log.Printf("[SSE] 开始导入OPML: %s", file.Filename)
-	result, err := h.syncService.ImportOPMLWithProgressAndConfig(tempFilePath, reporter, syncpkg.DefaultImportConfig)
+	log.Printf("[SSE] 开始导入OPML（仅本地数据库）: %s", file.Filename)
+	result, err := h.syncService.ImportOPMLFromPodcastIndexOnly(tempFilePath, reporter)
 	if err != nil {
 		log.Printf("[SSE] 导入失败: %v", err)
 		reporter.ReportError("导入失败: " + err.Error())
