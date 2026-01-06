@@ -240,10 +240,10 @@ func (s *Service) ImportOPMLWithProgressAndConfig(filePath string, reporter Prog
 	return result, nil
 }
 
-// ImportOPMLFromPodcastIndexOnly 仅从PodcastIndex本地数据库导入OPML（不在线抓取）
+// ImportOPMLFromPodcastIndexOnly 从PodcastIndex导入并在线同步元数据
 func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter ProgressReporter) (*SyncResult, error) {
-	log.Printf("🚀 开始导入OPML（仅本地数据库）: %s", filePath)
-	reporter.Report("开始导入OPML文件（仅本地PodcastIndex匹配）: " + filePath)
+	log.Printf("🚀 开始导入OPML（智能模式）: %s", filePath)
+	reporter.Report("开始导入OPML文件（智能模式：本地匹配+在线同步）: " + filePath)
 
 	// 1. 解析OPML文件
 	outlines, err := s.opmlParser.ParseFile(filePath)
@@ -552,7 +552,7 @@ func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL st
 	return nil, lastErr
 }
 
-// syncPodcastFromPodcastIndexOnly 仅从PodcastIndex本地数据库查询播客信息（不在线抓取）
+// syncPodcastFromPodcastIndexOnly 智能同步：先本地匹配，再在线抓取
 func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL string, reporter ProgressReporter) (*models.Podcast, error) {
 	title := ""
 	if outline != nil {
@@ -564,60 +564,142 @@ func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL
 		logPrefix = fmt.Sprintf("[%s]", title)
 	}
 
-	log.Printf("%s 🔍 从本地数据库查询: %s", logPrefix, feedURL)
+	log.Printf("%s 🔍 智能同步模式: %s", logPrefix, feedURL)
 
-	// 如果PodcastIndex未初始化，返回错误
-	if s.podcastIndexQuery == nil {
-		err := fmt.Errorf("PodcastIndex未初始化")
-		log.Printf("%s ❌ %v", logPrefix, err)
-		reporter.Report(fmt.Sprintf("%s - 未在本地数据库找到", title))
-		return nil, err
-	}
-
-	// 尝试从PodcastIndex查询
+	// 步骤1: 尝试从PodcastIndex本地数据库匹配
 	var piInfo *podcastindex.PodcastInfo
 	var err error
 
-	// 1. 先尝试原始URL
-	piInfo, err = s.podcastIndexQuery.FindByFeedURL(feedURL)
-	if err != nil {
-		log.Printf("%s   ⚠️  feed_url 查询出错: %v", logPrefix, err)
-	}
-
-	// 2. 如果原始URL未匹配，尝试 http/https 互换
-	if piInfo == nil && err == nil {
-		var altURL string
-		if strings.HasPrefix(feedURL, "http://") {
-			altURL = strings.Replace(feedURL, "http://", "https://", 1)
-			log.Printf("%s   🔄 尝试 https 转换: %s", logPrefix, altURL)
-		} else if strings.HasPrefix(feedURL, "https://") {
-			altURL = strings.Replace(feedURL, "https://", "http://", 1)
-			log.Printf("%s   🔄 尝试 http 转换: %s", logPrefix, altURL)
+	if s.podcastIndexQuery != nil {
+		// 1. 先尝试原始URL
+		piInfo, err = s.podcastIndexQuery.FindByFeedURL(feedURL)
+		if err != nil {
+			log.Printf("%s   ⚠️  feed_url 查询出错: %v", logPrefix, err)
 		}
 
-		if altURL != "" {
-			piInfo, err = s.podcastIndexQuery.FindByFeedURL(altURL)
-			if err != nil {
-				log.Printf("%s   ⚠️  转换URL查询出错: %v", logPrefix, err)
+		// 2. 如果原始URL未匹配，尝试 http/https 互换
+		if piInfo == nil && err == nil {
+			var altURL string
+			if strings.HasPrefix(feedURL, "http://") {
+				altURL = strings.Replace(feedURL, "http://", "https://", 1)
+				log.Printf("%s   🔄 尝试 https 转换: %s", logPrefix, altURL)
+			} else if strings.HasPrefix(feedURL, "https://") {
+				altURL = strings.Replace(feedURL, "https://", "http://", 1)
+				log.Printf("%s   🔄 尝试 http 转换: %s", logPrefix, altURL)
+			}
+
+			if altURL != "" {
+				piInfo, err = s.podcastIndexQuery.FindByFeedURL(altURL)
+				if err != nil {
+					log.Printf("%s   ⚠️  转换URL查询出错: %v", logPrefix, err)
+				}
 			}
 		}
 	}
 
-	// 3. 检查匹配结果
+	// 步骤2: 根据匹配结果采取不同策略
 	if piInfo != nil {
+		// 情况A: 本地数据库匹配成功 - 在线抓取4个字段
 		log.Printf("%s   ✅ 本地数据库匹配成功: %s (作者: %s)", logPrefix, piInfo.Title, piInfo.Author)
-		reporter.Report(fmt.Sprintf("%s - 从本地数据库获取", title))
-		return s.createEnhancedPodcastFromOPML(piInfo, outline), nil
+		reporter.Report(fmt.Sprintf("%s - 本地匹配成功，正在更新元数据...", title))
+
+		// 创建基础播客对象（从本地数据库）
+		podcast := s.createEnhancedPodcastFromOPML(piInfo, outline)
+
+		// 在线抓取4个关键字段
+		log.Printf("%s   🌐 在线更新元数据字段", logPrefix)
+		updatedPodcast, updateErr := s.updatePodcastMetadataOnline(podcast, reporter)
+		if updateErr != nil {
+			log.Printf("%s   ⚠️  在线更新失败: %v，使用本地数据库数据", logPrefix, updateErr)
+			reporter.Report(fmt.Sprintf("%s - 在线更新失败，使用本地数据", title))
+			// 即使在线更新失败，也返回本地数据
+			return podcast, nil
+		}
+
+		log.Printf("%s   ✅ 同步完成: %s", logPrefix, updatedPodcast.Title)
+		reporter.Report(fmt.Sprintf("%s - 同步完成", title))
+		return updatedPodcast, nil
 	}
 
-	// 未找到 - 返回FeedError标记为not_found类型，这样会被识别为跳过而不是错误
-	log.Printf("%s   📭 本地数据库未找到", logPrefix)
-	reporter.Report(fmt.Sprintf("%s - 未在本地数据库找到（需要在线同步）", title))
-	return nil, &feed.FeedError{
-		Type:     feed.ErrorTypeNotFound,
-		FeedURL:  feedURL,
-		Message:  fmt.Sprintf("未在本地PodcastIndex数据库中找到（需要在线同步）: %s", feedURL),
+	// 情况B: 本地数据库未匹配 - 在线抓取完整信息
+	log.Printf("%s   📭 本地数据库未找到，尝试在线抓取...", logPrefix)
+	reporter.Report(fmt.Sprintf("%s - 未在本地数据库找到，正在在线抓取...", title))
+
+	podcast, fetchErr := s.fetchPodcastOnline(outline, feedURL, reporter)
+	if fetchErr != nil {
+		// 在线抓取也失败 - 返回错误
+		log.Printf("%s   ❌ 在线抓取失败: %v", logPrefix, fetchErr)
+		return nil, fetchErr
 	}
+
+	log.Printf("%s   ✅ 在线抓取成功: %s", logPrefix, podcast.Title)
+	reporter.Report(fmt.Sprintf("%s - 在线抓取成功", title))
+	return podcast, nil
+}
+
+// updatePodcastMetadataOnline 在线更新播客的4个关键字段
+func (s *Service) updatePodcastMetadataOnline(podcast *models.Podcast, reporter ProgressReporter) (*models.Podcast, error) {
+	log.Printf("   🌐 抓取元数据: %s", podcast.FeedURL)
+
+	// 在线抓取RSS feed
+	gofeed, err := s.feedFetcher.FetchFeed(podcast.FeedURL)
+	if err != nil {
+		return nil, fmt.Errorf("抓取feed失败: %w", err)
+	}
+
+	// 提取4个关键字段
+	updated := s.convertGofeedToModel(gofeed, podcast.DataSource, podcast.FeedURL)
+
+	// 只更新这4个字段，保留其他字段
+	podcast.EpisodeCount = updated.EpisodeCount
+	podcast.NewestEpisodeDate = updated.NewestEpisodeDate
+	podcast.NewestEnclosureURL = updated.NewestEnclosureURL
+	podcast.NewestEnclosureDuration = updated.NewestEnclosureDuration
+
+	now := time.Now()
+	podcast.LastFetchedAt = &now
+	podcast.FeedURLValid = true
+	podcast.FetchErrorCount = 0
+
+	log.Printf("   ✅ 元数据更新成功: episode_count=%d, newest_episode_date=%v",
+		podcast.EpisodeCount, podcast.NewestEpisodeDate)
+
+	return podcast, nil
+}
+
+// fetchPodcastOnline 在线抓取完整播客信息
+func (s *Service) fetchPodcastOnline(outline *opml.Outline, feedURL string, reporter ProgressReporter) (*models.Podcast, error) {
+	log.Printf("   🌐 在线抓取完整播客信息: %s", feedURL)
+
+	// 在线抓取RSS feed
+	gofeed, err := s.feedFetcher.FetchFeed(feedURL)
+	if err != nil {
+		// 分类错误类型
+		classifiedErr := feed.ClassifyError(feedURL, err)
+		return nil, classifiedErr
+	}
+
+	// 转换为播客模型
+	podcast := s.convertGofeedToModel(gofeed, "rss", feedURL)
+
+	// 设置额外字段
+	if outline != nil {
+		if podcast.Title == "" {
+			podcast.Title = outline.GetTitle()
+		}
+		podcast.AddedDate = time.Now()
+	}
+
+	podcast.IsSubscribed = true
+
+	now := time.Now()
+	podcast.LastFetchedAt = &now
+	podcast.FeedURLValid = true
+	podcast.FetchErrorCount = 0
+
+	log.Printf("   ✅ 在线抓取完成: %s (episode_count=%d)", podcast.Title, podcast.EpisodeCount)
+
+	return podcast, nil
 }
 
 // fetchNewEpisodes 获取新单集（增量）

@@ -33,7 +33,6 @@ export default function ImportPage() {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [filter, setFilter] = useState<'all' | 'errors' | 'success' | 'skips'>('all')
   const [autoScroll, setAutoScroll] = useState(true)
-  const [showSyncPrompt, setShowSyncPrompt] = useState(false)
 
   const logContainerRef = useRef<HTMLDivElement>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
@@ -143,7 +142,7 @@ export default function ImportPage() {
     }
   }
 
-  // 导入OPML（仅本地匹配）
+  // 导入OPML（智能模式：本地匹配+在线同步）
   const handleImport = async () => {
     if (!file) {
       alert('请先选择OPML文件')
@@ -153,7 +152,7 @@ export default function ImportPage() {
     setImporting(true)
     setLogs([])
 
-    addLog('info', '开始导入OPML（仅本地数据库匹配）...')
+    addLog('info', '开始导入OPML（智能模式：本地匹配+在线同步）...')
 
     try {
       await syncApi.importOPMLSSE(file, (type, message, current, total) => {
@@ -161,8 +160,8 @@ export default function ImportPage() {
         // 注意：不需要在这里添加总结消息，后端会在ImportOPMLSSE结束时发送准确的成功总结
       })
 
-      // 导入完成后提示是否同步元数据
-      setShowSyncPrompt(true)
+      // 导入完成后不再提示是否同步（已自动完成）
+      addLog('success', '✅ 导入完成！所有播客已自动同步')
     } catch (error: any) {
       console.error('导入失败:', error)
 
@@ -202,16 +201,6 @@ export default function ImportPage() {
     } finally {
       setSyncing(false)
     }
-  }
-
-  // 从导入切换到同步
-  const handleSyncPromptConfirm = () => {
-    setShowSyncPrompt(false)
-    setActiveTab('sync')
-    // 清空导入日志，准备显示同步日志
-    setLogs([])
-    // 开始同步
-    setTimeout(() => handleSync(), 100)
   }
 
   const getLogIcon = (type: LogEntry['type']) => {
@@ -539,34 +528,6 @@ export default function ImportPage() {
           </div>
         </div>
       </div>
-
-      {/* 同步元数据提示 */}
-      {showSyncPrompt && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-3">
-              导入完成！🎉
-            </h3>
-            <p className="text-gray-600 mb-6">
-              是否要同步所有播客的最新元数据（单集数量、最新发布时间等）？
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowSyncPrompt(false)}
-                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-              >
-                跳过
-              </button>
-              <button
-                onClick={handleSyncPromptConfirm}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-              >
-                同步元数据
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
