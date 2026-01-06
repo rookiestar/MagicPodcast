@@ -224,17 +224,24 @@ export default function PodcastDetailPage() {
                       <span className="font-semibold text-slate-900 dark:text-slate-50">
                         最新更新：
                       </span>
-                      {podcast.newest_episode_date
-                        ? new Date(podcast.newest_episode_date).toLocaleString('zh-CN', {
-                            year: 'numeric',
-                            month: '2-digit',
-                            day: '2-digit',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            second: '2-digit',
-                            hour12: false
-                          })
-                        : '未知'}
+                      {(() => {
+                        try {
+                          const date = podcast.newest_episode_date ? new Date(podcast.newest_episode_date) : null
+                          return date && !isNaN(date.getTime())
+                            ? date.toLocaleString('zh-CN', {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit',
+                                hour12: false
+                              })
+                            : '未知'
+                        } catch {
+                          return '未知'
+                        }
+                      })()}
                     </div>
                   </div>
 
