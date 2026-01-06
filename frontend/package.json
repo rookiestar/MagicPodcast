@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "clean": "./clean.sh",
+    "clean:deep": "./clean.sh --deep"
   },
   "dependencies": {
     "next": "14.2.0",
