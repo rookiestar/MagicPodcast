@@ -627,9 +627,37 @@ func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL
 
 	podcast, fetchErr := s.fetchPodcastOnline(outline, feedURL, reporter)
 	if fetchErr != nil {
-		// 在线抓取也失败 - 返回错误
-		log.Printf("%s   ❌ 在线抓取失败: %v", logPrefix, fetchErr)
-		return nil, fetchErr
+		// 在线抓取失败 - 创建一个基础播客记录（至少保存title和feedURL）
+		log.Printf("%s   ⚠️  在线抓取失败: %v，创建基础记录", logPrefix, fetchErr)
+		reporter.Report(fmt.Sprintf("%s - 在线抓取失败，已创建基础记录（可稍后同步）", title))
+
+		// 创建基础播客对象
+		basePodcast := &models.Podcast{
+			Title:        title,
+			FeedURL:      feedURL,
+			IsSubscribed: true,
+			DataSource:   "rss",
+			AddedDate:    time.Now(),
+			FeedURLValid: false, // 标记为未验证，稍后可以通过同步功能重试
+		}
+
+		// 设置一些默认值
+		basePodcast.EpisodeCount = 0
+		basePodcast.Priority = 5
+		basePodcast.PopularityScore = 0
+		basePodcast.UpdateFrequency = 0
+
+		// 尝试从outline获取更多信息
+		if outline != nil {
+			if outline.Text != "" {
+				basePodcast.Title = outline.Text
+			}
+			if outline.HTMLURL != "" {
+				basePodcast.Link = outline.HTMLURL
+			}
+		}
+
+		return basePodcast, nil
 	}
 
 	log.Printf("%s   ✅ 在线抓取成功: %s", logPrefix, podcast.Title)
