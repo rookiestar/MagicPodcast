@@ -212,6 +212,32 @@ export default function PodcastDetailPage() {
                     </div>
                   )}
 
+                  {/* 🆕 单集数和最新更新 */}
+                  <div className="flex gap-6">
+                    <div>
+                      <span className="font-semibold text-slate-900 dark:text-slate-50">
+                        单集数：
+                      </span>
+                      {podcast.episode_count || 0}
+                    </div>
+                    <div>
+                      <span className="font-semibold text-slate-900 dark:text-slate-50">
+                        最新更新：
+                      </span>
+                      {podcast.newest_episode_date
+                        ? new Date(podcast.newest_episode_date).toLocaleString('zh-CN', {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            hour12: false
+                          })
+                        : '未知'}
+                    </div>
+                  </div>
+
                   {/* 🆕 最新单集播放按钮 */}
                   {podcast.newest_enclosure_url && (
                     <div>
@@ -229,16 +255,6 @@ export default function PodcastDetailPage() {
                           </span>
                         )}
                       </button>
-                    </div>
-                  )}
-
-                  {/* 🆕 最后更新时间 */}
-                  {podcast.last_update && (
-                    <div>
-                      <span className="font-semibold text-slate-900 dark:text-slate-50">
-                        最后更新：
-                      </span>
-                      {new Date(podcast.last_update).toLocaleString()}
                     </div>
                   )}
 
@@ -310,31 +326,6 @@ export default function PodcastDetailPage() {
                         {notes || '暂无备注'}
                       </p>
                     )}
-                  </div>
-
-                  <div className="flex gap-6">
-                    <div>
-                      <span className="font-semibold text-slate-900 dark:text-slate-50">
-                        单集数：
-                      </span>
-                      {podcast.episode_count}
-                    </div>
-                    <div>
-                      <span className="font-semibold text-slate-900 dark:text-slate-50">
-                        最新更新：
-                      </span>
-                      {new Date(podcast.newest_episode_date).toLocaleDateString()}
-                    </div>
-                  </div>
-
-                  <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
-                    <div className="text-sm text-slate-500 dark:text-slate-500">
-                      <div>ID: {podcast.id}</div>
-                      <div>XYZ ID: {podcast.xyz_id}</div>
-                      <div>
-                        添加时间: {new Date(podcast.created_at).toLocaleString()}
-                      </div>
-                    </div>
                   </div>
                 </div>
               </div>
