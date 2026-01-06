@@ -68,6 +68,7 @@ func (q *Query) Close() error {
 // FindByFeedURL 根据Feed URL查找播客
 func (q *Query) FindByFeedURL(feedURL string) (*PodcastInfo, error) {
 	// 使用 CASE 语句处理空字符串的 itunesId
+	// 从 v_unique_podcasts 视图查询，自动获取每个title的最优记录
 	query := `
 		SELECT id, title, itunesAuthor, description, imageUrl, url,
 			   CASE
@@ -79,12 +80,12 @@ func (q *Query) FindByFeedURL(feedURL string) (*PodcastInfo, error) {
 			   newestEnclosureUrl, newestEnclosureDuration, lastUpdate,
 			   newestItemPubdate, oldestItemPubdate, popularityScore,
 			   priority, updateFrequency, episodeCount
-		FROM podcasts
+		FROM v_unique_podcasts
 		WHERE url = ?
 		LIMIT 1
 	`
 
-	log.Printf("  💾 查询 PodcastIndex: %s", feedURL)
+	log.Printf("  💾 查询 PodcastIndex (去重视图): %s", feedURL)
 	row := q.db.QueryRow(query, feedURL)
 
 	var info PodcastInfo
@@ -147,6 +148,7 @@ func (q *Query) FindByFeedURL(feedURL string) (*PodcastInfo, error) {
 // FindByTitle 根据标题精准搜索播客（返回多个结果）
 func (q *Query) FindByTitle(title string) ([]*PodcastInfo, error) {
 	// 使用 CASE 语句处理空字符串的 itunesId
+	// 从 v_unique_podcasts 视图查询，自动获取每个title的最优记录
 	query := `
 		SELECT id, title, itunesAuthor, description, imageUrl, url,
 			   CASE
@@ -158,7 +160,7 @@ func (q *Query) FindByTitle(title string) ([]*PodcastInfo, error) {
 			   newestEnclosureUrl, newestEnclosureDuration, lastUpdate,
 			   newestItemPubdate, oldestItemPubdate, popularityScore,
 			   priority, updateFrequency, episodeCount
-		FROM podcasts
+		FROM v_unique_podcasts
 		WHERE title = ?
 		LIMIT 10
 	`
@@ -231,12 +233,13 @@ func (q *Query) FindByTitle(title string) ([]*PodcastInfo, error) {
 
 // FindByITunesID 根据iTunes ID查找播客
 func (q *Query) FindByITunesID(itunesID int) (*PodcastInfo, error) {
+	// 从 v_unique_podcasts 视图查询，自动获取每个title的最优记录
 	query := `
 		SELECT id, title, itunesAuthor, description, imageUrl, url, itunesId, language, link,
 			   newestEnclosureUrl, newestEnclosureDuration, lastUpdate,
 			   newestItemPubdate, oldestItemPubdate, popularityScore,
 			   priority, updateFrequency, episodeCount
-		FROM podcasts
+		FROM v_unique_podcasts
 		WHERE itunesId = ?
 		LIMIT 1
 	`
