@@ -13,3 +13,7 @@ WHERE language like 'zh%cn'
   AND popularityScore >= 7
 ORDER BY popularityScore DESC, episodeCount DESC
 LIMIT 30;
+
+SELECT *
+FROM podcasts
+WHERE title = '无聊斋';

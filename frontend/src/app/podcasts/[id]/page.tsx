@@ -7,6 +7,7 @@ import { podcastApi, episodeApi } from '@/lib/api'
 import type { Podcast, Tag, Episode } from '@/types'
 import TagInput from '@/components/tags/TagInput'
 import RichText from '@/components/RichText'
+import EpisodeCard from '@/components/episodes/EpisodeCard'
 
 export default function PodcastDetailPage() {
   const params = useParams()
@@ -343,53 +344,32 @@ export default function PodcastDetailPage() {
         {/* Episodes List - 新增section */}
         {!loading && !error && podcast && (
           <div className="mt-8">
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-50 mb-4">
-              单集列表 ({podcast.episode_count} 集)
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-50 mb-6">
+              单集列表 ({episodes.length} 集)
             </h2>
 
             {episodesLoading ? (
-              <div className="text-center py-8">
-                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">加载中...</p>
+              <div className="text-center py-12">
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                <p className="mt-4 text-sm text-slate-600 dark:text-slate-400">加载中...</p>
               </div>
             ) : episodes.length === 0 ? (
-              <div className="bg-white dark:bg-slate-800 rounded-lg p-8 text-center">
-                <p className="text-slate-600 dark:text-slate-400">暂无单集</p>
+              <div className="bg-white dark:bg-slate-800 rounded-lg p-12 text-center shadow-sm">
+                <div className="text-6xl mb-4">📭</div>
+                <p className="text-slate-600 dark:text-slate-400 text-lg">暂无单集</p>
+                <p className="text-slate-500 dark:text-slate-500 text-sm mt-2">
+                  点击下方按钮同步单集数据
+                </p>
               </div>
             ) : (
-              <div className="bg-white dark:bg-slate-800 rounded-lg shadow overflow-hidden">
-                <div className="divide-y divide-slate-200 dark:divide-slate-700">
-                  {episodes.map((episode) => (
-                    <div key={episode.id} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-1 truncate">
-                            {episode.title}
-                          </h3>
-                          <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">
-                            {episode.episode_no} · {new Date(episode.published_date).toLocaleDateString()}
-                          </p>
-                          {episode.show_notes && (
-                            <div className="text-sm text-slate-600 dark:text-slate-400">
-                              <RichText
-                                html={episode.show_notes}
-                                className="line-clamp-2"
-                              />
-                            </div>
-                          )}
-                        </div>
-                        {episode.medium_url && (
-                          <button
-                            onClick={() => window.open(episode.medium_url, '_blank')}
-                            className="flex-shrink-0 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
-                          >
-                            播放
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {episodes.map((episode) => (
+                  <EpisodeCard
+                    key={episode.id}
+                    episode={episode}
+                    podcastCover={podcast.cover_url}
+                  />
+                ))}
               </div>
             )}
           </div>

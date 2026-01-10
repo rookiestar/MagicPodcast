@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"magicpodcast/internal/config"
@@ -192,4 +193,174 @@ func (h *SyncHandler) Close() error {
 		return h.syncService.Close()
 	}
 	return nil
+}
+
+// SyncPodcastEpisodesRequest 同步单个podcast的episodes请求
+type SyncPodcastEpisodesRequest struct {
+	Mode   string `json:"mode"`   // 同步模式: incremental, full, smart
+	Update bool  `json:"update"`  // 是否更新已存在的episode
+}
+
+// SyncPodcastEpisodes 同步指定podcast的episodes
+// POST /api/v1/podcasts/:id/episodes/sync
+func (h *SyncHandler) SyncPodcastEpisodes(c *gin.Context) {
+	// 获取podcast ID
+	idStr := c.Param("id")
+	podcastID, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "无效的podcast ID",
+		})
+		return
+	}
+
+	// 解析请求参数
+	var req SyncPodcastEpisodesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// 使用默认配置
+		req = SyncPodcastEpisodesRequest{
+			Mode:   "smart",
+			Update: true,
+		}
+	}
+
+	// 构建同步配置
+	config := sync.DefaultEpisodeSyncConfig
+
+	// 解析同步模式
+	switch req.Mode {
+	case "incremental":
+		config.Mode = sync.SyncModeIncremental
+	case "full":
+		config.Mode = sync.SyncModeFull
+	case "smart":
+		config.Mode = sync.SyncModeSmart
+	default:
+		config.Mode = sync.SyncModeSmart
+	}
+
+	config.UpdateExisting = req.Update
+
+	// 使用SSE流式报告进度
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+
+	reporter := sync.NewSSEProgressReporter(c.Writer)
+
+	// 执行同步
+	result, err := h.syncService.SyncPodcastEpisodes(uint(podcastID), reporter, config)
+	if err != nil {
+		reporter.ReportError(fmt.Sprintf("同步失败: %v", err))
+		return
+	}
+
+	// 发送最终结果
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("同步完成: 新增 %d, 更新 %d, 跳过 %d",
+			result.Created, result.Updated, result.Skipped),
+		"result": result,
+	})
+}
+
+// SyncAllEpisodesRequest 同步所有episodes请求
+type SyncAllEpisodesRequest struct {
+	Mode string `json:"mode"` // 同步模式: incremental, full, smart
+}
+
+// SyncAllEpisodes 同步所有podcast的episodes（SSE流式）
+// POST /api/v1/sync/episodes
+func (h *SyncHandler) SyncAllEpisodes(c *gin.Context) {
+	// 解析请求参数
+	var req SyncAllEpisodesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// 使用默认配置
+		req = SyncAllEpisodesRequest{
+			Mode: "smart",
+		}
+	}
+
+	// 构建同步配置
+	config := sync.DefaultEpisodeSyncConfig
+
+	// 解析同步模式
+	switch req.Mode {
+	case "incremental":
+		config.Mode = sync.SyncModeIncremental
+	case "full":
+		config.Mode = sync.SyncModeFull
+	case "smart":
+		config.Mode = sync.SyncModeSmart
+	default:
+		config.Mode = sync.SyncModeSmart
+	}
+
+	log.Printf("🚀 开始同步所有podcast的episodes (模式: %s)", req.Mode)
+
+	// 使用SSE流式报告进度
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+
+	reporter := sync.NewSSEProgressReporter(c.Writer)
+
+	// 执行同步
+	if err := h.syncService.SyncAllPodcastEpisodes(reporter, config); err != nil {
+		reporter.ReportError(fmt.Sprintf("同步失败: %v", err))
+		return
+	}
+
+	log.Println("✅ 所有podcast的episodes同步完成")
+}
+
+// SyncAllEpisodesNonStreaming 同步所有podcast的episodes（非流式，用于定时任务）
+// POST /api/v1/sync/episodes/sync
+func (h *SyncHandler) SyncAllEpisodesNonStreaming(c *gin.Context) {
+	// 解析请求参数
+	var req SyncAllEpisodesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// 使用默认配置
+		req = SyncAllEpisodesRequest{
+			Mode: "smart",
+		}
+	}
+
+	// 构建同步配置
+	config := sync.DefaultEpisodeSyncConfig
+
+	// 解析同步模式
+	switch req.Mode {
+	case "incremental":
+		config.Mode = sync.SyncModeIncremental
+	case "full":
+		config.Mode = sync.SyncModeFull
+	case "smart":
+		config.Mode = sync.SyncModeSmart
+	default:
+		config.Mode = sync.SyncModeSmart
+	}
+
+	log.Printf("🚀 开始同步所有podcast的episodes (非流式, 模式: %s)", req.Mode)
+
+	// 使用日志报告器（非流式）
+	reporter := sync.NewLogProgressReporter()
+
+	// 执行同步
+	if err := h.syncService.SyncAllPodcastEpisodes(reporter, config); err != nil {
+		log.Printf("❌ 同步失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("同步失败: %v", err),
+		})
+		return
+	}
+
+	log.Println("✅ 所有podcast的episodes同步完成")
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "所有podcast的episodes同步完成",
+	})
 }

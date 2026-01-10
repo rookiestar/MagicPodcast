@@ -1,2 +1,2 @@
 select * from podcasts
-limit 50
+where title = '智族Talk'

@@ -40,16 +40,21 @@ export interface ApiResponse<T> {
   }
 }
 
-// Episode 类型定义（暂未使用）
+// Episode 类型定义
 export interface Episode {
   id: number
-  xyz_id: string
+  guid: string
   podcast_id: number
   episode_no: string
   title: string
   medium_url: string
   show_notes: string
   published_date: string
+  duration: number           // 音频时长（秒）
+  link: string              // 单集网页链接
+  image_url: string         // 单集封面图URL
+  enclosure_type: string    // 音频MIME类型
+  enclosure_length: number  // 音频文件大小（字节）
   my_rate: number
   notes: string
 }

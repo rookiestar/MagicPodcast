@@ -37,9 +37,7 @@ func CreateIndexes(db *gorm.DB) error {
 	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_episodes_podcast_id ON episodes(podcast_id)").Error; err != nil {
 		return fmt.Errorf("failed to create episodes index: %w", err)
 	}
-	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_episodes_xyz_id ON episodes(xyz_id)").Error; err != nil {
-		return fmt.Errorf("failed to create episodes index: %w", err)
-	}
+	// 注意：guid的uniqueIndex由GORM自动创建（通过model标签），这里不再手动创建
 
 	// Workflow 索引
 	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_workflows_enabled ON workflows(is_enabled)").Error; err != nil {

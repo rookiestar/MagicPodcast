@@ -90,7 +90,12 @@ func SetupRouter() *gin.Engine {
 			sync.POST("/subscriptions", syncHandler.SyncSubscriptions)         // 同步所有订阅
 			sync.GET("/status", syncHandler.GetSyncStatus)                     // 获取同步状态
 			sync.POST("/podcasts/metadata-sse", syncHandler.SyncPodcastsMetadataSSE) // 同步所有播客元数据（SSE流式）
+			sync.POST("/episodes", syncHandler.SyncAllEpisodes)                // 同步所有podcast的episodes（SSE流式）
+			sync.POST("/episodes/sync", syncHandler.SyncAllEpisodesNonStreaming) // 同步所有podcast的episodes（非流式，用于定时任务）
 		}
+
+		// Episode Sync 路由（单个podcast的episode同步）
+		v1.POST("/podcasts/:id/episodes/sync", syncHandler.SyncPodcastEpisodes) // 同步指定podcast的episodes
 	}
 
 	return r
