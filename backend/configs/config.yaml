@@ -66,6 +66,25 @@ logging:
   # 最大保留文件数
   max_backups: 10
 
+# 搜索配置
+search:
+  # 字段权重
+  weights:
+    podcast_title: 1.0
+    episode_title: 1.0
+    author: 0.8
+    podcast_desc: 0.7
+    episode_content: 0.7
+  # 匹配类型加权
+  match_multipliers:
+    exact: 1.5      # 完全匹配
+    prefix: 1.2     # 前缀匹配
+    contains: 1.0   # 包含匹配
+    occurrence: 0.1 # 每次额外出现的加分
+  # 分页默认值
+  default_page_size: 20
+  max_page_size: 100
+
 # 用户自定义配置
 user:
   # 小宇宙手机号（用于登录）

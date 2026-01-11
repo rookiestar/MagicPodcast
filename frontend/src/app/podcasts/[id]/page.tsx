@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useEffect, useState, useRef } from 'react'
+import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { podcastApi, episodeApi } from '@/lib/api'
 import type { Podcast, Tag, Episode } from '@/types'
@@ -11,7 +11,10 @@ import EpisodeCard from '@/components/episodes/EpisodeCard'
 
 export default function PodcastDetailPage() {
   const params = useParams()
+  const searchParams = useSearchParams()
   const id = parseInt(params.id as string)
+  const targetEpisodeId = searchParams.get('episode_id') // 获取目标单集 ID
+  const episodeListRef = useRef<HTMLDivElement>(null)
 
   const [podcast, setPodcast] = useState<Podcast | null>(null)
   const [tags, setTags] = useState<Tag[]>([])
@@ -30,6 +33,29 @@ export default function PodcastDetailPage() {
       fetchEpisodes()
     }
   }, [id])
+
+  // 当单集列表加载完成且有目标单集时，滚动到指定位置
+  useEffect(() => {
+    if (!episodesLoading && targetEpisodeId && episodes.length > 0) {
+      // 找到目标单集
+      const targetEpisode = episodes.find(ep => ep.id === parseInt(targetEpisodeId))
+      if (targetEpisode) {
+        // 找到对应的 DOM 元素并滚动
+        const element = document.getElementById(`episode-${targetEpisodeId}`)
+        if (element) {
+          // 延迟一下确保 DOM 完全渲染
+          setTimeout(() => {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            // 添加高亮效果
+            element.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2')
+            setTimeout(() => {
+              element.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2')
+            }, 2000)
+          }, 100)
+        }
+      }
+    }
+  }, [episodesLoading, targetEpisodeId, episodes])
 
   const fetchPodcast = async () => {
     try {
@@ -364,11 +390,12 @@ export default function PodcastDetailPage() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {episodes.map((episode) => (
-                  <EpisodeCard
-                    key={episode.id}
-                    episode={episode}
-                    podcastCover={podcast.cover_url}
-                  />
+                  <div key={episode.id} id={`episode-${episode.id}`} className="transition-all duration-200">
+                    <EpisodeCard
+                      episode={episode}
+                      podcastCover={podcast.cover_url}
+                    />
+                  </div>
                 ))}
               </div>
             )}

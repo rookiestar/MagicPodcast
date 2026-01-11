@@ -9,13 +9,14 @@ import (
 
 // Config 表示应用程序的配置
 type Config struct {
-	Server        ServerConfig        `mapstructure:"server"`
-	Database      DatabaseConfig      `mapstructure:"database"`
-	XYZAPI        XYZAPIConfig        `mapstructure:"xyz_api"`
-	Sync          SyncConfig          `mapstructure:"sync"`
-	PodcastIndex  PodcastIndexConfig  `mapstructure:"podcast_index"`
-	Logging       LoggingConfig       `mapstructure:"logging"`
-	User          UserConfig          `mapstructure:"user"`
+	Server       ServerConfig       `mapstructure:"server"`
+	Database     DatabaseConfig     `mapstructure:"database"`
+	XYZAPI       XYZAPIConfig       `mapstructure:"xyz_api"`
+	Sync         SyncConfig         `mapstructure:"sync"`
+	PodcastIndex PodcastIndexConfig `mapstructure:"podcast_index"`
+	Logging      LoggingConfig      `mapstructure:"logging"`
+	Search       SearchConfig       `mapstructure:"search"`
+	User         UserConfig         `mapstructure:"user"`
 }
 
 // ServerConfig 服务器配置
@@ -73,6 +74,31 @@ type UserConfig struct {
 	Phone        string `mapstructure:"phone"`
 	AccessToken  string `mapstructure:"access_token"`
 	RefreshToken string `mapstructure:"refresh_token"`
+}
+
+// SearchWeights 搜索字段权重
+type SearchWeights struct {
+	PodcastTitle   float64 `mapstructure:"podcast_title"`
+	EpisodeTitle   float64 `mapstructure:"episode_title"`
+	Author         float64 `mapstructure:"author"`
+	PodcastDesc    float64 `mapstructure:"podcast_desc"`
+	EpisodeContent float64 `mapstructure:"episode_content"`
+}
+
+// SearchMatchMultipliers 搜索匹配类型乘数
+type SearchMatchMultipliers struct {
+	Exact      float64 `mapstructure:"exact"`
+	Prefix     float64 `mapstructure:"prefix"`
+	Contains   float64 `mapstructure:"contains"`
+	Occurrence float64 `mapstructure:"occurrence"`
+}
+
+// SearchConfig 搜索配置
+type SearchConfig struct {
+	Weights          SearchWeights          `mapstructure:"weights"`
+	MatchMultipliers SearchMatchMultipliers `mapstructure:"match_multipliers"`
+	DefaultPageSize  int                    `mapstructure:"default_page_size"`
+	MaxPageSize      int                    `mapstructure:"max_page_size"`
 }
 
 var cfg *Config

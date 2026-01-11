@@ -44,6 +44,10 @@ func SetupRouter() *gin.Engine {
 			podcasts.GET("/:id/episodes", episodeHandler.ListByPodcast)
 		}
 
+		// Search 路由
+		searchHandler := handlers.NewSearchHandler()
+		v1.GET("/search", searchHandler.Search)
+
 		// Tag 路由
 		tagHandler := handlers.NewTagHandler()
 		tags := v1.Group("/tags")

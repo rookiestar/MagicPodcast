@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { podcastApi, tagApi } from '@/lib/api'
 import type { Podcast, Tag } from '@/types'
+import SearchSidebar from '@/components/SearchSidebar'
 
 const PAGE_SIZE = 15 // 默认每页15个（5行×3列）
 
@@ -15,6 +16,7 @@ export default function PodcastsPage() {
   const [error, setError] = useState<string | null>(null)
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
   const [showAllTags, setShowAllTags] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
 
   // 分页状态
   const [page, setPage] = useState(1)
@@ -136,12 +138,21 @@ export default function PodcastsPage() {
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <Link
-            href="/"
-            className="text-blue-600 hover:text-blue-700 mb-4 inline-block"
-          >
-            ← 返回首页
-          </Link>
+          <div className="flex items-center justify-between mb-4">
+            <Link
+              href="/"
+              className="text-blue-600 hover:text-blue-700"
+            >
+              ← 返回首页
+            </Link>
+            <button
+              onClick={() => setSearchOpen(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+            >
+              <span>🔍</span>
+              <span>搜索</span>
+            </button>
+          </div>
           <h1 className="text-4xl font-bold text-slate-900 dark:text-slate-50 mb-2">
             我的订阅
           </h1>
@@ -275,6 +286,9 @@ export default function PodcastsPage() {
           </>
         )}
       </div>
+
+      {/* 搜索侧边栏 */}
+      <SearchSidebar isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
     </main>
   )
 }

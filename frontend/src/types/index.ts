@@ -66,3 +66,57 @@ export interface Tag {
   description: string
   color: string
 }
+
+// 搜索相关类型定义
+export interface MatchedField {
+  field: string
+  score: number
+  snippet: string
+}
+
+export interface PodcastSearchResult {
+  id: number
+  title: string
+  author: string
+  description: string
+  cover_url: string
+  episode_count: number
+  newest_episode_date: string
+  relevance_score: number
+  matched_fields?: MatchedField[]  // 改为可选
+  tags?: Tag[]
+}
+
+export interface EpisodeSearchResult {
+  id: number
+  podcast_id: number
+  podcast_title: string
+  podcast_cover_url: string
+  title: string
+  show_notes: string
+  published_date: string | null
+  duration: number
+  relevance_score: number
+  matched_fields?: MatchedField[]  // 改为可选
+}
+
+export interface SearchPagination {
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
+}
+
+export interface SearchResponse {
+  podcasts: PodcastSearchResult[]
+  episodes: EpisodeSearchResult[]
+}
+
+export interface SearchData {
+  podcasts: PodcastSearchResult[]
+  episodes: EpisodeSearchResult[]
+  pagination: {
+    podcasts: SearchPagination
+    episodes: SearchPagination
+  }
+}
