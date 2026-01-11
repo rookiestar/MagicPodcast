@@ -100,6 +100,23 @@ func SetupRouter() *gin.Engine {
 
 		// Episode Sync 路由（单个podcast的episode同步）
 		v1.POST("/podcasts/:id/episodes/sync", syncHandler.SyncPodcastEpisodes) // 同步指定podcast的episodes
+
+		// Workflow 路由
+		workflowHandler := handlers.NewWorkflowHandler()
+		workflows := v1.Group("/workflows")
+		{
+			workflows.GET("", workflowHandler.List)           // 获取工作流列表
+			workflows.POST("", workflowHandler.Create)         // 创建工作流
+			workflows.GET("/:id", workflowHandler.Get)         // 获取工作流详情
+			workflows.PUT("/:id", workflowHandler.Update)      // 更新工作流
+			workflows.DELETE("/:id", workflowHandler.Delete)   // 删除工作流
+			workflows.POST("/:id/toggle", workflowHandler.Toggle) // 启用/禁用工作流
+			workflows.GET("/:id/jobs", workflowHandler.ListJobs) // 获取工作流执行历史
+			workflows.POST("/:id/trigger", workflowHandler.Trigger) // 手动触发工作流
+		}
+
+		// Job 路由
+		v1.GET("/jobs/:id", workflowHandler.GetJob) // 获取任务详情
 	}
 
 	return r

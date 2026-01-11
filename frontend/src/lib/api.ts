@@ -1,5 +1,16 @@
 import axios from 'axios'
-import type { ApiResponse, Podcast, Tag, Episode, SearchData } from '@/types'
+import type {
+  ApiResponse,
+  Podcast,
+  Tag,
+  Episode,
+  SearchData,
+  Workflow,
+  WorkflowRequest,
+  WorkflowsResponse,
+  JobsResponse,
+  Job
+} from '@/types'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
@@ -12,11 +23,45 @@ if (typeof window !== 'undefined') {
 // 创建 axios 实例
 const api = axios.create({
   baseURL: API_URL,
-  timeout: 10000,
+  timeout: 60000, // 增加到60秒，支持分页加载大量数据
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: false, // 不发送凭证，避免CORS问题
 })
+
+// 添加请求拦截器
+api.interceptors.request.use(
+  (config) => {
+    console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`)
+    return config
+  },
+  (error) => {
+    console.error('[API] Request error:', error)
+    return Promise.reject(error)
+  }
+)
+
+// 添加响应拦截器
+api.interceptors.response.use(
+  (response) => {
+    console.log(`[API] Response:`, response.status, response.config.url)
+    return response
+  },
+  (error) => {
+    console.error('[API] Response error:', error.message, error.config?.url)
+
+    if (error.code === 'ECONNABORTED') {
+      console.error('[API] Request timeout')
+    } else if (error.response) {
+      console.error('[API] Server responded with:', error.response.status, error.response.data)
+    } else if (error.request) {
+      console.error('[API] No response received:', error.request)
+    }
+
+    return Promise.reject(error)
+  }
+)
 
 // API 方法
 export const podcastApi = {
@@ -45,12 +90,16 @@ export const podcastApi = {
       ? `/api/v1/podcasts?${queryParams.toString()}`
       : '/api/v1/podcasts'
 
+    console.log('[podcastApi.list] Requesting:', url)
+
     const response = await api.get<{
       success: boolean
       data: Podcast[]
       pagination: { page: number; page_size: number; total: number; total_pages: number }
       error?: { message: string }
     }>(url)
+
+    console.log('[podcastApi.list] Response:', response.data)
 
     if (response.data.success && response.data.data) {
       return {
@@ -259,6 +308,7 @@ export const searchApi = {
     const response = await api.get<{
       success: boolean
       data: SearchData
+      error?: { message: string }
     }>(url)
 
     if (!response.data.success) {
@@ -570,11 +620,14 @@ export const syncApi = {
                       const { type, message, current, total } = data
                       messageCount++
 
+                      console.log('[Sync Metadata] 收到消息:', type, message?.substring(0, 50))
+
                       onProgress(type, message, current, total, data)
 
                       // 在收到summary或complete消息时结束（summary是最后一条有意义的消息）
                       if (type === 'summary' || type === 'complete') {
                         const totalTime = Date.now() - startTime
+                        console.log('[Sync Metadata] 收到summary/complete，总耗时:', totalTime + 'ms')
                         completed = true
                         resolve()
                         reader!.cancel()
@@ -627,5 +680,84 @@ export const syncApi = {
           }
         })
     })
+  },
+}
+
+// Workflow API
+export const workflowApi = {
+  // 获取工作流列表
+  list: async (params?: { page?: number; page_size?: number }): Promise<WorkflowsResponse> => {
+    const queryParams = new URLSearchParams()
+    if (params?.page) queryParams.append('page', params.page.toString())
+    if (params?.page_size) queryParams.append('page_size', params.page_size.toString())
+
+    const url = queryParams.toString()
+      ? `/api/v1/workflows?${queryParams.toString()}`
+      : '/api/v1/workflows'
+
+    const response = await api.get<{ success: boolean; data: WorkflowsResponse }>(url)
+    return response.data.data
+  },
+
+  // 获取工作流详情
+  get: async (id: number): Promise<Workflow> => {
+    const response = await api.get<{ success: boolean; data: Workflow }>(`/api/v1/workflows/${id}`)
+    return response.data.data
+  },
+
+  // 创建工作流
+  create: async (data: WorkflowRequest): Promise<Workflow> => {
+    const response = await api.post<{ success: boolean; data: Workflow }>(
+      '/api/v1/workflows',
+      data
+    )
+    return response.data.data
+  },
+
+  // 更新工作流
+  update: async (id: number, data: WorkflowRequest): Promise<Workflow> => {
+    const response = await api.put<{ success: boolean; data: Workflow }>(
+      `/api/v1/workflows/${id}`,
+      data
+    )
+    return response.data.data
+  },
+
+  // 删除工作流
+  delete: async (id: number): Promise<void> => {
+    await api.delete(`/api/v1/workflows/${id}`)
+  },
+
+  // 启用/禁用工作流
+  toggle: async (id: number): Promise<Workflow> => {
+    const response = await api.post<{ success: boolean; data: Workflow }>(
+      `/api/v1/workflows/${id}/toggle`
+    )
+    return response.data.data
+  },
+
+  // 获取工作流的执行历史
+  listJobs: async (id: number, params?: { page?: number; page_size?: number }): Promise<JobsResponse> => {
+    const queryParams = new URLSearchParams()
+    if (params?.page) queryParams.append('page', params.page.toString())
+    if (params?.page_size) queryParams.append('page_size', params.page_size.toString())
+
+    const url = queryParams.toString()
+      ? `/api/v1/workflows/${id}/jobs?${queryParams.toString()}`
+      : `/api/v1/workflows/${id}/jobs`
+
+    const response = await api.get<{ success: boolean; data: JobsResponse }>(url)
+    return response.data.data
+  },
+
+  // 获取任务详情
+  getJob: async (id: number): Promise<Job> => {
+    const response = await api.get<{ success: boolean; data: Job }>(`/api/v1/jobs/${id}`)
+    return response.data.data
+  },
+
+  // 手动触发工作流
+  trigger: async (id: number): Promise<void> => {
+    await api.post(`/api/v1/workflows/${id}/trigger`)
   },
 }

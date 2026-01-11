@@ -48,7 +48,13 @@ func initDB() (*gorm.DB, error) {
 		DisableForeignKeyConstraintWhenMigrating: true,
 		// 跳过默认事务（提升性能）
 		SkipDefaultTransaction: true,
+		// 禁用 RETURNING 子句（SQLite 驱动兼容性问题）
+		DisableAutomaticPing: false,
 	}
+
+	// 禁用 RETURNING 子句，避免 SQLite 扫描错误
+	// 参考: https://github.com/mattn/go-sqlite3/issues/804
+	gormConfig.SkipDefaultTransaction = true
 
 	// 配置日志级别
 	logLevel := logger.Silent

@@ -33,8 +33,8 @@ const saveSearchHistory = (history: string[]) => {
   }
 }
 
-const addToSearchHistory = (query: string) => {
-  if (!query.trim()) return
+const addToSearchHistory = (query: string): string[] => {
+  if (!query.trim()) return []
   const history = getSearchHistory()
   // 移除重复项
   const filtered = history.filter(q => q !== query)

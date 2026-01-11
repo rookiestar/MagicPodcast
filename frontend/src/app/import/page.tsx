@@ -49,6 +49,61 @@ export default function ImportPage() {
     })
   }, [logs, autoScroll])
 
+  // 从localStorage恢复状态（仅执行一次）
+  useEffect(() => {
+    const savedLogs = localStorage.getItem('syncLogs')
+    const savedSyncing = localStorage.getItem('syncing')
+    const savedImporting = localStorage.getItem('importing')
+
+    const restoredLogs: LogEntry[] = []
+
+    if (savedLogs) {
+      try {
+        const parsedLogs = JSON.parse(savedLogs)
+        restoredLogs.push(...parsedLogs)
+      } catch (e) {
+        console.error('Failed to parse saved logs:', e)
+      }
+    }
+
+    // 如果之前在同步中，添加提示
+    if (savedSyncing === 'true') {
+      restoredLogs.push({
+        id: Date.now().toString(),
+        type: 'info',
+        message: '⚠️ 页面已刷新，上次同步状态已丢失',
+        timestamp: new Date().toLocaleTimeString()
+      })
+    }
+
+    // 如果之前在导入中，添加提示
+    if (savedImporting === 'true') {
+      restoredLogs.push({
+        id: Date.now().toString(),
+        type: 'info',
+        message: '⚠️ 页面已刷新，导入需要重新开始',
+        timestamp: new Date().toLocaleTimeString()
+      })
+    }
+
+    if (restoredLogs.length > 0) {
+      setLogs(restoredLogs)
+    }
+  }, [])
+
+  // 保存状态到localStorage
+  useEffect(() => {
+    localStorage.setItem('syncLogs', JSON.stringify(logs))
+  }, [logs])
+
+  useEffect(() => {
+    localStorage.setItem('syncing', syncing.toString())
+  }, [syncing])
+
+  useEffect(() => {
+    localStorage.setItem('importing', importing.toString())
+  }, [importing])
+
   // 监听滚动事件
   useEffect(() => {
     const container = logContainerRef.current
@@ -177,14 +232,22 @@ export default function ImportPage() {
 
     addLog('info', '开始导入OPML（智能模式：本地匹配+在线同步）...')
 
+    let receivedSummary = false
+
     try {
       await syncApi.importOPMLSSE(file, (type, message, current, total) => {
         addLog(type as any, message, current, total)
-        // 注意：不需要在这里添加总结消息，后端会在ImportOPMLSSE结束时发送准确的成功总结
+        // 标记是否收到了summary消息
+        if (type === 'summary' || type === 'complete') {
+          receivedSummary = true
+        }
       })
 
-      // 导入完成后不再提示是否同步（已自动完成）
-      addLog('success', '✅ 导入完成！所有播客已自动同步')
+      // 如果导入成功完成但没有收到summary消息，添加一个默认的完成消息
+      if (!receivedSummary) {
+        console.log('[Import] 导入完成但未收到summary消息，添加默认完成消息')
+        addLog('success', '✅ 导入完成！所有播客已自动同步')
+      }
     } catch (error: any) {
       console.error('导入失败:', error)
 
@@ -212,10 +275,22 @@ export default function ImportPage() {
 
     addLog('info', '开始同步所有播客的元数据...')
 
+    let receivedSummary = false
+
     try {
       await syncApi.syncPodcastsMetadataSSE((type, message, current, total, data) => {
         addLog(type as any, message, current, total, data)
+        // 标记是否收到了summary消息
+        if (type === 'summary' || type === 'complete') {
+          receivedSummary = true
+        }
       })
+
+      // 如果同步成功完成但没有收到summary消息，添加一个默认的完成消息
+      if (!receivedSummary) {
+        console.log('[Sync] 同步完成但未收到summary消息，添加默认完成消息')
+        addLog('success', '✅ 同步已完成！')
+      }
     } catch (error: any) {
       console.error('同步失败:', error)
       addLog('error', '同步失败：' + (error.message || '未知错误'))
@@ -439,16 +514,6 @@ export default function ImportPage() {
                         全部 ({stats.total})
                       </button>
                       <button
-                        onClick={() => setFilter('errors')}
-                        className={`text-xs px-3 py-1 rounded border transition-colors min-w-[100px] ${
-                          filter === 'errors'
-                            ? 'bg-red-50 border-red-500 text-red-700'
-                            : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
-                        }`}
-                      >
-                        错误 ({stats.errors})
-                      </button>
-                      <button
                         onClick={() => setFilter('success')}
                         className={`text-xs px-3 py-1 rounded border transition-colors min-w-[100px] ${
                           filter === 'success'
@@ -457,6 +522,16 @@ export default function ImportPage() {
                         }`}
                       >
                         成功 ({stats.success})
+                      </button>
+                      <button
+                        onClick={() => setFilter('errors')}
+                        className={`text-xs px-3 py-1 rounded border transition-colors min-w-[100px] ${
+                          filter === 'errors'
+                            ? 'bg-red-50 border-red-500 text-red-700'
+                            : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        失败 ({stats.errors})
                       </button>
                       <button
                         onClick={() => setFilter('skips')}
@@ -489,6 +564,7 @@ export default function ImportPage() {
                           setLogs([])
                           setFilter('all')
                           setAutoScroll(true)
+                          localStorage.removeItem('syncLogs')
                         }}
                         className="text-xs text-gray-500 hover:text-gray-700"
                       >
