@@ -83,6 +83,58 @@ func (s *SearchService) Search(req SearchRequest) (*SearchResponse, error) {
 	}, nil
 }
 
+// isPureNumber 检查字符串是否为纯数字
+func isPureNumber(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// isStandaloneNumber 检查数字是否独立出现（被空格、标点包围，或在开头/结尾）
+func isStandaloneNumber(text, number string) bool {
+	lowerText := strings.ToLower(text)
+	lowerNumber := strings.ToLower(number)
+
+	// 查找所有出现位置
+	idx := 0
+	for {
+		pos := strings.Index(lowerText[idx:], lowerNumber)
+		if pos == -1 {
+			break
+		}
+		actualPos := idx + pos
+
+		// 检查这个位置的数字是否是独立的
+		before := ' '
+		after := ' '
+
+		if actualPos > 0 {
+			before = rune(lowerText[actualPos-1])
+		}
+		if actualPos+len(number) < len(lowerText) {
+			after = rune(lowerText[actualPos+len(number)])
+		}
+
+		// 如果前后都是非字母数字字符，则认为是独立的
+		beforeIsAlphaNum := (before >= 'a' && before <= 'z') || (before >= '0' && before <= '9')
+		afterIsAlphaNum := (after >= 'a' && after <= 'z') || (after >= '0' && after <= '9')
+
+		if !beforeIsAlphaNum && !afterIsAlphaNum {
+			return true
+		}
+
+		idx = actualPos + len(number)
+	}
+
+	return false
+}
+
 type podcastWithScore struct {
 	Podcast        models.Podcast
 	RelevanceScore float64
@@ -145,6 +197,15 @@ func (s *SearchService) searchPodcasts(req SearchRequest) ([]models.PodcastSearc
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].RelevanceScore > results[j].RelevanceScore
 	})
+
+	// 过滤低相关性结果（只保留得分大于0的结果）
+	filteredResults := make([]podcastWithScore, 0)
+	for _, r := range results {
+		if r.RelevanceScore > 0 {
+			filteredResults = append(filteredResults, r)
+		}
+	}
+	results = filteredResults
 
 	// 手动分页
 	offset := (req.Page - 1) * req.PageSize
@@ -232,6 +293,15 @@ func (s *SearchService) searchEpisodes(req SearchRequest) ([]models.EpisodeSearc
 		return results[i].RelevanceScore > results[j].RelevanceScore
 	})
 
+	// 过滤低相关性结果（只保留得分大于0的结果）
+	filteredResults := make([]episodeWithScore, 0)
+	for _, r := range results {
+		if r.RelevanceScore > 0 {
+			filteredResults = append(filteredResults, r)
+		}
+	}
+	results = filteredResults
+
 	// 手动分页
 	offset := (req.EpisodePage - 1) * req.EpisodePageSize
 	end := offset + req.EpisodePageSize
@@ -278,6 +348,9 @@ func (s *SearchService) calculatePodcastRelevance(title, author, description, ke
 	keywordLower := strings.ToLower(keyword)
 	var score float64
 
+	// 检查关键词是否为纯数字且较短（如"42"）
+	isShortNumber := isPureNumber(keyword) && len([]rune(keyword)) <= 3
+
 	// 标题匹配
 	titleLower := strings.ToLower(title)
 	if titleLower == keywordLower {
@@ -285,7 +358,15 @@ func (s *SearchService) calculatePodcastRelevance(title, author, description, ke
 	} else if strings.HasPrefix(titleLower, keywordLower) {
 		score += s.config.Weights.PodcastTitle * s.config.MatchMultipliers.Prefix
 	} else if strings.Contains(titleLower, keywordLower) {
-		score += s.config.Weights.PodcastTitle * s.config.MatchMultipliers.Contains
+		// 如果是短数字关键词，只有在标题中完整包含时才给分
+		if isShortNumber {
+			// 检查是否是独立的数字（被空格、标点包围，或在开头/结尾）
+			if isStandaloneNumber(titleLower, keywordLower) {
+				score += s.config.Weights.PodcastTitle * s.config.MatchMultipliers.Contains * 0.5
+			}
+		} else {
+			score += s.config.Weights.PodcastTitle * s.config.MatchMultipliers.Contains
+		}
 	}
 
 	// 作者匹配
@@ -295,18 +376,49 @@ func (s *SearchService) calculatePodcastRelevance(title, author, description, ke
 	} else if strings.HasPrefix(authorLower, keywordLower) {
 		score += s.config.Weights.Author * s.config.MatchMultipliers.Prefix
 	} else if strings.Contains(authorLower, keywordLower) {
-		score += s.config.Weights.Author * s.config.MatchMultipliers.Contains
+		if isShortNumber {
+			if isStandaloneNumber(authorLower, keywordLower) {
+				score += s.config.Weights.Author * s.config.MatchMultipliers.Contains * 0.5
+			}
+		} else {
+			score += s.config.Weights.Author * s.config.MatchMultipliers.Contains
+		}
 	}
 
 	// 简介匹配
 	descLower := strings.ToLower(description)
 	if strings.Contains(descLower, keywordLower) {
-		occurrences := strings.Count(descLower, keywordLower)
-		descScore := s.config.Weights.PodcastDesc * s.config.MatchMultipliers.Contains
-		if occurrences > 1 {
-			descScore *= (1 + float64(occurrences-1) * s.config.MatchMultipliers.Occurrence)
+		// 如果是短数字关键词，大幅降低描述匹配的权重
+		if isShortNumber {
+			if isStandaloneNumber(descLower, keywordLower) {
+				occurrences := strings.Count(descLower, keywordLower)
+				descScore := s.config.Weights.PodcastDesc * s.config.MatchMultipliers.Contains * 0.3
+				if occurrences > 1 {
+					descScore *= (1 + float64(occurrences-1) * s.config.MatchMultipliers.Occurrence)
+				}
+				score += descScore
+			}
+		} else {
+			occurrences := strings.Count(descLower, keywordLower)
+			descScore := s.config.Weights.PodcastDesc * s.config.MatchMultipliers.Contains
+			if occurrences > 1 {
+				descScore *= (1 + float64(occurrences-1) * s.config.MatchMultipliers.Occurrence)
+			}
+			score += descScore
 		}
-		score += descScore
+	}
+
+	// 改进：对完整关键词匹配给予额外加分
+	// 如果关键词是多字符且在内容中完整出现，给予额外权重
+	if len([]rune(keyword)) >= 2 {
+		// 检查是否在标题中完整出现
+		if strings.Contains(titleLower, keywordLower) && titleLower != keywordLower {
+			score += 0.3 // 标题包含完整关键词的额外加分
+		}
+		// 检查是否在作者中完整出现
+		if strings.Contains(authorLower, keywordLower) && authorLower != keywordLower {
+			score += 0.2 // 作者包含完整关键词的额外加分
+		}
 	}
 
 	return score
@@ -317,6 +429,9 @@ func (s *SearchService) calculateEpisodeRelevance(title, showNotes, keyword stri
 	keywordLower := strings.ToLower(keyword)
 	var score float64
 
+	// 检查关键词是否为纯数字且较短（如"42"）
+	isShortNumber := isPureNumber(keyword) && len([]rune(keyword)) <= 3
+
 	// 标题匹配
 	titleLower := strings.ToLower(title)
 	if titleLower == keywordLower {
@@ -324,18 +439,46 @@ func (s *SearchService) calculateEpisodeRelevance(title, showNotes, keyword stri
 	} else if strings.HasPrefix(titleLower, keywordLower) {
 		score += s.config.Weights.EpisodeTitle * s.config.MatchMultipliers.Prefix
 	} else if strings.Contains(titleLower, keywordLower) {
-		score += s.config.Weights.EpisodeTitle * s.config.MatchMultipliers.Contains
+		// 如果是短数字关键词，只有在标题中完整包含时才给分
+		if isShortNumber {
+			if isStandaloneNumber(titleLower, keywordLower) {
+				score += s.config.Weights.EpisodeTitle * s.config.MatchMultipliers.Contains * 0.5
+			}
+		} else {
+			score += s.config.Weights.EpisodeTitle * s.config.MatchMultipliers.Contains
+		}
 	}
 
 	// 内容匹配
 	notesLower := strings.ToLower(showNotes)
 	if strings.Contains(notesLower, keywordLower) {
-		occurrences := strings.Count(notesLower, keywordLower)
-		notesScore := s.config.Weights.EpisodeContent * s.config.MatchMultipliers.Contains
-		if occurrences > 1 {
-			notesScore *= (1 + float64(occurrences-1) * s.config.MatchMultipliers.Occurrence)
+		// 如果是短数字关键词，大幅降低内容匹配的权重
+		if isShortNumber {
+			if isStandaloneNumber(notesLower, keywordLower) {
+				occurrences := strings.Count(notesLower, keywordLower)
+				notesScore := s.config.Weights.EpisodeContent * s.config.MatchMultipliers.Contains * 0.3
+				if occurrences > 1 {
+					notesScore *= (1 + float64(occurrences-1) * s.config.MatchMultipliers.Occurrence)
+				}
+				score += notesScore
+			}
+		} else {
+			occurrences := strings.Count(notesLower, keywordLower)
+			notesScore := s.config.Weights.EpisodeContent * s.config.MatchMultipliers.Contains
+			if occurrences > 1 {
+				notesScore *= (1 + float64(occurrences-1) * s.config.MatchMultipliers.Occurrence)
+			}
+			score += notesScore
 		}
-		score += notesScore
+	}
+
+	// 改进：对完整关键词匹配给予额外加分
+	// 如果关键词是多字符且在内容中完整出现，给予额外权重
+	if len([]rune(keyword)) >= 2 {
+		// 检查是否在标题中完整出现
+		if strings.Contains(titleLower, keywordLower) && titleLower != keywordLower {
+			score += 0.3 // 标题包含完整关键词的额外加分
+		}
 	}
 
 	return score

@@ -219,10 +219,10 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
             </div>
             <button
               onClick={handleClose}
-              className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-xl"
+              className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-2xl leading-none text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition-colors"
               title="关闭"
             >
-              ✕
+              ×
             </button>
           </div>
 

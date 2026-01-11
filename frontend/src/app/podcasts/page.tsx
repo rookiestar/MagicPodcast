@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { podcastApi, tagApi } from '@/lib/api'
+import { stripHtml } from '@/lib/textUtils'
 import type { Podcast, Tag } from '@/types'
 import SearchSidebar from '@/components/SearchSidebar'
 
@@ -321,11 +322,11 @@ function PodcastCard({ podcast }: { podcast: Podcast }) {
           <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-2 line-clamp-2">
             {podcast.title}
           </h3>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
+          <p className="text-sm text-slate-700 dark:text-slate-300 mb-2">
             {podcast.author}
           </p>
-          <p className="text-sm text-slate-500 dark:text-slate-500 line-clamp-2">
-            {podcast.description}
+          <p className="text-sm text-slate-400 dark:text-slate-500 line-clamp-2">
+            {stripHtml(podcast.description, 80)}
           </p>
 
           {/* Tags - 新增 */}

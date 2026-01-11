@@ -182,13 +182,13 @@ export default function PodcastDetailPage() {
           <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg overflow-hidden">
             {/* Cover */}
             <div className="md:flex">
-              <div className="md:w-1/3">
-                <div className="aspect-square md:aspect-auto md:h-full bg-slate-200 dark:bg-slate-700 relative">
+              <div className="md:w-1/3 p-6">
+                <div className="aspect-square w-full bg-slate-200 dark:bg-slate-700 rounded-lg overflow-hidden">
                   {podcast.cover_url ? (
                     <img
                       src={podcast.cover_url}
                       alt={podcast.title}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain"
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-8xl">
