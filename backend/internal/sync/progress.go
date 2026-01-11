@@ -4,20 +4,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
+	"time"
 )
 
 // LogMessageType 日志消息类型
 type LogMessageType string
 
 const (
-	LogTypeUnknown   LogMessageType = "unknown"   // 未知类型
-	LogTypeInfo      LogMessageType = "info"      // 一般信息
-	LogTypeSuccess   LogMessageType = "success"   // 成功
-	LogTypeError     LogMessageType = "error"     // 错误
-	LogTypeProgress  LogMessageType = "progress"  // 进度
-	LogTypeSkipPaid  LogMessageType = "skip_paid" // 跳过付费播客
-	LogTypeSkipCert  LogMessageType = "skip_cert" // 跳过证书过期
-	LogTypeSkipOther LogMessageType = "skip_other"// 跳过其他原因
+	LogTypeUnknown    LogMessageType = "unknown"     // 未知类型
+	LogTypeInfo       LogMessageType = "info"        // 一般信息
+	LogTypeSuccess    LogMessageType = "success"     // 成功
+	LogTypeError      LogMessageType = "error"       // 错误
+	LogTypeProgress   LogMessageType = "progress"    // 进度
+	LogTypeSkipPaid   LogMessageType = "skip_paid"   // 跳过付费播客
+	LogTypeSkipCert   LogMessageType = "skip_cert"   // 跳过证书过期
+	LogTypeSkipNoUpd  LogMessageType = "skip_noupd"  // 跳过无更新
+	LogTypeSkipOther  LogMessageType = "skip_other"  // 跳过其他原因
 )
 
 // SkipReason 跳过原因
@@ -31,6 +34,7 @@ const (
 	SkipReasonDuplicate        SkipReason = "duplicate"         // 重复
 	SkipReasonAccessDenied     SkipReason = "access_denied"     // 访问拒绝
 	SkipReasonGeoBlocked       SkipReason = "geo_blocked"       // 地区限制
+	SkipReasonNoUpdate         SkipReason = "no_update"         // 无内容更新
 	SkipReasonOther            SkipReason = "other"             // 其他原因
 )
 
@@ -41,7 +45,21 @@ type ProgressReporter interface {
 	ReportError(message string)
 	ReportProgress(current, total int, message string)
 	ReportSkip(reason SkipReason, message string)
+	ReportSummary(summary *SyncSummary)
 	Close()
+}
+
+// SyncSummary 同步汇总信息
+type SyncSummary struct {
+	TotalPodcasts      int           `json:"total_podcasts"`       // 总播客数
+	SuccessPodcasts    int           `json:"success_podcasts"`     // 成功同步的播客数
+	FailedPodcasts     int           `json:"failed_podcasts"`      // 失败的播客数
+	SkippedPodcasts    int           `json:"skipped_podcasts"`     // 跳过的播客数
+	NoUpdatePodcasts   int           `json:"no_update_podcasts"`   // 无更新的播客数
+	TotalEpisodes      int           `json:"total_episodes"`       // 同步的总单集数
+	NewEpisodes        int           `json:"new_episodes"`         // 新增的单集数
+	UpdatedEpisodes    int           `json:"updated_episodes"`     // 更新的单集数
+	Duration           time.Duration `json:"duration"`             // 总耗时
 }
 
 // LogProgressReporter 使用log的进度报告器
@@ -84,6 +102,8 @@ func (r *LogProgressReporter) ReportSkip(reason SkipReason, message string) {
 		icon = "🚫"
 	case SkipReasonGeoBlocked:
 		icon = "🌍"
+	case SkipReasonNoUpdate:
+		icon = "✓"
 	default:
 		icon = "⏭️"
 	}
@@ -94,6 +114,42 @@ func (r *LogProgressReporter) Close() {
 	// Nothing to close for log reporter
 }
 
+func (r *LogProgressReporter) ReportSummary(summary *SyncSummary) {
+	fmt.Println("\n" + strings.Repeat("=", 60))
+	fmt.Println("📊 同步完成汇总")
+	fmt.Println(strings.Repeat("=", 60))
+	fmt.Printf("总播客数: %d\n", summary.TotalPodcasts)
+	fmt.Printf("✅ 成功: %d\n", summary.SuccessPodcasts)
+	fmt.Printf("❌ 失败: %d\n", summary.FailedPodcasts)
+	fmt.Printf("⏭️  跳过: %d\n", summary.SkippedPodcasts)
+	if summary.NoUpdatePodcasts > 0 {
+		fmt.Printf("  └─ 无更新: %d\n", summary.NoUpdatePodcasts)
+	}
+	if summary.TotalEpisodes > 0 || summary.NewEpisodes > 0 || summary.UpdatedEpisodes > 0 {
+		fmt.Println("\n📝 单集统计:")
+		fmt.Printf("  总处理: %d\n", summary.TotalEpisodes)
+		fmt.Printf("  新增: %d\n", summary.NewEpisodes)
+		fmt.Printf("  更新: %d\n", summary.UpdatedEpisodes)
+	}
+	fmt.Printf("⏱️  总耗时: %s\n", formatDuration(summary.Duration))
+	fmt.Println(strings.Repeat("=", 60))
+}
+
+// formatDuration 格式化时间间隔为人类可读格式
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%.0f秒", d.Seconds())
+	} else if d < time.Hour {
+		minutes := int(d.Minutes())
+		seconds := int(d.Seconds()) - minutes*60
+		return fmt.Sprintf("%d分%d秒", minutes, seconds)
+	} else {
+		hours := int(d.Hours())
+		minutes := int(d.Minutes()) - hours*60
+		return fmt.Sprintf("%d小时%d分", hours, minutes)
+	}
+}
+
 // SSEMessage SSE消息格式
 type SSEMessage struct {
 	Type    LogMessageType `json:"type"`
@@ -101,6 +157,7 @@ type SSEMessage struct {
 	Current int            `json:"current,omitempty"`
 	Total   int            `json:"total,omitempty"`
 	Reason  string         `json:"reason,omitempty"` // 跳过原因
+	Data    map[string]interface{} `json:"data,omitempty"` // 用于summary等复杂消息的额外数据
 }
 
 // SSEProgressReporter 使用Server-Sent Events的进度报告器
@@ -155,6 +212,8 @@ func (r *SSEProgressReporter) ReportSkip(reason SkipReason, message string) {
 		msgType = LogTypeSkipPaid
 	case SkipReasonCertificate:
 		msgType = LogTypeSkipCert
+	case SkipReasonNoUpdate:
+		msgType = LogTypeSkipNoUpd
 	default:
 		msgType = LogTypeSkipOther
 	}
@@ -179,4 +238,28 @@ func (r *SSEProgressReporter) send(msg SSEMessage) {
 func (r *SSEProgressReporter) Close() {
 	// 发送结束标记
 	fmt.Fprintf(r.writer, "data: [DONE]\n\n")
+}
+
+func (r *SSEProgressReporter) ReportSummary(summary *SyncSummary) {
+	// 发送汇总信息，包含详细的统计数据
+	r.send(SSEMessage{
+		Type:    "summary",
+		Message: fmt.Sprintf("同步完成！成功: %d, 失败: %d, 跳过: %d, 耗时: %s",
+			summary.SuccessPodcasts,
+			summary.FailedPodcasts,
+			summary.SkippedPodcasts,
+			formatDuration(summary.Duration),
+		),
+		Data: map[string]interface{}{
+			"total_podcasts":     summary.TotalPodcasts,
+			"success_podcasts":   summary.SuccessPodcasts,
+			"failed_podcasts":    summary.FailedPodcasts,
+			"skipped_podcasts":   summary.SkippedPodcasts,
+			"no_update_podcasts": summary.NoUpdatePodcasts,
+			"total_episodes":     summary.TotalEpisodes,
+			"new_episodes":       summary.NewEpisodes,
+			"updated_episodes":   summary.UpdatedEpisodes,
+			"duration":           formatDuration(summary.Duration),
+		},
+	})
 }

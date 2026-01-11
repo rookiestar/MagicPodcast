@@ -6,8 +6,8 @@ import { syncApi } from '@/lib/api'
 
 interface LogEntry {
   id: string
-  type: 'info' | 'success' | 'error' | 'progress' |
-       'skip_paid' | 'skip_cert' | 'skip_not_found' |
+  type: 'info' | 'success' | 'error' | 'progress' | 'summary' |
+       'skip_paid' | 'skip_cert' | 'skip_not_found' | 'skip_no_update' |
        'skip_access_denied' | 'skip_geo_blocked' |
        'skip_duplicate' | 'skip_invalid' | 'skip_other'
   message: string
@@ -15,6 +15,7 @@ interface LogEntry {
   current?: number
   total?: number
   reason?: string // 跳过原因
+  data?: any // summary数据
 }
 
 type TabType = 'import' | 'sync'
@@ -82,18 +83,36 @@ export default function ImportPage() {
     return true
   })
 
-  // 统计信息 - 使用useMemo确保实时更新
+  // 统计信息 - 优先使用summary消息，否则统计日志
   const stats = useMemo(() => {
+    // 查找最新的summary消息
+    const summaryLog = logs.filter(l => l.type === 'summary').pop()
+
+    if (summaryLog?.data) {
+      // 使用后端发送的准确统计数据
+      return {
+        total: summaryLog.data.total_podcasts || 0,
+        success: summaryLog.data.success_podcasts || 0,
+        errors: summaryLog.data.failed_podcasts || 0,
+        skips: summaryLog.data.skipped_podcasts || 0,
+        skipPaid: 0,
+        skipCert: 0,
+        skipNotFound: 0,
+        skipAccess: 0,
+        skipGeo: 0,
+        skipOther: 0,
+        skipNoUpdate: summaryLog.data.no_update_podcasts || 0,
+        duration: summaryLog.data.duration || '',
+        fromSummary: true, // 标记数据来自summary
+      }
+    }
+
+    // 降级：如果没有summary，统计日志（旧逻辑）
     const successLogs = logs.filter(l =>
       l.type === 'success' &&
       (l.message.includes('成功导入:') || l.message.includes('成功同步:')) &&
-      !l.message.includes('完成') // 排除总结消息
+      !l.message.includes('完成')
     )
-
-    // 调试：打印匹配到的成功日志
-    if (successLogs.length > 0) {
-      console.log('[Debug] 匹配到的成功日志:', successLogs.map(l => l.message))
-    }
 
     return {
       total: logs.filter(l =>
@@ -110,17 +129,21 @@ export default function ImportPage() {
       skipAccess: logs.filter(l => l.type === 'skip_access_denied').length,
       skipGeo: logs.filter(l => l.type === 'skip_geo_blocked').length,
       skipOther: logs.filter(l => l.type === 'skip_other' || l.type === 'skip_duplicate' || l.type === 'skip_invalid').length,
+      skipNoUpdate: logs.filter(l => l.type === 'skip_no_update').length,
+      fromSummary: false,
     }
   }, [logs])
 
-  const addLog = (type: 'info' | 'success' | 'error' | 'progress' | LogEntry['type'], message: string, current?: number, total?: number) => {
+  const addLog = (type: 'info' | 'success' | 'error' | 'progress' | LogEntry['type'], message: string, current?: number, total?: number, data?: any) => {
+    // 明确创建log对象，确保data字段被包含
     const newLog: LogEntry = {
       id: Date.now() + Math.random().toString(),
       type: type as LogEntry['type'],
-      message,
+      message: message,
       timestamp: new Date().toLocaleTimeString(),
-      current,
-      total,
+      ...(current !== undefined && { current }),
+      ...(total !== undefined && { total }),
+      ...(data !== undefined && { data }),
     }
 
     setLogs(prev => [...prev, newLog])
@@ -188,12 +211,10 @@ export default function ImportPage() {
     setLogs([])  // 清空日志
 
     addLog('info', '开始同步所有播客的元数据...')
-    console.log('[Debug] 清空日志，开始同步')
 
     try {
       await syncApi.syncPodcastsMetadataSSE((type, message, current, total, data) => {
-        console.log('[Debug] 收到消息:', { type, message, current, total, data })
-        addLog(type as any, message, current, total)
+        addLog(type as any, message, current, total, data)
       })
     } catch (error: any) {
       console.error('同步失败:', error)
@@ -208,9 +229,11 @@ export default function ImportPage() {
       case 'success': return '✅'
       case 'error': return '❌'
       case 'progress': return '⏳'
+      case 'summary': return '📊'
       case 'skip_paid': return '💰'
       case 'skip_cert': return '🔐'
       case 'skip_not_found': return '🔍'
+      case 'skip_no_update': return '✓'
       case 'skip_access_denied': return '🚫'
       case 'skip_geo_blocked': return '🌍'
       case 'skip_duplicate': return '🔄'
@@ -225,9 +248,11 @@ export default function ImportPage() {
       case 'success': return 'text-green-700'
       case 'error': return 'text-red-700'
       case 'progress': return 'text-blue-700'
+      case 'summary': return 'text-purple-700'
       case 'skip_paid': return 'text-yellow-700'
       case 'skip_cert': return 'text-orange-700'
       case 'skip_not_found': return 'text-gray-600'
+      case 'skip_no_update': return 'text-gray-500'
       case 'skip_access_denied': return 'text-red-600'
       case 'skip_geo_blocked': return 'text-purple-700'
       case 'skip_duplicate': return 'text-cyan-700'
@@ -242,6 +267,7 @@ export default function ImportPage() {
       case 'skip_paid': return '付费播客'
       case 'skip_cert': return '证书过期'
       case 'skip_not_found': return '不存在'
+      case 'skip_no_update': return '无更新'
       case 'skip_access_denied': return '访问拒绝'
       case 'skip_geo_blocked': return '地区限制'
       case 'skip_duplicate': return '重复'
@@ -474,18 +500,25 @@ export default function ImportPage() {
 
                 {/* 统计信息 */}
                 {(stats.errors > 0 || stats.success > 0 || stats.skips > 0) && (
-                  <div className="mb-3 text-xs text-gray-600">
-                    {stats.success > 0 && <span className="text-green-600 mr-3">✅ {stats.success} 个成功</span>}
-                    {stats.errors > 0 && <span className="text-red-600 mr-3">❌ {stats.errors} 个错误</span>}
+                  <div className="mb-3 text-xs text-gray-600 flex items-center flex-wrap gap-x-3 gap-y-1">
+                    {stats.fromSummary && stats.duration && (
+                      <span className="text-blue-600 font-medium">⏱️ {stats.duration}</span>
+                    )}
+                    <span className="text-gray-500">总计: {stats.total}</span>
+                    {stats.success > 0 && <span className="text-green-600">✅ {stats.success} 个成功</span>}
+                    {stats.errors > 0 && <span className="text-red-600">❌ {stats.errors} 个错误</span>}
                     {stats.skips > 0 && (
                       <span className="text-gray-600">
                         ⏭️ {stats.skips} 个跳过
-                        {stats.skips > 0 && (
-                          <span className="ml-2 text-gray-500">
+                        {!stats.fromSummary && (
+                          <span className="ml-1 text-gray-500">
                             (💰{stats.skipPaid} 🔐{stats.skipCert} 🔍{stats.skipNotFound} 🚫{stats.skipAccess} 🌍{stats.skipGeo} ⏭️{stats.skipOther})
                           </span>
                         )}
                       </span>
+                    )}
+                    {stats.skipNoUpdate > 0 && (
+                      <span className="text-gray-500">✓ {stats.skipNoUpdate} 个无更新</span>
                     )}
                   </div>
                 )}
@@ -509,7 +542,24 @@ export default function ImportPage() {
                         {log.type.startsWith('skip_') && (
                           <span className="font-semibold">[{getLogTypeLabel(log.type)}] </span>
                         )}
-                        {log.message}
+                        {log.type === 'summary' && log.data ? (
+                          // summary类型：显示详细的统计信息
+                          <span className="font-semibold">
+                            📊 同步完成！
+                            <br />
+                            总计: {log.data.total_podcasts} |
+                            成功: {log.data.success_podcasts} |
+                            失败: {log.data.failed_podcasts} |
+                            跳过: {log.data.skipped_podcasts}
+                            {log.data.no_update_podcasts > 0 && (
+                            <span> (无更新: {log.data.no_update_podcasts})</span>
+                            )}
+                            {log.data.duration && <span> | 耗时: {log.data.duration}</span>}
+                          </span>
+                        ) : (
+                          // 其他类型：显示原始消息
+                          log.message
+                        )}
                       </span>
                     </div>
                   ))}

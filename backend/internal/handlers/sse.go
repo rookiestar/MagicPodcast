@@ -153,6 +153,8 @@ func (r *SSEProgressReporter) ReportSkip(reason syncpkg.SkipReason, message stri
 		msgType = "skip_duplicate"
 	case syncpkg.SkipReasonInvalidFormat:
 		msgType = "skip_invalid"
+	case syncpkg.SkipReasonNoUpdate:
+		msgType = "skip_no_update"
 	default:
 		msgType = "skip_other"
 	}
@@ -185,6 +187,43 @@ func (r *SSEProgressReporter) sendWithType(msgType string, message string, reaso
 
 	fmt.Fprintf(r.writer, "data: %s\n\n", data)
 	r.flusher.Flush()
+}
+
+func (r *SSEProgressReporter) ReportSummary(summary *syncpkg.SyncSummary) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		log.Printf("[SSE] Skip ReportSummary (closed)")
+		return
+	}
+
+	// 构建汇总消息
+	summaryMsg := map[string]interface{}{
+		"type":             "summary",
+		"message":          fmt.Sprintf("同步完成！成功: %d, 失败: %d, 跳过: %d",
+			summary.SuccessPodcasts,
+			summary.FailedPodcasts,
+			summary.SkippedPodcasts),
+		"total_podcasts":   summary.TotalPodcasts,
+		"success_podcasts": summary.SuccessPodcasts,
+		"failed_podcasts":  summary.FailedPodcasts,
+		"skipped_podcasts": summary.SkippedPodcasts,
+		"no_update_podcasts": summary.NoUpdatePodcasts,
+		"total_episodes":   summary.TotalEpisodes,
+		"new_episodes":     summary.NewEpisodes,
+		"updated_episodes": summary.UpdatedEpisodes,
+		"duration":         summary.Duration.String(),
+		"timestamp":        time.Now().Format("15:04:05"),
+	}
+
+	data, _ := json.Marshal(summaryMsg)
+	fmt.Fprintf(r.writer, "data: %s\n\n", data)
+	r.flusher.Flush()
+
+	log.Printf("[SSE] ReportSummary: 总=%d 成功=%d 失败=%d 跳过=%d 无更新=%d",
+		summary.TotalPodcasts, summary.SuccessPodcasts, summary.FailedPodcasts,
+		summary.SkippedPodcasts, summary.NoUpdatePodcasts)
 }
 
 func (r *SSEProgressReporter) Close() {

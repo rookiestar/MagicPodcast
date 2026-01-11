@@ -1095,6 +1095,7 @@ func parseITunesDuration(duration string) int {
 // SyncPodcastsMetadataSSE 同步所有播客的元数据（SSE流式进度报告）
 // 这个函数会在线抓取每个播客的RSS feed，更新元数据字段（episode_count, newest_episode_date等）
 func (s *Service) SyncPodcastsMetadataSSE(reporter ProgressReporter) error {
+	startTime := time.Now()
 	log.Println("🚀 开始同步所有播客的元数据...")
 	reporter.Report("开始同步所有播客的元数据...")
 
@@ -1117,8 +1118,10 @@ func (s *Service) SyncPodcastsMetadataSSE(reporter ProgressReporter) error {
 
 	// 定义结果类型
 	type syncResult struct {
-		podcast *models.Podcast
-		err     error
+		podcast   *models.Podcast
+		err       error
+		retries   int
+		noUpdate  bool
 	}
 
 	// 使用worker pool并发处理
@@ -1134,10 +1137,51 @@ func (s *Service) SyncPodcastsMetadataSSE(reporter ProgressReporter) error {
 			defer wg.Done()
 			for podcast := range taskChan {
 				log.Printf("[Worker %d] 处理: %s", workerID, podcast.Title)
-				err := s.syncPodcastMetadata(podcast, reporter)
-				resultChan <- syncResult{
-					podcast: podcast,
-					err:     err,
+
+				// 带重试的同步逻辑
+				var lastErr error
+				var noUpdate bool
+				retries := 0
+
+				for retries <= DefaultRetryConfig.MaxRetries {
+					if retries > 0 {
+						log.Printf("[Worker %d] 重试 %d/%d: %s", workerID, retries, DefaultRetryConfig.MaxRetries, podcast.Title)
+						// 指数退避
+						delay := DefaultRetryConfig.InitialDelay * time.Duration(1<<uint(retries-1))
+						time.Sleep(delay)
+					}
+
+					err, noUpdateResult := s.syncPodcastMetadataWithUpdateCheck(podcast, reporter)
+					if err == nil {
+						// 成功
+						resultChan <- syncResult{
+							podcast:  podcast,
+							err:      nil,
+							retries:  retries,
+							noUpdate: noUpdateResult,
+						}
+						break
+					}
+
+					lastErr = err
+					noUpdate = noUpdateResult
+
+					// 检查是否是跳过类型的错误（不重试）
+					if shouldSkip, _, _ := feed.GetSkipReasonFromError(err); shouldSkip {
+						break
+					}
+
+					retries++
+				}
+
+				// 如果重试后仍然失败
+				if lastErr != nil {
+					resultChan <- syncResult{
+						podcast:  podcast,
+						err:      lastErr,
+						retries:  retries - 1,
+						noUpdate: noUpdate,
+					}
 				}
 			}
 		}(i)
@@ -1153,6 +1197,7 @@ func (s *Service) SyncPodcastsMetadataSSE(reporter ProgressReporter) error {
 	successCount := 0
 	failedCount := 0
 	skippedCount := 0
+	noUpdateCount := 0
 	current := 0
 
 	// 等待所有worker完成
@@ -1174,8 +1219,15 @@ func (s *Service) SyncPodcastsMetadataSSE(reporter ProgressReporter) error {
 				reporter.ReportSkip(reason, fmt.Sprintf("[%d/%d] %s - %s", current, total, podcast.Title, result.err.Error()))
 			} else {
 				failedCount++
-				reporter.ReportError(fmt.Sprintf("[%d/%d] %s - %s", current, total, podcast.Title, result.err.Error()))
+				retryMsg := ""
+				if result.retries > 0 {
+					retryMsg = fmt.Sprintf(" (重试%d次后失败)", result.retries)
+				}
+				reporter.ReportError(fmt.Sprintf("[%d/%d] %s - %s%s", current, total, podcast.Title, result.err.Error(), retryMsg))
 			}
+		} else if result.noUpdate {
+			noUpdateCount++
+			reporter.ReportSkip(SkipReasonNoUpdate, fmt.Sprintf("[%d/%d] %s - 无内容更新", current, total, podcast.Title))
 		} else {
 			successCount++
 			reporter.ReportSuccess(fmt.Sprintf("[%d/%d] 成功同步: %s", current, total, podcast.Title))
@@ -1187,11 +1239,109 @@ func (s *Service) SyncPodcastsMetadataSSE(reporter ProgressReporter) error {
 		}
 	}
 
-	// 发送最终结果
-	log.Printf("✅ 元数据同步完成: 成功=%d, 失败=%d, 跳过=%d", successCount, failedCount, skippedCount)
-	reporter.ReportSuccess(fmt.Sprintf("同步完成！成功: %d, 失败: %d, 跳过: %d", successCount, failedCount, skippedCount))
+	// 发送汇总信息
+	duration := time.Since(startTime)
+	summary := &SyncSummary{
+		TotalPodcasts:    total,
+		SuccessPodcasts:  successCount,
+		FailedPodcasts:   failedCount,
+		SkippedPodcasts:  skippedCount,
+		NoUpdatePodcasts: noUpdateCount,
+		Duration:         duration,
+	}
+	reporter.ReportSummary(summary)
+
+	log.Printf("✅ 元数据同步完成: 成功=%d, 失败=%d, 跳过=%d, 无更新=%d, 耗时=%s",
+		successCount, failedCount, skippedCount, noUpdateCount, formatDuration(duration))
 
 	return nil
+}
+
+// syncPodcastMetadataWithUpdateCheck 同步单个播客的元数据，并检测是否有更新
+func (s *Service) syncPodcastMetadataWithUpdateCheck(podcast *models.Podcast, reporter ProgressReporter) (error, bool) {
+	reporter.Report(fmt.Sprintf("正在抓取: %s", podcast.Title))
+
+	// 添加超时控制：每个播客最多30秒
+	resultChan := make(chan *gofeed.Feed, 1)
+	errChan := make(chan error, 1)
+
+	go func() {
+		// 在线抓取RSS feed（使用feedFetcher）
+		gofeed, err := s.feedFetcher.FetchFeed(podcast.FeedURL)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		resultChan <- gofeed
+	}()
+
+	// 等待结果或超时
+	select {
+	case gofeed := <-resultChan:
+		// 使用convertGofeedToModel提取元数据
+		updatedPodcast := s.convertGofeedToModel(gofeed, podcast.DataSource, podcast.FeedURL)
+
+		// 检测是否有更新
+		hasUpdate := false
+		var updateReasons []string
+
+		if updatedPodcast.EpisodeCount != podcast.EpisodeCount {
+			hasUpdate = true
+			updateReasons = append(updateReasons, fmt.Sprintf("episode_count: %d -> %d", podcast.EpisodeCount, updatedPodcast.EpisodeCount))
+		}
+
+		// 比较 NewestEpisodeDate - 使用 Equal() 方法而不是 != 操作符
+		if !updatedPodcast.NewestEpisodeDate.IsZero() {
+			if podcast.NewestEpisodeDate.IsZero() {
+				hasUpdate = true
+				updateReasons = append(updateReasons, fmt.Sprintf("newest_episode_date: zero -> %s", updatedPodcast.NewestEpisodeDate))
+			} else if !updatedPodcast.NewestEpisodeDate.Equal(podcast.NewestEpisodeDate) {
+				hasUpdate = true
+				updateReasons = append(updateReasons, fmt.Sprintf("newest_episode_date: %s -> %s", podcast.NewestEpisodeDate, updatedPodcast.NewestEpisodeDate))
+			}
+		}
+
+		if updatedPodcast.NewestEnclosureURL != podcast.NewestEnclosureURL {
+			hasUpdate = true
+			updateReasons = append(updateReasons, fmt.Sprintf("newest_enclosure_url changed"))
+		}
+
+		// Debug日志
+		if hasUpdate {
+			log.Printf("🔍 检测到更新: %s | 原因: %s", podcast.Title, strings.Join(updateReasons, ", "))
+		}
+
+		// 如果没有更新，返回特殊标记
+		if !hasUpdate {
+			log.Printf("✓ 无更新: %s", podcast.Title)
+			return nil, true
+		}
+
+		// 有更新，保存更新
+		updates := map[string]interface{}{
+			"episode_count":             updatedPodcast.EpisodeCount,
+			"newest_episode_date":       updatedPodcast.NewestEpisodeDate,
+			"newest_enclosure_url":      updatedPodcast.NewestEnclosureURL,
+			"newest_enclosure_duration": updatedPodcast.NewestEnclosureDuration,
+			"last_fetched_at":           time.Now(),
+			"fetch_error_count":         0,
+			"feed_url_valid":            true,
+		}
+
+		// 保存更新
+		if err := s.db.Model(podcast).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update podcast: %w", err), false
+		}
+
+		log.Printf("✅ 成功更新元数据: %s (episode_count=%d)", podcast.Title, updatedPodcast.EpisodeCount)
+		return nil, false
+
+	case err := <-errChan:
+		return fmt.Errorf("fetch feed failed: %w", err), false
+
+	case <-time.After(30 * time.Second):
+		return fmt.Errorf("fetch feed timeout after 30s"), false
+	}
 }
 
 // syncPodcastMetadata 同步单个播客的元数据

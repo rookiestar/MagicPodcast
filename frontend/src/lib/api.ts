@@ -528,10 +528,9 @@ export const syncApi = {
 
                       onProgress(type, message, current, total, data)
 
-                      // 只在收到真正的complete消息时才结束
-                      if (type === 'complete') {
+                      // 在收到summary或complete消息时结束（summary是最后一条有意义的消息）
+                      if (type === 'summary' || type === 'complete') {
                         const totalTime = Date.now() - startTime
-                        console.log('[Sync Metadata] 收到complete消息，总耗时:', totalTime + 'ms', '总消息数:', messageCount)
                         completed = true
                         resolve()
                         reader!.cancel()
