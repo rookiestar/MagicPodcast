@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { workflowApi, podcastApi } from '@/lib/api'
 import type { Workflow, Job, Podcast } from '@/types'
+import WorkflowFormModal from '@/components/workflows/WorkflowFormModal'
 
 type TabType = 'overview' | 'jobs' | 'config'
 
@@ -19,6 +20,7 @@ export default function WorkflowDetailPage() {
   const [activeTab, setActiveTab] = useState<TabType>('overview')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showEditModal, setShowEditModal] = useState(false)
 
   useEffect(() => {
     if (id) {
@@ -197,7 +199,7 @@ export default function WorkflowDetailPage() {
                 ▶ 立即执行
               </button>
               <button
-                onClick={() => alert('编辑功能即将推出')}
+                onClick={() => setShowEditModal(true)}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
               >
                 编辑
@@ -543,6 +545,19 @@ export default function WorkflowDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Edit Workflow Modal */}
+      {workflow && (
+        <WorkflowFormModal
+          isOpen={showEditModal}
+          onClose={() => setShowEditModal(false)}
+          onSuccess={() => {
+            fetchWorkflow()
+            setShowEditModal(false)
+          }}
+          workflow={workflow}
+        />
+      )}
     </main>
   )
 }

@@ -6,10 +6,10 @@ server:
   port: 8080
   # 运行模式: debug, release
   mode: debug
-  # 读取超时（秒）
-  read_timeout: 60
-  # 写入超时（秒）
-  write_timeout: 60
+  # 读取超时（秒）- 增加到10分钟以支持长时间SSE
+  read_timeout: 600
+  # 写入超时（秒）- 增加到10分钟以支持长时间SSE
+  write_timeout: 600
 
 database:
   # SQLite 数据库文件路径

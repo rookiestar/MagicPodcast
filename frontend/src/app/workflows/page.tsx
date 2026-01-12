@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { workflowApi } from '@/lib/api'
 import type { Workflow } from '@/types'
-import CreateWorkflowModal from '@/components/workflows/CreateWorkflowModal'
+import WorkflowFormModal from '@/components/workflows/WorkflowFormModal'
 
 export default function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<Workflow[]>([])
@@ -231,7 +231,7 @@ export default function WorkflowsPage() {
       </div>
 
       {/* Create Workflow Modal */}
-      <CreateWorkflowModal
+      <WorkflowFormModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onSuccess={() => {

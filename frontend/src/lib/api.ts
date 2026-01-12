@@ -615,23 +615,46 @@ export const syncApi = {
 
                   // 处理data消息
                   if (trimmedLine.startsWith('data: ')) {
+                    const dataContent = trimmedLine.slice(6).trim()
+
+                    // 检查是否是结束标记
+                    if (dataContent === '[DONE]') {
+                      console.log('[Sync Metadata] 收到[DONE]标记，同步完成')
+                      const totalTime = Date.now() - startTime
+                      console.log('[Sync Metadata] 总耗时:', totalTime + 'ms', '总消息数:', messageCount)
+                      completed = true
+                      resolve()
+                      reader!.cancel()
+                      return
+                    }
+
+                    // 处理JSON消息
                     try {
-                      const data = JSON.parse(trimmedLine.slice(6))
+                      const data = JSON.parse(dataContent)
                       const { type, message, current, total } = data
                       messageCount++
 
                       console.log('[Sync Metadata] 收到消息:', type, message?.substring(0, 50))
 
-                      onProgress(type, message, current, total, data)
+                      // 对summary消息，创建新对象传递（避免可能的引用问题）
+                      const dataToPass = type === 'summary' ? {
+                        total_podcasts: data.total_podcasts,
+                        success_podcasts: data.success_podcasts,
+                        failed_podcasts: data.failed_podcasts,
+                        skipped_podcasts: data.skipped_podcasts,
+                        no_update_podcasts: data.no_update_podcasts,
+                        total_episodes: data.total_episodes,
+                        new_episodes: data.new_episodes,
+                        updated_episodes: data.updated_episodes,
+                        duration: data.duration,
+                      } : data
 
-                      // 在收到summary或complete消息时结束（summary是最后一条有意义的消息）
-                      if (type === 'summary' || type === 'complete') {
-                        const totalTime = Date.now() - startTime
-                        console.log('[Sync Metadata] 收到summary/complete，总耗时:', totalTime + 'ms')
+                      onProgress(type, message, current, total, dataToPass)
+
+                      // 只在收到complete消息时准备结束，等待[DONE]标记
+                      if (type === 'success' && message && message.includes('同步完成')) {
+                        console.log('[Sync Metadata] 收到完成消息，等待[DONE]标记...')
                         completed = true
-                        resolve()
-                        reader!.cancel()
-                        return
                       }
                     } catch (e) {
                       console.error('[Sync Metadata] 解析SSE消息失败:', e, trimmedLine)
@@ -678,6 +701,120 @@ export const syncApi = {
           } else {
             reject(error)
           }
+        })
+    })
+  },
+
+  // 完整同步：元数据 + 单集（使用SSE流式响应）
+  syncPodcastsFullSSE: async (
+    onProgress: (type: string, message: string, current?: number, total?: number, data?: any) => void,
+    options?: {
+      metadataMode?: 'incremental' | 'full'
+      episodeMode?: 'incremental' | 'full' | 'smart'
+    }
+  ): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      console.log('[Sync Full] 开始完整同步（元数据 + 单集）')
+
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => {
+        console.error('[Sync Full] 同步超时（30分钟）')
+        controller.abort()
+        reject(new Error('同步超时（30分钟）'))
+      }, 30 * 60 * 1000)
+
+      const startTime = Date.now()
+      let messageCount = 0
+      let completed = false
+
+      fetch(`${API_URL}/api/v1/sync/podcasts/full`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          metadata_mode: options?.metadataMode || 'incremental',
+          episode_mode: options?.episodeMode || 'full',
+        }),
+        signal: controller.signal,
+      })
+        .then(response => {
+          clearTimeout(timeoutId)
+          if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+
+          const reader = response.body?.getReader()
+          const decoder = new TextDecoder()
+          if (!reader) throw new Error('Response body is null')
+
+          let buffer = ''
+
+          function readStream() {
+            reader!.read().then(({ done, value }) => {
+              if (done) {
+                if (messageCount > 0) resolve()
+                else reject(new Error('未收到任何同步消息'))
+                return
+              }
+
+              try {
+                buffer += decoder.decode(value, { stream: true })
+                const lines = buffer.split('\n')
+                buffer = lines.pop() || ''
+
+                for (const line of lines) {
+                  const trimmedLine = line.trim()
+                  if (!trimmedLine || trimmedLine.startsWith(':')) continue
+
+                  if (trimmedLine.startsWith('data:')) {
+                    messageCount++
+                    const data = trimmedLine.slice(5).trim()
+
+                    if (data === '[DONE]') {
+                      completed = true
+                      resolve()
+                      reader!.cancel()
+                      return
+                    }
+
+                    try {
+                      const parsed = JSON.parse(data)
+                      const { type, message, current, total } = parsed
+
+                      if (messageCount % 10 === 0 || type === 'summary' || type === 'error') {
+                        console.log(`[Sync Full] #${messageCount}:`, type, message?.substring(0, 30))
+                      }
+
+                      onProgress(type, message, current, total, parsed)
+
+                      if (type === 'success' && message && (message.includes('完整同步完成') || message.includes('同步完成！新增'))) {
+                        console.log('[Sync Full] 收到同步完成消息，关闭连接...')
+                        completed = true
+                        resolve()
+                        reader!.cancel()
+                        return
+                      }
+                    } catch (parseError) {
+                      console.error('[Sync Full] 解析消息失败:', parseError)
+                    }
+                  }
+                }
+
+                readStream()
+              } catch (error) {
+                if (messageCount > 0) resolve()
+                else reject(error)
+              }
+            }).catch(error => {
+              if (error.name === 'AbortError') reject(new Error('同步被取消'))
+              else if (messageCount > 0) resolve()
+              else reject(error)
+            })
+          }
+
+          readStream()
+        })
+        .catch(error => {
+          clearTimeout(timeoutId)
+          if (error.name === 'AbortError') reject(new Error('同步超时被取消'))
+          else reject(error)
         })
     })
   },
