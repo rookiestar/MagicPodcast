@@ -60,16 +60,24 @@ func (f *Fetcher) FetchFeedWithContext(ctx context.Context, feedURL string) (*go
 
 	// 使用gofeed的ParseURL，它会自动处理HTTP请求
 	// 注意：gofeed库本身不支持context，所以这里我们使用context作为超时控制的额外保障
-	done := make(chan *gofeed.Feed, 1)
-	errChan := make(chan error, 1)
+	type result struct {
+		feed *gofeed.Feed
+		err  error
+	}
+	resultChan := make(chan result, 1)
 
+	// 启动goroutine执行feed解析
+	parseComplete := make(chan struct{})
 	go func() {
+		defer close(parseComplete) // 标记goroutine已完成
 		feed, err := f.parser.ParseURL(feedURL)
-		if err != nil {
-			errChan <- err
-			return
+		select {
+		case resultChan <- result{feed, err}:
+			// 正常发送结果
+		case <-ctx.Done():
+			// context已取消，不需要发送结果（避免阻塞）
+			log.Printf("  ⚠️ Feed解析goroutine被取消: %s", feedURL)
 		}
-		done <- feed
 	}()
 
 	// 等待完成或context取消
@@ -77,16 +85,25 @@ func (f *Fetcher) FetchFeedWithContext(ctx context.Context, feedURL string) (*go
 	case <-ctx.Done():
 		duration := time.Since(startTime)
 		log.Printf("  ⏱️ HTTP请求超时/取消: %s (耗时: %v): %v", feedURL, duration, ctx.Err())
+		// 等待goroutine退出，但不阻塞太久
+		select {
+		case <-parseComplete:
+			// goroutine已经退出
+		case <-time.After(100 * time.Millisecond):
+			// 如果100ms后还没退出，记录警告但不等待
+			log.Printf("  ⚠️ ParseURL goroutine可能仍在运行: %s", feedURL)
+		}
 		return nil, ctx.Err()
-	case feed := <-done:
+	case res := <-resultChan:
+		if res.err != nil {
+			duration := time.Since(startTime)
+			log.Printf("  ❌ HTTP请求失败: %s (耗时: %v): %v", feedURL, duration, res.err)
+			return nil, WrapHTTPError(feedURL, res.err)
+		}
 		duration := time.Since(startTime)
 		log.Printf("  ✅ HTTP请求成功: %s (耗时: %v, 标题: %s, 单集数: %d)",
-			feedURL, duration, feed.Title, len(feed.Items))
-		return feed, nil
-	case err := <-errChan:
-		duration := time.Since(startTime)
-		log.Printf("  ❌ HTTP请求失败: %s (耗时: %v): %v", feedURL, duration, err)
-		return nil, WrapHTTPError(feedURL, err)
+			feedURL, duration, res.feed.Title, len(res.feed.Items))
+		return res.feed, nil
 	}
 }
 
