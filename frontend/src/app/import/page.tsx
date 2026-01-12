@@ -4,12 +4,26 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import { syncApi } from '@/lib/api'
 
+// 日志类型定义
+type LogType =
+  | 'info'
+  | 'success'
+  | 'error'
+  | 'progress'
+  | 'summary'
+  | 'skip_paid'
+  | 'skip_cert'
+  | 'skip_not_found'
+  | 'skip_no_update'
+  | 'skip_access_denied'
+  | 'skip_geo_blocked'
+  | 'skip_duplicate'
+  | 'skip_invalid'
+  | 'skip_other'
+
 interface LogEntry {
   id: string
-  type: 'info' | 'success' | 'error' | 'progress' | 'summary' |
-       'skip_paid' | 'skip_cert' | 'skip_not_found' | 'skip_no_update' |
-       'skip_access_denied' | 'skip_geo_blocked' |
-       'skip_duplicate' | 'skip_invalid' | 'skip_other'
+  type: LogType
   message: string
   timestamp: string
   current?: number
@@ -195,7 +209,7 @@ export default function ImportPage() {
     })
   }
 
-  const addLog = (type: 'info' | 'success' | 'error' | 'progress' | LogEntry['type'], message: string, current?: number, total?: number, data?: any) => {
+  const addLog = (type: LogType, message: string, current?: number, total?: number, data?: any) => {
     // 明确创建log对象，确保data字段被包含
     const newLog: LogEntry = {
       id: Date.now() + Math.random().toString(),
@@ -316,7 +330,7 @@ export default function ImportPage() {
 
     try {
       await syncApi.importOPMLSSE(file, (type, message, current, total) => {
-        addLog(type as any, message, current, total)
+        addLog(type as LogType, message, current, total)
         // 标记是否收到了summary消息
         if (type === 'summary' || type === 'complete') {
           receivedSummary = true
@@ -361,7 +375,7 @@ export default function ImportPage() {
     try {
       await syncApi.syncPodcastsMetadataSSE((type, message, current, total, data) => {
         console.log('[handleSync] 收到消息:', type, 'data参数:', data)
-        addLog(type as any, message, current, total, data)
+        addLog(type as LogType, message, current, total, data)
         // 标记是否收到了summary消息
         if (type === 'summary' || type === 'complete') {
           receivedSummary = true
