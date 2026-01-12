@@ -93,8 +93,7 @@ func SetupRouter() *gin.Engine {
 			sync.POST("/import-sse", syncHandler.ImportOPMLSSE)                // 导入OPML文件（SSE流式）
 			sync.POST("/subscriptions", syncHandler.SyncSubscriptions)         // 同步所有订阅
 			sync.GET("/status", syncHandler.GetSyncStatus)                     // 获取同步状态
-			sync.POST("/podcasts/metadata-sse", syncHandler.SyncPodcastsMetadataSSE) // 同步所有播客元数据（SSE流式）
-			sync.POST("/podcasts/full", syncHandler.SyncPodcastsFull)           // 完整同步：元数据 + 单集（SSE流式）
+			sync.POST("/podcasts/metadata-sse", syncHandler.SyncPodcastsMetadataSSE) // 同步所有播客元数据（SSE流式，已包含单集同步）
 			sync.POST("/episodes", syncHandler.SyncAllEpisodes)                // 同步所有podcast的episodes（SSE流式）
 			sync.POST("/episodes/sync", syncHandler.SyncAllEpisodesNonStreaming) // 同步所有podcast的episodes（非流式，用于定时任务）
 		}
