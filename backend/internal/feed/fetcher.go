@@ -1,6 +1,7 @@
 package feed
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"time"
@@ -30,28 +31,63 @@ func NewFetcher(timeout time.Duration) *Fetcher {
 		timeout: timeout,
 		httpClient: &http.Client{
 			Timeout: timeout,
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 10,
+				IdleConnTimeout:     90 * time.Second,
+				DisableKeepAlives:   false,
+				// 连接池配置
+				MaxConnsPerHost:     20, // 限制每个主机的最大连接数
+			},
 		},
 	}
 }
 
 // FetchFeed 抓取RSS Feed（完整）
 func (f *Fetcher) FetchFeed(feedURL string) (*gofeed.Feed, error) {
+	return f.FetchFeedWithContext(context.Background(), feedURL)
+}
+
+// FetchFeedWithContext 抓取RSS Feed（支持context和超时控制）
+func (f *Fetcher) FetchFeedWithContext(ctx context.Context, feedURL string) (*gofeed.Feed, error) {
 	startTime := time.Now()
 	log.Printf("  📡 HTTP GET: %s", feedURL)
 
+	// 检查context是否已取消
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
 	// 使用gofeed的ParseURL，它会自动处理HTTP请求
-	feed, err := f.parser.ParseURL(feedURL)
-	if err != nil {
+	// 注意：gofeed库本身不支持context，所以这里我们使用context作为超时控制的额外保障
+	done := make(chan *gofeed.Feed, 1)
+	errChan := make(chan error, 1)
+
+	go func() {
+		feed, err := f.parser.ParseURL(feedURL)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		done <- feed
+	}()
+
+	// 等待完成或context取消
+	select {
+	case <-ctx.Done():
+		duration := time.Since(startTime)
+		log.Printf("  ⏱️ HTTP请求超时/取消: %s (耗时: %v): %v", feedURL, duration, ctx.Err())
+		return nil, ctx.Err()
+	case feed := <-done:
+		duration := time.Since(startTime)
+		log.Printf("  ✅ HTTP请求成功: %s (耗时: %v, 标题: %s, 单集数: %d)",
+			feedURL, duration, feed.Title, len(feed.Items))
+		return feed, nil
+	case err := <-errChan:
 		duration := time.Since(startTime)
 		log.Printf("  ❌ HTTP请求失败: %s (耗时: %v): %v", feedURL, duration, err)
 		return nil, WrapHTTPError(feedURL, err)
 	}
-
-	duration := time.Since(startTime)
-	log.Printf("  ✅ HTTP请求成功: %s (耗时: %v, 标题: %s, 单集数: %d)",
-		feedURL, duration, feed.Title, len(feed.Items))
-
-	return feed, nil
 }
 
 // FetchFeedWithClient 使用自定义HTTP客户端抓取

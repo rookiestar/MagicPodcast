@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strconv"
@@ -211,50 +212,51 @@ func (s *Service) ImportOPMLWithProgressAndConfig(filePath string, reporter Prog
 
 	// 处理结果
 	for res := range resultChan {
-		mu.Lock()
-		processedCount++
+		func() {
+			// 使用匿名函数确保在panic时也能释放锁
+			mu.Lock()
+			defer mu.Unlock()
 
-		// 更新进度
-		reporter.ReportProgress(processedCount, len(outlines),
-			fmt.Sprintf("正在处理: %s", res.title))
+			processedCount++
 
-		if res.err != nil {
-			// 检查是否应该跳过（不报错）
-			if shouldSkip, reasonStr, description := feed.GetSkipReasonFromError(res.err); shouldSkip {
-				reason := SkipReason(reasonStr)
-				skippedCount++
-				reporter.ReportSkip(reason, fmt.Sprintf("%s - %s", res.title, description))
-				mu.Unlock()
-				continue
+			// 更新进度
+			reporter.ReportProgress(processedCount, len(outlines),
+				fmt.Sprintf("正在处理: %s", res.title))
+
+			if res.err != nil {
+				// 检查是否应该跳过（不报错）
+				if shouldSkip, reasonStr, description := feed.GetSkipReasonFromError(res.err); shouldSkip {
+					reason := SkipReason(reasonStr)
+					skippedCount++
+					reporter.ReportSkip(reason, fmt.Sprintf("%s - %s", res.title, description))
+					return
+				}
+
+				// 其他错误
+				result.FailedPodcasts++
+				result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", res.title, res.err))
+				reporter.ReportError(fmt.Sprintf("%s - %v", res.title, res.err))
+				return
 			}
 
-			// 其他错误
-			result.FailedPodcasts++
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", res.title, res.err))
-			reporter.ReportError(fmt.Sprintf("%s - %v", res.title, res.err))
-			mu.Unlock()
-			continue
-		}
+			// 统计数据来源
+			if res.podcast.DataSource == "podcastindex" {
+				fromPodcastIndex++
+			} else if res.podcast.DataSource == "rss" {
+				fromOnlineFetch++
+			}
 
-		// 统计数据来源
-		if res.podcast.DataSource == "podcastindex" {
-			fromPodcastIndex++
-		} else if res.podcast.DataSource == "rss" {
-			fromOnlineFetch++
-		}
+			// 保存到数据库
+			if err := s.saveOrUpdatePodcast(res.podcast); err != nil {
+				result.FailedPodcasts++
+				result.Errors = append(result.Errors, fmt.Sprintf("%s: save failed - %v", res.title, err))
+				reporter.ReportError(fmt.Sprintf("保存失败: %s - %v", res.title, err))
+				return
+			}
 
-		// 保存到数据库
-		if err := s.saveOrUpdatePodcast(res.podcast); err != nil {
-			result.FailedPodcasts++
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: save failed - %v", res.title, err))
-			reporter.ReportError(fmt.Sprintf("保存失败: %s - %v", res.title, err))
-			mu.Unlock()
-			continue
-		}
-
-		result.SuccessPodcasts++
-		reporter.ReportSuccess(fmt.Sprintf("成功导入: %s", res.title))
-		mu.Unlock()
+			result.SuccessPodcasts++
+			reporter.ReportSuccess(fmt.Sprintf("成功导入: %s", res.title))
+		}() // 立即执行匿名函数
 	}
 
 	duration := time.Since(startTime)
@@ -1304,13 +1306,23 @@ func (s *Service) SyncPodcastsMetadataSSE(reporter ProgressReporter) error {
 func (s *Service) syncPodcastMetadataWithUpdateCheck(podcast *models.Podcast, reporter ProgressReporter) (error, bool, *EpisodeSyncResult) {
 	reporter.Report(fmt.Sprintf("正在抓取: %s", podcast.Title))
 
-	// 添加超时控制：每个播客最多30秒
+	// 添加context超时控制：每个播客最多30秒
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel() // 确保context被取消，释放资源
+
 	resultChan := make(chan *gofeed.Feed, 1)
 	errChan := make(chan error, 1)
 
+	// 使用带context的goroutine，确保可以被取消
 	go func() {
-		// 在线抓取RSS feed（使用feedFetcher）
-		gofeed, err := s.feedFetcher.FetchFeed(podcast.FeedURL)
+		defer func() {
+			if r := recover(); r != nil {
+				errChan <- fmt.Errorf("panic in feed fetcher: %v", r)
+			}
+		}()
+
+		// 在线抓取RSS feed（使用feedFetcher，支持context）
+		gofeed, err := s.feedFetcher.FetchFeedWithContext(ctx, podcast.FeedURL)
 		if err != nil {
 			errChan <- err
 			return
@@ -1320,6 +1332,9 @@ func (s *Service) syncPodcastMetadataWithUpdateCheck(podcast *models.Podcast, re
 
 	// 等待结果或超时
 	select {
+	case <-ctx.Done():
+		// 超时或context取消
+		return fmt.Errorf("fetch feed timeout after 30s"), false, nil
 	case gofeed := <-resultChan:
 		// 使用convertGofeedToModel提取元数据
 		updatedPodcast := s.convertGofeedToModel(gofeed, podcast.DataSource, podcast.FeedURL)
@@ -1358,29 +1373,39 @@ func (s *Service) syncPodcastMetadataWithUpdateCheck(podcast *models.Podcast, re
 		// 因为单集可能比元数据更频繁地更新
 		var episodeResult *EpisodeSyncResult
 
-		if hasUpdate {
-			// 有更新，保存更新
-			updates := map[string]interface{}{
-				"episode_count":             updatedPodcast.EpisodeCount,
-				"newest_episode_date":       updatedPodcast.NewestEpisodeDate,
-				"newest_enclosure_url":      updatedPodcast.NewestEnclosureURL,
-				"newest_enclosure_duration": updatedPodcast.NewestEnclosureDuration,
-				"last_fetched_at":           time.Now(),
-				"fetch_error_count":         0,
-				"feed_url_valid":            true,
-			}
+		// 使用事务保护元数据更新，避免并发修改问题
+		err := s.db.Transaction(func(tx *gorm.DB) error {
+			if hasUpdate {
+				// 有更新，保存更新
+				updates := map[string]interface{}{
+					"episode_count":             updatedPodcast.EpisodeCount,
+					"newest_episode_date":       updatedPodcast.NewestEpisodeDate,
+					"newest_enclosure_url":      updatedPodcast.NewestEnclosureURL,
+					"newest_enclosure_duration": updatedPodcast.NewestEnclosureDuration,
+					"last_fetched_at":           time.Now(),
+					"fetch_error_count":         0,
+					"feed_url_valid":            true,
+				}
 
-			// 保存更新
-			if err := s.db.Model(podcast).Updates(updates).Error; err != nil {
-				return fmt.Errorf("failed to update podcast: %w", err), false, nil
-			}
+				// 使用事务内的更新
+				if err := tx.Model(podcast).Updates(updates).Error; err != nil {
+					return fmt.Errorf("failed to update podcast: %w", err)
+				}
 
-			log.Printf("✅ 成功更新元数据: %s (episode_count=%d)", podcast.Title, updatedPodcast.EpisodeCount)
-		} else {
-			log.Printf("✓ 元数据无更新: %s", podcast.Title)
-			// 更新last_fetched_at，表示已经检查过
-			now := time.Now()
-			s.db.Model(podcast).Update("last_fetched_at", now)
+				log.Printf("✅ 成功更新元数据: %s (episode_count=%d)", podcast.Title, updatedPodcast.EpisodeCount)
+			} else {
+				log.Printf("✓ 元数据无更新: %s", podcast.Title)
+				// 更新last_fetched_at，表示已经检查过
+				now := time.Now()
+				if err := tx.Model(podcast).Update("last_fetched_at", now).Error; err != nil {
+					return fmt.Errorf("failed to update last_fetched_at: %w", err)
+				}
+			}
+			return nil
+		})
+
+		if err != nil {
+			return fmt.Errorf("transaction failed: %w", err), false, nil
 		}
 
 		// 同步该podcast的单集（使用静默reporter，不输出详细日志）
