@@ -20,6 +20,23 @@ interface LogEntry {
 
 type TabType = 'import' | 'sync'
 
+// 统计数据接口
+interface SyncStats {
+  total: number
+  success: number
+  errors: number
+  skips: number
+  skipPaid: number
+  skipCert: number
+  skipNotFound: number
+  skipAccess: number
+  skipGeo: number
+  skipOther: number
+  skipNoUpdate: number
+  duration: string
+  fromSummary: boolean
+}
+
 export default function ImportPage() {
   const [activeTab, setActiveTab] = useState<TabType>('import')
 
@@ -34,6 +51,23 @@ export default function ImportPage() {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [filter, setFilter] = useState<'all' | 'errors' | 'success' | 'skips'>('all')
   const [autoScroll, setAutoScroll] = useState(true)
+
+  // 统计数据 - 独立的state
+  const [stats, setStats] = useState<SyncStats>({
+    total: 0,
+    success: 0,
+    errors: 0,
+    skips: 0,
+    skipPaid: 0,
+    skipCert: 0,
+    skipNotFound: 0,
+    skipAccess: 0,
+    skipGeo: 0,
+    skipOther: 0,
+    skipNoUpdate: 0,
+    duration: '',
+    fromSummary: false,
+  })
 
   const logContainerRef = useRef<HTMLDivElement>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
@@ -133,61 +167,33 @@ export default function ImportPage() {
   const filteredLogs = logs.filter(log => {
     if (filter === 'all') return true
     if (filter === 'errors') return log.type === 'error'
-    if (filter === 'success') return log.type === 'success'
+    if (filter === 'success') {
+      // success分类显示：success类型的消息，或者有单集更新的skip_no_update消息
+      return log.type === 'success' ||
+             (log.type === 'skip_no_update' && log.message && log.message.includes('单集:'))
+    }
     if (filter === 'skips') return log.type.startsWith('skip_')
     return true
   })
 
-  // 统计信息 - 优先使用summary消息，否则统计日志
-  const stats = useMemo(() => {
-    // 查找最新的summary消息
-    const summaryLog = logs.filter(l => l.type === 'summary').pop()
-
-    if (summaryLog?.data) {
-      // 使用后端发送的准确统计数据
-      return {
-        total: summaryLog.data.total_podcasts || 0,
-        success: summaryLog.data.success_podcasts || 0,
-        errors: summaryLog.data.failed_podcasts || 0,
-        skips: summaryLog.data.skipped_podcasts || 0,
-        skipPaid: 0,
-        skipCert: 0,
-        skipNotFound: 0,
-        skipAccess: 0,
-        skipGeo: 0,
-        skipOther: 0,
-        skipNoUpdate: summaryLog.data.no_update_podcasts || 0,
-        duration: summaryLog.data.duration || '',
-        fromSummary: true, // 标记数据来自summary
-      }
-    }
-
-    // 降级：如果没有summary，统计日志（旧逻辑）
-    const successLogs = logs.filter(l =>
-      l.type === 'success' &&
-      (l.message.includes('成功导入:') || l.message.includes('成功同步:')) &&
-      !l.message.includes('完成')
-    )
-
-    return {
-      total: logs.filter(l =>
-        (l.type === 'success' && (l.message.includes('成功导入:') || l.message.includes('成功同步:')) && !l.message.includes('完成')) ||
-        l.type === 'error' ||
-        l.type.startsWith('skip_')
-      ).length,
-      errors: logs.filter(l => l.type === 'error').length,
-      success: successLogs.length,
-      skips: logs.filter(l => l.type.startsWith('skip_')).length,
-      skipPaid: logs.filter(l => l.type === 'skip_paid').length,
-      skipCert: logs.filter(l => l.type === 'skip_cert').length,
-      skipNotFound: logs.filter(l => l.type === 'skip_not_found').length,
-      skipAccess: logs.filter(l => l.type === 'skip_access_denied').length,
-      skipGeo: logs.filter(l => l.type === 'skip_geo_blocked').length,
-      skipOther: logs.filter(l => l.type === 'skip_other' || l.type === 'skip_duplicate' || l.type === 'skip_invalid').length,
-      skipNoUpdate: logs.filter(l => l.type === 'skip_no_update').length,
+  // 重置统计数据
+  const resetStats = () => {
+    setStats({
+      total: 0,
+      success: 0,
+      errors: 0,
+      skips: 0,
+      skipPaid: 0,
+      skipCert: 0,
+      skipNotFound: 0,
+      skipAccess: 0,
+      skipGeo: 0,
+      skipOther: 0,
+      skipNoUpdate: 0,
+      duration: '',
       fromSummary: false,
-    }
-  }, [logs])
+    })
+  }
 
   const addLog = (type: 'info' | 'success' | 'error' | 'progress' | LogEntry['type'], message: string, current?: number, total?: number, data?: any) => {
     // 明确创建log对象，确保data字段被包含
@@ -196,9 +202,82 @@ export default function ImportPage() {
       type: type as LogEntry['type'],
       message: message,
       timestamp: new Date().toLocaleTimeString(),
-      ...(current !== undefined && { current }),
-      ...(total !== undefined && { total }),
-      ...(data !== undefined && { data }),
+    }
+
+    // 显式添加可选字段，避免条件展开的问题
+    if (current !== undefined) {
+      newLog.current = current
+    }
+    if (total !== undefined) {
+      newLog.total = total
+    }
+    if (data !== undefined) {
+      newLog.data = data
+    }
+
+    // 增量更新统计数据
+    setStats(prev => {
+      const newStats = { ...prev }
+
+      // 如果是summary消息，使用后端发送的准确统计
+      if (type === 'summary' && data) {
+        console.log('[addLog] 收到summary，更新stats:', data)
+        newStats.total = data.total_podcasts || 0
+        newStats.success = data.success_podcasts || 0
+        newStats.errors = data.failed_podcasts || 0
+        newStats.skips = data.skipped_podcasts || 0
+        newStats.skipNoUpdate = data.no_update_podcasts || 0
+        newStats.duration = data.duration || ''
+        newStats.fromSummary = true
+        return newStats
+      }
+
+      // 否则，根据消息类型增量更新
+      if (type === 'success') {
+        // 任何success消息都计入成功数
+        newStats.success++
+        newStats.total++
+        console.log('[addLog] success消息，stats+1:', message)
+      } else if (type === 'error') {
+        newStats.errors++
+        newStats.total++
+      } else if (type.startsWith('skip_')) {
+        newStats.skips++
+        newStats.total++
+
+        // 更新具体类型的跳过统计
+        switch (type) {
+          case 'skip_paid':
+            newStats.skipPaid++
+            break
+          case 'skip_cert':
+            newStats.skipCert++
+            break
+          case 'skip_not_found':
+            newStats.skipNotFound++
+            break
+          case 'skip_access_denied':
+            newStats.skipAccess++
+            break
+          case 'skip_geo_blocked':
+            newStats.skipGeo++
+            break
+          case 'skip_no_update':
+            newStats.skipNoUpdate++
+            break
+          default:
+            newStats.skipOther++
+            break
+        }
+      }
+
+      return newStats
+    })
+
+    // 如果是summary，打印保存的数据
+    if (type === 'summary') {
+      console.log('[addLog] 保存summary log, data字段:', newLog.data)
+      console.log('[addLog] 完整的log对象:', newLog)
     }
 
     setLogs(prev => [...prev, newLog])
@@ -229,6 +308,7 @@ export default function ImportPage() {
 
     setImporting(true)
     setLogs([])
+    resetStats()  // 重置统计数据
 
     addLog('info', '开始导入OPML（智能模式：本地匹配+在线同步）...')
 
@@ -272,6 +352,7 @@ export default function ImportPage() {
   const handleSync = async () => {
     setSyncing(true)
     setLogs([])  // 清空日志
+    resetStats()  // 重置统计数据
 
     addLog('info', '开始同步所有播客的元数据...')
 
@@ -279,6 +360,7 @@ export default function ImportPage() {
 
     try {
       await syncApi.syncPodcastsMetadataSSE((type, message, current, total, data) => {
+        console.log('[handleSync] 收到消息:', type, 'data参数:', data)
         addLog(type as any, message, current, total, data)
         // 标记是否收到了summary消息
         if (type === 'summary' || type === 'complete') {
@@ -623,13 +705,10 @@ export default function ImportPage() {
                           <span className="font-semibold">
                             📊 同步完成！
                             <br />
-                            总计: {log.data.total_podcasts} |
-                            成功: {log.data.success_podcasts} |
-                            失败: {log.data.failed_podcasts} |
-                            跳过: {log.data.skipped_podcasts}
-                            {log.data.no_update_podcasts > 0 && (
-                            <span> (无更新: {log.data.no_update_podcasts})</span>
-                            )}
+                            播客统计: 总计 {log.data.total_podcasts} | 成功 {log.data.success_podcasts} | 失败 {log.data.failed_podcasts} | 跳过 {log.data.skipped_podcasts}
+                            {log.data.no_update_podcasts > 0 && <span> (无更新: {log.data.no_update_podcasts})</span>}
+                            <br />
+                            单集统计: 总处理 {log.data.total_episodes || 0} | 新增 {log.data.new_episodes || 0} | 更新 {log.data.updated_episodes || 0}
                             {log.data.duration && <span> | 耗时: {log.data.duration}</span>}
                           </span>
                         ) : (

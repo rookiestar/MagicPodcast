@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -162,13 +163,24 @@ type SSEMessage struct {
 
 // SSEProgressReporter 使用Server-Sent Events的进度报告器
 type SSEProgressReporter struct {
-	writer io.Writer
+	writer         io.Writer
+	flusher        http.Flusher
+	lastSendTime   time.Time
+	messageCounter int // 消息计数器，用于节流
 }
 
 func NewSSEProgressReporter(writer io.Writer) *SSEProgressReporter {
-	return &SSEProgressReporter{
-		writer: writer,
+	reporter := &SSEProgressReporter{
+		writer:       writer,
+		lastSendTime: time.Now(),
 	}
+
+	// 尝试获取Flusher接口（用于立即发送数据）
+	if flusher, ok := writer.(http.Flusher); ok {
+		reporter.flusher = flusher
+	}
+
+	return reporter
 }
 
 func (r *SSEProgressReporter) Report(message string) {
@@ -226,24 +238,117 @@ func (r *SSEProgressReporter) ReportSkip(reason SkipReason, message string) {
 }
 
 func (r *SSEProgressReporter) send(msg SSEMessage) {
+	// 先截断过长的消息以防止SSE传输问题
+	const maxMessageLength = 500
+	if len(msg.Message) > maxMessageLength {
+		msg.Message = msg.Message[:maxMessageLength-3] + "..."
+	}
+
 	data, err := json.Marshal(msg)
 	if err != nil {
+		// JSON序列化失败时，尝试发送简单的错误消息
+		fmt.Fprintf(r.writer, "data: {\"type\":\"error\",\"message\":\"Failed to marshal progress message\"}\n\n")
+		if r.flusher != nil {
+			r.flusher.Flush()
+		}
+		return
+	}
+
+	// 检查序列化后的总大小（包括"data: "前缀和"\n\n"后缀）
+	const maxTotalSize = 4000
+	const prefixAndSuffix = len("data: ") + len("\n\n")
+
+	if len(data)+prefixAndSuffix > maxTotalSize {
+		// 如果JSON太长，首先尝试移除Data字段
+		if msg.Data != nil {
+			msg.Data = nil
+			data, _ = json.Marshal(msg)
+		}
+
+		// 再次检查
+		if len(data)+prefixAndSuffix > maxTotalSize {
+			// 如果还是太长，尝试只保留消息类型和截断的消息
+			truncatedMsg := msg.Message
+			if len(truncatedMsg) > 100 {
+				truncatedMsg = truncatedMsg[:97] + "..."
+			}
+			simpleMsg := SSEMessage{
+				Type:    msg.Type,
+				Message: truncatedMsg,
+			}
+			data, _ = json.Marshal(simpleMsg)
+		}
+
+		// 最后检查
+		if len(data)+prefixAndSuffix > maxTotalSize {
+			// 如果还是太长，只保留类型
+			minimalMsg := SSEMessage{
+				Type:    msg.Type,
+				Message: "...",
+			}
+			data, _ = json.Marshal(minimalMsg)
+		}
+	}
+
+	// 增加消息计数器
+	r.messageCounter++
+
+	// 节流：对于某些高频消息，跳过部分发送
+	// 更激进的节流策略
+	if msg.Type == LogTypeSuccess && msg.Message != "" {
+		// 检查是否是"新增: 0, 更新: X"这种消息
+		if strings.Contains(msg.Message, "新增: 0, 更新:") && !strings.Contains(msg.Message, "完成") {
+			// 这种消息太多，每10条只发1条（之前是5）
+			if r.messageCounter%10 != 0 {
+				return
+			}
+		}
+	}
+
+	// 对于skip消息也进行节流（每3条发1条）
+	if (msg.Type == LogTypeSkipNoUpd || msg.Type == LogTypeSkipOther) && r.messageCounter%3 != 0 {
 		return
 	}
 
 	// SSE格式: "data: <json>\n\n"
-	fmt.Fprintf(r.writer, "data: %s\n\n", string(data))
+	// 使用安全的写入方式，检查写入错误
+	_, writeErr := fmt.Fprintf(r.writer, "data: %s\n\n", string(data))
+	if writeErr != nil {
+		// 写入失败时静默返回，不记录日志（避免日志爆炸）
+		return
+	}
+
+	// 立即刷新缓冲区，确保数据发送到客户端
+	if r.flusher != nil {
+		r.flusher.Flush()
+	}
+
+	// 更新最后发送时间
+	r.lastSendTime = time.Now()
+
+	// 如果发送速度过快，添加延迟以避免压垮客户端
+	// 每发送20条消息，暂停10ms
+	if r.messageCounter%20 == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func (r *SSEProgressReporter) Close() {
 	// 发送结束标记
-	fmt.Fprintf(r.writer, "data: [DONE]\n\n")
+	if _, err := fmt.Fprintf(r.writer, "data: [DONE]\n\n"); err != nil {
+		fmt.Printf("[ERROR] Failed to send SSE close message: %v\n", err)
+	}
+
+	// 立即刷新
+	if r.flusher != nil {
+		r.flusher.Flush()
+	}
 }
 
 func (r *SSEProgressReporter) ReportSummary(summary *SyncSummary) {
-	// 发送汇总信息，包含详细的统计数据
-	r.send(SSEMessage{
-		Type:    "summary",
+	// 创建基础消息
+	msg := SSEMessage{
+		Type: "summary",
 		Message: fmt.Sprintf("同步完成！成功: %d, 失败: %d, 跳过: %d, 耗时: %s",
 			summary.SuccessPodcasts,
 			summary.FailedPodcasts,
@@ -261,5 +366,97 @@ func (r *SSEProgressReporter) ReportSummary(summary *SyncSummary) {
 			"updated_episodes":   summary.UpdatedEpisodes,
 			"duration":           formatDuration(summary.Duration),
 		},
-	})
+	}
+
+	// 先截断消息文本
+	const maxMessageLength = 200
+	if len(msg.Message) > maxMessageLength {
+		msg.Message = msg.Message[:maxMessageLength-3] + "..."
+	}
+
+	// 尝试序列化并检查大小
+	data, err := json.Marshal(msg)
+	if err != nil {
+		// JSON序列化失败，发送简单错误
+		fmt.Fprintf(r.writer, "data: {\"type\":\"error\",\"message\":\"Failed to marshal summary\"}\n\n")
+		return
+	}
+
+	// 检查序列化后的总大小（包括"data: "前缀和"\n\n"后缀）
+	const maxTotalSize = 4000
+	const prefixAndSuffix = len("data: ") + len("\n\n")
+
+	if len(data)+prefixAndSuffix > maxTotalSize {
+		// 如果太大，移除Data字段，只保留基本统计信息
+		msg.Data = nil
+		msg.Message = fmt.Sprintf("同步完成！成功: %d, 失败: %d, 跳过: %d",
+			summary.SuccessPodcasts,
+			summary.FailedPodcasts,
+			summary.SkippedPodcasts,
+		)
+
+		data, _ = json.Marshal(msg)
+
+		// 再次检查
+		if len(data)+prefixAndSuffix > maxTotalSize {
+			// 如果还是太大，进一步截断消息
+			msg.Message = "同步完成"
+			data, _ = json.Marshal(msg)
+		}
+	}
+
+	// 安全写入
+	if _, writeErr := fmt.Fprintf(r.writer, "data: %s\n\n", string(data)); writeErr != nil {
+		fmt.Printf("[ERROR] Failed to write SSE summary: %v\n", writeErr)
+	}
+
+	// 立即刷新
+	if r.flusher != nil {
+		r.flusher.Flush()
+	}
+
+	// 更新最后发送时间
+	r.lastSendTime = time.Now()
+}
+
+// SilentProgressReporter 静默的进度报告器（用于单集同步，不输出详细日志）
+type SilentProgressReporter struct {
+	parentReporter ProgressReporter // 父reporter，用于汇总报告
+}
+
+func NewSilentProgressReporter(parent ProgressReporter) *SilentProgressReporter {
+	return &SilentProgressReporter{
+		parentReporter: parent,
+	}
+}
+
+func (r *SilentProgressReporter) Report(message string) {
+	// 静默，不输出
+}
+
+func (r *SilentProgressReporter) ReportSuccess(message string) {
+	// 静默，不输出
+}
+
+func (r *SilentProgressReporter) ReportError(message string) {
+	// 静默，不输出
+}
+
+func (r *SilentProgressReporter) ReportProgress(current, total int, message string) {
+	// 静默，不输出
+}
+
+func (r *SilentProgressReporter) ReportSkip(reason SkipReason, message string) {
+	// 静默，不输出
+}
+
+func (r *SilentProgressReporter) ReportSummary(summary *SyncSummary) {
+	// 将汇总报告传递给父reporter
+	if r.parentReporter != nil {
+		r.parentReporter.ReportSummary(summary)
+	}
+}
+
+func (r *SilentProgressReporter) Close() {
+	// Nothing to close
 }

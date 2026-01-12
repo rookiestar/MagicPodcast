@@ -95,7 +95,11 @@ func (r *SSEProgressReporter) send(msgType string, message string) {
 	}
 
 	data, _ := json.Marshal(msg)
-	fmt.Fprintf(r.writer, "data: %s\n\n", data)
+	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
+		log.Printf("[SSE] Write error: %v", err)
+		r.closed = true
+		return
+	}
 	r.flusher.Flush()
 }
 
@@ -131,7 +135,11 @@ func (r *SSEProgressReporter) ReportProgress(current, total int, message string)
 	}
 
 	data, _ := json.Marshal(msg)
-	fmt.Fprintf(r.writer, "data: %s\n\n", data)
+	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
+		log.Printf("[SSE] Write error in ReportProgress: %v", err)
+		r.closed = true
+		return
+	}
 	r.flusher.Flush()
 }
 
@@ -185,7 +193,11 @@ func (r *SSEProgressReporter) sendWithType(msgType string, message string, reaso
 		"reason":    string(reason),
 	})
 
-	fmt.Fprintf(r.writer, "data: %s\n\n", data)
+	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
+		log.Printf("[SSE] Write error in sendWithType: %v", err)
+		r.closed = true
+		return
+	}
 	r.flusher.Flush()
 }
 
@@ -218,7 +230,11 @@ func (r *SSEProgressReporter) ReportSummary(summary *syncpkg.SyncSummary) {
 	}
 
 	data, _ := json.Marshal(summaryMsg)
-	fmt.Fprintf(r.writer, "data: %s\n\n", data)
+	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
+		log.Printf("[SSE] Write error in ReportSummary: %v", err)
+		r.closed = true
+		return
+	}
 	r.flusher.Flush()
 
 	log.Printf("[SSE] ReportSummary: 总=%d 成功=%d 失败=%d 跳过=%d 无更新=%d",
@@ -319,6 +335,22 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 // SyncPodcastsMetadataSSE 同步所有播客的元数据（SSE流式响应）
 // POST /api/v1/sync/podcasts/metadata-sse
 func (h *SyncHandler) SyncPodcastsMetadataSSE(c *gin.Context) {
+	// 添加panic恢复机制
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("❌ 元数据同步发生panic: %v", r)
+			// 尝试发送错误消息到客户端
+			errorMsg := SSEProgressMessage{
+				Type:      "error",
+				Message:   "同步过程中发生内部错误",
+				Timestamp: time.Now().Format("15:04:05"),
+			}
+			errorData, _ := json.Marshal(errorMsg)
+			fmt.Fprintf(c.Writer, "data: %s\n\n", errorData)
+			c.Writer.(http.Flusher).Flush()
+		}
+	}()
+
 	// 创建SSE reporter
 	reporter := NewSSEProgressReporter(c)
 	defer reporter.Close()
@@ -335,15 +367,9 @@ func (h *SyncHandler) SyncPodcastsMetadataSSE(c *gin.Context) {
 
 	log.Printf("[SSE] 同步元数据成功")
 
-	// 发送完成消息
-	resultMsg := SSEProgressMessage{
-		Type:      "complete",
-		Message:   "元数据同步完成",
-		Timestamp: time.Now().Format("15:04:05"),
-	}
-	resultData, _ := json.Marshal(resultMsg)
-	fmt.Fprintf(c.Writer, "data: %s\n\n", resultData)
+	// 发送结束标记
+	fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
 	c.Writer.(http.Flusher).Flush()
 
-	log.Printf("[SSE] 已发送complete消息")
+	log.Printf("[SSE] 已完成元数据同步")
 }
