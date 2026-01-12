@@ -14,7 +14,7 @@ class Logger {
     this.prefix = prefix
   }
 
-  private log(level: LogLevel, ...args: any[]) {
+  private logMessage(level: LogLevel, ...args: any[]) {
     if (isDevelopment) {
       const message = this.prefix ? `[${this.prefix}]` : ''
       console[level](message, ...args)
@@ -22,15 +22,15 @@ class Logger {
   }
 
   log(...args: any[]) {
-    this.log('log', ...args)
+    this.logMessage('log', ...args)
   }
 
   info(...args: any[]) {
-    this.log('info', ...args)
+    this.logMessage('info', ...args)
   }
 
   warn(...args: any[]) {
-    this.log('warn', ...args)
+    this.logMessage('warn', ...args)
   }
 
   error(...args: any[]) {
