@@ -106,3 +106,7 @@ backend/test_*.go
 backend/test_sse.sh
 # Unused modules
 backend/internal/scraper/
+
+# Compiled Go binaries
+backend/magicpodcast-api
+backend/*/magicpodcast-api
