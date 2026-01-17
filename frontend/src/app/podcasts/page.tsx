@@ -7,6 +7,7 @@ import { stripHtml } from '@/lib/textUtils'
 import { getRelativeTime, isRecentlyUpdated } from '@/lib/timeUtils'
 import type { Podcast, Tag } from '@/types'
 import SearchSidebar from '@/components/SearchSidebar'
+import PodcastCover from '@/components/podcasts/PodcastCover'
 
 const PAGE_SIZE = 15 // 默认每页15个（5行×3列）
 
@@ -334,8 +335,14 @@ export default function PodcastsPage() {
             </div>
 
             <div className="grid grid-cols-5 gap-6">
-              {podcasts.map((podcast) => (
-                <PodcastCard key={podcast.id} podcast={podcast} sortBy={sortBy} />
+              {podcasts.map((podcast, index) => (
+                <PodcastCard
+                  key={podcast.id}
+                  podcast={podcast}
+                  sortBy={sortBy}
+                  index={index}
+                  priority={index < 6 ? 'high' : index < 15 ? 'medium' : 'low'}
+                />
               ))}
             </div>
 
@@ -366,7 +373,17 @@ export default function PodcastsPage() {
   )
 }
 
-function PodcastCard({ podcast, sortBy }: { podcast: Podcast; sortBy: string }) {
+function PodcastCard({
+  podcast,
+  sortBy,
+  index = 0,
+  priority = 'medium'
+}: {
+  podcast: Podcast
+  sortBy: string
+  index?: number
+  priority?: 'high' | 'medium' | 'low'
+}) {
   // 最多显示3个标签
   const displayTags = podcast.tags?.slice(0, 3) || []
   const remainingTags = (podcast.tags?.length || 0) - 3
@@ -378,33 +395,19 @@ function PodcastCard({ podcast, sortBy }: { podcast: Podcast; sortBy: string }) 
   return (
     <Link href={`/podcasts/${podcast.id}${sortBy ? `?sort_by=${sortBy}` : ''}`}>
       <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer h-full flex flex-col">
-        {/* Cover Image */}
-        <div className="aspect-square bg-slate-200 relative">
-          {podcast.cover_url ? (
-            <img
-              src={podcast.cover_url}
-              alt={podcast.title}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                // 图片加载失败时显示占位符
-                e.currentTarget.style.display = 'none'
-                const placeholder = e.currentTarget.parentElement?.querySelector('[data-placeholder]')
-                if (placeholder) placeholder.classList.remove('hidden')
-              }}
-            />
-          ) : null}
-          {/* 占位符：当没有封面或图片加载失败时显示 */}
-          <div
-            data-placeholder
-            className={`${podcast.cover_url ? 'hidden' : ''} w-full h-full flex flex-col items-center justify-center bg-slate-200`}
-          >
-            <div className="text-5xl text-slate-400">🎧</div>
-          </div>
+        {/* Cover Image - 使用 PodcastCover 组件 */}
+        <div className="relative">
+          <PodcastCover
+            coverUrl={podcast.cover_url}
+            title={podcast.title}
+            index={index}
+            priority={priority}
+          />
 
           {/* 新更新标识 - 右下角 */}
           {recentlyUpdated && (
-            <div className="absolute bottom-0 right-0 m-2">
-              <span className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-white text-slate-800 ">
+            <div className="absolute bottom-0 right-0 m-2 z-30">
+              <span className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-white text-slate-800">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-600" />
                 新更新
               </span>
