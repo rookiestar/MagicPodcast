@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import type { Episode } from '@/types'
 import RichText from '@/components/RichText'
+import { imageLoadQueue } from '@/lib/imageLoader'
 
 interface EpisodeCardProps {
   episode: Episode
@@ -16,32 +17,52 @@ export default function EpisodeCard({ episode, podcastCover, index = 0, priority
   const [imageLoaded, setImageLoaded] = useState(false)
   const [imageError, setImageError] = useState(false)
   const imgRef = useRef<HTMLImageElement>(null)
+  const taskIdRef = useRef<string>(`episode-${episode.id}-${Date.now()}-${Math.random()}`)
 
   const coverImage = episode.image_url || podcastCover
 
-  // 根据优先级计算加载延迟
-  const getLoadDelay = () => {
-    switch (priority) {
-      case 'high': return 0
-      case 'medium': return index >= 3 ? 200 : 0
-      case 'low': return index >= 10 ? 500 : 0
-      default: return 0
-    }
-  }
-
-  // 图片延迟加载
+  // 使用队列加载图片
   useEffect(() => {
-    if (!coverImage || !imgRef.current) return
+    if (!coverImage || !imgRef.current || imageLoaded || imageError) return
+
+    // 根据优先级计算加载延迟
+    const getLoadDelay = () => {
+      switch (priority) {
+        case 'high': return 0
+        case 'medium': return index >= 3 ? 200 : 0
+        case 'low': return index >= 10 ? 500 : 0
+        default: return 0
+      }
+    }
 
     const delay = getLoadDelay()
+    const taskId = taskIdRef.current
+
+    // 延迟后加入加载队列
     const timeoutId = setTimeout(() => {
       if (imgRef.current && !imageLoaded && !imageError) {
-        imgRef.current.src = coverImage
+        imageLoadQueue.add({
+          id: taskId,
+          src: coverImage,
+          imgElement: imgRef.current!,
+          priority,
+          retryCount: 0,
+          onSuccess: () => {
+            setImageLoaded(true)
+          },
+          onError: () => {
+            setImageError(true)
+            setImageLoaded(false)
+          }
+        })
       }
     }, delay)
 
-    return () => clearTimeout(timeoutId)
-  }, [coverImage, priority, index, imageLoaded, imageError])
+    return () => {
+      clearTimeout(timeoutId)
+      imageLoadQueue.cancel(taskId)
+    }
+  }, [coverImage, priority, index, imageLoaded, imageError, episode.id])
 
   // 格式化时长
   const formatDuration = (seconds: number) => {
@@ -113,17 +134,10 @@ export default function EpisodeCard({ episode, podcastCover, index = 0, priority
             {coverImage ? (
               <img
                 ref={imgRef}
-                src={coverImage}  // 初始为空，由 useEffect 控制
                 alt={episode.title}
                 className={`w-full h-full object-cover transition-all duration-500 ${
                   imageLoaded ? 'opacity-100' : 'opacity-0'
                 }`}
-                onLoad={() => setImageLoaded(true)}
-                onError={() => {
-                  // 图片加载失败，显示占位符
-                  setImageError(true)
-                  setImageLoaded(false)
-                }}
               />
             ) : null}
 
