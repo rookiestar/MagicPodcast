@@ -4,10 +4,13 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { podcastApi, tagApi } from '@/lib/api'
 import { stripHtml } from '@/lib/textUtils'
+import { getRelativeTime, isRecentlyUpdated } from '@/lib/timeUtils'
 import type { Podcast, Tag } from '@/types'
 import SearchSidebar from '@/components/SearchSidebar'
 
 const PAGE_SIZE = 15 // 默认每页15个（5行×3列）
+
+type SortByType = 'recent_update' | 'newest_added' | 'episode_count' | 'title'
 
 export default function PodcastsPage() {
   const [podcasts, setPodcasts] = useState<Podcast[]>([])
@@ -18,6 +21,10 @@ export default function PodcastsPage() {
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
   const [showAllTags, setShowAllTags] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [sortBy, setSortBy] = useState<SortByType>('recent_update')
+
+  // 添加一个key来强制刷新列表渲染
+  const [listKey, setListKey] = useState(0)
 
   // 分页状态
   const [page, setPage] = useState(1)
@@ -27,13 +34,19 @@ export default function PodcastsPage() {
   // 用于无限滚动的 ref
   const observerTarget = useRef<HTMLDivElement>(null)
 
+  // 初始化时从 URL 读取排序并加载数据
   useEffect(() => {
-    fetchPodcasts()
+    // 从 URL 读取排序方式
+    const params = new URLSearchParams(window.location.search)
+    const sortFromUrl = (params.get('sort_by') as SortByType) || 'recent_update'
+    console.log('[Init] Loading with sortBy from URL:', sortFromUrl)
+    setSortBy(sortFromUrl)
+    fetchPodcasts([], 1, sortFromUrl)
     fetchTags()
-  }, [])
+  }, []) // 只在挂载时执行一次
 
   // 初始加载播客
-  const fetchPodcasts = async (tagIds: number[] = [], pageNum: number = 1) => {
+  const fetchPodcasts = async (tagIds: number[] = [], pageNum: number = 1, currentSortBy: SortByType = sortBy) => {
     try {
       if (pageNum === 1) {
         setLoading(true)
@@ -42,15 +55,34 @@ export default function PodcastsPage() {
       }
       setError(null)
 
-      // 如果选择了标签，传递所有选中的标签ID（AND逻辑）
-      const params = tagIds.length > 0
-        ? { tag_id: tagIds, page: pageNum, page_size: PAGE_SIZE }
-        : { page: pageNum, page_size: PAGE_SIZE }
+      // 构建查询参数
+      const params: any = {
+        page: pageNum,
+        page_size: PAGE_SIZE,
+        sort_by: currentSortBy
+      }
 
+      // 如果选择了标签，传递所有选中的标签ID（AND逻辑）
+      if (tagIds.length > 0) {
+        params.tag_id = tagIds
+      }
+
+      console.log('[fetchPodcasts] Fetching with params:', params)
       const result = await podcastApi.list(params)
+      console.log('[fetchPodcasts] Got result:', result.data.length, 'podcasts')
+
+      // 打印前3个节目的标题和数量，验证排序
+      if (result.data && result.data.length > 0) {
+        console.log('[fetchPodcasts] First 3 podcasts:')
+        result.data.slice(0, 3).forEach((p, i) => {
+          console.log(`  ${i+1}. ${p.title} - ${p.episode_count}集`)
+        })
+      }
 
       if (pageNum === 1) {
-        setPodcasts(result.data)
+        // 强制设置新数组，触发重新渲染
+        setPodcasts([...result.data])
+        console.log('[fetchPodcasts] Updated state with new data')
       } else {
         setPodcasts(prev => [...prev, ...result.data])
       }
@@ -69,9 +101,9 @@ export default function PodcastsPage() {
   // 加载更多（用于无限滚动）
   const loadMore = useCallback(() => {
     if (!loadingMore && !loading && hasMore) {
-      fetchPodcasts(selectedTagIds, page + 1)
+      fetchPodcasts(selectedTagIds, page + 1, sortBy)
     }
-  }, [loadingMore, loading, hasMore, page, selectedTagIds])
+  }, [loadingMore, loading, hasMore, page, selectedTagIds, sortBy])
 
   // 设置无限滚动观察器
   useEffect(() => {
@@ -110,7 +142,7 @@ export default function PodcastsPage() {
       // 点击"全部"，清除所有选择，重新加载第一页
       setSelectedTagIds([])
       setPage(1)
-      fetchPodcasts([], 1)
+      fetchPodcasts([], 1, sortBy)
     } else {
       // 切换标签选择状态
       if (selectedTagIds.includes(tagId)) {
@@ -118,15 +150,28 @@ export default function PodcastsPage() {
         const newSelected = selectedTagIds.filter(id => id !== tagId)
         setSelectedTagIds(newSelected)
         setPage(1)
-        fetchPodcasts(newSelected, 1)
+        fetchPodcasts(newSelected, 1, sortBy)
       } else {
         // 添加选择
         const newSelected = [...selectedTagIds, tagId]
         setSelectedTagIds(newSelected)
         setPage(1)
-        fetchPodcasts(newSelected, 1)
+        fetchPodcasts(newSelected, 1, sortBy)
       }
     }
+  }
+
+  // 处理排序方式变更
+  const handleSortChange = (newSortBy: SortByType) => {
+    console.log('[handleSortChange] Changing sort from', sortBy, 'to', newSortBy)
+    setSortBy(newSortBy)
+    setPage(1)
+    // 更新 URL 参数
+    const url = new URL(window.location.href)
+    url.searchParams.set('sort_by', newSortBy)
+    window.history.replaceState({}, '', url.toString())
+    // 立即使用新的sortBy值
+    fetchPodcasts(selectedTagIds, 1, newSortBy)
   }
 
   // 默认显示的标签数量（不含"全部"）
@@ -141,18 +186,31 @@ export default function PodcastsPage() {
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <Link
-              href="/"
+              href={`/?sort_by=${sortBy}`}
               className="text-blue-600 hover:text-blue-700"
             >
               ← 返回首页
             </Link>
-            <button
-              onClick={() => setSearchOpen(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-            >
-              <span>🔍</span>
-              <span>搜索</span>
-            </button>
+            <div className="flex items-center gap-3">
+              {/* 排序选择器 */}
+              <select
+                value={sortBy}
+                onChange={(e) => handleSortChange(e.target.value as SortByType)}
+                className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="recent_update">最近更新</option>
+                <option value="newest_added">最新添加</option>
+                <option value="episode_count">单集数量</option>
+                <option value="title">名称</option>
+              </select>
+              <button
+                onClick={() => setSearchOpen(true)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+              >
+                <span>🔍</span>
+                <span>搜索</span>
+              </button>
+            </div>
           </div>
           <h1 className="text-4xl font-bold text-slate-900 dark:text-slate-50 mb-2">
             我的订阅
@@ -263,7 +321,7 @@ export default function PodcastsPage() {
 
             <div className="grid grid-cols-5 gap-6">
               {podcasts.map((podcast) => (
-                <PodcastCard key={podcast.id} podcast={podcast} />
+                <PodcastCard key={podcast.id} podcast={podcast} sortBy={sortBy} />
               ))}
             </div>
 
@@ -294,13 +352,17 @@ export default function PodcastsPage() {
   )
 }
 
-function PodcastCard({ podcast }: { podcast: Podcast }) {
+function PodcastCard({ podcast, sortBy }: { podcast: Podcast; sortBy: string }) {
   // 最多显示3个标签
   const displayTags = podcast.tags?.slice(0, 3) || []
   const remainingTags = (podcast.tags?.length || 0) - 3
 
+  // 判断是否最近更新（7天内有新内容）
+  const recentlyUpdated = isRecentlyUpdated(podcast.newest_episode_date, 7)
+  const relativeTime = getRelativeTime(podcast.newest_episode_date)
+
   return (
-    <Link href={`/podcasts/${podcast.id}`}>
+    <Link href={`/podcasts/${podcast.id}${sortBy ? `?sort_by=${sortBy}` : ''}`}>
       <div className="bg-white dark:bg-slate-800 rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer h-full flex flex-col">
         {/* Cover Image */}
         <div className="aspect-square bg-slate-200 dark:bg-slate-700 relative">
@@ -309,10 +371,29 @@ function PodcastCard({ podcast }: { podcast: Podcast }) {
               src={podcast.cover_url}
               alt={podcast.title}
               className="w-full h-full object-cover"
+              onError={(e) => {
+                // 图片加载失败时显示占位符
+                e.currentTarget.style.display = 'none'
+                const placeholder = e.currentTarget.parentElement?.querySelector('[data-placeholder]')
+                if (placeholder) placeholder.classList.remove('hidden')
+              }}
             />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-4xl">
-              🎧
+          ) : null}
+          {/* 占位符：当没有封面或图片加载失败时显示 */}
+          <div
+            data-placeholder
+            className={`${podcast.cover_url ? 'hidden' : ''} w-full h-full flex flex-col items-center justify-center bg-slate-200 dark:bg-slate-700`}
+          >
+            <div className="text-5xl text-slate-400 dark:text-slate-500">🎧</div>
+          </div>
+
+          {/* 新更新标识 - 右下角 */}
+          {recentlyUpdated && (
+            <div className="absolute bottom-0 right-0 m-2">
+              <span className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm text-green-700 dark:text-green-400 shadow-sm">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                新更新
+              </span>
             </div>
           )}
         </div>
@@ -359,11 +440,11 @@ function PodcastCard({ podcast }: { podcast: Podcast }) {
           )}
 
           {/* Stats - 吸底 */}
-          <div className="mt-auto pt-4 flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
-            <span>{podcast.episode_count} 集</span>
-            <span>
-              {new Date(podcast.newest_episode_date).toLocaleDateString()}
-            </span>
+          <div className="mt-auto pt-4">
+            <div className="flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
+              <span>{podcast.episode_count} 集</span>
+              <span className="text-xs">{relativeTime}</span>
+            </div>
           </div>
         </div>
       </div>

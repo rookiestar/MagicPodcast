@@ -54,12 +54,13 @@ type PodcastResponse struct {
 
 // List 获取播客节目列表
 // @Summary 获取播客节目列表
-// @Description 获取播客节目列表，支持按标签筛选（支持多选AND逻辑）、搜索和分页
+// @Description 获取播客节目列表，支持按标签筛选（支持多选AND逻辑）、搜索、排序和分页
 // @Tags Podcasts
 // @Accept json
 // @Produce json
 // @Param tag_id query []int false "标签ID列表（多个标签使用AND逻辑）"
 // @Param search query string false "搜索关键词"
+// @Param sort_by query string false "排序方式: recent_update(最近更新), newest_added(最新添加), episode_count(单集数量), title(名称)"
 // @Param page query int false "页码（默认1）"
 // @Param page_size query int false "每页数量（默认15）"
 // @Success 200 {object} map[string]interface{}
@@ -73,6 +74,7 @@ func (h *PodcastHandler) List(c *gin.Context) {
 	// 获取查询参数
 	tagIDStrs := c.QueryArray("tag_id")
 	searchKeyword := c.Query("search")
+	sortBy := c.DefaultQuery("sort_by", "recent_update") // 默认按最近更新排序
 
 	// 分页参数
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -122,6 +124,25 @@ func (h *PodcastHandler) List(c *gin.Context) {
 		searchPattern := fmt.Sprintf("%%%s%%", searchKeyword)
 		query = query.Where("title LIKE ? OR description LIKE ? OR author LIKE ?",
 			searchPattern, searchPattern, searchPattern)
+	}
+
+	// 排序逻辑（默认：综合时间倒序）
+	switch sortBy {
+	case "recent_update":
+		// 综合排序：优先使用最新单集时间，否则用创建时间
+		query = query.Order("CASE WHEN newest_episode_date IS NOT NULL THEN newest_episode_date ELSE created_at END DESC")
+	case "newest_added":
+		// 按添加时间倒序
+		query = query.Order("added_date DESC")
+	case "episode_count":
+		// 按单集数量倒序
+		query = query.Order("episode_count DESC")
+	case "title":
+		// 按名称正序
+		query = query.Order("title COLLATE NOCASE ASC")
+	default:
+		// 默认按最近更新排序
+		query = query.Order("CASE WHEN newest_episode_date IS NOT NULL THEN newest_episode_date ELSE created_at END DESC")
 	}
 
 	// 获取总数

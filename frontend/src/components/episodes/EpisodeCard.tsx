@@ -69,12 +69,21 @@ export default function EpisodeCard({ episode, podcastCover }: EpisodeCardProps)
                 src={coverImage}
                 alt={episode.title}
                 className="w-full h-full object-cover"
+                onError={(e) => {
+                  // 图片加载失败时显示占位符
+                  e.currentTarget.style.display = 'none'
+                  const placeholder = e.currentTarget.parentElement?.querySelector('[data-placeholder]')
+                  if (placeholder) placeholder.classList.remove('hidden')
+                }}
               />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-2xl">
-                🎧
-              </div>
-            )}
+            ) : null}
+            {/* 占位符：当没有封面或图片加载失败时显示 */}
+            <div
+              data-placeholder
+              className={`${coverImage ? 'hidden' : ''} w-full h-full flex items-center justify-center bg-slate-200 dark:bg-slate-700`}
+            >
+              <div className="text-2xl text-slate-400 dark:text-slate-500">🎧</div>
+            </div>
           </div>
 
           {/* Title and Info */}

@@ -40,6 +40,22 @@ export interface ApiResponse<T> {
   }
 }
 
+// 分页响应类型
+export interface PaginatedResponse<T> {
+  success: boolean
+  data?: T
+  pagination?: {
+    page: number
+    page_size: number
+    total: number
+    total_pages: number
+  }
+  error?: {
+    code: string
+    message: string
+  }
+}
+
 // Episode 类型定义
 export interface Episode {
   id: number

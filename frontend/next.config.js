@@ -12,4 +12,15 @@ const nextConfig = {
   },
 }
 
-module.exports = nextConfig
+// 添加API代理重写规则
+module.exports = {
+  ...nextConfig,
+  async rewrites() {
+    return [
+      {
+        source: '/api/v1/:path*',
+        destination: 'http://localhost:8080/api/v1/:path*',
+      },
+    ]
+  },
+}

@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { ApiResponse, Podcast, Tag } from '@/types'
+import type { ApiResponse, PaginatedResponse, Podcast, Tag } from '@/types'
 
 export const podcastApi = {
   // 获取播客列表
@@ -7,37 +7,10 @@ export const podcastApi = {
     tag_id?: number | number[]
     page?: number
     page_size?: number
+    sort_by?: string
+    search?: string
   }): Promise<{ data: Podcast[]; pagination: { page: number; page_size: number; total: number; total_pages: number } }> => {
-    const queryParams = new URLSearchParams()
-
-    if (params?.tag_id) {
-      // 支持多个tag_id（数组）
-      if (Array.isArray(params.tag_id)) {
-        params.tag_id.forEach(id => queryParams.append('tag_id', id.toString()))
-      } else {
-        queryParams.append('tag_id', params.tag_id.toString())
-      }
-    }
-
-    // 添加分页参数
-    if (params?.page) queryParams.append('page', params.page.toString())
-    if (params?.page_size) queryParams.append('page_size', params.page_size.toString())
-
-    const url = queryParams.toString()
-      ? `/api/v1/podcasts?${queryParams.toString()}`
-      : '/api/v1/podcasts'
-
-    console.log('[podcastApi.list] Requesting:', url)
-
-    const response = await api.get<{
-      success: boolean
-      data: Podcast[]
-      pagination: { page: number; page_size: number; total: number; total_pages: number }
-      error?: { message: string }
-    }>(url)
-
-    console.log('[podcastApi.list] Response:', response.data)
-
+    const response = await api.get<PaginatedResponse<Podcast[]>>('/api/v1/podcasts', { params })
     if (response.data.success && response.data.data) {
       return {
         data: response.data.data,

@@ -14,6 +14,7 @@ export default function PodcastDetailPage() {
   const searchParams = useSearchParams()
   const id = parseInt(params.id as string)
   const targetEpisodeId = searchParams.get('episode_id') // 获取目标单集 ID
+  const sortBy = searchParams.get('sort_by') || '' // 获取排序方式
   const episodeListRef = useRef<HTMLDivElement>(null)
 
   const [podcast, setPodcast] = useState<Podcast | null>(null)
@@ -154,7 +155,7 @@ export default function PodcastDetailPage() {
         {/* Header */}
         <div className="mb-8">
           <Link
-            href="/podcasts"
+            href={`/podcasts${sortBy ? `?sort_by=${sortBy}` : ''}`}
             className="text-blue-600 hover:text-blue-700 mb-4 inline-block"
           >
             ← 返回列表

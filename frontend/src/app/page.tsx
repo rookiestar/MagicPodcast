@@ -1,6 +1,12 @@
+'use client'
+
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 
 export default function Home() {
+  const searchParams = useSearchParams()
+  const sortBy = searchParams.get('sort_by') || ''
+
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
       <div className="container mx-auto px-4 py-16">
@@ -13,7 +19,7 @@ export default function Home() {
           </p>
           <div className="flex gap-4 justify-center flex-wrap">
             <Link
-              href="/podcasts"
+              href={`/podcasts${sortBy ? `?sort_by=${sortBy}` : ''}`}
               className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               查看播客列表
@@ -48,7 +54,7 @@ export default function Home() {
         </div>
 
         <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-          <Link href="/podcasts">
+          <Link href={`/podcasts${sortBy ? `?sort_by=${sortBy}` : ''}`}>
             <FeatureCard
               emoji="🎧"
               title="我的订阅管理"
