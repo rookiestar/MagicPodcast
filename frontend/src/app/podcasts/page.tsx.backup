@@ -180,7 +180,7 @@ export default function PodcastsPage() {
   const hasMoreTags = tags.length > DEFAULT_TAG_COUNT
 
   return (
-    <main className="min-h-screen bg-slate-50">
+    <main className="min-h-screen bg-slate-50 dark:bg-slate-900">
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
@@ -196,7 +196,7 @@ export default function PodcastsPage() {
               <select
                 value={sortBy}
                 onChange={(e) => handleSortChange(e.target.value as SortByType)}
-                className="px-3 py-2 border border-slate-300 rounded-xl bg-white text-slate-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="recent_update">最近更新</option>
                 <option value="newest_added">最新添加</option>
@@ -205,17 +205,17 @@ export default function PodcastsPage() {
               </select>
               <button
                 onClick={() => setSearchOpen(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors flex items-center gap-2"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
               >
                 <span>🔍</span>
                 <span>搜索</span>
               </button>
             </div>
           </div>
-          <h1 className="text-4xl font-bold text-slate-900text-slate-50 mb-2">
+          <h1 className="text-4xl font-bold text-slate-900 dark:text-slate-50 mb-2">
             我的订阅
           </h1>
-          <p className="text-slate-600">
+          <p className="text-slate-600 dark:text-slate-400">
             管理你的播客节目
           </p>
         </div>
@@ -224,7 +224,7 @@ export default function PodcastsPage() {
         {tags.length > 0 && (
           <div className="mb-6">
             <div className="flex flex-wrap gap-2 items-center">
-              <span className="text-sm text-slate-600">标签筛选:</span>
+              <span className="text-sm text-slate-600 dark:text-slate-400">标签筛选:</span>
 
               {/* 全部按钮 */}
               <button
@@ -232,7 +232,7 @@ export default function PodcastsPage() {
                 className={`px-3 py-1 rounded-full text-sm transition-colors ${
                   selectedTagIds.length === 0
                     ? 'bg-blue-600 text-white'
-                    : 'bg-slate-200 hover:bg-slate-300hover:bg-slate-600'
+                    : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
                 }`}
               >
                 全部
@@ -248,7 +248,7 @@ export default function PodcastsPage() {
                     className={`px-3 py-1 rounded-full text-sm transition-colors flex items-center gap-2 group relative ${
                       isSelected
                         ? 'bg-blue-600 text-white'
-                        : 'bg-slate-200 hover:bg-slate-300hover:bg-slate-600'
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
                     }`}
                   >
                     <span
@@ -257,7 +257,7 @@ export default function PodcastsPage() {
                     />
                     <span className="max-w-[100px] truncate" title={tag.name}>{tag.name}</span>
                     {/* Tooltip for tag name */}
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900bg-slate-100 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
                       {tag.name}
                     </div>
                   </button>
@@ -268,7 +268,7 @@ export default function PodcastsPage() {
               {hasMoreTags && (
                 <button
                   onClick={() => setShowAllTags(!showAllTags)}
-                  className="px-3 py-1 rounded-full text-sm transition-colors text-blue-600text-blue-400 hover:bg-blue-50"
+                  className="px-3 py-1 rounded-full text-sm transition-colors text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
                 >
                   {showAllTags ? '收起' : `展开 (+${tags.length - DEFAULT_TAG_COUNT})`}
                 </button>
@@ -277,11 +277,11 @@ export default function PodcastsPage() {
 
             {/* 已选择的标签提示 */}
             {selectedTagIds.length > 0 && (
-              <div className="mt-2 flex items-center gap-2 text-sm text-slate-600">
+              <div className="mt-2 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
                 <span>已选择 {selectedTagIds.length} 个标签</span>
                 <button
                   onClick={() => handleTagToggle(null)}
-                  className="text-blue-600text-blue-400 hover:underline"
+                  className="text-blue-600 dark:text-blue-400 hover:underline"
                 >
                   清除筛选
                 </button>
@@ -294,13 +294,13 @@ export default function PodcastsPage() {
         {loading && (
           <div className="text-center py-12">
             <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            <p className="mt-4 text-slate-600">加载中...</p>
+            <p className="mt-4 text-slate-600 dark:text-slate-400">加载中...</p>
           </div>
         )}
 
         {/* Error State */}
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-6 mb-6">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-6">
             <h3 className="text-red-800 font-semibold mb-2">加载失败</h3>
             <p className="text-red-600 mb-4">{error}</p>
             <button
@@ -315,7 +315,7 @@ export default function PodcastsPage() {
         {/* Podcasts List */}
         {!loading && !error && (
           <>
-            <div className="mb-6 text-slate-600">
+            <div className="mb-6 text-slate-600 dark:text-slate-400">
               共 {totalCount} 个节目
             </div>
 
@@ -329,7 +329,7 @@ export default function PodcastsPage() {
             {loadingMore && (
               <div className="text-center py-8">
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                <p className="mt-2 text-sm text-slate-600">加载更多...</p>
+                <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">加载更多...</p>
               </div>
             )}
 
@@ -338,7 +338,7 @@ export default function PodcastsPage() {
 
             {/* No More Data Indicator */}
             {!hasMore && podcasts.length > 0 && (
-              <div className="text-center py-8 text-slate-500">
+              <div className="text-center py-8 text-slate-500 dark:text-slate-400">
                 已经到底了
               </div>
             )}
@@ -363,9 +363,9 @@ function PodcastCard({ podcast, sortBy }: { podcast: Podcast; sortBy: string }) 
 
   return (
     <Link href={`/podcasts/${podcast.id}${sortBy ? `?sort_by=${sortBy}` : ''}`}>
-      <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer h-full flex flex-col">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer h-full flex flex-col">
         {/* Cover Image */}
-        <div className="aspect-square bg-slate-200 relative">
+        <div className="aspect-square bg-slate-200 dark:bg-slate-700 relative">
           {podcast.cover_url ? (
             <img
               src={podcast.cover_url}
@@ -382,16 +382,16 @@ function PodcastCard({ podcast, sortBy }: { podcast: Podcast; sortBy: string }) 
           {/* 占位符：当没有封面或图片加载失败时显示 */}
           <div
             data-placeholder
-            className={`${podcast.cover_url ? 'hidden' : ''} w-full h-full flex flex-col items-center justify-center bg-slate-200`}
+            className={`${podcast.cover_url ? 'hidden' : ''} w-full h-full flex flex-col items-center justify-center bg-slate-200 dark:bg-slate-700`}
           >
-            <div className="text-5xl text-slate-400">🎧</div>
+            <div className="text-5xl text-slate-400 dark:text-slate-500">🎧</div>
           </div>
 
           {/* 新更新标识 - 右下角 */}
           {recentlyUpdated && (
             <div className="absolute bottom-0 right-0 m-2">
-              <span className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-white text-slate-800 ">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-600" />
+              <span className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm text-green-700 dark:text-green-400 shadow-sm">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                 新更新
               </span>
             </div>
@@ -400,13 +400,13 @@ function PodcastCard({ podcast, sortBy }: { podcast: Podcast; sortBy: string }) 
 
         {/* Content */}
         <div className="p-4 flex-1 flex flex-col">
-          <h3 className="text-lg font-semibold text-slate-900 mb-2 line-clamp-2">
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-2 line-clamp-2">
             {podcast.title}
           </h3>
-          <p className="text-sm text-slate-600 mb-2">
+          <p className="text-sm text-slate-700 dark:text-slate-300 mb-2">
             {podcast.author}
           </p>
-          <p className="text-sm text-slate-400 line-clamp-2">
+          <p className="text-sm text-slate-400 dark:text-slate-500 line-clamp-2">
             {stripHtml(podcast.description, 80)}
           </p>
 
@@ -416,7 +416,7 @@ function PodcastCard({ podcast, sortBy }: { podcast: Podcast; sortBy: string }) 
               {displayTags.map((tag) => (
                 <span
                   key={tag.id}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-slate-100 group relative"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 group relative"
                 >
                   <span
                     className="w-1.5 h-1.5 rounded-full flex-shrink-0"
@@ -426,13 +426,13 @@ function PodcastCard({ podcast, sortBy }: { podcast: Podcast; sortBy: string }) 
                     {tag.name}
                   </span>
                   {/* 自定义 Tooltip */}
-                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900bg-slate-100 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
                     {tag.name}
                   </div>
                 </span>
               ))}
               {remainingTags > 0 && (
-                <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-500">
+                <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
                   +{remainingTags}
                 </span>
               )}
@@ -441,7 +441,7 @@ function PodcastCard({ podcast, sortBy }: { podcast: Podcast; sortBy: string }) 
 
           {/* Stats - 吸底 */}
           <div className="mt-auto pt-4">
-            <div className="flex items-center justify-between text-sm text-slate-500">
+            <div className="flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
               <span>{podcast.episode_count} 集</span>
               <span className="text-xs">{relativeTime}</span>
             </div>
