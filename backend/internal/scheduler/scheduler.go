@@ -314,3 +314,16 @@ func (s *Scheduler) GetWorkflowNextRunTime(workflowID uint) (time.Time, error) {
 
 	return time.Time{}, fmt.Errorf("未找到调度条目")
 }
+
+// AddWorkflow 添加工作流到调度器（公开方法）
+func (s *Scheduler) AddWorkflow(workflow *models.Workflow) error {
+	if !workflow.IsEnabled {
+		return fmt.Errorf("工作流未启用")
+	}
+
+	if workflow.Schedule == "" {
+		return fmt.Errorf("工作流未配置schedule")
+	}
+
+	return s.registerWorkflow(workflow)
+}

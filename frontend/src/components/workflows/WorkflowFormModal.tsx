@@ -48,7 +48,6 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
   const [maxResults, setMaxResults] = useState(0)
   const [keywords, setKeywords] = useState('')
   const [excludeWords, setExcludeWords] = useState('')
-  const [isEnabled, setIsEnabled] = useState(true)
 
   // 初始化表单数据（编辑模式）
   useEffect(() => {
@@ -77,8 +76,6 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
           setKeywords(workflow.rules_config.keywords || '')
           setExcludeWords(workflow.rules_config.exclude_words || '')
         }
-
-        setIsEnabled(workflow.is_enabled)
       } else {
         // 创建模式：重置为默认值
         resetForm()
@@ -107,7 +104,6 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     setMaxResults(0)
     setKeywords('')
     setExcludeWords('')
-    setIsEnabled(true)
     setStep(1)
   }
 
@@ -282,6 +278,9 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         isCustom: !!customCron.trim()
       })
 
+      // 如果 cron 表达式有效,自动启用调度
+      const shouldBeEnabled = actualCron.length > 0
+
       const data: WorkflowRequest = {
         name: name.trim(),
         description: description.trim(),
@@ -289,7 +288,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         scope_type: scopeType,
         scope_config: scopeConfig,
         rules_config: rulesConfig,
-        is_enabled: isEnabled,
+        is_enabled: shouldBeEnabled,
       }
 
       console.log('[WorkflowFormModal] Submitting workflow:', data)
@@ -334,7 +333,6 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     setMaxResults(0)
     setKeywords('')
     setExcludeWords('')
-    setIsEnabled(true)
     onClose()
   }
 
@@ -789,17 +787,10 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="isEnabled"
-                  checked={isEnabled}
-                  onChange={(e) => setIsEnabled(e.target.checked)}
-                  className="rounded"
-                />
-                <label htmlFor="isEnabled" className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                  创建后立即启用此工作流
-                </label>
+              <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  ✓ 创建后将自动启用调度（根据设置的定时规则运行）
+                </p>
               </div>
             </div>
           )}

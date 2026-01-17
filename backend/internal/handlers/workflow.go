@@ -281,6 +281,16 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// 如果工作流启用且配置了 schedule,注册到调度器
+	if workflow.IsEnabled && workflow.Schedule != "" {
+		if err := h.scheduler.AddWorkflow(&workflow); err != nil {
+			log.Printf("⚠️  注册工作流到调度器失败 [ID=%d]: %v", workflow.ID, err)
+			// 不返回错误,因为工作流已经创建成功,只是调度注册失败
+		} else {
+			log.Printf("✅ 工作流已注册到调度器 [ID=%d, Schedule=%s]", workflow.ID, workflow.Schedule)
+		}
+	}
+
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
 		"data":    h.toWorkflowResponse(&workflow),
