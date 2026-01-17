@@ -81,7 +81,7 @@ export default function TagsPage() {
                 {/* 新建标签按钮 - 突出显示 */}
                 <button
                   onClick={() => setShowCreateModal(true)}
-                  className="w-36 h-11 border-2 border-violet-500 rounded-xl bg-violet-500 text-white text-sm font-medium hover:bg-violet-600 hover:border-violet-600 transition-colors relative"
+                  className="w-36 h-11 border-2 border-blue-600 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 hover:border-blue-700 transition-colors relative"
                 >
                   <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-white text-lg pointer-events-none">+</span>
                   <span className="w-full text-center">新建标签</span>
