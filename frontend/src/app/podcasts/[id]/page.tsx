@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { podcastApi, episodeApi } from '@/lib/api'
@@ -24,11 +24,24 @@ export default function PodcastDetailPage() {
   const [episodes, setEpisodes] = useState<Episode[]>([])
   const [displayedEpisodes, setDisplayedEpisodes] = useState<Episode[]>([]) // 渐进式显示的单集
   const [episodesLoading, setEpisodesLoading] = useState(true)
-  const [initialLoadDone, setInitialLoadDone] = useState(false) // 初始加载完成
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(10) // 可见的单集数量
-  const [visibleEpisodes, setVisibleEpisodes] = useState<Set<number>>(new Set([0, 1, 2])) // 默认前3个可见
+  const [isLoadingMore, setIsLoadingMore] = useState(false) // 正在加载更多
+
+  // 加载更多单集
+  const loadMoreEpisodes = useCallback(() => {
+    if (isLoadingMore || displayedEpisodes.length >= episodes.length) return
+
+    setIsLoadingMore(true)
+    // 模拟异步加载，避免频繁触发
+    setTimeout(() => {
+      const nextCount = Math.min(visibleCount + 10, episodes.length)
+      setVisibleCount(nextCount)
+      setDisplayedEpisodes(episodes.slice(0, nextCount))
+      setIsLoadingMore(false)
+    }, 300)
+  }, [isLoadingMore, displayedEpisodes, episodes, visibleCount])
 
   useEffect(() => {
     if (id) {
@@ -39,48 +52,21 @@ export default function PodcastDetailPage() {
     }
   }, [id])
 
-  // Intersection Observer - 监测单集卡片是否进入视口
+  // 滚动监听 - 自动加载更多单集
   useEffect(() => {
-    if (displayedEpisodes.length === 0) return
+    const handleScroll = () => {
+      // 当滚动到距离底部500px时，自动加载更多
+      const scrollPosition = window.innerHeight + window.scrollY
+      const threshold = document.body.offsetHeight - 500
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach(entry => {
-          if (entry.isIntersecting) {
-            const episodeId = parseInt(entry.target.getAttribute('data-episode-id') || '0')
-            setVisibleEpisodes(prev => new Set([...prev, episodeId]))
-          }
-        })
-      },
-      {
-        rootMargin: '100px',  // 提前100px开始加载
-        threshold: 0.1       // 10%可见时触发
-      }
-    )
-
-    // 观察所有已渲染的单集卡片
-    document.querySelectorAll('[data-episode-id]').forEach(el => {
-      observer.observe(el)
-    })
-
-    return () => observer.disconnect()
-  }, [displayedEpisodes])
-
-  // 渐进式加载更多单集
-  useEffect(() => {
-    if (episodes.length > 0 && initialLoadDone && visibleEpisodes.size > 0) {
-      // 加载视口内的单集
-      const episodesToLoad = Array.from(visibleEpisodes).filter(id => id < episodes.length)
-      const nextCount = Math.min(episodesToLoad.length + 5, episodes.length)
-      setVisibleCount(nextCount)
-      setDisplayedEpisodes(episodes.slice(0, nextCount))
-
-      // 如果还有更多单集，继续加载
-      if (nextCount < episodes.length) {
-        setEpisodesLoading(false)
+      if (scrollPosition >= threshold && !isLoadingMore && displayedEpisodes.length < episodes.length) {
+        loadMoreEpisodes()
       }
     }
-  }, [visibleEpisodes, episodes, initialLoadDone])
+
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [isLoadingMore, displayedEpisodes, episodes, loadMoreEpisodes])
 
   // 当单集列表加载完成且有目标单集时，滚动到指定位置
   useEffect(() => {
@@ -149,10 +135,11 @@ export default function PodcastDetailPage() {
       const initialCount = Math.min(10, data.length)
       setDisplayedEpisodes(data.slice(0, initialCount))
       setVisibleCount(initialCount)
-      setInitialLoadDone(true)
 
       // 如果单集数量<=10，立即完成加载
       if (data.length <= 10) {
+        setEpisodesLoading(false)
+      } else {
         setEpisodesLoading(false)
       }
     } catch (err) {
@@ -161,13 +148,6 @@ export default function PodcastDetailPage() {
       setDisplayedEpisodes([])
       setEpisodesLoading(false)
     }
-  }
-
-  // 加载更多单集
-  const loadMoreEpisodes = () => {
-    const nextCount = Math.min(visibleCount + 10, episodes.length)
-    setVisibleCount(nextCount)
-    setDisplayedEpisodes(episodes.slice(0, nextCount))
   }
 
   // 处理标签变化（添加、移除、批量更新）
@@ -473,7 +453,7 @@ export default function PodcastDetailPage() {
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {displayedEpisodes.map((episode, index) => (
-                    <div key={episode.id} id={`episode-${episode.id}`} data-episode-id={episode.id} className="transition-all duration-200">
+                    <div key={episode.id} id={`episode-${episode.id}`} className="transition-all duration-200">
                       <EpisodeCard
                         episode={episode}
                         podcastCover={podcast.cover_url}
@@ -485,7 +465,7 @@ export default function PodcastDetailPage() {
                 </div>
 
                 {/* 加载更多按钮 */}
-                {displayedEpisodes.length < episodes.length && (
+                {displayedEpisodes.length < episodes.length && !isLoadingMore && (
                   <div className="text-center mt-8">
                     <button
                       onClick={loadMoreEpisodes}
@@ -496,12 +476,12 @@ export default function PodcastDetailPage() {
                   </div>
                 )}
 
-                {/* 后台加载提示 */}
-                {episodesLoading && displayedEpisodes.length > 0 && (
-                  <div className="text-center mt-4">
+                {/* 加载更多提示 */}
+                {isLoadingMore && displayedEpisodes.length < episodes.length && (
+                  <div className="text-center mt-8">
                     <p className="text-sm text-slate-600 flex items-center justify-center gap-2">
                       <span className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></span>
-                      正在加载剩余单集...
+                      正在加载更多单集...
                     </p>
                   </div>
                 )}

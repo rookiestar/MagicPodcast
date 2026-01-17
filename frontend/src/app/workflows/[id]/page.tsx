@@ -597,7 +597,7 @@ export default function WorkflowDetailPage() {
                                 详细执行记录
                               </h4>
                               <div className="space-y-2">
-                                {jobDetails[job.id].executions.map((exec) => (
+                                {jobDetails[job.id]?.executions?.map((exec) => (
                                   <div
                                     key={exec.id}
                                     className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-slate-200 dark:border-slate-700"
@@ -665,7 +665,7 @@ export default function WorkflowDetailPage() {
                                 ))}
                               </div>
 
-                              {jobDetails[job.id].executions.length === 0 && (
+                              {jobDetails[job.id]?.executions?.length === 0 && (
                                 <div className="text-center py-4 text-sm text-slate-500 dark:text-slate-400">
                                   暂无详细执行记录
                                 </div>
