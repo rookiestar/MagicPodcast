@@ -197,6 +197,14 @@ export default function PodcastsPage() {
 
               {/* 右侧按钮组 */}
               <div className="flex items-center gap-3">
+                {/* 搜索按钮 - 与排序按钮大小完全一致 */}
+                <button
+                  onClick={() => setSearchOpen(true)}
+                  className="w-36 h-11 border border-slate-300 rounded-xl bg-white text-slate-400 text-sm font-medium hover:bg-slate-50 hover:border-slate-400 transition-colors relative"
+                >
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-slate-400 text-lg pointer-events-none">🔍</span>
+                </button>
+
                 {/* 排序选择器 - 白底边框样式 + icon */}
                 <div className="relative w-36">
                   <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-slate-800 text-lg z-10 pointer-events-none">🔽</span>
@@ -211,14 +219,6 @@ export default function PodcastsPage() {
                     <option value="title">名称</option>
                   </select>
                 </div>
-
-                {/* 搜索按钮 - 与排序按钮大小完全一致 */}
-                <button
-                  onClick={() => setSearchOpen(true)}
-                  className="w-36 h-11 border border-slate-300 rounded-xl bg-white text-slate-800 text-sm font-medium hover:bg-slate-50 hover:border-slate-400 transition-colors relative"
-                >
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-slate-800 text-lg pointer-events-none">🔍</span>
-                </button>
               </div>
             </div>
 
