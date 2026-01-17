@@ -108,6 +108,16 @@ export default function PodcastsPage() {
     fetchTags()
   }, []) // 只在挂载时执行一次
 
+  // 监听 sortBy 变化，重新获取数据
+  useEffect(() => {
+    if (sortBy) {
+      console.log('[sortBy changed] Refetching with sortBy:', sortBy)
+      setPodcasts([]) // 清空现有数据
+      setPage(1)
+      fetchPodcasts(selectedTagIds, 1, sortBy)
+    }
+  }, [sortBy]) // 当 sortBy 变化时重新执行
+
   // 加载更多（用于无限滚动）
   const loadMore = useCallback(() => {
     if (!loadingMore && !loading && hasMore) {
@@ -165,14 +175,14 @@ export default function PodcastsPage() {
   // 处理排序方式变更
   const handleSortChange = (newSortBy: SortByType) => {
     console.log('[handleSortChange] Changing sort from', sortBy, 'to', newSortBy)
-    setSortBy(newSortBy)
-    setPage(1)
+
     // 更新 URL 参数
     const url = new URL(window.location.href)
     url.searchParams.set('sort_by', newSortBy)
     window.history.replaceState({}, '', url.toString())
-    // 立即使用新的sortBy值
-    fetchPodcasts(selectedTagIds, 1, newSortBy)
+
+    // 更新状态（useEffect 会自动重新获取数据）
+    setSortBy(newSortBy)
   }
 
   // 默认显示的标签数量（不含"全部"）

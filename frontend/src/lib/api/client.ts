@@ -22,6 +22,10 @@ export const api: AxiosInstance = axios.create({
 api.interceptors.request.use(
   (config) => {
     console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`)
+    // 输出完整的查询参数用于调试
+    if (config.params) {
+      console.log(`[API] Params:`, config.params)
+    }
     return config
   },
   (error) => {

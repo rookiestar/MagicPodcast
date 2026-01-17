@@ -70,6 +70,8 @@ export const podcastApi = {
     tag_id?: number | number[]
     page?: number
     page_size?: number
+    sort_by?: string
+    search?: string
   }): Promise<{ data: Podcast[]; pagination: { page: number; page_size: number; total: number; total_pages: number } }> => {
     const queryParams = new URLSearchParams()
 
@@ -85,6 +87,10 @@ export const podcastApi = {
     // 添加分页参数
     if (params?.page) queryParams.append('page', params.page.toString())
     if (params?.page_size) queryParams.append('page_size', params.page_size.toString())
+
+    // 添加排序和搜索参数
+    if (params?.sort_by) queryParams.append('sort_by', params.sort_by)
+    if (params?.search) queryParams.append('search', params.search)
 
     const url = queryParams.toString()
       ? `/api/v1/podcasts?${queryParams.toString()}`
