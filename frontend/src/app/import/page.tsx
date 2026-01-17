@@ -449,20 +449,38 @@ export default function ImportPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="bg-white shadow rounded-lg">
-          {/* Header */}
-          <div className="px-6 py-4 border-b border-gray-200">
-            <div className="flex items-center justify-between mb-4">
-              <h1 className="text-2xl font-bold text-gray-900">导入/同步</h1>
+    <main className="min-h-screen bg-slate-50">
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        {/* Header */}
+        <div className="mb-8">
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-6">
+              {/* 返回首页按钮 */}
               <Link
                 href="/"
-                className="text-sm text-blue-600 hover:text-blue-800"
+                className="w-36 h-11 px-4 bg-white text-slate-800 font-medium rounded-xl border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors flex items-center justify-center gap-2"
               >
-                ← 返回首页
+                <span>←</span>
+                <span>返回首页</span>
               </Link>
             </div>
+
+            {/* 标题和描述 */}
+            <div className="mb-4">
+              <h1 className="text-4xl md:text-5xl font-semibold text-slate-800 mb-2">
+                导入/同步
+              </h1>
+              <p className="text-base text-slate-600 max-w-2xl">
+                从 OPML 文件导入播客或同步播客元数据
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Main Card */}
+        <div className="bg-white shadow rounded-lg">
+          {/* Tabs */}
+          <div className="px-6 py-4 border-b border-gray-200">
 
             {/* Tabs */}
             <div className="flex gap-2">
