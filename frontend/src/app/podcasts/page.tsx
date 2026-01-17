@@ -34,18 +34,7 @@ export default function PodcastsPage() {
   // 用于无限滚动的 ref
   const observerTarget = useRef<HTMLDivElement>(null)
 
-  // 初始化时从 URL 读取排序并加载数据
-  useEffect(() => {
-    // 从 URL 读取排序方式
-    const params = new URLSearchParams(window.location.search)
-    const sortFromUrl = (params.get('sort_by') as SortByType) || 'recent_update'
-    console.log('[Init] Loading with sortBy from URL:', sortFromUrl)
-    setSortBy(sortFromUrl)
-    fetchPodcasts([], 1, sortFromUrl)
-    fetchTags()
-  }, []) // 只在挂载时执行一次
-
-  // 初始加载播客
+  // 数据获取函数
   const fetchPodcasts = async (tagIds: number[] = [], pageNum: number = 1, currentSortBy: SortByType = sortBy) => {
     try {
       if (pageNum === 1) {
@@ -98,6 +87,26 @@ export default function PodcastsPage() {
     }
   }
 
+  const fetchTags = async () => {
+    try {
+      const data = await tagApi.list()
+      setTags(data)
+    } catch (err) {
+      console.error('Failed to fetch tags:', err)
+    }
+  }
+
+  // 初始化时从 URL 读取排序并加载数据
+  useEffect(() => {
+    // 从 URL 读取排序方式
+    const params = new URLSearchParams(window.location.search)
+    const sortFromUrl = (params.get('sort_by') as SortByType) || 'recent_update'
+    console.log('[Init] Loading with sortBy from URL:', sortFromUrl)
+    setSortBy(sortFromUrl)
+    fetchPodcasts([], 1, sortFromUrl)
+    fetchTags()
+  }, []) // 只在挂载时执行一次
+
   // 加载更多（用于无限滚动）
   const loadMore = useCallback(() => {
     if (!loadingMore && !loading && hasMore) {
@@ -127,15 +136,6 @@ export default function PodcastsPage() {
       }
     }
   }, [hasMore, loadingMore, loadMore])
-
-  const fetchTags = async () => {
-    try {
-      const data = await tagApi.list()
-      setTags(data)
-    } catch (err) {
-      console.error('Failed to fetch tags:', err)
-    }
-  }
 
   const handleTagToggle = (tagId: number | null) => {
     if (tagId === null) {
