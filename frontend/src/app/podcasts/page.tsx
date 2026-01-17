@@ -459,37 +459,38 @@ function PodcastCard({
             {stripHtml(podcast.description, 80)}
           </p>
 
-          {/* Tags - 新增 */}
-          {displayTags.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {displayTags.map((tag) => (
-                <span
-                  key={tag.id}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-slate-100 group relative"
-                >
-                  <span
-                    className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: tag.color }}
-                  />
-                  <span className="max-w-[80px] truncate" title={tag.name}>
-                    {tag.name}
-                  </span>
-                  {/* 自定义 Tooltip */}
-                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900bg-slate-100 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                    {tag.name}
-                  </div>
-                </span>
-              ))}
-              {remainingTags > 0 && (
-                <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-500">
-                  +{remainingTags}
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* Stats - 吸底 */}
+          {/* Tags and Stats - 底部对齐 */}
           <div className="mt-auto pt-4">
+            {/* Tags */}
+            {displayTags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {displayTags.map((tag) => (
+                  <span
+                    key={tag.id}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-slate-100 group relative"
+                  >
+                    <span
+                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: tag.color }}
+                    />
+                    <span className="max-w-[80px] truncate" title={tag.name}>
+                      {tag.name}
+                    </span>
+                    {/* 自定义 Tooltip */}
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900bg-slate-100 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                      {tag.name}
+                    </div>
+                  </span>
+                ))}
+                {remainingTags > 0 && (
+                  <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-500">
+                    +{remainingTags}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Stats */}
             <div className="flex items-center justify-between text-sm text-slate-500">
               <span>{podcast.episode_count} 集</span>
               <span className="text-xs">{relativeTime}</span>
