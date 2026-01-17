@@ -150,15 +150,16 @@ export default function PodcastDetailPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 dark:bg-slate-900">
+    <main className="min-h-screen bg-slate-50">
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
           <Link
             href={`/podcasts${sortBy ? `?sort_by=${sortBy}` : ''}`}
-            className="text-blue-600 hover:text-blue-700 mb-4 inline-block"
+            className="w-36 h-11 px-4 bg-white text-slate-800 font-medium rounded-xl border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors flex items-center justify-center gap-2"
           >
-            ← 返回列表
+            <span>←</span>
+            <span>返回列表</span>
           </Link>
         </div>
 
@@ -166,7 +167,7 @@ export default function PodcastDetailPage() {
         {loading && (
           <div className="text-center py-12">
             <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            <p className="mt-4 text-slate-600 dark:text-slate-400">加载中...</p>
+            <p className="mt-4 text-slate-600">加载中...</p>
           </div>
         )}
 
@@ -180,11 +181,11 @@ export default function PodcastDetailPage() {
 
         {/* Podcast Detail */}
         {!loading && !error && podcast && (
-          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg overflow-hidden">
+          <div className="bg-white rounded-lg shadow-lg overflow-hidden">
             {/* Cover */}
             <div className="md:flex">
               <div className="md:w-1/3 p-6">
-                <div className="aspect-square w-full bg-slate-200 dark:bg-slate-700 rounded-lg overflow-hidden">
+                <div className="aspect-square w-full bg-slate-200 rounded-lg overflow-hidden">
                   {podcast.cover_url ? (
                     <img
                       src={podcast.cover_url}
@@ -201,14 +202,14 @@ export default function PodcastDetailPage() {
 
               {/* Info */}
               <div className="md:w-2/3 p-8">
-                <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-50 mb-4">
+                <h1 className="text-3xl font-bold text-slate-900 mb-4">
                   {podcast.title}
                 </h1>
 
-                <div className="space-y-4 text-slate-600 dark:text-slate-400">
+                <div className="space-y-4 text-slate-600">
                   {/* 主播信息 */}
                   <div>
-                    <span className="font-semibold text-slate-900 dark:text-slate-50">
+                    <span className="font-semibold text-slate-900">
                       主播：
                     </span>
                     {podcast.author}
@@ -217,7 +218,7 @@ export default function PodcastDetailPage() {
                   {/* 🆕 播客官网链接 */}
                   {podcast.link && (
                     <div>
-                      <span className="font-semibold text-slate-900 dark:text-slate-50">
+                      <span className="font-semibold text-slate-900">
                         官网：
                       </span>
                       <a
@@ -243,13 +244,13 @@ export default function PodcastDetailPage() {
                   {/* 🆕 单集数和最新更新 */}
                   <div className="flex gap-6">
                     <div>
-                      <span className="font-semibold text-slate-900 dark:text-slate-50">
+                      <span className="font-semibold text-slate-900">
                         单集数：
                       </span>
                       {podcast.episode_count || 0}
                     </div>
                     <div>
-                      <span className="font-semibold text-slate-900 dark:text-slate-50">
+                      <span className="font-semibold text-slate-900">
                         最新更新：
                       </span>
                       {(() => {
@@ -276,7 +277,7 @@ export default function PodcastDetailPage() {
                   {/* 🆕 最新单集播放按钮 */}
                   {podcast.newest_enclosure_url && (
                     <div>
-                      <span className="font-semibold text-slate-900 dark:text-slate-50">
+                      <span className="font-semibold text-slate-900">
                         最新一集：
                       </span>
                       <button
@@ -294,7 +295,7 @@ export default function PodcastDetailPage() {
                   )}
 
                   <div>
-                    <span className="font-semibold text-slate-900 dark:text-slate-50">
+                    <span className="font-semibold text-slate-900">
                       简介：
                     </span>
                     <div className="mt-1">
@@ -304,7 +305,7 @@ export default function PodcastDetailPage() {
 
                   {/* 标签管理 */}
                   <div>
-                    <span className="font-semibold text-slate-900 dark:text-slate-50 block mb-2">
+                    <span className="font-semibold text-slate-900 block mb-2">
                       标签：
                     </span>
                     <TagInput
@@ -317,7 +318,7 @@ export default function PodcastDetailPage() {
                   {/* 备注编辑 */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="font-semibold text-slate-900 dark:text-slate-50">
+                      <span className="font-semibold text-slate-900">
                         备注：
                       </span>
                       {!isEditingNotes && (
@@ -334,7 +335,7 @@ export default function PodcastDetailPage() {
                         <textarea
                           value={notes}
                           onChange={(e) => setNotes(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                           rows={4}
                           placeholder="添加备注..."
                         />
@@ -350,14 +351,14 @@ export default function PodcastDetailPage() {
                               setIsEditingNotes(false)
                               fetchNotes() // 恢复原始内容
                             }}
-                            className="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
+                            className="px-4 py-2 bg-slate-200 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
                           >
                             取消
                           </button>
                         </div>
                       </div>
                     ) : (
-                      <p className="text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg">
+                      <p className="text-slate-700 dark:text-slate-300 bg-slate-50/50 p-3 rounded-lg">
                         {notes || '暂无备注'}
                       </p>
                     )}
@@ -371,20 +372,20 @@ export default function PodcastDetailPage() {
         {/* Episodes List - 新增section */}
         {!loading && !error && podcast && (
           <div className="mt-8">
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-50 mb-6">
+            <h2 className="text-2xl font-bold text-slate-900 mb-6">
               单集列表 ({episodes.length} 集)
             </h2>
 
             {episodesLoading ? (
               <div className="text-center py-12">
                 <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-                <p className="mt-4 text-sm text-slate-600 dark:text-slate-400">加载中...</p>
+                <p className="mt-4 text-sm text-slate-600">加载中...</p>
               </div>
             ) : episodes.length === 0 ? (
-              <div className="bg-white dark:bg-slate-800 rounded-lg p-12 text-center shadow-sm">
+              <div className="bg-white rounded-lg p-12 text-center shadow-sm">
                 <div className="text-6xl mb-4">📭</div>
-                <p className="text-slate-600 dark:text-slate-400 text-lg">暂无单集</p>
-                <p className="text-slate-500 dark:text-slate-500 text-sm mt-2">
+                <p className="text-slate-600 text-lg">暂无单集</p>
+                <p className="text-slate-5000 text-sm mt-2">
                   点击下方按钮同步单集数据
                 </p>
               </div>
