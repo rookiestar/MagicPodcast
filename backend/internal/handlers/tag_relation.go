@@ -251,19 +251,31 @@ func (h *TagRelationHandler) GetPodcastTags(c *gin.Context) {
 		return
 	}
 
-	// 转换为响应格式
-	tags := make([]gin.H, len(podcast.Tags))
-	for i, tag := range podcast.Tags {
-		tags[i] = gin.H{
-			"id":    tag.ID,
-			"name":  tag.Name,
-			"color": tag.Color,
-		}
+	// 转换为响应格式，并获取每个标签的播客数量
+	type TagWithCount struct {
+		ID           uint   `json:"id"`
+		Name         string `json:"name"`
+		Color        string `json:"color"`
+		PodcastCount int    `json:"podcast_count"`
+	}
+
+	var tagsWithCount []TagWithCount
+	for _, tag := range podcast.Tags {
+		// 查询每个标签的播客数量
+		var count int64
+		db.Table("podcasts_tags").Where("tag_id = ?", tag.ID).Count(&count)
+
+		tagsWithCount = append(tagsWithCount, TagWithCount{
+			ID:           tag.ID,
+			Name:         tag.Name,
+			Color:        tag.Color,
+			PodcastCount: int(count),
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    tags,
+		"data":    tagsWithCount,
 	})
 }
 
@@ -495,18 +507,30 @@ func (h *TagRelationHandler) GetEpisodeTags(c *gin.Context) {
 		return
 	}
 
-	// 转换为响应格式
-	tags := make([]gin.H, len(episode.Tags))
-	for i, tag := range episode.Tags {
-		tags[i] = gin.H{
-			"id":    tag.ID,
-			"name":  tag.Name,
-			"color": tag.Color,
-		}
+	// 转换为响应格式，并获取每个标签的播客数量
+	type TagWithCount struct {
+		ID           uint   `json:"id"`
+		Name         string `json:"name"`
+		Color        string `json:"color"`
+		PodcastCount int    `json:"podcast_count"`
+	}
+
+	var tagsWithCount []TagWithCount
+	for _, tag := range episode.Tags {
+		// 查询每个标签的播客数量
+		var count int64
+		db.Table("podcasts_tags").Where("tag_id = ?", tag.ID).Count(&count)
+
+		tagsWithCount = append(tagsWithCount, TagWithCount{
+			ID:           tag.ID,
+			Name:         tag.Name,
+			Color:        tag.Color,
+			PodcastCount: int(count),
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    tags,
+		"data":    tagsWithCount,
 	})
 }

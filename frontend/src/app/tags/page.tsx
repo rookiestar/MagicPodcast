@@ -1,13 +1,20 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, Suspense } from 'react'
 import Link from 'next/link'
-import { tagApi } from '@/lib/api'
-import type { Tag } from '@/types'
+import { useSearchParams } from 'next/navigation'
+import { tagApi, podcastApi } from '@/lib/api'
+import PodcastCover from '@/components/podcasts/PodcastCover'
+import TagInput from '@/components/tags/TagInput'
+import type { Tag, Podcast } from '@/types'
 
 type SortMode = 'popularity' | 'alphabetical'
 
-export default function TagsPage() {
+function TagsPageContent() {
+  const searchParams = useSearchParams()
+  const podcastIdParam = searchParams.get('podcast_id')
+  const podcastId = podcastIdParam ? parseInt(podcastIdParam, 10) : null
+
   const [tags, setTags] = useState<Tag[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -18,9 +25,79 @@ export default function TagsPage() {
   const [isSelectMode, setIsSelectMode] = useState(false)
   const [sortMode, setSortMode] = useState<SortMode>('popularity')
 
+  // Podcast preview state
+  const [podcast, setPodcast] = useState<Podcast | null>(null)
+  const [podcastLoading, setPodcastLoading] = useState(false)
+  const [podcastError, setPodcastError] = useState<string | null>(null)
+  const [podcastTags, setPodcastTags] = useState<Tag[]>([])
+
   useEffect(() => {
     fetchTags()
   }, [])
+
+  // Fetch podcast data when podcastId is present
+  useEffect(() => {
+    if (podcastId) {
+      fetchPodcastData(podcastId)
+    } else {
+      setPodcast(null)
+      setPodcastTags([])
+      setPodcastError(null)
+    }
+  }, [podcastId])
+
+  const fetchPodcastData = async (id: number) => {
+    try {
+      setPodcastLoading(true)
+      setPodcastError(null)
+      const [podcastData, tagsData] = await Promise.all([
+        podcastApi.get(id),
+        podcastApi.getTags(id)
+      ])
+      setPodcast(podcastData)
+      setPodcastTags(tagsData)
+    } catch (err) {
+      setPodcastError(err instanceof Error ? err.message : 'Failed to fetch podcast')
+      setPodcast(null)
+      setPodcastTags([])
+    } finally {
+      setPodcastLoading(false)
+    }
+  }
+
+  const handlePodcastTagsChange = async (newTags: Tag[]) => {
+    if (!podcast) return
+
+    const currentTagIds = new Set(podcastTags.map(t => t.id))
+    const newTagIds = new Set(newTags.map(t => t.id))
+
+    // Find added tags
+    const addedTags = newTags.filter(t => !currentTagIds.has(t.id))
+    // Find removed tags
+    const removedTags = podcastTags.filter(t => !newTagIds.has(t.id))
+
+    try {
+      // Add new tags
+      for (const tag of addedTags) {
+        await podcastApi.addTag(podcast.id, tag.id)
+      }
+      // Remove old tags
+      for (const tag of removedTags) {
+        await podcastApi.removeTag(podcast.id, tag.id)
+      }
+
+      // Refresh podcast tags
+      const updatedTags = await podcastApi.getTags(podcast.id)
+      setPodcastTags(updatedTags)
+
+      // Refresh tag list to update counts
+      fetchTags()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '更新标签失败')
+      // Revert changes on error
+      setPodcastTags([...podcastTags])
+    }
+  }
 
   const fetchTags = async () => {
     try {
@@ -89,41 +166,32 @@ export default function TagsPage() {
     const pinyinMap: Record<string, string> = {
       '两': 'L', '性': 'X', '休': 'X', '体': 'T', '育': 'Y', '儿': 'E', '童': 'T',
       '与': 'Y', '家': 'J', '庭': 'T', '自': 'Z', '然': 'R', '科': 'K', '学': 'X',
-      '历': 'L', '史': 'S', '名': 'M', '胜': 'S', '与': 'Y', '旅': 'L', '行': 'X',
-      '地': 'D', '方': 'F', '文': 'W', '化': 'H', '哲': 'Z', '学': 'X', '心': 'X',
-      '理': 'L', '学': 'X', '健': 'J', '康': 'K', '与': 'Y', '健': 'J', '身': 'S',
+      '历': 'L', '史': 'S', '名': 'M', '胜': 'S', '旅': 'L', '行': 'X',
+      '地': 'D', '方': 'F', '文': 'W', '化': 'H', '哲': 'Z', '心': 'X',
+      '理': 'L', '健': 'J', '康': 'K', '身': 'S',
       '商': 'S', '务': 'W', '业': 'Y', '新': 'X', '闻': 'W', '评': 'P', '论': 'L',
-      '实': 'S', '用': 'Y', '知': 'Z', '识': 'S', '创': 'C', '业': 'Y', '剧': 'J',
-      '情': 'Q', '动': 'D', '画': 'H', '漫': 'M', '漫': 'M', '画': 'H', '医': 'Y',
-      '学': 'X', '心': 'X', '理': 'L', '健': 'J', '康': 'K', '与': 'Y', '健': 'J',
-      '身': 'S', '教': 'J', '育': 'Y', '佛': 'F', '教': 'J', '图': 'T', '书': 'S',
-      '新': 'X', '闻': 'W', '娱': 'Y', '乐': 'L', '政': 'Z', '府': 'F', '管': 'G',
-      '理': 'L', '营': 'Y', '销': 'X', '财': 'C', '经': 'J', '济': 'J', '每': 'M',
-      '日': 'R', '新': 'X', '闻': 'W', '汽': 'Q', '车': 'C', '游': 'Y', '戏': 'X',
-      '泳': 'Y', '灵': 'L', '修': 'X', '宗': 'Z', '教': 'J', '爱': 'A', '好': 'H',
-      '宠': 'C', '物': 'W', '园': 'Y', '艺': 'Y', '林': 'L', '家': 'J', '居': 'J',
-      '园': 'Y', '小': 'X', '说': 'S', '幽': 'Y', '默': 'M', '对': 'D', '谈': 'T',
-      '影': 'Y', '评': 'P', '电': 'D', '影': 'Y', '史': 'S', '专': 'Z', '访': 'F',
-      '视': 'S', '电': 'D', '视': 'S', '与': 'Y', '电': 'D', '影': 'Y', '评': 'P',
-      '论': 'L', '社': 'S', '会': 'H', '化': 'H', '社': 'S', '会': 'H', '科': 'K',
-      '学': 'X', '自': 'Z', '然': 'R', '科': 'K', '学': 'X', '科': 'K', '幻': 'H',
-      '小': 'X', '说': 'S', '科': 'K', '技': 'J', '科': 'K', '技': 'J', '新': 'X',
-      '闻': 'W', '管': 'G', '理': 'L', '篮': 'L', '球': 'Q', '跑': 'P', '步': 'B',
-      '职': 'Z', '业': 'Y', '育': 'Y', '儿': 'E', '童': 'T', '育': 'Y', '脱': 'T',
-      '口': 'K', '秀': 'X', '自': 'Z', '我': 'W', '完': 'W', '善': 'S', '自': 'Z',
-      '然': 'R', '艺': 'Y', '术': 'S', '设': 'S', '计': 'J', '视': 'S', '觉': 'J',
-      '艺': 'Y', '术': 'S', '表': 'B', '演': 'Y', '艺': 'Y', '术': 'S', '语': 'Y',
-      '言': 'Y', '学': 'X', '习': 'X', '课': 'K', '程': 'C', '足': 'Z', '球': 'Q',
-      '野': 'Y', '外': 'W', '非': 'F', '营': 'Y', '利': 'L', '组': 'Z', '织': 'Z',
-      '音': 'Y', '乐': 'Y', '音': 'Y', '乐': 'L', '史': 'S', '音': 'Y', '乐': 'Y',
-      '赏': 'S', '析': 'X', '饮': 'Y', '食': 'S', '文': 'W', '化': 'H', '航': 'H',
-      '空': 'K', '美': 'M', '术': 'S', '节': 'J', '目': 'M', '漫': 'M', '谈': 'T',
-      '营': 'Y', '销': 'X', '传': 'C', '媒': 'M', '素': 'S', '养': 'Y', '职': 'Z',
+      '实': 'S', '用': 'Y', '知': 'Z', '识': 'S', '创': 'C', '剧': 'J',
+      '情': 'Q', '动': 'D', '画': 'H', '漫': 'M', '医': 'Y',
+      '教': 'J', '佛': 'F', '图': 'T', '书': 'S',
+      '娱': 'Y', '乐': 'L', '政': 'Z', '府': 'F', '管': 'G',
+      '营': 'Y', '销': 'X', '财': 'C', '经': 'J', '济': 'J', '每': 'M',
+      '日': 'R', '汽': 'Q', '车': 'C', '游': 'Y', '戏': 'X',
+      '泳': 'Y', '灵': 'L', '修': 'X', '宗': 'Z', '爱': 'A', '好': 'H',
+      '宠': 'C', '物': 'W', '园': 'Y', '艺': 'Y', '林': 'L', '居': 'J',
+      '小': 'X', '说': 'S', '幽': 'Y', '默': 'M', '对': 'D', '谈': 'T',
+      '影': 'Y', '电': 'D', '专': 'Z', '访': 'F',
+      '视': 'S', '社': 'H',
+      '技': 'J', '篮': 'L', '球': 'Q', '跑': 'P', '步': 'B',
+      '职': 'Z', '脱': 'T', '口': 'K', '秀': 'X', '我': 'W', '完': 'W', '善': 'S',
+      '设': 'S', '计': 'J', '觉': 'J', '表': 'B', '演': 'Y', '语': 'Y',
+      '言': 'Y', '习': 'X', '课': 'K', '程': 'C', '足': 'Z',
+      '野': 'Y', '外': 'W', '非': 'F', '利': 'L', '组': 'Z', '织': 'Z',
+      '音': 'Y', '赏': 'S', '析': 'X', '饮': 'Y', '食': 'S', '航': 'H',
+      '空': 'K', '美': 'M', '术': 'S', '节': 'J', '目': 'M',
+      '传': 'C', '媒': 'M', '素': 'S', '养': 'Y',
       '场': 'C', '筛': 'S', '选': 'X', '炼': 'L', '工': 'G', '作': 'Z', '流': 'L',
-      '罪': 'Z', '纪': 'J', '实': 'S', '录': 'L', '犯': 'F', '罪': 'Z', '电': 'D',
-      '子': 'Z', '游': 'Y', '戏': 'X', '生': 'S', '命': 'M', '科': 'K', '学': 'X',
-      '飞': 'F', '行': 'X', '物': 'W', '理': 'L', '化': 'H', '学': 'X', '笑': 'X',
-      '话': 'H', '新': 'X', '闻': 'W', '联': 'L', '播': 'B', '客': 'K'
+      '罪': 'Z', '纪': 'J', '录': 'L', '犯': 'F', '子': 'Z', '生': 'S', '命': 'M',
+      '飞': 'F', '笑': 'X', '话': 'H', '联': 'L', '播': 'B', '客': 'K'
     }
 
     // 查询映射表
@@ -294,6 +362,65 @@ export default function TagsPage() {
             </div>
           </div>
         </div>
+
+        {/* Podcast Preview */}
+        {podcastId && (
+          <div className="mb-8 bg-white dark:bg-slate-800 rounded-lg shadow-md p-6 border border-slate-200 dark:border-slate-700">
+            {podcastLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+              </div>
+            ) : podcastError ? (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <p className="text-red-600">{podcastError}</p>
+              </div>
+            ) : podcast ? (
+              <div className="flex gap-6">
+                {/* 封面 */}
+                <div className="w-32 h-32 flex-shrink-0">
+                  <PodcastCover
+                    coverUrl={podcast.cover_url}
+                    title={podcast.title}
+                    priority="high"
+                  />
+                </div>
+
+                {/* 信息 */}
+                <div className="flex-1">
+                  <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-50 mb-2">
+                    {podcast.title}
+                  </h2>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+                    {podcast.author} · {podcast.episode_count} 集
+                  </p>
+                  <p className="text-sm text-slate-700 dark:text-slate-300 mb-4 line-clamp-2">
+                    {podcast.description}
+                  </p>
+
+                  {/* 标签管理 */}
+                  <div className="mb-4">
+                    <span className="font-semibold text-slate-900 dark:text-slate-50 block mb-2">
+                      标签：
+                    </span>
+                    <TagInput
+                      selectedTags={podcastTags}
+                      onTagsChange={handlePodcastTagsChange}
+                      placeholder="输入标签名按回车添加"
+                    />
+                  </div>
+
+                  {/* 查看详情按钮 */}
+                  <Link
+                    href={`/podcasts/${podcast.id}`}
+                    className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    查看详情 →
+                  </Link>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
 
         {/* Loading State */}
         {loading && (
@@ -507,5 +634,22 @@ function TagCard({
         )}
       </h3>
     </div>
+  )
+}
+
+// Wrapper component with Suspense boundary
+export default function TagsPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-slate-50">
+        <div className="container mx-auto px-4 py-8">
+          <div className="text-center py-12">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          </div>
+        </div>
+      </main>
+    }>
+      <TagsPageContent />
+    </Suspense>
   )
 }

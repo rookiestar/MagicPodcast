@@ -128,25 +128,36 @@ export default function PodcastDetailPage() {
     return () => window.removeEventListener('scroll', handleScroll)
   }, [isLoadingMore, displayedEpisodes, episodes, loadMoreEpisodes])
 
-  // 当单集列表加载完成且有目标单集时，滚动到指定位置
+  // 当单集列表加载完成且有目标单集时，展开到目标单集并滚动到指定位置
   useEffect(() => {
     if (!episodesLoading && targetEpisodeId && episodes.length > 0) {
-      // 找到目标单集
-      const targetEpisode = episodes.find(ep => ep.id === parseInt(targetEpisodeId))
-      if (targetEpisode) {
-        // 找到对应的 DOM 元素并滚动
-        const element = document.getElementById(`episode-${targetEpisodeId}`)
-        if (element) {
-          // 延迟一下确保 DOM 完全渲染
-          setTimeout(() => {
+      const targetEpisodeIdNum = parseInt(targetEpisodeId)
+
+      // 找到目标单集在列表中的索引
+      const targetIndex = episodes.findIndex(ep => ep.id === targetEpisodeIdNum)
+
+      if (targetIndex !== -1) {
+        // 计算需要显示的单集数量（目标索引 + 1，且要是 10 的倍数向上取整）
+        const requiredVisibleCount = Math.ceil((targetIndex + 1) / 10) * 10
+
+        // 更新 displayedEpisodes 以包含目标单集
+        if (requiredVisibleCount > visibleCount) {
+          setVisibleCount(requiredVisibleCount)
+          setDisplayedEpisodes(episodes.slice(0, requiredVisibleCount))
+        }
+
+        // 等待 DOM 更新后滚动
+        setTimeout(() => {
+          const element = document.getElementById(`episode-${targetEpisodeId}`)
+          if (element) {
             element.scrollIntoView({ behavior: 'smooth', block: 'center' })
             // 添加高亮效果
             element.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2')
             setTimeout(() => {
               element.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2')
             }, 2000)
-          }, 100)
-        }
+          }
+        }, 300) // 增加延迟确保 DOM 完全渲染
       }
     }
   }, [episodesLoading, targetEpisodeId, episodes])

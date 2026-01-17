@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { searchApi } from '@/lib/api'
+import PodcastCover from '@/components/podcasts/PodcastCover'
 import type { PodcastSearchResult, EpisodeSearchResult } from '@/types'
 
 interface SearchSidebarProps {
@@ -67,6 +68,11 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
   // 搜索历史
   const [searchHistory, setSearchHistory] = useState<string[]>([])
 
+  // 展开状态：控制每个类型显示的结果数量
+  const [expanded, setExpanded] = useState(false)
+  const PODCASTS_PER_PAGE = 10
+  const EPISODES_PER_PAGE = 10
+
   // 自动聚焦
   useEffect(() => {
     if (isOpen && searchInputRef.current) {
@@ -81,6 +87,7 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
       setResults({ podcasts: [], episodes: [] })
       setAllResults({ podcasts: [], episodes: [] })
       setSearchType('all')
+      setExpanded(false)
     }
   }, [isOpen])
 
@@ -322,23 +329,27 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
                       📻 节目 ({results.podcasts.length})
                     </h3>
                   )}
-                  <div className="space-y-3">
-                  {results.podcasts.map((podcast) => (
-                    <Link
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {(expanded ? results.podcasts : results.podcasts.slice(0, PODCASTS_PER_PAGE)).map((podcast, index) => (
+                    <a
                       key={podcast.id}
                       href={`/podcasts/${podcast.id}`}
-                      onClick={handleClose}
-                      className="block p-4 bg-slate-50 dark:bg-slate-900 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block p-4 bg-white dark:bg-slate-800 rounded-lg hover:shadow-md transition-all border border-slate-200 dark:border-slate-700"
                     >
                       <div className="flex gap-4">
-                        <img
-                          src={podcast.cover_url || '/placeholder.png'}
-                          alt={podcast.title}
-                          className="w-20 h-20 rounded-lg object-cover flex-shrink-0"
-                        />
+                        <div className="w-20 h-20 flex-shrink-0">
+                          <PodcastCover
+                            coverUrl={podcast.cover_url}
+                            title={podcast.title}
+                            index={index}
+                            priority={index < 3 ? 'high' : index < 10 ? 'medium' : 'low'}
+                          />
+                        </div>
                         <div className="flex-1 min-w-0">
                           <h3
-                            className="font-semibold text-slate-900 dark:text-slate-50 mb-1"
+                            className="font-semibold text-slate-900 dark:text-slate-50 mb-1 line-clamp-1"
                             dangerouslySetInnerHTML={{
                               __html: highlightKeyword(podcast.title, query)
                             }}
@@ -364,9 +375,19 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
                           })()}
                         </div>
                       </div>
-                    </Link>
+                    </a>
                   ))}
                   </div>
+
+                  {/* 展开按钮 */}
+                  {results.podcasts.length > PODCASTS_PER_PAGE && (
+                    <button
+                      onClick={() => setExpanded(!expanded)}
+                      className="w-full mt-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+                    >
+                      {expanded ? '收起' : `展开全部 ${results.podcasts.length} 个节目`}
+                    </button>
+                  )}
                 </>
               )}
 
@@ -382,11 +403,12 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
                     </>
                   )}
                   <div className="space-y-3">
-                  {results.episodes.map((episode) => (
-                    <Link
+                  {(expanded ? results.episodes : results.episodes.slice(0, EPISODES_PER_PAGE)).map((episode) => (
+                    <a
                       key={episode.id}
                       href={`/podcasts/${episode.podcast_id}?episode_id=${episode.id}`}
-                      onClick={handleClose}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="block p-4 bg-slate-50 dark:bg-slate-900 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                     >
                       <h3
@@ -414,9 +436,19 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
                           />
                         ) : null
                       })()}
-                    </Link>
+                    </a>
                   ))}
                   </div>
+
+                  {/* 展开按钮 */}
+                  {results.episodes.length > EPISODES_PER_PAGE && (
+                    <button
+                      onClick={() => setExpanded(!expanded)}
+                      className="w-full mt-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+                    >
+                      {expanded ? '收起' : `展开全部 ${results.episodes.length} 个单集`}
+                    </button>
+                  )}
                 </>
               )}
             </div>
