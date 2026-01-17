@@ -61,31 +61,43 @@ export default function TagsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 dark:bg-slate-900">
+    <main className="min-h-screen bg-slate-50">
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <Link
-            href="/"
-            className="text-blue-600 hover:text-blue-700 mb-4 inline-block"
-          >
-            ← 返回首页
-          </Link>
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-4xl font-bold text-slate-900 dark:text-slate-50 mb-2">
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-6">
+              {/* 返回首页按钮 */}
+              <Link
+                href="/"
+                className="w-36 h-11 px-4 bg-white text-slate-800 font-medium rounded-xl border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors flex items-center justify-center gap-2"
+              >
+                <span>←</span>
+                <span>返回首页</span>
+              </Link>
+
+              {/* 右侧按钮组 */}
+              <div className="flex items-center gap-3">
+                {/* 新建标签按钮 */}
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="w-36 h-11 border border-slate-300 rounded-xl bg-white text-slate-400 text-sm font-medium hover:bg-slate-50 hover:border-slate-400 transition-colors relative"
+                >
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-slate-400 text-lg pointer-events-none">+</span>
+                  <span className="w-full text-center">新建标签</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 标题和描述 */}
+            <div className="mb-4">
+              <h1 className="text-4xl md:text-5xl font-semibold text-slate-800 mb-2">
                 标签管理
               </h1>
-              <p className="text-slate-600 dark:text-slate-400">
+              <p className="text-base text-slate-600 max-w-2xl">
                 管理你的播客标签
               </p>
             </div>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              + 新建标签
-            </button>
           </div>
         </div>
 
@@ -93,7 +105,7 @@ export default function TagsPage() {
         {loading && (
           <div className="text-center py-12">
             <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            <p className="mt-4 text-slate-600 dark:text-slate-400">加载中...</p>
+            <p className="mt-4 text-slate-600">加载中...</p>
           </div>
         )}
 
@@ -114,13 +126,13 @@ export default function TagsPage() {
         {/* Tags List */}
         {!loading && !error && (
           <>
-            <div className="mb-6 text-slate-600 dark:text-slate-400">
+            <div className="mb-6 text-slate-600">
               共 {tags.length} 个标签
             </div>
 
             {tags.length === 0 ? (
-              <div className="bg-white dark:bg-slate-800 rounded-lg p-12 text-center">
-                <p className="text-slate-600 dark:text-slate-400 mb-4">
+              <div className="bg-white rounded-lg p-12 text-center">
+                <p className="text-slate-600 mb-4">
                   还没有创建任何标签
                 </p>
                 <button
@@ -147,36 +159,36 @@ export default function TagsPage() {
         {/* Create Tag Modal */}
         {showCreateModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md">
-              <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-50 mb-4">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <h2 className="text-2xl font-bold text-slate-900 mb-4">
                 新建标签
               </h2>
               <form onSubmit={handleCreateTag} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-semibold text-slate-900 dark:text-slate-50 mb-2">
+                  <label className="block text-sm font-semibold text-slate-900 mb-2">
                     标签名称 *
                   </label>
                   <input
                     type="text"
                     value={newTagName}
                     onChange={(e) => setNewTagName(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-900 dark:text-slate-50 mb-2">
+                  <label className="block text-sm font-semibold text-slate-900 mb-2">
                     描述
                   </label>
                   <textarea
                     value={newTagDesc}
                     onChange={(e) => setNewTagDesc(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     rows={3}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-900 dark:text-slate-50 mb-2">
+                  <label className="block text-sm font-semibold text-slate-900 mb-2">
                     颜色
                   </label>
                   <div className="flex gap-2">
@@ -190,7 +202,7 @@ export default function TagsPage() {
                       type="text"
                       value={newTagColor}
                       onChange={(e) => setNewTagColor(e.target.value)}
-                      className="flex-1 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                      className="flex-1 px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900"
                       placeholder="#3B82F6"
                     />
                   </div>
@@ -205,7 +217,7 @@ export default function TagsPage() {
                   <button
                     type="button"
                     onClick={() => setShowCreateModal(false)}
-                    className="flex-1 px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
+                    className="flex-1 px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors"
                   >
                     取消
                   </button>
@@ -221,26 +233,26 @@ export default function TagsPage() {
 
 function TagCard({ tag, onDelete }: { tag: Tag; onDelete: () => void }) {
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-6">
+    <div className="bg-white rounded-lg shadow p-6">
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-3">
           <div
             className="w-4 h-4 rounded-full"
             style={{ backgroundColor: tag.color }}
           />
-          <h3 className="text-xl font-semibold text-slate-900 dark:text-slate-50">
+          <h3 className="text-xl font-semibold text-slate-900">
             {tag.name}
           </h3>
         </div>
         <button
           onClick={onDelete}
-          className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+          className="text-red-600 hover:text-red-700"
         >
           删除
         </button>
       </div>
       {tag.description && (
-        <p className="text-slate-600 dark:text-slate-400 text-sm">
+        <p className="text-slate-600 text-sm">
           {tag.description}
         </p>
       )}
