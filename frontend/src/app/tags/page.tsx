@@ -78,12 +78,12 @@ export default function TagsPage() {
 
               {/* 右侧按钮组 */}
               <div className="flex items-center gap-3">
-                {/* 新建标签按钮 */}
+                {/* 新建标签按钮 - 突出显示 */}
                 <button
                   onClick={() => setShowCreateModal(true)}
-                  className="w-36 h-11 border border-slate-300 rounded-xl bg-white text-slate-400 text-sm font-medium hover:bg-slate-50 hover:border-slate-400 transition-colors relative"
+                  className="w-36 h-11 border-2 border-violet-500 rounded-xl bg-violet-500 text-white text-sm font-medium hover:bg-violet-600 hover:border-violet-600 transition-colors relative"
                 >
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-slate-400 text-lg pointer-events-none">+</span>
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-white text-lg pointer-events-none">+</span>
                   <span className="w-full text-center">新建标签</span>
                 </button>
               </div>
