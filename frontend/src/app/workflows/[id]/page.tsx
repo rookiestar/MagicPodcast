@@ -229,7 +229,7 @@ export default function WorkflowDetailPage() {
             <div className="flex items-start justify-between mb-4">
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2">
-                  <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-50">
+                  <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">
                     {workflow.id}: {workflow.name}
                   </h1>
                   {getStatusBadge(workflow.is_enabled)}
@@ -300,7 +300,7 @@ export default function WorkflowDetailPage() {
               <div className="flex gap-6">
                 <button
                   onClick={() => setActiveTab('overview')}
-                  className={`pb-2 border-b-2 transition-colors ${
+                  className={`pb-2 border-b-2 transition-colors text-base ${
                     activeTab === 'overview'
                       ? 'border-blue-600 text-blue-600 dark:text-blue-400'
                       : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
@@ -310,23 +310,13 @@ export default function WorkflowDetailPage() {
                 </button>
                 <button
                   onClick={() => setActiveTab('jobs')}
-                  className={`pb-2 border-b-2 transition-colors ${
+                  className={`pb-2 border-b-2 transition-colors text-base ${
                     activeTab === 'jobs'
                       ? 'border-blue-600 text-blue-600 dark:text-blue-400'
                       : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                   }`}
                 >
                   📜 执行历史
-                </button>
-                <button
-                  onClick={() => setActiveTab('config')}
-                  className={`pb-2 border-b-2 transition-colors ${
-                    activeTab === 'config'
-                      ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                      : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
-                  }`}
-                >
-                  ⚙️ 配置
                 </button>
               </div>
             </div>
@@ -337,158 +327,147 @@ export default function WorkflowDetailPage() {
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6">
           {activeTab === 'overview' && (
             <div>
-              <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-50 mb-4">调度信息</h2>
-              <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-5">
-                <div className="grid md:grid-cols-2 gap-8">
-                  {/* 左列: 抓取范围 */}
-                  <div>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">抓取范围</p>
-                    <p className="text-slate-900 dark:text-slate-50 mb-3">
-                      {workflow.scope_type === 'all_subscribed' && '全部订阅'}
-                      {workflow.scope_type === 'specific_podcasts' && `指定节目 (${podcasts.length}个)`}
-                      {workflow.scope_type === 'custom_sources' && '自定义源'}
-                    </p>
-                    {workflow.scope_type === 'specific_podcasts' && podcasts.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {podcasts.map((podcast) => (
-                          <Link
-                            key={podcast.id}
-                            href={`/podcasts/${podcast.id}`}
-                            className="text-xs px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
-                          >
-                            {podcast.title}
-                          </Link>
-                        ))}
+              {/* 配置详情 */}
+              <div className="space-y-6">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">配置详情</h2>
+
+                {/* 调度配置 */}
+                <div>
+                  <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
+                    <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    调度配置
+                  </h3>
+                  <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-5">
+                    <div className="grid md:grid-cols-3 gap-6">
+                      <div>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">定时规则</p>
+                        <code className="block px-3 py-2 bg-white dark:bg-slate-800 rounded-lg text-sm font-mono text-slate-900 dark:text-slate-50 border border-slate-200 dark:border-slate-700">
+                          {workflow.schedule}
+                        </code>
                       </div>
-                    )}
-                  </div>
-
-                  {/* 右列: 定时规则和执行时间 */}
-                  <div className="space-y-4">
-                    {/* 定时规则 */}
-                    <div>
-                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">定时规则</p>
-                      <code className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 rounded text-sm font-mono">
-                        {workflow.schedule}
-                      </code>
-                    </div>
-
-                    {/* 上次执行 */}
-                    <div>
-                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">上次执行</p>
-                      {workflow.stats?.last_execution ? (
-                        <span className="text-slate-900 dark:text-slate-50">
-                          {new Date(workflow.stats.last_execution).toLocaleString('zh-CN')}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-slate-500 dark:text-slate-400">暂无记录</span>
-                      )}
-                    </div>
-
-                    {/* 下次执行 */}
-                    <div>
-                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">下次执行</p>
-                      {workflow.stats?.next_execution ? (
-                        <span className="text-blue-600 dark:text-blue-400 font-medium">
-                          {new Date(workflow.stats.next_execution).toLocaleString('zh-CN')}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-slate-500 dark:text-slate-400">
-                          {workflow.is_enabled ? '等待调度...' : '工作流已禁用'}
-                        </span>
-                      )}
+                      <div>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">上次执行</p>
+                        {workflow.stats?.last_execution ? (
+                          <p className="text-sm font-medium text-slate-900 dark:text-slate-50">
+                            {new Date(workflow.stats.last_execution).toLocaleString('zh-CN')}
+                          </p>
+                        ) : (
+                          <p className="text-sm text-slate-500 dark:text-slate-400">暂无记录</p>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">下次执行</p>
+                        {workflow.stats?.next_execution ? (
+                          <p className="text-sm font-semibold text-blue-600 dark:text-blue-400">
+                            {new Date(workflow.stats.next_execution).toLocaleString('zh-CN')}
+                          </p>
+                        ) : (
+                          <p className="text-sm text-slate-500 dark:text-slate-400">
+                            {workflow.is_enabled ? '等待调度...' : '工作流已禁用'}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              {/* 配置详情 */}
-              <div className="mt-6">
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-3">配置详情</h3>
-                <div className="grid md:grid-cols-2 gap-6">
-                  {/* 范围配置 */}
-                  <div>
-                    <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">范围配置</h4>
-                    {workflow.scope_type === 'specific_podcasts' && podcasts.length > 0 ? (
-                      <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
-                        <div className="flex flex-wrap gap-2">
+                {/* 抓取与筛选配置 */}
+                <div>
+                  <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
+                    <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    抓取与筛选
+                  </h3>
+                  <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-5">
+                    {/* 抓取范围 */}
+                    <div className="mb-6">
+                      <div className="flex items-baseline gap-3 mb-4">
+                        <span className="text-slate-600 dark:text-slate-400 text-sm">抓取范围：</span>
+                        <span className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+                          {workflow.scope_type === 'all_subscribed' && '全部订阅'}
+                          {workflow.scope_type === 'specific_podcasts' && `指定节目 (${podcasts.length}个)`}
+                          {workflow.scope_type === 'custom_sources' && '自定义源'}
+                        </span>
+                      </div>
+                      {workflow.scope_type === 'specific_podcasts' && podcasts.length > 0 && (
+                        <div className="flex flex-wrap gap-3">
                           {podcasts.map((podcast) => (
                             <Link
                               key={podcast.id}
                               href={`/podcasts/${podcast.id}`}
-                              className="text-sm px-3 py-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-50 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-sm transition-all"
+                              className="group flex items-center gap-2 px-3 py-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md transition-all"
                             >
-                              <div className="flex items-center gap-2">
-                                {podcast.cover_url && (
-                                  <img
-                                    src={podcast.cover_url}
-                                    alt={podcast.title}
-                                    className="w-8 h-8 rounded object-cover"
-                                  />
-                                )}
-                                <span className="font-medium">{podcast.title}</span>
-                              </div>
+                              {podcast.cover_url && (
+                                <img
+                                  src={podcast.cover_url}
+                                  alt={podcast.title}
+                                  className="w-8 h-8 rounded-lg object-cover"
+                                />
+                              )}
+                              <span className="text-xs font-semibold text-slate-900 dark:text-slate-50 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                                {podcast.title}
+                              </span>
                             </Link>
                           ))}
                         </div>
-                      </div>
-                    ) : (
-                      <pre className="bg-slate-100 dark:bg-slate-900 rounded-lg p-4 text-xs overflow-x-auto">
-                        {JSON.stringify(workflow.scope_config, null, 2)}
-                      </pre>
-                    )}
-                  </div>
+                      )}
+                    </div>
 
-                  {/* 规则配置 */}
-                  <div>
-                    <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">规则配置</h4>
-                    <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
-                      {workflow.rules_config?.time_range && workflow.rules_config.time_range > 0 && (
-                        <div className="mb-2">
-                          <span className="text-slate-600 dark:text-slate-400">时间范围：</span>
-                          <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                            最近 {workflow.rules_config.time_range} 天
-                          </span>
+                    {/* 筛选规则 */}
+                    <div>
+                      {workflow.rules_config?.time_range || workflow.rules_config?.min_duration || workflow.rules_config?.max_results || workflow.rules_config?.keywords || workflow.rules_config?.exclude_words ? (
+                        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+                          {workflow.rules_config?.time_range && workflow.rules_config.time_range > 0 && (
+                            <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+                              <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">时间范围</p>
+                              <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+                                最近 {workflow.rules_config.time_range} 天
+                              </p>
+                            </div>
+                          )}
+                          {workflow.rules_config?.min_duration && workflow.rules_config.min_duration > 0 && (
+                            <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+                              <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">最小时长</p>
+                              <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+                                {Math.floor(workflow.rules_config.min_duration / 60)} 分钟
+                              </p>
+                            </div>
+                          )}
+                          {workflow.rules_config?.max_results && workflow.rules_config.max_results > 0 && (
+                            <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+                              <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">最大结果数</p>
+                              <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+                                {workflow.rules_config.max_results} 个
+                              </p>
+                            </div>
+                          )}
+                          {workflow.rules_config?.keywords && (
+                            <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+                              <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">关键词</p>
+                              <p className="text-base font-medium text-slate-900 dark:text-slate-50 break-all">
+                                {workflow.rules_config.keywords}
+                              </p>
+                            </div>
+                          )}
+                          {workflow.rules_config?.exclude_words && (
+                            <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+                              <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">排除词</p>
+                              <p className="text-base font-medium text-slate-900 dark:text-slate-50 break-all">
+                                {workflow.rules_config.exclude_words}
+                              </p>
+                            </div>
+                          )}
                         </div>
-                      )}
-                      {workflow.rules_config?.min_duration && workflow.rules_config.min_duration > 0 && (
-                        <div className="mb-2">
-                          <span className="text-slate-600 dark:text-slate-400">最小时长：</span>
-                          <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                            {Math.floor(workflow.rules_config.min_duration / 60)} 分钟
-                          </span>
+                      ) : (
+                        <div className="text-center py-8">
+                          <svg className="w-12 h-12 mx-auto text-slate-400 dark:text-slate-600 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <p className="text-sm text-slate-600 dark:text-slate-400">无特殊筛选规则</p>
                         </div>
-                      )}
-                      {workflow.rules_config?.max_results && workflow.rules_config.max_results > 0 && (
-                        <div className="mb-2">
-                          <span className="text-slate-600 dark:text-slate-400">最大结果数：</span>
-                          <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                            {workflow.rules_config.max_results} 个
-                          </span>
-                        </div>
-                      )}
-                      {workflow.rules_config?.keywords && (
-                        <div className="mb-2">
-                          <span className="text-slate-600 dark:text-slate-400">关键词：</span>
-                          <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                            {workflow.rules_config.keywords}
-                          </span>
-                        </div>
-                      )}
-                      {workflow.rules_config?.exclude_words && (
-                        <div>
-                          <span className="text-slate-600 dark:text-slate-400">排除词：</span>
-                          <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                            {workflow.rules_config.exclude_words}
-                          </span>
-                        </div>
-                      )}
-                      {(!workflow.rules_config?.time_range || workflow.rules_config.time_range === 0) &&
-                       !workflow.rules_config?.min_duration &&
-                       !workflow.rules_config?.max_results &&
-                       !workflow.rules_config?.keywords &&
-                       !workflow.rules_config?.exclude_words && (
-                        <p className="text-slate-500 dark:text-slate-400 text-sm">无特殊规则</p>
                       )}
                     </div>
                   </div>
@@ -500,25 +479,25 @@ export default function WorkflowDetailPage() {
                   <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-3">统计数据</h3>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
-                      <p className="text-2xl font-bold text-slate-900 dark:text-slate-50">
+                      <p className="text-xl font-bold text-slate-900 dark:text-slate-50">
                         {workflow.stats.total_jobs}
                       </p>
                       <p className="text-sm text-slate-600 dark:text-slate-400">执行次数</p>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
-                      <p className="text-2xl font-bold text-green-600">
+                      <p className="text-xl font-bold text-green-600">
                         {workflow.stats.success_rate.toFixed(1)}%
                       </p>
                       <p className="text-sm text-slate-600 dark:text-slate-400">成功率</p>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
-                      <p className="text-2xl font-bold text-slate-900 dark:text-slate-50">
+                      <p className="text-xl font-bold text-slate-900 dark:text-slate-50">
                         {workflow.stats.total_episodes}
                       </p>
                       <p className="text-sm text-slate-600 dark:text-slate-400">创建单集</p>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
-                      <p className="text-2xl font-bold text-slate-900 dark:text-slate-50">
+                      <p className="text-xl font-bold text-slate-900 dark:text-slate-50">
                         {workflow.stats.success_jobs}
                       </p>
                       <p className="text-sm text-slate-600 dark:text-slate-400">成功次数</p>
