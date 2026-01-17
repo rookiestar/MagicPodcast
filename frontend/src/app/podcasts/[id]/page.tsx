@@ -22,9 +22,12 @@ export default function PodcastDetailPage() {
   const [notes, setNotes] = useState('')
   const [isEditingNotes, setIsEditingNotes] = useState(false)
   const [episodes, setEpisodes] = useState<Episode[]>([])
+  const [displayedEpisodes, setDisplayedEpisodes] = useState<Episode[]>([]) // 渐进式显示的单集
   const [episodesLoading, setEpisodesLoading] = useState(true)
+  const [initialLoadDone, setInitialLoadDone] = useState(false) // 初始加载完成
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [visibleCount, setVisibleCount] = useState(10) // 可见的单集数量
 
   useEffect(() => {
     if (id) {
@@ -34,6 +37,25 @@ export default function PodcastDetailPage() {
       fetchEpisodes()
     }
   }, [id])
+
+  // 渐进式加载更多单集
+  useEffect(() => {
+    if (episodes.length > 0 && initialLoadDone) {
+      // 使用 requestIdleCallback 或 setTimeout 来避免阻塞主线程
+      const timer = setTimeout(() => {
+        const nextCount = Math.min(visibleCount + 10, episodes.length)
+        setVisibleCount(nextCount)
+        setDisplayedEpisodes(episodes.slice(0, nextCount))
+
+        // 如果还有更多单集，继续加载
+        if (nextCount < episodes.length) {
+          setEpisodesLoading(false)
+        }
+      }, 100)
+
+      return () => clearTimeout(timer)
+    }
+  }, [visibleCount, episodes, initialLoadDone])
 
   // 当单集列表加载完成且有目标单集时，滚动到指定位置
   useEffect(() => {
@@ -97,12 +119,30 @@ export default function PodcastDetailPage() {
       setEpisodesLoading(true)
       const data = await episodeApi.listByPodcast(id)
       setEpisodes(data)
+
+      // 立即显示前10个单集
+      const initialCount = Math.min(10, data.length)
+      setDisplayedEpisodes(data.slice(0, initialCount))
+      setVisibleCount(initialCount)
+      setInitialLoadDone(true)
+
+      // 如果单集数量<=10，立即完成加载
+      if (data.length <= 10) {
+        setEpisodesLoading(false)
+      }
     } catch (err) {
       console.error('Failed to fetch episodes:', err)
       setEpisodes([])
-    } finally {
+      setDisplayedEpisodes([])
       setEpisodesLoading(false)
     }
+  }
+
+  // 加载更多单集
+  const loadMoreEpisodes = () => {
+    const nextCount = Math.min(visibleCount + 10, episodes.length)
+    setVisibleCount(nextCount)
+    setDisplayedEpisodes(episodes.slice(0, nextCount))
   }
 
   // 处理标签变化（添加、移除、批量更新）
@@ -371,15 +411,30 @@ export default function PodcastDetailPage() {
 
         {/* Episodes List - 新增section */}
         {!loading && !error && podcast && (
-          <div className="mt-8">
+          <div className="mt-8" ref={episodeListRef}>
             <h2 className="text-2xl font-bold text-slate-900 mb-6">
               单集列表 ({episodes.length} 集)
             </h2>
 
-            {episodesLoading ? (
-              <div className="text-center py-12">
-                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-                <p className="mt-4 text-sm text-slate-600">加载中...</p>
+            {/* 初始加载状态 - 显示骨架屏 */}
+            {episodesLoading && displayedEpisodes.length === 0 ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="bg-white rounded-lg shadow-sm p-6 animate-pulse">
+                      <div className="flex items-start gap-3">
+                        <div className="w-16 h-16 bg-slate-200 rounded-lg"></div>
+                        <div className="flex-1 space-y-2">
+                          <div className="h-4 bg-slate-200 rounded w-3/4"></div>
+                          <div className="h-3 bg-slate-200 rounded w-1/2"></div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-center text-sm text-slate-600 mt-6">
+                  正在加载单集列表...
+                </p>
               </div>
             ) : episodes.length === 0 ? (
               <div className="bg-white rounded-lg p-12 text-center shadow-sm">
@@ -390,16 +445,40 @@ export default function PodcastDetailPage() {
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {episodes.map((episode) => (
-                  <div key={episode.id} id={`episode-${episode.id}`} className="transition-all duration-200">
-                    <EpisodeCard
-                      episode={episode}
-                      podcastCover={podcast.cover_url}
-                    />
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {displayedEpisodes.map((episode) => (
+                    <div key={episode.id} id={`episode-${episode.id}`} className="transition-all duration-200">
+                      <EpisodeCard
+                        episode={episode}
+                        podcastCover={podcast.cover_url}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* 加载更多按钮 */}
+                {displayedEpisodes.length < episodes.length && (
+                  <div className="text-center mt-8">
+                    <button
+                      onClick={loadMoreEpisodes}
+                      className="px-6 py-3 bg-white text-slate-800 font-medium rounded-xl border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors"
+                    >
+                      加载更多 ({displayedEpisodes.length}/{episodes.length})
+                    </button>
                   </div>
-                ))}
-              </div>
+                )}
+
+                {/* 后台加载提示 */}
+                {episodesLoading && displayedEpisodes.length > 0 && (
+                  <div className="text-center mt-4">
+                    <p className="text-sm text-slate-600 flex items-center justify-center gap-2">
+                      <span className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></span>
+                      正在加载剩余单集...
+                    </p>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
