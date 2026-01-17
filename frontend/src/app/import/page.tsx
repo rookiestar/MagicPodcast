@@ -480,17 +480,17 @@ export default function ImportPage() {
         {/* Main Card */}
         <div className="bg-white shadow rounded-lg">
           {/* Tabs */}
-          <div className="px-6 py-4 border-b border-gray-200">
+          <div className="px-6 py-4 border-b border-slate-200">
 
             {/* Tabs */}
             <div className="flex gap-2">
               <button
                 onClick={() => setActiveTab('import')}
                 disabled={importing || syncing}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
                   activeTab === 'import'
-                    ? 'bg-green-600 text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50 hover:border-slate-400'
                 } ${importing || syncing ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 📁 导入OPML
@@ -498,10 +498,10 @@ export default function ImportPage() {
               <button
                 onClick={() => setActiveTab('sync')}
                 disabled={importing || syncing}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
                   activeTab === 'sync'
                     ? 'bg-blue-600 text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50 hover:border-slate-400'
                 } ${importing || syncing ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 🔄 同步元数据
