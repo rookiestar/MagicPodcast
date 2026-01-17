@@ -28,6 +28,7 @@ export default function PodcastDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(10) // 可见的单集数量
+  const [visibleEpisodes, setVisibleEpisodes] = useState<Set<number>>(new Set([0, 1, 2])) // 默认前3个可见
 
   useEffect(() => {
     if (id) {
@@ -38,24 +39,48 @@ export default function PodcastDetailPage() {
     }
   }, [id])
 
+  // Intersection Observer - 监测单集卡片是否进入视口
+  useEffect(() => {
+    if (displayedEpisodes.length === 0) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const episodeId = parseInt(entry.target.getAttribute('data-episode-id') || '0')
+            setVisibleEpisodes(prev => new Set([...prev, episodeId]))
+          }
+        })
+      },
+      {
+        rootMargin: '100px',  // 提前100px开始加载
+        threshold: 0.1       // 10%可见时触发
+      }
+    )
+
+    // 观察所有已渲染的单集卡片
+    document.querySelectorAll('[data-episode-id]').forEach(el => {
+      observer.observe(el)
+    })
+
+    return () => observer.disconnect()
+  }, [displayedEpisodes])
+
   // 渐进式加载更多单集
   useEffect(() => {
-    if (episodes.length > 0 && initialLoadDone) {
-      // 使用 requestIdleCallback 或 setTimeout 来避免阻塞主线程
-      const timer = setTimeout(() => {
-        const nextCount = Math.min(visibleCount + 10, episodes.length)
-        setVisibleCount(nextCount)
-        setDisplayedEpisodes(episodes.slice(0, nextCount))
+    if (episodes.length > 0 && initialLoadDone && visibleEpisodes.size > 0) {
+      // 加载视口内的单集
+      const episodesToLoad = Array.from(visibleEpisodes).filter(id => id < episodes.length)
+      const nextCount = Math.min(episodesToLoad.length + 5, episodes.length)
+      setVisibleCount(nextCount)
+      setDisplayedEpisodes(episodes.slice(0, nextCount))
 
-        // 如果还有更多单集，继续加载
-        if (nextCount < episodes.length) {
-          setEpisodesLoading(false)
-        }
-      }, 100)
-
-      return () => clearTimeout(timer)
+      // 如果还有更多单集，继续加载
+      if (nextCount < episodes.length) {
+        setEpisodesLoading(false)
+      }
     }
-  }, [visibleCount, episodes, initialLoadDone])
+  }, [visibleEpisodes, episodes, initialLoadDone])
 
   // 当单集列表加载完成且有目标单集时，滚动到指定位置
   useEffect(() => {
@@ -447,11 +472,13 @@ export default function PodcastDetailPage() {
             ) : (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {displayedEpisodes.map((episode) => (
-                    <div key={episode.id} id={`episode-${episode.id}`} className="transition-all duration-200">
+                  {displayedEpisodes.map((episode, index) => (
+                    <div key={episode.id} id={`episode-${episode.id}`} data-episode-id={episode.id} className="transition-all duration-200">
                       <EpisodeCard
                         episode={episode}
                         podcastCover={podcast.cover_url}
+                        index={index}
+                        priority={index < 3 ? 'high' : index < 10 ? 'medium' : 'low'}
                       />
                     </div>
                   ))}

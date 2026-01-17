@@ -1,16 +1,47 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { Episode } from '@/types'
 import RichText from '@/components/RichText'
 
 interface EpisodeCardProps {
   episode: Episode
   podcastCover?: string
+  index?: number
+  priority?: 'high' | 'medium' | 'low'
 }
 
-export default function EpisodeCard({ episode, podcastCover }: EpisodeCardProps) {
+export default function EpisodeCard({ episode, podcastCover, index = 0, priority = 'medium' }: EpisodeCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const [imageLoaded, setImageLoaded] = useState(false)
+  const [imageError, setImageError] = useState(false)
+  const imgRef = useRef<HTMLImageElement>(null)
+
+  const coverImage = episode.image_url || podcastCover
+
+  // 根据优先级计算加载延迟
+  const getLoadDelay = () => {
+    switch (priority) {
+      case 'high': return 0
+      case 'medium': return index >= 3 ? 200 : 0
+      case 'low': return index >= 10 ? 500 : 0
+      default: return 0
+    }
+  }
+
+  // 图片延迟加载
+  useEffect(() => {
+    if (!coverImage || !imgRef.current) return
+
+    const delay = getLoadDelay()
+    const timeoutId = setTimeout(() => {
+      if (imgRef.current && !imageLoaded && !imageError) {
+        imgRef.current.src = coverImage
+      }
+    }, delay)
+
+    return () => clearTimeout(timeoutId)
+  }, [coverImage, priority, index, imageLoaded, imageError])
 
   // 格式化时长
   const formatDuration = (seconds: number) => {
@@ -57,33 +88,55 @@ export default function EpisodeCard({ episode, podcastCover }: EpisodeCardProps)
   const coverImage = episode.image_url || podcastCover
 
   return (
-    <div className="group relative bg-white dark:bg-slate-800 rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-slate-200 dark:border-slate-700">
+    <div className="group relative bg-white rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-slate-200">
       {/* Content */}
       <div className="p-4">
         {/* Title with Thumbnail */}
         <div className="flex items-start gap-3 mb-3">
-          {/* Thumbnail */}
-          <div className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-slate-200 dark:bg-slate-700 relative">
+          {/* Thumbnail with LQIP */}
+          <div className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-slate-200 relative">
+            {/* 播客封面作为模糊占位图（LQIP） */}
+            {podcastCover && (
+              <img
+                src={podcastCover}
+                alt="loading"
+                className="absolute inset-0 w-full h-full object-cover blur-md opacity-40"
+              />
+            )}
+
+            {/* 加载指示器 */}
+            {!imageLoaded && !imageError && coverImage && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
+
+            {/* 真实单集封面 */}
             {coverImage ? (
               <img
-                src={coverImage}
+                ref={imgRef}
+                src={coverImage}  // 初始为空，由 useEffect 控制
                 alt={episode.title}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  // 图片加载失败时显示占位符
-                  e.currentTarget.style.display = 'none'
-                  const placeholder = e.currentTarget.parentElement?.querySelector('[data-placeholder]')
-                  if (placeholder) placeholder.classList.remove('hidden')
+                className={`w-full h-full object-cover transition-all duration-500 ${
+                  imageLoaded ? 'opacity-100' : 'opacity-0'
+                }`}
+                onLoad={() => setImageLoaded(true)}
+                onError={() => {
+                  // 图片加载失败，显示占位符
+                  setImageError(true)
+                  setImageLoaded(false)
                 }}
               />
             ) : null}
+
             {/* 占位符：当没有封面或图片加载失败时显示 */}
-            <div
-              data-placeholder
-              className={`${coverImage ? 'hidden' : ''} w-full h-full flex items-center justify-center bg-slate-200 dark:bg-slate-700`}
-            >
-              <div className="text-2xl text-slate-400 dark:text-slate-500">🎧</div>
-            </div>
+            {(!coverImage || imageError) && (
+              <div
+                className="w-full h-full flex items-center justify-center bg-slate-200"
+              >
+                <div className="text-2xl text-slate-400">🎧</div>
+              </div>
+            )}
           </div>
 
           {/* Title and Info */}
@@ -94,12 +147,12 @@ export default function EpisodeCard({ episode, podcastCover }: EpisodeCardProps)
                   href={episode.link}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 font-semibold text-slate-900 dark:text-slate-50 text-base line-clamp-2 leading-snug hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                  className="flex-1 font-semibold text-slate-900 text-base line-clamp-2 leading-snug hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                 >
                   {episode.title}
                 </a>
               ) : (
-                <span className="flex-1 font-semibold text-slate-900 dark:text-slate-50 text-base line-clamp-2 leading-snug">
+                <span className="flex-1 font-semibold text-slate-900 text-base line-clamp-2 leading-snug">
                   {episode.title}
                 </span>
               )}
