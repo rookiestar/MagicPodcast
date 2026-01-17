@@ -101,7 +101,7 @@ export default function TagsPage() {
         {/* Header */}
         <div className="mb-8">
           <div className="mb-8">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-8">
               {/* 返回首页按钮 */}
               <Link
                 href="/"
@@ -112,7 +112,7 @@ export default function TagsPage() {
               </Link>
 
               {/* 右侧按钮组 */}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 {isSelectMode ? (
                   <>
                     {/* 取消选择 */}
@@ -121,14 +121,14 @@ export default function TagsPage() {
                         setIsSelectMode(false)
                         setSelectedTags(new Set())
                       }}
-                      className="px-4 h-11 bg-white text-slate-700 rounded-xl border border-slate-300 hover:bg-slate-50 transition-colors"
+                      className="w-24 h-11 bg-white text-slate-700 rounded-xl border border-slate-300 hover:bg-slate-50 transition-colors"
                     >
                       取消
                     </button>
                     {/* 全选按钮 */}
                     <button
                       onClick={handleSelectAll}
-                      className="px-4 h-11 bg-white text-slate-700 rounded-xl border border-slate-300 hover:bg-slate-50 transition-colors"
+                      className="w-24 h-11 bg-white text-slate-700 rounded-xl border border-slate-300 hover:bg-slate-50 transition-colors"
                     >
                       {selectedTags.size === tags.length ? '取消全选' : '全选'}
                     </button>
@@ -136,7 +136,7 @@ export default function TagsPage() {
                     <button
                       onClick={handleBatchDelete}
                       disabled={selectedTags.size === 0}
-                      className="px-4 h-11 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors disabled:bg-red-300 disabled:cursor-not-allowed"
+                      className="w-28 h-11 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors disabled:bg-red-300 disabled:cursor-not-allowed"
                     >
                       删除 ({selectedTags.size})
                     </button>
@@ -146,14 +146,14 @@ export default function TagsPage() {
                     {/* 多选模式按钮 */}
                     <button
                       onClick={() => setIsSelectMode(true)}
-                      className="px-4 h-11 bg-white text-slate-700 rounded-xl border border-slate-300 hover:bg-slate-50 transition-colors"
+                      className="w-24 h-11 bg-white text-slate-700 rounded-xl border border-slate-300 hover:bg-slate-50 transition-colors"
                     >
                       多选
                     </button>
                     {/* 新建标签按钮 */}
                     <button
                       onClick={() => setShowCreateModal(true)}
-                      className="px-4 h-11 border-2 border-blue-600 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 hover:border-blue-700 transition-colors"
+                      className="w-28 h-11 border-2 border-blue-600 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 hover:border-blue-700 transition-colors"
                     >
                       + 新建标签
                     </button>
@@ -216,7 +216,7 @@ export default function TagsPage() {
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
                 {tags.map((tag) => (
                   <TagCard
                     key={tag.id}

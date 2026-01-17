@@ -27,59 +27,36 @@ function HomeContent() {
           </h1>
 
           {/* Subtitle */}
-          <p className="text-xl text-slate-600 mb-12 max-w-2xl mx-auto">
+          <p className="text-xl text-slate-600 mb-16 max-w-2xl mx-auto">
             个人播库管理与自动化处理工具
           </p>
-
-          {/* Action Buttons - Light Colors */}
-          <div className="flex gap-3 justify-center flex-wrap max-w-3xl mx-auto">
-            <Link
-              href={`/podcasts${sortBy ? `?sort_by=${sortBy}` : ''}`}
-              className="px-6 py-3 bg-white text-slate-800 font-medium rounded-lg border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors"
-            >
-              🎧 查看播客列表
-            </Link>
-
-            <Link
-              href="/tags"
-              className="px-6 py-3 bg-white text-slate-800 font-medium rounded-lg border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors"
-            >
-              🏷️ 标签管理
-            </Link>
-
-            <Link
-              href="/workflows"
-              className="px-6 py-3 bg-white text-slate-800 font-medium rounded-lg border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors"
-            >
-              ⚙️ 工作流管理
-            </Link>
-
-            <Link
-              href="/import"
-              className="px-6 py-3 bg-white text-slate-800 font-medium rounded-lg border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors"
-            >
-              📥 导入/同步
-            </Link>
-          </div>
         </div>
 
         {/* Feature Cards */}
-        <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+        <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
           <Link
             href={`/podcasts${sortBy ? `?sort_by=${sortBy}` : ''}`}
             className="group"
           >
             <FeatureCard
-              emoji="🎙️"
+              emoji="🎧"
               title="我的订阅管理"
               description="同步小宇宙平台的订阅节目和单集数据"
+            />
+          </Link>
+
+          <Link href="/import" className="group">
+            <FeatureCard
+              emoji="📥"
+              title="导入/同步"
+              description="导入OPML文件或同步小宇宙订阅数据"
             />
           </Link>
 
           <Link href="/tags" className="group">
             <FeatureCard
               emoji="🏷️"
-              title="本地标签与备注"
+              title="标签与备注管理"
               description="为节目/单集添加自定义标签和备注"
             />
           </Link>
@@ -91,13 +68,6 @@ function HomeContent() {
               description="基于规则自动抓取播客信息并生成报告"
             />
           </Link>
-        </div>
-
-        {/* Footer */}
-        <div className="mt-20 text-center">
-          <p className="text-slate-400 text-sm">
-            项目处于开发阶段 • 阶段 1 实施中
-          </p>
         </div>
       </div>
     </main>
