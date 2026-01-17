@@ -20,9 +20,10 @@ func NewTagHandler() *TagHandler {
 
 // TagResponse 标签响应结构
 type TagResponse struct {
-	ID    uint   `json:"id"`
-	Name  string `json:"name"`
-	Color string `json:"color"`
+	ID           uint   `json:"id"`
+	Name         string `json:"name"`
+	Color        string `json:"color"`
+	PodcastCount int    `json:"podcast_count"`
 }
 
 // CreateTagRequest 创建标签请求
@@ -93,13 +94,13 @@ func (h *TagHandler) Create(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
-		"data":    TagResponse{ID: tag.ID, Name: tag.Name, Color: tag.Color},
+		"data":    TagResponse{ID: tag.ID, Name: tag.Name, Color: tag.Color, PodcastCount: 0},
 	})
 }
 
 // List 获取标签列表
 // @Summary 获取标签列表
-// @Description 获取所有标签
+// @Description 获取所有标签，按关联播客数量降序排序
 // @Tags Tags
 // @Accept json
 // @Produce json
@@ -108,8 +109,22 @@ func (h *TagHandler) Create(c *gin.Context) {
 func (h *TagHandler) List(c *gin.Context) {
 	db := database.GetDB()
 
-	var tags []models.Tag
-	if err := db.Order("created_at DESC").Find(&tags).Error; err != nil {
+	// 使用原生SQL查询每个标签的播客数量，并按数量降序排序
+	type TagWithCount struct {
+		ID           uint   `json:"id"`
+		Name         string `json:"name"`
+		Color        string `json:"color"`
+		PodcastCount int    `json:"podcast_count"`
+	}
+
+	var tagsWithCount []TagWithCount
+	if err := db.Raw(`
+		SELECT tags.id, tags.name, tags.color, COUNT(podcasts_tags.podcast_id) as podcast_count
+		FROM tags
+		LEFT JOIN podcasts_tags ON tags.id = podcasts_tags.tag_id
+		GROUP BY tags.id
+		ORDER BY podcast_count DESC, tags.id ASC
+	`).Scan(&tagsWithCount).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -121,12 +136,13 @@ func (h *TagHandler) List(c *gin.Context) {
 	}
 
 	// 转换为响应格式
-	response := make([]TagResponse, len(tags))
-	for i, tag := range tags {
+	response := make([]TagResponse, len(tagsWithCount))
+	for i, tag := range tagsWithCount {
 		response[i] = TagResponse{
-			ID:    tag.ID,
-			Name:  tag.Name,
-			Color: tag.Color,
+			ID:           tag.ID,
+			Name:         tag.Name,
+			Color:        tag.Color,
+			PodcastCount: tag.PodcastCount,
 		}
 	}
 
@@ -162,6 +178,10 @@ func (h *TagHandler) Get(c *gin.Context) {
 
 	db := database.GetDB()
 
+	// 查询标签及关联的播客数量
+	var count int64
+	db.Table("podcasts_tags").Where("tag_id = ?", tagID).Count(&count)
+
 	var tag models.Tag
 	if err := db.First(&tag, tagID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
@@ -177,9 +197,10 @@ func (h *TagHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": TagResponse{
-			ID:    tag.ID,
-			Name:  tag.Name,
-			Color: tag.Color,
+			ID:           tag.ID,
+			Name:         tag.Name,
+			Color:        tag.Color,
+			PodcastCount: int(count),
 		},
 	})
 }
@@ -254,15 +275,19 @@ func (h *TagHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// 重新获取更新后的标签
+	// 重新获取更新后的标签及其播客数量
 	db.First(&tag, tagID)
+
+	var count int64
+	db.Table("podcasts_tags").Where("tag_id = ?", tagID).Count(&count)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": TagResponse{
-			ID:    tag.ID,
-			Name:  tag.Name,
-			Color: tag.Color,
+			ID:           tag.ID,
+			Name:         tag.Name,
+			Color:        tag.Color,
+			PodcastCount: int(count),
 		},
 	})
 }

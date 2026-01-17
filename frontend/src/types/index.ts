@@ -80,6 +80,7 @@ export interface Tag {
   id: number
   name: string
   color: string
+  podcast_count?: number
 }
 
 // 搜索相关类型定义

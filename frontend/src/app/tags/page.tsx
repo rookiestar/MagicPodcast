@@ -306,18 +306,37 @@ function TagCard({
   isSelected: boolean
   onToggleSelect: () => void
 }) {
+  // 根据节目数量计算视觉强度
+  const count = tag.podcast_count || 0
+  let intensityClass = ""
+  let countColorClass = "text-slate-400"
+
+  if (count >= 50) {
+    intensityClass = "ring-2 ring-blue-300 bg-blue-100"
+    countColorClass = "text-blue-700 font-bold"
+  } else if (count >= 30) {
+    intensityClass = "ring-1 ring-blue-200 bg-blue-50"
+    countColorClass = "text-blue-600 font-semibold"
+  } else if (count >= 10) {
+    intensityClass = "ring-1 ring-slate-200 bg-slate-100"
+    countColorClass = "text-slate-600 font-medium"
+  }
+
+  const cardClass = [
+    "rounded-lg shadow-sm px-3 py-2 h-12 flex items-center gap-2",
+    "hover:shadow-md transition-all cursor-pointer relative",
+    isSelected ? "ring-2 ring-blue-500" : "",
+    intensityClass
+  ].filter(Boolean).join(" ")
+
   return (
     <div
-      className={`
-        bg-white rounded-lg shadow-sm px-3 py-2 h-12 flex items-center gap-2
-        hover:shadow-md transition-shadow cursor-pointer
-        ${isSelected ? 'ring-2 ring-blue-500' : ''}
-      `}
+      className={cardClass}
       onClick={isSelectMode ? onToggleSelect : undefined}
     >
       {/* 多选模式复选框 */}
       {isSelectMode && (
-        <div className="flex-shrink-0">
+        <div className="absolute top-2 right-2">
           <input
             type="checkbox"
             checked={isSelected}
@@ -334,9 +353,12 @@ function TagCard({
         style={{ backgroundColor: tag.color || '#ccc' }}
       />
 
-      {/* 标签名称 */}
+      {/* 标签名称和数量 */}
       <h3 className="text-sm font-normal text-slate-900 truncate flex-1">
         {tag.name}
+        {tag.podcast_count !== undefined && (
+          <span className={countColorClass + " ml-1"}>({tag.podcast_count})</span>
+        )}
       </h3>
     </div>
   )
