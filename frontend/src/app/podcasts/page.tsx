@@ -97,26 +97,43 @@ export default function PodcastsPage() {
     }
   }
 
-  // 初始化时从 URL 读取排序并加载数据
+  // 初始化：从 URL 加载数据
   useEffect(() => {
-    // 从 URL 读取排序方式
     const params = new URLSearchParams(window.location.search)
     const sortFromUrl = (params.get('sort_by') as SortByType) || 'recent_update'
-    console.log('[Init] Loading with sortBy from URL:', sortFromUrl)
-    setSortBy(sortFromUrl)
-    fetchPodcasts([], 1, sortFromUrl)
-    fetchTags()
-  }, []) // 只在挂载时执行一次
+    const tagIdParams = params.getAll('tag_id')
+    const tagIdsFromUrl = tagIdParams.map(id => parseInt(id, 10))
 
-  // 监听 sortBy 变化，重新获取数据
+    console.log('[Initial load] sortBy:', sortFromUrl, 'tagIds:', tagIdsFromUrl)
+
+    setSortBy(sortFromUrl)
+    setSelectedTagIds(tagIdsFromUrl)
+
+    fetchPodcasts(tagIdsFromUrl, 1, sortFromUrl)
+    fetchTags()
+  }, []) // 只在组件挂载时执行一次
+
+  // 监听 URL 参数变化（用于浏览器前进/后退）
   useEffect(() => {
-    if (sortBy) {
-      console.log('[sortBy changed] Refetching with sortBy:', sortBy)
-      setPodcasts([]) // 清空现有数据
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search)
+      const sortFromUrl = (params.get('sort_by') as SortByType) || 'recent_update'
+      const tagIdParams = params.getAll('tag_id')
+      const tagIdsFromUrl = tagIdParams.map(id => parseInt(id, 10))
+
+      console.log('[PopState] sortBy:', sortFromUrl, 'tagIds:', tagIdsFromUrl)
+
+      setSortBy(sortFromUrl)
+      setSelectedTagIds(tagIdsFromUrl)
       setPage(1)
-      fetchPodcasts(selectedTagIds, 1, sortBy)
+      setPodcasts([])
+
+      fetchPodcasts(tagIdsFromUrl, 1, sortFromUrl)
     }
-  }, [sortBy]) // 当 sortBy 变化时重新执行
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
 
   // 加载更多（用于无限滚动）
   const loadMore = useCallback(() => {
@@ -149,27 +166,30 @@ export default function PodcastsPage() {
   }, [hasMore, loadingMore, loadMore])
 
   const handleTagToggle = (tagId: number | null) => {
+    let newSelected: number[]
+
     if (tagId === null) {
-      // 点击"全部"，清除所有选择，重新加载第一页
-      setSelectedTagIds([])
-      setPage(1)
-      fetchPodcasts([], 1, sortBy)
+      // 点击"全部"，清除所有选择
+      newSelected = []
+    } else if (selectedTagIds.includes(tagId)) {
+      // 取消选择
+      newSelected = selectedTagIds.filter(id => id !== tagId)
     } else {
-      // 切换标签选择状态
-      if (selectedTagIds.includes(tagId)) {
-        // 取消选择
-        const newSelected = selectedTagIds.filter(id => id !== tagId)
-        setSelectedTagIds(newSelected)
-        setPage(1)
-        fetchPodcasts(newSelected, 1, sortBy)
-      } else {
-        // 添加选择
-        const newSelected = [...selectedTagIds, tagId]
-        setSelectedTagIds(newSelected)
-        setPage(1)
-        fetchPodcasts(newSelected, 1, sortBy)
-      }
+      // 添加选择
+      newSelected = [...selectedTagIds, tagId]
     }
+
+    // 更新 URL 参数
+    const url = new URL(window.location.href)
+    url.searchParams.delete('tag_id')
+    newSelected.forEach(id => url.searchParams.append('tag_id', id.toString()))
+    window.history.replaceState({}, '', url.toString())
+
+    // 更新状态并重新获取数据
+    setSelectedTagIds(newSelected)
+    setPage(1)
+    setPodcasts([])
+    fetchPodcasts(newSelected, 1, sortBy)
   }
 
   // 处理排序方式变更
@@ -181,8 +201,11 @@ export default function PodcastsPage() {
     url.searchParams.set('sort_by', newSortBy)
     window.history.replaceState({}, '', url.toString())
 
-    // 更新状态（useEffect 会自动重新获取数据）
+    // 更新状态并重新获取数据
     setSortBy(newSortBy)
+    setPage(1)
+    setPodcasts([])
+    fetchPodcasts(selectedTagIds, 1, newSortBy)
   }
 
   // 默认显示的标签数量（不含"全部"）
@@ -330,15 +353,29 @@ export default function PodcastsPage() {
             </div>
 
             <div className="grid grid-cols-5 gap-6">
-              {podcasts.map((podcast, index) => (
-                <PodcastCard
-                  key={podcast.id}
-                  podcast={podcast}
-                  sortBy={sortBy}
-                  index={index}
-                  priority={index < 6 ? 'high' : index < 15 ? 'medium' : 'low'}
-                />
-              ))}
+              {podcasts.map((podcast, index) => {
+                // 构建详情页 URL，保留当前的筛选条件
+                const params = new URLSearchParams()
+                if (sortBy) {
+                  params.append('sort_by', sortBy)
+                }
+                if (selectedTagIds.length > 0) {
+                  // 将标签 ID 数组转换为逗号分隔的字符串
+                  params.append('tag_ids', selectedTagIds.join(','))
+                }
+                const queryString = params.toString()
+                const detailUrl = `/podcasts/${podcast.id}${queryString ? `?${queryString}` : ''}`
+
+                return (
+                  <PodcastCard
+                    key={podcast.id}
+                    podcast={podcast}
+                    detailUrl={detailUrl}
+                    index={index}
+                    priority={index < 6 ? 'high' : index < 15 ? 'medium' : 'low'}
+                  />
+                )
+              })}
             </div>
 
             {/* Loading More Indicator */}
@@ -370,12 +407,12 @@ export default function PodcastsPage() {
 
 function PodcastCard({
   podcast,
-  sortBy,
+  detailUrl,
   index = 0,
   priority = 'medium'
 }: {
   podcast: Podcast
-  sortBy: string
+  detailUrl: string
   index?: number
   priority?: 'high' | 'medium' | 'low'
 }) {
@@ -388,7 +425,7 @@ function PodcastCard({
   const relativeTime = getRelativeTime(podcast.newest_episode_date)
 
   return (
-    <Link href={`/podcasts/${podcast.id}${sortBy ? `?sort_by=${sortBy}` : ''}`}>
+    <Link href={detailUrl}>
       <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer h-full flex flex-col">
         {/* Cover Image - 使用 PodcastCover 组件 */}
         <div className="relative">

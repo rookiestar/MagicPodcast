@@ -15,7 +15,24 @@ export default function PodcastDetailPage() {
   const id = parseInt(params.id as string)
   const targetEpisodeId = searchParams.get('episode_id') // 获取目标单集 ID
   const sortBy = searchParams.get('sort_by') || '' // 获取排序方式
+  const tagIds = searchParams.get('tag_ids') // 获取标签筛选（逗号分隔）
   const episodeListRef = useRef<HTMLDivElement>(null)
+
+  // 构建返回 URL 的查询参数
+  const buildBackUrl = () => {
+    const params = new URLSearchParams()
+    if (sortBy) {
+      params.append('sort_by', sortBy)
+    }
+    if (tagIds) {
+      // tag_ids 是逗号分隔的字符串，需要转换为多个 tag_id 参数
+      tagIds.split(',').forEach(id => {
+        params.append('tag_id', id)
+      })
+    }
+    const queryString = params.toString()
+    return `/podcasts${queryString ? `?${queryString}` : ''}`
+  }
 
   const [podcast, setPodcast] = useState<Podcast | null>(null)
   const [tags, setTags] = useState<Tag[]>([])
@@ -212,7 +229,7 @@ export default function PodcastDetailPage() {
         {/* Header */}
         <div className="mb-8">
           <Link
-            href={`/podcasts${sortBy ? `?sort_by=${sortBy}` : ''}`}
+            href={buildBackUrl()}
             className="w-36 h-11 px-4 bg-white text-slate-800 font-medium rounded-xl border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors flex items-center justify-center gap-2"
           >
             <span>←</span>

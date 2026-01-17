@@ -16,4 +16,4 @@ LIMIT 30;
 
 SELECT *
 FROM podcasts
-WHERE title = '无聊斋';
+WHERE title = '歪波音室';
