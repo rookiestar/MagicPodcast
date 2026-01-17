@@ -29,6 +29,66 @@ export default function PodcastDetailPage() {
   const [visibleCount, setVisibleCount] = useState(10) // 可见的单集数量
   const [isLoadingMore, setIsLoadingMore] = useState(false) // 正在加载更多
 
+  // 数据获取函数
+  const fetchPodcast = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await podcastApi.get(id)
+      setPodcast(data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error')
+      console.error('Failed to fetch podcast:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchTags = async () => {
+    try {
+      const data = await podcastApi.getTags(id)
+      setTags(data)
+    } catch (err) {
+      console.error('Failed to fetch tags:', err)
+      setTags([])
+    }
+  }
+
+  const fetchNotes = async () => {
+    try {
+      const data = await podcastApi.getNotes(id)
+      setNotes(data ?? '')
+    } catch (err) {
+      console.error('Failed to fetch notes:', err)
+      setNotes('')
+    }
+  }
+
+  const fetchEpisodes = async () => {
+    try {
+      setEpisodesLoading(true)
+      const data = await episodeApi.listByPodcast(id)
+      setEpisodes(data)
+
+      // 立即显示前10个单集
+      const initialCount = Math.min(10, data.length)
+      setDisplayedEpisodes(data.slice(0, initialCount))
+      setVisibleCount(initialCount)
+
+      // 如果单集数量<=10，立即完成加载
+      if (data.length <= 10) {
+        setEpisodesLoading(false)
+      } else {
+        setEpisodesLoading(false)
+      }
+    } catch (err) {
+      console.error('Failed to fetch episodes:', err)
+      setEpisodes([])
+      setDisplayedEpisodes([])
+      setEpisodesLoading(false)
+    }
+  }
+
   // 加载更多单集
   const loadMoreEpisodes = useCallback(() => {
     if (isLoadingMore || displayedEpisodes.length >= episodes.length) return
@@ -90,65 +150,6 @@ export default function PodcastDetailPage() {
       }
     }
   }, [episodesLoading, targetEpisodeId, episodes])
-
-  const fetchPodcast = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const data = await podcastApi.get(id)
-      setPodcast(data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
-      console.error('Failed to fetch podcast:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const fetchTags = async () => {
-    try {
-      const data = await podcastApi.getTags(id)
-      setTags(data)
-    } catch (err) {
-      console.error('Failed to fetch tags:', err)
-      setTags([])
-    }
-  }
-
-  const fetchNotes = async () => {
-    try {
-      const data = await podcastApi.getNotes(id)
-      setNotes(data ?? '')
-    } catch (err) {
-      console.error('Failed to fetch notes:', err)
-      setNotes('')
-    }
-  }
-
-  const fetchEpisodes = async () => {
-    try {
-      setEpisodesLoading(true)
-      const data = await episodeApi.listByPodcast(id)
-      setEpisodes(data)
-
-      // 立即显示前10个单集
-      const initialCount = Math.min(10, data.length)
-      setDisplayedEpisodes(data.slice(0, initialCount))
-      setVisibleCount(initialCount)
-
-      // 如果单集数量<=10，立即完成加载
-      if (data.length <= 10) {
-        setEpisodesLoading(false)
-      } else {
-        setEpisodesLoading(false)
-      }
-    } catch (err) {
-      console.error('Failed to fetch episodes:', err)
-      setEpisodes([])
-      setDisplayedEpisodes([])
-      setEpisodesLoading(false)
-    }
-  }
 
   // 处理标签变化（添加、移除、批量更新）
   const handleTagsChange = async (newTags: Tag[]) => {
