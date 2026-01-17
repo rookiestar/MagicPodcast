@@ -113,3 +113,12 @@ backend/internal/scraper/
 # Compiled Go binaries
 backend/magicpodcast-api
 backend/*/magicpodcast-api
+MagicPodcast.session.sql
+PodcastIndex.session.sql
+backend/apply_log.txt
+backend/match_report.txt
+backend/scripts/apply_podcast_tags.go
+backend/scripts/match_podcast_tags.go
+backend/scripts/read_excel_sheet1.go
+MagicPodcast.session.sql
+PodcastIndex.session.sql

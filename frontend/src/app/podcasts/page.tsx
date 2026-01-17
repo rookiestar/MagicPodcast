@@ -238,16 +238,15 @@ export default function PodcastsPage() {
         {/* Tag Filter */}
         {tags.length > 0 && (
           <div className="mb-6">
-            <div className="flex flex-wrap gap-2 items-center">
-              <span className="text-sm text-slate-600">标签筛选:</span>
-
+            {/* 标签按钮 */}
+            <div className="flex flex-wrap gap-2">
               {/* 全部按钮 */}
               <button
                 onClick={() => handleTagToggle(null)}
-                className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
                   selectedTagIds.length === 0
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-200 hover:bg-slate-300hover:bg-slate-600'
+                    ? 'bg-slate-800 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
                 全部
@@ -260,21 +259,20 @@ export default function PodcastsPage() {
                   <button
                     key={tag.id}
                     onClick={() => handleTagToggle(tag.id)}
-                    className={`px-3 py-1 rounded-full text-sm transition-colors flex items-center gap-2 group relative ${
+                    className={`px-3 py-1.5 rounded-lg text-sm transition-colors flex items-center gap-1.5 ${
                       isSelected
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-200 hover:bg-slate-300hover:bg-slate-600'
+                        ? 'bg-slate-800 text-white'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                     }`}
+                    title={tag.name}
                   >
                     <span
-                      className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: tag.color }}
+                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                      style={{
+                        backgroundColor: isSelected ? '#ffffff' : tag.color
+                      }}
                     />
-                    <span className="max-w-[100px] truncate" title={tag.name}>{tag.name}</span>
-                    {/* Tooltip for tag name */}
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900bg-slate-100 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
-                      {tag.name}
-                    </div>
+                    <span className="max-w-[100px] truncate">{tag.name}</span>
                   </button>
                 )
               })}
@@ -283,25 +281,12 @@ export default function PodcastsPage() {
               {hasMoreTags && (
                 <button
                   onClick={() => setShowAllTags(!showAllTags)}
-                  className="px-3 py-1 rounded-full text-sm transition-colors text-blue-600text-blue-400 hover:bg-blue-50"
+                  className="px-3 py-1.5 rounded-lg text-sm text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors"
                 >
-                  {showAllTags ? '收起' : `展开 (+${tags.length - DEFAULT_TAG_COUNT})`}
+                  {showAllTags ? '收起' : `+${tags.length - DEFAULT_TAG_COUNT}`}
                 </button>
               )}
             </div>
-
-            {/* 已选择的标签提示 */}
-            {selectedTagIds.length > 0 && (
-              <div className="mt-2 flex items-center gap-2 text-sm text-slate-600">
-                <span>已选择 {selectedTagIds.length} 个标签</span>
-                <button
-                  onClick={() => handleTagToggle(null)}
-                  className="text-blue-600text-blue-400 hover:underline"
-                >
-                  清除筛选
-                </button>
-              </div>
-            )}
           </div>
         )}
 
