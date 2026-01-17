@@ -225,10 +225,9 @@ func (h *PodcastHandler) modelToResponse(podcast *models.Podcast) PodcastRespons
 	tags := make([]TagResponse, len(podcast.Tags))
 	for i, tag := range podcast.Tags {
 		tags[i] = TagResponse{
-			ID:          tag.ID,
-			Name:        tag.Name,
-			Description: tag.Description,
-			Color:       tag.Color,
+			ID:    tag.ID,
+			Name:  tag.Name,
+			Color: tag.Color,
 		}
 	}
 

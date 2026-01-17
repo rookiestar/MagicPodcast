@@ -72,7 +72,6 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = 'è¾
 
       const newTag = await tagApi.create({
         name: name.trim(),
-        description: '',
         color: randomColor
       })
 

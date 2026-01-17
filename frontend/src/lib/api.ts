@@ -240,7 +240,7 @@ export const tagApi = {
   },
 
   // 创建标签
-  create: async (data: { name: string; description?: string; color?: string }): Promise<Tag> => {
+  create: async (data: { name: string; color?: string }): Promise<Tag> => {
     const response = await api.post<ApiResponse<Tag>>('/api/v1/tags', data)
     if (response.data.success && response.data.data) {
       return response.data.data
@@ -249,7 +249,7 @@ export const tagApi = {
   },
 
   // 更新标签
-  update: async (id: number, data: { description?: string; color?: string }): Promise<Tag> => {
+  update: async (id: number, data: { color?: string }): Promise<Tag> => {
     const response = await api.put<ApiResponse<Tag>>(`/api/v1/tags/${id}`, data)
     if (response.data.success && response.data.data) {
       return response.data.data

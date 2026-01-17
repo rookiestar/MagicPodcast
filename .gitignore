@@ -31,6 +31,9 @@ backend/data/
 *.sqlite3
 backend/data/*
 
+# SQL session files
+*.session.sql
+
 # Environment variables
 .env
 .env.local
