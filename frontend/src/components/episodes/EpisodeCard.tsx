@@ -85,8 +85,6 @@ export default function EpisodeCard({ episode, podcastCover, index = 0, priority
     return `${mb.toFixed(1)} MB`
   }
 
-  const coverImage = episode.image_url || podcastCover
-
   return (
     <div className="group relative bg-white rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-slate-200">
       {/* Content */}
