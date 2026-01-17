@@ -406,34 +406,46 @@ export default function WorkflowDetailPage() {
                 <div className="mt-6">
                   <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-3">调度信息</h3>
                   <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">Cron表达式</p>
-                        <p className="font-mono text-sm text-slate-900 dark:text-slate-50 bg-slate-100 dark:bg-slate-800 px-3 py-2 rounded">
-                          {workflow.schedule}
+                    <div className="space-y-3">
+                      {/* 抓取范围 */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-slate-600 dark:text-slate-400">抓取范围</span>
+                        <p className="text-sm text-slate-900 dark:text-slate-50">
+                          {workflow.scope_type === 'all_subscribed' && '全部订阅'}
+                          {workflow.scope_type === 'specific_podcasts' && `指定节目 (${podcasts.length}个)`}
+                          {workflow.scope_type === 'custom_sources' && '自定义源'}
                         </p>
                       </div>
-                      <div>
-                        <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">下次执行</p>
+                      {/* Cron表达式 */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-slate-600 dark:text-slate-400">Cron表达式</span>
+                        <code className="font-mono text-sm text-slate-900 dark:text-slate-50 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded">
+                          {workflow.schedule}
+                        </code>
+                      </div>
+                      {/* 下次执行 */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-slate-600 dark:text-slate-400">下次执行</span>
                         {workflow.stats?.next_execution ? (
-                          <p className="text-sm text-blue-600 dark:text-blue-400 font-medium">
+                          <span className="text-sm text-blue-600 dark:text-blue-400 font-medium">
                             {new Date(workflow.stats.next_execution).toLocaleString('zh-CN')}
-                          </p>
+                          </span>
                         ) : (
-                          <p className="text-sm text-slate-500 dark:text-slate-400">
+                          <span className="text-sm text-slate-500 dark:text-slate-400">
                             {workflow.is_enabled ? '等待调度...' : '工作流已禁用'}
-                          </p>
+                          </span>
                         )}
                       </div>
+                      {/* 上次执行 */}
+                      {workflow.stats?.last_execution && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-slate-600 dark:text-slate-400">上次执行</span>
+                          <span className="text-sm text-slate-900 dark:text-slate-50">
+                            {new Date(workflow.stats.last_execution).toLocaleString('zh-CN')}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                    {workflow.stats?.last_execution && (
-                      <div className="mt-3">
-                        <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">上次执行</p>
-                        <p className="text-sm text-slate-900 dark:text-slate-50">
-                          {new Date(workflow.stats.last_execution).toLocaleString('zh-CN')}
-                        </p>
-                      </div>
-                    )}
                   </div>
                 </div>
               )}
