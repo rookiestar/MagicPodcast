@@ -184,40 +184,53 @@ export default function PodcastsPage() {
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <Link
-              href={`/?sort_by=${sortBy}`}
-              className="text-blue-600 hover:text-blue-700"
-            >
-              ← 返回首页
-            </Link>
-            <div className="flex items-center gap-3">
-              {/* 排序选择器 */}
-              <select
-                value={sortBy}
-                onChange={(e) => handleSortChange(e.target.value as SortByType)}
-                className="px-3 py-2 border border-slate-300 rounded-xl bg-white text-slate-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-6">
+              <Link
+                href={`/?sort_by=${sortBy}`}
+                className="px-4 py-2 bg-white text-slate-800 font-medium rounded-xl border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors flex items-center gap-2"
               >
-                <option value="recent_update">最近更新</option>
-                <option value="newest_added">最新添加</option>
-                <option value="episode_count">单集数量</option>
-                <option value="title">名称</option>
-              </select>
-              <button
-                onClick={() => setSearchOpen(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors flex items-center gap-2"
-              >
-                <span>🔍</span>
-                <span>搜索</span>
-              </button>
+                <span>←</span>
+                <span>返回首页</span>
+              </Link>
+
+              {/* 右侧按钮组 */}
+              <div className="flex items-center gap-3">
+                {/* 排序选择器 - 白底边框样式 + icon */}
+                <div className="relative">
+                  <span className="absolute left-0 pl-3 text-slate-800 text-base z-10">🔽</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => handleSortChange(e.target.value as SortByType)}
+                    className="pl-10 pr-8 py-2 border border-slate-300 rounded-xl bg-white text-slate-800 text-sm focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-colors appearance-none cursor-pointer"
+                  >
+                    <option value="recent_update">最近更新</option>
+                    <option value="newest_added">最新添加</option>
+                    <option value="episode_count">单集数量</option>
+                    <option value="title">名称</option>
+                  </select>
+                </div>
+
+                {/* 搜索按钮 - 与排序按钮大小一致 */}
+                <button
+                  onClick={() => setSearchOpen(true)}
+                  className="pl-10 pr-8 py-2 border border-slate-300 rounded-xl bg-white text-slate-800 text-sm hover:bg-slate-50 hover:border-slate-400 transition-colors relative"
+                >
+                  <span className="absolute left-3 text-slate-800 text-base">🔍</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 标题和描述 - 优化字号 */}
+            <div className="mb-4">
+              <h1 className="text-4xl md:text-5xl font-semibold text-slate-800 mb-2">
+                我的订阅
+              </h1>
+              <p className="text-base text-slate-600 max-w-2xl">
+                管理你的播客节目
+              </p>
             </div>
           </div>
-          <h1 className="text-4xl font-bold text-slate-900text-slate-50 mb-2">
-            我的订阅
-          </h1>
-          <p className="text-slate-600">
-            管理你的播客节目
-          </p>
         </div>
 
         {/* Tag Filter */}
