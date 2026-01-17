@@ -250,33 +250,13 @@ export default function WorkflowDetailPage() {
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
+          <div className="mb-4">
             <Link
               href="/workflows"
               className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
             >
               ← 返回列表
             </Link>
-            <div className="flex gap-2">
-              <button
-                onClick={handleTrigger}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-              >
-                ▶ 立即执行
-              </button>
-              <button
-                onClick={() => setShowEditModal(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-              >
-                编辑
-              </button>
-              <button
-                onClick={handleDelete}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
-              >
-                删除
-              </button>
-            </div>
           </div>
 
           <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6">
@@ -294,16 +274,36 @@ export default function WorkflowDetailPage() {
                   </p>
                 )}
               </div>
-              <button
-                onClick={handleToggle}
-                className={`px-4 py-2 rounded-lg transition-colors text-sm ${
-                  workflow.is_enabled
-                    ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200 dark:bg-yellow-900 dark:text-yellow-200'
-                    : 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-200'
-                }`}
-              >
-                {workflow.is_enabled ? '禁用' : '启用'}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleTrigger}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                >
+                  ▶ 立即执行
+                </button>
+                <button
+                  onClick={handleToggle}
+                  className={`px-4 py-2 rounded-lg transition-colors text-sm ${
+                    workflow.is_enabled
+                      ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200 dark:bg-yellow-900 dark:text-yellow-200'
+                      : 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-200'
+                  }`}
+                >
+                  {workflow.is_enabled ? '暂停' : '启用'}
+                </button>
+                <button
+                  onClick={() => setShowEditModal(true)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                >
+                  编辑
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+                >
+                  删除
+                </button>
+              </div>
             </div>
 
             {/* Tabs */}
