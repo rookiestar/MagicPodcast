@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
 import { tagApi } from '@/lib/api'
 import type { Tag } from '@/types'
+
+type SortMode = 'popularity' | 'alphabetical'
 
 export default function TagsPage() {
   const [tags, setTags] = useState<Tag[]>([])
@@ -14,6 +16,7 @@ export default function TagsPage() {
   const [newTagColor, setNewTagColor] = useState('#3B82F6')
   const [selectedTags, setSelectedTags] = useState<Set<number>>(new Set())
   const [isSelectMode, setIsSelectMode] = useState(false)
+  const [sortMode, setSortMode] = useState<SortMode>('popularity')
 
   useEffect(() => {
     fetchTags()
@@ -76,6 +79,97 @@ export default function TagsPage() {
       setSelectedTags(new Set(tags.map(tag => tag.id)))
     }
   }
+
+  // 获取中文拼音首字母
+  const getChineseInitial = (char: string): string => {
+    const zh = "阿八查哒  发噶哈i 喀拉拿那哦p七r仨他哇v呀z".split("")
+    const en = "ABCDEFGHJKLMNOPQRSTWXYZ".split("")
+
+    // 简化的汉字到拼音首字母映射
+    const pinyinMap: Record<string, string> = {
+      '两': 'L', '性': 'X', '休': 'X', '体': 'T', '育': 'Y', '儿': 'E', '童': 'T',
+      '与': 'Y', '家': 'J', '庭': 'T', '自': 'Z', '然': 'R', '科': 'K', '学': 'X',
+      '历': 'L', '史': 'S', '名': 'M', '胜': 'S', '与': 'Y', '旅': 'L', '行': 'X',
+      '地': 'D', '方': 'F', '文': 'W', '化': 'H', '哲': 'Z', '学': 'X', '心': 'X',
+      '理': 'L', '学': 'X', '健': 'J', '康': 'K', '与': 'Y', '健': 'J', '身': 'S',
+      '商': 'S', '务': 'W', '业': 'Y', '新': 'X', '闻': 'W', '评': 'P', '论': 'L',
+      '实': 'S', '用': 'Y', '知': 'Z', '识': 'S', '创': 'C', '业': 'Y', '剧': 'J',
+      '情': 'Q', '动': 'D', '画': 'H', '漫': 'M', '漫': 'M', '画': 'H', '医': 'Y',
+      '学': 'X', '心': 'X', '理': 'L', '健': 'J', '康': 'K', '与': 'Y', '健': 'J',
+      '身': 'S', '教': 'J', '育': 'Y', '佛': 'F', '教': 'J', '图': 'T', '书': 'S',
+      '新': 'X', '闻': 'W', '娱': 'Y', '乐': 'L', '政': 'Z', '府': 'F', '管': 'G',
+      '理': 'L', '营': 'Y', '销': 'X', '财': 'C', '经': 'J', '济': 'J', '每': 'M',
+      '日': 'R', '新': 'X', '闻': 'W', '汽': 'Q', '车': 'C', '游': 'Y', '戏': 'X',
+      '泳': 'Y', '灵': 'L', '修': 'X', '宗': 'Z', '教': 'J', '爱': 'A', '好': 'H',
+      '宠': 'C', '物': 'W', '园': 'Y', '艺': 'Y', '林': 'L', '家': 'J', '居': 'J',
+      '园': 'Y', '小': 'X', '说': 'S', '幽': 'Y', '默': 'M', '对': 'D', '谈': 'T',
+      '影': 'Y', '评': 'P', '电': 'D', '影': 'Y', '史': 'S', '专': 'Z', '访': 'F',
+      '视': 'S', '电': 'D', '视': 'S', '与': 'Y', '电': 'D', '影': 'Y', '评': 'P',
+      '论': 'L', '社': 'S', '会': 'H', '化': 'H', '社': 'S', '会': 'H', '科': 'K',
+      '学': 'X', '自': 'Z', '然': 'R', '科': 'K', '学': 'X', '科': 'K', '幻': 'H',
+      '小': 'X', '说': 'S', '科': 'K', '技': 'J', '科': 'K', '技': 'J', '新': 'X',
+      '闻': 'W', '管': 'G', '理': 'L', '篮': 'L', '球': 'Q', '跑': 'P', '步': 'B',
+      '职': 'Z', '业': 'Y', '育': 'Y', '儿': 'E', '童': 'T', '育': 'Y', '脱': 'T',
+      '口': 'K', '秀': 'X', '自': 'Z', '我': 'W', '完': 'W', '善': 'S', '自': 'Z',
+      '然': 'R', '艺': 'Y', '术': 'S', '设': 'S', '计': 'J', '视': 'S', '觉': 'J',
+      '艺': 'Y', '术': 'S', '表': 'B', '演': 'Y', '艺': 'Y', '术': 'S', '语': 'Y',
+      '言': 'Y', '学': 'X', '习': 'X', '课': 'K', '程': 'C', '足': 'Z', '球': 'Q',
+      '野': 'Y', '外': 'W', '非': 'F', '营': 'Y', '利': 'L', '组': 'Z', '织': 'Z',
+      '音': 'Y', '乐': 'Y', '音': 'Y', '乐': 'L', '史': 'S', '音': 'Y', '乐': 'Y',
+      '赏': 'S', '析': 'X', '饮': 'Y', '食': 'S', '文': 'W', '化': 'H', '航': 'H',
+      '空': 'K', '美': 'M', '术': 'S', '节': 'J', '目': 'M', '漫': 'M', '谈': 'T',
+      '营': 'Y', '销': 'X', '传': 'C', '媒': 'M', '素': 'S', '养': 'Y', '职': 'Z',
+      '场': 'C', '筛': 'S', '选': 'X', '炼': 'L', '工': 'G', '作': 'Z', '流': 'L',
+      '罪': 'Z', '纪': 'J', '实': 'S', '录': 'L', '犯': 'F', '罪': 'Z', '电': 'D',
+      '子': 'Z', '游': 'Y', '戏': 'X', '生': 'S', '命': 'M', '科': 'K', '学': 'X',
+      '飞': 'F', '行': 'X', '物': 'W', '理': 'L', '化': 'H', '学': 'X', '笑': 'X',
+      '话': 'H', '新': 'X', '闻': 'W', '联': 'L', '播': 'B', '客': 'K'
+    }
+
+    // 查询映射表
+    if (pinyinMap[char]) {
+      return pinyinMap[char]
+    }
+
+    // 根据Unicode范围判断
+    const code = char.charCodeAt(0)
+    if (code >= 0x4E00 && code <= 0x9FA5) {
+      // 汉字范围，使用默认映射
+      return 'Z' // 未知汉字归到Z
+    }
+
+    if (/[a-zA-Z]/.test(char)) {
+      return char.toUpperCase()
+    }
+
+    return '#'
+  }
+
+  // 按字母分组标签
+  const groupedTags = useMemo(() => {
+    if (sortMode === 'popularity') {
+      return null
+    }
+
+    // 使用 Intl.Collator 进行中文拼音排序
+    const collator = new Intl.Collator('zh-CN', { sensitivity: 'base' })
+    const sorted = [...tags].sort((a, b) => collator.compare(a.name, b.name))
+
+    // 按首字母分组
+    const groups: Record<string, Tag[]> = {}
+    sorted.forEach(tag => {
+      // 获取拼音首字母
+      const firstChar = tag.name.charAt(0)
+      const letter = getChineseInitial(firstChar)
+
+      if (!groups[letter]) {
+        groups[letter] = []
+      }
+      groups[letter].push(tag)
+    })
+
+    return groups
+  }, [tags, sortMode])
 
   const handleBatchDelete = async () => {
     if (selectedTags.size === 0) return
@@ -171,6 +265,33 @@ export default function TagsPage() {
                 管理你的播客标签
               </p>
             </div>
+
+            {/* 排序模式切换 */}
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-sm text-slate-600">排序方式:</span>
+              <button
+                onClick={() => setSortMode('popularity')}
+                className={
+                  "px-3 py-1.5 rounded-lg text-sm transition-colors " +
+                  (sortMode === 'popularity'
+                    ? 'bg-slate-800 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
+                }
+              >
+                热度
+              </button>
+              <button
+                onClick={() => setSortMode('alphabetical')}
+                className={
+                  "px-3 py-1.5 rounded-lg text-sm transition-colors " +
+                  (sortMode === 'alphabetical'
+                    ? 'bg-slate-800 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
+                }
+              >
+                字母
+              </button>
+            </div>
           </div>
         </div>
 
@@ -215,7 +336,32 @@ export default function TagsPage() {
                   创建第一个标签
                 </button>
               </div>
+            ) : sortMode === 'alphabetical' && groupedTags ? (
+              // 字母序分组显示
+              <div className="space-y-6">
+                {Object.keys(groupedTags)
+                  .sort()
+                  .map((letter) => (
+                    <div key={letter}>
+                      <h3 className="text-lg font-semibold text-slate-800 mb-3 sticky top-0 bg-slate-50 py-2 border-b border-slate-200">
+                        {letter}
+                      </h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
+                        {groupedTags[letter].map((tag) => (
+                          <TagCard
+                            key={tag.id}
+                            tag={tag}
+                            isSelectMode={isSelectMode}
+                            isSelected={selectedTags.has(tag.id)}
+                            onToggleSelect={() => handleToggleSelect(tag.id)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+              </div>
             ) : (
+              // 热度模式显示
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
                 {tags.map((tag) => (
                   <TagCard
