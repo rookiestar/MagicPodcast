@@ -207,11 +207,11 @@ export default function PodcastsPage() {
 
                 {/* 排序选择器 - 白底边框样式 + icon */}
                 <div className="relative w-36">
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-slate-800 text-lg z-10 pointer-events-none">🔽</span>
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-slate-400 text-lg z-10 pointer-events-none">🔽</span>
                   <select
                     value={sortBy}
                     onChange={(e) => handleSortChange(e.target.value as SortByType)}
-                    className="w-full h-11 pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl bg-white text-slate-800 text-sm font-medium focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-colors appearance-none cursor-pointer"
+                    className="w-full h-11 pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl bg-white text-slate-400 text-sm text-center focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-colors appearance-none cursor-pointer"
                   >
                     <option value="recent_update">最近更新</option>
                     <option value="newest_added">最新添加</option>
