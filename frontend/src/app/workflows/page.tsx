@@ -30,7 +30,8 @@ export default function WorkflowsPage() {
     }
   }
 
-  const handleToggle = async (id: number) => {
+  const handleToggle = async (id: number, e: React.MouseEvent) => {
+    e.preventDefault()
     try {
       await workflowApi.toggle(id)
       await fetchWorkflows()
@@ -38,6 +39,25 @@ export default function WorkflowsPage() {
       alert(`切换失败: ${err instanceof Error ? err.message : 'Unknown error'}`)
       console.error('Failed to toggle workflow:', err)
     }
+  }
+
+  const handleTrigger = async (id: number, e: React.MouseEvent) => {
+    e.preventDefault()
+    if (!confirm('确定要立即执行此工作流吗?')) return
+
+    try {
+      await workflowApi.trigger(id)
+      alert('工作流已触发')
+      fetchWorkflows()
+    } catch (err) {
+      alert(`执行失败: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      console.error('Failed to trigger workflow:', err)
+    }
+  }
+
+  const handleEdit = (id: number, e: React.MouseEvent) => {
+    e.preventDefault()
+    window.location.href = `/workflows/${id}`
   }
 
   const handleDelete = async (id: number) => {
@@ -158,7 +178,7 @@ export default function WorkflowsPage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
                       <h3 className="text-xl font-semibold text-slate-900">
-                        {workflow.name}
+                        {workflow.id}: {workflow.name}
                       </h3>
                       {getStatusBadge(workflow.is_enabled)}
                     </div>
@@ -211,38 +231,58 @@ export default function WorkflowsPage() {
 
                   {/* Actions */}
                   <div className="flex items-center gap-2 ml-4">
+                    {/* 手动执行 */}
                     <button
-                      onClick={(e) => {
-                        e.preventDefault()
-                        handleToggle(workflow.id)
-                      }}
-                      className="p-2.5 text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded-lg hover:bg-indigo-50 hover:border-indigo-300 transition-all"
-                      title={workflow.is_enabled ? '暂停工作流' : '启用工作流'}
+                      onClick={(e) => handleTrigger(workflow.id, e)}
+                      className="p-2.5 text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-blue-300 dark:hover:border-blue-500 transition-all"
+                      title="手动执行"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                    </button>
+
+                    {/* 启用/停用 */}
+                    <button
+                      onClick={(e) => handleToggle(workflow.id, e)}
+                      className={`p-2.5 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-300 dark:hover:border-slate-500 transition-all ${
+                        workflow.is_enabled ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'
+                      }`}
+                      title={workflow.is_enabled ? '停用' : '启用'}
                     >
                       {workflow.is_enabled ? (
-                        // Pause icon
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                       ) : (
-                        // Play icon
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                       )}
                     </button>
+
+                    {/* 编辑 */}
+                    <button
+                      onClick={(e) => handleEdit(workflow.id, e)}
+                      className="p-2.5 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-300 dark:hover:border-slate-500 transition-all"
+                      title="编辑"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2h2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+
+                    {/* 删除 */}
                     <button
                       onClick={(e) => {
                         e.preventDefault()
                         handleDelete(workflow.id)
                       }}
-                      className="p-2.5 text-rose-600 hover:text-rose-800 border border-rose-200 rounded-lg hover:bg-rose-50 hover:border-rose-300 transition-all"
-                      title="删除工作流"
+                      className="p-2.5 text-red-600 dark:text-red-400 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 hover:border-red-300 dark:hover:border-red-500 transition-all"
+                      title="删除"
                     >
-                      {/* Trash icon */}
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>
                     </button>
                   </div>

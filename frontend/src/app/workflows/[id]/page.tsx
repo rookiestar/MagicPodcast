@@ -218,9 +218,10 @@ export default function WorkflowDetailPage() {
           <div className="mb-4">
             <Link
               href="/workflows"
-              className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+              className="w-36 h-11 px-4 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-medium rounded-xl border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 hover:border-slate-400 dark:hover:border-slate-500 transition-colors flex items-center justify-center gap-2"
             >
-              ← 返回列表
+              <span>←</span>
+              <span>返回列表</span>
             </Link>
           </div>
 
@@ -229,7 +230,7 @@ export default function WorkflowDetailPage() {
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2">
                   <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-50">
-                    {workflow.name}
+                    {workflow.id}: {workflow.name}
                   </h1>
                   {getStatusBadge(workflow.is_enabled)}
                 </div>
@@ -242,11 +243,10 @@ export default function WorkflowDetailPage() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleTrigger}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm flex items-center gap-2"
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm flex items-center gap-2"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                   手动执行
                 </button>
@@ -254,22 +254,21 @@ export default function WorkflowDetailPage() {
                   onClick={handleToggle}
                   className={`px-4 py-2 rounded-lg transition-colors text-sm flex items-center gap-2 ${
                     workflow.is_enabled
-                      ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200 dark:bg-yellow-900 dark:text-yellow-200'
-                      : 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-200'
+                      ? 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                      : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
                   }`}
                 >
                   {workflow.is_enabled ? (
                     <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      <svg className="w-4 h-4 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                       停用
                     </>
                   ) : (
                     <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                       启用
                     </>
@@ -277,19 +276,19 @@ export default function WorkflowDetailPage() {
                 </button>
                 <button
                   onClick={() => setShowEditModal(true)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm flex items-center gap-2"
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm flex items-center gap-2"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2h2.828l8.586-8.586z" />
+                  <svg className="w-4 h-4 text-slate-800 dark:text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2h2.828l8.586-8.586z" />
                   </svg>
                   编辑
                 </button>
                 <button
                   onClick={handleDelete}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm flex items-center gap-2"
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-sm flex items-center gap-2"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                   </svg>
                   删除
                 </button>
@@ -338,34 +337,161 @@ export default function WorkflowDetailPage() {
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6">
           {activeTab === 'overview' && (
             <div>
-              <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-50 mb-4">基本信息</h2>
-              <div className="grid md:grid-cols-2 gap-6">
-                <div>
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">定时规则</p>
-                  <code className="px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded text-sm">
-                    {workflow.schedule}
-                  </code>
-                </div>
-                <div>
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">范围类型</p>
-                  <p className="text-slate-900 dark:text-slate-50">
-                    {workflow.scope_type === 'all_subscribed' && '全部订阅'}
-                    {workflow.scope_type === 'specific_podcasts' && `指定节目 (${podcasts.length}个)`}
-                    {workflow.scope_type === 'custom_sources' && '自定义源'}
-                  </p>
-                  {workflow.scope_type === 'specific_podcasts' && podcasts.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {podcasts.map((podcast) => (
-                        <Link
-                          key={podcast.id}
-                          href={`/podcasts/${podcast.id}`}
-                          className="text-xs px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
-                        >
-                          {podcast.title}
-                        </Link>
-                      ))}
+              <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-50 mb-4">调度信息</h2>
+              <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-5">
+                <div className="grid md:grid-cols-2 gap-8">
+                  {/* 左列: 抓取范围 */}
+                  <div>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">抓取范围</p>
+                    <p className="text-slate-900 dark:text-slate-50 mb-3">
+                      {workflow.scope_type === 'all_subscribed' && '全部订阅'}
+                      {workflow.scope_type === 'specific_podcasts' && `指定节目 (${podcasts.length}个)`}
+                      {workflow.scope_type === 'custom_sources' && '自定义源'}
+                    </p>
+                    {workflow.scope_type === 'specific_podcasts' && podcasts.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {podcasts.map((podcast) => (
+                          <Link
+                            key={podcast.id}
+                            href={`/podcasts/${podcast.id}`}
+                            className="text-xs px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+                          >
+                            {podcast.title}
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 右列: 定时规则和执行时间 */}
+                  <div className="space-y-4">
+                    {/* 定时规则 */}
+                    <div>
+                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">定时规则</p>
+                      <code className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 rounded text-sm font-mono">
+                        {workflow.schedule}
+                      </code>
                     </div>
-                  )}
+
+                    {/* 上次执行 */}
+                    <div>
+                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">上次执行</p>
+                      {workflow.stats?.last_execution ? (
+                        <span className="text-slate-900 dark:text-slate-50">
+                          {new Date(workflow.stats.last_execution).toLocaleString('zh-CN')}
+                        </span>
+                      ) : (
+                        <span className="text-sm text-slate-500 dark:text-slate-400">暂无记录</span>
+                      )}
+                    </div>
+
+                    {/* 下次执行 */}
+                    <div>
+                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">下次执行</p>
+                      {workflow.stats?.next_execution ? (
+                        <span className="text-blue-600 dark:text-blue-400 font-medium">
+                          {new Date(workflow.stats.next_execution).toLocaleString('zh-CN')}
+                        </span>
+                      ) : (
+                        <span className="text-sm text-slate-500 dark:text-slate-400">
+                          {workflow.is_enabled ? '等待调度...' : '工作流已禁用'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 配置详情 */}
+              <div className="mt-6">
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-3">配置详情</h3>
+                <div className="grid md:grid-cols-2 gap-6">
+                  {/* 范围配置 */}
+                  <div>
+                    <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">范围配置</h4>
+                    {workflow.scope_type === 'specific_podcasts' && podcasts.length > 0 ? (
+                      <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
+                        <div className="flex flex-wrap gap-2">
+                          {podcasts.map((podcast) => (
+                            <Link
+                              key={podcast.id}
+                              href={`/podcasts/${podcast.id}`}
+                              className="text-sm px-3 py-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-50 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-sm transition-all"
+                            >
+                              <div className="flex items-center gap-2">
+                                {podcast.cover_url && (
+                                  <img
+                                    src={podcast.cover_url}
+                                    alt={podcast.title}
+                                    className="w-8 h-8 rounded object-cover"
+                                  />
+                                )}
+                                <span className="font-medium">{podcast.title}</span>
+                              </div>
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <pre className="bg-slate-100 dark:bg-slate-900 rounded-lg p-4 text-xs overflow-x-auto">
+                        {JSON.stringify(workflow.scope_config, null, 2)}
+                      </pre>
+                    )}
+                  </div>
+
+                  {/* 规则配置 */}
+                  <div>
+                    <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">规则配置</h4>
+                    <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
+                      {workflow.rules_config?.time_range && workflow.rules_config.time_range > 0 && (
+                        <div className="mb-2">
+                          <span className="text-slate-600 dark:text-slate-400">时间范围：</span>
+                          <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                            最近 {workflow.rules_config.time_range} 天
+                          </span>
+                        </div>
+                      )}
+                      {workflow.rules_config?.min_duration && workflow.rules_config.min_duration > 0 && (
+                        <div className="mb-2">
+                          <span className="text-slate-600 dark:text-slate-400">最小时长：</span>
+                          <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                            {Math.floor(workflow.rules_config.min_duration / 60)} 分钟
+                          </span>
+                        </div>
+                      )}
+                      {workflow.rules_config?.max_results && workflow.rules_config.max_results > 0 && (
+                        <div className="mb-2">
+                          <span className="text-slate-600 dark:text-slate-400">最大结果数：</span>
+                          <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                            {workflow.rules_config.max_results} 个
+                          </span>
+                        </div>
+                      )}
+                      {workflow.rules_config?.keywords && (
+                        <div className="mb-2">
+                          <span className="text-slate-600 dark:text-slate-400">关键词：</span>
+                          <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                            {workflow.rules_config.keywords}
+                          </span>
+                        </div>
+                      )}
+                      {workflow.rules_config?.exclude_words && (
+                        <div>
+                          <span className="text-slate-600 dark:text-slate-400">排除词：</span>
+                          <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                            {workflow.rules_config.exclude_words}
+                          </span>
+                        </div>
+                      )}
+                      {(!workflow.rules_config?.time_range || workflow.rules_config.time_range === 0) &&
+                       !workflow.rules_config?.min_duration &&
+                       !workflow.rules_config?.max_results &&
+                       !workflow.rules_config?.keywords &&
+                       !workflow.rules_config?.exclude_words && (
+                        <p className="text-slate-500 dark:text-slate-400 text-sm">无特殊规则</p>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -396,55 +522,6 @@ export default function WorkflowDetailPage() {
                         {workflow.stats.success_jobs}
                       </p>
                       <p className="text-sm text-slate-600 dark:text-slate-400">成功次数</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 调度信息 */}
-              {workflow.schedule && (
-                <div className="mt-6">
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-3">调度信息</h3>
-                  <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
-                    <div className="space-y-3">
-                      {/* 抓取范围 */}
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-slate-600 dark:text-slate-400">抓取范围</span>
-                        <p className="text-sm text-slate-900 dark:text-slate-50">
-                          {workflow.scope_type === 'all_subscribed' && '全部订阅'}
-                          {workflow.scope_type === 'specific_podcasts' && `指定节目 (${podcasts.length}个)`}
-                          {workflow.scope_type === 'custom_sources' && '自定义源'}
-                        </p>
-                      </div>
-                      {/* Cron表达式 */}
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-slate-600 dark:text-slate-400">Cron表达式</span>
-                        <code className="font-mono text-sm text-slate-900 dark:text-slate-50 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded">
-                          {workflow.schedule}
-                        </code>
-                      </div>
-                      {/* 下次执行 */}
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-slate-600 dark:text-slate-400">下次执行</span>
-                        {workflow.stats?.next_execution ? (
-                          <span className="text-sm text-blue-600 dark:text-blue-400 font-medium">
-                            {new Date(workflow.stats.next_execution).toLocaleString('zh-CN')}
-                          </span>
-                        ) : (
-                          <span className="text-sm text-slate-500 dark:text-slate-400">
-                            {workflow.is_enabled ? '等待调度...' : '工作流已禁用'}
-                          </span>
-                        )}
-                      </div>
-                      {/* 上次执行 */}
-                      {workflow.stats?.last_execution && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-slate-600 dark:text-slate-400">上次执行</span>
-                          <span className="text-sm text-slate-900 dark:text-slate-50">
-                            {new Date(workflow.stats.last_execution).toLocaleString('zh-CN')}
-                          </span>
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>
