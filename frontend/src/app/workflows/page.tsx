@@ -149,9 +149,10 @@ export default function WorkflowsPage() {
         {!loading && !error && workflows.length > 0 && (
           <div className="space-y-4">
             {workflows.map((workflow) => (
-              <div
+              <Link
                 key={workflow.id}
-                className="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow p-6"
+                href={`/workflows/${workflow.id}`}
+                className="block bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow p-6"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
@@ -210,31 +211,43 @@ export default function WorkflowsPage() {
 
                   {/* Actions */}
                   <div className="flex items-center gap-2 ml-4">
-                    <Link
-                      href={`/workflows/${workflow.id}`}
-                      className="px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 border border-blue-600 rounded hover:bg-blue-50 transition-colors"
-                    >
-                      查看详情
-                    </Link>
                     <button
-                      onClick={() => handleToggle(workflow.id)}
-                      className={`px-3 py-1.5 text-sm rounded transition-colors ${
-                        workflow.is_enabled
-                          ? 'text-yellow-600 border border-yellow-600 hover:bg-yellow-50'
-                          : 'text-green-600 border border-green-600 hover:bg-green-50'
-                      }`}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        handleToggle(workflow.id)
+                      }}
+                      className="p-2.5 text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded-lg hover:bg-indigo-50 hover:border-indigo-300 transition-all"
+                      title={workflow.is_enabled ? '暂停工作流' : '启用工作流'}
                     >
-                      {workflow.is_enabled ? '禁用' : '启用'}
+                      {workflow.is_enabled ? (
+                        // Pause icon
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      ) : (
+                        // Play icon
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      )}
                     </button>
                     <button
-                      onClick={() => handleDelete(workflow.id)}
-                      className="px-3 py-1.5 text-sm text-red-600 border border-red-600 hover:bg-red-50 rounded transition-colors"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        handleDelete(workflow.id)
+                      }}
+                      className="p-2.5 text-rose-600 hover:text-rose-800 border border-rose-200 rounded-lg hover:bg-rose-50 hover:border-rose-300 transition-all"
+                      title="删除工作流"
                     >
-                      删除
+                      {/* Trash icon */}
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
                     </button>
                   </div>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         )}
