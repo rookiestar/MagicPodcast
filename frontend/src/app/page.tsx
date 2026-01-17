@@ -8,67 +8,82 @@ export default function Home() {
   const sortBy = searchParams.get('sort_by') || ''
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
-      <div className="container mx-auto px-4 py-16">
+    <main className="min-h-screen bg-slate-50">
+      <div className="container mx-auto px-4 py-20">
+        {/* Hero Section */}
         <div className="text-center mb-16">
-          <h1 className="text-5xl font-bold text-slate-900 dark:text-slate-50 mb-4">
-            🎧 MagicPodcast
+          {/* Static Icon */}
+          <div className="mb-8">
+            <div className="text-7xl">🎙️</div>
+          </div>
+
+          {/* Title */}
+          <h1 className="text-6xl md:text-7xl font-bold mb-4" style={{ letterSpacing: '-0.02em' }}>
+            <span className="bg-gradient-to-r from-violet-600 to-indigo-600 bg-clip-text text-transparent">
+              Magic
+            </span>
+            <span className="text-slate-800 mx-2">Podcast</span>
           </h1>
-          <p className="text-xl text-slate-600 dark:text-slate-400 mb-8">
+
+          {/* Subtitle */}
+          <p className="text-xl text-slate-600 mb-12 max-w-2xl mx-auto">
             个人播库管理与自动化处理工具
           </p>
-          <div className="flex gap-4 justify-center flex-wrap">
+
+          {/* Action Buttons - Light Colors */}
+          <div className="flex gap-3 justify-center flex-wrap max-w-3xl mx-auto">
             <Link
               href={`/podcasts${sortBy ? `?sort_by=${sortBy}` : ''}`}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="px-6 py-3 bg-white text-slate-800 font-medium rounded-lg border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors"
             >
-              查看播客列表
+              🎧 查看播客列表
             </Link>
+
             <Link
               href="/tags"
-              className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              className="px-6 py-3 bg-white text-slate-800 font-medium rounded-lg border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors"
             >
-              标签管理
+              🏷️ 标签管理
             </Link>
+
             <Link
               href="/workflows"
-              className="px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+              className="px-6 py-3 bg-white text-slate-800 font-medium rounded-lg border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors"
             >
-              工作流管理
+              ⚙️ 工作流管理
             </Link>
+
             <Link
               href="/import"
-              className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              className="px-6 py-3 bg-white text-slate-800 font-medium rounded-lg border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors"
             >
-              导入/同步
+              📥 导入/同步
             </Link>
-            <a
-              href="http://localhost:8080/health"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-6 py-3 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors"
-            >
-              API 健康检查
-            </a>
           </div>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-          <Link href={`/podcasts${sortBy ? `?sort_by=${sortBy}` : ''}`}>
+        {/* Feature Cards */}
+        <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+          <Link
+            href={`/podcasts${sortBy ? `?sort_by=${sortBy}` : ''}`}
+            className="group"
+          >
             <FeatureCard
-              emoji="🎧"
+              emoji="🎙️"
               title="我的订阅管理"
               description="同步小宇宙平台的订阅节目和单集数据"
             />
           </Link>
-          <Link href="/tags">
+
+          <Link href="/tags" className="group">
             <FeatureCard
               emoji="🏷️"
               title="本地标签与备注"
               description="为节目/单集添加自定义标签和备注"
             />
           </Link>
-          <Link href="/workflows">
+
+          <Link href="/workflows" className="group">
             <FeatureCard
               emoji="⚙️"
               title="自动化工作流"
@@ -77,8 +92,11 @@ export default function Home() {
           </Link>
         </div>
 
-        <div className="mt-16 text-center text-slate-500 dark:text-slate-400">
-          <p>项目处于开发阶段 • 阶段 1 实施中</p>
+        {/* Footer */}
+        <div className="mt-20 text-center">
+          <p className="text-slate-400 text-sm">
+            项目处于开发阶段 • 阶段 1 实施中
+          </p>
         </div>
       </div>
     </main>
@@ -88,19 +106,21 @@ export default function Home() {
 function FeatureCard({
   emoji,
   title,
-  description,
+  description
 }: {
   emoji: string
   title: string
   description: string
 }) {
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6 hover:shadow-xl transition-all cursor-pointer hover:scale-105">
-      <div className="text-4xl mb-4">{emoji}</div>
-      <h3 className="text-xl font-semibold text-slate-900 dark:text-slate-50 mb-2">
+    <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow p-8 border border-slate-200">
+      <div className="text-5xl mb-4">{emoji}</div>
+      <h3 className="text-xl font-semibold text-slate-800 mb-2">
         {title}
       </h3>
-      <p className="text-slate-600 dark:text-slate-400">{description}</p>
+      <p className="text-slate-600 text-sm leading-relaxed">
+        {description}
+      </p>
     </div>
   )
 }
