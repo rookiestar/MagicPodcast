@@ -84,29 +84,24 @@ func seedData(db *gorm.DB) error {
 	// 创建示例标签
 	tags := []models.Tag{
 		{
-			Name:        "科技",
-			Description: "科技类播客",
-			Color:       "#3B82F6",
+			Name:  "科技",
+			Color: "#3B82F6",
 		},
 		{
-			Name:        "教育",
-			Description: "教育类播客",
-			Color:       "#10B981",
+			Name:  "教育",
+			Color: "#10B981",
 		},
 		{
-			Name:        "娱乐",
-			Description: "娱乐类播客",
-			Color:       "#F59E0B",
+			Name:  "娱乐",
+			Color: "#F59E0B",
 		},
 		{
-			Name:        "商业",
-			Description: "商业类播客",
-			Color:       "#8B5CF6",
+			Name:  "商业",
+			Color: "#8B5CF6",
 		},
 		{
-			Name:        "健康",
-			Description: "健康类播客",
-			Color:       "#EC4899",
+			Name:  "健康",
+			Color: "#EC4899",
 		},
 	}
 

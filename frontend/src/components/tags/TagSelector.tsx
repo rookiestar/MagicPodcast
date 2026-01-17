@@ -127,11 +127,6 @@ export default function TagSelector({
                           <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
                             {tag.name}
                           </p>
-                          {tag.description && (
-                            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                              {tag.description}
-                            </p>
-                          )}
                         </div>
                       </div>
                     </button>

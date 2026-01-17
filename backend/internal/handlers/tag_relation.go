@@ -255,10 +255,9 @@ func (h *TagRelationHandler) GetPodcastTags(c *gin.Context) {
 	tags := make([]gin.H, len(podcast.Tags))
 	for i, tag := range podcast.Tags {
 		tags[i] = gin.H{
-			"id":          tag.ID,
-			"name":        tag.Name,
-			"description": tag.Description,
-			"color":       tag.Color,
+			"id":    tag.ID,
+			"name":  tag.Name,
+			"color": tag.Color,
 		}
 	}
 
@@ -500,10 +499,9 @@ func (h *TagRelationHandler) GetEpisodeTags(c *gin.Context) {
 	tags := make([]gin.H, len(episode.Tags))
 	for i, tag := range episode.Tags {
 		tags[i] = gin.H{
-			"id":          tag.ID,
-			"name":        tag.Name,
-			"description": tag.Description,
-			"color":       tag.Color,
+			"id":    tag.ID,
+			"name":  tag.Name,
+			"color": tag.Color,
 		}
 	}
 

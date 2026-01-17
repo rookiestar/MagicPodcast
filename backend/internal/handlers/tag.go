@@ -20,23 +20,20 @@ func NewTagHandler() *TagHandler {
 
 // TagResponse 标签响应结构
 type TagResponse struct {
-	ID          uint   `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Color       string `json:"color"`
+	ID    uint   `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
 }
 
 // CreateTagRequest 创建标签请求
 type CreateTagRequest struct {
-	Name        string `json:"name" binding:"required,max=64"`
-	Description string `json:"description" binding:"max=255"`
-	Color       string `json:"color" binding:"omitempty,len=7"`
+	Name  string `json:"name" binding:"required,max=64"`
+	Color string `json:"color" binding:"omitempty,len=7"`
 }
 
 // UpdateTagRequest 更新标签请求
 type UpdateTagRequest struct {
-	Description string `json:"description" binding:"omitempty,max=255"`
-	Color       string `json:"color" binding:"omitempty,len=7"`
+	Color string `json:"color" binding:"omitempty,len=7"`
 }
 
 // Create 创建标签
@@ -79,9 +76,8 @@ func (h *TagHandler) Create(c *gin.Context) {
 
 	// 创建标签
 	tag := models.Tag{
-		Name:        req.Name,
-		Description: req.Description,
-		Color:       req.Color,
+		Name:  req.Name,
+		Color: req.Color,
 	}
 
 	if err := db.Create(&tag).Error; err != nil {
@@ -97,7 +93,7 @@ func (h *TagHandler) Create(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
-		"data":    TagResponse{ID: tag.ID, Name: tag.Name, Description: tag.Description, Color: tag.Color},
+		"data":    TagResponse{ID: tag.ID, Name: tag.Name, Color: tag.Color},
 	})
 }
 
@@ -128,10 +124,9 @@ func (h *TagHandler) List(c *gin.Context) {
 	response := make([]TagResponse, len(tags))
 	for i, tag := range tags {
 		response[i] = TagResponse{
-			ID:          tag.ID,
-			Name:        tag.Name,
-			Description: tag.Description,
-			Color:       tag.Color,
+			ID:    tag.ID,
+			Name:  tag.Name,
+			Color: tag.Color,
 		}
 	}
 
@@ -182,10 +177,9 @@ func (h *TagHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": TagResponse{
-			ID:          tag.ID,
-			Name:        tag.Name,
-			Description: tag.Description,
-			Color:       tag.Color,
+			ID:    tag.ID,
+			Name:  tag.Name,
+			Color: tag.Color,
 		},
 	})
 }
@@ -245,9 +239,6 @@ func (h *TagHandler) Update(c *gin.Context) {
 
 	// 更新标签
 	updates := map[string]interface{}{}
-	if req.Description != "" {
-		updates["description"] = req.Description
-	}
 	if req.Color != "" {
 		updates["color"] = req.Color
 	}
@@ -269,10 +260,9 @@ func (h *TagHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": TagResponse{
-			ID:          tag.ID,
-			Name:        tag.Name,
-			Description: tag.Description,
-			Color:       tag.Color,
+			ID:    tag.ID,
+			Name:  tag.Name,
+			Color: tag.Color,
 		},
 	})
 }

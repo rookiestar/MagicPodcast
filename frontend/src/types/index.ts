@@ -75,11 +75,10 @@ export interface Episode {
   notes: string
 }
 
-// Tag 类型定义（暂未使用）
+// Tag 类型定义
 export interface Tag {
   id: number
   name: string
-  description: string
   color: string
 }
 

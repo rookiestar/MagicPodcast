@@ -11,8 +11,9 @@ export default function TagsPage() {
   const [error, setError] = useState<string | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newTagName, setNewTagName] = useState('')
-  const [newTagDesc, setNewTagDesc] = useState('')
   const [newTagColor, setNewTagColor] = useState('#3B82F6')
+  const [selectedTags, setSelectedTags] = useState<Set<number>>(new Set())
+  const [isSelectMode, setIsSelectMode] = useState(false)
 
   useEffect(() => {
     fetchTags()
@@ -36,12 +37,10 @@ export default function TagsPage() {
     try {
       await tagApi.create({
         name: newTagName,
-        description: newTagDesc,
         color: newTagColor,
       })
       setShowCreateModal(false)
       setNewTagName('')
-      setNewTagDesc('')
       setNewTagColor('#3B82F6')
       fetchTags()
     } catch (err) {
@@ -57,6 +56,42 @@ export default function TagsPage() {
       fetchTags()
     } catch (err) {
       alert(err instanceof Error ? err.message : '删除失败')
+    }
+  }
+
+  const handleToggleSelect = (tagId: number) => {
+    const newSelected = new Set(selectedTags)
+    if (newSelected.has(tagId)) {
+      newSelected.delete(tagId)
+    } else {
+      newSelected.add(tagId)
+    }
+    setSelectedTags(newSelected)
+  }
+
+  const handleSelectAll = () => {
+    if (selectedTags.size === tags.length) {
+      setSelectedTags(new Set())
+    } else {
+      setSelectedTags(new Set(tags.map(tag => tag.id)))
+    }
+  }
+
+  const handleBatchDelete = async () => {
+    if (selectedTags.size === 0) return
+
+    if (!confirm(`确定要删除选中的 ${selectedTags.size} 个标签吗？`)) return
+
+    try {
+      // 逐个删除
+      for (const tagId of selectedTags) {
+        await tagApi.delete(tagId)
+      }
+      setSelectedTags(new Set())
+      setIsSelectMode(false)
+      fetchTags()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '批量删除失败')
     }
   }
 
@@ -78,14 +113,52 @@ export default function TagsPage() {
 
               {/* 右侧按钮组 */}
               <div className="flex items-center gap-3">
-                {/* 新建标签按钮 - 突出显示 */}
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  className="w-36 h-11 border-2 border-blue-600 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 hover:border-blue-700 transition-colors relative"
-                >
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-white text-lg pointer-events-none">+</span>
-                  <span className="w-full text-center">新建标签</span>
-                </button>
+                {isSelectMode ? (
+                  <>
+                    {/* 取消选择 */}
+                    <button
+                      onClick={() => {
+                        setIsSelectMode(false)
+                        setSelectedTags(new Set())
+                      }}
+                      className="px-4 h-11 bg-white text-slate-700 rounded-xl border border-slate-300 hover:bg-slate-50 transition-colors"
+                    >
+                      取消
+                    </button>
+                    {/* 全选按钮 */}
+                    <button
+                      onClick={handleSelectAll}
+                      className="px-4 h-11 bg-white text-slate-700 rounded-xl border border-slate-300 hover:bg-slate-50 transition-colors"
+                    >
+                      {selectedTags.size === tags.length ? '取消全选' : '全选'}
+                    </button>
+                    {/* 批量删除按钮 */}
+                    <button
+                      onClick={handleBatchDelete}
+                      disabled={selectedTags.size === 0}
+                      className="px-4 h-11 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors disabled:bg-red-300 disabled:cursor-not-allowed"
+                    >
+                      删除 ({selectedTags.size})
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {/* 多选模式按钮 */}
+                    <button
+                      onClick={() => setIsSelectMode(true)}
+                      className="px-4 h-11 bg-white text-slate-700 rounded-xl border border-slate-300 hover:bg-slate-50 transition-colors"
+                    >
+                      多选
+                    </button>
+                    {/* 新建标签按钮 */}
+                    <button
+                      onClick={() => setShowCreateModal(true)}
+                      className="px-4 h-11 border-2 border-blue-600 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 hover:border-blue-700 transition-colors"
+                    >
+                      + 新建标签
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
@@ -143,12 +216,14 @@ export default function TagsPage() {
                 </button>
               </div>
             ) : (
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">
                 {tags.map((tag) => (
                   <TagCard
                     key={tag.id}
                     tag={tag}
-                    onDelete={() => handleDeleteTag(tag.id, tag.name)}
+                    isSelectMode={isSelectMode}
+                    isSelected={selectedTags.has(tag.id)}
+                    onToggleSelect={() => handleToggleSelect(tag.id)}
                   />
                 ))}
               </div>
@@ -174,17 +249,6 @@ export default function TagsPage() {
                     onChange={(e) => setNewTagName(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-900 mb-2">
-                    描述
-                  </label>
-                  <textarea
-                    value={newTagDesc}
-                    onChange={(e) => setNewTagDesc(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    rows={3}
                   />
                 </div>
                 <div>
@@ -231,31 +295,49 @@ export default function TagsPage() {
   )
 }
 
-function TagCard({ tag, onDelete }: { tag: Tag; onDelete: () => void }) {
+function TagCard({
+  tag,
+  isSelectMode,
+  isSelected,
+  onToggleSelect
+}: {
+  tag: Tag
+  isSelectMode: boolean
+  isSelected: boolean
+  onToggleSelect: () => void
+}) {
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-3">
-          <div
-            className="w-4 h-4 rounded-full"
-            style={{ backgroundColor: tag.color }}
+    <div
+      className={`
+        bg-white rounded-lg shadow-sm px-3 py-2 h-12 flex items-center gap-2
+        hover:shadow-md transition-shadow cursor-pointer
+        ${isSelected ? 'ring-2 ring-blue-500' : ''}
+      `}
+      onClick={isSelectMode ? onToggleSelect : undefined}
+    >
+      {/* 多选模式复选框 */}
+      {isSelectMode && (
+        <div className="flex-shrink-0">
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={onToggleSelect}
+            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            onClick={(e) => e.stopPropagation()}
           />
-          <h3 className="text-xl font-semibold text-slate-900">
-            {tag.name}
-          </h3>
         </div>
-        <button
-          onClick={onDelete}
-          className="text-red-600 hover:text-red-700"
-        >
-          删除
-        </button>
-      </div>
-      {tag.description && (
-        <p className="text-slate-600 text-sm">
-          {tag.description}
-        </p>
       )}
+
+      {/* 颜色圆点 */}
+      <div
+        className="w-3 h-3 rounded-full flex-shrink-0"
+        style={{ backgroundColor: tag.color || '#ccc' }}
+      />
+
+      {/* 标签名称 */}
+      <h3 className="text-sm font-normal text-slate-900 truncate flex-1">
+        {tag.name}
+      </h3>
     </div>
   )
 }
