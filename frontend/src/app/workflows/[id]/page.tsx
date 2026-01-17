@@ -27,7 +27,6 @@ export default function WorkflowDetailPage() {
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null)
   const [jobDetails, setJobDetails] = useState<Record<number, Job>>({})
   const [loadingJobId, setLoadingJobId] = useState<number | null>(null)
-  const [schedulerLoading, setSchedulerLoading] = useState(false)
 
   useEffect(() => {
     if (id) {
@@ -120,42 +119,8 @@ export default function WorkflowDetailPage() {
     try {
       const updated = await workflowApi.toggle(id)
       setWorkflow(updated)
-      // 重载调度器
-      try {
-        await schedulerApi.reload()
-      } catch (err) {
-        console.error('Failed to reload scheduler:', err)
-      }
     } catch (err) {
       alert(`操作失败: ${err instanceof Error ? err.message : 'Unknown error'}`)
-    }
-  }
-
-  const handlePauseSchedule = async () => {
-    if (!workflow) return
-    try {
-      setSchedulerLoading(true)
-      await schedulerApi.pauseWorkflow(id)
-      alert('调度已暂停')
-    } catch (err) {
-      alert(`暂停失败: ${err instanceof Error ? err.message : 'Unknown error'}`)
-    } finally {
-      setSchedulerLoading(false)
-    }
-  }
-
-  const handleResumeSchedule = async () => {
-    if (!workflow) return
-    try {
-      setSchedulerLoading(true)
-      await schedulerApi.resumeWorkflow(id)
-      alert('调度已恢复')
-      // 重新获取工作流信息以更新下次执行时间
-      fetchWorkflow()
-    } catch (err) {
-      alert(`恢复失败: ${err instanceof Error ? err.message : 'Unknown error'}`)
-    } finally {
-      setSchedulerLoading(false)
     }
   }
 
@@ -277,30 +242,55 @@ export default function WorkflowDetailPage() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleTrigger}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm flex items-center gap-2"
                 >
-                  ▶ 立即执行
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  手动执行
                 </button>
                 <button
                   onClick={handleToggle}
-                  className={`px-4 py-2 rounded-lg transition-colors text-sm ${
+                  className={`px-4 py-2 rounded-lg transition-colors text-sm flex items-center gap-2 ${
                     workflow.is_enabled
                       ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200 dark:bg-yellow-900 dark:text-yellow-200'
                       : 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-200'
                   }`}
                 >
-                  {workflow.is_enabled ? '暂停' : '启用'}
+                  {workflow.is_enabled ? (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      停用
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      启用
+                    </>
+                  )}
                 </button>
                 <button
                   onClick={() => setShowEditModal(true)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm flex items-center gap-2"
                 >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2h2.828l8.586-8.586z" />
+                  </svg>
                   编辑
                 </button>
                 <button
                   onClick={handleDelete}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm flex items-center gap-2"
                 >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
                   删除
                 </button>
               </div>
@@ -442,28 +432,6 @@ export default function WorkflowDetailPage() {
                         <p className="text-sm text-slate-900 dark:text-slate-50">
                           {new Date(workflow.stats.last_execution).toLocaleString('zh-CN')}
                         </p>
-                      </div>
-                    )}
-                    {/* 调度控制按钮 */}
-                    {workflow.is_enabled && (
-                      <div className="mt-4 flex gap-2">
-                        {workflow.stats?.next_execution ? (
-                          <button
-                            onClick={handlePauseSchedule}
-                            disabled={schedulerLoading}
-                            className="px-3 py-1.5 text-sm bg-yellow-600 text-white rounded hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                          >
-                            {schedulerLoading ? '处理中...' : '⏸ 暂停调度'}
-                          </button>
-                        ) : (
-                          <button
-                            onClick={handleResumeSchedule}
-                            disabled={schedulerLoading}
-                            className="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                          >
-                            {schedulerLoading ? '处理中...' : '▶ 恢复调度'}
-                          </button>
-                        )}
                       </div>
                     )}
                   </div>
