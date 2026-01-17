@@ -1,12 +1,21 @@
 package router
 
 import (
+	"log"
+
 	"magicpodcast/internal/config"
+	"magicpodcast/internal/database"
 	"magicpodcast/internal/handlers"
 	"magicpodcast/internal/middleware"
+	"magicpodcast/internal/scheduler"
+	syncsvc "magicpodcast/internal/sync"
+	"magicpodcast/internal/workflow"
 
 	"github.com/gin-gonic/gin"
 )
+
+// 全局scheduler实例
+var globalScheduler *scheduler.Scheduler
 
 // SetupRouter 配置并返回路由器
 func SetupRouter() *gin.Engine {
@@ -102,7 +111,20 @@ func SetupRouter() *gin.Engine {
 		v1.POST("/podcasts/:id/episodes/sync", syncHandler.SyncPodcastEpisodes) // 同步指定podcast的episodes
 
 		// Workflow 路由
-		workflowHandler := handlers.NewWorkflowHandler()
+		// 创建workflow执行器
+		db := database.GetDB()
+		syncService, err := syncsvc.NewService(db, "./data/podcastindex.db")
+		if err != nil {
+			// sync service初始化失败不影响workflow handler创建
+			// workflow trigger会返回错误
+			syncService = nil
+		}
+		workflowExecutor := workflow.NewExecutor(db, syncService)
+
+		// 创建全局scheduler实例
+		globalScheduler = scheduler.NewScheduler(db, workflowExecutor)
+
+		workflowHandler := handlers.NewWorkflowHandler(workflowExecutor, globalScheduler)
 		workflows := v1.Group("/workflows")
 		{
 			workflows.GET("", workflowHandler.List)           // 获取工作流列表
@@ -117,7 +139,24 @@ func SetupRouter() *gin.Engine {
 
 		// Job 路由
 		v1.GET("/jobs/:id", workflowHandler.GetJob) // 获取任务详情
+
+		// Scheduler 路由
+		schedulerHandler := handlers.NewSchedulerHandler(globalScheduler)
+		schedulers := v1.Group("/scheduler")
+		{
+			schedulers.POST("/reload", schedulerHandler.Reload)
+			schedulers.GET("/status", schedulerHandler.GetStatus)
+			schedulers.POST("/workflows/:id/pause", schedulerHandler.PauseWorkflow)
+			schedulers.POST("/workflows/:id/resume", schedulerHandler.ResumeWorkflow)
+		}
 	}
+
+	// 启动调度器（在独立goroutine中）
+	go func() {
+		if err := globalScheduler.Start(); err != nil {
+			log.Printf("❌ 启动调度器失败: %v", err)
+		}
+	}()
 
 	return r
 }

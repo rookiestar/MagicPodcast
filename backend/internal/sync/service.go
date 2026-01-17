@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"fmt"
 	"log"
 	"time"
 
@@ -117,4 +118,94 @@ func (s *Service) Close() error {
 		return s.podcastIndexQuery.Close()
 	}
 	return nil
+}
+
+// SyncAllPodcasts 同步所有订阅的播客（非SSE版本，用于REST API）
+func (s *Service) SyncAllPodcasts() (*SyncResult, error) {
+	// 创建一个简单的进度报告器来收集结果
+	result := &SyncResult{}
+
+	reporter := &progressReporter{
+		onProgress: func(msg string) {
+			log.Println(msg)
+		},
+		onError: func(msg string) {
+			result.Errors = append(result.Errors, msg)
+		},
+	}
+
+	// 调用SSE版本的同步方法
+	err := s.SyncPodcastsMetadataSSE(reporter)
+	if err != nil {
+		return result, err
+	}
+
+	// 统计结果
+	result.TotalPodcasts = reporter.totalPodcasts
+	result.SuccessPodcasts = reporter.successPodcasts
+	result.FailedPodcasts = reporter.failedPodcasts
+	result.NewEpisodes = reporter.newEpisodes
+
+	return result, nil
+}
+
+// progressReporter 简单的进度报告器实现（用于REST API）
+type progressReporter struct {
+	totalPodcasts   int
+	successPodcasts int
+	failedPodcasts  int
+	skippedPodcasts int
+	noUpdatePodcasts int
+	newEpisodes     int
+	updatedEpisodes int
+	totalEpisodes   int
+	onProgress      func(msg string)
+	onError         func(msg string)
+}
+
+func (r *progressReporter) Report(msg string) {
+	if r.onProgress != nil {
+		r.onProgress(msg)
+	}
+}
+
+func (r *progressReporter) ReportSuccess(msg string) {
+	if r.onProgress != nil {
+		r.onProgress(msg)
+	}
+}
+
+func (r *progressReporter) ReportError(msg string) {
+	if r.onError != nil {
+		r.onError(msg)
+	}
+}
+
+func (r *progressReporter) ReportProgress(current, total int, message string) {
+	r.totalPodcasts = total
+	if r.onProgress != nil {
+		r.onProgress(fmt.Sprintf("[%d/%d] %s", current, total, message))
+	}
+}
+
+func (r *progressReporter) ReportSkip(reason SkipReason, message string) {
+	r.skippedPodcasts++
+	if reason == SkipReasonNoUpdate {
+		r.noUpdatePodcasts++
+	}
+}
+
+func (r *progressReporter) ReportSummary(summary *SyncSummary) {
+	r.totalPodcasts = summary.TotalPodcasts
+	r.successPodcasts = summary.SuccessPodcasts
+	r.failedPodcasts = summary.FailedPodcasts
+	r.skippedPodcasts = summary.SkippedPodcasts
+	r.noUpdatePodcasts = summary.NoUpdatePodcasts
+	r.totalEpisodes = summary.TotalEpisodes
+	r.newEpisodes = summary.NewEpisodes
+	r.updatedEpisodes = summary.UpdatedEpisodes
+}
+
+func (r *progressReporter) Close() {
+	// Nothing to close
 }

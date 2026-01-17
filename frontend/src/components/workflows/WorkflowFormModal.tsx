@@ -13,13 +13,13 @@ interface WorkflowFormModalProps {
   workflow?: Workflow | null // 如果提供，则为编辑模式
 }
 
-// 预设的Cron表达式
+// 预设的Cron表达式（6位格式：秒 分 时 日 月 周）
 const CRON_PRESETS = [
-  { label: '每天凌晨2点', value: '0 2 * * *' },
-  { label: '每天早上8点', value: '0 8 * * *' },
-  { label: '每天晚上8点', value: '0 20 * * *' },
-  { label: '每周日凌晨2点', value: '0 2 * * 0' },
-  { label: '每周一早上6点', value: '0 6 * * 1' },
+  { label: '每天凌晨2点', value: '0 0 2 * * *' },
+  { label: '每天早上8点', value: '0 0 8 * * *' },
+  { label: '每天晚上8点', value: '0 0 20 * * *' },
+  { label: '每周日凌晨2点', value: '0 0 2 * * 0' },
+  { label: '每周一早上6点', value: '0 0 6 * * 1' },
 ]
 
 export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow }: WorkflowFormModalProps) {
@@ -29,7 +29,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
   // Step 1: 基本信息
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [schedule, setSchedule] = useState('0 2 * * *')
+  const [schedule, setSchedule] = useState('0 0 2 * * *')
   const [customCron, setCustomCron] = useState('')
 
   // Step 2: 范围配置
@@ -95,7 +95,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
   const resetForm = () => {
     setName('')
     setDescription('')
-    setSchedule('0 2 * * *')
+    setSchedule('0 0 2 * * *')
     setScopeType('all_subscribed')
     setSelectedPodcastIds([])
     setCandidatePodcastIds([])
@@ -191,7 +191,9 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         alert('请输入工作流名称')
         return false
       }
-      if (!schedule.trim()) {
+      // 检查实际使用的cron表达式（自定义输入优先，否则用预设）
+      const actualCron = customCron.trim() || schedule.trim()
+      if (!actualCron) {
         alert('请选择或输入定时规则')
         return false
       }
@@ -231,6 +233,25 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     }
   }
 
+  // 将5位cron格式转换为6位格式（添加秒字段）
+  const convertToSixDigitCron = (cronExpr: string): string => {
+    const trimmed = cronExpr.trim()
+    const parts = trimmed.split(/\s+/)
+
+    // 如果已经是6位格式，直接返回
+    if (parts.length === 6) {
+      return trimmed
+    }
+
+    // 如果是5位格式（分 时 日 月 周），在前面添加 "0" 秒
+    if (parts.length === 5) {
+      return `0 ${trimmed}`
+    }
+
+    // 其他情况（不合法的格式），原样返回让后端验证
+    return trimmed
+  }
+
   // 提交创建
   const handleSubmit = async () => {
     try {
@@ -251,10 +272,20 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         exclude_words: excludeWords.trim() || undefined,
       }
 
+      // 获取实际使用的cron表达式并转换为6位格式
+      const actualCron = customCron.trim() || schedule.trim()
+      const finalCron = convertToSixDigitCron(actualCron)
+
+      console.log('[WorkflowFormModal] Cron conversion:', {
+        original: actualCron,
+        converted: finalCron,
+        isCustom: !!customCron.trim()
+      })
+
       const data: WorkflowRequest = {
         name: name.trim(),
         description: description.trim(),
-        schedule: customCron.trim() || schedule,
+        schedule: finalCron,
         scope_type: scopeType,
         scope_config: scopeConfig,
         rules_config: rulesConfig,
@@ -289,7 +320,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     setStep(1)
     setName('')
     setDescription('')
-    setSchedule('0 2 * * *')
+    setSchedule('0 0 2 * * *')
     setCustomCron('')
     setScopeType('all_subscribed')
     setSelectedPodcastIds([])
@@ -414,7 +445,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                     />
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Cron格式: 分 时 日 月 周
+                    支持5位格式（分 时 日 月 周）或6位格式（秒 分 时 日 月 周），系统会自动转换
                   </p>
                 </div>
               </div>

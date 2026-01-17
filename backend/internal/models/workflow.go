@@ -3,8 +3,11 @@ package models
 import (
 	"database/sql/driver"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
+	"github.com/robfig/cron/v3"
 	"gorm.io/gorm"
 )
 
@@ -146,13 +149,11 @@ const (
 // JobExecution 任务执行详情（单个节目的处理结果）
 type JobExecution struct {
 	BaseModel
-	gorm.DeletedAt `gorm:"index" json:"-"`
 
-	ID              uint            `gorm:"primarykey" json:"id"`
 	JobID           uint            `gorm:"index;not null" json:"job_id"`
-	Job             Job             `gorm:"foreignKey:JobID" json:"job,omitempty"`
+	Job             Job             `gorm:"-" json:"job,omitempty"` // 不持久化到数据库
 	PodcastID       *uint           `gorm:"index" json:"podcast_id,omitempty"`
-	Podcast         Podcast         `gorm:"foreignKey:PodcastID" json:"podcast,omitempty"`
+	Podcast         Podcast         `gorm:"-" json:"podcast,omitempty"` // 不持久化到数据库
 	PodcastTitle    string          `gorm:"size:500" json:"podcast_title,omitempty"`
 	PodcastFeedURL  string          `gorm:"size:1000" json:"podcast_feed_url,omitempty"`
 	Status          ExecutionStatus `gorm:"size:20;not null" json:"status"`
@@ -204,4 +205,85 @@ func (j JSONMap) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return json.Marshal(j)
+}
+
+// ValidateCron 验证Cron表达式是否有效
+func ValidateCron(schedule string) error {
+	if schedule == "" {
+		return fmt.Errorf("cron表达式不能为空")
+	}
+
+	// 使用robfig/cron解析器验证
+	// 支持6位表达式（秒 分 时 日 月 周）
+	parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	_, err := parser.Parse(schedule)
+	if err != nil {
+		return fmt.Errorf("无效的cron表达式: %w", err)
+	}
+
+	return nil
+}
+
+// BeforeSave GORM hook - 保存前验证
+func (w *Workflow) BeforeSave(tx *gorm.DB) error {
+	// 如果有schedule，验证cron表达式
+	if w.Schedule != "" {
+		if err := ValidateCron(w.Schedule); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GetNextRunTime 获取下次执行时间
+func (w *Workflow) GetNextRunTime() (time.Time, error) {
+	if w.Schedule == "" {
+		return time.Time{}, fmt.Errorf("未配置schedule")
+	}
+
+	parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	schedule, err := parser.Parse(w.Schedule)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	return schedule.Next(time.Now()), nil
+}
+
+// GetScheduleDescription 获取Cron表达式的可读描述
+func (w *Workflow) GetScheduleDescription() string {
+	if w.Schedule == "" {
+		return "未配置"
+	}
+
+	parts := strings.Fields(w.Schedule)
+	if len(parts) != 6 {
+		return "格式错误"
+	}
+
+	// 简化版描述生成
+	sec := parts[0]
+	min := parts[1]
+	hour := parts[2]
+	day := parts[3]
+	month := parts[4]
+	dow := parts[5]
+
+	var desc strings.Builder
+
+	// 处理常见模式
+	if sec == "0" && min == "0" && hour != "*" {
+		desc.WriteString(fmt.Sprintf("每天 %s 点", hour))
+		if min == "0" && hour == "*" {
+			desc.WriteString("每小时")
+		}
+	} else if sec == "0" && min == "0" && hour == "*" && day == "*" && month == "*" && dow == "*" {
+		desc.WriteString("每小时")
+	} else if sec == "0" && min == "0" && hour == "*" && day == "*" && month == "*" && dow != "*" {
+		desc.WriteString(fmt.Sprintf("每周 %s", dow))
+	} else {
+		desc.WriteString(w.Schedule)
+	}
+
+	return desc.String()
 }

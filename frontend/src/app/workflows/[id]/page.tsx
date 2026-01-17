@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { workflowApi, podcastApi } from '@/lib/api'
+import { schedulerApi } from '@/lib/api/scheduler'
 import type { Workflow, Job, Podcast } from '@/types'
 import WorkflowFormModal from '@/components/workflows/WorkflowFormModal'
 
@@ -21,6 +22,12 @@ export default function WorkflowDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
+
+  // Job详情展开状态
+  const [selectedJobId, setSelectedJobId] = useState<number | null>(null)
+  const [jobDetails, setJobDetails] = useState<Record<number, Job>>({})
+  const [loadingJobId, setLoadingJobId] = useState<number | null>(null)
+  const [schedulerLoading, setSchedulerLoading] = useState(false)
 
   useEffect(() => {
     if (id) {
@@ -83,13 +90,72 @@ export default function WorkflowDetailPage() {
     }
   }
 
+  const fetchJobDetail = async (jobId: number) => {
+    // 如果已经缓存，直接切换展开状态
+    if (jobDetails[jobId]) {
+      setSelectedJobId(selectedJobId === jobId ? null : jobId)
+      return
+    }
+
+    // 如果是同一个Job且正在加载，不重复请求
+    if (loadingJobId === jobId) {
+      return
+    }
+
+    try {
+      setLoadingJobId(jobId)
+      const detail = await workflowApi.getJob(jobId)
+      setJobDetails(prev => ({ ...prev, [jobId]: detail }))
+      setSelectedJobId(jobId)
+    } catch (err) {
+      console.error('Failed to fetch job detail:', err)
+      alert('获取详情失败')
+    } finally {
+      setLoadingJobId(null)
+    }
+  }
+
   const handleToggle = async () => {
     if (!workflow) return
     try {
       const updated = await workflowApi.toggle(id)
       setWorkflow(updated)
+      // 重载调度器
+      try {
+        await schedulerApi.reload()
+      } catch (err) {
+        console.error('Failed to reload scheduler:', err)
+      }
     } catch (err) {
       alert(`操作失败: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    }
+  }
+
+  const handlePauseSchedule = async () => {
+    if (!workflow) return
+    try {
+      setSchedulerLoading(true)
+      await schedulerApi.pauseWorkflow(id)
+      alert('调度已暂停')
+    } catch (err) {
+      alert(`暂停失败: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setSchedulerLoading(false)
+    }
+  }
+
+  const handleResumeSchedule = async () => {
+    if (!workflow) return
+    try {
+      setSchedulerLoading(true)
+      await schedulerApi.resumeWorkflow(id)
+      alert('调度已恢复')
+      // 重新获取工作流信息以更新下次执行时间
+      fetchWorkflow()
+    } catch (err) {
+      alert(`恢复失败: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setSchedulerLoading(false)
     }
   }
 
@@ -345,6 +411,65 @@ export default function WorkflowDetailPage() {
                 </div>
               )}
 
+              {/* 调度信息 */}
+              {workflow.schedule && (
+                <div className="mt-6">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-3">调度信息</h3>
+                  <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">Cron表达式</p>
+                        <p className="font-mono text-sm text-slate-900 dark:text-slate-50 bg-slate-100 dark:bg-slate-800 px-3 py-2 rounded">
+                          {workflow.schedule}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">下次执行</p>
+                        {workflow.stats?.next_execution ? (
+                          <p className="text-sm text-blue-600 dark:text-blue-400 font-medium">
+                            {new Date(workflow.stats.next_execution).toLocaleString('zh-CN')}
+                          </p>
+                        ) : (
+                          <p className="text-sm text-slate-500 dark:text-slate-400">
+                            {workflow.is_enabled ? '等待调度...' : '工作流已禁用'}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    {workflow.stats?.last_execution && (
+                      <div className="mt-3">
+                        <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">上次执行</p>
+                        <p className="text-sm text-slate-900 dark:text-slate-50">
+                          {new Date(workflow.stats.last_execution).toLocaleString('zh-CN')}
+                        </p>
+                      </div>
+                    )}
+                    {/* 调度控制按钮 */}
+                    {workflow.is_enabled && (
+                      <div className="mt-4 flex gap-2">
+                        {workflow.stats?.next_execution ? (
+                          <button
+                            onClick={handlePauseSchedule}
+                            disabled={schedulerLoading}
+                            className="px-3 py-1.5 text-sm bg-yellow-600 text-white rounded hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            {schedulerLoading ? '处理中...' : '⏸ 暂停调度'}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={handleResumeSchedule}
+                            disabled={schedulerLoading}
+                            className="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            {schedulerLoading ? '处理中...' : '▶ 恢复调度'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {workflow.last_job && (
                 <div className="mt-6">
                   <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-3">最近执行</h3>
@@ -400,52 +525,159 @@ export default function WorkflowDetailPage() {
                   {jobs.map((job) => (
                     <div
                       key={job.id}
-                      className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors"
+                      className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden"
                     >
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex items-center gap-3">
-                          {getJobStatusBadge(job.status)}
-                          <span className="text-sm text-slate-600 dark:text-slate-400">
-                            {new Date(job.created_at).toLocaleString('zh-CN')}
-                          </span>
-                          <span className="text-xs px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded">
-                            {job.triggered_by === 'cron' ? '定时' : '手动'}
-                          </span>
+                      {/* Job摘要卡片 - 可点击展开/收起 */}
+                      <div
+                        onClick={() => fetchJobDetail(job.id)}
+                        className="p-4 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors cursor-pointer"
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-3">
+                            {getJobStatusBadge(job.status)}
+                            <span className="text-sm text-slate-600 dark:text-slate-400">
+                              {new Date(job.created_at).toLocaleString('zh-CN')}
+                            </span>
+                            <span className="text-xs px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded">
+                              {job.triggered_by === 'cron' ? '定时' : '手动'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {job.duration && (
+                              <span className="text-sm text-slate-600 dark:text-slate-400">
+                                {Math.floor(job.duration / 1000)}s
+                              </span>
+                            )}
+                            <span className="text-slate-400 text-sm">
+                              {selectedJobId === job.id ? '▲ 收起' : '▼ 展开'}
+                            </span>
+                          </div>
                         </div>
-                        {job.duration && (
-                          <span className="text-sm text-slate-600 dark:text-slate-400">
-                            {Math.floor(job.duration / 1000)}s
-                          </span>
-                        )}
+
+                        <div className="grid grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <span className="text-slate-600 dark:text-slate-400">处理节目:</span>
+                            <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                              {job.podcasts_processed}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-600 dark:text-slate-400">发现单集:</span>
+                            <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                              {job.episodes_found}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-600 dark:text-slate-400">创建单集:</span>
+                            <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                              {job.episodes_created}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-600 dark:text-slate-400">错误数:</span>
+                            <span className={`ml-2 font-medium ${
+                              job.error_count > 0 ? 'text-red-600' : 'text-slate-900 dark:text-slate-50'
+                            }`}>
+                              {job.error_count}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="grid grid-cols-4 gap-4 text-sm">
-                        <div>
-                          <span className="text-slate-600 dark:text-slate-400">处理节目:</span>
-                          <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                            {job.podcasts_processed}
-                          </span>
+
+                      {/* 展开的详细执行记录 */}
+                      {selectedJobId === job.id && (
+                        <div className="border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
+                          {loadingJobId === job.id ? (
+                            <div className="p-4 text-center text-sm text-slate-500 dark:text-slate-400">
+                              加载中...
+                            </div>
+                          ) : jobDetails[job.id]?.executions ? (
+                            <div className="p-4">
+                              <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+                                详细执行记录
+                              </h4>
+                              <div className="space-y-2">
+                                {jobDetails[job.id].executions.map((exec) => (
+                                  <div
+                                    key={exec.id}
+                                    className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-slate-200 dark:border-slate-700"
+                                  >
+                                    <div className="flex items-start justify-between mb-2">
+                                      <div className="flex-1">
+                                        <div className="flex items-center gap-2 mb-1">
+                                          {exec.status === 'success' && (
+                                            <span className="text-green-600 dark:text-green-400">✓</span>
+                                          )}
+                                          {exec.status === 'failed' && (
+                                            <span className="text-red-600 dark:text-red-400">✗</span>
+                                          )}
+                                          {exec.status === 'skipped' && (
+                                            <span className="text-yellow-600 dark:text-yellow-400">○</span>
+                                          )}
+                                          <span className="font-medium text-slate-900 dark:text-slate-50">
+                                            {exec.podcast_title}
+                                          </span>
+                                        </div>
+                                        <a
+                                          href={exec.podcast_feed_url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 truncate max-w-md block"
+                                        >
+                                          {exec.podcast_feed_url}
+                                        </a>
+                                      </div>
+                                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                                        {exec.processing_time}ms
+                                      </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-4 text-xs">
+                                      <div>
+                                        <span className="text-slate-600 dark:text-slate-400">状态:</span>
+                                        <span className="ml-1 font-medium text-slate-900 dark:text-slate-50">
+                                          {exec.status === 'success' && '成功'}
+                                          {exec.status === 'failed' && '失败'}
+                                          {exec.status === 'skipped' && '跳过'}
+                                          {exec.status === 'running' && '执行中'}
+                                        </span>
+                                      </div>
+                                      <div>
+                                        <span className="text-slate-600 dark:text-slate-400">发现:</span>
+                                        <span className="ml-1 font-medium text-slate-900 dark:text-slate-50">
+                                          {exec.episodes_found}
+                                        </span>
+                                      </div>
+                                      <div>
+                                        <span className="text-slate-600 dark:text-slate-400">新建:</span>
+                                        <span className="ml-1 font-medium text-slate-900 dark:text-slate-50">
+                                          {exec.episodes_created}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    {exec.error_message && (
+                                      <div className="mt-2 text-xs text-red-600 bg-red-50 dark:bg-red-900/20 rounded p-2">
+                                        错误: {exec.error_message}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+
+                              {jobDetails[job.id].executions.length === 0 && (
+                                <div className="text-center py-4 text-sm text-slate-500 dark:text-slate-400">
+                                  暂无详细执行记录
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="p-4 text-center text-sm text-slate-500 dark:text-slate-400">
+                              点击获取详细记录
+                            </div>
+                          )}
                         </div>
-                        <div>
-                          <span className="text-slate-600 dark:text-slate-400">发现单集:</span>
-                          <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                            {job.episodes_found}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-600 dark:text-slate-400">创建单集:</span>
-                          <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                            {job.episodes_created}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-600 dark:text-slate-400">错误数:</span>
-                          <span className={`ml-2 font-medium ${
-                            job.error_count > 0 ? 'text-red-600' : 'text-slate-900 dark:text-slate-50'
-                          }`}>
-                            {job.error_count}
-                          </span>
-                        </div>
-                      </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -551,7 +783,13 @@ export default function WorkflowDetailPage() {
         <WorkflowFormModal
           isOpen={showEditModal}
           onClose={() => setShowEditModal(false)}
-          onSuccess={() => {
+          onSuccess={async () => {
+            // 如果修改了schedule或is_enabled，需要重载调度器
+            try {
+              await schedulerApi.reload()
+            } catch (err) {
+              console.error('Failed to reload scheduler:', err)
+            }
             fetchWorkflow()
             setShowEditModal(false)
           }}

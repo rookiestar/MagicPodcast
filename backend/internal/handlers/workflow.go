@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,16 +10,24 @@ import (
 
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/scheduler"
+	"magicpodcast/internal/workflow"
 
 	"github.com/gin-gonic/gin"
 )
 
 // WorkflowHandler Workflow 处理器
-type WorkflowHandler struct{}
+type WorkflowHandler struct {
+	executor  *workflow.Executor
+	scheduler *scheduler.Scheduler
+}
 
 // NewWorkflowHandler 创建 Workflow 处理器
-func NewWorkflowHandler() *WorkflowHandler {
-	return &WorkflowHandler{}
+func NewWorkflowHandler(executor *workflow.Executor, scheduler *scheduler.Scheduler) *WorkflowHandler {
+	return &WorkflowHandler{
+		executor:  executor,
+		scheduler: scheduler,
+	}
 }
 
 // WorkflowResponse Workflow 响应结构
@@ -223,12 +232,12 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 	}
 
 	// 验证cron表达式
-	if !isValidCron(req.Schedule) {
+	if err := models.ValidateCron(req.Schedule); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error": gin.H{
 				"code":    "INVALID_CRON",
-				"message": "Invalid cron expression",
+				"message": err.Error(),
 			},
 		})
 		return
@@ -317,12 +326,12 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 	}
 
 	// 验证cron表达式
-	if !isValidCron(req.Schedule) {
+	if err := models.ValidateCron(req.Schedule); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error": gin.H{
 				"code":    "INVALID_CRON",
-				"message": "Invalid cron expression",
+				"message": err.Error(),
 			},
 		})
 		return
@@ -590,21 +599,63 @@ func (h *WorkflowHandler) Trigger(c *gin.Context) {
 			"success": false,
 			"error": gin.H{
 				"code":    "NOT_FOUND",
-				"message": "Workflow not found",
+				"message": "工作流不存在",
 			},
 		})
 		return
 	}
 
-	// TODO: 实现工作流执行逻辑
-	// 这里暂时返回成功，实际执行逻辑将在后续实现
+	// 检查工作流是否启用
+	if !workflow.IsEnabled {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "WORKFLOW_DISABLED",
+				"message": "工作流未启用，请先启用后再执行",
+			},
+		})
+		return
+	}
 
-	c.JSON(http.StatusOK, gin.H{
+	// 检查是否有正在运行的Job
+	if workflow.LastJobID != nil {
+		var lastJob models.Job
+		if err := db.Where("id = ?", *workflow.LastJobID).First(&lastJob).Error; err == nil {
+			if lastJob.Status == models.JobStatusRunning {
+				c.JSON(http.StatusConflict, gin.H{
+					"success": false,
+					"error": gin.H{
+						"code":    "JOB_RUNNING",
+						"message": "该工作流正在执行中，请等待当前任务完成",
+					},
+				})
+				return
+			}
+		}
+	}
+
+	// 异步执行工作流（避免阻塞HTTP请求）
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+
+		job, err := h.executor.Execute(ctx, &workflow, "manual")
+		if err != nil {
+			log.Printf("❌ 工作流执行失败 [WorkflowID=%d]: %v", workflow.ID, err)
+		} else {
+			log.Printf("✅ 工作流执行完成 [WorkflowID=%d, JobID=%d]", workflow.ID, job.ID)
+		}
+	}()
+
+	// 立即返回202 Accepted，告知用户已开始执行
+	c.JSON(http.StatusAccepted, gin.H{
 		"success": true,
+		"message": "工作流已开始执行，请在执行历史中查看进度",
 		"data": gin.H{
-			"message":      "Workflow triggered successfully",
-			"workflow_id":  workflow.ID,
-			"triggered_by": "manual",
+			"workflow_id":   workflow.ID,
+			"workflow_name": workflow.Name,
+			"triggered_by":  "manual",
+			"hint":          "使用 GET /api/v1/workflows/:id/jobs 查看执行进度",
 		},
 	})
 }
@@ -664,7 +715,13 @@ func (h *WorkflowHandler) toWorkflowResponse(workflow *models.Workflow) Workflow
 	var lastJob models.Job
 	if err := db.Where("workflow_id = ?", workflow.ID).Order("created_at DESC").First(&lastJob).Error; err == nil {
 		stats.LastExecution = &lastJob.CreatedAt
-		// TODO: 计算下次执行时间（需要解析cron表达式）
+	}
+
+	// 获取下次执行时间（如果工作流已启用且有scheduler）
+	if workflow.IsEnabled && workflow.Schedule != "" && h.scheduler != nil {
+		if nextRun, err := h.scheduler.GetWorkflowNextRunTime(workflow.ID); err == nil {
+			stats.NextExecution = &nextRun
+		}
 	}
 
 	resp.Stats = &stats
@@ -722,16 +779,6 @@ func (h *WorkflowHandler) toJobExecutionResponse(exec *models.JobExecution) JobE
 		ProcessingTime:  exec.ProcessingTime,
 		CreatedAt:       exec.CreatedAt,
 	}
-}
-
-// isValidCron 验证cron表达式（简化版本）
-func isValidCron(cronExpr string) bool {
-	// TODO: 实现完整的cron表达式验证
-	// 这里暂时只做基本检查
-	if len(cronExpr) == 0 {
-		return false
-	}
-	return true
 }
 
 // validateScopeConfig 验证范围配置
