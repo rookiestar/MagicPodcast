@@ -309,8 +309,8 @@ func (h *TagHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// 删除标签（GORM会自动删除关联关系）
-	if err := db.Delete(&tag).Error; err != nil {
+	// 删除标签（永久删除，不使用软删除）
+	if err := db.Unscoped().Delete(&tag).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"error": gin.H{
