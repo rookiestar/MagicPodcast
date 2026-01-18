@@ -8,6 +8,7 @@ import type { Podcast, Tag, Episode } from '@/types'
 import TagInput from '@/components/tags/TagInput'
 import RichText from '@/components/RichText'
 import EpisodeCard from '@/components/episodes/EpisodeCard'
+import PodcastCover from '@/components/podcasts/PodcastCover'
 
 export default function PodcastDetailPage() {
   const params = useParams()
@@ -259,18 +260,12 @@ export default function PodcastDetailPage() {
             {/* Cover */}
             <div className="md:flex">
               <div className="md:w-1/3 p-6">
-                <div className="aspect-square w-full bg-slate-200 rounded-lg overflow-hidden">
-                  {podcast.cover_url ? (
-                    <img
-                      src={podcast.cover_url}
-                      alt={podcast.title}
-                      className="w-full h-full object-contain"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-8xl">
-                      🎧
-                    </div>
-                  )}
+                <div className="aspect-square w-full rounded-lg overflow-hidden">
+                  <PodcastCover
+                    coverUrl={podcast.cover_url}
+                    title={podcast.title}
+                    priority="high"
+                  />
                 </div>
               </div>
 

@@ -21,8 +21,8 @@ class ImageLoadQueue {
   private queue: LoadTask[] = []
   private loading = new Set<string>()
   private maxConcurrent = 3 // 最多同时加载3张图片
-  private maxRetries = 2 // 最多重试2次
-  private loadingTimeout = 10000 // 10秒超时
+  private maxRetries = 1 // 最多重试1次（减少总等待时间）
+  private loadingTimeout = 5000 // 5秒超时（减少等待时间）
 
   /**
    * 添加图片到加载队列
