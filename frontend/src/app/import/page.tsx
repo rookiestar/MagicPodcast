@@ -449,48 +449,43 @@ export default function ImportPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      <div className="max-w-4xl mx-auto px-4 py-8">
+    <main className="min-h-screen bg-slate-50 dark:bg-slate-900">
+      <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <div className="mb-8">
-            <div className="flex items-center justify-between mb-6">
-              {/* 返回首页按钮 */}
-              <Link
-                href="/"
-                className="w-36 h-11 px-4 bg-white text-slate-800 font-medium rounded-xl border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors flex items-center justify-center gap-2"
-              >
-                <span>←</span>
-                <span>返回首页</span>
-              </Link>
-            </div>
+          <div className="mb-4">
+            <Link
+              href="/"
+              className="w-36 h-11 px-4 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-medium rounded-xl border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 hover:border-slate-400 dark:hover:border-slate-500 transition-colors flex items-center justify-center gap-2"
+            >
+              <span>←</span>
+              <span>返回首页</span>
+            </Link>
+          </div>
 
-            {/* 标题和描述 */}
-            <div className="mb-4">
-              <h1 className="text-4xl md:text-5xl font-semibold text-slate-800 mb-2">
-                导入/同步
-              </h1>
-              <p className="text-base text-slate-600 max-w-2xl">
-                从 OPML 文件导入播客或同步播客元数据
-              </p>
-            </div>
+          {/* 标题和描述 */}
+          <div className="mb-4">
+            <h1 className="text-4xl md:text-5xl font-semibold text-slate-800 dark:text-slate-50 mb-2">
+              导入/同步
+            </h1>
+            <p className="text-base text-slate-600 dark:text-slate-400 max-w-2xl">
+              从 OPML 文件导入播客或同步播客元数据
+            </p>
           </div>
         </div>
 
         {/* Main Card */}
-        <div className="bg-white shadow rounded-lg">
+        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg">
           {/* Tabs */}
-          <div className="px-6 py-4 border-b border-slate-200">
-
-            {/* Tabs */}
-            <div className="flex gap-2">
+          <div className="border-b border-slate-200 dark:border-slate-700 px-6 py-4">
+            <div className="flex gap-6">
               <button
                 onClick={() => setActiveTab('import')}
                 disabled={importing || syncing}
-                className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+                className={`pb-2 border-b-2 transition-colors text-base ${
                   activeTab === 'import'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50 hover:border-slate-400'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                 } ${importing || syncing ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 📁 导入OPML
@@ -498,10 +493,10 @@ export default function ImportPage() {
               <button
                 onClick={() => setActiveTab('sync')}
                 disabled={importing || syncing}
-                className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+                className={`pb-2 border-b-2 transition-colors text-base ${
                   activeTab === 'sync'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50 hover:border-slate-400'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                 } ${importing || syncing ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 🔄 同步元数据
@@ -510,16 +505,16 @@ export default function ImportPage() {
           </div>
 
           {/* Content */}
-          <div className="px-6 py-6">
+          <div className="p-6">
             {/* Import Tab */}
             {activeTab === 'import' && (
               <>
                 {/* 说明部分 */}
-                <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
-                  <h3 className="text-sm font-medium text-blue-900 mb-2">
+                <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <h3 className="text-base font-medium text-blue-900 dark:text-blue-100 mb-2">
                     关于导入OPML
                   </h3>
-                  <ul className="text-xs text-blue-800 space-y-1 list-disc list-inside">
+                  <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1 list-disc list-inside">
                     <li>仅从本地PodcastIndex数据库匹配播客信息（快速）</li>
                     <li>导入完成后可选择是否在线同步最新元数据</li>
                     <li>支持从小宇宙、Apple Podcasts等应用导出的OPML文件</li>
@@ -528,7 +523,7 @@ export default function ImportPage() {
 
                 {/* 文件上传 */}
                 <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                     选择OPML文件
                   </label>
                   <input
@@ -536,17 +531,17 @@ export default function ImportPage() {
                     accept=".opml,.xml"
                     onChange={handleFileChange}
                     disabled={importing}
-                    className="block w-full text-sm text-gray-500
+                    className="block w-full text-sm text-slate-500 dark:text-slate-400
                       file:mr-4 file:py-2 file:px-4
-                      file:rounded-md file:border-0
+                      file:rounded-lg file:border-0
                       file:text-sm file:font-semibold
                       file:bg-blue-50 file:text-blue-700
                       hover:file:bg-blue-100
-                      disabled:file:bg-gray-100 disabled:file:text-gray-400
+                      disabled:file:bg-slate-100 disabled:file:text-slate-400
                     "
                   />
                   {file && (
-                    <p className="mt-2 text-sm text-gray-600">
+                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
                       已选择: {file.name} ({(file.size / 1024).toFixed(2)} KB)
                     </p>
                   )}
@@ -557,11 +552,11 @@ export default function ImportPage() {
                   <button
                     onClick={handleImport}
                     disabled={!file || importing}
-                    className={`px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white
-                      ${!file || importing
-                        ? 'bg-gray-300 cursor-not-allowed'
-                        : 'bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500'
-                      }`}
+                    className={`px-6 py-2.5 rounded-lg text-sm font-medium text-white transition-colors ${
+                      !file || importing
+                        ? 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed'
+                        : 'bg-green-600 hover:bg-green-700 dark:hover:bg-green-700'
+                    }`}
                   >
                     {importing ? '导入中...' : '开始导入'}
                   </button>
@@ -573,14 +568,14 @@ export default function ImportPage() {
             {activeTab === 'sync' && (
               <>
                 {/* 说明部分 */}
-                <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
-                  <h3 className="text-sm font-medium text-blue-900 mb-2">
+                <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <h3 className="text-base font-medium text-blue-900 dark:text-blue-100 mb-2">
                     关于同步元数据
                   </h3>
-                  <ul className="text-xs text-blue-800 space-y-1 list-disc list-inside">
+                  <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1 list-disc list-inside">
                     <li>从在线RSS feed更新所有播客的最新元数据</li>
                     <li>包括单集数量、最新发布时间、播客描述等信息</li>
-                    <li>可能需要较长时间，取决于播客数量和网络状况</li>
+                    <li>可能需要较长时间,取决于播客数量和网络状况</li>
                   </ul>
                 </div>
 
@@ -589,11 +584,11 @@ export default function ImportPage() {
                   <button
                     onClick={handleSync}
                     disabled={syncing}
-                    className={`px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white
-                      ${syncing
-                        ? 'bg-gray-300 cursor-not-allowed'
-                        : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'
-                      }`}
+                    className={`px-6 py-2.5 rounded-lg text-sm font-medium text-white transition-colors ${
+                      syncing
+                        ? 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed'
+                        : 'bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-700'
+                    }`}
                   >
                     {syncing ? '同步中...' : '开始同步'}
                   </button>
@@ -603,112 +598,152 @@ export default function ImportPage() {
 
             {/* 实时日志 */}
             {logs.length > 0 && (
-              <div className="border border-gray-300 rounded-lg p-4 bg-gray-50">
+              <div className="border border-slate-300 dark:border-slate-600 rounded-lg p-4 bg-slate-50 dark:bg-slate-900">
                 <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center space-x-3">
-                    <h3 className="text-sm font-medium text-gray-900">
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
                       {activeTab === 'import' ? '导入日志' : '同步日志'}
                       {(importing || syncing) && (
-                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                        <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
                           进行中
                         </span>
                       )}
                     </h3>
 
                     {/* 过滤器按钮组 */}
-                    <div className="flex items-center space-x-1">
+                    <div className="flex items-center gap-2">
                       <button
                         onClick={() => setFilter('all')}
-                        className={`text-xs px-3 py-1 rounded border transition-colors min-w-[100px] ${
+                        className={`text-sm px-4 py-1.5 rounded-lg border transition-colors min-w-[120px] ${
                           filter === 'all'
-                            ? 'bg-blue-50 border-blue-500 text-blue-700'
-                            : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                            ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500 dark:border-blue-600 text-blue-700 dark:text-blue-300'
+                            : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
                         }`}
                       >
                         全部 ({stats.total})
                       </button>
                       <button
                         onClick={() => setFilter('success')}
-                        className={`text-xs px-3 py-1 rounded border transition-colors min-w-[100px] ${
+                        className={`text-sm px-4 py-1.5 rounded-lg border transition-colors min-w-[120px] ${
                           filter === 'success'
-                            ? 'bg-green-50 border-green-500 text-green-700'
-                            : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                            ? 'bg-green-50 dark:bg-green-900/30 border-green-500 dark:border-green-600 text-green-700 dark:text-green-300'
+                            : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
                         }`}
                       >
                         成功 ({stats.success})
                       </button>
                       <button
                         onClick={() => setFilter('errors')}
-                        className={`text-xs px-3 py-1 rounded border transition-colors min-w-[100px] ${
+                        className={`text-sm px-4 py-1.5 rounded-lg border transition-colors min-w-[120px] ${
                           filter === 'errors'
-                            ? 'bg-red-50 border-red-500 text-red-700'
-                            : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                            ? 'bg-red-50 dark:bg-red-900/30 border-red-500 dark:border-red-600 text-red-700 dark:text-red-300'
+                            : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
                         }`}
                       >
                         失败 ({stats.errors})
                       </button>
                       <button
                         onClick={() => setFilter('skips')}
-                        className={`text-xs px-3 py-1 rounded border transition-colors min-w-[100px] ${
+                        className={`text-sm px-4 py-1.5 rounded-lg border transition-colors min-w-[120px] ${
                           filter === 'skips'
-                            ? 'bg-gray-50 border-gray-500 text-gray-700'
-                            : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                            ? 'bg-slate-100 dark:bg-slate-800 border-slate-500 dark:border-slate-600 text-slate-700 dark:text-slate-300'
+                            : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
                         }`}
                       >
                         跳过 ({stats.skips})
                       </button>
                     </div>
 
-                    {/* 自动滚动指示器 */}
-                    {!autoScroll && (
-                      <button
-                        onClick={handleResumeAutoScroll}
-                        className="text-xs text-blue-600 hover:text-blue-800"
-                        title="恢复自动滚动"
-                      >
-                        ↺ 恢复自动滚动
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    {!importing && !syncing && (
-                      <button
-                        onClick={() => {
-                          setLogs([])
-                          setFilter('all')
-                          setAutoScroll(true)
-                          localStorage.removeItem('syncLogs')
-                        }}
-                        className="text-xs text-gray-500 hover:text-gray-700"
-                      >
-                        清空日志
-                      </button>
-                    )}
+                    {/* 自动滚动指示器和清空按钮 */}
+                    <div className="flex items-center gap-3">
+                      {!autoScroll && (
+                        <button
+                          onClick={handleResumeAutoScroll}
+                          className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+                          title="恢复自动滚动"
+                        >
+                          ↺ 恢复自动滚动
+                        </button>
+                      )}
+                      {!importing && !syncing && (
+                        <button
+                          onClick={() => {
+                            setLogs([])
+                            setFilter('all')
+                            setAutoScroll(true)
+                            localStorage.removeItem('syncLogs')
+                          }}
+                          className="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
+                        >
+                          清空日志
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
                 {/* 统计信息 */}
-                {(stats.errors > 0 || stats.success > 0 || stats.skips > 0) && (
-                  <div className="mb-3 text-xs text-gray-600 flex items-center flex-wrap gap-x-3 gap-y-1">
+                {(stats.total > 0 || stats.errors > 0 || stats.success > 0 || stats.skips > 0) && (
+                  <div className="mb-4">
+                    {/* 时间统计 */}
                     {stats.fromSummary && stats.duration && (
-                      <span className="text-blue-600 font-medium">⏱️ {stats.duration}</span>
+                      <div className="mb-3 text-xs text-blue-600 dark:text-blue-400 font-medium">
+                        ⏱️ 总耗时: {stats.duration}
+                      </div>
                     )}
-                    <span className="text-gray-500">总计: {stats.total}</span>
-                    {stats.success > 0 && <span className="text-green-600">✅ {stats.success} 个成功</span>}
-                    {stats.errors > 0 && <span className="text-red-600">❌ {stats.errors} 个错误</span>}
+
+                    {/* 统计卡片 */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {/* 总计 */}
+                      <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
+                        <p className="text-2xl font-bold text-slate-900 dark:text-slate-50">
+                          {stats.total}
+                        </p>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">总计</p>
+                      </div>
+
+                      {/* 成功 */}
+                      <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
+                        <p className="text-2xl font-bold text-green-600 dark:text-green-400">
+                          {stats.success}
+                        </p>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">成功</p>
+                      </div>
+
+                      {/* 失败 */}
+                      <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
+                        <p className="text-2xl font-bold text-red-600 dark:text-red-400">
+                          {stats.errors}
+                        </p>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">失败</p>
+                      </div>
+
+                      {/* 跳过 */}
+                      <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
+                        <p className="text-2xl font-bold text-slate-600 dark:text-slate-400">
+                          {stats.skips}
+                        </p>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">跳过</p>
+                      </div>
+                    </div>
+
+                    {/* 详细跳过统计 */}
                     {stats.skips > 0 && (
-                      <span className="text-gray-600">
-                        ⏭️ {stats.skips} 个跳过
-                        {!stats.fromSummary && (
-                          <span className="ml-1 text-gray-500">
-                            (💰{stats.skipPaid} 🔐{stats.skipCert} 🔍{stats.skipNotFound} 🚫{stats.skipAccess} 🌍{stats.skipGeo} ⏭️{stats.skipOther})
-                          </span>
-                        )}
-                      </span>
+                      <div className="mt-3 text-xs text-slate-600 dark:text-slate-400 flex flex-wrap gap-x-3">
+                        <span>💰 付费: {stats.skipPaid}</span>
+                        <span>🔐 证书: {stats.skipCert}</span>
+                        <span>🔍 不存在: {stats.skipNotFound}</span>
+                        <span>🚫 访问拒绝: {stats.skipAccess}</span>
+                        <span>🌍 地区限制: {stats.skipGeo}</span>
+                        <span>⏭️ 其他: {stats.skipOther}</span>
+                      </div>
                     )}
+
+                    {/* 无更新统计 */}
                     {stats.skipNoUpdate > 0 && (
-                      <span className="text-gray-500">✓ {stats.skipNoUpdate} 个无更新</span>
+                      <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                        ✓ 无更新: {stats.skipNoUpdate} 个
+                      </div>
                     )}
                   </div>
                 )}
