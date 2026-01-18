@@ -569,7 +569,7 @@ export default function WorkflowDetailPage() {
                         </span>
                       )}
                     </div>
-                    <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div className="grid grid-cols-4 gap-4 text-sm">
                       <div>
                         <span className="text-slate-600 dark:text-slate-400">处理节目:</span>
                         <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
@@ -586,6 +586,12 @@ export default function WorkflowDetailPage() {
                         <span className="text-slate-600 dark:text-slate-400">创建单集:</span>
                         <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
                           {workflow.last_job.episodes_created}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-600 dark:text-slate-400">匹配单集:</span>
+                        <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                          {workflow.last_job.episodes_matched}
                         </span>
                       </div>
                     </div>
