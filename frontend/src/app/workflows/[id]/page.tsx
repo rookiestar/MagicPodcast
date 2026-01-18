@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { workflowApi, podcastApi } from '@/lib/api'
 import { schedulerApi } from '@/lib/api/scheduler'
@@ -13,13 +13,18 @@ type TabType = 'overview' | 'jobs' | 'config'
 
 export default function WorkflowDetailPage() {
   const params = useParams()
+  const searchParams = useSearchParams()
   const router = useRouter()
   const id = parseInt(params.id as string)
 
   const [workflow, setWorkflow] = useState<Workflow | null>(null)
   const [jobs, setJobs] = useState<Job[]>([])
   const [podcasts, setPodcasts] = useState<Podcast[]>([])
-  const [activeTab, setActiveTab] = useState<TabType>('overview')
+
+  // 从URL读取tab状态，如果没有则默认为overview
+  const tabFromUrl = (searchParams.get('tab') as TabType) || 'overview'
+  const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl)
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
@@ -55,6 +60,18 @@ export default function WorkflowDetailPage() {
 
     return () => clearInterval(interval)
   }, [jobs])
+
+  // 同步activeTab到URL参数
+  useEffect(() => {
+    const currentUrl = new URL(window.location.href)
+    const params = new URLSearchParams(currentUrl.search)
+
+    if (params.get('tab') !== activeTab) {
+      params.set('tab', activeTab)
+      const newUrl = `${currentUrl.pathname}?${params.toString()}`
+      router.replace(newUrl)
+    }
+  }, [activeTab, router])
 
   const fetchWorkflow = async () => {
     try {
