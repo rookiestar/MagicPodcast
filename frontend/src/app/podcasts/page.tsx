@@ -92,7 +92,7 @@ export default function PodcastsPage() {
     try {
       const data = await tagApi.list()
       // 过滤掉没有关联任何节目的标签
-      const tagsWithPodcasts = data.filter((tag: Tag) => tag.podcast_count > 0)
+      const tagsWithPodcasts = data.filter((tag: Tag) => (tag.podcast_count || 0) > 0)
       setTags(tagsWithPodcasts)
     } catch (err) {
       console.error('Failed to fetch tags:', err)
@@ -114,6 +114,40 @@ export default function PodcastsPage() {
     fetchPodcasts(tagIdsFromUrl, 1, sortFromUrl)
     fetchTags()
   }, []) // 只在组件挂载时执行一次
+
+  // 自动清理无效的筛选标签
+  useEffect(() => {
+    // 只在tags已加载且有关选中标签时才执行
+    if (tags.length === 0 || selectedTagIds.length === 0) {
+      return
+    }
+
+    // 检查当前选中的标签是否都有效（podcast_count > 0）
+    const validTagIds = selectedTagIds.filter(id =>
+      tags.some(tag => tag.id === id && (tag.podcast_count || 0) > 0)
+    )
+
+    // 如果发现有无效的标签，清理掉
+    if (validTagIds.length !== selectedTagIds.length) {
+      const removedTags = selectedTagIds.filter(id =>
+        !validTagIds.includes(id)
+      )
+
+      console.log('[Cleanup] Removing invalid tags from selection:', removedTags)
+
+      // 更新URL参数
+      const url = new URL(window.location.href)
+      url.searchParams.delete('tag_id')
+      validTagIds.forEach(id => url.searchParams.append('tag_id', id.toString()))
+      window.history.replaceState({}, '', url.toString())
+
+      // 更新状态并重新获取数据
+      setSelectedTagIds(validTagIds)
+      setPage(1)
+      setPodcasts([])
+      fetchPodcasts(validTagIds, 1, sortBy)
+    }
+  }, [tags, selectedTagIds])
 
   // 监听 URL 参数变化（用于浏览器前进/后退）
   useEffect(() => {
