@@ -91,7 +91,9 @@ export default function PodcastsPage() {
   const fetchTags = async () => {
     try {
       const data = await tagApi.list()
-      setTags(data)
+      // 过滤掉没有关联任何节目的标签
+      const tagsWithPodcasts = data.filter((tag: Tag) => tag.podcast_count > 0)
+      setTags(tagsWithPodcasts)
     } catch (err) {
       console.error('Failed to fetch tags:', err)
     }
