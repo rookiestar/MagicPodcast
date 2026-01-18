@@ -265,9 +265,17 @@ export const tagApi = {
 
   // 删除标签
   delete: async (id: number): Promise<void> => {
-    const response = await api.delete<ApiResponse<any>>(`/api/v1/tags/${id}`)
-    if (!response.data.success) {
-      throw new Error(response.data.error?.message || 'Failed to delete tag')
+    try {
+      const response = await api.delete<ApiResponse<any>>(`/api/v1/tags/${id}`)
+      if (!response.data.success) {
+        throw new Error(response.data.error?.message || 'Failed to delete tag')
+      }
+    } catch (error: any) {
+      // 如果是axios错误，尝试提取后端返回的错误消息
+      if (error.response?.data?.error?.message) {
+        throw new Error(error.response.data.error.message)
+      }
+      throw error
     }
   },
 }
