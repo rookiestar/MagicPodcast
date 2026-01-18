@@ -80,7 +80,7 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 	}
 
 	// 4. 生成Markdown内容
-	markdown := rg.generateMarkdown(job, reportData, timeRangeStart, timeRangeEnd, string(timeRangeMode))
+	markdown := rg.generateMarkdown(job, reportData, timeRangeStart, timeRangeEnd, string(timeRangeMode), workflow.Name)
 
 	// 5. 创建Report记录
 	matchedCount := rg.countEpisodes(reportData)
@@ -193,14 +193,14 @@ func (rg *ReportGenerator) collectMatchedEpisodes(job *models.Job, timeRangeStar
 }
 
 // generateMarkdown 生成Markdown内容
-func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeReportData, timeRangeStart, timeRangeEnd time.Time, timeRangeMode string) string {
+func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeReportData, timeRangeStart, timeRangeEnd time.Time, timeRangeMode string, workflowName string) string {
 	var builder strings.Builder
 
-	// 标题
-	builder.WriteString("# 工作流执行报告\n\n")
+	// 报告标题
+	builder.WriteString(fmt.Sprintf("# %s - %s\n\n", workflowName, job.CreatedAt.Format("2006-01-02 15:04:05")))
 
 	// 时间范围信息
-	builder.WriteString("## ⏱️ 扫描时间范围\n\n")
+	builder.WriteString("## ⏱️ 时间范围\n\n")
 	modeDesc := "手动触发"
 	if timeRangeMode == "daily" {
 		modeDesc = "自动定时"
@@ -212,15 +212,17 @@ func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeRepor
 
 	// 按播客分组
 	if len(data) > 0 {
-		builder.WriteString("## 📝 匹配单集详情\n\n")
+		builder.WriteString("## 📝 单集简介\n\n")
 
 		for _, podcast := range data {
-			builder.WriteString(fmt.Sprintf("### %s\n\n", podcast.PodcastTitle))
+			// 节目名称
+			builder.WriteString(fmt.Sprintf("### 节目名称：%s\n\n", podcast.PodcastTitle))
 			builder.WriteString(fmt.Sprintf("**RSS源**: %s\n\n", podcast.PodcastFeedURL))
-			builder.WriteString(fmt.Sprintf("**匹配单集数量**: %d\n\n", len(podcast.Episodes)))
+			builder.WriteString(fmt.Sprintf("**单集数量**: %d\n\n", len(podcast.Episodes)))
 
-			for i, ep := range podcast.Episodes {
-				builder.WriteString(fmt.Sprintf("#### %d. %s\n\n", i+1, ep.Title))
+			for _, ep := range podcast.Episodes {
+				// 单集标题（不使用序号）
+				builder.WriteString(fmt.Sprintf("#### 单集名称：%s\n\n", ep.Title))
 
 				// 元数据行
 				if ep.EpisodeNo != "" {
@@ -233,9 +235,8 @@ func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeRepor
 				}
 				builder.WriteString("\n\n")
 
-				// 小宇宙二维码（期号信息下方，链接上方）
+				// 小宇宙二维码
 				if ep.QRCode != "" {
-					builder.WriteString("**小宇宙**:\n\n")
 					builder.WriteString(fmt.Sprintf("![二维码](%s)\n\n", ep.QRCode))
 				}
 
@@ -255,7 +256,7 @@ func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeRepor
 			}
 		}
 	} else {
-		builder.WriteString("## 📝 匹配单集详情\n\n")
+		builder.WriteString("## 📝 单集简介\n\n")
 		builder.WriteString("本次执行在指定时间窗口内未匹配到单集内容。\n")
 	}
 
