@@ -481,6 +481,7 @@ function TagsPageContent() {
                             isSelectMode={isSelectMode}
                             isSelected={selectedTags.has(tag.id)}
                             onToggleSelect={() => handleToggleSelect(tag.id)}
+                            onDelete={handleDeleteTag}
                           />
                         ))}
                       </div>
@@ -497,6 +498,7 @@ function TagsPageContent() {
                     isSelectMode={isSelectMode}
                     isSelected={selectedTags.has(tag.id)}
                     onToggleSelect={() => handleToggleSelect(tag.id)}
+                    onDelete={handleDeleteTag}
                   />
                 ))}
               </div>
@@ -572,12 +574,14 @@ function TagCard({
   tag,
   isSelectMode,
   isSelected,
-  onToggleSelect
+  onToggleSelect,
+  onDelete
 }: {
   tag: Tag
   isSelectMode: boolean
   isSelected: boolean
   onToggleSelect: () => void
+  onDelete: (id: number, name: string) => void
 }) {
   // 根据节目数量计算视觉强度
   const count = tag.podcast_count || 0
@@ -618,6 +622,19 @@ function TagCard({
             onClick={(e) => e.stopPropagation()}
           />
         </div>
+      )}
+
+      {/* 非多选模式：显示删除按钮 */}
+      {!isSelectMode && (
+        <button
+          onClick={() => onDelete(tag.id, tag.name)}
+          className="absolute top-1 right-1 text-slate-400 hover:text-red-600 transition-colors p-1 rounded hover:bg-red-50"
+          title="删除标签"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
       )}
 
       {/* 颜色圆点 */}
