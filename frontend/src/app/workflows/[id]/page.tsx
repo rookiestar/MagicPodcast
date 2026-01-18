@@ -39,6 +39,23 @@ export default function WorkflowDetailPage() {
     }
   }, [id])
 
+  // 轮询Job状态：当有running状态的Job时，定期刷新
+  useEffect(() => {
+    // 检查是否有running状态的job
+    const hasRunningJob = jobs.some(job => job.status === 'running')
+
+    if (!hasRunningJob) {
+      return
+    }
+
+    // 每3秒刷新一次Job列表
+    const interval = setInterval(() => {
+      fetchJobs()
+    }, 3000)
+
+    return () => clearInterval(interval)
+  }, [jobs])
+
   const fetchWorkflow = async () => {
     try {
       setLoading(true)

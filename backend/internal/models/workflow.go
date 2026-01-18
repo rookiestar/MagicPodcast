@@ -175,7 +175,7 @@ type Report struct {
 	BaseModel
 
 	JobID         uint      `gorm:"not null;uniqueIndex" json:"job_id"`    // 关联的Job（一对一）
-	Job           Job       `gorm:"foreignKey:JobID" json:"job,omitempty"` // 关联的Job
+	Job           Job       `gorm:"-" json:"job,omitempty"`              // 关联的Job（不持久化）
 
 	Title         string    `gorm:"size:255;not null" json:"title"`          // 报告标题
 	Content       string    `gorm:"type:text;not null" json:"content"`       // Markdown内容
