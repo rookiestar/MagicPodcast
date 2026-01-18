@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -304,6 +305,34 @@ func (h *TagHandler) Delete(c *gin.Context) {
 			"error": gin.H{
 				"code":    "NOT_FOUND",
 				"message": "标签不存在",
+			},
+		})
+		return
+	}
+
+	// 检查标签是否有关联的节目
+	var podcastCount int64
+	db.Table("podcasts_tags").Where("tag_id = ?", id).Count(&podcastCount)
+	if podcastCount > 0 {
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "TAG_IN_USE",
+				"message": fmt.Sprintf("该标签已被 %d 个节目使用，无法删除", podcastCount),
+			},
+		})
+		return
+	}
+
+	// 检查标签是否有关联的单集
+	var episodeCount int64
+	db.Table("episodes_tags").Where("tag_id = ?", id).Count(&episodeCount)
+	if episodeCount > 0 {
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "TAG_IN_USE",
+				"message": fmt.Sprintf("该标签已被 %d 个单集使用，无法删除", episodeCount),
 			},
 		})
 		return
