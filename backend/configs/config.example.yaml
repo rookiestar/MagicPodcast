@@ -10,6 +10,38 @@ server:
   read_timeout: 60
   # 写入超时（秒）
   write_timeout: 60
+  # CORS安全配置
+  cors:
+    enabled: true
+    # 允许的跨域来源
+    # 开发环境使用localhost，生产环境请替换为实际域名
+    allow_origins:
+      - "http://localhost:3000"
+      - "http://127.0.0.1:3000"
+      # 生产环境示例（去掉注释并配置实际域名）:
+      # - "https://yourdomain.com"
+      # - "https://www.yourdomain.com"
+    # 允许的HTTP方法
+    allow_methods:
+      - "GET"
+      - "POST"
+      - "PUT"
+      - "DELETE"
+      - "OPTIONS"
+    # 允许的请求头
+    allow_headers:
+      - "Origin"
+      - "Content-Type"
+      - "Authorization"
+      - "Accept"
+      - "X-Requested-With"
+    # 暴露的响应头
+    expose_headers:
+      - "Content-Length"
+    # 是否允许携带凭证（cookies、authorization headers等）
+    allow_credentials: true
+    # 预检请求缓存时间（秒）
+    max_age: 86400
 
 database:
   # SQLite 数据库文件路径

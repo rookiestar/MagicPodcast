@@ -25,6 +25,18 @@ type ServerConfig struct {
 	Mode         string        `mapstructure:"mode"` // debug, release
 	ReadTimeout  time.Duration `mapstructure:"read_timeout"`
 	WriteTimeout time.Duration `mapstructure:"write_timeout"`
+	CORS         CORSConfig    `mapstructure:"cors"`
+}
+
+// CORSConfig CORS配置
+type CORSConfig struct {
+	Enabled          bool     `mapstructure:"enabled"`
+	AllowOrigins     []string `mapstructure:"allow_origins"`
+	AllowMethods     []string `mapstructure:"allow_methods"`
+	AllowHeaders     []string `mapstructure:"allow_headers"`
+	ExposeHeaders    []string `mapstructure:"expose_headers"`
+	AllowCredentials bool     `mapstructure:"allow_credentials"`
+	MaxAge           int      `mapstructure:"max_age"` // 秒
 }
 
 // DatabaseConfig 数据库配置
