@@ -178,6 +178,7 @@ export interface WorkflowStats {
   failed_jobs: number
   success_rate: number
   total_episodes: number
+  podcast_count: number
   last_execution?: string
   next_execution?: string
 }

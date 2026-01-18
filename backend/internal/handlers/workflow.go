@@ -53,6 +53,7 @@ type WorkflowStats struct {
 	FailedJobs      int64       `json:"failed_jobs"`
 	SuccessRate     float64     `json:"success_rate"`
 	TotalEpisodes   int64       `json:"total_episodes"`
+	PodcastCount    int64       `json:"podcast_count"`
 	LastExecution   *time.Time  `json:"last_execution,omitempty"`
 	NextExecution   *time.Time  `json:"next_execution,omitempty"`
 }
@@ -720,6 +721,17 @@ func (h *WorkflowHandler) toWorkflowResponse(workflow *models.Workflow) Workflow
 
 	// 统计总共创建的单集数
 	db.Model(&models.Job{}).Where("workflow_id = ?", workflow.ID).Select("COALESCE(SUM(episodes_created), 0)").Scan(&stats.TotalEpisodes)
+
+	// 计算关联的节目数
+	switch workflow.ScopeType {
+	case models.ScopeTypeSpecificPodcasts:
+		stats.PodcastCount = int64(len(workflow.ScopeConfig.PodcastIDs))
+	case models.ScopeTypeAllSubscribed:
+		// 统计已订阅的节目数
+		db.Model(&models.Podcast{}).Where("is_subscribed = ?", true).Count(&stats.PodcastCount)
+	case models.ScopeTypeCustomSources:
+		stats.PodcastCount = int64(len(workflow.ScopeConfig.CustomURLs))
+	}
 
 	// 获取最后一次执行时间
 	var lastJob models.Job

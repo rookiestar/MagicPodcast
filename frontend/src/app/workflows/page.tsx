@@ -84,17 +84,45 @@ export default function WorkflowsPage() {
     )
   }
 
-  const getScopeTypeLabel = (scopeType: string) => {
-    switch (scopeType) {
+  const getScopeTypeLabel = (workflow: Workflow) => {
+    let label = ''
+    switch (workflow.scope_type) {
       case 'specific_podcasts':
-        return '指定节目'
+        label = '指定节目'
+        break
       case 'all_subscribed':
-        return '全部订阅'
+        label = '全部订阅'
+        break
       case 'custom_sources':
-        return '自定义源'
+        label = '自定义源'
+        break
       default:
-        return scopeType
+        label = workflow.scope_type
     }
+
+    // 如果有统计信息且有节目数，添加节目数
+    if (workflow.stats && workflow.stats.podcast_count !== undefined && workflow.stats.podcast_count > 0) {
+      label += `（${workflow.stats.podcast_count}）`
+    }
+
+    return label
+  }
+
+  const formatTimeRange = (timeRange?: number) => {
+    if (!timeRange || timeRange === 0) return '不限制'
+    return `最近${timeRange}天`
+  }
+
+  const formatDateTime = (dateStr?: string) => {
+    if (!dateStr) return '-'
+    const date = new Date(dateStr)
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
   }
 
   return (
@@ -172,30 +200,35 @@ export default function WorkflowsPage() {
               <Link
                 key={workflow.id}
                 href={`/workflows/${workflow.id}`}
-                className="block bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow p-6"
+                className="block bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow p-8"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-xl font-semibold text-slate-900">
+                    <div className="flex items-center gap-3 mb-3">
+                      <h3 className="text-2xl font-semibold text-slate-900">
                         {workflow.id}: {workflow.name}
                       </h3>
                       {getStatusBadge(workflow.is_enabled)}
                     </div>
 
                     {workflow.description && (
-                      <p className="text-slate-600 mb-3">
+                      <p className="text-slate-600 text-base mb-6">
                         {workflow.description}
                       </p>
                     )}
 
-                    <div className="flex flex-wrap gap-4 text-sm text-slate-600">
-                      <div className="flex items-center gap-1">
+                    <div className="flex flex-wrap gap-x-8 gap-y-4 text-base text-slate-600 mt-6">
+                      <div className="flex items-center gap-2">
                         <span className="font-medium">范围:</span>
-                        <span>{getScopeTypeLabel(workflow.scope_type)}</span>
+                        <span>{getScopeTypeLabel(workflow)}</span>
                       </div>
 
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">时间范围:</span>
+                        <span>{formatTimeRange(workflow.rules_config?.time_range)}</span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
                         <span className="font-medium">定时:</span>
                         <code className="px-2 py-0.5 bg-slate-100 rounded text-xs">
                           {workflow.schedule}
@@ -204,26 +237,32 @@ export default function WorkflowsPage() {
 
                       {workflow.stats && (
                         <>
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">创建单集:</span>
+                            <span className="text-blue-600 font-medium">{workflow.stats.total_episodes}</span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">上次执行:</span>
+                            <span>{formatDateTime(workflow.stats.last_execution)}</span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">下次执行:</span>
+                            <span>{formatDateTime(workflow.stats.next_execution)}</span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
                             <span className="font-medium">执行次数:</span>
                             <span>{workflow.stats.total_jobs}</span>
                           </div>
 
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-2">
                             <span className="font-medium">成功率:</span>
                             <span className={workflow.stats.success_rate >= 80 ? 'text-green-600' : 'text-yellow-600'}>
                               {workflow.stats.success_rate.toFixed(1)}%
                             </span>
                           </div>
-
-                          {workflow.stats.last_execution && (
-                            <div className="flex items-center gap-1">
-                              <span className="font-medium">最后执行:</span>
-                              <span>
-                                {new Date(workflow.stats.last_execution).toLocaleString('zh-CN')}
-                              </span>
-                            </div>
-                          )}
                         </>
                       )}
                     </div>
