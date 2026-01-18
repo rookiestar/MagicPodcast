@@ -164,26 +164,15 @@ func (h *TagHandler) List(c *gin.Context) {
 // @Router /api/v1/tags/{id} [get]
 func (h *TagHandler) Get(c *gin.Context) {
 	id := c.Param("id")
-	tagID, err := strconv.ParseUint(id, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_ID",
-				"message": "无效的标签 ID",
-			},
-		})
-		return
-	}
 
 	db := database.GetDB()
 
 	// 查询标签及关联的播客数量
 	var count int64
-	db.Table("podcasts_tags").Where("tag_id = ?", tagID).Count(&count)
+	db.Table("podcasts_tags").Where("tag_id = ?", id).Count(&count)
 
 	var tag models.Tag
-	if err := db.First(&tag, uint(tagID)).Error; err != nil {
+	if err := db.First(&tag, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -304,23 +293,12 @@ func (h *TagHandler) Update(c *gin.Context) {
 // @Router /api/v1/tags/{id} [delete]
 func (h *TagHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
-	tagID, err := strconv.ParseUint(id, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_ID",
-				"message": "无效的标签 ID",
-			},
-		})
-		return
-	}
 
 	db := database.GetDB()
 
 	// 检查标签是否存在
 	var tag models.Tag
-	if err := db.First(&tag, uint(tagID)).Error; err != nil {
+	if err := db.First(&tag, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
