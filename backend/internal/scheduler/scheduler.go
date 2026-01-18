@@ -210,17 +210,115 @@ func (s *Scheduler) checkAndAlertFailures(workflowID uint) {
 func (s *Scheduler) Reload() error {
 	log.Println("🔄 重新加载调度器")
 
-	// 停止现有任务
+	// 保存旧的 jobIDs 映射用于回滚
 	s.mu.Lock()
-	for wfID, entryID := range s.jobIDs {
+	oldJobIDs := make(map[uint]cron.EntryID)
+	for k, v := range s.jobIDs {
+		oldJobIDs[k] = v
+	}
+
+	// 移除所有现有的 cron 任务
+	for wfID, entryID := range oldJobIDs {
 		s.cron.Remove(entryID)
 		log.Printf("🗑️  移除工作流 [ID=%d]", wfID)
 	}
-	s.jobIDs = make(map[uint]cron.EntryID)
-	s.mu.Unlock()
 
-	// 重新启动
-	return s.Start()
+	// 清空映射
+	s.jobIDs = make(map[uint]cron.EntryID)
+	// 注意：这里保持锁，避免在清空和重新加载之间有其他操作
+
+	// 加载所有已启用的工作流
+	var workflows []models.Workflow
+	if err := s.db.Where("is_enabled = ? AND schedule != ?", true, "").
+		Find(&workflows).Error; err != nil {
+		// 数据库查询失败，回滚：恢复旧的 jobIDs
+		log.Printf("❌ 加载工作流失败，尝试回滚: %v", err)
+		s.rollbackReload(oldJobIDs)
+		s.mu.Unlock()
+		return fmt.Errorf("加载工作流失败: %w", err)
+	}
+
+	// 注册每个工作流的 cron 任务
+	registeredCount := 0
+	var firstErr error
+	for _, wf := range workflows {
+		if err := s.registerWorkflowLocked(&wf); err != nil {
+			log.Printf("⚠️  注册工作流失败 [ID=%d]: %v", wf.ID, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+			// 继续尝试注册其他工作流
+		} else {
+			registeredCount++
+			log.Printf("✅ 已注册工作流 [ID=%d, Schedule=%s]", wf.ID, wf.Schedule)
+		}
+	}
+
+	// 如果没有成功注册任何工作流，回滚
+	if registeredCount == 0 && len(workflows) > 0 {
+		log.Printf("❌ 所有工作流注册失败，尝试回滚: %v", firstErr)
+		s.rollbackReload(oldJobIDs)
+		s.mu.Unlock()
+		return fmt.Errorf("所有工作流注册失败: %w", firstErr)
+	}
+
+	s.mu.Unlock()
+	log.Printf("🚀 调度器重新加载完成，共注册 %d 个工作流", registeredCount)
+	return nil
+}
+
+// rollbackReload 回滚到之前的 jobIDs 状态
+func (s *Scheduler) rollbackReload(oldJobIDs map[uint]cron.EntryID) {
+	log.Printf("🔄 回滚调度器到之前的状态，恢复 %d 个工作流", len(oldJobIDs))
+
+	// 清空当前（可能部分注册的）jobIDs
+	s.jobIDs = make(map[uint]cron.EntryID)
+
+	// 恢复旧的 jobIDs 映射
+	for wfID := range oldJobIDs {
+		// 重新注册到 cron（因为之前被 Remove 了）
+		// 注意：这里需要重新获取工作流信息来注册
+		var wf models.Workflow
+		if err := s.db.First(&wf, wfID).Error; err != nil {
+			log.Printf("⚠️  回滚时找不到工作流 [ID=%d]: %v", wfID, err)
+			continue
+		}
+
+		// 重新注册
+		jobFunc := func() {
+			s.executeWorkflow(wf.ID)
+		}
+		if newEntryID, err := s.cron.AddFunc(wf.Schedule, jobFunc); err == nil {
+			s.jobIDs[wf.ID] = newEntryID
+			log.Printf("✅ 回滚：已恢复工作流 [ID=%d]", wfID)
+		} else {
+			log.Printf("❌ 回滚：恢复工作流失败 [ID=%d]: %v", wfID, err)
+		}
+	}
+}
+
+// registerWorkflowLocked 注册单个工作流（调用者必须持有锁）
+func (s *Scheduler) registerWorkflowLocked(workflow *models.Workflow) error {
+	schedule := workflow.Schedule
+	if schedule == "" {
+		return fmt.Errorf("schedule为空")
+	}
+
+	// 封装执行逻辑
+	jobFunc := func() {
+		s.executeWorkflow(workflow.ID)
+	}
+
+	// 添加到cron
+	entryID, err := s.cron.AddFunc(schedule, jobFunc)
+	if err != nil {
+		return fmt.Errorf("添加cron任务失败: %w", err)
+	}
+
+	// 记录映射（不需要加锁，因为调用者已经持有锁）
+	s.jobIDs[workflow.ID] = entryID
+
+	return nil
 }
 
 // PauseWorkflow 暂停指定工作流的调度
