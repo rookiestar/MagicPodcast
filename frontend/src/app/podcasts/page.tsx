@@ -316,9 +316,18 @@ export default function PodcastsPage() {
               {hasMoreTags && (
                 <button
                   onClick={() => setShowAllTags(!showAllTags)}
-                  className="px-3 py-1.5 rounded-lg text-sm text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                  title={showAllTags ? '收起' : '展开'}
                 >
-                  {showAllTags ? '收起' : `+${tags.length - DEFAULT_TAG_COUNT}`}
+                  {showAllTags ? (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                    </svg>
+                  ) : (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  )}
                 </button>
               )}
             </div>
