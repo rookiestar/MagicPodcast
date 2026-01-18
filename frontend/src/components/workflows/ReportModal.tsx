@@ -19,6 +19,10 @@ interface Report {
   summary: string
   episodes_count: number
   podcasts_count: number
+  matched_count: number        // 新增：匹配的单集数
+  time_range_start: string     // 新增：时间范围起始
+  time_range_end: string       // 新增：时间范围结束
+  time_range_mode: string      // 新增：触发模式（daily | manual）
   generated_at: string
   format: string
   file_size: number
@@ -119,9 +123,23 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
         <div className="flex items-center justify-between p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
           {report && (
             <div className="text-sm text-slate-600 dark:text-slate-400">
-              <span className="font-medium">{report.podcasts_count}</span> 个节目 •
-              <span className="font-medium ml-1">{report.episodes_count}</span> 个单集 •
-              <span className="font-medium ml-1">{(report.file_size / 1024).toFixed(1)} KB</span>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="font-medium">{report.podcasts_count}</span> 个节目 •
+                <span className="font-medium">{report.matched_count}</span> 个匹配单集 •
+                <span className="font-medium">{(report.file_size / 1024).toFixed(1)} KB</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <span className={`px-1.5 py-0.5 rounded ${
+                  report.time_range_mode === 'daily'
+                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                    : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                }`}>
+                  {report.time_range_mode === 'daily' ? '自动定时' : '手动触发'}
+                </span>
+                <span className="text-slate-500 dark:text-slate-500">
+                  {new Date(report.time_range_start).toLocaleString('zh-CN')} → {new Date(report.time_range_end).toLocaleString('zh-CN')}
+                </span>
+              </div>
             </div>
           )}
           <div className="flex gap-2">

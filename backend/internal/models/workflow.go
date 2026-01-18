@@ -181,12 +181,19 @@ type Report struct {
 	Content       string    `gorm:"type:text;not null" json:"content"`       // Markdown内容
 	Summary       string    `gorm:"type:text" json:"summary"`                // 简要摘要
 
-	EpisodesCount int       `gorm:"default:0" json:"episodes_count"` // 包含的episode数
-	PodcastsCount int       `gorm:"default:0" json:"podcasts_count"` // 包含的podcast数
+	// 统计字段
+	EpisodesCount int       `gorm:"default:0" json:"episodes_count"`  // 包含的episode数
+	PodcastsCount int       `gorm:"default:0" json:"podcasts_count"`  // 包含的podcast数
+	MatchedCount   int       `gorm:"default:0" json:"matched_count"`    // 匹配的单集数
 
-	GeneratedAt time.Time `gorm:"not null" json:"generated_at"`       // 生成时间
-	Format      string    `gorm:"size:20;default:'markdown'" json:"format"` // 报告格式
-	FileSize    int       `gorm:"default:0" json:"file_size"`         // 内容大小（字节）
+	// 时间范围信息
+	TimeRangeStart time.Time `json:"time_range_start"` // 扫描时间范围起始时间
+	TimeRangeEnd   time.Time `json:"time_range_end"`   // 扫描时间范围结束时间
+	TimeRangeMode  string    `gorm:"size:20" json:"time_range_mode"` // daily | manual
+
+	GeneratedAt   time.Time `gorm:"not null" json:"generated_at"`       // 生成时间
+	Format        string    `gorm:"size:20;default:'markdown'" json:"format"`    // 报告格式
+	FileSize      int       `gorm:"default:0" json:"file_size"`         // 内容大小（字节）
 }
 
 // TableName 指定表名

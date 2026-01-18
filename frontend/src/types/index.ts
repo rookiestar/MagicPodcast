@@ -166,6 +166,10 @@ export interface Report {
   summary: string
   episodes_count: number
   podcasts_count: number
+  matched_count: number        // 新增：匹配的单集数
+  time_range_start: string     // 新增：时间范围起始
+  time_range_end: string       // 新增：时间范围结束
+  time_range_mode: string      // 新增：触发模式（daily | manual）
   generated_at: string
   format: string
   file_size: number

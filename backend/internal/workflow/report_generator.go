@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/utils"
 
 	"gorm.io/gorm"
 )
@@ -36,30 +37,67 @@ type EpisodeDetail struct {
 	UpdatedDate   *time.Time
 	EpisodeNo     string
 	Link          string
+	XYZID         string // 小宇宙ID
+	QRCode        string // 小宇宙二维码（base64编码）
 }
 
 // GenerateForJob 为Job生成报告
 func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, error) {
-	// 1. 收集数据
-	reportData, err := rg.collectJobEpisodes(job)
+	// 1. 获取工作流配置以确定时间范围
+	var workflow models.Workflow
+	if err := rg.db.First(&workflow, job.WorkflowID).Error; err != nil {
+		return nil, fmt.Errorf("获取工作流配置失败: %w", err)
+	}
+
+	// 2. 计算扫描时间窗口
+	triggeredAt := job.CreatedAt
+	var timeRangeMode utils.TimeRangeMode
+	var timeRangeDays int
+
+	// 判断触发模式：根据job的triggered_by字段判断
+	if job.TriggeredBy == "cron" {
+		timeRangeMode = utils.TimeRangeModeDaily
+		timeRangeDays = 0 // daily模式不使用days参数
+	} else {
+		timeRangeMode = utils.TimeRangeModeManual
+		timeRangeDays = workflow.RulesConfig.TimeRange
+	}
+
+	// 调用时间窗口计算工具
+	timeRangeStart, timeRangeEnd, err := utils.GetTimeRangeWindow(
+		timeRangeMode,
+		timeRangeDays,
+		triggeredAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("计算时间范围失败: %w", err)
+	}
+
+	// 3. 收集匹配的episodes（按时间窗口扫描）
+	reportData, err := rg.collectMatchedEpisodes(job, timeRangeStart, timeRangeEnd)
 	if err != nil {
 		return nil, fmt.Errorf("收集报告数据失败: %w", err)
 	}
 
-	// 2. 生成Markdown内容
-	markdown := rg.generateMarkdown(job, reportData)
+	// 4. 生成Markdown内容
+	markdown := rg.generateMarkdown(job, reportData, timeRangeStart, timeRangeEnd, string(timeRangeMode))
 
-	// 3. 创建Report记录
+	// 5. 创建Report记录
+	matchedCount := rg.countEpisodes(reportData)
 	report := &models.Report{
-		JobID:         job.ID,
-		Title:         fmt.Sprintf("工作流执行报告 - %s", job.CreatedAt.Format("2006-01-02 15:04:05")),
-		Content:       markdown,
-		Summary:       rg.generateSummary(job, reportData),
-		EpisodesCount: rg.countEpisodes(reportData),
-		PodcastsCount: len(reportData),
-		GeneratedAt:   time.Now(),
-		Format:        "markdown",
-		FileSize:      len(markdown),
+		JobID:          job.ID,
+		Title:          fmt.Sprintf("工作流执行报告 - %s", job.CreatedAt.Format("2006-01-02 15:04:05")),
+		Content:        markdown,
+		Summary:        rg.generateSummary(job, reportData),
+		EpisodesCount:  matchedCount, // 历史字段，保留兼容
+		PodcastsCount:  len(reportData),
+		MatchedCount:   matchedCount, // 新增：实际匹配的单集数
+		TimeRangeStart: timeRangeStart,
+		TimeRangeEnd:   timeRangeEnd,
+		TimeRangeMode:  string(timeRangeMode),
+		GeneratedAt:    time.Now(),
+		Format:         "markdown",
+		FileSize:       len(markdown),
 	}
 
 	if err := rg.db.Create(report).Error; err != nil {
@@ -69,8 +107,8 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 	return report, nil
 }
 
-// collectJobEpisodes 收集Job相关的所有episodes
-func (rg *ReportGenerator) collectJobEpisodes(job *models.Job) ([]EpisodeReportData, error) {
+// collectMatchedEpisodes 收集在时间窗口内匹配的episodes
+func (rg *ReportGenerator) collectMatchedEpisodes(job *models.Job, timeRangeStart, timeRangeEnd time.Time) ([]EpisodeReportData, error) {
 	// 从JobExecution中获取成功处理的podcast IDs
 	var executions []models.JobExecution
 	if err := rg.db.Where("job_id = ? AND status = ?", job.ID, models.ExecutionStatusSuccess).Find(&executions).Error; err != nil {
@@ -84,16 +122,19 @@ func (rg *ReportGenerator) collectJobEpisodes(job *models.Job) ([]EpisodeReportD
 			continue
 		}
 
-		// 根据时间范围查询episodes
+		// 根据时间窗口查询匹配的episodes
 		var episodes []models.Episode
 		query := rg.db.Where("podcast_id = ?", *exec.PodcastID)
 
-		// 应用时间过滤：查询在job执行期间新增或更新的episodes
-		if job.StartTime != nil {
-			query = query.Where("(created_at >= ? OR updated_date >= ?)", *job.StartTime, *job.StartTime)
-		}
+		// 应用时间窗口过滤：查询updated_date或published_date在时间窗口内的episodes
+		// 使用COALESCE优先使用updated_date，如果为空则使用published_date
+		// 使用 >= 和 <= 包含边界时间点
+		query = query.Where(`
+			COALESCE(updated_date, published_date) >= ? AND
+			COALESCE(updated_date, published_date) <= ?
+		`, timeRangeStart, timeRangeEnd)
 
-		// 按updated_date降序排序
+		// 按updated_date降序排序（优先使用updated_date）
 		query = query.Order("COALESCE(updated_date, published_date) DESC")
 
 		if err := query.Find(&episodes).Error; err != nil {
@@ -107,6 +148,27 @@ func (rg *ReportGenerator) collectJobEpisodes(job *models.Job) ([]EpisodeReportD
 		// 转换为报告数据结构
 		episodeDetails := make([]EpisodeDetail, len(episodes))
 		for i, ep := range episodes {
+			// 提取小宇宙episode ID（从link中）
+			var xyzID string
+			if ep.Link != "" {
+				// 解析小宇宙链接：https://www.xiaoyuzhoufm.com/episode/{id}?utm_source=rss
+				parts := strings.Split(ep.Link, "/")
+				if len(parts) >= 5 && parts[3] == "episode" {
+					xyzID = strings.Split(parts[4], "?")[0] // 去掉URL参数
+				}
+			}
+
+			// 生成二维码
+			var qrCode string
+			if xyzID != "" {
+				var err error
+				qrCode, err = utils.GenerateQRCodeForEpisode(xyzID, 128)
+				if err != nil {
+					// 生成失败时记录日志但不中断
+					fmt.Printf("⚠️  生成二维码失败 [EpisodeID=%d]: %v\n", ep.ID, err)
+				}
+			}
+
 			episodeDetails[i] = EpisodeDetail{
 				Title:         ep.Title,
 				ShowNotes:     ep.ShowNotes,
@@ -114,6 +176,8 @@ func (rg *ReportGenerator) collectJobEpisodes(job *models.Job) ([]EpisodeReportD
 				UpdatedDate:   ep.UpdatedDate,
 				EpisodeNo:     ep.EpisodeNo,
 				Link:          ep.Link,
+				XYZID:         xyzID,
+				QRCode:        qrCode,
 			}
 		}
 
@@ -129,7 +193,7 @@ func (rg *ReportGenerator) collectJobEpisodes(job *models.Job) ([]EpisodeReportD
 }
 
 // generateMarkdown 生成Markdown内容
-func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeReportData) string {
+func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeReportData, timeRangeStart, timeRangeEnd time.Time, timeRangeMode string) string {
 	var builder strings.Builder
 
 	// 标题
@@ -149,14 +213,25 @@ func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeRepor
 	}
 	builder.WriteString(fmt.Sprintf("- **触发方式**: %s\n\n", job.TriggeredBy))
 
+	// 时间范围信息
+	builder.WriteString("## ⏱️ 扫描时间范围\n\n")
+	modeDesc := "手动触发"
+	if timeRangeMode == "daily" {
+		modeDesc = "自动定时"
+	}
+	builder.WriteString(fmt.Sprintf("- **触发模式**: %s\n", modeDesc))
+	builder.WriteString(fmt.Sprintf("- **时间窗口**: %s 至 %s\n\n",
+		timeRangeStart.Format("2006-01-02 15:04:05"),
+		timeRangeEnd.Format("2006-01-02 15:04:05")))
+
 	// 按播客分组
 	if len(data) > 0 {
-		builder.WriteString("## 📝 抓取详情\n\n")
+		builder.WriteString("## 📝 匹配单集详情\n\n")
 
 		for _, podcast := range data {
 			builder.WriteString(fmt.Sprintf("### %s\n\n", podcast.PodcastTitle))
 			builder.WriteString(fmt.Sprintf("**RSS源**: %s\n\n", podcast.PodcastFeedURL))
-			builder.WriteString(fmt.Sprintf("**单集数量**: %d\n\n", len(podcast.Episodes)))
+			builder.WriteString(fmt.Sprintf("**匹配单集数量**: %d\n\n", len(podcast.Episodes)))
 
 			for i, ep := range podcast.Episodes {
 				builder.WriteString(fmt.Sprintf("#### %d. %s\n\n", i+1, ep.Title))
@@ -171,6 +246,13 @@ func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeRepor
 					builder.WriteString(fmt.Sprintf(" | **更新时间**: %s", ep.UpdatedDate.Format("2006-01-02 15:04")))
 				}
 				builder.WriteString("\n\n")
+
+				// 小宇宙二维码（期号信息下方，链接上方）
+				if ep.QRCode != "" {
+					builder.WriteString("**小宇宙**:\n\n")
+			// TEST_DEBUG_12345 - 使用HTML img标签而不是Markdown语法
+					builder.WriteString(fmt.Sprintf("<img src=\"%s\" alt=\"二维码\" width=\"128\" height=\"128\" />\n\n", ep.QRCode))
+				}
 
 				if ep.Link != "" {
 					builder.WriteString(fmt.Sprintf("**链接**: [%s](%s)\n\n", ep.Link, ep.Link))
@@ -188,7 +270,8 @@ func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeRepor
 			}
 		}
 	} else {
-		builder.WriteString("本次执行未抓取到新的单集内容。\n")
+		builder.WriteString("## 📝 匹配单集详情\n\n")
+		builder.WriteString("本次执行在指定时间窗口内未匹配到单集内容。\n")
 	}
 
 	return builder.String()
