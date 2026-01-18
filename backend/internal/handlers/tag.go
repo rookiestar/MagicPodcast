@@ -164,7 +164,7 @@ func (h *TagHandler) List(c *gin.Context) {
 // @Router /api/v1/tags/{id} [get]
 func (h *TagHandler) Get(c *gin.Context) {
 	id := c.Param("id")
-	tagID, err := strconv.ParseUint(id, 10, 32)
+	tagID, err := strconv.ParseUint(id, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -304,7 +304,7 @@ func (h *TagHandler) Update(c *gin.Context) {
 // @Router /api/v1/tags/{id} [delete]
 func (h *TagHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
-	tagID, err := strconv.ParseUint(id, 10, 32)
+	tagID, err := strconv.ParseUint(id, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
