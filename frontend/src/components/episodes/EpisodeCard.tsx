@@ -151,9 +151,10 @@ export default function EpisodeCard({ episode, podcastCover, index = 0, priority
             )}
           </div>
 
-          {/* Title and Info */}
+          {/* Title, Meta Info and Play Button */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-start justify-between gap-2">
+            {/* Title with Play Button */}
+            <div className="flex items-start justify-between gap-2 mb-1.5">
               {episode.link ? (
                 <a
                   href={episode.link}
@@ -186,29 +187,29 @@ export default function EpisodeCard({ episode, podcastCover, index = 0, priority
                 </button>
               )}
             </div>
-          </div>
-        </div>
 
-        {/* Meta Info */}
-        <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 mb-3">
-          {episode.episode_no && (
-            <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-md font-medium">
-              {episode.episode_no}
-            </span>
-          )}
-          <span>{formatDate(episode.published_date)}</span>
-          {episode.duration > 0 && (
-            <>
-              <span>•</span>
-              <span>{formatDuration(episode.duration)}</span>
-            </>
-          )}
-          {episode.enclosure_length > 0 && (
-            <>
-              <span>•</span>
-              <span>{formatFileSize(episode.enclosure_length)}</span>
-            </>
-          )}
+            {/* Meta Info */}
+            <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+              {episode.episode_no && (
+                <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-md font-medium">
+                  {episode.episode_no}
+                </span>
+              )}
+              <span>{formatDate(episode.published_date)}</span>
+              {episode.duration > 0 && (
+                <>
+                  <span>•</span>
+                  <span>{formatDuration(episode.duration)}</span>
+                </>
+              )}
+              {episode.enclosure_length > 0 && (
+                <>
+                  <span>•</span>
+                  <span>{formatFileSize(episode.enclosure_length)}</span>
+                </>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Show Notes - Collapsible */}
@@ -223,7 +224,7 @@ export default function EpisodeCard({ episode, podcastCover, index = 0, priority
             <div className="relative">
               <RichText
                 html={episode.show_notes}
-                className="prose prose-sm dark:prose-invert max-w-none"
+                className="prose prose-sm dark:prose-invert max-w-none prose-headings:text-base prose-h1:text-base prose-h2:text-base prose-h3:text-base"
               />
               {!isExpanded && (
                 <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white dark:from-slate-800 to-transparent" />

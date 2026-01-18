@@ -311,7 +311,7 @@ export default function PodcastDetailPage() {
                   )}
 
                   {/* 🆕 单集数和最新更新 */}
-                  <div className="flex gap-6">
+                  <div className="flex gap-6 items-center">
                     <div>
                       <span className="font-semibold text-slate-900">
                         单集数：
@@ -341,27 +341,24 @@ export default function PodcastDetailPage() {
                         }
                       })()}
                     </div>
-                  </div>
-
-                  {/* 🆕 最新单集播放按钮 */}
-                  {podcast.newest_enclosure_url && (
-                    <div>
-                      <span className="font-semibold text-slate-900">
-                        最新一集：
-                      </span>
+                    {/* 🆕 最新单集播放按钮 */}
+                    {podcast.newest_enclosure_url && (
                       <button
                         onClick={() => window.open(podcast.newest_enclosure_url, '_blank')}
-                        className="ml-2 px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors inline-flex items-center gap-2"
+                        className="ml-2 px-2.5 py-1.5 bg-slate-700 hover:bg-slate-800 text-white text-sm rounded-lg transition-colors inline-flex items-center gap-1.5"
+                        title="播放最新一集"
                       >
-                        ▶️ 播放
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
                         {podcast.newest_enclosure_duration && (
                           <span className="text-xs opacity-80">
-                            ({Math.floor(podcast.newest_enclosure_duration / 60)}分{podcast.newest_enclosure_duration % 60}秒)
+                            {Math.floor(podcast.newest_enclosure_duration / 60)}分{podcast.newest_enclosure_duration % 60}秒
                           </span>
                         )}
                       </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
 
                   <div>
                     <span className="font-semibold text-slate-900">
@@ -380,7 +377,7 @@ export default function PodcastDetailPage() {
                     <TagInput
                       selectedTags={tags}
                       onTagsChange={handleTagsChange}
-                      placeholder="输入标签名按回车添加"
+                      placeholder="点击输入框从列表选择，或输入新标签名按回车添加"
                     />
                   </div>
 
@@ -404,7 +401,7 @@ export default function PodcastDetailPage() {
                         <textarea
                           value={notes}
                           onChange={(e) => setNotes(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                           rows={4}
                           placeholder="添加备注..."
                         />
@@ -427,8 +424,8 @@ export default function PodcastDetailPage() {
                         </div>
                       </div>
                     ) : (
-                      <p className="text-slate-700 dark:text-slate-300 bg-slate-50/50 p-3 rounded-lg">
-                        {notes || '暂无备注'}
+                      <p className="text-sm bg-slate-50/50 p-3 rounded-lg">
+                        {notes || <span className="text-slate-400 dark:text-slate-500">暂无备注</span>}
                       </p>
                     )}
                   </div>

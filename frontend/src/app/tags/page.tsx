@@ -405,7 +405,7 @@ function TagsPageContent() {
                     <TagInput
                       selectedTags={podcastTags}
                       onTagsChange={handlePodcastTagsChange}
-                      placeholder="输入标签名按回车添加"
+                      placeholder="点击输入框从列表选择，或输入新标签名按回车添加"
                     />
                   </div>
 

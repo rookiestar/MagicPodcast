@@ -164,7 +164,7 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
             border border-slate-300 dark:border-slate-600
             rounded-lg
             bg-white dark:bg-slate-800
-            text-slate-900 dark:text-slate-100
+            text-sm text-slate-900 dark:text-slate-100
             placeholder:text-slate-400 dark:placeholder:text-slate-500
             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
             transition-colors
@@ -245,11 +245,6 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
             </div>
           </>
         )}
-
-        {/* 提示信息 */}
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-          点击输入框从列表选择，或输入新标签名按回车创建
-        </p>
       </div>
     </div>
   )
