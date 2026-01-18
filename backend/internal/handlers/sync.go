@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -79,7 +80,23 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 
 	// 保存到临时文件
 	tempDir := filepath.Join(".", "data", "temp")
-	if err := c.SaveUploadedFile(file, filepath.Join(tempDir, file.Filename)); err != nil {
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		log.Printf("创建临时目录失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "创建临时目录失败",
+		})
+		return
+	}
+
+	// 生成唯一的临时文件名，避免冲突
+	tempFileName := fmt.Sprintf("%s_%d%s",
+		filepath.Base(file.Filename),
+		time.Now().UnixNano(),
+		filepath.Ext(file.Filename))
+	tempFilePath := filepath.Join(tempDir, tempFileName)
+
+	if err := c.SaveUploadedFile(file, tempFilePath); err != nil {
 		log.Printf("保存文件失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
@@ -88,9 +105,16 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 		return
 	}
 
-	tempFilePath := filepath.Join(tempDir, file.Filename)
-
 	log.Printf("文件已保存到: %s", tempFilePath)
+
+	// 确保清理临时文件
+	defer func() {
+		if err := os.Remove(tempFilePath); err != nil {
+			log.Printf("⚠️  清理临时文件失败: %v", err)
+		} else {
+			log.Printf("✅ 临时文件已清理: %s", tempFilePath)
+		}
+	}()
 
 	// 导入OPML
 	result, err := h.syncService.ImportOPML(tempFilePath)
