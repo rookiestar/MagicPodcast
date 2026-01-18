@@ -198,20 +198,6 @@ func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeRepor
 
 	// 标题
 	builder.WriteString("# 工作流执行报告\n\n")
-	builder.WriteString(fmt.Sprintf("**生成时间**: %s\n\n", time.Now().Format("2006-01-02 15:04:05")))
-	builder.WriteString(fmt.Sprintf("**执行时间**: %s - %s\n\n",
-		formatTime(job.StartTime), formatTime(job.EndTime)))
-
-	// 统计信息
-	builder.WriteString("## 📊 执行统计\n\n")
-	builder.WriteString(fmt.Sprintf("- **状态**: %s\n", job.Status))
-	builder.WriteString(fmt.Sprintf("- **处理节目数**: %d\n", job.PodcastsProcessed))
-	builder.WriteString(fmt.Sprintf("- **发现单集数**: %d\n", job.EpisodesFound))
-	builder.WriteString(fmt.Sprintf("- **创建单集数**: %d\n", job.EpisodesCreated))
-	if job.ErrorCount > 0 {
-		builder.WriteString(fmt.Sprintf("- **错误数**: %d\n", job.ErrorCount))
-	}
-	builder.WriteString(fmt.Sprintf("- **触发方式**: %s\n\n", job.TriggeredBy))
 
 	// 时间范围信息
 	builder.WriteString("## ⏱️ 扫描时间范围\n\n")
@@ -250,8 +236,7 @@ func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeRepor
 				// 小宇宙二维码（期号信息下方，链接上方）
 				if ep.QRCode != "" {
 					builder.WriteString("**小宇宙**:\n\n")
-			// TEST_DEBUG_12345 - 使用HTML img标签而不是Markdown语法
-					builder.WriteString(fmt.Sprintf("<img src=\"%s\" alt=\"二维码\" width=\"128\" height=\"128\" />\n\n", ep.QRCode))
+					builder.WriteString(fmt.Sprintf("![二维码](%s)\n\n", ep.QRCode))
 				}
 
 				if ep.Link != "" {
