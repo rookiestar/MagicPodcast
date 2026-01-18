@@ -781,10 +781,8 @@ func (h *WorkflowHandler) toWorkflowResponse(workflow *models.Workflow) Workflow
 		stats.SuccessRate = float64(stats.SuccessJobs) / float64(stats.TotalJobs) * 100
 	}
 
-	// 统计上次执行的匹配单集数
-	if workflow.LastJob != nil {
-		stats.TotalEpisodes = int64(workflow.LastJob.EpisodesMatched)
-	}
+	// 统计所有Job的匹配单集总数（用于计算平均值）
+	db.Model(&models.Job{}).Where("workflow_id = ?", workflow.ID).Select("COALESCE(SUM(episodes_matched), 0)").Scan(&stats.TotalEpisodes)
 
 	// 计算关联的节目数
 	switch workflow.ScopeType {
