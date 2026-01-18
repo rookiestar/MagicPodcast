@@ -3,6 +3,7 @@
 import React, { useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
 
 interface MarkdownViewerProps {
   content: string
@@ -28,6 +29,7 @@ export default function MarkdownViewer({ content, className = '' }: MarkdownView
     <div className={`prose prose-slate dark:prose-invert max-w-none ${className}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw]}
         components={{
           img: ({ src, alt, ...props }) => {
             // 处理二维码占位符
