@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -43,6 +44,13 @@ type EpisodeDetail struct {
 
 // GenerateForJob 为Job生成报告
 func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, error) {
+	// 重新从数据库查询Job，确保操作的是最新记录
+	var freshJob models.Job
+	if err := rg.db.First(&freshJob, job.ID).Error; err != nil {
+		return nil, fmt.Errorf("查询Job失败: %w", err)
+	}
+	job = &freshJob
+
 	// 1. 获取工作流配置以确定时间范围
 	var workflow models.Workflow
 	if err := rg.db.First(&workflow, job.WorkflowID).Error; err != nil {
@@ -102,6 +110,13 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 
 	if err := rg.db.Create(report).Error; err != nil {
 		return nil, fmt.Errorf("保存报告失败: %w", err)
+	}
+
+	// 6. 更新Job的episodes_matched为实际匹配的单集数
+	if err := rg.db.Model(job).Update("episodes_matched", matchedCount).Error; err != nil {
+		log.Printf("❌ 更新Job的episodes_matched失败 [JobID=%d]: %v", job.ID, err)
+	} else {
+		log.Printf("✅ 已更新Job的episodes_matched [JobID=%d, Matched=%d]", job.ID, matchedCount)
 	}
 
 	return report, nil

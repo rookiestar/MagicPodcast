@@ -284,9 +284,41 @@ func (e *Executor) syncPodcast(
 		execution.Status = models.ExecutionStatusSuccess
 		execution.EpisodesFound = result.Created + result.Updated
 		execution.EpisodesCreated = result.Created
-		log.Printf("✅ [%s] 同步完成: %s - 新增:%d, 更新:%d (耗时:%dms)",
+		execution.EpisodesMatched = result.Created + result.Updated // 先设置为同步结果
+
+		// 查询时间窗口内实际匹配的episodes数量
+		// 获取Job的时间窗口
+		var job models.Job
+		if err := e.db.First(&job, execution.JobID).Error; err == nil {
+			// 计算时间窗口
+			var timeRangeStart, timeRangeEnd time.Time
+			if job.TriggeredBy == "cron" {
+				// daily模式：昨天8点到今天8点
+				now := time.Now()
+				today8am := time.Date(now.Year(), now.Month(), now.Day(), 8, 0, 0, 0, now.Location())
+				yesterday8am := today8am.Add(-24 * time.Hour)
+				timeRangeStart = yesterday8am
+				timeRangeEnd = today8am
+			} else {
+				// manual模式：过去N天
+				days := workflow.RulesConfig.TimeRange
+				timeRangeEnd = job.CreatedAt
+				timeRangeStart = timeRangeEnd.AddDate(0, 0, -days)
+			}
+
+			// 查询该podcast在时间窗口内的episodes数量
+			var matchedCount int64
+			e.db.Model(&models.Episode{}).
+				Where("podcast_id = ?", podcast.ID).
+				Where("COALESCE(updated_date, published_date) >= ? AND COALESCE(updated_date, published_date) <= ?", timeRangeStart, timeRangeEnd).
+				Count(&matchedCount)
+
+			execution.EpisodesMatched = int(matchedCount)
+		}
+
+		log.Printf("✅ [%s] 同步完成: %s - 新增:%d, 更新:%d, 匹配:%d (耗时:%dms)",
 			workflow.Name, podcast.Title,
-			result.Created, result.Updated, processingTime)
+			result.Created, result.Updated, execution.EpisodesMatched, processingTime)
 	}
 
 	execution.ProcessingTime = processingTime
@@ -302,12 +334,14 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 
 	var successCount, failedCount, skippedCount int
 	var totalEpisodes int
+	var totalMatched int
 
 	for _, exec := range executions {
 		switch exec.Status {
 		case models.ExecutionStatusSuccess:
 			successCount++
 			totalEpisodes += exec.EpisodesCreated
+			totalMatched += exec.EpisodesMatched
 		case models.ExecutionStatusFailed:
 			failedCount++
 		case models.ExecutionStatusSkipped:
@@ -318,6 +352,7 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 	job.PodcastsProcessed = len(executions)
 	job.EpisodesFound = totalEpisodes
 	job.EpisodesCreated = totalEpisodes
+	job.EpisodesMatched = totalMatched
 	job.ErrorCount = failedCount
 
 	duration := endTime.Sub(*job.StartTime).Milliseconds()

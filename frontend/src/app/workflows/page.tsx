@@ -238,13 +238,13 @@ export default function WorkflowsPage() {
                       {workflow.stats && (
                         <>
                           <div className="flex items-center gap-2">
-                            <span className="font-medium">创建单集:</span>
-                            <span className="text-blue-600 font-medium">{workflow.stats.total_episodes}</span>
+                            <span className="font-medium">上次执行:</span>
+                            <span>{formatDateTime(workflow.stats.last_execution)}</span>
                           </div>
 
                           <div className="flex items-center gap-2">
-                            <span className="font-medium">上次执行:</span>
-                            <span>{formatDateTime(workflow.stats.last_execution)}</span>
+                            <span className="font-medium">匹配单集:</span>
+                            <span className="text-blue-600 font-medium">{workflow.stats.total_episodes}</span>
                           </div>
 
                           <div className="flex items-center gap-2">

@@ -69,6 +69,7 @@ type JobResponse struct {
 	PodcastsProcessed int               `json:"podcasts_processed"`
 	EpisodesFound     int               `json:"episodes_found"`
 	EpisodesCreated   int               `json:"episodes_created"`
+	EpisodesMatched   int               `json:"episodes_matched"`
 	ErrorCount        int               `json:"error_count"`
 	TriggeredBy       string            `json:"triggered_by"`
 	CreatedAt         time.Time         `json:"created_at"`
@@ -86,6 +87,7 @@ type JobExecutionResponse struct {
 	Status          models.ExecutionStatus    `json:"status"`
 	EpisodesFound   int                       `json:"episodes_found"`
 	EpisodesCreated int                       `json:"episodes_created"`
+	EpisodesMatched int                       `json:"episodes_matched"`
 	ErrorMessage    string                    `json:"error_message,omitempty"`
 	LogInfo         string                    `json:"log_info,omitempty"`
 	ProcessingTime  int                       `json:"processing_time"` // 毫秒
@@ -779,8 +781,10 @@ func (h *WorkflowHandler) toWorkflowResponse(workflow *models.Workflow) Workflow
 		stats.SuccessRate = float64(stats.SuccessJobs) / float64(stats.TotalJobs) * 100
 	}
 
-	// 统计总共创建的单集数
-	db.Model(&models.Job{}).Where("workflow_id = ?", workflow.ID).Select("COALESCE(SUM(episodes_created), 0)").Scan(&stats.TotalEpisodes)
+	// 统计上次执行的匹配单集数
+	if workflow.LastJob != nil {
+		stats.TotalEpisodes = int64(workflow.LastJob.EpisodesMatched)
+	}
 
 	// 计算关联的节目数
 	switch workflow.ScopeType {
@@ -822,6 +826,7 @@ func (h *WorkflowHandler) toJobResponse(job *models.Job) JobResponse {
 		PodcastsProcessed: job.PodcastsProcessed,
 		EpisodesFound:     job.EpisodesFound,
 		EpisodesCreated:   job.EpisodesCreated,
+		EpisodesMatched:   job.EpisodesMatched,
 		ErrorCount:        job.ErrorCount,
 		TriggeredBy:       job.TriggeredBy,
 		CreatedAt:         job.CreatedAt,
@@ -856,6 +861,7 @@ func (h *WorkflowHandler) toJobExecutionResponse(exec *models.JobExecution) JobE
 		Status:          exec.Status,
 		EpisodesFound:   exec.EpisodesFound,
 		EpisodesCreated: exec.EpisodesCreated,
+		EpisodesMatched: exec.EpisodesMatched,
 		ErrorMessage:    exec.ErrorMessage,
 		LogInfo:         exec.LogInfo,
 		ProcessingTime:  exec.ProcessingTime,

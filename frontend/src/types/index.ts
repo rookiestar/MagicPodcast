@@ -210,6 +210,7 @@ export interface Job {
   podcasts_processed: number
   episodes_found: number
   episodes_created: number
+  episodes_matched: number
   error_count: number
   triggered_by: string       // 'cron' | 'manual'
   created_at: string
@@ -226,6 +227,7 @@ export interface JobExecution {
   status: ExecutionStatus
   episodes_found: number
   episodes_created: number
+  episodes_matched: number
   error_message?: string
   log_info?: string
   processing_time: number    // 毫秒

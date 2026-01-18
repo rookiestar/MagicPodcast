@@ -126,6 +126,7 @@ type Job struct {
 	PodcastsProcessed int            `gorm:"default:0" json:"podcasts_processed"`
 	EpisodesFound     int            `gorm:"default:0" json:"episodes_found"`
 	EpisodesCreated   int            `gorm:"default:0" json:"episodes_created"`
+	EpisodesMatched   int            `gorm:"default:0" json:"episodes_matched"`
 	ErrorCount        int            `gorm:"default:0" json:"error_count"`
 	TriggeredBy       string         `gorm:"size:50;default:cron" json:"triggered_by"` // cron/manual
 	Executions        []JobExecution `gorm:"foreignKey:JobID" json:"executions,omitempty"`
@@ -160,6 +161,7 @@ type JobExecution struct {
 	Status          ExecutionStatus `gorm:"size:20;not null" json:"status"`
 	EpisodesFound   int             `gorm:"default:0" json:"episodes_found"`
 	EpisodesCreated int             `gorm:"default:0" json:"episodes_created"`
+	EpisodesMatched int             `gorm:"default:0" json:"episodes_matched"`
 	ErrorMessage    string          `gorm:"type:text" json:"error_message,omitempty"`
 	LogInfo         string          `gorm:"type:text" json:"log_info,omitempty"`
 	ProcessingTime  int             `gorm:"default:0" json:"processing_time"` // 毫秒

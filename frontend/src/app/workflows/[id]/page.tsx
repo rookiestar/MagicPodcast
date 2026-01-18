@@ -29,6 +29,10 @@ export default function WorkflowDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
 
+  // Job分页状态
+  const [jobsPage, setJobsPage] = useState(1)
+  const [jobsTotalPages, setJobsTotalPages] = useState(1)
+
   // Job详情展开状态
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null)
   const [jobDetails, setJobDetails] = useState<Record<number, Job>>({})
@@ -118,10 +122,12 @@ export default function WorkflowDetailPage() {
     }
   }
 
-  const fetchJobs = async () => {
+  const fetchJobs = async (page: number = jobsPage) => {
     try {
-      const response = await workflowApi.listJobs(id, { page: 1, page_size: 20 })
+      const response = await workflowApi.listJobs(id, { page, page_size: 10 })
       setJobs(response.jobs)
+      setJobsTotalPages(response.pagination.total_pages)
+      setJobsPage(page)
     } catch (err) {
       console.error('Failed to fetch jobs:', err)
     }
@@ -210,7 +216,7 @@ export default function WorkflowDetailPage() {
     }
     const statusInfo = statusMap[status] || statusMap.pending
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.className}`}>
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium ${statusInfo.className} flex-shrink-0`}>
         {statusInfo.text}
       </span>
     )
@@ -281,7 +287,7 @@ export default function WorkflowDetailPage() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleTrigger}
-                  className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm flex items-center gap-2"
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-bold flex items-center gap-2"
                 >
                   <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -290,7 +296,7 @@ export default function WorkflowDetailPage() {
                 </button>
                 <button
                   onClick={handleToggle}
-                  className={`px-4 py-2 rounded-lg transition-colors text-sm flex items-center gap-2 ${
+                  className={`px-4 py-2 rounded-lg transition-colors text-sm font-bold flex items-center gap-2 ${
                     workflow.is_enabled
                       ? 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
                       : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
@@ -314,7 +320,7 @@ export default function WorkflowDetailPage() {
                 </button>
                 <button
                   onClick={() => setShowEditModal(true)}
-                  className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm flex items-center gap-2"
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-bold flex items-center gap-2"
                 >
                   <svg className="w-4 h-4 text-slate-800 dark:text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2h2.828l8.586-8.586z" />
@@ -323,7 +329,7 @@ export default function WorkflowDetailPage() {
                 </button>
                 <button
                   onClick={handleDelete}
-                  className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-sm flex items-center gap-2"
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-sm font-bold flex items-center gap-2"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -530,9 +536,11 @@ export default function WorkflowDetailPage() {
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
                       <p className="text-xl font-bold text-slate-900 dark:text-slate-50">
-                        {workflow.stats.total_episodes}
+                        {workflow.stats.total_jobs > 0
+                          ? (workflow.stats.total_episodes / workflow.stats.total_jobs).toFixed(1)
+                          : '0.0'}
                       </p>
-                      <p className="text-sm text-slate-600 dark:text-slate-400">创建单集</p>
+                      <p className="text-sm text-slate-600 dark:text-slate-400">匹配单集/次</p>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
                       <p className="text-xl font-bold text-slate-900 dark:text-slate-50">
@@ -608,39 +616,48 @@ export default function WorkflowDetailPage() {
                       >
                         <div className="flex items-start justify-between mb-2">
                           <div className="flex items-center gap-3">
+                            <span className="text-sm px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded flex-shrink-0">
+                              {job.triggered_by === 'cron' ? '定时' : '手动'}
+                            </span>
                             {getJobStatusBadge(job.status)}
                             <span className="text-sm text-slate-600 dark:text-slate-400">
                               {new Date(job.created_at).toLocaleString('zh-CN')}
                             </span>
-                            <span className="text-xs px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded">
-                              {job.triggered_by === 'cron' ? '定时' : '手动'}
-                            </span>
+                            {job.duration && (
+                              <span className="text-sm font-medium text-slate-700 dark:text-slate-300 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded flex-shrink-0">
+                                耗时：{Math.floor(job.duration / 1000)}s
+                              </span>
+                            )}
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-3">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation()
                                 setReportModalJobId(job.id)
                               }}
-                              className="px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors flex items-center gap-1"
+                              className="px-4 py-1.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors flex items-center gap-2 flex-shrink-0"
                             >
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                               </svg>
-                              查看报告
+                              报告
                             </button>
-                            {job.duration && (
-                              <span className="text-sm text-slate-600 dark:text-slate-400">
-                                {Math.floor(job.duration / 1000)}s
-                              </span>
-                            )}
-                            <span className="text-slate-400 text-sm">
-                              {selectedJobId === job.id ? '▲ 收起' : '▼ 展开'}
-                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                fetchJobDetail(job.id)
+                              }}
+                              className="px-4 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center gap-2 flex-shrink-0"
+                            >
+                              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                              {selectedJobId === job.id ? '收起' : '展开'}
+                            </button>
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-4 gap-4 text-sm">
+                        <div className="grid grid-cols-5 gap-3 text-sm">
                           <div>
                             <span className="text-slate-600 dark:text-slate-400">处理节目:</span>
                             <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
@@ -657,6 +674,12 @@ export default function WorkflowDetailPage() {
                             <span className="text-slate-600 dark:text-slate-400">创建单集:</span>
                             <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
                               {job.episodes_created}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-600 dark:text-slate-400">匹配数:</span>
+                            <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                              {job.episodes_matched}
                             </span>
                           </div>
                           <div>
@@ -718,7 +741,7 @@ export default function WorkflowDetailPage() {
                                       </span>
                                     </div>
 
-                                    <div className="grid grid-cols-3 gap-4 text-xs">
+                                    <div className="grid grid-cols-4 gap-3 text-xs">
                                       <div>
                                         <span className="text-slate-600 dark:text-slate-400">状态:</span>
                                         <span className="ml-1 font-medium text-slate-900 dark:text-slate-50">
@@ -738,6 +761,12 @@ export default function WorkflowDetailPage() {
                                         <span className="text-slate-600 dark:text-slate-400">新建:</span>
                                         <span className="ml-1 font-medium text-slate-900 dark:text-slate-50">
                                           {exec.episodes_created}
+                                        </span>
+                                      </div>
+                                      <div>
+                                        <span className="text-slate-600 dark:text-slate-400">匹配:</span>
+                                        <span className="ml-1 font-medium text-slate-900 dark:text-slate-50">
+                                          {exec.episodes_matched}
                                         </span>
                                       </div>
                                     </div>
@@ -766,6 +795,31 @@ export default function WorkflowDetailPage() {
                       )}
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* 分页 */}
+              {jobsTotalPages > 1 && (
+                <div className="mt-6 flex items-center justify-between">
+                  <div className="text-sm text-slate-600 dark:text-slate-400">
+                    第 {jobsPage} / {jobsTotalPages} 页
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => fetchJobs(jobsPage - 1)}
+                      disabled={jobsPage === 1}
+                      className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                    >
+                      上一页
+                    </button>
+                    <button
+                      onClick={() => fetchJobs(jobsPage + 1)}
+                      disabled={jobsPage === jobsTotalPages}
+                      className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                    >
+                      下一页
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
