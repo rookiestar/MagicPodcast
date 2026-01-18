@@ -5,15 +5,55 @@ interface TagBadgeProps {
   onRemove?: (tagId: number) => void
   size?: 'sm' | 'md' | 'lg'
   removable?: boolean
+  variant?: 'colorful' | 'simple'
 }
 
-export default function TagBadge({ tag, onRemove, size = 'md', removable = false }: TagBadgeProps) {
+export default function TagBadge({ tag, onRemove, size = 'md', removable = false, variant = 'colorful' }: TagBadgeProps) {
   const sizeClasses = {
     sm: 'text-xs px-2 py-0.5',
     md: 'text-sm px-3 py-1',
     lg: 'text-base px-4 py-1.5'
   }
 
+  // 简洁模式：与节目列表页一致的灰色样式 + 彩色圆点
+  if (variant === 'simple') {
+    return (
+      <span
+        className={`
+          inline-flex items-center gap-1 rounded-full font-medium
+          ${sizeClasses[size]}
+          transition-colors
+          bg-slate-100 hover:bg-slate-200 text-slate-600
+          group relative
+        `}
+        title={tag.name}
+      >
+        <span
+          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+          style={{ backgroundColor: tag.color }}
+        />
+        <span className="max-w-[120px] truncate">
+          {tag.name}
+        </span>
+        {removable && onRemove && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onRemove(tag.id)
+            }}
+            className="ml-1 hover:bg-slate-300 rounded-full p-0.5 transition-colors focus:outline-none"
+            title={`移除 "${tag.name}" 标签`}
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
+      </span>
+    )
+  }
+
+  // 彩色模式：原有的彩色背景样式
   return (
     <span
       className={`

@@ -9,9 +9,10 @@ interface TagInputProps {
   selectedTags: Tag[]
   onTagsChange: (tags: Tag[]) => void
   placeholder?: string
+  showSelectedTags?: boolean
 }
 
-export default function TagInput({ selectedTags, onTagsChange, placeholder = '输入标签按回车添加' }: TagInputProps) {
+export default function TagInput({ selectedTags, onTagsChange, placeholder = '输入标签按回车添加', showSelectedTags = true }: TagInputProps) {
   const [inputValue, setInputValue] = useState('')
   const [availableTags, setAvailableTags] = useState<Tag[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -135,13 +136,15 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
 
   return (
     <div className="w-full">
-      {/* 已选择的标签 */}
-      {selectedTags.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-2">
+      {/* 已选择的标签 - 根据 showSelectedTags 控制显示 */}
+      {showSelectedTags && selectedTags.length > 0 && (
+        <div className="inline-flex flex-wrap items-center gap-1.5 mb-3 align-middle">
           {selectedTags.map(tag => (
             <TagBadge
               key={tag.id}
               tag={tag}
+              size="md"
+              variant="simple"
               removable
               onRemove={() => removeTag(tag.id)}
             />
@@ -149,7 +152,7 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
         </div>
       )}
 
-      {/* 输入框 */}
+      {/* 输入框 - 始终显示 */}
       <div className="relative">
         <input
           ref={inputRef}

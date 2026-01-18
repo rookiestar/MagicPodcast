@@ -216,7 +216,7 @@ export default function EpisodeCard({ episode, podcastCover, index = 0, priority
         {episode.show_notes && (
           <div
             className={`text-sm text-slate-600 dark:text-slate-400 transition-all duration-300 ${
-              isExpanded ? 'max-h-96 overflow-y-auto' : 'max-h-12 overflow-hidden'
+              isExpanded ? 'max-h-96 overflow-y-auto' : 'max-h-24 overflow-hidden'
             }`}
             onMouseEnter={() => !isExpanded && setIsExpanded(true)}
             onMouseLeave={() => isExpanded && setIsExpanded(false)}

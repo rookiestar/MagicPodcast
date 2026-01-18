@@ -276,42 +276,14 @@ export default function PodcastDetailPage() {
                 </h1>
 
                 <div className="space-y-4 text-slate-600">
-                  {/* 主播信息 */}
-                  <div>
-                    <span className="font-semibold text-slate-900">
-                      主播：
-                    </span>
-                    {podcast.author}
-                  </div>
-
-                  {/* 🆕 播客官网链接 */}
-                  {podcast.link && (
+                  {/* 主播信息、单集数、最新更新、播放按钮 - 合并为同一行 */}
+                  <div className="flex flex-wrap gap-6 items-center">
                     <div>
                       <span className="font-semibold text-slate-900">
-                        官网：
+                        主播：
                       </span>
-                      <a
-                        href={podcast.link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 ml-2"
-                      >
-                        访问网站 →
-                      </a>
+                      {podcast.author}
                     </div>
-                  )}
-
-                  {/* 🆕 热门标签 */}
-                  {podcast.popularity_score && podcast.popularity_score >= 7 && (
-                    <div>
-                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
-                        🔥 热门播客 (热度: {podcast.popularity_score}/10)
-                      </span>
-                    </div>
-                  )}
-
-                  {/* 🆕 单集数和最新更新 */}
-                  <div className="flex gap-6 items-center">
                     <div>
                       <span className="font-semibold text-slate-900">
                         单集数：
@@ -360,25 +332,76 @@ export default function PodcastDetailPage() {
                     )}
                   </div>
 
+                  {/* 🆕 播客官网链接 */}
+                  {podcast.link && (
+                    <div>
+                      <span className="font-semibold text-slate-900">
+                        官网：
+                      </span>
+                      <a
+                        href={podcast.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 ml-2"
+                      >
+                        访问网站 →
+                      </a>
+                    </div>
+                  )}
+
+                  {/* 🆕 热门标签 */}
+                  {podcast.popularity_score && podcast.popularity_score >= 7 && (
+                    <div>
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                        🔥 热门播客 (热度: {podcast.popularity_score}/10)
+                      </span>
+                    </div>
+                  )}
+
                   <div>
                     <span className="font-semibold text-slate-900">
                       简介：
                     </span>
-                    <div className="mt-1">
+                    <div className="mt-1 text-sm">
                       <RichText html={podcast.description || '暂无简介'} />
                     </div>
                   </div>
 
                   {/* 标签管理 */}
                   <div>
-                    <span className="font-semibold text-slate-900 block mb-2">
-                      标签：
-                    </span>
-                    <TagInput
-                      selectedTags={tags}
-                      onTagsChange={handleTagsChange}
-                      placeholder="点击输入框从列表选择，或输入新标签名按回车添加"
-                    />
+                    <div className="inline-flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-slate-900">
+                        标签：
+                      </span>
+                      {/* 已选标签 - 紧跟"标签："后面 */}
+                      {tags.length > 0 && (
+                        <div className="inline-flex flex-wrap items-center gap-1.5">
+                          {tags.map(tag => (
+                            <span
+                              key={tag.id}
+                              className="inline-flex items-center gap-1 rounded-full font-medium text-sm px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                            >
+                              <span
+                                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                                style={{ backgroundColor: tag.color }}
+                              />
+                              <span className="max-w-[120px] truncate" title={tag.name}>
+                                {tag.name}
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {/* 标签输入框 - 换行显示 */}
+                    <div className="mt-3">
+                      <TagInput
+                        selectedTags={tags}
+                        onTagsChange={handleTagsChange}
+                        placeholder="点击输入框从列表选择，或输入新标签名按回车添加"
+                        showSelectedTags={false}
+                      />
+                    </div>
                   </div>
 
                   {/* 备注编辑 */}
