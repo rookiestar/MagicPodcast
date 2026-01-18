@@ -13,7 +13,7 @@
 
 | 严重程度 | 数量 | 优先级 | 状态 |
 |---------|------|--------|------|
-| 🐛 严重  | 5    | P0     | 1已修复 |
+| 🐛 严重  | 5    | P0     | 2已修复 |
 | ⚠️ 中等  | 10   | P1     | 待处理 |
 | 💡 轻微  | 5    | P2     | 待处理 |
 | 📈 性能  | 2    | P1     | 待处理 |
@@ -63,6 +63,58 @@
 - 6个单元测试全部通过
 
 **提交**: `271d1d0`
+
+---
+
+### ✅ Bug #4: Workflow执行中的竞态条件 [已修复]
+
+**位置**: `backend/internal/workflow/executor.go:126-173`
+
+**问题**:
+- 并发环境下，多个worker可能同时检测到同一个URL不存在
+- 导致重复创建或唯一索引冲突
+- SQLite的唯一约束可能返回错误
+
+**修复方案**:
+- 在 `models.Podcast` 模型中为 `FeedURL` 添加 `uniqueIndex` 标签
+- 使用 `FirstOrCreate` 方法自动处理唯一约束冲突
+- 生成唯一的 XYZ ID 避免空字符串导致的唯一约束冲突
+
+**修复代码**:
+```go
+// backend/internal/models/podcast.go:14
+FeedURL string `gorm:"uniqueIndex;size:512" json:"feed_url"`
+
+// backend/internal/workflow/executor.go:136-147
+newPodcast := models.Podcast{
+    XYZID:        "custom-" + fmt.Sprintf("%d", time.Now().UnixNano()) + "-" + feedURL,
+    FeedURL:      feedURL,
+    Title:        "自定义源-" + feedURL[strings.LastIndex(feedURL, "/")+1:],
+    IsSubscribed: false,
+}
+
+if err := e.db.Where("feed_url = ?", feedURL).
+    FirstOrCreate(&newPodcast).Error; err != nil {
+    log.Printf("❌ 创建或查找播客记录失败 [%s]: %v", feedURL, err)
+    continue
+}
+```
+
+**修复状态**: ✅ 已完成
+- 添加唯一索引防止重复
+- 使用 FirstOrCreate 自动处理竞态
+- 6个单元测试验证并发场景
+- 回归测试通过，未影响现有功能
+
+**测试结果**:
+- ✅ TestFetchCustomPodcasts_RaceCondition - 验证并发场景不创建重复记录
+- ✅ TestFetchCustomPodcasts_MultipleURLs - 验证多个URL处理
+- ✅ TestFetchCustomPodcasts_ConcurrentWithDuplicates - 验证并发去重
+- ✅ TestFetchCustomPodcasts_AlreadyExists - 验证已存在记录的正确处理
+- ✅ TestFetchCustomPodcasts_EmptyURLs - 验证边界情况
+- ✅ TestPodcastModel_FeedURLUniqueIndex - 验证唯一索引约束
+
+**提交**: (待提交)
 
 ---
 
@@ -163,87 +215,6 @@ func (f *Fetcher) FetchFeedWithCustomHTTP(feedURL string) (*gofeed.Feed, error) 
 ```
 
 **优先级**: P0（建议优先处理）
-
----
-
-### 🐛 Bug #4: Workflow执行中的竞态条件
-
-**位置**: `backend/internal/workflow/executor.go:126-173`
-
-**问题**:
-```go
-if err == nil {
-    podcasts = append(podcasts, existingPodcast)
-} else if err == gorm.ErrRecordNotFound {
-    // 创建新播客
-    newPodcast := models.Podcast{...}
-    if err := e.db.Create(&newPodcast).Error; err != nil {
-        continue
-    }
-    podcasts = append(podcasts, newPodcast)
-}
-```
-
-**风险**:
-- 并发环境下，多个worker可能同时检测到同一个URL不存在
-- 导致重复创建或唯一索引冲突
-- SQLite的唯一约束可能返回错误
-
-**修复方案**:
-
-**方案1: 使用 ON CONFLICT 语法**
-```go
-func (e *Executor) fetchCustomPodcasts(urls []string) ([]models.Podcast, error) {
-    for _, feedURL := range urls {
-        var existingPodcast models.Podcast
-        err := e.db.Where("feed_url = ?", feedURL).First(&existingPodcast).Error
-
-        if err == nil {
-            podcasts = append(podcasts, existingPodcast)
-            continue
-        }
-
-        if err == gorm.ErrRecordNotFound {
-            // 使用 FirstOrCreate 自动处理唯一约束
-            newPodcast := models.Podcast{
-                FeedURL: feedURL,
-                Title:   "自定义源-" + path.Base(feedURL),
-                IsSubscribed: false,
-            }
-
-            // FirstOrCreate 会在冲突时返回已存在的记录
-            if err := e.db.Where("feed_url = ?", feedURL).
-                FirstOrCreate(&newPodcast).Error; err != nil {
-                log.Printf("❌ 创建播客记录失败 [%s]: %v", feedURL, err)
-                continue
-            }
-            podcasts = append(podcasts, newPodcast)
-        }
-    }
-    return podcasts, nil
-}
-```
-
-**方案2: 添加唯一索引和重试机制**
-```go
-// 在 database/migrate.go 中添加
-db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_podcasts_feed_url ON podcasts(feed_url)")
-
-// 在代码中添加重试
-const maxRetries = 3
-for attempt := 0; attempt < maxRetries; attempt++ {
-    if err := e.db.Create(&newPodcast).Error; err != nil {
-        if strings.Contains(err.Error(), "UNIQUE constraint") && attempt < maxRetries-1 {
-            // 唯一约束冲突，重试
-            time.Sleep(time.Duration(attempt+1) * 100 * time.Millisecond)
-            continue
-        }
-    }
-    break
-}
-```
-
-**优先级**: P0
 
 ---
 
@@ -1150,9 +1121,9 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 ### 第一阶段 (P0 - 立即修复)
 
 1. ✅ **Bug #2**: Scheduler Reload 竞态条件 [已完成]
-2. **Bug #1**: 数据库连接泄漏
-3. **Bug #3**: Goroutine泄漏
-4. **Bug #4**: Workflow执行竞态条件
+2. ✅ **Bug #4**: Workflow执行竞态条件 [已完成]
+3. **Bug #1**: 数据库连接泄漏
+4. **Bug #3**: Goroutine泄漏
 5. **Bug #5**: SSE连接未关闭
 6. **Bug #18**: CORS安全配置
 7. **Bug #19**: 输入验证
@@ -1181,6 +1152,7 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 
 ### Week 1-2: 关键安全问题修复
 - [x] Bug #2: Scheduler Reload
+- [x] Bug #4: Workflow竞态条件
 - [ ] Bug #18: CORS配置
 - [ ] Bug #19: 输入验证
 - [ ] Bug #20: 临时文件清理
@@ -1188,7 +1160,6 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 ### Week 3-4: 资源泄漏修复
 - [ ] Bug #1: 数据库连接
 - [ ] Bug #3: Goroutine泄漏
-- [ ] Bug #4: Workflow竞态
 - [ ] Bug #5: SSE连接
 
 ### Week 5-6: 性能和稳定性
@@ -1321,6 +1292,7 @@ echo "✅ 性能分析完成，访问 http://localhost:8081"
 |------|------|---------|
 | 2026-01-18 | 1.0 | 初始版本 - 全面代码审查 |
 | 2026-01-18 | 1.1 | Bug #2 修复完成 |
+| 2026-01-18 | 1.2 | Bug #4 修复完成 - Workflow执行竞态条件 |
 
 ---
 

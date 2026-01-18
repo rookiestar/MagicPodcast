@@ -11,7 +11,7 @@ type Podcast struct {
 	// 小宇宙相关
 	XYZID       string `gorm:"uniqueIndex;size:64" json:"xyz_id"`        // 小宇宙节目 ID
 	Title       string `gorm:"size:255;not null" json:"title"`            // 节目标题
-	FeedURL     string `gorm:"size:512" json:"feed_url"`                  // RSS 订阅源 URL
+	FeedURL     string `gorm:"uniqueIndex;size:512" json:"feed_url"`      // RSS 订阅源 URL
 	ITunesID    string `gorm:"size:64" json:"itunes_id"`                  // iTunes ID
 	PodcastGUID string `gorm:"size:128" json:"podcast_guid"`              // Podcast GUID
 	Description string `gorm:"type:text" json:"description"`              // 节目描述

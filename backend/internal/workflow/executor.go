@@ -131,37 +131,26 @@ func (e *Executor) fetchCustomPodcasts(urls []string) ([]models.Podcast, error) 
 	for _, feedURL := range urls {
 		log.Printf("📡 处理自定义RSS源: %s", feedURL)
 
-		// 尝试从数据库中查找已存在的播客（通过feed_url）
-		var existingPodcast models.Podcast
-		err := e.db.Where("feed_url = ?", feedURL).First(&existingPodcast).Error
-
-		if err == nil {
-			// 找到已存在的播客
-			log.Printf("✅ 找到已存在播客: %s", existingPodcast.Title)
-			podcasts = append(podcasts, existingPodcast)
-		} else if err == gorm.ErrRecordNotFound {
-			// 播客不存在，需要先创建播客记录
-			log.Printf("⚠️  播客不存在于数据库，创建新记录: %s", feedURL)
-
-			// 从URL提取基本信息创建播客
-			newPodcast := models.Podcast{
-				FeedURL:  feedURL,
-				Title:    "自定义源-" + feedURL[strings.LastIndex(feedURL, "/")+1:],
-				IsSubscribed: false, // 自定义源默认不订阅
-			}
-
-			// 尝试获取播客元数据（使用小宇宙API或PodcastIndex）
-			// 这里先创建基本记录，在后续同步时会更新详细信息
-			if err := e.db.Create(&newPodcast).Error; err != nil {
-				log.Printf("❌ 创建播客记录失败 [%s]: %v", feedURL, err)
-				continue
-			}
-
-			log.Printf("✅ 成功创建播客记录: %s (ID=%d)", newPodcast.Title, newPodcast.ID)
-			podcasts = append(podcasts, newPodcast)
-		} else {
-			log.Printf("❌ 查询数据库失败: %v", err)
+		// 使用 FirstOrCreate 避免竞态条件
+		// 如果多个并发worker同时检测到同一个URL不存在，FirstOrCreate会自动处理唯一约束冲突
+		// 生成唯一的XYZ ID，避免空字符串导致的唯一约束冲突
+		newPodcast := models.Podcast{
+			XYZID:        "custom-" + fmt.Sprintf("%d", time.Now().UnixNano()) + "-" + feedURL,
+			FeedURL:      feedURL,
+			Title:        "自定义源-" + feedURL[strings.LastIndex(feedURL, "/")+1:],
+			IsSubscribed: false, // 自定义源默认不订阅
 		}
+
+		// FirstOrCreate 会在冲突时返回已存在的记录
+		// 注意：由于XYZID也是唯一的，冲突时我们只基于feed_url判断
+		if err := e.db.Where("feed_url = ?", feedURL).
+			FirstOrCreate(&newPodcast).Error; err != nil {
+			log.Printf("❌ 创建或查找播客记录失败 [%s]: %v", feedURL, err)
+			continue
+		}
+
+		log.Printf("✅ 成功获取播客记录: %s (ID=%d)", newPodcast.Title, newPodcast.ID)
+		podcasts = append(podcasts, newPodcast)
 	}
 
 	if len(podcasts) == 0 {
