@@ -183,7 +183,7 @@ func (h *TagHandler) Get(c *gin.Context) {
 	db.Table("podcasts_tags").Where("tag_id = ?", tagID).Count(&count)
 
 	var tag models.Tag
-	if err := db.First(&tag, tagID).Error; err != nil {
+	if err := db.First(&tag, uint(tagID)).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -247,7 +247,7 @@ func (h *TagHandler) Update(c *gin.Context) {
 
 	// 检查标签是否存在
 	var tag models.Tag
-	if err := db.First(&tag, tagID).Error; err != nil {
+	if err := db.First(&tag, uint(tagID)).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -320,7 +320,7 @@ func (h *TagHandler) Delete(c *gin.Context) {
 
 	// 检查标签是否存在
 	var tag models.Tag
-	if err := db.First(&tag, tagID).Error; err != nil {
+	if err := db.First(&tag, uint(tagID)).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
