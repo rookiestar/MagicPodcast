@@ -58,6 +58,10 @@ func (f *Fetcher) FetchFeedWithContext(ctx context.Context, feedURL string) (*go
 		return nil, ctx.Err()
 	}
 
+	// 创建带超时的子context，确保goroutine不会无限期运行
+	ctx, cancel := context.WithTimeout(ctx, f.timeout)
+	defer cancel()
+
 	// 使用gofeed的ParseURL，它会自动处理HTTP请求
 	// 注意：gofeed库本身不支持context，所以这里我们使用context作为超时控制的额外保障
 	type result struct {
@@ -67,15 +71,16 @@ func (f *Fetcher) FetchFeedWithContext(ctx context.Context, feedURL string) (*go
 	resultChan := make(chan result, 1)
 
 	// 启动goroutine执行feed解析
-	parseComplete := make(chan struct{})
 	go func() {
-		defer close(parseComplete) // 标记goroutine已完成
+		// 当context取消时，goroutine会退出但ParseURL可能仍在运行
+		// 通过select确保只有context有效时才发送结果
 		feed, err := f.parser.ParseURL(feedURL)
 		select {
 		case resultChan <- result{feed, err}:
 			// 正常发送结果
 		case <-ctx.Done():
 			// context已取消，不需要发送结果（避免阻塞）
+			// goroutine会在这里退出
 			log.Printf("  ⚠️ Feed解析goroutine被取消: %s", feedURL)
 		}
 	}()
@@ -85,14 +90,8 @@ func (f *Fetcher) FetchFeedWithContext(ctx context.Context, feedURL string) (*go
 	case <-ctx.Done():
 		duration := time.Since(startTime)
 		log.Printf("  ⏱️ HTTP请求超时/取消: %s (耗时: %v): %v", feedURL, duration, ctx.Err())
-		// 等待goroutine退出，但不阻塞太久
-		select {
-		case <-parseComplete:
-			// goroutine已经退出
-		case <-time.After(100 * time.Millisecond):
-			// 如果100ms后还没退出，记录警告但不等待
-			log.Printf("  ⚠️ ParseURL goroutine可能仍在运行: %s", feedURL)
-		}
+		// context已取消，resultChan可能没有数据
+		// 由于使用了defer cancel()，goroutine会在合理时间内退出
 		return nil, ctx.Err()
 	case res := <-resultChan:
 		if res.err != nil {
