@@ -628,7 +628,7 @@ function TagCard({
       {!isSelectMode && (
         <button
           onClick={() => onDelete(tag.id, tag.name)}
-          className="absolute top-1 right-1 text-slate-400 hover:text-red-600 transition-colors p-1 rounded hover:bg-red-50"
+          className="absolute top-1/2 right-1 -translate-y-1/2 text-slate-400 hover:text-red-600 transition-colors p-1 rounded hover:bg-red-50"
           title="删除标签"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
