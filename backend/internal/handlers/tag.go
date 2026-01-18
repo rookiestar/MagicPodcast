@@ -3,10 +3,12 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/validation"
 
 	"github.com/gin-gonic/gin"
 )
@@ -56,6 +58,36 @@ func (h *TagHandler) Create(c *gin.Context) {
 			"error": gin.H{
 				"code":    "INVALID_REQUEST",
 				"message": "请求参数错误: " + err.Error(),
+			},
+		})
+		return
+	}
+
+	// 额外的输入验证
+	v := validation.New()
+	v.ValidateRequired("name", req.Name).
+		ValidateStringLength("name", req.Name, 1, 64)
+
+	// 验证颜色格式（如果提供）
+	if req.Color != "" {
+		if !regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`).MatchString(req.Color) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "INVALID_COLOR",
+					"message": "颜色格式无效，必须是十六进制格式（如 #FF0000）",
+				},
+			})
+			return
+		}
+	}
+
+	if v.HasErrors() {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "VALIDATION_ERROR",
+				"message": v.Error(),
 			},
 		})
 		return

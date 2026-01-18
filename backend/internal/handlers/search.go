@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"magicpodcast/internal/services"
+	"magicpodcast/internal/validation"
 
 	"github.com/gin-gonic/gin"
 )
@@ -39,12 +40,18 @@ func NewSearchHandler() *SearchHandler {
 func (h *SearchHandler) Search(c *gin.Context) {
 	// 获取搜索关键词
 	query := c.Query("q")
-	if query == "" {
+
+	// 输入验证
+	v := validation.New()
+	v.ValidateRequired("q", query).
+		ValidateStringLength("q", query, 1, 200)
+
+	if v.HasErrors() {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error": gin.H{
-				"code":    "MISSING_QUERY",
-				"message": "Search query is required",
+				"code":    "VALIDATION_ERROR",
+				"message": v.Error(),
 			},
 		})
 		return
@@ -52,9 +59,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 
 	// 获取搜索类型
 	searchType := c.DefaultQuery("type", "all")
-	if searchType != "all" && searchType != "podcasts" && searchType != "episodes" {
-		searchType = "all"
-	}
+	v.ValidateEnum("type", searchType, []string{"all", "podcasts", "episodes"})
 
 	// 获取标签筛选
 	tagIDStrs := c.QueryArray("tag_id")
@@ -72,7 +77,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 	episodePage, _ := strconv.Atoi(c.DefaultQuery("episode_page", "1"))
 	episodePageSize, _ := strconv.Atoi(c.DefaultQuery("episode_page_size", "20"))
 
-	// 验证分页参数
+	// 验证分页参数范围
 	if page < 1 {
 		page = 1
 	}
