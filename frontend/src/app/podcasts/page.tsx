@@ -307,7 +307,46 @@ export default function PodcastsPage() {
         {/* Tag Filter */}
         {tags.length > 0 && (
           <div className="mb-6">
-            {/* 标签按钮 */}
+            {/* 标题栏：标题 + 清空 + 展开 */}
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold text-slate-800">
+                标签筛选{selectedTagIds.length > 0 && ` (已选${selectedTagIds.length})`}
+              </h2>
+
+              {/* 右侧按钮组 */}
+              <div className="flex items-center gap-2">
+                {/* 清空筛选按钮 (只在有筛选时显示) */}
+                {selectedTagIds.length > 0 && (
+                  <button
+                    onClick={() => handleTagToggle(null)}
+                    className="px-3 py-1.5 rounded-lg text-sm text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                  >
+                    清空
+                  </button>
+                )}
+
+                {/* 展开/折叠按钮 */}
+                {hasMoreTags && (
+                  <button
+                    onClick={() => setShowAllTags(!showAllTags)}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                    title={showAllTags ? '收起' : '展开'}
+                  >
+                    {showAllTags ? (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 标签按钮区域 */}
             <div className="flex flex-wrap gap-2">
               {/* 全部按钮 */}
               <button
