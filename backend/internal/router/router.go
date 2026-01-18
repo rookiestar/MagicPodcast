@@ -40,6 +40,14 @@ func SetupRouter() *gin.Engine {
 	r.GET("/health", healthHandler.Health)
 	r.GET("/ping", healthHandler.Ping)
 
+	// 图片代理服务
+	imageHandler := handlers.NewImageHandler()
+	image := r.Group("/images")
+	{
+		image.GET("/proxy", imageHandler.ProxyImage)
+		image.GET("/health", imageHandler.Health)
+	}
+
 	// API 路由组
 	v1 := r.Group("/api/v1")
 	{

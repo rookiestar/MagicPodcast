@@ -428,7 +428,7 @@ function PodcastCard({
     <Link href={detailUrl}>
       <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer h-full flex flex-col">
         {/* Cover Image - 使用 PodcastCover 组件 */}
-        <div className="relative">
+        <div className="relative w-full">
           <PodcastCover
             coverUrl={podcast.cover_url}
             title={podcast.title}
@@ -439,7 +439,7 @@ function PodcastCard({
           {/* 新更新标识 - 右下角 */}
           {recentlyUpdated && (
             <div className="absolute bottom-0 right-0 m-2 z-30">
-              <span className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-white text-slate-800">
+              <span className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-white text-slate-800 shadow-sm">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-600" />
                 新更新
               </span>
@@ -448,26 +448,31 @@ function PodcastCard({
         </div>
 
         {/* Content */}
-        <div className="p-4 flex-1 flex flex-col">
-          <h3 className="text-lg font-semibold text-slate-900 mb-2 line-clamp-2">
+        <div className="p-4 flex-1 flex flex-col min-h-[160px]">
+          {/* Title - 确保标题始终显示 */}
+          <h3 className="text-base font-semibold text-slate-900 mb-1.5 line-clamp-2 leading-tight">
             {podcast.title}
           </h3>
+
+          {/* Author */}
           <p className="text-sm text-slate-600 mb-2">
             {podcast.author}
           </p>
-          <p className="text-sm text-slate-400 line-clamp-2">
-            {stripHtml(podcast.description, 80)}
+
+          {/* Description - 使用line-clamp限制显示行数 */}
+          <p className="text-sm text-slate-500 line-clamp-3 leading-rel mb-4">
+            {stripHtml(podcast.description, 100)}
           </p>
 
           {/* Tags and Stats - 底部对齐 */}
-          <div className="mt-auto pt-4">
+          <div className="mt-auto pt-3 space-y-3">
             {/* Tags */}
             {displayTags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-3">
+              <div className="flex flex-wrap gap-1.5">
                 {displayTags.map((tag) => (
                   <span
                     key={tag.id}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-slate-100 group relative"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-slate-100 hover:bg-slate-200 transition-colors group relative"
                   >
                     <span
                       className="w-1.5 h-1.5 rounded-full flex-shrink-0"
@@ -476,10 +481,6 @@ function PodcastCard({
                     <span className="max-w-[80px] truncate" title={tag.name}>
                       {tag.name}
                     </span>
-                    {/* 自定义 Tooltip */}
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900bg-slate-100 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                      {tag.name}
-                    </div>
                   </span>
                 ))}
                 {remainingTags > 0 && (
@@ -492,8 +493,8 @@ function PodcastCard({
 
             {/* Stats */}
             <div className="flex items-center justify-between text-sm text-slate-500">
-              <span>{podcast.episode_count} 集</span>
-              <span className="text-xs">{relativeTime}</span>
+              <span className="font-medium">{podcast.episode_count} 集</span>
+              <span className="text-xs text-slate-400">{relativeTime}</span>
             </div>
           </div>
         </div>
