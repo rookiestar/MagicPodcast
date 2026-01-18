@@ -379,7 +379,7 @@ export default function PodcastDetailPage() {
                           {tags.map(tag => (
                             <span
                               key={tag.id}
-                              className="inline-flex items-center gap-1 rounded-full font-medium text-sm px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                              className="inline-flex items-center gap-1 rounded-full font-medium text-sm px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors group"
                             >
                               <span
                                 className="w-1.5 h-1.5 rounded-full flex-shrink-0"
@@ -388,6 +388,13 @@ export default function PodcastDetailPage() {
                               <span className="max-w-[120px] truncate" title={tag.name}>
                                 {tag.name}
                               </span>
+                              <button
+                                onClick={() => handleTagsChange(tags.filter(t => t.id !== tag.id))}
+                                className="ml-0.5 opacity-0 group-hover:opacity-100 hover:text-red-600 dark:hover:text-red-400 transition-opacity"
+                                title="删除标签"
+                              >
+                                ✕
+                              </button>
                             </span>
                           ))}
                         </div>
