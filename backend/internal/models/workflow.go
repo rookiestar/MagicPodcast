@@ -56,11 +56,12 @@ func (s ScopeConfig) Value() (driver.Value, error) {
 
 // RulesConfig 规则配置
 type RulesConfig struct {
-	TimeRange    int    `json:"time_range,omitempty"`    // 时间范围（天），0表示不限制
-	MinDuration  int    `json:"min_duration,omitempty"`  // 最小时长（秒），0表示不限制
-	MaxResults   int    `json:"max_results,omitempty"`   // 最大结果数，0表示不限制
-	Keywords     string `json:"keywords,omitempty"`      // 关键词过滤（逗号分隔）
-	ExcludeWords string `json:"exclude_words,omitempty"` // 排除词（逗号分隔）
+	TimeRange     int    `json:"time_range,omitempty"`      // 时间范围（天），0表示不限制，-1表示"自上次更新"
+	TimeRangeMode string `json:"time_range_mode,omitempty"` // "days" | "since_last_update" | "all_time"
+	MinDuration   int    `json:"min_duration,omitempty"`    // 最小时长（秒），0表示不限制
+	MaxResults    int    `json:"max_results,omitempty"`     // 最大结果数，0表示不限制
+	Keywords      string `json:"keywords,omitempty"`        // 关键词过滤（逗号分隔）
+	ExcludeWords  string `json:"exclude_words,omitempty"`   // 排除词（逗号分隔）
 }
 
 // Scan 实现 sql.Scanner 接口
@@ -169,13 +170,23 @@ func (JobExecution) TableName() string {
 	return "job_executions"
 }
 
-// Report 抓取报告模型（保留以兼容，暂时不使用）
+// Report 工作流执行报告
 type Report struct {
 	BaseModel
 
-	ExecutionID uint         `gorm:"not null;index" json:"execution_id"`
-	Execution   JobExecution `gorm:"foreignKey:ExecutionID" json:"execution,omitempty"`
-	ReportBody  string       `gorm:"type:text" json:"report_body"`
+	JobID         uint      `gorm:"not null;uniqueIndex" json:"job_id"`    // 关联的Job（一对一）
+	Job           Job       `gorm:"foreignKey:JobID" json:"job,omitempty"` // 关联的Job
+
+	Title         string    `gorm:"size:255;not null" json:"title"`          // 报告标题
+	Content       string    `gorm:"type:text;not null" json:"content"`       // Markdown内容
+	Summary       string    `gorm:"type:text" json:"summary"`                // 简要摘要
+
+	EpisodesCount int       `gorm:"default:0" json:"episodes_count"` // 包含的episode数
+	PodcastsCount int       `gorm:"default:0" json:"podcasts_count"` // 包含的podcast数
+
+	GeneratedAt time.Time `gorm:"not null" json:"generated_at"`       // 生成时间
+	Format      string    `gorm:"size:20;default:'markdown'" json:"format"` // 报告格式
+	FileSize    int       `gorm:"default:0" json:"file_size"`         // 内容大小（字节）
 }
 
 // TableName 指定表名

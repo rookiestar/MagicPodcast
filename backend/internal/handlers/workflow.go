@@ -14,6 +14,7 @@ import (
 	"magicpodcast/internal/workflow"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // WorkflowHandler Workflow 处理器
@@ -588,6 +589,61 @@ func (h *WorkflowHandler) GetJob(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    response,
+	})
+}
+
+// GetJobReport 获取Job的报告
+// @Summary 获取Job报告
+// @Description 获取指定Job的执行报告（Markdown格式）
+// @Tags Workflows
+// @Accept json
+// @Produce json
+// @Param id path int true "Job ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/jobs/{id}/report [get]
+func (h *WorkflowHandler) GetJobReport(c *gin.Context) {
+	db := database.GetDB()
+	id := c.Param("id")
+
+	// 查找报告
+	var report models.Report
+	if err := db.Where("job_id = ?", id).First(&report).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "REPORT_NOT_FOUND",
+					"message": "报告不存在或尚未生成",
+				},
+			})
+			return
+		}
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INTERNAL_ERROR",
+				"message": "Failed to fetch report",
+			},
+		})
+		return
+	}
+
+	// 返回报告
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"id":             report.ID,
+			"job_id":         report.JobID,
+			"title":          report.Title,
+			"content":        report.Content,
+			"summary":        report.Summary,
+			"episodes_count": report.EpisodesCount,
+			"podcasts_count": report.PodcastsCount,
+			"generated_at":   report.GeneratedAt,
+			"format":         report.Format,
+			"file_size":      report.FileSize,
+		},
 	})
 }
 

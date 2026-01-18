@@ -146,7 +146,8 @@ func SetupRouter() *gin.Engine {
 		}
 
 		// Job 路由
-		v1.GET("/jobs/:id", workflowHandler.GetJob) // 获取任务详情
+		v1.GET("/jobs/:id", workflowHandler.GetJob)         // 获取任务详情
+		v1.GET("/jobs/:id/report", workflowHandler.GetJobReport) // 获取任务报告
 
 		// Scheduler 路由
 		schedulerHandler := handlers.NewSchedulerHandler(globalScheduler)

@@ -72,6 +72,7 @@ type EpisodeSyncConfig struct {
 	MaxEpisodesPerPodcast int             // 单次同步最大episode数（防止单个podcast过大）
 	UpdateExisting       bool            // 是否更新已存在的episode
 	DeleteMissing        bool            // 是否删除feed中不存在的episode（谨慎使用）
+	TimeRangeDays        *int            // 时间范围（天数），仅在增量模式下使用
 }
 
 // DefaultEpisodeSyncConfig 默认Episode同步配置

@@ -248,11 +248,22 @@ func (e *Executor) syncPodcast(
 	// 构建同步配置
 	syncConfig := syncsvc.DefaultEpisodeSyncConfig
 
-	// 应用规则配置
-	if workflow.RulesConfig.TimeRange > 0 {
-		// 时间范围过滤：使用增量模式
+	// 应用规则配置 - 支持三种时间范围模式
+	if workflow.RulesConfig.TimeRangeMode == "since_last_update" || workflow.RulesConfig.TimeRange == -1 {
+		// 模式1：自上次更新后 - 使用podcast的last_fetched_at作为基准
 		syncConfig.Mode = syncsvc.SyncModeIncremental
+		log.Printf("⏱️  时间范围: 自上次更新 (增量模式)")
+
+	} else if workflow.RulesConfig.TimeRange > 0 {
+		// 模式2：最近N天 - 指定天数范围
+		syncConfig.Mode = syncsvc.SyncModeIncremental
+		syncConfig.TimeRangeDays = &workflow.RulesConfig.TimeRange
 		log.Printf("⏱️  时间范围: %d天 (增量模式)", workflow.RulesConfig.TimeRange)
+
+	} else {
+		// 模式3：全部历史数据
+		syncConfig.Mode = syncsvc.SyncModeFull
+		log.Printf("⏱️  时间范围: 全部历史数据")
 	}
 
 	// 执行同步
@@ -334,6 +345,18 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 
 	log.Printf("📊 Job完成统计 [ID=%d] - 成功:%d, 失败:%d, 跳过:%d, 耗时:%dms",
 		job.ID, successCount, failedCount, skippedCount, jobDuration)
+
+	// ⭐ 异步生成执行报告（避免阻塞Job完成）
+	go func() {
+		reportGen := NewReportGenerator(e.db)
+		report, err := reportGen.GenerateForJob(job)
+		if err != nil {
+			log.Printf("❌ 生成报告失败 [JobID=%d]: %v", job.ID, err)
+		} else {
+			log.Printf("✅ 报告已生成 [JobID=%d, ReportID=%d, Size=%d bytes]",
+				job.ID, report.ID, report.FileSize)
+		}
+	}()
 }
 
 // updateJobStatus 更新Job状态和错误信息

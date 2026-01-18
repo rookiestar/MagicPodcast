@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { Workflow, WorkflowRequest, WorkflowsResponse, JobsResponse, Job } from '@/types'
+import type { Workflow, WorkflowRequest, WorkflowsResponse, JobsResponse, Job, Report } from '@/types'
 
 export const workflowApi = {
   // 获取工作流列表
@@ -76,5 +76,11 @@ export const workflowApi = {
   // 手动触发工作流
   trigger: async (id: number): Promise<void> => {
     await api.post(`/api/v1/workflows/${id}/trigger`)
+  },
+
+  // 获取Job报告
+  getJobReport: async (id: number): Promise<Report> => {
+    const response = await api.get<{ success: boolean; data: Report }>(`/api/v1/jobs/${id}/report`)
+    return response.data.data
   },
 }

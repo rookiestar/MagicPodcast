@@ -150,11 +150,25 @@ export interface ScopeConfig {
 }
 
 export interface RulesConfig {
-  time_range?: number        // 时间范围（天），0表示不限制
-  min_duration?: number      // 最小时长（秒），0表示不限制
-  max_results?: number       // 最大结果数，0表示不限制
-  keywords?: string          // 关键词过滤（逗号分隔）
-  exclude_words?: string     // 排除词（逗号分隔）
+  time_range?: number         // 时间范围（天），0表示不限制，-1表示"自上次更新"
+  time_range_mode?: string    // "days" | "since_last_update" | "all_time"
+  min_duration?: number       // 最小时长（秒），0表示不限制
+  max_results?: number        // 最大结果数，0表示不限制
+  keywords?: string           // 关键词过滤（逗号分隔）
+  exclude_words?: string      // 排除词（逗号分隔）
+}
+
+export interface Report {
+  id: number
+  job_id: number
+  title: string
+  content: string
+  summary: string
+  episodes_count: number
+  podcasts_count: number
+  generated_at: string
+  format: string
+  file_size: number
 }
 
 export interface Workflow {
