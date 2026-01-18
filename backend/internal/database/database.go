@@ -79,6 +79,7 @@ func initDB() (*gorm.DB, error) {
 	sqlDB.SetMaxIdleConns(cfg.Database.MaxIdleConns)
 	sqlDB.SetMaxOpenConns(cfg.Database.MaxOpenConns)
 	sqlDB.SetConnMaxLifetime(time.Duration(cfg.Database.ConnMaxLifetime) * time.Second)
+	sqlDB.SetConnMaxIdleTime(5 * time.Minute) // 空闲连接超时：防止连接堆积
 
 	fmt.Printf("✅ Database connected: %s\n", dbPath)
 
