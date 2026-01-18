@@ -248,6 +248,7 @@ func (h *SyncHandler) SyncPodcastEpisodes(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 
 	reporter := sync.NewSSEProgressReporter(c.Writer)
+	defer reporter.Close() // ✅ 确保 reporter 被关闭
 
 	// 执行同步
 	result, err := h.syncService.SyncPodcastEpisodes(uint(podcastID), reporter, config)
@@ -305,6 +306,7 @@ func (h *SyncHandler) SyncAllEpisodes(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 
 	reporter := sync.NewSSEProgressReporter(c.Writer)
+	defer reporter.Close() // ✅ 确保 reporter 被关闭
 
 	// 执行同步
 	if err := h.syncService.SyncAllPodcastEpisodes(reporter, config); err != nil {
