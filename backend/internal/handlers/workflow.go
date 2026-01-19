@@ -123,15 +123,16 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 	var total int64
 	db.Model(&models.Workflow{}).Count(&total)
 
-	// 查询工作流列表（不使用Preload，手动加载LastJob）
+	// 查询工作流列表（一次性查询所有数据，避免N+1问题）
 	var workflows []models.Workflow
 	offset := (page - 1) * pageSize
-	query := db.Order("created_at DESC").Limit(pageSize).Offset(offset)
 
 	// 调试日志
 	log.Printf("[Workflow] 查询工作流列表: page=%d, pageSize=%d, offset=%d", page, pageSize, offset)
 
-	if err := query.Find(&workflows).Error; err != nil {
+	// 分步查询以避免N+1问题
+	// 1. 查询workflows
+	if err := db.Order("created_at DESC").Limit(pageSize).Offset(offset).Find(&workflows).Error; err != nil {
 		log.Printf("[Workflow] 查询失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
@@ -143,12 +144,34 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 		return
 	}
 
-	// 手动加载每个工作流的LastJob
+	// 2. 收集所有需要查询的Job IDs
+	var jobIDs []uint
+	for _, wf := range workflows {
+		if wf.LastJobID != nil {
+			jobIDs = append(jobIDs, *wf.LastJobID)
+		}
+	}
+
+	// 3. 一次性查询所有需要的Jobs（从N次查询减少到1次查询）
+	var jobs []models.Job
+	if len(jobIDs) > 0 {
+		if err := db.Where("id IN ?", jobIDs).Find(&jobs).Error; err != nil {
+			log.Printf("[Workflow] 查询Jobs失败: %v", err)
+			// 不中断流程，继续返回workflows
+		}
+	}
+
+	// 4. 建立Job ID到Job的映射
+	jobMap := make(map[uint]*models.Job)
+	for i := range jobs {
+		jobMap[jobs[i].ID] = &jobs[i]
+	}
+
+	// 5. 为每个workflow设置LastJob
 	for i := range workflows {
 		if workflows[i].LastJobID != nil {
-			var job models.Job
-			if err := db.Where("id = ?", *workflows[i].LastJobID).First(&job).Error; err == nil {
-				workflows[i].LastJob = &job
+			if job, ok := jobMap[*workflows[i].LastJobID]; ok {
+				workflows[i].LastJob = job
 			}
 		}
 	}
