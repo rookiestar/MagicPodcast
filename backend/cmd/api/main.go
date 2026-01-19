@@ -13,6 +13,7 @@ import (
 
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
+	"magicpodcast/internal/logger"
 	"magicpodcast/internal/router"
 )
 
@@ -44,6 +45,10 @@ func main() {
 	fmt.Printf("   Server Port: %d\n", cfg.Server.Port)
 	fmt.Printf("   Database: %s\n", cfg.Database.Path)
 	fmt.Printf("   XYZ API: %s\n", cfg.XYZAPI.URL)
+
+	// 初始化日志系统
+	fmt.Println("\n📝 Initializing logger...")
+	logger.Init(cfg.Logging.Level, cfg.Logging.Output, cfg.Server.Mode)
 
 	// 初始化数据库
 	fmt.Println("\n📊 Initializing database...")
