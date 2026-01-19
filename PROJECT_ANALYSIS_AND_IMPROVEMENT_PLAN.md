@@ -16,7 +16,7 @@
 |---------|------|--------|------|
 | 🐛 严重  | 6    | P0     | **10已修复** ✅ |
 | ⚠️ 中等  | 12   | P1     | 4已修复 / 8待处理 |
-| 💡 轻微  | 6    | P2     | **1已修复** ✅ / 5待处理 |
+| 💡 轻微  | 6    | P2     | **2已修复** ✅ / 4待处理 |
 | 📈 性能  | 3    | P1     | **1已修复** ✅ / 2待处理 |
 | 🔒 安全  | 3    | P0     | **已修复** ✅ |
 
@@ -1033,7 +1033,71 @@ sync.Use(syncLimiter.Middleware())
 
 ## 💡 轻微问题 (P2)
 
-### Bug #11: 日志级别混乱
+### ✅ Bug #11: 日志级别混乱 [已修复]
+
+**位置**: 全局（新建统一日志系统）
+
+**问题**:
+- 使用标准库的log.Printf，没有日志级别控制
+- 日志格式不统一，缺少结构化字段
+- 没有日志轮转机制，长期运行日志文件过大
+- 缺少调用者信息（文件名、行号）
+
+**修复状态**: ✅ 已完成
+- 创建统一的logger包（`internal/logger/logger.go`）
+- 支持多级别日志：debug, info, warn, error, fatal
+- 根据环境自动配置：
+  - debug环境：文本格式 + 颜色 + 调用者信息
+  - release/production环境：JSON格式
+- 支持文件输出与日志轮转（使用lumberjack）
+  - 按大小轮转（默认100MB）
+  - 按时间清理（默认28天）
+  - 旧日志自动压缩
+
+**新增文件**:
+- `backend/internal/logger/logger.go` - 统一的日志系统实现
+
+**修改文件**:
+- `backend/cmd/api/main.go` - 初始化日志系统
+- `backend/go.mod, go.sum` - 添加logrus和lumberjack依赖
+
+**使用示例**:
+```go
+import "magicpodcast/internal/logger"
+
+// 简单日志
+logger.Info("应用启动")
+logger.Errorf("发生错误: %v", err)
+
+// 带字段的日志
+logger.WithFields(map[string]interface{}{
+    "workflow_id": workflow.ID,
+    "podcast_id": podcast.ID,
+}).Info("开始同步播客")
+```
+
+**配置**（configs/config.yaml）:
+```yaml
+logging:
+  level: info              # 日志级别
+  format: text             # 日志格式
+  output: ""               # 输出路径（空=标准输出）
+  rotate: true             # 启用日志轮转
+  max_size: 100            # 最大文件大小（MB）
+  max_age: 30              # 保留天数
+  max_backups: 10          # 保留文件数
+```
+
+**测试结果**:
+- ✅ 编译成功
+- ✅ 后端正常启动
+- ✅ 日志系统初始化成功
+- ✅ API正常工作
+- ✅ 日志输出格式正确：`INFO[2026-01-20 00:22:29]...`
+
+**提交**: `2325553`
+
+---
 
 **修复方案**:
 ```go
@@ -1622,6 +1686,7 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 | 2026-01-19 | 1.7 | **Bug #22 修复完成** - Report生成错误恢复机制<br>- EpisodeDetail新增QRCodeError字段<br>- 二维码生成错误时标记但不中断流程<br>- Markdown报告显示错误提示<br>- 摘要中统计二维码生成失败数量<br>- **P0阶段全部完成！** 🎉<br>- 提交: 8f6e5df |
 | 2026-01-19 | 1.8 | **Bug #15 修复完成** - 前端缺少全局错误处理 (P2)<br>- 创建自定义Toast通知系统 (toast.tsx)<br>- 创建全局错误处理器 (errorHandler.ts)<br>- 在axios拦截器中集成错误处理，自动捕获API错误<br>- 在RootLayout中添加ToastContainer组件<br>- 更新示例组件移除alert，使用统一错误处理<br>- 提供便捷辅助函数：showSuccess, showInfo, showWarning<br>- TypeScript类型检查通过，前端构建成功<br>- P2阶段完成度达到17% (1/6) |
 | 2026-01-20 | 1.9 | **Bug #25 修复完成** - 工作流Handler N+1查询问题 (P1)<br>- 改用批量查询策略，收集LastJobID后一次性查询<br>- 使用WHERE id IN (?)批量查询jobs<br>- 从N+1次查询（21次）减少到2次查询（减少90%）<br>- 性能测试：SQL日志验证查询优化<br>- 回归测试：Workflow详情、Jobs列表、Job详情、Scheduler均正常<br>- P1性能问题阶段完成度达到33% (1/3)<br>- 提交: 6b0e455 |
+| 2026-01-20 | 2.0 | **Bug #11 修复完成** - 日志级别混乱 (P2)<br>- 创建统一的logger包（internal/logger）<br>- 支持多级别日志：debug, info, warn, error<br>- 根据环境自动配置日志格式（文本/JSON）<br>- 支持日志轮转（lumberjack）<br>- 添加依赖：github.com/sirupsen/logrus, gopkg.in/natefinch/lumberjack.v2<br>- P2阶段完成度达到33% (2/6)<br>- 提交: 2325553 |
 
 ## 🔧 工具和脚本
 
