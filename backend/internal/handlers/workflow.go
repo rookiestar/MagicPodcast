@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -21,6 +20,7 @@ import (
 type WorkflowHandler struct {
 	executor  *workflow.Executor
 	scheduler *scheduler.Scheduler
+	tracker   *workflow.ExecutionTracker
 }
 
 // NewWorkflowHandler 创建 Workflow 处理器
@@ -28,6 +28,7 @@ func NewWorkflowHandler(executor *workflow.Executor, scheduler *scheduler.Schedu
 	return &WorkflowHandler{
 		executor:  executor,
 		scheduler: scheduler,
+		tracker:   workflow.NewExecutionTracker(),
 	}
 }
 
@@ -690,27 +691,25 @@ func (h *WorkflowHandler) Trigger(c *gin.Context) {
 		return
 	}
 
-	// 检查是否有正在运行的Job
-	if workflow.LastJobID != nil {
-		var lastJob models.Job
-		if err := db.Where("id = ?", *workflow.LastJobID).First(&lastJob).Error; err == nil {
-			if lastJob.Status == models.JobStatusRunning {
-				c.JSON(http.StatusConflict, gin.H{
-					"success": false,
-					"error": gin.H{
-						"code":    "JOB_RUNNING",
-						"message": "该工作流正在执行中，请等待当前任务完成",
-					},
-				})
-				return
-			}
-		}
+	// 使用ExecutionTracker检查是否已有任务在运行
+	// 超时时间设置为30分钟
+	ctx, started := h.tracker.TryStart(workflow.ID, 30*time.Minute)
+	if !started {
+		log.Printf("⚠️  工作流已在执行中 [WorkflowID=%d]", workflow.ID)
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "JOB_RUNNING",
+				"message": "该工作流正在执行中，请等待当前任务完成",
+			},
+		})
+		return
 	}
 
 	// 异步执行工作流（避免阻塞HTTP请求）
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		defer cancel()
+		// 确保执行完成后清理跟踪器
+		defer h.tracker.Complete(workflow.ID)
 
 		job, err := h.executor.Execute(ctx, &workflow, "manual")
 		if err != nil {
