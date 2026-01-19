@@ -40,6 +40,7 @@ type EpisodeDetail struct {
 	Link          string
 	XYZID         string // 小宇宙ID
 	QRCode        string // 小宇宙二维码（base64编码）
+	QRCodeError   bool   // 二维码生成失败标记
 }
 
 // GenerateForJob 为Job生成报告
@@ -175,12 +176,14 @@ func (rg *ReportGenerator) collectMatchedEpisodes(job *models.Job, timeRangeStar
 
 			// 生成二维码
 			var qrCode string
+			var qrCodeError bool // 默认无错误
 			if xyzID != "" {
 				var err error
 				qrCode, err = utils.GenerateQRCodeForEpisode(xyzID, 128)
 				if err != nil {
-					// 生成失败时记录日志但不中断
-					fmt.Printf("⚠️  生成二维码失败 [EpisodeID=%d]: %v\n", ep.ID, err)
+					// 标记二维码生成失败，但不中断流程
+					qrCodeError = true
+					fmt.Printf("⚠️  生成二维码失败 [EpisodeID=%d, XYZID=%s]: %v\n", ep.ID, xyzID, err)
 				}
 			}
 
@@ -193,6 +196,7 @@ func (rg *ReportGenerator) collectMatchedEpisodes(job *models.Job, timeRangeStar
 				Link:          ep.Link,
 				XYZID:         xyzID,
 				QRCode:        qrCode,
+				QRCodeError:   qrCodeError, // 记录二维码生成是否失败
 			}
 		}
 
@@ -250,8 +254,10 @@ func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeRepor
 				}
 				builder.WriteString("\n\n")
 
-				// 小宇宙二维码
-				if ep.QRCode != "" {
+				// 小宇宙二维码或错误提示
+				if ep.QRCodeError {
+					builder.WriteString("**⚠️ 二维码生成失败**\n\n")
+				} else if ep.QRCode != "" {
 					builder.WriteString(fmt.Sprintf("![二维码](%s)\n\n", ep.QRCode))
 				}
 
@@ -281,7 +287,13 @@ func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeRepor
 // generateSummary 生成摘要
 func (rg *ReportGenerator) generateSummary(job *models.Job, data []EpisodeReportData) string {
 	totalEpisodes := rg.countEpisodes(data)
-	return fmt.Sprintf("处理了 %d 个节目，共 %d 个单集", len(data), totalEpisodes)
+	qrCodeErrors := rg.countQRCodeErrors(data)
+
+	summary := fmt.Sprintf("处理了 %d 个节目，共 %d 个单集", len(data), totalEpisodes)
+	if qrCodeErrors > 0 {
+		summary += fmt.Sprintf("（%d 个单集二维码生成失败）", qrCodeErrors)
+	}
+	return summary
 }
 
 // countEpisodes 统计总episode数
@@ -289,6 +301,19 @@ func (rg *ReportGenerator) countEpisodes(data []EpisodeReportData) int {
 	count := 0
 	for _, podcast := range data {
 		count += len(podcast.Episodes)
+	}
+	return count
+}
+
+// countQRCodeErrors 统计二维码生成失败的数量
+func (rg *ReportGenerator) countQRCodeErrors(data []EpisodeReportData) int {
+	count := 0
+	for _, podcast := range data {
+		for _, ep := range podcast.Episodes {
+			if ep.QRCodeError {
+				count++
+			}
+		}
 	}
 	return count
 }
