@@ -107,9 +107,9 @@ export default function EpisodeCard({ episode, podcastCover, index = 0, priority
   }
 
   return (
-    <div className="group relative bg-white rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-slate-200">
+    <div className="group relative bg-white rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-slate-200 flex flex-col" style={{ minHeight: '280px' }}>
       {/* Content */}
-      <div className="p-4">
+      <div className="p-4 flex-1 flex flex-col">
         {/* Title with Thumbnail */}
         <div className="flex items-start gap-3 mb-3">
           {/* Thumbnail with LQIP */}
@@ -215,13 +215,13 @@ export default function EpisodeCard({ episode, podcastCover, index = 0, priority
         {/* Show Notes - Collapsible */}
         {episode.show_notes && (
           <div
-            className={`text-sm text-slate-600 dark:text-slate-400 transition-all duration-300 ${
+            className={`text-sm text-slate-600 dark:text-slate-400 transition-all duration-300 flex-1 ${
               isExpanded ? 'max-h-96 overflow-y-auto' : 'max-h-24 overflow-hidden'
             }`}
             onMouseEnter={() => !isExpanded && setIsExpanded(true)}
             onMouseLeave={() => isExpanded && setIsExpanded(false)}
           >
-            <div className="relative">
+            <div className="relative h-full">
               <RichText
                 html={episode.show_notes}
                 className="prose prose-sm dark:prose-invert max-w-none prose-headings:text-base prose-h1:text-base prose-h2:text-base prose-h3:text-base"
