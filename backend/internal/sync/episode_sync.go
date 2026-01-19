@@ -12,6 +12,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// FullSyncEpoch 是全量同步使用的基准时间
+// 2000-01-01 之前RSS/播客格式还不普及,足够早覆盖所有现有节目
+var FullSyncEpoch = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+
 // SyncPodcastEpisodes 同步指定podcast的episodes（智能混合模式）
 func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter, config EpisodeSyncConfig) (*EpisodeSyncResult, error) {
 	// 1. 获取podcast信息
@@ -44,8 +48,8 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 
 	case SyncModeFull:
 		useIncremental = false
-		// 全量模式，使用很久以前的时间确保获取所有内容
-		lastFetchTime = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+		// 全量模式，使用很早的时间确保获取所有内容
+		lastFetchTime = FullSyncEpoch
 
 	case SyncModeSmart:
 		// 智能模式：根据最后抓取时间自动选择
@@ -58,12 +62,12 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 			} else {
 				// 超过7天，使用全量同步
 				useIncremental = false
-				lastFetchTime = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+				lastFetchTime = FullSyncEpoch
 			}
 		} else {
 			// 从未抓取过，使用全量模式
 			useIncremental = false
-			lastFetchTime = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+			lastFetchTime = FullSyncEpoch
 		}
 	}
 
