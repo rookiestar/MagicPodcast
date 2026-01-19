@@ -1,4 +1,5 @@
 import axios, { type AxiosInstance } from 'axios'
+import { handleApiError } from './errorHandler'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
@@ -50,6 +51,9 @@ api.interceptors.response.use(
     } else if (error.request) {
       console.error('[API] No response received:', error.request)
     }
+
+    // 使用全局错误处理器处理错误
+    handleApiError(error, error.config?.url)
 
     return Promise.reject(error)
   }

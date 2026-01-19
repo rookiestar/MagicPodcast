@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { workflowApi } from '@/lib/api'
+import { showSuccess } from '@/lib/api/errorHandler'
 import type { Workflow } from '@/types'
 import WorkflowFormModal from '@/components/workflows/WorkflowFormModal'
 
@@ -36,7 +37,7 @@ export default function WorkflowsPage() {
       await workflowApi.toggle(id)
       await fetchWorkflows()
     } catch (err) {
-      alert(`切换失败: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      // 错误已通过axios拦截器自动处理
       console.error('Failed to toggle workflow:', err)
     }
   }
@@ -47,10 +48,10 @@ export default function WorkflowsPage() {
 
     try {
       await workflowApi.trigger(id)
-      alert('工作流已触发')
+      showSuccess('工作流已触发')
       fetchWorkflows()
     } catch (err) {
-      alert(`执行失败: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      // 错误已通过axios拦截器自动处理
       console.error('Failed to trigger workflow:', err)
     }
   }
@@ -67,7 +68,7 @@ export default function WorkflowsPage() {
       await workflowApi.delete(id)
       await fetchWorkflows()
     } catch (err) {
-      alert(`删除失败: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      // 错误已通过axios拦截器自动处理
       console.error('Failed to delete workflow:', err)
     }
   }

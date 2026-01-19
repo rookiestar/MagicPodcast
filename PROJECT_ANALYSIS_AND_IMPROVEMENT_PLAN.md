@@ -14,9 +14,9 @@
 
 | 严重程度 | 数量 | 优先级 | 状态 |
 |---------|------|--------|------|
-| 🐛 严重  | 6    | P0     | **8已修复** ✅ / 2新增 |
-| ⚠️ 中等  | 12   | P1     | 2已修复 / 10待处理 |
-| 💡 轻微  | 6    | P2     | 待处理 |
+| 🐛 严重  | 6    | P0     | **10已修复** ✅ |
+| ⚠️ 中等  | 12   | P1     | 3已修复 / 9待处理 |
+| 💡 轻微  | 6    | P2     | **1已修复** ✅ / 5待处理 |
 | 📈 性能  | 3    | P1     | 待处理 |
 | 🔒 安全  | 3    | P0     | **已修复** ✅ |
 
@@ -26,7 +26,7 @@
 
 ### P0阶段：所有严重问题已修复 ✅
 
-本次修复会话完成了所有8个P0严重问题的修复工作，涵盖资源泄漏、安全问题和代码质量三大方面：
+本次修复会话完成了所有10个P0严重问题的修复工作，涵盖资源泄漏、安全问题和代码质量三大方面：
 
 #### 资源泄漏问题修复
 
@@ -102,6 +102,8 @@
 - ✅ 数据库操作正常
 - ✅ 输入验证正确拦截无效请求
 - ✅ CORS配置正确允许/拒绝跨域请求
+- ✅ 前端Toast通知系统正常工作
+- ✅ 全局错误处理自动拦截API错误
 
 ### Git提交记录
 
@@ -109,15 +111,19 @@
 # 竞态条件修复（之前）
 271d1d0 fix: 修复Scheduler Reload和工作流执行中的竞态条件（Bug #2, #4）
 
-# 资源泄漏修复（本次）
+# 资源泄漏修复
 abd0df7 fix: 修复数据库连接泄漏风险（Bug #1）
 9eb89cd fix: 修复Feed抓取中的Goroutine泄漏问题（Bug #3）
 246ac13 fix: 修复SSE连接泄漏问题（Bug #5）
 
-# 安全问题修复（本次）
+# 安全问题修复
 ef53c1e fix: 修复CORS安全配置问题（Bug #18）
 e6a15b5 fix: 添加输入验证机制（Bug #19）
 99ff49a fix: 修复临时文件清理问题（Bug #20）
+
+# 新增严重问题修复
+8dc93f9 fix: 修复Workflow触发器Goroutine泄漏风险（Bug #21）
+8f6e5df fix: 修复Report生成错误恢复机制（Bug #22）
 ```
 
 ---
@@ -1228,68 +1234,69 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 
 ---
 
-### Bug #15: 前端缺少全局错误处理
+### ✅ Bug #15: 前端缺少全局错误处理 [已修复]
+
+**位置**: `frontend/src/lib/api/errorHandler.ts`, `frontend/src/lib/toast.tsx`, `frontend/src/lib/api/client.ts`, `frontend/src/app/layout.tsx`
+
+**问题**:
+- 没有统一的axios拦截器处理错误
+- 每个API调用都需要单独处理错误
+- 错误消息展示不统一（使用alert）
+- 缺少重试机制和友好的用户提示
+
+**修复状态**: ✅ 已完成
+- 创建自定义Toast系统 (`toast.tsx`)，支持success/error/info/warning四种类型
+- 创建全局错误处理器 (`errorHandler.ts`)，根据HTTP状态码显示友好错误信息
+- 在axios拦截器中集成错误处理，自动捕获所有API错误
+- 在RootLayout中添加ToastContainer组件，全局显示toast消息
+- 更新示例组件 (`workflows/page.tsx`, `tags/TagInput.tsx`) 移除alert，使用统一错误处理
+- 提供便捷辅助函数：`showSuccess()`, `showInfo()`, `showWarning()`, `showValidationError()`
+
+**新增文件**:
+- `frontend/src/lib/toast.tsx` - Toast通知系统
+- `frontend/src/lib/api/errorHandler.ts` - 全局错误处理器
+
+**修改文件**:
+- `frontend/src/lib/api/client.ts` - 集成错误处理拦截器
+- `frontend/src/app/layout.tsx` - 添加ToastContainer
+- `frontend/src/app/workflows/page.tsx` - 移除alert，使用showSuccess
+- `frontend/src/components/tags/TagInput.tsx` - 移除alert
 
 **修复方案**:
 ```typescript
+// frontend/src/lib/toast.tsx
+export const toast = {
+  success: (message: string, duration?: number) => showToast(message, 'success', duration),
+  error: (message: string, duration?: number) => showToast(message, 'error', duration),
+  info: (message: string, duration?: number) => showToast(message, 'info', duration),
+  warning: (message: string, duration?: number) => showToast(message, 'warning', duration),
+}
+
 // frontend/src/lib/api/errorHandler.ts
-import { toast } from 'sonner' // 或其他toast库
-
-export interface ApiError {
-  code: string
-  message: string
-  details?: any
-}
-
-// 全局错误处理器
 export const handleApiError = (error: any, context?: string) => {
-  console.error(`[API Error]${context ? ` (${context})` : ''}:`, error)
-
-  if (error.response) {
-    const status = error.response.status
-    const data: ApiError = error.response.data
-
-    switch (status) {
-      case 400:
-        toast.error(`请求参数错误: ${data.message || '请检查输入'}`)
-        break
-      case 401:
-        toast.error('未授权，请重新登录')
-        // 可以跳转到登录页
-        break
-      case 403:
-        toast.error('无权限访问')
-        break
-      case 404:
-        toast.error('资源不存在')
-        break
-      case 429:
-        toast.error('请求过于频繁，请稍后再试')
-        break
-      case 500:
-        toast.error('服务器错误，请稍后再试')
-        break
-      default:
-        toast.error(data.message || `请求失败 (${status})`)
-    }
-  } else if (error.code === 'ECONNABORTED') {
-    toast.error('请求超时，请检查网络连接')
-  } else if (error.request) {
-    toast.error('网络错误，请检查网络连接')
-  } else {
-    toast.error('未知错误，请稍后再试')
-  }
+  // 根据错误类型显示不同的toast消息
+  // 支持超时、网络错误、4xx/5xx状态码
 }
 
-// 在 axios拦截器中使用
+// frontend/src/lib/api/client.ts
 api.interceptors.response.use(
   response => response,
   error => {
-    handleApiError(error)
+    handleApiError(error, error.config?.url)
     return Promise.reject(error)
   }
 )
 ```
+
+**测试结果**:
+- ✅ TypeScript类型检查通过
+- ✅ 前端构建成功
+- ✅ Toast通知系统正常工作
+- ✅ API错误自动拦截并显示友好消息
+- ✅ 后端健康检查通过
+- ✅ 错误处理拦截器正确集成
+
+**提交**: (待提交)
 
 ---
 
@@ -1617,6 +1624,7 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 | 2026-01-19 | 1.5 | **第二次深度审查** - 新增5个Bug (#21-#25)<br>- Bug #21: Workflow触发器Goroutine泄漏风险 (P0)<br>- Bug #22: Report生成错误恢复机制 (P0)<br>- Bug #23: 配置验证不完整 (P1)<br>- Bug #24: 前端缺少全局错误处理 (P1)<br>- Bug #25: 工作流Handler N+1查询问题 (P1)<br>- 总Bug数从25个增加到30个<br>- 更新代码质量指标和统计信息<br>- 调整实施计划，新增Week 5-6的严重问题修复阶段 |
 | 2026-01-19 | 1.6 | **Bug #21 修复完成** - Workflow触发器Goroutine泄漏风险<br>- 创建ExecutionTracker实现工作流执行跟踪<br>- 集成到WorkflowHandler，防止重复执行<br>- 添加7个单元测试验证功能正确性<br>- 所有测试通过，回归测试正常<br>- P0阶段完成度达到90% (9/10)<br>- 提交: 8dc93f9 |
 | 2026-01-19 | 1.7 | **Bug #22 修复完成** - Report生成错误恢复机制<br>- EpisodeDetail新增QRCodeError字段<br>- 二维码生成错误时标记但不中断流程<br>- Markdown报告显示错误提示<br>- 摘要中统计二维码生成失败数量<br>- **P0阶段全部完成！** 🎉<br>- 提交: 8f6e5df |
+| 2026-01-19 | 1.8 | **Bug #15 修复完成** - 前端缺少全局错误处理 (P2)<br>- 创建自定义Toast通知系统 (toast.tsx)<br>- 创建全局错误处理器 (errorHandler.ts)<br>- 在axios拦截器中集成错误处理，自动捕获API错误<br>- 在RootLayout中添加ToastContainer组件<br>- 更新示例组件移除alert，使用统一错误处理<br>- 提供便捷辅助函数：showSuccess, showInfo, showWarning<br>- TypeScript类型检查通过，前端构建成功<br>- P2阶段完成度达到17% (1/6) |
 
 ## 🔧 工具和脚本
 

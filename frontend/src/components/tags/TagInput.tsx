@@ -66,11 +66,11 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
 
   // 创建新标签
   const createTag = async (name: string) => {
-    try {
-      // 生成随机颜色
-      const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1']
-      const randomColor = colors[Math.floor(Math.random() * colors.length)]
+    // 生成随机颜色
+    const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1']
+    const randomColor = colors[Math.floor(Math.random() * colors.length)]
 
+    try {
       const newTag = await tagApi.create({
         name: name.trim(),
         color: randomColor
@@ -80,7 +80,8 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
       setInputValue('')
       setShowSuggestions(false)
     } catch (err) {
-      alert(err instanceof Error ? err.message : '创建标签失败')
+      // 错误已通过axios拦截器自动处理，这里只需要记录日志
+      console.error('创建标签失败:', err)
     }
   }
 
