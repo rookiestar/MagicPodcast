@@ -1295,8 +1295,9 @@ api.interceptors.response.use(
 - ✅ API错误自动拦截并显示友好消息
 - ✅ 后端健康检查通过
 - ✅ 错误处理拦截器正确集成
+- ⚠️ 开发服务器可能需要清理缓存：`rm -rf .next node_modules/.cache`
 
-**提交**: (待提交)
+**提交**: `49952f5`
 
 ---
 
