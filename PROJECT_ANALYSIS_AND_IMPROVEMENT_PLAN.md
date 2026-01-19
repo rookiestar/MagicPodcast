@@ -15,9 +15,9 @@
 | 严重程度 | 数量 | 优先级 | 状态 |
 |---------|------|--------|------|
 | 🐛 严重  | 6    | P0     | **10已修复** ✅ |
-| ⚠️ 中等  | 12   | P1     | 3已修复 / 9待处理 |
+| ⚠️ 中等  | 12   | P1     | 4已修复 / 8待处理 |
 | 💡 轻微  | 6    | P2     | **1已修复** ✅ / 5待处理 |
-| 📈 性能  | 3    | P1     | 待处理 |
+| 📈 性能  | 3    | P1     | **1已修复** ✅ / 2待处理 |
 | 🔒 安全  | 3    | P0     | **已修复** ✅ |
 
 ---
@@ -580,78 +580,73 @@ api.interceptors.response.use(
 
 ---
 
-### Bug #25: 工作流Handler中存在N+1查询问题
+### ✅ Bug #25: 工作流Handler中存在N+1查询问题 [已修复]
 
-**位置**: `backend/internal/handlers/workflow.go:145-153`
+**位置**: `backend/internal/handlers/workflow.go:126-177`
 
 **问题**:
 - `List` 方法在循环中为每个workflow查询LastJob
 - 导致N+1查询问题
 - 当workflow数量多时性能下降明显
 
+**修复状态**: ✅ 已完成
+- 改用批量查询策略，收集所有LastJobID后一次性查询
+- 使用`WHERE id IN (?)`批量查询jobs，从N次查询减少到1次
+- 建立Job ID到Job的映射，为workflow设置LastJob
+- 性能提升：从N+1次查询减少到2次查询（减少90%+）
+
 **修复方案**:
 ```go
-func (h *WorkflowHandler) List(c *gin.Context) {
-    db := database.GetDB()
-
-    // 分页参数
-    page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-    pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-
-    if page < 1 {
-        page = 1
+// 修复前：N+1查询（21次）
+for i := range workflows {
+    if workflows[i].LastJobID != nil {
+        var job models.Job
+        db.Where("id = ?", *workflows[i].LastJobID).First(&job)  // N次查询
+        workflows[i].LastJob = &job
     }
-    if pageSize < 1 || pageSize > 100 {
-        pageSize = 20
+}
+
+// 修复后：批量查询（2次）
+// 1. 收集所有Job IDs
+var jobIDs []uint
+for _, wf := range workflows {
+    if wf.LastJobID != nil {
+        jobIDs = append(jobIDs, *wf.LastJobID)
     }
+}
 
-    // 查询总数
-    var total int64
-    db.Model(&models.Workflow{}).Count(&total)
+// 2. 一次性查询所有Jobs
+var jobs []models.Job
+if len(jobIDs) > 0 {
+    db.Where("id IN ?", jobIDs).Find(&jobs)  // 1次查询
+}
 
-    // 查询工作流列表
-    var workflows []models.Workflow
-    offset := (page - 1) * pageSize
-
-    // 使用 Preload 一次性加载 LastJob
-    if err := db.Preload("LastJob").
-        Order("created_at DESC").
-        Limit(pageSize).
-        Offset(offset).
-        Find(&workflows).Error; err != nil {
-        log.Printf("[Workflow] 查询失败: %v", err)
-        c.JSON(http.StatusInternalServerError, gin.H{
-            "success": false,
-            "error": gin.H{
-                "code":    "INTERNAL_ERROR",
-                "message": "Failed to fetch workflows",
-            },
-        })
-        return
+// 3. 建立映射并设置LastJob
+jobMap := make(map[uint]*models.Job)
+for i := range jobs {
+    jobMap[jobs[i].ID] = &jobs[i]
+}
+for i := range workflows {
+    if workflows[i].LastJobID != nil {
+        workflows[i].LastJob = jobMap[*workflows[i].LastJobID]
     }
-
-    // 转换为响应格式
-    response := make([]WorkflowResponse, len(workflows))
-    for i, wf := range workflows {
-        response[i] = h.toWorkflowResponse(&wf)
-    }
-
-    c.JSON(http.StatusOK, gin.H{
-        "success": true,
-        "data": gin.H{
-            "workflows": response,
-            "pagination": gin.H{
-                "page":       page,
-                "page_size":  pageSize,
-                "total":      total,
-                "total_pages": (total + int64(pageSize) - 1) / int64(pageSize),
-            },
-        },
-    })
 }
 ```
 
-**优先级**: P1 - 性能问题
+**性能对比**:
+| Workflows数量 | 修复前查询次数 | 修复后查询次数 | 减少 |
+|--------------|--------------|--------------|-----|
+| 20个 | 21次 | 2次 | 90% |
+| 50个 | 51次 | 2次 | 96% |
+| 100个 | 101次 | 2次 | 98% |
+
+**测试结果**:
+- ✅ 功能测试：工作流列表正常显示
+- ✅ last_job数据正确加载
+- ✅ 性能测试：SQL日志显示只有2次查询
+- ✅ 回归测试：Workflow详情、Jobs列表、Job详情、Scheduler状态均正常
+
+**提交**: `6b0e455`
 
 ---
 
@@ -1626,6 +1621,7 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 | 2026-01-19 | 1.6 | **Bug #21 修复完成** - Workflow触发器Goroutine泄漏风险<br>- 创建ExecutionTracker实现工作流执行跟踪<br>- 集成到WorkflowHandler，防止重复执行<br>- 添加7个单元测试验证功能正确性<br>- 所有测试通过，回归测试正常<br>- P0阶段完成度达到90% (9/10)<br>- 提交: 8dc93f9 |
 | 2026-01-19 | 1.7 | **Bug #22 修复完成** - Report生成错误恢复机制<br>- EpisodeDetail新增QRCodeError字段<br>- 二维码生成错误时标记但不中断流程<br>- Markdown报告显示错误提示<br>- 摘要中统计二维码生成失败数量<br>- **P0阶段全部完成！** 🎉<br>- 提交: 8f6e5df |
 | 2026-01-19 | 1.8 | **Bug #15 修复完成** - 前端缺少全局错误处理 (P2)<br>- 创建自定义Toast通知系统 (toast.tsx)<br>- 创建全局错误处理器 (errorHandler.ts)<br>- 在axios拦截器中集成错误处理，自动捕获API错误<br>- 在RootLayout中添加ToastContainer组件<br>- 更新示例组件移除alert，使用统一错误处理<br>- 提供便捷辅助函数：showSuccess, showInfo, showWarning<br>- TypeScript类型检查通过，前端构建成功<br>- P2阶段完成度达到17% (1/6) |
+| 2026-01-20 | 1.9 | **Bug #25 修复完成** - 工作流Handler N+1查询问题 (P1)<br>- 改用批量查询策略，收集LastJobID后一次性查询<br>- 使用WHERE id IN (?)批量查询jobs<br>- 从N+1次查询（21次）减少到2次查询（减少90%）<br>- 性能测试：SQL日志验证查询优化<br>- 回归测试：Workflow详情、Jobs列表、Job详情、Scheduler均正常<br>- P1性能问题阶段完成度达到33% (1/3)<br>- 提交: 6b0e455 |
 
 ## 🔧 工具和脚本
 
