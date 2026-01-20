@@ -177,9 +177,44 @@ func (s *SearchService) searchPodcasts(req SearchRequest) ([]models.PodcastSearc
 	var total int64
 	query.Count(&total)
 
-	// 查询结果（不分页，先获取所有匹配的结果用于排序）
+	// 优化：使用数据库层面的排序和限制，避免加载所有结果
+	// 策略：优先返回标题匹配的结果，限制加载数量
+	optimizedQuery := s.db.Model(&models.Podcast{}).
+		Where("podcasts.deleted_at IS NULL").
+		Where("LOWER(podcasts.title) LIKE ? OR LOWER(podcasts.author) LIKE ? OR LOWER(podcasts.description) LIKE ?",
+			"%"+keywordLower+"%", "%"+keywordLower+"%", "%"+keywordLower+"%")
+
+	// 标题优先排序
+	optimizedQuery = optimizedQuery.Order(fmt.Sprintf(
+		"CASE "+
+			"WHEN LOWER(podcasts.title) = '%s' THEN 1 "+
+			"WHEN LOWER(podcasts.title) LIKE '%s%%' THEN 2 "+
+			"WHEN LOWER(podcasts.author) = '%s' THEN 3 "+
+			"WHEN LOWER(podcasts.author) LIKE '%s%%' THEN 4 "+
+			"ELSE 5 END, "+
+			"podcasts.id DESC",
+		keywordLower, keywordLower, keywordLower, keywordLower))
+
+	// 标签筛选
+	if len(req.TagIDs) > 0 {
+		for i, tagID := range req.TagIDs {
+			alias := fmt.Sprintf("pt%d", i)
+			optimizedQuery = optimizedQuery.Joins(
+				fmt.Sprintf("INNER JOIN podcasts_tags %s ON %s.podcast_id = podcasts.id", alias, alias),
+			).Where(fmt.Sprintf("%s.tag_id = ?", alias), tagID)
+		}
+		optimizedQuery = optimizedQuery.Group("podcasts.id")
+	}
+
+	// 限制加载数量：只加载当前页+额外50条用于重新排序
+	limit := req.PageSize + 50
+	if limit > 500 {
+		limit = 500 // 设置上限保护
+	}
+	optimizedQuery = optimizedQuery.Limit(limit)
+
 	var allPodcasts []models.Podcast
-	if err := query.Find(&allPodcasts).Error; err != nil {
+	if err := optimizedQuery.Find(&allPodcasts).Error; err != nil {
 		return nil, 0, err
 	}
 
@@ -272,9 +307,46 @@ func (s *SearchService) searchEpisodes(req SearchRequest) ([]models.EpisodeSearc
 	var total int64
 	query.Count(&total)
 
-	// 查询结果（不分页，先获取所有匹配的结果用于排序）
+	// 优化：使用数据库层面的排序和限制，避免加载所有62050+条单集
+	// 策略：优先返回标题匹配的结果，限制加载数量
+	optimizedQuery := s.db.Model(&models.Episode{}).
+		Select("episodes.*, podcasts.title as podcast_title, podcasts.cover_url as podcast_cover_url").
+		Joins("JOIN podcasts ON episodes.podcast_id = podcasts.id").
+		Where("episodes.deleted_at IS NULL").
+		Where("podcasts.deleted_at IS NULL").
+		Where("LOWER(episodes.title) LIKE ? OR LOWER(episodes.show_notes) LIKE ?",
+			"%"+keywordLower+"%", "%"+keywordLower+"%")
+
+	// 标题优先排序
+	optimizedQuery = optimizedQuery.Order(fmt.Sprintf(
+		"CASE "+
+			"WHEN LOWER(episodes.title) = '%s' THEN 1 "+
+			"WHEN LOWER(episodes.title) LIKE '%s%%' THEN 2 "+
+			"ELSE 3 END, "+
+			"episodes.published_date DESC, "+
+			"episodes.id DESC",
+		keywordLower, keywordLower))
+
+	// 标签筛选（通过播客的标签）
+	if len(req.TagIDs) > 0 {
+		for i, tagID := range req.TagIDs {
+			alias := fmt.Sprintf("pt%d", i)
+			optimizedQuery = optimizedQuery.Joins(
+				fmt.Sprintf("INNER JOIN podcasts_tags %s ON %s.podcast_id = podcasts.id", alias, alias),
+			).Where(fmt.Sprintf("%s.tag_id = ?", alias), tagID)
+		}
+		optimizedQuery = optimizedQuery.Group("episodes.id")
+	}
+
+	// 限制加载数量：只加载当前页+额外50条用于重新排序
+	limit := req.EpisodePageSize + 50
+	if limit > 500 {
+		limit = 500 // 设置上限保护
+	}
+	optimizedQuery = optimizedQuery.Limit(limit)
+
 	var allEpisodes []episodeResult
-	if err := query.Find(&allEpisodes).Error; err != nil {
+	if err := optimizedQuery.Find(&allEpisodes).Error; err != nil {
 		return nil, 0, err
 	}
 
@@ -345,14 +417,18 @@ func (s *SearchService) searchEpisodes(req SearchRequest) ([]models.EpisodeSearc
 
 // calculatePodcastRelevance 计算播客相关性得分
 func (s *SearchService) calculatePodcastRelevance(title, author, description, keyword string) float64 {
+	// 优化：缓存ToLower结果，避免重复调用
 	keywordLower := strings.ToLower(keyword)
+	titleLower := strings.ToLower(title)
+	authorLower := strings.ToLower(author)
+	descLower := strings.ToLower(description)
+
 	var score float64
 
 	// 检查关键词是否为纯数字且较短（如"42"）
 	isShortNumber := isPureNumber(keyword) && len([]rune(keyword)) <= 3
 
-	// 标题匹配
-	titleLower := strings.ToLower(title)
+	// 标题匹配（使用缓存的titleLower）
 	if titleLower == keywordLower {
 		score += s.config.Weights.PodcastTitle * s.config.MatchMultipliers.Exact
 	} else if strings.HasPrefix(titleLower, keywordLower) {
@@ -369,8 +445,7 @@ func (s *SearchService) calculatePodcastRelevance(title, author, description, ke
 		}
 	}
 
-	// 作者匹配
-	authorLower := strings.ToLower(author)
+	// 作者匹配（使用缓存的authorLower）
 	if authorLower == keywordLower {
 		score += s.config.Weights.Author * s.config.MatchMultipliers.Exact
 	} else if strings.HasPrefix(authorLower, keywordLower) {
@@ -385,8 +460,7 @@ func (s *SearchService) calculatePodcastRelevance(title, author, description, ke
 		}
 	}
 
-	// 简介匹配
-	descLower := strings.ToLower(description)
+	// 简介匹配（使用缓存的descLower）
 	if strings.Contains(descLower, keywordLower) {
 		// 如果是短数字关键词，大幅降低描述匹配的权重
 		if isShortNumber {
@@ -425,15 +499,19 @@ func (s *SearchService) calculatePodcastRelevance(title, author, description, ke
 }
 
 // calculateEpisodeRelevance 计算单集相关性得分
+// 优化：缓存ToLower结果，减少重复字符串操作
 func (s *SearchService) calculateEpisodeRelevance(title, showNotes, keyword string) float64 {
+	// 优化：缓存ToLower结果
 	keywordLower := strings.ToLower(keyword)
+	titleLower := strings.ToLower(title)
+	notesLower := strings.ToLower(showNotes)
+
 	var score float64
 
 	// 检查关键词是否为纯数字且较短（如"42"）
 	isShortNumber := isPureNumber(keyword) && len([]rune(keyword)) <= 3
 
-	// 标题匹配
-	titleLower := strings.ToLower(title)
+	// 标题匹配（使用缓存的titleLower）
 	if titleLower == keywordLower {
 		score += s.config.Weights.EpisodeTitle * s.config.MatchMultipliers.Exact
 	} else if strings.HasPrefix(titleLower, keywordLower) {
@@ -449,8 +527,7 @@ func (s *SearchService) calculateEpisodeRelevance(title, showNotes, keyword stri
 		}
 	}
 
-	// 内容匹配
-	notesLower := strings.ToLower(showNotes)
+	// 内容匹配（使用缓存的notesLower）
 	if strings.Contains(notesLower, keywordLower) {
 		// 如果是短数字关键词，大幅降低内容匹配的权重
 		if isShortNumber {

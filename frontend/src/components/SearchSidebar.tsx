@@ -59,11 +59,12 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
   const [loading, setLoading] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
-  // 存储完整的搜索结果（用于切换筛选器时显示）
+  // 存储完整搜索结果（用于切换筛选器时显示）
   const [allResults, setAllResults] = useState<{
     podcasts: PodcastSearchResult[]
     episodes: EpisodeSearchResult[]
-  }>({ podcasts: [], episodes: [] })
+    pagination: any
+  }>({ podcasts: [], episodes: [], pagination: null })
 
   // 搜索历史
   const [searchHistory, setSearchHistory] = useState<string[]>([])
@@ -85,7 +86,6 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
     if (!isOpen) {
       setQuery('')
       setResults({ podcasts: [], episodes: [] })
-      setAllResults({ podcasts: [], episodes: [] })
       setSearchType('all')
       setExpanded(false)
     }
@@ -96,44 +96,31 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
     setSearchHistory(getSearchHistory())
   }, [isOpen])
 
-  // 防抖搜索 - 只在 query 变化时触发
+  // 防抖搜索 - 优化：降低延迟从500ms到200ms
   useEffect(() => {
     const timer = setTimeout(() => {
       if (query.trim().length >= 2) {
         performSearch()
       } else {
         setResults({ podcasts: [], episodes: [] })
-        setAllResults({ podcasts: [], episodes: [] })
+        setAllResults({ podcasts: [], episodes: [], pagination: null })
       }
-    }, 500)
+    }, 200) // 从500ms优化到200ms
 
     return () => clearTimeout(timer)
-  }, [query]) // 移除 searchType 依赖
-
-  // 当 searchType 变化时，更新显示结果（不重新搜索）
-  useEffect(() => {
-    if (allResults.podcasts.length > 0 || allResults.episodes.length > 0) {
-      if (searchType === 'all') {
-        setResults(allResults)
-      } else if (searchType === 'podcasts') {
-        setResults({ podcasts: allResults.podcasts, episodes: [] })
-      } else if (searchType === 'episodes') {
-        setResults({ podcasts: [], episodes: allResults.episodes })
-      }
-    }
-  }, [searchType, allResults])
+  }, [query]) // 只依赖 query，不依赖 searchType
 
   const performSearch = async () => {
     setLoading(true)
     try {
-      // 始终搜索全部类型，获取完整结果
+      // 优化：始终搜索"all"类型，使用合理的初始请求量（50条）
       const response = await searchApi.search({
         q: query,
-        type: 'all', // 始终搜索全部
+        type: 'all', // 始终搜索全部类型
         page: 1,
-        page_size: 100,
+        page_size: 50, // 优化：使用50条作为初始请求量（平衡性能和体验）
         episode_page: 1,
-        episode_page_size: 100,
+        episode_page_size: 50,
       })
       // 确保 matched_fields 始终被初始化
       const processedData = {
@@ -147,16 +134,12 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
         })),
         pagination: response.data.pagination
       }
+
       // 存储完整结果
       setAllResults(processedData)
+
       // 根据 searchType 设置显示结果
-      if (searchType === 'all') {
-        setResults(processedData)
-      } else if (searchType === 'podcasts') {
-        setResults({ podcasts: processedData.podcasts, episodes: [] })
-      } else if (searchType === 'episodes') {
-        setResults({ podcasts: [], episodes: processedData.episodes })
-      }
+      updateResultsByType(processedData)
 
       // 添加到搜索历史
       const newHistory = addToSearchHistory(query)
@@ -164,11 +147,29 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
     } catch (error) {
       console.error('Search failed:', error)
       setResults({ podcasts: [], episodes: [] })
-      setAllResults({ podcasts: [], episodes: [] })
+      setAllResults({ podcasts: [], episodes: [], pagination: null })
     } finally {
       setLoading(false)
     }
   }
+
+  // 根据 searchType 更新显示结果
+  const updateResultsByType = (data: typeof allResults) => {
+    if (searchType === 'all') {
+      setResults({ podcasts: data.podcasts, episodes: data.episodes })
+    } else if (searchType === 'podcasts') {
+      setResults({ podcasts: data.podcasts, episodes: [] })
+    } else if (searchType === 'episodes') {
+      setResults({ podcasts: [], episodes: data.episodes })
+    }
+  }
+
+  // 当 searchType 变化时，更新显示结果（不重新搜索）
+  useEffect(() => {
+    if (allResults.podcasts.length > 0 || allResults.episodes.length > 0) {
+      updateResultsByType(allResults)
+    }
+  }, [searchType])
 
   // 添加 useCallback 避免依赖问题
   // eslint-disable-next-line react-hooks/exhaustive-deps
