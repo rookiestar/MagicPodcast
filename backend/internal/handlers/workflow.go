@@ -817,18 +817,9 @@ func (h *WorkflowHandler) toWorkflowResponse(workflow *models.Workflow) Workflow
 		stats.PodcastCount = int64(len(workflow.ScopeConfig.CustomURLs))
 	}
 
-	// 获取最后一次执行时间
-	var lastJob models.Job
-	if err := db.Where("workflow_id = ?", workflow.ID).Order("created_at DESC").First(&lastJob).Error; err == nil {
-		stats.LastExecution = &lastJob.CreatedAt
-	}
-
-	// 获取下次执行时间（如果工作流已启用且有scheduler）
-	if workflow.IsEnabled && workflow.Schedule != "" && h.scheduler != nil {
-		if nextRun, err := h.scheduler.GetWorkflowNextRunTime(workflow.ID); err == nil {
-			stats.NextExecution = &nextRun
-		}
-	}
+	// 获取最后一次执行时间和下次执行时间（使用持久化字段）
+	stats.LastExecution = workflow.LastExecutionAt
+	stats.NextExecution = workflow.NextRunAt
 
 	resp.Stats = &stats
 

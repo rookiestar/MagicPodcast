@@ -93,8 +93,12 @@ type Workflow struct {
 	RulesConfig RulesConfig      `gorm:"type:json" json:"rules_config"`
 	IsEnabled   bool             `gorm:"index;not null" json:"is_enabled"`
 	LastJobID   *uint            `gorm:"index" json:"last_job_id,omitempty"`
-	LastJob     *Job             `gorm:"-" json:"last_job,omitempty"` // 不自动迁移，手动加载
+	LastJob     *Job             `gorm:"-" json:"last_job,omitempty"` // 不自动迁移，通过关联查询加载
 	Jobs        []Job            `gorm:"foreignKey:WorkflowID" json:"jobs,omitempty"`
+
+	// 调度状态持久化字段（新增）
+	LastExecutionAt *time.Time `gorm:"index" json:"last_execution_at,omitempty"` // 上次执行时间
+	NextRunAt       *time.Time `gorm:"index" json:"next_run_at,omitempty"`       // 下次执行时间
 }
 
 // TableName 指定表名

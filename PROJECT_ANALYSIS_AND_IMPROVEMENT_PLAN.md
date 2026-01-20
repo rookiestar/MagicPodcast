@@ -1666,6 +1666,200 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 
 ---
 
+## 🔮 后续优化建议
+
+### 优化项 #1: 进程守护与自动重启机制
+
+**优先级**: P1 (高优先级 - 可靠性提升)
+
+**问题背景**:
+当前系统存在一个潜在的单点故障问题：后端进程如果因崩溃、系统重启或手动停止而退出，会导致：
+1. 定时任务调度中断（robfig/cron 停止监控）
+2. 需要人工介入才能恢复服务
+3. 即使重启后实现了错过任务的自动补偿，但在重启期间的任务执行延迟仍可能影响业务
+
+**当前状态**:
+- ✅ 已实现错过任务自动补偿机制（2026-01-20）
+- ✅ 后端重启时会自动检测并执行错过的定时任务
+- ❌ 但进程退出后无法自动重启
+- ❌ 在重启期间的任务执行会有延迟
+
+**优化方案**:
+
+#### 方案 1: 使用 launchd (macOS 推荐)
+
+创建 `~/Library/LaunchAgents/com.magicpodcast.backend.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.magicpodcast.backend</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/rookiestar/Library/Mobile Documents/com~apple~CloudDocs/Projects/Play with AI/MagicPodcast/backend/api</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/rookiestar/Library/Mobile Documents/com~apple~CloudDocs/Projects/Play with AI/MagicPodcast/backend</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/magicpodcast-backend.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/magicpodcast-backend.error.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>CONFIG_PATH</key>
+        <string>./configs/config.yaml</string>
+    </dict>
+</dict>
+</plist>
+```
+
+**启用服务**:
+```bash
+# 加载服务
+launchctl load ~/Library/LaunchAgents/com.magicpodcast.backend.plist
+
+# 启动服务
+launchctl start com.magicpodcast.backend
+
+# 查看状态
+launchctl list | grep magicpodcast
+
+# 停止服务
+launchctl stop com.magicpodcast.backend
+
+# 卸载服务
+launchctl unload ~/Library/LaunchAgents/com.magicpodcast.backend.plist
+```
+
+#### 方案 2: 使用 systemd (Linux)
+
+创建 `/etc/systemd/system/magicpodcast-backend.service`:
+
+```ini
+[Unit]
+Description=MagicPodcast Backend Service
+After=network.target
+
+[Service]
+Type=simple
+User=rookiestar
+WorkingDirectory=/path/to/MagicPodcast/backend
+ExecStart=/path/to/MagicPodcast/backend/api
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Environment=CONFIG_PATH=./configs/config.yaml
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**启用服务**:
+```bash
+# 重载配置
+sudo systemctl daemon-reload
+
+# 启动服务
+sudo systemctl start magicpodcast-backend
+
+# 查看状态
+sudo systemctl status magicpodcast-backend
+
+# 开机自启
+sudo systemctl enable magicpodcast-backend
+
+# 查看日志
+sudo journalctl -u magicpodcast-backend -f
+```
+
+#### 方案 3: 使用 supervisor (跨平台)
+
+创建 `/etc/supervisor/conf.d/magicpodcast.conf`:
+
+```ini
+[program:magicpodcast-backend]
+command=/path/to/MagicPodcast/backend/api
+directory=/path/to/MagicPodcast/backend
+autostart=true
+autorestart=true
+startretries=3
+stderr_logfile=/var/log/supervisor/magicpodcast-backend.err.log
+stdout_logfile=/var/log/supervisor/magicpodcast-backend.out.log
+user=rookiestar
+environment=CONFIG_PATH="./configs/config.yaml"
+```
+
+**管理命令**:
+```bash
+# 更新配置
+sudo supervisorctl reread
+sudo supervisorctl update
+
+# 启动服务
+sudo supervisorctl start magicpodcast-backend
+
+# 查看状态
+sudo supervisorctl status magicpodcast-backend
+
+# 重启服务
+sudo supervisorctl restart magicpodcast-backend
+
+# 查看日志
+sudo supervisorctl tail magicpodcast-backend
+```
+
+**方案 4: 改进 dev.sh 脚本 (开发环境)
+
+在现有的 `dev.sh` 基础上添加自动重启监控:
+
+```bash
+# 在 start() 函数中添加 watchdog
+watchdog() {
+    while true; do
+        if [ -f "$BACKEND_PID_FILE" ]; then
+            if ! ps -p $(cat "$BACKEND_PID_FILE") > /dev/null 2>&1; then
+                print_warning "后端进程已停止，尝试重启..."
+                rm -f "$BACKEND_PID_FILE"
+                start_backend
+            fi
+        fi
+        sleep 10
+    done
+}
+
+# 在后台运行 watchdog
+watchdog &
+```
+
+**预期效果**:
+- ✅ 进程崩溃后自动重启（<10秒延迟）
+- ✅ 开机自动启动（使用 launchd/systemd）
+- ✅ 日志统一管理
+- ✅ 优雅关闭支持
+- ✅ 提高系统可用性接近 100%
+
+**实施优先级**:
+1. **开发环境**: 使用改进的 `dev.sh` (工作量: 小)
+2. **生产环境 (macOS)**: 使用 launchd (工作量: 小)
+3. **生产环境 (Linux)**: 使用 systemd (工作量: 小)
+4. **跨平台部署**: 使用 supervisor (工作量: 中)
+
+**注意事项**:
+- 确保日志文件有轮转机制，避免磁盘占满
+- 监控重启频率，如果是频繁崩溃需要报警
+- 保留优雅关闭机制（SIGTERM 信号处理）
+- 测试补偿机制与自动重启的兼容性
+
+---
+
 ## 📝 变更历史
 
 | 日期 | 版本 | 变更内容 |
@@ -1683,6 +1877,7 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 | 2026-01-20 | 2.0 | **Bug #11 修复完成** - 日志级别混乱 (P2)<br>- 创建统一的logger包（internal/logger）<br>- 支持多级别日志：debug, info, warn, error<br>- 根据环境自动配置日志格式（文本/JSON）<br>- 支持日志轮转（lumberjack）<br>- 添加依赖：github.com/sirupsen/logrus, gopkg.in/natefinch/lumberjack.v2<br>- P2阶段完成度达到33% (2/6)<br>- 提交: 2325553 |
 | 2026-01-20 | 2.1 | **Bug #16 排查** - Episode同步N+1查询问题<br>- 经过代码审查确认此bug不成立<br>- episode_sync.go中的查询是业务逻辑必需，非N+1问题<br>- 更新文档统计：总bug数从30减少到29（1个误报）<br>- P1性能问题完成度达到50% (1/2) |
 | 2026-01-20 | 2.2 | **Bug #8 修复完成** - 时间边界问题 (P2)<br>- 提取FullSyncEpoch常量消除魔法数字<br>- 将重复3次的time.Date(2000,1,1,...)替换为常量引用<br>- 添加注释说明选择2000-01-01的原因<br>- 提高代码可维护性和可读性<br>- P2阶段完成度达到50% (3/6)<br>- 提交: e5f89b5 |
+| 2026-01-20 | 2.3 | **新增优化项 #1** - 进程守护与自动重启机制<br>- 在PROJECT_ANALYSIS_AND_IMPROVEMENT_PLAN.md中添加进程守护优化建议<br>- 提供4种方案：launchd (macOS)、systemd (Linux)、supervisor (跨平台)、dev.sh改进<br>- 详细配置示例和管理命令<br>- 预期效果：进程崩溃后自动重启，提高系统可用性接近100% |
 
 ## 🔧 工具和脚本
 

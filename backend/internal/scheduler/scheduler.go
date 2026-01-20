@@ -44,18 +44,123 @@ func (s *Scheduler) Start() error {
 		return fmt.Errorf("加载工作流失败: %w", err)
 	}
 
-	// 注册每个工作流的cron任务
+	if len(workflows) == 0 {
+		log.Println("📭 没有已启用的工作流需要调度")
+		s.cron.Start()
+		return nil
+	}
+
+	// 1. 注册每个工作流的cron任务
+	registeredCount := 0
 	for _, wf := range workflows {
 		if err := s.registerWorkflow(&wf); err != nil {
 			log.Printf("⚠️  注册工作流失败 [ID=%d]: %v", wf.ID, err)
 			continue
 		}
+		registeredCount++
 		log.Printf("✅ 已注册工作流 [ID=%d, Schedule=%s]", wf.ID, wf.Schedule)
 	}
 
+	// 2. 启动cron调度器
 	s.cron.Start()
-	log.Printf("🚀 调度器已启动，共注册 %d 个工作流", len(workflows))
+	log.Printf("🚀 调度器已启动，共注册 %d 个工作流", registeredCount)
+
+	// 3. 检查并补偿错过的任务执行
+	s.checkAndExecuteMissedWorkflows(&workflows)
+
 	return nil
+}
+
+// checkAndExecuteMissedWorkflows 检查并执行错过的任务
+func (s *Scheduler) checkAndExecuteMissedWorkflows(workflows *[]models.Workflow) {
+	log.Println("🔍 检查是否有错过的任务需要补偿执行...")
+
+	now := time.Now()
+	missedCount := 0
+
+	for _, wf := range *workflows {
+		// 检查是否设置了下次执行时间
+		if wf.NextRunAt == nil {
+			// 首次运行或未设置，初始化下次执行时间
+			nextRun, err := wf.GetNextRunTime()
+			if err != nil {
+				log.Printf("⚠️  计算下次执行时间失败 [ID=%d]: %v", wf.ID, err)
+				continue
+			}
+
+			// 更新到数据库 (使用 UTC)
+			s.db.Model(&wf).Update("next_run_at", nextRun.UTC())
+			log.Printf("📅 初始化下次执行时间 [ID=%d, NextRun=%s]", wf.ID, nextRun.UTC().Format("2006-01-02 15:04:05"))
+			continue
+		}
+
+		// 检查是否错过了执行时间
+		// 统一使用 UTC 时间进行比较,避免时区混淆
+		nowUTC := now.UTC()
+		nextRunUTC := wf.NextRunAt.UTC()
+
+		if nextRunUTC.Before(nowUTC) {
+			missedCount++
+			log.Printf("⚠️  发现错过的执行 [ID=%d, 计划时间=%s, 当前时间=%s]",
+				wf.ID,
+				wf.NextRunAt.Format("2006-01-02 15:04:05"),
+				now.Format("2006-01-02 15:04:05"))
+
+			// 异步补偿执行（避免阻塞调度器启动）
+			go s.executeMissedWorkflow(&wf)
+		} else {
+			log.Printf("✅ 调度正常 [ID=%d, NextRun=%s]",
+				wf.ID,
+				wf.NextRunAt.Format("2006-01-02 15:04:05"))
+		}
+	}
+
+	if missedCount == 0 {
+		log.Println("✅ 没有错过的任务")
+	} else {
+		log.Printf("🔧 发现 %d 个错过的任务，正在异步补偿执行...", missedCount)
+	}
+}
+
+// executeMissedWorkflow 执行错过的任务
+func (s *Scheduler) executeMissedWorkflow(workflow *models.Workflow) {
+	// 添加短暂的延迟，避免与其他启动任务冲突
+	time.Sleep(2 * time.Second)
+
+	log.Printf("🔄 开始补偿执行 [ID=%d, Name=%s]", workflow.ID, workflow.Name)
+
+	// 检查是否有正在运行的任务
+	if workflow.LastJobID != nil {
+		var lastJob models.Job
+		if err := s.db.Where("id = ?", *workflow.LastJobID).First(&lastJob).Error; err == nil {
+			if lastJob.Status == models.JobStatusRunning {
+				log.Printf("⏭️  补偿执行跳过：上次任务仍在运行 [ID=%d, JobID=%d]",
+					workflow.ID, lastJob.ID)
+				return
+			}
+		}
+	}
+
+	// 执行工作流（标记为补偿执行）
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	job, err := s.executor.Execute(ctx, workflow, "cron-catchup")
+	if err != nil {
+		log.Printf("❌ 补偿执行失败 [ID=%d]: %v", workflow.ID, err)
+	} else {
+		log.Printf("✅ 补偿执行成功 [ID=%d, JobID=%d]", workflow.ID, job.ID)
+	}
+
+	// 计算并更新下次执行时间
+	nextRun, err := workflow.GetNextRunTime()
+	if err == nil {
+		s.db.Model(workflow).Updates(map[string]interface{}{
+			"last_execution_at": time.Now().UTC(),
+			"next_run_at":       nextRun.UTC(),
+		})
+		log.Printf("📅 更新下次执行时间 [ID=%d, NextRun=%s]", workflow.ID, nextRun.UTC().Format("2006-01-02 15:04:05"))
+	}
 }
 
 // Stop 停止调度器
@@ -98,35 +203,16 @@ func (s *Scheduler) registerWorkflow(workflow *models.Workflow) error {
 func (s *Scheduler) executeWorkflow(workflowID uint) {
 	log.Printf("⏰ [调度] 触发工作流 [ID=%d]", workflowID)
 
-	scheduledTime := time.Now()
-	startTime := time.Now()
-
-	// 创建调度运行记录
-	schedulerRun := &models.SchedulerRun{
-		WorkflowID:  workflowID,
-		Status:      models.SchedulerRunStatusSuccess,
-		ScheduledAt: scheduledTime,
-		StartedAt:   &startTime,
-	}
-
 	// 重新加载工作流（确保获取最新状态）
 	var wf models.Workflow
 	if err := s.db.First(&wf, workflowID).Error; err != nil {
 		log.Printf("❌ [调度] 工作流不存在 [ID=%d]: %v", workflowID, err)
-		schedulerRun.Status = models.SchedulerRunStatusFailed
-		schedulerRun.Reason = fmt.Sprintf("工作流不存在: %v", err)
-		s.db.Create(schedulerRun)
 		return
 	}
 
 	// 检查是否启用
 	if !wf.IsEnabled {
 		log.Printf("⏭️  [调度] 工作流已禁用，跳过执行 [ID=%d]", workflowID)
-		schedulerRun.Status = models.SchedulerRunStatusSkipped
-		schedulerRun.Reason = "工作流已禁用"
-		completedAt := time.Now()
-		schedulerRun.CompletedAt = &completedAt
-		s.db.Create(schedulerRun)
 		return
 	}
 
@@ -137,11 +223,6 @@ func (s *Scheduler) executeWorkflow(workflowID uint) {
 			if lastJob.Status == models.JobStatusRunning {
 				log.Printf("⏭️  [调度] 工作流正在运行，跳过本次执行 [ID=%d, JobID=%d]",
 					workflowID, lastJob.ID)
-				schedulerRun.Status = models.SchedulerRunStatusSkipped
-				schedulerRun.Reason = fmt.Sprintf("上次任务仍在运行 (JobID=%d)", lastJob.ID)
-				completedAt := time.Now()
-				schedulerRun.CompletedAt = &completedAt
-				s.db.Create(schedulerRun)
 				return
 			}
 		}
@@ -154,23 +235,34 @@ func (s *Scheduler) executeWorkflow(workflowID uint) {
 	job, err := s.executor.Execute(ctx, &wf, "cron")
 	if err != nil {
 		log.Printf("❌ [调度] 工作流执行失败 [ID=%d]: %v", workflowID, err)
-		schedulerRun.Status = models.SchedulerRunStatusFailed
-		schedulerRun.Reason = fmt.Sprintf("执行失败: %v", err)
-	} else {
-		log.Printf("✅ [调度] 工作流执行完成 [ID=%d, JobID=%d, 状态=%s]",
-			workflowID, job.ID, job.Status)
-		schedulerRun.Status = models.SchedulerRunStatusSuccess
-		schedulerRun.JobID = &job.ID
+		s.checkAndAlertFailures(workflowID)
+		return
 	}
 
-	// 完成调度记录
-	completedAt := time.Now()
-	schedulerRun.CompletedAt = &completedAt
-	duration := int(completedAt.Sub(startTime).Milliseconds())
-	schedulerRun.Duration = &duration
+	log.Printf("✅ [调度] 工作流执行完成 [ID=%d, JobID=%d, 状态=%s]",
+		workflowID, job.ID, job.Status)
 
-	if err := s.db.Create(schedulerRun).Error; err != nil {
-		log.Printf("⚠️  [调度] 保存调度记录失败: %v", err)
+	// 更新调度状态（持久化到数据库）
+	now := time.Now()
+	nextRun, err := wf.GetNextRunTime()
+	if err != nil {
+		log.Printf("⚠️  [调度] 计算下次执行时间失败 [ID=%d]: %v", workflowID, err)
+		nextRun = now.AddDate(0, 0, 1) // 默认明天
+	}
+
+	// 统一使用 UTC 时间存储,避免时区混乱
+	updates := map[string]interface{}{
+		"last_execution_at": now.UTC(),
+		"next_run_at":       nextRun.UTC(),
+	}
+
+	if err := s.db.Model(&wf).Updates(updates).Error; err != nil {
+		log.Printf("⚠️  [调度] 更新调度状态失败 [ID=%d]: %v", workflowID, err)
+	} else {
+		log.Printf("📅 [调度] 已更新调度状态 [ID=%d, LastExecution=%s, NextRun=%s]",
+			workflowID,
+			now.UTC().Format("2006-01-02 15:04:05"),
+			nextRun.UTC().Format("2006-01-02 15:04:05"))
 	}
 
 	// 检查连续失败次数并告警
