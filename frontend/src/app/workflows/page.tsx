@@ -12,6 +12,7 @@ export default function WorkflowsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [triggeringId, setTriggeringId] = useState<number | null>(null)
 
   useEffect(() => {
     fetchWorkflows()
@@ -44,15 +45,18 @@ export default function WorkflowsPage() {
 
   const handleTrigger = async (id: number, e: React.MouseEvent) => {
     e.preventDefault()
-    if (!confirm('确定要立即执行此工作流吗?')) return
+    e.stopPropagation()
 
     try {
+      setTriggeringId(id)
       await workflowApi.trigger(id)
-      showSuccess('工作流已触发')
-      fetchWorkflows()
+      showSuccess('工作流已开始执行，请在执行历史中查看进度')
+      await fetchWorkflows()
     } catch (err) {
-      // 错误已通过axios拦截器自动处理
       console.error('Failed to trigger workflow:', err)
+      // 错误已通过axios拦截器自动处理
+    } finally {
+      setTriggeringId(null)
     }
   }
 
@@ -274,12 +278,24 @@ export default function WorkflowsPage() {
                     {/* 手动执行 */}
                     <button
                       onClick={(e) => handleTrigger(workflow.id, e)}
-                      className="p-2.5 text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-blue-300 dark:hover:border-blue-500 transition-all"
+                      disabled={triggeringId === workflow.id}
+                      className={`p-2.5 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-blue-300 dark:hover:border-blue-500 transition-all ${
+                        triggeringId === workflow.id
+                          ? 'opacity-50 cursor-not-allowed bg-slate-100'
+                          : 'text-blue-600 dark:text-blue-400'
+                      }`}
                       title="手动执行"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
+                      {triggeringId === workflow.id ? (
+                        <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                      )}
                     </button>
 
                     {/* 启用/停用 */}

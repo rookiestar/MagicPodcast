@@ -95,7 +95,7 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 	matchedCount := rg.countEpisodes(reportData)
 	report := &models.Report{
 		JobID:          job.ID,
-		Title:          fmt.Sprintf("工作流执行报告 - %s", job.CreatedAt.Format("2006-01-02 15:04:05")),
+		Title:          fmt.Sprintf("%s - %s", workflow.Name, job.CreatedAt.Format("2006-01-02 15:04:05")),
 		Content:        markdown,
 		Summary:        rg.generateSummary(job, reportData),
 		EpisodesCount:  matchedCount, // 历史字段，保留兼容

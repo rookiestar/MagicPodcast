@@ -17,6 +17,7 @@ type Config struct {
 	Logging      LoggingConfig      `mapstructure:"logging"`
 	Search       SearchConfig       `mapstructure:"search"`
 	User         UserConfig         `mapstructure:"user"`
+	Email        EmailConfig        `mapstructure:"email"`
 }
 
 // ServerConfig 服务器配置
@@ -86,6 +87,18 @@ type UserConfig struct {
 	Phone        string `mapstructure:"phone"`
 	AccessToken  string `mapstructure:"access_token"`
 	RefreshToken string `mapstructure:"refresh_token"`
+}
+
+// EmailConfig 邮件通知配置
+type EmailConfig struct {
+	Enabled  bool   `mapstructure:"enabled"`   // 是否启用邮件通知
+	SMTPHost string `mapstructure:"smtp_host"` // SMTP服务器地址
+	SMTPPort int    `mapstructure:"smtp_port"` // SMTP端口（通常465或587）
+	Username string `mapstructure:"username"`  // 发件邮箱账号
+	Password string `mapstructure:"password"`  // 邮箱授权码/密码
+	From     string `mapstructure:"from"`      // 发件人显示名称
+	To       string `mapstructure:"to"`        // 收件邮箱地址
+	UseTLS   bool   `mapstructure:"use_tls"`  // 是否使用TLS
 }
 
 // SearchWeights 搜索字段权重

@@ -7,6 +7,7 @@ import (
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/handlers"
 	"magicpodcast/internal/middleware"
+	"magicpodcast/internal/notifier"
 	"magicpodcast/internal/scheduler"
 	syncsvc "magicpodcast/internal/sync"
 	"magicpodcast/internal/workflow"
@@ -127,7 +128,17 @@ func SetupRouter() *gin.Engine {
 			// workflow trigger会返回错误
 			syncService = nil
 		}
-		workflowExecutor := workflow.NewExecutor(db, syncService)
+
+		// 创建邮件通知器
+		var emailNotifier *notifier.EmailNotifier
+		if cfg.Email.Enabled {
+			emailNotifier = notifier.NewEmailNotifier(&cfg.Email)
+			log.Println("📧 邮件通知器已初始化")
+		} else {
+			log.Println("📧 邮件通知未启用")
+		}
+
+		workflowExecutor := workflow.NewExecutor(db, syncService, emailNotifier)
 
 		// 创建全局scheduler实例
 		globalScheduler = scheduler.NewScheduler(db, workflowExecutor)

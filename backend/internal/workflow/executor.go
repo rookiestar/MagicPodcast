@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/notifier"
 	syncsvc "magicpodcast/internal/sync"
 
 	"gorm.io/gorm"
@@ -16,15 +17,17 @@ import (
 
 // Executor 工作流执行器
 type Executor struct {
-	db      *gorm.DB
-	syncSvc *syncsvc.Service
+	db       *gorm.DB
+	syncSvc  *syncsvc.Service
+	notifier *notifier.EmailNotifier
 }
 
 // NewExecutor 创建执行器
-func NewExecutor(db *gorm.DB, syncSvc *syncsvc.Service) *Executor {
+func NewExecutor(db *gorm.DB, syncSvc *syncsvc.Service, emailNotifier *notifier.EmailNotifier) *Executor {
 	return &Executor{
-		db:      db,
-		syncSvc: syncSvc,
+		db:       db,
+		syncSvc:  syncSvc,
+		notifier: emailNotifier,
 	}
 }
 
@@ -381,15 +384,25 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 	log.Printf("📊 Job完成统计 [ID=%d] - 成功:%d, 失败:%d, 跳过:%d, 耗时:%dms",
 		job.ID, successCount, failedCount, skippedCount, jobDuration)
 
-	// ⭐ 异步生成执行报告（避免阻塞Job完成）
+	// ⭐ 异步生成执行报告并发送邮件通知（避免阻塞Job完成）
 	go func() {
 		reportGen := NewReportGenerator(e.db)
 		report, err := reportGen.GenerateForJob(job)
 		if err != nil {
 			log.Printf("❌ 生成报告失败 [JobID=%d]: %v", job.ID, err)
-		} else {
-			log.Printf("✅ 报告已生成 [JobID=%d, ReportID=%d, Size=%d bytes]",
-				job.ID, report.ID, report.FileSize)
+			return
+		}
+
+		log.Printf("✅ 报告已生成 [JobID=%d, ReportID=%d, Size=%d bytes]",
+			job.ID, report.ID, report.FileSize)
+
+		// 发送邮件通知（仅cron触发的成功任务）
+		if e.notifier != nil && job.Status == models.JobStatusCompleted && job.TriggeredBy == "cron" {
+			if err := e.notifier.SendReport(report.Title, report.Content); err != nil {
+				log.Printf("❌ 发送邮件通知失败 [JobID=%d]: %v", job.ID, err)
+			} else {
+				log.Printf("✅ 邮件通知已发送 [JobID=%d, TriggeredBy=%s]", job.ID, job.TriggeredBy)
+			}
 		}
 	}()
 }

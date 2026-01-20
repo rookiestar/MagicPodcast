@@ -101,3 +101,26 @@ user:
   access_token: ""
   # 令牌刷新令牌
   refresh_token: ""
+
+# 邮件通知配置
+email:
+  # 是否启用邮件通知
+  enabled: false
+  # SMTP服务器地址
+  # 网易163: smtp.163.com
+  # QQ邮箱: smtp.qq.com
+  # Gmail: smtp.gmail.com
+  smtp_host: "smtp.163.com"
+  # SMTP端口（465为SSL端口，587为TLS端口）
+  smtp_port: 465
+  # 发件邮箱账号
+  username: "your-email@163.com"
+  # 邮箱SMTP授权码（注意：不是邮箱密码，需要去邮箱设置中获取）
+  # 网易邮箱获取方式：设置 -> POP3/SMTP/IMAP -> 开启SMTP服务 -> 获取授权码
+  password: "YOUR_AUTHORIZATION_CODE"
+  # 发件人显示名称
+  from: "MagicPodcast <your-email@163.com>"
+  # 收件邮箱地址
+  to: "recipient@example.com"
+  # 是否使用TLS/SSL加密
+  use_tls: true
