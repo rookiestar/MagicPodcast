@@ -98,10 +98,25 @@ export default function WorkflowDetailPage() {
 
   const fetchPodcasts = async (podcastIds: number[]) => {
     try {
-      // 使用批量查询接口获取播客
-      const podcasts = await podcastApi.batchGet(podcastIds)
-      console.log(`✅ 批量获取播客: ${podcasts.length} 个`)
-      setPodcasts(podcasts)
+      // 直接使用 fetch API 调用批量查询接口
+      const response = await fetch('http://localhost:8080/api/v1/podcasts/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: podcastIds })
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+
+      const result = await response.json()
+
+      if (result.success && result.data) {
+        const podcasts = result.data
+        setPodcasts(podcasts)
+      } else {
+        throw new Error(result.error?.message || 'Failed to fetch podcasts')
+      }
     } catch (err) {
       console.error('Failed to fetch podcasts:', err)
     }
@@ -417,31 +432,39 @@ export default function WorkflowDetailPage() {
                         <span className="text-slate-600 dark:text-slate-400 text-sm">抓取范围：</span>
                         <span className="text-sm font-semibold text-slate-900 dark:text-slate-50">
                           {workflow.scope_type === 'all_subscribed' && '全部订阅'}
-                          {workflow.scope_type === 'specific_podcasts' && `指定节目 (${podcasts.length}个)`}
+                          {workflow.scope_type === 'specific_podcasts' && `指定节目 (${workflow.scope_config?.podcast_ids?.length || 0}个)`}
                           {workflow.scope_type === 'custom_sources' && '自定义源'}
                         </span>
                       </div>
-                      {workflow.scope_type === 'specific_podcasts' && podcasts.length > 0 && (
-                        <div className="flex flex-wrap gap-3">
-                          {podcasts.map((podcast) => (
-                            <Link
-                              key={podcast.id}
-                              href={`/podcasts/${podcast.id}`}
-                              className="group flex items-center gap-2 px-3 py-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md transition-all"
-                            >
-                              {podcast.cover_url && (
-                                <img
-                                  src={podcast.cover_url}
-                                  alt={podcast.title}
-                                  className="w-8 h-8 rounded-lg object-cover"
-                                />
-                              )}
-                              <span className="text-xs font-semibold text-slate-900 dark:text-slate-50 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                                {podcast.title}
-                              </span>
-                            </Link>
-                          ))}
-                        </div>
+                      {workflow.scope_type === 'specific_podcasts' && (
+                        <>
+                          {podcasts.length > 0 ? (
+                            <div className="flex flex-wrap gap-3">
+                              {podcasts.map((podcast) => (
+                                <Link
+                                  key={podcast.id}
+                                  href={`/podcasts/${podcast.id}`}
+                                  className="group flex items-center gap-2 px-3 py-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md transition-all"
+                                >
+                                  {podcast.cover_url && (
+                                    <img
+                                      src={podcast.cover_url}
+                                      alt={podcast.title}
+                                      className="w-8 h-8 rounded-lg object-cover"
+                                    />
+                                  )}
+                                  <span className="text-xs font-semibold text-slate-900 dark:text-slate-50 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                                    {podcast.title}
+                                  </span>
+                                </Link>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-sm text-slate-500 dark:text-slate-400">
+                              正在加载播客列表...
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
 

@@ -3,12 +3,6 @@ import { handleApiError } from './errorHandler'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
-// 调试：输出API_URL
-if (typeof window !== 'undefined') {
-  console.log('🔧 API_URL:', API_URL)
-  console.log('🔧 Process env:', process.env.NEXT_PUBLIC_API_URL)
-}
-
 // 创建 axios 实例
 export const api: AxiosInstance = axios.create({
   baseURL: API_URL,
@@ -22,11 +16,6 @@ export const api: AxiosInstance = axios.create({
 // 添加请求拦截器
 api.interceptors.request.use(
   (config) => {
-    console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`)
-    // 输出完整的查询参数用于调试
-    if (config.params) {
-      console.log(`[API] Params:`, config.params)
-    }
     return config
   },
   (error) => {
@@ -38,7 +27,6 @@ api.interceptors.request.use(
 // 添加响应拦截器
 api.interceptors.response.use(
   (response) => {
-    console.log(`[API] Response:`, response.status, response.config.url)
     return response
   },
   (error) => {
