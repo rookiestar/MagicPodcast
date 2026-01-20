@@ -10,7 +10,7 @@ func main() {
 	fmt.Println("🧪 Testing iTunesId Type Fix")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	query, err := podcastindex.NewQuery("/Users/rookiestar/Library/Mobile Documents/com~apple~CloudDocs/Projects/Play with AI/MagicPodcast/podcastindex.db")
+	query, err := podcastindex.NewQuery("../../../podcastindex.db")
 	if err != nil {
 		log.Fatalf("❌ Failed to open PodcastIndex: %v", err)
 	}

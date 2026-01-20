@@ -122,3 +122,5 @@ backend/scripts/match_podcast_tags.go
 backend/scripts/read_excel_sheet1.go
 MagicPodcast.session.sql
 PodcastIndex.session.sql
+backend/api
+backend/main
