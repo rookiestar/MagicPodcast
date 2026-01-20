@@ -58,6 +58,7 @@ func SetupRouter() *gin.Engine {
 		podcasts := v1.Group("/podcasts")
 		{
 			podcasts.GET("", podcastHandler.List)
+			podcasts.POST("/batch", podcastHandler.BatchGet)
 			podcasts.GET("/:id", podcastHandler.Get)
 			podcasts.GET("/:id/episodes", episodeHandler.ListByPodcast)
 		}

@@ -219,6 +219,61 @@ func (h *PodcastHandler) Get(c *gin.Context) {
 	})
 }
 
+// BatchGet 批量获取多个播客
+// @Summary 批量获取播客
+// @Description 根据播客ID列表批量获取播客详情
+// @Tags Podcast
+// @Accept json
+// @Produce json
+// @Param ids body []int true "播客ID列表"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]interface{}
+// @Router /api/v1/podcasts/batch [post]
+func (h *PodcastHandler) BatchGet(c *gin.Context) {
+	db := database.GetDB()
+
+	// 解析请求体
+	var request struct {
+		IDs []uint `json:"ids" binding:"required,min=1,max=100"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INVALID_REQUEST",
+				"message": "Invalid request body",
+				"details": err.Error(),
+			},
+		})
+		return
+	}
+
+	// 查询播客
+	var podcasts []models.Podcast
+	if err := db.Preload("Tags").Where("id IN ?", request.IDs).Find(&podcasts).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "DATABASE_ERROR",
+				"message": "Failed to fetch podcasts",
+			},
+		})
+		return
+	}
+
+	// 转换为响应格式
+	responses := make([]PodcastResponse, len(podcasts))
+	for i, podcast := range podcasts {
+		responses[i] = h.modelToResponse(&podcast)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    responses,
+	})
+}
+
 // modelToResponse 将模型转换为响应格式
 func (h *PodcastHandler) modelToResponse(podcast *models.Podcast) PodcastResponse {
 	// 转换标签

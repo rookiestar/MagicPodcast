@@ -98,25 +98,10 @@ export default function WorkflowDetailPage() {
 
   const fetchPodcasts = async (podcastIds: number[]) => {
     try {
-      // 获取所有播客（分页加载）
-      const allPodcasts: Podcast[] = []
-      let page = 1
-      let hasMore = true
-
-      while (hasMore) {
-        const response = await podcastApi.list({ page, page_size: 100 })
-        const filtered = response.data.filter(p => podcastIds.includes(p.id))
-        allPodcasts.push(...filtered)
-
-        // 如果已经获取到所有需要的播客，或者没有更多数据了
-        if (allPodcasts.length >= podcastIds.length || response.data.length < 100) {
-          hasMore = false
-        } else {
-          page++
-        }
-      }
-
-      setPodcasts(allPodcasts)
+      // 使用批量查询接口获取播客
+      const podcasts = await podcastApi.batchGet(podcastIds)
+      console.log(`✅ 批量获取播客: ${podcasts.length} 个`)
+      setPodcasts(podcasts)
     } catch (err) {
       console.error('Failed to fetch podcasts:', err)
     }

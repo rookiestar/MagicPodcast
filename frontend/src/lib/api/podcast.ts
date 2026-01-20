@@ -34,6 +34,15 @@ export const podcastApi = {
     throw new Error(response.data.error?.message || 'Failed to fetch podcast')
   },
 
+  // 批量获取播客详情
+  batchGet: async (ids: number[]): Promise<Podcast[]> => {
+    const response = await api.post<ApiResponse<Podcast[]>>('/api/v1/podcasts/batch', { ids })
+    if (response.data.success && response.data.data) {
+      return response.data.data
+    }
+    throw new Error(response.data.error?.message || 'Failed to batch fetch podcasts')
+  },
+
   // 获取播客备注
   getNotes: async (id: number): Promise<string> => {
     const response = await api.get<ApiResponse<{ id: number; notes: string }>>(`/api/v1/podcasts/${id}/notes`)
