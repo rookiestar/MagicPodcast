@@ -76,14 +76,15 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
           setKeywords(workflow.rules_config.keywords || '')
           setExcludeWords(workflow.rules_config.exclude_words || '')
         }
+
+        // 编辑模式下，如果是指定节目类型，立即加载podcasts
+        // 这样可以在用户进入第2步时就已经准备好了数据
+        if (workflow.scope_type === 'specific_podcasts') {
+          loadPodcasts()
+        }
       } else {
         // 创建模式：重置为默认值
         resetForm()
-      }
-
-      // 加载播客列表（如果是编辑模式或需要选择播客）
-      if (workflow?.scope_type === 'specific_podcasts' || !workflow) {
-        loadPodcasts()
       }
     }
   }, [isOpen, workflow])

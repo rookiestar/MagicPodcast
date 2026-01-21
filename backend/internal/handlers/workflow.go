@@ -395,6 +395,17 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 	workflow.RulesConfig = req.RulesConfig
 	workflow.IsEnabled = req.IsEnabled
 
+	// 如果工作流启用且配置了schedule，计算并更新下次执行时间
+	if workflow.IsEnabled && workflow.Schedule != "" {
+		nextRun, err := workflow.GetNextRunTime()
+		if err == nil {
+			workflow.NextRunAt = &nextRun
+			log.Printf("📅 更新工作流下次执行时间 [ID=%d]: %s", workflow.ID, nextRun.Format("2006-01-02 15:04:05"))
+		} else {
+			log.Printf("⚠️  计算下次执行时间失败 [ID=%d]: %v", workflow.ID, err)
+		}
+	}
+
 	if err := db.Save(&workflow).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
@@ -404,6 +415,12 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 			},
 		})
 		return
+	}
+
+	// 重新加载调度器以应用更新
+	if err := h.scheduler.Reload(); err != nil {
+		log.Printf("⚠️  重新加载调度器失败 [ID=%d]: %v", workflow.ID, err)
+		// 不返回错误，因为工作流已经更新成功
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -482,6 +499,18 @@ func (h *WorkflowHandler) Toggle(c *gin.Context) {
 	}
 
 	workflow.IsEnabled = !workflow.IsEnabled
+
+	// 如果启用工作流且配置了schedule，计算并更新下次执行时间
+	if workflow.IsEnabled && workflow.Schedule != "" {
+		nextRun, err := workflow.GetNextRunTime()
+		if err == nil {
+			workflow.NextRunAt = &nextRun
+			log.Printf("📅 更新工作流下次执行时间 [ID=%d]: %s", workflow.ID, nextRun.Format("2006-01-02 15:04:05"))
+		} else {
+			log.Printf("⚠️  计算下次执行时间失败 [ID=%d]: %v", workflow.ID, err)
+		}
+	}
+
 	if err := db.Save(&workflow).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
@@ -491,6 +520,12 @@ func (h *WorkflowHandler) Toggle(c *gin.Context) {
 			},
 		})
 		return
+	}
+
+	// 重新加载调度器以应用更新
+	if err := h.scheduler.Reload(); err != nil {
+		log.Printf("⚠️  重新加载调度器失败 [ID=%d]: %v", workflow.ID, err)
+		// 不返回错误，因为工作流已经更新成功
 	}
 
 	c.JSON(http.StatusOK, gin.H{

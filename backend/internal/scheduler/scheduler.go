@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -178,6 +179,20 @@ func (s *Scheduler) registerWorkflow(workflow *models.Workflow) error {
 	schedule := workflow.Schedule
 	if schedule == "" {
 		return fmt.Errorf("schedule为空")
+	}
+
+	// 自动兼容5位和6位表达式
+	// 统一转换为6位格式（秒 分 时 日 月 周）
+	parts := strings.Fields(schedule)
+	var originalSchedule string
+	if len(parts) == 5 {
+		// 5位表达式：分 时 日 月 周 -> 自动添加秒位
+		originalSchedule = schedule
+		schedule = "0 " + schedule
+		log.Printf("📝 自动转换5位表达式为6位 [ID=%d]: %s -> %s",
+			workflow.ID, originalSchedule, schedule)
+	} else if len(parts) != 6 {
+		return fmt.Errorf("不支持的cron表达式格式: %s (期望5位或6位)", schedule)
 	}
 
 	// 封装执行逻辑
@@ -394,6 +409,20 @@ func (s *Scheduler) registerWorkflowLocked(workflow *models.Workflow) error {
 	schedule := workflow.Schedule
 	if schedule == "" {
 		return fmt.Errorf("schedule为空")
+	}
+
+	// 自动兼容5位和6位表达式
+	// 统一转换为6位格式（秒 分 时 日 月 周）
+	parts := strings.Fields(schedule)
+	var originalSchedule string
+	if len(parts) == 5 {
+		// 5位表达式：分 时 日 月 周 -> 自动添加秒位
+		originalSchedule = schedule
+		schedule = "0 " + schedule
+		log.Printf("📝 自动转换5位表达式为6位 [ID=%d]: %s -> %s",
+			workflow.ID, originalSchedule, schedule)
+	} else if len(parts) != 6 {
+		return fmt.Errorf("不支持的cron表达式格式: %s (期望5位或6位)", schedule)
 	}
 
 	// 封装执行逻辑

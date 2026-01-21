@@ -231,16 +231,29 @@ func (j JSONMap) Value() (driver.Value, error) {
 	return json.Marshal(j)
 }
 
-// ValidateCron 验证Cron表达式是否有效
+// ValidateCron 验证Cron表达式是否有效（支持5位和6位表达式）
 func ValidateCron(schedule string) error {
 	if schedule == "" {
 		return fmt.Errorf("cron表达式不能为空")
 	}
 
+	parts := strings.Fields(schedule)
+
+	// 支持5位和6位表达式
+	if len(parts) != 5 && len(parts) != 6 {
+		return fmt.Errorf("无效的cron表达式: expected exactly 6 fields, found %d: [%s]", len(parts), schedule)
+	}
+
+	// 如果是5位表达式，转换为6位后再验证
+	validateSchedule := schedule
+	if len(parts) == 5 {
+		validateSchedule = "0 " + schedule
+	}
+
 	// 使用robfig/cron解析器验证
 	// 支持6位表达式（秒 分 时 日 月 周）
 	parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	_, err := parser.Parse(schedule)
+	_, err := parser.Parse(validateSchedule)
 	if err != nil {
 		return fmt.Errorf("无效的cron表达式: %w", err)
 	}
@@ -259,14 +272,21 @@ func (w *Workflow) BeforeSave(tx *gorm.DB) error {
 	return nil
 }
 
-// GetNextRunTime 获取下次执行时间
+// GetNextRunTime 获取下次执行时间（支持5位和6位表达式）
 func (w *Workflow) GetNextRunTime() (time.Time, error) {
 	if w.Schedule == "" {
 		return time.Time{}, fmt.Errorf("未配置schedule")
 	}
 
+	// 如果是5位表达式，转换为6位
+	scheduleStr := w.Schedule
+	parts := strings.Fields(scheduleStr)
+	if len(parts) == 5 {
+		scheduleStr = "0 " + scheduleStr
+	}
+
 	parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	schedule, err := parser.Parse(w.Schedule)
+	schedule, err := parser.Parse(scheduleStr)
 	if err != nil {
 		return time.Time{}, err
 	}
