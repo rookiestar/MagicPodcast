@@ -35,6 +35,9 @@ export default function PodcastsPage() {
   // 用于无限滚动的 ref
   const observerTarget = useRef<HTMLDivElement>(null)
 
+  // 防抖定时器 ref（用于标签刷新）
+  const tagsRefreshTimerRef = useRef<NodeJS.Timeout | null>(null)
+
   // 数据获取函数
   const fetchPodcasts = async (tagIds: number[] = [], pageNum: number = 1, currentSortBy: SortByType = sortBy) => {
     try {
@@ -114,6 +117,39 @@ export default function PodcastsPage() {
     fetchPodcasts(tagIdsFromUrl, 1, sortFromUrl)
     fetchTags()
   }, []) // 只在组件挂载时执行一次
+
+  // 监听页面可见性变化，当从详情页返回时刷新标签列表（带防抖优化）
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      // 当页面从隐藏变为可见时，触发标签刷新
+      if (!document.hidden) {
+        console.log('[VisibilityChange] Page became visible, scheduling tags refresh...')
+
+        // 清除之前的定时器（防抖）
+        if (tagsRefreshTimerRef.current) {
+          clearTimeout(tagsRefreshTimerRef.current)
+        }
+
+        // 延迟 500ms 后刷新标签（避免快速切换标签页导致的频繁刷新）
+        tagsRefreshTimerRef.current = setTimeout(() => {
+          console.log('[VisibilityChange] Refreshing tags list...')
+          fetchTags()
+        }, 500)
+      }
+    }
+
+    // 监听页面可见性变化
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    // 清理函数
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      // 清除定时器
+      if (tagsRefreshTimerRef.current) {
+        clearTimeout(tagsRefreshTimerRef.current)
+      }
+    }
+  }, []) // 空依赖数组，只在挂载时注册监听器
 
   // 自动清理无效的筛选标签
   useEffect(() => {
