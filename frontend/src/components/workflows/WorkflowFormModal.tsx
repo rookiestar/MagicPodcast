@@ -22,6 +22,40 @@ const CRON_PRESETS = [
   { label: '每周一早上6点', value: '0 0 6 * * 1' },
 ]
 
+// Cron表达式校验函数
+const validateCronExpression = (cronExpr: string): { valid: boolean; error?: string } => {
+  const trimmed = cronExpr.trim()
+  const parts = trimmed.split(/\s+/)
+
+  // 检查位数（支持5位或6位）
+  if (parts.length !== 5 && parts.length !== 6) {
+    return {
+      valid: false,
+      error: 'Cron表达式必须包含5段或6段（秒 分 时 日 月 周）'
+    }
+  }
+
+  // 检查每段是否为通配符、数字、范围、间隔或列表
+  const validPatterns = [
+    /^\*$/,           // 通配符
+    /^\d+$/,          // 单个数字
+    /^\d+-\d+$/,      // 范围 (如 1-5)
+    /^\*\/\d+$/,      // 间隔 (如 */6)
+    /^\d+(,\d+)+$/    // 列表 (如 1,3,5)
+  ]
+
+  for (let i = 0; i < parts.length; i++) {
+    if (!validPatterns.some(pattern => pattern.test(parts[i]))) {
+      return {
+        valid: false,
+        error: `第 ${i + 1} 段 "${parts[i]}" 格式不正确（支持: * 数字 范围1-5 间隔*/6 列表1,3,5）`
+      }
+    }
+  }
+
+  return { valid: true }
+}
+
 export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow }: WorkflowFormModalProps) {
   const [step, setStep] = useState<Step>(1)
   const [loading, setLoading] = useState(false)
@@ -31,6 +65,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
   const [description, setDescription] = useState('')
   const [schedule, setSchedule] = useState('0 0 2 * * *')
   const [customCron, setCustomCron] = useState('')
+  const [cronError, setCronError] = useState('')
 
   // Step 2: 范围配置
   const [scopeType, setScopeType] = useState<WorkflowScopeType>('all_subscribed')
@@ -56,7 +91,18 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         // 编辑模式：填充现有数据
         setName(workflow.name)
         setDescription(workflow.description || '')
-        setSchedule(workflow.schedule)
+
+        // 判断 schedule 是预设还是自定义
+        const isPresetSchedule = CRON_PRESETS.some(preset => preset.value === workflow.schedule)
+        if (isPresetSchedule) {
+          setSchedule(workflow.schedule)
+          setCustomCron('')
+        } else {
+          // 自定义cron表达式
+          setCustomCron(workflow.schedule)
+          setSchedule('')
+        }
+
         setScopeType(workflow.scope_type)
 
         if (workflow.scope_config) {
@@ -94,6 +140,8 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     setName('')
     setDescription('')
     setSchedule('0 0 2 * * *')
+    setCustomCron('')
+    setCronError('')
     setScopeType('all_subscribed')
     setSelectedPodcastIds([])
     setCandidatePodcastIds([])
@@ -188,12 +236,23 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         alert('请输入工作流名称')
         return false
       }
+
       // 检查实际使用的cron表达式（自定义输入优先，否则用预设）
       const actualCron = customCron.trim() || schedule.trim()
       if (!actualCron) {
-        alert('请选择或输入定时规则')
+        setCronError('请选择或输入定时规则')
         return false
       }
+
+      // 校验 cron 格式
+      const validation = validateCronExpression(actualCron)
+      if (!validation.valid) {
+        setCronError(validation.error || 'Cron表达式格式错误')
+        return false
+      }
+
+      // 清除错误信息（校验通过时）
+      setCronError('')
     }
     if (step === 2) {
       if (scopeType === 'specific_podcasts' && candidatePodcastIds.length === 0) {
@@ -322,6 +381,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     setDescription('')
     setSchedule('0 0 2 * * *')
     setCustomCron('')
+    setCronError('')
     setScopeType('all_subscribed')
     setSelectedPodcastIds([])
     setCandidatePodcastIds([])
@@ -420,6 +480,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                         onClick={() => {
                           setSchedule(preset.value)
                           setCustomCron('')
+                          setCronError('') // 清除错误
                         }}
                         className={`px-4 py-2 rounded-lg text-left transition-colors ${
                           schedule === preset.value && !customCron
@@ -431,17 +492,28 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                       </button>
                     ))}
                   </div>
-                  <div className="flex gap-2">
+                  <div>
                     <input
                       type="text"
                       value={customCron}
                       onChange={(e) => {
                         setCustomCron(e.target.value)
-                        if (e.target.value) setSchedule('')
+                        if (e.target.value) {
+                          setSchedule('')
+                        }
+                        // 输入时清除错误
+                        if (cronError) setCronError('')
                       }}
                       placeholder="自定义Cron表达式，如: 0 */6 * * * (每6小时)"
-                      className="flex-1 px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className={`w-full px-4 py-2 border rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                        cronError ? 'border-red-500' : 'border-slate-300 dark:border-slate-600'
+                      }`}
                     />
+                    {cronError && (
+                      <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                        {cronError}
+                      </p>
+                  )}
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     支持5位格式（分 时 日 月 周）或6位格式（秒 分 时 日 月 周），系统会自动转换
