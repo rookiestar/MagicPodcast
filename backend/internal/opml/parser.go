@@ -22,9 +22,29 @@ type Outline struct {
 	Type    string `xml:"type,attr"`     // 类型（通常为 "rss"）
 }
 
-// GetTitle 获取播客标题
+// GetTitle 获取播客标题（优先使用 title，为空时使用 text）
 func (o *Outline) GetTitle() string {
-	return o.Title
+	// 优先使用 title 字段
+	if o.Title != "" {
+		return o.Title
+	}
+
+	// 如果 title 为空，使用 text 字段作为备用
+	// 并智能截取过长的文本
+	text := strings.TrimSpace(o.Text)
+	if text != "" {
+		if len(text) > 100 {
+			// 尝试在换行符或句号处截断
+			if idx := strings.IndexAny(text, "\n。！？."); idx > 0 && idx < 100 {
+				return strings.TrimSpace(text[:idx])
+			}
+			// 如果没有合适的截断点，截取前100个字符
+			return text[:100] + "..."
+		}
+		return text
+	}
+
+	return "Unknown Podcast"
 }
 
 // GetDescription 获取播客描述（从 text 字段）
