@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Batch API</title>
+</head>
+<body>
+    <h1>Test Batch API</h1>
+    <pre id="output"></pre>
+
+    <script type="module">
+        async function test() {
+            const output = document.getElementById('output');
+            output.textContent = 'Testing...\n\n';
+
+            try {
+                // Test 1: Get workflow
+                output.textContent += '1. Fetching workflow...\n';
+                const workflowResp = await fetch('http://localhost:8080/api/v1/workflows/5');
+                const workflowData = await workflowResp.json();
+                output.textContent += `Success: ${JSON.stringify(workflowData.data.scope_config, null, 2)}\n\n`;
+
+                const podcastIds = workflowData.data.scope_config.podcast_ids;
+                output.textContent += `2. Podcast IDs (${podcastIds.length}): ${podcastIds.slice(0, 5)}...\n\n`;
+
+                // Test 2: Batch get podcasts
+                output.textContent += '3. Calling batch API...\n';
+                const batchResp = await fetch('http://localhost:8080/api/v1/podcasts/batch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: podcastIds.slice(0, 5) })
+                });
+                const batchData = await batchResp.json();
+                output.textContent += `Success: ${JSON.stringify(batchData, null, 2)}\n\n`;
+
+                output.textContent += `✅ Test completed! Got ${batchData.data?.length || 0} podcasts\n`;
+            } catch (err) {
+                output.textContent += `❌ Error: ${err.message}\n`;
+                console.error(err);
+            }
+        }
+
+        test();
+    </script>
+</body>
+</html>
