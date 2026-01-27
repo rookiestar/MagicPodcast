@@ -174,6 +174,18 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 		}
 	}
 
+	// 6.2 重新计算并更新 episode_count（确保数据一致性）
+	var actualEpisodeCount int64
+	if err := s.db.Model(&models.Episode{}).Where("podcast_id = ?", podcast.ID).Count(&actualEpisodeCount).Error; err == nil {
+		oldEpisodeCount := podcast.EpisodeCount
+		podcast.EpisodeCount = int(actualEpisodeCount)
+		if oldEpisodeCount != podcast.EpisodeCount {
+			log.Printf("   📊 更新 episode_count: %d → %d", oldEpisodeCount, podcast.EpisodeCount)
+		}
+	} else {
+		log.Printf("   ⚠️  统计 episode_count 失败: %v", err)
+	}
+
 	if err := s.db.Save(&podcast).Error; err != nil {
 		log.Printf("   ⚠️  更新podcast元数据失败: %v", err)
 	}
