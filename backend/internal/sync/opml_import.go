@@ -492,9 +492,18 @@ func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL
 
 	podcast, fetchErr := s.fetchPodcastOnline(outline, feedURL, reporter)
 	if fetchErr != nil {
-		// 在线抓取失败 - 创建一个基础播客记录（至少保存title和feedURL）
-		log.Printf("%s   ⚠️  在线抓取失败: %v，创建基础记录", logPrefix, fetchErr)
-		reporter.Report(fmt.Sprintf("%s - 在线抓取失败，已创建基础记录（可稍后同步）", title))
+		// 检查是否为永久性错误（402付费、SSL过期、403/404等）
+		// 对于永久性错误，直接跳过，不创建数据库记录
+		if shouldSkip, reasonStr, description := feed.GetSkipReasonFromError(fetchErr); shouldSkip {
+			reason := SkipReason(reasonStr)
+			log.Printf("%s   ⏭️  永久性错误，跳过此feed: %s - %s", logPrefix, reasonStr, description)
+			reporter.ReportSkip(reason, fmt.Sprintf("%s - %s", title, description))
+			return nil, fetchErr
+		}
+
+		// 对于临时性错误（网络故障、超时等），创建基础记录以便稍后重试
+		log.Printf("%s   ⚠️  临时性错误，创建基础记录: %v", logPrefix, fetchErr)
+		reporter.Report(fmt.Sprintf("%s - 临时错误，已创建基础记录（可稍后同步）", title))
 
 		// 创建基础播客对象
 		basePodcast := &models.Podcast{
