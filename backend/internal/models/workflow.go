@@ -291,7 +291,11 @@ func (w *Workflow) GetNextRunTime() (time.Time, error) {
 		return time.Time{}, err
 	}
 
-	return schedule.Next(time.Now()), nil
+	// 使用本地时间计算下次执行时间
+	now := time.Now()
+	nextRun := schedule.Next(now)
+
+	return nextRun, nil
 }
 
 // GetScheduleDescription 获取Cron表达式的可读描述

@@ -26,10 +26,13 @@ type Scheduler struct {
 
 // NewScheduler 创建调度器
 func NewScheduler(db *gorm.DB, executor *workflow.Executor) *Scheduler {
+	// 使用本地时区创建cron调度器
+	// 这样schedule表达式（如 "0 35 8 * * *"）会按本地时间早上8:35执行
+	localLoc := time.Local
 	return &Scheduler{
 		db:       db,
 		executor: executor,
-		cron:     cron.New(cron.WithSeconds()),
+		cron:     cron.New(cron.WithSeconds(), cron.WithLocation(localLoc)),
 		jobIDs:   make(map[uint]cron.EntryID),
 	}
 }
@@ -259,6 +262,16 @@ func (s *Scheduler) executeWorkflow(workflowID uint) {
 
 	// 更新调度状态（持久化到数据库）
 	now := time.Now()
+
+	// 关键修复：重新加载工作流以获取最新的schedule配置
+	// 因为用户可能在执行过程中修改了schedule
+	var updatedWf models.Workflow
+	if err := s.db.First(&updatedWf, workflowID).Error; err == nil {
+		wf = updatedWf
+	}
+
+	// 使用当前时间计算下次执行时间（而不是执行完成时间）
+	// 这样可以确保即使执行有延迟，下次执行时间仍然是正确的
 	nextRun, err := wf.GetNextRunTime()
 	if err != nil {
 		log.Printf("⚠️  [调度] 计算下次执行时间失败 [ID=%d]: %v", workflowID, err)
@@ -276,8 +289,8 @@ func (s *Scheduler) executeWorkflow(workflowID uint) {
 	} else {
 		log.Printf("📅 [调度] 已更新调度状态 [ID=%d, LastExecution=%s, NextRun=%s]",
 			workflowID,
-			now.UTC().Format("2006-01-02 15:04:05"),
-			nextRun.UTC().Format("2006-01-02 15:04:05"))
+			now.Local().Format("2006-01-02 15:04:05"),
+			nextRun.Local().Format("2006-01-02 15:04:05"))
 	}
 
 	// 检查连续失败次数并告警
