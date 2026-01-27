@@ -393,6 +393,20 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 	}
 
 	// 验证范围配置
+	log.Printf("[Update] Workflow ID=%d, scope_type=%s, scope_config=%+v",
+		workflow.ID, req.ScopeType, req.ScopeConfig)
+
+	if req.ScopeType == "specific_podcasts" {
+		oldCount := len(workflow.ScopeConfig.PodcastIDs)
+		newCount := len(req.ScopeConfig.PodcastIDs)
+		log.Printf("[Update] specific_podcasts: 旧=%d个播客, 新=%d个播客", oldCount, newCount)
+		if newCount == 0 {
+			log.Printf("⚠️  [Update] 警告: podcast_ids为空，将覆盖原有数据")
+		} else if newCount < oldCount/2 {
+			log.Printf("⚠️  [Update] 警告: podcast_ids大幅减少 (%d -> %d)，可能是数据丢失", oldCount, newCount)
+		}
+	}
+
 	if err := validateScopeConfig(req.ScopeType, req.ScopeConfig); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
