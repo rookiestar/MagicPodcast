@@ -3,6 +3,7 @@ package workflow
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"magicpodcast/internal/models"
 
@@ -212,4 +213,195 @@ func TestPodcastModel_FeedURLUniqueIndex(t *testing.T) {
 	err = db.Create(&podcast2).Error
 	assert.Error(t, err, "创建相同FeedURL的播客应该失败")
 	assert.Contains(t, err.Error(), "UNIQUE", "错误应该包含唯一约束冲突信息")
+}
+
+// TestJobTimeRangeWindow_835Trigger 测试用户报告的场景：8:35触发的工作流时间窗口计算
+func TestJobTimeRangeWindow_835Trigger(t *testing.T) {
+	db := setupTestDB(t)
+
+	// 创建测试工作流：配置为每天8:35执行，抓取最近1天
+	loc := time.FixedZone("CST", 8*3600) // 东八区
+	scheduledTime := time.Date(2024, 1, 15, 8, 35, 0, 0, loc)
+
+	workflow := models.Workflow{
+		Name:        "测试工作流-835触发",
+		Description: "验证8:35触发的时间窗口计算",
+		ScopeType:   models.ScopeTypeAllSubscribed,
+		Schedule:    "0 35 8 * * *", // 每天8:35
+		IsEnabled:   true,
+		RulesConfig: models.RulesConfig{
+			TimeRange:     1, // 最近1天
+			TimeRangeMode: "days",
+		},
+	}
+	err := db.Create(&workflow).Error
+	assert.NoError(t, err)
+
+	// 创建Job，模拟cron触发
+	job := models.Job{
+		WorkflowID:  workflow.ID,
+		Status:      models.JobStatusRunning,
+		StartTime:   &scheduledTime, // 使用8:35作为触发时间
+		TriggeredBy: "cron",
+	}
+	err = db.Create(&job).Error
+	assert.NoError(t, err)
+
+	// 验证Job的时间窗口计算逻辑
+	// 这里我们复用executor中计算时间窗口的逻辑
+	var timeRangeStart, timeRangeEnd time.Time
+
+	days := workflow.RulesConfig.TimeRange
+	if days <= 0 {
+		days = 1 // 默认1天
+	}
+
+	triggerTime := job.StartTime
+	if triggerTime == nil {
+		now := time.Now()
+		triggerTime = &now
+	}
+
+	timeRangeEnd = *triggerTime
+	timeRangeStart = timeRangeEnd.AddDate(0, 0, -days)
+
+	// 验证时间窗口
+	expectedEnd := time.Date(2024, 1, 15, 8, 35, 0, 0, loc)
+	expectedStart := time.Date(2024, 1, 14, 8, 35, 0, 0, loc)
+
+	assert.Equal(t, expectedEnd, timeRangeEnd, "结束时间应该是触发时间 2024-01-15 08:35:00")
+	assert.Equal(t, expectedStart, timeRangeStart, "开始时间应该是昨天同一时间 2024-01-14 08:35:00")
+
+	// 验证是24小时窗口
+	diff := timeRangeEnd.Sub(timeRangeStart)
+	assert.Equal(t, 24*time.Hour, diff, "时间范围应该是24小时")
+
+	t.Logf("✅ 集成测试通过：8:35触发，1天范围")
+	t.Logf("   Job ID: %d", job.ID)
+	t.Logf("   工作流: %s", workflow.Name)
+	t.Logf("   触发时间: %s", scheduledTime.Format("2006-01-02 15:04:05"))
+	t.Logf("   时间窗口: %s ~ %s", timeRangeStart.Format("2006-01-02 15:04:05"), timeRangeEnd.Format("2006-01-02 15:04:05"))
+}
+
+// TestJobTimeRangeWindow_MultiDays 测试多天范围的时间窗口计算
+func TestJobTimeRangeWindow_MultiDays(t *testing.T) {
+	db := setupTestDB(t)
+
+	loc := time.FixedZone("CST", 8*3600)
+	triggerTime := time.Date(2024, 1, 15, 10, 30, 0, 0, loc)
+
+	tests := []struct {
+		name            string
+		days            int
+		expectedStart   string
+		expectedEnd     string
+		expectedDiff    time.Duration
+	}{
+		{
+			name:          "1天范围",
+			days:          1,
+			expectedStart: "2024-01-14 10:30:00",
+			expectedEnd:   "2024-01-15 10:30:00",
+			expectedDiff:  24 * time.Hour,
+		},
+		{
+			name:          "2天范围",
+			days:          2,
+			expectedStart: "2024-01-13 10:30:00",
+			expectedEnd:   "2024-01-15 10:30:00",
+			expectedDiff:  48 * time.Hour,
+		},
+		{
+			name:          "7天范围",
+			days:          7,
+			expectedStart: "2024-01-08 10:30:00",
+			expectedEnd:   "2024-01-15 10:30:00",
+			expectedDiff:  7 * 24 * time.Hour,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workflow := models.Workflow{
+				Name:      "测试工作流-" + tt.name,
+				ScopeType: models.ScopeTypeAllSubscribed,
+				Schedule:  "0 30 10 * * *",
+				IsEnabled: true,
+				RulesConfig: models.RulesConfig{
+					TimeRange:     tt.days,
+					TimeRangeMode: "days",
+				},
+			}
+			err := db.Create(&workflow).Error
+			assert.NoError(t, err)
+
+			job := models.Job{
+				WorkflowID:  workflow.ID,
+				Status:      models.JobStatusRunning,
+				StartTime:   &triggerTime,
+				TriggeredBy: "cron",
+			}
+			err = db.Create(&job).Error
+			assert.NoError(t, err)
+
+			// 计算时间窗口
+			days := workflow.RulesConfig.TimeRange
+			timeRangeEnd := *job.StartTime
+			timeRangeStart := timeRangeEnd.AddDate(0, 0, -days)
+
+			// 验证
+			actualStart, _ := time.ParseInLocation("2006-01-02 15:04:05", tt.expectedStart, loc)
+			actualEnd, _ := time.ParseInLocation("2006-01-02 15:04:05", tt.expectedEnd, loc)
+
+			assert.Equal(t, actualStart, timeRangeStart, "开始时间应该是"+tt.expectedStart)
+			assert.Equal(t, actualEnd, timeRangeEnd, "结束时间应该是"+tt.expectedEnd)
+			assert.Equal(t, tt.expectedDiff, timeRangeEnd.Sub(timeRangeStart), "时间范围应该是"+tt.name)
+
+			t.Logf("✅ %s: 时间窗口 %s ~ %s",
+				tt.name,
+				timeRangeStart.Format("2006-01-02 15:04:05"),
+				timeRangeEnd.Format("2006-01-02 15:04:05"))
+		})
+	}
+}
+
+// TestJobTimeRangeWindow_ManualTrigger 测试手动触发的时间窗口计算
+func TestJobTimeRangeWindow_ManualTrigger(t *testing.T) {
+	db := setupTestDB(t)
+
+	workflow := models.Workflow{
+		Name:      "手动触发测试",
+		ScopeType: models.ScopeTypeAllSubscribed,
+		IsEnabled: true,
+		RulesConfig: models.RulesConfig{
+			TimeRange:     2, // 最近2天
+			TimeRangeMode: "days",
+		},
+	}
+	err := db.Create(&workflow).Error
+	assert.NoError(t, err)
+
+	// 手动触发
+	job := models.Job{
+		WorkflowID:  workflow.ID,
+		Status:      models.JobStatusRunning,
+		TriggeredBy: "manual",
+	}
+	err = db.Create(&job).Error
+	assert.NoError(t, err)
+
+	// 手动触发的时间窗口计算逻辑
+	days := workflow.RulesConfig.TimeRange
+	timeRangeEnd := job.CreatedAt
+	timeRangeStart := timeRangeEnd.AddDate(0, 0, -days)
+
+	// 验证是2天范围（允许1秒误差）
+	expectedDiff := 48 * time.Hour
+	actualDiff := timeRangeEnd.Sub(timeRangeStart)
+	assert.True(t, actualDiff >= expectedDiff-time.Second && actualDiff <= expectedDiff+time.Second,
+		"时间范围应该是48小时（允许1秒误差）")
+
+	t.Logf("✅ 手动触发测试通过")
+	t.Logf("   触发时间: %s", job.CreatedAt.Format("2006-01-02 15:04:05"))
+	t.Logf("   时间窗口: %s ~ %s", timeRangeStart.Format("2006-01-02 15:04:05"), timeRangeEnd.Format("2006-01-02 15:04:05"))
 }

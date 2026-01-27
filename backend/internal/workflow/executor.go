@@ -295,13 +295,20 @@ func (e *Executor) syncPodcast(
 		if err := e.db.First(&job, execution.JobID).Error; err == nil {
 			// 计算时间窗口
 			var timeRangeStart, timeRangeEnd time.Time
-			if job.TriggeredBy == "cron" {
-				// daily模式：昨天8点到今天8点
-				now := time.Now()
-				today8am := time.Date(now.Year(), now.Month(), now.Day(), 8, 0, 0, 0, now.Location())
-				yesterday8am := today8am.Add(-24 * time.Hour)
-				timeRangeStart = yesterday8am
-				timeRangeEnd = today8am
+			if job.TriggeredBy == "cron" || job.TriggeredBy == "cron-catchup" {
+				// daily模式：使用实际触发时间，扫描过去N天
+				// 例如：8:35触发，1天范围 → 昨天8:35到今天8:35
+				days := workflow.RulesConfig.TimeRange
+				if days <= 0 {
+					days = 1 // 默认1天
+				}
+				// 使用 job.StartTime 作为实际触发时间
+				triggerTime := job.StartTime
+				if triggerTime == nil {
+					triggerTime = &startTime // 如果 StartTime 为空，使用当前时间
+				}
+				timeRangeEnd = *triggerTime
+				timeRangeStart = timeRangeEnd.AddDate(0, 0, -days)
 			} else {
 				// manual模式：过去N天
 				days := workflow.RulesConfig.TimeRange

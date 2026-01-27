@@ -9,25 +9,30 @@ import (
 type TimeRangeMode string
 
 const (
-	TimeRangeModeDaily  TimeRangeMode = "daily"  // 自动触发：每天8:00执行，扫描昨天8:00到今天8:00
+	TimeRangeModeDaily  TimeRangeMode = "daily"  // 自动触发：使用实际触发时间，扫描过去24小时（例如8:35触发，则扫描昨天8:35到今天8:35）
 	TimeRangeModeManual TimeRangeMode = "manual" // 手动触发：扫描过去N天（从触发时刻往回推）
 )
 
 // GetTimeRangeWindow 获取扫描时间窗口
 // mode: "daily" | "manual"
-// days: 对于manual模式，表示扫描过去N天
-// triggeredAt: 触发时间
+// days: 扫描过去N天（对于 daily 和 manual 模式都适用）
+// triggeredAt: 触发时间（对于 daily 模式应该传入实际触发时间）
 func GetTimeRangeWindow(mode TimeRangeMode, days int, triggeredAt time.Time) (start, end time.Time, err error) {
 	now := time.Now()
 
 	switch mode {
 	case TimeRangeModeDaily:
-		// 自动触发模式：每天上午8:00执行
-		// 扫描昨天8:00到今天8:00（24小时窗口）
-		today8am := time.Date(now.Year(), now.Month(), now.Day(), 8, 0, 0, 0, now.Location())
-		yesterday8am := today8am.Add(-24 * time.Hour)
+		// 自动触发模式：使用实际触发时间，扫描过去N天
+		// 例如：8:35触发，1天范围 → 昨天8:35到今天8:35（24小时窗口）
+		//       8:35触发，2天范围 → 前天8:35到今天8:35（48小时窗口）
+		if triggeredAt.IsZero() {
+			// 如果未提供触发时间，回退到使用当前时间
+			triggeredAt = now
+		}
+		end := triggeredAt
+		start := triggeredAt.AddDate(0, 0, -days)
 
-		return yesterday8am, today8am, nil
+		return start, end, nil
 
 	case TimeRangeModeManual:
 		// 手动触发模式：扫描过去N天
@@ -51,7 +56,7 @@ func IsEpisodeInTimeRange(episode interface {
 }, start, end time.Time) bool {
 	var updateTime time.Time
 
-	if episode.GetUpdatedDate != nil {
+	if episode.GetUpdatedDate() != nil {
 		updateTime = *episode.GetUpdatedDate()
 	} else {
 		updateTime = episode.GetPublishedDate()
