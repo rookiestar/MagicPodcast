@@ -155,7 +155,7 @@ llm:
   provider: "siliconflow"
 
   # API密钥（建议使用环境变量 MAGICPODCAST_LLM_API_KEY）
-  api_key: ""
+  api_key: "sk-nnuiqiwmizrpvamefyeflugkvayazgvxisammgwadahyhpzm"
 
   # API Base URL
   base_url: "https://api.siliconflow.cn/v1"

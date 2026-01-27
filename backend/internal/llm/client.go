@@ -121,6 +121,14 @@ func (rl *rateLimiter) allow(key string) bool {
 
 // NewClient 创建LLM客户端
 func NewClient(cfg *config.LLMConfig) *Client {
+	// 打印调试信息
+	log.Printf("[LLM Client] Initializing with config:")
+	log.Printf("  - Enabled: %v", cfg.Enabled)
+	log.Printf("  - Provider: %s", cfg.Provider)
+	log.Printf("  - API Key: %s", maskAPIKey(cfg.APIKey))
+	log.Printf("  - Base URL: %s", cfg.BaseURL)
+	log.Printf("  - Default Model: %s", cfg.DefaultModel)
+
 	return &Client{
 		config: cfg,
 		httpClient: &http.Client{
@@ -133,8 +141,21 @@ func NewClient(cfg *config.LLMConfig) *Client {
 	}
 }
 
+// maskAPIKey 隐藏API Key的敏感信息
+func maskAPIKey(key string) string {
+	if len(key) <= 8 {
+		return "***"
+	}
+	return key[:4] + "..." + key[len(key)-4:]
+}
+
 // GenerateSummary 生成摘要
 func (c *Client) GenerateSummary(ctx context.Context, prompt string, options SummaryOptions) (*SummaryResult, error) {
+	// 打印调试信息
+	log.Printf("[LLM GenerateSummary] Called with config:")
+	log.Printf("  - Enabled: %v", c.config.Enabled)
+	log.Printf("  - API Key: %s", maskAPIKey(c.config.APIKey))
+
 	// 检查总开关
 	if !c.config.Enabled {
 		return nil, fmt.Errorf("LLM功能未启用")

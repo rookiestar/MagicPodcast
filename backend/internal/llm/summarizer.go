@@ -1,7 +1,9 @@
 package llm
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"time"
 )
 
@@ -42,6 +44,13 @@ func NewSummarizer(client *Client, tplManager *PromptManager) *Summarizer {
 
 // GenerateForReport 为工作流报告生成LLM摘要
 func (s *Summarizer) GenerateForReport(data []EpisodeReportData, workflowName string, options SummaryOptions) (*SummaryResult, error) {
+	// 添加调试日志
+	log.Printf("[Summarizer.GenerateForReport] Called with workflow=%s, num_podcasts=%d", workflowName, len(data))
+	log.Printf("  - Client is nil: %v", s.client == nil)
+	if s.client != nil {
+		log.Printf("  - Client config enabled: %v", s.client.config.Enabled)
+	}
+
 	// 根据数据量选择策略
 	totalEpisodes := 0
 	for _, podcast := range data {
@@ -82,7 +91,7 @@ func (s *Summarizer) GenerateForReport(data []EpisodeReportData, workflowName st
 	}
 
 	// 调用LLM
-	result, err := s.client.GenerateSummary(nil, prompt, options)
+	result, err := s.client.GenerateSummary(context.Background(), prompt, options)
 	if err != nil {
 		return nil, fmt.Errorf("LLM摘要生成失败: %w", err)
 	}

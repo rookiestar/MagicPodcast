@@ -107,8 +107,12 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 	var llmModelUsed string
 	var llmTokensUsed int
 
+	log.Printf("[ReportGenerator] LLMEnabled=%v, SummarizerNil=%v",
+		workflow.RulesConfig.LLMEnabled, rg.summarizer == nil)
+
 	if workflow.RulesConfig.LLMEnabled && rg.summarizer != nil {
 		log.Printf("🤖 开始生成LLM摘要 [JobID=%d]", job.ID)
+		log.Printf("  - Summarizer type: %T", rg.summarizer)
 
 		// 准备选项
 		options := llm.SummaryOptions{
@@ -129,8 +133,10 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 
 		// 转换数据格式
 		llmReportData := rg.convertToLLMReportData(reportData)
+		log.Printf("  - Converted %d podcasts to LLM report format", len(llmReportData))
 
 		// 调用摘要生成器
+		log.Printf("  - Calling summarizer.GenerateForReport...")
 		result, err := rg.summarizer.GenerateForReport(llmReportData, workflow.Name, options)
 		if err != nil {
 			log.Printf("⚠️  LLM摘要生成失败 [JobID=%d]: %v", job.ID, err)
