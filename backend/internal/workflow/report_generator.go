@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"magicpodcast/internal/llm"
 	"magicpodcast/internal/models"
 	"magicpodcast/internal/utils"
 
@@ -14,12 +15,21 @@ import (
 
 // ReportGenerator 报告生成器
 type ReportGenerator struct {
-	db *gorm.DB
+	db         *gorm.DB
+	summarizer SummarizerInterface
+}
+
+// SummarizerInterface 摘要生成器接口（避免循环依赖）
+type SummarizerInterface interface {
+	GenerateForReport(data []llm.EpisodeReportData, workflowName string, options llm.SummaryOptions) (*llm.SummaryResult, error)
 }
 
 // NewReportGenerator 创建报告生成器
-func NewReportGenerator(db *gorm.DB) *ReportGenerator {
-	return &ReportGenerator{db: db}
+func NewReportGenerator(db *gorm.DB, summarizer SummarizerInterface) *ReportGenerator {
+	return &ReportGenerator{
+		db:         db,
+		summarizer: summarizer,
+	}
 }
 
 // EpisodeReportData 报告数据结构
@@ -91,7 +101,53 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 	// 4. 生成Markdown内容
 	markdown := rg.generateMarkdown(job, reportData, timeRangeStart, timeRangeEnd, string(timeRangeMode), workflow.Name)
 
-	// 5. 创建Report记录
+	// 5. 生成LLM摘要（如果启用）
+	var llmSummary string
+	var llmError string
+	var llmModelUsed string
+	var llmTokensUsed int
+
+	if workflow.RulesConfig.LLMEnabled && rg.summarizer != nil {
+		log.Printf("🤖 开始生成LLM摘要 [JobID=%d]", job.ID)
+
+		// 准备选项
+		options := llm.SummaryOptions{
+			Model:       workflow.RulesConfig.LLMModel,
+			Temperature: workflow.RulesConfig.LLMTemperature,
+			MaxTokens:   workflow.RulesConfig.LLMMaxTokens,
+			MaxEpisodes: workflow.RulesConfig.LLMMaxEpisodes,
+		}
+		if options.Temperature == 0 {
+			options.Temperature = 0.7 // 默认值
+		}
+		if options.MaxTokens == 0 {
+			options.MaxTokens = 1000 // 默认值
+		}
+		if options.MaxEpisodes == 0 {
+			options.MaxEpisodes = 20 // 默认值
+		}
+
+		// 转换数据格式
+		llmReportData := rg.convertToLLMReportData(reportData)
+
+		// 调用摘要生成器
+		result, err := rg.summarizer.GenerateForReport(llmReportData, workflow.Name, options)
+		if err != nil {
+			log.Printf("⚠️  LLM摘要生成失败 [JobID=%d]: %v", job.ID, err)
+			llmError = err.Error()
+			// 不中断流程，继续生成基础报告
+		} else {
+			llmSummary = result.Summary
+			llmModelUsed = result.ModelUsed
+			llmTokensUsed = result.TokensUsed
+			log.Printf("✅ LLM摘要生成成功 [JobID=%d, Tokens=%d]", job.ID, llmTokensUsed)
+
+			// 将LLM摘要插入到Markdown开头
+			markdown = rg.insertLLMSummary(markdown, llmSummary)
+		}
+	}
+
+	// 6. 创建Report记录
 	matchedCount := rg.countEpisodes(reportData)
 	report := &models.Report{
 		JobID:          job.ID,
@@ -107,6 +163,11 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 		GeneratedAt:    time.Now(),
 		Format:         "markdown",
 		FileSize:       len(markdown),
+		// LLM相关字段
+		LLMSummary:    llmSummary,
+		LLMModelUsed:  llmModelUsed,
+		LLMTokensUsed: llmTokensUsed,
+		LLMError:      llmError,
 	}
 
 	if err := rg.db.Create(report).Error; err != nil {
@@ -324,4 +385,47 @@ func formatTime(t *time.Time) string {
 		return "N/A"
 	}
 	return t.Format("2006-01-02 15:04:05")
+}
+
+// insertLLMSummary 将LLM摘要插入到Markdown开头
+func (rg *ReportGenerator) insertLLMSummary(markdown, llmSummary string) string {
+	var builder strings.Builder
+
+	builder.WriteString("## 🤖 AI智能摘要\n\n")
+	builder.WriteString(llmSummary)
+	builder.WriteString("\n\n---\n\n")
+	builder.WriteString(markdown)
+
+	return builder.String()
+}
+
+// convertToLLMReportData 转换为LLM包所需的数据格式
+func (rg *ReportGenerator) convertToLLMReportData(data []EpisodeReportData) []llm.EpisodeReportData {
+	result := make([]llm.EpisodeReportData, len(data))
+
+	for i, podcast := range data {
+		episodes := make([]llm.EpisodeDetail, len(podcast.Episodes))
+		for j, ep := range podcast.Episodes {
+			episodes[j] = llm.EpisodeDetail{
+				Title:         ep.Title,
+				ShowNotes:     ep.ShowNotes,
+				PublishedDate: ep.PublishedDate,
+				UpdatedDate:   ep.UpdatedDate,
+				EpisodeNo:     ep.EpisodeNo,
+				Link:          ep.Link,
+				XYZID:         ep.XYZID,
+				QRCode:        ep.QRCode,
+				QRCodeError:   ep.QRCodeError,
+			}
+		}
+
+		result[i] = llm.EpisodeReportData{
+			PodcastID:      podcast.PodcastID,
+			PodcastTitle:   podcast.PodcastTitle,
+			PodcastFeedURL: podcast.PodcastFeedURL,
+			Episodes:       episodes,
+		}
+	}
+
+	return result
 }

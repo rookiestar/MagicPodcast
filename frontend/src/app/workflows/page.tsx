@@ -12,6 +12,7 @@ export default function WorkflowsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [editingWorkflow, setEditingWorkflow] = useState<Workflow | null>(null)
   const [triggeringId, setTriggeringId] = useState<number | null>(null)
 
   useEffect(() => {
@@ -60,9 +61,27 @@ export default function WorkflowsPage() {
     }
   }
 
-  const handleEdit = (id: number, e: React.MouseEvent) => {
+  const handleEdit = async (id: number, e: React.MouseEvent) => {
     e.preventDefault()
-    window.location.href = `/workflows/${id}`
+    try {
+      console.log('[Edit] Fetching workflow from API, ID:', id)
+      const latestWorkflow = await workflowApi.get(id)
+      console.log('[Edit] Latest workflow from API:', latestWorkflow)
+      console.log('[Edit] rules_config from API:', latestWorkflow.rules_config)
+      console.log('[Edit] llm_enabled:', latestWorkflow.rules_config?.llm_enabled)
+      setEditingWorkflow(latestWorkflow)
+      setShowCreateModal(true)
+    } catch (err) {
+      console.error('[Edit] Failed to fetch workflow from API:', err)
+      // Fallback to local state
+      const workflow = workflows.find(w => w.id === id)
+      if (workflow) {
+        console.log('[Edit] Using local state fallback:', workflow)
+        console.log('[Edit] Local rules_config:', workflow.rules_config)
+        setEditingWorkflow(workflow)
+        setShowCreateModal(true)
+      }
+    }
   }
 
   const handleDelete = async (id: number) => {
@@ -349,13 +368,18 @@ export default function WorkflowsPage() {
         )}
       </div>
 
-      {/* Create Workflow Modal */}
+      {/* Create/Edit Workflow Modal */}
       <WorkflowFormModal
         isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        workflow={editingWorkflow}
+        onClose={() => {
+          setShowCreateModal(false)
+          setEditingWorkflow(null)
+        }}
         onSuccess={() => {
           fetchWorkflows()
           setShowCreateModal(false)
+          setEditingWorkflow(null)
         }}
       />
     </main>

@@ -84,11 +84,20 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
   const [keywords, setKeywords] = useState('')
   const [excludeWords, setExcludeWords] = useState('')
 
+  // LLM智能摘要配置
+  const [llmEnabled, setLlmEnabled] = useState(false)
+  const [llmMaxEpisodes, setLlmMaxEpisodes] = useState(20)
+  const [llmModel, setLlmModel] = useState('')
+  const [llmTemperature, setLlmTemperature] = useState(0.7)
+  const [llmMaxTokens, setLlmMaxTokens] = useState(1000)
+
   // 初始化表单数据（编辑模式）
   useEffect(() => {
     if (isOpen) {
       if (workflow) {
         // 编辑模式：填充现有数据
+        console.log('[WorkflowFormModal] Loading workflow for edit:', workflow)
+        console.log('[WorkflowFormModal] Workflow rules_config:', workflow.rules_config)
         setName(workflow.name)
         setDescription(workflow.description || '')
 
@@ -121,6 +130,21 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
           setMaxResults(workflow.rules_config.max_results || 0)
           setKeywords(workflow.rules_config.keywords || '')
           setExcludeWords(workflow.rules_config.exclude_words || '')
+
+          // LLM配置 - 添加调试日志
+          console.log('[WorkflowFormModal] Loading LLM config from workflow:', {
+            llm_enabled: workflow.rules_config.llm_enabled,
+            llm_max_episodes: workflow.rules_config.llm_max_episodes,
+            llm_model: workflow.rules_config.llm_model,
+            llm_temperature: workflow.rules_config.llm_temperature,
+            llm_max_tokens: workflow.rules_config.llm_max_tokens,
+          })
+
+          setLlmEnabled(workflow.rules_config.llm_enabled || false)
+          setLlmMaxEpisodes(workflow.rules_config.llm_max_episodes || 20)
+          setLlmModel(workflow.rules_config.llm_model || '')
+          setLlmTemperature(workflow.rules_config.llm_temperature ?? 0.7)
+          setLlmMaxTokens(workflow.rules_config.llm_max_tokens || 1000)
         }
 
         // 编辑模式下，如果是指定节目类型，立即加载podcasts
@@ -153,6 +177,11 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     setMaxResults(0)
     setKeywords('')
     setExcludeWords('')
+    setLlmEnabled(false)
+    setLlmMaxEpisodes(20)
+    setLlmModel('')
+    setLlmTemperature(0.7)
+    setLlmMaxTokens(1000)
     setStep(1)
   }
 
@@ -326,6 +355,12 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         max_results: maxResults || undefined,
         keywords: keywords.trim() || undefined,
         exclude_words: excludeWords.trim() || undefined,
+        // LLM配置 - 只在启用时发送值
+        llm_enabled: llmEnabled,
+        llm_max_episodes: llmEnabled ? llmMaxEpisodes : undefined,
+        llm_model: llmEnabled && llmModel ? llmModel : undefined,
+        llm_temperature: llmEnabled ? llmTemperature : undefined,
+        llm_max_tokens: llmEnabled ? llmMaxTokens : undefined,
       }
 
       // 获取实际使用的cron表达式并转换为6位格式
@@ -352,6 +387,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
       }
 
       console.log('[WorkflowFormModal] Submitting workflow:', data)
+      console.log('[WorkflowFormModal] LLM Config in rules_config:', data.rules_config)
 
       if (workflow) {
         // 编辑模式
@@ -394,6 +430,11 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     setMaxResults(0)
     setKeywords('')
     setExcludeWords('')
+    setLlmEnabled(false)
+    setLlmMaxEpisodes(20)
+    setLlmModel('')
+    setLlmTemperature(0.7)
+    setLlmMaxTokens(1000)
     onClose()
   }
 
@@ -858,6 +899,104 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">排除标题或简介中包含这些词的单集，逗号分隔</p>
                   </div>
                 </div>
+              </div>
+
+              {/* LLM智能摘要配置 */}
+              <div className="mt-6">
+                <div className="flex items-center justify-between mb-4">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={llmEnabled}
+                      onChange={(e) => {
+                        console.log('[LLM Checkbox] Changed to:', e.target.checked)
+                        setLlmEnabled(e.target.checked)
+                      }}
+                      className="w-5 h-5 text-purple-600 border-slate-300 rounded focus:ring-purple-500 focus:ring-2"
+                    />
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                      🤖 用大模型做智能摘要
+                    </span>
+                  </label>
+                  <span className="text-xs text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 px-2 py-1 rounded">
+                    实验性功能
+                  </span>
+                </div>
+
+                {llmEnabled && (
+                  <div className="p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg space-y-4">
+                    <div>
+                      <label className="block text-sm text-slate-700 dark:text-slate-300 mb-1">
+                        单次摘要最大单集数
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={llmMaxEpisodes || ''}
+                        onChange={(e) => setLlmMaxEpisodes(parseInt(e.target.value) || 20)}
+                        placeholder="20"
+                        className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                      />
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        当匹配单集数超过此值时，将采样部分单集生成摘要（1-100，默认20）
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-slate-700 dark:text-slate-300 mb-1">
+                        LLM模型（可选）
+                      </label>
+                      <input
+                        type="text"
+                        value={llmModel}
+                        onChange={(e) => setLlmModel(e.target.value)}
+                        placeholder="留空使用默认模型"
+                        className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                      />
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        覆盖默认模型（如 Qwen/Qwen2.5-7B-Instruct），留空使用系统默认
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-slate-700 dark:text-slate-300 mb-1">
+                        创造性参数: {llmTemperature.toFixed(1)}
+                      </label>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.1}
+                        value={llmTemperature}
+                        onChange={(e) => setLlmTemperature(parseFloat(e.target.value))}
+                        className="w-full"
+                      />
+                      <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        <span>更确定</span>
+                        <span>更创造</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-slate-700 dark:text-slate-300 mb-1">
+                        最大生成Token数
+                      </label>
+                      <input
+                        type="number"
+                        min={100}
+                        max={4000}
+                        value={llmMaxTokens || ''}
+                        onChange={(e) => setLlmMaxTokens(parseInt(e.target.value) || 1000)}
+                        placeholder="1000"
+                        className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                      />
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        控制摘要的最大长度（100-4000，默认1000）
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">

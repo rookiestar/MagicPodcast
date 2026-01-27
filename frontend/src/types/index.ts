@@ -156,6 +156,13 @@ export interface RulesConfig {
   max_results?: number        // 最大结果数，0表示不限制
   keywords?: string           // 关键词过滤（逗号分隔）
   exclude_words?: string      // 排除词（逗号分隔）
+
+  // LLM智能摘要配置
+  llm_enabled?: boolean        // 是否启用LLM摘要
+  llm_max_episodes?: number     // 单次摘要最大单集数（默认20）
+  llm_model?: string           // 模型名称（可选，覆盖默认配置）
+  llm_temperature?: number     // 温度参数（0.0-1.0，默认0.7）
+  llm_max_tokens?: number       // 最大生成token数（默认1000）
 }
 
 export interface Report {
@@ -173,6 +180,12 @@ export interface Report {
   generated_at: string
   format: string
   file_size: number
+
+  // LLM相关字段
+  llm_summary?: string         // LLM生成的摘要
+  llm_model_used?: string      // 使用的模型名称
+  llm_tokens_used?: number     // 使用的token数量
+  llm_error?: string           // LLM错误信息（如果生成失败）
 }
 
 export interface Workflow {

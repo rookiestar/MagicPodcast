@@ -18,6 +18,7 @@ type Config struct {
 	Search       SearchConfig       `mapstructure:"search"`
 	User         UserConfig         `mapstructure:"user"`
 	Email        EmailConfig        `mapstructure:"email"`
+	LLM          LLMConfig          `mapstructure:"llm"`
 }
 
 // ServerConfig 服务器配置
@@ -99,6 +100,31 @@ type EmailConfig struct {
 	From     string `mapstructure:"from"`      // 发件人显示名称
 	To       string `mapstructure:"to"`        // 收件邮箱地址
 	UseTLS   bool   `mapstructure:"use_tls"`  // 是否使用TLS
+}
+
+// LLMProvider LLM提供商类型
+type LLMProvider string
+
+const (
+	LLMProviderSiliconFlow LLMProvider = "siliconflow"
+	LLMProviderOpenAI      LLMProvider = "openai"
+	LLMProviderAnthropic   LLMProvider = "anthropic"
+)
+
+// LLMConfig LLM配置
+type LLMConfig struct {
+	Enabled             bool        `mapstructure:"enabled"`
+	Provider            LLMProvider `mapstructure:"provider"`
+	APIKey              string      `mapstructure:"api_key"`
+	BaseURL             string      `mapstructure:"base_url"`
+	DefaultModel        string      `mapstructure:"default_model"`
+	Timeout             int         `mapstructure:"timeout"`
+	MaxRetries          int         `mapstructure:"max_retries"`
+	RetryInterval       int         `mapstructure:"retry_interval"`
+	MaxConcurrent       int         `mapstructure:"max_concurrent"`
+	RateLimitPerMinute  int         `mapstructure:"rate_limit_per_minute"`
+	MaxTokensPerRequest int         `mapstructure:"max_tokens_per_request"`
+	PromptsDir          string      `mapstructure:"prompts_dir"` // Prompt模板目录
 }
 
 // SearchWeights 搜索字段权重

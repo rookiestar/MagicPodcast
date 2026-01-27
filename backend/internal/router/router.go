@@ -6,6 +6,7 @@ import (
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/handlers"
+	"magicpodcast/internal/llm"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/notifier"
 	"magicpodcast/internal/scheduler"
@@ -17,6 +18,9 @@ import (
 
 // 全局scheduler实例
 var globalScheduler *scheduler.Scheduler
+
+// 全局PromptManager实例（用于Prompt模板API）
+var globalPromptManager *llm.PromptManager
 
 // SetupRouter 配置并返回路由器
 func SetupRouter() *gin.Engine {
@@ -139,7 +143,18 @@ func SetupRouter() *gin.Engine {
 			log.Println("📧 邮件通知未启用")
 		}
 
-		workflowExecutor := workflow.NewExecutor(db, syncService, emailNotifier)
+		// 初始化LLM客户端和摘要生成器
+		var summarizer workflow.SummarizerInterface
+		if cfg.LLM.Enabled {
+			llmClient := llm.NewClient(&cfg.LLM)
+			globalPromptManager = llm.NewPromptManager(cfg.LLM.PromptsDir)
+			summarizer = llm.NewSummarizer(llmClient, globalPromptManager)
+			log.Printf("✅ LLM客户端初始化成功 (Model: %s)", cfg.LLM.DefaultModel)
+		} else {
+			log.Println("ℹ️  LLM功能未启用")
+		}
+
+		workflowExecutor := workflow.NewExecutor(db, syncService, emailNotifier, summarizer)
 
 		// 创建全局scheduler实例
 		globalScheduler = scheduler.NewScheduler(db, workflowExecutor)
@@ -169,6 +184,27 @@ func SetupRouter() *gin.Engine {
 			schedulers.GET("/status", schedulerHandler.GetStatus)
 			schedulers.POST("/workflows/:id/pause", schedulerHandler.PauseWorkflow)
 			schedulers.POST("/workflows/:id/resume", schedulerHandler.ResumeWorkflow)
+		}
+
+		// LLM统计路由
+		if globalPromptManager != nil {
+			llmStatsHandler := handlers.NewLLMStatsHandler()
+			llmStats := v1.Group("/llm")
+			{
+				llmStats.GET("/stats", llmStatsHandler.GetGlobalLLMStats)
+			}
+
+			// Prompt模板路由
+			promptTemplateHandler := handlers.NewPromptTemplateHandler(globalPromptManager)
+			promptTemplates := v1.Group("/prompt-templates")
+			{
+				promptTemplates.GET("", promptTemplateHandler.ListTemplates)
+				promptTemplates.GET("/:name", promptTemplateHandler.GetTemplate)
+				promptTemplates.POST("", promptTemplateHandler.CreateTemplate)
+				promptTemplates.PUT("/:name", promptTemplateHandler.UpdateTemplate)
+				promptTemplates.DELETE("/:name", promptTemplateHandler.DeleteTemplate)
+				promptTemplates.POST("/:name/reset", promptTemplateHandler.ResetTemplate)
+			}
 		}
 	}
 

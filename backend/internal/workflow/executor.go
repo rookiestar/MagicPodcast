@@ -17,17 +17,19 @@ import (
 
 // Executor 工作流执行器
 type Executor struct {
-	db       *gorm.DB
-	syncSvc  *syncsvc.Service
-	notifier *notifier.EmailNotifier
+	db         *gorm.DB
+	syncSvc    *syncsvc.Service
+	notifier   *notifier.EmailNotifier
+	summarizer SummarizerInterface
 }
 
 // NewExecutor 创建执行器
-func NewExecutor(db *gorm.DB, syncSvc *syncsvc.Service, emailNotifier *notifier.EmailNotifier) *Executor {
+func NewExecutor(db *gorm.DB, syncSvc *syncsvc.Service, emailNotifier *notifier.EmailNotifier, summarizer SummarizerInterface) *Executor {
 	return &Executor{
-		db:       db,
-		syncSvc:  syncSvc,
-		notifier: emailNotifier,
+		db:         db,
+		syncSvc:    syncSvc,
+		notifier:   emailNotifier,
+		summarizer: summarizer,
 	}
 }
 
@@ -393,7 +395,7 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 
 	// ⭐ 异步生成执行报告并发送邮件通知（避免阻塞Job完成）
 	go func() {
-		reportGen := NewReportGenerator(e.db)
+		reportGen := NewReportGenerator(e.db, e.summarizer)
 		report, err := reportGen.GenerateForJob(job)
 		if err != nil {
 			log.Printf("❌ 生成报告失败 [JobID=%d]: %v", job.ID, err)

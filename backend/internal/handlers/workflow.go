@@ -283,6 +283,23 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// 验证规则配置（包括LLM参数）
+	log.Printf("[Create] Received LLM config: enabled=%v, max_episodes=%d, model=%s",
+		req.RulesConfig.LLMEnabled,
+		req.RulesConfig.LLMMaxEpisodes,
+		req.RulesConfig.LLMModel)
+
+	if err := validateRulesConfig(req.RulesConfig); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INVALID_RULES",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
 	workflow := models.Workflow{
 		Name:        req.Name,
 		Description: req.Description,
@@ -387,12 +404,37 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 		return
 	}
 
+	// 验证规则配置（包括LLM参数）
+	log.Printf("[Update] Received LLM config: enabled=%v, max_episodes=%d, model=%s",
+		req.RulesConfig.LLMEnabled,
+		req.RulesConfig.LLMMaxEpisodes,
+		req.RulesConfig.LLMModel)
+
+	if err := validateRulesConfig(req.RulesConfig); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INVALID_RULES",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
 	workflow.Name = req.Name
 	workflow.Description = req.Description
 	workflow.Schedule = req.Schedule
 	workflow.ScopeType = req.ScopeType
 	workflow.ScopeConfig = req.ScopeConfig
+
+	// 打印调试信息
+	log.Printf("[Update] Original RulesConfig from DB: %+v", workflow.RulesConfig)
+	log.Printf("[Update] New RulesConfig from request: %+v", req.RulesConfig)
+
 	workflow.RulesConfig = req.RulesConfig
+
+	log.Printf("[Update] Workflow RulesConfig after assignment: %+v", workflow.RulesConfig)
+
 	workflow.IsEnabled = req.IsEnabled
 
 	// 如果工作流启用且配置了schedule，计算并更新下次执行时间
@@ -406,7 +448,22 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 		}
 	}
 
-	if err := db.Save(&workflow).Error; err != nil {
+	// 使用Updates而不是Save，明确指定要更新的字段
+	updates := map[string]interface{}{
+		"name":         workflow.Name,
+		"description":  workflow.Description,
+		"schedule":     workflow.Schedule,
+		"scope_type":   workflow.ScopeType,
+		"scope_config": workflow.ScopeConfig,
+		"rules_config": workflow.RulesConfig,
+		"is_enabled":   workflow.IsEnabled,
+	}
+
+	if workflow.NextRunAt != nil {
+		updates["next_run_at"] = workflow.NextRunAt
+	}
+
+	if err := db.Model(&models.Workflow{}).Where("id = ?", workflow.ID).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -929,5 +986,28 @@ func validateScopeConfig(scopeType models.WorkflowScopeType, config models.Scope
 	case models.ScopeTypeAllSubscribed:
 		// 不需要额外验证
 	}
+	return nil
+}
+
+// validateRulesConfig 验证规则配置（包括LLM参数）
+func validateRulesConfig(config models.RulesConfig) error {
+	// 如果启用LLM，验证相关参数
+	if config.LLMEnabled {
+		// 验证temperature范围
+		if config.LLMTemperature < 0 || config.LLMTemperature > 1.0 {
+			return fmt.Errorf("llm_temperature必须在0.0-1.0之间")
+		}
+
+		// 验证max_tokens
+		if config.LLMMaxTokens < 100 || config.LLMMaxTokens > 4000 {
+			return fmt.Errorf("llm_max_tokens必须在100-4000之间")
+		}
+
+		// 验证max_episodes
+		if config.LLMMaxEpisodes < 1 || config.LLMMaxEpisodes > 100 {
+			return fmt.Errorf("llm_max_episodes必须在1-100之间")
+		}
+	}
+
 	return nil
 }
