@@ -161,7 +161,7 @@ llm:
   base_url: "https://api.siliconflow.cn/v1"
 
   # 默认模型
-  default_model: "Qwen/Qwen2.5-7B-Instruct"
+  default_model: "THUDM/GLM-4-32B-0414"
 
   # 请求超时（秒）
   timeout: 60

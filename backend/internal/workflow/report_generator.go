@@ -107,10 +107,14 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 	var llmModelUsed string
 	var llmTokensUsed int
 
-	log.Printf("[ReportGenerator] LLMEnabled=%v, SummarizerNil=%v",
-		workflow.RulesConfig.LLMEnabled, rg.summarizer == nil)
+	log.Printf("[ReportGenerator] LLMEnabled=%v, SummarizerNil=%v, MatchedEpisodes=%d",
+		workflow.RulesConfig.LLMEnabled, rg.summarizer == nil, len(reportData))
 
-	if workflow.RulesConfig.LLMEnabled && rg.summarizer != nil {
+	// 优化：如果没有匹配的单集，跳过LLM摘要生成，不设置任何LLM字段
+	if len(reportData) == 0 {
+		log.Printf("⏭️  [JobID=%d] 没有匹配的单集，跳过LLM摘要生成（不显示AI相关内容）", job.ID)
+		// 不设置任何LLM字段，让前端完全不显示AI相关信息
+	} else if workflow.RulesConfig.LLMEnabled && rg.summarizer != nil {
 		log.Printf("🤖 开始生成LLM摘要 [JobID=%d]", job.ID)
 		log.Printf("  - Summarizer type: %T", rg.summarizer)
 
