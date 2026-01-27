@@ -148,11 +148,34 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 		}
 	}
 
-	// 6. 更新podcast的最后抓取时间
+	// 6. 更新podcast的最后抓取时间和最新单集日期
 	now := time.Now()
 	podcast.LastFetchedAt = &now
+
+	// 6.1 如果有新episode创建或更新，重新计算并更新newest_episode_date
+	if result.Created > 0 || result.Updated > 0 {
+		// 从该podcast的所有episodes中查找最新发布日期
+		var newestEpisode models.Episode
+		if err := s.db.Where("podcast_id = ?", podcast.ID).
+			Select("published_date, updated_date").
+			Order("COALESCE(updated_date, published_date) DESC").
+			First(&newestEpisode).Error; err == nil {
+
+			// 更新newest_episode_date（优先使用updated_date，其次published_date）
+			if newestEpisode.UpdatedDate != nil && !newestEpisode.UpdatedDate.IsZero() {
+				podcast.NewestEpisodeDate = *newestEpisode.UpdatedDate
+			} else if !newestEpisode.PublishedDate.IsZero() {
+				podcast.NewestEpisodeDate = newestEpisode.PublishedDate
+			}
+
+			log.Printf("   📅 更新newest_episode_date: %s", podcast.NewestEpisodeDate.Format("2006-01-02 15:04:05"))
+		} else {
+			log.Printf("   ⚠️  查询最新episode失败，无法更新newest_episode_date: %v", err)
+		}
+	}
+
 	if err := s.db.Save(&podcast).Error; err != nil {
-		log.Printf("   ⚠️  更新podcast最后抓取时间失败: %v", err)
+		log.Printf("   ⚠️  更新podcast元数据失败: %v", err)
 	}
 
 	log.Printf("✅ 同步完成: %s - 新增: %d, 更新: %d, 跳过: %d, 错误: %d",
