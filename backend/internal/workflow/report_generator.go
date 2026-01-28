@@ -76,7 +76,7 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 	// 判断触发模式：根据job的triggered_by字段判断
 	if job.TriggeredBy == "cron" {
 		timeRangeMode = utils.TimeRangeModeDaily
-		timeRangeDays = 0 // daily模式不使用days参数
+		timeRangeDays = workflow.RulesConfig.TimeRange // 使用配置的时间范围
 	} else {
 		timeRangeMode = utils.TimeRangeModeManual
 		timeRangeDays = workflow.RulesConfig.TimeRange
