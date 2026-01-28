@@ -432,16 +432,47 @@ func (rg *ReportGenerator) formatTimeWindow(start, end time.Time) string {
 	return fmt.Sprintf("%d分钟", minutes)
 }
 
-// insertLLMSummary 将LLM摘要插入到Markdown开头
+// insertLLMSummary 将LLM摘要插入到标题之后、元数据卡片之前
 func (rg *ReportGenerator) insertLLMSummary(markdown, llmSummary string) string {
-	var builder strings.Builder
+	// markdown格式：
+	// # 标题 - 时间\n\n
+	// > 元数据卡片\n\n
+	// ---\n\n
+	// ## 单集详情\n\n
+	//
+	// 我们需要在标题和元数据卡片之间插入AI摘要
 
-	builder.WriteString("## 🤖 AI智能摘要\n\n")
-	builder.WriteString(llmSummary)
-	builder.WriteString("\n\n---\n\n")
-	builder.WriteString(markdown)
+	lines := strings.Split(markdown, "\n")
+	var result strings.Builder
+	inserted := false
 
-	return builder.String()
+	for i, line := range lines {
+		// 第一行是标题（# 标题 - 时间）
+		if i == 0 {
+			result.WriteString(line)
+			result.WriteString("\n\n")
+			// 在标题之后插入AI摘要
+			result.WriteString("## 🤖 AI智能摘要\n\n")
+			result.WriteString(llmSummary)
+			result.WriteString("\n\n---\n\n")
+			inserted = true
+		} else {
+			result.WriteString(line)
+			result.WriteString("\n")
+		}
+	}
+
+	if !inserted {
+		// 如果没有找到标题，fallback到原来的逻辑（追加到开头）
+		var builder strings.Builder
+		builder.WriteString("## 🤖 AI智能摘要\n\n")
+		builder.WriteString(llmSummary)
+		builder.WriteString("\n\n---\n\n")
+		builder.WriteString(markdown)
+		return builder.String()
+	}
+
+	return result.String()
 }
 
 // convertToLLMReportData 转换为LLM包所需的数据格式
