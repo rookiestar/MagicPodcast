@@ -32,21 +32,52 @@ func NewImageHandler() *ImageHandler {
 			},
 		},
 		allowedHosts: []string{
+			// 小宇宙相关域名
 			"i.typlog.com",
 			"typlog.com",
 			"image.xyzcdn.net",
+			"bts-image.xyzcdn.net",
+
+			// 中文播客平台
 			"fdfs.xmcdn.com",
 			"cdn.lizhi.fm",
+			"cdn.vistopia.com.cn",
+			"cdn5.vistopia.com.cn",
+			"radio-res.cgtn.com",
+
+			// 国际播客托管平台
+			"storage.buzzsprout.com",
+			"content.production.cdn.art19.com",
+			"img.transistorcdn.com",
+			"megaphone.imgix.net",
+			"media.redcircle.com",
+			"media24.fireside.fm",
+			"media.wavpub.com",
+			"media.smfm2016.com",
+			"pan.icu",
+			"s.anyway.red",
+			"cdn.justinbot.com",
+
+			// 独立播客域名
+			"lexfridman.com",
+			"crazy.capital",
+			"host.podapi.xyz",
+			"assets.pippa.io",
+
+			// CDN域名
+			"d3t3ozftmdmh3i.cloudfront.net",
+
+			// Apple Podcasts (iTunes) 域名
 			"is1-ssl.mzstatic.com",
 			"is2-ssl.mzstatic.com",
 			"is3-ssl.mzstatic.com",
 			"is4-ssl.mzstatic.com",
 			"is5-ssl.mzstatic.com",
-			"a5.mzstatic.com",
 			"a1.mzstatic.com",
 			"a2.mzstatic.com",
 			"a3.mzstatic.com",
 			"a4.mzstatic.com",
+			"a5.mzstatic.com",
 		},
 	}
 }

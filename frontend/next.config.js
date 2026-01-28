@@ -18,8 +18,32 @@ const nextConfig = {
       'i.typlog.com',
       'typlog.com',
       'image.xyzcdn.net',
+      'bts-image.xyzcdn.net',
+      // 中文播客平台
       'fdfs.xmcdn.com',
       'cdn.lizhi.fm',
+      'cdn.vistopia.com.cn',
+      'cdn5.vistopia.com.cn',
+      'radio-res.cgtn.com',
+      // 国际播客托管平台
+      'storage.buzzsprout.com',
+      'content.production.cdn.art19.com',
+      'img.transistorcdn.com',
+      'megaphone.imgix.net',
+      'media.redcircle.com',
+      'media24.fireside.fm',
+      'media.wavpub.com',
+      'media.smfm2016.com',
+      'pan.icu',
+      's.anyway.red',
+      'cdn.justinbot.com',
+      // 独立播客域名
+      'lexfridman.com',
+      'crazy.capital',
+      'host.podapi.xyz',
+      'assets.pippa.io',
+      // CDN域名
+      'd3t3ozftmdmh3i.cloudfront.net',
       // Apple Podcasts (iTunes) 域名
       'is1-ssl.mzstatic.com',
       'is2-ssl.mzstatic.com',
