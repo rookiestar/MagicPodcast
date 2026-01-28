@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { workflowApi, podcastApi } from '@/lib/api'
 import type { WorkflowRequest, WorkflowScopeType, ScopeConfig, RulesConfig, Podcast, Workflow } from '@/types'
 
-type Step = 1 | 2 | 3
+type Step = 1 | 2 | 3 | 4
 
 interface WorkflowFormModalProps {
   isOpen: boolean
@@ -304,7 +304,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
       await loadPodcasts()
     }
 
-    if (step < 3) {
+    if (step < 4) {
       setStep((step + 1) as Step)
     } else {
       await handleSubmit()
@@ -461,7 +461,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         <div className="border-b border-slate-200 dark:border-slate-700 p-6">
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-50">
-              {workflow ? '编辑工作流' : '创建工作流'} ({step}/3)
+              {workflow ? '编辑工作流' : '创建工作流'} ({step}/4)
             </h2>
             <button
               onClick={handleClose}
@@ -475,6 +475,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
             <div className={`flex-1 h-1 rounded ${step >= 1 ? 'bg-blue-600' : 'bg-slate-200 dark:bg-slate-700'}`} />
             <div className={`flex-1 h-1 rounded ${step >= 2 ? 'bg-blue-600' : 'bg-slate-200 dark:bg-slate-700'}`} />
             <div className={`flex-1 h-1 rounded ${step >= 3 ? 'bg-blue-600' : 'bg-slate-200 dark:bg-slate-700'}`} />
+            <div className={`flex-1 h-1 rounded ${step >= 4 ? 'bg-blue-600' : 'bg-slate-200 dark:bg-slate-700'}`} />
           </div>
         </div>
 
@@ -901,32 +902,48 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                 </div>
               </div>
 
-              {/* LLM智能摘要配置 */}
-              <div className="mt-6">
-                <div className="flex items-center justify-between mb-4">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={llmEnabled}
-                      onChange={(e) => {
-                        console.log('[LLM Checkbox] Changed to:', e.target.checked)
-                        setLlmEnabled(e.target.checked)
-                      }}
-                      className="w-5 h-5 text-purple-600 border-slate-300 rounded focus:ring-purple-500 focus:ring-2"
-                    />
-                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                      🤖 用大模型做智能摘要
-                    </span>
+              <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  ℹ️ 下一步可配置大模型智能摘要（可选功能）
+                </p>
+              </div>
+            </div>
+          )}
+
+          {step === 4 && (
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-4">
+                  🤖 大模型智能摘要 (可选)
+                </label>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                  启用后将使用大模型为抓取的单集生成智能摘要，帮助你快速了解内容要点
+                </p>
+
+                <div className="flex items-center gap-3 mb-6 p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                  <input
+                    type="checkbox"
+                    id="llm-enable"
+                    checked={llmEnabled}
+                    onChange={(e) => {
+                      console.log('[LLM Checkbox] Changed to:', e.target.checked)
+                      setLlmEnabled(e.target.checked)
+                    }}
+                    className="w-5 h-5 text-purple-600 border-slate-300 rounded focus:ring-purple-500 focus:ring-2"
+                  />
+                  <label htmlFor="llm-enable" className="flex-1 cursor-pointer">
+                    <div className="font-medium text-slate-900 dark:text-slate-50">启用智能摘要</div>
+                    <div className="text-sm text-slate-600 dark:text-slate-400">自动为抓取的单集生成AI摘要</div>
                   </label>
-                  <span className="text-xs text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 px-2 py-1 rounded">
+                  <span className="text-xs text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-900/30 px-2 py-1 rounded">
                     实验性功能
                   </span>
                 </div>
 
                 {llmEnabled && (
-                  <div className="p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg space-y-4">
+                  <div className="p-5 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg space-y-5">
                     <div>
-                      <label className="block text-sm text-slate-700 dark:text-slate-300 mb-1">
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                         单次摘要最大单集数
                       </label>
                       <input
@@ -944,7 +961,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                     </div>
 
                     <div>
-                      <label className="block text-sm text-slate-700 dark:text-slate-300 mb-1">
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                         LLM模型（可选）
                       </label>
                       <input
@@ -960,7 +977,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                     </div>
 
                     <div>
-                      <label className="block text-sm text-slate-700 dark:text-slate-300 mb-1">
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                         创造性参数: {llmTemperature.toFixed(1)}
                       </label>
                       <input
@@ -979,7 +996,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                     </div>
 
                     <div>
-                      <label className="block text-sm text-slate-700 dark:text-slate-300 mb-1">
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                         最大生成Token数
                       </label>
                       <input
@@ -999,9 +1016,9 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                 )}
               </div>
 
-              <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                <p className="text-sm text-blue-800 dark:text-blue-200">
-                  ✓ 创建后将自动启用调度（根据设置的定时规则运行）
+              <div className="mt-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                <p className="text-sm text-green-800 dark:text-green-200">
+                  ✓ 点击"创建"后将自动启用调度（根据设置的定时规则运行）
                 </p>
               </div>
             </div>
@@ -1030,7 +1047,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
               disabled={loading}
               className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {loading ? '处理中...' : step === 3 ? (workflow ? '保存' : '创建') : '下一步'}
+              {loading ? '处理中...' : step === 4 ? (workflow ? '保存' : '创建') : '下一步'}
             </button>
           </div>
         </div>
