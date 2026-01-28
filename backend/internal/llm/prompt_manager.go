@@ -218,7 +218,11 @@ func (m *PromptManager) ResetToDefault(name string) error {
 ## 💡 关键洞察
 提炼3-5个关键主题或趋势，指出值得关注的亮点
 
-请用简洁专业的语言生成摘要，避免过度解读。
+**格式要求**：
+1. 使用紧凑的列表格式，bullet point（-）或数字序号后直接跟内容，不要换行
+2. 列表项之间保持一个换行即可
+3. 避免连续的多个空行
+4. 用简洁专业的语言生成摘要，避免过度解读
 `
 
 	return m.SaveTemplate(name, defaultContent)

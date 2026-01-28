@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -251,9 +252,12 @@ func (c *Client) GenerateSummary(ctx context.Context, prompt string, options Sum
 	// 更新统计
 	c.updateStats(chatResp.Usage.TotalTokens)
 
+	// 格式化摘要（清理多余换行）
+	formattedSummary := formatSummary(chatResp.Choices[0].Message.Content)
+
 	// 构建结果
 	result := &SummaryResult{
-		Summary:      chatResp.Choices[0].Message.Content,
+		Summary:      formattedSummary,
 		ModelUsed:    chatResp.Model,
 		TokensUsed:   chatResp.Usage.TotalTokens,
 		PromptTokens: chatResp.Usage.PromptTokens,
@@ -309,4 +313,50 @@ func (c *Client) GetStats() UsageStats {
 	c.statsMutex.Lock()
 	defer c.statsMutex.Unlock()
 	return c.stats
+}
+
+// formatSummary 格式化摘要内容，去除列表项后的多余换行
+func formatSummary(summary string) string {
+	lines := strings.Split(summary, "\n")
+	result := make([]string, 0, len(lines))
+	inList := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// 跳过空行
+		if trimmed == "" {
+			inList = false
+			continue
+		}
+
+		// 检测列表项
+		isListItem := false
+		runes := []rune(trimmed)
+		if len(runes) > 0 {
+			first := runes[0]
+			// Bullet point: -, *, •
+			if first == '-' || first == '*' || first == '•' {
+				isListItem = true
+			}
+			// 数字序号: 1. 2. 3. 等
+			if first >= '0' && first <= '9' && len(runes) > 1 && runes[1] == '.' {
+				isListItem = true
+			}
+		}
+
+		// 如果是连续的列表项，紧凑排列
+		if isListItem || inList {
+			result = append(result, line)
+			inList = isListItem
+		} else {
+			// 非列表项之间添加空行
+			if len(result) > 0 {
+				result = append(result, "")
+			}
+			result = append(result, line)
+		}
+	}
+
+	return strings.Join(result, "\n")
 }
