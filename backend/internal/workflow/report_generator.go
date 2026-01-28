@@ -294,23 +294,27 @@ func (rg *ReportGenerator) collectMatchedEpisodes(job *models.Job, timeRangeStar
 func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeReportData, timeRangeStart, timeRangeEnd time.Time, timeRangeMode string, workflowName string) string {
 	var builder strings.Builder
 
-	// 报告标题
-	builder.WriteString(fmt.Sprintf("# %s - %s\n\n", workflowName, job.CreatedAt.Format("2006-01-02 15:04:05")))
+	// 报告标题（简化时间格式：只到分钟）
+	builder.WriteString(fmt.Sprintf("# %s - %s\n\n", workflowName, job.CreatedAt.Format("2006-01-02 15:04")))
 
-	// 时间范围信息
-	builder.WriteString("## ⏱️ 时间范围\n\n")
-	modeDesc := "手动触发"
-	if timeRangeMode == "daily" {
-		modeDesc = "自动定时"
-	}
-	builder.WriteString(fmt.Sprintf("- **触发模式**: %s\n", modeDesc))
-	builder.WriteString(fmt.Sprintf("- **时间窗口**: %s 至 %s\n\n",
-		timeRangeStart.Format("2006-01-02 15:04:05"),
-		timeRangeEnd.Format("2006-01-02 15:04:05")))
+	// 紧凑元数据卡片（引用块）
+	totalEpisodes := rg.countEpisodes(data)
+	timeWindowDesc := rg.formatTimeWindow(timeRangeStart, timeRangeEnd)
+
+	builder.WriteString(fmt.Sprintf(
+		"> **🕐 执行**: %s | **⏱️ 窗口**: %s (%s) | **📊 统计**: %d节目/%d单集\n\n",
+		job.CreatedAt.Format("2006-01-02 15:04:05"),
+		timeWindowDesc,
+		job.TriggeredBy, // 显示触发模式
+		len(data),
+		totalEpisodes,
+	))
+
+	builder.WriteString("---\n\n")
 
 	// 按播客分组
 	if len(data) > 0 {
-		builder.WriteString("## 📝 单集简介\n\n")
+		builder.WriteString("## 📝 单集详情\n\n")
 
 		for _, podcast := range data {
 			// 节目名称
@@ -356,7 +360,7 @@ func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeRepor
 			}
 		}
 	} else {
-		builder.WriteString("## 📝 单集简介\n\n")
+		builder.WriteString("## 📝 单集详情\n\n")
 		builder.WriteString("本次执行在指定时间窗口内未匹配到单集内容。\n")
 	}
 
@@ -403,6 +407,29 @@ func formatTime(t *time.Time) string {
 		return "N/A"
 	}
 	return t.Format("2006-01-02 15:04:05")
+}
+
+// formatTimeWindow 格式化时间窗口为人类可读的描述
+func (rg *ReportGenerator) formatTimeWindow(start, end time.Time) string {
+	duration := end.Sub(start)
+
+	days := int(duration.Hours() / 24)
+	hours := int(duration.Hours()) % 24
+
+	if days > 0 {
+		if hours > 0 {
+			return fmt.Sprintf("%d天%d小时", days, hours)
+		}
+		return fmt.Sprintf("%d天", days)
+	}
+
+	hours = int(duration.Hours())
+	if hours > 0 {
+		return fmt.Sprintf("%d小时", hours)
+	}
+
+	minutes := int(duration.Minutes())
+	return fmt.Sprintf("%d分钟", minutes)
 }
 
 // insertLLMSummary 将LLM摘要插入到Markdown开头
