@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { workflowApi, podcastApi } from '@/lib/api'
-import type { WorkflowRequest, WorkflowScopeType, ScopeConfig, RulesConfig, Podcast, Workflow } from '@/types'
+import { workflowApi, podcastApi, tagApi } from '@/lib/api'
+import type { WorkflowRequest, WorkflowScopeType, ScopeConfig, RulesConfig, Podcast, Workflow, Tag } from '@/types'
 
 type Step = 1 | 2 | 3 | 4
 
@@ -77,6 +77,13 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
   const [candidatePodcastIds, setCandidatePodcastIds] = useState<number[]>([]) // 备选列表中的节目ID
   const [isLoadingPodcasts, setIsLoadingPodcasts] = useState(false) // 加载状态
 
+  // 标签筛选相关状态
+  const [tags, setTags] = useState<Tag[]>([])
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
+  const [tagSearch, setTagSearch] = useState('')
+  const [isTagFilterExpanded, setIsTagFilterExpanded] = useState(false)
+  const [isLoadingTags, setIsLoadingTags] = useState(false)
+
   // Step 3: 规则配置
   const [timeRange, setTimeRange] = useState(0)
   const [minDuration, setMinDuration] = useState(0)
@@ -94,6 +101,11 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
   // 初始化表单数据（编辑模式）
   useEffect(() => {
     if (isOpen) {
+      // 加载标签（仅在标签列表为空时加载一次）
+      if (tags.length === 0) {
+        loadTags()
+      }
+
       if (workflow) {
         // 编辑模式：填充现有数据
         console.log('[WorkflowFormModal] Loading workflow for edit:', workflow)
@@ -171,7 +183,11 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     setCandidatePodcastIds([])
     setCustomUrls([])
     setNewCustomUrl('')
+    setPodcasts([])
     setPodcastSearch('')
+    setSelectedTagIds([])
+    setTagSearch('')
+    setIsTagFilterExpanded(false)
     setTimeRange(0)
     setMinDuration(0)
     setMaxResults(0)
@@ -223,6 +239,21 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
       alert('加载节目失败: ' + (err instanceof Error ? err.message : '未知错误'))
     } finally {
       setIsLoadingPodcasts(false)
+    }
+  }
+
+  // 加载标签列表
+  const loadTags = async () => {
+    try {
+      setIsLoadingTags(true)
+      console.log('[CreateWorkflowModal] Loading tags...')
+      const allTags = await tagApi.list()
+      console.log('[CreateWorkflowModal] Tags loaded:', allTags.length)
+      setTags(allTags)
+    } catch (err) {
+      console.error('[CreateWorkflowModal] Failed to load tags:', err)
+    } finally {
+      setIsLoadingTags(false)
     }
   }
 
@@ -425,6 +456,9 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     setNewCustomUrl('')
     setPodcasts([])
     setPodcastSearch('')
+    setSelectedTagIds([])
+    setTagSearch('')
+    setIsTagFilterExpanded(false)
     setTimeRange(0)
     setMinDuration(0)
     setMaxResults(0)
@@ -438,8 +472,16 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     onClose()
   }
 
-  // 过滤播客列表
+  // 过滤播客列表（支持搜索和标签筛选）
   const filteredPodcasts = podcasts.filter(p => {
+    // 标签筛选（AND逻辑：必须包含所有选中的标签）
+    if (selectedTagIds.length > 0) {
+      const podcastTagIds = p.tags?.map(t => t.id) || []
+      const hasAllTags = selectedTagIds.every(tagId => podcastTagIds.includes(tagId))
+      if (!hasAllTags) return false
+    }
+
+    // 搜索筛选
     if (!podcastSearch.trim()) return true
 
     const searchLower = podcastSearch.toLowerCase().trim()
@@ -609,6 +651,129 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                               <span>正在加载节目数据...</span>
                             </div>
                           )}
+
+                          {/* 可折叠标签栏 */}
+                          <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+                            {/* 折叠状态的控制栏 */}
+                            <div
+                              className="flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-900 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                              onClick={() => setIsTagFilterExpanded(!isTagFilterExpanded)}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm">🏷️</span>
+                                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">按标签筛选</span>
+                                {selectedTagIds.length > 0 && (
+                                  <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">
+                                    已选: {selectedTagIds.length}个
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {selectedTagIds.length > 0 && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setSelectedTagIds([])
+                                    }}
+                                    className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20"
+                                  >
+                                    清除
+                                  </button>
+                                )}
+                                <span className="text-slate-500 dark:text-slate-400">
+                                  {isTagFilterExpanded ? '▲' : '▼'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* 展开状态的内容 */}
+                            {isTagFilterExpanded && (
+                              <div className="p-3 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                                {/* 标签搜索框 */}
+                                <div className="relative mb-3">
+                                  <input
+                                    type="text"
+                                    value={tagSearch}
+                                    onChange={(e) => setTagSearch(e.target.value)}
+                                    placeholder="搜索标签..."
+                                    disabled={isLoadingTags}
+                                    className="w-full px-3 py-2 pr-8 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-sm disabled:opacity-50"
+                                  />
+                                  {tagSearch && !isLoadingTags && (
+                                    <button
+                                      onClick={() => setTagSearch('')}
+                                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                    >
+                                      ✕
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* 标签列表 */}
+                                <div className="max-h-60 overflow-y-auto">
+                                  {isLoadingTags ? (
+                                    <div className="text-center text-slate-500 dark:text-slate-400 py-4 text-sm">
+                                      加载标签中...
+                                    </div>
+                                  ) : tags.length === 0 ? (
+                                    <div className="text-center text-slate-500 dark:text-slate-400 py-4 text-sm">
+                                      暂无标签
+                                    </div>
+                                  ) : (
+                                    <div className="flex flex-wrap gap-2">
+                                      {tags
+                                        .filter(tag => {
+                                          if (!tagSearch.trim()) return true
+                                          return tag.name.toLowerCase().includes(tagSearch.toLowerCase())
+                                        })
+                                        .sort((a, b) => (b.podcast_count || 0) - (a.podcast_count || 0))
+                                        .map(tag => {
+                                          const isSelected = selectedTagIds.includes(tag.id)
+                                          return (
+                                            <button
+                                              key={tag.id}
+                                              type="button"
+                                              onClick={() => {
+                                                if (isSelected) {
+                                                  setSelectedTagIds(selectedTagIds.filter(id => id !== tag.id))
+                                                } else {
+                                                  setSelectedTagIds([...selectedTagIds, tag.id])
+                                                }
+                                              }}
+                                              className={`
+                                                flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm border transition-all
+                                                ${
+                                                  isSelected
+                                                    ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
+                                                    : 'bg-white dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-600'
+                                                }
+                                              `}
+                                            >
+                                              <span
+                                                className="w-2.5 h-2.5 rounded-full border border-slate-300 dark:border-slate-500"
+                                                style={{ backgroundColor: tag.color }}
+                                              />
+                                              <span>{tag.name}</span>
+                                              {tag.podcast_count !== undefined && (
+                                                <span className={`
+                                                  text-xs
+                                                  ${isSelected ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400'}
+                                                `}>
+                                                  ({tag.podcast_count})
+                                                </span>
+                                              )}
+                                              {isSelected && (
+                                                <span className="ml-1 text-blue-600 dark:text-blue-400">✓</span>
+                                              )}
+                                            </button>
+                                          )
+                                        })}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
 
                           {/* 搜索框 */}
                           <div className="relative">
