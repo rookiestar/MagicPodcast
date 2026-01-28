@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -32,6 +34,9 @@ func NewImageHandler() *ImageHandler {
 		allowedHosts: []string{
 			"i.typlog.com",
 			"typlog.com",
+			"image.xyzcdn.net",
+			"fdfs.xmcdn.com",
+			"cdn.lizhi.fm",
 			"is1-ssl.mzstatic.com",
 			"is2-ssl.mzstatic.com",
 			"is3-ssl.mzstatic.com",
@@ -153,28 +158,57 @@ func (h *ImageHandler) ProxyImage(c *gin.Context) {
 		}
 	}
 
+	// 读取图片内容到内存（用于计算ETag）
+	imageData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[ImageProxy] 读取图片失败 [%s]: %v", imageURL, err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "failed to read image data",
+		})
+		return
+	}
+
+	// 计算ETag（基于内容的MD5哈希）
+	hash := md5.Sum(imageData)
+	etag := fmt.Sprintf(`"%s"`, hex.EncodeToString(hash[:]))
+
+	// 检查条件请求（If-None-Match）
+	ifNoneMatch := c.GetHeader("If-None-Match")
+	if ifNoneMatch != "" && ifNoneMatch == etag {
+		// 内容未变化，返回304
+		c.Header("ETag", etag)
+		c.Header("Cache-Control", "public, max-age=2592000, immutable")
+		c.Header("Last-Modified", time.Now().Format(time.RFC1123))
+		c.Status(http.StatusNotModified)
+		log.Printf("[ImageProxy] 304 Not Modified [%s] - ETag: %s", imageURL, etag)
+		return
+	}
+
 	// 记录成功日志
 	duration := time.Since(startTime).Milliseconds()
-	log.Printf("[ImageProxy] 成功代理图片 [%s] - %dms - %s", imageURL, duration, contentType)
+	log.Printf("[ImageProxy] 成功代理图片 [%s] - %dms - %s - %d bytes", imageURL, duration, contentType, len(imageData))
 
-	// 设置缓存头
-	// 图片缓存24小时
-	c.Header("Cache-Control", "public, max-age=86400, immutable")
+	// 设置增强的缓存头
+	// 缓存30天（2592000秒）
+	c.Header("Cache-Control", "public, max-age=2592000, immutable")
 	c.Header("Content-Type", contentType)
+	c.Header("ETag", etag)
+	c.Header("Last-Modified", time.Now().Format(time.RFC1123))
 
 	// 支持跨域
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Methods", "GET")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	// 流式传输图片到客户端
-	written, err := io.Copy(c.Writer, resp.Body)
+	// 传输图片到客户端
+	written, err := c.Writer.Write(imageData)
 	if err != nil {
 		log.Printf("[ImageProxy] 传输图片失败 [%s]: %v", imageURL, err)
 		return
 	}
 
-	log.Printf("[ImageProxy] 传输完成 [%s] - %d bytes", imageURL, written)
+	log.Printf("[ImageProxy] 传输完成 [%s] - %d bytes - ETag: %s", imageURL, written, etag)
 }
 
 // Health 健康检查
