@@ -63,11 +63,19 @@ func (n *EmailNotifier) SendReport(title, content string) error {
 	m.SetBody("text/html", body)
 
 	// 发送邮件
+	log.Printf("📧 正在发送邮件 [SMTP: %s:%d, From: %s, To: %s]",
+		n.config.SMTPHost, n.config.SMTPPort, n.config.From, n.config.To)
+
 	if err := n.dialer.DialAndSend(m); err != nil {
+		log.Printf("❌ SMTP发送失败: %v", err)
 		return fmt.Errorf("发送邮件失败: %w", err)
 	}
 
 	log.Printf("✅ 报告邮件已发送 [To: %s, Title: %s]", n.config.To, title)
+	log.Printf("💡 提示：如果没有收到邮件，请检查：")
+	log.Printf("   1. 垃圾邮件/推广邮件文件夹")
+	log.Printf("   2. 163邮箱的SMTP授权码是否有效")
+	log.Printf("   3. 163邮箱是否开启了SMTP服务")
 	return nil
 }
 
