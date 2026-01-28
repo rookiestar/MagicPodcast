@@ -313,7 +313,12 @@ export default function PodcastsPage() {
 
                 {/* 排序选择器 - 白底边框样式 + icon */}
                 <div className="relative w-36">
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-slate-400 text-lg z-10 pointer-events-none">🔽</span>
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-slate-700 z-10 pointer-events-none">
+                    <svg width="20" height="20" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M5 11 L5 3 M5 3 L2 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                      <path d="M11 5 L11 13 M11 13 L14 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                    </svg>
+                  </span>
                   <select
                     value={sortBy}
                     onChange={(e) => handleSortChange(e.target.value as SortByType)}
