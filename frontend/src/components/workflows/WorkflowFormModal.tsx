@@ -1212,7 +1212,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
               disabled={loading}
               className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {loading ? '处理中...' : step === 4 ? (workflow ? '保存' : '创建') : '下一步'}
+              {loading ? '处理中...' : step === 4 ? '保存' : '下一步'}
             </button>
           </div>
         </div>
