@@ -1018,7 +1018,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
 
               <div className="mt-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
                 <p className="text-sm text-green-800 dark:text-green-200">
-                  ✓ 点击"创建"后将自动启用调度（根据设置的定时规则运行）
+                  ✓ 点击"保存"后将自动启用调度（根据设置的定时规则运行）
                 </p>
               </div>
             </div>
