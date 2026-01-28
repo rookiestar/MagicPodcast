@@ -315,6 +315,17 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 	workflow.CreatedAt = now
 	workflow.UpdatedAt = now
 
+	// 计算并设置下次执行时间
+	if workflow.IsEnabled && workflow.Schedule != "" {
+		nextRun, err := workflow.GetNextRunTime()
+		if err == nil {
+			workflow.NextRunAt = &nextRun
+			log.Printf("📅 新建工作流下次执行时间 [ID=%d]: %s", workflow.ID, nextRun.Format("2006-01-02 15:04:05"))
+		} else {
+			log.Printf("⚠️  计算下次执行时间失败 [ID=%d]: %v", workflow.ID, err)
+		}
+	}
+
 	if err := db.Omit("LastJob", "Jobs").Create(&workflow).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
