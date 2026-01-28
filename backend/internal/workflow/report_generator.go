@@ -69,17 +69,25 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 	}
 
 	// 2. 计算扫描时间窗口
-	triggeredAt := job.CreatedAt
 	var timeRangeMode utils.TimeRangeMode
 	var timeRangeDays int
+	var triggeredAt time.Time
 
 	// 判断触发模式：根据job的triggered_by字段判断
 	if job.TriggeredBy == "cron" {
 		timeRangeMode = utils.TimeRangeModeDaily
 		timeRangeDays = workflow.RulesConfig.TimeRange // 使用配置的时间范围
+		// Cron模式：使用Job.StartTime作为实际触发时间
+		if job.StartTime != nil {
+			triggeredAt = *job.StartTime
+		} else {
+			triggeredAt = job.CreatedAt // Fallback to CreatedAt
+			log.Printf("⚠️  [JobID=%d] StartTime为nil，使用CreatedAt作为触发时间", job.ID)
+		}
 	} else {
 		timeRangeMode = utils.TimeRangeModeManual
 		timeRangeDays = workflow.RulesConfig.TimeRange
+		triggeredAt = job.CreatedAt // Manual模式：使用CreatedAt
 	}
 
 	// 调用时间窗口计算工具

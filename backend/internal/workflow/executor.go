@@ -311,11 +311,24 @@ func (e *Executor) syncPodcast(
 				}
 				timeRangeEnd = *triggerTime
 				timeRangeStart = timeRangeEnd.AddDate(0, 0, -days)
+
+				log.Printf("🔍 [Executor] Cron模式时间窗口计算 [JobID=%d, PodcastID=%d]", job.ID, podcast.ID)
+				log.Printf("   - TriggeredBy: %s", job.TriggeredBy)
+				log.Printf("   - TimeRangeDays: %d", days)
+				log.Printf("   - Job.StartTime: %s", job.StartTime.Format("2006-01-02 15:04:05"))
+				log.Printf("   - TriggerTime: %s", triggerTime.Format("2006-01-02 15:04:05"))
+				log.Printf("   - TimeWindow: %s → %s", timeRangeStart.Format("2006-01-02 15:04:05"), timeRangeEnd.Format("2006-01-02 15:04:05"))
 			} else {
 				// manual模式：过去N天
 				days := workflow.RulesConfig.TimeRange
 				timeRangeEnd = job.CreatedAt
 				timeRangeStart = timeRangeEnd.AddDate(0, 0, -days)
+
+				log.Printf("🔍 [Executor] Manual模式时间窗口计算 [JobID=%d, PodcastID=%d]", job.ID, podcast.ID)
+				log.Printf("   - TriggeredBy: %s", job.TriggeredBy)
+				log.Printf("   - TimeRangeDays: %d", days)
+				log.Printf("   - Job.CreatedAt: %s", job.CreatedAt.Format("2006-01-02 15:04:05"))
+				log.Printf("   - TimeWindow: %s → %s", timeRangeStart.Format("2006-01-02 15:04:05"), timeRangeEnd.Format("2006-01-02 15:04:05"))
 			}
 
 			// 查询该podcast在时间窗口内的episodes数量
@@ -325,6 +338,7 @@ func (e *Executor) syncPodcast(
 				Where("COALESCE(updated_date, published_date) >= ? AND COALESCE(updated_date, published_date) <= ?", timeRangeStart, timeRangeEnd).
 				Count(&matchedCount)
 
+			log.Printf("   - EpisodesMatched: %d", matchedCount)
 			execution.EpisodesMatched = int(matchedCount)
 		}
 
