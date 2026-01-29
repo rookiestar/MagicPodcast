@@ -25,20 +25,20 @@ const CRON_PRESETS = [
 // 默认User Prompt模板（包含任务要求和格式要求）
 const DEFAULT_USER_PROMPT = `# 工作流执行报告
 
-工作流名称: {{.WorkflowName}}
-匹配的单集总数: {{.TotalEpisodes}}
-节目数量: {{.NumPodcasts}}
+工作流名称: \${"{{"}"}.WorkflowName\${"{{"}"}}
+匹配的单集总数: \${"{{"}"}.TotalEpisodes\${"{{"}"}
+节目数量: \${"{{"}"}.NumPodcasts\${"{{"}"}
 
 ## 数据来源
 
-{{range .Podcasts}}
-### {{.PodcastTitle}}
-单集数: {{len .Episodes}}
-{{range .Episodes}}
-- **{{.Title}}** ({{.PublishedDate.Format "2006-01-02"}})
-  {{if ne .ShowNotes ""}}{{.ShowNotes}}{{end}}
-{{end}}
-{{end}}
+\${"{{"}"}range .Podcasts\${"{{"}"}
+### \${"{{"}"}.PodcastTitle\${"{{"}"}}
+单集数: \${"{{"}"}len .Episodes\${"{{"}"}}
+\${"{{"}"}range .Episodes\${"{{"}"}
+- **\${"{{"}"}.Title\${"{{"}"}** (\${"{{"}"}.PublishedDate.Format "2006-01-02"\${"{{"}"}})
+  \${"{{"}"}if ne .ShowNotes ""\${"{{"}"}\${"{{"}"}.ShowNotes\${"{{"}"}\${"{{"}"}end\${"{{"}"}
+\${"{{"}"}end\${"{{"}"}
+\${"{{"}"}end\${"{{"}"}
 
 ## 分析要求
 
@@ -1226,7 +1226,16 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                     </div>
 
                     {/* 高级Prompt配置 - 使用简单的details/summary实现可折叠 */}
-                    <details className="mt-6 group">
+                    <details
+                      className="mt-6 group"
+                      onToggle={(e) => {
+                        const details = e.currentTarget
+                        // 首次展开时，如果textarea为空，自动填充默认值
+                        if (details.open && !llmUserPrompt) {
+                          setLlmUserPrompt(DEFAULT_USER_PROMPT)
+                        }
+                      }}
+                    >
                       <summary className="flex items-center justify-between cursor-pointer p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -1260,7 +1269,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                             rows={12}
                           />
                           <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-                            💡 支持Go template语法，可用变量：{{.WorkflowName}}, {{.TotalEpisodes}}, {{.NumPodcasts}}, {{.Podcasts}}
+                            💡 支持Go template语法，可用变量：WorkflowName, TotalEpisodes, NumPodcasts, Podcasts
                           </p>
                           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                             💡 系统提示词（角色定义+安全约束）已全局配置，此处只需定义分析任务和输出格式。
