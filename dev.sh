@@ -50,6 +50,15 @@ start() {
 
     if [ ! -f "$BACKEND_PID_FILE" ]; then
         echo "🔧 启动后端服务器..."
+
+        # 加载环境变量
+        if [ -f "$BACKEND_DIR/.env" ]; then
+            print_status "加载环境变量从 .env"
+            export $(cat "$BACKEND_DIR/.env" | grep -v '^#' | xargs)
+        else
+            print_warning ".env 文件不存在，LLM功能可能无法使用"
+        fi
+
         cd "$BACKEND_DIR"
         nohup go run ./cmd/api/main.go > "$BACKEND_LOG" 2>&1 &
         echo $! > "$BACKEND_PID_FILE"

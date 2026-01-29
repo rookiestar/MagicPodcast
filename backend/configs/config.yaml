@@ -155,6 +155,7 @@ llm:
   provider: "zhipuai"
 
   # API密钥（建议使用环境变量 MAGICPODCAST_LLM_API_KEY）
+  # 如果未设置环境变量，将使用此占位符值（会导致认证失败）
   api_key: "YOUR_ZHIPUAI_API_KEY_HERE"
 
   # API Base URL

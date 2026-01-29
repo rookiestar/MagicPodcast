@@ -176,12 +176,48 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	// 从环境变量覆盖敏感配置
+	cfg.applyEnvOverrides()
+
 	// 验证配置
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
 	return cfg, nil
+}
+
+// applyEnvOverrides 从环境变量覆盖敏感配置
+func (c *Config) applyEnvOverrides() {
+	// LLM API Key
+	if key := viper.GetString("llm_api_key"); key != "" {
+		c.LLM.APIKey = key
+	}
+
+	// Email SMTP配置
+	if host := viper.GetString("smtp_host"); host != "" {
+		c.Email.SMTPHost = host
+	}
+	if port := viper.GetInt("smtp_port"); port != 0 {
+		c.Email.SMTPPort = port
+	}
+	if username := viper.GetString("smtp_username"); username != "" {
+		c.Email.Username = username
+	}
+	if password := viper.GetString("smtp_password"); password != "" {
+		c.Email.Password = password
+	}
+
+	// User凭证
+	if phone := viper.GetString("user_phone"); phone != "" {
+		c.User.Phone = phone
+	}
+	if accessToken := viper.GetString("user_access_token"); accessToken != "" {
+		c.User.AccessToken = accessToken
+	}
+	if refreshToken := viper.GetString("user_refresh_token"); refreshToken != "" {
+		c.User.RefreshToken = refreshToken
+	}
 }
 
 // Get 获取配置实例

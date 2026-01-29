@@ -3,6 +3,9 @@ package llm
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -214,7 +217,19 @@ func (c *Client) GenerateSummary(ctx context.Context, systemPrompt, userPrompt s
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+
+	// 根据provider设置不同的认证方式
+	if c.config.Provider == "zhipuai" {
+		// 智谱AI需要使用JWT token认证
+		token, err := generateZhipuJWTToken(apiKey)
+		if err != nil {
+			return nil, fmt.Errorf("生成智谱AI token失败: %w", err)
+		}
+		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	} else {
+		// 其他provider使用标准Bearer token
+		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	}
 
 	// 发送请求（带重试）
 	var resp *http.Response
@@ -377,4 +392,76 @@ func formatSummary(summary string) string {
 	}
 
 	return strings.Join(result, "\n")
+}
+
+// generateZhipuJWTToken 生成智谱AI的JWT token
+// 智谱AI的API Key格式为: id.secret
+// 需要将id作为payload，使用secret作为HMAC-SHA256密钥生成JWT
+func generateZhipuJWTToken(apiKey string) (string, error) {
+	// 打印调试信息（隐藏敏感信息）
+	maskedKey := maskAPIKey(apiKey)
+	logger.Infof("[ZhipuAI] 生成JWT token，API Key: %s", maskedKey)
+
+	// 解析API Key
+	parts := strings.Split(apiKey, ".")
+	logger.Infof("[ZhipuAI] API Key分割后: %d 个部分", len(parts))
+
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid API key format, expected id.secret, got %d parts", len(parts))
+	}
+
+	id := parts[0]
+	secret := parts[1]
+	logger.Infof("[ZhipuAI] ID: %s, Secret: %s", id[:min(8, len(id))]+"...", maskAPIKey(secret))
+
+	// 创建JWT payload
+	now := time.Now()
+	exp := now.Add(1 * time.Hour) // token有效期1小时
+
+	payload := map[string]interface{}{
+		"api_key":   id,
+		"exp":       exp.Unix(),
+		"timestamp": now.Unix(),
+	}
+
+	// 序列化payload
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	// Base64 URL encode payload
+	payloadBase64 := base64.RawURLEncoding.EncodeToString(payloadJSON)
+
+	// 创建签名
+	// 格式: header.payload
+	// 智谱AI使用固定的header: {"alg": "HS256", "sign_type": "SIGN"}
+	header := map[string]string{
+		"alg":       "HS256",
+		"sign_type": "SIGN",
+	}
+	headerJSON, err := json.Marshal(header)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal header: %w", err)
+	}
+	headerBase64 := base64.RawURLEncoding.EncodeToString(headerJSON)
+
+	// 计算签名: HMAC-SHA256(secret, header.payload)
+	signingInput := headerBase64 + "." + payloadBase64
+	h := hmac.New(sha256.New, []byte(secret))
+	h.Write([]byte(signingInput))
+	signature := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+
+	// 组合完整的JWT token
+	token := headerBase64 + "." + payloadBase64 + "." + signature
+
+	return token, nil
+}
+
+// min 返回两个整数中的最小值
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
