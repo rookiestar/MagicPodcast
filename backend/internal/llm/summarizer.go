@@ -1,9 +1,11 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
+	"text/template"
 	"time"
 )
 
@@ -43,7 +45,7 @@ func NewSummarizer(client *Client, tplManager *PromptManager) *Summarizer {
 }
 
 // GenerateForReport 为工作流报告生成LLM摘要
-func (s *Summarizer) GenerateForReport(data []EpisodeReportData, workflowName string, options SummaryOptions) (*SummaryResult, error) {
+func (s *Summarizer) GenerateForReport(data []EpisodeReportData, workflowName string, userPrompt string, options SummaryOptions) (*SummaryResult, error) {
 	// 添加调试日志
 	log.Printf("[Summarizer.GenerateForReport] Called with workflow=%s, num_podcasts=%d", workflowName, len(data))
 	log.Printf("  - Client is nil: %v", s.client == nil)
@@ -71,27 +73,63 @@ func (s *Summarizer) GenerateForReport(data []EpisodeReportData, workflowName st
 		}
 	}
 
-	// 准备模板数据
-	templateData := struct {
-		WorkflowName  string
-		TotalEpisodes int
-		NumPodcasts   int
-		Podcasts      []EpisodeReportData
-	}{
-		WorkflowName:  workflowName,
-		TotalEpisodes: totalEpisodes,
-		NumPodcasts:   len(data),
-		Podcasts:      data,
+	// System Prompt：从全局config获取（不在workflow中存储）
+	systemPrompt := s.client.GetSystemPrompt()
+	if systemPrompt == "" {
+		// Fallback默认值（如果config未配置）
+		systemPrompt = "你是播客内容分析专家。请基于提供的数据进行分析，不编造信息，保持客观中立。"
 	}
 
-	// 渲染模板
-	prompt, err := s.tplManager.RenderTemplate("default_summary", templateData)
-	if err != nil {
-		return nil, fmt.Errorf("渲染prompt模板失败: %w", err)
+	// User Prompt：使用workflow自定义或默认模板
+	if userPrompt == "" {
+		// 准备模板数据（使用默认模板）
+		templateData := struct {
+			WorkflowName  string
+			TotalEpisodes int
+			NumPodcasts   int
+			Podcasts      []EpisodeReportData
+		}{
+			WorkflowName:  workflowName,
+			TotalEpisodes: totalEpisodes,
+			NumPodcasts:   len(data),
+			Podcasts:      data,
+		}
+
+		// 渲染默认模板
+		renderedPrompt, err := s.tplManager.RenderTemplate("default_summary", templateData)
+		if err != nil {
+			return nil, fmt.Errorf("渲染prompt模板失败: %w", err)
+		}
+		userPrompt = renderedPrompt
+	} else {
+		// 用户自定义模板，需要渲染
+		templateData := struct {
+			WorkflowName  string
+			TotalEpisodes int
+			NumPodcasts   int
+			Podcasts      []EpisodeReportData
+		}{
+			WorkflowName:  workflowName,
+			TotalEpisodes: totalEpisodes,
+			NumPodcasts:   len(data),
+			Podcasts:      data,
+		}
+
+		// 解析并渲染用户自定义模板
+		tpl, err := template.New("user_custom").Parse(userPrompt)
+		if err != nil {
+			return nil, fmt.Errorf("解析用户自定义模板失败: %w", err)
+		}
+
+		var buf bytes.Buffer
+		if err := tpl.Execute(&buf, templateData); err != nil {
+			return nil, fmt.Errorf("渲染用户自定义模板失败: %w", err)
+		}
+		userPrompt = buf.String()
 	}
 
-	// 调用LLM
-	result, err := s.client.GenerateSummary(context.Background(), prompt, options)
+	// 调用LLM（传入system和user prompt）
+	result, err := s.client.GenerateSummary(context.Background(), systemPrompt, userPrompt, options)
 	if err != nil {
 		return nil, fmt.Errorf("LLM摘要生成失败: %w", err)
 	}

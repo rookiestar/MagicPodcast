@@ -151,7 +151,7 @@ func maskAPIKey(key string) string {
 }
 
 // GenerateSummary 生成摘要
-func (c *Client) GenerateSummary(ctx context.Context, prompt string, options SummaryOptions) (*SummaryResult, error) {
+func (c *Client) GenerateSummary(ctx context.Context, systemPrompt, userPrompt string, options SummaryOptions) (*SummaryResult, error) {
 	// 打印调试信息
 	log.Printf("[LLM GenerateSummary] Called with config:")
 	log.Printf("  - Enabled: %v", c.config.Enabled)
@@ -179,9 +179,22 @@ func (c *Client) GenerateSummary(ctx context.Context, prompt string, options Sum
 		model = c.config.DefaultModel
 	}
 
+	// 构建消息列表（支持system和user消息）
+	messages := []Message{}
+	if systemPrompt != "" {
+		messages = append(messages, Message{Role: "system", Content: systemPrompt})
+	}
+	if userPrompt != "" {
+		messages = append(messages, Message{Role: "user", Content: userPrompt})
+	}
+
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("至少需要提供system或user prompt")
+	}
+
 	req := ChatCompletionRequest{
 		Model:       model,
-		Messages:    []Message{{Role: "user", Content: prompt}},
+		Messages:    messages,
 		Temperature: options.Temperature,
 		MaxTokens:   options.MaxTokens,
 		Stream:      false,
@@ -313,6 +326,11 @@ func (c *Client) GetStats() UsageStats {
 	c.statsMutex.Lock()
 	defer c.statsMutex.Unlock()
 	return c.stats
+}
+
+// GetSystemPrompt 获取全局System Prompt
+func (c *Client) GetSystemPrompt() string {
+	return c.config.SystemPrompt
 }
 
 // formatSummary 格式化摘要内容，去除列表项后的多余换行

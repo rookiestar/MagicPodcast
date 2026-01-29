@@ -21,7 +21,7 @@ type ReportGenerator struct {
 
 // SummarizerInterface 摘要生成器接口（避免循环依赖）
 type SummarizerInterface interface {
-	GenerateForReport(data []llm.EpisodeReportData, workflowName string, options llm.SummaryOptions) (*llm.SummaryResult, error)
+	GenerateForReport(data []llm.EpisodeReportData, workflowName string, userPrompt string, options llm.SummaryOptions) (*llm.SummaryResult, error)
 }
 
 // NewReportGenerator 创建报告生成器
@@ -147,9 +147,14 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 		llmReportData := rg.convertToLLMReportData(reportData)
 		log.Printf("  - Converted %d podcasts to LLM report format", len(llmReportData))
 
-		// 调用摘要生成器
+		// 调用摘要生成器（只传入user prompt，system prompt从config获取）
 		log.Printf("  - Calling summarizer.GenerateForReport...")
-		result, err := rg.summarizer.GenerateForReport(llmReportData, workflow.Name, options)
+		result, err := rg.summarizer.GenerateForReport(
+			llmReportData,
+			workflow.Name,
+			workflow.RulesConfig.LLMUserPrompt, // 只传入user prompt
+			options,
+		)
 		if err != nil {
 			log.Printf("⚠️  LLM摘要生成失败 [JobID=%d]: %v", job.ID, err)
 			llmError = err.Error()

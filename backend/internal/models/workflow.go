@@ -69,6 +69,7 @@ type RulesConfig struct {
 	LLMModel       string  `json:"llm_model,omitempty"`        // 模型名称（可选，覆盖默认配置）
 	LLMTemperature float64 `json:"llm_temperature,omitempty"`  // 温度参数（0.0-1.0，默认0.7）
 	LLMMaxTokens   int     `json:"llm_max_tokens,omitempty"`   // 最大生成token数（默认1000）
+	LLMUserPrompt  string  `json:"llm_user_prompt,omitempty"`  // 用户提示词模板（可选，留空使用默认）
 }
 
 // Scan 实现 sql.Scanner 接口

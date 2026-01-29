@@ -22,6 +22,49 @@ const CRON_PRESETS = [
   { label: '每周一早上6点', value: '0 0 6 * * 1' },
 ]
 
+// 默认User Prompt模板（包含任务要求和格式要求）
+const DEFAULT_USER_PROMPT = `# 工作流执行报告
+
+工作流名称: {{.WorkflowName}}
+匹配的单集总数: {{.TotalEpisodes}}
+节目数量: {{.NumPodcasts}}
+
+## 数据来源
+
+{{range .Podcasts}}
+### {{.PodcastTitle}}
+单集数: {{len .Episodes}}
+{{range .Episodes}}
+- **{{.Title}}** ({{.PublishedDate.Format "2006-01-02"}})
+  {{if ne .ShowNotes ""}}{{.ShowNotes}}{{end}}
+{{end}}
+{{end}}
+
+## 分析要求
+
+请按照以下维度生成分析报告：
+
+### 1. 总体概览
+简要描述本次抓取的整体情况（1-2句话）
+
+### 2. 核心内容
+按节目分类列出重要单集的要点：
+- 理解播客节目的主题和内容风格
+- 提取每期单集的核心观点和关键信息
+- 识别跨节目的主题关联和趋势
+
+### 3. 关键洞察
+提炼3-5个关键主题或趋势，指出值得关注的亮点
+
+## 输出格式要求
+
+1. 使用紧凑的列表格式，bullet point（-）或数字序号后直接跟内容，不要换行
+2. 列表项之间保持一个换行即可
+3. 避免连续的多个空行
+4. 用简洁专业的语言生成摘要，避免过度解读
+5. 客观准确，不添加原文没有的信息
+6. 简洁明了，避免冗余表述`
+
 // Cron表达式校验函数
 const validateCronExpression = (cronExpr: string): { valid: boolean; error?: string } => {
   const trimmed = cronExpr.trim()
@@ -97,6 +140,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
   const [llmModel, setLlmModel] = useState('')
   const [llmTemperature, setLlmTemperature] = useState(0.7)
   const [llmMaxTokens, setLlmMaxTokens] = useState(1000)
+  const [llmUserPrompt, setLlmUserPrompt] = useState('') // User Prompt配置
 
   // 初始化表单数据（编辑模式）
   useEffect(() => {
@@ -157,6 +201,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
           setLlmModel(workflow.rules_config.llm_model || '')
           setLlmTemperature(workflow.rules_config.llm_temperature ?? 0.7)
           setLlmMaxTokens(workflow.rules_config.llm_max_tokens || 1000)
+          setLlmUserPrompt(workflow.rules_config.llm_user_prompt || '')
         }
 
         // 编辑模式下，如果是指定节目类型，立即加载podcasts
@@ -392,6 +437,8 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         llm_model: llmEnabled && llmModel ? llmModel : undefined,
         llm_temperature: llmEnabled ? llmTemperature : undefined,
         llm_max_tokens: llmEnabled ? llmMaxTokens : undefined,
+        // User Prompt配置 - 只在用户明确输入时才提交
+        ...(llmEnabled && llmUserPrompt && { llm_user_prompt: llmUserPrompt }),
       }
 
       // 获取实际使用的cron表达式并转换为6位格式
@@ -1177,6 +1224,50 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                         控制摘要的最大长度（100-4000，默认1000）
                       </p>
                     </div>
+
+                    {/* 高级Prompt配置 - 使用简单的details/summary实现可折叠 */}
+                    <details className="mt-6 group">
+                      <summary className="flex items-center justify-between cursor-pointer p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                            📝 自定义Prompt模板
+                          </span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">(可选)</span>
+                        </div>
+                        <span className="text-xs text-slate-400 group-open:rotate-180 transition-transform">▼</span>
+                      </summary>
+
+                      <div className="mt-4 space-y-4 p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg">
+                        {/* User Prompt配置 */}
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                              用户提示词模板（User Prompt）
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => setLlmUserPrompt(DEFAULT_USER_PROMPT)}
+                              className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                            >
+                              恢复默认值
+                            </button>
+                          </div>
+                          <textarea
+                            value={llmUserPrompt}
+                            onChange={(e) => setLlmUserPrompt(e.target.value)}
+                            placeholder="留空使用默认用户提示词模板：定义分析任务和输出格式"
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm font-mono"
+                            rows={12}
+                          />
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                            💡 支持Go template语法，可用变量：{{.WorkflowName}}, {{.TotalEpisodes}}, {{.NumPodcasts}}, {{.Podcasts}}
+                          </p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                            💡 系统提示词（角色定义+安全约束）已全局配置，此处只需定义分析任务和输出格式。
+                          </p>
+                        </div>
+                      </div>
+                    </details>
                   </div>
                 )}
               </div>

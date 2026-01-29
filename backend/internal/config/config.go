@@ -125,6 +125,7 @@ type LLMConfig struct {
 	RateLimitPerMinute  int         `mapstructure:"rate_limit_per_minute"`
 	MaxTokensPerRequest int         `mapstructure:"max_tokens_per_request"`
 	PromptsDir          string      `mapstructure:"prompts_dir"` // Prompt模板目录
+	SystemPrompt        string      `mapstructure:"system_prompt"` // 全局System Prompt
 }
 
 // SearchWeights 搜索字段权重
