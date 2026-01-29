@@ -33,8 +33,8 @@ func NewImageHandler() *ImageHandler {
 		},
 		allowedHosts: []string{
 			// 小宇宙相关域名
-			"i.typlogger.com",
-			"typlogger.com",
+			"i.typlog.com",
+			"typlog.com",
 			"image.xyzcdn.net",
 			"bts-image.xyzcdn.net",
 
