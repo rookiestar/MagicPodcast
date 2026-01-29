@@ -2,7 +2,7 @@ package feed
 
 import (
 	"context"
-	"log"
+	"magicpodcast/internal/logger"
 	"net/http"
 	"time"
 
@@ -18,9 +18,9 @@ type Fetcher struct {
 
 // FetchResult 抓取结果
 type FetchResult struct {
-	Feed        *gofeed.Feed
-	NewItems    []*gofeed.Item
-	Error       error
+	Feed          *gofeed.Feed
+	NewItems      []*gofeed.Item
+	Error         error
 	IsIncremental bool // 是否为增量抓取
 }
 
@@ -37,7 +37,7 @@ func NewFetcher(timeout time.Duration) *Fetcher {
 				IdleConnTimeout:     90 * time.Second,
 				DisableKeepAlives:   false,
 				// 连接池配置
-				MaxConnsPerHost:     20, // 限制每个主机的最大连接数
+				MaxConnsPerHost: 20, // 限制每个主机的最大连接数
 			},
 		},
 	}
@@ -51,7 +51,7 @@ func (f *Fetcher) FetchFeed(feedURL string) (*gofeed.Feed, error) {
 // FetchFeedWithContext 抓取RSS Feed（支持context和超时控制）
 func (f *Fetcher) FetchFeedWithContext(ctx context.Context, feedURL string) (*gofeed.Feed, error) {
 	startTime := time.Now()
-	log.Printf("  📡 HTTP GET: %s", feedURL)
+	logger.Infof("  📡 HTTP GET: %s", feedURL)
 
 	// 检查context是否已取消
 	if ctx.Err() != nil {
@@ -81,7 +81,7 @@ func (f *Fetcher) FetchFeedWithContext(ctx context.Context, feedURL string) (*go
 		case <-ctx.Done():
 			// context已取消，不需要发送结果（避免阻塞）
 			// goroutine会在这里退出
-			log.Printf("  ⚠️ Feed解析goroutine被取消: %s", feedURL)
+			logger.Infof("  ⚠️ Feed解析goroutine被取消: %s", feedURL)
 		}
 	}()
 
@@ -89,18 +89,18 @@ func (f *Fetcher) FetchFeedWithContext(ctx context.Context, feedURL string) (*go
 	select {
 	case <-ctx.Done():
 		duration := time.Since(startTime)
-		log.Printf("  ⏱️ HTTP请求超时/取消: %s (耗时: %v): %v", feedURL, duration, ctx.Err())
+		logger.Infof("  ⏱️ HTTP请求超时/取消: %s (耗时: %v): %v", feedURL, duration, ctx.Err())
 		// context已取消，resultChan可能没有数据
 		// 由于使用了defer cancel()，goroutine会在合理时间内退出
 		return nil, ctx.Err()
 	case res := <-resultChan:
 		if res.err != nil {
 			duration := time.Since(startTime)
-			log.Printf("  ❌ HTTP请求失败: %s (耗时: %v): %v", feedURL, duration, res.err)
+			logger.Infof("  ❌ HTTP请求失败: %s (耗时: %v): %v", feedURL, duration, res.err)
 			return nil, WrapHTTPError(feedURL, res.err)
 		}
 		duration := time.Since(startTime)
-		log.Printf("  ✅ HTTP请求成功: %s (耗时: %v, 标题: %s, 单集数: %d)",
+		logger.Infof("  ✅ HTTP请求成功: %s (耗时: %v, 标题: %s, 单集数: %d)",
 			feedURL, duration, res.feed.Title, len(res.feed.Items))
 		return res.feed, nil
 	}
@@ -132,8 +132,8 @@ func (f *Fetcher) FetchIncremental(feedURL string, lastFetchTime time.Time) (*Fe
 	}
 
 	return &FetchResult{
-		Feed:        feed,
-		NewItems:    newItems,
+		Feed:          feed,
+		NewItems:      newItems,
 		IsIncremental: true,
 	}, nil
 }

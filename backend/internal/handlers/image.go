@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log"
+	"magicpodcast/internal/logger"
 	"net/http"
 	"net/url"
 	"path"
@@ -17,7 +17,7 @@ import (
 
 // ImageHandler 图片代理处理器
 type ImageHandler struct {
-	httpClient *http.Client
+	httpClient   *http.Client
 	allowedHosts []string // 允许代理的域名白名单
 }
 
@@ -33,8 +33,8 @@ func NewImageHandler() *ImageHandler {
 		},
 		allowedHosts: []string{
 			// 小宇宙相关域名
-			"i.typlog.com",
-			"typlog.com",
+			"i.typlogger.com",
+			"typlogger.com",
 			"image.xyzcdn.net",
 			"bts-image.xyzcdn.net",
 
@@ -133,7 +133,7 @@ func (h *ImageHandler) ProxyImage(c *gin.Context) {
 	// 创建代理请求
 	req, err := http.NewRequestWithContext(context.Background(), "GET", imageURL, nil)
 	if err != nil {
-		log.Printf("[ImageProxy] 创建请求失败: %v", err)
+		logger.Infof("[ImageProxy] 创建请求失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"error":   "failed to create request",
@@ -151,7 +151,7 @@ func (h *ImageHandler) ProxyImage(c *gin.Context) {
 	startTime := time.Now()
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
-		log.Printf("[ImageProxy] 请求失败 [%s]: %v", imageURL, err)
+		logger.Infof("[ImageProxy] 请求失败 [%s]: %v", imageURL, err)
 		c.JSON(http.StatusBadGateway, gin.H{
 			"success": false,
 			"error":   "failed to fetch image",
@@ -162,7 +162,7 @@ func (h *ImageHandler) ProxyImage(c *gin.Context) {
 
 	// 检查响应状态
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[ImageProxy] 非200状态码 [%s]: %d", imageURL, resp.StatusCode)
+		logger.Infof("[ImageProxy] 非200状态码 [%s]: %d", imageURL, resp.StatusCode)
 		c.JSON(http.StatusBadGateway, gin.H{
 			"success": false,
 			"error":   fmt.Sprintf("upstream returned status %d", resp.StatusCode),
@@ -192,7 +192,7 @@ func (h *ImageHandler) ProxyImage(c *gin.Context) {
 	// 读取图片内容到内存（用于计算ETag）
 	imageData, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("[ImageProxy] 读取图片失败 [%s]: %v", imageURL, err)
+		logger.Infof("[ImageProxy] 读取图片失败 [%s]: %v", imageURL, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"error":   "failed to read image data",
@@ -212,13 +212,13 @@ func (h *ImageHandler) ProxyImage(c *gin.Context) {
 		c.Header("Cache-Control", "public, max-age=2592000, immutable")
 		c.Header("Last-Modified", time.Now().Format(time.RFC1123))
 		c.Status(http.StatusNotModified)
-		log.Printf("[ImageProxy] 304 Not Modified [%s] - ETag: %s", imageURL, etag)
+		logger.Infof("[ImageProxy] 304 Not Modified [%s] - ETag: %s", imageURL, etag)
 		return
 	}
 
 	// 记录成功日志
 	duration := time.Since(startTime).Milliseconds()
-	log.Printf("[ImageProxy] 成功代理图片 [%s] - %dms - %s - %d bytes", imageURL, duration, contentType, len(imageData))
+	logger.Infof("[ImageProxy] 成功代理图片 [%s] - %dms - %s - %d bytes", imageURL, duration, contentType, len(imageData))
 
 	// 设置增强的缓存头
 	// 缓存30天（2592000秒）
@@ -235,19 +235,19 @@ func (h *ImageHandler) ProxyImage(c *gin.Context) {
 	// 传输图片到客户端
 	written, err := c.Writer.Write(imageData)
 	if err != nil {
-		log.Printf("[ImageProxy] 传输图片失败 [%s]: %v", imageURL, err)
+		logger.Infof("[ImageProxy] 传输图片失败 [%s]: %v", imageURL, err)
 		return
 	}
 
-	log.Printf("[ImageProxy] 传输完成 [%s] - %d bytes - ETag: %s", imageURL, written, etag)
+	logger.Infof("[ImageProxy] 传输完成 [%s] - %d bytes - ETag: %s", imageURL, written, etag)
 }
 
 // Health 健康检查
 func (h *ImageHandler) Health(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"service": "image-proxy",
-		"status":  "ok",
+		"success":       true,
+		"service":       "image-proxy",
+		"status":        "ok",
 		"allowed_hosts": h.allowedHosts,
 	})
 }

@@ -10,22 +10,24 @@ import (
 	"sync"
 	"text/template"
 	"time"
+
+	"magicpodcast/internal/logger"
 )
 
 // PromptManager Prompt模板管理器
 type PromptManager struct {
-	promptsDir string                 // 模板文件目录
+	promptsDir string                        // 模板文件目录
 	templates  map[string]*template.Template // 缓存的编译后模板
-	mutex      sync.RWMutex           // 读写锁
+	mutex      sync.RWMutex                  // 读写锁
 }
 
 // PromptFileInfo Prompt文件信息
 type PromptFileInfo struct {
-	Name        string    `json:"name"`         // 模板名称（文件名，不含.txt）
-	Description string    `json:"description"`  // 模板描述（从文件首行注释提取）
-	IsDefault   bool      `json:"is_default"`   // 是否为默认模板
-	Content     string    `json:"content"`      // 模板内容
-	ModifiedAt  time.Time `json:"modified_at"`  // 最后修改时间
+	Name        string    `json:"name"`        // 模板名称（文件名，不含.txt）
+	Description string    `json:"description"` // 模板描述（从文件首行注释提取）
+	IsDefault   bool      `json:"is_default"`  // 是否为默认模板
+	Content     string    `json:"content"`     // 模板内容
+	ModifiedAt  time.Time `json:"modified_at"` // 最后修改时间
 }
 
 // NewPromptManager 创建Prompt模板管理器
@@ -37,12 +39,12 @@ func NewPromptManager(promptsDir string) *PromptManager {
 
 	// 确保目录存在
 	if err := os.MkdirAll(promptsDir, 0755); err != nil {
-		fmt.Printf("⚠️  创建prompts目录失败: %v\n", err)
+		logger.Warnf("⚠️  创建prompts目录失败: %v", err)
 	}
 
 	// 加载所有模板
 	if err := pm.reloadTemplates(); err != nil {
-		fmt.Printf("⚠️  加载prompt模板失败: %v\n", err)
+		logger.Warnf("⚠️  加载prompt模板失败: %v", err)
 	}
 
 	return pm
@@ -246,7 +248,7 @@ func (m *PromptManager) reloadTemplates() error {
 
 		name := strings.TrimSuffix(entry.Name(), ".txt")
 		if err := m.reloadTemplate(name); err != nil {
-			fmt.Printf("⚠️  加载模板 %s 失败: %v\n", name, err)
+			logger.Warnf("⚠️  加载模板 %s 失败: %v", name, err)
 		}
 	}
 

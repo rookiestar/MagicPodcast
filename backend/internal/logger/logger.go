@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -12,6 +13,7 @@ import (
 var (
 	log        *logrus.Logger
 	customHook *logrusHook
+	initOnce   sync.Once
 )
 
 // logrusHook 自定义hook，用于添加文件和行号信息
@@ -80,9 +82,9 @@ func Init(logLevel string, logFile string, environment string) {
 			// 使用lumberjack进行日志轮转
 			fileWriter := &lumberjack.Logger{
 				Filename:   logFile,
-				MaxSize:    100, // MB
-				MaxBackups: 3,   // 保留3个备份
-				MaxAge:     28,  // 保留28天
+				MaxSize:    100,  // MB
+				MaxBackups: 3,    // 保留3个备份
+				MaxAge:     28,   // 保留28天
 				Compress:   true, // 压缩旧日志
 			}
 			writers = append(writers, fileWriter)
@@ -105,62 +107,90 @@ func Init(logLevel string, logFile string, environment string) {
 	log.Info("日志系统初始化完成")
 }
 
+func ensureInitialized() {
+	if log != nil {
+		return
+	}
+	initOnce.Do(func() {
+		l := logrus.New()
+		l.SetLevel(logrus.InfoLevel)
+		l.SetFormatter(&logrus.TextFormatter{
+			FullTimestamp:   true,
+			TimestampFormat: "2006-01-02 15:04:05",
+		})
+		l.SetOutput(os.Stdout)
+		log = l
+	})
+}
+
 // WithFields 返回带有字段的logger
 func WithFields(fields map[string]interface{}) *logrus.Entry {
+	ensureInitialized()
 	return log.WithFields(fields)
 }
 
 // Debug 记录DEBUG级别日志
 func Debug(args ...interface{}) {
+	ensureInitialized()
 	log.Debug(args...)
 }
 
 // Debugf 记录DEBUG级别格式化日志
 func Debugf(format string, args ...interface{}) {
+	ensureInitialized()
 	log.Debugf(format, args...)
 }
 
 // Info 记录INFO级别日志
 func Info(args ...interface{}) {
+	ensureInitialized()
 	log.Info(args...)
 }
 
 // Infof 记录INFO级别格式化日志
 func Infof(format string, args ...interface{}) {
+	ensureInitialized()
 	log.Infof(format, args...)
 }
 
 // Warn 记录WARN级别日志
 func Warn(args ...interface{}) {
+	ensureInitialized()
 	log.Warn(args...)
 }
 
 // Warnf 记录WARN级别格式化日志
 func Warnf(format string, args ...interface{}) {
+	ensureInitialized()
 	log.Warnf(format, args...)
 }
 
 // Error 记录ERROR级别日志
 func Error(args ...interface{}) {
+	ensureInitialized()
 	log.Error(args...)
 }
 
 // Errorf 记录ERROR级别格式化日志
 func Errorf(format string, args ...interface{}) {
+	ensureInitialized()
 	log.Errorf(format, args...)
 }
 
 // Fatal 记录FATAL级别日志并退出程序
 func Fatal(args ...interface{}) {
+	ensureInitialized()
 	log.Fatal(args...)
 }
 
 // Fatalf 记录FATAL级别格式化日志并退出程序
 func Fatalf(format string, args ...interface{}) {
+	ensureInitialized()
 	log.Fatalf(format, args...)
 }
 
 // GetLogger 获取原始logger实例（用于需要直接使用的场景）
 func GetLogger() *logrus.Logger {
+	ensureInitialized()
 	return log
 }

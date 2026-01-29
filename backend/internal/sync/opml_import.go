@@ -2,7 +2,7 @@ package sync
 
 import (
 	"fmt"
-	"log"
+	"magicpodcast/internal/logger"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +25,7 @@ func (s *Service) ImportOPMLWithProgress(filePath string, reporter ProgressRepor
 
 // ImportOPMLWithProgressAndConfig 导入OPML文件（带进度报告和自定义并发配置）
 func (s *Service) ImportOPMLWithProgressAndConfig(filePath string, reporter ProgressReporter, config ImportConfig) (*SyncResult, error) {
-	log.Printf("🚀 开始导入OPML (并发度: %d): %s", config.Concurrency, filePath)
+	logger.Infof("🚀 开始导入OPML (并发度: %d): %s", config.Concurrency, filePath)
 	reporter.Report("开始导入OPML文件: " + filePath)
 
 	// 1. 解析OPML文件
@@ -35,13 +35,13 @@ func (s *Service) ImportOPMLWithProgressAndConfig(filePath string, reporter Prog
 		return nil, fmt.Errorf("failed to parse OPML: %w", err)
 	}
 
-	log.Printf("📋 解析到 %d 个 RSS feed", len(outlines))
+	logger.Infof("📋 解析到 %d 个 RSS feed", len(outlines))
 	reporter.ReportSuccess(fmt.Sprintf("解析到 %d 个RSS feed", len(outlines)))
 
 	// 准备并发处理
 	result := &SyncResult{
 		TotalPodcasts: len(outlines),
-		Errors:       []string{},
+		Errors:        []string{},
 	}
 
 	// 任务通道
@@ -71,7 +71,7 @@ func (s *Service) ImportOPMLWithProgressAndConfig(filePath string, reporter Prog
 			defer wg.Done()
 			for outline := range taskChan {
 				title := outline.GetTitle()
-				log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ [Worker %d] %s", workerID, title)
+				logger.Infof("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ [Worker %d] %s", workerID, title)
 
 				// 同步播客
 				podcast, err := s.syncPodcastFromFeedWithRetry(&outline, outline.XMLURL, reporter, DefaultRetryConfig)
@@ -149,15 +149,15 @@ func (s *Service) ImportOPMLWithProgressAndConfig(filePath string, reporter Prog
 	duration := time.Since(startTime)
 
 	// 打印统计信息
-	log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 📊 导入统计")
-	log.Printf("✅ 成功: %d", result.SuccessPodcasts)
-	log.Printf("❌ 失败: %d", result.FailedPodcasts)
-	log.Printf("⏭️  跳过: %d", skippedCount)
-	log.Printf("📚 来自 PodcastIndex: %d (%.1f%%)", fromPodcastIndex, float64(fromPodcastIndex)*100/float64(len(outlines)))
-	log.Printf("🌐 来自在线抓取: %d (%.1f%%)", fromOnlineFetch, float64(fromOnlineFetch)*100/float64(len(outlines)))
-	log.Printf("⏱️  总耗时: %v", duration)
-	log.Printf("🚀 平均速度: %.2f 个/秒", float64(len(outlines))/duration.Seconds())
-	log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	logger.Infof("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 📊 导入统计")
+	logger.Infof("✅ 成功: %d", result.SuccessPodcasts)
+	logger.Infof("❌ 失败: %d", result.FailedPodcasts)
+	logger.Infof("⏭️  跳过: %d", skippedCount)
+	logger.Infof("📚 来自 PodcastIndex: %d (%.1f%%)", fromPodcastIndex, float64(fromPodcastIndex)*100/float64(len(outlines)))
+	logger.Infof("🌐 来自在线抓取: %d (%.1f%%)", fromOnlineFetch, float64(fromOnlineFetch)*100/float64(len(outlines)))
+	logger.Infof("⏱️  总耗时: %v", duration)
+	logger.Infof("🚀 平均速度: %.2f 个/秒", float64(len(outlines))/duration.Seconds())
+	logger.Infof("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	reporter.ReportSuccess(fmt.Sprintf("导入完成！成功: %d, 失败: %d, 跳过: %d, 耗时: %v",
 		result.SuccessPodcasts, result.FailedPodcasts, skippedCount, duration))
@@ -167,7 +167,7 @@ func (s *Service) ImportOPMLWithProgressAndConfig(filePath string, reporter Prog
 
 // ImportOPMLFromPodcastIndexOnly 从PodcastIndex导入并在线同步元数据
 func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter ProgressReporter) (*SyncResult, error) {
-	log.Printf("🚀 开始导入OPML（智能模式）: %s", filePath)
+	logger.Infof("🚀 开始导入OPML（智能模式）: %s", filePath)
 	reporter.Report("开始导入OPML文件（智能模式：本地匹配+在线同步）: " + filePath)
 
 	// 1. 解析OPML文件
@@ -177,13 +177,13 @@ func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter Progr
 		return nil, fmt.Errorf("failed to parse OPML: %w", err)
 	}
 
-	log.Printf("📋 解析到 %d 个 RSS feed", len(outlines))
+	logger.Infof("📋 解析到 %d 个 RSS feed", len(outlines))
 	reporter.ReportSuccess(fmt.Sprintf("解析到 %d 个RSS feed", len(outlines)))
 
 	// 准备结果
 	result := &SyncResult{
 		TotalPodcasts: len(outlines),
-		Errors:       []string{},
+		Errors:        []string{},
 	}
 
 	// 任务通道
@@ -213,7 +213,7 @@ func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter Progr
 			defer wg.Done()
 			for outline := range taskChan {
 				title := outline.GetTitle()
-				log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ [Worker %d] %s", workerID, title)
+				logger.Infof("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ [Worker %d] %s", workerID, title)
 
 				// 仅从PodcastIndex查询，不在线抓取
 				podcast, err := s.syncPodcastFromPodcastIndexOnly(&outline, outline.XMLURL, reporter)
@@ -252,12 +252,12 @@ func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter Progr
 				notFoundCount++
 				reason := SkipReason(reasonStr)
 				reporter.ReportSkip(reason, fmt.Sprintf("%s - %s", res.title, res.err.Error()))
-				log.Printf("⏭️  [%d/%d] %s - 跳过: %v", processedCount, len(outlines), res.title, res.err)
+				logger.Infof("⏭️  [%d/%d] %s - 跳过: %v", processedCount, len(outlines), res.title, res.err)
 			} else {
 				result.FailedPodcasts++
 				result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", res.title, res.err))
 				reporter.ReportError(fmt.Sprintf("%s - %v", res.title, res.err))
-				log.Printf("❌ [%d/%d] %s - 失败: %v", processedCount, len(outlines), res.title, res.err)
+				logger.Infof("❌ [%d/%d] %s - 失败: %v", processedCount, len(outlines), res.title, res.err)
 			}
 		} else if res.podcast != nil {
 			// 保存播客
@@ -265,11 +265,11 @@ func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter Progr
 				result.FailedPodcasts++
 				result.Errors = append(result.Errors, fmt.Sprintf("%s: save failed - %v", res.title, err))
 				reporter.ReportError(fmt.Sprintf("保存失败: %s - %v", res.title, err))
-				log.Printf("❌ [%d/%d] %s - 保存失败: %v", processedCount, len(outlines), res.title, err)
+				logger.Infof("❌ [%d/%d] %s - 保存失败: %v", processedCount, len(outlines), res.title, err)
 			} else {
 				matchedCount++
 				reporter.ReportSuccess(fmt.Sprintf("成功导入: %s", res.title))
-				log.Printf("✅ [%d/%d] %s - 成功", processedCount, len(outlines), res.title)
+				logger.Infof("✅ [%d/%d] %s - 成功", processedCount, len(outlines), res.title)
 			}
 		}
 		mu.Unlock()
@@ -277,12 +277,12 @@ func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter Progr
 
 	duration := time.Since(startTime)
 
-	log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 📊 导入汇总")
-	log.Printf("✅ 匹配成功: %d", matchedCount)
-	log.Printf("📭 未找到: %d", notFoundCount)
-	log.Printf("❌ 失败: %d", result.FailedPodcasts)
-	log.Printf("⏱️  总耗时: %v", duration)
-	log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	logger.Infof("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 📊 导入汇总")
+	logger.Infof("✅ 匹配成功: %d", matchedCount)
+	logger.Infof("📭 未找到: %d", notFoundCount)
+	logger.Infof("❌ 失败: %d", result.FailedPodcasts)
+	logger.Infof("⏱️  总耗时: %v", duration)
+	logger.Infof("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	reporter.ReportSuccess(fmt.Sprintf("导入完成！成功: %d, 未找到: %d, 失败: %d, 耗时: %v",
 		matchedCount, notFoundCount, result.FailedPodcasts, duration))
@@ -311,22 +311,22 @@ func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL st
 		logPrefix = fmt.Sprintf("[%s]", title)
 	}
 
-	log.Printf("%s 🔍 开始同步 feed: %s", logPrefix, feedURL)
+	logger.Infof("%s 🔍 开始同步 feed: %s", logPrefix, feedURL)
 
 	// 尝试从PodcastIndex查询（不重试，因为它是本地数据库）
 	if s.podcastIndexQuery != nil {
-		log.Printf("%s 📚 尝试从 PodcastIndex 查询...", logPrefix)
+		logger.Infof("%s 📚 尝试从 PodcastIndex 查询...", logPrefix)
 
 		var piInfo *podcastindex.PodcastInfo
 		var err error
 
 		// 策略: 使用 feed_url 匹配（带 http/https 转换）
-		log.Printf("%s   📌 尝试使用 feed_url 匹配: %s", logPrefix, feedURL)
+		logger.Infof("%s   📌 尝试使用 feed_url 匹配: %s", logPrefix, feedURL)
 
 		// 1. 先尝试原始URL
 		piInfo, err = s.podcastIndexQuery.FindByFeedURL(feedURL)
 		if err != nil {
-			log.Printf("%s   ⚠️  feed_url 查询出错: %v", logPrefix, err)
+			logger.Infof("%s   ⚠️  feed_url 查询出错: %v", logPrefix, err)
 		}
 
 		// 2. 如果原始URL未匹配，尝试 http/https 互换
@@ -334,34 +334,34 @@ func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL st
 			var altURL string
 			if strings.HasPrefix(feedURL, "http://") {
 				altURL = strings.Replace(feedURL, "http://", "https://", 1)
-				log.Printf("%s   🔄 尝试 https 转换: %s", logPrefix, altURL)
+				logger.Infof("%s   🔄 尝试 https 转换: %s", logPrefix, altURL)
 			} else if strings.HasPrefix(feedURL, "https://") {
 				altURL = strings.Replace(feedURL, "https://", "http://", 1)
-				log.Printf("%s   🔄 尝试 http 转换: %s", logPrefix, altURL)
+				logger.Infof("%s   🔄 尝试 http 转换: %s", logPrefix, altURL)
 			}
 
 			if altURL != "" {
 				piInfo, err = s.podcastIndexQuery.FindByFeedURL(altURL)
 				if err != nil {
-					log.Printf("%s   ⚠️  转换URL查询出错: %v", logPrefix, err)
+					logger.Infof("%s   ⚠️  转换URL查询出错: %v", logPrefix, err)
 				}
 			}
 		}
 
 		// 3. 检查匹配结果
 		if piInfo != nil {
-			log.Printf("%s   ✅ feed_url 匹配成功: %s (作者: %s)", logPrefix, piInfo.Title, piInfo.Author)
+			logger.Infof("%s   ✅ feed_url 匹配成功: %s (作者: %s)", logPrefix, piInfo.Title, piInfo.Author)
 			reporter.Report(fmt.Sprintf("%s - 从本地数据库快速获取（feed_url匹配）", title))
 			return s.createEnhancedPodcastFromOPML(piInfo, outline), nil
 		} else {
-			log.Printf("%s   📭 feed_url 未找到，准备在线抓取", logPrefix)
+			logger.Infof("%s   📭 feed_url 未找到，准备在线抓取", logPrefix)
 		}
 	} else {
-		log.Printf("%s ⚠️  PodcastIndex 未初始化，直接在线抓取", logPrefix)
+		logger.Infof("%s ⚠️  PodcastIndex 未初始化，直接在线抓取", logPrefix)
 	}
 
 	// 对RSS feed抓取进行重试
-	log.Printf("%s 🌐 开始在线抓取 RSS feed (最多重试 %d 次)", logPrefix, config.MaxRetries)
+	logger.Infof("%s 🌐 开始在线抓取 RSS feed (最多重试 %d 次)", logPrefix, config.MaxRetries)
 
 	for attempt := 0; attempt <= config.MaxRetries; attempt++ {
 		if attempt > 0 {
@@ -374,14 +374,14 @@ func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL st
 			if title != "" {
 				reporter.Report(fmt.Sprintf("%s - 第 %d 次重试中...", title, attempt))
 			}
-			log.Printf("%s ⏳ 等待 %.0f 秒后重试...", logPrefix, delay.Seconds())
+			logger.Infof("%s ⏳ 等待 %.0f 秒后重试...", logPrefix, delay.Seconds())
 			time.Sleep(delay)
 		}
 
-		log.Printf("%s 📡 正在抓取 (第 %d 次尝试)...", logPrefix, attempt+1)
+		logger.Infof("%s 📡 正在抓取 (第 %d 次尝试)...", logPrefix, attempt+1)
 		feedData, err := s.feedFetcher.FetchFeed(feedURL)
 		if err == nil {
-			log.Printf("%s ✅ 抓取成功: %s", logPrefix, feedData.Title)
+			logger.Infof("%s ✅ 抓取成功: %s", logPrefix, feedData.Title)
 			// 成功
 			if attempt > 0 && title != "" {
 				reporter.ReportSuccess(fmt.Sprintf("%s - 重试成功", title))
@@ -390,12 +390,12 @@ func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL st
 		}
 
 		lastErr = err
-		log.Printf("%s ❌ 抓取失败 (第 %d 次尝试): %v", logPrefix, attempt+1, err)
+		logger.Infof("%s ❌ 抓取失败 (第 %d 次尝试): %v", logPrefix, attempt+1, err)
 
 		// 检查是否为可重试错误
 		if !feed.IsRetryable(err) {
 			// 不可重试的错误，直接返回
-			log.Printf("%s ⛔ 不可重试的错误，停止重试: %v", logPrefix, err)
+			logger.Infof("%s ⛔ 不可重试的错误，停止重试: %v", logPrefix, err)
 			return nil, err
 		}
 
@@ -404,7 +404,7 @@ func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL st
 			if title != "" {
 				reporter.ReportError(fmt.Sprintf("%s - 重试 %d 次后仍然失败", title, config.MaxRetries))
 			}
-			log.Printf("%s 💥 达到最大重试次数，放弃", logPrefix)
+			logger.Infof("%s 💥 达到最大重试次数，放弃", logPrefix)
 			return nil, fmt.Errorf("failed after %d retries: %w", config.MaxRetries, lastErr)
 		}
 
@@ -429,7 +429,7 @@ func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL
 		logPrefix = fmt.Sprintf("[%s]", title)
 	}
 
-	log.Printf("%s 🔍 智能同步模式: %s", logPrefix, feedURL)
+	logger.Infof("%s 🔍 智能同步模式: %s", logPrefix, feedURL)
 
 	// 步骤1: 尝试从PodcastIndex本地数据库匹配
 	var piInfo *podcastindex.PodcastInfo
@@ -439,7 +439,7 @@ func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL
 		// 1. 先尝试原始URL
 		piInfo, err = s.podcastIndexQuery.FindByFeedURL(feedURL)
 		if err != nil {
-			log.Printf("%s   ⚠️  feed_url 查询出错: %v", logPrefix, err)
+			logger.Infof("%s   ⚠️  feed_url 查询出错: %v", logPrefix, err)
 		}
 
 		// 2. 如果原始URL未匹配，尝试 http/https 互换
@@ -447,16 +447,16 @@ func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL
 			var altURL string
 			if strings.HasPrefix(feedURL, "http://") {
 				altURL = strings.Replace(feedURL, "http://", "https://", 1)
-				log.Printf("%s   🔄 尝试 https 转换: %s", logPrefix, altURL)
+				logger.Infof("%s   🔄 尝试 https 转换: %s", logPrefix, altURL)
 			} else if strings.HasPrefix(feedURL, "https://") {
 				altURL = strings.Replace(feedURL, "https://", "http://", 1)
-				log.Printf("%s   🔄 尝试 http 转换: %s", logPrefix, altURL)
+				logger.Infof("%s   🔄 尝试 http 转换: %s", logPrefix, altURL)
 			}
 
 			if altURL != "" {
 				piInfo, err = s.podcastIndexQuery.FindByFeedURL(altURL)
 				if err != nil {
-					log.Printf("%s   ⚠️  转换URL查询出错: %v", logPrefix, err)
+					logger.Infof("%s   ⚠️  转换URL查询出错: %v", logPrefix, err)
 				}
 			}
 		}
@@ -465,29 +465,29 @@ func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL
 	// 步骤2: 根据匹配结果采取不同策略
 	if piInfo != nil {
 		// 情况A: 本地数据库匹配成功 - 在线抓取4个字段
-		log.Printf("%s   ✅ 本地数据库匹配成功: %s (作者: %s)", logPrefix, piInfo.Title, piInfo.Author)
+		logger.Infof("%s   ✅ 本地数据库匹配成功: %s (作者: %s)", logPrefix, piInfo.Title, piInfo.Author)
 		reporter.Report(fmt.Sprintf("%s - 本地匹配成功，正在更新元数据...", title))
 
 		// 创建基础播客对象（从本地数据库）
 		podcast := s.createEnhancedPodcastFromOPML(piInfo, outline)
 
 		// 在线抓取4个关键字段
-		log.Printf("%s   🌐 在线更新元数据字段", logPrefix)
+		logger.Infof("%s   🌐 在线更新元数据字段", logPrefix)
 		updatedPodcast, updateErr := s.updatePodcastMetadataOnline(podcast, reporter)
 		if updateErr != nil {
-			log.Printf("%s   ⚠️  在线更新失败: %v，使用本地数据库数据", logPrefix, updateErr)
+			logger.Infof("%s   ⚠️  在线更新失败: %v，使用本地数据库数据", logPrefix, updateErr)
 			reporter.Report(fmt.Sprintf("%s - 在线更新失败，使用本地数据", title))
 			// 即使在线更新失败，也返回本地数据
 			return podcast, nil
 		}
 
-		log.Printf("%s   ✅ 同步完成: %s", logPrefix, updatedPodcast.Title)
+		logger.Infof("%s   ✅ 同步完成: %s", logPrefix, updatedPodcast.Title)
 		reporter.Report(fmt.Sprintf("%s - 同步完成", title))
 		return updatedPodcast, nil
 	}
 
 	// 情况B: 本地数据库未匹配 - 在线抓取完整信息
-	log.Printf("%s   📭 本地数据库未找到，尝试在线抓取...", logPrefix)
+	logger.Infof("%s   📭 本地数据库未找到，尝试在线抓取...", logPrefix)
 	reporter.Report(fmt.Sprintf("%s - 未在本地数据库找到，正在在线抓取...", title))
 
 	podcast, fetchErr := s.fetchPodcastOnline(outline, feedURL, reporter)
@@ -496,13 +496,13 @@ func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL
 		// 对于永久性错误，直接跳过，不创建数据库记录
 		if shouldSkip, reasonStr, description := feed.GetSkipReasonFromError(fetchErr); shouldSkip {
 			reason := SkipReason(reasonStr)
-			log.Printf("%s   ⏭️  永久性错误，跳过此feed: %s - %s", logPrefix, reasonStr, description)
+			logger.Infof("%s   ⏭️  永久性错误，跳过此feed: %s - %s", logPrefix, reasonStr, description)
 			reporter.ReportSkip(reason, fmt.Sprintf("%s - %s", title, description))
 			return nil, fetchErr
 		}
 
 		// 对于临时性错误（网络故障、超时等），创建基础记录以便稍后重试
-		log.Printf("%s   ⚠️  临时性错误，创建基础记录: %v", logPrefix, fetchErr)
+		logger.Infof("%s   ⚠️  临时性错误，创建基础记录: %v", logPrefix, fetchErr)
 		reporter.Report(fmt.Sprintf("%s - 临时错误，已创建基础记录（可稍后同步）", title))
 
 		// 创建基础播客对象
@@ -534,14 +534,14 @@ func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL
 		return basePodcast, nil
 	}
 
-	log.Printf("%s   ✅ 在线抓取成功: %s", logPrefix, podcast.Title)
+	logger.Infof("%s   ✅ 在线抓取成功: %s", logPrefix, podcast.Title)
 	reporter.Report(fmt.Sprintf("%s - 在线抓取成功", title))
 	return podcast, nil
 }
 
 // updatePodcastMetadataOnline 在线更新播客的4个关键字段
 func (s *Service) updatePodcastMetadataOnline(podcast *models.Podcast, reporter ProgressReporter) (*models.Podcast, error) {
-	log.Printf("   🌐 抓取元数据: %s", podcast.FeedURL)
+	logger.Infof("   🌐 抓取元数据: %s", podcast.FeedURL)
 
 	// 在线抓取RSS feed
 	gofeed, err := s.feedFetcher.FetchFeed(podcast.FeedURL)
@@ -563,7 +563,7 @@ func (s *Service) updatePodcastMetadataOnline(podcast *models.Podcast, reporter 
 	podcast.FeedURLValid = true
 	podcast.FetchErrorCount = 0
 
-	log.Printf("   ✅ 元数据更新成功: episode_count=%d, newest_episode_date=%v",
+	logger.Infof("   ✅ 元数据更新成功: episode_count=%d, newest_episode_date=%v",
 		podcast.EpisodeCount, podcast.NewestEpisodeDate)
 
 	return podcast, nil
@@ -571,7 +571,7 @@ func (s *Service) updatePodcastMetadataOnline(podcast *models.Podcast, reporter 
 
 // fetchPodcastOnline 在线抓取完整播客信息
 func (s *Service) fetchPodcastOnline(outline *opml.Outline, feedURL string, reporter ProgressReporter) (*models.Podcast, error) {
-	log.Printf("   🌐 在线抓取完整播客信息: %s", feedURL)
+	logger.Infof("   🌐 在线抓取完整播客信息: %s", feedURL)
 
 	// 在线抓取RSS feed
 	gofeed, err := s.feedFetcher.FetchFeed(feedURL)
@@ -599,7 +599,7 @@ func (s *Service) fetchPodcastOnline(outline *opml.Outline, feedURL string, repo
 	podcast.FeedURLValid = true
 	podcast.FetchErrorCount = 0
 
-	log.Printf("   ✅ 在线抓取完成: %s (episode_count=%d)", podcast.Title, podcast.EpisodeCount)
+	logger.Infof("   ✅ 在线抓取完成: %s (episode_count=%d)", podcast.Title, podcast.EpisodeCount)
 
 	return podcast, nil
 }

@@ -3,7 +3,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"log"
+	"magicpodcast/internal/logger"
 	"strings"
 	"sync"
 	"time"
@@ -39,7 +39,7 @@ func NewScheduler(db *gorm.DB, executor *workflow.Executor) *Scheduler {
 
 // Start 启动调度器
 func (s *Scheduler) Start() error {
-	log.Println("🕐 启动工作流调度器")
+	logger.Info("🕐 启动工作流调度器")
 
 	// 加载所有已启用的工作流
 	var workflows []models.Workflow
@@ -49,7 +49,7 @@ func (s *Scheduler) Start() error {
 	}
 
 	if len(workflows) == 0 {
-		log.Println("📭 没有已启用的工作流需要调度")
+		logger.Info("📭 没有已启用的工作流需要调度")
 		s.cron.Start()
 		return nil
 	}
@@ -58,16 +58,16 @@ func (s *Scheduler) Start() error {
 	registeredCount := 0
 	for _, wf := range workflows {
 		if err := s.registerWorkflow(&wf); err != nil {
-			log.Printf("⚠️  注册工作流失败 [ID=%d]: %v", wf.ID, err)
+			logger.Infof("⚠️  注册工作流失败 [ID=%d]: %v", wf.ID, err)
 			continue
 		}
 		registeredCount++
-		log.Printf("✅ 已注册工作流 [ID=%d, Schedule=%s]", wf.ID, wf.Schedule)
+		logger.Infof("✅ 已注册工作流 [ID=%d, Schedule=%s]", wf.ID, wf.Schedule)
 	}
 
 	// 2. 启动cron调度器
 	s.cron.Start()
-	log.Printf("🚀 调度器已启动，共注册 %d 个工作流", registeredCount)
+	logger.Infof("🚀 调度器已启动，共注册 %d 个工作流", registeredCount)
 
 	// 3. 检查并补偿错过的任务执行
 	s.checkAndExecuteMissedWorkflows(&workflows)
@@ -77,7 +77,7 @@ func (s *Scheduler) Start() error {
 
 // checkAndExecuteMissedWorkflows 检查并执行错过的任务
 func (s *Scheduler) checkAndExecuteMissedWorkflows(workflows *[]models.Workflow) {
-	log.Println("🔍 检查是否有错过的任务需要补偿执行...")
+	logger.Info("🔍 检查是否有错过的任务需要补偿执行...")
 
 	now := time.Now()
 	missedCount := 0
@@ -88,13 +88,13 @@ func (s *Scheduler) checkAndExecuteMissedWorkflows(workflows *[]models.Workflow)
 			// 首次运行或未设置，初始化下次执行时间
 			nextRun, err := wf.GetNextRunTime()
 			if err != nil {
-				log.Printf("⚠️  计算下次执行时间失败 [ID=%d]: %v", wf.ID, err)
+				logger.Infof("⚠️  计算下次执行时间失败 [ID=%d]: %v", wf.ID, err)
 				continue
 			}
 
 			// 更新到数据库 (使用 UTC)
 			s.db.Model(&wf).Update("next_run_at", nextRun.UTC())
-			log.Printf("📅 初始化下次执行时间 [ID=%d, NextRun=%s]", wf.ID, nextRun.UTC().Format("2006-01-02 15:04:05"))
+			logger.Infof("📅 初始化下次执行时间 [ID=%d, NextRun=%s]", wf.ID, nextRun.UTC().Format("2006-01-02 15:04:05"))
 			continue
 		}
 
@@ -105,7 +105,7 @@ func (s *Scheduler) checkAndExecuteMissedWorkflows(workflows *[]models.Workflow)
 
 		if nextRunUTC.Before(nowUTC) {
 			missedCount++
-			log.Printf("⚠️  发现错过的执行 [ID=%d, 计划时间=%s, 当前时间=%s]",
+			logger.Infof("⚠️  发现错过的执行 [ID=%d, 计划时间=%s, 当前时间=%s]",
 				wf.ID,
 				wf.NextRunAt.Format("2006-01-02 15:04:05"),
 				now.Format("2006-01-02 15:04:05"))
@@ -113,16 +113,16 @@ func (s *Scheduler) checkAndExecuteMissedWorkflows(workflows *[]models.Workflow)
 			// 异步补偿执行（避免阻塞调度器启动）
 			go s.executeMissedWorkflow(&wf)
 		} else {
-			log.Printf("✅ 调度正常 [ID=%d, NextRun=%s]",
+			logger.Infof("✅ 调度正常 [ID=%d, NextRun=%s]",
 				wf.ID,
 				wf.NextRunAt.Format("2006-01-02 15:04:05"))
 		}
 	}
 
 	if missedCount == 0 {
-		log.Println("✅ 没有错过的任务")
+		logger.Info("✅ 没有错过的任务")
 	} else {
-		log.Printf("🔧 发现 %d 个错过的任务，正在异步补偿执行...", missedCount)
+		logger.Infof("🔧 发现 %d 个错过的任务，正在异步补偿执行...", missedCount)
 	}
 }
 
@@ -131,14 +131,14 @@ func (s *Scheduler) executeMissedWorkflow(workflow *models.Workflow) {
 	// 添加短暂的延迟，避免与其他启动任务冲突
 	time.Sleep(2 * time.Second)
 
-	log.Printf("🔄 开始补偿执行 [ID=%d, Name=%s]", workflow.ID, workflow.Name)
+	logger.Infof("🔄 开始补偿执行 [ID=%d, Name=%s]", workflow.ID, workflow.Name)
 
 	// 检查是否有正在运行的任务
 	if workflow.LastJobID != nil {
 		var lastJob models.Job
 		if err := s.db.Where("id = ?", *workflow.LastJobID).First(&lastJob).Error; err == nil {
 			if lastJob.Status == models.JobStatusRunning {
-				log.Printf("⏭️  补偿执行跳过：上次任务仍在运行 [ID=%d, JobID=%d]",
+				logger.Infof("⏭️  补偿执行跳过：上次任务仍在运行 [ID=%d, JobID=%d]",
 					workflow.ID, lastJob.ID)
 				return
 			}
@@ -151,9 +151,9 @@ func (s *Scheduler) executeMissedWorkflow(workflow *models.Workflow) {
 
 	job, err := s.executor.Execute(ctx, workflow, "cron-catchup")
 	if err != nil {
-		log.Printf("❌ 补偿执行失败 [ID=%d]: %v", workflow.ID, err)
+		logger.Infof("❌ 补偿执行失败 [ID=%d]: %v", workflow.ID, err)
 	} else {
-		log.Printf("✅ 补偿执行成功 [ID=%d, JobID=%d]", workflow.ID, job.ID)
+		logger.Infof("✅ 补偿执行成功 [ID=%d, JobID=%d]", workflow.ID, job.ID)
 	}
 
 	// 计算并更新下次执行时间
@@ -163,13 +163,13 @@ func (s *Scheduler) executeMissedWorkflow(workflow *models.Workflow) {
 			"last_execution_at": time.Now().UTC(),
 			"next_run_at":       nextRun.UTC(),
 		})
-		log.Printf("📅 更新下次执行时间 [ID=%d, NextRun=%s]", workflow.ID, nextRun.UTC().Format("2006-01-02 15:04:05"))
+		logger.Infof("📅 更新下次执行时间 [ID=%d, NextRun=%s]", workflow.ID, nextRun.UTC().Format("2006-01-02 15:04:05"))
 	}
 }
 
 // Stop 停止调度器
 func (s *Scheduler) Stop() {
-	log.Println("🛑 停止工作流调度器")
+	logger.Info("🛑 停止工作流调度器")
 	ctx := s.cron.Stop()
 	<-ctx.Done() // 等待所有正在运行的job完成
 	s.mu.Lock()
@@ -192,7 +192,7 @@ func (s *Scheduler) registerWorkflow(workflow *models.Workflow) error {
 		// 5位表达式：分 时 日 月 周 -> 自动添加秒位
 		originalSchedule = schedule
 		schedule = "0 " + schedule
-		log.Printf("📝 自动转换5位表达式为6位 [ID=%d]: %s -> %s",
+		logger.Infof("📝 自动转换5位表达式为6位 [ID=%d]: %s -> %s",
 			workflow.ID, originalSchedule, schedule)
 	} else if len(parts) != 6 {
 		return fmt.Errorf("不支持的cron表达式格式: %s (期望5位或6位)", schedule)
@@ -219,18 +219,18 @@ func (s *Scheduler) registerWorkflow(workflow *models.Workflow) error {
 
 // executeWorkflow 执行工作流（带重复执行检查和调度历史记录）
 func (s *Scheduler) executeWorkflow(workflowID uint) {
-	log.Printf("⏰ [调度] 触发工作流 [ID=%d]", workflowID)
+	logger.Infof("⏰ [调度] 触发工作流 [ID=%d]", workflowID)
 
 	// 重新加载工作流（确保获取最新状态）
 	var wf models.Workflow
 	if err := s.db.First(&wf, workflowID).Error; err != nil {
-		log.Printf("❌ [调度] 工作流不存在 [ID=%d]: %v", workflowID, err)
+		logger.Infof("❌ [调度] 工作流不存在 [ID=%d]: %v", workflowID, err)
 		return
 	}
 
 	// 检查是否启用
 	if !wf.IsEnabled {
-		log.Printf("⏭️  [调度] 工作流已禁用，跳过执行 [ID=%d]", workflowID)
+		logger.Infof("⏭️  [调度] 工作流已禁用，跳过执行 [ID=%d]", workflowID)
 		return
 	}
 
@@ -239,7 +239,7 @@ func (s *Scheduler) executeWorkflow(workflowID uint) {
 		var lastJob models.Job
 		if err := s.db.Where("id = ?", *wf.LastJobID).First(&lastJob).Error; err == nil {
 			if lastJob.Status == models.JobStatusRunning {
-				log.Printf("⏭️  [调度] 工作流正在运行，跳过本次执行 [ID=%d, JobID=%d]",
+				logger.Infof("⏭️  [调度] 工作流正在运行，跳过本次执行 [ID=%d, JobID=%d]",
 					workflowID, lastJob.ID)
 				return
 			}
@@ -252,12 +252,12 @@ func (s *Scheduler) executeWorkflow(workflowID uint) {
 
 	job, err := s.executor.Execute(ctx, &wf, "cron")
 	if err != nil {
-		log.Printf("❌ [调度] 工作流执行失败 [ID=%d]: %v", workflowID, err)
+		logger.Infof("❌ [调度] 工作流执行失败 [ID=%d]: %v", workflowID, err)
 		s.checkAndAlertFailures(workflowID)
 		return
 	}
 
-	log.Printf("✅ [调度] 工作流执行完成 [ID=%d, JobID=%d, 状态=%s]",
+	logger.Infof("✅ [调度] 工作流执行完成 [ID=%d, JobID=%d, 状态=%s]",
 		workflowID, job.ID, job.Status)
 
 	// 更新调度状态（持久化到数据库）
@@ -274,7 +274,7 @@ func (s *Scheduler) executeWorkflow(workflowID uint) {
 	// 这样可以确保即使执行有延迟，下次执行时间仍然是正确的
 	nextRun, err := wf.GetNextRunTime()
 	if err != nil {
-		log.Printf("⚠️  [调度] 计算下次执行时间失败 [ID=%d]: %v", workflowID, err)
+		logger.Infof("⚠️  [调度] 计算下次执行时间失败 [ID=%d]: %v", workflowID, err)
 		nextRun = now.AddDate(0, 0, 1) // 默认明天
 	}
 
@@ -285,9 +285,9 @@ func (s *Scheduler) executeWorkflow(workflowID uint) {
 	}
 
 	if err := s.db.Model(&wf).Updates(updates).Error; err != nil {
-		log.Printf("⚠️  [调度] 更新调度状态失败 [ID=%d]: %v", workflowID, err)
+		logger.Infof("⚠️  [调度] 更新调度状态失败 [ID=%d]: %v", workflowID, err)
 	} else {
-		log.Printf("📅 [调度] 已更新调度状态 [ID=%d, LastExecution=%s, NextRun=%s]",
+		logger.Infof("📅 [调度] 已更新调度状态 [ID=%d, LastExecution=%s, NextRun=%s]",
 			workflowID,
 			now.Local().Format("2006-01-02 15:04:05"),
 			nextRun.Local().Format("2006-01-02 15:04:05"))
@@ -307,7 +307,7 @@ func (s *Scheduler) checkAndAlertFailures(workflowID uint) {
 		Order("created_at DESC").
 		Limit(failureThreshold).
 		Find(&recentRuns).Error; err != nil {
-		log.Printf("⚠️  [调度] 查询调度记录失败: %v", err)
+		logger.Infof("⚠️  [调度] 查询调度记录失败: %v", err)
 		return
 	}
 
@@ -321,14 +321,14 @@ func (s *Scheduler) checkAndAlertFailures(workflowID uint) {
 	}
 
 	if allFailed && len(recentRuns) >= failureThreshold {
-		log.Printf("🚨 [调度] 工作流 [ID=%d] 连续失败 %d 次，需要关注！", workflowID, failureThreshold)
+		logger.Infof("🚨 [调度] 工作流 [ID=%d] 连续失败 %d 次，需要关注！", workflowID, failureThreshold)
 		// TODO: 发送通知（邮件、webhook等）
 	}
 }
 
 // Reload 重新加载所有工作流
 func (s *Scheduler) Reload() error {
-	log.Println("🔄 重新加载调度器")
+	logger.Info("🔄 重新加载调度器")
 
 	// 保存旧的 jobIDs 映射用于回滚
 	s.mu.Lock()
@@ -340,7 +340,7 @@ func (s *Scheduler) Reload() error {
 	// 移除所有现有的 cron 任务
 	for wfID, entryID := range oldJobIDs {
 		s.cron.Remove(entryID)
-		log.Printf("🗑️  移除工作流 [ID=%d]", wfID)
+		logger.Infof("🗑️  移除工作流 [ID=%d]", wfID)
 	}
 
 	// 清空映射
@@ -352,7 +352,7 @@ func (s *Scheduler) Reload() error {
 	if err := s.db.Where("is_enabled = ? AND schedule != ?", true, "").
 		Find(&workflows).Error; err != nil {
 		// 数据库查询失败，回滚：恢复旧的 jobIDs
-		log.Printf("❌ 加载工作流失败，尝试回滚: %v", err)
+		logger.Infof("❌ 加载工作流失败，尝试回滚: %v", err)
 		s.rollbackReload(oldJobIDs)
 		s.mu.Unlock()
 		return fmt.Errorf("加载工作流失败: %w", err)
@@ -363,33 +363,33 @@ func (s *Scheduler) Reload() error {
 	var firstErr error
 	for _, wf := range workflows {
 		if err := s.registerWorkflowLocked(&wf); err != nil {
-			log.Printf("⚠️  注册工作流失败 [ID=%d]: %v", wf.ID, err)
+			logger.Infof("⚠️  注册工作流失败 [ID=%d]: %v", wf.ID, err)
 			if firstErr == nil {
 				firstErr = err
 			}
 			// 继续尝试注册其他工作流
 		} else {
 			registeredCount++
-			log.Printf("✅ 已注册工作流 [ID=%d, Schedule=%s]", wf.ID, wf.Schedule)
+			logger.Infof("✅ 已注册工作流 [ID=%d, Schedule=%s]", wf.ID, wf.Schedule)
 		}
 	}
 
 	// 如果没有成功注册任何工作流，回滚
 	if registeredCount == 0 && len(workflows) > 0 {
-		log.Printf("❌ 所有工作流注册失败，尝试回滚: %v", firstErr)
+		logger.Infof("❌ 所有工作流注册失败，尝试回滚: %v", firstErr)
 		s.rollbackReload(oldJobIDs)
 		s.mu.Unlock()
 		return fmt.Errorf("所有工作流注册失败: %w", firstErr)
 	}
 
 	s.mu.Unlock()
-	log.Printf("🚀 调度器重新加载完成，共注册 %d 个工作流", registeredCount)
+	logger.Infof("🚀 调度器重新加载完成，共注册 %d 个工作流", registeredCount)
 	return nil
 }
 
 // rollbackReload 回滚到之前的 jobIDs 状态
 func (s *Scheduler) rollbackReload(oldJobIDs map[uint]cron.EntryID) {
-	log.Printf("🔄 回滚调度器到之前的状态，恢复 %d 个工作流", len(oldJobIDs))
+	logger.Infof("🔄 回滚调度器到之前的状态，恢复 %d 个工作流", len(oldJobIDs))
 
 	// 清空当前（可能部分注册的）jobIDs
 	s.jobIDs = make(map[uint]cron.EntryID)
@@ -400,7 +400,7 @@ func (s *Scheduler) rollbackReload(oldJobIDs map[uint]cron.EntryID) {
 		// 注意：这里需要重新获取工作流信息来注册
 		var wf models.Workflow
 		if err := s.db.First(&wf, wfID).Error; err != nil {
-			log.Printf("⚠️  回滚时找不到工作流 [ID=%d]: %v", wfID, err)
+			logger.Infof("⚠️  回滚时找不到工作流 [ID=%d]: %v", wfID, err)
 			continue
 		}
 
@@ -410,9 +410,9 @@ func (s *Scheduler) rollbackReload(oldJobIDs map[uint]cron.EntryID) {
 		}
 		if newEntryID, err := s.cron.AddFunc(wf.Schedule, jobFunc); err == nil {
 			s.jobIDs[wf.ID] = newEntryID
-			log.Printf("✅ 回滚：已恢复工作流 [ID=%d]", wfID)
+			logger.Infof("✅ 回滚：已恢复工作流 [ID=%d]", wfID)
 		} else {
-			log.Printf("❌ 回滚：恢复工作流失败 [ID=%d]: %v", wfID, err)
+			logger.Infof("❌ 回滚：恢复工作流失败 [ID=%d]: %v", wfID, err)
 		}
 	}
 }
@@ -432,7 +432,7 @@ func (s *Scheduler) registerWorkflowLocked(workflow *models.Workflow) error {
 		// 5位表达式：分 时 日 月 周 -> 自动添加秒位
 		originalSchedule = schedule
 		schedule = "0 " + schedule
-		log.Printf("📝 自动转换5位表达式为6位 [ID=%d]: %s -> %s",
+		logger.Infof("📝 自动转换5位表达式为6位 [ID=%d]: %s -> %s",
 			workflow.ID, originalSchedule, schedule)
 	} else if len(parts) != 6 {
 		return fmt.Errorf("不支持的cron表达式格式: %s (期望5位或6位)", schedule)
@@ -468,7 +468,7 @@ func (s *Scheduler) PauseWorkflow(workflowID uint) error {
 	s.cron.Remove(entryID)
 	delete(s.jobIDs, workflowID)
 
-	log.Printf("⏸️  已暂停工作流调度 [ID=%d]", workflowID)
+	logger.Infof("⏸️  已暂停工作流调度 [ID=%d]", workflowID)
 	return nil
 }
 
@@ -499,9 +499,9 @@ func (s *Scheduler) GetStatus() map[string]interface{} {
 
 	// 构建工作流列表（包含下次执行时间）
 	type WorkflowInfo struct {
-		EntryID    int       `json:"entry_id"`
-		NextRun    time.Time `json:"next_run,omitempty"`
-		PrevRun    time.Time `json:"prev_run,omitempty"`
+		EntryID int       `json:"entry_id"`
+		NextRun time.Time `json:"next_run,omitempty"`
+		PrevRun time.Time `json:"prev_run,omitempty"`
 	}
 
 	workflows := make(map[uint]WorkflowInfo)

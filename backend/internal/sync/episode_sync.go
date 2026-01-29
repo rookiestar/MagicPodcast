@@ -2,7 +2,7 @@ package sync
 
 import (
 	"fmt"
-	"log"
+	"magicpodcast/internal/logger"
 	"sync"
 	"time"
 
@@ -24,7 +24,7 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 		return nil, fmt.Errorf("failed to find podcast: %w", err)
 	}
 
-	log.Printf("🔄 开始同步podcast episodes: %s (模式: %s)", podcast.Title, config.Mode)
+	logger.Infof("🔄 开始同步podcast episodes: %s (模式: %s)", podcast.Title, config.Mode)
 	reporter.Report(fmt.Sprintf("正在同步: %s", podcast.Title))
 
 	result := &EpisodeSyncResult{
@@ -76,22 +76,22 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 	var fetchErr error
 
 	if useIncremental {
-		log.Printf("   📊 增量模式: 基准时间 %v", lastFetchTime)
+		logger.Infof("   📊 增量模式: 基准时间 %v", lastFetchTime)
 		fetchResult, err := s.feedFetcher.FetchIncremental(podcast.FeedURL, lastFetchTime)
 		if err != nil {
 			fetchErr = fmt.Errorf("增量抓取失败: %w", err)
 		} else {
 			items = fetchResult.NewItems
-			log.Printf("   ✅ 增量抓取到 %d 个新episode", len(items))
+			logger.Infof("   ✅ 增量抓取到 %d 个新episode", len(items))
 		}
 	} else {
-		log.Printf("   📊 全量模式: 获取所有episodes")
+		logger.Infof("   📊 全量模式: 获取所有episodes")
 		feedData, err := s.feedFetcher.FetchFeed(podcast.FeedURL)
 		if err != nil {
 			fetchErr = fmt.Errorf("全量抓取失败: %w", err)
 		} else {
 			items = feedData.Items
-			log.Printf("   ✅ 全量抓取到 %d 个episodes", len(items))
+			logger.Infof("   ✅ 全量抓取到 %d 个episodes", len(items))
 		}
 	}
 
@@ -101,7 +101,7 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 
 	// 4. 限制处理数量（防止单个podcast过大）
 	if config.MaxEpisodesPerPodcast > 0 && len(items) > config.MaxEpisodesPerPodcast {
-		log.Printf("   ⚠️  超过最大数量限制，只处理前 %d 个", config.MaxEpisodesPerPodcast)
+		logger.Infof("   ⚠️  超过最大数量限制，只处理前 %d 个", config.MaxEpisodesPerPodcast)
 		items = items[:config.MaxEpisodesPerPodcast]
 	}
 
@@ -116,10 +116,10 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 		if err == gorm.ErrRecordNotFound {
 			// 新增
 			if err := s.db.Create(episode).Error; err != nil {
-				log.Printf("   ❌ 创建episode失败: %s - %v", item.Title, err)
+				logger.Infof("   ❌ 创建episode失败: %s - %v", item.Title, err)
 				result.Errors++
 			} else {
-				log.Printf("   ✅ 新增episode: %s", item.Title)
+				logger.Infof("   ✅ 新增episode: %s", item.Title)
 				result.Created++
 			}
 		} else if err == nil {
@@ -132,10 +132,10 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 				episode.CreatedAt = existing.CreatedAt
 
 				if err := s.db.Save(episode).Error; err != nil {
-					log.Printf("   ❌ 更新episode失败: %s - %v", item.Title, err)
+					logger.Infof("   ❌ 更新episode失败: %s - %v", item.Title, err)
 					result.Errors++
 				} else {
-					log.Printf("   🔄 更新episode: %s", item.Title)
+					logger.Infof("   🔄 更新episode: %s", item.Title)
 					result.Updated++
 				}
 			} else {
@@ -143,7 +143,7 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 			}
 		} else {
 			// 查询错误
-			log.Printf("   ❌ 查询episode失败: %v", err)
+			logger.Infof("   ❌ 查询episode失败: %v", err)
 			result.Errors++
 		}
 	}
@@ -168,9 +168,9 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 				podcast.NewestEpisodeDate = newestEpisode.PublishedDate
 			}
 
-			log.Printf("   📅 更新newest_episode_date: %s", podcast.NewestEpisodeDate.Format("2006-01-02 15:04:05"))
+			logger.Infof("   📅 更新newest_episode_date: %s", podcast.NewestEpisodeDate.Format("2006-01-02 15:04:05"))
 		} else {
-			log.Printf("   ⚠️  查询最新episode失败，无法更新newest_episode_date: %v", err)
+			logger.Infof("   ⚠️  查询最新episode失败，无法更新newest_episode_date: %v", err)
 		}
 	}
 
@@ -180,17 +180,17 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 		oldEpisodeCount := podcast.EpisodeCount
 		podcast.EpisodeCount = int(actualEpisodeCount)
 		if oldEpisodeCount != podcast.EpisodeCount {
-			log.Printf("   📊 更新 episode_count: %d → %d", oldEpisodeCount, podcast.EpisodeCount)
+			logger.Infof("   📊 更新 episode_count: %d → %d", oldEpisodeCount, podcast.EpisodeCount)
 		}
 	} else {
-		log.Printf("   ⚠️  统计 episode_count 失败: %v", err)
+		logger.Infof("   ⚠️  统计 episode_count 失败: %v", err)
 	}
 
 	if err := s.db.Save(&podcast).Error; err != nil {
-		log.Printf("   ⚠️  更新podcast元数据失败: %v", err)
+		logger.Infof("   ⚠️  更新podcast元数据失败: %v", err)
 	}
 
-	log.Printf("✅ 同步完成: %s - 新增: %d, 更新: %d, 跳过: %d, 错误: %d",
+	logger.Infof("✅ 同步完成: %s - 新增: %d, 更新: %d, 跳过: %d, 错误: %d",
 		podcast.Title, result.Created, result.Updated, result.Skipped, result.Errors)
 
 	return result, nil
@@ -198,7 +198,7 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 
 // SyncAllPodcastEpisodes 同步所有已订阅podcast的episodes
 func (s *Service) SyncAllPodcastEpisodes(reporter ProgressReporter, config EpisodeSyncConfig) error {
-	log.Println("🚀 开始同步所有podcast的episodes...")
+	logger.Info("🚀 开始同步所有podcast的episodes...")
 	reporter.Report("开始同步所有podcast的episodes...")
 
 	// 1. 获取所有已订阅的podcast
@@ -215,7 +215,7 @@ func (s *Service) SyncAllPodcastEpisodes(reporter ProgressReporter, config Episo
 		return nil
 	}
 
-	log.Printf("📊 共 %d 个podcast需要同步episodes", total)
+	logger.Infof("📊 共 %d 个podcast需要同步episodes", total)
 	reporter.Report(fmt.Sprintf("共 %d 个podcast需要同步episodes", total))
 
 	// 2. 准备并发处理
@@ -231,7 +231,7 @@ func (s *Service) SyncAllPodcastEpisodes(reporter ProgressReporter, config Episo
 		go func(workerID int) {
 			defer wg.Done()
 			for podcast := range taskChan {
-				log.Printf("[Worker %d] 处理: %s", workerID, podcast.Title)
+				logger.Infof("[Worker %d] 处理: %s", workerID, podcast.Title)
 				result, err := s.SyncPodcastEpisodes(podcast.ID, reporter, config)
 				if err != nil {
 					reporter.ReportError(fmt.Sprintf("%s - %v", podcast.Title, err))
@@ -285,7 +285,7 @@ func (s *Service) SyncAllPodcastEpisodes(reporter ProgressReporter, config Episo
 	}
 
 	// 6. 发送最终结果
-	log.Printf("✅ 所有podcast的episodes同步完成: 新增: %d, 更新: %d, 跳过: %d, 错误: %d",
+	logger.Infof("✅ 所有podcast的episodes同步完成: 新增: %d, 更新: %d, 跳过: %d, 错误: %d",
 		totalCreated, totalUpdated, totalSkipped, totalErrors)
 
 	// 发送汇总统计

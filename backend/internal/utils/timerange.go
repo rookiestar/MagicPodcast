@@ -2,7 +2,7 @@ package utils
 
 import (
 	"fmt"
-	"log"
+	"magicpodcast/internal/logger"
 	"time"
 )
 
@@ -33,8 +33,8 @@ func GetTimeRangeWindow(mode TimeRangeMode, days int, triggeredAt time.Time) (st
 		end := triggeredAt
 		start := triggeredAt.AddDate(0, 0, -days)
 
-		log.Printf("[GetTimeRangeWindow] Daily Mode: mode=%s, days=%d, triggeredAt=%s", mode, days, triggeredAt.Format("2006-01-02 15:04:05"))
-		log.Printf("[GetTimeRangeWindow] Time Window: start=%s, end=%s", start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"))
+		logger.Infof("[GetTimeRangeWindow] Daily Mode: mode=%s, days=%d, triggeredAt=%s", mode, days, triggeredAt.Format("2006-01-02 15:04:05"))
+		logger.Infof("[GetTimeRangeWindow] Time Window: start=%s, end=%s", start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"))
 
 		return start, end, nil
 
@@ -44,8 +44,8 @@ func GetTimeRangeWindow(mode TimeRangeMode, days int, triggeredAt time.Time) (st
 		end = now
 		start = now.AddDate(0, 0, -days)
 
-		log.Printf("[GetTimeRangeWindow] Manual Mode: mode=%s, days=%d", mode, days)
-		log.Printf("[GetTimeRangeWindow] Time Window: start=%s, end=%s", start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"))
+		logger.Infof("[GetTimeRangeWindow] Manual Mode: mode=%s, days=%d", mode, days)
+		logger.Infof("[GetTimeRangeWindow] Time Window: start=%s, end=%s", start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"))
 
 		return start, end, nil
 

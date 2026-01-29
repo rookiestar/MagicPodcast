@@ -2,7 +2,7 @@ package workflow
 
 import (
 	"fmt"
-	"log"
+	"magicpodcast/internal/logger"
 	"strings"
 	"time"
 
@@ -82,7 +82,7 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 			triggeredAt = *job.StartTime
 		} else {
 			triggeredAt = job.CreatedAt // Fallback to CreatedAt
-			log.Printf("⚠️  [JobID=%d] StartTime为nil，使用CreatedAt作为触发时间", job.ID)
+			logger.Infof("⚠️  [JobID=%d] StartTime为nil，使用CreatedAt作为触发时间", job.ID)
 		}
 	} else {
 		timeRangeMode = utils.TimeRangeModeManual
@@ -115,16 +115,16 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 	var llmModelUsed string
 	var llmTokensUsed int
 
-	log.Printf("[ReportGenerator] LLMEnabled=%v, SummarizerNil=%v, MatchedEpisodes=%d",
+	logger.Infof("[ReportGenerator] LLMEnabled=%v, SummarizerNil=%v, MatchedEpisodes=%d",
 		workflow.RulesConfig.LLMEnabled, rg.summarizer == nil, len(reportData))
 
 	// 优化：如果没有匹配的单集，跳过LLM摘要生成，不设置任何LLM字段
 	if len(reportData) == 0 {
-		log.Printf("⏭️  [JobID=%d] 没有匹配的单集，跳过LLM摘要生成（不显示AI相关内容）", job.ID)
+		logger.Infof("⏭️  [JobID=%d] 没有匹配的单集，跳过LLM摘要生成（不显示AI相关内容）", job.ID)
 		// 不设置任何LLM字段，让前端完全不显示AI相关信息
 	} else if workflow.RulesConfig.LLMEnabled && rg.summarizer != nil {
-		log.Printf("🤖 开始生成LLM摘要 [JobID=%d]", job.ID)
-		log.Printf("  - Summarizer type: %T", rg.summarizer)
+		logger.Infof("🤖 开始生成LLM摘要 [JobID=%d]", job.ID)
+		logger.Infof("  - Summarizer type: %T", rg.summarizer)
 
 		// 准备选项
 		options := llm.SummaryOptions{
@@ -145,10 +145,10 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 
 		// 转换数据格式
 		llmReportData := rg.convertToLLMReportData(reportData)
-		log.Printf("  - Converted %d podcasts to LLM report format", len(llmReportData))
+		logger.Infof("  - Converted %d podcasts to LLM report format", len(llmReportData))
 
 		// 调用摘要生成器（只传入user prompt，system prompt从config获取）
-		log.Printf("  - Calling summarizer.GenerateForReport...")
+		logger.Infof("  - Calling summarizer.GenerateForReport...")
 		result, err := rg.summarizer.GenerateForReport(
 			llmReportData,
 			workflow.Name,
@@ -156,14 +156,14 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 			options,
 		)
 		if err != nil {
-			log.Printf("⚠️  LLM摘要生成失败 [JobID=%d]: %v", job.ID, err)
+			logger.Infof("⚠️  LLM摘要生成失败 [JobID=%d]: %v", job.ID, err)
 			llmError = err.Error()
 			// 不中断流程，继续生成基础报告
 		} else {
 			llmSummary = result.Summary
 			llmModelUsed = result.ModelUsed
 			llmTokensUsed = result.TokensUsed
-			log.Printf("✅ LLM摘要生成成功 [JobID=%d, Tokens=%d]", job.ID, llmTokensUsed)
+			logger.Infof("✅ LLM摘要生成成功 [JobID=%d, Tokens=%d]", job.ID, llmTokensUsed)
 
 			// 将LLM摘要插入到Markdown开头
 			markdown = rg.insertLLMSummary(markdown, llmSummary)
@@ -199,9 +199,9 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 
 	// 6. 更新Job的episodes_matched为实际匹配的单集数
 	if err := rg.db.Model(job).Update("episodes_matched", matchedCount).Error; err != nil {
-		log.Printf("❌ 更新Job的episodes_matched失败 [JobID=%d]: %v", job.ID, err)
+		logger.Infof("❌ 更新Job的episodes_matched失败 [JobID=%d]: %v", job.ID, err)
 	} else {
-		log.Printf("✅ 已更新Job的episodes_matched [JobID=%d, Matched=%d]", job.ID, matchedCount)
+		logger.Infof("✅ 已更新Job的episodes_matched [JobID=%d, Matched=%d]", job.ID, matchedCount)
 	}
 
 	return report, nil
@@ -267,7 +267,7 @@ func (rg *ReportGenerator) collectMatchedEpisodes(job *models.Job, timeRangeStar
 				if err != nil {
 					// 标记二维码生成失败，但不中断流程
 					qrCodeError = true
-					fmt.Printf("⚠️  生成二维码失败 [EpisodeID=%d, XYZID=%s]: %v\n", ep.ID, xyzID, err)
+					logger.Warnf("⚠️  生成二维码失败 [EpisodeID=%d, XYZID=%s]: %v", ep.ID, xyzID, err)
 				}
 			}
 

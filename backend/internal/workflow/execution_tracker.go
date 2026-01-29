@@ -2,7 +2,7 @@ package workflow
 
 import (
 	"context"
-	"log"
+	"magicpodcast/internal/logger"
 	"sync"
 	"time"
 )
@@ -37,7 +37,7 @@ func (et *ExecutionTracker) TryStart(workflowID uint, timeout time.Duration) (co
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	et.running[workflowID] = cancel
 
-	log.Printf("✅ 工作流执行已注册 [WorkflowID=%d]", workflowID)
+	logger.Infof("✅ 工作流执行已注册 [WorkflowID=%d]", workflowID)
 	return ctx, true
 }
 
@@ -49,7 +49,7 @@ func (et *ExecutionTracker) Complete(workflowID uint) {
 	if cancel, exists := et.running[workflowID]; exists {
 		cancel() // 取消context
 		delete(et.running, workflowID)
-		log.Printf("✅ 工作流执行已清理 [WorkflowID=%d]", workflowID)
+		logger.Infof("✅ 工作流执行已清理 [WorkflowID=%d]", workflowID)
 	}
 }
 
@@ -82,7 +82,7 @@ func (et *ExecutionTracker) Cancel(workflowID uint) bool {
 
 	cancel()
 	delete(et.running, workflowID)
-	log.Printf("⚠️  工作流执行已取消 [WorkflowID=%d]", workflowID)
+	logger.Infof("⚠️  工作流执行已取消 [WorkflowID=%d]", workflowID)
 	return true
 }
 
@@ -95,7 +95,7 @@ func (et *ExecutionTracker) CancelAll() int {
 	for workflowID, cancel := range et.running {
 		cancel()
 		delete(et.running, workflowID)
-		log.Printf("⚠️  工作流执行已取消 [WorkflowID=%d]", workflowID)
+		logger.Infof("⚠️  工作流执行已取消 [WorkflowID=%d]", workflowID)
 		count++
 	}
 

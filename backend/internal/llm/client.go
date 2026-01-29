@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"magicpodcast/internal/logger"
 	"net/http"
 	"strings"
 	"sync"
@@ -28,11 +28,11 @@ type Client struct {
 
 // UsageStats 使用统计
 type UsageStats struct {
-	TotalRequests int64
-	TotalTokens   int64
-	DailyTokens   int64
-	DailyRequests int64
-	LastResetDate time.Time
+	TotalRequests  int64
+	TotalTokens    int64
+	DailyTokens    int64
+	DailyRequests  int64
+	LastResetDate  time.Time
 	DailyCostCents float64
 }
 
@@ -47,18 +47,18 @@ type ChatCompletionRequest struct {
 
 // Message 消息格式
 type Message struct {
-	Role    string `json:"role"`    // system, user, assistant
+	Role    string `json:"role"` // system, user, assistant
 	Content string `json:"content"`
 }
 
 // ChatCompletionResponse OpenAI兼容的响应格式
 type ChatCompletionResponse struct {
-	ID      string   `json:"id"`
-	Object  string   `json:"object"`
-	Created int64    `json:"created"`
-	Model   string   `json:"model"`
-	Choices []Choice `json:"choices"`
-	Usage   Usage    `json:"usage"`
+	ID      string    `json:"id"`
+	Object  string    `json:"object"`
+	Created int64     `json:"created"`
+	Model   string    `json:"model"`
+	Choices []Choice  `json:"choices"`
+	Usage   Usage     `json:"usage"`
 	Error   *APIError `json:"error,omitempty"`
 }
 
@@ -123,12 +123,12 @@ func (rl *rateLimiter) allow(key string) bool {
 // NewClient 创建LLM客户端
 func NewClient(cfg *config.LLMConfig) *Client {
 	// 打印调试信息
-	log.Printf("[LLM Client] Initializing with config:")
-	log.Printf("  - Enabled: %v", cfg.Enabled)
-	log.Printf("  - Provider: %s", cfg.Provider)
-	log.Printf("  - API Key: %s", maskAPIKey(cfg.APIKey))
-	log.Printf("  - Base URL: %s", cfg.BaseURL)
-	log.Printf("  - Default Model: %s", cfg.DefaultModel)
+	logger.Infof("[LLM Client] Initializing with config:")
+	logger.Infof("  - Enabled: %v", cfg.Enabled)
+	logger.Infof("  - Provider: %s", cfg.Provider)
+	logger.Infof("  - API Key: %s", maskAPIKey(cfg.APIKey))
+	logger.Infof("  - Base URL: %s", cfg.BaseURL)
+	logger.Infof("  - Default Model: %s", cfg.DefaultModel)
 
 	return &Client{
 		config: cfg,
@@ -153,9 +153,9 @@ func maskAPIKey(key string) string {
 // GenerateSummary 生成摘要
 func (c *Client) GenerateSummary(ctx context.Context, systemPrompt, userPrompt string, options SummaryOptions) (*SummaryResult, error) {
 	// 打印调试信息
-	log.Printf("[LLM GenerateSummary] Called with config:")
-	log.Printf("  - Enabled: %v", c.config.Enabled)
-	log.Printf("  - API Key: %s", maskAPIKey(c.config.APIKey))
+	logger.Infof("[LLM GenerateSummary] Called with config:")
+	logger.Infof("  - Enabled: %v", c.config.Enabled)
+	logger.Infof("  - API Key: %s", maskAPIKey(c.config.APIKey))
 
 	// 检查总开关
 	if !c.config.Enabled {
@@ -220,7 +220,7 @@ func (c *Client) GenerateSummary(ctx context.Context, systemPrompt, userPrompt s
 	var resp *http.Response
 	for attempt := 0; attempt <= c.config.MaxRetries; attempt++ {
 		if attempt > 0 {
-			log.Printf("LLM请求重试 %d/%d", attempt, c.config.MaxRetries)
+			logger.Infof("LLM请求重试 %d/%d", attempt, c.config.MaxRetries)
 			time.Sleep(time.Duration(c.config.RetryInterval) * time.Millisecond)
 		}
 

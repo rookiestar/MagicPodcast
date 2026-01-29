@@ -3,7 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
-	"log"
+	"magicpodcast/internal/logger"
 	"strings"
 	"sync"
 	"time"
@@ -35,14 +35,14 @@ func NewExecutor(db *gorm.DB, syncSvc *syncsvc.Service, emailNotifier *notifier.
 
 // Execute 执行工作流
 func (e *Executor) Execute(ctx context.Context, workflow *models.Workflow, triggeredBy string) (*models.Job, error) {
-	log.Printf("🚀 开始执行工作流 [ID=%d, Name=%s]", workflow.ID, workflow.Name)
+	logger.Infof("🚀 开始执行工作流 [ID=%d, Name=%s]", workflow.ID, workflow.Name)
 
 	// 1. 创建 Job 记录
 	startTime := time.Now()
 	job := &models.Job{
-		WorkflowID: workflow.ID,
-		Status:     models.JobStatusRunning,
-		StartTime:  &startTime,
+		WorkflowID:  workflow.ID,
+		Status:      models.JobStatusRunning,
+		StartTime:   &startTime,
 		TriggeredBy: triggeredBy,
 	}
 
@@ -50,21 +50,21 @@ func (e *Executor) Execute(ctx context.Context, workflow *models.Workflow, trigg
 		return nil, fmt.Errorf("创建Job失败: %w", err)
 	}
 
-	log.Printf("✅ Job记录已创建 [ID=%d]", job.ID)
+	logger.Infof("✅ Job记录已创建 [ID=%d]", job.ID)
 
 	// 2. 解析配置并获取目标播客
 	podcasts, err := e.getTargetPodcasts(workflow)
 	if err != nil {
 		errMsg := fmt.Sprintf("获取目标播客失败: %v", err)
-		log.Printf("❌ %s", errMsg)
+		logger.Infof("❌ %s", errMsg)
 		e.updateJobStatus(job, models.JobStatusFailed, errMsg)
 		return job, err
 	}
 
-	log.Printf("📊 获取到 %d 个目标播客", len(podcasts))
+	logger.Infof("📊 获取到 %d 个目标播客", len(podcasts))
 
 	if len(podcasts) == 0 {
-		log.Printf("⚠️  没有需要处理的播客")
+		logger.Infof("⚠️  没有需要处理的播客")
 		e.finalizeJob(job, []*models.JobExecution{})
 		return job, nil
 	}
@@ -75,7 +75,7 @@ func (e *Executor) Execute(ctx context.Context, workflow *models.Workflow, trigg
 	// 4. 汇总结果并更新Job
 	e.finalizeJob(job, results)
 
-	log.Printf("✅ 工作流执行完成 [JobID=%d, 处理=%d, 成功=%d, 失败=%d]",
+	logger.Infof("✅ 工作流执行完成 [JobID=%d, 处理=%d, 成功=%d, 失败=%d]",
 		job.ID, job.PodcastsProcessed,
 		job.PodcastsProcessed-job.ErrorCount, job.ErrorCount)
 
@@ -103,14 +103,14 @@ func (e *Executor) getTargetPodcasts(workflow *models.Workflow) ([]models.Podcas
 		if err := e.db.Where("id IN ?", uintIDs).Find(&podcasts).Error; err != nil {
 			return nil, fmt.Errorf("查询指定播客失败: %w", err)
 		}
-		log.Printf("📝 范围类型: 指定播客 (%d个)", len(podcastIDs))
+		logger.Infof("📝 范围类型: 指定播客 (%d个)", len(podcastIDs))
 
 	case models.ScopeTypeAllSubscribed:
 		// 所有订阅
 		if err := e.db.Where("is_subscribed = ?", true).Find(&podcasts).Error; err != nil {
 			return nil, fmt.Errorf("查询订阅播客失败: %w", err)
 		}
-		log.Printf("📝 范围类型: 所有订阅 (%d个)", len(podcasts))
+		logger.Infof("📝 范围类型: 所有订阅 (%d个)", len(podcasts))
 
 	case models.ScopeTypeCustomSources:
 		// 自定义源 - 需要先解析URL
@@ -129,12 +129,12 @@ func (e *Executor) getTargetPodcasts(workflow *models.Workflow) ([]models.Podcas
 
 // fetchCustomPodcasts 从自定义URL获取播客信息
 func (e *Executor) fetchCustomPodcasts(urls []string) ([]models.Podcast, error) {
-	log.Printf("📝 范围类型: 自定义源 (%d个URL)", len(urls))
+	logger.Infof("📝 范围类型: 自定义源 (%d个URL)", len(urls))
 
 	var podcasts []models.Podcast
 
 	for _, feedURL := range urls {
-		log.Printf("📡 处理自定义RSS源: %s", feedURL)
+		logger.Infof("📡 处理自定义RSS源: %s", feedURL)
 
 		// 使用 FirstOrCreate 避免竞态条件
 		// 如果多个并发worker同时检测到同一个URL不存在，FirstOrCreate会自动处理唯一约束冲突
@@ -150,11 +150,11 @@ func (e *Executor) fetchCustomPodcasts(urls []string) ([]models.Podcast, error) 
 		// 注意：由于XYZID也是唯一的，冲突时我们只基于feed_url判断
 		if err := e.db.Where("feed_url = ?", feedURL).
 			FirstOrCreate(&newPodcast).Error; err != nil {
-			log.Printf("❌ 创建或查找播客记录失败 [%s]: %v", feedURL, err)
+			logger.Infof("❌ 创建或查找播客记录失败 [%s]: %v", feedURL, err)
 			continue
 		}
 
-		log.Printf("✅ 成功获取播客记录: %s (ID=%d)", newPodcast.Title, newPodcast.ID)
+		logger.Infof("✅ 成功获取播客记录: %s (ID=%d)", newPodcast.Title, newPodcast.ID)
 		podcasts = append(podcasts, newPodcast)
 	}
 
@@ -162,7 +162,7 @@ func (e *Executor) fetchCustomPodcasts(urls []string) ([]models.Podcast, error) 
 		return nil, fmt.Errorf("未能从自定义源获取任何播客")
 	}
 
-	log.Printf("📊 自定义源处理完成，获取到 %d 个播客", len(podcasts))
+	logger.Infof("📊 自定义源处理完成，获取到 %d 个播客", len(podcasts))
 	return podcasts, nil
 }
 
@@ -178,7 +178,7 @@ func (e *Executor) executeSync(
 	taskChan := make(chan models.Podcast, len(podcasts))
 	resultChan := make(chan *models.JobExecution, len(podcasts))
 
-	log.Printf("🔄 启动 %d 个并发worker处理 %d 个播客", concurrency, len(podcasts))
+	logger.Infof("🔄 启动 %d 个并发worker处理 %d 个播客", concurrency, len(podcasts))
 
 	// 启动worker
 	var wg sync.WaitGroup
@@ -190,7 +190,7 @@ func (e *Executor) executeSync(
 				// 检查context是否已取消
 				select {
 				case <-ctx.Done():
-					log.Printf("⚠️  Worker %d: Context已取消", workerID)
+					logger.Infof("⚠️  Worker %d: Context已取消", workerID)
 					return
 				default:
 				}
@@ -240,7 +240,7 @@ func (e *Executor) syncPodcast(
 
 	// 保存初始记录
 	if err := e.db.Create(execution).Error; err != nil {
-		log.Printf("❌ 创建JobExecution失败 [PodcastID=%d]: %v", podcast.ID, err)
+		logger.Infof("❌ 创建JobExecution失败 [PodcastID=%d]: %v", podcast.ID, err)
 		// 即使创建失败，也返回execution对象（标记为失败），避免nil指针
 		execution.Status = models.ExecutionStatusFailed
 		execution.ErrorMessage = fmt.Sprintf("创建记录失败: %v", err)
@@ -248,7 +248,7 @@ func (e *Executor) syncPodcast(
 		return execution
 	}
 
-	log.Printf("📡 [%s] 开始同步: %s", workflow.Name, podcast.Title)
+	logger.Infof("📡 [%s] 开始同步: %s", workflow.Name, podcast.Title)
 
 	// 构建同步配置
 	syncConfig := syncsvc.DefaultEpisodeSyncConfig
@@ -257,18 +257,18 @@ func (e *Executor) syncPodcast(
 	if workflow.RulesConfig.TimeRangeMode == "since_last_update" || workflow.RulesConfig.TimeRange == -1 {
 		// 模式1：自上次更新后 - 使用podcast的last_fetched_at作为基准
 		syncConfig.Mode = syncsvc.SyncModeIncremental
-		log.Printf("⏱️  时间范围: 自上次更新 (增量模式)")
+		logger.Infof("⏱️  时间范围: 自上次更新 (增量模式)")
 
 	} else if workflow.RulesConfig.TimeRange > 0 {
 		// 模式2：最近N天 - 指定天数范围
 		syncConfig.Mode = syncsvc.SyncModeIncremental
 		syncConfig.TimeRangeDays = &workflow.RulesConfig.TimeRange
-		log.Printf("⏱️  时间范围: %d天 (增量模式)", workflow.RulesConfig.TimeRange)
+		logger.Infof("⏱️  时间范围: %d天 (增量模式)", workflow.RulesConfig.TimeRange)
 
 	} else {
 		// 模式3：全部历史数据
 		syncConfig.Mode = syncsvc.SyncModeFull
-		log.Printf("⏱️  时间范围: 全部历史数据")
+		logger.Infof("⏱️  时间范围: 全部历史数据")
 	}
 
 	// 执行同步
@@ -284,7 +284,7 @@ func (e *Executor) syncPodcast(
 	if err != nil {
 		execution.Status = models.ExecutionStatusFailed
 		execution.ErrorMessage = err.Error()
-		log.Printf("❌ [%s] 同步失败: %s - %v", workflow.Name, podcast.Title, err)
+		logger.Infof("❌ [%s] 同步失败: %s - %v", workflow.Name, podcast.Title, err)
 	} else {
 		execution.Status = models.ExecutionStatusSuccess
 		execution.EpisodesFound = result.Created + result.Updated
@@ -312,23 +312,23 @@ func (e *Executor) syncPodcast(
 				timeRangeEnd = *triggerTime
 				timeRangeStart = timeRangeEnd.AddDate(0, 0, -days)
 
-				log.Printf("🔍 [Executor] Cron模式时间窗口计算 [JobID=%d, PodcastID=%d]", job.ID, podcast.ID)
-				log.Printf("   - TriggeredBy: %s", job.TriggeredBy)
-				log.Printf("   - TimeRangeDays: %d", days)
-				log.Printf("   - Job.StartTime: %s", job.StartTime.Format("2006-01-02 15:04:05"))
-				log.Printf("   - TriggerTime: %s", triggerTime.Format("2006-01-02 15:04:05"))
-				log.Printf("   - TimeWindow: %s → %s", timeRangeStart.Format("2006-01-02 15:04:05"), timeRangeEnd.Format("2006-01-02 15:04:05"))
+				logger.Infof("🔍 [Executor] Cron模式时间窗口计算 [JobID=%d, PodcastID=%d]", job.ID, podcast.ID)
+				logger.Infof("   - TriggeredBy: %s", job.TriggeredBy)
+				logger.Infof("   - TimeRangeDays: %d", days)
+				logger.Infof("   - Job.StartTime: %s", job.StartTime.Format("2006-01-02 15:04:05"))
+				logger.Infof("   - TriggerTime: %s", triggerTime.Format("2006-01-02 15:04:05"))
+				logger.Infof("   - TimeWindow: %s → %s", timeRangeStart.Format("2006-01-02 15:04:05"), timeRangeEnd.Format("2006-01-02 15:04:05"))
 			} else {
 				// manual模式：过去N天
 				days := workflow.RulesConfig.TimeRange
 				timeRangeEnd = job.CreatedAt
 				timeRangeStart = timeRangeEnd.AddDate(0, 0, -days)
 
-				log.Printf("🔍 [Executor] Manual模式时间窗口计算 [JobID=%d, PodcastID=%d]", job.ID, podcast.ID)
-				log.Printf("   - TriggeredBy: %s", job.TriggeredBy)
-				log.Printf("   - TimeRangeDays: %d", days)
-				log.Printf("   - Job.CreatedAt: %s", job.CreatedAt.Format("2006-01-02 15:04:05"))
-				log.Printf("   - TimeWindow: %s → %s", timeRangeStart.Format("2006-01-02 15:04:05"), timeRangeEnd.Format("2006-01-02 15:04:05"))
+				logger.Infof("🔍 [Executor] Manual模式时间窗口计算 [JobID=%d, PodcastID=%d]", job.ID, podcast.ID)
+				logger.Infof("   - TriggeredBy: %s", job.TriggeredBy)
+				logger.Infof("   - TimeRangeDays: %d", days)
+				logger.Infof("   - Job.CreatedAt: %s", job.CreatedAt.Format("2006-01-02 15:04:05"))
+				logger.Infof("   - TimeWindow: %s → %s", timeRangeStart.Format("2006-01-02 15:04:05"), timeRangeEnd.Format("2006-01-02 15:04:05"))
 			}
 
 			// 查询该podcast在时间窗口内的episodes数量
@@ -338,11 +338,11 @@ func (e *Executor) syncPodcast(
 				Where("COALESCE(updated_date, published_date) >= ? AND COALESCE(updated_date, published_date) <= ?", timeRangeStart, timeRangeEnd).
 				Count(&matchedCount)
 
-			log.Printf("   - EpisodesMatched: %d", matchedCount)
+			logger.Infof("   - EpisodesMatched: %d", matchedCount)
 			execution.EpisodesMatched = int(matchedCount)
 		}
 
-		log.Printf("✅ [%s] 同步完成: %s - 新增:%d, 更新:%d, 匹配:%d (耗时:%dms)",
+		logger.Infof("✅ [%s] 同步完成: %s - 新增:%d, 更新:%d, 匹配:%d (耗时:%dms)",
 			workflow.Name, podcast.Title,
 			result.Created, result.Updated, execution.EpisodesMatched, processingTime)
 	}
@@ -396,7 +396,7 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 	}
 
 	if err := e.db.Save(job).Error; err != nil {
-		log.Printf("❌ 更新Job状态失败 [JobID=%d]: %v", job.ID, err)
+		logger.Infof("❌ 更新Job状态失败 [JobID=%d]: %v", job.ID, err)
 	}
 
 	// 更新workflow的last_job_id
@@ -404,7 +404,7 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 		Where("id = ?", job.WorkflowID).
 		Update("last_job_id", job.ID)
 
-	log.Printf("📊 Job完成统计 [ID=%d] - 成功:%d, 失败:%d, 跳过:%d, 耗时:%dms",
+	logger.Infof("📊 Job完成统计 [ID=%d] - 成功:%d, 失败:%d, 跳过:%d, 耗时:%dms",
 		job.ID, successCount, failedCount, skippedCount, jobDuration)
 
 	// ⭐ 异步生成执行报告并发送邮件通知（避免阻塞Job完成）
@@ -412,19 +412,19 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 		reportGen := NewReportGenerator(e.db, e.summarizer)
 		report, err := reportGen.GenerateForJob(job)
 		if err != nil {
-			log.Printf("❌ 生成报告失败 [JobID=%d]: %v", job.ID, err)
+			logger.Infof("❌ 生成报告失败 [JobID=%d]: %v", job.ID, err)
 			return
 		}
 
-		log.Printf("✅ 报告已生成 [JobID=%d, ReportID=%d, Size=%d bytes]",
+		logger.Infof("✅ 报告已生成 [JobID=%d, ReportID=%d, Size=%d bytes]",
 			job.ID, report.ID, report.FileSize)
 
 		// 发送邮件通知（仅cron触发的成功任务）
 		if e.notifier != nil && job.Status == models.JobStatusCompleted && job.TriggeredBy == "cron" {
 			if err := e.notifier.SendReport(report.Title, report.Content); err != nil {
-				log.Printf("❌ 发送邮件通知失败 [JobID=%d]: %v", job.ID, err)
+				logger.Infof("❌ 发送邮件通知失败 [JobID=%d]: %v", job.ID, err)
 			} else {
-				log.Printf("✅ 邮件通知已发送 [JobID=%d, TriggeredBy=%s]", job.ID, job.TriggeredBy)
+				logger.Infof("✅ 邮件通知已发送 [JobID=%d, TriggeredBy=%s]", job.ID, job.TriggeredBy)
 			}
 		}
 	}()
@@ -439,17 +439,17 @@ func (e *Executor) updateJobStatus(job *models.Job, status models.JobStatus, err
 	job.EndTime = &endTime
 
 	if err := e.db.Save(job).Error; err != nil {
-		log.Printf("❌ 更新Job状态失败: %v", err)
+		logger.Infof("❌ 更新Job状态失败: %v", err)
 	}
 }
 
 // silentReporter 静默进度报告器（用于工作流执行，避免日志过多）
 type silentReporter struct{}
 
-func (r *silentReporter) Report(msg string)                                         {}
-func (r *silentReporter) ReportSuccess(msg string)                                 {}
-func (r *silentReporter) ReportError(msg string)                                   {}
-func (r *silentReporter) ReportProgress(current, total int, msg string)           {}
-func (r *silentReporter) ReportSkip(reason syncsvc.SkipReason, msg string)       {}
-func (r *silentReporter) ReportSummary(summary *syncsvc.SyncSummary)             {}
-func (r *silentReporter) Close()                                                   {}
+func (r *silentReporter) Report(msg string)                                {}
+func (r *silentReporter) ReportSuccess(msg string)                         {}
+func (r *silentReporter) ReportError(msg string)                           {}
+func (r *silentReporter) ReportProgress(current, total int, msg string)    {}
+func (r *silentReporter) ReportSkip(reason syncsvc.SkipReason, msg string) {}
+func (r *silentReporter) ReportSummary(summary *syncsvc.SyncSummary)       {}
+func (r *silentReporter) Close()                                           {}

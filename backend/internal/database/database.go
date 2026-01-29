@@ -8,10 +8,11 @@ import (
 	"time"
 
 	"magicpodcast/internal/config"
+	"magicpodcast/internal/logger"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 var (
@@ -57,11 +58,11 @@ func initDB() (*gorm.DB, error) {
 	gormConfig.SkipDefaultTransaction = true
 
 	// 配置日志级别
-	logLevel := logger.Silent
+	logLevel := gormlogger.Silent
 	if cfg.Database.Debug {
-		logLevel = logger.Info
+		logLevel = gormlogger.Info
 	}
-	gormConfig.Logger = logger.Default.LogMode(logLevel)
+	gormConfig.Logger = gormlogger.Default.LogMode(logLevel)
 
 	// 打开数据库连接
 	db, err := gorm.Open(sqlite.Open(dbPath), gormConfig)
@@ -81,7 +82,7 @@ func initDB() (*gorm.DB, error) {
 	sqlDB.SetConnMaxLifetime(time.Duration(cfg.Database.ConnMaxLifetime) * time.Second)
 	sqlDB.SetConnMaxIdleTime(5 * time.Minute) // 空闲连接超时：防止连接堆积
 
-	fmt.Printf("✅ Database connected: %s\n", dbPath)
+	logger.Infof("✅ Database connected: %s", dbPath)
 
 	return db, nil
 }

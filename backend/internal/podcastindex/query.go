@@ -3,7 +3,7 @@ package podcastindex
 import (
 	"database/sql"
 	"fmt"
-	"log"
+	"magicpodcast/internal/logger"
 
 	_ "modernc.org/sqlite"
 )
@@ -85,7 +85,7 @@ func (q *Query) FindByFeedURL(feedURL string) (*PodcastInfo, error) {
 		LIMIT 1
 	`
 
-	log.Printf("  💾 查询 PodcastIndex (去重视图): %s", feedURL)
+	logger.Infof("  💾 查询 PodcastIndex (去重视图): %s", feedURL)
 	row := q.db.QueryRow(query, feedURL)
 
 	var info PodcastInfo
@@ -115,15 +115,15 @@ func (q *Query) FindByFeedURL(feedURL string) (*PodcastInfo, error) {
 	)
 
 	if err == sql.ErrNoRows {
-		log.Printf("  📭 PodcastIndex: 未找到")
+		logger.Infof("  📭 PodcastIndex: 未找到")
 		return nil, nil // 未找到
 	}
 	if err != nil {
-		log.Printf("  ❌ PodcastIndex查询错误: %v", err)
+		logger.Infof("  ❌ PodcastIndex查询错误: %v", err)
 		return nil, fmt.Errorf("failed to scan row: %w", err)
 	}
 
-	log.Printf("  ✅ PodcastIndex: 找到 - %s", info.Title)
+	logger.Infof("  ✅ PodcastIndex: 找到 - %s", info.Title)
 
 	// 处理NULL值
 	if coverURL.Valid {

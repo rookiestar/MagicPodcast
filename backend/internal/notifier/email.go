@@ -5,7 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"html/template"
-	"log"
+	"magicpodcast/internal/logger"
 	"strings"
 
 	"magicpodcast/internal/config"
@@ -45,7 +45,7 @@ func NewEmailNotifier(cfg *config.EmailConfig) *EmailNotifier {
 // SendReport 发送报告邮件
 func (n *EmailNotifier) SendReport(title, content string) error {
 	if !n.config.Enabled {
-		log.Println("📧 邮件通知未启用，跳过发送")
+		logger.Info("📧 邮件通知未启用，跳过发送")
 		return nil
 	}
 
@@ -63,19 +63,19 @@ func (n *EmailNotifier) SendReport(title, content string) error {
 	m.SetBody("text/html", body)
 
 	// 发送邮件
-	log.Printf("📧 正在发送邮件 [SMTP: %s:%d, From: %s, To: %s]",
+	logger.Infof("📧 正在发送邮件 [SMTP: %s:%d, From: %s, To: %s]",
 		n.config.SMTPHost, n.config.SMTPPort, n.config.From, n.config.To)
 
 	if err := n.dialer.DialAndSend(m); err != nil {
-		log.Printf("❌ SMTP发送失败: %v", err)
+		logger.Infof("❌ SMTP发送失败: %v", err)
 		return fmt.Errorf("发送邮件失败: %w", err)
 	}
 
-	log.Printf("✅ 报告邮件已发送 [To: %s, Title: %s]", n.config.To, title)
-	log.Printf("💡 提示：如果没有收到邮件，请检查：")
-	log.Printf("   1. 垃圾邮件/推广邮件文件夹")
-	log.Printf("   2. 163邮箱的SMTP授权码是否有效")
-	log.Printf("   3. 163邮箱是否开启了SMTP服务")
+	logger.Infof("✅ 报告邮件已发送 [To: %s, Title: %s]", n.config.To, title)
+	logger.Infof("💡 提示：如果没有收到邮件，请检查：")
+	logger.Infof("   1. 垃圾邮件/推广邮件文件夹")
+	logger.Infof("   2. 163邮箱的SMTP授权码是否有效")
+	logger.Infof("   3. 163邮箱是否开启了SMTP服务")
 	return nil
 }
 
@@ -117,7 +117,7 @@ func (n *EmailNotifier) buildEmailBody(markdownContent string) string {
 	// 替换模板变量
 	t, err := template.New("email").Parse(htmlTemplate)
 	if err != nil {
-		log.Printf("❌ 解析邮件模板失败: %v", err)
+		logger.Infof("❌ 解析邮件模板失败: %v", err)
 		return fmt.Sprintf("<pre>%s</pre><div class='footer'><p>本邮件由 MagicPodcast 工作流自动生成，请勿回复。</p></div>", template.HTMLEscapeString(markdownContent))
 	}
 
@@ -125,7 +125,7 @@ func (n *EmailNotifier) buildEmailBody(markdownContent string) string {
 	if err := t.Execute(&buf, map[string]interface{}{
 		"Content": template.HTML(htmlContent),
 	}); err != nil {
-		log.Printf("❌ 渲染邮件模板失败: %v", err)
+		logger.Infof("❌ 渲染邮件模板失败: %v", err)
 		return fmt.Sprintf("<pre>%s</pre><div class='footer'><p>本邮件由 MagicPodcast 工作流自动生成，请勿回复。</p></div>", template.HTMLEscapeString(markdownContent))
 	}
 

@@ -3,6 +3,7 @@ package database
 import (
 	"fmt"
 
+	"magicpodcast/internal/logger"
 	"magicpodcast/internal/models"
 
 	"gorm.io/gorm"
@@ -10,23 +11,23 @@ import (
 
 // AutoMigrate 执行数据库自动迁移
 func AutoMigrate(db *gorm.DB) error {
-	fmt.Println("🔄 Running database migrations...")
+	logger.Info("🔄 Running database migrations...")
 
 	// 按顺序迁移所有模型
 	for _, model := range models.AllModels {
 		if err := db.AutoMigrate(model); err != nil {
 			return fmt.Errorf("failed to migrate %T: %w", model, err)
 		}
-		fmt.Printf("   ✅ Migrated %T\n", model)
+		logger.Infof("   ✅ Migrated %T", model)
 	}
 
-	fmt.Println("✅ All migrations completed successfully")
+	logger.Info("✅ All migrations completed successfully")
 	return nil
 }
 
 // CreateIndexes 创建自定义索引
 func CreateIndexes(db *gorm.DB) error {
-	fmt.Println("🔄 Creating custom indexes...")
+	logger.Info("🔄 Creating custom indexes...")
 
 	// Podcast 索引
 	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_podcasts_xyz_id ON podcasts(xyz_id)").Error; err != nil {
@@ -57,6 +58,6 @@ func CreateIndexes(db *gorm.DB) error {
 		return fmt.Errorf("failed to create job_executions index: %w", err)
 	}
 
-	fmt.Println("✅ Custom indexes created successfully")
+	logger.Info("✅ Custom indexes created successfully")
 	return nil
 }

@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"fmt"
-	"log"
+	"magicpodcast/internal/logger"
 	"net/http"
 	"strconv"
 	"time"
@@ -34,65 +34,65 @@ func NewWorkflowHandler(executor *workflow.Executor, scheduler *scheduler.Schedu
 
 // WorkflowResponse Workflow 响应结构
 type WorkflowResponse struct {
-	ID          uint                  `json:"id"`
-	Name        string                `json:"name"`
-	Description string                `json:"description"`
-	Schedule    string                `json:"schedule"`
+	ID          uint                     `json:"id"`
+	Name        string                   `json:"name"`
+	Description string                   `json:"description"`
+	Schedule    string                   `json:"schedule"`
 	ScopeType   models.WorkflowScopeType `json:"scope_type"`
-	ScopeConfig models.ScopeConfig    `json:"scope_config"`
-	RulesConfig models.RulesConfig    `json:"rules_config"`
-	IsEnabled   bool                  `json:"is_enabled"`
-	CreatedAt   time.Time             `json:"created_at"`
-	UpdatedAt   time.Time             `json:"updated_at"`
-	LastJob     *JobResponse          `json:"last_job,omitempty"`
-	Stats       *WorkflowStats        `json:"stats,omitempty"`
+	ScopeConfig models.ScopeConfig       `json:"scope_config"`
+	RulesConfig models.RulesConfig       `json:"rules_config"`
+	IsEnabled   bool                     `json:"is_enabled"`
+	CreatedAt   time.Time                `json:"created_at"`
+	UpdatedAt   time.Time                `json:"updated_at"`
+	LastJob     *JobResponse             `json:"last_job,omitempty"`
+	Stats       *WorkflowStats           `json:"stats,omitempty"`
 }
 
 // WorkflowStats 工作流统计信息
 type WorkflowStats struct {
-	TotalJobs       int64       `json:"total_jobs"`
-	SuccessJobs     int64       `json:"success_jobs"`
-	FailedJobs      int64       `json:"failed_jobs"`
-	SuccessRate     float64     `json:"success_rate"`
-	TotalEpisodes   int64       `json:"total_episodes"`
-	PodcastCount    int64       `json:"podcast_count"`
-	LastExecution   *time.Time  `json:"last_execution,omitempty"`
-	NextExecution   *time.Time  `json:"next_execution,omitempty"`
+	TotalJobs     int64      `json:"total_jobs"`
+	SuccessJobs   int64      `json:"success_jobs"`
+	FailedJobs    int64      `json:"failed_jobs"`
+	SuccessRate   float64    `json:"success_rate"`
+	TotalEpisodes int64      `json:"total_episodes"`
+	PodcastCount  int64      `json:"podcast_count"`
+	LastExecution *time.Time `json:"last_execution,omitempty"`
+	NextExecution *time.Time `json:"next_execution,omitempty"`
 }
 
 // JobResponse Job 响应结构
 type JobResponse struct {
-	ID                uint              `json:"id"`
-	WorkflowID        uint              `json:"workflow_id"`
-	Status            models.JobStatus  `json:"status"`
-	StartTime         *time.Time        `json:"start_time,omitempty"`
-	EndTime           *time.Time        `json:"end_time,omitempty"`
-	PodcastsProcessed int               `json:"podcasts_processed"`
-	EpisodesFound     int               `json:"episodes_found"`
-	EpisodesCreated   int               `json:"episodes_created"`
-	EpisodesMatched   int               `json:"episodes_matched"`
-	ErrorCount        int               `json:"error_count"`
-	TriggeredBy       string            `json:"triggered_by"`
-	CreatedAt         time.Time         `json:"created_at"`
-	Duration          *int64            `json:"duration,omitempty"` // 执行时长（毫秒）
+	ID                uint                   `json:"id"`
+	WorkflowID        uint                   `json:"workflow_id"`
+	Status            models.JobStatus       `json:"status"`
+	StartTime         *time.Time             `json:"start_time,omitempty"`
+	EndTime           *time.Time             `json:"end_time,omitempty"`
+	PodcastsProcessed int                    `json:"podcasts_processed"`
+	EpisodesFound     int                    `json:"episodes_found"`
+	EpisodesCreated   int                    `json:"episodes_created"`
+	EpisodesMatched   int                    `json:"episodes_matched"`
+	ErrorCount        int                    `json:"error_count"`
+	TriggeredBy       string                 `json:"triggered_by"`
+	CreatedAt         time.Time              `json:"created_at"`
+	Duration          *int64                 `json:"duration,omitempty"` // 执行时长（毫秒）
 	Executions        []JobExecutionResponse `json:"executions,omitempty"`
 }
 
 // JobExecutionResponse JobExecution 响应结构
 type JobExecutionResponse struct {
-	ID              uint                      `json:"id"`
-	JobID           uint                      `json:"job_id"`
-	PodcastID       *uint                     `json:"podcast_id,omitempty"`
-	PodcastTitle    string                    `json:"podcast_title,omitempty"`
-	PodcastFeedURL  string                    `json:"podcast_feed_url,omitempty"`
-	Status          models.ExecutionStatus    `json:"status"`
-	EpisodesFound   int                       `json:"episodes_found"`
-	EpisodesCreated int                       `json:"episodes_created"`
-	EpisodesMatched int                       `json:"episodes_matched"`
-	ErrorMessage    string                    `json:"error_message,omitempty"`
-	LogInfo         string                    `json:"log_info,omitempty"`
-	ProcessingTime  int                       `json:"processing_time"` // 毫秒
-	CreatedAt       time.Time                 `json:"created_at"`
+	ID              uint                   `json:"id"`
+	JobID           uint                   `json:"job_id"`
+	PodcastID       *uint                  `json:"podcast_id,omitempty"`
+	PodcastTitle    string                 `json:"podcast_title,omitempty"`
+	PodcastFeedURL  string                 `json:"podcast_feed_url,omitempty"`
+	Status          models.ExecutionStatus `json:"status"`
+	EpisodesFound   int                    `json:"episodes_found"`
+	EpisodesCreated int                    `json:"episodes_created"`
+	EpisodesMatched int                    `json:"episodes_matched"`
+	ErrorMessage    string                 `json:"error_message,omitempty"`
+	LogInfo         string                 `json:"log_info,omitempty"`
+	ProcessingTime  int                    `json:"processing_time"` // 毫秒
+	CreatedAt       time.Time              `json:"created_at"`
 }
 
 // List 获取工作流列表
@@ -128,12 +128,12 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 	offset := (page - 1) * pageSize
 
 	// 调试日志
-	log.Printf("[Workflow] 查询工作流列表: page=%d, pageSize=%d, offset=%d", page, pageSize, offset)
+	logger.Infof("[Workflow] 查询工作流列表: page=%d, pageSize=%d, offset=%d", page, pageSize, offset)
 
 	// 分步查询以避免N+1问题
 	// 1. 查询workflows
 	if err := db.Order("created_at DESC").Limit(pageSize).Offset(offset).Find(&workflows).Error; err != nil {
-		log.Printf("[Workflow] 查询失败: %v", err)
+		logger.Infof("[Workflow] 查询失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -156,7 +156,7 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 	var jobs []models.Job
 	if len(jobIDs) > 0 {
 		if err := db.Where("id IN ?", jobIDs).Find(&jobs).Error; err != nil {
-			log.Printf("[Workflow] 查询Jobs失败: %v", err)
+			logger.Infof("[Workflow] 查询Jobs失败: %v", err)
 			// 不中断流程，继续返回workflows
 		}
 	}
@@ -187,9 +187,9 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 		"data": gin.H{
 			"workflows": response,
 			"pagination": gin.H{
-				"page":       page,
-				"page_size":  pageSize,
-				"total":      total,
+				"page":        page,
+				"page_size":   pageSize,
+				"total":       total,
 				"total_pages": (total + int64(pageSize) - 1) / int64(pageSize),
 			},
 		},
@@ -284,7 +284,7 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 	}
 
 	// 验证规则配置（包括LLM参数）
-	log.Printf("[Create] Received LLM config: enabled=%v, max_episodes=%d, model=%s",
+	logger.Infof("[Create] Received LLM config: enabled=%v, max_episodes=%d, model=%s",
 		req.RulesConfig.LLMEnabled,
 		req.RulesConfig.LLMMaxEpisodes,
 		req.RulesConfig.LLMModel)
@@ -320,9 +320,9 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 		nextRun, err := workflow.GetNextRunTime()
 		if err == nil {
 			workflow.NextRunAt = &nextRun
-			log.Printf("📅 新建工作流下次执行时间 [ID=%d]: %s", workflow.ID, nextRun.Format("2006-01-02 15:04:05"))
+			logger.Infof("📅 新建工作流下次执行时间 [ID=%d]: %s", workflow.ID, nextRun.Format("2006-01-02 15:04:05"))
 		} else {
-			log.Printf("⚠️  计算下次执行时间失败 [ID=%d]: %v", workflow.ID, err)
+			logger.Infof("⚠️  计算下次执行时间失败 [ID=%d]: %v", workflow.ID, err)
 		}
 	}
 
@@ -340,10 +340,10 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 	// 如果工作流启用且配置了 schedule,注册到调度器
 	if workflow.IsEnabled && workflow.Schedule != "" {
 		if err := h.scheduler.AddWorkflow(&workflow); err != nil {
-			log.Printf("⚠️  注册工作流到调度器失败 [ID=%d]: %v", workflow.ID, err)
+			logger.Infof("⚠️  注册工作流到调度器失败 [ID=%d]: %v", workflow.ID, err)
 			// 不返回错误,因为工作流已经创建成功,只是调度注册失败
 		} else {
-			log.Printf("✅ 工作流已注册到调度器 [ID=%d, Schedule=%s]", workflow.ID, workflow.Schedule)
+			logger.Infof("✅ 工作流已注册到调度器 [ID=%d, Schedule=%s]", workflow.ID, workflow.Schedule)
 		}
 	}
 
@@ -404,17 +404,17 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 	}
 
 	// 验证范围配置
-	log.Printf("[Update] Workflow ID=%d, scope_type=%s, scope_config=%+v",
+	logger.Infof("[Update] Workflow ID=%d, scope_type=%s, scope_config=%+v",
 		workflow.ID, req.ScopeType, req.ScopeConfig)
 
 	if req.ScopeType == "specific_podcasts" {
 		oldCount := len(workflow.ScopeConfig.PodcastIDs)
 		newCount := len(req.ScopeConfig.PodcastIDs)
-		log.Printf("[Update] specific_podcasts: 旧=%d个播客, 新=%d个播客", oldCount, newCount)
+		logger.Infof("[Update] specific_podcasts: 旧=%d个播客, 新=%d个播客", oldCount, newCount)
 		if newCount == 0 {
-			log.Printf("⚠️  [Update] 警告: podcast_ids为空，将覆盖原有数据")
+			logger.Infof("⚠️  [Update] 警告: podcast_ids为空，将覆盖原有数据")
 		} else if newCount < oldCount/2 {
-			log.Printf("⚠️  [Update] 警告: podcast_ids大幅减少 (%d -> %d)，可能是数据丢失", oldCount, newCount)
+			logger.Infof("⚠️  [Update] 警告: podcast_ids大幅减少 (%d -> %d)，可能是数据丢失", oldCount, newCount)
 		}
 	}
 
@@ -430,7 +430,7 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 	}
 
 	// 验证规则配置（包括LLM参数）
-	log.Printf("[Update] Received LLM config: enabled=%v, max_episodes=%d, model=%s",
+	logger.Infof("[Update] Received LLM config: enabled=%v, max_episodes=%d, model=%s",
 		req.RulesConfig.LLMEnabled,
 		req.RulesConfig.LLMMaxEpisodes,
 		req.RulesConfig.LLMModel)
@@ -453,12 +453,12 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 	workflow.ScopeConfig = req.ScopeConfig
 
 	// 打印调试信息
-	log.Printf("[Update] Original RulesConfig from DB: %+v", workflow.RulesConfig)
-	log.Printf("[Update] New RulesConfig from request: %+v", req.RulesConfig)
+	logger.Infof("[Update] Original RulesConfig from DB: %+v", workflow.RulesConfig)
+	logger.Infof("[Update] New RulesConfig from request: %+v", req.RulesConfig)
 
 	workflow.RulesConfig = req.RulesConfig
 
-	log.Printf("[Update] Workflow RulesConfig after assignment: %+v", workflow.RulesConfig)
+	logger.Infof("[Update] Workflow RulesConfig after assignment: %+v", workflow.RulesConfig)
 
 	workflow.IsEnabled = req.IsEnabled
 
@@ -467,9 +467,9 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 		nextRun, err := workflow.GetNextRunTime()
 		if err == nil {
 			workflow.NextRunAt = &nextRun
-			log.Printf("📅 更新工作流下次执行时间 [ID=%d]: %s", workflow.ID, nextRun.Format("2006-01-02 15:04:05"))
+			logger.Infof("📅 更新工作流下次执行时间 [ID=%d]: %s", workflow.ID, nextRun.Format("2006-01-02 15:04:05"))
 		} else {
-			log.Printf("⚠️  计算下次执行时间失败 [ID=%d]: %v", workflow.ID, err)
+			logger.Infof("⚠️  计算下次执行时间失败 [ID=%d]: %v", workflow.ID, err)
 		}
 	}
 
@@ -501,7 +501,7 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 
 	// 重新加载调度器以应用更新
 	if err := h.scheduler.Reload(); err != nil {
-		log.Printf("⚠️  重新加载调度器失败 [ID=%d]: %v", workflow.ID, err)
+		logger.Infof("⚠️  重新加载调度器失败 [ID=%d]: %v", workflow.ID, err)
 		// 不返回错误，因为工作流已经更新成功
 	}
 
@@ -549,7 +549,7 @@ func (h *WorkflowHandler) Delete(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    gin.H{
+		"data": gin.H{
 			"message": "Workflow deleted successfully",
 		},
 	})
@@ -587,9 +587,9 @@ func (h *WorkflowHandler) Toggle(c *gin.Context) {
 		nextRun, err := workflow.GetNextRunTime()
 		if err == nil {
 			workflow.NextRunAt = &nextRun
-			log.Printf("📅 更新工作流下次执行时间 [ID=%d]: %s", workflow.ID, nextRun.Format("2006-01-02 15:04:05"))
+			logger.Infof("📅 更新工作流下次执行时间 [ID=%d]: %s", workflow.ID, nextRun.Format("2006-01-02 15:04:05"))
 		} else {
-			log.Printf("⚠️  计算下次执行时间失败 [ID=%d]: %v", workflow.ID, err)
+			logger.Infof("⚠️  计算下次执行时间失败 [ID=%d]: %v", workflow.ID, err)
 		}
 	}
 
@@ -606,7 +606,7 @@ func (h *WorkflowHandler) Toggle(c *gin.Context) {
 
 	// 重新加载调度器以应用更新
 	if err := h.scheduler.Reload(); err != nil {
-		log.Printf("⚠️  重新加载调度器失败 [ID=%d]: %v", workflow.ID, err)
+		logger.Infof("⚠️  重新加载调度器失败 [ID=%d]: %v", workflow.ID, err)
 		// 不返回错误，因为工作流已经更新成功
 	}
 
@@ -684,9 +684,9 @@ func (h *WorkflowHandler) ListJobs(c *gin.Context) {
 		"data": gin.H{
 			"jobs": response,
 			"pagination": gin.H{
-				"page":       page,
-				"page_size":  pageSize,
-				"total":      total,
+				"page":        page,
+				"page_size":   pageSize,
+				"total":       total,
 				"total_pages": (total + int64(pageSize) - 1) / int64(pageSize),
 			},
 		},
@@ -776,20 +776,20 @@ func (h *WorkflowHandler) GetJobReport(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"id":              report.ID,
-			"job_id":          report.JobID,
-			"title":           report.Title,
-			"content":         report.Content,
-			"summary":         report.Summary,
-			"episodes_count":  report.EpisodesCount,
-			"podcasts_count":  report.PodcastsCount,
-			"matched_count":   report.MatchedCount,
+			"id":               report.ID,
+			"job_id":           report.JobID,
+			"title":            report.Title,
+			"content":          report.Content,
+			"summary":          report.Summary,
+			"episodes_count":   report.EpisodesCount,
+			"podcasts_count":   report.PodcastsCount,
+			"matched_count":    report.MatchedCount,
 			"time_range_start": report.TimeRangeStart,
 			"time_range_end":   report.TimeRangeEnd,
 			"time_range_mode":  report.TimeRangeMode,
-			"generated_at":    report.GeneratedAt,
-			"format":          report.Format,
-			"file_size":       report.FileSize,
+			"generated_at":     report.GeneratedAt,
+			"format":           report.Format,
+			"file_size":        report.FileSize,
 		},
 	})
 }
@@ -835,7 +835,7 @@ func (h *WorkflowHandler) Trigger(c *gin.Context) {
 	// 超时时间设置为30分钟
 	ctx, started := h.tracker.TryStart(workflow.ID, 30*time.Minute)
 	if !started {
-		log.Printf("⚠️  工作流已在执行中 [WorkflowID=%d]", workflow.ID)
+		logger.Infof("⚠️  工作流已在执行中 [WorkflowID=%d]", workflow.ID)
 		c.JSON(http.StatusConflict, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -853,9 +853,9 @@ func (h *WorkflowHandler) Trigger(c *gin.Context) {
 
 		job, err := h.executor.Execute(ctx, &workflow, "manual")
 		if err != nil {
-			log.Printf("❌ 工作流执行失败 [WorkflowID=%d]: %v", workflow.ID, err)
+			logger.Infof("❌ 工作流执行失败 [WorkflowID=%d]: %v", workflow.ID, err)
 		} else {
-			log.Printf("✅ 工作流执行完成 [WorkflowID=%d, JobID=%d]", workflow.ID, job.ID)
+			logger.Infof("✅ 工作流执行完成 [WorkflowID=%d, JobID=%d]", workflow.ID, job.ID)
 		}
 	}()
 
@@ -874,13 +874,13 @@ func (h *WorkflowHandler) Trigger(c *gin.Context) {
 
 // WorkflowRequest 创建/更新工作流请求结构
 type WorkflowRequest struct {
-	Name        string                    `json:"name" binding:"required,min=1,max=200"`
-	Description string                    `json:"description"`
-	Schedule    string                    `json:"schedule" binding:"required"`
-	ScopeType   models.WorkflowScopeType  `json:"scope_type" binding:"required"`
-	ScopeConfig models.ScopeConfig        `json:"scope_config"`
-	RulesConfig models.RulesConfig        `json:"rules_config"`
-	IsEnabled   bool                      `json:"is_enabled"`
+	Name        string                   `json:"name" binding:"required,min=1,max=200"`
+	Description string                   `json:"description"`
+	Schedule    string                   `json:"schedule" binding:"required"`
+	ScopeType   models.WorkflowScopeType `json:"scope_type" binding:"required"`
+	ScopeConfig models.ScopeConfig       `json:"scope_config"`
+	RulesConfig models.RulesConfig       `json:"rules_config"`
+	IsEnabled   bool                     `json:"is_enabled"`
 }
 
 // toWorkflowResponse 转换为响应格式

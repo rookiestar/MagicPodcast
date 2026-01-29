@@ -7,36 +7,38 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"magicpodcast/internal/logger"
 )
 
 // LogMessageType 日志消息类型
 type LogMessageType string
 
 const (
-	LogTypeUnknown    LogMessageType = "unknown"     // 未知类型
-	LogTypeInfo       LogMessageType = "info"        // 一般信息
-	LogTypeSuccess    LogMessageType = "success"     // 成功
-	LogTypeError      LogMessageType = "error"       // 错误
-	LogTypeProgress   LogMessageType = "progress"    // 进度
-	LogTypeSkipPaid   LogMessageType = "skip_paid"   // 跳过付费播客
-	LogTypeSkipCert   LogMessageType = "skip_cert"   // 跳过证书过期
-	LogTypeSkipNoUpd  LogMessageType = "skip_noupd"  // 跳过无更新
-	LogTypeSkipOther  LogMessageType = "skip_other"  // 跳过其他原因
+	LogTypeUnknown   LogMessageType = "unknown"    // 未知类型
+	LogTypeInfo      LogMessageType = "info"       // 一般信息
+	LogTypeSuccess   LogMessageType = "success"    // 成功
+	LogTypeError     LogMessageType = "error"      // 错误
+	LogTypeProgress  LogMessageType = "progress"   // 进度
+	LogTypeSkipPaid  LogMessageType = "skip_paid"  // 跳过付费播客
+	LogTypeSkipCert  LogMessageType = "skip_cert"  // 跳过证书过期
+	LogTypeSkipNoUpd LogMessageType = "skip_noupd" // 跳过无更新
+	LogTypeSkipOther LogMessageType = "skip_other" // 跳过其他原因
 )
 
 // SkipReason 跳过原因
 type SkipReason string
 
 const (
-	SkipReasonPaid             SkipReason = "paid"              // 付费播客
-	SkipReasonCertificate      SkipReason = "certificate"       // 证书过期
-	SkipReasonNotFound         SkipReason = "not_found"         // 404不存在
-	SkipReasonInvalidFormat    SkipReason = "invalid_format"    // 格式无效
-	SkipReasonDuplicate        SkipReason = "duplicate"         // 重复
-	SkipReasonAccessDenied     SkipReason = "access_denied"     // 访问拒绝
-	SkipReasonGeoBlocked       SkipReason = "geo_blocked"       // 地区限制
-	SkipReasonNoUpdate         SkipReason = "no_update"         // 无内容更新
-	SkipReasonOther            SkipReason = "other"             // 其他原因
+	SkipReasonPaid          SkipReason = "paid"           // 付费播客
+	SkipReasonCertificate   SkipReason = "certificate"    // 证书过期
+	SkipReasonNotFound      SkipReason = "not_found"      // 404不存在
+	SkipReasonInvalidFormat SkipReason = "invalid_format" // 格式无效
+	SkipReasonDuplicate     SkipReason = "duplicate"      // 重复
+	SkipReasonAccessDenied  SkipReason = "access_denied"  // 访问拒绝
+	SkipReasonGeoBlocked    SkipReason = "geo_blocked"    // 地区限制
+	SkipReasonNoUpdate      SkipReason = "no_update"      // 无内容更新
+	SkipReasonOther         SkipReason = "other"          // 其他原因
 )
 
 // ProgressReporter 进度报告接口
@@ -52,15 +54,15 @@ type ProgressReporter interface {
 
 // SyncSummary 同步汇总信息
 type SyncSummary struct {
-	TotalPodcasts      int           `json:"total_podcasts"`       // 总播客数
-	SuccessPodcasts    int           `json:"success_podcasts"`     // 成功同步的播客数
-	FailedPodcasts     int           `json:"failed_podcasts"`      // 失败的播客数
-	SkippedPodcasts    int           `json:"skipped_podcasts"`     // 跳过的播客数
-	NoUpdatePodcasts   int           `json:"no_update_podcasts"`   // 无更新的播客数
-	TotalEpisodes      int           `json:"total_episodes"`       // 同步的总单集数
-	NewEpisodes        int           `json:"new_episodes"`         // 新增的单集数
-	UpdatedEpisodes    int           `json:"updated_episodes"`     // 更新的单集数
-	Duration           time.Duration `json:"duration"`             // 总耗时
+	TotalPodcasts    int           `json:"total_podcasts"`     // 总播客数
+	SuccessPodcasts  int           `json:"success_podcasts"`   // 成功同步的播客数
+	FailedPodcasts   int           `json:"failed_podcasts"`    // 失败的播客数
+	SkippedPodcasts  int           `json:"skipped_podcasts"`   // 跳过的播客数
+	NoUpdatePodcasts int           `json:"no_update_podcasts"` // 无更新的播客数
+	TotalEpisodes    int           `json:"total_episodes"`     // 同步的总单集数
+	NewEpisodes      int           `json:"new_episodes"`       // 新增的单集数
+	UpdatedEpisodes  int           `json:"updated_episodes"`   // 更新的单集数
+	Duration         time.Duration `json:"duration"`           // 总耗时
 }
 
 // LogProgressReporter 使用log的进度报告器
@@ -71,19 +73,19 @@ func NewLogProgressReporter() *LogProgressReporter {
 }
 
 func (r *LogProgressReporter) Report(message string) {
-	fmt.Printf("[INFO] %s\n", message)
+	logger.Infof("[INFO] %s", message)
 }
 
 func (r *LogProgressReporter) ReportSuccess(message string) {
-	fmt.Printf("[SUCCESS] ✅ %s\n", message)
+	logger.Infof("[SUCCESS] ✅ %s", message)
 }
 
 func (r *LogProgressReporter) ReportError(message string) {
-	fmt.Printf("[ERROR] ❌ %s\n", message)
+	logger.Errorf("[ERROR] ❌ %s", message)
 }
 
 func (r *LogProgressReporter) ReportProgress(current, total int, message string) {
-	fmt.Printf("[%d/%d] %s\n", current, total, message)
+	logger.Infof("[%d/%d] %s", current, total, message)
 }
 
 func (r *LogProgressReporter) ReportSkip(reason SkipReason, message string) {
@@ -108,7 +110,7 @@ func (r *LogProgressReporter) ReportSkip(reason SkipReason, message string) {
 	default:
 		icon = "⏭️"
 	}
-	fmt.Printf("[SKIP] %s %s\n", icon, message)
+	logger.Infof("[SKIP] %s %s", icon, message)
 }
 
 func (r *LogProgressReporter) Close() {
@@ -116,24 +118,24 @@ func (r *LogProgressReporter) Close() {
 }
 
 func (r *LogProgressReporter) ReportSummary(summary *SyncSummary) {
-	fmt.Println("\n" + strings.Repeat("=", 60))
-	fmt.Println("📊 同步完成汇总")
-	fmt.Println(strings.Repeat("=", 60))
-	fmt.Printf("总播客数: %d\n", summary.TotalPodcasts)
-	fmt.Printf("✅ 成功: %d\n", summary.SuccessPodcasts)
-	fmt.Printf("❌ 失败: %d\n", summary.FailedPodcasts)
-	fmt.Printf("⏭️  跳过: %d\n", summary.SkippedPodcasts)
+	logger.Info("\n" + strings.Repeat("=", 60))
+	logger.Info("📊 同步完成汇总")
+	logger.Info(strings.Repeat("=", 60))
+	logger.Infof("总播客数: %d", summary.TotalPodcasts)
+	logger.Infof("✅ 成功: %d", summary.SuccessPodcasts)
+	logger.Infof("❌ 失败: %d", summary.FailedPodcasts)
+	logger.Infof("⏭️  跳过: %d", summary.SkippedPodcasts)
 	if summary.NoUpdatePodcasts > 0 {
-		fmt.Printf("  └─ 无更新: %d\n", summary.NoUpdatePodcasts)
+		logger.Infof("  └─ 无更新: %d", summary.NoUpdatePodcasts)
 	}
 	if summary.TotalEpisodes > 0 || summary.NewEpisodes > 0 || summary.UpdatedEpisodes > 0 {
-		fmt.Println("\n📝 单集统计:")
-		fmt.Printf("  总处理: %d\n", summary.TotalEpisodes)
-		fmt.Printf("  新增: %d\n", summary.NewEpisodes)
-		fmt.Printf("  更新: %d\n", summary.UpdatedEpisodes)
+		logger.Info("\n📝 单集统计:")
+		logger.Infof("  总处理: %d", summary.TotalEpisodes)
+		logger.Infof("  新增: %d", summary.NewEpisodes)
+		logger.Infof("  更新: %d", summary.UpdatedEpisodes)
 	}
-	fmt.Printf("⏱️  总耗时: %s\n", formatDuration(summary.Duration))
-	fmt.Println(strings.Repeat("=", 60))
+	logger.Infof("⏱️  总耗时: %s", formatDuration(summary.Duration))
+	logger.Info(strings.Repeat("=", 60))
 }
 
 // formatDuration 格式化时间间隔为人类可读格式
@@ -153,12 +155,12 @@ func formatDuration(d time.Duration) string {
 
 // SSEMessage SSE消息格式
 type SSEMessage struct {
-	Type    LogMessageType `json:"type"`
-	Message string         `json:"message"`
-	Current int            `json:"current,omitempty"`
-	Total   int            `json:"total,omitempty"`
-	Reason  string         `json:"reason,omitempty"` // 跳过原因
-	Data    map[string]interface{} `json:"data,omitempty"` // 用于summary等复杂消息的额外数据
+	Type    LogMessageType         `json:"type"`
+	Message string                 `json:"message"`
+	Current int                    `json:"current,omitempty"`
+	Total   int                    `json:"total,omitempty"`
+	Reason  string                 `json:"reason,omitempty"` // 跳过原因
+	Data    map[string]interface{} `json:"data,omitempty"`   // 用于summary等复杂消息的额外数据
 }
 
 // SSEProgressReporter 使用Server-Sent Events的进度报告器
@@ -336,7 +338,7 @@ func (r *SSEProgressReporter) send(msg SSEMessage) {
 func (r *SSEProgressReporter) Close() {
 	// 发送结束标记
 	if _, err := fmt.Fprintf(r.writer, "data: [DONE]\n\n"); err != nil {
-		fmt.Printf("[ERROR] Failed to send SSE close message: %v\n", err)
+		logger.Errorf("[ERROR] Failed to send SSE close message: %v", err)
 	}
 
 	// 立即刷新
@@ -407,7 +409,7 @@ func (r *SSEProgressReporter) ReportSummary(summary *SyncSummary) {
 
 	// 安全写入
 	if _, writeErr := fmt.Fprintf(r.writer, "data: %s\n\n", string(data)); writeErr != nil {
-		fmt.Printf("[ERROR] Failed to write SSE summary: %v\n", writeErr)
+		logger.Errorf("[ERROR] Failed to write SSE summary: %v", writeErr)
 	}
 
 	// 立即刷新

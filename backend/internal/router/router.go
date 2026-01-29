@@ -1,7 +1,7 @@
 package router
 
 import (
-	"log"
+	"magicpodcast/internal/logger"
 
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
@@ -36,9 +36,9 @@ func SetupRouter() *gin.Engine {
 	r := gin.New()
 
 	// 中间件
-	r.Use(gin.Recovery())               // 恢复 panic
-	r.Use(gin.Logger())                  // 请求日志
-	r.Use(middleware.CORS())            // CORS 跨域支持
+	r.Use(gin.Recovery())    // 恢复 panic
+	r.Use(gin.Logger())      // 请求日志
+	r.Use(middleware.CORS()) // CORS 跨域支持
 
 	// 健康检查
 	healthHandler := handlers.NewHealthHandler()
@@ -112,13 +112,13 @@ func SetupRouter() *gin.Engine {
 		}
 		sync := v1.Group("/sync")
 		{
-			sync.POST("/import", syncHandler.ImportOPML)                       // 导入OPML文件
-			sync.POST("/import-sse", syncHandler.ImportOPMLSSE)                // 导入OPML文件（SSE流式）
-			sync.POST("/subscriptions", syncHandler.SyncSubscriptions)         // 同步所有订阅
-			sync.GET("/status", syncHandler.GetSyncStatus)                     // 获取同步状态
+			sync.POST("/import", syncHandler.ImportOPML)                             // 导入OPML文件
+			sync.POST("/import-sse", syncHandler.ImportOPMLSSE)                      // 导入OPML文件（SSE流式）
+			sync.POST("/subscriptions", syncHandler.SyncSubscriptions)               // 同步所有订阅
+			sync.GET("/status", syncHandler.GetSyncStatus)                           // 获取同步状态
 			sync.POST("/podcasts/metadata-sse", syncHandler.SyncPodcastsMetadataSSE) // 同步所有播客元数据（SSE流式，已包含单集同步）
-			sync.POST("/episodes", syncHandler.SyncAllEpisodes)                // 同步所有podcast的episodes（SSE流式）
-			sync.POST("/episodes/sync", syncHandler.SyncAllEpisodesNonStreaming) // 同步所有podcast的episodes（非流式，用于定时任务）
+			sync.POST("/episodes", syncHandler.SyncAllEpisodes)                      // 同步所有podcast的episodes（SSE流式）
+			sync.POST("/episodes/sync", syncHandler.SyncAllEpisodesNonStreaming)     // 同步所有podcast的episodes（非流式，用于定时任务）
 		}
 
 		// Episode Sync 路由（单个podcast的episode同步）
@@ -138,9 +138,9 @@ func SetupRouter() *gin.Engine {
 		var emailNotifier *notifier.EmailNotifier
 		if cfg.Email.Enabled {
 			emailNotifier = notifier.NewEmailNotifier(&cfg.Email)
-			log.Println("📧 邮件通知器已初始化")
+			logger.Info("📧 邮件通知器已初始化")
 		} else {
-			log.Println("📧 邮件通知未启用")
+			logger.Info("📧 邮件通知未启用")
 		}
 
 		// 初始化LLM客户端和摘要生成器
@@ -149,9 +149,9 @@ func SetupRouter() *gin.Engine {
 			llmClient := llm.NewClient(&cfg.LLM)
 			globalPromptManager = llm.NewPromptManager(cfg.LLM.PromptsDir)
 			summarizer = llm.NewSummarizer(llmClient, globalPromptManager)
-			log.Printf("✅ LLM客户端初始化成功 (Model: %s)", cfg.LLM.DefaultModel)
+			logger.Infof("✅ LLM客户端初始化成功 (Model: %s)", cfg.LLM.DefaultModel)
 		} else {
-			log.Println("ℹ️  LLM功能未启用")
+			logger.Info("ℹ️  LLM功能未启用")
 		}
 
 		workflowExecutor := workflow.NewExecutor(db, syncService, emailNotifier, summarizer)
@@ -162,18 +162,18 @@ func SetupRouter() *gin.Engine {
 		workflowHandler := handlers.NewWorkflowHandler(workflowExecutor, globalScheduler)
 		workflows := v1.Group("/workflows")
 		{
-			workflows.GET("", workflowHandler.List)           // 获取工作流列表
-			workflows.POST("", workflowHandler.Create)         // 创建工作流
-			workflows.GET("/:id", workflowHandler.Get)         // 获取工作流详情
-			workflows.PUT("/:id", workflowHandler.Update)      // 更新工作流
-			workflows.DELETE("/:id", workflowHandler.Delete)   // 删除工作流
-			workflows.POST("/:id/toggle", workflowHandler.Toggle) // 启用/禁用工作流
-			workflows.GET("/:id/jobs", workflowHandler.ListJobs) // 获取工作流执行历史
+			workflows.GET("", workflowHandler.List)                 // 获取工作流列表
+			workflows.POST("", workflowHandler.Create)              // 创建工作流
+			workflows.GET("/:id", workflowHandler.Get)              // 获取工作流详情
+			workflows.PUT("/:id", workflowHandler.Update)           // 更新工作流
+			workflows.DELETE("/:id", workflowHandler.Delete)        // 删除工作流
+			workflows.POST("/:id/toggle", workflowHandler.Toggle)   // 启用/禁用工作流
+			workflows.GET("/:id/jobs", workflowHandler.ListJobs)    // 获取工作流执行历史
 			workflows.POST("/:id/trigger", workflowHandler.Trigger) // 手动触发工作流
 		}
 
 		// Job 路由
-		v1.GET("/jobs/:id", workflowHandler.GetJob)         // 获取任务详情
+		v1.GET("/jobs/:id", workflowHandler.GetJob)              // 获取任务详情
 		v1.GET("/jobs/:id/report", workflowHandler.GetJobReport) // 获取任务报告
 
 		// Scheduler 路由
@@ -211,7 +211,7 @@ func SetupRouter() *gin.Engine {
 	// 启动调度器（在独立goroutine中）
 	go func() {
 		if err := globalScheduler.Start(); err != nil {
-			log.Printf("❌ 启动调度器失败: %v", err)
+			logger.Infof("❌ 启动调度器失败: %v", err)
 		}
 	}()
 

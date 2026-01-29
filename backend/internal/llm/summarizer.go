@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
+	"magicpodcast/internal/logger"
 	"text/template"
 	"time"
 )
@@ -47,10 +47,10 @@ func NewSummarizer(client *Client, tplManager *PromptManager) *Summarizer {
 // GenerateForReport 为工作流报告生成LLM摘要
 func (s *Summarizer) GenerateForReport(data []EpisodeReportData, workflowName string, userPrompt string, options SummaryOptions) (*SummaryResult, error) {
 	// 添加调试日志
-	log.Printf("[Summarizer.GenerateForReport] Called with workflow=%s, num_podcasts=%d", workflowName, len(data))
-	log.Printf("  - Client is nil: %v", s.client == nil)
+	logger.Infof("[Summarizer.GenerateForReport] Called with workflow=%s, num_podcasts=%d", workflowName, len(data))
+	logger.Infof("  - Client is nil: %v", s.client == nil)
 	if s.client != nil {
-		log.Printf("  - Client config enabled: %v", s.client.config.Enabled)
+		logger.Infof("  - Client config enabled: %v", s.client.config.Enabled)
 	}
 
 	// 根据数据量选择策略

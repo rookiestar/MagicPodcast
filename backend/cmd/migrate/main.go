@@ -1,8 +1,7 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"magicpodcast/internal/logger"
 
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
@@ -10,11 +9,11 @@ import (
 
 func main() {
 	if err := config.Load(); err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		logger.Fatalf("Failed to load config: %v", err)
 	}
 
 	db := database.GetDB()
-	fmt.Println("Running manual migration to remove xyz_id...")
+	logger.Info("Running manual migration to remove xyz_id...")
 
 	// 重建表（排除xyz_id列）
 	recreateTableSQL := `
@@ -44,7 +43,7 @@ func main() {
 		);
 	`
 	if err := db.Exec(recreateTableSQL).Error; err != nil {
-		log.Fatalf("Failed to create new table: %v", err)
+		logger.Fatalf("Failed to create new table: %v", err)
 	}
 
 	copyDataSQL := `
@@ -56,15 +55,15 @@ func main() {
 		FROM episodes;
 	`
 	if err := db.Exec(copyDataSQL).Error; err != nil {
-		log.Fatalf("Failed to copy data: %v", err)
+		logger.Fatalf("Failed to copy data: %v", err)
 	}
 
 	if err := db.Exec("DROP TABLE episodes").Error; err != nil {
-		log.Fatalf("Failed to drop old table: %v", err)
+		logger.Fatalf("Failed to drop old table: %v", err)
 	}
 
 	if err := db.Exec("ALTER TABLE episodes_new RENAME TO episodes").Error; err != nil {
-		log.Fatalf("Failed to rename table: %v", err)
+		logger.Fatalf("Failed to rename table: %v", err)
 	}
 
 	indexes := []string{
@@ -76,9 +75,9 @@ func main() {
 	}
 	for _, idx := range indexes {
 		if err := db.Exec(idx).Error; err != nil {
-			log.Printf("Warning: Failed to create index: %v", err)
+			logger.Warnf("Warning: Failed to create index: %v", err)
 		}
 	}
 
-	fmt.Println("✅ Migration completed successfully!")
+	logger.Info("✅ Migration completed successfully!")
 }
