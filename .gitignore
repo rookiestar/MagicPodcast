@@ -26,10 +26,18 @@ backend/bin/
 # Ignore entire data directory (contains large databases)
 backend/data/
 !backend/data/.gitkeep
+
+# Ignore all databases except the ones we want to keep
 *.db
 *.sqlite
 *.sqlite3
+!backend/data/magicpodcast.db
+!backend/data/podcastindex_feeds.db
 backend/data/*
+
+# Empty database file markers
+*-empty.db
+*-temp.db
 
 # SQL session files
 *.session.sql
@@ -70,11 +78,27 @@ frontend/out/
 
 # Debug logs
 *.log
+*.log.*
 /tmp/*.log
 
 # Test files
 test-api.html
 test-api-client.js
+test-*.sh
+*.test.sh
+
+# Backup files
+*.backup
+*.bak
+
+# SQL session files
+*.session.sql
+
+# TypeScript compilation cache
+*.tsbuildinfo
+
+# Frontend temp files
+frontend/test-*.html
 
 # Documentation (keep source, ignore generated)
 DEBUG_GUIDE.md
