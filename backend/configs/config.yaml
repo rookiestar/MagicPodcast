@@ -152,16 +152,16 @@ llm:
   enabled: true
 
   # API提供商
-  provider: "siliconflow"
+  provider: "zhipuai"
 
   # API密钥（建议使用环境变量 MAGICPODCAST_LLM_API_KEY）
-  api_key: "sk-nnuiqiwmizrpvamefyeflugkvayazgvxisammgwadahyhpzm"
+  api_key: "YOUR_ZHIPUAI_API_KEY_HERE"
 
   # API Base URL
-  base_url: "https://api.siliconflow.cn/v1"
+  base_url: "https://open.bigmodel.cn/api/paas/v4"
 
   # 默认模型
-  default_model: "THUDM/GLM-4-32B-0414"
+  default_model: "glm-4.5-air"
 
   # 请求超时（秒）
   timeout: 60

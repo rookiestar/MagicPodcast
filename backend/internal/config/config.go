@@ -109,6 +109,7 @@ const (
 	LLMProviderSiliconFlow LLMProvider = "siliconflow"
 	LLMProviderOpenAI      LLMProvider = "openai"
 	LLMProviderAnthropic   LLMProvider = "anthropic"
+	LLMProviderZhipuAI     LLMProvider = "zhipuai"
 )
 
 // LLMConfig LLM配置
