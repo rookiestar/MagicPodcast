@@ -106,8 +106,8 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 		return nil, fmt.Errorf("收集报告数据失败: %w", err)
 	}
 
-	// 4. 生成Markdown内容
-	markdown := rg.generateMarkdown(job, reportData, timeRangeStart, timeRangeEnd, string(timeRangeMode), workflow.Name)
+	// 4. 生成Markdown内容（暂时传入0和空字符串，后续生成LLM摘要后更新）
+	markdown := rg.generateMarkdown(job, reportData, timeRangeStart, timeRangeEnd, string(timeRangeMode), workflow.Name, 0, "")
 
 	// 5. 生成LLM摘要（如果启用）
 	var llmSummary string
@@ -165,6 +165,8 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 			llmTokensUsed = result.TokensUsed
 			logger.Infof("✅ LLM摘要生成成功 [JobID=%d, Tokens=%d]", job.ID, llmTokensUsed)
 
+			// 重新生成包含token统计的Markdown（在LLM摘要生成前先生成完整内容）
+			markdown = rg.generateMarkdown(job, reportData, timeRangeStart, timeRangeEnd, string(timeRangeMode), workflow.Name, llmTokensUsed, llmModelUsed)
 			// 将LLM摘要插入到Markdown开头
 			markdown = rg.insertLLMSummary(markdown, llmSummary)
 		}
@@ -296,7 +298,7 @@ func (rg *ReportGenerator) collectMatchedEpisodes(job *models.Job, timeRangeStar
 }
 
 // generateMarkdown 生成Markdown内容
-func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeReportData, timeRangeStart, timeRangeEnd time.Time, timeRangeMode string, workflowName string) string {
+func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeReportData, timeRangeStart, timeRangeEnd time.Time, timeRangeMode string, workflowName string, llmTokensUsed int, llmModelUsed string) string {
 	var builder strings.Builder
 
 	// 报告标题（简化时间格式：只到分钟）
@@ -306,14 +308,24 @@ func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeRepor
 	totalEpisodes := rg.countEpisodes(data)
 	timeWindowDesc := rg.formatTimeWindow(timeRangeStart, timeRangeEnd)
 
-	builder.WriteString(fmt.Sprintf(
-		"> **🕐 执行**: %s | **⏱️ 窗口**: %s (%s) | **📊 统计**: %d节目/%d单集\n\n",
+	// 基础元数据行
+	metaLine := fmt.Sprintf(
+		"> **🕐 执行**: %s | **⏱️ 窗口**: %s (%s) | **📊 统计**: %d节目/%d单集",
 		job.CreatedAt.Format("2006-01-02 15:04:05"),
 		timeWindowDesc,
 		job.TriggeredBy, // 显示触发模式
 		len(data),
 		totalEpisodes,
-	))
+	)
+
+	// 如果使用了 LLM，追加 token 统计
+	if llmTokensUsed > 0 && llmModelUsed != "" {
+		tokenStr := formatTokenCount(llmTokensUsed)
+		metaLine += fmt.Sprintf(" | **🤖 AI**: %s (%s)", tokenStr, llmModelUsed)
+	}
+
+	metaLine += "\n\n"
+	builder.WriteString(metaLine)
 
 	builder.WriteString("---\n\n")
 
@@ -435,6 +447,21 @@ func (rg *ReportGenerator) formatTimeWindow(start, end time.Time) string {
 
 	minutes := int(duration.Minutes())
 	return fmt.Sprintf("%d分钟", minutes)
+}
+
+// formatTokenCount 格式化token数量（人类可读）
+func formatTokenCount(tokens int) string {
+	if tokens == 0 {
+		return "0"
+	}
+
+	if tokens < 1000 {
+		return fmt.Sprintf("%d", tokens)
+	} else if tokens < 1000000 {
+		return fmt.Sprintf("%.1fK", float64(tokens)/1000)
+	} else {
+		return fmt.Sprintf("%.1fM", float64(tokens)/1000000)
+	}
 }
 
 // insertLLMSummary 将LLM摘要插入到标题之后、元数据卡片之前

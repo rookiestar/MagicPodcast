@@ -355,9 +355,6 @@ func (e *Executor) syncPodcast(
 
 // finalizeJob 汇总结果并更新Job状态
 func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecution) {
-	endTime := time.Now()
-	job.EndTime = &endTime
-
 	var successCount, failedCount, skippedCount int
 	var totalEpisodes int
 	var totalMatched int
@@ -375,49 +372,59 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 		}
 	}
 
+	// ⭐ 先保存中间统计，但不设置EndTime和状态
 	job.PodcastsProcessed = len(executions)
 	job.EpisodesFound = totalEpisodes
 	job.EpisodesCreated = totalEpisodes
 	job.EpisodesMatched = totalMatched
 	job.ErrorCount = failedCount
-
-	duration := endTime.Sub(*job.StartTime).Milliseconds()
-	jobDuration := int64(duration)
-
-	// 确定最终状态
-	if failedCount == 0 && successCount == 0 && skippedCount == 0 {
-		job.Status = models.JobStatusCompleted
-	} else if failedCount == 0 {
-		job.Status = models.JobStatusCompleted
-	} else if successCount == 0 {
-		job.Status = models.JobStatusFailed
-	} else {
-		job.Status = models.JobStatusCompleted // 部分成功也算完成
-	}
-
 	if err := e.db.Save(job).Error; err != nil {
-		logger.Infof("❌ 更新Job状态失败 [JobID=%d]: %v", job.ID, err)
+		logger.Infof("❌ 更新Job中间统计失败 [JobID=%d]: %v", job.ID, err)
 	}
+
+	logger.Infof("📊 Job执行完成，正在生成报告 [ID=%d] - 成功:%d, 失败:%d, 跳过:%d",
+		job.ID, successCount, failedCount, skippedCount)
 
 	// 更新workflow的last_job_id
 	e.db.Model(&models.Workflow{}).
 		Where("id = ?", job.WorkflowID).
 		Update("last_job_id", job.ID)
 
-	logger.Infof("📊 Job完成统计 [ID=%d] - 成功:%d, 失败:%d, 跳过:%d, 耗时:%dms",
-		job.ID, successCount, failedCount, skippedCount, jobDuration)
-
-	// ⭐ 异步生成执行报告并发送邮件通知（避免阻塞Job完成）
+	// ⭐ 异步生成执行报告，报告生成成功后再设置EndTime和最终状态
 	go func() {
 		reportGen := NewReportGenerator(e.db, e.summarizer)
 		report, err := reportGen.GenerateForJob(job)
 		if err != nil {
 			logger.Infof("❌ 生成报告失败 [JobID=%d]: %v", job.ID, err)
+
+			// 报告生成失败，设置EndTime并决定最终状态
+			endTime := time.Now()
+			job.EndTime = &endTime
+			if successCount == 0 {
+				job.Status = models.JobStatusFailed
+			} else {
+				job.Status = models.JobStatusCompleted
+			}
+			if saveErr := e.db.Save(job).Error; saveErr != nil {
+				logger.Infof("❌ 更新Job状态失败 [JobID=%d]: %v", job.ID, saveErr)
+			}
 			return
 		}
 
 		logger.Infof("✅ 报告已生成 [JobID=%d, ReportID=%d, Size=%d bytes]",
 			job.ID, report.ID, report.FileSize)
+
+		// ⭐ 报告生成成功，设置EndTime（包括报告生成时间）并更新状态
+		endTime := time.Now()
+		job.EndTime = &endTime
+		job.Status = models.JobStatusCompleted
+
+		if err := e.db.Save(job).Error; err != nil {
+			logger.Infof("❌ 更新Job状态失败 [JobID=%d]: %v", job.ID, err)
+		} else {
+			duration := endTime.Sub(*job.StartTime).Milliseconds()
+			logger.Infof("✅ Job已完成 [JobID=%d, 总耗时=%dms]", job.ID, duration)
+		}
 
 		// 发送邮件通知（仅cron触发的成功任务）
 		if e.notifier != nil && job.Status == models.JobStatusCompleted && job.TriggeredBy == "cron" {

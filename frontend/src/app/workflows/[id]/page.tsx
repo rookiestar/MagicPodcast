@@ -647,14 +647,22 @@ export default function WorkflowDetailPage() {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation()
-                                setReportModalJobId(job.id)
+                                if (job.status === 'completed') {
+                                  setReportModalJobId(job.id)
+                                }
                               }}
-                              className="px-4 py-1.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors flex items-center gap-2 flex-shrink-0"
+                              disabled={job.status !== 'completed'}
+                              className={`px-4 py-1.5 rounded text-sm font-medium flex items-center gap-2 flex-shrink-0 transition-colors ${
+                                job.status === 'completed'
+                                  ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 cursor-pointer'
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed'
+                              }`}
+                              title={job.status !== 'completed' ? `报告生成中... (当前状态: ${job.status})` : '查看报告'}
                             >
                               <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                               </svg>
-                              报告
+                              {job.status === 'completed' ? '报告' : '生成中'}
                             </button>
                             <button
                               onClick={(e) => {
