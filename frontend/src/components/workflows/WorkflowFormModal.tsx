@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { workflowApi, podcastApi, tagApi } from '@/lib/api'
 import type { WorkflowRequest, WorkflowScopeType, ScopeConfig, RulesConfig, Podcast, Workflow, Tag } from '@/types'
 import PodcastCover from '@/components/podcasts/PodcastCover'
+import { PodcastListItem } from './PodcastListItem'
 
 type Step = 1 | 2 | 3 | 4
 
@@ -120,6 +121,12 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
   const [podcastSearch, setPodcastSearch] = useState('')
   const [candidatePodcastIds, setCandidatePodcastIds] = useState<number[]>([]) // 备选列表中的节目ID
   const [isLoadingPodcasts, setIsLoadingPodcasts] = useState(false) // 加载状态
+
+  // 性能优化：渐进式加载状态
+  const [displayedCount, setDisplayedCount] = useState(50) // 初始显示50个
+  const [isLoadingMore, setIsLoadingMore] = useState(false) // 加载更多状态
+  const [hasMorePodcasts, setHasMorePodcasts] = useState(true) // 是否还有更多数据
+  const loadMoreTriggerRef = useRef<HTMLDivElement>(null) // 无限滚动触发器
 
   // 标签筛选相关状态
   const [tags, setTags] = useState<Tag[]>([])
@@ -247,39 +254,21 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     setStep(1)
   }
 
-  // 加载播客列表 - 支持分页加载所有节目
+  // 加载播客列表 - 渐进式加载（首屏加载100个）
   const loadPodcasts = async () => {
     try {
       setIsLoadingPodcasts(true)
-      console.log('[CreateWorkflowModal] Loading all podcasts...')
-      let allPodcasts: Podcast[] = []
-      let page = 1
-      let hasMore = true
-      const maxPages = 10 // 最多加载10页（1000个节目），避免超时
+      console.log('[CreateWorkflowModal] Loading podcasts (first batch)...')
 
-      // 分页加载所有节目
-      while (hasMore && page <= maxPages) {
-        console.log(`[CreateWorkflowModal] Loading page ${page}...`)
-        const response = await podcastApi.list({ page, page_size: 100 })
-        const newPodcasts = response.data || []
+      const response = await podcastApi.list({ page: 1, page_size: 100 })
+      const loadedPodcasts = response.data || []
 
-        allPodcasts = [...allPodcasts, ...newPodcasts]
-        console.log(`[CreateWorkflowModal] Loaded page ${page}:`, newPodcasts.length, 'items, total:', allPodcasts.length)
+      console.log(`[CreateWorkflowModal] Loaded first batch:`, loadedPodcasts.length, 'podcasts')
+      setPodcasts(loadedPodcasts)
 
-        // 如果返回的数量少于 page_size，说明已经是最后一页
-        if (newPodcasts.length < 100) {
-          hasMore = false
-        } else {
-          page++
-        }
-      }
-
-      if (page > maxPages && hasMore) {
-        console.warn('[CreateWorkflowModal] Reached max pages limit, some podcasts may not be loaded')
-      }
-
-      console.log('[CreateWorkflowModal] Total podcasts loaded:', allPodcasts.length)
-      setPodcasts(allPodcasts)
+      // 判断是否有更多数据
+      setHasMorePodcasts(loadedPodcasts.length === 100)
+      setDisplayedCount(Math.min(50, loadedPodcasts.length)) // 初始显示50个
     } catch (err) {
       console.error('[CreateWorkflowModal] Failed to load podcasts:', err)
       alert('加载节目失败: ' + (err instanceof Error ? err.message : '未知错误'))
@@ -287,6 +276,54 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
       setIsLoadingPodcasts(false)
     }
   }
+
+  // 加载更多播客（无限滚动）
+  const loadMorePodcasts = useCallback(async () => {
+    if (isLoadingMore || !hasMorePodcasts) return
+
+    setIsLoadingMore(true)
+    try {
+      const nextPage = Math.ceil(podcasts.length / 100) + 1
+      console.log(`[CreateWorkflowModal] Loading page ${nextPage}...`)
+
+      const response = await podcastApi.list({ page: nextPage, page_size: 100 })
+
+      if (response.data.length === 0) {
+        setHasMorePodcasts(false)
+      } else {
+        setPodcasts(prev => [...prev, ...response.data])
+        setDisplayedCount(prev => prev + Math.min(50, response.data.length))
+        console.log(`[CreateWorkflowModal] Loaded page ${nextPage}:`, response.data.length, 'items')
+      }
+    } catch (err) {
+      console.error('[CreateWorkflowModal] Failed to load more podcasts:', err)
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }, [isLoadingMore, hasMorePodcasts, podcasts.length])
+
+  // 无限滚动逻辑（Intersection Observer）
+  useEffect(() => {
+    const target = loadMoreTriggerRef.current
+    if (!target || !hasMorePodcasts) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !isLoadingMore) {
+          loadMorePodcasts()
+        }
+      },
+      { rootMargin: '200px' } // 提前200px触发
+    )
+
+    observer.observe(target)
+
+    return () => {
+      if (target) {
+        observer.unobserve(target)
+      }
+    }
+  }, [isLoadingMore, hasMorePodcasts, loadMorePodcasts])
 
   // 加载标签列表
   const loadTags = async () => {
@@ -311,24 +348,30 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     }
   }
 
-  // 添加节目到备选列表
-  const handleAddToCandidate = (podcastId: number) => {
+  // 添加节目到备选列表 - 使用useCallback优化
+  const handleAddToCandidate = useCallback((podcastId: number) => {
     if (!candidatePodcastIds.includes(podcastId)) {
-      setCandidatePodcastIds([...candidatePodcastIds, podcastId])
+      setCandidatePodcastIds(prev => [...prev, podcastId])
     }
-  }
+  }, [candidatePodcastIds])
 
-  // 从备选列表移除节目
-  const handleRemoveFromCandidate = (podcastId: number) => {
-    setCandidatePodcastIds(candidatePodcastIds.filter(id => id !== podcastId))
-  }
+  // 从备选列表移除节目 - 使用useCallback优化
+  const handleRemoveFromCandidate = useCallback((podcastId: number) => {
+    setCandidatePodcastIds(prev => prev.filter(id => id !== podcastId))
+  }, [])
 
-  // 批量添加搜索结果到备选列表
-  const handleAddAllFiltered = () => {
-    const filteredIds = filteredPodcasts.map(p => p.id)
-    const newCandidateIds = [...new Set([...candidatePodcastIds, ...filteredIds])]
-    setCandidatePodcastIds(newCandidateIds)
-  }
+  // 批量添加搜索结果到备选列表 - 优化为异步分批处理
+  const handleAddAllFiltered = useCallback(async () => {
+    const filteredIds = filteredPodcasts.slice(0, displayedCount).map(p => p.id)
+
+    // 分批添加（每批50个），避免阻塞UI
+    for (let i = 0; i < filteredIds.length; i += 50) {
+      const batch = filteredIds.slice(i, i + 50)
+      setCandidatePodcastIds(prev => [...new Set([...prev, ...batch])])
+      // 让出主线程，避免UI卡顿
+      await new Promise(resolve => setTimeout(resolve, 0))
+    }
+  }, [filteredPodcasts, displayedCount])
 
   // 处理自定义URL删除
   const handleRemoveCustomUrl = (url: string) => {
@@ -520,27 +563,29 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     onClose()
   }
 
-  // 过滤播客列表（支持搜索和标签筛选）
-  const filteredPodcasts = podcasts.filter(p => {
-    // 标签筛选（AND逻辑：必须包含所有选中的标签）
-    if (selectedTagIds.length > 0) {
-      const podcastTagIds = p.tags?.map(t => t.id) || []
-      const hasAllTags = selectedTagIds.every(tagId => podcastTagIds.includes(tagId))
-      if (!hasAllTags) return false
-    }
+  // 过滤播客列表（支持搜索和标签筛选） - 使用useMemo优化
+  const filteredPodcasts = useMemo(() => {
+    return podcasts.filter(p => {
+      // 标签筛选（AND逻辑：必须包含所有选中的标签）
+      if (selectedTagIds.length > 0) {
+        const podcastTagIds = p.tags?.map(t => t.id) || []
+        const hasAllTags = selectedTagIds.every(tagId => podcastTagIds.includes(tagId))
+        if (!hasAllTags) return false
+      }
 
-    // 搜索筛选
-    if (!podcastSearch.trim()) return true
+      // 搜索筛选
+      if (!podcastSearch.trim()) return true
 
-    const searchLower = podcastSearch.toLowerCase().trim()
-    const title = (p.title || '').toLowerCase()
-    const author = (p.author || '').toLowerCase()
+      const searchLower = podcastSearch.toLowerCase().trim()
+      const title = (p.title || '').toLowerCase()
+      const author = (p.author || '').toLowerCase()
 
-    const titleMatch = title.includes(searchLower)
-    const authorMatch = author.includes(searchLower)
+      const titleMatch = title.includes(searchLower)
+      const authorMatch = author.includes(searchLower)
 
-    return titleMatch || authorMatch
-  })
+      return titleMatch || authorMatch
+    })
+  }, [podcasts, selectedTagIds, podcastSearch])
 
   if (!isOpen) return null
 
@@ -871,44 +916,38 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                                     )}
                                   </div>
                                 ) : (
-                                  filteredPodcasts.slice(0, 50).map((podcast, index) => (
-                                    <div
-                                      key={podcast.id}
-                                      className="flex items-center justify-between p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded cursor-pointer group mb-1"
-                                    >
-                                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                                        {/* 封面 - 小尺寸 */}
-                                        <div className="w-10 h-10 flex-shrink-0 rounded overflow-hidden shadow-sm">
-                                          <PodcastCover
-                                            coverUrl={podcast.cover_url}
-                                            title={podcast.title}
-                                            index={index}
-                                            priority="low"
-                                          />
-                                        </div>
-
-                                        {/* 文本信息 */}
-                                        <div className="flex-1 min-w-0 pr-2">
-                                          <div className="text-xs font-medium text-slate-900 dark:text-slate-50 truncate">
-                                            {podcast.title}
-                                          </div>
-                                          {podcast.author && (
-                                            <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                                              {podcast.author}
-                                            </div>
-                                          )}
-                                        </div>
+                                  <>
+                                    {/* 结果过多提示 */}
+                                    {filteredPodcasts.length > 100 && (
+                                      <div className="text-xs text-amber-600 dark:text-amber-400 px-2 py-1 bg-amber-50 dark:bg-amber-900/20 rounded mb-2">
+                                        💡 结果较多({filteredPodcasts.length}个)，建议使用标签筛选或更精确的搜索词
                                       </div>
-                                      <button
-                                        onClick={() => handleAddToCandidate(podcast.id)}
-                                        disabled={candidatePodcastIds.includes(podcast.id)}
-                                        className="w-7 h-7 flex items-center justify-center text-sm bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded hover:bg-slate-200 dark:hover:bg-slate-600 disabled:bg-slate-50 dark:disabled:bg-slate-800 disabled:text-slate-300 dark:disabled:text-slate-600 disabled:cursor-not-allowed border border-slate-200 dark:border-slate-600 flex-shrink-0"
-                                        title={candidatePodcastIds.includes(podcast.id) ? '已添加' : '添加'}
-                                      >
-                                        {candidatePodcastIds.includes(podcast.id) ? '✓' : '>'}
-                                      </button>
-                                    </div>
-                                  ))
+                                    )}
+
+                                    {filteredPodcasts.slice(0, displayedCount).map((podcast, index) => (
+                                      <PodcastListItem
+                                        key={podcast.id}
+                                        podcast={podcast}
+                                        isSelected={candidatePodcastIds.includes(podcast.id)}
+                                        onAdd={handleAddToCandidate}
+                                        onRemove={handleRemoveFromCandidate}
+                                        index={index}
+                                      />
+                                    ))}
+
+                                    {/* 加载更多触发器 */}
+                                    {filteredPodcasts.length > displayedCount && (
+                                      <div ref={loadMoreTriggerRef} className="py-2 text-center">
+                                        {isLoadingMore ? (
+                                          <div className="text-xs text-slate-500 dark:text-slate-400">加载中...</div>
+                                        ) : (
+                                          <div className="text-xs text-slate-400 dark:text-slate-500">
+                                            已显示 {displayedCount} / {filteredPodcasts.length} 个结果
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </>
                                 )}
                                 {filteredPodcasts.length > 50 && (
                                   <div className="text-center text-xs text-slate-400 dark:text-slate-500 py-2">
@@ -958,40 +997,14 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                                       return null
                                     }
                                     return (
-                                      <div
+                                      <PodcastListItem
                                         key={podcast.id}
-                                        className="flex items-center justify-between p-2 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded mb-1 border border-slate-200 dark:border-slate-600"
-                                      >
-                                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                                          {/* 封面 - 小尺寸 */}
-                                          <div className="w-10 h-10 flex-shrink-0 rounded overflow-hidden shadow-sm">
-                                            <PodcastCover
-                                              coverUrl={podcast.cover_url}
-                                              title={podcast.title}
-                                              priority="low"
-                                            />
-                                          </div>
-
-                                          {/* 文本信息 */}
-                                          <div className="flex-1 min-w-0 pr-2">
-                                            <div className="text-xs font-medium text-slate-900 dark:text-slate-50 truncate">
-                                              {podcast.title}
-                                            </div>
-                                            {podcast.author && (
-                                              <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                                                {podcast.author}
-                                              </div>
-                                            )}
-                                          </div>
-                                        </div>
-                                        <button
-                                          onClick={() => handleRemoveFromCandidate(podcast.id)}
-                                          className="w-7 h-7 flex items-center justify-center text-sm bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded hover:bg-slate-200 dark:hover:bg-slate-600 border border-slate-200 dark:border-slate-600 flex-shrink-0"
-                                          title="移除"
-                                        >
-                                          {'<'}
-                                        </button>
-                                      </div>
+                                        podcast={podcast}
+                                        isSelected={true}
+                                        onAdd={handleAddToCandidate}
+                                        onRemove={handleRemoveFromCandidate}
+                                        index={0}
+                                      />
                                     )
                                   })
                                 )}
