@@ -106,15 +106,17 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
     if (e.key === 'Enter' && inputValue.trim()) {
       e.preventDefault()
 
-      // 检查是否匹配已有标签
+      const selectedIds = selectedTags.map(t => t.id)
+
+      // 检查是否匹配已有标签（精确匹配，并过滤已选标签）
       const matchedTag = availableTags.find(
-        t => t.name.toLowerCase() === inputValue.toLowerCase().trim()
+        t => !selectedIds.includes(t.id) &&
+          t.name.toLowerCase() === inputValue.toLowerCase().trim()
       )
 
-      const selectedIds = selectedTags.map(t => t.id)
-      if (matchedTag && !selectedIds.includes(matchedTag.id)) {
+      if (matchedTag) {
         addTag(matchedTag)
-      } else if (!matchedTag) {
+      } else {
         // 创建新标签
         createTag(inputValue)
       }
