@@ -19,6 +19,7 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
   const [filteredTags, setFilteredTags] = useState<Tag[]>([])
   const [loading, setLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const [highlightedIndex, setHighlightedIndex] = useState(-1) // -1表示未高亮
 
   // 加载所有可用标签
   useEffect(() => {
@@ -55,6 +56,9 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
       setFilteredTags(filtered)
     }
     // 注意：不在这里控制 showSuggestions，而是在 onFocus/onBlur 中控制
+
+    // 当过滤结果变化时，重置高亮索引
+    setHighlightedIndex(-1)
   }, [inputValue, availableTags, selectedTags])
 
   // 添加标签
@@ -92,26 +96,72 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
 
   // 处理键盘事件
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && inputValue.trim()) {
+    // 建议列表显示时的键盘导航
+    if (showSuggestions && filteredTags.length > 0) {
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault()
+          const nextIndex = highlightedIndex + 1
+          setHighlightedIndex(
+            nextIndex >= filteredTags.length ? 0 : nextIndex
+          )
+          return
+
+        case 'ArrowUp':
+          e.preventDefault()
+          const prevIndex = highlightedIndex - 1
+          setHighlightedIndex(
+            prevIndex < 0 ? filteredTags.length - 1 : prevIndex
+          )
+          return
+
+        case 'Enter':
+          e.preventDefault()
+          if (highlightedIndex >= 0 && filteredTags[highlightedIndex]) {
+            // 选择高亮的标签
+            addTag(filteredTags[highlightedIndex])
+            setHighlightedIndex(-1)
+          } else if (inputValue.trim()) {
+            // 原有的Enter逻辑：精确匹配或创建新标签
+            const selectedIds = selectedTags.map(t => t.id)
+            const matchedTag = availableTags.find(
+              t => !selectedIds.includes(t.id) &&
+                t.name.toLowerCase() === inputValue.toLowerCase().trim()
+            )
+            if (matchedTag) {
+              addTag(matchedTag)
+            } else {
+              createTag(inputValue)
+            }
+            setHighlightedIndex(-1)
+          }
+          return
+
+        case 'Escape':
+          setShowSuggestions(false)
+          setInputValue('')
+          setHighlightedIndex(-1)
+          return
+      }
+    }
+
+    // 建议列表未显示时的原有Enter逻辑
+    if (e.key === 'Enter' && inputValue.trim() && !showSuggestions) {
       e.preventDefault()
-
       const selectedIds = selectedTags.map(t => t.id)
-
-      // 检查是否匹配已有标签（精确匹配，并过滤已选标签）
       const matchedTag = availableTags.find(
         t => !selectedIds.includes(t.id) &&
           t.name.toLowerCase() === inputValue.toLowerCase().trim()
       )
-
       if (matchedTag) {
         addTag(matchedTag)
       } else {
-        // 创建新标签
         createTag(inputValue)
       }
     } else if (e.key === 'Escape') {
       setShowSuggestions(false)
       setInputValue('')
+      setHighlightedIndex(-1)
     }
   }
 
@@ -125,6 +175,7 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
     // 延迟关闭，以便点击建议项
     setTimeout(() => {
       setShowSuggestions(false)
+      setHighlightedIndex(-1)
     }, 200)
   }
 
@@ -132,6 +183,8 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
   const handleFocus = () => {
     // 显示所有可用标签
     setShowSuggestions(true)
+    // 重置高亮索引
+    setHighlightedIndex(-1)
   }
 
   return (
@@ -197,11 +250,17 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
                     </div>
                   )}
                   <div className="py-1">
-                    {filteredTags.map(tag => (
+                    {filteredTags.map((tag, index) => (
                       <button
                         key={tag.id}
                         onClick={() => addTag(tag)}
-                        className="w-full px-4 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors focus:outline-none focus:bg-slate-100 dark:focus:bg-slate-700"
+                        onMouseEnter={() => setHighlightedIndex(index)}
+                        className={`
+                          w-full px-4 py-2 text-left transition-colors focus:outline-none
+                          ${highlightedIndex === index
+                            ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-500'
+                            : 'hover:bg-slate-100 dark:hover:bg-slate-700'}
+                        `}
                       >
                         <div className="flex items-center gap-3">
                           <span
