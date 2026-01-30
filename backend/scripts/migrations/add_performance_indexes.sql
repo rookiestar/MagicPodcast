@@ -134,7 +134,7 @@ ON episodes_tags(episode_id);
 
 -- Job执行记录
 CREATE INDEX IF NOT EXISTS idx_job_executions_job_id_status
-ON job_executions(job_id, status, start_time DESC);
+ON job_executions(job_id, status, created_at DESC);
 
 -- Podcast执行记录
 CREATE INDEX IF NOT EXISTS idx_job_executions_podcast_status
