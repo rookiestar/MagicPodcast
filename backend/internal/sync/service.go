@@ -24,7 +24,7 @@ type RetryConfig struct {
 // DefaultRetryConfig 默认重试配置
 var DefaultRetryConfig = RetryConfig{
 	MaxRetries:    3,
-	InitialDelay:  1 * time.Second,
+	InitialDelay:  2 * time.Second, // 从2秒开始：2s -> 4s -> 8s
 	MaxDelay:      8 * time.Second,
 	BackoffFactor: 2.0,
 }
