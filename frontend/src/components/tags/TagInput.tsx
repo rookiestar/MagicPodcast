@@ -65,7 +65,8 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
   const addTag = async (tag: Tag) => {
     onTagsChange([...selectedTags, tag])
     setInputValue('')
-    setShowSuggestions(false)
+    // 保持建议列表打开，方便连续添加标签
+    setShowSuggestions(true)
   }
 
   // 创建新标签
@@ -82,7 +83,10 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
 
       onTagsChange([...selectedTags, newTag])
       setInputValue('')
-      setShowSuggestions(false)
+      // 将新标签添加到availableTags中
+      setAvailableTags([...availableTags, newTag])
+      // 保持建议列表打开，方便连续添加标签
+      setShowSuggestions(true)
     } catch (err) {
       // 错误已通过axios拦截器自动处理，这里只需要记录日志
       console.error('创建标签失败:', err)
