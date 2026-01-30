@@ -42,11 +42,10 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
     const selectedIds = selectedTags.map(t => t.id)
 
     if (inputValue.trim()) {
-      // 有输入内容时，过滤匹配的标签（trim后匹配）
-      const trimmedInput = inputValue.trim().toLowerCase()
+      // 有输入内容时，过滤匹配的标签
       const filtered = availableTags.filter(
         t => !selectedIds.includes(t.id) &&
-        t.name.toLowerCase().includes(trimmedInput)
+        t.name.toLowerCase().includes(inputValue.toLowerCase())
       )
       setFilteredTags(filtered)
     } else {
@@ -107,10 +106,9 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
     if (e.key === 'Enter' && inputValue.trim()) {
       e.preventDefault()
 
-      // 检查是否匹配已有标签（使用模糊匹配，与过滤逻辑保持一致）
+      // 检查是否匹配已有标签
       const matchedTag = availableTags.find(
-        t => !selectedIds.includes(t.id) &&
-          t.name.toLowerCase().includes(inputValue.toLowerCase().trim())
+        t => t.name.toLowerCase() === inputValue.toLowerCase().trim()
       )
 
       const selectedIds = selectedTags.map(t => t.id)
