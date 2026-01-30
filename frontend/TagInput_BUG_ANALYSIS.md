@@ -217,8 +217,8 @@ const handleBlur = () => {
 
 ### Bug #1: Backspace删除标签（UX问题）✅ 已修复
 
-**修复版本**: commit f2ac667
-**修复方案**: 使用useRef实现1000ms安全期机制
+**修复版本**: commit f50c827
+**修复方案**: 完全移除Backspace删除功能
 **严重程度**：中等
 **类型**：UX设计不符合预期
 
@@ -228,12 +228,12 @@ const handleBlur = () => {
 
 **根本原因**：
 - 添加标签后立即清空`inputValue`
-- useState更新是异步的，导致快速按键时安全期状态未及时生效
+- Backspace会在输入框为空时删除最后一个标签
 
 **最终方案**：
-- 使用useRef代替useState（ref更新同步，立即生效）
-- 安全期延长至1000ms
-- 安全期内按Backspace显示提示信息
+- 完全移除Backspace删除功能
+- 用户只能通过点击标签上的×按钮删除标签
+- 符合常见的UX模式，避免误删
 
 ### Bug #2: 搜索匹配失败（功能问题）✅ 已修复
 
