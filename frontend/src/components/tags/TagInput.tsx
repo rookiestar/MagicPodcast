@@ -19,7 +19,7 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
   const [filteredTags, setFilteredTags] = useState<Tag[]>([])
   const [loading, setLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const [justAddedTag, setJustAddedTag] = useState(false) // 添加标签后的安全期标记
+  const justAddedTagRef = useRef(false) // 添加标签后的安全期标记（使用ref，同步更新）
 
   // 加载所有可用标签
   useEffect(() => {
@@ -64,10 +64,12 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
     setInputValue('')
     setShowSuggestions(false)
 
-    // 设置安全期标记，防止立即误删
-    setJustAddedTag(true)
-    // 500ms后自动解除安全期
-    setTimeout(() => setJustAddedTag(false), 500)
+    // 设置安全期标记，防止立即误删（使用ref，同步更新）
+    justAddedTagRef.current = true
+    // 1000ms后自动解除安全期
+    setTimeout(() => {
+      justAddedTagRef.current = false
+    }, 1000)
   }
 
   // 创建新标签
@@ -86,10 +88,12 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
       setInputValue('')
       setShowSuggestions(false)
 
-      // 设置安全期标记，防止立即误删
-      setJustAddedTag(true)
-      // 500ms后自动解除安全期
-      setTimeout(() => setJustAddedTag(false), 500)
+      // 设置安全期标记，防止立即误删（使用ref，同步更新）
+      justAddedTagRef.current = true
+      // 1000ms后自动解除安全期
+      setTimeout(() => {
+        justAddedTagRef.current = false
+      }, 1000)
     } catch (err) {
       // 错误已通过axios拦截器自动处理，这里只需要记录日志
       console.error('创建标签失败:', err)
@@ -122,11 +126,11 @@ export default function TagInput({ selectedTags, onTagsChange, placeholder = '�
       }
     } else if (e.key === 'Backspace' && !inputValue && selectedTags.length > 0) {
       // 只在非安全期内才能删除标签
-      if (!justAddedTag) {
+      if (!justAddedTagRef.current) {
         // 删除最后一个标签
         removeTag(selectedTags[selectedTags.length - 1].id)
       } else {
-        // 在安全期内，可以显示提示或阻止操作
+        // 在安全期内，阻止删除操作
         console.log('🚫 刚添加标签，请稍后再删除')
       }
     } else if (e.key === 'Escape') {
