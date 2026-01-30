@@ -362,7 +362,25 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
 
   // 批量添加搜索结果到备选列表 - 优化为异步分批处理
   const handleAddAllFiltered = useCallback(async () => {
-    const filteredIds = filteredPodcasts.slice(0, displayedCount).map(p => p.id)
+    // 在函数内部计算过滤结果，避免依赖顺序问题
+    const filtered = podcasts.filter(p => {
+      // 标签筛选
+      if (selectedTagIds.length > 0) {
+        const podcastTagIds = p.tags?.map(t => t.id) || []
+        const hasAllTags = selectedTagIds.every(tagId => podcastTagIds.includes(tagId))
+        if (!hasAllTags) return false
+      }
+
+      // 搜索筛选
+      if (!podcastSearch.trim()) return true
+      const searchLower = podcastSearch.toLowerCase().trim()
+      return (
+        (p.title || '').toLowerCase().includes(searchLower) ||
+        (p.author || '').toLowerCase().includes(searchLower)
+      )
+    })
+
+    const filteredIds = filtered.slice(0, displayedCount).map(p => p.id)
 
     // 分批添加（每批50个），避免阻塞UI
     for (let i = 0; i < filteredIds.length; i += 50) {
@@ -371,7 +389,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
       // 让出主线程，避免UI卡顿
       await new Promise(resolve => setTimeout(resolve, 0))
     }
-  }, [filteredPodcasts, displayedCount])
+  }, [podcasts, selectedTagIds, podcastSearch, displayedCount])
 
   // 处理自定义URL删除
   const handleRemoveCustomUrl = (url: string) => {
