@@ -231,7 +231,7 @@ export default function WorkflowsPage() {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-3">
-                      <h3 className="text-2xl font-semibold text-slate-900">
+                      <h3 className="text-xl font-semibold text-slate-900">
                         {workflow.id}: {workflow.name}
                       </h3>
                       {getStatusBadge(workflow.is_enabled)}
