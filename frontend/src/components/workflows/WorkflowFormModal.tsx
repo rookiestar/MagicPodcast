@@ -367,35 +367,38 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
       const observer = new IntersectionObserver(
         (entries) => {
           if (entries[0].isIntersecting) {
-            // 使用 ref 获取最新的 displayedCount，避免闭包陷阱
-            const currentDisplayed = displayedCountRef.current
+            // 使用函数式更新，基于当前 state 计算
+            setDisplayedCount(prevDisplayed => {
+              // 使用最新的 ref 值计算筛选结果数量
+              const currentPodcasts = podcastsRef.current
+              const currentSelectedTagIds = selectedTagIdsRef.current
+              const currentPodcastSearch = podcastSearchRef.current
 
-            // 使用 ref 获取最新的筛选条件，避免闭包陷阱
-            const currentPodcasts = podcastsRef.current
-            const currentSelectedTagIds = selectedTagIdsRef.current
-            const currentPodcastSearch = podcastSearchRef.current
-
-            // 动态计算当前筛选结果数量
-            const currentFilteredCount = currentPodcasts.filter(p => {
-              // 标签筛选
-              if (currentSelectedTagIds.length > 0) {
-                const podcastTagIds = p.tags?.map(t => t.id) || []
-                if (!currentSelectedTagIds.every(tagId => podcastTagIds.includes(tagId))) {
-                  return false
+              // 动态计算当前筛选结果数量
+              const currentFilteredCount = currentPodcasts.filter(p => {
+                // 标签筛选
+                if (currentSelectedTagIds.length > 0) {
+                  const podcastTagIds = p.tags?.map(t => t.id) || []
+                  if (!currentSelectedTagIds.every(tagId => podcastTagIds.includes(tagId))) {
+                    return false
+                  }
                 }
-              }
-              // 搜索筛选
-              if (!currentPodcastSearch.trim()) return true
-              const searchLower = currentPodcastSearch.toLowerCase().trim()
-              return (p.title || '').toLowerCase().includes(searchLower) ||
-                     (p.author || '').toLowerCase().includes(searchLower)
-            }).length
+                // 搜索筛选
+                if (!currentPodcastSearch.trim()) return true
+                const searchLower = currentPodcastSearch.toLowerCase().trim()
+                return (p.title || '').toLowerCase().includes(searchLower) ||
+                       (p.author || '').toLowerCase().includes(searchLower)
+              }).length
 
-            // 只有当真的有更多内容时才更新
-            if (currentDisplayed < currentFilteredCount) {
-              const newValue = Math.min(currentDisplayed + 50, currentFilteredCount)
-              setDisplayedCount(newValue)
-            }
+              // 只有当真的有更多内容时才更新
+              if (prevDisplayed < currentFilteredCount) {
+                const newValue = Math.min(prevDisplayed + 50, currentFilteredCount)
+                // 同步更新 ref
+                displayedCountRef.current = newValue
+                return newValue
+              }
+              return prevDisplayed
+            })
           }
         },
         { rootMargin: '200px' }
@@ -415,11 +418,13 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         observerRef.current.disconnect()
       }
     }
-  }, [isLoadingPodcasts]) // ✅ 只依赖 isLoadingPodcasts，避免循环重建
+  }, [isLoadingPodcasts, selectedTagIds, podcastSearch]) // ✅ 添加筛选条件依赖，确保它们变化时重建 Observer
 
   // 当搜索或筛选条件变化时，重置 displayedCount
   useEffect(() => {
     setDisplayedCount(50)
+    // 同步更新 ref
+    displayedCountRef.current = 50
   }, [selectedTagIds, podcastSearch])
 
   // 加载标签列表
