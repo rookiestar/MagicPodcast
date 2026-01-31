@@ -25,6 +25,10 @@ export default function WorkflowDetailPage() {
   const tabFromUrl = (searchParams.get('tab') as TabType) || 'overview'
   const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl)
 
+  // 构建返回列表页的链接（保留sort_by参数）
+  const sortBy = searchParams.get('sort_by')
+  const backLink = sortBy ? `/workflows?sort_by=${sortBy}` : '/workflows'
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
@@ -243,7 +247,7 @@ export default function WorkflowDetailPage() {
             <h3 className="text-red-800 font-semibold mb-2">加载失败</h3>
             <p className="text-red-600">{error || '工作流不存在'}</p>
             <Link
-              href="/workflows"
+              href={backLink}
               className="mt-4 inline-block text-blue-600 hover:text-blue-700"
             >
               ← 返回列表
@@ -261,7 +265,7 @@ export default function WorkflowDetailPage() {
         <div className="mb-8">
           <div className="mb-4">
             <Link
-              href="/workflows"
+              href={backLink}
               className="w-36 h-11 px-4 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-medium rounded-xl border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 hover:border-slate-400 dark:hover:border-slate-500 transition-colors flex items-center justify-center gap-2"
             >
               <span>←</span>

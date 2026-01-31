@@ -25,6 +25,22 @@ export default function WorkflowsPage() {
     fetchWorkflows(sortFromUrl)
   }, [])
 
+  // 监听 URL 参数变化（用于浏览器前进/后退）
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search)
+      const sortFromUrl = (params.get('sort_by') as WorkflowSortByType) || 'updated'
+
+      console.log('[PopState] sortBy:', sortFromUrl)
+
+      setSortBy(sortFromUrl)
+      fetchWorkflows(sortFromUrl)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
   const fetchWorkflows = async (currentSortBy: WorkflowSortByType = sortBy) => {
     try {
       setLoading(true)
@@ -260,7 +276,7 @@ export default function WorkflowsPage() {
             {workflows.map((workflow, index) => (
               <Link
                 key={workflow.id}
-                href={`/workflows/${workflow.id}`}
+                href={`/workflows/${workflow.id}${window.location.search}`}
                 className={`block rounded-lg shadow-sm hover:shadow-md transition-shadow p-8 ${
                   index % 2 === 0 ? 'bg-white' : 'bg-neutral-50'
                 }`}
