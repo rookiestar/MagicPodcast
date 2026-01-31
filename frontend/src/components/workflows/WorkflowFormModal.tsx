@@ -308,14 +308,19 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     const target = loadMoreTriggerRef.current
     if (!target) return
 
+    console.log('[IntersectionObserver] Setting up observer, filtered:', filteredPodcasts.length, 'displayed:', displayedCount)
+
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
-          // 使用最新的 state 值
+          console.log('[IntersectionObserver] Triggered! Current:', displayedCount, 'Total:', filteredPodcasts.length)
           setDisplayedCount(current => {
-            if (current < podcasts.length) {
-              return Math.min(current + 50, podcasts.length)
+            if (current < filteredPodcasts.length) {
+              const newValue = Math.min(current + 50, filteredPodcasts.length)
+              console.log('[IntersectionObserver] Updating displayedCount:', current, '->', newValue)
+              return newValue
             }
+            console.log('[IntersectionObserver] Already showing all items')
             return current
           })
         }
@@ -327,10 +332,11 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
 
     return () => {
       if (target) {
+        console.log('[IntersectionObserver] Cleaning up observer')
         observer.unobserve(target)
       }
     }
-  }, [podcasts.length]) // 只在 podcasts.length 变化时重新创建 observer
+  }, [podcasts.length, filteredPodcasts.length]) // 添加 filteredPodcasts.length
 
   // 加载标签列表
   const loadTags = async () => {
@@ -945,7 +951,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                                     {/* 结果过多提示 */}
                                     {filteredPodcasts.length > 100 && (
                                       <div className="text-xs text-amber-600 dark:text-amber-400 px-2 py-1 bg-amber-50 dark:bg-amber-900/20 rounded mb-2">
-                                        💡 结果较多({filteredPodcasts.length}个)，建议使用标签筛选或更精确的搜索词
+                                        💡 结果较多，建议使用标签或更精确的搜索词
                                       </div>
                                     )}
 
