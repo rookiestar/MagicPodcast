@@ -761,7 +761,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                   定时规则 <span className="text-red-500">*</span>
                 </label>
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 gap-2">
                     {CRON_PRESETS.map((preset) => (
                       <button
                         key={preset.value}
@@ -771,13 +771,29 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                           setCustomCron('')
                           setCronError('') // 清除错误
                         }}
-                        className={`px-4 py-2 rounded-lg text-left transition-colors ${
-                          schedule === preset.value && !customCron
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                        }`}
+                        className={`
+                          px-4 py-3 rounded-lg text-left transition-all border-2
+                          flex items-center gap-3
+                          ${schedule === preset.value && !customCron
+                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700'
+                          }
+                        `}
                       >
-                        {preset.label}
+                        <span className="text-2xl">
+                          {preset.label.includes('凌晨') || preset.label.includes('早上') ? '🌅' :
+                           preset.label.includes('晚上') ? '🌙' :
+                           preset.label.includes('周') ? '📅' : '⏰'}
+                        </span>
+                        <div className="flex-1">
+                          <div className="font-medium">{preset.label}</div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                            {preset.value}
+                          </div>
+                        </div>
+                        {schedule === preset.value && !customCron && (
+                          <span className="text-blue-500 text-xl">✓</span>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -1182,80 +1198,146 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-4">
                   抓取规则配置 (可选)
                 </label>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">
-                      时间范围 (天)
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={timeRange || ''}
-                      onChange={(e) => setTimeRange(parseInt(e.target.value) || 0)}
-                      placeholder="0"
-                      className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
-                    />
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">只抓取指定天数内发布的单集，0表示不限制</p>
-                  </div>
 
-                  <div>
-                    <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">
-                      最小时长 (秒)
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={minDuration || ''}
-                      onChange={(e) => setMinDuration(parseInt(e.target.value) || 0)}
-                      placeholder="0"
-                      className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
-                    />
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">只抓取超过此时长的单集，0表示不限制</p>
-                  </div>
+                {/* 基础规则 - 默认展开 */}
+                <details open className="group mb-4">
+                  <summary className="flex items-center justify-between cursor-pointer p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">📋</span>
+                      <span className="font-medium text-slate-700 dark:text-slate-300">基础规则</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">(常用设置)</span>
+                    </div>
+                    <span className="text-slate-400 group-open:rotate-180 transition-transform">▼</span>
+                  </summary>
 
-                  <div>
-                    <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">
-                      最大结果数
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={maxResults || ''}
-                      onChange={(e) => setMaxResults(parseInt(e.target.value) || 0)}
-                      placeholder="0"
-                      className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
-                    />
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">每个节目最多抓取的单集数量，0表示不限制</p>
-                  </div>
+                  <div className="mt-4 space-y-4 p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg">
+                    {/* 时间范围 */}
+                    <div>
+                      <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
+                        时间范围 (天)
+                      </label>
+                      <div className="flex gap-2 mb-2">
+                        {[0, 1, 7, 30].map((days) => (
+                          <button
+                            key={days}
+                            type="button"
+                            onClick={() => setTimeRange(days)}
+                            className={`px-3 py-1.5 rounded text-sm transition-colors ${
+                              timeRange === days
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                            }`}
+                          >
+                            {days === 0 ? '不限' : `${days}天`}
+                          </button>
+                        ))}
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        value={timeRange || ''}
+                        onChange={(e) => setTimeRange(parseInt(e.target.value) || 0)}
+                        placeholder="0"
+                        className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                      />
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">只抓取指定天数内发布的单集，0表示不限制</p>
+                    </div>
 
-                  <div>
-                    <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">
-                      关键词过滤
-                    </label>
-                    <input
-                      type="text"
-                      value={keywords}
-                      onChange={(e) => setKeywords(e.target.value)}
-                      placeholder="例如: 技术,AI,机器学习"
-                      className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
-                    />
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">只抓取标题或简介中包含这些关键词的单集，逗号分隔</p>
+                    {/* 最小时长 */}
+                    <div>
+                      <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
+                        最小时长 (分钟)
+                      </label>
+                      <div className="flex gap-2 mb-2">
+                        {[0, 600, 1800, 3600].map((seconds) => (
+                          <button
+                            key={seconds}
+                            type="button"
+                            onClick={() => setMinDuration(seconds)}
+                            className={`px-3 py-1.5 rounded text-sm transition-colors ${
+                              minDuration === seconds
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                            }`}
+                          >
+                            {seconds === 0 ? '不限' :
+                             seconds === 600 ? '10分钟' :
+                             seconds === 1800 ? '30分钟' : '60分钟'}
+                          </button>
+                        ))}
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        value={minDuration || ''}
+                        onChange={(e) => setMinDuration(parseInt(e.target.value) || 0)}
+                        placeholder="0"
+                        className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                      />
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">只抓取超过此时长的单集，0表示不限制（单位：秒）</p>
+                    </div>
                   </div>
+                </details>
 
-                  <div>
-                    <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">
-                      排除词
-                    </label>
-                    <input
-                      type="text"
-                      value={excludeWords}
-                      onChange={(e) => setExcludeWords(e.target.value)}
-                      placeholder="例如: 广告,推广"
-                      className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
-                    />
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">排除标题或简介中包含这些词的单集，逗号分隔</p>
+                {/* 高级规则 - 默认折叠 */}
+                <details className="group">
+                  <summary className="flex items-center justify-between cursor-pointer p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">⚙️</span>
+                      <span className="font-medium text-slate-700 dark:text-slate-300">高级规则</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">(可选设置)</span>
+                    </div>
+                    <span className="text-slate-400 group-open:rotate-180 transition-transform">▼</span>
+                  </summary>
+
+                  <div className="mt-4 space-y-4 p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg">
+                    {/* 最大结果数 */}
+                    <div>
+                      <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">
+                        最大结果数
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={maxResults || ''}
+                        onChange={(e) => setMaxResults(parseInt(e.target.value) || 0)}
+                        placeholder="0"
+                        className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                      />
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">每个节目最多抓取的单集数量，0表示不限制</p>
+                    </div>
+
+                    {/* 关键词过滤 */}
+                    <div>
+                      <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">
+                        关键词过滤
+                      </label>
+                      <input
+                        type="text"
+                        value={keywords}
+                        onChange={(e) => setKeywords(e.target.value)}
+                        placeholder="例如: 技术,AI,机器学习"
+                        className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                      />
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">只抓取标题或简介中包含这些关键词的单集，逗号分隔</p>
+                    </div>
+
+                    {/* 排除词 */}
+                    <div>
+                      <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">
+                        排除词
+                      </label>
+                      <input
+                        type="text"
+                        value={excludeWords}
+                        onChange={(e) => setExcludeWords(e.target.value)}
+                        placeholder="例如: 广告,推广"
+                        className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                      />
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">排除标题或简介中包含这些词的单集，逗号分隔</p>
+                    </div>
                   </div>
-                </div>
+                </details>
               </div>
 
               <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
@@ -1296,81 +1378,100 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                 </div>
 
                 {llmEnabled && (
-                  <div className="p-5 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg space-y-5">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                        单次摘要最大单集数
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={100}
-                        value={llmMaxEpisodes || ''}
-                        onChange={(e) => setLlmMaxEpisodes(parseInt(e.target.value) || 20)}
-                        placeholder="20"
-                        className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
-                      />
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        当匹配单集数超过此值时，将采样部分单集生成摘要（1-100，默认20）
-                      </p>
-                    </div>
+                  <div className="space-y-4">
+                    {/* 常用配置 - 直接显示 */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg">
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                          单次最大单集数
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={llmMaxEpisodes || ''}
+                          onChange={(e) => setLlmMaxEpisodes(parseInt(e.target.value) || 20)}
+                          placeholder="20"
+                          className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                        />
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                          采样部分单集生成摘要（1-100）
+                        </p>
+                      </div>
 
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                        LLM模型（可选）
-                      </label>
-                      <input
-                        type="text"
-                        value={llmModel}
-                        onChange={(e) => setLlmModel(e.target.value)}
-                        placeholder="留空使用默认模型"
-                        className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
-                      />
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        覆盖默认模型（如 Qwen/Qwen2.5-7B-Instruct），留空使用系统默认
-                      </p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                        创造性参数: {llmTemperature.toFixed(1)}
-                      </label>
-                      <input
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.1}
-                        value={llmTemperature}
-                        onChange={(e) => setLlmTemperature(parseFloat(e.target.value))}
-                        className="w-full"
-                      />
-                      <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        <span>更确定</span>
-                        <span>更创造</span>
+                      <div className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg">
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                          最大生成Token数
+                        </label>
+                        <input
+                          type="number"
+                          min={100}
+                          max={4000}
+                          value={llmMaxTokens || ''}
+                          onChange={(e) => setLlmMaxTokens(parseInt(e.target.value) || 1000)}
+                          placeholder="1000"
+                          className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                        />
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                          控制摘要的最大长度（100-4000）
+                        </p>
                       </div>
                     </div>
 
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                        最大生成Token数
-                      </label>
-                      <input
-                        type="number"
-                        min={100}
-                        max={4000}
-                        value={llmMaxTokens || ''}
-                        onChange={(e) => setLlmMaxTokens(parseInt(e.target.value) || 1000)}
-                        placeholder="1000"
-                        className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
-                      />
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        控制摘要的最大长度（100-4000，默认1000）
-                      </p>
-                    </div>
+                    {/* 高级设置 - 默认折叠 */}
+                    <details className="group">
+                      <summary className="flex items-center justify-between cursor-pointer p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">⚙️</span>
+                          <span className="font-medium text-slate-700 dark:text-slate-300">高级设置</span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">(可选)</span>
+                        </div>
+                        <span className="text-slate-400 group-open:rotate-180 transition-transform">▼</span>
+                      </summary>
 
-                    {/* 高级Prompt配置 - 使用简单的details/summary实现可折叠 */}
+                      <div className="mt-4 space-y-4 p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg">
+                        {/* LLM模型 */}
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                            LLM模型
+                          </label>
+                          <input
+                            type="text"
+                            value={llmModel}
+                            onChange={(e) => setLlmModel(e.target.value)}
+                            placeholder="留空使用默认模型"
+                            className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                          />
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                            覆盖默认模型（如 Qwen/Qwen2.5-7B-Instruct），留空使用系统默认
+                          </p>
+                        </div>
+
+                        {/* 创造性参数 */}
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                            创造性参数: {llmTemperature.toFixed(1)}
+                          </label>
+                          <input
+                            type="range"
+                            min={0}
+                            max={1}
+                            step={0.1}
+                            value={llmTemperature}
+                            onChange={(e) => setLlmTemperature(parseFloat(e.target.value))}
+                            className="w-full"
+                          />
+                          <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mt-1">
+                            <span>更确定</span>
+                            <span>更创造</span>
+                          </div>
+                        </div>
+                      </div>
+                    </details>
+
+                    {/* 自定义Prompt - 高级功能，默认折叠 */}
                     <details
-                      className="mt-6 group"
+                      className="group"
                       onToggle={(e) => {
                         const details = e.currentTarget
                         // 首次展开时，如果textarea为空，自动填充默认值
@@ -1379,17 +1480,18 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                         }
                       }}
                     >
-                      <summary className="flex items-center justify-between cursor-pointer p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                      <summary className="flex items-center justify-between cursor-pointer p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                            📝 自定义Prompt模板
+                          <span className="text-lg">📝</span>
+                          <span className="font-medium text-slate-700 dark:text-slate-300">自定义Prompt模板</span>
+                          <span className="text-xs text-orange-600 dark:text-orange-400 bg-orange-100 dark:bg-orange-900/30 px-2 py-1 rounded">
+                            高级
                           </span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400">(可选)</span>
                         </div>
-                        <span className="text-xs text-slate-400 group-open:rotate-180 transition-transform">▼</span>
+                        <span className="text-slate-400 group-open:rotate-180 transition-transform">▼</span>
                       </summary>
 
-                      <div className="mt-4 space-y-4 p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg">
+                      <div className="mt-4 p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg">
                         {/* User Prompt配置 */}
                         <div>
                           <div className="flex items-center justify-between mb-2">
