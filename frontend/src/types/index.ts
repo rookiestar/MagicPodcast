@@ -140,6 +140,9 @@ export interface SearchData {
 // Workflow 相关类型定义
 export type WorkflowScopeType = 'specific_podcasts' | 'all_subscribed' | 'custom_sources'
 
+// 工作流排序类型
+export type WorkflowSortByType = 'updated' | 'execution'
+
 export type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
 
 export type ExecutionStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped'

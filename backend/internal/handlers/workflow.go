@@ -97,10 +97,11 @@ type JobExecutionResponse struct {
 
 // List 获取工作流列表
 // @Summary 获取工作流列表
-// @Description 获取所有工作流，支持分页
+// @Description 获取所有工作流，支持排序和分页
 // @Tags Workflows
 // @Accept json
 // @Produce json
+// @Param sort_by query string false "排序方式: updated(最近更新，默认), execution(下次执行时间)"
 // @Param page query int false "页码（默认1）"
 // @Param page_size query int false "每页数量（默认20）"
 // @Success 200 {object} map[string]interface{}
@@ -119,6 +120,9 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 		pageSize = 20
 	}
 
+	// 获取排序参数（默认：updated）
+	sortBy := c.DefaultQuery("sort_by", "updated")
+
 	// 查询总数
 	var total int64
 	db.Model(&models.Workflow{}).Count(&total)
@@ -128,11 +132,12 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 	offset := (page - 1) * pageSize
 
 	// 调试日志
-	logger.Infof("[Workflow] 查询工作流列表: page=%d, pageSize=%d, offset=%d", page, pageSize, offset)
+	logger.Infof("[Workflow] 查询工作流列表: page=%d, pageSize=%d, sortBy=%s, offset=%d", page, pageSize, sortBy, offset)
 
 	// 分步查询以避免N+1问题
 	// 1. 查询workflows
-	if err := db.Order("created_at DESC").Limit(pageSize).Offset(offset).Find(&workflows).Error; err != nil {
+	orderClause := h.buildSortOrderClause(sortBy)
+	if err := db.Order(orderClause).Limit(pageSize).Offset(offset).Find(&workflows).Error; err != nil {
 		logger.Infof("[Workflow] 查询失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
@@ -194,6 +199,21 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 			},
 		},
 	})
+}
+
+// buildSortOrderClause 根据排序参数构建ORDER BY子句
+func (h *WorkflowHandler) buildSortOrderClause(sortBy string) string {
+	switch sortBy {
+	case "execution":
+		// 按下一次执行时间升序（即将执行的在前），NULL值（无下次执行计划）排在最后
+		return "next_run_at IS NOT NULL, next_run_at ASC"
+	case "updated":
+		// 按更新时间倒序（最近更新的在前）
+		return "updated_at DESC"
+	default:
+		// 默认按更新时间倒序
+		return "updated_at DESC"
+	}
 }
 
 // Get 获取单个工作流详情

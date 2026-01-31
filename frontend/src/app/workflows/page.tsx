@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { workflowApi } from '@/lib/api'
 import { showSuccess } from '@/lib/api/errorHandler'
-import type { Workflow } from '@/types'
+import type { Workflow, WorkflowSortByType } from '@/types'
 import WorkflowFormModal from '@/components/workflows/WorkflowFormModal'
 
 export default function WorkflowsPage() {
@@ -14,16 +14,22 @@ export default function WorkflowsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [editingWorkflow, setEditingWorkflow] = useState<Workflow | null>(null)
   const [triggeringId, setTriggeringId] = useState<number | null>(null)
+  const [sortBy, setSortBy] = useState<WorkflowSortByType>('updated')
 
   useEffect(() => {
-    fetchWorkflows()
+    // 从URL加载排序参数
+    const params = new URLSearchParams(window.location.search)
+    const sortFromUrl = (params.get('sort_by') as WorkflowSortByType) || 'updated'
+    setSortBy(sortFromUrl)
+
+    fetchWorkflows(sortFromUrl)
   }, [])
 
-  const fetchWorkflows = async () => {
+  const fetchWorkflows = async (currentSortBy: WorkflowSortByType = sortBy) => {
     try {
       setLoading(true)
       setError(null)
-      const response = await workflowApi.list()
+      const response = await workflowApi.list({ sort_by: currentSortBy })
       setWorkflows(response.workflows)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -31,6 +37,19 @@ export default function WorkflowsPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleSortChange = (newSortBy: WorkflowSortByType) => {
+    console.log('[Sort] Changing from', sortBy, 'to', newSortBy)
+
+    // 更新 URL 参数
+    const url = new URL(window.location.href)
+    url.searchParams.set('sort_by', newSortBy)
+    window.history.replaceState({}, '', url.toString())
+
+    // 更新状态并重新获取数据
+    setSortBy(newSortBy)
+    fetchWorkflows(newSortBy)
   }
 
   const handleToggle = async (id: number, e: React.MouseEvent) => {
@@ -175,6 +194,24 @@ export default function WorkflowsPage() {
                   <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-white text-lg pointer-events-none">+</span>
                   <span className="w-full text-center">创建工作流</span>
                 </button>
+
+                {/* 排序选择器 */}
+                <div className="relative w-36">
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-slate-700 z-10 pointer-events-none">
+                    <svg width="20" height="20" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M5 11 L5 3 M5 3 L2 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                      <path d="M11 5 L11 13 M11 13 L14 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                    </svg>
+                  </span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => handleSortChange(e.target.value as WorkflowSortByType)}
+                    className="w-full h-11 pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl bg-white text-slate-400 text-sm text-center focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-colors appearance-none cursor-pointer"
+                  >
+                    <option value="updated">最近更新</option>
+                    <option value="execution">下次执行</option>
+                  </select>
+                </div>
               </div>
             </div>
 
