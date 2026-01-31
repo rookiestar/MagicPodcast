@@ -122,10 +122,8 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
   const [candidatePodcastIds, setCandidatePodcastIds] = useState<number[]>([]) // 备选列表中的节目ID
   const [isLoadingPodcasts, setIsLoadingPodcasts] = useState(false) // 加载状态
 
-  // 性能优化：渐进式加载状态
+  // 性能优化：渐进式渲染状态
   const [displayedCount, setDisplayedCount] = useState(50) // 初始显示50个
-  const [isLoadingMore, setIsLoadingMore] = useState(false) // 加载更多状态
-  const [hasMorePodcasts, setHasMorePodcasts] = useState(true) // 是否还有更多数据
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null) // 无限滚动触发器
 
   // 标签筛选相关状态
@@ -254,23 +252,43 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     setStep(1)
   }
 
-  // 加载播客列表 - 渐进式加载（首屏加载100个）
+  // 加载播客列表 - 一次性加载所有播客
   const loadPodcasts = async () => {
     try {
       setIsLoadingPodcasts(true)
-      console.log('[CreateWorkflowModal] Loading podcasts (first batch)...')
+      console.log('[CreateWorkflowModal] Loading all podcasts...')
 
-      const response = await podcastApi.list({ page: 1, page_size: 100 })
-      const loadedPodcasts = response.data || []
+      let allPodcasts: Podcast[] = []
+      let page = 1
+      let hasMore = true
+      const maxPages = 20 // 最多加载20页（2000个节目）
 
-      console.log(`[CreateWorkflowModal] Loaded first batch:`, loadedPodcasts.length, 'podcasts')
-      setPodcasts(loadedPodcasts)
+      // 分页加载所有节目
+      while (hasMore && page <= maxPages) {
+        console.log(`[CreateWorkflowModal] Loading page ${page}...`)
+        const response = await podcastApi.list({ page, page_size: 100 })
+        const newPodcasts = response.data || []
 
-      // 如果加载了100个，可能还有更多；否则没有了
-      setHasMorePodcasts(loadedPodcasts.length === 100)
+        allPodcasts = [...allPodcasts, ...newPodcasts]
+        console.log(`[CreateWorkflowModal] Loaded page ${page}:`, newPodcasts.length, 'items, total:', allPodcasts.length)
 
-      // 初始显示：如果有超过100个，显示50个；否则全部显示
-      setDisplayedCount(Math.min(50, loadedPodcasts.length))
+        // 如果返回的数量少于 page_size，说明已经是最后一页
+        if (newPodcasts.length < 100) {
+          hasMore = false
+        } else {
+          page++
+        }
+      }
+
+      if (page > maxPages && hasMore) {
+        console.warn('[CreateWorkflowModal] Reached max pages limit, some podcasts may not be loaded')
+      }
+
+      console.log('[CreateWorkflowModal] Total podcasts loaded:', allPodcasts.length)
+      setPodcasts(allPodcasts)
+
+      // 初始显示50个
+      setDisplayedCount(Math.min(50, allPodcasts.length))
     } catch (err) {
       console.error('[CreateWorkflowModal] Failed to load podcasts:', err)
       alert('加载节目失败: ' + (err instanceof Error ? err.message : '未知错误'))
@@ -278,31 +296,6 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
       setIsLoadingPodcasts(false)
     }
   }
-
-  // 加载更多播客（无限滚动）
-  const loadMorePodcasts = useCallback(async () => {
-    if (isLoadingMore || !hasMorePodcasts) return
-
-    setIsLoadingMore(true)
-    try {
-      const nextPage = Math.ceil(podcasts.length / 100) + 1
-      console.log(`[CreateWorkflowModal] Loading page ${nextPage}...`)
-
-      const response = await podcastApi.list({ page: nextPage, page_size: 100 })
-
-      if (response.data.length === 0) {
-        setHasMorePodcasts(false)
-      } else {
-        setPodcasts(prev => [...prev, ...response.data])
-        // 不增加displayedCount，因为我们要显示已加载的所有播客
-        console.log(`[CreateWorkflowModal] Loaded page ${nextPage}:`, response.data.length, 'items')
-      }
-    } catch (err) {
-      console.error('[CreateWorkflowModal] Failed to load more podcasts:', err)
-    } finally {
-      setIsLoadingMore(false)
-    }
-  }, [isLoadingMore, hasMorePodcasts, podcasts.length])
 
   // 显示更多已加载的播客（滚动到底部时）
   const showMoreLoadedPodcasts = useCallback(() => {
@@ -317,15 +310,8 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && !isLoadingMore) {
-          // 优先显示已加载的播客
-          if (displayedCount < podcasts.length) {
-            showMoreLoadedPodcasts()
-          }
-          // 只有当已加载的全部显示完了，才从服务器加载更多
-          else if (hasMorePodcasts) {
-            loadMorePodcasts()
-          }
+        if (entries[0].isIntersecting && displayedCount < podcasts.length) {
+          showMoreLoadedPodcasts()
         }
       },
       { rootMargin: '200px' } // 提前200px触发
@@ -338,7 +324,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         observer.unobserve(target)
       }
     }
-  }, [isLoadingMore, hasMorePodcasts, displayedCount, podcasts.length, showMoreLoadedPodcasts, loadMorePodcasts])
+  }, [displayedCount, podcasts.length, showMoreLoadedPodcasts])
 
   // 加载标签列表
   const loadTags = async () => {
@@ -969,23 +955,11 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                                     ))}
 
                                     {/* 加载更多触发器 */}
-                                    {(filteredPodcasts.length > displayedCount || hasMorePodcasts) && (
+                                    {filteredPodcasts.length > displayedCount && (
                                       <div ref={loadMoreTriggerRef} className="py-2 text-center">
-                                        {isLoadingMore ? (
-                                          <div className="text-xs text-slate-500 dark:text-slate-400">加载中...</div>
-                                        ) : displayedCount < filteredPodcasts.length ? (
-                                          <div className="text-xs text-slate-400 dark:text-slate-500">
-                                            向下滚动显示更多 ({displayedCount} / {filteredPodcasts.length})
-                                          </div>
-                                        ) : hasMorePodcasts ? (
-                                          <div className="text-xs text-slate-400 dark:text-slate-500">
-                                            向下滚动加载更多播客...
-                                          </div>
-                                        ) : (
-                                          <div className="text-xs text-slate-400 dark:text-slate-500">
-                                            已显示全部 {filteredPodcasts.length} 个结果
-                                          </div>
-                                        )}
+                                        <div className="text-xs text-slate-400 dark:text-slate-500">
+                                          向下滚动显示更多 ({displayedCount} / {filteredPodcasts.length})
+                                        </div>
                                       </div>
                                     )}
                                   </>
