@@ -266,9 +266,11 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
       console.log(`[CreateWorkflowModal] Loaded first batch:`, loadedPodcasts.length, 'podcasts')
       setPodcasts(loadedPodcasts)
 
-      // 判断是否有更多数据
+      // 如果加载了100个，可能还有更多；否则没有了
       setHasMorePodcasts(loadedPodcasts.length === 100)
-      setDisplayedCount(Math.min(50, loadedPodcasts.length)) // 初始显示50个
+
+      // 初始显示：如果有超过100个，显示50个；否则全部显示
+      setDisplayedCount(Math.min(50, loadedPodcasts.length))
     } catch (err) {
       console.error('[CreateWorkflowModal] Failed to load podcasts:', err)
       alert('加载节目失败: ' + (err instanceof Error ? err.message : '未知错误'))
@@ -292,7 +294,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         setHasMorePodcasts(false)
       } else {
         setPodcasts(prev => [...prev, ...response.data])
-        setDisplayedCount(prev => prev + Math.min(50, response.data.length))
+        // 不增加displayedCount，因为我们要显示已加载的所有播客
         console.log(`[CreateWorkflowModal] Loaded page ${nextPage}:`, response.data.length, 'items')
       }
     } catch (err) {
@@ -302,15 +304,28 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     }
   }, [isLoadingMore, hasMorePodcasts, podcasts.length])
 
+  // 显示更多已加载的播客（滚动到底部时）
+  const showMoreLoadedPodcasts = useCallback(() => {
+    // 每次增加50个显示，但不超过已加载的总数
+    setDisplayedCount(prev => Math.min(prev + 50, podcasts.length))
+  }, [podcasts.length])
+
   // 无限滚动逻辑（Intersection Observer）
   useEffect(() => {
     const target = loadMoreTriggerRef.current
-    if (!target || !hasMorePodcasts) return
+    if (!target) return
 
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && !isLoadingMore) {
-          loadMorePodcasts()
+          // 优先显示已加载的播客
+          if (displayedCount < podcasts.length) {
+            showMoreLoadedPodcasts()
+          }
+          // 只有当已加载的全部显示完了，才从服务器加载更多
+          else if (hasMorePodcasts) {
+            loadMorePodcasts()
+          }
         }
       },
       { rootMargin: '200px' } // 提前200px触发
@@ -323,7 +338,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         observer.unobserve(target)
       }
     }
-  }, [isLoadingMore, hasMorePodcasts, loadMorePodcasts])
+  }, [isLoadingMore, hasMorePodcasts, displayedCount, podcasts.length, showMoreLoadedPodcasts, loadMorePodcasts])
 
   // 加载标签列表
   const loadTags = async () => {
@@ -954,23 +969,26 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                                     ))}
 
                                     {/* 加载更多触发器 */}
-                                    {filteredPodcasts.length > displayedCount && (
+                                    {(filteredPodcasts.length > displayedCount || hasMorePodcasts) && (
                                       <div ref={loadMoreTriggerRef} className="py-2 text-center">
                                         {isLoadingMore ? (
                                           <div className="text-xs text-slate-500 dark:text-slate-400">加载中...</div>
+                                        ) : displayedCount < filteredPodcasts.length ? (
+                                          <div className="text-xs text-slate-400 dark:text-slate-500">
+                                            向下滚动显示更多 ({displayedCount} / {filteredPodcasts.length})
+                                          </div>
+                                        ) : hasMorePodcasts ? (
+                                          <div className="text-xs text-slate-400 dark:text-slate-500">
+                                            向下滚动加载更多播客...
+                                          </div>
                                         ) : (
                                           <div className="text-xs text-slate-400 dark:text-slate-500">
-                                            已显示 {displayedCount} / {filteredPodcasts.length} 个结果
+                                            已显示全部 {filteredPodcasts.length} 个结果
                                           </div>
                                         )}
                                       </div>
                                     )}
                                   </>
-                                )}
-                                {filteredPodcasts.length > 50 && (
-                                  <div className="text-center text-xs text-slate-400 dark:text-slate-500 py-2">
-                                    仅显示前 50 个结果
-                                  </div>
                                 )}
                               </div>
                             </div>
