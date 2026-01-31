@@ -283,7 +283,6 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
   const loadPodcasts = async () => {
     try {
       setIsLoadingPodcasts(true)
-      console.log('[CreateWorkflowModal] Loading all podcasts...')
 
       let allPodcasts: Podcast[] = []
       let page = 1
@@ -292,12 +291,10 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
 
       // 分页加载所有节目
       while (hasMore && page <= maxPages) {
-        console.log(`[CreateWorkflowModal] Loading page ${page}...`)
         const response = await podcastApi.list({ page, page_size: 100 })
         const newPodcasts = response.data || []
 
         allPodcasts = [...allPodcasts, ...newPodcasts]
-        console.log(`[CreateWorkflowModal] Loaded page ${page}:`, newPodcasts.length, 'items, total:', allPodcasts.length)
 
         // 如果返回的数量少于 page_size，说明已经是最后一页
         if (newPodcasts.length < 100) {
@@ -311,7 +308,6 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         console.warn('[CreateWorkflowModal] Reached max pages limit, some podcasts may not be loaded')
       }
 
-      console.log('[CreateWorkflowModal] Total podcasts loaded:', allPodcasts.length)
       setPodcasts(allPodcasts)
 
       // 初始显示50个
@@ -350,16 +346,8 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
 
   // 无限滚动逻辑（Intersection Observer）
   useEffect(() => {
-    console.log('[IntersectionObserver] Setup effect triggered', {
-      podcastsLength: podcasts.length,
-      selectedTagIds,
-      podcastSearch,
-      isLoadingPodcasts
-    })
-
     // 如果还在加载中，等待加载完成后再设置 Observer
     if (isLoadingPodcasts) {
-      console.log('[IntersectionObserver] Still loading podcasts, will setup observer after load completes')
       return
     }
 
@@ -370,19 +358,14 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     const setupObserver = () => {
       const target = loadMoreTriggerRef.current
       if (!target) {
-        console.log('[IntersectionObserver] Target element not found, retrying in 50ms...')
         // 再次尝试
         setTimeout(setupObserver, 50)
         return
       }
 
-      console.log('[IntersectionObserver] Setting up observer')
-
       const observer = new IntersectionObserver(
         (entries) => {
           if (entries[0].isIntersecting) {
-            console.log('[IntersectionObserver] Triggered!')
-
             // 使用 ref 获取最新的 displayedCount，避免闭包陷阱
             const currentDisplayed = displayedCountRef.current
 
@@ -407,16 +390,10 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                      (p.author || '').toLowerCase().includes(searchLower)
             }).length
 
-            console.log('[IntersectionObserver] Current displayed:', currentDisplayed,
-                        'Filtered:', currentFilteredCount, 'Total podcasts:', currentPodcasts.length)
-
             // 只有当真的有更多内容时才更新
             if (currentDisplayed < currentFilteredCount) {
               const newValue = Math.min(currentDisplayed + 50, currentFilteredCount)
-              console.log('[IntersectionObserver] Updating displayedCount:', currentDisplayed, '->', newValue)
               setDisplayedCount(newValue)
-            } else {
-              console.log('[IntersectionObserver] Already showing all filtered items')
             }
           }
         },
@@ -434,41 +411,13 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
 
     return () => {
       if (observerRef.current) {
-        console.log('[IntersectionObserver] Cleaning up observer')
         observerRef.current.disconnect()
       }
     }
   }, [isLoadingPodcasts]) // ✅ 只依赖 isLoadingPodcasts，避免循环重建
 
-  // 调试日志：监控 filteredPodcasts 和 displayedCount 的状态
-  useEffect(() => {
-    const filteredCount = podcasts.filter(p => {
-      if (selectedTagIds.length > 0) {
-        const podcastTagIds = p.tags?.map(t => t.id) || []
-        if (!selectedTagIds.every(tagId => podcastTagIds.includes(tagId))) {
-          return false
-        }
-      }
-      if (!podcastSearch.trim()) return true
-      const searchLower = podcastSearch.toLowerCase().trim()
-      return (p.title || '').toLowerCase().includes(searchLower) ||
-             (p.author || '').toLowerCase().includes(searchLower)
-    }).length
-
-    console.log('[WorkflowFormModal] State check:', {
-      totalPodcasts: podcasts.length,
-      filteredCount,
-      displayedCount,
-      triggerShouldRender: filteredCount > displayedCount
-    })
-  }, [podcasts, selectedTagIds, podcastSearch, displayedCount])
-
   // 当搜索或筛选条件变化时，重置 displayedCount
   useEffect(() => {
-    console.log('[WorkflowFormModal] Search/filter reset effect triggered', {
-      selectedTagIds,
-      podcastSearch
-    })
     setDisplayedCount(50)
   }, [selectedTagIds, podcastSearch])
 
@@ -476,9 +425,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
   const loadTags = async () => {
     try {
       setIsLoadingTags(true)
-      console.log('[CreateWorkflowModal] Loading tags...')
       const allTags = await tagApi.list()
-      console.log('[CreateWorkflowModal] Tags loaded:', allTags.length)
       setTags(allTags)
     } catch (err) {
       console.error('[CreateWorkflowModal] Failed to load tags:', err)
@@ -1335,7 +1282,6 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                     id="llm-enable"
                     checked={llmEnabled}
                     onChange={(e) => {
-                      console.log('[LLM Checkbox] Changed to:', e.target.checked)
                       setLlmEnabled(e.target.checked)
                     }}
                     className="w-5 h-5 text-purple-600 border-slate-300 rounded focus:ring-purple-500 focus:ring-2"
