@@ -39,12 +39,20 @@ export const PodcastListItem = memo<PodcastListItemProps>(
         </div>
 
         <button
-          onClick={() => isSelected ? onRemove(podcast.id) : onAdd(podcast.id)}
-          disabled={isSelected}
-          className="w-7 h-7 flex items-center justify-center text-sm bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded hover:bg-slate-200 dark:hover:bg-slate-600 disabled:bg-slate-50 dark:disabled:bg-slate-800 disabled:text-slate-300 dark:disabled:text-slate-600 disabled:cursor-not-allowed border border-slate-200 dark:border-slate-600 flex-shrink-0"
-          title={isSelected ? '已添加' : '添加'}
+          onClick={(e) => {
+            e.stopPropagation()
+            isSelected ? onRemove(podcast.id) : onAdd(podcast.id)
+          }}
+          className={`
+            w-7 h-7 flex items-center justify-center text-sm rounded flex-shrink-0 border transition-all
+            ${isSelected
+              ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-200 dark:hover:bg-red-900/50'
+              : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-200 dark:hover:bg-blue-900/50'
+            }
+          `}
+          title={isSelected ? '移除' : '添加'}
         >
-          {isSelected ? '✓' : '>'}
+          {isSelected ? '✕' : '✓'}
         </button>
       </div>
     )
