@@ -206,7 +206,8 @@ func (h *WorkflowHandler) buildSortOrderClause(sortBy string) string {
 	switch sortBy {
 	case "execution":
 		// 按下一次执行时间升序（即将执行的在前），NULL值（无下次执行计划）排在最后
-		return "next_run_at IS NOT NULL, next_run_at ASC"
+		// 使用 datetime() 函数将所有时区的时间转换为 UTC 进行排序，避免时区不一致导致的排序错误
+		return "next_run_at IS NOT NULL, datetime(next_run_at) ASC"
 	case "updated":
 		// 按更新时间倒序（最近更新的在前）
 		return "updated_at DESC"
