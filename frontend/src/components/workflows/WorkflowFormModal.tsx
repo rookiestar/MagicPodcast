@@ -308,19 +308,33 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     const target = loadMoreTriggerRef.current
     if (!target) return
 
-    console.log('[IntersectionObserver] Setting up observer, filtered:', filteredPodcasts.length, 'displayed:', displayedCount)
+    console.log('[IntersectionObserver] Setting up observer')
 
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
-          console.log('[IntersectionObserver] Triggered! Current:', displayedCount, 'Total:', filteredPodcasts.length)
+          console.log('[IntersectionObserver] Triggered!')
+          // 动态计算当前筛选结果数量
+          const selectedIds = selectedTagIds.length > 0
+          const searchLower = podcastSearch.trim().toLowerCase()
+          const currentFilteredCount = podcasts.filter(p => {
+            if (selectedIds && !selectedIds.every(tagId => (p.tags?.map(t => t.id) || []).includes(tagId))) {
+              return false
+            }
+            if (!searchLower) return true
+            return (p.title || '').toLowerCase().includes(searchLower) ||
+                   (p.author || '').toLowerCase().includes(searchLower)
+          }).length
+
+          console.log('[IntersectionObserver] Current displayed:', displayedCount, 'Filtered:', currentFilteredCount, 'Total podcasts:', podcasts.length)
+
           setDisplayedCount(current => {
-            if (current < filteredPodcasts.length) {
-              const newValue = Math.min(current + 50, filteredPodcasts.length)
+            if (current < currentFilteredCount) {
+              const newValue = Math.min(current + 50, currentFilteredCount)
               console.log('[IntersectionObserver] Updating displayedCount:', current, '->', newValue)
               return newValue
             }
-            console.log('[IntersectionObserver] Already showing all items')
+            console.log('[IntersectionObserver] Already showing all filtered items')
             return current
           })
         }
@@ -336,7 +350,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         observer.unobserve(target)
       }
     }
-  }, [podcasts.length, filteredPodcasts.length]) // 添加 filteredPodcasts.length
+  }, [podcasts.length, selectedTagIds, podcastSearch, displayedCount]) // 只依赖原始状态
 
   // 加载标签列表
   const loadTags = async () => {
