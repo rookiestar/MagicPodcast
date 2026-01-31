@@ -275,20 +275,20 @@ export default function WorkflowsPage() {
                     </div>
 
                     {workflow.description && (
-                      <p className="text-slate-600 text-base mb-6">
+                      <p className="text-slate-600 mb-6">
                         {workflow.description}
                       </p>
                     )}
 
-                    <div className="flex flex-wrap gap-x-8 gap-y-4 text-base text-slate-600 mt-6">
+                    <div className="flex flex-wrap gap-x-8 gap-y-4 text-slate-600 mt-6">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">范围:</span>
-                        <span>{getScopeTypeLabel(workflow)}</span>
+                        <span className="text-slate-500">{getScopeTypeLabel(workflow)}</span>
                       </div>
 
                       <div className="flex items-center gap-2">
                         <span className="font-medium">时间范围:</span>
-                        <span>{formatTimeRange(workflow.rules_config?.time_range)}</span>
+                        <span className="text-slate-500">{formatTimeRange(workflow.rules_config?.time_range)}</span>
                       </div>
 
                       <div className="flex items-center gap-2">
@@ -302,22 +302,22 @@ export default function WorkflowsPage() {
                         <>
                           <div className="flex items-center gap-2">
                             <span className="font-medium">上次执行:</span>
-                            <span>{formatDateTime(workflow.stats.last_execution)}</span>
+                            <span className="text-slate-500">{formatDateTime(workflow.stats.last_execution)}</span>
                           </div>
 
                           <div className="flex items-center gap-2">
                             <span className="font-medium">匹配单集:</span>
-                            <span className="text-blue-600 font-medium">{workflow.stats.total_episodes}</span>
+                            <span className="text-blue-500">{workflow.stats.total_episodes.toFixed(1)}</span>
                           </div>
 
                           <div className="flex items-center gap-2">
                             <span className="font-medium">下次执行:</span>
-                            <span>{formatDateTime(workflow.stats.next_execution)}</span>
+                            <span className="text-slate-500">{formatDateTime(workflow.stats.next_execution)}</span>
                           </div>
 
                           <div className="flex items-center gap-2">
                             <span className="font-medium">执行次数:</span>
-                            <span>{workflow.stats.total_jobs}</span>
+                            <span className="text-slate-500">{workflow.stats.total_jobs}</span>
                           </div>
 
                           <div className="flex items-center gap-2">
