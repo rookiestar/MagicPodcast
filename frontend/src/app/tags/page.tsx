@@ -7,6 +7,7 @@ import { tagApi, podcastApi } from '@/lib/api'
 import PodcastCover from '@/components/podcasts/PodcastCover'
 import TagInput from '@/components/tags/TagInput'
 import type { Tag, Podcast } from '@/types'
+import { pinyin } from 'pinyin-pro'
 
 type SortMode = 'popularity' | 'alphabetical'
 
@@ -158,58 +159,34 @@ function TagsPageContent() {
   }
 
   // 获取中文拼音首字母
-  const getChineseInitial = (char: string): string => {
-    const zh = "阿八查哒  发噶哈i 喀拉拿那哦p七r仨他哇v呀z".split("")
-    const en = "ABCDEFGHJKLMNOPQRSTWXYZ".split("")
-
-    // 简化的汉字到拼音首字母映射
-    const pinyinMap: Record<string, string> = {
-      '两': 'L', '性': 'X', '休': 'X', '体': 'T', '育': 'Y', '儿': 'E', '童': 'T',
-      '与': 'Y', '家': 'J', '庭': 'T', '自': 'Z', '然': 'R', '科': 'K', '学': 'X',
-      '历': 'L', '史': 'S', '名': 'M', '胜': 'S', '旅': 'L', '行': 'X',
-      '地': 'D', '方': 'F', '文': 'W', '化': 'H', '哲': 'Z', '心': 'X',
-      '理': 'L', '健': 'J', '康': 'K', '身': 'S',
-      '商': 'S', '务': 'W', '业': 'Y', '新': 'X', '闻': 'W', '评': 'P', '论': 'L',
-      '实': 'S', '用': 'Y', '知': 'Z', '识': 'S', '创': 'C', '剧': 'J',
-      '情': 'Q', '动': 'D', '画': 'H', '漫': 'M', '医': 'Y',
-      '教': 'J', '佛': 'F', '图': 'T', '书': 'S',
-      '娱': 'Y', '乐': 'L', '政': 'Z', '府': 'F', '管': 'G',
-      '营': 'Y', '销': 'X', '财': 'C', '经': 'J', '济': 'J', '每': 'M',
-      '日': 'R', '汽': 'Q', '车': 'C', '游': 'Y', '戏': 'X',
-      '泳': 'Y', '灵': 'L', '修': 'X', '宗': 'Z', '爱': 'A', '好': 'H',
-      '宠': 'C', '物': 'W', '园': 'Y', '艺': 'Y', '林': 'L', '居': 'J',
-      '小': 'X', '说': 'S', '幽': 'Y', '默': 'M', '对': 'D', '谈': 'T',
-      '影': 'Y', '电': 'D', '专': 'Z', '访': 'F',
-      '视': 'S', '社': 'H',
-      '技': 'J', '篮': 'L', '球': 'Q', '跑': 'P', '步': 'B',
-      '职': 'Z', '脱': 'T', '口': 'K', '秀': 'X', '我': 'W', '完': 'W', '善': 'S',
-      '设': 'S', '计': 'J', '觉': 'J', '表': 'B', '演': 'Y', '语': 'Y',
-      '言': 'Y', '习': 'X', '课': 'K', '程': 'C', '足': 'Z',
-      '野': 'Y', '外': 'W', '非': 'F', '利': 'L', '组': 'Z', '织': 'Z',
-      '音': 'Y', '赏': 'S', '析': 'X', '饮': 'Y', '食': 'S', '航': 'H',
-      '空': 'K', '美': 'M', '术': 'S', '节': 'J', '目': 'M',
-      '传': 'C', '媒': 'M', '素': 'S', '养': 'Y',
-      '场': 'C', '筛': 'S', '选': 'X', '炼': 'L', '工': 'G', '作': 'Z', '流': 'L',
-      '罪': 'Z', '纪': 'J', '录': 'L', '犯': 'F', '子': 'Z', '生': 'S', '命': 'M',
-      '飞': 'F', '笑': 'X', '话': 'H', '联': 'L', '播': 'B', '客': 'K'
+  const getChineseInitial = (text: string): string => {
+    // 处理空字符串
+    if (!text || text.trim() === '') {
+      return '#'
     }
 
-    // 查询映射表
-    if (pinyinMap[char]) {
-      return pinyinMap[char]
+    const firstChar = text.charAt(0)
+
+    // 如果是英文字母，直接返回大写
+    if (/[a-zA-Z]/.test(firstChar)) {
+      return firstChar.toUpperCase()
     }
 
-    // 根据Unicode范围判断
-    const code = char.charCodeAt(0)
-    if (code >= 0x4E00 && code <= 0x9FA5) {
-      // 汉字范围，使用默认映射
-      return 'Z' // 未知汉字归到Z
+    // 如果是汉字，使用 pinyin-pro 获取拼音首字母
+    if (/\p{Script=Han}/u.test(firstChar)) {
+      try {
+        const result = pinyin(firstChar, {
+          pattern: 'first',  // 只要首字母
+          toneType: 'none'   // 不要声调
+        })
+        return result.charAt(0).toUpperCase()
+      } catch (error) {
+        console.warn('[getChineseInitial] pinyin conversion error:', error)
+        return 'Z'
+      }
     }
 
-    if (/[a-zA-Z]/.test(char)) {
-      return char.toUpperCase()
-    }
-
+    // 其他字符（数字、符号等）归到 #
     return '#'
   }
 
