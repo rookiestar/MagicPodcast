@@ -310,8 +310,14 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && displayedCount < podcasts.length) {
-          showMoreLoadedPodcasts()
+        if (entries[0].isIntersecting) {
+          // 使用最新的 state 值
+          setDisplayedCount(current => {
+            if (current < podcasts.length) {
+              return Math.min(current + 50, podcasts.length)
+            }
+            return current
+          })
         }
       },
       { rootMargin: '200px' } // 提前200px触发
@@ -324,7 +330,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         observer.unobserve(target)
       }
     }
-  }, [displayedCount, podcasts.length, showMoreLoadedPodcasts])
+  }, [podcasts.length]) // 只在 podcasts.length 变化时重新创建 observer
 
   // 加载标签列表
   const loadTags = async () => {
