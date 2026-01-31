@@ -126,12 +126,39 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
   const [displayedCount, setDisplayedCount] = useState(50) // 初始显示50个
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null) // 无限滚动触发器
 
+  // 使用 ref 跟踪 displayedCount，避免在 Intersection Observer 依赖项中包含它
+  const displayedCountRef = useRef(displayedCount)
+
+  // 保持 ref 同步
+  useEffect(() => {
+    displayedCountRef.current = displayedCount
+  }, [displayedCount])
+
+  // 同步 podcasts ref（供 Intersection Observer 使用）
+  const podcastsRef = useRef(podcasts)
+  useEffect(() => {
+    podcastsRef.current = podcasts
+  }, [podcasts])
+
+  // 同步 podcastSearch ref（供 Intersection Observer 使用）
+  const podcastSearchRef = useRef(podcastSearch)
+  useEffect(() => {
+    podcastSearchRef.current = podcastSearch
+  }, [podcastSearch])
+
   // 标签筛选相关状态
   const [tags, setTags] = useState<Tag[]>([])
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
   const [tagSearch, setTagSearch] = useState('')
   const [isTagFilterExpanded, setIsTagFilterExpanded] = useState(false)
   const [isLoadingTags, setIsLoadingTags] = useState(false)
+
+  // 同步 selectedTagIds ref（供 Intersection Observer 使用）
+  // 注意：必须定义在 selectedTagIds state 之后
+  const selectedTagIdsRef = useRef(selectedTagIds)
+  useEffect(() => {
+    selectedTagIdsRef.current = selectedTagIds
+  }, [selectedTagIds])
 
   // Step 3: 规则配置
   const [timeRange, setTimeRange] = useState(0)
@@ -303,54 +330,147 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
     setDisplayedCount(prev => Math.min(prev + 50, podcasts.length))
   }, [podcasts.length])
 
+  // 计算是否有更多内容需要显示
+  const hasMoreContent = useMemo(() => {
+    const filteredCount = podcasts.filter(p => {
+      if (selectedTagIds.length > 0) {
+        const podcastTagIds = p.tags?.map(t => t.id) || []
+        if (!selectedTagIds.every(tagId => podcastTagIds.includes(tagId))) {
+          return false
+        }
+      }
+      if (!podcastSearch.trim()) return true
+      const searchLower = podcastSearch.toLowerCase().trim()
+      return (p.title || '').toLowerCase().includes(searchLower) ||
+             (p.author || '').toLowerCase().includes(searchLower)
+    }).length
+
+    return filteredCount > displayedCount
+  }, [podcasts, selectedTagIds, podcastSearch, displayedCount])
+
   // 无限滚动逻辑（Intersection Observer）
   useEffect(() => {
-    const target = loadMoreTriggerRef.current
-    if (!target) return
+    console.log('[IntersectionObserver] Setup effect triggered', {
+      podcastsLength: podcasts.length,
+      selectedTagIds,
+      podcastSearch,
+      isLoadingPodcasts
+    })
 
-    console.log('[IntersectionObserver] Setting up observer')
+    // 如果还在加载中，等待加载完成后再设置 Observer
+    if (isLoadingPodcasts) {
+      console.log('[IntersectionObserver] Still loading podcasts, will setup observer after load completes')
+      return
+    }
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          console.log('[IntersectionObserver] Triggered!')
-          // 动态计算当前筛选结果数量
-          const selectedIds = selectedTagIds.length > 0
-          const searchLower = podcastSearch.trim().toLowerCase()
-          const currentFilteredCount = podcasts.filter(p => {
-            if (selectedIds && !selectedIds.every(tagId => (p.tags?.map(t => t.id) || []).includes(tagId))) {
-              return false
+    // 使用 ref 存储 observer
+    const observerRef = { current: null as IntersectionObserver | null }
+
+    // 设置 Observer 的函数
+    const setupObserver = () => {
+      const target = loadMoreTriggerRef.current
+      if (!target) {
+        console.log('[IntersectionObserver] Target element not found, retrying in 50ms...')
+        // 再次尝试
+        setTimeout(setupObserver, 50)
+        return
+      }
+
+      console.log('[IntersectionObserver] Setting up observer')
+
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (entries[0].isIntersecting) {
+            console.log('[IntersectionObserver] Triggered!')
+
+            // 使用 ref 获取最新的 displayedCount，避免闭包陷阱
+            const currentDisplayed = displayedCountRef.current
+
+            // 使用 ref 获取最新的筛选条件，避免闭包陷阱
+            const currentPodcasts = podcastsRef.current
+            const currentSelectedTagIds = selectedTagIdsRef.current
+            const currentPodcastSearch = podcastSearchRef.current
+
+            // 动态计算当前筛选结果数量
+            const currentFilteredCount = currentPodcasts.filter(p => {
+              // 标签筛选
+              if (currentSelectedTagIds.length > 0) {
+                const podcastTagIds = p.tags?.map(t => t.id) || []
+                if (!currentSelectedTagIds.every(tagId => podcastTagIds.includes(tagId))) {
+                  return false
+                }
+              }
+              // 搜索筛选
+              if (!currentPodcastSearch.trim()) return true
+              const searchLower = currentPodcastSearch.toLowerCase().trim()
+              return (p.title || '').toLowerCase().includes(searchLower) ||
+                     (p.author || '').toLowerCase().includes(searchLower)
+            }).length
+
+            console.log('[IntersectionObserver] Current displayed:', currentDisplayed,
+                        'Filtered:', currentFilteredCount, 'Total podcasts:', currentPodcasts.length)
+
+            // 只有当真的有更多内容时才更新
+            if (currentDisplayed < currentFilteredCount) {
+              const newValue = Math.min(currentDisplayed + 50, currentFilteredCount)
+              console.log('[IntersectionObserver] Updating displayedCount:', currentDisplayed, '->', newValue)
+              setDisplayedCount(newValue)
+            } else {
+              console.log('[IntersectionObserver] Already showing all filtered items')
             }
-            if (!searchLower) return true
-            return (p.title || '').toLowerCase().includes(searchLower) ||
-                   (p.author || '').toLowerCase().includes(searchLower)
-          }).length
+          }
+        },
+        { rootMargin: '200px' }
+      )
 
-          console.log('[IntersectionObserver] Current displayed:', displayedCount, 'Filtered:', currentFilteredCount, 'Total podcasts:', podcasts.length)
+      observer.observe(target)
+      observerRef.current = observer
+    }
 
-          setDisplayedCount(current => {
-            if (current < currentFilteredCount) {
-              const newValue = Math.min(current + 50, currentFilteredCount)
-              console.log('[IntersectionObserver] Updating displayedCount:', current, '->', newValue)
-              return newValue
-            }
-            console.log('[IntersectionObserver] Already showing all filtered items')
-            return current
-          })
-        }
-      },
-      { rootMargin: '200px' } // 提前200px触发
-    )
-
-    observer.observe(target)
+    // 使用 requestAnimationFrame 确保 DOM 渲染完成
+    requestAnimationFrame(() => {
+      setTimeout(setupObserver, 0)
+    })
 
     return () => {
-      if (target) {
+      if (observerRef.current) {
         console.log('[IntersectionObserver] Cleaning up observer')
-        observer.unobserve(target)
+        observerRef.current.disconnect()
       }
     }
-  }, [podcasts.length, selectedTagIds, podcastSearch, displayedCount]) // 只依赖原始状态
+  }, [isLoadingPodcasts]) // ✅ 只依赖 isLoadingPodcasts，避免循环重建
+
+  // 调试日志：监控 filteredPodcasts 和 displayedCount 的状态
+  useEffect(() => {
+    const filteredCount = podcasts.filter(p => {
+      if (selectedTagIds.length > 0) {
+        const podcastTagIds = p.tags?.map(t => t.id) || []
+        if (!selectedTagIds.every(tagId => podcastTagIds.includes(tagId))) {
+          return false
+        }
+      }
+      if (!podcastSearch.trim()) return true
+      const searchLower = podcastSearch.toLowerCase().trim()
+      return (p.title || '').toLowerCase().includes(searchLower) ||
+             (p.author || '').toLowerCase().includes(searchLower)
+    }).length
+
+    console.log('[WorkflowFormModal] State check:', {
+      totalPodcasts: podcasts.length,
+      filteredCount,
+      displayedCount,
+      triggerShouldRender: filteredCount > displayedCount
+    })
+  }, [podcasts, selectedTagIds, podcastSearch, displayedCount])
+
+  // 当搜索或筛选条件变化时，重置 displayedCount
+  useEffect(() => {
+    console.log('[WorkflowFormModal] Search/filter reset effect triggered', {
+      selectedTagIds,
+      podcastSearch
+    })
+    setDisplayedCount(50)
+  }, [selectedTagIds, podcastSearch])
 
   // 加载标签列表
   const loadTags = async () => {
@@ -980,14 +1100,16 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                                       />
                                     ))}
 
-                                    {/* 加载更多触发器 */}
-                                    {filteredPodcasts.length > displayedCount && (
-                                      <div ref={loadMoreTriggerRef} className="py-2 text-center">
-                                        <div className="text-xs text-slate-400 dark:text-slate-500">
-                                          向下滚动显示更多 ({displayedCount} / {filteredPodcasts.length})
-                                        </div>
+                                    {/* 加载更多触发器 - 始终渲染，用 CSS 控制显示 */}
+                                    <div
+                                      ref={loadMoreTriggerRef}
+                                      className="py-2 text-center"
+                                      style={{ display: hasMoreContent ? 'block' : 'none' }}
+                                    >
+                                      <div className="text-xs text-slate-400 dark:text-slate-500">
+                                        向下滚动显示更多 ({displayedCount} / {filteredPodcasts.length})
                                       </div>
-                                    )}
+                                    </div>
                                   </>
                                 )}
                               </div>
