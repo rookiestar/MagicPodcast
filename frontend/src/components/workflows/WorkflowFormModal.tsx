@@ -108,8 +108,9 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
   // Step 1: 基本信息
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [schedule, setSchedule] = useState('0 0 2 * * *')
+  const [schedule, setSchedule] = useState('0 0 2 * *')
   const [customCron, setCustomCron] = useState('')
+  const [lastCustomCron, setLastCustomCron] = useState('') // 保存上一次的自定义Cron
   const [cronError, setCronError] = useState('')
 
   // Step 2: 范围配置
@@ -761,20 +762,25 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                   定时规则 <span className="text-red-500">*</span>
                 </label>
                 <div className="space-y-3">
-                  <div className="grid grid-cols-1 gap-2">
+                  {/* 预设按钮区域 */}
+                  <div className="grid grid-cols-1 gap-2 transition-all duration-200">
                     {CRON_PRESETS.map((preset) => (
                       <button
                         key={preset.value}
                         type="button"
                         onClick={() => {
                           setSchedule(preset.value)
-                          setCustomCron('')
+                          // 保存上一次的自定义Cron（如果有值的话）
+                          if (customCron.trim()) {
+                            setLastCustomCron(customCron)
+                          }
+                          setCustomCron('') // 清空自定义输入，切换到预设模式
                           setCronError('') // 清除错误
                         }}
                         className={`
                           px-4 py-3 rounded-lg text-left transition-all border-2
                           flex items-center gap-3
-                          ${schedule === preset.value && !customCron
+                          ${schedule === preset.value && !customCron.trim()
                             ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
                             : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700'
                           }
@@ -797,29 +803,89 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                       </button>
                     ))}
                   </div>
-                  <div>
-                    <input
-                      type="text"
-                      value={customCron}
-                      onChange={(e) => {
-                        setCustomCron(e.target.value)
-                        if (e.target.value) {
-                          setSchedule('')
-                        }
-                        // 输入时清除错误
-                        if (cronError) setCronError('')
-                      }}
-                      placeholder="自定义Cron表达式，如: 0 */6 * * * (每6小时)"
-                      className={`w-full px-4 py-2 border rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                        cronError ? 'border-red-500' : 'border-slate-300 dark:border-slate-600'
-                      }`}
-                    />
+
+                  {/* 分隔线 */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700"></div>
+                    <span className="text-xs text-slate-400 dark:text-slate-500">或</span>
+                    <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700"></div>
+                  </div>
+
+                  {/* 自定义输入区域 */}
+                  <div className="relative">
+                    {/* 模式指示器 */}
+                    {(customCron.trim() || (schedule && !customCron.trim())) && (
+                      <div className={`
+                        absolute -top-2.5 left-3 z-10 px-2 py-0.5 text-xs font-medium rounded-full border transition-all
+                        ${customCron.trim()
+                          ? 'bg-purple-100 dark:bg-purple-900/30 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300'
+                          : 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'}
+                      `}>
+                        {customCron.trim() ? '✏️ 自定义' : '📋 预设'}
+                      </div>
+                    )}
+
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={customCron}
+                        onChange={(e) => {
+                          setCustomCron(e.target.value)
+                          if (e.target.value) {
+                            setSchedule('')
+                          }
+                          // 输入时清除错误
+                          if (cronError) setCronError('')
+                        }}
+                        onFocus={() => {
+                          // 如果输入框为空，但有历史记录，则恢复历史输入
+                          if (!customCron && lastCustomCron) {
+                            setCustomCron(lastCustomCron)
+                            setSchedule('') // 清空预设选择
+                          }
+                          // 如果customCron为空（没有历史记录），则清空预设
+                          if (!customCron && !lastCustomCron && schedule) {
+                            setSchedule('')
+                          }
+                        }}
+                        placeholder={customCron ? '' : "自定义Cron表达式，如: 0 */6 * * * (每6小时)"}
+                        className={`
+                          w-full px-4 py-3 border-2 rounded-lg transition-all
+                          ${customCron.trim()
+                            ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 ring-2 ring-purple-200 dark:ring-purple-800 text-slate-900 dark:text-slate-100'
+                            : cronError
+                              ? 'border-red-500 bg-white dark:bg-slate-700'
+                              : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 hover:border-slate-400 dark:hover:border-slate-500 text-slate-900 dark:text-slate-100'
+                          }
+                        `}
+                      />
+
+                      {/* 清除按钮 */}
+                      {customCron.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomCron('')
+                            setCronError('')
+                          }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+                          title="清除自定义表达式"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
                     {cronError && (
                       <p className="mt-1 text-xs text-red-600 dark:text-red-400">
                         {cronError}
                       </p>
                   )}
                   </div>
+                  {!customCron && lastCustomCron && (
+                    <p className="mt-1 text-xs text-purple-600 dark:text-purple-400">
+                      💡 点击输入框可恢复上次输入: <code className="bg-purple-50 dark:bg-purple-900/30 px-1 py-0.5 rounded text-purple-700 dark:text-purple-300">{lastCustomCron}</code>
+                    </p>
+                  )}
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     支持5位格式（分 时 日 月 周）或6位格式（秒 分 时 日 月 周），系统会自动转换
                   </p>
