@@ -220,11 +220,13 @@ export default function WorkflowsPage() {
         {/* Workflows List */}
         {!loading && !error && workflows.length > 0 && (
           <div className="space-y-4">
-            {workflows.map((workflow) => (
+            {workflows.map((workflow, index) => (
               <Link
                 key={workflow.id}
                 href={`/workflows/${workflow.id}`}
-                className="block bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow p-8"
+                className={`block rounded-lg shadow-sm hover:shadow-md transition-shadow p-8 ${
+                  index % 2 === 0 ? 'bg-white' : 'bg-neutral-50'
+                }`}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
