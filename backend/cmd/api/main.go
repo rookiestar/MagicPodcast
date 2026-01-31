@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/logger"
@@ -17,6 +18,21 @@ import (
 )
 
 func main() {
+	// 加载 .env 文件（如果存在）
+	// 优先从当前目录查找，然后从上级目录查找
+	envPaths := []string{".env", "../.env", "../../.env"}
+	envLoaded := false
+	for _, envPath := range envPaths {
+		if err := godotenv.Load(envPath); err == nil {
+			logger.Infof("✅ Loaded .env from: %s", envPath)
+			envLoaded = true
+			break
+		}
+	}
+	if !envLoaded {
+		logger.Info("ℹ️  No .env file found, using config file values only")
+	}
+
 	// 获取配置文件路径
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
