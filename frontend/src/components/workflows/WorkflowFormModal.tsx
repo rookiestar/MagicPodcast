@@ -1082,14 +1082,25 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                             )}
                           </div>
 
+                          {/* 使用提示 */}
+                          {filteredPodcasts.length > 0 && !isLoadingPodcasts && (
+                            <div className="text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/30 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
+                              💡 <strong>提示：</strong>点击列表项选择节目，或点击中间的"全部添加"按钮批量加入
+                            </div>
+                          )}
+
                           {/* 三栏布局 - 固定高度 */}
-                          <div className="grid grid-cols-12 gap-3">
+                          <div className="grid grid-cols-12 gap-3 transition-all duration-200">
                             {/* 左侧：搜索结果列表 */}
                             <div className="col-span-5">
-                              <div className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                                搜索结果 ({filteredPodcasts.length})
+                              <div className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
+                                <span>📻</span>
+                                <span>搜索结果</span>
+                                <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 rounded-full text-xs">
+                                  {filteredPodcasts.length}
+                                </span>
                               </div>
-                              <div className="h-80 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg p-2 bg-white dark:bg-slate-800">
+                              <div className="h-80 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg p-2 bg-white dark:bg-slate-800 transition-all duration-200 hover:border-slate-300 dark:hover:border-slate-600">
                                 {isLoadingPodcasts ? (
                                   <div className="text-center text-slate-500 dark:text-slate-400 py-4 text-xs">
                                     加载中...
@@ -1149,32 +1160,44 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                               {filteredPodcasts.length > 0 && !isLoadingPodcasts && (
                                 <button
                                   onClick={handleAddAllFiltered}
-                                  className="w-9 h-9 flex items-center justify-center text-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded hover:bg-slate-200 dark:hover:bg-slate-600 mx-auto border border-slate-200 dark:border-slate-600"
+                                  className="group w-11 h-11 flex flex-col items-center justify-center text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 mx-auto border-2 border-blue-200 dark:border-blue-800 transition-all duration-200 hover:scale-105"
                                   title="添加所有搜索结果"
                                 >
-                                  ≫
+                                  <span className="text-base font-bold group-hover:translate-x-0.5 transition-transform">≫</span>
+                                  <span className="text-[10px] leading-tight mt-0.5">全部添加</span>
                                 </button>
                               )}
                               {candidatePodcastIds.length > 0 && (
                                 <button
                                   onClick={() => setCandidatePodcastIds([])}
-                                  className="w-9 h-9 flex items-center justify-center text-sm bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded hover:bg-slate-200 dark:hover:bg-slate-600 mx-auto border border-slate-200 dark:border-slate-600"
+                                  className="group w-11 h-11 flex flex-col items-center justify-center text-xs bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 mx-auto border-2 border-red-200 dark:border-red-800 transition-all duration-200 hover:scale-105"
                                   title="清空备选列表"
                                 >
-                                  ✕
+                                  <span className="text-sm font-bold group-hover:rotate-90 transition-transform">✕</span>
+                                  <span className="text-[10px] leading-tight mt-0.5">清空</span>
                                 </button>
                               )}
                             </div>
 
                             {/* 右侧：备选列表 */}
                             <div className="col-span-5">
-                              <div className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                                已选 ({candidatePodcastIds.length})
+                              <div className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
+                                <span>✅</span>
+                                <span>已选</span>
+                                <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs">
+                                  {candidatePodcastIds.length}
+                                </span>
                               </div>
-                              <div className="h-80 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg p-2 bg-slate-50 dark:bg-slate-800/50">
+                              <div className="h-80 overflow-y-auto border-2 border-green-200 dark:border-green-800 rounded-lg p-2 bg-green-50/50 dark:bg-green-900/10 transition-all duration-200 hover:border-green-300 dark:hover:border-green-700">
                                 {candidatePodcastIds.length === 0 ? (
-                                  <div className="text-center text-slate-400 dark:text-slate-500 py-4 text-xs">
-                                    空列表
+                                  <div className="flex flex-col items-center justify-center h-full py-8 text-center">
+                                    <div className="text-3xl mb-2 opacity-50">👈</div>
+                                    <div className="text-sm text-slate-500 dark:text-slate-400">
+                                      从左侧选择节目
+                                    </div>
+                                    <div className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                                      点击"全部添加"快速加入
+                                    </div>
                                   </div>
                                 ) : (
                                   candidatePodcastIds.map((id) => {
