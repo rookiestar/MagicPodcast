@@ -28,7 +28,7 @@ function HomeContent() {
 
           {/* Subtitle */}
           <p className="text-xl text-slate-600 mb-16 max-w-2xl mx-auto">
-            个人播库管理与自动化处理工具
+            个人播客管理与自动化处理工具
           </p>
         </div>
 

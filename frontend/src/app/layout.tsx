@@ -3,8 +3,8 @@ import './globals.css'
 import { ToastProvider, setGlobalToastContext } from '@/lib/toast'
 
 export const metadata: Metadata = {
-  title: 'MagicPodcast - 个人播库管理',
-  description: '个人播库管理与自动化处理工具',
+  title: 'MagicPodcast - 个人播客管理',
+  description: '个人播客管理与自动化处理工具',
 }
 
 export default function RootLayout({
