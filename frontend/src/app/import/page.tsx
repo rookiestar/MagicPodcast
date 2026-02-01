@@ -516,32 +516,8 @@ function ImportPageContent() {
   };
 
   return (
-    // TEMP: Test without PageLayout
     <main className="min-h-screen bg-slate-50 dark:bg-slate-900">
       <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="mb-4">
-            <Link
-              href="/"
-              className="w-36 h-11 px-4 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-medium rounded-xl border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 hover:border-slate-400 dark:hover:border-slate-500 transition-colors flex items-center justify-center gap-2"
-            >
-              <span>←</span>
-              <span>返回首页</span>
-            </Link>
-          </div>
-
-          {/* 标题和描述 */}
-          <div className="mb-4">
-            <h1 className="text-4xl md:text-5xl font-semibold text-slate-800 dark:text-slate-50 mb-2">
-              导入/同步
-            </h1>
-            <p className="text-base text-slate-600 dark:text-slate-400 max-w-2xl">
-              从 OPML 文件导入播客或同步播客元数据
-            </p>
-          </div>
-        </div>
-
         {/* Main Card */}
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg">
           {/* Tabs */}
