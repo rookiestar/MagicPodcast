@@ -139,7 +139,7 @@ func ClassifyError(feedURL string, err error) *FeedError {
 
 	// 检查是否为403/401访问拒绝
 	if strings.Contains(errMsg, "403") || strings.Contains(errMsg, "Forbidden") ||
-	   strings.Contains(errMsg, "401") || strings.Contains(errMsg, "Unauthorized") {
+		strings.Contains(errMsg, "401") || strings.Contains(errMsg, "Unauthorized") {
 		return &FeedError{
 			Type:     ErrorTypeAccessDenied,
 			FeedURL:  feedURL,
@@ -180,10 +180,10 @@ func ClassifyError(feedURL string, err error) *FeedError {
 
 	// 检查是否为网络连接错误
 	if strings.Contains(errMsg, "connection refused") ||
-	   strings.Contains(errMsg, "no such host") ||
-	   strings.Contains(errMsg, "network is unreachable") ||
-	   strings.Contains(errMsg, "connection reset") ||
-	   strings.Contains(errMsg, "broken pipe") {
+		strings.Contains(errMsg, "no such host") ||
+		strings.Contains(errMsg, "network is unreachable") ||
+		strings.Contains(errMsg, "connection reset") ||
+		strings.Contains(errMsg, "broken pipe") {
 		return &FeedError{
 			Type:     ErrorTypeNetworkError,
 			FeedURL:  feedURL,

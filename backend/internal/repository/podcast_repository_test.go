@@ -156,31 +156,31 @@ func TestPodcastRepository_Search(t *testing.T) {
 
 func TestBuildPagination(t *testing.T) {
 	tests := []struct {
-		name       string
-		total      int64
-		page       int
-		pageSize   int
-		wantPages  int
+		name      string
+		total     int64
+		page      int
+		pageSize  int
+		wantPages int
 	}{
 		{
-			name:     "正常分页",
-			total:    100,
-			page:     1,
-			pageSize: 10,
+			name:      "正常分页",
+			total:     100,
+			page:      1,
+			pageSize:  10,
 			wantPages: 10,
 		},
 		{
-			name:     "有余数",
-			total:    105,
-			page:     1,
-			pageSize: 10,
+			name:      "有余数",
+			total:     105,
+			page:      1,
+			pageSize:  10,
 			wantPages: 11,
 		},
 		{
-			name:     "空结果",
-			total:    0,
-			page:     1,
-			pageSize: 10,
+			name:      "空结果",
+			total:     0,
+			page:      1,
+			pageSize:  10,
 			wantPages: 0,
 		},
 	}

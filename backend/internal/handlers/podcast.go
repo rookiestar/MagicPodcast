@@ -22,34 +22,34 @@ func NewPodcastHandler() *PodcastHandler {
 
 // PodcastResponse Podcast 响应结构
 type PodcastResponse struct {
-	ID                uint           `json:"id"`
-	XYZID             string         `json:"xyz_id"`
-	Title             string         `json:"title"`
-	Description       string         `json:"description"`
-	Author            string         `json:"author"`
-	CoverURL          string         `json:"cover_url"`
-	FeedURL           string         `json:"feed_url,omitempty"`
-	EpisodeCount      int            `json:"episode_count"`
-	NewestEpisodeDate time.Time      `json:"newest_episode_date"`
-	CreatedAt         time.Time      `json:"created_at"`
-	AddedDate         time.Time      `json:"added_date,omitempty"`
-	IsSubscribed      bool           `json:"is_subscribed"`
-	IsDead            bool           `json:"is_dead"`
-	MyRate            int            `json:"my_rate,omitempty"`
-	Notes             string         `json:"notes,omitempty"`
-	DataSource        string         `json:"data_source,omitempty"`
+	ID                uint      `json:"id"`
+	XYZID             string    `json:"xyz_id"`
+	Title             string    `json:"title"`
+	Description       string    `json:"description"`
+	Author            string    `json:"author"`
+	CoverURL          string    `json:"cover_url"`
+	FeedURL           string    `json:"feed_url,omitempty"`
+	EpisodeCount      int       `json:"episode_count"`
+	NewestEpisodeDate time.Time `json:"newest_episode_date"`
+	CreatedAt         time.Time `json:"created_at"`
+	AddedDate         time.Time `json:"added_date,omitempty"`
+	IsSubscribed      bool      `json:"is_subscribed"`
+	IsDead            bool      `json:"is_dead"`
+	MyRate            int       `json:"my_rate,omitempty"`
+	Notes             string    `json:"notes,omitempty"`
+	DataSource        string    `json:"data_source,omitempty"`
 
 	// 🆕 PodcastIndex 新增字段（可选，使用 omitempty 保持向后兼容）
-	Link                    string     `json:"link,omitempty"`                              // 播客网站链接
-	NewestEnclosureURL      string     `json:"newest_enclosure_url,omitempty"`              // 最新单集音频URL
-	NewestEnclosureDuration int        `json:"newest_enclosure_duration,omitempty"`         // 最新单集时长（秒）
-	LastUpdate              *time.Time `json:"last_update,omitempty"`                       // Feed最后更新时间
-	OldestEpisodeDate       *time.Time `json:"oldest_episode_date,omitempty"`               // 最旧单集发布日期
-	PopularityScore         int        `json:"popularity_score,omitempty"`                  // 受欢迎程度 (0-10)
-	Priority                int        `json:"priority,omitempty"`                           // 抓取优先级 (0-10, -1=暂停)
-	UpdateFrequency         int        `json:"update_frequency,omitempty"`                  // 更新频率 (0-10)
+	Link                    string     `json:"link,omitempty"`                      // 播客网站链接
+	NewestEnclosureURL      string     `json:"newest_enclosure_url,omitempty"`      // 最新单集音频URL
+	NewestEnclosureDuration int        `json:"newest_enclosure_duration,omitempty"` // 最新单集时长（秒）
+	LastUpdate              *time.Time `json:"last_update,omitempty"`               // Feed最后更新时间
+	OldestEpisodeDate       *time.Time `json:"oldest_episode_date,omitempty"`       // 最旧单集发布日期
+	PopularityScore         int        `json:"popularity_score,omitempty"`          // 受欢迎程度 (0-10)
+	Priority                int        `json:"priority,omitempty"`                  // 抓取优先级 (0-10, -1=暂停)
+	UpdateFrequency         int        `json:"update_frequency,omitempty"`          // 更新频率 (0-10)
 
-	Tags              []TagResponse  `json:"tags,omitempty"`
+	Tags []TagResponse `json:"tags,omitempty"`
 }
 
 // List 获取播客节目列表

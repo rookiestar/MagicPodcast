@@ -38,19 +38,19 @@ type PodcastListRequest struct {
 
 // PodcastResponse 播客响应
 type PodcastResponse struct {
-	ID             uint   `json:"id"`
-	XYZID          string `json:"xyz_id"`
-	Title          string `json:"title"`
-	Author         string `json:"author"`
-	Description    string `json:"description"`
-	CoverURL       string `json:"cover_url"`
-	FeedURL        string `json:"feed_url"`
-	IsSubscribed   bool   `json:"is_subscribed"`
-	EpisodeCount   int    `json:"episode_count"`
-	Notes          string `json:"notes"`
-	MyRate         int    `json:"my_rate"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
+	ID           uint   `json:"id"`
+	XYZID        string `json:"xyz_id"`
+	Title        string `json:"title"`
+	Author       string `json:"author"`
+	Description  string `json:"description"`
+	CoverURL     string `json:"cover_url"`
+	FeedURL      string `json:"feed_url"`
+	IsSubscribed bool   `json:"is_subscribed"`
+	EpisodeCount int    `json:"episode_count"`
+	Notes        string `json:"notes"`
+	MyRate       int    `json:"my_rate"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 // PodcastListResponse 播客列表响应

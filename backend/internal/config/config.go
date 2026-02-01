@@ -60,11 +60,11 @@ type XYZAPIConfig struct {
 
 // SyncConfig 同步配置
 type SyncConfig struct {
-	Enabled          bool   `mapstructure:"enabled"`
-	Schedule         string `mapstructure:"schedule"`          // Cron 表达式
-	Concurrency      int    `mapstructure:"concurrency"`       // 并发数
-	RequestInterval  int    `mapstructure:"request_interval"`  // 毫秒
-	MaxPodcasts      int    `mapstructure:"max_podcasts"`      // 0 表示不限制
+	Enabled         bool   `mapstructure:"enabled"`
+	Schedule        string `mapstructure:"schedule"`         // Cron 表达式
+	Concurrency     int    `mapstructure:"concurrency"`      // 并发数
+	RequestInterval int    `mapstructure:"request_interval"` // 毫秒
+	MaxPodcasts     int    `mapstructure:"max_podcasts"`     // 0 表示不限制
 }
 
 // PodcastIndexConfig PodcastIndex数据库配置
@@ -74,9 +74,9 @@ type PodcastIndexConfig struct {
 
 // LoggingConfig 日志配置
 type LoggingConfig struct {
-	Level      string `mapstructure:"level"`       // debug, info, warn, error
-	Format     string `mapstructure:"format"`      // json, text
-	Output     string `mapstructure:"output"`      // 空表示标准输出
+	Level      string `mapstructure:"level"`  // debug, info, warn, error
+	Format     string `mapstructure:"format"` // json, text
+	Output     string `mapstructure:"output"` // 空表示标准输出
 	Rotate     bool   `mapstructure:"rotate"`
 	MaxSize    int    `mapstructure:"max_size"`    // MB
 	MaxAge     int    `mapstructure:"max_age"`     // 天
@@ -99,7 +99,7 @@ type EmailConfig struct {
 	Password string `mapstructure:"password"`  // 邮箱授权码/密码
 	From     string `mapstructure:"from"`      // 发件人显示名称
 	To       string `mapstructure:"to"`        // 收件邮箱地址
-	UseTLS   bool   `mapstructure:"use_tls"`  // 是否使用TLS
+	UseTLS   bool   `mapstructure:"use_tls"`   // 是否使用TLS
 }
 
 // LLMProvider LLM提供商类型
@@ -125,7 +125,7 @@ type LLMConfig struct {
 	MaxConcurrent       int         `mapstructure:"max_concurrent"`
 	RateLimitPerMinute  int         `mapstructure:"rate_limit_per_minute"`
 	MaxTokensPerRequest int         `mapstructure:"max_tokens_per_request"`
-	PromptsDir          string      `mapstructure:"prompts_dir"` // Prompt模板目录
+	PromptsDir          string      `mapstructure:"prompts_dir"`   // Prompt模板目录
 	SystemPrompt        string      `mapstructure:"system_prompt"` // 全局System Prompt
 }
 

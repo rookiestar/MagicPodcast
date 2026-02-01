@@ -294,11 +294,11 @@ func TestJobTimeRangeWindow_MultiDays(t *testing.T) {
 	triggerTime := time.Date(2024, 1, 15, 10, 30, 0, 0, loc)
 
 	tests := []struct {
-		name            string
-		days            int
-		expectedStart   string
-		expectedEnd     string
-		expectedDiff    time.Duration
+		name          string
+		days          int
+		expectedStart string
+		expectedEnd   string
+		expectedDiff  time.Duration
 	}{
 		{
 			name:          "1天范围",

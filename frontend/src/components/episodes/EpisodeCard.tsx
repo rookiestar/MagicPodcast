@@ -1,42 +1,53 @@
-'use client'
+"use client";
 
-import { useState, useEffect, useRef } from 'react'
-import type { Episode } from '@/types'
-import RichText from '@/components/RichText'
-import { imageLoadQueue } from '@/lib/imageLoader'
+import { useState, useEffect, useRef } from "react";
+import type { Episode } from "@/types";
+import RichText from "@/components/RichText";
+import { imageLoadQueue } from "@/lib/imageLoader";
 
 interface EpisodeCardProps {
-  episode: Episode
-  podcastCover?: string
-  index?: number
-  priority?: 'high' | 'medium' | 'low'
+  episode: Episode;
+  podcastCover?: string;
+  index?: number;
+  priority?: "high" | "medium" | "low";
 }
 
-export default function EpisodeCard({ episode, podcastCover, index = 0, priority = 'medium' }: EpisodeCardProps) {
-  const [isExpanded, setIsExpanded] = useState(false)
-  const [imageLoaded, setImageLoaded] = useState(false)
-  const [imageError, setImageError] = useState(false)
-  const imgRef = useRef<HTMLImageElement>(null)
-  const taskIdRef = useRef<string>(`episode-${episode.id}-${Date.now()}-${Math.random()}`)
+export default function EpisodeCard({
+  episode,
+  podcastCover,
+  index = 0,
+  priority = "medium",
+}: EpisodeCardProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageError, setImageError] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const taskIdRef = useRef<string>(
+    `episode-${episode.id}-${Date.now()}-${Math.random()}`,
+  );
 
-  const coverImage = episode.image_url || podcastCover
+  const coverImage = episode.image_url || podcastCover;
 
   // 使用队列加载图片
   useEffect(() => {
-    if (!coverImage || !imgRef.current || imageLoaded || imageError) return
+    if (!coverImage || !imgRef.current || imageLoaded || imageError) return;
 
     // 根据优先级计算加载延迟
     const getLoadDelay = () => {
       switch (priority) {
-        case 'high': return 0
-        case 'medium': return index >= 3 ? 200 : 0
-        case 'low': return index >= 10 ? 500 : 0
-        default: return 0
+        case "high":
+          return 0;
+        case "medium":
+          return index >= 3 ? 200 : 0;
+        case "low":
+          return index >= 10 ? 500 : 0;
+        default:
+          return 0;
       }
-    }
+    };
 
-    const delay = getLoadDelay()
-    const taskId = taskIdRef.current
+    const delay = getLoadDelay();
+    const taskId = taskIdRef.current;
 
     // 延迟后加入加载队列
     const timeoutId = setTimeout(() => {
@@ -48,63 +59,63 @@ export default function EpisodeCard({ episode, podcastCover, index = 0, priority
           priority,
           retryCount: 0,
           onSuccess: () => {
-            setImageLoaded(true)
+            setImageLoaded(true);
           },
           onError: () => {
-            setImageError(true)
-            setImageLoaded(false)
-          }
-        })
+            setImageError(true);
+            setImageLoaded(false);
+          },
+        });
       }
-    }, delay)
+    }, delay);
 
     return () => {
-      clearTimeout(timeoutId)
-      imageLoadQueue.cancel(taskId)
-    }
-  }, [coverImage, priority, index, imageLoaded, imageError, episode.id])
+      clearTimeout(timeoutId);
+      imageLoadQueue.cancel(taskId);
+    };
+  }, [coverImage, priority, index, imageLoaded, imageError, episode.id]);
 
   // 格式化时长
   const formatDuration = (seconds: number) => {
-    if (!seconds || seconds <= 0) return null
-    const hours = Math.floor(seconds / 3600)
-    const minutes = Math.floor((seconds % 3600) / 60)
-    const secs = seconds % 60
+    if (!seconds || seconds <= 0) return null;
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
 
-    const parts = []
+    const parts = [];
     if (hours > 0) {
-      parts.push(`${hours}小时`)
+      parts.push(`${hours}小时`);
     }
     if (minutes > 0) {
-      parts.push(`${minutes}分`)
+      parts.push(`${minutes}分`);
     }
     if (secs > 0 || parts.length === 0) {
-      parts.push(`${secs}秒`)
+      parts.push(`${secs}秒`);
     }
 
-    return parts.join('')
-  }
+    return parts.join("");
+  };
 
   // 格式化日期
   const formatDate = (dateString: string) => {
     try {
-      const date = new Date(dateString)
-      return date.toLocaleDateString('zh-CN', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      })
+      const date = new Date(dateString);
+      return date.toLocaleDateString("zh-CN", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
     } catch {
-      return dateString
+      return dateString;
     }
-  }
+  };
 
   // 格式化文件大小
   const formatFileSize = (bytes: number) => {
-    if (!bytes || bytes <= 0) return null
-    const mb = bytes / (1024 * 1024)
-    return `${mb.toFixed(1)} MB`
-  }
+    if (!bytes || bytes <= 0) return null;
+    const mb = bytes / (1024 * 1024);
+    return `${mb.toFixed(1)} MB`;
+  };
 
   return (
     <div className="group relative bg-white rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-slate-200 flex flex-col h-full">
@@ -136,16 +147,14 @@ export default function EpisodeCard({ episode, podcastCover, index = 0, priority
                 ref={imgRef}
                 alt={episode.title}
                 className={`w-full h-full object-cover transition-all duration-500 ${
-                  imageLoaded ? 'opacity-100' : 'opacity-0'
+                  imageLoaded ? "opacity-100" : "opacity-0"
                 }`}
               />
             ) : null}
 
             {/* 占位符：当没有封面或图片加载失败时显示 */}
             {(!coverImage || imageError) && (
-              <div
-                className="w-full h-full flex items-center justify-center bg-slate-200"
-              >
+              <div className="w-full h-full flex items-center justify-center bg-slate-200">
                 <div className="text-2xl text-slate-400">🎧</div>
               </div>
             )}
@@ -174,14 +183,18 @@ export default function EpisodeCard({ episode, podcastCover, index = 0, priority
               {episode.medium_url && (
                 <button
                   onClick={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    window.open(episode.medium_url, '_blank')
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.open(episode.medium_url, "_blank");
                   }}
                   className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white transition-all duration-200 hover:scale-110"
                   aria-label="播放"
                 >
-                  <svg className="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                  <svg
+                    className="w-4 h-4 ml-0.5"
+                    fill="currentColor"
+                    viewBox="0 0 24 24"
+                  >
                     <path d="M8 5v14l11-7z" />
                   </svg>
                 </button>
@@ -216,7 +229,9 @@ export default function EpisodeCard({ episode, podcastCover, index = 0, priority
         {episode.show_notes && (
           <div
             className={`text-sm text-slate-600 dark:text-slate-400 transition-all duration-300 flex-1 ${
-              isExpanded ? 'max-h-96 overflow-y-auto' : 'max-h-24 overflow-hidden'
+              isExpanded
+                ? "max-h-96 overflow-y-auto"
+                : "max-h-24 overflow-hidden"
             }`}
             onMouseEnter={() => !isExpanded && setIsExpanded(true)}
             onMouseLeave={() => isExpanded && setIsExpanded(false)}
@@ -234,5 +249,5 @@ export default function EpisodeCard({ episode, podcastCover, index = 0, priority
         )}
       </div>
     </div>
-  )
+  );
 }

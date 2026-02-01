@@ -1,43 +1,48 @@
-'use client'
+"use client";
 
-import React, { useMemo } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeRaw from 'rehype-raw'
+import React, { useMemo } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
 
 interface MarkdownViewerProps {
-  content: string
-  className?: string
+  content: string;
+  className?: string;
 }
 
-export default function MarkdownViewer({ content, className = '' }: MarkdownViewerProps) {
+export default function MarkdownViewer({
+  content,
+  className = "",
+}: MarkdownViewerProps) {
   // 预处理：提取所有二维码的base64数据并替换为占位符
   const { qrCodesList, cleanedContent } = useMemo(() => {
-    const list: string[] = []
-    const regex = /!\[二维码\]\(data:image\/png;base64,([a-zA-Z0-9+/=]+)\)/g
+    const list: string[] = [];
+    const regex = /!\[二维码\]\(data:image\/png;base64,([a-zA-Z0-9+/=]+)\)/g;
 
     // 替换所有二维码语法为占位符
     const cleaned = content.replace(regex, (_, base64) => {
-      list.push(base64)
-      return `![二维码](qr-placeholder-${list.length - 1})`
-    })
+      list.push(base64);
+      return `![二维码](qr-placeholder-${list.length - 1})`;
+    });
 
-    return { qrCodesList: list, cleanedContent: cleaned }
-  }, [content])
+    return { qrCodesList: list, cleanedContent: cleaned };
+  }, [content]);
 
   return (
-    <div className={`prose prose-slate dark:prose-invert max-w-none ${className}`}>
+    <div
+      className={`prose prose-slate dark:prose-invert max-w-none ${className}`}
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
         components={{
           img: ({ src, alt, ...props }) => {
             // 处理二维码占位符
-            if (alt === '二维码' && src?.includes('qr-placeholder-')) {
-              const match = src.match(/qr-placeholder-(\d+)/)
+            if (alt === "二维码" && src?.includes("qr-placeholder-")) {
+              const match = src.match(/qr-placeholder-(\d+)/);
               if (match) {
-                const index = parseInt(match[1], 10)
-                const base64 = qrCodesList[index]
+                const index = parseInt(match[1], 10);
+                const base64 = qrCodesList[index];
 
                 if (base64) {
                   return (
@@ -47,14 +52,18 @@ export default function MarkdownViewer({ content, className = '' }: MarkdownView
                       width="128"
                       height="128"
                       className="inline-block mx-2"
-                      style={{ cursor: 'pointer', display: 'inline-block', margin: '4px' }}
+                      style={{
+                        cursor: "pointer",
+                        display: "inline-block",
+                        margin: "4px",
+                      }}
                     />
-                  )
+                  );
                 }
               }
             }
             // 其他图片正常渲染
-            return <img src={src} alt={alt} {...props} />
+            return <img src={src} alt={alt} {...props} />;
           },
           h1: ({ children }) => (
             <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50 border-b border-slate-200 dark:border-slate-700 pb-2 mb-4">
@@ -124,5 +133,5 @@ export default function MarkdownViewer({ content, className = '' }: MarkdownView
         {cleanedContent}
       </ReactMarkdown>
     </div>
-  )
+  );
 }

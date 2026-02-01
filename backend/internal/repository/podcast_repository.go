@@ -8,12 +8,12 @@ import (
 
 // PodcastFilters 播客筛选条件
 type PodcastFilters struct {
-	TagID     *int
-	TagIDs    []int
-	Search    string
-	SortBy    string
-	Page      int
-	PageSize  int
+	TagID        *int
+	TagIDs       []int
+	Search       string
+	SortBy       string
+	Page         int
+	PageSize     int
 	IsSubscribed *bool
 }
 

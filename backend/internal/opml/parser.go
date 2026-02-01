@@ -15,11 +15,11 @@ import (
 // - xmlUrl: RSS Feed URL
 // - htmlUrl: 网站链接（可选）
 type Outline struct {
-	Text    string `xml:"text,attr"`     // 播客描述（长文本）
-	Title   string `xml:"title,attr"`    // 播客标题（短文本）
-	XMLURL  string `xml:"xmlUrl,attr"`   // Feed URL
-	HTMLURL string `xml:"htmlUrl,attr"`  // 网站链接（可选）
-	Type    string `xml:"type,attr"`     // 类型（通常为 "rss"）
+	Text    string `xml:"text,attr"`    // 播客描述（长文本）
+	Title   string `xml:"title,attr"`   // 播客标题（短文本）
+	XMLURL  string `xml:"xmlUrl,attr"`  // Feed URL
+	HTMLURL string `xml:"htmlUrl,attr"` // 网站链接（可选）
+	Type    string `xml:"type,attr"`    // 类型（通常为 "rss"）
 }
 
 // GetTitle 获取播客标题（优先使用 title，为空时使用 text）

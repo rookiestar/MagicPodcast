@@ -1,8 +1,6 @@
 package migrations
 
 import (
-	"magicpodcast/internal/models"
-
 	"gorm.io/gorm"
 )
 

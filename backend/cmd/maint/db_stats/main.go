@@ -39,13 +39,13 @@ func main() {
 
 	// 统计各表的记录数
 	tables := map[string]interface{}{
-		"Podcasts":  &models.Podcast{},
-		"Episodes":  &models.Episode{},
-		"Tags":      &models.Tag{},
-		"Workflows": &models.Workflow{},
-		"Jobs":      &models.Job{},
+		"Podcasts":   &models.Podcast{},
+		"Episodes":   &models.Episode{},
+		"Tags":       &models.Tag{},
+		"Workflows":  &models.Workflow{},
+		"Jobs":       &models.Job{},
 		"Executions": &models.JobExecution{},
-		"Reports":   &models.Report{},
+		"Reports":    &models.Report{},
 	}
 
 	totalRecords := int64(0)

@@ -55,11 +55,11 @@ func (h *WorkflowHandlerRefactored) List(c *gin.Context) {
 	// 应用排序
 	// 注意：排序应该在 Service 层处理，这里作为示例
 	middleware.SuccessResponse(c, gin.H{
-		"workflows": result.Workflows,
-		"total":     result.Total,
-		"page":      result.Page,
-		"page_size": result.PageSize,
-		"sort_by":   sortBy,
+		"workflows":  result.Workflows,
+		"total":      result.Total,
+		"page":       result.Page,
+		"page_size":  result.PageSize,
+		"sort_by":    sortBy,
 		"sort_order": sortOrder,
 	})
 }

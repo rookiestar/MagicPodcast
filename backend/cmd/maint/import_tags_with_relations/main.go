@@ -13,10 +13,10 @@ import (
 )
 
 type PodcastCategoryRelation struct {
-	PodcastName string
+	PodcastName  string
 	CategoryName string
-	PodcastID uint
-	Matched bool
+	PodcastID    uint
+	Matched      bool
 }
 
 func main() {
@@ -81,9 +81,9 @@ func main() {
 		}
 
 		relations = append(relations, PodcastCategoryRelation{
-			PodcastName: podcastName,
+			PodcastName:  podcastName,
 			CategoryName: categoryName,
-			Matched: false,
+			Matched:      false,
 		})
 		categoryMap[categoryName] = true
 	}
@@ -141,13 +141,13 @@ func main() {
 	// 显示Top 10标签
 	fmt.Println("\n📊 标签预览（按节目数量排序，Top 10）:")
 	type TagCount struct {
-		Name string
+		Name  string
 		Count int
 	}
 	var tagCounts []TagCount
 	for _, cat := range validCategories {
 		tagCounts = append(tagCounts, TagCount{
-			Name: cat,
+			Name:  cat,
 			Count: len(validTagsMap[cat]),
 		})
 	}

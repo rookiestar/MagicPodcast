@@ -6,8 +6,8 @@ import (
 	"log"
 	"strings"
 
-	"github.com/xuri/excelize/v2"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/xuri/excelize/v2"
 )
 
 func main() {

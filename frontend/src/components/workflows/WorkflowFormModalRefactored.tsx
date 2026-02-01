@@ -1,23 +1,39 @@
-'use client'
+"use client";
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Badge } from '@/components/ui/badge'
-import { useWorkflowForm } from '@/hooks/useWorkflowForm'
-import type { Workflow } from '@/types'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { useWorkflowForm } from "@/hooks/useWorkflowForm";
+import type { Workflow } from "@/types";
 
 interface WorkflowFormModalProps {
-  isOpen: boolean
-  onClose: () => void
-  onSuccess: () => void
-  workflow?: Workflow | null
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+  workflow?: Workflow | null;
 }
 
-export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow }: WorkflowFormModalProps) {
+export default function WorkflowFormModal({
+  isOpen,
+  onClose,
+  onSuccess,
+  workflow,
+}: WorkflowFormModalProps) {
   const {
     // 状态
     step,
@@ -54,39 +70,43 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
 
     // 提交
     submit,
-  } = useWorkflowForm({ workflow, isOpen })
+  } = useWorkflowForm({ workflow, isOpen });
 
   // 处理提交
   const handleSubmit = async () => {
-    const success = await submit()
+    const success = await submit();
     if (success) {
-      onSuccess()
-      onClose()
+      onSuccess();
+      onClose();
     }
-  }
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>
-            {workflow ? '编辑工作流' : '创建工作流'}
-          </DialogTitle>
+          <DialogTitle>{workflow ? "编辑工作流" : "创建工作流"}</DialogTitle>
         </DialogHeader>
 
         {/* 步骤指示器 */}
         <div className="flex items-center justify-center space-x-4 mb-6">
           {[1, 2, 3, 4].map((s) => (
             <div key={s} className="flex items-center">
-              <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
-                step === s ? 'bg-violet-600 text-white' : 'bg-gray-200 text-gray-600'
-              }`}>
+              <div
+                className={`flex items-center justify-center w-8 h-8 rounded-full ${
+                  step === s
+                    ? "bg-violet-600 text-white"
+                    : "bg-gray-200 text-gray-600"
+                }`}
+              >
                 {s}
               </div>
               {s < 4 && (
-                <div className={`w-16 h-1 mx-2 ${
-                  step > s ? 'bg-violet-600' : 'bg-gray-200'
-                }`} />
+                <div
+                  className={`w-16 h-1 mx-2 ${
+                    step > s ? "bg-violet-600" : "bg-gray-200"
+                  }`}
+                />
               )}
             </div>
           ))}
@@ -102,7 +122,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
               <Input
                 id="name"
                 value={formData.name}
-                onChange={(e) => updateField('name', e.target.value)}
+                onChange={(e) => updateField("name", e.target.value)}
                 placeholder="例如：科技播客每日更新"
               />
             </div>
@@ -112,7 +132,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
               <Textarea
                 id="description"
                 value={formData.description}
-                onChange={(e) => updateField('description', e.target.value)}
+                onChange={(e) => updateField("description", e.target.value)}
                 placeholder="简要描述这个工作流的用途"
                 rows={3}
               />
@@ -124,13 +144,13 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                 <div>
                   <Label htmlFor="preset">预设</Label>
                   <Select
-                    value={formData.customCron ? 'custom' : formData.schedule}
+                    value={formData.customCron ? "custom" : formData.schedule}
                     onValueChange={(value) => {
-                      if (value === 'custom') {
-                        updateField('customCron', formData.schedule)
+                      if (value === "custom") {
+                        updateField("customCron", formData.schedule);
                       } else {
-                        updateField('schedule', value)
-                        updateField('customCron', '')
+                        updateField("schedule", value);
+                        updateField("customCron", "");
                       }
                     }}
                   >
@@ -154,11 +174,11 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                     id="cron"
                     value={formData.customCron || formData.schedule}
                     onChange={(e) => {
-                      if (cronPresets.some(p => p.value === e.target.value)) {
-                        updateField('schedule', e.target.value)
-                        updateField('customCron', '')
+                      if (cronPresets.some((p) => p.value === e.target.value)) {
+                        updateField("schedule", e.target.value);
+                        updateField("customCron", "");
                       } else {
-                        updateField('customCron', e.target.value)
+                        updateField("customCron", e.target.value);
                       }
                     }}
                     placeholder="0 0 2 * * *"
@@ -181,7 +201,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
               <Label htmlFor="scopeType">抓取范围</Label>
               <Select
                 value={formData.scopeType}
-                onValueChange={(value: any) => updateField('scopeType', value)}
+                onValueChange={(value: any) => updateField("scopeType", value)}
               >
                 <SelectTrigger id="scopeType">
                   <SelectValue />
@@ -196,7 +216,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
             </div>
 
             {/* 指定节目 */}
-            {formData.scopeType === 'selected' && (
+            {formData.scopeType === "selected" && (
               <div>
                 <Label htmlFor="podcastSearch">搜索节目</Label>
                 <Input
@@ -214,19 +234,27 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                         key={podcast.id}
                         className="flex items-center justify-between p-3 hover:bg-gray-50 cursor-pointer border-b"
                         onClick={() => {
-                          const newIds = formData.selectedPodcastIds.includes(podcast.id)
-                            ? formData.selectedPodcastIds.filter(id => id !== podcast.id)
-                            : [...formData.selectedPodcastIds, podcast.id]
-                          updateField('selectedPodcastIds', newIds)
+                          const newIds = formData.selectedPodcastIds.includes(
+                            podcast.id,
+                          )
+                            ? formData.selectedPodcastIds.filter(
+                                (id) => id !== podcast.id,
+                              )
+                            : [...formData.selectedPodcastIds, podcast.id];
+                          updateField("selectedPodcastIds", newIds);
                         }}
                       >
                         <div className="flex-1">
                           <div className="font-medium">{podcast.title}</div>
-                          <div className="text-sm text-gray-600">{podcast.author}</div>
+                          <div className="text-sm text-gray-600">
+                            {podcast.author}
+                          </div>
                         </div>
                         <input
                           type="checkbox"
-                          checked={formData.selectedPodcastIds.includes(podcast.id)}
+                          checked={formData.selectedPodcastIds.includes(
+                            podcast.id,
+                          )}
                           onChange={() => {}}
                           className="w-4 h-4"
                         />
@@ -241,7 +269,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
             )}
 
             {/* 自定义RSS */}
-            {formData.scopeType === 'custom_urls' && (
+            {formData.scopeType === "custom_urls" && (
               <div>
                 <Label>自定义RSS地址</Label>
                 <div className="flex gap-2">
@@ -254,7 +282,10 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                 </div>
                 <div className="mt-2 space-y-2">
                   {formData.customUrls.map((url, index) => (
-                    <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                    <div
+                      key={index}
+                      className="flex items-center justify-between p-2 bg-gray-50 rounded"
+                    >
                       <span className="text-sm flex-1 truncate">{url}</span>
                       <Button
                         variant="destructive"
@@ -281,8 +312,10 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
               <Input
                 id="timeRange"
                 type="number"
-                value={formData.timeRange || ''}
-                onChange={(e) => updateField('timeRange', parseInt(e.target.value) || 0)}
+                value={formData.timeRange || ""}
+                onChange={(e) =>
+                  updateField("timeRange", parseInt(e.target.value) || 0)
+                }
                 placeholder="0表示不限制"
               />
             </div>
@@ -292,8 +325,10 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
               <Input
                 id="minDuration"
                 type="number"
-                value={formData.minDuration || ''}
-                onChange={(e) => updateField('minDuration', parseInt(e.target.value) || 0)}
+                value={formData.minDuration || ""}
+                onChange={(e) =>
+                  updateField("minDuration", parseInt(e.target.value) || 0)
+                }
                 placeholder="0表示不限制"
               />
             </div>
@@ -303,8 +338,10 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
               <Input
                 id="maxResults"
                 type="number"
-                value={formData.maxResults || ''}
-                onChange={(e) => updateField('maxResults', parseInt(e.target.value) || 0)}
+                value={formData.maxResults || ""}
+                onChange={(e) =>
+                  updateField("maxResults", parseInt(e.target.value) || 0)
+                }
                 placeholder="0表示不限制"
               />
             </div>
@@ -314,7 +351,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
               <Input
                 id="keywords"
                 value={formData.keywords}
-                onChange={(e) => updateField('keywords', e.target.value)}
+                onChange={(e) => updateField("keywords", e.target.value)}
                 placeholder="科技,AI,创新"
               />
             </div>
@@ -324,21 +361,23 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
               <Input
                 id="excludeWords"
                 value={formData.excludeWords}
-                onChange={(e) => updateField('excludeWords', e.target.value)}
+                onChange={(e) => updateField("excludeWords", e.target.value)}
                 placeholder="广告,预告"
               />
             </div>
 
             {/* LLM配置 */}
             <div className="border-t pt-4">
-              <h3 className="text-lg font-semibold mb-2">LLM智能摘要（可选）</h3>
+              <h3 className="text-lg font-semibold mb-2">
+                LLM智能摘要（可选）
+              </h3>
 
               <div className="flex items-center space-x-2 mb-4">
                 <input
                   type="checkbox"
                   id="llmEnabled"
                   checked={formData.llmEnabled}
-                  onChange={(e) => updateField('llmEnabled', e.target.checked)}
+                  onChange={(e) => updateField("llmEnabled", e.target.checked)}
                 />
                 <Label htmlFor="llmEnabled">启用LLM智能摘要</Label>
               </div>
@@ -351,7 +390,12 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                       id="llmMaxEpisodes"
                       type="number"
                       value={formData.llmMaxEpisodes}
-                      onChange={(e) => updateField('llmMaxEpisodes', parseInt(e.target.value) || 20)}
+                      onChange={(e) =>
+                        updateField(
+                          "llmMaxEpisodes",
+                          parseInt(e.target.value) || 20,
+                        )
+                      }
                     />
                   </div>
 
@@ -360,7 +404,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                     <Input
                       id="llmModel"
                       value={formData.llmModel}
-                      onChange={(e) => updateField('llmModel', e.target.value)}
+                      onChange={(e) => updateField("llmModel", e.target.value)}
                       placeholder="gpt-4"
                     />
                   </div>
@@ -376,43 +420,59 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
             <h2 className="text-xl font-semibold">确认信息</h2>
 
             <div className="bg-gray-50 p-4 rounded space-y-2">
-              <div><strong>名称：</strong>{formData.name}</div>
-              <div><strong>描述：</strong>{formData.description || '无'}</div>
-              <div><strong>执行计划：</strong>{formData.customCron || formData.schedule}</div>
-              <div><strong>范围：</strong>{
-                formData.scopeType === 'all_subscribed' ? '所有订阅节目' :
-                formData.scopeType === 'selected' ? `指定节目 (${formData.selectedPodcastIds.length}个)` :
-                formData.scopeType === 'by_tags' ? `按标签筛选 (${formData.selectedTagIds.length}个)` :
-                `自定义RSS (${formData.customUrls.length}个)`
-              }</div>
-              <div><strong>时间范围：</strong>{formData.timeRange ? `${formData.timeRange}天` : '不限制'}</div>
-              <div><strong>关键词：</strong>{formData.keywords || '无'}</div>
-              <div><strong>LLM摘要：</strong>{formData.llmEnabled ? '启用' : '禁用'}</div>
+              <div>
+                <strong>名称：</strong>
+                {formData.name}
+              </div>
+              <div>
+                <strong>描述：</strong>
+                {formData.description || "无"}
+              </div>
+              <div>
+                <strong>执行计划：</strong>
+                {formData.customCron || formData.schedule}
+              </div>
+              <div>
+                <strong>范围：</strong>
+                {formData.scopeType === "all_subscribed"
+                  ? "所有订阅节目"
+                  : formData.scopeType === "selected"
+                    ? `指定节目 (${formData.selectedPodcastIds.length}个)`
+                    : formData.scopeType === "by_tags"
+                      ? `按标签筛选 (${formData.selectedTagIds.length}个)`
+                      : `自定义RSS (${formData.customUrls.length}个)`}
+              </div>
+              <div>
+                <strong>时间范围：</strong>
+                {formData.timeRange ? `${formData.timeRange}天` : "不限制"}
+              </div>
+              <div>
+                <strong>关键词：</strong>
+                {formData.keywords || "无"}
+              </div>
+              <div>
+                <strong>LLM摘要：</strong>
+                {formData.llmEnabled ? "启用" : "禁用"}
+              </div>
             </div>
           </div>
         )}
 
         {/* 导航按钮 */}
         <div className="flex justify-between mt-6">
-          <Button
-            variant="outline"
-            onClick={prevStep}
-            disabled={step === 1}
-          >
+          <Button variant="outline" onClick={prevStep} disabled={step === 1}>
             上一步
           </Button>
 
           {step < 4 ? (
-            <Button onClick={nextStep}>
-              下一步
-            </Button>
+            <Button onClick={nextStep}>下一步</Button>
           ) : (
             <Button onClick={handleSubmit} disabled={loading}>
-              {loading ? '提交中...' : '提交'}
+              {loading ? "提交中..." : "提交"}
             </Button>
           )}
         </div>
       </DialogContent>
     </Dialog>
-  )
+  );
 }

@@ -47,19 +47,19 @@ type UpdateWorkflowRequest struct {
 
 // WorkflowResponse 工作流响应（匹配实际模型）
 type WorkflowResponse struct {
-	ID             uint                     `json:"id"`
-	Name           string                   `json:"name"`
-	Description    string                   `json:"description"`
-	Schedule       string                   `json:"schedule"`
-	ScopeType      models.WorkflowScopeType `json:"scope_type"`
-	ScopeConfig    models.ScopeConfig       `json:"scope_config"`
-	RulesConfig    models.RulesConfig       `json:"rules_config"`
-	IsEnabled      bool                     `json:"is_enabled"`
-	CreatedAt      string                   `json:"created_at"`
-	UpdatedAt      string                   `json:"updated_at"`
-	LastExecution  *string                  `json:"last_execution_at,omitempty"`
-	NextExecution  *string                  `json:"next_run_at,omitempty"`
-	JobCount       int                      `json:"job_count"`
+	ID            uint                     `json:"id"`
+	Name          string                   `json:"name"`
+	Description   string                   `json:"description"`
+	Schedule      string                   `json:"schedule"`
+	ScopeType     models.WorkflowScopeType `json:"scope_type"`
+	ScopeConfig   models.ScopeConfig       `json:"scope_config"`
+	RulesConfig   models.RulesConfig       `json:"rules_config"`
+	IsEnabled     bool                     `json:"is_enabled"`
+	CreatedAt     string                   `json:"created_at"`
+	UpdatedAt     string                   `json:"updated_at"`
+	LastExecution *string                  `json:"last_execution_at,omitempty"`
+	NextExecution *string                  `json:"next_run_at,omitempty"`
+	JobCount      int                      `json:"job_count"`
 }
 
 // WorkflowListResponse 工作流列表响应

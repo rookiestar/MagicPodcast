@@ -65,10 +65,10 @@ func (s *Service) saveEpisode(podcast *models.Podcast, item *gofeed.Item) error 
 	}
 
 	episode := &models.Episode{
-		PodcastID:    podcast.ID,
-		Title:        item.Title,
-		ShowNotes:    item.Description,
-		GUID:         item.GUID,
+		PodcastID: podcast.ID,
+		Title:     item.Title,
+		ShowNotes: item.Description,
+		GUID:      item.GUID,
 	}
 
 	// 获取音频URL（从enclosures数组）
@@ -88,7 +88,8 @@ func (s *Service) saveEpisode(podcast *models.Podcast, item *gofeed.Item) error 
 
 // createEnhancedPodcastFromOPML 从 PodcastIndex 和 OPML 创建播客
 // 策略：只保留 OPML 的核心字段（title, description, feed_url）
-//       所有其他元数据从 PodcastIndex 获取
+//
+//	所有其他元数据从 PodcastIndex 获取
 func (s *Service) createEnhancedPodcastFromOPML(
 	piInfo *podcastindex.PodcastInfo,
 	outline *opml.Outline,
@@ -172,9 +173,9 @@ func (s *Service) convertPodcastIndexToModel(info *podcastindex.PodcastInfo) *mo
 		CoverURL:           info.CoverURL,
 		FeedURL:            info.FeedURL,
 		ITunesID:           fmt.Sprintf("%d", info.ITunesID),
-		Link:               info.WebsiteURL,              // 🆕 播客网站链接
-		NewestEnclosureURL: info.NewestEnclosureURL,      // 🆕 最新单集音频URL
-		EpisodeCount:       info.EpisodeCount,            // 🆕 单集总数
+		Link:               info.WebsiteURL,         // 🆕 播客网站链接
+		NewestEnclosureURL: info.NewestEnclosureURL, // 🆕 最新单集音频URL
+		EpisodeCount:       info.EpisodeCount,       // 🆕 单集总数
 		IsSubscribed:       true,
 		DataSource:         "podcastindex",
 	}

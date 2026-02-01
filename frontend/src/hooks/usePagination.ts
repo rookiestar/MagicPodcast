@@ -1,20 +1,20 @@
-import { useState, useCallback, useEffect } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useState, useCallback, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 
 interface PaginationOptions {
-  initialPage?: number
-  initialPageSize?: number
-  pageSizeOptions?: number[]
-  totalItems?: number
-  syncWithUrl?: boolean
+  initialPage?: number;
+  initialPageSize?: number;
+  pageSizeOptions?: number[];
+  totalItems?: number;
+  syncWithUrl?: boolean;
 }
 
 interface PaginationState {
-  page: number
-  pageSize: number
-  totalPages: number
-  hasNextPage: boolean
-  hasPrevPage: boolean
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
 }
 
 /**
@@ -36,84 +36,94 @@ export function usePagination(options: PaginationOptions = {}) {
     pageSizeOptions = [10, 20, 50, 100],
     totalItems: initialTotalItems = 0,
     syncWithUrl = true,
-  } = options
+  } = options;
 
-  const searchParams = useSearchParams()
-  const urlPage = syncWithUrl ? parseInt(searchParams.get('page') || '1', 10) : initialPage
-  const urlPageSize = syncWithUrl ? parseInt(searchParams.get('page_size') || String(initialPageSize), 10) : initialPageSize
+  const searchParams = useSearchParams();
+  const urlPage = syncWithUrl
+    ? parseInt(searchParams.get("page") || "1", 10)
+    : initialPage;
+  const urlPageSize = syncWithUrl
+    ? parseInt(searchParams.get("page_size") || String(initialPageSize), 10)
+    : initialPageSize;
 
-  const [page, setPage] = useState(urlPage || initialPage)
-  const [pageSize, setPageSizeState] = useState(urlPageSize || initialPageSize)
-  const [totalItems, setTotalItems] = useState(initialTotalItems)
+  const [page, setPage] = useState(urlPage || initialPage);
+  const [pageSize, setPageSizeState] = useState(urlPageSize || initialPageSize);
+  const [totalItems, setTotalItems] = useState(initialTotalItems);
 
   // 计算总页数
-  const totalPages = Math.ceil(totalItems / pageSize) || 1
+  const totalPages = Math.ceil(totalItems / pageSize) || 1;
 
   // 计算是否有下一页/上一页
-  const hasNextPage = page < totalPages
-  const hasPrevPage = page > 1
+  const hasNextPage = page < totalPages;
+  const hasPrevPage = page > 1;
 
   // 同步到URL
   useEffect(() => {
     if (syncWithUrl) {
-      const params = new URLSearchParams(searchParams.toString())
-      params.set('page', String(page))
-      params.set('page_size', String(pageSize))
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("page", String(page));
+      params.set("page_size", String(pageSize));
 
       // 使用replaceState避免在历史记录中创建太多条目
-      const newUrl = `${window.location.pathname}?${params.toString()}`
-      window.history.replaceState({}, '', newUrl)
+      const newUrl = `${window.location.pathname}?${params.toString()}`;
+      window.history.replaceState({}, "", newUrl);
     }
-  }, [page, pageSize, syncWithUrl, searchParams])
+  }, [page, pageSize, syncWithUrl, searchParams]);
 
   // 从URL同步状态
   useEffect(() => {
     if (syncWithUrl) {
-      const urlPage = parseInt(searchParams.get('page') || '1', 10)
-      const urlPageSize = parseInt(searchParams.get('page_size') || String(initialPageSize), 10)
+      const urlPage = parseInt(searchParams.get("page") || "1", 10);
+      const urlPageSize = parseInt(
+        searchParams.get("page_size") || String(initialPageSize),
+        10,
+      );
 
       if (urlPage && urlPage !== page) {
-        setPage(urlPage)
+        setPage(urlPage);
       }
       if (urlPageSize && urlPageSize !== pageSize) {
-        setPageSizeState(urlPageSize)
+        setPageSizeState(urlPageSize);
       }
     }
-  }, [searchParams, syncWithUrl, initialPageSize])
+  }, [searchParams, syncWithUrl, initialPageSize]);
 
   // 更新总项目数
   const updateTotalItems = useCallback((total: number) => {
-    setTotalItems(total)
-  }, [])
+    setTotalItems(total);
+  }, []);
 
   // 下一页
   const nextPage = useCallback(() => {
-    setPage(prev => Math.min(prev + 1, totalPages))
-  }, [totalPages])
+    setPage((prev) => Math.min(prev + 1, totalPages));
+  }, [totalPages]);
 
   // 上一页
   const prevPage = useCallback(() => {
-    setPage(prev => Math.max(prev - 1, 1))
-  }, [])
+    setPage((prev) => Math.max(prev - 1, 1));
+  }, []);
 
   // 跳转到指定页
-  const goToPage = useCallback((targetPage: number) => {
-    const validPage = Math.max(1, Math.min(targetPage, totalPages))
-    setPage(validPage)
-  }, [totalPages])
+  const goToPage = useCallback(
+    (targetPage: number) => {
+      const validPage = Math.max(1, Math.min(targetPage, totalPages));
+      setPage(validPage);
+    },
+    [totalPages],
+  );
 
   // 设置每页大小
   const setPageSize = useCallback((newPageSize: number) => {
-    setPageSizeState(newPageSize)
+    setPageSizeState(newPageSize);
     // 重置到第一页
-    setPage(1)
-  }, [])
+    setPage(1);
+  }, []);
 
   // 重置分页
   const reset = useCallback(() => {
-    setPage(initialPage)
-    setPageSizeState(initialPageSize)
-  }, [initialPage, initialPageSize])
+    setPage(initialPage);
+    setPageSizeState(initialPageSize);
+  }, [initialPage, initialPageSize]);
 
   return {
     // 状态
@@ -147,7 +157,7 @@ export function usePagination(options: PaginationOptions = {}) {
       hasNextPage,
       hasPrevPage,
     } as PaginationState,
-  }
+  };
 }
 
 /**
@@ -166,51 +176,54 @@ export function useInfiniteScroll<T>({
   initialPageSize = 20,
   threshold = 200,
 }: {
-  fetchFn: (page: number, pageSize: number) => Promise<{ data: T[]; total: number }>
-  initialPageSize?: number
-  threshold?: number
+  fetchFn: (
+    page: number,
+    pageSize: number,
+  ) => Promise<{ data: T[]; total: number }>;
+  initialPageSize?: number;
+  threshold?: number;
 }) {
-  const [data, setData] = useState<T[]>([])
-  const [loading, setLoading] = useState(false)
-  const [page, setPage] = useState(1)
-  const [totalItems, setTotalItems] = useState(0)
-  const [hasMore, setHasMore] = useState(true)
+  const [data, setData] = useState<T[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
 
   // 加载数据
   const loadMore = useCallback(async () => {
-    if (loading || !hasMore) return
+    if (loading || !hasMore) return;
 
-    setLoading(true)
+    setLoading(true);
     try {
-      const result = await fetchFn(page, initialPageSize)
+      const result = await fetchFn(page, initialPageSize);
 
-      setData(prev => [...prev, ...result.data])
-      setTotalItems(result.total)
-      setPage(prev => prev + 1)
+      setData((prev) => [...prev, ...result.data]);
+      setTotalItems(result.total);
+      setPage((prev) => prev + 1);
 
       // 检查是否还有更多数据
-      const loadedCount = data.length + result.data.length
-      setHasMore(loadedCount < result.total)
+      const loadedCount = data.length + result.data.length;
+      setHasMore(loadedCount < result.total);
     } catch (error) {
-      console.error('Failed to load more data:', error)
+      console.error("Failed to load more data:", error);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [fetchFn, page, initialPageSize, loading, hasMore, data.length])
+  }, [fetchFn, page, initialPageSize, loading, hasMore, data.length]);
 
   // 重置
   const reset = useCallback(() => {
-    setData([])
-    setPage(1)
-    setTotalItems(0)
-    setHasMore(true)
-  }, [])
+    setData([]);
+    setPage(1);
+    setTotalItems(0);
+    setHasMore(true);
+  }, []);
 
   // 刷新（重新加载第一页）
   const refresh = useCallback(async () => {
-    reset()
-    await loadMore()
-  }, [reset, loadMore])
+    reset();
+    await loadMore();
+  }, [reset, loadMore]);
 
   return {
     data,
@@ -220,7 +233,7 @@ export function useInfiniteScroll<T>({
     refresh,
     reset,
     totalItems,
-  }
+  };
 }
 
 /**
@@ -239,41 +252,41 @@ export function useInfiniteScroll<T>({
  */
 export function useInfiniteScrollTrigger(
   callback: () => void,
-  options: IntersectionObserverInit = {}
+  options: IntersectionObserverInit = {},
 ) {
-  const [element, setElement] = useState<HTMLElement | null>(null)
-  const observer = useRef<IntersectionObserver | null>(null)
+  const [element, setElement] = useState<HTMLElement | null>(null);
+  const observer = useRef<IntersectionObserver | null>(null);
 
   useEffect(() => {
-    if (!element) return
+    if (!element) return;
 
     // 创建Intersection Observer
     observer.current = new IntersectionObserver(
       (entries) => {
-        const [entry] = entries
+        const [entry] = entries;
         if (entry.isIntersecting) {
-          callback()
+          callback();
         }
       },
       {
-        rootMargin: '200px',
+        rootMargin: "200px",
         threshold: 0.1,
         ...options,
-      }
-    )
+      },
+    );
 
     // 开始观察
-    observer.current.observe(element)
+    observer.current.observe(element);
 
     // 清理
     return () => {
       if (observer.current) {
-        observer.current.disconnect()
+        observer.current.disconnect();
       }
-    }
-  }, [element, callback, options])
+    };
+  }, [element, callback, options]);
 
   return {
     ref: setElement,
-  }
+  };
 }

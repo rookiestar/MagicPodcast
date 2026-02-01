@@ -64,7 +64,7 @@ type RulesConfig struct {
 	ExcludeWords  string `json:"exclude_words,omitempty"`   // 排除词（逗号分隔）
 
 	// LLM智能摘要配置
-	LLMEnabled     bool    `json:"llm_enabled,omitempty"`     // 是否启用LLM摘要
+	LLMEnabled     bool    `json:"llm_enabled,omitempty"`      // 是否启用LLM摘要
 	LLMMaxEpisodes int     `json:"llm_max_episodes,omitempty"` // 单次摘要最大单集数，默认20
 	LLMModel       string  `json:"llm_model,omitempty"`        // 模型名称（可选，覆盖默认配置）
 	LLMTemperature float64 `json:"llm_temperature,omitempty"`  // 温度参数（0.0-1.0，默认0.7）
@@ -93,16 +93,16 @@ func (r RulesConfig) Value() (driver.Value, error) {
 type Workflow struct {
 	BaseModel
 
-	Name        string           `gorm:"size:200;not null" json:"name"`
-	Description string           `gorm:"size:1000" json:"description"`
-	Schedule    string           `gorm:"size:100;not null" json:"schedule"` // cron表达式
+	Name        string            `gorm:"size:200;not null" json:"name"`
+	Description string            `gorm:"size:1000" json:"description"`
+	Schedule    string            `gorm:"size:100;not null" json:"schedule"` // cron表达式
 	ScopeType   WorkflowScopeType `gorm:"size:50;not null;index" json:"scope_type"`
-	ScopeConfig ScopeConfig      `gorm:"type:json" json:"scope_config"`
-	RulesConfig RulesConfig      `gorm:"type:json" json:"rules_config"`
-	IsEnabled   bool             `gorm:"index;not null" json:"is_enabled"`
-	LastJobID   *uint            `gorm:"index" json:"last_job_id,omitempty"`
-	LastJob     *Job             `gorm:"-" json:"last_job,omitempty"` // 不自动迁移，通过关联查询加载
-	Jobs        []Job            `gorm:"foreignKey:WorkflowID" json:"jobs,omitempty"`
+	ScopeConfig ScopeConfig       `gorm:"type:json" json:"scope_config"`
+	RulesConfig RulesConfig       `gorm:"type:json" json:"rules_config"`
+	IsEnabled   bool              `gorm:"index;not null" json:"is_enabled"`
+	LastJobID   *uint             `gorm:"index" json:"last_job_id,omitempty"`
+	LastJob     *Job              `gorm:"-" json:"last_job,omitempty"` // 不自动迁移，通过关联查询加载
+	Jobs        []Job             `gorm:"foreignKey:WorkflowID" json:"jobs,omitempty"`
 
 	// 调度状态持久化字段（新增）
 	LastExecutionAt *time.Time `gorm:"index" json:"last_execution_at,omitempty"` // 上次执行时间
@@ -188,32 +188,32 @@ func (JobExecution) TableName() string {
 type Report struct {
 	BaseModel
 
-	JobID         uint      `gorm:"not null;uniqueIndex" json:"job_id"`    // 关联的Job（一对一）
-	Job           Job       `gorm:"-" json:"job,omitempty"`              // 关联的Job（不持久化）
+	JobID uint `gorm:"not null;uniqueIndex" json:"job_id"` // 关联的Job（一对一）
+	Job   Job  `gorm:"-" json:"job,omitempty"`             // 关联的Job（不持久化）
 
-	Title         string    `gorm:"size:255;not null" json:"title"`          // 报告标题
-	Content       string    `gorm:"type:text;not null" json:"content"`       // Markdown内容
-	Summary       string    `gorm:"type:text" json:"summary"`                // 简要摘要
+	Title   string `gorm:"size:255;not null" json:"title"`    // 报告标题
+	Content string `gorm:"type:text;not null" json:"content"` // Markdown内容
+	Summary string `gorm:"type:text" json:"summary"`          // 简要摘要
 
 	// 统计字段
-	EpisodesCount int       `gorm:"default:0" json:"episodes_count"`  // 包含的episode数
-	PodcastsCount int       `gorm:"default:0" json:"podcasts_count"`  // 包含的podcast数
-	MatchedCount  int       `gorm:"default:0" json:"matched_count"`   // 匹配的单集数
+	EpisodesCount int `gorm:"default:0" json:"episodes_count"` // 包含的episode数
+	PodcastsCount int `gorm:"default:0" json:"podcasts_count"` // 包含的podcast数
+	MatchedCount  int `gorm:"default:0" json:"matched_count"`  // 匹配的单集数
 
 	// 时间范围信息
-	TimeRangeStart time.Time `json:"time_range_start"` // 扫描时间范围起始时间
-	TimeRangeEnd   time.Time `json:"time_range_end"`   // 扫描时间范围结束时间
+	TimeRangeStart time.Time `json:"time_range_start"`               // 扫描时间范围起始时间
+	TimeRangeEnd   time.Time `json:"time_range_end"`                 // 扫描时间范围结束时间
 	TimeRangeMode  string    `gorm:"size:20" json:"time_range_mode"` // daily | manual
 
-	GeneratedAt time.Time `gorm:"not null" json:"generated_at"` // 生成时间
+	GeneratedAt time.Time `gorm:"not null" json:"generated_at"`             // 生成时间
 	Format      string    `gorm:"size:20;default:'markdown'" json:"format"` // 报告格式
-	FileSize    int       `gorm:"default:0" json:"file_size"`   // 内容大小（字节）
+	FileSize    int       `gorm:"default:0" json:"file_size"`               // 内容大小（字节）
 
 	// LLM相关字段
-	LLMSummary   string `gorm:"type:text" json:"llm_summary,omitempty"`         // LLM生成的摘要
-	LLMModelUsed string `gorm:"size:100" json:"llm_model_used,omitempty"`      // 使用的LLM模型
-	LLMTokensUsed int    `gorm:"default:0" json:"llm_tokens_used,omitempty"`   // 消耗的token数
-	LLMError     string `gorm:"type:text" json:"llm_error,omitempty"`          // LLM调用错误信息（如果有）
+	LLMSummary    string `gorm:"type:text" json:"llm_summary,omitempty"`     // LLM生成的摘要
+	LLMModelUsed  string `gorm:"size:100" json:"llm_model_used,omitempty"`   // 使用的LLM模型
+	LLMTokensUsed int    `gorm:"default:0" json:"llm_tokens_used,omitempty"` // 消耗的token数
+	LLMError      string `gorm:"type:text" json:"llm_error,omitempty"`       // LLM调用错误信息（如果有）
 }
 
 // TableName 指定表名

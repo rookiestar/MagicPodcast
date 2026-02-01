@@ -60,7 +60,7 @@ func calculatePodcastRelevance(title, author, description, keyword string, cfg c
 				occurrences := strings.Count(descLower, keywordLower)
 				descScore := cfg.Weights.PodcastDesc * cfg.MatchMultipliers.Contains * 0.3
 				if occurrences > 1 {
-					descScore *= (1 + float64(occurrences-1) * cfg.MatchMultipliers.Occurrence)
+					descScore *= (1 + float64(occurrences-1)*cfg.MatchMultipliers.Occurrence)
 				}
 				score += descScore
 			}
@@ -68,7 +68,7 @@ func calculatePodcastRelevance(title, author, description, keyword string, cfg c
 			occurrences := strings.Count(descLower, keywordLower)
 			descScore := cfg.Weights.PodcastDesc * cfg.MatchMultipliers.Contains
 			if occurrences > 1 {
-				descScore *= (1 + float64(occurrences-1) * cfg.MatchMultipliers.Occurrence)
+				descScore *= (1 + float64(occurrences-1)*cfg.MatchMultipliers.Occurrence)
 			}
 			score += descScore
 		}
@@ -126,7 +126,7 @@ func calculateEpisodeRelevance(title, showNotes, keyword string, cfg config.Sear
 				occurrences := strings.Count(notesLower, keywordLower)
 				notesScore := cfg.Weights.EpisodeContent * cfg.MatchMultipliers.Contains * 0.3
 				if occurrences > 1 {
-					notesScore *= (1 + float64(occurrences-1) * cfg.MatchMultipliers.Occurrence)
+					notesScore *= (1 + float64(occurrences-1)*cfg.MatchMultipliers.Occurrence)
 				}
 				score += notesScore
 			}
@@ -134,7 +134,7 @@ func calculateEpisodeRelevance(title, showNotes, keyword string, cfg config.Sear
 			occurrences := strings.Count(notesLower, keywordLower)
 			notesScore := cfg.Weights.EpisodeContent * cfg.MatchMultipliers.Contains
 			if occurrences > 1 {
-				notesScore *= (1 + float64(occurrences-1) * cfg.MatchMultipliers.Occurrence)
+				notesScore *= (1 + float64(occurrences-1)*cfg.MatchMultipliers.Occurrence)
 			}
 			score += notesScore
 		}

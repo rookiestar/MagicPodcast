@@ -9,26 +9,26 @@
  * @returns 纯文本，超过长度会截断并添加省略号
  */
 export function stripHtml(html: string, maxLength: number = 100): string {
-  if (!html) return ''
+  if (!html) return "";
 
   // 创建一个临时 div 元素来解析 HTML
-  const tmp = document.createElement('div')
-  tmp.innerHTML = html
+  const tmp = document.createElement("div");
+  tmp.innerHTML = html;
 
   // 获取纯文本内容
-  let text = tmp.textContent || tmp.innerText || ''
+  let text = tmp.textContent || tmp.innerText || "";
 
   // 清理多余的空白字符
   text = text
-    .replace(/\s+/g, ' ')  // 多个空白字符替换为单个空格
-    .trim()
+    .replace(/\s+/g, " ") // 多个空白字符替换为单个空格
+    .trim();
 
   // 截断文本
   if (text.length > maxLength) {
-    text = text.substring(0, maxLength) + '...'
+    text = text.substring(0, maxLength) + "...";
   }
 
-  return text
+  return text;
 }
 
 /**
@@ -38,7 +38,7 @@ export function stripHtml(html: string, maxLength: number = 100): string {
  * @returns 截断后的文本
  */
 export function truncateText(text: string, maxLength: number): string {
-  if (!text) return ''
-  if (text.length <= maxLength) return text
-  return text.substring(0, maxLength) + '...'
+  if (!text) return "";
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength) + "...";
 }

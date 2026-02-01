@@ -1,28 +1,36 @@
-'use client'
+"use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { workflowApi, podcastApi, tagApi } from '@/lib/api'
-import type { WorkflowRequest, WorkflowScopeType, ScopeConfig, RulesConfig, Podcast, Workflow, Tag } from '@/types'
-import PodcastCover from '@/components/podcasts/PodcastCover'
-import { PodcastListItem } from './PodcastListItem'
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { workflowApi, podcastApi, tagApi } from "@/lib/api";
+import type {
+  WorkflowRequest,
+  WorkflowScopeType,
+  ScopeConfig,
+  RulesConfig,
+  Podcast,
+  Workflow,
+  Tag,
+} from "@/types";
+import PodcastCover from "@/components/podcasts/PodcastCover";
+import { PodcastListItem } from "./PodcastListItem";
 
-type Step = 1 | 2 | 3 | 4
+type Step = 1 | 2 | 3 | 4;
 
 interface WorkflowFormModalProps {
-  isOpen: boolean
-  onClose: () => void
-  onSuccess: () => void
-  workflow?: Workflow | null // 如果提供，则为编辑模式
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+  workflow?: Workflow | null; // 如果提供，则为编辑模式
 }
 
 // 预设的Cron表达式（6位格式：秒 分 时 日 月 周）
 const CRON_PRESETS = [
-  { label: '每天凌晨2点', value: '0 0 2 * * *' },
-  { label: '每天早上8点', value: '0 0 8 * * *' },
-  { label: '每天晚上8点', value: '0 0 20 * * *' },
-  { label: '每周日凌晨2点', value: '0 0 2 * * 0' },
-  { label: '每周一早上6点', value: '0 0 6 * * 1' },
-]
+  { label: "每天凌晨2点", value: "0 0 2 * * *" },
+  { label: "每天早上8点", value: "0 0 8 * * *" },
+  { label: "每天晚上8点", value: "0 0 20 * * *" },
+  { label: "每周日凌晨2点", value: "0 0 2 * * 0" },
+  { label: "每周一早上6点", value: "0 0 6 * * 1" },
+];
 
 // 默认User Prompt模板（包含任务要求和格式要求）
 const DEFAULT_USER_PROMPT = `# 工作流执行报告
@@ -65,526 +73,566 @@ const DEFAULT_USER_PROMPT = `# 工作流执行报告
 3. 避免连续的多个空行
 4. 用简洁专业的语言生成摘要，避免过度解读
 5. 客观准确，不添加原文没有的信息
-6. 简洁明了，避免冗余表述`
+6. 简洁明了，避免冗余表述`;
 
 // Cron表达式校验函数
-const validateCronExpression = (cronExpr: string): { valid: boolean; error?: string } => {
-  const trimmed = cronExpr.trim()
-  const parts = trimmed.split(/\s+/)
+const validateCronExpression = (
+  cronExpr: string,
+): { valid: boolean; error?: string } => {
+  const trimmed = cronExpr.trim();
+  const parts = trimmed.split(/\s+/);
 
   // 检查位数（支持5位或6位）
   if (parts.length !== 5 && parts.length !== 6) {
     return {
       valid: false,
-      error: 'Cron表达式必须包含5段或6段（秒 分 时 日 月 周）'
-    }
+      error: "Cron表达式必须包含5段或6段（秒 分 时 日 月 周）",
+    };
   }
 
   // 检查每段是否为通配符、数字、范围、间隔或列表
   const validPatterns = [
-    /^\*$/,           // 通配符
-    /^\d+$/,          // 单个数字
-    /^\d+-\d+$/,      // 范围 (如 1-5)
-    /^\*\/\d+$/,      // 间隔 (如 */6)
-    /^\d+(,\d+)+$/    // 列表 (如 1,3,5)
-  ]
+    /^\*$/, // 通配符
+    /^\d+$/, // 单个数字
+    /^\d+-\d+$/, // 范围 (如 1-5)
+    /^\*\/\d+$/, // 间隔 (如 */6)
+    /^\d+(,\d+)+$/, // 列表 (如 1,3,5)
+  ];
 
   for (let i = 0; i < parts.length; i++) {
-    if (!validPatterns.some(pattern => pattern.test(parts[i]))) {
+    if (!validPatterns.some((pattern) => pattern.test(parts[i]))) {
       return {
         valid: false,
-        error: `第 ${i + 1} 段 "${parts[i]}" 格式不正确（支持: * 数字 范围1-5 间隔*/6 列表1,3,5）`
-      }
+        error: `第 ${i + 1} 段 "${parts[i]}" 格式不正确（支持: * 数字 范围1-5 间隔*/6 列表1,3,5）`,
+      };
     }
   }
 
-  return { valid: true }
-}
+  return { valid: true };
+};
 
-export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow }: WorkflowFormModalProps) {
-  const [step, setStep] = useState<Step>(1)
-  const [loading, setLoading] = useState(false)
+export default function WorkflowFormModal({
+  isOpen,
+  onClose,
+  onSuccess,
+  workflow,
+}: WorkflowFormModalProps) {
+  const [step, setStep] = useState<Step>(1);
+  const [loading, setLoading] = useState(false);
 
   // Step 1: 基本信息
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [schedule, setSchedule] = useState('0 0 2 * *')
-  const [customCron, setCustomCron] = useState('')
-  const [lastCustomCron, setLastCustomCron] = useState('') // 保存上一次的自定义Cron
-  const [cronError, setCronError] = useState('')
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [schedule, setSchedule] = useState("0 0 2 * *");
+  const [customCron, setCustomCron] = useState("");
+  const [lastCustomCron, setLastCustomCron] = useState(""); // 保存上一次的自定义Cron
+  const [cronError, setCronError] = useState("");
 
   // Step 2: 范围配置
-  const [scopeType, setScopeType] = useState<WorkflowScopeType>('all_subscribed')
-  const [selectedPodcastIds, setSelectedPodcastIds] = useState<number[]>([])
-  const [customUrls, setCustomUrls] = useState<string[]>([])
-  const [newCustomUrl, setNewCustomUrl] = useState('')
-  const [podcasts, setPodcasts] = useState<Podcast[]>([])
-  const [podcastSearch, setPodcastSearch] = useState('')
-  const [candidatePodcastIds, setCandidatePodcastIds] = useState<number[]>([]) // 备选列表中的节目ID
-  const [isLoadingPodcasts, setIsLoadingPodcasts] = useState(false) // 加载状态
+  const [scopeType, setScopeType] =
+    useState<WorkflowScopeType>("all_subscribed");
+  const [selectedPodcastIds, setSelectedPodcastIds] = useState<number[]>([]);
+  const [customUrls, setCustomUrls] = useState<string[]>([]);
+  const [newCustomUrl, setNewCustomUrl] = useState("");
+  const [podcasts, setPodcasts] = useState<Podcast[]>([]);
+  const [podcastSearch, setPodcastSearch] = useState("");
+  const [candidatePodcastIds, setCandidatePodcastIds] = useState<number[]>([]); // 备选列表中的节目ID
+  const [isLoadingPodcasts, setIsLoadingPodcasts] = useState(false); // 加载状态
 
   // 性能优化：渐进式渲染状态
-  const [displayedCount, setDisplayedCount] = useState(50) // 初始显示50个
-  const loadMoreTriggerRef = useRef<HTMLDivElement>(null) // 无限滚动触发器
+  const [displayedCount, setDisplayedCount] = useState(50); // 初始显示50个
+  const loadMoreTriggerRef = useRef<HTMLDivElement>(null); // 无限滚动触发器
 
   // 使用 ref 跟踪 displayedCount，避免在 Intersection Observer 依赖项中包含它
-  const displayedCountRef = useRef(displayedCount)
+  const displayedCountRef = useRef(displayedCount);
 
   // 保持 ref 同步
   useEffect(() => {
-    displayedCountRef.current = displayedCount
-  }, [displayedCount])
+    displayedCountRef.current = displayedCount;
+  }, [displayedCount]);
 
   // 同步 podcasts ref（供 Intersection Observer 使用）
-  const podcastsRef = useRef(podcasts)
+  const podcastsRef = useRef(podcasts);
   useEffect(() => {
-    podcastsRef.current = podcasts
-  }, [podcasts])
+    podcastsRef.current = podcasts;
+  }, [podcasts]);
 
   // 同步 podcastSearch ref（供 Intersection Observer 使用）
-  const podcastSearchRef = useRef(podcastSearch)
+  const podcastSearchRef = useRef(podcastSearch);
   useEffect(() => {
-    podcastSearchRef.current = podcastSearch
-  }, [podcastSearch])
+    podcastSearchRef.current = podcastSearch;
+  }, [podcastSearch]);
 
   // 标签筛选相关状态
-  const [tags, setTags] = useState<Tag[]>([])
-  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
-  const [tagSearch, setTagSearch] = useState('')
-  const [isTagFilterExpanded, setIsTagFilterExpanded] = useState(false)
-  const [isLoadingTags, setIsLoadingTags] = useState(false)
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
+  const [tagSearch, setTagSearch] = useState("");
+  const [isTagFilterExpanded, setIsTagFilterExpanded] = useState(false);
+  const [isLoadingTags, setIsLoadingTags] = useState(false);
 
   // 同步 selectedTagIds ref（供 Intersection Observer 使用）
   // 注意：必须定义在 selectedTagIds state 之后
-  const selectedTagIdsRef = useRef(selectedTagIds)
+  const selectedTagIdsRef = useRef(selectedTagIds);
   useEffect(() => {
-    selectedTagIdsRef.current = selectedTagIds
-  }, [selectedTagIds])
+    selectedTagIdsRef.current = selectedTagIds;
+  }, [selectedTagIds]);
 
   // Step 3: 规则配置
-  const [timeRange, setTimeRange] = useState(0)
-  const [minDuration, setMinDuration] = useState(0)
-  const [maxResults, setMaxResults] = useState(0)
-  const [keywords, setKeywords] = useState('')
-  const [excludeWords, setExcludeWords] = useState('')
+  const [timeRange, setTimeRange] = useState(0);
+  const [minDuration, setMinDuration] = useState(0);
+  const [maxResults, setMaxResults] = useState(0);
+  const [keywords, setKeywords] = useState("");
+  const [excludeWords, setExcludeWords] = useState("");
 
   // LLM智能摘要配置
-  const [llmEnabled, setLlmEnabled] = useState(false)
-  const [llmMaxEpisodes, setLlmMaxEpisodes] = useState(20)
-  const [llmModel, setLlmModel] = useState('')
-  const [llmTemperature, setLlmTemperature] = useState(0.7)
-  const [llmMaxTokens, setLlmMaxTokens] = useState(1000)
-  const [llmUserPrompt, setLlmUserPrompt] = useState('') // User Prompt配置
+  const [llmEnabled, setLlmEnabled] = useState(false);
+  const [llmMaxEpisodes, setLlmMaxEpisodes] = useState(20);
+  const [llmModel, setLlmModel] = useState("");
+  const [llmTemperature, setLlmTemperature] = useState(0.7);
+  const [llmMaxTokens, setLlmMaxTokens] = useState(1000);
+  const [llmUserPrompt, setLlmUserPrompt] = useState(""); // User Prompt配置
 
   // 初始化表单数据（编辑模式）
   useEffect(() => {
     if (isOpen) {
       // 加载标签（仅在标签列表为空时加载一次）
       if (tags.length === 0) {
-        loadTags()
+        loadTags();
       }
 
       if (workflow) {
         // 编辑模式：填充现有数据
-        console.log('[WorkflowFormModal] Loading workflow for edit:', workflow)
-        console.log('[WorkflowFormModal] Workflow rules_config:', workflow.rules_config)
-        setName(workflow.name)
-        setDescription(workflow.description || '')
+        console.log("[WorkflowFormModal] Loading workflow for edit:", workflow);
+        console.log(
+          "[WorkflowFormModal] Workflow rules_config:",
+          workflow.rules_config,
+        );
+        setName(workflow.name);
+        setDescription(workflow.description || "");
 
         // 判断 schedule 是预设还是自定义
-        const isPresetSchedule = CRON_PRESETS.some(preset => preset.value === workflow.schedule)
+        const isPresetSchedule = CRON_PRESETS.some(
+          (preset) => preset.value === workflow.schedule,
+        );
         if (isPresetSchedule) {
-          setSchedule(workflow.schedule)
-          setCustomCron('')
+          setSchedule(workflow.schedule);
+          setCustomCron("");
         } else {
           // 自定义cron表达式
-          setCustomCron(workflow.schedule)
-          setSchedule('')
+          setCustomCron(workflow.schedule);
+          setSchedule("");
         }
 
-        setScopeType(workflow.scope_type)
+        setScopeType(workflow.scope_type);
 
         if (workflow.scope_config) {
           if (workflow.scope_config.podcast_ids) {
             // 编辑模式：将已保存的节目ID设置到candidatePodcastIds（备选列表）
-            setCandidatePodcastIds(workflow.scope_config.podcast_ids)
+            setCandidatePodcastIds(workflow.scope_config.podcast_ids);
           }
           if (workflow.scope_config.custom_urls) {
-            setCustomUrls(workflow.scope_config.custom_urls)
+            setCustomUrls(workflow.scope_config.custom_urls);
           }
         }
 
         if (workflow.rules_config) {
-          setTimeRange(workflow.rules_config.time_range || 0)
-          setMinDuration(workflow.rules_config.min_duration || 0)
-          setMaxResults(workflow.rules_config.max_results || 0)
-          setKeywords(workflow.rules_config.keywords || '')
-          setExcludeWords(workflow.rules_config.exclude_words || '')
+          setTimeRange(workflow.rules_config.time_range || 0);
+          setMinDuration(workflow.rules_config.min_duration || 0);
+          setMaxResults(workflow.rules_config.max_results || 0);
+          setKeywords(workflow.rules_config.keywords || "");
+          setExcludeWords(workflow.rules_config.exclude_words || "");
 
           // LLM配置 - 添加调试日志
-          console.log('[WorkflowFormModal] Loading LLM config from workflow:', {
+          console.log("[WorkflowFormModal] Loading LLM config from workflow:", {
             llm_enabled: workflow.rules_config.llm_enabled,
             llm_max_episodes: workflow.rules_config.llm_max_episodes,
             llm_model: workflow.rules_config.llm_model,
             llm_temperature: workflow.rules_config.llm_temperature,
             llm_max_tokens: workflow.rules_config.llm_max_tokens,
-          })
+          });
 
-          setLlmEnabled(workflow.rules_config.llm_enabled || false)
-          setLlmMaxEpisodes(workflow.rules_config.llm_max_episodes || 20)
-          setLlmModel(workflow.rules_config.llm_model || '')
-          setLlmTemperature(workflow.rules_config.llm_temperature ?? 0.7)
-          setLlmMaxTokens(workflow.rules_config.llm_max_tokens || 1000)
-          setLlmUserPrompt(workflow.rules_config.llm_user_prompt || '')
+          setLlmEnabled(workflow.rules_config.llm_enabled || false);
+          setLlmMaxEpisodes(workflow.rules_config.llm_max_episodes || 20);
+          setLlmModel(workflow.rules_config.llm_model || "");
+          setLlmTemperature(workflow.rules_config.llm_temperature ?? 0.7);
+          setLlmMaxTokens(workflow.rules_config.llm_max_tokens || 1000);
+          setLlmUserPrompt(workflow.rules_config.llm_user_prompt || "");
         }
 
         // 编辑模式下，如果是指定节目类型，立即加载podcasts
         // 这样可以在用户进入第2步时就已经准备好了数据
-        if (workflow.scope_type === 'specific_podcasts') {
-          loadPodcasts()
+        if (workflow.scope_type === "specific_podcasts") {
+          loadPodcasts();
         }
       } else {
         // 创建模式：重置为默认值
-        resetForm()
+        resetForm();
       }
     }
-  }, [isOpen, workflow])
+  }, [isOpen, workflow]);
 
   // 重置表单
   const resetForm = () => {
-    setName('')
-    setDescription('')
-    setSchedule('0 0 2 * * *')
-    setCustomCron('')
-    setCronError('')
-    setScopeType('all_subscribed')
-    setSelectedPodcastIds([])
-    setCandidatePodcastIds([])
-    setCustomUrls([])
-    setNewCustomUrl('')
-    setPodcasts([])
-    setPodcastSearch('')
-    setSelectedTagIds([])
-    setTagSearch('')
-    setIsTagFilterExpanded(false)
-    setTimeRange(0)
-    setMinDuration(0)
-    setMaxResults(0)
-    setKeywords('')
-    setExcludeWords('')
-    setLlmEnabled(false)
-    setLlmMaxEpisodes(20)
-    setLlmModel('')
-    setLlmTemperature(0.7)
-    setLlmMaxTokens(1000)
-    setStep(1)
-  }
+    setName("");
+    setDescription("");
+    setSchedule("0 0 2 * * *");
+    setCustomCron("");
+    setCronError("");
+    setScopeType("all_subscribed");
+    setSelectedPodcastIds([]);
+    setCandidatePodcastIds([]);
+    setCustomUrls([]);
+    setNewCustomUrl("");
+    setPodcasts([]);
+    setPodcastSearch("");
+    setSelectedTagIds([]);
+    setTagSearch("");
+    setIsTagFilterExpanded(false);
+    setTimeRange(0);
+    setMinDuration(0);
+    setMaxResults(0);
+    setKeywords("");
+    setExcludeWords("");
+    setLlmEnabled(false);
+    setLlmMaxEpisodes(20);
+    setLlmModel("");
+    setLlmTemperature(0.7);
+    setLlmMaxTokens(1000);
+    setStep(1);
+  };
 
   // 加载播客列表 - 一次性加载所有播客
   const loadPodcasts = async () => {
     try {
-      setIsLoadingPodcasts(true)
+      setIsLoadingPodcasts(true);
 
-      let allPodcasts: Podcast[] = []
-      let page = 1
-      let hasMore = true
-      const maxPages = 20 // 最多加载20页（2000个节目）
+      let allPodcasts: Podcast[] = [];
+      let page = 1;
+      let hasMore = true;
+      const maxPages = 20; // 最多加载20页（2000个节目）
 
       // 分页加载所有节目
       while (hasMore && page <= maxPages) {
-        const response = await podcastApi.list({ page, page_size: 100 })
-        const newPodcasts = response.data || []
+        const response = await podcastApi.list({ page, page_size: 100 });
+        const newPodcasts = response.data || [];
 
-        allPodcasts = [...allPodcasts, ...newPodcasts]
+        allPodcasts = [...allPodcasts, ...newPodcasts];
 
         // 如果返回的数量少于 page_size，说明已经是最后一页
         if (newPodcasts.length < 100) {
-          hasMore = false
+          hasMore = false;
         } else {
-          page++
+          page++;
         }
       }
 
       if (page > maxPages && hasMore) {
-        console.warn('[CreateWorkflowModal] Reached max pages limit, some podcasts may not be loaded')
+        console.warn(
+          "[CreateWorkflowModal] Reached max pages limit, some podcasts may not be loaded",
+        );
       }
 
-      setPodcasts(allPodcasts)
+      setPodcasts(allPodcasts);
 
       // 初始显示50个
-      setDisplayedCount(Math.min(50, allPodcasts.length))
+      setDisplayedCount(Math.min(50, allPodcasts.length));
     } catch (err) {
-      console.error('[CreateWorkflowModal] Failed to load podcasts:', err)
-      alert('加载节目失败: ' + (err instanceof Error ? err.message : '未知错误'))
+      console.error("[CreateWorkflowModal] Failed to load podcasts:", err);
+      alert(
+        "加载节目失败: " + (err instanceof Error ? err.message : "未知错误"),
+      );
     } finally {
-      setIsLoadingPodcasts(false)
+      setIsLoadingPodcasts(false);
     }
-  }
+  };
 
   // 显示更多已加载的播客（滚动到底部时）
   const showMoreLoadedPodcasts = useCallback(() => {
     // 每次增加50个显示，但不超过已加载的总数
-    setDisplayedCount(prev => Math.min(prev + 50, podcasts.length))
-  }, [podcasts.length])
+    setDisplayedCount((prev) => Math.min(prev + 50, podcasts.length));
+  }, [podcasts.length]);
 
   // 计算是否有更多内容需要显示
   const hasMoreContent = useMemo(() => {
-    const filteredCount = podcasts.filter(p => {
+    const filteredCount = podcasts.filter((p) => {
       if (selectedTagIds.length > 0) {
-        const podcastTagIds = p.tags?.map(t => t.id) || []
-        if (!selectedTagIds.every(tagId => podcastTagIds.includes(tagId))) {
-          return false
+        const podcastTagIds = p.tags?.map((t) => t.id) || [];
+        if (!selectedTagIds.every((tagId) => podcastTagIds.includes(tagId))) {
+          return false;
         }
       }
-      if (!podcastSearch.trim()) return true
-      const searchLower = podcastSearch.toLowerCase().trim()
-      return (p.title || '').toLowerCase().includes(searchLower) ||
-             (p.author || '').toLowerCase().includes(searchLower)
-    }).length
+      if (!podcastSearch.trim()) return true;
+      const searchLower = podcastSearch.toLowerCase().trim();
+      return (
+        (p.title || "").toLowerCase().includes(searchLower) ||
+        (p.author || "").toLowerCase().includes(searchLower)
+      );
+    }).length;
 
-    return filteredCount > displayedCount
-  }, [podcasts, selectedTagIds, podcastSearch, displayedCount])
+    return filteredCount > displayedCount;
+  }, [podcasts, selectedTagIds, podcastSearch, displayedCount]);
 
   // 无限滚动逻辑（Intersection Observer）
   useEffect(() => {
     // 如果还在加载中，等待加载完成后再设置 Observer
     if (isLoadingPodcasts) {
-      return
+      return;
     }
 
     // 使用 ref 存储 observer
-    const observerRef = { current: null as IntersectionObserver | null }
+    const observerRef = { current: null as IntersectionObserver | null };
 
     // 设置 Observer 的函数
     const setupObserver = () => {
-      const target = loadMoreTriggerRef.current
+      const target = loadMoreTriggerRef.current;
       if (!target) {
         // 再次尝试
-        setTimeout(setupObserver, 50)
-        return
+        setTimeout(setupObserver, 50);
+        return;
       }
 
       const observer = new IntersectionObserver(
         (entries) => {
           if (entries[0].isIntersecting) {
             // 使用函数式更新，基于当前 state 计算
-            setDisplayedCount(prevDisplayed => {
+            setDisplayedCount((prevDisplayed) => {
               // 使用最新的 ref 值计算筛选结果数量
-              const currentPodcasts = podcastsRef.current
-              const currentSelectedTagIds = selectedTagIdsRef.current
-              const currentPodcastSearch = podcastSearchRef.current
+              const currentPodcasts = podcastsRef.current;
+              const currentSelectedTagIds = selectedTagIdsRef.current;
+              const currentPodcastSearch = podcastSearchRef.current;
 
               // 动态计算当前筛选结果数量
-              const currentFilteredCount = currentPodcasts.filter(p => {
+              const currentFilteredCount = currentPodcasts.filter((p) => {
                 // 标签筛选
                 if (currentSelectedTagIds.length > 0) {
-                  const podcastTagIds = p.tags?.map(t => t.id) || []
-                  if (!currentSelectedTagIds.every(tagId => podcastTagIds.includes(tagId))) {
-                    return false
+                  const podcastTagIds = p.tags?.map((t) => t.id) || [];
+                  if (
+                    !currentSelectedTagIds.every((tagId) =>
+                      podcastTagIds.includes(tagId),
+                    )
+                  ) {
+                    return false;
                   }
                 }
                 // 搜索筛选
-                if (!currentPodcastSearch.trim()) return true
-                const searchLower = currentPodcastSearch.toLowerCase().trim()
-                return (p.title || '').toLowerCase().includes(searchLower) ||
-                       (p.author || '').toLowerCase().includes(searchLower)
-              }).length
+                if (!currentPodcastSearch.trim()) return true;
+                const searchLower = currentPodcastSearch.toLowerCase().trim();
+                return (
+                  (p.title || "").toLowerCase().includes(searchLower) ||
+                  (p.author || "").toLowerCase().includes(searchLower)
+                );
+              }).length;
 
               // 只有当真的有更多内容时才更新
               if (prevDisplayed < currentFilteredCount) {
-                const newValue = Math.min(prevDisplayed + 50, currentFilteredCount)
+                const newValue = Math.min(
+                  prevDisplayed + 50,
+                  currentFilteredCount,
+                );
                 // 同步更新 ref
-                displayedCountRef.current = newValue
-                return newValue
+                displayedCountRef.current = newValue;
+                return newValue;
               }
-              return prevDisplayed
-            })
+              return prevDisplayed;
+            });
           }
         },
-        { rootMargin: '200px' }
-      )
+        { rootMargin: "200px" },
+      );
 
-      observer.observe(target)
-      observerRef.current = observer
-    }
+      observer.observe(target);
+      observerRef.current = observer;
+    };
 
     // 使用 requestAnimationFrame 确保 DOM 渲染完成
     requestAnimationFrame(() => {
-      setTimeout(setupObserver, 0)
-    })
+      setTimeout(setupObserver, 0);
+    });
 
     return () => {
       if (observerRef.current) {
-        observerRef.current.disconnect()
+        observerRef.current.disconnect();
       }
-    }
-  }, [isLoadingPodcasts, selectedTagIds, podcastSearch]) // ✅ 添加筛选条件依赖，确保它们变化时重建 Observer
+    };
+  }, [isLoadingPodcasts, selectedTagIds, podcastSearch]); // ✅ 添加筛选条件依赖，确保它们变化时重建 Observer
 
   // 当搜索或筛选条件变化时，重置 displayedCount
   useEffect(() => {
-    setDisplayedCount(50)
+    setDisplayedCount(50);
     // 同步更新 ref
-    displayedCountRef.current = 50
-  }, [selectedTagIds, podcastSearch])
+    displayedCountRef.current = 50;
+  }, [selectedTagIds, podcastSearch]);
 
   // 加载标签列表
   const loadTags = async () => {
     try {
-      setIsLoadingTags(true)
-      const allTags = await tagApi.list()
-      setTags(allTags)
+      setIsLoadingTags(true);
+      const allTags = await tagApi.list();
+      setTags(allTags);
     } catch (err) {
-      console.error('[CreateWorkflowModal] Failed to load tags:', err)
+      console.error("[CreateWorkflowModal] Failed to load tags:", err);
     } finally {
-      setIsLoadingTags(false)
+      setIsLoadingTags(false);
     }
-  }
+  };
 
   // 处理自定义URL添加
   const handleAddCustomUrl = () => {
     if (newCustomUrl.trim() && !customUrls.includes(newCustomUrl.trim())) {
-      setCustomUrls([...customUrls, newCustomUrl.trim()])
-      setNewCustomUrl('')
+      setCustomUrls([...customUrls, newCustomUrl.trim()]);
+      setNewCustomUrl("");
     }
-  }
+  };
 
   // 添加节目到备选列表 - 使用useCallback优化
-  const handleAddToCandidate = useCallback((podcastId: number) => {
-    if (!candidatePodcastIds.includes(podcastId)) {
-      setCandidatePodcastIds(prev => [...prev, podcastId])
-    }
-  }, [candidatePodcastIds])
+  const handleAddToCandidate = useCallback(
+    (podcastId: number) => {
+      if (!candidatePodcastIds.includes(podcastId)) {
+        setCandidatePodcastIds((prev) => [...prev, podcastId]);
+      }
+    },
+    [candidatePodcastIds],
+  );
 
   // 从备选列表移除节目 - 使用useCallback优化
   const handleRemoveFromCandidate = useCallback((podcastId: number) => {
-    setCandidatePodcastIds(prev => prev.filter(id => id !== podcastId))
-  }, [])
+    setCandidatePodcastIds((prev) => prev.filter((id) => id !== podcastId));
+  }, []);
 
   // 批量添加搜索结果到备选列表 - 优化为异步分批处理
   const handleAddAllFiltered = useCallback(async () => {
     // 在函数内部计算过滤结果，避免依赖顺序问题
-    const filtered = podcasts.filter(p => {
+    const filtered = podcasts.filter((p) => {
       // 标签筛选
       if (selectedTagIds.length > 0) {
-        const podcastTagIds = p.tags?.map(t => t.id) || []
-        const hasAllTags = selectedTagIds.every(tagId => podcastTagIds.includes(tagId))
-        if (!hasAllTags) return false
+        const podcastTagIds = p.tags?.map((t) => t.id) || [];
+        const hasAllTags = selectedTagIds.every((tagId) =>
+          podcastTagIds.includes(tagId),
+        );
+        if (!hasAllTags) return false;
       }
 
       // 搜索筛选
-      if (!podcastSearch.trim()) return true
-      const searchLower = podcastSearch.toLowerCase().trim()
+      if (!podcastSearch.trim()) return true;
+      const searchLower = podcastSearch.toLowerCase().trim();
       return (
-        (p.title || '').toLowerCase().includes(searchLower) ||
-        (p.author || '').toLowerCase().includes(searchLower)
-      )
-    })
+        (p.title || "").toLowerCase().includes(searchLower) ||
+        (p.author || "").toLowerCase().includes(searchLower)
+      );
+    });
 
-    const filteredIds = filtered.slice(0, displayedCount).map(p => p.id)
+    const filteredIds = filtered.slice(0, displayedCount).map((p) => p.id);
 
     // 分批添加（每批50个），避免阻塞UI
     for (let i = 0; i < filteredIds.length; i += 50) {
-      const batch = filteredIds.slice(i, i + 50)
-      setCandidatePodcastIds(prev => [...new Set([...prev, ...batch])])
+      const batch = filteredIds.slice(i, i + 50);
+      setCandidatePodcastIds((prev) => [...new Set([...prev, ...batch])]);
       // 让出主线程，避免UI卡顿
-      await new Promise(resolve => setTimeout(resolve, 0))
+      await new Promise((resolve) => setTimeout(resolve, 0));
     }
-  }, [podcasts, selectedTagIds, podcastSearch, displayedCount])
+  }, [podcasts, selectedTagIds, podcastSearch, displayedCount]);
 
   // 处理自定义URL删除
   const handleRemoveCustomUrl = (url: string) => {
-    setCustomUrls(customUrls.filter(u => u !== url))
-  }
+    setCustomUrls(customUrls.filter((u) => u !== url));
+  };
 
   // 验证当前步骤
   const validateStep = (): boolean => {
     if (step === 1) {
       if (!name.trim()) {
-        alert('请输入工作流名称')
-        return false
+        alert("请输入工作流名称");
+        return false;
       }
 
       // 检查实际使用的cron表达式（自定义输入优先，否则用预设）
-      const actualCron = customCron.trim() || schedule.trim()
+      const actualCron = customCron.trim() || schedule.trim();
       if (!actualCron) {
-        setCronError('请选择或输入定时规则')
-        return false
+        setCronError("请选择或输入定时规则");
+        return false;
       }
 
       // 校验 cron 格式
-      const validation = validateCronExpression(actualCron)
+      const validation = validateCronExpression(actualCron);
       if (!validation.valid) {
-        setCronError(validation.error || 'Cron表达式格式错误')
-        return false
+        setCronError(validation.error || "Cron表达式格式错误");
+        return false;
       }
 
       // 清除错误信息（校验通过时）
-      setCronError('')
+      setCronError("");
     }
     if (step === 2) {
-      if (scopeType === 'specific_podcasts' && candidatePodcastIds.length === 0) {
-        alert('请至少添加一个节目到备选列表')
-        return false
+      if (
+        scopeType === "specific_podcasts" &&
+        candidatePodcastIds.length === 0
+      ) {
+        alert("请至少添加一个节目到备选列表");
+        return false;
       }
-      if (scopeType === 'custom_sources' && customUrls.length === 0) {
-        alert('请至少添加一个RSS源')
-        return false
+      if (scopeType === "custom_sources" && customUrls.length === 0) {
+        alert("请至少添加一个RSS源");
+        return false;
       }
     }
-    return true
-  }
+    return true;
+  };
 
   // 处理下一步
   const handleNext = async () => {
-    if (!validateStep()) return
+    if (!validateStep()) return;
 
-    if (step === 2 && scopeType === 'specific_podcasts' && podcasts.length === 0) {
-      await loadPodcasts()
+    if (
+      step === 2 &&
+      scopeType === "specific_podcasts" &&
+      podcasts.length === 0
+    ) {
+      await loadPodcasts();
     }
 
     if (step < 4) {
-      setStep((step + 1) as Step)
+      setStep((step + 1) as Step);
     } else {
-      await handleSubmit()
+      await handleSubmit();
     }
-  }
+  };
 
   // 处理上一步
   const handlePrev = () => {
     if (step > 1) {
-      setStep((step - 1) as Step)
+      setStep((step - 1) as Step);
     }
-  }
+  };
 
   // 将5位cron格式转换为6位格式（添加秒字段）
   const convertToSixDigitCron = (cronExpr: string): string => {
-    const trimmed = cronExpr.trim()
-    const parts = trimmed.split(/\s+/)
+    const trimmed = cronExpr.trim();
+    const parts = trimmed.split(/\s+/);
 
     // 如果已经是6位格式，直接返回
     if (parts.length === 6) {
-      return trimmed
+      return trimmed;
     }
 
     // 如果是5位格式（分 时 日 月 周），在前面添加 "0" 秒
     if (parts.length === 5) {
-      return `0 ${trimmed}`
+      return `0 ${trimmed}`;
     }
 
     // 其他情况（不合法的格式），原样返回让后端验证
-    return trimmed
-  }
+    return trimmed;
+  };
 
   // 提交创建
   const handleSubmit = async () => {
     try {
-      setLoading(true)
+      setLoading(true);
 
-      const scopeConfig: ScopeConfig = {}
-      if (scopeType === 'specific_podcasts') {
-        scopeConfig.podcast_ids = candidatePodcastIds
-      } else if (scopeType === 'custom_sources') {
-        scopeConfig.custom_urls = customUrls
+      const scopeConfig: ScopeConfig = {};
+      if (scopeType === "specific_podcasts") {
+        scopeConfig.podcast_ids = candidatePodcastIds;
+      } else if (scopeType === "custom_sources") {
+        scopeConfig.custom_urls = customUrls;
       }
 
       const rulesConfig: RulesConfig = {
@@ -601,20 +649,20 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         llm_max_tokens: llmEnabled ? llmMaxTokens : undefined,
         // User Prompt配置 - 只在用户明确输入时才提交
         ...(llmEnabled && llmUserPrompt && { llm_user_prompt: llmUserPrompt }),
-      }
+      };
 
       // 获取实际使用的cron表达式并转换为6位格式
-      const actualCron = customCron.trim() || schedule.trim()
-      const finalCron = convertToSixDigitCron(actualCron)
+      const actualCron = customCron.trim() || schedule.trim();
+      const finalCron = convertToSixDigitCron(actualCron);
 
-      console.log('[WorkflowFormModal] Cron conversion:', {
+      console.log("[WorkflowFormModal] Cron conversion:", {
         original: actualCron,
         converted: finalCron,
-        isCustom: !!customCron.trim()
-      })
+        isCustom: !!customCron.trim(),
+      });
 
       // 如果 cron 表达式有效,自动启用调度
-      const shouldBeEnabled = actualCron.length > 0
+      const shouldBeEnabled = actualCron.length > 0;
 
       const data: WorkflowRequest = {
         name: name.trim(),
@@ -624,88 +672,93 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         scope_config: scopeConfig,
         rules_config: rulesConfig,
         is_enabled: shouldBeEnabled,
-      }
+      };
 
-      console.log('[WorkflowFormModal] Submitting workflow:', data)
-      console.log('[WorkflowFormModal] LLM Config in rules_config:', data.rules_config)
+      console.log("[WorkflowFormModal] Submitting workflow:", data);
+      console.log(
+        "[WorkflowFormModal] LLM Config in rules_config:",
+        data.rules_config,
+      );
 
       if (workflow) {
         // 编辑模式
-        await workflowApi.update(workflow.id, data)
-        console.log('[WorkflowFormModal] Workflow updated successfully')
+        await workflowApi.update(workflow.id, data);
+        console.log("[WorkflowFormModal] Workflow updated successfully");
       } else {
         // 创建模式
-        await workflowApi.create(data)
-        console.log('[WorkflowFormModal] Workflow created successfully')
+        await workflowApi.create(data);
+        console.log("[WorkflowFormModal] Workflow created successfully");
       }
 
-      onSuccess()
-      handleClose()
+      onSuccess();
+      handleClose();
     } catch (err) {
-      console.error('[WorkflowFormModal] Submit failed:', err)
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-      alert(`${workflow ? '更新' : '创建'}失败: ${errorMessage}`)
+      console.error("[WorkflowFormModal] Submit failed:", err);
+      const errorMessage = err instanceof Error ? err.message : "Unknown error";
+      alert(`${workflow ? "更新" : "创建"}失败: ${errorMessage}`);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   // 关闭Modal
   const handleClose = () => {
-    setStep(1)
-    setName('')
-    setDescription('')
-    setSchedule('0 0 2 * * *')
-    setCustomCron('')
-    setCronError('')
-    setScopeType('all_subscribed')
-    setSelectedPodcastIds([])
-    setCandidatePodcastIds([])
-    setCustomUrls([])
-    setNewCustomUrl('')
-    setPodcasts([])
-    setPodcastSearch('')
-    setSelectedTagIds([])
-    setTagSearch('')
-    setIsTagFilterExpanded(false)
-    setTimeRange(0)
-    setMinDuration(0)
-    setMaxResults(0)
-    setKeywords('')
-    setExcludeWords('')
-    setLlmEnabled(false)
-    setLlmMaxEpisodes(20)
-    setLlmModel('')
-    setLlmTemperature(0.7)
-    setLlmMaxTokens(1000)
-    onClose()
-  }
+    setStep(1);
+    setName("");
+    setDescription("");
+    setSchedule("0 0 2 * * *");
+    setCustomCron("");
+    setCronError("");
+    setScopeType("all_subscribed");
+    setSelectedPodcastIds([]);
+    setCandidatePodcastIds([]);
+    setCustomUrls([]);
+    setNewCustomUrl("");
+    setPodcasts([]);
+    setPodcastSearch("");
+    setSelectedTagIds([]);
+    setTagSearch("");
+    setIsTagFilterExpanded(false);
+    setTimeRange(0);
+    setMinDuration(0);
+    setMaxResults(0);
+    setKeywords("");
+    setExcludeWords("");
+    setLlmEnabled(false);
+    setLlmMaxEpisodes(20);
+    setLlmModel("");
+    setLlmTemperature(0.7);
+    setLlmMaxTokens(1000);
+    onClose();
+  };
 
   // 过滤播客列表（支持搜索和标签筛选） - 使用useMemo优化
   const filteredPodcasts = useMemo(() => {
-    return podcasts.filter(p => {
+    return podcasts.filter((p) => {
       // 标签筛选（AND逻辑：必须包含所有选中的标签）
       if (selectedTagIds.length > 0) {
-        const podcastTagIds = p.tags?.map(t => t.id) || []
-        const hasAllTags = selectedTagIds.every(tagId => podcastTagIds.includes(tagId))
-        if (!hasAllTags) return false
+        const podcastTagIds = p.tags?.map((t) => t.id) || [];
+        const hasAllTags = selectedTagIds.every((tagId) =>
+          podcastTagIds.includes(tagId),
+        );
+        if (!hasAllTags) return false;
       }
 
       // 搜索筛选
-      if (!podcastSearch.trim()) return true
+      if (!podcastSearch.trim()) return true;
 
-      const searchLower = podcastSearch.toLowerCase().trim()
-      const title = (p.title || '').toLowerCase()
-      const author = (p.author || '').toLowerCase()
+      const searchLower = podcastSearch.toLowerCase().trim();
+      const title = (p.title || "").toLowerCase();
+      const author = (p.author || "").toLowerCase();
 
-      const titleMatch = title.includes(searchLower)
-      const authorMatch = author.includes(searchLower)
+      const titleMatch = title.includes(searchLower);
+      const authorMatch = author.includes(searchLower);
 
-      return titleMatch || authorMatch
-    })
-  }, [podcasts, selectedTagIds, podcastSearch])
+      return titleMatch || authorMatch;
+    });
+  }, [podcasts, selectedTagIds, podcastSearch]);
 
-  if (!isOpen) return null
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -714,7 +767,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
         <div className="border-b border-slate-200 dark:border-slate-700 p-6">
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-50">
-              {workflow ? '编辑工作流' : '创建工作流'} ({step}/4)
+              {workflow ? "编辑工作流" : "创建工作流"} ({step}/4)
             </h2>
             <button
               onClick={handleClose}
@@ -725,10 +778,18 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
           </div>
           {/* Progress Bar */}
           <div className="mt-4 flex gap-2">
-            <div className={`flex-1 h-1 rounded ${step >= 1 ? 'bg-blue-600' : 'bg-slate-200 dark:bg-slate-700'}`} />
-            <div className={`flex-1 h-1 rounded ${step >= 2 ? 'bg-blue-600' : 'bg-slate-200 dark:bg-slate-700'}`} />
-            <div className={`flex-1 h-1 rounded ${step >= 3 ? 'bg-blue-600' : 'bg-slate-200 dark:bg-slate-700'}`} />
-            <div className={`flex-1 h-1 rounded ${step >= 4 ? 'bg-blue-600' : 'bg-slate-200 dark:bg-slate-700'}`} />
+            <div
+              className={`flex-1 h-1 rounded ${step >= 1 ? "bg-blue-600" : "bg-slate-200 dark:bg-slate-700"}`}
+            />
+            <div
+              className={`flex-1 h-1 rounded ${step >= 2 ? "bg-blue-600" : "bg-slate-200 dark:bg-slate-700"}`}
+            />
+            <div
+              className={`flex-1 h-1 rounded ${step >= 3 ? "bg-blue-600" : "bg-slate-200 dark:bg-slate-700"}`}
+            />
+            <div
+              className={`flex-1 h-1 rounded ${step >= 4 ? "bg-blue-600" : "bg-slate-200 dark:bg-slate-700"}`}
+            />
           </div>
         </div>
 
@@ -774,27 +835,33 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                         key={preset.value}
                         type="button"
                         onClick={() => {
-                          setSchedule(preset.value)
+                          setSchedule(preset.value);
                           // 保存上一次的自定义Cron（如果有值的话）
                           if (customCron.trim()) {
-                            setLastCustomCron(customCron)
+                            setLastCustomCron(customCron);
                           }
-                          setCustomCron('') // 清空自定义输入，切换到预设模式
-                          setCronError('') // 清除错误
+                          setCustomCron(""); // 清空自定义输入，切换到预设模式
+                          setCronError(""); // 清除错误
                         }}
                         className={`
                           px-4 py-3 rounded-lg text-left transition-all border-2
                           flex items-center gap-3
-                          ${schedule === preset.value && !customCron.trim()
-                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
-                            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700'
+                          ${
+                            schedule === preset.value && !customCron.trim()
+                              ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300"
+                              : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700"
                           }
                         `}
                       >
                         <span className="text-2xl">
-                          {preset.label.includes('凌晨') || preset.label.includes('早上') ? '🌅' :
-                           preset.label.includes('晚上') ? '🌙' :
-                           preset.label.includes('周') ? '📅' : '⏰'}
+                          {preset.label.includes("凌晨") ||
+                          preset.label.includes("早上")
+                            ? "🌅"
+                            : preset.label.includes("晚上")
+                              ? "🌙"
+                              : preset.label.includes("周")
+                                ? "📅"
+                                : "⏰"}
                         </span>
                         <div className="flex-1">
                           <div className="font-medium">{preset.label}</div>
@@ -812,21 +879,28 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                   {/* 分隔线 */}
                   <div className="flex items-center gap-3">
                     <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700"></div>
-                    <span className="text-xs text-slate-400 dark:text-slate-500">或</span>
+                    <span className="text-xs text-slate-400 dark:text-slate-500">
+                      或
+                    </span>
                     <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700"></div>
                   </div>
 
                   {/* 自定义输入区域 */}
                   <div className="relative">
                     {/* 模式指示器 */}
-                    {(customCron.trim() || (schedule && !customCron.trim())) && (
-                      <div className={`
+                    {(customCron.trim() ||
+                      (schedule && !customCron.trim())) && (
+                      <div
+                        className={`
                         absolute -top-2.5 left-3 z-10 px-2 py-0.5 text-xs font-medium rounded-full border transition-all
-                        ${customCron.trim()
-                          ? 'bg-purple-100 dark:bg-purple-900/30 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300'
-                          : 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'}
-                      `}>
-                        {customCron.trim() ? '✏️ 自定义' : '📋 预设'}
+                        ${
+                          customCron.trim()
+                            ? "bg-purple-100 dark:bg-purple-900/30 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300"
+                            : "bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300"
+                        }
+                      `}
+                      >
+                        {customCron.trim() ? "✏️ 自定义" : "📋 预设"}
                       </div>
                     )}
 
@@ -835,32 +909,37 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                         type="text"
                         value={customCron}
                         onChange={(e) => {
-                          setCustomCron(e.target.value)
+                          setCustomCron(e.target.value);
                           if (e.target.value) {
-                            setSchedule('')
+                            setSchedule("");
                           }
                           // 输入时清除错误
-                          if (cronError) setCronError('')
+                          if (cronError) setCronError("");
                         }}
                         onFocus={() => {
                           // 如果输入框为空，但有历史记录，则恢复历史输入
                           if (!customCron && lastCustomCron) {
-                            setCustomCron(lastCustomCron)
-                            setSchedule('') // 清空预设选择
+                            setCustomCron(lastCustomCron);
+                            setSchedule(""); // 清空预设选择
                           }
                           // 如果customCron为空（没有历史记录），则清空预设
                           if (!customCron && !lastCustomCron && schedule) {
-                            setSchedule('')
+                            setSchedule("");
                           }
                         }}
-                        placeholder={customCron ? '' : "自定义Cron表达式，如: 0 */6 * * * (每6小时)"}
+                        placeholder={
+                          customCron
+                            ? ""
+                            : "自定义Cron表达式，如: 0 */6 * * * (每6小时)"
+                        }
                         className={`
                           w-full px-4 py-3 border-2 rounded-lg transition-all
-                          ${customCron.trim()
-                            ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 ring-2 ring-purple-200 dark:ring-purple-800 text-slate-900 dark:text-slate-100'
-                            : cronError
-                              ? 'border-red-500 bg-white dark:bg-slate-700'
-                              : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 hover:border-slate-400 dark:hover:border-slate-500 text-slate-900 dark:text-slate-100'
+                          ${
+                            customCron.trim()
+                              ? "border-purple-500 bg-purple-50 dark:bg-purple-900/20 ring-2 ring-purple-200 dark:ring-purple-800 text-slate-900 dark:text-slate-100"
+                              : cronError
+                                ? "border-red-500 bg-white dark:bg-slate-700"
+                                : "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 hover:border-slate-400 dark:hover:border-slate-500 text-slate-900 dark:text-slate-100"
                           }
                         `}
                       />
@@ -870,8 +949,8 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                         <button
                           type="button"
                           onClick={() => {
-                            setCustomCron('')
-                            setCronError('')
+                            setCustomCron("");
+                            setCronError("");
                           }}
                           className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
                           title="清除自定义表达式"
@@ -884,15 +963,19 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                       <p className="mt-1 text-xs text-red-600 dark:text-red-400">
                         {cronError}
                       </p>
-                  )}
+                    )}
                   </div>
                   {!customCron && lastCustomCron && (
                     <p className="mt-1 text-xs text-purple-600 dark:text-purple-400">
-                      💡 点击输入框可恢复上次输入: <code className="bg-purple-50 dark:bg-purple-900/30 px-1 py-0.5 rounded text-purple-700 dark:text-purple-300">{lastCustomCron}</code>
+                      💡 点击输入框可恢复上次输入:{" "}
+                      <code className="bg-purple-50 dark:bg-purple-900/30 px-1 py-0.5 rounded text-purple-700 dark:text-purple-300">
+                        {lastCustomCron}
+                      </code>
                     </p>
                   )}
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    支持5位格式（分 时 日 月 周）或6位格式（秒 分 时 日 月 周），系统会自动转换
+                    支持5位格式（分 时 日 月 周）或6位格式（秒 分 时 日 月
+                    周），系统会自动转换
                   </p>
                 </div>
               </div>
@@ -910,13 +993,17 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                     <input
                       type="radio"
                       name="scopeType"
-                      checked={scopeType === 'all_subscribed'}
-                      onChange={() => setScopeType('all_subscribed')}
+                      checked={scopeType === "all_subscribed"}
+                      onChange={() => setScopeType("all_subscribed")}
                       className="mt-1"
                     />
                     <div>
-                      <div className="font-medium text-slate-900 dark:text-slate-50">全部已订阅节目</div>
-                      <div className="text-sm text-slate-600 dark:text-slate-400">处理所有订阅的播客节目</div>
+                      <div className="font-medium text-slate-900 dark:text-slate-50">
+                        全部已订阅节目
+                      </div>
+                      <div className="text-sm text-slate-600 dark:text-slate-400">
+                        处理所有订阅的播客节目
+                      </div>
                     </div>
                   </label>
 
@@ -924,17 +1011,21 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                     <input
                       type="radio"
                       name="scopeType"
-                      checked={scopeType === 'specific_podcasts'}
+                      checked={scopeType === "specific_podcasts"}
                       onChange={() => {
-                        setScopeType('specific_podcasts')
-                        if (podcasts.length === 0) loadPodcasts()
+                        setScopeType("specific_podcasts");
+                        if (podcasts.length === 0) loadPodcasts();
                       }}
                       className="mt-1"
                     />
                     <div className="flex-1">
-                      <div className="font-medium text-slate-900 dark:text-slate-50">指定节目</div>
-                      <div className="text-sm text-slate-600 dark:text-slate-400 mb-2">从订阅中选择特定节目</div>
-                      {scopeType === 'specific_podcasts' && (
+                      <div className="font-medium text-slate-900 dark:text-slate-50">
+                        指定节目
+                      </div>
+                      <div className="text-sm text-slate-600 dark:text-slate-400 mb-2">
+                        从订阅中选择特定节目
+                      </div>
+                      {scopeType === "specific_podcasts" && (
                         <div className="space-y-3">
                           {/* 加载指示器 */}
                           {isLoadingPodcasts && (
@@ -949,11 +1040,15 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                             {/* 折叠状态的控制栏 */}
                             <div
                               className="flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-900 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                              onClick={() => setIsTagFilterExpanded(!isTagFilterExpanded)}
+                              onClick={() =>
+                                setIsTagFilterExpanded(!isTagFilterExpanded)
+                              }
                             >
                               <div className="flex items-center gap-2">
                                 <span className="text-sm">🏷️</span>
-                                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">按标签筛选</span>
+                                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                  按标签筛选
+                                </span>
                                 {selectedTagIds.length > 0 && (
                                   <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">
                                     已选: {selectedTagIds.length}个
@@ -964,8 +1059,8 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                                 {selectedTagIds.length > 0 && (
                                   <button
                                     onClick={(e) => {
-                                      e.stopPropagation()
-                                      setSelectedTagIds([])
+                                      e.stopPropagation();
+                                      setSelectedTagIds([]);
                                     }}
                                     className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20"
                                   >
@@ -973,7 +1068,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                                   </button>
                                 )}
                                 <span className="text-slate-500 dark:text-slate-400">
-                                  {isTagFilterExpanded ? '▲' : '▼'}
+                                  {isTagFilterExpanded ? "▲" : "▼"}
                                 </span>
                               </div>
                             </div>
@@ -986,14 +1081,16 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                                   <input
                                     type="text"
                                     value={tagSearch}
-                                    onChange={(e) => setTagSearch(e.target.value)}
+                                    onChange={(e) =>
+                                      setTagSearch(e.target.value)
+                                    }
                                     placeholder="搜索标签..."
                                     disabled={isLoadingTags}
                                     className="w-full px-3 py-2 pr-8 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-sm disabled:opacity-50"
                                   />
                                   {tagSearch && !isLoadingTags && (
                                     <button
-                                      onClick={() => setTagSearch('')}
+                                      onClick={() => setTagSearch("")}
                                       className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                                     >
                                       ✕
@@ -1014,51 +1111,72 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                                   ) : (
                                     <div className="flex flex-wrap gap-2">
                                       {tags
-                                        .filter(tag => {
-                                          if (!tagSearch.trim()) return true
-                                          return tag.name.toLowerCase().includes(tagSearch.toLowerCase())
+                                        .filter((tag) => {
+                                          if (!tagSearch.trim()) return true;
+                                          return tag.name
+                                            .toLowerCase()
+                                            .includes(tagSearch.toLowerCase());
                                         })
-                                        .sort((a, b) => (b.podcast_count || 0) - (a.podcast_count || 0))
-                                        .map(tag => {
-                                          const isSelected = selectedTagIds.includes(tag.id)
+                                        .sort(
+                                          (a, b) =>
+                                            (b.podcast_count || 0) -
+                                            (a.podcast_count || 0),
+                                        )
+                                        .map((tag) => {
+                                          const isSelected =
+                                            selectedTagIds.includes(tag.id);
                                           return (
                                             <button
                                               key={tag.id}
                                               type="button"
                                               onClick={() => {
                                                 if (isSelected) {
-                                                  setSelectedTagIds(selectedTagIds.filter(id => id !== tag.id))
+                                                  setSelectedTagIds(
+                                                    selectedTagIds.filter(
+                                                      (id) => id !== tag.id,
+                                                    ),
+                                                  );
                                                 } else {
-                                                  setSelectedTagIds([...selectedTagIds, tag.id])
+                                                  setSelectedTagIds([
+                                                    ...selectedTagIds,
+                                                    tag.id,
+                                                  ]);
                                                 }
                                               }}
                                               className={`
                                                 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm border transition-all
                                                 ${
                                                   isSelected
-                                                    ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
-                                                    : 'bg-white dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-600'
+                                                    ? "bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300"
+                                                    : "bg-white dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-600"
                                                 }
                                               `}
                                             >
                                               <span
                                                 className="w-2.5 h-2.5 rounded-full border border-slate-300 dark:border-slate-500"
-                                                style={{ backgroundColor: tag.color }}
+                                                style={{
+                                                  backgroundColor: tag.color,
+                                                }}
                                               />
                                               <span>{tag.name}</span>
-                                              {tag.podcast_count !== undefined && (
-                                                <span className={`
+                                              {tag.podcast_count !==
+                                                undefined && (
+                                                <span
+                                                  className={`
                                                   text-xs
-                                                  ${isSelected ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400'}
-                                                `}>
+                                                  ${isSelected ? "text-blue-600 dark:text-blue-400" : "text-slate-500 dark:text-slate-400"}
+                                                `}
+                                                >
                                                   ({tag.podcast_count})
                                                 </span>
                                               )}
                                               {isSelected && (
-                                                <span className="ml-1 text-blue-600 dark:text-blue-400">✓</span>
+                                                <span className="ml-1 text-blue-600 dark:text-blue-400">
+                                                  ✓
+                                                </span>
                                               )}
                                             </button>
-                                          )
+                                          );
                                         })}
                                     </div>
                                   )}
@@ -1079,7 +1197,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                             />
                             {podcastSearch && !isLoadingPodcasts && (
                               <button
-                                onClick={() => setPodcastSearch('')}
+                                onClick={() => setPodcastSearch("")}
                                 className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                               >
                                 ✕
@@ -1088,11 +1206,13 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                           </div>
 
                           {/* 使用提示 */}
-                          {filteredPodcasts.length > 0 && !isLoadingPodcasts && (
-                            <div className="text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/30 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
-                              💡 <strong>提示：</strong>点击列表项选择节目，或点击中间的"全部添加"按钮批量加入
-                            </div>
-                          )}
+                          {filteredPodcasts.length > 0 &&
+                            !isLoadingPodcasts && (
+                              <div className="text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/30 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
+                                💡 <strong>提示：</strong>
+                                点击列表项选择节目，或点击中间的"全部添加"按钮批量加入
+                              </div>
+                            )}
 
                           {/* 三栏布局 - 固定高度 */}
                           <div className="grid grid-cols-12 gap-3 transition-all duration-200">
@@ -1122,7 +1242,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                                     ) : podcastSearch ? (
                                       `没有找到匹配"${podcastSearch}"的节目`
                                     ) : (
-                                      '显示所有 ' + podcasts.length + ' 个节目'
+                                      "显示所有 " + podcasts.length + " 个节目"
                                     )}
                                   </div>
                                 ) : (
@@ -1130,29 +1250,39 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                                     {/* 结果过多提示 */}
                                     {filteredPodcasts.length > 100 && (
                                       <div className="text-xs text-amber-600 dark:text-amber-400 px-2 py-1 bg-amber-50 dark:bg-amber-900/20 rounded mb-2">
-                                        💡 结果较多，建议使用标签或更精确的搜索词
+                                        💡
+                                        结果较多，建议使用标签或更精确的搜索词
                                       </div>
                                     )}
 
-                                    {filteredPodcasts.slice(0, displayedCount).map((podcast, index) => (
-                                      <PodcastListItem
-                                        key={podcast.id}
-                                        podcast={podcast}
-                                        isSelected={candidatePodcastIds.includes(podcast.id)}
-                                        onAdd={handleAddToCandidate}
-                                        onRemove={handleRemoveFromCandidate}
-                                        index={index}
-                                      />
-                                    ))}
+                                    {filteredPodcasts
+                                      .slice(0, displayedCount)
+                                      .map((podcast, index) => (
+                                        <PodcastListItem
+                                          key={podcast.id}
+                                          podcast={podcast}
+                                          isSelected={candidatePodcastIds.includes(
+                                            podcast.id,
+                                          )}
+                                          onAdd={handleAddToCandidate}
+                                          onRemove={handleRemoveFromCandidate}
+                                          index={index}
+                                        />
+                                      ))}
 
                                     {/* 加载更多触发器 - 始终渲染，用 CSS 控制显示 */}
                                     <div
                                       ref={loadMoreTriggerRef}
                                       className="py-2 text-center"
-                                      style={{ display: hasMoreContent ? 'block' : 'none' }}
+                                      style={{
+                                        display: hasMoreContent
+                                          ? "block"
+                                          : "none",
+                                      }}
                                     >
                                       <div className="text-xs text-slate-400 dark:text-slate-500">
-                                        向下滚动显示更多 ({displayedCount} / {filteredPodcasts.length})
+                                        向下滚动显示更多 ({displayedCount} /{" "}
+                                        {filteredPodcasts.length})
                                       </div>
                                     </div>
                                   </>
@@ -1162,24 +1292,33 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
 
                             {/* 中间：批量操作按钮 */}
                             <div className="col-span-2 flex flex-col justify-center gap-3">
-                              {filteredPodcasts.length > 0 && !isLoadingPodcasts && (
-                                <button
-                                  onClick={handleAddAllFiltered}
-                                  className="group w-11 h-11 flex flex-col items-center justify-center text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 mx-auto border-2 border-blue-200 dark:border-blue-800 transition-all duration-200 hover:scale-105"
-                                  title="添加所有搜索结果"
-                                >
-                                  <span className="text-base font-bold group-hover:translate-x-0.5 transition-transform">≫</span>
-                                  <span className="text-[10px] leading-tight mt-0.5">全部添加</span>
-                                </button>
-                              )}
+                              {filteredPodcasts.length > 0 &&
+                                !isLoadingPodcasts && (
+                                  <button
+                                    onClick={handleAddAllFiltered}
+                                    className="group w-11 h-11 flex flex-col items-center justify-center text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 mx-auto border-2 border-blue-200 dark:border-blue-800 transition-all duration-200 hover:scale-105"
+                                    title="添加所有搜索结果"
+                                  >
+                                    <span className="text-base font-bold group-hover:translate-x-0.5 transition-transform">
+                                      ≫
+                                    </span>
+                                    <span className="text-[10px] leading-tight mt-0.5">
+                                      全部添加
+                                    </span>
+                                  </button>
+                                )}
                               {candidatePodcastIds.length > 0 && (
                                 <button
                                   onClick={() => setCandidatePodcastIds([])}
                                   className="group w-11 h-11 flex flex-col items-center justify-center text-xs bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 mx-auto border-2 border-red-200 dark:border-red-800 transition-all duration-200 hover:scale-105"
                                   title="清空备选列表"
                                 >
-                                  <span className="text-sm font-bold group-hover:rotate-90 transition-transform">✕</span>
-                                  <span className="text-[10px] leading-tight mt-0.5">清空</span>
+                                  <span className="text-sm font-bold group-hover:rotate-90 transition-transform">
+                                    ✕
+                                  </span>
+                                  <span className="text-[10px] leading-tight mt-0.5">
+                                    清空
+                                  </span>
                                 </button>
                               )}
                             </div>
@@ -1196,7 +1335,9 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                               <div className="h-80 overflow-y-auto border-2 border-green-200 dark:border-green-800 rounded-lg p-2 bg-green-50/50 dark:bg-green-900/10 transition-all duration-200 hover:border-green-300 dark:hover:border-green-700">
                                 {candidatePodcastIds.length === 0 ? (
                                   <div className="flex flex-col items-center justify-center h-full py-8 text-center">
-                                    <div className="text-3xl mb-2 opacity-50">👈</div>
+                                    <div className="text-3xl mb-2 opacity-50">
+                                      👈
+                                    </div>
                                     <div className="text-sm text-slate-500 dark:text-slate-400">
                                       从左侧选择节目
                                     </div>
@@ -1206,10 +1347,15 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                                   </div>
                                 ) : (
                                   candidatePodcastIds.map((id) => {
-                                    const podcast = podcasts.find(p => p.id === id)
+                                    const podcast = podcasts.find(
+                                      (p) => p.id === id,
+                                    );
                                     if (!podcast) {
-                                      console.warn('[CreateWorkflowModal] Podcast not found for ID:', id)
-                                      return null
+                                      console.warn(
+                                        "[CreateWorkflowModal] Podcast not found for ID:",
+                                        id,
+                                      );
+                                      return null;
                                     }
                                     return (
                                       <PodcastListItem
@@ -1220,7 +1366,7 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                                         onRemove={handleRemoveFromCandidate}
                                         index={0}
                                       />
-                                    )
+                                    );
                                   })
                                 )}
                               </div>
@@ -1235,21 +1381,27 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                     <input
                       type="radio"
                       name="scopeType"
-                      checked={scopeType === 'custom_sources'}
-                      onChange={() => setScopeType('custom_sources')}
+                      checked={scopeType === "custom_sources"}
+                      onChange={() => setScopeType("custom_sources")}
                       className="mt-1"
                     />
                     <div className="flex-1">
-                      <div className="font-medium text-slate-900 dark:text-slate-50">自定义RSS源</div>
-                      <div className="text-sm text-slate-600 dark:text-slate-400 mb-2">添加自定义RSS源URL</div>
-                      {scopeType === 'custom_sources' && (
+                      <div className="font-medium text-slate-900 dark:text-slate-50">
+                        自定义RSS源
+                      </div>
+                      <div className="text-sm text-slate-600 dark:text-slate-400 mb-2">
+                        添加自定义RSS源URL
+                      </div>
+                      {scopeType === "custom_sources" && (
                         <div className="space-y-2">
                           <div className="flex gap-2">
                             <input
                               type="url"
                               value={newCustomUrl}
                               onChange={(e) => setNewCustomUrl(e.target.value)}
-                              onKeyPress={(e) => e.key === 'Enter' && handleAddCustomUrl()}
+                              onKeyPress={(e) =>
+                                e.key === "Enter" && handleAddCustomUrl()
+                              }
                               placeholder="输入RSS URL，按回车添加"
                               className="flex-1 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-sm"
                             />
@@ -1264,8 +1416,13 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                           {customUrls.length > 0 && (
                             <div className="space-y-1">
                               {customUrls.map((url) => (
-                                <div key={url} className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-900 rounded">
-                                  <span className="text-xs flex-1 truncate">{url}</span>
+                                <div
+                                  key={url}
+                                  className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-900 rounded"
+                                >
+                                  <span className="text-xs flex-1 truncate">
+                                    {url}
+                                  </span>
                                   <button
                                     type="button"
                                     onClick={() => handleRemoveCustomUrl(url)}
@@ -1298,10 +1455,16 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                   <summary className="flex items-center justify-between cursor-pointer p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                     <div className="flex items-center gap-2">
                       <span className="text-lg">📋</span>
-                      <span className="font-medium text-slate-700 dark:text-slate-300">基础规则</span>
-                      <span className="text-xs text-slate-500 dark:text-slate-400">(常用设置)</span>
+                      <span className="font-medium text-slate-700 dark:text-slate-300">
+                        基础规则
+                      </span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                        (常用设置)
+                      </span>
                     </div>
-                    <span className="text-slate-400 group-open:rotate-180 transition-transform">▼</span>
+                    <span className="text-slate-400 group-open:rotate-180 transition-transform">
+                      ▼
+                    </span>
                   </summary>
 
                   <div className="mt-4 space-y-4 p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg">
@@ -1318,23 +1481,27 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                             onClick={() => setTimeRange(days)}
                             className={`px-3 py-1.5 rounded text-sm transition-colors ${
                               timeRange === days
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                                ? "bg-blue-600 text-white"
+                                : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
                             }`}
                           >
-                            {days === 0 ? '不限' : `${days}天`}
+                            {days === 0 ? "不限" : `${days}天`}
                           </button>
                         ))}
                       </div>
                       <input
                         type="number"
                         min={0}
-                        value={timeRange || ''}
-                        onChange={(e) => setTimeRange(parseInt(e.target.value) || 0)}
+                        value={timeRange || ""}
+                        onChange={(e) =>
+                          setTimeRange(parseInt(e.target.value) || 0)
+                        }
                         placeholder="0"
                         className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
                       />
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">只抓取指定天数内发布的单集，0表示不限制</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        只抓取指定天数内发布的单集，0表示不限制
+                      </p>
                     </div>
 
                     {/* 最小时长 */}
@@ -1350,25 +1517,33 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                             onClick={() => setMinDuration(seconds)}
                             className={`px-3 py-1.5 rounded text-sm transition-colors ${
                               minDuration === seconds
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                                ? "bg-blue-600 text-white"
+                                : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
                             }`}
                           >
-                            {seconds === 0 ? '不限' :
-                             seconds === 600 ? '10分钟' :
-                             seconds === 1800 ? '30分钟' : '60分钟'}
+                            {seconds === 0
+                              ? "不限"
+                              : seconds === 600
+                                ? "10分钟"
+                                : seconds === 1800
+                                  ? "30分钟"
+                                  : "60分钟"}
                           </button>
                         ))}
                       </div>
                       <input
                         type="number"
                         min={0}
-                        value={minDuration || ''}
-                        onChange={(e) => setMinDuration(parseInt(e.target.value) || 0)}
+                        value={minDuration || ""}
+                        onChange={(e) =>
+                          setMinDuration(parseInt(e.target.value) || 0)
+                        }
                         placeholder="0"
                         className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
                       />
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">只抓取超过此时长的单集，0表示不限制（单位：秒）</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        只抓取超过此时长的单集，0表示不限制（单位：秒）
+                      </p>
                     </div>
                   </div>
                 </details>
@@ -1378,10 +1553,16 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                   <summary className="flex items-center justify-between cursor-pointer p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                     <div className="flex items-center gap-2">
                       <span className="text-lg">⚙️</span>
-                      <span className="font-medium text-slate-700 dark:text-slate-300">高级规则</span>
-                      <span className="text-xs text-slate-500 dark:text-slate-400">(可选设置)</span>
+                      <span className="font-medium text-slate-700 dark:text-slate-300">
+                        高级规则
+                      </span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                        (可选设置)
+                      </span>
                     </div>
-                    <span className="text-slate-400 group-open:rotate-180 transition-transform">▼</span>
+                    <span className="text-slate-400 group-open:rotate-180 transition-transform">
+                      ▼
+                    </span>
                   </summary>
 
                   <div className="mt-4 space-y-4 p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg">
@@ -1393,12 +1574,16 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                       <input
                         type="number"
                         min={0}
-                        value={maxResults || ''}
-                        onChange={(e) => setMaxResults(parseInt(e.target.value) || 0)}
+                        value={maxResults || ""}
+                        onChange={(e) =>
+                          setMaxResults(parseInt(e.target.value) || 0)
+                        }
                         placeholder="0"
                         className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
                       />
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">每个节目最多抓取的单集数量，0表示不限制</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        每个节目最多抓取的单集数量，0表示不限制
+                      </p>
                     </div>
 
                     {/* 关键词过滤 */}
@@ -1413,7 +1598,9 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                         placeholder="例如: 技术,AI,机器学习"
                         className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
                       />
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">只抓取标题或简介中包含这些关键词的单集，逗号分隔</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        只抓取标题或简介中包含这些关键词的单集，逗号分隔
+                      </p>
                     </div>
 
                     {/* 排除词 */}
@@ -1428,7 +1615,9 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                         placeholder="例如: 广告,推广"
                         className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
                       />
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">排除标题或简介中包含这些词的单集，逗号分隔</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        排除标题或简介中包含这些词的单集，逗号分隔
+                      </p>
                     </div>
                   </div>
                 </details>
@@ -1458,13 +1647,17 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                     id="llm-enable"
                     checked={llmEnabled}
                     onChange={(e) => {
-                      setLlmEnabled(e.target.checked)
+                      setLlmEnabled(e.target.checked);
                     }}
                     className="w-5 h-5 text-purple-600 border-slate-300 rounded focus:ring-purple-500 focus:ring-2"
                   />
                   <label htmlFor="llm-enable" className="flex-1 cursor-pointer">
-                    <div className="font-medium text-slate-900 dark:text-slate-50">启用智能摘要</div>
-                    <div className="text-sm text-slate-600 dark:text-slate-400">自动为抓取的单集生成AI摘要</div>
+                    <div className="font-medium text-slate-900 dark:text-slate-50">
+                      启用智能摘要
+                    </div>
+                    <div className="text-sm text-slate-600 dark:text-slate-400">
+                      自动为抓取的单集生成AI摘要
+                    </div>
                   </label>
                   <span className="text-xs text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-900/30 px-2 py-1 rounded">
                     实验性功能
@@ -1483,8 +1676,10 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                           type="number"
                           min={1}
                           max={100}
-                          value={llmMaxEpisodes || ''}
-                          onChange={(e) => setLlmMaxEpisodes(parseInt(e.target.value) || 20)}
+                          value={llmMaxEpisodes || ""}
+                          onChange={(e) =>
+                            setLlmMaxEpisodes(parseInt(e.target.value) || 20)
+                          }
                           placeholder="20"
                           className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
                         />
@@ -1501,8 +1696,10 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                           type="number"
                           min={100}
                           max={4000}
-                          value={llmMaxTokens || ''}
-                          onChange={(e) => setLlmMaxTokens(parseInt(e.target.value) || 1000)}
+                          value={llmMaxTokens || ""}
+                          onChange={(e) =>
+                            setLlmMaxTokens(parseInt(e.target.value) || 1000)
+                          }
                           placeholder="1000"
                           className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
                         />
@@ -1517,10 +1714,16 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                       <summary className="flex items-center justify-between cursor-pointer p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                         <div className="flex items-center gap-2">
                           <span className="text-lg">⚙️</span>
-                          <span className="font-medium text-slate-700 dark:text-slate-300">高级设置</span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400">(可选)</span>
+                          <span className="font-medium text-slate-700 dark:text-slate-300">
+                            高级设置
+                          </span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            (可选)
+                          </span>
                         </div>
-                        <span className="text-slate-400 group-open:rotate-180 transition-transform">▼</span>
+                        <span className="text-slate-400 group-open:rotate-180 transition-transform">
+                          ▼
+                        </span>
                       </summary>
 
                       <div className="mt-4 space-y-4 p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg">
@@ -1537,7 +1740,8 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                             className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
                           />
                           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                            覆盖默认模型（如 Qwen/Qwen2.5-7B-Instruct），留空使用系统默认
+                            覆盖默认模型（如
+                            Qwen/Qwen2.5-7B-Instruct），留空使用系统默认
                           </p>
                         </div>
 
@@ -1552,7 +1756,9 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                             max={1}
                             step={0.1}
                             value={llmTemperature}
-                            onChange={(e) => setLlmTemperature(parseFloat(e.target.value))}
+                            onChange={(e) =>
+                              setLlmTemperature(parseFloat(e.target.value))
+                            }
                             className="w-full"
                           />
                           <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -1567,22 +1773,26 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                     <details
                       className="group"
                       onToggle={(e) => {
-                        const details = e.currentTarget
+                        const details = e.currentTarget;
                         // 首次展开时，如果textarea为空，自动填充默认值
                         if (details.open && !llmUserPrompt) {
-                          setLlmUserPrompt(DEFAULT_USER_PROMPT)
+                          setLlmUserPrompt(DEFAULT_USER_PROMPT);
                         }
                       }}
                     >
                       <summary className="flex items-center justify-between cursor-pointer p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                         <div className="flex items-center gap-2">
                           <span className="text-lg">📝</span>
-                          <span className="font-medium text-slate-700 dark:text-slate-300">自定义Prompt模板</span>
+                          <span className="font-medium text-slate-700 dark:text-slate-300">
+                            自定义Prompt模板
+                          </span>
                           <span className="text-xs text-orange-600 dark:text-orange-400 bg-orange-100 dark:bg-orange-900/30 px-2 py-1 rounded">
                             高级
                           </span>
                         </div>
-                        <span className="text-slate-400 group-open:rotate-180 transition-transform">▼</span>
+                        <span className="text-slate-400 group-open:rotate-180 transition-transform">
+                          ▼
+                        </span>
                       </summary>
 
                       <div className="mt-4 p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg">
@@ -1594,7 +1804,9 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                             </label>
                             <button
                               type="button"
-                              onClick={() => setLlmUserPrompt(DEFAULT_USER_PROMPT)}
+                              onClick={() =>
+                                setLlmUserPrompt(DEFAULT_USER_PROMPT)
+                              }
                               className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                             >
                               恢复默认值
@@ -1608,10 +1820,12 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
                             rows={12}
                           />
                           <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-                            💡 支持Go template语法，可用变量：WorkflowName, TotalEpisodes, NumPodcasts, Podcasts
+                            💡 支持Go template语法，可用变量：WorkflowName,
+                            TotalEpisodes, NumPodcasts, Podcasts
                           </p>
                           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                            💡 系统提示词（角色定义+安全约束）已全局配置，此处只需定义分析任务和输出格式。
+                            💡
+                            系统提示词（角色定义+安全约束）已全局配置，此处只需定义分析任务和输出格式。
                           </p>
                         </div>
                       </div>
@@ -1651,11 +1865,11 @@ export default function WorkflowFormModal({ isOpen, onClose, onSuccess, workflow
               disabled={loading}
               className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {loading ? '处理中...' : step === 4 ? '保存' : '下一步'}
+              {loading ? "处理中..." : step === 4 ? "保存" : "下一步"}
             </button>
           </div>
         </div>
       </div>
     </div>
-  )
+  );
 }

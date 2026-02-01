@@ -33,15 +33,15 @@ type PodcastSearchResult struct {
 
 // EpisodeSearchResult 单集搜索结果
 type EpisodeSearchResult struct {
-	ID              uint        `json:"id"`
-	PodcastID       uint        `json:"podcast_id"`
-	PodcastTitle    string      `json:"podcast_title"`
-	PodcastCoverURL string      `json:"podcast_cover_url"`
-	Title           string      `json:"title"`
-	ShowNotes       string      `json:"show_notes"`
-	PublishedDate   *time.Time  `json:"published_date"`
-	Duration        int         `json:"duration"`
-	RelevanceScore  float64     `json:"relevance_score"`
+	ID              uint           `json:"id"`
+	PodcastID       uint           `json:"podcast_id"`
+	PodcastTitle    string         `json:"podcast_title"`
+	PodcastCoverURL string         `json:"podcast_cover_url"`
+	Title           string         `json:"title"`
+	ShowNotes       string         `json:"show_notes"`
+	PublishedDate   *time.Time     `json:"published_date"`
+	Duration        int            `json:"duration"`
+	RelevanceScore  float64        `json:"relevance_score"`
 	MatchedFields   []MatchedField `json:"matched_fields"`
 }
 
@@ -55,8 +55,8 @@ type PaginationInfo struct {
 
 // SearchResponse 搜索响应
 type SearchResponse struct {
-	Podcasts  []PodcastSearchResult `json:"podcasts"`
-	Episodes  []EpisodeSearchResult `json:"episodes"`
+	Podcasts []PodcastSearchResult `json:"podcasts"`
+	Episodes []EpisodeSearchResult `json:"episodes"`
 }
 
 // SearchPagination 搜索分页信息

@@ -29,11 +29,11 @@ type PromptTemplateRequest struct {
 
 // PromptTemplateResponse Prompt模板响应
 type PromptTemplateResponse struct {
-	Name       string    `json:"name"`
+	Name        string    `json:"name"`
 	Description string    `json:"description"`
-	Content    string    `json:"content"`
-	IsDefault  bool      `json:"is_default"`
-	ModifiedAt time.Time `json:"modified_at"`
+	Content     string    `json:"content"`
+	IsDefault   bool      `json:"is_default"`
+	ModifiedAt  time.Time `json:"modified_at"`
 }
 
 // ListTemplates 获取所有Prompt模板
@@ -59,10 +59,10 @@ func (h *PromptTemplateHandler) ListTemplates(c *gin.Context) {
 	response := make([]PromptTemplateResponse, len(templates))
 	for i, tpl := range templates {
 		response[i] = PromptTemplateResponse{
-			Name:       tpl.Name,
+			Name:        tpl.Name,
 			Description: tpl.Description,
-			Content:    tpl.Content,
-			IsDefault:  tpl.IsDefault,
+			Content:     tpl.Content,
+			IsDefault:   tpl.IsDefault,
 			ModifiedAt:  tpl.ModifiedAt,
 		}
 	}
@@ -119,10 +119,10 @@ func (h *PromptTemplateHandler) GetTemplate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": PromptTemplateResponse{
-			Name:       targetTemplate.Name,
+			Name:        targetTemplate.Name,
 			Description: targetTemplate.Description,
-			Content:    targetTemplate.Content,
-			IsDefault:  targetTemplate.IsDefault,
+			Content:     targetTemplate.Content,
+			IsDefault:   targetTemplate.IsDefault,
 			ModifiedAt:  targetTemplate.ModifiedAt,
 		},
 	})

@@ -35,7 +35,7 @@ type SearchRequest struct {
 	Page            int    `json:"page"`                     // 播客页码
 	PageSize        int    `json:"page_size"`                // 播客每页数量
 	EpisodePage     int    `json:"episode_page"`             // 单集页码
-	EpisodePageSize int    `json:"episode_page_size"`         // 单集每页数量
+	EpisodePageSize int    `json:"episode_page_size"`        // 单集每页数量
 }
 
 // SearchResponse 搜索响应

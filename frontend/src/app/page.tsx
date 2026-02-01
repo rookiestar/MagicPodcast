@@ -1,12 +1,12 @@
-'use client'
+"use client";
 
-import { useSearchParams } from 'next/navigation'
-import Link from 'next/link'
-import { Suspense } from 'react'
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { Suspense } from "react";
 
 function HomeContent() {
-  const searchParams = useSearchParams()
-  const sortBy = searchParams.get('sort_by') || ''
+  const searchParams = useSearchParams();
+  const sortBy = searchParams.get("sort_by") || "";
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -19,7 +19,10 @@ function HomeContent() {
           </div>
 
           {/* Title */}
-          <h1 className="text-6xl md:text-7xl font-bold mb-4" style={{ letterSpacing: '-0.02em' }}>
+          <h1
+            className="text-6xl md:text-7xl font-bold mb-4"
+            style={{ letterSpacing: "-0.02em" }}
+          >
             <span className="bg-gradient-to-r from-violet-600 to-indigo-600 bg-clip-text text-transparent">
               Magic
             </span>
@@ -35,7 +38,7 @@ function HomeContent() {
         {/* Feature Cards */}
         <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
           <Link
-            href={`/podcasts${sortBy ? `?sort_by=${sortBy}` : ''}`}
+            href={`/podcasts${sortBy ? `?sort_by=${sortBy}` : ""}`}
             className="group"
           >
             <FeatureCard
@@ -71,37 +74,37 @@ function HomeContent() {
         </div>
       </div>
     </main>
-  )
+  );
 }
 
 export default function Home() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-slate-50 flex items-center justify-center">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-    </div>}>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      }
+    >
       <HomeContent />
     </Suspense>
-  )
+  );
 }
 
 function FeatureCard({
   emoji,
   title,
-  description
+  description,
 }: {
-  emoji: string
-  title: string
-  description: string
+  emoji: string;
+  title: string;
+  description: string;
 }) {
   return (
     <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow p-8 border border-slate-200">
       <div className="text-5xl mb-4">{emoji}</div>
-      <h3 className="text-xl font-semibold text-slate-800 mb-2">
-        {title}
-      </h3>
-      <p className="text-slate-600 text-sm leading-relaxed">
-        {description}
-      </p>
+      <h3 className="text-xl font-semibold text-slate-800 mb-2">{title}</h3>
+      <p className="text-slate-600 text-sm leading-relaxed">{description}</p>
     </div>
-  )
+  );
 }

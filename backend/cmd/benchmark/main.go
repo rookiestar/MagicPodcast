@@ -12,26 +12,26 @@ import (
 
 // BenchmarkResult 存储基准测试结果
 type BenchmarkResult struct {
-	Name      string
-	Duration  time.Duration
-	Requests  int
-	Success   int
-	Failed    int
-	AvgTime   time.Duration
-	MinTime   time.Duration
-	MaxTime   time.Duration
-	P50       time.Duration
-	P95       time.Duration
-	P99       time.Duration
+	Name       string
+	Duration   time.Duration
+	Requests   int
+	Success    int
+	Failed     int
+	AvgTime    time.Duration
+	MinTime    time.Duration
+	MaxTime    time.Duration
+	P50        time.Duration
+	P95        time.Duration
+	P99        time.Duration
 	Throughput float64 // 请求/秒
 }
 
 // Config 基准测试配置
 type Config struct {
-	BaseURL    string        // API基础URL
-	Workers    int           // 并发worker数
-	Duration   time.Duration // 测试持续时间
-	Timeout    time.Duration // 请求超时时间
+	BaseURL  string        // API基础URL
+	Workers  int           // 并发worker数
+	Duration time.Duration // 测试持续时间
+	Timeout  time.Duration // 请求超时时间
 }
 
 func main() {
@@ -234,8 +234,8 @@ func printSummary(results []BenchmarkResult) {
 func generateMarkdownReport(results []BenchmarkResult) {
 	report := fmt.Sprintf(`# 性能基准测试报告
 
-**测试时间**: %s
-**测试环境**: %s
+__测试时间__: %s
+__测试环境__: %s
 
 ## 测试结果摘要
 
@@ -264,35 +264,35 @@ func generateMarkdownReport(results []BenchmarkResult) {
 ### 健康检查端点
 - 吞吐量: %.2f req/s
 - P95延迟: %v
-- **目标**: P95 < 10ms
+- __目标__: P95 < 10ms
 
 ### 播客列表端点
 - 吞吐量: %.2f req/s
 - P95延迟: %v
-- **目标**: P95 < 150ms
+- __目标__: P95 < 150ms
 
 ### 全文搜索端点
 - 吞吐量: %.2f req/s
 - P95延迟: %v
-- **目标**: P95 < 200ms
+- __目标__: P95 < 200ms
 
 ### 标签列表端点
 - 吞吐量: %.2f req/s
 - P95延迟: %v
-- **目标**: P95 < 100ms
+- __目标__: P95 < 100ms
 
 ### 工作流列表端点
 - 吞吐量: %.2f req/s
 - P95延迟: %v
-- **目标**: P95 < 150ms
+- __目标__: P95 < 150ms
 
 ## 性能基线
 
 本测试结果将作为重构前的性能基线。重构后的目标：
 
-- API P95响应时间: **降低20%**
-- 吞吐量: **提升20%**
-- 成功率: **保持>99%**
+- API P95响应时间: __降低20%%__
+- 吞吐量: __提升20%%__
+- 成功率: __保持>99%%__
 
 ## 重构后对比
 
@@ -300,7 +300,7 @@ func generateMarkdownReport(results []BenchmarkResult) {
 
 ---
 
-**生成时间**: %s
+__生成时间__: %s
 `,
 		results[0].Throughput, results[0].P95,
 		results[1].Throughput, results[1].P95,

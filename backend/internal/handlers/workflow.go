@@ -812,10 +812,10 @@ func (h *WorkflowHandler) GetJobReport(c *gin.Context) {
 			"format":           report.Format,
 			"file_size":        report.FileSize,
 			// LLM相关字段
-			"llm_summary":    report.LLMSummary,
-			"llm_model_used": report.LLMModelUsed,
+			"llm_summary":     report.LLMSummary,
+			"llm_model_used":  report.LLMModelUsed,
 			"llm_tokens_used": report.LLMTokensUsed,
-			"llm_error":      report.LLMError,
+			"llm_error":       report.LLMError,
 		},
 	})
 }

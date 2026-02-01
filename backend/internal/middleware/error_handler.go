@@ -134,10 +134,10 @@ func logError(c *gin.Context, statusCode int, response APIErrorResponse) {
 	// 对于4xx错误，记录为警告级别
 	// 对于5xx错误，记录为错误级别
 	logFields := map[string]interface{}{
-		"method":       c.Request.Method,
-		"path":         c.Request.URL.Path,
-		"status":       statusCode,
-		"error_code":   response.Error.Code,
+		"method":        c.Request.Method,
+		"path":          c.Request.URL.Path,
+		"status":        statusCode,
+		"error_code":    response.Error.Code,
 		"error_message": response.Error.Message,
 	}
 

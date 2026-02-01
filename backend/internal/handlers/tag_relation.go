@@ -118,10 +118,10 @@ func (h *TagRelationHandler) AddTagToPodcast(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
 		"data": gin.H{
-			"message":      "标签已添加",
-			"podcast_id":   podcastID,
-			"tag_id":       req.TagID,
-			"tag_name":     tag.Name,
+			"message":    "标签已添加",
+			"podcast_id": podcastID,
+			"tag_id":     req.TagID,
+			"tag_name":   tag.Name,
 		},
 	})
 }

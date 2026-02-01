@@ -18,13 +18,13 @@ func NewLLMStatsHandler() *LLMStatsHandler {
 
 // LLMStatsResponse LLM统计响应
 type LLMStatsResponse struct {
-	TotalRequests   int64   `json:"total_requests"`
-	TotalTokens     int64   `json:"total_tokens"`
-	DailyTokens     int64   `json:"daily_tokens"`
-	DailyRequests   int64   `json:"daily_requests"`
-	DailyCostCents  float64 `json:"daily_cost_cents"`
-	LastResetDate   string  `json:"last_reset_date"`
-	Enabled         bool    `json:"enabled"`
+	TotalRequests  int64   `json:"total_requests"`
+	TotalTokens    int64   `json:"total_tokens"`
+	DailyTokens    int64   `json:"daily_tokens"`
+	DailyRequests  int64   `json:"daily_requests"`
+	DailyCostCents float64 `json:"daily_cost_cents"`
+	LastResetDate  string  `json:"last_reset_date"`
+	Enabled        bool    `json:"enabled"`
 }
 
 // GetGlobalLLMStats 获取全局LLM使用统计
@@ -48,7 +48,7 @@ func (h *LLMStatsHandler) GetGlobalLLMStats(c *gin.Context) {
 			DailyRequests:  0,
 			DailyCostCents: 0.0,
 			LastResetDate:  "",
-			Enabled:       true,
+			Enabled:        true,
 		},
 		"message": "LLM统计功能已集成，但需要实现全局LLM客户端访问（待完善）",
 	})

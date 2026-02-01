@@ -1,16 +1,16 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from "react";
 
 interface ApiState<T> {
-  data: T | null
-  error: Error | null
-  loading: boolean
+  data: T | null;
+  error: Error | null;
+  loading: boolean;
 }
 
 interface ApiOptions {
-  retry?: number
-  retryDelay?: number
-  onSuccess?: (data: any) => void
-  onError?: (error: Error) => void
+  retry?: number;
+  retryDelay?: number;
+  onSuccess?: (data: any) => void;
+  onError?: (error: Error) => void;
 }
 
 /**
@@ -26,57 +26,57 @@ interface ApiOptions {
  */
 export function useApi<T>(
   apiFn: () => Promise<T>,
-  options: ApiOptions = {}
+  options: ApiOptions = {},
 ): ApiState<T> & {
-  execute: () => Promise<T | null>
-  reset: () => void
-  isMounted: React.MutableRefObject<boolean>
+  execute: () => Promise<T | null>;
+  reset: () => void;
+  isMounted: React.MutableRefObject<boolean>;
 } {
-  const { retry = 0, retryDelay = 1000, onSuccess, onError } = options
+  const { retry = 0, retryDelay = 1000, onSuccess, onError } = options;
 
   const [state, setState] = useState<ApiState<T>>({
     data: null,
     error: null,
     loading: false,
-  })
+  });
 
-  const isMounted = useRef(true)
-  const retryCount = useRef(0)
+  const isMounted = useRef(true);
+  const retryCount = useRef(0);
 
   // 清理函数
   useEffect(() => {
     return () => {
-      isMounted.current = false
-    }
-  }, [])
+      isMounted.current = false;
+    };
+  }, []);
 
   // 执行API调用
   const execute = useCallback(async (): Promise<T | null> => {
-    setState(prev => ({ ...prev, loading: true, error: null }))
+    setState((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
-      const data = await apiFn()
+      const data = await apiFn();
 
       if (isMounted.current) {
         setState({
           data,
           error: null,
           loading: false,
-        })
+        });
 
-        retryCount.current = 0
-        onSuccess?.(data)
+        retryCount.current = 0;
+        onSuccess?.(data);
       }
 
-      return data
+      return data;
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error))
+      const err = error instanceof Error ? error : new Error(String(error));
 
       // 重试逻辑
       if (retryCount.current < retry) {
-        retryCount.current++
-        await new Promise(resolve => setTimeout(resolve, retryDelay))
-        return execute()
+        retryCount.current++;
+        await new Promise((resolve) => setTimeout(resolve, retryDelay));
+        return execute();
       }
 
       if (isMounted.current) {
@@ -84,15 +84,15 @@ export function useApi<T>(
           data: null,
           error: err,
           loading: false,
-        })
+        });
 
-        retryCount.current = 0
-        onError?.(err)
+        retryCount.current = 0;
+        onError?.(err);
       }
 
-      return null
+      return null;
     }
-  }, [apiFn, retry, retryDelay, onSuccess, onError])
+  }, [apiFn, retry, retryDelay, onSuccess, onError]);
 
   // 重置状态
   const reset = useCallback(() => {
@@ -100,16 +100,16 @@ export function useApi<T>(
       data: null,
       error: null,
       loading: false,
-    })
-    retryCount.current = 0
-  }, [])
+    });
+    retryCount.current = 0;
+  }, []);
 
   return {
     ...state,
     execute,
     reset,
     isMounted,
-  }
+  };
 }
 
 /**
@@ -125,18 +125,18 @@ export function useApi<T>(
  */
 export function useApiLazy<T>(
   apiFn: () => Promise<T>,
-  options: ApiOptions = {}
+  options: ApiOptions = {},
 ): ApiState<T> & {
-  execute: () => Promise<T | null>
-  reset: () => void
+  execute: () => Promise<T | null>;
+  reset: () => void;
 } {
-  const { execute, ...state } = useApi(apiFn, options)
+  const { execute, ...state } = useApi(apiFn, options);
 
   return {
     ...state,
     // 覆盖execute，不自动执行
     execute,
-  }
+  };
 }
 
 /**
@@ -156,22 +156,25 @@ export function useApiLazy<T>(
 export function useApiAuto<T>(
   apiFn: () => Promise<T>,
   deps: any[] = [],
-  options: ApiOptions = {}
+  options: ApiOptions = {},
 ): ApiState<T> & {
-  execute: () => Promise<T | null>
-  reset: () => void
+  execute: () => Promise<T | null>;
+  reset: () => void;
 } {
-  const { data, error, loading, execute, reset, isMounted } = useApi(apiFn, options)
+  const { data, error, loading, execute, reset, isMounted } = useApi(
+    apiFn,
+    options,
+  );
 
   useEffect(() => {
-    execute()
+    execute();
 
     return () => {
       // 组件卸载时取消正在进行的请求（如果支持）
-      isMounted.current = false
-    }
+      isMounted.current = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps)
+  }, deps);
 
   return {
     data,
@@ -179,7 +182,7 @@ export function useApiAuto<T>(
     loading,
     execute,
     reset,
-  }
+  };
 }
 
 /**
@@ -197,59 +200,59 @@ export function useApiAuto<T>(
  */
 export function useApiMutation<T, P = any>(
   apiFn: (params: P) => Promise<T>,
-  options: ApiOptions = {}
+  options: ApiOptions = {},
 ): ApiState<T> & {
-  execute: (params: P) => Promise<T | null>
-  reset: () => void
+  execute: (params: P) => Promise<T | null>;
+  reset: () => void;
 } {
   const [state, setState] = useState<ApiState<T>>({
     data: null,
     error: null,
     loading: false,
-  })
+  });
 
   const execute = useCallback(
     async (params: P): Promise<T | null> => {
-      setState(prev => ({ ...prev, loading: true, error: null }))
+      setState((prev) => ({ ...prev, loading: true, error: null }));
 
       try {
-        const data = await apiFn(params)
+        const data = await apiFn(params);
 
         setState({
           data,
           error: null,
           loading: false,
-        })
+        });
 
-        onSuccess?.(data)
-        return data
+        onSuccess?.(data);
+        return data;
       } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error))
+        const err = error instanceof Error ? error : new Error(String(error));
 
         setState({
           data: null,
           error: err,
           loading: false,
-        })
+        });
 
-        onError?.(err)
-        return null
+        onError?.(err);
+        return null;
       }
     },
-    [apiFn, onSuccess, onError]
-  )
+    [apiFn, onSuccess, onError],
+  );
 
   const reset = useCallback(() => {
     setState({
       data: null,
       error: null,
       loading: false,
-    })
-  }, [])
+    });
+  }, []);
 
   return {
     ...state,
     execute,
     reset,
-  }
+  };
 }

@@ -3,7 +3,11 @@
 
 declare global {
   // TypeScript utility types
-  type ReturnType<T extends (...args: any) => any> = T extends (...args: any) => infer R ? R : any;
+  type ReturnType<T extends (...args: any) => any> = T extends (
+    ...args: any
+  ) => infer R
+    ? R
+    : any;
   type Omit<T, K extends keyof any> = Pick<T, Exclude<keyof T, K>>;
   type Partial<T> = { [P in keyof T]?: T[P] };
   type Required<T> = { [P in keyof T]-?: T[P] };
@@ -41,7 +45,7 @@ declare global {
   }
 
   interface DateConstructor {
-    new(): Date;
+    new (): Date;
     now(): number;
   }
 
@@ -50,7 +54,11 @@ declare global {
   // JSON global
   interface JSON {
     parse(text: string, reviver?: (key: any, value: any) => any): any;
-    stringify(value: any, replacer?: (key: string, value: any) => any, space?: string | number): string;
+    stringify(
+      value: any,
+      replacer?: (key: string, value: any) => any,
+      space?: string | number,
+    ): string;
   }
 
   var JSON: JSON;
@@ -67,5 +75,9 @@ declare global {
 }
 
 // Ensure these types are available globally
-export type GlobalReturnType<T extends (...args: any) => any> = T extends (...args: any) => infer R ? R : any;
+export type GlobalReturnType<T extends (...args: any) => any> = T extends (
+  ...args: any
+) => infer R
+  ? R
+  : any;
 export {};

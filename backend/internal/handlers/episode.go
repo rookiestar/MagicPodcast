@@ -20,21 +20,21 @@ func NewEpisodeHandler() *EpisodeHandler {
 
 // EpisodeResponse 单集响应结构
 type EpisodeResponse struct {
-	ID               uint   `json:"id"`
-	GUID             string `json:"guid"`               // 替代xyz_id，使用GUID作为唯一标识
-	PodcastID        uint   `json:"podcast_id"`
-	EpisodeNo        string `json:"episode_no"`
-	Title            string `json:"title"`
-	MediumURL        string `json:"medium_url"`
-	ShowNotes        string `json:"show_notes"`
-	PublishedDate    string `json:"published_date"`
-	Duration         int    `json:"duration"`            // 音频时长（秒）
-	Link             string `json:"link"`                // 单集网页链接
-	ImageURL         string `json:"image_url"`           // 单集封面图URL
-	EnclosureType    string `json:"enclosure_type"`      // 音频MIME类型
-	EnclosureLength  int64  `json:"enclosure_length"`    // 音频文件大小（字节）
-	MyRate           int    `json:"my_rate"`
-	Notes            string `json:"notes"`
+	ID              uint   `json:"id"`
+	GUID            string `json:"guid"` // 替代xyz_id，使用GUID作为唯一标识
+	PodcastID       uint   `json:"podcast_id"`
+	EpisodeNo       string `json:"episode_no"`
+	Title           string `json:"title"`
+	MediumURL       string `json:"medium_url"`
+	ShowNotes       string `json:"show_notes"`
+	PublishedDate   string `json:"published_date"`
+	Duration        int    `json:"duration"`         // 音频时长（秒）
+	Link            string `json:"link"`             // 单集网页链接
+	ImageURL        string `json:"image_url"`        // 单集封面图URL
+	EnclosureType   string `json:"enclosure_type"`   // 音频MIME类型
+	EnclosureLength int64  `json:"enclosure_length"` // 音频文件大小（字节）
+	MyRate          int    `json:"my_rate"`
+	Notes           string `json:"notes"`
 }
 
 // ListByPodcast 获取指定播客的单集列表

@@ -31,10 +31,10 @@ const (
 
 // AddTagResult 添加标签结果
 type AddTagResult struct {
-	Message   string
-	TargetID  uint
-	TagID     uint
-	TagName   string
+	Message  string
+	TargetID uint
+	TagID    uint
+	TagName  string
 }
 
 // AddTag 为目标添加标签
@@ -195,10 +195,10 @@ func (s *TagRelationService) removeTagFromEpisode(episodeID uint, tag *models.Ta
 
 // TagWithCount 带计数的标签
 type TagWithCount struct {
-	ID     uint   `json:"id"`
-	Name   string `json:"name"`
-	Color  string `json:"color"`
-	Count  int    `json:"podcast_count"` // 保持字段名兼容性
+	ID    uint   `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+	Count int    `json:"podcast_count"` // 保持字段名兼容性
 }
 
 // GetTags 获取目标的所有标签

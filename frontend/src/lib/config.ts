@@ -16,7 +16,7 @@ export const API_CONFIG = {
     MAX_ATTEMPTS: 3,
     DELAY: 1000, // 1秒
   },
-} as const
+} as const;
 
 export const UI_CONFIG = {
   // 分页配置
@@ -38,27 +38,27 @@ export const UI_CONFIG = {
   AUTO_SCROLL: {
     THRESHOLD: 100, // 距离底部100px时触发
   },
-} as const
+} as const;
 
 export const CRON_PRESETS = [
-  { label: '每天凌晨2点', value: '0 2 * * *' },
-  { label: '每天早上8点', value: '0 8 * * *' },
-  { label: '每天晚上8点', value: '0 20 * * *' },
-  { label: '每周日凌晨2点', value: '0 2 * * 0' },
-  { label: '每周一早上6点', value: '0 6 * * 1' },
-] as const
+  { label: "每天凌晨2点", value: "0 2 * * *" },
+  { label: "每天早上8点", value: "0 8 * * *" },
+  { label: "每天晚上8点", value: "0 20 * * *" },
+  { label: "每周日凌晨2点", value: "0 2 * * 0" },
+  { label: "每周一早上6点", value: "0 6 * * 1" },
+] as const;
 
 export const LOG_CONFIG = {
   // 日志保留
   MAX_LOGS: 1000, // 最大日志条数
-  LOG_STORAGE_KEY: 'syncLogs',
+  LOG_STORAGE_KEY: "syncLogs",
   // 日志级别
-  LEVEL: process.env.NODE_ENV === 'development' ? 'debug' : 'info',
-} as const
+  LEVEL: process.env.NODE_ENV === "development" ? "debug" : "info",
+} as const;
 
 export const STORAGE_KEYS = {
-  SYNC_LOGS: 'syncLogs',
-  SYNCING: 'syncing',
-  IMPORTING: 'importing',
-  AUTO_SCROLL: 'autoScroll',
-} as const
+  SYNC_LOGS: "syncLogs",
+  SYNCING: "syncing",
+  IMPORTING: "importing",
+  AUTO_SCROLL: "autoScroll",
+} as const;
