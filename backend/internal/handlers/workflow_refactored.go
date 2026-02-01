@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"fmt"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/services"
 
@@ -229,26 +228,62 @@ func (h *WorkflowHandlerRefactored) Trigger(c *gin.Context) {
 	})
 }
 
-// ========== 辅助函数 ==========
-
-// parseUintParam 解析uint参数
-func parseUintParam(c *gin.Context, key string) (uint, error) {
-	value := c.Param(key)
-	var id uint
-	if _, err := fmt.Sscanf(value, "%d", &id); err != nil {
-		return 0, err
-	}
-	return id, nil
+// ListJobs 获取工作流的任务列表
+// @Summary 获取工作流的任务列表
+// @Description 获取指定工作流的所有任务
+// @Tags Workflows
+// @Accept json
+// @Produce json
+// @Param id path int true "工作流ID"
+// @Param page query int false "页码" default(1)
+// @Param page_size query int false "每页数量" default(20)
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/workflows/{id}/jobs [get]
+func (h *WorkflowHandlerRefactored) ListJobs(c *gin.Context) {
+	// TODO: 实现任务列表查询逻辑
+	// 这个方法暂时保留旧实现，待 JobService 完成后迁移
+	middleware.SuccessResponse(c, gin.H{
+		"jobs":       []interface{}{},
+		"pagination": gin.H{
+			"page":        1,
+			"page_size":   20,
+			"total":       0,
+			"total_pages": 0,
+		},
+	})
 }
 
-// parseInt 解析int参数，带默认值
-func parseInt(s string, defaultValue int) int {
-	if s == "" {
-		return defaultValue
-	}
-	var result int
-	if _, err := fmt.Sscanf(s, "%d", &result); err != nil {
-		return defaultValue
-	}
-	return result
+// GetJob 获取单个任务详情
+// @Summary 获取任务详情
+// @Description 根据ID获取任务详情
+// @Tags Workflows
+// @Accept json
+// @Produce json
+// @Param id path int true "任务ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/jobs/{id} [get]
+func (h *WorkflowHandlerRefactored) GetJob(c *gin.Context) {
+	// TODO: 实现任务详情查询逻辑
+	// 这个方法暂时保留旧实现，待 JobService 完成后迁移
+	middleware.SuccessResponse(c, gin.H{
+		"id":   0,
+		"jobs": []interface{}{},
+	})
+}
+
+// GetJobReport 获取任务报告
+// @Summary 获取任务报告
+// @Description 获取指定任务的执行报告
+// @Tags Workflows
+// @Accept json
+// @Produce json
+// @Param id path int true "任务ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/jobs/{id}/report [get]
+func (h *WorkflowHandlerRefactored) GetJobReport(c *gin.Context) {
+	// TODO: 实现报告查询逻辑
+	// 这个方法暂时保留旧实现，待 JobService 完成后迁移
+	middleware.SuccessResponse(c, gin.H{
+		"report": "Job report not yet implemented",
+	})
 }
