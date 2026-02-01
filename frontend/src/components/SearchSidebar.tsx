@@ -245,7 +245,7 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
         tabIndex={-1}
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
-        className={`fixed right-0 top-0 h-full w-full max-w-4xl bg-white dark:bg-slate-800 z-50 flex flex-col transition-all duration-700 ${
+        className={`fixed right-0 top-0 h-full w-full max-w-3xl bg-white dark:bg-slate-800 z-50 flex flex-col transition-all duration-700 ${
           isOpen
             ? "translate-x-0 scale-100 opacity-100 shadow-2xl"
             : "translate-x-full scale-90 opacity-0"
