@@ -5,19 +5,20 @@ import (
 
 	apperrors "magicpodcast/internal/errors"
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/repository"
 
 	"gorm.io/gorm"
 )
 
 // WorkflowService 工作流服务层
 type WorkflowService struct {
-	db *gorm.DB
+	repos *repository.Repositories
 }
 
 // NewWorkflowService 创建工作流服务
-func NewWorkflowService(db *gorm.DB) *WorkflowService {
+func NewWorkflowService(repos *repository.Repositories) *WorkflowService {
 	return &WorkflowService{
-		db: db,
+		repos: repos,
 	}
 }
 
@@ -90,7 +91,7 @@ func (s *WorkflowService) CreateWorkflow(req *CreateWorkflowRequest) (*WorkflowR
 		IsEnabled:   req.IsEnabled,
 	}
 
-	if err := s.db.Create(workflow).Error; err != nil {
+	if err := s.repos.Workflow.Create(workflow); err != nil {
 		return nil, apperrors.InternalErrorWithErr(err, "Failed to create workflow")
 	}
 
@@ -99,9 +100,12 @@ func (s *WorkflowService) CreateWorkflow(req *CreateWorkflowRequest) (*WorkflowR
 
 // GetWorkflow 获取工作流详情
 func (s *WorkflowService) GetWorkflow(id uint) (*WorkflowResponse, error) {
-	workflow, err := s.getWorkflowByID(id)
+	workflow, err := s.repos.Workflow.GetByID(id)
 	if err != nil {
-		return nil, err
+		if err == gorm.ErrRecordNotFound {
+			return nil, apperrors.NotFoundError("workflow", id)
+		}
+		return nil, apperrors.InternalErrorWithErr(err, "Failed to fetch workflow")
 	}
 
 	return s.toWorkflowResponse(workflow), nil
@@ -109,52 +113,49 @@ func (s *WorkflowService) GetWorkflow(id uint) (*WorkflowResponse, error) {
 
 // UpdateWorkflow 更新工作流
 func (s *WorkflowService) UpdateWorkflow(id uint, req *UpdateWorkflowRequest) (*WorkflowResponse, error) {
-	workflow, err := s.getWorkflowByID(id)
+	// 获取现有工作流
+	workflow, err := s.repos.Workflow.GetByID(id)
 	if err != nil {
-		return nil, err
+		if err == gorm.ErrRecordNotFound {
+			return nil, apperrors.NotFoundError("workflow", id)
+		}
+		return nil, apperrors.InternalErrorWithErr(err, "Failed to fetch workflow")
 	}
 
 	// 更新字段
-	updates := make(map[string]interface{})
-
 	if req.Name != nil {
-		updates["name"] = *req.Name
+		workflow.Name = *req.Name
 	}
 	if req.Description != nil {
-		updates["description"] = *req.Description
+		workflow.Description = *req.Description
 	}
 	if req.IsEnabled != nil {
-		updates["is_enabled"] = *req.IsEnabled
+		workflow.IsEnabled = *req.IsEnabled
 	}
 	if req.Schedule != nil {
 		// 验证cron表达式
 		if err := models.ValidateCron(*req.Schedule); err != nil {
 			return nil, apperrors.InvalidCronExpressionError(*req.Schedule)
 		}
-		updates["schedule"] = *req.Schedule
+		workflow.Schedule = *req.Schedule
 	}
 	if req.ScopeType != nil {
-		updates["scope_type"] = *req.ScopeType
+		workflow.ScopeType = *req.ScopeType
 	}
 	if req.ScopeConfig != nil {
 		// 验证范围配置
 		if err := s.validateScopeConfig(req.ScopeConfig); err != nil {
 			return nil, err
 		}
-		updates["scope_config"] = *req.ScopeConfig
+		workflow.ScopeConfig = *req.ScopeConfig
 	}
 	if req.RulesConfig != nil {
-		updates["rules_config"] = *req.RulesConfig
+		workflow.RulesConfig = *req.RulesConfig
 	}
 
 	// 执行更新
-	if err := s.db.Model(workflow).Updates(updates).Error; err != nil {
+	if err := s.repos.Workflow.Update(workflow); err != nil {
 		return nil, apperrors.InternalErrorWithErr(err, "Failed to update workflow")
-	}
-
-	// 重新加载
-	if err := s.db.First(workflow, id).Error; err != nil {
-		return nil, apperrors.InternalError("Failed to reload workflow")
 	}
 
 	return s.toWorkflowResponse(workflow), nil
@@ -163,18 +164,22 @@ func (s *WorkflowService) UpdateWorkflow(id uint, req *UpdateWorkflowRequest) (*
 // DeleteWorkflow 删除工作流
 func (s *WorkflowService) DeleteWorkflow(id uint) error {
 	// 检查是否存在
-	workflow, err := s.getWorkflowByID(id)
+	_, err := s.repos.Workflow.GetByID(id)
 	if err != nil {
-		return err
+		if err == gorm.ErrRecordNotFound {
+			return apperrors.NotFoundError("workflow", id)
+		}
+		return apperrors.InternalErrorWithErr(err, "Failed to fetch workflow")
 	}
 
 	// 删除相关的 Job
-	if err := s.db.Where("workflow_id = ?", id).Delete(&models.Job{}).Error; err != nil {
+	// 注意: 这个操作可能需要通过 JobRepository 来完成,但为了保持简单,我们暂时保留直接删除
+	if err := s.repos.DB().Where("workflow_id = ?", id).Delete(&models.Job{}).Error; err != nil {
 		return apperrors.InternalErrorWithErr(err, "Failed to delete workflow jobs")
 	}
 
 	// 删除工作流
-	if err := s.db.Delete(workflow).Error; err != nil {
+	if err := s.repos.Workflow.Delete(id); err != nil {
 		return apperrors.InternalErrorWithErr(err, "Failed to delete workflow")
 	}
 
@@ -183,30 +188,25 @@ func (s *WorkflowService) DeleteWorkflow(id uint) error {
 
 // ListWorkflows 获取工作流列表
 func (s *WorkflowService) ListWorkflows(page, pageSize int, enabledOnly bool) (*WorkflowListResponse, error) {
-	var workflows []models.Workflow
+	var workflows []*models.Workflow
 	var total int64
-
-	query := s.db.Model(&models.Workflow{})
+	var err error
 
 	if enabledOnly {
-		query = query.Where("is_enabled = ?", true)
+		workflows, err = s.repos.Workflow.ListEnabled()
+		total = int64(len(workflows))
+	} else {
+		workflows, total, err = s.repos.Workflow.List(page, pageSize)
 	}
 
-	// 计算总数
-	if err := query.Count(&total).Error; err != nil {
-		return nil, apperrors.InternalErrorWithErr(err, "Failed to count workflows")
-	}
-
-	// 分页查询
-	offset := (page - 1) * pageSize
-	if err := query.Offset(offset).Limit(pageSize).Order("created_at DESC").Find(&workflows).Error; err != nil {
+	if err != nil {
 		return nil, apperrors.InternalErrorWithErr(err, "Failed to fetch workflows")
 	}
 
 	// 转换为响应格式
 	responses := make([]WorkflowResponse, len(workflows))
 	for i, wf := range workflows {
-		responses[i] = *s.toWorkflowResponse(&wf)
+		responses[i] = *s.toWorkflowResponse(wf)
 	}
 
 	return &WorkflowListResponse{
@@ -219,34 +219,19 @@ func (s *WorkflowService) ListWorkflows(page, pageSize int, enabledOnly bool) (*
 
 // ToggleWorkflow 切换工作流启用状态
 func (s *WorkflowService) ToggleWorkflow(id uint) (*WorkflowResponse, error) {
-	workflow, err := s.getWorkflowByID(id)
+	// 使用 Repository 的 ToggleStatus 方法
+	toggled, err := s.repos.Workflow.ToggleStatus(id)
 	if err != nil {
-		return nil, err
-	}
-
-	// 切换状态
-	workflow.IsEnabled = !workflow.IsEnabled
-
-	if err := s.db.Save(workflow).Error; err != nil {
-		return nil, apperrors.InternalErrorWithErr(err, "Failed to toggle workflow")
-	}
-
-	return s.toWorkflowResponse(workflow), nil
-}
-
-// ========== 辅助方法 ==========
-
-// getWorkflowByID 根据ID获取工作流
-func (s *WorkflowService) getWorkflowByID(id uint) (*models.Workflow, error) {
-	var workflow models.Workflow
-	if err := s.db.First(&workflow, id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.NotFoundError("workflow", id)
 		}
-		return nil, apperrors.InternalErrorWithErr(err, "Failed to fetch workflow")
+		return nil, apperrors.InternalErrorWithErr(err, "Failed to toggle workflow")
 	}
-	return &workflow, nil
+
+	return s.toWorkflowResponse(toggled), nil
 }
+
+// ========== 辅助方法 ==========
 
 // validateWorkflowConfig 验证工作流配置
 func (s *WorkflowService) validateWorkflowConfig(
@@ -347,8 +332,9 @@ func (s *WorkflowService) toWorkflowResponse(workflow *models.Workflow) *Workflo
 	}
 
 	// 加载Job计数
+	// TODO: 这个查询应该通过 JobRepository 来完成
 	var jobCount int64
-	s.db.Model(&models.Job{}).Where("workflow_id = ?", workflow.ID).Count(&jobCount)
+	s.repos.DB().Model(&models.Job{}).Where("workflow_id = ?", workflow.ID).Count(&jobCount)
 	response.JobCount = int(jobCount)
 
 	return response
@@ -356,9 +342,12 @@ func (s *WorkflowService) toWorkflowResponse(workflow *models.Workflow) *Workflo
 
 // TriggerWorkflow 手动触发工作流
 func (s *WorkflowService) TriggerWorkflow(id uint) error {
-	workflow, err := s.getWorkflowByID(id)
+	workflow, err := s.repos.Workflow.GetByID(id)
 	if err != nil {
-		return err
+		if err == gorm.ErrRecordNotFound {
+			return apperrors.NotFoundError("workflow", id)
+		}
+		return apperrors.InternalErrorWithErr(err, "Failed to fetch workflow")
 	}
 
 	if !workflow.IsEnabled {
