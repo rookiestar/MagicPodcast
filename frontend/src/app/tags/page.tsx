@@ -339,7 +339,6 @@ function TagsPageContent({
         {/* Tags List */}
         {!loading && !error && (
           <>
-            <div className="mb-6 text-slate-600">共 {tags.length} 个标签</div>
 
             {tags.length === 0 ? (
               <div className="bg-white rounded-lg p-12 text-center">
