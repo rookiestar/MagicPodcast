@@ -240,106 +240,76 @@ function TagsPageContent() {
   return (
     <main className="min-h-screen bg-slate-50">
       <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="mb-8">
-            <div className="flex items-center justify-between mb-8">
-              {/* 返回首页按钮 */}
-              <Link
-                href="/"
-                className="w-36 h-11 px-4 bg-white text-slate-800 font-medium rounded-xl border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors flex items-center justify-center gap-2"
-              >
-                <span>←</span>
-                <span>返回首页</span>
-              </Link>
+        {/* 操作栏 - 移到工具栏下方 */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2">
+            {isSelectMode ? (
+              <>
+                <button
+                  onClick={() => {
+                    setIsSelectMode(false);
+                    setSelectedTags(new Set());
+                  }}
+                  className="px-4 py-2 bg-white text-slate-700 rounded-lg border border-slate-300 hover:bg-slate-50 transition-colors text-sm"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleSelectAll}
+                  className="px-4 py-2 bg-white text-slate-700 rounded-lg border border-slate-300 hover:bg-slate-50 transition-colors text-sm"
+                >
+                  {selectedTags.size === tags.length ? "取消全选" : "全选"}
+                </button>
+                <button
+                  onClick={handleBatchDelete}
+                  disabled={selectedTags.size === 0}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:bg-red-300 disabled:cursor-not-allowed text-sm"
+                >
+                  删除 ({selectedTags.size})
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => setIsSelectMode(true)}
+                  className="px-4 py-2 bg-white text-slate-700 rounded-lg border border-slate-300 hover:bg-slate-50 transition-colors text-sm"
+                >
+                  多选
+                </button>
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                >
+                  + 新建标签
+                </button>
+              </>
+            )}
+          </div>
 
-              {/* 右侧按钮组 */}
-              <div className="flex items-center gap-2">
-                {isSelectMode ? (
-                  <>
-                    {/* 取消选择 */}
-                    <button
-                      onClick={() => {
-                        setIsSelectMode(false);
-                        setSelectedTags(new Set());
-                      }}
-                      className="w-24 h-11 bg-white text-slate-700 rounded-xl border border-slate-300 hover:bg-slate-50 transition-colors"
-                    >
-                      取消
-                    </button>
-                    {/* 全选按钮 */}
-                    <button
-                      onClick={handleSelectAll}
-                      className="w-24 h-11 bg-white text-slate-700 rounded-xl border border-slate-300 hover:bg-slate-50 transition-colors"
-                    >
-                      {selectedTags.size === tags.length ? "取消全选" : "全选"}
-                    </button>
-                    {/* 批量删除按钮 */}
-                    <button
-                      onClick={handleBatchDelete}
-                      disabled={selectedTags.size === 0}
-                      className="w-28 h-11 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors disabled:bg-red-300 disabled:cursor-not-allowed"
-                    >
-                      删除 ({selectedTags.size})
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    {/* 多选模式按钮 */}
-                    <button
-                      onClick={() => setIsSelectMode(true)}
-                      className="w-24 h-11 bg-white text-slate-700 rounded-xl border border-slate-300 hover:bg-slate-50 transition-colors"
-                    >
-                      多选
-                    </button>
-                    {/* 新建标签按钮 */}
-                    <button
-                      onClick={() => setShowCreateModal(true)}
-                      className="w-28 h-11 border-2 border-blue-600 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 hover:border-blue-700 transition-colors"
-                    >
-                      + 新建标签
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* 标题和描述 */}
-            <div className="mb-4">
-              <h1 className="text-4xl md:text-5xl font-semibold text-slate-800 mb-2">
-                标签管理
-              </h1>
-              <p className="text-base text-slate-600 max-w-2xl">
-                管理你的播客标签
-              </p>
-            </div>
-
-            {/* 排序模式切换 */}
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-sm text-slate-600">排序方式:</span>
-              <button
-                onClick={() => setSortMode("popularity")}
-                className={
-                  "px-3 py-1.5 rounded-lg text-sm transition-colors " +
-                  (sortMode === "popularity"
-                    ? "bg-slate-800 text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200")
-                }
-              >
-                热度
-              </button>
-              <button
-                onClick={() => setSortMode("alphabetical")}
-                className={
-                  "px-3 py-1.5 rounded-lg text-sm transition-colors " +
-                  (sortMode === "alphabetical"
-                    ? "bg-slate-800 text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200")
-                }
-              >
-                字母
-              </button>
-            </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-slate-600">排序:</span>
+            <button
+              onClick={() => setSortMode("popularity")}
+              className={
+                "px-3 py-1.5 rounded-lg text-sm transition-colors " +
+                (sortMode === "popularity"
+                  ? "bg-slate-800 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200")
+              }
+            >
+              热度
+            </button>
+            <button
+              onClick={() => setSortMode("alphabetical")}
+              className={
+                "px-3 py-1.5 rounded-lg text-sm transition-colors " +
+                (sortMode === "alphabetical"
+                  ? "bg-slate-800 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200")
+              }
+            >
+              字母
+            </button>
           </div>
         </div>
 
