@@ -881,7 +881,6 @@ export default function ImportPage() {
       toolbar={{
         breadcrumbs: [{ label: "返回首页", href: "/" }],
         title: "导入/同步",
-        description: "从 OPML 文件导入播客或同步播客元数据",
       }}
     >
       <ImportPageContent />
