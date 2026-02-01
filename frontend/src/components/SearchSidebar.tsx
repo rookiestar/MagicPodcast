@@ -60,6 +60,8 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
   }>({ podcasts: [], episodes: [] });
   const [loading, setLoading] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const [isFocused, setIsFocused] = useState(false);
 
   // 存储完整搜索结果（用于切换筛选器时显示）
   const [allResults, setAllResults] = useState<{
@@ -80,6 +82,7 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
   useEffect(() => {
     if (isOpen && searchInputRef.current) {
       searchInputRef.current.focus();
+      setIsFocused(true); // 打开时设置焦点状态
     }
   }, [isOpen]);
 
@@ -90,6 +93,7 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
       setResults({ podcasts: [], episodes: [] });
       setSearchType("all");
       setExpanded(false);
+      setIsFocused(false);
     }
   }, [isOpen]);
 
@@ -97,6 +101,21 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
   useEffect(() => {
     setSearchHistory(getSearchHistory());
   }, [isOpen]);
+
+  // 焦点管理：当焦点移出侧边栏时自动关闭
+  useEffect(() => {
+    if (!isOpen || isFocused) return;
+
+    // 延迟关闭，避免在点击侧边栏内部元素时误触发
+    const timer = setTimeout(() => {
+      // 检查当前焦点元素是否在侧边栏内
+      if (sidebarRef.current && !sidebarRef.current.contains(document.activeElement)) {
+        onClose();
+      }
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [isFocused, isOpen, onClose]);
 
   // 防抖搜索 - 优化：降低延迟从500ms到200ms
   useEffect(() => {
@@ -213,10 +232,23 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
   return (
     <>
       {/* 遮罩层 */}
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={handleClose} />
+      <div
+        className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ease-in-out ${
+          isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+        onClick={handleClose}
+      />
 
       {/* 侧边栏 */}
-      <div className="fixed right-0 top-0 h-full w-full max-w-2xl bg-white dark:bg-slate-800 shadow-2xl z-50 flex flex-col">
+      <div
+        ref={sidebarRef}
+        tabIndex={-1}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
+        className={`fixed right-0 top-0 h-full w-full max-w-2xl bg-white dark:bg-slate-800 shadow-2xl z-50 flex flex-col transition-transform duration-300 ease-in-out ${
+          isOpen ? "translate-x-0" : "translate-x-full"
+        }`}
+      >
         {/* 头部 */}
         <div className="border-b border-slate-200 dark:border-slate-700 p-4">
           <div className="flex items-center gap-3">
