@@ -1,0 +1,306 @@
+package repository
+
+import (
+	"magicpodcast/internal/models"
+
+	"gorm.io/gorm"
+)
+
+// TagRepository 标签数据访问接口
+type TagRepository interface {
+	Repository
+
+	// Create 创建标签
+	Create(tag *models.Tag) error
+
+	// GetByID 根据ID获取标签
+	GetByID(id uint) (*models.Tag, error)
+
+	// List 获取标签列表
+	List(page, pageSize int) ([]*models.Tag, int64, error)
+
+	// Update 更新标签
+	Update(tag *models.Tag) error
+
+	// Delete 删除标签
+	Delete(id uint) error
+
+	// GetByName 根据名称获取标签
+	GetByName(name string) (*models.Tag, error)
+
+	// Search 搜索标签
+	Search(keyword string, page, pageSize int) ([]*models.Tag, int64, error)
+
+	// GetByIDs 批量获取标签
+	GetByIDs(ids []uint) ([]*models.Tag, error)
+
+	// GetPodcastsByTagID 获取使用该标签的播客
+	GetPodcastsByTagID(tagID uint, page, pageSize int) ([]*models.Podcast, int64, error)
+
+	// GetEpisodesByTagID 获取使用该标签的单集
+	GetEpisodesByTagID(tagID uint, page, pageSize int) ([]*models.Episode, int64, error)
+
+	// AddTagToPodcast 为播客添加标签
+	AddTagToPodcast(podcastID, tagID uint) error
+
+	// RemoveTagFromPodcast 移除播客标签
+	RemoveTagFromPodcast(podcastID, tagID uint) error
+
+	// AddTagToEpisode 为单集添加标签
+	AddTagToEpisode(episodeID, tagID uint) error
+
+	// RemoveTagFromEpisode 移除单集标签
+	RemoveTagFromEpisode(episodeID, tagID uint) error
+
+	// GetPodcastTags 获取播客的所有标签
+	GetPodcastTags(podcastID uint) ([]*models.Tag, error)
+
+	// GetEpisodeTags 获取单集的所有标签
+	GetEpisodeTags(episodeID uint) ([]*models.Tag, error)
+
+	// UpdatePodcastCount 更新标签的播客计数
+	UpdatePodcastCount(tagID uint) error
+}
+
+// tagRepository 标签数据访问实现
+type tagRepository struct {
+	*BaseRepository
+}
+
+// NewTagRepository 创建标签Repository
+func NewTagRepository(db *gorm.DB) TagRepository {
+	return &tagRepository{
+		BaseRepository: NewBaseRepository(db),
+	}
+}
+
+// Create 创建标签
+func (r *tagRepository) Create(tag *models.Tag) error {
+	return r.DB().Create(tag).Error
+}
+
+// GetByID 根据ID获取标签
+func (r *tagRepository) GetByID(id uint) (*models.Tag, error) {
+	var tag models.Tag
+	err := r.DB().First(&tag, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &tag, nil
+}
+
+// List 获取标签列表
+func (r *tagRepository) List(page, pageSize int) ([]*models.Tag, int64, error) {
+	var tags []*models.Tag
+	var total int64
+
+	query := r.DB().Model(&models.Tag{})
+
+	// 计算总数
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 分页
+	offset := (page - 1) * pageSize
+	err := query.Order("id ASC").Offset(offset).Limit(pageSize).Find(&tags).Error
+
+	return tags, total, err
+}
+
+// Update 更新标签
+func (r *tagRepository) Update(tag *models.Tag) error {
+	return r.DB().Save(tag).Error
+}
+
+// Delete 删除标签
+func (r *tagRepository) Delete(id uint) error {
+	return r.DB().Transaction(func(tx *gorm.DB) error {
+		// 删除播客标签关联
+		if err := tx.Where("podcast_id = ?", id).Delete(&models.PodcastsTag{}).Error; err != nil {
+			return err
+		}
+
+		// 删除单集标签关联
+		if err := tx.Where("episode_id = ?", id).Delete(&models.EpisodesTag{}).Error; err != nil {
+			return err
+		}
+
+		// 删除标签
+		return tx.Delete(&models.Tag{}, id).Error
+	})
+}
+
+// GetByName 根据名称获取标签
+func (r *tagRepository) GetByName(name string) (*models.Tag, error) {
+	var tag models.Tag
+	err := r.DB().Where("name = ?", name).First(&tag).Error
+	if err != nil {
+		return nil, err
+	}
+	return &tag, nil
+}
+
+// Search 搜索标签
+func (r *tagRepository) Search(keyword string, page, pageSize int) ([]*models.Tag, int64, error) {
+	var tags []*models.Tag
+	var total int64
+
+	searchTerm := "%" + keyword + "%"
+	query := r.DB().Model(&models.Tag{}).
+		Where("name LIKE ? OR description LIKE ?", searchTerm, searchTerm)
+
+	// 计算总数
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 分页
+	offset := (page - 1) * pageSize
+	err := query.Order("id ASC").Offset(offset).Limit(pageSize).Find(&tags).Error
+
+	return tags, total, err
+}
+
+// GetByIDs 批量获取标签
+func (r *tagRepository) GetByIDs(ids []uint) ([]*models.Tag, error) {
+	var tags []*models.Tag
+	err := r.DB().Where("id IN ?", ids).Find(&tags).Error
+	return tags, err
+}
+
+// GetPodcastsByTagID 获取使用该标签的播客
+func (r *tagRepository) GetPodcastsByTagID(tagID uint, page, pageSize int) ([]*models.Podcast, int64, error) {
+	var podcasts []*models.Podcast
+	var total int64
+
+	subQuery := r.DB().Model(&models.PodcastsTag{}).Select("podcast_id").Where("tag_id = ?", tagID)
+
+	query := r.DB().Model(&models.Podcast{}).Where("id IN (?)", subQuery)
+
+	// 计算总数
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 分页
+	offset := (page - 1) * pageSize
+	err := query.Order("title ASC").Offset(offset).Limit(pageSize).Find(&podcasts).Error
+
+	return podcasts, total, err
+}
+
+// GetEpisodesByTagID 获取使用该标签的单集
+func (r *tagRepository) GetEpisodesByTagID(tagID uint, page, pageSize int) ([]*models.Episode, int64, error) {
+	var episodes []*models.Episode
+	var total int64
+
+	subQuery := r.DB().Model(&models.EpisodesTag{}).Select("episode_id").Where("tag_id = ?", tagID)
+
+	query := r.DB().Model(&models.Episode{}).Where("id IN (?)", subQuery)
+
+	// 计算总数
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 分页
+	offset := (page - 1) * pageSize
+	err := query.Order("published_date DESC").Offset(offset).Limit(pageSize).Find(&episodes).Error
+
+	return episodes, total, err
+}
+
+// AddTagToPodcast 为播客添加标签
+func (r *tagRepository) AddTagToPodcast(podcastID, tagID uint) error {
+	// 检查是否已存在
+	var count int64
+	if err := r.DB().Model(&models.PodcastsTag{}).
+		Where("podcast_id = ? AND tag_id = ?", podcastID, tagID).
+		Count(&count).Error; err != nil {
+		return err
+	}
+
+	if count > 0 {
+		return nil // 已存在，无需重复添加
+	}
+
+	// 创建关联
+	podcastTag := models.PodcastsTag{
+		PodcastID: podcastID,
+		TagID:     tagID,
+	}
+
+	return r.DB().Create(&podcastTag).Error
+}
+
+// RemoveTagFromPodcast 移除播客标签
+func (r *tagRepository) RemoveTagFromPodcast(podcastID, tagID uint) error {
+	return r.DB().Where("podcast_id = ? AND tag_id = ?", podcastID, tagID).
+		Delete(&models.PodcastsTag{}).Error
+}
+
+// AddTagToEpisode 为单集添加标签
+func (r *tagRepository) AddTagToEpisode(episodeID, tagID uint) error {
+	// 检查是否已存在
+	var count int64
+	if err := r.DB().Model(&models.EpisodesTag{}).
+		Where("episode_id = ? AND tag_id = ?", episodeID, tagID).
+		Count(&count).Error; err != nil {
+		return err
+	}
+
+	if count > 0 {
+		return nil // 已存在，无需重复添加
+	}
+
+	// 创建关联
+	episodeTag := models.EpisodesTag{
+		EpisodeID: episodeID,
+		TagID:     tagID,
+	}
+
+	return r.DB().Create(&episodeTag).Error
+}
+
+// RemoveTagFromEpisode 移除单集标签
+func (r *tagRepository) RemoveTagFromEpisode(episodeID, tagID uint) error {
+	return r.DB().Where("episode_id = ? AND tag_id = ?", episodeID, tagID).
+		Delete(&models.EpisodesTag{}).Error
+}
+
+// GetPodcastTags 获取播客的所有标签
+func (r *tagRepository) GetPodcastTags(podcastID uint) ([]*models.Tag, error) {
+	var tags []*models.Tag
+
+	err := r.DB().Joins("JOIN podcasts_tags ON podcasts_tags.tag_id = tags.id").
+		Where("podcasts_tags.podcast_id = ?", podcastID).
+		Find(&tags).Error
+
+	return tags, err
+}
+
+// GetEpisodeTags 获取单集的所有标签
+func (r *tagRepository) GetEpisodeTags(episodeID uint) ([]*models.Tag, error) {
+	var tags []*models.Tag
+
+	err := r.DB().Joins("JOIN episodes_tags ON episodes_tags.tag_id = tags.id").
+		Where("episodes_tags.episode_id = ?", episodeID).
+		Find(&tags).Error
+
+	return tags, err
+}
+
+// UpdatePodcastCount 更新标签的播客计数
+func (r *tagRepository) UpdatePodcastCount(tagID uint) error {
+	var count int64
+	if err := r.DB().Model(&models.PodcastsTag{}).
+		Where("tag_id = ?", tagID).
+		Count(&count).Error; err != nil {
+		return err
+	}
+
+	return r.DB().Model(&models.Tag{}).
+		Where("id = ?", tagID).
+		Update("podcast_count", count).Error
+}
