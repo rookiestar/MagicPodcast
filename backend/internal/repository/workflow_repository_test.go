@@ -15,12 +15,7 @@ func TestWorkflowRepository_Create(t *testing.T) {
 	repo := NewWorkflowRepository(db)
 
 	// 创建测试工作流
-	workflow := &models.Workflow{
-		Name:       "测试工作流",
-		Description: "这是一个测试工作流",
-		IsEnabled:   true,
-		Schedule:    "0 2 * * *",
-	}
+	workflow := generateUniqueWorkflow(1)
 
 	err := repo.Create(workflow)
 	require.NoError(t, err)
@@ -35,18 +30,13 @@ func TestWorkflowRepository_GetByID(t *testing.T) {
 	repo := NewWorkflowRepository(db)
 
 	// 创建测试数据
-	workflow := &models.Workflow{
-		Name:       "测试工作流",
-		Description: "这是一个测试工作流",
-		IsEnabled:   true,
-		Schedule:    "0 2 * * *",
-	}
+	workflow := generateUniqueWorkflow(1)
 	require.NoError(t, repo.Create(workflow))
 
 	// 测试查询
 	found, err := repo.GetByID(workflow.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "测试工作流", found.Name)
+	assert.Equal(t, workflow.Name, found.Name)
 	assert.True(t, found.IsEnabled)
 }
 
@@ -58,12 +48,7 @@ func TestWorkflowRepository_List(t *testing.T) {
 
 	// 创建多个测试工作流
 	for i := 1; i <= 5; i++ {
-		workflow := &models.Workflow{
-			Name:       "测试工作流",
-			Description: "这是一个测试工作流",
-			IsEnabled:   true,
-			Schedule:    "0 2 * * *",
-		}
+		workflow := generateUniqueWorkflow(i)
 		require.NoError(t, repo.Create(workflow))
 	}
 
@@ -81,16 +66,10 @@ func TestWorkflowRepository_ListEnabled(t *testing.T) {
 	repo := NewWorkflowRepository(db)
 
 	// 创建启用和禁用的工作流
-	workflow1 := &models.Workflow{
-		Name:     "启用的工作流",
-		IsEnabled: true,
-		Schedule:  "0 2 * * *",
-	}
-	workflow2 := &models.Workflow{
-		Name:     "禁用的工作流",
-		IsEnabled: false,
-		Schedule:  "0 3 * * *",
-	}
+	workflow1 := generateUniqueWorkflow(1)
+	workflow1.IsEnabled = true
+	workflow2 := generateUniqueWorkflow(2)
+	workflow2.IsEnabled = false
 	require.NoError(t, repo.Create(workflow1))
 	require.NoError(t, repo.Create(workflow2))
 
@@ -112,12 +91,10 @@ func TestWorkflowRepository_Update(t *testing.T) {
 	repo := NewWorkflowRepository(db)
 
 	// 创建测试工作流
-	workflow := &models.Workflow{
-		Name:       "原标题",
-		Description: "原描述",
-		IsEnabled:   false,
-		Schedule:    "0 2 * * *",
-	}
+	workflow := generateUniqueWorkflow(1)
+	workflow.Name = "原标题"
+	workflow.Description = "原描述"
+	workflow.IsEnabled = false
 	require.NoError(t, repo.Create(workflow))
 
 	// 更新
@@ -141,12 +118,8 @@ func TestWorkflowRepository_Delete(t *testing.T) {
 	repo := NewWorkflowRepository(db)
 
 	// 创建测试工作流
-	workflow := &models.Workflow{
-		Name:       "待删除工作流",
-		Description: "这是一个待删除的测试工作流",
-		IsEnabled:   true,
-		Schedule:    "0 2 * * *",
-	}
+	workflow := generateUniqueWorkflow(1)
+	workflow.Name = "待删除工作流"
 	require.NoError(t, repo.Create(workflow))
 
 	// 删除
@@ -165,12 +138,8 @@ func TestWorkflowRepository_ToggleStatus(t *testing.T) {
 	repo := NewWorkflowRepository(db)
 
 	// 创建测试工作流
-	workflow := &models.Workflow{
-		Name:       "测试工作流",
-		Description: "这是一个测试工作流",
-		IsEnabled:   false,
-		Schedule:    "0 2 * * *",
-	}
+	workflow := generateUniqueWorkflow(1)
+	workflow.IsEnabled = false
 	require.NoError(t, repo.Create(workflow))
 	assert.False(t, workflow.IsEnabled)
 
@@ -192,12 +161,8 @@ func TestWorkflowRepository_UpdateStatus(t *testing.T) {
 	repo := NewWorkflowRepository(db)
 
 	// 创建测试工作流
-	workflow := &models.Workflow{
-		Name:       "测试工作流",
-		Description: "这是一个测试工作流",
-		IsEnabled:   false,
-		Schedule:    "0 2 * * *",
-	}
+	workflow := generateUniqueWorkflow(1)
+	workflow.IsEnabled = false
 	require.NoError(t, repo.Create(workflow))
 
 	// 启用工作流
@@ -225,21 +190,18 @@ func TestWorkflowRepository_GetBySchedule(t *testing.T) {
 
 	// 创建相同调度时间的工作流
 	schedule := "0 2 * * *"
-	workflow1 := &models.Workflow{
-		Name:     "工作流1",
-		IsEnabled: true,
-		Schedule:  schedule,
-	}
-	workflow2 := &models.Workflow{
-		Name:     "工作流2",
-		IsEnabled: true,
-		Schedule:  schedule,
-	}
-	workflow3 := &models.Workflow{
-		Name:     "工作流3",
-		IsEnabled: false,
-		Schedule:  schedule,
-	}
+	workflow1 := generateUniqueWorkflow(1)
+	workflow1.Name = "工作流1"
+	workflow1.IsEnabled = true
+	workflow1.Schedule = schedule
+	workflow2 := generateUniqueWorkflow(2)
+	workflow2.Name = "工作流2"
+	workflow2.IsEnabled = true
+	workflow2.Schedule = schedule
+	workflow3 := generateUniqueWorkflow(3)
+	workflow3.Name = "工作流3"
+	workflow3.IsEnabled = false
+	workflow3.Schedule = schedule
 	require.NoError(t, repo.Create(workflow1))
 	require.NoError(t, repo.Create(workflow2))
 	require.NoError(t, repo.Create(workflow3))
@@ -263,12 +225,7 @@ func TestWorkflowRepository_GetWithJobs(t *testing.T) {
 	repo := NewWorkflowRepository(db)
 
 	// 创建工作流
-	workflow := &models.Workflow{
-		Name:       "测试工作流",
-		Description: "这是一个测试工作流",
-		IsEnabled:   true,
-		Schedule:    "0 2 * * *",
-	}
+	workflow := generateUniqueWorkflow(1)
 	require.NoError(t, repo.Create(workflow))
 
 	// 创建任务
@@ -293,20 +250,21 @@ func TestWorkflowRepository_GetLastExecution(t *testing.T) {
 	repo := NewWorkflowRepository(db)
 
 	// 创建工作流
-	workflow := &models.Workflow{
-		Name:       "测试工作流",
-		Description: "这是一个测试工作流",
-		IsEnabled:   true,
-		Schedule:    "0 2 * * *",
-	}
+	workflow := generateUniqueWorkflow(1)
 	require.NoError(t, repo.Create(workflow))
 
-	// 创建执行记录
+	// 创建任务和执行记录
+	job := &models.Job{
+		WorkflowID: workflow.ID,
+		Status:     models.JobStatusCompleted,
+	}
+	require.NoError(t, db.Create(job).Error)
+
 	podcastID := uint(1)
 	execution := &models.JobExecution{
-		JobID:          1,
+		JobID:          job.ID,
 		PodcastID:      &podcastID,
-		Status:         "completed",
+		Status:         models.ExecutionStatusSuccess,
 		LogInfo:        "执行成功",
 		ProcessingTime: 1000,
 	}
@@ -316,5 +274,5 @@ func TestWorkflowRepository_GetLastExecution(t *testing.T) {
 	lastExec, err := repo.GetLastExecution(workflow.ID)
 	require.NoError(t, err)
 	assert.NotNil(t, lastExec)
-	assert.Equal(t, "completed", lastExec.Status)
+	assert.Equal(t, models.ExecutionStatusSuccess, lastExec.Status)
 }

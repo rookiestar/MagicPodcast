@@ -148,7 +148,7 @@ func (r *tagRepository) Search(keyword string, page, pageSize int) ([]*models.Ta
 
 	searchTerm := "%" + keyword + "%"
 	query := r.DB().Model(&models.Tag{}).
-		Where("name LIKE ? OR description LIKE ?", searchTerm, searchTerm)
+		Where("name LIKE ?", searchTerm)
 
 	// 计算总数
 	if err := query.Count(&total).Error; err != nil {

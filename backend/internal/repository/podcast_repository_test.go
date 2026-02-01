@@ -1,7 +1,6 @@
 package repository
 
 import (
-	"fmt"
 	"magicpodcast/internal/models"
 	"testing"
 
@@ -58,11 +57,7 @@ func TestPodcastRepository_List(t *testing.T) {
 
 	// 创建多个测试播客
 	for i := 1; i <= 5; i++ {
-		podcast := &models.Podcast{
-			Title:   fmt.Sprintf("播客%d", i),
-			Author:  "测试作者",
-			FeedURL: fmt.Sprintf("https://example.com/feed%d.xml", i),
-		}
+		podcast := generateUniquePodcast(i)
 		require.NoError(t, repo.Create(podcast))
 	}
 
@@ -130,16 +125,10 @@ func TestPodcastRepository_Search(t *testing.T) {
 	repo := NewPodcastRepository(db)
 
 	// 创建测试数据
-	podcast1 := &models.Podcast{
-		Title:   "科技播客",
-		Author:  "测试作者",
-		FeedURL: "https://example.com/feed1.xml",
-	}
-	podcast2 := &models.Podcast{
-		Title:   "音乐播客",
-		Author:  "测试作者",
-		FeedURL: "https://example.com/feed2.xml",
-	}
+	podcast1 := generateUniquePodcast(1)
+	podcast1.Title = "科技播客"
+	podcast2 := generateUniquePodcast(2)
+	podcast2.Title = "音乐播客"
 	require.NoError(t, repo.Create(podcast1))
 	require.NoError(t, repo.Create(podcast2))
 

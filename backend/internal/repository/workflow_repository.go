@@ -83,10 +83,9 @@ func (r *workflowRepository) List(page, pageSize int) ([]*models.Workflow, int64
 		return nil, 0, err
 	}
 
-	// 分页并预加载最后任务
+	// 分页
 	offset := (page - 1) * pageSize
-	err := query.Preload("LastJob").
-		Order("created_at DESC").
+	err := query.Order("created_at DESC").
 		Offset(offset).
 		Limit(pageSize).
 		Find(&workflows).Error
@@ -156,9 +155,14 @@ func (r *workflowRepository) GetWithJobs(id uint) (*models.Workflow, error) {
 // GetLastExecution 获取最后执行记录
 func (r *workflowRepository) GetLastExecution(workflowID uint) (*models.JobExecution, error) {
 	var execution models.JobExecution
-	err := r.DB().Where("workflow_id = ?", workflowID).
-		Order("start_time DESC").
+
+	// 通过 Job 关联查询最后执行记录
+	err := r.DB().
+		Joins("JOIN jobs ON jobs.id = job_executions.job_id").
+		Where("jobs.workflow_id = ?", workflowID).
+		Order("job_executions.created_at DESC").
 		First(&execution).Error
+
 	if err != nil {
 		return nil, err
 	}
