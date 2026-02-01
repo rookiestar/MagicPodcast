@@ -233,7 +233,7 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
     <>
       {/* 遮罩层 */}
       <div
-        className={`fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 ease-in-out ${
+        className={`fixed inset-0 bg-black/50 z-40 transition-all duration-500 ease-out ${
           isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
         onClick={handleClose}
@@ -245,8 +245,10 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
         tabIndex={-1}
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
-        className={`fixed right-0 top-0 h-full w-full max-w-2xl bg-white dark:bg-slate-800 shadow-2xl z-50 flex flex-col transition-transform duration-300 ease-in-out ${
-          isOpen ? "translate-x-0" : "translate-x-full"
+        className={`fixed right-0 top-0 h-full w-full max-w-2xl bg-white dark:bg-slate-800 z-50 flex flex-col transition-all duration-500 ease-out ${
+          isOpen
+            ? "translate-x-0 scale-100 opacity-100 shadow-2xl"
+            : "translate-x-full scale-95 opacity-0 shadow-xl"
         }`}
       >
         {/* 头部 */}
