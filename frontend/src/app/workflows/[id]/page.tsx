@@ -8,6 +8,7 @@ import { schedulerApi } from "@/lib/api/scheduler";
 import type { Workflow, Job, Podcast } from "@/types";
 import WorkflowFormModal from "@/components/workflows/WorkflowFormModal";
 import ReportModal from "@/components/workflows/ReportModal";
+import PageLayout from "@/components/layout/PageLayout";
 
 type TabType = "overview" | "jobs" | "config";
 
@@ -262,196 +263,180 @@ export default function WorkflowDetailPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-slate-50 dark:bg-slate-900">
-        <div className="container mx-auto px-4 py-8">
-          <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            <p className="mt-4 text-slate-600 dark:text-slate-400">加载中...</p>
-          </div>
+      <PageLayout
+        toolbar={{
+          breadcrumbs: [{ label: "返回列表", href: backLink }],
+          title: "工作流详情",
+        }}
+      >
+        <div className="text-center py-12">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          <p className="mt-4 text-slate-600 dark:text-slate-400">加载中...</p>
         </div>
-      </main>
+      </PageLayout>
     );
   }
 
   if (error || !workflow) {
     return (
-      <main className="min-h-screen bg-slate-50 dark:bg-slate-900">
-        <div className="container mx-auto px-4 py-8">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-            <h3 className="text-red-800 font-semibold mb-2">加载失败</h3>
-            <p className="text-red-600">{error || "工作流不存在"}</p>
-            <Link
-              href={backLink}
-              className="mt-4 inline-block text-blue-600 hover:text-blue-700"
-            >
-              ← 返回列表
-            </Link>
-          </div>
+      <PageLayout
+        toolbar={{
+          breadcrumbs: [{ label: "返回列表", href: backLink }],
+          title: "工作流详情",
+        }}
+      >
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+          <h3 className="text-red-800 font-semibold mb-2">加载失败</h3>
+          <p className="text-red-600">{error || "工作流不存在"}</p>
+          <Link
+            href={backLink}
+            className="mt-4 inline-block text-blue-600 hover:text-blue-700"
+          >
+            ← 返回列表
+          </Link>
         </div>
-      </main>
+      </PageLayout>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 dark:bg-slate-900">
-      <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="mb-4">
-            <Link
-              href={backLink}
-              className="w-36 h-11 px-4 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-medium rounded-xl border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 hover:border-slate-400 dark:hover:border-slate-500 transition-colors flex items-center justify-center gap-2"
+    <PageLayout
+      toolbar={{
+        breadcrumbs: [{ label: "返回列表", href: backLink }],
+        title: `${workflow.id}: ${workflow.name}`,
+        description: workflow.description || undefined,
+        rightContent: (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleTrigger}
+              className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-bold flex items-center gap-2"
             >
-              <span>←</span>
-              <span>返回列表</span>
-            </Link>
+              <svg
+                className="w-4 h-4 text-blue-600 dark:text-blue-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2.5}
+                  d="M13 10V3L4 14h7v7l9-11h-7z"
+                />
+              </svg>
+              手动执行
+            </button>
+            <button
+              onClick={handleToggle}
+              className={`px-4 py-2 rounded-lg transition-colors text-sm font-bold flex items-center gap-2 ${
+                workflow.is_enabled
+                  ? "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                  : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+              }`}
+            >
+              {workflow.is_enabled ? (
+                <>
+                  <svg
+                    className="w-4 h-4 text-amber-600 dark:text-amber-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2.5}
+                      d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  停用
+                </>
+              ) : (
+                <>
+                  <svg
+                    className="w-4 h-4 text-green-600 dark:text-green-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2.5}
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  启用
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => setShowEditModal(true)}
+              className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-bold flex items-center gap-2"
+            >
+              <svg
+                className="w-4 h-4 text-slate-800 dark:text-slate-200"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2.5}
+                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2h2.828l8.586-8.586z"
+                />
+              </svg>
+              编辑
+            </button>
+            <button
+              onClick={handleDelete}
+              className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-sm font-bold flex items-center gap-2"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2.5}
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                />
+              </svg>
+              删除
+            </button>
+            {getStatusBadge(workflow.is_enabled)}
           </div>
-
-          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex-1">
-                <div className="flex items-center gap-3 mb-2">
-                  <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">
-                    {workflow.id}: {workflow.name}
-                  </h1>
-                  {getStatusBadge(workflow.is_enabled)}
-                </div>
-                {workflow.description && (
-                  <p className="text-slate-600 dark:text-slate-400 mt-2">
-                    {workflow.description}
-                  </p>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleTrigger}
-                  className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-bold flex items-center gap-2"
-                >
-                  <svg
-                    className="w-4 h-4 text-blue-600 dark:text-blue-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2.5}
-                      d="M13 10V3L4 14h7v7l9-11h-7z"
-                    />
-                  </svg>
-                  手动执行
-                </button>
-                <button
-                  onClick={handleToggle}
-                  className={`px-4 py-2 rounded-lg transition-colors text-sm font-bold flex items-center gap-2 ${
-                    workflow.is_enabled
-                      ? "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
-                      : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
-                  }`}
-                >
-                  {workflow.is_enabled ? (
-                    <>
-                      <svg
-                        className="w-4 h-4 text-amber-600 dark:text-amber-400"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2.5}
-                          d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                      停用
-                    </>
-                  ) : (
-                    <>
-                      <svg
-                        className="w-4 h-4 text-green-600 dark:text-green-400"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2.5}
-                          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                      启用
-                    </>
-                  )}
-                </button>
-                <button
-                  onClick={() => setShowEditModal(true)}
-                  className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-bold flex items-center gap-2"
-                >
-                  <svg
-                    className="w-4 h-4 text-slate-800 dark:text-slate-200"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2.5}
-                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2h2.828l8.586-8.586z"
-                    />
-                  </svg>
-                  编辑
-                </button>
-                <button
-                  onClick={handleDelete}
-                  className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-sm font-bold flex items-center gap-2"
-                >
-                  <svg
-                    className="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2.5}
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                    />
-                  </svg>
-                  删除
-                </button>
-              </div>
-            </div>
-
-            {/* Tabs */}
-            <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
-              <div className="flex gap-6">
-                <button
-                  onClick={() => setActiveTab("overview")}
-                  className={`pb-2 border-b-2 transition-colors text-base ${
-                    activeTab === "overview"
-                      ? "border-blue-600 text-blue-600 dark:text-blue-400"
-                      : "border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
-                  }`}
-                >
-                  📊 概览
-                </button>
-                <button
-                  onClick={() => setActiveTab("jobs")}
-                  className={`pb-2 border-b-2 transition-colors text-base ${
-                    activeTab === "jobs"
-                      ? "border-blue-600 text-blue-600 dark:text-blue-400"
-                      : "border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
-                  }`}
-                >
-                  📜 执行历史
-                </button>
-              </div>
-            </div>
+        ),
+      }}
+    >
+      <div className="py-6">
+        {/* Tabs */}
+        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-4 mb-6">
+          <div className="flex gap-6">
+            <button
+              onClick={() => setActiveTab("overview")}
+              className={`pb-2 border-b-2 transition-colors text-base ${
+                activeTab === "overview"
+                  ? "border-blue-600 text-blue-600 dark:text-blue-400"
+                  : "border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
+              }`}
+            >
+              📊 概览
+            </button>
+            <button
+              onClick={() => setActiveTab("jobs")}
+              className={`pb-2 border-b-2 transition-colors text-base ${
+                activeTab === "jobs"
+                  ? "border-blue-600 text-blue-600 dark:text-blue-400"
+                  : "border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
+              }`}
+            >
+              📜 执行历史
+            </button>
           </div>
         </div>
 
@@ -1237,6 +1222,6 @@ export default function WorkflowDetailPage() {
           jobStatus={jobDetails[reportModalJobId]?.status || "pending"}
         />
       )}
-    </main>
+    </PageLayout>
   );
 }

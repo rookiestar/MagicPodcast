@@ -6,6 +6,7 @@ import { workflowApi } from "@/lib/api";
 import { showSuccess } from "@/lib/api/errorHandler";
 import type { Workflow, WorkflowSortByType } from "@/types";
 import WorkflowFormModal from "@/components/workflows/WorkflowFormModal";
+import PageLayout from "@/components/layout/PageLayout";
 
 export default function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
@@ -194,88 +195,36 @@ export default function WorkflowsPage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="mb-8">
-            <div className="flex items-center justify-between mb-6">
-              {/* 返回首页按钮 */}
-              <Link
-                href="/"
-                className="w-36 h-11 px-4 bg-white text-slate-800 font-medium rounded-xl border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors flex items-center justify-center gap-2"
-              >
-                <span>←</span>
-                <span>返回首页</span>
-              </Link>
+    <PageLayout
+      toolbar={{
+        breadcrumbs: [{ label: "返回首页", href: "/" }],
+        title: "工作流管理",
+        description: !loading && workflows.length > 0 ? `${workflows.length} 个工作流` : undefined,
+        rightContent: (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-lg hover:from-violet-700 hover:to-indigo-700 transition-colors flex items-center gap-2"
+            >
+              <span>+</span>
+              <span>创建工作流</span>
+            </button>
 
-              {/* 右侧按钮组 */}
-              <div className="flex items-center gap-3">
-                {/* 创建工作流按钮 - 突出显示 */}
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  className="w-36 h-11 border-2 border-blue-600 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 hover:border-blue-700 transition-colors relative"
-                >
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-white text-lg pointer-events-none">
-                    +
-                  </span>
-                  <span className="w-full text-center">创建工作流</span>
-                </button>
-
-                {/* 排序选择器 */}
-                <div className="relative w-36">
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-slate-700 z-10 pointer-events-none">
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <path
-                        d="M5 11 L5 3 M5 3 L2 6"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        fill="none"
-                      />
-                      <path
-                        d="M11 5 L11 13 M11 13 L14 10"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        fill="none"
-                      />
-                    </svg>
-                  </span>
-                  <select
-                    value={sortBy}
-                    onChange={(e) =>
-                      handleSortChange(e.target.value as WorkflowSortByType)
-                    }
-                    className="w-full h-11 pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl bg-white text-slate-400 text-sm text-center focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-colors appearance-none cursor-pointer"
-                  >
-                    <option value="updated">最近更新</option>
-                    <option value="execution">下次执行</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            {/* 标题和描述 */}
-            <div className="mb-4">
-              <h1 className="text-4xl md:text-5xl font-semibold text-slate-800 mb-2">
-                工作流管理
-              </h1>
-              <p className="text-base text-slate-600 max-w-2xl">
-                管理和监控自动化单集抓取任务
-              </p>
-            </div>
+            <select
+              value={sortBy}
+              onChange={(e) =>
+                handleSortChange(e.target.value as WorkflowSortByType)
+              }
+              className="px-3 py-2 pr-8 border border-slate-300 rounded-lg bg-white text-sm text-slate-700 focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-colors appearance-none cursor-pointer"
+            >
+              <option value="updated">最近更新</option>
+              <option value="execution">下次执行</option>
+            </select>
           </div>
-        </div>
-
+        ),
+      }}
+    >
+      <div className="py-6">
         {/* Loading State */}
         {loading && (
           <div className="text-center py-12">
@@ -555,6 +504,6 @@ export default function WorkflowsPage() {
           setEditingWorkflow(null);
         }}
       />
-    </main>
+    </PageLayout>
   );
 }
