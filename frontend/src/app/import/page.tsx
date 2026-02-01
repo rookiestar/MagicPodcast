@@ -517,9 +517,9 @@ function ImportPageContent() {
 
   return (
     <main className="min-h-screen bg-slate-50 dark:bg-slate-900">
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 py-6">
         {/* Main Card */}
-        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg">
+        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm">
           {/* Tabs */}
           <div className="border-b border-slate-200 dark:border-slate-700 px-6 py-4">
             <div className="flex gap-6">
