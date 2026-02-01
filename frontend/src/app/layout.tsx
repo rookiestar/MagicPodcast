@@ -5,6 +5,10 @@ import { ToastProvider, setGlobalToastContext } from "@/lib/toast";
 export const metadata: Metadata = {
   title: "MagicPodcast - 个人播客管理",
   description: "个人播客管理与自动化处理工具",
+  icons: {
+    icon: "/favicon.svg",
+    apple: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({

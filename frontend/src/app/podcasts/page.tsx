@@ -8,8 +8,9 @@ import { getRelativeTime, isRecentlyUpdated } from "@/lib/timeUtils";
 import type { Podcast, Tag } from "@/types";
 import SearchSidebar from "@/components/SearchSidebar";
 import PodcastCover from "@/components/podcasts/PodcastCover";
+import PageLayout from "@/components/layout/PageLayout";
 
-const PAGE_SIZE = 15; // 默认每页15个（5行×3列）
+const PAGE_SIZE = 15;
 
 type SortByType = "recent_update" | "newest_added" | "episode_count" | "title";
 
@@ -24,21 +25,14 @@ export default function PodcastsPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [sortBy, setSortBy] = useState<SortByType>("recent_update");
 
-  // 添加一个key来强制刷新列表渲染
   const [listKey, setListKey] = useState(0);
-
-  // 分页状态
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
 
-  // 用于无限滚动的 ref
   const observerTarget = useRef<HTMLDivElement>(null);
-
-  // 防抖定时器 ref（用于标签刷新）
   const tagsRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // 数据获取函数
   const fetchPodcasts = async (
     tagIds: number[] = [],
     pageNum: number = 1,
@@ -52,38 +46,20 @@ export default function PodcastsPage() {
       }
       setError(null);
 
-      // 构建查询参数
       const params: any = {
         page: pageNum,
         page_size: PAGE_SIZE,
         sort_by: currentSortBy,
       };
 
-      // 如果选择了标签，传递所有选中的标签ID（AND逻辑）
       if (tagIds.length > 0) {
         params.tag_id = tagIds;
       }
 
-      console.log("[fetchPodcasts] Fetching with params:", params);
       const result = await podcastApi.list(params);
-      console.log(
-        "[fetchPodcasts] Got result:",
-        result.data.length,
-        "podcasts",
-      );
-
-      // 打印前3个节目的标题和数量，验证排序
-      if (result.data && result.data.length > 0) {
-        console.log("[fetchPodcasts] First 3 podcasts:");
-        result.data.slice(0, 3).forEach((p, i) => {
-          console.log(`  ${i + 1}. ${p.title} - ${p.episode_count}集`);
-        });
-      }
 
       if (pageNum === 1) {
-        // 强制设置新数组，触发重新渲染
         setPodcasts([...result.data]);
-        console.log("[fetchPodcasts] Updated state with new data");
       } else {
         setPodcasts((prev) => [...prev, ...result.data]);
       }
@@ -102,7 +78,6 @@ export default function PodcastsPage() {
   const fetchTags = async () => {
     try {
       const data = await tagApi.list();
-      // 过滤掉没有关联任何节目的标签
       const tagsWithPodcasts = data.filter(
         (tag: Tag) => (tag.podcast_count || 0) > 0,
       );
@@ -112,7 +87,6 @@ export default function PodcastsPage() {
     }
   };
 
-  // 初始化：从 URL 加载数据
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sortFromUrl =
@@ -120,79 +94,46 @@ export default function PodcastsPage() {
     const tagIdParams = params.getAll("tag_id");
     const tagIdsFromUrl = tagIdParams.map((id) => parseInt(id, 10));
 
-    console.log(
-      "[Initial load] sortBy:",
-      sortFromUrl,
-      "tagIds:",
-      tagIdsFromUrl,
-    );
-
     setSortBy(sortFromUrl);
     setSelectedTagIds(tagIdsFromUrl);
 
     fetchPodcasts(tagIdsFromUrl, 1, sortFromUrl);
     fetchTags();
-  }, []); // 只在组件挂载时执行一次
+  }, []);
 
-  // 监听页面可见性变化，当从详情页返回时刷新标签列表（带防抖优化）
   useEffect(() => {
     const handleVisibilityChange = () => {
-      // 当页面从隐藏变为可见时，触发标签刷新
       if (!document.hidden) {
-        console.log(
-          "[VisibilityChange] Page became visible, scheduling tags refresh...",
-        );
-
-        // 清除之前的定时器（防抖）
         if (tagsRefreshTimerRef.current) {
           clearTimeout(tagsRefreshTimerRef.current);
         }
 
-        // 延迟 500ms 后刷新标签（避免快速切换标签页导致的频繁刷新）
         tagsRefreshTimerRef.current = setTimeout(() => {
-          console.log("[VisibilityChange] Refreshing tags list...");
           fetchTags();
         }, 500);
       }
     };
 
-    // 监听页面可见性变化
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    // 清理函数
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      // 清除定时器
       if (tagsRefreshTimerRef.current) {
         clearTimeout(tagsRefreshTimerRef.current);
       }
     };
-  }, []); // 空依赖数组，只在挂载时注册监听器
+  }, []);
 
-  // 自动清理无效的筛选标签
   useEffect(() => {
-    // 只在tags已加载且有关选中标签时才执行
     if (tags.length === 0 || selectedTagIds.length === 0) {
       return;
     }
 
-    // 检查当前选中的标签是否都有效（podcast_count > 0）
     const validTagIds = selectedTagIds.filter((id) =>
       tags.some((tag) => tag.id === id && (tag.podcast_count || 0) > 0),
     );
 
-    // 如果发现有无效的标签，清理掉
     if (validTagIds.length !== selectedTagIds.length) {
-      const removedTags = selectedTagIds.filter(
-        (id) => !validTagIds.includes(id),
-      );
-
-      console.log(
-        "[Cleanup] Removing invalid tags from selection:",
-        removedTags,
-      );
-
-      // 更新URL参数
       const url = new URL(window.location.href);
       url.searchParams.delete("tag_id");
       validTagIds.forEach((id) =>
@@ -200,7 +141,6 @@ export default function PodcastsPage() {
       );
       window.history.replaceState({}, "", url.toString());
 
-      // 更新状态并重新获取数据
       setSelectedTagIds(validTagIds);
       setPage(1);
       setPodcasts([]);
@@ -208,7 +148,6 @@ export default function PodcastsPage() {
     }
   }, [tags, selectedTagIds]);
 
-  // 监听 URL 参数变化（用于浏览器前进/后退）
   useEffect(() => {
     const handlePopState = () => {
       const params = new URLSearchParams(window.location.search);
@@ -216,8 +155,6 @@ export default function PodcastsPage() {
         (params.get("sort_by") as SortByType) || "recent_update";
       const tagIdParams = params.getAll("tag_id");
       const tagIdsFromUrl = tagIdParams.map((id) => parseInt(id, 10));
-
-      console.log("[PopState] sortBy:", sortFromUrl, "tagIds:", tagIdsFromUrl);
 
       setSortBy(sortFromUrl);
       setSelectedTagIds(tagIdsFromUrl);
@@ -231,14 +168,12 @@ export default function PodcastsPage() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  // 加载更多（用于无限滚动）
   const loadMore = useCallback(() => {
     if (!loadingMore && !loading && hasMore) {
       fetchPodcasts(selectedTagIds, page + 1, sortBy);
     }
   }, [loadingMore, loading, hasMore, page, selectedTagIds, sortBy]);
 
-  // 设置无限滚动观察器
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -246,7 +181,7 @@ export default function PodcastsPage() {
           loadMore();
         }
       },
-      { rootMargin: "200px" }, // 提前200px开始加载
+      { rootMargin: "200px" },
     );
 
     const currentTarget = observerTarget.current;
@@ -265,17 +200,13 @@ export default function PodcastsPage() {
     let newSelected: number[];
 
     if (tagId === null) {
-      // 点击"全部"，清除所有选择
       newSelected = [];
     } else if (selectedTagIds.includes(tagId)) {
-      // 取消选择
       newSelected = selectedTagIds.filter((id) => id !== tagId);
     } else {
-      // 添加选择
       newSelected = [...selectedTagIds, tagId];
     }
 
-    // 更新 URL 参数
     const url = new URL(window.location.href);
     url.searchParams.delete("tag_id");
     newSelected.forEach((id) =>
@@ -283,301 +214,224 @@ export default function PodcastsPage() {
     );
     window.history.replaceState({}, "", url.toString());
 
-    // 更新状态并重新获取数据
     setSelectedTagIds(newSelected);
     setPage(1);
     setPodcasts([]);
     fetchPodcasts(newSelected, 1, sortBy);
   };
 
-  // 处理排序方式变更
   const handleSortChange = (newSortBy: SortByType) => {
-    console.log(
-      "[handleSortChange] Changing sort from",
-      sortBy,
-      "to",
-      newSortBy,
-    );
-
-    // 更新 URL 参数
     const url = new URL(window.location.href);
     url.searchParams.set("sort_by", newSortBy);
     window.history.replaceState({}, "", url.toString());
 
-    // 更新状态并重新获取数据
     setSortBy(newSortBy);
     setPage(1);
     setPodcasts([]);
     fetchPodcasts(selectedTagIds, 1, newSortBy);
   };
 
-  // 默认显示的标签数量（不含"全部"）
+  const sortOptions = [
+    { label: "最近更新", value: "recent_update" },
+    { label: "最新添加", value: "newest_added" },
+    { label: "单集数量", value: "episode_count" },
+    { label: "名称", value: "title" },
+  ];
+
   const DEFAULT_TAG_COUNT = 8;
   const displayTags = showAllTags ? tags : tags.slice(0, DEFAULT_TAG_COUNT);
   const hasMoreTags = tags.length > DEFAULT_TAG_COUNT;
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="mb-8">
-            <div className="flex items-center justify-between mb-6">
-              {/* 返回首页按钮 - 固定宽度与排序框一致 */}
-              <Link
-                href={`/?sort_by=${sortBy}`}
-                className="w-36 h-11 px-4 bg-white text-slate-800 font-medium rounded-xl border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors flex items-center justify-center gap-2"
-              >
-                <span>←</span>
-                <span>返回首页</span>
-              </Link>
-
-              {/* 右侧按钮组 */}
-              <div className="flex items-center gap-3">
-                {/* 搜索按钮 - 与排序按钮大小完全一致 */}
-                <button
-                  onClick={() => setSearchOpen(true)}
-                  className="w-36 h-11 border border-slate-300 rounded-xl bg-white text-slate-400 text-sm font-medium hover:bg-slate-50 hover:border-slate-400 transition-colors relative"
-                >
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-slate-400 text-lg pointer-events-none">
-                    🔍
-                  </span>
-                </button>
-
-                {/* 排序选择器 - 白底边框样式 + icon */}
-                <div className="relative w-36">
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 pl-3 text-slate-700 z-10 pointer-events-none">
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <path
-                        d="M5 11 L5 3 M5 3 L2 6"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        fill="none"
-                      />
-                      <path
-                        d="M11 5 L11 13 M11 13 L14 10"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        fill="none"
-                      />
-                    </svg>
-                  </span>
-                  <select
-                    value={sortBy}
-                    onChange={(e) =>
-                      handleSortChange(e.target.value as SortByType)
-                    }
-                    className="w-full h-11 pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl bg-white text-slate-400 text-sm text-center focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-colors appearance-none cursor-pointer"
-                  >
-                    <option value="recent_update">最近更新</option>
-                    <option value="newest_added">最新添加</option>
-                    <option value="episode_count">单集数量</option>
-                    <option value="title">名称</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            {/* 标题和描述 - 优化字号 */}
-            <div className="mb-4">
-              <h1 className="text-4xl md:text-5xl font-semibold text-slate-800 mb-2">
-                我的订阅
-              </h1>
-              <p className="text-base text-slate-600 max-w-2xl">
-                管理你的播客节目
-              </p>
-            </div>
+    <PageLayout
+      onSearchClick={() => setSearchOpen(true)}
+      toolbar={{
+        breadcrumbs: [{ label: "返回首页", href: "/" }],
+        title: "我的订阅",
+        description: !loading && totalCount > 0 ? `共 ${totalCount} 个节目${selectedTagIds.length > 0 ? `（已选 ${selectedTagIds.length} 个标签）` : ""}` : undefined,
+        rightContent: (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-slate-600">排序：</span>
+            <select
+              value={sortBy}
+              onChange={(e) => handleSortChange(e.target.value as SortByType)}
+              className="
+                px-3 py-2 pr-8
+                border border-slate-300 rounded-lg
+                bg-white text-sm text-slate-700
+                focus:ring-2 focus:ring-violet-500 focus:border-transparent
+                transition-colors
+                appearance-none
+                cursor-pointer
+              "
+            >
+              {sortOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </div>
-        </div>
+        ),
+      }}
+    >
+      {/* Tag Filter */}
+      {tags.length > 0 && (
+        <div className="mt-8 mb-6">
+          <div className="flex flex-wrap gap-2 items-center">
+            <button
+              onClick={() => handleTagToggle(null)}
+              className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                selectedTagIds.length === 0
+                  ? "bg-slate-800 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              全部
+            </button>
 
-        {/* Tag Filter */}
-        {tags.length > 0 && (
-          <div className="mb-6">
-            {/* 标签按钮区域 */}
-            <div className="flex flex-wrap gap-2 items-center">
-              {/* 全部按钮 */}
+            {displayTags.map((tag) => {
+              const isSelected = selectedTagIds.includes(tag.id);
+              return (
+                <button
+                  key={tag.id}
+                  onClick={() => handleTagToggle(tag.id)}
+                  className={`px-3 py-1.5 rounded-lg text-sm transition-colors flex items-center gap-1.5 ${
+                    isSelected
+                      ? "bg-slate-800 text-white"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                  title={tag.name}
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    style={{
+                      backgroundColor: isSelected ? "#ffffff" : tag.color,
+                    }}
+                  />
+                  <span className="max-w-[100px] truncate">{tag.name}</span>
+                </button>
+              );
+            })}
+
+            {hasMoreTags && (
+              <button
+                onClick={() => setShowAllTags(!showAllTags)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                title={showAllTags ? "收起" : "展开"}
+              >
+                {showAllTags ? (
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 15l7-7 7 7"
+                    />
+                  </svg>
+                ) : (
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                )}
+              </button>
+            )}
+
+            {selectedTagIds.length > 0 && (
               <button
                 onClick={() => handleTagToggle(null)}
-                className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                  selectedTagIds.length === 0
-                    ? "bg-slate-800 text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
+                className="px-3 py-1.5 rounded-lg text-sm text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
               >
-                全部
+                清空
               </button>
-
-              {/* 标签按钮 */}
-              {displayTags.map((tag) => {
-                const isSelected = selectedTagIds.includes(tag.id);
-                return (
-                  <button
-                    key={tag.id}
-                    onClick={() => handleTagToggle(tag.id)}
-                    className={`px-3 py-1.5 rounded-lg text-sm transition-colors flex items-center gap-1.5 ${
-                      isSelected
-                        ? "bg-slate-800 text-white"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                    }`}
-                    title={tag.name}
-                  >
-                    <span
-                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                      style={{
-                        backgroundColor: isSelected ? "#ffffff" : tag.color,
-                      }}
-                    />
-                    <span className="max-w-[100px] truncate">{tag.name}</span>
-                  </button>
-                );
-              })}
-
-              {/* 展开/折叠按钮 */}
-              {hasMoreTags && (
-                <button
-                  onClick={() => setShowAllTags(!showAllTags)}
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-all"
-                  title={showAllTags ? "收起" : "展开"}
-                >
-                  {showAllTags ? (
-                    <svg
-                      className="w-5 h-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M5 15l7-7 7 7"
-                      />
-                    </svg>
-                  ) : (
-                    <svg
-                      className="w-5 h-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M19 9l-7 7-7-7"
-                      />
-                    </svg>
-                  )}
-                </button>
-              )}
-
-              {/* 清空筛选按钮 (只在有筛选时显示) */}
-              {selectedTagIds.length > 0 && (
-                <button
-                  onClick={() => handleTagToggle(null)}
-                  className="px-3 py-1.5 rounded-lg text-sm text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-                >
-                  清空
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Loading State */}
-        {loading && (
-          <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            <p className="mt-4 text-slate-600">加载中...</p>
-          </div>
-        )}
-
-        {/* Error State */}
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-6 mb-6">
-            <h3 className="text-red-800 font-semibold mb-2">加载失败</h3>
-            <p className="text-red-600 mb-4">{error}</p>
-            <button
-              onClick={() => fetchPodcasts(selectedTagIds, 1)}
-              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-            >
-              重试
-            </button>
-          </div>
-        )}
-
-        {/* Podcasts List */}
-        {!loading && !error && (
-          <>
-            <div className="mb-6 text-slate-600">
-              共 {totalCount} 个节目
-              {selectedTagIds.length > 0 && (
-                <span className="ml-2">
-                  （已选 {selectedTagIds.length} 个标签）
-                </span>
-              )}
-            </div>
-
-            <div className="grid grid-cols-5 gap-6">
-              {podcasts.map((podcast, index) => {
-                // 构建详情页 URL，保留当前的筛选条件
-                const params = new URLSearchParams();
-                if (sortBy) {
-                  params.append("sort_by", sortBy);
-                }
-                if (selectedTagIds.length > 0) {
-                  // 将标签 ID 数组转换为逗号分隔的字符串
-                  params.append("tag_ids", selectedTagIds.join(","));
-                }
-                const queryString = params.toString();
-                const detailUrl = `/podcasts/${podcast.id}${queryString ? `?${queryString}` : ""}`;
-
-                return (
-                  <PodcastCard
-                    key={podcast.id}
-                    podcast={podcast}
-                    detailUrl={detailUrl}
-                    index={index}
-                    priority={
-                      index < 6 ? "high" : index < 15 ? "medium" : "low"
-                    }
-                  />
-                );
-              })}
-            </div>
-
-            {/* Loading More Indicator */}
-            {loadingMore && (
-              <div className="text-center py-8">
-                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                <p className="mt-2 text-sm text-slate-600">加载更多...</p>
-              </div>
             )}
+          </div>
+        </div>
+      )}
 
-            {/* Intersection Observer Target */}
-            <div ref={observerTarget} className="h-10" />
+      {/* Loading State */}
+      {loading && (
+        <div className="text-center py-12">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          <p className="mt-4 text-slate-600">加载中...</p>
+        </div>
+      )}
 
-            {/* No More Data Indicator */}
-            {!hasMore && podcasts.length > 0 && (
-              <div className="text-center py-8 text-slate-500">已经到底了</div>
-            )}
-          </>
-        )}
-      </div>
+      {/* Error State */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6 mb-6">
+          <h3 className="text-red-800 font-semibold mb-2">加载失败</h3>
+          <p className="text-red-600 mb-4">{error}</p>
+          <button
+            onClick={() => fetchPodcasts(selectedTagIds, 1)}
+            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+          >
+            重试
+          </button>
+        </div>
+      )}
 
-      {/* 搜索侧边栏 */}
+      {/* Podcasts List */}
+      {!loading && !error && (
+        <>
+          <div className="grid grid-cols-5 gap-6">
+            {podcasts.map((podcast, index) => {
+              const params = new URLSearchParams();
+              if (sortBy) {
+                params.append("sort_by", sortBy);
+              }
+              if (selectedTagIds.length > 0) {
+                params.append("tag_ids", selectedTagIds.join(","));
+              }
+              const queryString = params.toString();
+              const detailUrl = `/podcasts/${podcast.id}${queryString ? `?${queryString}` : ""}`;
+
+              return (
+                <PodcastCard
+                  key={podcast.id}
+                  podcast={podcast}
+                  detailUrl={detailUrl}
+                  index={index}
+                  priority={
+                    index < 6 ? "high" : index < 15 ? "medium" : "low"
+                  }
+                />
+              );
+            })}
+          </div>
+
+          {loadingMore && (
+            <div className="text-center py-8">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              <p className="mt-2 text-sm text-slate-600">加载更多...</p>
+            </div>
+          )}
+
+          <div ref={observerTarget} className="h-10" />
+
+          {!hasMore && podcasts.length > 0 && (
+            <div className="text-center py-8 text-slate-500">已经到底了</div>
+          )}
+        </>
+      )}
+
       <SearchSidebar isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
-    </main>
+    </PageLayout>
   );
 }
 
@@ -592,18 +446,15 @@ function PodcastCard({
   index?: number;
   priority?: "high" | "medium" | "low";
 }) {
-  // 最多显示3个标签
   const displayTags = podcast.tags?.slice(0, 3) || [];
   const remainingTags = (podcast.tags?.length || 0) - 3;
 
-  // 判断是否最近更新（7天内有新内容）
   const recentlyUpdated = isRecentlyUpdated(podcast.newest_episode_date, 7);
   const relativeTime = getRelativeTime(podcast.newest_episode_date);
 
   return (
     <Link href={detailUrl}>
       <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer h-full flex flex-col">
-        {/* Cover Image - 使用 PodcastCover 组件 */}
         <div className="relative w-full">
           <PodcastCover
             coverUrl={podcast.cover_url}
@@ -612,7 +463,6 @@ function PodcastCard({
             priority={priority}
           />
 
-          {/* 新更新标识 - 右下角 */}
           {recentlyUpdated && (
             <div className="absolute bottom-0 right-0 m-2 z-30">
               <span className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-white text-slate-800 shadow-sm">
@@ -623,24 +473,18 @@ function PodcastCard({
           )}
         </div>
 
-        {/* Content */}
         <div className="p-4 flex-1 flex flex-col min-h-[160px]">
-          {/* Title - 确保标题始终显示 */}
           <h3 className="text-base font-semibold text-slate-900 mb-1.5 line-clamp-2 leading-tight">
             {podcast.title}
           </h3>
 
-          {/* Author */}
           <p className="text-sm text-slate-600 mb-2">{podcast.author}</p>
 
-          {/* Description - 使用line-clamp限制显示行数 */}
           <p className="text-sm text-slate-500 line-clamp-3 leading-rel mb-4">
             {stripHtml(podcast.description, 100)}
           </p>
 
-          {/* Tags and Stats - 底部对齐 */}
           <div className="mt-auto pt-3 space-y-3">
-            {/* Tags */}
             {displayTags.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {displayTags.map((tag) => (
@@ -665,7 +509,6 @@ function PodcastCard({
               </div>
             )}
 
-            {/* Stats */}
             <div className="flex items-center justify-between text-sm text-slate-500">
               <span className="font-medium">{podcast.episode_count} 集</span>
               <span className="text-xs text-slate-400">{relativeTime}</span>

@@ -57,3 +57,10 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* 移动端安全区域支持 */
+@layer utilities {
+  .safe-area-inset-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}

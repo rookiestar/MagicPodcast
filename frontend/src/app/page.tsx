@@ -3,13 +3,14 @@
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Suspense } from "react";
+import { SimplePageLayout } from "@/components/layout/PageLayout";
 
 function HomeContent() {
   const searchParams = useSearchParams();
   const sortBy = searchParams.get("sort_by") || "";
 
   return (
-    <main className="min-h-screen bg-slate-50">
+    <SimplePageLayout>
       <div className="container mx-auto px-4 py-20">
         {/* Hero Section */}
         <div className="text-center mb-16">
@@ -73,7 +74,7 @@ function HomeContent() {
           </Link>
         </div>
       </div>
-    </main>
+    </SimplePageLayout>
   );
 }
 

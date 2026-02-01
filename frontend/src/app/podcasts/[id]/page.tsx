@@ -9,6 +9,7 @@ import TagInput from "@/components/tags/TagInput";
 import RichText from "@/components/RichText";
 import EpisodeCard from "@/components/episodes/EpisodeCard";
 import PodcastCover from "@/components/podcasts/PodcastCover";
+import PageLayout from "@/components/layout/PageLayout";
 
 export default function PodcastDetailPage() {
   const params = useParams();
@@ -235,18 +236,14 @@ export default function PodcastDetailPage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <Link
-            href={buildBackUrl()}
-            className="w-36 h-11 px-4 bg-white text-slate-800 font-medium rounded-xl border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors flex items-center justify-center gap-2"
-          >
-            <span>←</span>
-            <span>返回列表</span>
-          </Link>
-        </div>
+    <PageLayout
+      toolbar={{
+        breadcrumbs: [{ label: "返回列表", href: buildBackUrl() }],
+        title: podcast?.title || "播客详情",
+        description: !loading && podcast && (podcast.episode_count || episodes.length) > 0 ? `共 ${podcast.episode_count || episodes.length} 个单集` : undefined,
+      }}
+    >
+      <div className="py-6">
 
         {/* Loading State */}
         {loading && (
@@ -581,6 +578,6 @@ export default function PodcastDetailPage() {
           </div>
         )}
       </div>
-    </main>
+    </PageLayout>
   );
 }
