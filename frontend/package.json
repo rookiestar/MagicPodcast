@@ -5,11 +5,16 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:skip-type": "NEXT_PRIVATE_SKIP_TYPE_CHECK=true next build",
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "clean": "./clean.sh",
-    "clean:deep": "./clean.sh --deep"
+    "clean:deep": "./clean.sh --deep",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@tailwindcss/typography": "^0.5.19",
@@ -26,14 +31,21 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "@vitejs/plugin-react": "^5.1.2",
     "autoprefixer": "^10.0.1",
     "eslint": "^8",
     "eslint-config-next": "14.2.0",
+    "happy-dom": "^20.4.0",
+    "jsdom": "^27.4.0",
     "postcss": "^8",
     "tailwindcss": "^3.4.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.0.18"
   }
 }

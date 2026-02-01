@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -13,9 +14,11 @@ import (
 )
 
 // setupTestDB 创建测试数据库
+// 注意：每个测试使用独立的数据库，避免测试间的干扰
 func setupTestDB(t *testing.T) *gorm.DB {
-	// 使用临时文件而不是内存数据库，以支持并发访问
-	db, err := gorm.Open(sqlite.Open("file:testdb?mode=memory&cache=shared"), &gorm.Config{})
+	// 使用唯一的数据库名称，避免并发测试间的冲突
+	dbName := fmt.Sprintf("file:testdb_%d?mode=memory&cache=shared", time.Now().UnixNano())
+	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	assert.NoError(t, err)
 
 	// 自动迁移
