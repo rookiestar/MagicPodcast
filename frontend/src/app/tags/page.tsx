@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { tagApi, podcastApi } from "@/lib/api";
 import PodcastCover from "@/components/podcasts/PodcastCover";
 import TagInput from "@/components/tags/TagInput";
+import PageLayout from "@/components/layout/PageLayout";
 import type { Tag, Podcast } from "@/types";
 import { pinyin } from "pinyin-pro";
 
@@ -646,18 +647,21 @@ function TagCard({
 // Wrapper component with Suspense boundary
 export default function TagsPage() {
   return (
-    <Suspense
-      fallback={
-        <main className="min-h-screen bg-slate-50">
-          <div className="container mx-auto px-4 py-8">
-            <div className="text-center py-12">
-              <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            </div>
-          </div>
-        </main>
-      }
+    <PageLayout
+      toolbar={{
+        breadcrumbs: [{ label: "返回首页", href: "/" }],
+        title: "标签管理",
+      }}
     >
-      <TagsPageContent />
-    </Suspense>
+      <Suspense
+        fallback={
+          <div className="text-center py-12">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          </div>
+        }
+      >
+        <TagsPageContent />
+      </Suspense>
+    </PageLayout>
   );
 }

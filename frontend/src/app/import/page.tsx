@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import { syncApi } from "@/lib/api";
+import PageLayout from "@/components/layout/PageLayout";
 
 // 日志类型定义
 type LogType =
@@ -51,7 +52,7 @@ interface SyncStats {
   fromSummary: boolean;
 }
 
-export default function ImportPage() {
+function ImportPageContent() {
   const [activeTab, setActiveTab] = useState<TabType>("import");
 
   // 导入OPML状态
@@ -515,6 +516,7 @@ export default function ImportPage() {
   };
 
   return (
+    // TEMP: Test without PageLayout
     <main className="min-h-screen bg-slate-50 dark:bg-slate-900">
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
@@ -893,5 +895,20 @@ export default function ImportPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+// Wrapper component with PageLayout
+export default function ImportPage() {
+  return (
+    <PageLayout
+      toolbar={{
+        breadcrumbs: [{ label: "返回首页", href: "/" }],
+        title: "导入/同步",
+        description: "从 OPML 文件导入播客或同步播客元数据",
+      }}
+    >
+      <ImportPageContent />
+    </PageLayout>
   );
 }
