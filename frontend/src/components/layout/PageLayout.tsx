@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useRouter } from "next/navigation";
 import AppNavbar from "./AppNavbar";
 import MobileBottomNav from "./MobileBottomNav";
 import PageToolbar, { PageToolbarProps } from "./PageToolbar";
@@ -49,6 +50,18 @@ export default function PageLayout({
   className = "",
   maxWidth = true,
 }: PageLayoutProps) {
+  const router = useRouter();
+
+  // 默认搜索行为：跳转到播客列表页（使用URL参数打开搜索）
+  const handleSearchClick = () => {
+    if (onSearchClick) {
+      onSearchClick();
+    } else {
+      // 默认行为：跳转到播客列表页
+      router.push("/podcasts");
+    }
+  };
+
   // 计算顶部的padding
   const paddingTop = showNavbar ? "64px" : "0px";
   // 移动端底部padding（为底部导航栏留空间）
@@ -59,7 +72,7 @@ export default function PageLayout({
       {/* 全局导航栏（桌面端） */}
       {showNavbar && (
         <AppNavbar
-          onSearchClick={onSearchClick}
+          onSearchClick={handleSearchClick}
           syncStatus={syncStatus}
         />
       )}
@@ -83,7 +96,7 @@ export default function PageLayout({
 
       {/* 底部导航栏（移动端） */}
       {showBottomNav && (
-        <MobileBottomNav onSearchClick={onSearchClick} />
+        <MobileBottomNav onSearchClick={handleSearchClick} />
       )}
     </div>
   );
