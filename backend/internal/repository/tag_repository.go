@@ -37,6 +37,9 @@ type TagRepository interface {
 	// GetPodcastsByTagID 获取使用该标签的播客
 	GetPodcastsByTagID(tagID uint, page, pageSize int) ([]*models.Podcast, int64, error)
 
+	// GetPodcastCountsBatch 批量获取多个标签的播客数量
+	GetPodcastCountsBatch(tagIDs []uint) (map[uint]int64, error)
+
 	// GetEpisodesByTagID 获取使用该标签的单集
 	GetEpisodesByTagID(tagID uint, page, pageSize int) ([]*models.Episode, int64, error)
 
@@ -301,4 +304,41 @@ func (r *tagRepository) UpdatePodcastCount(tagID uint) error {
 	return r.DB().Model(&models.Tag{}).
 		Where("id = ?", tagID).
 		Update("podcast_count", count).Error
+}
+
+// GetPodcastCountsBatch 批量获取多个标签的播客数量
+func (r *tagRepository) GetPodcastCountsBatch(tagIDs []uint) (map[uint]int64, error) {
+	if len(tagIDs) == 0 {
+		return make(map[uint]int64), nil
+	}
+
+	var results []struct {
+		TagID uint
+		Count int64
+	}
+
+	err := r.DB().Table("podcasts_tags").
+		Select("tag_id, COUNT(*) as count").
+		Where("tag_id IN ?", tagIDs).
+		Group("tag_id").
+		Find(&results).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 转换为 map
+	countMap := make(map[uint]int64, len(tagIDs))
+	for _, result := range results {
+		countMap[result.TagID] = result.Count
+	}
+
+	// 确保所有标签都在 map 中（即使没有播客）
+	for _, tagID := range tagIDs {
+		if _, exists := countMap[tagID]; !exists {
+			countMap[tagID] = 0
+		}
+	}
+
+	return countMap, nil
 }

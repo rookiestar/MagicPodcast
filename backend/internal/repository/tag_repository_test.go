@@ -435,3 +435,81 @@ func TestTagRepository_UpdatePodcastCount(t *testing.T) {
 	// assert.Equal(t, 2, found.PodcastCount)
 	assert.NotNil(t, found)
 }
+
+func TestTagRepository_GetPodcastCountsBatch(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewTagRepository(db)
+
+	// 创建测试数据
+	tag1 := generateUniqueTag(1)
+	tag1.Name = "技术"
+	tag2 := generateUniqueTag(2)
+	tag2.Name = "商业"
+
+	require.NoError(t, repo.Create(tag1))
+	require.NoError(t, repo.Create(tag2))
+
+	// 创建测试播客
+	podcast1 := generateUniquePodcast(1)
+	podcast2 := generateUniquePodcast(2)
+	podcast3 := generateUniquePodcast(3)
+
+	require.NoError(t, db.Create(podcast1).Error)
+	require.NoError(t, db.Create(podcast2).Error)
+	require.NoError(t, db.Create(podcast3).Error)
+
+	// 为播客添加标签
+	// podcast1: tag1, tag2
+	// podcast2: tag1
+	// podcast3: tag2
+	require.NoError(t, repo.AddTagToPodcast(podcast1.ID, tag1.ID))
+	require.NoError(t, repo.AddTagToPodcast(podcast1.ID, tag2.ID))
+	require.NoError(t, repo.AddTagToPodcast(podcast2.ID, tag1.ID))
+	require.NoError(t, repo.AddTagToPodcast(podcast3.ID, tag2.ID))
+
+	// 批量获取标签计数
+	tagIDs := []uint{tag1.ID, tag2.ID}
+	counts, err := repo.GetPodcastCountsBatch(tagIDs)
+	require.NoError(t, err)
+
+	// 验证结果
+	assert.Equal(t, int64(2), counts[tag1.ID]) // tag1 有2个播客
+	assert.Equal(t, int64(2), counts[tag2.ID]) // tag2 有2个播客
+}
+
+func TestTagRepository_GetPodcastCountsBatch_Empty(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewTagRepository(db)
+
+	// 空列表
+	counts, err := repo.GetPodcastCountsBatch([]uint{})
+	require.NoError(t, err)
+	assert.Empty(t, counts)
+	assert.NotNil(t, counts)
+}
+
+func TestTagRepository_GetPodcastCountsBatch_NoAssociations(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewTagRepository(db)
+
+	// 创建标签但没有关联
+	tag1 := generateUniqueTag(1)
+	tag2 := generateUniqueTag(2)
+	require.NoError(t, repo.Create(tag1))
+	require.NoError(t, repo.Create(tag2))
+
+	// 批量获取标签计数
+	tagIDs := []uint{tag1.ID, tag2.ID}
+	counts, err := repo.GetPodcastCountsBatch(tagIDs)
+	require.NoError(t, err)
+
+	// 验证结果（没有播客关联）
+	assert.Equal(t, int64(0), counts[tag1.ID])
+	assert.Equal(t, int64(0), counts[tag2.ID])
+}

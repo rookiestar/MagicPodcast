@@ -201,9 +201,8 @@ func (s *TagRelationService) GetTags(targetType TargetType, targetID uint) ([]Ta
 		tags = podcast.Tags
 
 	case TargetTypeEpisode:
-		// EpisodeRepository没有GetWithTags方法，直接查询
-		var episode models.Episode
-		err := s.repos.DB().Preload("Tags").First(&episode, targetID).Error
+		// 使用 EpisodeRepository 的 GetWithTags 方法
+		episode, err := s.repos.Episode.GetWithTags(targetID)
 		if err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return nil, apperrors.NotFoundError("episode", targetID)
@@ -218,26 +217,34 @@ func (s *TagRelationService) GetTags(targetType TargetType, targetID uint) ([]Ta
 
 	// 转换为带计数的格式
 	tagsWithCount := make([]TagWithCount, len(tags))
+
+	// 批量获取所有标签的播客数量，避免N+1查询
+	tagIDs := make([]uint, len(tags))
 	for i, tag := range tags {
-		// 查询每个标签的播客数量
-		// TODO: 这个应该在Repository层优化，避免N+1查询
-		_, total, err := s.repos.Tag.GetPodcastsByTagID(tag.ID, 1, 1)
-		if err != nil {
-			// 如果查询失败，使用0作为计数
+		tagIDs[i] = tag.ID
+	}
+
+	countMap, err := s.repos.Tag.GetPodcastCountsBatch(tagIDs)
+	if err != nil {
+		// 如果批量查询失败，使用0作为计数
+		for i, tag := range tags {
 			tagsWithCount[i] = TagWithCount{
 				ID:    tag.ID,
 				Name:  tag.Name,
 				Color: tag.Color,
 				Count: 0,
 			}
-			continue
 		}
+		return tagsWithCount, nil
+	}
 
+	// 填充结果
+	for i, tag := range tags {
 		tagsWithCount[i] = TagWithCount{
 			ID:    tag.ID,
 			Name:  tag.Name,
 			Color: tag.Color,
-			Count: int(total),
+			Count: int(countMap[tag.ID]),
 		}
 	}
 

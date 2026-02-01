@@ -47,6 +47,9 @@ type EpisodeRepository interface {
 
 	// BatchCreateWithTx 使用事务批量创建
 	BatchCreateWithTx(tx *gorm.DB, episodes []*models.Episode) error
+
+	// GetWithTags 获取单集及其标签
+	GetWithTags(id uint) (*models.Episode, error)
 }
 
 // episodeRepository 单集数据访问实现
@@ -204,4 +207,14 @@ func (r *episodeRepository) BatchCreateWithTx(tx *gorm.DB, episodes []*models.Ep
 		return nil
 	}
 	return tx.CreateInBatches(episodes, 100).Error
+}
+
+// GetWithTags 获取单集及其标签
+func (r *episodeRepository) GetWithTags(id uint) (*models.Episode, error) {
+	var episode models.Episode
+	err := r.DB().Preload("Tags").First(&episode, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &episode, nil
 }
