@@ -2,13 +2,11 @@ package repository
 
 import (
 	"fmt"
-	"magicpodcast/internal/database"
 	"magicpodcast/internal/models"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 )
 
 func TestPodcastRepository_Create(t *testing.T) {
@@ -196,21 +194,6 @@ func TestBuildPagination(t *testing.T) {
 	}
 }
 
-// setupTestDB 设置测试数据库
-func setupTestDB(t *testing.T) (*gorm.DB, func()) {
-	// 使用内存数据库进行测试
-	db := database.GetDB()
-
-	// 清理测试数据
-	database.GetDB().Where("1 = 1").Delete(&models.Podcast{})
-
-	cleanup := func() {
-		// 清理测试数据
-		database.GetDB().Where("title LIKE ?", "测试%").Delete(&models.Podcast{})
-	}
-
-	return db, cleanup
-}
 
 // 注意：需要在文件开头添加导入
 // "fmt"
