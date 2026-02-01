@@ -6,6 +6,7 @@ import (
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/repository"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -18,7 +19,8 @@ func TestTagRelationService(t *testing.T) {
 	}
 
 	db := database.GetDB()
-	service := NewTagRelationService()
+	repos := repository.NewRepositoriesWithDB(db)
+	service := NewTagRelationService(repos)
 
 	// 创建测试数据
 	// 1. 创建标签

@@ -12,6 +12,7 @@ import (
 	"magicpodcast/internal/handlers"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/repository"
 	"magicpodcast/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -33,8 +34,11 @@ func TestRefactoredWorkflowHandler(t *testing.T) {
 		t.Fatalf("Failed to migrate database: %v", err)
 	}
 
+	// 创建Repository容器
+	repos := repository.NewRepositoriesWithDB(db)
+
 	// 创建Service
-	workflowService := services.NewWorkflowService(db)
+	workflowService := services.NewWorkflowService(repos)
 	handler := handlers.NewWorkflowHandlerRefactored(workflowService)
 
 	// 设置路由
@@ -66,7 +70,8 @@ func TestRefactoredWorkflowHandler(t *testing.T) {
 			t.Errorf("Expected success=true")
 		}
 
-		workflows := response["workflows"].([]interface{})
+		data := response["data"].(map[string]interface{})
+		workflows := data["workflows"].([]interface{})
 		if len(workflows) != 0 {
 			t.Errorf("Expected empty list, got %d items", len(workflows))
 		}
@@ -142,7 +147,9 @@ func TestWorkflowServiceIntegration(t *testing.T) {
 		t.Fatalf("Failed to migrate database: %v", err)
 	}
 
-	workflowService := services.NewWorkflowService(db)
+	// 创建Repository容器
+	repos := repository.NewRepositoriesWithDB(db)
+	workflowService := services.NewWorkflowService(repos)
 
 	t.Run("CreateWorkflow", func(t *testing.T) {
 		req := &services.CreateWorkflowRequest{

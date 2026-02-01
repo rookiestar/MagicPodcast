@@ -49,12 +49,12 @@ func setupTestDB(t *testing.T) (*gorm.DB, func()) {
 // generateUniquePodcast 生成唯一播客测试数据
 func generateUniquePodcast(id int) *models.Podcast {
 	return &models.Podcast{
-		Title:        fmt.Sprintf("测试播客_%d", id),
-		Author:       "测试作者",
-		Description:  fmt.Sprintf("这是一个测试播客_%d", id),
-		FeedURL:      fmt.Sprintf("https://example.com/feed%d.xml", id),
-		XYZID:        fmt.Sprintf("xyz_test_%d", id),
-		PodcastGUID:  fmt.Sprintf("podcast_guid_%d", id),
+		Title:       fmt.Sprintf("测试播客_%d", id),
+		Author:      "测试作者",
+		Description: fmt.Sprintf("这是一个测试播客_%d", id),
+		FeedURL:     fmt.Sprintf("https://example.com/feed%d.xml", id),
+		XYZID:       fmt.Sprintf("xyz_test_%d", id),
+		PodcastGUID: fmt.Sprintf("podcast_guid_%d", id),
 	}
 }
 
@@ -85,6 +85,6 @@ func generateUniqueWorkflow(id int) *models.Workflow {
 		Name:        fmt.Sprintf("测试工作流_%d", id),
 		Description: fmt.Sprintf("这是一个测试工作流_%d", id),
 		IsEnabled:   true,
-		Schedule:    fmt.Sprintf("0 %d * * *", (id%24)),
+		Schedule:    fmt.Sprintf("0 %d * * *", (id % 24)),
 	}
 }
