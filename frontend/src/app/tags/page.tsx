@@ -12,26 +12,66 @@ import { pinyin } from "pinyin-pro";
 
 type SortMode = "popularity" | "alphabetical";
 
-function TagsPageContent() {
+interface TagsPageContentProps {
+  tags: Tag[];
+  setTags: React.Dispatch<React.SetStateAction<Tag[]>>;
+  loading: boolean;
+  setLoading: React.Dispatch<React.SetStateAction<boolean>>;
+  error: string | null;
+  setError: React.Dispatch<React.SetStateAction<string | null>>;
+  showCreateModal: boolean;
+  setShowCreateModal: React.Dispatch<React.SetStateAction<boolean>>;
+  newTagName: string;
+  setNewTagName: React.Dispatch<React.SetStateAction<string>>;
+  newTagColor: string;
+  setNewTagColor: React.Dispatch<React.SetStateAction<string>>;
+  selectedTags: Set<number>;
+  setSelectedTags: React.Dispatch<React.SetStateAction<Set<number>>>;
+  isSelectMode: boolean;
+  setIsSelectMode: React.Dispatch<React.SetStateAction<boolean>>;
+  sortMode: SortMode;
+  setSortMode: React.Dispatch<React.SetStateAction<SortMode>>;
+  podcast: Podcast | null;
+  setPodcast: React.Dispatch<React.SetStateAction<Podcast | null>>;
+  podcastLoading: boolean;
+  setPodcastLoading: React.Dispatch<React.SetStateAction<boolean>>;
+  podcastError: string | null;
+  setPodcastError: React.Dispatch<React.SetStateAction<string | null>>;
+  podcastTags: Tag[];
+  setPodcastTags: React.Dispatch<React.SetStateAction<Tag[]>>;
+}
+
+function TagsPageContent({
+  tags,
+  setTags,
+  loading,
+  setLoading,
+  error,
+  setError,
+  showCreateModal,
+  setShowCreateModal,
+  newTagName,
+  setNewTagName,
+  newTagColor,
+  setNewTagColor,
+  selectedTags,
+  setSelectedTags,
+  isSelectMode,
+  setIsSelectMode,
+  sortMode,
+  setSortMode,
+  podcast,
+  setPodcast,
+  podcastLoading,
+  setPodcastLoading,
+  podcastError,
+  setPodcastError,
+  podcastTags,
+  setPodcastTags,
+}: TagsPageContentProps) {
   const searchParams = useSearchParams();
   const podcastIdParam = searchParams.get("podcast_id");
   const podcastId = podcastIdParam ? parseInt(podcastIdParam, 10) : null;
-
-  const [tags, setTags] = useState<Tag[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newTagName, setNewTagName] = useState("");
-  const [newTagColor, setNewTagColor] = useState("#3B82F6");
-  const [selectedTags, setSelectedTags] = useState<Set<number>>(new Set());
-  const [isSelectMode, setIsSelectMode] = useState(false);
-  const [sortMode, setSortMode] = useState<SortMode>("popularity");
-
-  // Podcast preview state
-  const [podcast, setPodcast] = useState<Podcast | null>(null);
-  const [podcastLoading, setPodcastLoading] = useState(false);
-  const [podcastError, setPodcastError] = useState<string | null>(null);
-  const [podcastTags, setPodcastTags] = useState<Tag[]>([]);
 
   useEffect(() => {
     fetchTags();
@@ -153,14 +193,6 @@ function TagsPageContent() {
     setSelectedTags(newSelected);
   };
 
-  const handleSelectAll = () => {
-    if (selectedTags.size === tags.length) {
-      setSelectedTags(new Set());
-    } else {
-      setSelectedTags(new Set(tags.map((tag) => tag.id)));
-    }
-  };
-
   // 获取中文拼音首字母
   const getChineseInitial = (text: string): string => {
     // 处理空字符串
@@ -219,99 +251,9 @@ function TagsPageContent() {
     return groups;
   }, [tags, sortMode]);
 
-  const handleBatchDelete = async () => {
-    if (selectedTags.size === 0) return;
-
-    if (!confirm(`确定要删除选中的 ${selectedTags.size} 个标签吗？`)) return;
-
-    try {
-      // 逐个删除
-      for (const tagId of selectedTags) {
-        await tagApi.delete(tagId);
-      }
-      setSelectedTags(new Set());
-      setIsSelectMode(false);
-      fetchTags();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "批量删除失败");
-    }
-  };
-
   return (
     <main className="min-h-screen bg-slate-50">
       <div className="container mx-auto px-4 py-8">
-        {/* 操作栏 - 移到工具栏下方 */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-2">
-            {isSelectMode ? (
-              <>
-                <button
-                  onClick={() => {
-                    setIsSelectMode(false);
-                    setSelectedTags(new Set());
-                  }}
-                  className="px-4 py-2 bg-white text-slate-700 rounded-lg border border-slate-300 hover:bg-slate-50 transition-colors text-sm"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={handleSelectAll}
-                  className="px-4 py-2 bg-white text-slate-700 rounded-lg border border-slate-300 hover:bg-slate-50 transition-colors text-sm"
-                >
-                  {selectedTags.size === tags.length ? "取消全选" : "全选"}
-                </button>
-                <button
-                  onClick={handleBatchDelete}
-                  disabled={selectedTags.size === 0}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:bg-red-300 disabled:cursor-not-allowed text-sm"
-                >
-                  删除 ({selectedTags.size})
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => setIsSelectMode(true)}
-                  className="px-4 py-2 bg-white text-slate-700 rounded-lg border border-slate-300 hover:bg-slate-50 transition-colors text-sm"
-                >
-                  多选
-                </button>
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-                >
-                  + 新建标签
-                </button>
-              </>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-slate-600">排序:</span>
-            <button
-              onClick={() => setSortMode("popularity")}
-              className={
-                "px-3 py-1.5 rounded-lg text-sm transition-colors " +
-                (sortMode === "popularity"
-                  ? "bg-slate-800 text-white"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200")
-              }
-            >
-              热度
-            </button>
-            <button
-              onClick={() => setSortMode("alphabetical")}
-              className={
-                "px-3 py-1.5 rounded-lg text-sm transition-colors " +
-                (sortMode === "alphabetical"
-                  ? "bg-slate-800 text-white"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200")
-              }
-            >
-              字母
-            </button>
-          </div>
-        </div>
 
         {/* Podcast Preview */}
         {podcastId && (
@@ -616,11 +558,129 @@ function TagCard({
 
 // Wrapper component with Suspense boundary
 export default function TagsPage() {
+  // 状态管理 - 提升到外层以便在工具栏中访问
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newTagName, setNewTagName] = useState("");
+  const [newTagColor, setNewTagColor] = useState("#3B82F6");
+  const [selectedTags, setSelectedTags] = useState<Set<number>>(new Set());
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [sortMode, setSortMode] = useState<SortMode>("popularity");
+
+  // Podcast preview state
+  const [podcast, setPodcast] = useState<Podcast | null>(null);
+  const [podcastLoading, setPodcastLoading] = useState(false);
+  const [podcastError, setPodcastError] = useState<string | null>(null);
+  const [podcastTags, setPodcastTags] = useState<Tag[]>([]);
+
+  // 辅助函数
+  const handleSelectAll = () => {
+    if (selectedTags.size === tags.length) {
+      setSelectedTags(new Set());
+    } else {
+      setSelectedTags(new Set(tags.map((t) => t.id)));
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedTags.size === 0) return;
+
+    if (!confirm(`确定要删除选中的 ${selectedTags.size} 个标签吗？`)) return;
+
+    try {
+      // 逐个删除
+      for (const tagId of selectedTags) {
+        await tagApi.delete(tagId);
+      }
+      setSelectedTags(new Set());
+      setIsSelectMode(false);
+      // 重新获取标签
+      // fetchTags();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "批量删除失败");
+    }
+  };
+
   return (
     <PageLayout
       toolbar={{
         breadcrumbs: [{ label: "返回首页", href: "/" }],
         title: "标签管理",
+        description: !loading && tags.length > 0 ? `共 ${tags.length} 个标签` : undefined,
+        rightContent: (
+          <div className="flex items-center gap-2">
+            {/* 排序切换 */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setSortMode("popularity")}
+                className={
+                  "px-3 py-1.5 rounded-lg text-sm transition-colors " +
+                  (sortMode === "popularity"
+                    ? "bg-slate-800 text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200")
+                }
+              >
+                热度
+              </button>
+              <button
+                onClick={() => setSortMode("alphabetical")}
+                className={
+                  "px-3 py-1.5 rounded-lg text-sm transition-colors " +
+                  (sortMode === "alphabetical"
+                    ? "bg-slate-800 text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200")
+                }
+              >
+                字母
+              </button>
+            </div>
+
+            {/* 多选/操作按钮 */}
+            {isSelectMode ? (
+              <>
+                <button
+                  onClick={() => {
+                    setIsSelectMode(false);
+                    setSelectedTags(new Set());
+                  }}
+                  className="px-4 py-2 bg-white text-slate-700 rounded-lg border border-slate-300 hover:bg-slate-50 transition-colors text-sm"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleSelectAll}
+                  className="px-4 py-2 bg-white text-slate-700 rounded-lg border border-slate-300 hover:bg-slate-50 transition-colors text-sm"
+                >
+                  {selectedTags.size === tags.length ? "取消全选" : "全选"}
+                </button>
+                <button
+                  onClick={handleBatchDelete}
+                  disabled={selectedTags.size === 0}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:bg-red-300 disabled:cursor-not-allowed text-sm"
+                >
+                  删除 ({selectedTags.size})
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => setIsSelectMode(true)}
+                  className="px-4 py-2 bg-white text-slate-700 rounded-lg border border-slate-300 hover:bg-slate-50 transition-colors text-sm"
+                >
+                  多选
+                </button>
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                >
+                  + 新建标签
+                </button>
+              </>
+            )}
+          </div>
+        ),
       }}
     >
       <Suspense
@@ -630,7 +690,34 @@ export default function TagsPage() {
           </div>
         }
       >
-        <TagsPageContent />
+        <TagsPageContent
+          tags={tags}
+          setTags={setTags}
+          loading={loading}
+          setLoading={setLoading}
+          error={error}
+          setError={setError}
+          showCreateModal={showCreateModal}
+          setShowCreateModal={setShowCreateModal}
+          newTagName={newTagName}
+          setNewTagName={setNewTagName}
+          newTagColor={newTagColor}
+          setNewTagColor={setNewTagColor}
+          selectedTags={selectedTags}
+          setSelectedTags={setSelectedTags}
+          isSelectMode={isSelectMode}
+          setIsSelectMode={setIsSelectMode}
+          sortMode={sortMode}
+          setSortMode={setSortMode}
+          podcast={podcast}
+          setPodcast={setPodcast}
+          podcastLoading={podcastLoading}
+          setPodcastLoading={setPodcastLoading}
+          podcastError={podcastError}
+          setPodcastError={setPodcastError}
+          podcastTags={podcastTags}
+          setPodcastTags={setPodcastTags}
+        />
       </Suspense>
     </PageLayout>
   );
