@@ -610,31 +610,15 @@ export default function TagsPage() {
         description: !loading && tags.length > 0 ? `共 ${tags.length} 个标签` : undefined,
         rightContent: (
           <div className="flex items-center gap-2">
-            {/* 排序切换 */}
-            <div className="flex items-center gap-1">
+            {/* 新建标签按钮 - 仅在非多选模式下显示 */}
+            {!isSelectMode && (
               <button
-                onClick={() => setSortMode("popularity")}
-                className={
-                  "px-3 py-1.5 rounded-lg text-sm transition-colors " +
-                  (sortMode === "popularity"
-                    ? "bg-slate-800 text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200")
-                }
+                onClick={() => setShowCreateModal(true)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
               >
-                热度
+                + 新建标签
               </button>
-              <button
-                onClick={() => setSortMode("alphabetical")}
-                className={
-                  "px-3 py-1.5 rounded-lg text-sm transition-colors " +
-                  (sortMode === "alphabetical"
-                    ? "bg-slate-800 text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200")
-                }
-              >
-                字母
-              </button>
-            </div>
+            )}
 
             {/* 多选/操作按钮 */}
             {isSelectMode ? (
@@ -663,21 +647,39 @@ export default function TagsPage() {
                 </button>
               </>
             ) : (
-              <>
-                <button
-                  onClick={() => setIsSelectMode(true)}
-                  className="px-4 py-2 bg-white text-slate-700 rounded-lg border border-slate-300 hover:bg-slate-50 transition-colors text-sm"
-                >
-                  多选
-                </button>
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-                >
-                  + 新建标签
-                </button>
-              </>
+              <button
+                onClick={() => setIsSelectMode(true)}
+                className="px-4 py-2 bg-white text-slate-700 rounded-lg border border-slate-300 hover:bg-slate-50 transition-colors text-sm"
+              >
+                多选
+              </button>
             )}
+
+            {/* 排序切换 */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setSortMode("popularity")}
+                className={
+                  "px-3 py-1.5 rounded-lg text-sm transition-colors " +
+                  (sortMode === "popularity"
+                    ? "bg-slate-800 text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200")
+                }
+              >
+                热度
+              </button>
+              <button
+                onClick={() => setSortMode("alphabetical")}
+                className={
+                  "px-3 py-1.5 rounded-lg text-sm transition-colors " +
+                  (sortMode === "alphabetical"
+                    ? "bg-slate-800 text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200")
+                }
+              >
+                字母
+              </button>
+            </div>
           </div>
         ),
       }}
