@@ -11,50 +11,119 @@ const nextConfig = {
     // 图片尺寸断点
     imageSizes: [96, 128, 256, 384, 512, 640],
 
-    // 允许的图片域名（包括播客封面和图片代理）
-    domains: [
-      'localhost',
+    // 远程图片模式配置（Next.js 14推荐）
+    remotePatterns: [
+      // 本地开发
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+        port: '3000',
+        pathname: '/api/v1/images/**',
+      },
       // 小宇宙相关域名
-      'i.typlog.com',
-      'typlog.com',
-      'image.xyzcdn.net',
-      'bts-image.xyzcdn.net',
+      {
+        protocol: 'https',
+        hostname: '**.typlog.com',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.xyzcdn.net',
+      },
       // 中文播客平台
-      'fdfs.xmcdn.com',
-      'cdn.lizhi.fm',
-      'cdn.vistopia.com.cn',
-      'cdn5.vistopia.com.cn',
-      'radio-res.cgtn.com',
+      {
+        protocol: 'https',
+        hostname: '**.xmcdn.com',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.lizhi.fm',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.vistopia.com.cn',
+      },
+      {
+        protocol: 'https',
+        hostname: 'radio-res.cgtn.com',
+      },
       // 国际播客托管平台
-      'storage.buzzsprout.com',
-      'content.production.cdn.art19.com',
-      'img.transistorcdn.com',
-      'megaphone.imgix.net',
-      'media.redcircle.com',
-      'media24.fireside.fm',
-      'media.wavpub.com',
-      'media.smfm2016.com',
-      'pan.icu',
-      's.anyway.red',
-      'cdn.justinbot.com',
+      {
+        protocol: 'https',
+        hostname: '**.buzzsprout.com',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.art19.com',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.transistorcdn.com',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.imgix.net',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.redcircle.com',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.fireside.fm',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.wavpub.com',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.smfm2016.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'pan.icu',
+      },
+      {
+        protocol: 'https',
+        hostname: 's.anyway.red',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.justinbot.com',
+      },
       // 独立播客域名
-      'lexfridman.com',
-      'crazy.capital',
-      'host.podapi.xyz',
-      'assets.pippa.io',
+      {
+        protocol: 'https',
+        hostname: 'lexfridman.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'crazy.capital',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.podapi.xyz',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.pippa.io',
+      },
       // CDN域名
-      'd3t3ozftmdmh3i.cloudfront.net',
+      {
+        protocol: 'https',
+        hostname: '**.cloudfront.net',
+      },
       // Apple Podcasts (iTunes) 域名
-      'is1-ssl.mzstatic.com',
-      'is2-ssl.mzstatic.com',
-      'is3-ssl.mzstatic.com',
-      'is4-ssl.mzstatic.com',
-      'is5-ssl.mzstatic.com',
-      'a1.mzstatic.com',
-      'a2.mzstatic.com',
-      'a3.mzstatic.com',
-      'a4.mzstatic.com',
-      'a5.mzstatic.com',
+      {
+        protocol: 'https',
+        hostname: '**.mzstatic.com',
+      },
+      // 其他常见播客图片域名
+      {
+        protocol: 'https',
+        hostname: '**',
+        pathname: '/**//**.{jpg,jpeg,png,gif,webp,avif,svg}',
+      },
     ],
 
     // 最小缓存TTL（30天，配合后端缓存策略）
