@@ -6,9 +6,9 @@ import { podcastApi, tagApi } from "@/lib/api";
 import { stripHtml } from "@/lib/textUtils";
 import { getRelativeTime, isRecentlyUpdated } from "@/lib/timeUtils";
 import type { Podcast, Tag } from "@/types";
-import SearchSidebar from "@/components/SearchSidebar";
 import PodcastCover from "@/components/podcasts/PodcastCover";
 import PageLayout from "@/components/layout/PageLayout";
+import { useSearch } from "@/contexts/SearchContext";
 
 const PAGE_SIZE = 15;
 
@@ -22,7 +22,7 @@ export default function PodcastsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [showAllTags, setShowAllTags] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const { openSearch } = useSearch();
   const [sortBy, setSortBy] = useState<SortByType>("recent_update");
 
   const [listKey, setListKey] = useState(0);
@@ -244,7 +244,7 @@ export default function PodcastsPage() {
 
   return (
     <PageLayout
-      onSearchClick={() => setSearchOpen(true)}
+      onSearchClick={openSearch}
       toolbar={{
         breadcrumbs: [{ label: "返回首页", href: "/" }],
         title: "我的订阅",
@@ -429,8 +429,6 @@ export default function PodcastsPage() {
           )}
         </>
       )}
-
-      <SearchSidebar isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
     </PageLayout>
   );
 }

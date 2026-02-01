@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import AppNavbar from "./AppNavbar";
 import MobileBottomNav from "./MobileBottomNav";
 import PageToolbar, { PageToolbarProps } from "./PageToolbar";
+import SearchSidebar from "@/components/SearchSidebar";
+import { useSearch } from "@/contexts/SearchContext";
 
 interface PageLayoutProps {
   children: React.ReactNode;
@@ -34,6 +36,7 @@ interface PageLayoutProps {
  * - 统一的页面布局结构
  * - 自动处理顶部空间（为固定导航栏留白）
  * - 集成全局导航栏、页面工具栏
+ * - 全局搜索侧边栏
  * - 响应式布局
  *
  * 布局结构：
@@ -51,14 +54,15 @@ export default function PageLayout({
   maxWidth = true,
 }: PageLayoutProps) {
   const router = useRouter();
+  const { isSearchOpen, openSearch, closeSearch } = useSearch();
 
-  // 默认搜索行为：跳转到播客列表页（使用URL参数打开搜索）
+  // 默认搜索行为：打开全局搜索侧边栏
   const handleSearchClick = () => {
     if (onSearchClick) {
       onSearchClick();
     } else {
-      // 默认行为：跳转到播客列表页
-      router.push("/podcasts");
+      // 默认行为：打开全局搜索侧边栏
+      openSearch();
     }
   };
 
@@ -98,6 +102,9 @@ export default function PageLayout({
       {showBottomNav && (
         <MobileBottomNav onSearchClick={handleSearchClick} />
       )}
+
+      {/* 全局搜索侧边栏 */}
+      <SearchSidebar isOpen={isSearchOpen} onClose={closeSearch} />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ToastProvider, setGlobalToastContext } from "@/lib/toast";
+import { SearchProvider } from "@/contexts/SearchContext";
 
 export const metadata: Metadata = {
   title: "MagicPodcast - 个人播客管理",
@@ -19,7 +20,9 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body>
-        <ToastProvider>{children}</ToastProvider>
+        <SearchProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </SearchProvider>
       </body>
     </html>
   );
