@@ -12,117 +12,78 @@ const nextConfig = {
     imageSizes: [96, 128, 256, 384, 512, 640],
 
     // 远程图片模式配置（Next.js 14推荐）
+    // 限制：remotePatterns 最多 50 个元素
+    // 策略：本地服务优先 + 少量关键域名 + 通配符兜底
     remotePatterns: [
-      // 本地开发
+      // ==================== 本地开发服务（必须最先匹配）====================
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+        port: '8080',
+        pathname: '/images/**',
+      },
       {
         protocol: 'http',
         hostname: 'localhost',
         port: '3000',
         pathname: '/api/v1/images/**',
       },
-      // 小宇宙相关域名
+
+      // ==================== 最常用的播客平台（HTTP必须显式支持）====================
+      // 小宇宙/蜻蜓 CDN
       {
-        protocol: 'https',
-        hostname: '**.typlog.com',
+        protocol: 'http',
+        hostname: '**.xmcdn.com',
       },
-      {
-        protocol: 'https',
-        hostname: '**.xyzcdn.net',
-      },
-      // 中文播客平台
       {
         protocol: 'https',
         hostname: '**.xmcdn.com',
+      },
+      // 荔枝FM
+      {
+        protocol: 'http',
+        hostname: '**.lizhi.fm',
       },
       {
         protocol: 'https',
         hostname: '**.lizhi.fm',
       },
+      // Typlog（需要代理）
+      {
+        protocol: 'http',
+        hostname: '**.typlog.com',
+      },
       {
         protocol: 'https',
+        hostname: '**.typlog.com',
+      },
+      // Vistopia
+      {
+        protocol: 'http',
         hostname: '**.vistopia.com.cn',
       },
       {
         protocol: 'https',
-        hostname: 'radio-res.cgtn.com',
+        hostname: '**.vistopia.com.cn',
       },
-      // 国际播客托管平台
+      // XYZ CDN
       {
-        protocol: 'https',
-        hostname: '**.buzzsprout.com',
-      },
-      {
-        protocol: 'https',
-        hostname: '**.art19.com',
+        protocol: 'http',
+        hostname: '**.xyzcdn.net',
       },
       {
         protocol: 'https',
-        hostname: '**.transistorcdn.com',
+        hostname: '**.xyzcdn.net',
       },
-      {
-        protocol: 'https',
-        hostname: '**.imgix.net',
-      },
-      {
-        protocol: 'https',
-        hostname: '**.redcircle.com',
-      },
-      {
-        protocol: 'https',
-        hostname: '**.fireside.fm',
-      },
-      {
-        protocol: 'https',
-        hostname: '**.wavpub.com',
-      },
-      {
-        protocol: 'https',
-        hostname: '**.smfm2016.com',
-      },
-      {
-        protocol: 'https',
-        hostname: 'pan.icu',
-      },
-      {
-        protocol: 'https',
-        hostname: 's.anyway.red',
-      },
-      {
-        protocol: 'https',
-        hostname: '**.justinbot.com',
-      },
-      // 独立播客域名
-      {
-        protocol: 'https',
-        hostname: 'lexfridman.com',
-      },
-      {
-        protocol: 'https',
-        hostname: 'crazy.capital',
-      },
-      {
-        protocol: 'https',
-        hostname: '**.podapi.xyz',
-      },
-      {
-        protocol: 'https',
-        hostname: '**.pippa.io',
-      },
-      // CDN域名
-      {
-        protocol: 'https',
-        hostname: '**.cloudfront.net',
-      },
-      // Apple Podcasts (iTunes) 域名
-      {
-        protocol: 'https',
-        hostname: '**.mzstatic.com',
-      },
-      // 其他常见播客图片域名
+
+      // ==================== 通用通配符（兜底，允许所有其他域名）====================
       {
         protocol: 'https',
         hostname: '**',
-        pathname: '/**//**.{jpg,jpeg,png,gif,webp,avif,svg}',
+      },
+      {
+        protocol: 'http',
+        hostname: '**',
       },
     ],
 
