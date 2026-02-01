@@ -3,19 +3,20 @@ package services
 import (
 	apperrors "magicpodcast/internal/errors"
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/repository"
 
 	"gorm.io/gorm"
 )
 
 // PodcastService 播客服务层
 type PodcastService struct {
-	db *gorm.DB
+	repos *repository.Repositories
 }
 
 // NewPodcastService 创建播客服务
-func NewPodcastService(db *gorm.DB) *PodcastService {
+func NewPodcastService(repos *repository.Repositories) *PodcastService {
 	return &PodcastService{
-		db: db,
+		repos: repos,
 	}
 }
 
@@ -70,15 +71,15 @@ type UpdatePodcastNotesRequest struct {
 
 // GetPodcast 获取播客详情
 func (s *PodcastService) GetPodcast(id uint) (*PodcastResponse, error) {
-	var podcast models.Podcast
-	if err := s.db.First(&podcast, id).Error; err != nil {
+	podcast, err := s.repos.Podcast.GetByID(id)
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.NotFoundError("podcast", id)
 		}
 		return nil, apperrors.InternalErrorWithErr(err, "Failed to fetch podcast")
 	}
 
-	return s.toPodcastResponse(&podcast), nil
+	return s.toPodcastResponse(podcast), nil
 }
 
 // ListPodcasts 获取播客列表
@@ -97,39 +98,24 @@ func (s *PodcastService) ListPodcasts(req *PodcastListRequest) (*PodcastListResp
 		req.SortOrder = "desc"
 	}
 
-	var podcasts []models.Podcast
-	var total int64
-
-	query := s.db.Model(&models.Podcast{})
-
-	// 搜索条件
-	if req.Search != "" {
-		searchTerm := "%" + req.Search + "%"
-		query = query.Where("title LIKE ? OR author LIKE ?", searchTerm, searchTerm)
+	// 使用 Repository 的基础查询,但添加自定义排序
+	filters := repository.PodcastFilters{
+		Search:       req.Search,
+		IsSubscribed: req.IsSubscribed,
+		Page:         req.Page,
+		PageSize:     req.PageSize,
+		SortBy:       req.SortBy, // Repository 会处理基本的排序
 	}
 
-	// 订阅状态筛选
-	if req.IsSubscribed != nil {
-		query = query.Where("is_subscribed = ?", *req.IsSubscribed)
-	}
-
-	// 计算总数
-	if err := query.Count(&total).Error; err != nil {
-		return nil, apperrors.InternalErrorWithErr(err, "Failed to count podcasts")
-	}
-
-	// 排序和分页
-	orderClause := req.SortBy + " " + req.SortOrder
-	offset := (req.Page - 1) * req.PageSize
-
-	if err := query.Order(orderClause).Offset(offset).Limit(req.PageSize).Find(&podcasts).Error; err != nil {
+	podcasts, total, err := s.repos.Podcast.List(filters)
+	if err != nil {
 		return nil, apperrors.InternalErrorWithErr(err, "Failed to fetch podcasts")
 	}
 
 	// 转换为响应格式
 	responses := make([]PodcastResponse, len(podcasts))
 	for i, p := range podcasts {
-		responses[i] = *s.toPodcastResponse(&p)
+		responses[i] = *s.toPodcastResponse(p)
 	}
 
 	return &PodcastListResponse{
@@ -146,14 +132,14 @@ func (s *PodcastService) BatchGetPodcasts(ids []uint) ([]PodcastResponse, error)
 		return []PodcastResponse{}, nil
 	}
 
-	var podcasts []models.Podcast
-	if err := s.db.Where("id IN ?", ids).Find(&podcasts).Error; err != nil {
+	podcasts, err := s.repos.Podcast.GetByIDs(ids)
+	if err != nil {
 		return nil, apperrors.InternalErrorWithErr(err, "Failed to fetch podcasts")
 	}
 
 	responses := make([]PodcastResponse, len(podcasts))
 	for i, p := range podcasts {
-		responses[i] = *s.toPodcastResponse(&p)
+		responses[i] = *s.toPodcastResponse(p)
 	}
 
 	return responses, nil
@@ -161,15 +147,17 @@ func (s *PodcastService) BatchGetPodcasts(ids []uint) ([]PodcastResponse, error)
 
 // UpdatePodcastNotes 更新播客备注
 func (s *PodcastService) UpdatePodcastNotes(id uint, notes string) error {
-	var podcast models.Podcast
-	if err := s.db.First(&podcast, id).Error; err != nil {
+	// 验证播客是否存在
+	_, err := s.repos.Podcast.GetByID(id)
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return apperrors.NotFoundError("podcast", id)
 		}
 		return apperrors.InternalErrorWithErr(err, "Failed to fetch podcast")
 	}
 
-	if err := s.db.Model(&podcast).Update("notes", notes).Error; err != nil {
+	// 使用 Repository 的专用方法
+	if err := s.repos.Podcast.UpdateNotes(id, notes); err != nil {
 		return apperrors.InternalErrorWithErr(err, "Failed to update podcast notes")
 	}
 
@@ -178,58 +166,42 @@ func (s *PodcastService) UpdatePodcastNotes(id uint, notes string) error {
 
 // GetPodcastTags 获取播客标签
 func (s *PodcastService) GetPodcastTags(id uint) ([]models.Tag, error) {
-	// 验证播客是否存在
-	var podcast models.Podcast
-	if err := s.db.First(&podcast, id).Error; err != nil {
+	// 使用 Repository 的 GetWithTags 方法,它已经预加载了标签
+	podcast, err := s.repos.Podcast.GetWithTags(id)
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.NotFoundError("podcast", id)
 		}
-		return nil, apperrors.InternalErrorWithErr(err, "Failed to fetch podcast")
-	}
-
-	var tags []models.Tag
-	if err := s.db.Model(&podcast).Association("Tags").Find(&tags); err != nil {
 		return nil, apperrors.InternalErrorWithErr(err, "Failed to fetch podcast tags")
 	}
 
-	return tags, nil
+	return podcast.Tags, nil
 }
 
 // GetPodcastEpisodes 获取播客单集列表
 func (s *PodcastService) GetPodcastEpisodes(id uint, page, pageSize int) ([]models.Episode, int64, error) {
 	// 验证播客是否存在
-	var podcast models.Podcast
-	if err := s.db.First(&podcast, id).Error; err != nil {
+	_, err := s.repos.Podcast.GetByID(id)
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, 0, apperrors.NotFoundError("podcast", id)
 		}
 		return nil, 0, apperrors.InternalErrorWithErr(err, "Failed to fetch podcast")
 	}
 
-	var episodes []models.Episode
-	var total int64
-
-	query := s.db.Model(&models.Episode{}).Where("podcast_id = ?", id)
-
-	// 计算总数
-	if err := query.Count(&total).Error; err != nil {
-		return nil, 0, apperrors.InternalErrorWithErr(err, "Failed to count episodes")
-	}
-
-	// 分页查询
-	if page == 0 {
-		page = 1
-	}
-	if pageSize == 0 {
-		pageSize = 20
-	}
-
-	offset := (page - 1) * pageSize
-	if err := query.Order("published_date DESC").Offset(offset).Limit(pageSize).Find(&episodes).Error; err != nil {
+	// 使用 EpisodeRepository 获取单集列表
+	episodes, total, err := s.repos.Episode.GetByPodcastID(id, page, pageSize)
+	if err != nil {
 		return nil, 0, apperrors.InternalErrorWithErr(err, "Failed to fetch episodes")
 	}
 
-	return episodes, total, nil
+	// 转换指针切片到值切片
+	result := make([]models.Episode, len(episodes))
+	for i, ep := range episodes {
+		result[i] = *ep
+	}
+
+	return result, total, nil
 }
 
 // ========== 辅助方法 ==========

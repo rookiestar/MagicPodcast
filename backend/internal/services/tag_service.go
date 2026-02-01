@@ -3,19 +3,20 @@ package services
 import (
 	apperrors "magicpodcast/internal/errors"
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/repository"
 
 	"gorm.io/gorm"
 )
 
 // TagService 标签服务层
 type TagService struct {
-	db *gorm.DB
+	repos *repository.Repositories
 }
 
 // NewTagService 创建标签服务
-func NewTagService(db *gorm.DB) *TagService {
+func NewTagService(repos *repository.Repositories) *TagService {
 	return &TagService{
-		db: db,
+		repos: repos,
 	}
 }
 
@@ -25,14 +26,12 @@ func NewTagService(db *gorm.DB) *TagService {
 type CreateTagRequest struct {
 	Name  string `json:"name" binding:"required"`
 	Color string `json:"color" binding:"required"`
-	// 注意：实际模型没有 Description 字段
 }
 
 // UpdateTagRequest 更新标签请求
 type UpdateTagRequest struct {
 	Name  *string `json:"name"`
 	Color *string `json:"color"`
-	// 注意：实际模型没有 Description 字段
 }
 
 // TagResponse 标签响应（匹配实际模型）
@@ -57,18 +56,19 @@ type TagListResponse struct {
 // CreateTag 创建标签
 func (s *TagService) CreateTag(req *CreateTagRequest) (*TagResponse, error) {
 	// 检查名称是否已存在
-	var existingTag models.Tag
-	if err := s.db.Where("name = ?", req.Name).First(&existingTag).Error; err == nil {
+	_, err := s.repos.Tag.GetByName(req.Name)
+	if err == nil {
 		return nil, apperrors.ConflictError("tag", "name already exists")
+	} else if err != gorm.ErrRecordNotFound {
+		return nil, apperrors.InternalErrorWithErr(err, "Failed to check tag name")
 	}
 
 	tag := &models.Tag{
 		Name:  req.Name,
 		Color: req.Color,
-		// 注意：实际模型没有 Description 字段
 	}
 
-	if err := s.db.Create(tag).Error; err != nil {
+	if err := s.repos.Tag.Create(tag); err != nil {
 		return nil, apperrors.InternalErrorWithErr(err, "Failed to create tag")
 	}
 
@@ -77,75 +77,63 @@ func (s *TagService) CreateTag(req *CreateTagRequest) (*TagResponse, error) {
 
 // GetTag 获取标签详情
 func (s *TagService) GetTag(id uint) (*TagResponse, error) {
-	var tag models.Tag
-	if err := s.db.First(&tag, id).Error; err != nil {
+	tag, err := s.repos.Tag.GetByID(id)
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.NotFoundError("tag", id)
 		}
 		return nil, apperrors.InternalErrorWithErr(err, "Failed to fetch tag")
 	}
 
-	return s.toTagResponse(&tag), nil
+	return s.toTagResponse(tag), nil
 }
 
 // UpdateTag 更新标签
 func (s *TagService) UpdateTag(id uint, req *UpdateTagRequest) (*TagResponse, error) {
-	var tag models.Tag
-	if err := s.db.First(&tag, id).Error; err != nil {
+	// 获取现有标签
+	tag, err := s.repos.Tag.GetByID(id)
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.NotFoundError("tag", id)
 		}
 		return nil, apperrors.InternalErrorWithErr(err, "Failed to fetch tag")
 	}
 
-	updates := make(map[string]interface{})
-
-	if req.Name != nil {
-		// 检查新名称是否与其他标签冲突
-		var existingTag models.Tag
-		if err := s.db.Where("name = ? AND id != ?", *req.Name, id).First(&existingTag).Error; err == nil {
+	// 检查新名称是否与其他标签冲突
+	if req.Name != nil && *req.Name != tag.Name {
+		_, err := s.repos.Tag.GetByName(*req.Name)
+		if err == nil {
 			return nil, apperrors.ConflictError("tag", "name already exists")
+		} else if err != gorm.ErrRecordNotFound {
+			return nil, apperrors.InternalErrorWithErr(err, "Failed to check tag name")
 		}
-		updates["name"] = *req.Name
-	}
-	if req.Color != nil {
-		updates["color"] = *req.Color
+		tag.Name = *req.Name
 	}
 
-	if err := s.db.Model(&tag).Updates(updates).Error; err != nil {
+	if req.Color != nil {
+		tag.Color = *req.Color
+	}
+
+	if err := s.repos.Tag.Update(tag); err != nil {
 		return nil, apperrors.InternalErrorWithErr(err, "Failed to update tag")
 	}
 
-	// 重新加载
-	if err := s.db.First(&tag, id).Error; err != nil {
-		return nil, apperrors.InternalError("Failed to reload tag")
-	}
-
-	return s.toTagResponse(&tag), nil
+	return s.toTagResponse(tag), nil
 }
 
 // DeleteTag 删除标签
 func (s *TagService) DeleteTag(id uint) error {
 	// 检查是否存在
-	var tag models.Tag
-	if err := s.db.First(&tag, id).Error; err != nil {
+	_, err := s.repos.Tag.GetByID(id)
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return apperrors.NotFoundError("tag", id)
 		}
 		return apperrors.InternalErrorWithErr(err, "Failed to fetch tag")
 	}
 
-	// 删除标签关联（podcasts_tags 和 episodes_tags）
-	if err := s.db.Exec("DELETE FROM podcasts_tags WHERE tag_id = ?", id).Error; err != nil {
-		return apperrors.InternalErrorWithErr(err, "Failed to delete podcast tag associations")
-	}
-
-	if err := s.db.Exec("DELETE FROM episodes_tags WHERE tag_id = ?", id).Error; err != nil {
-		return apperrors.InternalErrorWithErr(err, "Failed to delete episode tag associations")
-	}
-
-	// 删除标签
-	if err := s.db.Delete(&tag).Error; err != nil {
+	// Repository 的 Delete 方法应该自动处理关联删除(通过 GORM 的约束)
+	if err := s.repos.Tag.Delete(id); err != nil {
 		return apperrors.InternalErrorWithErr(err, "Failed to delete tag")
 	}
 
@@ -161,26 +149,15 @@ func (s *TagService) ListTags(page, pageSize int) (*TagListResponse, error) {
 		pageSize = 20
 	}
 
-	var tags []models.Tag
-	var total int64
-
-	query := s.db.Model(&models.Tag{})
-
-	// 计算总数
-	if err := query.Count(&total).Error; err != nil {
-		return nil, apperrors.InternalErrorWithErr(err, "Failed to count tags")
-	}
-
-	// 分页查询
-	offset := (page - 1) * pageSize
-	if err := query.Order("name ASC").Offset(offset).Limit(pageSize).Find(&tags).Error; err != nil {
+	tags, total, err := s.repos.Tag.List(page, pageSize)
+	if err != nil {
 		return nil, apperrors.InternalErrorWithErr(err, "Failed to fetch tags")
 	}
 
 	// 转换为响应格式
 	responses := make([]TagResponse, len(tags))
 	for i, t := range tags {
-		responses[i] = *s.toTagResponse(&t)
+		responses[i] = *s.toTagResponse(t)
 	}
 
 	return &TagListResponse{
@@ -196,36 +173,24 @@ func (s *TagService) ListTags(page, pageSize int) (*TagListResponse, error) {
 // AddTagToPodcast 为播客添加标签
 func (s *TagService) AddTagToPodcast(podcastID, tagID uint) error {
 	// 验证播客和标签是否存在
-	var podcast models.Podcast
-	if err := s.db.First(&podcast, podcastID).Error; err != nil {
+	_, err := s.repos.Podcast.GetByID(podcastID)
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return apperrors.NotFoundError("podcast", podcastID)
 		}
 		return apperrors.InternalErrorWithErr(err, "Failed to fetch podcast")
 	}
 
-	var tag models.Tag
-	if err := s.db.First(&tag, tagID).Error; err != nil {
+	_, err = s.repos.Tag.GetByID(tagID)
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return apperrors.NotFoundError("tag", tagID)
 		}
 		return apperrors.InternalErrorWithErr(err, "Failed to fetch tag")
 	}
 
-	// 检查是否已关联
-	var count int64
-	if err := s.db.Table("podcasts_tags").
-		Where("podcast_id = ? AND tag_id = ?", podcastID, tagID).
-		Count(&count).Error; err != nil {
-		return apperrors.InternalErrorWithErr(err, "Failed to check tag association")
-	}
-
-	if count > 0 {
-		return apperrors.ConflictError("podcast tag", "already associated")
-	}
-
-	// 创建关联
-	if err := s.db.Exec("INSERT INTO podcasts_tags (podcast_id, tag_id) VALUES (?, ?)", podcastID, tagID).Error; err != nil {
+	// 使用 Repository 方法添加关联(已实现幂等性检查)
+	if err := s.repos.Tag.AddTagToPodcast(podcastID, tagID); err != nil {
 		return apperrors.InternalErrorWithErr(err, "Failed to add tag to podcast")
 	}
 
@@ -234,20 +199,12 @@ func (s *TagService) AddTagToPodcast(podcastID, tagID uint) error {
 
 // RemoveTagFromPodcast 从播客移除标签
 func (s *TagService) RemoveTagFromPodcast(podcastID, tagID uint) error {
-	// 检查关联是否存在
-	var count int64
-	if err := s.db.Table("podcasts_tags").
-		Where("podcast_id = ? AND tag_id = ?", podcastID, tagID).
-		Count(&count).Error; err != nil {
-		return apperrors.InternalErrorWithErr(err, "Failed to check tag association")
-	}
-
-	if count == 0 {
-		return apperrors.NotFoundError("podcast tag association", "")
-	}
-
-	// 删除关联
-	if err := s.db.Exec("DELETE FROM podcasts_tags WHERE podcast_id = ? AND tag_id = ?", podcastID, tagID).Error; err != nil {
+	// 使用 Repository 方法移除关联
+	if err := s.repos.Tag.RemoveTagFromPodcast(podcastID, tagID); err != nil {
+		// 检查是否因为关联不存在而失败
+		if err == gorm.ErrRecordNotFound {
+			return apperrors.NotFoundError("podcast tag association", "")
+		}
 		return apperrors.InternalErrorWithErr(err, "Failed to remove tag from podcast")
 	}
 
@@ -257,36 +214,24 @@ func (s *TagService) RemoveTagFromPodcast(podcastID, tagID uint) error {
 // AddTagToEpisode 为单集添加标签
 func (s *TagService) AddTagToEpisode(episodeID, tagID uint) error {
 	// 验证单集和标签是否存在
-	var episode models.Episode
-	if err := s.db.First(&episode, episodeID).Error; err != nil {
+	_, err := s.repos.Episode.GetByID(episodeID)
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return apperrors.NotFoundError("episode", episodeID)
 		}
 		return apperrors.InternalErrorWithErr(err, "Failed to fetch episode")
 	}
 
-	var tag models.Tag
-	if err := s.db.First(&tag, tagID).Error; err != nil {
+	_, err = s.repos.Tag.GetByID(tagID)
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return apperrors.NotFoundError("tag", tagID)
 		}
 		return apperrors.InternalErrorWithErr(err, "Failed to fetch tag")
 	}
 
-	// 检查是否已关联
-	var count int64
-	if err := s.db.Table("episodes_tags").
-		Where("episode_id = ? AND tag_id = ?", episodeID, tagID).
-		Count(&count).Error; err != nil {
-		return apperrors.InternalErrorWithErr(err, "Failed to check tag association")
-	}
-
-	if count > 0 {
-		return apperrors.ConflictError("episode tag", "already associated")
-	}
-
-	// 创建关联
-	if err := s.db.Exec("INSERT INTO episodes_tags (episode_id, tag_id) VALUES (?, ?)", episodeID, tagID).Error; err != nil {
+	// 使用 Repository 方法添加关联
+	if err := s.repos.Tag.AddTagToEpisode(episodeID, tagID); err != nil {
 		return apperrors.InternalErrorWithErr(err, "Failed to add tag to episode")
 	}
 
@@ -295,20 +240,12 @@ func (s *TagService) AddTagToEpisode(episodeID, tagID uint) error {
 
 // RemoveTagFromEpisode 从单集移除标签
 func (s *TagService) RemoveTagFromEpisode(episodeID, tagID uint) error {
-	// 检查关联是否存在
-	var count int64
-	if err := s.db.Table("episodes_tags").
-		Where("episode_id = ? AND tag_id = ?", episodeID, tagID).
-		Count(&count).Error; err != nil {
-		return apperrors.InternalErrorWithErr(err, "Failed to check tag association")
-	}
-
-	if count == 0 {
-		return apperrors.NotFoundError("episode tag association", "")
-	}
-
-	// 删除关联
-	if err := s.db.Exec("DELETE FROM episodes_tags WHERE episode_id = ? AND tag_id = ?", episodeID, tagID).Error; err != nil {
+	// 使用 Repository 方法移除关联
+	if err := s.repos.Tag.RemoveTagFromEpisode(episodeID, tagID); err != nil {
+		// 检查是否因为关联不存在而失败
+		if err == gorm.ErrRecordNotFound {
+			return apperrors.NotFoundError("episode tag association", "")
+		}
 		return apperrors.InternalErrorWithErr(err, "Failed to remove tag from episode")
 	}
 
