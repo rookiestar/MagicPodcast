@@ -35,20 +35,20 @@ const CRON_PRESETS = [
 // 默认User Prompt模板（包含任务要求和格式要求）
 const DEFAULT_USER_PROMPT = `# 工作流执行报告
 
-工作流名称: \${"{{"}"}.WorkflowName\${"{{"}"}}
-匹配的单集总数: \${"{{"}"}.TotalEpisodes\${"{{"}"}
-节目数量: \${"{{"}"}.NumPodcasts\${"{{"}"}
+工作流名称: {{.WorkflowName}}
+匹配的单集总数: {{.TotalEpisodes}}
+节目数量: {{.NumPodcasts}}
 
 ## 数据来源
 
-\${"{{"}"}range .Podcasts\${"{{"}"}
-### \${"{{"}"}.PodcastTitle\${"{{"}"}}
-单集数: \${"{{"}"}len .Episodes\${"{{"}"}}
-\${"{{"}"}range .Episodes\${"{{"}"}
-- **\${"{{"}"}.Title\${"{{"}"}** (\${"{{"}"}.PublishedDate.Format "2006-01-02"\${"{{"}"}})
-  \${"{{"}"}if ne .ShowNotes ""\${"{{"}"}\${"{{"}"}.ShowNotes\${"{{"}"}\${"{{"}"}end\${"{{"}"}
-\${"{{"}"}end\${"{{"}"}
-\${"{{"}"}end\${"{{"}"}
+{{range .Podcasts}}
+### {{.PodcastTitle}}
+单集数: {{len .Episodes}}
+{{range .Episodes}}
+- **{{.Title}}** ({{.PublishedDate.Format "2006-01-02"}})
+  {{if ne .ShowNotes ""}}{{.ShowNotes}}{{end}}
+{{end}}
+{{end}}
 
 ## 分析要求
 
@@ -69,11 +69,12 @@ const DEFAULT_USER_PROMPT = `# 工作流执行报告
 ## 输出格式要求
 
 1. 使用紧凑的列表格式，bullet point（-）或数字序号后直接跟内容，不要换行
-2. 列表项之间保持一个换行即可
-3. 避免连续的多个空行
-4. 用简洁专业的语言生成摘要，避免过度解读
-5. 客观准确，不添加原文没有的信息
-6. 简洁明了，避免冗余表述`;
+2. **核心内容部分必须使用嵌套bullet列表格式**：一级bullet为节目名称（如 **AI前沿**），二级bullet为该节目下的单集要点
+3. 列表项之间保持一个换行即可
+4. 避免连续的多个空行
+5. 用简洁专业的语言生成摘要，避免过度解读
+6. 客观准确，不添加原文没有的信息
+7. 简洁明了，避免冗余表述`;
 
 // Cron表达式校验函数
 const validateCronExpression = (
