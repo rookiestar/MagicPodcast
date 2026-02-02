@@ -303,7 +303,12 @@ export default function WorkflowDetailPage() {
     <PageLayout
       toolbar={{
         breadcrumbs: [{ label: "返回列表", href: backLink }],
-        title: `${workflow.id}: ${workflow.name}`,
+        title: (
+          <div className="flex items-center gap-3">
+            <span>{`${workflow.id}: ${workflow.name}`}</span>
+            {getStatusBadge(workflow.is_enabled)}
+          </div>
+        ),
         description: workflow.description || undefined,
         rightContent: (
           <div className="flex items-center gap-2">
@@ -408,7 +413,6 @@ export default function WorkflowDetailPage() {
               </svg>
               删除
             </button>
-            {getStatusBadge(workflow.is_enabled)}
           </div>
         ),
       }}
