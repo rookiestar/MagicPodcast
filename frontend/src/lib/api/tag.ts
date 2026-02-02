@@ -30,7 +30,7 @@ export const tagApi = {
   },
 
   // 更新标签
-  update: async (id: number, data: { color?: string }): Promise<Tag> => {
+  update: async (id: number, data: { name?: string; color?: string }): Promise<Tag> => {
     const response = await api.put<ApiResponse<Tag>>(
       `/api/v1/tags/${id}`,
       data,

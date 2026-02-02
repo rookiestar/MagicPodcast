@@ -37,6 +37,7 @@ type CreateTagRequest struct {
 
 // UpdateTagRequest 更新标签请求
 type UpdateTagRequest struct {
+	Name  string `json:"name" binding:"omitempty,max=64"`
 	Color string `json:"color" binding:"omitempty,len=7"`
 }
 
@@ -265,6 +266,53 @@ func (h *TagHandler) Update(c *gin.Context) {
 		return
 	}
 
+	// 额外的输入验证
+	v := validation.New()
+
+	// 验证名称（如果提供）
+	if req.Name != "" {
+		v.ValidateStringLength("name", req.Name, 1, 64)
+
+		// 检查标签名称是否已被其他标签使用
+		db := database.GetDB()
+		var existingTag models.Tag
+		if err := db.Where("name = ? AND id != ?", req.Name, uint(tagID)).First(&existingTag).Error; err == nil {
+			c.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "TAG_EXISTS",
+					"message": "标签名称已存在",
+				},
+			})
+			return
+		}
+	}
+
+	// 验证颜色格式（如果提供）
+	if req.Color != "" {
+		if !regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`).MatchString(req.Color) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "INVALID_COLOR",
+					"message": "颜色格式无效，必须是十六进制格式（如 #FF0000）",
+				},
+			})
+			return
+		}
+	}
+
+	if v.HasErrors() {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "VALIDATION_ERROR",
+				"message": v.Error(),
+			},
+		})
+		return
+	}
+
 	db := database.GetDB()
 
 	// 检查标签是否存在
@@ -282,6 +330,9 @@ func (h *TagHandler) Update(c *gin.Context) {
 
 	// 更新标签
 	updates := map[string]interface{}{}
+	if req.Name != "" {
+		updates["name"] = req.Name
+	}
 	if req.Color != "" {
 		updates["color"] = req.Color
 	}

@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { tagApi, podcastApi } from "@/lib/api";
 import PodcastCover from "@/components/podcasts/PodcastCover";
 import TagInput from "@/components/tags/TagInput";
+import TagFormModal from "@/components/tags/TagFormModal";
 import PageLayout from "@/components/layout/PageLayout";
 import type { Tag, Podcast } from "@/types";
 import { pinyin } from "pinyin-pro";
@@ -21,10 +22,8 @@ interface TagsPageContentProps {
   setError: React.Dispatch<React.SetStateAction<string | null>>;
   showCreateModal: boolean;
   setShowCreateModal: React.Dispatch<React.SetStateAction<boolean>>;
-  newTagName: string;
-  setNewTagName: React.Dispatch<React.SetStateAction<string>>;
-  newTagColor: string;
-  setNewTagColor: React.Dispatch<React.SetStateAction<string>>;
+  editModalTag: Tag | null;
+  setEditModalTag: React.Dispatch<React.SetStateAction<Tag | null>>;
   selectedTags: Set<number>;
   setSelectedTags: React.Dispatch<React.SetStateAction<Set<number>>>;
   isSelectMode: boolean;
@@ -50,10 +49,8 @@ function TagsPageContent({
   setError,
   showCreateModal,
   setShowCreateModal,
-  newTagName,
-  setNewTagName,
-  newTagColor,
-  setNewTagColor,
+  editModalTag,
+  setEditModalTag,
   selectedTags,
   setSelectedTags,
   isSelectMode,
@@ -156,20 +153,35 @@ function TagsPageContent({
     }
   };
 
-  const handleCreateTag = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreateTag = async (data: { name: string; color: string }) => {
     try {
       await tagApi.create({
-        name: newTagName,
-        color: newTagColor,
+        name: data.name,
+        color: data.color,
       });
-      setShowCreateModal(false);
-      setNewTagName("");
-      setNewTagColor("#3B82F6");
       fetchTags();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "创建失败");
+      throw err;
     }
+  };
+
+  const handleUpdateTag = async (data: { name: string; color: string }) => {
+    if (!editModalTag) return;
+
+    try {
+      await tagApi.update(editModalTag.id, {
+        name: data.name,
+        color: data.color,
+      });
+      setEditModalTag(null);
+      fetchTags();
+    } catch (err) {
+      throw err;
+    }
+  };
+
+  const handleEditTag = (tag: Tag) => {
+    setEditModalTag(tag);
   };
 
   const handleDeleteTag = async (id: number, name: string) => {
@@ -369,6 +381,7 @@ function TagsPageContent({
                             isSelected={selectedTags.has(tag.id)}
                             onToggleSelect={() => handleToggleSelect(tag.id)}
                             onDelete={handleDeleteTag}
+                            onEdit={handleEditTag}
                           />
                         ))}
                       </div>
@@ -386,6 +399,7 @@ function TagsPageContent({
                     isSelected={selectedTags.has(tag.id)}
                     onToggleSelect={() => handleToggleSelect(tag.id)}
                     onDelete={handleDeleteTag}
+                    onEdit={handleEditTag}
                   />
                 ))}
               </div>
@@ -393,65 +407,17 @@ function TagsPageContent({
           </>
         )}
 
-        {/* Create Tag Modal */}
-        {showCreateModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md">
-              <h2 className="text-2xl font-bold text-slate-900 mb-4">
-                新建标签
-              </h2>
-              <form onSubmit={handleCreateTag} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-900 mb-2">
-                    标签名称 *
-                  </label>
-                  <input
-                    type="text"
-                    value={newTagName}
-                    onChange={(e) => setNewTagName(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-900 mb-2">
-                    颜色
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="color"
-                      value={newTagColor}
-                      onChange={(e) => setNewTagColor(e.target.value)}
-                      className="h-10 w-20 rounded cursor-pointer"
-                    />
-                    <input
-                      type="text"
-                      value={newTagColor}
-                      onChange={(e) => setNewTagColor(e.target.value)}
-                      className="flex-1 px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900"
-                      placeholder="#3B82F6"
-                    />
-                  </div>
-                </div>
-                <div className="flex gap-2 pt-4">
-                  <button
-                    type="submit"
-                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    创建
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowCreateModal(false)}
-                    className="flex-1 px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors"
-                  >
-                    取消
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
+        {/* Create/Edit Tag Modal */}
+        <TagFormModal
+          isOpen={showCreateModal || editModalTag !== null}
+          onClose={() => {
+            setShowCreateModal(false);
+            setEditModalTag(null);
+          }}
+          onSubmit={editModalTag ? handleUpdateTag : handleCreateTag}
+          initialData={editModalTag ? { name: editModalTag.name, color: editModalTag.color } : undefined}
+          mode={editModalTag ? "edit" : "create"}
+        />
       </div>
     </main>
   );
@@ -463,12 +429,14 @@ function TagCard({
   isSelected,
   onToggleSelect,
   onDelete,
+  onEdit,
 }: {
   tag: Tag;
   isSelectMode: boolean;
   isSelected: boolean;
   onToggleSelect: () => void;
   onDelete: (id: number, name: string) => void;
+  onEdit: (tag: Tag) => void;
 }) {
   // 根据节目数量计算视觉强度
   const count = tag.podcast_count || 0;
@@ -498,7 +466,7 @@ function TagCard({
   return (
     <div
       className={cardClass}
-      onClick={isSelectMode ? onToggleSelect : undefined}
+      onClick={isSelectMode ? onToggleSelect : () => onEdit(tag)}
     >
       {/* 多选模式复选框 */}
       {isSelectMode && (
@@ -515,25 +483,30 @@ function TagCard({
 
       {/* 非多选模式：显示删除按钮 */}
       {!isSelectMode && (
-        <button
-          onClick={() => onDelete(tag.id, tag.name)}
-          className="absolute top-1/2 right-1 -translate-y-1/2 text-slate-400 hover:text-red-600 transition-colors p-1 rounded hover:bg-red-50"
-          title="删除标签"
-        >
-          <svg
-            className="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        <div className="absolute top-1/2 right-1 -translate-y-1/2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(tag.id, tag.name);
+            }}
+            className="text-slate-400 hover:text-red-600 transition-colors p-1 rounded hover:bg-red-50"
+            title="删除标签"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M6 18L18 6M6 6l12 12"
-            />
-          </svg>
-        </button>
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
       )}
 
       {/* 颜色圆点 */}
@@ -562,8 +535,7 @@ export default function TagsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newTagName, setNewTagName] = useState("");
-  const [newTagColor, setNewTagColor] = useState("#3B82F6");
+  const [editModalTag, setEditModalTag] = useState<Tag | null>(null);
   const [selectedTags, setSelectedTags] = useState<Set<number>>(new Set());
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>("popularity");
@@ -596,7 +568,7 @@ export default function TagsPage() {
       setSelectedTags(new Set());
       setIsSelectMode(false);
       // 重新获取标签
-      // fetchTags();
+      fetchTags();
     } catch (err) {
       alert(err instanceof Error ? err.message : "批量删除失败");
     }
@@ -700,10 +672,8 @@ export default function TagsPage() {
           setError={setError}
           showCreateModal={showCreateModal}
           setShowCreateModal={setShowCreateModal}
-          newTagName={newTagName}
-          setNewTagName={setNewTagName}
-          newTagColor={newTagColor}
-          setNewTagColor={setNewTagColor}
+          editModalTag={editModalTag}
+          setEditModalTag={setEditModalTag}
           selectedTags={selectedTags}
           setSelectedTags={setSelectedTags}
           isSelectMode={isSelectMode}
