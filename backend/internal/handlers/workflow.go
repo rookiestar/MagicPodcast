@@ -835,6 +835,7 @@ func (h *WorkflowHandler) Trigger(c *gin.Context) {
 
 	var workflow models.Workflow
 	if err := db.First(&workflow, id).Error; err != nil {
+		logger.Infof("🔍 [DEBUG Handler] Failed to load workflow %s: %v", id, err)
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{

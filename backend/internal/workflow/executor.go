@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"magicpodcast/internal/logger"
+	"magicpodcast/internal/utils"
 	"strings"
 	"sync"
 	"time"
@@ -295,51 +296,47 @@ func (e *Executor) syncPodcast(
 		// 获取Job的时间窗口
 		var job models.Job
 		if err := e.db.First(&job, execution.JobID).Error; err == nil {
-			// 计算时间窗口
-			var timeRangeStart, timeRangeEnd time.Time
-			if job.TriggeredBy == "cron" || job.TriggeredBy == "cron-catchup" {
-				// daily模式：使用实际触发时间，扫描过去N天
-				// 例如：8:35触发，1天范围 → 昨天8:35到今天8:35
-				days := workflow.RulesConfig.TimeRange
-				if days <= 0 {
-					days = 1 // 默认1天
-				}
-				// 使用 job.StartTime 作为实际触发时间
-				triggerTime := job.StartTime
-				if triggerTime == nil {
-					triggerTime = &startTime // 如果 StartTime 为空，使用当前时间
-				}
-				timeRangeEnd = *triggerTime
-				timeRangeStart = timeRangeEnd.AddDate(0, 0, -days)
-
-				logger.Infof("🔍 [Executor] Cron模式时间窗口计算 [JobID=%d, PodcastID=%d]", job.ID, podcast.ID)
-				logger.Infof("   - TriggeredBy: %s", job.TriggeredBy)
-				logger.Infof("   - TimeRangeDays: %d", days)
-				logger.Infof("   - Job.StartTime: %s", job.StartTime.Format("2006-01-02 15:04:05"))
-				logger.Infof("   - TriggerTime: %s", triggerTime.Format("2006-01-02 15:04:05"))
-				logger.Infof("   - TimeWindow: %s → %s", timeRangeStart.Format("2006-01-02 15:04:05"), timeRangeEnd.Format("2006-01-02 15:04:05"))
-			} else {
-				// manual模式：过去N天
-				days := workflow.RulesConfig.TimeRange
-				timeRangeEnd = job.CreatedAt
-				timeRangeStart = timeRangeEnd.AddDate(0, 0, -days)
-
-				logger.Infof("🔍 [Executor] Manual模式时间窗口计算 [JobID=%d, PodcastID=%d]", job.ID, podcast.ID)
-				logger.Infof("   - TriggeredBy: %s", job.TriggeredBy)
-				logger.Infof("   - TimeRangeDays: %d", days)
-				logger.Infof("   - Job.CreatedAt: %s", job.CreatedAt.Format("2006-01-02 15:04:05"))
-				logger.Infof("   - TimeWindow: %s → %s", timeRangeStart.Format("2006-01-02 15:04:05"), timeRangeEnd.Format("2006-01-02 15:04:05"))
+			// 使用统一的时间窗口计算函数
+			days := workflow.RulesConfig.TimeRange
+			if days <= 0 {
+				days = 1 // 默认1天
 			}
 
-			// 查询该podcast在时间窗口内的episodes数量
-			var matchedCount int64
-			e.db.Model(&models.Episode{}).
-				Where("podcast_id = ?", podcast.ID).
-				Where("COALESCE(updated_date, published_date) >= ? AND COALESCE(updated_date, published_date) <= ?", timeRangeStart, timeRangeEnd).
-				Count(&matchedCount)
+			// 确定触发时间
+			var triggerTime time.Time
+			if job.StartTime != nil {
+				triggerTime = *job.StartTime
+			} else {
+				triggerTime = startTime // 如果 StartTime 为空，使用当前时间
+			}
 
-			logger.Infof("   - EpisodesMatched: %d", matchedCount)
-			execution.EpisodesMatched = int(matchedCount)
+			// 确定模式并计算时间窗口
+			var mode utils.TimeRangeMode
+			if job.TriggeredBy == "cron" || job.TriggeredBy == "cron-catchup" {
+				mode = utils.TimeRangeModeDaily
+			} else {
+				mode = utils.TimeRangeModeManual
+			}
+
+			timeRangeStart, timeRangeEnd, err := utils.GetTimeRangeWindow(mode, days, triggerTime)
+			if err != nil {
+				logger.Infof("⚠️  [Executor] 时间窗口计算失败: %v", err)
+			} else {
+				logger.Infof("🔍 [Executor] 时间窗口计算 [JobID=%d, PodcastID=%d]", job.ID, podcast.ID)
+				logger.Infof("   - TriggeredBy: %s, Mode: %s", job.TriggeredBy, mode)
+				logger.Infof("   - TimeRangeDays: %d", days)
+				logger.Infof("   - TimeWindow: %s → %s", timeRangeStart.Format("2006-01-02 15:04:05"), timeRangeEnd.Format("2006-01-02 15:04:05"))
+
+				// 查询该podcast在时间窗口内的episodes数量
+				var matchedCount int64
+				e.db.Model(&models.Episode{}).
+					Where("podcast_id = ?", podcast.ID).
+					Where("COALESCE(updated_date, published_date) >= ? AND COALESCE(updated_date, published_date) <= ?", timeRangeStart, timeRangeEnd).
+					Count(&matchedCount)
+
+				logger.Infof("   - EpisodesMatched: %d", matchedCount)
+				execution.EpisodesMatched = int(matchedCount)
+			}
 		}
 
 		logger.Infof("✅ [%s] 同步完成: %s - 新增:%d, 更新:%d, 匹配:%d (耗时:%dms)",
