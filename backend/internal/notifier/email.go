@@ -112,24 +112,26 @@ func (n *EmailNotifier) buildEmailBody(markdownContent string) string {
 <head>
     <meta charset="UTF-8">
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; }
-        h1, h2, h3 { color: #2c3e50; margin-top: 30px; }
-        h2 { border-bottom: 2px solid #eee; padding-bottom: 10px; }
-        h3 { color: #34495e; }
-        ul, ol { padding-left: 20px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; font-size: 14px; line-height: 1.5; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; }
+        h1, h2, h3 { color: #2c3e50; margin-top: 20px; margin-bottom: 12px; line-height: 1.3; }
+        h1 { font-size: 1.6em; }
+        h2 { border-bottom: 2px solid #eee; padding-bottom: 8px; font-size: 1.4em; }
+        h3 { color: #34495e; font-size: 1.2em; }
+        p { margin: 8px 0; }
+        ul, ol { padding-left: 20px; margin: 8px 0; }
         ul ul, ol ol, ul ol, ol ul { margin: 4px 0; }
-        li { margin: 4px 0; }
-        code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: 'Monaco', 'Courier New', monospace; font-size: 0.9em; }
-        pre { background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; border: 1px solid #ddd; }
+        li { margin: 3px 0; }
+        code { background: #f4f4f4; padding: 2px 5px; border-radius: 3px; font-family: 'Monaco', 'Courier New', monospace; font-size: 0.9em; }
+        pre { background: #f4f4f4; padding: 12px; border-radius: 5px; overflow-x: auto; border: 1px solid #ddd; font-size: 0.85em; line-height: 1.4; }
         pre code { background: none; padding: 0; }
-        blockquote { border-left: 4px solid #ddd; margin: 0; padding-left: 20px; color: #666; }
-        hr { border: none; border-top: 1px solid #eee; margin: 20px 0; }
+        blockquote { border-left: 4px solid #ddd; margin: 10px 0; padding-left: 15px; color: #666; }
+        hr { border: none; border-top: 1px solid #eee; margin: 15px 0; }
         img { max-width: 100%%; height: auto; border-radius: 4px; }
         a { color: #3498db; text-decoration: none; }
         a:hover { text-decoration: underline; }
         strong { font-weight: 600; }
-        .footer { margin-top: 40px; padding-top: 20px; border-top: 2px solid #eee; color: #999; font-size: 12px; }
-        .emoji { font-size: 1.2em; }
+        .footer { margin-top: 30px; padding-top: 15px; border-top: 2px solid #eee; color: #999; font-size: 12px; }
+        .emoji { font-size: 1.1em; }
     </style>
 </head>
 <body>
