@@ -93,6 +93,7 @@ func (n *EmailNotifier) buildEmailBody(markdownContent string) string {
 		goldmark.WithRendererOptions(
 			html.WithHardWraps(),
 			html.WithXHTML(),
+			html.WithUnsafe(), // 允许渲染原始HTML（ShowNotes包含HTML标签）
 		),
 	)
 
