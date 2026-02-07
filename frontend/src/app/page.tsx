@@ -49,11 +49,11 @@ function HomeContent() {
             />
           </Link>
 
-          <Link href="/import" className="group">
+          <Link href="/workflows" className="group">
             <FeatureCard
-              emoji="📥"
-              title="导入/同步"
-              description="导入OPML文件或同步小宇宙订阅数据"
+              emoji="⚙️"
+              title="自动化工作流"
+              description="基于规则自动抓取播客信息并生成报告"
             />
           </Link>
 
@@ -65,11 +65,11 @@ function HomeContent() {
             />
           </Link>
 
-          <Link href="/workflows" className="group">
+          <Link href="/import" className="group">
             <FeatureCard
-              emoji="⚙️"
-              title="自动化工作流"
-              description="基于规则自动抓取播客信息并生成报告"
+              emoji="📥"
+              title="导入/同步"
+              description="导入OPML文件或同步小宇宙订阅数据"
             />
           </Link>
         </div>
