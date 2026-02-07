@@ -701,10 +701,7 @@ export default function WorkflowDetailPage() {
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
                       <p className="text-xl font-bold text-slate-900 dark:text-slate-50">
                         {workflow.stats.total_jobs > 0
-                          ? (
-                              workflow.stats.total_episodes /
-                              workflow.stats.total_jobs
-                            ).toFixed(1)
+                          ? workflow.stats.total_episodes.toFixed(1)
                           : "0.0"}
                       </p>
                       <p className="text-sm text-slate-600 dark:text-slate-400">
