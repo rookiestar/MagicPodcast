@@ -328,19 +328,6 @@ export default function WorkflowsPage() {
                               {workflow.stats.total_jobs}
                             </span>
                           </div>
-
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium">成功率:</span>
-                            <span
-                              className={
-                                workflow.stats.success_rate >= 80
-                                  ? "text-green-600"
-                                  : "text-yellow-600"
-                              }
-                            >
-                              {workflow.stats.success_rate.toFixed(1)}%
-                            </span>
-                          </div>
                         </>
                       )}
                     </div>

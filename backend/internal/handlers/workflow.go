@@ -53,7 +53,6 @@ type WorkflowStats struct {
 	TotalJobs     int64      `json:"total_jobs"`
 	SuccessJobs   int64      `json:"success_jobs"`
 	FailedJobs    int64      `json:"failed_jobs"`
-	SuccessRate   float64    `json:"success_rate"`
 	TotalEpisodes float64    `json:"total_episodes"` // 平均每次执行匹配的单集数
 	PodcastCount  int64      `json:"podcast_count"`
 	LastExecution *time.Time `json:"last_execution,omitempty"`
@@ -941,11 +940,6 @@ func (h *WorkflowHandler) toWorkflowResponse(workflow *models.Workflow) Workflow
 	// 统计成功和失败的任务数
 	db.Model(&models.Job{}).Where("workflow_id = ? AND status = ?", workflow.ID, models.JobStatusCompleted).Count(&stats.SuccessJobs)
 	db.Model(&models.Job{}).Where("workflow_id = ? AND status = ?", workflow.ID, models.JobStatusFailed).Count(&stats.FailedJobs)
-
-	// 计算成功率
-	if stats.TotalJobs > 0 {
-		stats.SuccessRate = float64(stats.SuccessJobs) / float64(stats.TotalJobs) * 100
-	}
 
 	// 统计平均每次执行匹配的单集数（只统计成功完成的执行，包括匹配到0个的情况）
 	db.Model(&models.Job{}).Where("workflow_id = ? AND status = ?", workflow.ID, models.JobStatusCompleted).Select("COALESCE(CAST(AVG(episodes_matched) AS FLOAT), 0)").Scan(&stats.TotalEpisodes)

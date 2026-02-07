@@ -681,21 +681,13 @@ export default function WorkflowDetailPage() {
                   <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-3">
                     统计数据
                   </h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 gap-4">
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
                       <p className="text-xl font-bold text-slate-900 dark:text-slate-50">
                         {workflow.stats.total_jobs}
                       </p>
                       <p className="text-sm text-slate-600 dark:text-slate-400">
                         执行次数
-                      </p>
-                    </div>
-                    <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
-                      <p className="text-xl font-bold text-green-600">
-                        {workflow.stats.success_rate.toFixed(1)}%
-                      </p>
-                      <p className="text-sm text-slate-600 dark:text-slate-400">
-                        成功率
                       </p>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
@@ -706,14 +698,6 @@ export default function WorkflowDetailPage() {
                       </p>
                       <p className="text-sm text-slate-600 dark:text-slate-400">
                         匹配单集/次
-                      </p>
-                    </div>
-                    <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
-                      <p className="text-xl font-bold text-slate-900 dark:text-slate-50">
-                        {workflow.stats.success_jobs}
-                      </p>
-                      <p className="text-sm text-slate-600 dark:text-slate-400">
-                        成功次数
                       </p>
                     </div>
                   </div>

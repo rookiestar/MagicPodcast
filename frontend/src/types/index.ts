@@ -222,9 +222,6 @@ export interface Workflow {
 
 export interface WorkflowStats {
   total_jobs: number;
-  success_jobs: number;
-  failed_jobs: number;
-  success_rate: number;
   total_episodes: number;
   podcast_count: number;
   last_execution?: string;
