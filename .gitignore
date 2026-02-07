@@ -148,3 +148,8 @@ MagicPodcast.session.sql
 PodcastIndex.session.sql
 backend/api
 backend/main
+backend/api_server
+backend/api_server.pid
+
+# PID files
+*.pid
