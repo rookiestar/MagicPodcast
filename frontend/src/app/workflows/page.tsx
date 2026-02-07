@@ -258,71 +258,71 @@ export default function WorkflowsPage() {
               <Link
                 key={workflow.id}
                 href={`/workflows/${workflow.id}${window.location.search}`}
-                className={`block rounded-lg shadow-sm hover:shadow-md transition-shadow p-8 ${
+                className={`block rounded-lg shadow-sm hover:shadow-md transition-shadow p-5 ${
                   index % 2 === 0 ? "bg-white" : "bg-neutral-50"
                 }`}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-3">
-                      <h3 className="text-xl font-semibold text-slate-900">
+                    <div className="flex items-center gap-2 mb-2">
+                      <h3 className="text-lg font-semibold text-slate-900">
                         {workflow.id}: {workflow.name}
                       </h3>
                       {getStatusBadge(workflow.is_enabled)}
                     </div>
 
                     {workflow.description && (
-                      <p className="text-slate-600 mb-6">
+                      <p className="text-slate-600 text-sm mb-4">
                         {workflow.description}
                       </p>
                     )}
 
-                    <div className="flex flex-wrap gap-x-8 gap-y-4 text-slate-600 mt-6">
-                      <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-600">
+                      <div className="flex items-center gap-1.5">
                         <span className="font-medium">范围:</span>
                         <span className="text-slate-500">
                           {getScopeTypeLabel(workflow)}
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         <span className="font-medium">时间范围:</span>
                         <span className="text-slate-500">
                           {formatTimeRange(workflow.rules_config?.time_range)}
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         <span className="font-medium">定时:</span>
-                        <code className="px-2 py-0.5 bg-slate-100 rounded text-xs">
+                        <code className="px-1.5 py-0.5 bg-slate-100 rounded text-xs">
                           {workflow.schedule}
                         </code>
                       </div>
 
                       {workflow.stats && (
                         <>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
                             <span className="font-medium">上次执行:</span>
                             <span className="text-slate-500">
                               {formatDateTime(workflow.stats.last_execution)}
                             </span>
                           </div>
 
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
                             <span className="font-medium">匹配单集:</span>
                             <span className="text-blue-500">
                               {workflow.stats.total_episodes.toFixed(1)}
                             </span>
                           </div>
 
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
                             <span className="font-medium">下次执行:</span>
                             <span className="text-slate-500">
                               {formatDateTime(workflow.stats.next_execution)}
                             </span>
                           </div>
 
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
                             <span className="font-medium">执行次数:</span>
                             <span className="text-slate-500">
                               {workflow.stats.total_jobs}
