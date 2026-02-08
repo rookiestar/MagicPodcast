@@ -51,6 +51,7 @@ backend/data/*
 # IDE
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 *~
