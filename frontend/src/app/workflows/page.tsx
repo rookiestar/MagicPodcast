@@ -339,16 +339,17 @@ export default function WorkflowsPage() {
                     <button
                       onClick={(e) => handleTrigger(workflow.id, e)}
                       disabled={triggeringId === workflow.id}
-                      className={`p-3 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-blue-300 dark:hover:border-blue-500 transition-all ${
+                      className={`p-3 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-blue-300 dark:hover:border-blue-500 transition-all active:scale-95 ${
                         triggeringId === workflow.id
                           ? "opacity-50 cursor-not-allowed bg-slate-100"
                           : "text-blue-600 dark:text-blue-400"
                       }`}
+                      style={{ minWidth: "44px", minHeight: "44px" }}
                       title="手动执行"
                     >
                       {triggeringId === workflow.id ? (
                         <svg
-                          className="w-6 h-6" animate-spin"
+                          className="w-6 h-6 animate-spin"
                           fill="none"
                           viewBox="0 0 24 24"
                         >
@@ -368,7 +369,7 @@ export default function WorkflowsPage() {
                         </svg>
                       ) : (
                         <svg
-                          className="w-6 h-6""
+                          className="w-6 h-6"
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -386,16 +387,17 @@ export default function WorkflowsPage() {
                     {/* 启用/停用 */}
                     <button
                       onClick={(e) => handleToggle(workflow.id, e)}
-                      className={`p-3 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-300 dark:hover:border-slate-500 transition-all ${
+                      className={`p-3 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-300 dark:hover:border-slate-500 transition-all active:scale-95 ${
                         workflow.is_enabled
                           ? "text-amber-600 dark:text-amber-400"
                           : "text-green-600 dark:text-green-400"
                       }`}
+                      style={{ minWidth: "44px", minHeight: "44px" }}
                       title={workflow.is_enabled ? "停用" : "启用"}
                     >
                       {workflow.is_enabled ? (
                         <svg
-                          className="w-6 h-6""
+                          className="w-6 h-6"
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -409,7 +411,7 @@ export default function WorkflowsPage() {
                         </svg>
                       ) : (
                         <svg
-                          className="w-6 h-6""
+                          className="w-6 h-6"
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -427,11 +429,12 @@ export default function WorkflowsPage() {
                     {/* 编辑 */}
                     <button
                       onClick={(e) => handleEdit(workflow.id, e)}
-                      className="p-2.5 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-300 dark:hover:border-slate-500 transition-all"
+                      className="p-3 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-300 dark:hover:border-slate-500 transition-all active:scale-95"
+                      style={{ minWidth: "44px", minHeight: "44px" }}
                       title="编辑"
                     >
                       <svg
-                        className="w-6 h-6""
+                        className="w-6 h-6"
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -451,11 +454,12 @@ export default function WorkflowsPage() {
                         e.preventDefault();
                         handleDelete(workflow.id);
                       }}
-                      className="p-2.5 text-red-600 dark:text-red-400 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 hover:border-red-300 dark:hover:border-red-500 transition-all"
+                      className="p-3 text-red-600 dark:text-red-400 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 hover:border-red-300 dark:hover:border-red-500 transition-all active:scale-95"
+                      style={{ minWidth: "44px", minHeight: "44px" }}
                       title="删除"
                     >
                       <svg
-                        className="w-6 h-6""
+                        className="w-6 h-6"
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
