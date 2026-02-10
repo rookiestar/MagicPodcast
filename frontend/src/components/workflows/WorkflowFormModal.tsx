@@ -764,8 +764,8 @@ export default function WorkflowFormModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 sm:p-6">
+      <div className="bg-white dark:bg-slate-800 sm:rounded-lg shadow-2xl w-full max-w-3xl max-h-[100vh] sm:max-h-[85vh] overflow-hidden flex flex-col inset-0 sm:inset-auto sm:my-8">
         {/* Header */}
         <div className="border-b border-slate-200 dark:border-slate-700 p-6">
           <div className="flex items-center justify-between">
@@ -1218,9 +1218,9 @@ export default function WorkflowFormModal({
                             )}
 
                           {/* 三栏布局 - 固定高度 */}
-                          <div className="grid grid-cols-12 gap-3 transition-all duration-200">
+                          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 transition-all duration-200">
                             {/* 左侧：搜索结果列表 */}
-                            <div className="col-span-5">
+                            <div className="col-span-1 sm:col-span-5">
                               <div className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
                                 <span>📻</span>
                                 <span>搜索结果</span>
@@ -1294,7 +1294,7 @@ export default function WorkflowFormModal({
                             </div>
 
                             {/* 中间：批量操作按钮 */}
-                            <div className="col-span-2 flex flex-col justify-center gap-3">
+                            <div className="col-span-1 sm:col-span-2 flex flex-col sm:flex-row justify-center gap-3">
                               {filteredPodcasts.length > 0 &&
                                 !isLoadingPodcasts && (
                                   <button
@@ -1327,7 +1327,7 @@ export default function WorkflowFormModal({
                             </div>
 
                             {/* 右侧：备选列表 */}
-                            <div className="col-span-5">
+                            <div className="col-span-1 sm:col-span-5">
                               <div className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
                                 <span>✅</span>
                                 <span>已选</span>
@@ -1494,13 +1494,15 @@ export default function WorkflowFormModal({
                       </div>
                       <input
                         type="number"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
                         min={0}
                         value={timeRange || ""}
                         onChange={(e) =>
                           setTimeRange(parseInt(e.target.value) || 0)
                         }
                         placeholder="0"
-                        className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                        className="w-full px-4 py-2 text-base border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
                       />
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                         只抓取指定天数内发布的单集，0表示不限制
@@ -1536,13 +1538,15 @@ export default function WorkflowFormModal({
                       </div>
                       <input
                         type="number"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
                         min={0}
                         value={minDuration || ""}
                         onChange={(e) =>
                           setMinDuration(parseInt(e.target.value) || 0)
                         }
                         placeholder="0"
-                        className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                        className="w-full px-4 py-2 text-base border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
                       />
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                         只抓取超过此时长的单集，0表示不限制（单位：秒）
@@ -1576,13 +1580,15 @@ export default function WorkflowFormModal({
                       </label>
                       <input
                         type="number"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
                         min={0}
                         value={maxResults || ""}
                         onChange={(e) =>
                           setMaxResults(parseInt(e.target.value) || 0)
                         }
                         placeholder="0"
-                        className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                        className="w-full px-4 py-2 text-base border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
                       />
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                         每个节目最多抓取的单集数量，0表示不限制
@@ -1677,6 +1683,8 @@ export default function WorkflowFormModal({
                         </label>
                         <input
                           type="number"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           min={1}
                           max={100}
                           value={llmMaxEpisodes || ""}
@@ -1684,7 +1692,7 @@ export default function WorkflowFormModal({
                             setLlmMaxEpisodes(parseInt(e.target.value) || 20)
                           }
                           placeholder="20"
-                          className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                          className="w-full px-4 py-2 text-base border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
                         />
                         <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                           采样部分单集生成摘要（1-100）
@@ -1697,6 +1705,8 @@ export default function WorkflowFormModal({
                         </label>
                         <input
                           type="number"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           min={100}
                           max={4000}
                           value={llmMaxTokens || ""}
@@ -1704,7 +1714,7 @@ export default function WorkflowFormModal({
                             setLlmMaxTokens(parseInt(e.target.value) || 1000)
                           }
                           placeholder="1000"
-                          className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                          className="w-full px-4 py-2 text-base border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
                         />
                         <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                           控制摘要的最大长度（100-4000）
@@ -1847,7 +1857,30 @@ export default function WorkflowFormModal({
         </div>
 
         {/* Footer */}
-        <div className="border-t border-slate-200 dark:border-slate-700 p-6 flex justify-between">
+        <div className="border-t border-slate-200 dark:border-slate-700 p-4 sm:p-6 flex justify-between">
+          <button
+            onClick={handleClose}
+            className="px-4 sm:px-6 py-2 min-h-[44px] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+          >
+            取消
+          </button>
+          <div className="flex gap-3">
+            {step > 1 && (
+              <button
+                onClick={handlePrev}
+                className="px-4 sm:px-6 py-2 min-h-[44px] border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+              >
+                上一步
+              </button>
+            )}
+            <button
+              onClick={handleNext}
+              disabled={loading}
+              className="px-4 sm:px-6 py-2 min-h-[44px] bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {loading ? "处理中..." : step === 4 ? "保存" : "下一步"}
+            </button>
+          </div>
           <button
             onClick={handleClose}
             className="px-6 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
@@ -1867,6 +1900,33 @@ export default function WorkflowFormModal({
               onClick={handleNext}
               disabled={loading}
               className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {loading ? "处理中..." : step === 4 ? "保存" : "下一步"}
+            </button>
+          </div>
+        </div>
+
+        {/* 移动端底部固定操作栏 */}
+        <div className="sm:hidden sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 safe-area-inset-bottom">
+          <div className="flex gap-3 p-4">
+            <button
+              onClick={handleClose}
+              className="flex-1 min-h-[44px] px-4 py-2 text-slate-600 dark:text-slate-400 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+            >
+              取消
+            </button>
+            {step > 1 && (
+              <button
+                onClick={handlePrev}
+                className="flex-1 min-h-[44px] px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+              >
+                上一步
+              </button>
+            )}
+            <button
+              onClick={handleNext}
+              disabled={loading}
+              className="flex-1 min-h-[44px] px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
             >
               {loading ? "处理中..." : step === 4 ? "保存" : "下一步"}
             </button>

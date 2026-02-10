@@ -63,4 +63,20 @@
   .safe-area-inset-bottom {
     padding-bottom: env(safe-area-inset-bottom);
   }
+
+  /* 触摸交互优化 */
+  .touch-optimized {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* 禁用过度滚动（iOS Safari） */
+  .no-overscroll {
+    overscroll-behavior: contain;
+  }
+
+  /* 移动端全屏高度（解决地址栏问题） */
+  .min-h-screen-dvh {
+    min-height: 100dvh;
+  }
 }

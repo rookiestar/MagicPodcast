@@ -277,11 +277,11 @@ export default function PodcastsPage() {
     >
       {/* Tag Filter */}
       {tags.length > 0 && (
-        <div className="mt-8 mb-6">
-          <div className="flex flex-wrap gap-2 items-center">
+        <div className="mt-6 sm:mt-8 mb-4 sm:mb-6">
+          <div className="flex flex-wrap gap-2 sm:gap-3 items-center">
             <button
               onClick={() => handleTagToggle(null)}
-              className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+              className={`min-h-[44px] px-3 py-2 rounded-lg text-sm transition-colors ${
                 selectedTagIds.length === 0
                   ? "bg-slate-800 text-white"
                   : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -296,7 +296,7 @@ export default function PodcastsPage() {
                 <button
                   key={tag.id}
                   onClick={() => handleTagToggle(tag.id)}
-                  className={`px-3 py-1.5 rounded-lg text-sm transition-colors flex items-center gap-1.5 ${
+                  className={`min-h-[44px] px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-1.5 ${
                     isSelected
                       ? "bg-slate-800 text-white"
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -317,7 +317,7 @@ export default function PodcastsPage() {
             {hasMoreTags && (
               <button
                 onClick={() => setShowAllTags(!showAllTags)}
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-lg flex items-center justify-center text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-all"
                 title={showAllTags ? "收起" : "展开"}
               >
                 {showAllTags ? (
@@ -355,7 +355,7 @@ export default function PodcastsPage() {
             {selectedTagIds.length > 0 && (
               <button
                 onClick={() => handleTagToggle(null)}
-                className="px-3 py-1.5 rounded-lg text-sm text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                className="min-h-[44px] px-3 py-2 rounded-lg text-sm text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
               >
                 清空
               </button>
@@ -389,7 +389,7 @@ export default function PodcastsPage() {
       {/* Podcasts List */}
       {!loading && !error && (
         <>
-          <div className="grid grid-cols-5 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6">
             {podcasts.map((podcast, index) => {
               const params = new URLSearchParams();
               if (sortBy) {
@@ -452,7 +452,7 @@ function PodcastCard({
 
   return (
     <Link href={detailUrl}>
-      <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer h-full flex flex-col">
+      <div className="bg-white rounded-xl shadow-md hover:shadow-lg active:scale-[0.98] active:shadow-sm transition-all duration-200 overflow-hidden cursor-pointer h-full flex flex-col touch-action-manipulation">
         <div className="relative w-full">
           <PodcastCover
             coverUrl={podcast.cover_url}
@@ -471,14 +471,14 @@ function PodcastCard({
           )}
         </div>
 
-        <div className="p-4 flex-1 flex flex-col min-h-[160px]">
-          <h3 className="text-base font-semibold text-slate-900 mb-1.5 line-clamp-2 leading-tight">
+        <div className="p-3 sm:p-4 flex-1 flex flex-col min-h-[160px]">
+          <h3 className="text-base sm:text-lg font-semibold text-slate-900 mb-1.5 line-clamp-2 leading-tight">
             {podcast.title}
           </h3>
 
-          <p className="text-sm text-slate-600 mb-2">{podcast.author}</p>
+          <p className="text-sm sm:text-base text-slate-600 mb-2">{podcast.author}</p>
 
-          <p className="text-sm text-slate-500 line-clamp-3 leading-rel mb-4">
+          <p className="text-sm sm:text-base text-slate-500 line-clamp-3 leading-rel mb-4">
             {stripHtml(podcast.description, 100)}
           </p>
 
