@@ -263,9 +263,195 @@ export default function PodcastDetailPage() {
 
         {/* Podcast Detail */}
         {!loading && !error && podcast && (
-          <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-            {/* Cover */}
-            <div className="md:flex">
+          <>
+            {/* 移动端：折叠式元信息 */}
+            <div className="md:hidden">
+              <div className="bg-white rounded-lg shadow-lg overflow-hidden p-4">
+                {/* 封面 + 标题（一行显示） */}
+                <div className="flex gap-4 mb-4">
+                  <div className="w-24 h-24 flex-shrink-0">
+                    <div className="aspect-square w-full rounded-lg overflow-hidden">
+                      <PodcastCover
+                        coverUrl={podcast.cover_url}
+                        title={podcast.title}
+                        priority="high"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h1 className="text-xl font-bold text-slate-900 truncate">
+                      {podcast.title}
+                    </h1>
+                    <div className="text-sm text-slate-600 mt-1">
+                      <span>{podcast.author}</span>
+                      <span className="mx-2">·</span>
+                      <span>{podcast.episode_count || 0}集</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 播放按钮 + 展开按钮 */}
+                <div className="flex gap-2 mb-3">
+                  {podcast.newest_enclosure_url && (
+                    <button
+                      onClick={() =>
+                        window.open(podcast.newest_enclosure_url, "_blank")
+                      }
+                      className="flex-1 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-1.5"
+                    >
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                      播放最新一集
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      const details = document.getElementById('podcast-details');
+                      if (details) {
+                        details.open = !details.open;
+                      }
+                    }}
+                    className="flex-1 py-2 border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors text-sm font-medium"
+                  >
+                    展开详细信息 ▼
+                  </button>
+                </div>
+
+                {/* 折叠详细信息 */}
+                <details
+                  id="podcast-details"
+                  className="mt-4"
+                >
+                  <summary className="hidden"></summary>
+                  <div className="pt-4 border-t border-slate-200 space-y-4">
+                    {/* 官网 */}
+                    {podcast.link && (
+                      <div className="text-sm">
+                        <span className="font-semibold text-slate-900">官网：</span>
+                        <a
+                          href={podcast.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-700 ml-2"
+                        >
+                          访问网站 →
+                        </a>
+                      </div>
+                    )}
+
+                    {/* 热门标签 */}
+                    {podcast.popularity_score &&
+                      podcast.popularity_score >= 7 && (
+                        <div>
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                            🔥 热门播客 (热度: {podcast.popularity_score}/10)
+                          </span>
+                        </div>
+                      )}
+
+                    {/* 简介（限制3行） */}
+                    <div className="text-sm">
+                      <span className="font-semibold text-slate-900">简介：</span>
+                      <div className="mt-1 line-clamp-3">
+                        <RichText html={podcast.description || "暂无简介"} />
+                      </div>
+                    </div>
+
+                    {/* 标签管理（限制显示前3个） */}
+                    <div className="text-sm">
+                      <span className="font-semibold text-slate-900">标签：</span>
+                      <div className="mt-2">
+                        {tags.length > 0 && (
+                          <div className="inline-flex flex-wrap items-center gap-1.5 mb-2">
+                            {tags.slice(0, 3).map((tag) => (
+                              <span
+                                key={tag.id}
+                                className="inline-flex items-center gap-1 rounded-full font-medium text-xs px-2 py-0.5 bg-slate-100 text-slate-600"
+                              >
+                                <span
+                                  className="w-1 h-1 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: tag.color }}
+                                />
+                                <span className="max-w-[100px] truncate">
+                                  {tag.name}
+                                </span>
+                              </span>
+                            ))}
+                            {tags.length > 3 && (
+                              <span className="text-xs text-slate-500">
+                                +{tags.length - 3}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <TagInput
+                          selectedTags={tags}
+                          onTagsChange={handleTagsChange}
+                          placeholder="点击输入框从列表选择，或输入新标签名按回车添加"
+                          showSelectedTags={false}
+                        />
+                      </div>
+                    </div>
+
+                    {/* 备注编辑 */}
+                    <div className="text-sm">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-semibold text-slate-900">备注：</span>
+                        {!isEditingNotes && (
+                          <button
+                            onClick={() => setIsEditingNotes(true)}
+                            className="text-xs text-blue-600 hover:text-blue-700"
+                          >
+                            编辑
+                          </button>
+                        )}
+                      </div>
+                      {isEditingNotes ? (
+                        <div className="space-y-2">
+                          <textarea
+                            value={notes}
+                            onChange={(e) => setNotes(e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            rows={3}
+                            placeholder="添加备注..."
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={handleNotesSave}
+                              className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                            >
+                              保存
+                            </button>
+                            <button
+                              onClick={() => {
+                                setIsEditingNotes(false);
+                                fetchNotes();
+                              }}
+                              className="px-3 py-1.5 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors text-sm"
+                            >
+                              取消
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="mt-1 line-clamp-2">
+                          {notes || (
+                            <span className="text-slate-400">暂无备注</span>
+                          )}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </div>
+
+            {/* 桌面端：完整布局 */}
+            <div className="hidden md:block">
+              <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+                {/* Cover */}
+                <div className="md:flex">
               <div className="md:w-1/3 p-6">
                 <div className="aspect-square w-full rounded-lg overflow-hidden">
                   <PodcastCover
@@ -489,6 +675,8 @@ export default function PodcastDetailPage() {
               </div>
             </div>
           </div>
+            </div>
+          </>
         )}
 
         {/* Episodes List - 新增section */}
@@ -501,7 +689,7 @@ export default function PodcastDetailPage() {
             {/* 初始加载状态 - 显示骨架屏 */}
             {episodesLoading && displayedEpisodes.length === 0 ? (
               <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
                   {[1, 2, 3, 4].map((i) => (
                     <div
                       key={i}
@@ -531,7 +719,7 @@ export default function PodcastDetailPage() {
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
                   {displayedEpisodes.map((episode, index) => (
                     <div
                       key={episode.id}

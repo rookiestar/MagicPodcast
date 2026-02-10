@@ -18,9 +18,9 @@ export default function EpisodeCard({
   index = 0,
   priority = "medium",
 }: EpisodeCardProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
   const taskIdRef = useRef<string>(
     `episode-${episode.id}-${Date.now()}-${Math.random()}`,
@@ -118,7 +118,11 @@ export default function EpisodeCard({
   };
 
   return (
-    <div className="group relative bg-white rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-slate-200 flex flex-col h-full">
+    <div
+      className="relative bg-white rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-slate-200 flex flex-col h-full"
+      onMouseEnter={() => setIsExpanded(true)}
+      onMouseLeave={() => setIsExpanded(false)}
+    >
       {/* Content */}
       <div className="p-3 sm:p-4 flex-1 flex flex-col">
         {/* Title with Thumbnail */}
@@ -225,26 +229,49 @@ export default function EpisodeCard({
           </div>
         </div>
 
-        {/* Show Notes - Collapsible */}
+        {/* Show Notes - 移动端固定高度 */}
         {episode.show_notes && (
-          <div
-            className={`text-xs sm:text-sm text-slate-600 dark:text-slate-400 transition-all duration-300 flex-1 ${
-              isExpanded
-                ? "max-h-96 overflow-y-auto"
-                : "max-h-24 overflow-hidden"
-            }`}
-            onMouseEnter={() => !isExpanded && setIsExpanded(true)}
-            onMouseLeave={() => isExpanded && setIsExpanded(false)}
-          >
-            <div className="relative">
+          <div className="md:hidden">
+            <div className="text-xs text-slate-600 max-h-20 overflow-hidden relative">
+              <RichText
+                html={episode.show_notes}
+                className="prose prose-sm dark:prose-invert max-w-none prose-headings:text-base prose-h1:text-base prose-h2:text-base prose-h3:text-base line-clamp-3"
+              />
+              <div className="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-white dark:from-slate-800 to-transparent" />
+            </div>
+            {/* 查看详情链接 */}
+            {episode.link && (
+              <a
+                href={episode.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block text-center text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 mt-2 py-2 border-t border-slate-200 dark:border-slate-700 transition-colors"
+              >
+                查看详情 →
+              </a>
+            )}
+          </div>
+        )}
+
+        {/* Show Notes - 桌面端支持展开交互 */}
+        {episode.show_notes && (
+          <div className="hidden md:block relative">
+            <div
+              className={`text-sm text-slate-600 dark:text-slate-400 transition-[max-height] duration-300 ${
+                isExpanded
+                  ? "max-h-96 overflow-y-auto"
+                  : "max-h-24 overflow-hidden"
+              }`}
+            >
               <RichText
                 html={episode.show_notes}
                 className="prose prose-sm dark:prose-invert max-w-none prose-headings:text-base prose-h1:text-base prose-h2:text-base prose-h3:text-base"
               />
-              {!isExpanded && (
-                <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white dark:from-slate-800 to-transparent" />
-              )}
             </div>
+            {/* 渐变遮罩 */}
+            {!isExpanded && (
+              <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white dark:from-slate-800 to-transparent pointer-events-none" />
+            )}
           </div>
         )}
       </div>
