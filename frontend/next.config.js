@@ -119,7 +119,7 @@ module.exports = {
     return [
       {
         source: '/api/v1/:path*',
-        destination: 'http://localhost:8080/api/v1/:path*',
+        destination: 'http://192.168.3.58:8080/api/v1/:path*',
       },
     ]
   },

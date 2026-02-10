@@ -13,7 +13,7 @@ server:
   # CORS安全配置
   cors:
     enabled: true
-    # 允许的跨域来源（开发环境使用localhost）
+    # 允许的跨域来源（开发环境使用localhost + 局域网IP）
     # 生产环境应该配置具体的域名，不要使用 "*"
     allow_origins:
       - "http://localhost:3000"
@@ -22,6 +22,7 @@ server:
       - "http://127.0.0.1:3001"
       - "http://localhost:3002"
       - "http://127.0.0.1:3002"
+      - "http://192.168.3.58:3000"  # 局域网访问
     # 允许的HTTP方法
     allow_methods:
       - "GET"
