@@ -466,7 +466,7 @@ function PodcastCard({
   return (
     <Link href={detailUrl}>
       <div className="bg-white rounded-xl shadow-md hover:shadow-lg active:scale-[0.98] active:shadow-sm transition-all duration-200 overflow-hidden cursor-pointer h-full flex flex-col touch-action-manipulation">
-        <div className="relative w-full">
+        <div className="relative mx-auto w-48 sm:w-56 md:w-64 lg:w-72 h-48 sm:h-56 md:h-64 lg:h-72">
           <PodcastCover
             coverUrl={podcast.cover_url}
             title={podcast.title}
@@ -484,7 +484,7 @@ function PodcastCard({
           )}
         </div>
 
-        <div className="p-3 sm:p-4 flex-1 flex flex-col min-h-[160px]">
+        <div className="p-2.5 sm:p-3 md:p-4 flex-1 flex flex-col">
           <h3 className="text-base sm:text-lg font-semibold text-slate-900 mb-1.5 line-clamp-2 leading-tight">
             {podcast.title}
           </h3>
