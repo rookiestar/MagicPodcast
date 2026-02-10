@@ -94,7 +94,15 @@ export default function PageToolbar({
                         {item.href ? (
                           <Link
                             href={item.href}
-                            className="text-slate-600 hover:text-slate-800 transition-colors"
+                            className="
+                              text-slate-600 hover:text-slate-800
+                              transition-colors
+                              cursor-pointer
+                              px-2 py-3 -mx-2 -my-3
+                              min-h-[44px]
+                              inline-flex items-center
+                              active:scale-95
+                            "
                           >
                             {item.label}
                           </Link>
