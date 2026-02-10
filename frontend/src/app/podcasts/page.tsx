@@ -8,6 +8,7 @@ import { getRelativeTime, isRecentlyUpdated } from "@/lib/timeUtils";
 import type { Podcast, Tag } from "@/types";
 import PodcastCover from "@/components/podcasts/PodcastCover";
 import PageLayout from "@/components/layout/PageLayout";
+import SortDrawer from "@/components/podcasts/SortDrawer";
 import { useSearch } from "@/contexts/SearchContext";
 
 const PAGE_SIZE = 15;
@@ -29,6 +30,7 @@ export default function PodcastsPage() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
+  const [isSortDrawerOpen, setIsSortDrawerOpen] = useState(false);
 
   const observerTarget = useRef<HTMLDivElement>(null);
   const tagsRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -263,31 +265,63 @@ export default function PodcastsPage() {
         title: "我的订阅",
         description: !loading && totalCount > 0 ? `共 ${totalCount} 个节目${selectedTagIds.length > 0 ? `（已选 ${selectedTagIds.length} 个标签）` : ""}` : undefined,
         rightContent: (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-slate-600">排序：</span>
-            <select
-              value={sortBy}
-              onChange={(e) => handleSortChange(e.target.value as SortByType)}
-              className="
-                px-3 py-2 pr-8
-                border border-slate-300 rounded-lg
-                bg-white text-sm text-slate-700
-                focus:ring-2 focus:ring-violet-500 focus:border-transparent
-                transition-colors
-                appearance-none
-                cursor-pointer
-              "
+          <>
+            {/* 移动端：排序图标按钮 */}
+            <button
+              onClick={() => setIsSortDrawerOpen(true)}
+              className="md:hidden w-10 h-10 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+              aria-label="排序"
             >
-              {sortOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4h12" />
+              </svg>
+            </button>
+
+            {/* 桌面端：完整排序选择器 */}
+            <div className="hidden md:flex items-center gap-2">
+              <span className="text-sm text-slate-600">排序：</span>
+              <select
+                value={sortBy}
+                onChange={(e) => handleSortChange(e.target.value as SortByType)}
+                className="
+                  px-3 py-2 pr-8
+                  border border-slate-300 rounded-lg
+                  bg-white text-sm text-slate-700
+                  focus:ring-2 focus:ring-violet-500 focus:border-transparent
+                  transition-colors
+                  appearance-none
+                  cursor-pointer
+                "
+              >
+                {sortOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
         ),
       }}
     >
+      {/* 移动端统计信息条 */}
+      {!loading && totalCount > 0 && (
+        <div className="md:hidden px-4 py-2 bg-slate-50 border-b border-slate-200">
+          <p className="text-sm text-slate-600">
+            共 {totalCount} 个节目
+            {selectedTagIds.length > 0 && `（已选 ${selectedTagIds.length} 个标签）`}
+          </p>
+        </div>
+      )}
+
+      {/* 排序抽屉 */}
+      <SortDrawer
+        isOpen={isSortDrawerOpen}
+        onClose={() => setIsSortDrawerOpen(false)}
+        currentSort={sortBy}
+        onSortChange={handleSortChange}
+        options={sortOptions}
+      />
       {/* Tag Filter */}
       {tags.length > 0 && (
         <div className="mt-4 sm:mt-6 md:mt-8 mb-3 sm:mb-4 md:mb-6">

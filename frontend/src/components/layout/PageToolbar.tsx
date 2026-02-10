@@ -75,10 +75,54 @@ export default function PageToolbar({
         transition-all duration-200
         ${className}
       `}
-      style={{ minHeight: "56px" }}
     >
-      <div className="container mx-auto px-4 py-3">
-        <div className="flex items-center justify-between gap-4">
+      <div className="container mx-auto px-4">
+        {/* 移动端：极简布局 */}
+        <div className="md:hidden py-3">
+          <div className="flex items-center justify-between gap-3">
+            {/* 左侧：返回按钮 + 标题 */}
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              {breadcrumbs && breadcrumbs.length > 0 && breadcrumbs[0] && (
+                <Link
+                  href={breadcrumbs[0].href}
+                  className="flex-shrink-0 text-2xl text-slate-600 hover:text-slate-800 transition-colors"
+                  aria-label="返回"
+                >
+                  ←
+                </Link>
+              )}
+              {title && (
+                <h1 className="text-base font-semibold text-slate-800 truncate">
+                  {title}
+                </h1>
+              )}
+            </div>
+
+            {/* 右侧：自定义内容或操作按钮 */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {rightContent ||
+                (actions &&
+                  actions.map((action, index) => {
+                    const ButtonComponent = action.href ? Link : "button";
+                    return (
+                      <ButtonComponent
+                        key={index}
+                        href={action.href}
+                        onClick={action.onClick}
+                        disabled={action.disabled}
+                        className="w-10 h-10 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                        {...(ButtonComponent === "button" && { type: "button" })}
+                      >
+                        {action.icon && <span>{action.icon}</span>}
+                      </ButtonComponent>
+                    );
+                  }))}
+            </div>
+          </div>
+        </div>
+
+        {/* 桌面端：完整布局 */}
+        <div className="hidden md:flex items-center justify-between gap-4 py-3">
           {/* 左侧：面包屑 + 标题 + 描述 */}
           <div className="flex-1 min-w-0">
             {leftContent || (
