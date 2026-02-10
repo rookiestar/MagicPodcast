@@ -238,9 +238,22 @@ export default function PodcastsPage() {
     { label: "名称", value: "title" },
   ];
 
-  const DEFAULT_TAG_COUNT = 8;
-  const displayTags = showAllTags ? tags : tags.slice(0, DEFAULT_TAG_COUNT);
-  const hasMoreTags = tags.length > DEFAULT_TAG_COUNT;
+  // 响应式标签数量：移动端5个，桌面端8个
+  const [defaultTagCount, setDefaultTagCount] = useState(5);
+
+  useEffect(() => {
+    const updateTagCount = () => {
+      setDefaultTagCount(window.innerWidth < 640 ? 5 : 8);
+    };
+
+    updateTagCount();
+    window.addEventListener('resize', updateTagCount);
+
+    return () => window.removeEventListener('resize', updateTagCount);
+  }, []);
+
+  const displayTags = showAllTags ? tags : tags.slice(0, defaultTagCount);
+  const hasMoreTags = tags.length > defaultTagCount;
 
   return (
     <PageLayout
