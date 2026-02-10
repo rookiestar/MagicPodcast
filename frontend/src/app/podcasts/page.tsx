@@ -485,14 +485,14 @@ function PodcastCard({
         </div>
 
         <div className="p-1.5 sm:p-2 lg:p-3 xl:p-4 flex-1 flex flex-col">
-          <h3 className="text-sm sm:text-base lg:text-base xl:text-lg font-semibold text-slate-900 mb-0.5 lg:mb-1.5 line-clamp-2 leading-tight">
+          <h3 className="text-sm sm:text-base lg:text-lg xl:text-lg font-semibold text-slate-900 mb-0.5 lg:mb-1.5 line-clamp-2 leading-tight">
             {podcast.title}
           </h3>
 
-          <p className="text-xs sm:text-sm lg:text-sm xl:text-base text-slate-600 mb-0.5 lg:mb-2">{podcast.author}</p>
+          <p className="text-xs sm:text-sm lg:text-base xl:text-base text-slate-600 mb-0.5 lg:mb-2">{podcast.author}</p>
 
-          <p className="text-xs sm:text-sm lg:text-sm xl:text-base text-slate-500 line-clamp-2 lg:line-clamp-3 leading-snug lg:leading-relaxed mb-1 lg:mb-4">
-            {stripHtml(podcast.description, 80)}
+          <p className="text-xs sm:text-sm lg:text-base xl:text-base text-slate-500 line-clamp-2 lg:line-clamp-3 leading-snug lg:leading-relaxed mb-1 lg:mb-4">
+            {stripHtml(podcast.description, 100)}
           </p>
 
           <div className="mt-auto pt-1 lg:pt-3 space-y-1 lg:space-y-3">
@@ -520,9 +520,9 @@ function PodcastCard({
               </div>
             )}
 
-            <div className="flex items-center justify-between text-xs sm:text-sm text-slate-500">
+            <div className="flex items-center justify-between text-xs sm:text-sm lg:text-sm xl:text-base text-slate-500">
               <span className="font-medium">{podcast.episode_count} 集</span>
-              <span className="text-[10px] sm:text-xs text-slate-400">{relativeTime}</span>
+              <span className="text-[10px] sm:text-xs lg:text-sm xl:text-xs text-slate-400">{relativeTime}</span>
             </div>
           </div>
         </div>
