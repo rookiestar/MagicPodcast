@@ -15,7 +15,7 @@ const navItems: NavItem[] = [
   { label: "播客", href: "/podcasts", icon: "🎙️" },
   { label: "标签", href: "/tags", icon: "🏷️" },
   { label: "工作流", href: "/workflows", icon: "⚡" },
-  { label: "更多", href: "/import", icon: "•••" },
+  { label: "导入", href: "/import", icon: "📥" },
 ];
 
 interface MobileBottomNavProps {
