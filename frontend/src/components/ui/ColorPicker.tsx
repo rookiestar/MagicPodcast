@@ -104,10 +104,10 @@ export default function ColorPicker({
               onClick={() => handleColorClick(color)}
               onFocus={() => setFocusedIndex(index)}
               className={`
-                w-8 h-8 rounded-lg transition-all duration-150
+                w-11 h-11 rounded-lg transition-all duration-150
                 ${isSelected ? "ring-2 ring-offset-2 ring-blue-500 scale-110" : ""}
                 ${isFocused ? "ring-2 ring-offset-2 ring-gray-400 scale-105" : ""}
-                hover:scale-105 focus:outline-none
+                hover:scale-105 focus:outline-none active:scale-95
               `}
               style={{ backgroundColor: color }}
               aria-label={`${color}`}

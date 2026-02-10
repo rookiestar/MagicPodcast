@@ -45,11 +45,12 @@ export default function TagBadge({
               e.stopPropagation();
               onRemove(tag.id);
             }}
-            className="ml-1 hover:bg-slate-300 rounded-full p-0.5 transition-colors focus:outline-none"
+            className="ml-1 hover:bg-slate-300 rounded-full p-2 transition-colors focus:outline-none active:scale-95"
             title={`移除 "${tag.name}" 标签`}
+            style={{ minWidth: "44px", minHeight: "44px" }}
           >
             <svg
-              className="w-3 h-3"
+              className="w-4 h-4"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -93,15 +94,16 @@ export default function TagBadge({
         <button
           onClick={() => onRemove(tag.id)}
           className="
-            hover:bg-white/50 rounded-full p-0.5
+            hover:bg-white/50 rounded-full p-2
             transition-colors duration-150
             focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-current
+            active:scale-95
           "
-          style={{ color: tag.color }}
+          style={{ color: tag.color, minWidth: "44px", minHeight: "44px" }}
           title={`移除 "${tag.name}" 标签`}
         >
           <svg
-            className="w-3 h-3"
+            className="w-4 h-4"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"

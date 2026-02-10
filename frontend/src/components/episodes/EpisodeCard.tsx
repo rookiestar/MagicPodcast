@@ -187,11 +187,11 @@ export default function EpisodeCard({
                     e.stopPropagation();
                     window.open(episode.medium_url, "_blank");
                   }}
-                  className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white transition-all duration-200 hover:scale-110"
+                  className="flex-shrink-0 w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white transition-all duration-200 hover:scale-110 active:scale-95"
                   aria-label="播放"
                 >
                   <svg
-                    className="w-4 h-4 ml-0.5"
+                    className="w-5 h-5 ml-0.5"
                     fill="currentColor"
                     viewBox="0 0 24 24"
                   >
