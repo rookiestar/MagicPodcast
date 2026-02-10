@@ -169,12 +169,12 @@ export default function EpisodeCard({
                   href={episode.link}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 font-semibold text-slate-900 text-sm sm:text-base line-clamp-2 leading-snug hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                  className="flex-1 font-semibold text-slate-900 text-xs sm:text-sm md:text-base line-clamp-2 leading-snug hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                 >
                   {episode.title}
                 </a>
               ) : (
-                <span className="flex-1 font-semibold text-slate-900 text-sm sm:text-base line-clamp-2 leading-snug">
+                <span className="flex-1 font-semibold text-slate-900 text-xs sm:text-sm md:text-base line-clamp-2 leading-snug">
                   {episode.title}
                 </span>
               )}
@@ -228,7 +228,7 @@ export default function EpisodeCard({
         {/* Show Notes - Collapsible */}
         {episode.show_notes && (
           <div
-            className={`text-sm text-slate-600 dark:text-slate-400 transition-all duration-300 flex-1 ${
+            className={`text-xs sm:text-sm text-slate-600 dark:text-slate-400 transition-all duration-300 flex-1 ${
               isExpanded
                 ? "max-h-96 overflow-y-auto"
                 : "max-h-24 overflow-hidden"
