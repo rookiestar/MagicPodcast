@@ -290,7 +290,7 @@ export default function PodcastsPage() {
     >
       {/* Tag Filter */}
       {tags.length > 0 && (
-        <div className="mt-6 sm:mt-8 mb-4 sm:mb-6">
+        <div className="mt-4 sm:mt-6 mb-3 sm:mb-4">
           <div className="flex flex-wrap gap-2 sm:gap-3 items-center">
             <button
               onClick={() => handleTagToggle(null)}
@@ -402,7 +402,7 @@ export default function PodcastsPage() {
       {/* Podcasts List */}
       {!loading && !error && (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             {podcasts.map((podcast, index) => {
               const params = new URLSearchParams();
               if (sortBy) {
@@ -466,7 +466,7 @@ function PodcastCard({
   return (
     <Link href={detailUrl}>
       <div className="bg-white rounded-xl shadow-md hover:shadow-lg active:scale-[0.98] active:shadow-sm transition-all duration-200 overflow-hidden cursor-pointer h-full flex flex-col touch-action-manipulation">
-        <div className="relative mx-auto w-48 sm:w-56 md:w-64 lg:w-72 h-48 sm:h-56 md:h-64 lg:h-72">
+        <div className="relative mx-auto w-36 sm:w-44 md:w-52 lg:w-56 h-36 sm:h-44 md:h-48 lg:h-52">
           <PodcastCover
             coverUrl={podcast.cover_url}
             title={podcast.title}
@@ -484,18 +484,18 @@ function PodcastCard({
           )}
         </div>
 
-        <div className="p-2.5 sm:p-3 md:p-4 flex-1 flex flex-col">
-          <h3 className="text-base sm:text-lg font-semibold text-slate-900 mb-1.5 line-clamp-2 leading-tight">
+        <div className="p-1.5 sm:p-2 flex-1 flex flex-col">
+          <h3 className="text-sm sm:text-base font-semibold text-slate-900 mb-0.5 line-clamp-2 leading-tight">
             {podcast.title}
           </h3>
 
-          <p className="text-xs sm:text-sm text-slate-600 mb-2">{podcast.author}</p>
+          <p className="text-xs text-slate-600 mb-0.5">{podcast.author}</p>
 
-          <p className="text-xs sm:text-sm text-slate-500 line-clamp-3 leading-relaxed mb-4">
-            {stripHtml(podcast.description, 100)}
+          <p className="text-xs text-slate-500 line-clamp-2 leading-snug mb-1">
+            {stripHtml(podcast.description, 80)}
           </p>
 
-          <div className="mt-auto pt-3 space-y-3">
+          <div className="mt-auto pt-1 space-y-1">
             {displayTags.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {displayTags.map((tag) => (
@@ -520,9 +520,9 @@ function PodcastCard({
               </div>
             )}
 
-            <div className="flex items-center justify-between text-sm text-slate-500">
+            <div className="flex items-center justify-between text-xs text-slate-500">
               <span className="font-medium">{podcast.episode_count} 集</span>
-              <span className="text-xs text-slate-400">{relativeTime}</span>
+              <span className="text-[10px] text-slate-400">{relativeTime}</span>
             </div>
           </div>
         </div>
