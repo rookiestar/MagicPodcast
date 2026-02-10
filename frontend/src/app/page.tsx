@@ -11,27 +11,27 @@ function HomeContent() {
 
   return (
     <SimplePageLayout>
-      <div className="container mx-auto px-4 py-20">
+      <div className="container mx-auto px-4 py-12 sm:py-16 md:py-20">
         {/* Hero Section */}
-        <div className="text-center mb-16">
+        <div className="text-center mb-12 sm:mb-16">
           {/* Static Icon */}
-          <div className="mb-8">
-            <div className="text-7xl">🎙️</div>
+          <div className="mb-6 sm:mb-8">
+            <div className="text-5xl sm:text-6xl md:text-7xl">🎙️</div>
           </div>
 
           {/* Title */}
           <h1
-            className="text-6xl md:text-7xl font-bold mb-4"
+            className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold mb-4"
             style={{ letterSpacing: "-0.02em" }}
           >
             <span className="bg-gradient-to-r from-violet-600 to-indigo-600 bg-clip-text text-transparent">
               Magic
             </span>
-            <span className="text-slate-800 mx-2">Podcast</span>
+            <span className="text-slate-800 mx-1 sm:mx-2">Podcast</span>
           </h1>
 
           {/* Subtitle */}
-          <p className="text-xl text-slate-600 mb-16 max-w-2xl mx-auto">
+          <p className="text-base sm:text-lg md:text-xl text-slate-600 mb-12 sm:mb-16 max-w-2xl mx-auto px-4">
             个人播客管理与自动化处理工具
           </p>
         </div>
@@ -102,9 +102,9 @@ function FeatureCard({
   description: string;
 }) {
   return (
-    <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow p-8 border border-slate-200">
-      <div className="text-5xl mb-4">{emoji}</div>
-      <h3 className="text-xl font-semibold text-slate-800 mb-2">{title}</h3>
+    <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow p-6 sm:p-8 border border-slate-200">
+      <div className="text-4xl sm:text-5xl mb-4">{emoji}</div>
+      <h3 className="text-lg sm:text-xl font-semibold text-slate-800 mb-2">{title}</h3>
       <p className="text-slate-600 text-sm leading-relaxed">{description}</p>
     </div>
   );
