@@ -489,9 +489,9 @@ function PodcastCard({
             {podcast.title}
           </h3>
 
-          <p className="text-sm sm:text-base text-slate-600 mb-2">{podcast.author}</p>
+          <p className="text-xs sm:text-sm text-slate-600 mb-2">{podcast.author}</p>
 
-          <p className="text-sm sm:text-base text-slate-500 line-clamp-3 leading-rel mb-4">
+          <p className="text-xs sm:text-sm text-slate-500 line-clamp-3 leading-relaxed mb-4">
             {stripHtml(podcast.description, 100)}
           </p>
 
