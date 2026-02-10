@@ -77,7 +77,7 @@ export default function TagFormModal({
 
   if (!isOpen) return null;
 
-  const title = mode === "create" ? "新建标签" : "编辑标签";
+  const title = mode === "create" ? "新建" : "编辑";
   const buttonText = loading ? "保存中..." : mode === "create" ? "创建" : "保存";
 
   return (
