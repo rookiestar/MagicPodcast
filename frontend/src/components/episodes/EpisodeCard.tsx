@@ -120,11 +120,11 @@ export default function EpisodeCard({
   return (
     <div className="group relative bg-white rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-slate-200 flex flex-col h-full">
       {/* Content */}
-      <div className="p-4 flex-1 flex flex-col">
+      <div className="p-3 sm:p-4 flex-1 flex flex-col">
         {/* Title with Thumbnail */}
-        <div className="flex items-start gap-3 mb-3">
+        <div className="flex items-start gap-2 sm:gap-3 mb-3">
           {/* Thumbnail with LQIP */}
-          <div className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-slate-200 relative">
+          <div className="flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 rounded-lg overflow-hidden bg-slate-200 relative">
             {/* 播客封面作为模糊占位图（LQIP） */}
             {podcastCover && (
               <img
@@ -169,12 +169,12 @@ export default function EpisodeCard({
                   href={episode.link}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 font-semibold text-slate-900 text-base line-clamp-2 leading-snug hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                  className="flex-1 font-semibold text-slate-900 text-sm sm:text-base line-clamp-2 leading-snug hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                 >
                   {episode.title}
                 </a>
               ) : (
-                <span className="flex-1 font-semibold text-slate-900 text-base line-clamp-2 leading-snug">
+                <span className="flex-1 font-semibold text-slate-900 text-sm sm:text-base line-clamp-2 leading-snug">
                   {episode.title}
                 </span>
               )}
@@ -202,7 +202,7 @@ export default function EpisodeCard({
             </div>
 
             {/* Meta Info */}
-            <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+            <div className="flex items-center gap-2 sm:gap-3 text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">
               {episode.episode_no && (
                 <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-md font-medium">
                   {episode.episode_no}
