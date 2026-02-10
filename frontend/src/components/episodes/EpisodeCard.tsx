@@ -124,7 +124,7 @@ export default function EpisodeCard({
         {/* Title with Thumbnail */}
         <div className="flex items-start gap-2 sm:gap-3 mb-3">
           {/* Thumbnail with LQIP */}
-          <div className="flex-shrink-0 w-9 h-9 sm:w-12 sm:h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-lg overflow-hidden bg-slate-200 relative">
+          <div className="flex-shrink-0 w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12 lg:w-14 lg:h-14 rounded-lg overflow-hidden bg-slate-200 relative">
             {/* 播客封面作为模糊占位图（LQIP） */}
             {podcastCover && (
               <img
