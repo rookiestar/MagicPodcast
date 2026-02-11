@@ -48,12 +48,12 @@ func NewSummarizer(client *Client, tplManager *PromptManager) *Summarizer {
 func (s *Summarizer) GenerateForReport(data []EpisodeReportData, workflowName string, userPrompt string, options SummaryOptions) (*SummaryResult, error) {
 	// 添加调试日志
 	logger.Infof("[Summarizer.GenerateForReport] Called with workflow=%s, num_podcasts=%d", workflowName, len(data))
-	logger.Infof("  - Client is nil: %v", s.client == nil)
+	logger.Infof(" - Client is nil: %v", s.client == nil)
 	if s.client != nil {
-		logger.Infof("  - Client config enabled: %v", s.client.config.Enabled)
+		logger.Infof(" - Client config enabled: %v", s.client.config.Enabled)
 	}
 
-	// 根据数据量选择策略
+	// 数据量采样策略
 	totalEpisodes := 0
 	for _, podcast := range data {
 		totalEpisodes += len(podcast.Episodes)
@@ -82,20 +82,18 @@ func (s *Summarizer) GenerateForReport(data []EpisodeReportData, workflowName st
 
 	// User Prompt：使用workflow自定义或默认模板
 	if userPrompt == "" {
-		// 准备模板数据（使用默认模板）
+		// 使用默认模板数据（使用默认模板）
 		templateData := struct {
-			WorkflowName  string
+			WorkflowName string
 			TotalEpisodes int
 			NumPodcasts   int
 			Podcasts      []EpisodeReportData
 		}{
-			WorkflowName:  workflowName,
+			WorkflowName: workflowName,
 			TotalEpisodes: totalEpisodes,
 			NumPodcasts:   len(data),
 			Podcasts:      data,
 		}
-
-		// 渲染默认模板
 		renderedPrompt, err := s.tplManager.RenderTemplate("default_summary", templateData)
 		if err != nil {
 			return nil, fmt.Errorf("渲染prompt模板失败: %w", err)
@@ -104,23 +102,21 @@ func (s *Summarizer) GenerateForReport(data []EpisodeReportData, workflowName st
 	} else {
 		// 用户自定义模板，需要渲染
 		templateData := struct {
-			WorkflowName  string
+			WorkflowName string
 			TotalEpisodes int
 			NumPodcasts   int
 			Podcasts      []EpisodeReportData
 		}{
-			WorkflowName:  workflowName,
+			WorkflowName: workflowName,
 			TotalEpisodes: totalEpisodes,
 			NumPodcasts:   len(data),
 			Podcasts:      data,
 		}
-
 		// 解析并渲染用户自定义模板
 		tpl, err := template.New("user_custom").Parse(userPrompt)
 		if err != nil {
 			return nil, fmt.Errorf("解析用户自定义模板失败: %w", err)
 		}
-
 		var buf bytes.Buffer
 		if err := tpl.Execute(&buf, templateData); err != nil {
 			return nil, fmt.Errorf("渲染用户自定义模板失败: %w", err)
@@ -139,18 +135,29 @@ func (s *Summarizer) GenerateForReport(data []EpisodeReportData, workflowName st
 
 // sampleEpisodes 采样单集（保留重要内容）
 func (s *Summarizer) sampleEpisodes(data []EpisodeReportData, maxEpisodes int) []EpisodeReportData {
-	// 简单策略：每个播客最多取N个最新单集
-	maxPerPodcast := maxEpisodes / len(data)
-	if maxPerPodcast < 1 {
-		maxPerPodcast = 1
-	}
+	// 采样策略：遍历所有播客，依次添加单集，直到达到maxEpisodes上限
+	// 不按平均分配，而是优先处理前面的播客
 
 	var sampled []EpisodeReportData
+	totalCount := 0
+
 	for _, podcast := range data {
-		sampledEpisodes := podcast.Episodes
-		if len(sampledEpisodes) > maxPerPodcast {
-			sampledEpisodes = sampledEpisodes[:maxPerPodcast]
+		// 计算这个播客还能添加多少个
+		remaining := maxEpisodes - totalCount
+
+		// 如果没有剩余配额，跳过
+		if remaining <= 0 {
+			continue
 		}
+
+		// 决定取多少个（取剩余和该播客单集数的较小值）
+		takeCount := remaining
+		if len(podcast.Episodes) > takeCount {
+			takeCount = len(podcast.Episodes)
+		}
+
+		sampledEpisodes := podcast.Episodes[:takeCount]
+		totalCount += len(sampledEpisodes)
 
 		sampled = append(sampled, EpisodeReportData{
 			PodcastID:      podcast.PodcastID,

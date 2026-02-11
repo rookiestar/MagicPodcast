@@ -165,8 +165,8 @@ llm:
   # 默认模型
   default_model: "glm-4.5-air"
 
-  # 请求超时（秒）
-  timeout: 60
+  # 请求超时（秒）- 增加到120秒以支持大量数据生成
+  timeout: 120
 
   # 最大重试次数
   max_retries: 2
