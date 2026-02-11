@@ -75,6 +75,12 @@ type JobResponse struct {
 	CreatedAt         time.Time              `json:"created_at"`
 	Duration          *int64                 `json:"duration,omitempty"` // 执行时长（毫秒）
 	Executions        []JobExecutionResponse `json:"executions,omitempty"`
+
+	// LLM相关字段
+	LLMSummary     *string `json:"llm_summary,omitempty"`      // LLM生成的摘要
+	LLMModelUsed   *string `json:"llm_model_used,omitempty"`   // 使用的模型名称
+	LLMTokensUsed  *int    `json:"llm_tokens_used,omitempty"`  // 使用的token数量
+	LLMError       *string `json:"llm_error,omitempty"`        // LLM错误信息
 }
 
 // JobExecutionResponse JobExecution 响应结构
@@ -994,6 +1000,25 @@ func (h *WorkflowHandler) toJobResponse(job *models.Job) JobResponse {
 			executions[i] = h.toJobExecutionResponse(&exec)
 		}
 		resp.Executions = executions
+	}
+
+	// 添加LLM统计信息（从关联的Report中获取）
+	db := database.GetDB()
+	var report models.Report
+	if err := db.Where("job_id = ?", job.ID).First(&report).Error; err == nil {
+		// 找到报告，添加LLM字段
+		if report.LLMSummary != "" {
+			resp.LLMSummary = &report.LLMSummary
+		}
+		if report.LLMModelUsed != "" {
+			resp.LLMModelUsed = &report.LLMModelUsed
+		}
+		if report.LLMTokensUsed > 0 {
+			resp.LLMTokensUsed = &report.LLMTokensUsed
+		}
+		if report.LLMError != "" {
+			resp.LLMError = &report.LLMError
+		}
 	}
 
 	return resp
