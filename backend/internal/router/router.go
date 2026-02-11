@@ -159,7 +159,7 @@ func SetupRouter() *gin.Engine {
 		// 创建全局scheduler实例
 		globalScheduler = scheduler.NewScheduler(db, workflowExecutor)
 
-		workflowHandler := handlers.NewWorkflowHandler(workflowExecutor, globalScheduler)
+		workflowHandler := handlers.NewWorkflowHandler(workflowExecutor, globalScheduler, summarizer)
 		workflows := v1.Group("/workflows")
 		{
 			workflows.GET("", workflowHandler.List)                 // 获取工作流列表
@@ -175,6 +175,7 @@ func SetupRouter() *gin.Engine {
 		// Job 路由
 		v1.GET("/jobs/:id", workflowHandler.GetJob)              // 获取任务详情
 		v1.GET("/jobs/:id/report", workflowHandler.GetJobReport) // 获取任务报告
+	v1.POST("/jobs/:id/regenerate-llm", workflowHandler.RegenerateLLMSummary) // 重新生成AI摘要
 
 		// Scheduler 路由
 		schedulerHandler := handlers.NewSchedulerHandler(globalScheduler)

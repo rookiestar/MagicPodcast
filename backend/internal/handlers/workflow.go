@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"magicpodcast/internal/database"
+	"magicpodcast/internal/llm"
 	"magicpodcast/internal/models"
 	"magicpodcast/internal/scheduler"
 	"magicpodcast/internal/workflow"
@@ -18,17 +19,19 @@ import (
 
 // WorkflowHandler Workflow 处理器
 type WorkflowHandler struct {
-	executor  *workflow.Executor
-	scheduler *scheduler.Scheduler
-	tracker   *workflow.ExecutionTracker
+	executor   *workflow.Executor
+	scheduler  *scheduler.Scheduler
+	tracker    *workflow.ExecutionTracker
+	summarizer workflow.SummarizerInterface
 }
 
 // NewWorkflowHandler 创建 Workflow 处理器
-func NewWorkflowHandler(executor *workflow.Executor, scheduler *scheduler.Scheduler) *WorkflowHandler {
+func NewWorkflowHandler(executor *workflow.Executor, scheduler *scheduler.Scheduler, summarizer workflow.SummarizerInterface) *WorkflowHandler {
 	return &WorkflowHandler{
-		executor:  executor,
-		scheduler: scheduler,
-		tracker:   workflow.NewExecutionTracker(),
+		executor:   executor,
+		scheduler:  scheduler,
+		tracker:    workflow.NewExecutionTracker(),
+		summarizer: summarizer,
 	}
 }
 
@@ -823,6 +826,308 @@ func (h *WorkflowHandler) GetJobReport(c *gin.Context) {
 			"llm_error":       report.LLMError,
 		},
 	})
+}
+
+// RegenerateLLMSummary 重新生成LLM摘要
+// @Summary 重新生成LLM摘要
+// @Description 为报告重新生成AI智能摘要
+// @Tags Workflows
+// @Accept json
+// @Produce json
+// @Param id path int true "Job ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/jobs/{id}/regenerate-llm [post]
+func (h *WorkflowHandler) RegenerateLLMSummary(c *gin.Context) {
+	db := database.GetDB()
+	jobID := c.Param("id")
+
+	// 检查summarizer是否可用
+	if h.summarizer == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "LLM_NOT_CONFIGURED",
+				"message": "LLM服务未配置，请先配置LLM相关设置",
+			},
+		})
+		return
+	}
+
+	// 1. 获取Job
+	var job models.Job
+	if err := db.Preload("Workflow").First(&job, jobID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "JOB_NOT_FOUND",
+					"message": "任务不存在",
+				},
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INTERNAL_ERROR",
+				"message": "Failed to fetch job",
+			},
+		})
+		return
+	}
+
+	// 2. 获取Report
+	var report models.Report
+	if err := db.Where("job_id = ?", jobID).First(&report).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "REPORT_NOT_FOUND",
+					"message": "报告不存在，请先执行工作流生成报告",
+				},
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INTERNAL_ERROR",
+				"message": "Failed to fetch report",
+			},
+		})
+		return
+	}
+
+	// 3. 获取JobExecutions以重建EpisodeReportData
+	var executions []models.JobExecution
+	if err := db.Where("job_id = ?", jobID).Find(&executions).Error; err != nil {
+		logger.Errorf("Failed to fetch job executions: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INTERNAL_ERROR",
+				"message": "Failed to fetch job executions",
+			},
+		})
+		return
+	}
+
+	// 4. 构建EpisodeReportData（从executions重建）
+	reportData := make([]workflow.EpisodeReportData, 0, len(executions))
+	for _, exec := range executions {
+		// 只处理成功的execution
+		if exec.Status != models.ExecutionStatusSuccess {
+			continue
+		}
+
+		// 获取该execution的episodes
+		var episodes []models.Episode
+		if err := db.Where("podcast_id = ? AND published_date >= ? AND published_date <= ?",
+			exec.PodcastID,
+			report.TimeRangeStart,
+			report.TimeRangeEnd,
+		).Find(&episodes).Error; err != nil {
+			logger.Errorf("Failed to fetch episodes for podcast %d: %v", exec.PodcastID, err)
+			continue
+		}
+
+		// 转换为workflow.EpisodeDetail格式
+		episodeDetails := make([]workflow.EpisodeDetail, 0, len(episodes))
+		for _, ep := range episodes {
+			detail := workflow.EpisodeDetail{
+				Title:         ep.Title,
+				ShowNotes:     ep.ShowNotes,
+				PublishedDate: ep.PublishedDate,
+				UpdatedDate:   &ep.UpdatedAt,
+				EpisodeNo:     ep.EpisodeNo,
+				Link:          ep.Link,
+				XYZID:         "", // Episode模型没有XYZID字段
+				QRCode:        "", // 不需要二维码信息
+				QRCodeError:   false,
+			}
+			episodeDetails = append(episodeDetails, detail)
+		}
+
+		reportData = append(reportData, workflow.EpisodeReportData{
+			PodcastID:      *exec.PodcastID,
+			PodcastTitle:   exec.PodcastTitle,
+			PodcastFeedURL: exec.PodcastFeedURL,
+			Episodes:       episodeDetails,
+		})
+	}
+
+	if len(reportData) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "NO_DATA",
+				"message": "没有可用于生成摘要的单集数据",
+			},
+		})
+		return
+	}
+
+	// 5. 调用summarizer重新生成摘要
+	workflowConfig := job.Workflow
+	options := llm.SummaryOptions{
+		MaxEpisodes: workflowConfig.RulesConfig.LLMMaxEpisodes,
+		Temperature: workflowConfig.RulesConfig.LLMTemperature,
+		MaxTokens:   workflowConfig.RulesConfig.LLMMaxTokens,
+		Model:       workflowConfig.RulesConfig.LLMModel,
+	}
+
+	// 转换 []workflow.EpisodeReportData 到 []llm.EpisodeReportData
+	llmReportData := make([]llm.EpisodeReportData, len(reportData))
+	for i, d := range reportData {
+		llmEpisodeDetails := make([]llm.EpisodeDetail, len(d.Episodes))
+		for j, ep := range d.Episodes {
+			llmEpisodeDetails[j] = llm.EpisodeDetail{
+				Title:         ep.Title,
+				ShowNotes:     ep.ShowNotes,
+				PublishedDate: ep.PublishedDate,
+				UpdatedDate:   ep.UpdatedDate,
+				EpisodeNo:     ep.EpisodeNo,
+				Link:          ep.Link,
+				XYZID:         ep.XYZID,
+				QRCode:        ep.QRCode,
+				QRCodeError:   ep.QRCodeError,
+			}
+		}
+		llmReportData[i] = llm.EpisodeReportData{
+			PodcastID:      d.PodcastID,
+			PodcastTitle:   d.PodcastTitle,
+			PodcastFeedURL: d.PodcastFeedURL,
+			Episodes:       llmEpisodeDetails,
+		}
+	}
+
+	result, err := h.summarizer.GenerateForReport(
+		llmReportData,
+		workflowConfig.Name,
+		workflowConfig.RulesConfig.LLMUserPrompt,
+		options,
+	)
+
+	if err != nil {
+		logger.Errorf("Failed to regenerate LLM summary [JobID=%s]: %v", jobID, err)
+
+		// 更新报告的错误信息
+		report.LLMError = err.Error()
+		if err := db.Save(&report).Error; err != nil {
+			logger.Errorf("Failed to update report error: %v", err)
+		}
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "LLM_ERROR",
+				"message": fmt.Sprintf("LLM摘要生成失败: %v", err),
+			},
+		})
+		return
+	}
+
+	// 6. 更新报告的LLM相关字段
+	report.LLMSummary = result.Summary
+	report.LLMModelUsed = result.ModelUsed
+	report.LLMTokensUsed = result.TokensUsed
+	report.LLMError = ""
+
+	// 重新插入LLM摘要到markdown
+	newContent := insertLLMSummary(report.Content, result.Summary)
+	report.Content = newContent
+
+	if err := db.Save(&report).Error; err != nil {
+		logger.Errorf("Failed to update report: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INTERNAL_ERROR",
+				"message": "Failed to update report",
+			},
+		})
+		return
+	}
+
+	logger.Infof("✅ LLM摘要重新生成成功 [JobID=%s, Tokens=%d]", jobID, result.TokensUsed)
+
+	// 7. 返回更新后的报告
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "LLM摘要重新生成成功",
+		"data": gin.H{
+			"id":               report.ID,
+			"job_id":           report.JobID,
+			"title":            report.Title,
+			"content":          report.Content,
+			"summary":          report.Summary,
+			"episodes_count":   report.EpisodesCount,
+			"podcasts_count":   report.PodcastsCount,
+			"matched_count":    report.MatchedCount,
+			"time_range_start": report.TimeRangeStart,
+			"time_range_end":   report.TimeRangeEnd,
+			"time_range_mode":  report.TimeRangeMode,
+			"generated_at":     report.GeneratedAt,
+			"format":           report.Format,
+			"file_size":        report.FileSize,
+			"llm_summary":     report.LLMSummary,
+			"llm_model_used":  report.LLMModelUsed,
+			"llm_tokens_used": report.LLMTokensUsed,
+			"llm_error":       report.LLMError,
+		},
+	})
+}
+
+// insertLLMSummary 将LLM摘要插入到标题之后、元数据卡片之前
+func insertLLMSummary(markdown, llmSummary string) string {
+	lines := make([]string, 0)
+
+	for i, line := range splitLines(markdown) {
+		if i == 0 {
+			// 第一行是标题，在标题后插入AI摘要
+			lines = append(lines, line)
+			lines = append(lines, "")
+			lines = append(lines, "## 🤖 AI智能摘要")
+			lines = append(lines, "")
+			lines = append(lines, llmSummary)
+			lines = append(lines, "")
+			lines = append(lines, "---")
+			lines = append(lines, "")
+		} else {
+			lines = append(lines, line)
+		}
+	}
+
+	return joinLines(lines)
+}
+
+// splitLines 辅助函数：分割行
+func splitLines(s string) []string {
+	lines := make([]string, 0)
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			lines = append(lines, s[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		lines = append(lines, s[start:])
+	}
+	return lines
+}
+
+// joinLines 辅助函数：连接行
+func joinLines(lines []string) string {
+	result := ""
+	for i, line := range lines {
+		if i > 0 {
+			result += "\n"
+		}
+		result += line
+	}
+	return result
 }
 
 // Trigger 手动触发工作流

@@ -41,6 +41,7 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
   const [report, setReport] = useState<Report | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [regenerating, setRegenerating] = useState(false)
 
   useEffect(() => {
     if (isOpen && jobId) {
@@ -60,6 +61,29 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
       console.error('Failed to fetch report:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const regenerateLLMSummary = async () => {
+    if (!report || regenerating) return
+
+    try {
+      setRegenerating(true)
+      const response = await api.post<{ success: boolean; data: Report; message: string }>(
+        `/api/v1/jobs/${jobId}/regenerate-llm`
+      )
+
+      if (response.data.success) {
+        setReport(response.data.data)
+        // Show success message
+        alert('AI摘要重新生成成功！')
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+      alert(`重新生成失败: ${errorMsg}`)
+      console.error('Failed to regenerate LLM summary:', err)
+    } finally {
+      setRegenerating(false)
     }
   }
 
@@ -138,6 +162,25 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
                       <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
                         报告内容已生成，但AI智能摘要未能成功生成。这可能是由于LLM服务不可用或配置错误导致。
                       </p>
+                      <button
+                        onClick={regenerateLLMSummary}
+                        disabled={regenerating}
+                        className="mt-3 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white text-sm rounded-md transition-colors flex items-center gap-2"
+                      >
+                        {regenerating ? (
+                          <>
+                            <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                            <span>重新生成中...</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H14m0 0L9 14m0 0l-2-2m0 0L9 18m0 0a8.001 8.001 0 01-15.356-2m15.357 2H15" />
+                            </svg>
+                            <span>🤖 重新生成 AI 摘要</span>
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
                 </div>
