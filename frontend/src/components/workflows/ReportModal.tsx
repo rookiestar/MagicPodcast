@@ -165,19 +165,19 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
                       <button
                         onClick={regenerateLLMSummary}
                         disabled={regenerating}
-                        className="mt-3 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white text-sm rounded-md transition-colors flex items-center gap-2"
+                        className="mt-3 px-4 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 dark:text-slate-300 text-sm rounded transition-all flex items-center gap-2"
                       >
                         {regenerating ? (
                           <>
-                            <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                            <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-slate-400"></div>
                             <span>重新生成中...</span>
                           </>
                         ) : (
                           <>
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H14m0 0L9 14m0 0l-2-2m0 0L9 18m0 0a8.001 8.001 0 01-15.356-2m15.357 2H15" />
                             </svg>
-                            <span>🤖 重新生成 AI 摘要</span>
+                            <span>重新生成摘要</span>
                           </>
                         )}
                       </button>
