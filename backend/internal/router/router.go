@@ -186,12 +186,21 @@ func SetupRouter() *gin.Engine {
 			schedulers.POST("/workflows/:id/resume", schedulerHandler.ResumeWorkflow)
 		}
 
-		// LLM统计路由
+		// LLM路由
 		if globalPromptManager != nil {
+			llmClient := llm.NewClient(&cfg.LLM)
+
+			// LLM统计、健康检查和配置验证
 			llmStatsHandler := handlers.NewLLMStatsHandler()
-			llmStats := v1.Group("/llm")
+			llmHealthHandler := handlers.NewLLMHealthHandler(llmClient)
+			llmConfigHandler := handlers.NewLLMConfigHandler(llmClient)
+
+			llm := v1.Group("/llm")
 			{
-				llmStats.GET("/stats", llmStatsHandler.GetGlobalLLMStats)
+				llm.GET("/stats", llmStatsHandler.GetGlobalLLMStats)
+				llm.GET("/health", llmHealthHandler.GetHealth)
+				llm.POST("/validate-key", llmConfigHandler.ValidateKey)
+				llm.GET("/models", llmConfigHandler.GetModels)
 			}
 
 			// Prompt模板路由
@@ -206,7 +215,6 @@ func SetupRouter() *gin.Engine {
 				promptTemplates.POST("/:name/reset", promptTemplateHandler.ResetTemplate)
 			}
 		}
-	}
 
 	// 启动调度器（在独立goroutine中）
 	go func() {
@@ -217,3 +225,5 @@ func SetupRouter() *gin.Engine {
 
 	return r
 }
+}
+
