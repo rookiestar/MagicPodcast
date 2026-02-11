@@ -22,7 +22,20 @@ interface Report {
   generated_at: string
   format: string
   file_size: number
+  // LLM相关字段
+  llm_summary?: string
+  llm_model_used?: string
+  llm_tokens_used?: number
+  llm_error?: string
 }
+
+// 格式化token数量
+const formatTokenCount = (tokens: number): string => {
+  if (tokens === 0) return "0";
+  if (tokens < 1000) return tokens.toString();
+  if (tokens < 1000000) return `${(tokens / 1000).toFixed(1)}K`;
+  return `${(tokens / 1000000).toFixed(1)}M`;
+};
 
 export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: ReportModalProps) {
   const [report, setReport] = useState<Report | null>(null)
@@ -111,17 +124,49 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
               </div>
             </div>
           ) : report ? (
-            <MarkdownViewer content={report.content} />
+            <>
+              {/* LLM错误提示 */}
+              {report.llm_error && (
+                <div className="mb-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M15 19a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div className="flex-1">
+                      <h4 className="text-amber-800 dark:text-amber-200 font-semibold mb-1">AI摘要生成失败</h4>
+                      <p className="text-sm text-amber-700 dark:text-amber-300 font-mono">{report.llm_error}</p>
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                        报告内容已生成，但AI智能摘要未能成功生成。这可能是由于LLM服务不可用或配置错误导致。
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <MarkdownViewer content={report.content} />
+            </>
           ) : null}
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-between p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
           {report && (
-            <div className="text-sm text-slate-600 dark:text-slate-400">
-              <span className="font-medium">{report.podcasts_count}</span> 个节目 •
-              <span className="font-medium ml-1">{report.episodes_count}</span> 个单集 •
-              <span className="font-medium ml-1">{(report.file_size / 1024).toFixed(1)} KB</span>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600 dark:text-slate-400">
+              <div className="flex items-center gap-1">
+                <span className="font-medium">{report.podcasts_count}</span> 个节目 •
+                <span className="font-medium">{report.episodes_count}</span> 个单集 •
+                <span className="font-medium">{(report.file_size / 1024).toFixed(1)} KB</span>
+              </div>
+              {/* LLM统计信息 */}
+              {report.llm_tokens_used && report.llm_model_used && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+                  <span className="text-purple-800 dark:text-purple-300">🤖 AI: {formatTokenCount(report.llm_tokens_used)} ({report.llm_model_used})</span>
+                </div>
+              )}
+              {report.llm_error && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-red-100 dark:bg-red-900/20 rounded-lg">
+                  <span className="text-red-800 dark:text-red-300">⚠️ AI摘要失败</span>
+                </div>
+              )}
             </div>
           )}
           <div className="flex gap-2">

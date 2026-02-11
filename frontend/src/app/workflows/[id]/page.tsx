@@ -261,6 +261,14 @@ export default function WorkflowDetailPage() {
     );
   };
 
+  // 格式化token数量
+  const formatTokenCount = (tokens: number): string => {
+    if (tokens === 0) return "0";
+    if (tokens < 1000) return tokens.toString();
+    if (tokens < 1000000) return `${(tokens / 1000).toFixed(1)}K`;
+    return `${(tokens / 1000000).toFixed(1)}M`;
+  };
+
   if (loading) {
     return (
       <PageLayout
@@ -798,6 +806,11 @@ export default function WorkflowDetailPage() {
                             {job.duration && (
                               <span className="text-sm font-medium text-slate-700 dark:text-slate-300 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded flex-shrink-0">
                                 耗时：{Math.floor(job.duration / 1000)}s
+                              </span>
+                            )}
+                            {job.llm_tokens_used && job.llm_model_used && (
+                              <span className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 rounded-full font-medium flex-shrink-0">
+                                🤖 AI: {formatTokenCount(job.llm_tokens_used)} ({job.llm_model_used})
                               </span>
                             )}
                           </div>

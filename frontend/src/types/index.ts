@@ -243,6 +243,12 @@ export interface Job {
   created_at: string;
   duration?: number; // 执行时长（毫秒）
   executions?: JobExecution[];
+
+  // LLM相关字段
+  llm_summary?: string; // LLM生成的摘要
+  llm_model_used?: string; // 使用的模型名称
+  llm_tokens_used?: number; // 使用的token数量
+  llm_error?: string; // LLM错误信息（如果生成失败）
 }
 
 export interface JobExecution {

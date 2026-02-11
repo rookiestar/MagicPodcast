@@ -124,3 +124,39 @@ email:
   to: "recipient@example.com"
   # 是否使用TLS/SSL加密
   use_tls: true
+
+# LLM智能摘要配置
+llm:
+  # 是否启用LLM功能（总开关）
+  enabled: true
+  # API提供商
+  provider: "zhipuai"
+  # API密钥（建议使用环境变量 MAGICPODCAST_LLM_API_KEY）
+  api_key: "YOUR_ZHIPUAI_API_KEY_HERE"
+  # API Base URL
+  base_url: "https://open.bigmodel.cn/api/paas/v4"
+  # 默认模型
+  default_model: "glm-4.5-air"
+  # 请求超时（秒）
+  timeout: 60
+  # 最大重试次数
+  max_retries: 2
+  # 重试间隔（毫秒）
+  retry_interval: 1000
+  # 并发限制
+  max_concurrent: 3
+  # 速率限制（每分钟请求数）
+  rate_limit_per_minute: 30
+  # 单次请求token限制
+  max_tokens_per_request: 2000
+  # Prompt模板目录
+  prompts_dir: "./configs/prompts"
+  # 全局System Prompt（所有工作流共享）
+  system_prompt: |
+    你是播客内容分析专家。请基于提供的播客数据生成分析内容。
+
+    约束：
+    1. 仅基于提供的数据进行分析，不编造信息
+    2. 对不确定的内容使用"可能"、"疑似"等谨慎表述
+    3. 不涉及政治、宗教、暴力等敏感内容
+    4. 保持客观中立的立场
