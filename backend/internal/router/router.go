@@ -187,6 +187,14 @@ func SetupRouter() *gin.Engine {
 			schedulers.POST("/workflows/:id/resume", schedulerHandler.ResumeWorkflow)
 		}
 
+		// Cache 路由
+		cacheHandler := handlers.NewCacheHandler()
+		cacheGroup := v1.Group("/cache")
+		{
+			cacheGroup.GET("/stats", cacheHandler.GetStats)
+			cacheGroup.POST("/clear", cacheHandler.ClearCache)
+		}
+
 		// LLM路由
 		if globalPromptManager != nil {
 			llmClient := llm.NewClient(&cfg.LLM)

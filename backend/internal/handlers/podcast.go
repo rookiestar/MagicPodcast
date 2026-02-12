@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"magicpodcast/internal/cache"
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/models"
 
@@ -68,9 +69,6 @@ type PodcastResponse struct {
 func (h *PodcastHandler) List(c *gin.Context) {
 	db := database.GetDB()
 
-	// 构建查询
-	query := db.Model(&models.Podcast{}).Preload("Tags")
-
 	// 获取查询参数
 	tagIDStrs := c.QueryArray("tag_id")
 	searchKeyword := c.Query("search")
@@ -88,24 +86,44 @@ func (h *PodcastHandler) List(c *gin.Context) {
 		pageSize = 15
 	}
 
-	// 按标签筛选（AND逻辑：必须同时拥有所有选中的标签）
-	if len(tagIDStrs) > 0 {
-		var tagIDs []uint
-		for _, tagIDStr := range tagIDStrs {
-			tagID, err := strconv.ParseUint(tagIDStr, 10, 32)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{
-					"success": false,
-					"error": gin.H{
-						"code":    "INVALID_PARAM",
-						"message": "Invalid tag_id parameter",
-					},
-				})
-				return
-			}
-			tagIDs = append(tagIDs, uint(tagID))
+	// 解析标签ID用于缓存键
+	var tagIDs []uint
+	for _, tagIDStr := range tagIDStrs {
+		tagID, err := strconv.ParseUint(tagIDStr, 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "INVALID_PARAM",
+					"message": "Invalid tag_id parameter",
+				},
+			})
+			return
 		}
+		tagIDs = append(tagIDs, uint(tagID))
+	}
 
+	// 尝试从缓存获取（仅对无搜索关键词的请求缓存）
+	memCache := cache.GetCache()
+	cacheKey := ""
+	if searchKeyword == "" {
+		cacheKey = cache.NewKeyBuilder().PodcastList(page, pageSize, sortBy, tagIDs, "")
+		if cached, ok := memCache.Get(cacheKey); ok {
+			cache.RecordHit()
+			// 返回缓存的完整响应
+			cachedResp := cached.(gin.H)
+			cachedResp["cached"] = true
+			c.JSON(http.StatusOK, cachedResp)
+			return
+		}
+		cache.RecordMiss()
+	}
+
+	// 构建查询
+	query := db.Model(&models.Podcast{}).Preload("Tags")
+
+	// 按标签筛选（AND逻辑：必须同时拥有所有选中的标签）
+	if len(tagIDs) > 0 {
 		// 使用AND逻辑：为每个标签添加JOIN条件
 		// 必须同时拥有所有选中的标签
 		for i, tagID := range tagIDs {
@@ -175,7 +193,8 @@ func (h *PodcastHandler) List(c *gin.Context) {
 		totalPages++
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	// 构建响应
+	resp := gin.H{
 		"success": true,
 		"data":    response,
 		"pagination": gin.H{
@@ -184,7 +203,14 @@ func (h *PodcastHandler) List(c *gin.Context) {
 			"total":       total,
 			"total_pages": totalPages,
 		},
-	})
+	}
+
+	// 缓存结果（仅缓存无搜索关键词的请求）
+	if cacheKey != "" {
+		memCache.Set(cacheKey, resp)
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // Get 获取单个播客节目详情

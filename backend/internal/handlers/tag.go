@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 
+	"magicpodcast/internal/cache"
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/models"
 	"magicpodcast/internal/validation"
@@ -126,6 +127,9 @@ func (h *TagHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// 使标签列表缓存失效
+	cache.GetCache().Delete(cache.NewKeyBuilder().TagList())
+
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
 		"data":    TagResponse{ID: tag.ID, Name: tag.Name, Color: tag.Color, PodcastCount: 0},
@@ -141,6 +145,21 @@ func (h *TagHandler) Create(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v1/tags [get]
 func (h *TagHandler) List(c *gin.Context) {
+	cacheKey := cache.NewKeyBuilder().TagList()
+	memCache := cache.GetCache()
+
+	// 尝试从缓存获取
+	if cached, ok := memCache.Get(cacheKey); ok {
+		cache.RecordHit()
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    cached,
+			"cached":  true,
+		})
+		return
+	}
+	cache.RecordMiss()
+
 	db := database.GetDB()
 
 	// 使用原生SQL查询每个标签的播客数量，并按数量降序排序
@@ -179,6 +198,9 @@ func (h *TagHandler) List(c *gin.Context) {
 			PodcastCount: tag.PodcastCount,
 		}
 	}
+
+	// 缓存结果
+	memCache.Set(cacheKey, response)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -348,6 +370,9 @@ func (h *TagHandler) Update(c *gin.Context) {
 		return
 	}
 
+	// 使标签列表缓存失效
+	cache.GetCache().Delete(cache.NewKeyBuilder().TagList())
+
 	// 重新获取更新后的标签及其播客数量
 	db.First(&tag, tagID)
 
@@ -432,6 +457,9 @@ func (h *TagHandler) Delete(c *gin.Context) {
 		})
 		return
 	}
+
+	// 使标签列表缓存失效
+	cache.GetCache().Delete(cache.NewKeyBuilder().TagList())
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
