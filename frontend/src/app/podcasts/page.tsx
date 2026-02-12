@@ -1,12 +1,9 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import Link from "next/link";
 import { podcastApi, tagApi } from "@/lib/api";
-import { stripHtml } from "@/lib/textUtils";
-import { getRelativeTime, isRecentlyUpdated } from "@/lib/timeUtils";
 import type { Podcast, Tag } from "@/types";
-import PodcastCover from "@/components/podcasts/PodcastCover";
+import { ResponsivePodcastCard } from "@/components/podcasts/ResponsivePodcastCard";
 import PageLayout from "@/components/layout/PageLayout";
 import SortDrawer from "@/components/podcasts/SortDrawer";
 import { useSearch } from "@/contexts/SearchContext";
@@ -449,7 +446,7 @@ export default function PodcastsPage() {
               const detailUrl = `/podcasts/${podcast.id}${queryString ? `?${queryString}` : ""}`;
 
               return (
-                <PodcastCard
+                <ResponsivePodcastCard
                   key={podcast.id}
                   podcast={podcast}
                   detailUrl={detailUrl}
@@ -477,90 +474,5 @@ export default function PodcastsPage() {
         </>
       )}
     </PageLayout>
-  );
-}
-
-function PodcastCard({
-  podcast,
-  detailUrl,
-  index = 0,
-  priority = "medium",
-}: {
-  podcast: Podcast;
-  detailUrl: string;
-  index?: number;
-  priority?: "high" | "medium" | "low";
-}) {
-  const displayTags = podcast.tags?.slice(0, 3) || [];
-  const remainingTags = (podcast.tags?.length || 0) - 3;
-
-  const recentlyUpdated = isRecentlyUpdated(podcast.newest_episode_date, 7);
-  const relativeTime = getRelativeTime(podcast.newest_episode_date);
-
-  return (
-    <Link href={detailUrl}>
-      <div className="bg-white rounded-xl shadow-md hover:shadow-lg active:scale-[0.98] active:shadow-sm transition-all duration-200 overflow-hidden cursor-pointer h-full flex flex-col touch-action-manipulation">
-        <div className="relative mx-auto w-36 sm:w-44 md:w-52 lg:w-72 h-36 sm:h-44 md:h-48 lg:h-72">
-          <PodcastCover
-            coverUrl={podcast.cover_url}
-            title={podcast.title}
-            index={index}
-            priority={priority}
-          />
-
-          {recentlyUpdated && (
-            <div className="absolute bottom-0 right-0 m-2 z-30">
-              <span className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-white text-slate-800 shadow-sm">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-600" />
-                新更新
-              </span>
-            </div>
-          )}
-        </div>
-
-        <div className="p-1.5 sm:p-2 md:p-4 flex-1 flex flex-col">
-          <h3 className="text-sm sm:text-base md:text-lg font-semibold text-slate-900 mb-0.5 md:mb-1.5 line-clamp-2 leading-tight">
-            {podcast.title}
-          </h3>
-
-          <p className="text-xs sm:text-sm text-slate-600 mb-0.5 md:mb-2">{podcast.author}</p>
-
-          <p className="text-xs sm:text-sm text-slate-500 line-clamp-2 md:line-clamp-3 leading-snug md:leading-relaxed mb-1 md:mb-4">
-            {stripHtml(podcast.description, 100)}
-          </p>
-
-          <div className="mt-auto pt-1 md:pt-3 space-y-1 md:space-y-3">
-            {displayTags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {displayTags.map((tag) => (
-                  <span
-                    key={tag.id}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-slate-100 hover:bg-slate-200 transition-colors group relative"
-                  >
-                    <span
-                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: tag.color }}
-                    />
-                    <span className="max-w-[80px] truncate" title={tag.name}>
-                      {tag.name}
-                    </span>
-                  </span>
-                ))}
-                {remainingTags > 0 && (
-                  <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-500">
-                    +{remainingTags}
-                  </span>
-                )}
-              </div>
-            )}
-
-            <div className="flex items-center justify-between text-xs sm:text-sm md:text-base text-slate-500">
-              <span className="font-medium">{podcast.episode_count} 集</span>
-              <span className="text-[10px] sm:text-xs md:text-sm text-slate-400">{relativeTime}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Link>
   );
 }
