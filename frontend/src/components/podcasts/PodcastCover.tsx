@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, memo, useMemo } from "react";
 import Image from "next/image";
 import { getProxiedImageUrl } from "@/lib/imageProxy";
 
@@ -11,7 +11,7 @@ interface PodcastCoverProps {
   priority?: "high" | "medium" | "low";
 }
 
-export default function PodcastCover({
+function PodcastCover({
   coverUrl,
   title,
   index = 0,
@@ -50,3 +50,22 @@ export default function PodcastCover({
     </div>
   );
 }
+
+// 自定义比较函数：只在关键 props 变化时才重新渲染
+function arePropsEqual(
+  prevProps: Readonly<PodcastCoverProps>,
+  nextProps: Readonly<PodcastCoverProps>,
+) {
+  return (
+    prevProps.coverUrl === nextProps.coverUrl &&
+    prevProps.title === nextProps.title &&
+    prevProps.index === nextProps.index &&
+    prevProps.priority === nextProps.priority
+  );
+}
+
+// 使用 React.memo 包装组件
+export default memo(PodcastCover, arePropsEqual);
+
+// 添加 displayName 用于调试
+PodcastCover.displayName = "PodcastCover";

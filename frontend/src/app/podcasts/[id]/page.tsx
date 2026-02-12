@@ -41,12 +41,16 @@ export default function PodcastDetailPage() {
   const [notes, setNotes] = useState("");
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
-  const [displayedEpisodes, setDisplayedEpisodes] = useState<Episode[]>([]); // 渐进式显示的单集
   const [episodesLoading, setEpisodesLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [visibleCount, setVisibleCount] = useState(10); // 可见的单集数量
-  const [isLoadingMore, setIsLoadingMore] = useState(false); // 正在加载更多
+
+  // 分页状态
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMoreEpisodes, setHasMoreEpisodes] = useState(true);
+  const [totalEpisodes, setTotalEpisodes] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const PAGE_SIZE = 20;
 
   // 数据获取函数
   const fetchPodcast = async () => {
@@ -83,44 +87,47 @@ export default function PodcastDetailPage() {
     }
   };
 
-  const fetchEpisodes = async () => {
+  const fetchEpisodes = async (page: number = 1, append: boolean = false) => {
     try {
-      setEpisodesLoading(true);
-      const data = await episodeApi.listByPodcast(id);
-      setEpisodes(data);
-
-      // 立即显示前10个单集
-      const initialCount = Math.min(10, data.length);
-      setDisplayedEpisodes(data.slice(0, initialCount));
-      setVisibleCount(initialCount);
-
-      // 如果单集数量<=10，立即完成加载
-      if (data.length <= 10) {
-        setEpisodesLoading(false);
+      if (page === 1) {
+        setEpisodesLoading(true);
       } else {
-        setEpisodesLoading(false);
+        setIsLoadingMore(true);
       }
+
+      const { episodes: newEpisodes, pagination } = await episodeApi.listByPodcast(
+        id,
+        page,
+        PAGE_SIZE,
+      );
+
+      if (append) {
+        // 追加到现有列表
+        setEpisodes((prev) => [...prev, ...newEpisodes]);
+      } else {
+        // 首次加载，替换列表
+        setEpisodes(newEpisodes);
+      }
+
+      setCurrentPage(pagination.page);
+      setTotalEpisodes(pagination.total);
+      setHasMoreEpisodes(pagination.has_more);
     } catch (err) {
       console.error("Failed to fetch episodes:", err);
-      setEpisodes([]);
-      setDisplayedEpisodes([]);
+      if (!append) {
+        setEpisodes([]);
+      }
+    } finally {
       setEpisodesLoading(false);
+      setIsLoadingMore(false);
     }
   };
 
-  // 加载更多单集
+  // 加载更多单集（真正的分页加载）
   const loadMoreEpisodes = useCallback(() => {
-    if (isLoadingMore || displayedEpisodes.length >= episodes.length) return;
-
-    setIsLoadingMore(true);
-    // 模拟异步加载，避免频繁触发
-    setTimeout(() => {
-      const nextCount = Math.min(visibleCount + 10, episodes.length);
-      setVisibleCount(nextCount);
-      setDisplayedEpisodes(episodes.slice(0, nextCount));
-      setIsLoadingMore(false);
-    }, 300);
-  }, [isLoadingMore, displayedEpisodes, episodes, visibleCount]);
+    if (isLoadingMore || !hasMoreEpisodes) return;
+    fetchEpisodes(currentPage + 1, true);
+  }, [isLoadingMore, hasMoreEpisodes, currentPage]);
 
   useEffect(() => {
     if (id) {
@@ -138,20 +145,16 @@ export default function PodcastDetailPage() {
       const scrollPosition = window.innerHeight + window.scrollY;
       const threshold = document.body.offsetHeight - 500;
 
-      if (
-        scrollPosition >= threshold &&
-        !isLoadingMore &&
-        displayedEpisodes.length < episodes.length
-      ) {
+      if (scrollPosition >= threshold && !isLoadingMore && hasMoreEpisodes) {
         loadMoreEpisodes();
       }
     };
 
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
-  }, [isLoadingMore, displayedEpisodes, episodes, loadMoreEpisodes]);
+  }, [isLoadingMore, hasMoreEpisodes, loadMoreEpisodes]);
 
-  // 当单集列表加载完成且有目标单集时，展开到目标单集并滚动到指定位置
+  // 当单集列表加载完成且有目标单集时，滚动到指定位置
   useEffect(() => {
     if (!episodesLoading && targetEpisodeId && episodes.length > 0) {
       const targetEpisodeIdNum = parseInt(targetEpisodeId);
@@ -162,15 +165,6 @@ export default function PodcastDetailPage() {
       );
 
       if (targetIndex !== -1) {
-        // 计算需要显示的单集数量（目标索引 + 1，且要是 10 的倍数向上取整）
-        const requiredVisibleCount = Math.ceil((targetIndex + 1) / 10) * 10;
-
-        // 更新 displayedEpisodes 以包含目标单集
-        if (requiredVisibleCount > visibleCount) {
-          setVisibleCount(requiredVisibleCount);
-          setDisplayedEpisodes(episodes.slice(0, requiredVisibleCount));
-        }
-
         // 等待 DOM 更新后滚动
         setTimeout(() => {
           const element = document.getElementById(`episode-${targetEpisodeId}`);
@@ -186,7 +180,7 @@ export default function PodcastDetailPage() {
               );
             }, 2000);
           }
-        }, 300); // 增加延迟确保 DOM 完全渲染
+        }, 300);
       }
     }
   }, [episodesLoading, targetEpisodeId, episodes]);
@@ -683,11 +677,11 @@ export default function PodcastDetailPage() {
         {!loading && !error && podcast && (
           <div className="mt-8" ref={episodeListRef}>
             <h2 className="text-2xl font-bold text-slate-900 mb-6">
-              单集列表 ({episodes.length} 集)
+              单集列表 ({totalEpisodes > 0 ? totalEpisodes : episodes.length} 集)
             </h2>
 
             {/* 初始加载状态 - 显示骨架屏 */}
-            {episodesLoading && displayedEpisodes.length === 0 ? (
+            {episodesLoading && episodes.length === 0 ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
                   {[1, 2, 3, 4].map((i) => (
@@ -720,7 +714,7 @@ export default function PodcastDetailPage() {
             ) : (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-                  {displayedEpisodes.map((episode, index) => (
+                  {episodes.map((episode, index) => (
                     <div
                       key={episode.id}
                       id={`episode-${episode.id}`}
@@ -739,28 +733,33 @@ export default function PodcastDetailPage() {
                 </div>
 
                 {/* 加载更多按钮 */}
-                {displayedEpisodes.length < episodes.length &&
-                  !isLoadingMore && (
-                    <div className="text-center mt-8">
-                      <button
-                        onClick={loadMoreEpisodes}
-                        className="px-6 py-3 bg-white text-slate-800 font-medium rounded-xl border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors"
-                      >
-                        加载更多 ({displayedEpisodes.length}/{episodes.length})
-                      </button>
-                    </div>
-                  )}
+                {hasMoreEpisodes && !isLoadingMore && (
+                  <div className="text-center mt-8">
+                    <button
+                      onClick={loadMoreEpisodes}
+                      className="px-6 py-3 bg-white text-slate-800 font-medium rounded-xl border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors"
+                    >
+                      加载更多 ({episodes.length}/{totalEpisodes})
+                    </button>
+                  </div>
+                )}
 
                 {/* 加载更多提示 */}
-                {isLoadingMore &&
-                  displayedEpisodes.length < episodes.length && (
-                    <div className="text-center mt-8">
-                      <p className="text-sm text-slate-600 flex items-center justify-center gap-2">
-                        <span className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></span>
-                        正在加载更多单集...
-                      </p>
-                    </div>
-                  )}
+                {isLoadingMore && (
+                  <div className="text-center mt-8">
+                    <p className="text-sm text-slate-600 flex items-center justify-center gap-2">
+                      <span className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></span>
+                      正在加载更多单集...
+                    </p>
+                  </div>
+                )}
+
+                {/* 全部加载完成提示 */}
+                {!hasMoreEpisodes && episodes.length > 0 && (
+                  <div className="text-center mt-8 text-sm text-slate-500">
+                    已加载全部 {episodes.length} 集单集
+                  </div>
+                )}
               </>
             )}
           </div>

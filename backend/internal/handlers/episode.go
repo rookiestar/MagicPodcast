@@ -37,13 +37,15 @@ type EpisodeResponse struct {
 	Notes           string `json:"notes"`
 }
 
-// ListByPodcast 获取指定播客的单集列表
+// ListByPodcast 获取指定播客的单集列表（支持分页）
 // @Summary 获取播客的单集列表
-// @Description 根据 Podcast ID 获取该播客的所有单集
+// @Description 根据 Podcast ID 获取该播客的单集列表（支持分页，用于无限滚动）
 // @Tags Episodes
 // @Accept json
 // @Produce json
 // @Param id path int true "Podcast ID"
+// @Param page query int false "页码（默认1）"
+// @Param page_size query int false "每页数量（默认20，最大100）"
 // @Success 200 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/podcasts/{id}/episodes [get]
@@ -76,10 +78,29 @@ func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 		return
 	}
 
-	// 获取该播客的所有单集，按发布日期倒序
+	// 分页参数
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	// 获取总数
+	var total int64
+	db.Model(&models.Episode{}).Where("podcast_id = ?", podcastID).Count(&total)
+
+	// 计算分页偏移
+	offset := (page - 1) * pageSize
+
+	// 获取该播客的单集，按发布日期倒序，支持分页
 	var episodes []models.Episode
 	if err := db.Where("podcast_id = ?", podcastID).
 		Order("published_date DESC").
+		Limit(pageSize).
+		Offset(offset).
 		Find(&episodes).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
@@ -113,8 +134,18 @@ func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 		}
 	}
 
+	// 计算是否有更多数据
+	hasMore := int64(page*pageSize) < total
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    response,
+		"pagination": gin.H{
+			"page":        page,
+			"page_size":   pageSize,
+			"total":       total,
+			"total_pages": (total + int64(pageSize) - 1) / int64(pageSize),
+			"has_more":    hasMore,
+		},
 	})
 }

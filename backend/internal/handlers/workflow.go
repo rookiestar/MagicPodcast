@@ -189,10 +189,22 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 		}
 	}
 
+	// 6. 批量查询所有workflow的统计数据（优化N+1查询）
+	workflowIDs := make([]uint, len(workflows))
+	for i, wf := range workflows {
+		workflowIDs[i] = wf.ID
+	}
+	statsMap := h.getBatchWorkflowStats(workflowIDs)
+
+	// 获取订阅节目数（用于ScopeTypeAllSubscribed）
+	var subscribedPodcastCount int64
+	db.Model(&models.Podcast{}).Where("is_subscribed = ?", true).Count(&subscribedPodcastCount)
+
 	// 转换为响应格式
 	response := make([]WorkflowResponse, len(workflows))
 	for i, wf := range workflows {
-		response[i] = h.toWorkflowResponse(&wf)
+		stats := statsMap[wf.ID]
+		response[i] = h.toWorkflowResponseWithStats(&wf, stats, subscribedPodcastCount)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1218,6 +1230,128 @@ type WorkflowRequest struct {
 	ScopeConfig models.ScopeConfig       `json:"scope_config"`
 	RulesConfig models.RulesConfig       `json:"rules_config"`
 	IsEnabled   bool                     `json:"is_enabled"`
+}
+
+// BatchWorkflowStats 批量查询的工作流统计信息
+type BatchWorkflowStats struct {
+	TotalJobs     int64
+	SuccessJobs   int64
+	FailedJobs    int64
+	AvgEpisodes   float64
+	LastExecution *time.Time
+	NextExecution *time.Time
+}
+
+// getBatchWorkflowStats 批量获取工作流统计信息（优化N+1查询）
+func (h *WorkflowHandler) getBatchWorkflowStats(workflowIDs []uint) map[uint]*BatchWorkflowStats {
+	db := database.GetDB()
+	result := make(map[uint]*BatchWorkflowStats)
+
+	if len(workflowIDs) == 0 {
+		return result
+	}
+
+	// 单次查询获取所有工作流的任务统计
+	type JobStatusCount struct {
+		WorkflowID uint
+		Status     models.JobStatus
+		Count      int64
+	}
+
+	var statusCounts []JobStatusCount
+	db.Model(&models.Job{}).
+		Select("workflow_id, status, count(*) as count").
+		Where("workflow_id IN ?", workflowIDs).
+		Group("workflow_id, status").
+		Find(&statusCounts)
+
+	// 聚合统计数据
+	for _, sc := range statusCounts {
+		if result[sc.WorkflowID] == nil {
+			result[sc.WorkflowID] = &BatchWorkflowStats{}
+		}
+		result[sc.WorkflowID].TotalJobs += sc.Count
+		if sc.Status == models.JobStatusCompleted {
+			result[sc.WorkflowID].SuccessJobs = sc.Count
+		}
+		if sc.Status == models.JobStatusFailed {
+			result[sc.WorkflowID].FailedJobs = sc.Count
+		}
+	}
+
+	// 查询平均单集数
+	type AvgEpisodes struct {
+		WorkflowID  uint
+		AvgEpisodes float64
+	}
+	var avgEpisodes []AvgEpisodes
+	db.Model(&models.Job{}).
+		Select("workflow_id, COALESCE(CAST(AVG(episodes_matched) AS FLOAT), 0) as avg_episodes").
+		Where("workflow_id IN ? AND status = ?", workflowIDs, models.JobStatusCompleted).
+		Group("workflow_id").
+		Find(&avgEpisodes)
+
+	for _, ae := range avgEpisodes {
+		if result[ae.WorkflowID] == nil {
+			result[ae.WorkflowID] = &BatchWorkflowStats{}
+		}
+		result[ae.WorkflowID].AvgEpisodes = ae.AvgEpisodes
+	}
+
+	// 初始化空的统计数据（用于没有job的workflow）
+	for _, id := range workflowIDs {
+		if result[id] == nil {
+			result[id] = &BatchWorkflowStats{}
+		}
+	}
+
+	return result
+}
+
+// toWorkflowResponseWithStats 使用预加载统计数据转换为响应格式（优化N+1查询）
+func (h *WorkflowHandler) toWorkflowResponseWithStats(workflow *models.Workflow, stats *BatchWorkflowStats, subscribedPodcastCount int64) WorkflowResponse {
+	resp := WorkflowResponse{
+		ID:          workflow.ID,
+		Name:        workflow.Name,
+		Description: workflow.Description,
+		Schedule:    workflow.Schedule,
+		ScopeType:   workflow.ScopeType,
+		ScopeConfig: workflow.ScopeConfig,
+		RulesConfig: workflow.RulesConfig,
+		IsEnabled:   workflow.IsEnabled,
+		CreatedAt:   workflow.CreatedAt,
+		UpdatedAt:   workflow.UpdatedAt,
+	}
+
+	// 添加最后一次执行任务信息
+	if workflow.LastJob != nil {
+		jobResp := h.toJobResponse(workflow.LastJob)
+		resp.LastJob = &jobResp
+	}
+
+	// 使用预加载的统计数据
+	workflowStats := WorkflowStats{
+		TotalJobs:     stats.TotalJobs,
+		SuccessJobs:   stats.SuccessJobs,
+		FailedJobs:    stats.FailedJobs,
+		TotalEpisodes: stats.AvgEpisodes,
+		LastExecution: workflow.LastExecutionAt,
+		NextExecution: workflow.NextRunAt,
+	}
+
+	// 计算关联的节目数
+	switch workflow.ScopeType {
+	case models.ScopeTypeSpecificPodcasts:
+		workflowStats.PodcastCount = int64(len(workflow.ScopeConfig.PodcastIDs))
+	case models.ScopeTypeAllSubscribed:
+		workflowStats.PodcastCount = subscribedPodcastCount
+	case models.ScopeTypeCustomSources:
+		workflowStats.PodcastCount = int64(len(workflow.ScopeConfig.CustomURLs))
+	}
+
+	resp.Stats = &workflowStats
+
+	return resp
 }
 
 // toWorkflowResponse 转换为响应格式

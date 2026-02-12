@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, memo, useMemo, useCallback } from "react";
 import type { Episode } from "@/types";
 import RichText from "@/components/RichText";
 import { imageLoadQueue } from "@/lib/imageLoader";
@@ -12,7 +12,7 @@ interface EpisodeCardProps {
   priority?: "high" | "medium" | "low";
 }
 
-export default function EpisodeCard({
+function EpisodeCard({
   episode,
   podcastCover,
   index = 0,
@@ -278,3 +278,23 @@ export default function EpisodeCard({
     </div>
   );
 }
+
+// 自定义比较函数：只在关键 props 变化时才重新渲染
+function arePropsEqual(
+  prevProps: Readonly<EpisodeCardProps>,
+  nextProps: Readonly<EpisodeCardProps>,
+) {
+  return (
+    prevProps.episode.id === nextProps.episode.id &&
+    prevProps.episode.title === nextProps.episode.title &&
+    prevProps.podcastCover === nextProps.podcastCover &&
+    prevProps.index === nextProps.index &&
+    prevProps.priority === nextProps.priority
+  );
+}
+
+// 使用 React.memo 包装组件
+export default memo(EpisodeCard, arePropsEqual);
+
+// 添加 displayName 用于调试
+EpisodeCard.displayName = "EpisodeCard";
