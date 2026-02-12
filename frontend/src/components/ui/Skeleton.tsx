@@ -209,3 +209,72 @@ export function WorkflowCardSkeleton() {
     </div>
   );
 }
+
+// ============ 工作流详情页骨架屏 ============
+
+export function WorkflowDetailSkeleton() {
+  return (
+    <div className="py-6 space-y-6">
+      {/* Tabs骨架 */}
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-4">
+        <div className="flex gap-6">
+          <Skeleton variant="text" className="w-20 h-6" />
+          <Skeleton variant="text" className="w-24 h-6" />
+        </div>
+      </div>
+
+      {/* 内容区骨架 */}
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6 space-y-6">
+        {/* 配置详情标题 */}
+        <Skeleton variant="text" className="w-32 h-6" />
+
+        {/* 调度配置 */}
+        <div className="space-y-3">
+          <Skeleton variant="text" className="w-24 h-5" />
+          <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-5">
+            <div className="grid md:grid-cols-3 gap-6">
+              <div className="space-y-2">
+                <Skeleton variant="text" className="w-16 h-3" />
+                <Skeleton variant="rounded" className="w-full h-10" />
+              </div>
+              <div className="space-y-2">
+                <Skeleton variant="text" className="w-16 h-3" />
+                <Skeleton variant="text" className="w-32 h-5" />
+              </div>
+              <div className="space-y-2">
+                <Skeleton variant="text" className="w-16 h-3" />
+                <Skeleton variant="text" className="w-32 h-5" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 抓取与筛选配置 */}
+        <div className="space-y-3">
+          <Skeleton variant="text" className="w-28 h-5" />
+          <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              <Skeleton variant="text" className="w-20 h-4" />
+              <Skeleton variant="text" className="w-32 h-5" />
+            </div>
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <Skeleton variant="rounded" className="h-24" />
+              <Skeleton variant="rounded" className="h-24" />
+              <Skeleton variant="rounded" className="h-24" />
+              <Skeleton variant="rounded" className="h-24" />
+            </div>
+          </div>
+        </div>
+
+        {/* 统计数据 */}
+        <div className="space-y-3">
+          <Skeleton variant="text" className="w-20 h-5" />
+          <div className="grid grid-cols-2 gap-4">
+            <Skeleton variant="rounded" className="h-20" />
+            <Skeleton variant="rounded" className="h-20" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

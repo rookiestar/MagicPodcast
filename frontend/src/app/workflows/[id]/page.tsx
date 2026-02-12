@@ -5,10 +5,12 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { workflowApi, podcastApi } from "@/lib/api";
 import { schedulerApi } from "@/lib/api/scheduler";
+import { useWorkflow, useWorkflowJobs } from "@/hooks/useWorkflowSWR";
 import type { Workflow, Job, Podcast } from "@/types";
 import WorkflowFormModal from "@/components/workflows/WorkflowFormModal";
 import ReportModal from "@/components/workflows/ReportModal";
 import PageLayout from "@/components/layout/PageLayout";
+import { WorkflowDetailSkeleton } from "@/components/ui/Skeleton";
 
 type TabType = "overview" | "jobs" | "config";
 
@@ -18,8 +20,15 @@ export default function WorkflowDetailPage() {
   const router = useRouter();
   const id = parseInt(params.id as string);
 
-  const [workflow, setWorkflow] = useState<Workflow | null>(null);
-  const [jobs, setJobs] = useState<Job[]>([]);
+  // 使用 SWR 获取工作流数据
+  const { workflow, isLoading: workflowLoading, isError: workflowError, mutate: mutateWorkflow } = useWorkflow(id);
+
+  // Job分页状态
+  const [jobsPage, setJobsPage] = useState(1);
+
+  // 使用 SWR 获取 Jobs 数据
+  const { jobs, pagination, isLoading: jobsLoading, mutate: mutateJobs } = useWorkflowJobs(id, jobsPage, 10);
+
   const [podcasts, setPodcasts] = useState<Podcast[]>([]);
 
   // 从URL读取tab状态，如果没有则默认为overview
@@ -30,13 +39,7 @@ export default function WorkflowDetailPage() {
   const sortBy = searchParams.get("sort_by");
   const backLink = sortBy ? `/workflows?sort_by=${sortBy}` : "/workflows";
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
-
-  // Job分页状态
-  const [jobsPage, setJobsPage] = useState(1);
-  const [jobsTotalPages, setJobsTotalPages] = useState(1);
 
   // Job详情展开状态
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
@@ -46,12 +49,17 @@ export default function WorkflowDetailPage() {
   // 报告弹窗状态
   const [reportModalJobId, setReportModalJobId] = useState<number | null>(null);
 
+  // 当 workflow 数据加载完成后，获取关联的播客列表
   useEffect(() => {
-    if (id) {
-      fetchWorkflow();
-      fetchJobs();
+    if (
+      workflow &&
+      workflow.scope_type === "specific_podcasts" &&
+      workflow.scope_config?.podcast_ids &&
+      workflow.scope_config.podcast_ids.length > 0
+    ) {
+      fetchPodcasts(workflow.scope_config.podcast_ids);
     }
-  }, [id]);
+  }, [workflow]);
 
   // 轮询Job状态：当有running状态的Job时，定期刷新
   useEffect(() => {
@@ -64,11 +72,11 @@ export default function WorkflowDetailPage() {
 
     // 每3秒刷新一次Job列表
     const interval = setInterval(() => {
-      fetchJobs();
+      mutateJobs();
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [jobs]);
+  }, [jobs, mutateJobs]);
 
   // 同步activeTab到URL参数
   useEffect(() => {
@@ -81,29 +89,6 @@ export default function WorkflowDetailPage() {
       router.replace(newUrl);
     }
   }, [activeTab, router]);
-
-  const fetchWorkflow = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await workflowApi.get(id);
-      setWorkflow(data);
-
-      // 如果是指定节目类型，获取播客列表
-      if (
-        data.scope_type === "specific_podcasts" &&
-        data.scope_config?.podcast_ids &&
-        data.scope_config.podcast_ids.length > 0
-      ) {
-        fetchPodcasts(data.scope_config.podcast_ids);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      console.error("Failed to fetch workflow:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const fetchPodcasts = async (podcastIds: number[]) => {
     try {
@@ -134,15 +119,9 @@ export default function WorkflowDetailPage() {
     }
   };
 
-  const fetchJobs = async (page: number = jobsPage) => {
-    try {
-      const response = await workflowApi.listJobs(id, { page, page_size: 10 });
-      setJobs(response.jobs);
-      setJobsTotalPages(response.pagination.total_pages);
-      setJobsPage(page);
-    } catch (err) {
-      console.error("Failed to fetch jobs:", err);
-    }
+  // Jobs 分页切换
+  const handleJobsPageChange = (newPage: number) => {
+    setJobsPage(newPage);
   };
 
   const fetchJobDetail = async (jobId: number) => {
@@ -174,7 +153,7 @@ export default function WorkflowDetailPage() {
     if (!workflow) return;
     try {
       const updated = await workflowApi.toggle(id);
-      setWorkflow(updated);
+      mutateWorkflow(updated, false);
     } catch (err) {
       alert(
         `操作失败: ${err instanceof Error ? err.message : "Unknown error"}`,
@@ -189,8 +168,8 @@ export default function WorkflowDetailPage() {
     try {
       await workflowApi.trigger(id);
       alert("工作流已触发");
-      fetchWorkflow();
-      fetchJobs();
+      mutateWorkflow();
+      mutateJobs();
     } catch (err) {
       alert(
         `触发失败: ${err instanceof Error ? err.message : "Unknown error"}`,
@@ -269,7 +248,7 @@ export default function WorkflowDetailPage() {
     return `${(tokens / 1000000).toFixed(1)}M`;
   };
 
-  if (loading) {
+  if (workflowLoading) {
     return (
       <PageLayout
         toolbar={{
@@ -277,15 +256,12 @@ export default function WorkflowDetailPage() {
           title: "工作流详情",
         }}
       >
-        <div className="text-center py-12">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          <p className="mt-4 text-slate-600 dark:text-slate-400">加载中...</p>
-        </div>
+        <WorkflowDetailSkeleton />
       </PageLayout>
     );
   }
 
-  if (error || !workflow) {
+  if (workflowError || !workflow) {
     return (
       <PageLayout
         toolbar={{
@@ -295,7 +271,7 @@ export default function WorkflowDetailPage() {
       >
         <div className="bg-red-50 border border-red-200 rounded-lg p-6">
           <h3 className="text-red-800 font-semibold mb-2">加载失败</h3>
-          <p className="text-red-600">{error || "工作流不存在"}</p>
+          <p className="text-red-600">{workflowError ? "加载失败" : "工作流不存在"}</p>
           <Link
             href={backLink}
             className="mt-4 inline-block text-blue-600 hover:text-blue-700"
@@ -1045,22 +1021,22 @@ export default function WorkflowDetailPage() {
               )}
 
               {/* 分页 */}
-              {jobsTotalPages > 1 && (
+              {pagination && pagination.total_pages > 1 && (
                 <div className="mt-6 flex items-center justify-between">
                   <div className="text-sm text-slate-600 dark:text-slate-400">
-                    第 {jobsPage} / {jobsTotalPages} 页
+                    第 {jobsPage} / {pagination.total_pages} 页
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => fetchJobs(jobsPage - 1)}
+                      onClick={() => handleJobsPageChange(jobsPage - 1)}
                       disabled={jobsPage === 1}
                       className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                     >
                       上一页
                     </button>
                     <button
-                      onClick={() => fetchJobs(jobsPage + 1)}
-                      disabled={jobsPage === jobsTotalPages}
+                      onClick={() => handleJobsPageChange(jobsPage + 1)}
+                      disabled={jobsPage === pagination.total_pages}
                       className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                     >
                       下一页
@@ -1204,7 +1180,7 @@ export default function WorkflowDetailPage() {
             } catch (err) {
               console.error("Failed to reload scheduler:", err);
             }
-            fetchWorkflow();
+            mutateWorkflow();
             setShowEditModal(false);
           }}
           workflow={workflow}

@@ -10,6 +10,7 @@ import type { Workflow, WorkflowSortByType } from "@/types";
 import WorkflowActionMenu from "@/components/workflows/WorkflowActionMenu";
 import PageLayout from "@/components/layout/PageLayout";
 import { WorkflowCardSkeleton } from "@/components/ui/Skeleton";
+import PrefetchLink from "@/components/common/PrefetchLink";
 
 // 动态导入 WorkflowFormModal，减少首屏 bundle 大小
 const WorkflowFormModal = dynamic(
@@ -354,8 +355,10 @@ export default function WorkflowsPage() {
 
                 {/* Desktop: Full Card */}
                 <div className="hidden md:block">
-                  <Link
+                  <PrefetchLink
                     href={`/workflows/${workflow.id}${window.location.search}`}
+                    prefetchId={workflow.id}
+                    prefetchType="workflow"
                     className="block p-5"
                   >
                     <div className="flex items-start justify-between">
@@ -570,7 +573,7 @@ export default function WorkflowsPage() {
                         </button>
                       </div>
                     </div>
-                  </Link>
+                  </PrefetchLink>
                 </div>
               </div>
             ))}
