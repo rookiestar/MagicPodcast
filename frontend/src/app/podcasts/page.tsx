@@ -266,7 +266,7 @@ export default function PodcastsPage() {
             {/* 移动端：排序图标按钮 */}
             <button
               onClick={() => setIsSortDrawerOpen(true)}
-              className="md:hidden w-10 h-10 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+              className="md:hidden w-10 h-10 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 active:bg-slate-300 active:scale-95 transition-all duration-200"
               aria-label="排序"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -325,10 +325,10 @@ export default function PodcastsPage() {
           <div className="flex flex-wrap gap-2 sm:gap-3 items-center">
             <button
               onClick={() => handleTagToggle(null)}
-              className={`min-h-[44px] px-3 py-2 rounded-lg text-sm transition-colors ${
+              className={`min-h-[44px] px-3 py-2 rounded-lg text-sm transition-all duration-200 active:scale-95 ${
                 selectedTagIds.length === 0
-                  ? "bg-slate-800 text-white"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  ? "bg-slate-800 text-white active:bg-slate-900"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200 active:bg-slate-300"
               }`}
             >
               全部
@@ -340,10 +340,10 @@ export default function PodcastsPage() {
                 <button
                   key={tag.id}
                   onClick={() => handleTagToggle(tag.id)}
-                  className={`min-h-[44px] px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-1.5 ${
+                  className={`min-h-[44px] px-3 py-2 rounded-lg text-sm transition-all duration-200 active:scale-95 flex items-center gap-1.5 ${
                     isSelected
-                      ? "bg-slate-800 text-white"
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      ? "bg-slate-800 text-white active:bg-slate-900"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200 active:bg-slate-300"
                   }`}
                   title={tag.name}
                 >
@@ -361,7 +361,7 @@ export default function PodcastsPage() {
             {hasMoreTags && (
               <button
                 onClick={() => setShowAllTags(!showAllTags)}
-                className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-lg flex items-center justify-center text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-lg flex items-center justify-center text-slate-500 hover:text-blue-600 hover:bg-blue-50 active:bg-blue-100 active:scale-95 transition-all duration-200"
                 title={showAllTags ? "收起" : "展开"}
               >
                 {showAllTags ? (
@@ -399,7 +399,7 @@ export default function PodcastsPage() {
             {selectedTagIds.length > 0 && (
               <button
                 onClick={() => handleTagToggle(null)}
-                className="min-h-[44px] px-3 py-2 rounded-lg text-sm text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                className="min-h-[44px] px-3 py-2 rounded-lg text-sm text-slate-500 hover:text-slate-700 hover:bg-slate-100 active:bg-slate-200 active:scale-95 transition-all duration-200"
               >
                 清空
               </button>

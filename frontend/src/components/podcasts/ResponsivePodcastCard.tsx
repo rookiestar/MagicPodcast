@@ -66,7 +66,8 @@ export function ResponsivePodcastCard({
       <div
         className={`
           bg-white rounded-xl shadow-md hover:shadow-lg
-          active:scale-[0.98] transition-all duration-200
+          active:scale-[0.97] active:shadow-sm
+          transition-all duration-200 ease-out
           overflow-hidden cursor-pointer touch-action-manipulation
           ${isMobile ? "flex flex-row gap-3 p-3 h-auto" : "flex flex-col h-full"}
         `}
