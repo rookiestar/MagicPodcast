@@ -4,12 +4,15 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { podcastApi, episodeApi } from "@/lib/api";
+import { usePodcast, usePodcastTags, usePodcastNotes } from "@/hooks/usePodcastSWR";
 import type { Podcast, Tag, Episode } from "@/types";
 import TagInput from "@/components/tags/TagInput";
 import RichText from "@/components/RichText";
 import EpisodeCard from "@/components/episodes/EpisodeCard";
 import PodcastCover from "@/components/podcasts/PodcastCover";
 import PageLayout from "@/components/layout/PageLayout";
+import { PodcastDetailSkeleton } from "@/components/ui/Skeleton";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 
 export default function PodcastDetailPage() {
   const params = useParams();
@@ -19,6 +22,7 @@ export default function PodcastDetailPage() {
   const sortBy = searchParams.get("sort_by") || ""; // 获取排序方式
   const tagIds = searchParams.get("tag_ids"); // 获取标签筛选（逗号分隔）
   const episodeListRef = useRef<HTMLDivElement>(null);
+  const { isMobile } = useBreakpoint();
 
   // 构建返回 URL 的查询参数
   const buildBackUrl = () => {
@@ -36,14 +40,27 @@ export default function PodcastDetailPage() {
     return `/podcasts${queryString ? `?${queryString}` : ""}`;
   };
 
-  const [podcast, setPodcast] = useState<Podcast | null>(null);
-  const [tags, setTags] = useState<Tag[]>([]);
+  // 使用 SWR Hooks（并行请求）
+  const { podcast, isLoading: podcastLoading, isError: podcastError, mutate: mutatePodcast } = usePodcast(id);
+  const { tags, isLoading: tagsLoading, mutate: mutateTags } = usePodcastTags(id);
+  const { notes: swrNotes, isLoading: notesLoading, mutate: mutateNotes } = usePodcastNotes(id);
+
+  // 本地状态
   const [notes, setNotes] = useState("");
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [episodesLoading, setEpisodesLoading] = useState(true);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  // 同步 SWR notes 到本地状态
+  useEffect(() => {
+    if (swrNotes !== undefined) {
+      setNotes(swrNotes);
+    }
+  }, [swrNotes]);
+
+  // 综合加载状态
+  const loading = podcastLoading || tagsLoading || notesLoading;
+  const error = podcastError ? "加载播客失败" : null;
 
   // 分页状态
   const [currentPage, setCurrentPage] = useState(1);
@@ -52,41 +69,7 @@ export default function PodcastDetailPage() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const PAGE_SIZE = 20;
 
-  // 数据获取函数
-  const fetchPodcast = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await podcastApi.get(id);
-      setPodcast(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      console.error("Failed to fetch podcast:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchTags = async () => {
-    try {
-      const data = await podcastApi.getTags(id);
-      setTags(data);
-    } catch (err) {
-      console.error("Failed to fetch tags:", err);
-      setTags([]);
-    }
-  };
-
-  const fetchNotes = async () => {
-    try {
-      const data = await podcastApi.getNotes(id);
-      setNotes(data ?? "");
-    } catch (err) {
-      console.error("Failed to fetch notes:", err);
-      setNotes("");
-    }
-  };
-
+  // 单集获取函数（保留原逻辑，支持无限滚动）
   const fetchEpisodes = async (page: number = 1, append: boolean = false) => {
     try {
       if (page === 1) {
@@ -127,16 +110,14 @@ export default function PodcastDetailPage() {
   const loadMoreEpisodes = useCallback(() => {
     if (isLoadingMore || !hasMoreEpisodes) return;
     fetchEpisodes(currentPage + 1, true);
-  }, [isLoadingMore, hasMoreEpisodes, currentPage]);
+  }, [isLoadingMore, hasMoreEpisodes, currentPage, id]);
 
+  // 单集首次加载
   useEffect(() => {
-    if (id) {
-      fetchPodcast();
-      fetchTags();
-      fetchNotes();
+    if (id && !podcastLoading) {
       fetchEpisodes();
     }
-  }, [id]);
+  }, [id, podcastLoading]);
 
   // 滚动监听 - 自动加载更多单集
   useEffect(() => {
@@ -196,6 +177,9 @@ export default function PodcastDetailPage() {
     // 找出需要移除的标签
     const toRemove = tags.filter((t) => !newIds.has(t.id));
 
+    // 乐观更新：立即更新 UI
+    mutateTags(newTags, false);
+
     try {
       // 先添加新标签
       for (const tag of toAdd) {
@@ -207,25 +191,33 @@ export default function PodcastDetailPage() {
         await podcastApi.removeTag(id, tag.id);
       }
 
-      // 更新本地状态
-      setTags(newTags);
+      // 重新验证数据
+      mutateTags();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "更新标签失败";
       alert(`标签更新失败: ${errorMsg}`);
       console.error("Failed to update tags:", err);
-      // 刷新标签以恢复正确状态
-      await fetchTags();
+      // 回滚：重新验证恢复正确状态
+      mutateTags();
     }
   };
 
   const handleNotesSave = async () => {
+    // 乐观更新
+    mutateNotes({ id, notes }, false);
+    setIsEditingNotes(false);
+
     try {
       await podcastApi.updateNotes(id, notes);
-      setIsEditingNotes(false);
+      // 重新验证
+      mutateNotes();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "保存备注失败";
       alert(`保存失败: ${errorMsg}`);
       console.error("Failed to save notes:", err);
+      // 回滚
+      mutateNotes();
+      setIsEditingNotes(true);
     }
   };
 
@@ -239,12 +231,9 @@ export default function PodcastDetailPage() {
     >
       <div className="py-6">
 
-        {/* Loading State */}
+        {/* Loading State - Skeleton */}
         {loading && (
-          <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            <p className="mt-4 text-slate-600">加载中...</p>
-          </div>
+          <PodcastDetailSkeleton isMobile={isMobile} />
         )}
 
         {/* Error State */}
@@ -420,7 +409,7 @@ export default function PodcastDetailPage() {
                             <button
                               onClick={() => {
                                 setIsEditingNotes(false);
-                                fetchNotes();
+                                setNotes(swrNotes || ""); // 恢复原始内容
                               }}
                               className="px-3 py-1.5 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors text-sm"
                             >
@@ -647,7 +636,7 @@ export default function PodcastDetailPage() {
                           <button
                             onClick={() => {
                               setIsEditingNotes(false);
-                              fetchNotes(); // 恢复原始内容
+                              setNotes(swrNotes || ""); // 恢复原始内容
                             }}
                             className="px-4 py-2 bg-slate-200 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
                           >

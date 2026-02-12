@@ -4,10 +4,13 @@ import { useEffect, useState, useMemo, useCallback, useRef, Suspense } from "rea
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { tagApi, podcastApi } from "@/lib/api";
+import { usePodcast, usePodcastTags } from "@/hooks/usePodcastSWR";
+import { useTags } from "@/hooks/useTagSWR";
 import PodcastCover from "@/components/podcasts/PodcastCover";
 import TagInput from "@/components/tags/TagInput";
 import TagFormModal from "@/components/tags/TagFormModal";
 import PageLayout from "@/components/layout/PageLayout";
+import { TagSkeleton } from "@/components/ui/Skeleton";
 import type { Tag, Podcast } from "@/types";
 
 // 动态加载 pinyin-pro，减少首屏 bundle 大小 (~60KB)
@@ -21,12 +24,6 @@ const pinyinLoadPromise = import("pinyin-pro").then((mod) => {
 type SortMode = "popularity" | "alphabetical";
 
 interface TagsPageContentProps {
-  tags: Tag[];
-  setTags: React.Dispatch<React.SetStateAction<Tag[]>>;
-  loading: boolean;
-  setLoading: React.Dispatch<React.SetStateAction<boolean>>;
-  error: string | null;
-  setError: React.Dispatch<React.SetStateAction<string | null>>;
   showCreateModal: boolean;
   setShowCreateModal: React.Dispatch<React.SetStateAction<boolean>>;
   editModalTag: Tag | null;
@@ -37,23 +34,10 @@ interface TagsPageContentProps {
   setIsSelectMode: React.Dispatch<React.SetStateAction<boolean>>;
   sortMode: SortMode;
   setSortMode: React.Dispatch<React.SetStateAction<SortMode>>;
-  podcast: Podcast | null;
-  setPodcast: React.Dispatch<React.SetStateAction<Podcast | null>>;
-  podcastLoading: boolean;
-  setPodcastLoading: React.Dispatch<React.SetStateAction<boolean>>;
-  podcastError: string | null;
-  setPodcastError: React.Dispatch<React.SetStateAction<string | null>>;
-  podcastTags: Tag[];
-  setPodcastTags: React.Dispatch<React.SetStateAction<Tag[]>>;
+  mutateTags: () => Promise<void>;
 }
 
 function TagsPageContent({
-  tags,
-  setTags,
-  loading,
-  setLoading,
-  error,
-  setError,
   showCreateModal,
   setShowCreateModal,
   editModalTag,
@@ -64,14 +48,7 @@ function TagsPageContent({
   setIsSelectMode,
   sortMode,
   setSortMode,
-  podcast,
-  setPodcast,
-  podcastLoading,
-  setPodcastLoading,
-  podcastError,
-  setPodcastError,
-  podcastTags,
-  setPodcastTags,
+  mutateTags,
 }: TagsPageContentProps) {
   // 拼音缓存：避免重复转换相同字符
   const pinyinCache = useRef<Map<string, string>>(new Map());
@@ -87,41 +64,14 @@ function TagsPageContent({
   const podcastIdParam = searchParams.get("podcast_id");
   const podcastId = podcastIdParam ? parseInt(podcastIdParam, 10) : null;
 
-  useEffect(() => {
-    fetchTags();
-  }, []);
+  // 使用 SWR 获取标签列表
+  const { tags, isLoading: loading, isError, mutate } = useTags();
+  const error = isError ? "加载失败" : null;
 
-  // Fetch podcast data when podcastId is present
-  useEffect(() => {
-    if (podcastId) {
-      fetchPodcastData(podcastId);
-    } else {
-      setPodcast(null);
-      setPodcastTags([]);
-      setPodcastError(null);
-    }
-  }, [podcastId]);
-
-  const fetchPodcastData = async (id: number) => {
-    try {
-      setPodcastLoading(true);
-      setPodcastError(null);
-      const [podcastData, tagsData] = await Promise.all([
-        podcastApi.get(id),
-        podcastApi.getTags(id),
-      ]);
-      setPodcast(podcastData);
-      setPodcastTags(tagsData);
-    } catch (err) {
-      setPodcastError(
-        err instanceof Error ? err.message : "Failed to fetch podcast",
-      );
-      setPodcast(null);
-      setPodcastTags([]);
-    } finally {
-      setPodcastLoading(false);
-    }
-  };
+  // 使用 SWR 获取播客数据（并行请求）
+  const { podcast, isLoading: podcastLoading, isError: podcastIsError } = usePodcast(podcastId);
+  const { tags: podcastTags, mutate: mutatePodcastTags } = usePodcastTags(podcastId);
+  const podcastError = podcastIsError ? "加载播客失败" : null;
 
   const handlePodcastTagsChange = async (newTags: Tag[]) => {
     if (!podcast) return;
@@ -144,29 +94,13 @@ function TagsPageContent({
         await podcastApi.removeTag(podcast.id, tag.id);
       }
 
-      // Refresh podcast tags
-      const updatedTags = await podcastApi.getTags(podcast.id);
-      setPodcastTags(updatedTags);
-
-      // Refresh tag list to update counts
-      fetchTags();
+      // Refresh podcast tags and tag list
+      mutatePodcastTags();
+      mutate();
     } catch (err) {
       alert(err instanceof Error ? err.message : "更新标签失败");
-      // Revert changes on error
-      setPodcastTags([...podcastTags]);
-    }
-  };
-
-  const fetchTags = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await tagApi.list();
-      setTags(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
+      // Revalidate to get correct state
+      mutatePodcastTags();
     }
   };
 
@@ -176,7 +110,7 @@ function TagsPageContent({
         name: data.name,
         color: data.color,
       });
-      fetchTags();
+      mutate();
     } catch (err) {
       throw err;
     }
@@ -191,7 +125,7 @@ function TagsPageContent({
         color: data.color,
       });
       setEditModalTag(null);
-      fetchTags();
+      mutate();
     } catch (err) {
       throw err;
     }
@@ -206,7 +140,7 @@ function TagsPageContent({
 
     try {
       await tagApi.delete(id);
-      fetchTags();
+      mutate();
     } catch (err) {
       alert(err instanceof Error ? err.message : "删除失败");
     }
@@ -365,13 +299,8 @@ function TagsPageContent({
           </div>
         )}
 
-        {/* Loading State */}
-        {loading && (
-          <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            <p className="mt-4 text-slate-600">加载中...</p>
-          </div>
-        )}
+        {/* Loading State - Skeleton */}
+        {loading && <TagSkeleton count={16} />}
 
         {/* Error State */}
         {error && (
@@ -379,7 +308,7 @@ function TagsPageContent({
             <h3 className="text-red-800 font-semibold mb-2">加载失败</h3>
             <p className="text-red-600 mb-4">{error}</p>
             <button
-              onClick={fetchTags}
+              onClick={() => mutate()}
               className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
             >
               重试
@@ -569,21 +498,15 @@ function TagCard({
 
 // Wrapper component with Suspense boundary
 export default function TagsPage() {
-  // 状态管理 - 提升到外层以便在工具栏中访问
-  const [tags, setTags] = useState<Tag[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // UI 状态管理
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editModalTag, setEditModalTag] = useState<Tag | null>(null);
   const [selectedTags, setSelectedTags] = useState<Set<number>>(new Set());
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>("popularity");
 
-  // Podcast preview state
-  const [podcast, setPodcast] = useState<Podcast | null>(null);
-  const [podcastLoading, setPodcastLoading] = useState(false);
-  const [podcastError, setPodcastError] = useState<string | null>(null);
-  const [podcastTags, setPodcastTags] = useState<Tag[]>([]);
+  // 使用 SWR 获取标签列表（用于工具栏显示数量）
+  const { tags, isLoading, mutate } = useTags();
 
   // 辅助函数
   const handleSelectAll = () => {
@@ -606,8 +529,8 @@ export default function TagsPage() {
       }
       setSelectedTags(new Set());
       setIsSelectMode(false);
-      // 重新获取标签
-      fetchTags();
+      // 刷新标签列表
+      mutate();
     } catch (err) {
       alert(err instanceof Error ? err.message : "批量删除失败");
     }
@@ -618,7 +541,7 @@ export default function TagsPage() {
       toolbar={{
         breadcrumbs: [{ label: "返回首页", href: "/" }],
         title: "标签管理",
-        description: !loading && tags.length > 0 ? `共 ${tags.length} 个标签` : undefined,
+        description: !isLoading && tags.length > 0 ? `共 ${tags.length} 个标签` : undefined,
         rightContent: (
           <div className="flex items-center gap-2">
             {/* 新建标签按钮 - 仅在非多选模式下显示 */}
@@ -695,20 +618,8 @@ export default function TagsPage() {
         ),
       }}
     >
-      <Suspense
-        fallback={
-          <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          </div>
-        }
-      >
+      <Suspense fallback={<TagSkeleton count={16} />}>
         <TagsPageContent
-          tags={tags}
-          setTags={setTags}
-          loading={loading}
-          setLoading={setLoading}
-          error={error}
-          setError={setError}
           showCreateModal={showCreateModal}
           setShowCreateModal={setShowCreateModal}
           editModalTag={editModalTag}
@@ -719,14 +630,7 @@ export default function TagsPage() {
           setIsSelectMode={setIsSelectMode}
           sortMode={sortMode}
           setSortMode={setSortMode}
-          podcast={podcast}
-          setPodcast={setPodcast}
-          podcastLoading={podcastLoading}
-          setPodcastLoading={setPodcastLoading}
-          podcastError={podcastError}
-          setPodcastError={setPodcastError}
-          podcastTags={podcastTags}
-          setPodcastTags={setPodcastTags}
+          mutateTags={mutate}
         />
       </Suspense>
     </PageLayout>

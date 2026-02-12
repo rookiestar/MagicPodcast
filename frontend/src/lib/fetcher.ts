@@ -1,0 +1,62 @@
+import axios from "axios";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+
+// 创建专用于 SWR 的 axios 实例（简化版，不带调试日志）
+export const apiClient = axios.create({
+  baseURL: API_URL,
+  timeout: 60000,
+  headers: {
+    "Content-Type": "application/json",
+  },
+  withCredentials: false,
+});
+
+// SWR 通用 fetcher
+export const fetcher = async <T>(url: string): Promise<T> => {
+  const response = await apiClient.get<{
+    success: boolean;
+    data?: T;
+    error?: { message: string };
+  }>(url);
+
+  if (response.data.success && response.data.data !== undefined) {
+    return response.data.data;
+  }
+
+  throw new Error(response.data.error?.message || "Request failed");
+};
+
+// 带分页的 fetcher
+export const fetcherWithPagination = async <T>(url: string): Promise<{
+  data: T;
+  pagination?: {
+    page: number;
+    page_size: number;
+    total: number;
+    total_pages: number;
+    has_more?: boolean;
+  };
+}> => {
+  const response = await apiClient.get<{
+    success: boolean;
+    data: T;
+    pagination?: {
+      page: number;
+      page_size: number;
+      total: number;
+      total_pages: number;
+      has_more?: boolean;
+    };
+    error?: { message: string };
+  }>(url);
+
+  if (response.data.success) {
+    return {
+      data: response.data.data,
+      pagination: response.data.pagination,
+    };
+  }
+
+  throw new Error(response.data.error?.message || "Request failed");
+};

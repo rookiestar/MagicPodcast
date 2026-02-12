@@ -5,9 +5,11 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { workflowApi } from "@/lib/api";
 import { showSuccess } from "@/lib/api/errorHandler";
+import { useWorkflows } from "@/hooks/useWorkflowSWR";
 import type { Workflow, WorkflowSortByType } from "@/types";
 import WorkflowActionMenu from "@/components/workflows/WorkflowActionMenu";
 import PageLayout from "@/components/layout/PageLayout";
+import { WorkflowCardSkeleton } from "@/components/ui/Skeleton";
 
 // 动态导入 WorkflowFormModal，减少首屏 bundle 大小
 const WorkflowFormModal = dynamic(
@@ -16,13 +18,14 @@ const WorkflowFormModal = dynamic(
 );
 
 export default function WorkflowsPage() {
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingWorkflow, setEditingWorkflow] = useState<Workflow | null>(null);
   const [triggeringId, setTriggeringId] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<WorkflowSortByType>("updated");
+
+  // 使用 SWR 获取工作流列表
+  const { workflows, isLoading, isError, mutate } = useWorkflows({ sort_by: sortBy });
+  const error = isError ? "加载失败" : null;
 
   useEffect(() => {
     // 从URL加载排序参数
@@ -30,8 +33,6 @@ export default function WorkflowsPage() {
     const sortFromUrl =
       (params.get("sort_by") as WorkflowSortByType) || "updated";
     setSortBy(sortFromUrl);
-
-    fetchWorkflows(sortFromUrl);
   }, []);
 
   // 监听 URL 参数变化（用于浏览器前进/后退）
@@ -40,51 +41,33 @@ export default function WorkflowsPage() {
       const params = new URLSearchParams(window.location.search);
       const sortFromUrl =
         (params.get("sort_by") as WorkflowSortByType) || "updated";
-
-      console.log("[PopState] sortBy:", sortFromUrl);
-
       setSortBy(sortFromUrl);
-      fetchWorkflows(sortFromUrl);
     };
 
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  const fetchWorkflows = async (currentSortBy: WorkflowSortByType = sortBy) => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await workflowApi.list({ sort_by: currentSortBy });
-      setWorkflows(response.workflows);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      console.error("Failed to fetch workflows:", err);
-    } finally {
-      setLoading(false);
-    }
+  const refreshWorkflows = async () => {
+    await mutate();
   };
 
   const handleSortChange = (newSortBy: WorkflowSortByType) => {
-    console.log("[Sort] Changing from", sortBy, "to", newSortBy);
-
     // 更新 URL 参数
     const url = new URL(window.location.href);
     url.searchParams.set("sort_by", newSortBy);
     window.history.replaceState({}, "", url.toString());
 
-    // 更新状态并重新获取数据
+    // 更新状态（SWR 会自动重新获取数据）
     setSortBy(newSortBy);
-    fetchWorkflows(newSortBy);
   };
 
   const handleToggle = async (id: number, e: React.MouseEvent) => {
     e.preventDefault();
     try {
       await workflowApi.toggle(id);
-      await fetchWorkflows();
+      await mutate();
     } catch (err) {
-      // 错误已通过axios拦截器自动处理
       console.error("Failed to toggle workflow:", err);
     }
   };
@@ -97,7 +80,7 @@ export default function WorkflowsPage() {
       setTriggeringId(id);
       await workflowApi.trigger(id);
       showSuccess("工作流已开始执行，请在执行历史中查看进度");
-      await fetchWorkflows();
+      await mutate();
     } catch (err) {
       console.error("Failed to trigger workflow:", err);
       // 错误已通过axios拦截器自动处理
@@ -137,9 +120,8 @@ export default function WorkflowsPage() {
 
     try {
       await workflowApi.delete(id);
-      await fetchWorkflows();
+      await mutate();
     } catch (err) {
-      // 错误已通过axios拦截器自动处理
       console.error("Failed to delete workflow:", err);
     }
   };
@@ -206,7 +188,7 @@ export default function WorkflowsPage() {
       toolbar={{
         breadcrumbs: [{ label: "返回首页", href: "/" }],
         title: "工作流管理",
-        description: !loading && workflows.length > 0 ? `${workflows.length} 个工作流` : undefined,
+        description: !isLoading && workflows.length > 0 ? `${workflows.length} 个工作流` : undefined,
         rightContent: (
           <div className="flex items-center gap-3">
             <button
@@ -231,11 +213,12 @@ export default function WorkflowsPage() {
       }}
     >
       <div className="py-6">
-        {/* Loading State */}
-        {loading && (
-          <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            <p className="mt-4 text-slate-600">加载中...</p>
+        {/* Loading State - Skeleton */}
+        {isLoading && (
+          <div className="space-y-4">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <WorkflowCardSkeleton key={i} />
+            ))}
           </div>
         )}
 
@@ -248,7 +231,7 @@ export default function WorkflowsPage() {
         )}
 
         {/* Empty State */}
-        {!loading && !error && workflows.length === 0 && (
+        {!isLoading && !error && workflows.length === 0 && (
           <div className="bg-white rounded-lg p-12 text-center shadow-sm">
             <div className="text-6xl mb-4">⚙️</div>
             <p className="text-slate-600 text-lg">暂无工作流</p>
@@ -259,7 +242,7 @@ export default function WorkflowsPage() {
         )}
 
         {/* Workflows List */}
-        {!loading && !error && workflows.length > 0 && (
+        {!isLoading && !error && workflows.length > 0 && (
           <div className="space-y-4">
             {workflows.map((workflow, index) => (
               <div
@@ -603,8 +586,8 @@ export default function WorkflowsPage() {
           setShowCreateModal(false);
           setEditingWorkflow(null);
         }}
-        onSuccess={() => {
-          fetchWorkflows();
+        onSuccess={async () => {
+          await mutate();
           setShowCreateModal(false);
           setEditingWorkflow(null);
         }}

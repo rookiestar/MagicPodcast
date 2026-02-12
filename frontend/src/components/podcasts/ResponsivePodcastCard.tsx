@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import Image from "next/image";
+import PrefetchLink from "@/components/common/PrefetchLink";
 import { stripHtml } from "@/lib/textUtils";
 import { getRelativeTime } from "@/lib/timeUtils";
 import type { Podcast } from "@/types";
@@ -46,7 +46,7 @@ export default function ResponsivePodcastCard({
   // 移动端样式类
   if (isMobile) {
     return (
-      <Link href={detailUrl}>
+      <PrefetchLink href={detailUrl} prefetchId={podcast.id} prefetchType="podcast">
         <div className="flex flex-row gap-3 p-3 bg-white rounded-xl shadow-md hover:shadow-lg active:scale-[0.97] active:shadow-sm transition-all duration-200 ease-out overflow-hidden cursor-pointer">
           {/* 封面 */}
           <div className="w-16 h-16 flex-shrink-0 relative rounded-lg overflow-hidden bg-slate-200">
@@ -111,13 +111,13 @@ export default function ResponsivePodcastCard({
             )}
           </div>
         </div>
-      </Link>
+      </PrefetchLink>
     );
   }
 
   // 桌面端样式类
   return (
-    <Link href={detailUrl}>
+    <PrefetchLink href={detailUrl} prefetchId={podcast.id} prefetchType="podcast">
       <div className="flex flex-col h-full bg-white rounded-xl shadow-md hover:shadow-lg active:scale-[0.97] active:shadow-sm transition-all duration-200 ease-out overflow-hidden cursor-pointer">
         {/* 封面 */}
         <div className="relative w-full pt-[100%] rounded-lg overflow-hidden bg-slate-200">
@@ -190,6 +190,6 @@ export default function ResponsivePodcastCard({
           </div>
         </div>
       </div>
-    </Link>
+    </PrefetchLink>
   );
 }

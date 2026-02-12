@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { podcastApi, tagApi } from "@/lib/api";
+import { podcastApi } from "@/lib/api";
+import { useTags } from "@/hooks/useTagSWR";
 import type { Podcast, Tag } from "@/types";
 import ResponsivePodcastCard from "@/components/podcasts/ResponsivePodcastCard";
 import PageLayout from "@/components/layout/PageLayout";
 import SortDrawer from "@/components/podcasts/SortDrawer";
 import { useSearch } from "@/contexts/SearchContext";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { PodcastCardSkeleton } from "@/components/ui/Skeleton";
 
 const PAGE_SIZE = 15;
 
@@ -15,7 +17,6 @@ type SortByType = "recent_update" | "newest_added" | "episode_count" | "title";
 
 export default function PodcastsPage() {
   const [podcasts, setPodcasts] = useState<Podcast[]>([]);
-  const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,6 +26,11 @@ export default function PodcastsPage() {
   const { isMobile } = useBreakpoint();
   const [sortBy, setSortBy] = useState<SortByType>("recent_update");
 
+  // 使用 SWR 获取标签（自动缓存）
+  const { tags: allTags, isLoading: tagsLoading } = useTags();
+  // 过滤出有关联播客的标签
+  const tags = allTags.filter((tag: Tag) => (tag.podcast_count || 0) > 0);
+
   const [listKey, setListKey] = useState(0);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -32,7 +38,6 @@ export default function PodcastsPage() {
   const [isSortDrawerOpen, setIsSortDrawerOpen] = useState(false);
 
   const observerTarget = useRef<HTMLDivElement>(null);
-  const tagsRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchPodcasts = async (
     tagIds: number[] = [],
@@ -76,18 +81,6 @@ export default function PodcastsPage() {
     }
   };
 
-  const fetchTags = async () => {
-    try {
-      const data = await tagApi.list();
-      const tagsWithPodcasts = data.filter(
-        (tag: Tag) => (tag.podcast_count || 0) > 0,
-      );
-      setTags(tagsWithPodcasts);
-    } catch (err) {
-      console.error("Failed to fetch tags:", err);
-    }
-  };
-
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sortFromUrl =
@@ -99,30 +92,6 @@ export default function PodcastsPage() {
     setSelectedTagIds(tagIdsFromUrl);
 
     fetchPodcasts(tagIdsFromUrl, 1, sortFromUrl);
-    fetchTags();
-  }, []);
-
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        if (tagsRefreshTimerRef.current) {
-          clearTimeout(tagsRefreshTimerRef.current);
-        }
-
-        tagsRefreshTimerRef.current = setTimeout(() => {
-          fetchTags();
-        }, 500);
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      if (tagsRefreshTimerRef.current) {
-        clearTimeout(tagsRefreshTimerRef.current);
-      }
-    };
   }, []);
 
   useEffect(() => {
@@ -399,11 +368,12 @@ export default function PodcastsPage() {
         </div>
       )}
 
-      {/* Loading State */}
+      {/* Loading State - Skeleton */}
       {loading && (
-        <div className="text-center py-12">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          <p className="mt-4 text-slate-600">加载中...</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-4 lg:gap-6">
+          {Array.from({ length: 10 }).map((_, i) => (
+            <PodcastCardSkeleton key={i} isMobile={isMobile} />
+          ))}
         </div>
       )}
 
