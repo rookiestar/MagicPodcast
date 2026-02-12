@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Tag } from "@/types";
 
 interface TagBadgeProps {
@@ -8,7 +9,7 @@ interface TagBadgeProps {
   variant?: "colorful" | "simple";
 }
 
-export default function TagBadge({
+function TagBadge({
   tag,
   onRemove,
   size = "md",
@@ -120,3 +121,24 @@ export default function TagBadge({
     </span>
   );
 }
+
+// 自定义比较函数：只在相关 props 变化时才重新渲染
+function arePropsEqual(
+  prevProps: Readonly<TagBadgeProps>,
+  nextProps: Readonly<TagBadgeProps>,
+) {
+  return (
+    prevProps.tag.id === nextProps.tag.id &&
+    prevProps.tag.name === nextProps.tag.name &&
+    prevProps.tag.color === nextProps.tag.color &&
+    prevProps.size === nextProps.size &&
+    prevProps.removable === nextProps.removable &&
+    prevProps.variant === nextProps.variant
+  );
+}
+
+// 使用 React.memo 包装组件
+export default memo(TagBadge, arePropsEqual);
+
+// 添加 displayName 用于调试
+TagBadge.displayName = "TagBadge";

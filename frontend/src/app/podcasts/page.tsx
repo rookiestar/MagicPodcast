@@ -3,10 +3,11 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { podcastApi, tagApi } from "@/lib/api";
 import type { Podcast, Tag } from "@/types";
-import { ResponsivePodcastCard } from "@/components/podcasts/ResponsivePodcastCard";
+import ResponsivePodcastCard from "@/components/podcasts/ResponsivePodcastCard";
 import PageLayout from "@/components/layout/PageLayout";
 import SortDrawer from "@/components/podcasts/SortDrawer";
 import { useSearch } from "@/contexts/SearchContext";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 
 const PAGE_SIZE = 15;
 
@@ -21,6 +22,7 @@ export default function PodcastsPage() {
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [showAllTags, setShowAllTags] = useState(false);
   const { openSearch } = useSearch();
+  const { isMobile } = useBreakpoint();
   const [sortBy, setSortBy] = useState<SortByType>("recent_update");
 
   const [listKey, setListKey] = useState(0);
@@ -237,19 +239,8 @@ export default function PodcastsPage() {
     { label: "名称", value: "title" },
   ];
 
-  // 响应式标签数量：移动端5个，桌面端8个
-  const [defaultTagCount, setDefaultTagCount] = useState(5);
-
-  useEffect(() => {
-    const updateTagCount = () => {
-      setDefaultTagCount(window.innerWidth < 640 ? 5 : 8);
-    };
-
-    updateTagCount();
-    window.addEventListener('resize', updateTagCount);
-
-    return () => window.removeEventListener('resize', updateTagCount);
-  }, []);
+  // 响应式标签数量：移动端5个，桌面端8个（使用已有的 isMobile）
+  const defaultTagCount = isMobile ? 5 : 8;
 
   const displayTags = showAllTags ? tags : tags.slice(0, defaultTagCount);
   const hasMoreTags = tags.length > defaultTagCount;
@@ -454,6 +445,7 @@ export default function PodcastsPage() {
                   priority={
                     index < 6 ? "high" : index < 15 ? "medium" : "low"
                   }
+                  isMobile={isMobile}
                 />
               );
             })}

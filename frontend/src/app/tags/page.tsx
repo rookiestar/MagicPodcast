@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, Suspense } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { tagApi, podcastApi } from "@/lib/api";
@@ -66,6 +66,9 @@ function TagsPageContent({
   podcastTags,
   setPodcastTags,
 }: TagsPageContentProps) {
+  // 拼音缓存：避免重复转换相同字符
+  const pinyinCache = useRef<Map<string, string>>(new Map());
+
   const searchParams = useSearchParams();
   const podcastIdParam = searchParams.get("podcast_id");
   const podcastId = podcastIdParam ? parseInt(podcastIdParam, 10) : null;
@@ -205,18 +208,26 @@ function TagsPageContent({
     setSelectedTags(newSelected);
   };
 
-  // 获取中文拼音首字母
-  const getChineseInitial = (text: string): string => {
+  // 获取中文拼音首字母（带缓存优化）
+  const getChineseInitial = useCallback((text: string): string => {
     // 处理空字符串
     if (!text || text.trim() === "") {
       return "#";
+    }
+
+    // 查询缓存
+    const cached = pinyinCache.current.get(text);
+    if (cached) {
+      return cached;
     }
 
     const firstChar = text.charAt(0);
 
     // 如果是英文字母，直接返回大写
     if (/[a-zA-Z]/.test(firstChar)) {
-      return firstChar.toUpperCase();
+      const result = firstChar.toUpperCase();
+      pinyinCache.current.set(text, result);
+      return result;
     }
 
     // 如果是汉字，使用 pinyin-pro 获取拼音首字母
@@ -226,7 +237,10 @@ function TagsPageContent({
           pattern: "first", // 只要首字母
           toneType: "none", // 不要声调
         });
-        return result.charAt(0).toUpperCase();
+        const initial = result.charAt(0).toUpperCase();
+        // 存入缓存
+        pinyinCache.current.set(text, initial);
+        return initial;
       } catch (error) {
         console.warn("[getChineseInitial] pinyin conversion error:", error);
         return "Z";
@@ -234,8 +248,10 @@ function TagsPageContent({
     }
 
     // 其他字符（数字、符号等）归到 #
-    return "#";
-  };
+    const result = "#";
+    pinyinCache.current.set(text, result);
+    return result;
+  }, [pinyinCache]);
 
   // 按字母分组标签
   const groupedTags = useMemo(() => {
@@ -261,7 +277,7 @@ function TagsPageContent({
     });
 
     return groups;
-  }, [tags, sortMode]);
+  }, [tags, sortMode, getChineseInitial]);
 
   return (
     <main className="min-h-screen bg-slate-50">
