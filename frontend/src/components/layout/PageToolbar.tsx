@@ -85,7 +85,7 @@ export default function PageToolbar({
               {breadcrumbs && breadcrumbs.length > 0 && breadcrumbs[0] && (
                 <Link
                   href={breadcrumbs[0].href}
-                  className="flex-shrink-0 text-2xl text-slate-600 hover:text-slate-800 transition-colors"
+                  className="flex-shrink-0 text-2xl text-slate-600 hover:text-slate-800 active:text-slate-900 active:scale-95 transition-all duration-200"
                   aria-label="返回"
                 >
                   ←
@@ -235,7 +235,7 @@ export function PodcastListToolbar({
           {/* 左侧：面包屑 */}
           <Link
             href="/"
-            className="text-sm text-slate-600 hover:text-slate-800 transition-colors flex items-center gap-1"
+            className="text-sm text-slate-600 hover:text-slate-800 active:text-slate-900 hover:bg-slate-100 active:bg-slate-200 active:scale-95 transition-all duration-200 px-2 py-3 -mx-2 -my-3 rounded-lg inline-flex items-center gap-1"
           >
             <span>←</span>
             <span>返回首页</span>
