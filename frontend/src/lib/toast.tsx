@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useCallback } from "react";
+import React, { createContext, useContext, useState, useCallback, useMemo } from "react";
 
 export type ToastType = "success" | "error" | "info" | "warning";
 
@@ -35,7 +35,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const contextValue = { toasts, showToast, removeToast };
+  // 使用 useMemo 稳定 contextValue 引用
+  const contextValue = useMemo(
+    () => ({ toasts, showToast, removeToast }),
+    [toasts, showToast, removeToast]
+  );
 
   // 设置全局上下文供 errorHandler 使用
   React.useEffect(() => {
