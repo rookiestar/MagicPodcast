@@ -15,6 +15,12 @@ const nextConfig = {
     // 限制：remotePatterns 最多 50 个元素
     // 策略：本地服务优先 + 少量关键域名 + 通配符兜底
     remotePatterns: [
+      // ==================== Cloudflare Tunnel（外网访问）====================
+      {
+        protocol: 'https',
+        hostname: 'posting-hair-postcard-victoria.trycloudflare.com',
+        pathname: '/images/**',
+      },
       // ==================== 本地开发服务（必须最先匹配）====================
       {
         protocol: 'http',
@@ -119,7 +125,8 @@ module.exports = {
     return [
       {
         source: '/api/v1/:path*',
-        destination: 'http://192.168.3.58:8080/api/v1/:path*',
+        // 优先使用Cloudflare Tunnel地址（外网访问）
+        destination: 'https://posting-hair-postcard-victoria.trycloudflare.com/api/v1/:path*',
       },
     ]
   },

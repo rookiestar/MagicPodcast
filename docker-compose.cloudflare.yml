@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  # 小宇宙 API 代理服务（暂时注释，等ghcr.io访问问题解决后再启用）
+  # xyz-api:
+  #   image: ghcr.io/ultrazg/xyz:latest
+  #   container_name: magicpodcast-xyz-api
+  #   ports:
+  #     - "8081:8080"
+  #   restart: unless-stopped
+  #   networks:
+  #     - magicpodcast-network
+  #   healthcheck:
+  #     test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 10s
+
+  # 后端服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: magicpodcast-backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+    environment:
+      # - XYZ_API_URL=http://xyz-api:8080  # 暂时注释
+      - DB_PATH=/app/data/magicpodcast.db
+      - GIN_MODE=release
+    # depends_on:  # 暂时移除xyz-api依赖
+    #   xyz-api:
+    #     condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - magicpodcast-network
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: magicpodcast-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      # 注意：在Docker网络内，前端通过Nginx访问后端
+      - NEXT_PUBLIC_API_URL=http://nginx:80/api/v1
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - magicpodcast-network
+
+  # Nginx反向代理（Cloudflare Tunnel专用）
+  nginx:
+    image: nginx:alpine
+    container_name: magicpodcast-nginx
+    ports:
+      - "8088:80"  # 对外暴露8088端口，cloudflared连接此端口
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - nginx-logs:/var/log/nginx
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+    networks:
+      - magicpodcast-network
+
+networks:
+  magicpodcast-network:
+    driver: bridge
+
+volumes:
+  data:
+    driver: local
+  nginx-logs:
+    driver: local
