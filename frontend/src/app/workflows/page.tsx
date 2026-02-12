@@ -2,12 +2,18 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { workflowApi } from "@/lib/api";
 import { showSuccess } from "@/lib/api/errorHandler";
 import type { Workflow, WorkflowSortByType } from "@/types";
-import WorkflowFormModal from "@/components/workflows/WorkflowFormModal";
 import WorkflowActionMenu from "@/components/workflows/WorkflowActionMenu";
 import PageLayout from "@/components/layout/PageLayout";
+
+// 动态导入 WorkflowFormModal，减少首屏 bundle 大小
+const WorkflowFormModal = dynamic(
+  () => import("@/components/workflows/WorkflowFormModal"),
+  { ssr: false }
+);
 
 export default function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);

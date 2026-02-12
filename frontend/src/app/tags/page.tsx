@@ -9,7 +9,14 @@ import TagInput from "@/components/tags/TagInput";
 import TagFormModal from "@/components/tags/TagFormModal";
 import PageLayout from "@/components/layout/PageLayout";
 import type { Tag, Podcast } from "@/types";
-import { pinyin } from "pinyin-pro";
+
+// 动态加载 pinyin-pro，减少首屏 bundle 大小 (~60KB)
+type PinyinFunction = (text: string, options?: { pattern?: string; toneType?: string }) => string;
+let pinyinModule: PinyinFunction | null = null;
+const pinyinLoadPromise = import("pinyin-pro").then((mod) => {
+  pinyinModule = mod.pinyin;
+  return mod.pinyin;
+});
 
 type SortMode = "popularity" | "alphabetical";
 
@@ -68,6 +75,13 @@ function TagsPageContent({
 }: TagsPageContentProps) {
   // 拼音缓存：避免重复转换相同字符
   const pinyinCache = useRef<Map<string, string>>(new Map());
+  // 跟踪 pinyin 模块是否已加载
+  const [pinyinReady, setPinyinReady] = useState(false);
+
+  // 预加载 pinyin 模块
+  useEffect(() => {
+    pinyinLoadPromise.then(() => setPinyinReady(true));
+  }, []);
 
   const searchParams = useSearchParams();
   const podcastIdParam = searchParams.get("podcast_id");
@@ -208,7 +222,7 @@ function TagsPageContent({
     setSelectedTags(newSelected);
   };
 
-  // 获取中文拼音首字母（带缓存优化）
+  // 获取中文拼音首字母（带缓存优化，动态加载 pinyin-pro）
   const getChineseInitial = useCallback((text: string): string => {
     // 处理空字符串
     if (!text || text.trim() === "") {
@@ -232,26 +246,35 @@ function TagsPageContent({
 
     // 如果是汉字，使用 pinyin-pro 获取拼音首字母
     if (/\p{Script=Han}/u.test(firstChar)) {
-      try {
-        const result = pinyin(firstChar, {
-          pattern: "first", // 只要首字母
-          toneType: "none", // 不要声调
-        });
-        const initial = result.charAt(0).toUpperCase();
-        // 存入缓存
-        pinyinCache.current.set(text, initial);
-        return initial;
-      } catch (error) {
-        console.warn("[getChineseInitial] pinyin conversion error:", error);
-        return "Z";
+      // 如果 pinyin 模块已加载，直接使用
+      if (pinyinModule) {
+        try {
+          const result = pinyinModule(firstChar, {
+            pattern: "first",
+            toneType: "none",
+          });
+          const initial = result.charAt(0).toUpperCase();
+          pinyinCache.current.set(text, initial);
+          return initial;
+        } catch (error) {
+          console.warn("[getChineseInitial] pinyin conversion error:", error);
+          return "Z";
+        }
       }
+
+      // 否则触发异步加载，先返回占位符
+      pinyinLoadPromise.then(() => {
+        // 加载完成后，清除相关缓存以便重新计算
+        pinyinCache.current.delete(text);
+      });
+      return "Z"; // 占位符，加载完成后会重新渲染
     }
 
     // 其他字符（数字、符号等）归到 #
     const result = "#";
     pinyinCache.current.set(text, result);
     return result;
-  }, [pinyinCache]);
+  }, []);
 
   // 按字母分组标签
   const groupedTags = useMemo(() => {

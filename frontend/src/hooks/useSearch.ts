@@ -76,11 +76,22 @@ export function useSearch(options: SearchOptions = {}) {
         // 限制历史记录数量
         const limited = updated.slice(0, maxHistory);
 
-        // 保存到localStorage
-        try {
-          localStorage.setItem("search_history", JSON.stringify(limited));
-        } catch (error) {
-          console.error("Failed to save search history:", error);
+        // 使用 requestIdleCallback 延迟写入 localStorage，避免阻塞主线程
+        if (typeof requestIdleCallback !== "undefined") {
+          requestIdleCallback(() => {
+            try {
+              localStorage.setItem("search_history", JSON.stringify(limited));
+            } catch (error) {
+              console.error("Failed to save search history:", error);
+            }
+          });
+        } else {
+          // 降级处理：直接写入
+          try {
+            localStorage.setItem("search_history", JSON.stringify(limited));
+          } catch (error) {
+            console.error("Failed to save search history:", error);
+          }
         }
 
         return limited;
@@ -158,10 +169,21 @@ export function useSearch(options: SearchOptions = {}) {
   // 清除历史记录
   const clearHistory = useCallback(() => {
     setHistory([]);
-    try {
-      localStorage.removeItem("search_history");
-    } catch (error) {
-      console.error("Failed to clear search history:", error);
+    // 使用 requestIdleCallback 延迟清除 localStorage
+    if (typeof requestIdleCallback !== "undefined") {
+      requestIdleCallback(() => {
+        try {
+          localStorage.removeItem("search_history");
+        } catch (error) {
+          console.error("Failed to clear search history:", error);
+        }
+      });
+    } else {
+      try {
+        localStorage.removeItem("search_history");
+      } catch (error) {
+        console.error("Failed to clear search history:", error);
+      }
     }
   }, []);
 

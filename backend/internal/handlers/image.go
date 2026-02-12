@@ -189,19 +189,11 @@ func (h *ImageHandler) ProxyImage(c *gin.Context) {
 		}
 	}
 
-	// 读取图片内容到内存（用于计算ETag）
-	imageData, err := io.ReadAll(resp.Body)
-	if err != nil {
-		logger.Infof("[ImageProxy] 读取图片失败 [%s]: %v", imageURL, err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   "failed to read image data",
-		})
-		return
-	}
-
-	// 计算ETag（基于内容的MD5哈希）
-	hash := md5.Sum(imageData)
+	// 使用 URL + Content-Length + Last-Modified 计算 ETag，避免读取完整图片到内存
+	contentLength := resp.Header.Get("Content-Length")
+	lastModified := resp.Header.Get("Last-Modified")
+	etagSource := fmt.Sprintf("%s:%s:%s", imageURL, contentLength, lastModified)
+	hash := md5.Sum([]byte(etagSource))
 	etag := fmt.Sprintf(`"%s"`, hex.EncodeToString(hash[:]))
 
 	// 检查条件请求（If-None-Match）
@@ -213,12 +205,13 @@ func (h *ImageHandler) ProxyImage(c *gin.Context) {
 		c.Header("Last-Modified", time.Now().Format(time.RFC1123))
 		c.Status(http.StatusNotModified)
 		logger.Infof("[ImageProxy] 304 Not Modified [%s] - ETag: %s", imageURL, etag)
+		resp.Body.Close()
 		return
 	}
 
 	// 记录成功日志
 	duration := time.Since(startTime).Milliseconds()
-	logger.Infof("[ImageProxy] 成功代理图片 [%s] - %dms - %s - %d bytes", imageURL, duration, contentType, len(imageData))
+	logger.Infof("[ImageProxy] 开始流式传输 [%s] - %dms - %s", imageURL, duration, contentType)
 
 	// 设置增强的缓存头
 	// 缓存30天（2592000秒）
@@ -232,8 +225,8 @@ func (h *ImageHandler) ProxyImage(c *gin.Context) {
 	c.Header("Access-Control-Allow-Methods", "GET")
 	c.Header("Access-Control-Allow-Headers", "Content-Type")
 
-	// 传输图片到客户端
-	written, err := c.Writer.Write(imageData)
+	// 流式传输图片到客户端（避免内存缓冲）
+	written, err := io.Copy(c.Writer, resp.Body)
 	if err != nil {
 		logger.Infof("[ImageProxy] 传输图片失败 [%s]: %v", imageURL, err)
 		return

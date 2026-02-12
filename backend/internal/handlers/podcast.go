@@ -210,6 +210,9 @@ func (h *PodcastHandler) List(c *gin.Context) {
 		memCache.Set(cacheKey, resp)
 	}
 
+	// 设置浏览器缓存头（列表数据缓存60秒）
+	c.Header("Cache-Control", "private, max-age=60")
+
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -239,13 +242,14 @@ func (h *PodcastHandler) Get(c *gin.Context) {
 		return
 	}
 
+	// 设置浏览器缓存头（播客详情缓存5分钟）
+	c.Header("Cache-Control", "private, max-age=300")
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    h.modelToResponse(&podcast),
 	})
 }
-
-// BatchGet 批量获取多个播客
 // @Summary 批量获取播客
 // @Description 根据播客ID列表批量获取播客详情
 // @Tags Podcast

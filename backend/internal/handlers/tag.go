@@ -151,6 +151,8 @@ func (h *TagHandler) List(c *gin.Context) {
 	// 尝试从缓存获取
 	if cached, ok := memCache.Get(cacheKey); ok {
 		cache.RecordHit()
+		// 设置浏览器缓存头
+		c.Header("Cache-Control", "private, max-age=60")
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"data":    cached,
@@ -202,6 +204,9 @@ func (h *TagHandler) List(c *gin.Context) {
 	// 缓存结果
 	memCache.Set(cacheKey, response)
 
+	// 设置浏览器缓存头（标签列表缓存60秒）
+	c.Header("Cache-Control", "private, max-age=60")
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    response,
@@ -239,6 +244,9 @@ func (h *TagHandler) Get(c *gin.Context) {
 		return
 	}
 
+	// 设置浏览器缓存头（标签详情缓存5分钟）
+	c.Header("Cache-Control", "private, max-age=300")
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": TagResponse{
@@ -249,8 +257,6 @@ func (h *TagHandler) Get(c *gin.Context) {
 		},
 	})
 }
-
-// Update 更新标签
 // @Summary 更新标签
 // @Description 更新标签信息
 // @Tags Tags
