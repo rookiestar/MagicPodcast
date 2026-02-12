@@ -127,7 +127,16 @@ export default function WorkflowsPage() {
     }
   };
 
-  const getStatusBadge = (status: boolean) => {
+  const getStatusBadge = (status: boolean, compact: boolean = false) => {
+    if (compact) {
+      // 移动端：仅显示彩色圆点
+      return (
+        <span
+          className={`w-3 h-3 rounded-full flex-shrink-0 ${status ? "bg-green-500" : "bg-gray-400"}`}
+          title={status ? "启用中" : "已禁用"}
+        />
+      );
+    }
     return status ? (
       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
         启用中
@@ -261,7 +270,7 @@ export default function WorkflowsPage() {
                         <h3 className="text-base font-semibold text-slate-900 truncate">
                           {workflow.name}
                         </h3>
-                        {getStatusBadge(workflow.is_enabled)}
+                        {getStatusBadge(workflow.is_enabled, true)}
                       </div>
 
                       {/* 关键信息 */}
