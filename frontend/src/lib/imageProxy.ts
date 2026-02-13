@@ -4,8 +4,10 @@
  */
 
 const IMAGE_PROXY_ENABLED = true; // 是否启用图片代理
-const IMAGE_PROXY_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+// 在浏览器环境中使用相对路径（支持 tunnel/代理访问）
+const IMAGE_PROXY_BASE_URL = typeof window !== "undefined"
+  ? (process.env.NEXT_PUBLIC_API_URL || "")  // 浏览器：相对路径或自定义 URL
+  : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080");  // SSR：需要完整 URL
 
 /**
  * 获取代理后的图片URL

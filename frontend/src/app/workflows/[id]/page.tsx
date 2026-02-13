@@ -92,9 +92,9 @@ export default function WorkflowDetailPage() {
 
   const fetchPodcasts = async (podcastIds: number[]) => {
     try {
-      // 直接使用 fetch API 调用批量查询接口
+      // 使用相对路径调用批量查询接口（支持 tunnel/代理访问）
       const response = await fetch(
-        "http://localhost:8080/api/v1/podcasts/batch",
+        "/api/v1/podcasts/batch",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

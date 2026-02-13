@@ -12,13 +12,11 @@ import type {
   Job,
 } from "@/types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
-
-// 调试：输出API_URL
-if (typeof window !== "undefined") {
-  console.log("🔧 API_URL:", API_URL);
-  console.log("🔧 Process env:", process.env.NEXT_PUBLIC_API_URL);
-}
+// 在浏览器环境中使用相对路径（支持 tunnel/代理访问）
+// 在 SSR 环境中使用完整 URL
+const API_URL = typeof window !== "undefined"
+  ? (process.env.NEXT_PUBLIC_API_URL || "")  // 浏览器：相对路径或自定义 URL
+  : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080");  // SSR：需要完整 URL
 
 // 创建 axios 实例
 const api = axios.create({

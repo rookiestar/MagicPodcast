@@ -1,4 +1,8 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+// 在浏览器环境中使用相对路径（支持 tunnel/代理访问）
+// 在 SSR 环境中使用完整 URL
+const API_URL = typeof window !== "undefined"
+  ? (process.env.NEXT_PUBLIC_API_URL || "")  // 浏览器：相对路径或自定义 URL
+  : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080");  // SSR：需要完整 URL
 
 export const syncApi = {
   // 导入OPML文件（使用SSE流式响应）
