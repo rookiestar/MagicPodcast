@@ -35,6 +35,15 @@ export default function ResponsivePodcastCard({
   // 相对时间
   const relativeTime = getRelativeTime(podcast.newest_episode_date);
 
+  // 判断是否最近7天有更新
+  const isNew = (() => {
+    if (!podcast.newest_episode_date) return false;
+    const newestDate = new Date(podcast.newest_episode_date);
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    return newestDate >= sevenDaysAgo;
+  })();
+
   // 获取图片URL
   const imageUrl = podcast.cover_url
     ? getProxiedImageUrl(podcast.cover_url) || podcast.cover_url
@@ -63,6 +72,12 @@ export default function ResponsivePodcastCard({
             ) : (
               <div className="w-full h-full flex items-center justify-center">
                 <div className="text-5xl text-slate-400">🎧</div>
+              </div>
+            )}
+            {/* 新更新标识 */}
+            {isNew && (
+              <div className="absolute top-1 right-1 px-1.5 py-0.5 bg-emerald-500/65 text-white text-[10px] italic rounded-md shadow-sm">
+                NEW
               </div>
             )}
           </div>
@@ -134,6 +149,12 @@ export default function ResponsivePodcastCard({
           ) : (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-7xl text-slate-400">🎧</div>
+            </div>
+          )}
+          {/* 新更新标识 */}
+          {isNew && (
+            <div className="absolute top-2 right-2 px-2 py-1 bg-emerald-500/65 text-white text-xs italic rounded-md shadow-sm">
+              NEW
             </div>
           )}
         </div>
