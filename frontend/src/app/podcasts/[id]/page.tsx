@@ -672,7 +672,7 @@ export default function PodcastDetailPage() {
             {/* 初始加载状态 - 显示骨架屏 */}
             {episodesLoading && episodes.length === 0 ? (
               <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {[1, 2, 3, 4].map((i) => (
                     <div
                       key={i}
@@ -702,7 +702,7 @@ export default function PodcastDetailPage() {
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {episodes.map((episode, index) => (
                     <div
                       key={episode.id}
