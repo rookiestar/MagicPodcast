@@ -62,7 +62,8 @@ export default function WorkflowActionMenu({
       {/* 菜单按钮 */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-10 h-10 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors active:scale-95"
+        className="p-2.5 flex items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 text-slate-600 transition-colors active:scale-95"
+        style={{ minWidth: "44px", minHeight: "44px" }}
         aria-label="更多操作"
         aria-expanded={isOpen}
       >
@@ -71,7 +72,9 @@ export default function WorkflowActionMenu({
           fill="currentColor"
           viewBox="0 0 24 24"
         >
-          <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2 2 .9 2 2zm0 2c1.1 0 2-.9 2-2s-.9-2-2-2 2 .9 2 2zm0 6c1.1 0 2-.9 2-2s-.9-2-2-2 2 .9 2 2z" />
+          <circle cx="12" cy="6" r="2" />
+          <circle cx="12" cy="12" r="2" />
+          <circle cx="12" cy="18" r="2" />
         </svg>
       </button>
 
