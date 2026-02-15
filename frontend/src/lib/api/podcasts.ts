@@ -62,12 +62,13 @@ export async function listPodcasts(
   console.log("[podcastApi.list] Response:", response.data);
 
   if (response.data.success && response.data.data) {
+    const result = response.data.data;
     return {
-      data: response.data.data,
-      pagination: response.data.pagination || {
+      data: result.data,
+      pagination: result.pagination || {
         page: 1,
         page_size: 15,
-        total: response.data.data.length,
+        total: result.data.length,
         total_pages: 1,
       },
     };

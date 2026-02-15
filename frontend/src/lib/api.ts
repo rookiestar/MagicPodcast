@@ -10,6 +10,7 @@ import type {
   WorkflowsResponse,
   JobsResponse,
   Job,
+  WorkflowSortByType,
 } from "@/types";
 
 // 在浏览器环境中使用相对路径（支持 tunnel/代理访问）

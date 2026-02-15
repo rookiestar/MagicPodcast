@@ -9,9 +9,6 @@ describe("TagBadge", () => {
     id: 1,
     name: "Test Tag",
     color: "#ff0000",
-    description: "Test description",
-    created_at: "2024-01-01",
-    updated_at: "2024-01-01",
   };
 
   describe("基础渲染", () => {

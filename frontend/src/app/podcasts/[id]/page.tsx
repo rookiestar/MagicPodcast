@@ -283,7 +283,7 @@ export default function PodcastDetailPage() {
                   )}
                   <button
                     onClick={() => {
-                      const details = document.getElementById('podcast-details');
+                      const details = document.getElementById('podcast-details') as HTMLDetailsElement | null;
                       if (details) {
                         details.open = !details.open;
                       }

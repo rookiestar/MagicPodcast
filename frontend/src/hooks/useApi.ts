@@ -205,6 +205,7 @@ export function useApiMutation<T, P = any>(
   execute: (params: P) => Promise<T | null>;
   reset: () => void;
 } {
+  const { onSuccess, onError } = options;
   const [state, setState] = useState<ApiState<T>>({
     data: null,
     error: null,

@@ -10,7 +10,6 @@ export default defineConfig({
     setupFiles: ['./vitest.setup.ts'],
     css: true,
     include: ['src/**/__tests__/*'],
-    transformMode: 'ssr', // 使用 SSR 模式转换
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

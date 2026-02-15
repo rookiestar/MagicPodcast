@@ -26,11 +26,11 @@ interface ActionButton {
 /**
  * 页面工具栏属性
  */
-interface PageToolbarProps {
+export interface PageToolbarProps {
   /** 面包屑导航 */
   breadcrumbs?: BreadcrumbItem[];
   /** 页面标题 */
-  title?: string;
+  title?: React.ReactNode;
   /** 页面描述 */
   description?: string;
   /** 右侧操作按钮 */

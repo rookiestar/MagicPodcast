@@ -1,6 +1,5 @@
 import React, { ReactElement } from "react";
 import { render, RenderOptions } from "@testing-library/react";
-import { ConfigProvider } from "antd";
 
 // 自定义渲染函数，可以包含全局 Provider
 interface CustomRenderOptions extends Omit<RenderOptions, "wrapper"> {
