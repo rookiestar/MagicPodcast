@@ -11,7 +11,6 @@ import RichText from "@/components/RichText";
 import EpisodeCard from "@/components/episodes/EpisodeCard";
 import PodcastCover from "@/components/podcasts/PodcastCover";
 import PageLayout from "@/components/layout/PageLayout";
-import { PodcastDetailSkeleton } from "@/components/ui/Skeleton";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 
 export default function PodcastDetailPage() {
@@ -58,8 +57,7 @@ export default function PodcastDetailPage() {
     }
   }, [swrNotes]);
 
-  // 综合加载状态
-  const loading = podcastLoading || tagsLoading || notesLoading;
+  // 错误状态
   const error = podcastError ? "加载播客失败" : null;
 
   // 分页状态
@@ -226,15 +224,10 @@ export default function PodcastDetailPage() {
       toolbar={{
         breadcrumbs: [{ label: "返回列表", href: buildBackUrl() }],
         title: podcast?.title || "播客详情",
-        description: !loading && podcast && (podcast.episode_count || episodes.length) > 0 ? `共 ${podcast.episode_count || episodes.length} 个单集` : undefined,
+        description: podcast && (podcast.episode_count || episodes.length) > 0 ? `共 ${podcast.episode_count || episodes.length} 个单集` : undefined,
       }}
     >
       <div className="py-6">
-
-        {/* Loading State - Skeleton */}
-        {loading && (
-          <PodcastDetailSkeleton isMobile={isMobile} />
-        )}
 
         {/* Error State */}
         {error && (
@@ -245,7 +238,7 @@ export default function PodcastDetailPage() {
         )}
 
         {/* Podcast Detail */}
-        {!loading && !error && podcast && (
+        {!error && podcast && (
           <>
             {/* 移动端：折叠式元信息 */}
             <div className="md:hidden">
@@ -663,7 +656,7 @@ export default function PodcastDetailPage() {
         )}
 
         {/* Episodes List - 新增section */}
-        {!loading && !error && podcast && (
+        {!error && podcast && (
           <div className="mt-8" ref={episodeListRef}>
             <h2 className="text-2xl font-bold text-slate-900 mb-6">
               单集列表 ({totalEpisodes > 0 ? totalEpisodes : episodes.length} 集)

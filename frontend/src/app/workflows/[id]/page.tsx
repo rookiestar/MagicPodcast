@@ -10,7 +10,6 @@ import type { Workflow, Job, Podcast } from "@/types";
 import WorkflowFormModal from "@/components/workflows/WorkflowFormModal";
 import ReportModal from "@/components/workflows/ReportModal";
 import PageLayout from "@/components/layout/PageLayout";
-import { WorkflowDetailSkeleton } from "@/components/ui/Skeleton";
 
 type TabType = "overview" | "jobs" | "config";
 
@@ -21,7 +20,7 @@ export default function WorkflowDetailPage() {
   const id = parseInt(params.id as string);
 
   // 使用 SWR 获取工作流数据
-  const { workflow, isLoading: workflowLoading, isError: workflowError, mutate: mutateWorkflow } = useWorkflow(id);
+  const { workflow, isError: workflowError, mutate: mutateWorkflow } = useWorkflow(id);
 
   // Job分页状态
   const [jobsPage, setJobsPage] = useState(1);
@@ -247,19 +246,6 @@ export default function WorkflowDetailPage() {
     if (tokens < 1000000) return `${(tokens / 1000).toFixed(1)}K`;
     return `${(tokens / 1000000).toFixed(1)}M`;
   };
-
-  if (workflowLoading) {
-    return (
-      <PageLayout
-        toolbar={{
-          breadcrumbs: [{ label: "返回列表", href: backLink }],
-          title: "工作流详情",
-        }}
-      >
-        <WorkflowDetailSkeleton />
-      </PageLayout>
-    );
-  }
 
   if (workflowError || !workflow) {
     return (

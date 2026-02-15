@@ -9,7 +9,6 @@ import PageLayout from "@/components/layout/PageLayout";
 import SortDrawer from "@/components/podcasts/SortDrawer";
 import { useSearch } from "@/contexts/SearchContext";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
-import { PodcastCardSkeleton } from "@/components/ui/Skeleton";
 
 const PAGE_SIZE = 15;
 
@@ -17,7 +16,6 @@ type SortByType = "recent_update" | "newest_added" | "episode_count" | "title";
 
 export default function PodcastsPage() {
   const [podcasts, setPodcasts] = useState<Podcast[]>([]);
-  const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
@@ -45,9 +43,7 @@ export default function PodcastsPage() {
     currentSortBy: SortByType = sortBy,
   ) => {
     try {
-      if (pageNum === 1) {
-        setLoading(true);
-      } else {
+      if (pageNum !== 1) {
         setLoadingMore(true);
       }
       setError(null);
@@ -76,7 +72,6 @@ export default function PodcastsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
-      setLoading(false);
       setLoadingMore(false);
     }
   };
@@ -139,10 +134,10 @@ export default function PodcastsPage() {
   }, []);
 
   const loadMore = useCallback(() => {
-    if (!loadingMore && !loading && hasMore) {
+    if (!loadingMore && hasMore) {
       fetchPodcasts(selectedTagIds, page + 1, sortBy);
     }
-  }, [loadingMore, loading, hasMore, page, selectedTagIds, sortBy]);
+  }, [loadingMore, hasMore, page, selectedTagIds, sortBy]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -220,7 +215,7 @@ export default function PodcastsPage() {
       toolbar={{
         breadcrumbs: [{ label: "返回首页", href: "/" }],
         title: "我的订阅",
-        description: !loading && totalCount > 0 ? `共 ${totalCount} 个节目${selectedTagIds.length > 0 ? `（已选 ${selectedTagIds.length} 个标签）` : ""}` : undefined,
+        description: totalCount > 0 ? `共 ${totalCount} 个节目${selectedTagIds.length > 0 ? `（已选 ${selectedTagIds.length} 个标签）` : ""}` : undefined,
         rightContent: (
           <>
             {/* 移动端：排序图标按钮 */}
@@ -262,7 +257,7 @@ export default function PodcastsPage() {
       }}
     >
       {/* 移动端统计信息条 */}
-      {!loading && totalCount > 0 && (
+      {totalCount > 0 && (
         <div className="md:hidden px-4 py-2 bg-slate-50 border-b border-slate-200">
           <p className="text-sm text-slate-600">
             共 {totalCount} 个节目
@@ -368,15 +363,6 @@ export default function PodcastsPage() {
         </div>
       )}
 
-      {/* Loading State - Skeleton */}
-      {loading && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-4 lg:gap-6">
-          {Array.from({ length: 10 }).map((_, i) => (
-            <PodcastCardSkeleton key={i} isMobile={isMobile} />
-          ))}
-        </div>
-      )}
-
       {/* Error State */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-6 mb-6">
@@ -392,7 +378,7 @@ export default function PodcastsPage() {
       )}
 
       {/* Podcasts List */}
-      {!loading && !error && (
+      {!error && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-4 lg:gap-6">
             {podcasts.map((podcast, index) => {

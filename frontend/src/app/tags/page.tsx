@@ -10,7 +10,6 @@ import PodcastCover from "@/components/podcasts/PodcastCover";
 import TagInput from "@/components/tags/TagInput";
 import TagFormModal from "@/components/tags/TagFormModal";
 import PageLayout from "@/components/layout/PageLayout";
-import { TagSkeleton } from "@/components/ui/Skeleton";
 import type { Tag, Podcast } from "@/types";
 
 // 动态加载 pinyin-pro，减少首屏 bundle 大小 (~60KB)
@@ -65,7 +64,7 @@ function TagsPageContent({
   const podcastId = podcastIdParam ? parseInt(podcastIdParam, 10) : null;
 
   // 使用 SWR 获取标签列表
-  const { tags, isLoading: loading, isError, mutate } = useTags();
+  const { tags, isError, mutate } = useTags();
   const error = isError ? "加载失败" : null;
 
   // 使用 SWR 获取播客数据（并行请求）
@@ -299,9 +298,6 @@ function TagsPageContent({
           </div>
         )}
 
-        {/* Loading State - Skeleton */}
-        {loading && <TagSkeleton count={16} />}
-
         {/* Error State */}
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-6">
@@ -317,7 +313,7 @@ function TagsPageContent({
         )}
 
         {/* Tags List */}
-        {!loading && !error && (
+        {!error && (
           <>
 
             {tags.length === 0 ? (
@@ -506,7 +502,7 @@ export default function TagsPage() {
   const [sortMode, setSortMode] = useState<SortMode>("popularity");
 
   // 使用 SWR 获取标签列表（用于工具栏显示数量）
-  const { tags, isLoading, mutate } = useTags();
+  const { tags, mutate } = useTags();
 
   // 辅助函数
   const handleSelectAll = () => {
@@ -541,7 +537,7 @@ export default function TagsPage() {
       toolbar={{
         breadcrumbs: [{ label: "返回首页", href: "/" }],
         title: "标签管理",
-        description: !isLoading && tags.length > 0 ? `共 ${tags.length} 个标签` : undefined,
+        description: tags.length > 0 ? `共 ${tags.length} 个标签` : undefined,
         rightContent: (
           <div className="flex items-center gap-2">
             {/* 新建标签按钮 - 仅在非多选模式下显示 */}
@@ -618,7 +614,7 @@ export default function TagsPage() {
         ),
       }}
     >
-      <Suspense fallback={<TagSkeleton count={16} />}>
+      <Suspense fallback={<div className="py-8 text-center text-slate-500">加载中...</div>}>
         <TagsPageContent
           showCreateModal={showCreateModal}
           setShowCreateModal={setShowCreateModal}

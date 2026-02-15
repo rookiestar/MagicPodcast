@@ -9,7 +9,6 @@ import { useWorkflows } from "@/hooks/useWorkflowSWR";
 import type { Workflow, WorkflowSortByType } from "@/types";
 import WorkflowActionMenu from "@/components/workflows/WorkflowActionMenu";
 import PageLayout from "@/components/layout/PageLayout";
-import { WorkflowCardSkeleton } from "@/components/ui/Skeleton";
 import PrefetchLink from "@/components/common/PrefetchLink";
 
 // 动态导入 WorkflowFormModal，减少首屏 bundle 大小
@@ -25,7 +24,7 @@ export default function WorkflowsPage() {
   const [sortBy, setSortBy] = useState<WorkflowSortByType>("updated");
 
   // 使用 SWR 获取工作流列表
-  const { workflows, isLoading, isError, mutate } = useWorkflows({ sort_by: sortBy });
+  const { workflows, isError, mutate } = useWorkflows({ sort_by: sortBy });
   const error = isError ? "加载失败" : null;
 
   useEffect(() => {
@@ -198,7 +197,7 @@ export default function WorkflowsPage() {
       toolbar={{
         breadcrumbs: [{ label: "返回首页", href: "/" }],
         title: "工作流管理",
-        description: !isLoading && workflows.length > 0 ? `${workflows.length} 个工作流` : undefined,
+        description: workflows.length > 0 ? `${workflows.length} 个工作流` : undefined,
         rightContent: (
           <div className="flex items-center gap-3">
             <button
@@ -223,15 +222,6 @@ export default function WorkflowsPage() {
       }}
     >
       <div className="py-6">
-        {/* Loading State - Skeleton */}
-        {isLoading && (
-          <div className="space-y-4">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <WorkflowCardSkeleton key={i} />
-            ))}
-          </div>
-        )}
-
         {/* Error State */}
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-6">
@@ -241,7 +231,7 @@ export default function WorkflowsPage() {
         )}
 
         {/* Empty State */}
-        {!isLoading && !error && workflows.length === 0 && (
+        {!error && workflows.length === 0 && (
           <div className="bg-white rounded-lg p-12 text-center shadow-sm">
             <div className="text-6xl mb-4">⚙️</div>
             <p className="text-slate-600 text-lg">暂无工作流</p>
@@ -252,7 +242,7 @@ export default function WorkflowsPage() {
         )}
 
         {/* Workflows List */}
-        {!isLoading && !error && workflows.length > 0 && (
+        {!error && workflows.length > 0 && (
           <div className="space-y-4">
             {workflows.map((workflow, index) => (
               <div
