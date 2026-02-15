@@ -1857,7 +1857,7 @@ export default function WorkflowFormModal({
         </div>
 
         {/* Footer */}
-        <div className="border-t border-slate-200 dark:border-slate-700 p-4 sm:p-6 flex justify-between">
+        <div className="hidden sm:flex border-t border-slate-200 dark:border-slate-700 p-4 sm:p-6 justify-between">
           <button
             onClick={handleClose}
             className="px-4 sm:px-6 py-2 min-h-[44px] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
@@ -1877,29 +1877,6 @@ export default function WorkflowFormModal({
               onClick={handleNext}
               disabled={loading}
               className="px-4 sm:px-6 py-2 min-h-[44px] bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? "处理中..." : step === 4 ? "保存" : "下一步"}
-            </button>
-          </div>
-          <button
-            onClick={handleClose}
-            className="px-6 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-          >
-            取消
-          </button>
-          <div className="flex gap-3">
-            {step > 1 && (
-              <button
-                onClick={handlePrev}
-                className="px-6 py-2 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-              >
-                上一步
-              </button>
-            )}
-            <button
-              onClick={handleNext}
-              disabled={loading}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {loading ? "处理中..." : step === 4 ? "保存" : "下一步"}
             </button>
