@@ -764,8 +764,8 @@ export default function WorkflowFormModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 sm:p-6">
-      <div className="bg-white dark:bg-slate-800 sm:rounded-lg shadow-2xl w-full max-w-3xl max-h-[100vh] sm:max-h-[85vh] overflow-hidden flex flex-col inset-0 sm:inset-auto sm:my-8">
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4 sm:p-6">
+      <div className="bg-white dark:bg-slate-800 sm:rounded-lg shadow-2xl w-full max-w-3xl self-stretch max-h-[calc(100dvh-2rem)] sm:self-auto sm:max-h-[85vh] overflow-hidden flex flex-col sm:my-8">
         {/* Header */}
         <div className="border-b border-slate-200 dark:border-slate-700 p-6">
           <div className="flex items-center justify-between">
@@ -1884,7 +1884,7 @@ export default function WorkflowFormModal({
         </div>
 
         {/* 移动端底部固定操作栏 */}
-        <div className="sm:hidden sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 safe-area-inset-bottom">
+        <div className="sm:hidden shrink-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700">
           <div className="flex gap-3 p-4">
             <button
               onClick={handleClose}
