@@ -20,7 +20,7 @@ export default function WorkflowDetailPage() {
   const id = parseInt(params.id as string);
 
   // 使用 SWR 获取工作流数据
-  const { workflow, isError: workflowError, mutate: mutateWorkflow } = useWorkflow(id);
+  const { workflow, isLoading: workflowLoading, isError: workflowError, mutate: mutateWorkflow } = useWorkflow(id);
 
   // Job分页状态
   const [jobsPage, setJobsPage] = useState(1);
@@ -247,6 +247,12 @@ export default function WorkflowDetailPage() {
     return `${(tokens / 1000000).toFixed(1)}M`;
   };
 
+  // 加载中状态 - loading.tsx 已处理，此处直接返回 null 避免重复骨架屏
+  if (workflowLoading) {
+    return null;
+  }
+
+  // 错误或不存在状态（加载完成后才判断）
   if (workflowError || !workflow) {
     return (
       <PageLayout

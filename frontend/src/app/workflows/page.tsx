@@ -24,7 +24,7 @@ export default function WorkflowsPage() {
   const [sortBy, setSortBy] = useState<WorkflowSortByType>("updated");
 
   // 使用 SWR 获取工作流列表
-  const { workflows, isError, mutate } = useWorkflows({ sort_by: sortBy });
+  const { workflows, isLoading, isError, mutate } = useWorkflows({ sort_by: sortBy });
   const error = isError ? "加载失败" : null;
 
   useEffect(() => {
@@ -230,8 +230,10 @@ export default function WorkflowsPage() {
           </div>
         )}
 
-        {/* Empty State */}
-        {!error && workflows.length === 0 && (
+        {/* Loading State - loading.tsx 已处理，此处不再重复显示骨架屏 */}
+
+        {/* Empty State - 只在非加载状态且无数据时显示 */}
+        {!error && !isLoading && workflows.length === 0 && (
           <div className="bg-white rounded-lg p-12 text-center shadow-sm">
             <div className="text-6xl mb-4">⚙️</div>
             <p className="text-slate-600 text-lg">暂无工作流</p>
@@ -242,7 +244,7 @@ export default function WorkflowsPage() {
         )}
 
         {/* Workflows List */}
-        {!error && workflows.length > 0 && (
+        {!error && !isLoading && workflows.length > 0 && (
           <div className="space-y-4">
             {workflows.map((workflow, index) => (
               <div
