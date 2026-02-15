@@ -53,8 +53,49 @@ export default function ResponsivePodcastCard({
     ? getProxiedImageUrl(podcast.cover_url) || podcast.cover_url
     : "";
 
+  // 检查是否是代理URL（代理URL使用普通img标签，避免Next.js图片优化器的HEAD请求问题）
+  const isProxiedUrl = imageUrl.includes("/images/proxy");
+
   // 优先级设置
   const isHighPriority = priority === "high" || index < 6;
+
+  // 渲染封面图片（根据是否代理URL选择不同组件）
+  const renderCoverImage = (className: string, sizes: string) => {
+    if (!imageUrl || imageError) {
+      return (
+        <div className={className}>
+          <div className="text-5xl text-slate-400">🎧</div>
+        </div>
+      );
+    }
+
+    // 代理URL使用普通img标签
+    if (isProxiedUrl) {
+      return (
+        <img
+          src={imageUrl}
+          alt={podcast.title}
+          className="absolute inset-0 w-full h-full object-cover"
+          loading={isHighPriority ? "eager" : "lazy"}
+          onError={() => setImageError(true)}
+        />
+      );
+    }
+
+    // 非代理URL使用Next.js Image
+    return (
+      <Image
+        src={imageUrl}
+        alt={podcast.title}
+        fill
+        sizes={sizes}
+        className="object-cover"
+        priority={isHighPriority}
+        loading={isHighPriority ? "eager" : "lazy"}
+        onError={() => setImageError(true)}
+      />
+    );
+  };
 
   // 移动端样式类
   if (isMobile) {
@@ -63,22 +104,7 @@ export default function ResponsivePodcastCard({
         <div className="flex flex-row gap-3 p-3 bg-white rounded-xl shadow-md hover:shadow-lg active:scale-[0.97] active:shadow-sm transition-all duration-200 ease-out overflow-hidden cursor-pointer">
           {/* 封面 */}
           <div className="w-16 h-16 flex-shrink-0 relative rounded-lg overflow-hidden bg-slate-200">
-            {imageUrl && !imageError ? (
-              <Image
-                src={imageUrl}
-                alt={podcast.title}
-                fill
-                sizes="64px"
-                className="object-cover"
-                priority={isHighPriority}
-                loading={isHighPriority ? "eager" : "lazy"}
-                onError={() => setImageError(true)}
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                <div className="text-5xl text-slate-400">🎧</div>
-              </div>
-            )}
+            {renderCoverImage("w-full h-full flex items-center justify-center", "64px")}
             {/* 新更新标识 */}
             {isNew && (
               <div className="absolute top-0.5 right-0.5 px-0.5 py-0.5 bg-emerald-500/65 text-white text-[6px] font-bold uppercase tracking-wider rounded shadow-sm">
@@ -141,22 +167,7 @@ export default function ResponsivePodcastCard({
       <div className="flex flex-col h-full bg-white rounded-xl shadow-md hover:shadow-lg active:scale-[0.97] active:shadow-sm transition-all duration-200 ease-out overflow-hidden cursor-pointer">
         {/* 封面 */}
         <div className="relative w-full pt-[100%] rounded-lg overflow-hidden bg-slate-200">
-          {imageUrl && !imageError ? (
-            <Image
-              src={imageUrl}
-              alt={podcast.title}
-              fill
-              sizes="(max-width: 640px) 50vw, (max-width: 828px) 144px"
-              className="object-cover"
-              priority={isHighPriority}
-              loading={isHighPriority ? "eager" : "lazy"}
-              onError={() => setImageError(true)}
-            />
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-7xl text-slate-400">🎧</div>
-            </div>
-          )}
+          {renderCoverImage("absolute inset-0 flex items-center justify-center", "(max-width: 640px) 50vw, (max-width: 828px) 144px")}
           {/* 新更新标识 */}
           {isNew && (
             <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-emerald-500/65 text-white text-[10px] font-bold uppercase tracking-wider rounded-md shadow-sm">

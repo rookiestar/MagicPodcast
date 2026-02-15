@@ -22,6 +22,10 @@ function PodcastCover({
   // 获取图片URL（优先使用代理URL）
   const imageUrl = coverUrl ? getProxiedImageUrl(coverUrl) || coverUrl : "";
 
+  // 检查是否是代理URL（代理URL使用普通img标签，避免Next.js图片优化器的HEAD请求问题）
+  // 匹配 /images/proxy 或 http://localhost:8080/images/proxy 等格式
+  const isProxiedUrl = imageUrl.includes("/images/proxy");
+
   // 根据优先级设置Next.js Image的priority属性
   const isHighPriority = priority === "high" || index < 6;
 
@@ -30,6 +34,21 @@ function PodcastCover({
     return (
       <div className="aspect-square bg-slate-200 w-full h-full flex items-center justify-center">
         <div className="text-5xl text-slate-400">🎧</div>
+      </div>
+    );
+  }
+
+  // 对于代理URL，使用普通img标签（绕过Next.js图片优化器的HEAD请求问题）
+  if (isProxiedUrl) {
+    return (
+      <div className="aspect-square bg-slate-200 relative w-full h-full overflow-hidden">
+        <img
+          src={imageUrl}
+          alt={title}
+          className="object-cover w-full h-full"
+          loading={isHighPriority ? "eager" : "lazy"}
+          onError={() => setImageError(true)}
+        />
       </div>
     );
   }
