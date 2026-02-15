@@ -181,7 +181,7 @@ export default function ResponsivePodcastCard({
           {/* 底部信息 */}
           <div className="flex items-center justify-between text-xs text-slate-500 mt-auto pt-1 md:pt-3">
             <span className="font-medium">{podcast.episode_count} 集</span>
-            <span className="text-[10px] sm:text-xs md:text-sm text-slate-400">
+            <span className="text-slate-400">
               {relativeTime}
             </span>
           </div>
