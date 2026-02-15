@@ -124,6 +124,10 @@ module.exports = {
         destination: `${backendUrl}/api/v1/:path*`,
       },
       {
+        source: '/images/:path*',
+        destination: `${backendUrl}/images/:path*`,
+      },
+      {
         source: '/health',
         destination: `${backendUrl}/health`,
       },

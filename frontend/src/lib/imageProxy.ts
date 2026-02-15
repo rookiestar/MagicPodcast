@@ -46,9 +46,10 @@ export function getProxiedImageUrl(
 // 需要代理的域名列表
 // 策略：只代理确认有访问问题的域名
 const SHOULD_PROXY_DOMAINS = [
-  "typlog.com",      // 墙内访问不稳定
-  "i.typlog.com",    // typlog 图片 CDN
-  "wavpub.com",      // 连接重置问题
+  "typlog.com",                    // 墙内访问不稳定
+  "i.typlog.com",                  // typlog 图片 CDN
+  "wavpub.com",                    // 连接重置问题
+  "d3t3ozftmdmh3i.cloudfront.net", // CloudFront CDN 403 问题
 ];
 
 /**
