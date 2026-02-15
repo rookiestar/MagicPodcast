@@ -81,7 +81,7 @@ export default function ResponsivePodcastCard({
             )}
             {/* 新更新标识 */}
             {isNew && (
-              <div className="absolute top-1 right-1 px-1.5 py-0.5 bg-emerald-500/65 text-white text-[10px] italic rounded-md shadow-sm">
+              <div className="absolute top-0.5 right-0.5 px-0.5 py-0.5 bg-emerald-500/65 text-white text-[6px] font-bold uppercase tracking-wider rounded shadow-sm">
                 NEW
               </div>
             )}
@@ -159,7 +159,7 @@ export default function ResponsivePodcastCard({
           )}
           {/* 新更新标识 */}
           {isNew && (
-            <div className="absolute top-2 right-2 px-2 py-1 bg-emerald-500/65 text-white text-xs italic rounded-md shadow-sm">
+            <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-emerald-500/65 text-white text-[10px] font-bold uppercase tracking-wider rounded-md shadow-sm">
               NEW
             </div>
           )}
