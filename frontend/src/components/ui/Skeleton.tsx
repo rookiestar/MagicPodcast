@@ -1,6 +1,7 @@
 "use client";
 
 // ============ 基础骨架屏 ============
+// 注意：animate-pulse 由父容器统一控制，此处不加动画
 
 interface SkeletonProps {
   className?: string;
@@ -28,7 +29,7 @@ export function Skeleton({
 
   return (
     <div
-      className={`bg-slate-200 dark:bg-slate-700 animate-pulse ${variantClasses[variant]} ${className}`}
+      className={`bg-slate-200 dark:bg-slate-700 ${variantClasses[variant]} ${className}`}
       style={style}
     />
   );
@@ -43,7 +44,7 @@ interface PodcastCardSkeletonProps {
 export function PodcastCardSkeleton({ isMobile = false }: PodcastCardSkeletonProps) {
   if (isMobile) {
     return (
-      <div className="flex flex-row gap-3 p-3 bg-white dark:bg-slate-800 rounded-xl shadow-md">
+      <div className="flex flex-row gap-3 p-3 bg-white dark:bg-slate-800 rounded-xl shadow-md animate-pulse">
         <Skeleton variant="rounded" width={64} height={64} />
         <div className="flex-1 space-y-2">
           <Skeleton variant="text" className="w-3/4 h-4" />
@@ -55,7 +56,7 @@ export function PodcastCardSkeleton({ isMobile = false }: PodcastCardSkeletonPro
   }
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-slate-800 rounded-xl shadow-md overflow-hidden">
+    <div className="flex flex-col h-full bg-white dark:bg-slate-800 rounded-xl shadow-md overflow-hidden animate-pulse">
       {/* 封面 */}
       <Skeleton variant="rectangular" className="w-full pt-[100%]" />
 
@@ -85,7 +86,7 @@ interface PodcastDetailSkeletonProps {
 export function PodcastDetailSkeleton({ isMobile = false }: PodcastDetailSkeletonProps) {
   if (isMobile) {
     return (
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-4 space-y-4">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-4 space-y-4 animate-pulse">
         {/* 头部：封面+标题 */}
         <div className="flex gap-4">
           <Skeleton variant="rounded" width={96} height={96} />
@@ -114,7 +115,7 @@ export function PodcastDetailSkeleton({ isMobile = false }: PodcastDetailSkeleto
   }
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg overflow-hidden">
+    <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg overflow-hidden animate-pulse">
       <div className="md:flex">
         {/* 左侧：封面 */}
         <div className="md:w-1/3 p-6 flex justify-center">
@@ -178,7 +179,7 @@ interface TagSkeletonProps {
 
 export function TagSkeleton({ count = 8 }: TagSkeletonProps) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3">
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3 animate-pulse">
       {Array.from({ length: count }).map((_, i) => (
         <Skeleton
           key={i}
@@ -214,7 +215,7 @@ export function WorkflowCardSkeleton() {
 
 export function WorkflowDetailSkeleton() {
   return (
-    <div className="py-6 space-y-6">
+    <div className="py-6 space-y-6 animate-pulse">
       {/* Tabs骨架 */}
       <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-4">
         <div className="flex gap-6">

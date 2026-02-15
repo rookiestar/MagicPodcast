@@ -16,10 +16,12 @@ export default function PodcastDetailLoading() {
 
         {/* Episodes section */}
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="h-6 w-20 bg-slate-200 rounded animate-pulse" />
-            <div className="h-4 w-16 bg-slate-200 rounded animate-pulse" />
+          {/* Section header skeleton */}
+          <div className="flex items-center justify-between animate-pulse">
+            <div className="h-6 w-20 bg-slate-200 rounded" />
+            <div className="h-4 w-16 bg-slate-200 rounded" />
           </div>
+          {/* Episode cards - each has its own animate-pulse */}
           <div className="grid gap-4">
             {Array.from({ length: 5 }).map((_, i) => (
               <EpisodeCardSkeleton key={i} />
