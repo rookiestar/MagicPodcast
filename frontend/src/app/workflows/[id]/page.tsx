@@ -287,10 +287,11 @@ export default function WorkflowDetailPage() {
         ),
         description: workflow.description || undefined,
         rightContent: (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2">
             <button
               onClick={handleTrigger}
-              className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-bold flex items-center gap-2"
+              className="p-2 sm:px-4 sm:py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-bold flex items-center gap-2"
+              title="手动执行"
             >
               <svg
                 className="w-4 h-4 text-blue-600 dark:text-blue-400"
@@ -305,15 +306,16 @@ export default function WorkflowDetailPage() {
                   d="M13 10V3L4 14h7v7l9-11h-7z"
                 />
               </svg>
-              手动执行
+              <span className="hidden sm:inline">手动执行</span>
             </button>
             <button
               onClick={handleToggle}
-              className={`px-4 py-2 rounded-lg transition-colors text-sm font-bold flex items-center gap-2 ${
+              className={`p-2 sm:px-4 sm:py-2 rounded-lg transition-colors text-sm font-bold flex items-center gap-2 ${
                 workflow.is_enabled
                   ? "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
                   : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
               }`}
+              title={workflow.is_enabled ? "停用" : "启用"}
             >
               {workflow.is_enabled ? (
                 <>
@@ -330,7 +332,7 @@ export default function WorkflowDetailPage() {
                       d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"
                     />
                   </svg>
-                  停用
+                  <span className="hidden sm:inline">停用</span>
                 </>
               ) : (
                 <>
@@ -347,13 +349,14 @@ export default function WorkflowDetailPage() {
                       d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
                     />
                   </svg>
-                  启用
+                  <span className="hidden sm:inline">启用</span>
                 </>
               )}
             </button>
             <button
               onClick={() => setShowEditModal(true)}
-              className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-bold flex items-center gap-2"
+              className="p-2 sm:px-4 sm:py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-bold flex items-center gap-2"
+              title="编辑"
             >
               <svg
                 className="w-4 h-4 text-slate-800 dark:text-slate-200"
@@ -368,11 +371,12 @@ export default function WorkflowDetailPage() {
                   d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2h2.828l8.586-8.586z"
                 />
               </svg>
-              编辑
+              <span className="hidden sm:inline">编辑</span>
             </button>
             <button
               onClick={handleDelete}
-              className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-sm font-bold flex items-center gap-2"
+              className="p-2 sm:px-4 sm:py-2 bg-slate-100 dark:bg-slate-700 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-sm font-bold flex items-center gap-2"
+              title="删除"
             >
               <svg
                 className="w-4 h-4"
@@ -387,7 +391,7 @@ export default function WorkflowDetailPage() {
                   d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
                 />
               </svg>
-              删除
+              <span className="hidden sm:inline">删除</span>
             </button>
           </div>
         ),
@@ -539,6 +543,7 @@ export default function WorkflowDetailPage() {
                                   key={podcast.id}
                                   href={`/podcasts/${podcast.id}`}
                                   className="group flex items-center gap-2 px-3 py-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md transition-all"
+                                  title={podcast.title}
                                 >
                                   {podcast.cover_url && (
                                     <img
@@ -547,7 +552,7 @@ export default function WorkflowDetailPage() {
                                       className="w-8 h-8 rounded-lg object-cover"
                                     />
                                   )}
-                                  <span className="text-xs font-semibold text-slate-900 dark:text-slate-50 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                                  <span className="hidden md:block text-xs font-semibold text-slate-900 dark:text-slate-50 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                                     {podcast.title}
                                   </span>
                                 </Link>

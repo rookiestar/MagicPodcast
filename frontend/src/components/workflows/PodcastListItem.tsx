@@ -25,8 +25,8 @@ export const PodcastListItem = memo<PodcastListItemProps>(
             />
           </div>
 
-          {/* 文本 - 移动端隐藏 */}
-          <div className="hidden md:block flex-1 min-w-0 pr-2">
+          {/* 文本 */}
+          <div className="flex-1 min-w-0 pr-2">
             <div className="text-xs font-medium text-slate-900 dark:text-slate-50 truncate">
               {podcast.title}
             </div>
