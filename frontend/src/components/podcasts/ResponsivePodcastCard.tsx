@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import PrefetchLink from "@/components/common/PrefetchLink";
 import { stripHtml } from "@/lib/textUtils";
@@ -22,6 +23,9 @@ export default function ResponsivePodcastCard({
   detailUrl,
   isMobile,
 }: ResponsivePodcastCardProps) {
+  // 图片加载错误状态
+  const [imageError, setImageError] = useState(false);
+
   // 控制简介显示
   const displayedDescription = podcast.description
     ? stripHtml(podcast.description, isMobile ? 80 : 100)
@@ -59,7 +63,7 @@ export default function ResponsivePodcastCard({
         <div className="flex flex-row gap-3 p-3 bg-white rounded-xl shadow-md hover:shadow-lg active:scale-[0.97] active:shadow-sm transition-all duration-200 ease-out overflow-hidden cursor-pointer">
           {/* 封面 */}
           <div className="w-16 h-16 flex-shrink-0 relative rounded-lg overflow-hidden bg-slate-200">
-            {imageUrl ? (
+            {imageUrl && !imageError ? (
               <Image
                 src={imageUrl}
                 alt={podcast.title}
@@ -68,6 +72,7 @@ export default function ResponsivePodcastCard({
                 className="object-cover"
                 priority={isHighPriority}
                 loading={isHighPriority ? "eager" : "lazy"}
+                onError={() => setImageError(true)}
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center">
@@ -136,7 +141,7 @@ export default function ResponsivePodcastCard({
       <div className="flex flex-col h-full bg-white rounded-xl shadow-md hover:shadow-lg active:scale-[0.97] active:shadow-sm transition-all duration-200 ease-out overflow-hidden cursor-pointer">
         {/* 封面 */}
         <div className="relative w-full pt-[100%] rounded-lg overflow-hidden bg-slate-200">
-          {imageUrl ? (
+          {imageUrl && !imageError ? (
             <Image
               src={imageUrl}
               alt={podcast.title}
@@ -145,6 +150,7 @@ export default function ResponsivePodcastCard({
               className="object-cover"
               priority={isHighPriority}
               loading={isHighPriority ? "eager" : "lazy"}
+              onError={() => setImageError(true)}
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center">
