@@ -13,6 +13,7 @@ import (
 	syncsvc "magicpodcast/internal/sync"
 	"magicpodcast/internal/workflow"
 
+	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 )
 
@@ -38,6 +39,7 @@ func SetupRouter() *gin.Engine {
 	// 中间件
 	r.Use(gin.Recovery())    // 恢复 panic
 	r.Use(gin.Logger())      // 请求日志
+	r.Use(gzip.Gzip(gzip.DefaultCompression)) // Gzip 压缩
 	r.Use(middleware.CORS()) // CORS 跨域支持
 
 	// 健康检查

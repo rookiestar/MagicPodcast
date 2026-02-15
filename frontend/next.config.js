@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  output: 'standalone',
   images: {
     // 启用现代图片格式优化
     formats: ['image/avif', 'image/webp'],
