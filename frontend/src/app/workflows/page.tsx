@@ -11,6 +11,7 @@ import WorkflowActionMenu from "@/components/workflows/WorkflowActionMenu";
 import PageLayout from "@/components/layout/PageLayout";
 import PrefetchLink from "@/components/common/PrefetchLink";
 import { WorkflowStatusBadge } from "@/components/ui/StatusBadge";
+import { formatDateTime } from "@/lib/timeUtils";
 
 // 动态导入 WorkflowFormModal，减少首屏 bundle 大小
 const WorkflowFormModal = dynamic(
@@ -158,18 +159,6 @@ export default function WorkflowsPage() {
   const formatTimeRange = (timeRange?: number) => {
     if (!timeRange || timeRange === 0) return "不限制";
     return `最近${timeRange}天`;
-  };
-
-  const formatDateTime = (dateStr?: string) => {
-    if (!dateStr) return "-";
-    const date = new Date(dateStr);
-    return date.toLocaleString("zh-CN", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
   };
 
   return (

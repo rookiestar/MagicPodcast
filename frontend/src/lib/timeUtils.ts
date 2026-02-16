@@ -78,24 +78,32 @@ export function isRecentlyUpdated(
 
 /**
  * 格式化日期为本地字符串
- * @param dateString ISO日期字符串
+ * @param dateString ISO日期字符串（可选）
+ * @param fallback 当日期为空或无效时的默认返回值
  * @returns 格式化后的日期字符串
  */
-export function formatDate(dateString: string): string {
-  const date = new Date(dateString);
-  return date.toLocaleDateString("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
+export function formatDate(dateString?: string, fallback?: string): string {
+  if (!dateString) return fallback || dateString || "";
+  try {
+    const date = new Date(dateString);
+    return date.toLocaleDateString("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+  } catch {
+    return fallback || dateString;
+  }
 }
 
 /**
  * 格式化日期时间为本地字符串
- * @param dateString ISO日期字符串
+ * @param dateString ISO日期字符串（可选）
+ * @param fallback 当日期为空时的默认返回值
  * @returns 格式化后的日期时间字符串
  */
-export function formatDateTime(dateString: string): string {
+export function formatDateTime(dateString?: string, fallback: string = "-"): string {
+  if (!dateString) return fallback;
   const date = new Date(dateString);
   return date.toLocaleString("zh-CN", {
     year: "numeric",

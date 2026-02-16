@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, memo, useMemo, useCallback } from "react";
 import type { Episode } from "@/types";
 import RichText from "@/components/RichText";
 import { imageLoadQueue } from "@/lib/imageLoader";
+import { formatDate } from "@/lib/timeUtils";
 
 interface EpisodeCardProps {
   episode: Episode;
@@ -94,20 +95,6 @@ function EpisodeCard({
     }
 
     return parts.join("");
-  };
-
-  // 格式化日期
-  const formatDate = (dateString: string) => {
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString("zh-CN", {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      });
-    } catch {
-      return dateString;
-    }
   };
 
   // 格式化文件大小
