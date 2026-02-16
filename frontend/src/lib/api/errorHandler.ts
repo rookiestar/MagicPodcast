@@ -1,6 +1,7 @@
 import { toast } from "@/lib/toast";
 
-export interface ApiError {
+// API 错误响应数据结构
+interface ApiErrorResponse {
   code?: string;
   message: string;
   details?: any;
@@ -28,7 +29,7 @@ export const handleApiError = (error: any, context?: string) => {
   // 服务器返回了错误响应
   if (error.response) {
     const status = error.response.status;
-    const data: ApiError = error.response.data || {};
+    const data: ApiErrorResponse = error.response.data || {};
 
     // 根据状态码显示不同的错误消息
     switch (status) {
