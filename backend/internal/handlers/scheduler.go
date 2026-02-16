@@ -1,8 +1,7 @@
 package handlers
 
 import (
-	"net/http"
-
+	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/scheduler"
 
 	"github.com/gin-gonic/gin"
@@ -23,17 +22,11 @@ func NewSchedulerHandler(scheduler *scheduler.Scheduler) *SchedulerHandler {
 // Reload 重新加载调度器
 func (h *SchedulerHandler) Reload(c *gin.Context) {
 	if err := h.scheduler.Reload(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "SCHEDULER_RELOAD_FAILED",
-				"message": "重新加载调度器失败",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "SCHEDULER_RELOAD_FAILED", "重新加载调度器失败")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"message": "调度器已重新加载",
 	})
@@ -43,10 +36,7 @@ func (h *SchedulerHandler) Reload(c *gin.Context) {
 func (h *SchedulerHandler) GetStatus(c *gin.Context) {
 	status := h.scheduler.GetStatus()
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    status,
-	})
+	middleware.SuccessResponse(c, status)
 }
 
 // PauseWorkflow 暂停工作流调度
@@ -57,17 +47,11 @@ func (h *SchedulerHandler) PauseWorkflow(c *gin.Context) {
 	}
 
 	if err := h.scheduler.PauseWorkflow(workflowID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "PAUSE_FAILED",
-				"message": err.Error(),
-			},
-		})
+		middleware.BadRequestResponse(c, "PAUSE_FAILED", err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"message": "工作流调度已暂停",
 	})
@@ -81,17 +65,11 @@ func (h *SchedulerHandler) ResumeWorkflow(c *gin.Context) {
 	}
 
 	if err := h.scheduler.ResumeWorkflow(workflowID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "RESUME_FAILED",
-				"message": err.Error(),
-			},
-		})
+		middleware.BadRequestResponse(c, "RESUME_FAILED", err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"message": "工作流调度已恢复",
 	})

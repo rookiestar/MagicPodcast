@@ -1,8 +1,7 @@
 package handlers
 
 import (
-	"net/http"
-
+	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/services"
 	"magicpodcast/internal/validation"
 
@@ -46,13 +45,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		ValidateStringLength("q", query, 1, 200)
 
 	if v.HasErrors() {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "VALIDATION_ERROR",
-				"message": v.Error(),
-			},
-		})
+		middleware.BadRequestResponse(c, "VALIDATION_ERROR", v.Error())
 		return
 	}
 
@@ -93,18 +86,9 @@ func (h *SearchHandler) Search(c *gin.Context) {
 	// 执行搜索
 	result, err := h.searchService.Search(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "SEARCH_ERROR",
-				"message": err.Error(),
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "SEARCH_ERROR", err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    result,
-	})
+	middleware.SuccessResponse(c, result)
 }

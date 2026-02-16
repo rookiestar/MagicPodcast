@@ -1,9 +1,8 @@
 package handlers
 
 import (
-	"net/http"
-
 	"magicpodcast/internal/database"
+	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
 
 	"github.com/gin-gonic/gin"
@@ -59,13 +58,7 @@ func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 	// 检查播客是否存在
 	var podcast models.Podcast
 	if err := db.First(&podcast, podcastID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "Podcast not found",
-			},
-		})
+		middleware.NotFoundResponse(c, "NOT_FOUND", "Podcast not found")
 		return
 	}
 
@@ -88,13 +81,7 @@ func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 		Limit(pageSize).
 		Offset(offset).
 		Find(&episodes).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "DATABASE_ERROR",
-				"message": "Failed to fetch episodes",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to fetch episodes")
 		return
 	}
 
@@ -123,7 +110,7 @@ func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 	// 计算是否有更多数据
 	hasMore := int64(page*pageSize) < total
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"data":    response,
 		"pagination": gin.H{

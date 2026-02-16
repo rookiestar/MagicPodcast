@@ -2,14 +2,14 @@ package handlers
 
 import (
 	"fmt"
-	"magicpodcast/internal/logger"
-	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
+	"magicpodcast/internal/logger"
+	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
 	"magicpodcast/internal/sync"
 
@@ -58,20 +58,14 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 	// 获取上传的文件
 	file, err := c.FormFile("opml_file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   "OPML文件上传失败，请确保使用multipart/form-data格式",
-		})
+		middleware.BadRequestResponse(c, "INVALID_FILE", "OPML文件上传失败，请确保使用multipart/form-data格式")
 		return
 	}
 
 	// 验证文件扩展名
 	ext := filepath.Ext(file.Filename)
 	if ext != ".opml" && ext != ".xml" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   "OPML文件格式不正确，请上传.opml或.xml文件",
-		})
+		middleware.BadRequestResponse(c, "INVALID_FILE_FORMAT", "OPML文件格式不正确，请上传.opml或.xml文件")
 		return
 	}
 
@@ -81,10 +75,7 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 	tempDir := filepath.Join(".", "data", "temp")
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		logger.Infof("创建临时目录失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   "创建临时目录失败",
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "创建临时目录失败")
 		return
 	}
 
@@ -97,10 +88,7 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 
 	if err := c.SaveUploadedFile(file, tempFilePath); err != nil {
 		logger.Infof("保存文件失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   "保存文件失败",
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "保存文件失败")
 		return
 	}
 
@@ -119,16 +107,13 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 	result, err := h.syncService.ImportOPML(tempFilePath)
 	if err != nil {
 		logger.Infof("导入失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   fmt.Sprintf("导入失败: %v", err),
-		})
+		middleware.InternalErrorResponseWithCode(c, "IMPORT_ERROR", fmt.Sprintf("导入失败: %v", err))
 		return
 	}
 
 	logger.Infof("导入成功: %d/%d", result.SuccessPodcasts, result.TotalPodcasts)
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success":        true,
 		"message":        fmt.Sprintf("成功导入 %d 个播客", result.SuccessPodcasts),
 		"total_podcasts": result.TotalPodcasts,
@@ -146,16 +131,13 @@ func (h *SyncHandler) SyncSubscriptions(c *gin.Context) {
 	result, err := h.syncService.SyncAllPodcasts()
 	if err != nil {
 		logger.Infof("同步失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   fmt.Sprintf("同步失败: %v", err),
-		})
+		middleware.InternalErrorResponseWithCode(c, "SYNC_ERROR", fmt.Sprintf("同步失败: %v", err))
 		return
 	}
 
 	logger.Infof("同步完成: %d 个新单集", result.NewEpisodes)
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success":        true,
 		"message":        fmt.Sprintf("同步完成，获取 %d 个新单集", result.NewEpisodes),
 		"total_podcasts": result.TotalPodcasts,
@@ -202,7 +184,7 @@ func (h *SyncHandler) GetSyncStatus(c *gin.Context) {
 		lastSyncPtr = &lastSync
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success":         true,
 		"total_podcasts":  totalPodcasts,
 		"podcast_sources": podcastSources,
@@ -276,7 +258,7 @@ func (h *SyncHandler) SyncPodcastEpisodes(c *gin.Context) {
 	}
 
 	// 发送最终结果
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"message": fmt.Sprintf("同步完成: 新增 %d, 更新 %d, 跳过 %d",
 			result.Created, result.Updated, result.Skipped),
@@ -370,16 +352,13 @@ func (h *SyncHandler) SyncAllEpisodesNonStreaming(c *gin.Context) {
 	// 执行同步
 	if err := h.syncService.SyncAllPodcastEpisodes(reporter, config); err != nil {
 		logger.Infof("❌ 同步失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   fmt.Sprintf("同步失败: %v", err),
-		})
+		middleware.InternalErrorResponseWithCode(c, "SYNC_ERROR", fmt.Sprintf("同步失败: %v", err))
 		return
 	}
 
 	logger.Info("✅ 所有podcast的episodes同步完成")
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"message": "所有podcast的episodes同步完成",
 	})

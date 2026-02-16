@@ -2,11 +2,11 @@ package handlers
 
 import (
 	"fmt"
-	"net/http"
 	"time"
 
 	"magicpodcast/internal/cache"
 	"magicpodcast/internal/database"
+	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
 
 	"github.com/gin-gonic/gin"
@@ -91,7 +91,7 @@ func (h *PodcastHandler) List(c *gin.Context) {
 			// 返回缓存的完整响应
 			cachedResp := cached.(gin.H)
 			cachedResp["cached"] = true
-			c.JSON(http.StatusOK, cachedResp)
+			c.JSON(200, cachedResp)
 			return
 		}
 		cache.RecordMiss()
@@ -149,13 +149,7 @@ func (h *PodcastHandler) List(c *gin.Context) {
 	var podcasts []models.Podcast
 	offset := (page - 1) * pageSize
 	if err := query.Offset(offset).Limit(pageSize).Find(&podcasts).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "DATABASE_ERROR",
-				"message": "Failed to fetch podcasts",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to fetch podcasts")
 		return
 	}
 
@@ -191,7 +185,7 @@ func (h *PodcastHandler) List(c *gin.Context) {
 	// 设置浏览器缓存头（列表数据缓存60秒）
 	c.Header("Cache-Control", "private, max-age=60")
 
-	c.JSON(http.StatusOK, resp)
+	c.JSON(200, resp)
 }
 
 // Get 获取单个播客节目详情
@@ -210,23 +204,14 @@ func (h *PodcastHandler) Get(c *gin.Context) {
 
 	var podcast models.Podcast
 	if err := db.Preload("Tags").First(&podcast, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "Podcast not found",
-			},
-		})
+		middleware.NotFoundResponse(c, "NOT_FOUND", "Podcast not found")
 		return
 	}
 
 	// 设置浏览器缓存头（播客详情缓存5分钟）
 	c.Header("Cache-Control", "private, max-age=300")
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    h.modelToResponse(&podcast),
-	})
+	middleware.SuccessResponse(c, h.modelToResponse(&podcast))
 }
 // @Summary 批量获取播客
 // @Description 根据播客ID列表批量获取播客详情
@@ -246,27 +231,14 @@ func (h *PodcastHandler) BatchGet(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_REQUEST",
-				"message": "Invalid request body",
-				"details": err.Error(),
-			},
-		})
+		middleware.BadRequestResponse(c, "INVALID_REQUEST", "Invalid request body: "+err.Error())
 		return
 	}
 
 	// 查询播客
 	var podcasts []models.Podcast
 	if err := db.Preload("Tags").Where("id IN ?", request.IDs).Find(&podcasts).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "DATABASE_ERROR",
-				"message": "Failed to fetch podcasts",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to fetch podcasts")
 		return
 	}
 
@@ -276,10 +248,7 @@ func (h *PodcastHandler) BatchGet(c *gin.Context) {
 		responses[i] = h.modelToResponse(&podcast)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    responses,
-	})
+	middleware.SuccessResponse(c, responses)
 }
 
 // modelToResponse 将模型转换为响应格式
@@ -352,13 +321,7 @@ func (h *PodcastHandler) UpdateCustomCover(c *gin.Context) {
 
 	var req UpdateCustomCoverRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_REQUEST",
-				"message": "请求参数错误: " + err.Error(),
-			},
-		})
+		middleware.BindJSONError(c, err)
 		return
 	}
 
@@ -367,36 +330,21 @@ func (h *PodcastHandler) UpdateCustomCover(c *gin.Context) {
 	// 检查播客是否存在
 	var podcast models.Podcast
 	if err := db.First(&podcast, podcastID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "播客不存在",
-			},
-		})
+		middleware.NotFoundResponse(c, "NOT_FOUND", "播客不存在")
 		return
 	}
 
 	// 更新自定义封面
 	if err := db.Model(&podcast).Update("custom_cover_url", req.CustomCoverURL).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "更新自定义封面失败: " + err.Error(),
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "更新自定义封面失败: "+err.Error())
 		return
 	}
 
 	// 重新获取更新后的播客
 	db.First(&podcast, podcastID)
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"id":               podcast.ID,
-			"custom_cover_url": podcast.CustomCoverURL,
-		},
+	middleware.SuccessResponse(c, gin.H{
+		"id":               podcast.ID,
+		"custom_cover_url": podcast.CustomCoverURL,
 	})
 }
