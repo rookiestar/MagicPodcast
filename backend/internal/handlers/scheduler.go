@@ -26,10 +26,7 @@ func (h *SchedulerHandler) Reload(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, gin.H{
-		"success": true,
-		"message": "调度器已重新加载",
-	})
+	middleware.SuccessResponseWithMessage(c, "调度器已重新加载", nil)
 }
 
 // GetStatus 获取调度器状态
@@ -51,10 +48,7 @@ func (h *SchedulerHandler) PauseWorkflow(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, gin.H{
-		"success": true,
-		"message": "工作流调度已暂停",
-	})
+	middleware.SuccessResponseWithMessage(c, "工作流调度已暂停", nil)
 }
 
 // ResumeWorkflow 恢复工作流调度
@@ -69,8 +63,5 @@ func (h *SchedulerHandler) ResumeWorkflow(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, gin.H{
-		"success": true,
-		"message": "工作流调度已恢复",
-	})
+	middleware.SuccessResponseWithMessage(c, "工作流调度已恢复", nil)
 }
