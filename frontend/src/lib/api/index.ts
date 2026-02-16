@@ -9,3 +9,5 @@ export * from "./workflow";
 export * from "./search";
 export * from "./sync";
 export * from "./health";
+export * from "./scheduler";
+export * from "./errorHandler";
