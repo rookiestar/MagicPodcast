@@ -37,9 +37,8 @@ type AddTagRequest struct {
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/podcasts/{id}/tags [post]
 func (h *TagRelationHandlerRefactored) AddTagToPodcast(c *gin.Context) {
-	podcastID, err := parseUintParam(c, "id")
-	if err != nil {
-		middleware.ValidationErrorResponse(c, "id", "must be a valid number")
+	podcastID, ok := ParseUintParam(c, "id")
+	if !ok {
 		return
 	}
 
@@ -76,15 +75,13 @@ func (h *TagRelationHandlerRefactored) AddTagToPodcast(c *gin.Context) {
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/podcasts/{id}/tags/{tagId} [delete]
 func (h *TagRelationHandlerRefactored) RemoveTagFromPodcast(c *gin.Context) {
-	podcastID, err := parseUintParam(c, "id")
-	if err != nil {
-		middleware.ValidationErrorResponse(c, "id", "must be a valid number")
+	podcastID, ok := ParseUintParam(c, "id")
+	if !ok {
 		return
 	}
 
-	tagID, err := parseUintParam(c, "tagId")
-	if err != nil {
-		middleware.ValidationErrorResponse(c, "tagId", "must be a valid number")
+	tagID, ok := ParseUintParam(c, "tagId")
+	if !ok {
 		return
 	}
 
@@ -110,9 +107,8 @@ func (h *TagRelationHandlerRefactored) RemoveTagFromPodcast(c *gin.Context) {
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/podcasts/{id}/tags [get]
 func (h *TagRelationHandlerRefactored) GetPodcastTags(c *gin.Context) {
-	podcastID, err := parseUintParam(c, "id")
-	if err != nil {
-		middleware.ValidationErrorResponse(c, "id", "must be a valid number")
+	podcastID, ok := ParseUintParam(c, "id")
+	if !ok {
 		return
 	}
 
@@ -141,9 +137,8 @@ func (h *TagRelationHandlerRefactored) GetPodcastTags(c *gin.Context) {
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/episodes/{id}/tags [post]
 func (h *TagRelationHandlerRefactored) AddTagToEpisode(c *gin.Context) {
-	episodeID, err := parseUintParam(c, "id")
-	if err != nil {
-		middleware.ValidationErrorResponse(c, "id", "must be a valid number")
+	episodeID, ok := ParseUintParam(c, "id")
+	if !ok {
 		return
 	}
 
@@ -180,15 +175,13 @@ func (h *TagRelationHandlerRefactored) AddTagToEpisode(c *gin.Context) {
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/episodes/{id}/tags/{tagId} [delete]
 func (h *TagRelationHandlerRefactored) RemoveTagFromEpisode(c *gin.Context) {
-	episodeID, err := parseUintParam(c, "id")
-	if err != nil {
-		middleware.ValidationErrorResponse(c, "id", "must be a valid number")
+	episodeID, ok := ParseUintParam(c, "id")
+	if !ok {
 		return
 	}
 
-	tagID, err := parseUintParam(c, "tagId")
-	if err != nil {
-		middleware.ValidationErrorResponse(c, "tagId", "must be a valid number")
+	tagID, ok := ParseUintParam(c, "tagId")
+	if !ok {
 		return
 	}
 
@@ -214,9 +207,8 @@ func (h *TagRelationHandlerRefactored) RemoveTagFromEpisode(c *gin.Context) {
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/episodes/{id}/tags [get]
 func (h *TagRelationHandlerRefactored) GetEpisodeTags(c *gin.Context) {
-	episodeID, err := parseUintParam(c, "id")
-	if err != nil {
-		middleware.ValidationErrorResponse(c, "id", "must be a valid number")
+	episodeID, ok := ParseUintParam(c, "id")
+	if !ok {
 		return
 	}
 
