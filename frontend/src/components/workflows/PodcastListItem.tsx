@@ -1,5 +1,6 @@
 import React, { memo } from "react";
 import PodcastCover from "@/components/podcasts/PodcastCover";
+import { getEffectiveCoverUrl } from "@/lib/imageProxy";
 import type { Podcast } from "@/types";
 
 interface PodcastListItemProps {
@@ -12,13 +13,16 @@ interface PodcastListItemProps {
 
 export const PodcastListItem = memo<PodcastListItemProps>(
   ({ podcast, isSelected, onAdd, onRemove, index }) => {
+    // 获取有效的封面URL（优先使用自定义封面）
+    const effectiveCoverUrl = getEffectiveCoverUrl(podcast.custom_cover_url, podcast.cover_url);
+
     return (
       <div className="flex items-center justify-between p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded cursor-pointer group mb-1">
         <div className="flex items-center gap-3 flex-1 min-w-0">
           {/* 封面 */}
           <div className="w-10 h-10 flex-shrink-0 rounded overflow-hidden shadow-sm">
             <PodcastCover
-              coverUrl={podcast.cover_url}
+              coverUrl={effectiveCoverUrl}
               title={podcast.title}
               index={index}
               priority="low"

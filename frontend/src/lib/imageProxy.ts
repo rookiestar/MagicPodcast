@@ -86,3 +86,21 @@ export async function preloadImages(urls: string[]): Promise<void[]> {
     return [];
   });
 }
+
+/**
+ * 获取有效的封面URL（优先使用自定义封面）
+ * @param customCoverUrl 自定义封面URL（用户设置，不会被同步覆盖）
+ * @param originalCoverUrl 原始封面URL（来自RSS/PodcastIndex）
+ * @returns 有效的封面URL（优先返回自定义封面）
+ */
+export function getEffectiveCoverUrl(
+  customCoverUrl: string | undefined | null,
+  originalCoverUrl: string | undefined | null,
+): string | undefined {
+  // 优先使用自定义封面
+  if (customCoverUrl) {
+    return customCoverUrl;
+  }
+  // 否则使用原始封面
+  return originalCoverUrl || undefined;
+}

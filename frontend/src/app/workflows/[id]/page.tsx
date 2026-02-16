@@ -6,6 +6,7 @@ import Link from "next/link";
 import { workflowApi, podcastApi } from "@/lib/api";
 import { schedulerApi } from "@/lib/api/scheduler";
 import { useWorkflow, useWorkflowJobs } from "@/hooks/useWorkflowSWR";
+import { getEffectiveCoverUrl } from "@/lib/imageProxy";
 import type { Workflow, Job, Podcast } from "@/types";
 import WorkflowFormModal from "@/components/workflows/WorkflowFormModal";
 import ReportModal from "@/components/workflows/ReportModal";
@@ -538,25 +539,28 @@ export default function WorkflowDetailPage() {
                         <>
                           {podcasts.length > 0 ? (
                             <div className="flex flex-wrap gap-3">
-                              {podcasts.map((podcast) => (
-                                <Link
-                                  key={podcast.id}
-                                  href={`/podcasts/${podcast.id}`}
-                                  className="group flex items-center gap-2 px-3 py-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md transition-all"
-                                  title={podcast.title}
-                                >
-                                  {podcast.cover_url && (
-                                    <img
-                                      src={podcast.cover_url}
-                                      alt={podcast.title}
-                                      className="w-8 h-8 rounded-lg object-cover"
-                                    />
-                                  )}
-                                  <span className="hidden md:block text-xs font-semibold text-slate-900 dark:text-slate-50 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                                    {podcast.title}
-                                  </span>
-                                </Link>
-                              ))}
+                              {podcasts.map((podcast) => {
+                                const effectiveCover = getEffectiveCoverUrl(podcast.custom_cover_url, podcast.cover_url);
+                                return (
+                                  <Link
+                                    key={podcast.id}
+                                    href={`/podcasts/${podcast.id}`}
+                                    className="group flex items-center gap-2 px-3 py-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md transition-all"
+                                    title={podcast.title}
+                                  >
+                                    {effectiveCover && (
+                                      <img
+                                        src={effectiveCover}
+                                        alt={podcast.title}
+                                        className="w-8 h-8 rounded-lg object-cover"
+                                      />
+                                    )}
+                                    <span className="hidden md:block text-xs font-semibold text-slate-900 dark:text-slate-50 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                                      {podcast.title}
+                                    </span>
+                                  </Link>
+                                );
+                              })}
                             </div>
                           ) : (
                             <div className="text-sm text-slate-500 dark:text-slate-400">
@@ -1058,26 +1062,29 @@ export default function WorkflowDetailPage() {
                   podcasts.length > 0 ? (
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
                       <div className="flex flex-wrap gap-2">
-                        {podcasts.map((podcast) => (
-                          <Link
-                            key={podcast.id}
-                            href={`/podcasts/${podcast.id}`}
-                            className="text-sm px-3 py-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-50 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-sm transition-all"
-                          >
-                            <div className="flex items-center gap-2">
-                              {podcast.cover_url && (
-                                <img
-                                  src={podcast.cover_url}
-                                  alt={podcast.title}
-                                  className="w-8 h-8 rounded object-cover"
-                                />
-                              )}
-                              <span className="font-medium">
-                                {podcast.title}
-                              </span>
-                            </div>
-                          </Link>
-                        ))}
+                        {podcasts.map((podcast) => {
+                          const effectiveCover = getEffectiveCoverUrl(podcast.custom_cover_url, podcast.cover_url);
+                          return (
+                            <Link
+                              key={podcast.id}
+                              href={`/podcasts/${podcast.id}`}
+                              className="text-sm px-3 py-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-50 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-sm transition-all"
+                            >
+                              <div className="flex items-center gap-2">
+                                {effectiveCover && (
+                                  <img
+                                    src={effectiveCover}
+                                    alt={podcast.title}
+                                    className="w-8 h-8 rounded object-cover"
+                                  />
+                                )}
+                                <span className="font-medium">
+                                  {podcast.title}
+                                </span>
+                              </div>
+                            </Link>
+                          );
+                        })}
                       </div>
                     </div>
                   ) : (

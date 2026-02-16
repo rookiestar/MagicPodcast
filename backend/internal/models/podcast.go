@@ -38,8 +38,9 @@ type Podcast struct {
 	IsDead       bool `gorm:"default:false" json:"is_dead"`      // RSS 源是否失效
 
 	// 用户自定义
-	MyRate int    `gorm:"default:0" json:"my_rate"` // 个人评分 (0-5)
-	Notes  string `gorm:"type:text" json:"notes"`   // 个人备注
+	MyRate         int    `gorm:"default:0" json:"my_rate"`           // 个人评分 (0-5)
+	Notes          string `gorm:"type:text" json:"notes"`             // 个人备注
+	CustomCoverURL string `gorm:"size:512" json:"custom_cover_url"` // 自定义封面URL（优先使用，不会被同步覆盖）
 
 	// 同步相关
 	FeedURLValid    bool       `gorm:"default:true" json:"feed_url_valid"`       // RSS feed是否有效

@@ -148,6 +148,20 @@ export async function removeTagFromPodcast(
   }
 }
 
+// 更新播客自定义封面
+export async function updateCustomCover(
+  id: number,
+  customCoverUrl: string,
+): Promise<void> {
+  const response = await api.put<ApiResponse<{ id: number; custom_cover_url: string }>>(
+    `/api/v1/podcasts/${id}/custom-cover`,
+    { custom_cover_url: customCoverUrl },
+  );
+  if (!response.data.success) {
+    throw new Error(response.data.error?.message || "Failed to update custom cover");
+  }
+}
+
 // 导出为对象形式以保持向后兼容
 export const podcastApi = {
   list: listPodcasts,
@@ -157,4 +171,5 @@ export const podcastApi = {
   getTags: getPodcastTags,
   addTag: addTagToPodcast,
   removeTag: removeTagFromPodcast,
+  updateCustomCover,
 };

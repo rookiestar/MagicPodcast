@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { tagApi, podcastApi } from "@/lib/api";
 import { usePodcast, usePodcastTags } from "@/hooks/usePodcastSWR";
 import { useTags } from "@/hooks/useTagSWR";
+import { getEffectiveCoverUrl } from "@/lib/imageProxy";
 import PodcastCover from "@/components/podcasts/PodcastCover";
 import TagInput from "@/components/tags/TagInput";
 import TagFormModal from "@/components/tags/TagFormModal";
@@ -255,7 +256,7 @@ function TagsPageContent({
                 {/* 封面 */}
                 <div className="w-32 h-32 flex-shrink-0">
                   <PodcastCover
-                    coverUrl={podcast.cover_url}
+                    coverUrl={getEffectiveCoverUrl(podcast.custom_cover_url, podcast.cover_url)}
                     title={podcast.title}
                     priority="high"
                   />

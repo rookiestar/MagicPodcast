@@ -4,6 +4,7 @@ import PrefetchLink from "@/components/common/PrefetchLink";
 import PodcastCover from "@/components/podcasts/PodcastCover";
 import { stripHtml } from "@/lib/textUtils";
 import { getRelativeTime } from "@/lib/timeUtils";
+import { getEffectiveCoverUrl } from "@/lib/imageProxy";
 import type { Podcast } from "@/types";
 
 interface ResponsivePodcastCardProps {
@@ -34,6 +35,9 @@ export default function ResponsivePodcastCard({
   // 相对时间
   const relativeTime = getRelativeTime(podcast.newest_episode_date);
 
+  // 获取有效的封面URL（优先使用自定义封面）
+  const effectiveCoverUrl = getEffectiveCoverUrl(podcast.custom_cover_url, podcast.cover_url);
+
   // 判断是否最近7天有更新
   const isNew = (() => {
     if (!podcast.newest_episode_date) return false;
@@ -51,7 +55,7 @@ export default function ResponsivePodcastCard({
           {/* 封面 */}
           <div className="w-16 h-16 flex-shrink-0 relative rounded-lg overflow-hidden">
             <PodcastCover
-              coverUrl={podcast.cover_url}
+              coverUrl={effectiveCoverUrl}
               title={podcast.title}
               index={index}
               priority={priority}
@@ -120,7 +124,7 @@ export default function ResponsivePodcastCard({
         {/* 封面 */}
         <div className="relative w-full pt-[100%] rounded-lg overflow-hidden bg-slate-200">
           <PodcastCover
-            coverUrl={podcast.cover_url}
+            coverUrl={effectiveCoverUrl}
             title={podcast.title}
             index={index}
             priority={priority}

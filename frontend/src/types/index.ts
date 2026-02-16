@@ -6,6 +6,7 @@ export interface Podcast {
   description: string;
   author: string;
   cover_url: string;
+  custom_cover_url?: string; // 自定义封面URL（优先使用，不会被同步覆盖）
   feed_url?: string;
   episode_count: number;
   newest_episode_date: string;

@@ -67,6 +67,7 @@ func SetupRouter() *gin.Engine {
 			podcasts.POST("/batch", podcastHandler.BatchGet)
 			podcasts.GET("/:id", podcastHandler.Get)
 			podcasts.GET("/:id/episodes", episodeHandler.ListByPodcast)
+			podcasts.PUT("/:id/custom-cover", podcastHandler.UpdateCustomCover) // 更新自定义封面
 		}
 
 		// Search 路由

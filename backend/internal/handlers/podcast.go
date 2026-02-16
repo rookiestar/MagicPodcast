@@ -29,6 +29,7 @@ type PodcastResponse struct {
 	Description       string    `json:"description"`
 	Author            string    `json:"author"`
 	CoverURL          string    `json:"cover_url"`
+	CustomCoverURL    string    `json:"custom_cover_url,omitempty"` // 自定义封面URL（优先使用）
 	FeedURL           string    `json:"feed_url,omitempty"`
 	EpisodeCount      int       `json:"episode_count"`
 	NewestEpisodeDate time.Time `json:"newest_episode_date"`
@@ -323,6 +324,7 @@ func (h *PodcastHandler) modelToResponse(podcast *models.Podcast) PodcastRespons
 		Description:       podcast.Description,
 		Author:            podcast.Author,
 		CoverURL:          podcast.CoverURL,
+		CustomCoverURL:    podcast.CustomCoverURL,
 		FeedURL:           podcast.FeedURL,
 		EpisodeCount:      podcast.EpisodeCount,
 		NewestEpisodeDate: podcast.NewestEpisodeDate,
@@ -346,4 +348,86 @@ func (h *PodcastHandler) modelToResponse(podcast *models.Podcast) PodcastRespons
 
 		Tags: tags,
 	}
+}
+
+// UpdateCustomCoverRequest 更新自定义封面请求
+type UpdateCustomCoverRequest struct {
+	CustomCoverURL string `json:"custom_cover_url" binding:"max=512"`
+}
+
+// UpdateCustomCover 更新播客自定义封面
+// @Summary 更新播客自定义封面
+// @Description 更新指定播客的自定义封面URL（不会被同步覆盖）
+// @Tags Podcasts
+// @Accept json
+// @Produce json
+// @Param id path int true "播客 ID"
+// @Param request body UpdateCustomCoverRequest true "自定义封面URL"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]interface{}
+// @Failure 404 {object} map[string]interface{}
+// @Router /api/v1/podcasts/{id}/custom-cover [put]
+func (h *PodcastHandler) UpdateCustomCover(c *gin.Context) {
+	id := c.Param("id")
+	podcastID, err := strconv.ParseUint(id, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INVALID_ID",
+				"message": "无效的播客 ID",
+			},
+		})
+		return
+	}
+
+	var req UpdateCustomCoverRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INVALID_REQUEST",
+				"message": "请求参数错误: " + err.Error(),
+			},
+		})
+		return
+	}
+
+	db := database.GetDB()
+
+	// 检查播客是否存在
+	var podcast models.Podcast
+	if err := db.First(&podcast, podcastID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "NOT_FOUND",
+				"message": "播客不存在",
+			},
+		})
+		return
+	}
+
+	// 更新自定义封面
+	if err := db.Model(&podcast).Update("custom_cover_url", req.CustomCoverURL).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INTERNAL_ERROR",
+				"message": "更新自定义封面失败: " + err.Error(),
+			},
+		})
+		return
+	}
+
+	// 重新获取更新后的播客
+	db.First(&podcast, podcastID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"id":               podcast.ID,
+			"custom_cover_url": podcast.CustomCoverURL,
+		},
+	})
 }

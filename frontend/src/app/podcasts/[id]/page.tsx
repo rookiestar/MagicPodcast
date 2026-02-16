@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { podcastApi, episodeApi } from "@/lib/api";
 import { usePodcast, usePodcastTags, usePodcastNotes } from "@/hooks/usePodcastSWR";
+import { getEffectiveCoverUrl } from "@/lib/imageProxy";
 import type { Podcast, Tag, Episode } from "@/types";
 import TagInput from "@/components/tags/TagInput";
 import RichText from "@/components/RichText";
@@ -248,7 +249,7 @@ export default function PodcastDetailPage() {
                   <div className="w-24 h-24 flex-shrink-0">
                     <div className="aspect-square w-full rounded-lg overflow-hidden">
                       <PodcastCover
-                        coverUrl={podcast.cover_url}
+                        coverUrl={getEffectiveCoverUrl(podcast.custom_cover_url, podcast.cover_url)}
                         title={podcast.title}
                         priority="high"
                       />
@@ -431,7 +432,7 @@ export default function PodcastDetailPage() {
               <div className="md:w-1/3 p-6">
                 <div className="aspect-square w-full rounded-lg overflow-hidden">
                   <PodcastCover
-                    coverUrl={podcast.cover_url}
+                    coverUrl={getEffectiveCoverUrl(podcast.custom_cover_url, podcast.cover_url)}
                     title={podcast.title}
                     priority="high"
                   />
@@ -704,7 +705,7 @@ export default function PodcastDetailPage() {
                     >
                       <EpisodeCard
                         episode={episode}
-                        podcastCover={podcast.cover_url}
+                        podcastCover={getEffectiveCoverUrl(podcast.custom_cover_url, podcast.cover_url)}
                         index={index}
                         priority={
                           index < 3 ? "high" : index < 10 ? "medium" : "low"
