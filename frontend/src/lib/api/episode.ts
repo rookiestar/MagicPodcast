@@ -2,13 +2,40 @@ import { api } from "./client";
 import type { ApiResponse, Episode, Tag } from "@/types";
 
 export const episodeApi = {
-  // 获取播客的单集列表
-  listByPodcast: async (podcastId: number): Promise<Episode[]> => {
-    const response = await api.get<ApiResponse<Episode[]>>(
-      `/api/v1/podcasts/${podcastId}/episodes`,
-    );
+  // 获取播客的单集列表（支持分页）
+  listByPodcast: async (
+    podcastId: number,
+    page: number = 1,
+    pageSize: number = 20,
+  ): Promise<{
+    episodes: Episode[];
+    pagination: {
+      page: number;
+      page_size: number;
+      total: number;
+      total_pages: number;
+      has_more: boolean;
+    };
+  }> => {
+    const response = await api.get<{
+      success: boolean;
+      data: Episode[];
+      pagination: {
+        page: number;
+        page_size: number;
+        total: number;
+        total_pages: number;
+        has_more: boolean;
+      };
+      error?: { message: string };
+    }>(`/api/v1/podcasts/${podcastId}/episodes`, {
+      params: { page, page_size: pageSize },
+    });
     if (response.data.success && response.data.data) {
-      return response.data.data;
+      return {
+        episodes: response.data.data,
+        pagination: response.data.pagination,
+      };
     }
     throw new Error(response.data.error?.message || "Failed to fetch episodes");
   },
