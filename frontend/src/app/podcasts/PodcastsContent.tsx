@@ -411,47 +411,48 @@ export default function PodcastsContent() {
 
       {/* Podcasts List */}
       {!isLoading && !error && podcasts.length > 0 && (
-        <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-4 lg:gap-6">
-            {podcasts.map((podcast, index) => {
-              const params = new URLSearchParams();
-              if (sortBy) {
-                params.append("sort_by", sortBy);
-              }
-              if (selectedTagIds.length > 0) {
-                params.append("tag_ids", selectedTagIds.join(","));
-              }
-              const queryString = params.toString();
-              const detailUrl = `/podcasts/${podcast.id}${queryString ? `?${queryString}` : ""}`;
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-4 lg:gap-6">
+          {podcasts.map((podcast, index) => {
+            const params = new URLSearchParams();
+            if (sortBy) {
+              params.append("sort_by", sortBy);
+            }
+            if (selectedTagIds.length > 0) {
+              params.append("tag_ids", selectedTagIds.join(","));
+            }
+            const queryString = params.toString();
+            const detailUrl = `/podcasts/${podcast.id}${queryString ? `?${queryString}` : ""}`;
 
-              return (
-                <ResponsivePodcastCard
-                  key={podcast.id}
-                  podcast={podcast}
-                  detailUrl={detailUrl}
-                  index={index}
-                  priority={
-                    index < 6 ? "high" : index < 15 ? "medium" : "low"
-                  }
-                  isMobile={isMobile}
-                />
-              );
-            })}
-          </div>
+            return (
+              <ResponsivePodcastCard
+                key={podcast.id}
+                podcast={podcast}
+                detailUrl={detailUrl}
+                index={index}
+                priority={
+                  index < 6 ? "high" : index < 15 ? "medium" : "low"
+                }
+                isMobile={isMobile}
+              />
+            );
+          })}
+        </div>
+      )}
 
-          {loadingMore && (
-            <div className="text-center py-8">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-              <p className="mt-2 text-sm text-slate-600">加载更多...</p>
-            </div>
-          )}
+      {/* Loading More Indicator */}
+      {!isLoading && !error && loadingMore && (
+        <div className="text-center py-8">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <p className="mt-2 text-sm text-slate-600">加载更多...</p>
+        </div>
+      )}
 
-          <div ref={observerTarget} className="h-10" />
+      {/* Scroll Detector - 无条件渲染以确保 IntersectionObserver 始终可用 */}
+      <div ref={observerTarget} className="h-10" />
 
-          {!hasMore && podcasts.length > 0 && (
-            <div className="text-center py-8 text-slate-500">已经到底了</div>
-          )}
-        </>
+      {/* End of List Indicator */}
+      {!isLoading && !error && !hasMore && podcasts.length > 0 && (
+        <div className="text-center py-8 text-slate-500">已经到底了</div>
       )}
     </PageLayout>
   );
