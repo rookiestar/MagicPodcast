@@ -277,7 +277,7 @@ export default function WorkflowsPage() {
 
                     {/* 操作按钮 */}
                     <div className="flex items-center gap-2 ml-3">
-                      {/* 手动执行 */}
+                      {/* 执行 */}
                       <button
                         onClick={(e) => {
                           e.preventDefault();
@@ -290,7 +290,7 @@ export default function WorkflowsPage() {
                             : "text-blue-600"
                         }`}
                         style={{ minWidth: "44px", minHeight: "44px" }}
-                        title="手动执行"
+                        title="执行"
                       >
                         {triggeringId === workflow.id ? (
                           <svg
@@ -435,7 +435,7 @@ export default function WorkflowsPage() {
 
                       {/* Actions */}
                       <div className="flex items-center gap-2 ml-4">
-                        {/* 手动执行 */}
+                        {/* 执行 */}
                         <button
                           onClick={(e) => handleTrigger(workflow.id, e)}
                           disabled={triggeringId === workflow.id}
@@ -445,7 +445,7 @@ export default function WorkflowsPage() {
                               : "text-blue-600 dark:text-blue-400"
                           }`}
                           style={{ minWidth: "44px", minHeight: "44px" }}
-                          title="手动执行"
+                          title="执行"
                         >
                           {triggeringId === workflow.id ? (
                             <svg
