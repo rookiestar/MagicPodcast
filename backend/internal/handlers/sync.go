@@ -227,19 +227,7 @@ func (h *SyncHandler) SyncPodcastEpisodes(c *gin.Context) {
 
 	// 构建同步配置
 	config := sync.DefaultEpisodeSyncConfig
-
-	// 解析同步模式
-	switch req.Mode {
-	case "incremental":
-		config.Mode = sync.SyncModeIncremental
-	case "full":
-		config.Mode = sync.SyncModeFull
-	case "smart":
-		config.Mode = sync.SyncModeSmart
-	default:
-		config.Mode = sync.SyncModeSmart
-	}
-
+	config.Mode = sync.ParseEpisodeSyncMode(req.Mode)
 	config.UpdateExisting = req.Update
 
 	// 使用SSE流式报告进度
@@ -285,18 +273,7 @@ func (h *SyncHandler) SyncAllEpisodes(c *gin.Context) {
 
 	// 构建同步配置
 	config := sync.DefaultEpisodeSyncConfig
-
-	// 解析同步模式
-	switch req.Mode {
-	case "incremental":
-		config.Mode = sync.SyncModeIncremental
-	case "full":
-		config.Mode = sync.SyncModeFull
-	case "smart":
-		config.Mode = sync.SyncModeSmart
-	default:
-		config.Mode = sync.SyncModeSmart
-	}
+	config.Mode = sync.ParseEpisodeSyncMode(req.Mode)
 
 	logger.Infof("🚀 开始同步所有podcast的episodes (模式: %s)", req.Mode)
 
@@ -331,18 +308,7 @@ func (h *SyncHandler) SyncAllEpisodesNonStreaming(c *gin.Context) {
 
 	// 构建同步配置
 	config := sync.DefaultEpisodeSyncConfig
-
-	// 解析同步模式
-	switch req.Mode {
-	case "incremental":
-		config.Mode = sync.SyncModeIncremental
-	case "full":
-		config.Mode = sync.SyncModeFull
-	case "smart":
-		config.Mode = sync.SyncModeSmart
-	default:
-		config.Mode = sync.SyncModeSmart
-	}
+	config.Mode = sync.ParseEpisodeSyncMode(req.Mode)
 
 	logger.Infof("🚀 开始同步所有podcast的episodes (非流式, 模式: %s)", req.Mode)
 

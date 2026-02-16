@@ -83,6 +83,20 @@ var DefaultEpisodeSyncConfig = EpisodeSyncConfig{
 	DeleteMissing:         false, // 不自动删除（安全考虑）
 }
 
+// ParseEpisodeSyncMode 解析同步模式字符串，无效值返回默认的 Smart 模式
+func ParseEpisodeSyncMode(mode string) EpisodeSyncMode {
+	switch mode {
+	case "incremental":
+		return SyncModeIncremental
+	case "full":
+		return SyncModeFull
+	case "smart":
+		return SyncModeSmart
+	default:
+		return SyncModeSmart
+	}
+}
+
 // EpisodeSyncResult Episode同步结果
 type EpisodeSyncResult struct {
 	PodcastID    uint   `json:"podcast_id"`
