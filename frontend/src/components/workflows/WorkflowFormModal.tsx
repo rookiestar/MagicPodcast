@@ -173,6 +173,9 @@ export default function WorkflowFormModal({
   const [isTagFilterExpanded, setIsTagFilterExpanded] = useState(false);
   const [isLoadingTags, setIsLoadingTags] = useState(false);
 
+  // 移动端标签切换状态（Step 2）
+  const [mobileTab, setMobileTab] = useState<"search" | "selected">("search");
+
   // 同步 selectedTagIds ref（供 Intersection Observer 使用）
   // 注意：必须定义在 selectedTagIds state 之后
   const selectedTagIdsRef = useRef(selectedTagIds);
@@ -764,17 +767,18 @@ export default function WorkflowFormModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4 sm:p-6">
-      <div className="bg-white dark:bg-slate-800 sm:rounded-lg shadow-2xl w-full max-w-3xl self-stretch max-h-[calc(100dvh-2rem)] sm:self-auto sm:max-h-[85vh] overflow-hidden flex flex-col sm:my-8">
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-start sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+      <div className="bg-white dark:bg-slate-800 rounded-none sm:rounded-lg shadow-2xl w-full max-w-3xl min-h-[100dvh] sm:min-h-0 sm:max-h-[85vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="border-b border-slate-200 dark:border-slate-700 p-6">
+        <div className="border-b border-slate-200 dark:border-slate-700 p-4 sm:p-6 shrink-0">
           <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-50">
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-50">
               {workflow ? "编辑工作流" : "创建工作流"} ({step}/4)
             </h2>
             <button
               onClick={handleClose}
-              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-2xl"
+              className="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-2xl rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 active:bg-slate-200 dark:active:bg-slate-600 transition-colors"
+              aria-label="关闭"
             >
               ×
             </button>
@@ -992,13 +996,13 @@ export default function WorkflowFormModal({
                   选择要处理的节目范围 <span className="text-red-500">*</span>
                 </label>
                 <div className="space-y-3">
-                  <label className="flex items-start gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 cursor-pointer">
+                  <label className="flex items-start gap-3 p-4 sm:p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 active:bg-slate-100 dark:active:bg-slate-800 cursor-pointer transition-colors">
                     <input
                       type="radio"
                       name="scopeType"
                       checked={scopeType === "all_subscribed"}
                       onChange={() => setScopeType("all_subscribed")}
-                      className="mt-1"
+                      className="mt-1 w-5 h-5 flex-shrink-0"
                     />
                     <div>
                       <div className="font-medium text-slate-900 dark:text-slate-50">
@@ -1010,7 +1014,7 @@ export default function WorkflowFormModal({
                     </div>
                   </label>
 
-                  <label className="flex items-start gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 cursor-pointer">
+                  <label className="flex items-start gap-3 p-4 sm:p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 active:bg-slate-100 dark:active:bg-slate-800 cursor-pointer transition-colors">
                     <input
                       type="radio"
                       name="scopeType"
@@ -1019,7 +1023,7 @@ export default function WorkflowFormModal({
                         setScopeType("specific_podcasts");
                         if (podcasts.length === 0) loadPodcasts();
                       }}
-                      className="mt-1"
+                      className="mt-1 w-5 h-5 flex-shrink-0"
                     />
                     <div className="flex-1">
                       <div className="font-medium text-slate-900 dark:text-slate-50">
@@ -1217,18 +1221,67 @@ export default function WorkflowFormModal({
                               </div>
                             )}
 
-                          {/* 三栏布局 - 固定高度 */}
+                          {/* 移动端标签栏 */}
+                          <div className="sm:hidden flex border-b border-slate-200 dark:border-slate-700 mb-3">
+                            <button
+                              type="button"
+                              onClick={() => setMobileTab("search")}
+                              className={`flex-1 py-3 text-sm font-medium transition-colors ${
+                                mobileTab === "search"
+                                  ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400"
+                                  : "text-slate-500 dark:text-slate-400"
+                              }`}
+                            >
+                              📻 搜索 ({filteredPodcasts.length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setMobileTab("selected")}
+                              className={`flex-1 py-3 text-sm font-medium transition-colors ${
+                                mobileTab === "selected"
+                                  ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400"
+                                  : "text-slate-500 dark:text-slate-400"
+                              }`}
+                            >
+                              ✅ 已选 ({candidatePodcastIds.length})
+                            </button>
+                          </div>
+
+                          {/* 移动端底部操作栏 */}
+                          <div className="sm:hidden sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 p-3 flex gap-2 -mx-6 -mb-6 mt-4 z-10">
+                            {filteredPodcasts.length > 0 && !isLoadingPodcasts && (
+                              <button
+                                type="button"
+                                onClick={handleAddAllFiltered}
+                                className="flex-1 min-h-[44px] bg-blue-600 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+                              >
+                                <span>≫</span>
+                                添加全部 ({filteredPodcasts.length})
+                              </button>
+                            )}
+                            {candidatePodcastIds.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setCandidatePodcastIds([])}
+                                className="min-h-[44px] px-4 border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 rounded-lg text-sm font-medium"
+                              >
+                                清空
+                              </button>
+                            )}
+                          </div>
+
+                          {/* 三栏布局 - 桌面端固定高度，移动端根据tab显示 */}
                           <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 transition-all duration-200">
                             {/* 左侧：搜索结果列表 */}
-                            <div className="col-span-1 sm:col-span-5">
-                              <div className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
+                            <div className={`col-span-1 sm:col-span-5 ${mobileTab !== "search" ? "hidden sm:block" : ""}`}>
+                              <div className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
                                 <span>📻</span>
                                 <span>搜索结果</span>
                                 <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 rounded-full text-xs">
                                   {filteredPodcasts.length}
                                 </span>
                               </div>
-                              <div className="h-80 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg p-2 bg-white dark:bg-slate-800 transition-all duration-200 hover:border-slate-300 dark:hover:border-slate-600">
+                              <div className="h-[50vh] sm:h-80 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg p-2 bg-white dark:bg-slate-800 transition-all duration-200 hover:border-slate-300 dark:hover:border-slate-600">
                                 {isLoadingPodcasts ? (
                                   <div className="text-center text-slate-500 dark:text-slate-400 py-4 text-xs">
                                     加载中...
@@ -1293,8 +1346,8 @@ export default function WorkflowFormModal({
                               </div>
                             </div>
 
-                            {/* 中间：批量操作按钮 */}
-                            <div className="col-span-1 sm:col-span-2 flex flex-col sm:flex-row justify-center gap-3">
+                            {/* 中间：批量操作按钮 - 仅桌面端显示 */}
+                            <div className="hidden sm:flex col-span-2 flex-col justify-center gap-3">
                               {filteredPodcasts.length > 0 &&
                                 !isLoadingPodcasts && (
                                   <button
@@ -1327,25 +1380,25 @@ export default function WorkflowFormModal({
                             </div>
 
                             {/* 右侧：备选列表 */}
-                            <div className="col-span-1 sm:col-span-5">
-                              <div className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
+                            <div className={`col-span-1 sm:col-span-5 ${mobileTab !== "selected" ? "hidden sm:block" : ""}`}>
+                              <div className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
                                 <span>✅</span>
                                 <span>已选</span>
                                 <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs">
                                   {candidatePodcastIds.length}
                                 </span>
                               </div>
-                              <div className="h-80 overflow-y-auto border-2 border-green-200 dark:border-green-800 rounded-lg p-2 bg-green-50/50 dark:bg-green-900/10 transition-all duration-200 hover:border-green-300 dark:hover:border-green-700">
+                              <div className="h-[50vh] sm:h-80 overflow-y-auto border-2 border-green-200 dark:border-green-800 rounded-lg p-2 bg-green-50/50 dark:bg-green-900/10 transition-all duration-200 hover:border-green-300 dark:hover:border-green-700">
                                 {candidatePodcastIds.length === 0 ? (
                                   <div className="flex flex-col items-center justify-center h-full py-8 text-center">
                                     <div className="text-3xl mb-2 opacity-50">
                                       👈
                                     </div>
                                     <div className="text-sm text-slate-500 dark:text-slate-400">
-                                      从左侧选择节目
+                                      从搜索结果选择节目
                                     </div>
                                     <div className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-                                      点击"全部添加"快速加入
+                                      切换到"搜索"标签
                                     </div>
                                   </div>
                                 ) : (
@@ -1380,13 +1433,13 @@ export default function WorkflowFormModal({
                     </div>
                   </label>
 
-                  <label className="flex items-start gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 cursor-pointer">
+                  <label className="flex items-start gap-3 p-4 sm:p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 active:bg-slate-100 dark:active:bg-slate-800 cursor-pointer transition-colors">
                     <input
                       type="radio"
                       name="scopeType"
                       checked={scopeType === "custom_sources"}
                       onChange={() => setScopeType("custom_sources")}
-                      className="mt-1"
+                      className="mt-1 w-5 h-5 flex-shrink-0"
                     />
                     <div className="flex-1">
                       <div className="font-medium text-slate-900 dark:text-slate-50">
@@ -1829,8 +1882,8 @@ export default function WorkflowFormModal({
                             value={llmUserPrompt}
                             onChange={(e) => setLlmUserPrompt(e.target.value)}
                             placeholder="留空使用默认用户提示词模板：定义分析任务和输出格式"
-                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm font-mono"
-                            rows={12}
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm font-mono resize-y min-h-[120px] max-h-[40vh] sm:max-h-none"
+                            rows={6}
                           />
                           <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
                             💡 支持Go template语法，可用变量：WorkflowName,

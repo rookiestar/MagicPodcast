@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { workflowApi, podcastApi } from "@/lib/api";
@@ -48,6 +48,21 @@ export default function WorkflowDetailPage() {
 
   // 报告弹窗状态
   const [reportModalJobId, setReportModalJobId] = useState<number | null>(null);
+
+  // 移动端更多菜单状态
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  // 点击外部关闭更多菜单
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
+        setShowMoreMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // 当 workflow 数据加载完成后，获取关联的播客列表
   useEffect(() => {
@@ -288,113 +303,181 @@ export default function WorkflowDetailPage() {
         ),
         description: workflow.description || undefined,
         rightContent: (
-          <div className="flex items-center gap-1 sm:gap-2">
-            <button
-              onClick={handleTrigger}
-              className="p-2 sm:px-4 sm:py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-bold flex items-center gap-2"
-              title="手动执行"
-            >
-              <svg
-                className="w-4 h-4 text-blue-600 dark:text-blue-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+          <>
+            {/* 移动端：更多操作下拉菜单 */}
+            <div className="sm:hidden relative" ref={moreMenuRef}>
+              <button
+                onClick={() => setShowMoreMenu(!showMoreMenu)}
+                className="p-2.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg"
+                title="更多操作"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2.5}
-                  d="M13 10V3L4 14h7v7l9-11h-7z"
-                />
-              </svg>
-              <span className="hidden sm:inline">手动执行</span>
-            </button>
-            <button
-              onClick={handleToggle}
-              className={`p-2 sm:px-4 sm:py-2 rounded-lg transition-colors text-sm font-bold flex items-center gap-2 ${
-                workflow.is_enabled
-                  ? "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
-                  : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
-              }`}
-              title={workflow.is_enabled ? "停用" : "启用"}
-            >
-              {workflow.is_enabled ? (
-                <>
-                  <svg
-                    className="w-4 h-4 text-amber-600 dark:text-amber-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                </svg>
+              </button>
+              {showMoreMenu && (
+                <div className="absolute right-0 top-full mt-1 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 py-1 min-w-[140px] z-50">
+                  <button
+                    onClick={() => { handleTrigger(); setShowMoreMenu(false); }}
+                    className="w-full px-4 py-3 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-3"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2.5}
-                      d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  <span className="hidden sm:inline">停用</span>
-                </>
-              ) : (
-                <>
-                  <svg
-                    className="w-4 h-4 text-green-600 dark:text-green-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
+                    <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    手动执行
+                  </button>
+                  <button
+                    onClick={() => { handleToggle(); setShowMoreMenu(false); }}
+                    className="w-full px-4 py-3 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-3"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2.5}
-                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  <span className="hidden sm:inline">启用</span>
-                </>
+                    {workflow.is_enabled ? (
+                      <>
+                        <svg className="w-4 h-4 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        停用
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        启用
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => { setShowEditModal(true); setShowMoreMenu(false); }}
+                    className="w-full px-4 py-3 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-3"
+                  >
+                    <svg className="w-4 h-4 text-slate-600 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2h2.828l8.586-8.586z" />
+                    </svg>
+                    编辑
+                  </button>
+                  <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
+                  <button
+                    onClick={() => { handleDelete(); setShowMoreMenu(false); }}
+                    className="w-full px-4 py-3 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-3"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    删除
+                  </button>
+                </div>
               )}
-            </button>
-            <button
-              onClick={() => setShowEditModal(true)}
-              className="p-2 sm:px-4 sm:py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-bold flex items-center gap-2"
-              title="编辑"
-            >
-              <svg
-                className="w-4 h-4 text-slate-800 dark:text-slate-200"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+            </div>
+
+            {/* 桌面端：原有按钮组 */}
+            <div className="hidden sm:flex items-center gap-2">
+              <button
+                onClick={handleTrigger}
+                className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-bold flex items-center gap-2"
+                title="手动执行"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2.5}
-                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2h2.828l8.586-8.586z"
-                />
-              </svg>
-              <span className="hidden sm:inline">编辑</span>
-            </button>
-            <button
-              onClick={handleDelete}
-              className="p-2 sm:px-4 sm:py-2 bg-slate-100 dark:bg-slate-700 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-sm font-bold flex items-center gap-2"
-              title="删除"
-            >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+                <svg
+                  className="w-4 h-4 text-blue-600 dark:text-blue-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2.5}
+                    d="M13 10V3L4 14h7v7l9-11h-7z"
+                  />
+                </svg>
+                <span>手动执行</span>
+              </button>
+              <button
+                onClick={handleToggle}
+                className={`px-4 py-2 rounded-lg transition-colors text-sm font-bold flex items-center gap-2 ${
+                  workflow.is_enabled
+                    ? "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                    : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                }`}
+                title={workflow.is_enabled ? "停用" : "启用"}
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2.5}
-                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                />
-              </svg>
-              <span className="hidden sm:inline">删除</span>
-            </button>
-          </div>
+                {workflow.is_enabled ? (
+                  <>
+                    <svg
+                      className="w-4 h-4 text-amber-600 dark:text-amber-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2.5}
+                        d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    <span>停用</span>
+                  </>
+                ) : (
+                  <>
+                    <svg
+                      className="w-4 h-4 text-green-600 dark:text-green-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2.5}
+                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    <span>启用</span>
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => setShowEditModal(true)}
+                className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-bold flex items-center gap-2"
+                title="编辑"
+              >
+                <svg
+                  className="w-4 h-4 text-slate-800 dark:text-slate-200"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2.5}
+                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2h2.828l8.586-8.586z"
+                  />
+                </svg>
+                <span>编辑</span>
+              </button>
+              <button
+                onClick={handleDelete}
+                className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-sm font-bold flex items-center gap-2"
+                title="删除"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2.5}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+                <span>删除</span>
+              </button>
+            </div>
+          </>
         ),
       }}
     >
@@ -538,24 +621,24 @@ export default function WorkflowDetailPage() {
                       {workflow.scope_type === "specific_podcasts" && (
                         <>
                           {podcasts.length > 0 ? (
-                            <div className="flex flex-wrap gap-3">
+                            <div className="flex flex-wrap gap-2 sm:gap-3">
                               {podcasts.map((podcast) => {
                                 const effectiveCover = getEffectiveCoverUrl(podcast.custom_cover_url, podcast.cover_url);
                                 return (
                                   <Link
                                     key={podcast.id}
                                     href={`/podcasts/${podcast.id}`}
-                                    className="group flex items-center gap-2 px-3 py-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md transition-all"
+                                    className="group flex items-center gap-2 p-1 sm:px-3 sm:py-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md transition-all"
                                     title={podcast.title}
                                   >
                                     {effectiveCover && (
                                       <img
                                         src={effectiveCover}
                                         alt={podcast.title}
-                                        className="w-8 h-8 rounded-lg object-cover"
+                                        className="w-8 h-8 sm:w-8 sm:h-8 rounded-lg object-cover flex-shrink-0"
                                       />
                                     )}
-                                    <span className="hidden md:block text-xs font-semibold text-slate-900 dark:text-slate-50 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                                    <span className="hidden sm:block text-xs font-semibold text-slate-900 dark:text-slate-50 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate max-w-[120px]">
                                       {podcast.title}
                                     </span>
                                   </Link>
@@ -710,7 +793,7 @@ export default function WorkflowDetailPage() {
                         </span>
                       )}
                     </div>
-                    <div className="grid grid-cols-4 gap-4 text-sm">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-sm">
                       <div>
                         <span className="text-slate-600 dark:text-slate-400">
                           处理节目:
@@ -769,29 +852,57 @@ export default function WorkflowDetailPage() {
                       {/* Job摘要卡片 - 可点击展开/收起 */}
                       <div
                         onClick={() => fetchJobDetail(job.id)}
-                        className="p-4 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors cursor-pointer"
+                        className="p-3 sm:p-4 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors cursor-pointer"
                       >
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex items-center gap-3">
-                            <span className="text-sm px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded flex-shrink-0">
-                              {job.triggered_by === "cron" ? "定时" : "手动"}
-                            </span>
-                            {getJobStatusBadge(job.status)}
-                            <span className="text-sm text-slate-600 dark:text-slate-400">
-                              {new Date(job.created_at).toLocaleString("zh-CN")}
-                            </span>
-                            {job.duration && (
-                              <span className="text-sm font-medium text-slate-700 dark:text-slate-300 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded flex-shrink-0">
-                                耗时：{Math.floor(job.duration / 1000)}s
+                        {/* 移动端：两行布局 */}
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-0 sm:mb-2">
+                          {/* 第一行：状态 + 时间 + 操作按钮 */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 sm:gap-3">
+                              <span className="text-xs sm:text-sm px-1.5 sm:px-2 py-0.5 sm:py-1 bg-slate-100 dark:bg-slate-700 rounded flex-shrink-0">
+                                {job.triggered_by === "cron" ? "定时" : "手动"}
                               </span>
-                            )}
-                            {job.llm_tokens_used && job.llm_model_used && (
-                              <span className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 rounded-full font-medium flex-shrink-0">
-                                🤖 AI: {formatTokenCount(job.llm_tokens_used)} ({job.llm_model_used})
+                              {getJobStatusBadge(job.status)}
+                              <span className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">
+                                {new Date(job.created_at).toLocaleDateString("zh-CN")}
                               </span>
-                            )}
+                            </div>
+                            {/* 移动端操作按钮 */}
+                            <div className="flex items-center gap-2 sm:hidden">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (job.status === "completed") {
+                                    setReportModalJobId(job.id);
+                                  }
+                                }}
+                                disabled={job.status !== "completed"}
+                                className={`p-2 rounded flex-shrink-0 ${
+                                  job.status === "completed"
+                                    ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400"
+                                    : "bg-slate-100 dark:bg-slate-800 text-slate-400"
+                                }`}
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                </svg>
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  fetchJobDetail(job.id);
+                                }}
+                                className="p-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded flex-shrink-0"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                </svg>
+                              </button>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-3">
+
+                          {/* 桌面端操作按钮 */}
+                          <div className="hidden sm:flex items-center gap-3">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -851,52 +962,69 @@ export default function WorkflowDetailPage() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-5 gap-3 text-sm">
-                          <div>
-                            <span className="text-slate-600 dark:text-slate-400">
-                              处理节目:
+                        {/* 第二行：耗时 + LLM信息（桌面端在同一行，移动端单独一行） */}
+                        <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-slate-600 dark:text-slate-400 mb-2">
+                          {job.duration && (
+                            <span className="font-medium text-slate-700 dark:text-slate-300 px-1.5 sm:px-2 py-0.5 sm:py-1 bg-slate-100 dark:bg-slate-700 rounded flex-shrink-0">
+                              耗时：{Math.floor(job.duration / 1000)}s
                             </span>
-                            <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                              {job.podcasts_processed}
+                          )}
+                          {job.llm_tokens_used && job.llm_model_used && (
+                            <span className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 rounded-full font-medium flex-shrink-0">
+                              🤖 {formatTokenCount(job.llm_tokens_used)}
                             </span>
-                          </div>
-                          <div>
-                            <span className="text-slate-600 dark:text-slate-400">
-                              发现单集:
-                            </span>
-                            <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                              {job.episodes_found}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-slate-600 dark:text-slate-400">
-                              创建单集:
-                            </span>
-                            <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                              {job.episodes_created}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-slate-600 dark:text-slate-400">
-                              匹配数:
-                            </span>
-                            <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                              {job.episodes_matched}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-slate-600 dark:text-slate-400">
-                              错误数:
-                            </span>
-                            <span
-                              className={`ml-2 font-medium ${
-                                job.error_count > 0
-                                  ? "text-red-600"
-                                  : "text-slate-900 dark:text-slate-50"
-                              }`}
-                            >
-                              {job.error_count}
-                            </span>
+                          )}
+                        </div>
+
+                        {/* 移动端横向滚动，桌面端正常网格 */}
+                        <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+                          <div className="grid grid-cols-5 gap-3 text-sm min-w-[400px] sm:min-w-0">
+                            <div>
+                              <span className="text-slate-600 dark:text-slate-400">
+                                处理节目:
+                              </span>
+                              <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                                {job.podcasts_processed}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-slate-600 dark:text-slate-400">
+                                发现单集:
+                              </span>
+                              <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                                {job.episodes_found}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-slate-600 dark:text-slate-400">
+                                创建单集:
+                              </span>
+                              <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                                {job.episodes_created}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-slate-600 dark:text-slate-400">
+                                匹配数:
+                              </span>
+                              <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                                {job.episodes_matched}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-slate-600 dark:text-slate-400">
+                                错误数:
+                              </span>
+                              <span
+                                className={`ml-2 font-medium ${
+                                  job.error_count > 0
+                                    ? "text-red-600"
+                                    : "text-slate-900 dark:text-slate-50"
+                                }`}
+                              >
+                                {job.error_count}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -955,7 +1083,7 @@ export default function WorkflowDetailPage() {
                                       </span>
                                     </div>
 
-                                    <div className="grid grid-cols-4 gap-3 text-xs">
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                                       <div>
                                         <span className="text-slate-600 dark:text-slate-400">
                                           状态:

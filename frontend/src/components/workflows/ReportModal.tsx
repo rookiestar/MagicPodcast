@@ -90,8 +90,8 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/50">
+      <div className="bg-white dark:bg-slate-800 rounded-none sm:rounded-lg shadow-xl w-full sm:max-w-4xl self-stretch sm:self-auto max-h-[calc(100dvh-1rem)] sm:max-h-[90vh] overflow-hidden flex flex-col m-0 sm:m-2">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
           <div>
