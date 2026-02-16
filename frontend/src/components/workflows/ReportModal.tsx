@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api/client'
+import { toast } from '@/lib/toast'
 import MarkdownViewer from './MarkdownViewer'
 
 interface ReportModalProps {
@@ -76,11 +77,11 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
       if (response.data.success) {
         setReport(response.data.data)
         // Show success message
-        alert('AI摘要重新生成成功！')
+        toast.success('AI摘要重新生成成功！')
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error'
-      alert(`重新生成失败: ${errorMsg}`)
+      toast.error(`重新生成失败: ${errorMsg}`)
       console.error('Failed to regenerate LLM summary:', err)
     } finally {
       setRegenerating(false)

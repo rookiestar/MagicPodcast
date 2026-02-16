@@ -11,6 +11,7 @@ import PodcastCover from "@/components/podcasts/PodcastCover";
 import TagInput from "@/components/tags/TagInput";
 import TagFormModal from "@/components/tags/TagFormModal";
 import PageLayout from "@/components/layout/PageLayout";
+import { toast } from "@/lib/toast";
 import type { Tag, Podcast } from "@/types";
 
 // 动态加载 pinyin-pro，减少首屏 bundle 大小 (~60KB)
@@ -98,7 +99,7 @@ function TagsPageContent({
       mutatePodcastTags();
       mutate();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "更新标签失败");
+      toast.error(err instanceof Error ? err.message : "更新标签失败");
       // Revalidate to get correct state
       mutatePodcastTags();
     }
@@ -142,7 +143,7 @@ function TagsPageContent({
       await tagApi.delete(id);
       mutate();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "删除失败");
+      toast.error(err instanceof Error ? err.message : "删除失败");
     }
   };
 
@@ -529,7 +530,7 @@ export default function TagsPage() {
       // 刷新标签列表
       mutate();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "批量删除失败");
+      toast.error(err instanceof Error ? err.message : "批量删除失败");
     }
   };
 

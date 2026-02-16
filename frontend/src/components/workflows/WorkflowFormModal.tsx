@@ -18,6 +18,7 @@ import {
   DEFAULT_USER_PROMPT,
   validateCronExpression,
 } from "./workflowFormConstants";
+import { toast } from "@/lib/toast";
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -255,7 +256,7 @@ export default function WorkflowFormModal({
       setDisplayedCount(Math.min(50, allPodcasts.length));
     } catch (err) {
       console.error("[CreateWorkflowModal] Failed to load podcasts:", err);
-      alert(
+      toast.error(
         "加载节目失败: " + (err instanceof Error ? err.message : "未知错误"),
       );
     } finally {
@@ -458,7 +459,7 @@ export default function WorkflowFormModal({
   const validateStep = (): boolean => {
     if (step === 1) {
       if (!name.trim()) {
-        alert("请输入工作流名称");
+        toast.warning("请输入工作流名称");
         return false;
       }
 
@@ -484,11 +485,11 @@ export default function WorkflowFormModal({
         scopeType === "specific_podcasts" &&
         candidatePodcastIds.length === 0
       ) {
-        alert("请至少添加一个节目到备选列表");
+        toast.warning("请至少添加一个节目到备选列表");
         return false;
       }
       if (scopeType === "custom_sources" && customUrls.length === 0) {
-        alert("请至少添加一个RSS源");
+        toast.warning("请至少添加一个RSS源");
         return false;
       }
     }
@@ -612,7 +613,7 @@ export default function WorkflowFormModal({
     } catch (err) {
       console.error("[WorkflowFormModal] Submit failed:", err);
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
-      alert(`${workflow ? "更新" : "创建"}失败: ${errorMessage}`);
+      toast.error(`${workflow ? "更新" : "创建"}失败: ${errorMessage}`);
     } finally {
       setLoading(false);
     }

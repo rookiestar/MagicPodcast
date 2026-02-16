@@ -13,6 +13,7 @@ import EpisodeCard from "@/components/episodes/EpisodeCard";
 import PodcastCover from "@/components/podcasts/PodcastCover";
 import PageLayout from "@/components/layout/PageLayout";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { toast } from "@/lib/toast";
 
 export default function PodcastDetailPage() {
   const params = useParams();
@@ -194,7 +195,7 @@ export default function PodcastDetailPage() {
       mutateTags();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "更新标签失败";
-      alert(`标签更新失败: ${errorMsg}`);
+      toast.error(`标签更新失败: ${errorMsg}`);
       console.error("Failed to update tags:", err);
       // 回滚：重新验证恢复正确状态
       mutateTags();
@@ -212,7 +213,7 @@ export default function PodcastDetailPage() {
       mutateNotes();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "保存备注失败";
-      alert(`保存失败: ${errorMsg}`);
+      toast.error(`保存失败: ${errorMsg}`);
       console.error("Failed to save notes:", err);
       // 回滚
       mutateNotes();

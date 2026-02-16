@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import { syncApi } from "@/lib/api";
 import PageLayout from "@/components/layout/PageLayout";
+import { toast } from "@/lib/toast";
 
 // 日志类型定义
 type LogType =
@@ -325,7 +326,7 @@ function ImportPageContent() {
         !validTypes.includes(selectedFile.type) &&
         !["opml", "xml"].includes(fileExt || "")
       ) {
-        alert("请选择OPML或XML文件");
+        toast.warning("请选择OPML或XML文件");
         return;
       }
 
@@ -337,7 +338,7 @@ function ImportPageContent() {
   // 导入OPML（智能模式：本地匹配+在线同步）
   const handleImport = async () => {
     if (!file) {
-      alert("请先选择OPML文件");
+      toast.warning("请先选择OPML文件");
       return;
     }
 
