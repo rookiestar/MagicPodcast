@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"strconv"
 
 	"magicpodcast/internal/scheduler"
 
@@ -52,20 +51,12 @@ func (h *SchedulerHandler) GetStatus(c *gin.Context) {
 
 // PauseWorkflow 暂停工作流调度
 func (h *SchedulerHandler) PauseWorkflow(c *gin.Context) {
-	idStr := c.Param("id")
-	workflowID, err := strconv.ParseUint(idStr, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_WORKFLOW_ID",
-				"message": "无效的工作流ID",
-			},
-		})
+	workflowID, ok := ParseUintParam(c, "id")
+	if !ok {
 		return
 	}
 
-	if err := h.scheduler.PauseWorkflow(uint(workflowID)); err != nil {
+	if err := h.scheduler.PauseWorkflow(workflowID); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -84,20 +75,12 @@ func (h *SchedulerHandler) PauseWorkflow(c *gin.Context) {
 
 // ResumeWorkflow 恢复工作流调度
 func (h *SchedulerHandler) ResumeWorkflow(c *gin.Context) {
-	idStr := c.Param("id")
-	workflowID, err := strconv.ParseUint(idStr, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_WORKFLOW_ID",
-				"message": "无效的工作流ID",
-			},
-		})
+	workflowID, ok := ParseUintParam(c, "id")
+	if !ok {
 		return
 	}
 
-	if err := h.scheduler.ResumeWorkflow(uint(workflowID)); err != nil {
+	if err := h.scheduler.ResumeWorkflow(workflowID); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error": gin.H{

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"magicpodcast/internal/config"
@@ -228,14 +227,9 @@ type SyncPodcastEpisodesRequest struct {
 // SyncPodcastEpisodes 同步指定podcast的episodes
 // POST /api/v1/podcasts/:id/episodes/sync
 func (h *SyncHandler) SyncPodcastEpisodes(c *gin.Context) {
-	// 获取podcast ID
-	idStr := c.Param("id")
-	podcastID, err := strconv.ParseUint(idStr, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   "无效的podcast ID",
-		})
+	// 获取podcast ID（使用辅助函数）
+	podcastID, ok := ParseUintParam(c, "id")
+	if !ok {
 		return
 	}
 

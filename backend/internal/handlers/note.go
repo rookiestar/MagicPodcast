@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"strconv"
 
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/models"
@@ -36,16 +35,8 @@ type UpdateNoteRequest struct {
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/podcasts/{id}/notes [put]
 func (h *NoteHandler) UpdatePodcastNotes(c *gin.Context) {
-	id := c.Param("id")
-	podcastID, err := strconv.ParseUint(id, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_ID",
-				"message": "无效的播客 ID",
-			},
-		})
+	podcastID, ok := ParseUintParam(c, "id")
+	if !ok {
 		return
 	}
 
@@ -111,16 +102,8 @@ func (h *NoteHandler) UpdatePodcastNotes(c *gin.Context) {
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/podcasts/{id}/notes [get]
 func (h *NoteHandler) GetPodcastNotes(c *gin.Context) {
-	id := c.Param("id")
-	podcastID, err := strconv.ParseUint(id, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_ID",
-				"message": "无效的播客 ID",
-			},
-		})
+	podcastID, ok := ParseUintParam(c, "id")
+	if !ok {
 		return
 	}
 
@@ -160,16 +143,8 @@ func (h *NoteHandler) GetPodcastNotes(c *gin.Context) {
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/episodes/{id}/notes [put]
 func (h *NoteHandler) UpdateEpisodeNotes(c *gin.Context) {
-	id := c.Param("id")
-	episodeID, err := strconv.ParseUint(id, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_ID",
-				"message": "无效的单集 ID",
-			},
-		})
+	episodeID, ok := ParseUintParam(c, "id")
+	if !ok {
 		return
 	}
 
@@ -235,16 +210,8 @@ func (h *NoteHandler) UpdateEpisodeNotes(c *gin.Context) {
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/episodes/{id}/notes [get]
 func (h *NoteHandler) GetEpisodeNotes(c *gin.Context) {
-	id := c.Param("id")
-	episodeID, err := strconv.ParseUint(id, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_ID",
-				"message": "无效的单集 ID",
-			},
-		})
+	episodeID, ok := ParseUintParam(c, "id")
+	if !ok {
 		return
 	}
 

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"magicpodcast/internal/logger"
 	"net/http"
-	"strconv"
 	"time"
 
 	"magicpodcast/internal/database"
@@ -117,16 +116,10 @@ type JobExecutionResponse struct {
 func (h *WorkflowHandler) List(c *gin.Context) {
 	db := database.GetDB()
 
-	// 分页参数
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
-	}
+	// 分页参数（使用辅助函数）
+	pagination := ParsePaginationParams(c, 20)
+	page := pagination.Page
+	pageSize := pagination.PageSize
 
 	// 获取排序参数（默认：updated）
 	sortBy := c.DefaultQuery("sort_by", "updated")
@@ -685,16 +678,10 @@ func (h *WorkflowHandler) ListJobs(c *gin.Context) {
 		return
 	}
 
-	// 分页参数
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
-	}
+	// 分页参数（使用辅助函数）
+	pagination := ParsePaginationParams(c, 20)
+	page := pagination.Page
+	pageSize := pagination.PageSize
 
 	// 查询总数
 	var total int64

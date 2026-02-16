@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"strconv"
 
 	"magicpodcast/internal/services"
 	"magicpodcast/internal/validation"
@@ -61,34 +60,23 @@ func (h *SearchHandler) Search(c *gin.Context) {
 	searchType := c.DefaultQuery("type", "all")
 	v.ValidateEnum("type", searchType, []string{"all", "podcasts", "episodes"})
 
-	// 获取标签筛选
-	tagIDStrs := c.QueryArray("tag_id")
-	var tagIDs []uint
-	for _, tagIDStr := range tagIDStrs {
-		tagID, err := strconv.ParseUint(tagIDStr, 10, 32)
-		if err == nil {
-			tagIDs = append(tagIDs, uint(tagID))
-		}
-	}
+	// 获取标签筛选（使用辅助函数）
+	tagIDs := ParseUintSliceQueryParam(c, "tag_id")
 
-	// 分页参数
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-	episodePage, _ := strconv.Atoi(c.DefaultQuery("episode_page", "1"))
-	episodePageSize, _ := strconv.Atoi(c.DefaultQuery("episode_page_size", "20"))
+	// 分页参数（使用辅助函数）
+	podcastPagination := ParsePaginationParams(c, 20)
+	episodePagination := ParsePaginationParams(c, 20)
 
-	// 验证分页参数范围
-	if page < 1 {
-		page = 1
+	// 如果指定了 episode_page/episode_page_size，使用它们
+	episodePage := episodePagination.Page
+	episodePageSize := episodePagination.PageSize
+	if ep := c.Query("episode_page"); ep != "" {
+		episodePagination := ParsePaginationParams(c, 20)
+		episodePage = episodePagination.Page
 	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
-	}
-	if episodePage < 1 {
-		episodePage = 1
-	}
-	if episodePageSize < 1 || episodePageSize > 100 {
-		episodePageSize = 20
+	if eps := c.Query("episode_page_size"); eps != "" {
+		episodePagination := ParsePaginationParams(c, 20)
+		episodePageSize = episodePagination.PageSize
 	}
 
 	// 构建请求
@@ -96,8 +84,8 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		Query:           query,
 		Type:            searchType,
 		TagIDs:          tagIDs,
-		Page:            page,
-		PageSize:        pageSize,
+		Page:            podcastPagination.Page,
+		PageSize:        podcastPagination.PageSize,
 		EpisodePage:     episodePage,
 		EpisodePageSize: episodePageSize,
 	}

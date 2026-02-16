@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"strconv"
 
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/models"
@@ -51,17 +50,9 @@ type EpisodeResponse struct {
 // @Router /api/v1/podcasts/{id}/episodes [get]
 func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 	db := database.GetDB()
-	podcastIDStr := c.Param("id")
 
-	podcastID, err := strconv.ParseUint(podcastIDStr, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_PARAM",
-				"message": "Invalid id parameter",
-			},
-		})
+	podcastID, ok := ParseUintParam(c, "id")
+	if !ok {
 		return
 	}
 
@@ -78,15 +69,10 @@ func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 		return
 	}
 
-	// 分页参数
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
-	}
+	// 分页参数（使用辅助函数）
+	pagination := ParsePaginationParams(c, 20)
+	page := pagination.Page
+	pageSize := pagination.PageSize
 
 	// 获取总数
 	var total int64

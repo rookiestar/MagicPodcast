@@ -3,7 +3,6 @@ package handlers
 import (
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"magicpodcast/internal/cache"
@@ -71,38 +70,16 @@ func (h *PodcastHandler) List(c *gin.Context) {
 	db := database.GetDB()
 
 	// 获取查询参数
-	tagIDStrs := c.QueryArray("tag_id")
 	searchKeyword := c.Query("search")
 	sortBy := c.DefaultQuery("sort_by", "recent_update") // 默认按最近更新排序
 
-	// 分页参数
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "15"))
+	// 分页参数（使用辅助函数）
+	pagination := ParsePaginationParams(c, 15)
+	page := pagination.Page
+	pageSize := pagination.PageSize
 
-	// 验证分页参数
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 15
-	}
-
-	// 解析标签ID用于缓存键
-	var tagIDs []uint
-	for _, tagIDStr := range tagIDStrs {
-		tagID, err := strconv.ParseUint(tagIDStr, 10, 32)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"success": false,
-				"error": gin.H{
-					"code":    "INVALID_PARAM",
-					"message": "Invalid tag_id parameter",
-				},
-			})
-			return
-		}
-		tagIDs = append(tagIDs, uint(tagID))
-	}
+	// 解析标签ID（使用辅助函数）
+	tagIDs := ParseUintSliceQueryParam(c, "tag_id")
 
 	// 尝试从缓存获取（仅对无搜索关键词的请求缓存）
 	memCache := cache.GetCache()
@@ -368,16 +345,8 @@ type UpdateCustomCoverRequest struct {
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/podcasts/{id}/custom-cover [put]
 func (h *PodcastHandler) UpdateCustomCover(c *gin.Context) {
-	id := c.Param("id")
-	podcastID, err := strconv.ParseUint(id, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_ID",
-				"message": "无效的播客 ID",
-			},
-		})
+	podcastID, ok := ParseUintParam(c, "id")
+	if !ok {
 		return
 	}
 
