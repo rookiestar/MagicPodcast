@@ -11,6 +11,7 @@ import type { Workflow, Job, Podcast } from "@/types";
 import WorkflowFormModal from "@/components/workflows/WorkflowFormModal";
 import ReportModal from "@/components/workflows/ReportModal";
 import PageLayout from "@/components/layout/PageLayout";
+import { WorkflowDetailSkeleton } from "@/components/ui/Skeleton";
 
 type TabType = "overview" | "jobs" | "config";
 
@@ -263,9 +264,18 @@ export default function WorkflowDetailPage() {
     return `${(tokens / 1000000).toFixed(1)}M`;
   };
 
-  // 加载中状态 - loading.tsx 已处理，此处直接返回 null 避免重复骨架屏
+  // 初始加载中：渲染骨架屏，避免空白
   if (workflowLoading) {
-    return null;
+    return (
+      <PageLayout
+        toolbar={{
+          breadcrumbs: [{ label: "返回列表", href: backLink }],
+          title: "加载中...",
+        }}
+      >
+        <WorkflowDetailSkeleton />
+      </PageLayout>
+    );
   }
 
   // 错误或不存在状态（加载完成后才判断）
