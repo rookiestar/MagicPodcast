@@ -18,7 +18,7 @@ export const episodeApi = {
       has_more: boolean;
     };
   }> => {
-    const response = await api.get<ApiResponse<Episode[]> & {
+    type EpisodeListResponse = ApiResponse<Episode[]> & {
       pagination: {
         page: number;
         page_size: number;
@@ -26,17 +26,17 @@ export const episodeApi = {
         total_pages: number;
         has_more: boolean;
       };
-    }>(`/api/v1/podcasts/${podcastId}/episodes`, {
-      params: { page, page_size: pageSize },
-    });
+    };
 
-    if (response.data.success && response.data.data) {
-      return {
-        episodes: response.data.data,
-        pagination: response.data.pagination,
-      };
-    }
-    throw new Error(response.data.error?.message || "Failed to fetch episodes");
+    const response = await api.get<EpisodeListResponse>(
+      `/api/v1/podcasts/${podcastId}/episodes`,
+      { params: { page, page_size: pageSize } },
+    );
+
+    return {
+      episodes: handleResponse(response),
+      pagination: response.data.pagination,
+    };
   },
 
   // 获取单集备注

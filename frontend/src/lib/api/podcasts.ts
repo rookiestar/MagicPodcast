@@ -46,30 +46,27 @@ export async function listPodcasts(
     ? `/api/v1/podcasts?${queryParams.toString()}`
     : "/api/v1/podcasts";
 
-  const response = await api.get<{
-    success: boolean;
-    data: any[];
+  type PodcastListApiResponse = ApiResponse<any[]> & {
     pagination?: {
       page: number;
       page_size: number;
       total: number;
       total_pages: number;
     };
-    error?: { message: string };
-  }>(url);
+  };
 
-  if (response.data.success && response.data.data) {
-    return {
-      data: response.data.data,
-      pagination: response.data.pagination || {
-        page: 1,
-        page_size: 15,
-        total: response.data.data.length,
-        total_pages: 1,
-      },
-    };
-  }
-  throw new Error(response.data.error?.message || "Failed to fetch podcasts");
+  const response = await api.get<PodcastListApiResponse>(url);
+  const data = handleResponse(response);
+
+  return {
+    data,
+    pagination: response.data.pagination || {
+      page: 1,
+      page_size: 15,
+      total: data.length,
+      total_pages: 1,
+    },
+  };
 }
 
 // 获取单个播客详情
