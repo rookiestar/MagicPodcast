@@ -112,11 +112,11 @@ export async function updatePodcastNotes(
 
 // 获取播客的所有标签
 export async function getPodcastTags(id: number): Promise<any[]> {
-  const response = await api.get<ApiResponse<any[]>>(
+  const response = await api.get<ApiResponse<{ tags: any[] }>>(
     `/api/v1/podcasts/${id}/tags`,
   );
   if (response.data.success && response.data.data) {
-    return response.data.data;
+    return response.data.data.tags;
   }
   throw new Error(response.data.error?.message || "Failed to fetch tags");
 }

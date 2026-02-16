@@ -23,7 +23,7 @@ server:
       - "http://localhost:3002"
       - "http://127.0.0.1:3002"
       - "http://192.168.3.58:3000"  # 局域网访问
-      - "https://posting-hair-postcard-victoria.trycloudflare.com"  # Cloudflare Tunnel
+      - "https://rookiestar.cn"  # 生产域名
     # 允许的HTTP方法
     allow_methods:
       - "GET"

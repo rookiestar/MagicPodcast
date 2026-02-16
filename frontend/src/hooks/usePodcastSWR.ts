@@ -76,12 +76,12 @@ export function usePodcast(id: number | null) {
 export function usePodcastTags(podcastId: number | null) {
   const { data, error, isLoading, mutate } = useSWR(
     podcastId ? `/api/v1/podcasts/${podcastId}/tags` : null,
-    () => fetcher<Tag[]>(`/api/v1/podcasts/${podcastId}/tags`),
+    () => fetcher<{ tags: Tag[] }>(`/api/v1/podcasts/${podcastId}/tags`),
     { ...swrConfig, ...cacheStrategies.podcastDetail }
   );
 
   return {
-    tags: data ?? [],
+    tags: data?.tags ?? [],
     isLoading,
     isError: !!error,
     error,

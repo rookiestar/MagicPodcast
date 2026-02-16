@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"magicpodcast/internal/config"
+	"magicpodcast/internal/logger"
 	"strconv"
 	"strings"
 
@@ -10,17 +11,23 @@ import (
 
 // CORS 中间件 - 安全的跨域资源共享配置
 func CORS() gin.HandlerFunc {
-	cfg := config.Get().Server.CORS
-
-	// 如果CORS未启用，返回空中间件
-	if !cfg.Enabled {
-		return func(c *gin.Context) {
-			c.Next()
-		}
-	}
+	log := logger.GetLogger()
 
 	return func(c *gin.Context) {
+		// 每次请求时获取配置（确保使用最新配置）
+		cfg := config.Get().Server.CORS
 		origin := c.Request.Header.Get("Origin")
+
+		// 调试日志：打印请求信息和配置状态
+		log.Debugf("[CORS] method=%s, path=%s, origin=%s, enabled=%v, allowOrigins=%v",
+			c.Request.Method, c.Request.URL.Path, origin, cfg.Enabled, cfg.AllowOrigins)
+
+		// 如果CORS未启用，跳过
+		if !cfg.Enabled {
+			log.Debug("[CORS] disabled, skipping")
+			c.Next()
+			return
+		}
 
 		// 检查origin是否在允许列表中
 		allowed := false
@@ -37,9 +44,31 @@ func CORS() gin.HandlerFunc {
 					break
 				}
 			}
+			// 支持 https://*.example.com 格式
+			if strings.HasPrefix(allowedOrigin, "https://*.") || strings.HasPrefix(allowedOrigin, "http://*.") {
+				protocol := "https://"
+				if strings.HasPrefix(allowedOrigin, "http://*.") {
+					protocol = "http://"
+				}
+				domain := strings.TrimPrefix(allowedOrigin, protocol+"*.")
+				if strings.HasPrefix(origin, protocol) && strings.HasSuffix(origin, "."+domain) {
+					allowed = true
+					break
+				}
+				// 也支持直接匹配
+				if origin == strings.Replace(allowedOrigin, "*.", "", 1) {
+					allowed = true
+					break
+				}
+			}
+		}
+
+		if !allowed && origin != "" {
+			log.Infof("CORS: origin %s not in allow list %v", origin, cfg.AllowOrigins)
 		}
 
 		if allowed {
+			log.Debugf("[CORS] origin %s is allowed, setting headers", origin)
 			if len(cfg.AllowOrigins) == 1 && cfg.AllowOrigins[0] == "*" {
 				// 只有在明确配置允许所有域名时才使用 *
 				// 注意：当AllowCredentials为true时，不能使用 *

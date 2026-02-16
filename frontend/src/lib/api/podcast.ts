@@ -85,11 +85,11 @@ export const podcastApi = {
 
   // 获取播客的所有标签
   getTags: async (id: number): Promise<Tag[]> => {
-    const response = await api.get<ApiResponse<Tag[]>>(
+    const response = await api.get<ApiResponse<{ tags: Tag[] }>>(
       `/api/v1/podcasts/${id}/tags`,
     );
     if (response.data.success && response.data.data) {
-      return response.data.data;
+      return response.data.data.tags;
     }
     throw new Error(response.data.error?.message || "Failed to fetch tags");
   },
