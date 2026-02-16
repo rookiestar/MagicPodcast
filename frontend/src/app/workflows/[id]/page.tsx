@@ -11,6 +11,7 @@ import type { Workflow, Job, Podcast } from "@/types";
 import WorkflowFormModal from "@/components/workflows/WorkflowFormModal";
 import ReportModal from "@/components/workflows/ReportModal";
 import PageLayout from "@/components/layout/PageLayout";
+import LoadingLayout from "@/components/layout/LoadingLayout";
 import { WorkflowDetailSkeleton } from "@/components/ui/Skeleton";
 
 type TabType = "overview" | "jobs" | "config";
@@ -1313,14 +1314,18 @@ function WorkflowDetailContent() {
 export default function WorkflowDetailPage() {
   return (
     <Suspense fallback={
-      <PageLayout
-        toolbar={{
-          breadcrumbs: [{ label: "返回列表", href: "/workflows" }],
-          title: "加载中...",
-        }}
+      <LoadingLayout
+        showBack
+        title="加载中..."
+        rightContent={
+          <div className="flex gap-2 animate-pulse">
+            <div className="h-10 w-20 bg-slate-200 rounded-lg" />
+            <div className="h-10 w-24 bg-slate-200 rounded-lg" />
+          </div>
+        }
       >
         <WorkflowDetailSkeleton />
-      </PageLayout>
+      </LoadingLayout>
     }>
       <WorkflowDetailContent />
     </Suspense>
