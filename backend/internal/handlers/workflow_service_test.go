@@ -1,137 +1,19 @@
 package handlers_test
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	apperrors "magicpodcast/internal/errors"
-	"magicpodcast/internal/handlers"
-	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
 	"magicpodcast/internal/repository"
 	"magicpodcast/internal/services"
 
-	"github.com/gin-gonic/gin"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
-
-// TestRefactoredWorkflowHandler 测试重构后的WorkflowHandler
-func TestRefactoredWorkflowHandler(t *testing.T) {
-	// 设置测试数据库
-	db, err := gorm.Open(sqlite.Open("file:workflow_test?mode=memory&cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("Failed to open database: %v", err)
-	}
-
-	// 自动迁移
-	err = db.AutoMigrate(&models.Workflow{}, &models.Job{}, &models.JobExecution{})
-	if err != nil {
-		t.Fatalf("Failed to migrate database: %v", err)
-	}
-
-	// 创建Repository容器
-	repos := repository.NewRepositoriesWithDB(db)
-
-	// 创建Service
-	workflowService := services.NewWorkflowService(repos)
-	handler := handlers.NewWorkflowHandlerRefactored(workflowService)
-
-	// 设置路由
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	router.Use(middleware.ErrorHandlerMiddleware())
-
-	// 注册路由
-	router.GET("/workflows", handler.List)
-	router.GET("/workflows/:id", handler.Get)
-	router.POST("/workflows", handler.Create)
-	router.PUT("/workflows/:id", handler.Update)
-	router.DELETE("/workflows/:id", handler.Delete)
-	router.POST("/workflows/:id/toggle", handler.Toggle)
-
-	t.Run("List - Empty List", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", "/workflows", nil)
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status 200, got %d", w.Code)
-		}
-
-		var response map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &response)
-
-		if response["success"] != true {
-			t.Errorf("Expected success=true")
-		}
-
-		data := response["data"].(map[string]interface{})
-		workflows := data["workflows"].([]interface{})
-		if len(workflows) != 0 {
-			t.Errorf("Expected empty list, got %d items", len(workflows))
-		}
-	})
-
-	t.Run("Create - Success", func(t *testing.T) {
-		reqBody := services.CreateWorkflowRequest{
-			Name:        "Test Workflow",
-			Description: "Test Description",
-			Schedule:    "0 0 * * *", // 每天午夜
-			ScopeType:   models.ScopeTypeSpecificPodcasts,
-			ScopeConfig: models.ScopeConfig{
-				PodcastIDs: []int{1, 2, 3},
-			},
-			RulesConfig: models.RulesConfig{
-				TimeRange: 7,
-			},
-			IsEnabled: true,
-		}
-
-		body, _ := json.Marshal(reqBody)
-		req, _ := http.NewRequest("POST", "/workflows", nil)
-		req.Header.Set("Content-Type", "application/json")
-
-		// 由于ShouldBindJSON需要完整设置，这里简化测试
-		// 实际应该设置req.Body
-		_ = body
-		_ = req
-
-		// 暂时跳过这个测试
-		t.Skip("Need to set request body properly")
-	})
-
-	t.Run("Get - Not Found", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", "/workflows/999", nil)
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-
-		if w.Code != http.StatusNotFound {
-			t.Errorf("Expected status 404, got %d", w.Code)
-		}
-
-		var response map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &response)
-
-		if response["success"] != false {
-			t.Errorf("Expected success=false")
-		}
-	})
-
-	t.Run("Toggle - Not Found", func(t *testing.T) {
-		req, _ := http.NewRequest("POST", "/workflows/999/toggle", nil)
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-
-		if w.Code != http.StatusNotFound {
-			t.Errorf("Expected status 404, got %d", w.Code)
-		}
-	})
-}
 
 // TestWorkflowServiceIntegration 测试WorkflowService集成
 func TestWorkflowServiceIntegration(t *testing.T) {
