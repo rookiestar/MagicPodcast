@@ -2,6 +2,7 @@
 
 import PrefetchLink from "@/components/common/PrefetchLink";
 import PodcastCover from "@/components/podcasts/PodcastCover";
+import TagList from "@/components/ui/TagList";
 import { stripHtml } from "@/lib/textUtils";
 import { getRelativeTime } from "@/lib/timeUtils";
 import { getEffectiveCoverUrl } from "@/lib/imageProxy";
@@ -29,8 +30,6 @@ export default function ResponsivePodcastCard({
 
   // 控制标签显示数量
   const displayTagCount = isMobile ? 2 : 3;
-  const displayedTags = podcast.tags?.slice(0, displayTagCount) || [];
-  const remainingTags = (podcast.tags?.length || 0) - displayTagCount;
 
   // 相对时间
   const relativeTime = getRelativeTime(podcast.newest_episode_date);
@@ -89,28 +88,12 @@ export default function ResponsivePodcastCard({
             )}
 
             {/* 标签 */}
-            {displayedTags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-auto">
-                {displayedTags.map((tag) => (
-                  <span
-                    key={tag.id}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-slate-100 hover:bg-slate-200"
-                    title={tag.name}
-                  >
-                    <span
-                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: tag.color }}
-                    />
-                    <span className="max-w-[60px] truncate">{tag.name}</span>
-                  </span>
-                ))}
-                {remainingTags > 0 && (
-                  <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-500">
-                    +{remainingTags}
-                  </span>
-                )}
-              </div>
-            )}
+            <TagList
+              tags={podcast.tags || []}
+              maxDisplay={displayTagCount}
+              maxNameWidth="60px"
+              className="mt-auto"
+            />
           </div>
         </div>
       </PrefetchLink>
@@ -159,28 +142,12 @@ export default function ResponsivePodcastCard({
           )}
 
           {/* 标签 */}
-          {displayedTags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-auto">
-              {displayedTags.map((tag) => (
-                <span
-                  key={tag.id}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-slate-100 hover:bg-slate-200"
-                  title={tag.name}
-                >
-                  <span
-                    className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: tag.color }}
-                  />
-                  <span className="max-w-[60px] truncate">{tag.name}</span>
-                </span>
-              ))}
-              {remainingTags > 0 && (
-                <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-500">
-                  +{remainingTags}
-                </span>
-              )}
-            </div>
-          )}
+          <TagList
+            tags={podcast.tags || []}
+            maxDisplay={displayTagCount}
+            maxNameWidth="60px"
+            className="mt-auto"
+          />
 
           {/* 底部信息 */}
           <div className="flex items-center justify-between text-xs text-slate-500 mt-auto pt-1 md:pt-3">
