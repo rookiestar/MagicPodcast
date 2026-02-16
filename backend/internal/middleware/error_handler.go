@@ -182,3 +182,89 @@ func NotFoundErrorResponse(c *gin.Context, resource string, id interface{}) {
 func InternalErrorResponse(c *gin.Context, message string) {
 	HandleError(c, apperrors.InternalError(message))
 }
+
+// ========== 便捷错误响应函数（带自定义错误码）==========
+
+// BadRequestResponse 错误请求响应（带自定义错误码）
+func BadRequestResponse(c *gin.Context, code string, message string) {
+	c.JSON(http.StatusBadRequest, gin.H{
+		"success": false,
+		"error": gin.H{
+			"code":    code,
+			"message": message,
+		},
+	})
+}
+
+// ConflictResponse 冲突错误响应（带自定义错误码）
+func ConflictResponse(c *gin.Context, code string, message string) {
+	c.JSON(http.StatusConflict, gin.H{
+		"success": false,
+		"error": gin.H{
+			"code":    code,
+			"message": message,
+		},
+	})
+}
+
+// NotFoundResponse 未找到响应（带自定义错误码）
+func NotFoundResponse(c *gin.Context, code string, message string) {
+	c.JSON(http.StatusNotFound, gin.H{
+		"success": false,
+		"error": gin.H{
+			"code":    code,
+			"message": message,
+		},
+	})
+}
+
+// InternalErrorResponseWithCode 内部错误响应（带自定义错误码）
+func InternalErrorResponseWithCode(c *gin.Context, code string, message string) {
+	c.JSON(http.StatusInternalServerError, gin.H{
+		"success": false,
+		"error": gin.H{
+			"code":    code,
+			"message": message,
+		},
+	})
+}
+
+// BindJSONError JSON 绑定错误响应
+func BindJSONError(c *gin.Context, err error) {
+	BadRequestResponse(c, "INVALID_REQUEST", "请求参数错误: "+err.Error())
+}
+
+// ServiceUnavailableResponse 服务不可用响应
+func ServiceUnavailableResponse(c *gin.Context, code string, message string) {
+	c.JSON(http.StatusServiceUnavailable, gin.H{
+		"success": false,
+		"error": gin.H{
+			"code":    code,
+			"message": message,
+		},
+	})
+}
+
+// ========== 分页响应辅助 ==========
+
+// PaginationInfo 分页信息
+type PaginationInfo struct {
+	Page       int   `json:"page"`
+	PageSize   int   `json:"page_size"`
+	Total      int64 `json:"total"`
+	TotalPages int   `json:"total_pages"`
+}
+
+// PaginatedResponse 分页列表响应
+func PaginatedResponse(c *gin.Context, data interface{}, pagination PaginationInfo) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    data,
+		"pagination": gin.H{
+			"page":        pagination.Page,
+			"page_size":   pagination.PageSize,
+			"total":       pagination.Total,
+			"total_pages": pagination.TotalPages,
+		},
+	})
+}

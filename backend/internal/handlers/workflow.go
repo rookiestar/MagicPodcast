@@ -2,12 +2,13 @@ package handlers
 
 import (
 	"fmt"
-	"magicpodcast/internal/logger"
 	"net/http"
 	"time"
 
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/llm"
+	"magicpodcast/internal/logger"
+	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
 	"magicpodcast/internal/scheduler"
 	"magicpodcast/internal/workflow"
@@ -140,13 +141,7 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 	orderClause := h.buildSortOrderClause(sortBy)
 	if err := db.Order(orderClause).Limit(pageSize).Offset(offset).Find(&workflows).Error; err != nil {
 		logger.Infof("[Workflow] 查询失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "Failed to fetch workflows",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to fetch workflows")
 		return
 	}
 
@@ -245,13 +240,7 @@ func (h *WorkflowHandler) Get(c *gin.Context) {
 
 	var workflow models.Workflow
 	if err := db.First(&workflow, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "Workflow not found",
-			},
-		})
+		middleware.NotFoundResponse(c, "NOT_FOUND", "Workflow not found")
 		return
 	}
 
@@ -263,10 +252,7 @@ func (h *WorkflowHandler) Get(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    h.toWorkflowResponse(&workflow),
-	})
+	middleware.SuccessResponse(c, h.toWorkflowResponse(&workflow))
 }
 
 // Create 创建工作流
@@ -283,37 +269,19 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 
 	var req WorkflowRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_PARAM",
-				"message": err.Error(),
-			},
-		})
+		middleware.BadRequestResponse(c, "INVALID_PARAM", err.Error())
 		return
 	}
 
 	// 验证cron表达式
 	if err := models.ValidateCron(req.Schedule); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_CRON",
-				"message": err.Error(),
-			},
-		})
+		middleware.BadRequestResponse(c, "INVALID_CRON", err.Error())
 		return
 	}
 
 	// 验证范围配置
 	if err := validateScopeConfig(req.ScopeType, req.ScopeConfig); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_SCOPE",
-				"message": err.Error(),
-			},
-		})
+		middleware.BadRequestResponse(c, "INVALID_SCOPE", err.Error())
 		return
 	}
 
@@ -324,13 +292,7 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 		req.RulesConfig.LLMModel)
 
 	if err := validateRulesConfig(req.RulesConfig); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_RULES",
-				"message": err.Error(),
-			},
-		})
+		middleware.BadRequestResponse(c, "INVALID_RULES", err.Error())
 		return
 	}
 
@@ -361,13 +323,7 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 	}
 
 	if err := db.Omit("LastJob", "Jobs").Create(&workflow).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "Failed to create workflow",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to create workflow")
 		return
 	}
 
@@ -381,10 +337,7 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
-		"success": true,
-		"data":    h.toWorkflowResponse(&workflow),
-	})
+	middleware.CreatedResponse(c, h.toWorkflowResponse(&workflow))
 }
 
 // Update 更新工作流
@@ -403,37 +356,19 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 
 	var workflow models.Workflow
 	if err := db.First(&workflow, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "Workflow not found",
-			},
-		})
+		middleware.NotFoundResponse(c, "NOT_FOUND", "Workflow not found")
 		return
 	}
 
 	var req WorkflowRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_PARAM",
-				"message": err.Error(),
-			},
-		})
+		middleware.BadRequestResponse(c, "INVALID_PARAM", err.Error())
 		return
 	}
 
 	// 验证cron表达式
 	if err := models.ValidateCron(req.Schedule); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_CRON",
-				"message": err.Error(),
-			},
-		})
+		middleware.BadRequestResponse(c, "INVALID_CRON", err.Error())
 		return
 	}
 
@@ -453,13 +388,7 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 	}
 
 	if err := validateScopeConfig(req.ScopeType, req.ScopeConfig); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_SCOPE",
-				"message": err.Error(),
-			},
-		})
+		middleware.BadRequestResponse(c, "INVALID_SCOPE", err.Error())
 		return
 	}
 
@@ -470,13 +399,7 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 		req.RulesConfig.LLMModel)
 
 	if err := validateRulesConfig(req.RulesConfig); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_RULES",
-				"message": err.Error(),
-			},
-		})
+		middleware.BadRequestResponse(c, "INVALID_RULES", err.Error())
 		return
 	}
 
@@ -523,13 +446,7 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 	}
 
 	if err := db.Model(&models.Workflow{}).Where("id = ?", workflow.ID).Updates(updates).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "Failed to update workflow",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to update workflow")
 		return
 	}
 
@@ -539,10 +456,7 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 		// 不返回错误，因为工作流已经更新成功
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    h.toWorkflowResponse(&workflow),
-	})
+	middleware.SuccessResponse(c, h.toWorkflowResponse(&workflow))
 }
 
 // Delete 删除工作流
@@ -560,33 +474,16 @@ func (h *WorkflowHandler) Delete(c *gin.Context) {
 
 	var workflow models.Workflow
 	if err := db.First(&workflow, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "Workflow not found",
-			},
-		})
+		middleware.NotFoundResponse(c, "NOT_FOUND", "Workflow not found")
 		return
 	}
 
 	if err := db.Delete(&workflow).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "Failed to delete workflow",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to delete workflow")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"message": "Workflow deleted successfully",
-		},
-	})
+	middleware.SuccessResponse(c, gin.H{"message": "Workflow deleted successfully"})
 }
 
 // Toggle 启用/禁用工作流
@@ -604,13 +501,7 @@ func (h *WorkflowHandler) Toggle(c *gin.Context) {
 
 	var workflow models.Workflow
 	if err := db.First(&workflow, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "Workflow not found",
-			},
-		})
+		middleware.NotFoundResponse(c, "NOT_FOUND", "Workflow not found")
 		return
 	}
 
@@ -628,13 +519,7 @@ func (h *WorkflowHandler) Toggle(c *gin.Context) {
 	}
 
 	if err := db.Save(&workflow).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "Failed to toggle workflow",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to toggle workflow")
 		return
 	}
 
@@ -644,10 +529,7 @@ func (h *WorkflowHandler) Toggle(c *gin.Context) {
 		// 不返回错误，因为工作流已经更新成功
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    h.toWorkflowResponse(&workflow),
-	})
+	middleware.SuccessResponse(c, h.toWorkflowResponse(&workflow))
 }
 
 // ListJobs 获取工作流的执行历史
@@ -668,13 +550,7 @@ func (h *WorkflowHandler) ListJobs(c *gin.Context) {
 	// 验证工作流是否存在
 	var workflow models.Workflow
 	if err := db.First(&workflow, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "Workflow not found",
-			},
-		})
+		middleware.NotFoundResponse(c, "NOT_FOUND", "Workflow not found")
 		return
 	}
 
@@ -691,13 +567,7 @@ func (h *WorkflowHandler) ListJobs(c *gin.Context) {
 	var jobs []models.Job
 	offset := (page - 1) * pageSize
 	if err := db.Where("workflow_id = ?", id).Order("created_at DESC").Limit(pageSize).Offset(offset).Find(&jobs).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "Failed to fetch jobs",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to fetch jobs")
 		return
 	}
 
@@ -736,13 +606,7 @@ func (h *WorkflowHandler) GetJob(c *gin.Context) {
 
 	var job models.Job
 	if err := db.Preload("Executions").First(&job, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "Job not found",
-			},
-		})
+		middleware.NotFoundResponse(c, "NOT_FOUND", "Job not found")
 		return
 	}
 
@@ -757,10 +621,7 @@ func (h *WorkflowHandler) GetJob(c *gin.Context) {
 		response.Executions = executions
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    response,
-	})
+	middleware.SuccessResponse(c, response)
 }
 
 // GetJobReport 获取Job的报告
@@ -780,50 +641,35 @@ func (h *WorkflowHandler) GetJobReport(c *gin.Context) {
 	var report models.Report
 	if err := db.Where("job_id = ?", id).First(&report).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{
-				"success": false,
-				"error": gin.H{
-					"code":    "REPORT_NOT_FOUND",
-					"message": "报告不存在或尚未生成",
-				},
-			})
+			middleware.NotFoundResponse(c, "REPORT_NOT_FOUND", "报告不存在或尚未生成")
 			return
 		}
 
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "Failed to fetch report",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to fetch report")
 		return
 	}
 
 	// 返回报告
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"id":               report.ID,
-			"job_id":           report.JobID,
-			"title":            report.Title,
-			"content":          report.Content,
-			"summary":          report.Summary,
-			"episodes_count":   report.EpisodesCount,
-			"podcasts_count":   report.PodcastsCount,
-			"matched_count":    report.MatchedCount,
-			"time_range_start": report.TimeRangeStart,
-			"time_range_end":   report.TimeRangeEnd,
-			"time_range_mode":  report.TimeRangeMode,
-			"generated_at":     report.GeneratedAt,
-			"format":           report.Format,
-			"file_size":        report.FileSize,
-			// LLM相关字段
-			"llm_summary":     report.LLMSummary,
-			"llm_model_used":  report.LLMModelUsed,
-			"llm_tokens_used": report.LLMTokensUsed,
-			"llm_error":       report.LLMError,
-		},
+	middleware.SuccessResponse(c, gin.H{
+		"id":               report.ID,
+		"job_id":           report.JobID,
+		"title":            report.Title,
+		"content":          report.Content,
+		"summary":          report.Summary,
+		"episodes_count":   report.EpisodesCount,
+		"podcasts_count":   report.PodcastsCount,
+		"matched_count":    report.MatchedCount,
+		"time_range_start": report.TimeRangeStart,
+		"time_range_end":   report.TimeRangeEnd,
+		"time_range_mode":  report.TimeRangeMode,
+		"generated_at":     report.GeneratedAt,
+		"format":           report.Format,
+		"file_size":        report.FileSize,
+		// LLM相关字段
+		"llm_summary":     report.LLMSummary,
+		"llm_model_used":  report.LLMModelUsed,
+		"llm_tokens_used": report.LLMTokensUsed,
+		"llm_error":       report.LLMError,
 	})
 }
 
@@ -842,13 +688,7 @@ func (h *WorkflowHandler) RegenerateLLMSummary(c *gin.Context) {
 
 	// 检查summarizer是否可用
 	if h.summarizer == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "LLM_NOT_CONFIGURED",
-				"message": "LLM服务未配置，请先配置LLM相关设置",
-			},
-		})
+		middleware.ServiceUnavailableResponse(c, "LLM_NOT_CONFIGURED", "LLM服务未配置，请先配置LLM相关设置")
 		return
 	}
 
@@ -856,22 +696,10 @@ func (h *WorkflowHandler) RegenerateLLMSummary(c *gin.Context) {
 	var job models.Job
 	if err := db.Preload("Workflow").First(&job, jobID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{
-				"success": false,
-				"error": gin.H{
-					"code":    "JOB_NOT_FOUND",
-					"message": "任务不存在",
-				},
-			})
+			middleware.NotFoundResponse(c, "JOB_NOT_FOUND", "任务不存在")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "Failed to fetch job",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to fetch job")
 		return
 	}
 
@@ -879,22 +707,10 @@ func (h *WorkflowHandler) RegenerateLLMSummary(c *gin.Context) {
 	var report models.Report
 	if err := db.Where("job_id = ?", jobID).First(&report).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{
-				"success": false,
-				"error": gin.H{
-					"code":    "REPORT_NOT_FOUND",
-					"message": "报告不存在，请先执行工作流生成报告",
-				},
-			})
+			middleware.NotFoundResponse(c, "REPORT_NOT_FOUND", "报告不存在，请先执行工作流生成报告")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "Failed to fetch report",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to fetch report")
 		return
 	}
 
@@ -902,13 +718,7 @@ func (h *WorkflowHandler) RegenerateLLMSummary(c *gin.Context) {
 	var executions []models.JobExecution
 	if err := db.Where("job_id = ?", jobID).Find(&executions).Error; err != nil {
 		logger.Errorf("Failed to fetch job executions: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "Failed to fetch job executions",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to fetch job executions")
 		return
 	}
 
@@ -957,13 +767,7 @@ func (h *WorkflowHandler) RegenerateLLMSummary(c *gin.Context) {
 	}
 
 	if len(reportData) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NO_DATA",
-				"message": "没有可用于生成摘要的单集数据",
-			},
-		})
+		middleware.BadRequestResponse(c, "NO_DATA", "没有可用于生成摘要的单集数据")
 		return
 	}
 
@@ -1017,13 +821,7 @@ func (h *WorkflowHandler) RegenerateLLMSummary(c *gin.Context) {
 			logger.Errorf("Failed to update report error: %v", err)
 		}
 
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "LLM_ERROR",
-				"message": fmt.Sprintf("LLM摘要生成失败: %v", err),
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "LLM_ERROR", fmt.Sprintf("LLM摘要生成失败: %v", err))
 		return
 	}
 
@@ -1039,13 +837,7 @@ func (h *WorkflowHandler) RegenerateLLMSummary(c *gin.Context) {
 
 	if err := db.Save(&report).Error; err != nil {
 		logger.Errorf("Failed to update report: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "Failed to update report",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to update report")
 		return
 	}
 
@@ -1145,25 +937,13 @@ func (h *WorkflowHandler) Trigger(c *gin.Context) {
 	var workflow models.Workflow
 	if err := db.First(&workflow, id).Error; err != nil {
 		logger.Infof("🔍 [DEBUG Handler] Failed to load workflow %s: %v", id, err)
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "工作流不存在",
-			},
-		})
+		middleware.NotFoundResponse(c, "NOT_FOUND", "工作流不存在")
 		return
 	}
 
 	// 检查工作流是否启用
 	if !workflow.IsEnabled {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "WORKFLOW_DISABLED",
-				"message": "工作流未启用，请先启用后再执行",
-			},
-		})
+		middleware.BadRequestResponse(c, "WORKFLOW_DISABLED", "工作流未启用，请先启用后再执行")
 		return
 	}
 
@@ -1172,13 +952,7 @@ func (h *WorkflowHandler) Trigger(c *gin.Context) {
 	ctx, started := h.tracker.TryStart(workflow.ID, 30*time.Minute)
 	if !started {
 		logger.Infof("⚠️  工作流已在执行中 [WorkflowID=%d]", workflow.ID)
-		c.JSON(http.StatusConflict, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "JOB_RUNNING",
-				"message": "该工作流正在执行中，请等待当前任务完成",
-			},
-		})
+		middleware.ConflictResponse(c, "JOB_RUNNING", "该工作流正在执行中，请等待当前任务完成")
 		return
 	}
 

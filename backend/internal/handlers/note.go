@@ -1,9 +1,8 @@
 package handlers
 
 import (
-	"net/http"
-
 	"magicpodcast/internal/database"
+	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
 
 	"github.com/gin-gonic/gin"
@@ -42,13 +41,7 @@ func (h *NoteHandler) UpdatePodcastNotes(c *gin.Context) {
 
 	var req UpdateNoteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_REQUEST",
-				"message": "请求参数错误: " + err.Error(),
-			},
-		})
+		middleware.BindJSONError(c, err)
 		return
 	}
 
@@ -57,37 +50,22 @@ func (h *NoteHandler) UpdatePodcastNotes(c *gin.Context) {
 	// 检查播客是否存在
 	var podcast models.Podcast
 	if err := db.First(&podcast, podcastID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "播客不存在",
-			},
-		})
+		middleware.NotFoundResponse(c, "NOT_FOUND", "播客不存在")
 		return
 	}
 
 	// 更新备注
 	if err := db.Model(&podcast).Update("notes", req.Notes).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "更新备注失败: " + err.Error(),
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "更新备注失败: "+err.Error())
 		return
 	}
 
 	// 重新获取更新后的播客
 	db.First(&podcast, podcastID)
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"id":    podcast.ID,
-			"notes": podcast.Notes,
-		},
+	middleware.SuccessResponse(c, gin.H{
+		"id":    podcast.ID,
+		"notes": podcast.Notes,
 	})
 }
 
@@ -111,22 +89,13 @@ func (h *NoteHandler) GetPodcastNotes(c *gin.Context) {
 
 	var podcast models.Podcast
 	if err := db.Select("id, notes").First(&podcast, podcastID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "播客不存在",
-			},
-		})
+		middleware.NotFoundResponse(c, "NOT_FOUND", "播客不存在")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"id":    podcast.ID,
-			"notes": podcast.Notes,
-		},
+	middleware.SuccessResponse(c, gin.H{
+		"id":    podcast.ID,
+		"notes": podcast.Notes,
 	})
 }
 
@@ -150,13 +119,7 @@ func (h *NoteHandler) UpdateEpisodeNotes(c *gin.Context) {
 
 	var req UpdateNoteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_REQUEST",
-				"message": "请求参数错误: " + err.Error(),
-			},
-		})
+		middleware.BindJSONError(c, err)
 		return
 	}
 
@@ -165,37 +128,22 @@ func (h *NoteHandler) UpdateEpisodeNotes(c *gin.Context) {
 	// 检查单集是否存在
 	var episode models.Episode
 	if err := db.First(&episode, episodeID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "单集不存在",
-			},
-		})
+		middleware.NotFoundResponse(c, "NOT_FOUND", "单集不存在")
 		return
 	}
 
 	// 更新备注
 	if err := db.Model(&episode).Update("notes", req.Notes).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "更新备注失败: " + err.Error(),
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "更新备注失败: "+err.Error())
 		return
 	}
 
 	// 重新获取更新后的单集
 	db.First(&episode, episodeID)
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"id":    episode.ID,
-			"notes": episode.Notes,
-		},
+	middleware.SuccessResponse(c, gin.H{
+		"id":    episode.ID,
+		"notes": episode.Notes,
 	})
 }
 
@@ -219,21 +167,12 @@ func (h *NoteHandler) GetEpisodeNotes(c *gin.Context) {
 
 	var episode models.Episode
 	if err := db.Select("id, notes").First(&episode, episodeID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "单集不存在",
-			},
-		})
+		middleware.NotFoundResponse(c, "NOT_FOUND", "单集不存在")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"id":    episode.ID,
-			"notes": episode.Notes,
-		},
+	middleware.SuccessResponse(c, gin.H{
+		"id":    episode.ID,
+		"notes": episode.Notes,
 	})
 }

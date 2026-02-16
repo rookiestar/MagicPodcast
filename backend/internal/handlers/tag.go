@@ -2,12 +2,11 @@ package handlers
 
 import (
 	"fmt"
-	"net/http"
 	"regexp"
-	"strconv"
 
 	"magicpodcast/internal/cache"
 	"magicpodcast/internal/database"
+	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
 	"magicpodcast/internal/validation"
 
@@ -55,13 +54,7 @@ type UpdateTagRequest struct {
 func (h *TagHandler) Create(c *gin.Context) {
 	var req CreateTagRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_REQUEST",
-				"message": "请求参数错误: " + err.Error(),
-			},
-		})
+		middleware.BindJSONError(c, err)
 		return
 	}
 
@@ -73,25 +66,13 @@ func (h *TagHandler) Create(c *gin.Context) {
 	// 验证颜色格式（如果提供）
 	if req.Color != "" {
 		if !regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`).MatchString(req.Color) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"success": false,
-				"error": gin.H{
-					"code":    "INVALID_COLOR",
-					"message": "颜色格式无效，必须是十六进制格式（如 #FF0000）",
-				},
-			})
+			middleware.BadRequestResponse(c, "INVALID_COLOR", "颜色格式无效，必须是十六进制格式（如 #FF0000）")
 			return
 		}
 	}
 
 	if v.HasErrors() {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "VALIDATION_ERROR",
-				"message": v.Error(),
-			},
-		})
+		middleware.BadRequestResponse(c, "VALIDATION_ERROR", v.Error())
 		return
 	}
 
@@ -100,13 +81,7 @@ func (h *TagHandler) Create(c *gin.Context) {
 	// 检查标签名称是否已存在
 	var existingTag models.Tag
 	if err := db.Where("name = ?", req.Name).First(&existingTag).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "TAG_EXISTS",
-				"message": "标签名称已存在",
-			},
-		})
+		middleware.ConflictResponse(c, "TAG_EXISTS", "标签名称已存在")
 		return
 	}
 
@@ -117,23 +92,14 @@ func (h *TagHandler) Create(c *gin.Context) {
 	}
 
 	if err := db.Create(&tag).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "创建标签失败: " + err.Error(),
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "创建标签失败: "+err.Error())
 		return
 	}
 
 	// 使标签列表缓存失效
 	cache.GetCache().Delete(cache.NewKeyBuilder().TagList())
 
-	c.JSON(http.StatusCreated, gin.H{
-		"success": true,
-		"data":    TagResponse{ID: tag.ID, Name: tag.Name, Color: tag.Color, PodcastCount: 0},
-	})
+	middleware.CreatedResponse(c, TagResponse{ID: tag.ID, Name: tag.Name, Color: tag.Color, PodcastCount: 0})
 }
 
 // List 获取标签列表
@@ -153,7 +119,7 @@ func (h *TagHandler) List(c *gin.Context) {
 		cache.RecordHit()
 		// 设置浏览器缓存头
 		c.Header("Cache-Control", "private, max-age=60")
-		c.JSON(http.StatusOK, gin.H{
+		c.JSON(200, gin.H{
 			"success": true,
 			"data":    cached,
 			"cached":  true,
@@ -180,13 +146,7 @@ func (h *TagHandler) List(c *gin.Context) {
 		GROUP BY tags.id
 		ORDER BY podcast_count DESC, tags.id ASC
 	`).Scan(&tagsWithCount).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "获取标签列表失败: " + err.Error(),
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "获取标签列表失败: "+err.Error())
 		return
 	}
 
@@ -207,10 +167,7 @@ func (h *TagHandler) List(c *gin.Context) {
 	// 设置浏览器缓存头（标签列表缓存60秒）
 	c.Header("Cache-Control", "private, max-age=60")
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    response,
-	})
+	middleware.SuccessResponse(c, response)
 }
 
 // Get 获取单个标签详情
@@ -234,27 +191,18 @@ func (h *TagHandler) Get(c *gin.Context) {
 
 	var tag models.Tag
 	if err := db.First(&tag, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "标签不存在",
-			},
-		})
+		middleware.NotFoundResponse(c, "NOT_FOUND", "标签不存在")
 		return
 	}
 
 	// 设置浏览器缓存头（标签详情缓存5分钟）
 	c.Header("Cache-Control", "private, max-age=300")
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": TagResponse{
-			ID:           tag.ID,
-			Name:         tag.Name,
-			Color:        tag.Color,
-			PodcastCount: int(count),
-		},
+	middleware.SuccessResponse(c, TagResponse{
+		ID:           tag.ID,
+		Name:         tag.Name,
+		Color:        tag.Color,
+		PodcastCount: int(count),
 	})
 }
 // @Summary 更新标签
@@ -269,28 +217,14 @@ func (h *TagHandler) Get(c *gin.Context) {
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/tags/{id} [put]
 func (h *TagHandler) Update(c *gin.Context) {
-	id := c.Param("id")
-	tagID, err := strconv.ParseUint(id, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_ID",
-				"message": "无效的标签 ID",
-			},
-		})
+	tagID, ok := ParseUintParam(c, "id")
+	if !ok {
 		return
 	}
 
 	var req UpdateTagRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_REQUEST",
-				"message": "请求参数错误: " + err.Error(),
-			},
-		})
+		middleware.BindJSONError(c, err)
 		return
 	}
 
@@ -304,14 +238,8 @@ func (h *TagHandler) Update(c *gin.Context) {
 		// 检查标签名称是否已被其他标签使用
 		db := database.GetDB()
 		var existingTag models.Tag
-		if err := db.Where("name = ? AND id != ?", req.Name, uint(tagID)).First(&existingTag).Error; err == nil {
-			c.JSON(http.StatusConflict, gin.H{
-				"success": false,
-				"error": gin.H{
-					"code":    "TAG_EXISTS",
-					"message": "标签名称已存在",
-				},
-			})
+		if err := db.Where("name = ? AND id != ?", req.Name, tagID).First(&existingTag).Error; err == nil {
+			middleware.ConflictResponse(c, "TAG_EXISTS", "标签名称已存在")
 			return
 		}
 	}
@@ -319,25 +247,13 @@ func (h *TagHandler) Update(c *gin.Context) {
 	// 验证颜色格式（如果提供）
 	if req.Color != "" {
 		if !regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`).MatchString(req.Color) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"success": false,
-				"error": gin.H{
-					"code":    "INVALID_COLOR",
-					"message": "颜色格式无效，必须是十六进制格式（如 #FF0000）",
-				},
-			})
+			middleware.BadRequestResponse(c, "INVALID_COLOR", "颜色格式无效，必须是十六进制格式（如 #FF0000）")
 			return
 		}
 	}
 
 	if v.HasErrors() {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "VALIDATION_ERROR",
-				"message": v.Error(),
-			},
-		})
+		middleware.BadRequestResponse(c, "VALIDATION_ERROR", v.Error())
 		return
 	}
 
@@ -345,14 +261,8 @@ func (h *TagHandler) Update(c *gin.Context) {
 
 	// 检查标签是否存在
 	var tag models.Tag
-	if err := db.First(&tag, uint(tagID)).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "标签不存在",
-			},
-		})
+	if err := db.First(&tag, tagID).Error; err != nil {
+		middleware.NotFoundResponse(c, "NOT_FOUND", "标签不存在")
 		return
 	}
 
@@ -366,13 +276,7 @@ func (h *TagHandler) Update(c *gin.Context) {
 	}
 
 	if err := db.Model(&tag).Updates(updates).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "更新标签失败: " + err.Error(),
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "更新标签失败: "+err.Error())
 		return
 	}
 
@@ -385,14 +289,11 @@ func (h *TagHandler) Update(c *gin.Context) {
 	var count int64
 	db.Table("podcasts_tags").Where("tag_id = ?", tagID).Count(&count)
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": TagResponse{
-			ID:           tag.ID,
-			Name:         tag.Name,
-			Color:        tag.Color,
-			PodcastCount: int(count),
-		},
+	middleware.SuccessResponse(c, TagResponse{
+		ID:           tag.ID,
+		Name:         tag.Name,
+		Color:        tag.Color,
+		PodcastCount: int(count),
 	})
 }
 
@@ -414,13 +315,7 @@ func (h *TagHandler) Delete(c *gin.Context) {
 	// 检查标签是否存在
 	var tag models.Tag
 	if err := db.First(&tag, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "标签不存在",
-			},
-		})
+		middleware.NotFoundResponse(c, "NOT_FOUND", "标签不存在")
 		return
 	}
 
@@ -428,13 +323,7 @@ func (h *TagHandler) Delete(c *gin.Context) {
 	var podcastCount int64
 	db.Table("podcasts_tags").Where("tag_id = ?", id).Count(&podcastCount)
 	if podcastCount > 0 {
-		c.JSON(http.StatusConflict, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "TAG_IN_USE",
-				"message": fmt.Sprintf("该标签已被 %d 个节目使用，无法删除", podcastCount),
-			},
-		})
+		middleware.ConflictResponse(c, "TAG_IN_USE", fmt.Sprintf("该标签已被 %d 个节目使用，无法删除", podcastCount))
 		return
 	}
 
@@ -442,35 +331,18 @@ func (h *TagHandler) Delete(c *gin.Context) {
 	var episodeCount int64
 	db.Table("episodes_tags").Where("tag_id = ?", id).Count(&episodeCount)
 	if episodeCount > 0 {
-		c.JSON(http.StatusConflict, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "TAG_IN_USE",
-				"message": fmt.Sprintf("该标签已被 %d 个单集使用，无法删除", episodeCount),
-			},
-		})
+		middleware.ConflictResponse(c, "TAG_IN_USE", fmt.Sprintf("该标签已被 %d 个单集使用，无法删除", episodeCount))
 		return
 	}
 
 	// 删除标签（永久删除，不使用软删除）
 	if err := db.Unscoped().Delete(&tag).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INTERNAL_ERROR",
-				"message": "删除标签失败: " + err.Error(),
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "删除标签失败: "+err.Error())
 		return
 	}
 
 	// 使标签列表缓存失效
 	cache.GetCache().Delete(cache.NewKeyBuilder().TagList())
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"message": "标签已删除",
-		},
-	})
+	middleware.SuccessResponse(c, gin.H{"message": "标签已删除"})
 }
