@@ -13,6 +13,7 @@ import ReportModal from "@/components/workflows/ReportModal";
 import PageLayout from "@/components/layout/PageLayout";
 import LoadingLayout from "@/components/layout/LoadingLayout";
 import { WorkflowDetailSkeleton } from "@/components/ui/Skeleton";
+import { WorkflowStatusBadge, JobStatusBadge } from "@/components/ui/StatusBadge";
 import { toast } from "@/lib/toast";
 
 type TabType = "overview" | "jobs" | "config";
@@ -210,55 +211,6 @@ function WorkflowDetailContent() {
     }
   };
 
-  const getStatusBadge = (isEnabled: boolean) => {
-    return isEnabled ? (
-      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-        ● 启用中
-      </span>
-    ) : (
-      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
-        ○ 已禁用
-      </span>
-    );
-  };
-
-  const getJobStatusBadge = (status: string) => {
-    const statusMap: Record<string, { text: string; className: string }> = {
-      pending: {
-        text: "等待中",
-        className:
-          "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
-      },
-      running: {
-        text: "执行中",
-        className:
-          "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-      },
-      completed: {
-        text: "已完成",
-        className:
-          "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
-      },
-      failed: {
-        text: "失败",
-        className: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
-      },
-      cancelled: {
-        text: "已取消",
-        className:
-          "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
-      },
-    };
-    const statusInfo = statusMap[status] || statusMap.pending;
-    return (
-      <span
-        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium ${statusInfo.className} flex-shrink-0`}
-      >
-        {statusInfo.text}
-      </span>
-    );
-  };
-
   // 格式化token数量
   const formatTokenCount = (tokens: number): string => {
     if (tokens === 0) return "0";
@@ -311,7 +263,7 @@ function WorkflowDetailContent() {
         title: (
           <div className="flex items-center gap-3">
             <span>{`${workflow.id}: ${workflow.name}`}</span>
-            {getStatusBadge(workflow.is_enabled)}
+            <WorkflowStatusBadge isEnabled={workflow.is_enabled} />
           </div>
         ),
         description: workflow.description || undefined,
@@ -793,7 +745,7 @@ function WorkflowDetailContent() {
                   <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-3">
-                        {getJobStatusBadge(workflow.last_job.status)}
+                        <JobStatusBadge status={workflow.last_job.status} />
                         <span className="text-sm text-slate-600 dark:text-slate-400">
                           {new Date(
                             workflow.last_job.created_at,
@@ -874,7 +826,7 @@ function WorkflowDetailContent() {
                             <span className="text-xs px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 rounded">
                               {job.triggered_by === "cron" ? "定时" : "手动"}
                             </span>
-                            {getJobStatusBadge(job.status)}
+                            <JobStatusBadge status={job.status} />
                           </div>
 
                           {/* 中间：简化统计（仅匹配数和错误数） */}
@@ -930,7 +882,7 @@ function WorkflowDetailContent() {
                               <span className="text-sm px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded flex-shrink-0">
                                 {job.triggered_by === "cron" ? "定时" : "手动"}
                               </span>
-                              {getJobStatusBadge(job.status)}
+                              <JobStatusBadge status={job.status} />
                               <span className="text-sm text-slate-600 dark:text-slate-400">
                                 {new Date(job.created_at).toLocaleString("zh-CN")}
                               </span>

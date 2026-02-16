@@ -10,6 +10,7 @@ import type { Workflow, WorkflowSortByType } from "@/types";
 import WorkflowActionMenu from "@/components/workflows/WorkflowActionMenu";
 import PageLayout from "@/components/layout/PageLayout";
 import PrefetchLink from "@/components/common/PrefetchLink";
+import { WorkflowStatusBadge } from "@/components/ui/StatusBadge";
 
 // 动态导入 WorkflowFormModal，减少首屏 bundle 大小
 const WorkflowFormModal = dynamic(
@@ -124,27 +125,6 @@ export default function WorkflowsPage() {
     } catch (err) {
       console.error("Failed to delete workflow:", err);
     }
-  };
-
-  const getStatusBadge = (status: boolean, compact: boolean = false) => {
-    if (compact) {
-      // 移动端：仅显示彩色圆点
-      return (
-        <span
-          className={`w-3 h-3 rounded-full flex-shrink-0 ${status ? "bg-green-500" : "bg-gray-400"}`}
-          title={status ? "启用中" : "已禁用"}
-        />
-      );
-    }
-    return status ? (
-      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-        启用中
-      </span>
-    ) : (
-      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-        已禁用
-      </span>
-    );
   };
 
   const getScopeTypeLabel = (workflow: Workflow) => {
@@ -262,7 +242,7 @@ export default function WorkflowsPage() {
                         <h3 className="text-base font-semibold text-slate-900 truncate">
                           {workflow.name}
                         </h3>
-                        {getStatusBadge(workflow.is_enabled, true)}
+                        <WorkflowStatusBadge isEnabled={workflow.is_enabled} compact />
                       </div>
 
                       {/* 关键信息 */}
@@ -368,7 +348,7 @@ export default function WorkflowsPage() {
                           <h3 className="text-lg font-semibold text-slate-900">
                             {workflow.id}: {workflow.name}
                           </h3>
-                          {getStatusBadge(workflow.is_enabled)}
+                          <WorkflowStatusBadge isEnabled={workflow.is_enabled} size="sm" />
                         </div>
 
                         {workflow.description && (
