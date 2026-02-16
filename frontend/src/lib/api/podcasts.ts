@@ -46,26 +46,25 @@ export async function listPodcasts(
     ? `/api/v1/podcasts?${queryParams.toString()}`
     : "/api/v1/podcasts";
 
-  const response = await api.get<
-    ApiResponse<{
-      data: any[];
-      pagination?: {
-        page: number;
-        page_size: number;
-        total: number;
-        total_pages: number;
-      };
-    }>
-  >(url);
+  const response = await api.get<{
+    success: boolean;
+    data: any[];
+    pagination?: {
+      page: number;
+      page_size: number;
+      total: number;
+      total_pages: number;
+    };
+    error?: { message: string };
+  }>(url);
 
   if (response.data.success && response.data.data) {
-    const result = response.data.data;
     return {
-      data: result.data,
-      pagination: result.pagination || {
+      data: response.data.data,
+      pagination: response.data.pagination || {
         page: 1,
         page_size: 15,
-        total: result.data.length,
+        total: response.data.data.length,
         total_pages: 1,
       },
     };
