@@ -1013,25 +1013,25 @@ export default function WorkflowDetailPage() {
                                     key={exec.id}
                                     className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-slate-200 dark:border-slate-700"
                                   >
-                                    <div className="flex items-start justify-between mb-2">
-                                      <div className="flex-1">
+                                    <div className="flex items-start justify-between gap-2 mb-2">
+                                      <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 mb-1">
                                           {exec.status === "success" && (
-                                            <span className="text-green-600 dark:text-green-400">
+                                            <span className="text-green-600 dark:text-green-400 flex-shrink-0">
                                               ✓
                                             </span>
                                           )}
                                           {exec.status === "failed" && (
-                                            <span className="text-red-600 dark:text-red-400">
+                                            <span className="text-red-600 dark:text-red-400 flex-shrink-0">
                                               ✗
                                             </span>
                                           )}
                                           {exec.status === "skipped" && (
-                                            <span className="text-yellow-600 dark:text-yellow-400">
+                                            <span className="text-yellow-600 dark:text-yellow-400 flex-shrink-0">
                                               ○
                                             </span>
                                           )}
-                                          <span className="font-medium text-slate-900 dark:text-slate-50">
+                                          <span className="font-medium text-slate-900 dark:text-slate-50 truncate">
                                             {exec.podcast_title}
                                           </span>
                                         </div>
@@ -1039,12 +1039,12 @@ export default function WorkflowDetailPage() {
                                           href={exec.podcast_feed_url}
                                           target="_blank"
                                           rel="noopener noreferrer"
-                                          className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 truncate max-w-md block"
+                                          className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 truncate block"
                                         >
                                           {exec.podcast_feed_url}
                                         </a>
                                       </div>
-                                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                                      <span className="text-xs text-slate-500 dark:text-slate-400 flex-shrink-0 whitespace-nowrap">
                                         {exec.processing_time}ms
                                       </span>
                                     </div>
