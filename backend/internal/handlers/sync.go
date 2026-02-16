@@ -358,8 +358,5 @@ func (h *SyncHandler) SyncAllEpisodesNonStreaming(c *gin.Context) {
 
 	logger.Info("✅ 所有podcast的episodes同步完成")
 
-	c.JSON(200, gin.H{
-		"success": true,
-		"message": "所有podcast的episodes同步完成",
-	})
+	middleware.SuccessResponseWithMessage(c, "所有podcast的episodes同步完成", nil)
 }
