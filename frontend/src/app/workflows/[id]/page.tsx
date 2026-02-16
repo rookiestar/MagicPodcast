@@ -13,6 +13,7 @@ import ReportModal from "@/components/workflows/ReportModal";
 import PageLayout from "@/components/layout/PageLayout";
 import LoadingLayout from "@/components/layout/LoadingLayout";
 import { WorkflowDetailSkeleton } from "@/components/ui/Skeleton";
+import { toast } from "@/lib/toast";
 
 type TabType = "overview" | "jobs" | "config";
 
@@ -161,7 +162,7 @@ function WorkflowDetailContent() {
       setSelectedJobId(jobId);
     } catch (err) {
       console.error("Failed to fetch job detail:", err);
-      alert("获取详情失败");
+      toast.error("获取详情失败");
     } finally {
       setLoadingJobId(null);
     }
@@ -173,7 +174,7 @@ function WorkflowDetailContent() {
       const updated = await workflowApi.toggle(id);
       mutateWorkflow(updated, false);
     } catch (err) {
-      alert(
+      toast.error(
         `操作失败: ${err instanceof Error ? err.message : "Unknown error"}`,
       );
     }
@@ -185,11 +186,11 @@ function WorkflowDetailContent() {
 
     try {
       await workflowApi.trigger(id);
-      alert("工作流已触发");
+      toast.success("工作流已触发");
       mutateWorkflow();
       mutateJobs();
     } catch (err) {
-      alert(
+      toast.error(
         `触发失败: ${err instanceof Error ? err.message : "Unknown error"}`,
       );
     }
@@ -203,7 +204,7 @@ function WorkflowDetailContent() {
       await workflowApi.delete(id);
       router.push("/workflows");
     } catch (err) {
-      alert(
+      toast.error(
         `删除失败: ${err instanceof Error ? err.message : "Unknown error"}`,
       );
     }
