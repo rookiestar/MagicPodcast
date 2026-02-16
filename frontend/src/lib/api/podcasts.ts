@@ -79,6 +79,15 @@ export async function getPodcast(id: number): Promise<any> {
   return handleResponse(response);
 }
 
+// 批量获取播客详情
+export async function batchGetPodcasts(ids: number[]): Promise<any[]> {
+  const response = await api.post<ApiResponse<any[]>>(
+    "/api/v1/podcasts/batch",
+    { ids },
+  );
+  return handleResponse(response);
+}
+
 // 获取播客备注
 export async function getPodcastNotes(id: number): Promise<string> {
   const response = await api.get<ApiResponse<{ id: number; notes: string }>>(
@@ -146,6 +155,7 @@ export async function updateCustomCover(
 export const podcastApi = {
   list: listPodcasts,
   get: getPodcast,
+  batchGet: batchGetPodcasts,
   getNotes: getPodcastNotes,
   updateNotes: updatePodcastNotes,
   getTags: getPodcastTags,

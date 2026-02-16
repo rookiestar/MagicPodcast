@@ -2,7 +2,7 @@
 // 从各个子模块导出API
 
 export * from "./client";
-export * from "./podcast";
+export * from "./podcasts";
 export * from "./episode";
 export * from "./tag";
 export * from "./workflow";
