@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"fmt"
-	"regexp"
 
 	"magicpodcast/internal/cache"
 	"magicpodcast/internal/database"
@@ -61,15 +60,8 @@ func (h *TagHandler) Create(c *gin.Context) {
 	// 额外的输入验证
 	v := validation.New()
 	v.ValidateRequired("name", req.Name).
-		ValidateStringLength("name", req.Name, 1, 64)
-
-	// 验证颜色格式（如果提供）
-	if req.Color != "" {
-		if !regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`).MatchString(req.Color) {
-			middleware.BadRequestResponse(c, "INVALID_COLOR", "颜色格式无效，必须是十六进制格式（如 #FF0000）")
-			return
-		}
-	}
+		ValidateStringLength("name", req.Name, 1, 64).
+		ValidateColor("color", req.Color)
 
 	if v.HasErrors() {
 		middleware.BadRequestResponse(c, "VALIDATION_ERROR", v.Error())
@@ -244,13 +236,8 @@ func (h *TagHandler) Update(c *gin.Context) {
 		}
 	}
 
-	// 验证颜色格式（如果提供）
-	if req.Color != "" {
-		if !regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`).MatchString(req.Color) {
-			middleware.BadRequestResponse(c, "INVALID_COLOR", "颜色格式无效，必须是十六进制格式（如 #FF0000）")
-			return
-		}
-	}
+	// 验证颜色格式
+	v.ValidateColor("color", req.Color)
 
 	if v.HasErrors() {
 		middleware.BadRequestResponse(c, "VALIDATION_ERROR", v.Error())

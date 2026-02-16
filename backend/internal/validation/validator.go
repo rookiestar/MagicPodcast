@@ -13,6 +13,8 @@ var (
 	urlRegex = regexp.MustCompile(`^https?://[a-zA-Z0-9\-._~:/?#\[\]@!$&'()*+,;=]+$`)
 	// Feed URL正则（更宽松，支持各种feed格式）
 	feedURLRegex = regexp.MustCompile(`^https?://.+\.(xml|rss|atom|json|opml)$|^https?://.+/.+$`)
+	// 颜色验证正则（十六进制格式，如 #FF0000）
+	colorRegex = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 )
 
 // ValidationError 验证错误
@@ -171,6 +173,22 @@ func (v *Validator) ValidateEnum(field, value string, allowedValues []string) *V
 		Field:   field,
 		Message: fmt.Sprintf("必须是以下值之一: %v", allowedValues),
 	})
+
+	return v
+}
+
+// ValidateColor 验证颜色格式（十六进制格式，如 #FF0000）
+func (v *Validator) ValidateColor(field, value string) *Validator {
+	if value == "" {
+		return v
+	}
+
+	if !colorRegex.MatchString(value) {
+		v.errors = append(v.errors, ValidationError{
+			Field:   field,
+			Message: "颜色格式无效，必须是十六进制格式（如 #FF0000）",
+		})
+	}
 
 	return v
 }
