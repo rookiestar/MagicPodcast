@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { Suspense, useEffect, useState, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { workflowApi, podcastApi } from "@/lib/api";
@@ -15,7 +15,8 @@ import { WorkflowDetailSkeleton } from "@/components/ui/Skeleton";
 
 type TabType = "overview" | "jobs" | "config";
 
-export default function WorkflowDetailPage() {
+// 内部组件：使用 useSearchParams
+function WorkflowDetailContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -1305,5 +1306,23 @@ export default function WorkflowDetailPage() {
         />
       )}
     </PageLayout>
+  );
+}
+
+// 默认导出：用 Suspense 包裹以支持 useSearchParams
+export default function WorkflowDetailPage() {
+  return (
+    <Suspense fallback={
+      <PageLayout
+        toolbar={{
+          breadcrumbs: [{ label: "返回列表", href: "/workflows" }],
+          title: "加载中...",
+        }}
+      >
+        <WorkflowDetailSkeleton />
+      </PageLayout>
+    }>
+      <WorkflowDetailContent />
+    </Suspense>
   );
 }
