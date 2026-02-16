@@ -48,6 +48,11 @@ backend/data/*
 .env.production
 *.env
 
+# Config files with sensitive data
+backend/configs/config.yaml
+backend/configs/config.yaml.backup
+backend/configs/config.yaml.bak
+
 # IDE
 .idea/
 .vscode/
