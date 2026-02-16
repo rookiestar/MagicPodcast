@@ -854,55 +854,30 @@ export default function WorkflowDetailPage() {
                         onClick={() => fetchJobDetail(job.id)}
                         className="p-3 sm:p-4 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors cursor-pointer"
                       >
-                        {/* 移动端：两行布局 */}
-                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-0 sm:mb-2">
-                          {/* 第一行：状态 + 时间 + 操作按钮 */}
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 sm:gap-3">
-                              <span className="text-xs sm:text-sm px-1.5 sm:px-2 py-0.5 sm:py-1 bg-slate-100 dark:bg-slate-700 rounded flex-shrink-0">
-                                {job.triggered_by === "cron" ? "定时" : "手动"}
-                              </span>
-                              {getJobStatusBadge(job.status)}
-                              <span className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">
-                                {new Date(job.created_at).toLocaleDateString("zh-CN")}
-                              </span>
-                            </div>
-                            {/* 移动端操作按钮 */}
-                            <div className="flex items-center gap-2 sm:hidden">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (job.status === "completed") {
-                                    setReportModalJobId(job.id);
-                                  }
-                                }}
-                                disabled={job.status !== "completed"}
-                                className={`p-2 rounded flex-shrink-0 ${
-                                  job.status === "completed"
-                                    ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400"
-                                    : "bg-slate-100 dark:bg-slate-800 text-slate-400"
-                                }`}
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                                </svg>
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  fetchJobDetail(job.id);
-                                }}
-                                className="p-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded flex-shrink-0"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                </svg>
-                              </button>
-                            </div>
+                        {/* === 移动端：单行紧凑布局 === */}
+                        <div className="flex sm:hidden items-center justify-between gap-2">
+                          {/* 左侧：状态信息 */}
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            <span className="text-xs px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 rounded">
+                              {job.triggered_by === "cron" ? "定时" : "手动"}
+                            </span>
+                            {getJobStatusBadge(job.status)}
                           </div>
 
-                          {/* 桌面端操作按钮 */}
-                          <div className="hidden sm:flex items-center gap-3">
+                          {/* 中间：简化统计（仅匹配数和错误数） */}
+                          <div className="flex items-center gap-3 text-xs flex-1 justify-center">
+                            <span className="whitespace-nowrap">
+                              <span className="text-slate-500">匹配数:</span>
+                              <span className="ml-1 font-medium text-slate-900 dark:text-slate-50">{job.episodes_matched || 0}</span>
+                            </span>
+                            <span className="whitespace-nowrap">
+                              <span className={job.error_count > 0 ? "text-red-500" : "text-slate-500"}>错误数:</span>
+                              <span className={`ml-1 font-medium ${job.error_count > 0 ? "text-red-600" : "text-slate-900 dark:text-slate-50"}`}>{job.error_count}</span>
+                            </span>
+                          </div>
+
+                          {/* 右侧：操作按钮 */}
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -911,117 +886,108 @@ export default function WorkflowDetailPage() {
                                 }
                               }}
                               disabled={job.status !== "completed"}
-                              className={`px-4 py-1.5 rounded text-sm font-medium flex items-center gap-2 flex-shrink-0 transition-colors ${
+                              className={`p-1.5 rounded ${
                                 job.status === "completed"
-                                  ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 cursor-pointer"
-                                  : "bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed"
+                                  ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400"
+                                  : "bg-slate-100 dark:bg-slate-800 text-slate-400"
                               }`}
-                              title={
-                                job.status !== "completed"
-                                  ? `报告生成中... (当前状态: ${job.status})`
-                                  : "查看报告"
-                              }
                             >
-                              <svg
-                                className="w-4 h-4 flex-shrink-0"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-                                />
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                               </svg>
-                              {job.status === "completed" ? "报告" : "生成中"}
                             </button>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 fetchJobDetail(job.id);
                               }}
-                              className="px-4 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center gap-2 flex-shrink-0"
+                              className="p-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded"
                             >
-                              <svg
-                                className="w-4 h-4 flex-shrink-0"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M19 9l-7 7-7-7"
-                                />
+                              <svg className={`w-3.5 h-3.5 transition-transform ${selectedJobId === job.id ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                               </svg>
-                              {selectedJobId === job.id ? "收起" : "展开"}
                             </button>
                           </div>
                         </div>
 
-                        {/* 第二行：耗时 + LLM信息（桌面端在同一行，移动端单独一行） */}
-                        <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-slate-600 dark:text-slate-400 mb-2">
-                          {job.duration && (
-                            <span className="font-medium text-slate-700 dark:text-slate-300 px-1.5 sm:px-2 py-0.5 sm:py-1 bg-slate-100 dark:bg-slate-700 rounded flex-shrink-0">
-                              耗时：{Math.floor(job.duration / 1000)}s
-                            </span>
-                          )}
-                          {job.llm_tokens_used && job.llm_model_used && (
-                            <span className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 rounded-full font-medium flex-shrink-0">
-                              🤖 {formatTokenCount(job.llm_tokens_used)}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* 移动端横向滚动，桌面端正常网格 */}
-                        <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
-                          <div className="grid grid-cols-5 gap-3 text-sm min-w-[400px] sm:min-w-0">
-                            <div>
-                              <span className="text-slate-600 dark:text-slate-400">
-                                处理节目:
+                        {/* === 桌面端：两行布局 === */}
+                        <div className="hidden sm:block">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded flex-shrink-0">
+                                {job.triggered_by === "cron" ? "定时" : "手动"}
                               </span>
-                              <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                                {job.podcasts_processed}
+                              {getJobStatusBadge(job.status)}
+                              <span className="text-sm text-slate-600 dark:text-slate-400">
+                                {new Date(job.created_at).toLocaleString("zh-CN")}
                               </span>
+                              {job.duration && (
+                                <span className="text-sm font-medium text-slate-700 dark:text-slate-300 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded flex-shrink-0">
+                                  耗时：{Math.floor(job.duration / 1000)}s
+                                </span>
+                              )}
+                              {job.llm_tokens_used && job.llm_model_used && (
+                                <span className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 rounded-full font-medium flex-shrink-0">
+                                  🤖 AI: {formatTokenCount(job.llm_tokens_used)} ({job.llm_model_used})
+                                </span>
+                              )}
                             </div>
-                            <div>
-                              <span className="text-slate-600 dark:text-slate-400">
-                                发现单集:
-                              </span>
-                              <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                                {job.episodes_found}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-slate-600 dark:text-slate-400">
-                                创建单集:
-                              </span>
-                              <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                                {job.episodes_created}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-slate-600 dark:text-slate-400">
-                                匹配数:
-                              </span>
-                              <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                                {job.episodes_matched}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-slate-600 dark:text-slate-400">
-                                错误数:
-                              </span>
-                              <span
-                                className={`ml-2 font-medium ${
-                                  job.error_count > 0
-                                    ? "text-red-600"
-                                    : "text-slate-900 dark:text-slate-50"
+                            <div className="flex items-center gap-3">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (job.status === "completed") {
+                                    setReportModalJobId(job.id);
+                                  }
+                                }}
+                                disabled={job.status !== "completed"}
+                                className={`px-4 py-1.5 rounded text-sm font-medium flex items-center gap-2 flex-shrink-0 transition-colors ${
+                                  job.status === "completed"
+                                    ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 cursor-pointer"
+                                    : "bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed"
                                 }`}
                               >
+                                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                </svg>
+                                {job.status === "completed" ? "报告" : "生成中"}
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  fetchJobDetail(job.id);
+                                }}
+                                className="px-4 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center gap-2 flex-shrink-0"
+                              >
+                                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                </svg>
+                                {selectedJobId === job.id ? "收起" : "展开"}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* 统计信息网格 */}
+                          <div className="grid grid-cols-5 gap-3 text-sm">
+                            <div>
+                              <span className="text-slate-600 dark:text-slate-400">处理节目:</span>
+                              <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">{job.podcasts_processed}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-600 dark:text-slate-400">发现单集:</span>
+                              <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">{job.episodes_found}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-600 dark:text-slate-400">创建单集:</span>
+                              <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">{job.episodes_created}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-600 dark:text-slate-400">匹配数:</span>
+                              <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">{job.episodes_matched}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-600 dark:text-slate-400">错误数:</span>
+                              <span className={`ml-2 font-medium ${job.error_count > 0 ? "text-red-600" : "text-slate-900 dark:text-slate-50"}`}>
                                 {job.error_count}
                               </span>
                             </div>
