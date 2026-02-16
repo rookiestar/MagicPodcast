@@ -173,9 +173,6 @@ export default function WorkflowFormModal({
   const [isTagFilterExpanded, setIsTagFilterExpanded] = useState(false);
   const [isLoadingTags, setIsLoadingTags] = useState(false);
 
-  // 移动端标签切换状态（Step 2）
-  const [mobileTab, setMobileTab] = useState<"search" | "selected">("search");
-
   // 同步 selectedTagIds ref（供 Intersection Observer 使用）
   // 注意：必须定义在 selectedTagIds state 之后
   const selectedTagIdsRef = useRef(selectedTagIds);
@@ -1212,68 +1209,46 @@ export default function WorkflowFormModal({
                             )}
                           </div>
 
-                          {/* 使用提示 */}
+                          {/* 使用提示 - 仅桌面端显示 */}
                           {filteredPodcasts.length > 0 &&
                             !isLoadingPodcasts && (
-                              <div className="text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/30 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
+                              <div className="hidden sm:block text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/30 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
                                 💡 <strong>提示：</strong>
                                 点击列表项选择节目，或点击中间的"全部添加"按钮批量加入
                               </div>
                             )}
 
-                          {/* 移动端标签栏 */}
-                          <div className="sm:hidden flex border-b border-slate-200 dark:border-slate-700 mb-3">
-                            <button
-                              type="button"
-                              onClick={() => setMobileTab("search")}
-                              className={`flex-1 py-3 text-sm font-medium transition-colors ${
-                                mobileTab === "search"
-                                  ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400"
-                                  : "text-slate-500 dark:text-slate-400"
-                              }`}
-                            >
-                              📻 搜索 ({filteredPodcasts.length})
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setMobileTab("selected")}
-                              className={`flex-1 py-3 text-sm font-medium transition-colors ${
-                                mobileTab === "selected"
-                                  ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400"
-                                  : "text-slate-500 dark:text-slate-400"
-                              }`}
-                            >
-                              ✅ 已选 ({candidatePodcastIds.length})
-                            </button>
+                          {/* 移动端底部操作栏 - 显示已选数量和批量操作 */}
+                          <div className="sm:hidden sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 p-3 flex items-center gap-3 -mx-6 -mb-6 mt-4 z-10">
+                            <span className="text-sm text-slate-600 dark:text-slate-400 flex-shrink-0">
+                              已选 <span className="font-bold text-green-600 dark:text-green-400">{candidatePodcastIds.length}</span>
+                            </span>
+                            <div className="flex-1 flex gap-2">
+                              {filteredPodcasts.length > 0 && !isLoadingPodcasts && (
+                                <button
+                                  type="button"
+                                  onClick={handleAddAllFiltered}
+                                  className="flex-1 min-h-[44px] bg-blue-600 text-white rounded-lg text-sm font-medium"
+                                >
+                                  添加全部
+                                </button>
+                              )}
+                              {candidatePodcastIds.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setCandidatePodcastIds([])}
+                                  className="min-h-[44px] px-4 border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 rounded-lg text-sm font-medium"
+                                >
+                                  清空
+                                </button>
+                              )}
+                            </div>
                           </div>
 
-                          {/* 移动端底部操作栏 */}
-                          <div className="sm:hidden sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 p-3 flex gap-2 -mx-6 -mb-6 mt-4 z-10">
-                            {filteredPodcasts.length > 0 && !isLoadingPodcasts && (
-                              <button
-                                type="button"
-                                onClick={handleAddAllFiltered}
-                                className="flex-1 min-h-[44px] bg-blue-600 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-2"
-                              >
-                                <span>≫</span>
-                                添加全部 ({filteredPodcasts.length})
-                              </button>
-                            )}
-                            {candidatePodcastIds.length > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => setCandidatePodcastIds([])}
-                                className="min-h-[44px] px-4 border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 rounded-lg text-sm font-medium"
-                              >
-                                清空
-                              </button>
-                            )}
-                          </div>
-
-                          {/* 三栏布局 - 桌面端固定高度，移动端根据tab显示 */}
+                          {/* 三栏布局 - 移动端单列表，桌面端三栏 */}
                           <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 transition-all duration-200">
-                            {/* 左侧：搜索结果列表 */}
-                            <div className={`col-span-1 sm:col-span-5 ${mobileTab !== "search" ? "hidden sm:block" : ""}`}>
+                            {/* 左侧：搜索结果列表 - 移动端全宽显示 */}
+                            <div className="col-span-1 sm:col-span-5">
                               <div className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
                                 <span>📻</span>
                                 <span>搜索结果</span>
@@ -1379,8 +1354,8 @@ export default function WorkflowFormModal({
                               )}
                             </div>
 
-                            {/* 右侧：备选列表 */}
-                            <div className={`col-span-1 sm:col-span-5 ${mobileTab !== "selected" ? "hidden sm:block" : ""}`}>
+                            {/* 右侧：备选列表 - 仅桌面端显示 */}
+                            <div className="hidden sm:block col-span-5">
                               <div className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
                                 <span>✅</span>
                                 <span>已选</span>
@@ -1388,17 +1363,14 @@ export default function WorkflowFormModal({
                                   {candidatePodcastIds.length}
                                 </span>
                               </div>
-                              <div className="h-[50vh] sm:h-80 overflow-y-auto border-2 border-green-200 dark:border-green-800 rounded-lg p-2 bg-green-50/50 dark:bg-green-900/10 transition-all duration-200 hover:border-green-300 dark:hover:border-green-700">
+                              <div className="h-80 overflow-y-auto border-2 border-green-200 dark:border-green-800 rounded-lg p-2 bg-green-50/50 dark:bg-green-900/10 transition-all duration-200 hover:border-green-300 dark:hover:border-green-700">
                                 {candidatePodcastIds.length === 0 ? (
                                   <div className="flex flex-col items-center justify-center h-full py-8 text-center">
                                     <div className="text-3xl mb-2 opacity-50">
                                       👈
                                     </div>
                                     <div className="text-sm text-slate-500 dark:text-slate-400">
-                                      从搜索结果选择节目
-                                    </div>
-                                    <div className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-                                      切换到"搜索"标签
+                                      从左侧搜索结果选择节目
                                     </div>
                                   </div>
                                 ) : (
