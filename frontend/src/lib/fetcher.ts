@@ -6,6 +6,20 @@ const API_URL = typeof window !== "undefined"
   ? (process.env.NEXT_PUBLIC_API_URL || "")  // 浏览器：相对路径或自定义 URL
   : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080");  // SSR：需要完整 URL
 
+// 自定义参数序列化函数（兼容 Gin 的 QueryArray）
+const paramsSerializer = (params: Record<string, unknown>): string => {
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null) return;
+    if (Array.isArray(value)) {
+      value.forEach((item) => searchParams.append(key, String(item)));
+    } else {
+      searchParams.append(key, String(value));
+    }
+  });
+  return searchParams.toString();
+};
+
 // 创建专用于 SWR 的 axios 实例（简化版，不带调试日志）
 export const apiClient = axios.create({
   baseURL: API_URL,
@@ -14,6 +28,7 @@ export const apiClient = axios.create({
     "Content-Type": "application/json",
   },
   withCredentials: false,
+  paramsSerializer,
 });
 
 // SWR 通用 fetcher

@@ -7,6 +7,21 @@ const API_URL = typeof window !== "undefined"
   ? (process.env.NEXT_PUBLIC_API_URL || "")  // 浏览器：相对路径或自定义 URL
   : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080");  // SSR：需要完整 URL
 
+// 自定义参数序列化函数（兼容 Gin 的 QueryArray）
+// 将 { tag_id: [1, 2] } 序列化为 ?tag_id=1&tag_id=2 而不是 ?tag_id[]=1&tag_id[]=2
+const paramsSerializer = (params: Record<string, unknown>): string => {
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null) return;
+    if (Array.isArray(value)) {
+      value.forEach((item) => searchParams.append(key, String(item)));
+    } else {
+      searchParams.append(key, String(value));
+    }
+  });
+  return searchParams.toString();
+};
+
 // 创建 axios 实例
 export const api: AxiosInstance = axios.create({
   baseURL: API_URL,
@@ -15,6 +30,7 @@ export const api: AxiosInstance = axios.create({
     "Content-Type": "application/json",
   },
   withCredentials: false, // 不发送凭证，避免CORS问题
+  paramsSerializer,
 });
 
 // 添加请求拦截器
