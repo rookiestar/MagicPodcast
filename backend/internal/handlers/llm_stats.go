@@ -2,13 +2,13 @@ package handlers
 
 import (
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
+	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
 )
 
@@ -198,37 +198,33 @@ func (h *LLMStatsHandler) GetGlobalLLMStats(c *gin.Context) {
 		dailyRequests = dailyStats[0].Requests
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": LLMStatsResponse{
-			Period: Period{
-				Start: startTime.Format("2006-01-02T15:04:05Z"),
-				End:   endTime.Format("2006-01-02T15:04:05Z"),
-			},
-			Usage: Usage{
-				TotalTokens:       totalTokens,
-				TotalRequests:     totalRequests,
-				AvgTokensPerReq:  avgTokens,
-				TotalCostEstimate: fmt.Sprintf("¥%.2f", totalCost),
-			},
-			Errors: Errors{
-				TotalFailures: failCount,
-				FailureRate:  failureRate,
-				TopErrors:    topErrors,
-			},
-			Workflows: LLMWorkflowStats{
-				TotalWithLLM: totalWorkflows,
-				Successful:    successfulWorkflows,
-				Failed:       failedWorkflows,
-			},
-			TotalRequests:  totalRequests,
-			TotalTokens:    totalTokens,
-			DailyTokens:    dailyTokens,
-			DailyRequests:  dailyRequests,
-			DailyCostCents: totalCost * 100, // 转换为分
-			LastResetDate:  todayStart.Format("2006-01-02T15:04:05Z"),
-			Enabled:        cfg.LLM.Enabled,
+	middleware.SuccessResponseWithMessage(c, fmt.Sprintf("最近%d天的LLM使用统计", days), LLMStatsResponse{
+		Period: Period{
+			Start: startTime.Format("2006-01-02T15:04:05Z"),
+			End:   endTime.Format("2006-01-02T15:04:05Z"),
 		},
-		"message": fmt.Sprintf("最近%d天的LLM使用统计", days),
+		Usage: Usage{
+			TotalTokens:       totalTokens,
+			TotalRequests:     totalRequests,
+			AvgTokensPerReq:  avgTokens,
+			TotalCostEstimate: fmt.Sprintf("¥%.2f", totalCost),
+		},
+		Errors: Errors{
+			TotalFailures: failCount,
+			FailureRate:  failureRate,
+			TopErrors:    topErrors,
+		},
+		Workflows: LLMWorkflowStats{
+			TotalWithLLM: totalWorkflows,
+			Successful:    successfulWorkflows,
+			Failed:       failedWorkflows,
+		},
+		TotalRequests:  totalRequests,
+		TotalTokens:    totalTokens,
+		DailyTokens:    dailyTokens,
+		DailyRequests:  dailyRequests,
+		DailyCostCents: totalCost * 100, // 转换为分
+		LastResetDate:  todayStart.Format("2006-01-02T15:04:05Z"),
+		Enabled:        cfg.LLM.Enabled,
 	})
 }

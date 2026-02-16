@@ -1,9 +1,8 @@
 package handlers
 
 import (
-	"net/http"
-
 	"magicpodcast/internal/cache"
+	"magicpodcast/internal/middleware"
 
 	"github.com/gin-gonic/gin"
 )
@@ -41,14 +40,11 @@ func (h *CacheHandler) GetStats(c *gin.Context) {
 		hitRate = float64(stats.HitCount) / float64(total) * 100
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": CacheStatsResponse{
-			TotalItems: stats.TotalItems,
-			HitCount:   stats.HitCount,
-			MissCount:  stats.MissCount,
-			HitRate:    hitRate,
-		},
+	middleware.SuccessResponse(c, CacheStatsResponse{
+		TotalItems: stats.TotalItems,
+		HitCount:   stats.HitCount,
+		MissCount:  stats.MissCount,
+		HitRate:    hitRate,
 	})
 }
 
@@ -63,10 +59,7 @@ func (h *CacheHandler) GetStats(c *gin.Context) {
 func (h *CacheHandler) ClearCache(c *gin.Context) {
 	cache.GetCache().Clear()
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"message": "Cache cleared successfully",
-		},
+	middleware.SuccessResponseWithMessage(c, "Cache cleared successfully", gin.H{
+		"cleared": true,
 	})
 }

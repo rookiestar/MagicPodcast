@@ -3,13 +3,13 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/llm"
 	"magicpodcast/internal/logger"
+	"magicpodcast/internal/middleware"
 )
 
 // LLMHealthHandler LLM健康检查处理器
@@ -56,11 +56,7 @@ func (h *LLMHealthHandler) GetHealth(c *gin.Context) {
 	if !cfg.LLM.Enabled {
 		response.Status = "disabled"
 		response.ErrorMessage = "LLM功能未启用"
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"data":    response,
-			"message": "LLM功能未启用",
-		})
+		middleware.SuccessResponseWithMessage(c, "LLM功能未启用", response)
 		return
 	}
 
@@ -68,11 +64,7 @@ func (h *LLMHealthHandler) GetHealth(c *gin.Context) {
 	if cfg.LLM.APIKey == "" || cfg.LLM.APIKey == "YOUR_ZHIPUAI_API_KEY_HERE" {
 		response.Status = "unhealthy"
 		response.ErrorMessage = "LLM API Key未配置或使用占位符"
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"data":    response,
-			"message": "LLM API Key未配置",
-		})
+		middleware.SuccessResponseWithMessage(c, "LLM API Key未配置", response)
 		return
 	}
 
@@ -97,11 +89,7 @@ func (h *LLMHealthHandler) GetHealth(c *gin.Context) {
 		response.ErrorMessage = fmt.Sprintf("LLM API调用失败: %v", err)
 		logger.Errorf("[LLM Health] API check failed: %v", err)
 
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"data":    response,
-			"message": fmt.Sprintf("LLM服务不可用: %v", err),
-		})
+		middleware.SuccessResponseWithMessage(c, fmt.Sprintf("LLM服务不可用: %v", err), response)
 		return
 	}
 
@@ -112,9 +100,5 @@ func (h *LLMHealthHandler) GetHealth(c *gin.Context) {
 
 	logger.Infof("[LLM Health] API check successful (model: %s, time: %dms)", cfg.LLM.DefaultModel, responseTime)
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    response,
-		"message": fmt.Sprintf("LLM服务正常 (响应时间: %dms)", responseTime),
-	})
+	middleware.SuccessResponseWithMessage(c, fmt.Sprintf("LLM服务正常 (响应时间: %dms)", responseTime), response)
 }
