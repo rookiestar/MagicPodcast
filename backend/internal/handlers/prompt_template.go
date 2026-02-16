@@ -184,10 +184,7 @@ func (h *PromptTemplateHandler) UpdateTemplate(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, gin.H{
-		"success": true,
-		"message": "模板更新成功",
-	})
+	middleware.SuccessResponseWithMessage(c, "模板更新成功", nil)
 }
 
 // DeleteTemplate 删除Prompt模板
@@ -210,10 +207,7 @@ func (h *PromptTemplateHandler) DeleteTemplate(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, gin.H{
-		"success": true,
-		"message": "模板删除成功",
-	})
+	middleware.SuccessResponseWithMessage(c, "模板删除成功", nil)
 }
 
 // ResetTemplate 重置为默认模板
@@ -231,8 +225,5 @@ func (h *PromptTemplateHandler) ResetTemplate(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, gin.H{
-		"success": true,
-		"message": "模板已重置为默认值",
-	})
+	middleware.SuccessResponseWithMessage(c, "模板已重置为默认值", nil)
 }
