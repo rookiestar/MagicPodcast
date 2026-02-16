@@ -61,26 +61,18 @@ func (h *LLMConfigHandler) ValidateKey(c *gin.Context) {
 
 	// 验证API Key格式（智谱AI格式：id.secret）
 	if len(req.APIKey) < 10 {
-		c.JSON(200, gin.H{
-			"success": true,
-			"data": ValidateKeyResponse{
-				Valid:     false,
-				TestError: "API Key格式无效",
-			},
-			"message": "API Key格式无效",
+		middleware.SuccessResponseWithMessage(c, "API Key格式无效", ValidateKeyResponse{
+			Valid:     false,
+			TestError: "API Key格式无效",
 		})
 		return
 	}
 
 	logger.Infof("[LLM Config] API Key validation requested (length: %d)", len(req.APIKey))
 
-	c.JSON(200, gin.H{
-		"success": true,
-		"data": ValidateKeyResponse{
-			Valid:  true,
-			Model:  "glm-4.5-air", // 默认模型
-		},
-		"message": "API Key格式验证通过（完整验证需要实际API调用）",
+	middleware.SuccessResponseWithMessage(c, "API Key格式验证通过（完整验证需要实际API调用）", ValidateKeyResponse{
+		Valid: true,
+		Model: "glm-4.5-air", // 默认模型
 	})
 }
 
@@ -121,11 +113,7 @@ func (h *LLMConfigHandler) GetModels(c *gin.Context) {
 
 	logger.Infof("[LLM Config] Model list requested (total: %d models)", len(models))
 
-	c.JSON(200, gin.H{
-		"success": true,
-		"data": ModelsResponse{
-			Available: models,
-		},
-		"message": fmt.Sprintf("共%d个可用模型", len(models)),
+	middleware.SuccessResponseWithMessage(c, fmt.Sprintf("共%d个可用模型", len(models)), ModelsResponse{
+		Available: models,
 	})
 }
