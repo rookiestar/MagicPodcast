@@ -1,5 +1,47 @@
 import axios, { type AxiosInstance } from "axios";
 import { handleApiError } from "./errorHandler";
+import type { ApiResponse } from "@/types";
+
+// ============ API 响应处理辅助函数 ============
+
+/**
+ * 自定义 API 错误类，包含错误码信息
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public code?: string
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/**
+ * 处理 API 响应，提取数据或抛出错误
+ * 统一的响应处理，消除每个 API 方法的重复代码
+ */
+export function handleResponse<T>(response: { data: ApiResponse<T> }): T {
+  if (response.data.success && response.data.data !== undefined) {
+    return response.data.data;
+  }
+  throw new ApiError(
+    response.data.error?.message || "Request failed",
+    response.data.error?.code
+  );
+}
+
+/**
+ * 处理没有返回数据的 API 响应（如删除操作）
+ */
+export function handleVoidResponse(response: { data: ApiResponse<void> }): void {
+  if (!response.data.success) {
+    throw new ApiError(
+      response.data.error?.message || "Request failed",
+      response.data.error?.code
+    );
+  }
+}
 
 // 在浏览器环境中使用相对路径（支持 tunnel/代理访问）
 // 在 SSR 环境中使用完整 URL

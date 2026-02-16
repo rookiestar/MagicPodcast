@@ -1,5 +1,6 @@
 import { api } from "./client";
-import type { SearchData } from "@/types";
+import { handleResponse } from "./client";
+import type { ApiResponse, SearchData } from "@/types";
 
 export const searchApi = {
   // 全局搜索
@@ -39,16 +40,7 @@ export const searchApi = {
       );
 
     const url = `/api/v1/search?${queryParams.toString()}`;
-    const response = await api.get<{
-      success: boolean;
-      data: SearchData;
-      error?: { message: string };
-    }>(url);
-
-    if (!response.data.success) {
-      throw new Error(response.data.error?.message || "Search failed");
-    }
-
-    return { data: response.data.data };
+    const response = await api.get<ApiResponse<SearchData>>(url);
+    return { data: handleResponse(response) };
   },
 };

@@ -1,4 +1,5 @@
 import { api } from "./client";
+import { handleResponse, handleVoidResponse } from "./client";
 import type { ApiResponse } from "@/types";
 
 export interface PodcastFilters {
@@ -45,8 +46,6 @@ export async function listPodcasts(
     ? `/api/v1/podcasts?${queryParams.toString()}`
     : "/api/v1/podcasts";
 
-  console.log("[podcastApi.list] Requesting:", url);
-
   const response = await api.get<
     ApiResponse<{
       data: any[];
@@ -58,8 +57,6 @@ export async function listPodcasts(
       };
     }>
   >(url);
-
-  console.log("[podcastApi.list] Response:", response.data);
 
   if (response.data.success && response.data.data) {
     const result = response.data.data;
@@ -79,10 +76,7 @@ export async function listPodcasts(
 // 获取单个播客详情
 export async function getPodcast(id: number): Promise<any> {
   const response = await api.get<ApiResponse<any>>(`/api/v1/podcasts/${id}`);
-  if (response.data.success && response.data.data) {
-    return response.data.data;
-  }
-  throw new Error(response.data.error?.message || "Failed to fetch podcast");
+  return handleResponse(response);
 }
 
 // 获取播客备注
@@ -90,10 +84,7 @@ export async function getPodcastNotes(id: number): Promise<string> {
   const response = await api.get<ApiResponse<{ id: number; notes: string }>>(
     `/api/v1/podcasts/${id}/notes`,
   );
-  if (response.data.success && response.data.data) {
-    return response.data.data.notes;
-  }
-  throw new Error(response.data.error?.message || "Failed to fetch notes");
+  return handleResponse(response).notes;
 }
 
 // 更新播客备注
@@ -101,13 +92,11 @@ export async function updatePodcastNotes(
   id: number,
   notes: string,
 ): Promise<void> {
-  const response = await api.put<ApiResponse<{ id: number; notes: string }>>(
+  const response = await api.put<ApiResponse<void>>(
     `/api/v1/podcasts/${id}/notes`,
     { notes },
   );
-  if (!response.data.success) {
-    throw new Error(response.data.error?.message || "Failed to update notes");
-  }
+  handleVoidResponse(response);
 }
 
 // 获取播客的所有标签
@@ -115,10 +104,7 @@ export async function getPodcastTags(id: number): Promise<any[]> {
   const response = await api.get<ApiResponse<{ tags: any[] }>>(
     `/api/v1/podcasts/${id}/tags`,
   );
-  if (response.data.success && response.data.data) {
-    return response.data.data.tags;
-  }
-  throw new Error(response.data.error?.message || "Failed to fetch tags");
+  return handleResponse(response).tags;
 }
 
 // 为播客添加标签
@@ -126,13 +112,11 @@ export async function addTagToPodcast(
   id: number,
   tagId: number,
 ): Promise<void> {
-  const response = await api.post<ApiResponse<any>>(
+  const response = await api.post<ApiResponse<void>>(
     `/api/v1/podcasts/${id}/tags`,
     { tag_id: tagId },
   );
-  if (!response.data.success) {
-    throw new Error(response.data.error?.message || "Failed to add tag");
-  }
+  handleVoidResponse(response);
 }
 
 // 移除播客标签
@@ -140,12 +124,10 @@ export async function removeTagFromPodcast(
   id: number,
   tagId: number,
 ): Promise<void> {
-  const response = await api.delete<ApiResponse<any>>(
+  const response = await api.delete<ApiResponse<void>>(
     `/api/v1/podcasts/${id}/tags/${tagId}`,
   );
-  if (!response.data.success) {
-    throw new Error(response.data.error?.message || "Failed to remove tag");
-  }
+  handleVoidResponse(response);
 }
 
 // 更新播客自定义封面
@@ -153,13 +135,11 @@ export async function updateCustomCover(
   id: number,
   customCoverUrl: string,
 ): Promise<void> {
-  const response = await api.put<ApiResponse<{ id: number; custom_cover_url: string }>>(
+  const response = await api.put<ApiResponse<void>>(
     `/api/v1/podcasts/${id}/custom-cover`,
     { custom_cover_url: customCoverUrl },
   );
-  if (!response.data.success) {
-    throw new Error(response.data.error?.message || "Failed to update custom cover");
-  }
+  handleVoidResponse(response);
 }
 
 // 导出为对象形式以保持向后兼容

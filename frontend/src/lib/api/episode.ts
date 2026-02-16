@@ -1,4 +1,5 @@
 import { api } from "./client";
+import { handleResponse, handleVoidResponse } from "./client";
 import type { ApiResponse, Episode, Tag } from "@/types";
 
 export const episodeApi = {
@@ -17,9 +18,7 @@ export const episodeApi = {
       has_more: boolean;
     };
   }> => {
-    const response = await api.get<{
-      success: boolean;
-      data: Episode[];
+    const response = await api.get<ApiResponse<Episode[]> & {
       pagination: {
         page: number;
         page_size: number;
@@ -27,10 +26,10 @@ export const episodeApi = {
         total_pages: number;
         has_more: boolean;
       };
-      error?: { message: string };
     }>(`/api/v1/podcasts/${podcastId}/episodes`, {
       params: { page, page_size: pageSize },
     });
+
     if (response.data.success && response.data.data) {
       return {
         episodes: response.data.data,
@@ -45,21 +44,16 @@ export const episodeApi = {
     const response = await api.get<ApiResponse<{ id: number; notes: string }>>(
       `/api/v1/episodes/${id}/notes`,
     );
-    if (response.data.success && response.data.data) {
-      return response.data.data.notes;
-    }
-    throw new Error(response.data.error?.message || "Failed to fetch notes");
+    return handleResponse(response).notes;
   },
 
   // 更新单集备注
   updateNotes: async (id: number, notes: string): Promise<void> => {
-    const response = await api.put<ApiResponse<{ id: number; notes: string }>>(
+    const response = await api.put<ApiResponse<void>>(
       `/api/v1/episodes/${id}/notes`,
       { notes },
     );
-    if (!response.data.success) {
-      throw new Error(response.data.error?.message || "Failed to update notes");
-    }
+    handleVoidResponse(response);
   },
 
   // 获取单集的所有标签
@@ -67,30 +61,23 @@ export const episodeApi = {
     const response = await api.get<ApiResponse<{ tags: Tag[] }>>(
       `/api/v1/episodes/${id}/tags`,
     );
-    if (response.data.success && response.data.data) {
-      return response.data.data.tags;
-    }
-    throw new Error(response.data.error?.message || "Failed to fetch tags");
+    return handleResponse(response).tags;
   },
 
   // 为单集添加标签
   addTag: async (id: number, tagId: number): Promise<void> => {
-    const response = await api.post<ApiResponse<any>>(
+    const response = await api.post<ApiResponse<void>>(
       `/api/v1/episodes/${id}/tags`,
       { tag_id: tagId },
     );
-    if (!response.data.success) {
-      throw new Error(response.data.error?.message || "Failed to add tag");
-    }
+    handleVoidResponse(response);
   },
 
   // 移除单集标签
   removeTag: async (id: number, tagId: number): Promise<void> => {
-    const response = await api.delete<ApiResponse<any>>(
+    const response = await api.delete<ApiResponse<void>>(
       `/api/v1/episodes/${id}/tags/${tagId}`,
     );
-    if (!response.data.success) {
-      throw new Error(response.data.error?.message || "Failed to remove tag");
-    }
+    handleVoidResponse(response);
   },
 };

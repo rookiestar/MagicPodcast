@@ -1,5 +1,7 @@
 import { api } from "./client";
+import { handleResponse, handleVoidResponse } from "./client";
 import type {
+  ApiResponse,
   Workflow,
   WorkflowRequest,
   WorkflowsResponse,
@@ -23,50 +25,48 @@ export const workflowApi = {
       ? `/api/v1/workflows?${queryParams.toString()}`
       : "/api/v1/workflows";
 
-    const response = await api.get<{
-      success: boolean;
-      data: WorkflowsResponse;
-    }>(url);
-    return response.data.data;
+    const response = await api.get<ApiResponse<WorkflowsResponse>>(url);
+    return handleResponse(response);
   },
 
   // 获取工作流详情
   get: async (id: number): Promise<Workflow> => {
-    const response = await api.get<{ success: boolean; data: Workflow }>(
+    const response = await api.get<ApiResponse<Workflow>>(
       `/api/v1/workflows/${id}`,
     );
-    return response.data.data;
+    return handleResponse(response);
   },
 
   // 创建工作流
   create: async (data: WorkflowRequest): Promise<Workflow> => {
-    const response = await api.post<{ success: boolean; data: Workflow }>(
+    const response = await api.post<ApiResponse<Workflow>>(
       "/api/v1/workflows",
       data,
     );
-    return response.data.data;
+    return handleResponse(response);
   },
 
   // 更新工作流
   update: async (id: number, data: WorkflowRequest): Promise<Workflow> => {
-    const response = await api.put<{ success: boolean; data: Workflow }>(
+    const response = await api.put<ApiResponse<Workflow>>(
       `/api/v1/workflows/${id}`,
       data,
     );
-    return response.data.data;
+    return handleResponse(response);
   },
 
   // 删除工作流
   delete: async (id: number): Promise<void> => {
-    await api.delete(`/api/v1/workflows/${id}`);
+    const response = await api.delete<ApiResponse<void>>(`/api/v1/workflows/${id}`);
+    handleVoidResponse(response);
   },
 
   // 启用/禁用工作流
   toggle: async (id: number): Promise<Workflow> => {
-    const response = await api.post<{ success: boolean; data: Workflow }>(
+    const response = await api.post<ApiResponse<Workflow>>(
       `/api/v1/workflows/${id}/toggle`,
     );
-    return response.data.data;
+    return handleResponse(response);
   },
 
   // 获取工作流的执行历史
@@ -83,30 +83,27 @@ export const workflowApi = {
       ? `/api/v1/workflows/${id}/jobs?${queryParams.toString()}`
       : `/api/v1/workflows/${id}/jobs`;
 
-    const response = await api.get<{ success: boolean; data: JobsResponse }>(
-      url,
-    );
-    return response.data.data;
+    const response = await api.get<ApiResponse<JobsResponse>>(url);
+    return handleResponse(response);
   },
 
   // 获取任务详情
   getJob: async (id: number): Promise<Job> => {
-    const response = await api.get<{ success: boolean; data: Job }>(
-      `/api/v1/jobs/${id}`,
-    );
-    return response.data.data;
+    const response = await api.get<ApiResponse<Job>>(`/api/v1/jobs/${id}`);
+    return handleResponse(response);
   },
 
   // 手动触发工作流
   trigger: async (id: number): Promise<void> => {
-    await api.post(`/api/v1/workflows/${id}/trigger`);
+    const response = await api.post<ApiResponse<void>>(`/api/v1/workflows/${id}/trigger`);
+    handleVoidResponse(response);
   },
 
   // 获取Job报告
   getJobReport: async (id: number): Promise<Report> => {
-    const response = await api.get<{ success: boolean; data: Report }>(
+    const response = await api.get<ApiResponse<Report>>(
       `/api/v1/jobs/${id}/report`,
     );
-    return response.data.data;
+    return handleResponse(response);
   },
 };
