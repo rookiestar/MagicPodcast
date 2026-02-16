@@ -3,32 +3,47 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 /**
- * 移动端/桌面端设备检测 Hook
+ * 响应式断点检测 Hook
  *
  * 功能：
  * - 检测当前设备类型（移动端 < 640px）
- * - 提供统一的设备类型状态给整个应用使用
- * - 避免每个组件重复检测
- * - 使用节流优化 resize 事件
+ * - 返回当前网格列数（1-5），用于响应式布局计算
+ * - 使用 requestAnimationFrame 节流优化 resize 事件
+ *
+ * 断点对应列数（与 Tailwind CSS 网格布局一致）：
+ * - <640px: 1 列
+ * - ≥640px (sm): 2 列
+ * - ≥768px (md): 3 列
+ * - ≥1024px (lg): 4 列
+ * - ≥1280px (xl): 5 列
  *
  * 使用方式：
  * ```typescript
- * const { isMobile } = useBreakpoint();
- * if (isMobile) { // 移动端逻辑 }
+ * const { isMobile, columns } = useBreakpoint();
+ * const pageSize = getPageSize(columns); // 获取响应式每页数量
  * ```
- *
- * 优势：
- * - ✅ 只有一个resize事件监听器（而不是50个）
- * - ✅ 页面统一管理设备状态
- * - ✅ 组件变成纯展示型，性能提升显著
- * - ✅ 100ms 节流避免频繁触发
  */
 export function useBreakpoint() {
   const [isMobile, setIsMobile] = useState(false);
+  const [columns, setColumns] = useState(5); // 默认桌面端5列
   const tickingRef = useRef(false);
 
-  const checkMobile = useCallback(() => {
-    setIsMobile(window.innerWidth < 640);
+  const checkBreakpoint = useCallback(() => {
+    const width = window.innerWidth;
+    setIsMobile(width < 640);
+
+    // 根据断点计算列数
+    if (width >= 1280) {
+      setColumns(5);
+    } else if (width >= 1024) {
+      setColumns(4);
+    } else if (width >= 768) {
+      setColumns(3);
+    } else if (width >= 640) {
+      setColumns(2);
+    } else {
+      setColumns(1);
+    }
   }, []);
 
   // 节流的 resize 处理器
@@ -36,15 +51,15 @@ export function useBreakpoint() {
     if (!tickingRef.current) {
       tickingRef.current = true;
       requestAnimationFrame(() => {
-        checkMobile();
+        checkBreakpoint();
         tickingRef.current = false;
       });
     }
-  }, [checkMobile]);
+  }, [checkBreakpoint]);
 
   useEffect(() => {
     // 初始检查
-    checkMobile();
+    checkBreakpoint();
 
     // 监听窗口大小变化（带节流）
     window.addEventListener("resize", handleResize, { passive: true });
@@ -53,7 +68,28 @@ export function useBreakpoint() {
     return () => {
       window.removeEventListener("resize", handleResize);
     };
-  }, [checkMobile, handleResize]);
+  }, [checkBreakpoint, handleResize]);
 
-  return { isMobile };
+  return { isMobile, columns };
+}
+
+/**
+ * 根据列数计算每页加载数量
+ * 确保每次加载都是完整的行数
+ */
+export function getPageSize(columns: number): number {
+  switch (columns) {
+    case 5:
+      return 15; // 3行
+    case 4:
+      return 12; // 3行
+    case 3:
+      return 9; // 3行
+    case 2:
+      return 8; // 4行
+    case 1:
+      return 10; // 10行
+    default:
+      return 15;
+  }
 }

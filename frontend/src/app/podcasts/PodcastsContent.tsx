@@ -9,9 +9,7 @@ import { PodcastCardSkeleton } from "@/components/ui/Skeleton";
 import PageLayout from "@/components/layout/PageLayout";
 import SortDrawer from "@/components/podcasts/SortDrawer";
 import { useSearch } from "@/contexts/SearchContext";
-import { useBreakpoint } from "@/hooks/useBreakpoint";
-
-const PAGE_SIZE = 15;
+import { useBreakpoint, getPageSize } from "@/hooks/useBreakpoint";
 
 type SortByType = "recent_update" | "newest_added" | "episode_count" | "title";
 
@@ -23,7 +21,8 @@ export default function PodcastsContent() {
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [showAllTags, setShowAllTags] = useState(false);
   const { openSearch } = useSearch();
-  const { isMobile } = useBreakpoint();
+  const { isMobile, columns } = useBreakpoint();
+  const pageSize = getPageSize(columns);
   const [sortBy, setSortBy] = useState<SortByType>("recent_update");
 
   // 使用 SWR 获取标签（自动缓存）
@@ -54,7 +53,7 @@ export default function PodcastsContent() {
 
       const params: Record<string, unknown> = {
         page: pageNum,
-        page_size: PAGE_SIZE,
+        page_size: pageSize,
         sort_by: currentSortBy,
       };
 
@@ -79,7 +78,7 @@ export default function PodcastsContent() {
       setLoadingMore(false);
       setIsLoading(false);
     }
-  }, []);
+  }, [pageSize]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
