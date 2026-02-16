@@ -1,6 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // 生产构建时移除 console 语句（保留 console.error 和 console.warn）
+  compiler: {
+    removeConsole: {
+      exclude: ['error', 'warn'],
+    },
+  },
   images: {
     // 启用现代图片格式优化
     formats: ['image/avif', 'image/webp'],
