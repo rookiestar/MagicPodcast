@@ -1,11 +1,11 @@
 package handlers
 
 import (
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"magicpodcast/internal/llm"
+	"magicpodcast/internal/middleware"
 )
 
 // PromptTemplateHandler Prompt模板处理器
@@ -45,13 +45,7 @@ type PromptTemplateResponse struct {
 func (h *PromptTemplateHandler) ListTemplates(c *gin.Context) {
 	templates, err := h.promptManager.ListTemplates()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "LIST_FAILED",
-				"message": "获取模板列表失败",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "LIST_FAILED", "获取模板列表失败")
 		return
 	}
 
@@ -67,10 +61,7 @@ func (h *PromptTemplateHandler) ListTemplates(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    response,
-	})
+	middleware.SuccessResponse(c, response)
 }
 
 // GetTemplate 获取特定Prompt模板
@@ -86,13 +77,7 @@ func (h *PromptTemplateHandler) GetTemplate(c *gin.Context) {
 	// 获取模板信息
 	templates, err := h.promptManager.ListTemplates()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "LIST_FAILED",
-				"message": "获取模板列表失败",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "LIST_FAILED", "获取模板列表失败")
 		return
 	}
 
@@ -106,25 +91,16 @@ func (h *PromptTemplateHandler) GetTemplate(c *gin.Context) {
 	}
 
 	if targetTemplate == nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "NOT_FOUND",
-				"message": "模板不存在",
-			},
-		})
+		middleware.NotFoundResponse(c, "NOT_FOUND", "模板不存在")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": PromptTemplateResponse{
-			Name:        targetTemplate.Name,
-			Description: targetTemplate.Description,
-			Content:     targetTemplate.Content,
-			IsDefault:   targetTemplate.IsDefault,
-			ModifiedAt:  targetTemplate.ModifiedAt,
-		},
+	middleware.SuccessResponse(c, PromptTemplateResponse{
+		Name:        targetTemplate.Name,
+		Description: targetTemplate.Description,
+		Content:     targetTemplate.Content,
+		IsDefault:   targetTemplate.IsDefault,
+		ModifiedAt:  targetTemplate.ModifiedAt,
 	})
 }
 
@@ -139,38 +115,20 @@ func (h *PromptTemplateHandler) GetTemplate(c *gin.Context) {
 func (h *PromptTemplateHandler) CreateTemplate(c *gin.Context) {
 	var req PromptTemplateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_PARAM",
-				"message": err.Error(),
-			},
-		})
+		middleware.BadRequestResponse(c, "INVALID_PARAM", err.Error())
 		return
 	}
 
 	// 检查名称是否已存在
 	templates, err := h.promptManager.ListTemplates()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "LIST_FAILED",
-				"message": "检查模板名称失败",
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "LIST_FAILED", "检查模板名称失败")
 		return
 	}
 
 	for _, tpl := range templates {
 		if tpl.Name == req.Name {
-			c.JSON(http.StatusConflict, gin.H{
-				"success": false,
-				"error": gin.H{
-					"code":    "ALREADY_EXISTS",
-					"message": "模板名称已存在",
-				},
-			})
+			middleware.ConflictResponse(c, "ALREADY_EXISTS", "模板名称已存在")
 			return
 		}
 	}
@@ -183,17 +141,11 @@ func (h *PromptTemplateHandler) CreateTemplate(c *gin.Context) {
 
 	// 保存模板
 	if err := h.promptManager.SaveTemplate(req.Name, content); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "SAVE_FAILED",
-				"message": err.Error(),
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "SAVE_FAILED", err.Error())
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
+	c.JSON(201, gin.H{
 		"success": true,
 		"data": gin.H{
 			"name": req.Name,
@@ -216,13 +168,7 @@ func (h *PromptTemplateHandler) UpdateTemplate(c *gin.Context) {
 
 	var req PromptTemplateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "INVALID_PARAM",
-				"message": err.Error(),
-			},
-		})
+		middleware.BadRequestResponse(c, "INVALID_PARAM", err.Error())
 		return
 	}
 
@@ -234,17 +180,11 @@ func (h *PromptTemplateHandler) UpdateTemplate(c *gin.Context) {
 
 	// 保存模板（会覆盖已存在的文件）
 	if err := h.promptManager.SaveTemplate(name, content); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "SAVE_FAILED",
-				"message": err.Error(),
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "SAVE_FAILED", err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"message": "模板更新成功",
 	})
@@ -262,27 +202,15 @@ func (h *PromptTemplateHandler) DeleteTemplate(c *gin.Context) {
 
 	if err := h.promptManager.DeleteTemplate(name); err != nil {
 		if err.Error() == "不能删除默认模板" {
-			c.JSON(http.StatusForbidden, gin.H{
-				"success": false,
-				"error": gin.H{
-					"code":    "FORBIDDEN",
-					"message": "默认模板不可删除",
-				},
-			})
+			middleware.ForbiddenResponse(c, "FORBIDDEN", "默认模板不可删除")
 			return
 		}
 
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "DELETE_FAILED",
-				"message": err.Error(),
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "DELETE_FAILED", err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"message": "模板删除成功",
 	})
@@ -299,17 +227,11 @@ func (h *PromptTemplateHandler) ResetTemplate(c *gin.Context) {
 	name := c.Param("name")
 
 	if err := h.promptManager.ResetToDefault(name); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "RESET_FAILED",
-				"message": err.Error(),
-			},
-		})
+		middleware.InternalErrorResponseWithCode(c, "RESET_FAILED", err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"message": "模板已重置为默认值",
 	})

@@ -2,11 +2,11 @@ package handlers
 
 import (
 	"fmt"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"magicpodcast/internal/llm"
 	"magicpodcast/internal/logger"
+	"magicpodcast/internal/middleware"
 )
 
 // LLMConfigHandler LLM配置验证处理器
@@ -22,14 +22,14 @@ type ValidateKeyRequest struct {
 // ValidateKeyResponse API Key验证响应
 type ValidateKeyResponse struct {
 	Valid    bool   `json:"valid"`
-	Model     string `json:"model,omitempty"`
+	Model    string `json:"model,omitempty"`
 	TestError string `json:"test_error,omitempty"`
 }
 
 // ModelsResponse 可用模型列表响应
 type ModelsResponse struct {
 	Available []ModelInfo `json:"available"`
-	Current   string       `json:"current,omitempty"`
+	Current   string      `json:"current,omitempty"`
 }
 
 // ModelInfo 模型信息
@@ -55,19 +55,16 @@ func NewLLMConfigHandler(llmClient *llm.Client) *LLMConfigHandler {
 func (h *LLMConfigHandler) ValidateKey(c *gin.Context) {
 	var req ValidateKeyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": fmt.Sprintf("请求参数错误: %v", err),
-		})
+		middleware.BadRequestResponse(c, "INVALID_PARAM", fmt.Sprintf("请求参数错误: %v", err))
 		return
 	}
 
 	// 验证API Key格式（智谱AI格式：id.secret）
 	if len(req.APIKey) < 10 {
-		c.JSON(http.StatusOK, gin.H{
+		c.JSON(200, gin.H{
 			"success": true,
 			"data": ValidateKeyResponse{
-				Valid:    false,
+				Valid:     false,
 				TestError: "API Key格式无效",
 			},
 			"message": "API Key格式无效",
@@ -77,11 +74,11 @@ func (h *LLMConfigHandler) ValidateKey(c *gin.Context) {
 
 	logger.Infof("[LLM Config] API Key validation requested (length: %d)", len(req.APIKey))
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"data": ValidateKeyResponse{
-			Valid:    true,
-			Model:     "glm-4.5-air", // 默认模型
+			Valid:  true,
+			Model:  "glm-4.5-air", // 默认模型
 		},
 		"message": "API Key格式验证通过（完整验证需要实际API调用）",
 	})
@@ -124,7 +121,7 @@ func (h *LLMConfigHandler) GetModels(c *gin.Context) {
 
 	logger.Infof("[LLM Config] Model list requested (total: %d models)", len(models))
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"data": ModelsResponse{
 			Available: models,

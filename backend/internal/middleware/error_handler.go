@@ -245,6 +245,17 @@ func ServiceUnavailableResponse(c *gin.Context, code string, message string) {
 	})
 }
 
+// ForbiddenResponse 禁止访问响应
+func ForbiddenResponse(c *gin.Context, code string, message string) {
+	c.JSON(http.StatusForbidden, gin.H{
+		"success": false,
+		"error": gin.H{
+			"code":    code,
+			"message": message,
+		},
+	})
+}
+
 // ========== 分页响应辅助 ==========
 
 // PaginationInfo 分页信息
