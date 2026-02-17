@@ -145,12 +145,8 @@ func (h *PromptTemplateHandler) CreateTemplate(c *gin.Context) {
 		return
 	}
 
-	c.JSON(201, gin.H{
-		"success": true,
-		"data": gin.H{
-			"name": req.Name,
-		},
-		"message": "模板创建成功",
+	middleware.CreatedResponse(c, gin.H{
+		"name": req.Name,
 	})
 }
 
