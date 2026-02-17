@@ -437,6 +437,26 @@ frontend/
   - 前端: 使用 Vitest 或 Jest。
   - 新功能优先编写基础单元测试或集成测试（哪怕是很小的 happy path 测试），尤其是抓取和解析逻辑。
 
+- **代码复用原则**
+  - **DRY 原则**：当相同代码模式出现 3 次以上时，抽取为共享函数或组件。
+  - **响应辅助函数**：后端使用 `middleware/` 中的响应辅助函数（SuccessResponse、CreatedResponse 等），前端使用 `handleResponse` 处理 API 响应。
+  - **参数解析**：使用 `ParseUintParam`、`ParsePaginationParams` 等辅助函数，避免重复错误处理。
+  - **工具函数集中**：日期格式化等通用函数集中到 `lib/timeUtils.ts`。
+  - **共享组件**：UI 元素（如 StatusBadge）抽取到 `components/ui/`。
+
+- **前端特定规范**
+  - **Toast 优先**：用户通知使用 `toast.success/error/warning/info()`，禁止使用 `alert()`。
+  - **Suspense 边界**：使用 `useSearchParams` 的组件必须用 Suspense 包裹。
+  - **loading.tsx 一致性**：`loading.tsx` 与 Suspense fallback 使用相同布局组件，避免 hydration 错误。
+  - **调试代码清理**：提交前移除 `console.log`，保留 `console.error` 用于错误追踪。
+
+- **后端特定规范**
+  - **响应格式统一**：
+    - 成功：`{success: true, data: {...}, message: "..."}`
+    - 失败：`{success: false, error: {code: "...", message: "..."}}`
+  - **Handler 规范**：使用 `middleware.SuccessResponse`、`CreatedResponse` 等辅助函数，避免直接调用 `c.JSON()`。
+  - **参数验证**：使用 `validation.Validator` 进行参数校验，支持链式调用。
+
 ### 5.2. 抓取与调度相关约束
 
 - 抓取频率与合规
@@ -463,6 +483,15 @@ frontend/
 - 涉及前端的修改，注意在交付前清理缓存、重启服务等，帮助提高调试效率。
 - 开发时尽量保留 Next.js 缓存，避免使用 `rm -rf .next`。如需清理 webpack 缓存解决热更新问题，只需删除 `.next/cache/webpack` 目录，保留 `.next/cache/images` 以避免图片重新下载。
 - 提醒我注意部署和定时任务相关的配置，并帮我生成对应的配置文件草稿。
+
+### 5.4. 重构工作流
+
+- **小步重构**：每次只处理一个模块，立即验证构建。
+- **质量检查**：
+  - Go: `go vet ./...`
+  - TypeScript: `npx tsc --noEmit`
+  - 构建: `go build ./...` 和 `npm run build`
+- **提交粒度**：每个逻辑独立的重构单独提交。
 
 > **部署和运维指南**：详细的部署配置、运维脚本和最佳实践请参考 [部署运维文档](docs/DEPLOYMENT.md)
 
@@ -494,8 +523,8 @@ frontend/
 
 ---
 
-**文档版本**: v2.1
-**最后更新**: 2025-01-31
+**文档版本**: v2.2
+**最后更新**: 2026-02-17
 **项目状态**: MVP核心功能已完成（约85%），可投入实际使用
 
 > **部署和运维指南**: 详细的部署配置、运维脚本和最佳实践请参考 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
