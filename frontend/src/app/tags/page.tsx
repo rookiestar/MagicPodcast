@@ -66,7 +66,7 @@ function TagsPageContent({
   const podcastId = podcastIdParam ? parseInt(podcastIdParam, 10) : null;
 
   // 使用 SWR 获取标签列表
-  const { tags, isError, mutate } = useTags();
+  const { tags, isLoading, isError, mutate } = useTags();
   const error = isError ? "加载失败" : null;
 
   // 使用 SWR 获取播客数据（并行请求）
@@ -317,8 +317,12 @@ function TagsPageContent({
         {/* Tags List */}
         {!error && (
           <>
-
-            {tags.length === 0 ? (
+            {isLoading ? (
+              <div className="bg-white rounded-lg p-12 text-center">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <p className="text-slate-500 mt-4">加载中...</p>
+              </div>
+            ) : tags.length === 0 ? (
               <div className="bg-white rounded-lg p-12 text-center">
                 <p className="text-slate-600 mb-4">还没有创建任何标签</p>
                 <button
