@@ -94,14 +94,7 @@ export default function WorkflowsPage() {
   const handleEdit = async (id: number, e: React.MouseEvent) => {
     e.preventDefault();
     try {
-      console.log("[Edit] Fetching workflow from API, ID:", id);
       const latestWorkflow = await workflowApi.get(id);
-      console.log("[Edit] Latest workflow from API:", latestWorkflow);
-      console.log("[Edit] rules_config from API:", latestWorkflow.rules_config);
-      console.log(
-        "[Edit] llm_enabled:",
-        latestWorkflow.rules_config?.llm_enabled,
-      );
       setEditingWorkflow(latestWorkflow);
       setShowCreateModal(true);
     } catch (err) {
@@ -109,8 +102,6 @@ export default function WorkflowsPage() {
       // Fallback to local state
       const workflow = workflows.find((w) => w.id === id);
       if (workflow) {
-        console.log("[Edit] Using local state fallback:", workflow);
-        console.log("[Edit] Local rules_config:", workflow.rules_config);
         setEditingWorkflow(workflow);
         setShowCreateModal(true);
       }

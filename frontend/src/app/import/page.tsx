@@ -249,7 +249,6 @@ function ImportPageContent() {
 
       // 如果是summary消息，使用后端发送的准确统计
       if (type === "summary" && data) {
-        console.log("[addLog] 收到summary，更新stats:", data);
         newStats.total = data.total_podcasts || 0;
         newStats.success = data.success_podcasts || 0;
         newStats.errors = data.failed_podcasts || 0;
@@ -265,7 +264,6 @@ function ImportPageContent() {
         // 任何success消息都计入成功数
         newStats.success++;
         newStats.total++;
-        console.log("[addLog] success消息，stats+1:", message);
       } else if (type === "error") {
         newStats.errors++;
         newStats.total++;
@@ -301,12 +299,6 @@ function ImportPageContent() {
 
       return newStats;
     });
-
-    // 如果是summary，打印保存的数据
-    if (type === "summary") {
-      console.log("[addLog] 保存summary log, data字段:", newLog.data);
-      console.log("[addLog] 完整的log对象:", newLog);
-    }
 
     setLogs((prev) => [...prev, newLog]);
   };
@@ -361,7 +353,6 @@ function ImportPageContent() {
 
       // 如果导入成功完成但没有收到summary消息，添加一个默认的完成消息
       if (!receivedSummary) {
-        console.log("[Import] 导入完成但未收到summary消息，添加默认完成消息");
         addLog("success", "✅ 导入完成！所有播客已自动同步");
       }
     } catch (error: any) {
@@ -403,7 +394,6 @@ function ImportPageContent() {
     try {
       await syncApi.syncPodcastsMetadataSSE(
         (type, message, current, total, data) => {
-          console.log("[handleSync] 收到消息:", type, "data参数:", data);
           addLog(type as LogType, message, current, total, data);
           // 标记是否收到了summary消息
           if (type === "summary" || type === "complete") {
@@ -414,7 +404,6 @@ function ImportPageContent() {
 
       // 如果同步成功完成但没有收到summary消息，添加一个默认的完成消息
       if (!receivedSummary) {
-        console.log("[Sync] 同步完成但未收到summary消息，添加默认完成消息");
         addLog("success", "✅ 同步已完成！");
       }
     } catch (error: any) {
