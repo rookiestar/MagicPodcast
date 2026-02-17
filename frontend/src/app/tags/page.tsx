@@ -322,7 +322,7 @@ function TagsPageContent({
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                 <p className="text-slate-500 mt-4">加载中...</p>
               </div>
-            ) : tags.length === 0 ? (
+            ) : !isLoading && tags.length === 0 ? (
               <div className="bg-white rounded-lg p-12 text-center">
                 <p className="text-slate-600 mb-4">还没有创建任何标签</p>
                 <button
@@ -508,7 +508,7 @@ export default function TagsPage() {
   const [sortMode, setSortMode] = useState<SortMode>("popularity");
 
   // 使用 SWR 获取标签列表（用于工具栏显示数量）
-  const { tags, mutate } = useTags();
+  const { tags, isLoading: tagsLoading, mutate } = useTags();
 
   // 辅助函数
   const handleSelectAll = () => {
@@ -543,7 +543,7 @@ export default function TagsPage() {
       toolbar={{
         breadcrumbs: [{ label: "返回首页", href: "/" }],
         title: "标签管理",
-        description: tags.length > 0 ? `共 ${tags.length} 个标签` : undefined,
+        description: !tagsLoading && tags.length > 0 ? `共 ${tags.length} 个标签` : undefined,
         rightContent: (
           <div className="flex items-center gap-2">
             {/* 新建标签按钮 - 仅在非多选模式下显示 */}
