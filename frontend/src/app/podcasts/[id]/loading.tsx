@@ -10,21 +10,29 @@ export default function PodcastDetailLoading() {
         <div className="h-10 w-28 bg-slate-200 rounded-lg animate-pulse" />
       }
     >
-      <div className="py-6 space-y-6">
+      <div className="py-6">
         {/* Detail skeleton */}
         <PodcastDetailSkeleton />
 
-        {/* Episodes section */}
-        <div className="space-y-4">
-          {/* Section header skeleton */}
-          <div className="flex items-center justify-between animate-pulse">
-            <div className="h-6 w-20 bg-slate-200 rounded" />
-            <div className="h-4 w-16 bg-slate-200 rounded" />
-          </div>
-          {/* Episode cards - each has its own animate-pulse */}
-          <div className="grid gap-4">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <EpisodeCardSkeleton key={i} />
+        {/* Episodes section - 与 page.tsx 骨架屏保持一致 */}
+        <div className="mt-8">
+          {/* 标题骨架屏 */}
+          <div className="mb-6 h-8 w-40 bg-slate-200 rounded animate-pulse"></div>
+          {/* Episode cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div
+                key={i}
+                className="bg-white rounded-lg shadow-sm p-6 animate-pulse"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="w-16 h-16 bg-slate-200 rounded-lg"></div>
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 bg-slate-200 rounded w-3/4"></div>
+                    <div className="h-3 bg-slate-200 rounded w-1/2"></div>
+                  </div>
+                </div>
+              </div>
             ))}
           </div>
         </div>

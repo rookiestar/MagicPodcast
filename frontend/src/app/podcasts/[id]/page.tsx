@@ -52,6 +52,13 @@ export default function PodcastDetailPage() {
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [episodesLoading, setEpisodesLoading] = useState(true);
 
+  // 分页状态
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMoreEpisodes, setHasMoreEpisodes] = useState(true);
+  const [totalEpisodes, setTotalEpisodes] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const PAGE_SIZE = 20;
+
   // 同步 SWR notes 到本地状态
   useEffect(() => {
     if (swrNotes !== undefined) {
@@ -61,13 +68,6 @@ export default function PodcastDetailPage() {
 
   // 错误状态
   const error = podcastError ? "加载播客失败" : null;
-
-  // 分页状态
-  const [currentPage, setCurrentPage] = useState(1);
-  const [hasMoreEpisodes, setHasMoreEpisodes] = useState(true);
-  const [totalEpisodes, setTotalEpisodes] = useState(0);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const PAGE_SIZE = 20;
 
   // 单集获取函数（保留原逻辑，支持无限滚动）
   const fetchEpisodes = async (page: number = 1, append: boolean = false) => {
@@ -657,41 +657,41 @@ export default function PodcastDetailPage() {
           </>
         )}
 
-        {/* Episodes List - 新增section */}
+        {/* Episodes List */}
         {!error && podcast && (
           <div className="mt-8" ref={episodeListRef}>
-            <h2 className="text-2xl font-bold text-slate-900 mb-6">
-              单集列表 ({totalEpisodes > 0 ? totalEpisodes : episodes.length} 集)
-            </h2>
+            {/* 标题区域 - 只有数据加载完成后才显示真实标题 */}
+            {totalEpisodes > 0 || !episodesLoading ? (
+              <h2 className="text-2xl font-bold text-slate-900 mb-6">
+                单集列表 ({totalEpisodes > 0 ? totalEpisodes : episodes.length} 集)
+              </h2>
+            ) : (
+              <div className="mb-6 h-8 w-40 bg-slate-200 rounded animate-pulse"></div>
+            )}
 
-            {/* 初始加载状态 - 显示骨架屏 */}
+            {/* 内容区域 */}
             {episodesLoading && episodes.length === 0 ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {[1, 2, 3, 4].map((i) => (
-                    <div
-                      key={i}
-                      className="bg-white rounded-lg shadow-sm p-6 animate-pulse"
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="w-16 h-16 bg-slate-200 rounded-lg"></div>
-                        <div className="flex-1 space-y-2">
-                          <div className="h-4 bg-slate-200 rounded w-3/4"></div>
-                          <div className="h-3 bg-slate-200 rounded w-1/2"></div>
-                        </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {[1, 2, 3, 4].map((i) => (
+                  <div
+                    key={i}
+                    className="bg-white rounded-lg shadow-sm p-6 animate-pulse"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-16 h-16 bg-slate-200 rounded-lg"></div>
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 bg-slate-200 rounded w-3/4"></div>
+                        <div className="h-3 bg-slate-200 rounded w-1/2"></div>
                       </div>
                     </div>
-                  ))}
-                </div>
-                <p className="text-center text-sm text-slate-600 mt-6">
-                  正在加载单集列表...
-                </p>
+                  </div>
+                ))}
               </div>
             ) : episodes.length === 0 ? (
               <div className="bg-white rounded-lg p-12 text-center shadow-sm">
                 <div className="text-6xl mb-4">📭</div>
                 <p className="text-slate-600 text-lg">暂无单集</p>
-                <p className="text-slate-5000 text-sm mt-2">
+                <p className="text-slate-500 text-sm mt-2">
                   点击下方按钮同步单集数据
                 </p>
               </div>
