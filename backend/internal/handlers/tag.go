@@ -89,7 +89,7 @@ func (h *TagHandler) Create(c *gin.Context) {
 	}
 
 	// 使标签列表缓存失效
-	cache.GetCache().Delete(cache.NewKeyBuilder().TagList())
+	cache.InvalidateTagList()
 
 	middleware.CreatedResponse(c, TagResponse{ID: tag.ID, Name: tag.Name, Color: tag.Color, PodcastCount: 0})
 }
@@ -267,8 +267,8 @@ func (h *TagHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// 使标签列表缓存失效
-	cache.GetCache().Delete(cache.NewKeyBuilder().TagList())
+	// 使标签缓存失效
+	cache.InvalidateTagDetail(tagID)
 
 	// 重新获取更新后的标签及其播客数量
 	db.First(&tag, tagID)
@@ -328,8 +328,8 @@ func (h *TagHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// 使标签列表缓存失效
-	cache.GetCache().Delete(cache.NewKeyBuilder().TagList())
+	// 使标签缓存失效
+	cache.InvalidateTagList()
 
 	middleware.SuccessResponse(c, gin.H{"message": "标签已删除"})
 }

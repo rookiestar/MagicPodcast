@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"magicpodcast/internal/cache"
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
@@ -59,6 +60,9 @@ func (h *NoteHandler) UpdatePodcastNotes(c *gin.Context) {
 		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "更新备注失败: "+err.Error())
 		return
 	}
+
+	// 使播客详情缓存失效
+	cache.InvalidatePodcastDetail(podcastID)
 
 	// 重新获取更新后的播客
 	db.First(&podcast, podcastID)
@@ -137,6 +141,9 @@ func (h *NoteHandler) UpdateEpisodeNotes(c *gin.Context) {
 		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "更新备注失败: "+err.Error())
 		return
 	}
+
+	// 使单集所属播客的详情缓存失效
+	cache.InvalidatePodcastDetail(episode.PodcastID)
 
 	// 重新获取更新后的单集
 	db.First(&episode, episodeID)

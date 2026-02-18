@@ -340,6 +340,9 @@ func (h *PodcastHandler) UpdateCustomCover(c *gin.Context) {
 		return
 	}
 
+	// 使播客详情缓存失效
+	cache.InvalidatePodcastDetail(podcastID)
+
 	// 重新获取更新后的播客
 	db.First(&podcast, podcastID)
 

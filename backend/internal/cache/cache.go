@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
@@ -181,4 +182,66 @@ func GetStats() Stats {
 		HitCount:   hitCount,
 		MissCount:  missCount,
 	}
+}
+
+// ========== 业务失效函数 ==========
+
+// InvalidatePodcastList 使播客列表缓存失效
+// 当播客被创建、更新、删除、订阅状态改变时调用
+func InvalidatePodcastList() {
+	GetCache().DeleteByPrefix("podcasts:list:")
+}
+
+// InvalidatePodcastDetail 使指定播客详情缓存失效
+// 当播客信息更新时调用
+func InvalidatePodcastDetail(id uint) {
+	cache := GetCache()
+	cache.Delete(fmt.Sprintf("podcasts:detail:%d", id))
+	// 同时使列表缓存失效
+	InvalidatePodcastList()
+}
+
+// InvalidateTagList 使标签列表缓存失效
+// 当标签被创建、更新、删除时调用
+func InvalidateTagList() {
+	cache := GetCache()
+	cache.Delete("tags:list")
+	// 播客列表可能包含标签信息，也需要失效
+	InvalidatePodcastList()
+}
+
+// InvalidateTagDetail 使指定标签详情缓存失效
+func InvalidateTagDetail(id uint) {
+	cache := GetCache()
+	cache.Delete(fmt.Sprintf("tags:detail:%d", id))
+	InvalidateTagList()
+}
+
+// InvalidateWorkflowList 使工作流列表缓存失效
+// 当工作流被创建、更新、删除、启用/禁用时调用
+func InvalidateWorkflowList() {
+	cache := GetCache()
+	cache.Delete("workflows:list")
+}
+
+// InvalidateWorkflowDetail 使指定工作流详情缓存失效
+func InvalidateWorkflowDetail(id uint) {
+	cache := GetCache()
+	cache.Delete(fmt.Sprintf("workflows:detail:%d", id))
+	InvalidateWorkflowList()
+}
+
+// InvalidateEpisodeList 使单集列表缓存失效
+// 当单集被添加或更新时调用
+func InvalidateEpisodeList(podcastID uint) {
+	cache := GetCache()
+	cache.DeleteByPrefix(fmt.Sprintf("episodes:list:podcast:%d:", podcastID))
+	// 播客详情可能包含单集数量等信息
+	InvalidatePodcastDetail(podcastID)
+}
+
+// InvalidateSearch 使搜索缓存失效
+// 当任何可搜索内容变更时调用
+func InvalidateSearch() {
+	GetCache().DeleteByPrefix("search:")
 }

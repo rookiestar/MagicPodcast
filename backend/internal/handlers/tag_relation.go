@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"magicpodcast/internal/cache"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/services"
 
@@ -55,6 +56,10 @@ func (h *TagRelationHandlerRefactored) AddTagToPodcast(c *gin.Context) {
 		return
 	}
 
+	// 使相关缓存失效
+	cache.InvalidatePodcastDetail(podcastID)
+	cache.InvalidateTagList()
+
 	middleware.CreatedResponse(c, gin.H{
 		"message":    result.Message,
 		"podcast_id": result.TargetID,
@@ -90,6 +95,10 @@ func (h *TagRelationHandlerRefactored) RemoveTagFromPodcast(c *gin.Context) {
 		middleware.HandleError(c, err)
 		return
 	}
+
+	// 使相关缓存失效
+	cache.InvalidatePodcastDetail(podcastID)
+	cache.InvalidateTagList()
 
 	middleware.SuccessResponse(c, gin.H{
 		"message": "标签已移除",
@@ -155,6 +164,9 @@ func (h *TagRelationHandlerRefactored) AddTagToEpisode(c *gin.Context) {
 		return
 	}
 
+	// 使标签列表缓存失效（单集标签变化影响标签统计）
+	cache.InvalidateTagList()
+
 	middleware.CreatedResponse(c, gin.H{
 		"message":    result.Message,
 		"episode_id": result.TargetID,
@@ -190,6 +202,9 @@ func (h *TagRelationHandlerRefactored) RemoveTagFromEpisode(c *gin.Context) {
 		middleware.HandleError(c, err)
 		return
 	}
+
+	// 使标签列表缓存失效
+	cache.InvalidateTagList()
 
 	middleware.SuccessResponse(c, gin.H{
 		"message": "标签已移除",
