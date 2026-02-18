@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { podcastApi } from "@/lib/api";
 import { useTags } from "@/hooks/useTagSWR";
+import { useUrlState } from "@/hooks/useUrlState";
 import type { Podcast, Tag } from "@/types";
 import ResponsivePodcastCard from "@/components/podcasts/ResponsivePodcastCard";
 import { PodcastCardSkeleton } from "@/components/ui/Skeleton";
@@ -18,12 +19,14 @@ export default function PodcastsContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [showAllTags, setShowAllTags] = useState(false);
   const { openSearch } = useSearch();
   const { isMobile, columns } = useBreakpoint();
   const pageSize = getPageSize(columns);
-  const [sortBy, setSortBy] = useState<SortByType>("recent_update");
+
+  // 使用 URL 状态同步 Hook
+  const [sortBy, setSortBy] = useUrlState<SortByType>("sort_by", "recent_update");
+  const [selectedTagIds, setSelectedTagIds] = useUrlState<number[]>("tag_id", [], { isArray: true });
 
   // 使用 SWR 获取标签（自动缓存）
   const { tags: allTags } = useTags();
@@ -80,19 +83,12 @@ export default function PodcastsContent() {
     }
   }, [pageSize]);
 
+  // 初始化加载
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const sortFromUrl =
-      (params.get("sort_by") as SortByType) || "recent_update";
-    const tagIdParams = params.getAll("tag_id");
-    const tagIdsFromUrl = tagIdParams.map((id) => parseInt(id, 10));
-
-    setSortBy(sortFromUrl);
-    setSelectedTagIds(tagIdsFromUrl);
-
-    fetchPodcasts(tagIdsFromUrl, 1, sortFromUrl);
+    fetchPodcasts(selectedTagIds, 1, sortBy);
   }, [fetchPodcasts]);
 
+  // 验证标签有效性
   useEffect(() => {
     if (tags.length === 0 || selectedTagIds.length === 0) {
       return;
@@ -103,39 +99,12 @@ export default function PodcastsContent() {
     );
 
     if (validTagIds.length !== selectedTagIds.length) {
-      const url = new URL(window.location.href);
-      url.searchParams.delete("tag_id");
-      validTagIds.forEach((id) =>
-        url.searchParams.append("tag_id", id.toString()),
-      );
-      window.history.replaceState({}, "", url.toString());
-
       setSelectedTagIds(validTagIds);
       setPage(1);
       setPodcasts([]);
       fetchPodcasts(validTagIds, 1, sortBy);
     }
-  }, [tags, selectedTagIds, sortBy, fetchPodcasts]);
-
-  useEffect(() => {
-    const handlePopState = () => {
-      const params = new URLSearchParams(window.location.search);
-      const sortFromUrl =
-        (params.get("sort_by") as SortByType) || "recent_update";
-      const tagIdParams = params.getAll("tag_id");
-      const tagIdsFromUrl = tagIdParams.map((id) => parseInt(id, 10));
-
-      setSortBy(sortFromUrl);
-      setSelectedTagIds(tagIdsFromUrl);
-      setPage(1);
-      setPodcasts([]);
-
-      fetchPodcasts(tagIdsFromUrl, 1, sortFromUrl);
-    };
-
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [fetchPodcasts]);
+  }, [tags, selectedTagIds, sortBy, fetchPodcasts, setSelectedTagIds]);
 
   const loadMore = useCallback(() => {
     if (!loadingMore && hasMore) {
@@ -176,29 +145,20 @@ export default function PodcastsContent() {
       newSelected = [...selectedTagIds, tagId];
     }
 
-    const url = new URL(window.location.href);
-    url.searchParams.delete("tag_id");
-    newSelected.forEach((id) =>
-      url.searchParams.append("tag_id", id.toString()),
-    );
-    window.history.replaceState({}, "", url.toString());
-
+    // URL 更新由 hook 自动处理
     setSelectedTagIds(newSelected);
     setPage(1);
     setPodcasts([]);
     fetchPodcasts(newSelected, 1, sortBy);
-  }, [selectedTagIds, sortBy, fetchPodcasts]);
+  }, [selectedTagIds, sortBy, fetchPodcasts, setSelectedTagIds]);
 
   const handleSortChange = useCallback((newSortBy: SortByType) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set("sort_by", newSortBy);
-    window.history.replaceState({}, "", url.toString());
-
+    // URL 更新由 hook 自动处理
     setSortBy(newSortBy);
     setPage(1);
     setPodcasts([]);
     fetchPodcasts(selectedTagIds, 1, newSortBy);
-  }, [selectedTagIds, fetchPodcasts]);
+  }, [selectedTagIds, fetchPodcasts, setSortBy]);
 
   const sortOptions = [
     { label: "最近更新", value: "recent_update" },

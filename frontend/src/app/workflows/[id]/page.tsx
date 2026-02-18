@@ -6,6 +6,8 @@ import Link from "next/link";
 import { workflowApi, podcastApi } from "@/lib/api";
 import { schedulerApi } from "@/lib/api/scheduler";
 import { useWorkflow, useWorkflowJobs } from "@/hooks/useWorkflowSWR";
+import { useWorkflowActions } from "@/hooks/useWorkflowActions";
+import { useJobExpansion } from "@/hooks/useJobExpansion";
 import { getEffectiveCoverUrl } from "@/lib/imageProxy";
 import type { Workflow, Job, Podcast } from "@/types";
 import WorkflowFormModal from "@/components/workflows/WorkflowFormModal";
@@ -46,10 +48,14 @@ function WorkflowDetailContent() {
 
   const [showEditModal, setShowEditModal] = useState(false);
 
-  // Job详情展开状态
-  const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
-  const [jobDetails, setJobDetails] = useState<Record<number, Job>>({});
-  const [loadingJobId, setLoadingJobId] = useState<number | null>(null);
+  // 使用自定义 Hooks
+  const { handleToggle, handleTrigger, handleDelete } = useWorkflowActions({
+    workflowId: id,
+    workflow,
+    onSuccess: () => mutateWorkflow(),
+  });
+
+  const { selectedJobId, jobDetails, loadingJobId, fetchJobDetail } = useJobExpansion();
 
   // 报告弹窗状态
   const [reportModalJobId, setReportModalJobId] = useState<number | null>(null);
@@ -142,73 +148,6 @@ function WorkflowDetailContent() {
   // Jobs 分页切换
   const handleJobsPageChange = (newPage: number) => {
     setJobsPage(newPage);
-  };
-
-  const fetchJobDetail = async (jobId: number) => {
-    // 如果已经缓存，直接切换展开状态
-    if (jobDetails[jobId]) {
-      setSelectedJobId(selectedJobId === jobId ? null : jobId);
-      return;
-    }
-
-    // 如果是同一个Job且正在加载，不重复请求
-    if (loadingJobId === jobId) {
-      return;
-    }
-
-    try {
-      setLoadingJobId(jobId);
-      const detail = await workflowApi.getJob(jobId);
-      setJobDetails((prev) => ({ ...prev, [jobId]: detail }));
-      setSelectedJobId(jobId);
-    } catch (err) {
-      console.error("Failed to fetch job detail:", err);
-      toast.error("获取详情失败");
-    } finally {
-      setLoadingJobId(null);
-    }
-  };
-
-  const handleToggle = async () => {
-    if (!workflow) return;
-    try {
-      const updated = await workflowApi.toggle(id);
-      mutateWorkflow(updated, false);
-    } catch (err) {
-      toast.error(
-        `操作失败: ${err instanceof Error ? err.message : "Unknown error"}`,
-      );
-    }
-  };
-
-  const handleTrigger = async () => {
-    if (!workflow) return;
-    if (!confirm("确定要立即执行此工作流吗?")) return;
-
-    try {
-      await workflowApi.trigger(id);
-      toast.success("工作流已触发");
-      mutateWorkflow();
-      mutateJobs();
-    } catch (err) {
-      toast.error(
-        `触发失败: ${err instanceof Error ? err.message : "Unknown error"}`,
-      );
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!workflow) return;
-    if (!confirm("确定要删除这个工作流吗？此操作不可恢复。")) return;
-
-    try {
-      await workflowApi.delete(id);
-      router.push("/workflows");
-    } catch (err) {
-      toast.error(
-        `删除失败: ${err instanceof Error ? err.message : "Unknown error"}`,
-      );
-    }
   };
 
   // 格式化token数量
