@@ -5,13 +5,18 @@
 /**
  * 获取相对时间字符串
  * @param dateString ISO日期字符串
- * @returns 相对时间字符串（如"今天"、"昨天"、"3天前"）
+ * @returns 相对时间字符串（如"昨天"、"3天前"）
  */
 export function getRelativeTime(dateString: string): string {
   const now = new Date();
   const past = new Date(dateString);
+
+  // 使用日历日差（重置到当天0点后比较），而不是毫秒差
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const targetDay = new Date(past.getFullYear(), past.getMonth(), past.getDate());
+  const diffDays = Math.floor((today.getTime() - targetDay.getTime()) / (1000 * 60 * 60 * 24));
+
   const diffMs = now.getTime() - past.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
   const diffMinutes = Math.floor(diffMs / (1000 * 60));
 
@@ -21,17 +26,12 @@ export function getRelativeTime(dateString: string): string {
     return `${diffMinutes}分钟前`;
   }
 
-  // 小于24小时
+  // 小于24小时（按小时显示更精确）
   if (diffHours < 24) {
     return `${diffHours}小时前`;
   }
 
-  // 今天
-  if (diffDays === 0) {
-    return "今天";
-  }
-
-  // 昨天
+  // 昨天（日历日差为1）
   if (diffDays === 1) {
     return "昨天";
   }
