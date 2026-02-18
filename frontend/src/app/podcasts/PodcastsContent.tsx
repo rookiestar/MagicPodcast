@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
-import { podcastApi } from "@/lib/api";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useTags } from "@/hooks/useTagSWR";
+import { usePodcastListInfinite } from "@/hooks/usePodcastSWR";
 import { useUrlState } from "@/hooks/useUrlState";
-import type { Podcast, Tag } from "@/types";
-import ResponsivePodcastCard from "@/components/podcasts/ResponsivePodcastCard";
+import type { Tag } from "@/types";
+import VirtualPodcastGrid from "@/components/common/VirtualPodcastGrid";
 import { PodcastCardSkeleton } from "@/components/ui/Skeleton";
 import PageLayout from "@/components/layout/PageLayout";
 import SortDrawer from "@/components/podcasts/SortDrawer";
@@ -15,10 +15,6 @@ import { useBreakpoint, getPageSize } from "@/hooks/useBreakpoint";
 type SortByType = "recent_update" | "newest_added" | "episode_count" | "title";
 
 export default function PodcastsContent() {
-  const [podcasts, setPodcasts] = useState<Podcast[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [showAllTags, setShowAllTags] = useState(false);
   const { openSearch } = useSearch();
   const { isMobile, columns } = useBreakpoint();
@@ -33,60 +29,24 @@ export default function PodcastsContent() {
   // 过滤出有关联播客的标签，确保 allTags 是数组（SWR 可能返回 undefined）
   const tags = (allTags || []).filter((tag: Tag) => (tag.podcast_count || 0) > 0);
 
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  const [totalCount, setTotalCount] = useState(0);
+  // 使用 SWR Infinite 获取播客列表（自动缓存）
+  const {
+    podcasts,
+    totalCount,
+    hasMore,
+    isLoading,
+    isLoadingMore,
+    isError,
+    error,
+    loadMore,
+    reset,
+  } = usePodcastListInfinite({
+    page_size: pageSize,
+    sort_by: sortBy,
+    tag_id: selectedTagIds.length > 0 ? selectedTagIds : undefined,
+  });
+
   const [isSortDrawerOpen, setIsSortDrawerOpen] = useState(false);
-
-  const observerTarget = useRef<HTMLDivElement>(null);
-
-  const fetchPodcasts = useCallback(async (
-    tagIds: number[] = [],
-    pageNum: number = 1,
-    currentSortBy: SortByType = "recent_update",
-  ) => {
-    try {
-      if (pageNum !== 1) {
-        setLoadingMore(true);
-      } else {
-        setIsLoading(true);
-        setPodcasts([]);
-      }
-      setError(null);
-
-      const params: Record<string, unknown> = {
-        page: pageNum,
-        page_size: pageSize,
-        sort_by: currentSortBy,
-      };
-
-      if (tagIds.length > 0) {
-        params.tag_id = tagIds;
-      }
-
-      const result = await podcastApi.list(params);
-
-      if (pageNum === 1) {
-        setPodcasts([...result.data]);
-      } else {
-        setPodcasts((prev) => [...prev, ...result.data]);
-      }
-
-      setHasMore(result.pagination.page < result.pagination.total_pages);
-      setTotalCount(result.pagination.total);
-      setPage(pageNum);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoadingMore(false);
-      setIsLoading(false);
-    }
-  }, [pageSize]);
-
-  // 初始化加载
-  useEffect(() => {
-    fetchPodcasts(selectedTagIds, 1, sortBy);
-  }, [fetchPodcasts]);
 
   // 验证标签有效性
   useEffect(() => {
@@ -100,39 +60,8 @@ export default function PodcastsContent() {
 
     if (validTagIds.length !== selectedTagIds.length) {
       setSelectedTagIds(validTagIds);
-      setPage(1);
-      setPodcasts([]);
-      fetchPodcasts(validTagIds, 1, sortBy);
     }
-  }, [tags, selectedTagIds, sortBy, fetchPodcasts, setSelectedTagIds]);
-
-  const loadMore = useCallback(() => {
-    if (!loadingMore && hasMore) {
-      fetchPodcasts(selectedTagIds, page + 1, sortBy);
-    }
-  }, [loadingMore, hasMore, page, selectedTagIds, sortBy, fetchPodcasts]);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loadingMore) {
-          loadMore();
-        }
-      },
-      { rootMargin: "200px" },
-    );
-
-    const currentTarget = observerTarget.current;
-    if (currentTarget) {
-      observer.observe(currentTarget);
-    }
-
-    return () => {
-      if (currentTarget) {
-        observer.unobserve(currentTarget);
-      }
-    };
-  }, [hasMore, loadingMore, loadMore]);
+  }, [tags, selectedTagIds, setSelectedTagIds]);
 
   const handleTagToggle = useCallback((tagId: number | null) => {
     let newSelected: number[];
@@ -147,18 +76,17 @@ export default function PodcastsContent() {
 
     // URL 更新由 hook 自动处理
     setSelectedTagIds(newSelected);
-    setPage(1);
-    setPodcasts([]);
-    fetchPodcasts(newSelected, 1, sortBy);
-  }, [selectedTagIds, sortBy, fetchPodcasts, setSelectedTagIds]);
+    // SWR 会自动根据参数变化重新请求
+  }, [selectedTagIds, setSelectedTagIds]);
 
   const handleSortChange = useCallback((newSortBy: SortByType) => {
     // URL 更新由 hook 自动处理
     setSortBy(newSortBy);
-    setPage(1);
-    setPodcasts([]);
-    fetchPodcasts(selectedTagIds, 1, newSortBy);
-  }, [selectedTagIds, fetchPodcasts, setSortBy]);
+    // SWR 会自动根据参数变化重新请求
+  }, [setSortBy]);
+
+  // 错误消息
+  const errorMessage = isError ? (error instanceof Error ? error.message : "加载失败") : null;
 
   const sortOptions = [
     { label: "最近更新", value: "recent_update" },
@@ -308,12 +236,12 @@ export default function PodcastsContent() {
       )}
 
       {/* Error State */}
-      {error && (
+      {isError && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-6 mb-6">
           <h3 className="text-red-800 font-semibold mb-2">加载失败</h3>
-          <p className="text-red-600 mb-4">{error}</p>
+          <p className="text-red-600 mb-4">{errorMessage}</p>
           <button
-            onClick={() => fetchPodcasts(selectedTagIds, 1, sortBy)}
+            onClick={reset}
             className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
           >
             重试
@@ -322,7 +250,7 @@ export default function PodcastsContent() {
       )}
 
       {/* Loading State - Skeleton */}
-      {isLoading && !error && (
+      {isLoading && !isError && (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-4 lg:gap-6">
           {Array.from({ length: 10 }).map((_, i) => (
             <PodcastCardSkeleton key={i} isMobile={isMobile} />
@@ -331,7 +259,7 @@ export default function PodcastsContent() {
       )}
 
       {/* Empty State - No Results */}
-      {!isLoading && !error && podcasts.length === 0 && selectedTagIds.length > 0 && (
+      {!isLoading && !isError && podcasts.length === 0 && selectedTagIds.length > 0 && (
         <div className="flex flex-col items-center justify-center py-12 px-4">
           <svg className="w-12 h-12 text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -349,7 +277,7 @@ export default function PodcastsContent() {
       )}
 
       {/* Empty State - No Podcasts at all */}
-      {!isLoading && !error && podcasts.length === 0 && selectedTagIds.length === 0 && (
+      {!isLoading && !isError && podcasts.length === 0 && selectedTagIds.length === 0 && (
         <div className="flex flex-col items-center justify-center py-12 px-4">
           <svg className="w-12 h-12 text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
@@ -368,49 +296,30 @@ export default function PodcastsContent() {
         </div>
       )}
 
-      {/* Podcasts List */}
-      {!isLoading && !error && podcasts.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-4 lg:gap-6">
-          {podcasts.map((podcast, index) => {
-            const params = new URLSearchParams();
-            if (sortBy) {
-              params.append("sort_by", sortBy);
-            }
-            if (selectedTagIds.length > 0) {
-              params.append("tag_ids", selectedTagIds.join(","));
-            }
-            const queryString = params.toString();
-            const detailUrl = `/podcasts/${podcast.id}${queryString ? `?${queryString}` : ""}`;
-
-            return (
-              <ResponsivePodcastCard
-                key={podcast.id}
-                podcast={podcast}
-                detailUrl={detailUrl}
-                index={index}
-                priority={
-                  index < 6 ? "high" : index < 15 ? "medium" : "low"
-                }
-                isMobile={isMobile}
-              />
-            );
-          })}
-        </div>
+      {/* Podcasts List with Virtual Scrolling */}
+      {!isLoading && !isError && podcasts.length > 0 && (
+        <VirtualPodcastGrid
+          podcasts={podcasts}
+          columns={columns}
+          isMobile={isMobile}
+          sortBy={sortBy}
+          selectedTagIds={selectedTagIds}
+          onLoadMore={loadMore}
+          hasMore={hasMore}
+          isLoading={isLoadingMore}
+        />
       )}
 
       {/* Loading More Indicator */}
-      {!isLoading && !error && loadingMore && (
+      {!isLoading && !isError && isLoadingMore && (
         <div className="text-center py-8">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
           <p className="mt-2 text-sm text-slate-600">加载更多...</p>
         </div>
       )}
 
-      {/* Scroll Detector - 无条件渲染以确保 IntersectionObserver 始终可用 */}
-      <div ref={observerTarget} className="h-10" />
-
       {/* End of List Indicator */}
-      {!isLoading && !error && !hasMore && podcasts.length > 0 && (
+      {!isLoading && !isError && !hasMore && podcasts.length > 0 && (
         <div className="text-center py-8 text-slate-500">已经到底了</div>
       )}
     </PageLayout>

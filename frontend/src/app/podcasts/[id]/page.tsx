@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { podcastApi, episodeApi } from "@/lib/api";
 import { usePodcast, usePodcastTags, usePodcastNotes } from "@/hooks/usePodcastSWR";
+import { useInfiniteScrollTrigger } from "@/hooks/usePagination";
 import { getEffectiveCoverUrl } from "@/lib/imageProxy";
 import type { Podcast, Tag, Episode } from "@/types";
 import TagInput from "@/components/tags/TagInput";
@@ -119,21 +120,10 @@ export default function PodcastDetailPage() {
     }
   }, [id, podcastLoading]);
 
-  // 滚动监听 - 自动加载更多单集
-  useEffect(() => {
-    const handleScroll = () => {
-      // 当滚动到距离底部500px时，自动加载更多
-      const scrollPosition = window.innerHeight + window.scrollY;
-      const threshold = document.body.offsetHeight - 500;
-
-      if (scrollPosition >= threshold && !isLoadingMore && hasMoreEpisodes) {
-        loadMoreEpisodes();
-      }
-    };
-
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [isLoadingMore, hasMoreEpisodes, loadMoreEpisodes]);
+  // 使用 IntersectionObserver 实现无限滚动
+  const { ref: loadMoreRef } = useInfiniteScrollTrigger(loadMoreEpisodes, {
+    rootMargin: "300px",
+  });
 
   // 当单集列表加载完成且有目标单集时，滚动到指定位置
   useEffect(() => {
@@ -716,16 +706,9 @@ export default function PodcastDetailPage() {
                   ))}
                 </div>
 
-                {/* 加载更多按钮 */}
-                {hasMoreEpisodes && !isLoadingMore && (
-                  <div className="text-center mt-8">
-                    <button
-                      onClick={loadMoreEpisodes}
-                      className="px-6 py-3 bg-white text-slate-800 font-medium rounded-xl border border-slate-300 hover:bg-slate-50 hover:border-slate-400 transition-colors"
-                    >
-                      加载更多 ({episodes.length}/{totalEpisodes})
-                    </button>
-                  </div>
+                {/* 无限滚动触发器 */}
+                {hasMoreEpisodes && (
+                  <div ref={loadMoreRef} className="h-10" />
                 )}
 
                 {/* 加载更多提示 */}

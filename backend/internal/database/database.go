@@ -73,10 +73,10 @@ func initDB() (*gorm.DB, error) {
 	}
 	gormConfig.Logger = gormlogger.Default.LogMode(logLevel)
 
-	// 打开数据库连接（启用外键约束）
-	// _foreign_keys=on: 启用 SQLite 外键约束
+	// 打开数据库连接（不在 DSN 中启用外键，避免迁移时触发 CASCADE DELETE）
 	// _journal_mode=WAL: 使用 WAL 模式提升并发性能
-	dsn := fmt.Sprintf("%s?_foreign_keys=on&_journal_mode=WAL", dbPath)
+	// 注意：外键约束将在迁移完成后通过 PRAGMA 启用
+	dsn := fmt.Sprintf("%s?_journal_mode=WAL", dbPath)
 	db, err := gorm.Open(sqlite.Open(dsn), gormConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
@@ -94,14 +94,30 @@ func initDB() (*gorm.DB, error) {
 	sqlDB.SetConnMaxLifetime(time.Duration(cfg.Database.ConnMaxLifetime) * time.Second)
 	sqlDB.SetConnMaxIdleTime(5 * time.Minute) // 空闲连接超时：防止连接堆积
 
-	// 启用 SQLite 外键约束（DSN参数可能不生效，需要在连接后执行PRAGMA）
-	if _, err := sqlDB.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
-	}
-
-	logger.Infof("✅ Database connected: %s (foreign_keys=ON, journal_mode=WAL)", dbPath)
+	// 注意：不在此处启用外键约束，避免迁移时触发 CASCADE DELETE
+	// 外键约束将在 EnableForeignKeys() 中启用，该方法应在迁移完成后调用
+	logger.Infof("✅ Database connected: %s (journal_mode=WAL, foreign_keys=OFF during migration)", dbPath)
 
 	return db, nil
+}
+
+// EnableForeignKeys 启用外键约束（应在迁移完成后调用）
+func EnableForeignKeys() error {
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("failed to get database instance: %w", err)
+	}
+
+	if _, err := sqlDB.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return fmt.Errorf("failed to enable foreign keys: %w", err)
+	}
+
+	logger.Info("✅ Foreign keys enabled (PRAGMA foreign_keys = ON)")
+	return nil
 }
 
 // Close 关闭数据库连接

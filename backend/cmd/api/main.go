@@ -70,7 +70,7 @@ func main() {
 	db := database.GetDB() // 初始化数据库连接
 	defer database.Close()
 
-	// 运行数据库迁移
+	// 运行数据库迁移（在外键禁用状态下运行，避免 CASCADE DELETE）
 	if err := database.AutoMigrate(db); err != nil {
 		logger.Fatalf("Failed to run database migrations: %v", err)
 	}
@@ -78,6 +78,11 @@ func main() {
 	// 创建自定义索引
 	if err := database.CreateIndexes(db); err != nil {
 		logger.Fatalf("Failed to create custom indexes: %v", err)
+	}
+
+	// 迁移完成后启用外键约束
+	if err := database.EnableForeignKeys(); err != nil {
+		logger.Fatalf("Failed to enable foreign keys: %v", err)
 	}
 
 	// 设置路由

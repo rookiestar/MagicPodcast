@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { workflowApi, podcastApi } from "@/lib/api";
 import { schedulerApi } from "@/lib/api/scheduler";
 import { useWorkflow, useWorkflowJobs } from "@/hooks/useWorkflowSWR";
@@ -10,13 +11,22 @@ import { useWorkflowActions } from "@/hooks/useWorkflowActions";
 import { useJobExpansion } from "@/hooks/useJobExpansion";
 import { getEffectiveCoverUrl } from "@/lib/imageProxy";
 import type { Workflow, Job, Podcast } from "@/types";
-import WorkflowFormModal from "@/components/workflows/WorkflowFormModal";
-import ReportModal from "@/components/workflows/ReportModal";
 import PageLayout from "@/components/layout/PageLayout";
 import LoadingLayout from "@/components/layout/LoadingLayout";
 import { WorkflowDetailSkeleton } from "@/components/ui/Skeleton";
 import { WorkflowStatusBadge, JobStatusBadge } from "@/components/ui/StatusBadge";
 import { toast } from "@/lib/toast";
+
+// 动态导入大型模态框组件，减少首屏 bundle 大小
+const WorkflowFormModal = dynamic(
+  () => import("@/components/workflows/WorkflowFormModal"),
+  { ssr: false }
+);
+
+const ReportModal = dynamic(
+  () => import("@/components/workflows/ReportModal"),
+  { ssr: false }
+);
 
 type TabType = "overview" | "jobs" | "config";
 

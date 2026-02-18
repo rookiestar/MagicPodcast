@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, KeyboardEvent } from "react";
+import { useState, useEffect, useRef, KeyboardEvent, memo } from "react";
 import { Tag } from "@/types";
 import { tagApi } from "@/lib/api";
 import TagBadge from "./TagBadge";
@@ -12,7 +12,28 @@ interface TagInputProps {
   showSelectedTags?: boolean;
 }
 
-export default function TagInput({
+// 自定义比较函数：比较 selectedTags 数组
+const arePropsEqual = (prevProps: TagInputProps, nextProps: TagInputProps) => {
+  // 比较 showSelectedTags 和 placeholder
+  if (
+    prevProps.showSelectedTags !== nextProps.showSelectedTags ||
+    prevProps.placeholder !== nextProps.placeholder
+  ) {
+    return false;
+  }
+
+  // 比较 selectedTags 数组长度
+  if (prevProps.selectedTags.length !== nextProps.selectedTags.length) {
+    return false;
+  }
+
+  // 比较每个 tag 的 id
+  return prevProps.selectedTags.every(
+    (tag, index) => tag.id === nextProps.selectedTags[index]?.id
+  );
+};
+
+const TagInput = memo(function TagInput({
   selectedTags,
   onTagsChange,
   placeholder = "输入标签按回车添加",
@@ -330,4 +351,6 @@ export default function TagInput({
       </div>
     </div>
   );
-}
+}, arePropsEqual);
+
+export default TagInput;
