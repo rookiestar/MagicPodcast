@@ -172,7 +172,7 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 		}
 	}
 
-	// 6. 创建Report记录
+	// 6. 使用事务创建Report记录并更新Job（确保原子性）
 	matchedCount := rg.countEpisodes(reportData)
 	report := &models.Report{
 		JobID:          job.ID,
@@ -195,16 +195,26 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 		LLMError:      llmError,
 	}
 
-	if err := rg.db.Create(report).Error; err != nil {
-		return nil, fmt.Errorf("保存报告失败: %w", err)
+	// 使用事务确保Report创建和Job更新的原子性
+	err = rg.db.Transaction(func(tx *gorm.DB) error {
+		// 创建Report记录
+		if err := tx.Create(report).Error; err != nil {
+			return fmt.Errorf("保存报告失败: %w", err)
+		}
+
+		// 更新Job的episodes_matched为实际匹配的单集数
+		if err := tx.Model(job).Update("episodes_matched", matchedCount).Error; err != nil {
+			return fmt.Errorf("更新Job的episodes_matched失败: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
-	// 6. 更新Job的episodes_matched为实际匹配的单集数
-	if err := rg.db.Model(job).Update("episodes_matched", matchedCount).Error; err != nil {
-		logger.Infof("❌ 更新Job的episodes_matched失败 [JobID=%d]: %v", job.ID, err)
-	} else {
-		logger.Infof("✅ 已更新Job的episodes_matched [JobID=%d, Matched=%d]", job.ID, matchedCount)
-	}
+	logger.Infof("✅ 已更新Job的episodes_matched [JobID=%d, Matched=%d]", job.ID, matchedCount)
 
 	return report, nil
 }

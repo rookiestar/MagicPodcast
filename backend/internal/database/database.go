@@ -22,7 +22,15 @@ var (
 
 // GetDB 获取数据库实例（单例模式）
 func GetDB() *gorm.DB {
+	// 如果 db 已经设置（例如通过 SetTestDB），直接返回
+	if db != nil {
+		return db
+	}
 	once.Do(func() {
+		// 再次检查，避免竞态条件
+		if db != nil {
+			return
+		}
 		var err error
 		db, err = initDB()
 		if err != nil {
@@ -108,4 +116,19 @@ func Close() error {
 	}
 
 	return sqlDB.Close()
+}
+
+// SetTestDB 设置测试数据库（仅用于测试）
+// 使用此函数可以在测试中注入内存数据库
+func SetTestDB(testDB *gorm.DB) {
+	db = testDB
+	// 注意：不重置 once，这样 GetDB 不会再调用 initDB
+	// once 已经执行过，db 已设置
+}
+
+// ResetDB 重置数据库实例（仅用于测试后清理）
+func ResetDB() {
+	db = nil
+	// 重置 once 以允许下次正常初始化
+	once = sync.Once{}
 }

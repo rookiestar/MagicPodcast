@@ -161,7 +161,7 @@ func (s *WorkflowService) UpdateWorkflow(id uint, req *UpdateWorkflowRequest) (*
 	return s.toWorkflowResponse(workflow), nil
 }
 
-// DeleteWorkflow 删除工作流
+// DeleteWorkflow 删除工作流（使用事务确保原子性）
 func (s *WorkflowService) DeleteWorkflow(id uint) error {
 	// 检查是否存在
 	_, err := s.repos.Workflow.GetByID(id)
@@ -172,14 +172,22 @@ func (s *WorkflowService) DeleteWorkflow(id uint) error {
 		return apperrors.InternalErrorWithErr(err, "Failed to fetch workflow")
 	}
 
-	// 删除相关的 Job
-	// 注意: 这个操作可能需要通过 JobRepository 来完成,但为了保持简单,我们暂时保留直接删除
-	if err := s.repos.DB().Where("workflow_id = ?", id).Delete(&models.Job{}).Error; err != nil {
-		return apperrors.InternalErrorWithErr(err, "Failed to delete workflow jobs")
-	}
+	// 使用事务删除工作流及其关联数据，确保原子性
+	err = s.repos.DB().Transaction(func(tx *gorm.DB) error {
+		// 删除相关的 Job（级联删除 JobExecutions 和 Reports 由外键约束处理）
+		if err := tx.Where("workflow_id = ?", id).Delete(&models.Job{}).Error; err != nil {
+			return err
+		}
 
-	// 删除工作流
-	if err := s.repos.Workflow.Delete(id); err != nil {
+		// 删除工作流
+		if err := tx.Delete(&models.Workflow{}, id).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
 		return apperrors.InternalErrorWithErr(err, "Failed to delete workflow")
 	}
 
