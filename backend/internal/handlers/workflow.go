@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"magicpodcast/internal/database"
+	"magicpodcast/internal/handlers/dto"
 	"magicpodcast/internal/llm"
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/middleware"
@@ -35,73 +36,11 @@ func NewWorkflowHandler(executor *workflow.Executor, scheduler *scheduler.Schedu
 	}
 }
 
-// WorkflowResponse Workflow 响应结构
-type WorkflowResponse struct {
-	ID          uint                     `json:"id"`
-	Name        string                   `json:"name"`
-	Description string                   `json:"description"`
-	Schedule    string                   `json:"schedule"`
-	ScopeType   models.WorkflowScopeType `json:"scope_type"`
-	ScopeConfig models.ScopeConfig       `json:"scope_config"`
-	RulesConfig models.RulesConfig       `json:"rules_config"`
-	IsEnabled   bool                     `json:"is_enabled"`
-	CreatedAt   time.Time                `json:"created_at"`
-	UpdatedAt   time.Time                `json:"updated_at"`
-	LastJob     *JobResponse             `json:"last_job,omitempty"`
-	Stats       *WorkflowStats           `json:"stats,omitempty"`
-}
-
-// WorkflowStats 工作流统计信息
-type WorkflowStats struct {
-	TotalJobs     int64      `json:"total_jobs"`
-	SuccessJobs   int64      `json:"success_jobs"`
-	FailedJobs    int64      `json:"failed_jobs"`
-	TotalEpisodes float64    `json:"total_episodes"` // 平均每次执行匹配的单集数
-	PodcastCount  int64      `json:"podcast_count"`
-	LastExecution *time.Time `json:"last_execution,omitempty"`
-	NextExecution *time.Time `json:"next_execution,omitempty"`
-}
-
-// JobResponse Job 响应结构
-type JobResponse struct {
-	ID                uint                   `json:"id"`
-	WorkflowID        uint                   `json:"workflow_id"`
-	Status            models.JobStatus       `json:"status"`
-	StartTime         *time.Time             `json:"start_time,omitempty"`
-	EndTime           *time.Time             `json:"end_time,omitempty"`
-	PodcastsProcessed int                    `json:"podcasts_processed"`
-	EpisodesFound     int                    `json:"episodes_found"`
-	EpisodesCreated   int                    `json:"episodes_created"`
-	EpisodesMatched   int                    `json:"episodes_matched"`
-	ErrorCount        int                    `json:"error_count"`
-	TriggeredBy       string                 `json:"triggered_by"`
-	CreatedAt         time.Time              `json:"created_at"`
-	Duration          *int64                 `json:"duration,omitempty"` // 执行时长（毫秒）
-	Executions        []JobExecutionResponse `json:"executions,omitempty"`
-
-	// LLM相关字段
-	LLMSummary     *string `json:"llm_summary,omitempty"`      // LLM生成的摘要
-	LLMModelUsed   *string `json:"llm_model_used,omitempty"`   // 使用的模型名称
-	LLMTokensUsed  *int    `json:"llm_tokens_used,omitempty"`  // 使用的token数量
-	LLMError       *string `json:"llm_error,omitempty"`        // LLM错误信息
-}
-
-// JobExecutionResponse JobExecution 响应结构
-type JobExecutionResponse struct {
-	ID              uint                   `json:"id"`
-	JobID           uint                   `json:"job_id"`
-	PodcastID       *uint                  `json:"podcast_id,omitempty"`
-	PodcastTitle    string                 `json:"podcast_title,omitempty"`
-	PodcastFeedURL  string                 `json:"podcast_feed_url,omitempty"`
-	Status          models.ExecutionStatus `json:"status"`
-	EpisodesFound   int                    `json:"episodes_found"`
-	EpisodesCreated int                    `json:"episodes_created"`
-	EpisodesMatched int                    `json:"episodes_matched"`
-	ErrorMessage    string                 `json:"error_message,omitempty"`
-	LogInfo         string                 `json:"log_info,omitempty"`
-	ProcessingTime  int                    `json:"processing_time"` // 毫秒
-	CreatedAt       time.Time              `json:"created_at"`
-}
+// 类型别名，保持向后兼容
+type WorkflowResponse = dto.WorkflowResponse
+type WorkflowStats = dto.WorkflowStats
+type JobResponse = dto.JobResponse
+type JobExecutionResponse = dto.JobExecutionResponse
 
 // List 获取工作流列表
 // @Summary 获取工作流列表
@@ -993,15 +932,8 @@ type WorkflowRequest struct {
 	IsEnabled   bool                     `json:"is_enabled"`
 }
 
-// BatchWorkflowStats 批量查询的工作流统计信息
-type BatchWorkflowStats struct {
-	TotalJobs     int64
-	SuccessJobs   int64
-	FailedJobs    int64
-	AvgEpisodes   float64
-	LastExecution *time.Time
-	NextExecution *time.Time
-}
+// BatchWorkflowStats 类型别名
+type BatchWorkflowStats = dto.BatchWorkflowStats
 
 // getBatchWorkflowStats 批量获取工作流统计信息（优化N+1查询）
 func (h *WorkflowHandler) getBatchWorkflowStats(workflowIDs []uint) map[uint]*BatchWorkflowStats {
