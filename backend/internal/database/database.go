@@ -45,8 +45,9 @@ func initDB() (*gorm.DB, error) {
 
 	// 配置 GORM
 	gormConfig := &gorm.Config{
-		// 启用外键约束（SQLite 需要 _foreign_keys=on 参数配合）
-		DisableForeignKeyConstraintWhenMigrating: false,
+		// 禁用迁移时的外键约束检查（避免迁移时重建表导致数据丢失）
+		// 外键约束在运行时通过 PRAGMA foreign_keys = ON 启用
+		DisableForeignKeyConstraintWhenMigrating: true,
 		// 跳过默认事务（提升性能）
 		SkipDefaultTransaction: true,
 		// 禁用 RETURNING 子句（SQLite 驱动兼容性问题）
