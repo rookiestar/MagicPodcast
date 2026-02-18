@@ -253,6 +253,80 @@ func (h *WorkflowHandler) toJobExecutionResponse(exec *models.JobExecution) JobE
 	}
 }
 
+// ========== 批量查询优化函数 ==========
+
+// getBatchReports 批量获取 Job 的 Report（优化 N+1 查询）
+func (h *WorkflowHandler) getBatchReports(jobIDs []uint) map[uint]*models.Report {
+	db := database.GetDB()
+	result := make(map[uint]*models.Report)
+
+	if len(jobIDs) == 0 {
+		return result
+	}
+
+	var reports []models.Report
+	if err := db.Where("job_id IN ?", jobIDs).Find(&reports).Error; err != nil {
+		return result
+	}
+
+	for i := range reports {
+		result[reports[i].JobID] = &reports[i]
+	}
+
+	return result
+}
+
+// toJobResponseWithReport 使用预加载的 Report 转换为响应格式（优化 N+1 查询）
+func (h *WorkflowHandler) toJobResponseWithReport(job *models.Job, report *models.Report) JobResponse {
+	resp := JobResponse{
+		ID:                job.ID,
+		WorkflowID:        job.WorkflowID,
+		Status:            job.Status,
+		StartTime:         job.StartTime,
+		EndTime:           job.EndTime,
+		PodcastsProcessed: job.PodcastsProcessed,
+		EpisodesFound:     job.EpisodesFound,
+		EpisodesCreated:   job.EpisodesCreated,
+		EpisodesMatched:   job.EpisodesMatched,
+		ErrorCount:        job.ErrorCount,
+		TriggeredBy:       job.TriggeredBy,
+		CreatedAt:         job.CreatedAt,
+	}
+
+	// 计算执行时长
+	if job.StartTime != nil && job.EndTime != nil {
+		duration := job.EndTime.Sub(*job.StartTime).Milliseconds()
+		resp.Duration = &duration
+	}
+
+	// 添加执行详情
+	if len(job.Executions) > 0 {
+		executions := make([]JobExecutionResponse, len(job.Executions))
+		for i, exec := range job.Executions {
+			executions[i] = h.toJobExecutionResponse(&exec)
+		}
+		resp.Executions = executions
+	}
+
+	// 使用预加载的 Report 数据
+	if report != nil {
+		if report.LLMSummary != "" {
+			resp.LLMSummary = &report.LLMSummary
+		}
+		if report.LLMModelUsed != "" {
+			resp.LLMModelUsed = &report.LLMModelUsed
+		}
+		if report.LLMTokensUsed > 0 {
+			resp.LLMTokensUsed = &report.LLMTokensUsed
+		}
+		if report.LLMError != "" {
+			resp.LLMError = &report.LLMError
+		}
+	}
+
+	return resp
+}
+
 // ========== 验证函数 ==========
 
 // validateScopeConfig 验证范围配置

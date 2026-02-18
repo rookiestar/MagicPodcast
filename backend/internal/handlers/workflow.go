@@ -495,10 +495,17 @@ func (h *WorkflowHandler) ListJobs(c *gin.Context) {
 		return
 	}
 
+	// 批量查询所有 Job 的 Report（优化 N+1 查询）
+	jobIDs := make([]uint, len(jobs))
+	for i, job := range jobs {
+		jobIDs[i] = job.ID
+	}
+	reportMap := h.getBatchReports(jobIDs)
+
 	// 转换为响应格式
 	response := make([]JobResponse, len(jobs))
 	for i, job := range jobs {
-		response[i] = h.toJobResponse(&job)
+		response[i] = h.toJobResponseWithReport(&job, reportMap[job.ID])
 	}
 
 	c.JSON(http.StatusOK, gin.H{

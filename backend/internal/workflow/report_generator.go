@@ -209,7 +209,7 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 	return report, nil
 }
 
-// collectMatchedEpisodes 收集在时间窗口内匹配的episodes
+// collectMatchedEpisodes 收集在时间窗口内匹配的episodes（优化N+1查询）
 func (rg *ReportGenerator) collectMatchedEpisodes(job *models.Job, timeRangeStart, timeRangeEnd time.Time) ([]EpisodeReportData, error) {
 	// 从JobExecution中获取成功处理的podcast IDs
 	var executions []models.JobExecution
@@ -217,33 +217,48 @@ func (rg *ReportGenerator) collectMatchedEpisodes(job *models.Job, timeRangeStar
 		return nil, err
 	}
 
-	var reportData []EpisodeReportData
+	if len(executions) == 0 {
+		return []EpisodeReportData{}, nil
+	}
 
+	// 收集所有 podcast IDs 和建立 execution 映射
+	podcastIDs := make([]uint, 0, len(executions))
+	executionMap := make(map[uint]models.JobExecution)
 	for _, exec := range executions {
-		if exec.PodcastID == nil {
-			continue
+		if exec.PodcastID != nil {
+			podcastIDs = append(podcastIDs, *exec.PodcastID)
+			executionMap[*exec.PodcastID] = exec
 		}
+	}
 
-		// 根据时间窗口查询匹配的episodes
-		var episodes []models.Episode
-		query := rg.db.Where("podcast_id = ?", *exec.PodcastID)
+	if len(podcastIDs) == 0 {
+		return []EpisodeReportData{}, nil
+	}
 
-		// 应用时间窗口过滤：查询updated_date或published_date在时间窗口内的episodes
-		// 使用COALESCE优先使用updated_date，如果为空则使用published_date
-		// 使用 >= 和 <= 包含边界时间点
-		query = query.Where(`
-			COALESCE(updated_date, published_date) >= ? AND
-			COALESCE(updated_date, published_date) <= ?
-		`, timeRangeStart, timeRangeEnd)
+	// 批量查询所有相关的 episodes（优化 N+1 查询）
+	var allEpisodes []models.Episode
+	query := rg.db.Where("podcast_id IN ?", podcastIDs)
+	query = query.Where(`
+		COALESCE(updated_date, published_date) >= ? AND
+		COALESCE(updated_date, published_date) <= ?
+	`, timeRangeStart, timeRangeEnd)
+	query = query.Order("podcast_id, COALESCE(updated_date, published_date) DESC")
 
-		// 按updated_date降序排序（优先使用updated_date）
-		query = query.Order("COALESCE(updated_date, published_date) DESC")
+	if err := query.Find(&allEpisodes).Error; err != nil {
+		return nil, err
+	}
 
-		if err := query.Find(&episodes).Error; err != nil {
-			continue
-		}
+	// 按 podcast_id 分组
+	episodesByPodcast := make(map[uint][]models.Episode)
+	for _, ep := range allEpisodes {
+		episodesByPodcast[ep.PodcastID] = append(episodesByPodcast[ep.PodcastID], ep)
+	}
 
-		if len(episodes) == 0 {
+	// 构建 reportData
+	var reportData []EpisodeReportData
+	for podcastID, exec := range executionMap {
+		episodes, ok := episodesByPodcast[podcastID]
+		if !ok || len(episodes) == 0 {
 			continue
 		}
 
