@@ -45,8 +45,8 @@ func initDB() (*gorm.DB, error) {
 
 	// 配置 GORM
 	gormConfig := &gorm.Config{
-		// 禁用外键约束（SQLite 的外键支持有限）
-		DisableForeignKeyConstraintWhenMigrating: true,
+		// 启用外键约束（SQLite 需要 _foreign_keys=on 参数配合）
+		DisableForeignKeyConstraintWhenMigrating: false,
 		// 跳过默认事务（提升性能）
 		SkipDefaultTransaction: true,
 		// 禁用 RETURNING 子句（SQLite 驱动兼容性问题）
@@ -64,8 +64,11 @@ func initDB() (*gorm.DB, error) {
 	}
 	gormConfig.Logger = gormlogger.Default.LogMode(logLevel)
 
-	// 打开数据库连接
-	db, err := gorm.Open(sqlite.Open(dbPath), gormConfig)
+	// 打开数据库连接（启用外键约束）
+	// _foreign_keys=on: 启用 SQLite 外键约束
+	// _journal_mode=WAL: 使用 WAL 模式提升并发性能
+	dsn := fmt.Sprintf("%s?_foreign_keys=on&_journal_mode=WAL", dbPath)
+	db, err := gorm.Open(sqlite.Open(dsn), gormConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}

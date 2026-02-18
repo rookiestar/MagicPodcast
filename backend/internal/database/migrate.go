@@ -34,9 +34,23 @@ func CreateIndexes(db *gorm.DB) error {
 		return fmt.Errorf("failed to create podcasts index: %w", err)
 	}
 
+	// Podcast 复合索引（优化列表查询排序）
+	// is_subscribed + newest_episode_date: 用于按最新单集排序
+	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_podcasts_subscribed_date ON podcasts(is_subscribed, newest_episode_date)").Error; err != nil {
+		return fmt.Errorf("failed to create podcasts date index: %w", err)
+	}
+	// is_subscribed + added_date: 用于按添加日期排序
+	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_podcasts_subscribed_added ON podcasts(is_subscribed, added_date)").Error; err != nil {
+		return fmt.Errorf("failed to create podcasts added index: %w", err)
+	}
+
 	// Episode 索引
 	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_episodes_podcast_id ON episodes(podcast_id)").Error; err != nil {
 		return fmt.Errorf("failed to create episodes index: %w", err)
+	}
+	// Episode 复合索引（优化按播客查询并按发布日期排序）
+	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_episodes_podcast_date ON episodes(podcast_id, published_date)").Error; err != nil {
+		return fmt.Errorf("failed to create episodes date index: %w", err)
 	}
 	// 注意：guid的uniqueIndex由GORM自动创建（通过model标签），这里不再手动创建
 
