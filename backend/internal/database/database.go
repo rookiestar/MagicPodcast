@@ -85,7 +85,12 @@ func initDB() (*gorm.DB, error) {
 	sqlDB.SetConnMaxLifetime(time.Duration(cfg.Database.ConnMaxLifetime) * time.Second)
 	sqlDB.SetConnMaxIdleTime(5 * time.Minute) // 空闲连接超时：防止连接堆积
 
-	logger.Infof("✅ Database connected: %s", dbPath)
+	// 启用 SQLite 外键约束（DSN参数可能不生效，需要在连接后执行PRAGMA）
+	if _, err := sqlDB.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
+	}
+
+	logger.Infof("✅ Database connected: %s (foreign_keys=ON, journal_mode=WAL)", dbPath)
 
 	return db, nil
 }
