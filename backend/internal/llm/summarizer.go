@@ -152,7 +152,7 @@ func (s *Summarizer) sampleEpisodes(data []EpisodeReportData, maxEpisodes int) [
 
 		// 决定取多少个（取剩余和该播客单集数的较小值）
 		takeCount := remaining
-		if len(podcast.Episodes) > takeCount {
+		if len(podcast.Episodes) < takeCount {
 			takeCount = len(podcast.Episodes)
 		}
 

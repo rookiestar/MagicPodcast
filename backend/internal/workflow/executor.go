@@ -389,6 +389,22 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 
 	// ⭐ 异步生成执行报告，报告生成成功后再设置EndTime和最终状态
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Infof("❌ 报告生成panic已恢复 [JobID=%d]: %v", job.ID, r)
+				endTime := time.Now()
+				job.EndTime = &endTime
+				if successCount == 0 {
+					job.Status = models.JobStatusFailed
+				} else {
+					job.Status = models.JobStatusCompleted
+				}
+				if saveErr := e.db.Save(job).Error; saveErr != nil {
+					logger.Infof("❌ 更新Job状态失败 [JobID=%d]: %v", job.ID, saveErr)
+				}
+			}
+		}()
+
 		reportGen := NewReportGenerator(e.db, e.summarizer)
 		report, err := reportGen.GenerateForJob(job)
 		if err != nil {
