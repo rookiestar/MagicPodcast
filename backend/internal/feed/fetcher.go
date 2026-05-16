@@ -2,8 +2,10 @@ package feed
 
 import (
 	"context"
+	"fmt"
 	"magicpodcast/internal/logger"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/mmcdole/gofeed"
@@ -12,6 +14,7 @@ import (
 // Fetcher RSS Feed抓取器
 type Fetcher struct {
 	parser     *gofeed.Parser
+	parserMu   sync.RWMutex
 	httpClient *http.Client
 	timeout    time.Duration
 }
@@ -43,6 +46,27 @@ func NewFetcher(timeout time.Duration) *Fetcher {
 	}
 }
 
+func (f *Fetcher) newParser() *gofeed.Parser {
+	parser := gofeed.NewParser()
+
+	f.parserMu.RLock()
+	parser.UserAgent = f.parser.UserAgent
+	f.parserMu.RUnlock()
+
+	return parser
+}
+
+func (f *Fetcher) userAgent() string {
+	f.parserMu.RLock()
+	defer f.parserMu.RUnlock()
+
+	if f.parser.UserAgent != "" {
+		return f.parser.UserAgent
+	}
+
+	return "MagicPodcast/1.0"
+}
+
 // FetchFeed 抓取RSS Feed（完整）
 func (f *Fetcher) FetchFeed(feedURL string) (*gofeed.Feed, error) {
 	return f.FetchFeedWithContext(context.Background(), feedURL)
@@ -62,48 +86,42 @@ func (f *Fetcher) FetchFeedWithContext(ctx context.Context, feedURL string) (*go
 	ctx, cancel := context.WithTimeout(ctx, f.timeout)
 	defer cancel()
 
-	// 使用gofeed的ParseURL，它会自动处理HTTP请求
-	// 注意：gofeed库本身不支持context，所以这里我们使用context作为超时控制的额外保障
-	type result struct {
-		feed *gofeed.Feed
-		err  error
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, nil)
+	if err != nil {
+		return nil, WrapHTTPError(feedURL, err)
 	}
-	resultChan := make(chan result, 1)
+	req.Header.Set("User-Agent", f.userAgent())
 
-	// 启动goroutine执行feed解析
-	go func() {
-		// 当context取消时，goroutine会退出但ParseURL可能仍在运行
-		// 通过select确保只有context有效时才发送结果
-		feed, err := f.parser.ParseURL(feedURL)
-		select {
-		case resultChan <- result{feed, err}:
-			// 正常发送结果
-		case <-ctx.Done():
-			// context已取消，不需要发送结果（避免阻塞）
-			// goroutine会在这里退出
-			logger.Infof("  ⚠️ Feed解析goroutine被取消: %s", feedURL)
-		}
-	}()
-
-	// 等待完成或context取消
-	select {
-	case <-ctx.Done():
+	resp, err := f.httpClient.Do(req)
+	if err != nil {
 		duration := time.Since(startTime)
-		logger.Infof("  ⏱️ HTTP请求超时/取消: %s (耗时: %v): %v", feedURL, duration, ctx.Err())
-		// context已取消，resultChan可能没有数据
-		// 由于使用了defer cancel()，goroutine会在合理时间内退出
-		return nil, ctx.Err()
-	case res := <-resultChan:
-		if res.err != nil {
-			duration := time.Since(startTime)
-			logger.Infof("  ❌ HTTP请求失败: %s (耗时: %v): %v", feedURL, duration, res.err)
-			return nil, WrapHTTPError(feedURL, res.err)
+		if ctx.Err() != nil {
+			logger.Infof("  ⏱️ HTTP请求超时/取消: %s (耗时: %v): %v", feedURL, duration, ctx.Err())
+			return nil, ctx.Err()
 		}
-		duration := time.Since(startTime)
-		logger.Infof("  ✅ HTTP请求成功: %s (耗时: %v, 标题: %s, 单集数: %d)",
-			feedURL, duration, res.feed.Title, len(res.feed.Items))
-		return res.feed, nil
+		logger.Infof("  ❌ HTTP请求失败: %s (耗时: %v): %v", feedURL, duration, err)
+		return nil, WrapHTTPError(feedURL, err)
 	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		err := fmt.Errorf("HTTP status code %d", resp.StatusCode)
+		duration := time.Since(startTime)
+		logger.Infof("  ❌ HTTP请求失败: %s (耗时: %v): %v", feedURL, duration, err)
+		return nil, WrapHTTPError(feedURL, err)
+	}
+
+	feed, err := f.newParser().Parse(resp.Body)
+	if err != nil {
+		duration := time.Since(startTime)
+		logger.Infof("  ❌ Feed解析失败: %s (耗时: %v): %v", feedURL, duration, err)
+		return nil, WrapHTTPError(feedURL, err)
+	}
+
+	duration := time.Since(startTime)
+	logger.Infof("  ✅ HTTP请求成功: %s (耗时: %v, 标题: %s, 单集数: %d)",
+		feedURL, duration, feed.Title, len(feed.Items))
+	return feed, nil
 }
 
 // FetchFeedWithClient 使用自定义HTTP客户端抓取
@@ -111,6 +129,13 @@ func (f *Fetcher) FetchFeedWithClient(feedURL string, client *http.Client) (*gof
 	// gofeed库不支持自定义HTTP客户端，所以这里我们只使用默认的FetchFeed
 	// 如果需要自定义HTTP客户端（如代理、超时等），需要在更高层处理
 	return f.FetchFeed(feedURL)
+}
+
+// CloseIdleConnections 关闭HTTP连接池中的空闲连接
+func (f *Fetcher) CloseIdleConnections() {
+	if f.httpClient != nil {
+		f.httpClient.CloseIdleConnections()
+	}
 }
 
 // FetchIncremental 增量抓取：只获取lastFetchTime之后的新单集
@@ -146,5 +171,8 @@ func (f *Fetcher) ValidateFeed(feedURL string) error {
 
 // SetUserAgent 设置User-Agent（某些feed可能需要）
 func (f *Fetcher) SetUserAgent(userAgent string) {
+	f.parserMu.Lock()
+	defer f.parserMu.Unlock()
+
 	f.parser.UserAgent = userAgent
 }

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"magicpodcast/internal/logger"
@@ -15,15 +16,15 @@ import (
 type LogMessageType string
 
 const (
-	LogTypeUnknown   LogMessageType = "unknown"    // 未知类型
-	LogTypeInfo      LogMessageType = "info"       // 一般信息
-	LogTypeSuccess   LogMessageType = "success"    // 成功
-	LogTypeError     LogMessageType = "error"      // 错误
-	LogTypeProgress  LogMessageType = "progress"   // 进度
-	LogTypeSkipPaid  LogMessageType = "skip_paid"  // 跳过付费播客
-	LogTypeSkipCert  LogMessageType = "skip_cert"  // 跳过证书过期
-	LogTypeSkipNoUpd LogMessageType = "skip_noupd" // 跳过无更新
-	LogTypeSkipOther LogMessageType = "skip_other" // 跳过其他原因
+	LogTypeUnknown   LogMessageType = "unknown"        // 未知类型
+	LogTypeInfo      LogMessageType = "info"           // 一般信息
+	LogTypeSuccess   LogMessageType = "success"        // 成功
+	LogTypeError     LogMessageType = "error"          // 错误
+	LogTypeProgress  LogMessageType = "progress"       // 进度
+	LogTypeSkipPaid  LogMessageType = "skip_paid"      // 跳过付费播客
+	LogTypeSkipCert  LogMessageType = "skip_cert"      // 跳过证书过期
+	LogTypeSkipNoUpd LogMessageType = "skip_no_update" // 跳过无更新
+	LogTypeSkipOther LogMessageType = "skip_other"     // 跳过其他原因
 )
 
 // SkipReason 跳过原因
@@ -153,6 +154,23 @@ func formatDuration(d time.Duration) string {
 	}
 }
 
+func truncateMessage(message string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+
+	runes := []rune(message)
+	if len(runes) <= maxRunes {
+		return message
+	}
+
+	if maxRunes <= 3 {
+		return string(runes[:maxRunes])
+	}
+
+	return string(runes[:maxRunes-3]) + "..."
+}
+
 // SSEMessage SSE消息格式
 type SSEMessage struct {
 	Type    LogMessageType         `json:"type"`
@@ -167,6 +185,8 @@ type SSEMessage struct {
 type SSEProgressReporter struct {
 	writer         io.Writer
 	flusher        http.Flusher
+	mu             sync.Mutex
+	closed         bool
 	lastSendTime   time.Time
 	messageCounter int // 消息计数器，用于节流
 }
@@ -240,11 +260,16 @@ func (r *SSEProgressReporter) ReportSkip(reason SkipReason, message string) {
 }
 
 func (r *SSEProgressReporter) send(msg SSEMessage) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		return
+	}
+
 	// 先截断过长的消息以防止SSE传输问题
 	const maxMessageLength = 500
-	if len(msg.Message) > maxMessageLength {
-		msg.Message = msg.Message[:maxMessageLength-3] + "..."
-	}
+	msg.Message = truncateMessage(msg.Message, maxMessageLength)
 
 	data, err := json.Marshal(msg)
 	if err != nil {
@@ -271,9 +296,7 @@ func (r *SSEProgressReporter) send(msg SSEMessage) {
 		if len(data)+prefixAndSuffix > maxTotalSize {
 			// 如果还是太长，尝试只保留消息类型和截断的消息
 			truncatedMsg := msg.Message
-			if len(truncatedMsg) > 100 {
-				truncatedMsg = truncatedMsg[:97] + "..."
-			}
+			truncatedMsg = truncateMessage(truncatedMsg, 100)
 			simpleMsg := SSEMessage{
 				Type:    msg.Type,
 				Message: truncatedMsg,
@@ -336,6 +359,15 @@ func (r *SSEProgressReporter) send(msg SSEMessage) {
 }
 
 func (r *SSEProgressReporter) Close() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		return
+	}
+
+	r.closed = true
+
 	// 发送结束标记
 	if _, err := fmt.Fprintf(r.writer, "data: [DONE]\n\n"); err != nil {
 		logger.Errorf("[ERROR] Failed to send SSE close message: %v", err)
@@ -348,6 +380,13 @@ func (r *SSEProgressReporter) Close() {
 }
 
 func (r *SSEProgressReporter) ReportSummary(summary *SyncSummary) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		return
+	}
+
 	// 创建基础消息
 	msg := SSEMessage{
 		Type: "summary",
@@ -372,9 +411,7 @@ func (r *SSEProgressReporter) ReportSummary(summary *SyncSummary) {
 
 	// 先截断消息文本
 	const maxMessageLength = 200
-	if len(msg.Message) > maxMessageLength {
-		msg.Message = msg.Message[:maxMessageLength-3] + "..."
-	}
+	msg.Message = truncateMessage(msg.Message, maxMessageLength)
 
 	// 尝试序列化并检查大小
 	data, err := json.Marshal(msg)

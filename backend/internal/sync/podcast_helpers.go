@@ -225,9 +225,12 @@ func (s *Service) convertGofeedToModel(feed *gofeed.Feed, dataSource string, fee
 		Title:        feed.Title,
 		Description:  feed.Description,
 		FeedURL:      feedURL, // 使用传入的feedURL
-		Author:       feed.Author.Name,
 		IsSubscribed: true,
 		DataSource:   dataSource,
+	}
+
+	if feed.Author != nil {
+		podcast.Author = feed.Author.Name
 	}
 
 	if feed.Image != nil {

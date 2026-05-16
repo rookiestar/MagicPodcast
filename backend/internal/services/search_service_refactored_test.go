@@ -1,7 +1,9 @@
 package services
 
 import (
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
@@ -128,6 +130,19 @@ func TestTextProcessing(t *testing.T) {
 		assert.True(t, len(snippet) <= 153) // 150 + "..."
 		assert.Contains(t, snippet, "long")
 	})
+
+	t.Run("generateSnippet preserves multibyte characters", func(t *testing.T) {
+		longText := strings.Repeat("前置内容", 30) +
+			"四大科技巨头同晚交卷，市场反应却截然不同。谷歌云增速飙升。" +
+			strings.Repeat("后续内容", 30)
+
+		snippet := generateSnippet(longText, "科技")
+
+		assert.True(t, utf8.ValidString(snippet))
+		assert.NotContains(t, snippet, "\uFFFD")
+		assert.Contains(t, snippet, "科技")
+		assert.LessOrEqual(t, utf8.RuneCountInString(strings.Trim(snippet, ".")), 150)
+	})
 }
 
 // 测试相关性计算
@@ -167,6 +182,13 @@ func TestPaginationBuilder(t *testing.T) {
 
 		info2 := buildPaginationInfo(95, 1, 10)
 		assert.Equal(t, 10, info2.TotalPages) // 95/10 = 9, 余5 -> 10页
+	})
+
+	t.Run("buildSearchCandidateLimit", func(t *testing.T) {
+		assert.Equal(t, 100, buildSearchCandidateLimit(1, 50))
+		assert.Equal(t, 150, buildSearchCandidateLimit(2, 50))
+		assert.Equal(t, 600, buildSearchCandidateLimit(11, 50))
+		assert.Equal(t, 51, buildSearchCandidateLimit(0, 0))
 	})
 }
 

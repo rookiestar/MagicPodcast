@@ -10,6 +10,7 @@ interface TagInputProps {
   onTagsChange: (tags: Tag[]) => void;
   placeholder?: string;
   showSelectedTags?: boolean;
+  disabled?: boolean;
 }
 
 // 自定义比较函数：比较 selectedTags 数组
@@ -17,7 +18,8 @@ const arePropsEqual = (prevProps: TagInputProps, nextProps: TagInputProps) => {
   // 比较 showSelectedTags 和 placeholder
   if (
     prevProps.showSelectedTags !== nextProps.showSelectedTags ||
-    prevProps.placeholder !== nextProps.placeholder
+    prevProps.placeholder !== nextProps.placeholder ||
+    prevProps.disabled !== nextProps.disabled
   ) {
     return false;
   }
@@ -29,7 +31,7 @@ const arePropsEqual = (prevProps: TagInputProps, nextProps: TagInputProps) => {
 
   // 比较每个 tag 的 id
   return prevProps.selectedTags.every(
-    (tag, index) => tag.id === nextProps.selectedTags[index]?.id
+    (tag, index) => tag.id === nextProps.selectedTags[index]?.id,
   );
 };
 
@@ -38,6 +40,7 @@ const TagInput = memo(function TagInput({
   onTagsChange,
   placeholder = "输入标签按回车添加",
   showSelectedTags = true,
+  disabled = false,
 }: TagInputProps) {
   const [inputValue, setInputValue] = useState("");
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
@@ -88,6 +91,8 @@ const TagInput = memo(function TagInput({
 
   // 添加标签
   const addTag = async (tag: Tag) => {
+    if (disabled) return;
+
     onTagsChange([...selectedTags, tag]);
     setInputValue("");
     // 保持建议列表打开，方便连续添加标签
@@ -96,6 +101,8 @@ const TagInput = memo(function TagInput({
 
   // 创建新标签
   const createTag = async (name: string) => {
+    if (disabled) return;
+
     // 生成随机颜色
     const colors = [
       "#3B82F6",
@@ -128,11 +135,15 @@ const TagInput = memo(function TagInput({
 
   // 移除标签
   const removeTag = (tagId: number) => {
+    if (disabled) return;
+
     onTagsChange(selectedTags.filter((t) => t.id !== tagId));
   };
 
   // 处理键盘事件
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (disabled) return;
+
     // 建议列表显示时的键盘导航
     if (showSuggestions && filteredTags.length > 0) {
       switch (e.key) {
@@ -204,11 +215,15 @@ const TagInput = memo(function TagInput({
 
   // 处理输入变化
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (disabled) return;
+
     setInputValue(e.target.value);
   };
 
   // 处理失去焦点
   const handleBlur = () => {
+    if (disabled) return;
+
     // 延迟关闭，以便点击建议项
     setTimeout(() => {
       setShowSuggestions(false);
@@ -218,6 +233,8 @@ const TagInput = memo(function TagInput({
 
   // 处理获得焦点
   const handleFocus = () => {
+    if (disabled) return;
+
     // 显示所有可用标签
     setShowSuggestions(true);
     // 重置高亮索引
@@ -252,6 +269,7 @@ const TagInput = memo(function TagInput({
           onKeyDown={handleKeyDown}
           onBlur={handleBlur}
           onFocus={handleFocus}
+          disabled={disabled}
           className={`
             w-full px-4 py-2
             border border-slate-300 dark:border-slate-600
@@ -260,6 +278,8 @@ const TagInput = memo(function TagInput({
             text-sm text-slate-900 dark:text-slate-100
             placeholder:text-slate-400 dark:placeholder:text-slate-500
             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+            disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400
+            dark:disabled:bg-slate-900 dark:disabled:text-slate-500
             transition-colors
           `}
           placeholder={placeholder}
@@ -290,10 +310,13 @@ const TagInput = memo(function TagInput({
                     {filteredTags.map((tag, index) => (
                       <button
                         key={tag.id}
+                        type="button"
+                        disabled={disabled}
                         onClick={() => addTag(tag)}
                         onMouseEnter={() => setHighlightedIndex(index)}
                         className={`
                           w-full px-4 py-2 text-left transition-colors focus:outline-none
+                          disabled:cursor-not-allowed disabled:opacity-50
                           ${
                             highlightedIndex === index
                               ? "bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-500"
@@ -318,12 +341,14 @@ const TagInput = memo(function TagInput({
                 inputValue.trim() && (
                   <div className="py-1">
                     <button
+                      type="button"
+                      disabled={disabled}
                       onClick={() => createTag(inputValue)}
-                      className="w-full px-4 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors focus:outline-none focus:bg-slate-100 dark:focus:bg-slate-700"
+                      className="w-full px-4 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors focus:outline-none focus:bg-slate-100 dark:focus:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <div className="flex items-center gap-3">
                         <span className="text-sm text-blue-600 dark:text-blue-400">
-                          + 创建 "{inputValue.trim()}"
+                          + 创建 “{inputValue.trim()}”
                         </span>
                       </div>
                     </button>

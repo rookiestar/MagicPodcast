@@ -2,6 +2,11 @@ package services
 
 import "strings"
 
+const (
+	searchSnippetLength = 150
+	searchSnippetPrefix = 35
+)
+
 // isPureNumber 检查字符串是否为纯数字
 func isPureNumber(s string) bool {
 	if len(s) == 0 {
@@ -81,68 +86,94 @@ func generateSnippet(text, keyword string) string {
 	text = strings.ReplaceAll(text, "\r", " ")
 	text = strings.TrimSpace(text)
 
-	if len(text) <= 150 {
+	textRunes := []rune(text)
+	if len(textRunes) <= searchSnippetLength {
 		return text
 	}
 
-	keywordLower := strings.ToLower(keyword)
-	textLower := strings.ToLower(text)
+	keywordLowerRunes := []rune(strings.ToLower(strings.TrimSpace(keyword)))
+	if len(keywordLowerRunes) == 0 {
+		return string(textRunes[:searchSnippetLength]) + "..."
+	}
+	textLowerRunes := []rune(strings.ToLower(text))
 
 	// 查找关键词第一次出现的位置
-	idx := strings.Index(textLower, keywordLower)
+	idx := indexRunes(textLowerRunes, keywordLowerRunes)
 	if idx == -1 {
-		// 如果没找到关键词，返回前150个字符
-		if len(text) > 150 {
-			return text[:150] + "..."
-		}
-		return text
+		return string(textRunes[:searchSnippetLength]) + "..."
 	}
 
 	// 生成以关键词为中心的片段
 	// 策略：让关键词出现在片段的前 1/4 处，这样用户能更快看到关键词
-	snippetLength := 150
-	prefixLength := 35 // 关键词前保留约 35 个字符
-
-	start := idx - prefixLength
+	start := idx - searchSnippetPrefix
 	if start < 0 {
 		start = 0
 	}
 
-	end := start + snippetLength
-	if end > len(text) {
-		end = len(text)
+	end := start + searchSnippetLength
+	if end > len(textRunes) {
+		end = len(textRunes)
 		// 如果接近文本末尾，调整 start 以保持 snippet 长度
-		start = end - snippetLength
+		start = end - searchSnippetLength
 		if start < 0 {
 			start = 0
 		}
 	}
 
 	// 最终验证：确保 snippet 包含完整的关键词
-	snippet := text[start:end]
-	if !strings.Contains(strings.ToLower(snippet), keywordLower) {
+	snippet := string(textRunes[start:end])
+	if !containsRunes(textLowerRunes[start:end], keywordLowerRunes) {
 		// 如果因为某种原因 snippet 不包含关键词，使用最简单的策略
-		start = idx
-		end = idx + len(keyword) + 100
-		if end > len(text) {
-			end = len(text)
+		start = idx - 20
+		if start < 0 {
+			start = 0
 		}
-		if start > 0 {
-			start = start - 20
-			if start < 0 {
-				start = 0
-			}
+		end = idx + len(keywordLowerRunes) + 100
+		if end > len(textRunes) {
+			end = len(textRunes)
 		}
-		snippet = text[start:end]
+		snippet = string(textRunes[start:end])
 	}
 
 	// 添加省略号
 	if start > 0 {
 		snippet = "..." + snippet
 	}
-	if end < len(text) {
+	if end < len(textRunes) {
 		snippet = snippet + "..."
 	}
 
 	return snippet
+}
+
+func indexRunes(text, keyword []rune) int {
+	if len(keyword) == 0 || len(keyword) > len(text) {
+		return -1
+	}
+
+	for i := 0; i <= len(text)-len(keyword); i++ {
+		if sameRunes(text[i:i+len(keyword)], keyword) {
+			return i
+		}
+	}
+
+	return -1
+}
+
+func containsRunes(text, keyword []rune) bool {
+	return indexRunes(text, keyword) >= 0
+}
+
+func sameRunes(left, right []rune) bool {
+	if len(left) != len(right) {
+		return false
+	}
+
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+
+	return true
 }

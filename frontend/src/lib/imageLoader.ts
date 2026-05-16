@@ -17,9 +17,15 @@ interface LoadTask {
   onError: () => void;
 }
 
+interface ActiveLoad {
+  tempImg: HTMLImageElement;
+  timeoutId: ReturnType<typeof setTimeout>;
+}
+
 class ImageLoadQueue {
   private queue: LoadTask[] = [];
   private loading = new Set<string>();
+  private activeLoads = new Map<string, ActiveLoad>();
   private maxConcurrent = 3; // 最多同时加载3张图片
   private maxRetries = 1; // 最多重试1次（减少总等待时间）
   private loadingTimeout = 5000; // 5秒超时（减少等待时间）
@@ -77,17 +83,24 @@ class ImageLoadQueue {
   private load(task: LoadTask) {
     this.loading.add(task.id);
 
-    // 设置超时
+    // 创建新的Image对象来预加载
+    const tempImg = new Image();
     const timeoutId = setTimeout(() => {
       this.handleTimeout(task);
     }, this.loadingTimeout);
 
-    // 创建新的Image对象来预加载
-    const tempImg = new Image();
+    this.activeLoads.set(task.id, {
+      tempImg,
+      timeoutId,
+    });
 
     tempImg.onload = () => {
+      if (!this.activeLoads.has(task.id)) {
+        return;
+      }
+
       clearTimeout(timeoutId);
-      this.loading.delete(task.id);
+      this.finishActiveLoad(task.id);
 
       // 设置真实图片的src
       if (task.imgElement) {
@@ -98,7 +111,12 @@ class ImageLoadQueue {
     };
 
     tempImg.onerror = () => {
+      if (!this.activeLoads.has(task.id)) {
+        return;
+      }
+
       clearTimeout(timeoutId);
+      this.finishActiveLoad(task.id);
       this.handleError(task);
     };
 
@@ -111,6 +129,7 @@ class ImageLoadQueue {
    */
   private handleError(task: LoadTask) {
     this.loading.delete(task.id);
+    this.activeLoads.delete(task.id);
 
     // 检查是否需要重试
     if (task.retryCount < this.maxRetries) {
@@ -135,8 +154,13 @@ class ImageLoadQueue {
    * 处理超时
    */
   private handleTimeout(task: LoadTask) {
+    const activeLoad = this.activeLoads.get(task.id);
+    if (!activeLoad) {
+      return;
+    }
+
     console.warn(`[ImageLoadQueue] 图片加载超时:`, task.src);
-    this.loading.delete(task.id);
+    this.stopActiveLoad(task.id);
     this.handleError(task);
   }
 
@@ -146,7 +170,8 @@ class ImageLoadQueue {
   cancel(id: string) {
     // 从队列中移除
     this.queue = this.queue.filter((t) => t.id !== id);
-    this.loading.delete(id);
+    this.stopActiveLoad(id);
+    this.process();
   }
 
   /**
@@ -154,7 +179,31 @@ class ImageLoadQueue {
    */
   clear() {
     this.queue = [];
+    for (const id of this.activeLoads.keys()) {
+      this.stopActiveLoad(id);
+    }
     this.loading.clear();
+  }
+
+  private finishActiveLoad(id: string) {
+    const activeLoad = this.activeLoads.get(id);
+    if (activeLoad) {
+      activeLoad.tempImg.onload = null;
+      activeLoad.tempImg.onerror = null;
+      this.activeLoads.delete(id);
+    }
+    this.loading.delete(id);
+  }
+
+  private stopActiveLoad(id: string) {
+    const activeLoad = this.activeLoads.get(id);
+    if (activeLoad) {
+      clearTimeout(activeLoad.timeoutId);
+      activeLoad.tempImg.onload = null;
+      activeLoad.tempImg.onerror = null;
+      this.activeLoads.delete(id);
+    }
+    this.loading.delete(id);
   }
 
   /**

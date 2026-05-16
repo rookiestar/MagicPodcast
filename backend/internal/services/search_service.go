@@ -20,10 +20,40 @@ type SearchService struct {
 
 // NewSearchService 创建搜索服务
 func NewSearchService() *SearchService {
-	cfg := config.Get()
+	var searchConfig config.SearchConfig
+	if cfg := config.Get(); cfg != nil {
+		searchConfig = cfg.Search
+	} else {
+		searchConfig = defaultSearchConfig()
+	}
+
+	return NewSearchServiceWithDB(database.GetDB(), searchConfig)
+}
+
+func NewSearchServiceWithDB(db *gorm.DB, searchConfig config.SearchConfig) *SearchService {
 	return &SearchService{
-		db:     database.GetDB(),
-		config: cfg.Search,
+		db:     db,
+		config: searchConfig,
+	}
+}
+
+func defaultSearchConfig() config.SearchConfig {
+	return config.SearchConfig{
+		Weights: config.SearchWeights{
+			PodcastTitle:   1.0,
+			EpisodeTitle:   1.0,
+			Author:         0.8,
+			PodcastDesc:    0.7,
+			EpisodeContent: 0.7,
+		},
+		MatchMultipliers: config.SearchMatchMultipliers{
+			Exact:      1.5,
+			Prefix:     1.2,
+			Contains:   1.0,
+			Occurrence: 0.1,
+		},
+		DefaultPageSize: 20,
+		MaxPageSize:     100,
 	}
 }
 
@@ -107,14 +137,16 @@ func (s *SearchService) searchPodcasts(req SearchRequest) ([]models.PodcastSearc
 
 	// 获取总数
 	var total int64
-	query.Count(&total)
-
-	// 构建优化查询
-	limit := req.PageSize + 50
-	if limit > 500 {
-		limit = 500
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
 	}
-	optimizedQuery := buildPodcastOptimizedQuery(s.db, keyword, req.TagIDs, limit)
+
+	optimizedQuery := buildPodcastOptimizedQuery(
+		s.db,
+		keyword,
+		req.TagIDs,
+		buildSearchCandidateLimit(req.Page, req.PageSize),
+	)
 
 	var allPodcasts []models.Podcast
 	if err := optimizedQuery.Find(&allPodcasts).Error; err != nil {
@@ -189,14 +221,16 @@ func (s *SearchService) searchEpisodes(req SearchRequest) ([]models.EpisodeSearc
 
 	// 获取总数
 	var total int64
-	query.Count(&total)
-
-	// 构建优化查询
-	limit := req.EpisodePageSize + 50
-	if limit > 500 {
-		limit = 500
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
 	}
-	optimizedQuery := buildEpisodeOptimizedQuery(s.db, keyword, req.TagIDs, limit)
+
+	optimizedQuery := buildEpisodeOptimizedQuery(
+		s.db,
+		keyword,
+		req.TagIDs,
+		buildSearchCandidateLimit(req.EpisodePage, req.EpisodePageSize),
+	)
 
 	var allEpisodes []episodeResult
 	if err := optimizedQuery.Find(&allEpisodes).Error; err != nil {

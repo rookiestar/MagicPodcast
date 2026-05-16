@@ -1,18 +1,22 @@
 import { api } from "./client";
 import { handleResponse } from "./client";
 import type { ApiResponse, SearchData } from "@/types";
+import type { GenericAbortSignal } from "axios";
 
 export const searchApi = {
   // 全局搜索
-  search: async (params: {
-    q: string;
-    type?: "all" | "podcasts" | "episodes";
-    tag_id?: number | number[];
-    page?: number;
-    page_size?: number;
-    episode_page?: number;
-    episode_page_size?: number;
-  }): Promise<{ data: SearchData }> => {
+  search: async (
+    params: {
+      q: string;
+      type?: "all" | "podcasts" | "episodes";
+      tag_id?: number | number[];
+      page?: number;
+      page_size?: number;
+      episode_page?: number;
+      episode_page_size?: number;
+    },
+    options: { signal?: GenericAbortSignal } = {},
+  ): Promise<{ data: SearchData }> => {
     const queryParams = new URLSearchParams();
     queryParams.append("q", params.q);
 
@@ -40,7 +44,9 @@ export const searchApi = {
       );
 
     const url = `/api/v1/search?${queryParams.toString()}`;
-    const response = await api.get<ApiResponse<SearchData>>(url);
+    const response = await api.get<ApiResponse<SearchData>>(url, {
+      signal: options.signal,
+    });
     return { data: handleResponse(response) };
   },
 };

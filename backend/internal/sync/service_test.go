@@ -3,23 +3,64 @@ package sync
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"magicpodcast/internal/feed"
 	"magicpodcast/internal/models"
 
+	"github.com/mmcdole/gofeed"
+	ext "github.com/mmcdole/gofeed/extensions"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
+const testFeedXML = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Test Feed</title>
+    <description>Local test feed</description>
+    <link>https://example.com</link>
+    <item>
+      <title>Test Episode</title>
+      <guid>episode-1</guid>
+      <pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>
+      <description>Episode body</description>
+    </item>
+  </channel>
+</rss>`
+
+func newTestFeedServer(tb testing.TB, delay time.Duration) *httptest.Server {
+	tb.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+		w.Header().Set("Content-Type", "application/rss+xml")
+		w.Header().Set("Connection", "close")
+		_, _ = w.Write([]byte(testFeedXML))
+	}))
+	tb.Cleanup(server.Close)
+	return server
+}
+
 // setupTestDB 创建测试数据库
 func setupTestDB(t *testing.T) *gorm.DB {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	dbName := fmt.Sprintf("file:testdb_%d?mode=memory&cache=shared", time.Now().UnixNano())
+	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	assert.NoError(t, err)
+	sqlDB, err := db.DB()
+	assert.NoError(t, err)
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
 
 	// 自动迁移
 	err = db.AutoMigrate(&models.Podcast{}, &models.Episode{})
@@ -33,11 +74,11 @@ func TestFetcherWithContext(t *testing.T) {
 	fetcher := feed.NewFetcher(10 * time.Second)
 
 	t.Run("正常的feed抓取应该成功", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		server := newTestFeedServer(t, 0)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
-		// 使用一个公开的RSS feed进行测试
-		feed, err := fetcher.FetchFeedWithContext(ctx, "https://feeds.feedburner.com/TEDTalks_audio")
+		feed, err := fetcher.FetchFeedWithContext(ctx, server.URL)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, feed)
@@ -45,14 +86,12 @@ func TestFetcherWithContext(t *testing.T) {
 	})
 
 	t.Run("超时的context应该返回错误", func(t *testing.T) {
+		server := newTestFeedServer(t, 50*time.Millisecond)
 		// 使用一个非常短的超时时间
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 		defer cancel()
 
-		// 等待超时
-		time.Sleep(10 * time.Millisecond)
-
-		feed, err := fetcher.FetchFeedWithContext(ctx, "https://feeds.feedburner.com/TEDTalks_audio")
+		feed, err := fetcher.FetchFeedWithContext(ctx, server.URL)
 
 		assert.Error(t, err)
 		assert.Nil(t, feed)
@@ -60,10 +99,11 @@ func TestFetcherWithContext(t *testing.T) {
 	})
 
 	t.Run("已取消的context应该立即返回", func(t *testing.T) {
+		server := newTestFeedServer(t, 0)
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // 立即取消
 
-		feed, err := fetcher.FetchFeedWithContext(ctx, "https://feeds.feedburner.com/TEDTalks_audio")
+		feed, err := fetcher.FetchFeedWithContext(ctx, server.URL)
 
 		assert.Error(t, err)
 		assert.Nil(t, feed)
@@ -72,6 +112,7 @@ func TestFetcherWithContext(t *testing.T) {
 
 // TestNoGoroutineLeak 测试没有goroutine泄漏
 func TestNoGoroutineLeak(t *testing.T) {
+	server := newTestFeedServer(t, 0)
 	initialGoroutines := runtime.NumGoroutine()
 
 	db := setupTestDB(t)
@@ -82,7 +123,7 @@ func TestNoGoroutineLeak(t *testing.T) {
 	// 创建测试用的podcast
 	podcast := &models.Podcast{
 		Title:        "Test Podcast",
-		FeedURL:      "https://feeds.feedburner.com/TEDTalks_audio",
+		FeedURL:      server.URL,
 		DataSource:   "rss",
 		EpisodeCount: 0,
 	}
@@ -108,6 +149,10 @@ func TestNoGoroutineLeak(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+
+	fetcher.CloseIdleConnections()
+	server.CloseClientConnections()
+	runtime.GC()
 
 	// 等待一段时间让所有goroutine完成清理
 	time.Sleep(500 * time.Millisecond)
@@ -234,6 +279,7 @@ func TestConcurrentPodcastUpdate(t *testing.T) {
 // TestHTTPConnectionPool 测试HTTP连接池配置
 func TestHTTPConnectionPool(t *testing.T) {
 	fetcher := feed.NewFetcher(10 * time.Second)
+	server := newTestFeedServer(t, 0)
 
 	// 通过反射或实际使用来验证连接池配置
 	// 这里我们通过实际并发请求来测试
@@ -253,7 +299,7 @@ func TestHTTPConnectionPool(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			_, err := fetcher.FetchFeedWithContext(ctx, "https://feeds.feedburner.com/TEDTalks_audio")
+			_, err := fetcher.FetchFeedWithContext(ctx, server.URL)
 
 			mu.Lock()
 			if err == nil {
@@ -268,20 +314,364 @@ func TestHTTPConnectionPool(t *testing.T) {
 
 	t.Logf("Completed %d/%d concurrent requests in %v", successCount, concurrentRequests, duration)
 
-	// 至少应该有一半的请求成功（考虑到网络波动）
-	assert.GreaterOrEqual(t, successCount, concurrentRequests/2)
+	assert.Equal(t, concurrentRequests, successCount)
 
 	// 并发请求应该在合理时间内完成（说明连接池工作正常）
 	assert.Less(t, duration, 30*time.Second)
 }
 
+func TestMetadataSyncReusesFetchedFeedForEpisodeSync(t *testing.T) {
+	var requestCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requestCount, 1)
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(testFeedXML))
+	}))
+	t.Cleanup(server.Close)
+
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	assert.NoError(t, err)
+	t.Cleanup(func() {
+		assert.NoError(t, service.Close())
+	})
+
+	podcast := &models.Podcast{
+		XYZID:          "reuse-feed-test",
+		Title:          "Reuse Feed Test",
+		FeedURL:        server.URL,
+		DataSource:     "rss",
+		IsSubscribed:   true,
+		FeedURLValid:   true,
+		EpisodeCount:   0,
+		CustomCoverURL: "https://example.com/custom.jpg",
+	}
+	assert.NoError(t, db.Create(podcast).Error)
+
+	err = service.SyncPodcastsMetadataSSE(NewLogProgressReporter())
+
+	assert.NoError(t, err)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&requestCount), "metadata sync should reuse the already fetched feed for episode sync")
+
+	var episodeCount int64
+	assert.NoError(t, db.Model(&models.Episode{}).Where("podcast_id = ?", podcast.ID).Count(&episodeCount).Error)
+	assert.Equal(t, int64(1), episodeCount)
+
+	var updatedPodcast models.Podcast
+	assert.NoError(t, db.First(&updatedPodcast, podcast.ID).Error)
+	assert.Equal(t, 1, updatedPodcast.EpisodeCount)
+	assert.NotNil(t, updatedPodcast.LastFetchedAt)
+	assert.Equal(t, "https://example.com/custom.jpg", updatedPodcast.CustomCoverURL)
+}
+
+func TestMetadataSyncRetrySuccessIsCountedOnce(t *testing.T) {
+	originalRetryConfig := DefaultRetryConfig
+	DefaultRetryConfig = RetryConfig{
+		MaxRetries:    1,
+		InitialDelay:  0,
+		MaxDelay:      0,
+		BackoffFactor: 1,
+	}
+	t.Cleanup(func() {
+		DefaultRetryConfig = originalRetryConfig
+	})
+
+	var requestCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&requestCount, 1) == 1 {
+			http.Error(w, "temporary failure", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(testFeedXML))
+	}))
+	t.Cleanup(server.Close)
+
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	assert.NoError(t, err)
+	t.Cleanup(func() {
+		assert.NoError(t, service.Close())
+	})
+
+	podcast := &models.Podcast{
+		XYZID:        "retry-success-test",
+		Title:        "Retry Success Test",
+		FeedURL:      server.URL,
+		DataSource:   "rss",
+		IsSubscribed: true,
+		FeedURLValid: true,
+	}
+	assert.NoError(t, db.Create(podcast).Error)
+
+	reporter := &progressReporter{}
+	err = service.SyncPodcastsMetadataSSE(reporter)
+
+	assert.NoError(t, err)
+	assert.Equal(t, int32(2), atomic.LoadInt32(&requestCount))
+	assert.Equal(t, 1, reporter.totalPodcasts)
+	assert.Equal(t, 1, reporter.successPodcasts)
+	assert.Equal(t, 0, reporter.failedPodcasts)
+	assert.Equal(t, 0, reporter.skippedPodcasts)
+	assert.Equal(t, 1, reporter.newEpisodes)
+}
+
+func TestMetadataSyncDoesNotEmitPerPodcastFetchNoise(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(testFeedXML))
+	}))
+	t.Cleanup(server.Close)
+
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	assert.NoError(t, err)
+	t.Cleanup(func() {
+		assert.NoError(t, service.Close())
+	})
+
+	podcast := &models.Podcast{
+		XYZID:        "fetch-noise-test",
+		Title:        "Fetch Noise Test",
+		FeedURL:      server.URL,
+		DataSource:   "rss",
+		IsSubscribed: true,
+		FeedURLValid: true,
+	}
+	assert.NoError(t, db.Create(podcast).Error)
+
+	var progressMessages []string
+	reporter := &progressReporter{
+		onProgress: func(message string) {
+			progressMessages = append(progressMessages, message)
+		},
+	}
+
+	err = service.SyncPodcastsMetadataSSE(reporter)
+
+	assert.NoError(t, err)
+	assert.NotContains(t, progressMessages, "正在抓取: Fetch Noise Test")
+	assert.Contains(t, progressMessages, "[1/1] 成功同步: Fetch Noise Test (单集: +1, ~0)")
+}
+
+func TestSyncPodcastEpisodeItemsPreloadsExistingEpisodesAndPreservesUserFields(t *testing.T) {
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	assert.NoError(t, err)
+	t.Cleanup(func() {
+		assert.NoError(t, service.Close())
+	})
+
+	podcast := &models.Podcast{
+		XYZID:        "episode-preload-test",
+		Title:        "Episode Preload Test",
+		FeedURL:      "https://example.com/feed.xml",
+		DataSource:   "rss",
+		IsSubscribed: true,
+	}
+	assert.NoError(t, db.Create(podcast).Error)
+
+	existing := &models.Episode{
+		PodcastID:       podcast.ID,
+		Title:           "Old Existing Title",
+		GUID:            "existing-guid",
+		PublishedDate:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		Notes:           "keep my note",
+		MyRate:          5,
+		MediumURL:       "https://example.com/old.mp3",
+		EnclosureType:   "audio/mpeg",
+		EnclosureLength: 10,
+	}
+	assert.NoError(t, db.Create(existing).Error)
+
+	items := []*gofeed.Item{
+		{
+			Title:           "Updated Existing Title",
+			GUID:            "existing-guid",
+			PublishedParsed: ptrTime(time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)),
+			Enclosures:      []*gofeed.Enclosure{{URL: "https://example.com/new-existing.mp3", Type: "audio/mpeg"}},
+		},
+		{
+			Title:           "New Duplicate First",
+			GUID:            "duplicate-new-guid",
+			PublishedParsed: ptrTime(time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)),
+		},
+		{
+			Title:           "New Duplicate Latest",
+			GUID:            "duplicate-new-guid",
+			PublishedParsed: ptrTime(time.Date(2024, 3, 2, 0, 0, 0, 0, time.UTC)),
+		},
+	}
+
+	result := service.syncPodcastEpisodeItems(podcast, items, EpisodeSyncConfig{
+		Mode:                  SyncModeFull,
+		MaxEpisodesPerPodcast: 1000,
+		UpdateExisting:        true,
+	})
+
+	assert.Equal(t, 1, result.Created)
+	assert.Equal(t, 2, result.Updated)
+	assert.Equal(t, 0, result.Errors)
+
+	var count int64
+	assert.NoError(t, db.Model(&models.Episode{}).Where("podcast_id = ?", podcast.ID).Count(&count).Error)
+	assert.Equal(t, int64(2), count)
+
+	var updatedExisting models.Episode
+	assert.NoError(t, db.Where("guid = ?", "existing-guid").First(&updatedExisting).Error)
+	assert.Equal(t, "Updated Existing Title", updatedExisting.Title)
+	assert.Equal(t, "keep my note", updatedExisting.Notes)
+	assert.Equal(t, 5, updatedExisting.MyRate)
+	assert.Equal(t, podcast.ID, updatedExisting.PodcastID)
+
+	var duplicateEpisode models.Episode
+	assert.NoError(t, db.Where("guid = ?", "duplicate-new-guid").First(&duplicateEpisode).Error)
+	assert.Equal(t, "New Duplicate Latest", duplicateEpisode.Title)
+	assert.Equal(t, podcast.ID, duplicateEpisode.PodcastID)
+}
+
+func TestSyncPodcastEpisodeItemsDoesNotMoveEpisodeFromAnotherPodcast(t *testing.T) {
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	assert.NoError(t, err)
+	t.Cleanup(func() {
+		assert.NoError(t, service.Close())
+	})
+
+	sourcePodcast := &models.Podcast{
+		XYZID:        "source-podcast",
+		Title:        "Source Podcast",
+		FeedURL:      "https://example.com/source.xml",
+		DataSource:   "rss",
+		IsSubscribed: true,
+	}
+	targetPodcast := &models.Podcast{
+		XYZID:        "target-podcast",
+		Title:        "Target Podcast",
+		FeedURL:      "https://example.com/target.xml",
+		DataSource:   "rss",
+		IsSubscribed: true,
+	}
+	assert.NoError(t, db.Create(sourcePodcast).Error)
+	assert.NoError(t, db.Create(targetPodcast).Error)
+
+	existing := &models.Episode{
+		PodcastID:     sourcePodcast.ID,
+		Title:         "Original Owner Episode",
+		GUID:          "shared-guid",
+		PublishedDate: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	assert.NoError(t, db.Create(existing).Error)
+
+	result := service.syncPodcastEpisodeItems(targetPodcast, []*gofeed.Item{
+		{
+			Title:           "Should Not Move",
+			GUID:            "shared-guid",
+			PublishedParsed: ptrTime(time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)),
+		},
+	}, EpisodeSyncConfig{
+		Mode:                  SyncModeFull,
+		MaxEpisodesPerPodcast: 1000,
+		UpdateExisting:        true,
+	})
+
+	assert.Equal(t, 0, result.Created)
+	assert.Equal(t, 0, result.Updated)
+	assert.Equal(t, 1, result.Errors)
+
+	var unchanged models.Episode
+	assert.NoError(t, db.First(&unchanged, existing.ID).Error)
+	assert.Equal(t, sourcePodcast.ID, unchanged.PodcastID)
+	assert.Equal(t, "Original Owner Episode", unchanged.Title)
+}
+
+func TestSyncPodcastEpisodeItemsSkipsUnchangedExistingEpisode(t *testing.T) {
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	assert.NoError(t, err)
+	t.Cleanup(func() {
+		assert.NoError(t, service.Close())
+	})
+
+	podcast := &models.Podcast{
+		XYZID:        "unchanged-episode-test",
+		Title:        "Unchanged Episode Test",
+		FeedURL:      "https://example.com/unchanged.xml",
+		DataSource:   "rss",
+		IsSubscribed: true,
+	}
+	assert.NoError(t, db.Create(podcast).Error)
+
+	published := time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC)
+	updated := time.Date(2024, 4, 2, 0, 0, 0, 0, time.UTC)
+	existing := &models.Episode{
+		PodcastID:       podcast.ID,
+		Title:           "Same Episode",
+		GUID:            "same-guid",
+		MediumURL:       "https://example.com/same.mp3",
+		ShowNotes:       "same description",
+		PublishedDate:   published,
+		UpdatedDate:     &updated,
+		Duration:        123,
+		Link:            "https://example.com/same",
+		Content:         "same content",
+		ImageURL:        "https://example.com/image.jpg",
+		EnclosureType:   "audio/mpeg",
+		EnclosureLength: 456,
+		Notes:           "user note",
+		MyRate:          4,
+	}
+	assert.NoError(t, db.Create(existing).Error)
+	originalUpdatedAt := existing.UpdatedAt
+
+	result := service.syncPodcastEpisodeItems(podcast, []*gofeed.Item{
+		{
+			Title:           "Same Episode",
+			GUID:            "same-guid",
+			Description:     "same description",
+			Content:         "same content",
+			Link:            "https://example.com/same",
+			PublishedParsed: &published,
+			UpdatedParsed:   &updated,
+			ITunesExt:       &ext.ITunesItemExtension{Duration: "123"},
+			Image:           &gofeed.Image{URL: "https://example.com/image.jpg"},
+			Enclosures: []*gofeed.Enclosure{{
+				URL:    "https://example.com/same.mp3",
+				Type:   "audio/mpeg",
+				Length: "456",
+			}},
+		},
+	}, EpisodeSyncConfig{
+		Mode:                  SyncModeFull,
+		MaxEpisodesPerPodcast: 1000,
+		UpdateExisting:        true,
+	})
+
+	assert.Equal(t, 0, result.Created)
+	assert.Equal(t, 0, result.Updated)
+	assert.Equal(t, 1, result.Skipped)
+	assert.Equal(t, 0, result.Errors)
+
+	var unchanged models.Episode
+	assert.NoError(t, db.First(&unchanged, existing.ID).Error)
+	assert.True(t, originalUpdatedAt.Equal(unchanged.UpdatedAt))
+	assert.Equal(t, "user note", unchanged.Notes)
+	assert.Equal(t, 4, unchanged.MyRate)
+}
+
+func ptrTime(value time.Time) *time.Time {
+	return &value
+}
+
 // BenchmarkFetchFeedWithContext 基准测试：带context的feed抓取性能
 func BenchmarkFetchFeedWithContext(b *testing.B) {
 	fetcher := feed.NewFetcher(10 * time.Second)
+	server := newTestFeedServer(b, 0)
 	ctx := context.Background()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = fetcher.FetchFeedWithContext(ctx, "https://feeds.feedburner.com/TEDTalks_audio")
+		_, _ = fetcher.FetchFeedWithContext(ctx, server.URL)
 	}
 }

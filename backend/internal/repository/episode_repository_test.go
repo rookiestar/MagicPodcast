@@ -3,6 +3,7 @@ package repository
 import (
 	"magicpodcast/internal/models"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -229,6 +230,40 @@ func TestEpisodeRepository_GetByPodcastID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), total)
 	assert.Equal(t, 3, len(episodes))
+}
+
+func TestEpisodeRepository_GetByPodcastID_UsesStableOrderForSamePublishedDate(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewEpisodeRepository(db)
+
+	podcast := generateUniquePodcast(1)
+	require.NoError(t, db.Create(podcast).Error)
+
+	samePublishedDate := time.Date(2026, 5, 16, 12, 0, 0, 0, time.UTC)
+	episode1 := generateUniqueEpisode(podcast.ID, 1)
+	episode1.PublishedDate = samePublishedDate
+	episode2 := generateUniqueEpisode(podcast.ID, 2)
+	episode2.PublishedDate = samePublishedDate
+	episode3 := generateUniqueEpisode(podcast.ID, 3)
+	episode3.PublishedDate = samePublishedDate
+
+	require.NoError(t, repo.Create(episode1))
+	require.NoError(t, repo.Create(episode2))
+	require.NoError(t, repo.Create(episode3))
+
+	firstPage, total, err := repo.GetByPodcastID(podcast.ID, 1, 2)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), total)
+	require.Len(t, firstPage, 2)
+	assert.Equal(t, episode3.ID, firstPage[0].ID)
+	assert.Equal(t, episode2.ID, firstPage[1].ID)
+
+	secondPage, _, err := repo.GetByPodcastID(podcast.ID, 2, 2)
+	require.NoError(t, err)
+	require.Len(t, secondPage, 1)
+	assert.Equal(t, episode1.ID, secondPage[0].ID)
 }
 
 func TestEpisodeRepository_Search(t *testing.T) {

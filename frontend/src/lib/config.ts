@@ -58,6 +58,7 @@ export const LOG_CONFIG = {
 
 export const STORAGE_KEYS = {
   SYNC_LOGS: "syncLogs",
+  SYNC_LOG_MODE: "syncLogMode",
   SYNCING: "syncing",
   IMPORTING: "importing",
   AUTO_SCROLL: "autoScroll",

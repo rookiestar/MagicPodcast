@@ -27,12 +27,23 @@
 部署配置、运维脚本和最佳实践
 - [DEPLOYMENT.md](DEPLOYMENT.md) - 部署和运维完整指南
 - [ENV_SETUP.md](ENV_SETUP.md) - 环境变量配置说明
+- [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md) - 数据库备份与恢复流程
+
+### 当前体检和路线图
+面向后续重构和需求迭代的当前态文档
+- [PROJECT_HEALTH_REPORT_2026-05-16.md](PROJECT_HEALTH_REPORT_2026-05-16.md) - 项目体检报告
+- [DATA_HEALTH_REPORT_2026-05-16.md](DATA_HEALTH_REPORT_2026-05-16.md) - 历史数据体检与修复方案
+- [REFACTORING_ROADMAP.md](REFACTORING_ROADMAP.md) - 重构路线图
 
 ## 快速导航
 
 - [项目总览](../CLAUDE.md) - MagicPodcast 项目文档
 - [部署和运维指南](DEPLOYMENT.md) - 部署配置、运维脚本和最佳实践
 - [环境变量配置](ENV_SETUP.md) - 环境变量配置说明
+- [备份恢复流程](BACKUP_RECOVERY.md)
+- [项目体检报告](PROJECT_HEALTH_REPORT_2026-05-16.md)
+- [历史数据体检与修复方案](DATA_HEALTH_REPORT_2026-05-16.md)
+- [重构路线图](REFACTORING_ROADMAP.md)
 - [设计系统](design/DESIGN_SYSTEM.md)
 - [迁移指南](migration/MIGRATION_GUIDE.md)
 - [优化方案](optimization/OPTIMIZE_PODCASTS.md)
@@ -52,4 +63,4 @@
 
 ---
 
-**最后更新**: 2025-01-31
+**最后更新**: 2026-05-16

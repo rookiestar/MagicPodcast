@@ -110,7 +110,7 @@ func (r *episodeRepository) List(filters EpisodeFilters) ([]*models.Episode, int
 	}
 
 	// 应用排序和分页
-	query = query.Order("published_date DESC")
+	query = query.Order("published_date DESC, id DESC")
 	offset := (filters.Page - 1) * filters.PageSize
 	query = query.Offset(offset).Limit(filters.PageSize)
 
@@ -145,7 +145,7 @@ func (r *episodeRepository) GetByPodcastID(podcastID uint, page, pageSize int) (
 
 	// 分页
 	offset := (page - 1) * pageSize
-	err := query.Order("published_date DESC").Offset(offset).Limit(pageSize).Find(&episodes).Error
+	err := query.Order("published_date DESC, id DESC").Offset(offset).Limit(pageSize).Find(&episodes).Error
 
 	return episodes, total, err
 }
@@ -169,7 +169,7 @@ func (r *episodeRepository) GetByPodcastIDsWithFilters(podcastID uint, filters E
 	}
 
 	// 应用排序和分页
-	query = query.Order("published_date DESC")
+	query = query.Order("published_date DESC, id DESC")
 	offset := (filters.Page - 1) * filters.PageSize
 	query = query.Offset(offset).Limit(filters.PageSize)
 
@@ -196,7 +196,7 @@ func (r *episodeRepository) Search(keyword string, page, pageSize int) ([]*model
 
 	// 分页
 	offset := (page - 1) * pageSize
-	err := query.Order("published_date DESC").Offset(offset).Limit(pageSize).Find(&episodes).Error
+	err := query.Order("published_date DESC, id DESC").Offset(offset).Limit(pageSize).Find(&episodes).Error
 
 	return episodes, total, err
 }

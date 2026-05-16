@@ -65,6 +65,7 @@ func (s *Service) SyncPodcastsMetadataSSE(reporter ProgressReporter) error {
 				// 带重试的同步逻辑
 				var lastErr error
 				var noUpdate bool
+				sentResult := false
 				retries := 0
 
 				for retries <= DefaultRetryConfig.MaxRetries {
@@ -85,6 +86,7 @@ func (s *Service) SyncPodcastsMetadataSSE(reporter ProgressReporter) error {
 							noUpdate:      noUpdateResult,
 							episodeResult: episodeResult,
 						}
+						sentResult = true
 						break
 					}
 
@@ -100,7 +102,7 @@ func (s *Service) SyncPodcastsMetadataSSE(reporter ProgressReporter) error {
 				}
 
 				// 如果重试后仍然失败
-				if lastErr != nil {
+				if !sentResult && lastErr != nil {
 					resultChan <- syncResult{
 						podcast:       podcast,
 						err:           lastErr,
@@ -225,7 +227,7 @@ func (s *Service) SyncPodcastsMetadataSSE(reporter ProgressReporter) error {
 // syncPodcastMetadataWithUpdateCheck 同步单个播客的元数据，并检测是否有更新
 // 返回: 错误, 是否无更新, 单集同步结果
 func (s *Service) syncPodcastMetadataWithUpdateCheck(podcast *models.Podcast, reporter ProgressReporter) (error, bool, *EpisodeSyncResult) {
-	reporter.Report(fmt.Sprintf("正在抓取: %s", podcast.Title))
+	logger.Infof("正在抓取: %s", podcast.Title)
 
 	// 添加context超时控制：每个播客最多30秒
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -329,9 +331,6 @@ func (s *Service) syncPodcastMetadataWithUpdateCheck(podcast *models.Podcast, re
 			return fmt.Errorf("transaction failed: %w", err), false, nil
 		}
 
-		// 同步该podcast的单集（使用静默reporter，不输出详细日志）
-		silentReporter := NewSilentProgressReporter(reporter)
-
 		// 确定单集同步模式
 		var episodeSyncMode EpisodeSyncMode
 		var existingEpisodeCount int64
@@ -364,12 +363,7 @@ func (s *Service) syncPodcastMetadataWithUpdateCheck(podcast *models.Podcast, re
 			MaxEpisodesPerPodcast: 1000, // 限制每个podcast最多1000个单集
 		}
 
-		episodeResult, syncErr := s.SyncPodcastEpisodes(podcast.ID, silentReporter, config)
-		if syncErr != nil {
-			logger.Infof("⚠️  同步单集失败: %s - %v", podcast.Title, syncErr)
-			// 单集同步失败不影响元数据同步的成功状态
-			episodeResult = nil
-		}
+		episodeResult = s.syncPodcastEpisodeItems(podcast, gofeed.Items, config)
 
 		// 返回结果：如果元数据无更新，标记为noUpdate=true
 		return nil, !hasUpdate, episodeResult

@@ -39,10 +39,10 @@ func SetupRouter() *gin.Engine {
 	r := gin.New()
 
 	// 中间件
-	r.Use(gin.Recovery())    // 恢复 panic
-	r.Use(gin.Logger())      // 请求日志
+	r.Use(gin.Recovery())                     // 恢复 panic
+	r.Use(gin.Logger())                       // 请求日志
 	r.Use(gzip.Gzip(gzip.DefaultCompression)) // Gzip 压缩
-	r.Use(middleware.CORS()) // CORS 跨域支持
+	r.Use(middleware.CORS())                  // CORS 跨域支持
 
 	// 健康检查
 	healthHandler := handlers.NewHealthHandler()
@@ -185,9 +185,9 @@ func SetupRouter() *gin.Engine {
 		}
 
 		// Job 路由
-		v1.GET("/jobs/:id", workflowHandler.GetJob)              // 获取任务详情
-		v1.GET("/jobs/:id/report", workflowHandler.GetJobReport) // 获取任务报告
-	v1.POST("/jobs/:id/regenerate-llm", workflowHandler.RegenerateLLMSummary) // 重新生成AI摘要
+		v1.GET("/jobs/:id", workflowHandler.GetJob)                               // 获取任务详情
+		v1.GET("/jobs/:id/report", workflowHandler.GetJobReport)                  // 获取任务报告
+		v1.POST("/jobs/:id/regenerate-llm", workflowHandler.RegenerateLLMSummary) // 重新生成AI摘要
 
 		// Scheduler 路由
 		schedulerHandler := handlers.NewSchedulerHandler(globalScheduler)
@@ -237,14 +237,13 @@ func SetupRouter() *gin.Engine {
 			}
 		}
 
-	// 启动调度器（在独立goroutine中）
-	go func() {
-		if err := globalScheduler.Start(); err != nil {
-			logger.Infof("❌ 启动调度器失败: %v", err)
-		}
-	}()
+		// 启动调度器（在独立goroutine中）
+		go func() {
+			if err := globalScheduler.Start(); err != nil {
+				logger.Infof("❌ 启动调度器失败: %v", err)
+			}
+		}()
 
-	return r
+		return r
+	}
 }
-}
-

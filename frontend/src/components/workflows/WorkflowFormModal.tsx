@@ -87,6 +87,7 @@ export default function WorkflowFormModal({
   const [tagSearch, setTagSearch] = useState("");
   const [isTagFilterExpanded, setIsTagFilterExpanded] = useState(false);
   const [isLoadingTags, setIsLoadingTags] = useState(false);
+  const hasRequestedTagsRef = useRef(false);
 
   // 同步 selectedTagIds ref（供 Intersection Observer 使用）
   // 注意：必须定义在 selectedTagIds state 之后
@@ -110,14 +111,109 @@ export default function WorkflowFormModal({
   const [llmMaxTokens, setLlmMaxTokens] = useState(1000);
   const [llmUserPrompt, setLlmUserPrompt] = useState(""); // User Prompt配置
 
+  // 重置表单
+  const resetForm = useCallback(() => {
+    setName("");
+    setDescription("");
+    setSchedule("0 0 2 * * *");
+    setCustomCron("");
+    setCronError("");
+    setScopeType("all_subscribed");
+    setSelectedPodcastIds([]);
+    setCandidatePodcastIds([]);
+    setCustomUrls([]);
+    setNewCustomUrl("");
+    setPodcasts([]);
+    setPodcastSearch("");
+    setSelectedTagIds([]);
+    setTagSearch("");
+    setIsTagFilterExpanded(false);
+    setTimeRange(0);
+    setMinDuration(0);
+    setMaxResults(0);
+    setKeywords("");
+    setExcludeWords("");
+    setLlmEnabled(false);
+    setLlmMaxEpisodes(20);
+    setLlmModel("");
+    setLlmTemperature(0.7);
+    setLlmMaxTokens(1000);
+    setStep(1);
+  }, []);
+
+  // 加载播客列表 - 一次性加载所有播客
+  const loadPodcasts = useCallback(async () => {
+    try {
+      setIsLoadingPodcasts(true);
+
+      let allPodcasts: Podcast[] = [];
+      let page = 1;
+      let hasMore = true;
+      const maxPages = 20; // 最多加载20页（2000个节目）
+
+      // 分页加载所有节目
+      while (hasMore && page <= maxPages) {
+        const response = await podcastApi.list({ page, page_size: 100 });
+        const newPodcasts = response.data || [];
+
+        allPodcasts = [...allPodcasts, ...newPodcasts];
+
+        // 如果返回的数量少于 page_size，说明已经是最后一页
+        if (newPodcasts.length < 100) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      }
+
+      if (page > maxPages && hasMore) {
+        console.warn(
+          "[CreateWorkflowModal] Reached max pages limit, some podcasts may not be loaded",
+        );
+      }
+
+      setPodcasts(allPodcasts);
+
+      // 初始显示50个
+      setDisplayedCount(Math.min(50, allPodcasts.length));
+    } catch (err) {
+      console.error("[CreateWorkflowModal] Failed to load podcasts:", err);
+      toast.error(
+        "加载节目失败: " + (err instanceof Error ? err.message : "未知错误"),
+      );
+    } finally {
+      setIsLoadingPodcasts(false);
+    }
+  }, []);
+
+  // 加载标签列表
+  const loadTags = useCallback(async () => {
+    try {
+      setIsLoadingTags(true);
+      const allTags = await tagApi.list();
+      setTags(allTags);
+    } catch (err) {
+      console.error("[CreateWorkflowModal] Failed to load tags:", err);
+    } finally {
+      setIsLoadingTags(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) {
+      hasRequestedTagsRef.current = false;
+      return;
+    }
+
+    if (tags.length === 0 && !isLoadingTags && !hasRequestedTagsRef.current) {
+      hasRequestedTagsRef.current = true;
+      void loadTags();
+    }
+  }, [isOpen, isLoadingTags, loadTags, tags.length]);
+
   // 初始化表单数据（编辑模式）
   useEffect(() => {
     if (isOpen) {
-      // 加载标签（仅在标签列表为空时加载一次）
-      if (tags.length === 0) {
-        loadTags();
-      }
-
       if (workflow) {
         // 编辑模式：填充现有数据
         console.log("[WorkflowFormModal] Loading workflow for edit:", workflow);
@@ -187,82 +283,7 @@ export default function WorkflowFormModal({
         resetForm();
       }
     }
-  }, [isOpen, workflow]);
-
-  // 重置表单
-  const resetForm = () => {
-    setName("");
-    setDescription("");
-    setSchedule("0 0 2 * * *");
-    setCustomCron("");
-    setCronError("");
-    setScopeType("all_subscribed");
-    setSelectedPodcastIds([]);
-    setCandidatePodcastIds([]);
-    setCustomUrls([]);
-    setNewCustomUrl("");
-    setPodcasts([]);
-    setPodcastSearch("");
-    setSelectedTagIds([]);
-    setTagSearch("");
-    setIsTagFilterExpanded(false);
-    setTimeRange(0);
-    setMinDuration(0);
-    setMaxResults(0);
-    setKeywords("");
-    setExcludeWords("");
-    setLlmEnabled(false);
-    setLlmMaxEpisodes(20);
-    setLlmModel("");
-    setLlmTemperature(0.7);
-    setLlmMaxTokens(1000);
-    setStep(1);
-  };
-
-  // 加载播客列表 - 一次性加载所有播客
-  const loadPodcasts = async () => {
-    try {
-      setIsLoadingPodcasts(true);
-
-      let allPodcasts: Podcast[] = [];
-      let page = 1;
-      let hasMore = true;
-      const maxPages = 20; // 最多加载20页（2000个节目）
-
-      // 分页加载所有节目
-      while (hasMore && page <= maxPages) {
-        const response = await podcastApi.list({ page, page_size: 100 });
-        const newPodcasts = response.data || [];
-
-        allPodcasts = [...allPodcasts, ...newPodcasts];
-
-        // 如果返回的数量少于 page_size，说明已经是最后一页
-        if (newPodcasts.length < 100) {
-          hasMore = false;
-        } else {
-          page++;
-        }
-      }
-
-      if (page > maxPages && hasMore) {
-        console.warn(
-          "[CreateWorkflowModal] Reached max pages limit, some podcasts may not be loaded",
-        );
-      }
-
-      setPodcasts(allPodcasts);
-
-      // 初始显示50个
-      setDisplayedCount(Math.min(50, allPodcasts.length));
-    } catch (err) {
-      console.error("[CreateWorkflowModal] Failed to load podcasts:", err);
-      toast.error(
-        "加载节目失败: " + (err instanceof Error ? err.message : "未知错误"),
-      );
-    } finally {
-      setIsLoadingPodcasts(false);
-    }
-  };
+  }, [isOpen, loadPodcasts, resetForm, workflow]);
 
   // 显示更多已加载的播客（滚动到底部时）
   const showMoreLoadedPodcasts = useCallback(() => {
@@ -380,19 +401,6 @@ export default function WorkflowFormModal({
     // 同步更新 ref
     displayedCountRef.current = 50;
   }, [selectedTagIds, podcastSearch]);
-
-  // 加载标签列表
-  const loadTags = async () => {
-    try {
-      setIsLoadingTags(true);
-      const allTags = await tagApi.list();
-      setTags(allTags);
-    } catch (err) {
-      console.error("[CreateWorkflowModal] Failed to load tags:", err);
-    } finally {
-      setIsLoadingTags(false);
-    }
-  };
 
   // 处理自定义URL添加
   const handleAddCustomUrl = () => {
@@ -1129,7 +1137,7 @@ export default function WorkflowFormModal({
                             !isLoadingPodcasts && (
                               <div className="hidden sm:block text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/30 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
                                 💡 <strong>提示：</strong>
-                                点击列表项选择节目，或点击中间的"全部添加"按钮批量加入
+                                点击列表项选择节目，或点击中间的“全部添加”按钮批量加入
                               </div>
                             )}
 
@@ -1789,7 +1797,7 @@ export default function WorkflowFormModal({
 
               <div className="mt-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
                 <p className="text-sm text-green-800 dark:text-green-200">
-                  ✓ 点击"保存"后将自动启用调度（根据设置的定时规则运行）
+                  ✓ 点击“保存”后将自动启用调度（根据设置的定时规则运行）
                 </p>
               </div>
             </div>

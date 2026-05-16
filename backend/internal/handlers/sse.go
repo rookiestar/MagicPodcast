@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"magicpodcast/internal/logger"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -62,19 +63,31 @@ func (r *SSEProgressReporter) startKeepalive() {
 		for {
 			select {
 			case <-r.keepalive.C:
-				if r.closed {
-					return
-				}
-				// 发送SSE注释（客户端会忽略，但保持连接活跃）
-				// 使用注释格式：: comment\n\n
-				fmt.Fprintf(r.writer, ": ping\n\n")
-				r.flusher.Flush()
-				logger.Infof("[SSE] 发送keepalive ping")
+				r.sendKeepalive()
 			case <-r.stopKeepalive:
 				return
 			}
 		}
 	}()
+}
+
+func (r *SSEProgressReporter) sendKeepalive() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		return
+	}
+
+	// 发送SSE注释（客户端会忽略，但保持连接活跃）
+	// 使用注释格式：: comment\n\n
+	if _, err := fmt.Fprintf(r.writer, ": ping\n\n"); err != nil {
+		logger.Infof("[SSE] Keepalive write error: %v", err)
+		r.closed = true
+		return
+	}
+	r.flusher.Flush()
+	logger.Infof("[SSE] 发送keepalive ping")
 }
 
 func (r *SSEProgressReporter) send(msgType string, message string) {
@@ -242,6 +255,44 @@ func (r *SSEProgressReporter) ReportSummary(summary *syncpkg.SyncSummary) {
 		summary.SkippedPodcasts, summary.NoUpdatePodcasts)
 }
 
+func (r *SSEProgressReporter) ReportComplete(message string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		return
+	}
+
+	msg := SSEProgressMessage{
+		Type:      "complete",
+		Message:   message,
+		Timestamp: time.Now().Format("15:04:05"),
+	}
+	data, _ := json.Marshal(msg)
+	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
+		logger.Infof("[SSE] Write error in ReportComplete: %v", err)
+		r.closed = true
+		return
+	}
+	r.flusher.Flush()
+}
+
+func (r *SSEProgressReporter) ReportDone() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		return
+	}
+
+	if _, err := fmt.Fprintf(r.writer, "data: [DONE]\n\n"); err != nil {
+		logger.Infof("[SSE] Write error in ReportDone: %v", err)
+		r.closed = true
+		return
+	}
+	r.flusher.Flush()
+}
+
 func (r *SSEProgressReporter) Close() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -287,7 +338,17 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 
 	// 保存到临时文件
 	tempDir := filepath.Join(".", "data", "temp")
-	tempFilePath := filepath.Join(tempDir, file.Filename)
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		c.SSEvent("", "error")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "创建临时目录失败",
+		})
+		return
+	}
+
+	tempFileName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), filepath.Base(file.Filename))
+	tempFilePath := filepath.Join(tempDir, tempFileName)
 
 	if err := c.SaveUploadedFile(file, tempFilePath); err != nil {
 		c.SSEvent("", "error")
@@ -297,6 +358,11 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 		})
 		return
 	}
+	defer func() {
+		if err := os.Remove(tempFilePath); err != nil {
+			logger.Infof("⚠️  清理临时OPML文件失败: %v", err)
+		}
+	}()
 
 	// 创建SSE reporter
 	reporter := NewSSEProgressReporter(c)
@@ -319,15 +385,7 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 	reporter.ReportSuccess(fmt.Sprintf("导入完成！成功: %d, 失败: %d",
 		result.SuccessPodcasts, result.FailedPodcasts))
 
-	// 发送最终结果
-	resultMsg := SSEProgressMessage{
-		Type:      "complete",
-		Message:   "导入完成",
-		Timestamp: time.Now().Format("15:04:05"),
-	}
-	resultData, _ := json.Marshal(resultMsg)
-	fmt.Fprintf(c.Writer, "data: %s\n\n", resultData)
-	c.Writer.(http.Flusher).Flush()
+	reporter.ReportComplete("导入完成")
 
 	logger.Infof("[SSE] 已发送complete消息")
 }
@@ -368,8 +426,7 @@ func (h *SyncHandler) SyncPodcastsMetadataSSE(c *gin.Context) {
 	logger.Infof("[SSE] 同步元数据成功")
 
 	// 发送结束标记
-	fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
-	c.Writer.(http.Flusher).Flush()
+	reporter.ReportDone()
 
 	logger.Infof("[SSE] 已完成元数据同步")
 }

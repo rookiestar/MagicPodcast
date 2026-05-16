@@ -1,16 +1,73 @@
 "use client";
 
-import { useState, useEffect, useRef, memo, useMemo, useCallback } from "react";
+import { memo, useMemo, useState, type FocusEvent } from "react";
 import type { Episode } from "@/types";
 import RichText from "@/components/RichText";
-import { imageLoadQueue } from "@/lib/imageLoader";
+import { useQueuedEpisodeImage } from "@/hooks/useQueuedEpisodeImage";
+import {
+  formatEpisodeDuration,
+  formatEpisodeFileSize,
+  getEpisodeCoverDisplay,
+  type EpisodeImagePriority,
+} from "@/lib/episodeDisplay";
+import { stripHtml } from "@/lib/textUtils";
 import { formatDate } from "@/lib/timeUtils";
 
 interface EpisodeCardProps {
   episode: Episode;
   podcastCover?: string;
   index?: number;
-  priority?: "high" | "medium" | "low";
+  priority?: EpisodeImagePriority;
+}
+
+function EpisodeShowNotes({
+  html,
+  link,
+  isExpanded,
+}: {
+  html: string;
+  link: string;
+  isExpanded: boolean;
+}) {
+  const preview = useMemo(() => stripHtml(html, 220), [html]);
+
+  return (
+    <div className="relative">
+      <div
+        className={`relative max-h-20 overflow-hidden text-xs text-slate-600 transition-[max-height] duration-300 md:text-sm md:text-slate-600 md:dark:text-slate-400 ${
+          isExpanded
+            ? "md:max-h-96 md:overflow-y-auto"
+            : "md:max-h-24 md:overflow-hidden"
+        }`}
+      >
+        {isExpanded ? (
+          <RichText
+            html={html}
+            className="prose prose-sm dark:prose-invert max-w-none prose-headings:text-base prose-h1:text-base prose-h2:text-base prose-h3:text-base line-clamp-3 md:line-clamp-none"
+          />
+        ) : (
+          <p className="line-clamp-3 whitespace-pre-line">{preview}</p>
+        )}
+      </div>
+
+      <div
+        className={`absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-white dark:from-slate-800 to-transparent pointer-events-none md:h-8 ${
+          isExpanded ? "md:hidden" : ""
+        }`}
+      />
+
+      {link && (
+        <a
+          href={link}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block rounded-sm text-center text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 mt-2 py-2 border-t border-slate-200 dark:border-slate-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 md:hidden"
+        >
+          查看详情 →
+        </a>
+      )}
+    </div>
+  );
 }
 
 function EpisodeCard({
@@ -19,89 +76,34 @@ function EpisodeCard({
   index = 0,
   priority = "medium",
 }: EpisodeCardProps) {
-  const [imageLoaded, setImageLoaded] = useState(false);
-  const [imageError, setImageError] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const imgRef = useRef<HTMLImageElement>(null);
-  const taskIdRef = useRef<string>(
-    `episode-${episode.id}-${Date.now()}-${Math.random()}`,
-  );
 
-  const coverImage = episode.image_url || podcastCover;
+  const coverDisplay = getEpisodeCoverDisplay(episode, podcastCover);
+  const {
+    imageLoaded: queuedImageLoaded,
+    imageError: queuedImageError,
+    imgRef,
+  } = useQueuedEpisodeImage({
+    episodeId: episode.id,
+    src: coverDisplay.shouldQueue ? coverDisplay.src : "",
+    priority,
+    index,
+  });
+  const imageLoaded = coverDisplay.shouldQueue
+    ? queuedImageLoaded
+    : Boolean(coverDisplay.src);
+  const imageError = coverDisplay.shouldQueue ? queuedImageError : false;
+  const durationLabel = formatEpisodeDuration(episode.duration);
+  const fileSizeLabel = formatEpisodeFileSize(episode.enclosure_length);
 
-  // 使用队列加载图片
-  useEffect(() => {
-    if (!coverImage || !imgRef.current || imageLoaded || imageError) return;
-
-    // 根据优先级计算加载延迟
-    const getLoadDelay = () => {
-      switch (priority) {
-        case "high":
-          return 0;
-        case "medium":
-          return index >= 3 ? 200 : 0;
-        case "low":
-          return index >= 10 ? 500 : 0;
-        default:
-          return 0;
-      }
-    };
-
-    const delay = getLoadDelay();
-    const taskId = taskIdRef.current;
-
-    // 延迟后加入加载队列
-    const timeoutId = setTimeout(() => {
-      if (imgRef.current && !imageLoaded && !imageError) {
-        imageLoadQueue.add({
-          id: taskId,
-          src: coverImage,
-          imgElement: imgRef.current!,
-          priority,
-          retryCount: 0,
-          onSuccess: () => {
-            setImageLoaded(true);
-          },
-          onError: () => {
-            setImageError(true);
-            setImageLoaded(false);
-          },
-        });
-      }
-    }, delay);
-
-    return () => {
-      clearTimeout(timeoutId);
-      imageLoadQueue.cancel(taskId);
-    };
-  }, [coverImage, priority, index, imageLoaded, imageError, episode.id]);
-
-  // 格式化时长
-  const formatDuration = (seconds: number) => {
-    if (!seconds || seconds <= 0) return null;
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-
-    const parts = [];
-    if (hours > 0) {
-      parts.push(`${hours}小时`);
+  const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
+    const nextFocusedElement = event.relatedTarget as Node | null;
+    if (
+      !nextFocusedElement ||
+      !event.currentTarget.contains(nextFocusedElement)
+    ) {
+      setIsExpanded(false);
     }
-    if (minutes > 0) {
-      parts.push(`${minutes}分`);
-    }
-    if (secs > 0 || parts.length === 0) {
-      parts.push(`${secs}秒`);
-    }
-
-    return parts.join("");
-  };
-
-  // 格式化文件大小
-  const formatFileSize = (bytes: number) => {
-    if (!bytes || bytes <= 0) return null;
-    const mb = bytes / (1024 * 1024);
-    return `${mb.toFixed(1)} MB`;
   };
 
   return (
@@ -109,6 +111,8 @@ function EpisodeCard({
       className="relative bg-white rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-slate-200 flex flex-col h-full"
       onMouseEnter={() => setIsExpanded(true)}
       onMouseLeave={() => setIsExpanded(false)}
+      onFocus={() => setIsExpanded(true)}
+      onBlur={handleBlur}
     >
       {/* Content */}
       <div className="p-3 sm:p-4 flex-1 flex flex-col">
@@ -117,26 +121,32 @@ function EpisodeCard({
           {/* Thumbnail with LQIP */}
           <div className="flex-shrink-0 w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12 lg:w-14 lg:h-14 rounded-lg overflow-hidden bg-slate-200 relative">
             {/* 播客封面作为模糊占位图（LQIP） */}
-            {podcastCover && (
+            {coverDisplay.placeholderSrc && (
               <img
-                src={podcastCover}
-                alt="loading"
+                src={coverDisplay.placeholderSrc}
+                alt=""
+                aria-hidden="true"
+                loading={index < 3 ? "eager" : "lazy"}
+                decoding="async"
                 className="absolute inset-0 w-full h-full object-cover blur-md opacity-40"
               />
             )}
 
             {/* 加载指示器 */}
-            {!imageLoaded && !imageError && coverImage && (
+            {!imageLoaded && !imageError && coverDisplay.shouldQueue && (
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
               </div>
             )}
 
             {/* 真实单集封面 */}
-            {coverImage ? (
+            {coverDisplay.src ? (
               <img
-                ref={imgRef}
+                ref={coverDisplay.shouldQueue ? imgRef : undefined}
+                src={coverDisplay.shouldQueue ? undefined : coverDisplay.src}
                 alt={episode.title}
+                loading={index < 3 ? "eager" : "lazy"}
+                decoding="async"
                 className={`w-full h-full object-cover transition-all duration-500 ${
                   imageLoaded ? "opacity-100" : "opacity-0"
                 }`}
@@ -144,9 +154,24 @@ function EpisodeCard({
             ) : null}
 
             {/* 占位符：当没有封面或图片加载失败时显示 */}
-            {(!coverImage || imageError) && (
-              <div className="w-full h-full flex items-center justify-center bg-slate-200">
-                <div className="text-2xl text-slate-400">🎧</div>
+            {(!coverDisplay.src || imageError) && (
+              <div
+                className="w-full h-full flex items-center justify-center bg-slate-200"
+                aria-hidden="true"
+              >
+                <svg
+                  className="h-5 w-5 text-slate-400"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+                  <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z" />
+                  <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
+                </svg>
               </div>
             )}
           </div>
@@ -160,7 +185,7 @@ function EpisodeCard({
                   href={episode.link}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 font-semibold text-slate-900 text-xs sm:text-sm md:text-base line-clamp-2 leading-snug hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                  className="flex-1 rounded-sm font-semibold text-slate-900 text-xs sm:text-sm md:text-base line-clamp-2 leading-snug hover:text-blue-600 dark:hover:text-blue-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                 >
                   {episode.title}
                 </a>
@@ -173,12 +198,12 @@ function EpisodeCard({
               {/* Play Button Icon */}
               {episode.medium_url && (
                 <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
                     window.open(episode.medium_url, "_blank");
                   }}
-                  className="flex-shrink-0 w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white transition-all duration-200 hover:scale-110 active:scale-95"
+                  className="flex-shrink-0 w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white transition-all duration-200 hover:scale-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                   aria-label="播放"
                 >
                   <svg
@@ -200,66 +225,29 @@ function EpisodeCard({
                 </span>
               )}
               <span>{formatDate(episode.published_date)}</span>
-              {episode.duration > 0 && (
+              {durationLabel && (
                 <>
                   <span>•</span>
-                  <span>{formatDuration(episode.duration)}</span>
+                  <span>{durationLabel}</span>
                 </>
               )}
-              {episode.enclosure_length > 0 && (
+              {fileSizeLabel && (
                 <>
                   <span>•</span>
-                  <span>{formatFileSize(episode.enclosure_length)}</span>
+                  <span>{fileSizeLabel}</span>
                 </>
               )}
             </div>
           </div>
         </div>
 
-        {/* Show Notes - 移动端固定高度 */}
+        {/* Show Notes */}
         {episode.show_notes && (
-          <div className="md:hidden">
-            <div className="text-xs text-slate-600 max-h-20 overflow-hidden relative">
-              <RichText
-                html={episode.show_notes}
-                className="prose prose-sm dark:prose-invert max-w-none prose-headings:text-base prose-h1:text-base prose-h2:text-base prose-h3:text-base line-clamp-3"
-              />
-              <div className="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-white dark:from-slate-800 to-transparent" />
-            </div>
-            {/* 查看详情链接 */}
-            {episode.link && (
-              <a
-                href={episode.link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block text-center text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 mt-2 py-2 border-t border-slate-200 dark:border-slate-700 transition-colors"
-              >
-                查看详情 →
-              </a>
-            )}
-          </div>
-        )}
-
-        {/* Show Notes - 桌面端支持展开交互 */}
-        {episode.show_notes && (
-          <div className="hidden md:block relative">
-            <div
-              className={`text-sm text-slate-600 dark:text-slate-400 transition-[max-height] duration-300 ${
-                isExpanded
-                  ? "max-h-96 overflow-y-auto"
-                  : "max-h-24 overflow-hidden"
-              }`}
-            >
-              <RichText
-                html={episode.show_notes}
-                className="prose prose-sm dark:prose-invert max-w-none prose-headings:text-base prose-h1:text-base prose-h2:text-base prose-h3:text-base"
-              />
-            </div>
-            {/* 渐变遮罩 */}
-            {!isExpanded && (
-              <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white dark:from-slate-800 to-transparent pointer-events-none" />
-            )}
-          </div>
+          <EpisodeShowNotes
+            html={episode.show_notes}
+            link={episode.link}
+            isExpanded={isExpanded}
+          />
         )}
       </div>
     </div>
@@ -274,6 +262,14 @@ function arePropsEqual(
   return (
     prevProps.episode.id === nextProps.episode.id &&
     prevProps.episode.title === nextProps.episode.title &&
+    prevProps.episode.image_url === nextProps.episode.image_url &&
+    prevProps.episode.medium_url === nextProps.episode.medium_url &&
+    prevProps.episode.link === nextProps.episode.link &&
+    prevProps.episode.episode_no === nextProps.episode.episode_no &&
+    prevProps.episode.published_date === nextProps.episode.published_date &&
+    prevProps.episode.duration === nextProps.episode.duration &&
+    prevProps.episode.enclosure_length === nextProps.episode.enclosure_length &&
+    prevProps.episode.show_notes === nextProps.episode.show_notes &&
     prevProps.podcastCover === nextProps.podcastCover &&
     prevProps.index === nextProps.index &&
     prevProps.priority === nextProps.priority

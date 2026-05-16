@@ -4,6 +4,7 @@ import (
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/services"
 	"magicpodcast/internal/validation"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -37,40 +38,28 @@ func NewSearchHandler() *SearchHandler {
 // @Router /api/v1/search [get]
 func (h *SearchHandler) Search(c *gin.Context) {
 	// 获取搜索关键词
-	query := c.Query("q")
+	query := strings.TrimSpace(c.Query("q"))
 
 	// 输入验证
 	v := validation.New()
 	v.ValidateRequired("q", query).
 		ValidateStringLength("q", query, 1, 200)
 
+	// 获取搜索类型
+	searchType := c.DefaultQuery("type", "all")
+	v.ValidateEnum("type", searchType, []string{"all", "podcasts", "episodes"})
+
 	if v.HasErrors() {
 		middleware.BadRequestResponse(c, "VALIDATION_ERROR", v.Error())
 		return
 	}
-
-	// 获取搜索类型
-	searchType := c.DefaultQuery("type", "all")
-	v.ValidateEnum("type", searchType, []string{"all", "podcasts", "episodes"})
 
 	// 获取标签筛选（使用辅助函数）
 	tagIDs := ParseUintSliceQueryParam(c, "tag_id")
 
 	// 分页参数（使用辅助函数）
 	podcastPagination := ParsePaginationParams(c, 20)
-	episodePagination := ParsePaginationParams(c, 20)
-
-	// 如果指定了 episode_page/episode_page_size，使用它们
-	episodePage := episodePagination.Page
-	episodePageSize := episodePagination.PageSize
-	if ep := c.Query("episode_page"); ep != "" {
-		episodePagination := ParsePaginationParams(c, 20)
-		episodePage = episodePagination.Page
-	}
-	if eps := c.Query("episode_page_size"); eps != "" {
-		episodePagination := ParsePaginationParams(c, 20)
-		episodePageSize = episodePagination.PageSize
-	}
+	episodePagination := ParsePaginationParamsWithKeys(c, "episode_page", "episode_page_size", 20)
 
 	// 构建请求
 	req := services.SearchRequest{
@@ -79,8 +68,8 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		TagIDs:          tagIDs,
 		Page:            podcastPagination.Page,
 		PageSize:        podcastPagination.PageSize,
-		EpisodePage:     episodePage,
-		EpisodePageSize: episodePageSize,
+		EpisodePage:     episodePagination.Page,
+		EpisodePageSize: episodePagination.PageSize,
 	}
 
 	// 执行搜索

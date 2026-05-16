@@ -44,12 +44,18 @@ func ParseUintParam(c *gin.Context, key string) (uint, bool) {
 // 默认: page=1, pageSize=15
 // 限制: page >= 1, 1 <= pageSize <= 100
 func ParsePaginationParams(c *gin.Context, defaultPageSize int) PaginationParams {
+	return ParsePaginationParamsWithKeys(c, "page", "page_size", defaultPageSize)
+}
+
+// ParsePaginationParamsWithKeys 解析自定义 query key 的分页参数
+// 适用于同一个接口同时包含多组分页参数，例如搜索接口中的播客分页和单集分页。
+func ParsePaginationParamsWithKeys(c *gin.Context, pageKey, pageSizeKey string, defaultPageSize int) PaginationParams {
 	if defaultPageSize <= 0 {
 		defaultPageSize = 15
 	}
 
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", strconv.Itoa(defaultPageSize)))
+	page, _ := strconv.Atoi(c.DefaultQuery(pageKey, "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery(pageSizeKey, strconv.Itoa(defaultPageSize)))
 
 	if page < 1 {
 		page = 1

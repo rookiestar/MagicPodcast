@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api/client'
 import { toast } from '@/lib/toast'
 import MarkdownViewer from './MarkdownViewer'
@@ -44,13 +44,7 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
   const [error, setError] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)
 
-  useEffect(() => {
-    if (isOpen && jobId) {
-      fetchReport()
-    }
-  }, [isOpen, jobId])
-
-  const fetchReport = async () => {
+  const fetchReport = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
@@ -63,7 +57,13 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
     } finally {
       setLoading(false)
     }
-  }
+  }, [jobId])
+
+  useEffect(() => {
+    if (isOpen && jobId) {
+      fetchReport()
+    }
+  }, [fetchReport, isOpen, jobId])
 
   const regenerateLLMSummary = async () => {
     if (!report || regenerating) return

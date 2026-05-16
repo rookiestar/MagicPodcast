@@ -1,82 +1,63 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import Link from "next/link";
-import { searchApi } from "@/lib/api";
 import PodcastCover from "@/components/podcasts/PodcastCover";
-import type { PodcastSearchResult, EpisodeSearchResult } from "@/types";
+import { useSearchSidebar } from "@/hooks/useSearchSidebar";
 
 interface SearchSidebarProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-// 搜索历史管理
-const MAX_SEARCH_HISTORY = 6;
-const STORAGE_KEY = "podcast_search_history";
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
-const getSearchHistory = (): string[] => {
-  if (typeof window === "undefined") return [];
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-};
+function renderHighlightedText(text: string, keyword: string) {
+  const normalizedKeyword = keyword.trim();
+  if (!normalizedKeyword) return text;
 
-const saveSearchHistory = (history: string[]) => {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
-  } catch (error) {
-    console.error("Failed to save search history:", error);
-  }
-};
+  const keywordRegex = new RegExp(`(${escapeRegExp(normalizedKeyword)})`, "gi");
+  const keywordLower = normalizedKeyword.toLowerCase();
 
-const addToSearchHistory = (query: string): string[] => {
-  if (!query.trim()) return [];
-  const history = getSearchHistory();
-  // 移除重复项
-  const filtered = history.filter((q) => q !== query);
-  // 添加到开头
-  const newHistory = [query, ...filtered].slice(0, MAX_SEARCH_HISTORY);
-  saveSearchHistory(newHistory);
-  return newHistory;
-};
+  return text.split(keywordRegex).map((part, index) => {
+    if (part.toLowerCase() !== keywordLower) return part;
 
-const clearSearchHistory = () => {
-  saveSearchHistory([]);
-};
+    return (
+      <mark
+        key={`${part}-${index}`}
+        className="bg-yellow-200 dark:bg-yellow-800 rounded px-0.5"
+      >
+        {part}
+      </mark>
+    );
+  });
+}
 
 export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
-  const [query, setQuery] = useState("");
-  const [searchType, setSearchType] = useState<"all" | "podcasts" | "episodes">(
-    "all",
-  );
-  const [results, setResults] = useState<{
-    podcasts: PodcastSearchResult[];
-    episodes: EpisodeSearchResult[];
-  }>({ podcasts: [], episodes: [] });
-  const [loading, setLoading] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const [isFocused, setIsFocused] = useState(false);
-
-  // 存储完整搜索结果（用于切换筛选器时显示）
-  const [allResults, setAllResults] = useState<{
-    podcasts: PodcastSearchResult[];
-    episodes: EpisodeSearchResult[];
-    pagination: any;
-  }>({ podcasts: [], episodes: [], pagination: null });
-
-  // 搜索历史
-  const [searchHistory, setSearchHistory] = useState<string[]>([]);
-
-  // 展开状态：控制每个类型显示的结果数量
-  const [expanded, setExpanded] = useState(false);
+  const [expandedPodcasts, setExpandedPodcasts] = useState(false);
+  const [expandedEpisodes, setExpandedEpisodes] = useState(false);
   const PODCASTS_PER_PAGE = 10;
   const EPISODES_PER_PAGE = 10;
+  const {
+    query,
+    setQuery,
+    searchType,
+    setSearchType,
+    allResults,
+    results,
+    loading,
+    searchError,
+    searchHistory,
+    hasResults,
+    isQueryTooShort,
+    showHistory,
+    selectHistory,
+    clearHistory,
+  } = useSearchSidebar({ isOpen });
 
   // 自动聚焦
   useEffect(() => {
@@ -89,18 +70,16 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
   // 重置状态当关闭时
   useEffect(() => {
     if (!isOpen) {
-      setQuery("");
-      setResults({ podcasts: [], episodes: [] });
-      setSearchType("all");
-      setExpanded(false);
+      setExpandedPodcasts(false);
+      setExpandedEpisodes(false);
       setIsFocused(false);
     }
   }, [isOpen]);
 
-  // 加载搜索历史
   useEffect(() => {
-    setSearchHistory(getSearchHistory());
-  }, [isOpen]);
+    setExpandedPodcasts(false);
+    setExpandedEpisodes(false);
+  }, [query, searchType]);
 
   // 焦点管理：当焦点移出侧边栏时自动关闭
   useEffect(() => {
@@ -109,7 +88,10 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
     // 延迟关闭，避免在点击侧边栏内部元素时误触发
     const timer = setTimeout(() => {
       // 检查当前焦点元素是否在侧边栏内
-      if (sidebarRef.current && !sidebarRef.current.contains(document.activeElement)) {
+      if (
+        sidebarRef.current &&
+        !sidebarRef.current.contains(document.activeElement)
+      ) {
         onClose();
       }
     }, 100);
@@ -117,117 +99,35 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
     return () => clearTimeout(timer);
   }, [isFocused, isOpen, onClose]);
 
-  // 防抖搜索 - 优化：降低延迟从500ms到200ms
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (query.trim().length >= 2) {
-        performSearch();
-      } else {
-        setResults({ podcasts: [], episodes: [] });
-        setAllResults({ podcasts: [], episodes: [], pagination: null });
+    if (!isOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
       }
-    }, 200); // 从500ms优化到200ms
+    };
 
-    return () => clearTimeout(timer);
-  }, [query]); // 只依赖 query，不依赖 searchType
-
-  const performSearch = async () => {
-    setLoading(true);
-    try {
-      // 优化：始终搜索"all"类型，使用合理的初始请求量（50条）
-      const response = await searchApi.search({
-        q: query,
-        type: "all", // 始终搜索全部类型
-        page: 1,
-        page_size: 50, // 优化：使用50条作为初始请求量（平衡性能和体验）
-        episode_page: 1,
-        episode_page_size: 50,
-      });
-      // 确保 matched_fields 始终被初始化
-      const processedData = {
-        podcasts: response.data.podcasts.map((p) => ({
-          ...p,
-          matched_fields: p.matched_fields || [],
-        })),
-        episodes: response.data.episodes.map((e) => ({
-          ...e,
-          matched_fields: e.matched_fields || [],
-        })),
-        pagination: response.data.pagination,
-      };
-
-      // 存储完整结果
-      setAllResults(processedData);
-
-      // 根据 searchType 设置显示结果
-      updateResultsByType(processedData);
-
-      // 添加到搜索历史
-      const newHistory = addToSearchHistory(query);
-      setSearchHistory(newHistory);
-    } catch (error) {
-      console.error("Search failed:", error);
-      setResults({ podcasts: [], episodes: [] });
-      setAllResults({ podcasts: [], episodes: [], pagination: null });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 根据 searchType 更新显示结果
-  const updateResultsByType = (data: typeof allResults) => {
-    if (searchType === "all") {
-      setResults({ podcasts: data.podcasts, episodes: data.episodes });
-    } else if (searchType === "podcasts") {
-      setResults({ podcasts: data.podcasts, episodes: [] });
-    } else if (searchType === "episodes") {
-      setResults({ podcasts: [], episodes: data.episodes });
-    }
-  };
-
-  // 当 searchType 变化时，更新显示结果（不重新搜索）
-  useEffect(() => {
-    if (allResults.podcasts.length > 0 || allResults.episodes.length > 0) {
-      updateResultsByType(allResults);
-    }
-  }, [searchType]);
-
-  // 添加 useCallback 避免依赖问题
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
 
   const handleClose = () => {
     onClose();
   };
 
   const handleHistoryClick = (historyQuery: string) => {
-    setQuery(historyQuery);
-    // 自动触发搜索（通过 useEffect 的防抖）
+    selectHistory(historyQuery);
   };
 
   const handleClearHistory = () => {
-    clearSearchHistory();
-    setSearchHistory([]);
-  };
-
-  const highlightKeyword = (text: string, keyword: string) => {
-    if (!keyword) return text;
-    const regex = new RegExp(
-      `(${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`,
-      "gi",
-    );
-    return text.replace(
-      regex,
-      '<mark class="bg-yellow-200 dark:bg-yellow-800 rounded px-0.5">$1</mark>',
-    );
+    clearHistory();
   };
 
   if (!isOpen) return null;
 
-  const hasResults = results.podcasts.length > 0 || results.episodes.length > 0;
   const showPodcasts = searchType === "all" || searchType === "podcasts";
   const showEpisodes = searchType === "all" || searchType === "episodes";
-  const showHistory =
-    query.length < 2 && searchHistory.length > 0 && !loading && !hasResults;
 
   return (
     <>
@@ -273,6 +173,7 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
             <button
               onClick={handleClose}
               className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-2xl leading-none text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition-colors"
+              aria-label="关闭搜索"
               title="关闭"
             >
               ×
@@ -350,7 +251,7 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
             </div>
           )}
 
-          {!loading && query.length < 2 && !showHistory && (
+          {!loading && isQueryTooShort && !showHistory && (
             <div className="flex flex-col items-center justify-center h-full text-slate-500 dark:text-slate-400">
               <span className="text-6xl mb-4">🔍</span>
               <p className="text-lg">输入关键词开始搜索</p>
@@ -360,7 +261,14 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
             </div>
           )}
 
-          {!loading && query.length >= 2 && !hasResults && (
+          {!loading && searchError && (
+            <div className="flex flex-col items-center justify-center h-full text-slate-500 dark:text-slate-400">
+              <p className="text-lg">搜索失败</p>
+              <p className="text-sm mt-2">{searchError}</p>
+            </div>
+          )}
+
+          {!loading && !searchError && !isQueryTooShort && !hasResults && (
             <div className="flex flex-col items-center justify-center h-full text-slate-500 dark:text-slate-400">
               <p className="text-lg">未找到相关结果</p>
               <p className="text-sm mt-2">试试其他关键词</p>
@@ -384,7 +292,7 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
                     </h3>
                   )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {(expanded
+                    {(expandedPodcasts
                       ? results.podcasts
                       : results.podcasts.slice(0, PODCASTS_PER_PAGE)
                     ).map((podcast, index) => (
@@ -413,10 +321,9 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
                           <div className="flex-1 min-w-0">
                             <h3
                               className="font-semibold text-slate-900 dark:text-slate-50 mb-1 line-clamp-1"
-                              dangerouslySetInnerHTML={{
-                                __html: highlightKeyword(podcast.title, query),
-                              }}
-                            />
+                            >
+                              {renderHighlightedText(podcast.title, query)}
+                            </h3>
                             <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
                               {podcast.author} · {podcast.episode_count} 集
                             </p>
@@ -440,13 +347,9 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
                               return snippetToShow ? (
                                 <p
                                   className="text-sm text-slate-500 dark:text-slate-500 line-clamp-2"
-                                  dangerouslySetInnerHTML={{
-                                    __html: highlightKeyword(
-                                      snippetToShow,
-                                      query,
-                                    ),
-                                  }}
-                                />
+                                >
+                                  {renderHighlightedText(snippetToShow, query)}
+                                </p>
                               ) : null;
                             })()}
                           </div>
@@ -458,10 +361,10 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
                   {/* 展开按钮 */}
                   {results.podcasts.length > PODCASTS_PER_PAGE && (
                     <button
-                      onClick={() => setExpanded(!expanded)}
+                      onClick={() => setExpandedPodcasts(!expandedPodcasts)}
                       className="w-full mt-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
                     >
-                      {expanded
+                      {expandedPodcasts
                         ? "收起"
                         : `展开全部 ${results.podcasts.length} 个节目`}
                     </button>
@@ -481,7 +384,7 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
                     </>
                   )}
                   <div className="space-y-3">
-                    {(expanded
+                    {(expandedEpisodes
                       ? results.episodes
                       : results.episodes.slice(0, EPISODES_PER_PAGE)
                     ).map((episode) => (
@@ -494,10 +397,9 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
                       >
                         <h3
                           className="font-semibold text-slate-900 dark:text-slate-50 mb-1"
-                          dangerouslySetInnerHTML={{
-                            __html: highlightKeyword(episode.title, query),
-                          }}
-                        />
+                        >
+                          {renderHighlightedText(episode.title, query)}
+                        </h3>
                         <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
                           {episode.podcast_title}
                           {episode.published_date &&
@@ -519,10 +421,9 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
                           return snippetToShow ? (
                             <p
                               className="text-sm text-slate-500 dark:text-slate-500 line-clamp-2"
-                              dangerouslySetInnerHTML={{
-                                __html: highlightKeyword(snippetToShow, query),
-                              }}
-                            />
+                            >
+                              {renderHighlightedText(snippetToShow, query)}
+                            </p>
                           ) : null;
                         })()}
                       </a>
@@ -532,10 +433,10 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
                   {/* 展开按钮 */}
                   {results.episodes.length > EPISODES_PER_PAGE && (
                     <button
-                      onClick={() => setExpanded(!expanded)}
+                      onClick={() => setExpandedEpisodes(!expandedEpisodes)}
                       className="w-full mt-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
                     >
-                      {expanded
+                      {expandedEpisodes
                         ? "收起"
                         : `展开全部 ${results.episodes.length} 个单集`}
                     </button>

@@ -9,8 +9,9 @@ import (
 	"magicpodcast/internal/models"
 
 	"github.com/mmcdole/gofeed"
-	"gorm.io/gorm"
 )
+
+const episodeGUIDLookupBatchSize = 500
 
 // FullSyncEpoch 是全量同步使用的基准时间
 // 2000-01-01 之前RSS/播客格式还不普及,足够早覆盖所有现有节目
@@ -26,11 +27,6 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 
 	logger.Infof("🔄 开始同步podcast episodes: %s (模式: %s)", podcast.Title, config.Mode)
 	reporter.Report(fmt.Sprintf("正在同步: %s", podcast.Title))
-
-	result := &EpisodeSyncResult{
-		PodcastID:    podcast.ID,
-		PodcastTitle: podcast.Title,
-	}
 
 	// 2. 确定同步模式和基准时间
 	var lastFetchTime time.Time
@@ -99,21 +95,49 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 		return nil, fetchErr
 	}
 
-	// 4. 限制处理数量（防止单个podcast过大）
+	result := s.syncPodcastEpisodeItems(&podcast, items, config)
+
+	logger.Infof("✅ 同步完成: %s - 新增: %d, 更新: %d, 跳过: %d, 错误: %d",
+		podcast.Title, result.Created, result.Updated, result.Skipped, result.Errors)
+
+	return result, nil
+}
+
+func (s *Service) syncPodcastEpisodeItems(podcast *models.Podcast, items []*gofeed.Item, config EpisodeSyncConfig) *EpisodeSyncResult {
+	result := &EpisodeSyncResult{
+		PodcastID:    podcast.ID,
+		PodcastTitle: podcast.Title,
+	}
+
 	if config.MaxEpisodesPerPodcast > 0 && len(items) > config.MaxEpisodesPerPodcast {
 		logger.Infof("   ⚠️  超过最大数量限制，只处理前 %d 个", config.MaxEpisodesPerPodcast)
 		items = items[:config.MaxEpisodesPerPodcast]
 	}
 
-	// 5. 处理每个episode
+	episodes := make([]*models.Episode, 0, len(items))
 	for _, item := range items {
-		episode := s.convertGofeedItemToEpisode(&podcast, item)
+		episodes = append(episodes, s.convertGofeedItemToEpisode(podcast, item))
+	}
 
-		// 检查是否已存在
-		var existing models.Episode
-		err := s.db.Where("guid = ?", episode.GUID).First(&existing).Error
+	existingByGUID, err := s.loadExistingEpisodesByGUID(collectEpisodeGUIDs(episodes))
+	if err != nil {
+		logger.Infof("   ❌ 查询已有episodes失败: %v", err)
+		result.Errors += len(episodes)
+		s.refreshPodcastEpisodeSyncFields(podcast, result)
+		return result
+	}
 
-		if err == gorm.ErrRecordNotFound {
+	for index, episode := range episodes {
+		item := items[index]
+		existing, exists := existingByGUID[episode.GUID]
+
+		if exists && existing.PodcastID != podcast.ID {
+			logger.Infof("   ❌ 跳过episode: %s - GUID已属于其他播客", item.Title)
+			result.Errors++
+			continue
+		}
+
+		if !exists {
 			// 新增
 			if err := s.db.Create(episode).Error; err != nil {
 				logger.Infof("   ❌ 创建episode失败: %s - %v", item.Title, err)
@@ -121,10 +145,19 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 			} else {
 				logger.Infof("   ✅ 新增episode: %s", item.Title)
 				result.Created++
+				existingByGUID[episode.GUID] = *episode
 			}
-		} else if err == nil {
+			continue
+		}
+
+		if exists {
 			// 已存在
 			if config.UpdateExisting {
+				if !episodeNeedsUpdate(&existing, episode) {
+					result.Skipped++
+					continue
+				}
+
 				// 更新（保留用户自定义字段）
 				episode.ID = existing.ID
 				episode.Notes = existing.Notes
@@ -137,22 +170,110 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 				} else {
 					logger.Infof("   🔄 更新episode: %s", item.Title)
 					result.Updated++
+					existingByGUID[episode.GUID] = *episode
 				}
 			} else {
 				result.Skipped++
 			}
-		} else {
-			// 查询错误
-			logger.Infof("   ❌ 查询episode失败: %v", err)
-			result.Errors++
 		}
 	}
 
-	// 6. 更新podcast的最后抓取时间和最新单集日期
-	now := time.Now()
-	podcast.LastFetchedAt = &now
+	s.refreshPodcastEpisodeSyncFields(podcast, result)
+	return result
+}
 
-	// 6.1 如果有新episode创建或更新，重新计算并更新newest_episode_date
+func episodeNeedsUpdate(existing *models.Episode, next *models.Episode) bool {
+	if existing.PodcastID != next.PodcastID {
+		return true
+	}
+	if existing.EpisodeNo != next.EpisodeNo ||
+		existing.Title != next.Title ||
+		existing.MediumURL != next.MediumURL ||
+		existing.ShowNotes != next.ShowNotes ||
+		existing.Duration != next.Duration ||
+		existing.Link != next.Link ||
+		existing.Content != next.Content ||
+		existing.ImageURL != next.ImageURL ||
+		existing.EnclosureType != next.EnclosureType ||
+		existing.EnclosureLength != next.EnclosureLength ||
+		existing.GUID != next.GUID {
+		return true
+	}
+
+	if !sameTime(existing.PublishedDate, next.PublishedDate) {
+		return true
+	}
+
+	if !sameOptionalTime(existing.UpdatedDate, next.UpdatedDate) {
+		return true
+	}
+
+	return false
+}
+
+func sameTime(left, right time.Time) bool {
+	if left.IsZero() && right.IsZero() {
+		return true
+	}
+	return left.Equal(right)
+}
+
+func sameOptionalTime(left, right *time.Time) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return sameTime(*left, *right)
+}
+
+func collectEpisodeGUIDs(episodes []*models.Episode) []string {
+	seen := make(map[string]struct{}, len(episodes))
+	guids := make([]string, 0, len(episodes))
+
+	for _, episode := range episodes {
+		if episode.GUID == "" {
+			continue
+		}
+		if _, exists := seen[episode.GUID]; exists {
+			continue
+		}
+		seen[episode.GUID] = struct{}{}
+		guids = append(guids, episode.GUID)
+	}
+
+	return guids
+}
+
+func (s *Service) loadExistingEpisodesByGUID(guids []string) (map[string]models.Episode, error) {
+	existingByGUID := make(map[string]models.Episode, len(guids))
+	if len(guids) == 0 {
+		return existingByGUID, nil
+	}
+
+	for start := 0; start < len(guids); start += episodeGUIDLookupBatchSize {
+		end := start + episodeGUIDLookupBatchSize
+		if end > len(guids) {
+			end = len(guids)
+		}
+
+		var existingEpisodes []models.Episode
+		if err := s.db.Where("guid IN ?", guids[start:end]).Find(&existingEpisodes).Error; err != nil {
+			return nil, err
+		}
+
+		for _, episode := range existingEpisodes {
+			existingByGUID[episode.GUID] = episode
+		}
+	}
+
+	return existingByGUID, nil
+}
+
+func (s *Service) refreshPodcastEpisodeSyncFields(podcast *models.Podcast, result *EpisodeSyncResult) {
+	now := time.Now()
+	updates := map[string]interface{}{
+		"last_fetched_at": now,
+	}
+
 	if result.Created > 0 || result.Updated > 0 {
 		// 从该podcast的所有episodes中查找最新发布日期
 		var newestEpisode models.Episode
@@ -168,17 +289,21 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 				podcast.NewestEpisodeDate = newestEpisode.PublishedDate
 			}
 
+			if !podcast.NewestEpisodeDate.IsZero() {
+				updates["newest_episode_date"] = podcast.NewestEpisodeDate
+			}
+
 			logger.Infof("   📅 更新newest_episode_date: %s", podcast.NewestEpisodeDate.Format("2006-01-02 15:04:05"))
 		} else {
 			logger.Infof("   ⚠️  查询最新episode失败，无法更新newest_episode_date: %v", err)
 		}
 	}
 
-	// 6.2 重新计算并更新 episode_count（确保数据一致性）
 	var actualEpisodeCount int64
 	if err := s.db.Model(&models.Episode{}).Where("podcast_id = ?", podcast.ID).Count(&actualEpisodeCount).Error; err == nil {
 		oldEpisodeCount := podcast.EpisodeCount
 		podcast.EpisodeCount = int(actualEpisodeCount)
+		updates["episode_count"] = podcast.EpisodeCount
 		if oldEpisodeCount != podcast.EpisodeCount {
 			logger.Infof("   📊 更新 episode_count: %d → %d", oldEpisodeCount, podcast.EpisodeCount)
 		}
@@ -186,14 +311,9 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 		logger.Infof("   ⚠️  统计 episode_count 失败: %v", err)
 	}
 
-	if err := s.db.Save(&podcast).Error; err != nil {
+	if err := s.db.Model(&models.Podcast{}).Where("id = ?", podcast.ID).Updates(updates).Error; err != nil {
 		logger.Infof("   ⚠️  更新podcast元数据失败: %v", err)
 	}
-
-	logger.Infof("✅ 同步完成: %s - 新增: %d, 更新: %d, 跳过: %d, 错误: %d",
-		podcast.Title, result.Created, result.Updated, result.Skipped, result.Errors)
-
-	return result, nil
 }
 
 // SyncAllPodcastEpisodes 同步所有已订阅podcast的episodes

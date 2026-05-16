@@ -113,14 +113,6 @@ const nextConfig = {
 // 导出配置
 module.exports = {
   ...nextConfig,
-  typescript: {
-    // 在build时忽略类型错误
-    ignoreBuildErrors: true,
-  },
-  eslint: {
-    // 在build时忽略ESLint错误
-    ignoreDuringBuilds: true,
-  },
   // API 代理配置 - 兼顾本地开发和域名访问
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL || 'http://localhost:8080'

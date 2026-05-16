@@ -11,12 +11,25 @@
 export function stripHtml(html: string, maxLength: number = 100): string {
   if (!html) return "";
 
-  // 创建一个临时 div 元素来解析 HTML
-  const tmp = document.createElement("div");
-  tmp.innerHTML = html;
+  let text = "";
 
-  // 获取纯文本内容
-  let text = tmp.textContent || tmp.innerText || "";
+  if (typeof document === "undefined") {
+    text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+      .replace(/<[^>]+>/g, " ");
+  } else {
+    // 创建一个临时 div 元素来解析 HTML
+    const tmp = document.createElement("div");
+    tmp.innerHTML = html;
+    tmp.querySelectorAll("script, style, noscript").forEach((node) => {
+      node.remove();
+    });
+
+    // 获取纯文本内容
+    text = tmp.textContent || tmp.innerText || "";
+  }
 
   // 清理多余的空白字符
   text = text
@@ -25,7 +38,7 @@ export function stripHtml(html: string, maxLength: number = 100): string {
 
   // 截断文本
   if (text.length > maxLength) {
-    text = text.substring(0, maxLength) + "...";
+    return truncateText(text, maxLength);
   }
 
   return text;

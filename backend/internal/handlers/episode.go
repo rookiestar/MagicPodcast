@@ -35,6 +35,24 @@ type EpisodeResponse struct {
 	Notes           string `json:"notes"`
 }
 
+var episodeListSelectColumns = []string{
+	"id",
+	"guid",
+	"podcast_id",
+	"episode_no",
+	"title",
+	"medium_url",
+	"show_notes",
+	"published_date",
+	"duration",
+	"link",
+	"image_url",
+	"enclosure_type",
+	"enclosure_length",
+	"my_rate",
+	"notes",
+}
+
 // ListByPodcast 获取指定播客的单集列表（支持分页）
 // @Summary 获取播客的单集列表
 // @Description 根据 Podcast ID 获取该播客的单集列表（支持分页，用于无限滚动）
@@ -57,7 +75,7 @@ func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 
 	// 检查播客是否存在
 	var podcast models.Podcast
-	if err := db.First(&podcast, podcastID).Error; err != nil {
+	if err := db.Select("id").First(&podcast, podcastID).Error; err != nil {
 		middleware.NotFoundResponse(c, "NOT_FOUND", "Podcast not found")
 		return
 	}
@@ -69,15 +87,19 @@ func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 
 	// 获取总数
 	var total int64
-	db.Model(&models.Episode{}).Where("podcast_id = ?", podcastID).Count(&total)
+	if err := db.Model(&models.Episode{}).Where("podcast_id = ?", podcastID).Count(&total).Error; err != nil {
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to count episodes")
+		return
+	}
 
 	// 计算分页偏移
 	offset := (page - 1) * pageSize
 
 	// 获取该播客的单集，按发布日期倒序，支持分页
 	var episodes []models.Episode
-	if err := db.Where("podcast_id = ?", podcastID).
-		Order("published_date DESC").
+	if err := db.Select(episodeListSelectColumns).
+		Where("podcast_id = ?", podcastID).
+		Order("published_date DESC, id DESC").
 		Limit(pageSize).
 		Offset(offset).
 		Find(&episodes).Error; err != nil {

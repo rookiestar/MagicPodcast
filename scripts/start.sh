@@ -2,15 +2,16 @@
 # MagicPodcast 开发环境启动脚本
 # 用法: ./start.sh [--clean]
 
-set -e
+set -euo pipefail
 
-PROJECT_DIR="/Users/rookiestar/VSCode/Projects/MagicPodcast"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
 BACKEND_DIR="$PROJECT_DIR/backend"
 FRONTEND_PID_FILE="/tmp/magicpodcast-frontend.pid"
 BACKEND_PID_FILE="/tmp/magicpodcast-backend.pid"
 FRONTEND_LOG="/tmp/magicpodcast-frontend.log"
 BACKEND_LOG="/tmp/magicpodcast-backend.log"
+FRONTEND_SCREEN_SESSION="magicpodcast-frontend"
 
 # 颜色定义
 RED='\033[0;31m'
@@ -23,17 +24,58 @@ print_status() { echo -e "${GREEN}✓${NC} $1"; }
 print_warning() { echo -e "${YELLOW}⚠${NC} $1"; }
 print_error() { echo -e "${RED}✗${NC} $1"; }
 
+listener_pid() {
+    local port="$1"
+    lsof -ti :"$port" -sTCP:LISTEN 2>/dev/null | head -1 || true
+}
+
+pid_is_running() {
+    local pid_file="$1"
+    [ -f "$pid_file" ] && ps -p "$(cat "$pid_file" 2>/dev/null)" >/dev/null 2>&1
+}
+
+wait_for_listener() {
+    local port="$1"
+    local attempts="$2"
+    local pid=""
+
+    for _ in $(seq 1 "$attempts"); do
+        pid="$(listener_pid "$port")"
+        if [ -n "$pid" ]; then
+            echo "$pid"
+            return 0
+        fi
+        sleep 1
+    done
+
+    return 1
+}
+
+start_frontend_server() {
+    : > "$FRONTEND_LOG"
+
+    if command -v screen >/dev/null 2>&1; then
+        screen -S "$FRONTEND_SCREEN_SESSION" -X quit >/dev/null 2>&1 || true
+        screen -dmS "$FRONTEND_SCREEN_SESSION" bash -lc "cd '$FRONTEND_DIR' && tail -f /dev/null | npm run dev >> '$FRONTEND_LOG' 2>&1"
+    else
+        nohup bash -lc "cd '$FRONTEND_DIR' && tail -f /dev/null | npm run dev" >> "$FRONTEND_LOG" 2>&1 &
+        echo $! > "$FRONTEND_PID_FILE"
+    fi
+}
+
 echo -e "${BLUE}========================================"
 echo "  MagicPodcast 开发环境启动"
 echo "  $(date '+%Y-%m-%d %H:%M:%S')"
 echo -e "========================================${NC}"
 echo ""
 
+mode="${1:-}"
+
 # 可选清理缓存
-if [ "$1" = "--clean" ] || [ "$1" = "-c" ]; then
+if [ "$mode" = "--clean" ] || [ "$mode" = "-c" ]; then
     echo -e "${YELLOW}[0] 清理缓存...${NC}"
-    rm -rf "$FRONTEND_DIR/.next/cache/webpack" 2>/dev/null || true
-    print_status "Webpack 缓存已清理"
+    rm -rf "$FRONTEND_DIR/.next" 2>/dev/null || true
+    print_status "Next.js 临时构建目录已清理"
     echo ""
 fi
 
@@ -51,8 +93,12 @@ echo ""
 
 # 启动后端
 echo -e "${YELLOW}[2] 启动后端服务...${NC}"
-if [ -f "$BACKEND_PID_FILE" ] && ps -p $(cat "$BACKEND_PID_FILE" 2>/dev/null) > /dev/null 2>&1; then
+backend_listener="$(listener_pid 8080)"
+if pid_is_running "$BACKEND_PID_FILE"; then
     print_warning "后端已在运行 (PID: $(cat $BACKEND_PID_FILE))"
+elif [ -n "$backend_listener" ]; then
+    echo "$backend_listener" > "$BACKEND_PID_FILE"
+    print_warning "端口 8080 已有服务在运行 (PID: $backend_listener)，跳过后端启动"
 else
     cd "$BACKEND_DIR"
 
@@ -61,17 +107,18 @@ else
         export $(cat .env | grep -v '^#' | xargs)
     fi
 
-    # 检查是否需要编译
-    if [ ! -f "./api" ]; then
-        echo "  编译后端..."
-        go build -o api ./cmd/api
-    fi
+    echo "  编译后端..."
+    go build -o api ./cmd/api
 
     nohup ./api > "$BACKEND_LOG" 2>&1 &
     echo $! > "$BACKEND_PID_FILE"
     sleep 3
 
-    if ps -p $(cat "$BACKEND_PID_FILE") > /dev/null 2>&1; then
+    backend_listener="$(listener_pid 8080)"
+    if pid_is_running "$BACKEND_PID_FILE" || [ -n "$backend_listener" ]; then
+        if [ -n "$backend_listener" ]; then
+            echo "$backend_listener" > "$BACKEND_PID_FILE"
+        fi
         print_status "后端已启动 (PID: $(cat $BACKEND_PID_FILE))"
     else
         print_error "后端启动失败"
@@ -84,9 +131,14 @@ echo ""
 
 # 启动前端
 echo -e "${YELLOW}[3] 启动前端服务...${NC}"
-if [ -f "$FRONTEND_PID_FILE" ] && ps -p $(cat "$FRONTEND_PID_FILE" 2>/dev/null) > /dev/null 2>&1; then
+frontend_listener="$(listener_pid 3000)"
+if pid_is_running "$FRONTEND_PID_FILE" && [ -n "$frontend_listener" ]; then
     print_warning "前端已在运行 (PID: $(cat $FRONTEND_PID_FILE))"
+elif [ -n "$frontend_listener" ]; then
+    echo "$frontend_listener" > "$FRONTEND_PID_FILE"
+    print_warning "端口 3000 已有服务在运行 (PID: $frontend_listener)，跳过前端启动"
 else
+    rm -f "$FRONTEND_PID_FILE"
     cd "$FRONTEND_DIR"
 
     # 检查是否需要安装依赖
@@ -95,11 +147,10 @@ else
         npm install
     fi
 
-    nohup npm run dev > "$FRONTEND_LOG" 2>&1 &
-    echo $! > "$FRONTEND_PID_FILE"
-    sleep 5
+    start_frontend_server
 
-    if ps -p $(cat "$FRONTEND_PID_FILE") > /dev/null 2>&1; then
+    if frontend_listener="$(wait_for_listener 3000 20)"; then
+        echo "$frontend_listener" > "$FRONTEND_PID_FILE"
         print_status "前端已启动 (PID: $(cat $FRONTEND_PID_FILE))"
     else
         print_error "前端启动失败"
@@ -113,14 +164,13 @@ echo ""
 # 健康检查
 echo -e "${YELLOW}[4] 健康检查...${NC}"
 sleep 2
-BACKEND_HEALTH=$(curl -s http://localhost:8080/health 2>/dev/null)
-if [ $? -eq 0 ]; then
+if BACKEND_HEALTH=$(curl -s http://localhost:8080/health 2>/dev/null); then
     print_status "后端: $BACKEND_HEALTH"
 else
     print_warning "后端: 无响应"
 fi
 
-FRONTEND_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 2>/dev/null)
+FRONTEND_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 2>/dev/null || true)
 if [ "$FRONTEND_STATUS" = "200" ]; then
     print_status "前端: HTTP $FRONTEND_STATUS"
 else

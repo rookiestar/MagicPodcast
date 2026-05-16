@@ -92,6 +92,10 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
+    if (axios.isCancel(error) || error.code === "ERR_CANCELED") {
+      return Promise.reject(error);
+    }
+
     console.error("[API] Response error:", error.message, error.config?.url);
 
     if (error.code === "ECONNABORTED") {
