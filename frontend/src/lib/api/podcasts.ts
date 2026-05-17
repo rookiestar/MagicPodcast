@@ -1,5 +1,14 @@
 import { api } from "./client";
 import { handleResponse, handleVoidResponse } from "./client";
+import {
+  buildPodcastBatchPath,
+  buildPodcastCustomCoverPath,
+  buildPodcastDetailPath,
+  buildPodcastListPath,
+  buildPodcastNotesPath,
+  buildPodcastTagPath,
+  buildPodcastTagsPath,
+} from "@/lib/podcastApiPaths";
 import type { ApiResponse } from "@/types";
 
 export interface PodcastFilters {
@@ -24,28 +33,6 @@ export interface PodcastListResponse {
 export async function listPodcasts(
   params?: PodcastFilters,
 ): Promise<PodcastListResponse> {
-  const queryParams = new URLSearchParams();
-
-  if (params?.tag_id) {
-    if (Array.isArray(params.tag_id)) {
-      params.tag_id.forEach((id) =>
-        queryParams.append("tag_id", id.toString()),
-      );
-    } else {
-      queryParams.append("tag_id", params.tag_id.toString());
-    }
-  }
-
-  if (params?.page) queryParams.append("page", params.page.toString());
-  if (params?.page_size)
-    queryParams.append("page_size", params.page_size.toString());
-  if (params?.sort_by) queryParams.append("sort_by", params.sort_by);
-  if (params?.search) queryParams.append("search", params.search);
-
-  const url = queryParams.toString()
-    ? `/api/v1/podcasts?${queryParams.toString()}`
-    : "/api/v1/podcasts";
-
   type PodcastListApiResponse = ApiResponse<any[]> & {
     pagination?: {
       page: number;
@@ -55,7 +42,9 @@ export async function listPodcasts(
     };
   };
 
-  const response = await api.get<PodcastListApiResponse>(url);
+  const response = await api.get<PodcastListApiResponse>(
+    buildPodcastListPath(params),
+  );
   const data = handleResponse(response);
 
   return {
@@ -71,14 +60,14 @@ export async function listPodcasts(
 
 // 获取单个播客详情
 export async function getPodcast(id: number): Promise<any> {
-  const response = await api.get<ApiResponse<any>>(`/api/v1/podcasts/${id}`);
+  const response = await api.get<ApiResponse<any>>(buildPodcastDetailPath(id));
   return handleResponse(response);
 }
 
 // 批量获取播客详情
 export async function batchGetPodcasts(ids: number[]): Promise<any[]> {
   const response = await api.post<ApiResponse<any[]>>(
-    "/api/v1/podcasts/batch",
+    buildPodcastBatchPath(),
     { ids },
   );
   return handleResponse(response);
@@ -87,7 +76,7 @@ export async function batchGetPodcasts(ids: number[]): Promise<any[]> {
 // 获取播客备注
 export async function getPodcastNotes(id: number): Promise<string> {
   const response = await api.get<ApiResponse<{ id: number; notes: string }>>(
-    `/api/v1/podcasts/${id}/notes`,
+    buildPodcastNotesPath(id),
   );
   return handleResponse(response).notes;
 }
@@ -98,7 +87,7 @@ export async function updatePodcastNotes(
   notes: string,
 ): Promise<void> {
   const response = await api.put<ApiResponse<void>>(
-    `/api/v1/podcasts/${id}/notes`,
+    buildPodcastNotesPath(id),
     { notes },
   );
   handleVoidResponse(response);
@@ -107,7 +96,7 @@ export async function updatePodcastNotes(
 // 获取播客的所有标签
 export async function getPodcastTags(id: number): Promise<any[]> {
   const response = await api.get<ApiResponse<{ tags: any[] }>>(
-    `/api/v1/podcasts/${id}/tags`,
+    buildPodcastTagsPath(id),
   );
   return handleResponse(response).tags;
 }
@@ -118,7 +107,7 @@ export async function addTagToPodcast(
   tagId: number,
 ): Promise<void> {
   const response = await api.post<ApiResponse<void>>(
-    `/api/v1/podcasts/${id}/tags`,
+    buildPodcastTagsPath(id),
     { tag_id: tagId },
   );
   handleVoidResponse(response);
@@ -130,7 +119,7 @@ export async function removeTagFromPodcast(
   tagId: number,
 ): Promise<void> {
   const response = await api.delete<ApiResponse<void>>(
-    `/api/v1/podcasts/${id}/tags/${tagId}`,
+    buildPodcastTagPath(id, tagId),
   );
   handleVoidResponse(response);
 }
@@ -141,7 +130,7 @@ export async function updateCustomCover(
   customCoverUrl: string,
 ): Promise<void> {
   const response = await api.put<ApiResponse<void>>(
-    `/api/v1/podcasts/${id}/custom-cover`,
+    buildPodcastCustomCoverPath(id),
     { custom_cover_url: customCoverUrl },
   );
   handleVoidResponse(response);

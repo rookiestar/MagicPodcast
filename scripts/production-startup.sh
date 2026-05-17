@@ -55,6 +55,20 @@ else
     log "启动前端服务..."
     cd "$FRONTEND_DIR"
 
+    if [ ! -d "node_modules" ]; then
+        log "安装前端依赖..."
+        npm install >> "$LOG_FILE" 2>&1
+    fi
+
+    log "构建前端生产版本..."
+    export NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH="${NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH:-/_next/image.webp}"
+    rm -rf .next
+    if ! npm run build >> "$LOG_FILE" 2>&1; then
+        log "错误: 前端构建失败"
+        cd "$PROJECT_DIR"
+        exit 1
+    fi
+
     # 使用生产模式启动
     nohup npm run start >> "$LOG_FILE" 2>&1 &
     echo $! > "$FRONTEND_PID_FILE"

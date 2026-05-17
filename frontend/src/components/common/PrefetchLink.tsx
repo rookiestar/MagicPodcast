@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import { prefetchPodcastData, prefetchWorkflowData } from "@/lib/prefetch";
 
@@ -30,21 +30,36 @@ export default function PrefetchLink({
   onClick,
   title,
 }: PrefetchLinkProps) {
-  const handleMouseEnter = useCallback(() => {
+  const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearPrefetchTimer = useCallback(() => {
+    if (prefetchTimerRef.current) {
+      clearTimeout(prefetchTimerRef.current);
+      prefetchTimerRef.current = null;
+    }
+  }, []);
+
+  const runPrefetch = useCallback(() => {
     if (!prefetchId) return;
 
-    // 延迟 100ms 预取，避免快速划过时触发不必要的请求
-    const timer = setTimeout(() => {
-      if (prefetchType === "podcast") {
-        prefetchPodcastData(prefetchId);
-      } else if (prefetchType === "workflow") {
-        prefetchWorkflowData(prefetchId);
-      }
-    }, 100);
-
-    // 清理函数 - 组件卸载时清理定时器
-    return () => clearTimeout(timer);
+    if (prefetchType === "podcast") {
+      prefetchPodcastData(prefetchId);
+    } else if (prefetchType === "workflow") {
+      prefetchWorkflowData(prefetchId);
+    }
   }, [prefetchId, prefetchType]);
+
+  const handleMouseEnter = useCallback(() => {
+    if (!prefetchId) return;
+    clearPrefetchTimer();
+    // 延迟 100ms 预取，避免快速划过时触发不必要的请求
+    prefetchTimerRef.current = setTimeout(() => {
+      prefetchTimerRef.current = null;
+      runPrefetch();
+    }, 100);
+  }, [clearPrefetchTimer, prefetchId, runPrefetch]);
+
+  useEffect(() => clearPrefetchTimer, [clearPrefetchTimer]);
 
   return (
     <Link
@@ -52,6 +67,7 @@ export default function PrefetchLink({
       className={className}
       onClick={onClick}
       onMouseEnter={handleMouseEnter}
+      onMouseLeave={clearPrefetchTimer}
       title={title}
     >
       {children}

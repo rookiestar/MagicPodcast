@@ -1,6 +1,7 @@
 #!/bin/bash
-# MagicPodcast 开发环境启动脚本
-# 用法: ./start.sh [--clean]
+# MagicPodcast 本地服务启动脚本
+# 默认以生产模式启动前端，供 rookiestar.cn / Cloudflare Tunnel 使用。
+# 用法: ./start.sh [--clean] [--prod|--dev]
 
 set -euo pipefail
 
@@ -54,25 +55,59 @@ wait_for_listener() {
 start_frontend_server() {
     : > "$FRONTEND_LOG"
 
-    if command -v screen >/dev/null 2>&1; then
-        screen -S "$FRONTEND_SCREEN_SESSION" -X quit >/dev/null 2>&1 || true
-        screen -dmS "$FRONTEND_SCREEN_SESSION" bash -lc "cd '$FRONTEND_DIR' && tail -f /dev/null | npm run dev >> '$FRONTEND_LOG' 2>&1"
+    if [ "$FRONTEND_MODE" = "development" ]; then
+        if command -v screen >/dev/null 2>&1; then
+            screen -S "$FRONTEND_SCREEN_SESSION" -X quit >/dev/null 2>&1 || true
+            screen -dmS "$FRONTEND_SCREEN_SESSION" bash -lc "cd '$FRONTEND_DIR' && tail -f /dev/null | npm run dev >> '$FRONTEND_LOG' 2>&1"
+        else
+            nohup bash -lc "cd '$FRONTEND_DIR' && tail -f /dev/null | npm run dev" >> "$FRONTEND_LOG" 2>&1 &
+            echo $! > "$FRONTEND_PID_FILE"
+        fi
     else
-        nohup bash -lc "cd '$FRONTEND_DIR' && tail -f /dev/null | npm run dev" >> "$FRONTEND_LOG" 2>&1 &
+        nohup bash -lc "cd '$FRONTEND_DIR' && npm run start" >> "$FRONTEND_LOG" 2>&1 &
         echo $! > "$FRONTEND_PID_FILE"
     fi
 }
 
+FRONTEND_MODE="${MAGICPODCAST_FRONTEND_MODE:-production}"
+CLEAN_BUILD=false
+
+for arg in "$@"; do
+    case "$arg" in
+        --clean|-c)
+            CLEAN_BUILD=true
+            ;;
+        --prod|--production)
+            FRONTEND_MODE="production"
+            ;;
+        --dev|--development)
+            FRONTEND_MODE="development"
+            ;;
+        "")
+            ;;
+        *)
+            print_error "未知参数: $arg"
+            echo "用法: ./scripts/start.sh [--clean] [--prod|--dev]"
+            exit 1
+            ;;
+    esac
+done
+
+if [ "$FRONTEND_MODE" != "production" ] && [ "$FRONTEND_MODE" != "development" ]; then
+    print_error "无效前端模式: $FRONTEND_MODE"
+    echo "请使用 production 或 development"
+    exit 1
+fi
+
 echo -e "${BLUE}========================================"
-echo "  MagicPodcast 开发环境启动"
+echo "  MagicPodcast 服务启动"
 echo "  $(date '+%Y-%m-%d %H:%M:%S')"
+echo "  前端模式: $FRONTEND_MODE"
 echo -e "========================================${NC}"
 echo ""
 
-mode="${1:-}"
-
 # 可选清理缓存
-if [ "$mode" = "--clean" ] || [ "$mode" = "-c" ]; then
+if [ "$CLEAN_BUILD" = true ]; then
     echo -e "${YELLOW}[0] 清理缓存...${NC}"
     rm -rf "$FRONTEND_DIR/.next" 2>/dev/null || true
     print_status "Next.js 临时构建目录已清理"
@@ -147,6 +182,15 @@ else
         npm install
     fi
 
+    if [ "$FRONTEND_MODE" = "production" ]; then
+        export NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH="${NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH:-/_next/image.webp}"
+        echo "  图片优化路径: $NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH"
+        echo "  清理旧生产构建..."
+        rm -rf .next
+        echo "  构建生产版本..."
+        npm run build
+    fi
+
     start_frontend_server
 
     if frontend_listener="$(wait_for_listener 3000 20)"; then
@@ -195,5 +239,6 @@ echo ""
 echo "  其他命令:"
 echo "    ./stop.sh     - 停止服务"
 echo "    ./restart.sh  - 重启服务"
+echo "    ./restart.sh --dev - 以开发模式重启前端"
 echo "    ./health.sh   - 健康检查"
 echo ""

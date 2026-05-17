@@ -1,5 +1,6 @@
 import { api } from "./client";
 import { handleResponse, handleVoidResponse } from "./client";
+import { buildPodcastEpisodesCollectionPath } from "@/lib/podcastApiPaths";
 import type { ApiResponse, Episode, Tag } from "@/types";
 
 export const episodeApi = {
@@ -29,7 +30,7 @@ export const episodeApi = {
     };
 
     const response = await api.get<EpisodeListResponse>(
-      `/api/v1/podcasts/${podcastId}/episodes`,
+      buildPodcastEpisodesCollectionPath(podcastId),
       { params: { page, page_size: pageSize } },
     );
 

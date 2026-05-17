@@ -2,6 +2,13 @@ import { useCallback } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { fetcher } from "@/lib/fetcher";
+import {
+  buildPodcastDetailPath,
+  buildPodcastEpisodesPath,
+  buildPodcastListPath,
+  buildPodcastNotesPath,
+  buildPodcastTagsPath,
+} from "@/lib/podcastApiPaths";
 import { swrConfig, cacheStrategies } from "@/lib/swrConfig";
 import type { Podcast, Tag, Episode } from "@/types";
 
@@ -16,19 +23,7 @@ interface UsePodcastsParams {
 }
 
 export function usePodcasts(params: UsePodcastsParams = {}) {
-  const queryParams = new URLSearchParams();
-
-  if (params.page) queryParams.set("page", params.page.toString());
-  if (params.page_size) queryParams.set("page_size", params.page_size.toString());
-  if (params.sort_by) queryParams.set("sort_by", params.sort_by);
-  if (params.search) queryParams.set("search", params.search);
-  if (params.tag_id && params.tag_id.length > 0) {
-    params.tag_id.forEach((id) => queryParams.append("tag_id", id.toString()));
-  }
-
-  const key = queryParams.toString()
-    ? `/api/v1/podcasts?${queryParams.toString()}`
-    : "/api/v1/podcasts";
+  const key = buildPodcastListPath(params);
 
   const { data, error, isLoading, mutate } = useSWR(
     key,
@@ -108,16 +103,10 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
       return null;
     }
 
-    const queryParams = new URLSearchParams();
-    queryParams.set("page", String(pageIndex + 1));
-    if (params.page_size) queryParams.set("page_size", params.page_size.toString());
-    if (params.sort_by) queryParams.set("sort_by", params.sort_by);
-    if (params.search) queryParams.set("search", params.search);
-    if (params.tag_id && params.tag_id.length > 0) {
-      params.tag_id.forEach((id) => queryParams.append("tag_id", id.toString()));
-    }
-
-    return `/api/v1/podcasts?${queryParams.toString()}`;
+    return buildPodcastListPath({
+      ...params,
+      page: pageIndex + 1,
+    });
   };
 
   const { data, error, isLoading, isValidating, size, setSize, mutate } = useSWRInfinite(
@@ -169,9 +158,11 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
 // ============ 播客详情 Hook ============
 
 export function usePodcast(id: number | null) {
+  const key = id ? buildPodcastDetailPath(id) : null;
+
   const { data, error, isLoading, mutate } = useSWR(
-    id ? `/api/v1/podcasts/${id}` : null,
-    () => fetcher<Podcast>(`/api/v1/podcasts/${id}`),
+    key,
+    () => fetcher<Podcast>(buildPodcastDetailPath(id as number)),
     { ...swrConfig, ...cacheStrategies.podcastDetail }
   );
 
@@ -187,9 +178,11 @@ export function usePodcast(id: number | null) {
 // ============ 播客标签 Hook ============
 
 export function usePodcastTags(podcastId: number | null) {
+  const key = podcastId ? buildPodcastTagsPath(podcastId) : null;
+
   const { data, error, isLoading, mutate } = useSWR(
-    podcastId ? `/api/v1/podcasts/${podcastId}/tags` : null,
-    () => fetcher<{ tags: Tag[] }>(`/api/v1/podcasts/${podcastId}/tags`),
+    key,
+    () => fetcher<{ tags: Tag[] }>(buildPodcastTagsPath(podcastId as number)),
     { ...swrConfig, ...cacheStrategies.podcastDetail }
   );
 
@@ -205,9 +198,14 @@ export function usePodcastTags(podcastId: number | null) {
 // ============ 播客备注 Hook ============
 
 export function usePodcastNotes(podcastId: number | null) {
+  const key = podcastId ? buildPodcastNotesPath(podcastId) : null;
+
   const { data, error, isLoading, mutate } = useSWR(
-    podcastId ? `/api/v1/podcasts/${podcastId}/notes` : null,
-    () => fetcher<{ id: number; notes: string }>(`/api/v1/podcasts/${podcastId}/notes`),
+    key,
+    () =>
+      fetcher<{ id: number; notes: string }>(
+        buildPodcastNotesPath(podcastId as number),
+      ),
     { ...swrConfig, ...cacheStrategies.podcastDetail }
   );
 
@@ -228,7 +226,7 @@ export function useEpisodes(
   pageSize: number = 20
 ) {
   const key = podcastId
-    ? `/api/v1/podcasts/${podcastId}/episodes?page=${page}&page_size=${pageSize}`
+    ? buildPodcastEpisodesPath(podcastId, page, pageSize)
     : null;
 
   const { data, error, isLoading, mutate } = useSWR(
@@ -244,7 +242,7 @@ export function useEpisodes(
           has_more: boolean;
         };
       }>(
-        `/api/v1/podcasts/${podcastId}/episodes?page=${page}&page_size=${pageSize}`
+        buildPodcastEpisodesPath(podcastId as number, page, pageSize)
       ),
     { ...swrConfig, ...cacheStrategies.episodes }
   );

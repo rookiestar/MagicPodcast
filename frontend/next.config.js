@@ -1,4 +1,6 @@
 /** @type {import('next').NextConfig} */
+const imageOptimizerPath = process.env.NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH || '/_next/image'
+
 const nextConfig = {
   reactStrictMode: true,
   // 生产构建时移除 console 语句（保留 console.error 和 console.warn）
@@ -97,6 +99,7 @@ const nextConfig = {
     minimumCacheTTL: 60 * 60 * 24 * 30,
 
     // 图片优化配置
+    path: imageOptimizerPath,
     loader: 'default',
     dangerouslyAllowSVG: true,
     contentDispositionType: 'attachment',

@@ -49,6 +49,13 @@ fi
 if [ -n "$frontend_pid" ]; then
   frontend_cmd="$(ps -p "$frontend_pid" -o command= 2>/dev/null || echo unknown)"
   ok "前端端口 3000 正在监听 [PID: $frontend_pid, $frontend_cmd]"
+
+  if ps -axo command= | grep -F "$PROJECT_DIR/frontend" | grep -q "next dev"; then
+    fail "前端正在开发模式运行，公网访问会加载开发资源。请运行: $PROJECT_DIR/scripts/restart.sh"
+    issues=$((issues + 1))
+  else
+    ok "前端未发现开发模式进程"
+  fi
 else
   warn "前端端口 3000 未监听"
 fi
@@ -142,7 +149,11 @@ echo -e "${YELLOW}[5] 构建缓存与脚本入口${NC}"
 echo "-------------------------------------------"
 if [ -d "$PROJECT_DIR/frontend/.next" ]; then
   cache_size="$(du -sh "$PROJECT_DIR/frontend/.next" 2>/dev/null | cut -f1)"
-  warn "Next.js 临时构建目录存在 ($cache_size)，热更新异常时可运行: $PROJECT_DIR/scripts/restart.sh --clean"
+  if [ -f "$PROJECT_DIR/frontend/.next/BUILD_ID" ]; then
+    ok "Next.js 生产构建存在 ($cache_size)"
+  else
+    warn "Next.js 临时构建目录存在 ($cache_size)，热更新异常时可运行: $PROJECT_DIR/scripts/restart.sh --clean"
+  fi
 else
   ok "Next.js 临时构建目录不存在"
 fi
