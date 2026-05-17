@@ -6,6 +6,7 @@ import (
 	"magicpodcast/internal/models"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // EpisodeHandler 单集处理器
@@ -53,6 +54,64 @@ var episodeListSelectColumns = []string{
 	"notes",
 }
 
+func episodeToResponse(episode models.Episode) EpisodeResponse {
+	return EpisodeResponse{
+		ID:              episode.ID,
+		GUID:            episode.GUID,
+		PodcastID:       episode.PodcastID,
+		EpisodeNo:       episode.EpisodeNo,
+		Title:           episode.Title,
+		MediumURL:       episode.MediumURL,
+		ShowNotes:       episode.ShowNotes,
+		PublishedDate:   episode.PublishedDate.Format("2006-01-02T15:04:05Z07:00"),
+		Duration:        episode.Duration,
+		Link:            episode.Link,
+		ImageURL:        episode.ImageURL,
+		EnclosureType:   episode.EnclosureType,
+		EnclosureLength: episode.EnclosureLength,
+		MyRate:          episode.MyRate,
+		Notes:           episode.Notes,
+	}
+}
+
+func episodesToResponse(episodes []models.Episode) []EpisodeResponse {
+	response := make([]EpisodeResponse, len(episodes))
+	for i, episode := range episodes {
+		response[i] = episodeToResponse(episode)
+	}
+	return response
+}
+
+func countPodcastEpisodes(db *gorm.DB, podcastID uint) (int64, error) {
+	var total int64
+	err := db.Model(&models.Episode{}).Where("podcast_id = ?", podcastID).Count(&total).Error
+	return total, err
+}
+
+func listPodcastEpisodes(db *gorm.DB, podcastID uint, page, pageSize int) ([]models.Episode, error) {
+	offset := (page - 1) * pageSize
+	var episodes []models.Episode
+
+	err := db.Select(episodeListSelectColumns).
+		Where("podcast_id = ?", podcastID).
+		Order("published_date DESC, id DESC").
+		Limit(pageSize).
+		Offset(offset).
+		Find(&episodes).Error
+
+	return episodes, err
+}
+
+func episodePaginationPayload(page, pageSize int, total int64) gin.H {
+	return gin.H{
+		"page":        page,
+		"page_size":   pageSize,
+		"total":       total,
+		"total_pages": (total + int64(pageSize) - 1) / int64(pageSize),
+		"has_more":    int64(page*pageSize) < total,
+	}
+}
+
 // ListByPodcast 获取指定播客的单集列表（支持分页）
 // @Summary 获取播客的单集列表
 // @Description 根据 Podcast ID 获取该播客的单集列表（支持分页，用于无限滚动）
@@ -86,61 +145,23 @@ func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 	pageSize := pagination.PageSize
 
 	// 获取总数
-	var total int64
-	if err := db.Model(&models.Episode{}).Where("podcast_id = ?", podcastID).Count(&total).Error; err != nil {
+	total, err := countPodcastEpisodes(db, podcastID)
+	if err != nil {
 		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to count episodes")
 		return
 	}
 
-	// 计算分页偏移
-	offset := (page - 1) * pageSize
-
 	// 获取该播客的单集，按发布日期倒序，支持分页
-	var episodes []models.Episode
-	if err := db.Select(episodeListSelectColumns).
-		Where("podcast_id = ?", podcastID).
-		Order("published_date DESC, id DESC").
-		Limit(pageSize).
-		Offset(offset).
-		Find(&episodes).Error; err != nil {
+	episodes, err := listPodcastEpisodes(db, podcastID, page, pageSize)
+	if err != nil {
 		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to fetch episodes")
 		return
 	}
 
 	// 转换为响应格式
-	response := make([]EpisodeResponse, len(episodes))
-	for i, episode := range episodes {
-		response[i] = EpisodeResponse{
-			ID:              episode.ID,
-			GUID:            episode.GUID,
-			PodcastID:       episode.PodcastID,
-			EpisodeNo:       episode.EpisodeNo,
-			Title:           episode.Title,
-			MediumURL:       episode.MediumURL,
-			ShowNotes:       episode.ShowNotes,
-			PublishedDate:   episode.PublishedDate.Format("2006-01-02T15:04:05Z07:00"),
-			Duration:        episode.Duration,
-			Link:            episode.Link,
-			ImageURL:        episode.ImageURL,
-			EnclosureType:   episode.EnclosureType,
-			EnclosureLength: episode.EnclosureLength,
-			MyRate:          episode.MyRate,
-			Notes:           episode.Notes,
-		}
-	}
-
-	// 计算是否有更多数据
-	hasMore := int64(page*pageSize) < total
-
 	c.JSON(200, gin.H{
-		"success": true,
-		"data":    response,
-		"pagination": gin.H{
-			"page":        page,
-			"page_size":   pageSize,
-			"total":       total,
-			"total_pages": (total + int64(pageSize) - 1) / int64(pageSize),
-			"has_more":    hasMore,
-		},
+		"success":    true,
+		"data":       episodesToResponse(episodes),
+		"pagination": episodePaginationPayload(page, pageSize, total),
 	})
 }

@@ -7,28 +7,26 @@ import { isValidOpmlFile } from "@/lib/importFileValidation";
 import {
   buildImportErrorLogs,
   buildSyncErrorMessage,
-  isOperationCompletionEvent,
 } from "@/lib/syncOperationMessages";
-import {
-  normalizeLogType,
-  type LogType,
-  type SyncLogMode,
-} from "@/lib/syncLogState";
+import { runSseOperation, type AddSyncLog } from "@/lib/syncSseOperation";
+import type { SyncLogMode } from "@/lib/syncLogState";
 import { toast } from "@/lib/toast";
 import { useExclusiveAsyncAction } from "./useExclusiveAsyncAction";
 
-type AddLog = (
-  type: LogType,
-  message: string,
-  current?: number,
-  total?: number,
-  data?: Record<string, any>,
-) => void;
-
 interface UseImportSyncOperationsOptions {
-  addLog: AddLog;
+  addLog: AddSyncLog;
   resetLogScroll: () => void;
   startLogSession: (mode: SyncLogMode) => void;
+}
+
+function useStoredOperationMarker(active: boolean, storageKey: string) {
+  useEffect(() => {
+    if (active) {
+      writeStorageValue(storageKey, "true");
+    } else {
+      removeStorageValue(storageKey);
+    }
+  }, [active, storageKey]);
 }
 
 export function useImportSyncOperations({
@@ -44,21 +42,8 @@ export function useImportSyncOperations({
     isBlocked: importing || syncing,
   });
 
-  useEffect(() => {
-    if (syncing) {
-      writeStorageValue(STORAGE_KEYS.SYNCING, "true");
-    } else {
-      removeStorageValue(STORAGE_KEYS.SYNCING);
-    }
-  }, [syncing]);
-
-  useEffect(() => {
-    if (importing) {
-      writeStorageValue(STORAGE_KEYS.IMPORTING, "true");
-    } else {
-      removeStorageValue(STORAGE_KEYS.IMPORTING);
-    }
-  }, [importing]);
+  useStoredOperationMarker(syncing, STORAGE_KEYS.SYNCING);
+  useStoredOperationMarker(importing, STORAGE_KEYS.IMPORTING);
 
   const handleFileChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -88,21 +73,14 @@ export function useImportSyncOperations({
       resetLogScroll();
       startLogSession("import");
 
-      addLog("info", "开始导入OPML（本地匹配模式）...");
-
-      let receivedSummary = false;
-
       try {
-        await syncApi.importOPMLSSE(file, (type, message, current, total) => {
-          addLog(normalizeLogType(type), message, current, total);
-          if (isOperationCompletionEvent("import", type, message)) {
-            receivedSummary = true;
-          }
+        await runSseOperation({
+          mode: "import",
+          addLog,
+          startMessage: "开始导入OPML（本地匹配模式）...",
+          fallbackSuccessMessage: "导入完成",
+          run: (onProgress) => syncApi.importOPMLSSE(file, onProgress),
         });
-
-        if (!receivedSummary) {
-          addLog("success", "导入完成");
-        }
       } catch (error) {
         console.error("导入失败:", error);
 
@@ -121,23 +99,14 @@ export function useImportSyncOperations({
       resetLogScroll();
       startLogSession("sync");
 
-      addLog("info", "开始同步所有播客的元数据...");
-
-      let receivedSummary = false;
-
       try {
-        await syncApi.syncPodcastsMetadataSSE(
-          (type, message, current, total, data) => {
-            addLog(normalizeLogType(type), message, current, total, data);
-            if (isOperationCompletionEvent("sync", type, message)) {
-              receivedSummary = true;
-            }
-          },
-        );
-
-        if (!receivedSummary) {
-          addLog("success", "同步已完成");
-        }
+        await runSseOperation({
+          mode: "sync",
+          addLog,
+          startMessage: "开始同步所有播客的元数据...",
+          fallbackSuccessMessage: "同步已完成",
+          run: syncApi.syncPodcastsMetadataSSE,
+        });
       } catch (error) {
         console.error("同步失败:", error);
         addLog("error", buildSyncErrorMessage(error));

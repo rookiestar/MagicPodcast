@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Episode } from "@/types";
 import {
   buildPodcastListBackUrl,
+  getTargetEpisodeNavigationAction,
   parseTargetEpisodeId,
   useTargetEpisodeNavigation,
 } from "../usePodcastDetailNavigation";
@@ -52,6 +53,41 @@ describe("podcast detail navigation", () => {
     expect(parseTargetEpisodeId("0")).toBeNull();
     expect(parseTargetEpisodeId("abc")).toBeNull();
     expect(parseTargetEpisodeId(null)).toBeNull();
+  });
+
+  it("decides target episode navigation actions", () => {
+    expect(
+      getTargetEpisodeNavigationAction({
+        targetEpisodeId: "2",
+        episodes: [makeEpisode(1)],
+        episodesLoading: false,
+        totalEpisodes: 3,
+        hasMoreEpisodes: true,
+        isLoadingMore: false,
+      }),
+    ).toBe("load-more");
+
+    expect(
+      getTargetEpisodeNavigationAction({
+        targetEpisodeId: "2",
+        episodes: [makeEpisode(2)],
+        episodesLoading: false,
+        totalEpisodes: 3,
+        hasMoreEpisodes: true,
+        isLoadingMore: false,
+      }),
+    ).toBe("focus");
+
+    expect(
+      getTargetEpisodeNavigationAction({
+        targetEpisodeId: "2",
+        episodes: [],
+        episodesLoading: false,
+        totalEpisodes: 0,
+        hasMoreEpisodes: false,
+        isLoadingMore: false,
+      }),
+    ).toBeNull();
   });
 
   it("loads another page when the target episode is not loaded yet", () => {

@@ -2,10 +2,14 @@
 
 import { useState } from "react";
 import RichText from "@/components/RichText";
-import TagInput from "@/components/tags/TagInput";
 import { getEffectiveCoverUrl } from "@/lib/imageProxy";
 import type { Podcast, Tag } from "@/types";
 import PodcastCover from "./PodcastCover";
+import PodcastNotesEditor from "./PodcastNotesEditor";
+import {
+  DesktopPodcastTagControls,
+  MobilePodcastTagControls,
+} from "./PodcastTagControls";
 
 interface PodcastDetailInfoProps {
   podcast: Podcast;
@@ -20,8 +24,6 @@ interface PodcastDetailInfoProps {
   onCancelNotesEdit: () => void;
   onTagsChange: (tags: Tag[]) => void;
 }
-
-const TAG_INPUT_PLACEHOLDER = "点击输入框从列表选择，或输入新标签名按回车添加";
 
 function formatNewestEpisodeDate(value?: string) {
   try {
@@ -45,87 +47,6 @@ function formatNewestEpisodeDate(value?: string) {
 function formatDurationLabel(duration?: number) {
   if (!duration) return null;
   return `${Math.floor(duration / 60)}分${duration % 60}秒`;
-}
-
-function PodcastNotesEditor({
-  notes,
-  isEditingNotes,
-  isSavingNotes = false,
-  textareaRows,
-  editButtonClassName,
-  saveButtonClassName,
-  cancelButtonClassName,
-  readOnlyClassName,
-  emptyClassName,
-  onNotesChange,
-  onEditNotes,
-  onSaveNotes,
-  onCancelNotesEdit,
-}: {
-  notes: string;
-  isEditingNotes: boolean;
-  isSavingNotes?: boolean;
-  textareaRows: number;
-  editButtonClassName: string;
-  saveButtonClassName: string;
-  cancelButtonClassName: string;
-  readOnlyClassName: string;
-  emptyClassName: string;
-  onNotesChange: (notes: string) => void;
-  onEditNotes: () => void;
-  onSaveNotes: () => void;
-  onCancelNotesEdit: () => void;
-}) {
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-2">
-        <span className="font-semibold text-slate-900">备注：</span>
-        {!isEditingNotes && (
-          <button
-            type="button"
-            onClick={onEditNotes}
-            className={editButtonClassName}
-          >
-            编辑
-          </button>
-        )}
-      </div>
-      {isEditingNotes ? (
-        <div className="space-y-2">
-          <textarea
-            value={notes}
-            onChange={(event) => onNotesChange(event.target.value)}
-            disabled={isSavingNotes}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            rows={textareaRows}
-            placeholder="添加备注..."
-          />
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onSaveNotes}
-              disabled={isSavingNotes}
-              className={`${saveButtonClassName} disabled:cursor-not-allowed disabled:opacity-60`}
-            >
-              {isSavingNotes ? "保存中..." : "保存"}
-            </button>
-            <button
-              type="button"
-              onClick={onCancelNotesEdit}
-              disabled={isSavingNotes}
-              className={`${cancelButtonClassName} disabled:cursor-not-allowed disabled:opacity-60`}
-            >
-              取消
-            </button>
-          </div>
-        </div>
-      ) : (
-        <p className={readOnlyClassName}>
-          {notes || <span className={emptyClassName}>暂无备注</span>}
-        </p>
-      )}
-    </div>
-  );
 }
 
 export function MobilePodcastDetailInfo({
@@ -229,41 +150,11 @@ export function MobilePodcastDetailInfo({
               </div>
             </div>
 
-            <div className="text-sm">
-              <span className="font-semibold text-slate-900">标签：</span>
-              <div className="mt-2">
-                {tags.length > 0 && (
-                  <div className="inline-flex flex-wrap items-center gap-1.5 mb-2">
-                    {tags.slice(0, 3).map((tag) => (
-                      <span
-                        key={tag.id}
-                        className="inline-flex items-center gap-1 rounded-full font-medium text-xs px-2 py-0.5 bg-slate-100 text-slate-600"
-                      >
-                        <span
-                          className="w-1 h-1 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: tag.color }}
-                        />
-                        <span className="max-w-[100px] truncate">
-                          {tag.name}
-                        </span>
-                      </span>
-                    ))}
-                    {tags.length > 3 && (
-                      <span className="text-xs text-slate-500">
-                        +{tags.length - 3}
-                      </span>
-                    )}
-                  </div>
-                )}
-                <TagInput
-                  selectedTags={tags}
-                  onTagsChange={onTagsChange}
-                  placeholder={TAG_INPUT_PLACEHOLDER}
-                  showSelectedTags={false}
-                  disabled={isUpdatingTags}
-                />
-              </div>
-            </div>
+            <MobilePodcastTagControls
+              tags={tags}
+              isUpdatingTags={isUpdatingTags}
+              onTagsChange={onTagsChange}
+            />
 
             <div className="text-sm">
               <PodcastNotesEditor
@@ -397,52 +288,11 @@ export function DesktopPodcastDetailInfo({
                 </div>
               </div>
 
-              <div>
-                <div className="inline-flex flex-wrap items-center gap-2">
-                  <span className="font-semibold text-slate-900">标签：</span>
-                  {tags.length > 0 && (
-                    <div className="inline-flex flex-wrap items-center gap-1.5">
-                      {tags.map((tag) => (
-                        <span
-                          key={tag.id}
-                          className="inline-flex items-center gap-1 rounded-full font-medium text-sm px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors group"
-                        >
-                          <span
-                            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: tag.color }}
-                          />
-                          <span
-                            className="max-w-[120px] truncate"
-                            title={tag.name}
-                          >
-                            {tag.name}
-                          </span>
-                          <button
-                            type="button"
-                            disabled={isUpdatingTags}
-                            onClick={() =>
-                              onTagsChange(tags.filter((t) => t.id !== tag.id))
-                            }
-                            className="ml-0.5 opacity-0 transition-opacity hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30 group-hover:opacity-100 dark:hover:text-red-400"
-                            title="删除标签"
-                          >
-                            ✕
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div className="mt-3">
-                  <TagInput
-                    selectedTags={tags}
-                    onTagsChange={onTagsChange}
-                    placeholder={TAG_INPUT_PLACEHOLDER}
-                    showSelectedTags={false}
-                    disabled={isUpdatingTags}
-                  />
-                </div>
-              </div>
+              <DesktopPodcastTagControls
+                tags={tags}
+                isUpdatingTags={isUpdatingTags}
+                onTagsChange={onTagsChange}
+              />
 
               <PodcastNotesEditor
                 notes={notes}

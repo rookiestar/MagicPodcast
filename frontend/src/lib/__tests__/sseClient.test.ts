@@ -42,6 +42,7 @@ describe("sseRequest", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
     globalThis.fetch = originalFetch;
   });
 
@@ -165,5 +166,33 @@ describe("sseRequest", () => {
       undefined,
       expect.objectContaining({ type: "summary" }),
     );
+  });
+
+  it("uses the configured timeout message when the response never arrives", async () => {
+    vi.useFakeTimers();
+
+    const onProgress = vi.fn();
+    globalThis.fetch = vi.fn((_url, init) => {
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal as AbortSignal | undefined;
+        signal?.addEventListener("abort", () => {
+          reject(new DOMException("aborted", "AbortError"));
+        });
+      });
+    }) as typeof fetch;
+
+    const request = sseRequest(
+      {
+        endpoint: "/api/test",
+        timeout: 1000,
+        logPrefix: "[Test]",
+        timeoutMessage: "自定义超时",
+      },
+      onProgress,
+    );
+
+    const assertion = expect(request).rejects.toThrow("自定义超时");
+    await vi.advanceTimersByTimeAsync(1000);
+    await assertion;
   });
 });

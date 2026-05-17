@@ -23,6 +23,8 @@ interface UseTargetEpisodeNavigationOptions {
   highlightDurationMs?: number;
 }
 
+type TargetEpisodeNavigationAction = "wait" | "load-more" | "focus";
+
 export function buildPodcastListBackUrl({
   sortBy,
   tagIds,
@@ -107,6 +109,44 @@ export function isEpisodeElementVisible(element: HTMLElement) {
   );
 }
 
+export function getTargetEpisodeNavigationAction({
+  targetEpisodeId,
+  episodes,
+  episodesLoading,
+  totalEpisodes,
+  hasMoreEpisodes,
+  isLoadingMore,
+}: {
+  targetEpisodeId: string | null;
+  episodes: Episode[];
+  episodesLoading: boolean;
+  totalEpisodes: number;
+  hasMoreEpisodes: boolean;
+  isLoadingMore: boolean;
+}): TargetEpisodeNavigationAction | null {
+  const targetEpisodeIdNum = parseTargetEpisodeId(targetEpisodeId);
+  if (!targetEpisodeIdNum || episodesLoading) {
+    return "wait";
+  }
+
+  const targetExists = episodes.some(
+    (episode) => episode.id === targetEpisodeIdNum,
+  );
+  if (targetExists) {
+    return "focus";
+  }
+
+  if (episodes.length === 0 && totalEpisodes === 0) {
+    return null;
+  }
+
+  if (hasMoreEpisodes && !isLoadingMore) {
+    return "load-more";
+  }
+
+  return "wait";
+}
+
 export function useTargetEpisodeNavigation({
   targetEpisodeId,
   episodes,
@@ -130,22 +170,21 @@ export function useTargetEpisodeNavigation({
 
   useEffect(() => {
     const targetEpisodeIdNum = parseTargetEpisodeId(targetEpisodeId);
-    if (!targetEpisodeIdNum || episodesLoading) {
+    const action = getTargetEpisodeNavigationAction({
+      targetEpisodeId,
+      episodes,
+      episodesLoading,
+      totalEpisodes,
+      hasMoreEpisodes,
+      isLoadingMore,
+    });
+
+    if (!targetEpisodeIdNum || !action || action === "wait") {
       return;
     }
 
-    const targetExists = episodes.some(
-      (episode) => episode.id === targetEpisodeIdNum,
-    );
-
-    if (!targetExists) {
-      if (episodes.length === 0 && totalEpisodes === 0) {
-        return;
-      }
-
-      if (hasMoreEpisodes && !isLoadingMore) {
-        void loadMoreEpisodes();
-      }
+    if (action === "load-more") {
+      void loadMoreEpisodes();
       return;
     }
 

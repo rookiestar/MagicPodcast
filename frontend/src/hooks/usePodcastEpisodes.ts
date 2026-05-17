@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { episodeApi } from "@/lib/api";
 import { getErrorMessage } from "@/lib/errorMessage";
+import {
+  applyEpisodePage,
+  canLoadMoreEpisodes,
+} from "@/lib/podcastEpisodePagination";
 import type { Episode } from "@/types";
 
 interface UsePodcastEpisodesOptions {
@@ -66,19 +70,13 @@ export function usePodcastEpisodes({
           return;
         }
 
-        if (append) {
-          setEpisodes((prev) => {
-            const loadedEpisodeIds = new Set(
-              prev.map((episode) => episode.id),
-            );
-            const uniqueNewEpisodes = newEpisodes.filter(
-              (episode) => !loadedEpisodeIds.has(episode.id),
-            );
-            return [...prev, ...uniqueNewEpisodes];
-          });
-        } else {
-          setEpisodes(newEpisodes);
-        }
+        setEpisodes((prev) =>
+          applyEpisodePage({
+            existingEpisodes: prev,
+            incomingEpisodes: newEpisodes,
+            append,
+          }),
+        );
 
         setCurrentPage(pagination.page);
         setTotalEpisodes(pagination.total);
@@ -128,10 +126,12 @@ export function usePodcastEpisodes({
 
   const loadMoreEpisodes = useCallback(async () => {
     if (
-      episodes.length === 0 ||
-      episodesLoading ||
-      isLoadingMore ||
-      !hasMoreEpisodes
+      !canLoadMoreEpisodes({
+        episodeCount: episodes.length,
+        episodesLoading,
+        isLoadingMore,
+        hasMoreEpisodes,
+      })
     ) {
       return;
     }
