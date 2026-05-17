@@ -5,6 +5,11 @@ import {
   getEpisodeCoverDisplay,
   getEpisodeCoverImage,
   getEpisodeImageLoadDelay,
+  shouldShowEpisodeImageLoader,
+  shouldShowEpisodeImagePlaceholder,
+  shouldShowEpisodePlayButton,
+  shouldShowEpisodeShowNotes,
+  shouldShowEpisodeTitleLink,
 } from "../episodeDisplay";
 
 describe("episodeDisplay", () => {
@@ -66,5 +71,29 @@ describe("episodeDisplay", () => {
     expect(formatEpisodeFileSize(0)).toBeNull();
     expect(formatEpisodeFileSize(1024 * 1024)).toBe("1.0 MB");
     expect(formatEpisodeFileSize(2.25 * 1024 * 1024)).toBe("2.3 MB");
+  });
+
+  it("shows image loader only while a queued image is pending", () => {
+    expect(shouldShowEpisodeImageLoader(false, false, true)).toBe(true);
+    expect(shouldShowEpisodeImageLoader(true, false, true)).toBe(false);
+    expect(shouldShowEpisodeImageLoader(false, true, true)).toBe(false);
+    expect(shouldShowEpisodeImageLoader(false, false, false)).toBe(false);
+  });
+
+  it("shows the image placeholder when there is no source or loading failed", () => {
+    expect(shouldShowEpisodeImagePlaceholder("", false)).toBe(true);
+    expect(shouldShowEpisodeImagePlaceholder("cover.jpg", true)).toBe(true);
+    expect(shouldShowEpisodeImagePlaceholder("cover.jpg", false)).toBe(false);
+  });
+
+  it("keeps optional episode actions explicit", () => {
+    expect(shouldShowEpisodeTitleLink("https://example.com")).toBe(true);
+    expect(shouldShowEpisodeTitleLink("")).toBe(false);
+    expect(shouldShowEpisodePlayButton("https://example.com/audio.mp3")).toBe(
+      true,
+    );
+    expect(shouldShowEpisodePlayButton("")).toBe(false);
+    expect(shouldShowEpisodeShowNotes("<p>notes</p>")).toBe(true);
+    expect(shouldShowEpisodeShowNotes("")).toBe(false);
   });
 });

@@ -8,6 +8,11 @@ import {
   formatEpisodeDuration,
   formatEpisodeFileSize,
   getEpisodeCoverDisplay,
+  shouldShowEpisodeImageLoader,
+  shouldShowEpisodeImagePlaceholder,
+  shouldShowEpisodePlayButton,
+  shouldShowEpisodeShowNotes,
+  shouldShowEpisodeTitleLink,
   type EpisodeImagePriority,
 } from "@/lib/episodeDisplay";
 import { stripHtml } from "@/lib/textUtils";
@@ -95,6 +100,18 @@ function EpisodeCard({
   const imageError = coverDisplay.shouldQueue ? queuedImageError : false;
   const durationLabel = formatEpisodeDuration(episode.duration);
   const fileSizeLabel = formatEpisodeFileSize(episode.enclosure_length);
+  const showImageLoader = shouldShowEpisodeImageLoader(
+    imageLoaded,
+    imageError,
+    coverDisplay.shouldQueue,
+  );
+  const showImagePlaceholder = shouldShowEpisodeImagePlaceholder(
+    coverDisplay.src,
+    imageError,
+  );
+  const showTitleLink = shouldShowEpisodeTitleLink(episode.link);
+  const showPlayButton = shouldShowEpisodePlayButton(episode.medium_url);
+  const showNotes = shouldShowEpisodeShowNotes(episode.show_notes);
 
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
     const nextFocusedElement = event.relatedTarget as Node | null;
@@ -133,7 +150,7 @@ function EpisodeCard({
             )}
 
             {/* 加载指示器 */}
-            {!imageLoaded && !imageError && coverDisplay.shouldQueue && (
+            {showImageLoader && (
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
               </div>
@@ -154,7 +171,7 @@ function EpisodeCard({
             ) : null}
 
             {/* 占位符：当没有封面或图片加载失败时显示 */}
-            {(!coverDisplay.src || imageError) && (
+            {showImagePlaceholder && (
               <div
                 className="w-full h-full flex items-center justify-center bg-slate-200"
                 aria-hidden="true"
@@ -180,7 +197,7 @@ function EpisodeCard({
           <div className="flex-1 min-w-0">
             {/* Title with Play Button */}
             <div className="flex items-start justify-between gap-2 mb-1.5">
-              {episode.link ? (
+              {showTitleLink ? (
                 <a
                   href={episode.link}
                   target="_blank"
@@ -196,7 +213,7 @@ function EpisodeCard({
               )}
 
               {/* Play Button Icon */}
-              {episode.medium_url && (
+              {showPlayButton && (
                 <button
                   type="button"
                   onClick={(event) => {
@@ -242,7 +259,7 @@ function EpisodeCard({
         </div>
 
         {/* Show Notes */}
-        {episode.show_notes && (
+        {showNotes && (
           <EpisodeShowNotes
             html={episode.show_notes}
             link={episode.link}

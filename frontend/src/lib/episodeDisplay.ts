@@ -84,3 +84,30 @@ export function formatEpisodeFileSize(bytes?: number | null) {
   const mb = bytes / (1024 * 1024);
   return `${mb.toFixed(1)} MB`;
 }
+
+export function shouldShowEpisodeImageLoader(
+  imageLoaded: boolean,
+  imageError: boolean,
+  shouldQueue: boolean,
+) {
+  return !imageLoaded && !imageError && shouldQueue;
+}
+
+export function shouldShowEpisodeImagePlaceholder(
+  src: string,
+  imageError: boolean,
+) {
+  return !src || imageError;
+}
+
+export function shouldShowEpisodeTitleLink(link?: string | null) {
+  return Boolean(link);
+}
+
+export function shouldShowEpisodePlayButton(mediumUrl?: string | null) {
+  return Boolean(mediumUrl);
+}
+
+export function shouldShowEpisodeShowNotes(showNotes?: string | null) {
+  return Boolean(showNotes);
+}
