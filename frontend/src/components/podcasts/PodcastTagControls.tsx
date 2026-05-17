@@ -1,4 +1,10 @@
 import TagInput from "@/components/tags/TagInput";
+import {
+  getRemainingPodcastDetailTagCount,
+  getVisiblePodcastDetailTags,
+  removePodcastDetailTag,
+  shouldShowPodcastTagSummary,
+} from "@/lib/podcastTagControlsState";
 import type { Tag } from "@/types";
 
 export const PODCAST_TAG_INPUT_PLACEHOLDER =
@@ -15,13 +21,17 @@ export function MobilePodcastTagControls({
   isUpdatingTags,
   onTagsChange,
 }: PodcastTagControlsProps) {
+  const visibleTags = getVisiblePodcastDetailTags(tags);
+  const remainingTagCount = getRemainingPodcastDetailTagCount(tags);
+  const showTagSummary = shouldShowPodcastTagSummary(tags);
+
   return (
     <div className="text-sm">
       <span className="font-semibold text-slate-900">标签：</span>
       <div className="mt-2">
-        {tags.length > 0 && (
+        {showTagSummary && (
           <div className="mb-2 inline-flex flex-wrap items-center gap-1.5">
-            {tags.slice(0, 3).map((tag) => (
+            {visibleTags.map((tag) => (
               <span
                 key={tag.id}
                 className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600"
@@ -33,9 +43,9 @@ export function MobilePodcastTagControls({
                 <span className="max-w-[100px] truncate">{tag.name}</span>
               </span>
             ))}
-            {tags.length > 3 && (
+            {remainingTagCount > 0 && (
               <span className="text-xs text-slate-500">
-                +{tags.length - 3}
+                +{remainingTagCount}
               </span>
             )}
           </div>
@@ -57,11 +67,13 @@ export function DesktopPodcastTagControls({
   isUpdatingTags,
   onTagsChange,
 }: PodcastTagControlsProps) {
+  const showTagSummary = shouldShowPodcastTagSummary(tags);
+
   return (
     <div>
       <div className="inline-flex flex-wrap items-center gap-2">
         <span className="font-semibold text-slate-900">标签：</span>
-        {tags.length > 0 && (
+        {showTagSummary && (
           <div className="inline-flex flex-wrap items-center gap-1.5">
             {tags.map((tag) => (
               <span
@@ -78,7 +90,9 @@ export function DesktopPodcastTagControls({
                 <button
                   type="button"
                   disabled={isUpdatingTags}
-                  onClick={() => onTagsChange(tags.filter((t) => t.id !== tag.id))}
+                  onClick={() =>
+                    onTagsChange(removePodcastDetailTag(tags, tag.id))
+                  }
                   className="ml-0.5 opacity-0 transition-opacity hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30 group-hover:opacity-100 dark:hover:text-red-400"
                   title="删除标签"
                 >

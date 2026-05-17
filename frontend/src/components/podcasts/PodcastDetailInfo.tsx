@@ -2,7 +2,15 @@
 
 import { useState } from "react";
 import RichText from "@/components/RichText";
-import { getEffectiveCoverUrl } from "@/lib/imageProxy";
+import {
+  formatPodcastLatestEpisodeDurationLabel,
+  formatPodcastNewestEpisodeDate,
+  getPodcastDescriptionHtml,
+  getPodcastDetailInfoCoverUrl,
+  shouldShowPodcastLatestEpisodePlayButton,
+  shouldShowPodcastPopularityBadge,
+  shouldShowPodcastWebsiteLink,
+} from "@/lib/podcastDetailDisplay";
 import type { Podcast, Tag } from "@/types";
 import PodcastCover from "./PodcastCover";
 import PodcastNotesEditor from "./PodcastNotesEditor";
@@ -25,30 +33,6 @@ interface PodcastDetailInfoProps {
   onTagsChange: (tags: Tag[]) => void;
 }
 
-function formatNewestEpisodeDate(value?: string) {
-  try {
-    const date = value ? new Date(value) : null;
-    return date && !isNaN(date.getTime())
-      ? date.toLocaleString("zh-CN", {
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-          hour12: false,
-        })
-      : "未知";
-  } catch {
-    return "未知";
-  }
-}
-
-function formatDurationLabel(duration?: number) {
-  if (!duration) return null;
-  return `${Math.floor(duration / 60)}分${duration % 60}秒`;
-}
-
 export function MobilePodcastDetailInfo({
   podcast,
   tags,
@@ -63,10 +47,14 @@ export function MobilePodcastDetailInfo({
   onTagsChange,
 }: PodcastDetailInfoProps) {
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const coverUrl = getEffectiveCoverUrl(
-    podcast.custom_cover_url,
-    podcast.cover_url,
+  const coverUrl = getPodcastDetailInfoCoverUrl(podcast);
+  const showLatestEpisodePlayButton =
+    shouldShowPodcastLatestEpisodePlayButton(podcast.newest_enclosure_url);
+  const showWebsiteLink = shouldShowPodcastWebsiteLink(podcast.link);
+  const showPopularityBadge = shouldShowPodcastPopularityBadge(
+    podcast.popularity_score,
   );
+  const descriptionHtml = getPodcastDescriptionHtml(podcast.description);
 
   return (
     <div className="md:hidden">
@@ -94,7 +82,7 @@ export function MobilePodcastDetailInfo({
         </div>
 
         <div className="flex gap-2 mb-3">
-          {podcast.newest_enclosure_url && (
+          {showLatestEpisodePlayButton && (
             <button
               type="button"
               onClick={() =>
@@ -121,7 +109,7 @@ export function MobilePodcastDetailInfo({
         <details open={detailsOpen} className="mt-4">
           <summary className="hidden"></summary>
           <div className="pt-4 border-t border-slate-200 space-y-4">
-            {podcast.link && (
+            {showWebsiteLink && (
               <div className="text-sm">
                 <span className="font-semibold text-slate-900">官网：</span>
                 <a
@@ -135,7 +123,7 @@ export function MobilePodcastDetailInfo({
               </div>
             )}
 
-            {podcast.popularity_score && podcast.popularity_score >= 7 && (
+            {showPopularityBadge && (
               <div>
                 <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
                   🔥 热门播客 (热度: {podcast.popularity_score}/10)
@@ -146,7 +134,7 @@ export function MobilePodcastDetailInfo({
             <div className="text-sm">
               <span className="font-semibold text-slate-900">简介：</span>
               <div className="mt-1 line-clamp-3">
-                <RichText html={podcast.description || "暂无简介"} />
+                <RichText html={descriptionHtml} />
               </div>
             </div>
 
@@ -193,11 +181,17 @@ export function DesktopPodcastDetailInfo({
   onCancelNotesEdit,
   onTagsChange,
 }: PodcastDetailInfoProps) {
-  const coverUrl = getEffectiveCoverUrl(
-    podcast.custom_cover_url,
-    podcast.cover_url,
+  const coverUrl = getPodcastDetailInfoCoverUrl(podcast);
+  const durationLabel = formatPodcastLatestEpisodeDurationLabel(
+    podcast.newest_enclosure_duration,
   );
-  const durationLabel = formatDurationLabel(podcast.newest_enclosure_duration);
+  const showLatestEpisodePlayButton =
+    shouldShowPodcastLatestEpisodePlayButton(podcast.newest_enclosure_url);
+  const showWebsiteLink = shouldShowPodcastWebsiteLink(podcast.link);
+  const showPopularityBadge = shouldShowPodcastPopularityBadge(
+    podcast.popularity_score,
+  );
+  const descriptionHtml = getPodcastDescriptionHtml(podcast.description);
 
   return (
     <div className="hidden md:block">
@@ -232,9 +226,9 @@ export function DesktopPodcastDetailInfo({
                   <span className="font-semibold text-slate-900">
                     最新更新：
                   </span>
-                  {formatNewestEpisodeDate(podcast.newest_episode_date)}
+                  {formatPodcastNewestEpisodeDate(podcast.newest_episode_date)}
                 </div>
-                {podcast.newest_enclosure_url && (
+                {showLatestEpisodePlayButton && (
                   <button
                     type="button"
                     onClick={() =>
@@ -259,7 +253,7 @@ export function DesktopPodcastDetailInfo({
                 )}
               </div>
 
-              {podcast.link && (
+              {showWebsiteLink && (
                 <div>
                   <span className="font-semibold text-slate-900">官网：</span>
                   <a
@@ -273,7 +267,7 @@ export function DesktopPodcastDetailInfo({
                 </div>
               )}
 
-              {podcast.popularity_score && podcast.popularity_score >= 7 && (
+              {showPopularityBadge && (
                 <div>
                   <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
                     🔥 热门播客 (热度: {podcast.popularity_score}/10)
@@ -284,7 +278,7 @@ export function DesktopPodcastDetailInfo({
               <div>
                 <span className="font-semibold text-slate-900">简介：</span>
                 <div className="mt-1 text-sm">
-                  <RichText html={podcast.description || "暂无简介"} />
+                  <RichText html={descriptionHtml} />
                 </div>
               </div>
 

@@ -13,7 +13,14 @@ import {
 import { usePodcastEpisodes } from "@/hooks/usePodcastEpisodes";
 import { usePodcastMetadataEditing } from "@/hooks/usePodcastMetadataEditing";
 import { useInfiniteScrollTrigger } from "@/hooks/usePagination";
-import { getEffectiveCoverUrl } from "@/lib/imageProxy";
+import {
+  canAutoLoadMorePodcastEpisodes,
+  getPodcastDetailCoverUrl,
+  getPodcastDetailDescription,
+  getPodcastDetailErrorMessage,
+  getPodcastDetailTitle,
+  parsePodcastDetailId,
+} from "@/lib/podcastDetailState";
 import PageLayout from "@/components/layout/PageLayout";
 import PodcastDetailContent from "@/components/podcasts/PodcastDetailContent";
 
@@ -25,7 +32,7 @@ const EPISODE_SCROLL_OPTIONS: IntersectionObserverInit = {
 export default function PodcastDetailPage() {
   const params = useParams();
   const searchParams = useSearchParams();
-  const id = parseInt(params.id as string);
+  const podcastId = parsePodcastDetailId(params.id);
   const targetEpisodeId = searchParams.get("episode_id");
   const sortBy = searchParams.get("sort_by") || "";
   const tagIds = searchParams.get("tag_ids") || searchParams.getAll("tag_id");
@@ -35,9 +42,9 @@ export default function PodcastDetailPage() {
     podcast,
     isLoading: podcastLoading,
     isError: podcastError,
-  } = usePodcast(id);
-  const { tags, mutate: mutateTags } = usePodcastTags(id);
-  const { notes: swrNotes, mutate: mutateNotes } = usePodcastNotes(id);
+  } = usePodcast(podcastId);
+  const { tags, mutate: mutateTags } = usePodcastTags(podcastId);
+  const { notes: swrNotes, mutate: mutateNotes } = usePodcastNotes(podcastId);
 
   const {
     episodes,
@@ -49,8 +56,8 @@ export default function PodcastDetailPage() {
     loadMoreEpisodes,
     retryEpisodes,
   } = usePodcastEpisodes({
-    podcastId: id,
-    enabled: Boolean(id && !podcastLoading),
+    podcastId: podcastId ?? 0,
+    enabled: Boolean(podcastId && !podcastLoading),
     pageSize: PAGE_SIZE,
   });
 
@@ -65,21 +72,21 @@ export default function PodcastDetailPage() {
     handleNotesSave,
     cancelNotesEdit,
   } = usePodcastMetadataEditing({
-    podcastId: id,
+    podcastId: podcastId ?? 0,
     tags,
     swrNotes,
     mutateTags,
     mutateNotes,
   });
 
-  const error = podcastError ? "加载播客失败" : null;
-  const canAutoLoadMoreEpisodes = Boolean(
-    episodes.length > 0 &&
-      !episodesLoading &&
-      !isLoadingMore &&
-      hasMoreEpisodes &&
-      !episodesError,
-  );
+  const error = getPodcastDetailErrorMessage(podcastError);
+  const canAutoLoadMoreEpisodes = canAutoLoadMorePodcastEpisodes({
+    episodeCount: episodes.length,
+    episodesLoading,
+    isLoadingMore,
+    hasMoreEpisodes,
+    episodesError,
+  });
 
   const { ref: loadMoreRef } = useInfiniteScrollTrigger(
     loadMoreEpisodes,
@@ -103,11 +110,8 @@ export default function PodcastDetailPage() {
     <PageLayout
       toolbar={{
         breadcrumbs: [{ label: "返回列表", href: backUrl }],
-        title: podcast?.title || "播客详情",
-        description:
-          podcast && (podcast.episode_count || episodes.length) > 0
-            ? `共 ${podcast.episode_count || episodes.length} 个单集`
-            : undefined,
+        title: getPodcastDetailTitle(podcast),
+        description: getPodcastDetailDescription(podcast, episodes.length),
       }}
     >
       <div className="py-6">
@@ -125,14 +129,7 @@ export default function PodcastDetailPage() {
           hasMoreEpisodes={hasMoreEpisodes}
           totalEpisodes={totalEpisodes}
           episodesError={episodesError}
-          podcastCover={
-            podcast
-              ? getEffectiveCoverUrl(
-                  podcast.custom_cover_url,
-                  podcast.cover_url,
-                )
-              : undefined
-          }
+          podcastCover={getPodcastDetailCoverUrl(podcast)}
           loadMoreRef={loadMoreRef}
           onNotesChange={setNotes}
           onEditNotes={() => setIsEditingNotes(true)}

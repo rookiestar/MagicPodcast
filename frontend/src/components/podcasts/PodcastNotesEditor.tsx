@@ -1,3 +1,11 @@
+import {
+  arePodcastNotesControlsDisabled,
+  getPodcastNotesReadOnlyText,
+  getPodcastNotesSaveButtonLabel,
+  hasPodcastNotes,
+  shouldShowPodcastNotesEditButton,
+} from "@/lib/podcastNotesEditorState";
+
 interface PodcastNotesEditorProps {
   notes: string;
   isEditingNotes: boolean;
@@ -29,11 +37,17 @@ export default function PodcastNotesEditor({
   onSaveNotes,
   onCancelNotesEdit,
 }: PodcastNotesEditorProps) {
+  const showEditButton = shouldShowPodcastNotesEditButton(isEditingNotes);
+  const controlsDisabled = arePodcastNotesControlsDisabled(isSavingNotes);
+  const saveButtonLabel = getPodcastNotesSaveButtonLabel(isSavingNotes);
+  const readOnlyText = getPodcastNotesReadOnlyText(notes);
+  const hasNotes = hasPodcastNotes(notes);
+
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
         <span className="font-semibold text-slate-900">备注：</span>
-        {!isEditingNotes && (
+        {showEditButton && (
           <button
             type="button"
             onClick={onEditNotes}
@@ -48,7 +62,7 @@ export default function PodcastNotesEditor({
           <textarea
             value={notes}
             onChange={(event) => onNotesChange(event.target.value)}
-            disabled={isSavingNotes}
+            disabled={controlsDisabled}
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-transparent focus:ring-2 focus:ring-blue-500"
             rows={textareaRows}
             placeholder="添加备注..."
@@ -57,15 +71,15 @@ export default function PodcastNotesEditor({
             <button
               type="button"
               onClick={onSaveNotes}
-              disabled={isSavingNotes}
+              disabled={controlsDisabled}
               className={`${saveButtonClassName} disabled:cursor-not-allowed disabled:opacity-60`}
             >
-              {isSavingNotes ? "保存中..." : "保存"}
+              {saveButtonLabel}
             </button>
             <button
               type="button"
               onClick={onCancelNotesEdit}
-              disabled={isSavingNotes}
+              disabled={controlsDisabled}
               className={`${cancelButtonClassName} disabled:cursor-not-allowed disabled:opacity-60`}
             >
               取消
@@ -74,7 +88,11 @@ export default function PodcastNotesEditor({
         </div>
       ) : (
         <p className={readOnlyClassName}>
-          {notes || <span className={emptyClassName}>暂无备注</span>}
+          {hasNotes ? (
+            readOnlyText
+          ) : (
+            <span className={emptyClassName}>{readOnlyText}</span>
+          )}
         </p>
       )}
     </div>

@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { podcastApi } from "@/lib/api";
 import { getErrorMessage } from "@/lib/errorMessage";
+import {
+  getPodcastNotesAfterCancel,
+  getPodcastNotesOptimisticPayload,
+  getPodcastTagChanges,
+  getPodcastTagsOptimisticPayload,
+  shouldSyncPodcastNotes,
+} from "@/lib/podcastMetadataEditingState";
 import { toast } from "@/lib/toast";
 import type { Tag } from "@/types";
 import { useExclusiveAsyncAction } from "./useExclusiveAsyncAction";
@@ -18,15 +25,7 @@ interface UsePodcastMetadataEditingOptions {
   mutateNotes: MutateFn;
 }
 
-export function getTagChanges(currentTags: Tag[], newTags: Tag[]) {
-  const currentIds = new Set(currentTags.map((tag) => tag.id));
-  const newIds = new Set(newTags.map((tag) => tag.id));
-
-  return {
-    toAdd: newTags.filter((tag) => !currentIds.has(tag.id)),
-    toRemove: currentTags.filter((tag) => !newIds.has(tag.id)),
-  };
-}
+export { getPodcastTagChanges as getTagChanges };
 
 export function usePodcastMetadataEditing({
   podcastId,
@@ -43,7 +42,7 @@ export function usePodcastMetadataEditing({
   const runNotesSave = useExclusiveAsyncAction({ isBlocked: false });
 
   useEffect(() => {
-    if (swrNotes !== undefined) {
+    if (shouldSyncPodcastNotes(swrNotes)) {
       setNotes(swrNotes);
     }
   }, [swrNotes]);
@@ -52,9 +51,9 @@ export function usePodcastMetadataEditing({
     await runTagsUpdate(async () => {
       setIsUpdatingTags(true);
 
-      const { toAdd, toRemove } = getTagChanges(tags, newTags);
+      const { toAdd, toRemove } = getPodcastTagChanges(tags, newTags);
 
-      mutateTags({ tags: newTags }, false);
+      mutateTags(getPodcastTagsOptimisticPayload(newTags), false);
 
       try {
         for (const tag of toAdd) {
@@ -79,7 +78,7 @@ export function usePodcastMetadataEditing({
   const handleNotesSave = async () => {
     await runNotesSave(async () => {
       setIsSavingNotes(true);
-      mutateNotes({ id: podcastId, notes }, false);
+      mutateNotes(getPodcastNotesOptimisticPayload(podcastId, notes), false);
       setIsEditingNotes(false);
 
       try {
@@ -100,7 +99,7 @@ export function usePodcastMetadataEditing({
     if (isSavingNotes) return;
 
     setIsEditingNotes(false);
-    setNotes(swrNotes || "");
+    setNotes(getPodcastNotesAfterCancel(swrNotes));
   };
 
   return {

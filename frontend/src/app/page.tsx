@@ -1,13 +1,16 @@
-"use client";
-
-import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Suspense } from "react";
 import { SimplePageLayout } from "@/components/layout/PageLayout";
 
-function HomeContent() {
-  const searchParams = useSearchParams();
-  const sortBy = searchParams.get("sort_by") || "";
+interface HomeProps {
+  searchParams?: {
+    sort_by?: string | string[];
+  };
+}
+
+export default function Home({ searchParams }: HomeProps) {
+  const sortByParam = searchParams?.sort_by;
+  const sortBy = Array.isArray(sortByParam) ? sortByParam[0] : sortByParam || "";
+  const podcastsHref = `/podcasts${sortBy ? `?sort_by=${encodeURIComponent(sortBy)}` : ""}`;
 
   return (
     <SimplePageLayout>
@@ -38,10 +41,7 @@ function HomeContent() {
 
         {/* Feature Cards */}
         <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-          <Link
-            href={`/podcasts${sortBy ? `?sort_by=${sortBy}` : ""}`}
-            className="group"
-          >
+          <Link href={podcastsHref} className="group">
             <FeatureCard
               emoji="🎧"
               title="我的订阅管理"
@@ -75,20 +75,6 @@ function HomeContent() {
         </div>
       </div>
     </SimplePageLayout>
-  );
-}
-
-export default function Home() {
-  return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        </div>
-      }
-    >
-      <HomeContent />
-    </Suspense>
   );
 }
 
