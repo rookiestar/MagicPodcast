@@ -21,11 +21,24 @@ describe("podcastGridVirtualization", () => {
     expect(
       getLastVisiblePodcastRowIndex(
         [
-          { index: 0, start: 100 },
-          { index: 1, start: 400 },
-          { index: 2, start: 900 },
+          { index: 0, start: 100, end: 360 },
+          { index: 1, start: 400, end: 680 },
+          { index: 2, start: 900, end: 1180 },
         ],
         720,
+      ),
+    ).toBe(1);
+  });
+
+  it("does not count a row as visible when only its top edge entered", () => {
+    expect(
+      getLastVisiblePodcastRowIndex(
+        [
+          { index: 0, start: 0, end: 480 },
+          { index: 1, start: 506, end: 986 },
+          { index: 2, start: 1012, end: 1492 },
+        ],
+        1100,
       ),
     ).toBe(1);
   });

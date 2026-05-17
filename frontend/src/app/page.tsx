@@ -41,7 +41,7 @@ export default function Home({ searchParams }: HomeProps) {
 
         {/* Feature Cards */}
         <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-          <Link href={podcastsHref} className="group">
+          <Link href={podcastsHref} prefetch={false} className="group">
             <FeatureCard
               emoji="🎧"
               title="我的订阅管理"
@@ -49,7 +49,7 @@ export default function Home({ searchParams }: HomeProps) {
             />
           </Link>
 
-          <Link href="/workflows" className="group">
+          <Link href="/workflows" prefetch={false} className="group">
             <FeatureCard
               emoji="⚙️"
               title="自动化工作流"
@@ -57,7 +57,7 @@ export default function Home({ searchParams }: HomeProps) {
             />
           </Link>
 
-          <Link href="/tags" className="group">
+          <Link href="/tags" prefetch={false} className="group">
             <FeatureCard
               emoji="🏷️"
               title="标签与备注管理"
@@ -65,7 +65,7 @@ export default function Home({ searchParams }: HomeProps) {
             />
           </Link>
 
-          <Link href="/import" className="group">
+          <Link href="/import" prefetch={false} className="group">
             <FeatureCard
               emoji="📥"
               title="导入/同步"

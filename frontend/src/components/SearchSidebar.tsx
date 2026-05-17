@@ -3,32 +3,37 @@
 import { useState, useEffect, useRef } from "react";
 import PodcastCover from "@/components/podcasts/PodcastCover";
 import { useSearchSidebar } from "@/hooks/useSearchSidebar";
+import {
+  buildEpisodeSearchResultHref,
+  buildPodcastSearchResultHref,
+  getEpisodeSearchSnippet,
+  getPodcastSearchSnippet,
+  getSearchExpandButtonLabel,
+  getSearchResultsCount,
+  getSearchTextHighlightParts,
+  getVisibleSearchResults,
+  shouldShowEpisodeSearchResults,
+  shouldShowPodcastSearchResults,
+  shouldShowSearchExpandButton,
+  shouldShowSearchSectionHeading,
+} from "@/lib/searchResultDisplay";
+import { getSearchSidebarPanelState } from "@/lib/searchSidebarState";
 
 interface SearchSidebarProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function renderHighlightedText(text: string, keyword: string) {
-  const normalizedKeyword = keyword.trim();
-  if (!normalizedKeyword) return text;
-
-  const keywordRegex = new RegExp(`(${escapeRegExp(normalizedKeyword)})`, "gi");
-  const keywordLower = normalizedKeyword.toLowerCase();
-
-  return text.split(keywordRegex).map((part, index) => {
-    if (part.toLowerCase() !== keywordLower) return part;
+  return getSearchTextHighlightParts(text, keyword).map((part, index) => {
+    if (!part.highlighted) return part.text;
 
     return (
       <mark
-        key={`${part}-${index}`}
+        key={`${part.text}-${index}`}
         className="bg-yellow-200 dark:bg-yellow-800 rounded px-0.5"
       >
-        {part}
+        {part.text}
       </mark>
     );
   });
@@ -126,8 +131,35 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
 
   if (!isOpen) return null;
 
-  const showPodcasts = searchType === "all" || searchType === "podcasts";
-  const showEpisodes = searchType === "all" || searchType === "episodes";
+  const resultCount = getSearchResultsCount({
+    podcastCount: allResults.podcasts.length,
+    episodeCount: allResults.episodes.length,
+  });
+  const showPodcasts = shouldShowPodcastSearchResults(
+    searchType,
+    results.podcasts.length,
+  );
+  const showEpisodes = shouldShowEpisodeSearchResults(
+    searchType,
+    results.episodes.length,
+  );
+  const visiblePodcasts = getVisibleSearchResults(
+    results.podcasts,
+    expandedPodcasts,
+    PODCASTS_PER_PAGE,
+  );
+  const visibleEpisodes = getVisibleSearchResults(
+    results.episodes,
+    expandedEpisodes,
+    EPISODES_PER_PAGE,
+  );
+  const panelState = getSearchSidebarPanelState({
+    loading,
+    isQueryTooShort,
+    showHistory,
+    searchError,
+    hasResults,
+  });
 
   return (
     <>
@@ -191,8 +223,7 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
               }`}
             >
               全部{" "}
-              {allResults.podcasts.length + allResults.episodes.length > 0 &&
-                `(${allResults.podcasts.length + allResults.episodes.length})`}
+              {resultCount > 0 && `(${resultCount})`}
             </button>
             <button
               onClick={() => setSearchType("podcasts")}
@@ -224,7 +255,7 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
         {/* 结果区域 */}
         <div className="flex-1 overflow-y-auto">
           {/* 搜索历史 */}
-          {showHistory && (
+          {panelState === "history" && (
             <div className="p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
@@ -251,7 +282,7 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
             </div>
           )}
 
-          {!loading && isQueryTooShort && !showHistory && (
+          {panelState === "prompt" && (
             <div className="flex flex-col items-center justify-center h-full text-slate-500 dark:text-slate-400">
               <span className="text-6xl mb-4">🔍</span>
               <p className="text-lg">输入关键词开始搜索</p>
@@ -261,44 +292,44 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
             </div>
           )}
 
-          {!loading && searchError && (
+          {panelState === "error" && (
             <div className="flex flex-col items-center justify-center h-full text-slate-500 dark:text-slate-400">
               <p className="text-lg">搜索失败</p>
               <p className="text-sm mt-2">{searchError}</p>
             </div>
           )}
 
-          {!loading && !searchError && !isQueryTooShort && !hasResults && (
+          {panelState === "empty" && (
             <div className="flex flex-col items-center justify-center h-full text-slate-500 dark:text-slate-400">
               <p className="text-lg">未找到相关结果</p>
               <p className="text-sm mt-2">试试其他关键词</p>
             </div>
           )}
 
-          {loading && (
+          {panelState === "loading" && (
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
             </div>
           )}
 
-          {!loading && hasResults && (
+          {panelState === "results" && (
             <div className="p-4">
               {/* 播客结果 */}
-              {showPodcasts && results.podcasts.length > 0 && (
+              {showPodcasts && (
                 <>
-                  {searchType === "all" && results.episodes.length > 0 && (
+                  {shouldShowSearchSectionHeading(
+                    searchType,
+                    results.episodes.length,
+                  ) && (
                     <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-3">
                       📻 节目 ({results.podcasts.length})
                     </h3>
                   )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {(expandedPodcasts
-                      ? results.podcasts
-                      : results.podcasts.slice(0, PODCASTS_PER_PAGE)
-                    ).map((podcast, index) => (
+                    {visiblePodcasts.map((podcast, index) => (
                       <a
                         key={podcast.id}
-                        href={`/podcasts/${podcast.id}`}
+                        href={buildPodcastSearchResultHref(podcast.id)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="block p-4 bg-white dark:bg-slate-800 rounded-lg hover:shadow-md transition-all border border-slate-200 dark:border-slate-700"
@@ -328,21 +359,8 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
                               {podcast.author} · {podcast.episode_count} 集
                             </p>
                             {(() => {
-                              // 优先显示 description 的 snippet，其次显示 author，最后显示 title
-                              const descField = podcast.matched_fields?.find(
-                                (f) => f.field === "description",
-                              );
-                              const authorField = podcast.matched_fields?.find(
-                                (f) => f.field === "author",
-                              );
-                              const titleField = podcast.matched_fields?.find(
-                                (f) => f.field === "title",
-                              );
                               const snippetToShow =
-                                descField?.snippet ||
-                                authorField?.snippet ||
-                                titleField?.snippet ||
-                                podcast.description;
+                                getPodcastSearchSnippet(podcast);
 
                               return snippetToShow ? (
                                 <p
@@ -359,23 +377,31 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
                   </div>
 
                   {/* 展开按钮 */}
-                  {results.podcasts.length > PODCASTS_PER_PAGE && (
+                  {shouldShowSearchExpandButton(
+                    results.podcasts.length,
+                    PODCASTS_PER_PAGE,
+                  ) && (
                     <button
                       onClick={() => setExpandedPodcasts(!expandedPodcasts)}
                       className="w-full mt-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
                     >
-                      {expandedPodcasts
-                        ? "收起"
-                        : `展开全部 ${results.podcasts.length} 个节目`}
+                      {getSearchExpandButtonLabel(
+                        expandedPodcasts,
+                        results.podcasts.length,
+                        "节目",
+                      )}
                     </button>
                   )}
                 </>
               )}
 
               {/* 单集结果 */}
-              {showEpisodes && results.episodes.length > 0 && (
+              {showEpisodes && (
                 <>
-                  {searchType === "all" && results.podcasts.length > 0 && (
+                  {shouldShowSearchSectionHeading(
+                    searchType,
+                    results.podcasts.length,
+                  ) && (
                     <>
                       <div className="my-6 border-t border-slate-200 dark:border-slate-700"></div>
                       <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-3">
@@ -384,13 +410,13 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
                     </>
                   )}
                   <div className="space-y-3">
-                    {(expandedEpisodes
-                      ? results.episodes
-                      : results.episodes.slice(0, EPISODES_PER_PAGE)
-                    ).map((episode) => (
+                    {visibleEpisodes.map((episode) => (
                       <a
                         key={episode.id}
-                        href={`/podcasts/${episode.podcast_id}?episode_id=${episode.id}`}
+                        href={buildEpisodeSearchResultHref(
+                          episode.podcast_id,
+                          episode.id,
+                        )}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="block p-4 bg-slate-50 dark:bg-slate-900 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
@@ -406,17 +432,8 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
                             ` · ${new Date(episode.published_date).toLocaleDateString()}`}
                         </p>
                         {(() => {
-                          // 优先显示 show_notes 的 snippet，如果没有才显示 title 的 snippet
-                          const showNotesField = episode.matched_fields?.find(
-                            (f) => f.field === "show_notes",
-                          );
-                          const titleField = episode.matched_fields?.find(
-                            (f) => f.field === "title",
-                          );
                           const snippetToShow =
-                            showNotesField?.snippet ||
-                            titleField?.snippet ||
-                            episode.show_notes;
+                            getEpisodeSearchSnippet(episode);
 
                           return snippetToShow ? (
                             <p
@@ -431,14 +448,19 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
                   </div>
 
                   {/* 展开按钮 */}
-                  {results.episodes.length > EPISODES_PER_PAGE && (
+                  {shouldShowSearchExpandButton(
+                    results.episodes.length,
+                    EPISODES_PER_PAGE,
+                  ) && (
                     <button
                       onClick={() => setExpandedEpisodes(!expandedEpisodes)}
                       className="w-full mt-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
                     >
-                      {expandedEpisodes
-                        ? "收起"
-                        : `展开全部 ${results.episodes.length} 个单集`}
+                      {getSearchExpandButtonLabel(
+                        expandedEpisodes,
+                        results.episodes.length,
+                        "单集",
+                      )}
                     </button>
                   )}
                 </>

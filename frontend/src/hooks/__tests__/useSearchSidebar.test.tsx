@@ -2,9 +2,9 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { searchApi } from "@/lib/api";
 import type { SearchData } from "@/types";
+import { filterSearchResults, normalizeSearchData } from "@/lib/searchSidebarState";
 import {
   addToSearchHistory,
-  filterSearchResults,
   getSearchHistory,
   useSearchSidebar,
 } from "../useSearchSidebar";
@@ -136,6 +136,20 @@ describe("filterSearchResults", () => {
     expect(filterSearchResults(data, "episodes")).toEqual({
       podcasts: [],
       episodes: data.episodes,
+    });
+  });
+});
+
+describe("normalizeSearchData", () => {
+  it("normalizes missing result arrays without crashing", () => {
+    expect(
+      normalizeSearchData({
+        pagination: null,
+      } as unknown as SearchData),
+    ).toEqual({
+      podcasts: [],
+      episodes: [],
+      pagination: null,
     });
   });
 });

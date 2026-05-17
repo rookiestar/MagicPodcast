@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo, memo, useEffect } from "react";
+import { useRef, useMemo, memo, useEffect, useState } from "react";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import ResponsivePodcastCard from "@/components/podcasts/ResponsivePodcastCard";
 import {
@@ -101,6 +101,7 @@ export default function VirtualPodcastGrid({
 }: VirtualPodcastGridProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const lastLoadMoreRowCountRef = useRef<number | null>(null);
+  const [hasUserScrolled, setHasUserScrolled] = useState(false);
 
   // 计算行数
   const rowCount = useMemo(
@@ -122,8 +123,29 @@ export default function VirtualPodcastGrid({
   // 获取可见的虚拟行
   const virtualRows = rowVirtualizer.getVirtualItems();
 
+  useEffect(() => {
+    if (hasUserScrolled) {
+      return;
+    }
+
+    const handleScroll = () => {
+      if (window.scrollY > 0) {
+        setHasUserScrolled(true);
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    handleScroll();
+
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [hasUserScrolled]);
+
   // 检测是否需要加载更多
   useEffect(() => {
+    if (!hasUserScrolled) {
+      return;
+    }
+
     const lastVisibleRowIndex = getLastVisiblePodcastRowIndex(
       virtualRows,
       window.scrollY + window.innerHeight,
@@ -146,7 +168,7 @@ export default function VirtualPodcastGrid({
       lastLoadMoreRowCountRef.current = rowCount;
       onLoadMore();
     }
-  }, [virtualRows, rowCount, hasMore, isLoading, onLoadMore]);
+  }, [hasUserScrolled, virtualRows, rowCount, hasMore, isLoading, onLoadMore]);
 
   if (podcasts.length === 0) {
     return null;

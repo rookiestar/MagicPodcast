@@ -85,6 +85,7 @@ export default function PageToolbar({
               {breadcrumbs && breadcrumbs.length > 0 && breadcrumbs[0] && (
                 <Link
                   href={breadcrumbs[0].href}
+                  prefetch={false}
                   className="flex-shrink-0 text-2xl text-slate-600 hover:text-slate-800 active:text-slate-900 active:scale-95 transition-all duration-200"
                   aria-label="返回"
                 >
@@ -108,6 +109,7 @@ export default function PageToolbar({
                       <ButtonComponent
                         key={index}
                         href={action.href}
+                        {...(ButtonComponent !== "button" && { prefetch: false })}
                         onClick={action.onClick}
                         disabled={action.disabled}
                         className="w-10 h-10 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
@@ -138,6 +140,7 @@ export default function PageToolbar({
                         {item.href ? (
                           <Link
                             href={item.href}
+                            prefetch={false}
                             className="
                               text-slate-600 hover:text-slate-800
                               transition-colors
@@ -197,6 +200,7 @@ export default function PageToolbar({
                     <ButtonComponent
                       key={index}
                       href={action.href}
+                      {...(ButtonComponent !== "button" && { prefetch: false })}
                       onClick={action.onClick}
                       disabled={action.disabled}
                       className={`${baseStyles} ${variantStyles[action.variant || "secondary"]} ${
@@ -235,6 +239,7 @@ export function PodcastListToolbar({
           {/* 左侧：面包屑 */}
           <Link
             href="/"
+            prefetch={false}
             className="text-sm text-slate-600 hover:text-slate-800 active:text-slate-900 hover:bg-slate-100 active:bg-slate-200 active:scale-95 transition-all duration-200 px-2 py-3 -mx-2 -my-3 rounded-lg inline-flex items-center gap-1"
           >
             <span>←</span>

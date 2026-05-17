@@ -308,6 +308,7 @@ export default function WorkflowsPage() {
                   {/* 查看详情链接 */}
                   <Link
                     href={`/workflows/${workflow.id}${window.location.search}`}
+                    prefetch={false}
                     className="block text-center text-sm text-blue-600 py-2 border-t border-slate-200 hover:text-blue-700 transition-colors"
                   >
                     查看详情 →

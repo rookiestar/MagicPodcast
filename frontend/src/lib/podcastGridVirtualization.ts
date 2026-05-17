@@ -11,6 +11,7 @@ export function getPodcastGridRowGap(isMobile: boolean) {
 interface PodcastVirtualRow {
   index: number;
   start: number;
+  end?: number;
 }
 
 export function getLastVisiblePodcastRowIndex(
@@ -18,7 +19,8 @@ export function getLastVisiblePodcastRowIndex(
   viewportBottom: number,
 ) {
   return rows.reduce<number | null>((lastVisibleIndex, row) => {
-    if (row.start < viewportBottom) {
+    const rowBottom = row.end ?? row.start;
+    if (rowBottom <= viewportBottom) {
       return row.index;
     }
 

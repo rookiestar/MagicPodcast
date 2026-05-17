@@ -13,6 +13,29 @@ interface TagInputProps {
   disabled?: boolean;
 }
 
+let cachedAvailableTags: Tag[] | null = null;
+let pendingAvailableTagsRequest: Promise<Tag[]> | null = null;
+
+async function loadAvailableTags() {
+  if (cachedAvailableTags) {
+    return cachedAvailableTags;
+  }
+
+  if (!pendingAvailableTagsRequest) {
+    pendingAvailableTagsRequest = tagApi
+      .list()
+      .then((tags) => {
+        cachedAvailableTags = tags;
+        return tags;
+      })
+      .finally(() => {
+        pendingAvailableTagsRequest = null;
+      });
+  }
+
+  return pendingAvailableTagsRequest;
+}
+
 // 自定义比较函数：比较 selectedTags 数组
 const arePropsEqual = (prevProps: TagInputProps, nextProps: TagInputProps) => {
   // 比较 showSelectedTags 和 placeholder
@@ -50,21 +73,16 @@ const TagInput = memo(function TagInput({
   const inputRef = useRef<HTMLInputElement>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(-1); // -1表示未高亮
 
-  // 加载所有可用标签
-  useEffect(() => {
-    const fetchTags = async () => {
-      try {
-        setLoading(true);
-        const tags = await tagApi.list();
-        setAvailableTags(tags);
-      } catch (error) {
-        console.error("Failed to fetch tags:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchTags();
-  }, []);
+  const ensureAvailableTags = async () => {
+    try {
+      setLoading(true);
+      setAvailableTags(await loadAvailableTags());
+    } catch (error) {
+      console.error("Failed to fetch tags:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // 过滤建议标签
   useEffect(() => {
@@ -124,7 +142,9 @@ const TagInput = memo(function TagInput({
       onTagsChange([...selectedTags, newTag]);
       setInputValue("");
       // 将新标签添加到availableTags中
-      setAvailableTags([...availableTags, newTag]);
+      const nextAvailableTags = [...availableTags, newTag];
+      cachedAvailableTags = nextAvailableTags;
+      setAvailableTags(nextAvailableTags);
       // 保持建议列表打开，方便连续添加标签
       setShowSuggestions(true);
     } catch (err) {
@@ -234,6 +254,10 @@ const TagInput = memo(function TagInput({
   // 处理获得焦点
   const handleFocus = () => {
     if (disabled) return;
+
+    if (!availableTags.length && !loading) {
+      void ensureAvailableTags();
+    }
 
     // 显示所有可用标签
     setShowSuggestions(true);

@@ -66,7 +66,7 @@ export default function AppNavbar({
       <div className="container mx-auto px-4 h-full">
         <div className="flex items-center justify-between h-full">
           {/* 左侧：Logo */}
-          <Link href="/" className="flex-shrink-0">
+          <Link href="/" prefetch={false} className="flex-shrink-0">
             <CompactLogo size={36} />
           </Link>
 
@@ -78,6 +78,7 @@ export default function AppNavbar({
                 <Link
                   key={item.href}
                   href={item.href}
+                  prefetch={false}
                   className={`
                     px-4 py-2 rounded-lg text-sm font-medium
                     transition-all duration-200

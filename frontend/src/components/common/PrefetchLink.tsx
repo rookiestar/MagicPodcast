@@ -11,6 +11,7 @@ interface PrefetchLinkProps {
   children: React.ReactNode;
   prefetchId?: number;
   prefetchType?: PrefetchType;
+  prefetch?: boolean;
   className?: string;
   onClick?: (e: React.MouseEvent) => void;
   title?: string;
@@ -26,6 +27,7 @@ export default function PrefetchLink({
   children,
   prefetchId,
   prefetchType = "podcast",
+  prefetch = false,
   className,
   onClick,
   title,
@@ -64,6 +66,7 @@ export default function PrefetchLink({
   return (
     <Link
       href={href}
+      prefetch={prefetch}
       className={className}
       onClick={onClick}
       onMouseEnter={handleMouseEnter}

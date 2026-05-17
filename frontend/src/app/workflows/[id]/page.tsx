@@ -13,6 +13,7 @@ import { getEffectiveCoverUrl } from "@/lib/imageProxy";
 import type { Workflow, Job, Podcast } from "@/types";
 import PageLayout from "@/components/layout/PageLayout";
 import LoadingLayout from "@/components/layout/LoadingLayout";
+import PodcastCover from "@/components/podcasts/PodcastCover";
 import { WorkflowDetailSkeleton } from "@/components/ui/Skeleton";
 import { WorkflowStatusBadge, JobStatusBadge } from "@/components/ui/StatusBadge";
 import { toast } from "@/lib/toast";
@@ -29,6 +30,7 @@ const ReportModal = dynamic(
 );
 
 type TabType = "overview" | "jobs" | "config";
+const OVERVIEW_SCOPE_PODCAST_LIMIT = 12;
 
 // 内部组件：使用 useSearchParams
 function WorkflowDetailContent() {
@@ -73,6 +75,11 @@ function WorkflowDetailContent() {
   // 移动端更多菜单状态
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  const overviewScopePodcasts = podcasts.slice(0, OVERVIEW_SCOPE_PODCAST_LIMIT);
+  const hiddenOverviewPodcastCount = Math.max(
+    0,
+    podcasts.length - overviewScopePodcasts.length,
+  );
 
   // 点击外部关闭更多菜单
   useEffect(() => {
@@ -518,28 +525,40 @@ function WorkflowDetailContent() {
                         <>
                           {podcasts.length > 0 ? (
                             <div className="flex flex-wrap gap-2 sm:gap-3">
-                              {podcasts.map((podcast) => {
+                              {overviewScopePodcasts.map((podcast, index) => {
                                 const effectiveCover = getEffectiveCoverUrl(podcast.custom_cover_url, podcast.cover_url);
                                 return (
                                   <Link
                                     key={podcast.id}
                                     href={`/podcasts/${podcast.id}`}
+                                    prefetch={false}
                                     className="group flex items-center gap-2 p-1 sm:px-3 sm:py-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md transition-all"
                                     title={podcast.title}
                                   >
-                                    {effectiveCover && (
-                                      <img
-                                        src={effectiveCover}
-                                        alt={podcast.title}
-                                        className="w-8 h-8 sm:w-8 sm:h-8 rounded-lg object-cover flex-shrink-0"
+                                    <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
+                                      <PodcastCover
+                                        coverUrl={effectiveCover}
+                                        title={podcast.title}
+                                        index={index}
+                                        priority="low"
+                                        sizes="32px"
                                       />
-                                    )}
+                                    </div>
                                     <span className="hidden sm:block text-xs font-semibold text-slate-900 dark:text-slate-50 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate max-w-[120px]">
                                       {podcast.title}
                                     </span>
                                   </Link>
                                 );
                               })}
+                              {hiddenOverviewPodcastCount > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveTab("config")}
+                                  className="inline-flex items-center rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:border-blue-400 hover:text-blue-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                >
+                                  +{hiddenOverviewPodcastCount} 个
+                                </button>
+                              )}
                             </div>
                           ) : (
                             <div className="text-sm text-slate-500 dark:text-slate-400">
@@ -1052,22 +1071,25 @@ function WorkflowDetailContent() {
                   podcasts.length > 0 ? (
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
                       <div className="flex flex-wrap gap-2">
-                        {podcasts.map((podcast) => {
+                        {podcasts.map((podcast, index) => {
                           const effectiveCover = getEffectiveCoverUrl(podcast.custom_cover_url, podcast.cover_url);
                           return (
                             <Link
                               key={podcast.id}
                               href={`/podcasts/${podcast.id}`}
+                              prefetch={false}
                               className="text-sm px-3 py-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-50 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-sm transition-all"
                             >
                               <div className="flex items-center gap-2">
-                                {effectiveCover && (
-                                  <img
-                                    src={effectiveCover}
-                                    alt={podcast.title}
-                                    className="w-8 h-8 rounded object-cover"
+                                <div className="w-8 h-8 rounded overflow-hidden flex-shrink-0">
+                                  <PodcastCover
+                                    coverUrl={effectiveCover}
+                                    title={podcast.title}
+                                    index={index}
+                                    priority="low"
+                                    sizes="32px"
                                   />
-                                )}
+                                </div>
                                 <span className="font-medium">
                                   {podcast.title}
                                 </span>

@@ -1,115 +1,36 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { searchApi } from "@/lib/api";
-import type {
-  EpisodeSearchResult,
-  PodcastSearchResult,
-  SearchData,
-} from "@/types";
+import {
+  addToSearchHistory,
+  clearSearchHistory,
+  getSearchHistory,
+} from "@/lib/searchHistoryState";
+import {
+  createEmptySearchData,
+  filterSearchResults,
+  isCanceledSearchError,
+  normalizeSearchData,
+  type SearchResultsData,
+  type SearchType,
+} from "@/lib/searchSidebarState";
 
-export type SearchType = "all" | "podcasts" | "episodes";
-
-const MAX_SEARCH_HISTORY = 6;
-const STORAGE_KEY = "podcast_search_history";
 const DEFAULT_DEBOUNCE_MS = 200;
 const DEFAULT_MIN_QUERY_LENGTH = 2;
 const DEFAULT_SEARCH_PAGE_SIZE = 50;
 
-function isCanceledSearchError(error: unknown) {
-  return (
-    error instanceof Error &&
-    (error.name === "CanceledError" || error.message === "canceled")
-  );
-}
-
-export interface SearchResultsData {
-  podcasts: PodcastSearchResult[];
-  episodes: EpisodeSearchResult[];
-  pagination: SearchData["pagination"] | null;
-}
+export type { SearchResultsData, SearchType } from "@/lib/searchSidebarState";
+export {
+  addToSearchHistory,
+  clearSearchHistory,
+  getSearchHistory,
+  saveSearchHistory,
+} from "@/lib/searchHistoryState";
 
 interface UseSearchSidebarOptions {
   isOpen: boolean;
   debounceMs?: number;
   minQueryLength?: number;
   pageSize?: number;
-}
-
-function emptySearchData(): SearchResultsData {
-  return { podcasts: [], episodes: [], pagination: null };
-}
-
-export function getSearchHistory(): string[] {
-  if (typeof window === "undefined") return [];
-
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return [];
-
-    const parsed = JSON.parse(stored);
-    if (!Array.isArray(parsed)) return [];
-
-    return parsed.filter((item): item is string => typeof item === "string");
-  } catch {
-    return [];
-  }
-}
-
-export function saveSearchHistory(history: string[]) {
-  if (typeof window === "undefined") return;
-
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
-  } catch (error) {
-    console.error("Failed to save search history:", error);
-  }
-}
-
-export function addToSearchHistory(query: string): string[] {
-  const normalizedQuery = query.trim();
-  if (!normalizedQuery) return getSearchHistory();
-
-  const history = getSearchHistory();
-  const filtered = history.filter((item) => item !== normalizedQuery);
-  const newHistory = [normalizedQuery, ...filtered].slice(
-    0,
-    MAX_SEARCH_HISTORY,
-  );
-
-  saveSearchHistory(newHistory);
-  return newHistory;
-}
-
-export function clearSearchHistory() {
-  saveSearchHistory([]);
-}
-
-export function normalizeSearchData(data: SearchData): SearchResultsData {
-  return {
-    podcasts: data.podcasts.map((podcast) => ({
-      ...podcast,
-      matched_fields: podcast.matched_fields ?? [],
-    })),
-    episodes: data.episodes.map((episode) => ({
-      ...episode,
-      matched_fields: episode.matched_fields ?? [],
-    })),
-    pagination: data.pagination,
-  };
-}
-
-export function filterSearchResults(
-  data: SearchResultsData,
-  searchType: SearchType,
-) {
-  if (searchType === "podcasts") {
-    return { podcasts: data.podcasts, episodes: [] };
-  }
-
-  if (searchType === "episodes") {
-    return { podcasts: [], episodes: data.episodes };
-  }
-
-  return { podcasts: data.podcasts, episodes: data.episodes };
 }
 
 export function useSearchSidebar({
@@ -121,7 +42,7 @@ export function useSearchSidebar({
   const [query, setQuery] = useState("");
   const [searchType, setSearchType] = useState<SearchType>("all");
   const [allResults, setAllResults] = useState<SearchResultsData>(
-    emptySearchData,
+    createEmptySearchData,
   );
   const [loading, setLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -151,7 +72,7 @@ export function useSearchSidebar({
       activeAbortControllerRef.current = null;
       setQuery("");
       setSearchType("all");
-      setAllResults(emptySearchData());
+      setAllResults(createEmptySearchData());
       setSearchError(null);
       setLoading(false);
       return;
@@ -191,7 +112,7 @@ export function useSearchSidebar({
         if (requestId !== activeRequestIdRef.current) return;
 
         console.error("Search failed:", error);
-        setAllResults(emptySearchData());
+        setAllResults(createEmptySearchData());
         setSearchError("搜索失败，请稍后重试");
       } finally {
         if (requestId === activeRequestIdRef.current) {
@@ -218,7 +139,7 @@ export function useSearchSidebar({
         activeAbortControllerRef.current = controller;
         void performSearch(searchQuery, requestId, controller.signal);
       } else {
-        setAllResults(emptySearchData());
+        setAllResults(createEmptySearchData());
         setSearchError(null);
         setLoading(false);
       }

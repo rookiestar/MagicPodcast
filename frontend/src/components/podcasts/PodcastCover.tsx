@@ -43,7 +43,7 @@ function PodcastCover({
   const isProxiedUrl = imageUrl.includes("/images/proxy");
 
   // 根据优先级设置加载策略
-  const isHighPriority = priority === "high" || index < 6;
+  const isHighPriority = priority === "high" || (priority !== "low" && index < 6);
 
   // 自动为首屏图片设置高优先级（如果未显式指定）
   const resolvedFetchPriority = fetchPriority ?? (isHighPriority ? "high" : "auto");

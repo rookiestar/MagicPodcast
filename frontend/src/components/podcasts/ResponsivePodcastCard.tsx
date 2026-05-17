@@ -103,7 +103,7 @@ export default function ResponsivePodcastCard({
             title={podcast.title}
             index={index}
             priority={priority}
-            sizes="(max-width: 640px) 50vw, (max-width: 828px) 144px"
+            sizes="(max-width: 640px) 64px, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 240px"
             className="!absolute !inset-0 !aspect-none"
           />
           {isNew && (

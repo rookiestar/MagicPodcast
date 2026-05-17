@@ -54,6 +54,7 @@ export default function MobileBottomNav({
             <Link
               key={item.href}
               href={item.href}
+              prefetch={false}
               className={`
                 flex flex-col items-center justify-center
                 gap-0.5
