@@ -15,6 +15,7 @@ import {
   shouldShowEpisodeTitleLink,
   type EpisodeImagePriority,
 } from "@/lib/episodeDisplay";
+import { getOptimizedImageUrl } from "@/lib/imageOptimization";
 import { stripHtml } from "@/lib/textUtils";
 import { formatDate } from "@/lib/timeUtils";
 
@@ -84,19 +85,23 @@ function EpisodeCard({
   const [isExpanded, setIsExpanded] = useState(false);
 
   const coverDisplay = getEpisodeCoverDisplay(episode, podcastCover);
+  const optimizedCoverSrc = getOptimizedImageUrl(coverDisplay.src);
+  const optimizedPlaceholderSrc = getOptimizedImageUrl(
+    coverDisplay.placeholderSrc,
+  );
   const {
     imageLoaded: queuedImageLoaded,
     imageError: queuedImageError,
     imgRef,
   } = useQueuedEpisodeImage({
     episodeId: episode.id,
-    src: coverDisplay.shouldQueue ? coverDisplay.src : "",
+    src: coverDisplay.shouldQueue ? optimizedCoverSrc : "",
     priority,
     index,
   });
   const imageLoaded = coverDisplay.shouldQueue
     ? queuedImageLoaded
-    : Boolean(coverDisplay.src);
+    : Boolean(optimizedCoverSrc);
   const imageError = coverDisplay.shouldQueue ? queuedImageError : false;
   const durationLabel = formatEpisodeDuration(episode.duration);
   const fileSizeLabel = formatEpisodeFileSize(episode.enclosure_length);
@@ -138,9 +143,9 @@ function EpisodeCard({
           {/* Thumbnail with LQIP */}
           <div className="flex-shrink-0 w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12 lg:w-14 lg:h-14 rounded-lg overflow-hidden bg-slate-200 relative">
             {/* 播客封面作为模糊占位图（LQIP） */}
-            {coverDisplay.placeholderSrc && (
+            {optimizedPlaceholderSrc && (
               <img
-                src={coverDisplay.placeholderSrc}
+                src={optimizedPlaceholderSrc}
                 alt=""
                 aria-hidden="true"
                 loading={index < 3 ? "eager" : "lazy"}
@@ -157,10 +162,10 @@ function EpisodeCard({
             )}
 
             {/* 真实单集封面 */}
-            {coverDisplay.src ? (
+            {optimizedCoverSrc ? (
               <img
                 ref={coverDisplay.shouldQueue ? imgRef : undefined}
-                src={coverDisplay.shouldQueue ? undefined : coverDisplay.src}
+                src={coverDisplay.shouldQueue ? undefined : optimizedCoverSrc}
                 alt={episode.title}
                 loading={index < 3 ? "eager" : "lazy"}
                 decoding="async"

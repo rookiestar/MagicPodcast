@@ -110,6 +110,17 @@ describe("SearchSidebar", () => {
     expect(screen.queryByText("未找到相关结果")).not.toBeInTheDocument();
   });
 
+  it("switches search result type from the header filters", () => {
+    const setSearchType = vi.fn();
+    mockSearchSidebarState({ setSearchType });
+
+    render(<SearchSidebar isOpen onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "节目 (11)" }));
+
+    expect(setSearchType).toHaveBeenCalledWith("podcasts");
+  });
+
   it("closes when pressing Escape", () => {
     mockSearchSidebarState();
     const onClose = vi.fn();

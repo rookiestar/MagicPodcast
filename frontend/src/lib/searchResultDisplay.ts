@@ -5,14 +5,53 @@ import type {
 } from "@/types";
 import type { SearchType } from "@/lib/searchSidebarState";
 
+export type SearchResultImagePriority = "high" | "medium" | "low";
+
+const SEARCH_TYPE_OPTION_CONFIGS: Array<{
+  type: SearchType;
+  label: string;
+}> = [
+  { type: "all", label: "全部" },
+  { type: "podcasts", label: "节目" },
+  { type: "episodes", label: "单集" },
+];
+
+interface SearchResultCounts {
+  podcastCount: number;
+  episodeCount: number;
+}
+
+export function getSearchTypeOptionConfigs() {
+  return SEARCH_TYPE_OPTION_CONFIGS;
+}
+
 export function getSearchResultsCount({
   podcastCount,
   episodeCount,
-}: {
-  podcastCount: number;
-  episodeCount: number;
-}) {
+}: SearchResultCounts) {
   return podcastCount + episodeCount;
+}
+
+export function getSearchTypeOptionCount(
+  searchType: SearchType,
+  counts: SearchResultCounts,
+) {
+  if (searchType === "podcasts") return counts.podcastCount;
+  if (searchType === "episodes") return counts.episodeCount;
+  return getSearchResultsCount(counts);
+}
+
+export function getSearchTypeOptionLabel(
+  searchType: SearchType,
+  counts: SearchResultCounts,
+) {
+  const option = SEARCH_TYPE_OPTION_CONFIGS.find(
+    (config) => config.type === searchType,
+  );
+  const label = option?.label ?? "";
+  const count = getSearchTypeOptionCount(searchType, counts);
+
+  return count > 0 ? `${label} (${count})` : label;
 }
 
 function escapeSearchKeyword(value: string) {
@@ -104,6 +143,30 @@ export function getEpisodeSearchSnippet(episode: EpisodeSearchResult) {
     findMatchedSnippet(episode.matched_fields, ["show_notes", "title"]) ||
     episode.show_notes
   );
+}
+
+export function getSearchResultImagePriority(
+  index: number,
+): SearchResultImagePriority {
+  if (index < 3) return "high";
+  if (index < 10) return "medium";
+  return "low";
+}
+
+export function getEpisodeSearchPublishedDateText(
+  publishedDate: string | null | undefined,
+) {
+  return publishedDate ? new Date(publishedDate).toLocaleDateString() : "";
+}
+
+export function getEpisodeSearchMetadata(episode: EpisodeSearchResult) {
+  const publishedDateText = getEpisodeSearchPublishedDateText(
+    episode.published_date,
+  );
+
+  return publishedDateText
+    ? `${episode.podcast_title} · ${publishedDateText}`
+    : episode.podcast_title;
 }
 
 export function buildPodcastSearchResultHref(podcastId: number) {

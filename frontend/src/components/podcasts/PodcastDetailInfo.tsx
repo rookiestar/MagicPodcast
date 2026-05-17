@@ -65,7 +65,8 @@ export function MobilePodcastDetailInfo({
               <PodcastCover
                 coverUrl={coverUrl}
                 title={podcast.title}
-                priority="high"
+                priority="low"
+                sizes="96px"
               />
             </div>
           </div>
@@ -202,7 +203,8 @@ export function DesktopPodcastDetailInfo({
               <PodcastCover
                 coverUrl={coverUrl}
                 title={podcast.title}
-                priority="high"
+                priority="low"
+                sizes="(max-width: 767px) 96px, (max-width: 1200px) 30vw, 360px"
               />
             </div>
           </div>

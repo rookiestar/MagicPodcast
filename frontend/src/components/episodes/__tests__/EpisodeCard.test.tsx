@@ -79,7 +79,7 @@ describe("EpisodeCard", () => {
 
     expect(useQueuedEpisodeImageMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        src: "https://example.com/episode.jpg",
+        src: "/_next/image?url=https%3A%2F%2Fexample.com%2Fepisode.jpg&w=128&q=75",
       }),
     );
   });

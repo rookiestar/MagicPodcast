@@ -3,11 +3,17 @@ import type { EpisodeSearchResult, PodcastSearchResult } from "@/types";
 import {
   buildEpisodeSearchResultHref,
   buildPodcastSearchResultHref,
+  getEpisodeSearchMetadata,
+  getEpisodeSearchPublishedDateText,
   getEpisodeSearchSnippet,
   getPodcastSearchSnippet,
   getSearchExpandButtonLabel,
   getSearchResultsCount,
+  getSearchResultImagePriority,
   getSearchTextHighlightParts,
+  getSearchTypeOptionConfigs,
+  getSearchTypeOptionCount,
+  getSearchTypeOptionLabel,
   getVisibleSearchResults,
   shouldShowEpisodeSearchResults,
   shouldShowPodcastSearchResults,
@@ -78,6 +84,27 @@ describe("searchResultDisplay", () => {
     expect(shouldShowSearchSectionHeading("podcasts", 1)).toBe(false);
   });
 
+  it("builds search type filter labels from result counts", () => {
+    const counts = { podcastCount: 2, episodeCount: 3 };
+
+    expect(getSearchTypeOptionConfigs().map((option) => option.type)).toEqual([
+      "all",
+      "podcasts",
+      "episodes",
+    ]);
+    expect(getSearchTypeOptionCount("all", counts)).toBe(5);
+    expect(getSearchTypeOptionCount("podcasts", counts)).toBe(2);
+    expect(getSearchTypeOptionCount("episodes", counts)).toBe(3);
+    expect(getSearchTypeOptionLabel("all", counts)).toBe("全部 (5)");
+    expect(getSearchTypeOptionLabel("podcasts", counts)).toBe("节目 (2)");
+    expect(
+      getSearchTypeOptionLabel("episodes", {
+        podcastCount: 0,
+        episodeCount: 0,
+      }),
+    ).toBe("单集");
+  });
+
   it("limits visible results until expanded", () => {
     expect(getVisibleSearchResults([1, 2, 3], false, 2)).toEqual([1, 2]);
     expect(getVisibleSearchResults([1, 2, 3], true, 2)).toEqual([1, 2, 3]);
@@ -117,6 +144,32 @@ describe("searchResultDisplay", () => {
     ).toBe("notes match");
 
     expect(getEpisodeSearchSnippet(makeEpisode())).toBe("Show notes");
+  });
+
+  it("gets podcast cover priority by result position", () => {
+    expect(getSearchResultImagePriority(0)).toBe("high");
+    expect(getSearchResultImagePriority(2)).toBe("high");
+    expect(getSearchResultImagePriority(3)).toBe("medium");
+    expect(getSearchResultImagePriority(9)).toBe("medium");
+    expect(getSearchResultImagePriority(10)).toBe("low");
+  });
+
+  it("builds episode metadata without changing date formatting behavior", () => {
+    const publishedDate = "2026-01-01T00:00:00Z";
+
+    expect(getEpisodeSearchPublishedDateText(null)).toBe("");
+    expect(getEpisodeSearchPublishedDateText(publishedDate)).toBe(
+      new Date(publishedDate).toLocaleDateString(),
+    );
+    expect(getEpisodeSearchMetadata(makeEpisode())).toBe("Podcast");
+    expect(
+      getEpisodeSearchMetadata(
+        makeEpisode({
+          podcast_title: "Podcast",
+          published_date: publishedDate,
+        }),
+      ),
+    ).toBe(`Podcast · ${new Date(publishedDate).toLocaleDateString()}`);
   });
 
   it("builds search result links", () => {
