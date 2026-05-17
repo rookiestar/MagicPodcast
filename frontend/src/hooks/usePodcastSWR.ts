@@ -9,6 +9,12 @@ import {
   buildPodcastNotesPath,
   buildPodcastTagsPath,
 } from "@/lib/podcastApiPaths";
+import {
+  getPodcastListPageTotals,
+  getUniquePodcastsFromPages,
+  parsePodcastListApiPayload,
+  shouldStopPodcastListPagination,
+} from "@/lib/podcastListState";
 import { swrConfig, cacheStrategies } from "@/lib/swrConfig";
 import type { Podcast, Tag, Episode } from "@/types";
 
@@ -62,6 +68,9 @@ interface PodcastListApiResponse {
     total_pages: number;
   };
   success: boolean;
+  error?: {
+    message?: string;
+  };
 }
 
 // fetcher 返回的格式（已解包 data 字段）
@@ -83,10 +92,7 @@ const podcastListFetcher = async (url: string): Promise<{ podcasts: Podcast[]; p
     throw new Error('Network response was not ok');
   }
   const json: PodcastListApiResponse = await response.json();
-  return {
-    podcasts: json.data ?? [],
-    pagination: json.pagination,
-  };
+  return parsePodcastListApiPayload(json);
 };
 
 /**
@@ -97,9 +103,7 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
   type PageData = { podcasts: Podcast[]; pagination: PodcastListApiResponse['pagination'] };
 
   const buildKey = (pageIndex: number, previousPageData: PageData | null) => {
-    // 如果已到达末尾，返回 null 停止加载
-    if (previousPageData && !previousPageData.podcasts.length) return null;
-    if (previousPageData && previousPageData.pagination.page >= previousPageData.pagination.total_pages) {
+    if (shouldStopPodcastListPagination(previousPageData)) {
       return null;
     }
 
@@ -122,10 +126,11 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
   );
 
   // 扁平化所有页面的数据
-  const podcasts = data?.flatMap((page) => page.podcasts ?? []).filter((p): p is Podcast => p != null && p.id != null) ?? [];
-  const totalCount = data?.[0]?.pagination?.total ?? 0;
-  const totalPages = data?.[0]?.pagination?.total_pages ?? 0;
-  const hasMore = size < totalPages;
+  const podcasts = getUniquePodcastsFromPages<Podcast>(data);
+  const { totalCount, totalPages, hasMore } = getPodcastListPageTotals(
+    data,
+    size,
+  );
   const isLoadingMore = isValidating && size > 1;
 
   const loadMore = useCallback(() => {

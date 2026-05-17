@@ -4,11 +4,15 @@ import {
   getDefaultPodcastTagCount,
   getPodcastListDescription,
   getPodcastListErrorMessage,
+  getPodcastListPageTotals,
   getPodcastTagsWithPodcasts,
+  getUniquePodcastsFromPages,
   getValidPodcastTagIds,
   getVisiblePodcastTags,
   hasMorePodcastTags,
   normalizePodcastTagIds,
+  parsePodcastListApiPayload,
+  shouldStopPodcastListPagination,
 } from "../podcastListState";
 
 const tags: Tag[] = [
@@ -67,5 +71,101 @@ describe("podcastListState", () => {
   it("keeps readable error messages", () => {
     expect(getPodcastListErrorMessage(new Error("离线"))).toBe("离线");
     expect(getPodcastListErrorMessage("bad")).toBe("加载失败");
+  });
+
+  it("flattens podcast pages without duplicate or invalid entries", () => {
+    expect(
+      getUniquePodcastsFromPages([
+        { podcasts: [{ id: 1, title: "A" }, { id: 2, title: "B" }] },
+        { podcasts: [null, { id: 2, title: "B again" }, { id: 3, title: "C" }] },
+        { podcasts: [{ id: 0, title: "Invalid" }, { id: undefined }] },
+      ]),
+    ).toEqual([
+      { id: 1, title: "A" },
+      { id: 2, title: "B" },
+      { id: 3, title: "C" },
+    ]);
+  });
+
+  it("decides when infinite list pagination should stop", () => {
+    expect(shouldStopPodcastListPagination(null)).toBe(false);
+    expect(shouldStopPodcastListPagination({ podcasts: [] })).toBe(true);
+    expect(
+      shouldStopPodcastListPagination({
+        podcasts: [{ id: 1 }],
+        pagination: { page: 2, total_pages: 3 },
+      }),
+    ).toBe(false);
+    expect(
+      shouldStopPodcastListPagination({
+        podcasts: [{ id: 1 }],
+        pagination: { page: 3, total_pages: 3 },
+      }),
+    ).toBe(true);
+  });
+
+  it("summarizes podcast list totals from the first page", () => {
+    expect(
+      getPodcastListPageTotals(
+        [
+          {
+            podcasts: [{ id: 1 }],
+            pagination: { page: 1, total: 25, total_pages: 3 },
+          },
+        ],
+        1,
+      ),
+    ).toEqual({
+      totalCount: 25,
+      totalPages: 3,
+      hasMore: true,
+    });
+
+    expect(getPodcastListPageTotals(undefined, 1)).toEqual({
+      totalCount: 0,
+      totalPages: 0,
+      hasMore: false,
+    });
+  });
+
+  it("parses successful podcast list payloads", () => {
+    expect(
+      parsePodcastListApiPayload({
+        success: true,
+        data: [{ id: 1, title: "A" }],
+        pagination: {
+          page: 1,
+          page_size: 20,
+          total: 1,
+          total_pages: 1,
+        },
+      }),
+    ).toEqual({
+      podcasts: [{ id: 1, title: "A" }],
+      pagination: {
+        page: 1,
+        page_size: 20,
+        total: 1,
+        total_pages: 1,
+      },
+    });
+  });
+
+  it("turns failed podcast list payloads into errors", () => {
+    expect(() =>
+      parsePodcastListApiPayload({
+        success: false,
+        error: { message: "数据库忙" },
+      }),
+    ).toThrow("数据库忙");
+  });
+
+  it("rejects podcast list payloads without pagination", () => {
+    expect(() =>
+      parsePodcastListApiPayload({
+        success: true,
+        data: [],
+      }),
+    ).toThrow("播客列表响应缺少分页信息");
   });
 });

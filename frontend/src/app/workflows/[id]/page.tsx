@@ -1,10 +1,10 @@
 "use client";
 
-import { Suspense, useEffect, useState, useRef } from "react";
+import { Suspense, useCallback, useEffect, useState, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { workflowApi, podcastApi } from "@/lib/api";
+import { podcastApi } from "@/lib/api";
 import { schedulerApi } from "@/lib/api/scheduler";
 import { useWorkflow, useWorkflowJobs } from "@/hooks/useWorkflowSWR";
 import { useWorkflowActions } from "@/hooks/useWorkflowActions";
@@ -86,16 +86,27 @@ function WorkflowDetailContent() {
   }, []);
 
   // 当 workflow 数据加载完成后，获取关联的播客列表
+  const fetchPodcasts = useCallback(async (podcastIds: number[]) => {
+    try {
+      const podcasts = await podcastApi.batchGet(podcastIds);
+      setPodcasts(podcasts);
+    } catch (err) {
+      console.error("Failed to fetch podcasts:", err);
+    }
+  }, []);
+
   useEffect(() => {
     if (
-      workflow &&
-      workflow.scope_type === "specific_podcasts" &&
+      workflow?.scope_type === "specific_podcasts" &&
       workflow.scope_config?.podcast_ids &&
       workflow.scope_config.podcast_ids.length > 0
     ) {
       fetchPodcasts(workflow.scope_config.podcast_ids);
+      return;
     }
-  }, [workflow]);
+
+    setPodcasts([]);
+  }, [fetchPodcasts, workflow]);
 
   // 轮询Job状态：当有running状态的Job时，定期刷新
   useEffect(() => {
@@ -125,35 +136,6 @@ function WorkflowDetailContent() {
       router.replace(newUrl);
     }
   }, [activeTab, router]);
-
-  const fetchPodcasts = async (podcastIds: number[]) => {
-    try {
-      // 使用相对路径调用批量查询接口（支持 tunnel/代理访问）
-      const response = await fetch(
-        "/api/v1/podcasts/batch",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ids: podcastIds }),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const result = await response.json();
-
-      if (result.success && result.data) {
-        const podcasts = result.data;
-        setPodcasts(podcasts);
-      } else {
-        throw new Error(result.error?.message || "Failed to fetch podcasts");
-      }
-    } catch (err) {
-      console.error("Failed to fetch podcasts:", err);
-    }
-  };
 
   // Jobs 分页切换
   const handleJobsPageChange = (newPage: number) => {

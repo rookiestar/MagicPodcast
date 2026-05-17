@@ -74,3 +74,97 @@ export function getPodcastListDescription(
 export function getPodcastListErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "加载失败";
 }
+
+export function getUniquePodcastsFromPages<T extends { id?: number | null }>(
+  pages?: Array<{ podcasts?: Array<T | null | undefined> | null }> | null,
+) {
+  const seen = new Set<number>();
+
+  return (pages || []).reduce<T[]>((result, page) => {
+    (page.podcasts || []).forEach((podcast) => {
+      if (!podcast?.id || seen.has(podcast.id)) {
+        return;
+      }
+
+      seen.add(podcast.id);
+      result.push(podcast);
+    });
+
+    return result;
+  }, []);
+}
+
+export interface PodcastListPageState {
+  podcasts?: unknown[] | null;
+  pagination?: {
+    page?: number | null;
+    page_size?: number | null;
+    total?: number | null;
+    total_pages?: number | null;
+  } | null;
+}
+
+export interface PodcastListPaginationState {
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+}
+
+export interface PodcastListApiPayload<T> {
+  success?: boolean;
+  data?: T[] | null;
+  pagination?: PodcastListPaginationState | null;
+  error?: {
+    message?: string;
+  } | null;
+}
+
+export function shouldStopPodcastListPagination(
+  previousPageData?: PodcastListPageState | null,
+) {
+  if (!previousPageData) {
+    return false;
+  }
+
+  if (!previousPageData.podcasts?.length) {
+    return true;
+  }
+
+  const currentPage = previousPageData.pagination?.page ?? 0;
+  const totalPages = previousPageData.pagination?.total_pages ?? 0;
+
+  return totalPages > 0 && currentPage >= totalPages;
+}
+
+export function getPodcastListPageTotals(
+  pages: PodcastListPageState[] | undefined,
+  currentPageCount: number,
+) {
+  const firstPagination = pages?.[0]?.pagination;
+  const totalCount = firstPagination?.total ?? 0;
+  const totalPages = firstPagination?.total_pages ?? 0;
+
+  return {
+    totalCount,
+    totalPages,
+    hasMore: currentPageCount < totalPages,
+  };
+}
+
+export function parsePodcastListApiPayload<T>(
+  payload: PodcastListApiPayload<T>,
+) {
+  if (payload.success === false) {
+    throw new Error(payload.error?.message || "加载播客失败");
+  }
+
+  if (!payload.pagination) {
+    throw new Error("播客列表响应缺少分页信息");
+  }
+
+  return {
+    podcasts: payload.data ?? [],
+    pagination: payload.pagination,
+  };
+}
