@@ -1,6 +1,14 @@
 "use client";
 
 import type { CSSProperties } from "react";
+import {
+  getEpisodeListDisplayTotal,
+  getEpisodeListFinishedMessage,
+  getEpisodeListStatus,
+  shouldShowEpisodeListFinished,
+  shouldShowEpisodeListFooter,
+  shouldShowEpisodeListHeading,
+} from "@/lib/episodeListState";
 import type { Episode } from "@/types";
 import EpisodeCard from "./EpisodeCard";
 
@@ -91,7 +99,7 @@ function EpisodeListFooter({
   isLoadingMore: boolean;
   loadMoreRef: (element: HTMLDivElement | null) => void;
 }) {
-  if (!hasMoreEpisodes && !isLoadingMore) {
+  if (!shouldShowEpisodeListFooter(hasMoreEpisodes, isLoadingMore)) {
     return null;
   }
 
@@ -124,11 +132,28 @@ export default function EpisodeListSection({
   loadMoreRef,
   onRetry,
 }: EpisodeListSectionProps) {
-  const displayTotal = totalEpisodes > 0 ? totalEpisodes : episodes.length;
+  const episodeListStatus = getEpisodeListStatus({
+    episodeCount: episodes.length,
+    episodesLoading,
+    episodesError,
+  });
+  const displayTotal = getEpisodeListDisplayTotal(
+    totalEpisodes,
+    episodes.length,
+  );
+  const showHeading = shouldShowEpisodeListHeading(
+    totalEpisodes,
+    episodesLoading,
+  );
+  const showFinishedMessage = shouldShowEpisodeListFinished({
+    episodeCount: episodes.length,
+    episodesError,
+    hasMoreEpisodes,
+  });
 
   return (
     <div className="mt-8">
-      {totalEpisodes > 0 || !episodesLoading ? (
+      {showHeading ? (
         <h2 className="text-2xl font-bold text-slate-900 mb-6">
           单集列表 ({displayTotal} 集)
         </h2>
@@ -136,11 +161,11 @@ export default function EpisodeListSection({
         <div className="mb-6 h-8 w-40 bg-slate-200 rounded animate-pulse"></div>
       )}
 
-      {episodesLoading && episodes.length === 0 ? (
+      {episodeListStatus === "initial-loading" ? (
         <EpisodeListSkeleton />
-      ) : episodesError && episodes.length === 0 ? (
+      ) : episodeListStatus === "initial-error" ? (
         <EpisodeErrorState message={episodesError} onRetry={onRetry} />
-      ) : episodes.length === 0 ? (
+      ) : episodeListStatus === "empty" ? (
         <EmptyEpisodeList />
       ) : (
         <>
@@ -178,9 +203,9 @@ export default function EpisodeListSection({
             />
           )}
 
-          {!episodesError && !hasMoreEpisodes && episodes.length > 0 && (
+          {showFinishedMessage && (
             <div className="text-center mt-8 text-sm text-slate-500">
-              已加载全部 {episodes.length} 集单集
+              {getEpisodeListFinishedMessage(episodes.length)}
             </div>
           )}
         </>
