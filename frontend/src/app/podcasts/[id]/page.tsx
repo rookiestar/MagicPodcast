@@ -28,7 +28,7 @@ export default function PodcastDetailPage() {
   const id = parseInt(params.id as string);
   const targetEpisodeId = searchParams.get("episode_id");
   const sortBy = searchParams.get("sort_by") || "";
-  const tagIds = searchParams.get("tag_ids");
+  const tagIds = searchParams.get("tag_ids") || searchParams.getAll("tag_id");
   const backUrl = buildPodcastListBackUrl({ sortBy, tagIds });
 
   const {

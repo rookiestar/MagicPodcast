@@ -3,9 +3,14 @@
 import PrefetchLink from "@/components/common/PrefetchLink";
 import PodcastCover from "@/components/podcasts/PodcastCover";
 import TagList from "@/components/ui/TagList";
-import { stripHtml } from "@/lib/textUtils";
-import { getRelativeTime } from "@/lib/timeUtils";
-import { getEffectiveCoverUrl } from "@/lib/imageProxy";
+import {
+  getPodcastCardCoverUrl,
+  getPodcastCardDescription,
+  getPodcastCardEpisodeCountText,
+  getPodcastCardRelativeTime,
+  getPodcastCardTagLimit,
+  isPodcastRecentlyUpdated,
+} from "@/lib/podcastCardDisplay";
 import type { Podcast } from "@/types";
 
 interface ResponsivePodcastCardProps {
@@ -14,6 +19,7 @@ interface ResponsivePodcastCardProps {
   priority?: "high" | "medium" | "low";
   detailUrl: string;
   isMobile: boolean;
+  onNavigate?: () => void;
 }
 
 export default function ResponsivePodcastCard({
@@ -22,36 +28,27 @@ export default function ResponsivePodcastCard({
   priority = "medium",
   detailUrl,
   isMobile,
+  onNavigate,
 }: ResponsivePodcastCardProps) {
-  // 控制简介显示
-  const displayedDescription = podcast.description
-    ? stripHtml(podcast.description, isMobile ? 80 : 100)
-    : "";
+  const displayedDescription = getPodcastCardDescription(
+    podcast.description,
+    isMobile,
+  );
+  const displayTagCount = getPodcastCardTagLimit(isMobile);
+  const relativeTime = getPodcastCardRelativeTime(podcast);
+  const episodeCountText = getPodcastCardEpisodeCountText(podcast);
+  const effectiveCoverUrl = getPodcastCardCoverUrl(podcast);
+  const isNew = isPodcastRecentlyUpdated(podcast.newest_episode_date);
 
-  // 控制标签显示数量
-  const displayTagCount = isMobile ? 2 : 3;
-
-  // 相对时间
-  const relativeTime = getRelativeTime(podcast.newest_episode_date);
-
-  // 获取有效的封面URL（优先使用自定义封面）
-  const effectiveCoverUrl = getEffectiveCoverUrl(podcast.custom_cover_url, podcast.cover_url);
-
-  // 判断是否最近7天有更新
-  const isNew = (() => {
-    if (!podcast.newest_episode_date) return false;
-    const newestDate = new Date(podcast.newest_episode_date);
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    return newestDate >= sevenDaysAgo;
-  })();
-
-  // 移动端样式类
   if (isMobile) {
     return (
-      <PrefetchLink href={detailUrl} prefetchId={podcast.id} prefetchType="podcast">
+      <PrefetchLink
+        href={detailUrl}
+        prefetchId={podcast.id}
+        prefetchType="podcast"
+        onClick={onNavigate}
+      >
         <div className="flex flex-row gap-3 p-3 bg-white rounded-xl shadow-md hover:shadow-lg active:scale-[0.97] active:shadow-sm transition-all duration-200 ease-out overflow-hidden cursor-pointer">
-          {/* 封面 */}
           <div className="w-16 h-16 flex-shrink-0 relative rounded-lg overflow-hidden">
             <PodcastCover
               coverUrl={effectiveCoverUrl}
@@ -60,7 +57,6 @@ export default function ResponsivePodcastCard({
               priority={priority}
               sizes="64px"
             />
-            {/* 新更新标识 */}
             {isNew && (
               <div className="absolute top-0.5 right-0.5 px-0.5 py-0.5 bg-emerald-500/65 text-white text-[6px] font-bold uppercase tracking-wider rounded shadow-sm">
                 NEW
@@ -68,26 +64,19 @@ export default function ResponsivePodcastCard({
             )}
           </div>
 
-          {/* 内容 */}
           <div className="flex-1 min-w-0 flex flex-col gap-2">
-            {/* 标题 */}
             <h3 className="text-base font-semibold text-slate-900 line-clamp-1 leading-tight">
               {podcast.title}
             </h3>
 
-            {/* 作者 */}
-            <p className="text-xs text-slate-600 mb-0.5">
-              {podcast.author}
-            </p>
+            <p className="text-xs text-slate-600 mb-0.5">{podcast.author}</p>
 
-            {/* 简介 */}
             {displayedDescription && (
               <p className="text-xs text-slate-500 leading-snug line-clamp-2">
                 {displayedDescription}
               </p>
             )}
 
-            {/* 标签 */}
             <TagList
               tags={podcast.tags || []}
               maxDisplay={displayTagCount}
@@ -100,11 +89,14 @@ export default function ResponsivePodcastCard({
     );
   }
 
-  // 桌面端样式类
   return (
-    <PrefetchLink href={detailUrl} prefetchId={podcast.id} prefetchType="podcast">
+    <PrefetchLink
+      href={detailUrl}
+      prefetchId={podcast.id}
+      prefetchType="podcast"
+      onClick={onNavigate}
+    >
       <div className="flex flex-col h-full bg-white rounded-xl shadow-md hover:shadow-lg active:scale-[0.97] active:shadow-sm transition-all duration-200 ease-out overflow-hidden cursor-pointer">
-        {/* 封面 */}
         <div className="relative w-full pt-[100%] rounded-lg overflow-hidden bg-slate-200">
           <PodcastCover
             coverUrl={effectiveCoverUrl}
@@ -114,7 +106,6 @@ export default function ResponsivePodcastCard({
             sizes="(max-width: 640px) 50vw, (max-width: 828px) 144px"
             className="!absolute !inset-0 !aspect-none"
           />
-          {/* 新更新标识 */}
           {isNew && (
             <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-emerald-500/65 text-white text-[10px] font-bold uppercase tracking-wider rounded-md shadow-sm">
               NEW
@@ -122,26 +113,21 @@ export default function ResponsivePodcastCard({
           )}
         </div>
 
-        {/* 内容 */}
         <div className="flex-1 gap-2 md:gap-3 p-4 flex flex-col">
-          {/* 标题 */}
           <h3 className="text-lg font-semibold text-slate-900 line-clamp-1 leading-tight">
             {podcast.title}
           </h3>
 
-          {/* 作者 */}
           <p className="text-xs sm:text-sm text-slate-600 mb-0.5">
             {podcast.author}
           </p>
 
-          {/* 简介 */}
           {displayedDescription && (
             <p className="text-sm text-slate-500 leading-snug line-clamp-2 md:line-clamp-3">
               {displayedDescription}
             </p>
           )}
 
-          {/* 标签 */}
           <TagList
             tags={podcast.tags || []}
             maxDisplay={displayTagCount}
@@ -149,12 +135,9 @@ export default function ResponsivePodcastCard({
             className="mt-auto"
           />
 
-          {/* 底部信息 */}
           <div className="flex items-center justify-between text-xs text-slate-500 mt-auto pt-1 md:pt-3">
-            <span className="font-medium">{podcast.episode_count} 集</span>
-            <span className="text-slate-400">
-              {relativeTime}
-            </span>
+            <span className="font-medium">{episodeCountText}</span>
+            <span className="text-slate-400">{relativeTime}</span>
           </div>
         </div>
       </div>

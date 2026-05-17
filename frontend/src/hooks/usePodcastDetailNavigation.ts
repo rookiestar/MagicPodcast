@@ -8,7 +8,7 @@ const TARGET_VISIBLE_BOTTOM_PADDING_PX = 32;
 
 interface PodcastListBackUrlOptions {
   sortBy?: string | null;
-  tagIds?: string | null;
+  tagIds?: string | string[] | null;
 }
 
 interface UseTargetEpisodeNavigationOptions {
@@ -25,6 +25,28 @@ interface UseTargetEpisodeNavigationOptions {
 
 type TargetEpisodeNavigationAction = "wait" | "load-more" | "focus";
 
+export function normalizePodcastListBackTagIds(
+  tagIds?: string | string[] | null,
+) {
+  const rawIds = Array.isArray(tagIds) ? tagIds : tagIds?.split(",");
+  if (!rawIds) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  return rawIds
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .filter((id) => {
+      if (seen.has(id)) {
+        return false;
+      }
+
+      seen.add(id);
+      return true;
+    });
+}
+
 export function buildPodcastListBackUrl({
   sortBy,
   tagIds,
@@ -35,15 +57,9 @@ export function buildPodcastListBackUrl({
     params.append("sort_by", sortBy);
   }
 
-  if (tagIds) {
-    tagIds
-      .split(",")
-      .map((id) => id.trim())
-      .filter(Boolean)
-      .forEach((id) => {
-        params.append("tag_id", id);
-      });
-  }
+  normalizePodcastListBackTagIds(tagIds).forEach((id) => {
+    params.append("tag_id", id);
+  });
 
   const queryString = params.toString();
   return `/podcasts${queryString ? `?${queryString}` : ""}`;

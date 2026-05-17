@@ -4,6 +4,7 @@ import type { Episode } from "@/types";
 import {
   buildPodcastListBackUrl,
   getTargetEpisodeNavigationAction,
+  normalizePodcastListBackTagIds,
   parseTargetEpisodeId,
   useTargetEpisodeNavigation,
 } from "../usePodcastDetailNavigation";
@@ -43,9 +44,20 @@ describe("podcast detail navigation", () => {
     expect(
       buildPodcastListBackUrl({ sortBy: "newest", tagIds: "1, 2,,3" }),
     ).toBe("/podcasts?sort_by=newest&tag_id=1&tag_id=2&tag_id=3");
+    expect(
+      buildPodcastListBackUrl({ sortBy: "newest", tagIds: ["1", "2", "1"] }),
+    ).toBe("/podcasts?sort_by=newest&tag_id=1&tag_id=2");
     expect(buildPodcastListBackUrl({ sortBy: "", tagIds: null })).toBe(
       "/podcasts",
     );
+  });
+
+  it("normalizes list tag ids from comma and repeated query params", () => {
+    expect(normalizePodcastListBackTagIds("1, 2,,1")).toEqual(["1", "2"]);
+    expect(normalizePodcastListBackTagIds(["3", "4", "3"])).toEqual([
+      "3",
+      "4",
+    ]);
   });
 
   it("parses only valid target episode ids", () => {

@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { fetcher } from "@/lib/fetcher";
@@ -138,11 +139,15 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
   const hasMore = size < totalPages;
   const isLoadingMore = isValidating && size > 1;
 
-  const loadMore = () => {
+  const loadMore = useCallback(() => {
     if (!isLoadingMore && hasMore) {
-      setSize(size + 1);
+      setSize((currentSize) => currentSize + 1);
     }
-  };
+  }, [hasMore, isLoadingMore, setSize]);
+
+  const reset = useCallback(() => {
+    setSize(1);
+  }, [setSize]);
 
   return {
     podcasts,
@@ -157,7 +162,7 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
     loadMore,
     mutate,
     // 用于重置列表
-    reset: () => setSize(1),
+    reset,
   };
 }
 

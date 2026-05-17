@@ -44,28 +44,33 @@ export default function SortDrawer({
     onClose();
   };
 
+  if (!isOpen) {
+    return null;
+  }
+
   return (
     <>
-      {/* 遮罩 */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-50 transition-opacity"
-          onClick={onClose}
-          aria-hidden="true"
-        />
-      )}
-
-      {/* 底部抽屉 */}
       <div
-        className={`fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl z-50 transform transition-transform duration-300 ease-in-out ${
-          isOpen ? "translate-y-0" : "translate-y-full"
-        }`}
+        className="fixed inset-0 bg-black/50 z-50 transition-opacity"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
+      <div
+        className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl z-50 transform transition-transform duration-300 ease-in-out translate-y-0"
         style={{ maxHeight: "70vh" }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="podcast-sort-drawer-title"
       >
         <div className="p-4">
-          {/* 标题栏 */}
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-slate-800">选择排序方式</h3>
+            <h3
+              id="podcast-sort-drawer-title"
+              className="text-lg font-semibold text-slate-800"
+            >
+              选择排序方式
+            </h3>
             <button
               onClick={onClose}
               className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 transition-colors"
@@ -87,7 +92,6 @@ export default function SortDrawer({
             </button>
           </div>
 
-          {/* 排序选项 */}
           <div className="space-y-2">
             {options.map((option) => {
               const isSelected = currentSort === option.value;
@@ -95,6 +99,7 @@ export default function SortDrawer({
                 <button
                   key={option.value}
                   onClick={() => handleSortChange(option.value)}
+                  aria-pressed={isSelected}
                   className={`w-full text-left px-4 py-3 rounded-lg flex items-center justify-between transition-colors ${
                     isSelected
                       ? "bg-violet-100 text-violet-700"
@@ -116,7 +121,6 @@ export default function SortDrawer({
             })}
           </div>
 
-          {/* 取消按钮 */}
           <button
             onClick={onClose}
             className="w-full mt-4 py-3 text-slate-600 font-medium hover:bg-slate-50 rounded-lg transition-colors"

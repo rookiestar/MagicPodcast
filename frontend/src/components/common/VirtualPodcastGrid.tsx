@@ -3,12 +3,20 @@
 import { useRef, useMemo, memo, useEffect } from "react";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import ResponsivePodcastCard from "@/components/podcasts/ResponsivePodcastCard";
+import {
+  getPodcastGridEstimateRowHeight,
+  getPodcastGridRowGap,
+  getLastVisiblePodcastRowIndex,
+  shouldLoadMorePodcastRows,
+} from "@/lib/podcastGridVirtualization";
+import { savePodcastListScrollSnapshot } from "@/lib/podcastListScrollState";
 import type { Podcast } from "@/types";
 
 interface VirtualPodcastGridProps {
   podcasts: Podcast[];
   columns: number;
   isMobile: boolean;
+  listStateKey: string;
   sortBy: string;
   selectedTagIds: number[];
   onLoadMore?: () => void;
@@ -24,6 +32,7 @@ const PodcastRow = memo(function PodcastRow({
   sortBy,
   selectedTagIds,
   isMobile,
+  listStateKey,
 }: {
   rowPodcasts: Podcast[];
   startIndex: number;
@@ -31,13 +40,16 @@ const PodcastRow = memo(function PodcastRow({
   sortBy: string;
   selectedTagIds: number[];
   isMobile: boolean;
+  listStateKey: string;
 }) {
   // 过滤掉可能的 undefined 元素
-  const validPodcasts = rowPodcasts.filter((p): p is Podcast => p != null && p.id != null);
+  const validPodcasts = rowPodcasts.filter(
+    (p): p is Podcast => p != null && p.id != null,
+  );
 
   return (
     <div
-      className="grid gap-3 md:gap-4 lg:gap-6 mb-3 md:mb-4 lg:mb-6"
+      className="grid gap-3 md:gap-4 lg:gap-6"
       style={{
         gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
       }}
@@ -60,9 +72,14 @@ const PodcastRow = memo(function PodcastRow({
             podcast={podcast}
             detailUrl={detailUrl}
             index={index}
-            priority={
-              index < 6 ? "high" : index < 15 ? "medium" : "low"
-            }
+            onNavigate={() => {
+              savePodcastListScrollSnapshot({
+                stateKey: listStateKey,
+                scrollY: window.scrollY,
+                podcastIndex: index,
+              });
+            }}
+            priority={index < 6 ? "high" : index < 15 ? "medium" : "low"}
             isMobile={isMobile}
           />
         );
@@ -75,6 +92,7 @@ export default function VirtualPodcastGrid({
   podcasts,
   columns,
   isMobile,
+  listStateKey,
   sortBy,
   selectedTagIds,
   onLoadMore,
@@ -82,14 +100,16 @@ export default function VirtualPodcastGrid({
   isLoading = false,
 }: VirtualPodcastGridProps) {
   const listRef = useRef<HTMLDivElement>(null);
+  const lastLoadMoreRowCountRef = useRef<number | null>(null);
 
   // 计算行数
-  const rowCount = useMemo(() => Math.ceil(podcasts.length / columns), [podcasts.length, columns]);
+  const rowCount = useMemo(
+    () => Math.ceil(podcasts.length / columns),
+    [podcasts.length, columns],
+  );
 
-  // 估算行高（移动端约 112px，桌面端约 352px - 包含 gap）
-  const estimateRowHeight = useMemo(() => {
-    return isMobile ? 112 : 352;
-  }, [isMobile]);
+  const estimateRowHeight = getPodcastGridEstimateRowHeight(isMobile);
+  const rowGap = getPodcastGridRowGap(isMobile);
 
   // 使用 window 虚拟化（基于页面滚动）
   const rowVirtualizer = useWindowVirtualizer({
@@ -104,14 +124,26 @@ export default function VirtualPodcastGrid({
 
   // 检测是否需要加载更多
   useEffect(() => {
-    const lastRow = virtualRows[virtualRows.length - 1];
-    if (
-      lastRow &&
-      lastRow.index >= rowCount - 3 &&
-      hasMore &&
-      !isLoading &&
-      onLoadMore
-    ) {
+    const lastVisibleRowIndex = getLastVisiblePodcastRowIndex(
+      virtualRows,
+      window.scrollY + window.innerHeight,
+    );
+    const shouldLoadMore = shouldLoadMorePodcastRows({
+      lastVisibleRowIndex,
+      rowCount,
+      hasMore,
+      isLoading,
+    });
+
+    if (!shouldLoadMore) {
+      if (!hasMore) {
+        lastLoadMoreRowCountRef.current = null;
+      }
+      return;
+    }
+
+    if (onLoadMore && lastLoadMoreRowCountRef.current !== rowCount) {
+      lastLoadMoreRowCountRef.current = rowCount;
       onLoadMore();
     }
   }, [virtualRows, rowCount, hasMore, isLoading, onLoadMore]);
@@ -146,6 +178,7 @@ export default function VirtualPodcastGrid({
                 top: 0,
                 left: 0,
                 width: "100%",
+                paddingBottom: rowGap,
                 transform: `translateY(${virtualRow.start - rowVirtualizer.options.scrollMargin}px)`,
               }}
             >
@@ -156,6 +189,7 @@ export default function VirtualPodcastGrid({
                 sortBy={sortBy}
                 selectedTagIds={selectedTagIds}
                 isMobile={isMobile}
+                listStateKey={listStateKey}
               />
             </div>
           );
