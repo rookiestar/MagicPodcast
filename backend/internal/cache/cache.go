@@ -220,8 +220,7 @@ func InvalidateTagDetail(id uint) {
 // InvalidateWorkflowList 使工作流列表缓存失效
 // 当工作流被创建、更新、删除、启用/禁用时调用
 func InvalidateWorkflowList() {
-	cache := GetCache()
-	cache.Delete("workflows:list")
+	GetCache().DeleteByPrefix("workflows:list")
 }
 
 // InvalidateWorkflowDetail 使指定工作流详情缓存失效

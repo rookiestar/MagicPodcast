@@ -4,6 +4,7 @@ export interface PodcastListPathParams {
   sort_by?: string;
   tag_id?: number | number[];
   search?: string;
+  view?: "summary" | "full";
 }
 
 const PODCASTS_BASE_PATH = "/api/v1/podcasts";
@@ -17,6 +18,7 @@ export function buildPodcastListPath(params: PodcastListPathParams = {}) {
   }
   if (params.sort_by) queryParams.set("sort_by", params.sort_by);
   if (params.search) queryParams.set("search", params.search);
+  if (params.view) queryParams.set("view", params.view);
   if (params.tag_id) {
     const tagIds = Array.isArray(params.tag_id) ? params.tag_id : [params.tag_id];
     tagIds.forEach((id) => queryParams.append("tag_id", id.toString()));

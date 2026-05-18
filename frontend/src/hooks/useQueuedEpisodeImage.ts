@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { EpisodeImagePriority } from "@/lib/episodeDisplay";
 import { getEpisodeImageLoadDelay } from "@/lib/episodeDisplay";
 import { imageLoadQueue } from "@/lib/imageLoader";
@@ -18,7 +18,6 @@ export function useQueuedEpisodeImage({
 }: UseQueuedEpisodeImageOptions) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
-  const imgRef = useRef<HTMLImageElement>(null);
 
   const taskId = useMemo(
     () => `episode-${episodeId}-${priority}-${index}-${src}`,
@@ -29,8 +28,7 @@ export function useQueuedEpisodeImage({
     setImageLoaded(false);
     setImageError(false);
 
-    const imgElement = imgRef.current;
-    if (!src || !imgElement) {
+    if (!src) {
       return;
     }
 
@@ -45,7 +43,6 @@ export function useQueuedEpisodeImage({
       imageLoadQueue.add({
         id: taskId,
         src,
-        imgElement,
         priority,
         retryCount: 0,
         onSuccess: () => {
@@ -72,6 +69,5 @@ export function useQueuedEpisodeImage({
   return {
     imageLoaded,
     imageError,
-    imgRef,
   };
 }

@@ -1,22 +1,17 @@
 "use client";
 
-import { memo, useMemo, useState, type FocusEvent } from "react";
+import { memo, useState, type FocusEvent } from "react";
 import type { Episode } from "@/types";
-import RichText from "@/components/RichText";
-import { useQueuedEpisodeImage } from "@/hooks/useQueuedEpisodeImage";
+import { EpisodeShowNotes } from "@/components/episodes/EpisodeShowNotes";
+import { EpisodeThumbnail } from "@/components/episodes/EpisodeThumbnail";
 import {
   formatEpisodeDuration,
   formatEpisodeFileSize,
-  getEpisodeCoverDisplay,
-  shouldShowEpisodeImageLoader,
-  shouldShowEpisodeImagePlaceholder,
   shouldShowEpisodePlayButton,
   shouldShowEpisodeShowNotes,
   shouldShowEpisodeTitleLink,
   type EpisodeImagePriority,
 } from "@/lib/episodeDisplay";
-import { getOptimizedImageUrl } from "@/lib/imageOptimization";
-import { stripHtml } from "@/lib/textUtils";
 import { formatDate } from "@/lib/timeUtils";
 
 interface EpisodeCardProps {
@@ -24,56 +19,6 @@ interface EpisodeCardProps {
   podcastCover?: string;
   index?: number;
   priority?: EpisodeImagePriority;
-}
-
-function EpisodeShowNotes({
-  html,
-  link,
-  isExpanded,
-}: {
-  html: string;
-  link: string;
-  isExpanded: boolean;
-}) {
-  const preview = useMemo(() => stripHtml(html, 220), [html]);
-
-  return (
-    <div className="relative">
-      <div
-        className={`relative max-h-20 overflow-hidden text-xs text-slate-600 transition-[max-height] duration-300 md:text-sm md:text-slate-600 md:dark:text-slate-400 ${
-          isExpanded
-            ? "md:max-h-96 md:overflow-y-auto"
-            : "md:max-h-24 md:overflow-hidden"
-        }`}
-      >
-        {isExpanded ? (
-          <RichText
-            html={html}
-            className="prose prose-sm dark:prose-invert max-w-none prose-headings:text-base prose-h1:text-base prose-h2:text-base prose-h3:text-base line-clamp-3 md:line-clamp-none"
-          />
-        ) : (
-          <p className="line-clamp-3 whitespace-pre-line">{preview}</p>
-        )}
-      </div>
-
-      <div
-        className={`absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-white dark:from-slate-800 to-transparent pointer-events-none md:h-8 ${
-          isExpanded ? "md:hidden" : ""
-        }`}
-      />
-
-      {link && (
-        <a
-          href={link}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block rounded-sm text-center text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 mt-2 py-2 border-t border-slate-200 dark:border-slate-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 md:hidden"
-        >
-          查看详情 →
-        </a>
-      )}
-    </div>
-  );
 }
 
 function EpisodeCard({
@@ -84,36 +29,8 @@ function EpisodeCard({
 }: EpisodeCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const coverDisplay = getEpisodeCoverDisplay(episode, podcastCover);
-  const optimizedCoverSrc = getOptimizedImageUrl(coverDisplay.src);
-  const optimizedPlaceholderSrc = getOptimizedImageUrl(
-    coverDisplay.placeholderSrc,
-  );
-  const {
-    imageLoaded: queuedImageLoaded,
-    imageError: queuedImageError,
-    imgRef,
-  } = useQueuedEpisodeImage({
-    episodeId: episode.id,
-    src: coverDisplay.shouldQueue ? optimizedCoverSrc : "",
-    priority,
-    index,
-  });
-  const imageLoaded = coverDisplay.shouldQueue
-    ? queuedImageLoaded
-    : Boolean(optimizedCoverSrc);
-  const imageError = coverDisplay.shouldQueue ? queuedImageError : false;
   const durationLabel = formatEpisodeDuration(episode.duration);
   const fileSizeLabel = formatEpisodeFileSize(episode.enclosure_length);
-  const showImageLoader = shouldShowEpisodeImageLoader(
-    imageLoaded,
-    imageError,
-    coverDisplay.shouldQueue,
-  );
-  const showImagePlaceholder = shouldShowEpisodeImagePlaceholder(
-    coverDisplay.src,
-    imageError,
-  );
   const showTitleLink = shouldShowEpisodeTitleLink(episode.link);
   const showPlayButton = shouldShowEpisodePlayButton(episode.medium_url);
   const showNotes = shouldShowEpisodeShowNotes(episode.show_notes);
@@ -140,63 +57,12 @@ function EpisodeCard({
       <div className="p-3 sm:p-4 flex-1 flex flex-col">
         {/* Title with Thumbnail */}
         <div className="flex items-start gap-2 sm:gap-3 mb-3">
-          {/* Thumbnail with LQIP */}
-          <div className="flex-shrink-0 w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12 lg:w-14 lg:h-14 rounded-lg overflow-hidden bg-slate-200 relative">
-            {/* 播客封面作为模糊占位图（LQIP） */}
-            {optimizedPlaceholderSrc && (
-              <img
-                src={optimizedPlaceholderSrc}
-                alt=""
-                aria-hidden="true"
-                loading={index < 3 ? "eager" : "lazy"}
-                decoding="async"
-                className="absolute inset-0 w-full h-full object-cover blur-md opacity-40"
-              />
-            )}
-
-            {/* 加载指示器 */}
-            {showImageLoader && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-              </div>
-            )}
-
-            {/* 真实单集封面 */}
-            {optimizedCoverSrc ? (
-              <img
-                ref={coverDisplay.shouldQueue ? imgRef : undefined}
-                src={coverDisplay.shouldQueue ? undefined : optimizedCoverSrc}
-                alt={episode.title}
-                loading={index < 3 ? "eager" : "lazy"}
-                decoding="async"
-                className={`w-full h-full object-cover transition-all duration-500 ${
-                  imageLoaded ? "opacity-100" : "opacity-0"
-                }`}
-              />
-            ) : null}
-
-            {/* 占位符：当没有封面或图片加载失败时显示 */}
-            {showImagePlaceholder && (
-              <div
-                className="w-full h-full flex items-center justify-center bg-slate-200"
-                aria-hidden="true"
-              >
-                <svg
-                  className="h-5 w-5 text-slate-400"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
-                  <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z" />
-                  <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
-                </svg>
-              </div>
-            )}
-          </div>
+          <EpisodeThumbnail
+            episode={episode}
+            podcastCover={podcastCover}
+            index={index}
+            priority={priority}
+          />
 
           {/* Title, Meta Info and Play Button */}
           <div className="flex-1 min-w-0">

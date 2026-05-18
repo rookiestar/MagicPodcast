@@ -17,6 +17,7 @@ export interface PodcastFilters {
   page_size?: number;
   sort_by?: string;
   search?: string;
+  view?: "summary" | "full";
 }
 
 export interface PodcastListResponse {
@@ -43,7 +44,7 @@ export async function listPodcasts(
   };
 
   const response = await api.get<PodcastListApiResponse>(
-    buildPodcastListPath(params),
+    buildPodcastListPath({ view: "summary", ...params }),
   );
   const data = handleResponse(response);
 
@@ -68,7 +69,7 @@ export async function getPodcast(id: number): Promise<any> {
 export async function batchGetPodcasts(ids: number[]): Promise<any[]> {
   const response = await api.post<ApiResponse<any[]>>(
     buildPodcastBatchPath(),
-    { ids },
+    { ids, view: "summary" },
   );
   return handleResponse(response);
 }

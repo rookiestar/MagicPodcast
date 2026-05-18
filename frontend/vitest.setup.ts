@@ -1,3 +1,4 @@
+import React from 'react'
 import { vi } from 'vitest'
 import '@testing-library/jest-dom'
 
@@ -25,11 +26,20 @@ vi.mock('next/navigation', () => ({
 // Mock Next.js Image component
 vi.mock('next/image', () => ({
   __esModule: true,
-  default: vi.fn().mockImplementation(({ src, alt, ...props }: any) => ({
+  default: vi.fn().mockImplementation(({
     src,
     alt,
-    ...props,
-  })),
+    fill,
+    priority,
+    unoptimized,
+    ...props
+  }: any) =>
+    React.createElement('img', {
+      src: typeof src === 'string' ? src : src?.src,
+      alt,
+      ...props,
+    }),
+  ),
 }))
 
 // Mock window.matchMedia

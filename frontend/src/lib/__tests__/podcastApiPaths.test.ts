@@ -20,10 +20,11 @@ describe("podcastApiPaths", () => {
         page_size: 20,
         sort_by: "recent_update",
         search: "tech",
+        view: "summary",
         tag_id: [1, 52],
       }),
     ).toBe(
-      "/api/v1/podcasts?page=2&page_size=20&sort_by=recent_update&search=tech&tag_id=1&tag_id=52",
+      "/api/v1/podcasts?page=2&page_size=20&sort_by=recent_update&search=tech&view=summary&tag_id=1&tag_id=52",
     );
   });
 

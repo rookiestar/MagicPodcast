@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"time"
+
+	"magicpodcast/internal/cache"
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
@@ -144,6 +147,18 @@ func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 	page := pagination.Page
 	pageSize := pagination.PageSize
 
+	cacheKey := cache.NewKeyBuilder().EpisodeList(podcastID, page, pageSize)
+	memCache := cache.GetCache()
+	if cached, ok := memCache.Get(cacheKey); ok {
+		cache.RecordHit()
+		cachedResp := copyGinH(cached.(gin.H))
+		cachedResp["cached"] = true
+		setPrivateCache(c, 60)
+		c.JSON(200, cachedResp)
+		return
+	}
+	cache.RecordMiss()
+
 	// 获取总数
 	total, err := countPodcastEpisodes(db, podcastID)
 	if err != nil {
@@ -159,9 +174,13 @@ func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 	}
 
 	// 转换为响应格式
-	c.JSON(200, gin.H{
+	resp := gin.H{
 		"success":    true,
 		"data":       episodesToResponse(episodes),
 		"pagination": episodePaginationPayload(page, pageSize, total),
-	})
+	}
+
+	memCache.SetWithTTL(cacheKey, resp, 2*time.Minute)
+	setPrivateCache(c, 60)
+	c.JSON(200, resp)
 }

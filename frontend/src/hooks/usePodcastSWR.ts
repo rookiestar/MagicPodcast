@@ -26,10 +26,11 @@ interface UsePodcastsParams {
   sort_by?: string;
   tag_id?: number[];
   search?: string;
+  view?: "summary" | "full";
 }
 
 export function usePodcasts(params: UsePodcastsParams = {}) {
-  const key = buildPodcastListPath(params);
+  const key = buildPodcastListPath({ view: "summary", ...params });
 
   const { data, error, isLoading, mutate } = useSWR(
     key,
@@ -83,6 +84,7 @@ interface UsePodcastListParams {
   sort_by?: string;
   tag_id?: number[];
   search?: string;
+  view?: "summary" | "full";
 }
 
 // 自定义 fetcher，返回完整的页面数据（包含 podcasts 和 pagination）
@@ -108,6 +110,7 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
     }
 
     return buildPodcastListPath({
+      view: "summary",
       ...params,
       page: pageIndex + 1,
     });

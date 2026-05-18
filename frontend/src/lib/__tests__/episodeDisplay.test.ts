@@ -5,6 +5,8 @@ import {
   getEpisodeCoverDisplay,
   getEpisodeCoverImage,
   getEpisodeImageLoadDelay,
+  getEpisodeImageLoading,
+  getEpisodeImagePriority,
   shouldShowEpisodeImageLoader,
   shouldShowEpisodeImagePlaceholder,
   shouldShowEpisodePlayButton,
@@ -58,6 +60,17 @@ describe("episodeDisplay", () => {
     expect(getEpisodeImageLoadDelay("medium", 3)).toBe(200);
     expect(getEpisodeImageLoadDelay("low", 9)).toBe(0);
     expect(getEpisodeImageLoadDelay("low", 10)).toBe(500);
+  });
+
+  it("gets episode image priority and loading mode by position", () => {
+    expect(getEpisodeImagePriority(0)).toBe("high");
+    expect(getEpisodeImagePriority(2)).toBe("high");
+    expect(getEpisodeImagePriority(3)).toBe("medium");
+    expect(getEpisodeImagePriority(9)).toBe("medium");
+    expect(getEpisodeImagePriority(10)).toBe("low");
+    expect(getEpisodeImageLoading(0)).toBe("eager");
+    expect(getEpisodeImageLoading(2)).toBe("eager");
+    expect(getEpisodeImageLoading(3)).toBe("lazy");
   });
 
   it("formats episode duration consistently", () => {

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"magicpodcast/internal/cache"
@@ -10,6 +11,7 @@ import (
 	"magicpodcast/internal/models"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // PodcastHandler Podcast 处理器
@@ -53,6 +55,38 @@ type PodcastResponse struct {
 	Tags []TagResponse `json:"tags,omitempty"`
 }
 
+type PodcastSummaryResponse struct {
+	ID                uint          `json:"id"`
+	Title             string        `json:"title"`
+	Description       string        `json:"description"`
+	Author            string        `json:"author"`
+	CoverURL          string        `json:"cover_url"`
+	CustomCoverURL    string        `json:"custom_cover_url,omitempty"`
+	EpisodeCount      int           `json:"episode_count"`
+	NewestEpisodeDate time.Time     `json:"newest_episode_date"`
+	AddedDate         time.Time     `json:"added_date,omitempty"`
+	IsSubscribed      bool          `json:"is_subscribed"`
+	IsDead            bool          `json:"is_dead"`
+	Tags              []TagResponse `json:"tags,omitempty"`
+}
+
+const podcastSummaryView = "summary"
+const podcastListDescriptionLimit = 360
+
+var podcastSummarySelectColumns = []string{
+	"id",
+	"title",
+	"description",
+	"author",
+	"cover_url",
+	"custom_cover_url",
+	"episode_count",
+	"newest_episode_date",
+	"added_date",
+	"is_subscribed",
+	"is_dead",
+}
+
 // List 获取播客节目列表
 // @Summary 获取播客节目列表
 // @Description 获取播客节目列表，支持按标签筛选（支持多选AND逻辑）、搜索、排序和分页
@@ -72,6 +106,8 @@ func (h *PodcastHandler) List(c *gin.Context) {
 	// 获取查询参数
 	searchKeyword := c.Query("search")
 	sortBy := c.DefaultQuery("sort_by", "recent_update") // 默认按最近更新排序
+	view := c.DefaultQuery("view", "")
+	summaryView := view == podcastSummaryView
 
 	// 分页参数（使用辅助函数）
 	pagination := ParsePaginationParams(c, 15)
@@ -85,12 +121,12 @@ func (h *PodcastHandler) List(c *gin.Context) {
 	memCache := cache.GetCache()
 	cacheKey := ""
 	if searchKeyword == "" {
-		cacheKey = cache.NewKeyBuilder().PodcastList(page, pageSize, sortBy, tagIDs, "")
+		cacheKey = cache.NewKeyBuilder().PodcastList(page, pageSize, sortBy, tagIDs, "", view)
 		if cached, ok := memCache.Get(cacheKey); ok {
 			cache.RecordHit()
-			// 返回缓存的完整响应
-			cachedResp := cached.(gin.H)
+			cachedResp := copyGinH(cached.(gin.H))
 			cachedResp["cached"] = true
+			setPrivateCache(c, 60)
 			c.JSON(200, cachedResp)
 			return
 		}
@@ -98,7 +134,9 @@ func (h *PodcastHandler) List(c *gin.Context) {
 	}
 
 	// 构建查询
-	query := db.Model(&models.Podcast{}).Preload("Tags")
+	query := db.Model(&models.Podcast{}).Preload("Tags", func(db *gorm.DB) *gorm.DB {
+		return db.Select("tags.id", "tags.name", "tags.color")
+	})
 
 	// 按标签筛选（AND逻辑：必须同时拥有所有选中的标签）
 	if len(tagIDs) > 0 {
@@ -148,15 +186,24 @@ func (h *PodcastHandler) List(c *gin.Context) {
 	// 分页查询
 	var podcasts []models.Podcast
 	offset := (page - 1) * pageSize
+	if summaryView {
+		query = query.Select(podcastSummarySelectColumns)
+	}
 	if err := query.Offset(offset).Limit(pageSize).Find(&podcasts).Error; err != nil {
 		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to fetch podcasts")
 		return
 	}
 
 	// 转换为响应格式
-	response := make([]PodcastResponse, len(podcasts))
-	for i, podcast := range podcasts {
-		response[i] = h.modelToResponse(&podcast)
+	var data interface{}
+	if summaryView {
+		data = h.modelsToSummaryResponses(podcasts)
+	} else {
+		response := make([]PodcastResponse, len(podcasts))
+		for i, podcast := range podcasts {
+			response[i] = h.modelToResponse(&podcast)
+		}
+		data = response
 	}
 
 	// 计算总页数
@@ -168,7 +215,7 @@ func (h *PodcastHandler) List(c *gin.Context) {
 	// 构建响应
 	resp := gin.H{
 		"success": true,
-		"data":    response,
+		"data":    data,
 		"pagination": gin.H{
 			"page":        page,
 			"page_size":   pageSize,
@@ -182,8 +229,7 @@ func (h *PodcastHandler) List(c *gin.Context) {
 		memCache.Set(cacheKey, resp)
 	}
 
-	// 设置浏览器缓存头（列表数据缓存60秒）
-	c.Header("Cache-Control", "private, max-age=60")
+	setPrivateCache(c, 60)
 
 	c.JSON(200, resp)
 }
@@ -213,6 +259,7 @@ func (h *PodcastHandler) Get(c *gin.Context) {
 
 	middleware.SuccessResponse(c, h.modelToResponse(&podcast))
 }
+
 // @Summary 批量获取播客
 // @Description 根据播客ID列表批量获取播客详情
 // @Tags Podcast
@@ -227,7 +274,8 @@ func (h *PodcastHandler) BatchGet(c *gin.Context) {
 
 	// 解析请求体
 	var request struct {
-		IDs []uint `json:"ids" binding:"required,min=1,max=100"`
+		IDs  []uint `json:"ids" binding:"required,min=1,max=100"`
+		View string `json:"view"`
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -237,18 +285,71 @@ func (h *PodcastHandler) BatchGet(c *gin.Context) {
 
 	// 查询播客
 	var podcasts []models.Podcast
-	if err := db.Preload("Tags").Where("id IN ?", request.IDs).Find(&podcasts).Error; err != nil {
+	query := db.Preload("Tags", func(db *gorm.DB) *gorm.DB {
+		return db.Select("tags.id", "tags.name", "tags.color")
+	})
+	if request.View == podcastSummaryView {
+		query = query.Select(podcastSummarySelectColumns)
+	}
+	if err := query.Where("id IN ?", request.IDs).Find(&podcasts).Error; err != nil {
 		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to fetch podcasts")
 		return
 	}
 
 	// 转换为响应格式
+	if request.View == podcastSummaryView {
+		middleware.SuccessResponse(c, h.modelsToSummaryResponses(podcasts))
+		return
+	}
+
 	responses := make([]PodcastResponse, len(podcasts))
 	for i, podcast := range podcasts {
 		responses[i] = h.modelToResponse(&podcast)
 	}
-
 	middleware.SuccessResponse(c, responses)
+}
+
+func truncatePodcastDescription(description string) string {
+	description = strings.TrimSpace(description)
+	runes := []rune(description)
+	if len(runes) <= podcastListDescriptionLimit {
+		return description
+	}
+	return strings.TrimSpace(string(runes[:podcastListDescriptionLimit])) + "..."
+}
+
+func (h *PodcastHandler) modelsToSummaryResponses(podcasts []models.Podcast) []PodcastSummaryResponse {
+	response := make([]PodcastSummaryResponse, len(podcasts))
+	for i := range podcasts {
+		response[i] = h.modelToSummaryResponse(&podcasts[i])
+	}
+	return response
+}
+
+func (h *PodcastHandler) modelToSummaryResponse(podcast *models.Podcast) PodcastSummaryResponse {
+	tags := make([]TagResponse, len(podcast.Tags))
+	for i, tag := range podcast.Tags {
+		tags[i] = TagResponse{
+			ID:    tag.ID,
+			Name:  tag.Name,
+			Color: tag.Color,
+		}
+	}
+
+	return PodcastSummaryResponse{
+		ID:                podcast.ID,
+		Title:             podcast.Title,
+		Description:       truncatePodcastDescription(podcast.Description),
+		Author:            podcast.Author,
+		CoverURL:          podcast.CoverURL,
+		CustomCoverURL:    podcast.CustomCoverURL,
+		EpisodeCount:      podcast.EpisodeCount,
+		NewestEpisodeDate: podcast.NewestEpisodeDate,
+		AddedDate:         podcast.AddedDate,
+		IsSubscribed:      podcast.IsSubscribed,
+		IsDead:            podcast.IsDead,
+		Tags:              tags,
+	}
 }
 
 // modelToResponse 将模型转换为响应格式

@@ -4,6 +4,8 @@ import React, { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
+import PlainImage from "@/components/ui/PlainImage";
+import { getOptimizedImageUrl } from "@/lib/imageOptimization";
 
 interface MarkdownViewerProps {
   content: string;
@@ -46,11 +48,13 @@ export default function MarkdownViewer({
 
                 if (base64) {
                   return (
-                    <img
+                    <PlainImage
                       src={`data:image/png;base64,${base64}`}
                       alt="二维码"
                       width="128"
                       height="128"
+                      loading="lazy"
+                      decoding="async"
                       className="inline-block mx-2"
                       style={{
                         cursor: "pointer",
@@ -63,7 +67,17 @@ export default function MarkdownViewer({
               }
             }
             // 其他图片正常渲染
-            return <img src={src} alt={alt} {...props} />;
+            const imageSrc = typeof src === "string" ? src : "";
+            return (
+              <PlainImage
+                src={getOptimizedImageUrl(imageSrc, 768, 80)}
+                alt={alt || ""}
+                loading="lazy"
+                decoding="async"
+                className="my-3 max-w-full rounded-lg"
+                {...props}
+              />
+            );
           },
           h1: ({ children }) => (
             <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50 border-b border-slate-200 dark:border-slate-700 pb-2 mb-4">

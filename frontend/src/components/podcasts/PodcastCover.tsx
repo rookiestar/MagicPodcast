@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef, memo } from "react";
 import Image from "next/image";
+import PlainImage from "@/components/ui/PlainImage";
+import { canUseNextImage } from "@/lib/imageOptimization";
 import { getProxiedImageUrl } from "@/lib/imageProxy";
 
 // 默认 sizes 常量
@@ -91,12 +93,11 @@ function PodcastCover({
     );
   }
 
-  // 对于代理URL，使用普通img标签
-  if (isProxiedUrl) {
+  if (!canUseNextImage(imageUrl)) {
     return (
       <div className={containerClass} ref={containerRef}>
         {(shouldLoad || isHighPriority) && (
-          <img
+          <PlainImage
             src={imageUrl}
             alt={title}
             className="object-cover w-full h-full"
@@ -118,6 +119,7 @@ function PodcastCover({
           alt={title}
           fill
           sizes={sizes}
+          unoptimized={isProxiedUrl}
           className="object-cover"
           priority={isHighPriority}
           loading={isHighPriority ? "eager" : "lazy"}

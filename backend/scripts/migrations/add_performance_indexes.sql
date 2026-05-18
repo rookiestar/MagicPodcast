@@ -16,6 +16,22 @@ WHERE is_subscribed = true;
 CREATE INDEX IF NOT EXISTS idx_podcasts_newest_episode_date_desc
 ON podcasts(newest_episode_date DESC);
 
+-- 列表默认排序：最近更新
+CREATE INDEX IF NOT EXISTS idx_podcasts_recent_update_desc
+ON podcasts(COALESCE(newest_episode_date, created_at) DESC, id DESC);
+
+-- 最新添加排序
+CREATE INDEX IF NOT EXISTS idx_podcasts_added_date_desc
+ON podcasts(added_date DESC, id DESC);
+
+-- 单集数量排序
+CREATE INDEX IF NOT EXISTS idx_podcasts_episode_count_desc
+ON podcasts(episode_count DESC, id DESC);
+
+-- 名称排序
+CREATE INDEX IF NOT EXISTS idx_podcasts_title_nocase
+ON podcasts(title COLLATE NOCASE ASC, id ASC);
+
 -- Feed抓取优先级
 CREATE INDEX IF NOT EXISTS idx_podcasts_priority_dead
 ON podcasts(priority, is_dead)
@@ -56,6 +72,10 @@ WHERE fetch_error_count > 0;
 -- 发布日期查询
 CREATE INDEX IF NOT EXISTS idx_episodes_published_date
 ON episodes(podcast_id, published_date DESC);
+
+-- 单集列表稳定排序
+CREATE INDEX IF NOT EXISTS idx_episodes_podcast_published_id_desc
+ON episodes(podcast_id, published_date DESC, id DESC);
 
 -- 更新时间查询
 CREATE INDEX IF NOT EXISTS idx_episodes_updated_date
@@ -102,6 +122,14 @@ ON jobs(workflow_id, status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_workflows_is_enabled
 ON workflows(is_enabled)
 WHERE is_enabled = true;
+
+-- 工作流列表更新时间排序
+CREATE INDEX IF NOT EXISTS idx_workflows_updated_at_desc
+ON workflows(updated_at DESC, id DESC);
+
+-- 工作流下次执行时间排序
+CREATE INDEX IF NOT EXISTS idx_workflows_next_run_at
+ON workflows(next_run_at ASC, id ASC);
 
 -- 启用 + 调度
 CREATE INDEX IF NOT EXISTS idx_workflows_enabled_schedule

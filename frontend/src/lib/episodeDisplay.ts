@@ -49,6 +49,16 @@ export function getEpisodeImageLoadDelay(
   return index >= 10 ? 500 : 0;
 }
 
+export function getEpisodeImagePriority(index: number): EpisodeImagePriority {
+  if (index < 3) return "high";
+  if (index < 10) return "medium";
+  return "low";
+}
+
+export function getEpisodeImageLoading(index: number): "eager" | "lazy" {
+  return index < 3 ? "eager" : "lazy";
+}
+
 export function formatEpisodeDuration(seconds?: number | null) {
   if (!seconds || seconds <= 0) {
     return null;

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"magicpodcast/internal/cache"
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/handlers/dto"
 	"magicpodcast/internal/llm"
@@ -63,6 +64,18 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 
 	// 获取排序参数（默认：updated）
 	sortBy := c.DefaultQuery("sort_by", "updated")
+
+	cacheKey := fmt.Sprintf("%s:p%d:s%d:%s", cache.NewKeyBuilder().WorkflowList(), page, pageSize, sortBy)
+	memCache := cache.GetCache()
+	if cached, ok := memCache.Get(cacheKey); ok {
+		cache.RecordHit()
+		cachedResp := copyGinH(cached.(gin.H))
+		cachedResp["cached"] = true
+		setPrivateCache(c, 60)
+		c.JSON(http.StatusOK, cachedResp)
+		return
+	}
+	cache.RecordMiss()
 
 	// 查询总数
 	var total int64
@@ -134,7 +147,7 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 		response[i] = h.toWorkflowResponseWithStats(&wf, stats, subscribedPodcastCount)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"success": true,
 		"data": gin.H{
 			"workflows": response,
@@ -145,9 +158,11 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 				"total_pages": (total + int64(pageSize) - 1) / int64(pageSize),
 			},
 		},
-	})
+	}
+	memCache.SetWithTTL(cacheKey, resp, 2*time.Minute)
+	setPrivateCache(c, 60)
+	c.JSON(http.StatusOK, resp)
 }
-
 
 // Get 获取单个工作流详情
 // @Summary 获取工作流详情
@@ -250,6 +265,7 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to create workflow")
 		return
 	}
+	cache.InvalidateWorkflowList()
 
 	// 如果工作流启用且配置了 schedule,注册到调度器
 	if workflow.IsEnabled && workflow.Schedule != "" {
@@ -373,6 +389,7 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to update workflow")
 		return
 	}
+	cache.InvalidateWorkflowDetail(workflow.ID)
 
 	// 重新加载调度器以应用更新
 	if err := h.scheduler.Reload(); err != nil {
@@ -406,6 +423,7 @@ func (h *WorkflowHandler) Delete(c *gin.Context) {
 		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to delete workflow")
 		return
 	}
+	cache.InvalidateWorkflowDetail(workflow.ID)
 
 	middleware.SuccessResponse(c, gin.H{"message": "Workflow deleted successfully"})
 }
@@ -446,6 +464,7 @@ func (h *WorkflowHandler) Toggle(c *gin.Context) {
 		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to toggle workflow")
 		return
 	}
+	cache.InvalidateWorkflowDetail(workflow.ID)
 
 	// 重新加载调度器以应用更新
 	if err := h.scheduler.Reload(); err != nil {
@@ -793,14 +812,13 @@ func (h *WorkflowHandler) RegenerateLLMSummary(c *gin.Context) {
 			"generated_at":     report.GeneratedAt,
 			"format":           report.Format,
 			"file_size":        report.FileSize,
-			"llm_summary":     report.LLMSummary,
-			"llm_model_used":  report.LLMModelUsed,
-			"llm_tokens_used": report.LLMTokensUsed,
-			"llm_error":       report.LLMError,
+			"llm_summary":      report.LLMSummary,
+			"llm_model_used":   report.LLMModelUsed,
+			"llm_tokens_used":  report.LLMTokensUsed,
+			"llm_error":        report.LLMError,
 		},
 	})
 }
-
 
 // Trigger 手动触发工作流
 // @Summary 手动触发工作流
@@ -873,4 +891,3 @@ type WorkflowRequest struct {
 	RulesConfig models.RulesConfig       `json:"rules_config"`
 	IsEnabled   bool                     `json:"is_enabled"`
 }
-

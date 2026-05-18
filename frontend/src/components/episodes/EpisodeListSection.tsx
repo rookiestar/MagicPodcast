@@ -9,6 +9,7 @@ import {
   shouldShowEpisodeListFooter,
   shouldShowEpisodeListHeading,
 } from "@/lib/episodeListState";
+import { getEpisodeImagePriority } from "@/lib/episodeDisplay";
 import type { Episode } from "@/types";
 import EpisodeCard from "./EpisodeCard";
 
@@ -181,7 +182,7 @@ export default function EpisodeListSection({
                   episode={episode}
                   podcastCover={podcastCover}
                   index={index}
-                  priority={index < 3 ? "high" : index < 10 ? "medium" : "low"}
+                  priority={getEpisodeImagePriority(index)}
                 />
               </div>
             ))}

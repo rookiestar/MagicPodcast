@@ -2,6 +2,7 @@
 
 import { memo, useMemo } from "react";
 import DOMPurify from "dompurify";
+import { optimizeHtmlImageSources } from "@/lib/imageOptimization";
 
 interface RichTextProps {
   html: string;
@@ -88,7 +89,9 @@ function RichText({ html, className = "" }: RichTextProps) {
         );
     }
 
-    return DOMPurify.sanitize(contentToSanitize, RICH_TEXT_SANITIZE_OPTIONS);
+    return optimizeHtmlImageSources(
+      DOMPurify.sanitize(contentToSanitize, RICH_TEXT_SANITIZE_OPTIONS),
+    );
   }, [html]);
 
   return (

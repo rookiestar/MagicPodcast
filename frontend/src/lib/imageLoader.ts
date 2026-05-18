@@ -10,7 +10,7 @@
 interface LoadTask {
   id: string;
   src: string;
-  imgElement: HTMLImageElement;
+  imgElement?: HTMLImageElement;
   priority: "high" | "medium" | "low";
   retryCount: number;
   onSuccess: () => void;

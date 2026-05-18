@@ -14,12 +14,18 @@ func NewKeyBuilder() *KeyBuilder {
 }
 
 // PodcastList 构建播客列表缓存键
-func (k *KeyBuilder) PodcastList(page, pageSize int, sortBy string, tagIDs []uint, search string) string {
+func (k *KeyBuilder) PodcastList(page, pageSize int, sortBy string, tagIDs []uint, search string, view ...string) string {
 	var sb strings.Builder
 	sb.WriteString("podcasts:list:")
 	sb.WriteString(fmt.Sprintf("p%d:s%d:", page, pageSize))
 	sb.WriteString(sortBy)
 	sb.WriteString(":")
+
+	if len(view) > 0 && view[0] != "" {
+		sb.WriteString("v:")
+		sb.WriteString(view[0])
+		sb.WriteString(":")
+	}
 
 	if len(tagIDs) > 0 {
 		sb.WriteString("t")
