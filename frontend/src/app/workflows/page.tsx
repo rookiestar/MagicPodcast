@@ -26,7 +26,10 @@ export default function WorkflowsPage() {
   const [sortBy, setSortBy] = useState<WorkflowSortByType>("updated");
 
   // 使用 SWR 获取工作流列表
-  const { workflows, isLoading, isError, mutate } = useWorkflows({ sort_by: sortBy });
+  const { workflows, isLoading, isError, mutate } = useWorkflows({
+    sort_by: sortBy,
+    view: "summary",
+  });
   const error = isError ? "加载失败" : null;
 
   useEffect(() => {

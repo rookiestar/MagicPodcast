@@ -9,6 +9,7 @@ interface UseWorkflowsParams {
   page?: number;
   page_size?: number;
   sort_by?: WorkflowSortByType;
+  view?: "summary" | "full";
 }
 
 export function useWorkflows(params: UseWorkflowsParams = {}) {
@@ -17,6 +18,7 @@ export function useWorkflows(params: UseWorkflowsParams = {}) {
   if (params.page) queryParams.set("page", params.page.toString());
   if (params.page_size) queryParams.set("page_size", params.page_size.toString());
   if (params.sort_by) queryParams.set("sort_by", params.sort_by);
+  if (params.view) queryParams.set("view", params.view);
 
   const key = queryParams.toString()
     ? `/api/v1/workflows?${queryParams.toString()}`

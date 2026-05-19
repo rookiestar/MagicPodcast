@@ -88,6 +88,7 @@ func createEpisodeHandlerEpisode(t *testing.T, db *gorm.DB, podcastID uint, sequ
 		EnclosureType:   "audio/mpeg",
 		EnclosureLength: int64(sequence * 1024),
 		GUID:            fmt.Sprintf("episode-handler-guid-%d-%d", time.Now().UnixNano(), sequence),
+		Notes:           "private note should not be returned by list endpoint",
 	}
 	require.NoError(t, db.Create(&episode).Error)
 	return episode
@@ -125,6 +126,8 @@ func TestEpisodeHandler_ListByPodcast_PaginatesWithStableOrder(t *testing.T) {
 	assert.False(t, hasContent)
 	_, hasUpdatedDate := body.Data[0]["updated_date"]
 	assert.False(t, hasUpdatedDate)
+	assert.Equal(t, "Show notes 3", body.Data[0]["show_notes"])
+	assert.Equal(t, "", body.Data[0]["notes"])
 
 	request, _ = http.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/podcasts/%d/episodes?page=2&page_size=2", podcast.ID), nil)
 	response = httptest.NewRecorder()

@@ -28,26 +28,15 @@ func main() {
 	fmt.Println("==============================")
 	fmt.Printf("数据库: %s\n\n", dbPath)
 
-	// 读取SQL脚本
-	sqlFile, err := os.Open("scripts/migrations/add_performance_indexes.sql")
-	if err != nil {
-		log.Fatalf("打开SQL文件失败: %v", err)
-	}
-	defer sqlFile.Close()
-
-	// 读取SQL内容
-	content, err := io.ReadAll(sqlFile)
-	if err != nil {
-		log.Fatalf("读取SQL文件失败: %v", err)
+	sqlFiles := []string{
+		"scripts/migrations/add_performance_indexes.sql",
+		"scripts/migrations/add_search_fts.sql",
 	}
 
-	sqlScript := string(content)
-
-	// 执行SQL
-	fmt.Println("开始创建索引...")
-	_, err = db.Exec(sqlScript)
-	if err != nil {
-		log.Fatalf("执行SQL失败: %v", err)
+	for _, path := range sqlFiles {
+		if err := runSQLFile(db, path); err != nil {
+			log.Fatalf("执行SQL失败 [%s]: %v", path, err)
+		}
 	}
 
 	fmt.Println("✅ 索引创建完成！")
@@ -55,6 +44,25 @@ func main() {
 
 	// 显示索引统计
 	showIndexStats(db)
+}
+
+func runSQLFile(db *sql.DB, path string) error {
+	sqlFile, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("打开SQL文件失败: %w", err)
+	}
+	defer sqlFile.Close()
+
+	content, err := io.ReadAll(sqlFile)
+	if err != nil {
+		return fmt.Errorf("读取SQL文件失败: %w", err)
+	}
+
+	fmt.Printf("开始执行 %s...\n", path)
+	if _, err := db.Exec(string(content)); err != nil {
+		return err
+	}
+	return nil
 }
 
 func showIndexStats(db *sql.DB) {

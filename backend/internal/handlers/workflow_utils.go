@@ -125,6 +125,13 @@ func (h *WorkflowHandler) toWorkflowResponseWithStats(workflow *models.Workflow,
 	return resp
 }
 
+func workflowListRulesConfigSummary(config models.RulesConfig) models.RulesConfig {
+	return models.RulesConfig{
+		TimeRange:     config.TimeRange,
+		TimeRangeMode: config.TimeRangeMode,
+	}
+}
+
 // toWorkflowResponse 转换为响应格式
 func (h *WorkflowHandler) toWorkflowResponse(workflow *models.Workflow) WorkflowResponse {
 	resp := WorkflowResponse{

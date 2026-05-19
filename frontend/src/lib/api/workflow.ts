@@ -15,11 +15,13 @@ export const workflowApi = {
   list: async (params?: {
     page?: number;
     page_size?: number;
+    view?: "summary" | "full";
   }): Promise<WorkflowsResponse> => {
     const queryParams = new URLSearchParams();
     if (params?.page) queryParams.append("page", params.page.toString());
     if (params?.page_size)
       queryParams.append("page_size", params.page_size.toString());
+    if (params?.view) queryParams.append("view", params.view);
 
     const url = queryParams.toString()
       ? `/api/v1/workflows?${queryParams.toString()}`

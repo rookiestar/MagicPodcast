@@ -1,7 +1,11 @@
 package handlers
 
 import (
+	"html"
+	"regexp"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"magicpodcast/internal/cache"
 	"magicpodcast/internal/database"
@@ -39,22 +43,45 @@ type EpisodeResponse struct {
 	Notes           string `json:"notes"`
 }
 
-var episodeListSelectColumns = []string{
-	"id",
-	"guid",
-	"podcast_id",
-	"episode_no",
-	"title",
-	"medium_url",
-	"show_notes",
-	"published_date",
-	"duration",
-	"link",
-	"image_url",
-	"enclosure_type",
-	"enclosure_length",
-	"my_rate",
-	"notes",
+const (
+	episodeShowNotesDBPreviewLimit = 1600
+	episodeShowNotesPreviewLimit   = 600
+)
+
+var htmlTagPattern = regexp.MustCompile(`<[^>]+>`)
+
+const episodeListSelectColumns = `
+	id,
+	guid,
+	podcast_id,
+	episode_no,
+	title,
+	medium_url,
+	substr(show_notes, 1, ?) AS show_notes,
+	published_date,
+	duration,
+	link,
+	image_url,
+	enclosure_type,
+	enclosure_length,
+	my_rate
+`
+
+func episodeShowNotesPreview(showNotes string) string {
+	if showNotes == "" {
+		return ""
+	}
+
+	preview := htmlTagPattern.ReplaceAllString(showNotes, " ")
+	preview = html.UnescapeString(preview)
+	preview = strings.Join(strings.Fields(preview), " ")
+
+	if utf8.RuneCountInString(preview) <= episodeShowNotesPreviewLimit {
+		return preview
+	}
+
+	runes := []rune(preview)
+	return string(runes[:episodeShowNotesPreviewLimit]) + "..."
 }
 
 func episodeToResponse(episode models.Episode) EpisodeResponse {
@@ -65,7 +92,7 @@ func episodeToResponse(episode models.Episode) EpisodeResponse {
 		EpisodeNo:       episode.EpisodeNo,
 		Title:           episode.Title,
 		MediumURL:       episode.MediumURL,
-		ShowNotes:       episode.ShowNotes,
+		ShowNotes:       episodeShowNotesPreview(episode.ShowNotes),
 		PublishedDate:   episode.PublishedDate.Format("2006-01-02T15:04:05Z07:00"),
 		Duration:        episode.Duration,
 		Link:            episode.Link,
@@ -73,7 +100,7 @@ func episodeToResponse(episode models.Episode) EpisodeResponse {
 		EnclosureType:   episode.EnclosureType,
 		EnclosureLength: episode.EnclosureLength,
 		MyRate:          episode.MyRate,
-		Notes:           episode.Notes,
+		Notes:           "",
 	}
 }
 
@@ -95,7 +122,7 @@ func listPodcastEpisodes(db *gorm.DB, podcastID uint, page, pageSize int) ([]mod
 	offset := (page - 1) * pageSize
 	var episodes []models.Episode
 
-	err := db.Select(episodeListSelectColumns).
+	err := db.Select(episodeListSelectColumns, episodeShowNotesDBPreviewLimit).
 		Where("podcast_id = ?", podcastID).
 		Order("published_date DESC, id DESC").
 		Limit(pageSize).

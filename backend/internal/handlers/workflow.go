@@ -64,8 +64,10 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 
 	// 获取排序参数（默认：updated）
 	sortBy := c.DefaultQuery("sort_by", "updated")
+	view := c.DefaultQuery("view", "full")
+	summaryView := view == "summary"
 
-	cacheKey := fmt.Sprintf("%s:p%d:s%d:%s", cache.NewKeyBuilder().WorkflowList(), page, pageSize, sortBy)
+	cacheKey := fmt.Sprintf("%s:p%d:s%d:%s:%s", cache.NewKeyBuilder().WorkflowList(), page, pageSize, sortBy, view)
 	memCache := cache.GetCache()
 	if cached, ok := memCache.Get(cacheKey); ok {
 		cache.RecordHit()
@@ -97,34 +99,36 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 		return
 	}
 
-	// 2. 收集所有需要查询的Job IDs
-	var jobIDs []uint
-	for _, wf := range workflows {
-		if wf.LastJobID != nil {
-			jobIDs = append(jobIDs, *wf.LastJobID)
+	if !summaryView {
+		// 2. 收集所有需要查询的Job IDs
+		var jobIDs []uint
+		for _, wf := range workflows {
+			if wf.LastJobID != nil {
+				jobIDs = append(jobIDs, *wf.LastJobID)
+			}
 		}
-	}
 
-	// 3. 一次性查询所有需要的Jobs（从N次查询减少到1次查询）
-	var jobs []models.Job
-	if len(jobIDs) > 0 {
-		if err := db.Where("id IN ?", jobIDs).Find(&jobs).Error; err != nil {
-			logger.Infof("[Workflow] 查询Jobs失败: %v", err)
-			// 不中断流程，继续返回workflows
+		// 3. 一次性查询所有需要的Jobs（从N次查询减少到1次查询）
+		var jobs []models.Job
+		if len(jobIDs) > 0 {
+			if err := db.Where("id IN ?", jobIDs).Find(&jobs).Error; err != nil {
+				logger.Infof("[Workflow] 查询Jobs失败: %v", err)
+				// 不中断流程，继续返回workflows
+			}
 		}
-	}
 
-	// 4. 建立Job ID到Job的映射
-	jobMap := make(map[uint]*models.Job)
-	for i := range jobs {
-		jobMap[jobs[i].ID] = &jobs[i]
-	}
+		// 4. 建立Job ID到Job的映射
+		jobMap := make(map[uint]*models.Job)
+		for i := range jobs {
+			jobMap[jobs[i].ID] = &jobs[i]
+		}
 
-	// 5. 为每个workflow设置LastJob
-	for i := range workflows {
-		if workflows[i].LastJobID != nil {
-			if job, ok := jobMap[*workflows[i].LastJobID]; ok {
-				workflows[i].LastJob = job
+		// 5. 为每个workflow设置LastJob
+		for i := range workflows {
+			if workflows[i].LastJobID != nil {
+				if job, ok := jobMap[*workflows[i].LastJobID]; ok {
+					workflows[i].LastJob = job
+				}
 			}
 		}
 	}
@@ -145,6 +149,11 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 	for i, wf := range workflows {
 		stats := statsMap[wf.ID]
 		response[i] = h.toWorkflowResponseWithStats(&wf, stats, subscribedPodcastCount)
+		if summaryView {
+			response[i].ScopeConfig = models.ScopeConfig{}
+			response[i].RulesConfig = workflowListRulesConfigSummary(wf.RulesConfig)
+			response[i].LastJob = nil
+		}
 	}
 
 	resp := gin.H{

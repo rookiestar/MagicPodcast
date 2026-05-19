@@ -131,9 +131,13 @@ type episodeWithScore struct {
 // searchPodcasts 搜索播客
 func (s *SearchService) searchPodcasts(req SearchRequest) ([]models.PodcastSearchResult, int64, error) {
 	keyword := req.Query
+	useFTS := canUseSearchFTS(s.db, podcastSearchFTSTable, keyword)
 
 	// 构建基础查询
 	query := buildPodcastQuery(s.db, keyword, req.TagIDs)
+	if useFTS {
+		query = buildPodcastFTSQuery(s.db, keyword, req.TagIDs)
+	}
 
 	// 获取总数
 	var total int64
@@ -147,6 +151,14 @@ func (s *SearchService) searchPodcasts(req SearchRequest) ([]models.PodcastSearc
 		req.TagIDs,
 		buildSearchCandidateLimit(req.Page, req.PageSize),
 	)
+	if useFTS {
+		optimizedQuery = buildPodcastFTSOptimizedQuery(
+			s.db,
+			keyword,
+			req.TagIDs,
+			buildSearchCandidateLimit(req.Page, req.PageSize),
+		)
+	}
 
 	var allPodcasts []models.Podcast
 	if err := optimizedQuery.Find(&allPodcasts).Error; err != nil {
@@ -200,7 +212,7 @@ func (s *SearchService) searchPodcasts(req SearchRequest) ([]models.PodcastSearc
 			ID:                r.Podcast.ID,
 			Title:             r.Podcast.Title,
 			Author:            r.Podcast.Author,
-			Description:       r.Podcast.Description,
+			Description:       generateSnippet(r.Podcast.Description, keyword),
 			CoverURL:          r.Podcast.CoverURL,
 			EpisodeCount:      r.Podcast.EpisodeCount,
 			NewestEpisodeDate: r.Podcast.NewestEpisodeDate,
@@ -215,9 +227,13 @@ func (s *SearchService) searchPodcasts(req SearchRequest) ([]models.PodcastSearc
 // searchEpisodes 搜索单集
 func (s *SearchService) searchEpisodes(req SearchRequest) ([]models.EpisodeSearchResult, int64, error) {
 	keyword := req.Query
+	useFTS := canUseSearchFTS(s.db, episodeSearchFTSTable, keyword)
 
 	// 构建基础查询
 	query := buildEpisodeQuery(s.db, keyword, req.TagIDs)
+	if useFTS {
+		query = buildEpisodeFTSQuery(s.db, keyword, req.TagIDs)
+	}
 
 	// 获取总数
 	var total int64
@@ -231,6 +247,14 @@ func (s *SearchService) searchEpisodes(req SearchRequest) ([]models.EpisodeSearc
 		req.TagIDs,
 		buildSearchCandidateLimit(req.EpisodePage, req.EpisodePageSize),
 	)
+	if useFTS {
+		optimizedQuery = buildEpisodeFTSOptimizedQuery(
+			s.db,
+			keyword,
+			req.TagIDs,
+			buildSearchCandidateLimit(req.EpisodePage, req.EpisodePageSize),
+		)
+	}
 
 	var allEpisodes []episodeResult
 	if err := optimizedQuery.Find(&allEpisodes).Error; err != nil {
@@ -290,7 +314,7 @@ func (s *SearchService) searchEpisodes(req SearchRequest) ([]models.EpisodeSearc
 			PodcastTitle:    r.Episode.PodcastTitle,
 			PodcastCoverURL: r.Episode.PodcastCoverURL,
 			Title:           r.Episode.Title,
-			ShowNotes:       r.Episode.ShowNotes,
+			ShowNotes:       generateSnippet(r.Episode.ShowNotes, keyword),
 			PublishedDate:   publishedDate,
 			Duration:        r.Episode.Duration,
 			RelevanceScore:  r.RelevanceScore,
