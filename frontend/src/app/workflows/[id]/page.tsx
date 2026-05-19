@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState, useRef } from "react";
+import { Suspense, useEffect, useMemo, useState, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -10,7 +10,7 @@ import { useWorkflow, useWorkflowJobs } from "@/hooks/useWorkflowSWR";
 import { useWorkflowActions } from "@/hooks/useWorkflowActions";
 import { useJobExpansion } from "@/hooks/useJobExpansion";
 import { getEffectiveCoverUrl } from "@/lib/imageProxy";
-import type { Workflow, Job, Podcast } from "@/types";
+import type { Podcast } from "@/types";
 import PageLayout from "@/components/layout/PageLayout";
 import LoadingLayout from "@/components/layout/LoadingLayout";
 import PodcastCover from "@/components/podcasts/PodcastCover";
@@ -42,17 +42,23 @@ function WorkflowDetailContent() {
   // 使用 SWR 获取工作流数据
   const { workflow, isLoading: workflowLoading, isError: workflowError, mutate: mutateWorkflow } = useWorkflow(id);
 
-  // Job分页状态
-  const [jobsPage, setJobsPage] = useState(1);
-
-  // 使用 SWR 获取 Jobs 数据
-  const { jobs, pagination, isLoading: jobsLoading, mutate: mutateJobs } = useWorkflowJobs(id, jobsPage, 10);
-
-  const [podcasts, setPodcasts] = useState<Podcast[]>([]);
-
   // 从URL读取tab状态，如果没有则默认为overview
   const tabFromUrl = (searchParams.get("tab") as TabType) || "overview";
   const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl);
+
+  // Job分页状态
+  const [jobsPage, setJobsPage] = useState(1);
+
+  // 执行历史只在进入对应标签时加载，避免详情首屏被历史数据拖慢
+  const { jobs, pagination, isLoading: jobsLoading, mutate: mutateJobs } =
+    useWorkflowJobs(id, jobsPage, 10, activeTab === "jobs");
+
+  const [overviewPodcasts, setOverviewPodcasts] = useState<Podcast[]>([]);
+  const [configPodcasts, setConfigPodcasts] = useState<Podcast[]>([]);
+  const [isLoadingOverviewPodcasts, setIsLoadingOverviewPodcasts] =
+    useState(false);
+  const [isLoadingConfigPodcasts, setIsLoadingConfigPodcasts] =
+    useState(false);
 
   // 构建返回列表页的链接（保留sort_by参数）
   const sortBy = searchParams.get("sort_by");
@@ -75,10 +81,21 @@ function WorkflowDetailContent() {
   // 移动端更多菜单状态
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
-  const overviewScopePodcasts = podcasts.slice(0, OVERVIEW_SCOPE_PODCAST_LIMIT);
+  const scopePodcastIds = useMemo(() => {
+    if (workflow?.scope_type !== "specific_podcasts") {
+      return [];
+    }
+    return workflow.scope_config?.podcast_ids ?? [];
+  }, [workflow]);
+
+  const overviewPodcastIds = useMemo(
+    () => scopePodcastIds.slice(0, OVERVIEW_SCOPE_PODCAST_LIMIT),
+    [scopePodcastIds],
+  );
+
   const hiddenOverviewPodcastCount = Math.max(
     0,
-    podcasts.length - overviewScopePodcasts.length,
+    scopePodcastIds.length - overviewPodcastIds.length,
   );
 
   // 点击外部关闭更多菜单
@@ -92,31 +109,85 @@ function WorkflowDetailContent() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // 当 workflow 数据加载完成后，获取关联的播客列表
-  const fetchPodcasts = useCallback(async (podcastIds: number[]) => {
-    try {
-      const podcasts = await podcastApi.batchGet(podcastIds);
-      setPodcasts(podcasts);
-    } catch (err) {
-      console.error("Failed to fetch podcasts:", err);
-    }
-  }, []);
-
+  // 概览页只拉前几个节目，用于首屏展示；完整清单进入配置标签后再拉
   useEffect(() => {
-    if (
-      workflow?.scope_type === "specific_podcasts" &&
-      workflow.scope_config?.podcast_ids &&
-      workflow.scope_config.podcast_ids.length > 0
-    ) {
-      fetchPodcasts(workflow.scope_config.podcast_ids);
+    let cancelled = false;
+
+    if (workflow?.scope_type !== "specific_podcasts" || overviewPodcastIds.length === 0) {
+      setOverviewPodcasts([]);
+      setIsLoadingOverviewPodcasts(false);
       return;
     }
 
-    setPodcasts([]);
-  }, [fetchPodcasts, workflow]);
+    setIsLoadingOverviewPodcasts(true);
+    podcastApi
+      .batchGet(overviewPodcastIds)
+      .then((podcasts) => {
+        if (!cancelled) {
+          setOverviewPodcasts(podcasts);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.error("Failed to fetch overview podcasts:", err);
+          setOverviewPodcasts([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingOverviewPodcasts(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [overviewPodcastIds, workflow?.scope_type]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (workflow?.scope_type !== "specific_podcasts" || scopePodcastIds.length === 0) {
+      setConfigPodcasts([]);
+      setIsLoadingConfigPodcasts(false);
+      return;
+    }
+
+    if (activeTab !== "config") {
+      return;
+    }
+
+    setIsLoadingConfigPodcasts(true);
+    podcastApi
+      .batchGet(scopePodcastIds)
+      .then((podcasts) => {
+        if (!cancelled) {
+          setConfigPodcasts(podcasts);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.error("Failed to fetch config podcasts:", err);
+          setConfigPodcasts([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingConfigPodcasts(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, scopePodcastIds, workflow?.scope_type]);
 
   // 轮询Job状态：当有running状态的Job时，定期刷新
   useEffect(() => {
+    if (activeTab !== "jobs") {
+      return;
+    }
+
     // 检查是否有running状态的job
     const hasRunningJob = jobs.some((job) => job.status === "running");
 
@@ -130,7 +201,7 @@ function WorkflowDetailContent() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [jobs, mutateJobs]);
+  }, [activeTab, jobs, mutateJobs]);
 
   // 同步activeTab到URL参数
   useEffect(() => {
@@ -408,6 +479,16 @@ function WorkflowDetailContent() {
             >
               📜 执行历史
             </button>
+            <button
+              onClick={() => setActiveTab("config")}
+              className={`pb-2 border-b-2 transition-colors text-base ${
+                activeTab === "config"
+                  ? "border-blue-600 text-blue-600 dark:text-blue-400"
+                  : "border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
+              }`}
+            >
+              ⚙️ 配置
+            </button>
           </div>
         </div>
 
@@ -523,9 +604,9 @@ function WorkflowDetailContent() {
                       </div>
                       {workflow.scope_type === "specific_podcasts" && (
                         <>
-                          {podcasts.length > 0 ? (
+                          {overviewPodcasts.length > 0 ? (
                             <div className="flex flex-wrap gap-2 sm:gap-3">
-                              {overviewScopePodcasts.map((podcast, index) => {
+                              {overviewPodcasts.map((podcast, index) => {
                                 const effectiveCover = getEffectiveCoverUrl(podcast.custom_cover_url, podcast.cover_url);
                                 return (
                                   <Link
@@ -560,9 +641,13 @@ function WorkflowDetailContent() {
                                 </button>
                               )}
                             </div>
-                          ) : (
+                          ) : isLoadingOverviewPodcasts ? (
                             <div className="text-sm text-slate-500 dark:text-slate-400">
                               正在加载播客列表...
+                            </div>
+                          ) : (
+                            <div className="text-sm text-slate-500 dark:text-slate-400">
+                              暂无可显示节目
                             </div>
                           )}
                         </>
@@ -753,7 +838,11 @@ function WorkflowDetailContent() {
               <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-50 mb-4">
                 执行历史
               </h2>
-              {jobs.length === 0 ? (
+              {jobsLoading ? (
+                <div className="text-center py-8 text-slate-500 dark:text-slate-400">
+                  正在加载执行历史...
+                </div>
+              ) : jobs.length === 0 ? (
                 <div className="text-center py-8 text-slate-500 dark:text-slate-400">
                   暂无执行记录
                 </div>
@@ -1067,37 +1156,46 @@ function WorkflowDetailContent() {
                   <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                     范围配置
                   </h3>
-                  {workflow.scope_type === "specific_podcasts" &&
-                  podcasts.length > 0 ? (
+                  {workflow.scope_type === "specific_podcasts" ? (
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
-                      <div className="flex flex-wrap gap-2">
-                        {podcasts.map((podcast, index) => {
-                          const effectiveCover = getEffectiveCoverUrl(podcast.custom_cover_url, podcast.cover_url);
-                          return (
-                            <Link
-                              key={podcast.id}
-                              href={`/podcasts/${podcast.id}`}
-                              prefetch={false}
-                              className="text-sm px-3 py-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-50 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-sm transition-all"
-                            >
-                              <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 rounded overflow-hidden flex-shrink-0">
-                                  <PodcastCover
-                                    coverUrl={effectiveCover}
-                                    title={podcast.title}
-                                    index={index}
-                                    priority="low"
-                                    sizes="32px"
-                                  />
+                      {isLoadingConfigPodcasts ? (
+                        <div className="text-sm text-slate-500 dark:text-slate-400">
+                          正在加载完整节目列表...
+                        </div>
+                      ) : configPodcasts.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {configPodcasts.map((podcast, index) => {
+                            const effectiveCover = getEffectiveCoverUrl(podcast.custom_cover_url, podcast.cover_url);
+                            return (
+                              <Link
+                                key={podcast.id}
+                                href={`/podcasts/${podcast.id}`}
+                                prefetch={false}
+                                className="text-sm px-3 py-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-50 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-sm transition-all"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <div className="w-8 h-8 rounded overflow-hidden flex-shrink-0">
+                                    <PodcastCover
+                                      coverUrl={effectiveCover}
+                                      title={podcast.title}
+                                      index={index}
+                                      priority="low"
+                                      sizes="32px"
+                                    />
+                                  </div>
+                                  <span className="font-medium">
+                                    {podcast.title}
+                                  </span>
                                 </div>
-                                <span className="font-medium">
-                                  {podcast.title}
-                                </span>
-                              </div>
-                            </Link>
-                          );
-                        })}
-                      </div>
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <pre className="text-sm overflow-x-auto">
+                          {JSON.stringify(workflow.scope_config, null, 2)}
+                        </pre>
+                      )}
                     </div>
                   ) : (
                     <pre className="bg-slate-100 dark:bg-slate-900 rounded-lg p-4 text-sm overflow-x-auto">

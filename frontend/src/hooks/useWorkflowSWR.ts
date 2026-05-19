@@ -61,9 +61,10 @@ export function useWorkflow(id: number | null) {
 export function useWorkflowJobs(
   workflowId: number | null,
   page: number = 1,
-  pageSize: number = 10
+  pageSize: number = 10,
+  enabled: boolean = true,
 ) {
-  const key = workflowId
+  const key = workflowId && enabled
     ? `/api/v1/workflows/${workflowId}/jobs?page=${page}&page_size=${pageSize}`
     : null;
 

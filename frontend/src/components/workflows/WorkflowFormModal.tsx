@@ -21,6 +21,9 @@ import {
 import { toast } from "@/lib/toast";
 
 type Step = 1 | 2 | 3 | 4;
+const PODCAST_PAGE_SIZE = 100;
+const INITIAL_PODCAST_DISPLAY_COUNT = 50;
+const PODCAST_DISPLAY_BATCH_SIZE = 50;
 
 interface WorkflowFormModalProps {
   isOpen: boolean;
@@ -56,18 +59,43 @@ export default function WorkflowFormModal({
   const [podcastSearch, setPodcastSearch] = useState("");
   const [candidatePodcastIds, setCandidatePodcastIds] = useState<number[]>([]); // 备选列表中的节目ID
   const [isLoadingPodcasts, setIsLoadingPodcasts] = useState(false); // 加载状态
+  const [podcastPage, setPodcastPage] = useState(0);
+  const [hasMorePodcastPages, setHasMorePodcastPages] = useState(true);
+  const [isLoadingMorePodcasts, setIsLoadingMorePodcasts] = useState(false);
 
   // 性能优化：渐进式渲染状态
-  const [displayedCount, setDisplayedCount] = useState(50); // 初始显示50个
+  const [displayedCount, setDisplayedCount] = useState(INITIAL_PODCAST_DISPLAY_COUNT); // 初始显示50个
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null); // 无限滚动触发器
 
   // 使用 ref 跟踪 displayedCount，避免在 Intersection Observer 依赖项中包含它
   const displayedCountRef = useRef(displayedCount);
+  const podcastPageRef = useRef(podcastPage);
+  const hasMorePodcastPagesRef = useRef(hasMorePodcastPages);
+  const isLoadingMorePodcastsRef = useRef(isLoadingMorePodcasts);
+  const candidatePodcastIdsRef = useRef(candidatePodcastIds);
+  const loadNextPodcastPageRef = useRef<(() => void) | null>(null);
+  const hasRequestedPodcastsRef = useRef(false);
 
   // 保持 ref 同步
   useEffect(() => {
     displayedCountRef.current = displayedCount;
   }, [displayedCount]);
+
+  useEffect(() => {
+    podcastPageRef.current = podcastPage;
+  }, [podcastPage]);
+
+  useEffect(() => {
+    hasMorePodcastPagesRef.current = hasMorePodcastPages;
+  }, [hasMorePodcastPages]);
+
+  useEffect(() => {
+    isLoadingMorePodcastsRef.current = isLoadingMorePodcasts;
+  }, [isLoadingMorePodcasts]);
+
+  useEffect(() => {
+    candidatePodcastIdsRef.current = candidatePodcastIds;
+  }, [candidatePodcastIds]);
 
   // 同步 podcasts ref（供 Intersection Observer 使用）
   const podcastsRef = useRef(podcasts);
@@ -125,6 +153,10 @@ export default function WorkflowFormModal({
     setNewCustomUrl("");
     setPodcasts([]);
     setPodcastSearch("");
+    setPodcastPage(0);
+    setHasMorePodcastPages(true);
+    setIsLoadingMorePodcasts(false);
+    hasRequestedPodcastsRef.current = false;
     setSelectedTagIds([]);
     setTagSearch("");
     setIsTagFilterExpanded(false);
@@ -141,41 +173,67 @@ export default function WorkflowFormModal({
     setStep(1);
   }, []);
 
-  // 加载播客列表 - 一次性加载所有播客
+  const appendUniquePodcasts = useCallback(
+    (current: Podcast[], incoming: Podcast[]) => {
+      const seenIds = new Set(current.map((podcast) => podcast.id));
+      const uniqueIncoming = incoming.filter((podcast) => {
+        if (seenIds.has(podcast.id)) {
+          return false;
+        }
+        seenIds.add(podcast.id);
+        return true;
+      });
+      return [...current, ...uniqueIncoming];
+    },
+    [],
+  );
+
+  // 加载播客列表首批数据，避免打开弹窗时一次性拉取全量节目
   const loadPodcasts = useCallback(async () => {
     try {
       setIsLoadingPodcasts(true);
+      hasRequestedPodcastsRef.current = true;
+      setIsLoadingMorePodcasts(false);
+      isLoadingMorePodcastsRef.current = false;
+      setPodcastPage(0);
+      podcastPageRef.current = 0;
+      setHasMorePodcastPages(true);
+      hasMorePodcastPagesRef.current = true;
 
-      let allPodcasts: Podcast[] = [];
-      let page = 1;
-      let hasMore = true;
-      const maxPages = 20; // 最多加载20页（2000个节目）
+      const response = await podcastApi.list({
+        page: 1,
+        page_size: PODCAST_PAGE_SIZE,
+        view: "summary",
+      });
+      const firstPagePodcasts = (response.data || []) as Podcast[];
+      const loadedIds = new Set(firstPagePodcasts.map((podcast) => podcast.id));
+      const missingSelectedIds = candidatePodcastIdsRef.current.filter(
+        (id) => !loadedIds.has(id),
+      );
 
-      // 分页加载所有节目
-      while (hasMore && page <= maxPages) {
-        const response = await podcastApi.list({ page, page_size: 100 });
-        const newPodcasts = response.data || [];
-
-        allPodcasts = [...allPodcasts, ...newPodcasts];
-
-        // 如果返回的数量少于 page_size，说明已经是最后一页
-        if (newPodcasts.length < 100) {
-          hasMore = false;
-        } else {
-          page++;
-        }
+      let nextPodcasts = firstPagePodcasts;
+      if (missingSelectedIds.length > 0) {
+        const selectedPodcasts = await podcastApi.batchGet(missingSelectedIds);
+        nextPodcasts = appendUniquePodcasts(firstPagePodcasts, selectedPodcasts);
       }
 
-      if (page > maxPages && hasMore) {
-        console.warn(
-          "[CreateWorkflowModal] Reached max pages limit, some podcasts may not be loaded",
-        );
-      }
+      const hasMore = response.pagination
+        ? response.pagination.page < response.pagination.total_pages
+        : firstPagePodcasts.length >= PODCAST_PAGE_SIZE;
 
-      setPodcasts(allPodcasts);
+      setPodcasts(nextPodcasts);
+      setPodcastPage(1);
+      podcastPageRef.current = 1;
+      setHasMorePodcastPages(hasMore);
+      hasMorePodcastPagesRef.current = hasMore;
 
       // 初始显示50个
-      setDisplayedCount(Math.min(50, allPodcasts.length));
+      const nextDisplayedCount = Math.min(
+        INITIAL_PODCAST_DISPLAY_COUNT,
+        nextPodcasts.length,
+      );
+      setDisplayedCount(nextDisplayedCount);
+      displayedCountRef.current = nextDisplayedCount;
     } catch (err) {
       console.error("[CreateWorkflowModal] Failed to load podcasts:", err);
       toast.error(
@@ -184,7 +242,52 @@ export default function WorkflowFormModal({
     } finally {
       setIsLoadingPodcasts(false);
     }
-  }, []);
+  }, [appendUniquePodcasts]);
+
+  const loadNextPodcastPage = useCallback(async () => {
+    if (
+      isLoadingPodcasts ||
+      isLoadingMorePodcastsRef.current ||
+      !hasMorePodcastPagesRef.current
+    ) {
+      return;
+    }
+
+    const nextPage = podcastPageRef.current + 1;
+    try {
+      setIsLoadingMorePodcasts(true);
+      isLoadingMorePodcastsRef.current = true;
+
+      const response = await podcastApi.list({
+        page: nextPage,
+        page_size: PODCAST_PAGE_SIZE,
+        view: "summary",
+      });
+      const newPodcasts = (response.data || []) as Podcast[];
+      setPodcasts((prev) => appendUniquePodcasts(prev, newPodcasts));
+
+      setPodcastPage(nextPage);
+      podcastPageRef.current = nextPage;
+
+      const hasMore = response.pagination
+        ? response.pagination.page < response.pagination.total_pages
+        : newPodcasts.length >= PODCAST_PAGE_SIZE;
+      setHasMorePodcastPages(hasMore);
+      hasMorePodcastPagesRef.current = hasMore;
+    } catch (err) {
+      console.error("[CreateWorkflowModal] Failed to load more podcasts:", err);
+      toast.error(
+        "加载更多节目失败: " + (err instanceof Error ? err.message : "未知错误"),
+      );
+    } finally {
+      setIsLoadingMorePodcasts(false);
+      isLoadingMorePodcastsRef.current = false;
+    }
+  }, [appendUniquePodcasts, isLoadingPodcasts]);
+
+  useEffect(() => {
+    loadNextPodcastPageRef.current = loadNextPodcastPage;
+  }, [loadNextPodcastPage]);
 
   // 加载标签列表
   const loadTags = useCallback(async () => {
@@ -205,11 +308,28 @@ export default function WorkflowFormModal({
       return;
     }
 
+    const shouldLoadTags =
+      step === 2 &&
+      scopeType === "specific_podcasts" &&
+      isTagFilterExpanded;
+
+    if (!shouldLoadTags) {
+      return;
+    }
+
     if (tags.length === 0 && !isLoadingTags && !hasRequestedTagsRef.current) {
       hasRequestedTagsRef.current = true;
       void loadTags();
     }
-  }, [isOpen, isLoadingTags, loadTags, tags.length]);
+  }, [
+    isOpen,
+    isLoadingTags,
+    isTagFilterExpanded,
+    loadTags,
+    scopeType,
+    step,
+    tags.length,
+  ]);
 
   // 初始化表单数据（编辑模式）
   useEffect(() => {
@@ -273,23 +393,28 @@ export default function WorkflowFormModal({
           setLlmUserPrompt(workflow.rules_config.llm_user_prompt || "");
         }
 
-        // 编辑模式下，如果是指定节目类型，立即加载podcasts
-        // 这样可以在用户进入第2步时就已经准备好了数据
-        if (workflow.scope_type === "specific_podcasts") {
-          loadPodcasts();
-        }
       } else {
         // 创建模式：重置为默认值
         resetForm();
       }
     }
-  }, [isOpen, loadPodcasts, resetForm, workflow]);
+  }, [isOpen, resetForm, workflow]);
 
-  // 显示更多已加载的播客（滚动到底部时）
-  const showMoreLoadedPodcasts = useCallback(() => {
-    // 每次增加50个显示，但不超过已加载的总数
-    setDisplayedCount((prev) => Math.min(prev + 50, podcasts.length));
-  }, [podcasts.length]);
+  useEffect(() => {
+    if (!isOpen || scopeType !== "specific_podcasts") {
+      hasRequestedPodcastsRef.current = false;
+      return;
+    }
+
+    if (
+      step === 2 &&
+      podcasts.length === 0 &&
+      !isLoadingPodcasts &&
+      !hasRequestedPodcastsRef.current
+    ) {
+      void loadPodcasts();
+    }
+  }, [isOpen, isLoadingPodcasts, loadPodcasts, podcasts.length, scopeType, step]);
 
   // 计算是否有更多内容需要显示
   const hasMoreContent = useMemo(() => {
@@ -308,8 +433,19 @@ export default function WorkflowFormModal({
       );
     }).length;
 
-    return filteredCount > displayedCount;
-  }, [podcasts, selectedTagIds, podcastSearch, displayedCount]);
+    return (
+      filteredCount > displayedCount ||
+      hasMorePodcastPages ||
+      isLoadingMorePodcasts
+    );
+  }, [
+    podcasts,
+    selectedTagIds,
+    podcastSearch,
+    displayedCount,
+    hasMorePodcastPages,
+    isLoadingMorePodcasts,
+  ]);
 
   // 无限滚动逻辑（Intersection Observer）
   useEffect(() => {
@@ -333,47 +469,45 @@ export default function WorkflowFormModal({
       const observer = new IntersectionObserver(
         (entries) => {
           if (entries[0].isIntersecting) {
-            // 使用函数式更新，基于当前 state 计算
-            setDisplayedCount((prevDisplayed) => {
-              // 使用最新的 ref 值计算筛选结果数量
-              const currentPodcasts = podcastsRef.current;
-              const currentSelectedTagIds = selectedTagIdsRef.current;
-              const currentPodcastSearch = podcastSearchRef.current;
+            const currentPodcasts = podcastsRef.current;
+            const currentSelectedTagIds = selectedTagIdsRef.current;
+            const currentPodcastSearch = podcastSearchRef.current;
 
-              // 动态计算当前筛选结果数量
-              const currentFilteredCount = currentPodcasts.filter((p) => {
-                // 标签筛选
-                if (currentSelectedTagIds.length > 0) {
-                  const podcastTagIds = p.tags?.map((t) => t.id) || [];
-                  if (
-                    !currentSelectedTagIds.every((tagId) =>
-                      podcastTagIds.includes(tagId),
-                    )
-                  ) {
-                    return false;
-                  }
+            const currentFilteredCount = currentPodcasts.filter((p) => {
+              if (currentSelectedTagIds.length > 0) {
+                const podcastTagIds = p.tags?.map((t) => t.id) || [];
+                if (
+                  !currentSelectedTagIds.every((tagId) =>
+                    podcastTagIds.includes(tagId),
+                  )
+                ) {
+                  return false;
                 }
-                // 搜索筛选
-                if (!currentPodcastSearch.trim()) return true;
-                const searchLower = currentPodcastSearch.toLowerCase().trim();
-                return (
-                  (p.title || "").toLowerCase().includes(searchLower) ||
-                  (p.author || "").toLowerCase().includes(searchLower)
-                );
-              }).length;
-
-              // 只有当真的有更多内容时才更新
-              if (prevDisplayed < currentFilteredCount) {
-                const newValue = Math.min(
-                  prevDisplayed + 50,
-                  currentFilteredCount,
-                );
-                // 同步更新 ref
-                displayedCountRef.current = newValue;
-                return newValue;
               }
-              return prevDisplayed;
-            });
+              if (!currentPodcastSearch.trim()) return true;
+              const searchLower = currentPodcastSearch.toLowerCase().trim();
+              return (
+                (p.title || "").toLowerCase().includes(searchLower) ||
+                (p.author || "").toLowerCase().includes(searchLower)
+              );
+            }).length;
+
+            if (displayedCountRef.current < currentFilteredCount) {
+              const newValue = Math.min(
+                displayedCountRef.current + PODCAST_DISPLAY_BATCH_SIZE,
+                currentFilteredCount,
+              );
+              displayedCountRef.current = newValue;
+              setDisplayedCount(newValue);
+              return;
+            }
+
+            if (
+              hasMorePodcastPagesRef.current &&
+              !isLoadingMorePodcastsRef.current
+            ) {
+              void loadNextPodcastPageRef.current?.();
+            }
           }
         },
         { rootMargin: "200px" },
@@ -397,9 +531,9 @@ export default function WorkflowFormModal({
 
   // 当搜索或筛选条件变化时，重置 displayedCount
   useEffect(() => {
-    setDisplayedCount(50);
+    setDisplayedCount(INITIAL_PODCAST_DISPLAY_COUNT);
     // 同步更新 ref
-    displayedCountRef.current = 50;
+    displayedCountRef.current = INITIAL_PODCAST_DISPLAY_COUNT;
   }, [selectedTagIds, podcastSearch]);
 
   // 处理自定义URL添加
@@ -507,14 +641,6 @@ export default function WorkflowFormModal({
   // 处理下一步
   const handleNext = async () => {
     if (!validateStep()) return;
-
-    if (
-      step === 2 &&
-      scopeType === "specific_podcasts" &&
-      podcasts.length === 0
-    ) {
-      await loadPodcasts();
-    }
 
     if (step < 4) {
       setStep((step + 1) as Step);
@@ -642,6 +768,10 @@ export default function WorkflowFormModal({
     setNewCustomUrl("");
     setPodcasts([]);
     setPodcastSearch("");
+    setPodcastPage(0);
+    setHasMorePodcastPages(true);
+    setIsLoadingMorePodcasts(false);
+    hasRequestedPodcastsRef.current = false;
     setSelectedTagIds([]);
     setTagSearch("");
     setIsTagFilterExpanded(false);
@@ -941,7 +1071,6 @@ export default function WorkflowFormModal({
                       checked={scopeType === "specific_podcasts"}
                       onChange={() => {
                         setScopeType("specific_podcasts");
-                        if (podcasts.length === 0) loadPodcasts();
                       }}
                       className="mt-1 w-5 h-5 flex-shrink-0"
                     />
@@ -1182,19 +1311,35 @@ export default function WorkflowFormModal({
                               <div className="h-[50vh] sm:h-80 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg p-2 bg-white dark:bg-slate-800 transition-all duration-200 hover:border-slate-300 dark:hover:border-slate-600">
                                 {isLoadingPodcasts ? (
                                   <div className="text-center text-slate-500 dark:text-slate-400 py-4 text-xs">
-                                    加载中...
+                                    正在加载首批节目...
                                   </div>
                                 ) : filteredPodcasts.length === 0 ? (
-                                  <div className="text-center text-slate-500 dark:text-slate-400 py-4 text-xs">
+                                  <div className="text-center text-slate-500 dark:text-slate-400 py-4 text-xs space-y-2">
                                     {podcasts.length === 0 ? (
                                       <button
-                                        onClick={() => loadPodcasts()}
+                                        onClick={() => void loadPodcasts()}
                                         className="text-blue-600 dark:text-blue-400 hover:underline"
                                       >
                                         点击加载节目
                                       </button>
-                                    ) : podcastSearch ? (
-                                      `没有找到匹配"${podcastSearch}"的节目`
+                                    ) : podcastSearch || selectedTagIds.length > 0 ? (
+                                      <div>
+                                        当前已加载的节目中没有匹配结果
+                                        {hasMorePodcastPages && (
+                                          <div className="mt-2">
+                                            <button
+                                              type="button"
+                                              onClick={() => void loadNextPodcastPage()}
+                                              disabled={isLoadingMorePodcasts}
+                                              className="text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
+                                            >
+                                              {isLoadingMorePodcasts
+                                                ? "加载中..."
+                                                : "继续加载更多节目"}
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
                                     ) : (
                                       "显示所有 " + podcasts.length + " 个节目"
                                     )}
@@ -1235,8 +1380,12 @@ export default function WorkflowFormModal({
                                       }}
                                     >
                                       <div className="text-xs text-slate-400 dark:text-slate-500">
-                                        向下滚动显示更多 ({displayedCount} /{" "}
-                                        {filteredPodcasts.length})
+                                        {isLoadingMorePodcasts
+                                          ? "正在加载更多节目..."
+                                          : hasMorePodcastPages &&
+                                              displayedCount >= filteredPodcasts.length
+                                            ? `继续向下滚动加载更多（已加载 ${podcasts.length} 个）`
+                                            : `向下滚动显示更多 (${Math.min(displayedCount, filteredPodcasts.length)} / ${filteredPodcasts.length})`}
                                       </div>
                                     </div>
                                   </>
@@ -1302,11 +1451,14 @@ export default function WorkflowFormModal({
                                       (p) => p.id === id,
                                     );
                                     if (!podcast) {
-                                      console.warn(
-                                        "[CreateWorkflowModal] Podcast not found for ID:",
-                                        id,
+                                      return (
+                                        <div
+                                          key={id}
+                                          className="p-2 text-xs text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-800 rounded border border-dashed border-slate-300 dark:border-slate-700"
+                                        >
+                                          节目 #{id} 正在加载...
+                                        </div>
                                       );
-                                      return null;
                                     }
                                     return (
                                       <PodcastListItem
