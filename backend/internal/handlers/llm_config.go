@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"magicpodcast/internal/config"
 	"magicpodcast/internal/llm"
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/middleware"
@@ -16,13 +18,15 @@ type LLMConfigHandler struct {
 
 // ValidateKeyRequest API Key验证请求
 type ValidateKeyRequest struct {
-	APIKey string `json:"api_key" binding:"required"`
+	APIKey   string             `json:"api_key" binding:"required"`
+	Provider config.LLMProvider `json:"provider,omitempty"`
+	Model    string             `json:"model,omitempty"`
 }
 
 // ValidateKeyResponse API Key验证响应
 type ValidateKeyResponse struct {
-	Valid    bool   `json:"valid"`
-	Model    string `json:"model,omitempty"`
+	Valid     bool   `json:"valid"`
+	Model     string `json:"model,omitempty"`
 	TestError string `json:"test_error,omitempty"`
 }
 
@@ -59,7 +63,6 @@ func (h *LLMConfigHandler) ValidateKey(c *gin.Context) {
 		return
 	}
 
-	// 验证API Key格式（智谱AI格式：id.secret）
 	if len(req.APIKey) < 10 {
 		middleware.SuccessResponseWithMessage(c, "API Key格式无效", ValidateKeyResponse{
 			Valid:     false,
@@ -70,9 +73,40 @@ func (h *LLMConfigHandler) ValidateKey(c *gin.Context) {
 
 	logger.Infof("[LLM Config] API Key validation requested (length: %d)", len(req.APIKey))
 
-	middleware.SuccessResponseWithMessage(c, "API Key格式验证通过（完整验证需要实际API调用）", ValidateKeyResponse{
+	model := req.Model
+	if model == "" {
+		model = "deepseek-v4-flash"
+	}
+
+	if h.llmClient == nil {
+		middleware.SuccessResponseWithMessage(c, "API Key格式验证通过", ValidateKeyResponse{
+			Valid: true,
+			Model: model,
+		})
+		return
+	}
+
+	result, err := h.llmClient.ValidateAPIKey(c.Request.Context(), req.APIKey, model)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "API Key验证失败",
+			"data": ValidateKeyResponse{
+				Valid:     false,
+				Model:     model,
+				TestError: err.Error(),
+			},
+		})
+		return
+	}
+
+	if result.ModelUsed != "" {
+		model = result.ModelUsed
+	}
+
+	middleware.SuccessResponseWithMessage(c, "API Key验证通过，模型连接正常", ValidateKeyResponse{
 		Valid: true,
-		Model: "glm-4.5-air", // 默认模型
+		Model: model,
 	})
 }
 
@@ -83,8 +117,25 @@ func (h *LLMConfigHandler) ValidateKey(c *gin.Context) {
 // @Produce json
 // @Router /api/v1/llm/models [get]
 func (h *LLMConfigHandler) GetModels(c *gin.Context) {
-	// 返回智谱AI支持的模型列表
 	models := []ModelInfo{
+		{
+			ID:          "deepseek-v4-flash",
+			Name:        "DeepSeek V4 Flash",
+			Available:   true,
+			Description: "DeepSeek 快速模型，适合工作流摘要生成",
+		},
+		{
+			ID:          "deepseek-chat",
+			Name:        "DeepSeek Chat",
+			Available:   true,
+			Description: "DeepSeek 通用对话模型，兼容 OpenAI 格式",
+		},
+		{
+			ID:          "deepseek-reasoner",
+			Name:        "DeepSeek Reasoner",
+			Available:   true,
+			Description: "DeepSeek 推理模型，适合复杂分析",
+		},
 		{
 			ID:          "glm-4.5-air",
 			Name:        "GLM-4.5-Air",

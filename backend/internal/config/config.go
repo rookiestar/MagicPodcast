@@ -110,6 +110,7 @@ const (
 	LLMProviderOpenAI      LLMProvider = "openai"
 	LLMProviderAnthropic   LLMProvider = "anthropic"
 	LLMProviderZhipuAI     LLMProvider = "zhipuai"
+	LLMProviderDeepSeek    LLMProvider = "deepseek"
 )
 
 // LLMConfig LLM配置
@@ -192,6 +193,15 @@ func (c *Config) applyEnvOverrides() {
 	// LLM API Key
 	if key := viper.GetString("llm_api_key"); key != "" {
 		c.LLM.APIKey = key
+	}
+	if provider := viper.GetString("llm_provider"); provider != "" {
+		c.LLM.Provider = LLMProvider(provider)
+	}
+	if baseURL := viper.GetString("llm_base_url"); baseURL != "" {
+		c.LLM.BaseURL = baseURL
+	}
+	if model := viper.GetString("llm_default_model"); model != "" {
+		c.LLM.DefaultModel = model
 	}
 
 	// Email SMTP配置

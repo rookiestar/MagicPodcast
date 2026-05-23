@@ -295,6 +295,28 @@ func (c *Client) GenerateSummary(ctx context.Context, systemPrompt, userPrompt s
 	return result, nil
 }
 
+// ValidateAPIKey sends a tiny request to verify that the configured provider,
+// API key, and model can complete a chat request.
+func (c *Client) ValidateAPIKey(ctx context.Context, apiKey, model string) (*SummaryResult, error) {
+	testConfig := *c.config
+	testConfig.APIKey = apiKey
+	if model != "" {
+		testConfig.DefaultModel = model
+	}
+
+	testClient := NewClient(&testConfig)
+	return testClient.GenerateSummary(
+		ctx,
+		"You are a connection test endpoint. Reply with OK only.",
+		"OK",
+		SummaryOptions{
+			Model:       model,
+			Temperature: 0,
+			MaxTokens:   32,
+		},
+	)
+}
+
 // SummaryOptions 摘要选项
 type SummaryOptions struct {
 	Model       string
