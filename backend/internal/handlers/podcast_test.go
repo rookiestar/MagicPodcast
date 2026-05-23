@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,7 +62,7 @@ func createTestPodcasts(db *gorm.DB, count int) []models.Podcast {
 	for i := 0; i < count; i++ {
 		podcasts[i] = models.Podcast{
 			XYZID:             string(rune('A' + i)),
-			Title:             string(rune('A' + i)) + " Test Podcast",
+			Title:             string(rune('A'+i)) + " Test Podcast",
 			Description:       "Description for podcast " + string(rune('A'+i)),
 			Author:            "Author " + string(rune('A'+i)),
 			CoverURL:          "https://example.com/cover" + string(rune('A'+i)) + ".jpg",
@@ -76,6 +77,61 @@ func createTestPodcasts(db *gorm.DB, count int) []models.Podcast {
 	}
 
 	return podcasts
+}
+
+func TestPodcastHandler_ListSummaryUsesCardDescription(t *testing.T) {
+	db := setupPodcastTestDB(t)
+	defer cleanupPodcastTestDB()
+
+	router := setupPodcastTestRouter(db)
+	handler := handlers.NewPodcastHandler()
+	router.GET("/api/v1/podcasts", handler.List)
+
+	cache.GetCache().Clear()
+	podcast := createTestPodcasts(db, 1)[0]
+	longDescription := "<p>" + strings.Repeat("Podcast summary description ", 40) + "</p>"
+	if err := db.Model(&podcast).Update("description", longDescription).Error; err != nil {
+		t.Fatalf("Failed to update podcast description: %v", err)
+	}
+
+	req, _ := http.NewRequest("GET", "/api/v1/podcasts?page=1&page_size=1&view=summary", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	data := response["data"].([]interface{})
+	description := data[0].(map[string]interface{})["description"].(string)
+	if len([]rune(description)) > 163 {
+		t.Fatalf("Expected summary description to stay compact, got %d runes", len([]rune(description)))
+	}
+	if strings.Contains(description, "<") || strings.Contains(description, ">") {
+		t.Fatalf("Expected summary description to be plain text, got %q", description)
+	}
+
+	req, _ = http.NewRequest("GET", "/api/v1/podcasts?page=1&page_size=1", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	data = response["data"].([]interface{})
+	fullDescription := data[0].(map[string]interface{})["description"].(string)
+	if len([]rune(fullDescription)) <= len([]rune(description)) {
+		t.Fatal("Expected default list response to keep a longer description than summary view")
+	}
 }
 
 // createTestTags 创建测试标签

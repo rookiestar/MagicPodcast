@@ -66,6 +66,7 @@ type SearchRequest struct {
 	PageSize        int    `json:"page_size"`                // 播客每页数量
 	EpisodePage     int    `json:"episode_page"`             // 单集页码
 	EpisodePageSize int    `json:"episode_page_size"`        // 单集每页数量
+	SkipTotals      bool   `json:"skip_totals"`              // 跳过精确总数统计
 }
 
 // SearchResponse 搜索响应
@@ -132,31 +133,33 @@ type episodeWithScore struct {
 func (s *SearchService) searchPodcasts(req SearchRequest) ([]models.PodcastSearchResult, int64, error) {
 	keyword := req.Query
 	useFTS := canUseSearchFTS(s.db, podcastSearchFTSTable, keyword)
+	candidateLimit := buildSearchCandidateLimit(req.Page, req.PageSize)
 
-	// 构建基础查询
-	query := buildPodcastQuery(s.db, keyword, req.TagIDs)
-	if useFTS {
-		query = buildPodcastFTSQuery(s.db, keyword, req.TagIDs)
-	}
-
-	// 获取总数
 	var total int64
-	if err := query.Count(&total).Error; err != nil {
-		return nil, 0, err
+	if !req.SkipTotals {
+		query := buildPodcastQuery(s.db, keyword, req.TagIDs)
+		if useFTS {
+			query = buildPodcastFTSQuery(s.db, keyword, req.TagIDs)
+		}
+
+		// 获取总数
+		if err := query.Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 	}
 
 	optimizedQuery := buildPodcastOptimizedQuery(
 		s.db,
 		keyword,
 		req.TagIDs,
-		buildSearchCandidateLimit(req.Page, req.PageSize),
+		candidateLimit,
 	)
 	if useFTS {
 		optimizedQuery = buildPodcastFTSOptimizedQuery(
 			s.db,
 			keyword,
 			req.TagIDs,
-			buildSearchCandidateLimit(req.Page, req.PageSize),
+			candidateLimit,
 		)
 	}
 
@@ -186,6 +189,9 @@ func (s *SearchService) searchPodcasts(req SearchRequest) ([]models.PodcastSearc
 		if r.RelevanceScore > 0 {
 			filteredResults = append(filteredResults, r)
 		}
+	}
+	if req.SkipTotals {
+		total = int64(len(filteredResults))
 	}
 
 	// 手动分页
@@ -228,31 +234,33 @@ func (s *SearchService) searchPodcasts(req SearchRequest) ([]models.PodcastSearc
 func (s *SearchService) searchEpisodes(req SearchRequest) ([]models.EpisodeSearchResult, int64, error) {
 	keyword := req.Query
 	useFTS := canUseSearchFTS(s.db, episodeSearchFTSTable, keyword)
+	candidateLimit := buildSearchCandidateLimit(req.EpisodePage, req.EpisodePageSize)
 
-	// 构建基础查询
-	query := buildEpisodeQuery(s.db, keyword, req.TagIDs)
-	if useFTS {
-		query = buildEpisodeFTSQuery(s.db, keyword, req.TagIDs)
-	}
-
-	// 获取总数
 	var total int64
-	if err := query.Count(&total).Error; err != nil {
-		return nil, 0, err
+	if !req.SkipTotals {
+		query := buildEpisodeQuery(s.db, keyword, req.TagIDs)
+		if useFTS {
+			query = buildEpisodeFTSQuery(s.db, keyword, req.TagIDs)
+		}
+
+		// 获取总数
+		if err := query.Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 	}
 
 	optimizedQuery := buildEpisodeOptimizedQuery(
 		s.db,
 		keyword,
 		req.TagIDs,
-		buildSearchCandidateLimit(req.EpisodePage, req.EpisodePageSize),
+		candidateLimit,
 	)
 	if useFTS {
 		optimizedQuery = buildEpisodeFTSOptimizedQuery(
 			s.db,
 			keyword,
 			req.TagIDs,
-			buildSearchCandidateLimit(req.EpisodePage, req.EpisodePageSize),
+			candidateLimit,
 		)
 	}
 
@@ -282,6 +290,9 @@ func (s *SearchService) searchEpisodes(req SearchRequest) ([]models.EpisodeSearc
 		if r.RelevanceScore > 0 {
 			filteredResults = append(filteredResults, r)
 		}
+	}
+	if req.SkipTotals {
+		total = int64(len(filteredResults))
 	}
 
 	// 手动分页

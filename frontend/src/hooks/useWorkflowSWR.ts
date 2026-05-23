@@ -67,12 +67,12 @@ export function useWorkflowJobs(
   enabled: boolean = true,
 ) {
   const key = workflowId && enabled
-    ? `/api/v1/workflows/${workflowId}/jobs?page=${page}&page_size=${pageSize}`
+    ? `/api/v1/workflows/${workflowId}/jobs?page=${page}&page_size=${pageSize}&view=summary`
     : null;
 
   const { data, error, isLoading, mutate } = useSWR(
     key,
-    () => fetcher<JobsResponse>(`/api/v1/workflows/${workflowId}/jobs?page=${page}&page_size=${pageSize}`),
+    () => fetcher<JobsResponse>(key as string),
     { ...swrConfig, ...cacheStrategies.workflows }
   );
 

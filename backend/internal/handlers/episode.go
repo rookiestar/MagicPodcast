@@ -44,8 +44,11 @@ type EpisodeResponse struct {
 }
 
 const (
-	episodeShowNotesDBPreviewLimit = 1600
-	episodeShowNotesPreviewLimit   = 600
+	episodeListSummaryView                = "summary"
+	episodeShowNotesDBPreviewLimit        = 1600
+	episodeShowNotesPreviewLimit          = 600
+	episodeSummaryShowNotesDBPreviewLimit = 900
+	episodeSummaryShowNotesPreviewLimit   = 320
 )
 
 var htmlTagPattern = regexp.MustCompile(`<[^>]+>`)
@@ -67,7 +70,7 @@ const episodeListSelectColumns = `
 	my_rate
 `
 
-func episodeShowNotesPreview(showNotes string) string {
+func episodeShowNotesPreview(showNotes string, previewLimit int) string {
 	if showNotes == "" {
 		return ""
 	}
@@ -76,15 +79,15 @@ func episodeShowNotesPreview(showNotes string) string {
 	preview = html.UnescapeString(preview)
 	preview = strings.Join(strings.Fields(preview), " ")
 
-	if utf8.RuneCountInString(preview) <= episodeShowNotesPreviewLimit {
+	if utf8.RuneCountInString(preview) <= previewLimit {
 		return preview
 	}
 
 	runes := []rune(preview)
-	return string(runes[:episodeShowNotesPreviewLimit]) + "..."
+	return string(runes[:previewLimit]) + "..."
 }
 
-func episodeToResponse(episode models.Episode) EpisodeResponse {
+func episodeToResponse(episode models.Episode, previewLimit int) EpisodeResponse {
 	return EpisodeResponse{
 		ID:              episode.ID,
 		GUID:            episode.GUID,
@@ -92,7 +95,7 @@ func episodeToResponse(episode models.Episode) EpisodeResponse {
 		EpisodeNo:       episode.EpisodeNo,
 		Title:           episode.Title,
 		MediumURL:       episode.MediumURL,
-		ShowNotes:       episodeShowNotesPreview(episode.ShowNotes),
+		ShowNotes:       episodeShowNotesPreview(episode.ShowNotes, previewLimit),
 		PublishedDate:   episode.PublishedDate.Format("2006-01-02T15:04:05Z07:00"),
 		Duration:        episode.Duration,
 		Link:            episode.Link,
@@ -104,10 +107,10 @@ func episodeToResponse(episode models.Episode) EpisodeResponse {
 	}
 }
 
-func episodesToResponse(episodes []models.Episode) []EpisodeResponse {
+func episodesToResponse(episodes []models.Episode, previewLimit int) []EpisodeResponse {
 	response := make([]EpisodeResponse, len(episodes))
 	for i, episode := range episodes {
-		response[i] = episodeToResponse(episode)
+		response[i] = episodeToResponse(episode, previewLimit)
 	}
 	return response
 }
@@ -118,11 +121,11 @@ func countPodcastEpisodes(db *gorm.DB, podcastID uint) (int64, error) {
 	return total, err
 }
 
-func listPodcastEpisodes(db *gorm.DB, podcastID uint, page, pageSize int) ([]models.Episode, error) {
+func listPodcastEpisodes(db *gorm.DB, podcastID uint, page, pageSize, dbPreviewLimit int) ([]models.Episode, error) {
 	offset := (page - 1) * pageSize
 	var episodes []models.Episode
 
-	err := db.Select(episodeListSelectColumns, episodeShowNotesDBPreviewLimit).
+	err := db.Select(episodeListSelectColumns, dbPreviewLimit).
 		Where("podcast_id = ?", podcastID).
 		Order("published_date DESC, id DESC").
 		Limit(pageSize).
@@ -130,6 +133,13 @@ func listPodcastEpisodes(db *gorm.DB, podcastID uint, page, pageSize int) ([]mod
 		Find(&episodes).Error
 
 	return episodes, err
+}
+
+func episodeListPreviewLimits(summaryView bool) (int, int) {
+	if summaryView {
+		return episodeSummaryShowNotesDBPreviewLimit, episodeSummaryShowNotesPreviewLimit
+	}
+	return episodeShowNotesDBPreviewLimit, episodeShowNotesPreviewLimit
 }
 
 func episodePaginationPayload(page, pageSize int, total int64) gin.H {
@@ -173,8 +183,14 @@ func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 	pagination := ParsePaginationParams(c, 20)
 	page := pagination.Page
 	pageSize := pagination.PageSize
+	summaryView := strings.EqualFold(c.Query("view"), episodeListSummaryView)
+	cacheView := "full"
+	if summaryView {
+		cacheView = episodeListSummaryView
+	}
+	dbPreviewLimit, responsePreviewLimit := episodeListPreviewLimits(summaryView)
 
-	cacheKey := cache.NewKeyBuilder().EpisodeList(podcastID, page, pageSize)
+	cacheKey := cache.NewKeyBuilder().EpisodeList(podcastID, page, pageSize, cacheView)
 	memCache := cache.GetCache()
 	if cached, ok := memCache.Get(cacheKey); ok {
 		cache.RecordHit()
@@ -194,7 +210,7 @@ func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 	}
 
 	// 获取该播客的单集，按发布日期倒序，支持分页
-	episodes, err := listPodcastEpisodes(db, podcastID, page, pageSize)
+	episodes, err := listPodcastEpisodes(db, podcastID, page, pageSize, dbPreviewLimit)
 	if err != nil {
 		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to fetch episodes")
 		return
@@ -203,7 +219,7 @@ func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 	// 转换为响应格式
 	resp := gin.H{
 		"success":    true,
-		"data":       episodesToResponse(episodes),
+		"data":       episodesToResponse(episodes, responsePreviewLimit),
 		"pagination": episodePaginationPayload(page, pageSize, total),
 	}
 

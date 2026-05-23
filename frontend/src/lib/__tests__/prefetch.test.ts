@@ -118,7 +118,7 @@ describe("prefetch", () => {
     expect(get).toHaveBeenNthCalledWith(1, "/api/v1/workflows/7");
     expect(get).toHaveBeenNthCalledWith(
       2,
-      "/api/v1/workflows/7/jobs?page=1&page_size=10",
+      "/api/v1/workflows/7/jobs?page=1&page_size=10&view=summary",
     );
     expect(swrMutate).toHaveBeenCalledWith(
       "/api/v1/workflows/7",
@@ -126,7 +126,7 @@ describe("prefetch", () => {
       false,
     );
     expect(swrMutate).toHaveBeenCalledWith(
-      "/api/v1/workflows/7/jobs?page=1&page_size=10",
+      "/api/v1/workflows/7/jobs?page=1&page_size=10&view=summary",
       { jobs: [] },
       false,
     );

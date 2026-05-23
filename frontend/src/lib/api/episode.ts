@@ -31,7 +31,7 @@ export const episodeApi = {
 
     const response = await api.get<EpisodeListResponse>(
       buildPodcastEpisodesCollectionPath(podcastId),
-      { params: { page, page_size: pageSize } },
+      { params: { page, page_size: pageSize, view: "summary" } },
     );
 
     return {

@@ -18,9 +18,10 @@ describe("searchApiPaths", () => {
         page_size: 20,
         episode_page: 3,
         episode_page_size: 30,
+        include_totals: false,
       }),
     ).toBe(
-      "/api/v1/search?q=podcast&type=episodes&tag_id=1&tag_id=52&page=2&page_size=20&episode_page=3&episode_page_size=30",
+      "/api/v1/search?q=podcast&type=episodes&tag_id=1&tag_id=52&page=2&page_size=20&episode_page=3&episode_page_size=30&include_totals=false",
     );
   });
 

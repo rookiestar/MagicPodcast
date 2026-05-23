@@ -34,6 +34,7 @@ func NewSearchHandler() *SearchHandler {
 // @Param page_size query int false "播客每页数量（默认20）"
 // @Param episode_page query int false "单集页码（默认1）"
 // @Param episode_page_size query int false "单集每页数量（默认20）"
+// @Param include_totals query bool false "是否计算精确总数（默认true）"
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v1/search [get]
 func (h *SearchHandler) Search(c *gin.Context) {
@@ -60,6 +61,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 	// 分页参数（使用辅助函数）
 	podcastPagination := ParsePaginationParams(c, 20)
 	episodePagination := ParsePaginationParamsWithKeys(c, "episode_page", "episode_page_size", 20)
+	includeTotals := parseSearchIncludeTotals(c.DefaultQuery("include_totals", "true"))
 
 	// 构建请求
 	req := services.SearchRequest{
@@ -70,6 +72,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		PageSize:        podcastPagination.PageSize,
 		EpisodePage:     episodePagination.Page,
 		EpisodePageSize: episodePagination.PageSize,
+		SkipTotals:      !includeTotals,
 	}
 
 	// 执行搜索
@@ -80,4 +83,9 @@ func (h *SearchHandler) Search(c *gin.Context) {
 	}
 
 	middleware.SuccessResponse(c, result)
+}
+
+func parseSearchIncludeTotals(value string) bool {
+	normalized := strings.TrimSpace(strings.ToLower(value))
+	return normalized != "false" && normalized != "0"
 }

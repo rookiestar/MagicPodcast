@@ -46,7 +46,7 @@ function installLocalStorageMock() {
 
 const emptyPagination = {
   page: 1,
-  page_size: 50,
+  page_size: 20,
   total: 0,
   total_pages: 0,
 };
@@ -219,9 +219,10 @@ describe("useSearchSidebar", () => {
         q: "科技",
         type: "all",
         page: 1,
-        page_size: 50,
+        page_size: 20,
         episode_page: 1,
-        episode_page_size: 50,
+        episode_page_size: 20,
+        include_totals: false,
       },
       { signal: expect.any(AbortSignal) },
     );

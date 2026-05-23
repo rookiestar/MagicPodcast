@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"magicpodcast/internal/cache"
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/handlers"
 	"magicpodcast/internal/models"
@@ -33,6 +35,7 @@ type episodeListTestResponse struct {
 
 func setupEpisodeTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	cache.GetCache().Clear()
 
 	dbName := fmt.Sprintf("file:episode_handler_%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
@@ -92,6 +95,46 @@ func createEpisodeHandlerEpisode(t *testing.T, db *gorm.DB, podcastID uint, sequ
 	}
 	require.NoError(t, db.Create(&episode).Error)
 	return episode
+}
+
+func TestEpisodeHandler_ListByPodcast_SummaryViewUsesShorterShowNotes(t *testing.T) {
+	db := setupEpisodeTestDB(t)
+	router := setupEpisodeTestRouter()
+	podcast := createEpisodeHandlerPodcast(t, db)
+	publishedDate := time.Date(2026, 5, 16, 12, 0, 0, 0, time.UTC)
+
+	longNotes := "<p>" + strings.Repeat("Long show notes paragraph ", 50) + "</p>"
+	episode := createEpisodeHandlerEpisode(t, db, podcast.ID, 1, publishedDate)
+	require.NoError(t, db.Model(&episode).Update("show_notes", longNotes).Error)
+
+	request, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/podcasts/%d/episodes?page=1&page_size=1&view=summary", podcast.ID), nil)
+	response := httptest.NewRecorder()
+
+	router.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusOK, response.Code)
+
+	var body episodeListTestResponse
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	require.Len(t, body.Data, 1)
+
+	summaryShowNotes, ok := body.Data[0]["show_notes"].(string)
+	require.True(t, ok)
+	assert.LessOrEqual(t, len([]rune(summaryShowNotes)), 323)
+	assert.Contains(t, summaryShowNotes, "...")
+
+	request, _ = http.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/podcasts/%d/episodes?page=1&page_size=1", podcast.ID), nil)
+	response = httptest.NewRecorder()
+
+	router.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	require.Len(t, body.Data, 1)
+
+	fullShowNotes, ok := body.Data[0]["show_notes"].(string)
+	require.True(t, ok)
+	assert.Greater(t, len([]rune(fullShowNotes)), len([]rune(summaryShowNotes)))
 }
 
 func TestEpisodeHandler_ListByPodcast_PaginatesWithStableOrder(t *testing.T) {

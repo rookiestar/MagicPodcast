@@ -200,14 +200,14 @@ async function discoverTargets(options) {
     { name: "workflows", path: "/api/v1/workflows?page=1&page_size=10&view=summary" },
     {
       name: "search",
-      path: "/api/v1/search?q=podcast&type=all&page=1&page_size=10&episode_page=1&episode_page_size=10",
+      path: "/api/v1/search?q=podcast&type=all&page=1&page_size=20&episode_page=1&episode_page_size=20&include_totals=false",
     },
   ];
 
   if (podcastId) {
     apiProbes.push(
       { name: "podcast-detail", path: `/api/v1/podcasts/${podcastId}` },
-      { name: "podcast-episodes", path: `/api/v1/podcasts/${podcastId}/episodes?page=1&page_size=10` },
+      { name: "podcast-episodes", path: `/api/v1/podcasts/${podcastId}/episodes?page=1&page_size=10&view=summary` },
       { name: "podcast-tags", path: `/api/v1/podcasts/${podcastId}/tags` },
       { name: "podcast-notes", path: `/api/v1/podcasts/${podcastId}/notes` },
     );
@@ -216,7 +216,7 @@ async function discoverTargets(options) {
   if (workflowId) {
     apiProbes.push(
       { name: "workflow-detail", path: `/api/v1/workflows/${workflowId}` },
-      { name: "workflow-jobs", path: `/api/v1/workflows/${workflowId}/jobs?page=1&page_size=10` },
+      { name: "workflow-jobs", path: `/api/v1/workflows/${workflowId}/jobs?page=1&page_size=10&view=summary` },
     );
   }
 

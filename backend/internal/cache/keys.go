@@ -74,8 +74,12 @@ func (k *KeyBuilder) WorkflowDetail(id uint) string {
 }
 
 // EpisodeList 构建单集列表缓存键
-func (k *KeyBuilder) EpisodeList(podcastID uint, page, pageSize int) string {
-	return fmt.Sprintf("episodes:list:podcast:%d:p%d:s%d", podcastID, page, pageSize)
+func (k *KeyBuilder) EpisodeList(podcastID uint, page, pageSize int, view ...string) string {
+	key := fmt.Sprintf("episodes:list:podcast:%d:p%d:s%d", podcastID, page, pageSize)
+	if len(view) > 0 && view[0] != "" {
+		key += fmt.Sprintf(":v:%s", view[0])
+	}
+	return key
 }
 
 // InvalidatePodcast 使播客相关缓存失效

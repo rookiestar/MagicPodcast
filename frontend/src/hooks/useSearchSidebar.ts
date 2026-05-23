@@ -16,7 +16,7 @@ import {
 
 const DEFAULT_DEBOUNCE_MS = 200;
 const DEFAULT_MIN_QUERY_LENGTH = 2;
-const DEFAULT_SEARCH_PAGE_SIZE = 50;
+const DEFAULT_SEARCH_PAGE_SIZE = 20;
 
 export type { SearchResultsData, SearchType } from "@/lib/searchSidebarState";
 export {
@@ -98,6 +98,7 @@ export function useSearchSidebar({
           page_size: pageSize,
           episode_page: 1,
           episode_page_size: pageSize,
+          include_totals: false,
         }, { signal });
 
         if (requestId !== activeRequestIdRef.current) return;

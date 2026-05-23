@@ -74,12 +74,13 @@ export const workflowApi = {
   // 获取工作流的执行历史
   listJobs: async (
     id: number,
-    params?: { page?: number; page_size?: number },
+    params?: { page?: number; page_size?: number; view?: "full" | "summary" },
   ): Promise<JobsResponse> => {
     const queryParams = new URLSearchParams();
     if (params?.page) queryParams.append("page", params.page.toString());
     if (params?.page_size)
       queryParams.append("page_size", params.page_size.toString());
+    if (params?.view) queryParams.append("view", params.view);
 
     const url = queryParams.toString()
       ? `/api/v1/workflows/${id}/jobs?${queryParams.toString()}`

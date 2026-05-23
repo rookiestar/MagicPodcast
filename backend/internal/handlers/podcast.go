@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"html"
 	"strings"
 	"time"
 
@@ -71,12 +72,13 @@ type PodcastSummaryResponse struct {
 }
 
 const podcastSummaryView = "summary"
-const podcastListDescriptionLimit = 360
+const podcastListDescriptionDBLimit = 640
+const podcastListDescriptionLimit = 160
 
 var podcastSummarySelectColumns = []string{
 	"id",
 	"title",
-	"description",
+	fmt.Sprintf("substr(description, 1, %d) AS description", podcastListDescriptionDBLimit),
 	"author",
 	"cover_url",
 	"custom_cover_url",
@@ -311,6 +313,10 @@ func (h *PodcastHandler) BatchGet(c *gin.Context) {
 
 func truncatePodcastDescription(description string) string {
 	description = strings.TrimSpace(description)
+	description = htmlTagPattern.ReplaceAllString(description, " ")
+	description = html.UnescapeString(description)
+	description = strings.Join(strings.Fields(description), " ")
+
 	runes := []rune(description)
 	if len(runes) <= podcastListDescriptionLimit {
 		return description

@@ -263,7 +263,7 @@ func (h *WorkflowHandler) toJobExecutionResponse(exec *models.JobExecution) JobE
 // ========== 批量查询优化函数 ==========
 
 // getBatchReports 批量获取 Job 的 Report（优化 N+1 查询）
-func (h *WorkflowHandler) getBatchReports(jobIDs []uint) map[uint]*models.Report {
+func (h *WorkflowHandler) getBatchReports(jobIDs []uint, includeLongFields bool) map[uint]*models.Report {
 	db := database.GetDB()
 	result := make(map[uint]*models.Report)
 
@@ -272,7 +272,11 @@ func (h *WorkflowHandler) getBatchReports(jobIDs []uint) map[uint]*models.Report
 	}
 
 	var reports []models.Report
-	if err := db.Where("job_id IN ?", jobIDs).Find(&reports).Error; err != nil {
+	query := db.Where("job_id IN ?", jobIDs)
+	if !includeLongFields {
+		query = query.Select("job_id", "llm_model_used", "llm_tokens_used")
+	}
+	if err := query.Find(&reports).Error; err != nil {
 		return result
 	}
 

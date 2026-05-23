@@ -27,6 +27,9 @@ export function buildSearchPath(params: SearchParams) {
       params.episode_page_size.toString(),
     );
   }
+  if (typeof params.include_totals === "boolean") {
+    queryParams.append("include_totals", params.include_totals.toString());
+  }
 
   return `${SEARCH_BASE_PATH}?${queryParams.toString()}`;
 }

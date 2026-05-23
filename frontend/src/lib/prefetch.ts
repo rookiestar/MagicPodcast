@@ -66,7 +66,7 @@ export async function prefetchWorkflowData(workflowId: number) {
       const [workflowRes, jobsRes] = await Promise.all([
         apiClient.get(`/api/v1/workflows/${workflowId}`),
         apiClient.get(
-          `/api/v1/workflows/${workflowId}/jobs?page=1&page_size=10`,
+          `/api/v1/workflows/${workflowId}/jobs?page=1&page_size=10&view=summary`,
         ),
       ]);
 
@@ -75,7 +75,7 @@ export async function prefetchWorkflowData(workflowId: number) {
       }
       if (jobsRes.data?.success && jobsRes.data?.data) {
         mutate(
-          `/api/v1/workflows/${workflowId}/jobs?page=1&page_size=10`,
+          `/api/v1/workflows/${workflowId}/jobs?page=1&page_size=10&view=summary`,
           jobsRes.data.data,
           false,
         );

@@ -26,6 +26,7 @@ export interface SearchParams {
   page_size?: number;
   episode_page?: number;
   episode_page_size?: number;
+  include_totals?: boolean;
 }
 
 // SSE进度回调

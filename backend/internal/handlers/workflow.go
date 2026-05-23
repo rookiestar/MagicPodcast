@@ -493,11 +493,13 @@ func (h *WorkflowHandler) Toggle(c *gin.Context) {
 // @Param id path int true "工作流ID"
 // @Param page query int false "页码（默认1）"
 // @Param page_size query int false "每页数量（默认20）"
+// @Param view query string false "视图模式：full 或 summary（默认full）"
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v1/workflows/{id}/jobs [get]
 func (h *WorkflowHandler) ListJobs(c *gin.Context) {
 	db := database.GetDB()
 	id := c.Param("id")
+	isSummaryView := c.DefaultQuery("view", "full") == "summary"
 
 	// 验证工作流是否存在
 	var workflow models.Workflow
@@ -528,7 +530,7 @@ func (h *WorkflowHandler) ListJobs(c *gin.Context) {
 	for i, job := range jobs {
 		jobIDs[i] = job.ID
 	}
-	reportMap := h.getBatchReports(jobIDs)
+	reportMap := h.getBatchReports(jobIDs, !isSummaryView)
 
 	// 转换为响应格式
 	response := make([]JobResponse, len(jobs))
