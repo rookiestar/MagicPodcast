@@ -181,6 +181,7 @@ func (c *Client) GenerateSummary(ctx context.Context, systemPrompt, userPrompt s
 	if model == "" {
 		model = c.config.DefaultModel
 	}
+	model = c.normalizeModel(model)
 
 	// 构建消息列表（支持system和user消息）
 	messages := []Message{}
@@ -315,6 +316,18 @@ func (c *Client) ValidateAPIKey(ctx context.Context, apiKey, model string) (*Sum
 			MaxTokens:   32,
 		},
 	)
+}
+
+func (c *Client) normalizeModel(model string) string {
+	if c.config.Provider != config.LLMProviderDeepSeek {
+		return model
+	}
+
+	if model == "" || strings.HasPrefix(model, "glm-") {
+		return "deepseek-v4-flash"
+	}
+
+	return model
 }
 
 // SummaryOptions 摘要选项

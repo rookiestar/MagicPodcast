@@ -306,9 +306,6 @@ func (s *WorkflowService) validateRulesConfig(config *models.RulesConfig) error 
 		if config.LLMMaxEpisodes <= 0 {
 			return apperrors.InvalidWorkflowConfigError("llm_max_episodes must be positive when LLM is enabled")
 		}
-		if config.LLMModel == "" {
-			return apperrors.InvalidWorkflowConfigError("llm_model must be specified when LLM is enabled")
-		}
 	}
 
 	return nil
