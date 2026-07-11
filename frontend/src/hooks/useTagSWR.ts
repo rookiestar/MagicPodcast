@@ -20,21 +20,3 @@ export function useTags() {
     mutate,
   };
 }
-
-// ============ 标签详情 Hook ============
-
-export function useTag(id: number | null) {
-  const { data, error, isLoading, mutate } = useSWR(
-    id ? `/api/v1/tags/${id}` : null,
-    () => fetcher<Tag>(`/api/v1/tags/${id}`),
-    { ...swrConfig, ...cacheStrategies.tags }
-  );
-
-  return {
-    tag: data,
-    isLoading,
-    isError: !!error,
-    error,
-    mutate,
-  };
-}

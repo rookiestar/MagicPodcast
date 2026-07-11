@@ -6,6 +6,8 @@ import { filterSearchResults, normalizeSearchData } from "@/lib/searchSidebarSta
 import {
   addToSearchHistory,
   getSearchHistory,
+} from "@/lib/searchHistoryState";
+import {
   useSearchSidebar,
 } from "../useSearchSidebar";
 

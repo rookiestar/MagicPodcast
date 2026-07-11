@@ -78,5 +78,3 @@ export function useWorkflowActions({
     handleDelete,
   };
 }
-
-export default useWorkflowActions;

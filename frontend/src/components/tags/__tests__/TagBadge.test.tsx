@@ -13,7 +13,7 @@ describe("TagBadge", () => {
 
   describe("基础渲染", () => {
     it("应该渲染标签名称", () => {
-      const { container } = render(<TagBadge tag={mockTag} />);
+      render(<TagBadge tag={mockTag} />);
       // 使用 screen.getAllByText 查找所有包含文本的元素，然后找到主文本
       const allTextElements = screen.getAllByText("Test Tag");
       // 找到主要的文本元素，排除tooltip（tooltip有特定的类名）
@@ -126,6 +126,7 @@ describe("TagBadge", () => {
 
       fireEvent(button, clickEvent);
       expect(onRemove).toHaveBeenCalled();
+      expect(clickEvent.stopPropagation).toHaveBeenCalled();
     });
   });
 

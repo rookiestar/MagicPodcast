@@ -8,6 +8,7 @@ import {
   normalizeSSEOptions,
   readSSEStream,
 } from "./sseStreamReader";
+import { debugLog } from "./debugLog";
 
 // 在浏览器环境中使用相对路径（支持 tunnel/代理访问）
 // 在 SSR 环境中使用完整 URL
@@ -100,7 +101,7 @@ export async function sseRequest(
   const options = normalizeSSEOptions(requestOptions);
   const { endpoint, method, headers, body, timeout, logPrefix } = options;
 
-  console.log(`${logPrefix} 开始请求: ${endpoint}`);
+  debugLog(`${logPrefix} 开始请求: ${endpoint}`);
 
   const controller = new AbortController();
   let responseTimedOut = false;
@@ -125,7 +126,7 @@ export async function sseRequest(
     clearTimeout(timeoutId);
 
     const elapsedTime = Date.now() - startedAt;
-    console.log(
+    debugLog(
       `${logPrefix} 收到响应，状态: ${response.status}，耗时: ${elapsedTime}ms`,
     );
 

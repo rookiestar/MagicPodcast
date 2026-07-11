@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import { useRouter } from "next/navigation";
 import AppNavbar from "./AppNavbar";
 import MobileBottomNav from "./MobileBottomNav";
 import PageToolbar, { PageToolbarProps } from "./PageToolbar";
@@ -53,7 +52,6 @@ export default function PageLayout({
   className = "",
   maxWidth = true,
 }: PageLayoutProps) {
-  const router = useRouter();
   const { isSearchOpen, openSearch, closeSearch } = useSearch();
 
   // 默认搜索行为：打开全局搜索侧边栏
@@ -114,23 +112,4 @@ export default function PageLayout({
  */
 export function SimplePageLayout(props: Omit<PageLayoutProps, "toolbar">) {
   return <PageLayout {...props} toolbar={false} />;
-}
-
-/**
- * 首页专用布局：不显示工具栏，不显示底部导航栏
- */
-export function HomePageLayout({
-  children,
-  ...props
-}: Omit<PageLayoutProps, "toolbar" | "showBottomNav">) {
-  return (
-    <PageLayout
-      {...props}
-      toolbar={false}
-      showBottomNav={false}
-      className="min-h-screen flex items-center justify-center"
-    >
-      {children}
-    </PageLayout>
-  );
 }

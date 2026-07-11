@@ -13,6 +13,7 @@ BACKEND_PID_FILE="/tmp/magicpodcast-backend.pid"
 FRONTEND_LOG="/tmp/magicpodcast-frontend.log"
 BACKEND_LOG="/tmp/magicpodcast-backend.log"
 FRONTEND_SCREEN_SESSION="magicpodcast-frontend"
+BACKEND_SCREEN_SESSION="magicpodcast-backend"
 
 # 颜色定义
 RED='\033[0;31m'
@@ -52,20 +53,44 @@ wait_for_listener() {
     return 1
 }
 
+stop_screen_session() {
+    local session="$1"
+
+    if command -v screen >/dev/null 2>&1; then
+        screen -S "$session" -X quit >/dev/null 2>&1 || true
+        screen -wipe >/dev/null 2>&1 || true
+    fi
+}
+
 start_frontend_server() {
     : > "$FRONTEND_LOG"
 
-    if [ "$FRONTEND_MODE" = "development" ]; then
-        if command -v screen >/dev/null 2>&1; then
-            screen -S "$FRONTEND_SCREEN_SESSION" -X quit >/dev/null 2>&1 || true
-            screen -dmS "$FRONTEND_SCREEN_SESSION" bash -lc "cd '$FRONTEND_DIR' && tail -f /dev/null | npm run dev >> '$FRONTEND_LOG' 2>&1"
+    if command -v screen >/dev/null 2>&1; then
+        stop_screen_session "$FRONTEND_SCREEN_SESSION"
+        if [ "$FRONTEND_MODE" = "development" ]; then
+            screen -dmS "$FRONTEND_SCREEN_SESSION" bash -lc "cd '$FRONTEND_DIR' && exec npm run dev >> '$FRONTEND_LOG' 2>&1"
         else
-            nohup bash -lc "cd '$FRONTEND_DIR' && tail -f /dev/null | npm run dev" >> "$FRONTEND_LOG" 2>&1 &
-            echo $! > "$FRONTEND_PID_FILE"
+            screen -dmS "$FRONTEND_SCREEN_SESSION" bash -lc "cd '$FRONTEND_DIR' && exec npm run start >> '$FRONTEND_LOG' 2>&1"
         fi
     else
-        nohup bash -lc "cd '$FRONTEND_DIR' && npm run start" >> "$FRONTEND_LOG" 2>&1 &
+        if [ "$FRONTEND_MODE" = "development" ]; then
+            nohup bash -lc "cd '$FRONTEND_DIR' && exec npm run dev" >> "$FRONTEND_LOG" 2>&1 &
+        else
+            nohup bash -lc "cd '$FRONTEND_DIR' && exec npm run start" >> "$FRONTEND_LOG" 2>&1 &
+        fi
         echo $! > "$FRONTEND_PID_FILE"
+    fi
+}
+
+start_backend_server() {
+    : > "$BACKEND_LOG"
+
+    if command -v screen >/dev/null 2>&1; then
+        stop_screen_session "$BACKEND_SCREEN_SESSION"
+        screen -dmS "$BACKEND_SCREEN_SESSION" bash -lc "cd '$BACKEND_DIR' && exec ./api >> '$BACKEND_LOG' 2>&1"
+    else
+        nohup bash -lc "cd '$BACKEND_DIR' && exec ./api" >> "$BACKEND_LOG" 2>&1 &
+        echo $! > "$BACKEND_PID_FILE"
     fi
 }
 
@@ -142,20 +167,23 @@ else
         export $(cat .env | grep -v '^#' | xargs)
     fi
 
+    if [ "$FRONTEND_MODE" = "production" ]; then
+        export MAGICPODCAST_SERVER_MODE="${MAGICPODCAST_SERVER_MODE:-release}"
+        export MAGICPODCAST_DATABASE_DEBUG="${MAGICPODCAST_DATABASE_DEBUG:-false}"
+    fi
+
     echo "  编译后端..."
     go build -o api ./cmd/api
 
-    nohup ./api > "$BACKEND_LOG" 2>&1 &
-    echo $! > "$BACKEND_PID_FILE"
-    sleep 3
+    start_backend_server
 
-    backend_listener="$(listener_pid 8080)"
-    if pid_is_running "$BACKEND_PID_FILE" || [ -n "$backend_listener" ]; then
+    if backend_listener="$(wait_for_listener 8080 60)"; then
         if [ -n "$backend_listener" ]; then
             echo "$backend_listener" > "$BACKEND_PID_FILE"
         fi
         print_status "后端已启动 (PID: $(cat $BACKEND_PID_FILE))"
     else
+        stop_screen_session "$BACKEND_SCREEN_SESSION"
         print_error "后端启动失败"
         echo "  查看日志: tail -f $BACKEND_LOG"
         exit 1
@@ -193,10 +221,11 @@ else
 
     start_frontend_server
 
-    if frontend_listener="$(wait_for_listener 3000 20)"; then
+    if frontend_listener="$(wait_for_listener 3000 60)"; then
         echo "$frontend_listener" > "$FRONTEND_PID_FILE"
         print_status "前端已启动 (PID: $(cat $FRONTEND_PID_FILE))"
     else
+        stop_screen_session "$FRONTEND_SCREEN_SESSION"
         print_error "前端启动失败"
         echo "  查看日志: tail -f $FRONTEND_LOG"
         exit 1

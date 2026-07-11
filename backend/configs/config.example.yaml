@@ -46,8 +46,8 @@ server:
 database:
   # SQLite 数据库文件路径
   path: ./data/magicpodcast.db
-  # 是否开启调试模式（打印 SQL）
-  debug: true
+  # 是否开启调试模式（打印 SQL）。日常运行建议关闭。
+  debug: false
   # 连接池最大空闲连接数
   max_idle_conns: 10
   # 连接池最大打开连接数

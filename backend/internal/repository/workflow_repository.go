@@ -40,6 +40,9 @@ type WorkflowRepository interface {
 	// GetWithJobs 获取工作流及其任务
 	GetWithJobs(id uint) (*models.Workflow, error)
 
+	// CountJobs 获取工作流任务数量
+	CountJobs(workflowID uint) (int64, error)
+
 	// GetLastExecution 获取最后执行记录
 	GetLastExecution(workflowID uint) (*models.JobExecution, error)
 }
@@ -150,6 +153,13 @@ func (r *workflowRepository) GetWithJobs(id uint) (*models.Workflow, error) {
 		return nil, err
 	}
 	return &workflow, nil
+}
+
+// CountJobs 获取工作流任务数量
+func (r *workflowRepository) CountJobs(workflowID uint) (int64, error) {
+	var count int64
+	err := r.DB().Model(&models.Job{}).Where("workflow_id = ?", workflowID).Count(&count).Error
+	return count, err
 }
 
 // GetLastExecution 获取最后执行记录

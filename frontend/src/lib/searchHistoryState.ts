@@ -17,7 +17,7 @@ export function getSearchHistory(): string[] {
   }
 }
 
-export function saveSearchHistory(history: string[]) {
+function saveSearchHistory(history: string[]) {
   if (typeof window === "undefined") return;
 
   try {

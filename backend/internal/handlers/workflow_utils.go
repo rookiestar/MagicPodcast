@@ -6,17 +6,16 @@ import (
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/handlers/dto"
 	"magicpodcast/internal/models"
-)
 
-// BatchWorkflowStats 类型别名
-type BatchWorkflowStats = dto.BatchWorkflowStats
+	"github.com/gin-gonic/gin"
+)
 
 // ========== 响应转换函数 ==========
 
 // getBatchWorkflowStats 批量获取工作流统计信息（优化N+1查询）
-func (h *WorkflowHandler) getBatchWorkflowStats(workflowIDs []uint) map[uint]*BatchWorkflowStats {
+func (h *WorkflowHandler) getBatchWorkflowStats(workflowIDs []uint) map[uint]*dto.BatchWorkflowStats {
 	db := database.GetDB()
-	result := make(map[uint]*BatchWorkflowStats)
+	result := make(map[uint]*dto.BatchWorkflowStats)
 
 	if len(workflowIDs) == 0 {
 		return result
@@ -39,7 +38,7 @@ func (h *WorkflowHandler) getBatchWorkflowStats(workflowIDs []uint) map[uint]*Ba
 	// 聚合统计数据
 	for _, sc := range statusCounts {
 		if result[sc.WorkflowID] == nil {
-			result[sc.WorkflowID] = &BatchWorkflowStats{}
+			result[sc.WorkflowID] = &dto.BatchWorkflowStats{}
 		}
 		result[sc.WorkflowID].TotalJobs += sc.Count
 		if sc.Status == models.JobStatusCompleted {
@@ -64,7 +63,7 @@ func (h *WorkflowHandler) getBatchWorkflowStats(workflowIDs []uint) map[uint]*Ba
 
 	for _, ae := range avgEpisodes {
 		if result[ae.WorkflowID] == nil {
-			result[ae.WorkflowID] = &BatchWorkflowStats{}
+			result[ae.WorkflowID] = &dto.BatchWorkflowStats{}
 		}
 		result[ae.WorkflowID].AvgEpisodes = ae.AvgEpisodes
 	}
@@ -72,7 +71,7 @@ func (h *WorkflowHandler) getBatchWorkflowStats(workflowIDs []uint) map[uint]*Ba
 	// 初始化空的统计数据（用于没有job的workflow）
 	for _, id := range workflowIDs {
 		if result[id] == nil {
-			result[id] = &BatchWorkflowStats{}
+			result[id] = &dto.BatchWorkflowStats{}
 		}
 	}
 
@@ -80,8 +79,8 @@ func (h *WorkflowHandler) getBatchWorkflowStats(workflowIDs []uint) map[uint]*Ba
 }
 
 // toWorkflowResponseWithStats 使用预加载统计数据转换为响应格式（优化N+1查询）
-func (h *WorkflowHandler) toWorkflowResponseWithStats(workflow *models.Workflow, stats *BatchWorkflowStats, subscribedPodcastCount int64) WorkflowResponse {
-	resp := WorkflowResponse{
+func (h *WorkflowHandler) toWorkflowResponseWithStats(workflow *models.Workflow, stats *dto.BatchWorkflowStats, subscribedPodcastCount int64) dto.WorkflowResponse {
+	resp := dto.WorkflowResponse{
 		ID:          workflow.ID,
 		Name:        workflow.Name,
 		Description: workflow.Description,
@@ -101,7 +100,7 @@ func (h *WorkflowHandler) toWorkflowResponseWithStats(workflow *models.Workflow,
 	}
 
 	// 使用预加载的统计数据
-	workflowStats := WorkflowStats{
+	workflowStats := dto.WorkflowStats{
 		TotalJobs:     stats.TotalJobs,
 		SuccessJobs:   stats.SuccessJobs,
 		FailedJobs:    stats.FailedJobs,
@@ -133,8 +132,8 @@ func workflowListRulesConfigSummary(config models.RulesConfig) models.RulesConfi
 }
 
 // toWorkflowResponse 转换为响应格式
-func (h *WorkflowHandler) toWorkflowResponse(workflow *models.Workflow) WorkflowResponse {
-	resp := WorkflowResponse{
+func (h *WorkflowHandler) toWorkflowResponse(workflow *models.Workflow) dto.WorkflowResponse {
+	resp := dto.WorkflowResponse{
 		ID:          workflow.ID,
 		Name:        workflow.Name,
 		Description: workflow.Description,
@@ -155,7 +154,7 @@ func (h *WorkflowHandler) toWorkflowResponse(workflow *models.Workflow) Workflow
 
 	// 添加统计信息
 	db := database.GetDB()
-	var stats WorkflowStats
+	var stats dto.WorkflowStats
 
 	// 统计任务总数
 	db.Model(&models.Job{}).Where("workflow_id = ?", workflow.ID).Count(&stats.TotalJobs)
@@ -188,8 +187,8 @@ func (h *WorkflowHandler) toWorkflowResponse(workflow *models.Workflow) Workflow
 }
 
 // toJobResponse 转换为响应格式
-func (h *WorkflowHandler) toJobResponse(job *models.Job) JobResponse {
-	resp := JobResponse{
+func (h *WorkflowHandler) toJobResponse(job *models.Job) dto.JobResponse {
+	resp := dto.JobResponse{
 		ID:                job.ID,
 		WorkflowID:        job.WorkflowID,
 		Status:            job.Status,
@@ -212,7 +211,7 @@ func (h *WorkflowHandler) toJobResponse(job *models.Job) JobResponse {
 
 	// 添加执行详情
 	if len(job.Executions) > 0 {
-		executions := make([]JobExecutionResponse, len(job.Executions))
+		executions := make([]dto.JobExecutionResponse, len(job.Executions))
 		for i, exec := range job.Executions {
 			executions[i] = h.toJobExecutionResponse(&exec)
 		}
@@ -242,8 +241,8 @@ func (h *WorkflowHandler) toJobResponse(job *models.Job) JobResponse {
 }
 
 // toJobExecutionResponse 转换为响应格式
-func (h *WorkflowHandler) toJobExecutionResponse(exec *models.JobExecution) JobExecutionResponse {
-	return JobExecutionResponse{
+func (h *WorkflowHandler) toJobExecutionResponse(exec *models.JobExecution) dto.JobExecutionResponse {
+	return dto.JobExecutionResponse{
 		ID:              exec.ID,
 		JobID:           exec.JobID,
 		PodcastID:       exec.PodcastID,
@@ -257,6 +256,29 @@ func (h *WorkflowHandler) toJobExecutionResponse(exec *models.JobExecution) JobE
 		LogInfo:         exec.LogInfo,
 		ProcessingTime:  exec.ProcessingTime,
 		CreatedAt:       exec.CreatedAt,
+	}
+}
+
+func workflowReportResponse(report *models.Report) gin.H {
+	return gin.H{
+		"id":               report.ID,
+		"job_id":           report.JobID,
+		"title":            report.Title,
+		"content":          report.Content,
+		"summary":          report.Summary,
+		"episodes_count":   report.EpisodesCount,
+		"podcasts_count":   report.PodcastsCount,
+		"matched_count":    report.MatchedCount,
+		"time_range_start": report.TimeRangeStart,
+		"time_range_end":   report.TimeRangeEnd,
+		"time_range_mode":  report.TimeRangeMode,
+		"generated_at":     report.GeneratedAt,
+		"format":           report.Format,
+		"file_size":        report.FileSize,
+		"llm_summary":      report.LLMSummary,
+		"llm_model_used":   report.LLMModelUsed,
+		"llm_tokens_used":  report.LLMTokensUsed,
+		"llm_error":        report.LLMError,
 	}
 }
 
@@ -288,8 +310,8 @@ func (h *WorkflowHandler) getBatchReports(jobIDs []uint, includeLongFields bool)
 }
 
 // toJobResponseWithReport 使用预加载的 Report 转换为响应格式（优化 N+1 查询）
-func (h *WorkflowHandler) toJobResponseWithReport(job *models.Job, report *models.Report) JobResponse {
-	resp := JobResponse{
+func (h *WorkflowHandler) toJobResponseWithReport(job *models.Job, report *models.Report) dto.JobResponse {
+	resp := dto.JobResponse{
 		ID:                job.ID,
 		WorkflowID:        job.WorkflowID,
 		Status:            job.Status,
@@ -312,7 +334,7 @@ func (h *WorkflowHandler) toJobResponseWithReport(job *models.Job, report *model
 
 	// 添加执行详情
 	if len(job.Executions) > 0 {
-		executions := make([]JobExecutionResponse, len(job.Executions))
+		executions := make([]dto.JobExecutionResponse, len(job.Executions))
 		for i, exec := range job.Executions {
 			executions[i] = h.toJobExecutionResponse(&exec)
 		}

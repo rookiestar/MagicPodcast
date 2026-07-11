@@ -11,7 +11,6 @@ import type {
   Workflow,
   Tag,
 } from "@/types";
-import PodcastCover from "@/components/podcasts/PodcastCover";
 import { PodcastListItem } from "./PodcastListItem";
 import {
   CRON_PRESETS,
@@ -52,7 +51,6 @@ export default function WorkflowFormModal({
   // Step 2: 范围配置
   const [scopeType, setScopeType] =
     useState<WorkflowScopeType>("all_subscribed");
-  const [selectedPodcastIds, setSelectedPodcastIds] = useState<number[]>([]);
   const [customUrls, setCustomUrls] = useState<string[]>([]);
   const [newCustomUrl, setNewCustomUrl] = useState("");
   const [podcasts, setPodcasts] = useState<Podcast[]>([]);
@@ -147,7 +145,6 @@ export default function WorkflowFormModal({
     setCustomCron("");
     setCronError("");
     setScopeType("all_subscribed");
-    setSelectedPodcastIds([]);
     setCandidatePodcastIds([]);
     setCustomUrls([]);
     setNewCustomUrl("");
@@ -336,11 +333,6 @@ export default function WorkflowFormModal({
     if (isOpen) {
       if (workflow) {
         // 编辑模式：填充现有数据
-        console.log("[WorkflowFormModal] Loading workflow for edit:", workflow);
-        console.log(
-          "[WorkflowFormModal] Workflow rules_config:",
-          workflow.rules_config,
-        );
         setName(workflow.name);
         setDescription(workflow.description || "");
 
@@ -376,15 +368,7 @@ export default function WorkflowFormModal({
           setKeywords(workflow.rules_config.keywords || "");
           setExcludeWords(workflow.rules_config.exclude_words || "");
 
-          // LLM配置 - 添加调试日志
-          console.log("[WorkflowFormModal] Loading LLM config from workflow:", {
-            llm_enabled: workflow.rules_config.llm_enabled,
-            llm_max_episodes: workflow.rules_config.llm_max_episodes,
-            llm_model: workflow.rules_config.llm_model,
-            llm_temperature: workflow.rules_config.llm_temperature,
-            llm_max_tokens: workflow.rules_config.llm_max_tokens,
-          });
-
+          // LLM配置
           setLlmEnabled(workflow.rules_config.llm_enabled || false);
           setLlmMaxEpisodes(workflow.rules_config.llm_max_episodes || 20);
           setLlmModel(workflow.rules_config.llm_model || "");
@@ -707,12 +691,6 @@ export default function WorkflowFormModal({
       const actualCron = customCron.trim() || schedule.trim();
       const finalCron = convertToSixDigitCron(actualCron);
 
-      console.log("[WorkflowFormModal] Cron conversion:", {
-        original: actualCron,
-        converted: finalCron,
-        isCustom: !!customCron.trim(),
-      });
-
       // 如果 cron 表达式有效,自动启用调度
       const shouldBeEnabled = actualCron.length > 0;
 
@@ -726,20 +704,12 @@ export default function WorkflowFormModal({
         is_enabled: shouldBeEnabled,
       };
 
-      console.log("[WorkflowFormModal] Submitting workflow:", data);
-      console.log(
-        "[WorkflowFormModal] LLM Config in rules_config:",
-        data.rules_config,
-      );
-
       if (workflow) {
         // 编辑模式
         await workflowApi.update(workflow.id, data);
-        console.log("[WorkflowFormModal] Workflow updated successfully");
       } else {
         // 创建模式
         await workflowApi.create(data);
-        console.log("[WorkflowFormModal] Workflow created successfully");
       }
 
       onSuccess();
@@ -762,7 +732,6 @@ export default function WorkflowFormModal({
     setCustomCron("");
     setCronError("");
     setScopeType("all_subscribed");
-    setSelectedPodcastIds([]);
     setCandidatePodcastIds([]);
     setCustomUrls([]);
     setNewCustomUrl("");

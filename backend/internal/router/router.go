@@ -94,15 +94,15 @@ func SetupRouter() *gin.Engine {
 		v1.PUT("/episodes/:id/notes", noteHandler.UpdateEpisodeNotes)
 		v1.GET("/episodes/:id/notes", noteHandler.GetEpisodeNotes)
 
-		// 初始化 Repository 容器（用于重构后的 Service 层）
+		// 初始化 Repository 容器
 		repos, err := repository.NewRepositories()
 		if err != nil {
 			panic(err) // Repository 初始化失败，无法继续
 		}
 
-		// Tag Relation 路由（使用重构后的 Handler + Service 层）
+		// Tag Relation 路由
 		tagRelationService := services.NewTagRelationService(repos)
-		tagRelationHandler := handlers.NewTagRelationHandlerRefactored(tagRelationService)
+		tagRelationHandler := handlers.NewTagRelationHandler(tagRelationService)
 		podcastTags := v1.Group("/podcasts/:id/tags")
 		{
 			podcastTags.GET("", tagRelationHandler.GetPodcastTags)

@@ -1,12 +1,22 @@
 import { memo } from "react";
-import { Tag } from "@/types";
+import type { Tag } from "@/types";
+import {
+  areTagBadgePropsEqual,
+  getTagBadgeSizeClass,
+  getTagRemoveButtonClass,
+  getTagRemoveButtonStyle,
+  getTagRemoveTitle,
+  shouldStopTagRemovePropagation,
+  type TagBadgeSize,
+  type TagBadgeVariant,
+} from "@/lib/tagBadgeState";
 
 interface TagBadgeProps {
   tag: Tag;
   onRemove?: (tagId: number) => void;
-  size?: "sm" | "md" | "lg";
+  size?: TagBadgeSize;
   removable?: boolean;
-  variant?: "colorful" | "simple";
+  variant?: TagBadgeVariant;
 }
 
 function TagBadge({
@@ -16,11 +26,7 @@ function TagBadge({
   removable = false,
   variant = "colorful",
 }: TagBadgeProps) {
-  const sizeClasses = {
-    sm: "text-xs px-2 py-0.5",
-    md: "text-sm px-3 py-1",
-    lg: "text-base px-4 py-1.5",
-  };
+  const sizeClass = getTagBadgeSizeClass(size);
 
   // 简洁模式：与节目列表页一致的灰色样式 + 彩色圆点
   if (variant === "simple") {
@@ -28,7 +34,7 @@ function TagBadge({
       <span
         className={`
           inline-flex items-center gap-1 rounded-full font-medium
-          ${sizeClasses[size]}
+          ${sizeClass}
           transition-colors
           bg-slate-100 hover:bg-slate-200 text-slate-600
           group relative
@@ -41,29 +47,11 @@ function TagBadge({
         />
         <span className="max-w-[120px] truncate">{tag.name}</span>
         {removable && onRemove && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove(tag.id);
-            }}
-            className="ml-1 hover:bg-slate-300 rounded-full p-2 transition-colors focus:outline-none active:scale-95"
-            title={`移除 "${tag.name}" 标签`}
-            style={{ minWidth: "44px", minHeight: "44px" }}
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
+          <TagRemoveButton
+            tag={tag}
+            variant="simple"
+            onRemove={() => onRemove(tag.id)}
+          />
         )}
       </span>
     );
@@ -74,7 +62,7 @@ function TagBadge({
     <span
       className={`
         inline-flex items-center gap-1.5 rounded-full font-medium
-        ${sizeClasses[size]}
+        ${sizeClass}
         transition-all duration-200
         group relative
       `}
@@ -92,53 +80,55 @@ function TagBadge({
         {tag.name}
       </div>
       {removable && onRemove && (
-        <button
-          onClick={() => onRemove(tag.id)}
-          className="
-            hover:bg-white/50 rounded-full p-2
-            transition-colors duration-150
-            focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-current
-            active:scale-95
-          "
-          style={{ color: tag.color, minWidth: "44px", minHeight: "44px" }}
-          title={`移除 "${tag.name}" 标签`}
-        >
-          <svg
-            className="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M6 18L18 6M6 6l12 12"
-            />
-          </svg>
-        </button>
+        <TagRemoveButton
+          tag={tag}
+          variant="colorful"
+          onRemove={() => onRemove(tag.id)}
+        />
       )}
     </span>
   );
 }
 
-// 自定义比较函数：只在相关 props 变化时才重新渲染
-function arePropsEqual(
-  prevProps: Readonly<TagBadgeProps>,
-  nextProps: Readonly<TagBadgeProps>,
-) {
+interface TagRemoveButtonProps {
+  tag: Tag;
+  variant: "colorful" | "simple";
+  onRemove: () => void;
+}
+
+function TagRemoveButton({ tag, variant, onRemove }: TagRemoveButtonProps) {
   return (
-    prevProps.tag.id === nextProps.tag.id &&
-    prevProps.tag.name === nextProps.tag.name &&
-    prevProps.tag.color === nextProps.tag.color &&
-    prevProps.size === nextProps.size &&
-    prevProps.removable === nextProps.removable &&
-    prevProps.variant === nextProps.variant
+    <button
+      onClick={(event) => {
+        if (shouldStopTagRemovePropagation(variant)) {
+          event.stopPropagation();
+        }
+
+        onRemove();
+      }}
+      className={getTagRemoveButtonClass(variant)}
+      style={getTagRemoveButtonStyle(tag.color, variant)}
+      title={getTagRemoveTitle(tag.name)}
+    >
+      <svg
+        className="w-4 h-4"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M6 18L18 6M6 6l12 12"
+        />
+      </svg>
+    </button>
   );
 }
 
 // 使用 React.memo 包装组件
-export default memo(TagBadge, arePropsEqual);
+export default memo(TagBadge, areTagBadgePropsEqual);
 
 // 添加 displayName 用于调试
 TagBadge.displayName = "TagBadge";

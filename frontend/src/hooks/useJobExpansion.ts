@@ -47,5 +47,3 @@ export function useJobExpansion(): UseJobExpansionReturn {
     getJobDetail,
   };
 }
-
-export default useJobExpansion;

@@ -104,7 +104,7 @@ export interface PodcastListPageState {
   } | null;
 }
 
-export interface PodcastListPaginationState {
+interface PodcastListPaginationState {
   page: number;
   page_size: number;
   total: number;

@@ -7,7 +7,7 @@ import type { ApiResponse } from "@/types";
 /**
  * 自定义 API 错误类，包含错误码信息
  */
-export class ApiError extends Error {
+class ApiError extends Error {
   constructor(
     message: string,
     public code?: string

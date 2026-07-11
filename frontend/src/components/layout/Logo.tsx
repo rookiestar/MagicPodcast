@@ -15,7 +15,7 @@ interface LogoProps {
  * - 渐变色：violet-600 到 indigo-600
  * - 简洁、现代、易识别
  */
-export default function Logo({
+function Logo({
   size = 40,
   className = "",
   showText = true,
@@ -112,17 +112,4 @@ export function CompactLogo({
   size?: number;
 }) {
   return <Logo size={size} className={className} variant="compact" />;
-}
-
-/**
- * 图标版Logo - 仅显示图标
- */
-export function IconLogo({
-  className = "",
-  size = 24,
-}: {
-  className?: string;
-  size?: number;
-}) {
-  return <Logo size={size} className={className} variant="icon-only" />;
 }

@@ -1,6 +1,6 @@
 import type { Tag } from "@/types";
 
-export const MOBILE_PODCAST_DETAIL_TAG_LIMIT = 3;
+const MOBILE_PODCAST_DETAIL_TAG_LIMIT = 3;
 
 export function shouldShowPodcastTagSummary(tags: Tag[]) {
   return tags.length > 0;

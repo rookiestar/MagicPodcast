@@ -1,4 +1,4 @@
-export const PODCAST_GRID_LOAD_MORE_ROW_BUFFER = 3;
+const PODCAST_GRID_LOAD_MORE_ROW_BUFFER = 3;
 
 export function getPodcastGridEstimateRowHeight(isMobile: boolean) {
   return isMobile ? 124 : 482;

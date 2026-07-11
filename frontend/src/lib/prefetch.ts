@@ -1,4 +1,5 @@
 import { mutate } from "swr";
+import { debugDebug } from "./debugLog";
 import { apiClient } from "./fetcher";
 import {
   buildPodcastDetailPath,
@@ -52,7 +53,7 @@ export async function prefetchPodcastData(podcastId: number) {
       }
     } catch (error) {
       // 预取失败不报错，静默处理
-      console.debug("[prefetch] Failed to prefetch podcast:", podcastId, error);
+      debugDebug("[prefetch] Failed to prefetch podcast:", podcastId, error);
     }
   });
 }
@@ -81,7 +82,7 @@ export async function prefetchWorkflowData(workflowId: number) {
         );
       }
     } catch (error) {
-      console.debug("[prefetch] Failed to prefetch workflow:", workflowId, error);
+      debugDebug("[prefetch] Failed to prefetch workflow:", workflowId, error);
     }
   });
 }

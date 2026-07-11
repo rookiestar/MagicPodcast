@@ -27,7 +27,7 @@ func NewEpisodeHandler() *EpisodeHandler {
 // EpisodeResponse 单集响应结构
 type EpisodeResponse struct {
 	ID              uint   `json:"id"`
-	GUID            string `json:"guid"` // 替代xyz_id，使用GUID作为唯一标识
+	GUID            string `json:"guid"` // RSS item GUID，用于单集去重
 	PodcastID       uint   `json:"podcast_id"`
 	EpisodeNo       string `json:"episode_no"`
 	Title           string `json:"title"`

@@ -11,7 +11,7 @@ import {
 } from "@/lib/podcastApiPaths";
 import type { ApiResponse } from "@/types";
 
-export interface PodcastFilters {
+interface PodcastFilters {
   tag_id?: number | number[];
   page?: number;
   page_size?: number;
@@ -20,7 +20,7 @@ export interface PodcastFilters {
   view?: "summary" | "full";
 }
 
-export interface PodcastListResponse {
+interface PodcastListResponse {
   data: any[];
   pagination: {
     page: number;
@@ -31,7 +31,7 @@ export interface PodcastListResponse {
 }
 
 // 获取播客列表
-export async function listPodcasts(
+async function listPodcasts(
   params?: PodcastFilters,
 ): Promise<PodcastListResponse> {
   type PodcastListApiResponse = ApiResponse<any[]> & {
@@ -60,13 +60,13 @@ export async function listPodcasts(
 }
 
 // 获取单个播客详情
-export async function getPodcast(id: number): Promise<any> {
+async function getPodcast(id: number): Promise<any> {
   const response = await api.get<ApiResponse<any>>(buildPodcastDetailPath(id));
   return handleResponse(response);
 }
 
 // 批量获取播客详情
-export async function batchGetPodcasts(ids: number[]): Promise<any[]> {
+async function batchGetPodcasts(ids: number[]): Promise<any[]> {
   const response = await api.post<ApiResponse<any[]>>(
     buildPodcastBatchPath(),
     { ids, view: "summary" },
@@ -75,7 +75,7 @@ export async function batchGetPodcasts(ids: number[]): Promise<any[]> {
 }
 
 // 获取播客备注
-export async function getPodcastNotes(id: number): Promise<string> {
+async function getPodcastNotes(id: number): Promise<string> {
   const response = await api.get<ApiResponse<{ id: number; notes: string }>>(
     buildPodcastNotesPath(id),
   );
@@ -83,7 +83,7 @@ export async function getPodcastNotes(id: number): Promise<string> {
 }
 
 // 更新播客备注
-export async function updatePodcastNotes(
+async function updatePodcastNotes(
   id: number,
   notes: string,
 ): Promise<void> {
@@ -95,7 +95,7 @@ export async function updatePodcastNotes(
 }
 
 // 获取播客的所有标签
-export async function getPodcastTags(id: number): Promise<any[]> {
+async function getPodcastTags(id: number): Promise<any[]> {
   const response = await api.get<ApiResponse<{ tags: any[] }>>(
     buildPodcastTagsPath(id),
   );
@@ -103,7 +103,7 @@ export async function getPodcastTags(id: number): Promise<any[]> {
 }
 
 // 为播客添加标签
-export async function addTagToPodcast(
+async function addTagToPodcast(
   id: number,
   tagId: number,
 ): Promise<void> {
@@ -115,7 +115,7 @@ export async function addTagToPodcast(
 }
 
 // 移除播客标签
-export async function removeTagFromPodcast(
+async function removeTagFromPodcast(
   id: number,
   tagId: number,
 ): Promise<void> {
@@ -126,7 +126,7 @@ export async function removeTagFromPodcast(
 }
 
 // 更新播客自定义封面
-export async function updateCustomCover(
+async function updateCustomCover(
   id: number,
   customCoverUrl: string,
 ): Promise<void> {
@@ -137,7 +137,7 @@ export async function updateCustomCover(
   handleVoidResponse(response);
 }
 
-// 导出为对象形式以保持向后兼容
+// 统一播客 API 入口
 export const podcastApi = {
   list: listPodcasts,
   get: getPodcast,

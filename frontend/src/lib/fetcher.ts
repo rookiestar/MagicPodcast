@@ -45,37 +45,3 @@ export const fetcher = async <T>(url: string): Promise<T> => {
 
   throw new Error(response.data.error?.message || "Request failed");
 };
-
-// 带分页的 fetcher
-export const fetcherWithPagination = async <T>(url: string): Promise<{
-  data: T;
-  pagination?: {
-    page: number;
-    page_size: number;
-    total: number;
-    total_pages: number;
-    has_more?: boolean;
-  };
-}> => {
-  const response = await apiClient.get<{
-    success: boolean;
-    data: T;
-    pagination?: {
-      page: number;
-      page_size: number;
-      total: number;
-      total_pages: number;
-      has_more?: boolean;
-    };
-    error?: { message: string };
-  }>(url);
-
-  if (response.data.success) {
-    return {
-      data: response.data.data,
-      pagination: response.data.pagination,
-    };
-  }
-
-  throw new Error(response.data.error?.message || "Request failed");
-};

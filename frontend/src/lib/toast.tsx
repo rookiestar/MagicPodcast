@@ -109,23 +109,6 @@ function ToastContainer() {
   );
 }
 
-// Hook for using toast
-export function useToast() {
-  const context = useContext(ToastContext);
-  if (!context) {
-    throw new Error("useToast must be used within ToastProvider");
-  }
-
-  return {
-    toast: {
-      success: (message: string) => context.showToast(message, "success"),
-      error: (message: string) => context.showToast(message, "error"),
-      info: (message: string) => context.showToast(message, "info"),
-      warning: (message: string) => context.showToast(message, "warning"),
-    },
-  };
-}
-
 // 便捷的导出（用于 errorHandler 等非组件文件）
 let globalToastContext: ToastContextType | null = null;
 
@@ -161,6 +144,6 @@ export const toast = {
 };
 
 // 设置全局上下文（由 ToastProvider 内部调用）
-export function setGlobalToastContext(context: ToastContextType) {
+function setGlobalToastContext(context: ToastContextType) {
   globalToastContext = context;
 }

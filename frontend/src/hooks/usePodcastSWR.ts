@@ -4,7 +4,6 @@ import useSWRInfinite from "swr/infinite";
 import { fetcher } from "@/lib/fetcher";
 import {
   buildPodcastDetailPath,
-  buildPodcastEpisodesPath,
   buildPodcastListPath,
   buildPodcastNotesPath,
   buildPodcastTagsPath,
@@ -16,46 +15,7 @@ import {
   shouldStopPodcastListPagination,
 } from "@/lib/podcastListState";
 import { swrConfig, cacheStrategies } from "@/lib/swrConfig";
-import type { Podcast, Tag, Episode } from "@/types";
-
-// ============ 播客列表 Hook ============
-
-interface UsePodcastsParams {
-  page?: number;
-  page_size?: number;
-  sort_by?: string;
-  tag_id?: number[];
-  search?: string;
-  view?: "summary" | "full";
-}
-
-export function usePodcasts(params: UsePodcastsParams = {}) {
-  const key = buildPodcastListPath({ view: "summary", ...params });
-
-  const { data, error, isLoading, mutate } = useSWR(
-    key,
-    () =>
-      fetcher<{
-        data: Podcast[];
-        pagination: {
-          page: number;
-          page_size: number;
-          total: number;
-          total_pages: number;
-        };
-      }>(key),
-    { ...swrConfig, ...cacheStrategies.podcasts }
-  );
-
-  return {
-    podcasts: data?.data ?? [],
-    pagination: data?.pagination,
-    isLoading,
-    isError: !!error,
-    error,
-    mutate,
-  };
-}
+import type { Podcast, Tag } from "@/types";
 
 // ============ 播客无限滚动列表 Hook ============
 
@@ -219,45 +179,6 @@ export function usePodcastNotes(podcastId: number | null) {
 
   return {
     notes: data?.notes ?? "",
-    isLoading,
-    isError: !!error,
-    error,
-    mutate,
-  };
-}
-
-// ============ 单集列表 Hook ============
-
-export function useEpisodes(
-  podcastId: number | null,
-  page: number = 1,
-  pageSize: number = 20
-) {
-  const key = podcastId
-    ? buildPodcastEpisodesPath(podcastId, page, pageSize)
-    : null;
-
-  const { data, error, isLoading, mutate } = useSWR(
-    key,
-    () =>
-      fetcher<{
-        episodes: Episode[];
-        pagination: {
-          page: number;
-          page_size: number;
-          total: number;
-          total_pages: number;
-          has_more: boolean;
-        };
-      }>(
-        buildPodcastEpisodesPath(podcastId as number, page, pageSize)
-      ),
-    { ...swrConfig, ...cacheStrategies.episodes }
-  );
-
-  return {
-    episodes: data?.episodes ?? [],
-    pagination: data?.pagination,
     isLoading,
     isError: !!error,
     error,

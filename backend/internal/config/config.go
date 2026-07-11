@@ -188,8 +188,18 @@ func Load(configPath string) (*Config, error) {
 	return cfg, nil
 }
 
-// applyEnvOverrides 从环境变量覆盖敏感配置
+// applyEnvOverrides 从环境变量覆盖本机运行配置
 func (c *Config) applyEnvOverrides() {
+	if mode := viper.GetString("server_mode"); mode != "" {
+		c.Server.Mode = mode
+	}
+	if port := viper.GetInt("server_port"); port != 0 {
+		c.Server.Port = port
+	}
+	if viper.IsSet("database_debug") {
+		c.Database.Debug = viper.GetBool("database_debug")
+	}
+
 	// LLM API Key
 	if key := viper.GetString("llm_api_key"); key != "" {
 		c.LLM.APIKey = key

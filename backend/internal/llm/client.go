@@ -125,13 +125,12 @@ func (rl *rateLimiter) allow(key string) bool {
 
 // NewClient 创建LLM客户端
 func NewClient(cfg *config.LLMConfig) *Client {
-	// 打印调试信息
-	logger.Infof("[LLM Client] Initializing with config:")
-	logger.Infof("  - Enabled: %v", cfg.Enabled)
-	logger.Infof("  - Provider: %s", cfg.Provider)
-	logger.Infof("  - API Key: %s", maskAPIKey(cfg.APIKey))
-	logger.Infof("  - Base URL: %s", cfg.BaseURL)
-	logger.Infof("  - Default Model: %s", cfg.DefaultModel)
+	logger.Debugf("[LLM Client] Initializing with config:")
+	logger.Debugf("  - Enabled: %v", cfg.Enabled)
+	logger.Debugf("  - Provider: %s", cfg.Provider)
+	logger.Debugf("  - API Key: %s", maskAPIKey(cfg.APIKey))
+	logger.Debugf("  - Base URL: %s", cfg.BaseURL)
+	logger.Debugf("  - Default Model: %s", cfg.DefaultModel)
 
 	return &Client{
 		config: cfg,
@@ -155,10 +154,9 @@ func maskAPIKey(key string) string {
 
 // GenerateSummary 生成摘要
 func (c *Client) GenerateSummary(ctx context.Context, systemPrompt, userPrompt string, options SummaryOptions) (*SummaryResult, error) {
-	// 打印调试信息
-	logger.Infof("[LLM GenerateSummary] Called with config:")
-	logger.Infof("  - Enabled: %v", c.config.Enabled)
-	logger.Infof("  - API Key: %s", maskAPIKey(c.config.APIKey))
+	logger.Debugf("[LLM GenerateSummary] Called with config:")
+	logger.Debugf("  - Enabled: %v", c.config.Enabled)
+	logger.Debugf("  - API Key: %s", maskAPIKey(c.config.APIKey))
 
 	// 检查总开关
 	if !c.config.Enabled {

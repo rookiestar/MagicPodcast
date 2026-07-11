@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -152,14 +154,18 @@ func runBenchmark(name string, config Config, requestFunc func() *http.Request) 
 				req := requestFunc()
 				reqStart := time.Now()
 				resp, err := client.Do(req)
-				reqDuration := time.Since(reqStart)
+				success := err == nil && resp != nil && resp.StatusCode == http.StatusOK
 
-				if err != nil || resp.StatusCode != http.StatusOK {
-					timings <- timing{reqDuration, false}
-				} else {
-					timings <- timing{reqDuration, true}
-					resp.Body.Close()
+				if resp != nil {
+					if _, readErr := io.Copy(io.Discard, resp.Body); readErr != nil {
+						success = false
+					}
+					if closeErr := resp.Body.Close(); closeErr != nil {
+						success = false
+					}
 				}
+
+				timings <- timing{time.Since(reqStart), success}
 			}
 		}(i)
 	}
@@ -400,15 +406,9 @@ func percentile(durations []time.Duration, p float64) time.Duration {
 	// 复制并排序
 	sorted := make([]time.Duration, len(durations))
 	copy(sorted, durations)
-
-	// 简单冒泡排序
-	for i := 0; i < len(sorted); i++ {
-		for j := i + 1; j < len(sorted); j++ {
-			if sorted[i] > sorted[j] {
-				sorted[i], sorted[j] = sorted[j], sorted[i]
-			}
-		}
-	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i] < sorted[j]
+	})
 
 	index := int(float64(len(sorted)-1) * p / 100)
 	return sorted[index]

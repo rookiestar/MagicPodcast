@@ -19,7 +19,7 @@ type Episode struct {
 	ShowNotes     string    `gorm:"type:text" json:"show_notes"`    // 节目详情/show notes
 	PublishedDate time.Time `json:"published_date"`                 // 发布日期
 
-	// 增强字段（第一阶段）
+	// RSS 与播放元数据
 	Duration        int        `gorm:"default:0" json:"duration"`         // 音频时长（秒）
 	Link            string     `gorm:"size:512" json:"link"`              // 单集网页链接
 	Content         string     `gorm:"type:text" json:"content"`          // 完整内容（区别于description）

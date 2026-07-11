@@ -50,6 +50,35 @@ describe("TagSuggestionsDropdown", () => {
     expect(props.onCreateTag).toHaveBeenCalledWith("新标签");
   });
 
+  it("shows fallback states for all selected and no available tags", () => {
+    const { rerender } = renderDropdown({
+      filteredTags: [],
+      inputValue: "",
+      availableTags: tags,
+    });
+
+    expect(screen.getByText("所有标签都已选择")).toBeInTheDocument();
+
+    rerender(
+      <TagSuggestionsDropdown
+        filteredTags={[]}
+        inputValue=""
+        availableTags={[]}
+        loading={false}
+        highlightedIndex={-1}
+        disabled={false}
+        onClose={vi.fn()}
+        onSelectTag={vi.fn()}
+        onCreateTag={vi.fn()}
+        onHighlightTag={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("暂无可用标签，输入名称创建新标签"),
+    ).toBeInTheDocument();
+  });
+
   it("keeps highlighted tag styling and mouse highlight callback", () => {
     const { props } = renderDropdown({ highlightedIndex: 1 });
     const aiButton = screen.getByRole("button", { name: "AI" });

@@ -8,14 +8,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// TagRelationHandlerRefactored 重构后的标签关联处理器
-type TagRelationHandlerRefactored struct {
+// TagRelationHandler 标签关联处理器
+type TagRelationHandler struct {
 	tagRelationService *services.TagRelationService
 }
 
-// NewTagRelationHandlerRefactored 创建重构后的标签关联处理器
-func NewTagRelationHandlerRefactored(tagRelationService *services.TagRelationService) *TagRelationHandlerRefactored {
-	return &TagRelationHandlerRefactored{
+// NewTagRelationHandler 创建标签关联处理器
+func NewTagRelationHandler(tagRelationService *services.TagRelationService) *TagRelationHandler {
+	return &TagRelationHandler{
 		tagRelationService: tagRelationService,
 	}
 }
@@ -37,7 +37,7 @@ type AddTagRequest struct {
 // @Failure 400 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/podcasts/{id}/tags [post]
-func (h *TagRelationHandlerRefactored) AddTagToPodcast(c *gin.Context) {
+func (h *TagRelationHandler) AddTagToPodcast(c *gin.Context) {
 	podcastID, ok := ParseUintParam(c, "id")
 	if !ok {
 		return
@@ -79,7 +79,7 @@ func (h *TagRelationHandlerRefactored) AddTagToPodcast(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/podcasts/{id}/tags/{tagId} [delete]
-func (h *TagRelationHandlerRefactored) RemoveTagFromPodcast(c *gin.Context) {
+func (h *TagRelationHandler) RemoveTagFromPodcast(c *gin.Context) {
 	podcastID, ok := ParseUintParam(c, "id")
 	if !ok {
 		return
@@ -115,7 +115,7 @@ func (h *TagRelationHandlerRefactored) RemoveTagFromPodcast(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/podcasts/{id}/tags [get]
-func (h *TagRelationHandlerRefactored) GetPodcastTags(c *gin.Context) {
+func (h *TagRelationHandler) GetPodcastTags(c *gin.Context) {
 	podcastID, ok := ParseUintParam(c, "id")
 	if !ok {
 		return
@@ -145,7 +145,7 @@ func (h *TagRelationHandlerRefactored) GetPodcastTags(c *gin.Context) {
 // @Failure 400 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/episodes/{id}/tags [post]
-func (h *TagRelationHandlerRefactored) AddTagToEpisode(c *gin.Context) {
+func (h *TagRelationHandler) AddTagToEpisode(c *gin.Context) {
 	episodeID, ok := ParseUintParam(c, "id")
 	if !ok {
 		return
@@ -186,7 +186,7 @@ func (h *TagRelationHandlerRefactored) AddTagToEpisode(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/episodes/{id}/tags/{tagId} [delete]
-func (h *TagRelationHandlerRefactored) RemoveTagFromEpisode(c *gin.Context) {
+func (h *TagRelationHandler) RemoveTagFromEpisode(c *gin.Context) {
 	episodeID, ok := ParseUintParam(c, "id")
 	if !ok {
 		return
@@ -221,7 +221,7 @@ func (h *TagRelationHandlerRefactored) RemoveTagFromEpisode(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{}
 // @Router /api/v1/episodes/{id}/tags [get]
-func (h *TagRelationHandlerRefactored) GetEpisodeTags(c *gin.Context) {
+func (h *TagRelationHandler) GetEpisodeTags(c *gin.Context) {
 	episodeID, ok := ParseUintParam(c, "id")
 	if !ok {
 		return

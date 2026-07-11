@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { getErrorMessage } from "@/lib/errorMessage";
 import {
   buildImportErrorLogs,
   buildSyncErrorMessage,
-  getErrorMessage,
   isOperationCompletionEvent,
 } from "../syncOperationMessages";
 

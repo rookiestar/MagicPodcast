@@ -12,7 +12,7 @@ import TagInput from "@/components/tags/TagInput";
 import TagFormModal from "@/components/tags/TagFormModal";
 import PageLayout from "@/components/layout/PageLayout";
 import { toast } from "@/lib/toast";
-import type { Tag, Podcast } from "@/types";
+import type { Tag } from "@/types";
 
 // 动态加载 pinyin-pro，减少首屏 bundle 大小 (~60KB)
 type PinyinFunction = (text: string, options?: { pattern?: string; toneType?: string }) => string;
@@ -32,10 +32,7 @@ interface TagsPageContentProps {
   selectedTags: Set<number>;
   setSelectedTags: React.Dispatch<React.SetStateAction<Set<number>>>;
   isSelectMode: boolean;
-  setIsSelectMode: React.Dispatch<React.SetStateAction<boolean>>;
   sortMode: SortMode;
-  setSortMode: React.Dispatch<React.SetStateAction<SortMode>>;
-  mutateTags: () => Promise<void>;
 }
 
 function TagsPageContent({
@@ -46,15 +43,12 @@ function TagsPageContent({
   selectedTags,
   setSelectedTags,
   isSelectMode,
-  setIsSelectMode,
   sortMode,
-  setSortMode,
-  mutateTags,
 }: TagsPageContentProps) {
   // 拼音缓存：避免重复转换相同字符
   const pinyinCache = useRef<Map<string, string>>(new Map());
   // 跟踪 pinyin 模块是否已加载
-  const [pinyinReady, setPinyinReady] = useState(false);
+  const [, setPinyinReady] = useState(false);
 
   // 预加载 pinyin 模块
   useEffect(() => {
@@ -630,10 +624,7 @@ export default function TagsPage() {
           selectedTags={selectedTags}
           setSelectedTags={setSelectedTags}
           isSelectMode={isSelectMode}
-          setIsSelectMode={setIsSelectMode}
           sortMode={sortMode}
-          setSortMode={setSortMode}
-          mutateTags={mutate}
         />
       </Suspense>
     </PageLayout>

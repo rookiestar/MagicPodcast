@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"magicpodcast/internal/config"
@@ -14,8 +15,9 @@ import (
 
 // SearchService 搜索服务
 type SearchService struct {
-	db     *gorm.DB
-	config config.SearchConfig
+	db        *gorm.DB
+	config    config.SearchConfig
+	ftsTables map[string]bool
 }
 
 // NewSearchService 创建搜索服务
@@ -32,8 +34,9 @@ func NewSearchService() *SearchService {
 
 func NewSearchServiceWithDB(db *gorm.DB, searchConfig config.SearchConfig) *SearchService {
 	return &SearchService{
-		db:     db,
-		config: searchConfig,
+		db:        db,
+		config:    searchConfig,
+		ftsTables: discoverSearchFTSTables(db),
 	}
 }
 
@@ -86,8 +89,36 @@ func (s *SearchService) Search(req SearchRequest) (*SearchResponse, error) {
 		err      error
 	)
 
+	if req.Type == "all" {
+		var (
+			wg     sync.WaitGroup
+			podErr error
+			epiErr error
+		)
+
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			podcasts, podTotal, podErr = s.searchPodcasts(req)
+		}()
+		go func() {
+			defer wg.Done()
+			episodes, epiTotal, epiErr = s.searchEpisodes(req)
+		}()
+		wg.Wait()
+
+		if podErr != nil {
+			return nil, fmt.Errorf("search podcasts failed: %w", podErr)
+		}
+		if epiErr != nil {
+			return nil, fmt.Errorf("search episodes failed: %w", epiErr)
+		}
+
+		return buildSearchResponse(podcasts, episodes, podTotal, epiTotal, req), nil
+	}
+
 	// 搜索播客
-	if req.Type == "all" || req.Type == "podcasts" {
+	if req.Type == "podcasts" {
 		podcasts, podTotal, err = s.searchPodcasts(req)
 		if err != nil {
 			return nil, fmt.Errorf("search podcasts failed: %w", err)
@@ -95,14 +126,23 @@ func (s *SearchService) Search(req SearchRequest) (*SearchResponse, error) {
 	}
 
 	// 搜索单集
-	if req.Type == "all" || req.Type == "episodes" {
+	if req.Type == "episodes" {
 		episodes, epiTotal, err = s.searchEpisodes(req)
 		if err != nil {
 			return nil, fmt.Errorf("search episodes failed: %w", err)
 		}
 	}
 
-	// 构建响应
+	return buildSearchResponse(podcasts, episodes, podTotal, epiTotal, req), nil
+}
+
+func buildSearchResponse(
+	podcasts []models.PodcastSearchResult,
+	episodes []models.EpisodeSearchResult,
+	podTotal int64,
+	epiTotal int64,
+	req SearchRequest,
+) *SearchResponse {
 	return &SearchResponse{
 		Podcasts: podcasts,
 		Episodes: episodes,
@@ -110,7 +150,7 @@ func (s *SearchService) Search(req SearchRequest) (*SearchResponse, error) {
 			Podcasts: buildPaginationInfo(podTotal, req.Page, req.PageSize),
 			Episodes: buildPaginationInfo(epiTotal, req.EpisodePage, req.EpisodePageSize),
 		},
-	}, nil
+	}
 }
 
 type podcastWithScore struct {
@@ -132,7 +172,7 @@ type episodeWithScore struct {
 // searchPodcasts 搜索播客
 func (s *SearchService) searchPodcasts(req SearchRequest) ([]models.PodcastSearchResult, int64, error) {
 	keyword := req.Query
-	useFTS := canUseSearchFTS(s.db, podcastSearchFTSTable, keyword)
+	useFTS := s.canUseFTS(podcastSearchFTSTable, keyword)
 	candidateLimit := buildSearchCandidateLimit(req.Page, req.PageSize)
 
 	var total int64
@@ -233,7 +273,7 @@ func (s *SearchService) searchPodcasts(req SearchRequest) ([]models.PodcastSearc
 // searchEpisodes 搜索单集
 func (s *SearchService) searchEpisodes(req SearchRequest) ([]models.EpisodeSearchResult, int64, error) {
 	keyword := req.Query
-	useFTS := canUseSearchFTS(s.db, episodeSearchFTSTable, keyword)
+	useFTS := s.canUseFTS(episodeSearchFTSTable, keyword)
 	candidateLimit := buildSearchCandidateLimit(req.EpisodePage, req.EpisodePageSize)
 
 	var total int64

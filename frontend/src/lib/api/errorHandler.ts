@@ -84,24 +84,3 @@ export const handleApiError = (error: any, context?: string) => {
 export const showSuccess = (message: string) => {
   toast.success(message);
 };
-
-/**
- * 信息提示辅助函数
- */
-export const showInfo = (message: string) => {
-  toast.info(message);
-};
-
-/**
- * 警告提示辅助函数
- */
-export const showWarning = (message: string) => {
-  toast.warning(message);
-};
-
-/**
- * 表单验证提示辅助函数
- */
-export const showValidationError = (message: string) => {
-  toast.warning(message);
-};

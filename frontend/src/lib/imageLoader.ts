@@ -7,6 +7,8 @@
  * 4. 预加载: 提前加载即将进入视口的图片
  */
 
+import { debugLog } from "./debugLog";
+
 interface LoadTask {
   id: string;
   src: string;
@@ -134,7 +136,7 @@ class ImageLoadQueue {
     // 检查是否需要重试
     if (task.retryCount < this.maxRetries) {
       task.retryCount++;
-      console.log(
+      debugLog(
         `[ImageLoadQueue] 重试加载图片 (${task.retryCount}/${this.maxRetries}):`,
         task.src,
       );
@@ -220,14 +222,3 @@ class ImageLoadQueue {
 
 // 单例模式
 export const imageLoadQueue = new ImageLoadQueue();
-
-/**
- * React Hook: 使用图片加载队列
- */
-export function useImageLoadQueue() {
-  return {
-    loadImage: (task: LoadTask) => imageLoadQueue.add(task),
-    cancelLoad: (id: string) => imageLoadQueue.cancel(id),
-    getStatus: () => imageLoadQueue.getStatus(),
-  };
-}

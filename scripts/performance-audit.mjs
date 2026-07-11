@@ -3,9 +3,10 @@
 import { performance } from "node:perf_hooks";
 
 const DEFAULTS = {
-  baseUrl: "http://localhost:8088",
+  baseUrl: "http://localhost:3000",
   apiUrl: "http://localhost:8080",
   runs: 3,
+  warmupRuns: 1,
   timeoutMs: 10000,
   pageWarnMs: 2500,
   apiWarnMs: 800,
@@ -31,6 +32,9 @@ function parseArgs(argv) {
         break;
       case "--runs":
         options.runs = Number.parseInt(nextValue(), 10);
+        break;
+      case "--warmup-runs":
+        options.warmupRuns = Number.parseInt(nextValue(), 10);
         break;
       case "--timeout-ms":
         options.timeoutMs = Number.parseInt(nextValue(), 10);
@@ -62,6 +66,9 @@ function parseArgs(argv) {
   if (!Number.isInteger(options.runs) || options.runs < 1) {
     throw new Error("--runs must be a positive integer");
   }
+  if (!Number.isInteger(options.warmupRuns) || options.warmupRuns < 0) {
+    throw new Error("--warmup-runs must be a non-negative integer");
+  }
 
   options.baseUrl = trimTrailingSlash(options.baseUrl);
   options.apiUrl = trimTrailingSlash(options.apiUrl);
@@ -77,6 +84,7 @@ Options:
   --base-url <url>           Frontend URL. Default: ${DEFAULTS.baseUrl}
   --api-url <url>            Backend URL. Default: ${DEFAULTS.apiUrl}
   --runs <n>                 Samples per page/API. Default: ${DEFAULTS.runs}
+  --warmup-runs <n>          Warmup requests before sampling. Default: ${DEFAULTS.warmupRuns}
   --timeout-ms <n>           Request timeout. Default: ${DEFAULTS.timeoutMs}
   --page-warn-ms <n>         Page warning threshold. Default: ${DEFAULTS.pageWarnMs}
   --api-warn-ms <n>          API warning threshold. Default: ${DEFAULTS.apiWarnMs}
@@ -279,6 +287,12 @@ async function auditPages(targets, options) {
     const samples = [];
     let html = "";
 
+    await warmupTarget(options.baseUrl, target.path, {
+      timeoutMs: options.timeoutMs,
+      headers: { accept: "text/html,application/xhtml+xml" },
+      runs: options.warmupRuns,
+    });
+
     for (let run = 0; run < options.runs; run += 1) {
       const result = await timedFetch(joinUrl(options.baseUrl, target.path), {
         timeoutMs: options.timeoutMs,
@@ -315,6 +329,12 @@ async function auditApis(targets, options) {
   for (const target of targets) {
     const samples = [];
 
+    await warmupTarget(options.apiUrl, target.path, {
+      timeoutMs: options.timeoutMs,
+      headers: { accept: "application/json" },
+      runs: options.warmupRuns,
+    });
+
     for (let run = 0; run < options.runs; run += 1) {
       const result = await timedFetch(joinUrl(options.apiUrl, target.path), {
         timeoutMs: options.timeoutMs,
@@ -334,6 +354,15 @@ async function auditApis(targets, options) {
   }
 
   return results;
+}
+
+async function warmupTarget(baseUrl, path, options) {
+  for (let run = 0; run < options.runs; run += 1) {
+    await timedFetch(joinUrl(baseUrl, path), {
+      timeoutMs: options.timeoutMs,
+      headers: options.headers,
+    });
+  }
 }
 
 function compactFetchResult(result) {
@@ -431,6 +460,7 @@ function printReport(report) {
   console.log(`Frontend: ${report.options.baseUrl}`);
   console.log(`Backend:  ${report.options.apiUrl}`);
   console.log(`Runs:     ${report.options.runs}`);
+  console.log(`Warmup:   ${report.options.warmupRuns}`);
   console.log("");
 
   console.log("Pages");

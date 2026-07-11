@@ -41,22 +41,6 @@ export interface ApiResponse<T> {
   };
 }
 
-// 分页响应类型
-export interface PaginatedResponse<T> {
-  success: boolean;
-  data?: T;
-  pagination?: {
-    page: number;
-    page_size: number;
-    total: number;
-    total_pages: number;
-  };
-  error?: {
-    code: string;
-    message: string;
-  };
-}
-
 // Episode 类型定义
 export interface Episode {
   id: number;
@@ -117,16 +101,11 @@ export interface EpisodeSearchResult {
   matched_fields?: MatchedField[]; // 改为可选
 }
 
-export interface SearchPagination {
+interface SearchPagination {
   page: number;
   page_size: number;
   total: number;
   total_pages: number;
-}
-
-export interface SearchResponse {
-  podcasts: PodcastSearchResult[];
-  episodes: EpisodeSearchResult[];
 }
 
 export interface SearchData {
@@ -147,14 +126,14 @@ export type WorkflowScopeType =
 // 工作流排序类型
 export type WorkflowSortByType = "updated" | "execution";
 
-export type JobStatus =
+type JobStatus =
   | "pending"
   | "running"
   | "completed"
   | "failed"
   | "cancelled";
 
-export type ExecutionStatus =
+type ExecutionStatus =
   | "pending"
   | "running"
   | "success"
@@ -221,7 +200,7 @@ export interface Workflow {
   stats?: WorkflowStats;
 }
 
-export interface WorkflowStats {
+interface WorkflowStats {
   total_jobs: number;
   total_episodes: number;
   podcast_count: number;
@@ -252,7 +231,7 @@ export interface Job {
   llm_error?: string; // LLM错误信息（如果生成失败）
 }
 
-export interface JobExecution {
+interface JobExecution {
   id: number;
   job_id: number;
   podcast_id?: number;

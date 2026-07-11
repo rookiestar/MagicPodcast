@@ -59,24 +59,6 @@ export function getRelativeTime(dateString: string): string {
 }
 
 /**
- * 判断是否是最近更新（7天内有新内容）
- * @param dateString ISO日期字符串
- * @param days 最近天数，默认7天
- * @returns 是否是最近更新
- */
-export function isRecentlyUpdated(
-  dateString: string,
-  days: number = 7,
-): boolean {
-  const now = new Date();
-  const past = new Date(dateString);
-  const diffMs = now.getTime() - past.getTime();
-  const diffDays = diffMs / (1000 * 60 * 60 * 24);
-
-  return diffDays <= days;
-}
-
-/**
  * 格式化日期为本地字符串
  * @param dateString ISO日期字符串（可选）
  * @param fallback 当日期为空或无效时的默认返回值

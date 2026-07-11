@@ -82,12 +82,12 @@ func (r *SSEProgressReporter) sendKeepalive() {
 	// 发送SSE注释（客户端会忽略，但保持连接活跃）
 	// 使用注释格式：: comment\n\n
 	if _, err := fmt.Fprintf(r.writer, ": ping\n\n"); err != nil {
-		logger.Infof("[SSE] Keepalive write error: %v", err)
+		logger.Warnf("[SSE] Keepalive write error: %v", err)
 		r.closed = true
 		return
 	}
 	r.flusher.Flush()
-	logger.Infof("[SSE] 发送keepalive ping")
+	logger.Debugf("[SSE] 发送keepalive ping")
 }
 
 func (r *SSEProgressReporter) send(msgType string, message string) {
@@ -95,11 +95,11 @@ func (r *SSEProgressReporter) send(msgType string, message string) {
 	defer r.mu.Unlock()
 
 	if r.closed {
-		logger.Infof("[SSE] Skip sending (closed): %s - %s", msgType, message)
+		logger.Debugf("[SSE] Skip sending (closed): %s - %s", msgType, message)
 		return
 	}
 
-	logger.Infof("[SSE] Sending: %s - %s", msgType, message)
+	logger.Debugf("[SSE] Sending: %s - %s", msgType, message)
 
 	msg := SSEProgressMessage{
 		Type:      msgType,
@@ -109,7 +109,7 @@ func (r *SSEProgressReporter) send(msgType string, message string) {
 
 	data, _ := json.Marshal(msg)
 	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
-		logger.Infof("[SSE] Write error: %v", err)
+		logger.Warnf("[SSE] Write error: %v", err)
 		r.closed = true
 		return
 	}
@@ -133,11 +133,11 @@ func (r *SSEProgressReporter) ReportProgress(current, total int, message string)
 	defer r.mu.Unlock()
 
 	if r.closed {
-		logger.Infof("[SSE] Skip ReportProgress (closed): [%d/%d] %s", current, total, message)
+		logger.Debugf("[SSE] Skip ReportProgress (closed): [%d/%d] %s", current, total, message)
 		return
 	}
 
-	logger.Infof("[SSE] ReportProgress: [%d/%d] %s", current, total, message)
+	logger.Debugf("[SSE] ReportProgress: [%d/%d] %s", current, total, message)
 
 	msg := SSEProgressMessage{
 		Type:      "progress",
@@ -149,7 +149,7 @@ func (r *SSEProgressReporter) ReportProgress(current, total int, message string)
 
 	data, _ := json.Marshal(msg)
 	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
-		logger.Infof("[SSE] Write error in ReportProgress: %v", err)
+		logger.Warnf("[SSE] Write error in ReportProgress: %v", err)
 		r.closed = true
 		return
 	}
@@ -207,7 +207,7 @@ func (r *SSEProgressReporter) sendWithType(msgType string, message string, reaso
 	})
 
 	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
-		logger.Infof("[SSE] Write error in sendWithType: %v", err)
+		logger.Warnf("[SSE] Write error in sendWithType: %v", err)
 		r.closed = true
 		return
 	}
@@ -219,7 +219,7 @@ func (r *SSEProgressReporter) ReportSummary(summary *syncpkg.SyncSummary) {
 	defer r.mu.Unlock()
 
 	if r.closed {
-		logger.Infof("[SSE] Skip ReportSummary (closed)")
+		logger.Debugf("[SSE] Skip ReportSummary (closed)")
 		return
 	}
 
@@ -244,13 +244,13 @@ func (r *SSEProgressReporter) ReportSummary(summary *syncpkg.SyncSummary) {
 
 	data, _ := json.Marshal(summaryMsg)
 	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
-		logger.Infof("[SSE] Write error in ReportSummary: %v", err)
+		logger.Warnf("[SSE] Write error in ReportSummary: %v", err)
 		r.closed = true
 		return
 	}
 	r.flusher.Flush()
 
-	logger.Infof("[SSE] ReportSummary: 总=%d 成功=%d 失败=%d 跳过=%d 无更新=%d",
+	logger.Debugf("[SSE] ReportSummary: 总=%d 成功=%d 失败=%d 跳过=%d 无更新=%d",
 		summary.TotalPodcasts, summary.SuccessPodcasts, summary.FailedPodcasts,
 		summary.SkippedPodcasts, summary.NoUpdatePodcasts)
 }
@@ -270,7 +270,7 @@ func (r *SSEProgressReporter) ReportComplete(message string) {
 	}
 	data, _ := json.Marshal(msg)
 	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
-		logger.Infof("[SSE] Write error in ReportComplete: %v", err)
+		logger.Warnf("[SSE] Write error in ReportComplete: %v", err)
 		r.closed = true
 		return
 	}
@@ -286,7 +286,7 @@ func (r *SSEProgressReporter) ReportDone() {
 	}
 
 	if _, err := fmt.Fprintf(r.writer, "data: [DONE]\n\n"); err != nil {
-		logger.Infof("[SSE] Write error in ReportDone: %v", err)
+		logger.Warnf("[SSE] Write error in ReportDone: %v", err)
 		r.closed = true
 		return
 	}
@@ -307,7 +307,7 @@ func (r *SSEProgressReporter) Close() {
 	if r.keepalive != nil {
 		r.keepalive.Stop()
 		close(r.stopKeepalive)
-		logger.Infof("[SSE] 停止keepalive")
+		logger.Debugf("[SSE] 停止keepalive")
 	}
 }
 
@@ -373,7 +373,7 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 	logger.Infof("[SSE] 开始导入OPML（仅本地数据库）: %s", file.Filename)
 	result, err := h.syncService.ImportOPMLFromPodcastIndexOnly(tempFilePath, reporter)
 	if err != nil {
-		logger.Infof("[SSE] 导入失败: %v", err)
+		logger.Warnf("[SSE] 导入失败: %v", err)
 		reporter.ReportError("导入失败: " + err.Error())
 		return
 	}
@@ -387,7 +387,7 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 
 	reporter.ReportComplete("导入完成")
 
-	logger.Infof("[SSE] 已发送complete消息")
+	logger.Debugf("[SSE] 已发送complete消息")
 }
 
 // SyncPodcastsMetadataSSE 同步所有播客的元数据（SSE流式响应）
@@ -396,7 +396,7 @@ func (h *SyncHandler) SyncPodcastsMetadataSSE(c *gin.Context) {
 	// 添加panic恢复机制
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Infof("❌ 元数据同步发生panic: %v", r)
+			logger.Errorf("元数据同步发生panic: %v", r)
 			// 尝试发送错误消息到客户端
 			errorMsg := SSEProgressMessage{
 				Type:      "error",
@@ -418,7 +418,7 @@ func (h *SyncHandler) SyncPodcastsMetadataSSE(c *gin.Context) {
 	// 执行同步元数据任务
 	err := h.syncService.SyncPodcastsMetadataSSE(reporter)
 	if err != nil {
-		logger.Infof("[SSE] 同步元数据失败: %v", err)
+		logger.Warnf("[SSE] 同步元数据失败: %v", err)
 		reporter.ReportError("同步元数据失败: " + err.Error())
 		return
 	}
@@ -428,5 +428,5 @@ func (h *SyncHandler) SyncPodcastsMetadataSSE(c *gin.Context) {
 	// 发送结束标记
 	reporter.ReportDone()
 
-	logger.Infof("[SSE] 已完成元数据同步")
+	logger.Debugf("[SSE] 已完成元数据同步")
 }

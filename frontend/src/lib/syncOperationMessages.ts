@@ -1,8 +1,6 @@
 import { getErrorMessage } from "@/lib/errorMessage";
 import type { LogType, SyncLogMode } from "@/lib/syncLogState";
 
-export { getErrorMessage } from "@/lib/errorMessage";
-
 interface OperationLogMessage {
   type: Extract<LogType, "error" | "info">;
   message: string;

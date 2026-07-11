@@ -72,7 +72,7 @@ export function parseTargetEpisodeId(value: string | null) {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
-export function scrollEpisodeIntoView(element: HTMLElement) {
+function scrollEpisodeIntoView(element: HTMLElement) {
   const rect = element.getBoundingClientRect();
   const targetTop = Math.max(
     0,
@@ -114,7 +114,7 @@ export function scrollEpisodeIntoView(element: HTMLElement) {
   }
 }
 
-export function isEpisodeElementVisible(element: HTMLElement) {
+function isEpisodeElementVisible(element: HTMLElement) {
   const rect = element.getBoundingClientRect();
   const viewportHeight =
     window.innerHeight || document.documentElement.clientHeight;

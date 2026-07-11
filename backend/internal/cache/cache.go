@@ -2,6 +2,7 @@ package cache
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -32,15 +33,6 @@ func GetCache() *Cache {
 		go globalCache.startCleanup()
 	})
 	return globalCache
-}
-
-// NewCache 创建新的缓存实例
-func NewCache(ttl time.Duration) *Cache {
-	c := &Cache{
-		ttl: ttl,
-	}
-	go c.startCleanup()
-	return c
 }
 
 // Set 设置缓存
@@ -82,10 +74,8 @@ func (c *Cache) Delete(key string) {
 // DeleteByPrefix 删除指定前缀的所有缓存
 func (c *Cache) DeleteByPrefix(prefix string) {
 	c.items.Range(func(key, value interface{}) bool {
-		if k, ok := key.(string); ok {
-			if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
-				c.items.Delete(key)
-			}
+		if k, ok := key.(string); ok && strings.HasPrefix(k, prefix) {
+			c.items.Delete(key)
 		}
 		return true
 	})
@@ -120,24 +110,6 @@ func (c *Cache) cleanup() {
 		}
 		return true
 	})
-}
-
-// GetOrSet 获取缓存，如果不存在则执行fn并缓存结果
-func (c *Cache) GetOrSet(key string, fn func() (interface{}, error)) (interface{}, error) {
-	// 先尝试从缓存获取
-	if data, ok := c.Get(key); ok {
-		return data, nil
-	}
-
-	// 执行函数获取数据
-	data, err := fn()
-	if err != nil {
-		return nil, err
-	}
-
-	// 缓存结果
-	c.Set(key, data)
-	return data, nil
 }
 
 // Stats 缓存统计
@@ -237,10 +209,4 @@ func InvalidateEpisodeList(podcastID uint) {
 	cache.DeleteByPrefix(fmt.Sprintf("episodes:list:podcast:%d:", podcastID))
 	// 播客详情可能包含单集数量等信息
 	InvalidatePodcastDetail(podcastID)
-}
-
-// InvalidateSearch 使搜索缓存失效
-// 当任何可搜索内容变更时调用
-func InvalidateSearch() {
-	GetCache().DeleteByPrefix("search:")
 }

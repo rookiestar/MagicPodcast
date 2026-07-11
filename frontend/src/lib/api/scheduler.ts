@@ -1,6 +1,6 @@
 import { api } from "./client";
 
-export interface WorkflowScheduleInfo {
+interface WorkflowScheduleInfo {
   entry_id: number;
   next_run?: string;
   prev_run?: string;

@@ -10,7 +10,7 @@ interface SkeletonProps {
   height?: string | number;
 }
 
-export function Skeleton({
+function Skeleton({
   className = "",
   variant = "text",
   width,
@@ -147,24 +147,6 @@ export function PodcastDetailSkeleton({ isMobile = false }: PodcastDetailSkeleto
             <Skeleton variant="rounded" className="w-24 h-7" />
             <Skeleton variant="rounded" className="w-16 h-7" />
           </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ============ 单集卡片骨架屏 ============
-
-export function EpisodeCardSkeleton() {
-  return (
-    <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm p-4 animate-pulse">
-      <div className="flex items-start gap-3">
-        <Skeleton variant="rounded" width={56} height={56} />
-        <div className="flex-1 space-y-2">
-          <Skeleton variant="text" className="w-3/4 h-4" />
-          <Skeleton variant="text" className="w-1/2 h-3" />
-          <Skeleton variant="text" className="w-full h-3" />
-          <Skeleton variant="text" className="w-2/3 h-3" />
         </div>
       </div>
     </div>

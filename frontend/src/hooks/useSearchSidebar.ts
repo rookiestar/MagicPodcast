@@ -19,13 +19,6 @@ const DEFAULT_MIN_QUERY_LENGTH = 2;
 const DEFAULT_SEARCH_PAGE_SIZE = 20;
 
 export type { SearchResultsData, SearchType } from "@/lib/searchSidebarState";
-export {
-  addToSearchHistory,
-  clearSearchHistory,
-  getSearchHistory,
-  saveSearchHistory,
-} from "@/lib/searchHistoryState";
-
 interface UseSearchSidebarOptions {
   isOpen: boolean;
   debounceMs?: number;

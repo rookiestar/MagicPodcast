@@ -37,12 +37,6 @@ func NewWorkflowHandler(executor *workflow.Executor, scheduler *scheduler.Schedu
 	}
 }
 
-// 类型别名，保持向后兼容
-type WorkflowResponse = dto.WorkflowResponse
-type WorkflowStats = dto.WorkflowStats
-type JobResponse = dto.JobResponse
-type JobExecutionResponse = dto.JobExecutionResponse
-
 // List 获取工作流列表
 // @Summary 获取工作流列表
 // @Description 获取所有工作流，支持排序和分页
@@ -87,14 +81,13 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 	var workflows []models.Workflow
 	offset := (page - 1) * pageSize
 
-	// 调试日志
-	logger.Infof("[Workflow] 查询工作流列表: page=%d, pageSize=%d, sortBy=%s, offset=%d", page, pageSize, sortBy, offset)
+	logger.Debugf("[Workflow] 查询工作流列表: page=%d, pageSize=%d, sortBy=%s, offset=%d", page, pageSize, sortBy, offset)
 
 	// 分步查询以避免N+1问题
 	// 1. 查询workflows
 	orderClause := h.buildSortOrderClause(sortBy)
 	if err := db.Order(orderClause).Limit(pageSize).Offset(offset).Find(&workflows).Error; err != nil {
-		logger.Infof("[Workflow] 查询失败: %v", err)
+		logger.Warnf("[Workflow] 查询失败: %v", err)
 		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to fetch workflows")
 		return
 	}
@@ -112,7 +105,7 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 		var jobs []models.Job
 		if len(jobIDs) > 0 {
 			if err := db.Where("id IN ?", jobIDs).Find(&jobs).Error; err != nil {
-				logger.Infof("[Workflow] 查询Jobs失败: %v", err)
+				logger.Warnf("[Workflow] 查询Jobs失败: %v", err)
 				// 不中断流程，继续返回workflows
 			}
 		}
@@ -145,7 +138,7 @@ func (h *WorkflowHandler) List(c *gin.Context) {
 	db.Model(&models.Podcast{}).Where("is_subscribed = ?", true).Count(&subscribedPodcastCount)
 
 	// 转换为响应格式
-	response := make([]WorkflowResponse, len(workflows))
+	response := make([]dto.WorkflowResponse, len(workflows))
 	for i, wf := range workflows {
 		stats := statsMap[wf.ID]
 		response[i] = h.toWorkflowResponseWithStats(&wf, stats, subscribedPodcastCount)
@@ -234,7 +227,7 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 	}
 
 	// 验证规则配置（包括LLM参数）
-	logger.Infof("[Create] Received LLM config: enabled=%v, max_episodes=%d, model=%s",
+	logger.Debugf("[Create] Received LLM config: enabled=%v, max_episodes=%d, model=%s",
 		req.RulesConfig.LLMEnabled,
 		req.RulesConfig.LLMMaxEpisodes,
 		req.RulesConfig.LLMModel)
@@ -322,17 +315,17 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 	}
 
 	// 验证范围配置
-	logger.Infof("[Update] Workflow ID=%d, scope_type=%s, scope_config=%+v",
+	logger.Debugf("[Update] Workflow ID=%d, scope_type=%s, scope_config=%+v",
 		workflow.ID, req.ScopeType, req.ScopeConfig)
 
 	if req.ScopeType == "specific_podcasts" {
 		oldCount := len(workflow.ScopeConfig.PodcastIDs)
 		newCount := len(req.ScopeConfig.PodcastIDs)
-		logger.Infof("[Update] specific_podcasts: 旧=%d个播客, 新=%d个播客", oldCount, newCount)
+		logger.Debugf("[Update] specific_podcasts: 旧=%d个播客, 新=%d个播客", oldCount, newCount)
 		if newCount == 0 {
-			logger.Infof("⚠️  [Update] 警告: podcast_ids为空，将覆盖原有数据")
+			logger.Warnf("[Update] podcast_ids为空，将覆盖原有数据")
 		} else if newCount < oldCount/2 {
-			logger.Infof("⚠️  [Update] 警告: podcast_ids大幅减少 (%d -> %d)，可能是数据丢失", oldCount, newCount)
+			logger.Warnf("[Update] podcast_ids大幅减少 (%d -> %d)，可能是数据丢失", oldCount, newCount)
 		}
 	}
 
@@ -342,7 +335,7 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 	}
 
 	// 验证规则配置（包括LLM参数）
-	logger.Infof("[Update] Received LLM config: enabled=%v, max_episodes=%d, model=%s",
+	logger.Debugf("[Update] Received LLM config: enabled=%v, max_episodes=%d, model=%s",
 		req.RulesConfig.LLMEnabled,
 		req.RulesConfig.LLMMaxEpisodes,
 		req.RulesConfig.LLMModel)
@@ -358,13 +351,12 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 	workflow.ScopeType = req.ScopeType
 	workflow.ScopeConfig = req.ScopeConfig
 
-	// 打印调试信息
-	logger.Infof("[Update] Original RulesConfig from DB: %+v", workflow.RulesConfig)
-	logger.Infof("[Update] New RulesConfig from request: %+v", req.RulesConfig)
+	logger.Debugf("[Update] Original RulesConfig from DB: %+v", workflow.RulesConfig)
+	logger.Debugf("[Update] New RulesConfig from request: %+v", req.RulesConfig)
 
 	workflow.RulesConfig = req.RulesConfig
 
-	logger.Infof("[Update] Workflow RulesConfig after assignment: %+v", workflow.RulesConfig)
+	logger.Debugf("[Update] Workflow RulesConfig after assignment: %+v", workflow.RulesConfig)
 
 	workflow.IsEnabled = req.IsEnabled
 
@@ -533,7 +525,7 @@ func (h *WorkflowHandler) ListJobs(c *gin.Context) {
 	reportMap := h.getBatchReports(jobIDs, !isSummaryView)
 
 	// 转换为响应格式
-	response := make([]JobResponse, len(jobs))
+	response := make([]dto.JobResponse, len(jobs))
 	for i, job := range jobs {
 		response[i] = h.toJobResponseWithReport(&job, reportMap[job.ID])
 	}
@@ -573,15 +565,6 @@ func (h *WorkflowHandler) GetJob(c *gin.Context) {
 
 	response := h.toJobResponse(&job)
 
-	// 添加执行详情
-	if len(job.Executions) > 0 {
-		executions := make([]JobExecutionResponse, len(job.Executions))
-		for i, exec := range job.Executions {
-			executions[i] = h.toJobExecutionResponse(&exec)
-		}
-		response.Executions = executions
-	}
-
 	middleware.SuccessResponse(c, response)
 }
 
@@ -610,28 +593,7 @@ func (h *WorkflowHandler) GetJobReport(c *gin.Context) {
 		return
 	}
 
-	// 返回报告
-	middleware.SuccessResponse(c, gin.H{
-		"id":               report.ID,
-		"job_id":           report.JobID,
-		"title":            report.Title,
-		"content":          report.Content,
-		"summary":          report.Summary,
-		"episodes_count":   report.EpisodesCount,
-		"podcasts_count":   report.PodcastsCount,
-		"matched_count":    report.MatchedCount,
-		"time_range_start": report.TimeRangeStart,
-		"time_range_end":   report.TimeRangeEnd,
-		"time_range_mode":  report.TimeRangeMode,
-		"generated_at":     report.GeneratedAt,
-		"format":           report.Format,
-		"file_size":        report.FileSize,
-		// LLM相关字段
-		"llm_summary":     report.LLMSummary,
-		"llm_model_used":  report.LLMModelUsed,
-		"llm_tokens_used": report.LLMTokensUsed,
-		"llm_error":       report.LLMError,
-	})
+	middleware.SuccessResponse(c, workflowReportResponse(&report))
 }
 
 // RegenerateLLMSummary 重新生成LLM摘要
@@ -741,33 +703,8 @@ func (h *WorkflowHandler) RegenerateLLMSummary(c *gin.Context) {
 		Model:       workflowConfig.RulesConfig.LLMModel,
 	}
 
-	// 转换 []workflow.EpisodeReportData 到 []llm.EpisodeReportData
-	llmReportData := make([]llm.EpisodeReportData, len(reportData))
-	for i, d := range reportData {
-		llmEpisodeDetails := make([]llm.EpisodeDetail, len(d.Episodes))
-		for j, ep := range d.Episodes {
-			llmEpisodeDetails[j] = llm.EpisodeDetail{
-				Title:         ep.Title,
-				ShowNotes:     ep.ShowNotes,
-				PublishedDate: ep.PublishedDate,
-				UpdatedDate:   ep.UpdatedDate,
-				EpisodeNo:     ep.EpisodeNo,
-				Link:          ep.Link,
-				XYZID:         ep.XYZID,
-				QRCode:        ep.QRCode,
-				QRCodeError:   ep.QRCodeError,
-			}
-		}
-		llmReportData[i] = llm.EpisodeReportData{
-			PodcastID:      d.PodcastID,
-			PodcastTitle:   d.PodcastTitle,
-			PodcastFeedURL: d.PodcastFeedURL,
-			Episodes:       llmEpisodeDetails,
-		}
-	}
-
 	result, err := h.summarizer.GenerateForReport(
-		llmReportData,
+		workflow.ConvertToLLMReportData(reportData),
 		workflowConfig.Name,
 		workflowConfig.RulesConfig.LLMUserPrompt,
 		options,
@@ -808,26 +745,7 @@ func (h *WorkflowHandler) RegenerateLLMSummary(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "LLM摘要重新生成成功",
-		"data": gin.H{
-			"id":               report.ID,
-			"job_id":           report.JobID,
-			"title":            report.Title,
-			"content":          report.Content,
-			"summary":          report.Summary,
-			"episodes_count":   report.EpisodesCount,
-			"podcasts_count":   report.PodcastsCount,
-			"matched_count":    report.MatchedCount,
-			"time_range_start": report.TimeRangeStart,
-			"time_range_end":   report.TimeRangeEnd,
-			"time_range_mode":  report.TimeRangeMode,
-			"generated_at":     report.GeneratedAt,
-			"format":           report.Format,
-			"file_size":        report.FileSize,
-			"llm_summary":      report.LLMSummary,
-			"llm_model_used":   report.LLMModelUsed,
-			"llm_tokens_used":  report.LLMTokensUsed,
-			"llm_error":        report.LLMError,
-		},
+		"data":    workflowReportResponse(&report),
 	})
 }
 
@@ -846,7 +764,7 @@ func (h *WorkflowHandler) Trigger(c *gin.Context) {
 
 	var workflow models.Workflow
 	if err := db.First(&workflow, id).Error; err != nil {
-		logger.Infof("🔍 [DEBUG Handler] Failed to load workflow %s: %v", id, err)
+		logger.Infof("Failed to load workflow %s: %v", id, err)
 		middleware.NotFoundResponse(c, "NOT_FOUND", "工作流不存在")
 		return
 	}

@@ -22,7 +22,6 @@ export default function LoadingLayout({
   children,
   title,
   description,
-  rightContent,
   showBack = false,
 }: LoadingLayoutProps) {
   return (

@@ -21,23 +21,17 @@ vendor/
 backend/tmp/
 backend/bin/
 
-# Database files
-
-# Ignore entire data directory (contains large databases)
-backend/data/
-!backend/data/.gitkeep
-
-# Ignore all databases except the ones we want to keep
+# Database and local data files
 *.db
 *.sqlite
 *.sqlite3
-!backend/data/magicpodcast.db
-!backend/data/podcastindex_feeds.db
 backend/data/*
+!backend/data/.gitkeep
 
 # Empty database file markers
 *-empty.db
 *-temp.db
+backend/internal/scheduler/test_scheduler_*
 
 # SQL session files
 *.session.sql
@@ -96,6 +90,8 @@ test-*.sh
 # Backup files
 *.backup
 *.bak
+*.new
+*_backup.sql
 
 # SQL session files
 *.session.sql
@@ -137,12 +133,12 @@ TEMP_SOLUTION.ts
 # Test files
 backend/test_*.go
 backend/test_sse.sh
-# Unused modules
-backend/internal/scraper/
-
 # Compiled Go binaries
+backend/magicpodcast
 backend/magicpodcast-api
 backend/*/magicpodcast-api
+backend/test_qr.png
+backend/benchmark_results_*.md
 MagicPodcast.session.sql
 PodcastIndex.session.sql
 backend/apply_log.txt

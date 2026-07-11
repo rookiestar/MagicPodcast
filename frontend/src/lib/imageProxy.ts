@@ -53,41 +53,6 @@ const SHOULD_PROXY_DOMAINS = [
 ];
 
 /**
- * 预加载图片（使用代理）
- * @param url 图片URL
- */
-export function preloadImage(url: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const proxiedUrl = getProxiedImageUrl(url) || url;
-
-    img.onload = () => resolve();
-    img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
-
-    img.src = proxiedUrl;
-  });
-}
-
-/**
- * 批量预加载图片
- * @param urls 图片URL数组
- */
-export async function preloadImages(urls: string[]): Promise<void[]> {
-  const promises = urls
-    .filter((url) => url) // 过滤掉空URL
-    .map((url) => preloadImage(url));
-
-  return Promise.allSettled(promises).then((results) => {
-    results.forEach((result, index) => {
-      if (result.status === "rejected") {
-        console.warn(`[preloadImages] Failed to preload: ${urls[index]}`);
-      }
-    });
-    return [];
-  });
-}
-
-/**
  * 获取有效的封面URL（优先使用自定义封面）
  * @param customCoverUrl 自定义封面URL（用户设置，不会被同步覆盖）
  * @param originalCoverUrl 原始封面URL（来自RSS/PodcastIndex）

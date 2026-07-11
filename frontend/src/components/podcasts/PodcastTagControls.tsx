@@ -7,7 +7,7 @@ import {
 } from "@/lib/podcastTagControlsState";
 import type { Tag } from "@/types";
 
-export const PODCAST_TAG_INPUT_PLACEHOLDER =
+const PODCAST_TAG_INPUT_PLACEHOLDER =
   "点击输入框从列表选择，或输入新标签名按回车添加";
 
 interface PodcastTagControlsProps {

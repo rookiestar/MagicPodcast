@@ -3,13 +3,13 @@
 import React from "react";
 
 // 工作流状态类型
-export type WorkflowStatus = "enabled" | "disabled";
+type WorkflowStatus = "enabled" | "disabled";
 
 // 任务状态类型
 export type JobStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
 // 所有支持的状态类型
-export type StatusType = WorkflowStatus | JobStatus;
+type StatusType = WorkflowStatus | JobStatus;
 
 interface StatusBadgeProps {
   status: StatusType;
@@ -56,7 +56,7 @@ const statusConfig: Record<StatusType, { text: string; className: string; dotCla
  * 状态徽章组件
  * 用于显示工作流状态或任务状态
  */
-export function StatusBadge({ status, size = "md", compact = false, className = "" }: StatusBadgeProps) {
+function StatusBadge({ status, size = "md", compact = false, className = "" }: StatusBadgeProps) {
   const config = statusConfig[status];
 
   // 紧凑模式：仅显示彩色圆点
@@ -123,5 +123,3 @@ export function JobStatusBadge({
 
   return <StatusBadge status={validStatus} size={size} />;
 }
-
-export default StatusBadge;

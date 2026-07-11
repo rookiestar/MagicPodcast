@@ -3,6 +3,7 @@ import type {
   SSEProgressCallback,
   SSERequestOptions,
 } from "./sseClient";
+import { debugLog } from "./debugLog";
 
 export type NormalizedSSERequestOptions = Required<
   Omit<SSERequestOptions, "headers" | "body" | "isComplete">
@@ -63,7 +64,7 @@ function finishStream({
   options: NormalizedSSERequestOptions;
 }) {
   const totalTime = Date.now() - startedAt;
-  console.log(
+  debugLog(
     `${options.logPrefix} 流结束，总耗时: ${totalTime}ms，消息数: ${state.messageCount}，completed: ${state.completed}`,
   );
 
@@ -74,7 +75,7 @@ function finishStream({
   }
 
   if (state.messageCount > 0) {
-    console.log(`${options.logPrefix} 完成（流正常结束）`);
+    debugLog(`${options.logPrefix} 完成（流正常结束）`);
     return;
   }
 
@@ -95,7 +96,7 @@ function processDataLine({
   startedAt: number;
 }): ProcessLineResult {
   if (dataContent === "[DONE]") {
-    console.log(`${options.logPrefix} 收到 [DONE] 标记，完成`);
+    debugLog(`${options.logPrefix} 收到 [DONE] 标记，完成`);
     state.completed = true;
     return { done: true };
   }
@@ -106,7 +107,7 @@ function processDataLine({
     state.messageCount += 1;
 
     if (state.messageCount <= 10 || state.messageCount % 50 === 0) {
-      console.log(
+      debugLog(
         `${options.logPrefix} Msg #${state.messageCount}: ${type} ${message?.substring(0, 50)} current: ${current} total: ${total}`,
       );
     }
@@ -115,7 +116,7 @@ function processDataLine({
 
     if (options.isComplete?.(data)) {
       const totalTime = Date.now() - startedAt;
-      console.log(
+      debugLog(
         `${options.logPrefix} 收到完成消息，总耗时: ${totalTime}ms，总消息数: ${state.messageCount}`,
       );
       state.completed = true;
@@ -124,7 +125,7 @@ function processDataLine({
 
     if (options.completeOnTypeComplete && type === "complete") {
       const totalTime = Date.now() - startedAt;
-      console.log(
+      debugLog(
         `${options.logPrefix} 收到 complete 消息，总耗时: ${totalTime}ms`,
       );
       state.completed = true;
@@ -158,7 +159,7 @@ function processSSELine({
   if (!trimmedLine) return { done: false };
 
   if (trimmedLine.startsWith(":")) {
-    console.log(`${options.logPrefix} 收到 ping: ${trimmedLine}`);
+    debugLog(`${options.logPrefix} 收到 ping: ${trimmedLine}`);
     return { done: false };
   }
 
@@ -234,7 +235,7 @@ export async function readSSEStream({
       }
 
       if (options.resolveOnStreamErrorAfterMessage && state.messageCount > 0) {
-        console.log(
+        debugLog(
           `${options.logPrefix} 读取流出错但已收到 ${state.messageCount} 条消息，视为完成`,
         );
         return;

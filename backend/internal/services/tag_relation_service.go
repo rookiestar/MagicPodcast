@@ -120,16 +120,16 @@ func (s *TagRelationService) RemoveTag(targetType TargetType, targetID, tagID ui
 	// 根据目标类型处理
 	switch targetType {
 	case TargetTypePodcast:
-		return s.removeTagFromPodcast(targetID)
+		return s.removeTagFromPodcast(targetID, tagID)
 	case TargetTypeEpisode:
-		return s.removeTagFromEpisode(targetID)
+		return s.removeTagFromEpisode(targetID, tagID)
 	default:
 		return apperrors.BadRequestError("unsupported target type: " + string(targetType))
 	}
 }
 
 // removeTagFromPodcast 移除播客标签
-func (s *TagRelationService) removeTagFromPodcast(podcastID uint) error {
+func (s *TagRelationService) removeTagFromPodcast(podcastID, tagID uint) error {
 	// 检查播客是否存在
 	_, err := s.repos.Podcast.GetByID(podcastID)
 	if err != nil {
@@ -139,15 +139,14 @@ func (s *TagRelationService) removeTagFromPodcast(podcastID uint) error {
 		return apperrors.InternalErrorWithErr(err, "Failed to fetch podcast")
 	}
 
-	// 获取标签ID（从context中获取，这里简化处理）
-	// 实际调用需要tagID，但由于这是内部方法，tagID已在调用处验证
-	// 这里我们简化处理，直接返回成功，因为RemoveTagFromPodcast不需要验证播客存在
-
+	if err := s.repos.Tag.RemoveTagFromPodcast(podcastID, tagID); err != nil {
+		return apperrors.InternalErrorWithErr(err, "Failed to remove tag from podcast")
+	}
 	return nil
 }
 
 // removeTagFromEpisode 移除单集标签
-func (s *TagRelationService) removeTagFromEpisode(episodeID uint) error {
+func (s *TagRelationService) removeTagFromEpisode(episodeID, tagID uint) error {
 	// 检查单集是否存在
 	_, err := s.repos.Episode.GetByID(episodeID)
 	if err != nil {
@@ -157,6 +156,9 @@ func (s *TagRelationService) removeTagFromEpisode(episodeID uint) error {
 		return apperrors.InternalErrorWithErr(err, "Failed to fetch episode")
 	}
 
+	if err := s.repos.Tag.RemoveTagFromEpisode(episodeID, tagID); err != nil {
+		return apperrors.InternalErrorWithErr(err, "Failed to remove tag from episode")
+	}
 	return nil
 }
 
@@ -212,7 +214,7 @@ func (s *TagRelationService) GetTags(targetType TargetType, targetID uint) ([]Ta
 		tags = episode.Tags
 
 	default:
-		return nil, apperrors.BadRequestError("unsupported target type: "+string(targetType))
+		return nil, apperrors.BadRequestError("unsupported target type: " + string(targetType))
 	}
 
 	// 转换为带计数的格式

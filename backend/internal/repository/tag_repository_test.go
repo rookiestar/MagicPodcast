@@ -402,40 +402,6 @@ func TestTagRepository_GetPodcastsByTagID(t *testing.T) {
 	assert.Equal(t, 2, len(podcasts))
 }
 
-func TestTagRepository_UpdatePodcastCount(t *testing.T) {
-	t.Skip("Tag 模型没有 PodcastCount 字段，跳过此测试")
-
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	repo := NewTagRepository(db)
-
-	// 创建测试数据
-	tag := generateUniqueTag(1)
-	tag.Name = "技术"
-	tag.Color = "#FF5733"
-	require.NoError(t, repo.Create(tag))
-
-	podcast1 := generateUniquePodcast(1)
-	podcast2 := generateUniquePodcast(2)
-	require.NoError(t, db.Create(podcast1).Error)
-	require.NoError(t, db.Create(podcast2).Error)
-
-	// 为两个播客添加标签
-	require.NoError(t, repo.AddTagToPodcast(podcast1.ID, tag.ID))
-	require.NoError(t, repo.AddTagToPodcast(podcast2.ID, tag.ID))
-
-	// 更新播客计数
-	err := repo.UpdatePodcastCount(tag.ID)
-	require.NoError(t, err)
-
-	// 验证计数已更新（注意：这个测试依赖于 PodcastCount 字段的存在）
-	found, _ := repo.GetByID(tag.ID)
-	// 如果 Tag 模型有 PodcastCount 字段，可以验证
-	// assert.Equal(t, 2, found.PodcastCount)
-	assert.NotNil(t, found)
-}
-
 func TestTagRepository_GetPodcastCountsBatch(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()

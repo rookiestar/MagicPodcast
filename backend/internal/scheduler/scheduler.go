@@ -322,7 +322,7 @@ func (s *Scheduler) checkAndAlertFailures(workflowID uint) {
 
 	if allFailed && len(recentRuns) >= failureThreshold {
 		logger.Infof("🚨 [调度] 工作流 [ID=%d] 连续失败 %d 次，需要关注！", workflowID, failureThreshold)
-		// TODO: 发送通知（邮件、webhook等）
+		// 当前仅记录告警日志；邮件或 webhook 通知需要先确认真实使用策略。
 	}
 }
 

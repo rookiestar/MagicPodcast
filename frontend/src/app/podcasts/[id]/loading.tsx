@@ -1,5 +1,5 @@
 import LoadingLayout from "@/components/layout/LoadingLayout";
-import { PodcastDetailSkeleton, EpisodeCardSkeleton } from "@/components/ui/Skeleton";
+import { PodcastDetailSkeleton } from "@/components/ui/Skeleton";
 
 export default function PodcastDetailLoading() {
   return (

@@ -8,6 +8,7 @@ FRONTEND_DIR="$PROJECT_DIR/frontend"
 FRONTEND_PID_FILE="/tmp/magicpodcast-frontend.pid"
 BACKEND_PID_FILE="/tmp/magicpodcast-backend.pid"
 FRONTEND_SCREEN_SESSION="magicpodcast-frontend"
+BACKEND_SCREEN_SESSION="magicpodcast-backend"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -126,6 +127,7 @@ echo ""
 echo "[1] 停止已记录的服务"
 stop_pid_file "后端" "$BACKEND_PID_FILE"
 stop_pid_file "前端" "$FRONTEND_PID_FILE"
+stop_screen_session "后端" "$BACKEND_SCREEN_SESSION"
 stop_screen_session "前端" "$FRONTEND_SCREEN_SESSION"
 stop_frontend_dev_shells
 echo ""

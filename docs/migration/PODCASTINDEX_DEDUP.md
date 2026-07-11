@@ -1,201 +1,107 @@
-# PodcastIndex 数据库去重指南
+# PodcastIndex 去重视图指南
 
-## 概述
+最后更新：2026-05-31
 
-PodcastIndex数据库中存在大量重复的播客记录（相同的title但不同的id），这些重复记录可能来自：
-- 不同的feed URL（http vs https）
-- 不同的抓取时间
-- 不同的iTunes ID
-- 不同的状态（dead/active）
+MagicPodcast 可选接入本地 PodcastIndex SQLite 数据库。导入 OPML 时，后端会优先通过 `v_unique_podcasts` 视图查找同一个 RSS 源的最佳记录，再回填播客标题、作者、封面、单集数等元数据。
 
-## 创建的文件
+## 当前入口
 
-### 1. `create_unique_podcasts_view.sql`
-创建一个视图 `v_unique_podcasts`，为每个title自动选择最优的记录。
+| 文件 | 用途 |
+| --- | --- |
+| [../../scripts/create_unique_podcasts_view.sql](../../scripts/create_unique_podcasts_view.sql) | 创建 `v_unique_podcasts` 去重视图 |
+| [../../scripts/view_schema.sql](../../scripts/view_schema.sql) | 查看 PodcastIndex 原表、视图和索引 |
+| [../../backend/internal/podcastindex/query.go](../../backend/internal/podcastindex/query.go) | 后端查询 `v_unique_podcasts` 的实现 |
+| [../../backend/configs/config.example.yaml](../../backend/configs/config.example.yaml) | `podcast_index.path` 配置示例 |
 
-**使用方法：**
-```bash
-# 在数据库中创建视图
-sqlite3 podcast-index.db < create_unique_podcasts_view.sql
+旧的视图 Schema 长文已移入 [../archive/reports/UNIQUE_PODCASTS_VIEW_SCHEMA_2026-01-21.md](../archive/reports/UNIQUE_PODCASTS_VIEW_SCHEMA_2026-01-21.md)，只作历史参考。
 
-# 或者在Python中
-import sqlite3
-conn = sqlite3.connect('podcast-index.db')
-with open('create_unique_podcasts_view.sql', 'r') as f:
-    conn.executescript(f.read())
+## 配置路径
+
+当前示例配置中的 PodcastIndex 路径为：
+
+```yaml
+podcast_index:
+  path: "./data/podcastindex_feeds.db"
 ```
 
-**查询唯一播客：**
+该数据库是可选依赖。如果路径为空或初始化失败，后端会继续使用在线抓取流程，不会阻止主服务启动。
+
+## 创建视图
+
+在后端目录执行：
+
+```bash
+cd backend
+sqlite3 ./data/podcastindex_feeds.db < ../scripts/create_unique_podcasts_view.sql
+```
+
+查看视图和索引：
+
+```bash
+cd backend
+sqlite3 ./data/podcastindex_feeds.db < ../scripts/view_schema.sql
+```
+
+执行前请确认目标是 PodcastIndex 外部数据库，不是 MagicPodcast 主业务库 `./data/magicpodcast.db`。
+
+## 去重规则
+
+`v_unique_podcasts` 会按播客标题分组，并为每个标题选出一条最优记录。当前排序优先级为：
+
+1. `dead = 0` 的未失效记录优先。
+2. `lastHttpStatus = 200` 的可访问记录优先。
+3. `explicit` 不为空的记录优先。
+4. `priority = -1` 视为最低优先级，其余值越小越优先。
+5. `newestItemPubdate` 越新越优先。
+6. `episodeCount` 越大越优先。
+7. `popularityScore` 越高越优先。
+8. `id` 越小越优先，作为最终稳定排序。
+
+这些规则只影响 PodcastIndex 外部数据的候选记录选择，不会直接修改 MagicPodcast 主数据库。
+
+## 后端查询字段
+
+后端当前从视图读取这些字段：
+
+| 字段 | 说明 |
+| --- | --- |
+| `id` | PodcastIndex 记录 ID |
+| `title` | 播客标题 |
+| `itunesAuthor` | 作者 |
+| `description` | 描述 |
+| `imageUrl` | 封面 |
+| `url` | RSS Feed URL |
+| `itunesId` | iTunes ID |
+| `language` | 语言 |
+| `link` | 官网 |
+| `newestEnclosureUrl` | 最新单集音频 |
+| `newestEnclosureDuration` | 最新单集时长 |
+| `lastUpdate` | Feed 更新时间 |
+| `newestItemPubdate` | 最新单集发布时间 |
+| `oldestItemPubdate` | 最旧单集发布时间 |
+| `popularityScore` | 受欢迎程度 |
+| `priority` | 抓取优先级 |
+| `updateFrequency` | 更新频率 |
+| `episodeCount` | 单集数量 |
+| `dead` | 是否失效 |
+| `lastHttpStatus` | 最后 HTTP 状态码 |
+| `explicit` | 内容分级 |
+
+注意字段大小写应与 SQL 脚本保持一致，尤其是 `lastHttpStatus`。
+
+## 验证查询
+
 ```sql
--- 查询所有唯一播客
-SELECT * FROM v_unique_podcasts;
-
--- 查询特定播客
-SELECT * FROM v_unique_podcasts WHERE title = '无聊斋';
-
--- 只查询活跃的播客（dead=0）
-SELECT * FROM v_unique_podcasts WHERE dead = 0;
-
--- 统计唯一播客数量
 SELECT COUNT(*) FROM v_unique_podcasts;
+
+SELECT id, title, url, dead, lastHttpStatus, newestItemPubdate, episodeCount
+FROM v_unique_podcasts
+WHERE title = '无聊斋';
 ```
 
-### 2. `analyze_duplicates.sql`
-分析脚本，用于了解重复播客的情况。
+如查询失败，先确认：
 
-**使用方法：**
-```bash
-# 运行分析脚本
-sqlite3 podcast-index.db < analyze_duplicates.sql > analysis_results.txt
-
-# 或在Python中
-import sqlite3
-conn = sqlite3.connect('podcast-index.db')
-with open('analyze_duplicates.sql', 'r') as f:
-    for row in conn.execute(f.read()):
-        print(row)
-```
-
-## 筛选规则详解
-
-视图使用以下优先级（从高到低）选择最佳记录：
-
-1. **dead 状态**
-   - `dead = 0`（未失效）优先
-   - `dead = 1`（已失效）排除
-
-2. **HTTP 状态码**
-   - `lasthttpstatus = 200` 优先
-   - 其他状态码次之
-
-3. **内容分级**
-   - `explicit` 不为空的优先
-   - 有分级信息的记录更完整
-
-4. **优先级**
-   - `priority` 数值小的优先
-   - `priority = -1` 表示暂停，最低优先级
-   - `priority = 0` 正常
-   - `priority = 1-10` 优先级递增
-
-5. **最新发布时间**
-   - `newestItemPubdate` 最新的优先
-   - 表示该feed仍在更新
-
-6. **单集数量**
-   - `episodeCount` 最多的优先
-   - 更完整的feed
-
-7. **受欢迎程度**
-   - `popularityScore` 最高的优先
-   - 更受欢迎的播客
-
-8. **记录ID**
-   - `id` 最小的优先
-   - 作为最终的同级排序
-
-## 实际应用示例
-
-### 1. 查询特定播客的所有版本
-```sql
--- 查看所有版本
-SELECT id, url, dead, lasthttpstatus, newestItemPubdate, episodeCount
-FROM podcasts
-WHERE title = '无聊斋'
-ORDER BY newestItemPubdate DESC;
-
--- 使用视图只获取最佳版本
-SELECT * FROM v_unique_podcasts WHERE title = '无聊斋';
-```
-
-### 2. 导出唯一播客到新表
-```sql
--- 创建新表只包含唯一播客
-CREATE TABLE podcasts_unique AS
-SELECT * FROM v_unique_podcasts;
-
--- 或者创建带索引的表
-CREATE TABLE podcasts_unique (
-    id INTEGER PRIMARY KEY,
-    title TEXT NOT NULL,
-    itunesAuthor TEXT,
-    description TEXT,
-    imageUrl TEXT,
-    url TEXT NOT NULL UNIQUE,
-    itunesId INTEGER,
-    language TEXT,
-    link TEXT,
-    newestEnclosureUrl TEXT,
-    newestEnclosureDuration INTEGER,
-    lastUpdate INTEGER,
-    newestItemPubdate INTEGER,
-    oldestItemPubdate INTEGER,
-    popularityScore INTEGER,
-    priority INTEGER DEFAULT 5,
-    updateFrequency INTEGER DEFAULT 0,
-    episodeCount INTEGER DEFAULT 0,
-    dead INTEGER DEFAULT 0,
-    lasthttpstatus INTEGER,
-    explicit TEXT
-);
-
--- 插入数据
-INSERT INTO podcasts_unique
-SELECT * FROM v_unique_podcasts;
-
--- 创建索引
-CREATE INDEX idx_title ON podcasts_unique(title);
-CREATE INDEX idx_url ON podcasts_unique(url);
-CREATE INDEX idx_dead ON podcasts_unique(dead);
-```
-
-### 3. 在Python中使用
-```python
-import sqlite3
-import pandas as pd
-
-# 连接数据库
-conn = sqlite3.connect('podcast-index.db')
-
-# 读取唯一播客
-df = pd.read_sql_query("SELECT * FROM v_unique_podcasts", conn)
-
-# 导出到CSV
-df.to_csv('unique_podcasts.csv', index=False, encoding='utf-8-sig')
-
-# 查看统计信息
-print(f"总播客数: {len(df)}")
-print(f"活跃播客数: {len(df[df['dead'] == 0])}")
-print(f"平均单集数: {df['episodeCount'].mean():.1f}")
-print(f"平均受欢迎度: {df['popularityScore'].mean():.1f}")
-
-# 查找特定播客
-podcast = df[df['title'] == '无聊斋']
-print(podcast)
-```
-
-## 维护建议
-
-1. **定期运行分析**
-   - 每周运行一次 `analyze_duplicates.sql`
-   - 监控新产生的重复记录
-
-2. **更新视图**
-   - 视图是实时计算的，不需要更新
-   - 每次查询都是最新数据
-
-3. **性能优化**
-   - 对于大型数据库，可以创建物化视图（定期刷新）
-   - 在 `title`, `url`, `dead` 字段上创建索引
-
-4. **备份数据**
-   - 在执行任何去重操作前备份数据库
-   - 保留原始的重复数据以供参考
-
-## 注意事项
-
-⚠️ **重要提示：**
-- 视图只是虚拟表，不会修改原始数据
-- 如需物理去重，应该创建新表并导入数据
-- 建议先在测试环境验证筛选结果
-- 某些字段可能为空（NULL），查询时需要注意
+1. `podcast_index.path` 指向的是存在的 PodcastIndex 数据库。
+2. 目标数据库中存在原始 `podcasts` 表。
+3. 已对该数据库执行 [../../scripts/create_unique_podcasts_view.sql](../../scripts/create_unique_podcasts_view.sql)。
+4. 字段名仍与脚本和后端查询一致。

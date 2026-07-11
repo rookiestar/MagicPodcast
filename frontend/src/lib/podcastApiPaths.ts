@@ -52,19 +52,6 @@ export function buildPodcastCustomCoverPath(id: number) {
   return `${buildPodcastDetailPath(id)}/custom-cover`;
 }
 
-export function buildPodcastEpisodesPath(
-  id: number,
-  page: number,
-  pageSize: number,
-) {
-  const queryParams = new URLSearchParams({
-    page: page.toString(),
-    page_size: pageSize.toString(),
-  });
-
-  return `${buildPodcastDetailPath(id)}/episodes?${queryParams.toString()}`;
-}
-
 export function buildPodcastEpisodesCollectionPath(id: number) {
   return `${buildPodcastDetailPath(id)}/episodes`;
 }

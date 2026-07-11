@@ -3,22 +3,18 @@ package services
 import (
 	"testing"
 
-	"magicpodcast/internal/config"
-	"magicpodcast/internal/database"
 	"magicpodcast/internal/models"
 	"magicpodcast/internal/repository"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func TestTagRelationService(t *testing.T) {
-	// 初始化配置（如果尚未初始化）
-	cfg := config.Get()
-	if cfg == nil {
-		t.Skip("需要配置初始化，跳过测试")
-	}
-
-	db := database.GetDB()
+	db := newTagRelationServiceTestDB(t)
 	repos := repository.NewRepositoriesWithDB(db)
 	service := NewTagRelationService(repos)
 
@@ -73,10 +69,17 @@ func TestTagRelationService(t *testing.T) {
 		assert.Len(t, podcast.Tags, 1)
 		assert.Equal(t, testTag.ID, podcast.Tags[0].ID)
 
-		// 重复添加应该失败
-		_, err = service.AddTag(TargetTypePodcast, testPodcast.ID, testTag.ID)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "已有此标签")
+		// 重复添加应保持幂等，不创建重复关联
+		result, err = service.AddTag(TargetTypePodcast, testPodcast.ID, testTag.ID)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+
+		var count int64
+		err = db.Table("podcasts_tags").
+			Where("podcast_id = ? AND tag_id = ?", testPodcast.ID, testTag.ID).
+			Count(&count).Error
+		assert.NoError(t, err)
+		assert.Equal(t, int64(1), count)
 	})
 
 	t.Run("AddTagToEpisode", func(t *testing.T) {
@@ -93,10 +96,17 @@ func TestTagRelationService(t *testing.T) {
 		assert.Len(t, episode.Tags, 1)
 		assert.Equal(t, testTag.ID, episode.Tags[0].ID)
 
-		// 重复添加应该失败
-		_, err = service.AddTag(TargetTypeEpisode, testEpisode.ID, testTag.ID)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "已有此标签")
+		// 重复添加应保持幂等，不创建重复关联
+		result, err = service.AddTag(TargetTypeEpisode, testEpisode.ID, testTag.ID)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+
+		var count int64
+		err = db.Table("episodes_tags").
+			Where("episode_id = ? AND tag_id = ?", testEpisode.ID, testTag.ID).
+			Count(&count).Error
+		assert.NoError(t, err)
+		assert.Equal(t, int64(1), count)
 	})
 
 	t.Run("GetPodcastTags", func(t *testing.T) {
@@ -142,52 +152,71 @@ func TestTagRelationService(t *testing.T) {
 	t.Run("NonExistentPodcast", func(t *testing.T) {
 		_, err := service.AddTag(TargetTypePodcast, 99999, testTag.ID)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "播客不存在")
+		assert.Contains(t, err.Error(), "podcast with id '99999' not found")
 
 		err = service.RemoveTag(TargetTypePodcast, 99999, testTag.ID)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "播客不存在")
+		assert.Contains(t, err.Error(), "podcast with id '99999' not found")
 
 		_, err = service.GetTags(TargetTypePodcast, 99999)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "播客不存在")
+		assert.Contains(t, err.Error(), "podcast with id '99999' not found")
 	})
 
 	t.Run("NonExistentEpisode", func(t *testing.T) {
 		_, err := service.AddTag(TargetTypeEpisode, 99999, testTag.ID)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "单集不存在")
+		assert.Contains(t, err.Error(), "episode with id '99999' not found")
 
 		err = service.RemoveTag(TargetTypeEpisode, 99999, testTag.ID)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "单集不存在")
+		assert.Contains(t, err.Error(), "episode with id '99999' not found")
 
 		_, err = service.GetTags(TargetTypeEpisode, 99999)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "单集不存在")
+		assert.Contains(t, err.Error(), "episode with id '99999' not found")
 	})
 
 	t.Run("NonExistentTag", func(t *testing.T) {
 		_, err := service.AddTag(TargetTypePodcast, testPodcast.ID, 99999)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "标签不存在")
+		assert.Contains(t, err.Error(), "tag with id '99999' not found")
 
 		err = service.RemoveTag(TargetTypePodcast, testPodcast.ID, 99999)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "标签不存在")
+		assert.Contains(t, err.Error(), "tag with id '99999' not found")
 	})
 
 	t.Run("InvalidTargetType", func(t *testing.T) {
 		_, err := service.AddTag(TargetType("invalid"), testPodcast.ID, testTag.ID)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "不支持的目标类型")
+		assert.Contains(t, err.Error(), "unsupported target type")
 
 		err = service.RemoveTag(TargetType("invalid"), testPodcast.ID, testTag.ID)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "不支持的目标类型")
+		assert.Contains(t, err.Error(), "unsupported target type")
 
 		_, err = service.GetTags(TargetType("invalid"), testPodcast.ID)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "不支持的目标类型")
+		assert.Contains(t, err.Error(), "unsupported target type")
 	})
+}
+
+func newTagRelationServiceTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Podcast{}, &models.Episode{}, &models.Tag{}))
+
+	t.Cleanup(func() {
+		sqlDB, err := db.DB()
+		if err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+
+	return db
 }

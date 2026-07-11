@@ -33,8 +33,8 @@ func GetTimeRangeWindow(mode TimeRangeMode, days int, triggeredAt time.Time) (st
 		end := triggeredAt
 		start := triggeredAt.AddDate(0, 0, -days)
 
-		logger.Infof("[GetTimeRangeWindow] Daily Mode: mode=%s, days=%d, triggeredAt=%s", mode, days, triggeredAt.Format("2006-01-02 15:04:05"))
-		logger.Infof("[GetTimeRangeWindow] Time Window: start=%s, end=%s", start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"))
+		logger.Debugf("[GetTimeRangeWindow] Daily Mode: mode=%s, days=%d, triggeredAt=%s", mode, days, triggeredAt.Format("2006-01-02 15:04:05"))
+		logger.Debugf("[GetTimeRangeWindow] Time Window: start=%s, end=%s", start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"))
 
 		return start, end, nil
 
@@ -48,8 +48,8 @@ func GetTimeRangeWindow(mode TimeRangeMode, days int, triggeredAt time.Time) (st
 		end := triggeredAt
 		start := triggeredAt.AddDate(0, 0, -days)
 
-		logger.Infof("[GetTimeRangeWindow] Manual Mode: mode=%s, days=%d, triggeredAt=%s", mode, days, triggeredAt.Format("2006-01-02 15:04:05"))
-		logger.Infof("[GetTimeRangeWindow] Time Window: start=%s, end=%s", start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"))
+		logger.Debugf("[GetTimeRangeWindow] Manual Mode: mode=%s, days=%d, triggeredAt=%s", mode, days, triggeredAt.Format("2006-01-02 15:04:05"))
+		logger.Debugf("[GetTimeRangeWindow] Time Window: start=%s, end=%s", start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"))
 
 		return start, end, nil
 

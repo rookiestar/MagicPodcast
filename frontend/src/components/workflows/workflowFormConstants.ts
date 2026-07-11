@@ -94,30 +94,3 @@ export function validateCronExpression(
 
   return { valid: true };
 }
-
-/**
- * 获取Cron表达式的可读描述
- */
-export function getCronDescription(cronExpr: string): string {
-  const preset = CRON_PRESETS.find((p) => p.value === cronExpr);
-  if (preset) {
-    return preset.label;
-  }
-
-  // 尝试解析自定义表达式
-  const parts = cronExpr.trim().split(/\s+/);
-  if (parts.length === 6) {
-    const [_, minute, hour, dayOfMonth, month, dayOfWeek] = parts;
-
-    if (dayOfMonth === "*" && month === "*" && dayOfWeek === "*") {
-      return `每天 ${hour}:${minute.padStart(2, "0")}`;
-    }
-
-    if (dayOfWeek !== "*") {
-      const days = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-      return `${days[parseInt(dayOfWeek)] || ""} ${hour}:${minute.padStart(2, "0")}`;
-    }
-  }
-
-  return cronExpr;
-}

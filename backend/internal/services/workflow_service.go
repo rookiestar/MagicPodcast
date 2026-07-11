@@ -1,8 +1,6 @@
 package services
 
 import (
-	"fmt"
-
 	apperrors "magicpodcast/internal/errors"
 	"magicpodcast/internal/models"
 	"magicpodcast/internal/repository"
@@ -336,31 +334,9 @@ func (s *WorkflowService) toWorkflowResponse(workflow *models.Workflow) *Workflo
 		response.NextExecution = &formatted
 	}
 
-	// 加载Job计数
-	// TODO: 这个查询应该通过 JobRepository 来完成
-	var jobCount int64
-	s.repos.DB().Model(&models.Job{}).Where("workflow_id = ?", workflow.ID).Count(&jobCount)
-	response.JobCount = int(jobCount)
+	if jobCount, err := s.repos.Workflow.CountJobs(workflow.ID); err == nil {
+		response.JobCount = int(jobCount)
+	}
 
 	return response
-}
-
-// TriggerWorkflow 手动触发工作流
-func (s *WorkflowService) TriggerWorkflow(id uint) error {
-	workflow, err := s.repos.Workflow.GetByID(id)
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return apperrors.NotFoundError("workflow", id)
-		}
-		return apperrors.InternalErrorWithErr(err, "Failed to fetch workflow")
-	}
-
-	if !workflow.IsEnabled {
-		return apperrors.BadRequestError(fmt.Sprintf("workflow %d is disabled", id))
-	}
-
-	// TODO: 实现触发逻辑
-	// 这里应该调用 executor 或 scheduler 来执行工作流
-
-	return nil
 }

@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"magicpodcast/internal/logger"
 	"text/template"
 	"time"
+)
+
+const (
+	defaultMaxSummaryEpisodes = 20
+	fallbackSystemPrompt      = "你是播客内容分析专家。请基于提供的数据进行分析，不编造信息，保持客观中立。"
 )
 
 // EpisodeDetail 单集详情（用于LLM摘要）
@@ -30,6 +34,13 @@ type EpisodeReportData struct {
 	Episodes       []EpisodeDetail
 }
 
+type summaryTemplateData struct {
+	WorkflowName  string
+	TotalEpisodes int
+	NumPodcasts   int
+	Podcasts      []EpisodeReportData
+}
+
 // Summarizer 摘要生成器
 type Summarizer struct {
 	client     *Client
@@ -46,82 +57,30 @@ func NewSummarizer(client *Client, tplManager *PromptManager) *Summarizer {
 
 // GenerateForReport 为工作流报告生成LLM摘要
 func (s *Summarizer) GenerateForReport(data []EpisodeReportData, workflowName string, userPrompt string, options SummaryOptions) (*SummaryResult, error) {
-	// 添加调试日志
-	logger.Infof("[Summarizer.GenerateForReport] Called with workflow=%s, num_podcasts=%d", workflowName, len(data))
-	logger.Infof(" - Client is nil: %v", s.client == nil)
-	if s.client != nil {
-		logger.Infof(" - Client config enabled: %v", s.client.config.Enabled)
-	}
-
 	// 数据量采样策略
-	totalEpisodes := 0
-	for _, podcast := range data {
-		totalEpisodes += len(podcast.Episodes)
-	}
+	totalEpisodes := countEpisodes(data)
 
 	// 如果单集数过多，采样
 	maxEpisodes := options.MaxEpisodes
 	if maxEpisodes == 0 {
-		maxEpisodes = 20 // 默认值
+		maxEpisodes = defaultMaxSummaryEpisodes
 	}
 
 	if totalEpisodes > maxEpisodes {
 		data = s.sampleEpisodes(data, maxEpisodes)
-		totalEpisodes = 0
-		for _, podcast := range data {
-			totalEpisodes += len(podcast.Episodes)
-		}
+		totalEpisodes = countEpisodes(data)
 	}
 
 	// System Prompt：从全局config获取（不在workflow中存储）
 	systemPrompt := s.client.GetSystemPrompt()
 	if systemPrompt == "" {
-		// Fallback默认值（如果config未配置）
-		systemPrompt = "你是播客内容分析专家。请基于提供的数据进行分析，不编造信息，保持客观中立。"
+		systemPrompt = fallbackSystemPrompt
 	}
 
-	// User Prompt：使用workflow自定义或默认模板
-	if userPrompt == "" {
-		// 使用默认模板数据（使用默认模板）
-		templateData := struct {
-			WorkflowName string
-			TotalEpisodes int
-			NumPodcasts   int
-			Podcasts      []EpisodeReportData
-		}{
-			WorkflowName: workflowName,
-			TotalEpisodes: totalEpisodes,
-			NumPodcasts:   len(data),
-			Podcasts:      data,
-		}
-		renderedPrompt, err := s.tplManager.RenderTemplate("default_summary", templateData)
-		if err != nil {
-			return nil, fmt.Errorf("渲染prompt模板失败: %w", err)
-		}
-		userPrompt = renderedPrompt
-	} else {
-		// 用户自定义模板，需要渲染
-		templateData := struct {
-			WorkflowName string
-			TotalEpisodes int
-			NumPodcasts   int
-			Podcasts      []EpisodeReportData
-		}{
-			WorkflowName: workflowName,
-			TotalEpisodes: totalEpisodes,
-			NumPodcasts:   len(data),
-			Podcasts:      data,
-		}
-		// 解析并渲染用户自定义模板
-		tpl, err := template.New("user_custom").Parse(userPrompt)
-		if err != nil {
-			return nil, fmt.Errorf("解析用户自定义模板失败: %w", err)
-		}
-		var buf bytes.Buffer
-		if err := tpl.Execute(&buf, templateData); err != nil {
-			return nil, fmt.Errorf("渲染用户自定义模板失败: %w", err)
-		}
-		userPrompt = buf.String()
+	templateData := buildSummaryTemplateData(workflowName, totalEpisodes, data)
+	userPrompt, err := s.renderReportUserPrompt(userPrompt, templateData)
+	if err != nil {
+		return nil, err
 	}
 
 	// 调用LLM（传入system和user prompt）
@@ -131,6 +90,43 @@ func (s *Summarizer) GenerateForReport(data []EpisodeReportData, workflowName st
 	}
 
 	return result, nil
+}
+
+func countEpisodes(data []EpisodeReportData) int {
+	totalEpisodes := 0
+	for _, podcast := range data {
+		totalEpisodes += len(podcast.Episodes)
+	}
+	return totalEpisodes
+}
+
+func buildSummaryTemplateData(workflowName string, totalEpisodes int, data []EpisodeReportData) summaryTemplateData {
+	return summaryTemplateData{
+		WorkflowName:  workflowName,
+		TotalEpisodes: totalEpisodes,
+		NumPodcasts:   len(data),
+		Podcasts:      data,
+	}
+}
+
+func (s *Summarizer) renderReportUserPrompt(userPrompt string, templateData summaryTemplateData) (string, error) {
+	if userPrompt == "" {
+		renderedPrompt, err := s.tplManager.RenderTemplate("default_summary", templateData)
+		if err != nil {
+			return "", fmt.Errorf("渲染prompt模板失败: %w", err)
+		}
+		return renderedPrompt, nil
+	}
+
+	tpl, err := template.New("user_custom").Parse(userPrompt)
+	if err != nil {
+		return "", fmt.Errorf("解析用户自定义模板失败: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := tpl.Execute(&buf, templateData); err != nil {
+		return "", fmt.Errorf("渲染用户自定义模板失败: %w", err)
+	}
+	return buf.String(), nil
 }
 
 // sampleEpisodes 采样单集（保留重要内容）

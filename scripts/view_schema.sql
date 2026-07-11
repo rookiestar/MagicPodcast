@@ -61,7 +61,7 @@ SELECT 'episodeCount', '单集总数⭐'
 UNION ALL
 SELECT 'dead', '是否失效（0=未失效, 1=已失效）⭐'
 UNION ALL
-SELECT 'lasthttpstatus', '最后HTTP状态码（200=正常）⭐'
+SELECT 'lastHttpStatus', '最后HTTP状态码（200=正常）⭐'
 UNION ALL
 SELECT 'explicit', '内容分级（yes/no/clean）⭐';
 
@@ -74,7 +74,7 @@ SELECT
 UNION ALL
 SELECT '1', 'dead', '0（未失效）优先于 1（已失效）'
 UNION ALL
-SELECT '2', 'lasthttpstatus', '200（正常）优先于其他状态码'
+SELECT '2', 'lastHttpStatus', '200（正常）优先于其他状态码'
 UNION ALL
 SELECT '3', 'explicit', '不为空（有分级信息）优先于为空'
 UNION ALL

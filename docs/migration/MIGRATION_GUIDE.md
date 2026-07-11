@@ -1,122 +1,67 @@
-# MagicPodcast 项目迁移指南
+# MagicPodcast 数据库迁移指南
 
-## 迁移完成时间
-2026-01-21
+最后更新：2026-05-31
 
-## 迁移原因
-原项目位于 iCloud Drive 目录下，Next.js 的 `.next/server` 构建目录在 iCloud Drive 上无法正常工作，导致动态路由返回 404/500 错误。
+本文只记录当前仍适用的数据库迁移入口和操作顺序。旧的项目搬家记录已移入 [../archive/reports/PROJECT_LOCATION_MIGRATION_2026-01-21.md](../archive/reports/PROJECT_LOCATION_MIGRATION_2026-01-21.md)，历史 Go 迁移入口已删除，不再作为当前迁移依据。
 
-## 当前项目位置
-```
-/Users/rookiestar/VSCode/Projects/MagicPodcast
-```
+## 当前自动迁移
 
-## 原项目位置（保留作为备份）
-```
-~/Library/Mobile Documents/com~apple~CloudDocs/Projects/Play with AI/MagicPodcast
-```
+后端 API 启动时会自动完成两类数据库准备：
 
-## 启动服务
+1. 按当前模型结构执行自动迁移。
+2. 创建当前列表、单集、工作流和任务执行所需的基础索引。
 
-### 前端
+日常启动请使用项目根目录的脚本入口：
+
 ```bash
-cd /Users/rookiestar/VSCode/Projects/MagicPodcast/frontend
-npm run dev
-# 访问: http://localhost:3000
+./scripts/restart.sh --prod
 ```
 
-### 后端
+不要再使用旧文档里的后端直跑命令或本机路径脚本作为当前启动方式。
+
+## 手动补齐索引
+
+如需为现有数据库补齐性能索引和搜索 FTS 表，使用后端命令入口：
+
 ```bash
-cd /Users/rookiestar/VSCode/Projects/MagicPodcast/backend
-go run main.go
-# 或使用预编译二进制:
-./main
-# API: http://localhost:8080
+cd backend
+go run ./cmd/add_indexes
 ```
 
-## 已部署的优化
+指定数据库路径：
 
-### 工作流详情页批量查询优化
-
-**性能提升**:
-- API 调用次数: 7次 → 3次 (减少57%)
-- 查询时间: 178ms → 46ms (提升3.9倍)
-- 数据传输量: 1MB → 44KB (减少95.6%)
-- 总加载时间: ~269ms → ~176ms (提升35%)
-
-**后端变更**:
-- 新增批量查询接口: `POST /api/v1/podcasts/batch`
-- 文件: `backend/internal/handlers/podcast.go` (lines 222-275)
-- 路由: `backend/internal/router/router.go` (line 61)
-
-**前端变更**:
-- 修改工作流详情页使用批量查询
-- 文件: `frontend/src/app/workflows/[id]/page.tsx` (lines 99-108)
-- API方法: `frontend/src/lib/api/podcast.ts` (lines 37-44)
-
-## 测试验证
-
-运行性能测试脚本:
 ```bash
-~/MagicPodcast/test_batch_performance.sh
+cd backend
+go run ./cmd/add_indexes ./data/magicpodcast.db
 ```
 
-## Git 状态
+索引细节和验证方式见 [../DATABASE_INDEX_GUIDE.md](../DATABASE_INDEX_GUIDE.md)。
 
-优化代码已在新位置生效，建议提交更改:
-```bash
-cd /Users/rookiestar/VSCode/Projects/MagicPodcast
-git add .
-git commit -m "feat: 实现工作流详情页批量查询优化
+## 高风险手工迁移
 
-- 新增批量查询API接口 (POST /api/v1/podcasts/batch)
-- 优化工作流详情页加载性能 (35%提升)
-- 减少API调用57% (7次→3次)
-- 减少数据传输95.6% (1MB→44KB)
+以下入口会直接改写真数据，不能作为无人值守清理项自动执行：
 
-性能指标:
-- 查询时间: 178ms → 46ms (3.9x提升)
-- 总加载时间: 269ms → 176ms
+| 入口 | 风险 | 当前处理 |
+| --- | --- | --- |
+| `backend/cmd/migrate` | 会重建并替换 `episodes` 表 | 已列入人审队列 |
+| `backend/cmd/maint/*` | 多数来自历史数据修复、导入或外部数据补全 | 已列入人审队列 |
+| `backend/scripts/fix_newest_episode_date.sql` 和 `backend/scripts/init_tags.sql` | 可能修正或重建真实数据 | 已列入人审队列 |
 
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
-```
+这些入口的当前说明见 [../../backend/cmd/README.md](../../backend/cmd/README.md) 和 [../../backend/cmd/maint/README.md](../../backend/cmd/maint/README.md)。
 
-## 下一步建议
+## 推荐操作顺序
 
-1. **清理旧位置** (可选):
-   - 确认新位置工作正常后，可以删除 iCloud Drive 上的旧项目
-   - 或保留作为备份
+涉及真实数据库前，按下面顺序执行：
 
-2. **更新 VSCode 工作区**:
-   - 在新位置打开项目: `code ~/MagicPodcast`
+1. 在项目根目录执行 `./scripts/backup-db.sh`。
+2. 如果会写同一个数据库，先执行 `./scripts/stop.sh` 停止服务。
+3. 运行已经确认过的迁移或维护命令。
+4. 执行 `./scripts/verify-db.sh backend/data/magicpodcast.db`。
+5. 执行 `./scripts/restart.sh --prod`。
+6. 执行 `./scripts/health-check.sh`。
 
-3. **更新环境变量** (如有):
-   - 检查 `frontend/.env.local` 配置
-   - 检查 `backend/configs/config.yaml` 配置
+如任一步骤失败，先停止继续写入，再从备份或临时库中复查问题。
 
-## 注意事项
+## 当前专题文档
 
-- 新位置不在 iCloud Drive 上，不会自动同步到云端
-- 建议定期手动备份到 iCloud 或其他云存储
-- `.next` 目录已添加到 `.gitignore`，不会被提交到 Git
-- 数据库文件 `MagicPodcast.db` 已复制到新位置
-
-## 问题排查
-
-如果遇到端口冲突:
-```bash
-# 查看占用端口的进程
-lsof -ti:3000  # 前端
-lsof -ti:8080  # 后端
-
-# 杀死进程
-kill -9 $(lsof -ti:3000)
-kill -9 $(lsof -ti:8080)
-```
-
-如果遇到缓存问题:
-```bash
-cd /Users/rookiestar/VSCode/Projects/MagicPodcast/frontend
-rm -rf .next
-npm run dev
-```
+- [PODCASTINDEX_DEDUP.md](PODCASTINDEX_DEDUP.md)：当前 PodcastIndex 去重视图入口和验证方式。

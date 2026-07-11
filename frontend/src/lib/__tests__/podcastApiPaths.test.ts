@@ -4,7 +4,6 @@ import {
   buildPodcastCustomCoverPath,
   buildPodcastDetailPath,
   buildPodcastEpisodesCollectionPath,
-  buildPodcastEpisodesPath,
   buildPodcastListPath,
   buildPodcastNotesPath,
   buildPodcastTagPath,
@@ -40,9 +39,6 @@ describe("podcastApiPaths", () => {
   });
 
   it("builds podcast episode paths", () => {
-    expect(buildPodcastEpisodesPath(7, 2, 20)).toBe(
-      "/api/v1/podcasts/7/episodes?page=2&page_size=20",
-    );
     expect(buildPodcastEpisodesCollectionPath(7)).toBe(
       "/api/v1/podcasts/7/episodes",
     );

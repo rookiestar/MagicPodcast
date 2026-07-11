@@ -60,9 +60,6 @@ type TagRepository interface {
 
 	// GetEpisodeTags 获取单集的所有标签
 	GetEpisodeTags(episodeID uint) ([]*models.Tag, error)
-
-	// UpdatePodcastCount 更新标签的播客计数
-	UpdatePodcastCount(tagID uint) error
 }
 
 // tagRepository 标签数据访问实现
@@ -290,20 +287,6 @@ func (r *tagRepository) GetEpisodeTags(episodeID uint) ([]*models.Tag, error) {
 		Find(&tags).Error
 
 	return tags, err
-}
-
-// UpdatePodcastCount 更新标签的播客计数
-func (r *tagRepository) UpdatePodcastCount(tagID uint) error {
-	var count int64
-	if err := r.DB().Table("podcasts_tags").
-		Where("tag_id = ?", tagID).
-		Count(&count).Error; err != nil {
-		return err
-	}
-
-	return r.DB().Model(&models.Tag{}).
-		Where("id = ?", tagID).
-		Update("podcast_count", count).Error
 }
 
 // GetPodcastCountsBatch 批量获取多个标签的播客数量

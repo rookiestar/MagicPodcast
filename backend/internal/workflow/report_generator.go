@@ -53,6 +53,37 @@ type EpisodeDetail struct {
 	QRCodeError   bool   // 二维码生成失败标记
 }
 
+// ConvertToLLMReportData 转换为 LLM 包所需的数据格式。
+func ConvertToLLMReportData(data []EpisodeReportData) []llm.EpisodeReportData {
+	result := make([]llm.EpisodeReportData, len(data))
+
+	for i, podcast := range data {
+		episodes := make([]llm.EpisodeDetail, len(podcast.Episodes))
+		for j, ep := range podcast.Episodes {
+			episodes[j] = llm.EpisodeDetail{
+				Title:         ep.Title,
+				ShowNotes:     ep.ShowNotes,
+				PublishedDate: ep.PublishedDate,
+				UpdatedDate:   ep.UpdatedDate,
+				EpisodeNo:     ep.EpisodeNo,
+				Link:          ep.Link,
+				XYZID:         ep.XYZID,
+				QRCode:        ep.QRCode,
+				QRCodeError:   ep.QRCodeError,
+			}
+		}
+
+		result[i] = llm.EpisodeReportData{
+			PodcastID:      podcast.PodcastID,
+			PodcastTitle:   podcast.PodcastTitle,
+			PodcastFeedURL: podcast.PodcastFeedURL,
+			Episodes:       episodes,
+		}
+	}
+
+	return result
+}
+
 // GenerateForJob 为Job生成报告
 func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, error) {
 	// 重新从数据库查询Job，确保操作的是最新记录
@@ -115,7 +146,7 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 	var llmModelUsed string
 	var llmTokensUsed int
 
-	logger.Infof("[ReportGenerator] LLMEnabled=%v, SummarizerNil=%v, MatchedEpisodes=%d",
+	logger.Debugf("[ReportGenerator] LLMEnabled=%v, SummarizerNil=%v, MatchedEpisodes=%d",
 		workflow.RulesConfig.LLMEnabled, rg.summarizer == nil, len(reportData))
 
 	// 优化：如果没有匹配的单集，跳过LLM摘要生成，不设置任何LLM字段
@@ -124,7 +155,7 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 		// 不设置任何LLM字段，让前端完全不显示AI相关信息
 	} else if workflow.RulesConfig.LLMEnabled && rg.summarizer != nil {
 		logger.Infof("🤖 开始生成LLM摘要 [JobID=%d]", job.ID)
-		logger.Infof("  - Summarizer type: %T", rg.summarizer)
+		logger.Debugf("  - Summarizer type: %T", rg.summarizer)
 
 		// 准备选项
 		options := llm.SummaryOptions{
@@ -144,11 +175,11 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 		}
 
 		// 转换数据格式
-		llmReportData := rg.convertToLLMReportData(reportData)
-		logger.Infof("  - Converted %d podcasts to LLM report format", len(llmReportData))
+		llmReportData := ConvertToLLMReportData(reportData)
+		logger.Debugf("  - Converted %d podcasts to LLM report format", len(llmReportData))
 
 		// 调用摘要生成器（只传入user prompt，system prompt从config获取）
-		logger.Infof("  - Calling summarizer.GenerateForReport...")
+		logger.Debugf("  - Calling summarizer.GenerateForReport...")
 		result, err := rg.summarizer.GenerateForReport(
 			llmReportData,
 			workflow.Name,
@@ -156,7 +187,7 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 			options,
 		)
 		if err != nil {
-			logger.Infof("⚠️  LLM摘要生成失败 [JobID=%d]: %v", job.ID, err)
+			logger.Warnf("LLM摘要生成失败 [JobID=%d]: %v", job.ID, err)
 			llmError = err.Error()
 			// 不中断流程，继续生成基础报告
 		} else {
@@ -530,35 +561,4 @@ func (rg *ReportGenerator) insertLLMSummary(markdown, llmSummary string) string 
 	}
 
 	return result.String()
-}
-
-// convertToLLMReportData 转换为LLM包所需的数据格式
-func (rg *ReportGenerator) convertToLLMReportData(data []EpisodeReportData) []llm.EpisodeReportData {
-	result := make([]llm.EpisodeReportData, len(data))
-
-	for i, podcast := range data {
-		episodes := make([]llm.EpisodeDetail, len(podcast.Episodes))
-		for j, ep := range podcast.Episodes {
-			episodes[j] = llm.EpisodeDetail{
-				Title:         ep.Title,
-				ShowNotes:     ep.ShowNotes,
-				PublishedDate: ep.PublishedDate,
-				UpdatedDate:   ep.UpdatedDate,
-				EpisodeNo:     ep.EpisodeNo,
-				Link:          ep.Link,
-				XYZID:         ep.XYZID,
-				QRCode:        ep.QRCode,
-				QRCodeError:   ep.QRCodeError,
-			}
-		}
-
-		result[i] = llm.EpisodeReportData{
-			PodcastID:      podcast.PodcastID,
-			PodcastTitle:   podcast.PodcastTitle,
-			PodcastFeedURL: podcast.PodcastFeedURL,
-			Episodes:       episodes,
-		}
-	}
-
-	return result
 }

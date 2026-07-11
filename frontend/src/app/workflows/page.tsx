@@ -53,10 +53,6 @@ export default function WorkflowsPage() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  const refreshWorkflows = async () => {
-    await mutate();
-  };
-
   const handleSortChange = (newSortBy: WorkflowSortByType) => {
     // 更新 URL 参数
     const url = new URL(window.location.href);

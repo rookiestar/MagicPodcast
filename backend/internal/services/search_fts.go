@@ -26,6 +26,28 @@ func canUseSearchFTS(db *gorm.DB, tableName string, keyword string) bool {
 		return false
 	}
 
+	return searchFTSTableExists(db, tableName)
+}
+
+func (s *SearchService) canUseFTS(tableName string, keyword string) bool {
+	if utf8.RuneCountInString(strings.TrimSpace(keyword)) < minFTSSearchRunes {
+		return false
+	}
+	if buildFTSMatchQuery(keyword) == "" {
+		return false
+	}
+
+	return s.ftsTables[tableName]
+}
+
+func discoverSearchFTSTables(db *gorm.DB) map[string]bool {
+	return map[string]bool{
+		podcastSearchFTSTable: searchFTSTableExists(db, podcastSearchFTSTable),
+		episodeSearchFTSTable: searchFTSTableExists(db, episodeSearchFTSTable),
+	}
+}
+
+func searchFTSTableExists(db *gorm.DB, tableName string) bool {
 	var count int64
 	err := db.Raw(
 		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
