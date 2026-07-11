@@ -1,0 +1,4 @@
+interface:
+  display_name: "MagicPodcast 重构规划"
+  short_description: "为 MagicPodcast 制定低风险、可验证的重构计划"
+  default_prompt: "Use $magicpodcast-refactor-planning to prepare a scoped MagicPodcast refactor plan before editing."
