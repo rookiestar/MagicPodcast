@@ -50,6 +50,7 @@ type DatabaseConfig struct {
 	Debug           bool          `mapstructure:"debug"`
 	MaxIdleConns    int           `mapstructure:"max_idle_conns"`
 	MaxOpenConns    int           `mapstructure:"max_open_conns"`
+	BusyTimeoutMS   int           `mapstructure:"busy_timeout_ms"`
 	ConnMaxLifetime time.Duration `mapstructure:"conn_max_lifetime"`
 }
 
@@ -209,6 +210,12 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if viper.IsSet("database_debug") {
 		c.Database.Debug = viper.GetBool("database_debug")
+	}
+	if path := viper.GetString("database_path"); path != "" {
+		c.Database.Path = path
+	}
+	if timeout := viper.GetInt("database_busy_timeout_ms"); timeout != 0 {
+		c.Database.BusyTimeoutMS = timeout
 	}
 
 	// LLM API Key

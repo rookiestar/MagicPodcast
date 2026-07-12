@@ -20,6 +20,8 @@ func TestLoadAppliesRuntimeEnvOverrides(t *testing.T) {
 	t.Setenv("MAGICPODCAST_SERVER_HOST", "127.0.0.1")
 	t.Setenv("MAGICPODCAST_SERVER_PORT", "18080")
 	t.Setenv("MAGICPODCAST_DATABASE_DEBUG", "false")
+	t.Setenv("MAGICPODCAST_DATABASE_PATH", "/tmp/magicpodcast-test.db")
+	t.Setenv("MAGICPODCAST_DATABASE_BUSY_TIMEOUT_MS", "2500")
 
 	writeTestConfig(t, configPath, `
 server:
@@ -46,6 +48,12 @@ xyz_api:
 	}
 	if loaded.Server.Host != "127.0.0.1" {
 		t.Fatalf("Server.Host = %q, want 127.0.0.1", loaded.Server.Host)
+	}
+	if loaded.Database.Path != "/tmp/magicpodcast-test.db" {
+		t.Fatalf("Database.Path = %q, want /tmp/magicpodcast-test.db", loaded.Database.Path)
+	}
+	if loaded.Database.BusyTimeoutMS != 2500 {
+		t.Fatalf("Database.BusyTimeoutMS = %d, want 2500", loaded.Database.BusyTimeoutMS)
 	}
 	if loaded.Database.Debug {
 		t.Fatal("Database.Debug = true, want false")

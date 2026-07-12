@@ -38,6 +38,8 @@ backend/.env
 | `MAGICPODCAST_SERVER_MODE` | 后端模式，`debug` 或 `release` |
 | `MAGICPODCAST_SERVER_PORT` | 后端端口 |
 | `MAGICPODCAST_DATABASE_DEBUG` | 是否打印数据库 SQL 调试日志 |
+| `MAGICPODCAST_DATABASE_PATH` | 迁移或维护时指定目标 SQLite 文件路径 |
+| `MAGICPODCAST_DATABASE_BUSY_TIMEOUT_MS` | SQLite 写竞争等待时间，低于 100ms 时回落到 5000ms |
 | `MAGICPODCAST_LLM_API_KEY` | LLM API Key |
 | `MAGICPODCAST_LLM_PROVIDER` | LLM 提供商 |
 | `MAGICPODCAST_LLM_BASE_URL` | LLM API 地址 |
@@ -67,7 +69,7 @@ MAGICPODCAST_DATABASE_DEBUG=false
 frontend/.env.local
 ```
 
-生产环境不得设置 `NEXT_PUBLIC_API_URL` 为局域网 IP、后端端口或任何替代公网主机名。Issue #2 的本机运行态已使用浏览器同域相对路径，服务端只使用 `BACKEND_URL=http://127.0.0.1:8080`。Cloudflare Access、HTTPS 跳转和 HSTS 仍须在控制台配置并通过公网验收；在此之前不得用配置或重启 Tunnel 绕过该边界。详见 [../MOBILE.md](../MOBILE.md)。
+生产环境不得设置 `NEXT_PUBLIC_API_URL` 为局域网 IP、后端端口或任何替代公网主机名。Issue #2 的本机运行态已使用浏览器同域相对路径，服务端只使用 `BACKEND_URL=http://127.0.0.1:8080`。当前公网访问统一经过 Cloudflare Access、HTTPS 跳转和 HSTS；不得通过配置或重启 Tunnel 绕过该边界。详见 [../MOBILE.md](../MOBILE.md)。
 
 ## 手动启动
 

@@ -18,6 +18,7 @@ import {
   validateCronExpression,
 } from "./workflowFormConstants";
 import { toast } from "@/lib/toast";
+import { requestTypedConfirmation } from "@/lib/confirmation";
 
 type Step = 1 | 2 | 3 | 4;
 const PODCAST_PAGE_SIZE = 100;
@@ -706,6 +707,13 @@ export default function WorkflowFormModal({
 
       if (workflow) {
         // 编辑模式
+        const confirmationText = requestTypedConfirmation({
+          action: `覆盖工作流“${workflow.name}”的配置`,
+          impact: "会替换范围、规则和调度设置，保存后立即影响后续执行。",
+          phrase: `UPDATE WORKFLOW ${workflow.id}`,
+        });
+        if (!confirmationText) return;
+        data.confirmation_text = confirmationText;
         await workflowApi.update(workflow.id, data);
       } else {
         // 创建模式

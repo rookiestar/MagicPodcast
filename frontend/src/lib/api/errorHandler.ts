@@ -71,6 +71,10 @@ export const handleApiError = (error: any, context?: string) => {
         toast.error(message || "请求过于频繁，请稍后再试");
         break;
 
+      case 428:
+        toast.error(message || "请先完成二次确认");
+        break;
+
       case 500:
         toast.error("服务器内部错误，请稍后再试");
         break;

@@ -8,5 +8,6 @@ export * from "./tag";
 export * from "./workflow";
 export * from "./search";
 export * from "./sync";
+export * from "./cache";
 export * from "./scheduler";
 export * from "./errorHandler";

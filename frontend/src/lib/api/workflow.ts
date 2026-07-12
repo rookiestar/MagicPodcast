@@ -58,8 +58,10 @@ export const workflowApi = {
   },
 
   // 删除工作流
-  delete: async (id: number): Promise<void> => {
-    const response = await api.delete<ApiResponse<void>>(`/api/v1/workflows/${id}`);
+  delete: async (id: number, confirmationText: string): Promise<void> => {
+    const response = await api.delete<ApiResponse<void>>(`/api/v1/workflows/${id}`, {
+      data: { confirmation_text: confirmationText },
+    });
     handleVoidResponse(response);
   },
 
@@ -97,9 +99,19 @@ export const workflowApi = {
   },
 
   // 手动触发工作流
-  trigger: async (id: number): Promise<void> => {
-    const response = await api.post<ApiResponse<void>>(`/api/v1/workflows/${id}/trigger`);
+  trigger: async (id: number, confirmationText: string): Promise<void> => {
+    const response = await api.post<ApiResponse<void>>(`/api/v1/workflows/${id}/trigger`, {
+      confirmation_text: confirmationText,
+    });
     handleVoidResponse(response);
+  },
+
+  regenerateLLMSummary: async (id: number, confirmationText: string): Promise<Report> => {
+    const response = await api.post<ApiResponse<Report>>(
+      `/api/v1/jobs/${id}/regenerate-llm`,
+      { confirmation_text: confirmationText },
+    );
+    return handleResponse(response);
   },
 
   // 获取Job报告

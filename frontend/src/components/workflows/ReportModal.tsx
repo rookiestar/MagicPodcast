@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api/client'
+import { workflowApi } from '@/lib/api'
+import { requestTypedConfirmation } from '@/lib/confirmation'
 import { toast } from '@/lib/toast'
 import MarkdownViewer from './MarkdownViewer'
 
@@ -68,17 +70,18 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
   const regenerateLLMSummary = async () => {
     if (!report || regenerating) return
 
+    const confirmationText = requestTypedConfirmation({
+      action: "重新生成 LLM 摘要",
+      impact: `会重新处理报告“${report.title}”并覆盖当前摘要，可能产生 LLM 费用。`,
+      phrase: `REGENERATE LLM ${jobId}`,
+    });
+    if (!confirmationText) return
+
     try {
       setRegenerating(true)
-      const response = await api.post<{ success: boolean; data: Report; message: string }>(
-        `/api/v1/jobs/${jobId}/regenerate-llm`
-      )
-
-      if (response.data.success) {
-        setReport(response.data.data)
-        // Show success message
-        toast.success('AI摘要重新生成成功！')
-      }
+      const nextReport = await workflowApi.regenerateLLMSummary(jobId, confirmationText)
+      setReport(nextReport)
+      toast.success('AI摘要重新生成成功！')
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error'
       toast.error(`重新生成失败: ${errorMsg}`)

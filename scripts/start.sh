@@ -110,7 +110,7 @@ stop_screen_session() {
     local expected_cwd="$2"
 
     if command -v screen >/dev/null 2>&1; then
-        if screen -ls 2>/dev/null | grep -q "[.]$session[[:space:]]"; then
+        if screen -ls 2>/dev/null | awk -v suffix=".${session}" '$1 ~ suffix { found=1 } END { exit(found ? 0 : 1) }'; then
             if ! screen_session_is_owned "$session" "$expected_cwd"; then
                 print_error "拒绝接管未知 screen 会话: $session" >&2
                 return 1

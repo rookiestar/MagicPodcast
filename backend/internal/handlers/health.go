@@ -57,15 +57,41 @@ func (h *HealthHandler) Health(c *gin.Context) {
 		dbStatus = "error"
 	}
 
+	statusCode := http.StatusOK
+	status := "ok"
+	if dbStatus != "ok" {
+		statusCode = http.StatusServiceUnavailable
+		status = "error"
+	}
+
 	response := gin.H{
-		"status":   "ok",
+		"status":   status,
 		"service":  "magicpodcast-backend",
 		"database": dbStatus,
 	}
 	for key, value := range runtimeMetadata() {
 		response[key] = value
 	}
+	c.JSON(statusCode, response)
+}
+
+// Live reports only that the process and HTTP server are alive. It deliberately
+// does not touch the database, so a dependency outage can be distinguished from
+// a dead process.
+func (h *HealthHandler) Live(c *gin.Context) {
+	response := gin.H{
+		"status":  "ok",
+		"service": "magicpodcast-backend",
+	}
+	for key, value := range runtimeMetadata() {
+		response[key] = value
+	}
 	c.JSON(http.StatusOK, response)
+}
+
+// Ready is the explicit dependency-aware readiness endpoint.
+func (h *HealthHandler) Ready(c *gin.Context) {
+	h.Health(c)
 }
 
 // Ping 简单的 ping 接口

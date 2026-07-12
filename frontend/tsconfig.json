@@ -16,7 +16,7 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "incremental": true,
     "plugins": [
       {
@@ -36,7 +36,15 @@
     ".next/types/**/*.ts",
     ".next-release-20260712T095545Z-d7ac792-68726/types/**/*.ts",
     ".next-release-20260712T100347Z-d7ac792-71625/types/**/*.ts",
-    ".next-release-20260712T103256Z-d7ac792-75709/types/**/*.ts"
+    ".next-release-20260712T103256Z-d7ac792-75709/types/**/*.ts",
+    ".next-release-20260712T115830Z-177cc7e-84810/types/**/*.ts",
+    ".next-release-20260712T115900Z-177cc7e-86388/types/**/*.ts",
+    ".next-release-20260712T115945Z-177cc7e-87843/types/**/*.ts",
+    ".next-release-20260712T123240Z-177cc7e-93203/types/**/*.ts",
+    ".next-release-20260712T123309Z-177cc7e-94802/types/**/*.ts",
+    ".next-release-20260712T134313Z-177cc7e-9029/types/**/*.ts",
+    ".next-release-20260712T153056Z-177cc7e-41481/types/**/*.ts",
+    ".next-release-20260712T153056Z-177cc7e-41481/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

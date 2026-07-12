@@ -122,7 +122,7 @@ frontend/.env.local
 
 ## Cloudflare Tunnel
 
-> **安全切换状态（2026-07-12）：部分完成且当前默认拒绝。** Mac mini 的 Nginx、前端和后端已收紧为回环监听，Tunnel 配置已改为仅连接 `127.0.0.1:8088`，历史 `scripts/cloudflare-tunnel.sh` 已拒绝 Quick Tunnel 和 Basic Auth。由于 Cloudflare Access、HTTPS 跳转和 HSTS 尚未在控制台完成并通过运行态验收，命名 Tunnel 已停止且其 macOS 启动项已禁用，`rookiestar.cn` 应返回 Cloudflare 530，而不是继续裸露应用。本机访问仅限 Mac mini 本机或临时 SSH 转发；在完成 [Issue #2](https://github.com/rookiestar/MagicPodcast/issues/2) 的控制台步骤前，不得重新启用 Tunnel。
+> **安全切换状态（2026-07-12）：已完成并持续验证。** Mac mini 的 Nginx、前端和后端只监听 loopback，命名 Tunnel `magicpodcast-prod` 仅连接 `127.0.0.1:8088`，历史 `scripts/cloudflare-tunnel.sh` 已拒绝 Quick Tunnel 和 Basic Auth。`rookiestar.cn` 已启用 Cloudflare Access、HTTP→HTTPS、HSTS 和唯一 Google 身份策略；公网只读验收确认页面、API、图片、框架资源和健康接口均先进入 Access。日常访问只走 HTTPS 域名，紧急访问仅限 Mac mini 本机或临时 SSH 转发。
 
 ### 公网访问安全切换运行手册（Issue #2）
 
@@ -132,7 +132,7 @@ frontend/.env.local
 
 1. 取得所有者对 Cloudflare 策略、DNS、路由器检查、生产构建和服务重启的明确授权。
 2. 在 Cloudflare 控制台中记录当前 DNS、Access、HTTPS 和 Tunnel 设置，存放在受控位置，作为回退依据。
-3. 确认允许登录的唯一 Google 身份已启用 MFA 或 Passkey，并确认 Cloudflare 与 Google 的恢复材料可用。
+3. 确认允许登录的唯一 Google 身份可用，并准备至少一个 Cloudflare Access 独立 MFA 因子（安全密钥或设备生物识别）及其恢复材料。Google 身份提供方不会向 Access 提供可强制校验的 MFA 状态，不能以 Google 侧设置代替 Access 独立 MFA。
 4. 在 Mac mini 上确认服务进程归属后再停止或重启；不得仅按端口终止进程。确认路由器没有把 `3000` 或 `8080` 转发到公网。
 
 #### 仓库与本机变更
@@ -147,9 +147,10 @@ frontend/.env.local
 1. 在 Mac mini 以仅所有者可读的环境创建一个命名 Tunnel：`magicpodcast-prod`。记录其 UUID，但不把 UUID 凭据文件或登录证书提交到仓库。
 2. 将 `rookiestar.cn` 的 Tunnel 公共主机名指向 `http://127.0.0.1:8088`。这是 Nginx 的仅本机入口；Nginx 再转发页面与框架资源到 `127.0.0.1:3000`，并转发 API、图片和 `/health` 到 `127.0.0.1:8080`。不得为前端或后端另开公网主机名或直连端口。Tunnel 配置只有一个允许的主机名，其他主机名返回 `404`。
 3. 在 Cloudflare DNS 中让 `rookiestar.cn` 指向该 Tunnel 的 `*.cfargotunnel.com` 目标。若现有记录冲突，只能在已保存原记录且获得授权后替换。
-4. 创建一个 Self-hosted Access 应用，应用域名为 `rookiestar.cn`，不设置路径例外。策略默认拒绝，仅有一个 `Allow` 策略：精确匹配所有者的 Google 身份，并只允许 Google 登录方式。应用会话时长设为 30 天；不创建服务令牌、旁路策略或公开路径。
-5. 在 Cloudflare 的 HTTPS 设置中启用 HTTP 到 HTTPS 的永久跳转；启用 HSTS，`max-age=31536000`。在完成全部子域盘点前，不启用 `includeSubDomains` 或预加载。
-6. 实施阶段使用 `cloudflared tunnel run magicpodcast-prod` 启动命名 Tunnel。由 Issue #9 把该命令纳入可恢复的 macOS 守护配置；不得改回 Quick Tunnel。
+4. 在 Access settings 中启用独立 MFA，仅允许 `Security key` 和 `Biometrics`，认证时长设为 24 小时或更短；不启用“Use identity provider MFA”，因为 Google 身份提供方不支持 Access 的 IdP MFA 强制校验。保留“Apply global MFA settings by default”为关闭，避免把该要求扩展到未来的无关应用。
+5. 创建一个 Self-hosted Access 应用，应用域名为 `rookiestar.cn`，不设置路径例外。策略默认拒绝，仅有一个 `Allow` 策略：`Include: Emails` 精确匹配所有者身份，`Require: Login Methods = Google`。在应用 Authentication 的 MFA 中选择自定义设置，仅允许 `Security key` 和 `Biometrics`。应用会话时长设为 30 天；不创建服务令牌、旁路策略或公开路径。
+6. 在 Cloudflare 的 HTTPS 设置中启用 HTTP 到 HTTPS 的永久跳转；启用 HSTS，`max-age=31536000`。在完成全部子域盘点前，不启用 `includeSubDomains` 或预加载。
+7. 实施阶段使用 `cloudflared tunnel run magicpodcast-prod` 启动命名 Tunnel。由 Issue #9 把该命令纳入可恢复的 macOS 守护配置；不得改回 Quick Tunnel。
 
 #### 回退与紧急恢复
 
@@ -160,7 +161,7 @@ frontend/.env.local
 
 #### 默认拒绝后的受控恢复
 
-当前 macOS 启动项 `com.cloudflare.cloudflared` 已被停用，避免 Mac mini 重启后重新暴露未受 Access 保护的域名。只有在 Access、HTTPS 跳转和 HSTS 已由控制台完成、并且准备立即做下方的公网验收时，才可在 Mac mini 上执行：
+当前 macOS 启动项 `com.cloudflare.cloudflared` 已启用并使用命名 Tunnel 配置。只有在准备立即做公网验收、且 Access、HTTPS 跳转和 HSTS 仍保持开启时，才可暂时卸载它：
 
 ```bash
 launchctl enable "gui/$(id -u)/com.cloudflare.cloudflared"
@@ -173,11 +174,11 @@ launchctl kickstart -k "gui/$(id -u)/com.cloudflare.cloudflared"
 #### 只读验收
 
 1. 使用未登录的隐私浏览器或不带 Cookie 的请求访问首页、API、图片、框架静态资源和 `/health`；每一项都必须进入 Access 登录，而不是返回应用内容。
-2. 用非允许 Google 身份验证被拒绝；用允许身份并完成 MFA 或 Passkey 后，确认页面和只读 API 可用。
+2. 用非允许 Google 身份验证被拒绝；用允许身份完成 Google 登录后，必须再通过已注册的 Cloudflare Access 安全密钥或设备生物识别，才可访问页面和只读 API。
 3. 在 Access 控制台撤销该用户现有会话，随后用原浏览器再次请求，必须重新登录或被拒绝。
 4. 验证 HTTP 返回永久跳转到 HTTPS，HTTPS 响应包含 `Strict-Transport-Security: max-age=31536000`。
 5. 在 Mac mini 上确认 `8088`、`3000` 与 `8080` 均仅监听 `127.0.0.1`；再从另一台局域网设备确认无法直连这三个端口。检查路由器没有对应端口转发。
-6. 确认 `cloudflared tunnel info magicpodcast-prod` 显示已连接，仓库与部署文档不再出现 Quick Tunnel、默认 Basic Auth 或局域网绕过入口。
+6. 确认 `cloudflared --config "$HOME/.cloudflared/magicpodcast-prod.yml" tunnel info magicpodcast-prod` 显示已连接；不要省略 `--config`，因为 Mac mini 上可能还有其他个人 Tunnel。仓库与部署文档不再出现 Quick Tunnel、默认 Basic Auth 或局域网绕过入口。
 
 ## 开机自启
 

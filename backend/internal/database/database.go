@@ -20,6 +20,10 @@ var (
 	once sync.Once
 )
 
+const defaultSQLiteBusyTimeoutMS = 5000
+
+const minSQLiteBusyTimeoutMS = 100
+
 // GetDB 获取数据库实例（单例模式）
 func GetDB() *gorm.DB {
 	// 如果 db 已经设置（例如通过 SetTestDB），直接返回
@@ -51,11 +55,10 @@ func initDB() (*gorm.DB, error) {
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
 
-	// 配置 GORM
+	// 配置 GORM。生产启动只负责打开并校验连接，不在这里执行结构迁移。
 	gormConfig := &gorm.Config{
-		// 禁用迁移时的外键约束检查（避免迁移时重建表导致数据丢失）
-		// 外键约束在运行时通过 PRAGMA foreign_keys = ON 启用
-		DisableForeignKeyConstraintWhenMigrating: true,
+		// 迁移只在显式迁移命令中运行；显式迁移也应保留模型外键约束。
+		DisableForeignKeyConstraintWhenMigrating: false,
 		// 跳过默认事务（提升性能）
 		SkipDefaultTransaction: true,
 		// 禁用 RETURNING 子句（SQLite 驱动兼容性问题）
@@ -73,10 +76,14 @@ func initDB() (*gorm.DB, error) {
 	}
 	gormConfig.Logger = gormlogger.Default.LogMode(logLevel)
 
-	// 打开数据库连接（不在 DSN 中启用外键，避免迁移时触发 CASCADE DELETE）
-	// _journal_mode=WAL: 使用 WAL 模式提升并发性能
-	// 注意：外键约束将在迁移完成后通过 PRAGMA 启用
-	dsn := fmt.Sprintf("%s?_journal_mode=WAL", dbPath)
+	// SQLite 的 PRAGMA 大多是“每个连接”生效，必须放入 DSN，避免连接池
+	// 新建连接后退回默认值。单用户场景固定单连接，WAL 和 busy timeout
+	// 负责降低后台任务之间的锁竞争。
+	busyTimeoutMS := cfg.Database.BusyTimeoutMS
+	if busyTimeoutMS < minSQLiteBusyTimeoutMS {
+		busyTimeoutMS = defaultSQLiteBusyTimeoutMS
+	}
+	dsn := fmt.Sprintf("%s?_journal_mode=WAL&_foreign_keys=on&_busy_timeout=%d", dbPath, busyTimeoutMS)
 	db, err := gorm.Open(sqlite.Open(dsn), gormConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
@@ -88,36 +95,72 @@ func initDB() (*gorm.DB, error) {
 		return nil, fmt.Errorf("failed to get database instance: %w", err)
 	}
 
-	// 设置连接池参数
-	sqlDB.SetMaxIdleConns(cfg.Database.MaxIdleConns)
-	sqlDB.SetMaxOpenConns(cfg.Database.MaxOpenConns)
+	// SQLite 单文件、单用户运行时固定一个连接，确保外键和 busy timeout
+	// 的语义一致，也避免多个写连接互相放大锁竞争。
+	maxOpenConns := cfg.Database.MaxOpenConns
+	if maxOpenConns <= 0 || maxOpenConns > 1 {
+		if maxOpenConns > 1 {
+			logger.Warnf("SQLite max_open_conns=%d is unsafe for this single-file runtime; clamping to 1", maxOpenConns)
+		}
+		maxOpenConns = 1
+	}
+	maxIdleConns := cfg.Database.MaxIdleConns
+	if maxIdleConns <= 0 || maxIdleConns > maxOpenConns {
+		maxIdleConns = maxOpenConns
+	}
+	sqlDB.SetMaxIdleConns(maxIdleConns)
+	sqlDB.SetMaxOpenConns(maxOpenConns)
 	sqlDB.SetConnMaxLifetime(time.Duration(cfg.Database.ConnMaxLifetime) * time.Second)
 	sqlDB.SetConnMaxIdleTime(5 * time.Minute) // 空闲连接超时：防止连接堆积
 
-	// 注意：不在此处启用外键约束，避免迁移时触发 CASCADE DELETE
-	// 外键约束将在 EnableForeignKeys() 中启用，该方法应在迁移完成后调用
-	logger.Infof("✅ Database connected: %s (journal_mode=WAL, foreign_keys=OFF during migration)", dbPath)
+	if err := VerifySQLiteSettings(db); err != nil {
+		return nil, err
+	}
+	logger.Infof("✅ Database connected: %s (journal_mode=WAL, foreign_keys=ON, busy_timeout=%dms, max_open_conns=%d)", dbPath, busyTimeoutMS, maxOpenConns)
 
 	return db, nil
 }
 
-// EnableForeignKeys 启用外键约束（应在迁移完成后调用）
+// VerifySQLiteSettings verifies the per-connection SQLite safety settings.
+// The DSN applies these settings to every pooled connection; this query also
+// proves that the first runtime connection received the expected values.
+func VerifySQLiteSettings(database *gorm.DB) error {
+	if database == nil {
+		return fmt.Errorf("database is nil")
+	}
+
+	var foreignKeys int
+	if err := database.Raw("PRAGMA foreign_keys").Row().Scan(&foreignKeys); err != nil {
+		return fmt.Errorf("failed to read foreign_keys pragma: %w", err)
+	}
+	if foreignKeys != 1 {
+		return fmt.Errorf("sqlite foreign_keys pragma is %d, want 1", foreignKeys)
+	}
+
+	var busyTimeout int
+	if err := database.Raw("PRAGMA busy_timeout").Row().Scan(&busyTimeout); err != nil {
+		return fmt.Errorf("failed to read busy_timeout pragma: %w", err)
+	}
+	if busyTimeout < minSQLiteBusyTimeoutMS {
+		return fmt.Errorf("sqlite busy_timeout is %dms, want at least %dms", busyTimeout, minSQLiteBusyTimeoutMS)
+	}
+
+	if sqlDB, err := database.DB(); err == nil {
+		if stats := sqlDB.Stats(); stats.MaxOpenConnections != 1 {
+			return fmt.Errorf("sqlite max open connections is %d, want 1", stats.MaxOpenConnections)
+		}
+	}
+	return nil
+}
+
+// EnableForeignKeys is retained for explicit maintenance callers. Runtime
+// connections already enable the pragma through the DSN; this function now
+// verifies the invariant instead of changing only one pooled connection.
 func EnableForeignKeys() error {
 	if db == nil {
 		return fmt.Errorf("database not initialized")
 	}
-
-	sqlDB, err := db.DB()
-	if err != nil {
-		return fmt.Errorf("failed to get database instance: %w", err)
-	}
-
-	if _, err := sqlDB.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		return fmt.Errorf("failed to enable foreign keys: %w", err)
-	}
-
-	logger.Info("✅ Foreign keys enabled (PRAGMA foreign_keys = ON)")
-	return nil
+	return VerifySQLiteSettings(db)
 }
 
 // Close 关闭数据库连接

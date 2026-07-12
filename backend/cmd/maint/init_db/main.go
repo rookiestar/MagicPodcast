@@ -52,13 +52,13 @@ func main() {
 		log.Fatalf("Failed to ping database: %v", err)
 	}
 
-	fmt.Println("\n📊 Running migrations...")
-	if err := database.AutoMigrate(db); err != nil {
+	fmt.Println("\n📊 Running explicit versioned migrations...")
+	if err := database.ApplyMigrations(db); err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
-	if err := database.CreateIndexes(db); err != nil {
-		log.Printf("Warning: Failed to create indexes: %v", err)
+	if err := database.RequireSchemaReady(db); err != nil {
+		log.Fatalf("Database schema is not ready after migrations: %v", err)
 	}
 
 	fmt.Println("\n🌱 Seeding initial data...")

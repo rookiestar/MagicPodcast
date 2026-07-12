@@ -71,19 +71,10 @@ func main() {
 	db := database.GetDB() // 初始化数据库连接
 	defer database.Close()
 
-	// 运行数据库迁移（在外键禁用状态下运行，避免 CASCADE DELETE）
-	if err := database.AutoMigrate(db); err != nil {
-		logger.Fatalf("Failed to run database migrations: %v", err)
-	}
-
-	// 创建自定义索引
-	if err := database.CreateIndexes(db); err != nil {
-		logger.Fatalf("Failed to create custom indexes: %v", err)
-	}
-
-	// 迁移完成后启用外键约束
-	if err := database.EnableForeignKeys(); err != nil {
-		logger.Fatalf("Failed to enable foreign keys: %v", err)
+	// 普通服务启动只读检查迁移状态，不静默改写数据库结构。结构变化
+	// 必须先通过 scripts/migrate-db.sh 显式执行并记录版本。
+	if err := database.RequireSchemaReady(db); err != nil {
+		logger.Fatalf("Database schema is not ready: %v", err)
 	}
 
 	// 设置路由

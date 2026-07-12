@@ -77,6 +77,8 @@ func SetupRouter() *gin.Engine {
 	// 健康检查
 	healthHandler := handlers.NewHealthHandler()
 	r.GET("/health", healthHandler.Health)
+	r.GET("/live", healthHandler.Live)
+	r.GET("/ready", healthHandler.Ready)
 	r.GET("/ping", healthHandler.Ping)
 
 	// 图片代理服务

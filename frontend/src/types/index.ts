@@ -255,6 +255,7 @@ export interface WorkflowRequest {
   scope_config: ScopeConfig;
   rules_config: RulesConfig;
   is_enabled: boolean;
+  confirmation_text?: string;
 }
 
 export interface WorkflowsResponse {

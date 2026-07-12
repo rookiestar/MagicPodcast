@@ -1,11 +1,7 @@
-import dynamic from "next/dynamic";
+import PodcastsContent from "./PodcastsContent";
 
-// 禁用 SSR 以避免 hydration 错误
-// 原因：useBreakpoint hook 使用 window.innerWidth，在服务端不可用
-const PodcastsContent = dynamic(
-  () => import("./PodcastsContent"),
-  { ssr: false }
-);
+// PodcastsContent is a client component and owns its browser-only breakpoint hook.
+// Importing it directly keeps this route compatible with Next.js 16 Server Components.
 
 export default function PodcastsPage() {
   return <PodcastsContent />;

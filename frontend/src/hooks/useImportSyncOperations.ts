@@ -15,6 +15,7 @@ import {
 import { runSseOperation, type AddSyncLog } from "@/lib/syncSseOperation";
 import type { SyncLogMode } from "@/lib/syncLogState";
 import { toast } from "@/lib/toast";
+import { requestTypedConfirmation } from "@/lib/confirmation";
 import { useExclusiveAsyncAction } from "./useExclusiveAsyncAction";
 
 interface UseImportSyncOperationsOptions {
@@ -80,6 +81,13 @@ export function useImportSyncOperations({
     }
 
     await runExclusiveOperation(async () => {
+      const confirmationText = requestTypedConfirmation({
+        action: `导入文件“${file.name}”`,
+        impact: `会写入播客订阅数据，文件大小 ${(file.size / 1024).toFixed(1)} KB。`,
+        phrase: "IMPORT OPML",
+      });
+      if (!confirmationText) return;
+
       setImporting(true);
       resetLogScroll();
       startLogSession("import");
@@ -90,7 +98,8 @@ export function useImportSyncOperations({
           addLog,
           startMessage: "开始导入OPML（本地匹配模式）...",
           fallbackSuccessMessage: "导入完成",
-          run: (onProgress) => syncApi.importOPMLSSE(file, onProgress),
+          run: (onProgress) =>
+            syncApi.importOPMLSSE(file, onProgress, confirmationText),
         });
       } catch (error) {
         console.error("导入失败:", error);
@@ -106,6 +115,13 @@ export function useImportSyncOperations({
 
   const handleSync = useCallback(async () => {
     await runExclusiveOperation(async () => {
+      const confirmationText = requestTypedConfirmation({
+        action: "同步全部订阅播客",
+        impact: "会刷新全部订阅播客的元数据并发起网络请求，可能耗时较长。",
+        phrase: "SYNC ALL",
+      });
+      if (!confirmationText) return;
+
       setSyncing(true);
       resetLogScroll();
       startLogSession("sync");
@@ -116,7 +132,8 @@ export function useImportSyncOperations({
           addLog,
           startMessage: "开始同步所有播客的元数据...",
           fallbackSuccessMessage: "同步已完成",
-          run: syncApi.syncPodcastsMetadataSSE,
+          run: (onProgress) =>
+            syncApi.syncPodcastsMetadataSSE(onProgress, confirmationText),
         });
       } catch (error) {
         console.error("同步失败:", error);

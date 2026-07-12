@@ -5,6 +5,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { workflowApi } from "@/lib/api";
 import { showSuccess } from "@/lib/api/errorHandler";
+import { requestTypedConfirmation } from "@/lib/confirmation";
 import { useWorkflows } from "@/hooks/useWorkflowSWR";
 import type { Workflow, WorkflowSortByType } from "@/types";
 import WorkflowActionMenu from "@/components/workflows/WorkflowActionMenu";
@@ -77,9 +78,18 @@ export default function WorkflowsPage() {
     e.preventDefault();
     e.stopPropagation();
 
+    if (triggeringId === id) return;
+    const workflow = workflows.find((item) => item.id === id);
+    const confirmationText = requestTypedConfirmation({
+      action: `立即执行工作流“${workflow?.name || id}”`,
+      impact: "可能抓取网络内容、写入数据库并调用 LLM。",
+      phrase: `RUN WORKFLOW ${id}`,
+    });
+    if (!confirmationText) return;
+
     try {
       setTriggeringId(id);
-      await workflowApi.trigger(id);
+      await workflowApi.trigger(id, confirmationText);
       showSuccess("工作流已开始执行，请在执行历史中查看进度");
       await mutate();
     } catch (err) {
@@ -108,10 +118,16 @@ export default function WorkflowsPage() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("确定要删除这个工作流吗？")) return;
+    const workflow = workflows.find((item) => item.id === id);
+    const confirmationText = requestTypedConfirmation({
+      action: `删除工作流“${workflow?.name || id}”`,
+      impact: "会删除该工作流及其执行入口，此操作不可恢复。",
+      phrase: `DELETE WORKFLOW ${id}`,
+    });
+    if (!confirmationText) return;
 
     try {
-      await workflowApi.delete(id);
+      await workflowApi.delete(id, confirmationText);
       await mutate();
     } catch (err) {
       console.error("Failed to delete workflow:", err);

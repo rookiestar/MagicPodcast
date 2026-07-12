@@ -380,7 +380,8 @@ func TestPodcastHandler_UpdateCustomCover(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		body := map[string]interface{}{
-			"custom_cover_url": "https://example.com/custom-cover.jpg",
+			"custom_cover_url":  "https://example.com/custom-cover.jpg",
+			"confirmation_text": "OVERWRITE COVER 1",
 		}
 		jsonBody, _ := json.Marshal(body)
 
@@ -403,6 +404,29 @@ func TestPodcastHandler_UpdateCustomCover(t *testing.T) {
 		data := response["data"].(map[string]interface{})
 		if data["custom_cover_url"] != "https://example.com/custom-cover.jpg" {
 			t.Errorf("Expected custom_cover_url, got %v", data["custom_cover_url"])
+		}
+	})
+
+	t.Run("Missing confirmation does not write", func(t *testing.T) {
+		body := map[string]interface{}{
+			"custom_cover_url": "https://example.com/should-not-write.jpg",
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		req, _ := http.NewRequest("PUT", "/api/v1/podcasts/1/custom-cover", bytes.NewBuffer(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusPreconditionRequired {
+			t.Fatalf("Expected status 428, got %d: %s", w.Code, w.Body.String())
+		}
+		var podcast models.Podcast
+		if err := db.First(&podcast, 1).Error; err != nil {
+			t.Fatalf("load podcast: %v", err)
+		}
+		if podcast.CustomCoverURL == "https://example.com/should-not-write.jpg" {
+			t.Fatal("missing confirmation must not update the database")
 		}
 	})
 

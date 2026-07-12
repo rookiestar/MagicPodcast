@@ -117,7 +117,7 @@ stop_screen_session() {
   local session_pid
   local command
 
-  if command -v screen >/dev/null 2>&1 && screen -ls 2>/dev/null | grep -q "[.]$session[[:space:]]"; then
+  if command -v screen >/dev/null 2>&1 && screen -ls 2>/dev/null | awk -v suffix=".${session}" '$1 ~ suffix { found=1 } END { exit(found ? 0 : 1) }'; then
     session_pid="$(screen -ls 2>/dev/null | awk -v suffix=".${session}" '$1 ~ suffix { split($1, parts, "."); print parts[1]; exit }')"
     command="$(pid_command "$session_pid")"
     if [ "$(pid_cwd "$session_pid")" != "$expected_cwd" ] || [[ "$command" != *"SCREEN -dmS $session"* ]]; then

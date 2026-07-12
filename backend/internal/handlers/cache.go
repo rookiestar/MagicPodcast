@@ -17,9 +17,9 @@ func NewCacheHandler() *CacheHandler {
 
 // CacheStatsResponse 缓存统计响应
 type CacheStatsResponse struct {
-	TotalItems int   `json:"total_items"`
-	HitCount   int64 `json:"hit_count"`
-	MissCount  int64 `json:"miss_count"`
+	TotalItems int     `json:"total_items"`
+	HitCount   int64   `json:"hit_count"`
+	MissCount  int64   `json:"miss_count"`
 	HitRate    float64 `json:"hit_rate"`
 }
 
@@ -57,6 +57,12 @@ func (h *CacheHandler) GetStats(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v1/cache/clear [post]
 func (h *CacheHandler) ClearCache(c *gin.Context) {
+	var req middleware.ConfirmationRequest
+	_ = c.ShouldBindJSON(&req)
+	if !middleware.RequireConfirmationText(c, req.ConfirmationText, "CLEAR CACHE", "清空全部内存缓存，后续请求会重新加载数据") {
+		return
+	}
+
 	cache.GetCache().Clear()
 
 	middleware.SuccessResponseWithMessage(c, "Cache cleared successfully", gin.H{

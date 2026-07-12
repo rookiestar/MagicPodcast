@@ -1,23 +1,44 @@
 # MagicPodcast 数据库迁移指南
 
-最后更新：2026-05-31
+最后更新：2026-07-12
 
-本文只记录当前仍适用的数据库迁移入口和操作顺序。旧的项目搬家记录已移入 [../archive/reports/PROJECT_LOCATION_MIGRATION_2026-01-21.md](../archive/reports/PROJECT_LOCATION_MIGRATION_2026-01-21.md)，历史 Go 迁移入口已删除，不再作为当前迁移依据。
+本文只记录当前仍适用的数据库迁移入口和操作顺序。旧的项目搬家记录已移入 [../archive/reports/PROJECT_LOCATION_MIGRATION_2026-01-21.md](../archive/reports/PROJECT_LOCATION_MIGRATION_2026-01-21.md)。
 
-## 当前自动迁移
+## 当前版本化迁移
 
-后端 API 启动时会自动完成两类数据库准备：
+当前 schema 版本为 `1`，版本记录保存在 `schema_migrations`。迁移注册表位于 `backend/internal/database/migrate.go`，每个版本包含名称、说明和事务内的执行函数。版本 1 是当前模型和索引的 baseline：
 
-1. 按当前模型结构执行自动迁移。
-2. 创建当前列表、单集、工作流和任务执行所需的基础索引。
+1. 空数据库会创建当前模型表和索引。
+2. 已有且完整的数据库只记录 baseline，不重建或替换业务表。
+3. 缺少部分必需表时拒绝继续，避免把不完整结构伪装成可用版本。
+4. 迁移和版本记录在同一事务中执行；失败会回滚事务，API 不会启动。
 
-日常启动请使用项目根目录的脚本入口：
+显式查看迁移计划：
+
+```bash
+./scripts/migrate-db.sh --dry-run
+```
+
+真实数据库应用迁移前，必须先创建并验证近期备份、停止使用该数据库的服务，然后显式确认：
+
+```bash
+./scripts/backup-db.sh
+./scripts/verify-db.sh backend/data/magicpodcast.db
+./scripts/stop.sh
+
+export MAGICPODCAST_MIGRATION_CONFIRM=I_UNDERSTAND_THIS_WRITES_DATA
+export MAGICPODCAST_MIGRATION_BACKUP=/absolute/path/to/verified-backup.db.gz
+./scripts/migrate-db.sh --apply
+./scripts/verify-db.sh backend/data/magicpodcast.db
+```
+
+`--apply` 缺少确认字符串、备份路径、配置文件或数据库文件，或发现 3000/8080 仍有服务监听时，会拒绝执行。普通 API 启动只读检查版本、必需表和 SQLite 运行参数，不再静默执行结构迁移：
 
 ```bash
 ./scripts/restart.sh --prod
 ```
 
-不要再使用旧文档里的后端直跑命令或本机路径脚本作为当前启动方式。
+如果迁移失败，先保持服务停止，使用迁移前备份恢复到临时库或生产库，再重新执行完整验证；不要让 API 使用半完成结构启动。
 
 ## 手动补齐索引
 
@@ -37,13 +58,13 @@ go run ./cmd/add_indexes ./data/magicpodcast.db
 
 索引细节和验证方式见 [../DATABASE_INDEX_GUIDE.md](../DATABASE_INDEX_GUIDE.md)。
 
-## 高风险手工迁移
+## 旧命令边界
 
 以下入口会直接改写真数据，不能作为无人值守清理项自动执行：
 
 | 入口 | 风险 | 当前处理 |
 | --- | --- | --- |
-| `backend/cmd/migrate` | 会重建并替换 `episodes` 表 | 已列入人审队列 |
+| `backend/cmd/migrate` | 当前只接受 `--dry-run` / `--apply`，并强制要求确认字符串和已验证备份 | 真实库仍需按本文顺序执行 |
 | `backend/cmd/maint/*` | 多数来自历史数据修复、导入或外部数据补全 | 已列入人审队列 |
 | `backend/scripts/fix_newest_episode_date.sql` 和 `backend/scripts/init_tags.sql` | 可能修正或重建真实数据 | 已列入人审队列 |
 
@@ -53,12 +74,12 @@ go run ./cmd/add_indexes ./data/magicpodcast.db
 
 涉及真实数据库前，按下面顺序执行：
 
-1. 在项目根目录执行 `./scripts/backup-db.sh`。
-2. 如果会写同一个数据库，先执行 `./scripts/stop.sh` 停止服务。
-3. 运行已经确认过的迁移或维护命令。
-4. 执行 `./scripts/verify-db.sh backend/data/magicpodcast.db`。
-5. 执行 `./scripts/restart.sh --prod`。
-6. 执行 `./scripts/health-check.sh`。
+1. 在项目根目录执行 `./scripts/backup-db.sh`，并保存它输出的备份路径。
+2. 用 `./scripts/verify-db.sh <备份路径>` 验证备份可恢复。
+3. 如果会写同一个数据库，先执行 `./scripts/stop.sh` 停止服务。
+4. 先运行 `./scripts/migrate-db.sh --dry-run`，再设置确认字符串和备份路径执行 `--apply`。
+5. 执行 `./scripts/verify-db.sh backend/data/magicpodcast.db`，并检查 schema 版本和核心数据。
+6. 执行 `./scripts/restart.sh --prod` 与 `./scripts/health-check.sh`。
 
 如任一步骤失败，先停止继续写入，再从备份或临时库中复查问题。
 

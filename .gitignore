@@ -80,6 +80,7 @@ frontend/out/
 *.log
 *.log.*
 /tmp/*.log
+logs/*.status
 
 # Test files
 test-api.html

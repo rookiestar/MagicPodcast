@@ -1,7 +1,14 @@
 package handlers
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"magicpodcast/internal/database"
 )
 
 func TestRuntimeMetadataUsesReleaseEnvironment(t *testing.T) {
@@ -31,5 +38,43 @@ func TestRuntimeMetadataDefaultsToUnknown(t *testing.T) {
 		if metadata[key] != "unknown" {
 			t.Fatalf("%s = %v, want unknown", key, metadata[key])
 		}
+	}
+}
+
+func TestReadinessFailsWhenDatabaseIsUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open("file:health_ready_test?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open test db: %v", err)
+	}
+	database.SetTestDB(db)
+	t.Cleanup(database.ResetDB)
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql db: %v", err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatalf("close test db: %v", err)
+	}
+
+	router := gin.New()
+	router.GET("/ready", NewHealthHandler().Ready)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/ready", nil))
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d, want 503; body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestLivenessDoesNotRequireDatabase(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/live", NewHealthHandler().Live)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/live", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200; body=%s", recorder.Code, recorder.Body.String())
 	}
 }

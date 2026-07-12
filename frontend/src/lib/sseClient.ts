@@ -170,7 +170,7 @@ export async function sseFormDataRequest(
   endpoint: string,
   formData: FormData,
   onProgress: SSEProgressCallback,
-  options?: Omit<SSERequestOptions, "endpoint" | "body" | "headers">,
+  options?: Omit<SSERequestOptions, "endpoint" | "body">,
 ): Promise<void> {
   return sseRequest(
     {

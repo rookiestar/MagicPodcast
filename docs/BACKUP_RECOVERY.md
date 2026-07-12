@@ -86,6 +86,51 @@ BACKUP_HOUR=4 BACKUP_MINUTE=15 ./scripts/install-backup-agent.sh
 ./scripts/health-check.sh
 ```
 
+## 加密异机副本
+
+异机目标和密钥必须由所有者在 Mac mini 本机配置；脚本不会猜测云盘目录，也不会把密钥写入仓库、日志或备份元信息。当前推荐使用 `age` 的公钥加密：日常备份只读取公钥，私钥留在所有者控制的密码管理器或受限本机配置中。
+
+配置完成后，使用以下环境变量启用：
+
+```bash
+export MAGICPODCAST_OFFSITE_DIR=/path/to/owner-controlled-offsite-folder
+export MAGICPODCAST_AGE_RECIPIENT_FILE=/path/to/age-recipient.txt
+export MAGICPODCAST_OFFSITE_KEEP=14
+export MAGICPODCAST_OFFSITE_MAX_AGE_HOURS=26
+```
+
+手动加密最近一次本地备份并检查状态：
+
+```bash
+./scripts/offsite-backup.sh
+./scripts/offsite-status.sh
+```
+
+要让每日 launchd 任务自动执行异机加密，可在 Mac mini 本机配置上述路径后重新安装备份任务：
+
+```bash
+MAGICPODCAST_OFFSITE_DIR=/path/to/owner-controlled-offsite-folder \
+MAGICPODCAST_AGE_RECIPIENT_FILE=/path/to/age-recipient.txt \
+MAGICPODCAST_OFFSITE_KEEP=14 \
+MAGICPODCAST_OFFSITE_MAX_AGE_HOURS=26 \
+./scripts/install-backup-agent.sh
+```
+
+安装器只把异机目录、公钥文件路径和保留/过期阈值写入 launchd 配置；私钥不会写入仓库、日志或 launchd 配置。
+
+`offsite-status.sh` 只报告缺失、过期、校验失败或成功，不读取或打印密钥。异机目录必须与 `backend/data/backups/` 不同；保留策略只删除脚本生成的 `magicpodcast_*.db.gz.age` 文件及其配套校验/元信息文件。
+
+## 临时恢复演练
+
+恢复演练必须提供私钥路径，并且只解密到临时目录；脚本拒绝把结果写入生产数据库：
+
+```bash
+export MAGICPODCAST_AGE_IDENTITY_FILE=/path/to/owner-controlled-age-identity
+./scripts/restore-drill.sh /path/to/magicpodcast_YYYYMMDD_HHMMSS.db.gz.age
+```
+
+演练会验证解密、压缩包、SQLite 完整性、必需表、外键和核心表可读性，完成后清理临时数据库，只留下不含真实内容的成功状态记录。
+
 ## 恢复
 
 建议先停止本地服务：
