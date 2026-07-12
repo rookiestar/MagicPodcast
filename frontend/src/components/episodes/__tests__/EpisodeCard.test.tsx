@@ -34,7 +34,7 @@ function makeEpisode(overrides: Partial<Episode> = {}): Episode {
     published_date: "2026-01-01T00:00:00Z",
     duration: 3661,
     link: "https://example.com/episode",
-    image_url: "https://example.com/episode.jpg",
+    image_url: "https://i.typlog.com/episode.jpg",
     enclosure_type: "audio/mpeg",
     enclosure_length: 2.25 * 1024 * 1024,
     my_rate: 0,
@@ -79,7 +79,7 @@ describe("EpisodeCard", () => {
 
     expect(useQueuedEpisodeImageMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        src: "/_next/image?url=https%3A%2F%2Fexample.com%2Fepisode.jpg&w=128&q=75",
+        src: "/images/proxy?url=https%3A%2F%2Fi.typlog.com%2Fepisode.jpg",
       }),
     );
   });

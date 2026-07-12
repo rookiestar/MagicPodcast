@@ -3,7 +3,11 @@ import { useCallback, useEffect, useState } from "react";
 import { syncApi } from "@/lib/api";
 import { removeStorageValue, writeStorageValue } from "@/lib/browserStorage";
 import { STORAGE_KEYS } from "@/lib/config";
-import { isValidOpmlFile } from "@/lib/importFileValidation";
+import {
+  isOpmlFileSizeAllowed,
+  isValidOpmlFile,
+  MAX_OPML_FILE_SIZE_BYTES,
+} from "@/lib/importFileValidation";
 import {
   buildImportErrorLogs,
   buildSyncErrorMessage,
@@ -52,6 +56,13 @@ export function useImportSyncOperations({
 
       if (!isValidOpmlFile(selectedFile)) {
         toast.warning("请选择OPML或XML文件");
+        return;
+      }
+
+      if (!isOpmlFileSizeAllowed(selectedFile)) {
+        toast.warning(
+          `OPML文件不能超过 ${(MAX_OPML_FILE_SIZE_BYTES / 1024 / 1024).toFixed(0)} MB`,
+        );
         return;
       }
 

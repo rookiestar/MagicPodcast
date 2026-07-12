@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -23,6 +25,7 @@ type Config struct {
 
 // ServerConfig 服务器配置
 type ServerConfig struct {
+	Host         string        `mapstructure:"host"`
 	Port         int           `mapstructure:"port"`
 	Mode         string        `mapstructure:"mode"` // debug, release
 	ReadTimeout  time.Duration `mapstructure:"read_timeout"`
@@ -157,6 +160,8 @@ type SearchConfig struct {
 
 var cfg *Config
 
+const defaultServerHost = "127.0.0.1"
+
 // Load 加载配置文件
 func Load(configPath string) (*Config, error) {
 	viper.SetConfigFile(configPath)
@@ -190,6 +195,12 @@ func Load(configPath string) (*Config, error) {
 
 // applyEnvOverrides 从环境变量覆盖本机运行配置
 func (c *Config) applyEnvOverrides() {
+	if strings.TrimSpace(c.Server.Host) == "" {
+		c.Server.Host = defaultServerHost
+	}
+	if host := strings.TrimSpace(viper.GetString("server_host")); host != "" {
+		c.Server.Host = host
+	}
 	if mode := viper.GetString("server_mode"); mode != "" {
 		c.Server.Mode = mode
 	}
@@ -247,6 +258,14 @@ func Get() *Config {
 
 // Validate 验证配置
 func (c *Config) Validate() error {
+	// 生产和开发服务都只允许绑定到数值 loopback 地址，避免局域网绕过 Cloudflare Access。
+	host := strings.TrimSpace(c.Server.Host)
+	parsedHost := net.ParseIP(host)
+	if parsedHost == nil || !parsedHost.IsLoopback() {
+		return fmt.Errorf("server host must be a loopback IP address: %q", c.Server.Host)
+	}
+	c.Server.Host = host
+
 	// 验证服务器端口
 	if c.Server.Port <= 0 || c.Server.Port > 65535 {
 		return fmt.Errorf("invalid server port: %d", c.Server.Port)

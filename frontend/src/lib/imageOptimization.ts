@@ -1,3 +1,5 @@
+import { getSafeImageSource } from "./imageSourcePolicy";
+
 const DEFAULT_IMAGE_WIDTH = 128;
 const DEFAULT_IMAGE_QUALITY = 75;
 const IMAGE_OPTIMIZER_PATH =
@@ -12,15 +14,15 @@ export function isOptimizableImageUrl(src: string) {
     return false;
   }
 
-  if (src.startsWith("data:") || src.startsWith("blob:")) {
+  if (
+    src.startsWith("data:") ||
+    src.startsWith("blob:") ||
+    src.startsWith("/images/proxy")
+  ) {
     return false;
   }
 
-  return (
-    src.startsWith("http://") ||
-    src.startsWith("https://") ||
-    src.startsWith("/")
-  );
+  return src.startsWith("/");
 }
 
 export function getOptimizedImageUrl(
@@ -28,12 +30,17 @@ export function getOptimizedImageUrl(
   width = DEFAULT_IMAGE_WIDTH,
   quality = DEFAULT_IMAGE_QUALITY,
 ) {
-  if (!isOptimizableImageUrl(src)) {
-    return src;
+  const safeSource = getSafeImageSource(src);
+  if (!safeSource) {
+    return "";
+  }
+
+  if (!isOptimizableImageUrl(safeSource)) {
+    return safeSource;
   }
 
   const queryParams = new URLSearchParams({
-    url: src,
+    url: safeSource,
     w: width.toString(),
     q: quality.toString(),
   });
@@ -47,19 +54,26 @@ export function optimizeHtmlImageSources(
   quality = DEFAULT_IMAGE_QUALITY,
 ) {
   return html.replace(/\bsrc=(["'])([^"']+)\1/gi, (match, quote, src) => {
-    if (!isOptimizableImageUrl(src)) {
+    const safeSource = getSafeImageSource(src);
+    if (!safeSource) {
+      return "";
+    }
+
+    if (!isOptimizableImageUrl(safeSource)) {
+      return `src=${quote}${safeSource}${quote}`;
+    }
+
+    if (safeSource.startsWith("/images/proxy")) {
       return match;
     }
 
-    return `src=${quote}${getOptimizedImageUrl(src, width, quality)}${quote}`;
+    return `src=${quote}${getOptimizedImageUrl(safeSource, width, quality)}${quote}`;
   });
 }
 
 export function canUseNextImage(src: string) {
   return (
     src.startsWith("/") ||
-    src.startsWith("http://") ||
-    src.startsWith("https://") ||
     src.startsWith("data:")
   );
 }

@@ -3,12 +3,35 @@ package handlers
 import (
 	"magicpodcast/internal/database"
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
 // HealthHandler 健康检查处理器
 type HealthHandler struct{}
+
+func runtimeMetadata() gin.H {
+	releaseID := strings.TrimSpace(os.Getenv("MAGICPODCAST_RELEASE_ID"))
+	if releaseID == "" {
+		releaseID = "unknown"
+	}
+	frontendBuildID := strings.TrimSpace(os.Getenv("MAGICPODCAST_FRONTEND_BUILD_ID"))
+	if frontendBuildID == "" {
+		frontendBuildID = "unknown"
+	}
+	buildMode := strings.TrimSpace(os.Getenv("MAGICPODCAST_SERVER_MODE"))
+	if buildMode == "" {
+		buildMode = "unknown"
+	}
+
+	return gin.H{
+		"release_id":        releaseID,
+		"frontend_build_id": frontendBuildID,
+		"build_mode":        buildMode,
+	}
+}
 
 // NewHealthHandler 创建健康检查处理器
 func NewHealthHandler() *HealthHandler {
@@ -34,11 +57,15 @@ func (h *HealthHandler) Health(c *gin.Context) {
 		dbStatus = "error"
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"status":   "ok",
 		"service":  "magicpodcast-backend",
 		"database": dbStatus,
-	})
+	}
+	for key, value := range runtimeMetadata() {
+		response[key] = value
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // Ping 简单的 ping 接口

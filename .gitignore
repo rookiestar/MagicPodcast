@@ -117,6 +117,7 @@ coverage/
 # Build artifacts
 *.tar.gz
 *.zip
+.magicpodcast-releases/
 
 # Temporary development docs
 ERROR_TYPE_REFACTOR.md

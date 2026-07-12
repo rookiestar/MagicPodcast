@@ -1,18 +1,31 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
-	"crypto/md5"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"magicpodcast/internal/logger"
+	"magicpodcast/internal/middleware"
+	"mime"
+	"net"
 	"net/http"
 	"net/url"
-	"path"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+)
+
+const (
+	imageFetchTimeout = 10 * time.Second
+	imageDialTimeout  = 5 * time.Second
+)
+
+var (
+	errInvalidImageURL   = errors.New("invalid image URL")
+	errImageHostNotAllow = errors.New("image host is not allowed")
 )
 
 // ImageHandler 图片代理处理器
@@ -25,214 +38,303 @@ type ImageHandler struct {
 func NewImageHandler() *ImageHandler {
 	return &ImageHandler{
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-			// 禁止自动跟随重定向，防止SSRF攻击
+			Timeout: imageFetchTimeout,
+			Transport: &http.Transport{
+				// Direct connections keep the DNS/IP policy effective even if the
+				// process inherits proxy environment variables.
+				DialContext:           newSafeImageDialContext(defaultImageLookup, &net.Dialer{Timeout: imageDialTimeout}),
+				TLSHandshakeTimeout:   imageDialTimeout,
+				ResponseHeaderTimeout: imageFetchTimeout,
+				MaxIdleConns:          8,
+				MaxIdleConnsPerHost:   2,
+				IdleConnTimeout:       30 * time.Second,
+			},
+			// 禁止自动跟随重定向，防止通过跳转绕过白名单和 DNS 检查。
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
 		},
-		allowedHosts: []string{
-			// 小宇宙相关域名
-			"i.typlog.com",
-			"typlog.com",
-			"image.xyzcdn.net",
-			"bts-image.xyzcdn.net",
-
-			// 中文播客平台
-			"fdfs.xmcdn.com",
-			"cdn.lizhi.fm",
-			"cdn.vistopia.com.cn",
-			"cdn5.vistopia.com.cn",
-			"radio-res.cgtn.com",
-
-			// 国际播客托管平台
-			"storage.buzzsprout.com",
-			"content.production.cdn.art19.com",
-			"img.transistorcdn.com",
-			"megaphone.imgix.net",
-			"media.redcircle.com",
-			"media24.fireside.fm",
-			"media.wavpub.com",
-			"media.smfm2016.com",
-			"pan.icu",
-			"s.anyway.red",
-			"cdn.justinbot.com",
-
-			// 独立播客域名
-			"lexfridman.com",
-			"crazy.capital",
-			"host.podapi.xyz",
-			"assets.pippa.io",
-
-			// CDN域名
-			"d3t3ozftmdmh3i.cloudfront.net",
-
-			// Apple Podcasts (iTunes) 域名
-			"is1-ssl.mzstatic.com",
-			"is2-ssl.mzstatic.com",
-			"is3-ssl.mzstatic.com",
-			"is4-ssl.mzstatic.com",
-			"is5-ssl.mzstatic.com",
-			"a1.mzstatic.com",
-			"a2.mzstatic.com",
-			"a3.mzstatic.com",
-			"a4.mzstatic.com",
-			"a5.mzstatic.com",
-		},
+		allowedHosts: approvedImageHosts(),
 	}
+}
+
+// approvedImageHosts is the reviewed set observed in the current podcast and
+// episode data. Adding a host is an explicit security review decision.
+func approvedImageHosts() []string {
+	return []string{
+		"assets.fireside.fm",
+		"assets.pippa.io",
+		"bts-image.xyzcdn.net",
+		"cdn.justinbot.com",
+		"cdn.lizhi.fm",
+		"cdn.vistopia.com.cn",
+		"cdn.wavpub.com",
+		"cdn.wlz.danlirencomedy.com",
+		"cdn2.jjldbk.com",
+		"cdn2.wavpub.com",
+		"cdn5.vistopia.com.cn",
+		"content.production.cdn.art19.com",
+		"crazy.capital",
+		"d3t3ozftmdmh3i.cloudfront.net",
+		"face.t.sinajs.cn",
+		"fdfs.xmcdn.com",
+		"files.fireside.fm",
+		"host.podapi.xyz",
+		"hosting.wavpub.cn",
+		"i.typlog.com",
+		"image-qiniu.jellow.site",
+		"image.firstory-cdn.me",
+		"image.xyzcdn.net",
+		"images.pexels.com",
+		"images.unsplash.com",
+		"imagev2.xmcdn.com",
+		"img.transistorcdn.com",
+		"is1-ssl.mzstatic.com",
+		"is2-ssl.mzstatic.com",
+		"is3-ssl.mzstatic.com",
+		"is4-ssl.mzstatic.com",
+		"is5-ssl.mzstatic.com",
+		"jsftwafp1d.feishu.cn",
+		"justpodmedia.com",
+		"lexfridman.com",
+		"media.redcircle.com",
+		"media.smfm2016.com",
+		"media.wavpub.com",
+		"media24.fireside.fm",
+		"megaphone.imgix.net",
+		"mmbiz.qpic.cn",
+		"pan.icu",
+		"pie.wetime.com",
+		"radio-res.cgtn.com",
+		"rio.xyzcdn.net",
+		"s.anyway.red",
+		"s.w.org",
+		"static.storyfm.cn",
+		"static2.ximalaya.com",
+		"storage.buzzsprout.com",
+		"uploader.shimo.im",
+		"v2km9a2fuc.feishu.cn",
+		"xueqiu.feishu.cn",
+		// 兼容仍在使用的旧来源记录。
+		"typlog.com",
+		"a1.mzstatic.com",
+		"a2.mzstatic.com",
+		"a3.mzstatic.com",
+		"a4.mzstatic.com",
+		"a5.mzstatic.com",
+	}
+}
+
+func normalizeImageHostname(hostname string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(hostname)), ".")
+}
+
+func (h *ImageHandler) isAllowedHost(hostname string) bool {
+	normalized := normalizeImageHostname(hostname)
+	for _, allowedHost := range h.allowedHosts {
+		if normalized == normalizeImageHostname(allowedHost) {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *ImageHandler) validateImageURL(rawURL string) (*url.URL, error) {
+	parsedURL, err := url.ParseRequestURI(rawURL)
+	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return nil, errInvalidImageURL
+	}
+
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return nil, errInvalidImageURL
+	}
+	if parsedURL.User != nil || parsedURL.Port() != "" {
+		return nil, errImageHostNotAllow
+	}
+
+	hostname := normalizeImageHostname(parsedURL.Hostname())
+	if hostname == "" || net.ParseIP(hostname) != nil || !h.isAllowedHost(hostname) {
+		return nil, errImageHostNotAllow
+	}
+
+	return parsedURL, nil
+}
+
+type imageLookupFunc func(context.Context, string) ([]net.IPAddr, error)
+
+func defaultImageLookup(ctx context.Context, host string) ([]net.IPAddr, error) {
+	return net.DefaultResolver.LookupIPAddr(ctx, host)
+}
+
+func newSafeImageDialContext(lookup imageLookupFunc, dialer *net.Dialer) func(context.Context, string, string) (net.Conn, error) {
+	if lookup == nil {
+		lookup = defaultImageLookup
+	}
+	if dialer == nil {
+		dialer = &net.Dialer{Timeout: imageDialTimeout}
+	}
+
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, fmt.Errorf("split image address: %w", err)
+		}
+
+		ips, err := lookup(ctx, host)
+		if err != nil {
+			return nil, fmt.Errorf("resolve image host: %w", err)
+		}
+		if len(ips) == 0 {
+			return nil, errors.New("image host resolved to no addresses")
+		}
+
+		var lastErr error
+		for _, ipAddr := range ips {
+			if isBlockedImageIP(ipAddr.IP) {
+				return nil, fmt.Errorf("image host resolved to a private or local address: %s", ipAddr.IP)
+			}
+
+			conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(ipAddr.IP.String(), port))
+			if dialErr == nil {
+				return conn, nil
+			}
+			lastErr = dialErr
+		}
+
+		return nil, fmt.Errorf("dial image host: %w", lastErr)
+	}
+}
+
+func isBlockedImageIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+		return true
+	}
+
+	ip4 := ip.To4()
+	return ip4 != nil && ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127
+}
+
+func normalizedImageContentType(raw string) (string, bool) {
+	mediaType, _, err := mime.ParseMediaType(raw)
+	if err != nil {
+		return "", false
+	}
+
+	switch strings.ToLower(mediaType) {
+	case "image/jpeg", "image/png", "image/gif", "image/webp", "image/avif":
+		return strings.ToLower(mediaType), true
+	default:
+		return "", false
+	}
+}
+
+func imageBodyMatchesContentType(body []byte, contentType string) bool {
+	if len(body) == 0 {
+		return false
+	}
+
+	// Go's content sniffer does not recognize every AVIF variant, so retain
+	// the strict media-type check for AVIF and reject SVG entirely above.
+	if contentType == "image/avif" {
+		return bytes.Contains(body[:minInt(len(body), 64)], []byte("ftypavif")) ||
+			bytes.Contains(body[:minInt(len(body), 64)], []byte("ftypavis"))
+	}
+
+	detected := http.DetectContentType(body)
+	return detected == contentType
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // ProxyImage 代理图片请求
 func (h *ImageHandler) ProxyImage(c *gin.Context) {
-	// 获取目标图片URL
 	imageURL := c.Query("url")
 	if imageURL == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   "missing url parameter",
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "missing url parameter"})
 		return
 	}
 
-	// 解析URL验证
-	parsedURL, err := url.Parse(imageURL)
+	parsedURL, err := h.validateImageURL(imageURL)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   "invalid url format",
-		})
-		return
-	}
-
-	// 检查协议
-	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   "only http and https protocols are allowed",
-		})
-		return
-	}
-
-	// 检查域名白名单
-	allowed := false
-	for _, allowedHost := range h.allowedHosts {
-		if parsedURL.Host == allowedHost || parsedURL.Host == "."+allowedHost {
-			allowed = true
-			break
+		status := http.StatusBadRequest
+		if errors.Is(err, errImageHostNotAllow) {
+			status = http.StatusForbidden
 		}
-	}
-
-	if !allowed {
-		c.JSON(http.StatusForbidden, gin.H{
-			"success": false,
-			"error":   fmt.Sprintf("domain %s is not in whitelist", parsedURL.Host),
-		})
+		c.JSON(status, gin.H{"success": false, "error": err.Error()})
 		return
 	}
 
-	// 创建代理请求
-	req, err := http.NewRequestWithContext(context.Background(), "GET", imageURL, nil)
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, parsedURL.String(), nil)
 	if err != nil {
 		logger.Infof("[ImageProxy] 创建请求失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   "failed to create request",
-		})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to create request"})
 		return
 	}
+	req.Header.Set("User-Agent", "MagicPodcast/1.0")
+	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/*;q=0.8")
+	req.Header.Set("Referer", parsedURL.Scheme+"://"+parsedURL.Hostname()+"/")
 
-	// 设置请求头，模拟浏览器
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "image/webp,image/apng,image/*,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-	req.Header.Set("Referer", parsedURL.Scheme+"://"+parsedURL.Host+"/")
-
-	// 发送请求
 	startTime := time.Now()
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
 		logger.Infof("[ImageProxy] 请求失败 [%s]: %v", imageURL, err)
-		c.JSON(http.StatusBadGateway, gin.H{
-			"success": false,
-			"error":   "failed to fetch image",
-		})
+		c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": "failed to fetch image"})
 		return
 	}
 	defer resp.Body.Close()
 
-	// 检查响应状态
+	if resp.StatusCode >= http.StatusMultipleChoices && resp.StatusCode < http.StatusBadRequest {
+		logger.Infof("[ImageProxy] 拒绝重定向 [%s]: %d", imageURL, resp.StatusCode)
+		c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": "image redirects are not allowed"})
+		return
+	}
 	if resp.StatusCode != http.StatusOK {
 		logger.Infof("[ImageProxy] 非200状态码 [%s]: %d", imageURL, resp.StatusCode)
-		c.JSON(http.StatusBadGateway, gin.H{
-			"success": false,
-			"error":   fmt.Sprintf("upstream returned status %d", resp.StatusCode),
-		})
+		c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": fmt.Sprintf("upstream returned status %d", resp.StatusCode)})
+		return
+	}
+	if resp.ContentLength > middleware.DefaultImageResponseLimitBytes {
+		middleware.RequestTooLargeResponse(c, middleware.DefaultImageResponseLimitBytes)
 		return
 	}
 
-	// 检查Content-Type
-	contentType := resp.Header.Get("Content-Type")
-	if contentType == "" {
-		// 尝试从URL推断
-		ext := path.Ext(parsedURL.Path)
-		switch ext {
-		case ".jpg", ".jpeg":
-			contentType = "image/jpeg"
-		case ".png":
-			contentType = "image/png"
-		case ".gif":
-			contentType = "image/gif"
-		case ".webp":
-			contentType = "image/webp"
-		default:
-			contentType = "image/jpeg" // 默认
-		}
-	}
-
-	// 使用 URL + Content-Length + Last-Modified 计算 ETag，避免读取完整图片到内存
-	contentLength := resp.Header.Get("Content-Length")
-	lastModified := resp.Header.Get("Last-Modified")
-	etagSource := fmt.Sprintf("%s:%s:%s", imageURL, contentLength, lastModified)
-	hash := md5.Sum([]byte(etagSource))
-	etag := fmt.Sprintf(`"%s"`, hex.EncodeToString(hash[:]))
-
-	// 检查条件请求（If-None-Match）
-	ifNoneMatch := c.GetHeader("If-None-Match")
-	if ifNoneMatch != "" && ifNoneMatch == etag {
-		// 内容未变化，返回304
-		c.Header("ETag", etag)
-		c.Header("Cache-Control", "public, max-age=2592000, immutable")
-		c.Header("Last-Modified", time.Now().Format(time.RFC1123))
-		c.Status(http.StatusNotModified)
-		logger.Infof("[ImageProxy] 304 Not Modified [%s] - ETag: %s", imageURL, etag)
-		resp.Body.Close()
+	contentType, ok := normalizedImageContentType(resp.Header.Get("Content-Type"))
+	if !ok {
+		c.JSON(http.StatusUnsupportedMediaType, gin.H{"success": false, "error": "upstream content is not an allowed image type"})
 		return
 	}
 
-	// 记录成功日志
-	duration := time.Since(startTime).Milliseconds()
-	logger.Infof("[ImageProxy] 开始流式传输 [%s] - %dms - %s", imageURL, duration, contentType)
-
-	// 设置增强的缓存头
-	// 缓存30天（2592000秒）
-	c.Header("Cache-Control", "public, max-age=2592000, immutable")
-	c.Header("Content-Type", contentType)
-	c.Header("ETag", etag)
-	c.Header("Last-Modified", time.Now().Format(time.RFC1123))
-
-	// 支持跨域
-	c.Header("Access-Control-Allow-Origin", "*")
-	c.Header("Access-Control-Allow-Methods", "GET")
-	c.Header("Access-Control-Allow-Headers", "Content-Type")
-
-	// 流式传输图片到客户端（避免内存缓冲）
-	written, err := io.Copy(c.Writer, resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, middleware.DefaultImageResponseLimitBytes+1))
 	if err != nil {
 		logger.Infof("[ImageProxy] 传输图片失败 [%s]: %v", imageURL, err)
+		c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": "failed to read image"})
+		return
+	}
+	if int64(len(body)) > middleware.DefaultImageResponseLimitBytes {
+		middleware.RequestTooLargeResponse(c, middleware.DefaultImageResponseLimitBytes)
+		return
+	}
+	if !imageBodyMatchesContentType(body, contentType) {
+		c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": "upstream body does not match image type"})
 		return
 	}
 
-	logger.Infof("[ImageProxy] 传输完成 [%s] - %d bytes - ETag: %s", imageURL, written, etag)
+	// Do not create an unbounded browser, CDN, or proxy cache. A future bounded
+	// cache can be added as a separate reviewed change with an explicit budget.
+	c.Header("Cache-Control", "no-store, max-age=0")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Content-Type", contentType)
+	c.Data(http.StatusOK, contentType, body)
+
+	logger.Infof("[ImageProxy] 传输完成 [%s] - %dms - %d bytes", imageURL, time.Since(startTime).Milliseconds(), len(body))
 }
 
 // Health 健康检查

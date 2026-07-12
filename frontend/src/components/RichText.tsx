@@ -1,58 +1,13 @@
 "use client";
 
 import { memo, useMemo } from "react";
-import DOMPurify from "dompurify";
+import { sanitizeRichTextHtml } from "@/lib/contentSanitizer";
 import { optimizeHtmlImageSources } from "@/lib/imageOptimization";
 
 interface RichTextProps {
   html: string;
   className?: string;
 }
-
-const RICH_TEXT_SANITIZE_OPTIONS = {
-  // 允许的标签
-  ALLOWED_TAGS: [
-    "p",
-    "br",
-    "span",
-    "strong",
-    "b",
-    "em",
-    "i",
-    "u",
-    "a",
-    "ul",
-    "ol",
-    "li",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "blockquote",
-    "code",
-    "pre",
-    "div",
-    "img",
-  ],
-  // 允许的属性
-  ALLOWED_ATTR: [
-    "href",
-    "title",
-    "alt",
-    "class",
-    "style",
-    "target",
-    "src",
-    "width",
-    "height",
-    "data-*",
-  ],
-  // 允许的URI协议
-  ALLOWED_URI_REGEXP:
-    /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
-};
 
 /**
  * 富文本渲染组件
@@ -89,9 +44,7 @@ function RichText({ html, className = "" }: RichTextProps) {
         );
     }
 
-    return optimizeHtmlImageSources(
-      DOMPurify.sanitize(contentToSanitize, RICH_TEXT_SANITIZE_OPTIONS),
-    );
+    return optimizeHtmlImageSources(sanitizeRichTextHtml(contentToSanitize));
   }, [html]);
 
   return (

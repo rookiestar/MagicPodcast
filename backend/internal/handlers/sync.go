@@ -58,7 +58,15 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 	// 获取上传的文件
 	file, err := c.FormFile("opml_file")
 	if err != nil {
+		if middleware.RequestBodyLimitExceeded(c) {
+			middleware.RequestTooLargeResponse(c, middleware.DefaultUploadRequestLimitBytes)
+			return
+		}
 		middleware.BadRequestResponse(c, "INVALID_FILE", "OPML文件上传失败，请确保使用multipart/form-data格式")
+		return
+	}
+	if file.Size > middleware.DefaultUploadRequestLimitBytes {
+		middleware.RequestTooLargeResponse(c, middleware.DefaultUploadRequestLimitBytes)
 		return
 	}
 

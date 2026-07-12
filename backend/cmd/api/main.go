@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -89,9 +90,11 @@ func main() {
 	logger.Info("🔧 Setting up routes...")
 	r := router.SetupRouter()
 
+	listenAddress := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
+
 	// 创建 HTTP 服务器
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
+		Addr:         listenAddress,
 		Handler:      r,
 		ReadTimeout:  time.Duration(cfg.Server.ReadTimeout) * time.Second,
 		WriteTimeout: time.Duration(cfg.Server.WriteTimeout) * time.Second,
@@ -100,9 +103,9 @@ func main() {
 	// 在 goroutine 中启动服务器
 	go func() {
 		logger.Info("\n🎉 Server started successfully!")
-		logger.Infof("   Listening on: http://localhost:%d", cfg.Server.Port)
-		logger.Infof("   Health check: http://localhost:%d/health", cfg.Server.Port)
-		logger.Infof("   API endpoint: http://localhost:%d/api/v1/podcasts\n", cfg.Server.Port)
+		logger.Infof("   Listening on: http://%s", listenAddress)
+		logger.Infof("   Health check: http://%s/health", listenAddress)
+		logger.Infof("   API endpoint: http://%s/api/v1/podcasts\n", listenAddress)
 
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatalf("Failed to start server: %v", err)

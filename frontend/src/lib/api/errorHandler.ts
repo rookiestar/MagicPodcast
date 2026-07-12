@@ -5,6 +5,15 @@ interface ApiErrorResponse {
   code?: string;
   message: string;
   details?: any;
+  error?: {
+    code?: string;
+    message?: string;
+    details?: any;
+  };
+}
+
+export function getApiErrorMessage(data: ApiErrorResponse | undefined) {
+  return data?.error?.message || data?.message;
 }
 
 /**
@@ -30,11 +39,16 @@ export const handleApiError = (error: any, context?: string) => {
   if (error.response) {
     const status = error.response.status;
     const data: ApiErrorResponse = error.response.data || {};
+    const message = getApiErrorMessage(data);
 
     // 根据状态码显示不同的错误消息
     switch (status) {
       case 400:
-        toast.error(data.message || "请求参数错误，请检查输入");
+        toast.error(message || "请求参数错误，请检查输入");
+        break;
+
+      case 413:
+        toast.error(message || "请求内容过大，请缩小后重试");
         break;
 
       case 401:
@@ -50,11 +64,11 @@ export const handleApiError = (error: any, context?: string) => {
         break;
 
       case 409:
-        toast.error(data.message || "操作冲突，请稍后再试");
+        toast.error(message || "操作冲突，请稍后再试");
         break;
 
       case 429:
-        toast.error("请求过于频繁，请稍后再试");
+        toast.error(message || "请求过于频繁，请稍后再试");
         break;
 
       case 500:
@@ -68,7 +82,7 @@ export const handleApiError = (error: any, context?: string) => {
         break;
 
       default:
-        toast.error(data.message || `请求失败 (${status})`);
+        toast.error(message || `请求失败 (${status})`);
     }
 
     return;
