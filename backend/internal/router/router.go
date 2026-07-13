@@ -2,6 +2,7 @@ package router
 
 import (
 	"magicpodcast/internal/logger"
+	"time"
 
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
@@ -44,16 +45,47 @@ func SetupRouter() *gin.Engine {
 	r.Use(gzip.Gzip(gzip.DefaultCompression)) // Gzip 压缩
 	r.Use(middleware.CORS())                  // CORS 跨域支持
 
+	// 单人服务的高成本操作采用进程内准入控制：不信任客户端身份头，
+	// 通过稳定的 409/413/429 错误让前端能明确区分冲突、超限和过快请求。
+	resourceLimiter := middleware.NewOperationLimiter()
+	syncOperation := resourceLimiter.Middleware("sync", middleware.OperationPolicy{
+		MaxConcurrent: 1,
+		MaxRequests:   2,
+		Window:        time.Minute,
+	})
+	workflowOperation := resourceLimiter.Middleware("workflow", middleware.OperationPolicy{
+		MaxConcurrent: 1,
+		MaxRequests:   3,
+		Window:        time.Minute,
+	})
+	llmOperation := resourceLimiter.Middleware("llm", middleware.OperationPolicy{
+		MaxConcurrent: 1,
+		MaxRequests:   5,
+		Window:        time.Minute,
+	})
+	imageOperation := resourceLimiter.Middleware("image", middleware.OperationPolicy{
+		MaxConcurrent: 4,
+		MaxRequests:   120,
+		Window:        time.Minute,
+	})
+	cacheOperation := resourceLimiter.Middleware("cache", middleware.OperationPolicy{
+		MaxConcurrent: 1,
+		MaxRequests:   30,
+		Window:        time.Minute,
+	})
+
 	// 健康检查
 	healthHandler := handlers.NewHealthHandler()
 	r.GET("/health", healthHandler.Health)
+	r.GET("/live", healthHandler.Live)
+	r.GET("/ready", healthHandler.Ready)
 	r.GET("/ping", healthHandler.Ping)
 
 	// 图片代理服务
 	imageHandler := handlers.NewImageHandler()
 	image := r.Group("/images")
 	{
-		image.GET("/proxy", imageHandler.ProxyImage)
+		image.GET("/proxy", imageOperation, imageHandler.ProxyImage)
 		image.GET("/health", imageHandler.Health)
 	}
 
@@ -124,17 +156,17 @@ func SetupRouter() *gin.Engine {
 		}
 		sync := v1.Group("/sync")
 		{
-			sync.POST("/import", syncHandler.ImportOPML)                             // 导入OPML文件
-			sync.POST("/import-sse", syncHandler.ImportOPMLSSE)                      // 导入OPML文件（SSE流式）
-			sync.POST("/subscriptions", syncHandler.SyncSubscriptions)               // 同步所有订阅
-			sync.GET("/status", syncHandler.GetSyncStatus)                           // 获取同步状态
-			sync.POST("/podcasts/metadata-sse", syncHandler.SyncPodcastsMetadataSSE) // 同步所有播客元数据（SSE流式，已包含单集同步）
-			sync.POST("/episodes", syncHandler.SyncAllEpisodes)                      // 同步所有podcast的episodes（SSE流式）
-			sync.POST("/episodes/sync", syncHandler.SyncAllEpisodesNonStreaming)     // 同步所有podcast的episodes（非流式，用于定时任务）
+			sync.POST("/import", middleware.RequestBodyLimit(middleware.DefaultUploadRequestLimitBytes), syncOperation, syncHandler.ImportOPML)        // 导入OPML文件
+			sync.POST("/import-sse", middleware.RequestBodyLimit(middleware.DefaultUploadRequestLimitBytes), syncOperation, syncHandler.ImportOPMLSSE) // 导入OPML文件（SSE流式）
+			sync.POST("/subscriptions", syncOperation, syncHandler.SyncSubscriptions)                                                                  // 同步所有订阅
+			sync.GET("/status", syncHandler.GetSyncStatus)                                                                                             // 获取同步状态
+			sync.POST("/podcasts/metadata-sse", syncOperation, syncHandler.SyncPodcastsMetadataSSE)                                                    // 同步所有播客元数据（SSE流式，已包含单集同步）
+			sync.POST("/episodes", syncOperation, syncHandler.SyncAllEpisodes)                                                                         // 同步所有podcast的episodes（SSE流式）
+			sync.POST("/episodes/sync", syncOperation, syncHandler.SyncAllEpisodesNonStreaming)                                                        // 同步所有podcast的episodes（非流式，用于定时任务）
 		}
 
 		// Episode Sync 路由（单个podcast的episode同步）
-		v1.POST("/podcasts/:id/episodes/sync", syncHandler.SyncPodcastEpisodes) // 同步指定podcast的episodes
+		v1.POST("/podcasts/:id/episodes/sync", syncOperation, syncHandler.SyncPodcastEpisodes) // 同步指定podcast的episodes
 
 		// Workflow 路由
 		// 创建workflow执行器
@@ -174,20 +206,20 @@ func SetupRouter() *gin.Engine {
 		workflowHandler := handlers.NewWorkflowHandler(workflowExecutor, globalScheduler, summarizer)
 		workflows := v1.Group("/workflows")
 		{
-			workflows.GET("", workflowHandler.List)                 // 获取工作流列表
-			workflows.POST("", workflowHandler.Create)              // 创建工作流
-			workflows.GET("/:id", workflowHandler.Get)              // 获取工作流详情
-			workflows.PUT("/:id", workflowHandler.Update)           // 更新工作流
-			workflows.DELETE("/:id", workflowHandler.Delete)        // 删除工作流
-			workflows.POST("/:id/toggle", workflowHandler.Toggle)   // 启用/禁用工作流
-			workflows.GET("/:id/jobs", workflowHandler.ListJobs)    // 获取工作流执行历史
-			workflows.POST("/:id/trigger", workflowHandler.Trigger) // 手动触发工作流
+			workflows.GET("", workflowHandler.List)                                    // 获取工作流列表
+			workflows.POST("", workflowHandler.Create)                                 // 创建工作流
+			workflows.GET("/:id", workflowHandler.Get)                                 // 获取工作流详情
+			workflows.PUT("/:id", workflowHandler.Update)                              // 更新工作流
+			workflows.DELETE("/:id", workflowHandler.Delete)                           // 删除工作流
+			workflows.POST("/:id/toggle", workflowHandler.Toggle)                      // 启用/禁用工作流
+			workflows.GET("/:id/jobs", workflowHandler.ListJobs)                       // 获取工作流执行历史
+			workflows.POST("/:id/trigger", workflowOperation, workflowHandler.Trigger) // 手动触发工作流
 		}
 
 		// Job 路由
-		v1.GET("/jobs/:id", workflowHandler.GetJob)                               // 获取任务详情
-		v1.GET("/jobs/:id/report", workflowHandler.GetJobReport)                  // 获取任务报告
-		v1.POST("/jobs/:id/regenerate-llm", workflowHandler.RegenerateLLMSummary) // 重新生成AI摘要
+		v1.GET("/jobs/:id", workflowHandler.GetJob)                                             // 获取任务详情
+		v1.GET("/jobs/:id/report", workflowHandler.GetJobReport)                                // 获取任务报告
+		v1.POST("/jobs/:id/regenerate-llm", llmOperation, workflowHandler.RegenerateLLMSummary) // 重新生成AI摘要
 
 		// Scheduler 路由
 		schedulerHandler := handlers.NewSchedulerHandler(globalScheduler)
@@ -203,8 +235,8 @@ func SetupRouter() *gin.Engine {
 		cacheHandler := handlers.NewCacheHandler()
 		cacheGroup := v1.Group("/cache")
 		{
-			cacheGroup.GET("/stats", cacheHandler.GetStats)
-			cacheGroup.POST("/clear", cacheHandler.ClearCache)
+			cacheGroup.GET("/stats", cacheOperation, cacheHandler.GetStats)
+			cacheGroup.POST("/clear", cacheOperation, cacheHandler.ClearCache)
 		}
 
 		// LLM路由
@@ -219,8 +251,8 @@ func SetupRouter() *gin.Engine {
 			llm := v1.Group("/llm")
 			{
 				llm.GET("/stats", llmStatsHandler.GetGlobalLLMStats)
-				llm.GET("/health", llmHealthHandler.GetHealth)
-				llm.POST("/validate-key", llmConfigHandler.ValidateKey)
+				llm.GET("/health", llmOperation, llmHealthHandler.GetHealth)
+				llm.POST("/validate-key", llmOperation, llmConfigHandler.ValidateKey)
 				llm.GET("/models", llmConfigHandler.GetModels)
 			}
 
