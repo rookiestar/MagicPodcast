@@ -1,8 +1,27 @@
 /** @type {import('next').NextConfig} */
 const imageOptimizerPath = process.env.NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH || '/_next/image'
+const nextDistDir = process.env.MAGICPODCAST_NEXT_DIST_DIR || '.next'
+const loopbackBackendUrl = 'http://127.0.0.1:8080'
+
+function resolveLoopbackBackendUrl(rawUrl = process.env.BACKEND_URL) {
+  const backendUrl = rawUrl || loopbackBackendUrl
+  const parsedUrl = new URL(backendUrl)
+  const isLoopback =
+    parsedUrl.hostname === '127.0.0.1' ||
+    parsedUrl.hostname === '[::1]' ||
+    parsedUrl.hostname === '::1'
+
+  if (parsedUrl.protocol !== 'http:' || !isLoopback || parsedUrl.username || parsedUrl.password) {
+    throw new Error('BACKEND_URL must use an HTTP loopback address without credentials')
+  }
+
+  return parsedUrl.origin
+}
 
 const nextConfig = {
   reactStrictMode: true,
+  // 发布流程把新构建放在独立目录，验证通过后才切换为 .next。
+  distDir: nextDistDir,
   // 生产构建时移除 console 语句（保留 console.error 和 console.warn）
   compiler: {
     removeConsole: {
@@ -19,81 +38,8 @@ const nextConfig = {
     // 图片尺寸断点
     imageSizes: [96, 128, 256, 384, 512, 640],
 
-    // 远程图片模式配置（Next.js 14推荐）
-    // 限制：remotePatterns 最多 50 个元素
-    // 策略：本地服务优先 + 少量关键域名 + 通配符兜底
-    remotePatterns: [
-      // ==================== 本地开发服务（必须最先匹配）====================
-      {
-        protocol: 'http',
-        hostname: 'localhost',
-        port: '8080',
-        pathname: '/images/**',
-      },
-      {
-        protocol: 'http',
-        hostname: 'localhost',
-        port: '3000',
-        pathname: '/api/v1/images/**',
-      },
-
-      // ==================== 最常用的播客平台（HTTP必须显式支持）====================
-      // 小宇宙/蜻蜓 CDN
-      {
-        protocol: 'http',
-        hostname: '**.xmcdn.com',
-      },
-      {
-        protocol: 'https',
-        hostname: '**.xmcdn.com',
-      },
-      // 荔枝FM
-      {
-        protocol: 'http',
-        hostname: '**.lizhi.fm',
-      },
-      {
-        protocol: 'https',
-        hostname: '**.lizhi.fm',
-      },
-      // Typlog（需要代理）
-      {
-        protocol: 'http',
-        hostname: '**.typlog.com',
-      },
-      {
-        protocol: 'https',
-        hostname: '**.typlog.com',
-      },
-      // Vistopia
-      {
-        protocol: 'http',
-        hostname: '**.vistopia.com.cn',
-      },
-      {
-        protocol: 'https',
-        hostname: '**.vistopia.com.cn',
-      },
-      // XYZ CDN
-      {
-        protocol: 'http',
-        hostname: '**.xyzcdn.net',
-      },
-      {
-        protocol: 'https',
-        hostname: '**.xyzcdn.net',
-      },
-
-      // ==================== 通用通配符（兜底，允许所有其他域名）====================
-      {
-        protocol: 'https',
-        hostname: '**',
-      },
-      {
-        protocol: 'http',
-        hostname: '**',
-      },
-    ],
+    // 远程图片统一经后端白名单代理，不允许 Next 优化器直接访问任意域名。
+    remotePatterns: [],
 
     // 最小缓存TTL（30天，配合后端缓存策略）
     minimumCacheTTL: 60 * 60 * 24 * 30,
@@ -101,7 +47,7 @@ const nextConfig = {
     // 图片优化配置
     path: imageOptimizerPath,
     loader: 'default',
-    dangerouslyAllowSVG: true,
+    dangerouslyAllowSVG: false,
     contentDispositionType: 'attachment',
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
@@ -118,7 +64,7 @@ module.exports = {
   ...nextConfig,
   // API 代理配置 - 兼顾本地开发和域名访问
   async rewrites() {
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8080'
+    const backendUrl = resolveLoopbackBackendUrl()
     return [
       {
         source: '/api/v1/:path*',

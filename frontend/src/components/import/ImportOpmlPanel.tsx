@@ -37,7 +37,7 @@ export default function ImportOpmlPanel({
           accept=".opml,.xml"
           onChange={onFileChange}
           disabled={disabled}
-          className="block w-full text-sm text-slate-500 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:file:bg-slate-100 disabled:file:text-slate-400 dark:text-slate-400"
+          className="block w-full text-sm text-slate-500 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:opacity-60 dark:text-slate-400"
         />
         {file && (
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">

@@ -35,6 +35,7 @@ export const syncApi = {
   importOPMLSSE: async (
     file: File,
     onProgress: BasicProgressCallback,
+    confirmationText: string,
   ): Promise<void> => {
     const formData = new FormData();
     formData.append("opml_file", file);
@@ -46,6 +47,7 @@ export const syncApi = {
         onProgress(type, message, current, total);
       },
       {
+        headers: { "X-MagicPodcast-Confirmation": confirmationText },
         timeout: TEN_MINUTES,
         logPrefix: "[Import]",
         emptyMessage: "未收到任何导入消息",
@@ -61,11 +63,14 @@ export const syncApi = {
 
   syncPodcastsMetadataSSE: async (
     onProgress: SyncProgressCallback,
+    confirmationText: string,
   ): Promise<void> => {
     return sseRequest(
       {
         endpoint: "/api/v1/sync/podcasts/metadata-sse",
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmation_text: confirmationText }),
         timeout: TEN_MINUTES,
         logPrefix: "[Sync Metadata]",
         emptyMessage: "未收到任何同步消息",

@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { workflowApi } from "@/lib/api";
+import { requestTypedConfirmation } from "@/lib/confirmation";
 import { toast } from "@/lib/toast";
 import type { Workflow } from "@/types";
 
@@ -44,8 +45,15 @@ export function useWorkflowActions({
       return;
     }
 
+    const confirmationText = requestTypedConfirmation({
+      action: `立即执行工作流“${workflow.name}”`,
+      impact: "可能抓取网络内容、写入数据库并调用 LLM。",
+      phrase: `RUN WORKFLOW ${workflowId}`,
+    });
+    if (!confirmationText) return;
+
     try {
-      await workflowApi.trigger(workflowId);
+      await workflowApi.trigger(workflowId, confirmationText);
       toast.success("工作流已开始执行");
       onSuccess?.();
     } catch (error: unknown) {
@@ -58,12 +66,15 @@ export function useWorkflowActions({
   const handleDelete = useCallback(async () => {
     if (!workflow) return;
 
-    if (!confirm(`确定要删除工作流 "${workflow.name}" 吗？此操作不可恢复。`)) {
-      return;
-    }
+    const confirmationText = requestTypedConfirmation({
+      action: `删除工作流“${workflow.name}”`,
+      impact: "会删除该工作流及其执行入口，此操作不可恢复。",
+      phrase: `DELETE WORKFLOW ${workflowId}`,
+    });
+    if (!confirmationText) return;
 
     try {
-      await workflowApi.delete(workflowId);
+      await workflowApi.delete(workflowId, confirmationText);
       toast.success("工作流已删除");
       router.push("/workflows");
     } catch (error) {

@@ -129,10 +129,11 @@ async function removeTagFromPodcast(
 async function updateCustomCover(
   id: number,
   customCoverUrl: string,
+  confirmationText: string,
 ): Promise<void> {
   const response = await api.put<ApiResponse<void>>(
     buildPodcastCustomCoverPath(id),
-    { custom_cover_url: customCoverUrl },
+    { custom_cover_url: customCoverUrl, confirmation_text: confirmationText },
   );
   handleVoidResponse(response);
 }

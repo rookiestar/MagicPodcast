@@ -3,8 +3,12 @@
 import React, { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import rehypeRaw from "rehype-raw";
 import PlainImage from "@/components/ui/PlainImage";
+import {
+  isSafeInlineImageData,
+  sanitizeContentUrl,
+} from "@/lib/imageSourcePolicy";
+import { sanitizeMarkdownSource } from "@/lib/contentSanitizer";
 import { getOptimizedImageUrl } from "@/lib/imageOptimization";
 
 interface MarkdownViewerProps {
@@ -23,11 +27,18 @@ export default function MarkdownViewer({
 
     // 替换所有二维码语法为占位符
     const cleaned = content.replace(regex, (_, base64) => {
+      const inlineData = `data:image/png;base64,${base64}`;
+      if (!isSafeInlineImageData(inlineData)) {
+        return "";
+      }
       list.push(base64);
       return `![二维码](qr-placeholder-${list.length - 1})`;
     });
 
-    return { qrCodesList: list, cleanedContent: cleaned };
+    return {
+      qrCodesList: list,
+      cleanedContent: sanitizeMarkdownSource(cleaned),
+    };
   }, [content]);
 
   return (
@@ -36,7 +47,7 @@ export default function MarkdownViewer({
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw]}
+        urlTransform={(url) => sanitizeContentUrl(url)}
         components={{
           img: ({ src, alt, ...props }) => {
             // 处理二维码占位符
@@ -46,7 +57,7 @@ export default function MarkdownViewer({
                 const index = parseInt(match[1], 10);
                 const base64 = qrCodesList[index];
 
-                if (base64) {
+                if (base64 && isSafeInlineImageData(`data:image/png;base64,${base64}`)) {
                   return (
                     <PlainImage
                       src={`data:image/png;base64,${base64}`}
@@ -68,9 +79,13 @@ export default function MarkdownViewer({
             }
             // 其他图片正常渲染
             const imageSrc = typeof src === "string" ? src : "";
+            const safeImageSrc = getOptimizedImageUrl(imageSrc, 768, 80);
+            if (!safeImageSrc) {
+              return null;
+            }
             return (
               <PlainImage
-                src={getOptimizedImageUrl(imageSrc, 768, 80)}
+                src={safeImageSrc}
                 alt={alt || ""}
                 loading="lazy"
                 decoding="async"
@@ -114,16 +129,22 @@ export default function MarkdownViewer({
               {children}
             </ol>
           ),
-          a: ({ href, children }) => (
-            <a
-              href={href as string}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 underline"
-            >
-              {children}
-            </a>
-          ),
+          a: ({ href, children }) => {
+            const safeHref = sanitizeContentUrl(href);
+            if (!safeHref) {
+              return <span>{children}</span>;
+            }
+            return (
+              <a
+                href={safeHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 underline"
+              >
+                {children}
+              </a>
+            );
+          },
           hr: () => (
             <hr className="my-4 border-slate-300 dark:border-slate-700" />
           ),

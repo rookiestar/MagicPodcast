@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance } from "axios";
-import { handleApiError } from "./errorHandler";
+import { apiBaseUrl } from "../apiBaseUrl";
+import { getApiErrorMessage, handleApiError } from "./errorHandler";
 import type { ApiResponse } from "@/types";
 
 // ============ API 响应处理辅助函数 ============
@@ -43,12 +44,6 @@ export function handleVoidResponse(response: { data: ApiResponse<void> }): void 
   }
 }
 
-// 在浏览器环境中使用相对路径（支持 tunnel/代理访问）
-// 在 SSR 环境中使用完整 URL
-const API_URL = typeof window !== "undefined"
-  ? (process.env.NEXT_PUBLIC_API_URL || "")  // 浏览器：相对路径或自定义 URL
-  : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080");  // SSR：需要完整 URL
-
 // 自定义参数序列化函数（兼容 Gin 的 QueryArray）
 // 将 { tag_id: [1, 2] } 序列化为 ?tag_id=1&tag_id=2 而不是 ?tag_id[]=1&tag_id[]=2
 const paramsSerializer = (params: Record<string, unknown>): string => {
@@ -66,7 +61,7 @@ const paramsSerializer = (params: Record<string, unknown>): string => {
 
 // 创建 axios 实例
 export const api: AxiosInstance = axios.create({
-  baseURL: API_URL,
+  baseURL: apiBaseUrl,
   timeout: 60000, // 增加到60秒，支持分页加载大量数据
   headers: {
     "Content-Type": "application/json",
@@ -97,6 +92,11 @@ api.interceptors.response.use(
     }
 
     console.error("[API] Response error:", error.message, error.config?.url);
+
+    const apiMessage = getApiErrorMessage(error.response?.data);
+    if (apiMessage) {
+      error.message = apiMessage;
+    }
 
     if (error.code === "ECONNABORTED") {
       console.error("[API] Request timeout");

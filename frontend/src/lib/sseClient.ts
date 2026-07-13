@@ -8,14 +8,8 @@ import {
   normalizeSSEOptions,
   readSSEStream,
 } from "./sseStreamReader";
+import { apiBaseUrl } from "./apiBaseUrl";
 import { debugLog } from "./debugLog";
-
-// 在浏览器环境中使用相对路径（支持 tunnel/代理访问）
-// 在 SSR 环境中使用完整 URL
-const API_URL =
-  typeof window !== "undefined"
-    ? process.env.NEXT_PUBLIC_API_URL || ""
-    : process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 /**
  * SSE 消息类型
@@ -116,7 +110,7 @@ export async function sseRequest(
   const startedAt = Date.now();
 
   try {
-    const response = await fetch(`${API_URL}${endpoint}`, {
+    const response = await fetch(`${apiBaseUrl}${endpoint}`, {
       method,
       headers,
       body,
@@ -131,7 +125,15 @@ export async function sseRequest(
     );
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      let message = `请求失败 (${response.status})`;
+      const payload = (await response.json().catch(() => null)) as {
+        message?: string;
+        error?: { message?: string; code?: string };
+      } | null;
+      message = payload?.error?.message || payload?.message || message;
+      const error = new Error(message) as Error & { code?: string };
+      error.code = payload?.error?.code;
+      throw error;
     }
 
     const reader = response.body?.getReader();
@@ -168,7 +170,7 @@ export async function sseFormDataRequest(
   endpoint: string,
   formData: FormData,
   onProgress: SSEProgressCallback,
-  options?: Omit<SSERequestOptions, "endpoint" | "body" | "headers">,
+  options?: Omit<SSERequestOptions, "endpoint" | "body">,
 ): Promise<void> {
   return sseRequest(
     {

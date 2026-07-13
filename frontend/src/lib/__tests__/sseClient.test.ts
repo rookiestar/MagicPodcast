@@ -195,4 +195,24 @@ describe("sseRequest", () => {
     await vi.advanceTimersByTimeAsync(1000);
     await assertion;
   });
+
+  it("surfaces the stable nested API message for rejected SSE requests", async () => {
+    const onProgress = vi.fn();
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: "REQUEST_TOO_LARGE",
+            message: "请求内容超过大小限制，请缩小后重试",
+          },
+        }),
+        { status: 413, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await expect(
+      sseRequest({ endpoint: "/api/test", timeout: 1000 }, onProgress),
+    ).rejects.toThrow("请求内容超过大小限制，请缩小后重试");
+  });
 });

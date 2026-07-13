@@ -71,6 +71,18 @@ function deferred<T = void>() {
 describe("ImportPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.defineProperty(window, "confirm", {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => true),
+    });
+    Object.defineProperty(window, "prompt", {
+      configurable: true,
+      writable: true,
+      value: vi.fn((message: string) =>
+        message.includes("IMPORT OPML") ? "IMPORT OPML" : "SYNC ALL",
+      ),
+    });
     installLocalStorageMock();
     localStorage.clear();
   });
