@@ -59,8 +59,9 @@ function PodcastCover({
       ? `${baseImageUrl}&_retry=${retryCount}`
       : baseImageUrl;
 
-  // 根据优先级设置加载策略
-  const isHighPriority = priority === "high" || (priority !== "low" && index < 6);
+  // 根据优先级设置加载策略。扩大高优先级范围到前 18 个（桌面端约 2-3 屏可视区域），
+  // 配合后端 imageOperation.MaxConcurrent=12 的并发能力，让首屏及附近图片立即加载。
+  const isHighPriority = priority === "high" || (priority !== "low" && index < 18);
 
   // 自动为首屏图片设置高优先级（如果未显式指定）
   const resolvedFetchPriority = fetchPriority ?? (isHighPriority ? "high" : "auto");

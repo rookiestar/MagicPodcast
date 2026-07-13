@@ -79,7 +79,7 @@ const PodcastRow = memo(function PodcastRow({
                 podcastIndex: index,
               });
             }}
-            priority={index < 6 ? "high" : index < 15 ? "medium" : "low"}
+            priority={index < 12 ? "high" : index < 24 ? "medium" : "low"}
             isMobile={isMobile}
           />
         );
@@ -113,10 +113,12 @@ export default function VirtualPodcastGrid({
   const rowGap = getPodcastGridRowGap(isMobile);
 
   // 使用 window 虚拟化（基于页面滚动）
+  // overscan=12 保持约 12 行已挂载（桌面端 ~5800px），减少向下滚动时的卸载/
+  // 重挂载频率，配合图片代理的 Cache-Control 缓存头实现回滚时即时渲染。
   const rowVirtualizer = useWindowVirtualizer({
     count: rowCount,
     estimateSize: () => estimateRowHeight,
-    overscan: 5, // 预渲染 5 行
+    overscan: 12,
     scrollMargin: listRef.current?.offsetTop ?? 0,
   });
 

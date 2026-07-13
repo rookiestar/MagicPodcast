@@ -397,9 +397,10 @@ func (h *ImageHandler) ProxyImage(c *gin.Context) {
 	// coverMaxDimension preserves visual quality while avoiding 413.
 	body, contentType = maybeCompressImage(body, contentType)
 
-	// Do not create an unbounded browser, CDN, or proxy cache. A future bounded
-	// cache can be added as a separate reviewed change with an explicit budget.
-	c.Header("Cache-Control", "no-store, max-age=0")
+	// Bounded cache for cover art images. Podcast covers change rarely (RSS sync
+	// cycle), so a long TTL with stale-while-revalidate is safe and eliminates
+	// redundant round-trips on virtualization remount / scroll-back scenarios.
+	c.Header("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Content-Type", contentType)
 	c.Data(http.StatusOK, contentType, body)
