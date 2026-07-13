@@ -12,8 +12,9 @@ const DEFAULT_SIZES = "(max-width: 640px) 50vw, (max-width: 828px) 33vw, (max-wi
 // 基础容器样式
 const BASE_CONTAINER_CLASS = "aspect-square bg-slate-200 relative w-full h-full overflow-hidden";
 
-// 预加载距离阈值（像素）
-const PRELOAD_MARGIN = "200px";
+// 预加载距离阈值（像素）。扩大到 ~800px（约 2 行卡片高度），使图片在
+// 进入视口前有足够时间完成网络请求和渲染，避免快速滚动时出现灰底占位。
+const PRELOAD_MARGIN = "800px";
 
 // 瞬时拥塞（409/429/5xx）或网络抖动下的有限退避重试：<img> 的 onError 拿不到
 // 状态码，统一按失败重试，超过次数再降级为占位，避免单次瞬时失败造成永久占位。
