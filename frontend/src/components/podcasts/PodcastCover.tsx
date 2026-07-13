@@ -16,12 +16,6 @@ const BASE_CONTAINER_CLASS = "aspect-square bg-slate-200 relative w-full h-full 
 // 进入视口前有足够时间完成网络请求和渲染，避免快速滚动时出现灰底占位。
 const PRELOAD_MARGIN = "800px";
 
-// 分波加载：非高优先级图片按 index 分组错开，避免首屏/滚动时大量并发
-// 请求触发 Cloudflare Access 速率限制（302 登录跳转 → 灰底占位）。
-// 每波间隔 ms，每波加载张数。
-const STAGGER_WAVE_INTERVAL_MS = 150;
-const STAGGER_IMAGES_PER_WAVE = 3;
-
 // 瞬时拥塞（409/429/5xx）或网络抖动下的有限退避重试：<img> 的 onError 拿不到
 // 状态码，统一按失败重试，超过次数再降级为占位，避免单次瞬时失败造成永久占位。
 const MAX_IMAGE_RETRIES = 2;
@@ -71,7 +65,7 @@ function PodcastCover({
   // 自动为首屏图片设置高优先级（如果未显式指定）
   const resolvedFetchPriority = fetchPriority ?? (isHighPriority ? "high" : "auto");
 
-  // 使用 Intersection Observer 实现提前预加载 + 分波错峰
+  // 使用 Intersection Observer 实现提前预加载
   useEffect(() => {
     // 高优先级图片立即加载
     if (isHighPriority) {
@@ -79,35 +73,24 @@ function PodcastCover({
       return;
     }
 
-    // 低优先级图片：进入预加载区后按 index 分波延迟，避免并发涌出
+    // 低优先级图片使用 Intersection Observer 提前预加载
     const container = containerRef.current;
     if (!container) return;
 
-    let staggerTimer: ReturnType<typeof setTimeout> | null = null;
-
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (!entry.isIntersecting) return;
-        observer.disconnect();
-
-        // 按所在波次延迟：index 6,7,8 → 波0(0ms), 9,10,11 → 波1(150ms), ...
-        const waveIndex = Math.floor((index - 6) / STAGGER_IMAGES_PER_WAVE);
-        const delay = waveIndex * STAGGER_WAVE_INTERVAL_MS;
-
-        staggerTimer = setTimeout(() => {
+        if (entry.isIntersecting) {
           setShouldLoad(true);
-        }, delay);
+          observer.disconnect();
+        }
       },
       { rootMargin: PRELOAD_MARGIN }
     );
 
     observer.observe(container);
 
-    return () => {
-      observer.disconnect();
-      if (staggerTimer) clearTimeout(staggerTimer);
-    };
-  }, [isHighPriority, index]);
+    return () => observer.disconnect();
+  }, [isHighPriority]);
 
   // 切换封面时重置错误与重试状态，并取消尚未触发的重试，避免上一张的失败影响新封面
   useEffect(() => {
