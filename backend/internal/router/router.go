@@ -63,9 +63,13 @@ func SetupRouter() *gin.Engine {
 		MaxRequests:   5,
 		Window:        time.Minute,
 	})
+	// 图片代理是无状态只读字节转发，且已有 reviewed-hosts 白名单、私网/CGNAT
+	// 阻断、超时和大小/类型校验兜底；首屏会并发拉取多张封面，这里按真实首屏
+	// 规模放宽准入，避免瞬时并发被中间件以 409 拒绝而进入 handler 之前。属调度
+	// 行为变更，上限取值见 docs/HUMAN_REVIEW_QUEUE.md（issue #14）。
 	imageOperation := resourceLimiter.Middleware("image", middleware.OperationPolicy{
-		MaxConcurrent: 4,
-		MaxRequests:   120,
+		MaxConcurrent: 32,
+		MaxRequests:   600,
 		Window:        time.Minute,
 	})
 	cacheOperation := resourceLimiter.Middleware("cache", middleware.OperationPolicy{
