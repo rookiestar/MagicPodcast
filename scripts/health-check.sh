@@ -145,7 +145,36 @@ if [ "$(uname)" = "Darwin" ] && command -v launchctl >/dev/null 2>&1; then
 fi
 echo ""
 
-echo -e "${YELLOW}[5] 构建缓存与脚本入口${NC}"
+echo -e "${YELLOW}[5] 加密异机备份${NC}"
+echo "-------------------------------------------"
+# When the daily launchd job is configured, reuse its non-secret destination
+# settings so an interactive health check does not report a false
+# "unconfigured" state merely because the shell has no launchd environment.
+backup_plist="$HOME/Library/LaunchAgents/com.magicpodcast.backup.plist"
+if [ -z "${MAGICPODCAST_OFFSITE_DIR:-}" ] && [ "$(uname)" = "Darwin" ] && command -v plutil >/dev/null 2>&1 && [ -f "$backup_plist" ]; then
+  launchd_offsite_dir="$(plutil -extract EnvironmentVariables.MAGICPODCAST_OFFSITE_DIR raw -o - "$backup_plist" 2>/dev/null || true)"
+  launchd_recipient_file="$(plutil -extract EnvironmentVariables.MAGICPODCAST_AGE_RECIPIENT_FILE raw -o - "$backup_plist" 2>/dev/null || true)"
+  if [ -n "$launchd_offsite_dir" ] && [ -n "$launchd_recipient_file" ]; then
+    export MAGICPODCAST_OFFSITE_DIR="$launchd_offsite_dir"
+    export MAGICPODCAST_AGE_RECIPIENT_FILE="$launchd_recipient_file"
+    export MAGICPODCAST_OFFSITE_MAX_AGE_HOURS="$(plutil -extract EnvironmentVariables.MAGICPODCAST_OFFSITE_MAX_AGE_HOURS raw -o - "$backup_plist" 2>/dev/null || echo 26)"
+  fi
+fi
+if [ -n "${MAGICPODCAST_OFFSITE_DIR:-}" ] || [ -n "${MAGICPODCAST_AGE_RECIPIENT_FILE:-}" ]; then
+  offsite_status="$($PROJECT_DIR/scripts/offsite-status.sh 2>/dev/null || true)"
+  if echo "$offsite_status" | grep -q '^status=ok'; then
+    ok "异机加密备份正常: $offsite_status"
+  else
+    fail "异机加密备份异常: ${offsite_status:-unknown}"
+    issues=$((issues + 1))
+  fi
+else
+  fail "异机加密备份未配置；当前仅有本机备份"
+  issues=$((issues + 1))
+fi
+echo ""
+
+echo -e "${YELLOW}[6] 构建缓存与脚本入口${NC}"
 echo "-------------------------------------------"
 if [ -d "$PROJECT_DIR/frontend/.next" ]; then
   cache_size="$(du -sh "$PROJECT_DIR/frontend/.next" 2>/dev/null | cut -f1)"
@@ -158,8 +187,12 @@ else
   ok "Next.js 临时构建目录不存在"
 fi
 
-for script in start.sh stop.sh restart.sh health.sh; do
-  if [ -L "$PROJECT_DIR/$script" ] || [ -x "$PROJECT_DIR/$script" ]; then
+for script in start.sh stop.sh restart.sh health.sh release.sh offsite-backup.sh offsite-status.sh restore-drill.sh; do
+  script_path="$PROJECT_DIR/$script"
+  if [ ! -e "$script_path" ] && [ -e "$PROJECT_DIR/scripts/$script" ]; then
+    script_path="$PROJECT_DIR/scripts/$script"
+  fi
+  if [ -L "$script_path" ] || [ -x "$script_path" ]; then
     ok "$script 可用"
   else
     warn "$script 不可执行或不存在"

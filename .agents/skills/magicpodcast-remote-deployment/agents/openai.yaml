@@ -1,0 +1,4 @@
+interface:
+  display_name: "MagicPodcast 远程部署"
+  short_description: "安全执行 MagicPodcast 的 Mac mini 远程部署与运行态验收"
+  default_prompt: "Use $magicpodcast-remote-deployment to deploy MagicPodcast safely to the configured Mac Mini and verify the live security boundary."
