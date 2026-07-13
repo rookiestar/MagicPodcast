@@ -15,8 +15,10 @@ import (
 const DefaultUploadRequestLimitBytes int64 = 8 * 1024 * 1024
 
 // DefaultImageResponseLimitBytes bounds the amount of data that the image
-// proxy will retain and return for one request.
-const DefaultImageResponseLimitBytes int64 = 5 * 1024 * 1024
+// proxy will retain and return for one request. Raised from 5 MiB to 20 MiB to
+// accommodate large cover art (e.g. image.xyzcdn.net JPEGs ~7 MiB). The service
+// is single-owner with no CDN cache, so this trades bandwidth for coverage.
+const DefaultImageResponseLimitBytes int64 = 20 * 1024 * 1024
 
 const requestBodyLimitExceededKey = "magicpodcast.request_body_limit_exceeded"
 
