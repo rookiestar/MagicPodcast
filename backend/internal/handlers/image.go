@@ -55,8 +55,12 @@ func NewImageHandler() *ImageHandler {
 				DialContext:           newSafeImageDialContext(defaultImageLookup, &net.Dialer{Timeout: imageDialTimeout}),
 				TLSHandshakeTimeout:   imageDialTimeout,
 				ResponseHeaderTimeout: imageFetchTimeout,
-				MaxIdleConns:          8,
-				MaxIdleConnsPerHost:   2,
+				// Connection pool sized to match imageOperation admission limits
+					// (MaxConcurrent:32). Each concurrent proxy request needs one
+					// outbound connection; undersizing causes requests to queue on
+					// dial, which manifests as slow/stuck cover art during scroll.
+					MaxIdleConns:          48,
+					MaxIdleConnsPerHost:   16,
 				IdleConnTimeout:       30 * time.Second,
 			},
 			// 禁止自动跟随重定向，防止通过跳转绕过白名单和 DNS 检查。
