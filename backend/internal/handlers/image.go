@@ -5,7 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"io"
+	"math"
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/middleware"
 	"mime"
@@ -16,11 +19,18 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/image/draw"
 )
 
 const (
-	imageFetchTimeout = 10 * time.Second
-	imageDialTimeout  = 5 * time.Second
+	imageFetchTimeout        = 10 * time.Second
+	imageDialTimeout         = 5 * time.Second
+	// Cloudflare edge (Access / Tunnel) enforces an implicit response body
+	// limit around 3–5 MiB that returns 413 regardless of plan. Images larger
+	// than this threshold are re-encoded to fit through the edge.
+	cloudflareSafeSize = 3 * 1024 * 1024
+	// Cover art is displayed at ~256 px; 800 px covers 2× retina with margin.
+	coverMaxDimension = 800
 )
 
 var (
@@ -254,6 +264,57 @@ func minInt(a, b int) int {
 	return b
 }
 
+// maybeCompressImage decodes and re-encodes images that exceed the Cloudflare edge
+// response body limit. Cover art displayed at ~256 px does not need multi-MiB
+// originals; resizing to coverMaxDimension with JPEG quality 85 preserves visual
+// quality while staying well under the ~3–5 MiB edge limit. Returns the original
+// body unchanged if it is already small enough, cannot be decoded, or
+// re-encoding does not reduce size.
+func maybeCompressImage(body []byte, contentType string) ([]byte, string) {
+	if int64(len(body)) <= cloudflareSafeSize {
+		return body, contentType
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(body))
+	if err != nil {
+		// AVIF and some WebP variants cannot be decoded by the standard library;
+		// return the original body rather than failing the request.
+		return body, contentType
+	}
+
+	bounds := img.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+
+	// If dimensions are already small but file is still large (e.g. uncompressed
+	// PNG), try re-encoding as JPEG without resizing.
+	if w <= coverMaxDimension && h <= coverMaxDimension {
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 80}); err != nil {
+			return body, contentType
+		}
+		if buf.Len() < len(body) {
+			logger.Infof("[ImageProxy] 重编码 %dx%d (%d → %d bytes)", w, h, len(body), buf.Len())
+			return buf.Bytes(), "image/jpeg"
+		}
+		return body, contentType
+	}
+
+	// Resize to coverMaxDimension preserving aspect ratio.
+	ratio := float64(coverMaxDimension) / math.Max(float64(w), float64(h))
+	nw := int(math.Round(float64(w) * ratio))
+	nh := int(math.Round(float64(h) * ratio))
+	dst := image.NewRGBA(image.Rect(0, 0, nw, nh))
+	draw.CatmullRom.Scale(dst, dst.Rect, img, bounds, draw.Over, nil)
+
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 85}); err != nil {
+		return body, contentType
+	}
+	logger.Infof("[ImageProxy] 压缩图片 %dx%d → %dx%d (%d → %d bytes)",
+		w, h, nw, nh, len(body), buf.Len())
+	return buf.Bytes(), "image/jpeg"
+}
+
 // ProxyImage 代理图片请求
 func (h *ImageHandler) ProxyImage(c *gin.Context) {
 	imageURL := c.Query("url")
@@ -326,6 +387,11 @@ func (h *ImageHandler) ProxyImage(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": "upstream body does not match image type"})
 		return
 	}
+
+	// Compress large images to fit through Cloudflare edge limits (~3–5 MiB).
+	// Cover art does not need multi-MiB originals; re-encoding as JPEG at
+	// coverMaxDimension preserves visual quality while avoiding 413.
+	body, contentType = maybeCompressImage(body, contentType)
 
 	// Do not create an unbounded browser, CDN, or proxy cache. A future bounded
 	// cache can be added as a separate reviewed change with an explicit budget.
