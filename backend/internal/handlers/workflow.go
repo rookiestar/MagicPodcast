@@ -307,6 +307,14 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 		middleware.BadRequestResponse(c, "INVALID_PARAM", err.Error())
 		return
 	}
+	if !middleware.RequireConfirmationText(
+		c,
+		req.ConfirmationText,
+		fmt.Sprintf("UPDATE WORKFLOW %s", id),
+		fmt.Sprintf("覆盖工作流 %q 的范围、规则和调度配置", workflow.Name),
+	) {
+		return
+	}
 
 	// 验证cron表达式
 	if err := models.ValidateCron(req.Schedule); err != nil {
@@ -417,6 +425,17 @@ func (h *WorkflowHandler) Delete(c *gin.Context) {
 	var workflow models.Workflow
 	if err := db.First(&workflow, id).Error; err != nil {
 		middleware.NotFoundResponse(c, "NOT_FOUND", "Workflow not found")
+		return
+	}
+
+	var req middleware.ConfirmationRequest
+	_ = c.ShouldBindJSON(&req)
+	if !middleware.RequireConfirmationText(
+		c,
+		req.ConfirmationText,
+		fmt.Sprintf("DELETE WORKFLOW %s", id),
+		fmt.Sprintf("删除工作流 %q及其关联的执行入口，此操作不可恢复", workflow.Name),
+	) {
 		return
 	}
 
@@ -608,6 +627,8 @@ func (h *WorkflowHandler) GetJobReport(c *gin.Context) {
 func (h *WorkflowHandler) RegenerateLLMSummary(c *gin.Context) {
 	db := database.GetDB()
 	jobID := c.Param("id")
+	var confirmation middleware.ConfirmationRequest
+	_ = c.ShouldBindJSON(&confirmation)
 
 	// 检查summarizer是否可用
 	if h.summarizer == nil {
@@ -634,6 +655,14 @@ func (h *WorkflowHandler) RegenerateLLMSummary(c *gin.Context) {
 			return
 		}
 		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to fetch report")
+		return
+	}
+	if !middleware.RequireConfirmationText(
+		c,
+		confirmation.ConfirmationText,
+		fmt.Sprintf("REGENERATE LLM %s", jobID),
+		fmt.Sprintf("为报告 %q 再次调用 LLM 并覆盖摘要内容，可能产生费用", report.Title),
+	) {
 		return
 	}
 
@@ -761,6 +790,8 @@ func (h *WorkflowHandler) RegenerateLLMSummary(c *gin.Context) {
 func (h *WorkflowHandler) Trigger(c *gin.Context) {
 	db := database.GetDB()
 	id := c.Param("id")
+	var confirmation middleware.ConfirmationRequest
+	_ = c.ShouldBindJSON(&confirmation)
 
 	var workflow models.Workflow
 	if err := db.First(&workflow, id).Error; err != nil {
@@ -772,6 +803,14 @@ func (h *WorkflowHandler) Trigger(c *gin.Context) {
 	// 检查工作流是否启用
 	if !workflow.IsEnabled {
 		middleware.BadRequestResponse(c, "WORKFLOW_DISABLED", "工作流未启用，请先启用后再执行")
+		return
+	}
+	if !middleware.RequireConfirmationText(
+		c,
+		confirmation.ConfirmationText,
+		fmt.Sprintf("RUN WORKFLOW %s", id),
+		fmt.Sprintf("立即执行工作流 %q，可能抓取网络内容、写入数据库并调用 LLM", workflow.Name),
+	) {
 		return
 	}
 
@@ -812,11 +851,12 @@ func (h *WorkflowHandler) Trigger(c *gin.Context) {
 
 // WorkflowRequest 创建/更新工作流请求结构
 type WorkflowRequest struct {
-	Name        string                   `json:"name" binding:"required,min=1,max=200"`
-	Description string                   `json:"description"`
-	Schedule    string                   `json:"schedule" binding:"required"`
-	ScopeType   models.WorkflowScopeType `json:"scope_type" binding:"required"`
-	ScopeConfig models.ScopeConfig       `json:"scope_config"`
-	RulesConfig models.RulesConfig       `json:"rules_config"`
-	IsEnabled   bool                     `json:"is_enabled"`
+	Name             string                   `json:"name" binding:"required,min=1,max=200"`
+	Description      string                   `json:"description"`
+	Schedule         string                   `json:"schedule" binding:"required"`
+	ScopeType        models.WorkflowScopeType `json:"scope_type" binding:"required"`
+	ScopeConfig      models.ScopeConfig       `json:"scope_config"`
+	RulesConfig      models.RulesConfig       `json:"rules_config"`
+	IsEnabled        bool                     `json:"is_enabled"`
+	ConfirmationText string                   `json:"confirmation_text,omitempty"`
 }

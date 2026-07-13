@@ -2,6 +2,8 @@
 # 复制此文件为 config.yaml 并根据实际情况修改
 
 server:
+  # 仅允许本机访问；公网流量必须经 Cloudflare Tunnel 和 Access。
+  host: "127.0.0.1"
   # 服务监听端口
   port: 8080
   # 运行模式: debug, release
@@ -48,10 +50,12 @@ database:
   path: ./data/magicpodcast.db
   # 是否开启调试模式（打印 SQL）。日常运行建议关闭。
   debug: false
-  # 连接池最大空闲连接数
-  max_idle_conns: 10
-  # 连接池最大打开连接数
-  max_open_conns: 100
+  # SQLite 单文件运行固定单连接，避免写竞争和每连接 PRAGMA 不一致
+  max_idle_conns: 1
+  # SQLite 单文件运行固定单连接
+  max_open_conns: 1
+  # 写竞争等待时间（毫秒）
+  busy_timeout_ms: 5000
   # 连接最大存活时间（秒）
   conn_max_lifetime: 3600
 

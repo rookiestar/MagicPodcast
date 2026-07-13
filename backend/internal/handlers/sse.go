@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"magicpodcast/internal/middleware"
 	syncpkg "magicpodcast/internal/sync"
 
 	"github.com/gin-gonic/gin"
@@ -314,14 +315,31 @@ func (r *SSEProgressReporter) Close() {
 // ImportOPMLSSE 导入OPML文件（SSE流式响应）
 // POST /api/v1/sync/import-sse
 func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
+	if !middleware.RequireConfirmationText(
+		c,
+		middleware.ConfirmationTextFromHeaderOrForm(c),
+		"IMPORT OPML",
+		"导入所选 OPML 文件并写入播客订阅数据",
+	) {
+		return
+	}
+
 	// 获取上传的文件
 	file, err := c.FormFile("opml_file")
 	if err != nil {
+		if middleware.RequestBodyLimitExceeded(c) {
+			middleware.RequestTooLargeResponse(c, middleware.DefaultUploadRequestLimitBytes)
+			return
+		}
 		c.SSEvent("", "error")
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error":   "OPML文件上传失败，请确保使用multipart/form-data格式",
 		})
+		return
+	}
+	if file.Size > middleware.DefaultUploadRequestLimitBytes {
+		middleware.RequestTooLargeResponse(c, middleware.DefaultUploadRequestLimitBytes)
 		return
 	}
 
@@ -393,6 +411,17 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 // SyncPodcastsMetadataSSE 同步所有播客的元数据（SSE流式响应）
 // POST /api/v1/sync/podcasts/metadata-sse
 func (h *SyncHandler) SyncPodcastsMetadataSSE(c *gin.Context) {
+	var confirmation middleware.ConfirmationRequest
+	_ = c.ShouldBindJSON(&confirmation)
+	if !middleware.RequireConfirmationText(
+		c,
+		confirmation.ConfirmationText,
+		"SYNC ALL",
+		"刷新全部订阅播客的元数据并发起网络请求，可能耗时较长",
+	) {
+		return
+	}
+
 	// 添加panic恢复机制
 	defer func() {
 		if r := recover(); r != nil {

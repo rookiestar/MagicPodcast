@@ -55,10 +55,27 @@ type SyncStatusResponse struct {
 // ImportOPML 导入OPML文件
 // POST /api/v1/sync/import
 func (h *SyncHandler) ImportOPML(c *gin.Context) {
+	if !middleware.RequireConfirmationText(
+		c,
+		middleware.ConfirmationTextFromHeaderOrForm(c),
+		"IMPORT OPML",
+		"导入所选 OPML 文件并写入播客订阅数据",
+	) {
+		return
+	}
+
 	// 获取上传的文件
 	file, err := c.FormFile("opml_file")
 	if err != nil {
+		if middleware.RequestBodyLimitExceeded(c) {
+			middleware.RequestTooLargeResponse(c, middleware.DefaultUploadRequestLimitBytes)
+			return
+		}
 		middleware.BadRequestResponse(c, "INVALID_FILE", "OPML文件上传失败，请确保使用multipart/form-data格式")
+		return
+	}
+	if file.Size > middleware.DefaultUploadRequestLimitBytes {
+		middleware.RequestTooLargeResponse(c, middleware.DefaultUploadRequestLimitBytes)
 		return
 	}
 
@@ -126,6 +143,15 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 // SyncSubscriptions 同步所有订阅（定时任务手动触发）
 // POST /api/v1/sync/subscriptions
 func (h *SyncHandler) SyncSubscriptions(c *gin.Context) {
+	if !middleware.RequireConfirmationText(
+		c,
+		middleware.ConfirmationTextFromHeaderOrForm(c),
+		"SYNC SUBSCRIPTIONS",
+		"同步全部订阅并写入播客与单集数据",
+	) {
+		return
+	}
+
 	logger.Info("开始同步所有订阅...")
 
 	result, err := h.syncService.SyncAllPodcasts()
@@ -202,8 +228,9 @@ func (h *SyncHandler) Close() error {
 
 // SyncPodcastEpisodesRequest 同步单个podcast的episodes请求
 type SyncPodcastEpisodesRequest struct {
-	Mode   string `json:"mode"`   // 同步模式: incremental, full, smart
-	Update bool   `json:"update"` // 是否更新已存在的episode
+	Mode             string `json:"mode"`   // 同步模式: incremental, full, smart
+	Update           bool   `json:"update"` // 是否更新已存在的episode
+	ConfirmationText string `json:"confirmation_text,omitempty"`
 }
 
 // SyncPodcastEpisodes 同步指定podcast的episodes
@@ -223,6 +250,14 @@ func (h *SyncHandler) SyncPodcastEpisodes(c *gin.Context) {
 			Mode:   "smart",
 			Update: true,
 		}
+	}
+	if !middleware.RequireConfirmationText(
+		c,
+		req.ConfirmationText,
+		fmt.Sprintf("SYNC EPISODES %d", podcastID),
+		fmt.Sprintf("同步播客 %d 的全部单集并可能覆盖已有元数据", podcastID),
+	) {
+		return
 	}
 
 	// 构建同步配置
@@ -256,7 +291,8 @@ func (h *SyncHandler) SyncPodcastEpisodes(c *gin.Context) {
 
 // SyncAllEpisodesRequest 同步所有episodes请求
 type SyncAllEpisodesRequest struct {
-	Mode string `json:"mode"` // 同步模式: incremental, full, smart
+	Mode             string `json:"mode"` // 同步模式: incremental, full, smart
+	ConfirmationText string `json:"confirmation_text,omitempty"`
 }
 
 // SyncAllEpisodes 同步所有podcast的episodes（SSE流式）
@@ -269,6 +305,9 @@ func (h *SyncHandler) SyncAllEpisodes(c *gin.Context) {
 		req = SyncAllEpisodesRequest{
 			Mode: "smart",
 		}
+	}
+	if !middleware.RequireConfirmationText(c, req.ConfirmationText, "SYNC ALL EPISODES", "同步全部播客的单集并写入数据库") {
+		return
 	}
 
 	// 构建同步配置
@@ -304,6 +343,9 @@ func (h *SyncHandler) SyncAllEpisodesNonStreaming(c *gin.Context) {
 		req = SyncAllEpisodesRequest{
 			Mode: "smart",
 		}
+	}
+	if !middleware.RequireConfirmationText(c, req.ConfirmationText, "SYNC ALL EPISODES", "同步全部播客的单集并写入数据库") {
+		return
 	}
 
 	// 构建同步配置

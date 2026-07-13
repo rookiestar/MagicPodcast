@@ -405,7 +405,8 @@ func (h *PodcastHandler) modelToResponse(podcast *models.Podcast) PodcastRespons
 
 // UpdateCustomCoverRequest 更新自定义封面请求
 type UpdateCustomCoverRequest struct {
-	CustomCoverURL string `json:"custom_cover_url" binding:"max=512"`
+	CustomCoverURL   string `json:"custom_cover_url" binding:"max=512"`
+	ConfirmationText string `json:"confirmation_text,omitempty"`
 }
 
 // UpdateCustomCover 更新播客自定义封面
@@ -438,6 +439,14 @@ func (h *PodcastHandler) UpdateCustomCover(c *gin.Context) {
 	var podcast models.Podcast
 	if err := db.First(&podcast, podcastID).Error; err != nil {
 		middleware.NotFoundResponse(c, "NOT_FOUND", "播客不存在")
+		return
+	}
+	if !middleware.RequireConfirmationText(
+		c,
+		req.ConfirmationText,
+		fmt.Sprintf("OVERWRITE COVER %d", podcastID),
+		fmt.Sprintf("覆盖播客 %q 的自定义封面地址", podcast.Title),
+	) {
 		return
 	}
 

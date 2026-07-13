@@ -1,13 +1,203 @@
 package database
 
 import (
+	"errors"
 	"fmt"
+	"sort"
+	"time"
 
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/models"
 
 	"gorm.io/gorm"
 )
+
+const CurrentSchemaVersion = 1
+
+var ErrSchemaNotReady = errors.New("database schema is not ready")
+
+// SchemaMigration is the durable record of an explicitly applied schema
+// change. It deliberately contains metadata only; the recovery source is the
+// verified backup recorded by the migration command.
+type SchemaMigration struct {
+	Version   int       `gorm:"primaryKey"`
+	Name      string    `gorm:"size:200;not null"`
+	AppliedAt time.Time `gorm:"not null"`
+}
+
+func (SchemaMigration) TableName() string { return "schema_migrations" }
+
+type Migration struct {
+	Version     int
+	Name        string
+	Description string
+	Apply       func(*gorm.DB) error
+}
+
+type SchemaStatus struct {
+	MigrationTablePresent bool
+	CurrentVersion        int
+	RequiredTablesMissing []string
+	Pending               []Migration
+}
+
+func migrationRegistry() []Migration {
+	return []Migration{
+		{
+			Version:     1,
+			Name:        "baseline-current-model",
+			Description: "Create the current model tables and indexes, or record an existing complete schema as the baseline.",
+			Apply:       applyBaselineMigration,
+		},
+	}
+}
+
+var requiredTables = []string{
+	"tags",
+	"workflows",
+	"sync_configs",
+	"podcasts",
+	"episodes",
+	"jobs",
+	"job_executions",
+	"reports",
+	"podcasts_tags",
+	"episodes_tags",
+}
+
+func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
+	if db == nil {
+		return SchemaStatus{}, fmt.Errorf("%w: database is nil", ErrSchemaNotReady)
+	}
+
+	status := SchemaStatus{
+		MigrationTablePresent: db.Migrator().HasTable(&SchemaMigration{}),
+	}
+	if status.MigrationTablePresent {
+		if err := db.Model(&SchemaMigration{}).Select("COALESCE(MAX(version), 0)").Scan(&status.CurrentVersion).Error; err != nil {
+			return SchemaStatus{}, fmt.Errorf("read schema version: %w", err)
+		}
+	}
+	for _, table := range requiredTables {
+		if !db.Migrator().HasTable(table) {
+			status.RequiredTablesMissing = append(status.RequiredTablesMissing, table)
+		}
+	}
+	for _, migration := range migrationRegistry() {
+		if migration.Version > status.CurrentVersion {
+			status.Pending = append(status.Pending, migration)
+		}
+	}
+	sort.Slice(status.Pending, func(i, j int) bool { return status.Pending[i].Version < status.Pending[j].Version })
+	return status, nil
+}
+
+// RequireSchemaReady is called by the normal API startup path. It is read-only
+// and fails closed when an explicit migration has not been applied.
+func RequireSchemaReady(db *gorm.DB) error {
+	status, err := InspectSchema(db)
+	if err != nil {
+		return err
+	}
+	if !status.MigrationTablePresent {
+		return fmt.Errorf("%w: schema_migrations is missing; run scripts/migrate-db.sh --dry-run then --apply", ErrSchemaNotReady)
+	}
+	if len(status.RequiredTablesMissing) > 0 {
+		return fmt.Errorf("%w: missing required tables: %v", ErrSchemaNotReady, status.RequiredTablesMissing)
+	}
+	if status.CurrentVersion != CurrentSchemaVersion || len(status.Pending) > 0 {
+		return fmt.Errorf("%w: current=%d expected=%d pending=%v", ErrSchemaNotReady, status.CurrentVersion, CurrentSchemaVersion, migrationNames(status.Pending))
+	}
+	if err := VerifySQLiteSettings(db); err != nil {
+		return fmt.Errorf("%w: %v", ErrSchemaNotReady, err)
+	}
+	return nil
+}
+
+func migrationNames(migrations []Migration) []string {
+	names := make([]string, 0, len(migrations))
+	for _, migration := range migrations {
+		names = append(names, fmt.Sprintf("%d:%s", migration.Version, migration.Name))
+	}
+	return names
+}
+
+// ApplyMigrations is the only production schema mutation entry point. Every
+// migration and its version record run in one transaction so a failed change
+// cannot leave a partially recorded schema version.
+func ApplyMigrations(db *gorm.DB) error {
+	if db == nil {
+		return fmt.Errorf("database is nil")
+	}
+	return applyMigrationSet(db, migrationRegistry())
+}
+
+func applyMigrationSet(db *gorm.DB, migrations []Migration) error {
+	sort.Slice(migrations, func(i, j int) bool { return migrations[i].Version < migrations[j].Version })
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            applied_at DATETIME NOT NULL
+        )`).Error; err != nil {
+			return fmt.Errorf("create schema_migrations: %w", err)
+		}
+
+		current, err := currentSchemaVersion(tx)
+		if err != nil {
+			return err
+		}
+		for _, migration := range migrations {
+			if migration.Version <= current {
+				continue
+			}
+			logger.Infof("🔄 Applying database migration %d: %s", migration.Version, migration.Name)
+			if err := migration.Apply(tx); err != nil {
+				return fmt.Errorf("migration %d (%s) failed: %w", migration.Version, migration.Name, err)
+			}
+			if err := tx.Create(&SchemaMigration{
+				Version:   migration.Version,
+				Name:      migration.Name,
+				AppliedAt: time.Now().UTC(),
+			}).Error; err != nil {
+				return fmt.Errorf("record migration %d (%s): %w", migration.Version, migration.Name, err)
+			}
+			current = migration.Version
+		}
+		return nil
+	})
+}
+
+func currentSchemaVersion(db *gorm.DB) (int, error) {
+	var current int
+	if err := db.Model(&SchemaMigration{}).Select("COALESCE(MAX(version), 0)").Scan(&current).Error; err != nil {
+		return 0, fmt.Errorf("read current schema version: %w", err)
+	}
+	return current, nil
+}
+
+func applyBaselineMigration(db *gorm.DB) error {
+	if len(requiredTablesMissing(db)) == len(requiredTables) {
+		if err := autoMigrateModels(db); err != nil {
+			return err
+		}
+	}
+	missing := requiredTablesMissing(db)
+	if len(missing) > 0 {
+		return fmt.Errorf("existing schema is incomplete; missing tables: %v", missing)
+	}
+	return CreateIndexes(db)
+}
+
+func requiredTablesMissing(db *gorm.DB) []string {
+	missing := make([]string, 0)
+	for _, table := range requiredTables {
+		if !db.Migrator().HasTable(table) {
+			missing = append(missing, table)
+		}
+	}
+	return missing
+}
 
 // AutoMigrate 执行数据库自动迁移
 func AutoMigrate(db *gorm.DB) error {
@@ -22,6 +212,15 @@ func AutoMigrate(db *gorm.DB) error {
 	}
 
 	logger.Info("✅ All migrations completed successfully")
+	return nil
+}
+
+func autoMigrateModels(db *gorm.DB) error {
+	for _, model := range models.AllModels {
+		if err := db.AutoMigrate(model); err != nil {
+			return fmt.Errorf("failed to create %T: %w", model, err)
+		}
+	}
 	return nil
 }
 

@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -70,28 +71,21 @@ func main() {
 	db := database.GetDB() // 初始化数据库连接
 	defer database.Close()
 
-	// 运行数据库迁移（在外键禁用状态下运行，避免 CASCADE DELETE）
-	if err := database.AutoMigrate(db); err != nil {
-		logger.Fatalf("Failed to run database migrations: %v", err)
-	}
-
-	// 创建自定义索引
-	if err := database.CreateIndexes(db); err != nil {
-		logger.Fatalf("Failed to create custom indexes: %v", err)
-	}
-
-	// 迁移完成后启用外键约束
-	if err := database.EnableForeignKeys(); err != nil {
-		logger.Fatalf("Failed to enable foreign keys: %v", err)
+	// 普通服务启动只读检查迁移状态，不静默改写数据库结构。结构变化
+	// 必须先通过 scripts/migrate-db.sh 显式执行并记录版本。
+	if err := database.RequireSchemaReady(db); err != nil {
+		logger.Fatalf("Database schema is not ready: %v", err)
 	}
 
 	// 设置路由
 	logger.Info("🔧 Setting up routes...")
 	r := router.SetupRouter()
 
+	listenAddress := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
+
 	// 创建 HTTP 服务器
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
+		Addr:         listenAddress,
 		Handler:      r,
 		ReadTimeout:  time.Duration(cfg.Server.ReadTimeout) * time.Second,
 		WriteTimeout: time.Duration(cfg.Server.WriteTimeout) * time.Second,
@@ -100,9 +94,9 @@ func main() {
 	// 在 goroutine 中启动服务器
 	go func() {
 		logger.Info("\n🎉 Server started successfully!")
-		logger.Infof("   Listening on: http://localhost:%d", cfg.Server.Port)
-		logger.Infof("   Health check: http://localhost:%d/health", cfg.Server.Port)
-		logger.Infof("   API endpoint: http://localhost:%d/api/v1/podcasts\n", cfg.Server.Port)
+		logger.Infof("   Listening on: http://%s", listenAddress)
+		logger.Infof("   Health check: http://%s/health", listenAddress)
+		logger.Infof("   API endpoint: http://%s/api/v1/podcasts\n", listenAddress)
 
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatalf("Failed to start server: %v", err)

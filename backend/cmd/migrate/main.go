@@ -1,83 +1,81 @@
 package main
 
 import (
-	"magicpodcast/internal/logger"
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
 
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
+	"magicpodcast/internal/logger"
 )
 
+const migrationConfirmation = "I_UNDERSTAND_THIS_WRITES_DATA"
+
 func main() {
-	if _, err := config.Load("configs/config.yaml"); err != nil {
+	dryRun := flag.Bool("dry-run", false, "只读取并展示迁移计划")
+	apply := flag.Bool("apply", false, "应用待执行的版本化迁移")
+	flag.Parse()
+
+	if *dryRun == *apply {
+		logger.Fatalf("必须且只能指定 --dry-run 或 --apply")
+	}
+
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "./configs/config.yaml"
+	}
+	absPath, err := filepath.Abs(configPath)
+	if err != nil {
+		logger.Fatalf("Failed to resolve config path: %v", err)
+	}
+	if _, err := config.Load(absPath); err != nil {
 		logger.Fatalf("Failed to load config: %v", err)
 	}
 
 	db := database.GetDB()
-	logger.Info("Running manual migration to remove xyz_id...")
+	defer database.Close()
 
-	// 重建表（排除xyz_id列）
-	recreateTableSQL := `
-		CREATE TABLE episodes_new (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			created_at DATETIME,
-			updated_at DATETIME,
-			deleted_at DATETIME,
-			podcast_id INTEGER NOT NULL,
-			episode_no TEXT(64),
-			title TEXT(512) NOT NULL,
-			medium_url TEXT(512),
-			show_notes TEXT,
-			published_date DATETIME,
-			duration INTEGER DEFAULT 0,
-			link TEXT(512),
-			content TEXT,
-			image_url TEXT(512),
-			enclosure_type TEXT(100),
-			enclosure_length INTEGER DEFAULT 0,
-			updated_date DATETIME,
-			guid TEXT(255),
-			fetched_at DATETIME,
-			my_rate INTEGER DEFAULT 0,
-			notes TEXT,
-			FOREIGN KEY (podcast_id) REFERENCES podcasts(id) ON DELETE CASCADE
-		);
-	`
-	if err := db.Exec(recreateTableSQL).Error; err != nil {
-		logger.Fatalf("Failed to create new table: %v", err)
+	status, err := database.InspectSchema(db)
+	if err != nil {
+		logger.Fatalf("Failed to inspect schema: %v", err)
+	}
+	printStatus(status)
+
+	if *dryRun {
+		return
 	}
 
-	copyDataSQL := `
-		INSERT INTO episodes_new 
-		SELECT id, created_at, updated_at, deleted_at, podcast_id, episode_no,
-		       title, medium_url, show_notes, published_date, duration, link,
-		       content, image_url, enclosure_type, enclosure_length, updated_date,
-		       guid, fetched_at, my_rate, notes
-		FROM episodes;
-	`
-	if err := db.Exec(copyDataSQL).Error; err != nil {
-		logger.Fatalf("Failed to copy data: %v", err)
+	if os.Getenv("MAGICPODCAST_MIGRATION_CONFIRM") != migrationConfirmation {
+		logger.Fatalf("拒绝执行真实迁移：请设置 MAGICPODCAST_MIGRATION_CONFIRM=%s", migrationConfirmation)
+	}
+	backup := os.Getenv("MAGICPODCAST_MIGRATION_BACKUP")
+	if backup == "" {
+		logger.Fatalf("拒绝执行真实迁移：MAGICPODCAST_MIGRATION_BACKUP 未设置")
+	}
+	if info, err := os.Stat(backup); err != nil || info.IsDir() {
+		logger.Fatalf("拒绝执行真实迁移：备份文件不可用: %s", backup)
 	}
 
-	if err := db.Exec("DROP TABLE episodes").Error; err != nil {
-		logger.Fatalf("Failed to drop old table: %v", err)
+	if err := database.ApplyMigrations(db); err != nil {
+		logger.Fatalf("Versioned migration failed; transaction rolled back: %v", err)
 	}
+	if err := database.RequireSchemaReady(db); err != nil {
+		logger.Fatalf("Schema verification failed after migration: %v", err)
+	}
+	fmt.Println("migration_result=ok")
+}
 
-	if err := db.Exec("ALTER TABLE episodes_new RENAME TO episodes").Error; err != nil {
-		logger.Fatalf("Failed to rename table: %v", err)
+func printStatus(status database.SchemaStatus) {
+	fmt.Printf("migration_table_present=%t\n", status.MigrationTablePresent)
+	fmt.Printf("current_version=%d\n", status.CurrentVersion)
+	fmt.Printf("required_tables_missing=%v\n", status.RequiredTablesMissing)
+	if len(status.Pending) == 0 {
+		fmt.Println("pending_migrations=none")
+		return
 	}
-
-	indexes := []string{
-		"CREATE INDEX idx_episodes_podcast_id ON episodes(podcast_id)",
-		"CREATE INDEX idx_episodes_deleted_at ON episodes(deleted_at)",
-		"CREATE INDEX idx_episodes_published_date ON episodes(published_date DESC)",
-		"CREATE INDEX idx_episodes_updated_date ON episodes(updated_date DESC)",
-		"CREATE UNIQUE INDEX idx_episodes_guid ON episodes(guid)",
+	for _, migration := range status.Pending {
+		fmt.Printf("pending_migration=%d:%s:%s\n", migration.Version, migration.Name, migration.Description)
 	}
-	for _, idx := range indexes {
-		if err := db.Exec(idx).Error; err != nil {
-			logger.Warnf("Warning: Failed to create index: %v", err)
-		}
-	}
-
-	logger.Info("✅ Migration completed successfully!")
 }

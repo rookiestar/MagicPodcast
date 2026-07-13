@@ -1,14 +1,11 @@
 package handlers
 
 import (
-	"context"
-	"fmt"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/llm"
-	"magicpodcast/internal/logger"
 	"magicpodcast/internal/middleware"
 )
 
@@ -25,6 +22,8 @@ type LLMHealthResponse struct {
 	APIKeySet     bool           `json:"api_key_set"`
 	LastCheck     string         `json:"last_check"`
 	ResponseTime  int64          `json:"response_time_ms"`
+	ProbePerformed bool          `json:"probe_performed"`
+	Source         string        `json:"source"`
 	ErrorMessage  string         `json:"error_message,omitempty"`
 }
 
@@ -50,6 +49,8 @@ func (h *LLMHealthHandler) GetHealth(c *gin.Context) {
 		APIKeySet:    cfg.LLM.APIKey != "",
 		LastCheck:    startTime.Format("2006-01-02T15:04:05Z"),
 		ErrorMessage: "",
+		ProbePerformed: false,
+		Source:         "passive",
 	}
 
 	// 检查是否启用LLM
@@ -68,37 +69,9 @@ func (h *LLMHealthHandler) GetHealth(c *gin.Context) {
 		return
 	}
 
-	// 尝试调用LLM API验证（使用简单测试提示）
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// 使用一个简单的测试请求
-	testPrompt := "测试"
-	_, err := h.llmClient.GenerateSummary(ctx, "", testPrompt, llm.SummaryOptions{
-		Model:       cfg.LLM.DefaultModel,
-		Temperature: 0.1,
-		MaxTokens:   10,
-	})
-
-	responseTime := time.Since(startTime).Milliseconds()
-
-	if err != nil {
-		response.Status = "unhealthy"
-		response.ResponseTime = responseTime
-		response.APIKeyValid = false
-		response.ErrorMessage = fmt.Sprintf("LLM API调用失败: %v", err)
-		logger.Errorf("[LLM Health] API check failed: %v", err)
-
-		middleware.SuccessResponseWithMessage(c, fmt.Sprintf("LLM服务不可用: %v", err), response)
-		return
-	}
-
-	// API调用成功
-	response.Status = "healthy"
-	response.APIKeyValid = true
-	response.ResponseTime = responseTime
-
-	logger.Infof("[LLM Health] API check successful (model: %s, time: %dms)", cfg.LLM.DefaultModel, responseTime)
-
-	middleware.SuccessResponseWithMessage(c, fmt.Sprintf("LLM服务正常 (响应时间: %dms)", responseTime), response)
+	// 健康读取必须是被动的：不能因为页面轮询而触发真实生成或费用。
+	// 真正的可用性由工作流/显式验证调用后的结果体现，这里只报告配置状态。
+	response.Status = "unknown"
+	response.ErrorMessage = "已配置但未主动探测；健康读取不会调用付费生成"
+	middleware.SuccessResponseWithMessage(c, "LLM状态为被动状态，未执行付费检查", response)
 }
