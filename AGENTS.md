@@ -108,8 +108,23 @@ node scripts/performance-audit.mjs \
 - `magicpodcast-code-change-verification`：任何代码或脚本改动完成后使用。
 - `magicpodcast-refactor-planning`：重构、清理或模块边界调整前使用。
 - `magicpodcast-database-change-guard`：迁移、恢复、导入、维护脚本或任何真实数据写入前使用。
+- `magicpodcast-remote-deployment`：部署、启动、重启或验收 Mac mini 生产环境前使用。
 
 技能不能扩大用户授权范围。技能要求暂停确认时，必须先取得用户回复再继续。
+
+## Agent skills
+
+### Issue tracker
+
+PRD 和任务统一存放在 GitHub Issues；外部 Pull Request 不作为需求入口。详见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+使用 `needs-triage`、`needs-info`、`ready-for-agent`、`ready-for-human`、`wontfix` 五种标准状态。详见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+本项目采用单一领域上下文，统一读取根目录 `CONTEXT.md` 和 `docs/adr/`。详见 `docs/agents/domain.md`。
 
 ## 验证与完成标准
 

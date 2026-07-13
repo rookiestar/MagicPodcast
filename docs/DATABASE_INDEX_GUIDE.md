@@ -1,6 +1,6 @@
 # MagicPodcast 数据库索引指南
 
-最后更新：2026-05-31
+最后更新：2026-07-12
 
 本文记录当前索引入口和验证方式。旧的“手动创建 `backend/scripts/migrations/add_performance_indexes.sql`”说明已过时；该脚本现在已经存在于仓库中。
 
@@ -8,14 +8,14 @@
 
 | 入口 | 用途 | 说明 |
 | --- | --- | --- |
-| `backend/internal/database/migrate.go` | 应用启动时创建基础索引 | `cmd/api` 启动后会执行 `database.CreateIndexes` |
+| `backend/internal/database/migrate.go` | 版本化迁移内创建基础索引 | 通过 `scripts/migrate-db.sh --apply` 显式执行；`cmd/api` 启动只读检查 schema |
 | `backend/scripts/migrations/add_performance_indexes.sql` | 通用性能索引 | 覆盖播客列表、单集列表、工作流、标签关联、任务和报告查询 |
 | `backend/scripts/migrations/add_search_fts.sql` | 搜索 FTS 索引 | 覆盖英文和数字类搜索快路径 |
 | `backend/cmd/add_indexes` | 手动应用性能索引和搜索索引 | 会按顺序执行上面两个 SQL 文件 |
 
-## 自动创建的基础索引
+## 版本化迁移创建的基础索引
 
-后端启动时会创建这些关键索引：
+版本 1 baseline 迁移会创建这些关键索引：
 
 - 播客：`xyz_id`、订阅状态与最新单集日期、最近更新、添加日期、单集数量、标题排序。
 - 单集：`podcast_id`、播客内发布日期排序、稳定分页排序。
@@ -23,7 +23,7 @@
 - 任务：工作流关联。
 - 任务执行：任务关联、状态。
 
-这部分随服务启动自动执行，不需要单独手工运行。
+这部分不会随服务启动自动执行。首次部署或结构升级前必须先备份，再执行显式迁移；迁移失败时 API 会拒绝启动。
 
 ## 手动补齐性能索引
 

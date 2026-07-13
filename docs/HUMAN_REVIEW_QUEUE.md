@@ -1,6 +1,6 @@
 # 需要人工确认的事项
 
-最后更新：2026-06-01
+最后更新：2026-07-12
 
 这些事项不影响当前功能验证，但需要使用者按真实使用习惯确认后再继续清理或改动。
 
@@ -9,12 +9,12 @@
 | 事项 | 原因 | 建议 |
 | --- | --- | --- |
 | `backend/cmd/maint/` 下的一次性维护命令 | 多数脚本面向历史数据修复，无法仅凭代码判断是否仍会被使用 | 后续按真实维护需求保留、合并或归档 |
-| `backend/cmd/migrate` 手工迁移命令 | 会重建并替换 `episodes` 表，属于高风险数据库写操作 | 仅在确认仍需迁移旧字段、已备份且服务已停止后再运行；如不再需要可归档或删除 |
+| `backend/cmd/migrate` 版本化迁移命令 | `--apply` 会改写真实数据库，属于高风险数据库写操作 | 仅按 `docs/migration/MIGRATION_GUIDE.md` 先备份、验证、停服务，再用确认字符串和备份路径运行；普通启动不再自动迁移 |
 | `backend/scripts/fix_newest_episode_date.sql` 和 `backend/scripts/init_tags.sql` | 属于会改写真实数据的一次性 SQL，不能仅凭未被代码引用就自动删除 | 后续确认是否仍需手工维护入口；如不需要可迁入归档或删除 |
 | `archive/` 下的旧 Docker / Nginx 配置 | 当前启动方式已改为脚本，但旧部署记录可能仍有参考价值 | 确认不再需要 Docker 部署后再删除 |
 | 工作流详情页和 `WorkflowFormModal` 大组件 | 文件仍偏大，继续拆分需要页面级交互验证 | 单独安排工作流专项，先截图和点击验证后再拆 |
 | 搜索深度优化 | 热态搜索已降到约 146-184ms，并发 P95 约 187ms，但重启后第一跳仍可能超过 500ms；进一步优化排序、缓存或查询策略可能改变搜索结果顺序 | 单独确认是否接受搜索排序或缓存策略调整，再继续压榨搜索上限 |
-| Next 16 大版本升级 | 当前已把 Next 14 升到 14.2.35 并消除 critical 项，但剩余 `npm audit` 风险要求升级到 `next@16.2.6` / `eslint-config-next@16.2.6` | 单独安排大版本升级专项，完成页面、构建、Lint、测试和浏览器交互验证后再合入 |
+| 前端开发依赖审计剩余提示 | `npm audit --omit=dev` 已为 0；完整审计仍有 4 项开发/测试工具风险（2 low、1 high、1 critical），不随生产构建部署 | 后续单独评估 `@babel/core`、`esbuild`、`vite` 和 `vitest` 的升级，先保持当前已验证测试入口 |
 | Go 依赖漏洞扫描 | 2026-06-01 重试仍失败：访问 `proxy.golang.org` 超时；改用 `GOPROXY=direct` 后访问 `golang.org` 仍超时，无法给出有效结论 | 网络稳定后重跑 `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` |
 | Go 静态诊断扩展扫描 | 2026-06-01 重试仍失败：访问 `proxy.golang.org` 超时；改用 `GOPROXY=direct` 后访问 GitHub 仍失败，当前仅以 `go vet` 覆盖基础静态检查 | 网络稳定后重跑 `go run honnef.co/go/tools/cmd/staticcheck@latest ./...` |
 | 前端生产清理扫描剩余提示 | `knip --production` 仍提示 `vitest.setup.ts`、Tailwind 插件和 20 个测试覆盖的辅助函数；这些要么由配置使用，要么专门用于单元测试验证边界 | 若希望继续压缩公开测试入口，需要先确认测试策略：保留白盒辅助函数，或改为只测用户可见行为 |
@@ -37,7 +37,7 @@
 | 前端 Vitest 初始样例测试 | `frontend/src/__tests__/sample.test.tsx` 只验证 Hello World 和基础断言，真实测试已覆盖配置，已删除 |
 | `.gitignore` 数据库规则含糊 | 已去掉“保留本地数据库”的误导性例外，明确忽略 `backend/data/` 下的本地数据文件 |
 | 后端示例响应测试空跑 | 原 `example_test.go` 中有测试没有断言，已改为真实响应校验并重命名为 `error_response_test.go` |
-| 前端运行时依赖 critical/high 风险 | 已在同一主版本内更新 Next、axios、DOMPurify 和 PostCSS；生产依赖审计从 6 项降到 2 项，critical 清零 |
+| 前端生产依赖风险 | 已在取得单独授权后将 Next 14 升至 Next 16.2.10，并更新 axios、DOMPurify、PostCSS、ESLint 和 form-data；`npm audit --omit=dev` 为 0，生产构建和回退发布验证通过 |
 | 前端未使用依赖 | 已删除未引用的 `@testing-library/user-event`、`jsdom` 和 `@types/dompurify`，减少依赖面 |
 | 前端未引用辅助文件 | 已删除未被运行代码或测试引用的 `ErrorBoundary`、`useApi`、`useViewportDetection`、`test-utils` 和重复的 `global.d.ts` |
 | 前端严格未使用扫描 | 已清理未使用的导入、闲置状态、空函数和未使用参数，保留现有页面行为 |

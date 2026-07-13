@@ -1,73 +1,92 @@
 # 依赖健康检查
 
-最后更新：2026-06-01
+最后更新：2026-07-12
 
-本文记录当前依赖审计结果和后续处理边界。依赖升级可能改变运行时行为，因此只自动处理同一主版本内、可通过现有测试验证的修复；需要跨主版本升级的内容放入人审队列。
+本文记录当前生产依赖审计结果、升级边界和仍需人工处理的风险。依赖升级必须保持生产代理、图片路径、内容净化和现有测试入口不变；构建失败时使用发布脚本保留并恢复上一组已验证产物。
 
 ## 前端依赖
 
-检查命令：
+检查命令（在 Mac mini 生产工作区执行）：
 
 ```bash
 cd frontend
 npm audit --omit=dev
 npm audit
+npm run type-check
+npm run lint
+npm run test:run
 ```
 
-本轮已自动更新：
+本轮已升级并验证的依赖：
 
-| 依赖 | 更新后版本 | 说明 |
+| 依赖 | 当前版本 | 说明 |
 | --- | --- | --- |
-| `next` | 14.2.35 | 同一主版本内升级，清除原 critical 项 |
-| `eslint-config-next` | 14.2.35 | 与 Next 版本保持一致 |
-| `axios` | 1.16.1 | 清除运行时 high 项 |
-| `dompurify` | 3.4.7 | 清除运行时 moderate 项 |
-| `postcss` | 8.5.15 | 根依赖已更新；Next 内置依赖仍受 Next 大版本限制 |
+| `next` | 16.2.10 | 从 14.x 跨主版本升级；已单独授权，并通过兼容修正、构建和回退发布流程验证 |
+| `eslint-config-next` | 16.2.10 | 与 Next 保持同版本 |
+| `eslint` | 9.39.5 | 满足 Next 16 的 ESLint 配置要求 |
+| `axios` | 1.18.1 | 清除生产审计中的 multipart 相关风险 |
+| `dompurify` | 3.4.12 | 清除生产审计中的 HTML 净化风险 |
+| `postcss` | 8.5.17 | 与 Next 16 构建链保持一致 |
+| `form-data` | 4.0.6 | 通过根依赖 override 固定安全版本 |
 
-本轮已自动移除未使用依赖：
+已移除的未使用开发依赖：
 
 | 依赖 | 原因 |
 | --- | --- |
-| `@testing-library/user-event` | 测试代码中没有使用 |
-| `jsdom` | 当前 Vitest 配置使用 `happy-dom`，不使用 `jsdom` |
+| `@testing-library/user-event` | 测试代码没有使用 |
+| `jsdom` | Vitest 使用 `happy-dom`，没有使用 `jsdom` |
 | `@types/dompurify` | `dompurify` 已自带类型定义 |
 
-当前审计结果：
+### 当前审计证据（2026-07-12）
 
-| 范围 | 结果 | 剩余原因 |
+| 范围 | 结果 | 结论 |
 | --- | --- | --- |
-| 生产依赖，2026-06-01 复跑 | 2 项：1 high、1 moderate | 都要求升级到 `next@16.2.6` |
-| 全量依赖，2026-05-31 复跑 | 5 项：4 high、1 moderate | `next` / `eslint-config-next` 需要 16.x；当前不自动跨主版本 |
+| 生产依赖 `npm audit --omit=dev` | `0 vulnerabilities` | #6 的生产依赖安全门通过 |
+| 全量依赖 `npm audit` | 4 项开发依赖风险（2 low、1 high、1 critical） | 不随生产构建部署；保留在开发工具链，后续单独评估升级 |
 
-剩余风险主要来自：
+全量审计剩余项来自 `@babel/core`、`esbuild`、`vite` 和 `vitest`，影响的是开发/测试工具（其中 Vitest 风险描述要求 UI 服务监听时才成立）。本事项只要求生产依赖审计，未通过扩大锁文件变更来处理无关开发工具升级。
 
-- `next`: GitHub advisories GHSA-9g9p-9gw9-jx7f、GHSA-h25m-26qc-wcjf、GHSA-ggv3-7p47-pfv8、GHSA-3x4c-7xq6-9pq8、GHSA-q4gf-8mx6-v5v3、GHSA-8h8q-6873-q5fj、GHSA-3g8h-86w9-wvmq、GHSA-ffhc-5mcf-pf4q、GHSA-vfv6-92ff-j949、GHSA-gx5p-jg67-6x7h、GHSA-h64f-5h5j-jqjh、GHSA-c4j6-fc7j-m34r、GHSA-wfc6-r584-vfw7、GHSA-36qx-fr4f-26g5。
-- `eslint-config-next` / `@next/eslint-plugin-next`: 依赖的 `glob` 仍有 high 项 GHSA-5j98-mcp5-4vw2，修复路径要求 `eslint-config-next@16.2.6`。
-- `postcss`: Next 内置的 PostCSS 版本仍受 Next 大版本限制。
+Next 16 兼容性修正保持最小范围：
 
-后续人审建议：
+- 将播客页的客户端组件直接置于客户端边界，避免 Server Component 中使用 `dynamic(..., { ssr: false })`。
+- 移除会让 Turbopack 生成非法 CSS 伪元素顺序的 `disabled:file:*` 变体，改用禁用态透明度。
+- 内容净化仍保留危险标签、事件属性、样式和不安全 URL 的清理；Markdown 语法不再交给 DOMPurify 破坏。
 
-1. 单独安排 Next 14 -> 16 升级验证。
-2. 升级后完整执行类型检查、Lint、测试、生产构建、页面/API 巡检和浏览器点击验证。
-3. 如果暂不升级 Next 16，需要确认当前部署是否暴露相关能力，例如 image optimizer、rewrites、middleware/proxy、WebSocket upgrades、Server Components 等。
+验证结果：62 个前端测试文件、315 个测试通过；TypeScript、ESLint 和 Next 16 生产构建通过。生产发布使用 `scripts/release.sh` 的临时产物、健康校验和自动回退路径，失败不会停止旧版本。
 
-## 后端 Go 依赖
+### 后端 Go 依赖
 
 已完成：
 
-- `go test ./...` 通过。
-- `go vet ./...` 通过。
-- 关键依赖版本已从 `go.mod` 和本地模块缓存读取。
+- Mac mini 上 `go test ./...` 通过。
+- Mac mini 上 `go vet ./...` 通过。
+- 生产服务重启后健康接口返回 `database: ok`，没有触发写入型迁移。
 
 未完成：
 
-- `govulncheck` 扫描在 2026-06-01 重试仍失败：访问 `proxy.golang.org` 超时；改用 `GOPROXY=direct` 后访问 `golang.org` 仍超时，未得到有效漏洞结论。
-- `staticcheck` 扫描在 2026-06-01 重试仍失败：访问 `proxy.golang.org` 超时；改用 `GOPROXY=direct` 后访问 GitHub 仍失败。
+- `govulncheck` 和 `staticcheck` 尚未得到有效结论；此前因访问 Go 模块源超时而失败，需在网络稳定时单独重跑。
 
-建议后续在网络稳定时重跑：
+建议命令：
 
 ```bash
 cd backend
 go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 go run honnef.co/go/tools/cmd/staticcheck@latest ./...
 ```
+
+## 回退边界
+
+生产发布前使用：
+
+```bash
+./scripts/release.sh --prepare
+./scripts/restart.sh --prod
+```
+
+构建、启动或健康校验失败时，发布脚本会保留当前 release 并自动恢复；也可使用：
+
+```bash
+./scripts/release.sh --rollback
+```
+
+本轮未执行 Git add、commit、push 或 PR；依赖锁文件和源码改动仍需在后续单独审阅后提交。

@@ -27,12 +27,14 @@
 | 工作流调度 | [WORKFLOW_SCHEDULER.md](WORKFLOW_SCHEDULER.md) | 当前工作流定时执行行为和调度接口 |
 | 工作流执行历史 | [WORKFLOW_EXECUTION_HISTORY.md](WORKFLOW_EXECUTION_HISTORY.md) | 当前执行历史、任务详情和报告入口行为 |
 | 设计系统 | [design/DESIGN_SYSTEM.md](design/DESIGN_SYSTEM.md) | 前端视觉与组件规范 |
+| Agent 协作规则 | [agents/](agents/) | Issue 跟踪、任务状态标签和领域文档读取约定 |
 
 ## 专题目录
 
 | 目录 | 内容 |
 | --- | --- |
 | [design/](design/) | 设计系统和界面规范 |
+| [agents/](agents/) | Agent 使用的 Issue、状态标签和领域文档约定 |
 | [migration/](migration/) | 数据迁移、去重和兼容处理 |
 | [optimization/README.md](optimization/README.md) | 当前性能优化入口和下一步边界 |
 | [performance/](performance/) | 当前和后续性能基线 |

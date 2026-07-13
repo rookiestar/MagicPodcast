@@ -1,68 +1,39 @@
 # MagicPodcast 移动端访问说明
 
-最后更新：2026-05-31
+最后更新：2026-07-12
 
-移动设备访问本地开发服务时，不能使用 `localhost`，需要使用 Mac 的局域网 IP。
+日常移动设备访问只能使用生产 HTTPS 域名，并通过 Cloudflare Access 的 Google 登录和独立 MFA。前端和后端不得为手机、平板或局域网设备开放直连端口。
 
-## 快速设置
+> **安全切换状态（2026-07-12）：部分完成且当前默认拒绝。** Mac mini 已关闭局域网直连；由于 Cloudflare Access、HTTPS 跳转和 HSTS 尚未在控制台完成并验收，公网 Tunnel 已暂停，`rookiestar.cn` 暂不可用。在 Issue #2 完成前，不得恢复裸露公网入口，也不得用局域网 IP 作为替代入口。
 
-1. 确认 iPhone/iPad 和 Mac 在同一个 Wi-Fi。
-2. 在 Mac 上查看局域网 IP：
+## 日常访问
 
-   ```bash
-   ifconfig | grep "inet " | grep -v 127.0.0.1
-   ```
+1. 在移动设备浏览器打开 `https://rookiestar.cn`。
+2. 仅使用所有者指定的 Google 身份登录 Cloudflare Access，并完成已注册的安全密钥或设备生物识别验证；Google 登录不能替代 Access 的独立 MFA。
+3. 不在移动设备上保存、设置或访问 `http://<局域网 IP>:3000`、`http://<局域网 IP>:8080`、`localhost` 或任何替代公网主机名。
 
-3. 配置前端 API 地址：
+## 本机开发与调试
 
-   ```bash
-   echo "NEXT_PUBLIC_API_URL=http://你的局域网IP:8080" > frontend/.env.local
-   ```
-
-4. 启动服务：
-
-   ```bash
-   ./scripts/start.sh --dev
-   ```
-
-5. 在移动设备浏览器访问：
-
-   ```text
-   http://你的局域网IP:3000
-   ```
-
-## 手动检查
-
-```bash
-# 后端健康检查
-curl "http://你的局域网IP:8080/health"
-
-# 前端可访问性检查
-curl -I "http://你的局域网IP:3000"
-
-# 端口监听检查
-lsof -i :8080
-lsof -i :3000
-```
+在 Mac mini 本机上，开发服务可使用 `http://127.0.0.1:3000` 和 `http://127.0.0.1:8080`。需要检查移动端页面时，使用 Safari 的 USB 远程检查器连接已通过 HTTPS 域名打开的页面；不把开发服务暴露到 Wi-Fi。
 
 ## 常见问题
 
 ### 移动端显示 Network Error
 
-通常是 `frontend/.env.local` 仍然写着 `localhost:8080`。移动设备上的 `localhost` 指的是手机自己，不是 Mac。改成 Mac 的局域网 IP 后重启前端服务。
+确认地址是 HTTPS 生产域名，并确认 Cloudflare Access 已完成登录。不要把 `NEXT_PUBLIC_API_URL` 改成局域网 IP 来绕过问题；该做法会绕过统一登录边界。
 
 ### 服务无法访问
 
 优先检查：
 
-- Mac 和移动设备是否在同一 Wi-Fi。
-- 端口 `3000` 和 `8080` 是否正在监听。
-- macOS 防火墙是否拦截了 Node 或后端服务。
-- VPN 是否改变了网络路由。
+- Cloudflare Access 是否允许当前 Google 身份，以及该设备是否已注册安全密钥或设备生物识别验证。
+- HTTPS 域名是否指向命名 Tunnel。
+- Mac mini 上的前端、后端和 Tunnel 是否健康。
+- 路由器是否仍然没有转发 `3000` 或 `8080`。
 
-### IP 变化
+### 需要紧急恢复
 
-如果路由器重新分配了地址，需要重新查看 IP 并更新 `frontend/.env.local`。长期使用可以在路由器里给 Mac 绑定固定局域网地址。
+只允许在 Mac mini 本机或使用临时 SSH 转发进行恢复。不得开启永久局域网入口、Quick Tunnel 或 Basic Auth。
 
 ## Safari 调试
 

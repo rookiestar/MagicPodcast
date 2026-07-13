@@ -18,6 +18,24 @@
 node scripts/performance-audit.mjs --base-url http://localhost:3000 --api-url http://localhost:8080 --runs 3 --strict
 ```
 
+## 可回退发布检查
+
+生产入口必须使用：
+
+```bash
+./scripts/release.sh --dry-run
+./scripts/restart.sh --prod
+./scripts/release.sh --rollback
+```
+
+`restart.sh --prod` 会在停止当前服务前完成前后端构建和配对校验；切换后的 `/health` 必须同时返回新 `release_id`、`frontend_build_id` 和 `build_mode=release`。发布失败时应确认旧 PID、旧 `.next` 和旧 `backend/api` 仍可恢复，并检查 `logs/release.log` 没有环境变量或凭据内容。
+
+非生产验证至少覆盖：
+
+1. 临时发布目录中的后端或前端构建失败，确认当前服务仍运行。
+2. PID 文件或端口对应未知工作目录/命令，确认启停脚本拒绝停止或接管。
+3. 用临时发布根目录注入启动失败，确认单一步骤回退恢复上一版本并完成健康校验。
+
 如果改动涉及页面结构、组件或样式，再补跑：
 
 ```bash

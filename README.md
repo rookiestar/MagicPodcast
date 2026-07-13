@@ -16,7 +16,7 @@ MagicPodcast 是一个个人播客管理与自动化处理工具，用来导入 
 | 模块 | 技术 |
 | --- | --- |
 | 后端 | Go 1.24、Gin、GORM、SQLite |
-| 前端 | Next.js 14、React 18、TypeScript、Tailwind CSS、SWR |
+| 前端 | Next.js 16.2.10、React 18、TypeScript、Tailwind CSS、SWR |
 | 测试 | Go test、Vitest、Testing Library |
 | 性能 | `scripts/performance-audit.mjs`、`backend/cmd/benchmark` |
 

@@ -80,6 +80,7 @@ frontend/out/
 *.log
 *.log.*
 /tmp/*.log
+logs/*.status
 
 # Test files
 test-api.html
@@ -117,6 +118,7 @@ coverage/
 # Build artifacts
 *.tar.gz
 *.zip
+.magicpodcast-releases/
 
 # Temporary development docs
 ERROR_TYPE_REFACTOR.md
