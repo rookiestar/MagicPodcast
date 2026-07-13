@@ -15,6 +15,10 @@ const BASE_CONTAINER_CLASS = "aspect-square bg-slate-200 relative w-full h-full 
 // 预加载距离阈值（像素）
 const PRELOAD_MARGIN = "200px";
 
+// 封面加载的有界上限：超过该时长仍未完成加载（无 onLoad/onError）时收敛到稳定占位，
+// 避免慢速或挂起的图片请求让封面永久停留在灰色块。
+const COVER_LOAD_TIMEOUT_MS = 15_000;
+
 interface PodcastCoverProps {
   coverUrl?: string;
   title: string;
@@ -35,11 +39,13 @@ function PodcastCover({
   fetchPriority,
 }: PodcastCoverProps) {
   const [imageError, setImageError] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const [shouldLoad, setShouldLoad] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 获取图片URL（优先使用代理URL）
-  const imageUrl = coverUrl ? getProxiedImageUrl(coverUrl) || coverUrl : "";
+  // 获取图片URL：统一走安全代理，未在白名单内的远端来源返回 undefined，
+  // 由占位符承接，不再回退到原始 URL 以避免浏览器直连绕过代理与私网阻断。
+  const imageUrl = coverUrl ? getProxiedImageUrl(coverUrl) : "";
 
   // 检查是否是代理URL（代理URL使用普通img标签，避免Next.js图片优化器的HEAD请求问题）
   const isProxiedUrl = imageUrl.includes("/images/proxy");
@@ -77,6 +83,21 @@ function PodcastCover({
     return () => observer.disconnect();
   }, [isHighPriority]);
 
+  // 有界加载收敛：图片开始加载后，若在上限内既未完成也未报错，则收敛到稳定占位。
+  useEffect(() => {
+    if (imageError || imageLoaded || !imageUrl) {
+      return;
+    }
+    // 仅当图片确实开始加载（首屏高优先级或已进入预加载）时启动计时。
+    if (!(shouldLoad || isHighPriority)) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      setImageError(true);
+    }, COVER_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [imageError, imageLoaded, imageUrl, shouldLoad, isHighPriority]);
+
   // 合并容器类名
   const containerClass = className
     ? `${BASE_CONTAINER_CLASS} ${className}`
@@ -103,6 +124,7 @@ function PodcastCover({
             className="object-cover w-full h-full"
             loading={isHighPriority ? "eager" : "lazy"}
             fetchPriority={resolvedFetchPriority}
+            onLoad={() => setImageLoaded(true)}
             onError={() => setImageError(true)}
           />
         )}
@@ -123,6 +145,7 @@ function PodcastCover({
           className="object-cover"
           priority={isHighPriority}
           loading={isHighPriority ? "eager" : "lazy"}
+          onLoad={() => setImageLoaded(true)}
           onError={() => setImageError(true)}
         />
       )}
