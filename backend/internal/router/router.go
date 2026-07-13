@@ -68,8 +68,8 @@ func SetupRouter() *gin.Engine {
 	// 规模放宽准入，避免瞬时并发被中间件以 409 拒绝而进入 handler 之前。属调度
 	// 行为变更，上限取值见 docs/HUMAN_REVIEW_QUEUE.md（issue #14）。
 	imageOperation := resourceLimiter.Middleware("image", middleware.OperationPolicy{
-		MaxConcurrent: 32,
-		MaxRequests:   600,
+		MaxConcurrent: 12,
+		MaxRequests:   300,
 		Window:        time.Minute,
 	})
 	cacheOperation := resourceLimiter.Middleware("cache", middleware.OperationPolicy{
