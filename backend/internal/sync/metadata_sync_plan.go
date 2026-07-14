@@ -41,11 +41,17 @@ func detectPodcastMetadataUpdate(current *models.Podcast, updated *models.Podcas
 		check.reasons = append(check.reasons, "newest_enclosure_url changed")
 	}
 
+	if updated.CoverURL != current.CoverURL {
+		check.hasUpdate = true
+		check.reasons = append(check.reasons, "cover_url changed")
+	}
+
 	return check
 }
 
 func podcastMetadataUpdates(updated *models.Podcast) map[string]interface{} {
 	return map[string]interface{}{
+		"cover_url":                 updated.CoverURL,
 		"episode_count":             updated.EpisodeCount,
 		"newest_episode_date":       updated.NewestEpisodeDate,
 		"newest_enclosure_url":      updated.NewestEnclosureURL,

@@ -44,32 +44,42 @@ type ImageHandler struct {
 	allowedHosts []string // 允许代理的域名白名单
 }
 
+const maxImageRedirects = 5
+
 // NewImageHandler 创建图片代理处理器
 func NewImageHandler() *ImageHandler {
-	return &ImageHandler{
-		httpClient: &http.Client{
-			Timeout: imageFetchTimeout,
-			Transport: &http.Transport{
-				// Direct connections keep the DNS/IP policy effective even if the
-				// process inherits proxy environment variables.
-				DialContext:           newSafeImageDialContext(defaultImageLookup, &net.Dialer{Timeout: imageDialTimeout}),
-				TLSHandshakeTimeout:   imageDialTimeout,
-				ResponseHeaderTimeout: imageFetchTimeout,
-				// Connection pool sized to match imageOperation admission limits
-					// (MaxConcurrent:32). Each concurrent proxy request needs one
-					// outbound connection; undersizing causes requests to queue on
-					// dial, which manifests as slow/stuck cover art during scroll.
-					MaxIdleConns:          48,
-					MaxIdleConnsPerHost:   16,
-				IdleConnTimeout:       30 * time.Second,
-			},
-			// 禁止自动跟随重定向，防止通过跳转绕过白名单和 DNS 检查。
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
+	h := &ImageHandler{
 		allowedHosts: approvedImageHosts(),
 	}
+	h.httpClient = &http.Client{
+		Timeout: imageFetchTimeout,
+		Transport: &http.Transport{
+			// Direct connections keep the DNS/IP policy effective even if the
+			// process inherits proxy environment variables.
+			DialContext:           newSafeImageDialContext(defaultImageLookup, &net.Dialer{Timeout: imageDialTimeout}),
+			TLSHandshakeTimeout:   imageDialTimeout,
+			ResponseHeaderTimeout: imageFetchTimeout,
+			// Connection pool sized to match imageOperation admission limits
+				// (MaxConcurrent:32). Each concurrent proxy request needs one
+				// outbound connection; undersizing causes requests to queue on
+				// dial, which manifests as slow/stuck cover art during scroll.
+				MaxIdleConns:          48,
+				MaxIdleConnsPerHost:   16,
+			IdleConnTimeout:       30 * time.Second,
+		},
+		// 选择性跟随重定向：仅当目标域名在白名单内时才跟随，
+		// 防止通过重定向链绕过白名单和 DNS 检查。
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= maxImageRedirects {
+				return fmt.Errorf("stopped after %d redirects", maxImageRedirects)
+			}
+			if h.isAllowedHost(req.URL.Hostname()) {
+				return nil
+			}
+			return http.ErrUseLastResponse
+		},
+	}
+	return h
 }
 
 // approvedImageHosts is the reviewed set observed in the current podcast and
@@ -238,7 +248,9 @@ func normalizedImageContentType(raw string) (string, bool) {
 	}
 
 	switch strings.ToLower(mediaType) {
-	case "image/jpeg", "image/png", "image/gif", "image/webp", "image/avif":
+	case "image/jpeg", "image/jpg":
+		return "image/jpeg", true
+	case "image/png", "image/gif", "image/webp", "image/avif":
 		return strings.ToLower(mediaType), true
 	default:
 		return "", false
