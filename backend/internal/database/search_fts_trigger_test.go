@@ -15,7 +15,6 @@ import (
 func TestSearchFTSTriggersKeepExternalContentIndexesInSync(t *testing.T) {
 	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
 	require.NoError(t, ApplyMigrations(db))
-	installSearchFTSMigrationForTest(t, db)
 
 	podcast := &models.Podcast{
 		XYZID:       "fts-trigger-podcast",
@@ -33,6 +32,9 @@ func TestSearchFTSTriggersKeepExternalContentIndexesInSync(t *testing.T) {
 		ShowNotes: "Original Episode Notes",
 	}
 	require.NoError(t, db.Create(episode).Error)
+	installSearchFTSMigrationForTest(t, db)
+	assertFTSRowCount(t, db, "podcast_search_fts", 1)
+	assertFTSRowCount(t, db, "episode_search_fts", 1)
 
 	require.NoError(t, db.Model(&models.Podcast{}).
 		Where("id = ?", podcast.ID).
@@ -77,4 +79,11 @@ func assertFTSMatchCount(t *testing.T, db *gorm.DB, tableName, query string, wan
 	var got int
 	require.NoError(t, db.Raw("SELECT COUNT(*) FROM "+tableName+" WHERE "+tableName+" MATCH ?", query).Scan(&got).Error)
 	require.Equal(t, want, got, "FTS table %s query %q", tableName, query)
+}
+
+func assertFTSRowCount(t *testing.T, db *gorm.DB, tableName string, want int) {
+	t.Helper()
+	var got int
+	require.NoError(t, db.Raw("SELECT COUNT(*) FROM "+tableName).Scan(&got).Error)
+	require.Equal(t, want, got, "FTS table %s row count", tableName)
 }
