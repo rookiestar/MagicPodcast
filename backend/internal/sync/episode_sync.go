@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"errors"
 	"fmt"
 	"magicpodcast/internal/logger"
 	"sync"
@@ -9,6 +10,7 @@ import (
 	"magicpodcast/internal/models"
 
 	"github.com/mmcdole/gofeed"
+	"gorm.io/gorm"
 )
 
 const episodeGUIDLookupBatchSize = 500
@@ -95,7 +97,10 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 		return nil, fetchErr
 	}
 
-	result := s.syncPodcastEpisodeItems(&podcast, items, config)
+	result, err := s.syncPodcastEpisodeItems(&podcast, items, config)
+	if err != nil {
+		return result, fmt.Errorf("同步单集并写回播客汇总失败: %w", err)
+	}
 
 	logger.Infof("✅ 同步完成: %s - 新增: %d, 更新: %d, 跳过: %d, 错误: %d",
 		podcast.Title, result.Created, result.Updated, result.Skipped, result.Errors)
@@ -103,7 +108,7 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 	return result, nil
 }
 
-func (s *Service) syncPodcastEpisodeItems(podcast *models.Podcast, items []*gofeed.Item, config EpisodeSyncConfig) *EpisodeSyncResult {
+func (s *Service) syncPodcastEpisodeItems(podcast *models.Podcast, items []*gofeed.Item, config EpisodeSyncConfig) (*EpisodeSyncResult, error) {
 	result := &EpisodeSyncResult{
 		PodcastID:    podcast.ID,
 		PodcastTitle: podcast.Title,
@@ -123,9 +128,9 @@ func (s *Service) syncPodcastEpisodeItems(podcast *models.Podcast, items []*gofe
 	if err != nil {
 		logger.Infof("   ❌ 查询已有episodes失败: %v", err)
 		result.Errors += len(episodes)
-		s.refreshPodcastEpisodeSyncFields(podcast, result)
-		return result
+		return result, fmt.Errorf("查询已有单集失败: %w", err)
 	}
+	var firstWriteErr error
 
 	for index, episode := range episodes {
 		item := items[index]
@@ -134,6 +139,9 @@ func (s *Service) syncPodcastEpisodeItems(podcast *models.Podcast, items []*gofe
 		if exists && existing.PodcastID != podcast.ID {
 			logger.Infof("   ❌ 跳过episode: %s - GUID已属于其他播客", item.Title)
 			result.Errors++
+			if firstWriteErr == nil {
+				firstWriteErr = fmt.Errorf("GUID %q 已属于播客 %d", episode.GUID, existing.PodcastID)
+			}
 			continue
 		}
 
@@ -142,6 +150,9 @@ func (s *Service) syncPodcastEpisodeItems(podcast *models.Podcast, items []*gofe
 			if err := s.db.Create(episode).Error; err != nil {
 				logger.Infof("   ❌ 创建episode失败: %s - %v", item.Title, err)
 				result.Errors++
+				if firstWriteErr == nil {
+					firstWriteErr = fmt.Errorf("创建单集 %q 失败: %w", item.Title, err)
+				}
 			} else {
 				logger.Infof("   ✅ 新增episode: %s", item.Title)
 				result.Created++
@@ -167,6 +178,9 @@ func (s *Service) syncPodcastEpisodeItems(podcast *models.Podcast, items []*gofe
 				if err := s.db.Save(episode).Error; err != nil {
 					logger.Infof("   ❌ 更新episode失败: %s - %v", item.Title, err)
 					result.Errors++
+					if firstWriteErr == nil {
+						firstWriteErr = fmt.Errorf("更新单集 %q 失败: %w", item.Title, err)
+					}
 				} else {
 					logger.Infof("   🔄 更新episode: %s", item.Title)
 					result.Updated++
@@ -178,8 +192,13 @@ func (s *Service) syncPodcastEpisodeItems(podcast *models.Podcast, items []*gofe
 		}
 	}
 
-	s.refreshPodcastEpisodeSyncFields(podcast, result)
-	return result
+	if err := s.refreshPodcastEpisodeSyncFields(podcast, result); err != nil {
+		return result, fmt.Errorf("刷新播客汇总字段失败: %w", err)
+	}
+	if firstWriteErr != nil {
+		return result, firstWriteErr
+	}
+	return result, nil
 }
 
 func episodeNeedsUpdate(existing *models.Episode, next *models.Episode) bool {
@@ -268,35 +287,29 @@ func (s *Service) loadExistingEpisodesByGUID(guids []string) (map[string]models.
 	return existingByGUID, nil
 }
 
-func (s *Service) refreshPodcastEpisodeSyncFields(podcast *models.Podcast, result *EpisodeSyncResult) {
+func (s *Service) refreshPodcastEpisodeSyncFields(podcast *models.Podcast, result *EpisodeSyncResult) error {
 	now := time.Now()
 	updates := map[string]interface{}{
 		"last_fetched_at": now,
 	}
 
-	if result.Created > 0 || result.Updated > 0 {
-		// 从该podcast的所有episodes中查找最新发布日期
-		var newestEpisode models.Episode
-		if err := s.db.Where("podcast_id = ?", podcast.ID).
-			Select("published_date, updated_date").
-			Order("COALESCE(updated_date, published_date) DESC").
-			First(&newestEpisode).Error; err == nil {
-
-			// 更新newest_episode_date（优先使用updated_date，其次published_date）
-			if newestEpisode.UpdatedDate != nil && !newestEpisode.UpdatedDate.IsZero() {
-				podcast.NewestEpisodeDate = *newestEpisode.UpdatedDate
-			} else if !newestEpisode.PublishedDate.IsZero() {
-				podcast.NewestEpisodeDate = newestEpisode.PublishedDate
-			}
-
-			if !podcast.NewestEpisodeDate.IsZero() {
-				updates["newest_episode_date"] = podcast.NewestEpisodeDate
-			}
-
-			logger.Infof("   📅 更新newest_episode_date: %s", podcast.NewestEpisodeDate.Format("2006-01-02 15:04:05"))
-		} else {
-			logger.Infof("   ⚠️  查询最新episode失败，无法更新newest_episode_date: %v", err)
-		}
+	// 每次同步都从实际单集重新计算汇总，避免 feed 抓取时间或 RSS
+	// updated 字段污染“最近更新”的发布时间语义。
+	var newestEpisode models.Episode
+	newestErr := s.db.Where("podcast_id = ?", podcast.ID).
+		Select("published_date").
+		Order("published_date DESC, id DESC").
+		First(&newestEpisode).Error
+	if newestErr != nil && !errors.Is(newestErr, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("查询最新单集失败: %w", newestErr)
+	}
+	if newestErr == nil && !newestEpisode.PublishedDate.IsZero() {
+		podcast.NewestEpisodeDate = newestEpisode.PublishedDate
+		updates["newest_episode_date"] = podcast.NewestEpisodeDate
+		logger.Infof("   📅 更新newest_episode_date: %s", podcast.NewestEpisodeDate.Format("2006-01-02 15:04:05"))
+	} else {
+		podcast.NewestEpisodeDate = time.Time{}
+		updates["newest_episode_date"] = nil
 	}
 
 	var actualEpisodeCount int64
@@ -308,12 +321,13 @@ func (s *Service) refreshPodcastEpisodeSyncFields(podcast *models.Podcast, resul
 			logger.Infof("   📊 更新 episode_count: %d → %d", oldEpisodeCount, podcast.EpisodeCount)
 		}
 	} else {
-		logger.Infof("   ⚠️  统计 episode_count 失败: %v", err)
+		return fmt.Errorf("统计单集数量失败: %w", err)
 	}
 
 	if err := s.db.Model(&models.Podcast{}).Where("id = ?", podcast.ID).Updates(updates).Error; err != nil {
-		logger.Infof("   ⚠️  更新podcast元数据失败: %v", err)
+		return fmt.Errorf("写回播客汇总失败: %w", err)
 	}
+	return nil
 }
 
 // SyncAllPodcastEpisodes 同步所有已订阅podcast的episodes
@@ -422,5 +436,8 @@ func (s *Service) SyncAllPodcastEpisodes(reporter ProgressReporter, config Episo
 	}
 	reporter.ReportSummary(summary)
 
+	if totalErrors > 0 {
+		return fmt.Errorf("单集同步失败: %d 个播客未完成同步", totalErrors)
+	}
 	return nil
 }

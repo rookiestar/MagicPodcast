@@ -250,19 +250,21 @@ func (s *Service) convertGofeedToModel(feed *gofeed.Feed, dataSource string, fee
 	if len(feed.Items) > 0 {
 		podcast.EpisodeCount = len(feed.Items)
 
-		// 查找最新单集（按发布时间排序）
+		// 查找最新单集（按发布时间排序；不使用 RSS 更新时间或抓取时间）
 		var newestItem *gofeed.Item
 		var newestTime time.Time
 
 		for i, item := range feed.Items {
 			var itemTime time.Time
-			if item.UpdatedParsed != nil {
-				itemTime = *item.UpdatedParsed
-			} else if item.PublishedParsed != nil {
+			if item.PublishedParsed != nil {
 				itemTime = *item.PublishedParsed
+			} else if item.UpdatedParsed != nil {
+				// 少数 feed 缺少发布时间时保留可用的时间兜底，但正常排序
+				// 永远以发布时间为准。
+				itemTime = *item.UpdatedParsed
 			}
 
-			if i == 0 || itemTime.After(newestTime) {
+			if newestItem == nil || (i == 0 && newestTime.IsZero()) || itemTime.After(newestTime) {
 				newestTime = itemTime
 				newestItem = item
 			}

@@ -29,6 +29,7 @@
 | `insert_podcast_tags` | 从 Excel 写入播客标签关系 | 依赖本机 Excel 文件，会写主数据库 |
 | `insert_test_data` | 插入测试播客和单集 | 会写主数据库 |
 | `repair_dirty_data` | 修复脏数据并可生成报告 | 默认 dry-run；加 `--apply` 后会写数据库 |
+| `repair_podcast_summaries` | 按未删除单集的 `published_date` 重算播客 `episode_count` 和 `newest_episode_date` | 默认 dry-run；`--apply` 强制要求确认、自动备份并生成 JSON 审计报告；不会使用抓取时间或 `updated_date` |
 | `update_episode_covers` | 用播客封面补齐单集封面 | 会更新主数据库 |
 | `update_podcast_metadata` | 更新播客元数据 | 会更新主数据库，依赖外部数据 |
 

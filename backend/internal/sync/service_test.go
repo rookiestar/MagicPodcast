@@ -17,6 +17,7 @@ import (
 	"github.com/mmcdole/gofeed"
 	ext "github.com/mmcdole/gofeed/extensions"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -67,6 +68,103 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	assert.NoError(t, err)
 
 	return db
+}
+
+func TestConvertGofeedToModelUsesPublishedDateForRecentUpdate(t *testing.T) {
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	assert.NoError(t, err)
+	t.Cleanup(func() {
+		assert.NoError(t, service.Close())
+	})
+
+	published := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
+	updated := published.Add(48 * time.Hour)
+	converted := service.convertGofeedToModel(&gofeed.Feed{
+		Title: "Recent Update Contract",
+		Items: []*gofeed.Item{
+			{
+				Title:           "Episode",
+				PublishedParsed: &published,
+				UpdatedParsed:   &updated,
+			},
+		},
+	}, "rss", "https://example.com/recent-update.xml")
+
+	assert.Equal(t, published, converted.NewestEpisodeDate)
+}
+
+func TestSyncPodcastEpisodeItemsDoesNotUseFetchTimeForRecentUpdate(t *testing.T) {
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	assert.NoError(t, err)
+	t.Cleanup(func() {
+		assert.NoError(t, service.Close())
+	})
+
+	published := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
+	oldFetch := time.Date(2026, 7, 10, 8, 0, 0, 0, time.UTC)
+	podcast := &models.Podcast{
+		XYZID:             "recent-update-no-new-episode",
+		Title:             "No New Episode",
+		FeedURL:           "https://example.com/no-new-episode.xml",
+		NewestEpisodeDate: published,
+		LastFetchedAt:     &oldFetch,
+	}
+	assert.NoError(t, db.Create(podcast).Error)
+
+	assert.NoError(t, db.Create(&models.Episode{
+		PodcastID:     podcast.ID,
+		GUID:          "no-new-episode-guid",
+		Title:         "Existing Episode",
+		PublishedDate: published,
+	}).Error)
+
+	result, err := service.syncPodcastEpisodeItems(podcast, []*gofeed.Item{{
+		GUID:            "no-new-episode-guid",
+		Title:           "Existing Episode",
+		PublishedParsed: &published,
+	}}, EpisodeSyncConfig{UpdateExisting: true})
+	assert.NoError(t, err)
+	assert.Equal(t, 0, result.Created)
+	assert.Equal(t, 0, result.Updated)
+
+	var refreshed models.Podcast
+	assert.NoError(t, db.First(&refreshed, podcast.ID).Error)
+	assert.Equal(t, published, refreshed.NewestEpisodeDate)
+	assert.NotNil(t, refreshed.LastFetchedAt)
+	assert.True(t, refreshed.LastFetchedAt.After(oldFetch))
+}
+
+func TestSyncPodcastEpisodeItemsReturnsSummaryWritebackError(t *testing.T) {
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	assert.NoError(t, err)
+	t.Cleanup(func() {
+		assert.NoError(t, service.Close())
+	})
+
+	podcast := &models.Podcast{
+		XYZID: "summary-writeback-error",
+		Title: "Summary Writeback Error",
+	}
+	assert.NoError(t, db.Create(podcast).Error)
+	require.NoError(t, db.Exec(`
+		CREATE TRIGGER reject_podcast_summary_write
+		BEFORE UPDATE OF episode_count, newest_episode_date ON podcasts
+		BEGIN
+			SELECT RAISE(ABORT, 'summary writeback blocked');
+		END`).Error)
+
+	result, err := service.syncPodcastEpisodeItems(podcast, []*gofeed.Item{{
+		GUID:            "summary-writeback-error-episode",
+		Title:           "New Episode",
+		PublishedParsed: ptrTime(time.Date(2026, 7, 14, 8, 0, 0, 0, time.UTC)),
+	}}, EpisodeSyncConfig{UpdateExisting: true})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "写回播客汇总失败")
+	assert.Equal(t, 1, result.Created)
 }
 
 // TestFetcherWithContext 测试Fetcher的context超时控制
@@ -504,11 +602,12 @@ func TestSyncPodcastEpisodeItemsPreloadsExistingEpisodesAndPreservesUserFields(t
 		},
 	}
 
-	result := service.syncPodcastEpisodeItems(podcast, items, EpisodeSyncConfig{
+	result, err := service.syncPodcastEpisodeItems(podcast, items, EpisodeSyncConfig{
 		Mode:                  SyncModeFull,
 		MaxEpisodesPerPodcast: 1000,
 		UpdateExisting:        true,
 	})
+	assert.NoError(t, err)
 
 	assert.Equal(t, 1, result.Created)
 	assert.Equal(t, 2, result.Updated)
@@ -564,7 +663,7 @@ func TestSyncPodcastEpisodeItemsDoesNotMoveEpisodeFromAnotherPodcast(t *testing.
 	}
 	assert.NoError(t, db.Create(existing).Error)
 
-	result := service.syncPodcastEpisodeItems(targetPodcast, []*gofeed.Item{
+	result, err := service.syncPodcastEpisodeItems(targetPodcast, []*gofeed.Item{
 		{
 			Title:           "Should Not Move",
 			GUID:            "shared-guid",
@@ -575,6 +674,7 @@ func TestSyncPodcastEpisodeItemsDoesNotMoveEpisodeFromAnotherPodcast(t *testing.
 		MaxEpisodesPerPodcast: 1000,
 		UpdateExisting:        true,
 	})
+	assert.Error(t, err)
 
 	assert.Equal(t, 0, result.Created)
 	assert.Equal(t, 0, result.Updated)
@@ -625,7 +725,7 @@ func TestSyncPodcastEpisodeItemsSkipsUnchangedExistingEpisode(t *testing.T) {
 	assert.NoError(t, db.Create(existing).Error)
 	originalUpdatedAt := existing.UpdatedAt
 
-	result := service.syncPodcastEpisodeItems(podcast, []*gofeed.Item{
+	result, err := service.syncPodcastEpisodeItems(podcast, []*gofeed.Item{
 		{
 			Title:           "Same Episode",
 			GUID:            "same-guid",
@@ -647,6 +747,7 @@ func TestSyncPodcastEpisodeItemsSkipsUnchangedExistingEpisode(t *testing.T) {
 		MaxEpisodesPerPodcast: 1000,
 		UpdateExisting:        true,
 	})
+	assert.NoError(t, err)
 
 	assert.Equal(t, 0, result.Created)
 	assert.Equal(t, 0, result.Updated)

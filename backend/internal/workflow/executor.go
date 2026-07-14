@@ -394,11 +394,7 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 				logger.Infof("❌ 报告生成panic已恢复 [JobID=%d]: %v", job.ID, r)
 				endTime := time.Now()
 				job.EndTime = &endTime
-				if successCount == 0 {
-					job.Status = models.JobStatusFailed
-				} else {
-					job.Status = models.JobStatusCompleted
-				}
+				job.Status = finalJobStatus(successCount, failedCount, len(executions))
 				if saveErr := e.db.Save(job).Error; saveErr != nil {
 					logger.Infof("❌ 更新Job状态失败 [JobID=%d]: %v", job.ID, saveErr)
 				}
@@ -413,11 +409,7 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 			// 报告生成失败，设置EndTime并决定最终状态
 			endTime := time.Now()
 			job.EndTime = &endTime
-			if successCount == 0 {
-				job.Status = models.JobStatusFailed
-			} else {
-				job.Status = models.JobStatusCompleted
-			}
+			job.Status = finalJobStatus(successCount, failedCount, len(executions))
 			if saveErr := e.db.Save(job).Error; saveErr != nil {
 				logger.Infof("❌ 更新Job状态失败 [JobID=%d]: %v", job.ID, saveErr)
 			}
@@ -430,7 +422,7 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 		// ⭐ 报告生成成功，设置EndTime（包括报告生成时间）并更新状态
 		endTime := time.Now()
 		job.EndTime = &endTime
-		job.Status = models.JobStatusCompleted
+		job.Status = finalJobStatus(successCount, failedCount, len(executions))
 
 		if err := e.db.Save(job).Error; err != nil {
 			logger.Infof("❌ 更新Job状态失败 [JobID=%d]: %v", job.ID, err)
@@ -448,6 +440,13 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 			}
 		}
 	}()
+}
+
+func finalJobStatus(successCount, failedCount, executionCount int) models.JobStatus {
+	if failedCount > 0 || (executionCount > 0 && successCount == 0) {
+		return models.JobStatusFailed
+	}
+	return models.JobStatusCompleted
 }
 
 // updateJobStatus 更新Job状态和错误信息

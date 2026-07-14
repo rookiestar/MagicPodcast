@@ -1,14 +1,19 @@
 package workflow
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 
 	"magicpodcast/internal/models"
+	syncsvc "magicpodcast/internal/sync"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -187,6 +192,64 @@ func TestFetchCustomPodcasts_EmptyURLs(t *testing.T) {
 	assert.Error(t, err, "空URL列表应该返回错误")
 	assert.Nil(t, podcasts, "空URL列表应该返回nil")
 	assert.Contains(t, err.Error(), "未能从自定义源获取任何播客", "错误信息应该包含提示")
+}
+
+func TestSyncPodcastMarksExecutionFailedWhenSummaryWritebackFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Workflow Test Feed</title>
+<item><title>New Episode</title><guid>workflow-summary-error-episode</guid><pubDate>Tue, 14 Jul 2026 08:00:00 GMT</pubDate><description>Episode details</description></item>
+</channel></rss>`))
+	}))
+	t.Cleanup(server.Close)
+
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Episode{}))
+	service, err := syncsvc.NewService(db, "")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, service.Close()) })
+
+	podcast := &models.Podcast{
+		XYZID:        "workflow-summary-error-podcast",
+		Title:        "Workflow Summary Error",
+		FeedURL:      server.URL,
+		IsSubscribed: true,
+	}
+	require.NoError(t, db.Create(podcast).Error)
+	require.NoError(t, db.Exec(`
+		CREATE TRIGGER reject_workflow_summary_write
+		BEFORE UPDATE OF episode_count, newest_episode_date ON podcasts
+		BEGIN
+			SELECT RAISE(ABORT, 'workflow summary writeback blocked');
+		END`).Error)
+
+	workflow := &models.Workflow{
+		Name:        "Summary Writeback Failure Workflow",
+		Schedule:    "0 0 * * *",
+		ScopeType:   models.ScopeTypeSpecificPodcasts,
+		ScopeConfig: models.ScopeConfig{PodcastIDs: []int{int(podcast.ID)}},
+		IsEnabled:   true,
+	}
+	require.NoError(t, db.Create(workflow).Error)
+	job := &models.Job{WorkflowID: workflow.ID, Status: models.JobStatusRunning, TriggeredBy: "manual"}
+	require.NoError(t, db.Create(job).Error)
+
+	executor := NewExecutor(db, service, nil, nil)
+	execution := executor.syncPodcast(context.Background(), workflow, job.ID, *podcast)
+
+	assert.Equal(t, models.ExecutionStatusFailed, execution.Status)
+	assert.Contains(t, execution.ErrorMessage, "写回播客汇总失败")
+
+	var persisted models.JobExecution
+	require.NoError(t, db.First(&persisted, execution.ID).Error)
+	assert.Equal(t, models.ExecutionStatusFailed, persisted.Status)
+}
+
+func TestFinalJobStatusFailsWhenAnyPodcastExecutionFails(t *testing.T) {
+	assert.Equal(t, models.JobStatusCompleted, finalJobStatus(2, 0, 2))
+	assert.Equal(t, models.JobStatusFailed, finalJobStatus(1, 1, 2))
+	assert.Equal(t, models.JobStatusFailed, finalJobStatus(0, 1, 1))
 }
 
 // TestPodcastModel_FeedURLUniqueIndex 测试FeedURL唯一索引
