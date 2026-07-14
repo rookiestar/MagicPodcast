@@ -3,6 +3,7 @@ package sync
 import (
 	"errors"
 	"fmt"
+	"magicpodcast/internal/cache"
 	"magicpodcast/internal/logger"
 	"sync"
 	"time"
@@ -327,6 +328,7 @@ func (s *Service) refreshPodcastEpisodeSyncFields(podcast *models.Podcast, resul
 	if err := s.db.Model(&models.Podcast{}).Where("id = ?", podcast.ID).Updates(updates).Error; err != nil {
 		return fmt.Errorf("写回播客汇总失败: %w", err)
 	}
+	cache.InvalidatePodcastDetail(podcast.ID)
 	return nil
 }
 

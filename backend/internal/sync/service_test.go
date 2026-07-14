@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"magicpodcast/internal/cache"
 	"magicpodcast/internal/feed"
 	"magicpodcast/internal/models"
 
@@ -134,6 +135,42 @@ func TestSyncPodcastEpisodeItemsDoesNotUseFetchTimeForRecentUpdate(t *testing.T)
 	assert.Equal(t, published, refreshed.NewestEpisodeDate)
 	assert.NotNil(t, refreshed.LastFetchedAt)
 	assert.True(t, refreshed.LastFetchedAt.After(oldFetch))
+}
+
+func TestSyncPodcastEpisodeItemsInvalidatesPodcastCachesAfterSummaryWriteback(t *testing.T) {
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		assert.NoError(t, service.Close())
+	})
+
+	podcast := &models.Podcast{
+		XYZID: "summary-cache-invalidation",
+		Title: "Summary Cache Invalidation",
+	}
+	require.NoError(t, db.Create(podcast).Error)
+
+	memCache := cache.GetCache()
+	memCache.Clear()
+	t.Cleanup(memCache.Clear)
+	listKey := cache.NewKeyBuilder().PodcastList(1, 15, "recent_update", nil, "", "")
+	detailKey := fmt.Sprintf("podcasts:detail:%d", podcast.ID)
+	memCache.Set(listKey, "stale-list")
+	memCache.Set(detailKey, "stale-detail")
+
+	result, err := service.syncPodcastEpisodeItems(podcast, []*gofeed.Item{{
+		GUID:            "summary-cache-invalidation-episode",
+		Title:           "New Episode",
+		PublishedParsed: ptrTime(time.Date(2026, 7, 14, 8, 0, 0, 0, time.UTC)),
+	}}, EpisodeSyncConfig{UpdateExisting: true})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.Created)
+	_, listCached := memCache.Get(listKey)
+	_, detailCached := memCache.Get(detailKey)
+	assert.False(t, listCached, "podcast list cache must be invalidated after episode sync")
+	assert.False(t, detailCached, "podcast detail cache must be invalidated after episode sync")
 }
 
 func TestSyncPodcastEpisodeItemsReturnsSummaryWritebackError(t *testing.T) {
