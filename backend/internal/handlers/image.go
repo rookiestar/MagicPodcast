@@ -31,6 +31,10 @@ const (
 	cloudflareSafeSize = 3 * 1024 * 1024
 	// Cover art is displayed at ~256 px; 800 px covers 2× retina with margin.
 	coverMaxDimension = 800
+	// Image responses use a finite browser/CDN cache window. This avoids
+	// repeated fetches after virtualized list remounts without making the
+	// response permanently cacheable.
+	imageProxyCacheControl = "public, max-age=86400, stale-while-revalidate=604800"
 )
 
 var (
@@ -412,7 +416,7 @@ func (h *ImageHandler) ProxyImage(c *gin.Context) {
 	// Bounded cache for cover art images. Podcast covers change rarely (RSS sync
 	// cycle), so a long TTL with stale-while-revalidate is safe and eliminates
 	// redundant round-trips on virtualization remount / scroll-back scenarios.
-	c.Header("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
+	c.Header("Cache-Control", imageProxyCacheControl)
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Content-Type", contentType)
 	c.Data(http.StatusOK, contentType, body)

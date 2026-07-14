@@ -72,7 +72,7 @@ func TestImageHandlerConfiguresBoundedNetworkTimeouts(t *testing.T) {
 	assert.Equal(t, imageDialTimeout, transport.TLSHandshakeTimeout)
 }
 
-func TestImageHandler_AllowsReviewedPNGWithoutUnboundedCaching(t *testing.T) {
+func TestImageHandler_AllowsReviewedPNGWithBoundedCaching(t *testing.T) {
 	response := &http.Response{
 		StatusCode:    http.StatusOK,
 		Header:        http.Header{"Content-Type": []string{"image/png; charset=binary"}},
@@ -86,7 +86,7 @@ func TestImageHandler_AllowsReviewedPNGWithoutUnboundedCaching(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 	assert.Equal(t, "image/png", recorder.Header().Get("Content-Type"))
-	assert.Equal(t, "no-store, max-age=0", recorder.Header().Get("Cache-Control"))
+	assert.Equal(t, "public, max-age=86400, stale-while-revalidate=604800", recorder.Header().Get("Cache-Control"))
 	assert.Equal(t, "nosniff", recorder.Header().Get("X-Content-Type-Options"))
 	assert.Equal(t, []byte("\x89PNG\r\n\x1a\n"), recorder.Body.Bytes())
 }
