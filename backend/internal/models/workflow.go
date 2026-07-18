@@ -191,6 +191,25 @@ type JobExecution struct {
 	ErrorMessage    string          `gorm:"type:text" json:"error_message,omitempty"`
 	LogInfo         string          `gorm:"type:text" json:"log_info,omitempty"`
 	ProcessingTime  int             `gorm:"default:0" json:"processing_time"` // 毫秒
+
+	// Feed access observability. These fields contain bounded metadata only;
+	// response bodies, cookies, credentials, and arbitrary headers are never
+	// persisted.
+	FeedHTTPStatus     *int   `gorm:"column:feed_http_status" json:"feed_http_status"`
+	FeedErrorCategory  string `gorm:"size:40;not null;default:not_observed" json:"feed_error_category"`
+	FeedTargetDomain   string `gorm:"size:255;not null;default:''" json:"feed_target_domain"`
+	FeedResponseTimeMs int    `gorm:"not null;default:0" json:"feed_response_time_ms"`
+	FeedRetryAfter     string `gorm:"size:128;not null;default:''" json:"feed_retry_after"`
+	FeedETag           string `gorm:"size:512;not null;default:''" json:"feed_etag"`
+	FeedLastModified   string `gorm:"size:128;not null;default:''" json:"feed_last_modified"`
+	FeedCacheControl   string `gorm:"size:512;not null;default:''" json:"feed_cache_control"`
+	FeedExpires        string `gorm:"size:128;not null;default:''" json:"feed_expires"`
+	FeedAge            string `gorm:"size:64;not null;default:''" json:"feed_age"`
+	FeedResponseBytes  int64  `gorm:"not null;default:0" json:"feed_response_bytes"`
+	FeedSourceType     string `gorm:"size:32;not null;default:unknown" json:"feed_source_type"`
+	FeedCacheStatus    string `gorm:"size:32;not null;default:not_used" json:"feed_cache_status"`
+	FeedFreshness      string `gorm:"size:32;not null;default:unknown" json:"feed_freshness"`
+	FeedEgressID       string `gorm:"size:64;not null;default:unknown" json:"feed_egress_id"`
 }
 
 // TableName 指定表名

@@ -245,6 +245,21 @@ interface JobExecution {
   log_info?: string;
   processing_time: number; // 毫秒
   created_at: string;
+  feed_http_status?: number | null;
+  feed_error_category: string;
+  feed_target_domain: string;
+  feed_response_time_ms: number;
+  feed_retry_after?: string;
+  feed_etag?: string;
+  feed_last_modified?: string;
+  feed_cache_control?: string;
+  feed_expires?: string;
+  feed_age?: string;
+  feed_response_bytes: number;
+  feed_source_type: string;
+  feed_cache_status: string;
+  feed_freshness: string;
+  feed_egress_id: string;
 }
 
 export interface WorkflowRequest {

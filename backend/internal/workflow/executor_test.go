@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -244,6 +245,101 @@ func TestSyncPodcastMarksExecutionFailedWhenSummaryWritebackFails(t *testing.T) 
 	var persisted models.JobExecution
 	require.NoError(t, db.First(&persisted, execution.ID).Error)
 	assert.Equal(t, models.ExecutionStatusFailed, persisted.Status)
+}
+
+func TestExecutePersistsFeedAccessObservation(t *testing.T) {
+	tests := []struct {
+		name             string
+		status           int
+		body             string
+		wantError        string
+		wantHTTPStatus   int
+		wantFreshness    string
+		wantResponseBody bool
+	}{
+		{
+			name:             "successful primary feed",
+			status:           http.StatusOK,
+			body:             `<?xml version="1.0"?><rss version="2.0"><channel><title>Observed Feed</title><item><title>Episode</title><guid>observed-episode</guid><pubDate>Tue, 14 Jul 2026 08:00:00 GMT</pubDate><description>Details</description></item></channel></rss>`,
+			wantError:        "none",
+			wantHTTPStatus:   http.StatusOK,
+			wantFreshness:    "live",
+			wantResponseBody: true,
+		},
+		{
+			name:           "refused primary feed",
+			status:         http.StatusForbidden,
+			body:           "refused",
+			wantError:      "access_denied",
+			wantHTTPStatus: http.StatusForbidden,
+			wantFreshness:  "unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/rss+xml")
+				w.Header().Set("ETag", `"observed-v1"`)
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			t.Cleanup(server.Close)
+
+			db := setupTestDB(t)
+			require.NoError(t, db.AutoMigrate(&models.Episode{}, &models.Report{}))
+			service, err := syncsvc.NewService(db, "")
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, service.Close()) })
+
+			podcast := &models.Podcast{
+				XYZID:        "observed-podcast-" + tt.name,
+				Title:        "Observed Podcast",
+				FeedURL:      server.URL + "/feed.xml?access_token=super-secret",
+				IsSubscribed: true,
+			}
+			require.NoError(t, db.Create(podcast).Error)
+			workflowModel := &models.Workflow{
+				Name:        "Feed Observation Workflow",
+				Schedule:    "0 0 * * *",
+				ScopeType:   models.ScopeTypeSpecificPodcasts,
+				ScopeConfig: models.ScopeConfig{PodcastIDs: []int{int(podcast.ID)}},
+				RulesConfig: models.RulesConfig{TimeRange: 1, TimeRangeMode: "days"},
+				IsEnabled:   true,
+			}
+			require.NoError(t, db.Create(workflowModel).Error)
+
+			job, err := NewExecutor(db, service, nil, nil).Execute(context.Background(), workflowModel, "manual")
+			require.NoError(t, err)
+
+			var execution models.JobExecution
+			require.Eventually(t, func() bool {
+				return db.Where("job_id = ?", job.ID).First(&execution).Error == nil
+			}, 2*time.Second, 10*time.Millisecond)
+
+			if execution.FeedHTTPStatus == nil || *execution.FeedHTTPStatus != tt.wantHTTPStatus {
+				t.Fatalf("expected feed HTTP status %d, got %#v", tt.wantHTTPStatus, execution.FeedHTTPStatus)
+			}
+			if execution.FeedErrorCategory != tt.wantError {
+				t.Fatalf("expected feed error category %q, got %q", tt.wantError, execution.FeedErrorCategory)
+			}
+			if execution.FeedTargetDomain != "127.0.0.1" {
+				t.Fatalf("expected target domain to be persisted, got %q", execution.FeedTargetDomain)
+			}
+			if execution.FeedResponseTimeMs < 0 || (tt.wantResponseBody && execution.FeedResponseBytes == 0) {
+				t.Fatalf("expected response timing/size observation, got time=%d bytes=%d", execution.FeedResponseTimeMs, execution.FeedResponseBytes)
+			}
+			if execution.FeedSourceType != "primary" || execution.FeedCacheStatus != "not_used" || execution.FeedFreshness != tt.wantFreshness || execution.FeedEgressID != "direct" {
+				t.Fatalf("unexpected source summary: source=%q cache=%q freshness=%q egress=%q", execution.FeedSourceType, execution.FeedCacheStatus, execution.FeedFreshness, execution.FeedEgressID)
+			}
+			if execution.FeedETag != `"observed-v1"` {
+				t.Fatalf("expected ETag to be persisted, got %q", execution.FeedETag)
+			}
+			if strings.Contains(execution.ErrorMessage, "super-secret") {
+				t.Fatalf("execution error should not expose query credentials: %q", execution.ErrorMessage)
+			}
+		})
+	}
 }
 
 func TestFinalJobStatusFailsWhenAnyPodcastExecutionFails(t *testing.T) {

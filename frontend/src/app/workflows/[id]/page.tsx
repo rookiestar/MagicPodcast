@@ -1091,6 +1091,28 @@ function WorkflowDetailContent() {
                                       </div>
                                     </div>
 
+                                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-400">
+                                      <span>
+                                        Feed访问: {exec.feed_target_domain || "未知域名"} · {exec.feed_http_status ?? "无HTTP状态"} · {exec.feed_error_category || "未观测"}
+                                      </span>
+                                      <span>
+                                        来源: {exec.feed_source_type || "未知"} · {exec.feed_freshness || "未知"} · 缓存: {exec.feed_cache_status || "未知"}
+                                      </span>
+                                      <span>
+                                        响应: {exec.feed_response_time_ms}ms · 出口: {exec.feed_egress_id || "未知"}
+                                      </span>
+                                    </div>
+
+                                    {(exec.feed_retry_after || exec.feed_etag || exec.feed_last_modified || exec.feed_cache_control) && (
+                                      <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        响应元数据:
+                                        {exec.feed_retry_after && ` Retry-After=${exec.feed_retry_after}`}
+                                        {exec.feed_etag && ` ETag=${exec.feed_etag}`}
+                                        {exec.feed_last_modified && ` Last-Modified=${exec.feed_last_modified}`}
+                                        {exec.feed_cache_control && ` Cache-Control=${exec.feed_cache_control}`}
+                                      </div>
+                                    )}
+
                                     {exec.error_message && (
                                       <div className="mt-2 text-xs text-red-600 bg-red-50 dark:bg-red-900/20 rounded p-2">
                                         错误: {exec.error_message}

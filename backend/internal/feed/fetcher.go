@@ -2,7 +2,8 @@ package feed
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"io"
 	"magicpodcast/internal/logger"
 	"net/http"
 	"sync"
@@ -25,6 +26,7 @@ type FetchResult struct {
 	NewItems      []*gofeed.Item
 	Error         error
 	IsIncremental bool // 是否为增量抓取
+	Access        AccessOutcome
 }
 
 // NewFetcher 创建RSS Feed抓取器
@@ -74,54 +76,103 @@ func (f *Fetcher) FetchFeed(feedURL string) (*gofeed.Feed, error) {
 
 // FetchFeedWithContext 抓取RSS Feed（支持context和超时控制）
 func (f *Fetcher) FetchFeedWithContext(ctx context.Context, feedURL string) (*gofeed.Feed, error) {
-	startTime := time.Now()
-	logger.Infof("  📡 HTTP GET: %s", feedURL)
+	result, err := f.FetchFeedWithContextDetailed(ctx, feedURL)
+	if result == nil {
+		return nil, err
+	}
+	return result.Feed, err
+}
 
-	// 检查context是否已取消
+// FetchFeedWithContextDetailed returns the parsed Feed together with a stable,
+// bounded access outcome for workflow observability.
+func (f *Fetcher) FetchFeedWithContextDetailed(ctx context.Context, feedURL string) (result *FetchResult, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	startTime := time.Now()
+	result = &FetchResult{Access: newPrimaryAccessOutcome(feedURL)}
+	setDuration := func() {
+		result.Access.ResponseTimeMs = int(time.Since(startTime).Milliseconds())
+		result.Error = err
+	}
+	defer setDuration()
+
+	safeURL := SanitizeFeedURL(feedURL)
+	logger.Infof("  📡 HTTP GET: %s", safeURL)
 	if ctx.Err() != nil {
-		return nil, ctx.Err()
+		result.Access.ErrorCategory = ErrorCategoryCancelled
+		return result, ctx.Err()
 	}
 
-	// 创建带超时的子context，确保goroutine不会无限期运行
-	ctx, cancel := context.WithTimeout(ctx, f.timeout)
+	requestCtx, cancel := context.WithTimeout(ctx, f.timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, nil)
-	if err != nil {
-		return nil, WrapHTTPError(feedURL, err)
+	req, requestErr := http.NewRequestWithContext(requestCtx, http.MethodGet, feedURL, nil)
+	if requestErr != nil {
+		err = WrapHTTPError(feedURL, requestErr)
+		result.Access.ErrorCategory = ErrorCategoryInvalidRequest
+		logger.Infof("  ❌ HTTP请求创建失败: %s (耗时: %v): %v", safeURL, time.Since(startTime), err)
+		return result, err
 	}
 	req.Header.Set("User-Agent", f.userAgent())
 
-	resp, err := f.httpClient.Do(req)
-	if err != nil {
-		duration := time.Since(startTime)
-		if ctx.Err() != nil {
-			logger.Infof("  ⏱️ HTTP请求超时/取消: %s (耗时: %v): %v", feedURL, duration, ctx.Err())
-			return nil, ctx.Err()
+	resp, requestErr := f.httpClient.Do(req)
+	if requestErr != nil {
+		if requestCtx.Err() != nil {
+			err = requestCtx.Err()
+			if errorsIsDeadline(err) {
+				result.Access.ErrorCategory = ErrorCategoryTimeout
+			} else {
+				result.Access.ErrorCategory = ErrorCategoryCancelled
+			}
+			logger.Infof("  ⏱️ HTTP请求超时/取消: %s (耗时: %v): %v", safeURL, time.Since(startTime), err)
+			return result, err
 		}
-		logger.Infof("  ❌ HTTP请求失败: %s (耗时: %v): %v", feedURL, duration, err)
-		return nil, WrapHTTPError(feedURL, err)
+		err = WrapHTTPError(feedURL, requestErr)
+		result.Access.ErrorCategory = ErrorCategoryNetwork
+		logger.Infof("  ❌ HTTP请求失败: %s (耗时: %v): %v", safeURL, time.Since(startTime), err)
+		return result, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		err := fmt.Errorf("HTTP status code %d", resp.StatusCode)
-		duration := time.Since(startTime)
-		logger.Infof("  ❌ HTTP请求失败: %s (耗时: %v): %v", feedURL, duration, err)
-		return nil, WrapHTTPError(feedURL, err)
+	status := resp.StatusCode
+	result.Access.HTTPStatus = &status
+	result.Access.RetryAfter = resp.Header.Get("Retry-After")
+	result.Access.ETag = resp.Header.Get("ETag")
+	result.Access.LastModified = resp.Header.Get("Last-Modified")
+	result.Access.CacheControl = resp.Header.Get("Cache-Control")
+	result.Access.Expires = resp.Header.Get("Expires")
+	result.Access.Age = resp.Header.Get("Age")
+	if resp.ContentLength > 0 {
+		result.Access.ResponseBytes = resp.ContentLength
 	}
 
-	feed, err := f.newParser().Parse(resp.Body)
-	if err != nil {
-		duration := time.Since(startTime)
-		logger.Infof("  ❌ Feed解析失败: %s (耗时: %v): %v", feedURL, duration, err)
-		return nil, WrapHTTPError(feedURL, err)
+	if status < http.StatusOK || status >= http.StatusMultipleChoices {
+		err = WrapHTTPError(feedURL, newHTTPStatusError(status))
+		result.Access.ErrorCategory = errorCategoryForStatus(status)
+		result.Access.Freshness = FreshnessUnknown
+		logger.Infof("  ❌ HTTP请求失败: %s (耗时: %v): %v", safeURL, time.Since(startTime), err)
+		return result, err
 	}
 
-	duration := time.Since(startTime)
+	var counter byteCounter
+	parsedFeed, parseErr := f.newParser().Parse(io.TeeReader(resp.Body, &counter))
+	result.Access.ResponseBytes = counter.BytesRead
+	if parseErr != nil {
+		err = WrapFeedParseError(feedURL, parseErr)
+		result.Access.ErrorCategory = ErrorCategoryParse
+		result.Access.Freshness = FreshnessUnknown
+		logger.Infof("  ❌ Feed解析失败: %s (耗时: %v): %v", safeURL, time.Since(startTime), err)
+		return result, err
+	}
+
+	result.Feed = parsedFeed
+	result.Access.ErrorCategory = ErrorCategoryNone
+	result.Access.Freshness = FreshnessLive
+	result.Access.EgressID = EgressDirect
 	logger.Infof("  ✅ HTTP请求成功: %s (耗时: %v, 标题: %s, 单集数: %d)",
-		feedURL, duration, feed.Title, len(feed.Items))
-	return feed, nil
+		safeURL, time.Since(startTime), parsedFeed.Title, len(parsedFeed.Items))
+	return result, nil
 }
 
 // FetchFeedWithClient 使用自定义HTTP客户端抓取
@@ -140,15 +191,25 @@ func (f *Fetcher) CloseIdleConnections() {
 
 // FetchIncremental 增量抓取：只获取lastFetchTime之后的新单集
 func (f *Fetcher) FetchIncremental(feedURL string, lastFetchTime time.Time) (*FetchResult, error) {
-	feed, err := f.FetchFeed(feedURL)
+	return f.FetchIncrementalWithContext(context.Background(), feedURL, lastFetchTime)
+}
+
+// FetchIncrementalWithContext is the context-aware incremental variant used by
+// workflow executions so access metadata survives both success and failure.
+func (f *Fetcher) FetchIncrementalWithContext(ctx context.Context, feedURL string, lastFetchTime time.Time) (*FetchResult, error) {
+	result, err := f.FetchFeedWithContextDetailed(ctx, feedURL)
+	if result == nil {
+		return nil, err
+	}
+	result.IsIncremental = true
 	if err != nil {
-		return &FetchResult{Error: err}, err
+		return result, err
 	}
 
 	var newItems []*gofeed.Item
 
 	// 遍历所有item，只保留发布时间在lastFetchTime之后的
-	for _, item := range feed.Items {
+	for _, item := range result.Feed.Items {
 		if item.PublishedParsed != nil {
 			if item.PublishedParsed.After(lastFetchTime) {
 				newItems = append(newItems, item)
@@ -156,11 +217,8 @@ func (f *Fetcher) FetchIncremental(feedURL string, lastFetchTime time.Time) (*Fe
 		}
 	}
 
-	return &FetchResult{
-		Feed:          feed,
-		NewItems:      newItems,
-		IsIncremental: true,
-	}, nil
+	result.NewItems = newItems
+	return result, nil
 }
 
 // ValidateFeed 验证RSS Feed是否有效
@@ -175,4 +233,17 @@ func (f *Fetcher) SetUserAgent(userAgent string) {
 	defer f.parserMu.Unlock()
 
 	f.parser.UserAgent = userAgent
+}
+
+type byteCounter struct {
+	BytesRead int64
+}
+
+func (c *byteCounter) Write(p []byte) (int, error) {
+	c.BytesRead += int64(len(p))
+	return len(p), nil
+}
+
+func errorsIsDeadline(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded)
 }

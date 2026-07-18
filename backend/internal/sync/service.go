@@ -99,13 +99,14 @@ func ParseEpisodeSyncMode(mode string) EpisodeSyncMode {
 
 // EpisodeSyncResult Episode同步结果
 type EpisodeSyncResult struct {
-	PodcastID    uint   `json:"podcast_id"`
-	PodcastTitle string `json:"podcast_title"`
-	Created      int    `json:"created"` // 新增数量
-	Updated      int    `json:"updated"` // 更新数量
-	Skipped      int    `json:"skipped"` // 跳过数量
-	Deleted      int    `json:"deleted"` // 删除数量
-	Errors       int    `json:"errors"`  // 错误数量
+	PodcastID    uint                `json:"podcast_id"`
+	PodcastTitle string              `json:"podcast_title"`
+	Created      int                 `json:"created"` // 新增数量
+	Updated      int                 `json:"updated"` // 更新数量
+	Skipped      int                 `json:"skipped"` // 跳过数量
+	Deleted      int                 `json:"deleted"` // 删除数量
+	Errors       int                 `json:"errors"`  // 错误数量
+	FeedAccess   *feed.AccessOutcome `json:"feed_access,omitempty"`
 }
 
 // NewService 创建同步服务

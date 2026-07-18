@@ -52,6 +52,10 @@ func TestApplyMigrationsCreatesVersionedReadySchema(t *testing.T) {
 	require.Equal(t, CurrentSchemaVersion, status.CurrentVersion)
 	require.Empty(t, status.RequiredTablesMissing)
 	require.Empty(t, status.Pending)
+	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_http_status"))
+	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_error_category"))
+	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_target_domain"))
+	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_source_type"))
 
 	var foreignKeys int
 	require.NoError(t, db.Raw("PRAGMA foreign_keys").Row().Scan(&foreignKeys))
@@ -59,6 +63,22 @@ func TestApplyMigrationsCreatesVersionedReadySchema(t *testing.T) {
 	var busyTimeout int
 	require.NoError(t, db.Raw("PRAGMA busy_timeout").Row().Scan(&busyTimeout))
 	require.GreaterOrEqual(t, busyTimeout, defaultSQLiteBusyTimeoutMS)
+}
+
+func TestFeedAccessMigrationUpgradesExistingVersionOneSchema(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, db.Exec(`CREATE TABLE job_executions (id INTEGER PRIMARY KEY, job_id INTEGER NOT NULL, status TEXT NOT NULL)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at DATETIME NOT NULL)`).Error)
+	require.NoError(t, db.Create(&SchemaMigration{Version: 1, Name: "baseline-current-model", AppliedAt: time.Now()}).Error)
+
+	require.NoError(t, ApplyMigrations(db))
+	for _, column := range []string{
+		"feed_http_status", "feed_error_category", "feed_target_domain", "feed_response_time_ms",
+		"feed_retry_after", "feed_etag", "feed_last_modified", "feed_cache_control", "feed_expires",
+		"feed_age", "feed_response_bytes", "feed_source_type", "feed_cache_status", "feed_freshness", "feed_egress_id",
+	} {
+		require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, column), "missing upgraded column %s", column)
+	}
 }
 
 func TestApplyMigrationSetRollsBackSchemaAndVersionOnFailure(t *testing.T) {

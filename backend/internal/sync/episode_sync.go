@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"magicpodcast/internal/cache"
@@ -22,6 +23,15 @@ var FullSyncEpoch = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // SyncPodcastEpisodes 同步指定podcast的episodes（智能混合模式）
 func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter, config EpisodeSyncConfig) (*EpisodeSyncResult, error) {
+	return s.SyncPodcastEpisodesWithContext(context.Background(), podcastID, reporter, config)
+}
+
+// SyncPodcastEpisodesWithContext preserves the caller's cancellation boundary
+// and the Feed access outcome for workflow execution history.
+func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID uint, reporter ProgressReporter, config EpisodeSyncConfig) (*EpisodeSyncResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	// 1. 获取podcast信息
 	var podcast models.Podcast
 	if err := s.db.First(&podcast, podcastID).Error; err != nil {
@@ -30,6 +40,10 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 
 	logger.Infof("🔄 开始同步podcast episodes: %s (模式: %s)", podcast.Title, config.Mode)
 	reporter.Report(fmt.Sprintf("正在同步: %s", podcast.Title))
+	result := &EpisodeSyncResult{
+		PodcastID:    podcast.ID,
+		PodcastTitle: podcast.Title,
+	}
 
 	// 2. 确定同步模式和基准时间
 	var lastFetchTime time.Time
@@ -76,7 +90,10 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 
 	if useIncremental {
 		logger.Infof("   📊 增量模式: 基准时间 %v", lastFetchTime)
-		fetchResult, err := s.feedFetcher.FetchIncremental(podcast.FeedURL, lastFetchTime)
+		fetchResult, err := s.feedFetcher.FetchIncrementalWithContext(ctx, podcast.FeedURL, lastFetchTime)
+		if fetchResult != nil {
+			result.FeedAccess = &fetchResult.Access
+		}
 		if err != nil {
 			fetchErr = fmt.Errorf("增量抓取失败: %w", err)
 		} else {
@@ -85,20 +102,25 @@ func (s *Service) SyncPodcastEpisodes(podcastID uint, reporter ProgressReporter,
 		}
 	} else {
 		logger.Infof("   📊 全量模式: 获取所有episodes")
-		feedData, err := s.feedFetcher.FetchFeed(podcast.FeedURL)
+		fetchResult, err := s.feedFetcher.FetchFeedWithContextDetailed(ctx, podcast.FeedURL)
+		if fetchResult != nil {
+			result.FeedAccess = &fetchResult.Access
+		}
 		if err != nil {
 			fetchErr = fmt.Errorf("全量抓取失败: %w", err)
 		} else {
-			items = feedData.Items
+			items = fetchResult.Feed.Items
 			logger.Infof("   ✅ 全量抓取到 %d 个episodes", len(items))
 		}
 	}
 
 	if fetchErr != nil {
-		return nil, fetchErr
+		return result, fetchErr
 	}
 
-	result, err := s.syncPodcastEpisodeItems(&podcast, items, config)
+	episodeResult, err := s.syncPodcastEpisodeItems(&podcast, items, config)
+	episodeResult.FeedAccess = result.FeedAccess
+	result = episodeResult
 	if err != nil {
 		return result, fmt.Errorf("同步单集并写回播客汇总失败: %w", err)
 	}

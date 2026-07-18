@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 1
+const CurrentSchemaVersion = 2
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -48,6 +48,12 @@ func migrationRegistry() []Migration {
 			Name:        "baseline-current-model",
 			Description: "Create the current model tables and indexes, or record an existing complete schema as the baseline.",
 			Apply:       applyBaselineMigration,
+		},
+		{
+			Version:     2,
+			Name:        "feed-access-observability",
+			Description: "Persist bounded Feed access status, timing, source, freshness, and whitelisted response metadata.",
+			Apply:       applyFeedAccessObservabilityMigration,
 		},
 	}
 }
@@ -187,6 +193,38 @@ func applyBaselineMigration(db *gorm.DB) error {
 		return fmt.Errorf("existing schema is incomplete; missing tables: %v", missing)
 	}
 	return CreateIndexes(db)
+}
+
+func applyFeedAccessObservabilityMigration(db *gorm.DB) error {
+	columns := []struct {
+		name string
+		ddl  string
+	}{
+		{name: "feed_http_status", ddl: "INTEGER"},
+		{name: "feed_error_category", ddl: "TEXT NOT NULL DEFAULT 'not_observed'"},
+		{name: "feed_target_domain", ddl: "TEXT NOT NULL DEFAULT ''"},
+		{name: "feed_response_time_ms", ddl: "INTEGER NOT NULL DEFAULT 0"},
+		{name: "feed_retry_after", ddl: "TEXT NOT NULL DEFAULT ''"},
+		{name: "feed_etag", ddl: "TEXT NOT NULL DEFAULT ''"},
+		{name: "feed_last_modified", ddl: "TEXT NOT NULL DEFAULT ''"},
+		{name: "feed_cache_control", ddl: "TEXT NOT NULL DEFAULT ''"},
+		{name: "feed_expires", ddl: "TEXT NOT NULL DEFAULT ''"},
+		{name: "feed_age", ddl: "TEXT NOT NULL DEFAULT ''"},
+		{name: "feed_response_bytes", ddl: "INTEGER NOT NULL DEFAULT 0"},
+		{name: "feed_source_type", ddl: "TEXT NOT NULL DEFAULT 'unknown'"},
+		{name: "feed_cache_status", ddl: "TEXT NOT NULL DEFAULT 'not_used'"},
+		{name: "feed_freshness", ddl: "TEXT NOT NULL DEFAULT 'unknown'"},
+		{name: "feed_egress_id", ddl: "TEXT NOT NULL DEFAULT 'unknown'"},
+	}
+	for _, column := range columns {
+		if db.Migrator().HasColumn(&models.JobExecution{}, column.name) {
+			continue
+		}
+		if err := db.Exec("ALTER TABLE job_executions ADD COLUMN " + column.name + " " + column.ddl).Error; err != nil {
+			return fmt.Errorf("add job_executions.%s: %w", column.name, err)
+		}
+	}
+	return nil
 }
 
 func requiredTablesMissing(db *gorm.DB) []string {

@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"magicpodcast/internal/feed"
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/utils"
 	"strings"
@@ -273,11 +274,15 @@ func (e *Executor) syncPodcast(
 	}
 
 	// 执行同步
-	result, err := e.syncSvc.SyncPodcastEpisodes(
+	result, err := e.syncSvc.SyncPodcastEpisodesWithContext(
+		ctx,
 		podcast.ID,
 		&silentReporter{}, // 不输出详细日志
 		syncConfig,
 	)
+	if result != nil {
+		applyFeedAccessOutcome(execution, result.FeedAccess)
+	}
 
 	processingTime := int(time.Since(startTime).Milliseconds())
 
@@ -348,6 +353,27 @@ func (e *Executor) syncPodcast(
 	e.db.Save(execution)
 
 	return execution
+}
+
+func applyFeedAccessOutcome(execution *models.JobExecution, outcome *feed.AccessOutcome) {
+	if execution == nil || outcome == nil {
+		return
+	}
+	execution.FeedHTTPStatus = outcome.HTTPStatus
+	execution.FeedErrorCategory = string(outcome.ErrorCategory)
+	execution.FeedTargetDomain = outcome.TargetDomain
+	execution.FeedResponseTimeMs = outcome.ResponseTimeMs
+	execution.FeedRetryAfter = outcome.RetryAfter
+	execution.FeedETag = outcome.ETag
+	execution.FeedLastModified = outcome.LastModified
+	execution.FeedCacheControl = outcome.CacheControl
+	execution.FeedExpires = outcome.Expires
+	execution.FeedAge = outcome.Age
+	execution.FeedResponseBytes = outcome.ResponseBytes
+	execution.FeedSourceType = string(outcome.SourceType)
+	execution.FeedCacheStatus = string(outcome.CacheStatus)
+	execution.FeedFreshness = string(outcome.Freshness)
+	execution.FeedEgressID = outcome.EgressID
 }
 
 // finalizeJob 汇总结果并更新Job状态

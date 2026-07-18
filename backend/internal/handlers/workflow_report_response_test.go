@@ -1,11 +1,48 @@
 package handlers
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
 	"magicpodcast/internal/models"
 )
+
+func TestJobExecutionResponseIncludesFeedAccessSummary(t *testing.T) {
+	status := http.StatusForbidden
+	exec := &models.JobExecution{
+		BaseModel:          models.BaseModel{ID: 1, CreatedAt: time.Date(2026, 7, 19, 1, 2, 3, 0, time.UTC)},
+		JobID:              2,
+		PodcastTitle:       "Observed Podcast",
+		PodcastFeedURL:     "https://user:password@feed.example.test/feed.xml?access_token=super-secret&format=rss",
+		Status:             models.ExecutionStatusFailed,
+		FeedHTTPStatus:     &status,
+		FeedErrorCategory:  "access_denied",
+		FeedTargetDomain:   "feed.example.test",
+		FeedResponseTimeMs: 115,
+		FeedRetryAfter:     "120",
+		FeedETag:           `"feed-v1"`,
+		FeedCacheStatus:    "not_used",
+		FeedSourceType:     "primary",
+		FeedFreshness:      "unknown",
+		FeedEgressID:       "direct",
+		FeedResponseBytes:  7,
+	}
+
+	response := (&WorkflowHandler{}).toJobExecutionResponse(exec)
+	if response.FeedHTTPStatus == nil || *response.FeedHTTPStatus != status {
+		t.Fatalf("expected HTTP status %d, got %#v", status, response.FeedHTTPStatus)
+	}
+	if response.FeedErrorCategory != "access_denied" || response.FeedTargetDomain != "feed.example.test" {
+		t.Fatalf("unexpected feed error summary: %#v", response)
+	}
+	if response.PodcastFeedURL != "https://feed.example.test/feed.xml?access_token=%5BREDACTED%5D&format=rss" {
+		t.Fatalf("feed URL credentials were not redacted: %q", response.PodcastFeedURL)
+	}
+	if response.FeedRetryAfter != "120" || response.FeedETag != `"feed-v1"` || response.FeedResponseBytes != 7 {
+		t.Fatalf("whitelisted response metadata missing: %#v", response)
+	}
+}
 
 func TestWorkflowReportResponseIncludesPublicReportFields(t *testing.T) {
 	generatedAt := time.Date(2026, 5, 31, 10, 30, 0, 0, time.UTC)

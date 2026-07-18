@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"magicpodcast/internal/database"
+	"magicpodcast/internal/feed"
 	"magicpodcast/internal/handlers/dto"
 	"magicpodcast/internal/models"
 
@@ -243,19 +244,34 @@ func (h *WorkflowHandler) toJobResponse(job *models.Job) dto.JobResponse {
 // toJobExecutionResponse 转换为响应格式
 func (h *WorkflowHandler) toJobExecutionResponse(exec *models.JobExecution) dto.JobExecutionResponse {
 	return dto.JobExecutionResponse{
-		ID:              exec.ID,
-		JobID:           exec.JobID,
-		PodcastID:       exec.PodcastID,
-		PodcastTitle:    exec.PodcastTitle,
-		PodcastFeedURL:  exec.PodcastFeedURL,
-		Status:          exec.Status,
-		EpisodesFound:   exec.EpisodesFound,
-		EpisodesCreated: exec.EpisodesCreated,
-		EpisodesMatched: exec.EpisodesMatched,
-		ErrorMessage:    exec.ErrorMessage,
-		LogInfo:         exec.LogInfo,
-		ProcessingTime:  exec.ProcessingTime,
-		CreatedAt:       exec.CreatedAt,
+		ID:                 exec.ID,
+		JobID:              exec.JobID,
+		PodcastID:          exec.PodcastID,
+		PodcastTitle:       exec.PodcastTitle,
+		PodcastFeedURL:     feed.SanitizeFeedURL(exec.PodcastFeedURL),
+		Status:             exec.Status,
+		EpisodesFound:      exec.EpisodesFound,
+		EpisodesCreated:    exec.EpisodesCreated,
+		EpisodesMatched:    exec.EpisodesMatched,
+		ErrorMessage:       exec.ErrorMessage,
+		LogInfo:            exec.LogInfo,
+		ProcessingTime:     exec.ProcessingTime,
+		CreatedAt:          exec.CreatedAt,
+		FeedHTTPStatus:     exec.FeedHTTPStatus,
+		FeedErrorCategory:  exec.FeedErrorCategory,
+		FeedTargetDomain:   exec.FeedTargetDomain,
+		FeedResponseTimeMs: exec.FeedResponseTimeMs,
+		FeedRetryAfter:     exec.FeedRetryAfter,
+		FeedETag:           exec.FeedETag,
+		FeedLastModified:   exec.FeedLastModified,
+		FeedCacheControl:   exec.FeedCacheControl,
+		FeedExpires:        exec.FeedExpires,
+		FeedAge:            exec.FeedAge,
+		FeedResponseBytes:  exec.FeedResponseBytes,
+		FeedSourceType:     exec.FeedSourceType,
+		FeedCacheStatus:    exec.FeedCacheStatus,
+		FeedFreshness:      exec.FeedFreshness,
+		FeedEgressID:       exec.FeedEgressID,
 	}
 }
 

@@ -3,6 +3,7 @@ package feed
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 )
 
@@ -28,7 +29,23 @@ const (
 	ErrorTypeAccessDenied
 	// ErrorTypeGeoBlocked 地区限制
 	ErrorTypeGeoBlocked
+	// ErrorTypeRateLimited 请求过于频繁 (429)
+	ErrorTypeRateLimited
+	// ErrorTypeServiceUnavailable 上游服务暂时不可用 (503/5xx)
+	ErrorTypeServiceUnavailable
 )
+
+type HTTPStatusError struct {
+	StatusCode int
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("HTTP status code %d", e.StatusCode)
+}
+
+func newHTTPStatusError(status int) error {
+	return &HTTPStatusError{StatusCode: status}
+}
 
 // FeedError Feed错误
 type FeedError struct {
@@ -95,7 +112,8 @@ func IsNetworkError(err error) bool {
 func IsRetryable(err error) bool {
 	var fe *FeedError
 	if errors.As(err, &fe) {
-		return fe.Type == ErrorTypeNetworkError || fe.Type == ErrorTypeTimeout
+		return fe.Type == ErrorTypeNetworkError || fe.Type == ErrorTypeTimeout ||
+			fe.Type == ErrorTypeRateLimited || fe.Type == ErrorTypeServiceUnavailable
 	}
 	return false
 }
@@ -116,89 +134,53 @@ func ClassifyError(feedURL string, err error) *FeedError {
 	}
 
 	errMsg := err.Error()
+	safeURL := SanitizeFeedURL(feedURL)
+	var statusErr *HTTPStatusError
+	if errors.As(err, &statusErr) {
+		switch statusErr.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return &FeedError{Type: ErrorTypeAccessDenied, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("访问被拒绝: %s", safeURL)}
+		case http.StatusTooManyRequests:
+			return &FeedError{Type: ErrorTypeRateLimited, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("请求受到限速: %s", safeURL)}
+		case http.StatusServiceUnavailable:
+			return &FeedError{Type: ErrorTypeServiceUnavailable, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("上游服务暂时不可用: %s", safeURL)}
+		default:
+			return &FeedError{Type: ErrorTypeUnknown, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("HTTP请求失败: %s", safeURL)}
+		}
+	}
 
-	// 检查是否为EOF错误（连接被服务器过早关闭）
 	if strings.Contains(errMsg, "EOF") || err.Error() == "EOF" {
-		return &FeedError{
-			Type:     ErrorTypeNetworkError,
-			FeedURL:  feedURL,
-			Original: err,
-			Message:  fmt.Sprintf("连接被服务器关闭（EOF）: %s", feedURL),
-		}
+		return &FeedError{Type: ErrorTypeNetworkError, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("连接被服务器关闭（EOF）: %s", safeURL)}
 	}
-
-	// 检查是否为402付费错误
 	if strings.Contains(errMsg, "402") || strings.Contains(errMsg, "Payment Required") {
-		return &FeedError{
-			Type:     ErrorTypePaymentRequired,
-			FeedURL:  feedURL,
-			Original: err,
-			Message:  fmt.Sprintf("付费播客（需要订阅）: %s", feedURL),
-		}
+		return &FeedError{Type: ErrorTypePaymentRequired, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("付费播客（需要订阅）: %s", safeURL)}
 	}
-
-	// 检查是否为403/401访问拒绝
-	if strings.Contains(errMsg, "403") || strings.Contains(errMsg, "Forbidden") ||
-		strings.Contains(errMsg, "401") || strings.Contains(errMsg, "Unauthorized") {
-		return &FeedError{
-			Type:     ErrorTypeAccessDenied,
-			FeedURL:  feedURL,
-			Original: err,
-			Message:  fmt.Sprintf("访问被拒绝: %s", feedURL),
-		}
+	if strings.Contains(errMsg, "403") || strings.Contains(errMsg, "Forbidden") || strings.Contains(errMsg, "401") || strings.Contains(errMsg, "Unauthorized") {
+		return &FeedError{Type: ErrorTypeAccessDenied, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("访问被拒绝: %s", safeURL)}
 	}
-
-	// 检查是否为证书过期错误
 	if strings.Contains(errMsg, "certificate") && (strings.Contains(errMsg, "expired") || strings.Contains(errMsg, "not yet valid")) {
-		return &FeedError{
-			Type:     ErrorTypeCertificateExpired,
-			FeedURL:  feedURL,
-			Original: err,
-			Message:  fmt.Sprintf("证书已过期: %s", feedURL),
-		}
+		return &FeedError{Type: ErrorTypeCertificateExpired, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("证书已过期: %s", safeURL)}
 	}
-
-	// 检查是否为超时错误
 	if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "deadline exceeded") {
-		return &FeedError{
-			Type:     ErrorTypeTimeout,
-			FeedURL:  feedURL,
-			Original: err,
-			Message:  fmt.Sprintf("连接超时: %s", feedURL),
-		}
+		return &FeedError{Type: ErrorTypeTimeout, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("连接超时: %s", safeURL)}
 	}
-
-	// 检查是否为404错误
 	if strings.Contains(errMsg, "404") || strings.Contains(errMsg, "Not Found") {
-		return &FeedError{
-			Type:     ErrorTypeNotFound,
-			FeedURL:  feedURL,
-			Original: err,
-			Message:  fmt.Sprintf("Feed不存在: %s", feedURL),
-		}
+		return &FeedError{Type: ErrorTypeNotFound, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("Feed不存在: %s", safeURL)}
 	}
+	if strings.Contains(errMsg, "connection refused") || strings.Contains(errMsg, "no such host") || strings.Contains(errMsg, "network is unreachable") || strings.Contains(errMsg, "connection reset") || strings.Contains(errMsg, "broken pipe") {
+		return &FeedError{Type: ErrorTypeNetworkError, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("网络连接失败: %s", safeURL)}
+	}
+	return &FeedError{Type: ErrorTypeUnknown, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("未知错误: %s - %v", safeURL, err)}
+}
 
-	// 检查是否为网络连接错误
-	if strings.Contains(errMsg, "connection refused") ||
-		strings.Contains(errMsg, "no such host") ||
-		strings.Contains(errMsg, "network is unreachable") ||
-		strings.Contains(errMsg, "connection reset") ||
-		strings.Contains(errMsg, "broken pipe") {
-		return &FeedError{
-			Type:     ErrorTypeNetworkError,
-			FeedURL:  feedURL,
-			Original: err,
-			Message:  fmt.Sprintf("网络连接失败: %s", feedURL),
-		}
+// WrapFeedParseError classifies a successful HTTP response whose body is not
+// parseable as a Feed without exposing the response body.
+func WrapFeedParseError(feedURL string, err error) error {
+	if err == nil {
+		return nil
 	}
-
-	// 默认为未知错误
-	return &FeedError{
-		Type:     ErrorTypeUnknown,
-		FeedURL:  feedURL,
-		Original: err,
-		Message:  fmt.Sprintf("未知错误: %s - %v", feedURL, err),
-	}
+	safeURL := SanitizeFeedURL(feedURL)
+	return &FeedError{Type: ErrorTypeInvalidFeed, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("Feed解析失败: %s", safeURL)}
 }
 
 // WrapHTTPError 包装HTTP错误
@@ -206,17 +188,5 @@ func WrapHTTPError(feedURL string, err error) error {
 	if err == nil {
 		return nil
 	}
-
-	// 检查是否为HTTP状态码错误
-	var httpErr interface{}
-	if errors.As(err, &httpErr) {
-		// 尝试提取HTTP状态码
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "status code") {
-			// gofeed库的错误格式通常包含 "status code"
-			return ClassifyError(feedURL, err)
-		}
-	}
-
 	return ClassifyError(feedURL, err)
 }
