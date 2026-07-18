@@ -11,6 +11,7 @@
 | `api` | 启动后端 API 服务 | 推荐通过根目录 `scripts/start.sh`、`scripts/restart.sh` 启动 |
 | `benchmark` | 对本地 API 做性能压测 | 用于建立和复查性能基线 |
 | `add_indexes` | 为主数据库应用性能索引和搜索 FTS 表 | 默认数据库为 `data/magicpodcast.db`，也可传入数据库路径 |
+| `podcastindex_dataset` | PodcastIndex 外部 SQLite 数据集的 staging、验收、原子切换和回滚 | 只操作外部候选库；下载、校验和切换均需显式路径 |
 
 ## 需要人工确认后再运行
 
@@ -26,3 +27,14 @@
 3. 对生产或长期使用的数据执行维护命令前，先停止正在写入同一数据库的服务。
 4. 普通 API 启动不得承担结构迁移；迁移失败时禁止启动服务。
 5. 不确定用途的命令不直接删除，也不自动执行，统一放入 `docs/HUMAN_REVIEW_QUEUE.md`。
+
+## PodcastIndex 数据集安全流程
+
+从仓库根目录执行 `go run ./backend/cmd/podcastindex_dataset ...`，或从 `backend/` 目录执行 `go run ./cmd/podcastindex_dataset ...`。完整顺序是：
+
+1. `download` 将官方固定地址写入独立 staging，记录 HEAD 指纹和压缩包 SHA-256；默认直连，若经批准可通过 `--proxy` 显式指定验证器代理；
+2. `validate` 在 staging 候选库上检查 gzip/tar、真实 SQLite Schema、`v_unique_podcasts`、URL/title/iTunes ID 查询和失败样本；
+3. 只有 manifest 为 GO 且已确认服务停止时，才允许 `cutover`；
+4. 服务重启、health/ready 和代表性查询由维护窗口执行；异常时用 `rollback` 恢复时间戳回滚副本。
+
+该命令不会改写 MagicPodcast 主业务库，不会自动挑选替代 Feed，也不会让生产服务继承代理配置；代理只在命令显式传入 `--proxy` 时用于本次 staging/验证。
