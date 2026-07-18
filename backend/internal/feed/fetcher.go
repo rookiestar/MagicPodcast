@@ -24,6 +24,7 @@ type Fetcher struct {
 // FetchResult 抓取结果
 type FetchResult struct {
 	Feed          *gofeed.Feed
+	RawContent    []byte
 	NewItems      []*gofeed.Item
 	Error         error
 	IsIncremental bool // 是否为增量抓取
@@ -174,7 +175,8 @@ func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string
 	}
 
 	var counter byteCounter
-	parsedFeed, parseErr := f.newParser().Parse(io.TeeReader(resp.Body, &counter))
+	capture := &boundedFeedCapture{maxBytes: maxCapturedFeedSnapshotBytes}
+	parsedFeed, parseErr := f.newParser().Parse(io.TeeReader(resp.Body, io.MultiWriter(&counter, capture)))
 	result.Access.ResponseBytes = counter.BytesRead
 	if parseErr != nil {
 		err = WrapFeedParseError(feedURL, parseErr)
@@ -185,12 +187,40 @@ func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string
 	}
 
 	result.Feed = parsedFeed
+	result.RawContent = capture.Bytes()
 	result.Access.ErrorCategory = ErrorCategoryNone
 	result.Access.Freshness = FreshnessLive
 	result.Access.EgressID = EgressDirect
+	retrievedAt := time.Now()
+	result.Access.RetrievedAt = &retrievedAt
 	logger.Infof("  ✅ HTTP请求成功: %s (耗时: %v, 标题: %s, 单集数: %d)",
 		safeURL, time.Since(startTime), parsedFeed.Title, len(parsedFeed.Items))
 	return result, nil
+}
+
+// FetchLastGoodWithContext returns a validated local snapshot after a live
+// request has already failed. It is explicit so a later verified alternative
+// Feed can be attempted before stale last-good content.
+func (f *Fetcher) FetchLastGoodWithContext(ctx context.Context, feedURL string, failure *FetchResult) (*FetchResult, bool) {
+	if f == nil || f.coordinator == nil {
+		return nil, false
+	}
+	return f.coordinator.LastGood(ctx, feedURL, failure)
+}
+
+// SetIncrementalItems derives the incremental view from an already selected
+// Feed, including a local last-good result.
+func (r *FetchResult) SetIncrementalItems(lastFetchTime time.Time) {
+	if r == nil || r.Feed == nil {
+		return
+	}
+	r.IsIncremental = true
+	r.NewItems = r.NewItems[:0]
+	for _, item := range r.Feed.Items {
+		if item.PublishedParsed != nil && item.PublishedParsed.After(lastFetchTime) {
+			r.NewItems = append(r.NewItems, item)
+		}
+	}
 }
 
 // FetchFeedWithClient 使用自定义HTTP客户端抓取
@@ -224,18 +254,7 @@ func (f *Fetcher) FetchIncrementalWithContext(ctx context.Context, feedURL strin
 		return result, err
 	}
 
-	var newItems []*gofeed.Item
-
-	// 遍历所有item，只保留发布时间在lastFetchTime之后的
-	for _, item := range result.Feed.Items {
-		if item.PublishedParsed != nil {
-			if item.PublishedParsed.After(lastFetchTime) {
-				newItems = append(newItems, item)
-			}
-		}
-	}
-
-	result.NewItems = newItems
+	result.SetIncrementalItems(lastFetchTime)
 	return result, nil
 }
 

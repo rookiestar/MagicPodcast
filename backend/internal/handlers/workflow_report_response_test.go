@@ -10,23 +10,25 @@ import (
 
 func TestJobExecutionResponseIncludesFeedAccessSummary(t *testing.T) {
 	status := http.StatusForbidden
+	retrievedAt := time.Date(2026, 7, 19, 1, 2, 3, 0, time.UTC)
 	exec := &models.JobExecution{
-		BaseModel:          models.BaseModel{ID: 1, CreatedAt: time.Date(2026, 7, 19, 1, 2, 3, 0, time.UTC)},
-		JobID:              2,
-		PodcastTitle:       "Observed Podcast",
-		PodcastFeedURL:     "https://user:password@feed.example.test/feed.xml?access_token=super-secret&format=rss",
-		Status:             models.ExecutionStatusFailed,
-		FeedHTTPStatus:     &status,
-		FeedErrorCategory:  "access_denied",
-		FeedTargetDomain:   "feed.example.test",
-		FeedResponseTimeMs: 115,
-		FeedRetryAfter:     "120",
-		FeedETag:           `"feed-v1"`,
-		FeedCacheStatus:    "not_used",
-		FeedSourceType:     "primary",
-		FeedFreshness:      "unknown",
-		FeedEgressID:       "direct",
-		FeedResponseBytes:  7,
+		BaseModel:               models.BaseModel{ID: 1, CreatedAt: time.Date(2026, 7, 19, 1, 2, 3, 0, time.UTC)},
+		JobID:                   2,
+		PodcastTitle:            "Observed Podcast",
+		PodcastFeedURL:          "https://user:password@feed.example.test/feed.xml?access_token=super-secret&format=rss",
+		Status:                  models.ExecutionStatusFailed,
+		FeedHTTPStatus:          &status,
+		FeedErrorCategory:       "access_denied",
+		FeedTargetDomain:        "feed.example.test",
+		FeedResponseTimeMs:      115,
+		FeedRetryAfter:          "120",
+		FeedETag:                `"feed-v1"`,
+		FeedCacheStatus:         "not_used",
+		FeedSourceType:          "primary",
+		FeedFreshness:           "unknown",
+		FeedEgressID:            "direct",
+		FeedResponseBytes:       7,
+		FeedSnapshotRetrievedAt: &retrievedAt,
 	}
 
 	response := (&WorkflowHandler{}).toJobExecutionResponse(exec)
@@ -41,6 +43,9 @@ func TestJobExecutionResponseIncludesFeedAccessSummary(t *testing.T) {
 	}
 	if response.FeedRetryAfter != "120" || response.FeedETag != `"feed-v1"` || response.FeedResponseBytes != 7 {
 		t.Fatalf("whitelisted response metadata missing: %#v", response)
+	}
+	if response.FeedSnapshotRetrievedAt == nil || !response.FeedSnapshotRetrievedAt.Equal(retrievedAt) {
+		t.Fatalf("snapshot retrieval time missing: %#v", response.FeedSnapshotRetrievedAt)
 	}
 }
 

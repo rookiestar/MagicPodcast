@@ -56,6 +56,7 @@ func TestApplyMigrationsCreatesVersionedReadySchema(t *testing.T) {
 	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_error_category"))
 	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_target_domain"))
 	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_source_type"))
+	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_snapshot_retrieved_at"))
 
 	var foreignKeys int
 	require.NoError(t, db.Raw("PRAGMA foreign_keys").Row().Scan(&foreignKeys))
@@ -76,6 +77,7 @@ func TestFeedAccessMigrationUpgradesExistingVersionOneSchema(t *testing.T) {
 		"feed_http_status", "feed_error_category", "feed_target_domain", "feed_response_time_ms",
 		"feed_retry_after", "feed_etag", "feed_last_modified", "feed_cache_control", "feed_expires",
 		"feed_age", "feed_response_bytes", "feed_source_type", "feed_cache_status", "feed_freshness", "feed_egress_id",
+		"feed_snapshot_retrieved_at",
 	} {
 		require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, column), "missing upgraded column %s", column)
 	}

@@ -10,6 +10,7 @@ import { useWorkflow, useWorkflowJobs } from "@/hooks/useWorkflowSWR";
 import { useWorkflowActions } from "@/hooks/useWorkflowActions";
 import { useJobExpansion } from "@/hooks/useJobExpansion";
 import { getEffectiveCoverUrl } from "@/lib/imageProxy";
+import { formatDateTime } from "@/lib/timeUtils";
 import type { Podcast } from "@/types";
 import PageLayout from "@/components/layout/PageLayout";
 import LoadingLayout from "@/components/layout/LoadingLayout";
@@ -1097,6 +1098,9 @@ function WorkflowDetailContent() {
                                       </span>
                                       <span>
                                         来源: {exec.feed_source_type || "未知"} · {exec.feed_freshness || "未知"} · 缓存: {exec.feed_cache_status || "未知"}
+                                      </span>
+                                      <span>
+                                        内容时间: {formatDateTime(exec.feed_snapshot_retrieved_at, "未记录")}
                                       </span>
                                       <span>
                                         响应: {exec.feed_response_time_ms}ms · 出口: {exec.feed_egress_id || "未知"}

@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 2
+const CurrentSchemaVersion = 3
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -54,6 +54,12 @@ func migrationRegistry() []Migration {
 			Name:        "feed-access-observability",
 			Description: "Persist bounded Feed access status, timing, source, freshness, and whitelisted response metadata.",
 			Apply:       applyFeedAccessObservabilityMigration,
+		},
+		{
+			Version:     3,
+			Name:        "feed-snapshot-retrieved-at",
+			Description: "Persist the retrieval time of the content used by a Feed execution, including last-good snapshots.",
+			Apply:       applyFeedSnapshotRetrievedAtMigration,
 		},
 	}
 }
@@ -223,6 +229,16 @@ func applyFeedAccessObservabilityMigration(db *gorm.DB) error {
 		if err := db.Exec("ALTER TABLE job_executions ADD COLUMN " + column.name + " " + column.ddl).Error; err != nil {
 			return fmt.Errorf("add job_executions.%s: %w", column.name, err)
 		}
+	}
+	return nil
+}
+
+func applyFeedSnapshotRetrievedAtMigration(db *gorm.DB) error {
+	if db.Migrator().HasColumn(&models.JobExecution{}, "feed_snapshot_retrieved_at") {
+		return nil
+	}
+	if err := db.Exec("ALTER TABLE job_executions ADD COLUMN feed_snapshot_retrieved_at DATETIME").Error; err != nil {
+		return fmt.Errorf("add job_executions.feed_snapshot_retrieved_at: %w", err)
 	}
 	return nil
 }

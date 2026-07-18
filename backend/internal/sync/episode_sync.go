@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"magicpodcast/internal/cache"
+	"magicpodcast/internal/feed"
 	"magicpodcast/internal/logger"
 	"sync"
 	"time"
@@ -91,6 +92,13 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 	if useIncremental {
 		logger.Infof("   📊 增量模式: 基准时间 %v", lastFetchTime)
 		fetchResult, err := s.feedFetcher.FetchIncrementalWithContext(ctx, podcast.FeedURL, lastFetchTime)
+		if err != nil {
+			if fallback, ok := s.feedFetcher.FetchLastGoodWithContext(ctx, podcast.FeedURL, fetchResult); ok {
+				fallback.SetIncrementalItems(lastFetchTime)
+				fetchResult = fallback
+				err = nil
+			}
+		}
 		if fetchResult != nil {
 			result.FeedAccess = &fetchResult.Access
 		}
@@ -103,6 +111,12 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 	} else {
 		logger.Infof("   📊 全量模式: 获取所有episodes")
 		fetchResult, err := s.feedFetcher.FetchFeedWithContextDetailed(ctx, podcast.FeedURL)
+		if err != nil {
+			if fallback, ok := s.feedFetcher.FetchLastGoodWithContext(ctx, podcast.FeedURL, fetchResult); ok {
+				fetchResult = fallback
+				err = nil
+			}
+		}
 		if fetchResult != nil {
 			result.FeedAccess = &fetchResult.Access
 		}
@@ -118,7 +132,9 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 		return result, fetchErr
 	}
 
-	episodeResult, err := s.syncPodcastEpisodeItems(&podcast, items, config)
+	updateLastFetchedAt := result.FeedAccess == nil ||
+		(result.FeedAccess.SourceType != feed.AccessSourceLastGood && result.FeedAccess.SourceType != feed.AccessSourceLocalCache)
+	episodeResult, err := s.syncPodcastEpisodeItemsWithLastFetchedAt(&podcast, items, config, updateLastFetchedAt)
 	episodeResult.FeedAccess = result.FeedAccess
 	result = episodeResult
 	if err != nil {
@@ -132,6 +148,10 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 }
 
 func (s *Service) syncPodcastEpisodeItems(podcast *models.Podcast, items []*gofeed.Item, config EpisodeSyncConfig) (*EpisodeSyncResult, error) {
+	return s.syncPodcastEpisodeItemsWithLastFetchedAt(podcast, items, config, true)
+}
+
+func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(podcast *models.Podcast, items []*gofeed.Item, config EpisodeSyncConfig, updateLastFetchedAt bool) (*EpisodeSyncResult, error) {
 	result := &EpisodeSyncResult{
 		PodcastID:    podcast.ID,
 		PodcastTitle: podcast.Title,
@@ -215,7 +235,7 @@ func (s *Service) syncPodcastEpisodeItems(podcast *models.Podcast, items []*gofe
 		}
 	}
 
-	if err := s.refreshPodcastEpisodeSyncFields(podcast, result); err != nil {
+	if err := s.refreshPodcastEpisodeSyncFieldsWithLastFetchedAt(podcast, result, updateLastFetchedAt); err != nil {
 		return result, fmt.Errorf("刷新播客汇总字段失败: %w", err)
 	}
 	if firstWriteErr != nil {
@@ -311,9 +331,14 @@ func (s *Service) loadExistingEpisodesByGUID(guids []string) (map[string]models.
 }
 
 func (s *Service) refreshPodcastEpisodeSyncFields(podcast *models.Podcast, result *EpisodeSyncResult) error {
+	return s.refreshPodcastEpisodeSyncFieldsWithLastFetchedAt(podcast, result, true)
+}
+
+func (s *Service) refreshPodcastEpisodeSyncFieldsWithLastFetchedAt(podcast *models.Podcast, result *EpisodeSyncResult, updateLastFetchedAt bool) error {
 	now := time.Now()
-	updates := map[string]interface{}{
-		"last_fetched_at": now,
+	updates := map[string]interface{}{}
+	if updateLastFetchedAt {
+		updates["last_fetched_at"] = now
 	}
 
 	// 每次同步都从实际单集重新计算汇总，避免 feed 抓取时间或 RSS

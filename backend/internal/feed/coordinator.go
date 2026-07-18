@@ -1,6 +1,7 @@
 package feed
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/rand"
@@ -25,6 +26,8 @@ type DomainPolicy struct {
 
 type CoordinatorConfig struct {
 	DomainPolicies map[string]DomainPolicy
+	LastGoodStore  SnapshotStore
+	MaxStaleAge    time.Duration
 }
 
 type Coordinator struct {
@@ -33,6 +36,8 @@ type Coordinator struct {
 	inFlight     map[string]*inFlightFetch
 	sharedResult map[string]cachedFetch
 	semaphores   map[string]chan struct{}
+	lastGood     SnapshotStore
+	maxStaleAge  time.Duration
 }
 
 type inFlightFetch struct {
@@ -65,11 +70,21 @@ func NewCoordinator(config CoordinatorConfig) *Coordinator {
 	for domain, policy := range config.DomainPolicies {
 		policies[strings.ToLower(strings.TrimSpace(domain))] = policy
 	}
+	lastGoodStore := config.LastGoodStore
+	if lastGoodStore == nil {
+		lastGoodStore = NewMemorySnapshotStore(LastGoodStoreConfig{})
+	}
+	maxStaleAge := config.MaxStaleAge
+	if maxStaleAge == 0 {
+		maxStaleAge = defaultLastGoodMaxStaleAge
+	}
 	return &Coordinator{
 		policies:     policies,
 		inFlight:     make(map[string]*inFlightFetch),
 		sharedResult: make(map[string]cachedFetch),
 		semaphores:   make(map[string]chan struct{}),
+		lastGood:     lastGoodStore,
+		maxStaleAge:  maxStaleAge,
 	}
 }
 
@@ -125,14 +140,24 @@ func (c *Coordinator) Do(ctx context.Context, rawURL string, fetch func(context.
 		c.mu.Unlock()
 		return markSharedResult(result), nil
 	}
+	c.mu.Unlock()
+
+	if policy.MinRefreshInterval > 0 {
+		if result, ok := c.freshLocalResult(ctx, rawURL, key, policy.MinRefreshInterval); ok {
+			return result, nil
+		}
+	}
+
+	c.mu.Lock()
 	if call, ok := c.inFlight[key]; ok {
 		c.mu.Unlock()
 		select {
 		case <-call.done:
+			result := cloneFetchResult(call.result)
 			if call.err != nil {
-				return nil, call.err
+				return result, call.err
 			}
-			return markSharedResult(cloneFetchResult(call.result)), nil
+			return markSharedResult(result), nil
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
@@ -144,15 +169,67 @@ func (c *Coordinator) Do(ctx context.Context, rawURL string, fetch func(context.
 
 	result, err := c.run(ctx, rawURL, policy, fetch)
 	c.mu.Lock()
+	sharedResult := cloneFetchResult(result)
 	if err == nil && result != nil && result.Feed != nil && policy.MinRefreshInterval > 0 {
-		c.sharedResult[key] = cachedFetch{storedAt: time.Now(), result: cloneFetchResult(result)}
+		c.sharedResult[key] = cachedFetch{storedAt: time.Now(), result: sharedResult}
+	}
+	if err == nil && result != nil && result.Feed != nil {
+		c.saveLastGood(key, result)
 	}
 	delete(c.inFlight, key)
-	call.result = result
+	call.result = sharedResult
 	call.err = err
 	close(call.done)
 	c.mu.Unlock()
 	return result, err
+}
+
+// LastGood restores a bounded, verified snapshot after the caller has
+// observed a live-fetch failure. Keeping this explicit preserves the source
+// order needed for a future verified alternative Feed.
+func (c *Coordinator) LastGood(ctx context.Context, rawURL string, failure *FetchResult) (*FetchResult, bool) {
+	if c == nil || c.lastGood == nil {
+		return nil, false
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-ctx.Done():
+		return nil, false
+	default:
+	}
+
+	key := CanonicalizeURL(rawURL)
+	snapshot, ok := c.lastGood.Load(key)
+	if !ok || snapshot == nil || !snapshotUsable(snapshot, key, c.maxStaleAge) {
+		return nil, false
+	}
+	parsed, err := parseSnapshot(snapshot)
+	if err != nil {
+		return nil, false
+	}
+
+	access := newPrimaryAccessOutcome(rawURL)
+	if failure != nil {
+		access = failure.Access
+		if failure.Access.HTTPStatus != nil {
+			status := *failure.Access.HTTPStatus
+			access.HTTPStatus = &status
+		}
+	}
+	access.SourceType = AccessSourceLastGood
+	access.CacheStatus = CacheStatusHit
+	access.Freshness = snapshotFreshness(snapshot, time.Duration(0))
+	access.ResponseTimeMs = 0
+	access.ResponseBytes = 0
+	access.RetrievedAt = snapshotTime(snapshot)
+
+	return &FetchResult{
+		Feed:       parsed,
+		RawContent: append([]byte(nil), snapshot.RawContent...),
+		Access:     access,
+	}, true
 }
 
 func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolicy, fetch func(context.Context) (*FetchResult, error)) (result *FetchResult, err error) {
@@ -215,6 +292,101 @@ func (c *Coordinator) policyFor(domain string) DomainPolicy {
 	return c.policies[strings.ToLower(domain)]
 }
 
+func (c *Coordinator) saveLastGood(key string, result *FetchResult) {
+	if c.lastGood == nil || len(result.RawContent) == 0 {
+		return
+	}
+	snapshot := FeedSnapshot{
+		FeedURL:    key,
+		RawContent: result.RawContent,
+	}
+	if result.Access.RetrievedAt != nil {
+		snapshot.RetrievedAt = *result.Access.RetrievedAt
+	}
+	if snapshot.RetrievedAt.IsZero() {
+		snapshot.RetrievedAt = time.Now()
+	}
+	_ = c.lastGood.Save(snapshot)
+}
+
+func (c *Coordinator) freshLocalResult(ctx context.Context, rawURL, key string, freshFor time.Duration) (*FetchResult, bool) {
+	if c.lastGood == nil {
+		return nil, false
+	}
+	select {
+	case <-ctx.Done():
+		return nil, false
+	default:
+	}
+	snapshot, ok := c.lastGood.Load(key)
+	if !ok || !snapshotUsable(snapshot, key, freshFor) {
+		return nil, false
+	}
+	parsed, err := parseSnapshot(snapshot)
+	if err != nil {
+		return nil, false
+	}
+	access := newPrimaryAccessOutcome(rawURL)
+	access.SourceType = AccessSourceLocalCache
+	access.CacheStatus = CacheStatusHit
+	access.Freshness = FreshnessFresh
+	access.ResponseTimeMs = 0
+	access.ResponseBytes = 0
+	access.EgressID = "none"
+	access.RetrievedAt = snapshotTime(snapshot)
+	return &FetchResult{
+		Feed:       parsed,
+		RawContent: append([]byte(nil), snapshot.RawContent...),
+		Access:     access,
+	}, true
+}
+
+func snapshotUsable(snapshot *FeedSnapshot, key string, maxAge time.Duration) bool {
+	if snapshot == nil || CanonicalizeURL(snapshot.FeedURL) != key || snapshot.RetrievedAt.IsZero() {
+		return false
+	}
+	if err := validateSnapshot(snapshot); err != nil {
+		return false
+	}
+	age := time.Since(snapshot.RetrievedAt)
+	if age < 0 {
+		return true
+	}
+	return maxAge < 0 || age <= maxAge
+}
+
+func snapshotFreshness(snapshot *FeedSnapshot, freshFor time.Duration) Freshness {
+	if snapshot == nil {
+		return FreshnessUnknown
+	}
+	if freshFor > 0 && time.Since(snapshot.RetrievedAt) <= freshFor {
+		return FreshnessFresh
+	}
+	return FreshnessStale
+}
+
+func snapshotTime(snapshot *FeedSnapshot) *time.Time {
+	if snapshot == nil || snapshot.RetrievedAt.IsZero() {
+		return nil
+	}
+	retrievedAt := snapshot.RetrievedAt
+	return &retrievedAt
+}
+
+func parseSnapshot(snapshot *FeedSnapshot) (*gofeed.Feed, error) {
+	if err := validateSnapshot(snapshot); err != nil {
+		return nil, err
+	}
+	parsed, err := gofeed.NewParser().Parse(bytes.NewReader(snapshot.RawContent))
+	if err != nil || parsed == nil {
+		if err == nil {
+			err = fmt.Errorf("parsed feed is nil")
+		}
+		return nil, err
+	}
+	return parsed, nil
+}
+
 func cloneFetchResult(result *FetchResult) *FetchResult {
 	if result == nil {
 		return nil
@@ -226,6 +398,13 @@ func cloneFetchResult(result *FetchResult) *FetchResult {
 	}
 	if result.NewItems != nil {
 		clone.NewItems = append([]*gofeed.Item(nil), result.NewItems...)
+	}
+	if result.RawContent != nil {
+		clone.RawContent = append([]byte(nil), result.RawContent...)
+	}
+	if result.Access.RetrievedAt != nil {
+		retrievedAt := *result.Access.RetrievedAt
+		clone.Access.RetrievedAt = &retrievedAt
 	}
 	return &clone
 }

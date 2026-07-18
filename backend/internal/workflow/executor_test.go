@@ -337,6 +337,9 @@ func TestExecutePersistsFeedAccessObservation(t *testing.T) {
 			if execution.FeedETag != `"observed-v1"` {
 				t.Fatalf("expected ETag to be persisted, got %q", execution.FeedETag)
 			}
+			if tt.wantFreshness == "live" && execution.FeedSnapshotRetrievedAt == nil {
+				t.Fatal("successful feed should persist the content retrieval time")
+			}
 			if strings.Contains(execution.ErrorMessage, "super-secret") {
 				t.Fatalf("execution error should not expose query credentials: %q", execution.ErrorMessage)
 			}

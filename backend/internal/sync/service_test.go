@@ -137,6 +137,57 @@ func TestSyncPodcastEpisodeItemsDoesNotUseFetchTimeForRecentUpdate(t *testing.T)
 	assert.True(t, refreshed.LastFetchedAt.After(oldFetch))
 }
 
+func TestSyncPodcastEpisodesUsesLastGoodWithoutAdvancingFetchTime(t *testing.T) {
+	var requestCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&requestCount, 1) == 1 {
+			w.Header().Set("Content-Type", "application/rss+xml")
+			_, _ = w.Write([]byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>Last Good Workflow</title><item><title>Episode</title><guid>last-good-workflow-episode</guid><pubDate>Tue, 14 Jul 2026 08:00:00 GMT</pubDate><description>Details</description></item></channel></rss>`))
+			return
+		}
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(server.Close)
+
+	store := feed.NewMemorySnapshotStore(feed.LastGoodStoreConfig{})
+	coordinator := feed.NewCoordinator(feed.CoordinatorConfig{
+		DomainPolicies: map[string]feed.DomainPolicy{feed.TargetDomain(server.URL): {MaxConcurrency: 1}},
+		LastGoodStore:  store,
+	})
+	db := setupTestDB(t)
+	service, err := NewServiceWithFeedCoordinator(db, "", coordinator)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, service.Close()) })
+
+	oldFetch := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
+	podcast := &models.Podcast{
+		XYZID:         "last-good-workflow",
+		Title:         "Last Good Workflow",
+		FeedURL:       server.URL + "/feed.xml",
+		LastFetchedAt: &oldFetch,
+	}
+	require.NoError(t, db.Create(podcast).Error)
+	config := EpisodeSyncConfig{Mode: SyncModeFull, UpdateExisting: true, MaxEpisodesPerPodcast: 1000}
+
+	first, err := service.SyncPodcastEpisodesWithContext(context.Background(), podcast.ID, &progressReporter{}, config)
+	require.NoError(t, err)
+	require.Equal(t, feed.AccessSourcePrimary, first.FeedAccess.SourceType)
+
+	require.NoError(t, db.Model(&models.Podcast{}).Where("id = ?", podcast.ID).Update("last_fetched_at", oldFetch).Error)
+	second, err := service.SyncPodcastEpisodesWithContext(context.Background(), podcast.ID, &progressReporter{}, config)
+	require.NoError(t, err)
+	require.Equal(t, feed.AccessSourceLastGood, second.FeedAccess.SourceType)
+	require.Equal(t, feed.ErrorCategoryAccessDenied, second.FeedAccess.ErrorCategory)
+	require.Equal(t, feed.FreshnessStale, second.FeedAccess.Freshness)
+	require.NotNil(t, second.FeedAccess.RetrievedAt)
+
+	var refreshed models.Podcast
+	require.NoError(t, db.First(&refreshed, podcast.ID).Error)
+	require.NotNil(t, refreshed.LastFetchedAt)
+	require.True(t, refreshed.LastFetchedAt.Equal(oldFetch), "last-good content must not become a new fetch")
+	require.Equal(t, int32(2), atomic.LoadInt32(&requestCount))
+}
+
 func TestSyncPodcastEpisodeItemsInvalidatesPodcastCachesAfterSummaryWriteback(t *testing.T) {
 	db := setupTestDB(t)
 	service, err := NewService(db, "")

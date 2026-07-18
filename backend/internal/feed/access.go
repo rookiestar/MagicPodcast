@@ -3,6 +3,7 @@ package feed
 import (
 	"net/url"
 	"strings"
+	"time"
 )
 
 // ErrorCategory is the stable, user-visible classification of a Feed access.
@@ -78,6 +79,7 @@ type AccessOutcome struct {
 	CacheStatus    CacheStatus   `json:"cache_status"`
 	Freshness      Freshness     `json:"freshness"`
 	EgressID       string        `json:"egress_id"`
+	RetrievedAt    *time.Time    `json:"retrieved_at,omitempty"`
 }
 
 func newPrimaryAccessOutcome(feedURL string) AccessOutcome {

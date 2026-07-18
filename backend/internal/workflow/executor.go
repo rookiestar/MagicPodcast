@@ -374,6 +374,7 @@ func applyFeedAccessOutcome(execution *models.JobExecution, outcome *feed.Access
 	execution.FeedCacheStatus = string(outcome.CacheStatus)
 	execution.FeedFreshness = string(outcome.Freshness)
 	execution.FeedEgressID = outcome.EgressID
+	execution.FeedSnapshotRetrievedAt = outcome.RetrievedAt
 }
 
 // finalizeJob 汇总结果并更新Job状态
