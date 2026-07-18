@@ -111,6 +111,12 @@ type EpisodeSyncResult struct {
 
 // NewService 创建同步服务
 func NewService(db *gorm.DB, podcastIndexPath string) (*Service, error) {
+	return NewServiceWithFeedCoordinator(db, podcastIndexPath, feed.SharedCoordinator())
+}
+
+// NewServiceWithFeedCoordinator keeps the workflow seam testable while the
+// normal constructor uses the process-wide Feed coordination boundary.
+func NewServiceWithFeedCoordinator(db *gorm.DB, podcastIndexPath string, coordinator *feed.Coordinator) (*Service, error) {
 	// 初始化PodcastIndex查询器
 	podcastIndexQuery, err := podcastindex.NewQuery(podcastIndexPath)
 	if err != nil {
@@ -122,7 +128,7 @@ func NewService(db *gorm.DB, podcastIndexPath string) (*Service, error) {
 	return &Service{
 		db:                db,
 		opmlParser:        opml.NewParser(),
-		feedFetcher:       feed.NewFetcher(30 * time.Second),
+		feedFetcher:       feed.NewFetcherWithCoordinator(30*time.Second, coordinator),
 		podcastIndexQuery: podcastIndexQuery,
 		scraper:           scraper.NewScraper(),
 	}, nil

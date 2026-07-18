@@ -14,10 +14,11 @@ import (
 
 // Fetcher RSS Feed抓取器
 type Fetcher struct {
-	parser     *gofeed.Parser
-	parserMu   sync.RWMutex
-	httpClient *http.Client
-	timeout    time.Duration
+	parser      *gofeed.Parser
+	parserMu    sync.RWMutex
+	httpClient  *http.Client
+	timeout     time.Duration
+	coordinator *Coordinator
 }
 
 // FetchResult 抓取结果
@@ -31,9 +32,17 @@ type FetchResult struct {
 
 // NewFetcher 创建RSS Feed抓取器
 func NewFetcher(timeout time.Duration) *Fetcher {
+	return NewFetcherWithCoordinator(timeout, SharedCoordinator())
+}
+
+// NewFetcherWithCoordinator is the injection seam for isolated tests and
+// staged policies. Normal application code should use NewFetcher so all
+// workflow fetches share the process-wide coordinator.
+func NewFetcherWithCoordinator(timeout time.Duration, coordinator *Coordinator) *Fetcher {
 	return &Fetcher{
-		parser:  gofeed.NewParser(),
-		timeout: timeout,
+		parser:      gofeed.NewParser(),
+		timeout:     timeout,
+		coordinator: coordinator,
 		httpClient: &http.Client{
 			Timeout: timeout,
 			Transport: &http.Transport{
@@ -86,6 +95,15 @@ func (f *Fetcher) FetchFeedWithContext(ctx context.Context, feedURL string) (*go
 // FetchFeedWithContextDetailed returns the parsed Feed together with a stable,
 // bounded access outcome for workflow observability.
 func (f *Fetcher) FetchFeedWithContextDetailed(ctx context.Context, feedURL string) (result *FetchResult, err error) {
+	if f.coordinator == nil {
+		return f.fetchFeedWithContextDirect(ctx, feedURL)
+	}
+	return f.coordinator.Do(ctx, feedURL, func(operationCtx context.Context) (*FetchResult, error) {
+		return f.fetchFeedWithContextDirect(operationCtx, feedURL)
+	})
+}
+
+func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string) (result *FetchResult, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}

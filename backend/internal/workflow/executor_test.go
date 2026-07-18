@@ -7,9 +7,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"magicpodcast/internal/feed"
 	"magicpodcast/internal/models"
 	syncsvc "magicpodcast/internal/sync"
 
@@ -339,6 +341,102 @@ func TestExecutePersistsFeedAccessObservation(t *testing.T) {
 				t.Fatalf("execution error should not expose query credentials: %q", execution.ErrorMessage)
 			}
 		})
+	}
+}
+
+func TestOverlappingWorkflowsShareOneUpstreamFeedRequest(t *testing.T) {
+	var requestCount int32
+	var current int32
+	var maxConcurrent int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requestCount, 1)
+		active := atomic.AddInt32(&current, 1)
+		updateWorkflowMaxConcurrent(&maxConcurrent, active)
+		time.Sleep(60 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>Shared Workflow Feed</title><item><title>Episode</title><guid>shared-workflow-episode</guid><pubDate>Tue, 14 Jul 2026 08:00:00 GMT</pubDate><description>Details</description></item></channel></rss>`))
+		atomic.AddInt32(&current, -1)
+	}))
+	t.Cleanup(server.Close)
+
+	coordinator := feed.NewCoordinator(feed.CoordinatorConfig{DomainPolicies: map[string]feed.DomainPolicy{
+		feed.TargetDomain(server.URL): {MaxConcurrency: 1, MinRefreshInterval: time.Minute},
+	}})
+
+	dbA := setupTestDB(t)
+	require.NoError(t, dbA.AutoMigrate(&models.Episode{}, &models.Report{}))
+	dbB := setupTestDB(t)
+	require.NoError(t, dbB.AutoMigrate(&models.Episode{}, &models.Report{}))
+	serviceA, err := syncsvc.NewServiceWithFeedCoordinator(dbA, "", coordinator)
+	require.NoError(t, err)
+	serviceB, err := syncsvc.NewServiceWithFeedCoordinator(dbB, "", coordinator)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, serviceA.Close()) })
+	t.Cleanup(func() { require.NoError(t, serviceB.Close()) })
+
+	workflowA, podcastA := createObservationWorkflowFixture(t, dbA, server.URL+"/feed.xml", "A")
+	workflowB, podcastB := createObservationWorkflowFixture(t, dbB, server.URL+"/feed.xml", "B")
+	executorA := NewExecutor(dbA, serviceA, nil, nil)
+	executorB := NewExecutor(dbB, serviceB, nil, nil)
+
+	var wg sync.WaitGroup
+	jobs := make(chan *models.Job, 2)
+	errs := make(chan error, 2)
+	for _, run := range []func() (*models.Job, error){
+		func() (*models.Job, error) { return executorA.Execute(context.Background(), workflowA, "manual") },
+		func() (*models.Job, error) { return executorB.Execute(context.Background(), workflowB, "manual") },
+	} {
+		wg.Add(1)
+		go func(run func() (*models.Job, error)) {
+			defer wg.Done()
+			job, err := run()
+			jobs <- job
+			errs <- err
+		}(run)
+	}
+	wg.Wait()
+	close(jobs)
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("overlapping workflow failed: %v", err)
+		}
+	}
+	if len(jobs) != 2 {
+		t.Fatalf("expected two workflow jobs, got %d", len(jobs))
+	}
+	if got := atomic.LoadInt32(&requestCount); got != 1 {
+		t.Fatalf("expected one upstream request for two workflows, got %d", got)
+	}
+	if got := atomic.LoadInt32(&maxConcurrent); got != 1 {
+		t.Fatalf("expected at most one in-flight request, got %d", got)
+	}
+	_ = podcastA
+	_ = podcastB
+}
+
+func createObservationWorkflowFixture(t *testing.T, db *gorm.DB, feedURL, suffix string) (*models.Workflow, *models.Podcast) {
+	t.Helper()
+	podcast := &models.Podcast{XYZID: "shared-workflow-podcast-" + suffix, Title: "Shared Workflow Podcast", FeedURL: feedURL, IsSubscribed: true}
+	require.NoError(t, db.Create(podcast).Error)
+	workflowModel := &models.Workflow{
+		Name:        "Shared Workflow " + suffix,
+		Schedule:    "0 0 * * *",
+		ScopeType:   models.ScopeTypeSpecificPodcasts,
+		ScopeConfig: models.ScopeConfig{PodcastIDs: []int{int(podcast.ID)}},
+		RulesConfig: models.RulesConfig{TimeRange: 1, TimeRangeMode: "days"},
+		IsEnabled:   true,
+	}
+	require.NoError(t, db.Create(workflowModel).Error)
+	return workflowModel, podcast
+}
+
+func updateWorkflowMaxConcurrent(max *int32, current int32) {
+	for {
+		previous := atomic.LoadInt32(max)
+		if current <= previous || atomic.CompareAndSwapInt32(max, previous, current) {
+			return
+		}
 	}
 }
 
