@@ -6,12 +6,15 @@
 
 ## 当前版本化迁移
 
-当前 schema 版本为 `1`，版本记录保存在 `schema_migrations`。迁移注册表位于 `backend/internal/database/migrate.go`，每个版本包含名称、说明和事务内的执行函数。版本 1 是当前模型和索引的 baseline：
+当前 schema 版本为 `5`，版本记录保存在 `schema_migrations`。迁移注册表位于 `backend/internal/database/migrate.go`，每个版本包含名称、说明和事务内的执行函数。当前版本链为：
 
-1. 空数据库会创建当前模型表和索引。
-2. 已有且完整的数据库只记录 baseline，不重建或替换业务表。
-3. 缺少部分必需表时拒绝继续，避免把不完整结构伪装成可用版本。
-4. 迁移和版本记录在同一事务中执行；失败会回滚事务，API 不会启动。
+1. `1 baseline-current-model`：空数据库创建当前模型表和索引；已有且完整的数据库只记录 baseline。
+2. `2 feed-access-observability`：记录 Feed HTTP 状态、错误类别、耗时、缓存和出口等观测字段。
+3. `3 feed-snapshot-retrieved-at`：记录执行实际使用内容的取回时间。
+4. `4 feed-circuit-state`：记录域名断路的打开、跳过和探测状态。
+5. `5 feed-source-verification`：记录实际使用的 Feed 来源和 PodcastIndex 身份校验结果。
+6. 缺少部分必需表时拒绝继续，避免把不完整结构伪装成可用版本。
+7. 迁移和版本记录在同一事务中执行；失败会回滚事务，API 不会启动。
 
 显式查看迁移计划：
 
@@ -39,6 +42,12 @@ export MAGICPODCAST_MIGRATION_BACKUP=/absolute/path/to/verified-backup.db.gz
 ```
 
 如果迁移失败，先保持服务停止，使用迁移前备份恢复到临时库或生产库，再重新执行完整验证；不要让 API 使用半完成结构启动。
+
+## 代码回退与数据库配对
+
+数据库迁移是单向追加的，旧版本后端不会自动兼容更高的 schema。发布脚本会把 schema 版本写入发布元数据，并在回退前比较旧版本要求与当前数据库版本；缺少版本信息或两者不一致时，脚本会在停止服务前拒绝回退。
+
+因此，涉及 schema 迁移的回退必须同时准备迁移前的已验证数据库备份。先将备份恢复到临时库并通过 `verify-db.sh`，确认它与旧版本产物配对后，再在明确的维护窗口中恢复数据库并执行代码回退。不要只执行 `./scripts/release.sh --rollback`，也不要让旧版本直接连接更高版本的线上数据库。
 
 ## 手动补齐索引
 

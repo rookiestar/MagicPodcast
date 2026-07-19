@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${MAGICPODCAST_PROJECT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
 BACKEND_DIR="$PROJECT_DIR/backend"
+DATABASE_PATH="${MAGICPODCAST_RELEASE_DATABASE_PATH:-${MAGICPODCAST_DATABASE_PATH:-$BACKEND_DIR/data/magicpodcast.db}}"
 RELEASE_ROOT="${MAGICPODCAST_RELEASE_ROOT:-$PROJECT_DIR/.magicpodcast-releases}"
 RELEASE_LOG="${MAGICPODCAST_RELEASE_LOG:-$PROJECT_DIR/logs/release.log}"
 CURRENT_FILE="$RELEASE_ROOT/current.env"
@@ -69,18 +70,37 @@ manifest_value() {
   awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$file"
 }
 
+database_schema_version() {
+  [ -f "$DATABASE_PATH" ] || return 1
+  command -v sqlite3 >/dev/null 2>&1 || return 1
+
+  local version
+  version="$(sqlite3 "$DATABASE_PATH" "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;" 2>/dev/null)" || return 1
+  [[ "$version" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$version"
+}
+
+restore_frontend_tsconfig() {
+  local stage="$1"
+  local backup="$stage/tsconfig.before-build"
+  [ -f "$backup" ] || return 0
+  mv "$backup" "$FRONTEND_DIR/tsconfig.json"
+}
+
 write_manifest() {
   local file="$1"
   local release_id="$2"
   local frontend_build_id="$3"
   local backend_sha="$4"
   local commit="$5"
+  local schema_version="${6:-unknown}"
   umask 077
   cat > "$file" <<EOF
 release_id=$release_id
 frontend_build_id=$frontend_build_id
 backend_sha256=$backend_sha
 commit=$commit
+schema_version=$schema_version
 created_at=$(now)
 EOF
 }
@@ -91,12 +111,14 @@ write_pointer() {
   local frontend_build_id="$3"
   local backend_sha="$4"
   local artifact_dir="$5"
+  local schema_version="${6:-unknown}"
   umask 077
   cat > "$file" <<EOF
 release_id=$release_id
 frontend_build_id=$frontend_build_id
 backend_sha256=$backend_sha
 artifact_dir=$artifact_dir
+schema_version=$schema_version
 updated_at=$(now)
 EOF
 }
@@ -204,7 +226,7 @@ build_release() {
   local stage="$RELEASE_ROOT/$release_id"
   local frontend_dist_name=".next-release-$release_id"
   local frontend_dist="$FRONTEND_DIR/$frontend_dist_name"
-  local frontend_build_id backend_sha commit
+  local frontend_build_id backend_sha commit schema_version
 
   mkdir -p "$stage"
   log INFO "build started release=$release_id"
@@ -220,15 +242,22 @@ build_release() {
     return 1
   fi
 
+  if ! cp "$FRONTEND_DIR/tsconfig.json" "$stage/tsconfig.before-build"; then
+    log ERROR "frontend tsconfig backup failed release=$release_id"
+    error "无法保存前端构建配置；当前运行版本未停止"
+    return 1
+  fi
   rm -rf "$frontend_dist"
   if ! (cd "$FRONTEND_DIR" && MAGICPODCAST_NEXT_DIST_DIR="$frontend_dist_name" "$NPM_BIN" run build > "$stage/frontend-build.log" 2>&1); then
     log ERROR "frontend build failed release=$release_id"
+    restore_frontend_tsconfig "$stage" || true
     rm -rf "$frontend_dist"
     error "前端构建失败；当前运行版本未停止"
     return 1
   fi
   if [ ! -f "$frontend_dist/BUILD_ID" ]; then
     log ERROR "frontend BUILD_ID missing release=$release_id"
+    restore_frontend_tsconfig "$stage" || true
     rm -rf "$frontend_dist"
     error "前端构建未生成 BUILD_ID；当前运行版本未停止"
     return 1
@@ -237,8 +266,15 @@ build_release() {
   frontend_build_id="$(tr -d '\r\n' < "$frontend_dist/BUILD_ID")"
   backend_sha="$(hash_file "$stage/backend.api")"
   commit="$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || printf 'nogit')"
+  schema_version="$(database_schema_version || printf 'unknown')"
+  if ! restore_frontend_tsconfig "$stage"; then
+    log ERROR "frontend tsconfig restore failed release=$release_id"
+    rm -rf "$frontend_dist"
+    error "无法恢复前端构建配置；当前运行版本未停止"
+    return 1
+  fi
   mv "$frontend_dist" "$stage/frontend.next"
-  write_manifest "$stage/manifest.env" "$release_id" "$frontend_build_id" "$backend_sha" "$commit"
+  write_manifest "$stage/manifest.env" "$release_id" "$frontend_build_id" "$backend_sha" "$commit" "$schema_version"
   log INFO "build verified release=$release_id frontend_build_id=$frontend_build_id"
   printf '%s\n' "$stage"
 }
@@ -285,6 +321,7 @@ PREVIOUS_DIR=""
 PREVIOUS_ID=""
 PREVIOUS_FRONTEND_ID=""
 PREVIOUS_BACKEND_SHA=""
+PREVIOUS_SCHEMA_VERSION=""
 OLD_BACKEND_MOVED=false
 OLD_FRONTEND_MOVED=false
 NEW_BACKEND_INSTALLED=false
@@ -296,9 +333,11 @@ capture_previous_artifacts() {
   local current_id="$1"
   local frontend_id="$2"
   local backend_sha="$3"
+  local schema_version="$4"
   PREVIOUS_ID="$current_id"
   PREVIOUS_FRONTEND_ID="$frontend_id"
   PREVIOUS_BACKEND_SHA="$backend_sha"
+  PREVIOUS_SCHEMA_VERSION="$schema_version"
   PREVIOUS_DIR="$RELEASE_ROOT/${current_id}-previous-$(date -u '+%Y%m%dT%H%M%SZ')-$$"
   mkdir -p "$PREVIOUS_DIR"
 
@@ -312,8 +351,8 @@ capture_previous_artifacts() {
     return 1
   fi
   OLD_FRONTEND_MOVED=true
-  write_manifest "$PREVIOUS_DIR/manifest.env" "$current_id" "$frontend_id" "$backend_sha" "previous"
-  write_pointer "$PREVIOUS_FILE" "$current_id" "$frontend_id" "$backend_sha" "$PREVIOUS_DIR"
+  write_manifest "$PREVIOUS_DIR/manifest.env" "$current_id" "$frontend_id" "$backend_sha" "previous" "$schema_version"
+  write_pointer "$PREVIOUS_FILE" "$current_id" "$frontend_id" "$backend_sha" "$PREVIOUS_DIR" "$schema_version"
 }
 
 install_stage() {
@@ -346,7 +385,7 @@ restore_previous() {
     mv "$PREVIOUS_DIR/frontend.next" "$FRONTEND_DIR/.next" || return 1
   fi
 
-  write_pointer "$CURRENT_FILE" "$PREVIOUS_ID" "$PREVIOUS_FRONTEND_ID" "$PREVIOUS_BACKEND_SHA" "$PREVIOUS_DIR"
+  write_pointer "$CURRENT_FILE" "$PREVIOUS_ID" "$PREVIOUS_FRONTEND_ID" "$PREVIOUS_BACKEND_SHA" "$PREVIOUS_DIR" "$PREVIOUS_SCHEMA_VERSION"
   log WARN "rollback artifacts restored release=$PREVIOUS_ID failed_dir=$failed_dir"
   if ! start_services "$PREVIOUS_ID" "$PREVIOUS_FRONTEND_ID"; then
     log ERROR "rollback start failed release=$PREVIOUS_ID"
@@ -361,11 +400,12 @@ restore_previous() {
 
 deploy_release() {
   local stage="$1"
-  local release_id frontend_id backend_sha current_id current_frontend_id current_backend_sha
+  local release_id frontend_id backend_sha schema_version current_id current_frontend_id current_backend_sha current_schema_version
 
   release_id="$(manifest_value release_id "$stage/manifest.env")"
   frontend_id="$(manifest_value frontend_build_id "$stage/manifest.env")"
   backend_sha="$(manifest_value backend_sha256 "$stage/manifest.env")"
+  schema_version="$(manifest_value schema_version "$stage/manifest.env")"
   ACTIVE_RELEASE_ID="$release_id"
   ACTIVE_FRONTEND_ID="$frontend_id"
 
@@ -382,13 +422,14 @@ deploy_release() {
   if [ -z "$current_backend_sha" ]; then
     current_backend_sha="$(hash_file "$BACKEND_DIR/api")"
   fi
+  current_schema_version="$(database_schema_version || printf 'unknown')"
 
   if ! stop_services; then
     log WARN "stop incomplete; attempting to keep previous release available"
     start_services "$current_id" "$current_frontend_id" || true
     return 1
   fi
-  if ! capture_previous_artifacts "$current_id" "$current_frontend_id" "$current_backend_sha"; then
+  if ! capture_previous_artifacts "$current_id" "$current_frontend_id" "$current_backend_sha" "$current_schema_version"; then
     error "无法保存上一版本，未切换新版本"
     log ERROR "failed to retain previous artifacts"
     if [ "$OLD_BACKEND_MOVED" = true ] && [ ! -f "$BACKEND_DIR/api" ]; then
@@ -407,7 +448,7 @@ deploy_release() {
     return 1
   fi
 
-  write_pointer "$CURRENT_FILE" "$release_id" "$frontend_id" "$backend_sha" "$RELEASE_ROOT/$release_id"
+  write_pointer "$CURRENT_FILE" "$release_id" "$frontend_id" "$backend_sha" "$RELEASE_ROOT/$release_id" "$schema_version"
   log INFO "switch installed release=$release_id"
   if ! start_services "$release_id" "$frontend_id" || ! verify_health "$release_id" "$frontend_id"; then
     error "新版本启动或健康验证失败，开始自动回退"
@@ -420,7 +461,7 @@ deploy_release() {
 }
 
 rollback_command() {
-  local previous_id previous_frontend_id previous_backend_sha previous_dir
+  local previous_id previous_frontend_id previous_backend_sha previous_dir previous_schema_version current_schema_version
   previous_id="$(manifest_value release_id "$PREVIOUS_FILE")"
   previous_frontend_id="$(manifest_value frontend_build_id "$PREVIOUS_FILE")"
   previous_backend_sha="$(manifest_value backend_sha256 "$PREVIOUS_FILE")"
@@ -429,6 +470,21 @@ rollback_command() {
     error "没有可回退的上一版本"
     return 1
   }
+  previous_schema_version="$(manifest_value schema_version "$PREVIOUS_FILE")"
+  if [ -z "$previous_schema_version" ] && [ -f "$previous_dir/manifest.env" ]; then
+    previous_schema_version="$(manifest_value schema_version "$previous_dir/manifest.env")"
+  fi
+  current_schema_version="$(database_schema_version || printf 'unknown')"
+  if ! [[ "$previous_schema_version" =~ ^[0-9]+$ ]] || ! [[ "$current_schema_version" =~ ^[0-9]+$ ]]; then
+    error "拒绝回退：上一版本或当前数据库缺少可验证的 schema 版本；请先准备配对数据库备份"
+    log ERROR "rollback schema metadata missing previous=$previous_schema_version current=$current_schema_version"
+    return 1
+  fi
+  if [ "$previous_schema_version" != "$current_schema_version" ]; then
+    error "拒绝回退：旧版本要求 schema=$previous_schema_version，但当前数据库是 schema=$current_schema_version；请先按配对备份流程恢复数据库"
+    log ERROR "rollback schema mismatch previous=$previous_schema_version current=$current_schema_version"
+    return 1
+  fi
   [ -f "$previous_dir/backend.api" ] && [ -d "$previous_dir/frontend.next" ] || {
     error "上一版本产物不完整，拒绝回退"
     return 1
@@ -439,6 +495,7 @@ rollback_command() {
   PREVIOUS_ID="$previous_id"
   PREVIOUS_FRONTEND_ID="$previous_frontend_id"
   PREVIOUS_BACKEND_SHA="$previous_backend_sha"
+  PREVIOUS_SCHEMA_VERSION="$previous_schema_version"
   PREVIOUS_DIR="$previous_dir"
   OLD_BACKEND_MOVED=true
   OLD_FRONTEND_MOVED=true
@@ -457,7 +514,7 @@ rollback_command() {
   fi
   mv "$previous_dir/backend.api" "$BACKEND_DIR/api" || return 1
   mv "$previous_dir/frontend.next" "$FRONTEND_DIR/.next" || return 1
-  write_pointer "$CURRENT_FILE" "$previous_id" "$previous_frontend_id" "$previous_backend_sha" "$previous_dir"
+  write_pointer "$CURRENT_FILE" "$previous_id" "$previous_frontend_id" "$previous_backend_sha" "$previous_dir" "$previous_schema_version"
   if ! start_services "$previous_id" "$previous_frontend_id" || ! verify_health "$previous_id" "$previous_frontend_id"; then
     error "回退后的健康检查失败"
     log ERROR "manual rollback verification failed release=$previous_id"

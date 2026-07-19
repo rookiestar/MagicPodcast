@@ -30,6 +30,8 @@ node scripts/performance-audit.mjs --base-url http://localhost:3000 --api-url ht
 
 `restart.sh --prod` 会在停止当前服务前完成前后端构建和配对校验；切换后的 `/health` 必须同时返回新 `release_id`、`frontend_build_id` 和 `build_mode=release`。发布失败时应确认旧 PID、旧 `.next` 和旧 `backend/api` 仍可恢复，并检查 `logs/release.log` 没有环境变量或凭据内容。
 
+代码回退前还必须确认发布元数据中的 schema 版本与当前数据库一致。涉及数据库迁移时，先准备并验证迁移前备份；`release.sh --rollback` 会在停止服务前拒绝缺少配对信息或 schema 不一致的回退，不能把它当作数据库恢复命令。
+
 非生产验证至少覆盖：
 
 1. 临时发布目录中的后端或前端构建失败，确认当前服务仍运行。
