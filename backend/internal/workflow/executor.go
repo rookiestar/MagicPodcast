@@ -371,6 +371,8 @@ func applyFeedAccessOutcome(execution *models.JobExecution, outcome *feed.Access
 	execution.FeedAge = outcome.Age
 	execution.FeedResponseBytes = outcome.ResponseBytes
 	execution.FeedSourceType = string(outcome.SourceType)
+	execution.FeedSourceURL = outcome.SourceURL
+	execution.FeedIdentityVerification = outcome.IdentityVerification
 	execution.FeedCacheStatus = string(outcome.CacheStatus)
 	execution.FeedFreshness = string(outcome.Freshness)
 	execution.FeedEgressID = outcome.EgressID

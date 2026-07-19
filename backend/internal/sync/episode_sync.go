@@ -87,11 +87,18 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 
 	// 3. 抓取feed
 	var items []*gofeed.Item
+	var selectedFeed *gofeed.Feed
 	var fetchErr error
 
 	if useIncremental {
 		logger.Infof("   📊 增量模式: 基准时间 %v", lastFetchTime)
 		fetchResult, err := s.feedFetcher.FetchIncrementalWithContext(ctx, podcast.FeedURL, lastFetchTime)
+		if err != nil {
+			if alternative, ok := s.fetchVerifiedAlternative(ctx, &podcast, lastFetchTime, true, fetchResult); ok {
+				fetchResult = alternative
+				err = nil
+			}
+		}
 		if err != nil {
 			if fallback, ok := s.feedFetcher.FetchLastGoodWithContext(ctx, podcast.FeedURL, fetchResult); ok {
 				fallback.SetIncrementalItems(lastFetchTime)
@@ -100,6 +107,7 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 			}
 		}
 		if fetchResult != nil {
+			selectedFeed = fetchResult.Feed
 			result.FeedAccess = &fetchResult.Access
 		}
 		if err != nil {
@@ -112,12 +120,19 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 		logger.Infof("   📊 全量模式: 获取所有episodes")
 		fetchResult, err := s.feedFetcher.FetchFeedWithContextDetailed(ctx, podcast.FeedURL)
 		if err != nil {
+			if alternative, ok := s.fetchVerifiedAlternative(ctx, &podcast, lastFetchTime, false, fetchResult); ok {
+				fetchResult = alternative
+				err = nil
+			}
+		}
+		if err != nil {
 			if fallback, ok := s.feedFetcher.FetchLastGoodWithContext(ctx, podcast.FeedURL, fetchResult); ok {
 				fetchResult = fallback
 				err = nil
 			}
 		}
 		if fetchResult != nil {
+			selectedFeed = fetchResult.Feed
 			result.FeedAccess = &fetchResult.Access
 		}
 		if err != nil {
@@ -131,6 +146,7 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 	if fetchErr != nil {
 		return result, fetchErr
 	}
+	s.persistPodcastFeedIdentity(&podcast, selectedFeed)
 
 	updateLastFetchedAt := result.FeedAccess == nil ||
 		(result.FeedAccess.SourceType != feed.AccessSourceLastGood && result.FeedAccess.SourceType != feed.AccessSourceLocalCache)

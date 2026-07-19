@@ -48,6 +48,21 @@ const (
 	AccessSourceLastGood    AccessSource = "last_good"
 )
 
+// IdentityVerification is the bounded explanation for whether a
+// PodcastIndex alternative was safe to use. It is persisted with the
+// execution outcome so an unavailable or ambiguous candidate is visible
+// without reading server logs.
+const (
+	IdentityVerificationNotChecked                   = "not_checked"
+	IdentityVerificationVerifiedMetadata             = "verified_stable_identity_and_metadata"
+	IdentityVerificationVerifiedEpisode              = "verified_stable_identity_and_episode"
+	IdentityVerificationRejectedNoStableID           = "rejected_no_stable_identity"
+	IdentityVerificationRejectedAmbiguous            = "rejected_ambiguous"
+	IdentityVerificationRejectedConflict             = "rejected_identity_conflict"
+	IdentityVerificationRejectedInsufficientEvidence = "rejected_insufficient_evidence"
+	IdentityVerificationUnavailable                  = "alternative_unavailable"
+)
+
 type CacheStatus string
 
 const (
@@ -74,34 +89,38 @@ const (
 // AccessOutcome contains only bounded, whitelisted metadata. It deliberately
 // has no response body, cookies, credentials, or arbitrary response headers.
 type AccessOutcome struct {
-	HTTPStatus     *int          `json:"http_status"`
-	ErrorCategory  ErrorCategory `json:"error_category"`
-	TargetDomain   string        `json:"target_domain"`
-	ResponseTimeMs int           `json:"response_time_ms"`
-	RetryAfter     string        `json:"retry_after,omitempty"`
-	ETag           string        `json:"etag,omitempty"`
-	LastModified   string        `json:"last_modified,omitempty"`
-	CacheControl   string        `json:"cache_control,omitempty"`
-	Expires        string        `json:"expires,omitempty"`
-	Age            string        `json:"age,omitempty"`
-	ResponseBytes  int64         `json:"response_bytes"`
-	SourceType     AccessSource  `json:"source_type"`
-	CacheStatus    CacheStatus   `json:"cache_status"`
-	Freshness      Freshness     `json:"freshness"`
-	EgressID       string        `json:"egress_id"`
-	CircuitState   CircuitState  `json:"circuit_state"`
-	RetrievedAt    *time.Time    `json:"retrieved_at,omitempty"`
+	HTTPStatus           *int          `json:"http_status"`
+	ErrorCategory        ErrorCategory `json:"error_category"`
+	TargetDomain         string        `json:"target_domain"`
+	ResponseTimeMs       int           `json:"response_time_ms"`
+	RetryAfter           string        `json:"retry_after,omitempty"`
+	ETag                 string        `json:"etag,omitempty"`
+	LastModified         string        `json:"last_modified,omitempty"`
+	CacheControl         string        `json:"cache_control,omitempty"`
+	Expires              string        `json:"expires,omitempty"`
+	Age                  string        `json:"age,omitempty"`
+	ResponseBytes        int64         `json:"response_bytes"`
+	SourceType           AccessSource  `json:"source_type"`
+	SourceURL            string        `json:"source_url"`
+	IdentityVerification string        `json:"identity_verification"`
+	CacheStatus          CacheStatus   `json:"cache_status"`
+	Freshness            Freshness     `json:"freshness"`
+	EgressID             string        `json:"egress_id"`
+	CircuitState         CircuitState  `json:"circuit_state"`
+	RetrievedAt          *time.Time    `json:"retrieved_at,omitempty"`
 }
 
 func newPrimaryAccessOutcome(feedURL string) AccessOutcome {
 	return AccessOutcome{
-		ErrorCategory: ErrorCategoryNotObserved,
-		TargetDomain:  TargetDomain(feedURL),
-		SourceType:    AccessSourcePrimary,
-		CacheStatus:   CacheStatusNotUsed,
-		Freshness:     FreshnessUnknown,
-		EgressID:      EgressDirect,
-		CircuitState:  CircuitStateNotUsed,
+		ErrorCategory:        ErrorCategoryNotObserved,
+		TargetDomain:         TargetDomain(feedURL),
+		SourceType:           AccessSourcePrimary,
+		SourceURL:            SanitizeFeedURL(feedURL),
+		IdentityVerification: IdentityVerificationNotChecked,
+		CacheStatus:          CacheStatusNotUsed,
+		Freshness:            FreshnessUnknown,
+		EgressID:             EgressDirect,
+		CircuitState:         CircuitStateNotUsed,
 	}
 }
 

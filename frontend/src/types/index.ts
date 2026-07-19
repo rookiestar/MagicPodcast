@@ -257,6 +257,8 @@ interface JobExecution {
   feed_age?: string;
   feed_response_bytes: number;
   feed_source_type: string;
+  feed_source_url: string;
+  feed_identity_verification: string;
   feed_cache_status: string;
   feed_freshness: string;
   feed_egress_id: string;

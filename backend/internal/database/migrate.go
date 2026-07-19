@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 4
+const CurrentSchemaVersion = 5
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -66,6 +66,12 @@ func migrationRegistry() []Migration {
 			Name:        "feed-circuit-state",
 			Description: "Persist whether a Feed execution was opened, skipped by, or probing a domain circuit.",
 			Apply:       applyFeedCircuitStateMigration,
+		},
+		{
+			Version:     5,
+			Name:        "feed-source-verification",
+			Description: "Persist the selected Feed source URL and PodcastIndex identity verification result.",
+			Apply:       applyFeedSourceVerificationMigration,
 		},
 	}
 }
@@ -255,6 +261,25 @@ func applyFeedCircuitStateMigration(db *gorm.DB) error {
 	}
 	if err := db.Exec("ALTER TABLE job_executions ADD COLUMN feed_circuit_state TEXT NOT NULL DEFAULT 'not_used'").Error; err != nil {
 		return fmt.Errorf("add job_executions.feed_circuit_state: %w", err)
+	}
+	return nil
+}
+
+func applyFeedSourceVerificationMigration(db *gorm.DB) error {
+	columns := []struct {
+		name string
+		ddl  string
+	}{
+		{name: "feed_source_url", ddl: "TEXT NOT NULL DEFAULT ''"},
+		{name: "feed_identity_verification", ddl: "TEXT NOT NULL DEFAULT 'not_checked'"},
+	}
+	for _, column := range columns {
+		if db.Migrator().HasColumn(&models.JobExecution{}, column.name) {
+			continue
+		}
+		if err := db.Exec("ALTER TABLE job_executions ADD COLUMN " + column.name + " " + column.ddl).Error; err != nil {
+			return fmt.Errorf("add job_executions.%s: %w", column.name, err)
+		}
 	}
 	return nil
 }

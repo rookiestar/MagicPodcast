@@ -1100,6 +1100,9 @@ function WorkflowDetailContent() {
                                         来源: {exec.feed_source_type || "未知"} · {exec.feed_freshness || "未知"} · 缓存: {exec.feed_cache_status || "未知"}
                                       </span>
                                       <span>
+                                        来源地址: {exec.feed_source_url || "未记录"} · 身份: {exec.feed_identity_verification || "未检查"}
+                                      </span>
+                                      <span>
                                         内容时间: {formatDateTime(exec.feed_snapshot_retrieved_at, "未记录")}
                                       </span>
                                       <span>

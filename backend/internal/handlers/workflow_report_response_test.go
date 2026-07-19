@@ -12,24 +12,26 @@ func TestJobExecutionResponseIncludesFeedAccessSummary(t *testing.T) {
 	status := http.StatusForbidden
 	retrievedAt := time.Date(2026, 7, 19, 1, 2, 3, 0, time.UTC)
 	exec := &models.JobExecution{
-		BaseModel:               models.BaseModel{ID: 1, CreatedAt: time.Date(2026, 7, 19, 1, 2, 3, 0, time.UTC)},
-		JobID:                   2,
-		PodcastTitle:            "Observed Podcast",
-		PodcastFeedURL:          "https://user:password@feed.example.test/feed.xml?access_token=super-secret&format=rss",
-		Status:                  models.ExecutionStatusFailed,
-		FeedHTTPStatus:          &status,
-		FeedErrorCategory:       "access_denied",
-		FeedTargetDomain:        "feed.example.test",
-		FeedResponseTimeMs:      115,
-		FeedRetryAfter:          "120",
-		FeedETag:                `"feed-v1"`,
-		FeedCacheStatus:         "not_used",
-		FeedSourceType:          "primary",
-		FeedFreshness:           "unknown",
-		FeedEgressID:            "direct",
-		FeedResponseBytes:       7,
-		FeedSnapshotRetrievedAt: &retrievedAt,
-		FeedCircuitState:        "probe",
+		BaseModel:                models.BaseModel{ID: 1, CreatedAt: time.Date(2026, 7, 19, 1, 2, 3, 0, time.UTC)},
+		JobID:                    2,
+		PodcastTitle:             "Observed Podcast",
+		PodcastFeedURL:           "https://user:password@feed.example.test/feed.xml?access_token=super-secret&format=rss",
+		Status:                   models.ExecutionStatusFailed,
+		FeedHTTPStatus:           &status,
+		FeedErrorCategory:        "access_denied",
+		FeedTargetDomain:         "feed.example.test",
+		FeedResponseTimeMs:       115,
+		FeedRetryAfter:           "120",
+		FeedETag:                 `"feed-v1"`,
+		FeedCacheStatus:          "not_used",
+		FeedSourceType:           "primary",
+		FeedSourceURL:            "https://feed.example.test/feed.xml",
+		FeedIdentityVerification: "not_checked",
+		FeedFreshness:            "unknown",
+		FeedEgressID:             "direct",
+		FeedResponseBytes:        7,
+		FeedSnapshotRetrievedAt:  &retrievedAt,
+		FeedCircuitState:         "probe",
 	}
 
 	response := (&WorkflowHandler{}).toJobExecutionResponse(exec)
@@ -50,6 +52,9 @@ func TestJobExecutionResponseIncludesFeedAccessSummary(t *testing.T) {
 	}
 	if response.FeedCircuitState != "probe" {
 		t.Fatalf("circuit state missing: %#v", response.FeedCircuitState)
+	}
+	if response.FeedSourceURL != "https://feed.example.test/feed.xml" || response.FeedIdentityVerification != "not_checked" {
+		t.Fatalf("source verification summary missing: %#v", response)
 	}
 }
 

@@ -225,6 +225,8 @@ func (s *Service) convertGofeedToModel(feed *gofeed.Feed, dataSource string, fee
 		Title:        feed.Title,
 		Description:  feed.Description,
 		FeedURL:      feedURL, // 使用传入的feedURL
+		ITunesID:     extractITunesID(feed),
+		PodcastGUID:  extractPodcastGUID(feed),
 		IsSubscribed: true,
 		DataSource:   dataSource,
 	}
@@ -289,6 +291,51 @@ func (s *Service) convertGofeedToModel(feed *gofeed.Feed, dataSource string, fee
 	}
 
 	return podcast
+}
+
+// extractPodcastGUID reads the standard Podcast Namespace GUID when the RSS
+// publisher provides it. gofeed keeps less common namespace fields in the
+// generic extension map, so this helper also tolerates common capitalization
+// variants without treating a title or URL as an identity.
+func extractPodcastGUID(parsedFeed *gofeed.Feed) string {
+	if parsedFeed == nil {
+		return ""
+	}
+	for namespace, fields := range parsedFeed.Extensions {
+		if !strings.EqualFold(namespace, "podcast") {
+			continue
+		}
+		for field, values := range fields {
+			if !strings.EqualFold(field, "guid") && !strings.EqualFold(field, "podcastGuid") {
+				continue
+			}
+			if len(values) > 0 {
+				return strings.TrimSpace(values[0].Value)
+			}
+		}
+	}
+	return ""
+}
+
+func extractITunesID(parsedFeed *gofeed.Feed) string {
+	if parsedFeed == nil {
+		return ""
+	}
+	for namespace, fields := range parsedFeed.Extensions {
+		if !strings.EqualFold(namespace, "itunes") {
+			continue
+		}
+		for field, values := range fields {
+			if !strings.EqualFold(field, "id") || len(values) == 0 {
+				continue
+			}
+			value := strings.TrimSpace(values[0].Value)
+			if parseITunesID(value) > 0 {
+				return strconv.Itoa(parseITunesID(value))
+			}
+		}
+	}
+	return ""
 }
 
 // parseITunesDuration 解析iTunes时长格式为秒数

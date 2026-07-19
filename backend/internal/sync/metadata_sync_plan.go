@@ -46,11 +46,20 @@ func detectPodcastMetadataUpdate(current *models.Podcast, updated *models.Podcas
 		check.reasons = append(check.reasons, "cover_url changed")
 	}
 
+	if updated.ITunesID != "" && updated.ITunesID != current.ITunesID {
+		check.hasUpdate = true
+		check.reasons = append(check.reasons, "itunes_id discovered")
+	}
+	if updated.PodcastGUID != "" && updated.PodcastGUID != current.PodcastGUID {
+		check.hasUpdate = true
+		check.reasons = append(check.reasons, "podcast_guid discovered")
+	}
+
 	return check
 }
 
 func podcastMetadataUpdates(updated *models.Podcast) map[string]interface{} {
-	return map[string]interface{}{
+	updates := map[string]interface{}{
 		"cover_url":                 updated.CoverURL,
 		"episode_count":             updated.EpisodeCount,
 		"newest_episode_date":       updated.NewestEpisodeDate,
@@ -60,6 +69,13 @@ func podcastMetadataUpdates(updated *models.Podcast) map[string]interface{} {
 		"fetch_error_count":         0,
 		"feed_url_valid":            true,
 	}
+	if updated.ITunesID != "" {
+		updates["i_tunes_id"] = updated.ITunesID
+	}
+	if updated.PodcastGUID != "" {
+		updates["podcast_guid"] = updated.PodcastGUID
+	}
+	return updates
 }
 
 func planEpisodeSync(podcastTitle string, hasMetadataUpdate bool, existingEpisodeCount int64, feedEpisodeCount int64) episodeSyncPlan {
