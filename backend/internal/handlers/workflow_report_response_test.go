@@ -29,6 +29,7 @@ func TestJobExecutionResponseIncludesFeedAccessSummary(t *testing.T) {
 		FeedEgressID:            "direct",
 		FeedResponseBytes:       7,
 		FeedSnapshotRetrievedAt: &retrievedAt,
+		FeedCircuitState:        "probe",
 	}
 
 	response := (&WorkflowHandler{}).toJobExecutionResponse(exec)
@@ -46,6 +47,9 @@ func TestJobExecutionResponseIncludesFeedAccessSummary(t *testing.T) {
 	}
 	if response.FeedSnapshotRetrievedAt == nil || !response.FeedSnapshotRetrievedAt.Equal(retrievedAt) {
 		t.Fatalf("snapshot retrieval time missing: %#v", response.FeedSnapshotRetrievedAt)
+	}
+	if response.FeedCircuitState != "probe" {
+		t.Fatalf("circuit state missing: %#v", response.FeedCircuitState)
 	}
 }
 

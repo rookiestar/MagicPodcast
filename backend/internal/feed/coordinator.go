@@ -3,9 +3,12 @@ package feed
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,13 +18,25 @@ import (
 
 const XiaoyuzhouFeedDomain = "feed.xyzfm.space"
 
+const (
+	defaultCircuitCooldown     = 10 * time.Minute
+	defaultRetryBackoffInitial = 30 * time.Second
+	defaultRetryBackoffMax     = 10 * time.Minute
+	maxRetryAfter              = 24 * time.Hour
+)
+
+var ErrFeedCircuitOpen = errors.New("feed circuit is open")
+
 // DomainPolicy controls only load-shaping behavior for one target domain.
 // MaxConcurrency <= 0 means unlimited; duplicate-request coalescing remains
 // active for every domain as a shared correctness rule.
 type DomainPolicy struct {
-	MaxConcurrency     int
-	MinRefreshInterval time.Duration
-	MaxJitter          time.Duration
+	MaxConcurrency      int
+	MinRefreshInterval  time.Duration
+	MaxJitter           time.Duration
+	CircuitCooldown     time.Duration
+	RetryBackoffInitial time.Duration
+	RetryBackoffMax     time.Duration
 }
 
 type CoordinatorConfig struct {
@@ -38,6 +53,7 @@ type Coordinator struct {
 	semaphores   map[string]chan struct{}
 	lastGood     SnapshotStore
 	maxStaleAge  time.Duration
+	circuits     map[string]*domainCircuit
 }
 
 type inFlightFetch struct {
@@ -51,15 +67,25 @@ type cachedFetch struct {
 	result   *FetchResult
 }
 
+type domainCircuit struct {
+	openUntil     time.Time
+	failureCount  int
+	probeInFlight bool
+	state         CircuitState
+}
+
 // DefaultCoordinatorConfig applies the initial conservative policy only to
 // Xiaoyuzhou Feed traffic. Other domains retain their existing parallelism.
 func DefaultCoordinatorConfig() CoordinatorConfig {
 	return CoordinatorConfig{
 		DomainPolicies: map[string]DomainPolicy{
 			XiaoyuzhouFeedDomain: {
-				MaxConcurrency:     1,
-				MinRefreshInterval: 5 * time.Minute,
-				MaxJitter:          2 * time.Second,
+				MaxConcurrency:      1,
+				MinRefreshInterval:  5 * time.Minute,
+				MaxJitter:           2 * time.Second,
+				CircuitCooldown:     defaultCircuitCooldown,
+				RetryBackoffInitial: defaultRetryBackoffInitial,
+				RetryBackoffMax:     defaultRetryBackoffMax,
 			},
 		},
 	}
@@ -85,6 +111,7 @@ func NewCoordinator(config CoordinatorConfig) *Coordinator {
 		semaphores:   make(map[string]chan struct{}),
 		lastGood:     lastGoodStore,
 		maxStaleAge:  maxStaleAge,
+		circuits:     make(map[string]*domainCircuit),
 	}
 }
 
@@ -132,7 +159,8 @@ func (c *Coordinator) Do(ctx context.Context, rawURL string, fetch func(context.
 	}
 
 	key := CanonicalizeURL(rawURL)
-	policy := c.policyFor(TargetDomain(rawURL))
+	domain := TargetDomain(rawURL)
+	policy := c.policyFor(domain)
 
 	c.mu.Lock()
 	if cached, ok := c.sharedResult[key]; ok && policy.MinRefreshInterval > 0 && time.Since(cached.storedAt) < policy.MinRefreshInterval {
@@ -162,7 +190,6 @@ func (c *Coordinator) Do(ctx context.Context, rawURL string, fetch func(context.
 			return nil, ctx.Err()
 		}
 	}
-
 	call := &inFlightFetch{done: make(chan struct{})}
 	c.inFlight[key] = call
 	c.mu.Unlock()
@@ -182,6 +209,145 @@ func (c *Coordinator) Do(ctx context.Context, rawURL string, fetch func(context.
 	close(call.done)
 	c.mu.Unlock()
 	return result, err
+}
+
+func circuitPolicyEnabled(policy DomainPolicy) bool {
+	return policy.CircuitCooldown > 0 || policy.RetryBackoffInitial > 0 || policy.RetryBackoffMax > 0
+}
+
+func (c *Coordinator) reserveCircuitLocked(domain string) (probe bool, circuitState CircuitState, openUntil time.Time, blocked bool) {
+	state := c.circuits[domain]
+	if state == nil {
+		state = &domainCircuit{state: CircuitStateNotUsed}
+		c.circuits[domain] = state
+	}
+	now := time.Now()
+	if state.probeInFlight {
+		return false, CircuitStateOpen, state.openUntil, true
+	}
+	if state.openUntil.After(now) {
+		return false, CircuitStateOpen, state.openUntil, true
+	}
+	if !state.openUntil.IsZero() {
+		state.probeInFlight = true
+		state.state = CircuitStateProbe
+		return true, CircuitStateProbe, state.openUntil, false
+	}
+	return false, state.state, time.Time{}, false
+}
+
+func (c *Coordinator) completeCircuitLocked(domain string, policy DomainPolicy, probe bool, result *FetchResult, err error) {
+	state := c.circuits[domain]
+	if state == nil {
+		return
+	}
+	state.probeInFlight = false
+	if err == nil && result != nil && result.Feed != nil {
+		if probe {
+			state.openUntil = time.Time{}
+			state.failureCount = 0
+			state.state = CircuitStateClosed
+		}
+		return
+	}
+	if probe {
+		state.failureCount++
+		state.openUntil = time.Now().Add(circuitWait(policy, state.failureCount, result))
+		state.state = CircuitStateOpen
+		return
+	}
+	if !isCircuitFailure(result) {
+		return
+	}
+
+	state.failureCount++
+	state.openUntil = time.Now().Add(circuitWait(policy, state.failureCount, result))
+	state.state = CircuitStateOpen
+	if result != nil {
+		result.Access.CircuitState = CircuitStateOpen
+	}
+}
+
+func isCircuitFailure(result *FetchResult) bool {
+	if result == nil || result.Access.HTTPStatus == nil {
+		return false
+	}
+	switch *result.Access.HTTPStatus {
+	case http.StatusForbidden, http.StatusTooManyRequests, http.StatusServiceUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+func circuitWait(policy DomainPolicy, failureCount int, result *FetchResult) time.Duration {
+	if result != nil && result.Access.HTTPStatus != nil && *result.Access.HTTPStatus == http.StatusForbidden {
+		if policy.CircuitCooldown > 0 {
+			return policy.CircuitCooldown
+		}
+		return defaultCircuitCooldown
+	}
+	if result != nil {
+		if wait, ok := parseRetryAfter(result.Access.RetryAfter, time.Now()); ok {
+			if wait > maxRetryAfter {
+				return maxRetryAfter
+			}
+			return wait
+		}
+	}
+	initial := policy.RetryBackoffInitial
+	if initial <= 0 {
+		initial = defaultRetryBackoffInitial
+	}
+	maximum := policy.RetryBackoffMax
+	if maximum <= 0 {
+		maximum = defaultRetryBackoffMax
+	}
+	wait := initial
+	for i := 1; i < failureCount && wait < maximum; i++ {
+		if wait > maximum/2 {
+			wait = maximum
+			break
+		}
+		wait *= 2
+	}
+	if wait > maximum {
+		return maximum
+	}
+	return wait
+}
+
+func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
+	if seconds, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64); err == nil && seconds >= 0 {
+		if seconds > int64(maxRetryAfter/time.Second) {
+			return maxRetryAfter, true
+		}
+		return time.Duration(seconds) * time.Second, true
+	}
+	when, err := http.ParseTime(strings.TrimSpace(value))
+	if err != nil {
+		return 0, false
+	}
+	wait := when.Sub(now)
+	if wait < 0 {
+		return 0, true
+	}
+	return wait, true
+}
+
+func circuitOpenResult(rawURL string, openUntil time.Time) *FetchResult {
+	access := newPrimaryAccessOutcome(rawURL)
+	access.ErrorCategory = ErrorCategoryCircuitOpen
+	access.CircuitState = CircuitStateOpen
+	access.EgressID = EgressUnknown
+	if remaining := time.Until(openUntil); remaining > 0 {
+		seconds := int64(remaining / time.Second)
+		if remaining%time.Second != 0 {
+			seconds++
+		}
+		access.RetryAfter = strconv.FormatInt(seconds, 10)
+	}
+	return &FetchResult{Error: ErrFeedCircuitOpen, Access: access}
 }
 
 // LastGood restores a bounded, verified snapshot after the caller has
@@ -233,10 +399,27 @@ func (c *Coordinator) LastGood(ctx context.Context, rawURL string, failure *Fetc
 }
 
 func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolicy, fetch func(context.Context) (*FetchResult, error)) (result *FetchResult, err error) {
+	domain := TargetDomain(rawURL)
+	circuitEnabled := circuitPolicyEnabled(policy)
+	probe := false
+	reservedCircuit := false
+	circuitState := CircuitStateNotUsed
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			result = nil
 			err = fmt.Errorf("feed access coordinator panic: %v", recovered)
+		}
+		if circuitEnabled && reservedCircuit {
+			if result != nil {
+				if probe {
+					result.Access.CircuitState = CircuitStateProbe
+				} else if circuitState == CircuitStateClosed {
+					result.Access.CircuitState = CircuitStateClosed
+				}
+			}
+			c.mu.Lock()
+			c.completeCircuitLocked(domain, policy, probe, result, err)
+			c.mu.Unlock()
 		}
 	}()
 
@@ -250,6 +433,15 @@ func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolic
 				<-timer.C
 			}
 			return nil, ctx.Err()
+		}
+	}
+
+	if circuitEnabled {
+		c.mu.Lock()
+		openUntil, blocked := c.circuitBlockedLocked(domain)
+		c.mu.Unlock()
+		if blocked {
+			return circuitOpenResult(rawURL, openUntil), ErrFeedCircuitOpen
 		}
 	}
 
@@ -267,11 +459,35 @@ func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolic
 		defer release()
 	}
 
+	if circuitEnabled {
+		c.mu.Lock()
+		var openUntil time.Time
+		var blocked bool
+		probe, circuitState, openUntil, blocked = c.reserveCircuitLocked(domain)
+		if blocked {
+			c.mu.Unlock()
+			return circuitOpenResult(rawURL, openUntil), ErrFeedCircuitOpen
+		}
+		reservedCircuit = true
+		c.mu.Unlock()
+	}
+
 	result, err = fetch(ctx)
 	if result != nil && err == nil && policy.MinRefreshInterval > 0 {
 		result.Access.CacheStatus = CacheStatusMiss
 	}
 	return result, err
+}
+
+func (c *Coordinator) circuitBlockedLocked(domain string) (time.Time, bool) {
+	state := c.circuits[domain]
+	if state == nil {
+		return time.Time{}, false
+	}
+	if state.probeInFlight || state.openUntil.After(time.Now()) {
+		return state.openUntil, true
+	}
+	return time.Time{}, false
 }
 
 func (c *Coordinator) domainSemaphore(domain string, maxConcurrency int) chan struct{} {

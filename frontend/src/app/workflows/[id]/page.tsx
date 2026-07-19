@@ -1105,6 +1105,9 @@ function WorkflowDetailContent() {
                                       <span>
                                         响应: {exec.feed_response_time_ms}ms · 出口: {exec.feed_egress_id || "未知"}
                                       </span>
+                                      <span>
+                                        断路: {exec.feed_circuit_state || "未使用"}
+                                      </span>
                                     </div>
 
                                     {(exec.feed_retry_after || exec.feed_etag || exec.feed_last_modified || exec.feed_cache_control) && (

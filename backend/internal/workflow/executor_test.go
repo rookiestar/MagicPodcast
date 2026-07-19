@@ -347,6 +347,86 @@ func TestExecutePersistsFeedAccessObservation(t *testing.T) {
 	}
 }
 
+func TestExecutePersistsCircuitSkipAndRecoveryProbe(t *testing.T) {
+	var requestCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&requestCount, 1) == 1 {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>Circuit Workflow Feed</title><item><title>Recovered Episode</title><guid>circuit-recovered-episode</guid><pubDate>Tue, 14 Jul 2026 08:00:00 GMT</pubDate><description>Details</description></item></channel></rss>`))
+	}))
+	t.Cleanup(server.Close)
+
+	coordinator := feed.NewCoordinator(feed.CoordinatorConfig{DomainPolicies: map[string]feed.DomainPolicy{
+		feed.TargetDomain(server.URL): {MaxConcurrency: 1, CircuitCooldown: 80 * time.Millisecond},
+	}})
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Episode{}, &models.Report{}))
+	service, err := syncsvc.NewServiceWithFeedCoordinator(db, "", coordinator)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, service.Close()) })
+
+	podcast := &models.Podcast{
+		XYZID:        "circuit-workflow-podcast",
+		Title:        "Circuit Workflow Podcast",
+		FeedURL:      server.URL + "/feed.xml",
+		IsSubscribed: true,
+	}
+	require.NoError(t, db.Create(podcast).Error)
+	workflowModel := &models.Workflow{
+		Name:        "Circuit Workflow",
+		Schedule:    "0 0 * * *",
+		ScopeType:   models.ScopeTypeSpecificPodcasts,
+		ScopeConfig: models.ScopeConfig{PodcastIDs: []int{int(podcast.ID)}},
+		RulesConfig: models.RulesConfig{TimeRange: 1, TimeRangeMode: "days"},
+		IsEnabled:   true,
+	}
+	require.NoError(t, db.Create(workflowModel).Error)
+	executor := NewExecutor(db, service, nil, nil)
+
+	job, err := executor.Execute(context.Background(), workflowModel, "manual")
+	require.NoError(t, err)
+	first := waitForJobExecution(t, db, job.ID)
+	require.Equal(t, models.ExecutionStatusFailed, first.Status)
+	require.Equal(t, "access_denied", first.FeedErrorCategory)
+	require.Equal(t, "open", first.FeedCircuitState)
+
+	job, err = executor.Execute(context.Background(), workflowModel, "manual")
+	require.NoError(t, err)
+	blocked := waitForJobExecution(t, db, job.ID)
+	require.Equal(t, models.ExecutionStatusFailed, blocked.Status)
+	require.Equal(t, "circuit_open", blocked.FeedErrorCategory)
+	require.Equal(t, "open", blocked.FeedCircuitState)
+	require.Equal(t, int32(1), atomic.LoadInt32(&requestCount))
+
+	time.Sleep(110 * time.Millisecond)
+	job, err = executor.Execute(context.Background(), workflowModel, "manual")
+	require.NoError(t, err)
+	probe := waitForJobExecution(t, db, job.ID)
+	require.Equal(t, models.ExecutionStatusSuccess, probe.Status)
+	require.Equal(t, "none", probe.FeedErrorCategory)
+	require.Equal(t, "probe", probe.FeedCircuitState)
+	require.Equal(t, int32(2), atomic.LoadInt32(&requestCount))
+}
+
+func waitForJobExecution(t *testing.T, db *gorm.DB, jobID uint) models.JobExecution {
+	t.Helper()
+	var execution models.JobExecution
+	require.Eventually(t, func() bool {
+		return db.Where("job_id = ?", jobID).First(&execution).Error == nil
+	}, 2*time.Second, 10*time.Millisecond)
+	var job models.Job
+	require.Eventually(t, func() bool {
+		if db.First(&job, jobID).Error != nil {
+			return false
+		}
+		return job.Status != models.JobStatusRunning
+	}, 2*time.Second, 10*time.Millisecond)
+	return execution
+}
+
 func TestOverlappingWorkflowsShareOneUpstreamFeedRequest(t *testing.T) {
 	var requestCount int32
 	var current int32

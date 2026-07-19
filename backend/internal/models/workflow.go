@@ -211,6 +211,7 @@ type JobExecution struct {
 	FeedFreshness           string     `gorm:"size:32;not null;default:unknown" json:"feed_freshness"`
 	FeedEgressID            string     `gorm:"size:64;not null;default:unknown" json:"feed_egress_id"`
 	FeedSnapshotRetrievedAt *time.Time `gorm:"column:feed_snapshot_retrieved_at" json:"feed_snapshot_retrieved_at,omitempty"`
+	FeedCircuitState        string     `gorm:"size:32;not null;default:not_used" json:"feed_circuit_state"`
 }
 
 // TableName 指定表名

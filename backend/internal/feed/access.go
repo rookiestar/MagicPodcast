@@ -21,7 +21,17 @@ const (
 	ErrorCategoryNetwork            ErrorCategory = "network_error"
 	ErrorCategoryParse              ErrorCategory = "parse_error"
 	ErrorCategoryInvalidRequest     ErrorCategory = "invalid_request"
+	ErrorCategoryCircuitOpen        ErrorCategory = "circuit_open"
 	ErrorCategoryUnknown            ErrorCategory = "unknown"
+)
+
+type CircuitState string
+
+const (
+	CircuitStateNotUsed CircuitState = "not_used"
+	CircuitStateOpen    CircuitState = "open"
+	CircuitStateProbe   CircuitState = "probe"
+	CircuitStateClosed  CircuitState = "closed"
 )
 
 // AccessSource identifies where the content used by a workflow came from.
@@ -79,6 +89,7 @@ type AccessOutcome struct {
 	CacheStatus    CacheStatus   `json:"cache_status"`
 	Freshness      Freshness     `json:"freshness"`
 	EgressID       string        `json:"egress_id"`
+	CircuitState   CircuitState  `json:"circuit_state"`
 	RetrievedAt    *time.Time    `json:"retrieved_at,omitempty"`
 }
 
@@ -90,6 +101,7 @@ func newPrimaryAccessOutcome(feedURL string) AccessOutcome {
 		CacheStatus:   CacheStatusNotUsed,
 		Freshness:     FreshnessUnknown,
 		EgressID:      EgressDirect,
+		CircuitState:  CircuitStateNotUsed,
 	}
 }
 

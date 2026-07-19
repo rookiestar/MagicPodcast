@@ -273,6 +273,7 @@ func (h *WorkflowHandler) toJobExecutionResponse(exec *models.JobExecution) dto.
 		FeedFreshness:           exec.FeedFreshness,
 		FeedEgressID:            exec.FeedEgressID,
 		FeedSnapshotRetrievedAt: exec.FeedSnapshotRetrievedAt,
+		FeedCircuitState:        exec.FeedCircuitState,
 	}
 }
 

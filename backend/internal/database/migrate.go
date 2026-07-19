@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 3
+const CurrentSchemaVersion = 4
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -60,6 +60,12 @@ func migrationRegistry() []Migration {
 			Name:        "feed-snapshot-retrieved-at",
 			Description: "Persist the retrieval time of the content used by a Feed execution, including last-good snapshots.",
 			Apply:       applyFeedSnapshotRetrievedAtMigration,
+		},
+		{
+			Version:     4,
+			Name:        "feed-circuit-state",
+			Description: "Persist whether a Feed execution was opened, skipped by, or probing a domain circuit.",
+			Apply:       applyFeedCircuitStateMigration,
 		},
 	}
 }
@@ -239,6 +245,16 @@ func applyFeedSnapshotRetrievedAtMigration(db *gorm.DB) error {
 	}
 	if err := db.Exec("ALTER TABLE job_executions ADD COLUMN feed_snapshot_retrieved_at DATETIME").Error; err != nil {
 		return fmt.Errorf("add job_executions.feed_snapshot_retrieved_at: %w", err)
+	}
+	return nil
+}
+
+func applyFeedCircuitStateMigration(db *gorm.DB) error {
+	if db.Migrator().HasColumn(&models.JobExecution{}, "feed_circuit_state") {
+		return nil
+	}
+	if err := db.Exec("ALTER TABLE job_executions ADD COLUMN feed_circuit_state TEXT NOT NULL DEFAULT 'not_used'").Error; err != nil {
+		return fmt.Errorf("add job_executions.feed_circuit_state: %w", err)
 	}
 	return nil
 }

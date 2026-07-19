@@ -261,6 +261,7 @@ interface JobExecution {
   feed_freshness: string;
   feed_egress_id: string;
   feed_snapshot_retrieved_at?: string;
+  feed_circuit_state: string;
 }
 
 export interface WorkflowRequest {
