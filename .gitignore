@@ -137,6 +137,7 @@ backend/test_*.go
 backend/test_sse.sh
 # Compiled Go binaries
 backend/magicpodcast
+backend/magicpodcast_server
 backend/magicpodcast-api
 backend/*/magicpodcast-api
 backend/test_qr.png
