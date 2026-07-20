@@ -289,6 +289,9 @@ func TestExecutePersistsFeedAccessObservation(t *testing.T) {
 			t.Cleanup(server.Close)
 
 			db := setupTestDB(t)
+			var feedColumns []string
+			require.NoError(t, db.Raw("SELECT name FROM pragma_table_info('job_executions') WHERE name IN ('feed_etag', 'feed_e_tag') ORDER BY name").Scan(&feedColumns).Error)
+			require.Equal(t, []string{"feed_etag"}, feedColumns, "JobExecution ETag column must match the versioned production schema")
 			require.NoError(t, db.AutoMigrate(&models.Episode{}, &models.Report{}))
 			service, err := syncsvc.NewService(db, "")
 			require.NoError(t, err)

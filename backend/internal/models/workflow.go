@@ -200,7 +200,7 @@ type JobExecution struct {
 	FeedTargetDomain         string     `gorm:"size:255;not null;default:''" json:"feed_target_domain"`
 	FeedResponseTimeMs       int        `gorm:"not null;default:0" json:"feed_response_time_ms"`
 	FeedRetryAfter           string     `gorm:"size:128;not null;default:''" json:"feed_retry_after"`
-	FeedETag                 string     `gorm:"size:512;not null;default:''" json:"feed_etag"`
+	FeedETag                 string     `gorm:"column:feed_etag;size:512;not null;default:''" json:"feed_etag"`
 	FeedLastModified         string     `gorm:"size:128;not null;default:''" json:"feed_last_modified"`
 	FeedCacheControl         string     `gorm:"size:512;not null;default:''" json:"feed_cache_control"`
 	FeedExpires              string     `gorm:"size:128;not null;default:''" json:"feed_expires"`
