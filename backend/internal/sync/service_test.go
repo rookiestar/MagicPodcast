@@ -718,6 +718,57 @@ func TestSyncPodcastEpisodeItemsPreloadsExistingEpisodesAndPreservesUserFields(t
 	assert.Equal(t, podcast.ID, duplicateEpisode.PodcastID)
 }
 
+func TestSyncPodcastEpisodeItemsSkipsSoftDeletedGUID(t *testing.T) {
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, service.Close())
+	})
+
+	podcast := &models.Podcast{
+		XYZID:   "soft-deleted-guid-test",
+		Title:   "Soft Deleted GUID Test",
+		FeedURL: "https://example.com/soft-deleted.xml",
+	}
+	require.NoError(t, db.Create(podcast).Error)
+
+	deleted := &models.Episode{
+		PodcastID:     podcast.ID,
+		Title:         "已删除单集",
+		GUID:          "soft-deleted-guid",
+		PublishedDate: time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC),
+	}
+	require.NoError(t, db.Create(deleted).Error)
+	require.NoError(t, db.Delete(deleted).Error)
+
+	result, err := service.syncPodcastEpisodeItems(podcast, []*gofeed.Item{{
+		Title:           "重新出现的单集",
+		GUID:            deleted.GUID,
+		PublishedParsed: ptrTime(deleted.PublishedDate),
+	}}, EpisodeSyncConfig{
+		Mode:                  SyncModeFull,
+		MaxEpisodesPerPodcast: 1000,
+		UpdateExisting:        true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.Created)
+	assert.Equal(t, 0, result.Updated)
+	assert.Equal(t, 1, result.Skipped)
+	assert.Equal(t, 0, result.Errors)
+
+	var activeCount int64
+	require.NoError(t, db.Model(&models.Episode{}).
+		Where("podcast_id = ? AND guid = ?", podcast.ID, deleted.GUID).
+		Count(&activeCount).Error)
+	assert.Equal(t, int64(0), activeCount)
+
+	var persisted models.Episode
+	require.NoError(t, db.Unscoped().First(&persisted, deleted.ID).Error)
+	assert.True(t, persisted.DeletedAt.Valid)
+	assert.Equal(t, deleted.Title, persisted.Title)
+}
+
 func TestSyncPodcastEpisodeItemsDoesNotMoveEpisodeFromAnotherPodcast(t *testing.T) {
 	db := setupTestDB(t)
 	service, err := NewService(db, "")

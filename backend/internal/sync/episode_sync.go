@@ -220,6 +220,14 @@ func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(podcast *models.Podca
 			continue
 		}
 
+		if exists && existing.DeletedAt.Valid {
+			// Soft-deleted episodes still occupy the unique GUID index. Do not
+			// restore them or try to insert a new row with the same GUID.
+			logger.Infof("   ⏭️ 跳过已软删除episode: %s", item.Title)
+			result.Skipped++
+			continue
+		}
+
 		if !exists {
 			// 新增
 			if err := s.db.Create(episode).Error; err != nil {
@@ -365,12 +373,15 @@ func (s *Service) loadExistingEpisodesByGUID(guids []string) (map[string]models.
 		}
 
 		var existingEpisodes []models.Episode
-		if err := s.db.Where("guid IN ?", guids[start:end]).Find(&existingEpisodes).Error; err != nil {
+		if err := s.db.Unscoped().Where("guid IN ?", guids[start:end]).Find(&existingEpisodes).Error; err != nil {
 			return nil, err
 		}
 
 		for _, episode := range existingEpisodes {
-			existingByGUID[episode.GUID] = episode
+			current, exists := existingByGUID[episode.GUID]
+			if !exists || (current.DeletedAt.Valid && !episode.DeletedAt.Valid) {
+				existingByGUID[episode.GUID] = episode
+			}
 		}
 	}
 
