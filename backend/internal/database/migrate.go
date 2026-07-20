@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 5
+const CurrentSchemaVersion = 6
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -72,6 +72,12 @@ func migrationRegistry() []Migration {
 			Name:        "feed-source-verification",
 			Description: "Persist the selected Feed source URL and PodcastIndex identity verification result.",
 			Apply:       applyFeedSourceVerificationMigration,
+		},
+		{
+			Version:     6,
+			Name:        "scheduler-run-history",
+			Description: "Create the scheduler run history table used for consecutive-failure observation.",
+			Apply:       applySchedulerRunHistoryMigration,
 		},
 	}
 }
@@ -280,6 +286,13 @@ func applyFeedSourceVerificationMigration(db *gorm.DB) error {
 		if err := db.Exec("ALTER TABLE job_executions ADD COLUMN " + column.name + " " + column.ddl).Error; err != nil {
 			return fmt.Errorf("add job_executions.%s: %w", column.name, err)
 		}
+	}
+	return nil
+}
+
+func applySchedulerRunHistoryMigration(db *gorm.DB) error {
+	if err := db.AutoMigrate(&models.SchedulerRun{}); err != nil {
+		return fmt.Errorf("create scheduler_runs: %w", err)
 	}
 	return nil
 }

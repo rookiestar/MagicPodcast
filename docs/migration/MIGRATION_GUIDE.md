@@ -6,15 +6,16 @@
 
 ## 当前版本化迁移
 
-当前 schema 版本为 `5`，版本记录保存在 `schema_migrations`。迁移注册表位于 `backend/internal/database/migrate.go`，每个版本包含名称、说明和事务内的执行函数。当前版本链为：
+当前 schema 版本为 `6`，版本记录保存在 `schema_migrations`。迁移注册表位于 `backend/internal/database/migrate.go`，每个版本包含名称、说明和事务内的执行函数。当前版本链为：
 
 1. `1 baseline-current-model`：空数据库创建当前模型表和索引；已有且完整的数据库只记录 baseline。
 2. `2 feed-access-observability`：记录 Feed HTTP 状态、错误类别、耗时、缓存和出口等观测字段。
 3. `3 feed-snapshot-retrieved-at`：记录执行实际使用内容的取回时间。
 4. `4 feed-circuit-state`：记录域名断路的打开、跳过和探测状态。
 5. `5 feed-source-verification`：记录实际使用的 Feed 来源和 PodcastIndex 身份校验结果。
-6. 缺少部分必需表时拒绝继续，避免把不完整结构伪装成可用版本。
-7. 迁移和版本记录在同一事务中执行；失败会回滚事务，API 不会启动。
+6. `6 scheduler-run-history`：创建调度运行历史表，供连续失败观测使用。
+7. 缺少部分必需表时拒绝继续，避免把不完整结构伪装成可用版本。
+8. 迁移和版本记录在同一事务中执行；失败会回滚事务，API 不会启动。
 
 显式查看迁移计划：
 

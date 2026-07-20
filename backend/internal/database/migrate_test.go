@@ -60,6 +60,7 @@ func TestApplyMigrationsCreatesVersionedReadySchema(t *testing.T) {
 	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_circuit_state"))
 	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_source_url"))
 	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_identity_verification"))
+	require.True(t, db.Migrator().HasTable(&models.SchedulerRun{}))
 
 	var foreignKeys int
 	require.NoError(t, db.Raw("PRAGMA foreign_keys").Row().Scan(&foreignKeys))
@@ -67,6 +68,32 @@ func TestApplyMigrationsCreatesVersionedReadySchema(t *testing.T) {
 	var busyTimeout int
 	require.NoError(t, db.Raw("PRAGMA busy_timeout").Row().Scan(&busyTimeout))
 	require.GreaterOrEqual(t, busyTimeout, defaultSQLiteBusyTimeoutMS)
+}
+
+func TestApplyMigrationsUpgradesSchemaV5ToV6WithSchedulerRuns(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+
+	registry := migrationRegistry()
+	require.Len(t, registry, 6)
+	require.NoError(t, applyMigrationSet(db, registry[:5]))
+	require.NoError(t, db.Migrator().DropTable(&models.SchedulerRun{}))
+
+	status, err := InspectSchema(db)
+	require.NoError(t, err)
+	require.Equal(t, 5, status.CurrentVersion)
+	require.False(t, db.Migrator().HasTable(&models.SchedulerRun{}))
+
+	require.NoError(t, ApplyMigrations(db))
+	require.True(t, db.Migrator().HasTable(&models.SchedulerRun{}))
+	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, db).CurrentVersion)
+	require.Empty(t, mustSchemaStatus(t, db).Pending)
+}
+
+func mustSchemaStatus(t *testing.T, db *gorm.DB) SchemaStatus {
+	t.Helper()
+	status, err := InspectSchema(db)
+	require.NoError(t, err)
+	return status
 }
 
 func TestFeedAccessMigrationUpgradesExistingVersionOneSchema(t *testing.T) {
