@@ -24,9 +24,9 @@ func episodeIdentityKey(episode *models.Episode) (string, bool) {
 	if episode == nil || episode.PodcastID == 0 || episode.PublishedDate.IsZero() {
 		return "", false
 	}
-	episodeNo := canonicalEpisodeNo(episode.EpisodeNo)
+	episodeNo := episodeNoFromTitle(episode.Title)
 	if episodeNo == "" {
-		episodeNo = episodeNoFromTitle(episode.Title)
+		episodeNo = canonicalEpisodeNo(episode.EpisodeNo)
 	}
 	if episodeNo == "" {
 		return "", false
@@ -37,6 +37,12 @@ func episodeIdentityKey(episode *models.Episode) (string, bool) {
 func episodeNoFromItem(item *gofeed.Item) string {
 	if item == nil {
 		return ""
+	}
+	// Some alternative feeds expose their own list position as
+	// <itunes:episode> (for example, E150 may be position 5). A clear episode
+	// marker in the title is the source-independent identity.
+	if episodeNo := episodeNoFromTitle(item.Title); episodeNo != "" {
+		return episodeNo
 	}
 	if item.ITunesExt != nil && strings.TrimSpace(item.ITunesExt.Episode) != "" {
 		if episodeNo := canonicalEpisodeNo(item.ITunesExt.Episode); episodeNo != "" {

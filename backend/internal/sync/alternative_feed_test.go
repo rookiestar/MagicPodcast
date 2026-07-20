@@ -191,11 +191,11 @@ func TestWorkflowReusesEpisodeWhenAlternativeGUIDDiffers(t *testing.T) {
 		atomic.AddInt32(&alternativeRequests, 1)
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0"><channel><title>稳定节目</title><description>verified content</description>
-<item><title>E150. 替代源标题</title><guid>xmly_track_977481188</guid><pubDate>Mon, 18 May 2026 23:00:00 GMT</pubDate><description>Details</description></item>
-<item><title>E151. 新一期</title><guid>xmly_track_980487841</guid><pubDate>Mon, 1 Jun 2026 23:00:00 GMT</pubDate><description>Details</description></item>
-<item><title>E151. 新一期重复副本</title><guid>xmly_track_980487842</guid><pubDate>Mon, 1 Jun 2026 23:00:00 GMT</pubDate><description>Details</description></item>
-<item><title>E150. 同一期的重新发布</title><guid>xmly_track_977481189</guid><pubDate>Tue, 19 May 2026 23:00:00 GMT</pubDate><description>Details</description></item>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel><title>稳定节目</title><description>verified content</description>
+<item><title>E150. 替代源标题</title><guid>xmly_track_977481188</guid><pubDate>Mon, 18 May 2026 23:00:00 GMT</pubDate><itunes:episode>5</itunes:episode><description>Details</description></item>
+<item><title>E151. 新一期</title><guid>xmly_track_980487841</guid><pubDate>Mon, 1 Jun 2026 23:00:00 GMT</pubDate><itunes:episode>4</itunes:episode><description>Details</description></item>
+<item><title>E151. 新一期重复副本</title><guid>xmly_track_980487842</guid><pubDate>Mon, 1 Jun 2026 23:00:00 GMT</pubDate><itunes:episode>4</itunes:episode><description>Details</description></item>
+<item><title>E150. 同一期的重新发布</title><guid>xmly_track_977481189</guid><pubDate>Tue, 19 May 2026 23:00:00 GMT</pubDate><itunes:episode>5</itunes:episode><description>Details</description></item>
 </channel></rss>`)
 	}))
 	defer alternative.Close()
@@ -222,6 +222,7 @@ func TestWorkflowReusesEpisodeWhenAlternativeGUIDDiffers(t *testing.T) {
 	original := &models.Episode{
 		PodcastID:     podcast.ID,
 		GUID:          "6a0b0f8f1b7bd50295623a91",
+		EpisodeNo:     "5",
 		Title:         "E150. 主源标题",
 		PublishedDate: originalPublished,
 		Notes:         "保留原备注",
