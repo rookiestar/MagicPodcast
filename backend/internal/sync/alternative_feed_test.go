@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"magicpodcast/internal/feed"
 	"magicpodcast/internal/models"
@@ -176,6 +177,145 @@ func TestWorkflowUsesVerifiedPodcastIndexAlternativeAndRecordsIdentity(t *testin
 	require.Equal(t, int32(1), atomic.LoadInt32(&primaryRequests))
 	require.Equal(t, int32(1), atomic.LoadInt32(&alternativeRequests))
 	require.Equal(t, 1, result.Created)
+}
+
+func TestWorkflowReusesEpisodeWhenAlternativeGUIDDiffers(t *testing.T) {
+	require.Equal(t, "151", episodeNoFromTitle("E151. 新一期"))
+	var primaryRequests, alternativeRequests int32
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&primaryRequests, 1)
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer primary.Close()
+	alternative := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&alternativeRequests, 1)
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>稳定节目</title><description>verified content</description>
+<item><title>E150. 替代源标题</title><guid>xmly_track_977481188</guid><pubDate>Mon, 18 May 2026 23:00:00 GMT</pubDate><description>Details</description></item>
+<item><title>E151. 新一期</title><guid>xmly_track_980487841</guid><pubDate>Mon, 1 Jun 2026 23:00:00 GMT</pubDate><description>Details</description></item>
+<item><title>E151. 新一期重复副本</title><guid>xmly_track_980487842</guid><pubDate>Mon, 1 Jun 2026 23:00:00 GMT</pubDate><description>Details</description></item>
+<item><title>E150. 同一期的重新发布</title><guid>xmly_track_977481189</guid><pubDate>Tue, 19 May 2026 23:00:00 GMT</pubDate><description>Details</description></item>
+</channel></rss>`)
+	}))
+	defer alternative.Close()
+
+	indexPath := createAlternativeIndexFixture(t, []alternativeIndexRow{
+		{id: 1, title: "稳定节目", author: "作者", feedURL: primary.URL + "/primary.xml", itunesID: 654, guid: "podcast-guid-654", dead: 0, status: 403},
+		{id: 2, title: "稳定节目", author: "作者", feedURL: alternative.URL + "/alternative.xml", itunesID: 654, guid: "podcast-guid-654", dead: 0, status: 200},
+	})
+	db := setupTestDB(t)
+	service, err := NewServiceWithFeedCoordinator(db, indexPath, newAlternativeCoordinator(primary.URL))
+	require.NoError(t, err)
+	defer service.Close()
+
+	podcast := &models.Podcast{
+		XYZID:       "cross-platform-guid",
+		Title:       "稳定节目",
+		Author:      "作者",
+		FeedURL:     primary.URL + "/primary.xml",
+		ITunesID:    "654",
+		PodcastGUID: "podcast-guid-654",
+	}
+	require.NoError(t, db.Create(podcast).Error)
+	originalPublished := time.Date(2026, 5, 18, 23, 0, 0, 0, time.UTC)
+	original := &models.Episode{
+		PodcastID:     podcast.ID,
+		GUID:          "6a0b0f8f1b7bd50295623a91",
+		Title:         "E150. 主源标题",
+		PublishedDate: originalPublished,
+		Notes:         "保留原备注",
+		MyRate:        5,
+	}
+	require.NoError(t, db.Create(original).Error)
+
+	result, err := service.SyncPodcastEpisodesWithContext(t.Context(), podcast.ID, &progressReporter{}, EpisodeSyncConfig{
+		Mode:                  SyncModeFull,
+		MaxEpisodesPerPodcast: 100,
+		UpdateExisting:        true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, result.Created, "only the new episode and the different-date re-release should be created")
+	require.Equal(t, 2, result.Skipped, "the existing episode and the same-feed duplicate should be skipped")
+	require.Equal(t, 0, result.Errors)
+	require.Equal(t, int32(1), atomic.LoadInt32(&primaryRequests))
+	require.Equal(t, int32(1), atomic.LoadInt32(&alternativeRequests))
+
+	var episodes []models.Episode
+	require.NoError(t, db.Where("podcast_id = ?", podcast.ID).Order("id ASC").Find(&episodes).Error)
+	require.Len(t, episodes, 3)
+	require.Equal(t, original.ID, episodes[0].ID)
+	require.Equal(t, original.GUID, episodes[0].GUID, "alternative GUID must not replace the primary GUID")
+	require.Equal(t, original.Title, episodes[0].Title, "alternative title must not replace the primary title")
+	require.Equal(t, original.Notes, episodes[0].Notes, "alternative source must not replace user notes")
+	require.Equal(t, original.MyRate, episodes[0].MyRate, "alternative source must not replace user rating")
+	require.NotContains(t, []string{episodes[0].GUID, episodes[1].GUID, episodes[2].GUID}, "xmly_track_977481188")
+	var newEpisode models.Episode
+	require.NoError(t, db.Where("guid = ?", "xmly_track_980487841").First(&newEpisode).Error)
+	require.Equal(t, "151", newEpisode.EpisodeNo)
+	var reRelease models.Episode
+	require.NoError(t, db.Where("guid = ?", "xmly_track_977481189").First(&reRelease).Error)
+	require.Equal(t, "150", reRelease.EpisodeNo)
+}
+
+func TestWorkflowDoesNotDuplicateAlternativeEpisodeWhenPrimaryRecovers(t *testing.T) {
+	var primaryRequests, alternativeRequests int32
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&primaryRequests, 1) == 1 {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel><title>恢复节目</title>
+<item><title>E151. 主源标题</title><guid>primary-episode-151</guid><pubDate>Mon, 1 Jun 2026 23:00:00 GMT</pubDate></item>
+</channel></rss>`)
+	}))
+	defer primary.Close()
+	alternative := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&alternativeRequests, 1)
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel><title>恢复节目</title>
+<item><title>E151. 替代源标题</title><guid>xmly_track_151</guid><pubDate>Mon, 1 Jun 2026 23:00:00 GMT</pubDate></item>
+</channel></rss>`)
+	}))
+	defer alternative.Close()
+
+	indexPath := createAlternativeIndexFixture(t, []alternativeIndexRow{
+		{id: 1, title: "恢复节目", author: "作者", feedURL: primary.URL + "/primary.xml", itunesID: 655, guid: "podcast-guid-655", dead: 0, status: 403},
+		{id: 2, title: "恢复节目", author: "作者", feedURL: alternative.URL + "/alternative.xml", itunesID: 655, guid: "podcast-guid-655", dead: 0, status: 200},
+	})
+	db := setupTestDB(t)
+	service, err := NewServiceWithFeedCoordinator(db, indexPath, newAlternativeCoordinator(primary.URL))
+	require.NoError(t, err)
+	defer service.Close()
+
+	podcast := &models.Podcast{
+		XYZID:       "alternative-first",
+		Title:       "恢复节目",
+		Author:      "作者",
+		FeedURL:     primary.URL + "/primary.xml",
+		ITunesID:    "655",
+		PodcastGUID: "podcast-guid-655",
+	}
+	require.NoError(t, db.Create(podcast).Error)
+	config := EpisodeSyncConfig{Mode: SyncModeFull, MaxEpisodesPerPodcast: 100, UpdateExisting: true}
+
+	first, err := service.SyncPodcastEpisodesWithContext(t.Context(), podcast.ID, &progressReporter{}, config)
+	require.NoError(t, err)
+	require.Equal(t, feed.AccessSourceAlternative, first.FeedAccess.SourceType)
+	require.Equal(t, 1, first.Created)
+
+	second, err := service.SyncPodcastEpisodesWithContext(t.Context(), podcast.ID, &progressReporter{}, config)
+	require.NoError(t, err)
+	require.Equal(t, feed.AccessSourcePrimary, second.FeedAccess.SourceType)
+	require.Equal(t, 0, second.Created)
+	require.Equal(t, 1, second.Skipped)
+	require.Equal(t, int32(2), atomic.LoadInt32(&primaryRequests))
+	require.Equal(t, int32(1), atomic.LoadInt32(&alternativeRequests))
+
+	var count int64
+	require.NoError(t, db.Model(&models.Episode{}).Where("podcast_id = ?", podcast.ID).Count(&count).Error)
+	require.Equal(t, int64(1), count)
 }
 
 func TestWorkflowUsesVerifiedAlternativeWhenPrimaryIsAbsentFromPodcastIndex(t *testing.T) {

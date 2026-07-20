@@ -67,6 +67,7 @@ func (s *Service) saveEpisode(podcast *models.Podcast, item *gofeed.Item) error 
 	episode := &models.Episode{
 		PodcastID: podcast.ID,
 		Title:     item.Title,
+		EpisodeNo: episodeNoFromItem(item),
 		ShowNotes: item.Description,
 		GUID:      item.GUID,
 	}
@@ -381,6 +382,7 @@ func (s *Service) convertGofeedItemToEpisode(podcast *models.Podcast, item *gofe
 	episode := &models.Episode{
 		PodcastID: podcast.ID,
 		Title:     item.Title,
+		EpisodeNo: episodeNoFromItem(item),
 		ShowNotes: item.Description,
 		Link:      item.Link,
 		Content:   item.Content,

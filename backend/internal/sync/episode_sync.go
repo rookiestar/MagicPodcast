@@ -189,11 +189,27 @@ func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(podcast *models.Podca
 		result.Errors += len(episodes)
 		return result, fmt.Errorf("查询已有单集失败: %w", err)
 	}
+	existingByIdentity, err := s.loadExistingEpisodesByIdentity(podcast.ID, episodes)
+	if err != nil {
+		logger.Infof("   ❌ 查询已有单集身份失败: %v", err)
+		result.Errors += len(episodes)
+		return result, fmt.Errorf("查询已有单集身份失败: %w", err)
+	}
 	var firstWriteErr error
 
 	for index, episode := range episodes {
 		item := items[index]
 		existing, exists := existingByGUID[episode.GUID]
+		matchedByIdentity := false
+		if !exists {
+			if identityKey, ok := episodeIdentityKey(episode); ok {
+				if identityExisting, identityExists := existingByIdentity[identityKey]; identityExists {
+					existing = identityExisting
+					exists = true
+					matchedByIdentity = true
+				}
+			}
+		}
 
 		if exists && existing.PodcastID != podcast.ID {
 			logger.Infof("   ❌ 跳过episode: %s - GUID已属于其他播客", item.Title)
@@ -216,7 +232,19 @@ func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(podcast *models.Podca
 				logger.Infof("   ✅ 新增episode: %s", item.Title)
 				result.Created++
 				existingByGUID[episode.GUID] = *episode
+				if identityKey, ok := episodeIdentityKey(episode); ok {
+					existingByIdentity[identityKey] = *episode
+				}
 			}
+			continue
+		}
+
+		if matchedByIdentity {
+			// A source-specific GUID may change when the same episode is read from
+			// another platform. Keep the first record intact, including its GUID,
+			// primary-source fields, and user-owned fields.
+			logger.Infof("   🔄 跳过跨源重复episode: %s", item.Title)
+			result.Skipped++
 			continue
 		}
 
@@ -244,6 +272,9 @@ func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(podcast *models.Podca
 					logger.Infof("   🔄 更新episode: %s", item.Title)
 					result.Updated++
 					existingByGUID[episode.GUID] = *episode
+					if identityKey, ok := episodeIdentityKey(episode); ok {
+						existingByIdentity[identityKey] = *episode
+					}
 				}
 			} else {
 				result.Skipped++
@@ -344,6 +375,43 @@ func (s *Service) loadExistingEpisodesByGUID(guids []string) (map[string]models.
 	}
 
 	return existingByGUID, nil
+}
+
+func (s *Service) loadExistingEpisodesByIdentity(podcastID uint, episodes []*models.Episode) (map[string]models.Episode, error) {
+	existingByIdentity := make(map[string]models.Episode)
+	publishedDates := make([]time.Time, 0, len(episodes))
+	seenDates := make(map[int64]struct{}, len(episodes))
+	for _, episode := range episodes {
+		if episode == nil || episode.PublishedDate.IsZero() {
+			continue
+		}
+		published := episode.PublishedDate.UTC()
+		key := published.UnixNano()
+		if _, exists := seenDates[key]; exists {
+			continue
+		}
+		seenDates[key] = struct{}{}
+		publishedDates = append(publishedDates, published)
+	}
+	if len(publishedDates) == 0 {
+		return existingByIdentity, nil
+	}
+
+	var existingEpisodes []models.Episode
+	if err := s.db.Where("podcast_id = ? AND published_date IN ?", podcastID, publishedDates).Find(&existingEpisodes).Error; err != nil {
+		return nil, err
+	}
+	for _, episode := range existingEpisodes {
+		identityKey, ok := episodeIdentityKey(&episode)
+		if !ok {
+			continue
+		}
+		current, exists := existingByIdentity[identityKey]
+		if !exists || episode.ID < current.ID {
+			existingByIdentity[identityKey] = episode
+		}
+	}
+	return existingByIdentity, nil
 }
 
 func (s *Service) refreshPodcastEpisodeSyncFields(podcast *models.Podcast, result *EpisodeSyncResult) error {
