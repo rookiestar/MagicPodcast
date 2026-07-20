@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	episodeMarkerPattern  = regexp.MustCompile(`(?i)(?:^|[\s(\[【|｜])(?:episode|ep|e|vol(?:ume)?[ ._-]*)\s*([0-9]{1,4})(?:$|[\s.。、:：)\]】|_-])`)
+	episodeMarkerPattern  = regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9])(?:episode|ep|e|vol(?:ume)?[ ._-]*)\s*([0-9]{1,4})(?:$|[^0-9])`)
 	episodePrefixPattern  = regexp.MustCompile(`^\s*([0-9]{1,4})(?:$|[\s.。、:：)\]】_-])`)
 	episodeNumericPattern = regexp.MustCompile(`(?i)^(?:episode|ep|e|vol(?:ume)?)[ ._-]*([0-9]{1,4})$`)
 	episodeDigitsPattern  = regexp.MustCompile(`^[0-9]+$`)

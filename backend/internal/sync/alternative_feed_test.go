@@ -181,6 +181,7 @@ func TestWorkflowUsesVerifiedPodcastIndexAlternativeAndRecordsIdentity(t *testin
 
 func TestWorkflowReusesEpisodeWhenAlternativeGUIDDiffers(t *testing.T) {
 	require.Equal(t, "151", episodeNoFromTitle("E151. 新一期"))
+	require.Equal(t, "136", episodeNoFromTitle("【年度巨献】5位顶级脑科学家（E136）"))
 	var primaryRequests, alternativeRequests int32
 	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&primaryRequests, 1)
