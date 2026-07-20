@@ -152,6 +152,12 @@ func (s *Service) resolveAlternativeIdentity(podcast *models.Podcast) (alternati
 	if s.podcastIndexQuery == nil {
 		return identity, nil
 	}
+	if identity.itunesID > 0 || identity.podcastGUID != "" {
+		// A stable identity already persisted on the subscription is enough to
+		// query candidates. Avoid scanning the large PodcastIndex URL view just
+		// to rediscover the same identity during a failure window.
+		return identity, nil
+	}
 
 	// Existing subscriptions may predate PodcastGUID/iTunesID persistence. A
 	// URL lookup supplies those fields without weakening the stable-ID gate.

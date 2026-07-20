@@ -113,6 +113,23 @@ func TestConvertGofeedToModelExtractsStableFeedIdentity(t *testing.T) {
 	require.Equal(t, "98765", converted.ITunesID)
 }
 
+func TestResolveAlternativeIdentitySkipsPrimaryLookupWhenStableIDIsPersisted(t *testing.T) {
+	db := setupTestDB(t)
+	indexPath := filepath.Join(t.TempDir(), "empty-podcastindex.db")
+	service, err := NewServiceWithFeedCoordinator(db, indexPath, newAlternativeCoordinator("https://feed.example.com/primary.xml"))
+	require.NoError(t, err)
+	defer service.Close()
+
+	identity, err := service.resolveAlternativeIdentity(&models.Podcast{
+		Title:    "已核验节目",
+		Author:   "作者",
+		FeedURL:  "https://feed.example.com/primary.xml",
+		ITunesID: "1612954022",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1612954022, identity.itunesID)
+}
+
 func TestWorkflowUsesVerifiedPodcastIndexAlternativeAndRecordsIdentity(t *testing.T) {
 	var primaryRequests, alternativeRequests int32
 	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
