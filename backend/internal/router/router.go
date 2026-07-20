@@ -26,6 +26,13 @@ var globalScheduler *scheduler.Scheduler
 // 全局PromptManager实例（用于Prompt模板API）
 var globalPromptManager *llm.PromptManager
 
+func workflowPodcastIndexPath(cfg *config.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	return cfg.PodcastIndex.Path
+}
+
 // SetupRouter 配置并返回路由器
 func SetupRouter() *gin.Engine {
 	cfg := config.Get()
@@ -175,7 +182,7 @@ func SetupRouter() *gin.Engine {
 		// Workflow 路由
 		// 创建workflow执行器
 		db := database.GetDB()
-		syncService, err := syncsvc.NewService(db, "./data/podcastindex.db")
+		syncService, err := syncsvc.NewService(db, workflowPodcastIndexPath(cfg))
 		if err != nil {
 			// sync service初始化失败不影响workflow handler创建
 			// workflow trigger会返回错误

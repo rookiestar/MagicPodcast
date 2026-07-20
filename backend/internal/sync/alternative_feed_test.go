@@ -161,6 +161,51 @@ func TestWorkflowUsesVerifiedPodcastIndexAlternativeAndRecordsIdentity(t *testin
 	require.Equal(t, 1, result.Created)
 }
 
+func TestWorkflowUsesVerifiedAlternativeWhenPrimaryIsAbsentFromPodcastIndex(t *testing.T) {
+	var primaryRequests, alternativeRequests int32
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&primaryRequests, 1)
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer primary.Close()
+	alternative := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&alternativeRequests, 1)
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(alternativeRSS("科学星球", "alternative-science-episode")))
+	}))
+	defer alternative.Close()
+
+	indexPath := createAlternativeIndexFixture(t, []alternativeIndexRow{
+		{id: 1, title: "科学星球", author: "BOX孙彬", feedURL: alternative.URL + "/science.xml", itunesID: 1612954022, guid: "alternative-science-guid", dead: 0, status: 200},
+	})
+	db := setupTestDB(t)
+	service, err := NewServiceWithFeedCoordinator(db, indexPath, newAlternativeCoordinator(primary.URL))
+	require.NoError(t, err)
+	defer service.Close()
+
+	podcast := &models.Podcast{
+		XYZID:    "primary-absent-from-index",
+		Title:    "科学星球",
+		Author:   "孙彬_BIMBOX",
+		FeedURL:  primary.URL + "/primary.xml",
+		ITunesID: "1612954022",
+	}
+	require.NoError(t, db.Create(podcast).Error)
+
+	result, err := service.SyncPodcastEpisodesWithContext(t.Context(), podcast.ID, &progressReporter{}, EpisodeSyncConfig{
+		Mode:                  SyncModeFull,
+		MaxEpisodesPerPodcast: 100,
+		UpdateExisting:        true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result.FeedAccess)
+	require.Equal(t, feed.AccessSourceAlternative, result.FeedAccess.SourceType)
+	require.Equal(t, alternative.URL+"/science.xml", result.FeedAccess.SourceURL)
+	require.Equal(t, feed.IdentityVerificationVerifiedMetadata, result.FeedAccess.IdentityVerification)
+	require.Equal(t, int32(1), atomic.LoadInt32(&primaryRequests))
+	require.Equal(t, int32(1), atomic.LoadInt32(&alternativeRequests))
+}
+
 func TestWorkflowRejectsSameTitleCandidateWithoutStableIdentity(t *testing.T) {
 	var primaryRequests, alternativeRequests int32
 	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
