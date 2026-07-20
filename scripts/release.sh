@@ -422,7 +422,13 @@ deploy_release() {
   if [ -z "$current_backend_sha" ]; then
     current_backend_sha="$(hash_file "$BACKEND_DIR/api")"
   fi
-  current_schema_version="$(database_schema_version || printf 'unknown')"
+  # The database may already be at the new release's schema while the
+  # previous artifact still requires the older schema. Preserve the schema
+  # paired with the previous artifact for rollback checks.
+  current_schema_version="$(manifest_value schema_version "$CURRENT_FILE")"
+  if [ -z "$current_schema_version" ]; then
+    current_schema_version="$(database_schema_version || printf 'unknown')"
+  fi
 
   if ! stop_services; then
     log WARN "stop incomplete; attempting to keep previous release available"
