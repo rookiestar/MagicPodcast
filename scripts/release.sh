@@ -487,8 +487,8 @@ rollback_command() {
     return 1
   fi
   if [ "$previous_schema_version" != "$current_schema_version" ]; then
-    error "拒绝回退：旧版本要求 schema=$previous_schema_version，但当前数据库是 schema=$current_schema_version；请先按配对备份流程恢复数据库"
-    log ERROR "rollback schema mismatch previous=$previous_schema_version current=$current_schema_version"
+    error "拒绝回退：旧版本要求 schema=${previous_schema_version}，但当前数据库是 schema=${current_schema_version}；请先按配对备份流程恢复数据库"
+    log ERROR "rollback schema mismatch previous=${previous_schema_version} current=${current_schema_version}"
     return 1
   fi
   [ -f "$previous_dir/backend.api" ] && [ -d "$previous_dir/frontend.next" ] || {
