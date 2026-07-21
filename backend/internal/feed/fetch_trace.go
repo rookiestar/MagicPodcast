@@ -43,7 +43,11 @@ func newFeedFetchTrace(phase *FailurePhase) *httptrace.ClientTrace {
 // needed to classify and aggregate the failure.
 func feedFailureLogFields(result *FetchResult, safeURL string) logrus.Fields {
 	fields := logrus.Fields{
-		"feed_url":                safeURL,
+		"feed_url": safeURL,
+		// One structured event represents one Fetcher invocation. Outer workflow
+		// retry loops emit a separate event for each invocation.
+		"attempt":                 1,
+		"retry_count":             0,
 		"target_domain":           result.Access.TargetDomain,
 		"error_category":          string(result.Access.ErrorCategory),
 		"failure_phase":           string(result.Access.FailurePhase),

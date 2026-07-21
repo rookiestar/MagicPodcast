@@ -59,5 +59,5 @@
 2. **聚合 admin 计数**：按 `target_domain` 看 `feed_fetch_total{...,source=primary}` 的 403 占比与时间分布，配对 `circuit_transitions` 和 `retry_total`。
 3. **核对节奏**：确认 Coordinator 的 MaxConcurrency / MinRefreshInterval / 错峰对 `feed.xyzfm.space` 生效（首次 403 立即断路是预期行为，不是 bug）。
 4. **遵守 Retry-After**：日志有 `retry_after` 时按其等待，#25 已对齐并设上限。
-5. **fallback 已生效验证**：403 后应落到 last-good；核对 `last_good_hits_total` 与 `snapshot_store` 是否有可用快照。
+5. **fallback 已生效验证**：403 后按既定顺序先尝试已验证的 PodcastIndex 替代源，替代源不可用或验证失败后才落到 last-good；分别核对替代源结果与 `last_good_hits_total`、`snapshot_store`。
 6. **结论门槛**：任何根因结论（IP/ASN、CDN、固定出口）都需网络侧证据 + #22/#24 门槛，不单独凭本 Runbook 的字段下结论。

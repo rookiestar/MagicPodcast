@@ -200,13 +200,15 @@ func TestStructuredFailureLogWhitelistAndEgressLabel(t *testing.T) {
 	require.Equal(t, "127.0.0.1", entry.Fields["target_domain"])
 
 	for _, key := range []string{
-		"feed_url", "target_domain", "error_category", "failure_phase",
+		"feed_url", "attempt", "retry_count", "target_domain", "error_category", "failure_phase",
 		"configured_egress_label", "circuit_state", "response_time_ms",
 		"response_bytes", "cache_status", "freshness", "http_status",
 	} {
 		_, ok := entry.Fields[key]
 		require.True(t, ok, "expected whitelisted field %q in failure log", key)
 	}
+	require.Equal(t, 1, entry.Fields["attempt"])
+	require.Equal(t, 0, entry.Fields["retry_count"])
 
 	for _, forbidden := range []string{"body", "raw_content", "cookie", "cookies", "authorization", "token", "set_cookie"} {
 		_, ok := entry.Fields[forbidden]
