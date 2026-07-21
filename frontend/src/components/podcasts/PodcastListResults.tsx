@@ -9,6 +9,7 @@ import {
   PodcastListErrorState,
   PodcastListFooter,
   PodcastListLoadingGrid,
+  PodcastListPaginationErrorFooter,
 } from "./PodcastListStates";
 
 interface PodcastListResultsProps {
@@ -44,11 +45,12 @@ export default function PodcastListResults({
   onRetry,
   onClearFilters,
 }: PodcastListResultsProps) {
-  if (isError) {
+  // 首屏失败时显示整页错误；分页失败时保留已经加载的节目，只替换页脚。
+  if (isError && podcasts.length === 0) {
     return <PodcastListErrorState message={errorMessage} onRetry={onRetry} />;
   }
 
-  if (isLoading) {
+  if (isLoading && podcasts.length === 0) {
     return <PodcastListLoadingGrid isMobile={isMobile} />;
   }
 
@@ -74,11 +76,18 @@ export default function PodcastListResults({
         isLoading={isLoadingMore}
       />
 
-      <PodcastListFooter
-        hasPodcasts={podcasts.length > 0}
-        hasMore={hasMore}
-        isLoadingMore={isLoadingMore}
-      />
+      {isError ? (
+        <PodcastListPaginationErrorFooter
+          message={errorMessage}
+          onRetry={onRetry}
+        />
+      ) : (
+        <PodcastListFooter
+          hasPodcasts={podcasts.length > 0}
+          hasMore={hasMore}
+          isLoadingMore={isLoadingMore}
+        />
+      )}
     </>
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { fetcher } from "@/lib/fetcher";
@@ -47,14 +47,29 @@ interface UsePodcastListParams {
   view?: "summary" | "full";
 }
 
+// 分页请求必须有明确终点，避免网络挂起时页尾永久停留在“加载更多…”。
+const PODCAST_LIST_REQUEST_TIMEOUT_MS = 15_000;
+
 // 自定义 fetcher，返回完整的页面数据（包含 podcasts 和 pagination）
 const podcastListFetcher = async (url: string): Promise<{ podcasts: Podcast[]; pagination: PodcastListApiResponse['pagination'] }> => {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error('Network response was not ok');
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PODCAST_LIST_REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`播客列表请求失败（HTTP ${response.status}）`);
+    }
+    const json: PodcastListApiResponse = await response.json();
+    return parsePodcastListApiPayload(json);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("播客列表请求超时，请重试");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  const json: PodcastListApiResponse = await response.json();
-  return parsePodcastListApiPayload(json);
 };
 
 /**
@@ -96,13 +111,35 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
   );
   const isLoadingMore = isValidating && size > 1;
 
-  const loadMore = useCallback(() => {
-    if (!isLoadingMore && hasMore) {
-      setSize((currentSize) => currentSize + 1);
+  // 同一渲染周期内连续触发 loadMore 时，只允许一个请求把 size 加一。
+  // SWR 自带的 key 去重无法阻止多个不同 size 更新在同一批次排队，因此这里需要同步锁。
+  const loadMoreLockRef = useRef(false);
+
+  useEffect(() => {
+    if (!isValidating) {
+      loadMoreLockRef.current = false;
     }
-  }, [hasMore, isLoadingMore, setSize]);
+  }, [isValidating]);
+
+  const loadMore = useCallback(() => {
+    if (loadMoreLockRef.current || !hasMore) {
+      return;
+    }
+    if (size > 1 && isValidating) {
+      return;
+    }
+    loadMoreLockRef.current = true;
+    setSize((currentSize) => currentSize + 1);
+  }, [hasMore, isValidating, setSize, size]);
+
+  // 失败页重试不清空已有页面，也不把分页回退到第一页。
+  const retryLastPage = useCallback(() => {
+    loadMoreLockRef.current = false;
+    void mutate();
+  }, [mutate]);
 
   const reset = useCallback(() => {
+    loadMoreLockRef.current = false;
     setSize(1);
   }, [setSize]);
 
@@ -117,6 +154,7 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
     isError: !!error,
     error,
     loadMore,
+    retryLastPage,
     mutate,
     // 用于重置列表
     reset,

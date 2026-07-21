@@ -68,7 +68,7 @@ export default function PodcastsContent() {
     isError,
     error,
     loadMore,
-    reset,
+    retryLastPage,
   } = usePodcastListInfinite({
     page_size: pageSize,
     sort_by: sortBy,
@@ -192,7 +192,7 @@ export default function PodcastsContent() {
         isError={isError}
         errorMessage={errorMessage}
         onLoadMore={loadMore}
-        onRetry={reset}
+        onRetry={retryLastPage}
         onClearFilters={() => handleTagToggle(null)}
       />
     </PageLayout>

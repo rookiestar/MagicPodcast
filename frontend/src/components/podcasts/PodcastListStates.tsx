@@ -156,3 +156,32 @@ export function PodcastListFooter({
 
   return null;
 }
+
+interface PodcastListPaginationErrorFooterProps {
+  message: string;
+  onRetry: () => void;
+}
+
+export function PodcastListPaginationErrorFooter({
+  message,
+  onRetry,
+}: PodcastListPaginationErrorFooterProps) {
+  return (
+    <div
+      data-testid="pagination-error"
+      className="text-center py-6 px-4"
+      role="alert"
+      aria-live="polite"
+    >
+      <p className="text-sm text-red-600 mb-3">
+        {message || "分页加载失败，请重试"}
+      </p>
+      <button
+        onClick={onRetry}
+        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+      >
+        重试
+      </button>
+    </div>
+  );
+}
