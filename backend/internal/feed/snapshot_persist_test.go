@@ -170,6 +170,33 @@ func TestSQLiteSnapshotStoreEvictsToEntryCap(t *testing.T) {
 	require.Equal(t, int64(1), stats.EvictedCount)
 }
 
+func TestSQLiteSnapshotStoreDoesNotCountRolledBackEviction(t *testing.T) {
+	store, sqlDB := openSnapshotTestDB(t, "")
+	defer sqlDB.Close()
+	small, err := NewSQLiteSnapshotStore(store.db, LastGoodStoreConfig{MaxEntries: 2, MaxResponseBytes: 1024, MaxTotalBytes: 4096})
+	require.NoError(t, err)
+
+	base := time.Date(2026, 7, 21, 9, 0, 0, 0, time.UTC)
+	first := FeedSnapshot{FeedURL: "https://example.test/1.xml", RetrievedAt: base, ValidatedAt: base, RawContent: []byte("one")}
+	second := FeedSnapshot{FeedURL: "https://example.test/2.xml", RetrievedAt: base.Add(time.Second), ValidatedAt: base.Add(time.Second), RawContent: []byte("two")}
+	require.NoError(t, small.Save(first))
+	require.NoError(t, small.Save(second))
+	_, err = sqlDB.Exec(`CREATE TRIGGER fail_feed_snapshot_insert BEFORE INSERT ON feed_snapshots BEGIN SELECT RAISE(ABORT, 'forced snapshot failure'); END`)
+	require.NoError(t, err)
+
+	err = small.Save(FeedSnapshot{FeedURL: "https://example.test/3.xml", RetrievedAt: base.Add(2 * time.Second), ValidatedAt: base.Add(2 * time.Second), RawContent: []byte("three")})
+	require.Error(t, err)
+
+	stats, statsErr := small.Stats()
+	require.NoError(t, statsErr)
+	require.Equal(t, 2, stats.Entries)
+	require.Zero(t, stats.EvictedCount, "rolled-back deletion must not increment eviction diagnostics")
+	require.Equal(t, int64(1), stats.WriteFailures)
+	_, firstOK, loadErr := small.Load(first.FeedURL)
+	require.NoError(t, loadErr)
+	require.True(t, firstOK, "the evicted victim must remain after rollback")
+}
+
 func TestSQLiteSnapshotStoreUpsertReplacesWithoutDoubleCount(t *testing.T) {
 	store, sqlDB := openSnapshotTestDB(t, "")
 	defer sqlDB.Close()
@@ -290,8 +317,8 @@ func TestTieredSnapshotStoreSurfacesDurabilityFailure(t *testing.T) {
 
 type failingSnapshotStore struct{}
 
-func (failingSnapshotStore) Save(FeedSnapshot) error                        { return errors.New("disk full") }
-func (failingSnapshotStore) Load(string) (*FeedSnapshot, bool, error)       { return nil, false, nil }
-func (failingSnapshotStore) Delete(string) error                            { return nil }
-func (failingSnapshotStore) TouchValidatedAt(string) error                  { return nil }
-func (failingSnapshotStore) Stats() (SnapshotStoreStats, error)             { return SnapshotStoreStats{}, nil }
+func (failingSnapshotStore) Save(FeedSnapshot) error                  { return errors.New("disk full") }
+func (failingSnapshotStore) Load(string) (*FeedSnapshot, bool, error) { return nil, false, nil }
+func (failingSnapshotStore) Delete(string) error                      { return nil }
+func (failingSnapshotStore) TouchValidatedAt(string) error            { return nil }
+func (failingSnapshotStore) Stats() (SnapshotStoreStats, error)       { return SnapshotStoreStats{}, nil }

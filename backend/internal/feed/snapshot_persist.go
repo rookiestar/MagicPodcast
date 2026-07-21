@@ -117,7 +117,8 @@ func (s *SQLiteSnapshotStore) Save(snapshot FeedSnapshot) error {
 	var existingLength int64
 	_ = tx.QueryRow("SELECT content_length FROM "+FeedSnapshotsTableName+" WHERE feed_url = ?", key).Scan(&existingLength)
 
-	if err := s.enforceCaps(tx, key, contentLength, existingLength); err != nil {
+	evicted, err := s.enforceCaps(tx, key, contentLength, existingLength)
+	if err != nil {
 		s.recordWriteFailure()
 		return err
 	}
@@ -154,17 +155,24 @@ func (s *SQLiteSnapshotStore) Save(snapshot FeedSnapshot) error {
 		return fmt.Errorf("commit snapshot transaction: %w", err)
 	}
 	committed = true
+	if evicted > 0 {
+		s.recordEvictions(evicted)
+	}
 	return nil
 }
 
 // enforceCaps evicts the oldest snapshots (never the row about to be replaced)
 // until the incoming write fits under both the entry count and total byte cap.
-func (s *SQLiteSnapshotStore) enforceCaps(tx *sql.Tx, key string, incoming, existingLength int64) error {
+// The eviction count is returned and recorded only after the caller commits;
+// otherwise a rolled-back write would leave diagnostics claiming that rows were
+// evicted when the database still contains them.
+func (s *SQLiteSnapshotStore) enforceCaps(tx *sql.Tx, key string, incoming, existingLength int64) (int64, error) {
+	var evicted int64
 	for {
 		var count int
 		var total sql.NullInt64
 		if err := tx.QueryRow("SELECT COUNT(*), COALESCE(SUM(content_length), 0) FROM "+FeedSnapshotsTableName).Scan(&count, &total); err != nil {
-			return fmt.Errorf("read snapshot stats: %w", err)
+			return evicted, fmt.Errorf("read snapshot stats: %w", err)
 		}
 		effectiveTotal := total.Int64 - existingLength
 		effectiveCount := count
@@ -172,7 +180,7 @@ func (s *SQLiteSnapshotStore) enforceCaps(tx *sql.Tx, key string, incoming, exis
 			effectiveCount = count - 1
 		}
 		if effectiveCount < s.maxEntries && effectiveTotal+incoming <= s.maxTotalBytes {
-			return nil
+			return evicted, nil
 		}
 		var victim string
 		err := tx.QueryRow(
@@ -181,15 +189,15 @@ func (s *SQLiteSnapshotStore) enforceCaps(tx *sql.Tx, key string, incoming, exis
 		).Scan(&victim)
 		if errors.Is(err, sql.ErrNoRows) {
 			// Nothing left to evict (the only row is the one being replaced).
-			return nil
+			return evicted, nil
 		}
 		if err != nil {
-			return fmt.Errorf("select eviction victim: %w", err)
+			return evicted, fmt.Errorf("select eviction victim: %w", err)
 		}
 		if _, err := tx.Exec("DELETE FROM "+FeedSnapshotsTableName+" WHERE feed_url = ?", victim); err != nil {
-			return fmt.Errorf("evict snapshot: %w", err)
+			return evicted, fmt.Errorf("evict snapshot: %w", err)
 		}
-		s.recordEviction()
+		evicted++
 	}
 }
 
@@ -298,9 +306,12 @@ func (s *SQLiteSnapshotStore) Stats() (SnapshotStoreStats, error) {
 	}, nil
 }
 
-func (s *SQLiteSnapshotStore) recordEviction() {
+func (s *SQLiteSnapshotStore) recordEvictions(count int64) {
+	if count <= 0 {
+		return
+	}
 	s.mu.Lock()
-	s.evictedCount++
+	s.evictedCount += count
 	s.mu.Unlock()
 }
 

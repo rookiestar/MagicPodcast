@@ -89,7 +89,7 @@ func migrationRegistry() []Migration {
 	}
 }
 
-var requiredTables = []string{
+var baselineRequiredTables = []string{
 	"tags",
 	"workflows",
 	"sync_configs",
@@ -101,6 +101,8 @@ var requiredTables = []string{
 	"podcasts_tags",
 	"episodes_tags",
 }
+
+var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName)
 
 func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
 	if db == nil {
@@ -214,12 +216,12 @@ func currentSchemaVersion(db *gorm.DB) (int, error) {
 }
 
 func applyBaselineMigration(db *gorm.DB) error {
-	if len(requiredTablesMissing(db)) == len(requiredTables) {
+	if len(requiredTablesMissingFrom(db, baselineRequiredTables)) == len(baselineRequiredTables) {
 		if err := autoMigrateModels(db); err != nil {
 			return err
 		}
 	}
-	missing := requiredTablesMissing(db)
+	missing := requiredTablesMissingFrom(db, baselineRequiredTables)
 	if len(missing) > 0 {
 		return fmt.Errorf("existing schema is incomplete; missing tables: %v", missing)
 	}
@@ -321,8 +323,12 @@ func applyFeedSnapshotsMigration(db *gorm.DB) error {
 }
 
 func requiredTablesMissing(db *gorm.DB) []string {
+	return requiredTablesMissingFrom(db, requiredTables)
+}
+
+func requiredTablesMissingFrom(db *gorm.DB, tables []string) []string {
 	missing := make([]string, 0)
-	for _, table := range requiredTables {
+	for _, table := range tables {
 		if !db.Migrator().HasTable(table) {
 			missing = append(missing, table)
 		}

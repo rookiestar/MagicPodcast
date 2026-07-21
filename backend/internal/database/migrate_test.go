@@ -71,6 +71,18 @@ func TestApplyMigrationsCreatesVersionedReadySchema(t *testing.T) {
 	require.GreaterOrEqual(t, busyTimeout, defaultSQLiteBusyTimeoutMS)
 }
 
+func TestRequireSchemaReadyRejectsMissingFeedSnapshotsTable(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, ApplyMigrations(db))
+	require.NoError(t, db.Migrator().DropTable("feed_snapshots"))
+
+	status, err := InspectSchema(db)
+	require.NoError(t, err)
+	require.Contains(t, status.RequiredTablesMissing, "feed_snapshots")
+	require.ErrorIs(t, RequireSchemaReady(db), ErrSchemaNotReady)
+	require.False(t, db.Migrator().HasTable("feed_snapshots"), "readiness must not recreate the table")
+}
+
 func TestApplyMigrationsUpgradesSchemaV5ToV6WithSchedulerRuns(t *testing.T) {
 	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
 
