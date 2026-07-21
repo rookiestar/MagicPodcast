@@ -20,6 +20,7 @@ const PRELOAD_MARGIN = "800px";
 // 状态码，统一按失败重试，超过次数再降级为占位，避免单次瞬时失败造成永久占位。
 const MAX_IMAGE_RETRIES = 2;
 const IMAGE_RETRY_BASE_DELAY_MS = 400;
+const COVER_LOAD_TIMEOUT_MS = 15_000;
 
 interface PodcastCoverProps {
   coverUrl?: string;
@@ -41,13 +42,14 @@ function PodcastCover({
   fetchPriority,
 }: PodcastCoverProps) {
   const [imageError, setImageError] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [shouldLoad, setShouldLoad] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 获取图片URL（优先使用代理URL）
-  const baseImageUrl = coverUrl ? getProxiedImageUrl(coverUrl) || coverUrl : "";
+  const baseImageUrl = coverUrl ? getProxiedImageUrl(coverUrl) || "" : "";
 
   // 检查是否是代理URL（代理URL使用普通img标签，避免Next.js图片优化器的HEAD请求问题）
   const isProxiedUrl = baseImageUrl.includes("/images/proxy");
@@ -101,7 +103,21 @@ function PodcastCover({
     }
     setRetryCount(0);
     setImageError(false);
+    setImageLoaded(false);
   }, [coverUrl]);
+
+  // 图片请求必须有界收敛：上游既不成功也不报错时，超时后进入稳定占位，
+  // 避免灰色骨架无限停留。失败重试仍由 handleError 使用更短的退避预算控制。
+  useEffect(() => {
+    if (imageError || imageLoaded || !imageUrl || !(shouldLoad || isHighPriority)) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setImageError(true);
+    }, COVER_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [imageError, imageLoaded, imageUrl, isHighPriority, shouldLoad]);
 
   // 卸载时清理重试定时器，避免在已卸载组件上更新状态
   useEffect(() => {
@@ -152,6 +168,7 @@ function PodcastCover({
             className="object-cover w-full h-full"
             loading={isHighPriority ? "eager" : "lazy"}
             fetchPriority={resolvedFetchPriority}
+            onLoad={() => setImageLoaded(true)}
             onError={handleError}
           />
         )}
@@ -172,6 +189,7 @@ function PodcastCover({
           className="object-cover"
           priority={isHighPriority}
           loading={isHighPriority ? "eager" : "lazy"}
+          onLoad={() => setImageLoaded(true)}
           onError={handleError}
         />
       )}

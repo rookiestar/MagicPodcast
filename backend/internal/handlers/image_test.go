@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -89,6 +91,80 @@ func TestImageHandler_AllowsReviewedPNGWithBoundedCaching(t *testing.T) {
 	assert.Equal(t, "public, max-age=86400, stale-while-revalidate=604800", recorder.Header().Get("Cache-Control"))
 	assert.Equal(t, "nosniff", recorder.Header().Get("X-Content-Type-Options"))
 	assert.Equal(t, []byte("\x89PNG\r\n\x1a\n"), recorder.Body.Bytes())
+}
+
+func TestImageHandler_ReusesValidatedImageFromBoundedCache(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	handler := NewImageHandler()
+	handler.httpClient = &http.Client{Transport: imageRoundTripper(func(*http.Request) (*http.Response, error) {
+		upstreamCalls.Add(1)
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Header:        http.Header{"Content-Type": []string{"image/png"}},
+			Body:          io.NopCloser(bytes.NewReader([]byte("\x89PNG\r\n\x1a\n"))),
+			ContentLength: 8,
+		}, nil
+	})}
+
+	first := serveImageRequest(handler, "https%3A%2F%2Fi.typlog.com%2Fcover.png")
+	second := serveImageRequest(handler, "https%3A%2F%2Fi.typlog.com%2Fcover.png")
+
+	assert.Equal(t, http.StatusOK, first.Code)
+	assert.Equal(t, http.StatusOK, second.Code)
+	assert.Equal(t, int32(1), upstreamCalls.Load())
+}
+
+func TestImageHandler_CoalescesConcurrentValidatedFetches(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	var releaseOnce sync.Once
+	started := make(chan struct{})
+	release := make(chan struct{})
+	handler := NewImageHandler()
+	handler.httpClient = &http.Client{Transport: imageRoundTripper(func(*http.Request) (*http.Response, error) {
+		upstreamCalls.Add(1)
+		releaseOnce.Do(func() { close(started) })
+		<-release
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Header:        http.Header{"Content-Type": []string{"image/png"}},
+			Body:          io.NopCloser(bytes.NewReader([]byte("\x89PNG\r\n\x1a\n"))),
+			ContentLength: 8,
+		}, nil
+	})}
+
+	results := make(chan *httptest.ResponseRecorder, 2)
+	go func() { results <- serveImageRequest(handler, "https%3A%2F%2Fi.typlog.com%2Fcover.png") }()
+	<-started
+	go func() { results <- serveImageRequest(handler, "https%3A%2F%2Fi.typlog.com%2Fcover.png") }()
+	close(release)
+
+	first, second := <-results, <-results
+	assert.Equal(t, http.StatusOK, first.Code)
+	assert.Equal(t, http.StatusOK, second.Code)
+	assert.Equal(t, int32(1), upstreamCalls.Load())
+}
+
+func TestImageHandler_FollowsOnlyValidatedRedirects(t *testing.T) {
+	handler := NewImageHandler()
+	handler.httpClient.Transport = imageRoundTripper(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Hostname() == "i.typlog.com" {
+			return &http.Response{
+				StatusCode: http.StatusFound,
+				Header:     http.Header{"Location": []string{"https://image.xyzcdn.net/real.png"}},
+				Body:       io.NopCloser(strings.NewReader("redirect")),
+			}, nil
+		}
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Header:        http.Header{"Content-Type": []string{"image/png"}},
+			Body:          io.NopCloser(bytes.NewReader([]byte("\x89PNG\r\n\x1a\n"))),
+			ContentLength: 8,
+		}, nil
+	})
+
+	recorder := serveImageRequest(handler, "https%3A%2F%2Fi.typlog.com%2Fcover.png")
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, "image/png", recorder.Header().Get("Content-Type"))
 }
 
 func TestImageHandler_RejectsUnreviewedAndPrivateTargets(t *testing.T) {

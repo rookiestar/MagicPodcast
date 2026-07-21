@@ -8,9 +8,9 @@ import (
 	"image"
 	"image/jpeg"
 	"io"
-	"math"
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/middleware"
+	"math"
 	"mime"
 	"net"
 	"net/http"
@@ -23,8 +23,8 @@ import (
 )
 
 const (
-	imageFetchTimeout        = 10 * time.Second
-	imageDialTimeout         = 5 * time.Second
+	imageFetchTimeout = 10 * time.Second
+	imageDialTimeout  = 5 * time.Second
 	// Cloudflare edge (Access / Tunnel) enforces an implicit response body
 	// limit around 3–5 MiB that returns 413 regardless of plan. Images larger
 	// than this threshold are re-encoded to fit through the edge.
@@ -46,14 +46,18 @@ var (
 type ImageHandler struct {
 	httpClient   *http.Client
 	allowedHosts []string // 允许代理的域名白名单
+	cache        *imageCache
+	singleflight *imageSingleFlight
+	sem          chan struct{}
 }
-
-const maxImageRedirects = 5
 
 // NewImageHandler 创建图片代理处理器
 func NewImageHandler() *ImageHandler {
 	h := &ImageHandler{
 		allowedHosts: approvedImageHosts(),
+		cache:        newImageCache(),
+		singleflight: newImageSingleFlight(),
+		sem:          make(chan struct{}, imageFetchConcurrency),
 	}
 	h.httpClient = &http.Client{
 		Timeout: imageFetchTimeout,
@@ -64,24 +68,15 @@ func NewImageHandler() *ImageHandler {
 			TLSHandshakeTimeout:   imageDialTimeout,
 			ResponseHeaderTimeout: imageFetchTimeout,
 			// Connection pool sized to match imageOperation admission limits
-				// (MaxConcurrent:32). Each concurrent proxy request needs one
-				// outbound connection; undersizing causes requests to queue on
-				// dial, which manifests as slow/stuck cover art during scroll.
-				MaxIdleConns:          48,
-				MaxIdleConnsPerHost:   16,
-			IdleConnTimeout:       30 * time.Second,
+			// (MaxConcurrent:32). Each concurrent proxy request needs one
+			// outbound connection; undersizing causes requests to queue on
+			// dial, which manifests as slow/stuck cover art during scroll.
+			MaxIdleConns:        48,
+			MaxIdleConnsPerHost: 16,
+			IdleConnTimeout:     30 * time.Second,
 		},
-		// 选择性跟随重定向：仅当目标域名在白名单内时才跟随，
-		// 防止通过重定向链绕过白名单和 DNS 检查。
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= maxImageRedirects {
-				return fmt.Errorf("stopped after %d redirects", maxImageRedirects)
-			}
-			if h.isAllowedHost(req.URL.Hostname()) {
-				return nil
-			}
-			return http.ErrUseLastResponse
-		},
+		// 每一跳重新执行完整目标校验，防止通过重定向绕过白名单、端口和私网地址限制。
+		CheckRedirect: h.validateImageRedirect,
 	}
 	return h
 }
@@ -165,6 +160,16 @@ func (h *ImageHandler) isAllowedHost(hostname string) bool {
 		}
 	}
 	return false
+}
+
+func (h *ImageHandler) validateImageRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) > imageRedirectLimit {
+		return fmt.Errorf("stopped after %d redirects", imageRedirectLimit)
+	}
+	if _, err := h.validateImageURL(req.URL.String()); err != nil {
+		return fmt.Errorf("image proxy: redirect target rejected: %w", err)
+	}
+	return nil
 }
 
 func (h *ImageHandler) validateImageURL(rawURL string) (*url.URL, error) {
@@ -353,11 +358,45 @@ func (h *ImageHandler) ProxyImage(c *gin.Context) {
 		return
 	}
 
-	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, parsedURL.String(), nil)
+	cacheKey := parsedURL.String()
+	if entry, ok := h.cache.get(cacheKey); ok {
+		h.serveImage(c, entry, imageURL, true)
+		return
+	}
+
+	// 单飞合并相同 URL 的并发请求；有界信号量把上游抓取总量控制在固定范围。
+	entry, failure, transport := h.singleflight.do(cacheKey, func() (imageCacheEntry, *imageProxyError, bool) {
+		select {
+		case h.sem <- struct{}{}:
+			defer func() { <-h.sem }()
+		case <-c.Request.Context().Done():
+			return imageCacheEntry{}, nil, true
+		}
+		return h.fetchImage(c.Request.Context(), parsedURL)
+	})
+
+	if transport {
+		c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": "failed to fetch image"})
+		return
+	}
+	if failure != nil {
+		c.JSON(failure.status, gin.H{
+			"success": false,
+			"error":   gin.H{"code": failure.code, "message": failure.message},
+		})
+		return
+	}
+
+	h.cache.put(cacheKey, entry)
+	h.serveImage(c, entry, imageURL, false)
+}
+
+// fetchImage 执行一次完整的上游校验，只有通过状态、大小、类型和主体嗅探的内容才会返回。
+func (h *ImageHandler) fetchImage(ctx context.Context, parsedURL *url.URL) (imageCacheEntry, *imageProxyError, bool) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
 	if err != nil {
 		logger.Infof("[ImageProxy] 创建请求失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to create request"})
-		return
+		return imageCacheEntry{}, nil, true
 	}
 	req.Header.Set("User-Agent", "MagicPodcast/1.0")
 	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/*;q=0.8")
@@ -366,62 +405,82 @@ func (h *ImageHandler) ProxyImage(c *gin.Context) {
 	startTime := time.Now()
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
-		logger.Infof("[ImageProxy] 请求失败 [%s]: %v", imageURL, err)
-		c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": "failed to fetch image"})
-		return
+		logger.Infof("[ImageProxy] 请求失败 [%s]: %v", parsedURL.String(), err)
+		return imageCacheEntry{}, nil, true
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= http.StatusMultipleChoices && resp.StatusCode < http.StatusBadRequest {
-		logger.Infof("[ImageProxy] 拒绝重定向 [%s]: %d", imageURL, resp.StatusCode)
-		c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": "image redirects are not allowed"})
-		return
+		logger.Infof("[ImageProxy] 拒绝重定向 [%s]: %d", parsedURL.String(), resp.StatusCode)
+		return imageCacheEntry{}, &imageProxyError{
+			status:  http.StatusBadGateway,
+			code:    "REDIRECT_REJECTED",
+			message: "image redirects are not allowed",
+		}, false
 	}
 	if resp.StatusCode != http.StatusOK {
-		logger.Infof("[ImageProxy] 非200状态码 [%s]: %d", imageURL, resp.StatusCode)
-		c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": fmt.Sprintf("upstream returned status %d", resp.StatusCode)})
-		return
+		logger.Infof("[ImageProxy] 非200状态码 [%s]: %d", parsedURL.String(), resp.StatusCode)
+		return imageCacheEntry{}, &imageProxyError{
+			status:  http.StatusBadGateway,
+			code:    "UPSTREAM_ERROR",
+			message: fmt.Sprintf("upstream returned status %d", resp.StatusCode),
+		}, false
 	}
 	if resp.ContentLength > middleware.DefaultImageResponseLimitBytes {
-		middleware.RequestTooLargeResponse(c, middleware.DefaultImageResponseLimitBytes)
-		return
+		return imageCacheEntry{}, &imageProxyError{
+			status:  http.StatusRequestEntityTooLarge,
+			code:    "REQUEST_TOO_LARGE",
+			message: fmt.Sprintf("image exceeds the %d byte limit", middleware.DefaultImageResponseLimitBytes),
+		}, false
 	}
 
 	contentType, ok := normalizedImageContentType(resp.Header.Get("Content-Type"))
 	if !ok {
-		c.JSON(http.StatusUnsupportedMediaType, gin.H{"success": false, "error": "upstream content is not an allowed image type"})
-		return
+		return imageCacheEntry{}, &imageProxyError{
+			status:  http.StatusUnsupportedMediaType,
+			code:    "UNSUPPORTED_IMAGE_TYPE",
+			message: "upstream content is not an allowed image type",
+		}, false
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, middleware.DefaultImageResponseLimitBytes+1))
 	if err != nil {
-		logger.Infof("[ImageProxy] 传输图片失败 [%s]: %v", imageURL, err)
-		c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": "failed to read image"})
-		return
+		logger.Infof("[ImageProxy] 传输图片失败 [%s]: %v", parsedURL.String(), err)
+		return imageCacheEntry{}, nil, true
 	}
 	if int64(len(body)) > middleware.DefaultImageResponseLimitBytes {
-		middleware.RequestTooLargeResponse(c, middleware.DefaultImageResponseLimitBytes)
-		return
+		return imageCacheEntry{}, &imageProxyError{
+			status:  http.StatusRequestEntityTooLarge,
+			code:    "REQUEST_TOO_LARGE",
+			message: fmt.Sprintf("image exceeds the %d byte limit", middleware.DefaultImageResponseLimitBytes),
+		}, false
 	}
 	if !imageBodyMatchesContentType(body, contentType) {
-		c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": "upstream body does not match image type"})
-		return
+		return imageCacheEntry{}, &imageProxyError{
+			status:  http.StatusBadGateway,
+			code:    "IMAGE_BODY_MISMATCH",
+			message: "upstream body does not match image type",
+		}, false
 	}
 
-	// Compress large images to fit through Cloudflare edge limits (~3–5 MiB).
-	// Cover art does not need multi-MiB originals; re-encoding as JPEG at
-	// coverMaxDimension preserves visual quality while avoiding 413.
+	// 先压缩大图，再决定是否写入内存缓存；现有 Cloudflare 边界和图片安全保护保持不变。
 	body, contentType = maybeCompressImage(body, contentType)
+	logger.Infof("[ImageProxy] 传输完成 [%s] - %dms - %d bytes", parsedURL.String(), time.Since(startTime).Milliseconds(), len(body))
 
-	// Bounded cache for cover art images. Podcast covers change rarely (RSS sync
-	// cycle), so a long TTL with stale-while-revalidate is safe and eliminates
-	// redundant round-trips on virtualization remount / scroll-back scenarios.
+	return imageCacheEntry{
+		body:        body,
+		contentType: contentType,
+		expiresAt:   time.Now().Add(imageCacheTTL),
+	}, nil, false
+}
+
+func (h *ImageHandler) serveImage(c *gin.Context, entry imageCacheEntry, sourceURL string, fromCache bool) {
 	c.Header("Cache-Control", imageProxyCacheControl)
 	c.Header("X-Content-Type-Options", "nosniff")
-	c.Header("Content-Type", contentType)
-	c.Data(http.StatusOK, contentType, body)
+	c.Header("Content-Type", entry.contentType)
+	c.Data(http.StatusOK, entry.contentType, entry.body)
 
-	logger.Infof("[ImageProxy] 传输完成 [%s] - %dms - %d bytes", imageURL, time.Since(startTime).Milliseconds(), len(body))
+	logger.Infof("[ImageProxy] 返回 %s [%s] - %d bytes - cache=%t", entry.contentType, sourceURL, len(entry.body), fromCache)
 }
 
 // Health 健康检查
