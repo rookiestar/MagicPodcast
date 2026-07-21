@@ -117,6 +117,10 @@ type CircuitDefaults struct {
 	SuccessesToClose               int
 	DomainEvidenceMinDistinctFeeds int
 	EvidenceWindow                 time.Duration
+	// ThresholdsPerCategory optionally overrides the distinct-feed evidence
+	// threshold for an error category. The map is process configuration, not
+	// request data, and is copied when applied to the coordinator.
+	ThresholdsPerCategory map[ErrorCategory]int
 }
 
 type inFlightFetch struct {
@@ -142,10 +146,11 @@ type domainCircuit struct {
 	cooldownAttempt  int
 	halfOpenInFlight int
 	halfOpenSuccess  int
-	// evidence maps a canonical feed URL to the time of its most recent
-	// 5xx/timeout/network failure within the evidence window. Only distinct
-	// feed keys count toward DomainEvidenceMinDistinctFeeds.
-	evidence map[string]time.Time
+	// evidence maps an error category to canonical feed URLs and the time of
+	// their most recent failure within the evidence window. Keeping categories
+	// separate prevents a timeout from satisfying a configured 5xx threshold
+	// (or vice versa) and keeps distinct-feed evidence meaningful.
+	evidence map[ErrorCategory]map[string]time.Time
 }
 
 // DefaultCoordinatorConfig applies the initial conservative policy only to
@@ -199,6 +204,7 @@ func NewCoordinator(config CoordinatorConfig) *Coordinator {
 			SuccessesToClose:               defaultSuccessesToClose,
 			DomainEvidenceMinDistinctFeeds: defaultDomainEvidenceMinDistinctFeeds,
 			EvidenceWindow:                 defaultEvidenceWindow,
+			ThresholdsPerCategory:          nil,
 		},
 		metrics: SharedFeedMetrics(),
 		jitter:  defaultJitter,
@@ -254,6 +260,11 @@ func (c *Coordinator) SetCircuitDefaults(defaults CircuitDefaults) {
 	if defaults.EvidenceWindow > 0 {
 		c.circuitDefaults.EvidenceWindow = defaults.EvidenceWindow
 	}
+	thresholds := make(map[ErrorCategory]int, len(defaults.ThresholdsPerCategory))
+	for category, threshold := range defaults.ThresholdsPerCategory {
+		thresholds[category] = threshold
+	}
+	c.circuitDefaults.ThresholdsPerCategory = thresholds
 }
 
 var processCoordinator = NewCoordinator(DefaultCoordinatorConfig())
@@ -385,10 +396,11 @@ func (c *Coordinator) Do(ctx context.Context, rawURL string, fetch func(context.
 	return result, err
 }
 
-func circuitPolicyEnabled(policy DomainPolicy) bool {
+func (c *Coordinator) circuitPolicyEnabled(policy DomainPolicy) bool {
 	return policy.CircuitCooldown > 0 || policy.RetryBackoffInitial > 0 || policy.RetryBackoffMax > 0 ||
 		policy.ImmediateCircuitOnAccessDenied || policy.HalfOpenMaxRequests > 0 || policy.SuccessesToClose > 0 ||
-		policy.DomainEvidenceMinDistinctFeeds > 0 || policy.EvidenceWindow > 0
+		policy.DomainEvidenceMinDistinctFeeds > 0 || policy.EvidenceWindow > 0 ||
+		len(c.circuitDefaults.ThresholdsPerCategory) > 0
 }
 
 func (c *Coordinator) reserveCircuitLocked(domain string, policy DomainPolicy) (probe bool, circuitState CircuitState, openUntil time.Time, blocked bool) {
@@ -473,19 +485,24 @@ func (c *Coordinator) completeCircuitLocked(domain string, policy DomainPolicy, 
 	if succeeded {
 		return
 	}
-	if isImmediateCircuitFailure(policy, result) {
+	if c.isImmediateCircuitFailure(policy, result) {
 		from := state.state
 		c.openCircuitLocked(state, policy, 1, result)
 		c.recordCircuitTransitionLocked(domain, from, CircuitStateOpen)
 		return
 	}
-	if isEvidenceCircuitFailure(result) {
+	if category, ok := c.circuitFailureCategory(result); ok {
 		if state.evidence == nil {
-			state.evidence = make(map[string]time.Time)
+			state.evidence = make(map[ErrorCategory]map[string]time.Time)
 		}
-		state.evidence[feedKey] = time.Now()
+		categoryEvidence := state.evidence[category]
+		if categoryEvidence == nil {
+			categoryEvidence = make(map[string]time.Time)
+			state.evidence[category] = categoryEvidence
+		}
+		categoryEvidence[feedKey] = time.Now()
 		c.pruneEvidenceLocked(state, policy)
-		if c.distinctEvidenceLocked(state, policy) >= c.evidenceMin(policy) {
+		if c.distinctEvidenceLocked(state, policy, category) >= c.evidenceThreshold(policy, category) {
 			from := state.state
 			c.openCircuitLocked(state, policy, 1, result)
 			c.recordCircuitTransitionLocked(domain, from, CircuitStateOpen)
@@ -513,15 +530,17 @@ func (c *Coordinator) closeCircuitLocked(state *domainCircuit) {
 }
 
 // isImmediateCircuitFailure reports failures that OPEN the circuit without any
-// evidence threshold: rate limits always, and access-denied only for domains
-// that opted into ImmediateCircuitOnAccessDenied (Xiaoyuzhou).
-func isImmediateCircuitFailure(policy DomainPolicy, result *FetchResult) bool {
+// evidence threshold. Rate limits keep their historical immediate behavior
+// unless an explicit category threshold overrides it. The Xiaoyuzhou 403 rule
+// is an unconditional safety invariant and cannot be relaxed by configuration.
+func (c *Coordinator) isImmediateCircuitFailure(policy DomainPolicy, result *FetchResult) bool {
 	if result == nil || result.Access.HTTPStatus == nil {
 		return false
 	}
 	status := *result.Access.HTTPStatus
 	if status == http.StatusTooManyRequests {
-		return true
+		_, hasThreshold := c.circuitDefaults.ThresholdsPerCategory[ErrorCategoryRateLimited]
+		return !hasThreshold
 	}
 	if status == http.StatusForbidden && policy.ImmediateCircuitOnAccessDenied {
 		return true
@@ -529,20 +548,26 @@ func isImmediateCircuitFailure(policy DomainPolicy, result *FetchResult) bool {
 	return false
 }
 
-// isEvidenceCircuitFailure reports 5xx/timeout/network failures that only OPEN
-// the circuit once enough distinct feeds have failed (domain-health signal).
-func isEvidenceCircuitFailure(result *FetchResult) bool {
+// circuitFailureCategory returns the category whose distinct-feed evidence may
+// open a circuit. The built-in evidence categories preserve the existing
+// domain-health behavior; an explicit threshold may opt additional categories
+// into the same bounded evidence model.
+func (c *Coordinator) circuitFailureCategory(result *FetchResult) (ErrorCategory, bool) {
 	if result == nil {
-		return false
+		return ErrorCategoryUnknown, false
 	}
-	switch result.Access.ErrorCategory {
+	category := result.Access.ErrorCategory
+	switch category {
 	case ErrorCategoryServiceUnavailable, ErrorCategoryTimeout, ErrorCategoryNetwork:
-		return true
+		return category, true
 	}
 	if result.Access.HTTPStatus != nil && *result.Access.HTTPStatus >= 500 {
-		return true
+		return ErrorCategoryServiceUnavailable, true
 	}
-	return false
+	if _, configured := c.circuitDefaults.ThresholdsPerCategory[category]; configured {
+		return category, true
+	}
+	return ErrorCategoryUnknown, false
 }
 
 func (c *Coordinator) halfOpenMax(policy DomainPolicy) int {
@@ -575,6 +600,13 @@ func (c *Coordinator) evidenceMin(policy DomainPolicy) int {
 	return defaultDomainEvidenceMinDistinctFeeds
 }
 
+func (c *Coordinator) evidenceThreshold(policy DomainPolicy, category ErrorCategory) int {
+	if threshold, ok := c.circuitDefaults.ThresholdsPerCategory[category]; ok && threshold > 0 {
+		return threshold
+	}
+	return c.evidenceMin(policy)
+}
+
 func (c *Coordinator) evidenceWindow(policy DomainPolicy) time.Duration {
 	if policy.EvidenceWindow > 0 {
 		return policy.EvidenceWindow
@@ -587,20 +619,26 @@ func (c *Coordinator) evidenceWindow(policy DomainPolicy) time.Duration {
 
 func (c *Coordinator) pruneEvidenceLocked(state *domainCircuit, policy DomainPolicy) {
 	cutoff := time.Now().Add(-c.evidenceWindow(policy))
-	for feedKey, at := range state.evidence {
-		if at.Before(cutoff) {
-			delete(state.evidence, feedKey)
+	for category, entries := range state.evidence {
+		for feedKey, at := range entries {
+			if at.Before(cutoff) {
+				delete(entries, feedKey)
+			}
+		}
+		if len(entries) == 0 {
+			delete(state.evidence, category)
 		}
 	}
 }
 
-func (c *Coordinator) distinctEvidenceLocked(state *domainCircuit, policy DomainPolicy) int {
-	if state.evidence == nil {
+func (c *Coordinator) distinctEvidenceLocked(state *domainCircuit, policy DomainPolicy, category ErrorCategory) int {
+	entries := state.evidence[category]
+	if len(entries) == 0 {
 		return 0
 	}
 	cutoff := time.Now().Add(-c.evidenceWindow(policy))
 	count := 0
-	for _, at := range state.evidence {
+	for _, at := range entries {
 		if !at.Before(cutoff) {
 			count++
 		}
@@ -767,7 +805,7 @@ func (c *Coordinator) LastGood(ctx context.Context, rawURL string, failure *Fetc
 func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolicy, fetch func(context.Context, RequestValidators) (*FetchResult, error)) (result *FetchResult, err error) {
 	domain := TargetDomain(rawURL)
 	feedKey := CanonicalizeURL(rawURL)
-	circuitEnabled := circuitPolicyEnabled(policy)
+	circuitEnabled := c.circuitPolicyEnabled(policy)
 	probe := false
 	reservedCircuit := false
 	circuitState := CircuitStateNotUsed

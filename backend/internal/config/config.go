@@ -1,8 +1,10 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -194,6 +196,9 @@ func Load(configPath string) (*Config, error) {
 
 	// 从环境变量覆盖敏感配置
 	cfg.applyEnvOverrides()
+	if err := applyFeedJSONEnvOverrides(cfg); err != nil {
+		return nil, fmt.Errorf("feed environment override failed: %w", err)
+	}
 
 	// 验证配置
 	if err := cfg.Validate(); err != nil {
@@ -216,7 +221,9 @@ func bindFeedEnvKeys() {
 	}
 }
 
-// feedEnvKeys is the full set of feed leaf keys overridable via environment.
+// feedEnvKeys contains scalar Feed keys overridable through Viper. Collection
+// values use the explicit JSON decoder below because Viper treats a JSON ENV
+// value as a scalar string during nested unmarshal.
 var feedEnvKeys = []string{
 	"feed.user_agent",
 	"feed.timeouts.connect",
@@ -236,6 +243,111 @@ var feedEnvKeys = []string{
 	"feed.snapshot.bounds.max_total_bytes",
 	"feed.diagnostics.admin_enabled",
 	"feed.diagnostics.configured_egress_label",
+}
+
+// applyFeedJSONEnvOverrides handles the two Feed values that are collections
+// rather than scalar leaves. Viper's scalar bindings do not reliably decode a
+// JSON object/array into nested mapstructure fields, so these overrides are
+// parsed explicitly. Durations in domain policies accept Go duration strings
+// (for example "30m") or integer nanoseconds for process-level tooling.
+func applyFeedJSONEnvOverrides(cfg *Config) error {
+	if raw, ok := os.LookupEnv("MAGICPODCAST_FEED_CIRCUIT_THRESHOLDS_PER_CATEGORY"); ok {
+		var thresholds map[string]int
+		if err := json.Unmarshal([]byte(raw), &thresholds); err != nil {
+			return fmt.Errorf("MAGICPODCAST_FEED_CIRCUIT_THRESHOLDS_PER_CATEGORY: %w", err)
+		}
+		cfg.Feed.Circuit.ThresholdsPerCategory = thresholds
+	}
+
+	if raw, ok := os.LookupEnv("MAGICPODCAST_FEED_DOMAIN_POLICIES"); ok {
+		var policies []feedDomainPolicyJSON
+		if err := json.Unmarshal([]byte(raw), &policies); err != nil {
+			return fmt.Errorf("MAGICPODCAST_FEED_DOMAIN_POLICIES: %w", err)
+		}
+		decoded := make([]feed.FeedDomainPolicy, 0, len(policies))
+		for i, policy := range policies {
+			decodedPolicy, err := policy.decode()
+			if err != nil {
+				return fmt.Errorf("MAGICPODCAST_FEED_DOMAIN_POLICIES[%d]: %w", i, err)
+			}
+			decoded = append(decoded, decodedPolicy)
+		}
+		cfg.Feed.DomainPolicies = decoded
+	}
+	return nil
+}
+
+type feedDomainPolicyJSON struct {
+	Domain                         string          `json:"domain"`
+	MaxConcurrency                 int             `json:"max_concurrency"`
+	MinRefreshInterval             json.RawMessage `json:"min_refresh_interval"`
+	MaxJitter                      json.RawMessage `json:"max_jitter"`
+	CircuitCooldown                json.RawMessage `json:"circuit_cooldown"`
+	RetryBackoffInitial            json.RawMessage `json:"retry_backoff_initial"`
+	RetryBackoffMax                json.RawMessage `json:"retry_backoff_max"`
+	HalfOpenMaxRequests            int             `json:"half_open_max_requests"`
+	SuccessesToClose               int             `json:"successes_to_close"`
+	DomainEvidenceMinDistinctFeeds int             `json:"domain_evidence_min_distinct_feeds"`
+	EvidenceWindow                 json.RawMessage `json:"evidence_window"`
+}
+
+func (p feedDomainPolicyJSON) decode() (feed.FeedDomainPolicy, error) {
+	minRefreshInterval, err := decodeFeedDuration(p.MinRefreshInterval, "min_refresh_interval")
+	if err != nil {
+		return feed.FeedDomainPolicy{}, err
+	}
+	maxJitter, err := decodeFeedDuration(p.MaxJitter, "max_jitter")
+	if err != nil {
+		return feed.FeedDomainPolicy{}, err
+	}
+	circuitCooldown, err := decodeFeedDuration(p.CircuitCooldown, "circuit_cooldown")
+	if err != nil {
+		return feed.FeedDomainPolicy{}, err
+	}
+	retryBackoffInitial, err := decodeFeedDuration(p.RetryBackoffInitial, "retry_backoff_initial")
+	if err != nil {
+		return feed.FeedDomainPolicy{}, err
+	}
+	retryBackoffMax, err := decodeFeedDuration(p.RetryBackoffMax, "retry_backoff_max")
+	if err != nil {
+		return feed.FeedDomainPolicy{}, err
+	}
+	evidenceWindow, err := decodeFeedDuration(p.EvidenceWindow, "evidence_window")
+	if err != nil {
+		return feed.FeedDomainPolicy{}, err
+	}
+	return feed.FeedDomainPolicy{
+		Domain:                         p.Domain,
+		MaxConcurrency:                 p.MaxConcurrency,
+		MinRefreshInterval:             minRefreshInterval,
+		MaxJitter:                      maxJitter,
+		CircuitCooldown:                circuitCooldown,
+		RetryBackoffInitial:            retryBackoffInitial,
+		RetryBackoffMax:                retryBackoffMax,
+		HalfOpenMaxRequests:            p.HalfOpenMaxRequests,
+		SuccessesToClose:               p.SuccessesToClose,
+		DomainEvidenceMinDistinctFeeds: p.DomainEvidenceMinDistinctFeeds,
+		EvidenceWindow:                 evidenceWindow,
+	}, nil
+}
+
+func decodeFeedDuration(raw json.RawMessage, field string) (time.Duration, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0, nil
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		duration, parseErr := time.ParseDuration(text)
+		if parseErr != nil {
+			return 0, fmt.Errorf("%s must be a Go duration string: %w", field, parseErr)
+		}
+		return duration, nil
+	}
+	var nanos int64
+	if err := json.Unmarshal(raw, &nanos); err != nil {
+		return 0, fmt.Errorf("%s must be a duration string or integer nanoseconds: %w", field, err)
+	}
+	return time.Duration(nanos), nil
 }
 
 // applyEnvOverrides 从环境变量覆盖本机运行配置

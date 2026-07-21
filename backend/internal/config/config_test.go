@@ -297,6 +297,46 @@ feed:
 	}
 }
 
+func TestLoadFeedENVDecodesCollectionOverrides(t *testing.T) {
+	t.Cleanup(func() {
+		cfg = nil
+		viper.Reset()
+	})
+	viper.Reset()
+
+	t.Setenv("MAGICPODCAST_FEED_CIRCUIT_THRESHOLDS_PER_CATEGORY", `{"service_unavailable":2,"timeout":3}`)
+	t.Setenv("MAGICPODCAST_FEED_DOMAIN_POLICIES", `[{"domain":"feed.example.com","max_concurrency":2,"min_refresh_interval":"30m","evidence_window":"5m"}]`)
+
+	loaded, err := Load(writeFeedTestConfig(t, ""))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.Feed.Circuit.ThresholdsPerCategory["service_unavailable"] != 2 || loaded.Feed.Circuit.ThresholdsPerCategory["timeout"] != 3 {
+		t.Fatalf("ThresholdsPerCategory = %+v", loaded.Feed.Circuit.ThresholdsPerCategory)
+	}
+	if len(loaded.Feed.DomainPolicies) != 1 {
+		t.Fatalf("DomainPolicies = %+v, want one policy", loaded.Feed.DomainPolicies)
+	}
+	policy := loaded.Feed.DomainPolicies[0]
+	if policy.Domain != "feed.example.com" || policy.MaxConcurrency != 2 || policy.MinRefreshInterval != 30*time.Minute || policy.EvidenceWindow != 5*time.Minute {
+		t.Fatalf("DomainPolicy = %+v", policy)
+	}
+}
+
+func TestLoadFeedENVRejectsInvalidCollectionOverride(t *testing.T) {
+	t.Cleanup(func() {
+		cfg = nil
+		viper.Reset()
+	})
+	viper.Reset()
+
+	t.Setenv("MAGICPODCAST_FEED_CIRCUIT_THRESHOLDS_PER_CATEGORY", `{"timeout":`)
+	_, err := Load(writeFeedTestConfig(t, ""))
+	if err == nil || !strings.Contains(err.Error(), "MAGICPODCAST_FEED_CIRCUIT_THRESHOLDS_PER_CATEGORY") {
+		t.Fatalf("Load() error = %v, want collection override parse failure", err)
+	}
+}
+
 func TestLoadFeedRejectsInvalidBudget(t *testing.T) {
 	t.Cleanup(func() {
 		cfg = nil

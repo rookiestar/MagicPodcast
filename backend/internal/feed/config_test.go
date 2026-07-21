@@ -26,6 +26,7 @@ func resetSharedRuntimeForTest(t *testing.T) {
 			SuccessesToClose:               defaultSuccessesToClose,
 			DomainEvidenceMinDistinctFeeds: defaultDomainEvidenceMinDistinctFeeds,
 			EvidenceWindow:                 defaultEvidenceWindow,
+			ThresholdsPerCategory:          nil,
 		})
 		SharedFeedMetrics().SetConfiguredEgressLabel(EgressDirect)
 	})
@@ -179,9 +180,9 @@ func TestConfigureSharedRuntimePreservesXiaoyuzhouImmediateCircuitInvariant(t *t
 	cfg := FeedConfig{
 		DomainPolicies: []FeedDomainPolicy{
 			{
-				Domain:             XiaoyuzhouFeedDomain,
-				MaxConcurrency:     4,
-				CircuitCooldown:    time.Minute,
+				Domain:          XiaoyuzhouFeedDomain,
+				MaxConcurrency:  4,
+				CircuitCooldown: time.Minute,
 			},
 			{
 				Domain:             "feed.example.com",
@@ -205,8 +206,8 @@ func TestConfigureSharedRuntimeAppliesCircuitDefaults(t *testing.T) {
 	resetSharedRuntimeForTest(t)
 	cfg := FeedConfig{
 		Circuit: FeedCircuitConfig{
-			HalfOpenMax:                 3,
-			SuccessesToClose:            5,
+			HalfOpenMax:                    3,
+			SuccessesToClose:               5,
 			DomainEvidenceMinDistinctFeeds: 2,
 		},
 	}
@@ -217,6 +218,22 @@ func TestConfigureSharedRuntimeAppliesCircuitDefaults(t *testing.T) {
 	require.Equal(t, 3, coord.circuitDefaults.HalfOpenMaxRequests)
 	require.Equal(t, 5, coord.circuitDefaults.SuccessesToClose)
 	require.Equal(t, 2, coord.circuitDefaults.DomainEvidenceMinDistinctFeeds)
+}
+
+func TestConfigureSharedRuntimeAppliesCategoryThresholds(t *testing.T) {
+	resetSharedRuntimeForTest(t)
+	cfg := FeedConfig{
+		Circuit: FeedCircuitConfig{ThresholdsPerCategory: map[string]int{
+			string(ErrorCategoryServiceUnavailable): 2,
+			string(ErrorCategoryTimeout):            3,
+		}},
+	}
+	require.NoError(t, ConfigureSharedRuntime(cfg))
+	coord := SharedCoordinator()
+	coord.mu.Lock()
+	defer coord.mu.Unlock()
+	require.Equal(t, 2, coord.circuitDefaults.ThresholdsPerCategory[ErrorCategoryServiceUnavailable])
+	require.Equal(t, 3, coord.circuitDefaults.ThresholdsPerCategory[ErrorCategoryTimeout])
 }
 
 func TestConfigureSharedRuntimeEgressLabelFlowsToMetricsAndDiagnostics(t *testing.T) {
@@ -269,7 +286,7 @@ func TestValidateAcceptsValidCategoryThresholds(t *testing.T) {
 	resetSharedRuntimeForTest(t)
 	cfg := FeedConfig{
 		Circuit: FeedCircuitConfig{ThresholdsPerCategory: map[string]int{
-			string(ErrorCategoryTimeout):    2,
+			string(ErrorCategoryTimeout):     2,
 			string(ErrorCategoryRateLimited): 3,
 		}},
 	}

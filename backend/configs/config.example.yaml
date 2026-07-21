@@ -235,4 +235,6 @@ feed:
   #   successes_to_close: 2
   #   domain_evidence_min_distinct_feeds: 1
   #   evidence_window: "5m"
-
+  # 集合型 ENV 覆盖使用 JSON 字符串（时长字段使用 Go duration，例如 "30m"）：
+  # MAGICPODCAST_FEED_CIRCUIT_THRESHOLDS_PER_CATEGORY='{"service_unavailable":2}'
+  # MAGICPODCAST_FEED_DOMAIN_POLICIES='[{"domain":"feed.example.com","max_concurrency":2,"min_refresh_interval":"30m"}]'

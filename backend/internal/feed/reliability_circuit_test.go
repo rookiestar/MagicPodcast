@@ -172,6 +172,46 @@ func TestCoordinatorEvidenceThresholdGuardsDomainCircuit(t *testing.T) {
 	require.Equal(t, ErrorCategoryCircuitOpen, blocked.Access.ErrorCategory)
 }
 
+// TestCoordinatorCategoryThresholdOverridesEvidenceDefault verifies that a
+// startup-configured category threshold is applied to distinct Feed evidence,
+// rather than merely being accepted by config validation.
+func TestCoordinatorCategoryThresholdOverridesEvidenceDefault(t *testing.T) {
+	var aHits, bHits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/a.xml":
+			atomic.AddInt32(&aHits, 1)
+			w.WriteHeader(http.StatusServiceUnavailable)
+		case "/b.xml":
+			atomic.AddInt32(&bHits, 1)
+			w.WriteHeader(http.StatusServiceUnavailable)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	coordinator := NewCoordinator(CoordinatorConfig{DomainPolicies: map[string]DomainPolicy{
+		TargetDomain(server.URL): {EvidenceWindow: time.Minute},
+	}})
+	coordinator.SetCircuitDefaults(CircuitDefaults{
+		DomainEvidenceMinDistinctFeeds: 1,
+		EvidenceWindow:                 time.Minute,
+		ThresholdsPerCategory:          map[ErrorCategory]int{ErrorCategoryServiceUnavailable: 2},
+	})
+	fetcher := NewFetcherWithCoordinator(2*time.Second, coordinator)
+
+	aResult, err := fetcher.FetchFeedWithContextDetailed(context.Background(), server.URL+"/a.xml")
+	require.Error(t, err)
+	require.Equal(t, CircuitStateNotUsed, aResult.Access.CircuitState)
+
+	bResult, err := fetcher.FetchFeedWithContextDetailed(context.Background(), server.URL+"/b.xml")
+	require.Error(t, err)
+	require.Equal(t, CircuitStateOpen, bResult.Access.CircuitState)
+	require.Equal(t, int32(1), atomic.LoadInt32(&aHits))
+	require.Equal(t, int32(1), atomic.LoadInt32(&bHits))
+}
+
 // TestFetcherSendsHonestHeadersAndDecompressesGzip verifies the honest UA /
 // Accept headers and transparent gzip handling introduced in #25.
 func TestFetcherSendsHonestHeadersAndDecompressesGzip(t *testing.T) {
@@ -189,7 +229,7 @@ func TestFetcherSendsHonestHeadersAndDecompressesGzip(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	result, err := NewFetcher(2 * time.Second).FetchFeedWithContextDetailed(context.Background(), server.URL+"/feed.xml")
+	result, err := NewFetcher(2*time.Second).FetchFeedWithContextDetailed(context.Background(), server.URL+"/feed.xml")
 	require.NoError(t, err)
 	require.NotNil(t, result.Feed)
 	require.Equal(t, "Gzipped", result.Feed.Title)

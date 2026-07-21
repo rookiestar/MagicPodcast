@@ -49,10 +49,10 @@ type FeedConfig struct {
 // FeedTimeouts are the layered HTTP timeouts. Each layer fails fast so a slow
 // or trickling server cannot consume the whole request budget.
 type FeedTimeouts struct {
-	Connect        time.Duration `mapstructure:"connect"`
-	TLS            time.Duration `mapstructure:"tls"`
-	Header         time.Duration `mapstructure:"header"`
-	Overall        time.Duration `mapstructure:"overall"`
+	Connect time.Duration `mapstructure:"connect"`
+	TLS     time.Duration `mapstructure:"tls"`
+	Header  time.Duration `mapstructure:"header"`
+	Overall time.Duration `mapstructure:"overall"`
 }
 
 // FeedHeaders are the honest, low-load request headers applied to every Feed
@@ -88,15 +88,15 @@ type FeedRetryConfig struct {
 // every domain policy that does not override the value. Defaults preserve the
 // already-validated behavior and never expand the domain circuit scope.
 //
-// ThresholdsPerCategory is a reserved map from ErrorCategory to a per-category
+// ThresholdsPerCategory maps an ErrorCategory to a distinct-feed evidence
 // threshold. An empty map (the default) keeps the existing circuit logic; a
-// non-empty entry is an explicit operator opt-in and is validated against the
-// known category set.
+// non-empty entry is an explicit operator opt-in. The coordinator applies the
+// override per category while preserving the unconditional xyzfm 403 rule.
 type FeedCircuitConfig struct {
-	ThresholdsPerCategory       map[string]int `mapstructure:"thresholds_per_category"`
-	DomainEvidenceMinDistinctFeeds int           `mapstructure:"domain_evidence_min_distinct_feeds"`
-	HalfOpenMax                 int           `mapstructure:"half_open_max"`
-	SuccessesToClose            int           `mapstructure:"successes_to_close"`
+	ThresholdsPerCategory          map[string]int `mapstructure:"thresholds_per_category"`
+	DomainEvidenceMinDistinctFeeds int            `mapstructure:"domain_evidence_min_distinct_feeds"`
+	HalfOpenMax                    int            `mapstructure:"half_open_max"`
+	SuccessesToClose               int            `mapstructure:"successes_to_close"`
 }
 
 // FeedSnapshotConfig controls the last-good fallback store. Durable is a
@@ -105,8 +105,8 @@ type FeedCircuitConfig struct {
 // durable:false opts the process out of on-disk snapshots without changing the
 // default for operators who omit the field.
 type FeedSnapshotConfig struct {
-	Durable *bool               `mapstructure:"durable"`
-	Bounds  FeedSnapshotBounds  `mapstructure:"bounds"`
+	Durable *bool              `mapstructure:"durable"`
+	Bounds  FeedSnapshotBounds `mapstructure:"bounds"`
 }
 
 // FeedSnapshotBounds caps snapshot entry count, per-response bytes, and total
@@ -132,17 +132,17 @@ type FeedDiagnostics struct {
 // feed.xyzfm.space first-403-immediate-open rule is a safety invariant that
 // must survive any configuration.
 type FeedDomainPolicy struct {
-	Domain                string        `mapstructure:"domain"`
-	MaxConcurrency        int           `mapstructure:"max_concurrency"`
-	MinRefreshInterval    time.Duration `mapstructure:"min_refresh_interval"`
-	MaxJitter             time.Duration `mapstructure:"max_jitter"`
-	CircuitCooldown       time.Duration `mapstructure:"circuit_cooldown"`
-	RetryBackoffInitial   time.Duration `mapstructure:"retry_backoff_initial"`
-	RetryBackoffMax       time.Duration `mapstructure:"retry_backoff_max"`
-	HalfOpenMaxRequests   int           `mapstructure:"half_open_max_requests"`
-	SuccessesToClose      int           `mapstructure:"successes_to_close"`
-	DomainEvidenceMinDistinctFeeds int  `mapstructure:"domain_evidence_min_distinct_feeds"`
-	EvidenceWindow        time.Duration `mapstructure:"evidence_window"`
+	Domain                         string        `mapstructure:"domain"`
+	MaxConcurrency                 int           `mapstructure:"max_concurrency"`
+	MinRefreshInterval             time.Duration `mapstructure:"min_refresh_interval"`
+	MaxJitter                      time.Duration `mapstructure:"max_jitter"`
+	CircuitCooldown                time.Duration `mapstructure:"circuit_cooldown"`
+	RetryBackoffInitial            time.Duration `mapstructure:"retry_backoff_initial"`
+	RetryBackoffMax                time.Duration `mapstructure:"retry_backoff_max"`
+	HalfOpenMaxRequests            int           `mapstructure:"half_open_max_requests"`
+	SuccessesToClose               int           `mapstructure:"successes_to_close"`
+	DomainEvidenceMinDistinctFeeds int           `mapstructure:"domain_evidence_min_distinct_feeds"`
+	EvidenceWindow                 time.Duration `mapstructure:"evidence_window"`
 }
 
 // maxRetryBudget is the hard ceiling on FeedRetryConfig.Budget. No
@@ -309,11 +309,16 @@ func ConfigureSharedRuntime(config FeedConfig) error {
 
 	coordinator := SharedCoordinator()
 	coordinator.SetDomainPolicies(buildDomainPolicies(config.DomainPolicies))
+	thresholds := make(map[ErrorCategory]int, len(config.Circuit.ThresholdsPerCategory))
+	for category, threshold := range config.Circuit.ThresholdsPerCategory {
+		thresholds[ErrorCategory(category)] = threshold
+	}
 	coordinator.SetCircuitDefaults(CircuitDefaults{
 		HalfOpenMaxRequests:            resolvePositive(config.Circuit.HalfOpenMax, defaultHalfOpenMaxRequests),
 		SuccessesToClose:               resolvePositive(config.Circuit.SuccessesToClose, defaultSuccessesToClose),
 		DomainEvidenceMinDistinctFeeds: resolvePositive(config.Circuit.DomainEvidenceMinDistinctFeeds, defaultDomainEvidenceMinDistinctFeeds),
 		EvidenceWindow:                 defaultEvidenceWindow,
+		ThresholdsPerCategory:          thresholds,
 	})
 	SharedFeedMetrics().SetConfiguredEgressLabel(egressLabel)
 
