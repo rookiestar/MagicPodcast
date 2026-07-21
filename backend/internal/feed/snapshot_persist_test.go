@@ -200,6 +200,44 @@ func TestSQLiteSnapshotStoreDeleteRemovesEntry(t *testing.T) {
 	require.False(t, ok)
 }
 
+// TestSQLiteSnapshotStoreTouchValidatedAtAdvancesOnlyValidatedAt is the #27
+// durability guarantee: a 304 bumps validated_at (driving oldest-first
+// eviction) without rewriting the body, fingerprint, or retrieved_at. A touch
+// on a missing row is a no-op rather than an error.
+func TestSQLiteSnapshotStoreTouchValidatedAtAdvancesOnlyValidatedAt(t *testing.T) {
+	store, sqlDB := openSnapshotTestDB(t, "")
+	defer sqlDB.Close()
+	feedURL := "https://example.test/feed.xml"
+	// A clearly-past base so a real wall-clock validated_at always advances it.
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, store.Save(FeedSnapshot{
+		FeedURL:     feedURL,
+		RetrievedAt: base,
+		RawContent:  []byte(testSnapshotFeed("Touch")),
+		ETag:        `"t1"`,
+	}))
+
+	before, ok, err := store.Load(feedURL)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, base, before.ValidatedAt)
+	require.Equal(t, base, before.RetrievedAt)
+
+	// A missing row is a no-op.
+	require.NoError(t, store.TouchValidatedAt("https://example.test/absent.xml"))
+
+	require.NoError(t, store.TouchValidatedAt(feedURL))
+
+	after, ok, err := store.Load(feedURL)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.True(t, after.ValidatedAt.After(base), "validated_at must advance")
+	require.Equal(t, base, after.RetrievedAt, "retrieved_at must be untouched")
+	require.Equal(t, before.Fingerprint, after.Fingerprint, "fingerprint must be untouched")
+	require.Equal(t, before.RawContent, after.RawContent, "body must be untouched")
+	require.Equal(t, `"t1"`, after.ETag, "etag must be untouched")
+}
+
 // TestTieredSnapshotStoreReadsL2OnMissAndBackfillsL1 verifies the L1+L2
 // layering: a snapshot saved through one tiered store is visible to a second
 // tiered store sharing the same durable L2, and a read warms the L1.
@@ -255,4 +293,5 @@ type failingSnapshotStore struct{}
 func (failingSnapshotStore) Save(FeedSnapshot) error                        { return errors.New("disk full") }
 func (failingSnapshotStore) Load(string) (*FeedSnapshot, bool, error)       { return nil, false, nil }
 func (failingSnapshotStore) Delete(string) error                            { return nil }
+func (failingSnapshotStore) TouchValidatedAt(string) error                  { return nil }
 func (failingSnapshotStore) Stats() (SnapshotStoreStats, error)             { return SnapshotStoreStats{}, nil }

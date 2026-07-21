@@ -160,6 +160,8 @@ func (s *corruptSnapshotStore) Load(feedURL string) (*FeedSnapshot, bool, error)
 
 func (s *corruptSnapshotStore) Delete(string) error { return nil }
 
+func (s *corruptSnapshotStore) TouchValidatedAt(string) error { return nil }
+
 func (s *corruptSnapshotStore) Stats() (SnapshotStoreStats, error) { return SnapshotStoreStats{}, nil }
 
 func testSnapshotFeed(title string) string {

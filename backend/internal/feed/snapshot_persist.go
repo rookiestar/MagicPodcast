@@ -238,6 +238,44 @@ func (s *SQLiteSnapshotStore) Delete(feedURL string) error {
 	return nil
 }
 
+// TouchValidatedAt advances validated_at for an existing row in its own
+// transaction, leaving the body, fingerprint, and retrieved_at untouched. A 304
+// confirms the persisted content is still current, so only the validation
+// timestamp (which drives oldest-first eviction) moves forward. A missing row is
+// a no-op rather than an error.
+func (s *SQLiteSnapshotStore) TouchValidatedAt(feedURL string) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	key := CanonicalizeURL(feedURL)
+	tx, err := s.db.Begin()
+	if err != nil {
+		s.recordWriteFailure()
+		return fmt.Errorf("begin snapshot touch transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	res, err := tx.Exec("UPDATE "+FeedSnapshotsTableName+" SET validated_at = ? WHERE feed_url = ?", time.Now().UTC().UnixMilli(), key)
+	if err != nil {
+		s.recordWriteFailure()
+		return fmt.Errorf("touch snapshot validated_at: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		s.recordWriteFailure()
+		return fmt.Errorf("commit snapshot touch transaction: %w", err)
+	}
+	committed = true
+	if rows, err := res.RowsAffected(); err == nil && rows == 0 {
+		// No row matched: nothing to touch. Not an error.
+		return nil
+	}
+	return nil
+}
+
 func (s *SQLiteSnapshotStore) Stats() (SnapshotStoreStats, error) {
 	if s == nil || s.db == nil {
 		return SnapshotStoreStats{}, nil
@@ -346,6 +384,22 @@ func (t *TieredSnapshotStore) Delete(feedURL string) error {
 		}
 	}
 	return first
+}
+
+// TouchValidatedAt advances validated_at in both layers so a 304 keeps the
+// durable row's eviction priority current. L1 is touched first so an in-process
+// reader sees the new timestamp even if L2 is unavailable.
+func (t *TieredSnapshotStore) TouchValidatedAt(feedURL string) error {
+	if t == nil {
+		return nil
+	}
+	if err := t.l1.TouchValidatedAt(feedURL); err != nil {
+		return err
+	}
+	if t.l2 == nil {
+		return nil
+	}
+	return t.l2.TouchValidatedAt(feedURL)
 }
 
 func (t *TieredSnapshotStore) Stats() (SnapshotStoreStats, error) {

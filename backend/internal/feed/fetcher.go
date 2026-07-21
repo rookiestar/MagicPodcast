@@ -171,14 +171,14 @@ func (f *Fetcher) FetchFeedWithContext(ctx context.Context, feedURL string) (*go
 // bounded access outcome for workflow observability.
 func (f *Fetcher) FetchFeedWithContextDetailed(ctx context.Context, feedURL string) (result *FetchResult, err error) {
 	if f.coordinator == nil {
-		return f.fetchFeedWithContextDirect(ctx, feedURL)
+		return f.fetchFeedWithContextDirect(ctx, feedURL, RequestValidators{})
 	}
-	return f.coordinator.Do(ctx, feedURL, func(operationCtx context.Context) (*FetchResult, error) {
-		return f.fetchFeedWithContextDirect(operationCtx, feedURL)
+	return f.coordinator.Do(ctx, feedURL, func(operationCtx context.Context, validators RequestValidators) (*FetchResult, error) {
+		return f.fetchFeedWithContextDirect(operationCtx, feedURL, validators)
 	})
 }
 
-func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string) (result *FetchResult, err error) {
+func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string, validators RequestValidators) (result *FetchResult, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -209,6 +209,17 @@ func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string
 	}
 	req.Header.Set("User-Agent", f.userAgent())
 	req.Header.Set("Accept", f.accept())
+	// Conditional GET: only attach validators the Coordinator loaded from a
+	// fingerprint-validated snapshot, so they describe exactly the content we
+	// can recover on a 304.
+	if validators.Present() {
+		if validators.IfNoneMatch != "" {
+			req.Header.Set("If-None-Match", validators.IfNoneMatch)
+		}
+		if validators.IfModifiedSince != "" {
+			req.Header.Set("If-Modified-Since", validators.IfModifiedSince)
+		}
+	}
 
 	resp, requestErr := f.httpClient.Do(req)
 	if requestErr != nil {
@@ -239,6 +250,19 @@ func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string
 	result.Access.Age = resp.Header.Get("Age")
 	if resp.ContentLength > 0 {
 		result.Access.ResponseBytes = resp.ContentLength
+	}
+
+	if status == http.StatusNotModified {
+		// 304 Not Modified: the conditional check succeeded. There is no body
+		// to parse; surface the outcome as not_modified and let the Coordinator
+		// recover the Feed from the persisted snapshot. ErrFeedNotModified never
+		// escapes callers — the Coordinator converts it to a recovered success.
+		result.Access.CacheStatus = CacheStatusNotModified
+		result.Access.Freshness = FreshnessFresh
+		result.Access.ErrorCategory = ErrorCategoryNone
+		err = ErrFeedNotModified
+		logger.Infof("  ⏭️ HTTP 304 Not Modified: %s (耗时: %v)", safeURL, time.Since(startTime))
+		return result, err
 	}
 
 	if status < http.StatusOK || status >= http.StatusMultipleChoices {

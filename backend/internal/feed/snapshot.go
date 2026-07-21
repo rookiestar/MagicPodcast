@@ -49,6 +49,25 @@ type FeedSnapshot struct {
 	SourceAtCapture string
 }
 
+// RequestValidators carries the conditional-GET validators (ETag / Last-Modified)
+// captured atomically with a validated snapshot. The Coordinator populates it
+// from the FeedStateStore only when the snapshot passes fingerprint validation
+// and its body parses, so a 304 can always be recovered from that same row. An
+// empty RequestValidators means "perform an unconditional GET".
+type RequestValidators struct {
+	// IfNoneMatch is the ETag captured from a prior 200, sent as If-None-Match.
+	IfNoneMatch string
+	// IfModifiedSince is the Last-Modified captured from a prior 200, sent as
+	// If-Modified-Since.
+	IfModifiedSince string
+}
+
+// Present reports whether any validator is available to make the request
+// conditional. When false the Fetcher performs a plain unconditional GET.
+func (v RequestValidators) Present() bool {
+	return v.IfNoneMatch != "" || v.IfModifiedSince != ""
+}
+
 // FeedStateStore is the error-reporting evolution of the snapshot store. Reads
 // distinguish a plain miss (ok=false, err=nil) from corruption or persistence
 // errors (err != nil), so a broken snapshot or database fault is never silently
@@ -57,6 +76,11 @@ type FeedStateStore interface {
 	Save(snapshot FeedSnapshot) error
 	Load(feedURL string) (*FeedSnapshot, bool, error)
 	Delete(feedURL string) error
+	// TouchValidatedAt advances only the validated_at timestamp of an existing
+	// snapshot (a 304 confirmed its content is still current) without rewriting
+	// the body, fingerprint, or retrieved_at. A missing row is a no-op (the
+	// caller recovered from a row that may have been evicted concurrently).
+	TouchValidatedAt(feedURL string) error
 	Stats() (SnapshotStoreStats, error)
 }
 
@@ -187,6 +211,22 @@ func (s *MemorySnapshotStore) Delete(feedURL string) error {
 		s.totalBytes -= int64(len(previous.RawContent))
 		delete(s.entries, key)
 	}
+	return nil
+}
+
+func (s *MemorySnapshotStore) TouchValidatedAt(feedURL string) error {
+	if s == nil {
+		return nil
+	}
+	key := CanonicalizeURL(feedURL)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.entries[key]
+	if !ok {
+		return nil
+	}
+	existing.ValidatedAt = time.Now()
+	s.entries[key] = existing
 	return nil
 }
 

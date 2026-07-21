@@ -40,6 +40,12 @@ const (
 
 var ErrFeedCircuitOpen = errors.New("feed circuit is open")
 
+// ErrFeedNotModified signals a 304 Not Modified response. It is not a failure:
+// the conditional check confirmed the persisted snapshot is still current, so
+// the Coordinator recovers the Feed from that snapshot instead of treating the
+// empty 304 body as a parse error. It never escapes to callers.
+var ErrFeedNotModified = errors.New("feed not modified")
+
 // DomainPolicy controls only load-shaping behavior for one target domain.
 // MaxConcurrency <= 0 means unlimited; duplicate-request coalescing remains
 // active for every domain as a shared correctness rule.
@@ -198,10 +204,13 @@ func parseURL(rawURL string) (*url.URL, error) {
 
 // Do coalesces identical in-flight requests, reuses a successful shared result
 // during the configured minimum interval, and serializes only domains with a
-// positive concurrency policy.
-func (c *Coordinator) Do(ctx context.Context, rawURL string, fetch func(context.Context) (*FetchResult, error)) (*FetchResult, error) {
+// positive concurrency policy. The fetch callback receives the conditional-GET
+// validators the Coordinator loaded from the persisted snapshot (empty when no
+// validated snapshot exists), so the Fetcher can send If-None-Match /
+// If-Modified-Since and let the Coordinator recover a 304.
+func (c *Coordinator) Do(ctx context.Context, rawURL string, fetch func(context.Context, RequestValidators) (*FetchResult, error)) (*FetchResult, error) {
 	if c == nil {
-		return fetch(ctx)
+		return fetch(ctx, RequestValidators{})
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -250,7 +259,16 @@ func (c *Coordinator) Do(ctx context.Context, rawURL string, fetch func(context.
 		c.sharedResult[key] = cachedFetch{storedAt: time.Now(), result: sharedResult}
 	}
 	if err == nil && result != nil && result.Feed != nil {
-		c.saveLastGood(key, result)
+		// A recovered 304 means the persisted body is unchanged and still
+		// current: advance only validated_at rather than rewriting the body,
+		// so its retrieval time and fingerprint stay authoritative.
+		if result.Access.CacheStatus == CacheStatusNotModified {
+			if touchErr := c.touchValidatedAt(key); touchErr != nil {
+				logger.Warnf("feed last-good validated_at touch failed for %s: %v", key, touchErr)
+			}
+		} else {
+			c.saveLastGood(key, result)
+		}
 	}
 	delete(c.inFlight, key)
 	call.result = sharedResult
@@ -600,7 +618,7 @@ func (c *Coordinator) LastGood(ctx context.Context, rawURL string, failure *Fetc
 	}, true
 }
 
-func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolicy, fetch func(context.Context) (*FetchResult, error)) (result *FetchResult, err error) {
+func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolicy, fetch func(context.Context, RequestValidators) (*FetchResult, error)) (result *FetchResult, err error) {
 	domain := TargetDomain(rawURL)
 	feedKey := CanonicalizeURL(rawURL)
 	circuitEnabled := circuitPolicyEnabled(policy)
@@ -675,8 +693,23 @@ func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolic
 		c.mu.Unlock()
 	}
 
-	result, err = fetch(ctx)
-	if result != nil && err == nil && policy.MinRefreshInterval > 0 {
+	validators := c.loadConditionalValidators(feedKey)
+	result, err = fetch(ctx, validators)
+	if result != nil && result.Access.CacheStatus == CacheStatusNotModified {
+		// 304 Not Modified is a successful conditional check, not a failure:
+		// recover the Feed from the same persisted snapshot we sent validators
+		// for. If the snapshot vanished between Load and the 304 (eviction or
+		// restart race), perform one unconditional GET in the same budget so we
+		// never return a nil Feed or an empty increment.
+		if recovered, ok := c.recoverNotModified(rawURL, feedKey, result); ok {
+			result = recovered
+			err = nil
+		} else {
+			logger.Warnf("feed 304 unrecoverable for %s: snapshot missing/corrupt, falling back to one unconditional GET", feedKey)
+			result, err = fetch(ctx, RequestValidators{})
+		}
+	}
+	if result != nil && err == nil && policy.MinRefreshInterval > 0 && result.Access.CacheStatus != CacheStatusNotModified {
 		result.Access.CacheStatus = CacheStatusMiss
 	}
 	return result, err
@@ -740,6 +773,69 @@ func (c *Coordinator) saveLastGood(key string, result *FetchResult) {
 			logger.Warnf("feed last-good save failed for %s: %v", key, err)
 		}
 	}
+}
+
+// loadConditionalValidators returns the ETag/Last-Modified validators for the
+// canonical feed URL, but only when the persisted snapshot passes fingerprint
+// validation (Load already checks this) AND its body parses. That guarantees a
+// later 304 can always be recovered from the same snapshot row.
+func (c *Coordinator) loadConditionalValidators(key string) RequestValidators {
+	if c.lastGood == nil {
+		return RequestValidators{}
+	}
+	snapshot, ok, err := c.lastGood.Load(key)
+	if err != nil || !ok || snapshot == nil {
+		return RequestValidators{}
+	}
+	if _, parseErr := parseSnapshot(snapshot); parseErr != nil {
+		return RequestValidators{}
+	}
+	return RequestValidators{
+		IfNoneMatch:     snapshot.ETag,
+		IfModifiedSince: snapshot.LastModified,
+	}
+}
+
+// recoverNotModified resolves a 304 by serving the persisted snapshot captured
+// with the validators we sent. The recovered outcome keeps HTTPStatus=304,
+// marks CacheStatus=not_modified, preserves the snapshot's original
+// RetrievedAt (the body did not change), and carries no failure, so it counts
+// as a success for circuit and retry accounting. Returns (nil, false) when the
+// snapshot is missing, corrupt, or unparseable so the caller falls back to a
+// single unconditional GET.
+func (c *Coordinator) recoverNotModified(rawURL, key string, probed *FetchResult) (*FetchResult, bool) {
+	if c.lastGood == nil {
+		return nil, false
+	}
+	snapshot, ok, err := c.lastGood.Load(key)
+	if err != nil || !ok || snapshot == nil {
+		return nil, false
+	}
+	parsed, err := parseSnapshot(snapshot)
+	if err != nil {
+		return nil, false
+	}
+	access := probed.Access
+	access.SourceType = AccessSourcePrimary
+	access.CacheStatus = CacheStatusNotModified
+	access.Freshness = FreshnessFresh
+	access.ErrorCategory = ErrorCategoryNone
+	access.ResponseBytes = 0
+	// Preserve the body's original retrieval time: a 304 confirms the content
+	// is unchanged, so RetrievedAt must not advance (that would fake freshness).
+	access.RetrievedAt = snapshotTime(snapshot)
+	return &FetchResult{
+		Feed:       parsed,
+		RawContent: append([]byte(nil), snapshot.RawContent...),
+		Access:     access,
+	}, true
+}
+
+func (c *Coordinator) touchValidatedAt(key string) error {
+	if c.lastGood == nil {
+		return nil
+	}
+	return c.lastGood.TouchValidatedAt(key)
 }
 
 // UsePersistentLastGood upgrades the in-process last-good store to a tiered
