@@ -50,6 +50,18 @@ node scripts/performance-audit.mjs --json
 - 请求失败标记为 `FAIL`。
 - 默认每个目标先预热 1 次再采样；如需观察冷态首跳，可设置 `--warmup-runs 0`。
 
+## 加载性能回归验收（#13）
+
+这组失败优先验收只使用受控前端假数据，不写真实数据库、不触发同步、工作流或付费能力：
+
+```bash
+(cd frontend && npm run test:run -- \
+  src/hooks/__tests__/usePodcastListInfinite.acceptance.test.tsx \
+  src/components/podcasts/__tests__/podcastLoadingAcceptance.test.tsx)
+```
+
+验收覆盖首屏与连续分页、分页挂起超时、服务错误、失败页重试、快速触发去重、封面超时/有限失败重试，以及分页失败时保留已加载节目。生产或集成环境验收必须先确认运行版本标识，并单独取得重启/部署授权；本地受控测试不能替代生产证明。
+
 ## 后端并发基准
 
 ```bash
