@@ -108,9 +108,9 @@ func (s *Service) fetchVerifiedAlternative(
 
 	var alternative *feed.FetchResult
 	if incremental {
-		alternative, err = s.feedFetcher.FetchIncrementalWithContext(ctx, candidate.FeedURL, lastFetchTime)
+		alternative, err = s.feedFetcher.FetchIncrementalWithContextAsSource(ctx, candidate.FeedURL, lastFetchTime, feed.AccessSourceAlternative)
 	} else {
-		alternative, err = s.feedFetcher.FetchFeedWithContextDetailed(ctx, candidate.FeedURL)
+		alternative, err = s.feedFetcher.FetchFeedWithContextDetailedAsSource(ctx, candidate.FeedURL, feed.AccessSourceAlternative)
 	}
 	if err != nil || alternative == nil || alternative.Feed == nil {
 		setAlternativeVerification(failure, feed.IdentityVerificationUnavailable)

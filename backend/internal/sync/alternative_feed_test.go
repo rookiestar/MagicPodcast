@@ -150,7 +150,10 @@ func TestWorkflowUsesVerifiedPodcastIndexAlternativeAndRecordsIdentity(t *testin
 		{id: 2, title: "稳定节目", author: "作者", feedURL: alternative.URL + "/alternative.xml", itunesID: 123, guid: "podcast-guid-123", dead: 0, status: 200},
 	})
 	db := setupTestDB(t)
-	service, err := NewServiceWithFeedCoordinator(db, indexPath, newAlternativeCoordinator(primary.URL))
+	coordinator := newAlternativeCoordinator(primary.URL)
+	metrics := feed.NewFeedMetrics()
+	coordinator.SetMetrics(metrics)
+	service, err := NewServiceWithFeedCoordinator(db, indexPath, coordinator)
 	require.NoError(t, err)
 	defer service.Close()
 
@@ -177,6 +180,13 @@ func TestWorkflowUsesVerifiedPodcastIndexAlternativeAndRecordsIdentity(t *testin
 	require.Equal(t, int32(1), atomic.LoadInt32(&primaryRequests))
 	require.Equal(t, int32(1), atomic.LoadInt32(&alternativeRequests))
 	require.Equal(t, 1, result.Created)
+	var sawAlternative bool
+	for _, row := range metrics.Snapshot().FeedFetchTotal {
+		if row.Source == string(feed.AccessSourceAlternative) && row.Count == 1 {
+			sawAlternative = true
+		}
+	}
+	require.True(t, sawAlternative, "the real alternative fetch must be counted as source=alternative")
 }
 
 func TestWorkflowReusesEpisodeWhenAlternativeGUIDDiffers(t *testing.T) {

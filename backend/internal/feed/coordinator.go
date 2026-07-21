@@ -134,17 +134,17 @@ func DefaultCoordinatorConfig() CoordinatorConfig {
 	return CoordinatorConfig{
 		DomainPolicies: map[string]DomainPolicy{
 			XiaoyuzhouFeedDomain: {
-				MaxConcurrency:                  1,
-				MinRefreshInterval:              5 * time.Minute,
-				MaxJitter:                       2 * time.Second,
-				CircuitCooldown:                 defaultCircuitCooldown,
-				RetryBackoffInitial:             defaultRetryBackoffInitial,
-				RetryBackoffMax:                 defaultRetryBackoffMax,
-				HalfOpenMaxRequests:             defaultHalfOpenMaxRequests,
-				SuccessesToClose:                defaultSuccessesToClose,
-				ImmediateCircuitOnAccessDenied:  true,
-				DomainEvidenceMinDistinctFeeds:  1,
-				EvidenceWindow:                  defaultEvidenceWindow,
+				MaxConcurrency:                 1,
+				MinRefreshInterval:             5 * time.Minute,
+				MaxJitter:                      2 * time.Second,
+				CircuitCooldown:                defaultCircuitCooldown,
+				RetryBackoffInitial:            defaultRetryBackoffInitial,
+				RetryBackoffMax:                defaultRetryBackoffMax,
+				HalfOpenMaxRequests:            defaultHalfOpenMaxRequests,
+				SuccessesToClose:               defaultSuccessesToClose,
+				ImmediateCircuitOnAccessDenied: true,
+				DomainEvidenceMinDistinctFeeds: 1,
+				EvidenceWindow:                 defaultEvidenceWindow,
 			},
 		},
 	}
@@ -756,7 +756,7 @@ func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolic
 	}
 	// Record the conditional-GET outcome BEFORE the CacheStatus=Miss stamp
 	// below, so a recovered 304 still classifies as "304" rather than "miss".
-	c.recordConditionalGet(validators, result)
+	c.recordConditionalGet(validators, result, err)
 	if result != nil && err == nil && policy.MinRefreshInterval > 0 && result.Access.CacheStatus != CacheStatusNotModified {
 		result.Access.CacheStatus = CacheStatusMiss
 	}
@@ -767,7 +767,7 @@ func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolic
 // "miss" when no validated snapshot existed (request was unconditional), "304"
 // when validators were sent and the server confirmed Not Modified, "200" when
 // validators were sent but the content changed and was returned in full.
-func (c *Coordinator) recordConditionalGet(validators RequestValidators, result *FetchResult) {
+func (c *Coordinator) recordConditionalGet(validators RequestValidators, result *FetchResult, err error) {
 	if c.metrics == nil {
 		return
 	}
@@ -775,11 +775,13 @@ func (c *Coordinator) recordConditionalGet(validators RequestValidators, result 
 		c.metrics.RecordConditionalGet(conditionalGetResultMiss)
 		return
 	}
-	if result != nil && result.Access.CacheStatus == CacheStatusNotModified {
+	if result != nil && err == nil && result.Access.CacheStatus == CacheStatusNotModified {
 		c.metrics.RecordConditionalGet(conditionalGetResult304)
 		return
 	}
-	c.metrics.RecordConditionalGet(conditionalGetResult200)
+	if result != nil && err == nil && result.Feed != nil && result.Access.HTTPStatus != nil && *result.Access.HTTPStatus == http.StatusOK {
+		c.metrics.RecordConditionalGet(conditionalGetResult200)
+	}
 }
 
 func (c *Coordinator) circuitBlockedLocked(domain string, policy DomainPolicy) (time.Time, bool) {
@@ -820,10 +822,11 @@ func (c *Coordinator) saveLastGood(key string, result *FetchResult) {
 		return
 	}
 	snapshot := FeedSnapshot{
-		FeedURL:      key,
-		RawContent:   result.RawContent,
-		ETag:         result.Access.ETag,
-		LastModified: result.Access.LastModified,
+		FeedURL:         key,
+		RawContent:      result.RawContent,
+		ETag:            result.Access.ETag,
+		LastModified:    result.Access.LastModified,
+		SourceAtCapture: string(result.Access.SourceType),
 	}
 	if result.Access.RetrievedAt != nil {
 		snapshot.RetrievedAt = *result.Access.RetrievedAt
@@ -883,7 +886,6 @@ func (c *Coordinator) recoverNotModified(rawURL, key string, probed *FetchResult
 		return nil, false
 	}
 	access := probed.Access
-	access.SourceType = AccessSourcePrimary
 	access.CacheStatus = CacheStatusNotModified
 	access.Freshness = FreshnessFresh
 	access.ErrorCategory = ErrorCategoryNone

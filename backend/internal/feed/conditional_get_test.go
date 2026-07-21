@@ -2,6 +2,7 @@ package feed
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -175,4 +176,30 @@ func TestConditionalGETOmitsValidatorsWhenNoSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result.Feed)
 	require.Zero(t, atomic.LoadInt32(&sawIfNoneMatch), "no conditional headers before a validated snapshot exists")
+}
+
+func TestConditionalGETFailureIsNotCountedAs200(t *testing.T) {
+	store := NewMemorySnapshotStore(LastGoodStoreConfig{})
+	feedURL := "https://conditional.example/feed.xml"
+	require.NoError(t, store.Save(FeedSnapshot{
+		FeedURL:     feedURL,
+		RawContent:  []byte(testSnapshotFeed("Conditional failure")),
+		RetrievedAt: time.Now(),
+		ETag:        conditionalGETETag,
+	}))
+	coord := conditionalGETCoordinator(store)
+	metrics := NewFeedMetrics()
+	coord.SetMetrics(metrics)
+	status := http.StatusForbidden
+
+	_, err := coord.Do(context.Background(), feedURL, func(context.Context, RequestValidators) (*FetchResult, error) {
+		return &FetchResult{Access: AccessOutcome{
+			HTTPStatus:    &status,
+			ErrorCategory: ErrorCategoryAccessDenied,
+			TargetDomain:  TargetDomain(feedURL),
+			SourceType:    AccessSourcePrimary,
+		}}, errors.New("403 forbidden")
+	})
+	require.Error(t, err)
+	require.Empty(t, metrics.Snapshot().ConditionalGetTotal, "conditional failures are not 200 or 304 outcomes")
 }

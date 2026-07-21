@@ -208,11 +208,33 @@ func (f *Fetcher) FetchFeedWithContext(ctx context.Context, feedURL string) (*go
 // FetchFeedWithContextDetailed returns the parsed Feed together with a stable,
 // bounded access outcome for workflow observability.
 func (f *Fetcher) FetchFeedWithContextDetailed(ctx context.Context, feedURL string) (result *FetchResult, err error) {
+	return f.fetchFeedWithContextDetailed(ctx, feedURL, AccessSourcePrimary)
+}
+
+// FetchFeedWithContextDetailedAsSource is the source-aware seam used by a
+// verified alternative Feed. Marking the source before Coordinator.Do returns
+// ensures metrics and the returned AccessOutcome agree on the selected source.
+func (f *Fetcher) FetchFeedWithContextDetailedAsSource(ctx context.Context, feedURL string, source AccessSource) (result *FetchResult, err error) {
+	return f.fetchFeedWithContextDetailed(ctx, feedURL, source)
+}
+
+func (f *Fetcher) fetchFeedWithContextDetailed(ctx context.Context, feedURL string, source AccessSource) (result *FetchResult, err error) {
+	if source == AccessSourceUnknown || source == "" {
+		source = AccessSourcePrimary
+	}
 	if f.coordinator == nil {
-		return f.fetchFeedWithContextDirect(ctx, feedURL, RequestValidators{})
+		result, err = f.fetchFeedWithContextDirect(ctx, feedURL, RequestValidators{})
+		if result != nil {
+			result.Access.SourceType = source
+		}
+		return result, err
 	}
 	return f.coordinator.Do(ctx, feedURL, func(operationCtx context.Context, validators RequestValidators) (*FetchResult, error) {
-		return f.fetchFeedWithContextDirect(operationCtx, feedURL, validators)
+		result, err := f.fetchFeedWithContextDirect(operationCtx, feedURL, validators)
+		if result != nil {
+			result.Access.SourceType = source
+		}
+		return result, err
 	})
 }
 
@@ -393,7 +415,17 @@ func (f *Fetcher) FetchIncremental(feedURL string, lastFetchTime time.Time) (*Fe
 // FetchIncrementalWithContext is the context-aware incremental variant used by
 // workflow executions so access metadata survives both success and failure.
 func (f *Fetcher) FetchIncrementalWithContext(ctx context.Context, feedURL string, lastFetchTime time.Time) (*FetchResult, error) {
-	result, err := f.FetchFeedWithContextDetailed(ctx, feedURL)
+	return f.fetchIncrementalWithContext(ctx, feedURL, lastFetchTime, AccessSourcePrimary)
+}
+
+// FetchIncrementalWithContextAsSource preserves the semantic source label for
+// verified alternative Feed requests all the way through Coordinator metrics.
+func (f *Fetcher) FetchIncrementalWithContextAsSource(ctx context.Context, feedURL string, lastFetchTime time.Time, source AccessSource) (*FetchResult, error) {
+	return f.fetchIncrementalWithContext(ctx, feedURL, lastFetchTime, source)
+}
+
+func (f *Fetcher) fetchIncrementalWithContext(ctx context.Context, feedURL string, lastFetchTime time.Time, source AccessSource) (*FetchResult, error) {
+	result, err := f.FetchFeedWithContextDetailedAsSource(ctx, feedURL, source)
 	if result == nil {
 		return nil, err
 	}
