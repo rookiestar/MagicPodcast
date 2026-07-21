@@ -1,6 +1,6 @@
 # MagicPodcast 文档中心
 
-最后更新：2026-05-31
+最后更新：2026-07-21
 
 这份索引用来区分“当前维护文档”和“历史记录”。日常开发、部署、测试和重构优先看当前维护文档；阶段性总结和历史分析只作为查证背景，不作为最新状态依据。
 
@@ -36,6 +36,7 @@
 | [migration/](migration/) | 数据迁移、去重和兼容处理 |
 | [optimization/README.md](optimization/README.md) | 当前性能优化入口和下一步边界 |
 | [performance/](performance/) | 当前和后续性能基线 |
+| [research/](research/) | 一手研究、已确认决策与设计提案；引用时需区分生产事实、ADR 和尚未实现的 Spec |
 | [archive/](archive/) | 已从当前入口移出的历史阶段报告和测试报告 |
 
 ## 历史记录
