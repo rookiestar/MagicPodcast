@@ -1,7 +1,7 @@
 # Feed 抓取可靠性升级 Spec
 
 日期：2026-07-21
-状态：设计 Spec（已基于当前代码实现只读分析；未修改代码、配置或生产状态）
+状态：设计 Spec；#25–#29 的可执行切片已实现并验证，未部署生产。robots.txt、RSS `<ttl>`/`skipHours`/`skipDays`、FeedConfig 配置化及外层重试收敛仍不属于本轮票据，需另行拆票和人审。
 对齐基线：[XIAOYUZHOU_FEED_ACCESS_RESILIENCE_2026-07-19.md](XIAOYUZHOU_FEED_ACCESS_RESILIENCE_2026-07-19.md)、[XIAOYUZHOU_ALTERNATIVE_FEED_CANDIDATES_2026-07-20.md](XIAOYUZHOU_ALTERNATIVE_FEED_CANDIDATES_2026-07-20.md)、固定出口 NO-GO 决策（#22 / #24）
 范围：把 MagicPodcast 建设成长期稳定、合规、可观测的 RSS Fetcher；**不**设计任何绕过上游风控的方案。
 
@@ -364,7 +364,7 @@ feed_snapshots {
 
 ### 7.3 与既有 ADR / 研究记录的对齐
 
-- 本 Spec 是 [XIAOYUZHOU_FEED_ACCESS_RESILIENCE_2026-07-19.md](XIAOYUZHOU_FEED_ACCESS_RESILIENCE_2026-07-19.md) P0（设计约束）的**工程落地**：共享队列（既有 Coordinator）、条件请求（P0）、错峰（既有 + P0 robots/ttl）、`Retry-After`（P0/P1）、诚实 UA + robots（P0）、聚合指标（P3）。
+- 本 Spec 中本轮票据已落地的部分包括共享队列（既有 Coordinator）、条件请求、错峰基础能力、`Retry-After`、诚实 UA 和聚合指标；robots/TTL/skipHours/skipDays 仍是后续独立实现项，不应从本轮提交推导为已完成。
 - 本 Spec **不**触碰该研究 P1/P2（固定出口实验与中继）——那些仍 NO-GO；只推进 P0 + 新增 P2 持久化 + P3 诊断。
 - fallback 链与 [XIAOYUZHOU_ALTERNATIVE_FEED_CANDIDATES_2026-07-20.md](XIAOYUZHOU_ALTERNATIVE_FEED_CANDIDATES_2026-07-20.md) 一致，仅把 last-good 从内存升级为持久化。
 - 用词沿用既有 `feed/access.go` / `feed/coordinator.go` 常量定义的事实术语，不另造新词。
