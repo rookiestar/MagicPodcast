@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mmcdole/gofeed"
+	"magicpodcast/internal/logger"
 )
 
 const XiaoyuzhouFeedDomain = "feed.xyzfm.space"
@@ -71,7 +72,7 @@ type DomainPolicy struct {
 
 type CoordinatorConfig struct {
 	DomainPolicies map[string]DomainPolicy
-	LastGoodStore  SnapshotStore
+	LastGoodStore  FeedStateStore
 	MaxStaleAge    time.Duration
 }
 
@@ -81,7 +82,7 @@ type Coordinator struct {
 	inFlight     map[string]*inFlightFetch
 	sharedResult map[string]cachedFetch
 	semaphores   map[string]chan struct{}
-	lastGood     SnapshotStore
+	lastGood     FeedStateStore
 	maxStaleAge  time.Duration
 	circuits     map[string]*domainCircuit
 	// jitter returns a float in [0,1) used to decorrelate bounded backoff so
@@ -561,7 +562,14 @@ func (c *Coordinator) LastGood(ctx context.Context, rawURL string, failure *Fetc
 	}
 
 	key := CanonicalizeURL(rawURL)
-	snapshot, ok := c.lastGood.Load(key)
+	snapshot, ok, err := c.lastGood.Load(key)
+	if err != nil {
+		// A persistence/corruption error must never be disguised as a clean
+		// miss: log it but fall back honestly rather than serving a broken or
+		// unvalidated snapshot as fresh.
+		logger.Warnf("feed last-good load failed for %s: %v", key, err)
+		return nil, false
+	}
 	if !ok || snapshot == nil || !snapshotUsable(snapshot, key, c.maxStaleAge) {
 		return nil, false
 	}
@@ -712,8 +720,10 @@ func (c *Coordinator) saveLastGood(key string, result *FetchResult) {
 		return
 	}
 	snapshot := FeedSnapshot{
-		FeedURL:    key,
-		RawContent: result.RawContent,
+		FeedURL:      key,
+		RawContent:   result.RawContent,
+		ETag:         result.Access.ETag,
+		LastModified: result.Access.LastModified,
 	}
 	if result.Access.RetrievedAt != nil {
 		snapshot.RetrievedAt = *result.Access.RetrievedAt
@@ -721,7 +731,29 @@ func (c *Coordinator) saveLastGood(key string, result *FetchResult) {
 	if snapshot.RetrievedAt.IsZero() {
 		snapshot.RetrievedAt = time.Now()
 	}
-	_ = c.lastGood.Save(snapshot)
+	if err := c.lastGood.Save(snapshot); err != nil {
+		// Durability failure: the snapshot is unavailable for future restart
+		// recovery but the live fetch still succeeded, so log and continue.
+		if errors.Is(err, ErrSnapshotNotPersisted) {
+			logger.Warnf("feed last-good not persisted for %s: %v", key, err)
+		} else {
+			logger.Warnf("feed last-good save failed for %s: %v", key, err)
+		}
+	}
+}
+
+// UsePersistentLastGood upgrades the in-process last-good store to a tiered
+// (memory L1 + durable L2) store. It is intended to be called once during
+// startup, before any Feed fetch, when the application database is available.
+// Snapshots already cached in the prior store are best-effort: at startup the
+// process store is empty, so there is nothing to drain.
+func (c *Coordinator) UsePersistentLastGood(store FeedStateStore) {
+	if c == nil || store == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lastGood = NewTieredSnapshotStore(store, LastGoodStoreConfig{})
 }
 
 func (c *Coordinator) freshLocalResult(ctx context.Context, rawURL, key string, freshFor time.Duration) (*FetchResult, bool) {
@@ -733,7 +765,11 @@ func (c *Coordinator) freshLocalResult(ctx context.Context, rawURL, key string, 
 		return nil, false
 	default:
 	}
-	snapshot, ok := c.lastGood.Load(key)
+	snapshot, ok, err := c.lastGood.Load(key)
+	if err != nil {
+		logger.Warnf("feed last-good load failed for %s: %v", key, err)
+		return nil, false
+	}
 	if !ok || !snapshotUsable(snapshot, key, freshFor) {
 		return nil, false
 	}

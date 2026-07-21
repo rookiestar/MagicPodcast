@@ -6,13 +6,14 @@ import (
 	"sort"
 	"time"
 
+	"magicpodcast/internal/feed"
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/models"
 
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 6
+const CurrentSchemaVersion = 7
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -78,6 +79,12 @@ func migrationRegistry() []Migration {
 			Name:        "scheduler-run-history",
 			Description: "Create the scheduler run history table used for consecutive-failure observation.",
 			Apply:       applySchedulerRunHistoryMigration,
+		},
+		{
+			Version:     7,
+			Name:        "feed-snapshots-last-good",
+			Description: "Create the bounded feed_snapshots table used to persist last-good Feed snapshots for restart recovery.",
+			Apply:       applyFeedSnapshotsMigration,
 		},
 	}
 }
@@ -293,6 +300,22 @@ func applyFeedSourceVerificationMigration(db *gorm.DB) error {
 func applySchedulerRunHistoryMigration(db *gorm.DB) error {
 	if err := db.AutoMigrate(&models.SchedulerRun{}); err != nil {
 		return fmt.Errorf("create scheduler_runs: %w", err)
+	}
+	return nil
+}
+
+// applyFeedSnapshotsMigration creates the durable last-good snapshot table.
+// The DDL lives in the feed package so the store and the migration cannot drift.
+// It is idempotent: a pre-existing table is left untouched.
+func applyFeedSnapshotsMigration(db *gorm.DB) error {
+	if db.Migrator().HasTable(feed.FeedSnapshotsTableName) {
+		return nil
+	}
+	if err := db.Exec(feed.FeedSnapshotsCreateTableSQL).Error; err != nil {
+		return fmt.Errorf("create %s table: %w", feed.FeedSnapshotsTableName, err)
+	}
+	if err := db.Exec(feed.FeedSnapshotsCreateIndexSQL).Error; err != nil {
+		return fmt.Errorf("create %s eviction index: %w", feed.FeedSnapshotsTableName, err)
 	}
 	return nil
 }

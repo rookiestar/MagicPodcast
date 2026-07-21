@@ -61,6 +61,7 @@ func TestApplyMigrationsCreatesVersionedReadySchema(t *testing.T) {
 	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_source_url"))
 	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_identity_verification"))
 	require.True(t, db.Migrator().HasTable(&models.SchedulerRun{}))
+	require.True(t, db.Migrator().HasTable("feed_snapshots"))
 
 	var foreignKeys int
 	require.NoError(t, db.Raw("PRAGMA foreign_keys").Row().Scan(&foreignKeys))
@@ -74,7 +75,7 @@ func TestApplyMigrationsUpgradesSchemaV5ToV6WithSchedulerRuns(t *testing.T) {
 	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
 
 	registry := migrationRegistry()
-	require.Len(t, registry, 6)
+	require.Len(t, registry, 7)
 	require.NoError(t, applyMigrationSet(db, registry[:5]))
 	require.NoError(t, db.Migrator().DropTable(&models.SchedulerRun{}))
 

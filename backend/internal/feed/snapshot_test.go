@@ -34,7 +34,8 @@ func TestCoordinatorReusesFreshSnapshotWithoutContactingUpstream(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, AccessSourcePrimary, first.Access.SourceType)
 	require.NotNil(t, first.Access.RetrievedAt)
-	snapshot, ok := store.Load(feedURL)
+	snapshot, ok, err := store.Load(feedURL)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.NotEmpty(t, snapshot.Fingerprint)
 	require.NotEmpty(t, snapshot.RawContent)
@@ -103,17 +104,22 @@ func TestMemorySnapshotStoreEnforcesEntryResponseAndTotalBounds(t *testing.T) {
 	require.NoError(t, store.Save(first))
 	require.NoError(t, store.Save(second))
 
-	stats := store.Stats()
+	stats, err := store.Stats()
+	require.NoError(t, err)
 	require.Equal(t, 1, stats.Entries)
 	require.LessOrEqual(t, stats.TotalBytes, int64(128))
-	_, firstPresent := store.Load(first.FeedURL)
-	_, secondPresent := store.Load(second.FeedURL)
+	_, firstPresent, firstErr := store.Load(first.FeedURL)
+	require.NoError(t, firstErr)
+	_, secondPresent, secondErr := store.Load(second.FeedURL)
+	require.NoError(t, secondErr)
 	require.False(t, firstPresent)
 	require.True(t, secondPresent)
+	require.Equal(t, int64(1), stats.EvictedCount)
 
 	tooLarge := FeedSnapshot{FeedURL: "https://example.test/large.xml", RetrievedAt: retrievedAt, RawContent: make([]byte, 129)}
 	require.ErrorIs(t, store.Save(tooLarge), ErrSnapshotResponseTooLarge)
-	stats = store.Stats()
+	stats, err = store.Stats()
+	require.NoError(t, err)
 	require.Equal(t, 1, stats.Entries)
 	require.LessOrEqual(t, stats.TotalBytes, int64(128))
 }
@@ -143,16 +149,18 @@ type corruptSnapshotStore struct{}
 
 func (s *corruptSnapshotStore) Save(FeedSnapshot) error { return nil }
 
-func (s *corruptSnapshotStore) Load(feedURL string) (*FeedSnapshot, bool) {
+func (s *corruptSnapshotStore) Load(feedURL string) (*FeedSnapshot, bool, error) {
 	return &FeedSnapshot{
 		FeedURL:     CanonicalizeURL(feedURL),
 		RetrievedAt: time.Now(),
 		Fingerprint: "not-the-fingerprint",
 		RawContent:  []byte("this is not a feed"),
-	}, true
+	}, true, nil
 }
 
-func (s *corruptSnapshotStore) Stats() SnapshotStoreStats { return SnapshotStoreStats{} }
+func (s *corruptSnapshotStore) Delete(string) error { return nil }
+
+func (s *corruptSnapshotStore) Stats() (SnapshotStoreStats, error) { return SnapshotStoreStats{}, nil }
 
 func testSnapshotFeed(title string) string {
 	return fmt.Sprintf(`<?xml version="1.0"?><rss version="2.0"><channel><title>%s</title><item><title>Episode</title><guid>%s-episode</guid><pubDate>Tue, 14 Jul 2026 08:00:00 GMT</pubDate><description>Details</description></item></channel></rss>`, title, title)

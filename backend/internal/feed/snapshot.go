@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -17,21 +18,46 @@ const (
 	maxCapturedFeedSnapshotBytes    = defaultLastGoodMaxResponseBytes
 )
 
-var ErrSnapshotResponseTooLarge = errors.New("feed snapshot response exceeds the configured limit")
+var (
+	ErrSnapshotResponseTooLarge = errors.New("feed snapshot response exceeds the configured limit")
+	// ErrSnapshotNotFound is a plain miss: the store has no usable snapshot.
+	ErrSnapshotNotFound = errors.New("feed snapshot not found")
+	// ErrSnapshotCorrupted means a snapshot exists but its fingerprint or
+	// content fails validation, so it must not be silently served as fresh.
+	ErrSnapshotCorrupted = errors.New("feed snapshot corrupted")
+	// ErrSnapshotNotPersisted signals that an L1 (in-process) write succeeded
+	// but L2 durability failed; the snapshot is usable this process lifetime
+	// but will not survive a restart. It must never be reported as durable
+	// success.
+	ErrSnapshotNotPersisted = errors.New("feed snapshot not persisted")
+)
 
 // FeedSnapshot is the bounded, parsed-feed source retained for last-good
-// fallback. RawContent is kept out of logs and API responses.
+// fallback. RawContent is kept out of logs and API responses. ETag/LastModified
+// are the conditional-GET validators captured atomically with the body, so they
+// stay valid for exactly the content they describe; ValidatedAt is the most
+// recent 200/304 confirmation; SourceAtCapture records whether the captured
+// content was the primary or a verified alternative feed.
 type FeedSnapshot struct {
-	FeedURL     string
-	RetrievedAt time.Time
-	Fingerprint string
-	RawContent  []byte
+	FeedURL         string
+	RetrievedAt     time.Time
+	Fingerprint     string
+	RawContent      []byte
+	ETag            string
+	LastModified    string
+	ValidatedAt     time.Time
+	SourceAtCapture string
 }
 
-type SnapshotStore interface {
+// FeedStateStore is the error-reporting evolution of the snapshot store. Reads
+// distinguish a plain miss (ok=false, err=nil) from corruption or persistence
+// errors (err != nil), so a broken snapshot or database fault is never silently
+// disguised as a cache miss.
+type FeedStateStore interface {
 	Save(snapshot FeedSnapshot) error
-	Load(feedURL string) (*FeedSnapshot, bool)
-	Stats() SnapshotStoreStats
+	Load(feedURL string) (*FeedSnapshot, bool, error)
+	Delete(feedURL string) error
+	Stats() (SnapshotStoreStats, error)
 }
 
 type LastGoodStoreConfig struct {
@@ -41,8 +67,10 @@ type LastGoodStoreConfig struct {
 }
 
 type SnapshotStoreStats struct {
-	Entries    int
-	TotalBytes int64
+	Entries       int
+	TotalBytes    int64
+	EvictedCount  int64
+	WriteFailures int64
 }
 
 type memorySnapshot struct {
@@ -60,6 +88,7 @@ type MemorySnapshotStore struct {
 	maxTotalBytes    int64
 	entries          map[string]memorySnapshot
 	totalBytes       int64
+	evictedCount     int64
 }
 
 func NewMemorySnapshotStore(config LastGoodStoreConfig) *MemorySnapshotStore {
@@ -97,6 +126,9 @@ func (s *MemorySnapshotStore) Save(snapshot FeedSnapshot) error {
 	if snapshot.RetrievedAt.IsZero() {
 		snapshot.RetrievedAt = time.Now()
 	}
+	if snapshot.ValidatedAt.IsZero() {
+		snapshot.ValidatedAt = snapshot.RetrievedAt
+	}
 	if snapshot.Fingerprint == "" {
 		snapshot.Fingerprint = fingerprint(snapshot.RawContent)
 	}
@@ -118,35 +150,53 @@ func (s *MemorySnapshotStore) Save(snapshot FeedSnapshot) error {
 		oldest := s.entries[oldestKey]
 		delete(s.entries, oldestKey)
 		s.totalBytes -= int64(len(oldest.RawContent))
+		s.evictedCount++
 	}
 	s.entries[key] = memorySnapshot{FeedSnapshot: snapshot, storedAt: time.Now()}
 	s.totalBytes += int64(len(snapshot.RawContent))
 	return nil
 }
 
-func (s *MemorySnapshotStore) Load(feedURL string) (*FeedSnapshot, bool) {
+func (s *MemorySnapshotStore) Load(feedURL string) (*FeedSnapshot, bool, error) {
 	if s == nil {
-		return nil, false
+		return nil, false, nil
 	}
 	key := CanonicalizeURL(feedURL)
 	s.mu.RLock()
 	snapshot, ok := s.entries[key]
 	s.mu.RUnlock()
 	if !ok {
-		return nil, false
+		return nil, false, nil
 	}
-	copy := snapshot.FeedSnapshot
-	copy.RawContent = append([]byte(nil), snapshot.RawContent...)
-	return &copy, true
+	if err := validateSnapshot(&snapshot.FeedSnapshot); err != nil {
+		return nil, false, fmt.Errorf("%w: %v", ErrSnapshotCorrupted, err)
+	}
+	clone := snapshot.FeedSnapshot
+	clone.RawContent = append([]byte(nil), snapshot.RawContent...)
+	return &clone, true, nil
 }
 
-func (s *MemorySnapshotStore) Stats() SnapshotStoreStats {
+func (s *MemorySnapshotStore) Delete(feedURL string) error {
 	if s == nil {
-		return SnapshotStoreStats{}
+		return nil
+	}
+	key := CanonicalizeURL(feedURL)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if previous, ok := s.entries[key]; ok {
+		s.totalBytes -= int64(len(previous.RawContent))
+		delete(s.entries, key)
+	}
+	return nil
+}
+
+func (s *MemorySnapshotStore) Stats() (SnapshotStoreStats, error) {
+	if s == nil {
+		return SnapshotStoreStats{}, nil
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return SnapshotStoreStats{Entries: len(s.entries), TotalBytes: s.totalBytes}
+	return SnapshotStoreStats{Entries: len(s.entries), TotalBytes: s.totalBytes, EvictedCount: s.evictedCount}, nil
 }
 
 func (s *MemorySnapshotStore) oldestKey() (string, bool) {

@@ -111,7 +111,34 @@ type EpisodeSyncResult struct {
 
 // NewService 创建同步服务
 func NewService(db *gorm.DB, podcastIndexPath string) (*Service, error) {
-	return NewServiceWithFeedCoordinator(db, podcastIndexPath, feed.SharedCoordinator())
+	coordinator := feed.SharedCoordinator()
+	attachPersistentLastGood(db, coordinator)
+	return NewServiceWithFeedCoordinator(db, podcastIndexPath, coordinator)
+}
+
+// attachPersistentLastGood upgrades the shared coordinator's last-good store
+// from in-process-only to a tiered (memory L1 + SQLite L2) store so a verified
+// Feed snapshot survives a restart. It is best-effort: if the database handle is
+// absent or the feed_snapshots table does not yet exist, the coordinator keeps
+// its in-process store and continues normally.
+func attachPersistentLastGood(db *gorm.DB, coordinator *feed.Coordinator) {
+	if db == nil || coordinator == nil {
+		return
+	}
+	if !db.Migrator().HasTable(feed.FeedSnapshotsTableName) {
+		return
+	}
+	sqlDB, err := db.DB()
+	if err != nil || sqlDB == nil {
+		logger.Infof("Warning: feed last-good persistence unavailable (no db handle): %v", err)
+		return
+	}
+	store, err := feed.NewSQLiteSnapshotStore(sqlDB, feed.LastGoodStoreConfig{})
+	if err != nil {
+		logger.Infof("Warning: feed last-good persistence unavailable: %v", err)
+		return
+	}
+	coordinator.UsePersistentLastGood(store)
 }
 
 // NewServiceWithFeedCoordinator keeps the workflow seam testable while the
