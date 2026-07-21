@@ -72,6 +72,22 @@ const (
 	CacheStatusNotModified CacheStatus = "not_modified"
 )
 
+// FailurePhase names the connection stage a Feed fetch reached before it
+// failed. It is derived from httptrace callbacks plus body-read wrapping, so a
+// fast HTTP refusal (e.g. 403) is always response_header/body_read — never
+// connect. It is a classification aid only and cannot by itself prove WAF/CDN
+// or IP-root-cause.
+type FailurePhase string
+
+const (
+	FailurePhaseNotObserved   FailurePhase = "not_observed"
+	FailurePhaseDNS           FailurePhase = "dns"
+	FailurePhaseConnect       FailurePhase = "connect"
+	FailurePhaseTLS           FailurePhase = "tls"
+	FailurePhaseResponseHeader FailurePhase = "response_header"
+	FailurePhaseBodyRead      FailurePhase = "body_read"
+)
+
 type Freshness string
 
 const (
@@ -107,6 +123,7 @@ type AccessOutcome struct {
 	Freshness            Freshness     `json:"freshness"`
 	EgressID             string        `json:"egress_id"`
 	CircuitState         CircuitState  `json:"circuit_state"`
+	FailurePhase         FailurePhase  `json:"failure_phase,omitempty"`
 	RetrievedAt          *time.Time    `json:"retrieved_at,omitempty"`
 }
 

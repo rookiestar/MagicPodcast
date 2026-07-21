@@ -7,6 +7,7 @@ import (
 	"magicpodcast/internal/logger"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"sync"
 	"time"
 
@@ -37,6 +38,13 @@ type FeedHTTPConfig struct {
 	TLSHandshakeTimeout   time.Duration
 	ResponseHeaderTimeout time.Duration
 	OverallTimeout        time.Duration
+	// ConfiguredEgressLabel records which egress path the application is
+	// configured to use. It is a configuration tag ONLY — not proof of the real
+	// public egress — and is emitted as configured_egress_label in failure logs
+	// and carried on AccessOutcome.EgressID for execution history. Defaults to
+	// "direct"; #22/#24 egress experiments must pair it with network-side
+	// evidence before drawing any conclusion.
+	ConfiguredEgressLabel string
 }
 
 // DefaultFeedHTTPConfig returns honest, low-load defaults for the given overall
@@ -53,6 +61,7 @@ func DefaultFeedHTTPConfig(overall time.Duration) FeedHTTPConfig {
 		TLSHandshakeTimeout:   defaultFeedTLSHandshakeTimeout,
 		ResponseHeaderTimeout: defaultFeedResponseHeaderTimeout,
 		OverallTimeout:        overall,
+		ConfiguredEgressLabel: EgressDirect,
 	}
 }
 
@@ -107,6 +116,9 @@ func NewFetcherWithHTTPConfig(config FeedHTTPConfig, coordinator *Coordinator) *
 	if config.Accept == "" {
 		config.Accept = defaultFeedAccept
 	}
+	if config.ConfiguredEgressLabel == "" {
+		config.ConfiguredEgressLabel = EgressDirect
+	}
 	return &Fetcher{
 		httpConfig:  config,
 		coordinator: coordinator,
@@ -153,6 +165,26 @@ func (f *Fetcher) accept() string {
 	return f.httpConfig.Accept
 }
 
+// configuredEgressLabel returns the configured egress tag (default "direct").
+// It is a configuration label only and must never be presented as proof of the
+// real public egress.
+func (f *Fetcher) configuredEgressLabel() string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.httpConfig.ConfiguredEgressLabel
+}
+
+// SetConfiguredEgressLabel overrides the configured egress tag so #22/#24
+// egress experiments can label their requests. It does not change any network
+// behavior, only the observation tag emitted in logs and execution history.
+func (f *Fetcher) SetConfiguredEgressLabel(label string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if label != "" {
+		f.httpConfig.ConfiguredEgressLabel = label
+	}
+}
+
 // FetchFeed 抓取RSS Feed（完整）
 func (f *Fetcher) FetchFeed(feedURL string) (*gofeed.Feed, error) {
 	return f.FetchFeedWithContext(context.Background(), feedURL)
@@ -184,13 +216,23 @@ func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string
 	}
 	startTime := time.Now()
 	result = &FetchResult{Access: newPrimaryAccessOutcome(feedURL)}
+	result.Access.EgressID = f.configuredEgressLabel()
+	safeURL := SanitizeFeedURL(feedURL)
+	// phase tracks the connection stage reached so far via httptrace; it is
+	// stamped onto the outcome (and the structured failure log) only when err
+	// != nil. A status-level refusal (incl. 403) is always response_header or
+	// body_read — never connect.
+	var phase FailurePhase
 	setDuration := func() {
 		result.Access.ResponseTimeMs = int(time.Since(startTime).Milliseconds())
 		result.Error = err
+		if err != nil && !errors.Is(err, ErrFeedNotModified) {
+			result.Access.FailurePhase = phase
+			logger.WithFields(feedFailureLogFields(result, safeURL)).Warn("feed fetch failed")
+		}
 	}
 	defer setDuration()
 
-	safeURL := SanitizeFeedURL(feedURL)
 	logger.Infof("  📡 HTTP GET: %s", safeURL)
 	if ctx.Err() != nil {
 		result.Access.ErrorCategory = ErrorCategoryCancelled
@@ -200,11 +242,11 @@ func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string
 	requestCtx, cancel := context.WithTimeout(ctx, f.httpConfig.OverallTimeout)
 	defer cancel()
 
-	req, requestErr := http.NewRequestWithContext(requestCtx, http.MethodGet, feedURL, nil)
+	tracedCtx := httptrace.WithClientTrace(requestCtx, newFeedFetchTrace(&phase))
+	req, requestErr := http.NewRequestWithContext(tracedCtx, http.MethodGet, feedURL, nil)
 	if requestErr != nil {
 		err = WrapHTTPError(feedURL, requestErr)
 		result.Access.ErrorCategory = ErrorCategoryInvalidRequest
-		logger.Infof("  ❌ HTTP请求创建失败: %s (耗时: %v): %v", safeURL, time.Since(startTime), err)
 		return result, err
 	}
 	req.Header.Set("User-Agent", f.userAgent())
@@ -230,17 +272,18 @@ func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string
 			} else {
 				result.Access.ErrorCategory = ErrorCategoryCancelled
 			}
-			logger.Infof("  ⏱️ HTTP请求超时/取消: %s (耗时: %v): %v", safeURL, time.Since(startTime), err)
 			return result, err
 		}
 		err = WrapHTTPError(feedURL, requestErr)
 		result.Access.ErrorCategory = ErrorCategoryNetwork
-		logger.Infof("  ❌ HTTP请求失败: %s (耗时: %v): %v", safeURL, time.Since(startTime), err)
 		return result, err
 	}
 	defer resp.Body.Close()
 
 	status := resp.StatusCode
+	// Headers received: any subsequent failure (status refusal, body parse) is
+	// by definition response_header or body_read, never connect.
+	phase = FailurePhaseResponseHeader
 	result.Access.HTTPStatus = &status
 	result.Access.RetryAfter = resp.Header.Get("Retry-After")
 	result.Access.ETag = resp.Header.Get("ETag")
@@ -269,10 +312,11 @@ func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string
 		err = WrapHTTPError(feedURL, newHTTPStatusError(status))
 		result.Access.ErrorCategory = errorCategoryForStatus(status)
 		result.Access.Freshness = FreshnessUnknown
-		logger.Infof("  ❌ HTTP请求失败: %s (耗时: %v): %v", safeURL, time.Since(startTime), err)
 		return result, err
 	}
 
+	// Body read/parse phase: a parse failure from here is body_read.
+	phase = FailurePhaseBodyRead
 	var counter byteCounter
 	capture := &boundedFeedCapture{maxBytes: maxCapturedFeedSnapshotBytes}
 	parsedFeed, parseErr := f.newParser().Parse(io.TeeReader(resp.Body, io.MultiWriter(&counter, capture)))
@@ -281,7 +325,6 @@ func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string
 		err = WrapFeedParseError(feedURL, parseErr)
 		result.Access.ErrorCategory = ErrorCategoryParse
 		result.Access.Freshness = FreshnessUnknown
-		logger.Infof("  ❌ Feed解析失败: %s (耗时: %v): %v", safeURL, time.Since(startTime), err)
 		return result, err
 	}
 
@@ -289,7 +332,7 @@ func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string
 	result.RawContent = capture.Bytes()
 	result.Access.ErrorCategory = ErrorCategoryNone
 	result.Access.Freshness = FreshnessLive
-	result.Access.EgressID = EgressDirect
+	result.Access.EgressID = f.configuredEgressLabel()
 	retrievedAt := time.Now()
 	result.Access.RetrievedAt = &retrievedAt
 	logger.Infof("  ✅ HTTP请求成功: %s (耗时: %v, 标题: %s, 单集数: %d)",
