@@ -164,3 +164,72 @@ llm:
     2. 对不确定的内容使用"可能"、"疑似"等谨慎表述
     3. 不涉及政治、宗教、暴力等敏感内容
     4. 保持客观中立的立场
+
+# Feed 抓取可靠性配置（启动期一次性加载，无热更新；改任何值都需要重启）
+# 本节缺省时全部走已验证的诚实默认值，行为与之前完全一致。
+# 任意叶子键都可用 MAGICPODCAST_FEED_* 环境变量覆盖，环境变量优先级高于此文件。
+# 这里只承载有界的、塑性行为的取值；完整 Feed URL、响应正文、Cookie、凭据或
+# 任意响应头都不属于本配置。
+feed:
+  # User-Agent：诚实标识，不要伪装成浏览器。
+  user_agent: "MagicPodcast/1.0 (+https://github.com/rookiestar/MagicPodcast)"
+  # 分层 HTTP 超时；任一层快速失败，避免慢响应耗尽整个请求预算。
+  timeouts:
+    connect: "10s"
+    tls: "10s"
+    header: "20s"
+    overall: "30s"
+  # 诚实、低负载的请求头。Accept-Encoding 故意不设置：Go 的 http.Transport
+  # 会透明协商并解压 gzip，显式设置反而会关闭该行为。
+  headers:
+    accept: "application/rss+xml, application/atom+xml, application/xml;q=0.9, */*;q=0.8"
+    accept_language: ""
+  # 外层重试预算（叠在 Coordinator 断路之上）。budget 是单个 Feed 在一次工作流
+  # 步骤内的最大尝试次数；0 表示不做外层重试，只走 Coordinator 的断路/半开逻辑。
+  # 硬上限为 5，任何配置都无法产生无限重试。
+  retry:
+    budget: 0
+    jitter: "0s"
+  # 断路恢复全局默认值；未在 domain_policies 中覆盖的域名都使用这些取值。
+  # 留空/为 0 时走已验证默认值，绝不扩大断路范围。
+  circuit:
+    half_open_max: 0
+    successes_to_close: 0
+    domain_evidence_min_distinct_feeds: 0
+    # thresholds_per_category 为保留映射，留空即保持现有断路逻辑；
+    # 显式填写为运营方主动 opt-in，key 必须是已知错误类别且 value >= 1。
+    thresholds_per_category: {}
+  # last-good 兜底快照存储。durable 缺省为 true（feed_snapshots 表存在时落盘，
+  # 进程重启后仍可恢复）；显式 durable:false 才退出落盘。
+  snapshot:
+    durable: true
+    bounds:
+      max_entries: 0
+      max_response_bytes: 0
+      max_total_bytes: 0
+  # 受保护的 Admin 诊断视图与出口观测标签。
+  # admin_enabled 缺省为 true（路由注册）；显式 false 才去注册该路由，
+  # 但 /health 与 /ready 语义保持不变。访问控制仍依赖 loopback 绑定 +
+  # Cloudflare Access。
+  # configured_egress_label 仅是配置标签，缺省为 "direct"，
+  # 不构成真实公网出口的证明。
+  diagnostics:
+    admin_enabled: true
+    configured_egress_label: "direct"
+  # 启动期可调的、按域名的作用域塑性策略，映射到 DomainPolicy 中可安全调整的字段。
+  # ImmediateCircuitOnAccessDenied 故意不在此暴露：feed.xyzfm.space 的首 403 立即
+  # 开断路规则是不可放松的安全不变量，任何配置都必须保留。
+  domain_policies: []
+  # domain_policies 示例（非安全字段可调）：
+  # - domain: "feed.example.com"
+  #   max_concurrency: 2
+  #   min_refresh_interval: "30m"
+  #   max_jitter: "2m"
+  #   circuit_cooldown: "60s"
+  #   retry_backoff_initial: "1s"
+  #   retry_backoff_max: "30s"
+  #   half_open_max_requests: 1
+  #   successes_to_close: 2
+  #   domain_evidence_min_distinct_feeds: 1
+  #   evidence_window: "5m"
+

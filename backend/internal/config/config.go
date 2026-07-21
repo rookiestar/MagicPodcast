@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+	"magicpodcast/internal/feed"
 )
 
 // Config 表示应用程序的配置
@@ -21,6 +22,10 @@ type Config struct {
 	User         UserConfig         `mapstructure:"user"`
 	Email        EmailConfig        `mapstructure:"email"`
 	LLM          LLMConfig          `mapstructure:"llm"`
+	// Feed carries the startup-loaded Feed fetcher / coordinator configuration.
+	// It is applied once at process start (no hot reload) via
+	// feed.ConfigureSharedRuntime, so changes require a restart.
+	Feed feed.FeedConfig `mapstructure:"feed"`
 }
 
 // ServerConfig 服务器配置
@@ -171,6 +176,10 @@ func Load(configPath string) (*Config, error) {
 	// 环境变量前缀
 	viper.SetEnvPrefix("MAGICPODCAST")
 	viper.AutomaticEnv()
+	// 让嵌套键（如 feed.user_agent）能匹配带下划线的环境变量
+	// （MAGICPODCAST_FEED_USER_AGENT）。绑定到具体叶子键后生效。
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	bindFeedEnvKeys()
 
 	// 读取配置文件
 	if err := viper.ReadInConfig(); err != nil {
@@ -190,8 +199,43 @@ func Load(configPath string) (*Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
+	if err := cfg.Feed.Validate(); err != nil {
+		return nil, fmt.Errorf("feed config validation failed: %w", err)
+	}
 
 	return cfg, nil
+}
+
+// bindFeedEnvKeys binds the feed configuration leaf keys to their
+// MAGICPODCAST_FEED_* environment variables so operators can override any
+// startup-loaded feed knob without editing the YAML. BindEnv must run before
+// Unmarshal so the bindings participate in decoding.
+func bindFeedEnvKeys() {
+	for _, key := range feedEnvKeys {
+		_ = viper.BindEnv(key)
+	}
+}
+
+// feedEnvKeys is the full set of feed leaf keys overridable via environment.
+var feedEnvKeys = []string{
+	"feed.user_agent",
+	"feed.timeouts.connect",
+	"feed.timeouts.tls",
+	"feed.timeouts.header",
+	"feed.timeouts.overall",
+	"feed.headers.accept",
+	"feed.headers.accept_language",
+	"feed.retry.budget",
+	"feed.retry.jitter",
+	"feed.circuit.domain_evidence_min_distinct_feeds",
+	"feed.circuit.half_open_max",
+	"feed.circuit.successes_to_close",
+	"feed.snapshot.durable",
+	"feed.snapshot.bounds.max_entries",
+	"feed.snapshot.bounds.max_response_bytes",
+	"feed.snapshot.bounds.max_total_bytes",
+	"feed.diagnostics.admin_enabled",
+	"feed.diagnostics.configured_egress_label",
 }
 
 // applyEnvOverrides 从环境变量覆盖本机运行配置

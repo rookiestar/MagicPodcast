@@ -91,6 +91,11 @@ type Coordinator struct {
 	lastGood     FeedStateStore
 	maxStaleAge  time.Duration
 	circuits     map[string]*domainCircuit
+	// circuitDefaults holds the global circuit-recovery defaults applied to
+	// every domain policy that does not override the value. They start at the
+	// honest defaults and are replaced once at startup via SetCircuitDefaults
+	// from the loaded FeedConfig; there is no concurrent reload.
+	circuitDefaults CircuitDefaults
 	// metrics aggregates fetch/circuit/conditional-get/last-good counters for
 	// the protected admin diagnostics view. It defaults to the process-wide
 	// registry; tests inject an isolated instance via SetMetrics before any
@@ -100,6 +105,18 @@ type Coordinator struct {
 	// simultaneous recoveries do not synchronize. Tests override it for
 	// deterministic boundary checks.
 	jitter func() float64
+}
+
+// CircuitDefaults carries the global circuit-recovery defaults (half-open probe
+// admission, consecutive successes required to close, and the distinct-feed
+// evidence threshold plus its window). A domain policy overrides any of these
+// per domain; the defaults apply otherwise and always preserve the
+// already-validated behavior.
+type CircuitDefaults struct {
+	HalfOpenMaxRequests            int
+	SuccessesToClose               int
+	DomainEvidenceMinDistinctFeeds int
+	EvidenceWindow                 time.Duration
 }
 
 type inFlightFetch struct {
@@ -171,8 +188,14 @@ func NewCoordinator(config CoordinatorConfig) *Coordinator {
 		lastGood:     lastGoodStore,
 		maxStaleAge:  maxStaleAge,
 		circuits:     make(map[string]*domainCircuit),
-		metrics:      SharedFeedMetrics(),
-		jitter:       defaultJitter,
+		circuitDefaults: CircuitDefaults{
+			HalfOpenMaxRequests:            defaultHalfOpenMaxRequests,
+			SuccessesToClose:               defaultSuccessesToClose,
+			DomainEvidenceMinDistinctFeeds: defaultDomainEvidenceMinDistinctFeeds,
+			EvidenceWindow:                 defaultEvidenceWindow,
+		},
+		metrics: SharedFeedMetrics(),
+		jitter:  defaultJitter,
 	}
 }
 
@@ -186,6 +209,45 @@ func (c *Coordinator) SetMetrics(metrics *FeedMetrics) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.metrics = metrics
+}
+
+// SetDomainPolicies replaces the load-shaping policies. It is called once at
+// startup from ConfigureSharedRuntime, before any fetch, to merge the loaded
+// FeedConfig domain_policies onto the default policy set. The last-good store
+// and in-flight state are preserved.
+func (c *Coordinator) SetDomainPolicies(policies map[string]DomainPolicy) {
+	if c == nil || policies == nil {
+		return
+	}
+	normalized := make(map[string]DomainPolicy, len(policies))
+	for domain, policy := range policies {
+		normalized[strings.ToLower(strings.TrimSpace(domain))] = policy
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.policies = normalized
+}
+
+// SetCircuitDefaults replaces the global circuit-recovery defaults. It is
+// called once at startup from ConfigureSharedRuntime, before any fetch.
+func (c *Coordinator) SetCircuitDefaults(defaults CircuitDefaults) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if defaults.HalfOpenMaxRequests > 0 {
+		c.circuitDefaults.HalfOpenMaxRequests = defaults.HalfOpenMaxRequests
+	}
+	if defaults.SuccessesToClose > 0 {
+		c.circuitDefaults.SuccessesToClose = defaults.SuccessesToClose
+	}
+	if defaults.DomainEvidenceMinDistinctFeeds > 0 {
+		c.circuitDefaults.DomainEvidenceMinDistinctFeeds = defaults.DomainEvidenceMinDistinctFeeds
+	}
+	if defaults.EvidenceWindow > 0 {
+		c.circuitDefaults.EvidenceWindow = defaults.EvidenceWindow
+	}
 }
 
 var processCoordinator = NewCoordinator(DefaultCoordinatorConfig())
@@ -322,7 +384,7 @@ func (c *Coordinator) reserveCircuitLocked(domain string, policy DomainPolicy) (
 	case CircuitStateProbe:
 		// Half-open: admit a bounded number of probes, block the rest as OPEN
 		// so queued work does not stampede a recovering domain.
-		if state.halfOpenInFlight < halfOpenMax(policy) {
+		if state.halfOpenInFlight < c.halfOpenMax(policy) {
 			state.halfOpenInFlight++
 			c.metrics.RecordRetry(domain)
 			return true, CircuitStateProbe, state.openUntil, false
@@ -363,7 +425,7 @@ func (c *Coordinator) completeCircuitLocked(domain string, policy DomainPolicy, 
 		}
 		if succeeded {
 			state.halfOpenSuccess++
-			if state.halfOpenSuccess >= successesToClose(policy) {
+			if state.halfOpenSuccess >= c.successesToClose(policy) {
 				c.recordCircuitTransitionLocked(domain, CircuitStateProbe, CircuitStateClosed)
 				c.closeCircuitLocked(state)
 			}
@@ -395,8 +457,8 @@ func (c *Coordinator) completeCircuitLocked(domain string, policy DomainPolicy, 
 			state.evidence = make(map[string]time.Time)
 		}
 		state.evidence[feedKey] = time.Now()
-		pruneEvidenceLocked(state, policy)
-		if distinctEvidenceLocked(state, policy) >= evidenceMin(policy) {
+		c.pruneEvidenceLocked(state, policy)
+		if c.distinctEvidenceLocked(state, policy) >= c.evidenceMin(policy) {
 			from := state.state
 			c.openCircuitLocked(state, policy, 1, result)
 			c.recordCircuitTransitionLocked(domain, from, CircuitStateOpen)
@@ -456,36 +518,48 @@ func isEvidenceCircuitFailure(result *FetchResult) bool {
 	return false
 }
 
-func halfOpenMax(policy DomainPolicy) int {
+func (c *Coordinator) halfOpenMax(policy DomainPolicy) int {
 	if policy.HalfOpenMaxRequests > 0 {
 		return policy.HalfOpenMaxRequests
+	}
+	if c.circuitDefaults.HalfOpenMaxRequests > 0 {
+		return c.circuitDefaults.HalfOpenMaxRequests
 	}
 	return defaultHalfOpenMaxRequests
 }
 
-func successesToClose(policy DomainPolicy) int {
+func (c *Coordinator) successesToClose(policy DomainPolicy) int {
 	if policy.SuccessesToClose > 0 {
 		return policy.SuccessesToClose
+	}
+	if c.circuitDefaults.SuccessesToClose > 0 {
+		return c.circuitDefaults.SuccessesToClose
 	}
 	return defaultSuccessesToClose
 }
 
-func evidenceMin(policy DomainPolicy) int {
+func (c *Coordinator) evidenceMin(policy DomainPolicy) int {
 	if policy.DomainEvidenceMinDistinctFeeds > 0 {
 		return policy.DomainEvidenceMinDistinctFeeds
+	}
+	if c.circuitDefaults.DomainEvidenceMinDistinctFeeds > 0 {
+		return c.circuitDefaults.DomainEvidenceMinDistinctFeeds
 	}
 	return defaultDomainEvidenceMinDistinctFeeds
 }
 
-func evidenceWindow(policy DomainPolicy) time.Duration {
+func (c *Coordinator) evidenceWindow(policy DomainPolicy) time.Duration {
 	if policy.EvidenceWindow > 0 {
 		return policy.EvidenceWindow
+	}
+	if c.circuitDefaults.EvidenceWindow > 0 {
+		return c.circuitDefaults.EvidenceWindow
 	}
 	return defaultEvidenceWindow
 }
 
-func pruneEvidenceLocked(state *domainCircuit, policy DomainPolicy) {
-	cutoff := time.Now().Add(-evidenceWindow(policy))
+func (c *Coordinator) pruneEvidenceLocked(state *domainCircuit, policy DomainPolicy) {
+	cutoff := time.Now().Add(-c.evidenceWindow(policy))
 	for feedKey, at := range state.evidence {
 		if at.Before(cutoff) {
 			delete(state.evidence, feedKey)
@@ -493,11 +567,11 @@ func pruneEvidenceLocked(state *domainCircuit, policy DomainPolicy) {
 	}
 }
 
-func distinctEvidenceLocked(state *domainCircuit, policy DomainPolicy) int {
+func (c *Coordinator) distinctEvidenceLocked(state *domainCircuit, policy DomainPolicy) int {
 	if state.evidence == nil {
 		return 0
 	}
-	cutoff := time.Now().Add(-evidenceWindow(policy))
+	cutoff := time.Now().Add(-c.evidenceWindow(policy))
 	count := 0
 	for _, at := range state.evidence {
 		if !at.Before(cutoff) {
@@ -793,7 +867,7 @@ func (c *Coordinator) circuitBlockedLocked(domain string, policy DomainPolicy) (
 	if state.state == CircuitStateOpen && state.openUntil.After(now) {
 		return state.openUntil, true
 	}
-	if state.state == CircuitStateProbe && state.halfOpenInFlight >= halfOpenMax(policy) {
+	if state.state == CircuitStateProbe && state.halfOpenInFlight >= c.halfOpenMax(policy) {
 		return state.openUntil, true
 	}
 	return time.Time{}, false

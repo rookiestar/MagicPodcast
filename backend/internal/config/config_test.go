@@ -3,7 +3,9 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -120,5 +122,216 @@ func writeTestConfig(t *testing.T, path string, contents string) {
 
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatalf("failed to write test config: %v", err)
+	}
+}
+
+// minimalBaseConfigYAML is the smallest valid YAML carrying the non-feed
+// sections Load + Validate require, so a feed-focused test can append a feed
+// section without re-asserting unrelated defaults.
+const minimalBaseConfigYAML = `
+server:
+  host: 127.0.0.1
+  port: 8080
+  mode: release
+database:
+  path: ./data/test.db
+xyz_api:
+  url: http://127.0.0.1:8081
+`
+
+func writeFeedTestConfig(t *testing.T, feedSection string) string {
+	t.Helper()
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	writeTestConfig(t, configPath, minimalBaseConfigYAML+feedSection)
+	return configPath
+}
+
+func TestLoadFeedYAMLPopulatesFeedConfig(t *testing.T) {
+	t.Cleanup(func() {
+		cfg = nil
+		viper.Reset()
+	})
+	viper.Reset()
+
+	configPath := writeFeedTestConfig(t, `
+feed:
+  user_agent: "MagicPodcast-YAML/1.0"
+  timeouts:
+    connect: 4s
+    tls: 5s
+    header: 9s
+    overall: 33s
+  headers:
+    accept: "application/atom+xml"
+    accept_language: "en-US"
+  retry:
+    budget: 2
+    jitter: 250ms
+  circuit:
+    half_open_max: 3
+    successes_to_close: 4
+    domain_evidence_min_distinct_feeds: 2
+  snapshot:
+    durable: false
+    bounds:
+      max_entries: 64
+      max_response_bytes: 524288
+      max_total_bytes: 8388608
+  diagnostics:
+    admin_enabled: false
+    configured_egress_label: "cloudflare-tunnel"
+`)
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	f := loaded.Feed
+	if f.UserAgent != "MagicPodcast-YAML/1.0" {
+		t.Fatalf("UserAgent = %q", f.UserAgent)
+	}
+	if f.Timeouts.Connect != 4*time.Second || f.Timeouts.Overall != 33*time.Second {
+		t.Fatalf("Timeouts = %+v", f.Timeouts)
+	}
+	if f.Headers.AcceptLanguage != "en-US" {
+		t.Fatalf("AcceptLanguage = %q", f.Headers.AcceptLanguage)
+	}
+	if f.Retry.Budget != 2 || f.Retry.Jitter != 250*time.Millisecond {
+		t.Fatalf("Retry = %+v", f.Retry)
+	}
+	if f.Circuit.HalfOpenMax != 3 || f.Circuit.SuccessesToClose != 4 || f.Circuit.DomainEvidenceMinDistinctFeeds != 2 {
+		t.Fatalf("Circuit = %+v", f.Circuit)
+	}
+	if f.Snapshot.Durable == nil || *f.Snapshot.Durable != false {
+		t.Fatalf("Snapshot.Durable = %v", f.Snapshot.Durable)
+	}
+	if f.Snapshot.Bounds.MaxEntries != 64 || f.Snapshot.Bounds.MaxResponseBytes != 524288 || f.Snapshot.Bounds.MaxTotalBytes != 8388608 {
+		t.Fatalf("Snapshot.Bounds = %+v", f.Snapshot.Bounds)
+	}
+	if f.Diagnostics.AdminEnabled == nil || *f.Diagnostics.AdminEnabled != false {
+		t.Fatalf("Diagnostics.AdminEnabled = %v", f.Diagnostics.AdminEnabled)
+	}
+	if f.Diagnostics.ConfiguredEgressLabel != "cloudflare-tunnel" {
+		t.Fatalf("ConfiguredEgressLabel = %q", f.Diagnostics.ConfiguredEgressLabel)
+	}
+}
+
+func TestLoadFeedDefaultsWhenSectionAbsent(t *testing.T) {
+	t.Cleanup(func() {
+		cfg = nil
+		viper.Reset()
+	})
+	viper.Reset()
+
+	configPath := writeFeedTestConfig(t, "")
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	// No feed section: every field stays at its zero/honest default. The
+	// *bool fields stay nil so ConfigureSharedRuntime applies the documented
+	// defaults (durable=true, admin_enabled=true) rather than an explicit false.
+	if loaded.Feed.UserAgent != "" {
+		t.Fatalf("UserAgent = %q, want empty default", loaded.Feed.UserAgent)
+	}
+	if loaded.Feed.Snapshot.Durable != nil {
+		t.Fatalf("Snapshot.Durable = %v, want nil (unset)", loaded.Feed.Snapshot.Durable)
+	}
+	if loaded.Feed.Diagnostics.AdminEnabled != nil {
+		t.Fatalf("Diagnostics.AdminEnabled = %v, want nil (unset)", loaded.Feed.Diagnostics.AdminEnabled)
+	}
+	if loaded.Feed.Retry.Budget != 0 {
+		t.Fatalf("Retry.Budget = %d, want 0", loaded.Feed.Retry.Budget)
+	}
+}
+
+func TestLoadFeedENVOverridesFeedConfig(t *testing.T) {
+	t.Cleanup(func() {
+		cfg = nil
+		viper.Reset()
+	})
+	viper.Reset()
+
+	t.Setenv("MAGICPODCAST_FEED_USER_AGENT", "MagicPodcast-ENV/2.0")
+	t.Setenv("MAGICPODCAST_FEED_DIAGNOSTICS_CONFIGURED_EGRESS_LABEL", "fixed-egress")
+	t.Setenv("MAGICPODCAST_FEED_RETRY_BUDGET", "4")
+	t.Setenv("MAGICPODCAST_FEED_TIMEOUTS_OVERALL", "50s")
+
+	configPath := writeFeedTestConfig(t, "")
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.Feed.UserAgent != "MagicPodcast-ENV/2.0" {
+		t.Fatalf("UserAgent = %q, want ENV value", loaded.Feed.UserAgent)
+	}
+	if loaded.Feed.Diagnostics.ConfiguredEgressLabel != "fixed-egress" {
+		t.Fatalf("ConfiguredEgressLabel = %q, want ENV value", loaded.Feed.Diagnostics.ConfiguredEgressLabel)
+	}
+	if loaded.Feed.Retry.Budget != 4 {
+		t.Fatalf("Retry.Budget = %d, want 4", loaded.Feed.Retry.Budget)
+	}
+	if loaded.Feed.Timeouts.Overall != 50*time.Second {
+		t.Fatalf("Timeouts.Overall = %v, want 50s", loaded.Feed.Timeouts.Overall)
+	}
+}
+
+func TestLoadFeedENVTakesPrecedenceOverYAML(t *testing.T) {
+	t.Cleanup(func() {
+		cfg = nil
+		viper.Reset()
+	})
+	viper.Reset()
+
+	t.Setenv("MAGICPODCAST_FEED_USER_AGENT", "MagicPodcast-Wins/3.0")
+	configPath := writeFeedTestConfig(t, `
+feed:
+  user_agent: "MagicPodcast-YAML-Loses/1.0"
+`)
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.Feed.UserAgent != "MagicPodcast-Wins/3.0" {
+		t.Fatalf("UserAgent = %q, want ENV value to win over YAML", loaded.Feed.UserAgent)
+	}
+}
+
+func TestLoadFeedRejectsInvalidBudget(t *testing.T) {
+	t.Cleanup(func() {
+		cfg = nil
+		viper.Reset()
+	})
+	viper.Reset()
+
+	configPath := writeFeedTestConfig(t, `
+feed:
+  retry:
+    budget: 99
+`)
+	_, err := Load(configPath)
+	if err == nil {
+		t.Fatal("Load() succeeded for retry.budget above the hard cap, want startup failure")
+	}
+	if !strings.Contains(err.Error(), "feed") {
+		t.Fatalf("error should mention feed config: %v", err)
+	}
+}
+
+func TestLoadFeedRejectsNegativeTimeout(t *testing.T) {
+	t.Cleanup(func() {
+		cfg = nil
+		viper.Reset()
+	})
+	viper.Reset()
+
+	configPath := writeFeedTestConfig(t, `
+feed:
+  timeouts:
+    overall: -5s
+`)
+	_, err := Load(configPath)
+	if err == nil {
+		t.Fatal("Load() succeeded for negative timeout, want startup failure")
 	}
 }

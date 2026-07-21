@@ -119,10 +119,16 @@ func NewService(db *gorm.DB, podcastIndexPath string) (*Service, error) {
 // attachPersistentLastGood upgrades the shared coordinator's last-good store
 // from in-process-only to a tiered (memory L1 + SQLite L2) store so a verified
 // Feed snapshot survives a restart. It is best-effort: if the database handle is
-// absent or the feed_snapshots table does not yet exist, the coordinator keeps
-// its in-process store and continues normally.
+// absent, the feed_snapshots table does not yet exist, or the startup-loaded
+// FeedConfig explicitly disabled durable persistence, the coordinator keeps its
+// in-process store and continues normally. Capacity bounds come from the
+// startup-loaded feed.snapshot.bounds.
 func attachPersistentLastGood(db *gorm.DB, coordinator *feed.Coordinator) {
 	if db == nil || coordinator == nil {
+		return
+	}
+	durable, bounds := feed.SharedSnapshotConfig()
+	if !durable {
 		return
 	}
 	if !db.Migrator().HasTable(feed.FeedSnapshotsTableName) {
@@ -133,7 +139,7 @@ func attachPersistentLastGood(db *gorm.DB, coordinator *feed.Coordinator) {
 		logger.Infof("Warning: feed last-good persistence unavailable (no db handle): %v", err)
 		return
 	}
-	store, err := feed.NewSQLiteSnapshotStore(sqlDB, feed.LastGoodStoreConfig{})
+	store, err := feed.NewSQLiteSnapshotStore(sqlDB, feed.LastGoodStoreConfigFromBounds(bounds))
 	if err != nil {
 		logger.Infof("Warning: feed last-good persistence unavailable: %v", err)
 		return

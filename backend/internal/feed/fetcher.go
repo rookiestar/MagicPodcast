@@ -34,6 +34,7 @@ const (
 type FeedHTTPConfig struct {
 	UserAgent             string
 	Accept                string
+	AcceptLanguage        string
 	ConnectTimeout        time.Duration
 	TLSHandshakeTimeout   time.Duration
 	ResponseHeaderTimeout time.Duration
@@ -90,9 +91,17 @@ func NewFetcher(timeout time.Duration) *Fetcher {
 
 // NewFetcherWithCoordinator is the injection seam for isolated tests and
 // staged policies. Normal application code should use NewFetcher so all
-// workflow fetches share the process-wide coordinator.
+// workflow fetches share the process-wide coordinator. It honors the
+// startup-loaded FeedConfig (User-Agent, layered timeouts, honest headers,
+// configured-egress tag) via SharedHTTPConfig, falling back to the honest
+// defaults when no feed section was loaded; the timeout argument only applies
+// when no overall timeout has been configured.
 func NewFetcherWithCoordinator(timeout time.Duration, coordinator *Coordinator) *Fetcher {
-	return NewFetcherWithHTTPConfig(DefaultFeedHTTPConfig(timeout), coordinator)
+	config := SharedHTTPConfig()
+	if config.OverallTimeout <= 0 && timeout > 0 {
+		config = DefaultFeedHTTPConfig(timeout)
+	}
+	return NewFetcherWithHTTPConfig(config, coordinator)
 }
 
 // NewFetcherWithHTTPConfig allows tests and staged policies to override the
@@ -123,8 +132,9 @@ func NewFetcherWithHTTPConfig(config FeedHTTPConfig, coordinator *Coordinator) *
 		httpConfig:  config,
 		coordinator: coordinator,
 		httpClient: &http.Client{
-			Timeout:   config.OverallTimeout,
-			Transport: newFeedHTTPTransport(config),
+			Timeout:       config.OverallTimeout,
+			Transport:     newFeedHTTPTransport(config),
+			CheckRedirect: feedRedirectPolicy,
 		},
 	}
 }
@@ -163,6 +173,12 @@ func (f *Fetcher) accept() string {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	return f.httpConfig.Accept
+}
+
+func (f *Fetcher) acceptLanguage() string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.httpConfig.AcceptLanguage
 }
 
 // configuredEgressLabel returns the configured egress tag (default "direct").
@@ -279,6 +295,9 @@ func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string
 	}
 	req.Header.Set("User-Agent", f.userAgent())
 	req.Header.Set("Accept", f.accept())
+	if language := f.acceptLanguage(); language != "" {
+		req.Header.Set("Accept-Language", language)
+	}
 	// Conditional GET: only attach validators the Coordinator loaded from a
 	// fingerprint-validated snapshot, so they describe exactly the content we
 	// can recover on a 304.
@@ -303,7 +322,15 @@ func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string
 			return result, err
 		}
 		err = WrapHTTPError(feedURL, requestErr)
-		result.Access.ErrorCategory = ErrorCategoryNetwork
+		if errors.Is(requestErr, ErrFeedUnsafeRedirect) {
+			// A redirect was rejected by policy (non-HTTP(S) scheme or hop
+			// limit). It is a client-side safety decision, not a transport
+			// fault, so classify it distinctly from a network error and never
+			// as a retryable/server one. The error carries no target URL.
+			result.Access.ErrorCategory = ErrorCategoryInvalidRequest
+		} else {
+			result.Access.ErrorCategory = ErrorCategoryNetwork
+		}
 		return result, err
 	}
 	defer resp.Body.Close()

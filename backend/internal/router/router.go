@@ -6,6 +6,7 @@ import (
 
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
+	"magicpodcast/internal/feed"
 	"magicpodcast/internal/handlers"
 	"magicpodcast/internal/llm"
 	"magicpodcast/internal/middleware"
@@ -31,6 +32,14 @@ func workflowPodcastIndexPath(cfg *config.Config) string {
 		return ""
 	}
 	return cfg.PodcastIndex.Path
+}
+
+// feedDiagnosticsEnabled reports whether the protected Feed diagnostics route
+// should be registered. It consults the startup-loaded FeedConfig
+// (feed.diagnostics.admin_enabled, default true); the loopback-bind +
+// Cloudflare Access trust boundary is unchanged.
+func feedDiagnosticsEnabled() bool {
+	return feed.SharedDiagnosticsConfig().AdminEnabled
 }
 
 // SetupRouter 配置并返回路由器
@@ -255,8 +264,12 @@ func SetupRouter() *gin.Engine {
 		// last-good 容量），不含完整 Feed URL、正文、Cookie、凭据或任意响应头。
 		// 访问控制依赖 loopback 绑定（config.Validate 拒绝非 loopback 绑定）+
 		// Cloudflare Access；不新增 /metrics，不改变 /health 与 /ready 语义。
-		adminFeedDiagnosticsHandler := handlers.NewAdminFeedDiagnosticsHandler(nil)
-		v1.GET("/admin/feed-diagnostics", adminFeedDiagnosticsHandler.GetFeedDiagnostics)
+		// 入口开关由 feed.diagnostics.admin_enabled 控制，默认开启；关闭后该
+		// 路由不再注册，但 /health 与 /ready 语义保持不变。
+		if feedDiagnosticsEnabled() {
+			adminFeedDiagnosticsHandler := handlers.NewAdminFeedDiagnosticsHandler(nil)
+			v1.GET("/admin/feed-diagnostics", adminFeedDiagnosticsHandler.GetFeedDiagnostics)
+		}
 
 		// LLM路由
 		if globalPromptManager != nil {

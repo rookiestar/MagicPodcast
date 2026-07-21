@@ -14,6 +14,7 @@ import (
 	"github.com/joho/godotenv"
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
+	"magicpodcast/internal/feed"
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/router"
 )
@@ -61,6 +62,17 @@ func main() {
 	logger.Infof("   Server Port: %d", cfg.Server.Port)
 	logger.Infof("   Database: %s", cfg.Database.Path)
 	logger.Infof("   XYZ API: %s", cfg.XYZAPI.URL)
+
+	// Apply the startup-loaded Feed fetcher / coordinator configuration to the
+	// process-wide coordinator and the shared Fetcher HTTP behavior. This runs
+	// exactly once, before any Feed fetch and before router setup, so the
+	// configured User-Agent, layered timeouts, honest headers, circuit tuning,
+	// snapshot bounds, and configured-egress tag are in effect when the
+	// workflow first builds its Fetcher. There is no hot reload: changes
+	// require a restart.
+	if err := feed.ConfigureSharedRuntime(cfg.Feed); err != nil {
+		logger.Fatalf("Failed to apply feed config: %v", err)
+	}
 
 	// 初始化日志系统
 	logger.Info("\n📝 Initializing logger...")

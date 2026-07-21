@@ -33,6 +33,9 @@ const (
 	ErrorTypeRateLimited
 	// ErrorTypeServiceUnavailable 上游服务暂时不可用 (503/5xx)
 	ErrorTypeServiceUnavailable
+	// ErrorTypeInvalidRequest 客户端安全决策拒绝（如重定向协议/跳数越界），
+	// 既非网络故障也非上游可重试错误
+	ErrorTypeInvalidRequest
 )
 
 type HTTPStatusError struct {
@@ -135,6 +138,15 @@ func ClassifyError(feedURL string, err error) *FeedError {
 
 	errMsg := err.Error()
 	safeURL := SanitizeFeedURL(feedURL)
+	// A redirect rejected by policy (non-HTTP(S) scheme or hop-limit) carries
+	// no target in ErrFeedUnsafeRedirect itself, BUT net/http wraps it in a
+	// *url.Error whose URL IS the rejected redirect target. Never interpolate
+	// the original error into the message here, or that target — which may
+	// carry credentials or an internal address — leaks into logs and
+	// user-facing summaries. Keep Original so errors.Is keeps working.
+	if errors.Is(err, ErrFeedUnsafeRedirect) {
+		return &FeedError{Type: ErrorTypeInvalidRequest, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("Feed重定向被拒绝（协议或跳数限制）: %s", safeURL)}
+	}
 	var statusErr *HTTPStatusError
 	if errors.As(err, &statusErr) {
 		switch statusErr.StatusCode {
