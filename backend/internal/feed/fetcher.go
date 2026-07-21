@@ -176,12 +176,18 @@ func (f *Fetcher) configuredEgressLabel() string {
 
 // SetConfiguredEgressLabel overrides the configured egress tag so #22/#24
 // egress experiments can label their requests. It does not change any network
-// behavior, only the observation tag emitted in logs and execution history.
+// behavior, only the observation tag emitted in logs, execution history, and
+// the admin diagnostics view.
 func (f *Fetcher) SetConfiguredEgressLabel(label string) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	if label != "" {
 		f.httpConfig.ConfiguredEgressLabel = label
+	}
+	f.mu.Unlock()
+	// Mirror the tag onto the process-wide metrics registry so the admin
+	// diagnostics view reports the same egress label seen in failure logs.
+	if label != "" {
+		SharedFeedMetrics().SetConfiguredEgressLabel(label)
 	}
 }
 

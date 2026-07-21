@@ -91,6 +91,11 @@ type Coordinator struct {
 	lastGood     FeedStateStore
 	maxStaleAge  time.Duration
 	circuits     map[string]*domainCircuit
+	// metrics aggregates fetch/circuit/conditional-get/last-good counters for
+	// the protected admin diagnostics view. It defaults to the process-wide
+	// registry; tests inject an isolated instance via SetMetrics before any
+	// fetch so they can assert deterministically.
+	metrics *FeedMetrics
 	// jitter returns a float in [0,1) used to decorrelate bounded backoff so
 	// simultaneous recoveries do not synchronize. Tests override it for
 	// deterministic boundary checks.
@@ -166,8 +171,21 @@ func NewCoordinator(config CoordinatorConfig) *Coordinator {
 		lastGood:     lastGoodStore,
 		maxStaleAge:  maxStaleAge,
 		circuits:     make(map[string]*domainCircuit),
+		metrics:      SharedFeedMetrics(),
 		jitter:       defaultJitter,
 	}
+}
+
+// SetMetrics injects an isolated counter registry. It is intended for tests
+// only and must be called before any fetch; it is not safe to swap the registry
+// concurrently with active fetches.
+func (c *Coordinator) SetMetrics(metrics *FeedMetrics) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.metrics = metrics
 }
 
 var processCoordinator = NewCoordinator(DefaultCoordinatorConfig())
@@ -208,13 +226,22 @@ func parseURL(rawURL string) (*url.URL, error) {
 // validators the Coordinator loaded from the persisted snapshot (empty when no
 // validated snapshot exists), so the Fetcher can send If-None-Match /
 // If-Modified-Since and let the Coordinator recover a 304.
-func (c *Coordinator) Do(ctx context.Context, rawURL string, fetch func(context.Context, RequestValidators) (*FetchResult, error)) (*FetchResult, error) {
+func (c *Coordinator) Do(ctx context.Context, rawURL string, fetch func(context.Context, RequestValidators) (*FetchResult, error)) (result *FetchResult, err error) {
 	if c == nil {
 		return fetch(ctx, RequestValidators{})
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// Record exactly one access outcome per Do call — shared-cache hits, fresh
+	// local results, coalesced in-flight waits, and live fetches are all
+	// distinguishable by their Access.SourceType label. result is nil on the
+	// cancelled in-flight path, which records nothing.
+	defer func() {
+		if result != nil {
+			c.metrics.RecordFetch(result.Access)
+		}
+	}()
 
 	key := CanonicalizeURL(rawURL)
 	domain := TargetDomain(rawURL)
@@ -252,7 +279,7 @@ func (c *Coordinator) Do(ctx context.Context, rawURL string, fetch func(context.
 	c.inFlight[key] = call
 	c.mu.Unlock()
 
-	result, err := c.run(ctx, rawURL, policy, fetch)
+	result, err = c.run(ctx, rawURL, policy, fetch)
 	c.mu.Lock()
 	sharedResult := cloneFetchResult(result)
 	if err == nil && result != nil && result.Feed != nil && policy.MinRefreshInterval > 0 {
@@ -297,6 +324,7 @@ func (c *Coordinator) reserveCircuitLocked(domain string, policy DomainPolicy) (
 		// so queued work does not stampede a recovering domain.
 		if state.halfOpenInFlight < halfOpenMax(policy) {
 			state.halfOpenInFlight++
+			c.metrics.RecordRetry(domain)
 			return true, CircuitStateProbe, state.openUntil, false
 		}
 		return false, CircuitStateOpen, state.openUntil, true
@@ -308,11 +336,19 @@ func (c *Coordinator) reserveCircuitLocked(domain string, policy DomainPolicy) (
 		state.state = CircuitStateProbe
 		state.halfOpenInFlight = 1
 		state.halfOpenSuccess = 0
+		c.recordCircuitTransitionLocked(domain, CircuitStateOpen, CircuitStateProbe)
+		c.metrics.RecordRetry(domain)
 		return true, CircuitStateProbe, state.openUntil, false
 	default:
 		// NotUsed or Closed: normal admission, not a probe.
 		return false, state.state, time.Time{}, false
 	}
+}
+
+// recordCircuitTransitionLocked counts a domain circuit state transition. It
+// must be called while holding c.mu (the metrics registry has its own lock).
+func (c *Coordinator) recordCircuitTransitionLocked(domain string, from, to CircuitState) {
+	c.metrics.RecordCircuitTransition(domain, from, to)
 }
 
 func (c *Coordinator) completeCircuitLocked(domain string, policy DomainPolicy, probe bool, feedKey string, result *FetchResult, err error) {
@@ -328,6 +364,7 @@ func (c *Coordinator) completeCircuitLocked(domain string, policy DomainPolicy, 
 		if succeeded {
 			state.halfOpenSuccess++
 			if state.halfOpenSuccess >= successesToClose(policy) {
+				c.recordCircuitTransitionLocked(domain, CircuitStateProbe, CircuitStateClosed)
 				c.closeCircuitLocked(state)
 			}
 			return
@@ -338,6 +375,7 @@ func (c *Coordinator) completeCircuitLocked(domain string, policy DomainPolicy, 
 		state.openUntil = time.Now().Add(c.circuitWait(policy, state.cooldownAttempt, result))
 		state.state = CircuitStateOpen
 		state.halfOpenSuccess = 0
+		c.recordCircuitTransitionLocked(domain, CircuitStateProbe, CircuitStateOpen)
 		if result != nil {
 			result.Access.CircuitState = CircuitStateOpen
 		}
@@ -347,7 +385,9 @@ func (c *Coordinator) completeCircuitLocked(domain string, policy DomainPolicy, 
 		return
 	}
 	if isImmediateCircuitFailure(policy, result) {
+		from := state.state
 		c.openCircuitLocked(state, policy, 1, result)
+		c.recordCircuitTransitionLocked(domain, from, CircuitStateOpen)
 		return
 	}
 	if isEvidenceCircuitFailure(result) {
@@ -357,7 +397,9 @@ func (c *Coordinator) completeCircuitLocked(domain string, policy DomainPolicy, 
 		state.evidence[feedKey] = time.Now()
 		pruneEvidenceLocked(state, policy)
 		if distinctEvidenceLocked(state, policy) >= evidenceMin(policy) {
+			from := state.state
 			c.openCircuitLocked(state, policy, 1, result)
+			c.recordCircuitTransitionLocked(domain, from, CircuitStateOpen)
 		}
 	}
 }
@@ -611,6 +653,9 @@ func (c *Coordinator) LastGood(ctx context.Context, rawURL string, failure *Fetc
 	access.ResponseBytes = 0
 	access.RetrievedAt = snapshotTime(snapshot)
 
+	if c.metrics != nil {
+		c.metrics.RecordLastGoodHit()
+	}
 	return &FetchResult{
 		Feed:       parsed,
 		RawContent: append([]byte(nil), snapshot.RawContent...),
@@ -709,10 +754,32 @@ func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolic
 			result, err = fetch(ctx, RequestValidators{})
 		}
 	}
+	// Record the conditional-GET outcome BEFORE the CacheStatus=Miss stamp
+	// below, so a recovered 304 still classifies as "304" rather than "miss".
+	c.recordConditionalGet(validators, result)
 	if result != nil && err == nil && policy.MinRefreshInterval > 0 && result.Access.CacheStatus != CacheStatusNotModified {
 		result.Access.CacheStatus = CacheStatusMiss
 	}
 	return result, err
+}
+
+// recordConditionalGet classifies the conditional-GET outcome for metrics:
+// "miss" when no validated snapshot existed (request was unconditional), "304"
+// when validators were sent and the server confirmed Not Modified, "200" when
+// validators were sent but the content changed and was returned in full.
+func (c *Coordinator) recordConditionalGet(validators RequestValidators, result *FetchResult) {
+	if c.metrics == nil {
+		return
+	}
+	if !validators.Present() {
+		c.metrics.RecordConditionalGet(conditionalGetResultMiss)
+		return
+	}
+	if result != nil && result.Access.CacheStatus == CacheStatusNotModified {
+		c.metrics.RecordConditionalGet(conditionalGetResult304)
+		return
+	}
+	c.metrics.RecordConditionalGet(conditionalGetResult200)
 }
 
 func (c *Coordinator) circuitBlockedLocked(domain string, policy DomainPolicy) (time.Time, bool) {
@@ -850,6 +917,48 @@ func (c *Coordinator) UsePersistentLastGood(store FeedStateStore) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.lastGood = NewTieredSnapshotStore(store, LastGoodStoreConfig{})
+}
+
+// CircuitSnapshot returns the live state of every domain circuit that has been
+// used (open/probe/closed). Unused circuits are omitted. It is read under the
+// coordinator lock and surfaces only domain + state + (when OPEN) the cooldown
+// end instant — no feed URLs, request counts, or bodies.
+func (c *Coordinator) CircuitSnapshot() []CircuitStateRow {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	rows := make([]CircuitStateRow, 0, len(c.circuits))
+	now := time.Now()
+	for domain, state := range c.circuits {
+		if state == nil || state.state == CircuitStateNotUsed {
+			continue
+		}
+		row := CircuitStateRow{Domain: domain, State: string(state.state)}
+		if state.state == CircuitStateOpen && state.openUntil.After(now) {
+			openUntil := state.openUntil.UTC().Format(time.RFC3339)
+			row.OpenUntil = &openUntil
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+// LastGoodStats returns capacity/durability counters for the last-good store:
+// entry count, total bytes, evictions, and write failures. It surfaces no feed
+// URLs, bodies, cookies, or credentials.
+func (c *Coordinator) LastGoodStats() (SnapshotStoreStats, error) {
+	if c == nil {
+		return SnapshotStoreStats{}, nil
+	}
+	c.mu.Lock()
+	store := c.lastGood
+	c.mu.Unlock()
+	if store == nil {
+		return SnapshotStoreStats{}, nil
+	}
+	return store.Stats()
 }
 
 func (c *Coordinator) freshLocalResult(ctx context.Context, rawURL, key string, freshFor time.Duration) (*FetchResult, bool) {

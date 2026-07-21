@@ -250,6 +250,14 @@ func SetupRouter() *gin.Engine {
 			cacheGroup.POST("/clear", cacheOperation, cacheHandler.ClearCache)
 		}
 
+		// Admin 诊断路由：Feed 抓取可靠性诊断视图。仅暴露有界白名单聚合
+		// （计数、延迟分桶、断路状态/转换、conditional-GET、last-good 命中、
+		// last-good 容量），不含完整 Feed URL、正文、Cookie、凭据或任意响应头。
+		// 访问控制依赖 loopback 绑定（config.Validate 拒绝非 loopback 绑定）+
+		// Cloudflare Access；不新增 /metrics，不改变 /health 与 /ready 语义。
+		adminFeedDiagnosticsHandler := handlers.NewAdminFeedDiagnosticsHandler(nil)
+		v1.GET("/admin/feed-diagnostics", adminFeedDiagnosticsHandler.GetFeedDiagnostics)
+
 		// LLM路由
 		if globalPromptManager != nil {
 			llmClient := llm.NewClient(&cfg.LLM)
