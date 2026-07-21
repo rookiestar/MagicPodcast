@@ -1,8 +1,10 @@
 package feed
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"magicpodcast/internal/logger"
 	"net"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mmcdole/gofeed"
+	"github.com/mmcdole/gofeed/rss"
 )
 
 // Feed HTTP defaults keep the fetcher honest and low-load: a stable product
@@ -28,6 +31,13 @@ const (
 	defaultFeedTLSHandshakeTimeout   = 10 * time.Second
 	defaultFeedResponseHeaderTimeout = 15 * time.Second
 	defaultFeedOverallTimeout        = 30 * time.Second
+
+	// Robots.txt fetch bounds. A robots lookup is a single bounded GET per
+	// admission check (the gate's singleflight + cache prevent a Feed storm from
+	// becoming a robots storm), capped well under the Feed overall timeout and a
+	// generous body ceiling so a hostile robots endpoint cannot stream forever.
+	defaultRobotsFetchTimeout = 10 * time.Second
+	maxRobotsBodyBytes        = 512 * 1024
 )
 
 // FeedHTTPConfig is the single source of truth for outbound Feed HTTP behavior.
@@ -72,6 +82,10 @@ type Fetcher struct {
 	httpClient  *http.Client
 	httpConfig  FeedHTTPConfig
 	coordinator *Coordinator
+	// robotsGate enforces advisory robots.txt admission before any upstream Feed
+	// request. It is nil only for legacy/test construction paths; every standard
+	// constructor wires it so the path-admission policy is honored uniformly.
+	robotsGate *RobotsGate
 }
 
 // FetchResult 抓取结果
@@ -82,6 +96,12 @@ type FetchResult struct {
 	Error         error
 	IsIncremental bool // 是否为增量抓取
 	Access        AccessOutcome
+	// RefreshHints carries the upstream-advised refresh signals learned from this
+	// fetch (RSS ttl/skipHours/skipDays, HTTP Cache-Control/Expires). It is zero
+	// for non-200 paths. The Coordinator merges it conservatively into the
+	// shared-result refresh gate; it never shortens the wait below the policy
+	// floor and never alters Conditional GET / last-good / dedup semantics.
+	RefreshHints RefreshHints
 }
 
 // NewFetcher 创建RSS Feed抓取器
@@ -128,7 +148,7 @@ func NewFetcherWithHTTPConfig(config FeedHTTPConfig, coordinator *Coordinator) *
 	if config.ConfiguredEgressLabel == "" {
 		config.ConfiguredEgressLabel = EgressDirect
 	}
-	return &Fetcher{
+	f := &Fetcher{
 		httpConfig:  config,
 		coordinator: coordinator,
 		httpClient: &http.Client{
@@ -137,6 +157,13 @@ func NewFetcherWithHTTPConfig(config FeedHTTPConfig, coordinator *Coordinator) *
 			CheckRedirect: feedRedirectPolicy,
 		},
 	}
+	// Wire the robots gate AFTER the httpClient exists: the gate's fetchRobots
+	// closure captures f and reuses f.httpClient so robots requests share the
+	// layered timeouts, the bounded redirect policy, and the honest User-Agent.
+	// A nil gate (legacy/test builders that skip this constructor) allows every
+	// path so the feature stays opt-in via the standard constructors.
+	f.robotsGate = NewRobotsGate(config.UserAgent, f.fetchRobotsTXT)
+	return f
 }
 
 // newFeedHTTPTransport builds a layered transport: a bounded connect dialer,
@@ -270,7 +297,7 @@ func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string
 	setDuration := func() {
 		result.Access.ResponseTimeMs = int(time.Since(startTime).Milliseconds())
 		result.Error = err
-		if err != nil && !errors.Is(err, ErrFeedNotModified) {
+		if err != nil && !errors.Is(err, ErrFeedNotModified) && result.Access.ErrorCategory != ErrorCategoryPolicyRejected {
 			result.Access.FailurePhase = phase
 			logger.WithFields(feedFailureLogFields(result, safeURL)).Warn("feed fetch failed")
 		}
@@ -281,6 +308,22 @@ func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string
 	if ctx.Err() != nil {
 		result.Access.ErrorCategory = ErrorCategoryCancelled
 		return result, ctx.Err()
+	}
+
+	// robots.txt admission: an explicit Disallow rule for the Feed path blocks
+	// the upstream request before it leaves the process. The decision is
+	// advisory ONLY — a robots FETCH failure (timeout/5xx/invalid body) is
+	// treated as "allow" for a bounded negative-cache window so a flaky robots
+	// endpoint never masquerades as an access-denied upstream. Only a real rule
+	// denial surfaces here, as a distinct policy_rejected category (never HTTP
+	// 403), and it never retries and never trips a domain circuit. The gate
+	// never fetches the Feed upstream when robots forbids the path.
+	if decision := f.checkRobots(ctx, feedURL); !decision.Allowed {
+		result.Access.ErrorCategory = ErrorCategoryPolicyRejected
+		result.Access.Freshness = FreshnessUnknown
+		logger.Infof("  🚫 robots.txt 禁止路径 (%s): %s", decision.Reason, safeURL)
+		err = &FeedError{Type: ErrorTypePolicyRejected, FeedURL: safeURL, Message: fmt.Sprintf("Feed路径被 robots.txt 禁止: %s", safeURL)}
+		return result, err
 	}
 
 	requestCtx, cancel := context.WithTimeout(ctx, f.httpConfig.OverallTimeout)
@@ -397,6 +440,13 @@ func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string
 	result.Access.EgressID = f.configuredEgressLabel()
 	retrievedAt := time.Now()
 	result.Access.RetrievedAt = &retrievedAt
+	// Learn the upstream refresh signals from the raw RSS body + HTTP cache
+	// headers so the Coordinator can conservatively merge them into the
+	// shared-result refresh gate. gofeed's generic Feed drops <ttl>/
+	// <skipHours>/<skipDays>, so re-parse the captured bytes with the RSS parser
+	// to read them. A nil rssFeed (non-RSS or unparseable body) safely yields no
+	// duration/skip hints; the HTTP hints still contribute.
+	result.RefreshHints = HintsFromFetch(parseRSSForHints(result.RawContent), result.Access.CacheControl, result.Access.Expires, result.Access.Age, retrievedAt)
 	logger.Infof("  ✅ HTTP请求成功: %s (耗时: %v, 标题: %s, 单集数: %d)",
 		safeURL, time.Since(startTime), parsedFeed.Title, len(parsedFeed.Items))
 	return result, nil
@@ -439,6 +489,64 @@ func (f *Fetcher) CloseIdleConnections() {
 	if f.httpClient != nil {
 		f.httpClient.CloseIdleConnections()
 	}
+}
+
+// checkRobots returns the robots.txt admission decision for feedURL. A nil gate
+// (legacy/test construction that bypasses NewFetcherWithHTTPConfig) allows
+// every path so the feature is opt-in via the standard constructors and never
+// changes behavior for hand-built test fetchers.
+func (f *Fetcher) checkRobots(ctx context.Context, feedURL string) RobotsDecision {
+	if f == nil || f.robotsGate == nil {
+		return RobotsDecision{Allowed: true, Reason: "no_gate"}
+	}
+	return f.robotsGate.Allowed(ctx, feedURL)
+}
+
+// fetchRobotsTXT is the single bounded robots.txt GET bound to the gate. It
+// reuses the Fetcher's httpClient so robots requests share the layered timeouts
+// and the bounded redirect policy; the gate's per-domain singleflight + cache
+// ensure a Feed storm never becomes a robots storm. A single attempt respects
+// the shared retry budget by never exceeding it, and the gate's negative cache
+// bounds how often a failing robots endpoint is re-hit.
+func (f *Fetcher) fetchRobotsTXT(ctx context.Context, scheme, host string) (int, []byte, error) {
+	return f.fetchRobotsTXTOnce(ctx, scheme+"://"+host+"/robots.txt")
+}
+
+func (f *Fetcher) fetchRobotsTXTOnce(ctx context.Context, robotsURL string) (int, []byte, error) {
+	robotsCtx, cancel := context.WithTimeout(ctx, defaultRobotsFetchTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(robotsCtx, http.MethodGet, robotsURL, nil)
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("User-Agent", f.userAgent())
+	req.Header.Set("Accept", "text/plain, */*;q=0.8")
+	resp, err := f.httpClient.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	// Bound the body read so a hostile robots endpoint cannot stream forever.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxRobotsBodyBytes))
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+	return resp.StatusCode, body, nil
+}
+
+// parseRSSForHints re-parses the captured Feed bytes with the gofeed RSS parser
+// to read the channel-level <ttl>/<skipHours>/<skipDays> that gofeed's generic
+// Feed drops. It returns nil for an empty or unparseable body, which
+// HintsFromFetch treats as "no duration/skip hints" (HTTP hints still apply).
+func parseRSSForHints(raw []byte) *rss.Feed {
+	if len(raw) == 0 {
+		return nil
+	}
+	parsed, err := (&rss.Parser{}).Parse(bytes.NewReader(raw))
+	if err != nil || parsed == nil {
+		return nil
+	}
+	return parsed
 }
 
 // FetchIncremental 增量抓取：只获取lastFetchTime之后的新单集

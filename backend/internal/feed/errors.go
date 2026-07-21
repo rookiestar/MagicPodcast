@@ -36,6 +36,10 @@ const (
 	// ErrorTypeInvalidRequest 客户端安全决策拒绝（如重定向协议/跳数越界），
 	// 既非网络故障也非上游可重试错误
 	ErrorTypeInvalidRequest
+	// ErrorTypePolicyRejected robots.txt 通用 Disallow 规则禁止了该 Feed 路径，
+	// 属于抓取前的本地准入决策：既不是网络故障，也不是上游 HTTP 403，AccessOutcome
+	// 用独立的 policy_rejected 类别区分，且不可重试（重试也不会改变规则）。
+	ErrorTypePolicyRejected
 )
 
 // String renders the error category as a short stable label so structured retry
@@ -67,6 +71,8 @@ func (t FeedErrorType) String() string {
 		return "service_unavailable"
 	case ErrorTypeInvalidRequest:
 		return "invalid_request"
+	case ErrorTypePolicyRejected:
+		return "policy_rejected"
 	default:
 		return fmt.Sprintf("feed_error_type_%d", int(t))
 	}

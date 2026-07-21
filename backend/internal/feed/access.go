@@ -21,6 +21,13 @@ const (
 	ErrorCategoryNetwork            ErrorCategory = "network_error"
 	ErrorCategoryParse              ErrorCategory = "parse_error"
 	ErrorCategoryInvalidRequest     ErrorCategory = "invalid_request"
+	// ErrorCategoryPolicyRejected marks a Feed path blocked by an advisory
+	// robots.txt rule (a client-side admission decision) BEFORE any upstream
+	// request left the process. It is distinct from ErrorCategoryAccessDenied
+	// (an upstream HTTP 403/401) so logs, execution history, and metrics can
+	// tell a local policy skip apart from an upstream refusal — and so it never
+	// trips the Xiaoyuzhou first-403-immediate-open circuit invariant.
+	ErrorCategoryPolicyRejected ErrorCategory = "policy_rejected"
 	ErrorCategoryCircuitOpen        ErrorCategory = "circuit_open"
 	ErrorCategoryUnknown            ErrorCategory = "unknown"
 )
