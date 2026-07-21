@@ -363,7 +363,11 @@ func TestExecutePersistsCircuitSkipAndRecoveryProbe(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	coordinator := feed.NewCoordinator(feed.CoordinatorConfig{DomainPolicies: map[string]feed.DomainPolicy{
-		feed.TargetDomain(server.URL): {MaxConcurrency: 1, CircuitCooldown: 80 * time.Millisecond},
+		feed.TargetDomain(server.URL): {
+			MaxConcurrency:                 1,
+			CircuitCooldown:                80 * time.Millisecond,
+			ImmediateCircuitOnAccessDenied: true,
+		},
 	}})
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Episode{}, &models.Report{}))

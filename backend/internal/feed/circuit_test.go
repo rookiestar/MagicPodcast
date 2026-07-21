@@ -24,7 +24,11 @@ func TestCoordinatorOpensCircuitAfter403AndAllowsOneRecoveryProbe(t *testing.T) 
 	t.Cleanup(server.Close)
 
 	coordinator := NewCoordinator(CoordinatorConfig{DomainPolicies: map[string]DomainPolicy{
-		TargetDomain(server.URL): {MaxConcurrency: 1, CircuitCooldown: 40 * time.Millisecond},
+		TargetDomain(server.URL): {
+			MaxConcurrency:                 1,
+			CircuitCooldown:                40 * time.Millisecond,
+			ImmediateCircuitOnAccessDenied: true,
+		},
 	}})
 	fetcher := NewFetcherWithCoordinator(2*time.Second, coordinator)
 	feedURL := server.URL + "/feed.xml"
@@ -142,7 +146,11 @@ func TestCoordinatorDoesNotReleaseDomainQueueDuringRecoveryProbe(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	coordinator := NewCoordinator(CoordinatorConfig{DomainPolicies: map[string]DomainPolicy{
-		TargetDomain(server.URL): {MaxConcurrency: 1, CircuitCooldown: 30 * time.Millisecond},
+		TargetDomain(server.URL): {
+			MaxConcurrency:                 1,
+			CircuitCooldown:                30 * time.Millisecond,
+			ImmediateCircuitOnAccessDenied: true,
+		},
 	}})
 	fetcher := NewFetcherWithCoordinator(2*time.Second, coordinator)
 	first, err := fetcher.FetchFeedWithContextDetailed(context.Background(), server.URL+"/initial.xml")
@@ -193,7 +201,11 @@ func TestCoordinatorBlocksQueuedDomainWorkAfterFirst403(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	coordinator := NewCoordinator(CoordinatorConfig{DomainPolicies: map[string]DomainPolicy{
-		TargetDomain(server.URL): {MaxConcurrency: 1, CircuitCooldown: time.Minute},
+		TargetDomain(server.URL): {
+			MaxConcurrency:                 1,
+			CircuitCooldown:                time.Minute,
+			ImmediateCircuitOnAccessDenied: true,
+		},
 	}})
 	fetcher := NewFetcherWithCoordinator(2*time.Second, coordinator)
 

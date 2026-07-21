@@ -23,6 +23,18 @@ const (
 	defaultRetryBackoffInitial = 30 * time.Second
 	defaultRetryBackoffMax     = 10 * time.Minute
 	maxRetryAfter              = 24 * time.Hour
+
+	// HalfOpen recovery tuning. After an OPEN circuit's cooldown elapses it
+	// transitions to probe (half-open): a bounded number of probe requests are
+	// admitted, and SuccessesToClose consecutive successes close the circuit.
+	defaultHalfOpenMaxRequests = 1
+	defaultSuccessesToClose    = 2
+	// Evidence-gated domain health: 5xx/timeout/network failures only OPEN a
+	// domain circuit once at least this many distinct feeds have failed within
+	// the evidence window. A single flaky feed therefore cannot block an
+	// otherwise-healthy domain unless the policy opts into immediate behavior.
+	defaultDomainEvidenceMinDistinctFeeds = 1
+	defaultEvidenceWindow                 = 5 * time.Minute
 )
 
 var ErrFeedCircuitOpen = errors.New("feed circuit is open")
@@ -37,6 +49,24 @@ type DomainPolicy struct {
 	CircuitCooldown     time.Duration
 	RetryBackoffInitial time.Duration
 	RetryBackoffMax     time.Duration
+
+	// HalfOpenMaxRequests is the number of probe requests admitted while the
+	// circuit is half-open (<=0 uses defaultHalfOpenMaxRequests).
+	HalfOpenMaxRequests int
+	// SuccessesToClose is the number of consecutive probe successes required to
+	// close a recovering circuit (<=0 uses defaultSuccessesToClose).
+	SuccessesToClose int
+	// ImmediateCircuitOnAccessDenied trips the circuit immediately on the first
+	// 403/401 for this domain (Xiaoyuzhou-style). Other domains do not open a
+	// domain circuit on a single access-denied response.
+	ImmediateCircuitOnAccessDenied bool
+	// DomainEvidenceMinDistinctFeeds gates 5xx/timeout/network failures: the
+	// circuit only opens once this many distinct feeds fail within
+	// EvidenceWindow (<=0 uses defaultDomainEvidenceMinDistinctFeeds).
+	DomainEvidenceMinDistinctFeeds int
+	// EvidenceWindow is how long a feed's evidence failure counts toward the
+	// distinct-feed threshold (<=0 uses defaultEvidenceWindow).
+	EvidenceWindow time.Duration
 }
 
 type CoordinatorConfig struct {
@@ -54,6 +84,10 @@ type Coordinator struct {
 	lastGood     SnapshotStore
 	maxStaleAge  time.Duration
 	circuits     map[string]*domainCircuit
+	// jitter returns a float in [0,1) used to decorrelate bounded backoff so
+	// simultaneous recoveries do not synchronize. Tests override it for
+	// deterministic boundary checks.
+	jitter func() float64
 }
 
 type inFlightFetch struct {
@@ -68,24 +102,37 @@ type cachedFetch struct {
 }
 
 type domainCircuit struct {
-	openUntil     time.Time
-	failureCount  int
-	probeInFlight bool
-	state         CircuitState
+	state            CircuitState
+	openUntil        time.Time
+	cooldownAttempt  int
+	halfOpenInFlight int
+	halfOpenSuccess  int
+	// evidence maps a canonical feed URL to the time of its most recent
+	// 5xx/timeout/network failure within the evidence window. Only distinct
+	// feed keys count toward DomainEvidenceMinDistinctFeeds.
+	evidence map[string]time.Time
 }
 
 // DefaultCoordinatorConfig applies the initial conservative policy only to
 // Xiaoyuzhou Feed traffic. Other domains retain their existing parallelism.
+// Xiaoyuzhou is the only domain that opens its circuit on a first 403; it
+// tolerates a single 5xx/timeout (evidence threshold 1) because it is the
+// known-fragile target this coordinator exists to protect.
 func DefaultCoordinatorConfig() CoordinatorConfig {
 	return CoordinatorConfig{
 		DomainPolicies: map[string]DomainPolicy{
 			XiaoyuzhouFeedDomain: {
-				MaxConcurrency:      1,
-				MinRefreshInterval:  5 * time.Minute,
-				MaxJitter:           2 * time.Second,
-				CircuitCooldown:     defaultCircuitCooldown,
-				RetryBackoffInitial: defaultRetryBackoffInitial,
-				RetryBackoffMax:     defaultRetryBackoffMax,
+				MaxConcurrency:                  1,
+				MinRefreshInterval:              5 * time.Minute,
+				MaxJitter:                       2 * time.Second,
+				CircuitCooldown:                 defaultCircuitCooldown,
+				RetryBackoffInitial:             defaultRetryBackoffInitial,
+				RetryBackoffMax:                 defaultRetryBackoffMax,
+				HalfOpenMaxRequests:             defaultHalfOpenMaxRequests,
+				SuccessesToClose:                defaultSuccessesToClose,
+				ImmediateCircuitOnAccessDenied:  true,
+				DomainEvidenceMinDistinctFeeds:  1,
+				EvidenceWindow:                  defaultEvidenceWindow,
 			},
 		},
 	}
@@ -112,6 +159,7 @@ func NewCoordinator(config CoordinatorConfig) *Coordinator {
 		lastGood:     lastGoodStore,
 		maxStaleAge:  maxStaleAge,
 		circuits:     make(map[string]*domainCircuit),
+		jitter:       defaultJitter,
 	}
 }
 
@@ -212,75 +260,197 @@ func (c *Coordinator) Do(ctx context.Context, rawURL string, fetch func(context.
 }
 
 func circuitPolicyEnabled(policy DomainPolicy) bool {
-	return policy.CircuitCooldown > 0 || policy.RetryBackoffInitial > 0 || policy.RetryBackoffMax > 0
+	return policy.CircuitCooldown > 0 || policy.RetryBackoffInitial > 0 || policy.RetryBackoffMax > 0 ||
+		policy.ImmediateCircuitOnAccessDenied || policy.HalfOpenMaxRequests > 0 || policy.SuccessesToClose > 0 ||
+		policy.DomainEvidenceMinDistinctFeeds > 0 || policy.EvidenceWindow > 0
 }
 
-func (c *Coordinator) reserveCircuitLocked(domain string) (probe bool, circuitState CircuitState, openUntil time.Time, blocked bool) {
+func (c *Coordinator) reserveCircuitLocked(domain string, policy DomainPolicy) (probe bool, circuitState CircuitState, openUntil time.Time, blocked bool) {
 	state := c.circuits[domain]
 	if state == nil {
 		state = &domainCircuit{state: CircuitStateNotUsed}
 		c.circuits[domain] = state
 	}
 	now := time.Now()
-	if state.probeInFlight {
+	switch state.state {
+	case CircuitStateProbe:
+		// Half-open: admit a bounded number of probes, block the rest as OPEN
+		// so queued work does not stampede a recovering domain.
+		if state.halfOpenInFlight < halfOpenMax(policy) {
+			state.halfOpenInFlight++
+			return true, CircuitStateProbe, state.openUntil, false
+		}
 		return false, CircuitStateOpen, state.openUntil, true
-	}
-	if state.openUntil.After(now) {
-		return false, CircuitStateOpen, state.openUntil, true
-	}
-	if !state.openUntil.IsZero() {
-		state.probeInFlight = true
+	case CircuitStateOpen:
+		if state.openUntil.After(now) {
+			return false, CircuitStateOpen, state.openUntil, true
+		}
+		// Cooldown elapsed: enter half-open with a single probe.
 		state.state = CircuitStateProbe
+		state.halfOpenInFlight = 1
+		state.halfOpenSuccess = 0
 		return true, CircuitStateProbe, state.openUntil, false
+	default:
+		// NotUsed or Closed: normal admission, not a probe.
+		return false, state.state, time.Time{}, false
 	}
-	return false, state.state, time.Time{}, false
 }
 
-func (c *Coordinator) completeCircuitLocked(domain string, policy DomainPolicy, probe bool, result *FetchResult, err error) {
+func (c *Coordinator) completeCircuitLocked(domain string, policy DomainPolicy, probe bool, feedKey string, result *FetchResult, err error) {
 	state := c.circuits[domain]
 	if state == nil {
 		return
 	}
-	state.probeInFlight = false
-	if err == nil && result != nil && result.Feed != nil {
-		if probe {
-			state.openUntil = time.Time{}
-			state.failureCount = 0
-			state.state = CircuitStateClosed
+	succeeded := err == nil && result != nil && result.Feed != nil
+	if probe {
+		if state.halfOpenInFlight > 0 {
+			state.halfOpenInFlight--
+		}
+		if succeeded {
+			state.halfOpenSuccess++
+			if state.halfOpenSuccess >= successesToClose(policy) {
+				c.closeCircuitLocked(state)
+			}
+			return
+		}
+		// A probe failure re-opens the circuit with an escalated cooldown so a
+		// still-failing domain backs off rather than being re-probed tightly.
+		state.cooldownAttempt++
+		state.openUntil = time.Now().Add(c.circuitWait(policy, state.cooldownAttempt, result))
+		state.state = CircuitStateOpen
+		state.halfOpenSuccess = 0
+		if result != nil {
+			result.Access.CircuitState = CircuitStateOpen
 		}
 		return
 	}
-	if probe {
-		state.failureCount++
-		state.openUntil = time.Now().Add(circuitWait(policy, state.failureCount, result))
-		state.state = CircuitStateOpen
+	if succeeded {
 		return
 	}
-	if !isCircuitFailure(result) {
+	if isImmediateCircuitFailure(policy, result) {
+		c.openCircuitLocked(state, policy, 1, result)
 		return
 	}
+	if isEvidenceCircuitFailure(result) {
+		if state.evidence == nil {
+			state.evidence = make(map[string]time.Time)
+		}
+		state.evidence[feedKey] = time.Now()
+		pruneEvidenceLocked(state, policy)
+		if distinctEvidenceLocked(state, policy) >= evidenceMin(policy) {
+			c.openCircuitLocked(state, policy, 1, result)
+		}
+	}
+}
 
-	state.failureCount++
-	state.openUntil = time.Now().Add(circuitWait(policy, state.failureCount, result))
+func (c *Coordinator) openCircuitLocked(state *domainCircuit, policy DomainPolicy, attempt int, result *FetchResult) {
+	state.cooldownAttempt = attempt
+	state.openUntil = time.Now().Add(c.circuitWait(policy, attempt, result))
 	state.state = CircuitStateOpen
+	state.halfOpenSuccess = 0
 	if result != nil {
 		result.Access.CircuitState = CircuitStateOpen
 	}
 }
 
-func isCircuitFailure(result *FetchResult) bool {
+func (c *Coordinator) closeCircuitLocked(state *domainCircuit) {
+	state.state = CircuitStateClosed
+	state.openUntil = time.Time{}
+	state.cooldownAttempt = 0
+	state.halfOpenSuccess = 0
+	state.halfOpenInFlight = 0
+	state.evidence = nil
+}
+
+// isImmediateCircuitFailure reports failures that OPEN the circuit without any
+// evidence threshold: rate limits always, and access-denied only for domains
+// that opted into ImmediateCircuitOnAccessDenied (Xiaoyuzhou).
+func isImmediateCircuitFailure(policy DomainPolicy, result *FetchResult) bool {
 	if result == nil || result.Access.HTTPStatus == nil {
 		return false
 	}
-	switch *result.Access.HTTPStatus {
-	case http.StatusForbidden, http.StatusTooManyRequests, http.StatusServiceUnavailable:
+	status := *result.Access.HTTPStatus
+	if status == http.StatusTooManyRequests {
 		return true
-	default:
+	}
+	if status == http.StatusForbidden && policy.ImmediateCircuitOnAccessDenied {
+		return true
+	}
+	return false
+}
+
+// isEvidenceCircuitFailure reports 5xx/timeout/network failures that only OPEN
+// the circuit once enough distinct feeds have failed (domain-health signal).
+func isEvidenceCircuitFailure(result *FetchResult) bool {
+	if result == nil {
 		return false
+	}
+	switch result.Access.ErrorCategory {
+	case ErrorCategoryServiceUnavailable, ErrorCategoryTimeout, ErrorCategoryNetwork:
+		return true
+	}
+	if result.Access.HTTPStatus != nil && *result.Access.HTTPStatus >= 500 {
+		return true
+	}
+	return false
+}
+
+func halfOpenMax(policy DomainPolicy) int {
+	if policy.HalfOpenMaxRequests > 0 {
+		return policy.HalfOpenMaxRequests
+	}
+	return defaultHalfOpenMaxRequests
+}
+
+func successesToClose(policy DomainPolicy) int {
+	if policy.SuccessesToClose > 0 {
+		return policy.SuccessesToClose
+	}
+	return defaultSuccessesToClose
+}
+
+func evidenceMin(policy DomainPolicy) int {
+	if policy.DomainEvidenceMinDistinctFeeds > 0 {
+		return policy.DomainEvidenceMinDistinctFeeds
+	}
+	return defaultDomainEvidenceMinDistinctFeeds
+}
+
+func evidenceWindow(policy DomainPolicy) time.Duration {
+	if policy.EvidenceWindow > 0 {
+		return policy.EvidenceWindow
+	}
+	return defaultEvidenceWindow
+}
+
+func pruneEvidenceLocked(state *domainCircuit, policy DomainPolicy) {
+	cutoff := time.Now().Add(-evidenceWindow(policy))
+	for feedKey, at := range state.evidence {
+		if at.Before(cutoff) {
+			delete(state.evidence, feedKey)
+		}
 	}
 }
 
-func circuitWait(policy DomainPolicy, failureCount int, result *FetchResult) time.Duration {
+func distinctEvidenceLocked(state *domainCircuit, policy DomainPolicy) int {
+	if state.evidence == nil {
+		return 0
+	}
+	cutoff := time.Now().Add(-evidenceWindow(policy))
+	count := 0
+	for _, at := range state.evidence {
+		if !at.Before(cutoff) {
+			count++
+		}
+	}
+	return count
+}
+
+// circuitWait computes the OPEN cooldown for the next attempt. Forbidden
+// responses use the fixed policy cooldown; rate limits honor Retry-After
+// (capped); everything else uses a bounded exponential with equal jitter so
+// simultaneous recoveries decorrelate without ever producing a zero cooldown.
+func (c *Coordinator) circuitWait(policy DomainPolicy, failureCount int, result *FetchResult) time.Duration {
 	if result != nil && result.Access.HTTPStatus != nil && *result.Access.HTTPStatus == http.StatusForbidden {
 		if policy.CircuitCooldown > 0 {
 			return policy.CircuitCooldown
@@ -303,18 +473,42 @@ func circuitWait(policy DomainPolicy, failureCount int, result *FetchResult) tim
 	if maximum <= 0 {
 		maximum = defaultRetryBackoffMax
 	}
-	wait := initial
-	for i := 1; i < failureCount && wait < maximum; i++ {
-		if wait > maximum/2 {
-			wait = maximum
+	return boundedBackoff(initial, maximum, failureCount, c.jitter)
+}
+
+// boundedBackoff returns an equal-jitter cooldown in [det/2, det], where det is
+// the exponential backoff capped at maximum. Equal jitter (half deterministic,
+// half random) decorrelates simultaneous recoveries while guaranteeing a
+// non-trivial cooldown floor.
+func boundedBackoff(initial, maximum time.Duration, attempt int, jitter func() float64) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	det := initial
+	for i := 1; i < attempt && det < maximum; i++ {
+		det *= 2
+		if det >= maximum {
+			det = maximum
 			break
 		}
-		wait *= 2
 	}
-	if wait > maximum {
-		return maximum
+	if det > maximum {
+		det = maximum
 	}
-	return wait
+	if jitter == nil {
+		return det
+	}
+	random := jitter()
+	if random < 0 {
+		random = 0
+	} else if random >= 1 {
+		return det
+	}
+	return det/2 + time.Duration(random*float64(det)/2)
+}
+
+func defaultJitter() float64 {
+	return rand.Float64()
 }
 
 func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
@@ -400,6 +594,7 @@ func (c *Coordinator) LastGood(ctx context.Context, rawURL string, failure *Fetc
 
 func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolicy, fetch func(context.Context) (*FetchResult, error)) (result *FetchResult, err error) {
 	domain := TargetDomain(rawURL)
+	feedKey := CanonicalizeURL(rawURL)
 	circuitEnabled := circuitPolicyEnabled(policy)
 	probe := false
 	reservedCircuit := false
@@ -418,7 +613,7 @@ func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolic
 				}
 			}
 			c.mu.Lock()
-			c.completeCircuitLocked(domain, policy, probe, result, err)
+			c.completeCircuitLocked(domain, policy, probe, feedKey, result, err)
 			c.mu.Unlock()
 		}
 	}()
@@ -438,7 +633,7 @@ func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolic
 
 	if circuitEnabled {
 		c.mu.Lock()
-		openUntil, blocked := c.circuitBlockedLocked(domain)
+		openUntil, blocked := c.circuitBlockedLocked(domain, policy)
 		c.mu.Unlock()
 		if blocked {
 			return circuitOpenResult(rawURL, openUntil), ErrFeedCircuitOpen
@@ -463,7 +658,7 @@ func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolic
 		c.mu.Lock()
 		var openUntil time.Time
 		var blocked bool
-		probe, circuitState, openUntil, blocked = c.reserveCircuitLocked(domain)
+		probe, circuitState, openUntil, blocked = c.reserveCircuitLocked(domain, policy)
 		if blocked {
 			c.mu.Unlock()
 			return circuitOpenResult(rawURL, openUntil), ErrFeedCircuitOpen
@@ -479,12 +674,16 @@ func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolic
 	return result, err
 }
 
-func (c *Coordinator) circuitBlockedLocked(domain string) (time.Time, bool) {
+func (c *Coordinator) circuitBlockedLocked(domain string, policy DomainPolicy) (time.Time, bool) {
 	state := c.circuits[domain]
 	if state == nil {
 		return time.Time{}, false
 	}
-	if state.probeInFlight || state.openUntil.After(time.Now()) {
+	now := time.Now()
+	if state.state == CircuitStateOpen && state.openUntil.After(now) {
+		return state.openUntil, true
+	}
+	if state.state == CircuitStateProbe && state.halfOpenInFlight >= halfOpenMax(policy) {
 		return state.openUntil, true
 	}
 	return time.Time{}, false
