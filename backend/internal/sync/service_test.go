@@ -551,17 +551,6 @@ func TestMetadataSyncReusesFetchedFeedForEpisodeSync(t *testing.T) {
 }
 
 func TestMetadataSyncRetrySuccessIsCountedOnce(t *testing.T) {
-	originalRetryConfig := DefaultRetryConfig
-	DefaultRetryConfig = RetryConfig{
-		MaxRetries:    1,
-		InitialDelay:  0,
-		MaxDelay:      0,
-		BackoffFactor: 1,
-	}
-	t.Cleanup(func() {
-		DefaultRetryConfig = originalRetryConfig
-	})
-
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if atomic.AddInt32(&requestCount, 1) == 1 {
@@ -579,6 +568,19 @@ func TestMetadataSyncRetrySuccessIsCountedOnce(t *testing.T) {
 	assert.NoError(t, err)
 	t.Cleanup(func() {
 		assert.NoError(t, service.Close())
+	})
+
+	// Override the outer-retry policy with a deterministic one: Budget=1 (one
+	// retry after the first attempt), a FakeSleeper so the test never blocks on
+	// real backoff, and a fixed random source so full-jitter is reproducible.
+	// This mirrors the legacy MaxRetries=1 / zero-delay behavior without
+	// mutating any global state.
+	service.applyRetryPolicy(feed.RetryPolicy{
+		Budget:  1,
+		Base:    2 * time.Second,
+		Max:     8 * time.Second,
+		Sleeper: &feed.FakeSleeper{},
+		Rand:    func() float64 { return 0 },
 	})
 
 	podcast := &models.Podcast{

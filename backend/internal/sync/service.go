@@ -13,22 +13,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// RetryConfig 重试配置
-type RetryConfig struct {
-	MaxRetries    int           // 最大重试次数
-	InitialDelay  time.Duration // 初始延迟
-	MaxDelay      time.Duration // 最大延迟
-	BackoffFactor float64       // 退避因子
-}
-
-// DefaultRetryConfig 默认重试配置
-var DefaultRetryConfig = RetryConfig{
-	MaxRetries:    3,
-	InitialDelay:  2 * time.Second, // 从2秒开始：2s -> 4s -> 8s
-	MaxDelay:      8 * time.Second,
-	BackoffFactor: 2.0,
-}
-
 // ImportConfig 导入配置
 type ImportConfig struct {
 	Concurrency int // 并发数（默认 10）
@@ -46,6 +30,12 @@ type Service struct {
 	feedFetcher       *feed.Fetcher
 	podcastIndexQuery *podcastindex.Query
 	scraper           *scraper.Scraper
+	// retryPolicy is the unified outer-retry policy for every Feed fetch in the
+	// sync workflow. It is derived from the startup-loaded FeedConfig and is the
+	// single source of retryable classification, Retry-After handling, and
+	// bounded full-jitter backoff. Tests override it via applyRetryPolicy to
+	// inject a no-op sleeper and fixed randomness for determinism.
+	retryPolicy feed.RetryPolicy
 }
 
 // SyncResult 同步结果
@@ -164,7 +154,15 @@ func NewServiceWithFeedCoordinator(db *gorm.DB, podcastIndexPath string, coordin
 		feedFetcher:       feed.NewFetcherWithCoordinator(30*time.Second, coordinator),
 		podcastIndexQuery: podcastIndexQuery,
 		scraper:           scraper.NewScraper(),
+		retryPolicy:       feed.SharedRetryPolicy(),
 	}, nil
+}
+
+// applyRetryPolicy replaces the outer-retry policy. It exists for deterministic
+// tests (no-op sleeper, fixed randomness, tight budget); production code never
+// overrides the policy derived from the startup-loaded FeedConfig.
+func (s *Service) applyRetryPolicy(policy feed.RetryPolicy) {
+	s.retryPolicy = policy
 }
 
 // Close 关闭服务，释放资源

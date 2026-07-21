@@ -184,9 +184,12 @@ feed:
   headers:
     accept: "application/rss+xml, application/atom+xml, application/xml;q=0.9, */*;q=0.8"
     accept_language: ""
-  # 外层重试预算（叠在 Coordinator 断路之上）。budget 是单个 Feed 在一次工作流
-  # 步骤内的最大尝试次数；0 表示不做外层重试，只走 Coordinator 的断路/半开逻辑。
-  # 硬上限为 5，任何配置都无法产生无限重试。
+  # 外层重试预算（叠在 Coordinator 断路之上，由 feed.RetryPolicy 统一执行）。
+  # budget 是单个 Feed 在一次工作流步骤内首次失败后的最大重试次数（总尝试次数
+  # = budget + 1）。留空/为 0 表示沿用已验证默认值 3（保持既有 MaxRetries=3 行为），
+  # 取值范围 [0, 5]，任何配置都无法产生无限重试。
+  # jitter 是 full-jitter 指数退避的基准；留空/为 0 沿用默认 2s，等待时间硬封顶
+  # 在 8s 与全局上限 60s。429/5xx 且上游给出 Retry-After 时，该值优先于退避。
   retry:
     budget: 0
     jitter: "0s"

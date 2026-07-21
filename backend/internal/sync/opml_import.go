@@ -74,7 +74,7 @@ func (s *Service) ImportOPMLWithProgressAndConfig(filePath string, reporter Prog
 				logger.Infof("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ [Worker %d] %s", workerID, title)
 
 				// 同步播客
-				podcast, err := s.syncPodcastFromFeedWithRetry(&outline, outline.XMLURL, reporter, DefaultRetryConfig)
+				podcast, err := s.syncPodcastFromFeedWithRetry(&outline, outline.XMLURL, reporter)
 
 				resultChan <- importResult{
 					podcast: podcast,
@@ -293,13 +293,14 @@ func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter Progr
 
 // syncPodcastFromFeed 从RSS feed同步播客信息
 func (s *Service) syncPodcastFromFeed(feedURL string) (*models.Podcast, error) {
-	return s.syncPodcastFromFeedWithRetry(nil, feedURL, NewLogProgressReporter(), DefaultRetryConfig)
+	return s.syncPodcastFromFeedWithRetry(nil, feedURL, NewLogProgressReporter())
 }
 
-// syncPodcastFromFeedWithRetry 从RSS feed同步播客信息（带重试）
-func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL string, reporter ProgressReporter, config RetryConfig) (*models.Podcast, error) {
+// syncPodcastFromFeedWithRetry 从RSS feed同步播客信息（带重试）。重试行为完全由
+// feed.RetryPolicy 提供：单一可重试分类、Retry-After 与有界 full-jitter 退避；每次
+// 重试都经 Fetcher/Coordinator，断路、按域并发、去重与 fallback 语义不被旁路。
+func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL string, reporter ProgressReporter) (*models.Podcast, error) {
 	var lastErr error
-	var delay time.Duration
 
 	title := ""
 	if outline != nil {
@@ -360,22 +361,21 @@ func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL st
 		logger.Infof("%s ⚠️  PodcastIndex 未初始化，直接在线抓取", logPrefix)
 	}
 
-	// 对RSS feed抓取进行重试
-	logger.Infof("%s 🌐 开始在线抓取 RSS feed (最多重试 %d 次)", logPrefix, config.MaxRetries)
+	// 对RSS feed抓取进行有限重试（预算、分类、Retry-After 与 full-jitter 退避均来自
+	// feed.RetryPolicy，不在此另建旁路规则）。
+	policy := s.retryPolicy
+	logger.Infof("%s 🌐 开始在线抓取 RSS feed (最多重试 %d 次)", logPrefix, policy.Budget)
 
-	for attempt := 0; attempt <= config.MaxRetries; attempt++ {
+	for attempt := 0; attempt <= policy.Budget; attempt++ {
 		if attempt > 0 {
-			// 计算延迟时间（指数退避）
-			delay = time.Duration(float64(config.InitialDelay) * float64(int(1)<<uint(attempt-1)))
-			if delay > config.MaxDelay {
-				delay = config.MaxDelay
-			}
-
+			delay, _ := policy.NextDelay(lastErr, attempt-1)
+			category := feed.CategoryOf(lastErr)
+			retryAfter := feed.RetryAfterOf(lastErr)
 			if title != "" {
 				reporter.Report(fmt.Sprintf("%s - 第 %d 次重试中...", title, attempt))
 			}
-			logger.Infof("%s ⏳ 等待 %.0f 秒后重试...", logPrefix, delay.Seconds())
-			time.Sleep(delay)
+			logger.Infof("%s ⏳ 等待 %.0f 秒后重试 (category=%s retry_after=%q)...", logPrefix, delay.Seconds(), category, retryAfter)
+			policy.Sleep(delay)
 		}
 
 		logger.Infof("%s 📡 正在抓取 (第 %d 次尝试)...", logPrefix, attempt+1)
@@ -392,29 +392,19 @@ func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL st
 		lastErr = err
 		logger.Infof("%s ❌ 抓取失败 (第 %d 次尝试): %v", logPrefix, attempt+1, err)
 
-		// 检查是否为可重试错误
-		if !feed.IsRetryable(err) {
-			// 不可重试的错误，直接返回
+		// 不可重试的错误（403/401/404/402/parse/重定向策略）立即返回，不消耗重试预算，
+		// 也不会把已断路上游再次打向访问拒绝源。
+		if !policy.ShouldRetry(err) {
 			logger.Infof("%s ⛔ 不可重试的错误，停止重试: %v", logPrefix, err)
 			return nil, err
 		}
-
-		// 如果是最后一次尝试，不再重试
-		if attempt >= config.MaxRetries {
-			if title != "" {
-				reporter.ReportError(fmt.Sprintf("%s - 重试 %d 次后仍然失败", title, config.MaxRetries))
-			}
-			logger.Infof("%s 💥 达到最大重试次数，放弃", logPrefix)
-			return nil, fmt.Errorf("failed after %d retries: %w", config.MaxRetries, lastErr)
-		}
-
-		// 记录重试信息
-		if title != "" {
-			reporter.Report(fmt.Sprintf("%s - 网络错误，将在 %.0f 秒后重试...", title, delay.Seconds()))
-		}
 	}
 
-	return nil, lastErr
+	if title != "" {
+		reporter.ReportError(fmt.Sprintf("%s - 重试 %d 次后仍然失败", title, policy.Budget))
+	}
+	logger.Infof("%s 💥 达到最大重试次数，放弃", logPrefix)
+	return nil, fmt.Errorf("failed after %d retries: %w", policy.Budget, lastErr)
 }
 
 // syncPodcastFromPodcastIndexOnly 智能同步：先本地匹配，再在线抓取

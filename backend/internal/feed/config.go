@@ -65,10 +65,20 @@ type FeedHeaders struct {
 }
 
 // FeedRetryConfig bounds the OUTER retry behavior layered above the coordinator
-// (the unified retry budget landed in the retry-convergence ticket). Budget is
-// the maximum number of attempts for one Feed within a workflow step; 0 means
-// no outer retry and only the coordinator's circuit/half-open behavior applies.
-// It is hard-capped so no configuration can produce an unbounded retry path.
+// (the unified retry budget landed in the retry-convergence ticket).
+//
+// Budget is the maximum number of retries AFTER the first attempt for one Feed
+// within a workflow step (so total attempts = Budget + 1). A value of 0 means
+// "unset": SharedRetryPolicy falls back to DefaultRetryBudget (3), preserving
+// the previously validated MaxRetries=3 behavior. It is validated to [0,
+// maxRetryBudget] so no configuration can produce an unbounded retry path; an
+// operator who wants fewer retries sets an explicit budget in [1, maxRetryBudget].
+//
+// Jitter is the full-jitter exponential-backoff base. A zero value means
+// "unset": SharedRetryPolicy falls back to DefaultRetryBase (2s). Every wait is
+// capped at DefaultRetryMax (8s) and the global MaxRetryAfter (60s), and
+// Retry-After (delta-seconds or HTTP-date) wins over the backoff for 429/5xx
+// when the upstream provides it.
 type FeedRetryConfig struct {
 	Budget int           `mapstructure:"budget"`
 	Jitter time.Duration `mapstructure:"jitter"`

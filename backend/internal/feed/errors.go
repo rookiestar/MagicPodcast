@@ -38,6 +38,40 @@ const (
 	ErrorTypeInvalidRequest
 )
 
+// String renders the error category as a short stable label so structured retry
+// logs and diagnostics can print it directly. Unknown values fall back to the
+// numeric form rather than a misleading name.
+func (t FeedErrorType) String() string {
+	switch t {
+	case ErrorTypeUnknown:
+		return "unknown"
+	case ErrorTypePaymentRequired:
+		return "payment_required"
+	case ErrorTypeCertificateExpired:
+		return "certificate_expired"
+	case ErrorTypeNetworkError:
+		return "network"
+	case ErrorTypeTimeout:
+		return "timeout"
+	case ErrorTypeNotFound:
+		return "not_found"
+	case ErrorTypeInvalidFeed:
+		return "invalid_feed"
+	case ErrorTypeAccessDenied:
+		return "access_denied"
+	case ErrorTypeGeoBlocked:
+		return "geo_blocked"
+	case ErrorTypeRateLimited:
+		return "rate_limited"
+	case ErrorTypeServiceUnavailable:
+		return "service_unavailable"
+	case ErrorTypeInvalidRequest:
+		return "invalid_request"
+	default:
+		return fmt.Sprintf("feed_error_type_%d", int(t))
+	}
+}
+
 type HTTPStatusError struct {
 	StatusCode int
 }
@@ -56,6 +90,13 @@ type FeedError struct {
 	FeedURL  string
 	Original error
 	Message  string
+	// RetryAfter carries the upstream Retry-After header value (verbatim) for
+	// retryable HTTP errors (429/503). It is the single channel through which
+	// the outer retry loop learns the upstream-requested wait without needing
+	// the AccessOutcome. It is never logged verbatim if it could carry a
+	// sensitive value — Retry-After is server-controlled and bounded, and the
+	// retry layer parses+caps it before sleeping.
+	RetryAfter string
 }
 
 func (e *FeedError) Error() string {
@@ -149,12 +190,18 @@ func ClassifyError(feedURL string, err error) *FeedError {
 	}
 	var statusErr *HTTPStatusError
 	if errors.As(err, &statusErr) {
-		switch statusErr.StatusCode {
-		case http.StatusUnauthorized, http.StatusForbidden:
+		status := statusErr.StatusCode
+		switch {
+		case status == http.StatusUnauthorized || status == http.StatusForbidden:
 			return &FeedError{Type: ErrorTypeAccessDenied, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("访问被拒绝: %s", safeURL)}
-		case http.StatusTooManyRequests:
+		case status == http.StatusTooManyRequests:
 			return &FeedError{Type: ErrorTypeRateLimited, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("请求受到限速: %s", safeURL)}
-		case http.StatusServiceUnavailable:
+		case status >= http.StatusInternalServerError:
+			// All 5xx are transient upstream failures (502/503/504 gateways, 500
+			// internal errors). The ErrorTypeServiceUnavailable doc promises 5xx
+			// coverage and the outer retry policy treats this type as retryable,
+			// so mapping the whole range here is what makes a generic 500/502/504
+			// eligible for the bounded retry budget.
 			return &FeedError{Type: ErrorTypeServiceUnavailable, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("上游服务暂时不可用: %s", safeURL)}
 		default:
 			return &FeedError{Type: ErrorTypeUnknown, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("HTTP请求失败: %s", safeURL)}

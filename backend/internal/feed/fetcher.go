@@ -365,6 +365,13 @@ func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string
 
 	if status < http.StatusOK || status >= http.StatusMultipleChoices {
 		err = WrapHTTPError(feedURL, newHTTPStatusError(status))
+		// Stamp the upstream Retry-After onto the FeedError so the outer retry
+		// loop can honor it without the AccessOutcome. Only set for the status
+		// refusal path, where resp.Header is in scope; transport/parse errors
+		// have no such header and stay empty.
+		if fe, ok := err.(*FeedError); ok {
+			fe.RetryAfter = resp.Header.Get("Retry-After")
+		}
 		result.Access.ErrorCategory = errorCategoryForStatus(status)
 		result.Access.Freshness = FreshnessUnknown
 		return result, err

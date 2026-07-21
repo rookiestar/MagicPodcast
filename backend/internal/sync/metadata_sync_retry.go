@@ -1,23 +1,37 @@
 package sync
 
 import (
-	"time"
-
 	"magicpodcast/internal/feed"
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/models"
 )
 
+// syncPodcastMetadataWithRetry runs the metadata sync for one podcast under the
+// unified outer-retry policy. It is the SINGLE retry behavior for this path:
+// classification (retryable vs not), Retry-After, and bounded full-jitter
+// backoff all come from feed.RetryPolicy, and every retry re-enters through the
+// Fetcher/Coordinator so circuit, per-domain concurrency, dedup, and fallback
+// semantics are never bypassed.
+//
+// Non-retryable errors (403/401/404/402/parse/redirect-policy) stop at once;
+// only network/timeout/429/5xx retry, and only within the finite Budget. There
+// is no infinite-retry path and no path that re-hits a circuit-open upstream
+// for an access-denied source.
 func (s *Service) syncPodcastMetadataWithRetry(podcast *models.Podcast, workerID int) metadataSyncResult {
+	policy := s.retryPolicy
 	var lastErr error
 	var noUpdate bool
 	retries := 0
 
-	for retries <= DefaultRetryConfig.MaxRetries {
-		if retries > 0 {
-			logger.Infof("[Worker %d] 重试 %d/%d: %s", workerID, retries, DefaultRetryConfig.MaxRetries, podcast.Title)
-			delay := DefaultRetryConfig.InitialDelay * time.Duration(1<<uint(retries-1))
-			time.Sleep(delay)
+	for attempt := 0; attempt <= policy.Budget; attempt++ {
+		if attempt > 0 {
+			delay, _ := policy.NextDelay(lastErr, attempt-1)
+			category := feed.CategoryOf(lastErr)
+			retryAfter := feed.RetryAfterOf(lastErr)
+			logger.Infof("[Worker %d] feed 重试 %d/%d: title=%q category=%s retry_after=%q delay_ms=%d",
+				workerID, attempt, policy.Budget, podcast.Title, category, retryAfter, delay.Milliseconds())
+			policy.Sleep(delay)
+			retries++
 		}
 
 		err, noUpdateResult, episodeResult := s.syncPodcastMetadataWithUpdateCheck(podcast)
@@ -34,17 +48,18 @@ func (s *Service) syncPodcastMetadataWithRetry(podcast *models.Podcast, workerID
 		lastErr = err
 		noUpdate = noUpdateResult
 
-		if shouldSkip, _, _ := feed.GetSkipReasonFromError(err); shouldSkip {
+		// Single classification: stop immediately on non-retryable errors so a
+		// 403/404/parse failure never burns the retry budget or re-hits an
+		// upstream that the Coordinator may have just opened a circuit for.
+		if !policy.ShouldRetry(err) {
 			break
 		}
-
-		retries++
 	}
 
 	return metadataSyncResult{
 		podcast:       podcast,
 		err:           lastErr,
-		retries:       retries - 1,
+		retries:       retries,
 		noUpdate:      noUpdate,
 		episodeResult: nil,
 	}
