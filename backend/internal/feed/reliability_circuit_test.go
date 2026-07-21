@@ -21,6 +21,9 @@ import (
 func TestCoordinatorHalfOpenClosesAfterSuccessThreshold(t *testing.T) {
 	var requests int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		if atomic.AddInt32(&requests, 1) == 1 {
 			w.WriteHeader(http.StatusForbidden)
 			return
@@ -71,6 +74,9 @@ func TestCoordinatorHalfOpenClosesAfterSuccessThreshold(t *testing.T) {
 func TestCoordinatorHalfOpenReopensOnProbeFailure(t *testing.T) {
 	var requests int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		switch atomic.AddInt32(&requests, 1) {
 		case 1:
 			w.WriteHeader(http.StatusForbidden)
@@ -120,6 +126,9 @@ func TestCoordinatorHalfOpenReopensOnProbeFailure(t *testing.T) {
 func TestCoordinatorEvidenceThresholdGuardsDomainCircuit(t *testing.T) {
 	var aHits, bHits int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		switch r.URL.Path {
 		case "/a.xml":
 			atomic.AddInt32(&aHits, 1)
@@ -178,6 +187,9 @@ func TestCoordinatorEvidenceThresholdGuardsDomainCircuit(t *testing.T) {
 func TestCoordinatorCategoryThresholdOverridesEvidenceDefault(t *testing.T) {
 	var aHits, bHits int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		switch r.URL.Path {
 		case "/a.xml":
 			atomic.AddInt32(&aHits, 1)
@@ -217,6 +229,9 @@ func TestCoordinatorCategoryThresholdOverridesEvidenceDefault(t *testing.T) {
 func TestFetcherSendsHonestHeadersAndDecompressesGzip(t *testing.T) {
 	var seenUserAgent, seenAccept string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		seenUserAgent = r.Header.Get("User-Agent")
 		seenAccept = r.Header.Get("Accept")
 		body := &bytes.Buffer{}

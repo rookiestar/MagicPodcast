@@ -18,6 +18,9 @@ func TestCoordinatorCoalescesConcurrentRequestsAndHonorsRefreshInterval(t *testi
 	var current int32
 	var maxConcurrent int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		atomic.AddInt32(&requestCount, 1)
 		active := atomic.AddInt32(&current, 1)
 		updateMaxConcurrent(&maxConcurrent, active)
@@ -88,10 +91,76 @@ func TestCoordinatorCoalescesConcurrentRequestsAndHonorsRefreshInterval(t *testi
 	}
 }
 
+func TestCoordinatorUnconfiguredDomainHonorsRefreshHints(t *testing.T) {
+	var feedRequests int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		atomic.AddInt32(&feedRequests, 1)
+		w.Header().Set("Cache-Control", "public, max-age=600")
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(coordinatorTestFeed))
+	}))
+	t.Cleanup(server.Close)
+
+	// 127.0.0.1 is not in DefaultCoordinatorConfig, so this exercises the
+	// upstream-hint-only refresh gate rather than a local MinRefreshInterval.
+	coordinator := NewCoordinator(DefaultCoordinatorConfig())
+	fetcher := NewFetcherWithCoordinator(2*time.Second, coordinator)
+	feedURL := server.URL + "/feed.xml"
+
+	first, err := fetcher.FetchFeedWithContextDetailed(context.Background(), feedURL)
+	if err != nil || first == nil || first.Feed == nil {
+		t.Fatalf("initial hinted fetch failed: result=%#v err=%v", first, err)
+	}
+	second, err := fetcher.FetchFeedWithContextDetailed(context.Background(), feedURL)
+	if err != nil || second == nil || second.Feed == nil {
+		t.Fatalf("shared hinted fetch failed: result=%#v err=%v", second, err)
+	}
+	if got := atomic.LoadInt32(&feedRequests); got != 1 {
+		t.Fatalf("upstream Cache-Control hint was ignored for an unconfigured domain: feed requests=%d", got)
+	}
+	if second.Access.SourceType != AccessSourceSharedCache || second.Access.CacheStatus != CacheStatusHit {
+		t.Fatalf("expected a shared hinted result, got source=%q cache=%q", second.Access.SourceType, second.Access.CacheStatus)
+	}
+}
+
+func TestCoordinatorUnconfiguredDomainWithoutHintsRemainsOnDemand(t *testing.T) {
+	var feedRequests int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		atomic.AddInt32(&feedRequests, 1)
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(coordinatorTestFeed))
+	}))
+	t.Cleanup(server.Close)
+
+	coordinator := NewCoordinator(DefaultCoordinatorConfig())
+	fetcher := NewFetcherWithCoordinator(2*time.Second, coordinator)
+	feedURL := server.URL + "/feed.xml"
+
+	for i := 0; i < 2; i++ {
+		if result, err := fetcher.FetchFeedWithContextDetailed(context.Background(), feedURL); err != nil || result == nil || result.Feed == nil {
+			t.Fatalf("on-demand fetch %d failed: result=%#v err=%v", i+1, result, err)
+		}
+	}
+	if got := atomic.LoadInt32(&feedRequests); got != 2 {
+		t.Fatalf("a feed without local or upstream refresh policy was unexpectedly shared: feed requests=%d", got)
+	}
+}
+
 func TestCoordinatorDoesNotSerializeDifferentUnconfiguredDomains(t *testing.T) {
 	var current int32
 	var maxConcurrent int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		active := atomic.AddInt32(&current, 1)
 		updateMaxConcurrent(&maxConcurrent, active)
 		time.Sleep(50 * time.Millisecond)
@@ -121,6 +190,9 @@ func TestCoordinatorDoesNotSerializeDifferentUnconfiguredDomains(t *testing.T) {
 func TestCoordinatorReleasesFailedInflightRequest(t *testing.T) {
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		if atomic.AddInt32(&requestCount, 1) == 1 {
 			w.WriteHeader(http.StatusForbidden)
 			return

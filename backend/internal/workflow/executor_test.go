@@ -199,6 +199,9 @@ func TestFetchCustomPodcasts_EmptyURLs(t *testing.T) {
 
 func TestSyncPodcastMarksExecutionFailedWhenSummaryWritebackFails(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundWorkflow(w, r) {
+			return
+		}
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel><title>Workflow Test Feed</title>
@@ -281,6 +284,9 @@ func TestExecutePersistsFeedAccessObservation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if serveRobotsNotFoundWorkflow(w, r) {
+					return
+				}
 				w.Header().Set("Content-Type", "application/rss+xml")
 				w.Header().Set("ETag", `"observed-v1"`)
 				w.WriteHeader(tt.status)
@@ -353,6 +359,9 @@ func TestExecutePersistsFeedAccessObservation(t *testing.T) {
 func TestExecutePersistsCircuitSkipAndRecoveryProbe(t *testing.T) {
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundWorkflow(w, r) {
+			return
+		}
 		if atomic.AddInt32(&requestCount, 1) == 1 {
 			w.WriteHeader(http.StatusForbidden)
 			return
@@ -439,6 +448,9 @@ func TestOverlappingWorkflowsShareOneUpstreamFeedRequest(t *testing.T) {
 	var current int32
 	var maxConcurrent int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundWorkflow(w, r) {
+			return
+		}
 		atomic.AddInt32(&requestCount, 1)
 		active := atomic.AddInt32(&current, 1)
 		updateWorkflowMaxConcurrent(&maxConcurrent, active)

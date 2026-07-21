@@ -18,6 +18,14 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func serveRobotsNotFoundWorkflow(w http.ResponseWriter, r *http.Request) bool {
+	if r.URL.Path != "/robots.txt" {
+		return false
+	}
+	w.WriteHeader(http.StatusNotFound)
+	return true
+}
+
 func createWorkflowAlternativeIndex(t *testing.T, primaryURL, alternativeURL string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "podcastindex.db")
@@ -73,11 +81,17 @@ CREATE TABLE podcasts (
 func TestExecutePersistsVerifiedAlternativeSource(t *testing.T) {
 	var primaryRequests, alternativeRequests int32
 	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundWorkflow(w, r) {
+			return
+		}
 		atomic.AddInt32(&primaryRequests, 1)
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer primary.Close()
 	alternative := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundWorkflow(w, r) {
+			return
+		}
 		atomic.AddInt32(&alternativeRequests, 1)
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel><title>工作流稳定节目</title><item><title>替代单集</title><guid>workflow-alternative-episode</guid><pubDate>Tue, 14 Jul 2026 08:00:00 GMT</pubDate></item></channel></rss>`)

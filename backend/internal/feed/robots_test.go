@@ -3,6 +3,9 @@ package feed
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -20,6 +23,17 @@ type robotsFetchRecorder struct {
 	respond func(scheme, host string) (int, []byte, error)
 }
 
+// serveRobotsNotFound keeps Feed httptest handlers from consuming their
+// scripted Feed response when the production Fetcher performs its origin
+// robots lookup. A missing robots document is an advisory allow-all result.
+func serveRobotsNotFound(w http.ResponseWriter, r *http.Request) bool {
+	if r.URL.Path != "/robots.txt" {
+		return false
+	}
+	w.WriteHeader(http.StatusNotFound)
+	return true
+}
+
 func (r *robotsFetchRecorder) fetch(_ context.Context, scheme, host string) (int, []byte, error) {
 	r.mu.Lock()
 	r.calls = append(r.calls, scheme+"://"+host)
@@ -34,6 +48,12 @@ func (r *robotsFetchRecorder) callCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.calls)
+}
+
+func (r *robotsFetchRecorder) callsSnapshot() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.calls...)
 }
 
 // newAdvancingGate builds a gate whose clock the test advances via the returned
@@ -128,6 +148,49 @@ func TestRobotsCacheHitSharesOneFetchAcrossPaths(t *testing.T) {
 	assert.Equal(t, 1, rec.callCount(), "one robots fetch serves every path on the domain")
 }
 
+func TestRobotsCacheSeparatesSchemes(t *testing.T) {
+	body := []byte("User-agent: *\nAllow: /\n")
+	rec := &robotsFetchRecorder{respond: func(string, string) (int, []byte, error) { return 200, body, nil }}
+	gate, _ := newAdvancingGate(rec)
+
+	assert.True(t, gate.Allowed(context.Background(), "http://example.com/feed.xml").Allowed)
+	assert.True(t, gate.Allowed(context.Background(), "https://example.com/feed.xml").Allowed)
+	assert.Equal(t, []string{"http://example.com", "https://example.com"}, rec.callsSnapshot(),
+		"HTTP and HTTPS are different robots origins")
+}
+
+func TestRobotsCacheSeparatesPorts(t *testing.T) {
+	body := []byte("User-agent: *\nAllow: /\n")
+	rec := &robotsFetchRecorder{respond: func(string, string) (int, []byte, error) { return 200, body, nil }}
+	gate, _ := newAdvancingGate(rec)
+
+	assert.True(t, gate.Allowed(context.Background(), "http://example.com:8080/feed.xml").Allowed)
+	assert.True(t, gate.Allowed(context.Background(), "http://example.com:8081/feed.xml").Allowed)
+	assert.Equal(t, []string{"http://example.com:8080", "http://example.com:8081"}, rec.callsSnapshot(),
+		"different ports are different robots origins")
+}
+
+func TestFetcherRobotsRequestPreservesAuthorityPort(t *testing.T) {
+	var gotHost, gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Host
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(server.Close)
+
+	authority := strings.TrimPrefix(server.URL, "http://")
+	fetcher := &Fetcher{
+		httpClient: server.Client(),
+		httpConfig: DefaultFeedHTTPConfig(time.Second),
+	}
+	status, _, err := fetcher.fetchRobotsTXT(context.Background(), "http", authority)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, status)
+	assert.Equal(t, authority, gotHost, "robots request must target the feed origin port")
+	assert.Equal(t, "/robots.txt", gotPath)
+}
+
 func TestRobotsCacheExpiresAfterTTL(t *testing.T) {
 	body := []byte("User-agent: *\nAllow: /\n")
 	rec := &robotsFetchRecorder{respond: func(string, string) (int, []byte, error) { return 200, body, nil }}
@@ -185,7 +248,7 @@ func TestRobotsSingleflightCoalescesConcurrentCalls(t *testing.T) {
 			results[i] = gate.Allowed(context.Background(), "https://example.com/feed.xml")
 		}(i)
 	}
-	<-started   // leader is mid-fetch
+	<-started      // leader is mid-fetch
 	close(release) // let it complete
 	wg.Wait()
 
@@ -222,6 +285,12 @@ func TestSplitRobotsURLParsing(t *testing.T) {
 	assert.Equal(t, "http", scheme)
 	assert.Equal(t, "example.com", host)
 	assert.Equal(t, "/private/x.xml", path)
+
+	// Explicit ports remain part of the authority used for robots caching and
+	// the robots request target.
+	_, authority, _, ok := splitRobotsURL("https://EXAMPLE.com:8443/feed.xml")
+	assert.True(t, ok)
+	assert.Equal(t, "example.com:8443", authority)
 
 	// Non-HTTP(S) scheme rejected.
 	_, _, _, ok = splitRobotsURL("ftp://example.com/feed.xml")

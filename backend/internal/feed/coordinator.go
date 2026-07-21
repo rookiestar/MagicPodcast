@@ -327,7 +327,7 @@ func (c *Coordinator) Do(ctx context.Context, rawURL string, fetch func(context.
 	policy := c.policyFor(domain)
 
 	c.mu.Lock()
-	if cached, ok := c.sharedResult[key]; ok && policy.MinRefreshInterval > 0 {
+	if cached, ok := c.sharedResult[key]; ok && (policy.MinRefreshInterval > 0 || cached.hints.Present()) {
 		if serveCachedRefreshHints(cached, policy.MinRefreshInterval, time.Now()) {
 			result := cloneFetchResult(cached.result)
 			c.mu.Unlock()
@@ -363,9 +363,9 @@ func (c *Coordinator) Do(ctx context.Context, rawURL string, fetch func(context.
 	result, err = c.run(ctx, rawURL, policy, fetch)
 	c.mu.Lock()
 	sharedResult := cloneFetchResult(result)
-	if err == nil && result != nil && result.Feed != nil && policy.MinRefreshInterval > 0 {
+	if err == nil && result != nil && result.Feed != nil {
 		hints := sharedResult.RefreshHints
-		if !hints.Present() {
+		if result.Access.CacheStatus == CacheStatusNotModified && !hints.Present() {
 			// A recovered 304 carries no body, so the Fetcher could not recompute
 			// the RSS ttl/skip signals; reuse the hints learned on the last full
 			// capture so the refresh floor and skip windows stay in effect until
@@ -374,7 +374,13 @@ func (c *Coordinator) Do(ctx context.Context, rawURL string, fetch func(context.
 				hints = prev.hints
 			}
 		}
-		c.sharedResult[key] = cachedFetch{storedAt: time.Now(), result: sharedResult, hints: hints}
+		if policy.MinRefreshInterval > 0 || hints.Present() {
+			c.sharedResult[key] = cachedFetch{storedAt: time.Now(), result: sharedResult, hints: hints}
+		} else {
+			// A later 200 without hints must clear an older hint-backed entry;
+			// otherwise a stale upstream policy would continue to suppress fetches.
+			delete(c.sharedResult, key)
+		}
 	}
 	if err == nil && result != nil && result.Feed != nil {
 		// A recovered 304 means the persisted body is unchanged and still
@@ -1212,9 +1218,9 @@ func cloneFetchResult(result *FetchResult) *FetchResult {
 // only LENGTHEN the wait below the local policy floor, and an active skipHours/
 // skipDays window blocks refresh regardless of elapsed time. With no hints the
 // decision is exactly the pre-hint policy floor. Hints gate refresh only inside
-// the existing coordinated refresh gate (MinRefreshInterval > 0), so feeds on
-// domains without a configured floor keep their on-demand fetch + Conditional
-// GET semantics unchanged.
+// the existing coordinated refresh gate when a local floor is configured. A
+// Feed without a local floor may still use this gate when it supplied usable
+// upstream hints; with neither source of policy there is no shared cache.
 func serveCachedRefreshHints(cached cachedFetch, policyFloor time.Duration, now time.Time) bool {
 	if cached.hints.Present() {
 		return !cached.hints.RefreshAllowed(policyFloor, now)

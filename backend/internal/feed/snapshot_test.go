@@ -15,6 +15,9 @@ import (
 func TestCoordinatorReusesFreshSnapshotWithoutContactingUpstream(t *testing.T) {
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		atomic.AddInt32(&requestCount, 1)
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = w.Write([]byte(testSnapshotFeed("Fresh snapshot")))
@@ -57,6 +60,9 @@ func TestCoordinatorReusesFreshSnapshotWithoutContactingUpstream(t *testing.T) {
 func TestFetcherCanReturnStaleLastGoodWhilePreservingUpstreamFailure(t *testing.T) {
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		if atomic.AddInt32(&requestCount, 1) == 1 {
 			w.Header().Set("Content-Type", "application/rss+xml")
 			_, _ = w.Write([]byte(testSnapshotFeed("Last good")))
@@ -126,6 +132,9 @@ func TestMemorySnapshotStoreEnforcesEntryResponseAndTotalBounds(t *testing.T) {
 
 func TestCorruptLastGoodSnapshotIsIgnored(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	t.Cleanup(server.Close)

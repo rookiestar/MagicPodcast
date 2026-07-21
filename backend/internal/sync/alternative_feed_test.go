@@ -30,6 +30,14 @@ type alternativeIndexRow struct {
 	status   int
 }
 
+func serveRobotsNotFoundSync(w http.ResponseWriter, r *http.Request) bool {
+	if r.URL.Path != "/robots.txt" {
+		return false
+	}
+	w.WriteHeader(http.StatusNotFound)
+	return true
+}
+
 func createAlternativeIndexFixture(t *testing.T, rows []alternativeIndexRow) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "podcastindex.db")
@@ -134,11 +142,17 @@ func TestResolveAlternativeIdentitySkipsPrimaryLookupWhenStableIDIsPersisted(t *
 func TestWorkflowUsesVerifiedPodcastIndexAlternativeAndRecordsIdentity(t *testing.T) {
 	var primaryRequests, alternativeRequests int32
 	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		atomic.AddInt32(&primaryRequests, 1)
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer primary.Close()
 	alternative := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		atomic.AddInt32(&alternativeRequests, 1)
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = w.Write([]byte(alternativeRSS("稳定节目", "alternative-episode")))
@@ -194,11 +208,17 @@ func TestWorkflowReusesEpisodeWhenAlternativeGUIDDiffers(t *testing.T) {
 	require.Equal(t, "136", episodeNoFromTitle("【年度巨献】5位顶级脑科学家（E136）"))
 	var primaryRequests, alternativeRequests int32
 	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		atomic.AddInt32(&primaryRequests, 1)
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer primary.Close()
 	alternative := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		atomic.AddInt32(&alternativeRequests, 1)
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?>
@@ -273,6 +293,9 @@ func TestWorkflowReusesEpisodeWhenAlternativeGUIDDiffers(t *testing.T) {
 func TestWorkflowDoesNotDuplicateAlternativeEpisodeWhenPrimaryRecovers(t *testing.T) {
 	var primaryRequests, alternativeRequests int32
 	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		if atomic.AddInt32(&primaryRequests, 1) == 1 {
 			w.WriteHeader(http.StatusForbidden)
 			return
@@ -284,6 +307,9 @@ func TestWorkflowDoesNotDuplicateAlternativeEpisodeWhenPrimaryRecovers(t *testin
 	}))
 	defer primary.Close()
 	alternative := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		atomic.AddInt32(&alternativeRequests, 1)
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel><title>恢复节目</title>
@@ -333,11 +359,17 @@ func TestWorkflowDoesNotDuplicateAlternativeEpisodeWhenPrimaryRecovers(t *testin
 func TestWorkflowUsesVerifiedAlternativeWhenPrimaryIsAbsentFromPodcastIndex(t *testing.T) {
 	var primaryRequests, alternativeRequests int32
 	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		atomic.AddInt32(&primaryRequests, 1)
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer primary.Close()
 	alternative := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		atomic.AddInt32(&alternativeRequests, 1)
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = w.Write([]byte(alternativeRSS("科学星球", "alternative-science-episode")))
@@ -378,11 +410,17 @@ func TestWorkflowUsesVerifiedAlternativeWhenPrimaryIsAbsentFromPodcastIndex(t *t
 func TestWorkflowRejectsSameTitleCandidateWithoutStableIdentity(t *testing.T) {
 	var primaryRequests, alternativeRequests int32
 	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		atomic.AddInt32(&primaryRequests, 1)
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer primary.Close()
 	alternative := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		atomic.AddInt32(&alternativeRequests, 1)
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = w.Write([]byte(alternativeRSS("同名节目", "title-only-episode")))
@@ -412,6 +450,9 @@ func TestWorkflowRejectsSameTitleCandidateWithoutStableIdentity(t *testing.T) {
 func TestWorkflowUsesLastGoodWhenVerifiedAlternativeFails(t *testing.T) {
 	var primaryRequests, alternativeRequests int32
 	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		if atomic.AddInt32(&primaryRequests, 1) == 1 {
 			w.Header().Set("Content-Type", "application/rss+xml")
 			_, _ = w.Write([]byte(alternativeRSS("稳定节目", "primary-episode")))
@@ -421,6 +462,9 @@ func TestWorkflowUsesLastGoodWhenVerifiedAlternativeFails(t *testing.T) {
 	}))
 	defer primary.Close()
 	alternative := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		atomic.AddInt32(&alternativeRequests, 1)
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
@@ -455,6 +499,9 @@ func TestWorkflowUsesLastGoodWhenVerifiedAlternativeFails(t *testing.T) {
 func TestWorkflowReturnsToPrimaryAfterRecovery(t *testing.T) {
 	var primaryRequests, alternativeRequests int32
 	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		if atomic.AddInt32(&primaryRequests, 1) == 1 {
 			w.WriteHeader(http.StatusForbidden)
 			return
@@ -464,6 +511,9 @@ func TestWorkflowReturnsToPrimaryAfterRecovery(t *testing.T) {
 	}))
 	defer primary.Close()
 	alternative := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		atomic.AddInt32(&alternativeRequests, 1)
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = w.Write([]byte(alternativeRSS("稳定节目", "alternative-episode")))

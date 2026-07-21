@@ -42,6 +42,9 @@ func newTestFeedServer(tb testing.TB, delay time.Duration) *httptest.Server {
 	tb.Helper()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		if delay > 0 {
 			time.Sleep(delay)
 		}
@@ -140,6 +143,9 @@ func TestSyncPodcastEpisodeItemsDoesNotUseFetchTimeForRecentUpdate(t *testing.T)
 func TestSyncPodcastEpisodesUsesLastGoodWithoutAdvancingFetchTime(t *testing.T) {
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		if atomic.AddInt32(&requestCount, 1) == 1 {
 			w.Header().Set("Content-Type", "application/rss+xml")
 			_, _ = w.Write([]byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>Last Good Workflow</title><item><title>Episode</title><guid>last-good-workflow-episode</guid><pubDate>Tue, 14 Jul 2026 08:00:00 GMT</pubDate><description>Details</description></item></channel></rss>`))
@@ -509,6 +515,9 @@ func TestHTTPConnectionPool(t *testing.T) {
 func TestMetadataSyncReusesFetchedFeedForEpisodeSync(t *testing.T) {
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		atomic.AddInt32(&requestCount, 1)
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = w.Write([]byte(testFeedXML))
@@ -553,6 +562,9 @@ func TestMetadataSyncReusesFetchedFeedForEpisodeSync(t *testing.T) {
 func TestMetadataSyncRetrySuccessIsCountedOnce(t *testing.T) {
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		if atomic.AddInt32(&requestCount, 1) == 1 {
 			http.Error(w, "temporary failure", http.StatusInternalServerError)
 			return
@@ -607,6 +619,9 @@ func TestMetadataSyncRetrySuccessIsCountedOnce(t *testing.T) {
 
 func TestMetadataSyncDoesNotEmitPerPodcastFetchNoise(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = w.Write([]byte(testFeedXML))
 	}))

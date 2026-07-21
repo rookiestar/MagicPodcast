@@ -24,6 +24,9 @@ func newConditionalGETServer(t *testing.T, body string, before304 func()) (*http
 	var requestCount int32
 	var conditionalHits int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		atomic.AddInt32(&requestCount, 1)
 		if r.Header.Get("If-None-Match") == conditionalGETETag {
 			atomic.AddInt32(&conditionalHits, 1)
@@ -161,6 +164,9 @@ func TestConditionalGETOmitsValidatorsWhenNoSnapshot(t *testing.T) {
 	body := testSnapshotFeed("Fresh")
 	var sawIfNoneMatch int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		if r.Header.Get("If-None-Match") != "" || r.Header.Get("If-Modified-Since") != "" {
 			atomic.StoreInt32(&sawIfNoneMatch, 1)
 		}

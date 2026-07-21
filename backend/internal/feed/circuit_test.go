@@ -14,6 +14,9 @@ import (
 func TestCoordinatorOpensCircuitAfter403AndAllowsOneRecoveryProbe(t *testing.T) {
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		if atomic.AddInt32(&requestCount, 1) == 1 {
 			w.WriteHeader(http.StatusForbidden)
 			return
@@ -55,6 +58,9 @@ func TestCoordinatorOpensCircuitAfter403AndAllowsOneRecoveryProbe(t *testing.T) 
 func TestCoordinatorHonorsRetryAfterBeforeRecoveryProbe(t *testing.T) {
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		if atomic.AddInt32(&requestCount, 1) == 1 {
 			w.Header().Set("Retry-After", "1")
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -92,6 +98,9 @@ func TestCoordinatorHonorsRetryAfterBeforeRecoveryProbe(t *testing.T) {
 func TestCoordinatorUsesBoundedBackoffForInvalidRetryAfter(t *testing.T) {
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		if atomic.AddInt32(&requestCount, 1) == 1 {
 			w.Header().Set("Retry-After", "not-a-duration")
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -131,6 +140,9 @@ func TestCoordinatorDoesNotReleaseDomainQueueDuringRecoveryProbe(t *testing.T) {
 	probeStarted := make(chan struct{})
 	releaseProbe := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		count := atomic.AddInt32(&requestCount, 1)
 		if count == 1 {
 			w.WriteHeader(http.StatusForbidden)
@@ -188,6 +200,9 @@ func TestCoordinatorBlocksQueuedDomainWorkAfterFirst403(t *testing.T) {
 	firstStarted := make(chan struct{})
 	releaseFirst := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		count := atomic.AddInt32(&requestCount, 1)
 		if count == 1 {
 			close(firstStarted)

@@ -11,6 +11,9 @@ import (
 
 func TestFetchFeedWithContextDetailedRecordsHTTPAccessOutcome(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		w.Header().Set("Retry-After", "120")
 		w.Header().Set("ETag", `"feed-v1"`)
 		w.WriteHeader(http.StatusForbidden)
@@ -54,6 +57,9 @@ func TestFetchFeedWithContextDetailedRecordsHTTPAccessOutcome(t *testing.T) {
 
 func TestFetchFeedWithContextDetailedRecordsParseOutcomeWithoutBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		w.Header().Set("Cache-Control", "public, max-age=60")
 		w.Header().Set("Last-Modified", "Sat, 19 Jul 2026 00:00:00 GMT")
 		_, _ = w.Write([]byte("not a feed"))

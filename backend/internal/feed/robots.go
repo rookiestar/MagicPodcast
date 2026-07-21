@@ -113,8 +113,8 @@ func WithRobotsClock(now func() time.Time) RobotsGateOption {
 	}
 }
 
-// NewRobotsGate builds a gate that uses fetchRobots to retrieve a domain's
-// robots.txt (scheme+host → status/body/err). fetchRobots performs a single
+// NewRobotsGate builds a gate that uses fetchRobots to retrieve an origin's
+// robots.txt (scheme+authority → status/body/err). fetchRobots performs a single
 // bounded attempt; the Fetcher wraps it with the shared RetryPolicy so robots
 // fetches share the same retry budget, and the gate's singleflight + cache
 // ensure a Feed storm never becomes a robots storm.
@@ -143,19 +143,20 @@ func NewRobotsGate(userAgent string, fetchRobots func(ctx context.Context, schem
 // definitive admission answer and the Feed pipeline never blocks on robots
 // infrastructure.
 func (g *RobotsGate) Allowed(ctx context.Context, feedURL string) RobotsDecision {
-	scheme, host, path, ok := splitRobotsURL(feedURL)
+	scheme, authority, path, ok := splitRobotsURL(feedURL)
 	if !ok {
 		// Unparseable Feed URL or no host: do not block on robots. The fetch
 		// itself will fail with a proper invalid-request classification.
 		return RobotsDecision{Allowed: true, Reason: "no_host"}
 	}
+	origin := robotsOriginKey(scheme, authority)
 
 	g.mu.Lock()
-	if entry, ok := g.cache[host]; ok && g.now().Before(entry.expiresAt) {
+	if entry, ok := g.cache[origin]; ok && g.now().Before(entry.expiresAt) {
 		g.mu.Unlock()
 		return g.decide(entry, path)
 	}
-	if call, ok := g.inFlight[host]; ok {
+	if call, ok := g.inFlight[origin]; ok {
 		g.mu.Unlock()
 		select {
 		case <-call.done:
@@ -168,14 +169,14 @@ func (g *RobotsGate) Allowed(ctx context.Context, feedURL string) RobotsDecision
 		}
 	}
 	call := &robotsCall{done: make(chan struct{})}
-	g.inFlight[host] = call
+	g.inFlight[origin] = call
 	g.mu.Unlock()
 
-	entry := g.fetchEntry(ctx, scheme, host)
+	entry := g.fetchEntry(ctx, scheme, authority)
 
 	g.mu.Lock()
-	g.cache[host] = entry
-	delete(g.inFlight, host)
+	g.cache[origin] = entry
+	delete(g.inFlight, origin)
 	call.entry = entry
 	close(call.done)
 	g.mu.Unlock()
@@ -183,9 +184,9 @@ func (g *RobotsGate) Allowed(ctx context.Context, feedURL string) RobotsDecision
 	return g.decide(entry, path)
 }
 
-func (g *RobotsGate) fetchEntry(ctx context.Context, scheme, host string) robotsEntry {
+func (g *RobotsGate) fetchEntry(ctx context.Context, scheme, authority string) robotsEntry {
 	now := g.now()
-	status, body, err := g.fetchRobots(ctx, scheme, host)
+	status, body, err := g.fetchRobots(ctx, scheme, authority)
 	if err != nil {
 		// Transport/timeout/DNS failure: allow for the negative-cache window.
 		return robotsEntry{source: "fail", expiresAt: now.Add(g.failTTL)}
@@ -225,7 +226,7 @@ func (g *RobotsGate) decide(entry robotsEntry, path string) RobotsDecision {
 	return RobotsDecision{Allowed: false, Reason: "rule_disallow"}
 }
 
-func splitRobotsURL(rawURL string) (scheme, host, path string, ok bool) {
+func splitRobotsURL(rawURL string) (scheme, authority, path string, ok bool) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Host == "" {
 		return "", "", "", false
@@ -239,14 +240,21 @@ func splitRobotsURL(rawURL string) (scheme, host, path string, ok bool) {
 		// not attempt a robots lookup for them.
 		return "", "", "", false
 	}
-	host = strings.ToLower(parsed.Hostname())
-	if host == "" {
+	if parsed.Hostname() == "" {
 		return "", "", "", false
 	}
+	// Keep the complete authority, including an explicit port and IPv6
+	// brackets. Robots policy is origin-scoped: scheme and port must not share
+	// a decision or accidentally redirect a robots request to the default port.
+	authority = strings.ToLower(parsed.Host)
 	if parsed.Path == "" {
 		path = "/"
 	} else {
 		path = parsed.Path
 	}
-	return scheme, host, path, true
+	return scheme, authority, path, true
+}
+
+func robotsOriginKey(scheme, authority string) string {
+	return scheme + "://" + authority
 }

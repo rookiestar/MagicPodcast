@@ -148,6 +148,9 @@ func TestFailurePhaseTLS(t *testing.T) {
 // refusal cannot be misread as a network/TLS problem.
 func TestFailurePhaseResponseHeaderFor403(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		w.Header().Set("Retry-After", "60")
 		w.WriteHeader(http.StatusForbidden)
 	}))
@@ -166,6 +169,9 @@ func TestFailurePhaseResponseHeaderFor403(t *testing.T) {
 // failure after headers arrived is classified as body_read.
 func TestFailurePhaseBodyReadForInvalidXML(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = w.Write([]byte("<<< this is not valid XML and must fail to parse >>>"))
 	}))
@@ -186,6 +192,9 @@ func TestFailurePhaseBodyReadForInvalidXML(t *testing.T) {
 // AccessOutcome.EgressID execution-history field.
 func TestStructuredFailureLogWhitelistAndEgressLabel(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
 		w.Header().Set("Set-Cookie", "session=super-secret")
 		w.WriteHeader(http.StatusForbidden)
 	}))

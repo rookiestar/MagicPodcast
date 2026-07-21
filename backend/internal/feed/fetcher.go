@@ -508,8 +508,8 @@ func (f *Fetcher) checkRobots(ctx context.Context, feedURL string) RobotsDecisio
 // ensure a Feed storm never becomes a robots storm. A single attempt respects
 // the shared retry budget by never exceeding it, and the gate's negative cache
 // bounds how often a failing robots endpoint is re-hit.
-func (f *Fetcher) fetchRobotsTXT(ctx context.Context, scheme, host string) (int, []byte, error) {
-	return f.fetchRobotsTXTOnce(ctx, scheme+"://"+host+"/robots.txt")
+func (f *Fetcher) fetchRobotsTXT(ctx context.Context, scheme, authority string) (int, []byte, error) {
+	return f.fetchRobotsTXTOnce(ctx, scheme+"://"+authority+"/robots.txt")
 }
 
 func (f *Fetcher) fetchRobotsTXTOnce(ctx context.Context, robotsURL string) (int, []byte, error) {
