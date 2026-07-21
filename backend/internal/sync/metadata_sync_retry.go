@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"magicpodcast/internal/feed"
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/models"
@@ -34,7 +35,19 @@ func (s *Service) syncPodcastMetadataWithRetry(podcast *models.Podcast, workerID
 			retries++
 		}
 
+		var release func()
+		if attempt > 0 {
+			var admitted bool
+			release, admitted = policy.AcquireRetry(context.Background(), feed.TargetDomain(podcast.FeedURL))
+			if !admitted {
+				logger.Warnf("[Worker %d] feed 重试准入等待被取消，停止本次重试: domain=%s", workerID, feed.TargetDomain(podcast.FeedURL))
+				break
+			}
+		}
 		err, noUpdateResult, episodeResult := s.syncPodcastMetadataWithUpdateCheck(podcast)
+		if release != nil {
+			release()
+		}
 		if err == nil {
 			return metadataSyncResult{
 				podcast:       podcast,

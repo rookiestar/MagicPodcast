@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"fmt"
 	"magicpodcast/internal/logger"
 	"strings"
@@ -379,7 +380,19 @@ func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL st
 		}
 
 		logger.Infof("%s 📡 正在抓取 (第 %d 次尝试)...", logPrefix, attempt+1)
+		var release func()
+		if attempt > 0 {
+			var admitted bool
+			release, admitted = policy.AcquireRetry(context.Background(), feed.TargetDomain(feedURL))
+			if !admitted {
+				logger.Warnf("%s ⛔ 重试准入等待被取消，停止本次重试: domain=%s", logPrefix, feed.TargetDomain(feedURL))
+				break
+			}
+		}
 		feedData, err := s.feedFetcher.FetchFeed(feedURL)
+		if release != nil {
+			release()
+		}
 		if err == nil {
 			logger.Infof("%s ✅ 抓取成功: %s", logPrefix, feedData.Title)
 			// 成功

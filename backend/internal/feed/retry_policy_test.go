@@ -1,6 +1,7 @@
 package feed
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -232,6 +233,36 @@ func TestRetryPolicySleepUsesFakeSleeper(t *testing.T) {
 	assert.Len(t, delays, 2)
 	assert.Equal(t, 2*time.Second, delays[0]) // attempt 0 ceiling at rand=1
 	assert.Equal(t, 4*time.Second, delays[1]) // attempt 1 ceiling at rand=1
+}
+
+func TestRetryAdmissionBoundsConcurrentRetriesPerDomain(t *testing.T) {
+	admission := NewRetryAdmission(1)
+	releaseFirst, admitted := admission.Acquire(context.Background(), "EXAMPLE.com")
+	assert.True(t, admitted)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	result := make(chan bool, 1)
+	go func() {
+		close(started)
+		secondRelease, secondAdmitted := admission.Acquire(ctx, "example.com")
+		if secondRelease != nil {
+			secondRelease()
+		}
+		result <- secondAdmitted
+	}()
+	<-started
+	cancel()
+	assert.False(t, <-result, "same-domain retry must wait for the active retry slot")
+
+	otherRelease, otherAdmitted := admission.Acquire(context.Background(), "other.example.com")
+	assert.True(t, otherAdmitted, "different domains must not share a retry slot")
+	otherRelease()
+
+	releaseFirst()
+	releaseNext, admittedNext := admission.Acquire(context.Background(), "example.com")
+	assert.True(t, admittedNext, "slot must be reusable after the retry completes")
+	releaseNext()
 }
 
 // fmtErrorWrap wraps a FeedError in a sentinel wrapper so CategoryOf/RetryAfterOf
