@@ -6,6 +6,7 @@ import {
   buildPodcastNotesPath,
   buildPodcastTagsPath,
 } from "./podcastApiPaths";
+import { buildWorkflowJobsSummaryPath } from "./workflowJobsPaths";
 
 const inFlightPrefetches = new Map<string, Promise<void>>();
 
@@ -59,30 +60,47 @@ export async function prefetchPodcastData(podcastId: number) {
 }
 
 /**
- * 预取工作流详情数据
+ * 预取工作流详情数据（含首屏执行历史摘要，供列表 hover 使用）
  */
 export async function prefetchWorkflowData(workflowId: number) {
   return runDedupedPrefetch(`workflow:${workflowId}`, async () => {
     try {
+      const jobsPath = buildWorkflowJobsSummaryPath(workflowId, 1, 10);
       const [workflowRes, jobsRes] = await Promise.all([
         apiClient.get(`/api/v1/workflows/${workflowId}`),
-        apiClient.get(
-          `/api/v1/workflows/${workflowId}/jobs?page=1&page_size=10&view=summary`,
-        ),
+        apiClient.get(jobsPath),
       ]);
 
       if (workflowRes.data?.success && workflowRes.data?.data) {
         mutate(`/api/v1/workflows/${workflowId}`, workflowRes.data.data, false);
       }
       if (jobsRes.data?.success && jobsRes.data?.data) {
-        mutate(
-          `/api/v1/workflows/${workflowId}/jobs?page=1&page_size=10&view=summary`,
-          jobsRes.data.data,
-          false,
-        );
+        mutate(jobsPath, jobsRes.data.data, false);
       }
     } catch (error) {
       debugDebug("[prefetch] Failed to prefetch workflow:", workflowId, error);
+    }
+  });
+}
+
+/**
+ * 意图预取：仅首屏执行历史摘要（page=1, view=summary）。
+ * 在悬停/聚焦/触摸“执行历史”标签时调用，写入与 useWorkflowJobs 相同的 SWR key。
+ */
+export async function prefetchWorkflowJobsSummary(workflowId: number) {
+  return runDedupedPrefetch(`workflow-jobs-summary:${workflowId}`, async () => {
+    try {
+      const jobsPath = buildWorkflowJobsSummaryPath(workflowId, 1, 10);
+      const jobsRes = await apiClient.get(jobsPath);
+      if (jobsRes.data?.success && jobsRes.data?.data) {
+        mutate(jobsPath, jobsRes.data.data, false);
+      }
+    } catch (error) {
+      debugDebug(
+        "[prefetch] Failed to prefetch workflow jobs summary:",
+        workflowId,
+        error,
+      );
     }
   });
 }
