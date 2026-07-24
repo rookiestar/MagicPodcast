@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mutate } from "swr";
 import { apiClient } from "../fetcher";
-import { prefetchPodcastData, prefetchWorkflowData } from "../prefetch";
+import {
+  prefetchPodcastData,
+  prefetchWorkflowData,
+  prefetchWorkflowJobsSummary,
+} from "../prefetch";
 
 vi.mock("swr", () => ({
   mutate: vi.fn(),
@@ -128,6 +132,22 @@ describe("prefetch", () => {
     expect(swrMutate).toHaveBeenCalledWith(
       "/api/v1/workflows/7/jobs?page=1&page_size=10&view=summary",
       { jobs: [] },
+      false,
+    );
+  });
+
+  it("prefetches only first-page jobs summary for history tab intent", async () => {
+    get.mockResolvedValueOnce(success({ jobs: [{ id: 1 }], pagination: {} }));
+
+    await prefetchWorkflowJobsSummary(9);
+
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith(
+      "/api/v1/workflows/9/jobs?page=1&page_size=10&view=summary",
+    );
+    expect(swrMutate).toHaveBeenCalledWith(
+      "/api/v1/workflows/9/jobs?page=1&page_size=10&view=summary",
+      { jobs: [{ id: 1 }], pagination: {} },
       false,
     );
   });

@@ -1,6 +1,7 @@
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import { swrConfig, cacheStrategies } from "@/lib/swrConfig";
+import { buildWorkflowJobsSummaryPath } from "@/lib/workflowJobsPaths";
 import type { Workflow, WorkflowsResponse, JobsResponse, WorkflowSortByType } from "@/types";
 
 // ============ 工作流列表 Hook ============
@@ -67,19 +68,25 @@ export function useWorkflowJobs(
   enabled: boolean = true,
 ) {
   const key = workflowId && enabled
-    ? `/api/v1/workflows/${workflowId}/jobs?page=${page}&page_size=${pageSize}&view=summary`
+    ? buildWorkflowJobsSummaryPath(workflowId, page, pageSize)
     : null;
 
-  const { data, error, isLoading, mutate } = useSWR(
+  const { data, error, isLoading, isValidating, mutate } = useSWR(
     key,
     () => fetcher<JobsResponse>(key as string),
-    { ...swrConfig, ...cacheStrategies.workflows }
+    {
+      ...swrConfig,
+      ...cacheStrategies.workflows,
+      // Cache-first: keep prior page/list while revalidating or paging.
+      keepPreviousData: true,
+    }
   );
 
   return {
     jobs: data?.jobs ?? [],
     pagination: data?.pagination,
     isLoading,
+    isValidating,
     isError: !!error,
     error,
     mutate,

@@ -1,7 +1,7 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState, useRef } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { podcastApi } from "@/lib/api";
@@ -10,6 +10,7 @@ import { useWorkflow, useWorkflowJobs } from "@/hooks/useWorkflowSWR";
 import { useWorkflowActions } from "@/hooks/useWorkflowActions";
 import { useJobExpansion } from "@/hooks/useJobExpansion";
 import { getEffectiveCoverUrl } from "@/lib/imageProxy";
+import { prefetchWorkflowJobsSummary } from "@/lib/prefetch";
 import { formatDateTime } from "@/lib/timeUtils";
 import type { Podcast } from "@/types";
 import PageLayout from "@/components/layout/PageLayout";
@@ -17,6 +18,28 @@ import LoadingLayout from "@/components/layout/LoadingLayout";
 import PodcastCover from "@/components/podcasts/PodcastCover";
 import { WorkflowDetailSkeleton } from "@/components/ui/Skeleton";
 import { WorkflowStatusBadge, JobStatusBadge } from "@/components/ui/StatusBadge";
+
+const TAB_VALUES = ["overview", "jobs", "config"] as const;
+type TabType = (typeof TAB_VALUES)[number];
+
+function parseTab(value: string | null | undefined): TabType {
+  if (value === "jobs" || value === "config" || value === "overview") {
+    return value;
+  }
+  return "overview";
+}
+
+/** Sync tab into the shareable URL without App Router / RSC navigation. */
+function replaceTabInUrl(tab: TabType) {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  url.searchParams.set("tab", tab);
+  const next = `${url.pathname}?${url.searchParams.toString()}`;
+  const current = `${window.location.pathname}${window.location.search}`;
+  if (next !== current) {
+    window.history.replaceState(window.history.state, "", next);
+  }
+}
 
 // 动态导入大型模态框组件，减少首屏 bundle 大小
 const WorkflowFormModal = dynamic(
@@ -29,29 +52,43 @@ const ReportModal = dynamic(
   { ssr: false }
 );
 
-type TabType = "overview" | "jobs" | "config";
 const OVERVIEW_SCOPE_PODCAST_LIMIT = 12;
 
 // 内部组件：使用 useSearchParams
 function WorkflowDetailContent() {
   const params = useParams();
   const searchParams = useSearchParams();
-  const router = useRouter();
   const id = parseInt(params.id as string);
 
   // 使用 SWR 获取工作流数据
   const { workflow, isLoading: workflowLoading, isError: workflowError, mutate: mutateWorkflow } = useWorkflow(id);
 
   // 从URL读取tab状态，如果没有则默认为overview
-  const tabFromUrl = (searchParams.get("tab") as TabType) || "overview";
-  const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl);
+  const tabFromUrl = parseTab(searchParams.get("tab"));
+  const [activeTab, setActiveTabState] = useState<TabType>(tabFromUrl);
+
+  const setActiveTab = useCallback((tab: TabType) => {
+    setActiveTabState(tab);
+    replaceTabInUrl(tab);
+  }, []);
+
+  // 意图预取：悬停/聚焦/触摸时只拉第一页摘要
+  const intentPrefetchJobs = useCallback(() => {
+    if (!Number.isFinite(id) || id <= 0) return;
+    void prefetchWorkflowJobsSummary(id);
+  }, [id]);
 
   // Job分页状态
   const [jobsPage, setJobsPage] = useState(1);
 
   // 执行历史只在进入对应标签时加载，避免详情首屏被历史数据拖慢
-  const { jobs, pagination, isLoading: jobsLoading, mutate: mutateJobs } =
-    useWorkflowJobs(id, jobsPage, 10, activeTab === "jobs");
+  const {
+    jobs,
+    pagination,
+    isLoading: jobsLoading,
+    isError: jobsError,
+    mutate: mutateJobs,
+  } = useWorkflowJobs(id, jobsPage, 10, activeTab === "jobs");
 
   const [overviewPodcasts, setOverviewPodcasts] = useState<Podcast[]>([]);
   const [configPodcasts, setConfigPodcasts] = useState<Podcast[]>([]);
@@ -109,9 +146,15 @@ function WorkflowDetailContent() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // 概览页只拉前几个节目，用于首屏展示；完整清单进入配置标签后再拉
+  // 概览页只拉前几个节目；离开概览后取消，避免与执行历史关键路径竞争
   useEffect(() => {
     let cancelled = false;
+
+    if (activeTab !== "overview") {
+      return () => {
+        cancelled = true;
+      };
+    }
 
     if (workflow?.scope_type !== "specific_podcasts" || overviewPodcastIds.length === 0) {
       setOverviewPodcasts([]);
@@ -142,7 +185,7 @@ function WorkflowDetailContent() {
     return () => {
       cancelled = true;
     };
-  }, [overviewPodcastIds, workflow?.scope_type]);
+  }, [activeTab, overviewPodcastIds, workflow?.scope_type]);
 
   useEffect(() => {
     let cancelled = false;
@@ -203,17 +246,15 @@ function WorkflowDetailContent() {
     return () => clearInterval(interval);
   }, [activeTab, jobs, mutateJobs]);
 
-  // 同步activeTab到URL参数
+  // 浏览器前进/后退时恢复 tab（URL 由 replaceState 维护，不经 App Router）
   useEffect(() => {
-    const currentUrl = new URL(window.location.href);
-    const params = new URLSearchParams(currentUrl.search);
-
-    if (params.get("tab") !== activeTab) {
-      params.set("tab", activeTab);
-      const newUrl = `${currentUrl.pathname}?${params.toString()}`;
-      router.replace(newUrl);
-    }
-  }, [activeTab, router]);
+    const onPopState = () => {
+      const tab = parseTab(new URLSearchParams(window.location.search).get("tab"));
+      setActiveTabState(tab);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   // Jobs 分页切换
   const handleJobsPageChange = (newPage: number) => {
@@ -460,6 +501,7 @@ function WorkflowDetailContent() {
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-4 mb-6">
           <div className="flex gap-6">
             <button
+              type="button"
               onClick={() => setActiveTab("overview")}
               className={`pb-2 border-b-2 transition-colors text-base ${
                 activeTab === "overview"
@@ -470,7 +512,11 @@ function WorkflowDetailContent() {
               📊 概览
             </button>
             <button
+              type="button"
               onClick={() => setActiveTab("jobs")}
+              onMouseEnter={intentPrefetchJobs}
+              onFocus={intentPrefetchJobs}
+              onTouchStart={intentPrefetchJobs}
               className={`pb-2 border-b-2 transition-colors text-base ${
                 activeTab === "jobs"
                   ? "border-blue-600 text-blue-600 dark:text-blue-400"
@@ -480,6 +526,7 @@ function WorkflowDetailContent() {
               📜 执行历史
             </button>
             <button
+              type="button"
               onClick={() => setActiveTab("config")}
               className={`pb-2 border-b-2 transition-colors text-base ${
                 activeTab === "config"
@@ -838,9 +885,25 @@ function WorkflowDetailContent() {
               <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-50 mb-4">
                 执行历史
               </h2>
-              {jobsLoading ? (
+              {jobsLoading && jobs.length === 0 ? (
                 <div className="text-center py-8 text-slate-500 dark:text-slate-400">
                   正在加载执行历史...
+                </div>
+              ) : jobsError && jobs.length === 0 ? (
+                <div
+                  className="text-center py-8"
+                  data-testid="jobs-load-error"
+                >
+                  <p className="text-red-600 dark:text-red-400 mb-3">
+                    执行历史加载失败，请重试
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => mutateJobs()}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+                  >
+                    重试
+                  </button>
                 </div>
               ) : jobs.length === 0 ? (
                 <div className="text-center py-8 text-slate-500 dark:text-slate-400">
