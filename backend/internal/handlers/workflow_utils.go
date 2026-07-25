@@ -215,7 +215,7 @@ func (h *WorkflowHandler) toJobResponse(job *models.Job) dto.JobResponse {
 		resp.Duration = &duration
 	}
 
-	// Batch remaining time within the 15-minute networking window (#39).
+	// Batch remaining time within the 10-minute networking window (#39/#44).
 	resp.BatchRemainingMs = batchRemainingMs(job)
 
 	// 添加执行详情
@@ -327,9 +327,9 @@ func (h *WorkflowHandler) toJobExecutionResponse(exec *models.JobExecution) dto.
 	}
 }
 
-// batchRemainingMs reports milliseconds left in the 15-minute networking window.
+// batchRemainingMs reports milliseconds left in the 10-minute networking window.
 // Active jobs use wall clock; finished jobs use EndTime so the page can still
-// show how much of the batch budget remained when the job stopped (#39).
+// show how much of the batch budget remained when the job stopped (#39/#44).
 func batchRemainingMs(job *models.Job) *int64 {
 	if job == nil || job.StartTime == nil {
 		return nil

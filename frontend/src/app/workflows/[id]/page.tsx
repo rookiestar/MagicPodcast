@@ -1033,7 +1033,7 @@ function WorkflowDetailContent() {
                                     e.stopPropagation();
                                     const expected = `RETRY FAILED FEEDS JOB ${job.id}`;
                                     const typed = window.prompt(
-                                      `确认仅为 Job #${job.id} 中最终失败的 Feed 启动新的 15 分钟补偿批次？\n请输入：${expected}`,
+                                      `确认仅为 Job #${job.id} 中最终失败的 Feed 启动新的 10 分钟补偿批次？\n请输入：${expected}`,
                                     );
                                     if (typed !== expected) {
                                       return;
@@ -1192,7 +1192,7 @@ function WorkflowDetailContent() {
                                     {typeof jobDetails[job.id]?.batch_remaining_ms === "number" && (
                                       <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
                                         批次剩余时间: {Math.max(0, Math.round((jobDetails[job.id].batch_remaining_ms as number) / 1000))} 秒
-                                        （15 分钟窗口）
+                                        （10 分钟窗口）
                                       </div>
                                     )}
                                     {jobDetails[job.id]?.root_cause_summary && (

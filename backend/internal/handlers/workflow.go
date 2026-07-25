@@ -588,8 +588,8 @@ func (h *WorkflowHandler) GetJob(c *gin.Context) {
 	middleware.SuccessResponse(c, response)
 }
 
-// CompensateFailedFeeds starts a linked 15-minute batch that only retries
-// podcasts whose final result on a partial Job failed (#40). Requires confirmation.
+// CompensateFailedFeeds starts a linked 10-minute batch that only retries
+// podcasts whose final result on a partial Job failed (#40/#44). Requires confirmation.
 // @Router /api/v1/jobs/{id}/compensate-failed [post]
 func (h *WorkflowHandler) CompensateFailedFeeds(c *gin.Context) {
 	db := database.GetDB()
@@ -614,7 +614,7 @@ func (h *WorkflowHandler) CompensateFailedFeeds(c *gin.Context) {
 		c,
 		confirmation.ConfirmationText,
 		fmt.Sprintf("RETRY FAILED FEEDS JOB %s", id),
-		fmt.Sprintf("仅为 Job #%s 中最终失败的 Feed 启动新的 15 分钟补偿批次，不会覆盖原 Job 或已有报告", id),
+		fmt.Sprintf("仅为 Job #%s 中最终失败的 Feed 启动新的 10 分钟补偿批次，不会覆盖原 Job 或已有报告", id),
 	) {
 		return
 	}

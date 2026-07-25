@@ -405,15 +405,15 @@ func TestExecutePersistsCircuitSkipAndRecoveryProbe(t *testing.T) {
 	executor := NewExecutor(db, service, nil, nil)
 	// Keep each job to first-pass only: any scheduled batch retry jumps past the
 	// deadline so this test stays focused on domain circuit OPEN / probe recovery
-	// across separate jobs (not the 15-minute classified retry schedule).
+	// across separate jobs (not the 10-minute classified retry schedule).
 	var clock atomic.Value
 	base := time.Now()
 	clock.Store(base)
 	executor.now = func() time.Time { return clock.Load().(time.Time) }
 	executor.sleep = func(d time.Duration) {
-		clock.Store(clock.Load().(time.Time).Add(15 * time.Minute))
+		clock.Store(clock.Load().(time.Time).Add(10 * time.Minute))
 	}
-	executor.batchDuration = 15 * time.Minute
+	executor.batchDuration = 10 * time.Minute
 
 	job, err := executor.Execute(context.Background(), workflowModel, "manual")
 	require.NoError(t, err)

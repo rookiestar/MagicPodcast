@@ -5,16 +5,16 @@ import (
 )
 
 // DefaultBatchDuration is the hard upper bound on networking for one workflow
-// job. After this window the batch must stop fetching and finalize.
-const DefaultBatchDuration = 15 * time.Minute
+// job. After this window the batch must stop fetching and finalize (#44).
+const DefaultBatchDuration = 10 * time.Minute
 
 // AccessDeniedRetryOffsets are the batch-relative times at which a 403/401 may
-// be retried (~minutes 3, 8, and 13). They are absolute offsets from batch
-// start, not inter-attempt delays.
+// be retried (~minutes 2, 5, and 8). They are absolute offsets from batch
+// start, not inter-attempt delays (#44).
 var AccessDeniedRetryOffsets = []time.Duration{
-	3 * time.Minute,
+	2 * time.Minute,
+	5 * time.Minute,
 	8 * time.Minute,
-	13 * time.Minute,
 }
 
 // Transient retry bounds inside a batch (network / timeout / 5xx).
@@ -63,8 +63,8 @@ type BatchRetryInput struct {
 	Now time.Time
 }
 
-// DecideBatchRetry classifies whether and when to retry inside the 15-minute
-// batch. Access denied uses fixed offsets (~3/8/13 min); 429/503 honor
+// DecideBatchRetry classifies whether and when to retry inside the 10-minute
+// batch. Access denied uses fixed offsets (~2/5/8 min); 429/503 honor
 // Retry-After within remaining time; network/timeout/5xx use bounded backoff.
 // Policy rejections, parse errors, not-found, and circuit_open do not retry.
 func DecideBatchRetry(in BatchRetryInput) BatchRetryDecision {

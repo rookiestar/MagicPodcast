@@ -19,7 +19,7 @@ const (
 )
 
 // Default inter-request spacing for each soft-rate tier. Slow is deliberately
-// non-zero but finite so the domain remains usable inside a 15-minute batch.
+// non-zero but finite so the domain remains usable inside a 10-minute batch.
 const (
 	softRateSpacingNormal   = 0
 	softRateSpacingCautious = 2 * time.Second

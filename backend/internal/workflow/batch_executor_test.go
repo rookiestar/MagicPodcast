@@ -89,7 +89,7 @@ func TestBatchFirstPassBeforeRetries(t *testing.T) {
 	executor.workerConcurrency = 1 // sequential: clear first-pass ordering evidence
 
 	// Fake clock: first-pass at t=0; sleep advances exactly as requested so the
-	// access_denied slots at minutes 3/8/13 fire without wall-clock waits.
+	// access_denied slots at minutes 2/5/8 fire without wall-clock waits.
 	var now atomic.Value
 	start := time.Date(2026, 7, 25, 10, 0, 0, 0, time.UTC)
 	now.Store(start)
@@ -98,7 +98,7 @@ func TestBatchFirstPassBeforeRetries(t *testing.T) {
 		cur := now.Load().(time.Time)
 		now.Store(cur.Add(d))
 	}
-	executor.batchDuration = 15 * time.Minute
+	executor.batchDuration = 10 * time.Minute
 
 	pa := models.Podcast{XYZID: "batch-a", Title: "A", FeedURL: server.URL + "/a.xml"}
 	pb := models.Podcast{XYZID: "batch-b", Title: "B", FeedURL: server.URL + "/b.xml"}
@@ -129,7 +129,7 @@ func TestBatchFirstPassBeforeRetries(t *testing.T) {
 	require.GreaterOrEqual(t, atomic.LoadInt32(&hitsB), int32(1))
 }
 
-// TestBatchDeadlineStopsNetworkingAndYieldsPartial verifies the 15-minute
+// TestBatchDeadlineStopsNetworkingAndYieldsPartial verifies the 10-minute
 // cutoff stops further fetches and mixed outcomes map to partial.
 func TestBatchDeadlineStopsNetworkingAndYieldsPartial(t *testing.T) {
 	var hits int32
@@ -167,9 +167,9 @@ func TestBatchDeadlineStopsNetworkingAndYieldsPartial(t *testing.T) {
 	executor.now = func() time.Time { return now.Load().(time.Time) }
 	// Any sleep jumps straight to the deadline so no retry network happens.
 	executor.sleep = func(d time.Duration) {
-		now.Store(start.Add(15 * time.Minute))
+		now.Store(start.Add(10 * time.Minute))
 	}
-	executor.batchDuration = 15 * time.Minute
+	executor.batchDuration = 10 * time.Minute
 
 	okPod := models.Podcast{XYZID: "batch-ok", Title: "OK", FeedURL: server.URL + "/ok.xml"}
 	failPod := models.Podcast{XYZID: "batch-fail", Title: "Fail", FeedURL: server.URL + "/fail.xml"}

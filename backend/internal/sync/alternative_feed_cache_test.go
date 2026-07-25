@@ -182,5 +182,5 @@ func TestTransientUnavailableCacheExpiresBeforeBatchRetry(t *testing.T) {
 		feed.CanonicalizeURL(podcast.FeedURL),
 		identity.key(),
 	)
-	require.False(t, ok, "transient failure must be retried within the 15-minute batch")
+	require.False(t, ok, "transient failure must be retried within the 10-minute batch")
 }

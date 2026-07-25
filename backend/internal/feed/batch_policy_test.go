@@ -9,50 +9,63 @@ import (
 
 func TestDecideBatchRetryAccessDeniedUsesFixedOffsets(t *testing.T) {
 	// First 403 after first-pass (attempt=1, no access-denied retries yet):
-	// wait until minute 3.
+	// wait until minute 2.
 	dec := DecideBatchRetry(BatchRetryInput{
 		Category:            ErrorCategoryAccessDenied,
 		Attempt:             1,
 		AccessDeniedRetries: 0,
 		BatchElapsed:        10 * time.Second,
-		BatchRemaining:      14*time.Minute + 50*time.Second,
+		BatchRemaining:      9*time.Minute + 50*time.Second,
 	})
 	require.True(t, dec.Retry)
-	require.Equal(t, 3*time.Minute-10*time.Second, dec.Wait)
+	require.Equal(t, 2*time.Minute-10*time.Second, dec.Wait)
 	require.Equal(t, "access_denied_scheduled", dec.Reason)
 
-	// After first scheduled retry consumed, next slot is minute 8.
+	// After first scheduled retry consumed, next slot is minute 5.
 	dec = DecideBatchRetry(BatchRetryInput{
 		Category:            ErrorCategoryAccessDenied,
 		Attempt:             2,
 		AccessDeniedRetries: 1,
-		BatchElapsed:        3*time.Minute + 5*time.Second,
-		BatchRemaining:      11*time.Minute + 55*time.Second,
+		BatchElapsed:        2*time.Minute + 5*time.Second,
+		BatchRemaining:      7*time.Minute + 55*time.Second,
 	})
 	require.True(t, dec.Retry)
-	require.Equal(t, 8*time.Minute-(3*time.Minute+5*time.Second), dec.Wait)
+	require.Equal(t, 5*time.Minute-(2*time.Minute+5*time.Second), dec.Wait)
 
-	// Third slot at minute 13.
+	// Third slot at minute 8.
 	dec = DecideBatchRetry(BatchRetryInput{
 		Category:            ErrorCategoryAccessDenied,
 		Attempt:             3,
 		AccessDeniedRetries: 2,
-		BatchElapsed:        8 * time.Minute,
-		BatchRemaining:      7 * time.Minute,
+		BatchElapsed:        5 * time.Minute,
+		BatchRemaining:      5 * time.Minute,
 	})
 	require.True(t, dec.Retry)
-	require.Equal(t, 5*time.Minute, dec.Wait)
+	require.Equal(t, 3*time.Minute, dec.Wait)
 
 	// Budget exhausted after three scheduled retries.
 	dec = DecideBatchRetry(BatchRetryInput{
 		Category:            ErrorCategoryAccessDenied,
 		Attempt:             4,
 		AccessDeniedRetries: 3,
-		BatchElapsed:        13 * time.Minute,
+		BatchElapsed:        8 * time.Minute,
 		BatchRemaining:      2 * time.Minute,
 	})
 	require.False(t, dec.Retry)
 	require.Equal(t, "access_denied_budget_exhausted", dec.Reason)
+}
+
+func TestDecideBatchRetryAccessDeniedPastDeadline(t *testing.T) {
+	// Next fixed slot (minute 8) wait exceeds remaining time inside the 10m window.
+	dec := DecideBatchRetry(BatchRetryInput{
+		Category:            ErrorCategoryAccessDenied,
+		Attempt:             3,
+		AccessDeniedRetries: 2,
+		BatchElapsed:        7 * time.Minute,
+		BatchRemaining:      30 * time.Second,
+	})
+	require.False(t, dec.Retry)
+	require.Equal(t, "access_denied_past_deadline", dec.Reason)
 }
 
 func TestDecideBatchRetryHonorsRetryAfterWithinDeadline(t *testing.T) {
@@ -74,7 +87,7 @@ func TestDecideBatchRetryHonorsRetryAfterWithinDeadline(t *testing.T) {
 		Category:         ErrorCategoryServiceUnavailable,
 		Attempt:          1,
 		TransientRetries: 0,
-		BatchElapsed:     14 * time.Minute,
+		BatchElapsed:     9 * time.Minute,
 		BatchRemaining:   20 * time.Second,
 		RetryAfter:       "60",
 		Now:              now,
@@ -107,12 +120,17 @@ func TestDecideBatchRetryTransientBudgetAndDeadline(t *testing.T) {
 		Category:         ErrorCategoryHTTP,
 		Attempt:          1,
 		TransientRetries: 0,
-		BatchElapsed:     14*time.Minute + 59*time.Second,
+		BatchElapsed:     9*time.Minute + 59*time.Second,
 		BatchRemaining:   time.Second,
 	})
 	// fullJitter with 0.5 yields base/2 for attempt 0 which may exceed remaining
 	// when remaining is 1s and base is 2s → past deadline.
 	require.False(t, dec.Retry)
+}
+
+func TestDefaultBatchDurationIsTenMinutes(t *testing.T) {
+	require.Equal(t, 10*time.Minute, DefaultBatchDuration)
+	require.Equal(t, []time.Duration{2 * time.Minute, 5 * time.Minute, 8 * time.Minute}, AccessDeniedRetryOffsets)
 }
 
 func TestDecideBatchRetryNonRetryable(t *testing.T) {

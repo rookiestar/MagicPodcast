@@ -78,8 +78,8 @@ func TestAttemptHistoryPersistsFailurePhaseAndRetryDecision(t *testing.T) {
 	start := time.Date(2026, 7, 25, 15, 0, 0, 0, time.UTC)
 	now.Set(start)
 	executor.now = now.Now
-	executor.sleep = func(d time.Duration) { now.Set(now.Now().Add(15 * time.Minute)) }
-	executor.batchDuration = 15 * time.Minute
+	executor.sleep = func(d time.Duration) { now.Set(now.Now().Add(10 * time.Minute)) }
+	executor.batchDuration = 10 * time.Minute
 	executor.workerConcurrency = 1
 
 	job, err := executor.Execute(context.Background(), wf, "manual")
@@ -116,7 +116,8 @@ func TestBatchRemainingMsPopulatedForFinishedJob(t *testing.T) {
 	// Inline the same formula as handlers.batchRemainingMs without importing handlers.
 	deadline := job.StartTime.Add(feed.DefaultBatchDuration)
 	rem := deadline.Sub(*job.EndTime).Milliseconds()
-	require.Equal(t, int64(12*time.Minute/time.Millisecond), rem)
+	// 10-minute window minus 3 minutes elapsed → 7 minutes remaining (#44).
+	require.Equal(t, int64(7*time.Minute/time.Millisecond), rem)
 }
 
 // atomicTime is a tiny injectable clock for batch tests.

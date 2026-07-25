@@ -138,8 +138,8 @@ const (
 	// persisted; the per-workflow execution lock stays held (#35/#38).
 	JobStatusFinalizing JobStatus = "finalizing"
 	JobStatusCompleted  JobStatus = "completed"
-	// JobStatusPartial means the 15-minute batch finished with a mix of
-	// successful and failed Feed outcomes (#35/#36).
+	// JobStatusPartial means the 10-minute batch finished with a mix of
+	// successful and failed Feed outcomes (#35/#36/#44).
 	JobStatusPartial   JobStatus = "partial"
 	JobStatusFailed    JobStatus = "failed"
 	JobStatusCancelled JobStatus = "cancelled"

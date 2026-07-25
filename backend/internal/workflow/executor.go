@@ -25,8 +25,8 @@ type Executor struct {
 	notifier   *notifier.EmailNotifier
 	summarizer SummarizerInterface
 
-	// batchDuration is the hard networking window for one job (#35/#36).
-	// Zero means feed.DefaultBatchDuration (15 minutes).
+	// batchDuration is the hard networking window for one job (#35/#36/#44).
+	// Zero means feed.DefaultBatchDuration (10 minutes).
 	batchDuration time.Duration
 	// workerConcurrency bounds parallel first-pass/retry workers (default 5).
 	// Tests may set 1 to avoid SQLite in-memory lock races.
@@ -73,7 +73,7 @@ func (e *Executor) clockSleep(d time.Duration) {
 
 // UseInstantBatchClock advances the batch clock without wall-clock waits. Tests
 // that drive Execute() must call this (or inject now/sleep) so classified
-// retries at minutes 3/8/13 do not block the suite for real minutes.
+// retries at minutes 2/5/8 do not block the suite for real minutes.
 func (e *Executor) UseInstantBatchClock() {
 	if e == nil {
 		return
@@ -95,10 +95,10 @@ func (e *Executor) UseInstantBatchClock() {
 	}
 }
 
-// ExecuteCompensation runs a new 15-minute batch that only retries podcasts
+// ExecuteCompensation runs a new 10-minute batch that only retries podcasts
 // whose final result on the source Job was failed. It uses the current main
 // Feed URLs from the DB, links the new Job bidirectionally, and never
-// overwrites the original Job, its successes, or its report (#40).
+// overwrites the original Job, its successes, or its report (#40/#44).
 func (e *Executor) ExecuteCompensation(ctx context.Context, sourceJobID uint) (*models.Job, error) {
 	var source models.Job
 	if err := e.db.First(&source, sourceJobID).Error; err != nil {
@@ -329,9 +329,9 @@ type batchFeedState struct {
 	done           bool
 }
 
-// executeSync runs a bounded 15-minute batch (#35/#36):
+// executeSync runs a bounded 10-minute batch (#35/#36/#44):
 //  1. First-pass primary attempt for every target Feed (fairness before retries)
-//  2. Classified retries (403 ≈ min 3/8/13; network/5xx bounded; 429/503 Retry-After)
+//  2. Classified retries (403 ≈ min 2/5/8; network/5xx bounded; 429/503 Retry-After)
 //  3. Stop networking at the batch deadline and return final per-feed outcomes
 func (e *Executor) executeSync(
 	ctx context.Context,
@@ -358,7 +358,7 @@ func (e *Executor) executeSync(
 		states = append(states, &batchFeedState{podcast: podcast})
 	}
 
-	logger.Infof("🔄 15 分钟批次开始 [JobID=%d, Feeds=%d, Window=%s]",
+	logger.Infof("🔄 10 分钟批次开始 [JobID=%d, Feeds=%d, Window=%s]",
 		job.ID, len(states), e.batchWindow())
 
 	// --- First pass: every target Feed gets one primary attempt before any retry ---
