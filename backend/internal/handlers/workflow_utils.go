@@ -254,6 +254,9 @@ func (h *WorkflowHandler) toJobResponse(job *models.Job) dto.JobResponse {
 		}
 		summary := workflow.BuildRootCauseSummary(attempts)
 		resp.RootCauseSummary = &dto.RootCauseSummaryResponse{
+			TotalFeeds:           summary.TotalFeeds,
+			AttemptedFeeds:       summary.AttemptedFeeds,
+			UnattemptedFeeds:     summary.UnattemptedFeeds,
 			PrimarySuccesses:     summary.PrimarySuccesses,
 			AlternativeSuccesses: summary.AlternativeSuccesses,
 			FinalSuccesses:       summary.FinalSuccesses,

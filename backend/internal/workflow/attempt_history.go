@@ -30,6 +30,8 @@ func ErrorCategoryUserLabel(category string) string {
 		return "服务不可用 (5xx)"
 	case feed.ErrorCategoryCircuitOpen:
 		return "断路器打开（派生策略）"
+	case feed.ErrorCategoryUnattempted:
+		return "未尝试（批次截止）"
 	case feed.ErrorCategoryNone, feed.ErrorCategoryNotObserved:
 		if category == string(feed.ErrorCategoryNotObserved) {
 			return "未观测"
@@ -69,6 +71,9 @@ func isDerivedPolicyCategory(category string) bool {
 // RootCauseSummary aggregates attempt rows without double-counting derived
 // policy actions (e.g. circuit_open) as independent upstream failures.
 type RootCauseSummary struct {
+	TotalFeeds           int               `json:"total_feeds"`
+	AttemptedFeeds       int               `json:"attempted_feeds"`
+	UnattemptedFeeds     int               `json:"unattempted_feeds"`
 	PrimarySuccesses     int               `json:"primary_successes"`
 	AlternativeSuccesses int               `json:"alternative_successes"`
 	FinalSuccesses       int               `json:"final_successes"`
@@ -104,6 +109,10 @@ func BuildRootCauseSummary(attempts []models.JobFeedAttempt) RootCauseSummary {
 			summary.UserLabels[a.ErrorCategory] = ErrorCategoryUserLabel(a.ErrorCategory)
 			continue
 		}
+		if a.ErrorCategory == string(feed.ErrorCategoryUnattempted) {
+			summary.UserLabels[a.ErrorCategory] = ErrorCategoryUserLabel(a.ErrorCategory)
+			continue
+		}
 		if a.ErrorCategory != "" && a.ErrorCategory != string(feed.ErrorCategoryNone) &&
 			a.ErrorCategory != string(feed.ErrorCategoryNotObserved) {
 			// Count each attempt's upstream category once; finals summarized below.
@@ -118,6 +127,12 @@ func BuildRootCauseSummary(attempts []models.JobFeedAttempt) RootCauseSummary {
 		}
 	}
 	for _, final := range finalByPodcast {
+		summary.TotalFeeds++
+		if final.ErrorCategory == string(feed.ErrorCategoryUnattempted) {
+			summary.UnattemptedFeeds++
+			continue
+		}
+		summary.AttemptedFeeds++
 		if final.ErrorCategory == string(feed.ErrorCategoryNone) {
 			summary.FinalSuccesses++
 		} else if final.ErrorCategory != "" && final.ErrorCategory != string(feed.ErrorCategoryNotObserved) {

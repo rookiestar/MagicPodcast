@@ -1196,7 +1196,7 @@ function WorkflowDetailContent() {
                                     )}
                                     {jobDetails[job.id]?.root_cause_summary && (
                                       <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
-                                        根因汇总: 主源成功 {jobDetails[job.id].root_cause_summary!.primary_successes} · 替代源成功 {jobDetails[job.id].root_cause_summary!.alternative_successes} · 最终成功 {jobDetails[job.id].root_cause_summary!.final_successes} / 失败 {jobDetails[job.id].root_cause_summary!.final_failures}
+                                        Feed覆盖: {jobDetails[job.id].root_cause_summary!.attempted_feeds}/{jobDetails[job.id].root_cause_summary!.total_feeds} 已尝试 · 未尝试 {jobDetails[job.id].root_cause_summary!.unattempted_feeds}；根因: 主源成功 {jobDetails[job.id].root_cause_summary!.primary_successes} · 替代源成功 {jobDetails[job.id].root_cause_summary!.alternative_successes} · 最终成功 {jobDetails[job.id].root_cause_summary!.final_successes} / 失败 {jobDetails[job.id].root_cause_summary!.final_failures}
                                         {jobDetails[job.id].root_cause_summary!.derived_policy_actions &&
                                           Object.keys(jobDetails[job.id].root_cause_summary!.derived_policy_actions).length > 0 && (
                                           <span className="ml-2">（派生策略动作不重复计为上游错误）</span>

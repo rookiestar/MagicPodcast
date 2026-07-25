@@ -259,7 +259,10 @@ interface FeedAttempt {
 }
 
 interface RootCauseSummary {
-  primary_successes: number;
+	total_feeds: number;
+	attempted_feeds: number;
+	unattempted_feeds: number;
+	primary_successes: number;
   alternative_successes: number;
   final_successes: number;
   final_failures: number;

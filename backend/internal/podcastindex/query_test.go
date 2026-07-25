@@ -1,6 +1,7 @@
 package podcastindex
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"testing"
@@ -81,12 +82,62 @@ func TestQueryUsesRawTableWhenUniqueViewIsAbsent(t *testing.T) {
 	}
 	defer query.Close()
 
-	info, err := query.FindByFeedURL("https://primary.example/feed.xml")
+	info, err := query.FindByFeedURLContext(context.Background(), "https://primary.example/feed.xml")
 	if err != nil || info == nil {
 		t.Fatalf("FindByFeedURL() info=%+v err=%v", info, err)
 	}
 	if info.ITunesID != 123 || info.PodcastGUID != "guid-123" {
 		t.Fatalf("stable identity = %+v", info)
+	}
+}
+
+func TestFindByFeedURLUsesRawURLLookupEvenWhenUniqueViewExists(t *testing.T) {
+	path := createQueryFixture(t, []queryFixtureRow{{
+		id: 1, title: "稳定节目", author: "作者", feedURL: "https://primary.example/feed.xml", itunesID: 123, guid: "guid-123", status: 200,
+	}})
+	indexDB, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = indexDB.Exec(`CREATE VIEW v_unique_podcasts AS SELECT * FROM podcasts WHERE 0`)
+	if err != nil {
+		indexDB.Close()
+		t.Fatal(err)
+	}
+	indexDB.Close()
+
+	query, err := NewQuery(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer query.Close()
+
+	info, err := query.FindByFeedURLContext(context.Background(), "https://primary.example/feed.xml")
+	if err != nil || info == nil {
+		t.Fatalf("FindByFeedURL() info=%+v err=%v", info, err)
+	}
+	if info.ID != 1 {
+		t.Fatalf("raw URL lookup returned %+v", info)
+	}
+}
+
+func TestPodcastIndexContextQueriesHonorCancellation(t *testing.T) {
+	path := createQueryFixture(t, []queryFixtureRow{{
+		id: 1, title: "稳定节目", author: "作者", feedURL: "https://primary.example/feed.xml", itunesID: 123, guid: "guid-123", status: 200,
+	}})
+	query, err := NewQuery(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer query.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := query.FindByFeedURLContext(ctx, "https://primary.example/feed.xml"); err == nil {
+		t.Fatal("FindByFeedURLContext should reject an already-cancelled context")
+	}
+	if _, err := query.FindCandidatesByIdentityContext(ctx, 123, "guid-123"); err == nil {
+		t.Fatal("FindCandidatesByIdentityContext should reject an already-cancelled context")
 	}
 }
 

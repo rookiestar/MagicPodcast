@@ -1,8 +1,11 @@
 package workflow
 
 import (
+	"strings"
 	"testing"
 	"time"
+
+	"magicpodcast/internal/models"
 )
 
 func TestConvertToLLMReportDataCopiesPodcastAndEpisodeFields(t *testing.T) {
@@ -55,5 +58,16 @@ func TestConvertToLLMReportDataCopiesPodcastAndEpisodeFields(t *testing.T) {
 		episode.QRCode != source.QRCode ||
 		episode.QRCodeError != source.QRCodeError {
 		t.Fatalf("episode fields were not preserved: %#v", episode)
+	}
+}
+
+func TestGenerateMarkdownIncludesFeedCoverage(t *testing.T) {
+	rg := &ReportGenerator{}
+	job := &models.Job{BaseModel: models.BaseModel{CreatedAt: time.Date(2026, 7, 25, 16, 0, 0, 0, time.UTC)}, TriggeredBy: "manual"}
+	markdown := rg.generateMarkdown(job, nil, job.CreatedAt, job.CreatedAt, "manual", "覆盖报告", 0, "", FeedCoverageSummary{
+		Total: 29, Attempted: 15, Successes: 7, Failures: 8, Unattempted: 14,
+	})
+	if !strings.Contains(markdown, "Feed覆盖**: 15/29 已尝试 | 7 成功 | 8 失败 | 14 未尝试") {
+		t.Fatalf("coverage summary missing from report: %s", markdown)
 	}
 }

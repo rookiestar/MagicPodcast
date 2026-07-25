@@ -35,24 +35,24 @@ type WorkflowStats struct {
 
 // JobResponse Job 响应结构
 type JobResponse struct {
-	ID                uint                   `json:"id"`
-	WorkflowID        uint                   `json:"workflow_id"`
-	Status            models.JobStatus       `json:"status"`
-	StartTime         *time.Time             `json:"start_time,omitempty"`
-	EndTime           *time.Time             `json:"end_time,omitempty"`
-	PodcastsProcessed int                    `json:"podcasts_processed"`
-	EpisodesFound     int                    `json:"episodes_found"`
-	EpisodesCreated   int                    `json:"episodes_created"`
-	EpisodesMatched   int                    `json:"episodes_matched"`
-	ErrorCount        int                    `json:"error_count"`
-	TriggeredBy       string                 `json:"triggered_by"`
-	CreatedAt         time.Time              `json:"created_at"`
-	Duration          *int64                 `json:"duration,omitempty"` // 执行时长（毫秒）
+	ID                uint             `json:"id"`
+	WorkflowID        uint             `json:"workflow_id"`
+	Status            models.JobStatus `json:"status"`
+	StartTime         *time.Time       `json:"start_time,omitempty"`
+	EndTime           *time.Time       `json:"end_time,omitempty"`
+	PodcastsProcessed int              `json:"podcasts_processed"`
+	EpisodesFound     int              `json:"episodes_found"`
+	EpisodesCreated   int              `json:"episodes_created"`
+	EpisodesMatched   int              `json:"episodes_matched"`
+	ErrorCount        int              `json:"error_count"`
+	TriggeredBy       string           `json:"triggered_by"`
+	CreatedAt         time.Time        `json:"created_at"`
+	Duration          *int64           `json:"duration,omitempty"` // 执行时长（毫秒）
 	// Compensation linkage (#40).
 	CompensationOfJobID *uint `json:"compensation_of_job_id,omitempty"`
 	CompensatedByJobID  *uint `json:"compensated_by_job_id,omitempty"`
 	// CanCompensate is true when the Job is partial and has no compensation yet.
-	CanCompensate bool `json:"can_compensate"`
+	CanCompensate bool                   `json:"can_compensate"`
 	Executions    []JobExecutionResponse `json:"executions,omitempty"`
 	// FeedAttempts is the append-only causal chain (#39). Safe metadata only.
 	FeedAttempts []FeedAttemptResponse `json:"feed_attempts,omitempty"`
@@ -91,6 +91,9 @@ type FeedAttemptResponse struct {
 
 // RootCauseSummaryResponse is the API shape for root-cause aggregation.
 type RootCauseSummaryResponse struct {
+	TotalFeeds           int               `json:"total_feeds"`
+	AttemptedFeeds       int               `json:"attempted_feeds"`
+	UnattemptedFeeds     int               `json:"unattempted_feeds"`
 	PrimarySuccesses     int               `json:"primary_successes"`
 	AlternativeSuccesses int               `json:"alternative_successes"`
 	FinalSuccesses       int               `json:"final_successes"`

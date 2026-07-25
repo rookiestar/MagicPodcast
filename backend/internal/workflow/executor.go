@@ -570,7 +570,7 @@ func (e *Executor) runBatchPass(
 				state.attempt++
 				// Clear prior decision so the new attempt is stamped fresh after.
 				state.lastRetryDecision = ""
-				var observed []feed.AccessOutcome
+				var observed []feed.AttemptObservation
 				state.execution, observed = e.syncPodcastWithAttempts(ctx, workflow, job.ID, state.podcast)
 				if state.execution != nil && state.execution.Status == models.ExecutionStatusSuccess {
 					e.recordObservedFeedAttempts(job.ID, &state.podcast, state.execution, observed, "not_needed")
@@ -601,11 +601,34 @@ func (e *Executor) recordSkippedBatchDeadline(jobID uint, podcast models.Podcast
 		PodcastFeedURL:    podcast.FeedURL,
 		Status:            models.ExecutionStatusFailed,
 		ErrorMessage:      "batch deadline reached before first-pass attempt",
-		FeedErrorCategory: string(feed.ErrorCategoryUnknown),
+		FeedErrorCategory: string(feed.ErrorCategoryUnattempted),
 		FeedTargetDomain:  feed.TargetDomain(podcast.FeedURL),
+		FeedSourceType:    string(feed.AccessSourceUnknown),
+		FeedSourceURL:     feed.SanitizeFeedURL(podcast.FeedURL),
+		FeedFailurePhase:  string(feed.FailurePhaseNotObserved),
 	}
 	if err := e.db.Create(execution).Error; err != nil {
 		logger.Infof("❌ 创建批次截止 JobExecution 失败 [PodcastID=%d]: %v", podcast.ID, err)
+	}
+	if e.db.Migrator().HasTable(&models.JobFeedAttempt{}) {
+		attempt := &models.JobFeedAttempt{
+			JobID:     jobID,
+			PodcastID: &podcast.ID,
+			// Negative attempt numbers are reserved for synthetic admission rows;
+			// zero would be replaced by the legacy database default of 1.
+			AttemptNo:     -1,
+			SourceType:    string(feed.AccessSourceUnknown),
+			AttemptedAt:   e.clockNow(),
+			ErrorCategory: string(feed.ErrorCategoryUnattempted),
+			FailurePhase:  string(feed.FailurePhaseNotObserved),
+			RetryDecision: "batch_deadline",
+			TargetDomain:  feed.TargetDomain(podcast.FeedURL),
+			SourceURL:     feed.SanitizeFeedURL(podcast.FeedURL),
+			IsFinalResult: true,
+		}
+		if err := PersistFeedAttempt(e.db, attempt); err != nil {
+			logger.Infof("❌ 创建未尝试 Feed 历史失败 [PodcastID=%d]: %v", podcast.ID, err)
+		}
 	}
 	return execution
 }
@@ -626,7 +649,7 @@ func (e *Executor) syncPodcastWithAttempts(
 	workflow *models.Workflow,
 	jobID uint,
 	podcast models.Podcast,
-) (*models.JobExecution, []feed.AccessOutcome) {
+) (*models.JobExecution, []feed.AttemptObservation) {
 	collector := &feed.AttemptCollector{}
 	ctx = feed.WithAttemptRecorder(ctx, collector.Record)
 
@@ -651,7 +674,7 @@ func (e *Executor) syncPodcastWithAttempts(
 			execution.Status = models.ExecutionStatusFailed
 			execution.ErrorMessage = fmt.Sprintf("创建记录失败: %v", createErr)
 			execution.ProcessingTime = int(time.Since(startTime).Milliseconds())
-			return &execution, collector.Outcomes()
+			return &execution, collector.Observations()
 		}
 	} else {
 		execution.Status = models.ExecutionStatusRunning
@@ -763,7 +786,7 @@ func (e *Executor) syncPodcastWithAttempts(
 
 	// Attempt history is recorded by runBatchPass so retry decisions from
 	// DecideBatchRetry can be attached on the real path (#39).
-	return &execution, collector.Outcomes()
+	return &execution, collector.Observations()
 }
 
 // recordFeedAttempt persists one safe attempt. attemptNo<=0 means "next".
@@ -778,7 +801,7 @@ func (e *Executor) recordObservedFeedAttempts(
 	jobID uint,
 	podcast *models.Podcast,
 	execution *models.JobExecution,
-	outcomes []feed.AccessOutcome,
+	observations []feed.AttemptObservation,
 	retryDecision string,
 ) {
 	if e == nil || e.db == nil || podcast == nil || execution == nil {
@@ -787,8 +810,11 @@ func (e *Executor) recordObservedFeedAttempts(
 	if !e.db.Migrator().HasTable(&models.JobFeedAttempt{}) {
 		return
 	}
-	if len(outcomes) == 0 {
-		outcomes = []feed.AccessOutcome{accessOutcomeFromExecution(execution)}
+	if len(observations) == 0 {
+		observations = []feed.AttemptObservation{{
+			Outcome:    accessOutcomeFromExecution(execution),
+			ObservedAt: time.Now(),
+		}}
 	}
 
 	var count int64
@@ -796,9 +822,9 @@ func (e *Executor) recordObservedFeedAttempts(
 		Where("job_id = ? AND podcast_id = ?", jobID, podcast.ID).
 		Count(&count).Error
 
-	finalIndex := len(outcomes) - 1
-	for i := len(outcomes) - 1; i >= 0; i-- {
-		if accessOutcomeMatchesExecution(outcomes[i], execution) {
+	finalIndex := len(observations) - 1
+	for i := len(observations) - 1; i >= 0; i-- {
+		if accessOutcomeMatchesExecution(observations[i].Outcome, execution) {
 			finalIndex = i
 			break
 		}
@@ -807,8 +833,9 @@ func (e *Executor) recordObservedFeedAttempts(
 		Where("job_id = ? AND podcast_id = ? AND is_final_result = ?", jobID, podcast.ID, true).
 		Update("is_final_result", false).Error
 
-	for i := range outcomes {
-		outcome := outcomes[i]
+	for i := range observations {
+		observation := observations[i]
+		outcome := observation.Outcome
 		decision := ""
 		if i == finalIndex {
 			decision = retryDecision
@@ -816,12 +843,16 @@ func (e *Executor) recordObservedFeedAttempts(
 			// returns (notably alternative identity verification).
 			outcome.IdentityVerification = execution.FeedIdentityVerification
 		}
+		attemptedAt := observation.ObservedAt
+		if attemptedAt.IsZero() {
+			attemptedAt = time.Now()
+		}
 		attempt := &models.JobFeedAttempt{
 			JobID:                jobID,
 			PodcastID:            &podcast.ID,
 			AttemptNo:            int(count) + i + 1,
 			SourceType:           string(outcome.SourceType),
-			AttemptedAt:          time.Now(),
+			AttemptedAt:          attemptedAt,
 			HTTPStatus:           outcome.HTTPStatus,
 			ErrorCategory:        string(outcome.ErrorCategory),
 			FailurePhase:         string(outcome.FailurePhase),

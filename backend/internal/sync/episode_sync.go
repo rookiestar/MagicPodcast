@@ -137,12 +137,10 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 		return result, fetchErr
 	}
 	s.persistPodcastFeedIdentity(&podcast, selectedFeed)
-	// Warm alternative cache after a successful primary fetch so the next
-	// failure window can use a pre-verified candidate (#37). Alternatives never
-	// overwrite the main Feed URL.
-	if result.FeedAccess != nil && result.FeedAccess.SourceType == feed.AccessSourcePrimary {
-		s.EnsureAlternativeVerified(ctx, &podcast)
-	}
+	// Do not synchronously warm PodcastIndex after a successful primary fetch.
+	// The optional dataset can be multi-gigabyte and a cache warm would consume
+	// the batch worker's critical path. Alternatives are verified on demand
+	// after a primary failure (or by an explicit maintenance call).
 
 	updateLastFetchedAt := result.FeedAccess == nil ||
 		(result.FeedAccess.SourceType != feed.AccessSourceLastGood && result.FeedAccess.SourceType != feed.AccessSourceLocalCache)

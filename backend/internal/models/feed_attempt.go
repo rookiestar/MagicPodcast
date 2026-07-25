@@ -8,11 +8,12 @@ import "time"
 type JobFeedAttempt struct {
 	BaseModel
 
-	JobID       uint  `gorm:"index:idx_feed_attempt_job;not null" json:"job_id"`
-	PodcastID   *uint `gorm:"index;not null" json:"podcast_id"`
-	AttemptNo   int   `gorm:"not null;default:1" json:"attempt_no"`
-	SourceType  string `gorm:"size:32;not null;default:primary" json:"source_type"`
-	// AttemptedAt is when this attempt started/finished (bounded observation).
+	JobID      uint   `gorm:"index:idx_feed_attempt_job;not null" json:"job_id"`
+	PodcastID  *uint  `gorm:"index;not null" json:"podcast_id"`
+	AttemptNo  int    `gorm:"not null;default:1" json:"attempt_no"`
+	SourceType string `gorm:"size:32;not null;default:primary" json:"source_type"`
+	// AttemptedAt is when the Feed outcome was observed. Synthetic unattempted
+	// rows use the batch deadline and have AttemptNo=-1.
 	AttemptedAt time.Time `gorm:"not null" json:"attempted_at"`
 
 	HTTPStatus           *int   `gorm:"column:http_status" json:"http_status"`

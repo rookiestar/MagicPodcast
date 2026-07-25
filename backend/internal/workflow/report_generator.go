@@ -53,6 +53,17 @@ type EpisodeDetail struct {
 	QRCodeError   bool   // 二维码生成失败标记
 }
 
+// FeedCoverageSummary makes network coverage explicit in the report. A
+// successful parse with zero matching episodes is different from a Feed that
+// never reached its first attempt.
+type FeedCoverageSummary struct {
+	Total       int
+	Attempted   int
+	Successes   int
+	Failures    int
+	Unattempted int
+}
+
 // ConvertToLLMReportData 转换为 LLM 包所需的数据格式。
 func ConvertToLLMReportData(data []EpisodeReportData) []llm.EpisodeReportData {
 	result := make([]llm.EpisodeReportData, len(data))
@@ -137,8 +148,10 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 		return nil, fmt.Errorf("收集报告数据失败: %w", err)
 	}
 
+	coverage := rg.feedCoverage(job)
+
 	// 4. 生成Markdown内容（暂时传入0和空字符串，后续生成LLM摘要后更新）
-	markdown := rg.generateMarkdown(job, reportData, timeRangeStart, timeRangeEnd, string(timeRangeMode), workflow.Name, 0, "")
+	markdown := rg.generateMarkdown(job, reportData, timeRangeStart, timeRangeEnd, string(timeRangeMode), workflow.Name, 0, "", coverage)
 
 	// 5. 生成LLM摘要（如果启用）
 	var llmSummary string
@@ -197,7 +210,7 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 			logger.Infof("✅ LLM摘要生成成功 [JobID=%d, Tokens=%d]", job.ID, llmTokensUsed)
 
 			// 重新生成包含token统计的Markdown（在LLM摘要生成前先生成完整内容）
-			markdown = rg.generateMarkdown(job, reportData, timeRangeStart, timeRangeEnd, string(timeRangeMode), workflow.Name, llmTokensUsed, llmModelUsed)
+			markdown = rg.generateMarkdown(job, reportData, timeRangeStart, timeRangeEnd, string(timeRangeMode), workflow.Name, llmTokensUsed, llmModelUsed, coverage)
 			// 将LLM摘要插入到Markdown开头
 			markdown = rg.insertLLMSummary(markdown, llmSummary)
 		}
@@ -255,6 +268,46 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 	logger.Infof("✅ 已更新Job的episodes_matched [JobID=%d, Matched=%d]", job.ID, matchedCount)
 
 	return report, nil
+}
+
+func (rg *ReportGenerator) feedCoverage(job *models.Job) FeedCoverageSummary {
+	coverage := FeedCoverageSummary{}
+	if job == nil || rg == nil || rg.db == nil {
+		return coverage
+	}
+	coverage.Total = job.PodcastsProcessed
+	if attempts, err := ListFeedAttempts(rg.db, job.ID); err == nil && len(attempts) > 0 {
+		summary := BuildRootCauseSummary(attempts)
+		coverage.Total = summary.TotalFeeds
+		coverage.Attempted = summary.AttemptedFeeds
+		coverage.Successes = summary.FinalSuccesses
+		coverage.Failures = summary.FinalFailures
+		coverage.Unattempted = summary.UnattemptedFeeds
+		if job.PodcastsProcessed > coverage.Total {
+			coverage.Total = job.PodcastsProcessed
+			coverage.Unattempted = coverage.Total - coverage.Attempted
+		}
+		return coverage
+	}
+
+	var executions []models.JobExecution
+	if err := rg.db.Where("job_id = ?", job.ID).Find(&executions).Error; err != nil {
+		return coverage
+	}
+	coverage.Attempted = len(executions)
+	for _, execution := range executions {
+		switch execution.Status {
+		case models.ExecutionStatusSuccess:
+			coverage.Successes++
+		case models.ExecutionStatusFailed:
+			coverage.Failures++
+		}
+	}
+	if coverage.Total < coverage.Attempted {
+		coverage.Total = coverage.Attempted
+	}
+	coverage.Unattempted = coverage.Total - coverage.Attempted
+	return coverage
 }
 
 // collectMatchedEpisodes 收集在时间窗口内匹配的episodes（优化N+1查询）
@@ -361,7 +414,7 @@ func (rg *ReportGenerator) collectMatchedEpisodes(job *models.Job, timeRangeStar
 }
 
 // generateMarkdown 生成Markdown内容
-func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeReportData, timeRangeStart, timeRangeEnd time.Time, timeRangeMode string, workflowName string, llmTokensUsed int, llmModelUsed string) string {
+func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeReportData, timeRangeStart, timeRangeEnd time.Time, timeRangeMode string, workflowName string, llmTokensUsed int, llmModelUsed string, coverage FeedCoverageSummary) string {
 	var builder strings.Builder
 
 	// 报告标题（简化时间格式：只到分钟）
@@ -389,6 +442,10 @@ func (rg *ReportGenerator) generateMarkdown(job *models.Job, data []EpisodeRepor
 
 	metaLine += "\n\n"
 	builder.WriteString(metaLine)
+	if coverage.Total > 0 {
+		builder.WriteString(fmt.Sprintf("> **📡 Feed覆盖**: %d/%d 已尝试 | %d 成功 | %d 失败 | %d 未尝试\n\n",
+			coverage.Attempted, coverage.Total, coverage.Successes, coverage.Failures, coverage.Unattempted))
+	}
 
 	builder.WriteString("---\n\n")
 

@@ -28,8 +28,11 @@ const (
 	// tell a local policy skip apart from an upstream refusal — and so it never
 	// trips the Xiaoyuzhou first-403-immediate-open circuit invariant.
 	ErrorCategoryPolicyRejected ErrorCategory = "policy_rejected"
-	ErrorCategoryCircuitOpen        ErrorCategory = "circuit_open"
-	ErrorCategoryUnknown            ErrorCategory = "unknown"
+	ErrorCategoryCircuitOpen    ErrorCategory = "circuit_open"
+	// ErrorCategoryUnattempted is a synthetic batch outcome: the Feed never
+	// reached a network attempt before the hard batch deadline.
+	ErrorCategoryUnattempted ErrorCategory = "unattempted"
+	ErrorCategoryUnknown     ErrorCategory = "unknown"
 )
 
 type CircuitState string
@@ -87,12 +90,12 @@ const (
 type FailurePhase string
 
 const (
-	FailurePhaseNotObserved   FailurePhase = "not_observed"
-	FailurePhaseDNS           FailurePhase = "dns"
-	FailurePhaseConnect       FailurePhase = "connect"
-	FailurePhaseTLS           FailurePhase = "tls"
+	FailurePhaseNotObserved    FailurePhase = "not_observed"
+	FailurePhaseDNS            FailurePhase = "dns"
+	FailurePhaseConnect        FailurePhase = "connect"
+	FailurePhaseTLS            FailurePhase = "tls"
 	FailurePhaseResponseHeader FailurePhase = "response_header"
-	FailurePhaseBodyRead      FailurePhase = "body_read"
+	FailurePhaseBodyRead       FailurePhase = "body_read"
 )
 
 type Freshness string

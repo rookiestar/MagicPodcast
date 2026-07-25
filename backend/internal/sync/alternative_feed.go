@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"strconv"
 	"strings"
@@ -135,9 +136,16 @@ func (s *Service) fetchVerifiedAlternative(
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	queryCtx, cancel := context.WithTimeout(ctx, AlternativeLiveQueryTimeout)
+	defer cancel()
 
-	identity, err := s.resolveAlternativeIdentity(podcast)
+	identity, err := s.resolveAlternativeIdentityWithContext(queryCtx, podcast)
 	if err != nil {
+		reason := "identity_resolve_error"
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			reason = "live_query_timeout"
+		}
+		s.persistAlternativeUnavailable(podcast, identity, feed.IdentityVerificationUnavailable, reason)
 		setAlternativeVerification(failure, feed.IdentityVerificationUnavailable)
 		return nil, false
 	}
@@ -162,8 +170,6 @@ func (s *Service) fetchVerifiedAlternative(
 	}
 
 	// --- Live verify with hard short timeout ---
-	queryCtx, cancel := context.WithTimeout(ctx, AlternativeLiveQueryTimeout)
-	defer cancel()
 	candidateURL, verification, reason, ok := s.verifyAndCacheAlternative(queryCtx, podcast)
 	if !ok {
 		if verification == "" {
@@ -215,7 +221,9 @@ func (s *Service) fetchAlternativeURL(
 	// evidence against the live body (defense in depth).
 	if verification != feed.IdentityVerificationVerifiedMetadata &&
 		verification != feed.IdentityVerificationVerifiedEpisode {
-		identity, _ := s.resolveAlternativeIdentity(podcast)
+		verifyCtx, cancel := context.WithTimeout(ctx, AlternativeLiveQueryTimeout)
+		identity, _ := s.resolveAlternativeIdentityWithContext(verifyCtx, podcast)
+		cancel()
 		if candidateFeedMetadataEvidence(identity, alternative.Feed) {
 			verification = feed.IdentityVerificationVerifiedMetadata
 		} else if s.hasEpisodeEvidence(podcast.ID, alternative.Feed) {
@@ -240,6 +248,9 @@ func (s *Service) verifyAndCacheAlternative(ctx context.Context, podcast *models
 		s.persistAlternativeUnavailable(podcast, alternativeIdentity{}, feed.IdentityVerificationUnavailable, "index_unavailable")
 		return "", feed.IdentityVerificationUnavailable, "index_unavailable", false
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	select {
 	case <-ctx.Done():
 		s.persistAlternativeUnavailable(podcast, alternativeIdentity{}, feed.IdentityVerificationUnavailable, "live_query_timeout")
@@ -247,20 +258,28 @@ func (s *Service) verifyAndCacheAlternative(ctx context.Context, podcast *models
 	default:
 	}
 
-	identity, err := s.resolveAlternativeIdentity(podcast)
+	identity, err := s.resolveAlternativeIdentityWithContext(ctx, podcast)
 	if err != nil {
-		s.persistAlternativeUnavailable(podcast, identity, feed.IdentityVerificationUnavailable, "identity_resolve_error")
-		return "", feed.IdentityVerificationUnavailable, "identity_resolve_error", false
+		reason := "identity_resolve_error"
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			reason = "live_query_timeout"
+		}
+		s.persistAlternativeUnavailable(podcast, identity, feed.IdentityVerificationUnavailable, reason)
+		return "", feed.IdentityVerificationUnavailable, reason, false
 	}
 	if identity.itunesID <= 0 && identity.podcastGUID == "" {
 		s.persistAlternativeUnavailable(podcast, identity, feed.IdentityVerificationRejectedNoStableID, "no_stable_identity")
 		return "", feed.IdentityVerificationRejectedNoStableID, "no_stable_identity", false
 	}
 
-	candidates, err := s.podcastIndexQuery.FindCandidatesByIdentity(identity.itunesID, identity.podcastGUID)
+	candidates, err := s.podcastIndexQuery.FindCandidatesByIdentityContext(ctx, identity.itunesID, identity.podcastGUID)
 	if err != nil {
-		s.persistAlternativeUnavailable(podcast, identity, feed.IdentityVerificationUnavailable, "candidate_query_error")
-		return "", feed.IdentityVerificationUnavailable, "candidate_query_error", false
+		reason := "candidate_query_error"
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			reason = "live_query_timeout"
+		}
+		s.persistAlternativeUnavailable(podcast, identity, feed.IdentityVerificationUnavailable, reason)
+		return "", feed.IdentityVerificationUnavailable, reason, false
 	}
 	candidates = filterAlternativeCandidates(candidates, podcast.FeedURL)
 	if len(candidates) == 0 {
@@ -418,6 +437,13 @@ func setAlternativeVerification(result *feed.FetchResult, verification string) {
 }
 
 func (s *Service) resolveAlternativeIdentity(podcast *models.Podcast) (alternativeIdentity, error) {
+	return s.resolveAlternativeIdentityWithContext(context.Background(), podcast)
+}
+
+func (s *Service) resolveAlternativeIdentityWithContext(ctx context.Context, podcast *models.Podcast) (alternativeIdentity, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	identity := alternativeIdentity{
 		itunesID:    parseITunesID(podcast.ITunesID),
 		podcastGUID: normalizeIdentity(podcast.PodcastGUID),
@@ -436,7 +462,7 @@ func (s *Service) resolveAlternativeIdentity(podcast *models.Podcast) (alternati
 
 	// Existing subscriptions may predate PodcastGUID/iTunesID persistence. A
 	// URL lookup supplies those fields without weakening the stable-ID gate.
-	primary, err := s.podcastIndexQuery.FindByFeedURL(podcast.FeedURL)
+	primary, err := s.podcastIndexQuery.FindByFeedURLContext(ctx, podcast.FeedURL)
 	if err != nil || primary == nil {
 		return identity, err
 	}
