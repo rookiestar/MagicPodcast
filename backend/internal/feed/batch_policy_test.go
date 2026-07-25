@@ -151,6 +151,26 @@ func TestDecideBatchRetryNonRetryable(t *testing.T) {
 	}
 }
 
+func TestDecideBatchRetryUserAgentPolicyStopsWithoutRetry(t *testing.T) {
+	for _, tt := range []struct {
+		category ErrorCategory
+		reason   string
+	}{
+		{category: ErrorCategory("user_agent_denied"), reason: "user_agent_denied_no_retry"},
+		{category: ErrorCategory("user_agent_blocked"), reason: "user_agent_blocked_no_retry"},
+	} {
+		dec := DecideBatchRetry(BatchRetryInput{
+			Category:            tt.category,
+			Attempt:             1,
+			AccessDeniedRetries: 0,
+			BatchElapsed:        time.Minute,
+			BatchRemaining:      9 * time.Minute,
+		})
+		require.False(t, dec.Retry, "%s must not enter 2/5/8 retries", tt.category)
+		require.Equal(t, tt.reason, dec.Reason)
+	}
+}
+
 func TestBatchTerminalStatus(t *testing.T) {
 	require.Equal(t, "completed", BatchTerminalStatus(3, 0))
 	require.Equal(t, "partial", BatchTerminalStatus(2, 1))

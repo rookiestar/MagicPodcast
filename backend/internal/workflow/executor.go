@@ -352,6 +352,10 @@ func (e *Executor) executeSync(
 		batchCtx, cancel = context.WithDeadline(ctx, deadline)
 	}
 	defer cancel()
+	// The gate is scoped to this workflow batch. Fetcher checks it before any
+	// primary HTTP request and records sibling skips without touching the
+	// network; alternative-source requests remain independent.
+	batchCtx = feed.WithBatchAccessGate(batchCtx, feed.NewBatchAccessGate())
 
 	states := make([]*batchFeedState, 0, len(podcasts))
 	for _, podcast := range podcasts {
@@ -856,8 +860,17 @@ func (e *Executor) recordObservedFeedAttempts(
 		observation := observations[i]
 		outcome := observation.Outcome
 		decision := ""
+		// A direct UA ACL refusal is already terminal even when a verified
+		// alternative later becomes the selected final result. Keep that causal
+		// decision on the direct upstream row instead of losing it when the
+		// alternative result is projected as final.
+		if outcome.ErrorCategory == feed.ErrorCategoryUserAgentDenied {
+			decision = "user_agent_denied_no_retry"
+		}
 		if i == finalIndex {
-			decision = retryDecision
+			if retryDecision != "" {
+				decision = retryDecision
+			}
 			// The sync service may enrich the selected result after the Fetcher
 			// returns (notably alternative identity verification).
 			outcome.IdentityVerification = execution.FeedIdentityVerification

@@ -57,7 +57,7 @@ type JobResponse struct {
 	// FeedAttempts is the append-only causal chain (#39). Safe metadata only.
 	FeedAttempts []FeedAttemptResponse `json:"feed_attempts,omitempty"`
 	// RootCauseSummary aggregates upstream errors without double-counting
-	// derived policy actions such as circuit_open.
+	// derived policy actions such as circuit_open/user_agent_blocked.
 	RootCauseSummary *RootCauseSummaryResponse `json:"root_cause_summary,omitempty"`
 	// BatchRemainingMs is 0 for finished jobs; reserved for running/finalizing UIs.
 	BatchRemainingMs *int64 `json:"batch_remaining_ms,omitempty"`

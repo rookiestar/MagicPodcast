@@ -55,6 +55,66 @@ func TestFetchFeedWithContextDetailedRecordsHTTPAccessOutcome(t *testing.T) {
 	}
 }
 
+func TestFetchFeedClassifiesOnlyExactUserAgentACLSignal(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    int
+		header    string
+		wantError ErrorCategory
+	}{
+		{
+			name:      "verified tengine signal",
+			status:    http.StatusForbidden,
+			header:    "denied by UA ACL = blacklist",
+			wantError: ErrorCategory("user_agent_denied"),
+		},
+		{
+			name:      "normalized case and whitespace",
+			status:    http.StatusUnauthorized,
+			header:    "  Denied   by ua acl   =   blacklist  ",
+			wantError: ErrorCategory("user_agent_denied"),
+		},
+		{
+			name:      "ordinary forbidden",
+			status:    http.StatusForbidden,
+			wantError: ErrorCategoryAccessDenied,
+		},
+		{
+			name:      "similar but not exact signal",
+			status:    http.StatusForbidden,
+			header:    "denied by UA ACL = blacklist; retry later",
+			wantError: ErrorCategoryAccessDenied,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if serveRobotsNotFound(w, r) {
+					return
+				}
+				if tt.header != "" {
+					w.Header().Set("X-Tengine-Error", tt.header)
+				}
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte("acl-secret-response-body"))
+			}))
+			t.Cleanup(server.Close)
+
+			result, err := NewFetcherWithCoordinator(2*time.Second, NewCoordinator(CoordinatorConfig{})).FetchFeedWithContextDetailed(context.Background(), server.URL+"/feed.xml")
+			if err == nil || result == nil {
+				t.Fatalf("expected bounded refusal result and error, result=%#v err=%v", result, err)
+			}
+			if result.Access.ErrorCategory != tt.wantError {
+				t.Fatalf("expected category %q, got %q", tt.wantError, result.Access.ErrorCategory)
+			}
+			if strings.Contains(err.Error(), "denied by UA ACL") || strings.Contains(err.Error(), "acl-secret-response-body") {
+				t.Fatalf("error exposed raw upstream diagnostic data: %v", err)
+			}
+		})
+	}
+}
+
 func TestFetchFeedWithContextDetailedRecordsParseOutcomeWithoutBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if serveRobotsNotFound(w, r) {

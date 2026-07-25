@@ -29,6 +29,20 @@ func TestBuildRootCauseSummaryDoesNotDoubleCountCircuitOpen(t *testing.T) {
 	require.Equal(t, "访问被拒绝 (403/401)", summary.UserLabels[string(feed.ErrorCategoryAccessDenied)])
 }
 
+func TestUserAgentCategoriesSeparateDirectAndDerivedPolicyActions(t *testing.T) {
+	first, second := uint(1), uint(2)
+	summary := BuildRootCauseSummary([]models.JobFeedAttempt{
+		{PodcastID: &first, AttemptNo: 1, SourceType: string(feed.AccessSourcePrimary), ErrorCategory: string(feed.ErrorCategoryUserAgentDenied), IsFinalResult: true},
+		{PodcastID: &second, AttemptNo: 1, SourceType: string(feed.AccessSourcePrimary), ErrorCategory: string(feed.ErrorCategoryUserAgentBlocked), DerivedPolicy: true, IsFinalResult: true},
+	})
+	require.Equal(t, 1, summary.UpstreamRootCauses[string(feed.ErrorCategoryUserAgentDenied)])
+	require.Equal(t, 1, summary.DerivedPolicyActions[string(feed.ErrorCategoryUserAgentBlocked)])
+	_, hasDerivedAsUpstream := summary.UpstreamRootCauses[string(feed.ErrorCategoryUserAgentBlocked)]
+	require.False(t, hasDerivedAsUpstream)
+	require.Equal(t, "User-Agent 被上游 ACL 拒绝", summary.UserLabels[string(feed.ErrorCategoryUserAgentDenied)])
+	require.Equal(t, "User-Agent 已被同域策略阻断", summary.UserLabels[string(feed.ErrorCategoryUserAgentBlocked)])
+}
+
 func TestPersistAndListFeedAttemptsSafeFields(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:attempts_"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)

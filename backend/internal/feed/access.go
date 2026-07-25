@@ -10,9 +10,16 @@ import (
 type ErrorCategory string
 
 const (
-	ErrorCategoryNotObserved        ErrorCategory = "not_observed"
-	ErrorCategoryNone               ErrorCategory = "none"
-	ErrorCategoryAccessDenied       ErrorCategory = "access_denied"
+	ErrorCategoryNotObserved  ErrorCategory = "not_observed"
+	ErrorCategoryNone         ErrorCategory = "none"
+	ErrorCategoryAccessDenied ErrorCategory = "access_denied"
+	// ErrorCategoryUserAgentDenied is a direct upstream 401/403 refusal with
+	// the explicitly allow-listed UA ACL signature. It is narrower than
+	// ErrorCategoryAccessDenied and therefore must not inherit its retry slots.
+	ErrorCategoryUserAgentDenied ErrorCategory = "user_agent_denied"
+	// ErrorCategoryUserAgentBlocked is a local, derived skip after another Feed
+	// on the same domain and configured User-Agent was explicitly denied.
+	ErrorCategoryUserAgentBlocked   ErrorCategory = "user_agent_blocked"
 	ErrorCategoryRateLimited        ErrorCategory = "rate_limited"
 	ErrorCategoryServiceUnavailable ErrorCategory = "service_unavailable"
 	ErrorCategoryHTTP               ErrorCategory = "http_error"

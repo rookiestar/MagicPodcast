@@ -76,6 +76,10 @@ func DecideBatchRetry(in BatchRetryInput) BatchRetryDecision {
 	}
 
 	switch in.Category {
+	case ErrorCategoryUserAgentDenied:
+		return BatchRetryDecision{Retry: false, Reason: "user_agent_denied_no_retry"}
+	case ErrorCategoryUserAgentBlocked:
+		return BatchRetryDecision{Retry: false, Reason: "user_agent_blocked_no_retry"}
 	case ErrorCategoryAccessDenied:
 		if in.AccessDeniedRetries >= len(AccessDeniedRetryOffsets) {
 			return BatchRetryDecision{Retry: false, Reason: "access_denied_budget_exhausted"}

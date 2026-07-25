@@ -266,20 +266,55 @@ func (f *Fetcher) fetchFeedWithContextDetailed(ctx context.Context, feedURL stri
 	if source == AccessSourceUnknown || source == "" {
 		source = AccessSourcePrimary
 	}
+	gate := batchAccessGateFromContext(ctx)
+	uaFingerprint := UserAgentFingerprint(f.userAgent())
+	if source == AccessSourcePrimary && gate != nil && gate.IsBlocked(TargetDomain(feedURL), uaFingerprint) {
+		result = f.userAgentBlockedResult(feedURL)
+		err = result.Error
+		return result, err
+	}
 	if f.coordinator == nil {
 		result, err = f.fetchFeedWithContextDirect(ctx, feedURL, RequestValidators{})
 		if result != nil {
 			result.Access.SourceType = source
 		}
+		f.updateBatchAccessGate(gate, source, feedURL, uaFingerprint, result)
 		return result, err
 	}
-	return f.coordinator.Do(ctx, feedURL, func(operationCtx context.Context, validators RequestValidators) (*FetchResult, error) {
+	result, err = f.coordinator.Do(ctx, feedURL, func(operationCtx context.Context, validators RequestValidators) (*FetchResult, error) {
 		result, err := f.fetchFeedWithContextDirect(operationCtx, feedURL, validators)
 		if result != nil {
 			result.Access.SourceType = source
 		}
 		return result, err
 	})
+	f.updateBatchAccessGate(gate, source, feedURL, uaFingerprint, result)
+	return result, err
+}
+
+func (f *Fetcher) updateBatchAccessGate(gate *BatchAccessGate, source AccessSource, feedURL, uaFingerprint string, result *FetchResult) {
+	if gate == nil || source != AccessSourcePrimary || result == nil {
+		return
+	}
+	if result.Access.ErrorCategory == ErrorCategoryUserAgentDenied {
+		gate.Block(TargetDomain(feedURL), uaFingerprint)
+	}
+}
+
+func (f *Fetcher) userAgentBlockedResult(feedURL string) *FetchResult {
+	safeURL := SanitizeFeedURL(feedURL)
+	access := newPrimaryAccessOutcome(feedURL)
+	access.ErrorCategory = ErrorCategoryUserAgentBlocked
+	access.Freshness = FreshnessUnknown
+	access.EgressID = f.configuredEgressLabel()
+	return &FetchResult{
+		Error: &FeedError{
+			Type:    ErrorTypeUserAgentBlocked,
+			FeedURL: safeURL,
+			Message: fmt.Sprintf("同域同 User-Agent 请求已被策略阻断: %s", safeURL),
+		},
+		Access: access,
+	}
 }
 
 func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string, validators RequestValidators) (result *FetchResult, err error) {
@@ -413,10 +448,20 @@ func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string
 		// loop can honor it without the AccessOutcome. Only set for the status
 		// refusal path, where resp.Header is in scope; transport/parse errors
 		// have no such header and stay empty.
-		if fe, ok := err.(*FeedError); ok {
-			fe.RetryAfter = resp.Header.Get("Retry-After")
+		if hasExplicitUserAgentACLSignal(status, resp.Header) {
+			result.Access.ErrorCategory = ErrorCategoryUserAgentDenied
+			err = &FeedError{
+				Type:     ErrorTypeUserAgentDenied,
+				FeedURL:  safeURL,
+				Original: err,
+				Message:  fmt.Sprintf("上游拒绝当前 User-Agent: %s", safeURL),
+			}
+		} else {
+			if fe, ok := err.(*FeedError); ok {
+				fe.RetryAfter = resp.Header.Get("Retry-After")
+			}
+			result.Access.ErrorCategory = errorCategoryForStatus(status)
 		}
-		result.Access.ErrorCategory = errorCategoryForStatus(status)
 		result.Access.Freshness = FreshnessUnknown
 		return result, err
 	}

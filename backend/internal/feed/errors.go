@@ -40,6 +40,13 @@ const (
 	// 属于抓取前的本地准入决策：既不是网络故障，也不是上游 HTTP 403，AccessOutcome
 	// 用独立的 policy_rejected 类别区分，且不可重试（重试也不会改变规则）。
 	ErrorTypePolicyRejected
+	// ErrorTypeUserAgentDenied is a direct upstream UA ACL refusal. It is kept
+	// separate from ordinary access_denied so bounded 401/403 recovery cannot
+	// accidentally repeat a deterministic policy rejection.
+	ErrorTypeUserAgentDenied
+	// ErrorTypeUserAgentBlocked is a local sibling-request suppression after a
+	// direct UA ACL refusal. It never represents an upstream HTTP response.
+	ErrorTypeUserAgentBlocked
 )
 
 // String renders the error category as a short stable label so structured retry
@@ -73,6 +80,10 @@ func (t FeedErrorType) String() string {
 		return "invalid_request"
 	case ErrorTypePolicyRejected:
 		return "policy_rejected"
+	case ErrorTypeUserAgentDenied:
+		return "user_agent_denied"
+	case ErrorTypeUserAgentBlocked:
+		return "user_agent_blocked"
 	default:
 		return fmt.Sprintf("feed_error_type_%d", int(t))
 	}
@@ -124,6 +135,10 @@ func (e *FeedError) GetSkipReason() (shouldSkip bool, reason string, description
 		return true, "not_found", "Feed不存在 (404)"
 	case ErrorTypeAccessDenied:
 		return true, "access_denied", "访问被拒绝"
+	case ErrorTypeUserAgentDenied:
+		return true, "user_agent_denied", "上游拒绝当前 User-Agent"
+	case ErrorTypeUserAgentBlocked:
+		return true, "user_agent_blocked", "同域 User-Agent 已被策略阻断"
 	case ErrorTypeGeoBlocked:
 		return true, "geo_blocked", "地区限制，无法访问"
 	default:

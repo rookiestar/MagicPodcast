@@ -16,6 +16,10 @@ func ErrorCategoryUserLabel(category string) string {
 	switch feed.ErrorCategory(category) {
 	case feed.ErrorCategoryAccessDenied:
 		return "访问被拒绝 (403/401)"
+	case feed.ErrorCategoryUserAgentDenied:
+		return "User-Agent 被上游 ACL 拒绝"
+	case feed.ErrorCategoryUserAgentBlocked:
+		return "User-Agent 已被同域策略阻断"
 	case feed.ErrorCategoryTimeout:
 		return "超时"
 	case feed.ErrorCategoryNetwork:
@@ -65,11 +69,17 @@ func PersistFeedAttempt(db *gorm.DB, attempt *models.JobFeedAttempt) error {
 }
 
 func isDerivedPolicyCategory(category string) bool {
-	return feed.ErrorCategory(category) == feed.ErrorCategoryCircuitOpen
+	switch feed.ErrorCategory(category) {
+	case feed.ErrorCategoryCircuitOpen, feed.ErrorCategoryUserAgentBlocked:
+		return true
+	default:
+		return false
+	}
 }
 
 // RootCauseSummary aggregates attempt rows without double-counting derived
-// policy actions (e.g. circuit_open) as independent upstream failures.
+// policy actions (e.g. circuit_open/user_agent_blocked) as independent
+// upstream failures.
 type RootCauseSummary struct {
 	TotalFeeds           int               `json:"total_feeds"`
 	AttemptedFeeds       int               `json:"attempted_feeds"`
