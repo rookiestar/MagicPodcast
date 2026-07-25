@@ -134,13 +134,34 @@ type JobStatus string
 const (
 	JobStatusPending   JobStatus = "pending"
 	JobStatusRunning   JobStatus = "running"
-	JobStatusCompleted JobStatus = "completed"
+	// JobStatusFinalizing means fetch is done and the single report is being
+	// persisted; the per-workflow execution lock stays held (#35/#38).
+	JobStatusFinalizing JobStatus = "finalizing"
+	JobStatusCompleted  JobStatus = "completed"
 	// JobStatusPartial means the 15-minute batch finished with a mix of
 	// successful and failed Feed outcomes (#35/#36).
 	JobStatusPartial   JobStatus = "partial"
 	JobStatusFailed    JobStatus = "failed"
 	JobStatusCancelled JobStatus = "cancelled"
 )
+
+// ActiveJobStatuses are non-terminal statuses that occupy the single-active-job
+// slot for a workflow.
+var ActiveJobStatuses = []JobStatus{
+	JobStatusPending,
+	JobStatusRunning,
+	JobStatusFinalizing,
+}
+
+// IsActiveJobStatus reports whether status still holds the workflow execution lock.
+func IsActiveJobStatus(status JobStatus) bool {
+	switch status {
+	case JobStatusPending, JobStatusRunning, JobStatusFinalizing:
+		return true
+	default:
+		return false
+	}
+}
 
 // Job 任务模型（工作流的单次执行）
 type Job struct {

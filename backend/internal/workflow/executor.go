@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"magicpodcast/internal/feed"
 	"magicpodcast/internal/logger"
@@ -98,16 +99,12 @@ func (e *Executor) UseInstantBatchClock() {
 func (e *Executor) Execute(ctx context.Context, workflow *models.Workflow, triggeredBy string) (*models.Job, error) {
 	logger.Infof("🚀 开始执行工作流 [ID=%d, Name=%s]", workflow.ID, workflow.Name)
 
-	// 1. 创建 Job 记录
-	startTime := time.Now()
-	job := &models.Job{
-		WorkflowID:  workflow.ID,
-		Status:      models.JobStatusRunning,
-		StartTime:   &startTime,
-		TriggeredBy: triggeredBy,
-	}
-
-	if err := e.db.Create(job).Error; err != nil {
+	// 1. DB-level single-active-job claim (manual / cron / compensation share it).
+	job, err := ClaimActiveJob(e.db, workflow.ID, triggeredBy)
+	if err != nil {
+		if errors.Is(err, ErrWorkflowJobActive) {
+			return nil, fmt.Errorf("%w: workflow_id=%d", ErrWorkflowJobActive, workflow.ID)
+		}
 		return nil, fmt.Errorf("创建Job失败: %w", err)
 	}
 
@@ -133,7 +130,7 @@ func (e *Executor) Execute(ctx context.Context, workflow *models.Workflow, trigg
 	// 3. 并发执行同步
 	results := e.executeSync(ctx, workflow, job, podcasts)
 
-	// 4. 汇总结果并更新Job
+	// 4. 汇总结果并更新Job（含 finalizing → 报告 → 终态，持锁到报告持久化）
 	e.finalizeJob(job, results)
 
 	logger.Infof("✅ 工作流执行完成 [JobID=%d, 处理=%d, 成功=%d, 失败=%d]",
@@ -619,7 +616,9 @@ func applyFeedAccessOutcome(execution *models.JobExecution, outcome *feed.Access
 	execution.FeedCircuitState = string(outcome.CircuitState)
 }
 
-// finalizeJob 汇总结果并更新Job状态
+// finalizeJob aggregates execution outcomes, holds finalizing until one report
+// is persisted (or generation fails with an explicit terminal status), then
+// releases the active-job slot by writing a terminal status (#38).
 func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecution) {
 	var successCount, failedCount, skippedCount int
 	var totalEpisodes int
@@ -638,7 +637,8 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 		}
 	}
 
-	// ⭐ 先保存中间统计，但不设置EndTime和状态
+	terminal := finalJobStatus(successCount, failedCount, len(executions))
+
 	job.PodcastsProcessed = len(executions)
 	job.EpisodesFound = totalEpisodes
 	job.EpisodesCreated = totalEpisodes
@@ -648,67 +648,52 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 		logger.Infof("❌ 更新Job中间统计失败 [JobID=%d]: %v", job.ID, err)
 	}
 
-	logger.Infof("📊 Job执行完成，正在生成报告 [ID=%d] - 成功:%d, 失败:%d, 跳过:%d",
+	// Hold the single-active-job slot through report persistence.
+	if err := MarkJobFinalizing(e.db, job); err != nil {
+		logger.Infof("❌ 标记 finalizing 失败 [JobID=%d]: %v", job.ID, err)
+	}
+
+	logger.Infof("📊 Job 进入 finalizing，生成报告 [ID=%d] - 成功:%d, 失败:%d, 跳过:%d",
 		job.ID, successCount, failedCount, skippedCount)
 
-	// 更新workflow的last_job_id
 	e.db.Model(&models.Workflow{}).
 		Where("id = ?", job.WorkflowID).
 		Update("last_job_id", job.ID)
 
-	// ⭐ 异步生成执行报告，报告生成成功后再设置EndTime和最终状态
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logger.Infof("❌ 报告生成panic已恢复 [JobID=%d]: %v", job.ID, r)
-				endTime := time.Now()
-				job.EndTime = &endTime
-				job.Status = finalJobStatus(successCount, failedCount, len(executions))
-				if saveErr := e.db.Save(job).Error; saveErr != nil {
-					logger.Infof("❌ 更新Job状态失败 [JobID=%d]: %v", job.ID, saveErr)
-				}
-			}
-		}()
-
-		reportGen := NewReportGenerator(e.db, e.summarizer)
+	reportGen := NewReportGenerator(e.db, e.summarizer)
+	// Idempotent: if a report already exists (retry after crash during terminal
+	// update), do not create a second one.
+	if exists, err := HasReportForJob(e.db, job.ID); err == nil && exists {
+		logger.Infof("ℹ️  报告已存在，跳过重复生成 [JobID=%d]", job.ID)
+	} else {
 		report, err := reportGen.GenerateForJob(job)
 		if err != nil {
 			logger.Infof("❌ 生成报告失败 [JobID=%d]: %v", job.ID, err)
-
-			// 报告生成失败，设置EndTime并决定最终状态
-			endTime := time.Now()
-			job.EndTime = &endTime
-			job.Status = finalJobStatus(successCount, failedCount, len(executions))
-			if saveErr := e.db.Save(job).Error; saveErr != nil {
-				logger.Infof("❌ 更新Job状态失败 [JobID=%d]: %v", job.ID, saveErr)
-			}
-			return
-		}
-
-		logger.Infof("✅ 报告已生成 [JobID=%d, ReportID=%d, Size=%d bytes]",
-			job.ID, report.ID, report.FileSize)
-
-		// ⭐ 报告生成成功，设置EndTime（包括报告生成时间）并更新状态
-		endTime := time.Now()
-		job.EndTime = &endTime
-		job.Status = finalJobStatus(successCount, failedCount, len(executions))
-
-		if err := e.db.Save(job).Error; err != nil {
-			logger.Infof("❌ 更新Job状态失败 [JobID=%d]: %v", job.ID, err)
+			// Even without a report row, release the lock with the terminal status.
 		} else {
-			duration := endTime.Sub(*job.StartTime).Milliseconds()
-			logger.Infof("✅ Job已完成 [JobID=%d, 总耗时=%dms]", job.ID, duration)
-		}
-
-		// 发送邮件通知（仅cron触发的成功任务）
-		if e.notifier != nil && job.Status == models.JobStatusCompleted && job.TriggeredBy == "cron" {
-			if err := e.notifier.SendReport(report.Title, report.Content); err != nil {
-				logger.Infof("❌ 发送邮件通知失败 [JobID=%d]: %v", job.ID, err)
-			} else {
-				logger.Infof("✅ 邮件通知已发送 [JobID=%d, TriggeredBy=%s]", job.ID, job.TriggeredBy)
+			logger.Infof("✅ 报告已生成 [JobID=%d, ReportID=%d, Size=%d bytes]",
+				job.ID, report.ID, report.FileSize)
+			// completed/partial both get exactly one report; LLM failures keep
+			// the base report with LLMError warning (handled inside GenerateForJob).
+			if e.notifier != nil && terminal == models.JobStatusCompleted && job.TriggeredBy == "cron" {
+				if err := e.notifier.SendReport(report.Title, report.Content); err != nil {
+					logger.Infof("❌ 发送邮件通知失败 [JobID=%d]: %v", job.ID, err)
+				} else {
+					logger.Infof("✅ 邮件通知已发送 [JobID=%d, TriggeredBy=%s]", job.ID, job.TriggeredBy)
+				}
 			}
 		}
-	}()
+	}
+
+	endTime := time.Now()
+	job.EndTime = &endTime
+	job.Status = terminal
+	if err := e.db.Save(job).Error; err != nil {
+		logger.Infof("❌ 更新Job终态失败 [JobID=%d]: %v", job.ID, err)
+	} else if job.StartTime != nil {
+		logger.Infof("✅ Job已完成 [JobID=%d, Status=%s, 总耗时=%dms]",
+			job.ID, job.Status, endTime.Sub(*job.StartTime).Milliseconds())
+	}
 }
 
 func finalJobStatus(successCount, failedCount, executionCount int) models.JobStatus {

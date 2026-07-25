@@ -226,8 +226,15 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 		LLMError:      llmError,
 	}
 
-	// 使用事务确保Report创建和Job更新的原子性
+	// 使用事务确保Report创建和Job更新的原子性。Report.JobID is unique: if a
+	// prior attempt already persisted a report, reuse it instead of failing
+	// (idempotent finalize after process restart mid-report).
 	err = rg.db.Transaction(func(tx *gorm.DB) error {
+		var existing models.Report
+		if err := tx.Where("job_id = ?", job.ID).First(&existing).Error; err == nil {
+			*report = existing
+			return nil
+		}
 		// 创建Report记录
 		if err := tx.Create(report).Error; err != nil {
 			return fmt.Errorf("保存报告失败: %w", err)

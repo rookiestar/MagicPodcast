@@ -41,6 +41,14 @@ func NewScheduler(db *gorm.DB, executor *workflow.Executor) *Scheduler {
 func (s *Scheduler) Start() error {
 	logger.Info("🕐 启动工作流调度器")
 
+	// 0. 先收口上次进程遗留的 running/finalizing Job，再决定补偿调度 (#38)。
+	jobsSettled, execsSettled, settleErr := workflow.SettleInterruptedJobs(s.db)
+	if settleErr != nil {
+		logger.Infof("⚠️  收口遗留 Job 失败: %v", settleErr)
+	} else if jobsSettled > 0 {
+		logger.Infof("🧹 已收口遗留 Job=%d, Execution=%d", jobsSettled, execsSettled)
+	}
+
 	// 加载所有已启用的工作流
 	var workflows []models.Workflow
 	if err := s.db.Where("is_enabled = ? AND schedule != ?", true, "").
@@ -69,7 +77,7 @@ func (s *Scheduler) Start() error {
 	s.cron.Start()
 	logger.Infof("🚀 调度器已启动，共注册 %d 个工作流", registeredCount)
 
-	// 3. 检查并补偿错过的任务执行
+	// 3. 检查并补偿错过的任务执行（在遗留 Job 收口之后）
 	s.checkAndExecuteMissedWorkflows(&workflows)
 
 	return nil
@@ -133,19 +141,7 @@ func (s *Scheduler) executeMissedWorkflow(workflow *models.Workflow) {
 
 	logger.Infof("🔄 开始补偿执行 [ID=%d, Name=%s]", workflow.ID, workflow.Name)
 
-	// 检查是否有正在运行的任务
-	if workflow.LastJobID != nil {
-		var lastJob models.Job
-		if err := s.db.Where("id = ?", *workflow.LastJobID).First(&lastJob).Error; err == nil {
-			if lastJob.Status == models.JobStatusRunning {
-				logger.Infof("⏭️  补偿执行跳过：上次任务仍在运行 [ID=%d, JobID=%d]",
-					workflow.ID, lastJob.ID)
-				return
-			}
-		}
-	}
-
-	// 执行工作流（标记为补偿执行）
+	// 执行工作流（标记为补偿执行）。ClaimActiveJob 会拒绝与活动任务重叠。
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
