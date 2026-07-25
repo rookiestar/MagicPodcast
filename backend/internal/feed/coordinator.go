@@ -64,9 +64,13 @@ type DomainPolicy struct {
 	// close a recovering circuit (<=0 uses defaultSuccessesToClose).
 	SuccessesToClose int
 	// ImmediateCircuitOnAccessDenied trips the circuit immediately on the first
-	// 403/401 for this domain (Xiaoyuzhou-style). Other domains do not open a
-	// domain circuit on a single access-denied response.
+	// 403/401 for this domain. SoftRateEnabled domains ignore this flag: a 403
+	// only degrades the soft-rate tier and never hard-opens the domain.
 	ImmediateCircuitOnAccessDenied bool
+	// SoftRateEnabled enables the normal/cautious/slow adaptive soft-rate path
+	// for this domain (Xiaoyuzhou default). Soft rate never drops concurrency
+	// to zero and never produces circuit_open for access_denied.
+	SoftRateEnabled bool
 	// DomainEvidenceMinDistinctFeeds gates 5xx/timeout/network failures: the
 	// circuit only opens once this many distinct feeds fail within
 	// EvidenceWindow (<=0 uses defaultDomainEvidenceMinDistinctFeeds).
@@ -91,6 +95,8 @@ type Coordinator struct {
 	lastGood     FeedStateStore
 	maxStaleAge  time.Duration
 	circuits     map[string]*domainCircuit
+	// softRate applies normal/cautious/slow spacing for SoftRateEnabled domains.
+	softRate *SoftRateController
 	// circuitDefaults holds the global circuit-recovery defaults applied to
 	// every domain policy that does not override the value. They start at the
 	// honest defaults and are replaced once at startup via SetCircuitDefaults
@@ -155,9 +161,8 @@ type domainCircuit struct {
 
 // DefaultCoordinatorConfig applies the initial conservative policy only to
 // Xiaoyuzhou Feed traffic. Other domains retain their existing parallelism.
-// Xiaoyuzhou is the only domain that opens its circuit on a first 403; it
-// tolerates a single 5xx/timeout (evidence threshold 1) because it is the
-// known-fragile target this coordinator exists to protect.
+// Xiaoyuzhou uses a shared single queue (concurrency 1) and adaptive soft rate
+// limiting; a single 403 never hard-opens the domain (#35/#36).
 func DefaultCoordinatorConfig() CoordinatorConfig {
 	return CoordinatorConfig{
 		DomainPolicies: map[string]DomainPolicy{
@@ -165,12 +170,14 @@ func DefaultCoordinatorConfig() CoordinatorConfig {
 				MaxConcurrency:                 1,
 				MinRefreshInterval:             5 * time.Minute,
 				MaxJitter:                      2 * time.Second,
-				CircuitCooldown:                defaultCircuitCooldown,
+				// Soft-rate path: no ImmediateCircuitOnAccessDenied and no
+				// CircuitCooldown driven by 403. Multi-feed 5xx evidence can
+				// still open a circuit for non-soft-rate categories when
+				// thresholds are configured; xyzfm 403s only slow the queue.
 				RetryBackoffInitial:            defaultRetryBackoffInitial,
 				RetryBackoffMax:                defaultRetryBackoffMax,
-				HalfOpenMaxRequests:            defaultHalfOpenMaxRequests,
-				SuccessesToClose:               defaultSuccessesToClose,
-				ImmediateCircuitOnAccessDenied: true,
+				SoftRateEnabled:                true,
+				ImmediateCircuitOnAccessDenied: false,
 				DomainEvidenceMinDistinctFeeds: 1,
 				EvidenceWindow:                 defaultEvidenceWindow,
 			},
@@ -199,6 +206,7 @@ func NewCoordinator(config CoordinatorConfig) *Coordinator {
 		lastGood:     lastGoodStore,
 		maxStaleAge:  maxStaleAge,
 		circuits:     make(map[string]*domainCircuit),
+		softRate:     NewSoftRateController(),
 		circuitDefaults: CircuitDefaults{
 			HalfOpenMaxRequests:            defaultHalfOpenMaxRequests,
 			SuccessesToClose:               defaultSuccessesToClose,
@@ -537,18 +545,23 @@ func (c *Coordinator) closeCircuitLocked(state *domainCircuit) {
 
 // isImmediateCircuitFailure reports failures that OPEN the circuit without any
 // evidence threshold. Rate limits keep their historical immediate behavior
-// unless an explicit category threshold overrides it. The Xiaoyuzhou 403 rule
-// is an unconditional safety invariant and cannot be relaxed by configuration.
+// unless an explicit category threshold overrides it. Soft-rate domains never
+// open on access_denied: a 403 only degrades soft rate (#35/#36).
 func (c *Coordinator) isImmediateCircuitFailure(policy DomainPolicy, result *FetchResult) bool {
 	if result == nil || result.Access.HTTPStatus == nil {
 		return false
 	}
 	status := *result.Access.HTTPStatus
 	if status == http.StatusTooManyRequests {
+		if policy.SoftRateEnabled {
+			// Soft-rate domains honor Retry-After via the batch layer; they do
+			// not hard-open siblings on a single 429.
+			return false
+		}
 		_, hasThreshold := c.circuitDefaults.ThresholdsPerCategory[ErrorCategoryRateLimited]
 		return !hasThreshold
 	}
-	if status == http.StatusForbidden && policy.ImmediateCircuitOnAccessDenied {
+	if status == http.StatusForbidden && policy.ImmediateCircuitOnAccessDenied && !policy.SoftRateEnabled {
 		return true
 	}
 	return false
@@ -847,6 +860,14 @@ func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolic
 		}
 	}
 
+	// Soft-rate wait happens before the concurrency semaphore so spacing is
+	// observed even when MaxConcurrency is 1 (shared single queue).
+	if policy.SoftRateEnabled && c.softRate != nil {
+		if waitErr := c.softRate.Wait(ctx, domain); waitErr != nil {
+			return nil, waitErr
+		}
+	}
+
 	if circuitEnabled {
 		c.mu.Lock()
 		openUntil, blocked := c.circuitBlockedLocked(domain, policy)
@@ -899,6 +920,10 @@ func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolic
 			result, err = fetch(ctx, RequestValidators{})
 		}
 	}
+	// Soft-rate observation: only live network outcomes move the tier.
+	if policy.SoftRateEnabled && c.softRate != nil {
+		c.observeSoftRate(domain, result, err)
+	}
 	// Record the conditional-GET outcome BEFORE the CacheStatus=Miss stamp
 	// below, so a recovered 304 still classifies as "304" rather than "miss".
 	c.recordConditionalGet(validators, result, err)
@@ -906,6 +931,36 @@ func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolic
 		result.Access.CacheStatus = CacheStatusMiss
 	}
 	return result, err
+}
+
+// observeSoftRate updates adaptive soft-rate tiers after a live attempt.
+func (c *Coordinator) observeSoftRate(domain string, result *FetchResult, err error) {
+	if c.softRate == nil {
+		return
+	}
+	succeeded := err == nil && result != nil && result.Feed != nil
+	if succeeded {
+		// 304 recovery and live 200 both count as success for soft-rate recovery.
+		c.softRate.ObserveSuccess(domain)
+		return
+	}
+	if result == nil {
+		return
+	}
+	switch result.Access.ErrorCategory {
+	case ErrorCategoryAccessDenied:
+		c.softRate.ObserveAccessDenied(domain)
+	case ErrorCategoryRateLimited, ErrorCategoryServiceUnavailable, ErrorCategoryTimeout, ErrorCategoryNetwork, ErrorCategoryHTTP:
+		c.softRate.ObserveTransientFailure(domain)
+	}
+}
+
+// SoftRateTierFor returns the current soft-rate tier for a domain (tests/diagnostics).
+func (c *Coordinator) SoftRateTierFor(domain string) SoftRateTier {
+	if c == nil || c.softRate == nil {
+		return SoftRateNormal
+	}
+	return c.softRate.Tier(domain)
 }
 
 // recordConditionalGet classifies the conditional-GET outcome for metrics:

@@ -90,19 +90,15 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 	var selectedFeed *gofeed.Feed
 	var fetchErr error
 
+	// #35/#36: last-good is NOT used as a success fallback on ordinary primary
+	// failure. Matching-validator 304 recovery still happens inside the
+	// Coordinator; snapshots remain available for diagnostics only.
 	if useIncremental {
 		logger.Infof("   📊 增量模式: 基准时间 %v", lastFetchTime)
 		fetchResult, err := s.feedFetcher.FetchIncrementalWithContext(ctx, podcast.FeedURL, lastFetchTime)
 		if err != nil {
 			if alternative, ok := s.fetchVerifiedAlternative(ctx, &podcast, lastFetchTime, true, fetchResult); ok {
 				fetchResult = alternative
-				err = nil
-			}
-		}
-		if err != nil {
-			if fallback, ok := s.feedFetcher.FetchLastGoodWithContext(ctx, podcast.FeedURL, fetchResult); ok {
-				fallback.SetIncrementalItems(lastFetchTime)
-				fetchResult = fallback
 				err = nil
 			}
 		}
@@ -122,12 +118,6 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 		if err != nil {
 			if alternative, ok := s.fetchVerifiedAlternative(ctx, &podcast, lastFetchTime, false, fetchResult); ok {
 				fetchResult = alternative
-				err = nil
-			}
-		}
-		if err != nil {
-			if fallback, ok := s.feedFetcher.FetchLastGoodWithContext(ctx, podcast.FeedURL, fetchResult); ok {
-				fetchResult = fallback
 				err = nil
 			}
 		}

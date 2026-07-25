@@ -129,7 +129,9 @@ func TestExecutePersistsVerifiedAlternativeSource(t *testing.T) {
 	}
 	require.NoError(t, db.Create(workflowModel).Error)
 
-	job, err := NewExecutor(db, service, nil, nil).Execute(t.Context(), workflowModel, "manual")
+	executor := NewExecutor(db, service, nil, nil)
+	executor.UseInstantBatchClock()
+	job, err := executor.Execute(t.Context(), workflowModel, "manual")
 	require.NoError(t, err)
 	var execution models.JobExecution
 	require.Eventually(t, func() bool {

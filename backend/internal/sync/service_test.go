@@ -140,7 +140,10 @@ func TestSyncPodcastEpisodeItemsDoesNotUseFetchTimeForRecentUpdate(t *testing.T)
 	assert.True(t, refreshed.LastFetchedAt.After(oldFetch))
 }
 
-func TestSyncPodcastEpisodesUsesLastGoodWithoutAdvancingFetchTime(t *testing.T) {
+// TestSyncPodcastEpisodesDoesNotTreatLastGoodAsSuccessOnOrdinaryFailure locks
+// #35/#36: ordinary primary failure must not fall back to last-good as this
+// batch's success, advance LastFetchedAt, or hide the live error.
+func TestSyncPodcastEpisodesDoesNotTreatLastGoodAsSuccessOnOrdinaryFailure(t *testing.T) {
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if serveRobotsNotFoundSync(w, r) {
@@ -181,17 +184,22 @@ func TestSyncPodcastEpisodesUsesLastGoodWithoutAdvancingFetchTime(t *testing.T) 
 
 	require.NoError(t, db.Model(&models.Podcast{}).Where("id = ?", podcast.ID).Update("last_fetched_at", oldFetch).Error)
 	second, err := service.SyncPodcastEpisodesWithContext(context.Background(), podcast.ID, &progressReporter{}, config)
-	require.NoError(t, err)
-	require.Equal(t, feed.AccessSourceLastGood, second.FeedAccess.SourceType)
+	require.Error(t, err, "ordinary failure must not succeed via last-good")
+	require.NotNil(t, second.FeedAccess)
+	require.Equal(t, feed.AccessSourcePrimary, second.FeedAccess.SourceType)
 	require.Equal(t, feed.ErrorCategoryAccessDenied, second.FeedAccess.ErrorCategory)
-	require.Equal(t, feed.FreshnessStale, second.FeedAccess.Freshness)
-	require.NotNil(t, second.FeedAccess.RetrievedAt)
 
 	var refreshed models.Podcast
 	require.NoError(t, db.First(&refreshed, podcast.ID).Error)
 	require.NotNil(t, refreshed.LastFetchedAt)
-	require.True(t, refreshed.LastFetchedAt.Equal(oldFetch), "last-good content must not become a new fetch")
+	require.True(t, refreshed.LastFetchedAt.Equal(oldFetch), "failed live fetch must not advance last_fetched_at")
 	require.Equal(t, int32(2), atomic.LoadInt32(&requestCount))
+
+	// Snapshot remains available for 304 recovery / diagnostics only.
+	failure := &feed.FetchResult{Access: *second.FeedAccess}
+	fallback, ok := coordinator.LastGood(context.Background(), podcast.FeedURL, failure)
+	require.True(t, ok, "snapshot should still be loadable for diagnostics")
+	require.Equal(t, feed.AccessSourceLastGood, fallback.Access.SourceType)
 }
 
 func TestSyncPodcastEpisodeItemsInvalidatesPodcastCachesAfterSummaryWriteback(t *testing.T) {

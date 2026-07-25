@@ -135,6 +135,9 @@ const (
 	JobStatusPending   JobStatus = "pending"
 	JobStatusRunning   JobStatus = "running"
 	JobStatusCompleted JobStatus = "completed"
+	// JobStatusPartial means the 15-minute batch finished with a mix of
+	// successful and failed Feed outcomes (#35/#36).
+	JobStatusPartial   JobStatus = "partial"
 	JobStatusFailed    JobStatus = "failed"
 	JobStatusCancelled JobStatus = "cancelled"
 )

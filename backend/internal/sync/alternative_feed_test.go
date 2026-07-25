@@ -447,7 +447,10 @@ func TestWorkflowRejectsSameTitleCandidateWithoutStableIdentity(t *testing.T) {
 	require.Equal(t, int32(0), atomic.LoadInt32(&alternativeRequests))
 }
 
-func TestWorkflowUsesLastGoodWhenVerifiedAlternativeFails(t *testing.T) {
+// TestWorkflowFailsWhenPrimaryAndVerifiedAlternativeFail locks #35/#36:
+// when both primary and verified alternative fail, last-good is NOT treated as
+// this-batch success.
+func TestWorkflowFailsWhenPrimaryAndVerifiedAlternativeFail(t *testing.T) {
 	var primaryRequests, alternativeRequests int32
 	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if serveRobotsNotFoundSync(w, r) {
@@ -487,11 +490,9 @@ func TestWorkflowUsesLastGoodWhenVerifiedAlternativeFails(t *testing.T) {
 	require.Equal(t, feed.AccessSourcePrimary, first.FeedAccess.SourceType)
 
 	second, err := service.SyncPodcastEpisodesWithContext(t.Context(), podcast.ID, &progressReporter{}, config)
-	require.NoError(t, err)
+	require.Error(t, err, "primary+alternative failure must not succeed via last-good")
 	require.NotNil(t, second.FeedAccess)
-	require.Equal(t, feed.AccessSourceLastGood, second.FeedAccess.SourceType)
-	require.Equal(t, feed.FreshnessStale, second.FeedAccess.Freshness)
-	require.Equal(t, feed.IdentityVerificationUnavailable, second.FeedAccess.IdentityVerification)
+	require.NotEqual(t, feed.AccessSourceLastGood, second.FeedAccess.SourceType)
 	require.Equal(t, int32(2), atomic.LoadInt32(&primaryRequests))
 	require.Equal(t, int32(1), atomic.LoadInt32(&alternativeRequests))
 }

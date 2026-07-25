@@ -23,6 +23,16 @@ type Executor struct {
 	syncSvc    *syncsvc.Service
 	notifier   *notifier.EmailNotifier
 	summarizer SummarizerInterface
+
+	// batchDuration is the hard networking window for one job (#35/#36).
+	// Zero means feed.DefaultBatchDuration (15 minutes).
+	batchDuration time.Duration
+	// workerConcurrency bounds parallel first-pass/retry workers (default 5).
+	// Tests may set 1 to avoid SQLite in-memory lock races.
+	workerConcurrency int
+	// now / sleep are injectable so batch scheduling tests never wait wall-clock minutes.
+	now   func() time.Time
+	sleep func(time.Duration)
 }
 
 // NewExecutor 创建执行器
@@ -32,6 +42,55 @@ func NewExecutor(db *gorm.DB, syncSvc *syncsvc.Service, emailNotifier *notifier.
 		syncSvc:    syncSvc,
 		notifier:   emailNotifier,
 		summarizer: summarizer,
+	}
+}
+
+func (e *Executor) batchWindow() time.Duration {
+	if e != nil && e.batchDuration > 0 {
+		return e.batchDuration
+	}
+	return feed.DefaultBatchDuration
+}
+
+func (e *Executor) clockNow() time.Time {
+	if e != nil && e.now != nil {
+		return e.now()
+	}
+	return time.Now()
+}
+
+func (e *Executor) clockSleep(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	if e != nil && e.sleep != nil {
+		e.sleep(d)
+		return
+	}
+	time.Sleep(d)
+}
+
+// UseInstantBatchClock advances the batch clock without wall-clock waits. Tests
+// that drive Execute() must call this (or inject now/sleep) so classified
+// retries at minutes 3/8/13 do not block the suite for real minutes.
+func (e *Executor) UseInstantBatchClock() {
+	if e == nil {
+		return
+	}
+	var mu sync.Mutex
+	now := time.Now()
+	e.now = func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return now
+	}
+	e.sleep = func(d time.Duration) {
+		mu.Lock()
+		now = now.Add(d)
+		mu.Unlock()
+	}
+	if e.batchDuration <= 0 {
+		e.batchDuration = feed.DefaultBatchDuration
 	}
 }
 
@@ -168,58 +227,229 @@ func (e *Executor) fetchCustomPodcasts(urls []string) ([]models.Podcast, error) 
 	return podcasts, nil
 }
 
-// executeSync 并发执行播客同步
+// batchFeedState tracks one podcast through the first-pass + classified retry
+// window of a single workflow job.
+type batchFeedState struct {
+	podcast             models.Podcast
+	execution           *models.JobExecution
+	attempt             int
+	accessDeniedRetries int
+	transientRetries    int
+	done                bool
+}
+
+// executeSync runs a bounded 15-minute batch (#35/#36):
+//  1. First-pass primary attempt for every target Feed (fairness before retries)
+//  2. Classified retries (403 ≈ min 3/8/13; network/5xx bounded; 429/503 Retry-After)
+//  3. Stop networking at the batch deadline and return final per-feed outcomes
 func (e *Executor) executeSync(
 	ctx context.Context,
 	workflow *models.Workflow,
 	job *models.Job,
 	podcasts []models.Podcast,
 ) []*models.JobExecution {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	batchStart := e.clockNow()
+	deadline := batchStart.Add(e.batchWindow())
+	// Bind a real context deadline only when using the wall clock. Tests inject
+	// e.now / e.sleep and drive the cutoff via clockNow() comparisons instead.
+	batchCtx := ctx
+	cancel := func() {}
+	if e.now == nil {
+		batchCtx, cancel = context.WithDeadline(ctx, deadline)
+	}
+	defer cancel()
 
-	concurrency := 5 // 最多5个并发
-	taskChan := make(chan models.Podcast, len(podcasts))
-	resultChan := make(chan *models.JobExecution, len(podcasts))
+	states := make([]*batchFeedState, 0, len(podcasts))
+	for _, podcast := range podcasts {
+		states = append(states, &batchFeedState{podcast: podcast})
+	}
 
-	logger.Infof("🔄 启动 %d 个并发worker处理 %d 个播客", concurrency, len(podcasts))
+	logger.Infof("🔄 15 分钟批次开始 [JobID=%d, Feeds=%d, Window=%s]",
+		job.ID, len(states), e.batchWindow())
 
-	// 启动worker
+	// --- First pass: every target Feed gets one primary attempt before any retry ---
+	e.runBatchPass(batchCtx, workflow, job, states, true /* firstPass */)
+
+	// --- Classified retry rounds until deadline or no remaining work ---
+	for {
+		now := e.clockNow()
+		if !now.Before(deadline) || batchCtx.Err() != nil {
+			logger.Infof("⏱️  批次截止，停止网络重试 [JobID=%d]", job.ID)
+			break
+		}
+
+		var due []*batchFeedState
+		var minWait time.Duration = -1
+		for _, state := range states {
+			if state.done || state.execution == nil {
+				continue
+			}
+			if state.execution.Status != models.ExecutionStatusFailed {
+				state.done = true
+				continue
+			}
+			decision := e.decideRetry(state, batchStart, deadline, now)
+			if !decision.Retry {
+				state.done = true
+				continue
+			}
+			if decision.Wait <= 0 {
+				due = append(due, state)
+				continue
+			}
+			if minWait < 0 || decision.Wait < minWait {
+				minWait = decision.Wait
+			}
+		}
+
+		if len(due) == 0 {
+			if minWait < 0 {
+				break // nothing left to retry
+			}
+			// Sleep until the next scheduled slot, but never past the deadline.
+			remaining := deadline.Sub(e.clockNow())
+			if remaining <= 0 {
+				break
+			}
+			if minWait > remaining {
+				logger.Infof("⏱️  下一次重试已超过批次截止 [JobID=%d]", job.ID)
+				break
+			}
+			e.clockSleep(minWait)
+			continue
+		}
+
+		e.runBatchPass(batchCtx, workflow, job, due, false /* firstPass */)
+	}
+
+	// Mark any still-open failed executions as final; leave successes as-is.
+	results := make([]*models.JobExecution, 0, len(states))
+	for _, state := range states {
+		if state.execution == nil {
+			// First-pass never ran (deadline before admission).
+			state.execution = e.recordSkippedBatchDeadline(job.ID, state.podcast)
+		}
+		results = append(results, state.execution)
+	}
+	return results
+}
+
+func (e *Executor) decideRetry(state *batchFeedState, batchStart, deadline, now time.Time) feed.BatchRetryDecision {
+	category := feed.ErrorCategory(state.execution.FeedErrorCategory)
+	if category == "" || category == "not_observed" {
+		category = feed.ErrorCategoryUnknown
+	}
+	remaining := deadline.Sub(now)
+	if remaining < 0 {
+		remaining = 0
+	}
+	return feed.DecideBatchRetry(feed.BatchRetryInput{
+		Category:            category,
+		Attempt:             state.attempt,
+		AccessDeniedRetries: state.accessDeniedRetries,
+		TransientRetries:    state.transientRetries,
+		BatchElapsed:        now.Sub(batchStart),
+		BatchRemaining:      remaining,
+		RetryAfter:          state.execution.FeedRetryAfter,
+		Now:                 now,
+	})
+}
+
+// runBatchPass executes the given states concurrently (bounded workers).
+// firstPass=true means every state is attempted once; otherwise only the
+// provided due set is retried and attempt counters advance by classification.
+func (e *Executor) runBatchPass(
+	ctx context.Context,
+	workflow *models.Workflow,
+	job *models.Job,
+	states []*batchFeedState,
+	firstPass bool,
+) {
+	if len(states) == 0 {
+		return
+	}
+	// Check deadline before starting network work.
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
+	concurrency := 5
+	if e != nil && e.workerConcurrency > 0 {
+		concurrency = e.workerConcurrency
+	}
+	if len(states) < concurrency {
+		concurrency = len(states)
+	}
+	if concurrency < 1 {
+		concurrency = 1
+	}
+
+	type workItem struct {
+		state *batchFeedState
+	}
+	taskChan := make(chan workItem, len(states))
 	var wg sync.WaitGroup
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
-		go func(workerID int) {
+		go func() {
 			defer wg.Done()
-			for podcast := range taskChan {
-				// 检查context是否已取消
+			for item := range taskChan {
 				select {
 				case <-ctx.Done():
-					logger.Infof("⚠️  Worker %d: Context已取消", workerID)
 					return
 				default:
 				}
-
-				result := e.syncPodcast(ctx, workflow, job.ID, podcast)
-				resultChan <- result
+				state := item.state
+				// On retry, count the classified retry before the attempt so
+				// DecideBatchRetry budgets stay accurate even if the process dies.
+				if !firstPass && state.execution != nil {
+					cat := feed.ErrorCategory(state.execution.FeedErrorCategory)
+					switch cat {
+					case feed.ErrorCategoryAccessDenied:
+						state.accessDeniedRetries++
+					case feed.ErrorCategoryRateLimited, feed.ErrorCategoryServiceUnavailable,
+						feed.ErrorCategoryTimeout, feed.ErrorCategoryNetwork, feed.ErrorCategoryHTTP:
+						state.transientRetries++
+					}
+				}
+				state.attempt++
+				state.execution = e.syncPodcast(ctx, workflow, job.ID, state.podcast)
+				if state.execution != nil && state.execution.Status == models.ExecutionStatusSuccess {
+					state.done = true
+				}
 			}
-		}(i)
+		}()
 	}
-
-	// 分发任务
-	for _, podcast := range podcasts {
-		taskChan <- podcast
+	for _, state := range states {
+		if state.done {
+			continue
+		}
+		taskChan <- workItem{state: state}
 	}
 	close(taskChan)
-
-	// 等待完成
 	wg.Wait()
-	close(resultChan)
+}
 
-	// 收集结果
-	var results []*models.JobExecution
-	for result := range resultChan {
-		results = append(results, result)
+func (e *Executor) recordSkippedBatchDeadline(jobID uint, podcast models.Podcast) *models.JobExecution {
+	execution := &models.JobExecution{
+		JobID:            jobID,
+		PodcastID:        &podcast.ID,
+		PodcastTitle:     podcast.Title,
+		PodcastFeedURL:   podcast.FeedURL,
+		Status:           models.ExecutionStatusFailed,
+		ErrorMessage:     "batch deadline reached before first-pass attempt",
+		FeedErrorCategory: string(feed.ErrorCategoryUnknown),
+		FeedTargetDomain: feed.TargetDomain(podcast.FeedURL),
 	}
-
-	return results
+	if err := e.db.Create(execution).Error; err != nil {
+		logger.Infof("❌ 创建批次截止 JobExecution 失败 [PodcastID=%d]: %v", podcast.ID, err)
+	}
+	return execution
 }
 
 // syncPodcast 同步单个播客
@@ -232,22 +462,31 @@ func (e *Executor) syncPodcast(
 
 	startTime := time.Now()
 
-	execution := &models.JobExecution{
-		JobID:          jobID,
-		PodcastID:      &podcast.ID,
-		PodcastTitle:   podcast.Title,
-		PodcastFeedURL: podcast.FeedURL,
-		Status:         models.ExecutionStatusRunning,
-	}
-
-	// 保存初始记录
-	if err := e.db.Create(execution).Error; err != nil {
-		logger.Infof("❌ 创建JobExecution失败 [PodcastID=%d]: %v", podcast.ID, err)
-		// 即使创建失败，也返回execution对象（标记为失败），避免nil指针
-		execution.Status = models.ExecutionStatusFailed
-		execution.ErrorMessage = fmt.Sprintf("创建记录失败: %v", err)
-		execution.ProcessingTime = int(time.Since(startTime).Milliseconds())
-		return execution
+	// Prefer updating an existing execution row for this job+podcast (retry path)
+	// so JobExecution remains the final-result projection; attempt history is #39.
+	var execution models.JobExecution
+	err := e.db.Where("job_id = ? AND podcast_id = ?", jobID, podcast.ID).
+		Order("id DESC").
+		First(&execution).Error
+	if err != nil {
+		execution = models.JobExecution{
+			JobID:          jobID,
+			PodcastID:      &podcast.ID,
+			PodcastTitle:   podcast.Title,
+			PodcastFeedURL: podcast.FeedURL,
+			Status:         models.ExecutionStatusRunning,
+		}
+		if createErr := e.db.Create(&execution).Error; createErr != nil {
+			logger.Infof("❌ 创建JobExecution失败 [PodcastID=%d]: %v", podcast.ID, createErr)
+			execution.Status = models.ExecutionStatusFailed
+			execution.ErrorMessage = fmt.Sprintf("创建记录失败: %v", createErr)
+			execution.ProcessingTime = int(time.Since(startTime).Milliseconds())
+			return &execution
+		}
+	} else {
+		execution.Status = models.ExecutionStatusRunning
+		execution.ErrorMessage = ""
+		_ = e.db.Save(&execution).Error
 	}
 
 	logger.Infof("📡 [%s] 开始同步: %s", workflow.Name, podcast.Title)
@@ -281,7 +520,7 @@ func (e *Executor) syncPodcast(
 		syncConfig,
 	)
 	if result != nil {
-		applyFeedAccessOutcome(execution, result.FeedAccess)
+		applyFeedAccessOutcome(&execution, result.FeedAccess)
 	}
 
 	processingTime := int(time.Since(startTime).Milliseconds())
@@ -350,9 +589,9 @@ func (e *Executor) syncPodcast(
 	}
 
 	execution.ProcessingTime = processingTime
-	e.db.Save(execution)
+	e.db.Save(&execution)
 
-	return execution
+	return &execution
 }
 
 func applyFeedAccessOutcome(execution *models.JobExecution, outcome *feed.AccessOutcome) {
@@ -473,10 +712,15 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 }
 
 func finalJobStatus(successCount, failedCount, executionCount int) models.JobStatus {
-	if failedCount > 0 || (executionCount > 0 && successCount == 0) {
+	_ = executionCount
+	switch feed.BatchTerminalStatus(successCount, failedCount) {
+	case "partial":
+		return models.JobStatusPartial
+	case "failed":
 		return models.JobStatusFailed
+	default:
+		return models.JobStatusCompleted
 	}
-	return models.JobStatusCompleted
 }
 
 // updateJobStatus 更新Job状态和错误信息

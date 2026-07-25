@@ -128,9 +128,9 @@ type FeedDiagnostics struct {
 
 // FeedDomainPolicy is the startup-configurable, domain-scoped load-shaping
 // policy. It maps 1:1 onto DomainPolicy for the fields that are safe to tune at
-// runtime. ImmediateCircuitOnAccessDenied is intentionally NOT exposed: the
-// feed.xyzfm.space first-403-immediate-open rule is a safety invariant that
-// must survive any configuration.
+// runtime. SoftRateEnabled / ImmediateCircuitOnAccessDenied are intentionally
+// NOT exposed for xyzfm: #35/#36 require shared single-queue soft rate and ban
+// hard-open on first 403, so those invariants are force-preserved in code.
 type FeedDomainPolicy struct {
 	Domain                         string        `mapstructure:"domain"`
 	MaxConcurrency                 int           `mapstructure:"max_concurrency"`
@@ -264,10 +264,9 @@ func defaultFeedRuntime() *feedRuntime {
 // any Feed fetch. An error fails startup so an invalid configuration can never
 // reach a live fetch.
 //
-// The application's xyzfm first-403-immediate-open safety rule is preserved
-// unconditionally: the default xyzfm policy is always present with
-// ImmediateCircuitOnAccessDenied=true, and any operator-supplied xyzfm policy
-// is merged on top without weakening that invariant.
+// The application's xyzfm soft-rate invariant is preserved unconditionally:
+// feed.xyzfm.space always keeps SoftRateEnabled=true and never force-opens the
+// domain circuit on a single 403 (#35/#36).
 func ConfigureSharedRuntime(config FeedConfig) error {
 	if err := config.Validate(); err != nil {
 		return err
@@ -354,9 +353,10 @@ func resolvePositive(value, fallback int) int {
 }
 
 // buildDomainPolicies merges operator-supplied policies onto the default
-// policy set. The default always includes feed.xyzfm.space with
-// ImmediateCircuitOnAccessDenied=true; that field is force-preserved for xyzfm
-// so no configuration can relax the first-403-immediate-open safety rule.
+// policy set. The default always includes feed.xyzfm.space with soft rate
+// enabled and ImmediateCircuitOnAccessDenied=false; those fields are
+// force-preserved for xyzfm so no configuration can re-introduce first-403
+// whole-domain hard-open (#35/#36).
 func buildDomainPolicies(configured []FeedDomainPolicy) map[string]DomainPolicy {
 	policies := DefaultCoordinatorConfig().DomainPolicies
 	for _, policy := range configured {
@@ -384,7 +384,12 @@ func buildDomainPolicies(configured []FeedDomainPolicy) map[string]DomainPolicy 
 			base.EvidenceWindow = policy.EvidenceWindow
 		}
 		if domain == XiaoyuzhouFeedDomain {
-			base.ImmediateCircuitOnAccessDenied = true
+			base.SoftRateEnabled = true
+			base.ImmediateCircuitOnAccessDenied = false
+			// Shared single queue is part of the xyzfm contract.
+			if base.MaxConcurrency <= 0 {
+				base.MaxConcurrency = 1
+			}
 		}
 		policies[domain] = base
 	}

@@ -320,7 +320,9 @@ func TestExecutePersistsFeedAccessObservation(t *testing.T) {
 			}
 			require.NoError(t, db.Create(workflowModel).Error)
 
-			job, err := NewExecutor(db, service, nil, nil).Execute(context.Background(), workflowModel, "manual")
+			executor := NewExecutor(db, service, nil, nil)
+			executor.UseInstantBatchClock()
+			job, err := executor.Execute(context.Background(), workflowModel, "manual")
 			require.NoError(t, err)
 
 			var execution models.JobExecution
@@ -401,6 +403,17 @@ func TestExecutePersistsCircuitSkipAndRecoveryProbe(t *testing.T) {
 	}
 	require.NoError(t, db.Create(workflowModel).Error)
 	executor := NewExecutor(db, service, nil, nil)
+	// Keep each job to first-pass only: any scheduled batch retry jumps past the
+	// deadline so this test stays focused on domain circuit OPEN / probe recovery
+	// across separate jobs (not the 15-minute classified retry schedule).
+	var clock atomic.Value
+	base := time.Now()
+	clock.Store(base)
+	executor.now = func() time.Time { return clock.Load().(time.Time) }
+	executor.sleep = func(d time.Duration) {
+		clock.Store(clock.Load().(time.Time).Add(15 * time.Minute))
+	}
+	executor.batchDuration = 15 * time.Minute
 
 	job, err := executor.Execute(context.Background(), workflowModel, "manual")
 	require.NoError(t, err)
@@ -409,6 +422,8 @@ func TestExecutePersistsCircuitSkipAndRecoveryProbe(t *testing.T) {
 	require.Equal(t, "access_denied", first.FeedErrorCategory)
 	require.Equal(t, "open", first.FeedCircuitState)
 
+	// Reset clock for the next independent job while the domain circuit is open.
+	clock.Store(base)
 	job, err = executor.Execute(context.Background(), workflowModel, "manual")
 	require.NoError(t, err)
 	blocked := waitForJobExecution(t, db, job.ID)
@@ -418,6 +433,7 @@ func TestExecutePersistsCircuitSkipAndRecoveryProbe(t *testing.T) {
 	require.Equal(t, int32(1), atomic.LoadInt32(&requestCount))
 
 	time.Sleep(110 * time.Millisecond)
+	clock.Store(base.Add(200 * time.Millisecond))
 	job, err = executor.Execute(context.Background(), workflowModel, "manual")
 	require.NoError(t, err)
 	probe := waitForJobExecution(t, db, job.ID)
@@ -479,7 +495,9 @@ func TestOverlappingWorkflowsShareOneUpstreamFeedRequest(t *testing.T) {
 	workflowA, podcastA := createObservationWorkflowFixture(t, dbA, server.URL+"/feed.xml", "A")
 	workflowB, podcastB := createObservationWorkflowFixture(t, dbB, server.URL+"/feed.xml", "B")
 	executorA := NewExecutor(dbA, serviceA, nil, nil)
+	executorA.UseInstantBatchClock()
 	executorB := NewExecutor(dbB, serviceB, nil, nil)
+	executorB.UseInstantBatchClock()
 
 	var wg sync.WaitGroup
 	jobs := make(chan *models.Job, 2)
@@ -544,7 +562,7 @@ func updateWorkflowMaxConcurrent(max *int32, current int32) {
 
 func TestFinalJobStatusFailsWhenAnyPodcastExecutionFails(t *testing.T) {
 	assert.Equal(t, models.JobStatusCompleted, finalJobStatus(2, 0, 2))
-	assert.Equal(t, models.JobStatusFailed, finalJobStatus(1, 1, 2))
+	assert.Equal(t, models.JobStatusPartial, finalJobStatus(1, 1, 2))
 	assert.Equal(t, models.JobStatusFailed, finalJobStatus(0, 1, 1))
 }
 

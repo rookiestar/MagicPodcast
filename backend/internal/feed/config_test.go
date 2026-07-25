@@ -168,15 +168,17 @@ func TestConfigureSharedRuntimePreservesDefaultsWhenEmpty(t *testing.T) {
 	require.Equal(t, defaultFeedOverallTimeout, httpCfg.OverallTimeout)
 	require.Equal(t, EgressDirect, httpCfg.ConfiguredEgressLabel)
 
-	// The xyzfm first-403-immediate-open policy must remain in place.
+	// The xyzfm soft-rate / no-hard-open policy must remain in place (#35/#36).
 	policy := SharedCoordinator().policyFor(XiaoyuzhouFeedDomain)
-	require.True(t, policy.ImmediateCircuitOnAccessDenied, "xyzfm immediate-circuit rule must survive empty config")
+	require.True(t, policy.SoftRateEnabled, "xyzfm soft-rate must survive empty config")
+	require.False(t, policy.ImmediateCircuitOnAccessDenied, "xyzfm must not hard-open on first 403")
+	require.Equal(t, 1, policy.MaxConcurrency, "xyzfm shared single queue")
 }
 
-func TestConfigureSharedRuntimePreservesXiaoyuzhouImmediateCircuitInvariant(t *testing.T) {
+func TestConfigureSharedRuntimePreservesXiaoyuzhouSoftRateInvariant(t *testing.T) {
 	resetSharedRuntimeForTest(t)
-	// An operator might try to relax xyzfm via domain_policies. The xyzfm
-	// first-403-immediate-open safety rule is an invariant that must survive.
+	// An operator might try to re-introduce hard-open via domain_policies.
+	// Soft rate and no ImmediateCircuitOnAccessDenied must survive.
 	cfg := FeedConfig{
 		DomainPolicies: []FeedDomainPolicy{
 			{
@@ -193,7 +195,8 @@ func TestConfigureSharedRuntimePreservesXiaoyuzhouImmediateCircuitInvariant(t *t
 	}
 	require.NoError(t, ConfigureSharedRuntime(cfg))
 	policy := SharedCoordinator().policyFor(XiaoyuzhouFeedDomain)
-	require.True(t, policy.ImmediateCircuitOnAccessDenied, "xyzfm immediate-circuit invariant must be preserved")
+	require.True(t, policy.SoftRateEnabled, "xyzfm soft-rate invariant must be preserved")
+	require.False(t, policy.ImmediateCircuitOnAccessDenied, "xyzfm must not hard-open on first 403")
 	require.Equal(t, 4, policy.MaxConcurrency, "non-safety fields may be tuned")
 
 	// A custom domain policy is added without weakening xyzfm or defaults.
