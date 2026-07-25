@@ -955,13 +955,14 @@ function WorkflowDetailContent() {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (job.status === "completed") {
+                                if (job.status === "completed" || job.status === "partial") {
                                   setReportModalJobId(job.id);
                                 }
                               }}
-                              disabled={job.status !== "completed"}
+                              disabled={job.status !== "completed" && job.status !== "partial"}
+                              aria-label="查看报告"
                               className={`p-1.5 rounded ${
-                                job.status === "completed"
+                                job.status === "completed" || job.status === "partial"
                                   ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400"
                                   : "bg-slate-100 dark:bg-slate-800 text-slate-400"
                               }`}

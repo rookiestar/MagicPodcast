@@ -322,7 +322,11 @@ type batchFeedState struct {
 	// lastRetryDecision is the DecideBatchRetry.Reason applied to the most
 	// recent failed attempt (empty when success or not yet decided).
 	lastRetryDecision string
-	done              bool
+	// retryNotBefore records the due time for a scheduled retry. Without this
+	// durable-in-memory marker, the outer loop would recompute the same positive
+	// backoff forever and never admit transient/Retry-After retries.
+	retryNotBefore time.Time
+	done           bool
 }
 
 // executeSync runs a bounded 15-minute batch (#35/#36):
@@ -381,7 +385,7 @@ func (e *Executor) executeSync(
 			}
 			if minWait > remaining {
 				logger.Infof("⏱️  下一次重试已超过批次截止 [JobID=%d]", job.ID)
-				e.finalizeOpenRetryDecisions(job.ID, states, "access_denied_past_deadline")
+				e.finalizeOpenRetryDecisions(job.ID, states, "batch_deadline")
 				break
 			}
 			e.clockSleep(minWait)
@@ -442,13 +446,26 @@ func (e *Executor) collectDueRetries(
 				e.patchLastAttemptRetryDecision(jobID, state.podcast.ID, "not_needed")
 				state.lastRetryDecision = "not_needed"
 			}
+			state.retryNotBefore = time.Time{}
 			state.done = true
+			continue
+		}
+		if !state.retryNotBefore.IsZero() {
+			if now.Before(state.retryNotBefore) {
+				wait := state.retryNotBefore.Sub(now)
+				if minWait < 0 || wait < minWait {
+					minWait = wait
+				}
+				continue
+			}
+			due = append(due, state)
 			continue
 		}
 		decision := e.decideRetry(state, batchStart, deadline, now)
 		e.patchLastAttemptRetryDecision(jobID, state.podcast.ID, decision.Reason)
 		state.lastRetryDecision = decision.Reason
 		if !decision.Retry {
+			state.retryNotBefore = time.Time{}
 			state.done = true
 			continue
 		}
@@ -456,6 +473,7 @@ func (e *Executor) collectDueRetries(
 			due = append(due, state)
 			continue
 		}
+		state.retryNotBefore = now.Add(decision.Wait)
 		if minWait < 0 || decision.Wait < minWait {
 			minWait = decision.Wait
 		}
@@ -570,6 +588,7 @@ func (e *Executor) runBatchPass(
 				state.attempt++
 				// Clear prior decision so the new attempt is stamped fresh after.
 				state.lastRetryDecision = ""
+				state.retryNotBefore = time.Time{}
 				var observed []feed.AttemptObservation
 				state.execution, observed = e.syncPodcastWithAttempts(ctx, workflow, job.ID, state.podcast)
 				if state.execution != nil && state.execution.Status == models.ExecutionStatusSuccess {

@@ -6,7 +6,15 @@ import React from "react";
 type WorkflowStatus = "enabled" | "disabled";
 
 // 任务状态类型
-export type JobStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+export type JobStatus =
+  | "pending"
+  | "running"
+  | "finalizing"
+  | "completed"
+  | "partial"
+  | "failed"
+  | "cancelled"
+  | "unknown";
 
 // 所有支持的状态类型
 type StatusType = WorkflowStatus | JobStatus;
@@ -38,9 +46,17 @@ const statusConfig: Record<StatusType, { text: string; className: string; dotCla
     text: "执行中",
     className: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
   },
+  finalizing: {
+    text: "生成报告",
+    className: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+  },
   completed: {
     text: "已完成",
     className: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+  },
+  partial: {
+    text: "部分完成",
+    className: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
   },
   failed: {
     text: "失败",
@@ -49,6 +65,10 @@ const statusConfig: Record<StatusType, { text: string; className: string; dotCla
   cancelled: {
     text: "已取消",
     className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+  },
+  unknown: {
+    text: "状态未知",
+    className: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
   },
 };
 
@@ -116,10 +136,18 @@ export function JobStatusBadge({
   status: string;
   size?: "sm" | "md";
 }) {
-  // 验证状态值，无效值默认为 pending
-  const validStatus: JobStatus = ["pending", "running", "completed", "failed", "cancelled"].includes(status)
+  // 未知值不得伪装成 pending，否则会把后端状态漂移显示成“等待中”。
+  const validStatus: JobStatus = [
+    "pending",
+    "running",
+    "finalizing",
+    "completed",
+    "partial",
+    "failed",
+    "cancelled",
+  ].includes(status)
     ? (status as JobStatus)
-    : "pending";
+    : "unknown";
 
   return <StatusBadge status={validStatus} size={size} />;
 }

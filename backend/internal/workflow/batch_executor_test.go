@@ -106,8 +106,8 @@ func TestBatchFirstPassBeforeRetries(t *testing.T) {
 	require.NoError(t, db.Create(&pb).Error)
 
 	wf := &models.Workflow{
-		Name:      "batch-first-pass",
-		ScopeType: models.ScopeTypeSpecificPodcasts,
+		Name:        "batch-first-pass",
+		ScopeType:   models.ScopeTypeSpecificPodcasts,
 		ScopeConfig: models.ScopeConfig{PodcastIDs: []int{int(pa.ID), int(pb.ID)}},
 		RulesConfig: models.RulesConfig{TimeRange: 0},
 	}
@@ -177,8 +177,8 @@ func TestBatchDeadlineStopsNetworkingAndYieldsPartial(t *testing.T) {
 	require.NoError(t, db.Create(&failPod).Error)
 
 	wf := &models.Workflow{
-		Name:      "batch-deadline",
-		ScopeType: models.ScopeTypeSpecificPodcasts,
+		Name:        "batch-deadline",
+		ScopeType:   models.ScopeTypeSpecificPodcasts,
 		ScopeConfig: models.ScopeConfig{PodcastIDs: []int{int(okPod.ID), int(failPod.ID)}},
 		RulesConfig: models.RulesConfig{TimeRange: 0},
 	}
@@ -207,6 +207,27 @@ func TestBatchDeadlineStopsNetworkingAndYieldsPartial(t *testing.T) {
 	require.Equal(t, 1, success)
 	require.Equal(t, 1, failed)
 	require.Equal(t, models.JobStatusPartial, finalJobStatus(success, failed, 2))
+}
+
+func TestCollectDueRetriesReleasesScheduledTransientRetry(t *testing.T) {
+	start := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	state := &batchFeedState{
+		execution: &models.JobExecution{
+			Status:            models.ExecutionStatusFailed,
+			FeedErrorCategory: string(feed.ErrorCategoryNetwork),
+		},
+		attempt: 1,
+	}
+	executor := &Executor{}
+	deadline := start.Add(10 * time.Minute)
+
+	due, wait := executor.collectDueRetries(0, []*batchFeedState{state}, start, deadline, start)
+	require.Empty(t, due)
+	require.Greater(t, wait, time.Duration(0))
+
+	due, wait = executor.collectDueRetries(0, []*batchFeedState{state}, start, deadline, start.Add(wait))
+	require.Len(t, due, 1, "a scheduled transient retry must become due after its wait")
+	require.Less(t, wait, time.Duration(0), "no further retry should be waiting once the scheduled retry is due")
 }
 
 func batchRSS(title, guid string) string {
