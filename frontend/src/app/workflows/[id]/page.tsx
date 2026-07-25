@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { podcastApi } from "@/lib/api";
+import { workflowApi } from "@/lib/api/workflow";
 import { schedulerApi } from "@/lib/api/scheduler";
 import { useWorkflow, useWorkflowJobs } from "@/hooks/useWorkflowSWR";
 import { useWorkflowActions } from "@/hooks/useWorkflowActions";
@@ -1008,13 +1009,13 @@ function WorkflowDetailContent() {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (job.status === "completed") {
+                                  if (job.status === "completed" || job.status === "partial") {
                                     setReportModalJobId(job.id);
                                   }
                                 }}
-                                disabled={job.status !== "completed"}
+                                disabled={job.status !== "completed" && job.status !== "partial"}
                                 className={`px-4 py-1.5 rounded text-sm font-medium flex items-center gap-2 flex-shrink-0 transition-colors ${
-                                  job.status === "completed"
+                                  job.status === "completed" || job.status === "partial"
                                     ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 cursor-pointer"
                                     : "bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed"
                                 }`}
@@ -1022,8 +1023,32 @@ function WorkflowDetailContent() {
                                 <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                                 </svg>
-                                {job.status === "completed" ? "报告" : "生成中"}
+                                {job.status === "completed" || job.status === "partial" ? "报告" : "生成中"}
                               </button>
+                              {(job.can_compensate || job.status === "partial") && !job.compensated_by_job_id && (
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    const expected = `RETRY FAILED FEEDS JOB ${job.id}`;
+                                    const typed = window.prompt(
+                                      `确认仅为 Job #${job.id} 中最终失败的 Feed 启动新的 15 分钟补偿批次？\n请输入：${expected}`,
+                                    );
+                                    if (typed !== expected) {
+                                      return;
+                                    }
+                                    try {
+                                      await workflowApi.compensateFailed(job.id, typed);
+                                      alert("已启动「仅重试失败 Feed」补偿批次");
+                                    } catch (err) {
+                                      console.error(err);
+                                      alert("补偿启动失败，请查看控制台");
+                                    }
+                                  }}
+                                  className="px-4 py-1.5 rounded text-sm font-medium flex items-center gap-2 flex-shrink-0 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+                                >
+                                  仅重试失败 Feed
+                                </button>
+                              )}
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();

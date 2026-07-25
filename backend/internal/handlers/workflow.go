@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -585,6 +586,76 @@ func (h *WorkflowHandler) GetJob(c *gin.Context) {
 	response := h.toJobResponse(&job)
 
 	middleware.SuccessResponse(c, response)
+}
+
+// CompensateFailedFeeds starts a linked 15-minute batch that only retries
+// podcasts whose final result on a partial Job failed (#40). Requires confirmation.
+// @Router /api/v1/jobs/{id}/compensate-failed [post]
+func (h *WorkflowHandler) CompensateFailedFeeds(c *gin.Context) {
+	db := database.GetDB()
+	id := c.Param("id")
+	var confirmation middleware.ConfirmationRequest
+	_ = c.ShouldBindJSON(&confirmation)
+
+	var source models.Job
+	if err := db.First(&source, id).Error; err != nil {
+		middleware.NotFoundResponse(c, "NOT_FOUND", "Job not found")
+		return
+	}
+	if err := workflow.ValidateCompensationSource(&source); err != nil {
+		if errors.Is(err, workflow.ErrCompensationAlreadyExists) {
+			middleware.ConflictResponse(c, "COMPENSATION_EXISTS", "该 partial Job 已有补偿任务")
+			return
+		}
+		middleware.BadRequestResponse(c, "COMPENSATION_NOT_ALLOWED", err.Error())
+		return
+	}
+	if !middleware.RequireConfirmationText(
+		c,
+		confirmation.ConfirmationText,
+		fmt.Sprintf("RETRY FAILED FEEDS JOB %s", id),
+		fmt.Sprintf("仅为 Job #%s 中最终失败的 Feed 启动新的 15 分钟补偿批次，不会覆盖原 Job 或已有报告", id),
+	) {
+		return
+	}
+	if h.executor == nil {
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "executor unavailable")
+		return
+	}
+
+	// Prevent overlapping workflow runs via tracker when available.
+	if h.tracker != nil {
+		ctx, started := h.tracker.TryStart(source.WorkflowID, 30*time.Minute)
+		if !started {
+			middleware.ConflictResponse(c, "JOB_RUNNING", "该工作流正在执行中，请等待当前任务完成")
+			return
+		}
+		go func() {
+			defer h.tracker.Complete(source.WorkflowID)
+			job, err := h.executor.ExecuteCompensation(ctx, source.ID)
+			if err != nil {
+				logger.Infof("❌ 补偿批次失败 [SourceJobID=%d]: %v", source.ID, err)
+			} else if job != nil {
+				logger.Infof("✅ 补偿批次完成 [SourceJobID=%d, CompJobID=%d]", source.ID, job.ID)
+			}
+		}()
+		c.JSON(http.StatusAccepted, gin.H{
+			"success": true,
+			"message": "已启动「仅重试失败 Feed」补偿批次",
+			"data": gin.H{
+				"source_job_id": source.ID,
+				"triggered_by":  "compensation",
+			},
+		})
+		return
+	}
+
+	job, err := h.executor.ExecuteCompensation(c.Request.Context(), source.ID)
+	if err != nil {
+		middleware.BadRequestResponse(c, "COMPENSATION_FAILED", err.Error())
+		return
+	}
+	middleware.SuccessResponse(c, h.toJobResponse(job))
 }
 
 // GetJobReport 获取Job的报告

@@ -125,3 +125,47 @@ func HasReportForJob(db *gorm.DB, jobID uint) (bool, error) {
 	}
 	return count > 0, nil
 }
+
+// ErrCompensationNotAllowed is returned when a Job cannot start "retry failed only".
+var ErrCompensationNotAllowed = errors.New("compensation not allowed for this job")
+
+// ErrCompensationAlreadyExists is returned when the original Job already has a compensation Job.
+var ErrCompensationAlreadyExists = errors.New("compensation job already exists")
+
+// FailedPodcastIDsFromJob returns podcast IDs whose final execution on the job failed.
+func FailedPodcastIDsFromJob(db *gorm.DB, jobID uint) ([]uint, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+	var executions []models.JobExecution
+	if err := db.Where("job_id = ? AND status = ?", jobID, models.ExecutionStatusFailed).Find(&executions).Error; err != nil {
+		return nil, err
+	}
+	ids := make([]uint, 0, len(executions))
+	seen := map[uint]struct{}{}
+	for _, ex := range executions {
+		if ex.PodcastID == nil || *ex.PodcastID == 0 {
+			continue
+		}
+		if _, ok := seen[*ex.PodcastID]; ok {
+			continue
+		}
+		seen[*ex.PodcastID] = struct{}{}
+		ids = append(ids, *ex.PodcastID)
+	}
+	return ids, nil
+}
+
+// ValidateCompensationSource checks that a Job is partial, terminal, and not yet compensated.
+func ValidateCompensationSource(job *models.Job) error {
+	if job == nil {
+		return fmt.Errorf("%w: job is nil", ErrCompensationNotAllowed)
+	}
+	if job.Status != models.JobStatusPartial {
+		return fmt.Errorf("%w: status=%s (only partial)", ErrCompensationNotAllowed, job.Status)
+	}
+	if job.CompensatedByJobID != nil && *job.CompensatedByJobID > 0 {
+		return ErrCompensationAlreadyExists
+	}
+	return nil
+}

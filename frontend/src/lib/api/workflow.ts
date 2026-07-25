@@ -114,6 +114,15 @@ export const workflowApi = {
     return handleResponse(response);
   },
 
+  /** partial Job: confirm-gated retry of only final failed Feeds (#40). */
+  compensateFailed: async (id: number, confirmationText: string): Promise<void> => {
+    const response = await api.post<ApiResponse<void>>(
+      `/api/v1/jobs/${id}/compensate-failed`,
+      { confirmation_text: confirmationText },
+    );
+    handleVoidResponse(response);
+  },
+
   // 获取Job报告
   getJobReport: async (id: number): Promise<Report> => {
     const response = await api.get<ApiResponse<Report>>(

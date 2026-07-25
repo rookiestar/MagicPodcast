@@ -48,7 +48,12 @@ type JobResponse struct {
 	TriggeredBy       string                 `json:"triggered_by"`
 	CreatedAt         time.Time              `json:"created_at"`
 	Duration          *int64                 `json:"duration,omitempty"` // 执行时长（毫秒）
-	Executions        []JobExecutionResponse `json:"executions,omitempty"`
+	// Compensation linkage (#40).
+	CompensationOfJobID *uint `json:"compensation_of_job_id,omitempty"`
+	CompensatedByJobID  *uint `json:"compensated_by_job_id,omitempty"`
+	// CanCompensate is true when the Job is partial and has no compensation yet.
+	CanCompensate bool `json:"can_compensate"`
+	Executions    []JobExecutionResponse `json:"executions,omitempty"`
 	// FeedAttempts is the append-only causal chain (#39). Safe metadata only.
 	FeedAttempts []FeedAttemptResponse `json:"feed_attempts,omitempty"`
 	// RootCauseSummary aggregates upstream errors without double-counting

@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 9
+const CurrentSchemaVersion = 10
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -97,6 +97,12 @@ func migrationRegistry() []Migration {
 			Name:        "job-feed-attempts",
 			Description: "Append-only safe Feed attempt metadata per Job for causal history (#39).",
 			Apply:       applyJobFeedAttemptsMigration,
+		},
+		{
+			Version:     10,
+			Name:        "job-compensation-links",
+			Description: "Bidirectional links between partial Jobs and compensation retry Jobs (#40).",
+			Apply:       applyJobCompensationLinksMigration,
 		},
 	}
 }
@@ -347,6 +353,30 @@ func applyPodcastAlternativeFeedsMigration(db *gorm.DB) error {
 func applyJobFeedAttemptsMigration(db *gorm.DB) error {
 	if err := db.AutoMigrate(&models.JobFeedAttempt{}); err != nil {
 		return fmt.Errorf("create job_feed_attempts: %w", err)
+	}
+	return nil
+}
+
+func applyJobCompensationLinksMigration(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&models.Job{}) {
+		// Incomplete fixtures (e.g. partial upgrade tests without jobs) skip
+		// column adds; a full baseline always creates jobs first.
+		return nil
+	}
+	columns := []struct {
+		name string
+		ddl  string
+	}{
+		{name: "compensation_of_job_id", ddl: "INTEGER"},
+		{name: "compensated_by_job_id", ddl: "INTEGER"},
+	}
+	for _, column := range columns {
+		if db.Migrator().HasColumn(&models.Job{}, column.name) {
+			continue
+		}
+		if err := db.Exec("ALTER TABLE jobs ADD COLUMN " + column.name + " " + column.ddl).Error; err != nil {
+			return fmt.Errorf("add jobs.%s: %w", column.name, err)
+		}
 	}
 	return nil
 }

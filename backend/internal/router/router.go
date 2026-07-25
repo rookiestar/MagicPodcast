@@ -239,6 +239,7 @@ func SetupRouter() *gin.Engine {
 		// Job 路由
 		v1.GET("/jobs/:id", workflowHandler.GetJob)                                             // 获取任务详情
 		v1.GET("/jobs/:id/report", workflowHandler.GetJobReport)                                // 获取任务报告
+		v1.POST("/jobs/:id/compensate-failed", workflowOperation, workflowHandler.CompensateFailedFeeds) // partial 仅重试失败 Feed
 		v1.POST("/jobs/:id/regenerate-llm", llmOperation, workflowHandler.RegenerateLLMSummary) // 重新生成AI摘要
 
 		// Scheduler 路由

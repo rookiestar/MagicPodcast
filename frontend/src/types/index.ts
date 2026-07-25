@@ -129,7 +129,9 @@ export type WorkflowSortByType = "updated" | "execution";
 type JobStatus =
   | "pending"
   | "running"
+  | "finalizing"
   | "completed"
+  | "partial"
   | "failed"
   | "cancelled";
 
@@ -222,6 +224,9 @@ export interface Job {
   triggered_by: string; // 'cron' | 'manual'
   created_at: string;
   duration?: number; // 执行时长（毫秒）
+  compensation_of_job_id?: number;
+  compensated_by_job_id?: number;
+  can_compensate?: boolean;
   executions?: JobExecution[];
   feed_attempts?: FeedAttempt[];
   root_cause_summary?: RootCauseSummary;

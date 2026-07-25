@@ -191,18 +191,21 @@ func (h *WorkflowHandler) toWorkflowResponse(workflow *models.Workflow) dto.Work
 // toJobResponse 转换为响应格式
 func (h *WorkflowHandler) toJobResponse(job *models.Job) dto.JobResponse {
 	resp := dto.JobResponse{
-		ID:                job.ID,
-		WorkflowID:        job.WorkflowID,
-		Status:            job.Status,
-		StartTime:         job.StartTime,
-		EndTime:           job.EndTime,
-		PodcastsProcessed: job.PodcastsProcessed,
-		EpisodesFound:     job.EpisodesFound,
-		EpisodesCreated:   job.EpisodesCreated,
-		EpisodesMatched:   job.EpisodesMatched,
-		ErrorCount:        job.ErrorCount,
-		TriggeredBy:       job.TriggeredBy,
-		CreatedAt:         job.CreatedAt,
+		ID:                  job.ID,
+		WorkflowID:          job.WorkflowID,
+		Status:              job.Status,
+		StartTime:           job.StartTime,
+		EndTime:             job.EndTime,
+		PodcastsProcessed:   job.PodcastsProcessed,
+		EpisodesFound:       job.EpisodesFound,
+		EpisodesCreated:     job.EpisodesCreated,
+		EpisodesMatched:     job.EpisodesMatched,
+		ErrorCount:          job.ErrorCount,
+		TriggeredBy:         job.TriggeredBy,
+		CreatedAt:           job.CreatedAt,
+		CompensationOfJobID: job.CompensationOfJobID,
+		CompensatedByJobID:  job.CompensatedByJobID,
+		CanCompensate:       job.Status == models.JobStatusPartial && (job.CompensatedByJobID == nil || *job.CompensatedByJobID == 0),
 	}
 
 	// 计算执行时长
@@ -369,18 +372,21 @@ func (h *WorkflowHandler) getBatchReports(jobIDs []uint, includeLongFields bool)
 // toJobResponseWithReport 使用预加载的 Report 转换为响应格式（优化 N+1 查询）
 func (h *WorkflowHandler) toJobResponseWithReport(job *models.Job, report *models.Report) dto.JobResponse {
 	resp := dto.JobResponse{
-		ID:                job.ID,
-		WorkflowID:        job.WorkflowID,
-		Status:            job.Status,
-		StartTime:         job.StartTime,
-		EndTime:           job.EndTime,
-		PodcastsProcessed: job.PodcastsProcessed,
-		EpisodesFound:     job.EpisodesFound,
-		EpisodesCreated:   job.EpisodesCreated,
-		EpisodesMatched:   job.EpisodesMatched,
-		ErrorCount:        job.ErrorCount,
-		TriggeredBy:       job.TriggeredBy,
-		CreatedAt:         job.CreatedAt,
+		ID:                  job.ID,
+		WorkflowID:          job.WorkflowID,
+		Status:              job.Status,
+		StartTime:           job.StartTime,
+		EndTime:             job.EndTime,
+		PodcastsProcessed:   job.PodcastsProcessed,
+		EpisodesFound:       job.EpisodesFound,
+		EpisodesCreated:     job.EpisodesCreated,
+		EpisodesMatched:     job.EpisodesMatched,
+		ErrorCount:          job.ErrorCount,
+		TriggeredBy:         job.TriggeredBy,
+		CreatedAt:           job.CreatedAt,
+		CompensationOfJobID: job.CompensationOfJobID,
+		CompensatedByJobID:  job.CompensatedByJobID,
+		CanCompensate:       job.Status == models.JobStatusPartial && (job.CompensatedByJobID == nil || *job.CompensatedByJobID == 0),
 	}
 
 	// 计算执行时长

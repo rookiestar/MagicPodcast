@@ -95,6 +95,69 @@ func (e *Executor) UseInstantBatchClock() {
 	}
 }
 
+// ExecuteCompensation runs a new 15-minute batch that only retries podcasts
+// whose final result on the source Job was failed. It uses the current main
+// Feed URLs from the DB, links the new Job bidirectionally, and never
+// overwrites the original Job, its successes, or its report (#40).
+func (e *Executor) ExecuteCompensation(ctx context.Context, sourceJobID uint) (*models.Job, error) {
+	var source models.Job
+	if err := e.db.First(&source, sourceJobID).Error; err != nil {
+		return nil, fmt.Errorf("load source job: %w", err)
+	}
+	if err := ValidateCompensationSource(&source); err != nil {
+		return nil, err
+	}
+	failedIDs, err := FailedPodcastIDsFromJob(e.db, source.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(failedIDs) == 0 {
+		return nil, fmt.Errorf("%w: no failed podcasts", ErrCompensationNotAllowed)
+	}
+
+	var workflow models.Workflow
+	if err := e.db.First(&workflow, source.WorkflowID).Error; err != nil {
+		return nil, fmt.Errorf("load workflow: %w", err)
+	}
+
+	// Re-verify alternatives against current main Feeds for failed podcasts.
+	if e.syncSvc != nil {
+		for _, id := range failedIDs {
+			e.syncSvc.InvalidateAlternativeCache(id)
+		}
+	}
+
+	job, err := ClaimActiveJob(e.db, workflow.ID, "compensation")
+	if err != nil {
+		if errors.Is(err, ErrWorkflowJobActive) {
+			return nil, fmt.Errorf("%w: workflow_id=%d", ErrWorkflowJobActive, workflow.ID)
+		}
+		return nil, fmt.Errorf("创建补偿 Job 失败: %w", err)
+	}
+	job.CompensationOfJobID = &source.ID
+	_ = e.db.Model(job).Update("compensation_of_job_id", source.ID).Error
+	_ = e.db.Model(&models.Job{}).Where("id = ?", source.ID).
+		Update("compensated_by_job_id", job.ID).Error
+
+	// Load current main Feeds for the failed set only.
+	var podcasts []models.Podcast
+	if err := e.db.Where("id IN ?", failedIDs).Find(&podcasts).Error; err != nil {
+		e.updateJobStatus(job, models.JobStatusFailed, err.Error())
+		return job, err
+	}
+	if len(podcasts) == 0 {
+		e.finalizeJob(job, []*models.JobExecution{})
+		return job, nil
+	}
+
+	results := e.executeSync(ctx, &workflow, job, podcasts)
+	e.finalizeJob(job, results)
+
+	// Reload links for the response.
+	_ = e.db.First(job, job.ID).Error
+	return job, nil
+}
+
 // Execute 执行工作流
 func (e *Executor) Execute(ctx context.Context, workflow *models.Workflow, triggeredBy string) (*models.Job, error) {
 	logger.Infof("🚀 开始执行工作流 [ID=%d, Name=%s]", workflow.ID, workflow.Name)

@@ -179,7 +179,11 @@ type Job struct {
 	EpisodesMatched   int            `gorm:"default:0" json:"episodes_matched"`
 	ErrorCount        int            `gorm:"default:0" json:"error_count"`
 	TriggeredBy       string         `gorm:"size:50;default:cron" json:"triggered_by"` // cron/manual
-	Executions        []JobExecution `gorm:"foreignKey:JobID" json:"executions,omitempty"`
+	// CompensationOfJobID links a compensation batch to the partial Job it retries (#40).
+	CompensationOfJobID *uint `gorm:"index" json:"compensation_of_job_id,omitempty"`
+	// CompensatedByJobID is set on the original partial Job when a compensation Job is created.
+	CompensatedByJobID *uint `gorm:"index" json:"compensated_by_job_id,omitempty"`
+	Executions         []JobExecution `gorm:"foreignKey:JobID" json:"executions,omitempty"`
 }
 
 // TableName 指定表名
