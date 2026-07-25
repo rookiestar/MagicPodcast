@@ -231,14 +231,15 @@ function WorkflowDetailContent() {
     };
   }, [activeTab, scopePodcastIds, workflow?.scope_type]);
 
-  // 轮询Job状态：当有running状态的Job时，定期刷新
+  // 活动任务（含报告生成阶段）保持轮询，直到进入真实终态。
   useEffect(() => {
     if (activeTab !== "jobs") {
       return;
     }
 
-    // 检查是否有running状态的job
-    const hasRunningJob = jobs.some((job) => job.status === "running");
+    const hasRunningJob = jobs.some((job) =>
+      ["pending", "running", "finalizing"].includes(job.status),
+    );
 
     if (!hasRunningJob) {
       return;
@@ -1038,6 +1039,8 @@ function WorkflowDetailContent() {
                                     }
                                     try {
                                       await workflowApi.compensateFailed(job.id, typed);
+                                      await mutateJobs();
+                                      void mutateWorkflow();
                                       alert("已启动「仅重试失败 Feed」补偿批次");
                                     } catch (err) {
                                       console.error(err);

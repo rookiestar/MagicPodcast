@@ -387,9 +387,7 @@ func buildDomainPolicies(configured []FeedDomainPolicy) map[string]DomainPolicy 
 			base.SoftRateEnabled = true
 			base.ImmediateCircuitOnAccessDenied = false
 			// Shared single queue is part of the xyzfm contract.
-			if base.MaxConcurrency <= 0 {
-				base.MaxConcurrency = 1
-			}
+			base.MaxConcurrency = 1
 		}
 		policies[domain] = base
 	}

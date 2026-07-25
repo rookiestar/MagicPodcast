@@ -167,9 +167,9 @@ func DefaultCoordinatorConfig() CoordinatorConfig {
 	return CoordinatorConfig{
 		DomainPolicies: map[string]DomainPolicy{
 			XiaoyuzhouFeedDomain: {
-				MaxConcurrency:                 1,
-				MinRefreshInterval:             5 * time.Minute,
-				MaxJitter:                      2 * time.Second,
+				MaxConcurrency:     1,
+				MinRefreshInterval: 5 * time.Minute,
+				MaxJitter:          2 * time.Second,
 				// Soft-rate path: no ImmediateCircuitOnAccessDenied and no
 				// CircuitCooldown driven by 403. Multi-feed 5xx evidence can
 				// still open a circuit for non-soft-rate categories when
@@ -860,14 +860,6 @@ func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolic
 		}
 	}
 
-	// Soft-rate wait happens before the concurrency semaphore so spacing is
-	// observed even when MaxConcurrency is 1 (shared single queue).
-	if policy.SoftRateEnabled && c.softRate != nil {
-		if waitErr := c.softRate.Wait(ctx, domain); waitErr != nil {
-			return nil, waitErr
-		}
-	}
-
 	if circuitEnabled {
 		c.mu.Lock()
 		openUntil, blocked := c.circuitBlockedLocked(domain, policy)
@@ -889,6 +881,15 @@ func (c *Coordinator) run(ctx context.Context, rawURL string, policy DomainPolic
 	}
 	if release != nil {
 		defer release()
+	}
+
+	// Read the latest adaptive tier only after leaving the shared domain queue.
+	// Otherwise siblings queued while the tier was normal can all reserve a
+	// zero-spacing slot before the first 403 degrades the domain.
+	if policy.SoftRateEnabled && c.softRate != nil {
+		if waitErr := c.softRate.Wait(ctx, domain); waitErr != nil {
+			return nil, waitErr
+		}
 	}
 
 	if circuitEnabled {

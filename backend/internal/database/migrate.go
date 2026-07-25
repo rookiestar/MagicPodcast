@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 11
+const CurrentSchemaVersion = 12
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -109,6 +109,12 @@ func migrationRegistry() []Migration {
 			Name:        "job-execution-failure-phase",
 			Description: "Persist Feed failure_phase on JobExecution final projection for attempt history (#39).",
 			Apply:       applyJobExecutionFailurePhaseMigration,
+		},
+		{
+			Version:     12,
+			Name:        "single-active-workflow-job",
+			Description: "Enforce one pending/running/finalizing Job per workflow with a partial unique index (#38).",
+			Apply:       applySingleActiveWorkflowJobMigration,
 		},
 	}
 }
@@ -396,6 +402,16 @@ func applyJobExecutionFailurePhaseMigration(db *gorm.DB) error {
 	}
 	if err := db.Exec("ALTER TABLE job_executions ADD COLUMN feed_failure_phase TEXT NOT NULL DEFAULT ''").Error; err != nil {
 		return fmt.Errorf("add job_executions.feed_failure_phase: %w", err)
+	}
+	return nil
+}
+
+func applySingleActiveWorkflowJobMigration(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&models.Job{}) {
+		return nil
+	}
+	if err := db.Exec(models.ActiveJobUniqueIndexSQL).Error; err != nil {
+		return fmt.Errorf("create single-active workflow job index: %w", err)
 	}
 	return nil
 }

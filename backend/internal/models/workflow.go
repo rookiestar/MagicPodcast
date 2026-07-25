@@ -132,8 +132,8 @@ func (Workflow) TableName() string {
 type JobStatus string
 
 const (
-	JobStatusPending   JobStatus = "pending"
-	JobStatusRunning   JobStatus = "running"
+	JobStatusPending JobStatus = "pending"
+	JobStatusRunning JobStatus = "running"
 	// JobStatusFinalizing means fetch is done and the single report is being
 	// persisted; the per-workflow execution lock stays held (#35/#38).
 	JobStatusFinalizing JobStatus = "finalizing"
@@ -153,6 +153,12 @@ var ActiveJobStatuses = []JobStatus{
 	JobStatusFinalizing,
 }
 
+// ActiveJobUniqueIndexSQL is the SQLite-enforced single-active-Job invariant.
+// Terminal Jobs remain unrestricted.
+const ActiveJobUniqueIndexSQL = `CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_one_active_per_workflow
+ON jobs(workflow_id)
+WHERE deleted_at IS NULL AND status IN ('pending', 'running', 'finalizing')`
+
 // IsActiveJobStatus reports whether status still holds the workflow execution lock.
 func IsActiveJobStatus(status JobStatus) bool {
 	switch status {
@@ -168,21 +174,21 @@ type Job struct {
 	BaseModel
 	gorm.DeletedAt `gorm:"index" json:"-"`
 
-	WorkflowID        uint           `gorm:"index;not null" json:"workflow_id"`
-	Workflow          Workflow       `gorm:"foreignKey:WorkflowID" json:"workflow,omitempty"`
-	Status            JobStatus      `gorm:"size:20;index;not null" json:"status"`
-	StartTime         *time.Time     `json:"start_time,omitempty"`
-	EndTime           *time.Time     `json:"end_time,omitempty"`
-	PodcastsProcessed int            `gorm:"default:0" json:"podcasts_processed"`
-	EpisodesFound     int            `gorm:"default:0" json:"episodes_found"`
-	EpisodesCreated   int            `gorm:"default:0" json:"episodes_created"`
-	EpisodesMatched   int            `gorm:"default:0" json:"episodes_matched"`
-	ErrorCount        int            `gorm:"default:0" json:"error_count"`
-	TriggeredBy       string         `gorm:"size:50;default:cron" json:"triggered_by"` // cron/manual
+	WorkflowID        uint       `gorm:"index;not null" json:"workflow_id"`
+	Workflow          Workflow   `gorm:"foreignKey:WorkflowID" json:"workflow,omitempty"`
+	Status            JobStatus  `gorm:"size:20;index;not null" json:"status"`
+	StartTime         *time.Time `json:"start_time,omitempty"`
+	EndTime           *time.Time `json:"end_time,omitempty"`
+	PodcastsProcessed int        `gorm:"default:0" json:"podcasts_processed"`
+	EpisodesFound     int        `gorm:"default:0" json:"episodes_found"`
+	EpisodesCreated   int        `gorm:"default:0" json:"episodes_created"`
+	EpisodesMatched   int        `gorm:"default:0" json:"episodes_matched"`
+	ErrorCount        int        `gorm:"default:0" json:"error_count"`
+	TriggeredBy       string     `gorm:"size:50;default:cron" json:"triggered_by"` // cron/manual
 	// CompensationOfJobID links a compensation batch to the partial Job it retries (#40).
 	CompensationOfJobID *uint `gorm:"index" json:"compensation_of_job_id,omitempty"`
 	// CompensatedByJobID is set on the original partial Job when a compensation Job is created.
-	CompensatedByJobID *uint `gorm:"index" json:"compensated_by_job_id,omitempty"`
+	CompensatedByJobID *uint          `gorm:"index" json:"compensated_by_job_id,omitempty"`
 	Executions         []JobExecution `gorm:"foreignKey:JobID" json:"executions,omitempty"`
 }
 

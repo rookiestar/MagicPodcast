@@ -116,3 +116,34 @@ func TestExecuteCompensationRetriesOnlyFailuresAndLinks(t *testing.T) {
 	_, err = executor.ExecuteCompensation(context.Background(), source.ID)
 	require.ErrorIs(t, err, ErrCompensationAlreadyExists)
 }
+
+func TestExecuteCompensationRollsBackWhenBidirectionalLinkFails(t *testing.T) {
+	db := setupLifecycleDB(t)
+	wf := &models.Workflow{Name: "comp-link-failure", ScopeType: models.ScopeTypeAllSubscribed, IsEnabled: true}
+	require.NoError(t, db.Create(wf).Error)
+	podcast := &models.Podcast{XYZID: "comp-link-podcast", Title: "Failure", FeedURL: "https://example.com/f.xml"}
+	require.NoError(t, db.Create(podcast).Error)
+	source := &models.Job{WorkflowID: wf.ID, Status: models.JobStatusPartial, TriggeredBy: "manual"}
+	require.NoError(t, db.Create(source).Error)
+	require.NoError(t, db.Create(&models.JobExecution{
+		JobID: source.ID, PodcastID: &podcast.ID, PodcastTitle: podcast.Title,
+		Status: models.ExecutionStatusFailed, FeedErrorCategory: string(feed.ErrorCategoryAccessDenied),
+	}).Error)
+	require.NoError(t, db.Exec(`
+		CREATE TRIGGER reject_compensation_link
+		BEFORE UPDATE OF compensated_by_job_id ON jobs
+		BEGIN
+			SELECT RAISE(ABORT, 'forced compensation link failure');
+		END
+	`).Error)
+
+	executor := NewExecutor(db, nil, nil, nil)
+	_, err := executor.ExecuteCompensation(context.Background(), source.ID)
+	require.Error(t, err)
+
+	var compensationJobs int64
+	require.NoError(t, db.Model(&models.Job{}).
+		Where("compensation_of_job_id = ?", source.ID).
+		Count(&compensationJobs).Error)
+	require.Zero(t, compensationJobs, "failed linkage must roll back the new compensation job")
+}

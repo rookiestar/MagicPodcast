@@ -20,6 +20,10 @@ import (
 // this path entirely.
 const AlternativeLiveQueryTimeout = 8 * time.Second
 
+// Transient lookup/probe failures must expire before the first scheduled 403
+// retry so one short outage cannot disable alternatives for the whole batch.
+const AlternativeTransientUnavailableTTL = time.Minute
+
 type alternativeIdentity struct {
 	itunesID    int
 	podcastGUID string
@@ -330,7 +334,23 @@ func (s *Service) loadAlternativeCache(podcastID uint, mainFeedURL, identityKey 
 		s.InvalidateAlternativeCache(podcastID)
 		return nil, false
 	}
+	if row.Status == models.AlternativeCacheUnavailable &&
+		isTransientAlternativeUnavailable(row.UnavailableReason) &&
+		time.Since(row.VerifiedAt) >= AlternativeTransientUnavailableTTL {
+		s.InvalidateAlternativeCache(podcastID)
+		return nil, false
+	}
 	return &row, true
+}
+
+func isTransientAlternativeUnavailable(reason string) bool {
+	switch reason {
+	case "index_unavailable", "live_query_timeout", "identity_resolve_error",
+		"candidate_query_error", "probe_failed":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) persistAlternativeVerified(podcast *models.Podcast, identity alternativeIdentity, altURL, verification string) {

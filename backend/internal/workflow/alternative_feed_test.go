@@ -99,7 +99,7 @@ func TestExecutePersistsVerifiedAlternativeSource(t *testing.T) {
 	defer alternative.Close()
 
 	db := setupTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.Episode{}, &models.Report{}))
+	require.NoError(t, db.AutoMigrate(&models.Episode{}, &models.Report{}, &models.JobFeedAttempt{}))
 	indexPath := createWorkflowAlternativeIndex(t, primary.URL+"/primary.xml", alternative.URL+"/alternative.xml")
 	coordinator := feed.NewCoordinator(feed.CoordinatorConfig{
 		DomainPolicies: map[string]feed.DomainPolicy{feed.TargetDomain(primary.URL): {MaxConcurrency: 1}},
@@ -145,4 +145,15 @@ func TestExecutePersistsVerifiedAlternativeSource(t *testing.T) {
 	require.Equal(t, "live", execution.FeedFreshness)
 	require.Equal(t, int32(1), atomic.LoadInt32(&primaryRequests))
 	require.Equal(t, int32(1), atomic.LoadInt32(&alternativeRequests))
+
+	attempts, err := ListFeedAttempts(db, job.ID)
+	require.NoError(t, err)
+	require.Len(t, attempts, 2)
+	require.Equal(t, string(feed.AccessSourcePrimary), attempts[0].SourceType)
+	require.Equal(t, string(feed.ErrorCategoryAccessDenied), attempts[0].ErrorCategory)
+	require.False(t, attempts[0].IsFinalResult)
+	require.Equal(t, string(feed.AccessSourceAlternative), attempts[1].SourceType)
+	require.Equal(t, string(feed.ErrorCategoryNone), attempts[1].ErrorCategory)
+	require.Equal(t, feed.IdentityVerificationVerifiedMetadata, attempts[1].IdentityVerification)
+	require.True(t, attempts[1].IsFinalResult)
 }

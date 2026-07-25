@@ -16,7 +16,7 @@ import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SWRConfig } from "swr";
 import { SearchProvider } from "@/contexts/SearchContext";
-import { podcastApi } from "@/lib/api";
+import { podcastApi, workflowApi } from "@/lib/api";
 import { apiClient } from "@/lib/fetcher";
 import { ToastProvider } from "@/lib/toast";
 import { buildWorkflowJobsSummaryPath } from "@/lib/workflowJobsPaths";
@@ -232,6 +232,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -403,6 +404,53 @@ describe("工作流执行历史可见等待验收 (#34)", () => {
     });
     await waitFor(() => {
       expect(jobsSummaryCalls(controller).length).toBeGreaterThan(before);
+    });
+  });
+
+  it("补偿启动后立即刷新列表并进入活动任务轮询", async () => {
+    const sourceJob = makeJob(4101, {
+      status: "partial",
+      can_compensate: true,
+      error_count: 1,
+    });
+    const controller: ApiController = {
+      workflowDelayMs: 0,
+      jobsDelayMs: 0,
+      jobsFail: false,
+      jobsByPage: new Map([[1, [sourceJob]]]),
+      totalPages: 1,
+      batchGetCalls: 0,
+      calls: [],
+    };
+    installApi(controller);
+    installBatchGet(controller);
+    const compensate = vi.spyOn(workflowApi, "compensateFailed").mockResolvedValue();
+    vi.stubGlobal("prompt", vi.fn(() => "RETRY FAILED FEEDS JOB 4101"));
+    vi.stubGlobal("alert", vi.fn());
+
+    renderDetail();
+    await waitForWorkflowReady();
+    clickJobsTab();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "仅重试失败 Feed" })).toBeInTheDocument(),
+    );
+    const before = jobsSummaryCalls(controller).length;
+    controller.jobsByPage.set(1, [
+      makeJob(4102, { status: "finalizing", triggered_by: "compensation" }),
+      makeJob(4101, {
+        status: "partial",
+        error_count: 1,
+        compensated_by_job_id: 4102,
+        can_compensate: false,
+      }),
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "仅重试失败 Feed" }));
+
+    await waitFor(() => {
+      expect(compensate).toHaveBeenCalledWith(4101, "RETRY FAILED FEEDS JOB 4101");
+      expect(jobsSummaryCalls(controller).length).toBeGreaterThan(before);
+      expect(screen.queryByRole("button", { name: "仅重试失败 Feed" })).not.toBeInTheDocument();
     });
   });
 

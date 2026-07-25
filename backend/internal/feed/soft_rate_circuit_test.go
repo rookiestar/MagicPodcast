@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -81,4 +82,61 @@ func TestDefaultXiaoyuzhouPolicyUsesSoftRateNotHardOpen(t *testing.T) {
 	require.True(t, policy.SoftRateEnabled)
 	require.False(t, policy.ImmediateCircuitOnAccessDenied)
 	require.Equal(t, 1, policy.MaxConcurrency)
+}
+
+func TestSoftRateRechecksTierAfterLeavingSingleQueue(t *testing.T) {
+	var (
+		hits       int32
+		mu         sync.Mutex
+		requestAt  []time.Time
+		firstReady = make(chan struct{})
+		release    = make(chan struct{})
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFound(w, r) {
+			return
+		}
+		n := atomic.AddInt32(&hits, 1)
+		mu.Lock()
+		requestAt = append(requestAt, time.Now())
+		mu.Unlock()
+		if n == 1 {
+			close(firstReady)
+			<-release
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(testSnapshotFeed("Queued sibling")))
+	}))
+	t.Cleanup(server.Close)
+
+	domain := TargetDomain(server.URL)
+	coordinator := NewCoordinator(CoordinatorConfig{DomainPolicies: map[string]DomainPolicy{
+		domain: {MaxConcurrency: 1, SoftRateEnabled: true, ImmediateCircuitOnAccessDenied: false},
+	}})
+	fetcher := NewFetcherWithCoordinator(5*time.Second, coordinator)
+
+	firstDone := make(chan struct{})
+	go func() {
+		defer close(firstDone)
+		_, _ = fetcher.FetchFeedWithContextDetailed(context.Background(), server.URL+"/first.xml")
+	}()
+	<-firstReady
+
+	secondDone := make(chan error, 1)
+	go func() {
+		_, err := fetcher.FetchFeedWithContextDetailed(context.Background(), server.URL+"/second.xml")
+		secondDone <- err
+	}()
+	time.Sleep(50 * time.Millisecond) // ensure the sibling is queued
+	close(release)
+
+	<-firstDone
+	require.NoError(t, <-secondDone)
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, requestAt, 2)
+	require.GreaterOrEqual(t, requestAt[1].Sub(requestAt[0]), 1900*time.Millisecond,
+		"queued sibling must observe the cautious tier selected by the first 403")
 }

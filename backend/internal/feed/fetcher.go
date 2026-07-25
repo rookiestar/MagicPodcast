@@ -262,6 +262,7 @@ func (f *Fetcher) FetchFeedWithContextDetailedAsSource(ctx context.Context, feed
 }
 
 func (f *Fetcher) fetchFeedWithContextDetailed(ctx context.Context, feedURL string, source AccessSource) (result *FetchResult, err error) {
+	defer func() { recordAttempt(ctx, result) }()
 	if source == AccessSourceUnknown || source == "" {
 		source = AccessSourcePrimary
 	}

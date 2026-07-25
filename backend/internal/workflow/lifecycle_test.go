@@ -2,8 +2,11 @@ package workflow
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -19,7 +22,8 @@ import (
 
 func setupLifecycleDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file:lifecycle_"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+	dsn := fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=5000", filepath.Join(t.TempDir(), "lifecycle.db"))
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.Podcast{},
@@ -29,6 +33,7 @@ func setupLifecycleDB(t *testing.T) *gorm.DB {
 		&models.JobExecution{},
 		&models.Report{},
 	))
+	require.NoError(t, db.Exec(models.ActiveJobUniqueIndexSQL).Error)
 	return db
 }
 
@@ -53,6 +58,39 @@ func TestClaimActiveJobRejectsConcurrentActiveJobs(t *testing.T) {
 	second, err := ClaimActiveJob(db, wf.ID, "manual")
 	require.NoError(t, err)
 	require.NotEqual(t, first.ID, second.ID)
+}
+
+func TestClaimActiveJobAllowsExactlyOneConcurrentWinner(t *testing.T) {
+	db := setupLifecycleDB(t)
+	wf := &models.Workflow{Name: "race-wf", ScopeType: models.ScopeTypeAllSubscribed, IsEnabled: true}
+	require.NoError(t, db.Create(wf).Error)
+
+	const contenders = 12
+	start := make(chan struct{})
+	results := make(chan error, contenders)
+	var wg sync.WaitGroup
+	for i := 0; i < contenders; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := ClaimActiveJob(db, wf.ID, "manual")
+			results <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	successes := 0
+	for err := range results {
+		if err == nil {
+			successes++
+			continue
+		}
+		require.True(t, errors.Is(err, ErrWorkflowJobActive), "unexpected claim error: %v", err)
+	}
+	require.Equal(t, 1, successes)
 }
 
 func TestSettleInterruptedJobsCancelsLeftoverRunning(t *testing.T) {

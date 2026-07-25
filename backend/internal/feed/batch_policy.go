@@ -109,7 +109,7 @@ func DecideBatchRetry(in BatchRetryInput) BatchRetryDecision {
 		}
 		return BatchRetryDecision{Retry: true, Wait: wait, Reason: "retry_after_or_backoff"}
 
-	case ErrorCategoryTimeout, ErrorCategoryNetwork, ErrorCategoryHTTP:
+	case ErrorCategoryTimeout, ErrorCategoryNetwork:
 		if in.TransientRetries >= MaxTransientRetries {
 			return BatchRetryDecision{Retry: false, Reason: "transient_budget_exhausted"}
 		}

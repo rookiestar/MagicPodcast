@@ -117,6 +117,7 @@ func TestDecideBatchRetryTransientBudgetAndDeadline(t *testing.T) {
 
 func TestDecideBatchRetryNonRetryable(t *testing.T) {
 	for _, cat := range []ErrorCategory{
+		ErrorCategoryHTTP,
 		ErrorCategoryParse,
 		ErrorCategoryPolicyRejected,
 		ErrorCategoryCircuitOpen,

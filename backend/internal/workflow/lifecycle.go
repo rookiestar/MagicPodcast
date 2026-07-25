@@ -8,6 +8,7 @@ import (
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/models"
 
+	"github.com/mattn/go-sqlite3"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -20,36 +21,25 @@ var ErrWorkflowJobActive = errors.New("workflow already has an active job")
 const ProcessInterruptedReason = "process_interrupted"
 
 // ClaimActiveJob creates a new running Job for the workflow only when no other
-// active Job exists. The check+insert runs in a single transaction so manual,
-// cron, and compensation triggers share one DB-level single-active-job constraint.
+// active Job exists. A partial unique index is the actual arbiter so manual,
+// cron, and compensation races cannot both win.
 func ClaimActiveJob(db *gorm.DB, workflowID uint, triggeredBy string) (*models.Job, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
 	start := time.Now()
-	var job models.Job
-	err := db.Transaction(func(tx *gorm.DB) error {
-		var active int64
-		if err := tx.Model(&models.Job{}).
-			Where("workflow_id = ? AND status IN ?", workflowID, models.ActiveJobStatuses).
-			Count(&active).Error; err != nil {
-			return err
-		}
-		if active > 0 {
-			return ErrWorkflowJobActive
-		}
-		job = models.Job{
-			WorkflowID:  workflowID,
-			Status:      models.JobStatusRunning,
-			StartTime:   &start,
-			TriggeredBy: triggeredBy,
-		}
-		if err := tx.Create(&job).Error; err != nil {
-			return err
-		}
-		return nil
-	})
+	job := models.Job{
+		WorkflowID:  workflowID,
+		Status:      models.JobStatusRunning,
+		StartTime:   &start,
+		TriggeredBy: triggeredBy,
+	}
+	err := db.Create(&job).Error
 	if err != nil {
+		var sqliteErr sqlite3.Error
+		if errors.As(err, &sqliteErr) && sqliteErr.ExtendedCode == sqlite3.ErrConstraintUnique {
+			return nil, ErrWorkflowJobActive
+		}
 		return nil, err
 	}
 	return &job, nil

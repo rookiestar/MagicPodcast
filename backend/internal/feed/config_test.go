@@ -197,7 +197,7 @@ func TestConfigureSharedRuntimePreservesXiaoyuzhouSoftRateInvariant(t *testing.T
 	policy := SharedCoordinator().policyFor(XiaoyuzhouFeedDomain)
 	require.True(t, policy.SoftRateEnabled, "xyzfm soft-rate invariant must be preserved")
 	require.False(t, policy.ImmediateCircuitOnAccessDenied, "xyzfm must not hard-open on first 403")
-	require.Equal(t, 4, policy.MaxConcurrency, "non-safety fields may be tuned")
+	require.Equal(t, 1, policy.MaxConcurrency, "xyzfm shared single queue is a safety invariant")
 
 	// A custom domain policy is added without weakening xyzfm or defaults.
 	custom := SharedCoordinator().policyFor("feed.example.com")

@@ -69,12 +69,12 @@ func isDerivedPolicyCategory(category string) bool {
 // RootCauseSummary aggregates attempt rows without double-counting derived
 // policy actions (e.g. circuit_open) as independent upstream failures.
 type RootCauseSummary struct {
-	PrimarySuccesses     int            `json:"primary_successes"`
-	AlternativeSuccesses int            `json:"alternative_successes"`
-	FinalSuccesses       int            `json:"final_successes"`
-	FinalFailures        int            `json:"final_failures"`
-	UpstreamRootCauses   map[string]int `json:"upstream_root_causes"`
-	DerivedPolicyActions map[string]int `json:"derived_policy_actions"`
+	PrimarySuccesses     int               `json:"primary_successes"`
+	AlternativeSuccesses int               `json:"alternative_successes"`
+	FinalSuccesses       int               `json:"final_successes"`
+	FinalFailures        int               `json:"final_failures"`
+	UpstreamRootCauses   map[string]int    `json:"upstream_root_causes"`
+	DerivedPolicyActions map[string]int    `json:"derived_policy_actions"`
 	UserLabels           map[string]string `json:"user_labels"`
 }
 
@@ -110,10 +110,10 @@ func BuildRootCauseSummary(attempts []models.JobFeedAttempt) RootCauseSummary {
 			summary.UpstreamRootCauses[a.ErrorCategory]++
 			summary.UserLabels[a.ErrorCategory] = ErrorCategoryUserLabel(a.ErrorCategory)
 		}
-		if a.SourceType == string(feed.AccessSourcePrimary) && a.ErrorCategory == string(feed.ErrorCategoryNone) {
+		if a.IsFinalResult && a.SourceType == string(feed.AccessSourcePrimary) && a.ErrorCategory == string(feed.ErrorCategoryNone) {
 			summary.PrimarySuccesses++
 		}
-		if a.SourceType == string(feed.AccessSourceAlternative) && a.ErrorCategory == string(feed.ErrorCategoryNone) {
+		if a.IsFinalResult && a.SourceType == string(feed.AccessSourceAlternative) && a.ErrorCategory == string(feed.ErrorCategoryNone) {
 			summary.AlternativeSuccesses++
 		}
 	}

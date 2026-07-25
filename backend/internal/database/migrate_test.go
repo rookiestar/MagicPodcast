@@ -62,6 +62,12 @@ func TestApplyMigrationsCreatesVersionedReadySchema(t *testing.T) {
 	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_identity_verification"))
 	require.True(t, db.Migrator().HasTable(&models.SchedulerRun{}))
 	require.True(t, db.Migrator().HasTable("feed_snapshots"))
+	var activeJobIndexCount int64
+	require.NoError(t, db.Raw(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'index' AND name = 'idx_jobs_one_active_per_workflow'
+	`).Scan(&activeJobIndexCount).Error)
+	require.Equal(t, int64(1), activeJobIndexCount)
 
 	var foreignKeys int
 	require.NoError(t, db.Raw("PRAGMA foreign_keys").Row().Scan(&foreignKeys))

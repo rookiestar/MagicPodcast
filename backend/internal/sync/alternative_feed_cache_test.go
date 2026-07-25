@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"magicpodcast/internal/feed"
 	"magicpodcast/internal/models"
@@ -149,4 +150,37 @@ func TestAlternativeIdentityConflictIsCachedAsUnavailable(t *testing.T) {
 	require.NoError(t, db.Where("podcast_id = ?", podcast.ID).First(&cached).Error)
 	require.Equal(t, models.AlternativeCacheUnavailable, cached.Status)
 	require.Equal(t, "identity_conflict", cached.UnavailableReason)
+}
+
+func TestTransientUnavailableCacheExpiresBeforeBatchRetry(t *testing.T) {
+	db := setupTestDB(t)
+	service, err := NewServiceWithFeedCoordinator(db, "", newAlternativeCoordinator("https://feed.example.com/main.xml"))
+	require.NoError(t, err)
+	defer service.Close()
+
+	podcast := &models.Podcast{
+		XYZID:       "transient-alt-cache",
+		Title:       "Transient",
+		FeedURL:     "https://feed.example.com/main.xml",
+		ITunesID:    "123",
+		PodcastGUID: "guid-123",
+	}
+	require.NoError(t, db.Create(podcast).Error)
+	identity := alternativeIdentity{itunesID: 123, podcastGUID: "guid-123"}
+	require.NoError(t, db.Create(&models.PodcastAlternativeFeed{
+		PodcastID:         podcast.ID,
+		MainFeedURL:       feed.CanonicalizeURL(podcast.FeedURL),
+		IdentityKey:       identity.key(),
+		Status:            models.AlternativeCacheUnavailable,
+		Verification:      feed.IdentityVerificationUnavailable,
+		UnavailableReason: "live_query_timeout",
+		VerifiedAt:        time.Now().Add(-2 * time.Minute),
+	}).Error)
+
+	_, ok := service.loadAlternativeCache(
+		podcast.ID,
+		feed.CanonicalizeURL(podcast.FeedURL),
+		identity.key(),
+	)
+	require.False(t, ok, "transient failure must be retried within the 15-minute batch")
 }
