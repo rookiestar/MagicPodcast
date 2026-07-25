@@ -242,6 +242,9 @@ type JobExecution struct {
 	FeedEgressID             string     `gorm:"size:64;not null;default:unknown" json:"feed_egress_id"`
 	FeedSnapshotRetrievedAt  *time.Time `gorm:"column:feed_snapshot_retrieved_at" json:"feed_snapshot_retrieved_at,omitempty"`
 	FeedCircuitState         string     `gorm:"size:32;not null;default:not_used" json:"feed_circuit_state"`
+	// FeedFailurePhase is the connection stage from AccessOutcome (dns/connect/
+	// tls/response_header/body_read). Bounded label only; never request bodies.
+	FeedFailurePhase string `gorm:"size:40;not null;default:''" json:"feed_failure_phase"`
 }
 
 // TableName 指定表名

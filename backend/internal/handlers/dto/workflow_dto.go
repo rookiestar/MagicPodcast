@@ -135,6 +135,7 @@ type JobExecutionResponse struct {
 	FeedEgressID             string     `json:"feed_egress_id"`
 	FeedSnapshotRetrievedAt  *time.Time `json:"feed_snapshot_retrieved_at,omitempty"`
 	FeedCircuitState         string     `json:"feed_circuit_state"`
+	FeedFailurePhase         string     `json:"feed_failure_phase,omitempty"`
 }
 
 // BatchWorkflowStats 批量工作流统计

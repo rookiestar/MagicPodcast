@@ -6,7 +6,7 @@
 
 ## 当前版本化迁移
 
-当前 schema 版本为 `10`（与源码 `backend/internal/database/migrate.go` 中 `CurrentSchemaVersion` 一致），版本记录保存在 `schema_migrations`。迁移注册表位于同一文件，每个版本包含名称、说明和事务内的执行函数。当前版本链为：
+当前 schema 版本为 `11`（与源码 `backend/internal/database/migrate.go` 中 `CurrentSchemaVersion` 一致），版本记录保存在 `schema_migrations`。迁移注册表位于同一文件，每个版本包含名称、说明和事务内的执行函数。当前版本链为：
 
 1. `1 baseline-current-model`：空数据库创建当前模型表和索引；已有且完整的数据库只记录 baseline。
 2. `2 feed-access-observability`：记录 Feed HTTP 状态、错误类别、耗时、缓存和出口等观测字段。
@@ -18,6 +18,7 @@
 8. `8 podcast-alternative-feeds`：按节目 + 当前主 Feed + 稳定身份缓存已验证替代 Feed（或不可用原因）；只服务当前批次，不永久改写主 Feed（#37）。生产 apply 需单独授权。
 9. `9 job-feed-attempts`：按 Job 追加安全的 Feed 尝试元数据（来源、序号、HTTP 状态、错误类别、失败阶段、重试决定、身份验证），不含正文/凭据；JobExecution 仍只保存最终结果（#39）。
 10. `10 job-compensation-links`：partial Job 与「仅重试失败 Feed」补偿 Job 的双向关联字段（#40）。生产 apply 需单独授权。
+11. `11 job-execution-failure-phase`：JobExecution 终态投影增加 `feed_failure_phase`（dns/connect/tls/response_header/body_read），供尝试链展示（#39）。
 
 运行约束（非独立版本号）：
 

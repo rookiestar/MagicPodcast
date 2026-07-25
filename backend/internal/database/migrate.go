@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 10
+const CurrentSchemaVersion = 11
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -103,6 +103,12 @@ func migrationRegistry() []Migration {
 			Name:        "job-compensation-links",
 			Description: "Bidirectional links between partial Jobs and compensation retry Jobs (#40).",
 			Apply:       applyJobCompensationLinksMigration,
+		},
+		{
+			Version:     11,
+			Name:        "job-execution-failure-phase",
+			Description: "Persist Feed failure_phase on JobExecution final projection for attempt history (#39).",
+			Apply:       applyJobExecutionFailurePhaseMigration,
 		},
 	}
 }
@@ -377,6 +383,19 @@ func applyJobCompensationLinksMigration(db *gorm.DB) error {
 		if err := db.Exec("ALTER TABLE jobs ADD COLUMN " + column.name + " " + column.ddl).Error; err != nil {
 			return fmt.Errorf("add jobs.%s: %w", column.name, err)
 		}
+	}
+	return nil
+}
+
+func applyJobExecutionFailurePhaseMigration(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&models.JobExecution{}) {
+		return nil
+	}
+	if db.Migrator().HasColumn(&models.JobExecution{}, "feed_failure_phase") {
+		return nil
+	}
+	if err := db.Exec("ALTER TABLE job_executions ADD COLUMN feed_failure_phase TEXT NOT NULL DEFAULT ''").Error; err != nil {
+		return fmt.Errorf("add job_executions.feed_failure_phase: %w", err)
 	}
 	return nil
 }

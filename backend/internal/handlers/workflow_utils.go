@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"time"
 
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/feed"
@@ -214,6 +215,9 @@ func (h *WorkflowHandler) toJobResponse(job *models.Job) dto.JobResponse {
 		resp.Duration = &duration
 	}
 
+	// Batch remaining time within the 15-minute networking window (#39).
+	resp.BatchRemainingMs = batchRemainingMs(job)
+
 	// 添加执行详情
 	if len(job.Executions) > 0 {
 		executions := make([]dto.JobExecutionResponse, len(job.Executions))
@@ -316,7 +320,31 @@ func (h *WorkflowHandler) toJobExecutionResponse(exec *models.JobExecution) dto.
 		FeedEgressID:             exec.FeedEgressID,
 		FeedSnapshotRetrievedAt:  exec.FeedSnapshotRetrievedAt,
 		FeedCircuitState:         exec.FeedCircuitState,
+		FeedFailurePhase:         exec.FeedFailurePhase,
 	}
+}
+
+// batchRemainingMs reports milliseconds left in the 15-minute networking window.
+// Active jobs use wall clock; finished jobs use EndTime so the page can still
+// show how much of the batch budget remained when the job stopped (#39).
+func batchRemainingMs(job *models.Job) *int64 {
+	if job == nil || job.StartTime == nil {
+		return nil
+	}
+	deadline := job.StartTime.Add(feed.DefaultBatchDuration)
+	ref := time.Now()
+	if job.EndTime != nil {
+		ref = *job.EndTime
+	} else if !models.IsActiveJobStatus(job.Status) {
+		// Terminal without EndTime: treat as exhausted.
+		zero := int64(0)
+		return &zero
+	}
+	rem := deadline.Sub(ref).Milliseconds()
+	if rem < 0 {
+		rem = 0
+	}
+	return &rem
 }
 
 func workflowReportResponse(report *models.Report) gin.H {
@@ -394,6 +422,7 @@ func (h *WorkflowHandler) toJobResponseWithReport(job *models.Job, report *model
 		duration := job.EndTime.Sub(*job.StartTime).Milliseconds()
 		resp.Duration = &duration
 	}
+	resp.BatchRemainingMs = batchRemainingMs(job)
 
 	// 添加执行详情
 	if len(job.Executions) > 0 {

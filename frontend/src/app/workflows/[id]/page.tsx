@@ -1185,6 +1185,12 @@ function WorkflowDetailContent() {
                                       </div>
                                     </div>
 
+                                    {typeof jobDetails[job.id]?.batch_remaining_ms === "number" && (
+                                      <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+                                        批次剩余时间: {Math.max(0, Math.round((jobDetails[job.id].batch_remaining_ms as number) / 1000))} 秒
+                                        （15 分钟窗口）
+                                      </div>
+                                    )}
                                     {jobDetails[job.id]?.root_cause_summary && (
                                       <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
                                         根因汇总: 主源成功 {jobDetails[job.id].root_cause_summary!.primary_successes} · 替代源成功 {jobDetails[job.id].root_cause_summary!.alternative_successes} · 最终成功 {jobDetails[job.id].root_cause_summary!.final_successes} / 失败 {jobDetails[job.id].root_cause_summary!.final_failures}
@@ -1204,6 +1210,7 @@ function WorkflowDetailContent() {
                                               #{a.attempt_no} {a.source_type}
                                               {" · "}{a.http_status ?? "无HTTP"}
                                               {" · "}{a.error_category_label || a.error_category || "未观测"}
+                                              {a.failure_phase ? ` · 阶段: ${a.failure_phase}` : ""}
                                               {a.retry_decision ? ` · 重试: ${a.retry_decision}` : ""}
                                               {a.derived_policy ? " · 派生策略" : ""}
                                               {a.is_final_result ? " · 最终" : ""}

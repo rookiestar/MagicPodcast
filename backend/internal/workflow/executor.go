@@ -295,7 +295,10 @@ type batchFeedState struct {
 	attempt             int
 	accessDeniedRetries int
 	transientRetries    int
-	done                bool
+	// lastRetryDecision is the DecideBatchRetry.Reason applied to the most
+	// recent failed attempt (empty when success or not yet decided).
+	lastRetryDecision string
+	done              bool
 }
 
 // executeSync runs a bounded 15-minute batch (#35/#36):
@@ -338,44 +341,23 @@ func (e *Executor) executeSync(
 		now := e.clockNow()
 		if !now.Before(deadline) || batchCtx.Err() != nil {
 			logger.Infof("⏱️  批次截止，停止网络重试 [JobID=%d]", job.ID)
+			e.finalizeOpenRetryDecisions(job.ID, states, "batch_deadline")
 			break
 		}
 
-		var due []*batchFeedState
-		var minWait time.Duration = -1
-		for _, state := range states {
-			if state.done || state.execution == nil {
-				continue
-			}
-			if state.execution.Status != models.ExecutionStatusFailed {
-				state.done = true
-				continue
-			}
-			decision := e.decideRetry(state, batchStart, deadline, now)
-			if !decision.Retry {
-				state.done = true
-				continue
-			}
-			if decision.Wait <= 0 {
-				due = append(due, state)
-				continue
-			}
-			if minWait < 0 || decision.Wait < minWait {
-				minWait = decision.Wait
-			}
-		}
-
+		due, minWait := e.collectDueRetries(job.ID, states, batchStart, deadline, now)
 		if len(due) == 0 {
 			if minWait < 0 {
 				break // nothing left to retry
 			}
-			// Sleep until the next scheduled slot, but never past the deadline.
 			remaining := deadline.Sub(e.clockNow())
 			if remaining <= 0 {
+				e.finalizeOpenRetryDecisions(job.ID, states, "batch_deadline")
 				break
 			}
 			if minWait > remaining {
 				logger.Infof("⏱️  下一次重试已超过批次截止 [JobID=%d]", job.ID)
+				e.finalizeOpenRetryDecisions(job.ID, states, "access_denied_past_deadline")
 				break
 			}
 			e.clockSleep(minWait)
@@ -416,6 +398,89 @@ func (e *Executor) decideRetry(state *batchFeedState, batchStart, deadline, now 
 		RetryAfter:          state.execution.FeedRetryAfter,
 		Now:                 now,
 	})
+}
+
+// collectDueRetries stamps DecideBatchRetry.Reason onto the latest attempt for
+// each failed feed and returns those due for an immediate network retry plus
+// the minimum wait among scheduled retries (minWait < 0 means none waiting).
+func (e *Executor) collectDueRetries(
+	jobID uint,
+	states []*batchFeedState,
+	batchStart, deadline, now time.Time,
+) (due []*batchFeedState, minWait time.Duration) {
+	minWait = -1
+	for _, state := range states {
+		if state.done || state.execution == nil {
+			continue
+		}
+		if state.execution.Status != models.ExecutionStatusFailed {
+			if state.execution.Status == models.ExecutionStatusSuccess {
+				e.patchLastAttemptRetryDecision(jobID, state.podcast.ID, "not_needed")
+				state.lastRetryDecision = "not_needed"
+			}
+			state.done = true
+			continue
+		}
+		decision := e.decideRetry(state, batchStart, deadline, now)
+		e.patchLastAttemptRetryDecision(jobID, state.podcast.ID, decision.Reason)
+		state.lastRetryDecision = decision.Reason
+		if !decision.Retry {
+			state.done = true
+			continue
+		}
+		if decision.Wait <= 0 {
+			due = append(due, state)
+			continue
+		}
+		if minWait < 0 || decision.Wait < minWait {
+			minWait = decision.Wait
+		}
+	}
+	return due, minWait
+}
+
+func (e *Executor) finalizeOpenRetryDecisions(jobID uint, states []*batchFeedState, reason string) {
+	for _, state := range states {
+		if state.done || state.execution == nil {
+			continue
+		}
+		if state.execution.Status != models.ExecutionStatusFailed {
+			continue
+		}
+		if state.lastRetryDecision == "" || isRetryableDecision(state.lastRetryDecision) {
+			e.patchLastAttemptRetryDecision(jobID, state.podcast.ID, reason)
+			state.lastRetryDecision = reason
+		}
+		state.done = true
+	}
+}
+
+func isRetryableDecision(reason string) bool {
+	switch reason {
+	case "access_denied_scheduled", "access_denied_slot", "retry_after_or_backoff", "transient_backoff":
+		return true
+	default:
+		return false
+	}
+}
+
+// patchLastAttemptRetryDecision writes the batch policy Reason onto the latest
+// attempt row for this job+podcast (the attempt that just finished).
+func (e *Executor) patchLastAttemptRetryDecision(jobID, podcastID uint, reason string) {
+	if e == nil || e.db == nil || reason == "" {
+		return
+	}
+	if !e.db.Migrator().HasTable(&models.JobFeedAttempt{}) {
+		return
+	}
+	var last models.JobFeedAttempt
+	err := e.db.Where("job_id = ? AND podcast_id = ?", jobID, podcastID).
+		Order("attempt_no DESC, id DESC").
+		First(&last).Error
+	if err != nil {
+		return
+	}
+	_ = e.db.Model(&last).Update("retry_decision", reason).Error
 }
 
 // runBatchPass executes the given states concurrently (bounded workers).
@@ -478,9 +543,16 @@ func (e *Executor) runBatchPass(
 					}
 				}
 				state.attempt++
+				// Clear prior decision so the new attempt is stamped fresh after.
+				state.lastRetryDecision = ""
 				state.execution = e.syncPodcast(ctx, workflow, job.ID, state.podcast)
 				if state.execution != nil && state.execution.Status == models.ExecutionStatusSuccess {
+					e.recordFeedAttempt(job.ID, &state.podcast, state.execution, state.attempt, "not_needed")
+					state.lastRetryDecision = "not_needed"
 					state.done = true
+				} else if state.execution != nil {
+					// Retry decision is patched by collectDueRetries after this pass.
+					e.recordFeedAttempt(job.ID, &state.podcast, state.execution, state.attempt, "")
 				}
 			}
 		}()
@@ -651,13 +723,15 @@ func (e *Executor) syncPodcast(
 	execution.ProcessingTime = processingTime
 	e.db.Save(&execution)
 
-	// Append-only attempt history (#39). JobExecution remains the final projection.
-	e.recordFeedAttempt(jobID, &podcast, &execution, 0, "")
-
+	// Attempt history is recorded by runBatchPass so retry decisions from
+	// DecideBatchRetry can be attached on the real path (#39).
 	return &execution
 }
 
 // recordFeedAttempt persists one safe attempt. attemptNo<=0 means "next".
+// FailurePhase is copied from the JobExecution final projection (set from
+// AccessOutcome via applyFeedAccessOutcome). retryDecision is the batch-policy
+// Reason for this attempt (may be empty until collectDueRetries patches it).
 func (e *Executor) recordFeedAttempt(jobID uint, podcast *models.Podcast, execution *models.JobExecution, attemptNo int, retryDecision string) {
 	if e == nil || e.db == nil || podcast == nil || execution == nil {
 		return
@@ -669,8 +743,6 @@ func (e *Executor) recordFeedAttempt(jobID uint, podcast *models.Podcast, execut
 			Count(&count).Error
 		attemptNo = int(count) + 1
 	}
-	phase := ""
-	// Failure phase is not stored on JobExecution yet; leave empty unless present later.
 	attempt := &models.JobFeedAttempt{
 		JobID:                jobID,
 		PodcastID:            &podcast.ID,
@@ -679,7 +751,7 @@ func (e *Executor) recordFeedAttempt(jobID uint, podcast *models.Podcast, execut
 		AttemptedAt:          time.Now(),
 		HTTPStatus:           execution.FeedHTTPStatus,
 		ErrorCategory:        execution.FeedErrorCategory,
-		FailurePhase:         phase,
+		FailurePhase:         execution.FeedFailurePhase,
 		RetryDecision:        retryDecision,
 		IdentityVerification: execution.FeedIdentityVerification,
 		TargetDomain:         execution.FeedTargetDomain,
@@ -718,6 +790,13 @@ func applyFeedAccessOutcome(execution *models.JobExecution, outcome *feed.Access
 	execution.FeedEgressID = outcome.EgressID
 	execution.FeedSnapshotRetrievedAt = outcome.RetrievedAt
 	execution.FeedCircuitState = string(outcome.CircuitState)
+	// Copy connection-stage diagnosis from the live fetch onto the final
+	// projection and attempt history (#39).
+	if outcome.FailurePhase != "" && outcome.FailurePhase != feed.FailurePhaseNotObserved {
+		execution.FeedFailurePhase = string(outcome.FailurePhase)
+	} else if outcome.FailurePhase == feed.FailurePhaseNotObserved {
+		execution.FeedFailurePhase = string(feed.FailurePhaseNotObserved)
+	}
 }
 
 // finalizeJob aggregates execution outcomes, holds finalizing until one report
