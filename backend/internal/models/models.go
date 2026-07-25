@@ -14,6 +14,7 @@ var AllModels = []interface{}{
 	Episode{},
 	Job{},
 	JobExecution{},
+	JobFeedAttempt{},
 	SchedulerRun{},
 	Report{},
 }

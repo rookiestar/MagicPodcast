@@ -7,6 +7,7 @@ import (
 	"magicpodcast/internal/feed"
 	"magicpodcast/internal/handlers/dto"
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/workflow"
 
 	"github.com/gin-gonic/gin"
 )
@@ -219,8 +220,44 @@ func (h *WorkflowHandler) toJobResponse(job *models.Job) dto.JobResponse {
 		resp.Executions = executions
 	}
 
-	// 添加LLM统计信息（从关联的Report中获取）
+	// Feed attempt causal chain + root-cause summary (#39).
 	db := database.GetDB()
+	if attempts, err := workflow.ListFeedAttempts(db, job.ID); err == nil && len(attempts) > 0 {
+		resp.FeedAttempts = make([]dto.FeedAttemptResponse, 0, len(attempts))
+		for _, a := range attempts {
+			a = workflow.SanitizeAttemptForAPI(a)
+			resp.FeedAttempts = append(resp.FeedAttempts, dto.FeedAttemptResponse{
+				ID:                   a.ID,
+				JobID:                a.JobID,
+				PodcastID:            a.PodcastID,
+				AttemptNo:            a.AttemptNo,
+				SourceType:           a.SourceType,
+				AttemptedAt:          a.AttemptedAt,
+				HTTPStatus:           a.HTTPStatus,
+				ErrorCategory:        a.ErrorCategory,
+				ErrorCategoryLabel:   workflow.ErrorCategoryUserLabel(a.ErrorCategory),
+				FailurePhase:         a.FailurePhase,
+				RetryDecision:        a.RetryDecision,
+				IdentityVerification: a.IdentityVerification,
+				TargetDomain:         a.TargetDomain,
+				SourceURL:            a.SourceURL,
+				IsFinalResult:        a.IsFinalResult,
+				DerivedPolicy:        a.DerivedPolicy,
+			})
+		}
+		summary := workflow.BuildRootCauseSummary(attempts)
+		resp.RootCauseSummary = &dto.RootCauseSummaryResponse{
+			PrimarySuccesses:     summary.PrimarySuccesses,
+			AlternativeSuccesses: summary.AlternativeSuccesses,
+			FinalSuccesses:       summary.FinalSuccesses,
+			FinalFailures:        summary.FinalFailures,
+			UpstreamRootCauses:   summary.UpstreamRootCauses,
+			DerivedPolicyActions: summary.DerivedPolicyActions,
+			UserLabels:           summary.UserLabels,
+		}
+	}
+
+	// 添加LLM统计信息（从关联的Report中获取）
 	var report models.Report
 	if err := db.Where("job_id = ?", job.ID).First(&report).Error; err == nil {
 		// 找到报告，添加LLM字段

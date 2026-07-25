@@ -588,7 +588,48 @@ func (e *Executor) syncPodcast(
 	execution.ProcessingTime = processingTime
 	e.db.Save(&execution)
 
+	// Append-only attempt history (#39). JobExecution remains the final projection.
+	e.recordFeedAttempt(jobID, &podcast, &execution, 0, "")
+
 	return &execution
+}
+
+// recordFeedAttempt persists one safe attempt. attemptNo<=0 means "next".
+func (e *Executor) recordFeedAttempt(jobID uint, podcast *models.Podcast, execution *models.JobExecution, attemptNo int, retryDecision string) {
+	if e == nil || e.db == nil || podcast == nil || execution == nil {
+		return
+	}
+	if attemptNo <= 0 {
+		var count int64
+		_ = e.db.Model(&models.JobFeedAttempt{}).
+			Where("job_id = ? AND podcast_id = ?", jobID, podcast.ID).
+			Count(&count).Error
+		attemptNo = int(count) + 1
+	}
+	phase := ""
+	// Failure phase is not stored on JobExecution yet; leave empty unless present later.
+	attempt := &models.JobFeedAttempt{
+		JobID:                jobID,
+		PodcastID:            &podcast.ID,
+		AttemptNo:            attemptNo,
+		SourceType:           execution.FeedSourceType,
+		AttemptedAt:          time.Now(),
+		HTTPStatus:           execution.FeedHTTPStatus,
+		ErrorCategory:        execution.FeedErrorCategory,
+		FailurePhase:         phase,
+		RetryDecision:        retryDecision,
+		IdentityVerification: execution.FeedIdentityVerification,
+		TargetDomain:         execution.FeedTargetDomain,
+		SourceURL:            execution.FeedSourceURL,
+		IsFinalResult:        true, // updated when later attempts overwrite final flags
+	}
+	// Demote previous final flags for this podcast.
+	if e.db.Migrator().HasTable(&models.JobFeedAttempt{}) {
+		_ = e.db.Model(&models.JobFeedAttempt{}).
+			Where("job_id = ? AND podcast_id = ? AND is_final_result = ?", jobID, podcast.ID, true).
+			Update("is_final_result", false).Error
+	}
+	_ = PersistFeedAttempt(e.db, attempt)
 }
 
 func applyFeedAccessOutcome(execution *models.JobExecution, outcome *feed.AccessOutcome) {

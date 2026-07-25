@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 8
+const CurrentSchemaVersion = 9
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -92,6 +92,12 @@ func migrationRegistry() []Migration {
 			Description: "Cache pre-verified alternative Feed URLs keyed by podcast, main feed, and stable identity (#37).",
 			Apply:       applyPodcastAlternativeFeedsMigration,
 		},
+		{
+			Version:     9,
+			Name:        "job-feed-attempts",
+			Description: "Append-only safe Feed attempt metadata per Job for causal history (#39).",
+			Apply:       applyJobFeedAttemptsMigration,
+		},
 	}
 }
 
@@ -108,7 +114,7 @@ var baselineRequiredTables = []string{
 	"episodes_tags",
 }
 
-var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds")
+var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts")
 
 func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
 	if db == nil {
@@ -334,6 +340,13 @@ func applyFeedSnapshotsMigration(db *gorm.DB) error {
 func applyPodcastAlternativeFeedsMigration(db *gorm.DB) error {
 	if err := db.AutoMigrate(&models.PodcastAlternativeFeed{}); err != nil {
 		return fmt.Errorf("create podcast_alternative_feeds: %w", err)
+	}
+	return nil
+}
+
+func applyJobFeedAttemptsMigration(db *gorm.DB) error {
+	if err := db.AutoMigrate(&models.JobFeedAttempt{}); err != nil {
+		return fmt.Errorf("create job_feed_attempts: %w", err)
 	}
 	return nil
 }

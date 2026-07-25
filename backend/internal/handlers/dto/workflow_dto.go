@@ -49,12 +49,50 @@ type JobResponse struct {
 	CreatedAt         time.Time              `json:"created_at"`
 	Duration          *int64                 `json:"duration,omitempty"` // 执行时长（毫秒）
 	Executions        []JobExecutionResponse `json:"executions,omitempty"`
+	// FeedAttempts is the append-only causal chain (#39). Safe metadata only.
+	FeedAttempts []FeedAttemptResponse `json:"feed_attempts,omitempty"`
+	// RootCauseSummary aggregates upstream errors without double-counting
+	// derived policy actions such as circuit_open.
+	RootCauseSummary *RootCauseSummaryResponse `json:"root_cause_summary,omitempty"`
+	// BatchRemainingMs is 0 for finished jobs; reserved for running/finalizing UIs.
+	BatchRemainingMs *int64 `json:"batch_remaining_ms,omitempty"`
 
 	// LLM相关字段
 	LLMSummary    *string `json:"llm_summary,omitempty"`     // LLM生成的摘要
 	LLMModelUsed  *string `json:"llm_model_used,omitempty"`  // 使用的模型名称
 	LLMTokensUsed *int    `json:"llm_tokens_used,omitempty"` // 使用的token数量
 	LLMError      *string `json:"llm_error,omitempty"`       // LLM错误信息
+}
+
+// FeedAttemptResponse is the API shape for one Feed attempt (no secrets/body).
+type FeedAttemptResponse struct {
+	ID                   uint      `json:"id"`
+	JobID                uint      `json:"job_id"`
+	PodcastID            *uint     `json:"podcast_id,omitempty"`
+	AttemptNo            int       `json:"attempt_no"`
+	SourceType           string    `json:"source_type"`
+	AttemptedAt          time.Time `json:"attempted_at"`
+	HTTPStatus           *int      `json:"http_status"`
+	ErrorCategory        string    `json:"error_category"`
+	ErrorCategoryLabel   string    `json:"error_category_label"`
+	FailurePhase         string    `json:"failure_phase,omitempty"`
+	RetryDecision        string    `json:"retry_decision,omitempty"`
+	IdentityVerification string    `json:"identity_verification"`
+	TargetDomain         string    `json:"target_domain"`
+	SourceURL            string    `json:"source_url"`
+	IsFinalResult        bool      `json:"is_final_result"`
+	DerivedPolicy        bool      `json:"derived_policy"`
+}
+
+// RootCauseSummaryResponse is the API shape for root-cause aggregation.
+type RootCauseSummaryResponse struct {
+	PrimarySuccesses     int               `json:"primary_successes"`
+	AlternativeSuccesses int               `json:"alternative_successes"`
+	FinalSuccesses       int               `json:"final_successes"`
+	FinalFailures        int               `json:"final_failures"`
+	UpstreamRootCauses   map[string]int    `json:"upstream_root_causes"`
+	DerivedPolicyActions map[string]int    `json:"derived_policy_actions"`
+	UserLabels           map[string]string `json:"user_labels"`
 }
 
 // JobExecutionResponse JobExecution 响应结构

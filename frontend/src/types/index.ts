@@ -223,12 +223,44 @@ export interface Job {
   created_at: string;
   duration?: number; // 执行时长（毫秒）
   executions?: JobExecution[];
+  feed_attempts?: FeedAttempt[];
+  root_cause_summary?: RootCauseSummary;
+  batch_remaining_ms?: number;
 
   // LLM相关字段
   llm_summary?: string; // LLM生成的摘要
   llm_model_used?: string; // 使用的模型名称
   llm_tokens_used?: number; // 使用的token数量
   llm_error?: string; // LLM错误信息（如果生成失败）
+}
+
+interface FeedAttempt {
+  id: number;
+  job_id: number;
+  podcast_id?: number;
+  attempt_no: number;
+  source_type: string;
+  attempted_at: string;
+  http_status?: number | null;
+  error_category: string;
+  error_category_label: string;
+  failure_phase?: string;
+  retry_decision?: string;
+  identity_verification: string;
+  target_domain: string;
+  source_url: string;
+  is_final_result: boolean;
+  derived_policy: boolean;
+}
+
+interface RootCauseSummary {
+  primary_successes: number;
+  alternative_successes: number;
+  final_successes: number;
+  final_failures: number;
+  upstream_root_causes: Record<string, number>;
+  derived_policy_actions: Record<string, number>;
+  user_labels: Record<string, string>;
 }
 
 interface JobExecution {

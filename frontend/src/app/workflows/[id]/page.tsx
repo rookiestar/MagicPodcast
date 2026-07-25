@@ -1160,6 +1160,32 @@ function WorkflowDetailContent() {
                                       </div>
                                     </div>
 
+                                    {jobDetails[job.id]?.root_cause_summary && (
+                                      <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+                                        根因汇总: 主源成功 {jobDetails[job.id].root_cause_summary!.primary_successes} · 替代源成功 {jobDetails[job.id].root_cause_summary!.alternative_successes} · 最终成功 {jobDetails[job.id].root_cause_summary!.final_successes} / 失败 {jobDetails[job.id].root_cause_summary!.final_failures}
+                                        {jobDetails[job.id].root_cause_summary!.derived_policy_actions &&
+                                          Object.keys(jobDetails[job.id].root_cause_summary!.derived_policy_actions).length > 0 && (
+                                          <span className="ml-2">（派生策略动作不重复计为上游错误）</span>
+                                        )}
+                                      </div>
+                                    )}
+                                    {jobDetails[job.id]?.feed_attempts && jobDetails[job.id].feed_attempts!.filter((a) => a.podcast_id === exec.podcast_id).length > 0 && (
+                                      <div className="mt-2 space-y-1 text-xs text-slate-600 dark:text-slate-400">
+                                        <div className="font-medium text-slate-700 dark:text-slate-300">尝试链</div>
+                                        {jobDetails[job.id].feed_attempts!
+                                          .filter((a) => a.podcast_id === exec.podcast_id)
+                                          .map((a) => (
+                                            <div key={a.id}>
+                                              #{a.attempt_no} {a.source_type}
+                                              {" · "}{a.http_status ?? "无HTTP"}
+                                              {" · "}{a.error_category_label || a.error_category || "未观测"}
+                                              {a.retry_decision ? ` · 重试: ${a.retry_decision}` : ""}
+                                              {a.derived_policy ? " · 派生策略" : ""}
+                                              {a.is_final_result ? " · 最终" : ""}
+                                            </div>
+                                          ))}
+                                      </div>
+                                    )}
                                     <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-400">
                                       <span>
                                         Feed访问: {exec.feed_target_domain || "未知域名"} · {exec.feed_http_status ?? "无HTTP状态"} · {exec.feed_error_category || "未观测"}
