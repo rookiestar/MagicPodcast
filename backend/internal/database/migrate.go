@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 7
+const CurrentSchemaVersion = 8
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -86,6 +86,12 @@ func migrationRegistry() []Migration {
 			Description: "Create the bounded feed_snapshots table used to persist last-good Feed snapshots for restart recovery.",
 			Apply:       applyFeedSnapshotsMigration,
 		},
+		{
+			Version:     8,
+			Name:        "podcast-alternative-feeds",
+			Description: "Cache pre-verified alternative Feed URLs keyed by podcast, main feed, and stable identity (#37).",
+			Apply:       applyPodcastAlternativeFeedsMigration,
+		},
 	}
 }
 
@@ -102,7 +108,7 @@ var baselineRequiredTables = []string{
 	"episodes_tags",
 }
 
-var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName)
+var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds")
 
 func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
 	if db == nil {
@@ -318,6 +324,16 @@ func applyFeedSnapshotsMigration(db *gorm.DB) error {
 	}
 	if err := db.Exec(feed.FeedSnapshotsCreateIndexSQL).Error; err != nil {
 		return fmt.Errorf("create %s eviction index: %w", feed.FeedSnapshotsTableName, err)
+	}
+	return nil
+}
+
+// applyPodcastAlternativeFeedsMigration creates the alternative-Feed verification
+// cache used by #37. AutoMigrate is sufficient: the table holds only bounded
+// metadata (URLs, identity keys, verification labels) — never Feed bodies.
+func applyPodcastAlternativeFeedsMigration(db *gorm.DB) error {
+	if err := db.AutoMigrate(&models.PodcastAlternativeFeed{}); err != nil {
+		return fmt.Errorf("create podcast_alternative_feeds: %w", err)
 	}
 	return nil
 }

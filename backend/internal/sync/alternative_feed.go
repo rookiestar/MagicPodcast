@@ -8,11 +8,17 @@ import (
 	"time"
 
 	"magicpodcast/internal/feed"
+	"magicpodcast/internal/logger"
 	"magicpodcast/internal/models"
 	"magicpodcast/internal/podcastindex"
 
 	"github.com/mmcdole/gofeed"
 )
+
+// AlternativeLiveQueryTimeout caps live PodcastIndex / candidate verification
+// when no durable cache hit is available (#37). Pre-verified cache reads skip
+// this path entirely.
+const AlternativeLiveQueryTimeout = 8 * time.Second
 
 type alternativeIdentity struct {
 	itunesID    int
@@ -21,21 +27,28 @@ type alternativeIdentity struct {
 	author      string
 }
 
+func (identity alternativeIdentity) key() string {
+	return strconv.Itoa(identity.itunesID) + "|" + identity.podcastGUID
+}
+
 func (s *Service) persistPodcastFeedIdentity(podcast *models.Podcast, parsed *gofeed.Feed) {
 	if s == nil || s.db == nil || podcast == nil || parsed == nil {
 		return
 	}
 	updates := make(map[string]interface{}, 2)
+	identityChanged := false
 	if podcast.PodcastGUID == "" {
 		if guid := extractPodcastGUID(parsed); guid != "" {
 			podcast.PodcastGUID = guid
 			updates["podcast_guid"] = guid
+			identityChanged = true
 		}
 	}
 	if podcast.ITunesID == "" {
 		if itunesID := extractITunesID(parsed); itunesID != "" {
 			podcast.ITunesID = itunesID
 			updates["i_tunes_id"] = itunesID
+			identityChanged = true
 		}
 	}
 	if len(updates) > 0 {
@@ -43,11 +56,67 @@ func (s *Service) persistPodcastFeedIdentity(podcast *models.Podcast, parsed *go
 			return
 		}
 	}
+	// Filling a previously empty identity does not invalidate an existing cache
+	// keyed on the old empty identity; re-warm happens on the next verify pass.
+	_ = identityChanged
+}
+
+// InvalidateAlternativeCache drops cached alternative verification for a
+// podcast. Call when the main Feed URL or stable identity is replaced by
+// import/update so stale alternatives cannot be reused (#37).
+func (s *Service) InvalidateAlternativeCache(podcastID uint) {
+	if s == nil || s.db == nil || podcastID == 0 {
+		return
+	}
+	if err := s.db.Where("podcast_id = ?", podcastID).Delete(&models.PodcastAlternativeFeed{}).Error; err != nil {
+		logger.Warnf("invalidate alternative cache for podcast %d: %v", podcastID, err)
+	}
+}
+
+// UpdatePodcastMainFeed replaces the subscribed main Feed URL and immediately
+// invalidates any alternative cache keyed on the previous main Feed / identity.
+// It never writes an alternative URL into podcasts.feed_url.
+func (s *Service) UpdatePodcastMainFeed(podcastID uint, newFeedURL string) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	newFeedURL = strings.TrimSpace(newFeedURL)
+	if podcastID == 0 || newFeedURL == "" {
+		return nil
+	}
+	var podcast models.Podcast
+	if err := s.db.First(&podcast, podcastID).Error; err != nil {
+		return err
+	}
+	if feed.CanonicalizeURL(podcast.FeedURL) == feed.CanonicalizeURL(newFeedURL) {
+		return nil
+	}
+	if err := s.db.Model(&models.Podcast{}).Where("id = ?", podcastID).Update("feed_url", newFeedURL).Error; err != nil {
+		return err
+	}
+	s.InvalidateAlternativeCache(podcastID)
+	return nil
+}
+
+// EnsureAlternativeVerified warms the alternative cache for a podcast that has
+// a stable identity. Safe to call after a successful primary fetch; failures
+// are recorded as unavailable reasons without touching the main Feed URL.
+func (s *Service) EnsureAlternativeVerified(ctx context.Context, podcast *models.Podcast) {
+	if s == nil || podcast == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	queryCtx, cancel := context.WithTimeout(ctx, AlternativeLiveQueryTimeout)
+	defer cancel()
+	_, _, _, _ = s.verifyAndCacheAlternative(queryCtx, podcast)
 }
 
 // fetchVerifiedAlternative is called only after the subscribed Feed has
-// failed. It never searches by title alone: a stable PodcastIndex identity is
-// required before a candidate can even be considered.
+// failed. It prefers a durable, identity-keyed cache hit so failure windows
+// do not re-scan PodcastIndex. Live verification is strictly time-bounded.
+// Successful alternatives never overwrite podcasts.feed_url.
 func (s *Service) fetchVerifiedAlternative(
 	ctx context.Context,
 	podcast *models.Podcast,
@@ -55,9 +124,12 @@ func (s *Service) fetchVerifiedAlternative(
 	incremental bool,
 	failure *feed.FetchResult,
 ) (*feed.FetchResult, bool) {
-	if s == nil || podcast == nil || s.podcastIndexQuery == nil {
+	if s == nil || podcast == nil {
 		setAlternativeVerification(failure, feed.IdentityVerificationUnavailable)
 		return nil, false
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
 	identity, err := s.resolveAlternativeIdentity(podcast)
@@ -67,57 +139,79 @@ func (s *Service) fetchVerifiedAlternative(
 	}
 	if identity.itunesID <= 0 && identity.podcastGUID == "" {
 		setAlternativeVerification(failure, feed.IdentityVerificationRejectedNoStableID)
+		s.persistAlternativeUnavailable(podcast, identity, feed.IdentityVerificationRejectedNoStableID, "no_stable_identity")
 		return nil, false
 	}
 
-	candidates, err := s.podcastIndexQuery.FindCandidatesByIdentity(identity.itunesID, identity.podcastGUID)
-	if err != nil {
-		setAlternativeVerification(failure, feed.IdentityVerificationUnavailable)
-		return nil, false
-	}
-	candidates = filterAlternativeCandidates(candidates, podcast.FeedURL)
-	if len(candidates) == 0 {
-		setAlternativeVerification(failure, feed.IdentityVerificationUnavailable)
-		return nil, false
-	}
+	mainKey := feed.CanonicalizeURL(podcast.FeedURL)
+	identityKey := identity.key()
 
-	unique := make([]*podcastindex.PodcastInfo, 0, len(candidates))
-	seenURLs := make(map[string]struct{}, len(candidates))
-	for _, candidate := range candidates {
-		if !candidateIdentityCompatible(candidate, identity) {
-			setAlternativeVerification(failure, feed.IdentityVerificationRejectedConflict)
+	// --- Cache hit path: use only when main feed + identity still match ---
+	if cached, ok := s.loadAlternativeCache(podcast.ID, mainKey, identityKey); ok {
+		if cached.Status == models.AlternativeCacheUnavailable {
+			setAlternativeVerification(failure, cached.Verification)
 			return nil, false
 		}
-		key := feed.CanonicalizeURL(candidate.FeedURL)
-		if _, exists := seenURLs[key]; exists {
-			continue
+		if cached.Status == models.AlternativeCacheVerified && cached.AlternativeFeedURL != "" {
+			return s.fetchCachedAlternative(ctx, podcast, cached, lastFetchTime, incremental, failure)
 		}
-		seenURLs[key] = struct{}{}
-		unique = append(unique, candidate)
 	}
-	if len(unique) != 1 {
-		setAlternativeVerification(failure, feed.IdentityVerificationRejectedAmbiguous)
+
+	// --- Live verify with hard short timeout ---
+	queryCtx, cancel := context.WithTimeout(ctx, AlternativeLiveQueryTimeout)
+	defer cancel()
+	candidateURL, verification, reason, ok := s.verifyAndCacheAlternative(queryCtx, podcast)
+	if !ok {
+		if verification == "" {
+			verification = feed.IdentityVerificationUnavailable
+		}
+		setAlternativeVerification(failure, verification)
+		_ = reason
 		return nil, false
 	}
-	candidate := unique[0]
 
-	verification := feed.IdentityVerificationRejectedInsufficientEvidence
-	if candidateMetadataEvidence(identity, candidate) {
-		verification = feed.IdentityVerificationVerifiedMetadata
-	}
+	return s.fetchAlternativeURL(ctx, podcast, candidateURL, verification, lastFetchTime, incremental, failure)
+}
 
-	var alternative *feed.FetchResult
+func (s *Service) fetchCachedAlternative(
+	ctx context.Context,
+	podcast *models.Podcast,
+	cached *models.PodcastAlternativeFeed,
+	lastFetchTime time.Time,
+	incremental bool,
+	failure *feed.FetchResult,
+) (*feed.FetchResult, bool) {
+	return s.fetchAlternativeURL(ctx, podcast, cached.AlternativeFeedURL, cached.Verification, lastFetchTime, incremental, failure)
+}
+
+func (s *Service) fetchAlternativeURL(
+	ctx context.Context,
+	podcast *models.Podcast,
+	candidateURL string,
+	verification string,
+	lastFetchTime time.Time,
+	incremental bool,
+	failure *feed.FetchResult,
+) (*feed.FetchResult, bool) {
+	var (
+		alternative *feed.FetchResult
+		err         error
+	)
 	if incremental {
-		alternative, err = s.feedFetcher.FetchIncrementalWithContextAsSource(ctx, candidate.FeedURL, lastFetchTime, feed.AccessSourceAlternative)
+		alternative, err = s.feedFetcher.FetchIncrementalWithContextAsSource(ctx, candidateURL, lastFetchTime, feed.AccessSourceAlternative)
 	} else {
-		alternative, err = s.feedFetcher.FetchFeedWithContextDetailedAsSource(ctx, candidate.FeedURL, feed.AccessSourceAlternative)
+		alternative, err = s.feedFetcher.FetchFeedWithContextDetailedAsSource(ctx, candidateURL, feed.AccessSourceAlternative)
 	}
 	if err != nil || alternative == nil || alternative.Feed == nil {
 		setAlternativeVerification(failure, feed.IdentityVerificationUnavailable)
 		return nil, false
 	}
 
-	if verification != feed.IdentityVerificationVerifiedMetadata {
+	// If cache said metadata-verified, keep it; otherwise re-check episode/metadata
+	// evidence against the live body (defense in depth).
+	if verification != feed.IdentityVerificationVerifiedMetadata &&
+		verification != feed.IdentityVerificationVerifiedEpisode {
+		identity, _ := s.resolveAlternativeIdentity(podcast)
 		if candidateFeedMetadataEvidence(identity, alternative.Feed) {
 			verification = feed.IdentityVerificationVerifiedMetadata
 		} else if s.hasEpisodeEvidence(podcast.ID, alternative.Feed) {
@@ -128,12 +222,173 @@ func (s *Service) fetchVerifiedAlternative(
 		}
 	}
 
-	// FeedFetcher records the network outcome; this final layer records which
-	// verified source was actually selected and keeps the URL safe for history.
 	alternative.Access.SourceType = feed.AccessSourceAlternative
-	alternative.Access.SourceURL = feed.SanitizeFeedURL(candidate.FeedURL)
+	alternative.Access.SourceURL = feed.SanitizeFeedURL(candidateURL)
 	alternative.Access.IdentityVerification = verification
+	// Hard invariant: main Feed URL is never rewritten by alternative success.
 	return alternative, true
+}
+
+// verifyAndCacheAlternative resolves a single verified candidate and persists
+// the outcome. Returns ok=false when no usable alternative exists.
+func (s *Service) verifyAndCacheAlternative(ctx context.Context, podcast *models.Podcast) (candidateURL, verification, reason string, ok bool) {
+	if s == nil || podcast == nil || s.podcastIndexQuery == nil {
+		s.persistAlternativeUnavailable(podcast, alternativeIdentity{}, feed.IdentityVerificationUnavailable, "index_unavailable")
+		return "", feed.IdentityVerificationUnavailable, "index_unavailable", false
+	}
+	select {
+	case <-ctx.Done():
+		s.persistAlternativeUnavailable(podcast, alternativeIdentity{}, feed.IdentityVerificationUnavailable, "live_query_timeout")
+		return "", feed.IdentityVerificationUnavailable, "live_query_timeout", false
+	default:
+	}
+
+	identity, err := s.resolveAlternativeIdentity(podcast)
+	if err != nil {
+		s.persistAlternativeUnavailable(podcast, identity, feed.IdentityVerificationUnavailable, "identity_resolve_error")
+		return "", feed.IdentityVerificationUnavailable, "identity_resolve_error", false
+	}
+	if identity.itunesID <= 0 && identity.podcastGUID == "" {
+		s.persistAlternativeUnavailable(podcast, identity, feed.IdentityVerificationRejectedNoStableID, "no_stable_identity")
+		return "", feed.IdentityVerificationRejectedNoStableID, "no_stable_identity", false
+	}
+
+	candidates, err := s.podcastIndexQuery.FindCandidatesByIdentity(identity.itunesID, identity.podcastGUID)
+	if err != nil {
+		s.persistAlternativeUnavailable(podcast, identity, feed.IdentityVerificationUnavailable, "candidate_query_error")
+		return "", feed.IdentityVerificationUnavailable, "candidate_query_error", false
+	}
+	candidates = filterAlternativeCandidates(candidates, podcast.FeedURL)
+	if len(candidates) == 0 {
+		s.persistAlternativeUnavailable(podcast, identity, feed.IdentityVerificationUnavailable, "no_candidates")
+		return "", feed.IdentityVerificationUnavailable, "no_candidates", false
+	}
+
+	unique := make([]*podcastindex.PodcastInfo, 0, len(candidates))
+	seenURLs := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		if !candidateIdentityCompatible(candidate, identity) {
+			s.persistAlternativeUnavailable(podcast, identity, feed.IdentityVerificationRejectedConflict, "identity_conflict")
+			return "", feed.IdentityVerificationRejectedConflict, "identity_conflict", false
+		}
+		key := feed.CanonicalizeURL(candidate.FeedURL)
+		if _, exists := seenURLs[key]; exists {
+			continue
+		}
+		seenURLs[key] = struct{}{}
+		unique = append(unique, candidate)
+	}
+	if len(unique) != 1 {
+		s.persistAlternativeUnavailable(podcast, identity, feed.IdentityVerificationRejectedAmbiguous, "ambiguous_candidates")
+		return "", feed.IdentityVerificationRejectedAmbiguous, "ambiguous_candidates", false
+	}
+	candidate := unique[0]
+
+	verification = feed.IdentityVerificationRejectedInsufficientEvidence
+	if candidateMetadataEvidence(identity, candidate) {
+		verification = feed.IdentityVerificationVerifiedMetadata
+	} else {
+		// Without metadata evidence, attempt a short live body check for
+		// episode/title evidence. This still respects the caller's deadline.
+		probe, err := s.feedFetcher.FetchFeedWithContextDetailedAsSource(ctx, candidate.FeedURL, feed.AccessSourceAlternative)
+		if err != nil || probe == nil || probe.Feed == nil {
+			s.persistAlternativeUnavailable(podcast, identity, feed.IdentityVerificationUnavailable, "probe_failed")
+			return "", feed.IdentityVerificationUnavailable, "probe_failed", false
+		}
+		if candidateFeedMetadataEvidence(identity, probe.Feed) {
+			verification = feed.IdentityVerificationVerifiedMetadata
+		} else if s.hasEpisodeEvidence(podcast.ID, probe.Feed) {
+			verification = feed.IdentityVerificationVerifiedEpisode
+		} else {
+			s.persistAlternativeUnavailable(podcast, identity, feed.IdentityVerificationRejectedInsufficientEvidence, "insufficient_evidence")
+			return "", feed.IdentityVerificationRejectedInsufficientEvidence, "insufficient_evidence", false
+		}
+	}
+
+	s.persistAlternativeVerified(podcast, identity, candidate.FeedURL, verification)
+	return candidate.FeedURL, verification, "", true
+}
+
+func (s *Service) loadAlternativeCache(podcastID uint, mainFeedURL, identityKey string) (*models.PodcastAlternativeFeed, bool) {
+	if s == nil || s.db == nil || podcastID == 0 {
+		return nil, false
+	}
+	if !s.db.Migrator().HasTable(&models.PodcastAlternativeFeed{}) {
+		return nil, false
+	}
+	var row models.PodcastAlternativeFeed
+	err := s.db.Where("podcast_id = ?", podcastID).First(&row).Error
+	if err != nil {
+		return nil, false
+	}
+	if feed.CanonicalizeURL(row.MainFeedURL) != feed.CanonicalizeURL(mainFeedURL) {
+		// Stale relative to current main Feed — drop and re-verify.
+		s.InvalidateAlternativeCache(podcastID)
+		return nil, false
+	}
+	if row.IdentityKey != identityKey {
+		s.InvalidateAlternativeCache(podcastID)
+		return nil, false
+	}
+	return &row, true
+}
+
+func (s *Service) persistAlternativeVerified(podcast *models.Podcast, identity alternativeIdentity, altURL, verification string) {
+	if s == nil || s.db == nil || podcast == nil || podcast.ID == 0 {
+		return
+	}
+	if !s.db.Migrator().HasTable(&models.PodcastAlternativeFeed{}) {
+		// Tests using AutoMigrate on core models get the table; production uses
+		// migration v8. Without the table, verification still works live-only.
+		return
+	}
+	now := time.Now()
+	row := models.PodcastAlternativeFeed{
+		PodcastID:          podcast.ID,
+		MainFeedURL:        feed.CanonicalizeURL(podcast.FeedURL),
+		IdentityKey:        identity.key(),
+		AlternativeFeedURL: altURL,
+		Status:             models.AlternativeCacheVerified,
+		Verification:       verification,
+		UnavailableReason:  "",
+		VerifiedAt:         now,
+	}
+	var existing models.PodcastAlternativeFeed
+	if err := s.db.Where("podcast_id = ?", podcast.ID).First(&existing).Error; err == nil {
+		row.ID = existing.ID
+		row.CreatedAt = existing.CreatedAt
+		_ = s.db.Save(&row).Error
+		return
+	}
+	_ = s.db.Create(&row).Error
+}
+
+func (s *Service) persistAlternativeUnavailable(podcast *models.Podcast, identity alternativeIdentity, verification, reason string) {
+	if s == nil || s.db == nil || podcast == nil || podcast.ID == 0 {
+		return
+	}
+	if !s.db.Migrator().HasTable(&models.PodcastAlternativeFeed{}) {
+		return
+	}
+	now := time.Now()
+	row := models.PodcastAlternativeFeed{
+		PodcastID:          podcast.ID,
+		MainFeedURL:        feed.CanonicalizeURL(podcast.FeedURL),
+		IdentityKey:        identity.key(),
+		AlternativeFeedURL: "",
+		Status:             models.AlternativeCacheUnavailable,
+		Verification:       verification,
+		UnavailableReason:  reason,
+		VerifiedAt:         now,
+	}
+	var existing models.PodcastAlternativeFeed
+	if err := s.db.Where("podcast_id = ?", podcast.ID).First(&existing).Error; err == nil {
+		row.ID = existing.ID
+		row.CreatedAt = existing.CreatedAt
+		_ = s.db.Save(&row).Error
+		return
+	}
+	_ = s.db.Create(&row).Error
 }
 
 func setAlternativeVerification(result *feed.FetchResult, verification string) {

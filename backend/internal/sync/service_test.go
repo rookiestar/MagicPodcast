@@ -68,7 +68,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	})
 
 	// 自动迁移
-	err = db.AutoMigrate(&models.Podcast{}, &models.Episode{})
+	err = db.AutoMigrate(&models.Podcast{}, &models.Episode{}, &models.PodcastAlternativeFeed{})
 	assert.NoError(t, err)
 
 	return db

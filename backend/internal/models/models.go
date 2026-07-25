@@ -10,6 +10,7 @@ var AllModels = []interface{}{
 
 	// 依赖基础模型的
 	Podcast{},
+	PodcastAlternativeFeed{},
 	Episode{},
 	Job{},
 	JobExecution{},

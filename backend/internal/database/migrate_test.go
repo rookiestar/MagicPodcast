@@ -87,7 +87,7 @@ func TestApplyMigrationsUpgradesSchemaV5ToV6WithSchedulerRuns(t *testing.T) {
 	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
 
 	registry := migrationRegistry()
-	require.Len(t, registry, 7)
+	require.Len(t, registry, CurrentSchemaVersion)
 	require.NoError(t, applyMigrationSet(db, registry[:5]))
 	require.NoError(t, db.Migrator().DropTable(&models.SchedulerRun{}))
 
@@ -98,6 +98,7 @@ func TestApplyMigrationsUpgradesSchemaV5ToV6WithSchedulerRuns(t *testing.T) {
 
 	require.NoError(t, ApplyMigrations(db))
 	require.True(t, db.Migrator().HasTable(&models.SchedulerRun{}))
+	require.True(t, db.Migrator().HasTable(&models.PodcastAlternativeFeed{}))
 	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, db).CurrentVersion)
 	require.Empty(t, mustSchemaStatus(t, db).Pending)
 }
