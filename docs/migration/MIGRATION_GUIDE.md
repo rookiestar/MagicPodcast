@@ -1,12 +1,12 @@
 # MagicPodcast 数据库迁移指南
 
-最后更新：2026-07-12
+最后更新：2026-07-25
 
 本文只记录当前仍适用的数据库迁移入口和操作顺序。旧的项目搬家记录已移入 [../archive/reports/PROJECT_LOCATION_MIGRATION_2026-01-21.md](../archive/reports/PROJECT_LOCATION_MIGRATION_2026-01-21.md)。
 
 ## 当前版本化迁移
 
-当前 schema 版本为 `6`，版本记录保存在 `schema_migrations`。迁移注册表位于 `backend/internal/database/migrate.go`，每个版本包含名称、说明和事务内的执行函数。当前版本链为：
+当前 schema 版本为 `7`（与源码 `backend/internal/database/migrate.go` 中 `CurrentSchemaVersion` 一致），版本记录保存在 `schema_migrations`。迁移注册表位于同一文件，每个版本包含名称、说明和事务内的执行函数。当前版本链为：
 
 1. `1 baseline-current-model`：空数据库创建当前模型表和索引；已有且完整的数据库只记录 baseline。
 2. `2 feed-access-observability`：记录 Feed HTTP 状态、错误类别、耗时、缓存和出口等观测字段。
@@ -14,8 +14,13 @@
 4. `4 feed-circuit-state`：记录域名断路的打开、跳过和探测状态。
 5. `5 feed-source-verification`：记录实际使用的 Feed 来源和 PodcastIndex 身份校验结果。
 6. `6 scheduler-run-history`：创建调度运行历史表，供连续失败观测使用。
-7. 缺少部分必需表时拒绝继续，避免把不完整结构伪装成可用版本。
-8. 迁移和版本记录在同一事务中执行；失败会回滚事务，API 不会启动。
+7. `7 feed-snapshots-last-good`：创建有界 `feed_snapshots` 表，持久化 Feed 快照与验证器，供重启后的 304 恢复和诊断；迁移历史名称保留 `last-good`，但按 #35 普通失败后的快照命中不计作本批成功。
+
+运行约束（非独立版本号）：
+
+- 缺少部分必需表时拒绝继续，避免把不完整结构伪装成可用版本。
+- 迁移和版本记录在同一事务中执行；失败会回滚事务，API 不会启动。
+- 普通 API 启动只读检查版本，不自动 apply 迁移。
 
 显式查看迁移计划：
 

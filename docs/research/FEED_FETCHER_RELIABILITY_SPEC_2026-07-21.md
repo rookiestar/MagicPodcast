@@ -5,6 +5,8 @@
 对齐基线：[XIAOYUZHOU_FEED_ACCESS_RESILIENCE_2026-07-19.md](XIAOYUZHOU_FEED_ACCESS_RESILIENCE_2026-07-19.md)、[XIAOYUZHOU_ALTERNATIVE_FEED_CANDIDATES_2026-07-20.md](XIAOYUZHOU_ALTERNATIVE_FEED_CANDIDATES_2026-07-20.md)、固定出口 NO-GO 决策（#22 / #24）
 范围：把 MagicPodcast 建设成长期稳定、合规、可观测的 RSS Fetcher；**不**设计任何绕过上游风控的方案。
 
+> 后续决策：#35/#36 已取代本文 P1 中“小宇宙首次 403 整域硬断路”的设计，并收紧 P2 的 last-good 语义。目标方案改为共享单队列、简单自适应软限速和 15 分钟批次内的有界分类重试；last-good 仅用于匹配验证器的 304 恢复和诊断，不计本批成功、不进入新报告、不推进抓取时间。本文已实现的 HTTP、持久化与观测能力继续有效。当前源码尚未完成 #36，因此文中“当前实现”与“批准目标”必须区分。
+
 ---
 
 ## 1. Problem Statement（当前架构问题分析）
@@ -28,7 +30,7 @@
 **断路器层**
 
 - 当前 `Probe` 已承担简化 HALF_OPEN 语义，但只允许一个探测，成功即清零回到 Closed，没有可配置恢复滞后。是否升级为显式 `HalfOpen` 是可观测性和策略表达改进，不是因为当前状态机无效。
-- 对 `feed.xyzfm.space`，一次 403 即 OPEN 10 分钟是既有 ADR 明确要求，生产样本也证明它能阻止失败扩散，必须保留。另一方面，timeout、网络错误、500/502/504 当前不进熔断；但这些错误可能只影响同域某一个 Feed，不能不加区分地升级为域名故障。
+- 对 `feed.xyzfm.space`，当前源码仍会在一次 403 后 OPEN 10 分钟；#35/#36 已批准删除这项整域硬断路，避免单个拒绝阻断同域其他 Feed。timeout、网络错误、500/502/504 也可能只影响同域某一个 Feed，不能不加区分地升级为域名故障。
 - 覆盖面刻意保守：`DefaultCoordinatorConfig` 只对 `feed.xyzfm.space` 启用域名策略，其他域名仍有全局同 URL in-flight 去重，但没有默认域名级并发、抖动和熔断。可以增加安全的通用负载整形默认值；域名级熔断仍须按域配置或由多个不同 Feed 的共同失败证据触发。
 - 不可配置、不可热更新：阈值与冷却全部硬编码为 Go 常量，YAML/ENV 都改不动；`Scheduler.Reload` 只重载 cron 表达式，不重建 Coordinator。
 - 无 per-feed 维度信号：同一域名下一个坏 Feed URL 反复失败会拖累整域（当前按域聚合既是优点也是风险点）。
@@ -50,7 +52,7 @@
 
 1. 如何**降低** Feed 请求触发上游风控的概率（客户端质量 + 降流 + 条件请求）。
 2. 如何让 Feed 抓取行为更**符合标准 RSS Client**（诚实 UA + 标准 Header + Conditional GET + robots 尊重）。
-3. 如何在 403 后**安全恢复并持续诊断原因**（保留立即断路 + 可观测恢复探测 + 持久化 fallback + 结构化观测）。
+3. 如何在 403 后**安全恢复并持续诊断原因**（共享单队列 + 自适应软限速 + 有界分类重试 + 结构化观测）。
 
 ---
 
@@ -58,7 +60,7 @@
 
 ### 2.1 目标
 
-把 MagicPodcast 表现为一个**合规、高质量、低负载、可观测**的 RSS Reader，而不是异常 crawler。在不改变用户可见行为、不改 fallback 链顺序、不引入任何绕过风控手段的前提下，分四层（P0–P3）建设长期稳定的 RSS Fetcher。
+把 MagicPodcast 表现为一个**合规、高质量、低负载、可观测**的 RSS Reader，而不是异常 crawler。在不永久替换主 Feed、不引入任何绕过风控手段的前提下，分四层（P0–P3）建设长期稳定的 RSS Fetcher。
 
 ### 2.2 目标架构
 
@@ -95,8 +97,8 @@
 ### 2.3 四层目标
 
 - **P0 RSS Client Quality Layer**：标准 Fetcher 行为，让每次请求都像高质量 RSS Reader。
-- **P1 Feed Failure Recovery**：显式 `CLOSED → OPEN → HALF_OPEN → CLOSED` 状态机，保留小宇宙首次 403 立即断路，按错误类型和证据范围分级恢复。
-- **P2 Persistent Content Resilience**：last-good 持久化，重启不丢，长期失败 Feed 可降级兜底。
+- **P1 Feed Failure Recovery**：本文原有整域断路方案已被 #35/#36 取代；小宇宙改用共享单队列、简单自适应软限速和 15 分钟批次内的有界分类重试。
+- **P2 Persistent Conditional State**：快照与验证器持久化，支持匹配验证器的 304 恢复和诊断；普通失败不以 last-good 计作成功。
 - **P3 403 Diagnostic System**：结构化日志 + 连接阶段 + 轻量内存计数器（经独立、受保护的 admin JSON 入口暴露，**不修改公开 health 契约、不引入 Prometheus、不新增 `/metrics`**）+ 配置标签，为后续对照实验提供应用侧证据，但不单独判定 IP/ASN、频率、指纹或 CDN 根因。
 
 ---
@@ -114,9 +116,9 @@
 
 5. 作为运维，我希望 403 后系统能自动进入恢复探测并在上游恢复时无人工干预地回到正常，这样我不必每次手动处理。
 6. 作为运维，我希望系统能降低触发上游风控的概率（更标准的请求、更低频、支持 304），这样 403 本身越来越少发生。
-7. 作为运维，我希望 last-good 缓存持久化到磁盘，这样重启和长期失败都不会丢失兜底内容。
-8. 作为运维，我希望过期的 last-good 被明确标记为 stale 而不是伪装成 fresh，这样我不会误判数据时效。
-9. 作为运维，我希望 fallback 链顺序（主 → 已验证替代 → last-good）保持不变，这样既有可审计决策不被破坏。
+7. 作为运维，我希望 Feed 快照与验证器持久化到磁盘，这样服务重启后仍能安全处理匹配验证器的 304。
+8. 作为运维，我希望过期快照只用于诊断而不是伪装成实时成功，这样我不会误判本批抽取率。
+9. 作为运维，我希望主源失败后只使用已验证替代源完成本批抽取，且不永久替换主 Feed。
 10. 作为运维，我希望断路器参数和域名策略可在配置文件调整；若热更新不能安全保持并发与状态一致性，则首版允许通过服务重启生效，不把无停机热更新作为 P1 前置。
 11. 作为运维，我希望所有域名都有保守的请求去重与负载整形默认值；只有已配置域名或多个不同 Feed 共同证明域名故障时，才启用域名级熔断。
 12. 作为运维，我希望系统尊重 Feed 自带的 `<ttl>` / `skipHours` / `skipDays` 与 HTTP 缓存头，这样我不会比上游建议更频繁地请求。
@@ -136,8 +138,8 @@
 20. 作为 SRE，我希望记录明确命名为“配置出口标签”的字段，而不是把配置值误称为真实公网出口；未来对照实验仍以网络侧出口证据为准。
 21. 作为 SRE，我希望有一条 403 诊断 runbook，把结构化字段组织成待验证假设与对照证据，而不是直接宣称 IP/ASN、频率、指纹或 CDN 根因。
 22. 作为开发者，我希望新增抓取行为继续通过 `FetchResult.AccessOutcome` 观测；条件请求所需的验证器必须通过一个明确、可注入的请求状态 seam 进入 Fetcher，不把数据库依赖塞进 HTTP 层。
-23. 作为开发者，我希望条件 GET、状态机、快照兜底使用 httptest 假上游验证，并用可控 Dialer、Listener、TLS server 和时钟分别覆盖 DNS/connect/TLS/读头/读体阶段。
-24. 作为开发者，我希望持久化 last-good 走版本化迁移流程（`cmd/migrate`），这样生产库结构变更可审计、可回滚。
+23. 作为开发者，我希望条件 GET、状态机、快照恢复使用 httptest 假上游验证，并用可控 Dialer、Listener、TLS server 和时钟分别覆盖 DNS/connect/TLS/读头/读体阶段。
+24. 作为开发者，我希望持久化 Feed 快照走版本化迁移流程（`cmd/migrate`），这样生产库结构变更可审计、可回滚。
 25. 作为开发者，我希望 `FetchErrorCount` 这类既有死字段要么被正确接线、要么被移除，这样数据模型不保留误导性字段。
 26. 作为开发者，我希望诊断/日志字段遵守既有白名单（不记录正文、Cookie、凭据、任意响应头），这样观测能力不带来泄露风险。
 27. 作为运维，我希望断路器在服务重启后从保守状态（CLOSED）起步、并由条件请求与降频保护首波，这样重启不会瞬间冲击上游。
@@ -154,7 +156,7 @@
 | 模块 | 现状 | 本 Spec 决策 | 关键接口契约（外部行为） |
 | --- | --- | --- | --- |
 | **RSS Client Quality Layer**（新） | Header/UA/超时/重试散落在 Fetcher 与外层 sync 重试 | 收口为 Fetcher 内单一权威 HTTP 构造点；外层重试改为透传有限策略 | 给定 URL+ctx+`RequestValidators` → 返回带 `CacheStatus`/`ETag`/`LastModified` 的 `AccessOutcome`；304 只在可恢复快照存在时成功 |
-| **Coordinator / Circuit Breaker** | `Open/Probe/Closed`、xyzfm 首次拒绝即 OPEN、硬编码 | 将 Probe 显式化为 `HalfOpen`；保留 xyzfm 首次 403 立即 OPEN；其他域名仅在显式策略或多 Feed 故障证据下启用域名熔断 | OPEN 返回 `circuit_open` outcome 并触发 fallback；HALF_OPEN 限量 probe；策略变更首版可重启生效 |
+| **Coordinator / Circuit Breaker** | `Open/Probe/Closed`、xyzfm 首次拒绝即 OPEN、硬编码 | 按 #35/#36 删除 xyzfm 整域硬断路，保留共享单队列并加入简单自适应软限速；其他域名仅在显式策略或多 Feed 故障证据下启用域名熔断 | 单个 xyzfm 403 不阻断其他 Feed；批次内按分类有界重试；策略变更首版可重启生效 |
 | **SnapshotStore** | 仅内存实现，`Load` 无错误返回 | 新增 SQLite L2；扩展接口返回存储错误；设置条数、单条和总量上限及清理策略 | L1 miss 回源 L2；live 成功始终刷新 L1，L2 失败明确标记 durability degraded；损坏/锁冲突与普通 miss 可区分 |
 | **Feed 条件状态** | 验证器只记录在 JobExecution，不能用于下一次请求 | 验证器与对应 snapshot 在同一 `feed_snapshots` 行原子更新；不在 Podcast 表重复保存第二份权威值 | 只有快照指纹和验证器成对存在时才发送条件请求；304 复用该快照并记录验证时刻 |
 | **观测（日志/metrics）** | 字符串拼接日志、无 metrics | 结构化日志（logrus WithFields）+ 轻量内存计数器 + 独立受保护 admin JSON + 连接阶段字段 | 失败日志带诊断字段；计数器按有限维度聚合；公开 health 契约不变 |
@@ -177,20 +179,19 @@
 
 ### 4.3 P1 — Feed Failure Recovery（状态机设计）
 
-升级为经典三态 + 错误分级 + 恢复滞后。状态机以决策编码呈现（来自原型，仅保留决策关键部分）：
+其他显式启用域名熔断的策略可使用经典三态 + 错误分级 + 恢复滞后；`feed.xyzfm.space` 不再进入该硬断路状态机。状态机以决策编码呈现（来自原型，仅保留决策关键部分）：
 
 ```
 States: CLOSED, OPEN, HALF_OPEN        // 取消既有 Probe 布尔，HALF_OPEN 成为一等状态
 
 Transitions:
-  CLOSED    -- xyzfm access_denied(403) --> OPEN(cooldown_403)       // 首次立即断路
   CLOSED    -- domain_failure(cat) && evidence >= DomainThreshold --> OPEN(cooldown(cat, attempt))
   OPEN      -- now >= openUntil --> HALF_OPEN   (admit up to HalfOpenMaxRequests concurrent probes)
   HALF_OPEN -- probe success && successes >= SuccessesToClose --> CLOSED (reset counters)
   HALF_OPEN -- probe failure --> OPEN(cooldown(cat, attempt+1))  (reset success count)
 
 Cooldown(category, attempt):
-  access_denied(403) : xyzfm 首次即 base_403；probe 再失败后分级递增、有上限
+  access_denied(403) : xyzfm 不进入域名硬断路；按批次剩余时间执行有界分类重试
   rate_limited(429)  : min(Retry-After, maxRetryAfter) if present else expBackoff(attempt)
   service_unavailable(5xx) : expBackoff(attempt, fullJitter)   // 覆盖 500/502/503/504，不只 503
   timeout / network_error : expBackoff(attempt, fullJitter)    // 新增：上游不可达也短路
@@ -199,12 +200,12 @@ Cooldown(category, attempt):
 
 **设计要点**：
 
-- **403 规则**：`feed.xyzfm.space` 保留首次 403 立即 OPEN，符合既有 ADR 和生产验证；其他域名默认不因单个 Feed 的一次 403 触发域名熔断，可按域显式配置。冷却在 probe 再失败后分级递增且有上限，永远保留低频周期性 probe。
+- **403 规则**：`feed.xyzfm.space` 的单个 403 不再触发整域 OPEN，按 #35/#36 使用共享单队列、软限速和约第 3/8/13 分钟的有界重试；其他域名默认也不因单个 Feed 的一次 403 触发域名熔断，可按域显式配置。
 - **错误类别证据门槛**：timeout / 网络错误 / 全部 5xx 可纳入域名健康判断，但默认要求一个短窗口内至少 `N` 个**不同 Feed URL**出现同类失败，或由域名策略显式声明共享基础设施；单个 Feed 的错误只影响自身，不拖累同域其他节目。
 - **HALF_OPEN 渐进恢复**：`HalfOpenMaxRequests` 限量放行 probe，`SuccessesToClose`（> 1）提供滞后，防止抖动链路反复 OPEN/CLOSED。
 - **probe 用条件请求**：HALF_OPEN 探测优先走 Conditional GET（304 即视为成功），探测本身低成本。
 - **粒度**：保持 **域名级**（`TargetDomain`）作为共享基础设施信号（403/429/5xx/timeout）的熔断维度；per-feed 内容错误（404/parse）走 Feed 级跳过逻辑，不污染域名熔断。
-- **默认策略**：所有域名继续获得同 URL in-flight 去重；可以增加保守并发上限和小幅错峰，但域名级熔断默认仅对 `feed.xyzfm.space` 和显式配置域名启用。后续若要扩大，必须先用观测证明共享故障粒度。
+- **默认策略**：所有域名继续获得同 URL in-flight 去重；`feed.xyzfm.space` 使用共享单队列、并发 1、软限速和错峰，不启用整域硬断路。其他域名只有显式配置或观测证明共享故障粒度后才启用域名级熔断。
 - **重启行为**：进程级 circuit 状态是易失的（反映实时上游健康），重启后全部回到 CLOSED（保守放行），由条件请求、降频和 retry budget 保护首波；首版不从 Podcast 失败计数预热，避免把历史单 Feed 失败误当成当前域名健康状态。
 
 ### 4.4 P2 — Persistent Content Resilience（数据模型设计）
@@ -213,7 +214,7 @@ Cooldown(category, attempt):
 2. **数据模型（决策编码，来自原型）**：
 
 ```
-// 新表：feed_snapshots（last-good 持久化，仅在失败兜底时读取）
+// 新表：feed_snapshots（快照与验证器持久化，用于 304 恢复和诊断）
 feed_snapshots {
   feed_url        TEXT UNIQUE      // CanonicalizeURL(feedURL)
   retrieved_at    INTEGER          // 抓取时刻
@@ -229,8 +230,8 @@ feed_snapshots {
 
 **一致性理由**：验证器只对产生它的响应正文有效，因此必须和 snapshot 原子保存，不能在 Podcast 与 snapshot 各保存一份权威值。Podcast 既有 `FetchErrorCount` 是否改成连续失败语义另开数据语义票，不作为 Conditional GET 前置，也不在本迁移中顺带改变。
 
-3. **fallback 流程**：保持既有顺序不变（主 → 已验证 PodcastIndex 替代 → last-good）；升级点是 last-good 从内存扩展到“内存→磁盘”两级，且冷启动可从磁盘恢复。last-good 命中仍按既有语义**不更新** `LastFetchedAt`，避免把缓存命中伪装成新鲜上游验证；304 则更新 `ValidatedAt`，并由产品语义决定是否同步更新 `LastFetchedAt`，该决定须在 P0b 票中明确测试。
-4. **stale 降级**：定义两个明确阈值：`FreshAge` 内为 fresh；超过 `FreshAge` 且不超过 `MaxStaleAge` 为 stale，可兜底但不伪装 fresh；超过 `MaxStaleAge` 不再作为内容成功返回。该语义与现有 `snapshotUsable` 保持一致。
+3. **恢复流程**：主源失败后立即尝试已验证 PodcastIndex 替代源；last-good 仅在收到匹配验证器的 304 时恢复正文，或作为诊断证据。普通失败后的快照命中不计本批成功、不进入新报告、不更新 `LastFetchedAt`。
+4. **stale 边界**：定义 `FreshAge` 与 `MaxStaleAge` 供诊断和清理使用；stale 快照不得作为普通失败后的内容成功返回。
 5. **容量和清理**：延续现有单条 2 MiB、总量 32 MiB、最多 256 条默认上限；SQLite 也必须执行同样的条数/总量边界。保存新快照前按 `validated_at/retrieved_at` 淘汰最旧记录；清理和写入在同一事务中，暴露淘汰数、当前字节数和写失败计数。
 6. **持久化安全**：走版本化迁移（`CurrentSchemaVersion` 递增 + `migrationRegistry` 追加），**仅** `cmd/migrate` 在备份+确认后写生产库；API 启动只做只读 schema 校验，不自动改表。snapshot 正文遵守既有白名单（不进日志/API/凭据）。
 
@@ -249,7 +250,7 @@ feed_snapshots {
 
 ### 4.7 必须守住的既有约束（不可破坏的决策）
 
-- **fallback 链顺序固定**：主 → 已验证 PodcastIndex 替代（稳定身份校验）→ last-good。替代源必须通过 iTunesID/PodcastGUID + 标题/作者/单集证据，**不得**按标题相似度切换；`feed.xyzfm.space` 候选仍被排除。
+- **替代源边界固定**：主源失败后只使用已验证 PodcastIndex 替代（稳定身份校验）完成本批抽取；替代源必须通过 iTunesID/PodcastGUID + 标题/作者/单集证据，**不得**按标题相似度切换，也不得永久写回主 Feed。last-good 只用于 304 恢复和诊断。
 - **AccessOutcome / JobExecution 字段白名单**：有意不含正文、Cookie、凭据、任意响应头（既有注释明确）。新增字段遵守同一白名单。
 - **明确禁止**（来自 #22/#24/韧性研究 P3）：住宅代理、共享代理池、按请求轮换 IP、浏览器/客户端伪装、绕过验证码、开放任意 URL 转发、无限重试。固定出口组件在 #22 重开门槛达成前**不引入**。
 - **合规前置**：诚实 UA、尊重 robots（24h 缓存）、低频诚实抓取、尊重 `Retry-After`；任何真实“换出口”动作继续受 #22 双窗口证据和所有者明确生产授权约束。本 Spec 不把联系上游设为普通 Fetcher 改造的前置，也不代替法律判断。
@@ -261,7 +262,7 @@ feed_snapshots {
 
 ### 5.1 测试 seam
 
-- **主观测 seam（复用）**：`Fetcher.FetchFeedWithContextDetailed` / `Coordinator.Do` 继续以 `*FetchResult.AccessOutcome` 暴露外部结果。P0/P1/P2/P3 分别观测 `CacheStatus`/验证器、`CircuitState`、`SourceType=last_good`/快照时间、`ErrorCategory`/配置出口标签/`FailurePhase`。
+- **主观测 seam（复用）**：`Fetcher.FetchFeedWithContextDetailed` / `Coordinator.Do` 继续以 `*FetchResult.AccessOutcome` 暴露外部结果。P0/P1/P2/P3 分别观测 `CacheStatus`/验证器、软限速与重试决定、304 恢复/快照时间、`ErrorCategory`/配置出口标签/`FailurePhase`。
 - **必要的新生产 seam**：新增窄类型 `RequestValidators` 和可注入 `FeedStateStore`。Coordinator 负责加载/校验状态并把验证器传入 Fetcher；Fetcher 不读取数据库。持久化实现和内存 fake 使用同一接口，错误必须可观测。
 - **HTTP 假上游**：`httptest.Server` 录制请求头并脚本化返回 200/304/403/429/503/gzip/慢响应头/慢响应体，覆盖条件请求、304 恢复、Go 自动 gzip 解压和 HTTP 语义。
 - **网络阶段 harness**：自定义 Resolver/Dialer、可控 `net.Listener`、`httptest.NewTLSServer` 与包装 Body 分别制造 DNS、connect、TLS、response-header、body-read 错误；注入 fake clock/sleeper 验证退避、Retry-After、冷却和抖动，禁止依赖真实 sleep 或“多跑几次看随机性”。
@@ -283,15 +284,15 @@ feed_snapshots {
 **P1 验收**
 
 - 状态序列可观测为 `Closed → Open → HalfOpen → Closed`（经 `AccessOutcome.CircuitState`）。
-- `feed.xyzfm.space` 第一次 403 立即 OPEN；OPEN 期间同域名请求被短路且不会再次访问上游。probe 再失败后冷却递增并保留周期性 probe。
+- `feed.xyzfm.space` 单个或多个 403 不阻断其他同域 Feed，也不产生新的 `circuit_open`；批次内按约第 3/8/13 分钟有界重试。
 - 单个 Feed 的 timeout/5xx 不阻断同域其他 Feed；达到“不同 Feed 数”证据阈值或显式域名策略后才进入域名熔断。
 - HALF_OPEN 放行限量 probe；连续成功达 `SuccessesToClose` 才回 CLOSED；任一 probe 失败回 OPEN。
 - 配置经重启生效且默认策略不扩大现有域名熔断范围；热更新若后续实现，必须另有并发与状态迁移验收。
 
 **P2 验收**
 
-- 重启后 last-good 仍可从磁盘 `Load` 命中；数据库 miss、锁冲突、损坏分别可观测，不能都降格为 miss。
-- `FreshAge < age <= MaxStaleAge` 标为 stale 并可兜底；`age > MaxStaleAge` 不作为成功内容返回。
+- 重启后 Feed 快照仍可从磁盘 `Load` 命中并支持匹配验证器的 304 恢复；数据库 miss、锁冲突、损坏分别可观测，不能都降格为 miss。
+- 普通失败后的快照命中不计成功、不进入新报告、不推进抓取时间；stale 快照只用于诊断和清理。
 - `feed_snapshots` 表经版本化迁移创建；`cmd/migrate` 幂等、可回滚；API 启动不改表。
 - 超过条数或 32 MiB 总量时按最旧验证时间确定性淘汰；并发保存、L2 写失败和清理回滚后 L1/L2 不产生伪持久化状态。
 - snapshot 正文不出现在任何日志/API 响应中（白名单测试）。
@@ -305,8 +306,8 @@ feed_snapshots {
 
 ### 5.3 测试先例
 
-- 现有 Coordinator 单测（去重合并、共享缓存、失败不永久阻塞、跨实例共享）→ P1 状态机与 P2 兜底沿用。
-- 现有断路状态转换单测（403→OPEN→probe→CLOSED）→ P1 扩展为含 HALF_OPEN 的序列。
+- 现有 Coordinator 单测（去重合并、共享缓存、失败不永久阻塞、跨实例共享）→ P1 调度与 P2 快照恢复沿用。
+- 现有断路状态转换单测保留用于其他显式域名策略；xyzfm P1 改为验证单个 403 不阻断同域 Feed、软限速和有界重试。
 - 现有 access 分类 / URL 规范化 / SanitizeFeedURL 单测 → P0 条件请求头与 P3 脱敏沿用。
 - 现有 `alternative_feed` 身份校验单测 → 保证 fallback 链顺序不被破坏。
 
@@ -316,7 +317,7 @@ feed_snapshots {
 
 - **任何绕过风控手段**：住宅代理、共享代理池、按请求轮换 IP、浏览器/客户端伪装 UA、绕过验证码、开放任意 URL 转发、无限重试。
 - **固定出口 / 中继组件**：#22 未达“同窗口同参数固定备用出口成功”双证据门槛、#24 判 NO-GO，本 Spec 不引入；如未来重开，仍须满足两窗口证据并取得所有者明确生产授权，作为独立可回滚变更。
-- **改用户可见行为 / fallback 链顺序**。
+- **自动永久替换主 Feed**。
 - **改 `JobExecution` 既有持久化字段的语义或白名单**（仅新增，不破坏）。
 - **维护脚本路径**（走独立 `gofeed.ParseURL`，与生产 Fetcher 互不影响）。
 - **Next 跨主版本升级、搜索排序/缓存策略变化**（属人审边界，不在本 Spec）。
@@ -335,10 +336,10 @@ feed_snapshots {
 | **P3a** | 结构化日志 + `httptrace`/包装 Body 的 `failure_phase` | P0a Transport seam | 低 | 是；先提供 P0/P1 观测基线 |
 | **P2a** | 可报告错误的持久化 FeedStateStore + `feed_snapshots` 表 + 容量/淘汰/stale 边界 | 版本化迁移 | 中（新表 + BLOB + 清理事务） | 是 |
 | **P0b** | Conditional GET + 304 从匹配快照恢复 + 无快照时一次无条件 GET | P2a | 中（触及抓取成功语义） | 是 |
-| **P1** | 显式 HalfOpen + xyzfm 首次 403 立即断路 + 多 Feed 域故障证据 + 启动时配置 | P3a | 中（改抓取准入语义） | 是 |
+| **P1** | xyzfm 共享单队列 + 简单自适应软限速 + 15 分钟内有界分类重试；其他域名保留多 Feed 域故障证据门槛 | P3a | 中（改抓取准入语义） | 是 |
 | **P3b** | 轻量内存计数器 + 独立受保护 admin JSON + ConfiguredEgressLabel + 403 runbook | P3a | 中（新增受保护观测面） | 是 |
 
-**顺序理由**：先做不依赖数据库的 P0a 与 P3a；再用 P2a 建立“正文+验证器”原子持久化，之后 P0b 才能安全处理 304。P1 保留现有 xyzfm 立即断路，只升级恢复与其他错误证据门槛。P3b 在访问控制确认后上线。每阶段独立测试、提交、发布和回滚；数据库迁移与行为变化不混在同一发布。
+**顺序理由**：先做不依赖数据库的 P0a 与 P3a；再用 P2a 建立“正文+验证器”原子持久化，之后 P0b 才能安全处理 304。P1 按 #35/#36 删除 xyzfm 整域硬断路并加入软限速与有界重试；P3b 在访问控制确认后上线。每阶段独立测试、提交、发布和回滚；数据库迁移与行为变化不混在同一发布。
 
 ### 7.2 403 诊断 Runbook（依据结构化字段）
 
@@ -366,15 +367,15 @@ feed_snapshots {
 
 - 本 Spec 中本轮票据已落地的部分包括共享队列（既有 Coordinator）、条件请求、错峰基础能力、`Retry-After`、诚实 UA 和聚合指标；robots/TTL/skipHours/skipDays 仍是后续独立实现项，不应从本轮提交推导为已完成。
 - 本 Spec **不**触碰该研究 P1/P2（固定出口实验与中继）——那些仍 NO-GO；只推进 P0 + 新增 P2 持久化 + P3 诊断。
-- fallback 链与 [XIAOYUZHOU_ALTERNATIVE_FEED_CANDIDATES_2026-07-20.md](XIAOYUZHOU_ALTERNATIVE_FEED_CANDIDATES_2026-07-20.md) 一致，仅把 last-good 从内存升级为持久化。
+- 替代源验证与 [XIAOYUZHOU_ALTERNATIVE_FEED_CANDIDATES_2026-07-20.md](XIAOYUZHOU_ALTERNATIVE_FEED_CANDIDATES_2026-07-20.md) 一致；按 #35，last-good 持久化只服务 304 恢复和诊断。
 - 用词沿用既有 `feed/access.go` / `feed/coordinator.go` 常量定义的事实术语，不另造新词。
 
 ### 7.4 需补进人审队列的事项
 
 以下事项需补入 [../HUMAN_REVIEW_QUEUE.md](../HUMAN_REVIEW_QUEUE.md)（其最后更新停留在 2026-07-13，早于本轮 403 复发窗口）：
 
-1. **Feed 抓取参数配置化与默认值**：把冷却、retry budget、超时、UA 改为启动时配置；所有域名可采用保守负载整形，但域名熔断默认不扩张。`feed.xyzfm.space` 必须保留首次 403 立即断路。
-2. **持久化 last-good 迁移**：新增 `feed_snapshots` 表，正文与验证器原子保存，走 `cmd/migrate`；不在 Podcast 表复制验证器，不顺带改变 `FetchErrorCount` 语义。
+1. **Feed 抓取参数配置化与默认值**：把冷却、retry budget、超时、UA 改为启动时配置；所有域名可采用保守负载整形。`feed.xyzfm.space` 按 #35/#36 删除整域硬断路，改为共享单队列、简单自适应软限速和 15 分钟批次内的有界分类重试。
+2. **持久化 Feed 快照迁移**：新增 `feed_snapshots` 表，正文与验证器原子保存，走 `cmd/migrate`；不在 Podcast 表复制验证器，不顺带改变 `FetchErrorCount` 语义，也不把普通失败后的快照命中计作成功。
 3. **调度器连续失败通知策略（既有条目延伸）**：本 Spec 的 P3 让 feed 级连续失败可观测，是否把“只打日志”升级为 feed 级通知需单独确认渠道/阈值/静默时段。
 4. **指标暴露入口**：新增独立受保护 admin JSON，不改 `/health` `/ready`；需先确认访问控制和是否启用。
 5. **ConfiguredEgressLabel**：只是配置标签，不是实际公网出口证据；未来对照实验必须配对网络侧出口记录。

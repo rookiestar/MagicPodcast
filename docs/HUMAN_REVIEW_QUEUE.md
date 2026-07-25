@@ -22,8 +22,8 @@
 | 图片代理准入上限（issue #14） | 为修首屏少量封面稳定占位，`backend/internal/router/router.go` 的 `imageOperation` 由 `MaxConcurrent:4 / 120每分钟` 上调为 `32 / 600每分钟`；图片代理为无状态只读字节转发，已有 reviewed-hosts 白名单（双端同步）、私网/CGNAT(100.64/10) 阻断、超时和大小/类型校验兜底，前端 `PodcastCover.tsx` 也已加 409/429/5xx 有限退避重试 | 属调度行为变更，已先记录再改：确认 `32 / 600每分钟` 与单人真实首屏规模匹配；若担心削弱准入控制意图可在观察实际峰值后收紧 |
 | 图片代理响应体上限（#218 大封面） | `DefaultImageResponseLimitBytes` 从 5 MiB 上调至 20 MiB，覆盖 image.xyzcdn.net 等 ~7 MiB 封面图；单人服务无 CDN 缓存，用带宽换覆盖率 | 确认带宽可接受；若后续发现大图拖慢首屏可考虑服务端压缩或渐进式加载 |
 | 本地 `backend/api`、`backend/configs/config.yaml*`、`.env*`、日志、数据库、`.bak` 和备份 | 属于本机运行产物、配置或手工留存文件，可能含敏感配置或正在被服务使用 | 不纳入版本库，不做自动删除；确认不需要后可手动清理 |
-| Feed 抓取参数配置化与默认值 | 详见 [research/FEED_FETCHER_RELIABILITY_SPEC_2026-07-21.md](research/FEED_FETCHER_RELIABILITY_SPEC_2026-07-21.md) P0/P1：冷却、retry budget、超时、User-Agent 改为启动时配置；所有域名可采用保守负载整形，但域名熔断默认不扩张 | 人审默认值；`feed.xyzfm.space` 保留首次 403 立即断路，其他域名需显式策略或多个不同 Feed 的共同失败证据 |
-| 持久化 last-good 数据库迁移 | 同上 Spec P2：新增 `feed_snapshots` 表，将正文、指纹和验证器原子保存，不在 `podcasts` 复制第二份权威验证器；属真实数据库结构变更 | 仅按 `migration/MIGRATION_GUIDE.md` 先备份、验证、停服务，再用确认字符串经 `cmd/migrate` 运行；验收 256 条/32 MiB 上限和确定性淘汰 |
+| Feed 抓取参数配置化与默认值 | 详见 [research/FEED_FETCHER_RELIABILITY_SPEC_2026-07-21.md](research/FEED_FETCHER_RELIABILITY_SPEC_2026-07-21.md) P0/P1 及后续批准的 #35/#36：冷却、retry budget、超时、User-Agent 改为启动时配置；小宇宙使用共享单队列和简单自适应软限速 | 当前源码仍会让 `feed.xyzfm.space` 首次 403 触发整域 OPEN；#35/#36 已批准删除该硬断路，改为 15 分钟批次内的有界分类重试。#36 落地前应把它记录为待替换现状，不得继续称为目标设计或不变量 |
+| 持久化 Feed 快照数据库迁移 | 同上 Spec P2：新增 `feed_snapshots` 表，将正文、指纹和验证器原子保存，用于匹配验证器的 304 恢复与诊断；不在 `podcasts` 复制第二份权威验证器；属真实数据库结构变更 | 仅按 `migration/MIGRATION_GUIDE.md` 先备份、验证、停服务，再用确认字符串经 `cmd/migrate` 运行；验收 256 条/32 MiB 上限和确定性淘汰；按 #35 不得把普通失败后的 last-good 计作本批成功或写入新报告 |
 | Feed 指标暴露入口 | 同上 Spec P3：新增独立受保护 admin JSON，暴露抓取计数、延迟、断路状态、last-good 与 304 命中率；不修改 `/health` `/ready`，不新增 `/metrics` | 确认访问控制、是否启用及字段白名单后再上线 |
 | Feed 网络兼容边界 | 私网/回环阻断和跨域重定向白名单可能破坏局域网 Feed 或正规 Feed 迁移；本 Spec 首版只限制 HTTP(S) 和最多 5 跳 | 进一步收紧前先审计现有订阅，并确认是否支持显式局域网 Feed 允许策略 |
 | 配置出口标签 | 同上 Spec P3：既有 `EgressID` 兼容字段按 `ConfiguredEgressLabel` 解释，默认 `direct`；它不是实际公网出口证明，也不引入固定出口/代理组件 | 未来 #22 对照实验必须把标签与网络侧实际出口证据配对；任何生产换出口仍需重新达到双窗口门槛并取得明确授权 |

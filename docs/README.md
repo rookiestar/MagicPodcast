@@ -1,14 +1,18 @@
 # MagicPodcast 文档中心
 
-最后更新：2026-07-21
+最后更新：2026-07-25
 
 这份索引用来区分“当前维护文档”和“历史记录”。日常开发、部署、测试和重构优先看当前维护文档；阶段性总结和历史分析只作为查证背景，不作为最新状态依据。
+
+Agent 治理以根目录 [../AGENTS.md](../AGENTS.md) 为唯一权威合同；[../CLAUDE.md](../CLAUDE.md) 仅转发到该合同。日常验证与 Issue 验收见 [AGENT_VERIFICATION.md](AGENT_VERIFICATION.md)；生产发布与回退见 [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)。
 
 ## 当前维护文档
 
 | 主题 | 文档 | 用途 |
 | --- | --- | --- |
 | 项目总览 | [../README.md](../README.md) | 项目定位、启动方式、常用检查 |
+| Agent 合同 | [../AGENTS.md](../AGENTS.md) | 唯一权威 Agent 治理入口（权限、验证、生产/库、Git/Subagent） |
+| Agent 验证 | [AGENT_VERIFICATION.md](AGENT_VERIFICATION.md) | 按风险定向检查与 Issue 验收证据分层 |
 | 维护路线 | [REFACTORING_ROADMAP.md](REFACTORING_ROADMAP.md) | 当前重构进度和下一步优先级 |
 | 专项收尾 | [AUTOMATED_REFACTORING_CLOSEOUT.md](AUTOMATED_REFACTORING_CLOSEOUT.md) | 本轮自动化重构专项总结、验证结果和下一步 |
 | 人审队列 | [HUMAN_REVIEW_QUEUE.md](HUMAN_REVIEW_QUEUE.md) | 自动跳过、需要确认后再处理的事项 |
@@ -36,8 +40,17 @@
 | [migration/](migration/) | 数据迁移、去重和兼容处理 |
 | [optimization/README.md](optimization/README.md) | 当前性能优化入口和下一步边界 |
 | [performance/](performance/) | 当前和后续性能基线 |
-| [research/](research/) | 一手研究、已确认决策与设计提案；引用时需区分生产事实、ADR 和尚未实现的 Spec |
-| [archive/](archive/) | 已从当前入口移出的历史阶段报告和测试报告 |
+| [research/](research/) | **研究与方案**（非默认生产事实）：一手研究、ADR、设计提案与尚未完全落地的 Spec；落地前须用源码/测试核对 |
+| [runbooks/](runbooks/) | 运维诊断手册；步骤须与当前实现和已批准 Spec 的细粒度策略一致 |
+| [archive/](archive/) | **历史材料**：已从当前入口移出的阶段报告和测试报告，不作为最新状态依据 |
+
+文档角色速查：
+
+| 角色 | 位置 | Agent 用法 |
+| --- | --- | --- |
+| 当前事实 | 本页「当前维护文档」、README、源码 | 可直接作为现状依据 |
+| 研究 / 方案 | `research/`、部分 planning 归档前草案 | 区分已实现 / 仅决策 / 未实现；冲突时以源码为准 |
+| 历史归档 | `docs/archive/`、根目录 `archive/` | 只追溯，引用前必须重验证 |
 
 ## 历史记录
 
@@ -58,8 +71,9 @@
 
 ## 使用建议
 
-1. 新任务先看 [../README.md](../README.md) 和 [REFACTORING_ROADMAP.md](REFACTORING_ROADMAP.md)。
-2. 遇到不适合自动处理的清理项，记录到 [HUMAN_REVIEW_QUEUE.md](HUMAN_REVIEW_QUEUE.md)。
-3. 改动前后先按 [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) 复查，再按 [performance/BASELINE_2026-05-31.md](performance/BASELINE_2026-05-31.md) 里的命令做性能对比。
-4. 涉及真实数据前，先看 [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md)。
-5. 历史报告只作背景，不直接当成当前事实。
+1. 编码代理先读 [../AGENTS.md](../AGENTS.md)；验证按 [AGENT_VERIFICATION.md](AGENT_VERIFICATION.md)，不要把发布清单当日常验证入口。
+2. 新任务再看 [../README.md](../README.md) 和 [REFACTORING_ROADMAP.md](REFACTORING_ROADMAP.md)。
+3. 遇到不适合自动处理的清理项，记录到 [HUMAN_REVIEW_QUEUE.md](HUMAN_REVIEW_QUEUE.md)。
+4. 准备部署或回退时按 [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) 执行；性能对比用 [performance/BASELINE_2026-05-31.md](performance/BASELINE_2026-05-31.md) 中的命令。
+5. 涉及真实数据前，先看 [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md)。
+6. 历史报告与 `research/` 中未落地 Spec 只作背景，不直接当成当前生产事实。

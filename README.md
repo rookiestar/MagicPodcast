@@ -24,12 +24,15 @@ MagicPodcast 是一个个人播客管理与自动化处理工具，用来导入 
 
 ```text
 MagicPodcast/
+├── AGENTS.md       Agent 唯一权威治理合同
 ├── backend/        Go API、数据库、同步、工作流和维护工具
 ├── frontend/       Next.js 前端应用
 ├── scripts/        启停、健康检查、备份恢复和性能巡检脚本
 ├── docs/           当前文档、历史报告和性能基线
 └── archive/        已归档的旧 Docker / Nginx 配置
 ```
+
+编码代理请遵守 [AGENTS.md](AGENTS.md)。日常验证见 [docs/AGENT_VERIFICATION.md](docs/AGENT_VERIFICATION.md)；发布与回退见 [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)。
 
 ## 本地启动
 

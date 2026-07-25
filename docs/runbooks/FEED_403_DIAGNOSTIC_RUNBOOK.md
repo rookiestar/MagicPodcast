@@ -57,7 +57,7 @@
 
 1. **先看 failure_phase**：若为 `connect`/`tls`/`dns`，这不是 403 问题，走网络层排查；若为 `response_header`/`body_read`，进入本 Runbook。
 2. **聚合 admin 计数**：按 `target_domain` 看 `feed_fetch_total{...,source=primary}` 的 403 占比与时间分布，配对 `circuit_transitions` 和 `retry_total`。
-3. **核对节奏**：确认 Coordinator 的 MaxConcurrency / MinRefreshInterval / 错峰对 `feed.xyzfm.space` 生效（首次 403 立即断路是预期行为，不是 bug）。
+3. **核对节奏**：当前源码仍会让 `feed.xyzfm.space` 首次 `access_denied`/403 触发整域 OPEN，因此后续同域 `circuit_open` 是派生策略结果，不是新的上游 403。#35/#36 已批准删除该硬断路，改为共享单队列、简单自适应软限速和 15 分钟批次内的有界分类重试；在 #36 落地前，必须把现行行为标成待替换实现，不得称为目标设计或永久不变量。其他域名默认也不因单个 Feed 的一次 403 触发域名熔断。
 4. **遵守 Retry-After**：日志有 `retry_after` 时按其等待，#25 已对齐并设上限。
-5. **fallback 已生效验证**：403 后按既定顺序先尝试已验证的 PodcastIndex 替代源，替代源不可用或验证失败后才落到 last-good；分别核对替代源结果与 `last_good_hits_total`、`snapshot_store`。
+5. **恢复链验证**：403 后先尝试已验证的 PodcastIndex 替代源；按 #35，last-good 仅用于匹配验证器的 304 恢复和诊断，不得把普通失败后的快照命中计作本批成功、写入新报告或推进抓取时间。分别核对替代源结果、`last_good_hits_total` 与 `snapshot_store`，并区分当前实现和 #35 目标语义。
 6. **结论门槛**：任何根因结论（IP/ASN、CDN、固定出口）都需网络侧证据 + #22/#24 门槛，不单独凭本 Runbook 的字段下结论。
