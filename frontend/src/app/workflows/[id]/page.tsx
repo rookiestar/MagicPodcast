@@ -162,15 +162,19 @@ function WorkflowDetailContent() {
       return;
     }
 
+    const abortController = new AbortController();
     setIsLoadingOverviewPodcasts(true);
     podcastApi
-      .batchGet(overviewPodcastIds)
+      .batchGet(overviewPodcastIds, { signal: abortController.signal })
       .then((podcasts) => {
         if (!cancelled) {
           setOverviewPodcasts(podcasts);
         }
       })
       .catch((err) => {
+        if (abortController.signal.aborted) {
+          return;
+        }
         if (!cancelled) {
           console.error("Failed to fetch overview podcasts:", err);
           setOverviewPodcasts([]);
@@ -184,6 +188,7 @@ function WorkflowDetailContent() {
 
     return () => {
       cancelled = true;
+      abortController.abort();
     };
   }, [activeTab, overviewPodcastIds, workflow?.scope_type]);
 

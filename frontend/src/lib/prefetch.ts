@@ -1,12 +1,13 @@
-import { mutate } from "swr";
+import { mutate, preload } from "swr";
 import { debugDebug } from "./debugLog";
-import { apiClient } from "./fetcher";
+import { apiClient, fetcher } from "./fetcher";
 import {
   buildPodcastDetailPath,
   buildPodcastNotesPath,
   buildPodcastTagsPath,
 } from "./podcastApiPaths";
 import { buildWorkflowJobsSummaryPath } from "./workflowJobsPaths";
+import type { JobsResponse } from "@/types";
 
 const inFlightPrefetches = new Map<string, Promise<void>>();
 
@@ -65,17 +66,13 @@ export async function prefetchPodcastData(podcastId: number) {
 export async function prefetchWorkflowData(workflowId: number) {
   return runDedupedPrefetch(`workflow:${workflowId}`, async () => {
     try {
-      const jobsPath = buildWorkflowJobsSummaryPath(workflowId, 1, 10);
-      const [workflowRes, jobsRes] = await Promise.all([
+      const [workflowRes] = await Promise.all([
         apiClient.get(`/api/v1/workflows/${workflowId}`),
-        apiClient.get(jobsPath),
+        prefetchWorkflowJobsSummary(workflowId),
       ]);
 
       if (workflowRes.data?.success && workflowRes.data?.data) {
         mutate(`/api/v1/workflows/${workflowId}`, workflowRes.data.data, false);
-      }
-      if (jobsRes.data?.success && jobsRes.data?.data) {
-        mutate(jobsPath, jobsRes.data.data, false);
       }
     } catch (error) {
       debugDebug("[prefetch] Failed to prefetch workflow:", workflowId, error);
@@ -88,19 +85,14 @@ export async function prefetchWorkflowData(workflowId: number) {
  * 在悬停/聚焦/触摸“执行历史”标签时调用，写入与 useWorkflowJobs 相同的 SWR key。
  */
 export async function prefetchWorkflowJobsSummary(workflowId: number) {
-  return runDedupedPrefetch(`workflow-jobs-summary:${workflowId}`, async () => {
-    try {
-      const jobsPath = buildWorkflowJobsSummaryPath(workflowId, 1, 10);
-      const jobsRes = await apiClient.get(jobsPath);
-      if (jobsRes.data?.success && jobsRes.data?.data) {
-        mutate(jobsPath, jobsRes.data.data, false);
-      }
-    } catch (error) {
-      debugDebug(
-        "[prefetch] Failed to prefetch workflow jobs summary:",
-        workflowId,
-        error,
-      );
-    }
-  });
+  const jobsPath = buildWorkflowJobsSummaryPath(workflowId, 1, 10);
+  try {
+    await preload(jobsPath, fetcher<JobsResponse>);
+  } catch (error) {
+    debugDebug(
+      "[prefetch] Failed to prefetch workflow jobs summary:",
+      workflowId,
+      error,
+    );
+  }
 }

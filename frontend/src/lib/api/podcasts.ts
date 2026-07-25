@@ -66,10 +66,14 @@ async function getPodcast(id: number): Promise<any> {
 }
 
 // 批量获取播客详情
-async function batchGetPodcasts(ids: number[]): Promise<any[]> {
+async function batchGetPodcasts(
+  ids: number[],
+  options: { signal?: AbortSignal } = {},
+): Promise<any[]> {
   const response = await api.post<ApiResponse<any[]>>(
     buildPodcastBatchPath(),
     { ids, view: "summary" },
+    { signal: options.signal },
   );
   return handleResponse(response);
 }

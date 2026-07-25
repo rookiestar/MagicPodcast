@@ -28,6 +28,7 @@ const WORKFLOW_PATH = `/api/v1/workflows/${WORKFLOW_ID}`;
 
 const routerReplace = vi.fn();
 const routerPush = vi.fn();
+let currentSearchParams = new URLSearchParams();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -37,7 +38,7 @@ vi.mock("next/navigation", () => ({
     back: vi.fn(),
   }),
   useParams: () => ({ id: String(WORKFLOW_ID) }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => currentSearchParams,
   usePathname: () => `/workflows/${WORKFLOW_ID}`,
 }));
 
@@ -225,6 +226,7 @@ function intentPrefetchJobsTab() {
 beforeEach(() => {
   routerReplace.mockClear();
   routerPush.mockClear();
+  currentSearchParams = new URLSearchParams();
   window.history.replaceState({}, "", `/workflows/${WORKFLOW_ID}`);
 });
 
@@ -287,6 +289,7 @@ describe("工作流执行历史可见等待验收 (#34)", () => {
       expect(firstPageJobsCalls(controller).length).toBeGreaterThanOrEqual(1);
     });
     const prefetchCount = firstPageJobsCalls(controller).length;
+    fireEvent.focus(screen.getByRole("button", { name: /执行历史/ }));
 
     const samples: number[] = [];
     for (let i = 0; i < 5; i += 1) {
@@ -302,6 +305,7 @@ describe("工作流执行历史可见等待验收 (#34)", () => {
       samples.push(performance.now() - t0);
     }
 
+    expect(firstPageJobsCalls(controller)).toHaveLength(prefetchCount);
     samples.sort((a, b) => a - b);
     const p95Index = Math.min(
       samples.length - 1,
@@ -310,6 +314,36 @@ describe("工作流执行历史可见等待验收 (#34)", () => {
     expect(samples[p95Index]).toBeLessThanOrEqual(300);
     expect(routerReplace).not.toHaveBeenCalled();
     expect(prefetchCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("可分享 URL：刷新进入 tab=jobs 时直接恢复执行历史", async () => {
+    currentSearchParams = new URLSearchParams("tab=jobs");
+    window.history.replaceState(
+      {},
+      "",
+      `/workflows/${WORKFLOW_ID}?tab=jobs`,
+    );
+    const controller: ApiController = {
+      workflowDelayMs: 0,
+      jobsDelayMs: 0,
+      jobsFail: false,
+      jobsByPage: new Map([[1, [makeJob(2501)]]]),
+      totalPages: 1,
+      batchGetCalls: 0,
+      calls: [],
+    };
+    installApi(controller);
+    installBatchGet(controller);
+
+    renderDetail();
+    await waitForWorkflowReady();
+    await waitFor(() => {
+      expect(screen.getAllByText(/匹配数/).length).toBeGreaterThan(0);
+    });
+
+    expect(window.location.search).toBe("?tab=jobs");
+    expect(firstPageJobsCalls(controller)).toHaveLength(1);
+    expect(routerReplace).not.toHaveBeenCalled();
   });
 
   it("缓存复访：再次进入历史时先展示已有列表，不出现加载清空", async () => {
@@ -447,13 +481,19 @@ describe("工作流执行历史可见等待验收 (#34)", () => {
       calls: [],
     };
     installApi(controller);
-    installBatchGet(controller);
+    const batchGet = installBatchGet(controller);
 
     renderDetail();
     await waitForWorkflowReady();
     await waitFor(() =>
       expect(controller.batchGetCalls).toBeGreaterThanOrEqual(1),
     );
+    const batchGetOptions = (
+      batchGet.mock.calls as unknown as Array<
+        [number[], { signal?: AbortSignal }]
+      >
+    )[0]?.[1];
+    expect(batchGetOptions?.signal).toBeInstanceOf(AbortSignal);
     const afterOverview = controller.batchGetCalls;
 
     clickJobsTab();
@@ -463,6 +503,7 @@ describe("工作流执行历史可见等待验收 (#34)", () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 80));
     });
+    expect(batchGetOptions?.signal?.aborted).toBe(true);
     expect(controller.batchGetCalls).toBe(afterOverview);
   });
 
