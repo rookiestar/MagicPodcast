@@ -1,6 +1,7 @@
 package upgrade
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"path/filepath"
@@ -58,6 +59,10 @@ func ValidateCandidate(path, viewSQL string, fullIntegrityCheck bool) (Validatio
 	schema, err := inspectSchema(db)
 	result.Schema = schema
 	if err != nil {
+		db.Close()
+		return resultWithError(result, err)
+	}
+	if err := ensureStableIdentityIndexes(db); err != nil {
 		db.Close()
 		return resultWithError(result, err)
 	}
@@ -122,6 +127,24 @@ func ValidateCandidate(path, viewSQL string, fullIntegrityCheck bool) (Validatio
 	result.SizeBytes = finalSizeBytes
 	result.Passed = true
 	return result, nil
+}
+
+// ensureStableIdentityIndexes prepares the candidate dataset for the exact
+// identity lookup used during alternative-feed verification. The downloaded
+// PodcastIndex file is an external SQLite artifact and may not ship with the
+// indexes the application needs, so validation makes the staging candidate
+// self-contained before query-plan checks and cutover.
+func ensureStableIdentityIndexes(db *sql.DB) error {
+	statements := []string{
+		`CREATE INDEX IF NOT EXISTS idx_podcasts_itunes_id ON podcasts(itunesId)`,
+		`CREATE INDEX IF NOT EXISTS idx_podcasts_podcast_guid_nocase ON podcasts(podcastGuid COLLATE NOCASE)`,
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			return fmt.Errorf("create PodcastIndex identity index: %w", err)
+		}
+	}
+	return nil
 }
 
 func resultWithError(result ValidationResult, err error) (ValidationResult, error) {
@@ -326,7 +349,8 @@ func runQueryCompatibility(path string) (QueryCompatibility, error) {
 		return compatibility, err
 	}
 	defer query.Close()
-	if info, err := query.FindByFeedURL(compatibility.URL); err != nil || info == nil {
+	info, err := query.FindByFeedURL(compatibility.URL)
+	if err != nil || info == nil {
 		if err == nil {
 			err = fmt.Errorf("URL lookup returned no row")
 		}
@@ -334,6 +358,19 @@ func runQueryCompatibility(path string) (QueryCompatibility, error) {
 		return compatibility, fmt.Errorf("URL lookup compatibility failed: %w", err)
 	}
 	compatibility.URLChecked = true
+	identityPlan, err := query.ExplainIdentityLookup(context.Background(), info.ITunesID, info.PodcastGUID)
+	if err != nil {
+		compatibility.Error = err.Error()
+		return compatibility, fmt.Errorf("stable identity query-plan check failed: %w", err)
+	}
+	compatibility.IdentityLookupChecked = true
+	compatibility.IdentityLookupPlan = identityPlan
+	compatibility.IdentityLookupIndexed = identityLookupPlanUsesRequiredIndexes(identityPlan)
+	if !compatibility.IdentityLookupIndexed {
+		err := fmt.Errorf("stable identity query is not backed by both required indexes: %s", strings.Join(identityPlan, " | "))
+		compatibility.Error = err.Error()
+		return compatibility, err
+	}
 	if results, err := query.FindByTitle(compatibility.Title); err != nil || len(results) == 0 {
 		if err == nil {
 			err = fmt.Errorf("title lookup returned no row")
@@ -357,4 +394,10 @@ func runQueryCompatibility(path string) (QueryCompatibility, error) {
 	}
 	compatibility.Passed = true
 	return compatibility, nil
+}
+
+func identityLookupPlanUsesRequiredIndexes(plan []string) bool {
+	joined := strings.Join(plan, " | ")
+	return strings.Contains(joined, "idx_podcasts_itunes_id") &&
+		strings.Contains(joined, "idx_podcasts_podcast_guid_nocase")
 }

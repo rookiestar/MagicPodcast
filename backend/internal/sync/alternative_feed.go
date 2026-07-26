@@ -42,28 +42,26 @@ func (s *Service) persistPodcastFeedIdentity(podcast *models.Podcast, parsed *go
 	}
 	updates := make(map[string]interface{}, 2)
 	identityChanged := false
-	if podcast.PodcastGUID == "" {
-		if guid := extractPodcastGUID(parsed); guid != "" {
-			podcast.PodcastGUID = guid
-			updates["podcast_guid"] = guid
-			identityChanged = true
-		}
+	if guid := extractPodcastGUID(parsed); guid != "" && normalizeIdentity(guid) != normalizeIdentity(podcast.PodcastGUID) {
+		podcast.PodcastGUID = guid
+		updates["podcast_guid"] = guid
+		identityChanged = true
 	}
-	if podcast.ITunesID == "" {
-		if itunesID := extractITunesID(parsed); itunesID != "" {
-			podcast.ITunesID = itunesID
-			updates["i_tunes_id"] = itunesID
-			identityChanged = true
-		}
+	if itunesID := extractITunesID(parsed); itunesID != "" && parseITunesID(itunesID) != parseITunesID(podcast.ITunesID) {
+		podcast.ITunesID = itunesID
+		updates["i_tunes_id"] = itunesID
+		identityChanged = true
 	}
 	if len(updates) > 0 {
 		if err := s.db.Model(&models.Podcast{}).Where("id = ?", podcast.ID).Updates(updates).Error; err != nil {
 			return
 		}
 	}
-	// Filling a previously empty identity does not invalidate an existing cache
-	// keyed on the old empty identity; re-warm happens on the next verify pass.
-	_ = identityChanged
+	if identityChanged {
+		// A filled or changed stable identity changes the cache key. Drop the old
+		// binding immediately; the caller may then schedule a fresh verification.
+		s.InvalidateAlternativeCache(podcast.ID)
+	}
 }
 
 // InvalidateAlternativeCache drops cached alternative verification for a
@@ -115,6 +113,12 @@ func (s *Service) EnsureAlternativeVerified(ctx context.Context, podcast *models
 	}
 	queryCtx, cancel := context.WithTimeout(ctx, AlternativeLiveQueryTimeout)
 	defer cancel()
+	identity, err := s.resolveAlternativeIdentityWithContext(queryCtx, podcast)
+	if err == nil && (identity.itunesID > 0 || identity.podcastGUID != "") {
+		if _, ok := s.loadAlternativeCache(podcast.ID, feed.CanonicalizeURL(podcast.FeedURL), identity.key()); ok {
+			return
+		}
+	}
 	_, _, _, _ = s.verifyAndCacheAlternative(queryCtx, podcast)
 }
 

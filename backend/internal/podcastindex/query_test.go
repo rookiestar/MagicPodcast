@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -138,6 +139,40 @@ func TestPodcastIndexContextQueriesHonorCancellation(t *testing.T) {
 	}
 	if _, err := query.FindCandidatesByIdentityContext(ctx, 123, "guid-123"); err == nil {
 		t.Fatal("FindCandidatesByIdentityContext should reject an already-cancelled context")
+	}
+}
+
+func TestExplainIdentityLookupReportsStableIndexes(t *testing.T) {
+	path := createQueryFixture(t, []queryFixtureRow{
+		{id: 1, title: "稳定节目", author: "作者", feedURL: "https://primary.example/feed.xml", itunesID: 123, guid: "guid-123", status: 200},
+	})
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`CREATE INDEX idx_podcasts_itunes_id ON podcasts(itunesId);
+CREATE INDEX idx_podcasts_podcast_guid_nocase ON podcasts(podcastGuid COLLATE NOCASE);`)
+	if err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	query, err := NewQuery(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer query.Close()
+
+	plan, err := query.ExplainIdentityLookup(context.Background(), 123, "guid-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(plan, " | ")
+	if !strings.Contains(joined, "idx_podcasts_itunes_id") || !strings.Contains(joined, "idx_podcasts_podcast_guid_nocase") {
+		t.Fatalf("identity lookup plan = %s", joined)
 	}
 }
 

@@ -176,15 +176,18 @@ type MetricsComparison struct {
 }
 
 type QueryCompatibility struct {
-	ViewCount       int64  `json:"view_count"`
-	URLChecked      bool   `json:"url_checked"`
-	URL             string `json:"url,omitempty"`
-	TitleChecked    bool   `json:"title_checked"`
-	Title           string `json:"title,omitempty"`
-	ITunesIDChecked bool   `json:"itunes_id_checked"`
-	ITunesID        int64  `json:"itunes_id,omitempty"`
-	Passed          bool   `json:"passed"`
-	Error           string `json:"error,omitempty"`
+	ViewCount             int64    `json:"view_count"`
+	URLChecked            bool     `json:"url_checked"`
+	URL                   string   `json:"url,omitempty"`
+	TitleChecked          bool     `json:"title_checked"`
+	Title                 string   `json:"title,omitempty"`
+	ITunesIDChecked       bool     `json:"itunes_id_checked"`
+	ITunesID              int64    `json:"itunes_id,omitempty"`
+	IdentityLookupChecked bool     `json:"identity_lookup_checked"`
+	IdentityLookupIndexed bool     `json:"identity_lookup_indexed"`
+	IdentityLookupPlan    []string `json:"identity_lookup_plan,omitempty"`
+	Passed                bool     `json:"passed"`
+	Error                 string   `json:"error,omitempty"`
 }
 
 type ValidationResult struct {

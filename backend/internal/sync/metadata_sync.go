@@ -174,6 +174,11 @@ func (s *Service) syncPodcastMetadataWithUpdateCheck(podcast *models.Podcast) (e
 		if err != nil {
 			return fmt.Errorf("transaction failed: %w", err), false, nil
 		}
+		// Metadata refresh is another healthy-primary seam. Persist any stable
+		// identity learned from the live body, invalidate stale bindings when it
+		// changes, and prepare the alternative outside the sync critical path.
+		s.persistPodcastFeedIdentity(podcast, gofeed)
+		s.scheduleAlternativePrewarm(podcast)
 
 		// 确定单集同步模式
 		var existingEpisodeCount int64

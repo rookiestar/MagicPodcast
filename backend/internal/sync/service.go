@@ -1,11 +1,14 @@
 package sync
 
 import (
+	"context"
 	"fmt"
 	"magicpodcast/internal/logger"
+	"sync"
 	"time"
 
 	"magicpodcast/internal/feed"
+	"magicpodcast/internal/models"
 	"magicpodcast/internal/opml"
 	"magicpodcast/internal/podcastindex"
 	"magicpodcast/internal/scraper"
@@ -36,6 +39,14 @@ type Service struct {
 	// bounded full-jitter backoff. Tests override it via applyRetryPolicy to
 	// inject a no-op sleeper and fixed randomness for determinism.
 	retryPolicy feed.RetryPolicy
+
+	// alternativePrewarm limits best-effort PodcastIndex verification work so a
+	// successful bulk refresh never blocks on fallback preparation or opens an
+	// unbounded goroutine/query fan-out.
+	alternativePrewarmMu     sync.Mutex
+	alternativePrewarmSem    chan struct{}
+	alternativePrewarmWG     sync.WaitGroup
+	alternativePrewarmClosed bool
 }
 
 // SyncResult 同步结果
@@ -149,12 +160,13 @@ func NewServiceWithFeedCoordinator(db *gorm.DB, podcastIndexPath string, coordin
 	}
 
 	return &Service{
-		db:                db,
-		opmlParser:        opml.NewParser(),
-		feedFetcher:       feed.NewFetcherWithCoordinator(30*time.Second, coordinator),
-		podcastIndexQuery: podcastIndexQuery,
-		scraper:           scraper.NewScraper(),
-		retryPolicy:       feed.SharedRetryPolicy(),
+		db:                    db,
+		opmlParser:            opml.NewParser(),
+		feedFetcher:           feed.NewFetcherWithCoordinator(30*time.Second, coordinator),
+		podcastIndexQuery:     podcastIndexQuery,
+		scraper:               scraper.NewScraper(),
+		retryPolicy:           feed.SharedRetryPolicy(),
+		alternativePrewarmSem: make(chan struct{}, 2),
 	}, nil
 }
 
@@ -167,10 +179,50 @@ func (s *Service) applyRetryPolicy(policy feed.RetryPolicy) {
 
 // Close 关闭服务，释放资源
 func (s *Service) Close() error {
+	if s == nil {
+		return nil
+	}
+	s.alternativePrewarmMu.Lock()
+	s.alternativePrewarmClosed = true
+	s.alternativePrewarmMu.Unlock()
+	s.alternativePrewarmWG.Wait()
 	if s.podcastIndexQuery != nil {
 		return s.podcastIndexQuery.Close()
 	}
 	return nil
+}
+
+// scheduleAlternativePrewarm starts a bounded, best-effort verification after
+// a successful import/refresh. The primary sync path does not wait for the
+// optional PodcastIndex query or candidate Feed request; Close waits for work
+// already admitted so the query handle is never closed underneath a worker.
+func (s *Service) scheduleAlternativePrewarm(podcast *models.Podcast) {
+	if s == nil || podcast == nil || podcast.ID == 0 || s.podcastIndexQuery == nil {
+		return
+	}
+
+	s.alternativePrewarmMu.Lock()
+	if s.alternativePrewarmClosed || s.alternativePrewarmSem == nil {
+		s.alternativePrewarmMu.Unlock()
+		return
+	}
+	select {
+	case s.alternativePrewarmSem <- struct{}{}:
+		copy := *podcast
+		s.alternativePrewarmWG.Add(1)
+		s.alternativePrewarmMu.Unlock()
+		go func() {
+			defer s.alternativePrewarmWG.Done()
+			defer func() { <-s.alternativePrewarmSem }()
+			ctx, cancel := context.WithTimeout(context.Background(), AlternativeLiveQueryTimeout)
+			defer cancel()
+			s.EnsureAlternativeVerified(ctx, &copy)
+		}()
+	default:
+		// A full queue is an intentional bounded drop. The next healthy refresh
+		// or an explicit maintenance call can retry without delaying the caller.
+		s.alternativePrewarmMu.Unlock()
+	}
 }
 
 // SyncAllPodcasts 同步所有订阅的播客（非SSE版本，用于REST API）

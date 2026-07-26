@@ -141,6 +141,7 @@ func (s *Service) ImportOPMLWithProgressAndConfig(filePath string, reporter Prog
 				reporter.ReportError(fmt.Sprintf("保存失败: %s - %v", res.title, err))
 				return
 			}
+			s.scheduleAlternativePrewarm(res.podcast)
 
 			result.SuccessPodcasts++
 			reporter.ReportSuccess(fmt.Sprintf("成功导入: %s", res.title))
@@ -268,6 +269,7 @@ func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter Progr
 				reporter.ReportError(fmt.Sprintf("保存失败: %s - %v", res.title, err))
 				logger.Infof("❌ [%d/%d] %s - 保存失败: %v", processedCount, len(outlines), res.title, err)
 			} else {
+				s.scheduleAlternativePrewarm(res.podcast)
 				matchedCount++
 				reporter.ReportSuccess(fmt.Sprintf("成功导入: %s", res.title))
 				logger.Infof("✅ [%d/%d] %s - 成功", processedCount, len(outlines), res.title)

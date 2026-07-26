@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"magicpodcast/internal/feed"
 	"magicpodcast/internal/models"
 	"magicpodcast/internal/opml"
 	"magicpodcast/internal/podcastindex"
@@ -40,7 +41,16 @@ func (s *Service) saveOrUpdatePodcast(podcast *models.Podcast) error {
 	podcast.MyRate = existing.MyRate
 	podcast.CreatedAt = existing.CreatedAt
 	podcast.AddedDate = existing.AddedDate // 保留原有的添加日期
-	return s.db.Save(podcast).Error
+	mainFeedChanged := feed.CanonicalizeURL(existing.FeedURL) != feed.CanonicalizeURL(podcast.FeedURL)
+	identityChanged := parseITunesID(existing.ITunesID) != parseITunesID(podcast.ITunesID) ||
+		normalizeIdentity(existing.PodcastGUID) != normalizeIdentity(podcast.PodcastGUID)
+	if err := s.db.Save(podcast).Error; err != nil {
+		return err
+	}
+	if mainFeedChanged || identityChanged {
+		s.InvalidateAlternativeCache(podcast.ID)
+	}
+	return nil
 }
 
 // feedURLToID 从feed URL生成唯一ID

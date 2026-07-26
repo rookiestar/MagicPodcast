@@ -410,6 +410,53 @@ func (q *Query) FindCandidatesByIdentity(itunesID int, podcastGUID string) ([]*P
 	return q.FindCandidatesByIdentityContext(context.Background(), itunesID, podcastGUID)
 }
 
+// ExplainIdentityLookup returns SQLite's query plan for the exact stable
+// identity lookup used by alternative-feed verification. It is read-only and
+// exists so staging validation can prove that the candidate dataset has the
+// indexes required by the failure-window budget.
+func (q *Query) ExplainIdentityLookup(ctx context.Context, itunesID int, podcastGUID string) ([]string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	source, err := q.rawSourceContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	conditions, args, ok := identityLookupConditions(source, itunesID, podcastGUID)
+	if !ok {
+		return nil, nil
+	}
+	query := fmt.Sprintf(`EXPLAIN QUERY PLAN SELECT p.id FROM %s
+		WHERE (%s) AND p.url IS NOT NULL AND p.url <> ''
+		ORDER BY p.dead ASC,
+		         CASE WHEN p.lastHttpStatus = 200 THEN 0 ELSE 1 END,
+		         p.newestItemPubdate DESC,
+		         p.episodeCount DESC,
+		         p.id ASC`, source.from, conditions)
+	rows, err := q.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("explain PodcastIndex identity lookup: %w", err)
+	}
+	defer rows.Close()
+
+	var plan []string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			return nil, fmt.Errorf("scan PodcastIndex identity query plan: %w", err)
+		}
+		plan = append(plan, detail)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read PodcastIndex identity query plan: %w", err)
+	}
+	return plan, nil
+}
+
 // FindCandidatesByIdentityContext returns identity candidates without the
 // CAST/lower/trim expressions that disabled PodcastIndex indexes. Exact
 // equality is the fast path; a compatibility fallback keeps older datasets
@@ -425,17 +472,8 @@ func (q *Query) FindCandidatesByIdentityContext(ctx context.Context, itunesID in
 	if err != nil {
 		return nil, err
 	}
-	conditions := make([]string, 0, 2)
-	args := make([]any, 0, 2)
-	if itunesID > 0 {
-		conditions = append(conditions, "p.itunesId = ?")
-		args = append(args, itunesID)
-	}
-	if guid := strings.ToLower(strings.TrimSpace(podcastGUID)); guid != "" && source.guidColumn != "''" {
-		conditions = append(conditions, "p.podcastGuid = ? COLLATE NOCASE")
-		args = append(args, guid)
-	}
-	if len(conditions) == 0 {
+	conditions, args, ok := identityLookupConditions(source, itunesID, podcastGUID)
+	if !ok {
 		return nil, nil
 	}
 	query := fmt.Sprintf(`SELECT %s FROM %s
@@ -444,7 +482,7 @@ func (q *Query) FindCandidatesByIdentityContext(ctx context.Context, itunesID in
 		         CASE WHEN p.lastHttpStatus = 200 THEN 0 ELSE 1 END,
 		         p.newestItemPubdate DESC,
 		         p.episodeCount DESC,
-		         p.id ASC`, podcastInfoSelect(source), source.from, strings.Join(conditions, " OR "))
+		         p.id ASC`, podcastInfoSelect(source), source.from, conditions)
 	rows, err := q.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("find PodcastIndex identity candidates: %w", err)
@@ -504,6 +542,23 @@ func (q *Query) FindCandidatesByIdentityContext(ctx context.Context, itunesID in
 		return nil, fmt.Errorf("read legacy PodcastIndex identity candidates: %w", err)
 	}
 	return infos, nil
+}
+
+func identityLookupConditions(source lookupSource, itunesID int, podcastGUID string) (string, []any, bool) {
+	conditions := make([]string, 0, 2)
+	args := make([]any, 0, 2)
+	if itunesID > 0 {
+		conditions = append(conditions, "p.itunesId = ?")
+		args = append(args, itunesID)
+	}
+	if guid := strings.ToLower(strings.TrimSpace(podcastGUID)); guid != "" && source.guidColumn != "''" {
+		conditions = append(conditions, "p.podcastGuid = ? COLLATE NOCASE")
+		args = append(args, guid)
+	}
+	if len(conditions) == 0 {
+		return "", nil, false
+	}
+	return strings.Join(conditions, " OR "), args, true
 }
 
 // Stats 获取数据库统计信息

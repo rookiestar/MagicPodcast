@@ -136,11 +136,14 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 	if fetchErr != nil {
 		return result, fetchErr
 	}
-	s.persistPodcastFeedIdentity(&podcast, selectedFeed)
-	// Do not synchronously warm PodcastIndex after a successful primary fetch.
-	// The optional dataset can be multi-gigabyte and a cache warm would consume
-	// the batch worker's critical path. Alternatives are verified on demand
-	// after a primary failure (or by an explicit maintenance call).
+	// Only a primary refresh may establish or change the subscription identity.
+	// A verified alternative is temporary content and must never rewrite the
+	// primary identity. Prewarming is admitted asynchronously and bounded so
+	// optional PodcastIndex work cannot extend the workflow's critical path.
+	if result.FeedAccess == nil || result.FeedAccess.SourceType == feed.AccessSourcePrimary || result.FeedAccess.SourceType == feed.AccessSourceSharedCache {
+		s.persistPodcastFeedIdentity(&podcast, selectedFeed)
+		s.scheduleAlternativePrewarm(&podcast)
+	}
 
 	updateLastFetchedAt := result.FeedAccess == nil ||
 		(result.FeedAccess.SourceType != feed.AccessSourceLastGood && result.FeedAccess.SourceType != feed.AccessSourceLocalCache)

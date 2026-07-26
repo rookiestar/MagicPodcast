@@ -49,6 +49,46 @@ func TestValidateCandidateCreatesViewAndChecksQueryContract(t *testing.T) {
 	}
 }
 
+func TestValidateCandidateCreatesStableIdentityIndexes(t *testing.T) {
+	databasePath := createCandidateFixture(t, true)
+	result, err := ValidateCandidate(databasePath, projectViewSQL(t), false)
+	if err != nil || !result.Passed {
+		t.Fatalf("ValidateCandidate() result=%+v err=%v", result, err)
+	}
+
+	db, err := OpenSQLite(databasePath, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	rows, err := db.Query(`EXPLAIN QUERY PLAN SELECT p.id FROM podcasts AS p
+		WHERE (p.itunesId = ? OR p.podcastGuid = ? COLLATE NOCASE)
+		  AND p.url IS NOT NULL AND p.url <> ''
+		ORDER BY p.dead ASC, p.lastHttpStatus DESC, p.newestItemPubdate DESC, p.episodeCount DESC, p.id ASC`, 123, "guid-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	var details []string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		details = append(details, detail)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	plan := strings.Join(details, " | ")
+	if !strings.Contains(plan, "idx_podcasts_itunes_id") || !strings.Contains(plan, "idx_podcasts_podcast_guid_nocase") {
+		t.Fatalf("stable identity lookup is not index-backed: %s", plan)
+	}
+}
+
 func TestValidateCandidateRejectsMissingRequiredColumn(t *testing.T) {
 	schema := strings.Replace(fixtureSchema("INTEGER", "INTEGER", true), "  podcastGuid TEXT,\n", "", 1)
 	databasePath := createFixtureWithSchema(t, schema, false)
