@@ -36,14 +36,15 @@ var ErrFeedUnsafeRedirect = errors.New("feed redirect rejected (scheme or hop li
 // body, cookie, credential, or arbitrary response header is never part of this
 // configuration.
 type FeedConfig struct {
-	UserAgent      string             `mapstructure:"user_agent"`
-	Timeouts       FeedTimeouts       `mapstructure:"timeouts"`
-	Headers        FeedHeaders        `mapstructure:"headers"`
-	Retry          FeedRetryConfig    `mapstructure:"retry"`
-	Circuit        FeedCircuitConfig  `mapstructure:"circuit"`
-	Snapshot       FeedSnapshotConfig `mapstructure:"snapshot"`
-	Diagnostics    FeedDiagnostics    `mapstructure:"diagnostics"`
-	DomainPolicies []FeedDomainPolicy `mapstructure:"domain_policies"`
+	UserAgent         string                      `mapstructure:"user_agent"`
+	Timeouts          FeedTimeouts                `mapstructure:"timeouts"`
+	Headers           FeedHeaders                 `mapstructure:"headers"`
+	Retry             FeedRetryConfig             `mapstructure:"retry"`
+	Circuit           FeedCircuitConfig           `mapstructure:"circuit"`
+	UserAgentRecovery UserAgentGateRecoveryConfig `mapstructure:"user_agent_recovery"`
+	Snapshot          FeedSnapshotConfig          `mapstructure:"snapshot"`
+	Diagnostics       FeedDiagnostics             `mapstructure:"diagnostics"`
+	DomainPolicies    []FeedDomainPolicy          `mapstructure:"domain_policies"`
 }
 
 // FeedTimeouts are the layered HTTP timeouts. Each layer fails fast so a slow
@@ -181,6 +182,9 @@ func (c FeedConfig) Validate() error {
 	if c.Retry.Jitter < 0 {
 		return errors.New("feed.retry.jitter must be non-negative")
 	}
+	if err := c.UserAgentRecovery.Validate(); err != nil {
+		return err
+	}
 	if c.Circuit.DomainEvidenceMinDistinctFeeds < 0 {
 		return fmt.Errorf("feed.circuit.domain_evidence_min_distinct_feeds (%d) must be >= 0", c.Circuit.DomainEvidenceMinDistinctFeeds)
 	}
@@ -233,14 +237,15 @@ type FeedDiagnosticsState struct {
 // below. Until configured, every value reflects the honest defaults so the
 // process behaves exactly as before even when no feed section is present.
 type feedRuntime struct {
-	mu              sync.RWMutex
-	configured      bool
-	http            FeedHTTPConfig
-	snapshotDurable bool
-	snapshotBounds  FeedSnapshotBounds
-	retry           FeedRetryConfig
-	adminEnabled    bool
-	egressLabel     string
+	mu                sync.RWMutex
+	configured        bool
+	http              FeedHTTPConfig
+	snapshotDurable   bool
+	snapshotBounds    FeedSnapshotBounds
+	retry             FeedRetryConfig
+	userAgentRecovery UserAgentGateRecoveryConfig
+	adminEnabled      bool
+	egressLabel       string
 }
 
 var sharedFeedRuntime = defaultFeedRuntime()
@@ -248,13 +253,14 @@ var sharedFeedRuntime = defaultFeedRuntime()
 func defaultFeedRuntime() *feedRuntime {
 	httpConfig := DefaultFeedHTTPConfig(defaultFeedOverallTimeout)
 	return &feedRuntime{
-		configured:      false,
-		http:            httpConfig,
-		snapshotDurable: true,
-		snapshotBounds:  FeedSnapshotBounds{},
-		retry:           FeedRetryConfig{},
-		adminEnabled:    true,
-		egressLabel:     EgressDirect,
+		configured:        false,
+		http:              httpConfig,
+		snapshotDurable:   true,
+		snapshotBounds:    FeedSnapshotBounds{},
+		retry:             FeedRetryConfig{},
+		userAgentRecovery: DefaultUserAgentGateRecoveryConfig(),
+		adminEnabled:      true,
+		egressLabel:       EgressDirect,
 	}
 }
 
@@ -271,6 +277,7 @@ func ConfigureSharedRuntime(config FeedConfig) error {
 	if err := config.Validate(); err != nil {
 		return err
 	}
+	userAgentRecovery := config.UserAgentRecovery.withDefaults()
 
 	httpConfig := FeedHTTPConfig{
 		UserAgent:             defaultFeedUserAgent,
@@ -338,6 +345,7 @@ func ConfigureSharedRuntime(config FeedConfig) error {
 	rt.snapshotDurable = snapshotDurable
 	rt.snapshotBounds = snapshotBounds
 	rt.retry = config.Retry
+	rt.userAgentRecovery = userAgentRecovery
 	rt.adminEnabled = adminEnabled
 	rt.egressLabel = egressLabel
 	rt.configured = true
@@ -427,6 +435,14 @@ func SharedRetryConfig() FeedRetryConfig {
 	sharedFeedRuntime.mu.RLock()
 	defer sharedFeedRuntime.mu.RUnlock()
 	return sharedFeedRuntime.retry
+}
+
+// SharedUserAgentGateRecoveryConfig returns the startup-configured durable
+// User-Agent ACL recovery policy used when the SQLite gate store is built.
+func SharedUserAgentGateRecoveryConfig() UserAgentGateRecoveryConfig {
+	sharedFeedRuntime.mu.RLock()
+	defer sharedFeedRuntime.mu.RUnlock()
+	return sharedFeedRuntime.userAgentRecovery
 }
 
 // LastGoodStoreConfigFromBounds translates the configured snapshot bounds into

@@ -184,7 +184,7 @@ func persistentUserAgentGateStore(db *gorm.DB) feed.UserAgentGateStore {
 		logger.Warnf("persistent User-Agent gate unavailable: %v", err)
 		return nil
 	}
-	store, err := feed.NewSQLiteUserAgentGateStore(sqlDB)
+	store, err := feed.NewSQLiteUserAgentGateStore(sqlDB, feed.SharedUserAgentGateRecoveryConfig())
 	if err != nil {
 		logger.Warnf("persistent User-Agent gate unavailable: %v", err)
 		return nil

@@ -193,6 +193,12 @@ feed:
   retry:
     budget: 0
     jitter: "0s"
+  # UA ACL 恢复策略：首次明确拒绝后等待 8h；探测失败后等待 36h；
+  # 成功验证 3 个不同 Feed 后恢复 active。0 表示采用上述默认值。
+  user_agent_recovery:
+    initial_cooldown: "8h"
+    probe_failure_cooldown: "36h"
+    required_successes: 3
   # 断路恢复全局默认值；未在 domain_policies 中覆盖的域名都使用这些取值。
   # 留空/为 0 时走已验证默认值，绝不扩大断路范围。
   circuit:

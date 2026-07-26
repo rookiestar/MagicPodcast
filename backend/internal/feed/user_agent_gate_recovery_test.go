@@ -31,7 +31,7 @@ func TestUserAgentGateApprovalDryRunAndApplyAreAuditedWithoutNetwork(t *testing.
 	dryRun, err := store.ApproveProbe(context.Background(), "feeds.example", fingerprint, "owner", now.Add(time.Hour), false)
 	require.NoError(t, err)
 	require.False(t, dryRun.Applied)
-	require.False(t, dryRun.Eligible, "the default 24-hour cooldown must still apply")
+	require.False(t, dryRun.Eligible, "the configured initial cooldown must still apply")
 	require.Equal(t, UserAgentGateStateBlocked, dryRun.Record.State)
 
 	applied, err := store.ApproveProbe(context.Background(), "feeds.example", fingerprint, "owner", now.Add(25*time.Hour), true)
@@ -112,6 +112,46 @@ func TestUserAgentGateRecoveryRequiresThreeDistinctFeeds(t *testing.T) {
 	require.Equal(t, UserAgentGateFetchModeActive, active.Mode)
 }
 
+func TestUserAgentGateRecoveryUsesConfiguredDistinctFeedSuccessThreshold(t *testing.T) {
+	config := UserAgentGateRecoveryConfig{
+		InitialCooldown:      6 * time.Hour,
+		ProbeFailureCooldown: 24 * time.Hour,
+		RequiredSuccesses:    4,
+	}
+	store, db := openUserAgentGateTestStore(t, "", config)
+	require.NoError(t, db.Exec(FeedUserAgentGateAuditsCreateTableSQL).Error)
+
+	ctx := context.Background()
+	now := time.Date(2026, 7, 26, 3, 0, 0, 0, time.UTC)
+	fingerprint := UserAgentFingerprint(defaultFeedUserAgent)
+	require.NoError(t, store.Block(ctx, "feeds.example", fingerprint, now))
+	approvedAt := now.Add(config.InitialCooldown)
+	approval, err := store.ApproveProbe(ctx, "feeds.example", fingerprint, "owner", approvedAt, true)
+	require.NoError(t, err)
+	require.True(t, approval.Applied)
+
+	for i, path := range []string{"/one.xml", "/two.xml", "/three.xml", "/four.xml"} {
+		feedFingerprint := UserAgentGateFeedFingerprint("https://feeds.example" + path)
+		decision, prepareErr := store.PreparePrimaryFetchForFeed(ctx, "feeds.example", fingerprint, feedFingerprint, approvedAt.Add(time.Duration(i)*time.Minute))
+		require.NoError(t, prepareErr)
+		if i == 0 {
+			require.Equal(t, UserAgentGateFetchModeProbe, decision.Mode)
+		} else {
+			require.Equal(t, UserAgentGateFetchModeRecovery, decision.Mode)
+		}
+		completed, recordErr := store.RecordPrimaryFetchResult(ctx, "feeds.example", fingerprint, feedFingerprint, AccessOutcome{
+			HTTPStatus:    intPointer(http.StatusOK),
+			ErrorCategory: ErrorCategoryNone,
+		}, approvedAt.Add(time.Duration(i+1)*time.Minute))
+		require.NoError(t, recordErr)
+		if i < config.RequiredSuccesses-1 {
+			require.Equal(t, UserAgentGateStateRecovering, completed.State)
+		} else {
+			require.Equal(t, UserAgentGateStateActive, completed.State)
+		}
+	}
+}
+
 func TestUserAgentGateConcurrentApprovalAdmitsExactlyOneProbe(t *testing.T) {
 	store := openUserAgentGateRecoveryStore(t)
 	ctx := context.Background()
@@ -174,6 +214,7 @@ func TestUserAgentGateProbeFailureReblocksAndUARefusalResetsProgress(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, UserAgentGateStateBlocked, failed.State)
 	require.Equal(t, string(ErrorCategoryServiceUnavailable), failed.LastProbeResult)
+	require.Equal(t, now.Add(25*time.Hour+time.Minute+DefaultUserAgentProbeFailureCooldown), failed.ProbeEligibleAt)
 
 	// A renewed explicit ACL refusal is terminal and clears any partial recovery.
 	_, err = store.ApproveProbe(ctx, "feeds.example", fingerprint, "owner", now.Add(50*time.Hour), true)
@@ -189,6 +230,7 @@ func TestUserAgentGateProbeFailureReblocksAndUARefusalResetsProgress(t *testing.
 	require.Equal(t, UserAgentGateStateBlocked, reset.State)
 	require.Equal(t, string(ErrorCategoryUserAgentDenied), reset.LastProbeResult)
 	require.Equal(t, 0, reset.RecoverySuccessCount)
+	require.Equal(t, now.Add(50*time.Hour+time.Minute+DefaultUserAgentProbeFailureCooldown), reset.ProbeEligibleAt)
 }
 
 func TestFetcherUsesApprovedProbeAndGradualRecoveryWithoutLocalCache(t *testing.T) {

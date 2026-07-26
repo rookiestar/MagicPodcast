@@ -272,7 +272,7 @@ func SetupRouter() *gin.Engine {
 			var userAgentGateMaintenanceStore feed.UserAgentGateMaintenanceStore
 			if db != nil && db.Migrator().HasTable(feed.FeedUserAgentGatesTableName) {
 				if sqlDB, err := db.DB(); err == nil && sqlDB != nil {
-					if store, err := feed.NewSQLiteUserAgentGateStore(sqlDB); err == nil {
+					if store, err := feed.NewSQLiteUserAgentGateStore(sqlDB, feed.SharedUserAgentGateRecoveryConfig()); err == nil {
 						userAgentGateStore = store
 						userAgentGateMaintenanceStore = store
 					} else {

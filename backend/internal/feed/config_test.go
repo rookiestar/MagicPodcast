@@ -173,6 +173,18 @@ func TestConfigureSharedRuntimePreservesDefaultsWhenEmpty(t *testing.T) {
 	require.True(t, policy.SoftRateEnabled, "xyzfm soft-rate must survive empty config")
 	require.False(t, policy.ImmediateCircuitOnAccessDenied, "xyzfm must not hard-open on first 403")
 	require.Equal(t, 1, policy.MaxConcurrency, "xyzfm shared single queue")
+	require.Equal(t, DefaultUserAgentGateRecoveryConfig(), SharedUserAgentGateRecoveryConfig())
+}
+
+func TestConfigureSharedRuntimeAppliesUserAgentRecoveryConfig(t *testing.T) {
+	resetSharedRuntimeForTest(t)
+	config := UserAgentGateRecoveryConfig{
+		InitialCooldown:      7 * time.Hour,
+		ProbeFailureCooldown: 30 * time.Hour,
+		RequiredSuccesses:    4,
+	}
+	require.NoError(t, ConfigureSharedRuntime(FeedConfig{UserAgentRecovery: config}))
+	require.Equal(t, config, SharedUserAgentGateRecoveryConfig())
 }
 
 func TestConfigureSharedRuntimePreservesXiaoyuzhouSoftRateInvariant(t *testing.T) {
@@ -276,6 +288,12 @@ func TestConfigureSharedRuntimeRejectsInvalidConfig(t *testing.T) {
 		{"negative max concurrency", FeedConfig{DomainPolicies: []FeedDomainPolicy{{Domain: "a.com", MaxConcurrency: -1}}}},
 		{"unknown category threshold", FeedConfig{Circuit: FeedCircuitConfig{ThresholdsPerCategory: map[string]int{"bogus": 1}}}},
 		{"zero category threshold", FeedConfig{Circuit: FeedCircuitConfig{ThresholdsPerCategory: map[string]int{"timeout": 0}}}},
+		{"negative UA recovery initial cooldown", FeedConfig{UserAgentRecovery: UserAgentGateRecoveryConfig{InitialCooldown: -time.Hour}}},
+		{"UA recovery initial cooldown too short", FeedConfig{UserAgentRecovery: UserAgentGateRecoveryConfig{InitialCooldown: 5 * time.Hour}}},
+		{"negative UA recovery probe cooldown", FeedConfig{UserAgentRecovery: UserAgentGateRecoveryConfig{ProbeFailureCooldown: -time.Hour}}},
+		{"UA recovery probe cooldown too long", FeedConfig{UserAgentRecovery: UserAgentGateRecoveryConfig{ProbeFailureCooldown: 49 * time.Hour}}},
+		{"negative UA recovery success threshold", FeedConfig{UserAgentRecovery: UserAgentGateRecoveryConfig{RequiredSuccesses: -1}}},
+		{"UA recovery success threshold too low", FeedConfig{UserAgentRecovery: UserAgentGateRecoveryConfig{RequiredSuccesses: 2}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

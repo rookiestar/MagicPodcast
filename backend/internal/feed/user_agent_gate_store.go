@@ -97,10 +97,75 @@ const (
 	UserAgentGateStateProbeInFlight = "probe_in_flight"
 	UserAgentGateStateRecovering    = "recovering"
 
-	// DefaultUserAgentBlockCooldown is an eligibility time, not an automatic
-	// unblock. A later human-approved recovery action is #49.
-	DefaultUserAgentBlockCooldown = 24 * time.Hour
+	// These defaults are deliberately conservative but shorter than the former
+	// fixed 24-hour first-block wait. Operators can override both cooldowns and
+	// the distinct-Feed success threshold through FeedConfig.
+	DefaultUserAgentInitialCooldown      = 8 * time.Hour
+	DefaultUserAgentProbeFailureCooldown = 36 * time.Hour
+	DefaultUserAgentRecoverySuccesses    = 3
+	minUserAgentInitialCooldown          = 6 * time.Hour
+	maxUserAgentInitialCooldown          = 12 * time.Hour
+	minUserAgentProbeFailureCooldown     = 24 * time.Hour
+	maxUserAgentProbeFailureCooldown     = 48 * time.Hour
 )
+
+// UserAgentGateRecoveryConfig controls the durable User-Agent ACL recovery
+// policy. Zero values use the documented defaults. Configured cooldowns must
+// stay within the agreed safety windows: 6-12 hours for the first block and
+// 24-48 hours after a failed recovery probe. Cooldowns are eligibility times
+// only: they never unblock a gate or perform a network request by themselves.
+type UserAgentGateRecoveryConfig struct {
+	InitialCooldown      time.Duration `mapstructure:"initial_cooldown"`
+	ProbeFailureCooldown time.Duration `mapstructure:"probe_failure_cooldown"`
+	RequiredSuccesses    int           `mapstructure:"required_successes"`
+}
+
+// DefaultUserAgentGateRecoveryConfig returns the bounded default recovery
+// policy: 8 hours after the first explicit ACL denial, 36 hours after a failed
+// recovery probe, and three distinct successful Feeds to return active.
+func DefaultUserAgentGateRecoveryConfig() UserAgentGateRecoveryConfig {
+	return UserAgentGateRecoveryConfig{
+		InitialCooldown:      DefaultUserAgentInitialCooldown,
+		ProbeFailureCooldown: DefaultUserAgentProbeFailureCooldown,
+		RequiredSuccesses:    DefaultUserAgentRecoverySuccesses,
+	}
+}
+
+func (c UserAgentGateRecoveryConfig) Validate() error {
+	if c.InitialCooldown < 0 {
+		return errors.New("feed.user_agent_recovery.initial_cooldown must be non-negative")
+	}
+	if c.InitialCooldown != 0 && (c.InitialCooldown < minUserAgentInitialCooldown || c.InitialCooldown > maxUserAgentInitialCooldown) {
+		return fmt.Errorf("feed.user_agent_recovery.initial_cooldown must be between %s and %s", minUserAgentInitialCooldown, maxUserAgentInitialCooldown)
+	}
+	if c.ProbeFailureCooldown < 0 {
+		return errors.New("feed.user_agent_recovery.probe_failure_cooldown must be non-negative")
+	}
+	if c.ProbeFailureCooldown != 0 && (c.ProbeFailureCooldown < minUserAgentProbeFailureCooldown || c.ProbeFailureCooldown > maxUserAgentProbeFailureCooldown) {
+		return fmt.Errorf("feed.user_agent_recovery.probe_failure_cooldown must be between %s and %s", minUserAgentProbeFailureCooldown, maxUserAgentProbeFailureCooldown)
+	}
+	if c.RequiredSuccesses < 0 {
+		return errors.New("feed.user_agent_recovery.required_successes must be non-negative")
+	}
+	if c.RequiredSuccesses > 0 && c.RequiredSuccesses < DefaultUserAgentRecoverySuccesses {
+		return fmt.Errorf("feed.user_agent_recovery.required_successes must be at least %d", DefaultUserAgentRecoverySuccesses)
+	}
+	return nil
+}
+
+func (c UserAgentGateRecoveryConfig) withDefaults() UserAgentGateRecoveryConfig {
+	defaults := DefaultUserAgentGateRecoveryConfig()
+	if c.InitialCooldown == 0 {
+		c.InitialCooldown = defaults.InitialCooldown
+	}
+	if c.ProbeFailureCooldown == 0 {
+		c.ProbeFailureCooldown = defaults.ProbeFailureCooldown
+	}
+	if c.RequiredSuccesses == 0 {
+		c.RequiredSuccesses = defaults.RequiredSuccesses
+	}
+	return c
+}
 
 const (
 	UserAgentGateFetchModeActive   UserAgentGateFetchMode = "active"
@@ -232,14 +297,25 @@ type UserAgentGateMaintenanceStore interface {
 // SQLiteUserAgentGateStore is a durable store over an already-migrated SQLite
 // database. It never creates or alters tables at runtime.
 type SQLiteUserAgentGateStore struct {
-	db *sql.DB
+	db             *sql.DB
+	recoveryConfig UserAgentGateRecoveryConfig
 }
 
-func NewSQLiteUserAgentGateStore(db *sql.DB) (*SQLiteUserAgentGateStore, error) {
+func NewSQLiteUserAgentGateStore(db *sql.DB, configs ...UserAgentGateRecoveryConfig) (*SQLiteUserAgentGateStore, error) {
 	if db == nil {
 		return nil, errors.New("sqlite User-Agent gate store requires a non-nil database handle")
 	}
-	return &SQLiteUserAgentGateStore{db: db}, nil
+	if len(configs) > 1 {
+		return nil, errors.New("sqlite User-Agent gate store accepts at most one recovery config")
+	}
+	recoveryConfig := DefaultUserAgentGateRecoveryConfig()
+	if len(configs) == 1 {
+		if err := configs[0].Validate(); err != nil {
+			return nil, err
+		}
+		recoveryConfig = configs[0].withDefaults()
+	}
+	return &SQLiteUserAgentGateStore{db: db, recoveryConfig: recoveryConfig}, nil
 }
 
 type gateQueryer interface {
@@ -318,6 +394,12 @@ func (s *SQLiteUserAgentGateStore) Block(ctx context.Context, domain, userAgentF
 		return err
 	}
 	now = normalizeGateTime(now)
+	cooldown := s.recoveryConfig.InitialCooldown
+	if record, exists, readErr := s.get(ctx, s.db, domain, userAgentFingerprint); readErr != nil {
+		return readErr
+	} else if exists && (record.State == UserAgentGateStateProbeInFlight || record.State == UserAgentGateStateRecovering) {
+		cooldown = s.recoveryConfig.ProbeFailureCooldown
+	}
 	when := now.UnixMilli()
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO `+FeedUserAgentGatesTableName+` (
 		domain, user_agent_fingerprint, state, detected_at, probe_eligible_at,
@@ -334,7 +416,7 @@ func (s *SQLiteUserAgentGateStore) Block(ctx context.Context, domain, userAgentF
 		last_probe_at = NULL,
 		updated_at = excluded.updated_at`,
 		domain, userAgentFingerprint, UserAgentGateStateBlocked, when,
-		now.Add(DefaultUserAgentBlockCooldown).UnixMilli(),
+		now.Add(cooldown).UnixMilli(),
 		string(ErrorCategoryUserAgentDenied), when); err != nil {
 		return fmt.Errorf("persist User-Agent gate block: %w", err)
 	}
@@ -714,7 +796,7 @@ func (s *SQLiteUserAgentGateStore) RecordPrimaryFetchResult(ctx context.Context,
 			return UserAgentGateRecord{}, err
 		}
 		state := UserAgentGateStateRecovering
-		if count >= 3 {
+		if count >= s.recoveryConfig.RequiredSuccesses {
 			state = UserAgentGateStateActive
 		}
 		if _, err := s.db.ExecContext(ctx, `UPDATE `+FeedUserAgentGatesTableName+`
@@ -740,9 +822,9 @@ func (s *SQLiteUserAgentGateStore) RecordPrimaryFetchResult(ctx context.Context,
 	}
 	if _, err := s.db.ExecContext(ctx, `UPDATE `+FeedUserAgentGatesTableName+`
 		SET state = ?, last_probe_result = ?, recovery_success_count = ?, last_probe_at = ?,
-		probe_eligible_at = ?, updated_at = ?
-		WHERE domain = ? AND user_agent_fingerprint = ?`, UserAgentGateStateBlocked,
-		recoveryResultLabel(outcome), count, now.UnixMilli(), now.Add(DefaultUserAgentBlockCooldown).UnixMilli(), now.UnixMilli(),
+			probe_eligible_at = ?, updated_at = ?
+			WHERE domain = ? AND user_agent_fingerprint = ?`, UserAgentGateStateBlocked,
+		recoveryResultLabel(outcome), count, now.UnixMilli(), now.Add(s.recoveryConfig.ProbeFailureCooldown).UnixMilli(), now.UnixMilli(),
 		domain, userAgentFingerprint); err != nil {
 		return UserAgentGateRecord{}, fmt.Errorf("preserve User-Agent recovery block: %w", err)
 	}

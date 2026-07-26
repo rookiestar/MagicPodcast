@@ -171,6 +171,10 @@ feed:
     half_open_max: 3
     successes_to_close: 4
     domain_evidence_min_distinct_feeds: 2
+  user_agent_recovery:
+    initial_cooldown: 7h
+    probe_failure_cooldown: 30h
+    required_successes: 4
   snapshot:
     durable: false
     bounds:
@@ -201,6 +205,9 @@ feed:
 	}
 	if f.Circuit.HalfOpenMax != 3 || f.Circuit.SuccessesToClose != 4 || f.Circuit.DomainEvidenceMinDistinctFeeds != 2 {
 		t.Fatalf("Circuit = %+v", f.Circuit)
+	}
+	if f.UserAgentRecovery.InitialCooldown != 7*time.Hour || f.UserAgentRecovery.ProbeFailureCooldown != 30*time.Hour || f.UserAgentRecovery.RequiredSuccesses != 4 {
+		t.Fatalf("UserAgentRecovery = %+v", f.UserAgentRecovery)
 	}
 	if f.Snapshot.Durable == nil || *f.Snapshot.Durable != false {
 		t.Fatalf("Snapshot.Durable = %v", f.Snapshot.Durable)
@@ -256,6 +263,9 @@ func TestLoadFeedENVOverridesFeedConfig(t *testing.T) {
 	t.Setenv("MAGICPODCAST_FEED_DIAGNOSTICS_CONFIGURED_EGRESS_LABEL", "fixed-egress")
 	t.Setenv("MAGICPODCAST_FEED_RETRY_BUDGET", "4")
 	t.Setenv("MAGICPODCAST_FEED_TIMEOUTS_OVERALL", "50s")
+	t.Setenv("MAGICPODCAST_FEED_USER_AGENT_RECOVERY_INITIAL_COOLDOWN", "9h")
+	t.Setenv("MAGICPODCAST_FEED_USER_AGENT_RECOVERY_PROBE_FAILURE_COOLDOWN", "42h")
+	t.Setenv("MAGICPODCAST_FEED_USER_AGENT_RECOVERY_REQUIRED_SUCCESSES", "5")
 
 	configPath := writeFeedTestConfig(t, "")
 	loaded, err := Load(configPath)
@@ -273,6 +283,9 @@ func TestLoadFeedENVOverridesFeedConfig(t *testing.T) {
 	}
 	if loaded.Feed.Timeouts.Overall != 50*time.Second {
 		t.Fatalf("Timeouts.Overall = %v, want 50s", loaded.Feed.Timeouts.Overall)
+	}
+	if loaded.Feed.UserAgentRecovery.InitialCooldown != 9*time.Hour || loaded.Feed.UserAgentRecovery.ProbeFailureCooldown != 42*time.Hour || loaded.Feed.UserAgentRecovery.RequiredSuccesses != 5 {
+		t.Fatalf("UserAgentRecovery = %+v, want ENV values", loaded.Feed.UserAgentRecovery)
 	}
 }
 

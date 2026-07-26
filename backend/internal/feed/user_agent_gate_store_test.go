@@ -17,7 +17,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func openUserAgentGateTestStore(t *testing.T, path string) (*SQLiteUserAgentGateStore, *gorm.DB) {
+func openUserAgentGateTestStore(t *testing.T, path string, configs ...UserAgentGateRecoveryConfig) (*SQLiteUserAgentGateStore, *gorm.DB) {
 	t.Helper()
 	if path == "" {
 		path = filepath.Join(t.TempDir(), "user-agent-gate.db")
@@ -30,7 +30,7 @@ func openUserAgentGateTestStore(t *testing.T, path string) (*SQLiteUserAgentGate
 	require.NoError(t, db.Exec(FeedUserAgentGateRecoveryFeedsCreateIndexSQL).Error)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
-	store, err := NewSQLiteUserAgentGateStore(sqlDB)
+	store, err := NewSQLiteUserAgentGateStore(sqlDB, configs...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	return store, db
@@ -56,7 +56,7 @@ func TestSQLiteUserAgentGatePersistsBlockAcrossRestart(t *testing.T) {
 	require.Equal(t, "feed.example", record.Domain)
 	require.Equal(t, fingerprint, record.UserAgentFingerprint)
 	require.Equal(t, now, record.DetectedAt)
-	require.Equal(t, now.Add(DefaultUserAgentBlockCooldown), record.ProbeEligibleAt)
+	require.Equal(t, now.Add(DefaultUserAgentInitialCooldown), record.ProbeEligibleAt)
 
 	rows, err := store.List(context.Background())
 	require.NoError(t, err)
@@ -64,6 +64,42 @@ func TestSQLiteUserAgentGatePersistsBlockAcrossRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(encoded), fingerprint[:12])
 	require.NotContains(t, string(encoded), userAgent)
+}
+
+func TestSQLiteUserAgentGateUsesConfiguredInitialAndProbeFailureCooldowns(t *testing.T) {
+	config := UserAgentGateRecoveryConfig{
+		InitialCooldown:      7 * time.Hour,
+		ProbeFailureCooldown: 30 * time.Hour,
+		RequiredSuccesses:    3,
+	}
+	store, db := openUserAgentGateTestStore(t, "", config)
+	require.NoError(t, db.Exec(FeedUserAgentGateAuditsCreateTableSQL).Error)
+
+	ctx := context.Background()
+	now := time.Date(2026, 7, 26, 1, 2, 3, 0, time.UTC)
+	fingerprint := UserAgentFingerprint(defaultFeedUserAgent)
+	require.NoError(t, store.Block(ctx, "feeds.example", fingerprint, now))
+
+	blocked, record, err := store.IsBlocked(ctx, "feeds.example", fingerprint, now)
+	require.NoError(t, err)
+	require.True(t, blocked)
+	require.Equal(t, now.Add(config.InitialCooldown), record.ProbeEligibleAt)
+
+	_, err = store.ApproveProbe(ctx, "feeds.example", fingerprint, "owner", record.ProbeEligibleAt, true)
+	require.NoError(t, err)
+	feedFingerprint := UserAgentGateFeedFingerprint("https://feeds.example/one.xml")
+	decision, err := store.PreparePrimaryFetchForFeed(ctx, "feeds.example", fingerprint, feedFingerprint, record.ProbeEligibleAt)
+	require.NoError(t, err)
+	require.Equal(t, UserAgentGateFetchModeProbe, decision.Mode)
+
+	failureAt := record.ProbeEligibleAt.Add(time.Minute)
+	failed, err := store.RecordPrimaryFetchResult(ctx, "feeds.example", fingerprint, feedFingerprint, AccessOutcome{
+		HTTPStatus:    intPointer(http.StatusServiceUnavailable),
+		ErrorCategory: ErrorCategoryServiceUnavailable,
+	}, failureAt)
+	require.NoError(t, err)
+	require.Equal(t, UserAgentGateStateBlocked, failed.State)
+	require.Equal(t, failureAt.Add(config.ProbeFailureCooldown), failed.ProbeEligibleAt)
 }
 
 func TestFetcherUsesPersistentUserAgentGateAcrossInstancesAndKeepsDomainsSeparate(t *testing.T) {
