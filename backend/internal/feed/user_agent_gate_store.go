@@ -186,6 +186,7 @@ const (
 	UserAgentGateAuditActionMigrateIdentity = "migrate_identity"
 	UserAgentGateAuditModeDryRun            = "dry_run"
 	UserAgentGateAuditModeApply             = "apply"
+	UserAgentGateAuditResultNotEligible     = "not_eligible"
 )
 
 const recoveryFeedStatusSuccess = "success"
@@ -645,7 +646,8 @@ func (s *SQLiteUserAgentGateStore) ApproveProbe(ctx context.Context, domain, use
 // User-Agent.
 //
 // Eligibility is strict and one-way: the old fingerprint must currently be
-// blocked (a half-finished probe or active identity is never migrated), the new
+// blocked because of an explicit User-Agent ACL denial (a transient recovery
+// failure, half-finished probe, or active identity is never migrated), the new
 // fingerprint must not already exist on that domain, and the two fingerprints
 // must differ. Apply additionally clears any stale recovery progress bound to
 // the old fingerprint so it can never be counted toward a future recovery.
@@ -698,7 +700,8 @@ func (s *SQLiteUserAgentGateStore) MigrateIdentity(ctx context.Context, domain, 
 		newRecord.UserAgentFingerprint = newUserAgentFingerprint
 	}
 
-	eligible := oldRecord.State == UserAgentGateStateBlocked && !newExists
+	eligible := oldRecord.State == UserAgentGateStateBlocked &&
+		oldRecord.LastProbeResult == string(ErrorCategoryUserAgentDenied) && !newExists
 	migration := UserAgentGateIdentityMigration{Eligible: eligible, Old: oldRecord, New: newRecord}
 	mode := UserAgentGateAuditModeDryRun
 	if apply {
@@ -706,13 +709,21 @@ func (s *SQLiteUserAgentGateStore) MigrateIdentity(ctx context.Context, domain, 
 	}
 
 	if apply && eligible {
-		if _, err := tx.ExecContext(ctx, `UPDATE `+FeedUserAgentGatesTableName+`
+		result, err := tx.ExecContext(ctx, `UPDATE `+FeedUserAgentGatesTableName+`
 			SET state = ?, last_probe_result = ?, recovery_success_count = 0,
 				approved_by = '', approved_at = NULL, last_probe_at = NULL, probe_eligible_at = ?, updated_at = ?
-			WHERE domain = ? AND user_agent_fingerprint = ? AND state = ?`,
+				WHERE domain = ? AND user_agent_fingerprint = ? AND state = ? AND last_probe_result = ?`,
 			UserAgentGateStateRetired, UserAgentGateStateRetired, now.UnixMilli(), now.UnixMilli(),
-			domain, oldUserAgentFingerprint, UserAgentGateStateBlocked); err != nil {
+			domain, oldUserAgentFingerprint, UserAgentGateStateBlocked, string(ErrorCategoryUserAgentDenied))
+		if err != nil {
 			return UserAgentGateIdentityMigration{}, fmt.Errorf("retire old User-Agent identity: %w", err)
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return UserAgentGateIdentityMigration{}, fmt.Errorf("confirm retired User-Agent identity: %w", err)
+		}
+		if affected != 1 {
+			return UserAgentGateIdentityMigration{}, errors.New("old User-Agent identity is no longer eligible for migration")
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+FeedUserAgentGateRecoveryFeedsTableName+`
 			WHERE domain = ? AND user_agent_fingerprint = ?`, domain, oldUserAgentFingerprint); err != nil {
@@ -738,19 +749,25 @@ func (s *SQLiteUserAgentGateStore) MigrateIdentity(ctx context.Context, domain, 
 	}
 
 	// Both fingerprints are audited so the operator trail records the retire
-	// (old) and the single admitted probe (new) in one action, regardless of
-	// mode. The result label reflects the target state: "retired" for the old
-	// identity once applied, "probe_pending" for the newly admitted identity.
+	// (old) and the candidate result (new) in one action, regardless of mode.
+	// Only an eligible dry-run or an applied migration may project probe_pending;
+	// an ineligible candidate must never be audited as admitted.
 	oldResult := migration.Old.State
 	if migration.Applied {
 		oldResult = UserAgentGateStateRetired
+	}
+	newResult := migration.New.State
+	if migration.Applied || (migration.Eligible && newResult == "") {
+		newResult = UserAgentGateStateProbePending
+	} else if newResult == "" {
+		newResult = UserAgentGateAuditResultNotEligible
 	}
 	if err := appendUserAgentGateAudit(ctx, tx, domain, oldUserAgentFingerprint,
 		UserAgentGateAuditActionMigrateIdentity, mode, actor, oldResult, now); err != nil {
 		return UserAgentGateIdentityMigration{}, err
 	}
 	if err := appendUserAgentGateAudit(ctx, tx, domain, newUserAgentFingerprint,
-		UserAgentGateAuditActionMigrateIdentity, mode, actor, UserAgentGateStateProbePending, now); err != nil {
+		UserAgentGateAuditActionMigrateIdentity, mode, actor, newResult, now); err != nil {
 		return UserAgentGateIdentityMigration{}, err
 	}
 	if err := tx.Commit(); err != nil {

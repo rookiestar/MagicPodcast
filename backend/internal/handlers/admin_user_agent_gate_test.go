@@ -151,26 +151,26 @@ func TestAdminUserAgentGateMigrateDryRunApplyAndFingerprintBoundary(t *testing.T
 
 	// Same fingerprint for old and new is rejected at the boundary.
 	status, body := postUserAgentIdentityMigration(t, router, map[string]string{
-		"domain":                    "feeds.example",
+		"domain":                     "feeds.example",
 		"old_user_agent_fingerprint": oldFingerprint,
 		"new_user_agent_fingerprint": oldFingerprint,
-		"actor":                     "owner",
-		"mode":                      "apply",
+		"actor":                      "owner",
+		"mode":                       "apply",
 	})
 	require.Equal(t, http.StatusBadRequest, status, string(body))
 
 	// Dry-run evaluates eligibility and audits both fingerprints without mutating
 	// state. Only the fingerprint prefixes are exposed.
 	status, body = postUserAgentIdentityMigration(t, router, map[string]string{
-		"domain":                    "feeds.example",
+		"domain":                     "feeds.example",
 		"old_user_agent_fingerprint": oldFingerprint,
 		"new_user_agent_fingerprint": newFingerprint,
-		"actor":                     "owner",
-		"mode":                      "dry-run",
+		"actor":                      "owner",
+		"mode":                       "dry-run",
 	})
 	require.Equal(t, http.StatusOK, status, string(body))
 	var dryRun struct {
-		Success bool                                `json:"success"`
+		Success bool                               `json:"success"`
 		Data    userAgentIdentityMigrationResponse `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(body, &dryRun))
@@ -192,15 +192,15 @@ func TestAdminUserAgentGateMigrateDryRunApplyAndFingerprintBoundary(t *testing.T
 
 	// Apply retires the old identity and admits exactly one probe for the new one.
 	status, body = postUserAgentIdentityMigration(t, router, map[string]string{
-		"domain":                    "feeds.example",
+		"domain":                     "feeds.example",
 		"old_user_agent_fingerprint": oldFingerprint,
 		"new_user_agent_fingerprint": newFingerprint,
-		"actor":                     "owner",
-		"mode":                      "apply",
+		"actor":                      "owner",
+		"mode":                       "apply",
 	})
 	require.Equal(t, http.StatusOK, status, string(body))
 	var applied struct {
-		Success bool                                `json:"success"`
+		Success bool                               `json:"success"`
 		Data    userAgentIdentityMigrationResponse `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(body, &applied))
@@ -231,4 +231,23 @@ func TestAdminUserAgentGateMigrateDryRunApplyAndFingerprintBoundary(t *testing.T
 	newAudits, err := store.ListAudits(nil, "feeds.example", newFingerprint)
 	require.NoError(t, err)
 	require.Len(t, newAudits, 2)
+}
+
+func TestUserAgentIdentityMigrationResponseDoesNotProjectProbeForIneligibleMigration(t *testing.T) {
+	newFingerprint := feed.UserAgentFingerprint("MagicPodcastFeed/2.0 (+https://github.com/rookiestar/MagicPodcast)")
+	response := userAgentIdentityMigrationResponseFromMigration(feed.UserAgentGateIdentityMigration{
+		Eligible: false,
+		Old: feed.UserAgentGateRecord{
+			Domain:               "feeds.example",
+			UserAgentFingerprint: feed.UserAgentFingerprint("MagicPodcast/1.0 (+https://github.com/rookiestar/MagicPodcast)"),
+			State:                feed.UserAgentGateStateBlocked,
+		},
+		New: feed.UserAgentGateRecord{
+			Domain:               "feeds.example",
+			UserAgentFingerprint: newFingerprint,
+		},
+	})
+
+	require.False(t, response.Eligible)
+	require.Empty(t, response.NewState, "an ineligible migration must not claim a probe_pending target")
 }

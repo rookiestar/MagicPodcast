@@ -205,9 +205,10 @@ func userAgentIdentityMigrationResponseFromMigration(migration feed.UserAgentGat
 	if migration.Applied {
 		response.OldState = feed.UserAgentGateStateRetired
 	}
-	// In dry-run the new identity does not exist yet; project its target state so
-	// the operator sees what apply would admit.
-	if response.NewState == "" {
+	// In an eligible dry-run the new identity does not exist yet; project its
+	// target state so the operator sees what apply would admit. An ineligible
+	// candidate must remain empty rather than being presented as admitted.
+	if !migration.Applied && migration.Eligible && response.NewState == "" {
 		response.NewState = feed.UserAgentGateStateProbePending
 	}
 	if migration.New.ProbeEligibleAt.IsZero() {

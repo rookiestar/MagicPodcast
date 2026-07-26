@@ -180,6 +180,11 @@ func TestUserAgentGateMigrationRejectsBadInputs(t *testing.T) {
 	require.False(t, applied.Applied)
 	require.Equal(t, UserAgentGateStateBlocked, applied.Old.State)
 	require.Equal(t, UserAgentGateStateBlocked, applied.New.State)
+	newAudits, err := store.ListAudits(ctx, domain, newFingerprint)
+	require.NoError(t, err)
+	require.Len(t, newAudits, 1)
+	require.Equal(t, UserAgentGateStateBlocked, newAudits[0].Result,
+		"a no-op migration must audit the existing new state, not probe_pending")
 
 	// A non-blocked old identity (e.g. mid-recovery) is not eligible either.
 	recoveringFingerprint := UserAgentFingerprint("RecoveringIdentity/3.0 (+https://example.org/recovering)")
@@ -192,6 +197,57 @@ func TestUserAgentGateMigrationRejectsBadInputs(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, midRecovery.Eligible)
 	require.False(t, midRecovery.Applied)
+}
+
+// TestUserAgentGateIdentityMigrationRequiresExplicitUserAgentDenial prevents a
+// normal 403 from being treated as proof of a User-Agent ACL.
+func TestUserAgentGateIdentityMigrationRequiresExplicitUserAgentDenial(t *testing.T) {
+	store := openUserAgentGateRecoveryStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 7, 26, 3, 0, 0, 0, time.UTC)
+	domain := "feeds.example"
+	oldFingerprint := UserAgentFingerprint("MagicPodcast/1.0 (+https://github.com/rookiestar/MagicPodcast)")
+	newFingerprint := UserAgentFingerprint("MagicPodcastFeed/2.0 (+https://github.com/rookiestar/MagicPodcast)")
+	require.NoError(t, store.Block(ctx, domain, oldFingerprint, now))
+
+	approvedAt := now.Add(25 * time.Hour)
+	approval, err := store.ApproveProbe(ctx, domain, oldFingerprint, "owner", approvedAt, true)
+	require.NoError(t, err)
+	require.True(t, approval.Applied)
+	feedFingerprint := UserAgentGateFeedFingerprint("https://feeds.example/one.xml")
+	decision, err := store.PreparePrimaryFetchForFeed(ctx, domain, oldFingerprint, feedFingerprint, approvedAt)
+	require.NoError(t, err)
+	require.Equal(t, UserAgentGateFetchModeProbe, decision.Mode)
+
+	failedAt := approvedAt.Add(time.Minute)
+	failed, err := store.RecordPrimaryFetchResult(ctx, domain, oldFingerprint, feedFingerprint, AccessOutcome{
+		HTTPStatus:    intPointer(http.StatusForbidden),
+		ErrorCategory: ErrorCategoryAccessDenied,
+	}, failedAt)
+	require.NoError(t, err)
+	require.Equal(t, UserAgentGateStateBlocked, failed.State)
+	require.Equal(t, string(ErrorCategoryAccessDenied), failed.LastProbeResult)
+
+	migrationAt := failedAt.Add(DefaultUserAgentProbeFailureCooldown)
+	migration, err := store.MigrateIdentity(ctx, domain, oldFingerprint, newFingerprint, "owner", migrationAt, true)
+	require.NoError(t, err)
+	require.False(t, migration.Eligible, "only an explicit UA ACL denial may authorize identity migration")
+	require.False(t, migration.Applied)
+	require.Equal(t, UserAgentGateStateBlocked, migration.Old.State)
+	require.Equal(t, string(ErrorCategoryAccessDenied), migration.Old.LastProbeResult)
+	require.Empty(t, migration.New.State, "an ineligible candidate must not be projected as admitted")
+
+	_, oldExists, err := store.get(ctx, store.db, domain, oldFingerprint)
+	require.NoError(t, err)
+	require.True(t, oldExists)
+	_, newExists, err := store.get(ctx, store.db, domain, newFingerprint)
+	require.NoError(t, err)
+	require.False(t, newExists, "an ineligible migration must not create the new identity")
+
+	newAudits, err := store.ListAudits(ctx, domain, newFingerprint)
+	require.NoError(t, err)
+	require.Len(t, newAudits, 1)
+	require.Equal(t, UserAgentGateAuditResultNotEligible, newAudits[0].Result)
 }
 
 // TestUserAgentGateMigrationThenRecovery1To2To3 proves that after a migration,
