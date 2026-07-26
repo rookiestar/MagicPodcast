@@ -193,6 +193,11 @@ func attemptFromExecution(exec *models.JobExecution) models.JobFeedAttempt {
 		SourceURL:            exec.FeedSourceURL,
 		IsFinalResult:        true,
 		DerivedPolicy:        isDerivedPolicyCategory(exec.FeedErrorCategory),
+		UserAgentGateState:   exec.FeedUserAgentGateState,
+		UserAgentProbeResult: exec.FeedUserAgentProbeResult,
+		UserAgentApprovedBy:  exec.FeedUserAgentApprovedBy,
+		UserAgentApprovedAt:  exec.FeedUserAgentApprovedAt,
+		UserAgentLastProbeAt: exec.FeedUserAgentLastProbeAt,
 	}
 }
 

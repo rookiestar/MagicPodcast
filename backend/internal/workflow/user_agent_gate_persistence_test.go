@@ -43,6 +43,8 @@ func TestExecutePersistsUserAgentBlockAcrossJobsAndUsesVerifiedAlternative(t *te
 	require.NoError(t, db.AutoMigrate(&models.Episode{}, &models.Report{}, &models.JobFeedAttempt{}, &models.PodcastAlternativeFeed{}))
 	require.NoError(t, db.Exec(feed.FeedUserAgentGatesCreateTableSQL).Error)
 	require.NoError(t, db.Exec(feed.FeedUserAgentGatesCreateIndexSQL).Error)
+	require.NoError(t, db.Exec(feed.FeedUserAgentGateRecoveryFeedsCreateTableSQL).Error)
+	require.NoError(t, db.Exec(feed.FeedUserAgentGateRecoveryFeedsCreateIndexSQL).Error)
 
 	newService := func() *syncsvc.Service {
 		coordinator := feed.NewCoordinator(feed.CoordinatorConfig{

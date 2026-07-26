@@ -61,3 +61,15 @@
 4. **遵守 Retry-After**：日志有 `retry_after` 时按其等待，#25 已对齐并设上限。
 5. **恢复链验证**：403 后先尝试已验证的 PodcastIndex 替代源；按 #35，last-good 仅用于匹配验证器的 304 恢复和诊断，不得把普通失败后的快照命中计作本批成功、写入新报告或推进抓取时间。分别核对替代源结果、`last_good_hits_total` 与 `snapshot_store`，并区分当前实现和 #35 目标语义。
 6. **结论门槛**：任何根因结论（IP/ASN、CDN、固定出口）都需网络侧证据 + #22/#24 门槛，不单独凭本 Runbook 的字段下结论。
+
+## 明确 UA ACL 后的人工恢复
+
+仅当响应包含已白名单的 UA ACL 信号时，才进入 #45 的持久化恢复链；普通 401/403 仍按上面的有界重试处理。
+
+- 受保护入口：`POST /api/v1/admin/feed-user-agent-gates/probe`。
+- 请求只接受 `domain`、User-Agent 的 SHA-256 `user_agent_fingerprint`、`actor` 和 `mode`（`dry_run` / `apply`）；不接受原始 UA、Cookie、代理或完整响应头。
+- `dry_run` 只写审批审计，不改变状态；`apply` 仅在默认 24 小时冷却后将 gate 置为 `probe_pending`，接口本身不发起 Feed 请求。
+- 后续工作流最多领取一次 probe；200/304 后用三个不同 Feed 渐进恢复，失败或再次明确 UA ACL 拒绝则保持/回到 `blocked`。
+- 诊断和工作流历史只展示指纹前缀、状态、批准人/时间及探测结果。不得借此轮换 UA、伪装浏览器或切换出口。
+
+生产执行 schema 14 迁移、审批 apply、服务重启和实际探测仍需单独授权，并按发布/备份清单执行。

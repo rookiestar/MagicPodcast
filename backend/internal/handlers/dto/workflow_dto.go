@@ -87,6 +87,11 @@ type FeedAttemptResponse struct {
 	SourceURL            string    `json:"source_url"`
 	IsFinalResult        bool      `json:"is_final_result"`
 	DerivedPolicy        bool      `json:"derived_policy"`
+	UserAgentGateState   string     `json:"user_agent_gate_state,omitempty"`
+	UserAgentProbeResult string     `json:"user_agent_probe_result,omitempty"`
+	UserAgentApprovedBy  string     `json:"user_agent_approved_by,omitempty"`
+	UserAgentApprovedAt  *time.Time `json:"user_agent_approved_at,omitempty"`
+	UserAgentLastProbeAt *time.Time `json:"user_agent_last_probe_at,omitempty"`
 }
 
 // RootCauseSummaryResponse is the API shape for root-cause aggregation.
@@ -139,6 +144,11 @@ type JobExecutionResponse struct {
 	FeedSnapshotRetrievedAt  *time.Time `json:"feed_snapshot_retrieved_at,omitempty"`
 	FeedCircuitState         string     `json:"feed_circuit_state"`
 	FeedFailurePhase         string     `json:"feed_failure_phase,omitempty"`
+	FeedUserAgentGateState   string     `json:"feed_user_agent_gate_state,omitempty"`
+	FeedUserAgentProbeResult string     `json:"feed_user_agent_probe_result,omitempty"`
+	FeedUserAgentApprovedBy  string     `json:"feed_user_agent_approved_by,omitempty"`
+	FeedUserAgentApprovedAt  *time.Time `json:"feed_user_agent_approved_at,omitempty"`
+	FeedUserAgentLastProbeAt *time.Time `json:"feed_user_agent_last_probe_at,omitempty"`
 }
 
 // BatchWorkflowStats 批量工作流统计

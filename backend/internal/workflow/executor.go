@@ -893,6 +893,11 @@ func (e *Executor) recordObservedFeedAttempts(
 			TargetDomain:         outcome.TargetDomain,
 			SourceURL:            outcome.SourceURL,
 			IsFinalResult:        i == finalIndex,
+			UserAgentGateState:   outcome.UserAgentGateState,
+			UserAgentProbeResult: outcome.UserAgentProbeResult,
+			UserAgentApprovedBy:  outcome.UserAgentApprovedBy,
+			UserAgentApprovedAt:  outcome.UserAgentApprovedAt,
+			UserAgentLastProbeAt: outcome.UserAgentLastProbeAt,
 		}
 		_ = PersistFeedAttempt(e.db, attempt)
 	}
@@ -908,6 +913,11 @@ func accessOutcomeFromExecution(execution *models.JobExecution) feed.AccessOutco
 		SourceType:           feed.AccessSource(execution.FeedSourceType),
 		SourceURL:            execution.FeedSourceURL,
 		IdentityVerification: execution.FeedIdentityVerification,
+		UserAgentGateState:   execution.FeedUserAgentGateState,
+		UserAgentProbeResult: execution.FeedUserAgentProbeResult,
+		UserAgentApprovedBy:  execution.FeedUserAgentApprovedBy,
+		UserAgentApprovedAt:  execution.FeedUserAgentApprovedAt,
+		UserAgentLastProbeAt: execution.FeedUserAgentLastProbeAt,
 	}
 }
 
@@ -943,6 +953,11 @@ func applyFeedAccessOutcome(execution *models.JobExecution, outcome *feed.Access
 	execution.FeedEgressID = outcome.EgressID
 	execution.FeedSnapshotRetrievedAt = outcome.RetrievedAt
 	execution.FeedCircuitState = string(outcome.CircuitState)
+	execution.FeedUserAgentGateState = outcome.UserAgentGateState
+	execution.FeedUserAgentProbeResult = outcome.UserAgentProbeResult
+	execution.FeedUserAgentApprovedBy = outcome.UserAgentApprovedBy
+	execution.FeedUserAgentApprovedAt = outcome.UserAgentApprovedAt
+	execution.FeedUserAgentLastProbeAt = outcome.UserAgentLastProbeAt
 	// Copy connection-stage diagnosis from the live fetch onto the final
 	// projection and attempt history (#39).
 	if outcome.FailurePhase != "" && outcome.FailurePhase != feed.FailurePhaseNotObserved {

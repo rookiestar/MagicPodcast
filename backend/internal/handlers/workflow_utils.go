@@ -250,6 +250,11 @@ func (h *WorkflowHandler) toJobResponse(job *models.Job) dto.JobResponse {
 				SourceURL:            a.SourceURL,
 				IsFinalResult:        a.IsFinalResult,
 				DerivedPolicy:        a.DerivedPolicy,
+				UserAgentGateState:   a.UserAgentGateState,
+				UserAgentProbeResult: a.UserAgentProbeResult,
+				UserAgentApprovedBy:  a.UserAgentApprovedBy,
+				UserAgentApprovedAt:  a.UserAgentApprovedAt,
+				UserAgentLastProbeAt: a.UserAgentLastProbeAt,
 			})
 		}
 		summary := workflow.BuildRootCauseSummary(attempts)
@@ -324,6 +329,11 @@ func (h *WorkflowHandler) toJobExecutionResponse(exec *models.JobExecution) dto.
 		FeedSnapshotRetrievedAt:  exec.FeedSnapshotRetrievedAt,
 		FeedCircuitState:         exec.FeedCircuitState,
 		FeedFailurePhase:         exec.FeedFailurePhase,
+		FeedUserAgentGateState:   exec.FeedUserAgentGateState,
+		FeedUserAgentProbeResult: exec.FeedUserAgentProbeResult,
+		FeedUserAgentApprovedBy:  exec.FeedUserAgentApprovedBy,
+		FeedUserAgentApprovedAt:  exec.FeedUserAgentApprovedAt,
+		FeedUserAgentLastProbeAt: exec.FeedUserAgentLastProbeAt,
 	}
 }
 

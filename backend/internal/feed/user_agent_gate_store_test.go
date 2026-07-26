@@ -26,6 +26,8 @@ func openUserAgentGateTestStore(t *testing.T, path string) (*SQLiteUserAgentGate
 	require.NoError(t, err)
 	require.NoError(t, db.Exec(FeedUserAgentGatesCreateTableSQL).Error)
 	require.NoError(t, db.Exec(FeedUserAgentGatesCreateIndexSQL).Error)
+	require.NoError(t, db.Exec(FeedUserAgentGateRecoveryFeedsCreateTableSQL).Error)
+	require.NoError(t, db.Exec(FeedUserAgentGateRecoveryFeedsCreateIndexSQL).Error)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	store, err := NewSQLiteUserAgentGateStore(sqlDB)

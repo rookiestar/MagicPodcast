@@ -142,6 +142,13 @@ type AccessOutcome struct {
 	CircuitState         CircuitState  `json:"circuit_state"`
 	FailurePhase         FailurePhase  `json:"failure_phase,omitempty"`
 	RetrievedAt          *time.Time    `json:"retrieved_at,omitempty"`
+	// User-Agent recovery metadata is bounded and populated only for a claimed
+	// probe/recovery admission. It contains no raw User-Agent or Feed URL.
+	UserAgentGateState   string     `json:"user_agent_gate_state,omitempty"`
+	UserAgentProbeResult string     `json:"user_agent_probe_result,omitempty"`
+	UserAgentApprovedBy  string     `json:"user_agent_approved_by,omitempty"`
+	UserAgentApprovedAt  *time.Time `json:"user_agent_approved_at,omitempty"`
+	UserAgentLastProbeAt *time.Time `json:"user_agent_last_probe_at,omitempty"`
 }
 
 func newPrimaryAccessOutcome(feedURL string) AccessOutcome {

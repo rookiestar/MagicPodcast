@@ -99,16 +99,44 @@ func TestRecordObservedFeedAttemptsPreservesObservationTime(t *testing.T) {
 
 	executor := &Executor{db: db}
 	podcast := &models.Podcast{BaseModel: models.BaseModel{ID: 11}, Title: "节目", FeedURL: "https://example.com/feed.xml"}
-	execution := &models.JobExecution{JobID: 9, PodcastID: &podcast.ID, Status: models.ExecutionStatusFailed, FeedErrorCategory: string(feed.ErrorCategoryAccessDenied), FeedSourceType: string(feed.AccessSourcePrimary), FeedSourceURL: podcast.FeedURL}
+	approvedAt := time.Date(2026, 7, 25, 15, 0, 0, 0, time.UTC)
+	lastProbeAt := approvedAt.Add(time.Hour)
+	execution := &models.JobExecution{
+		JobID:                    9,
+		PodcastID:                &podcast.ID,
+		Status:                   models.ExecutionStatusFailed,
+		FeedErrorCategory:        string(feed.ErrorCategoryAccessDenied),
+		FeedSourceType:           string(feed.AccessSourcePrimary),
+		FeedSourceURL:            podcast.FeedURL,
+		FeedUserAgentGateState:   feed.UserAgentGateStateRecovering,
+		FeedUserAgentProbeResult: "200",
+		FeedUserAgentApprovedBy:  "owner",
+		FeedUserAgentApprovedAt:  &approvedAt,
+		FeedUserAgentLastProbeAt: &lastProbeAt,
+	}
 	observedAt := time.Date(2026, 7, 25, 16, 0, 0, 0, time.UTC)
 	executor.recordObservedFeedAttempts(9, podcast, execution, []feed.AttemptObservation{{
-		Outcome:    feed.AccessOutcome{SourceType: feed.AccessSourcePrimary, SourceURL: podcast.FeedURL, ErrorCategory: feed.ErrorCategoryAccessDenied},
+		Outcome: feed.AccessOutcome{
+			SourceType:           feed.AccessSourcePrimary,
+			SourceURL:            podcast.FeedURL,
+			ErrorCategory:        feed.ErrorCategoryAccessDenied,
+			UserAgentGateState:   feed.UserAgentGateStateRecovering,
+			UserAgentProbeResult: "200",
+			UserAgentApprovedBy:  "owner",
+			UserAgentApprovedAt:  &approvedAt,
+			UserAgentLastProbeAt: &lastProbeAt,
+		},
 		ObservedAt: observedAt,
 	}}, "batch_deadline")
 
 	var attempt models.JobFeedAttempt
 	require.NoError(t, db.Where("job_id = ?", 9).First(&attempt).Error)
 	require.Equal(t, observedAt, attempt.AttemptedAt)
+	require.Equal(t, feed.UserAgentGateStateRecovering, attempt.UserAgentGateState)
+	require.Equal(t, "200", attempt.UserAgentProbeResult)
+	require.Equal(t, "owner", attempt.UserAgentApprovedBy)
+	require.Equal(t, approvedAt, *attempt.UserAgentApprovedAt)
+	require.Equal(t, lastProbeAt, *attempt.UserAgentLastProbeAt)
 }
 
 func TestCancelledBatchRecordsUnattemptedFeeds(t *testing.T) {

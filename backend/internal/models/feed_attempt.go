@@ -28,6 +28,13 @@ type JobFeedAttempt struct {
 	// DerivedPolicy marks outcomes like circuit_open that must not be
 	// double-counted as independent upstream root causes.
 	DerivedPolicy bool `gorm:"not null;default:false" json:"derived_policy"`
+	// User-Agent recovery metadata is safe bounded state only; no raw UA,
+	// response headers, cookies or Feed bodies are persisted here.
+	UserAgentGateState   string     `gorm:"column:feed_user_agent_gate_state;size:32;not null;default:''" json:"user_agent_gate_state,omitempty"`
+	UserAgentProbeResult string     `gorm:"column:feed_user_agent_probe_result;size:40;not null;default:''" json:"user_agent_probe_result,omitempty"`
+	UserAgentApprovedBy  string     `gorm:"column:feed_user_agent_approved_by;size:128;not null;default:''" json:"user_agent_approved_by,omitempty"`
+	UserAgentApprovedAt  *time.Time `gorm:"column:feed_user_agent_approved_at" json:"user_agent_approved_at,omitempty"`
+	UserAgentLastProbeAt *time.Time `gorm:"column:feed_user_agent_last_probe_at" json:"user_agent_last_probe_at,omitempty"`
 }
 
 func (JobFeedAttempt) TableName() string { return "job_feed_attempts" }

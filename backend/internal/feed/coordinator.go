@@ -277,6 +277,26 @@ func (c *Coordinator) SetCircuitDefaults(defaults CircuitDefaults) {
 
 var processCoordinator = NewCoordinator(DefaultCoordinatorConfig())
 
+type forceLiveFeedFetchContextKey struct{}
+
+// WithForceLiveFeedFetch marks an explicitly approved User-Agent recovery
+// probe. It bypasses Coordinator's local/shared success caches so the probe
+// must observe a live 200/304 result before advancing the durable gate.
+func WithForceLiveFeedFetch(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, forceLiveFeedFetchContextKey{}, true)
+}
+
+func forceLiveFeedFetch(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	forced, _ := ctx.Value(forceLiveFeedFetchContextKey{}).(bool)
+	return forced
+}
+
 // SharedCoordinator is the process-wide coordination boundary used by normal
 // workflow Feed fetchers.
 func SharedCoordinator() *Coordinator {
@@ -333,18 +353,21 @@ func (c *Coordinator) Do(ctx context.Context, rawURL string, fetch func(context.
 	key := CanonicalizeURL(rawURL)
 	domain := TargetDomain(rawURL)
 	policy := c.policyFor(domain)
+	forceLive := forceLiveFeedFetch(ctx)
 
-	c.mu.Lock()
-	if cached, ok := c.sharedResult[key]; ok && (policy.MinRefreshInterval > 0 || cached.hints.Present()) {
-		if serveCachedRefreshHints(cached, policy.MinRefreshInterval, time.Now()) {
-			result := cloneFetchResult(cached.result)
-			c.mu.Unlock()
-			return markSharedResult(result), nil
+	if !forceLive {
+		c.mu.Lock()
+		if cached, ok := c.sharedResult[key]; ok && (policy.MinRefreshInterval > 0 || cached.hints.Present()) {
+			if serveCachedRefreshHints(cached, policy.MinRefreshInterval, time.Now()) {
+				result := cloneFetchResult(cached.result)
+				c.mu.Unlock()
+				return markSharedResult(result), nil
+			}
 		}
+		c.mu.Unlock()
 	}
-	c.mu.Unlock()
 
-	if policy.MinRefreshInterval > 0 {
+	if !forceLive && policy.MinRefreshInterval > 0 {
 		if result, ok := c.freshLocalResult(ctx, rawURL, key, policy.MinRefreshInterval); ok {
 			return result, nil
 		}

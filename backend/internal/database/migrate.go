@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 13
+const CurrentSchemaVersion = 14
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -122,6 +122,12 @@ func migrationRegistry() []Migration {
 			Description: "Persist domain and User-Agent fingerprint blocks across Jobs and restarts (#48).",
 			Apply:       applyFeedUserAgentGatesMigration,
 		},
+		{
+			Version:     14,
+			Name:        "feed-user-agent-recovery",
+			Description: "Add audited human probe approval and distinct-Feed gradual User-Agent recovery state (#49).",
+			Apply:       applyFeedUserAgentRecoveryMigration,
+		},
 	}
 }
 
@@ -138,7 +144,7 @@ var baselineRequiredTables = []string{
 	"episodes_tags",
 }
 
-var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName)
+var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName)
 
 func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
 	if db == nil {
@@ -423,11 +429,91 @@ func applySingleActiveWorkflowJobMigration(db *gorm.DB) error {
 }
 
 func applyFeedUserAgentGatesMigration(db *gorm.DB) error {
-	if err := db.Exec(feed.FeedUserAgentGatesCreateTableSQL).Error; err != nil {
+	if err := db.Exec(feed.FeedUserAgentGatesCreateTableSQLV13).Error; err != nil {
 		return fmt.Errorf("create %s table: %w", feed.FeedUserAgentGatesTableName, err)
 	}
 	if err := db.Exec(feed.FeedUserAgentGatesCreateIndexSQL).Error; err != nil {
 		return fmt.Errorf("create %s state index: %w", feed.FeedUserAgentGatesTableName, err)
+	}
+	return nil
+}
+
+func applyFeedUserAgentRecoveryMigration(db *gorm.DB) error {
+	if err := addColumnIfMissing(db, &models.JobExecution{}, "feed_user_agent_gate_state", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(db, &models.JobExecution{}, "feed_user_agent_probe_result", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(db, &models.JobExecution{}, "feed_user_agent_approved_by", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(db, &models.JobExecution{}, "feed_user_agent_approved_at", "DATETIME"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(db, &models.JobExecution{}, "feed_user_agent_last_probe_at", "DATETIME"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(db, &models.JobFeedAttempt{}, "feed_user_agent_gate_state", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(db, &models.JobFeedAttempt{}, "feed_user_agent_probe_result", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(db, &models.JobFeedAttempt{}, "feed_user_agent_approved_by", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(db, &models.JobFeedAttempt{}, "feed_user_agent_approved_at", "DATETIME"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(db, &models.JobFeedAttempt{}, "feed_user_agent_last_probe_at", "DATETIME"); err != nil {
+		return err
+	}
+
+	for _, column := range []struct {
+		name string
+		ddl  string
+	}{
+		{name: "approved_by", ddl: "TEXT NOT NULL DEFAULT ''"},
+		{name: "approved_at", ddl: "INTEGER"},
+		{name: "last_probe_at", ddl: "INTEGER"},
+	} {
+		if db.Migrator().HasColumn(feed.FeedUserAgentGatesTableName, column.name) {
+			continue
+		}
+		if err := db.Exec("ALTER TABLE " + feed.FeedUserAgentGatesTableName + " ADD COLUMN " + column.name + " " + column.ddl).Error; err != nil {
+			return fmt.Errorf("add %s.%s: %w", feed.FeedUserAgentGatesTableName, column.name, err)
+		}
+	}
+
+	for _, statement := range []string{
+		feed.FeedUserAgentGateAuditsCreateTableSQL,
+		feed.FeedUserAgentGateAuditsCreateIndexSQL,
+		feed.FeedUserAgentGateRecoveryFeedsCreateTableSQL,
+		feed.FeedUserAgentGateRecoveryFeedsCreateIndexSQL,
+	} {
+		if err := db.Exec(statement).Error; err != nil {
+			return fmt.Errorf("apply User-Agent recovery schema: %w", err)
+		}
+	}
+	return nil
+}
+
+func addColumnIfMissing(db *gorm.DB, model any, name, ddl string) error {
+	if db.Migrator().HasColumn(model, name) {
+		return nil
+	}
+	table := ""
+	switch model.(type) {
+	case *models.JobExecution:
+		table = (models.JobExecution{}).TableName()
+	case *models.JobFeedAttempt:
+		table = (models.JobFeedAttempt{}).TableName()
+	default:
+		return fmt.Errorf("cannot resolve table for column %s", name)
+	}
+	if err := db.Exec("ALTER TABLE " + table + " ADD COLUMN " + name + " " + ddl).Error; err != nil {
+		return fmt.Errorf("add %s.%s: %w", table, name, err)
 	}
 	return nil
 }

@@ -251,6 +251,13 @@ type JobExecution struct {
 	// FeedFailurePhase is the connection stage from AccessOutcome (dns/connect/
 	// tls/response_header/body_read). Bounded label only; never request bodies.
 	FeedFailurePhase string `gorm:"size:40;not null;default:''" json:"feed_failure_phase"`
+	// User-Agent recovery metadata is copied from a claimed probe/recovery
+	// outcome. It contains only bounded state, result and operator timestamps.
+	FeedUserAgentGateState   string     `gorm:"column:feed_user_agent_gate_state;size:32;not null;default:''" json:"feed_user_agent_gate_state,omitempty"`
+	FeedUserAgentProbeResult string     `gorm:"column:feed_user_agent_probe_result;size:40;not null;default:''" json:"feed_user_agent_probe_result,omitempty"`
+	FeedUserAgentApprovedBy  string     `gorm:"column:feed_user_agent_approved_by;size:128;not null;default:''" json:"feed_user_agent_approved_by,omitempty"`
+	FeedUserAgentApprovedAt  *time.Time `gorm:"column:feed_user_agent_approved_at" json:"feed_user_agent_approved_at,omitempty"`
+	FeedUserAgentLastProbeAt *time.Time `gorm:"column:feed_user_agent_last_probe_at" json:"feed_user_agent_last_probe_at,omitempty"`
 }
 
 // TableName 指定表名

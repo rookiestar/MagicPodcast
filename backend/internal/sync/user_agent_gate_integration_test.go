@@ -28,6 +28,8 @@ func TestNewServiceWiresPersistentUserAgentGateAcrossJobs(t *testing.T) {
 	db := setupTestDB(t)
 	require.NoError(t, db.Exec(feed.FeedUserAgentGatesCreateTableSQL).Error)
 	require.NoError(t, db.Exec(feed.FeedUserAgentGatesCreateIndexSQL).Error)
+	require.NoError(t, db.Exec(feed.FeedUserAgentGateRecoveryFeedsCreateTableSQL).Error)
+	require.NoError(t, db.Exec(feed.FeedUserAgentGateRecoveryFeedsCreateIndexSQL).Error)
 	first := &models.Podcast{XYZID: "persistent-gate-first", Title: "First", FeedURL: server.URL + "/first.xml"}
 	second := &models.Podcast{XYZID: "persistent-gate-second", Title: "Second", FeedURL: server.URL + "/second.xml"}
 	require.NoError(t, db.Create(first).Error)

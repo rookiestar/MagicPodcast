@@ -82,6 +82,7 @@ type Fetcher struct {
 	httpClient  *http.Client
 	httpConfig  FeedHTTPConfig
 	coordinator *Coordinator
+	clock       func() time.Time
 	// userAgentGateStore is optional for legacy/test fetchers. The application
 	// wires the already-migrated SQLite store so direct UA ACL refusals survive
 	// Jobs and process restarts.
@@ -155,6 +156,7 @@ func NewFetcherWithHTTPConfig(config FeedHTTPConfig, coordinator *Coordinator) *
 	f := &Fetcher{
 		httpConfig:  config,
 		coordinator: coordinator,
+		clock:       time.Now,
 		httpClient: &http.Client{
 			Timeout:       config.OverallTimeout,
 			Transport:     newFeedHTTPTransport(config),
@@ -168,6 +170,34 @@ func NewFetcherWithHTTPConfig(config FeedHTTPConfig, coordinator *Coordinator) *
 	// path so the feature stays opt-in via the standard constructors.
 	f.robotsGate = NewRobotsGate(config.UserAgent, f.fetchRobotsTXT)
 	return f
+}
+
+func (f *Fetcher) now() time.Time {
+	if f == nil {
+		return time.Now().UTC()
+	}
+	f.mu.RLock()
+	clock := f.clock
+	f.mu.RUnlock()
+	if clock == nil {
+		return time.Now().UTC()
+	}
+	return clock().UTC()
+}
+
+// SetClock injects the gate clock used by deterministic recovery tests. It has
+// no effect on the HTTP transport's actual timeout measurement.
+func (f *Fetcher) SetClock(clock func() time.Time) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	if clock == nil {
+		f.clock = time.Now
+	} else {
+		f.clock = clock
+	}
+	f.mu.Unlock()
 }
 
 // newFeedHTTPTransport builds a layered transport: a bounded connect dialer,
@@ -266,6 +296,9 @@ func (f *Fetcher) FetchFeedWithContextDetailedAsSource(ctx context.Context, feed
 }
 
 func (f *Fetcher) fetchFeedWithContextDetailed(ctx context.Context, feedURL string, source AccessSource) (result *FetchResult, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	defer func() { recordAttempt(ctx, result) }()
 	if source == AccessSourceUnknown || source == "" {
 		source = AccessSourcePrimary
@@ -273,6 +306,9 @@ func (f *Fetcher) fetchFeedWithContextDetailed(ctx context.Context, feedURL stri
 	gate := batchAccessGateFromContext(ctx)
 	uaFingerprint := UserAgentFingerprint(f.userAgent())
 	userAgentGateStore := f.userAgentGateStoreSnapshot()
+	var recoveryStore UserAgentGateRecoveryStore
+	var recoveryDecision UserAgentGateFetchDecision
+	var recoveryAdmission bool
 	var releasePersistentGate func()
 	if source == AccessSourcePrimary && userAgentGateStore != nil {
 		var acquired bool
@@ -283,22 +319,41 @@ func (f *Fetcher) fetchFeedWithContextDetailed(ctx context.Context, feedURL stri
 			return result, err
 		}
 		defer releasePersistentGate()
-		decision, gateErr := userAgentGateStore.PreparePrimaryFetch(ctx, TargetDomain(feedURL), uaFingerprint, time.Now())
-		if gateErr != nil {
-			// A policy-store read failure fails closed: a durable block must never
-			// be bypassed merely because the policy store is temporarily unreadable.
-			logger.Warnf("read persistent User-Agent gate failed for %s: %v", TargetDomain(feedURL), gateErr)
-			result = f.userAgentBlockedResult(feedURL)
-			err = result.Error
-			return result, err
-		} else if decision.Mode == UserAgentGateFetchModeBlocked {
-			result = f.userAgentBlockedResult(feedURL)
-			err = result.Error
-			return result, err
+		if candidate, ok := userAgentGateStore.(UserAgentGateRecoveryStore); ok {
+			recoveryStore = candidate
+			decision, gateErr := recoveryStore.PreparePrimaryFetchForFeed(ctx, TargetDomain(feedURL), uaFingerprint, UserAgentGateFeedFingerprint(feedURL), f.now())
+			if gateErr != nil {
+				// A policy-store read failure fails closed: a durable block must never be bypassed merely because the policy store is temporarily unreadable.
+				logger.Warnf("read persistent User-Agent gate failed for %s: %v", TargetDomain(feedURL), gateErr)
+				result = f.userAgentBlockedResult(feedURL, UserAgentGateRecord{})
+				err = result.Error
+				return result, err
+			}
+			recoveryDecision = decision
+			if decision.Mode == UserAgentGateFetchModeBlocked {
+				result = f.userAgentBlockedResult(feedURL, decision.Record)
+				err = result.Error
+				return result, err
+			}
+			recoveryAdmission = decision.Mode == UserAgentGateFetchModeProbe || decision.Mode == UserAgentGateFetchModeRecovery
+		} else {
+			decision, gateErr := userAgentGateStore.PreparePrimaryFetch(ctx, TargetDomain(feedURL), uaFingerprint, f.now())
+			if gateErr != nil {
+				// A policy-store read failure fails closed: a durable block must never
+				// be bypassed merely because the policy store is temporarily unreadable.
+				logger.Warnf("read persistent User-Agent gate failed for %s: %v", TargetDomain(feedURL), gateErr)
+				result = f.userAgentBlockedResult(feedURL, UserAgentGateRecord{})
+				err = result.Error
+				return result, err
+			} else if decision.Mode == UserAgentGateFetchModeBlocked {
+				result = f.userAgentBlockedResult(feedURL, decision.Record)
+				err = result.Error
+				return result, err
+			}
 		}
 	}
 	if source == AccessSourcePrimary && gate != nil && gate.IsBlocked(TargetDomain(feedURL), uaFingerprint) {
-		result = f.userAgentBlockedResult(feedURL)
+		result = f.userAgentBlockedResult(feedURL, recoveryDecision.Record)
 		err = result.Error
 		return result, err
 	}
@@ -306,20 +361,41 @@ func (f *Fetcher) fetchFeedWithContextDetailed(ctx context.Context, feedURL stri
 		result, err = f.fetchFeedWithContextDirect(ctx, feedURL, RequestValidators{})
 		if result != nil {
 			result.Access.SourceType = source
+			if recoveryStore != nil {
+				applyUserAgentGateMetadata(&result.Access, recoveryDecision.Record)
+			}
 		}
 		f.updateBatchAccessGate(gate, source, feedURL, uaFingerprint, result)
-		f.updatePersistentUserAgentGate(userAgentGateStore, source, feedURL, uaFingerprint, result)
+		if recoveryAdmission {
+			result, err = f.completeUserAgentGateRecovery(ctx, recoveryStore, recoveryDecision, feedURL, result, err)
+		} else {
+			f.updatePersistentUserAgentGate(userAgentGateStore, source, feedURL, uaFingerprint, result)
+		}
 		return result, err
 	}
-	result, err = f.coordinator.Do(ctx, feedURL, func(operationCtx context.Context, validators RequestValidators) (*FetchResult, error) {
+	coordinatorCtx := ctx
+	if recoveryAdmission {
+		// The marker must be present on the Coordinator.Do context itself so
+		// shared/local success caches are bypassed before admission reaches the
+		// callback. Setting it only inside the callback is too late.
+		coordinatorCtx = WithForceLiveFeedFetch(ctx)
+	}
+	result, err = f.coordinator.Do(coordinatorCtx, feedURL, func(operationCtx context.Context, validators RequestValidators) (*FetchResult, error) {
 		result, err := f.fetchFeedWithContextDirect(operationCtx, feedURL, validators)
 		if result != nil {
 			result.Access.SourceType = source
+			if recoveryStore != nil {
+				applyUserAgentGateMetadata(&result.Access, recoveryDecision.Record)
+			}
 		}
 		return result, err
 	})
 	f.updateBatchAccessGate(gate, source, feedURL, uaFingerprint, result)
-	f.updatePersistentUserAgentGate(userAgentGateStore, source, feedURL, uaFingerprint, result)
+	if recoveryAdmission {
+		result, err = f.completeUserAgentGateRecovery(ctx, recoveryStore, recoveryDecision, feedURL, result, err)
+	} else {
+		f.updatePersistentUserAgentGate(userAgentGateStore, source, feedURL, uaFingerprint, result)
+	}
 	return result, err
 }
 
@@ -336,17 +412,22 @@ func (f *Fetcher) updatePersistentUserAgentGate(store UserAgentGateStore, source
 	if store == nil || source != AccessSourcePrimary || result == nil || result.Access.ErrorCategory != ErrorCategoryUserAgentDenied {
 		return
 	}
-	if err := store.Block(context.Background(), TargetDomain(feedURL), uaFingerprint, time.Now()); err != nil {
+	if err := store.Block(context.Background(), TargetDomain(feedURL), uaFingerprint, f.now()); err != nil {
 		logger.Warnf("persist User-Agent gate block failed for %s: %v", TargetDomain(feedURL), err)
+		return
+	}
+	if _, record, err := store.IsBlocked(context.Background(), TargetDomain(feedURL), uaFingerprint, f.now()); err == nil {
+		applyUserAgentGateMetadata(&result.Access, record)
 	}
 }
 
-func (f *Fetcher) userAgentBlockedResult(feedURL string) *FetchResult {
+func (f *Fetcher) userAgentBlockedResult(feedURL string, record UserAgentGateRecord) *FetchResult {
 	safeURL := SanitizeFeedURL(feedURL)
 	access := newPrimaryAccessOutcome(feedURL)
 	access.ErrorCategory = ErrorCategoryUserAgentBlocked
 	access.Freshness = FreshnessUnknown
 	access.EgressID = f.configuredEgressLabel()
+	applyUserAgentGateMetadata(&access, record)
 	return &FetchResult{
 		Error: &FeedError{
 			Type:    ErrorTypeUserAgentBlocked,
@@ -355,6 +436,40 @@ func (f *Fetcher) userAgentBlockedResult(feedURL string) *FetchResult {
 		},
 		Access: access,
 	}
+}
+
+func (f *Fetcher) completeUserAgentGateRecovery(ctx context.Context, store UserAgentGateRecoveryStore, decision UserAgentGateFetchDecision, feedURL string, result *FetchResult, err error) (*FetchResult, error) {
+	if store == nil {
+		return result, err
+	}
+	if result == nil {
+		result = &FetchResult{Access: newPrimaryAccessOutcome(feedURL), Error: err}
+		if errors.Is(ctx.Err(), context.Canceled) {
+			result.Access.ErrorCategory = ErrorCategoryCancelled
+		} else if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			result.Access.ErrorCategory = ErrorCategoryTimeout
+		} else {
+			result.Access.ErrorCategory = ErrorCategoryNetwork
+		}
+	}
+	updated, recordErr := store.RecordPrimaryFetchResult(ctx, TargetDomain(feedURL), decision.Record.UserAgentFingerprint, decision.FeedFingerprint, result.Access, f.now())
+	if recordErr != nil {
+		logger.Warnf("record User-Agent recovery result failed for %s: %v", TargetDomain(feedURL), recordErr)
+		return result, err
+	}
+	applyUserAgentGateMetadata(&result.Access, updated)
+	return result, err
+}
+
+func applyUserAgentGateMetadata(outcome *AccessOutcome, record UserAgentGateRecord) {
+	if outcome == nil || record.State == "" {
+		return
+	}
+	outcome.UserAgentGateState = record.State
+	outcome.UserAgentProbeResult = record.LastProbeResult
+	outcome.UserAgentApprovedBy = record.ApprovedBy
+	outcome.UserAgentApprovedAt = record.ApprovedAt
+	outcome.UserAgentLastProbeAt = record.LastProbeAt
 }
 
 func (f *Fetcher) userAgentGateCanceledResult(feedURL string, err error) *FetchResult {

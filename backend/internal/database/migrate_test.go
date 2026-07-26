@@ -102,6 +102,22 @@ func TestRequireSchemaReadyRejectsMissingUserAgentGatesTable(t *testing.T) {
 	require.False(t, db.Migrator().HasTable(feed.FeedUserAgentGatesTableName), "readiness must not recreate the gate table")
 }
 
+func TestRequireSchemaReadyRejectsMissingUserAgentRecoveryTables(t *testing.T) {
+	for _, table := range []string{feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName} {
+		t.Run(table, func(t *testing.T) {
+			db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+			require.NoError(t, ApplyMigrations(db))
+			require.NoError(t, db.Migrator().DropTable(table))
+
+			status, err := InspectSchema(db)
+			require.NoError(t, err)
+			require.Contains(t, status.RequiredTablesMissing, table)
+			require.ErrorIs(t, RequireSchemaReady(db), ErrSchemaNotReady)
+			require.False(t, db.Migrator().HasTable(table), "readiness must not recreate recovery tables")
+		})
+	}
+}
+
 func TestApplyMigrationsUpgradesSchemaV5ToV6WithSchedulerRuns(t *testing.T) {
 	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
 
@@ -128,13 +144,37 @@ func TestApplyMigrationsCreatesPersistentUserAgentGate(t *testing.T) {
 	require.Equal(t, 12, mustSchemaStatus(t, db).CurrentVersion)
 
 	require.NoError(t, ApplyMigrations(db))
-	require.Equal(t, 13, mustSchemaStatus(t, db).CurrentVersion)
+	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, db).CurrentVersion)
 	require.True(t, db.Migrator().HasTable(feed.FeedUserAgentGatesTableName))
+	require.True(t, db.Migrator().HasTable(feed.FeedUserAgentGateAuditsTableName))
+	require.True(t, db.Migrator().HasTable(feed.FeedUserAgentGateRecoveryFeedsTableName))
 	for _, column := range []string{
 		"domain", "user_agent_fingerprint", "state", "detected_at",
-		"probe_eligible_at", "last_probe_result", "recovery_success_count", "updated_at",
+		"probe_eligible_at", "last_probe_result", "recovery_success_count", "approved_by",
+		"approved_at", "last_probe_at", "updated_at",
 	} {
 		require.True(t, db.Migrator().HasColumn(feed.FeedUserAgentGatesTableName, column), "missing gate column %s", column)
+	}
+}
+
+func TestApplyMigrationsUpgradesSchema13To14UserAgentRecoveryState(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:13]))
+	require.Equal(t, 13, mustSchemaStatus(t, db).CurrentVersion)
+
+	require.NoError(t, ApplyMigrations(db))
+	require.Equal(t, 14, mustSchemaStatus(t, db).CurrentVersion)
+	require.True(t, db.Migrator().HasTable(feed.FeedUserAgentGateAuditsTableName))
+	require.True(t, db.Migrator().HasTable(feed.FeedUserAgentGateRecoveryFeedsTableName))
+	for _, column := range []string{"approved_by", "approved_at", "last_probe_at"} {
+		require.True(t, db.Migrator().HasColumn(feed.FeedUserAgentGatesTableName, column), "missing schema 14 column %s", column)
+	}
+	for _, column := range []string{
+		"feed_user_agent_gate_state", "feed_user_agent_probe_result", "feed_user_agent_approved_by",
+		"feed_user_agent_approved_at", "feed_user_agent_last_probe_at",
+	} {
+		require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, column), "missing JobExecution schema 14 column %s", column)
+		require.True(t, db.Migrator().HasColumn(&models.JobFeedAttempt{}, column), "missing JobFeedAttempt schema 14 column %s", column)
 	}
 }
 

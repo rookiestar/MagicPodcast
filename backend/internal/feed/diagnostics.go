@@ -65,14 +65,17 @@ type CircuitStateRow struct {
 // domain/User-Agent policy record. Only a short fingerprint prefix is exposed;
 // the raw User-Agent and full digest remain outside the API response.
 type UserAgentGateDiagnostic struct {
-	Domain                     string    `json:"domain"`
-	UserAgentFingerprintPrefix string    `json:"user_agent_fingerprint_prefix"`
-	State                      string    `json:"state"`
-	DetectedAt                 time.Time `json:"detected_at"`
-	ProbeEligibleAt            time.Time `json:"probe_eligible_at"`
-	ProbeEligible              bool      `json:"probe_eligible"`
-	LastProbeResult            string    `json:"last_probe_result,omitempty"`
-	RecoverySuccessCount       int       `json:"recovery_success_count"`
+	Domain                     string     `json:"domain"`
+	UserAgentFingerprintPrefix string     `json:"user_agent_fingerprint_prefix"`
+	State                      string     `json:"state"`
+	DetectedAt                 time.Time  `json:"detected_at"`
+	ProbeEligibleAt            time.Time  `json:"probe_eligible_at"`
+	ProbeEligible              bool       `json:"probe_eligible"`
+	LastProbeResult            string     `json:"last_probe_result,omitempty"`
+	RecoverySuccessCount       int        `json:"recovery_success_count"`
+	ApprovedBy                 string     `json:"approved_by,omitempty"`
+	ApprovedAt                 *time.Time `json:"approved_at,omitempty"`
+	LastProbeAt                *time.Time `json:"last_probe_at,omitempty"`
 }
 
 // FeedDiagnosticsResponse is the complete, whitelisted view surfaced through
@@ -153,6 +156,9 @@ func buildUserAgentGateDiagnostics(ctx context.Context, store UserAgentGateStore
 			ProbeEligible:              record.State == UserAgentGateStateBlocked && !now.Before(record.ProbeEligibleAt),
 			LastProbeResult:            record.LastProbeResult,
 			RecoverySuccessCount:       record.RecoverySuccessCount,
+			ApprovedBy:                 record.ApprovedBy,
+			ApprovedAt:                 record.ApprovedAt,
+			LastProbeAt:                record.LastProbeAt,
 		})
 	}
 	sort.Slice(result, func(i, j int) bool {

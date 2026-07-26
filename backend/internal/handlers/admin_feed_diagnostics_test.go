@@ -114,6 +114,10 @@ func TestAdminFeedDiagnosticsIncludesPersistentUserAgentGates(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.Exec(feed.FeedUserAgentGatesCreateTableSQL).Error)
 	require.NoError(t, db.Exec(feed.FeedUserAgentGatesCreateIndexSQL).Error)
+	require.NoError(t, db.Exec(feed.FeedUserAgentGateAuditsCreateTableSQL).Error)
+	require.NoError(t, db.Exec(feed.FeedUserAgentGateAuditsCreateIndexSQL).Error)
+	require.NoError(t, db.Exec(feed.FeedUserAgentGateRecoveryFeedsCreateTableSQL).Error)
+	require.NoError(t, db.Exec(feed.FeedUserAgentGateRecoveryFeedsCreateIndexSQL).Error)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sqlDB.Close() })
@@ -122,6 +126,12 @@ func TestAdminFeedDiagnosticsIncludesPersistentUserAgentGates(t *testing.T) {
 	userAgent := "MagicPodcast/1.0 (+https://github.com/rookiestar/MagicPodcast)"
 	fingerprint := feed.UserAgentFingerprint(userAgent)
 	require.NoError(t, store.Block(nil, "feeds.example", fingerprint, time.Now().Add(-time.Hour)))
+	approvedAt := time.Now().UTC().Add(25 * time.Hour)
+	approval, err := store.ApproveProbe(nil, "feeds.example", fingerprint, "owner", approvedAt, true)
+	require.NoError(t, err)
+	require.True(t, approval.Applied)
+	_, err = store.PreparePrimaryFetchForFeed(nil, "feeds.example", fingerprint, feed.UserAgentGateFeedFingerprint("https://feeds.example/probe.xml"), approvedAt)
+	require.NoError(t, err)
 
 	handler := NewAdminFeedDiagnosticsHandlerWithUserAgentGateStore(nil, store)
 	router := gin.New()
@@ -140,10 +150,13 @@ func TestAdminFeedDiagnosticsIncludesPersistentUserAgentGates(t *testing.T) {
 	gate := envelope.Data.UserAgentGates[0]
 	require.Equal(t, "feeds.example", gate.Domain)
 	require.Equal(t, fingerprint[:12], gate.UserAgentFingerprintPrefix)
-	require.Equal(t, feed.UserAgentGateStateBlocked, gate.State)
+	require.Equal(t, feed.UserAgentGateStateProbeInFlight, gate.State)
 	require.False(t, gate.ProbeEligible)
 	require.NotZero(t, gate.DetectedAt)
 	require.NotZero(t, gate.ProbeEligibleAt)
+	require.Equal(t, "owner", gate.ApprovedBy)
+	require.NotNil(t, gate.ApprovedAt)
+	require.NotNil(t, gate.LastProbeAt)
 
 	body := recorder.Body.String()
 	require.Contains(t, body, fingerprint[:12])
