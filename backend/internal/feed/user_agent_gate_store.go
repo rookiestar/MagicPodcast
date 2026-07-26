@@ -97,6 +97,13 @@ const (
 	UserAgentGateStateProbeInFlight = "probe_in_flight"
 	UserAgentGateStateRecovering    = "recovering"
 
+	// UserAgentGateStateRetired marks an identity that an audited migration has
+	// permanently retired. It is never active and can never be re-approved or
+	// re-armed by a fresh denial: a retired identity stays blocked forever, so a
+	// rejected User-Agent cannot be restored accidentally. Unknown identities on
+	// the same domain remain blocked by the durable domain-level gate.
+	UserAgentGateStateRetired = "retired"
+
 	// These defaults are deliberately conservative but shorter than the former
 	// fixed 24-hour first-block wait. Operators can override both cooldowns and
 	// the distinct-Feed success threshold through FeedConfig.
@@ -175,9 +182,10 @@ const (
 )
 
 const (
-	UserAgentGateAuditActionApproveProbe = "approve_probe"
-	UserAgentGateAuditModeDryRun         = "dry_run"
-	UserAgentGateAuditModeApply          = "apply"
+	UserAgentGateAuditActionApproveProbe    = "approve_probe"
+	UserAgentGateAuditActionMigrateIdentity = "migrate_identity"
+	UserAgentGateAuditModeDryRun            = "dry_run"
+	UserAgentGateAuditModeApply             = "apply"
 )
 
 const recoveryFeedStatusSuccess = "success"
@@ -254,6 +262,18 @@ type UserAgentGateApproval struct {
 	Record   UserAgentGateRecord
 }
 
+// UserAgentGateIdentityMigration is the result of a dry-run or apply identity
+// migration. Dry-run writes an audit row for each fingerprint but never mutates
+// gate state; apply atomically retires the old identity and creates the new
+// identity as probe_pending, admitting exactly one recovery probe for the new
+// fingerprint while keeping the old fingerprint permanently blocked.
+type UserAgentGateIdentityMigration struct {
+	Applied  bool
+	Eligible bool
+	Old      UserAgentGateRecord
+	New      UserAgentGateRecord
+}
+
 // UserAgentGateAudit is the bounded operator audit projection.
 type UserAgentGateAudit struct {
 	ID                   int64
@@ -291,6 +311,7 @@ type UserAgentGateRecoveryStore interface {
 type UserAgentGateMaintenanceStore interface {
 	UserAgentGateStore
 	ApproveProbe(ctx context.Context, domain, userAgentFingerprint, actor string, now time.Time, apply bool) (UserAgentGateApproval, error)
+	MigrateIdentity(ctx context.Context, domain, oldUserAgentFingerprint, newUserAgentFingerprint, actor string, now time.Time, apply bool) (UserAgentGateIdentityMigration, error)
 	ListAudits(ctx context.Context, domain, userAgentFingerprint string) ([]UserAgentGateAudit, error)
 }
 
@@ -397,8 +418,17 @@ func (s *SQLiteUserAgentGateStore) Block(ctx context.Context, domain, userAgentF
 	cooldown := s.recoveryConfig.InitialCooldown
 	if record, exists, readErr := s.get(ctx, s.db, domain, userAgentFingerprint); readErr != nil {
 		return readErr
-	} else if exists && (record.State == UserAgentGateStateProbeInFlight || record.State == UserAgentGateStateRecovering) {
-		cooldown = s.recoveryConfig.ProbeFailureCooldown
+	} else if exists {
+		switch record.State {
+		case UserAgentGateStateRetired:
+			// A migrated identity is permanently retired. A fresh explicit ACL
+			// denial must not re-arm it with a new cooldown (which would make it
+			// eligible for another human approval): the old User-Agent stays
+			// blocked forever and remains an inactive, non-eligible state.
+			return nil
+		case UserAgentGateStateProbeInFlight, UserAgentGateStateRecovering:
+			cooldown = s.recoveryConfig.ProbeFailureCooldown
+		}
 	}
 	when := now.UnixMilli()
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO `+FeedUserAgentGatesTableName+` (
@@ -607,6 +637,128 @@ func (s *SQLiteUserAgentGateStore) ApproveProbe(ctx context.Context, domain, use
 	return approval, nil
 }
 
+// MigrateIdentity retires a rejected User-Agent identity and admits exactly one
+// probe for a new, operator-approved fingerprint on the same domain. Dry-run
+// evaluates the precondition and writes only audit rows; apply atomically
+// transitions the old gate to retired and creates the new gate as
+// probe_pending. It never performs network I/O and never persists the raw
+// User-Agent.
+//
+// Eligibility is strict and one-way: the old fingerprint must currently be
+// blocked (a half-finished probe or active identity is never migrated), the new
+// fingerprint must not already exist on that domain, and the two fingerprints
+// must differ. Apply additionally clears any stale recovery progress bound to
+// the old fingerprint so it can never be counted toward a future recovery.
+func (s *SQLiteUserAgentGateStore) MigrateIdentity(ctx context.Context, domain, oldUserAgentFingerprint, newUserAgentFingerprint, actor string, now time.Time, apply bool) (UserAgentGateIdentityMigration, error) {
+	if err := s.ensure(); err != nil {
+		return UserAgentGateIdentityMigration{}, err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	domain, oldUserAgentFingerprint, err := normalizeUserAgentGateKey(domain, oldUserAgentFingerprint)
+	if err != nil {
+		return UserAgentGateIdentityMigration{}, err
+	}
+	newUserAgentFingerprint, err = normalizeGateFingerprint(newUserAgentFingerprint, "new User-Agent")
+	if err != nil {
+		return UserAgentGateIdentityMigration{}, err
+	}
+	if oldUserAgentFingerprint == newUserAgentFingerprint {
+		return UserAgentGateIdentityMigration{}, errors.New("old and new User-Agent fingerprints must differ")
+	}
+	actor, err = normalizeGateActor(actor)
+	if err != nil {
+		return UserAgentGateIdentityMigration{}, err
+	}
+	now = normalizeGateTime(now)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return UserAgentGateIdentityMigration{}, fmt.Errorf("begin User-Agent identity migration: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	oldRecord, oldExists, err := s.get(ctx, tx, domain, oldUserAgentFingerprint)
+	if err != nil {
+		return UserAgentGateIdentityMigration{}, err
+	}
+	if !oldExists {
+		return UserAgentGateIdentityMigration{}, fmt.Errorf("old User-Agent gate not found for domain %q", domain)
+	}
+	newRecord, newExists, err := s.get(ctx, tx, domain, newUserAgentFingerprint)
+	if err != nil {
+		return UserAgentGateIdentityMigration{}, err
+	}
+	if !newExists {
+		// Project the candidate identity so the maintenance response can expose
+		// its fingerprint prefix without persisting it. The empty State signals
+		// "not yet created"; callers project the target probe_pending state.
+		newRecord.Domain = domain
+		newRecord.UserAgentFingerprint = newUserAgentFingerprint
+	}
+
+	eligible := oldRecord.State == UserAgentGateStateBlocked && !newExists
+	migration := UserAgentGateIdentityMigration{Eligible: eligible, Old: oldRecord, New: newRecord}
+	mode := UserAgentGateAuditModeDryRun
+	if apply {
+		mode = UserAgentGateAuditModeApply
+	}
+
+	if apply && eligible {
+		if _, err := tx.ExecContext(ctx, `UPDATE `+FeedUserAgentGatesTableName+`
+			SET state = ?, last_probe_result = ?, recovery_success_count = 0,
+				approved_by = '', approved_at = NULL, last_probe_at = NULL, probe_eligible_at = ?, updated_at = ?
+			WHERE domain = ? AND user_agent_fingerprint = ? AND state = ?`,
+			UserAgentGateStateRetired, UserAgentGateStateRetired, now.UnixMilli(), now.UnixMilli(),
+			domain, oldUserAgentFingerprint, UserAgentGateStateBlocked); err != nil {
+			return UserAgentGateIdentityMigration{}, fmt.Errorf("retire old User-Agent identity: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+FeedUserAgentGateRecoveryFeedsTableName+`
+			WHERE domain = ? AND user_agent_fingerprint = ?`, domain, oldUserAgentFingerprint); err != nil {
+			return UserAgentGateIdentityMigration{}, fmt.Errorf("clear retired identity recovery progress: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO `+FeedUserAgentGatesTableName+` (
+			domain, user_agent_fingerprint, state, detected_at, probe_eligible_at,
+			last_probe_result, recovery_success_count, approved_by, approved_at, last_probe_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, ?)`,
+			domain, newUserAgentFingerprint, UserAgentGateStateProbePending, now.UnixMilli(), now.UnixMilli(),
+			"approved", actor, now.UnixMilli(), now.UnixMilli()); err != nil {
+			return UserAgentGateIdentityMigration{}, fmt.Errorf("create migrated User-Agent identity: %w", err)
+		}
+		migration.Old, _, err = s.get(ctx, tx, domain, oldUserAgentFingerprint)
+		if err != nil {
+			return UserAgentGateIdentityMigration{}, err
+		}
+		migration.New, _, err = s.get(ctx, tx, domain, newUserAgentFingerprint)
+		if err != nil {
+			return UserAgentGateIdentityMigration{}, err
+		}
+		migration.Applied = true
+	}
+
+	// Both fingerprints are audited so the operator trail records the retire
+	// (old) and the single admitted probe (new) in one action, regardless of
+	// mode. The result label reflects the target state: "retired" for the old
+	// identity once applied, "probe_pending" for the newly admitted identity.
+	oldResult := migration.Old.State
+	if migration.Applied {
+		oldResult = UserAgentGateStateRetired
+	}
+	if err := appendUserAgentGateAudit(ctx, tx, domain, oldUserAgentFingerprint,
+		UserAgentGateAuditActionMigrateIdentity, mode, actor, oldResult, now); err != nil {
+		return UserAgentGateIdentityMigration{}, err
+	}
+	if err := appendUserAgentGateAudit(ctx, tx, domain, newUserAgentFingerprint,
+		UserAgentGateAuditActionMigrateIdentity, mode, actor, UserAgentGateStateProbePending, now); err != nil {
+		return UserAgentGateIdentityMigration{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return UserAgentGateIdentityMigration{}, fmt.Errorf("commit User-Agent identity migration: %w", err)
+	}
+	return migration, nil
+}
+
 // ListAudits lists the bounded approval history for one gate in insertion
 // order. It is intentionally scoped to a gate so an operator cannot retrieve
 // unrelated audit data through this seam.
@@ -705,7 +857,7 @@ func (s *SQLiteUserAgentGateStore) PreparePrimaryFetchForFeed(ctx context.Contex
 	switch record.State {
 	case UserAgentGateStateActive:
 		return UserAgentGateFetchDecision{Mode: UserAgentGateFetchModeActive, Record: record, FeedFingerprint: feedFingerprint}, nil
-	case UserAgentGateStateBlocked, UserAgentGateStateProbeInFlight:
+	case UserAgentGateStateBlocked, UserAgentGateStateProbeInFlight, UserAgentGateStateRetired:
 		return UserAgentGateFetchDecision{Mode: UserAgentGateFetchModeBlocked, Record: record, FeedFingerprint: feedFingerprint}, nil
 	case UserAgentGateStateProbePending:
 		result, updateErr := s.db.ExecContext(ctx, `UPDATE `+FeedUserAgentGatesTableName+`

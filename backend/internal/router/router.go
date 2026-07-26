@@ -286,6 +286,7 @@ func SetupRouter() *gin.Engine {
 			v1.GET("/admin/feed-diagnostics", adminFeedDiagnosticsHandler.GetFeedDiagnostics)
 			adminUserAgentGateHandler := handlers.NewAdminUserAgentGateHandler(userAgentGateMaintenanceStore)
 			v1.POST("/admin/feed-user-agent-gates/probe", adminUserAgentGateHandler.ApproveProbe)
+			v1.POST("/admin/feed-user-agent-gates/migrate", adminUserAgentGateHandler.MigrateIdentity)
 		}
 
 		// LLM路由
