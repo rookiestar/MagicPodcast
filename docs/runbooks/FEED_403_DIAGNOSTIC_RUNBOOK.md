@@ -72,4 +72,14 @@
 - 后续工作流最多领取一次 probe；200/304 后用三个不同 Feed 渐进恢复，失败或再次明确 UA ACL 拒绝则保持/回到 `blocked`。
 - 诊断和工作流历史只展示指纹前缀、状态、批准人/时间及探测结果。不得借此轮换 UA、伪装浏览器或切换出口。
 
+### 身份迁移（旧 UA 永久退役 + 新 UA 单次 probe）
+
+当确认需要更换 User-Agent 身份（例如旧身份被上游永久黑名单）时，使用 #50 的可审计迁移入口，复用现有 schema 14 表，**不**新增 schema：
+
+- 受保护入口：`POST /api/v1/admin/feed-user-agent-gates/migrate`。
+- 请求只接受 `domain`、`old_user_agent_fingerprint`、`new_user_agent_fingerprint`（均为 SHA-256 指纹）、`actor` 和 `mode`（`dry_run` / `apply`）；不接受原始 UA、Cookie、代理或完整响应头，新旧指纹必须不同。
+- `dry_run` 只对两个指纹各写一条审批审计，不改状态；`apply` 原子地把旧身份置为 `retired`、清除其残留恢复进度，并为新身份创建一条 `probe_pending`，即仅放行一次新身份的 probe。
+- 旧身份永久退役：后续任何明确 UA ACL 拒绝都不会重新武装旧身份，`probe` 审批也无法恢复它；未被迁移的任意第三方 UA 仍被域级 gate 拦截，不得绕过。
+- 迁移后新身份仍走 #49 的三不同 Feed 渐进恢复链（200/304 计 1→2→3 到 `active`）。响应只暴露两个指纹前缀与目标状态。
+
 生产执行 schema 14 迁移、审批 apply、服务重启和实际探测仍需单独授权，并按发布/备份清单执行。
