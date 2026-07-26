@@ -71,22 +71,22 @@ type JobResponse struct {
 
 // FeedAttemptResponse is the API shape for one Feed attempt (no secrets/body).
 type FeedAttemptResponse struct {
-	ID                   uint      `json:"id"`
-	JobID                uint      `json:"job_id"`
-	PodcastID            *uint     `json:"podcast_id,omitempty"`
-	AttemptNo            int       `json:"attempt_no"`
-	SourceType           string    `json:"source_type"`
-	AttemptedAt          time.Time `json:"attempted_at"`
-	HTTPStatus           *int      `json:"http_status"`
-	ErrorCategory        string    `json:"error_category"`
-	ErrorCategoryLabel   string    `json:"error_category_label"`
-	FailurePhase         string    `json:"failure_phase,omitempty"`
-	RetryDecision        string    `json:"retry_decision,omitempty"`
-	IdentityVerification string    `json:"identity_verification"`
-	TargetDomain         string    `json:"target_domain"`
-	SourceURL            string    `json:"source_url"`
-	IsFinalResult        bool      `json:"is_final_result"`
-	DerivedPolicy        bool      `json:"derived_policy"`
+	ID                   uint       `json:"id"`
+	JobID                uint       `json:"job_id"`
+	PodcastID            *uint      `json:"podcast_id,omitempty"`
+	AttemptNo            int        `json:"attempt_no"`
+	SourceType           string     `json:"source_type"`
+	AttemptedAt          time.Time  `json:"attempted_at"`
+	HTTPStatus           *int       `json:"http_status"`
+	ErrorCategory        string     `json:"error_category"`
+	ErrorCategoryLabel   string     `json:"error_category_label"`
+	FailurePhase         string     `json:"failure_phase,omitempty"`
+	RetryDecision        string     `json:"retry_decision,omitempty"`
+	IdentityVerification string     `json:"identity_verification"`
+	TargetDomain         string     `json:"target_domain"`
+	SourceURL            string     `json:"source_url"`
+	IsFinalResult        bool       `json:"is_final_result"`
+	DerivedPolicy        bool       `json:"derived_policy"`
 	UserAgentGateState   string     `json:"user_agent_gate_state,omitempty"`
 	UserAgentProbeResult string     `json:"user_agent_probe_result,omitempty"`
 	UserAgentApprovedBy  string     `json:"user_agent_approved_by,omitempty"`

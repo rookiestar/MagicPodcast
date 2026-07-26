@@ -39,10 +39,10 @@ type SoftRateController struct {
 }
 
 type softRateState struct {
-	tier             SoftRateTier
-	consecutiveOK    int
-	lastReleaseAt    time.Time
-	nextAllowedAt    time.Time
+	tier          SoftRateTier
+	consecutiveOK int
+	lastReleaseAt time.Time
+	nextAllowedAt time.Time
 }
 
 // NewSoftRateController constructs an empty controller.
