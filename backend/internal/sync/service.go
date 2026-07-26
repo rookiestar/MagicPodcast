@@ -159,15 +159,37 @@ func NewServiceWithFeedCoordinator(db *gorm.DB, podcastIndexPath string, coordin
 		podcastIndexQuery = nil
 	}
 
+	feedFetcher := feed.NewFetcherWithCoordinator(30*time.Second, coordinator)
+	if gateStore := persistentUserAgentGateStore(db); gateStore != nil {
+		feedFetcher.SetUserAgentGateStore(gateStore)
+	}
+
 	return &Service{
 		db:                    db,
 		opmlParser:            opml.NewParser(),
-		feedFetcher:           feed.NewFetcherWithCoordinator(30*time.Second, coordinator),
+		feedFetcher:           feedFetcher,
 		podcastIndexQuery:     podcastIndexQuery,
 		scraper:               scraper.NewScraper(),
 		retryPolicy:           feed.SharedRetryPolicy(),
 		alternativePrewarmSem: make(chan struct{}, 2),
 	}, nil
+}
+
+func persistentUserAgentGateStore(db *gorm.DB) feed.UserAgentGateStore {
+	if db == nil || !db.Migrator().HasTable(feed.FeedUserAgentGatesTableName) {
+		return nil
+	}
+	sqlDB, err := db.DB()
+	if err != nil || sqlDB == nil {
+		logger.Warnf("persistent User-Agent gate unavailable: %v", err)
+		return nil
+	}
+	store, err := feed.NewSQLiteUserAgentGateStore(sqlDB)
+	if err != nil {
+		logger.Warnf("persistent User-Agent gate unavailable: %v", err)
+		return nil
+	}
+	return store
 }
 
 // applyRetryPolicy replaces the outer-retry policy. It exists for deterministic

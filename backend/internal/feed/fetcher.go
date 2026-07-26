@@ -82,6 +82,10 @@ type Fetcher struct {
 	httpClient  *http.Client
 	httpConfig  FeedHTTPConfig
 	coordinator *Coordinator
+	// userAgentGateStore is optional for legacy/test fetchers. The application
+	// wires the already-migrated SQLite store so direct UA ACL refusals survive
+	// Jobs and process restarts.
+	userAgentGateStore UserAgentGateStore
 	// robotsGate enforces advisory robots.txt admission before any upstream Feed
 	// request. It is nil only for legacy/test construction paths; every standard
 	// constructor wires it so the path-admission policy is honored uniformly.
@@ -268,6 +272,31 @@ func (f *Fetcher) fetchFeedWithContextDetailed(ctx context.Context, feedURL stri
 	}
 	gate := batchAccessGateFromContext(ctx)
 	uaFingerprint := UserAgentFingerprint(f.userAgent())
+	userAgentGateStore := f.userAgentGateStoreSnapshot()
+	var releasePersistentGate func()
+	if source == AccessSourcePrimary && userAgentGateStore != nil {
+		var acquired bool
+		releasePersistentGate, acquired = acquirePersistentUserAgentGate(ctx, TargetDomain(feedURL), uaFingerprint)
+		if !acquired {
+			result = f.userAgentGateCanceledResult(feedURL, ctx.Err())
+			err = result.Error
+			return result, err
+		}
+		defer releasePersistentGate()
+		decision, gateErr := userAgentGateStore.PreparePrimaryFetch(ctx, TargetDomain(feedURL), uaFingerprint, time.Now())
+		if gateErr != nil {
+			// A policy-store read failure fails closed: a durable block must never
+			// be bypassed merely because the policy store is temporarily unreadable.
+			logger.Warnf("read persistent User-Agent gate failed for %s: %v", TargetDomain(feedURL), gateErr)
+			result = f.userAgentBlockedResult(feedURL)
+			err = result.Error
+			return result, err
+		} else if decision.Mode == UserAgentGateFetchModeBlocked {
+			result = f.userAgentBlockedResult(feedURL)
+			err = result.Error
+			return result, err
+		}
+	}
 	if source == AccessSourcePrimary && gate != nil && gate.IsBlocked(TargetDomain(feedURL), uaFingerprint) {
 		result = f.userAgentBlockedResult(feedURL)
 		err = result.Error
@@ -279,6 +308,7 @@ func (f *Fetcher) fetchFeedWithContextDetailed(ctx context.Context, feedURL stri
 			result.Access.SourceType = source
 		}
 		f.updateBatchAccessGate(gate, source, feedURL, uaFingerprint, result)
+		f.updatePersistentUserAgentGate(userAgentGateStore, source, feedURL, uaFingerprint, result)
 		return result, err
 	}
 	result, err = f.coordinator.Do(ctx, feedURL, func(operationCtx context.Context, validators RequestValidators) (*FetchResult, error) {
@@ -289,6 +319,7 @@ func (f *Fetcher) fetchFeedWithContextDetailed(ctx context.Context, feedURL stri
 		return result, err
 	})
 	f.updateBatchAccessGate(gate, source, feedURL, uaFingerprint, result)
+	f.updatePersistentUserAgentGate(userAgentGateStore, source, feedURL, uaFingerprint, result)
 	return result, err
 }
 
@@ -298,6 +329,15 @@ func (f *Fetcher) updateBatchAccessGate(gate *BatchAccessGate, source AccessSour
 	}
 	if result.Access.ErrorCategory == ErrorCategoryUserAgentDenied {
 		gate.Block(TargetDomain(feedURL), uaFingerprint)
+	}
+}
+
+func (f *Fetcher) updatePersistentUserAgentGate(store UserAgentGateStore, source AccessSource, feedURL, uaFingerprint string, result *FetchResult) {
+	if store == nil || source != AccessSourcePrimary || result == nil || result.Access.ErrorCategory != ErrorCategoryUserAgentDenied {
+		return
+	}
+	if err := store.Block(context.Background(), TargetDomain(feedURL), uaFingerprint, time.Now()); err != nil {
+		logger.Warnf("persist User-Agent gate block failed for %s: %v", TargetDomain(feedURL), err)
 	}
 }
 
@@ -315,6 +355,33 @@ func (f *Fetcher) userAgentBlockedResult(feedURL string) *FetchResult {
 		},
 		Access: access,
 	}
+}
+
+func (f *Fetcher) userAgentGateCanceledResult(feedURL string, err error) *FetchResult {
+	access := newPrimaryAccessOutcome(feedURL)
+	access.ErrorCategory = ErrorCategoryCancelled
+	return &FetchResult{Error: err, Access: access}
+}
+
+func (f *Fetcher) userAgentGateStoreSnapshot() UserAgentGateStore {
+	if f == nil {
+		return nil
+	}
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.userAgentGateStore
+}
+
+// SetUserAgentGateStore wires the durable domain/User-Agent policy store. It is
+// deliberately a setter rather than a constructor parameter so existing test
+// and maintenance fetcher seams remain source-compatible.
+func (f *Fetcher) SetUserAgentGateStore(store UserAgentGateStore) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	f.userAgentGateStore = store
+	f.mu.Unlock()
 }
 
 func (f *Fetcher) fetchFeedWithContextDirect(ctx context.Context, feedURL string, validators RequestValidators) (result *FetchResult, err error) {

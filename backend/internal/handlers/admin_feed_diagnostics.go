@@ -22,6 +22,7 @@ import (
 type AdminFeedDiagnosticsHandler struct {
 	coordinator *feed.Coordinator
 	metrics     *feed.FeedMetrics
+	gateStore   feed.UserAgentGateStore
 }
 
 // NewAdminFeedDiagnosticsHandler constructs the handler against the shared
@@ -36,6 +37,15 @@ func NewAdminFeedDiagnosticsHandler(coordinator *feed.Coordinator) *AdminFeedDia
 		coordinator: coordinator,
 		metrics:     feed.SharedFeedMetrics(),
 	}
+}
+
+// NewAdminFeedDiagnosticsHandlerWithUserAgentGateStore wires the already
+// migrated durable gate store. The constructor is intentionally explicit so
+// tests and the router can prove which database-backed policy state is exposed.
+func NewAdminFeedDiagnosticsHandlerWithUserAgentGateStore(coordinator *feed.Coordinator, store feed.UserAgentGateStore) *AdminFeedDiagnosticsHandler {
+	h := NewAdminFeedDiagnosticsHandler(coordinator)
+	h.gateStore = store
+	return h
 }
 
 // withMetrics is a test seam that injects an isolated metrics registry so a
@@ -54,6 +64,6 @@ func (h *AdminFeedDiagnosticsHandler) withMetrics(metrics *feed.FeedMetrics) *Ad
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v1/admin/feed-diagnostics [get]
 func (h *AdminFeedDiagnosticsHandler) GetFeedDiagnostics(c *gin.Context) {
-	response := feed.BuildFeedDiagnostics(h.coordinator, h.metrics)
+	response := feed.BuildFeedDiagnosticsWithUserAgentGate(h.coordinator, h.metrics, h.gateStore)
 	middleware.SuccessResponse(c, response)
 }

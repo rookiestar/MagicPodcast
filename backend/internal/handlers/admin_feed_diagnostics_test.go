@@ -5,11 +5,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"magicpodcast/internal/feed"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 // TestAdminFeedDiagnosticsReturnsWhitelistedView verifies the protected admin
@@ -103,4 +106,47 @@ func TestAdminFeedDiagnosticsNoMetricsRoute(t *testing.T) {
 	require.NotContains(t, recorder.Body.String(), "# HELP")
 	require.NotContains(t, recorder.Body.String(), "# TYPE")
 	require.Contains(t, recorder.Body.String(), `"success":true`)
+}
+
+func TestAdminFeedDiagnosticsIncludesPersistentUserAgentGates(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open("file:user_agent_diag_"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.Exec(feed.FeedUserAgentGatesCreateTableSQL).Error)
+	require.NoError(t, db.Exec(feed.FeedUserAgentGatesCreateIndexSQL).Error)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	store, err := feed.NewSQLiteUserAgentGateStore(sqlDB)
+	require.NoError(t, err)
+	userAgent := "MagicPodcast/1.0 (+https://github.com/rookiestar/MagicPodcast)"
+	fingerprint := feed.UserAgentFingerprint(userAgent)
+	require.NoError(t, store.Block(nil, "feeds.example", fingerprint, time.Now().Add(-time.Hour)))
+
+	handler := NewAdminFeedDiagnosticsHandlerWithUserAgentGateStore(nil, store)
+	router := gin.New()
+	router.GET("/api/v1/admin/feed-diagnostics", handler.GetFeedDiagnostics)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/admin/feed-diagnostics", nil))
+	require.Equal(t, http.StatusOK, recorder.Code)
+
+	var envelope struct {
+		Success bool                         `json:"success"`
+		Data    feed.FeedDiagnosticsResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &envelope))
+	require.True(t, envelope.Success)
+	require.Len(t, envelope.Data.UserAgentGates, 1)
+	gate := envelope.Data.UserAgentGates[0]
+	require.Equal(t, "feeds.example", gate.Domain)
+	require.Equal(t, fingerprint[:12], gate.UserAgentFingerprintPrefix)
+	require.Equal(t, feed.UserAgentGateStateBlocked, gate.State)
+	require.False(t, gate.ProbeEligible)
+	require.NotZero(t, gate.DetectedAt)
+	require.NotZero(t, gate.ProbeEligibleAt)
+
+	body := recorder.Body.String()
+	require.Contains(t, body, fingerprint[:12])
+	require.NotContains(t, body, fingerprint)
+	require.NotContains(t, body, userAgent)
 }

@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 12
+const CurrentSchemaVersion = 13
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -116,6 +116,12 @@ func migrationRegistry() []Migration {
 			Description: "Enforce one pending/running/finalizing Job per workflow with a partial unique index (#38).",
 			Apply:       applySingleActiveWorkflowJobMigration,
 		},
+		{
+			Version:     13,
+			Name:        "feed-user-agent-gates",
+			Description: "Persist domain and User-Agent fingerprint blocks across Jobs and restarts (#48).",
+			Apply:       applyFeedUserAgentGatesMigration,
+		},
 	}
 }
 
@@ -132,7 +138,7 @@ var baselineRequiredTables = []string{
 	"episodes_tags",
 }
 
-var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts")
+var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName)
 
 func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
 	if db == nil {
@@ -412,6 +418,16 @@ func applySingleActiveWorkflowJobMigration(db *gorm.DB) error {
 	}
 	if err := db.Exec(models.ActiveJobUniqueIndexSQL).Error; err != nil {
 		return fmt.Errorf("create single-active workflow job index: %w", err)
+	}
+	return nil
+}
+
+func applyFeedUserAgentGatesMigration(db *gorm.DB) error {
+	if err := db.Exec(feed.FeedUserAgentGatesCreateTableSQL).Error; err != nil {
+		return fmt.Errorf("create %s table: %w", feed.FeedUserAgentGatesTableName, err)
+	}
+	if err := db.Exec(feed.FeedUserAgentGatesCreateIndexSQL).Error; err != nil {
+		return fmt.Errorf("create %s state index: %w", feed.FeedUserAgentGatesTableName, err)
 	}
 	return nil
 }

@@ -1,12 +1,12 @@
 # MagicPodcast 数据库迁移指南
 
-最后更新：2026-07-25
+最后更新：2026-07-26
 
 本文只记录当前仍适用的数据库迁移入口和操作顺序。旧的项目搬家记录已移入 [../archive/reports/PROJECT_LOCATION_MIGRATION_2026-01-21.md](../archive/reports/PROJECT_LOCATION_MIGRATION_2026-01-21.md)。
 
 ## 当前版本化迁移
 
-当前 schema 版本为 `11`（与源码 `backend/internal/database/migrate.go` 中 `CurrentSchemaVersion` 一致），版本记录保存在 `schema_migrations`。迁移注册表位于同一文件，每个版本包含名称、说明和事务内的执行函数。当前版本链为：
+当前 schema 版本为 `13`（与源码 `backend/internal/database/migrate.go` 中 `CurrentSchemaVersion` 一致），版本记录保存在 `schema_migrations`。迁移注册表位于同一文件，每个版本包含名称、说明和事务内的执行函数。当前版本链为：
 
 1. `1 baseline-current-model`：空数据库创建当前模型表和索引；已有且完整的数据库只记录 baseline。
 2. `2 feed-access-observability`：记录 Feed HTTP 状态、错误类别、耗时、缓存和出口等观测字段。
@@ -19,6 +19,8 @@
 9. `9 job-feed-attempts`：按 Job 追加安全的 Feed 尝试元数据（来源、序号、HTTP 状态、错误类别、失败阶段、重试决定、身份验证），不含正文/凭据；JobExecution 仍只保存最终结果（#39）。
 10. `10 job-compensation-links`：partial Job 与「仅重试失败 Feed」补偿 Job 的双向关联字段（#40）。生产 apply 需单独授权。
 11. `11 job-execution-failure-phase`：JobExecution 终态投影增加 `feed_failure_phase`（dns/connect/tls/response_header/body_read），供尝试链展示（#39）。
+12. `12 single-active-workflow-job`：为每个工作流的 pending/running/finalizing Job 增加部分唯一索引，避免并发重复执行（#38）。
+13. `13 feed-user-agent-gates`：创建 `feed_user_agent_gates`，按域名和 User-Agent 单向指纹持久化明确 UA ACL 阻断及恢复元数据（#48）；生产 apply 需单独授权。
 
 运行约束（非独立版本号）：
 

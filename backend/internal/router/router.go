@@ -268,7 +268,19 @@ func SetupRouter() *gin.Engine {
 		// 入口开关由 feed.diagnostics.admin_enabled 控制，默认开启；关闭后该
 		// 路由不再注册，但 /health 与 /ready 语义保持不变。
 		if feedDiagnosticsEnabled() {
-			adminFeedDiagnosticsHandler := handlers.NewAdminFeedDiagnosticsHandler(nil)
+			var userAgentGateStore feed.UserAgentGateStore
+			if db != nil && db.Migrator().HasTable(feed.FeedUserAgentGatesTableName) {
+				if sqlDB, err := db.DB(); err == nil && sqlDB != nil {
+					if store, err := feed.NewSQLiteUserAgentGateStore(sqlDB); err == nil {
+						userAgentGateStore = store
+					} else {
+						logger.Warnf("User-Agent gate diagnostics unavailable: %v", err)
+					}
+				} else if err != nil {
+					logger.Warnf("User-Agent gate diagnostics unavailable: %v", err)
+				}
+			}
+			adminFeedDiagnosticsHandler := handlers.NewAdminFeedDiagnosticsHandlerWithUserAgentGateStore(nil, userAgentGateStore)
 			v1.GET("/admin/feed-diagnostics", adminFeedDiagnosticsHandler.GetFeedDiagnostics)
 		}
 
