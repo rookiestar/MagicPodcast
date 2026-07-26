@@ -216,21 +216,29 @@ func TestUserAgentGateProbeFailureReblocksAndUARefusalResetsProgress(t *testing.
 	require.Equal(t, string(ErrorCategoryServiceUnavailable), failed.LastProbeResult)
 	require.Equal(t, now.Add(25*time.Hour+time.Minute+DefaultUserAgentProbeFailureCooldown), failed.ProbeEligibleAt)
 
-	// A renewed explicit ACL refusal is terminal and clears any partial recovery.
-	_, err = store.ApproveProbe(ctx, "feeds.example", fingerprint, "owner", now.Add(50*time.Hour), true)
+	tooEarly := failed.ProbeEligibleAt.Add(-time.Minute)
+	tooEarlyApproval, err := store.ApproveProbe(ctx, "feeds.example", fingerprint, "owner", tooEarly, true)
 	require.NoError(t, err)
-	decision, err = store.PreparePrimaryFetchForFeed(ctx, "feeds.example", fingerprint, feedFingerprint, now.Add(50*time.Hour))
+	require.False(t, tooEarlyApproval.Eligible)
+	require.False(t, tooEarlyApproval.Applied)
+
+	// A renewed explicit ACL refusal is terminal and clears any partial recovery.
+	recoveryProbeAt := failed.ProbeEligibleAt.Add(time.Minute)
+	_, err = store.ApproveProbe(ctx, "feeds.example", fingerprint, "owner", recoveryProbeAt, true)
+	require.NoError(t, err)
+	decision, err = store.PreparePrimaryFetchForFeed(ctx, "feeds.example", fingerprint, feedFingerprint, recoveryProbeAt)
 	require.NoError(t, err)
 	require.Equal(t, UserAgentGateFetchModeProbe, decision.Mode)
+	refusalAt := recoveryProbeAt.Add(time.Minute)
 	reset, err := store.RecordPrimaryFetchResult(ctx, "feeds.example", fingerprint, feedFingerprint, AccessOutcome{
 		HTTPStatus:    intPointer(http.StatusForbidden),
 		ErrorCategory: ErrorCategoryUserAgentDenied,
-	}, now.Add(50*time.Hour+time.Minute))
+	}, refusalAt)
 	require.NoError(t, err)
 	require.Equal(t, UserAgentGateStateBlocked, reset.State)
 	require.Equal(t, string(ErrorCategoryUserAgentDenied), reset.LastProbeResult)
 	require.Equal(t, 0, reset.RecoverySuccessCount)
-	require.Equal(t, now.Add(50*time.Hour+time.Minute+DefaultUserAgentProbeFailureCooldown), reset.ProbeEligibleAt)
+	require.Equal(t, refusalAt.Add(DefaultUserAgentProbeFailureCooldown), reset.ProbeEligibleAt)
 }
 
 func TestFetcherUsesApprovedProbeAndGradualRecoveryWithoutLocalCache(t *testing.T) {
