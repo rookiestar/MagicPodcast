@@ -110,6 +110,7 @@ DEBUG_GUIDE.md
 *.tmp
 *.temp
 .cache/
+.playwright-cli/
 
 # Coverage
 coverage/
