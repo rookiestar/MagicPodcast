@@ -391,7 +391,7 @@ func (rg *ReportGenerator) collectMatchedEpisodes(job *models.Job, timeRangeStar
 
 			episodeDetails[i] = EpisodeDetail{
 				Title:         ep.Title,
-				ShowNotes:     ep.ShowNotes,
+				ShowNotes:     utils.HTMLToMarkdown(ep.ShowNotes),
 				PublishedDate: ep.PublishedDate,
 				UpdatedDate:   ep.UpdatedDate,
 				EpisodeNo:     ep.EpisodeNo,
