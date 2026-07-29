@@ -12,6 +12,7 @@ var AllModels = []interface{}{
 	Podcast{},
 	PodcastAlternativeFeed{},
 	Episode{},
+	EpisodeTriageDecision{},
 	Job{},
 	JobExecution{},
 	JobFeedAttempt{},

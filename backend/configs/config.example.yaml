@@ -45,6 +45,10 @@ server:
     # 预检请求缓存时间（秒）
     max_age: 86400
 
+discovery:
+  # “今日备选”的日界线与日期显示时区
+  timezone: "Asia/Shanghai"
+
 database:
   # SQLite 数据库文件路径
   path: ./data/magicpodcast.db

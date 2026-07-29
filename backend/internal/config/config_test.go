@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadAppliesRuntimeEnvOverrides(t *testing.T) {
@@ -115,6 +117,27 @@ func TestValidateRejectsNonLoopbackServerHost(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateDiscoveryTimezone(t *testing.T) {
+	base := Config{
+		Server:    ServerConfig{Host: "127.0.0.1", Port: 8080, Mode: "release"},
+		Database:  DatabaseConfig{Path: "./data/test.db"},
+		XYZAPI:    XYZAPIConfig{URL: "http://127.0.0.1:8081"},
+		Discovery: DiscoveryConfig{Timezone: "Asia/Shanghai"},
+	}
+
+	require.NoError(t, base.Validate())
+	assert.Equal(t, "Asia/Shanghai", base.DiscoveryLocation().String())
+
+	invalid := base
+	invalid.Discovery.Timezone = "Mars/Olympus"
+	assert.Error(t, invalid.Validate())
+
+	defaulted := base
+	defaulted.Discovery.Timezone = ""
+	require.NoError(t, defaulted.Validate())
+	assert.Equal(t, "Asia/Shanghai", defaulted.Discovery.Timezone)
 }
 
 func writeTestConfig(t *testing.T, path string, contents string) {

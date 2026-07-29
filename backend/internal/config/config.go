@@ -21,6 +21,7 @@ type Config struct {
 	PodcastIndex PodcastIndexConfig `mapstructure:"podcast_index"`
 	Logging      LoggingConfig      `mapstructure:"logging"`
 	Search       SearchConfig       `mapstructure:"search"`
+	Discovery    DiscoveryConfig    `mapstructure:"discovery"`
 	User         UserConfig         `mapstructure:"user"`
 	Email        EmailConfig        `mapstructure:"email"`
 	LLM          LLMConfig          `mapstructure:"llm"`
@@ -166,6 +167,10 @@ type SearchConfig struct {
 	MaxPageSize      int                    `mapstructure:"max_page_size"`
 }
 
+type DiscoveryConfig struct {
+	Timezone string `mapstructure:"timezone"`
+}
+
 var cfg *Config
 
 const defaultServerHost = "127.0.0.1"
@@ -181,6 +186,8 @@ func Load(configPath string) (*Config, error) {
 	// 让嵌套键（如 feed.user_agent）能匹配带下划线的环境变量
 	// （MAGICPODCAST_FEED_USER_AGENT）。绑定到具体叶子键后生效。
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.SetDefault("discovery.timezone", "Asia/Shanghai")
+	_ = viper.BindEnv("discovery.timezone")
 	bindFeedEnvKeys()
 
 	// 读取配置文件
@@ -452,7 +459,22 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("xyz_api url cannot be empty")
 	}
 
+	if strings.TrimSpace(c.Discovery.Timezone) == "" {
+		c.Discovery.Timezone = "Asia/Shanghai"
+	}
+	if _, err := time.LoadLocation(c.Discovery.Timezone); err != nil {
+		return fmt.Errorf("invalid discovery timezone %q: %w", c.Discovery.Timezone, err)
+	}
+
 	return nil
+}
+
+func (c *Config) DiscoveryLocation() *time.Location {
+	location, err := time.LoadLocation(c.Discovery.Timezone)
+	if err != nil {
+		return time.UTC
+	}
+	return location
 }
 
 // IsDevelopment 是否为开发环境
