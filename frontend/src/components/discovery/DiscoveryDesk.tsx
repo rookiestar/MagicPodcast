@@ -45,6 +45,19 @@ function formatCandidateDate(value: string) {
   }).format(new Date(value));
 }
 
+function candidateExcerpt(candidate: DiscoveryCandidate) {
+  const summary = candidate.pre_reads?.find(
+    (preRead) => preRead.kind === "summary",
+  )?.content;
+  if (summary?.trim()) return summary.trim();
+
+  const showNotesText = candidate.show_notes
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return showNotesText || "暂无文字摘要";
+}
+
 function CandidateCover({
   candidate,
   className,
@@ -53,7 +66,13 @@ function CandidateCover({
   className: string;
 }) {
   const cover = candidate.image_url || candidate.podcast_cover_url;
-  if (!cover) {
+  const [coverFailed, setCoverFailed] = useState(false);
+
+  useEffect(() => {
+    setCoverFailed(false);
+  }, [cover]);
+
+  if (!cover || coverFailed) {
     return (
       <div className={`${className} discovery-cover-missing`}>
         <span>暂无封面</span>
@@ -67,6 +86,7 @@ function CandidateCover({
       alt={`${candidate.podcast_title}封面`}
       className={`${className} object-cover`}
       loading="lazy"
+      onError={() => setCoverFailed(true)}
     />
   );
 }
@@ -123,6 +143,7 @@ export default function DiscoveryDesk({
       ) ?? selectedPreReads[0],
     [selectedPreReads, selectedPreReadKind],
   );
+  const selectedPreReadSources = selectedPreRead?.sources ?? [];
 
   useEffect(() => {
     if (!selected || typeof window === "undefined") return;
@@ -139,7 +160,7 @@ export default function DiscoveryDesk({
     return (
       <section className="discovery-empty" aria-live="polite">
         <p className="discovery-kicker">最近更新</p>
-        <h1>个人库暂时没有可初筛的单集</h1>
+        <h1>个人库暂时没有新到单集</h1>
         <p>同步播客库后，最新单集会按可核对时间稳定显示在这里。</p>
       </section>
     );
@@ -217,33 +238,42 @@ export default function DiscoveryDesk({
 
   return (
     <main className="discovery-desk">
-      <header className="discovery-intro">
-        <div>
-          <p className="discovery-kicker">个人播客库 · 最近更新</p>
-          <h1>今天先看这些更新</h1>
-          <p>只按单集时间排序。没有推荐分数，也不混入库外内容。</p>
+      <section
+        className="discovery-workbench-header"
+        aria-label="个人库最近更新"
+      >
+        <div className="discovery-workbench-copy">
+          <div className="discovery-workbench-title-line">
+            <p className="discovery-kicker">个人播客知识库</p>
+            <span className="discovery-shelf-label">你的播客书架</span>
+          </div>
+          <h1>最近更新</h1>
+          <p className="discovery-workbench-description">
+            订阅更新、单集摘录、标签与备注，按原始内容留在同一处。
+          </p>
+          <p className="discovery-workbench-note">
+            按发布时间陈列；日期缺失时，以更新时间补位。
+          </p>
+        </div>
+        <div className="discovery-workbench-actions">
+          <div
+            className="discovery-count"
+            aria-label={`共 ${candidates.length} 项`}
+          >
+            <strong>{String(candidates.length).padStart(2, "0")}</strong>
+            <span>集新到</span>
+          </div>
           <Link className="discovery-today-link" href="/discovery/today">
-            查看今日备选
+            今日备选
           </Link>
         </div>
-        <div className="discovery-count" aria-label={`共 ${candidates.length} 项`}>
-          <strong>{String(candidates.length).padStart(2, "0")}</strong>
-          <span>项待浏览</span>
-        </div>
-      </header>
-
-      <section className="discovery-source-strip" aria-label="候选来源说明">
-        <strong>本次发现依据</strong>
-        <span>个人播客库中的具体单集</span>
-        <span>发布时间优先，更新时间兜底</span>
-        <span>相同时间按单集身份稳定排序</span>
       </section>
 
       <div className="discovery-workspace">
         <section className="discovery-list-section">
           <div className="discovery-section-heading">
-            <h2>最近更新候选</h2>
-            <span>选择后在右侧原地预览</span>
+            <h2>单集</h2>
+            <span>最近更新在前</span>
           </div>
           <ol
             className="discovery-candidate-list"
@@ -269,24 +299,29 @@ export default function DiscoveryDesk({
                     />
                     <span className="discovery-candidate-copy">
                       <span className="discovery-meta-line">
-                        <b>{candidate.source}</b>
                         <span>{candidate.podcast_title}</span>
                         <span>{formatCandidateDate(candidate.candidate_time)}</span>
                       </span>
                       <strong>{candidate.episode_title}</strong>
-                      <span>
+                      <span
+                        className="discovery-candidate-excerpt"
+                        data-testid={`candidate-excerpt-${candidate.episode_id}`}
+                      >
+                        {candidateExcerpt(candidate)}
+                      </span>
+                      <span className="discovery-candidate-details">
                         {candidate.episode_no || "单集"} ·{" "}
                         {formatDuration(candidate.duration)}
                       </span>
                     </span>
                     <span className="discovery-open-state">
                       {candidate.decision_state === "shortlisted"
-                        ? "已备选"
+                        ? "今日备选"
                         : candidate.decision_state === "discarded"
-                          ? "已舍弃"
+                          ? "已略过"
                           : isSelected
-                            ? "正在预览"
-                            : "先看 1 分钟"}
+                            ? "当前单集"
+                            : ""}
                     </span>
                   </button>
                 </li>
@@ -304,10 +339,10 @@ export default function DiscoveryDesk({
         >
           <div className="discovery-preview-heading">
             <div>
-              <p className="discovery-kicker">先看 1 分钟</p>
-              <span>本票仅展示库内原始信息</span>
+              <p className="discovery-kicker">内容摘录</p>
+              <span>摘要、观点、关联与质疑</span>
             </div>
-            <b>{selected.source}</b>
+            <b>个人库</b>
             <div className="discovery-mobile-progress">
               <button
                 type="button"
@@ -367,7 +402,7 @@ export default function DiscoveryDesk({
             ) : (
               <div className="discovery-degraded">
                 <strong>预读内容尚未就绪</strong>
-                <p>仍可核对原始信息并完成初筛。</p>
+                <p>原始信息仍在，留存状态不受影响。</p>
               </div>
             )}
             {selectedPreRead && (
@@ -393,8 +428,8 @@ export default function DiscoveryDesk({
                     {formatCandidateDate(selectedPreRead.generated_at)}
                   </span>
                   <span className="discovery-preread-sources">
-                    {selectedPreRead.sources.length > 0
-                      ? selectedPreRead.sources.map((source) =>
+                    {selectedPreReadSources.length > 0
+                      ? selectedPreReadSources.map((source) =>
                           source.url ? (
                             <a
                               key={`${source.kind}-${source.label}`}
@@ -416,7 +451,7 @@ export default function DiscoveryDesk({
               </section>
             )}
             <details className="discovery-original-evidence">
-              <summary>查看原始信息</summary>
+              <summary>节目原文</summary>
               <div className="discovery-preview-label">
                 <span>Show Notes</span>
                 <b>
@@ -443,13 +478,13 @@ export default function DiscoveryDesk({
 
           <div className="discovery-decision-area">
             <p className="discovery-decision-status">
-              当前状态：
+              留存：
               <strong>
                 {selected.decision_state === "shortlisted"
-                  ? "已备选"
+                  ? "今日备选"
                   : selected.decision_state === "discarded"
-                    ? "已舍弃"
-                    : "待判断"}
+                    ? "已略过"
+                    : "尚未标记"}
               </strong>
             </p>
             <div className="discovery-decision-actions">
@@ -465,7 +500,7 @@ export default function DiscoveryDesk({
                   )
                 }
               >
-                {selected.decision_state === "discarded" ? "恢复待判断" : "舍弃"}
+                {selected.decision_state === "discarded" ? "恢复显示" : "略过"}
               </button>
               <button
                 type="button"
@@ -481,8 +516,8 @@ export default function DiscoveryDesk({
                 }
               >
                 {selected.decision_state === "shortlisted"
-                  ? "撤销备选"
-                  : "加入备选"}
+                  ? "移出今日"
+                  : "留到今天"}
               </button>
             </div>
             {decisionError && (
@@ -493,10 +528,10 @@ export default function DiscoveryDesk({
           </div>
 
           <footer className="discovery-preview-footer">
-            <span>来源：个人播客库</span>
+            <span>个人播客库</span>
             {selected.original_url ? (
               <a href={selected.original_url} target="_blank" rel="noreferrer">
-                查看原始链接
+                节目页面
               </a>
             ) : (
               <span>原始链接暂缺</span>

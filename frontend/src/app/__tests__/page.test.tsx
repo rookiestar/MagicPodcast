@@ -48,12 +48,14 @@ vi.mock("@/components/layout/PageLayout", () => ({
 }));
 
 describe("default page", () => {
-  it("opens the responsive discovery desk instead of the legacy hero", () => {
+  it("opens a content-first view of recent personal-library episodes", () => {
     render(<Home />);
 
+    expect(screen.getByText("你的播客书架")).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "今天先看这些更新" }),
+      screen.getByRole("region", { name: "个人库最近更新" }),
     ).toBeInTheDocument();
+    expect(screen.queryByText("今日初筛工作区")).not.toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "默认首页最近更新" }),
     ).toBeInTheDocument();

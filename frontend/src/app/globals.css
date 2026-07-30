@@ -240,18 +240,9 @@
   }
 
   .discovery-desk {
-    width: min(100%, 1440px);
+    width: min(100%, 1400px);
     margin: 0 auto;
-    padding: 54px 28px 72px;
-  }
-
-  .discovery-intro {
-    display: flex;
-    align-items: end;
-    justify-content: space-between;
-    gap: 32px;
-    padding-bottom: 24px;
-    border-bottom: 2px solid #171717;
+    padding: 16px 28px 72px;
   }
 
   .discovery-kicker {
@@ -262,83 +253,113 @@
     text-transform: uppercase;
   }
 
-  .discovery-intro h1,
   .discovery-empty h1 {
     margin: 0;
     font-family: "Songti SC", "Noto Serif CJK SC", serif;
-    font-size: clamp(42px, 5vw, 72px);
+    font-size: clamp(36px, 3.2vw, 46px);
     font-weight: 600;
-    line-height: 1.04;
-    letter-spacing: -0.05em;
+    line-height: 1;
+    letter-spacing: -0.045em;
   }
 
-  .discovery-intro > div > p:last-child,
   .discovery-empty > p:last-child {
-    margin: 10px 0 0;
+    max-width: 520px;
+    margin: 9px 0 0;
     color: #6f685e;
-    font-size: 14px;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .discovery-workbench-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 24px;
+    min-height: 80px;
+    margin-top: 12px;
+    padding: 10px 0;
+    border-top: 1px solid #a99e8d;
+    border-bottom: 1px solid #171717;
+  }
+
+  .discovery-workbench-title-line {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .discovery-workbench-title-line .discovery-kicker {
+    margin-bottom: 0;
+  }
+
+  .discovery-shelf-label {
+    color: #746b60;
+    font: 500 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  .discovery-workbench-copy h1 {
+    margin: 0;
+    font-family: "Songti SC", serif;
+    font-size: clamp(30px, 2.8vw, 40px);
+    line-height: 1.1;
+    letter-spacing: -0.04em;
+  }
+
+  .discovery-workbench-description {
+    margin: 5px 0 0;
+    color: #4f4942;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .discovery-workbench-note {
+    margin: 5px 0 0;
+    color: #746b60;
+    font-size: 11px;
+  }
+
+  .discovery-workbench-actions {
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
   }
 
   .discovery-count {
+    min-width: 94px;
     display: grid;
-    min-width: 124px;
-    padding: 12px 16px;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 11px;
     border: 1px solid #171717;
     background: rgba(247, 241, 229, 0.92);
-    box-shadow: 3px 3px 0 #171717;
   }
 
   .discovery-count strong {
-    font: 700 30px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 700 23px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 
   .discovery-count span {
-    margin-top: 4px;
+    max-width: 30px;
     color: #6f685e;
-    font-size: 12px;
-  }
-
-  .discovery-source-strip {
-    display: grid;
-    grid-template-columns: 176px repeat(3, 1fr);
-    margin-top: 28px;
-    border: 1px solid #171717;
-    border-bottom-width: 4px;
-    background: rgba(247, 241, 229, 0.9);
-  }
-
-  .discovery-source-strip > * {
-    min-height: 74px;
-    display: flex;
-    align-items: center;
-    padding: 16px;
-    border-right: 1px solid #cfc3af;
-    font-size: 13px;
-  }
-
-  .discovery-source-strip > *:last-child {
-    border-right: 0;
-  }
-
-  .discovery-source-strip strong {
-    color: #f7f1e5;
-    background: #171717;
-    font-family: "Songti SC", serif;
-    font-size: 17px;
+    font-size: 10px;
+    line-height: 1.15;
   }
 
   .discovery-workspace {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(360px, 32%);
-    gap: 18px;
-    margin-top: 18px;
+    grid-template-columns: minmax(0, 3fr) minmax(460px, 2fr);
+    align-items: start;
+    gap: 22px;
+    margin-top: 16px;
   }
 
   .discovery-section-heading {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    padding: 0 2px 8px;
+    min-height: 42px;
+    padding: 7px 2px 8px;
     border-bottom: 1px solid #171717;
   }
 
@@ -355,35 +376,35 @@
 
   .discovery-candidate-list {
     display: grid;
-    gap: 10px;
-    margin: 10px 0 0;
+    gap: 0;
+    margin: 0;
     padding: 0;
+    border-bottom: 1px solid #171717;
     list-style: none;
   }
 
   .discovery-candidate {
     width: 100%;
-    min-height: 118px;
+    min-height: 132px;
     display: grid;
-    grid-template-columns: 24px 72px minmax(0, 1fr) 112px;
+    grid-template-columns: 24px 84px minmax(0, 1fr) 78px;
     align-items: center;
-    gap: 14px;
-    padding: 14px 14px 14px 10px;
-    border: 1px solid #cfc3af;
-    border-radius: 4px;
+    gap: 12px;
+    padding: 12px 10px 12px 6px;
+    border: 0;
+    border-bottom: 1px solid #cfc3af;
+    border-left: 5px solid transparent;
     color: #171717;
     text-align: left;
-    background: rgba(247, 241, 229, 0.85);
+    background: rgba(247, 241, 229, 0.62);
     transition:
       border-color 120ms ease,
-      box-shadow 120ms ease,
-      transform 120ms ease;
+      background-color 120ms ease;
   }
 
   .discovery-candidate[aria-pressed="true"] {
-    border: 2px solid #171717;
-    box-shadow: 3px 3px 0 #171717;
-    transform: translate(-1px, -1px);
+    border-left-color: #e96321;
+    background: #efe5d3;
   }
 
   .discovery-candidate:focus-visible,
@@ -406,8 +427,8 @@
   }
 
   .discovery-list-cover {
-    width: 72px;
-    height: 72px;
+    width: 84px;
+    height: 84px;
   }
 
   .discovery-cover-missing {
@@ -418,10 +439,15 @@
     text-align: center;
   }
 
+  .discovery-cover-missing span {
+    color: inherit;
+    font: inherit;
+  }
+
   .discovery-candidate-copy {
     min-width: 0;
     display: grid;
-    gap: 6px;
+    gap: 4px;
   }
 
   .discovery-meta-line {
@@ -432,35 +458,43 @@
     font: 500 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 
-  .discovery-meta-line b {
-    padding: 2px 5px;
-    border: 1px solid #3b82f6;
-    color: #1768d0;
-    background: #f7f1e5;
-  }
-
   .discovery-candidate-copy > strong {
     overflow: hidden;
     font-family: "Songti SC", "Noto Serif CJK SC", serif;
-    font-size: 20px;
+    font-size: 21px;
     line-height: 1.2;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .discovery-candidate-copy > span:last-child {
+  .discovery-candidate-excerpt {
+    display: -webkit-box;
+    overflow: hidden;
+    color: #4f4942;
+    font-family: "Songti SC", "Noto Serif CJK SC", serif;
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .discovery-candidate-details {
     color: #746b60;
-    font-size: 12px;
+    font: 500 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 
   .discovery-open-state {
-    min-height: 42px;
+    min-height: 44px;
     display: grid;
     place-items: center;
     border: 1px solid #171717;
-    border-radius: 3px;
     font-size: 12px;
     background: #f7f1e5;
+  }
+
+  .discovery-open-state:empty {
+    border-color: transparent;
+    background: transparent;
   }
 
   .discovery-candidate[aria-pressed="true"] .discovery-open-state {
@@ -473,7 +507,7 @@
     display: grid;
     grid-template-rows: auto auto 1fr auto auto;
     border: 1px solid #171717;
-    border-bottom-width: 4px;
+    border-bottom-width: 3px;
     background: rgba(247, 241, 229, 0.94);
   }
 
@@ -744,12 +778,16 @@
   }
 
   .discovery-decision-area {
-    padding: 14px 16px;
+    display: grid;
+    grid-template-columns: minmax(100px, 1fr) minmax(230px, 1.35fr);
+    align-items: center;
+    gap: 14px;
+    padding: 12px 16px;
     border-top: 1px solid #171717;
   }
 
   .discovery-decision-status {
-    margin: 0 0 10px;
+    margin: 0;
     color: #6f685e;
     font-size: 11px;
   }
@@ -833,12 +871,23 @@
     min-height: 44px;
     display: inline-flex;
     align-items: center;
-    margin-top: 8px;
+    padding: 0 14px;
+    border: 1px solid #171717;
     color: #171717;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 800;
-    text-decoration: underline;
-    text-underline-offset: 4px;
+    background: #efe5d3;
+  }
+
+  .discovery-today-link:hover,
+  .discovery-today-link:focus-visible {
+    color: #f7f1e5;
+    background: #171717;
+  }
+
+  .discovery-today-link:focus-visible {
+    outline: 3px solid #1768d0;
+    outline-offset: 2px;
   }
 
   .today-shortlist {
@@ -1009,49 +1058,62 @@
       margin-top: 14px;
     }
 
-    .discovery-source-strip {
-      display: none;
-    }
-
     .discovery-list-section {
       display: none;
     }
 
-    .discovery-intro {
-      align-items: center;
+    .discovery-workbench-header {
+      grid-template-columns: minmax(0, 1fr) auto;
       gap: 10px;
-      padding-bottom: 10px;
+      min-height: 0;
+      margin-top: 0;
+      padding: 0 0 10px;
+      border-top: 0;
+      border-bottom-width: 2px;
     }
 
-    .discovery-intro h1 {
-      font-size: 24px;
-      line-height: 1.1;
-      letter-spacing: -0.04em;
+    .discovery-workbench-copy h1 {
+      font-size: 20px;
+      white-space: nowrap;
     }
 
-    .discovery-intro > div > p:not(.discovery-kicker) {
+    .discovery-workbench-description,
+    .discovery-workbench-note {
       display: none;
     }
 
-    .discovery-intro .discovery-kicker {
+    .discovery-workbench-title-line .discovery-kicker,
+    .discovery-shelf-label {
       margin-bottom: 4px;
       font-size: 9px;
+    }
+
+    .discovery-workbench-actions {
+      gap: 6px;
     }
 
     .discovery-today-link {
       min-height: 44px;
       display: inline-flex;
       align-items: center;
+      padding-inline: 9px;
       font-size: 11px;
     }
 
     .discovery-count {
-      min-width: 74px;
-      padding: 8px 10px;
+      min-width: 62px;
+      grid-template-columns: 1fr;
+      gap: 2px;
+      padding: 5px 8px;
     }
 
     .discovery-count strong {
       font-size: 21px;
+    }
+
+    .discovery-count span {
+      max-width: none;
+      font-size: 9px;
     }
 
     .discovery-preview {
@@ -1115,6 +1177,15 @@
 
     .discovery-preview-body {
       padding: 14px 16px;
+    }
+
+    .discovery-decision-area {
+      display: block;
+      padding: 14px 16px;
+    }
+
+    .discovery-decision-status {
+      margin-bottom: 10px;
     }
 
     .discovery-preread-tabs {
