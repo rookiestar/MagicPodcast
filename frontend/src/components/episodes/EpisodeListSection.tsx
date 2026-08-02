@@ -153,9 +153,9 @@ export default function EpisodeListSection({
   });
 
   return (
-    <div className="mt-8">
+    <section className="podcast-episode-ledger">
       {showHeading ? (
-        <h2 className="text-2xl font-bold text-slate-900 mb-6">
+        <h2>
           单集列表 ({displayTotal} 集)
         </h2>
       ) : (
@@ -170,7 +170,7 @@ export default function EpisodeListSection({
         <EmptyEpisodeList />
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="podcast-episode-list">
             {episodes.map((episode, index) => (
               <div
                 key={episode.id}
@@ -211,6 +211,6 @@ export default function EpisodeListSection({
           )}
         </>
       )}
-    </div>
+    </section>
   );
 }

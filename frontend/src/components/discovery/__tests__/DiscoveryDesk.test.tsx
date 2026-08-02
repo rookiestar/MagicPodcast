@@ -134,10 +134,11 @@ describe("DiscoveryDesk", () => {
   it("leads with recent podcast content without duplicating global navigation", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
-    expect(screen.getByText("你的播客书架")).toBeInTheDocument();
     expect(
       screen.getByRole("region", { name: "个人库最近更新" }),
     ).toBeInTheDocument();
+    expect(screen.queryByText("个人播客知识库")).not.toBeInTheDocument();
+    expect(screen.queryByText("你的播客书架")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("navigation", { name: "知识管理入口" }),
     ).not.toBeInTheDocument();
@@ -149,7 +150,7 @@ describe("DiscoveryDesk", () => {
     );
   });
 
-  it("integrates the shelf context into the recent-update header", () => {
+  it("keeps the recent-update header concise", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
     const recentUpdates = screen.getByRole("region", {
@@ -157,14 +158,61 @@ describe("DiscoveryDesk", () => {
     });
 
     expect(recentUpdates).toContainElement(
-      screen.getByText("你的播客书架"),
-    );
-    expect(recentUpdates).toContainElement(
-      screen.getByText("订阅更新、单集摘录、标签与备注，按原始内容留在同一处。"),
+      screen.getByText("订阅单集，按发布时间排序。"),
     );
     expect(
-      screen.queryByRole("heading", { name: "你的播客书架" }),
+      screen.queryByText(
+        "订阅更新、单集摘录、标签与备注，按原始内容留在同一处。",
+      ),
     ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("按发布时间陈列；日期缺失时，以更新时间补位。"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "最近更新" }),
+    ).toHaveClass("editorial-section-title");
+  });
+
+  it("marks the end of a short list and exposes an adjustable desktop split", () => {
+    render(<DiscoveryDesk candidates={candidates} />);
+
+    expect(screen.getByText("本轮 02 集")).toBeInTheDocument();
+    expect(screen.getByText("最近更新已到底")).toBeInTheDocument();
+
+    const resizer = screen.getByRole("separator", {
+      name: "调整单集列表和单集预读宽度",
+    });
+    expect(resizer).toHaveAttribute("aria-valuenow", "60");
+
+    fireEvent.keyDown(resizer, { key: "ArrowLeft" });
+    expect(resizer).toHaveAttribute("aria-valuenow", "57");
+  });
+
+  it("keeps the preview header concise and names the shortlist action", () => {
+    render(<DiscoveryDesk candidates={candidates} onDecision={vi.fn()} />);
+
+    expect(screen.getByText("单集预读")).toBeInTheDocument();
+    expect(screen.queryByText("摘要、观点、关联与质疑")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "加入今日备选" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "留到今天" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("uses icon-only decision controls with accessible hover labels", () => {
+    render(<DiscoveryDesk candidates={candidates} onDecision={vi.fn()} />);
+
+    const discard = screen.getByRole("button", { name: "略过" });
+    const shortlist = screen.getByRole("button", { name: "加入今日备选" });
+
+    expect(discard).toHaveAttribute("title", "略过");
+    expect(shortlist).toHaveAttribute("title", "加入今日备选");
+    expect(discard).toHaveTextContent("");
+    expect(shortlist).toHaveTextContent("");
+    expect(discard.querySelector("svg")).toBeInTheDocument();
+    expect(shortlist.querySelector("svg")).toBeInTheDocument();
   });
 
   it("keeps the list in place while switching the selected candidate", () => {
@@ -184,7 +232,7 @@ describe("DiscoveryDesk", () => {
     expect(
       screen.getByRole("heading", { name: "缺少 Show Notes 的边界项" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Show Notes 暂缺")).toBeInTheDocument();
+    expect(screen.getByText("节目链接暂缺")).toBeInTheDocument();
     expect(screen.getByTestId("discovery-candidate-list")).toBe(list);
   });
 
@@ -226,15 +274,19 @@ describe("DiscoveryDesk", () => {
 
     render(<DiscoveryDesk candidates={candidates} onDecision={onDecision} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "留到今天" }));
+    fireEvent.click(screen.getByRole("button", { name: "加入今日备选" }));
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "移出今日" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "移出今日备选" }),
+      ).toBeInTheDocument();
     });
     expect(onDecision).toHaveBeenCalledWith(11, "shortlisted");
 
-    fireEvent.click(screen.getByRole("button", { name: "移出今日" }));
+    fireEvent.click(screen.getByRole("button", { name: "移出今日备选" }));
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "留到今天" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "加入今日备选" }),
+      ).toBeInTheDocument();
     });
     expect(onDecision).toHaveBeenCalledWith(11, "pending");
 
@@ -272,6 +324,28 @@ describe("DiscoveryDesk", () => {
     expect(screen.queryByRole("region", { name: "摘要预读" })).not.toBeInTheDocument();
   });
 
+  it("explains each pre-read scope and links out instead of embedding show notes", () => {
+    render(<DiscoveryDesk candidates={candidates} />);
+
+    expect(screen.getByText("这一集讲了什么")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "核心观点" }));
+    expect(screen.getByText("节目提出的核心主张")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "与我相关" }));
+    expect(screen.getByText("与你的标签和备注有何关联")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "证据边界" }));
+    expect(
+      screen.getByText("证据缺口、适用边界与待核问题"),
+    ).toBeInTheDocument();
+
+    expect(screen.queryByText("节目原文")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "打开节目页面" }),
+    ).toHaveAttribute("href", "https://example.com/episodes/11");
+  });
+
   it("keeps a pre-read usable when its source list is absent", () => {
     const relevantWithoutSources = {
       ...candidates[0],
@@ -302,13 +376,13 @@ describe("DiscoveryDesk", () => {
     );
 
     expect(screen.getByText("信息缺失")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "观点" }));
+    fireEvent.click(screen.getByRole("button", { name: "核心观点" }));
     expect(screen.getByText("尚未完成")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "与我相关" }));
     expect(screen.getByText("证据不足")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "值得质疑" }));
+    fireEvent.click(screen.getByRole("button", { name: "证据边界" }));
     expect(screen.getByText("生成失败")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "留到今天" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "加入今日备选" })).toBeEnabled();
   });
 
   it("keeps the candidate usable when pre-read data has not arrived yet", () => {
@@ -353,15 +427,15 @@ describe("DiscoveryDesk", () => {
     expect(screen.getByRole("button", { name: "下一项" })).toBeDisabled();
   });
 
-  it("restores the current candidate after refresh and keeps raw evidence in place", () => {
+  it("restores the current candidate after refresh and keeps the source-link state", () => {
     window.history.replaceState({ magicpodcastDiscoveryEpisodeID: 12 }, "");
     const { unmount } = render(<DiscoveryDesk candidates={candidates} />);
 
     expect(
       screen.getByRole("heading", { name: "缺少 Show Notes 的边界项" }),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByText("节目原文"));
-    expect(screen.getByText("Show Notes 暂缺")).toBeInTheDocument();
+    expect(screen.getByText("节目链接暂缺")).toBeInTheDocument();
+    expect(screen.queryByText("节目原文")).not.toBeInTheDocument();
     expect(screen.getByText("尚未标记")).toBeInTheDocument();
 
     unmount();

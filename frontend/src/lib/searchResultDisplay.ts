@@ -3,6 +3,7 @@ import type {
   MatchedField,
   PodcastSearchResult,
 } from "@/types";
+import { stripHtml } from "@/lib/textUtils";
 import type { SearchType } from "@/lib/searchSidebarState";
 
 export type SearchResultImagePriority = "high" | "medium" | "low";
@@ -139,9 +140,10 @@ export function getPodcastSearchSnippet(podcast: PodcastSearchResult) {
 }
 
 export function getEpisodeSearchSnippet(episode: EpisodeSearchResult) {
-  return (
+  return stripHtml(
     findMatchedSnippet(episode.matched_fields, ["show_notes", "title"]) ||
-    episode.show_notes
+      episode.show_notes,
+    180,
   );
 }
 

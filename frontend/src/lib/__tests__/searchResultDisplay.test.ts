@@ -146,6 +146,16 @@ describe("searchResultDisplay", () => {
     expect(getEpisodeSearchSnippet(makeEpisode())).toBe("Show notes");
   });
 
+  it("removes html markup from episode snippets", () => {
+    expect(
+      getEpisodeSearchSnippet(
+        makeEpisode({
+          show_notes: "<p>从任务分配、<strong>反馈循环</strong>讨论组织变化。</p>",
+        }),
+      ),
+    ).toBe("从任务分配、反馈循环讨论组织变化。");
+  });
+
   it("gets podcast cover priority by result position", () => {
     expect(getSearchResultImagePriority(0)).toBe("high");
     expect(getSearchResultImagePriority(2)).toBe("high");

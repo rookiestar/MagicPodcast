@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, memo } from "react";
+import { IconHeadphones } from "@tabler/icons-react";
 import Image from "next/image";
 import PlainImage from "@/components/ui/PlainImage";
 import { canUseNextImage } from "@/lib/imageOptimization";
@@ -151,8 +152,16 @@ function PodcastCover({
   if (!imageUrl || imageError) {
     return (
       <div className={containerClass} ref={containerRef}>
-        <div className="w-full h-full flex items-center justify-center">
-          <div className="text-5xl text-slate-400">🎧</div>
+        <div
+          className="w-full h-full flex items-center justify-center"
+          role="img"
+          aria-label={`${title}封面暂不可用`}
+        >
+          <IconHeadphones
+            className="h-12 w-12 text-slate-400"
+            aria-hidden="true"
+            stroke={1.2}
+          />
         </div>
       </div>
     );

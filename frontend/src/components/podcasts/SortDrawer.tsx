@@ -1,5 +1,6 @@
 "use client";
 
+import { IconCheck, IconX } from "@tabler/icons-react";
 import { useEffect } from "react";
 
 interface SortOption {
@@ -51,48 +52,34 @@ export default function SortDrawer({
   return (
     <>
       <div
-        className="fixed inset-0 bg-black/50 z-50 transition-opacity"
+        className="podcast-sort-backdrop"
         onClick={onClose}
         aria-hidden="true"
       />
 
       <div
-        className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl z-50 transform transition-transform duration-300 ease-in-out translate-y-0"
-        style={{ maxHeight: "70vh" }}
+        className="podcast-sort-drawer"
         role="dialog"
         aria-modal="true"
         aria-labelledby="podcast-sort-drawer-title"
       >
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-4">
+        <div className="podcast-sort-drawer-inner">
+          <div className="podcast-sort-drawer-heading">
             <h3
               id="podcast-sort-drawer-title"
-              className="text-lg font-semibold text-slate-800"
             >
               选择排序方式
             </h3>
             <button
               onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 transition-colors"
+              className="podcast-sort-drawer-close"
               aria-label="关闭"
             >
-              <svg
-                className="w-5 h-5 text-slate-600"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
+              <IconX aria-hidden="true" stroke={1.8} />
             </button>
           </div>
 
-          <div className="space-y-2">
+          <div className="podcast-sort-options">
             {options.map((option) => {
               const isSelected = currentSort === option.value;
               return (
@@ -100,21 +87,11 @@ export default function SortDrawer({
                   key={option.value}
                   onClick={() => handleSortChange(option.value)}
                   aria-pressed={isSelected}
-                  className={`w-full text-left px-4 py-3 rounded-lg flex items-center justify-between transition-colors ${
-                    isSelected
-                      ? "bg-violet-100 text-violet-700"
-                      : "bg-slate-50 text-slate-700 hover:bg-slate-100"
-                  }`}
+                  className={isSelected ? "is-selected" : ""}
                 >
-                  <span className="font-medium">{option.label}</span>
+                  <span>{option.label}</span>
                   {isSelected && (
-                    <svg
-                      className="w-5 h-5"
-                      fill="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                    </svg>
+                    <IconCheck aria-hidden="true" stroke={2} />
                   )}
                 </button>
               );
@@ -123,7 +100,7 @@ export default function SortDrawer({
 
           <button
             onClick={onClose}
-            className="w-full mt-4 py-3 text-slate-600 font-medium hover:bg-slate-50 rounded-lg transition-colors"
+            className="podcast-sort-cancel"
           >
             取消
           </button>

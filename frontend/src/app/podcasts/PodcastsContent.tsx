@@ -151,6 +151,8 @@ export default function PodcastsContent() {
 
   return (
     <PageLayout
+      rootClassName="editorial-page-shell"
+      className="podcast-library-page"
       onSearchClick={openSearch}
       toolbar={{
         breadcrumbs: [{ label: "返回首页", href: "/" }],
@@ -163,6 +165,7 @@ export default function PodcastsContent() {
             onSortChange={handleSortChange}
           />
         ),
+        className: "editorial-page-toolbar",
       }}
     >
       <MobilePodcastListSummary

@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { TouchEvent } from "react";
+import type { KeyboardEvent, PointerEvent, TouchEvent } from "react";
+import {
+  IconBookmarkMinus,
+  IconBookmarkPlus,
+  IconEye,
+  IconEyeOff,
+} from "@tabler/icons-react";
 import Link from "next/link";
 import PlainImage from "@/components/ui/PlainImage";
-import { sanitizeRichTextHtml } from "@/lib/contentSanitizer";
 import type {
   DiscoveryCandidate,
   DiscoveryPreReadKind,
@@ -27,6 +32,28 @@ const preReadStatusLabels: Record<DiscoveryPreReadStatus, string> = {
   insufficient: "证据不足",
   failed: "生成失败",
   missing: "信息缺失",
+};
+
+const preReadPresentation: Record<
+  DiscoveryPreReadKind,
+  { label: string; purpose: string }
+> = {
+  summary: {
+    label: "摘要",
+    purpose: "这一集讲了什么",
+  },
+  viewpoints: {
+    label: "核心观点",
+    purpose: "节目提出的核心主张",
+  },
+  relevant: {
+    label: "与我相关",
+    purpose: "与你的标签和备注有何关联",
+  },
+  challenge: {
+    label: "证据边界",
+    purpose: "证据缺口、适用边界与待核问题",
+  },
 };
 
 const emptyPreReads: DiscoveryCandidate["pre_reads"] = [];
@@ -112,6 +139,8 @@ export default function DiscoveryDesk({
   const [decisionError, setDecisionError] = useState("");
   const [selectedPreReadKind, setSelectedPreReadKind] =
     useState<DiscoveryPreReadKind>("summary");
+  const [splitRatio, setSplitRatio] = useState(60);
+  const workspaceRef = useRef<HTMLDivElement>(null);
   const touchStartX = useRef<number | null>(null);
 
   useEffect(() => {
@@ -166,6 +195,13 @@ export default function DiscoveryDesk({
     );
   }
 
+  const discardActionLabel =
+    selected.decision_state === "discarded" ? "恢复显示" : "略过";
+  const shortlistActionLabel =
+    selected.decision_state === "shortlisted"
+      ? "移出今日备选"
+      : "加入今日备选";
+
   const updateDecision = async (state: TriageDecisionState) => {
     if (!onDecision || savingDecision) return;
 
@@ -212,6 +248,66 @@ export default function DiscoveryDesk({
     setSelectedPreReadKind("summary");
   };
 
+  const setSplitFromClientX = (clientX: number) => {
+    const bounds = workspaceRef.current?.getBoundingClientRect();
+    if (!bounds || bounds.width <= 0) return;
+
+    const availableWidth = bounds.width - 18;
+    const minimumListRatio = Math.max(42, (320 / availableWidth) * 100);
+    const maximumListRatio = Math.min(
+      68,
+      100 - (400 / availableWidth) * 100,
+    );
+    if (maximumListRatio < minimumListRatio) return;
+
+    const nextRatio =
+      ((clientX - bounds.left) / availableWidth) * 100;
+    setSplitRatio(
+      Math.round(
+        Math.min(
+          maximumListRatio,
+          Math.max(minimumListRatio, nextRatio),
+        ),
+      ),
+    );
+  };
+
+  const handleResizePointerDown = (
+    event: PointerEvent<HTMLButtonElement>,
+  ) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setSplitFromClientX(event.clientX);
+  };
+
+  const handleResizePointerMove = (
+    event: PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    setSplitFromClientX(event.clientX);
+  };
+
+  const handleResizePointerUp = (
+    event: PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const handleResizeKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+  ) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    setSplitRatio((current) =>
+      Math.min(
+        68,
+        Math.max(42, current + (event.key === "ArrowLeft" ? -3 : 3)),
+      ),
+    );
+  };
+
   const handleTouchStart = (event: TouchEvent<HTMLElement>) => {
     const touch = event.touches[0];
     if (!touch) return;
@@ -243,16 +339,9 @@ export default function DiscoveryDesk({
         aria-label="个人库最近更新"
       >
         <div className="discovery-workbench-copy">
-          <div className="discovery-workbench-title-line">
-            <p className="discovery-kicker">个人播客知识库</p>
-            <span className="discovery-shelf-label">你的播客书架</span>
-          </div>
-          <h1>最近更新</h1>
+          <h1 className="editorial-section-title">最近更新</h1>
           <p className="discovery-workbench-description">
-            订阅更新、单集摘录、标签与备注，按原始内容留在同一处。
-          </p>
-          <p className="discovery-workbench-note">
-            按发布时间陈列；日期缺失时，以更新时间补位。
+            订阅单集，按发布时间排序。
           </p>
         </div>
         <div className="discovery-workbench-actions">
@@ -269,8 +358,18 @@ export default function DiscoveryDesk({
         </div>
       </section>
 
-      <div className="discovery-workspace">
-        <section className="discovery-list-section">
+      <div
+        ref={workspaceRef}
+        className="discovery-workspace"
+        style={{
+          gridTemplateColumns: `minmax(320px, ${splitRatio}fr) 18px minmax(400px, ${100 - splitRatio}fr)`,
+        }}
+      >
+        <section
+          className={`discovery-list-section ${
+            displayCandidates.length >= 4 ? "is-filled" : "is-sparse"
+          }`}
+        >
           <div className="discovery-section-heading">
             <h2>单集</h2>
             <span>最近更新在前</span>
@@ -278,6 +377,13 @@ export default function DiscoveryDesk({
           <ol
             className="discovery-candidate-list"
             data-testid="discovery-candidate-list"
+            style={
+              displayCandidates.length >= 4
+                ? {
+                    gridTemplateRows: `repeat(${displayCandidates.length}, minmax(124px, 1fr))`,
+                  }
+                : undefined
+            }
           >
             {displayCandidates.map((candidate, index) => {
               const isSelected = candidate.episode_id === selected.episode_id;
@@ -328,7 +434,32 @@ export default function DiscoveryDesk({
               );
             })}
           </ol>
+          <footer className="discovery-list-footer">
+            <span>
+              本轮 {String(displayCandidates.length).padStart(2, "0")} 集
+            </span>
+            <span>最近更新已到底</span>
+          </footer>
         </section>
+
+        <button
+          type="button"
+          role="separator"
+          aria-label="调整单集列表和单集预读宽度"
+          aria-orientation="vertical"
+          aria-valuemin={42}
+          aria-valuemax={68}
+          aria-valuenow={splitRatio}
+          className="discovery-column-resizer"
+          title="拖动或使用方向键调整宽度"
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handleResizePointerUp}
+          onPointerCancel={handleResizePointerUp}
+          onKeyDown={handleResizeKeyDown}
+        >
+          <span aria-hidden="true" />
+        </button>
 
         <aside
           className="discovery-preview"
@@ -338,11 +469,7 @@ export default function DiscoveryDesk({
           onTouchEnd={handleTouchEnd}
         >
           <div className="discovery-preview-heading">
-            <div>
-              <p className="discovery-kicker">内容摘录</p>
-              <span>摘要、观点、关联与质疑</span>
-            </div>
-            <b>个人库</b>
+            <p className="discovery-kicker">单集预读</p>
             <div className="discovery-mobile-progress">
               <button
                 type="button"
@@ -379,6 +506,20 @@ export default function DiscoveryDesk({
                 {formatDuration(selected.duration)} ·{" "}
                 {formatCandidateDate(selected.candidate_time)}
               </p>
+              {selected.original_url ? (
+                <a
+                  className="discovery-episode-link"
+                  href={selected.original_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  打开节目页面
+                </a>
+              ) : (
+                <span className="discovery-episode-link is-unavailable">
+                  节目链接暂缺
+                </span>
+              )}
             </div>
           </div>
 
@@ -395,7 +536,7 @@ export default function DiscoveryDesk({
                     }
                     onClick={() => setSelectedPreReadKind(preRead.kind)}
                   >
-                    {preRead.label}
+                    {preReadPresentation[preRead.kind].label}
                   </button>
                 ))}
               </div>
@@ -408,11 +549,13 @@ export default function DiscoveryDesk({
             {selectedPreRead && (
               <section
                 className={`discovery-preread-panel is-${selectedPreRead.kind}`}
-                aria-label={`${selectedPreRead.label}预读`}
+                aria-label={`${preReadPresentation[selectedPreRead.kind].label}预读`}
               >
                 <header>
                   <div>
-                    <span>{selectedPreRead.label}</span>
+                    <span>
+                      {preReadPresentation[selectedPreRead.kind].purpose}
+                    </span>
                     {selectedPreRead.relation_strength && (
                       <strong>{selectedPreRead.relation_strength}</strong>
                     )}
@@ -450,30 +593,6 @@ export default function DiscoveryDesk({
                 </footer>
               </section>
             )}
-            <details className="discovery-original-evidence">
-              <summary>节目原文</summary>
-              <div className="discovery-preview-label">
-                <span>Show Notes</span>
-                <b>
-                  {selected.time_basis === "published_date"
-                    ? "按发布时间"
-                    : "按更新时间"}
-                </b>
-              </div>
-              {selected.show_notes_status === "available" ? (
-                <div
-                  className="discovery-show-notes"
-                  dangerouslySetInnerHTML={{
-                    __html: sanitizeRichTextHtml(selected.show_notes),
-                  }}
-                />
-              ) : (
-                <div className="discovery-degraded">
-                  <strong>Show Notes 暂缺</strong>
-                  <p>仍可浏览候选身份、时间和时长；缺失信息不会阻塞比较。</p>
-                </div>
-              )}
-            </details>
           </div>
 
           <div className="discovery-decision-area">
@@ -490,7 +609,10 @@ export default function DiscoveryDesk({
             <div className="discovery-decision-actions">
               <button
                 type="button"
+                aria-label={discardActionLabel}
                 aria-pressed={selected.decision_state === "discarded"}
+                data-tooltip={discardActionLabel}
+                title={discardActionLabel}
                 disabled={!onDecision || savingDecision}
                 onClick={() =>
                   void updateDecision(
@@ -500,12 +622,19 @@ export default function DiscoveryDesk({
                   )
                 }
               >
-                {selected.decision_state === "discarded" ? "恢复显示" : "略过"}
+                {selected.decision_state === "discarded" ? (
+                  <IconEye aria-hidden="true" />
+                ) : (
+                  <IconEyeOff aria-hidden="true" />
+                )}
               </button>
               <button
                 type="button"
                 className="is-primary"
+                aria-label={shortlistActionLabel}
                 aria-pressed={selected.decision_state === "shortlisted"}
+                data-tooltip={shortlistActionLabel}
+                title={shortlistActionLabel}
                 disabled={!onDecision || savingDecision}
                 onClick={() =>
                   void updateDecision(
@@ -516,8 +645,8 @@ export default function DiscoveryDesk({
                 }
               >
                 {selected.decision_state === "shortlisted"
-                  ? "移出今日"
-                  : "留到今天"}
+                  ? <IconBookmarkMinus aria-hidden="true" />
+                  : <IconBookmarkPlus aria-hidden="true" />}
               </button>
             </div>
             {decisionError && (
@@ -527,16 +656,6 @@ export default function DiscoveryDesk({
             )}
           </div>
 
-          <footer className="discovery-preview-footer">
-            <span>个人播客库</span>
-            {selected.original_url ? (
-              <a href={selected.original_url} target="_blank" rel="noreferrer">
-                节目页面
-              </a>
-            ) : (
-              <span>原始链接暂缺</span>
-            )}
-          </footer>
         </aside>
       </div>
     </main>

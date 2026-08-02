@@ -1,6 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import {
+  IconChevronDown,
+  IconSortDescending2,
+} from "@tabler/icons-react";
+import { useId, useState } from "react";
 import type {
   PodcastSortBy,
   PodcastSortOption,
@@ -19,50 +23,41 @@ export default function PodcastListSortControls({
   onSortChange,
 }: PodcastListSortControlsProps) {
   const [isSortDrawerOpen, setIsSortDrawerOpen] = useState(false);
+  const desktopSelectId = useId();
 
   return (
     <>
       <button
         onClick={() => setIsSortDrawerOpen(true)}
-        className="md:hidden w-10 h-10 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 active:bg-slate-300 active:scale-95 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+        className="podcast-sort-mobile md:hidden"
         aria-label="排序"
         aria-haspopup="dialog"
         aria-expanded={isSortDrawerOpen}
       >
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4h12"
-          />
-        </svg>
+        <IconSortDescending2 aria-hidden="true" stroke={1.8} />
       </button>
 
-      <div className="hidden md:flex items-center gap-2">
-        <label htmlFor="podcast-sort" className="text-sm text-slate-600">
-          排序：
+      <div className="podcast-sort-desktop hidden md:flex">
+        <IconSortDescending2
+          className="podcast-sort-desktop-icon"
+          aria-hidden="true"
+          stroke={1.7}
+        />
+        <IconChevronDown
+          className="podcast-sort-desktop-chevron"
+          aria-hidden="true"
+          stroke={1.8}
+        />
+        <label className="sr-only" htmlFor={desktopSelectId}>
+          排序方式
         </label>
         <select
-          id="podcast-sort"
+          id={desktopSelectId}
           value={sortBy}
           onChange={(event) =>
             onSortChange(event.target.value as PodcastSortBy)
           }
-          className="
-            px-3 py-2 pr-8
-            border border-slate-300 rounded-lg
-            bg-white text-sm text-slate-700
-            focus:ring-2 focus:ring-blue-500 focus:border-transparent
-            transition-colors
-            appearance-none
-            cursor-pointer
-          "
+          className="podcast-sort-select"
         >
           {options.map((option) => (
             <option key={option.value} value={option.value}>

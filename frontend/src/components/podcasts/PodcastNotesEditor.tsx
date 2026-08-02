@@ -46,7 +46,7 @@ export default function PodcastNotesEditor({
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
-        <span className="font-semibold text-slate-900">备注：</span>
+        <span className="podcast-management-label">备注</span>
         {showEditButton && (
           <button
             type="button"
@@ -63,7 +63,7 @@ export default function PodcastNotesEditor({
             value={notes}
             onChange={(event) => onNotesChange(event.target.value)}
             disabled={controlsDisabled}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+            className="podcast-notes-textarea"
             rows={textareaRows}
             placeholder="添加备注..."
           />

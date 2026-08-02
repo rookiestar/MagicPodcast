@@ -1,5 +1,6 @@
 "use client";
 
+import { IconSearch } from "@tabler/icons-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CompactLogo } from "./Logo";
@@ -55,8 +56,13 @@ export default function AppNavbar({
           })}
         </div>
         <div className="app-navbar-actions">
-          <button type="button" aria-label="搜索" onClick={onSearchClick}>
-            搜索
+          <button
+            type="button"
+            className="app-navbar-search"
+            aria-label="搜索"
+            onClick={onSearchClick}
+          >
+            <IconSearch aria-hidden="true" stroke={1.8} />
           </button>
           {syncStatus && (
             <span className="app-navbar-sync" role="status">

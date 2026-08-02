@@ -13,6 +13,76 @@
 
 ## Evidence
 
+### 2026-08-02 phase 1: library, reading detail, and global search
+
+- Scope: `/podcasts`, `/podcasts/1`, and the global search dialog only. Tags, workflows, and import remain outside this phase.
+- Same-viewport comparison:
+  - Desktop `1434 × 1100`: `/Users/bytedance/.codex/visualizations/2026/08/02/magicpodcast-secondary-surfaces/audit/21-desktop-comparison.png`
+  - Mobile `390 × 844`: `/Users/bytedance/.codex/visualizations/2026/08/02/magicpodcast-secondary-surfaces/audit/16-mobile-comparison.png`
+- Final focused evidence:
+  - Desktop library: `/Users/bytedance/.codex/visualizations/2026/08/02/magicpodcast-secondary-surfaces/audit/18-podcasts-real-covers-desktop.png`
+  - Desktop reading detail: `/Users/bytedance/.codex/visualizations/2026/08/02/magicpodcast-secondary-surfaces/audit/19-podcast-detail-real-cover-desktop.png`
+  - Desktop search: `/Users/bytedance/.codex/visualizations/2026/08/02/magicpodcast-secondary-surfaces/audit/20-search-results-after-desktop.png`
+  - Mobile library: `/Users/bytedance/.codex/visualizations/2026/08/02/magicpodcast-secondary-surfaces/audit/23-podcasts-final-mobile.png`
+  - Mobile reading detail: `/Users/bytedance/.codex/visualizations/2026/08/02/magicpodcast-secondary-surfaces/audit/24-podcast-detail-final-mobile.png`
+  - Mobile search: `/Users/bytedance/.codex/visualizations/2026/08/02/magicpodcast-secondary-surfaces/audit/25-search-final-mobile.png`
+- Desktop keeps the existing podcast grid and turns detail into one reading surface with adjacent tags and notes. Search is an `840` CSS px right-side workbench. Mobile keeps the existing bottom navigation, collapsible detail, and full-screen search.
+- Mock mode now supplies four distinct editorial cover photographs and four meaningful podcast records. This affects local preview only; no production data or schema changed.
+- Real browser journeys covered list tag filtering, desktop and mobile sorting, opening detail, returning to the preserved list state, expanding mobile detail, opening tag and note management, searching `组织`, switching `全部 / 节目 / 单集`, closing the dialog, and restoring focus to the search trigger.
+- P0 fixed: a versioned local image URL violated the Next image contract and crashed the page; the final paths are query-free.
+- P1 fixed: URL history was mutated from a React state-updater callback; subsequent filter and sort interaction produced no render-time router error.
+- P1 fixed: search snippets exposed raw Show Notes markup; final visible content is plain text.
+- P2 fixed: the inherited rounded SaaS sorting drawer and hand-written SVGs were replaced by the same paper, hard-rule, ink/orange system and library icon set.
+- Desktop and mobile document width equals scroll width. Every visible action target in the three final surfaces is at least `44 × 44` CSS px; mobile sort options are at least `50` CSS px high.
+- Fresh post-fix browser journey produced no warning or error. Combined review found no remaining P0/P1/P2 issue. `final result: passed`.
+
+### 2026-08-02 annotation: simplify and align the decision controls
+
+- Before: `/Users/bytedance/.codex/visualizations/2026/07/28/019faacf-bcc3-7861-b80c-fa87aba9fac3/issue-53/audit/35-decision-buttons-before.png`.
+- Desktop after: `/Users/bytedance/.codex/visualizations/2026/07/28/019faacf-bcc3-7861-b80c-fa87aba9fac3/issue-53/audit/36-decision-buttons-icons-desktop.png`.
+- Mobile after: `/Users/bytedance/.codex/visualizations/2026/07/28/019faacf-bcc3-7861-b80c-fa87aba9fac3/issue-53/audit/38-decision-buttons-icons-mobile.png`.
+- Same-viewport combined comparison, annotated source left / revised implementation right: `/Users/bytedance/.codex/visualizations/2026/07/28/019faacf-bcc3-7861-b80c-fa87aba9fac3/issue-53/audit/compare-decision-before-left-icons-right.png`.
+- Replaced the visible `略过 / 加入今日备选` labels with eye and bookmark icons. The controls retain dynamic accessible names, native hover titles, and visible keyboard-focus tooltips; focus evidence: `/Users/bytedance/.codex/visualizations/2026/07/28/019faacf-bcc3-7861-b80c-fa87aba9fac3/issue-53/audit/39-decision-button-focus-tooltip.png`.
+- Desktop viewport `1434 × 1354`: the left footer and right decision area both begin at `y = 713.78125` and measure `54` CSS px high. Both icon controls are `44 × 44` CSS px.
+- Mobile viewport `390 × 844`: both decision controls remain `157 × 48` CSS px and end at `y = 773.77`, before the persistent navigation at `y = 784`; document width and scroll width are both `390`.
+- Real browser interaction exercised `加入 / 移出今日备选` and `略过 / 恢复显示`, then restored the first episode to pending. Console warnings/errors: none.
+- Same-state desktop/mobile review found no remaining P0/P1/P2 issue. `final result: passed`.
+
+### 2026-08-02 annotation: clarify pre-reads and unify the two-column frame
+
+- Source visual truth: `/Users/bytedance/.codex/visualizations/2026/07/28/019faacf-bcc3-7861-b80c-fa87aba9fac3/issue-53/audit/29-right-panel-summary-before.png`.
+- Implementation, desktop: `/Users/bytedance/.codex/visualizations/2026/07/28/019faacf-bcc3-7861-b80c-fa87aba9fac3/issue-53/audit/33-right-panel-semantic-desktop.png`.
+- Full-view combined comparison, annotated source left / revised implementation right: `/Users/bytedance/.codex/visualizations/2026/07/28/019faacf-bcc3-7861-b80c-fa87aba9fac3/issue-53/audit/compare-right-panel-before-left-after-right.png`.
+- Desktop viewport and pixels: source and implementation are both `1434 × 1354`, CSS viewport `1434 × 1354`, device scale factor `1`; summary selected, first episode pending.
+- Focused mobile evidence: `/Users/bytedance/.codex/visualizations/2026/07/28/019faacf-bcc3-7861-b80c-fa87aba9fac3/issue-53/audit/34-right-panel-semantic-mobile.png`; pixels and CSS viewport `390 × 844`, device scale factor `1`.
+- Replaced the competing left/right outer rules with one continuous workspace frame. The list and preview both begin at `y = 143`, their headings are both `54` CSS px high, and both columns end at `y = 767.78`.
+- Secondary row rules use one warm gray `1px` token; black is reserved for the workspace frame, first-level headings, selected tabs, and the decision boundary.
+- Removed the collapsed “节目原文” region and redundant footer. A single `44` CSS px “打开节目页面” link now sits with the episode identity; missing links state “节目链接暂缺”.
+- Kept four independent #56 pre-reads, but renamed their visible scopes to `摘要 / 核心观点 / 与我相关 / 证据边界`. Their selected panels explicitly explain `这一集讲了什么 / 节目提出的核心主张 / 与你的标签和备注有何关联 / 证据缺口、适用边界与待核问题`.
+- Real browser interaction switched all four scopes. “与我相关” retained its independent deep-clay selected treatment, personal-signal content, and relation strength. Add/remove today's shortlist was exercised and restored to pending.
+- Mobile viewport `390 × 844`: document width and scroll width are both `390`; all four scope controls are `80.5 × 44` CSS px; decision controls are `157 × 48` CSS px and end at `y = 773.77`, before the persistent navigation at `y = 784`.
+- Desktop keyboard resizing changed the split from `60` to `57`; list and preview measured `754.68 / 569.32` CSS px and still shared the same bottom edge.
+- Console warnings/errors: none. The combined full-view and focused mobile review found no remaining P0/P1/P2 issue. `final result: passed`.
+
+### 2026-08-02 annotation: refine the recent-update masthead and desktop columns
+
+- Replaced the framed banner treatment with an open editorial masthead: title, library context, count, and today's shortlist now share one compact baseline and a single bottom rule.
+- Desktop viewport `1434 × 1354`: list and preview both end at `y = 893` with a shared height of `702` CSS px. Four candidate rows expand evenly to `149` CSS px, leaving only a `54` CSS px explicit end marker instead of an unstructured blank area.
+- Narrow desktop viewport `909 × 1044`: list and preview both end at `y = 886`; document width and scroll width are both `909`, so there is no horizontal overflow.
+- The desktop separator is pointer-draggable and keyboard accessible. `ArrowLeft` changed the split from `60` to `57`, moving the measured columns from `796 / 530` to `756 / 570` CSS px.
+- Mobile viewport `390 × 844`: the separator is hidden, the compact header is `57` CSS px high, both decision controls remain `48` CSS px high, and document overflow is `0`.
+- Same-state browser review found no remaining P0/P1/P2 issue. `final result: passed`.
+
+### 2026-07-31 annotation: reduce preview chrome and clarify shortlist action
+
+- Removed the repeated preview subtitle `摘要、观点、关联与质疑`; the four pre-read names remain in their dedicated tabs, while the black rail keeps only the section label `内容摘录` and `个人库` context.
+- Replaced the ambiguous `留到今天` action with `加入今日备选`; the selected state now reads `移出今日备选`.
+- Desktop viewport: `1013 × 1044`; pending decision and summary selected; implementation screenshot: `/Users/bytedance/.codex/visualizations/2026/07/28/019faacf-bcc3-7861-b80c-fa87aba9fac3/issue-53/audit/27-discovery-copy-1013x1044.png`.
+- Desktop preview heading measures `55` CSS px; primary decision control measures `113.34 × 48` CSS px; document overflow is `0`.
+- Mobile viewport: `390 × 844`; pending decision and summary selected; implementation screenshot: `/Users/bytedance/.codex/visualizations/2026/07/28/019faacf-bcc3-7861-b80c-fa87aba9fac3/issue-53/audit/28-discovery-copy-390x844.png`.
+- Mobile primary decision control remains `157 × 48` CSS px; all four pre-read tabs remain `80.5 × 44` CSS px; document overflow is `0`.
+- Real browser interaction confirmed `加入今日备选 → 移出今日备选`, then restored the pending state. No console errors or warnings; no new P0/P1/P2 issue observed.
+
 ### 2026-07-31 annotation: merge the shelf identity into recent updates
 
 - The annotated low-density masthead was removed. “个人播客知识库 / 你的播客书架” now sits in the same `个人库最近更新` header as the recent-update title, count, and today's-shortlist link; the content ledger starts immediately below it.
@@ -72,6 +142,45 @@
 - Mobile document width: `390` CSS px with `scrollWidth = 390`; no horizontal overflow.
 - Today's shortlist mobile journey: `/Users/bytedance/.codex/visualizations/2026/07/28/019faacf-bcc3-7861-b80c-fa87aba9fac3/issue-53/audit/13-issue-59-today-mobile-390.png`
 
+### 2026-08-02 annotation: replace the navigation wordmark
+
+- Replaced the two-line `MAGIC / PODCAST · 01` label with a real raster mark plus deterministic `MagicPodcast` typography.
+- The mark combines a radio tuning window and an open page; its second refinement restores five dial ticks around the orange needle. Its source was produced and refined through Creative Production board `447a9f24-456b-4e7e-b9a3-b57c0488e735`. It contains no generated text.
+- User feedback removed the split `Magic`/`Podcast` hierarchy: the complete name now uses one `18` px face, one weight, and no logo-local underline. The only orange navigation underline is the consistent `3` px active-section indicator.
+- Desktop viewport `909 × 1044`: brand target is `165.34 × 44` CSS px, mark is `32 × 32` CSS px, and document overflow is `0`.
+- Mobile viewport `390 × 844`: desktop navigation remains hidden by the existing responsive contract and document overflow is `0`; the discovery journey is unchanged.
+- Same-state browser review found no remaining P0/P1/P2 issue. `final result: passed`.
+
+### 2026-08-02 annotation: simplify the desktop search entrance
+
+- Replaced the boxed `搜索` label with a borderless `20 × 20` magnifier while preserving the accessible name and click behavior.
+- Desktop viewport `909 × 1044`: the visual glyph is centered exactly inside a `44 × 44` CSS px interaction target; document overflow is `0`.
+- Real browser interaction opened the search field and close control successfully. Mobile navigation remains unchanged.
+- The first visual pass exposed a P2 left-alignment error; centering was corrected and remeasured at `0 × 0` CSS px center delta. `final result: passed`.
+
+### 2026-08-02 annotation: compress the recent-update header
+
+- Removed `个人播客知识库` and `你的播客书架`; replaced two explanatory sentences with `订阅单集，按发布时间排序。`.
+- Aligned the section with the podcast-library typographic system: the desktop title now uses the same Iowan/Baskerville/Songti stack, `22` px size, `800` weight, and editorial tracking instead of the previous `32–42` px display treatment. Mobile remains `20` px.
+- Desktop viewport `1434 × 1354`: the header starts at the `64` CSS px navigation edge, measures `60` CSS px high, and places the title `9.85` CSS px below the navigation; document overflow is `0`.
+- Mobile viewport `390 × 844`: the compact header remains `57.34` CSS px high, primary decision controls remain `48` CSS px high, and document overflow is `0`.
+- Same-state browser review found no remaining P0/P1/P2 issue. `final result: passed`.
+
+### 2026-08-02 annotation: refine podcast sorting and New marker
+
+- Replaced the boxed desktop select with a restrained `128 × 44` CSS px control: one explicit sort icon, the current native option, and a chevron. It has no visible “排序方式” copy and no independent underline; the native select still owns the full interaction area and accessible name `排序方式`.
+- Restored the established English `New` marker with a compact translucent green treatment instead of the orange Chinese `新` badge.
+- Desktop viewport `909 × 1044`: all four options remain selectable, the URL and selected value update together, the marker renders green, document overflow is `0`, and the fresh console has no warnings or errors.
+- Mobile viewport `390 × 844`: the existing sort drawer opens with all four options, the sort target is `44 × 44` CSS px, the New marker is `35.5 × 18` CSS px without cover collision, document overflow is `0`, and the fresh console has no warnings or errors.
+- Same-state browser review found no remaining P0/P1/P2 issue. `final result: passed`.
+
+### 2026-08-02 annotation: align the podcast-library header
+
+- Unified the podcast toolbar with the homepage recent-update header: the same warm paper grid texture, opaque paper color, `2` px ink divider, editorial title stack, and horizontal title/description rhythm.
+- Desktop viewport `1434 × 1354`: the inner header is `60` CSS px high; title is `22` px / `800`, description is `13` px / `500`, and the sort control stays vertically centered. The divider is inset to the content grid at `x = 43`, width `1348`, instead of spanning the viewport. Document overflow is `0`.
+- Mobile viewport `390 × 844`: the header is `62` CSS px including its divider, title is `20` px, and all actions retain their `44` px targets. The divider is inset to `x = 16`, width `358`. Document overflow is `0`.
+- Fresh browser console contained no warnings or errors. Same-state review found no remaining P0/P1/P2 issue. `final result: passed`.
+
 ## Required fidelity surfaces
 
 - Fonts and typography: Songti-style editorial display hierarchy and monospace metadata match the source direction; fallback stacks remain legible in Chinese.
@@ -82,7 +191,7 @@
 
 ## Interaction and browser verification
 
-- Desktop: five-candidate selection, four independent pre-read tabs, Show Notes disclosure, discard/restore/shortlist, and today's shortlist navigation.
+- Desktop: candidate selection, four independent pre-read scopes, source-link state, discard/restore/shortlist, and today's shortlist navigation.
 - Mobile: one-candidate flow, previous/next controls, `3 / 5` progress, discard/restore/shortlist, and no horizontal overflow.
 - Active navigation uses `aria-current="page"` plus border/weight, not color alone.
 - Fresh browser console check after server restart: no warnings or errors.

@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const imageOptimizerPath = process.env.NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH || '/_next/image'
 const nextDistDir = process.env.MAGICPODCAST_NEXT_DIST_DIR || '.next'
+const mockApiEnabled = ['1', 'true', 'yes'].includes(
+  String(process.env.MAGICPODCAST_FRONTEND_MOCK_API || '').toLowerCase(),
+)
 
 const nextConfig = {
   reactStrictMode: true,
@@ -48,6 +51,10 @@ module.exports = {
   ...nextConfig,
   // API 代理配置 - 兼顾本地开发和域名访问
   async rewrites() {
+    if (mockApiEnabled) {
+      return []
+    }
+
     const backendUrl = process.env.BACKEND_URL || 'http://127.0.0.1:8080'
     return [
       {

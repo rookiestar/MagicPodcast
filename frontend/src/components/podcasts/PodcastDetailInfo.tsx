@@ -1,5 +1,12 @@
 "use client";
 
+import {
+  IconChevronDown,
+  IconChevronUp,
+  IconExternalLink,
+  IconFlame,
+  IconPlayerPlay,
+} from "@tabler/icons-react";
 import { useState } from "react";
 import RichText from "@/components/RichText";
 import {
@@ -57,115 +64,113 @@ export function MobilePodcastDetailInfo({
   const descriptionHtml = getPodcastDescriptionHtml(podcast.description);
 
   return (
-    <div className="md:hidden">
-      <div className="bg-white rounded-lg shadow-lg overflow-hidden p-4">
-        <div className="flex gap-4 mb-4">
-          <div className="w-24 h-24 flex-shrink-0">
-            <div className="aspect-square w-full rounded-lg overflow-hidden">
-              <PodcastCover
-                coverUrl={coverUrl}
-                title={podcast.title}
-                priority="low"
-                sizes="96px"
-              />
-            </div>
-          </div>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-xl font-bold text-slate-900 truncate">
-              {podcast.title}
-            </h1>
-            <div className="text-sm text-slate-600 mt-1">
-              <span>{podcast.author}</span>
-              <span className="mx-2">·</span>
-              <span>{podcast.episode_count || 0}集</span>
-            </div>
-          </div>
+    <article
+      className="podcast-reading-mobile md:hidden"
+      aria-label={podcast.title}
+    >
+      <header className="podcast-reading-mobile-header">
+        <div className="podcast-reading-mobile-cover">
+          <PodcastCover
+            coverUrl={coverUrl}
+            title={podcast.title}
+            priority="low"
+            sizes="96px"
+          />
         </div>
+        <div className="min-w-0 flex-1">
+          <p className="podcast-reading-kicker">个人播客库 · 节目档案</p>
+          <h1>{podcast.title}</h1>
+          <p className="podcast-reading-mobile-meta">
+            {podcast.author} · {podcast.episode_count || 0} 集
+          </p>
+        </div>
+      </header>
 
-        <div className="flex gap-2 mb-3">
-          {showLatestEpisodePlayButton && (
-            <button
-              type="button"
-              onClick={() =>
-                window.open(podcast.newest_enclosure_url, "_blank")
-              }
-              className="flex-1 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-1.5"
-            >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-              播放最新一集
-            </button>
-          )}
+      <div className="podcast-reading-mobile-actions">
+        {showLatestEpisodePlayButton && (
           <button
             type="button"
-            aria-expanded={detailsOpen}
-            onClick={() => setDetailsOpen((open) => !open)}
-            className="flex-1 py-2 border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors text-sm font-medium"
+            onClick={() =>
+              window.open(podcast.newest_enclosure_url, "_blank")
+            }
+            className="podcast-reading-primary-action"
           >
-            {detailsOpen ? "收起详细信息" : "展开详细信息"}
+            <IconPlayerPlay aria-hidden="true" stroke={1.8} />
+            播放最新一集
           </button>
-        </div>
-
-        <details open={detailsOpen} className="mt-4">
-          <summary className="hidden"></summary>
-          <div className="pt-4 border-t border-slate-200 space-y-4">
-            {showWebsiteLink && (
-              <div className="text-sm">
-                <span className="font-semibold text-slate-900">官网：</span>
-                <a
-                  href={podcast.link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-700 ml-2"
-                >
-                  访问网站 →
-                </a>
-              </div>
-            )}
-
-            {showPopularityBadge && (
-              <div>
-                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-                  🔥 热门播客 (热度: {podcast.popularity_score}/10)
-                </span>
-              </div>
-            )}
-
-            <div className="text-sm">
-              <span className="font-semibold text-slate-900">简介：</span>
-              <div className="mt-1 line-clamp-3">
-                <RichText html={descriptionHtml} />
-              </div>
-            </div>
-
-            <MobilePodcastTagControls
-              tags={tags}
-              isUpdatingTags={isUpdatingTags}
-              onTagsChange={onTagsChange}
-            />
-
-            <div className="text-sm">
-              <PodcastNotesEditor
-                notes={notes}
-                isEditingNotes={isEditingNotes}
-                isSavingNotes={isSavingNotes}
-                textareaRows={3}
-                editButtonClassName="text-xs text-blue-600 hover:text-blue-700"
-                saveButtonClassName="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                cancelButtonClassName="px-3 py-1.5 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors text-sm"
-                readOnlyClassName="mt-1 line-clamp-2"
-                emptyClassName="text-slate-400"
-                onNotesChange={onNotesChange}
-                onEditNotes={onEditNotes}
-                onSaveNotes={onSaveNotes}
-                onCancelNotesEdit={onCancelNotesEdit}
-              />
-            </div>
-          </div>
-        </details>
+        )}
+        <button
+          type="button"
+          aria-expanded={detailsOpen}
+          onClick={() => setDetailsOpen((open) => !open)}
+          className="podcast-reading-secondary-action"
+        >
+          {detailsOpen ? (
+            <IconChevronUp aria-hidden="true" stroke={1.8} />
+          ) : (
+            <IconChevronDown aria-hidden="true" stroke={1.8} />
+          )}
+          {detailsOpen ? "收起详细信息" : "展开详细信息"}
+        </button>
       </div>
-    </div>
+
+      <details open={detailsOpen}>
+        <summary className="hidden" />
+        <div
+          className="podcast-reading-mobile-management"
+          role="region"
+          aria-label="节目管理"
+        >
+          {showWebsiteLink && (
+            <a
+              href={podcast.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="podcast-reading-source-link"
+            >
+              节目官网
+              <IconExternalLink aria-hidden="true" stroke={1.7} />
+            </a>
+          )}
+
+          {showPopularityBadge && (
+            <div className="podcast-reading-popularity">
+              <IconFlame aria-hidden="true" stroke={1.7} />
+              热度 {podcast.popularity_score}/10
+            </div>
+          )}
+
+          <section className="podcast-reading-description">
+            <h2>节目简介</h2>
+            <div className="line-clamp-3">
+              <RichText html={descriptionHtml} />
+            </div>
+          </section>
+
+          <MobilePodcastTagControls
+            tags={tags}
+            isUpdatingTags={isUpdatingTags}
+            onTagsChange={onTagsChange}
+          />
+
+          <PodcastNotesEditor
+            notes={notes}
+            isEditingNotes={isEditingNotes}
+            isSavingNotes={isSavingNotes}
+            textareaRows={3}
+            editButtonClassName="podcast-management-link"
+            saveButtonClassName="podcast-management-primary"
+            cancelButtonClassName="podcast-management-secondary"
+            readOnlyClassName="podcast-notes-readonly line-clamp-2"
+            emptyClassName="podcast-notes-empty"
+            onNotesChange={onNotesChange}
+            onEditNotes={onEditNotes}
+            onSaveNotes={onSaveNotes}
+            onCancelNotesEdit={onCancelNotesEdit}
+          />
+        </div>
+      </details>
+    </article>
   );
 }
 
@@ -195,120 +200,108 @@ export function DesktopPodcastDetailInfo({
   const descriptionHtml = getPodcastDescriptionHtml(podcast.description);
 
   return (
-    <div className="hidden md:block">
-      <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-        <div className="md:flex">
-          <div className="md:w-1/3 p-6">
-            <div className="aspect-square w-full rounded-lg overflow-hidden">
-              <PodcastCover
-                coverUrl={coverUrl}
-                title={podcast.title}
-                priority="low"
-                sizes="(max-width: 767px) 96px, (max-width: 1200px) 30vw, 360px"
-              />
-            </div>
+    <article
+      className="podcast-reading-hero hidden md:grid"
+      aria-label={podcast.title}
+    >
+      <figure className="podcast-reading-cover">
+        <PodcastCover
+          coverUrl={coverUrl}
+          title={podcast.title}
+          priority="low"
+          sizes="(max-width: 1200px) 240px, 300px"
+        />
+      </figure>
+
+      <section className="podcast-reading-copy">
+        <p className="podcast-reading-kicker">个人播客库 · 节目档案</p>
+        <h1>{podcast.title}</h1>
+
+        <dl className="podcast-reading-metadata">
+          <div>
+            <dt>主播</dt>
+            <dd>{podcast.author}</dd>
           </div>
-
-          <div className="md:w-2/3 p-8">
-            <h1 className="text-3xl font-bold text-slate-900 mb-4">
-              {podcast.title}
-            </h1>
-
-            <div className="space-y-4 text-slate-600">
-              <div className="flex flex-wrap gap-6 items-center">
-                <div>
-                  <span className="font-semibold text-slate-900">主播：</span>
-                  {podcast.author}
-                </div>
-                <div>
-                  <span className="font-semibold text-slate-900">单集数：</span>
-                  {podcast.episode_count || 0}
-                </div>
-                <div>
-                  <span className="font-semibold text-slate-900">
-                    最新更新：
-                  </span>
-                  {formatPodcastNewestEpisodeDate(podcast.newest_episode_date)}
-                </div>
-                {showLatestEpisodePlayButton && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      window.open(podcast.newest_enclosure_url, "_blank")
-                    }
-                    className="ml-2 px-2.5 py-1.5 bg-slate-700 hover:bg-slate-800 text-white text-sm rounded-lg transition-colors inline-flex items-center gap-1.5"
-                    title="播放最新一集"
-                  >
-                    <svg
-                      className="w-4 h-4"
-                      fill="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                    {durationLabel && (
-                      <span className="text-xs opacity-80">
-                        {durationLabel}
-                      </span>
-                    )}
-                  </button>
-                )}
-              </div>
-
-              {showWebsiteLink && (
-                <div>
-                  <span className="font-semibold text-slate-900">官网：</span>
-                  <a
-                    href={podcast.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 ml-2"
-                  >
-                    访问网站 →
-                  </a>
-                </div>
-              )}
-
-              {showPopularityBadge && (
-                <div>
-                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
-                    🔥 热门播客 (热度: {podcast.popularity_score}/10)
-                  </span>
-                </div>
-              )}
-
-              <div>
-                <span className="font-semibold text-slate-900">简介：</span>
-                <div className="mt-1 text-sm">
-                  <RichText html={descriptionHtml} />
-                </div>
-              </div>
-
-              <DesktopPodcastTagControls
-                tags={tags}
-                isUpdatingTags={isUpdatingTags}
-                onTagsChange={onTagsChange}
-              />
-
-              <PodcastNotesEditor
-                notes={notes}
-                isEditingNotes={isEditingNotes}
-                isSavingNotes={isSavingNotes}
-                textareaRows={4}
-                editButtonClassName="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-                saveButtonClassName="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                cancelButtonClassName="px-4 py-2 bg-slate-200 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
-                readOnlyClassName="text-sm bg-slate-50/50 p-3 rounded-lg"
-                emptyClassName="text-slate-400 dark:text-slate-500"
-                onNotesChange={onNotesChange}
-                onEditNotes={onEditNotes}
-                onSaveNotes={onSaveNotes}
-                onCancelNotesEdit={onCancelNotesEdit}
-              />
-            </div>
+          <div>
+            <dt>单集</dt>
+            <dd>{podcast.episode_count || 0}</dd>
           </div>
+          <div>
+            <dt>最近更新</dt>
+            <dd>{formatPodcastNewestEpisodeDate(podcast.newest_episode_date)}</dd>
+          </div>
+        </dl>
+
+        <section className="podcast-reading-description">
+          <h2>节目简介</h2>
+          <RichText html={descriptionHtml} />
+        </section>
+
+        <div className="podcast-reading-links">
+          {showLatestEpisodePlayButton && (
+            <button
+              type="button"
+              onClick={() =>
+                window.open(podcast.newest_enclosure_url, "_blank")
+              }
+              className="podcast-reading-primary-action"
+              title="播放最新一集"
+            >
+              <IconPlayerPlay aria-hidden="true" stroke={1.8} />
+              播放最新一集
+              {durationLabel && <small>{durationLabel}</small>}
+            </button>
+          )}
+          {showWebsiteLink && (
+            <a
+              href={podcast.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="podcast-reading-source-link"
+            >
+              节目官网
+              <IconExternalLink aria-hidden="true" stroke={1.7} />
+            </a>
+          )}
+          {showPopularityBadge && (
+            <span className="podcast-reading-popularity">
+              <IconFlame aria-hidden="true" stroke={1.7} />
+              热度 {podcast.popularity_score}/10
+            </span>
+          )}
         </div>
-      </div>
-    </div>
+      </section>
+
+      <aside
+        className="podcast-reading-management"
+        role="region"
+        aria-label="节目管理"
+      >
+        <div className="podcast-reading-management-heading">
+          <span>个人管理</span>
+          <small>标签与备注</small>
+        </div>
+        <DesktopPodcastTagControls
+          tags={tags}
+          isUpdatingTags={isUpdatingTags}
+          onTagsChange={onTagsChange}
+        />
+        <PodcastNotesEditor
+          notes={notes}
+          isEditingNotes={isEditingNotes}
+          isSavingNotes={isSavingNotes}
+          textareaRows={4}
+          editButtonClassName="podcast-management-link"
+          saveButtonClassName="podcast-management-primary"
+          cancelButtonClassName="podcast-management-secondary"
+          readOnlyClassName="podcast-notes-readonly"
+          emptyClassName="podcast-notes-empty"
+          onNotesChange={onNotesChange}
+          onEditNotes={onEditNotes}
+          onSaveNotes={onSaveNotes}
+          onCancelNotesEdit={onCancelNotesEdit}
+        />
+      </aside>
+    </article>
   );
 }

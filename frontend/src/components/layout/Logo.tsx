@@ -1,26 +1,38 @@
+import Image from "next/image";
+
 interface LogoProps {
   className?: string;
   showText?: boolean;
   variant?: "default" | "compact" | "icon-only";
 }
 
-function Logo({
+export function Logo({
   className = "",
   showText = true,
   variant = "default",
 }: LogoProps) {
-  if (!showText || variant === "icon-only") {
-    return (
-      <span className={`magic-wordmark-mark ${className}`} aria-label="MagicPodcast">
-        MP
-      </span>
-    );
-  }
+  const iconOnly = !showText || variant === "icon-only";
 
   return (
-    <span className={`magic-wordmark ${className}`} aria-label="MagicPodcast">
-      <strong>MAGIC</strong>
-      <span>PODCAST · 01</span>
+    <span
+      className={`magic-wordmark ${iconOnly ? "is-icon-only" : ""} ${className}`}
+      role="img"
+      aria-label="MagicPodcast"
+      data-variant={variant}
+    >
+      <Image
+        className="magic-wordmark-mark"
+        src="/brand/magicpodcast-tuning-mark.png"
+        width={32}
+        height={32}
+        alt=""
+        priority
+      />
+      {!iconOnly && (
+        <span className="magic-wordmark-name" aria-hidden="true">
+          MagicPodcast
+        </span>
+      )}
     </span>
   );
 }

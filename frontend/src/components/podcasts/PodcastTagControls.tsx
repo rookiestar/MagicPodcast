@@ -1,3 +1,4 @@
+import { IconX } from "@tabler/icons-react";
 import TagInput from "@/components/tags/TagInput";
 import {
   getRemainingPodcastDetailTagCount,
@@ -26,8 +27,8 @@ export function MobilePodcastTagControls({
   const showTagSummary = shouldShowPodcastTagSummary(tags);
 
   return (
-    <div className="text-sm">
-      <span className="font-semibold text-slate-900">标签：</span>
+    <div className="podcast-tag-controls text-sm">
+      <span className="podcast-management-label">标签</span>
       <div className="mt-2">
         {showTagSummary && (
           <div className="mb-2 inline-flex flex-wrap items-center gap-1.5">
@@ -70,9 +71,9 @@ export function DesktopPodcastTagControls({
   const showTagSummary = shouldShowPodcastTagSummary(tags);
 
   return (
-    <div>
+    <div className="podcast-tag-controls">
       <div className="inline-flex flex-wrap items-center gap-2">
-        <span className="font-semibold text-slate-900">标签：</span>
+        <span className="podcast-management-label">标签</span>
         {showTagSummary && (
           <div className="inline-flex flex-wrap items-center gap-1.5">
             {tags.map((tag) => (
@@ -93,10 +94,11 @@ export function DesktopPodcastTagControls({
                   onClick={() =>
                     onTagsChange(removePodcastDetailTag(tags, tag.id))
                   }
-                  className="ml-0.5 opacity-0 transition-opacity hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30 group-hover:opacity-100 dark:hover:text-red-400"
+                  className="podcast-tag-remove"
+                  aria-label={`删除标签 ${tag.name}`}
                   title="删除标签"
                 >
-                  ✕
+                  <IconX aria-hidden="true" stroke={1.8} />
                 </button>
               </span>
             ))}

@@ -24,16 +24,16 @@ export function SearchEpisodeResultCard({
       href={buildEpisodeSearchResultHref(episode.podcast_id, episode.id)}
       target="_blank"
       rel="noopener noreferrer"
-      className="block p-4 bg-slate-50 dark:bg-slate-900 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+      className="search-episode-result"
     >
-      <h3 className="font-semibold text-slate-900 dark:text-slate-50 mb-1">
+      <h3 className="search-result-title">
         <SearchHighlightedText text={episode.title} keyword={query} />
       </h3>
-      <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
+      <p className="search-result-meta">
         {getEpisodeSearchMetadata(episode)}
       </p>
       {snippetToShow ? (
-        <p className="text-sm text-slate-500 dark:text-slate-500 line-clamp-2">
+        <p className="search-result-snippet line-clamp-2">
           <SearchHighlightedText text={snippetToShow} keyword={query} />
         </p>
       ) : null}
