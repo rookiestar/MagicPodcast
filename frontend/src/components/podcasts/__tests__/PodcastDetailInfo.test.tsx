@@ -95,7 +95,9 @@ describe("PodcastDetailInfo", () => {
       screen.getByRole("article", { name: "测试播客" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("region", { name: "节目管理" }),
+      screen.getByRole("region", { name: "标签与备注" }),
     ).toBeInTheDocument();
+    expect(screen.getByText("标签与备注")).toBeInTheDocument();
+    expect(screen.queryByText("个人管理")).not.toBeInTheDocument();
   });
 });

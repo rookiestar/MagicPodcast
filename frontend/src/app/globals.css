@@ -668,15 +668,10 @@
     border-bottom: 2px solid #171717;
   }
 
-  .podcast-reading-management-heading span {
+  .podcast-reading-management-heading h2 {
     font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
     font-size: 20px;
     font-weight: 800;
-  }
-
-  .podcast-reading-management-heading small {
-    color: #6f685e;
-    font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 
   .podcast-management-label {

@@ -275,11 +275,10 @@ export function DesktopPodcastDetailInfo({
       <aside
         className="podcast-reading-management"
         role="region"
-        aria-label="节目管理"
+        aria-label="标签与备注"
       >
         <div className="podcast-reading-management-heading">
-          <span>个人管理</span>
-          <small>标签与备注</small>
+          <h2>标签与备注</h2>
         </div>
         <DesktopPodcastTagControls
           tags={tags}
