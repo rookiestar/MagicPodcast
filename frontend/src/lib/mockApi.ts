@@ -742,6 +742,47 @@ function handleWorkflows(
   return fail(404, "NOT_FOUND", "Mock workflow endpoint not found");
 }
 
+function handleJobs(segments: string[], method: string): MockResponse {
+  const id = Number(segments[1]);
+  if (!Number.isFinite(id) || id <= 0) return fail(404, "NOT_FOUND", "Mock job not found");
+
+  // 报告成功态：返回结构与真实报告一致的内容，便于在前端验证报告弹窗的成功态。
+  if (segments[2] === "report" && method === "GET") {
+    return ok({
+      id,
+      job_id: id,
+      title: "执行报告（本地 Mock）",
+      content: [
+        "# 执行报告（本地 Mock）",
+        "",
+        "这是一份用于前端调试的本地 Mock 报告，字段结构与真实报告一致。",
+        "",
+        "## 本期概览",
+        "- 抓取节目：4 个",
+        "- 新增单集：4 集",
+        "- 命中规则：2 集",
+        "",
+        "## 值得关注",
+        "1. AI 代理进入组织之后，任务拆分与责任边界正在重新落位。",
+        "2. 增长放缓后，第二曲线更依赖已有能力的迁移而非另起炉灶。",
+      ].join("\n"),
+      summary:
+        "本期抓取 4 个节目、4 集内容，其中 2 集命中规则，建议优先整理组织与产品方向的内容。",
+      episodes_count: 4,
+      podcasts_count: 4,
+      generated_at: MOCK_NOW,
+      format: "markdown",
+      file_size: 256,
+      llm_summary:
+        "AI 摘要：本期内容集中在 AI 协作、组织结构与注意力管理三条线，建议按主题归档。",
+      llm_model_used: "mock-llm",
+      llm_tokens_used: 1280,
+    });
+  }
+
+  return fail(404, "NOT_FOUND", "Mock job endpoint not found");
+}
+
 function handleDiscovery(
   segments: string[],
   method: string,
@@ -847,6 +888,8 @@ export async function handleMockRequest(request: MockRequest): Promise<MockRespo
       return handleTags(segments, method, request.body);
     case "workflows":
       return handleWorkflows(segments, method, query, request.body);
+    case "jobs":
+      return handleJobs(segments, method);
     case "discovery":
       return handleDiscovery(segments, method, query, request.body);
     case "search":

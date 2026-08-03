@@ -169,6 +169,8 @@ export default function WorkflowsPage() {
 
   return (
     <PageLayout
+      rootClassName="editorial-page-shell"
+      className="workflow-page wf-editorial"
       toolbar={{
         breadcrumbs: [{ label: "返回首页", href: "/" }],
         title: "工作流管理",
@@ -177,7 +179,7 @@ export default function WorkflowsPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowCreateModal(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+              className="editorial-btn editorial-btn--primary"
             >
               + 创建工作流
             </button>
@@ -187,21 +189,25 @@ export default function WorkflowsPage() {
               onChange={(e) =>
                 handleSortChange(e.target.value as WorkflowSortByType)
               }
-              className="px-3 py-2 pr-8 border border-slate-300 rounded-lg bg-white text-sm text-slate-700 focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-colors appearance-none cursor-pointer"
+              className="editorial-select"
             >
               <option value="updated">最近更新</option>
               <option value="execution">下次执行</option>
             </select>
           </div>
         ),
+        className: "editorial-page-toolbar",
       }}
     >
       <div className="py-6">
         {/* Error State */}
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-            <h3 className="text-red-800 font-semibold mb-2">加载失败</h3>
-            <p className="text-red-600">{error}</p>
+          <div className="editorial-state is-error">
+            <h3>加载失败</h3>
+            <p>{error}</p>
+            <button onClick={() => mutate()} className="editorial-btn editorial-btn--danger">
+              重试
+            </button>
           </div>
         )}
 
@@ -209,25 +215,23 @@ export default function WorkflowsPage() {
 
         {/* Empty State - 只在非加载状态且无数据时显示 */}
         {!error && !isLoading && workflows.length === 0 && (
-          <div className="bg-white rounded-lg p-12 text-center shadow-sm">
-            <div className="text-6xl mb-4">⚙️</div>
-            <p className="text-slate-600 text-lg">暂无工作流</p>
-            <p className="text-slate-5000 text-sm mt-2">
-              点击上方按钮创建你的第一个工作流
-            </p>
+          <div className="editorial-state">
+            <h3>暂无工作流</h3>
+            <p>创建你的第一个工作流，自动抓取、筛选并整理感兴趣的播客单集。</p>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="editorial-btn editorial-btn--primary"
+            >
+              创建工作流
+            </button>
           </div>
         )}
 
         {/* Workflows List */}
         {!error && !isLoading && workflows.length > 0 && (
           <div className="space-y-4">
-            {workflows.map((workflow, index) => (
-              <div
-                key={workflow.id}
-                className={`rounded-lg shadow-sm hover:shadow-md transition-shadow ${
-                  index % 2 === 0 ? "bg-white" : "bg-neutral-50"
-                }`}
-              >
+            {workflows.map((workflow) => (
+              <div key={workflow.id} className="workflow-card">
                 {/* Mobile: Simplified Card */}
                 <div className="md:hidden p-4">
                   <div className="flex items-start justify-between mb-3">

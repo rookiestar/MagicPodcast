@@ -1,5 +1,10 @@
 export type ImportTab = "import" | "sync";
 
+const IMPORT_TABS: ReadonlyArray<{ key: ImportTab; label: string }> = [
+  { key: "import", label: "导入 OPML" },
+  { key: "sync", label: "同步元数据" },
+];
+
 interface ImportPageTabsProps {
   activeTab: ImportTab;
   disabled: boolean;
@@ -19,27 +24,47 @@ export default function ImportPageTabs({
   disabled,
   onChange,
 }: ImportPageTabsProps) {
+  // 键盘导航：方向键/Home/End 在 tab 间移动焦点（roving tabindex）。
+  const onKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, idx: number) => {
+    const last = IMPORT_TABS.length - 1;
+    let next = idx;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = idx >= last ? 0 : idx + 1;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = idx <= 0 ? last : idx - 1;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = last;
+    else return;
+    e.preventDefault();
+    onChange(IMPORT_TABS[next].key);
+    document.getElementById(`import-tab-${IMPORT_TABS[next].key}`)?.focus();
+  };
+
   return (
     <div className="border-b border-slate-200 px-6 py-5 dark:border-slate-700">
-      <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-1 dark:border-slate-700 dark:bg-slate-900">
-        <button
-          type="button"
-          onClick={() => onChange("import")}
-          disabled={disabled}
-          aria-pressed={activeTab === "import"}
-          className={tabClassName(activeTab === "import", disabled)}
-        >
-          导入 OPML
-        </button>
-        <button
-          type="button"
-          onClick={() => onChange("sync")}
-          disabled={disabled}
-          aria-pressed={activeTab === "sync"}
-          className={tabClassName(activeTab === "sync", disabled)}
-        >
-          同步元数据
-        </button>
+      <div
+        className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-1 dark:border-slate-700 dark:bg-slate-900"
+        role="tablist"
+        aria-label="导入方式"
+      >
+        {IMPORT_TABS.map((tab, idx) => {
+          const active = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              id={`import-tab-${tab.key}`}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              aria-controls={`import-tabpanel-${tab.key}`}
+              tabIndex={active ? 0 : -1}
+              onClick={() => onChange(tab.key)}
+              onKeyDown={(e) => onKeyDown(e, idx)}
+              disabled={disabled}
+              className={tabClassName(active, disabled)}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

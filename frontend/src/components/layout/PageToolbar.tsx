@@ -80,9 +80,10 @@ export default function PageToolbar({
       <div className="container mx-auto px-4">
         {/* 移动端：极简布局 */}
         <div className="page-toolbar-mobile editorial-inset-rule md:hidden py-3">
-          <div className="flex items-center justify-between gap-3">
-            {/* 左侧：返回按钮 + 标题 */}
-            <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            {/* 左侧：返回按钮 + 标题。保留自然宽度：右侧放不下时由 flex-wrap 换行，
+                避免短标题（"工作流管理"）被挤成"工…"。 */}
+            <div className="page-toolbar-mobile-main flex items-center gap-3 min-w-0">
               {breadcrumbs && breadcrumbs.length > 0 && breadcrumbs[0] && (
                 <Link
                   href={breadcrumbs[0].href}
@@ -94,14 +95,14 @@ export default function PageToolbar({
                 </Link>
               )}
               {title && (
-                <h1 className="editorial-section-title text-base font-semibold text-slate-800 truncate">
+                <h1 className="editorial-section-title min-w-0 text-base font-semibold text-slate-800 truncate">
                   {title}
                 </h1>
               )}
             </div>
 
             {/* 右侧：自定义内容或操作按钮 */}
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
               {rightContent ||
                 (actions &&
                   actions.map((action, index) => {

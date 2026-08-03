@@ -4,10 +4,11 @@ import { WorkflowCardSkeleton } from "@/components/ui/Skeleton";
 export default function WorkflowsLoading() {
   return (
     <LoadingLayout
+      tone="editorial"
       title="自动化工作流"
       description="加载中..."
       rightContent={
-        <div className="h-10 w-28 bg-slate-200 rounded-lg animate-pulse" />
+        <div className="editorial-loading-block h-10 w-28 animate-pulse" />
       }
     >
       <div className="py-6">

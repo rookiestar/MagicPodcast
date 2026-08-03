@@ -122,6 +122,14 @@
     color: #171717;
   }
 
+  .page-toolbar-mobile-main {
+    flex: 1 1 260px;
+  }
+
+  .page-toolbar-mobile-main h1 {
+    min-width: 0;
+  }
+
   .page-toolbar-back svg {
     width: 20px;
     height: 20px;
@@ -2769,4 +2777,1275 @@
       transition: none;
     }
   }
+}
+
+/* ============================================================
+   Editorial unification — tags / workflows / import (#53)
+   Plain (un-layered) CSS so it reliably overrides Tailwind
+   utilities. Every rule is scoped under a section or component
+   root class so it cannot leak into accepted surfaces.
+   Design tokens mirror the accepted homepage / podcast library /
+   search overlay editorial system.
+   ============================================================ */
+
+/* Shared editorial primitives — only take effect where applied. */
+.editorial-kicker {
+  margin: 0;
+  color: #8c3a16;
+  font: 800 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.editorial-divider {
+  height: 0;
+  border: 0;
+  border-top: 2px solid #171717;
+}
+
+.editorial-hairline {
+  border: 0;
+  border-top: 1px solid #c7bbab;
+}
+
+.editorial-btn {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid #171717;
+  border-radius: 1px;
+  color: #171717;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  background: #f7f1e5;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.editorial-btn:hover {
+  text-decoration: none;
+}
+
+.editorial-btn:active {
+  transform: translateY(1px);
+}
+
+.editorial-btn:focus-visible {
+  outline: 2px solid #1768d0;
+  outline-offset: 2px;
+}
+
+.editorial-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.editorial-btn--primary {
+  color: #171717;
+  background: #ff8a3d;
+}
+
+.editorial-btn--primary:hover {
+  background: #f47a2f;
+}
+
+.editorial-btn--solid {
+  color: #f7f1e5;
+  background: #171717;
+}
+
+.editorial-btn--solid:hover {
+  color: #f7f1e5;
+  background: #2a2520;
+}
+
+.editorial-btn--ghost {
+  color: #171717;
+  background: transparent;
+}
+
+.editorial-btn--ghost:hover {
+  background: rgba(247, 241, 229, 0.8);
+}
+
+.editorial-btn--danger {
+  color: #9d2d20;
+  border-color: #9d2d20;
+  background: #f7f1e5;
+}
+
+.editorial-btn--danger:hover {
+  color: #f7f1e5;
+  background: #9d2d20;
+}
+
+.editorial-btn--link {
+  min-height: 44px;
+  padding: 0 6px;
+  border: 0;
+  color: #1768d0;
+  background: transparent;
+}
+
+.editorial-btn--link:hover {
+  color: #e96321;
+}
+
+.editorial-icon-btn {
+  width: 44px;
+  height: 44px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #171717;
+  border-radius: 1px;
+  color: #171717;
+  background: #f7f1e5;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.editorial-icon-btn:hover {
+  background: #fff9ed;
+}
+
+.editorial-icon-btn:focus-visible {
+  outline: 2px solid #1768d0;
+  outline-offset: 2px;
+}
+
+.editorial-icon-btn svg {
+  width: 19px;
+  height: 19px;
+}
+
+.editorial-card {
+  border: 1px solid #171717;
+  border-radius: 2px;
+  color: #171717;
+  background: rgba(247, 241, 229, 0.9);
+}
+
+.editorial-field {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #8c8275;
+  border-radius: 1px;
+  color: #171717;
+  font-size: 13px;
+  line-height: 1.5;
+  background: #fff9ed;
+  transition: border-color 150ms ease;
+}
+
+.editorial-field::placeholder {
+  color: #8c8275;
+}
+
+.editorial-field:focus {
+  outline: 2px solid #1768d0;
+  outline-offset: 2px;
+}
+
+.editorial-field:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+textarea.editorial-field {
+  min-height: 110px;
+  line-height: 1.6;
+}
+
+.editorial-select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 28px 0 12px;
+  border: 1px solid #8c8275;
+  border-radius: 1px;
+  color: #171717;
+  font-size: 13px;
+  font-weight: 600;
+  background: #fff9ed;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, #6f685e 50%),
+    linear-gradient(135deg, #6f685e 50%, transparent 50%);
+  background-position:
+    right 14px top 19px,
+    right 9px top 19px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.editorial-select:focus {
+  outline: 2px solid #1768d0;
+  outline-offset: 2px;
+}
+
+.editorial-label {
+  display: block;
+  color: #171717;
+  font: 800 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+}
+
+.editorial-state {
+  width: min(720px, calc(100% - 32px));
+  margin: 12vh auto;
+  padding: 32px;
+  border: 1px solid #171717;
+  border-bottom-width: 4px;
+  color: #171717;
+  text-align: center;
+  background: #f7f1e5;
+}
+
+.editorial-state > svg {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 16px;
+  color: #8c8275;
+}
+
+.editorial-state h2,
+.editorial-state h3 {
+  margin: 0 0 8px;
+  font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.editorial-state p {
+  margin: 0 auto 20px;
+  max-width: 480px;
+  color: #5f574e;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.editorial-state.is-error {
+  border-color: #9d2d20;
+  border-bottom-color: #9d2d20;
+}
+
+.editorial-state.is-error > svg,
+.editorial-state.is-error h2,
+.editorial-state.is-error h3 {
+  color: #9d2d20;
+}
+
+.editorial-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-bottom: 2px solid #171717;
+}
+
+.editorial-tab {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 16px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  color: #514a42;
+  font-size: 13px;
+  font-weight: 800;
+  background: transparent;
+  transition: color 150ms ease;
+}
+
+.editorial-tab:hover {
+  color: #171717;
+}
+
+.editorial-tab:focus-visible {
+  outline: 2px solid #1768d0;
+  outline-offset: -4px;
+}
+
+.editorial-tab[aria-pressed="true"],
+.editorial-tab[aria-selected="true"],
+.editorial-tab.is-active {
+  color: #171717;
+  border-bottom-color: #e96321;
+}
+
+.editorial-tab svg {
+  width: 16px;
+  height: 16px;
+}
+
+.editorial-segmented {
+  display: inline-flex;
+  border: 1px solid #171717;
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.editorial-segmented button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  color: #514a42;
+  font-size: 12px;
+  font-weight: 800;
+  background: #f7f1e5;
+}
+
+.editorial-segmented button + button {
+  border-left: 1px solid #171717;
+}
+
+.editorial-segmented button[aria-pressed="true"],
+.editorial-segmented button.is-active {
+  color: #f7f1e5;
+  background: #171717;
+}
+
+.editorial-spinner {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border: 2px solid #c7bbab;
+  border-top-color: #e96321;
+  border-radius: 50%;
+  animation: editorial-spin 700ms linear infinite;
+}
+
+.editorial-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid #c7bbab;
+  border-radius: 1px;
+  background: rgba(247, 241, 229, 0.6);
+}
+
+.editorial-stat dt {
+  color: #7c7368;
+  font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+}
+
+.editorial-stat dd {
+  margin: 0;
+  color: #171717;
+  font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+@keyframes editorial-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Shared editorial modal surface (tag create/edit, workflow form/report). */
+.editorial-modal-backdrop {
+  background: rgba(23, 23, 23, 0.56);
+}
+
+.editorial-modal {
+  border: 1px solid #171717;
+  border-radius: 2px;
+  color: #171717;
+  background-color: #f7f1e5;
+  background-image: url("/warm-paper-grid-texture.png");
+  background-repeat: repeat;
+  background-size: 627px 627px;
+}
+
+.editorial-modal-header {
+  border-bottom: 2px solid #171717;
+}
+
+.editorial-modal-header h2 {
+  font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.editorial-modal-footer {
+  border-top: 1px solid #c7bbab;
+  background: rgba(247, 241, 229, 0.6);
+}
+
+.editorial-modal-close {
+  width: 44px;
+  height: 44px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #171717;
+  border-radius: 1px;
+  color: #171717;
+  background: #f7f1e5;
+}
+
+.editorial-modal-close:hover {
+  background: #fff9ed;
+}
+
+.editorial-modal-close:focus-visible {
+  outline: 2px solid #1768d0;
+  outline-offset: 2px;
+}
+
+/* Editorial loading tone (opt-in via LoadingLayout tone="editorial"). */
+.editorial-loading {
+  color: #171717;
+  background-color: #f7f1e5;
+  background-image: url("/warm-paper-grid-texture.png");
+  background-repeat: repeat;
+  background-size: 627px 627px;
+}
+
+.editorial-loading-bar {
+  background: rgba(247, 241, 229, 0.92);
+  border-bottom: 2px solid #171717;
+}
+
+.editorial-loading-bar.is-navbar {
+  border-bottom: 1px solid #171717;
+}
+
+.editorial-loading-toolbar-main {
+  flex: 1 1 260px;
+}
+
+.editorial-loading-block {
+  background: rgba(247, 241, 229, 0.55);
+  border: 1px solid #c7bbab;
+  border-radius: 1px;
+}
+
+.editorial-loading-rule {
+  height: 0;
+  border: 0;
+  border-top: 2px solid #171717;
+}
+
+/* Harmonize shared skeleton blocks/containers within editorial loading only.
+   Podcast loading uses the default slate tone, so this never touches it. */
+.editorial-loading .bg-slate-200 {
+  background-color: rgba(191, 179, 158, 0.4);
+}
+
+.editorial-loading .bg-white {
+  background-color: rgba(247, 241, 229, 0.9);
+  border: 1px solid #c7bbab;
+  border-radius: 2px;
+  box-shadow: none;
+}
+
+.editorial-loading .bg-slate-50 {
+  background-color: rgba(247, 241, 229, 0.55);
+}
+
+/* ============================================================
+   Tags section (.tag-page) — editorial unification
+   ============================================================ */
+.tag-page {
+  min-height: calc(100vh - 64px);
+  padding-top: 22px;
+  padding-bottom: 80px;
+}
+
+.tag-content {
+  padding-top: 4px;
+}
+
+.tag-page .editorial-state {
+  margin: 8vh auto 32px;
+}
+
+.tag-podcast-preview .editorial-state {
+  margin: 0;
+  padding: 18px;
+  text-align: left;
+}
+
+.tag-state-spinner {
+  margin: 0 auto 14px;
+  width: 26px;
+  height: 26px;
+  border: 2px solid #c7bbab;
+  border-top-color: #e96321;
+  border-radius: 50%;
+  animation: editorial-spin 700ms linear infinite;
+}
+
+/* Podcast preview block (podcast_id deep link) */
+.tag-podcast-preview {
+  margin-bottom: 28px;
+  padding: 24px;
+  border: 1px solid #171717;
+  border-radius: 2px;
+  color: #171717;
+  background: rgba(247, 241, 229, 0.9);
+}
+
+.tag-podcast-preview-cover {
+  width: 132px;
+  height: 132px;
+  flex: 0 0 132px;
+  border: 1px solid #171717;
+}
+
+.tag-podcast-preview-cover > div {
+  border-radius: 0;
+  background: #efe5d3;
+}
+
+.tag-podcast-preview-title {
+  margin: 0 0 8px;
+  font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+}
+
+.tag-podcast-preview-meta {
+  margin: 0 0 12px;
+  color: #6f685e;
+  font: 700 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.tag-podcast-preview-desc {
+  margin: 0 0 16px;
+  color: #514a42;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* Scoped TagInput overrides (tags page only; TagInput is shared with the
+   accepted podcast detail, which uses its own .podcast-tag-controls scope). */
+.tag-podcast-controls .rounded-full {
+  border: 1px solid #b9ad9e;
+  border-radius: 1px;
+  background: #f7f1e5;
+}
+
+.tag-podcast-controls input {
+  min-height: 44px;
+  border: 1px solid #8c8275;
+  border-radius: 1px;
+  color: #171717;
+  background: #fff9ed;
+}
+
+.tag-podcast-controls input:focus {
+  outline: 2px solid #1768d0;
+  outline-offset: 2px;
+}
+
+.tag-podcast-controls input::placeholder {
+  color: #8c8275;
+}
+
+.tag-podcast-controls .bg-white {
+  background-color: #fff9ed;
+  border: 1px solid #8c8275;
+  border-radius: 1px;
+  box-shadow: 0 6px 0 rgba(23, 23, 23, 0.06);
+}
+
+.tag-podcast-controls .rounded-lg {
+  border-radius: 1px;
+}
+
+.tag-podcast-controls .border-blue-500 {
+  border-color: #e96321 !important;
+}
+
+.tag-podcast-controls .bg-blue-50 {
+  background-color: rgba(233, 99, 33, 0.1);
+}
+
+.tag-podcast-controls .text-blue-600,
+.tag-podcast-controls .text-blue-400 {
+  color: #8c3a16;
+}
+
+.tag-podcast-controls .text-slate-400,
+.tag-podcast-controls .text-slate-500 {
+  color: #6f685e;
+}
+
+/* Alphabetical group heading */
+.tag-group-heading {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: 0 0 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #8c8275;
+  color: #171717;
+  font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  background-color: #f7f1e5;
+  background-image: url("/warm-paper-grid-texture.png");
+  background-repeat: repeat;
+  background-size: 627px 627px;
+}
+
+/* Tag card */
+.tag-card {
+  position: relative;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid #c7bbab;
+  border-radius: 1px;
+  color: #171717;
+  background: rgba(247, 241, 229, 0.82);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.tag-card:hover {
+  border-color: #171717;
+  background: #fff9ed;
+}
+
+.tag-card.is-hot {
+  border-color: #171717;
+  background: #fff9ed;
+}
+
+.tag-card.is-selected {
+  border-color: #171717;
+  background: #fff9ed;
+  box-shadow: inset 0 0 0 2px #e96321;
+}
+
+.tag-card:focus-within {
+  outline: 2px solid #1768d0;
+  outline-offset: 2px;
+}
+
+.tag-card-action,
+.tag-card-content {
+  min-width: 0;
+  min-height: 44px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tag-card-action {
+  padding: 0;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+
+.tag-card-action:focus-visible {
+  outline: 2px solid #1768d0;
+  outline-offset: -2px;
+}
+
+.tag-card-dot {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: 50%;
+}
+
+.tag-card-name {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.tag-card-name > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-card-count {
+  flex: 0 0 auto;
+  color: #8c3a16;
+  font: 800 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.tag-card-delete {
+  width: 44px;
+  height: 44px;
+  display: inline-grid;
+  place-items: center;
+  margin: 0 -8px 0 -4px;
+  border: 0;
+  color: #6f685e;
+  background: transparent;
+  transition: color 150ms ease;
+}
+
+.tag-card-delete:hover {
+  color: #9d2d20;
+  background: rgba(157, 45, 32, 0.08);
+}
+
+.tag-card-delete svg {
+  width: 15px;
+  height: 15px;
+}
+
+.tag-card-checkbox {
+  width: 18px;
+  height: 18px;
+  border: 1px solid #8c8275;
+  accent-color: #e96321;
+}
+
+@media (max-width: 767px) {
+  .tag-page {
+    padding-top: 14px;
+  }
+
+  .tag-podcast-preview {
+    padding: 16px;
+  }
+
+  .tag-podcast-preview-cover {
+    width: 96px;
+    height: 96px;
+    flex: 0 0 96px;
+  }
+
+  .tag-podcast-preview-title {
+    font-size: 22px;
+  }
+}
+
+/* ============================================================
+   Workflows section — editorial unification (#53)
+
+   A shared .wf-editorial class is added to each workflow surface
+   root (list content, detail content, WorkflowFormModal backdrop,
+   ReportModal backdrop). The broad recolor palette below is scoped
+   to .wf-editorial so it recolors pervasive slate/blue Tailwind
+   utilities to the warm editorial system WITHOUT touching the
+   accepted homepage/podcast/search surfaces and WITHOUT flattening
+   semantic status badges (which use -100 shades, not the chrome
+   classes mapped here). All rules are un-layered so they beat
+   Tailwind utilities (including dark: variants) deterministically.
+   ============================================================ */
+
+/* --- Neutral surfaces -> warm paper / cover tint --- */
+.wf-editorial .bg-white {
+  background-color: #fff9ed;
+}
+
+.wf-editorial .bg-neutral-50,
+.wf-editorial .bg-slate-50,
+.wf-editorial .bg-slate-900 {
+  background-color: rgba(239, 229, 211, 0.5);
+}
+
+.wf-editorial .bg-slate-100 {
+  background-color: rgba(239, 229, 211, 0.6);
+}
+
+.wf-editorial .bg-slate-200 {
+  background-color: rgba(191, 179, 158, 0.4);
+}
+
+.wf-editorial .hover\:bg-slate-50:hover,
+.wf-editorial .hover\:bg-slate-100:hover,
+.wf-editorial .hover\:bg-slate-200:hover {
+  background-color: #fff9ed;
+}
+
+/* --- Borders -> hairline palette --- */
+.wf-editorial .border-slate-100,
+.wf-editorial .border-slate-200,
+.wf-editorial .border-slate-700 {
+  border-color: #c7bbab;
+}
+
+.wf-editorial .border-slate-300,
+.wf-editorial .border-slate-500,
+.wf-editorial .border-slate-600 {
+  border-color: #8c8275;
+}
+
+.wf-editorial .hover\:border-slate-300:hover,
+.wf-editorial .hover\:border-slate-500:hover {
+  border-color: #8c8275;
+}
+
+/* --- Text -> ink / muted palette --- */
+.wf-editorial .text-slate-900 {
+  color: #171717;
+}
+
+.wf-editorial .text-slate-800,
+.wf-editorial .text-slate-700 {
+  color: #403a34;
+}
+
+.wf-editorial .text-slate-600 {
+  color: #5f574e;
+}
+
+.wf-editorial .text-slate-500,
+.wf-editorial .text-slate-400 {
+  color: #7c7368;
+}
+
+.wf-editorial .text-slate-300 {
+  color: #8c8275;
+}
+
+/* --- Blue: solid actions -> orange, text -> editorial link blue,
+     borders -> orange. (Status badges use -100 shades, left alone.) --- */
+.wf-editorial .bg-blue-600,
+.wf-editorial .bg-blue-700 {
+  background-color: #e96321;
+}
+
+.wf-editorial .hover\:bg-blue-700:hover {
+  background-color: #d75f1f;
+}
+
+.wf-editorial .text-blue-600,
+.wf-editorial .text-blue-500,
+.wf-editorial .text-blue-700,
+.wf-editorial .text-blue-400 {
+  color: #1768d0;
+}
+
+.wf-editorial .hover\:text-blue-600:hover,
+.wf-editorial .hover\:text-blue-700:hover {
+  color: #1768d0;
+}
+
+.wf-editorial .border-blue-300,
+.wf-editorial .border-blue-400,
+.wf-editorial .border-blue-500,
+.wf-editorial .border-blue-600 {
+  border-color: #e96321;
+}
+
+.wf-editorial .hover\:border-blue-300:hover,
+.wf-editorial .hover\:border-blue-400:hover,
+.wf-editorial .hover\:border-blue-500:hover {
+  border-color: #e96321;
+}
+
+/* Wizard/report callout tints (-50 shades only appear on chrome, never
+   on status badges which use -100). Map blue tint -> orange tint. */
+.wf-editorial .bg-blue-50 {
+  background-color: rgba(233, 99, 33, 0.08);
+}
+
+.wf-editorial .hover\:bg-blue-100:hover {
+  background-color: rgba(233, 99, 33, 0.14);
+}
+
+/* --- Error chrome (containers, not status badges) -> editorial red --- */
+.wf-editorial .text-red-600,
+.wf-editorial .text-red-500,
+.wf-editorial .text-red-400,
+.wf-editorial .text-red-800 {
+  color: #9d2d20;
+}
+
+.wf-editorial .bg-red-50 {
+  background-color: rgba(157, 45, 32, 0.08);
+}
+
+.wf-editorial .border-red-200,
+.wf-editorial .border-red-300 {
+  border-color: #9d2d20;
+}
+
+.wf-editorial .hover\:bg-red-50:hover {
+  background-color: rgba(157, 45, 32, 0.12);
+}
+
+/* --- Flatten radius + drop shadows (editorial uses borders, not glow) --- */
+.wf-editorial .rounded-lg {
+  border-radius: 2px;
+}
+
+.wf-editorial .shadow-sm,
+.wf-editorial .shadow,
+.wf-editorial .shadow-md,
+.wf-editorial .shadow-lg,
+.wf-editorial .shadow-xl,
+.wf-editorial .shadow-2xl {
+  box-shadow: none;
+}
+
+/* --- Headings -> editorial serif/ink (zero-JSX unification) --- */
+.wf-editorial h2,
+.wf-editorial h3,
+.wf-editorial h4 {
+  font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+  color: #171717;
+  letter-spacing: -0.01em;
+}
+
+.wf-editorial h2 {
+  font-weight: 800;
+}
+
+.wf-editorial h3 {
+  font-weight: 700;
+}
+
+/* --- Generic links -> editorial link blue, orange on hover --- */
+.wf-editorial a {
+  color: #1768d0;
+}
+
+.wf-editorial a:hover {
+  color: #e96321;
+}
+
+/* ============================================================
+   Workflow list (.workflow-page)
+   ============================================================ */
+.workflow-page .workflow-card {
+  border: 1px solid #c7bbab;
+  border-radius: 2px;
+  background: #fff9ed;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+
+.workflow-page .workflow-card:hover {
+  border-color: #171717;
+  background: #fff9ed;
+}
+
+/* Card title -> editorial serif */
+.workflow-page .workflow-card h3 {
+  font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #171717;
+}
+
+/* Toolbar sort control: keep editorial-select look but auto width */
+.workflow-page .editorial-select {
+  width: auto;
+  min-width: 150px;
+}
+
+/* Square 44px action buttons inside cards: accent the trigger (orange)
+   and the delete (red); toggle/edit keep ink. Other small icon buttons
+   in the detail jobs rows are recolored by the shared palette above. */
+.workflow-page .workflow-card button[title="执行"] {
+  color: #e96321;
+  border-color: #e96321;
+}
+
+.workflow-page .workflow-card button[title="执行"]:hover {
+  background-color: rgba(233, 99, 33, 0.1);
+}
+
+.workflow-page .workflow-card button[title="删除"] {
+  color: #9d2d20;
+  border-color: #c7bbab;
+}
+
+.workflow-page .workflow-card button[title="删除"]:hover {
+  background-color: rgba(157, 45, 32, 0.1);
+  border-color: #9d2d20;
+}
+
+/* Mobile card "查看详情" footer link: lift to the 44px touch minimum. */
+.workflow-page .workflow-card .md\:hidden a.border-t {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ============================================================
+   Workflow detail (.workflow-detail)
+   ============================================================ */
+.workflow-detail .workflow-tabs {
+  border: 1px solid #c7bbab;
+  border-radius: 2px;
+  background: #fff9ed;
+  padding: 4px 12px 0;
+  margin-bottom: 24px;
+}
+
+/* Tab content panel hairline */
+.workflow-detail .workflow-panel {
+  border: 1px solid #c7bbab;
+  border-radius: 2px;
+  background: #fff9ed;
+}
+
+/* Stat block -> editorial stat feel */
+.workflow-detail .workflow-stat {
+  border: 1px solid #c7bbab;
+  border-radius: 1px;
+  background: rgba(247, 241, 229, 0.6);
+}
+
+/* Inline code chips -> monospace on warm tint */
+.wf-editorial code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #171717;
+  background: rgba(239, 229, 211, 0.6);
+  border: 1px solid #cfc3af;
+  border-radius: 1px;
+}
+
+/* Pre / JSON previews -> warm tinted surface */
+.wf-editorial pre {
+  color: #171717;
+  background: rgba(239, 229, 211, 0.5);
+  border: 1px solid #c7bbab;
+  border-radius: 1px;
+}
+
+/* Form fields → 44px touch target (text inputs/select/textarea in the
+   workflow + report modals). */
+.wf-editorial input[type="text"],
+.wf-editorial input[type="email"],
+.wf-editorial input[type="number"],
+.wf-editorial input[type="password"],
+.wf-editorial input[type="url"],
+.wf-editorial input[type="search"],
+.wf-editorial input[type="date"],
+.wf-editorial input[type="time"],
+.wf-editorial select,
+.wf-editorial textarea {
+  min-height: 44px;
+}
+
+/* Report-modal action buttons (close icon, 重试, 重新生成摘要, 下载, 关闭)
+   → 44px square-minimum touch target, content centered. */
+.report-modal button {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ============================================================
+   Workflow action menu (mobile dropdown in list cards).
+   Rendered inside .workflow-page scope; recolor via shared palette.
+   Tighten its trigger to the editorial icon-button look.
+   ============================================================ */
+.workflow-action-menu-trigger {
+  width: 44px;
+  height: 44px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #171717;
+  border-radius: 1px;
+  color: #171717;
+  background: #f7f1e5;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.workflow-action-menu-trigger:hover {
+  background: #fff9ed;
+}
+
+.workflow-action-menu-trigger:focus-visible {
+  outline: 2px solid #1768d0;
+  outline-offset: 2px;
+}
+
+/* ============================================================
+   Workflow form modal + report modal.
+   Scoped CSS only (no internal JSX swaps) to preserve all wizard
+   logic. The .wf-editorial palette recolors panels/inputs/buttons;
+   the editorial paper surface is applied to the MAIN modal panel
+   only (direct child of the backdrop), not every nested white block.
+   ============================================================ */
+.workflow-form-modal > div,
+.report-modal > div {
+  background-color: #f7f1e5;
+  background-image: url("/warm-paper-grid-texture.png");
+  background-repeat: repeat;
+  background-size: 627px 627px;
+  border: 1px solid #171717;
+}
+
+/* Keep the wizard's semantic color-coding legible on paper: presets
+   (blue) and custom cron (purple) retain their accent so users can
+   still tell the modes apart; only the chrome is unified. */
+
+/* ============================================================
+   板块三：导入 / 同步 —— editorial recolor (scoped to .import-page)
+   Independent of .wf-editorial so the workflow block's blue→orange
+   border/tint mappings do NOT bleed into the import surface.
+   Preserved as semantic signal (NOT remapped):
+     · log rows / badges  (-100 / -50 green|red|blue|violet|emerald)
+     · stat numbers        (-600 green|red|amber)
+     · filter active states(-500 border + -50 bg, one tone per filter)
+   Only neutral chrome + the two primary CTAs + link/accent blue +
+   the native file-picker button are unified.
+   ============================================================ */
+/* (Body text inherits the shell sans-serif; only headings go serif — see
+   the h2/h3/h4 rule below — matching the accepted baseline.) */
+
+/* Neutral surfaces */
+.import-page .bg-white {
+  background-color: #fff9ed;
+}
+.import-page .bg-slate-50,
+.import-page .bg-slate-900,
+.import-page .bg-neutral-50 {
+  background-color: rgba(239, 229, 211, 0.5);
+}
+.import-page .bg-slate-100 {
+  background-color: rgba(239, 229, 211, 0.75);
+}
+
+/* Neutral borders */
+.import-page .border-slate-100,
+.import-page .border-slate-200,
+.import-page .border-slate-700 {
+  border-color: #c7bbab;
+}
+.import-page .border-slate-300,
+.import-page .border-slate-500,
+.import-page .border-slate-600 {
+  border-color: #8c8275;
+}
+
+/* Neutral text */
+.import-page .text-slate-900 {
+  color: #171717;
+}
+.import-page .text-slate-700,
+.import-page .text-slate-800 {
+  color: #403a34;
+}
+.import-page .text-slate-600 {
+  color: #5f574e;
+}
+.import-page .text-slate-400,
+.import-page .text-slate-500 {
+  color: #7c7368;
+}
+
+/* Links + accent numbers → editorial blue */
+.import-page .text-blue-600,
+.import-page .text-blue-700,
+.import-page .text-blue-800 {
+  color: #1768d0;
+}
+.import-page a {
+  color: #1768d0;
+}
+.import-page a:hover {
+  color: #e96321;
+}
+
+/* Primary CTAs (开始导入 / 开始同步) → unified editorial solid;
+   disabled keeps its neutral slate. */
+.import-page .bg-blue-600,
+.import-page .bg-blue-700,
+.import-page .bg-green-600,
+.import-page .bg-green-700 {
+  background-color: #e96321;
+}
+.import-page .hover\:bg-blue-700:hover,
+.import-page .hover\:bg-green-700:hover {
+  background-color: #d75f1f;
+}
+
+/* Square borders, no shadows */
+.import-page .rounded-lg,
+.import-page .rounded-md {
+  border-radius: 2px;
+}
+.import-page .shadow-sm,
+.import-page .shadow,
+.import-page .shadow-md,
+.import-page .shadow-lg,
+.import-page .shadow-xl {
+  box-shadow: none;
+}
+
+/* Headings → serif / ink */
+.import-page h2,
+.import-page h3,
+.import-page h4 {
+  font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+  color: #171717;
+}
+
+/* Mono / code → warm-tinted mono */
+.import-page code,
+.import-page pre,
+.import-page .font-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.import-page code,
+.import-page pre {
+  background-color: rgba(239, 229, 211, 0.6);
+  color: #171717;
+}
+
+/* Touch target: the file control is itself the tap zone (any click opens the
+   picker), so lift the whole input to the 44px minimum. */
+.import-page input[type="file"] {
+  min-height: 44px;
+}
+
+/* Native file-picker button → editorial */
+.import-page input[type="file"]::file-selector-button {
+  background-color: #fff9ed;
+  color: #171717;
+  border: 1px solid #c7bbab;
+  border-radius: 2px;
+  padding: 0.5rem 1rem;
+  margin-right: 1rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.import-page input[type="file"]::file-selector-button:hover {
+  background-color: #ffffff;
 }

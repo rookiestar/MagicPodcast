@@ -56,7 +56,7 @@ function ImportPageContent() {
   }, [restoredMode]);
 
   return (
-    <main className="min-h-screen bg-slate-50 dark:bg-slate-900">
+    <main>
       <div className="container mx-auto px-4 py-6">
         <div className="rounded-lg bg-white shadow-sm dark:bg-slate-800">
           <ImportPageTabs
@@ -65,7 +65,13 @@ function ImportPageContent() {
             onChange={setActiveTab}
           />
 
-          <div className="p-6">
+          <div
+            className="p-6"
+            role="tabpanel"
+            id={`import-tabpanel-${activeTab}`}
+            aria-labelledby={`import-tab-${activeTab}`}
+            tabIndex={0}
+          >
             {activeTab === "import" && (
               <ImportOpmlPanel
                 file={file}
@@ -113,9 +119,12 @@ function ImportPageContent() {
 export default function ImportPage() {
   return (
     <PageLayout
+      rootClassName="editorial-page-shell"
+      className="import-page"
       toolbar={{
         breadcrumbs: [{ label: "返回首页", href: "/" }],
         title: "导入/同步",
+        className: "editorial-page-toolbar",
       }}
     >
       <ImportPageContent />
