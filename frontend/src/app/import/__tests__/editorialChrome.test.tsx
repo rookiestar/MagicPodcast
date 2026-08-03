@@ -8,6 +8,11 @@ vi.mock("@/components/layout/PageLayout", () => ({
     <div className={rootClassName}>
       {toolbar && (
         <div className={toolbar.className} data-testid="toolbar">
+          {toolbar.breadcrumbs?.map((item: any) => (
+            <a key={item.label} href={item.href}>
+              {item.label}
+            </a>
+          ))}
           {toolbar.title}
           {toolbar.rightContent}
         </div>
@@ -65,6 +70,12 @@ vi.mock("@/hooks/useImportSyncOperations", () => ({
 import ImportPage from "../page";
 
 describe("import page editorial chrome (#53)", () => {
+  it("does not repeat the global home navigation in the page toolbar", () => {
+    render(<ImportPage />);
+
+    expect(screen.queryByRole("link", { name: "返回首页" })).not.toBeInTheDocument();
+  });
+
   it("adopts the editorial shell, toolbar and import-page scope classes", () => {
     const { container } = render(<ImportPage />);
     expect(container.querySelector(".editorial-page-shell")).toBeTruthy();
@@ -73,8 +84,11 @@ describe("import page editorial chrome (#53)", () => {
   });
 
   it("renders the editorialized import tab and primary CTA", () => {
-    render(<ImportPage />);
+    const { container } = render(<ImportPage />);
     expect(screen.getByRole("tab", { name: "导入 OPML" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "开始导入" })).toBeTruthy();
+    expect(container.querySelector(".import-workspace")).toBeTruthy();
+    expect(container.querySelector(".import-operation-panel")).toBeTruthy();
+    expect(container.querySelector(".import-log-column")).toBeTruthy();
   });
 });

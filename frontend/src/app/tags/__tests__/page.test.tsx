@@ -11,6 +11,11 @@ vi.mock("@/components/layout/PageLayout", () => ({
     <div className={rootClassName}>
       {toolbar && (
         <div className={toolbar.className} data-testid="toolbar">
+          {toolbar.breadcrumbs?.map((item: any) => (
+            <a key={item.label} href={item.href}>
+              {item.label}
+            </a>
+          ))}
           {toolbar.rightContent}
         </div>
       )}
@@ -68,6 +73,13 @@ describe("tags page editorial chrome (#53)", () => {
     expect(container.querySelector(".editorial-page-shell")).toBeTruthy();
     expect(container.querySelector(".editorial-page-toolbar")).toBeTruthy();
     expect(container.querySelector(".tag-page")).toBeTruthy();
+  });
+
+  it("does not repeat the global home navigation in the page toolbar", async () => {
+    render(<TagsPage />);
+    await settleAsyncEffects();
+
+    expect(screen.queryByRole("link", { name: "返回首页" })).not.toBeInTheDocument();
   });
 
   it("renders the editorial empty state with the create CTA", async () => {

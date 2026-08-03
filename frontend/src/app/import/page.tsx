@@ -56,9 +56,9 @@ function ImportPageContent() {
   }, [restoredMode]);
 
   return (
-    <main>
-      <div className="container mx-auto px-4 py-6">
-        <div className="rounded-lg bg-white shadow-sm dark:bg-slate-800">
+    <main className="import-main">
+      <div className="import-workspace">
+        <section className="import-operation-panel" aria-label="导入与同步设置">
           <ImportPageTabs
             activeTab={activeTab}
             disabled={operationRunning}
@@ -66,7 +66,7 @@ function ImportPageContent() {
           />
 
           <div
-            className="p-6"
+            className="import-operation-content"
             role="tabpanel"
             id={`import-tabpanel-${activeTab}`}
             aria-labelledby={`import-tab-${activeTab}`}
@@ -89,27 +89,29 @@ function ImportPageContent() {
                 onSync={handleSync}
               />
             )}
-
-            <SyncLogPanel
-              title={logPanelMode === "import" ? "导入日志" : "同步日志"}
-              logs={logs}
-              filteredLogs={filteredLogs}
-              stats={stats}
-              filter={filter}
-              isRunning={operationRunning}
-              autoScroll={autoScroll}
-              onFilterChange={setFilter}
-              onLogScroll={handleLogScroll}
-              onResumeAutoScroll={resumeAutoScroll}
-              onClearLogs={() => {
-                clearLogSession(activeTab);
-                resetLogScroll();
-              }}
-              logContainerRef={logContainerRef}
-              logEndRef={logEndRef}
-            />
           </div>
-        </div>
+        </section>
+
+        <aside className="import-log-column" aria-label="操作日志">
+          <SyncLogPanel
+            title={logPanelMode === "import" ? "导入日志" : "同步日志"}
+            logs={logs}
+            filteredLogs={filteredLogs}
+            stats={stats}
+            filter={filter}
+            isRunning={operationRunning}
+            autoScroll={autoScroll}
+            onFilterChange={setFilter}
+            onLogScroll={handleLogScroll}
+            onResumeAutoScroll={resumeAutoScroll}
+            onClearLogs={() => {
+              clearLogSession(activeTab);
+              resetLogScroll();
+            }}
+            logContainerRef={logContainerRef}
+            logEndRef={logEndRef}
+          />
+        </aside>
       </div>
     </main>
   );
@@ -122,7 +124,6 @@ export default function ImportPage() {
       rootClassName="editorial-page-shell"
       className="import-page"
       toolbar={{
-        breadcrumbs: [{ label: "返回首页", href: "/" }],
         title: "导入/同步",
         className: "editorial-page-toolbar",
       }}

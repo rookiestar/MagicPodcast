@@ -167,7 +167,7 @@ export default function PageToolbar({
 
                 {/* 标题和描述 */}
                 {(title || description) && (
-                  <div className="page-toolbar-title-group flex flex-col">
+                  <div className="page-toolbar-title-group editorial-title-group flex flex-col">
                     {title && (
                       <h1 className="editorial-section-title text-xl font-semibold text-slate-800">
                         {title}

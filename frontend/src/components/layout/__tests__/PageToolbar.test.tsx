@@ -23,5 +23,8 @@ describe("PageToolbar mobile title layout", () => {
     expect(container.querySelector(".page-toolbar-mobile-main")).toHaveClass(
       "flex",
     );
+    expect(container.querySelector(".page-toolbar-title-group")).toHaveClass(
+      "editorial-title-group",
+    );
   });
 });

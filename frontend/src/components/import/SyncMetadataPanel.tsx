@@ -1,3 +1,5 @@
+import { IconRefresh } from "@tabler/icons-react";
+
 interface SyncMetadataPanelProps {
   disabled: boolean;
   syncing: boolean;
@@ -11,28 +13,28 @@ export default function SyncMetadataPanel({
 }: SyncMetadataPanelProps) {
   return (
     <>
-      <div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/60">
-        <h3 className="mb-2 text-base font-medium text-slate-900 dark:text-slate-100">
-          关于同步元数据
+      <div className="import-guidance">
+        <p className="import-eyebrow">更新个人播客库</p>
+        <h3 className="text-base font-medium text-slate-900 dark:text-slate-100">
+          同步元数据
         </h3>
-        <ul className="list-inside list-disc space-y-1 text-sm text-slate-600 dark:text-slate-300">
-          <li>从在线RSS feed更新所有播客的最新元数据</li>
-          <li>包括单集数量、最新发布时间、播客描述等信息</li>
-          <li>可能需要较长时间,取决于播客数量和网络状况</li>
-        </ul>
+        <p className="import-guidance-copy">
+          从 RSS 更新单集数量、发布时间与节目描述。耗时取决于订阅数量和网络状况。
+        </p>
       </div>
 
-      <div className="mb-6">
+      <div className="import-primary-action">
         <button
           type="button"
           onClick={onSync}
           disabled={disabled}
-          className={`min-h-[44px] rounded-lg px-6 py-2.5 text-sm font-medium text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+          className={`editorial-btn editorial-btn--primary min-h-[44px] px-6 py-2.5 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
             disabled
-              ? "cursor-not-allowed bg-slate-300 dark:bg-slate-700"
-              : "cursor-pointer bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-700"
+              ? "cursor-not-allowed is-disabled"
+              : "cursor-pointer"
           }`}
         >
+          <IconRefresh aria-hidden="true" />
           {syncing ? "同步中..." : "开始同步"}
         </button>
       </div>

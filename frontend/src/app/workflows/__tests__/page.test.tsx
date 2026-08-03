@@ -9,6 +9,11 @@ vi.mock("@/components/layout/PageLayout", () => ({
     <div className={rootClassName}>
       {toolbar && (
         <div className={toolbar.className} data-testid="toolbar">
+          {toolbar.breadcrumbs?.map((item: any) => (
+            <a key={item.label} href={item.href}>
+              {item.label}
+            </a>
+          ))}
           {toolbar.rightContent}
         </div>
       )}
@@ -52,6 +57,12 @@ vi.mock("@/lib/timeUtils", () => ({ formatDateTime: () => "时间" }));
 import WorkflowsPage from "../page";
 
 describe("workflows list editorial chrome (#53)", () => {
+  it("does not repeat the global home navigation in the page toolbar", () => {
+    render(<WorkflowsPage />);
+
+    expect(screen.queryByRole("link", { name: "返回首页" })).not.toBeInTheDocument();
+  });
+
   it("adopts the editorial shell, toolbar, section classes and a primary create button", () => {
     workflowsValue = [];
     const { container } = render(<WorkflowsPage />);
@@ -105,6 +116,10 @@ describe("workflows list editorial chrome (#53)", () => {
       } as unknown as Workflow,
     ];
     const { container } = render(<WorkflowsPage />);
+    expect(container.querySelector(".workflow-list")).toBeTruthy();
     expect(container.querySelector(".workflow-card")).toBeTruthy();
+    expect(container.querySelector(".workflow-card-body")).toBeTruthy();
+    expect(container.querySelector(".workflow-card-metadata")).toBeTruthy();
+    expect(container.querySelector(".workflow-card-actions")).toBeTruthy();
   });
 });

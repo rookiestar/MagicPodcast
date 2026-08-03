@@ -72,6 +72,12 @@
     max-width: 1380px;
   }
 
+  .editorial-title-group {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 18px;
+  }
+
   .editorial-page-toolbar .page-toolbar-desktop {
     min-height: 60px;
     padding-top: 0;
@@ -1674,9 +1680,9 @@
   }
 
   .discovery-desk {
-    width: min(100%, 1400px);
+    width: min(100%, 1380px);
     margin: 0 auto;
-    padding: 0 28px 72px;
+    padding: 0 16px 72px;
   }
 
   .discovery-kicker {
@@ -1707,19 +1713,17 @@
   .discovery-workbench-header {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    align-items: end;
+    align-items: center;
     gap: 28px;
-    min-height: 0;
+    min-height: 60px;
     margin-top: 0;
-    padding: 6px 0 8px;
+    padding: 0;
     border-bottom: 2px solid #171717;
   }
 
   .discovery-workbench-copy {
     min-width: 0;
     display: flex;
-    align-items: center;
-    gap: 18px;
   }
 
   .discovery-workbench-copy h1 {
@@ -3805,8 +3809,8 @@ textarea.editorial-field {
    ============================================================ */
 .workflow-page .workflow-card {
   border: 1px solid #c7bbab;
-  border-radius: 2px;
-  background: #fff9ed;
+  border-radius: 1px;
+  background: rgba(255, 249, 237, 0.88);
   transition:
     border-color 150ms ease,
     background-color 150ms ease;
@@ -3825,6 +3829,137 @@ textarea.editorial-field {
   color: #171717;
 }
 
+.workflow-page .workflow-content {
+  max-width: 1040px;
+  margin-inline: auto;
+}
+
+.workflow-page .workflow-list {
+  display: grid;
+  gap: 16px;
+}
+
+.workflow-page .workflow-card-body {
+  color: inherit;
+}
+
+.workflow-page .workflow-card-body:hover {
+  color: inherit;
+}
+
+.workflow-page .workflow-card-main {
+  padding: 22px 24px 20px;
+}
+
+.workflow-page .workflow-card-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.workflow-page .workflow-card-index {
+  flex: 0 0 32px;
+  padding-top: 2px;
+  color: #8c8275;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+}
+
+.workflow-page .workflow-card-description {
+  max-width: 68ch;
+  margin: 0;
+  line-height: 1.65;
+}
+
+.workflow-page .workflow-card-metadata {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin-top: 20px;
+  border-top: 1px solid #ded4c5;
+  border-left: 1px solid #ded4c5;
+}
+
+.workflow-page .workflow-card-meta {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+  padding: 11px 12px 12px;
+  border-right: 1px solid #ded4c5;
+  border-bottom: 1px solid #ded4c5;
+}
+
+.workflow-page .workflow-card-meta > :first-child {
+  color: #7c7368;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.workflow-page .workflow-card-meta > :last-child {
+  overflow: hidden;
+  color: #403a34;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-page .workflow-card-meta:last-child {
+  grid-column: span 2;
+}
+
+.workflow-page .workflow-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+  padding: 4px 8px 4px 24px;
+  border-top: 1px solid #c7bbab;
+}
+
+.workflow-page .workflow-card-detail-cue {
+  color: #5f574e;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+}
+
+.workflow-page .workflow-card-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.workflow-page .workflow-card-action {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-left: 1px solid transparent;
+  background: transparent;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
+}
+
+.workflow-page .workflow-card-action svg {
+  width: 19px;
+  height: 19px;
+  stroke-width: 1.7;
+}
+
+.workflow-page .workflow-card-action:hover {
+  background: rgba(239, 229, 211, 0.72);
+}
+
+.workflow-page .workflow-card-action:focus-visible {
+  outline: 2px solid #1768d0;
+  outline-offset: -2px;
+}
+
 /* Toolbar sort control: keep editorial-select look but auto width */
 .workflow-page .editorial-select {
   width: auto;
@@ -3836,7 +3971,6 @@ textarea.editorial-field {
    in the detail jobs rows are recolored by the shared palette above. */
 .workflow-page .workflow-card button[title="执行"] {
   color: #e96321;
-  border-color: #e96321;
 }
 
 .workflow-page .workflow-card button[title="执行"]:hover {
@@ -3845,12 +3979,34 @@ textarea.editorial-field {
 
 .workflow-page .workflow-card button[title="删除"] {
   color: #9d2d20;
-  border-color: #c7bbab;
 }
 
 .workflow-page .workflow-card button[title="删除"]:hover {
   background-color: rgba(157, 45, 32, 0.1);
-  border-color: #9d2d20;
+}
+
+@media (max-width: 980px) and (min-width: 768px) {
+  .workflow-page .workflow-card-metadata {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .workflow-page .workflow-card-meta:last-child {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 767px) {
+  .workflow-page .workflow-content {
+    padding-top: 16px;
+  }
+
+  .workflow-page .workflow-list {
+    gap: 12px;
+  }
+
+  .workflow-page .workflow-card-mobile {
+    padding: 16px;
+  }
 }
 
 /* Mobile card "查看详情" footer link: lift to the 44px touch minimum. */
@@ -4092,7 +4248,7 @@ textarea.editorial-field {
 
 /* Touch target: the file control is itself the tap zone (any click opens the
    picker), so lift the whole input to the 44px minimum. */
-.import-page input[type="file"] {
+.import-page input[type="file"]:not(.sr-only) {
   min-height: 44px;
 }
 
@@ -4111,4 +4267,221 @@ textarea.editorial-field {
 }
 .import-page input[type="file"]::file-selector-button:hover {
   background-color: #ffffff;
+}
+
+/* Import workspace: one restrained operation column beside a persistent log.
+   The page shell supplies the paper grid; interior panels use rules, not cards. */
+.import-page .import-main {
+  padding: 24px 0 40px;
+}
+
+.import-page .import-workspace {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.86fr) minmax(420px, 1.14fr);
+  align-items: stretch;
+  max-width: 1100px;
+  margin-inline: auto;
+  border: 1px solid #c7bbab;
+  background: rgba(255, 249, 237, 0.88);
+}
+
+.import-page .import-operation-panel {
+  min-width: 0;
+  border-right: 1px solid #c7bbab;
+}
+
+.import-page .import-tabs {
+  padding: 0 20px;
+  border-bottom: 1px solid #c7bbab;
+}
+
+.import-page .import-tab-list {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.import-page .import-tab {
+  position: relative;
+  min-width: 0;
+  padding-inline: 0;
+  border-radius: 0;
+  color: #7c7368;
+  background: transparent;
+}
+
+.import-page .import-tab::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background: transparent;
+  content: "";
+}
+
+.import-page .import-tab.is-active {
+  color: #171717;
+}
+
+.import-page .import-tab.is-active::after {
+  background: #e96321;
+}
+
+.import-page .import-operation-content {
+  min-height: 410px;
+  padding: 28px 24px 24px;
+}
+
+.import-page .import-operation-content:focus-visible {
+  outline: 2px solid #1768d0;
+  outline-offset: -2px;
+}
+
+.import-page .import-guidance {
+  padding-bottom: 24px;
+  border-bottom: 1px solid #ded4c5;
+}
+
+.import-page .import-eyebrow {
+  margin-bottom: 8px;
+  color: #e96321;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.import-page .import-guidance h3 {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 800;
+}
+
+.import-page .import-guidance-copy {
+  max-width: 42ch;
+  margin-top: 10px;
+  color: #5f574e;
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+
+.import-page .import-file-field {
+  padding: 24px 0;
+  border-bottom: 1px solid #ded4c5;
+}
+
+.import-page .import-file-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 9px 14px;
+  border: 1px solid #171717;
+  color: #171717;
+  background: transparent;
+  font-size: 0.875rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
+}
+
+.import-page .import-file-picker:hover {
+  color: #fff9ed;
+  background: #171717;
+}
+
+.import-page .import-file-picker:focus-within {
+  outline: 2px solid #1768d0;
+  outline-offset: 2px;
+}
+
+.import-page .import-file-picker svg,
+.import-page .import-primary-action svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.7;
+}
+
+.import-page .import-file-name {
+  margin-top: 10px;
+  color: #7c7368;
+  font-size: 0.75rem;
+}
+
+.import-page .import-primary-action {
+  padding-top: 24px;
+}
+
+.import-page .import-primary-action .editorial-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.import-page .import-primary-action .is-disabled {
+  border-color: #c7bbab;
+  color: #8c8275;
+  background: #e6ded1;
+  opacity: 1;
+}
+
+.import-page .import-log-column {
+  min-width: 0;
+  padding: 20px;
+}
+
+.import-page .sync-log-panel {
+  height: 100%;
+  min-height: 410px;
+  padding: 4px 0 0;
+  border: 0;
+  background: transparent;
+}
+
+.import-page .sync-log-panel > :last-child {
+  min-height: 250px;
+}
+
+@media (max-width: 900px) {
+  .import-page .import-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .import-page .import-operation-panel {
+    border-right: 0;
+    border-bottom: 1px solid #c7bbab;
+  }
+
+  .import-page .import-operation-content {
+    min-height: auto;
+  }
+
+  .import-page .sync-log-panel {
+    min-height: 300px;
+  }
+}
+
+@media (max-width: 767px) {
+  .import-page .import-main {
+    padding-top: 16px;
+  }
+
+  .import-page .import-workspace {
+    border-right: 0;
+    border-left: 0;
+  }
+
+  .import-page .import-tabs {
+    padding-inline: 16px;
+  }
+
+  .import-page .import-operation-content {
+    padding: 24px 16px;
+  }
+
+  .import-page .import-log-column {
+    padding: 20px 16px;
+  }
 }

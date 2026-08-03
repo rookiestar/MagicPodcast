@@ -155,7 +155,6 @@ export default function PodcastsContent() {
       className="podcast-library-page"
       onSearchClick={openSearch}
       toolbar={{
-        breadcrumbs: [{ label: "返回首页", href: "/" }],
         title: "我的订阅",
         description: listDescription,
         rightContent: (

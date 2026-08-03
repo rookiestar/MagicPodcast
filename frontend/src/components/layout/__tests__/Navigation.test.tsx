@@ -41,7 +41,7 @@ describe("global navigation", () => {
   it("gives editorial page headers a shared alignment contract", () => {
     const { container } = render(
       <PageToolbar
-        breadcrumbs={[{ label: "返回首页", href: "/" }]}
+        breadcrumbs={[{ label: "返回列表", href: "/podcasts" }]}
         title="我的订阅"
         description="共 4 个节目"
         className="editorial-page-toolbar"
@@ -55,5 +55,9 @@ describe("global navigation", () => {
       screen.getAllByRole("heading", { name: "我的订阅" })[1],
     ).toHaveClass("editorial-section-title");
     expect(container.querySelector(".page-toolbar-title-group")).not.toBeNull();
+    expect(screen.getByRole("link", { name: "返回列表" })).toHaveAttribute(
+      "href",
+      "/podcasts",
+    );
   });
 });

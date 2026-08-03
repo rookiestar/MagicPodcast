@@ -171,6 +171,9 @@ describe("DiscoveryDesk", () => {
     expect(
       screen.getByRole("heading", { name: "最近更新" }),
     ).toHaveClass("editorial-section-title");
+    expect(
+      recentUpdates.querySelector(".discovery-workbench-copy"),
+    ).toHaveClass("editorial-title-group");
   });
 
   it("marks the end of a short list and exposes an adjustable desktop split", () => {

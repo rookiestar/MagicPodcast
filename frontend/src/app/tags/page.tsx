@@ -532,7 +532,6 @@ export default function TagsPage() {
       rootClassName="editorial-page-shell"
       className="tag-page"
       toolbar={{
-        breadcrumbs: [{ label: "返回首页", href: "/" }],
         title: "标签管理",
         description: !tagsLoading && tags.length > 0 ? `共 ${tags.length} 个标签` : undefined,
         rightContent: (
