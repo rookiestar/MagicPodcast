@@ -95,6 +95,20 @@ describe("tags page editorial chrome (#53)", () => {
     expect(alphabetical.getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("separates page actions from the tag sort choices", async () => {
+    render(<TagsPage />);
+    await settleAsyncEffects();
+
+    const actions = document.querySelector(".tag-toolbar-primary");
+    const sortGroup = screen.getByRole("group", { name: "标签排序" });
+
+    expect(actions).toContainElement(screen.getByRole("button", { name: "新建" }));
+    expect(actions).toContainElement(screen.getByRole("button", { name: "多选" }));
+    expect(actions).not.toContainElement(sortGroup);
+    expect(sortGroup).toHaveClass("tag-toolbar-sort");
+    expect(screen.getByText("排序")).toHaveClass("tag-toolbar-sort-label");
+  });
+
   it("keeps tag editing and deletion as sibling controls", async () => {
     mockTagState.tags = [
       { id: 1, name: "技术与产品", color: "#a85432", podcast_count: 3 },
@@ -112,5 +126,19 @@ describe("tags page editorial chrome (#53)", () => {
     expect(card).not.toHaveAttribute("role", "button");
     expect(card?.querySelectorAll("button")).toHaveLength(2);
     expect(card?.querySelector('[role="button"]')).toBeNull();
+  });
+
+  it("keeps tag cards wide enough and exposes the full name on hover", async () => {
+    mockTagState.tags = [
+      { id: 1, name: "技术与产品", color: "#a85432", podcast_count: 3 },
+    ];
+
+    const { container } = render(<TagsPage />);
+    await settleAsyncEffects();
+
+    expect(container.querySelector(".tag-grid")).toBeTruthy();
+    expect(
+      container.querySelector(".tag-card-name > span"),
+    ).toHaveAttribute("title", "技术与产品");
   });
 });

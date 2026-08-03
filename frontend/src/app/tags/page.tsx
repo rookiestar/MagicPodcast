@@ -334,7 +334,7 @@ function TagsPageContent({
                     <h3 className="tag-group-heading">
                       {letter}
                     </h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
+                    <div className="tag-grid">
                       {groupedTags[letter].map((tag) => (
                         <TagCard
                           key={tag.id}
@@ -352,7 +352,7 @@ function TagsPageContent({
             </div>
           ) : (
             // 热度模式显示
-            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
+            <div className="tag-grid">
               {tags.map((tag) => (
                 <TagCard
                   key={tag.id}
@@ -418,7 +418,9 @@ function TagCard({
         style={{ backgroundColor: tag.color || "#ccc" }}
       />
       <span className="tag-card-name">
-        <span>{tag.name}</span>
+        <span className="tag-card-label" title={tag.name}>
+          {tag.name}
+        </span>
         {tag.podcast_count !== undefined && (
           <span className="tag-card-count">({tag.podcast_count})</span>
         )}
@@ -534,66 +536,75 @@ export default function TagsPage() {
         title: "标签管理",
         description: !tagsLoading && tags.length > 0 ? `共 ${tags.length} 个标签` : undefined,
         rightContent: (
-          <div className="flex items-center gap-2">
-            {/* 新建标签按钮 - 仅在非多选模式下显示 */}
-            {!isSelectMode && (
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="editorial-btn editorial-btn--primary"
-              >
-                新建
-              </button>
-            )}
+          <div className="tag-toolbar-actions">
+            <div className="tag-toolbar-primary">
+              {/* 新建标签按钮 - 仅在非多选模式下显示 */}
+              {!isSelectMode && (
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="editorial-btn editorial-btn--primary"
+                >
+                  新建
+                </button>
+              )}
 
-            {/* 多选/操作按钮 */}
-            {isSelectMode ? (
-              <>
+              {/* 多选/操作按钮 */}
+              {isSelectMode ? (
+                <>
+                  <button
+                    onClick={() => {
+                      setIsSelectMode(false);
+                      setSelectedTags(new Set());
+                    }}
+                    className="editorial-btn editorial-btn--ghost"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={handleSelectAll}
+                    className="editorial-btn editorial-btn--ghost"
+                  >
+                    {selectedTags.size === tags.length ? "取消全选" : "全选"}
+                  </button>
+                  <button
+                    onClick={handleBatchDelete}
+                    disabled={selectedTags.size === 0}
+                    className="editorial-btn editorial-btn--danger"
+                  >
+                    删除 ({selectedTags.size})
+                  </button>
+                </>
+              ) : (
                 <button
-                  onClick={() => {
-                    setIsSelectMode(false);
-                    setSelectedTags(new Set());
-                  }}
+                  onClick={() => setIsSelectMode(true)}
                   className="editorial-btn editorial-btn--ghost"
                 >
-                  取消
+                  多选
                 </button>
-                <button
-                  onClick={handleSelectAll}
-                  className="editorial-btn editorial-btn--ghost"
-                >
-                  {selectedTags.size === tags.length ? "取消全选" : "全选"}
-                </button>
-                <button
-                  onClick={handleBatchDelete}
-                  disabled={selectedTags.size === 0}
-                  className="editorial-btn editorial-btn--danger"
-                >
-                  删除 ({selectedTags.size})
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => setIsSelectMode(true)}
-                className="editorial-btn editorial-btn--ghost"
-              >
-                多选
-              </button>
-            )}
+              )}
+            </div>
 
             {/* 排序切换 */}
-            <div className="editorial-segmented">
-              <button
-                onClick={() => setSortMode("popularity")}
-                aria-pressed={sortMode === "popularity"}
-              >
-                热度
-              </button>
-              <button
-                onClick={() => setSortMode("alphabetical")}
-                aria-pressed={sortMode === "alphabetical"}
-              >
-                字母
-              </button>
+            <div
+              className="tag-toolbar-sort"
+              role="group"
+              aria-label="标签排序"
+            >
+              <span className="tag-toolbar-sort-label">排序</span>
+              <div className="editorial-segmented">
+                <button
+                  onClick={() => setSortMode("popularity")}
+                  aria-pressed={sortMode === "popularity"}
+                >
+                  热度
+                </button>
+                <button
+                  onClick={() => setSortMode("alphabetical")}
+                  aria-pressed={sortMode === "alphabetical"}
+                >
+                  字母
+                </button>
+              </div>
             </div>
           </div>
         ),
