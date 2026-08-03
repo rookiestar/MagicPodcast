@@ -103,31 +103,48 @@ export default function TodayShortlist({
   };
 
   return (
-    <main className="today-shortlist">
-      <header className="today-shortlist-header">
-        <div>
-          <p>今日备选</p>
-          <h1>留下来的单集</h1>
-          <div className="today-shortlist-meta">
+    <main className="today-shortlist discovery-desk">
+      <header className="today-shortlist-header discovery-workbench-header">
+        <div className="today-shortlist-copy discovery-workbench-copy">
+          <h1 className="editorial-section-title">今日备选</h1>
+          <p className="discovery-workbench-description">留下来的单集</p>
+          <div
+            className="today-shortlist-meta"
+            aria-label={`${data.date} ${data.timezone}`}
+          >
             <span>{data.date}</span>
             <span>{data.timezone}</span>
           </div>
         </div>
-        <Link href="/discovery">返回继续初筛</Link>
+        <div className="today-shortlist-actions discovery-workbench-actions">
+          <div
+            className="discovery-count"
+            aria-label={`共 ${items.length} 集留存`}
+          >
+            <strong>{String(items.length).padStart(2, "0")}</strong>
+            <span>集留存</span>
+          </div>
+          <Link className="discovery-today-link" href="/discovery">
+            返回继续初筛
+          </Link>
+        </div>
       </header>
 
       {error ? (
-        <section className="today-shortlist-state" role="alert">
+        <section className="today-shortlist-state editorial-card" role="alert">
           <strong>{error}</strong>
           <p>已保留返回入口，可继续处理最近更新。</p>
         </section>
       ) : items.length === 0 ? (
-        <section className="today-shortlist-state">
+        <section className="today-shortlist-state editorial-card">
           <strong>今日还没有备选</strong>
           <p>回到最近更新，保留真正想继续了解的单集。</p>
         </section>
       ) : (
-        <section className="today-shortlist-list" aria-label="今日备选列表">
+        <section
+          className="today-shortlist-list editorial-card"
+          aria-label="今日备选列表"
+        >
           {items.map((candidate, index) => {
             const summary = candidate.pre_reads.find(
               (preRead) => preRead.kind === "summary",

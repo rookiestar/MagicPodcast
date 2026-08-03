@@ -73,6 +73,32 @@ const shortlist: TodayShortlistData = {
 };
 
 describe("TodayShortlist", () => {
+  it("uses the shared discovery header and editorial state chrome", () => {
+    const { container } = render(
+      <TodayShortlist
+        data={{ date: "2026-07-29", timezone: "Asia/Shanghai", candidates: [] }}
+      />,
+    );
+
+    const main = container.querySelector("main.today-shortlist");
+    const header = container.querySelector("header.today-shortlist-header");
+
+    expect(main).toHaveClass("discovery-desk");
+    expect(header).toHaveClass("discovery-workbench-header");
+    expect(screen.getByRole("heading", { name: "今日备选" })).toHaveClass(
+      "editorial-section-title",
+    );
+    expect(screen.getByText("留下来的单集")).toHaveClass(
+      "discovery-workbench-description",
+    );
+    expect(screen.getByRole("link", { name: "返回继续初筛" })).toHaveClass(
+      "discovery-today-link",
+    );
+    expect(container.querySelector(".today-shortlist-state")).toHaveClass(
+      "editorial-card",
+    );
+  });
+
   it("shows the shared stable collection with necessary summaries only", () => {
     render(<TodayShortlist data={shortlist} />);
 

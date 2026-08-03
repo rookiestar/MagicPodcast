@@ -2389,59 +2389,46 @@
   }
 
   .today-shortlist {
-    width: min(1120px, 100%);
+    width: min(100%, 1380px);
     min-height: calc(100vh - 64px);
     margin: 0 auto;
-    padding: 54px 28px 88px;
+    padding: 0 16px 72px;
     color: #171717;
   }
 
   .today-shortlist-header {
-    display: flex;
-    align-items: end;
-    justify-content: space-between;
-    gap: 24px;
-    padding-bottom: 24px;
-    border-bottom: 2px solid #171717;
+    margin-top: 0;
   }
 
-  .today-shortlist-header p {
-    margin: 0 0 8px;
-    color: #e96321;
-    font: 800 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-    letter-spacing: 0.12em;
-  }
-
-  .today-shortlist-header h1 {
-    margin: 0;
-    font-family: "Songti SC", serif;
-    font-size: clamp(42px, 6vw, 72px);
-    line-height: 1;
+  .today-shortlist-copy {
+    align-items: baseline;
+    gap: 18px;
   }
 
   .today-shortlist-meta {
     display: flex;
-    gap: 12px;
-    margin-top: 10px;
-  }
-
-  .today-shortlist-meta span {
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
     color: #746b60;
-    font: 500 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 500 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 
-  .today-shortlist-header > a {
-    min-height: 44px;
-    display: inline-flex;
+  .today-shortlist-meta span + span::before {
+    content: "·";
+    margin-right: 8px;
+    color: #c0b3a1;
+  }
+
+  .today-shortlist-actions {
     align-items: center;
-    border-bottom: 2px solid #171717;
-    color: #171717;
-    font-weight: 800;
   }
 
-  .today-shortlist-list {
-    margin-top: 24px;
-    border-top: 1px solid #171717;
+  .today-shortlist-list.editorial-card {
+    margin-top: 18px;
+    overflow: hidden;
+    border-bottom-width: 3px;
+    background: rgba(247, 241, 229, 0.72);
   }
 
   .today-shortlist-list article {
@@ -2449,9 +2436,13 @@
     grid-template-columns: 42px minmax(0, 1fr) 126px;
     align-items: center;
     gap: 18px;
-    min-height: 148px;
+    min-height: 128px;
     padding: 18px 8px;
-    border-bottom: 1px solid #171717;
+    border-bottom: 1px solid #cfc3af;
+  }
+
+  .today-shortlist-list article:last-child {
+    border-bottom: 0;
   }
 
   .today-shortlist-index {
@@ -2470,26 +2461,32 @@
   }
 
   .today-shortlist-copy h2 {
-    margin: 7px 0;
-    font-family: "Songti SC", serif;
-    font-size: 25px;
+    margin: 6px 0;
+    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-size: 21px;
+    line-height: 1.25;
   }
 
   .today-shortlist-copy > p:last-child {
     max-width: 720px;
     margin: 0;
     color: #5f574e;
-    font-family: "Songti SC", serif;
-    font-size: 14px;
-    line-height: 1.65;
+    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-size: 13px;
+    line-height: 1.55;
   }
 
   .today-shortlist-list article > button,
   .today-shortlist-undo button {
     min-height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 12px;
     border: 1px solid #171717;
-    border-radius: 3px;
+    border-radius: 1px;
     color: #171717;
+    font-size: 12px;
     font-weight: 800;
     background: #f7f1e5;
   }
@@ -2520,21 +2517,25 @@
     background: #f47a2f;
   }
 
-  .today-shortlist-state {
-    margin-top: 24px;
-    padding: 28px;
+  .today-shortlist-state.editorial-card {
+    margin-top: 18px;
+    padding: 26px 24px;
     border: 1px dashed #8c8275;
     background: rgba(239, 229, 211, 0.9);
   }
 
   .today-shortlist-state strong {
-    font-family: "Songti SC", serif;
-    font-size: 24px;
+    display: block;
+    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-size: 22px;
+    line-height: 1.25;
   }
 
   .today-shortlist-state p {
     margin: 8px 0 0;
     color: #6f685e;
+    font-size: 13px;
+    line-height: 1.55;
   }
 
   .today-shortlist-error {
@@ -2734,21 +2735,20 @@
     }
 
     .today-shortlist {
-      padding: 24px 16px 92px;
+      padding: 18px 16px 92px;
     }
 
     .today-shortlist-header {
-      align-items: flex-start;
-      gap: 14px;
+      align-items: end;
     }
 
-    .today-shortlist-header h1 {
-      font-size: 42px;
+    .today-shortlist-meta {
+      margin-top: 4px;
+      font-size: 9px;
     }
 
-    .today-shortlist-header > a {
-      flex: 0 0 auto;
-      font-size: 12px;
+    .today-shortlist-list.editorial-card {
+      margin-top: 14px;
     }
 
     .today-shortlist-list article {
@@ -2763,7 +2763,7 @@
     }
 
     .today-shortlist-copy h2 {
-      font-size: 22px;
+      font-size: 20px;
     }
 
     .today-shortlist-undo {
