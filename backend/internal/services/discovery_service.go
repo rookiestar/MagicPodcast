@@ -69,6 +69,8 @@ func (s *DiscoveryService) ListRecentCandidates(limit int) ([]DiscoveryCandidate
 		Preload("Podcast").
 		Preload("Podcast.Tags").
 		Preload("Tags").
+		Joins("JOIN podcasts ON podcasts.id = episodes.podcast_id").
+		Where("podcasts.is_subscribed = ?", true).
 		Order(`CASE
 			WHEN episodes.published_date > '0001-01-02 00:00:00' THEN episodes.published_date
 			WHEN episodes.updated_date IS NOT NULL THEN episodes.updated_date
