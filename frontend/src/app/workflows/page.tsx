@@ -9,6 +9,7 @@ import { requestTypedConfirmation } from "@/lib/confirmation";
 import { useWorkflows } from "@/hooks/useWorkflowSWR";
 import type { Workflow, WorkflowSortByType } from "@/types";
 import WorkflowActionMenu from "@/components/workflows/WorkflowActionMenu";
+import EditorialSortControls from "@/components/layout/EditorialSortControls";
 import PageLayout from "@/components/layout/PageLayout";
 import PrefetchLink from "@/components/common/PrefetchLink";
 import { WorkflowStatusBadge } from "@/components/ui/StatusBadge";
@@ -184,16 +185,14 @@ export default function WorkflowsPage() {
               + 创建工作流
             </button>
 
-            <select
-              value={sortBy}
-              onChange={(e) =>
-                handleSortChange(e.target.value as WorkflowSortByType)
-              }
-              className="editorial-select"
-            >
-              <option value="updated">最近更新</option>
-              <option value="execution">下次执行</option>
-            </select>
+            <EditorialSortControls<WorkflowSortByType>
+              sortBy={sortBy}
+              options={[
+                { label: "最近更新", value: "updated" },
+                { label: "下次执行", value: "execution" },
+              ]}
+              onSortChange={handleSortChange}
+            />
           </div>
         ),
         className: "editorial-page-toolbar",

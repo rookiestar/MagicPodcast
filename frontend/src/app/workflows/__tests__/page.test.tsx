@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Workflow } from "@/types";
 
@@ -68,8 +68,26 @@ describe("workflows list editorial chrome (#53)", () => {
     expect(state).toBeTruthy();
     expect(screen.getByRole("button", { name: "创建工作流" })).toBeTruthy();
 
-    // Sort control uses the editorial select primitive.
-    expect(container.querySelector(".editorial-select")).toBeTruthy();
+    // Workflow sorting follows the established podcast sorting interaction.
+    expect(container.querySelector(".podcast-sort-desktop")).toBeTruthy();
+    expect(container.querySelector(".podcast-sort-desktop-icon")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "排序方式" })).toBeInTheDocument();
+
+    const mobileSortButton = screen.getByRole("button", { name: "排序" });
+    fireEvent.click(mobileSortButton);
+    expect(
+      screen.getByRole("dialog", { name: "选择排序方式" }),
+    ).toBeInTheDocument();
+    const nextExecutionOption = screen.getByRole("button", {
+      name: "下次执行",
+    });
+    expect(nextExecutionOption).toBeInTheDocument();
+    fireEvent.click(nextExecutionOption);
+    expect(screen.getByRole("combobox", { name: "排序方式" })).toHaveValue(
+      "execution",
+    );
+    expect(window.location.search).toBe("?sort_by=execution");
+    window.history.replaceState({}, "", "/");
   });
 
   it("renders workflow cards with the editorial card class", () => {
