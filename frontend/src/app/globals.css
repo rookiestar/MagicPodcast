@@ -24,6 +24,17 @@
     --input: 214.3 31.8% 91.4%;
     --ring: 222.2 84% 4.9%;
     --radius: 0.5rem;
+
+    /* MagicPodcast type system: strong Chinese editorial titles, restrained
+       system UI copy, and a monospaced information layer. */
+    --font-body: -apple-system, BlinkMacSystemFont, "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --font-display: "Songti SC Black", "Songti SC", "Noto Serif CJK SC",
+      "Source Han Serif SC", "STSong", serif;
+    --font-display-bold: "Songti SC Bold", "Songti SC", "Noto Serif CJK SC",
+      "Source Han Serif SC", "STSong", serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+      monospace;
   }
 
   .dark {
@@ -96,7 +107,7 @@
 
   .editorial-page-toolbar h1 {
     color: #171717;
-    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-family: var(--font-display);
     font-size: 22px;
     font-weight: 800;
     line-height: 1.1;
@@ -267,7 +278,7 @@
     border: 0;
     color: #171717;
     cursor: pointer;
-    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-family: var(--font-display);
     font-size: 13px;
     font-weight: 600;
     line-height: 1;
@@ -329,7 +340,7 @@
   }
 
   .podcast-sort-drawer-heading h3 {
-    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-family: var(--font-display);
     font-size: 22px;
     font-weight: 800;
     letter-spacing: -0.025em;
@@ -443,7 +454,7 @@
     border-radius: 3px;
     color: #fff;
     text-align: center;
-    font: 800 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 800 9px/1 var(--font-mono);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     text-shadow: 0 1px 1px rgba(12, 55, 37, 0.24);
@@ -462,7 +473,7 @@
 
   .podcast-library-card-copy h3 {
     margin: 0;
-    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-family: var(--font-display-bold);
     font-size: 20px;
     font-weight: 800;
     line-height: 1.15;
@@ -472,7 +483,7 @@
   .podcast-library-card-author {
     margin: 0;
     color: #5f574e;
-    font: 700 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 700 11px/1.4 var(--font-mono);
   }
 
   .podcast-library-card-description {
@@ -490,7 +501,7 @@
     padding-top: 13px;
     border-top: 1px solid #c7bbab;
     color: #6f685e;
-    font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 700 10px/1 var(--font-mono);
   }
 
   /* Podcast detail: reading plane plus adjacent personal management. */
@@ -525,14 +536,14 @@
   .podcast-reading-kicker {
     margin: 0 0 12px;
     color: #d75f1f;
-    font: 800 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 800 10px/1 var(--font-mono);
     letter-spacing: 0.14em;
   }
 
   .podcast-reading-copy > h1,
   .podcast-reading-mobile h1 {
     margin: 0;
-    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-family: var(--font-display);
     font-weight: 800;
     line-height: 1.08;
     letter-spacing: -0.045em;
@@ -567,7 +578,7 @@
 
   .podcast-reading-metadata dt {
     color: #7c7368;
-    font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 700 9px/1 var(--font-mono);
     letter-spacing: 0.08em;
   }
 
@@ -589,7 +600,7 @@
   .podcast-reading-description h2 {
     margin: 0 0 9px;
     color: #5f574e;
-    font: 800 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 800 10px/1 var(--font-mono);
     letter-spacing: 0.1em;
   }
 
@@ -646,7 +657,7 @@
   }
 
   .podcast-reading-primary-action small {
-    font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 700 9px/1 var(--font-mono);
   }
 
   .podcast-reading-popularity {
@@ -683,14 +694,14 @@
   }
 
   .podcast-reading-management-heading h2 {
-    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-family: var(--font-display);
     font-size: 20px;
     font-weight: 800;
   }
 
   .podcast-management-label {
     color: #171717;
-    font: 800 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 800 11px/1 var(--font-mono);
     letter-spacing: 0.08em;
   }
 
@@ -796,7 +807,7 @@
     margin: 0;
     padding: 16px 0 13px;
     border-bottom: 1px solid #171717;
-    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-family: var(--font-display);
     font-size: 28px;
     font-weight: 800;
     letter-spacing: -0.035em;
@@ -840,7 +851,7 @@
     display: flex;
     align-items: center;
     color: #171717;
-    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-family: var(--font-display);
     font-size: 18px;
     font-weight: 800;
     line-height: 1.35;
@@ -874,7 +885,7 @@
     align-items: center;
     gap: 8px;
     color: #6f685e;
-    font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 700 10px/1.4 var(--font-mono);
   }
 
   .podcast-episode-number {
@@ -933,7 +944,7 @@
 
   .search-workbench-kicker small {
     color: #c9c0b4;
-    font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 700 9px/1 var(--font-mono);
   }
 
   .search-workbench-close {
@@ -980,7 +991,7 @@
     border: 0;
     outline: 0;
     color: #171717;
-    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-family: var(--font-display);
     font-size: 24px;
     font-weight: 700;
     background: transparent;
@@ -1047,7 +1058,7 @@
 
   .search-workbench-state p {
     margin: 0;
-    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-family: var(--font-display);
     font-size: 24px;
     font-weight: 800;
   }
@@ -1153,7 +1164,7 @@
   }
 
   .search-results-heading {
-    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-family: var(--font-display);
     font-size: 22px;
     font-weight: 800;
   }
@@ -1161,7 +1172,7 @@
   .search-results-heading span {
     margin-left: auto;
     color: #d75f1f;
-    font: 800 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 800 11px/1 var(--font-mono);
   }
 
   .search-podcast-results {
@@ -1200,7 +1211,7 @@
   .search-result-title {
     margin: 0;
     color: #171717;
-    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-family: var(--font-display);
     font-size: 16px;
     font-weight: 800;
     line-height: 1.3;
@@ -1209,7 +1220,7 @@
   .search-result-meta {
     margin: 6px 0 0;
     color: #6f685e;
-    font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 700 10px/1.4 var(--font-mono);
   }
 
   .search-result-snippet {
@@ -1372,7 +1383,7 @@
     .podcast-reading-mobile-meta {
       margin: 8px 0 0;
       color: #6f685e;
-      font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      font: 700 10px/1.4 var(--font-mono);
     }
 
     .podcast-reading-mobile-actions {
@@ -1464,8 +1475,20 @@
   * {
     @apply border-border;
   }
+
+  h1 {
+    font-family: var(--font-display);
+  }
+
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display-bold);
+  }
+
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-body);
   }
 }
 
@@ -1543,7 +1566,7 @@
 
   .magic-wordmark-name {
     white-space: nowrap;
-    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-family: var(--font-display);
     font-size: 18px;
     font-weight: 800;
     letter-spacing: -0.035em;
@@ -1613,7 +1636,7 @@
 
   .app-navbar-sync {
     color: #746b60;
-    font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 600 10px/1 var(--font-mono);
   }
 
   .mobile-bottom-nav {
@@ -1688,14 +1711,14 @@
   .discovery-kicker {
     margin: 0 0 8px;
     color: #e96321;
-    font: 700 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 700 11px/1.4 var(--font-mono);
     letter-spacing: 0.12em;
     text-transform: uppercase;
   }
 
   .discovery-empty h1 {
     margin: 0;
-    font-family: "Songti SC", "Noto Serif CJK SC", serif;
+    font-family: var(--font-display);
     font-size: clamp(36px, 3.2vw, 46px);
     font-weight: 600;
     line-height: 1;
@@ -1728,7 +1751,7 @@
 
   .discovery-workbench-copy h1 {
     margin: 0;
-    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-family: var(--font-display);
     font-size: 22px;
     font-weight: 800;
     line-height: 1.1;
@@ -1763,7 +1786,7 @@
   }
 
   .discovery-count strong {
-    font: 700 23px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 700 23px/1 var(--font-mono);
   }
 
   .discovery-count span {
@@ -1865,7 +1888,7 @@
 
   .discovery-section-heading h2 {
     margin: 0;
-    font-family: "Songti SC", serif;
+    font-family: var(--font-display-bold);
     font-size: 22px;
   }
 
@@ -1895,7 +1918,7 @@
     padding: 12px 8px;
     border-top: 1px solid #cfc3af;
     color: #746b60;
-    font: 600 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 600 10px/1.4 var(--font-mono);
     letter-spacing: 0.04em;
   }
 
@@ -1936,7 +1959,7 @@
   .discovery-index {
     align-self: start;
     color: #e96321;
-    font: 700 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 700 10px/1.4 var(--font-mono);
   }
 
   .discovery-list-cover,
@@ -1975,12 +1998,12 @@
     align-items: center;
     gap: 8px;
     color: #746b60;
-    font: 500 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 500 10px/1.4 var(--font-mono);
   }
 
   .discovery-candidate-copy > strong {
     overflow: hidden;
-    font-family: "Songti SC", "Noto Serif CJK SC", serif;
+    font-family: var(--font-display);
     font-size: 21px;
     line-height: 1.2;
     text-overflow: ellipsis;
@@ -1991,7 +2014,7 @@
     display: -webkit-box;
     overflow: hidden;
     color: #4f4942;
-    font-family: "Songti SC", "Noto Serif CJK SC", serif;
+    font-family: var(--font-body);
     font-size: 13px;
     line-height: 1.5;
     -webkit-box-orient: vertical;
@@ -2000,7 +2023,7 @@
 
   .discovery-candidate-details {
     color: #746b60;
-    font: 500 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 500 10px/1.4 var(--font-mono);
   }
 
   .discovery-open-state {
@@ -2063,12 +2086,12 @@
 
   .discovery-preview-identity span {
     color: #1768d0;
-    font: 600 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 600 11px/1.4 var(--font-mono);
   }
 
   .discovery-preview-identity h2 {
     margin: 8px 0 4px;
-    font-family: "Songti SC", serif;
+    font-family: var(--font-display);
     font-size: 25px;
     line-height: 1.16;
   }
@@ -2174,7 +2197,7 @@
 
   .discovery-preread-panel header span {
     color: #e96321;
-    font: 800 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 800 11px/1.4 var(--font-mono);
     letter-spacing: 0.08em;
   }
 
@@ -2207,7 +2230,7 @@
   .discovery-preread-panel > p {
     margin: 20px 0;
     color: #302c27;
-    font-family: "Songti SC", serif;
+    font-family: var(--font-body);
     font-size: 16px;
     line-height: 1.75;
   }
@@ -2217,7 +2240,7 @@
     justify-content: space-between;
     gap: 12px;
     color: #746b60;
-    font: 500 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 500 10px/1.5 var(--font-mono);
   }
 
   .discovery-preread-sources {
@@ -2299,7 +2322,7 @@
       border: 1px solid #171717;
       color: #f7f1e5;
       white-space: nowrap;
-      font: 700 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+      font: 700 11px/1.3 var(--font-mono);
       background: #171717;
       opacity: 0;
       pointer-events: none;
@@ -2411,7 +2434,7 @@
     flex-wrap: wrap;
     gap: 8px;
     color: #746b60;
-    font: 500 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 500 10px/1.4 var(--font-mono);
   }
 
   .today-shortlist-meta span + span::before {
@@ -2448,7 +2471,7 @@
   .today-shortlist-index {
     align-self: start;
     color: #e96321;
-    font: 800 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 800 11px/1.4 var(--font-mono);
   }
 
   .today-shortlist-copy > p:first-child {
@@ -2457,12 +2480,12 @@
     gap: 10px;
     margin: 0;
     color: #1768d0;
-    font: 600 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 600 11px/1.4 var(--font-mono);
   }
 
   .today-shortlist-copy h2 {
     margin: 6px 0;
-    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-family: var(--font-display);
     font-size: 21px;
     line-height: 1.25;
   }
@@ -2471,7 +2494,7 @@
     max-width: 720px;
     margin: 0;
     color: #5f574e;
-    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-family: var(--font-body);
     font-size: 13px;
     line-height: 1.55;
   }
@@ -2526,7 +2549,7 @@
 
   .today-shortlist-state strong {
     display: block;
-    font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+    font-family: var(--font-display);
     font-size: 22px;
     line-height: 1.25;
   }
@@ -2662,7 +2685,7 @@
       min-width: 54px;
       color: #ffb15f;
       text-align: center;
-      font: 700 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      font: 700 12px/1 var(--font-mono);
     }
 
     .discovery-preview-identity {
@@ -2796,7 +2819,7 @@
 .editorial-kicker {
   margin: 0;
   color: #8c3a16;
-  font: 800 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 800 10px/1.4 var(--font-mono);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -2997,7 +3020,7 @@ textarea.editorial-field {
 .editorial-label {
   display: block;
   color: #171717;
-  font: 800 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 800 11px/1.4 var(--font-mono);
   letter-spacing: 0.08em;
 }
 
@@ -3022,7 +3045,7 @@ textarea.editorial-field {
 .editorial-state h2,
 .editorial-state h3 {
   margin: 0 0 8px;
-  font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+  font-family: var(--font-display);
   font-size: 24px;
   font-weight: 800;
   letter-spacing: -0.02em;
@@ -3140,16 +3163,16 @@ textarea.editorial-field {
 
 .editorial-stat dt {
   color: #7c7368;
-  font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 700 9px/1 var(--font-mono);
   letter-spacing: 0.08em;
 }
 
 .editorial-stat dd {
   margin: 0;
   color: #171717;
-  font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+  font-family: var(--font-mono);
   font-size: 18px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 @keyframes editorial-spin {
@@ -3178,7 +3201,7 @@ textarea.editorial-field {
 }
 
 .editorial-modal-header h2 {
-  font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+  font-family: var(--font-display);
   font-size: 22px;
   font-weight: 800;
   letter-spacing: -0.02em;
@@ -3294,7 +3317,7 @@ textarea.editorial-field {
 
 .editorial-page-toolbar .tag-toolbar-sort-label {
   color: #7c7368;
-  font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 700 9px/1 var(--font-mono);
   letter-spacing: 0.08em;
 }
 
@@ -3364,7 +3387,7 @@ textarea.editorial-field {
 
 .tag-podcast-preview-title {
   margin: 0 0 8px;
-  font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+  font-family: var(--font-display-bold);
   font-size: 26px;
   font-weight: 800;
   line-height: 1.15;
@@ -3374,7 +3397,7 @@ textarea.editorial-field {
 .tag-podcast-preview-meta {
   margin: 0 0 12px;
   color: #6f685e;
-  font: 700 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 700 11px/1.4 var(--font-mono);
 }
 
 .tag-podcast-preview-desc {
@@ -3447,7 +3470,7 @@ textarea.editorial-field {
   padding: 10px 0;
   border-bottom: 1px solid #8c8275;
   color: #171717;
-  font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+  font-family: var(--font-display-bold);
   font-size: 18px;
   font-weight: 800;
   letter-spacing: -0.01em;
@@ -3556,7 +3579,7 @@ textarea.editorial-field {
 .tag-card-count {
   flex: 0 0 auto;
   color: #8c3a16;
-  font: 800 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 800 10px/1 var(--font-mono);
 }
 
 .tag-card-delete {
@@ -3782,7 +3805,7 @@ textarea.editorial-field {
 .wf-editorial h2,
 .wf-editorial h3,
 .wf-editorial h4 {
-  font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+  font-family: var(--font-display-bold);
   color: #171717;
   letter-spacing: -0.01em;
 }
@@ -3823,7 +3846,7 @@ textarea.editorial-field {
 
 /* Card title -> editorial serif */
 .workflow-page .workflow-card h3 {
-  font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+  font-family: var(--font-display-bold);
   font-weight: 800;
   letter-spacing: -0.01em;
   color: #171717;
@@ -3861,7 +3884,7 @@ textarea.editorial-field {
   flex: 0 0 32px;
   padding-top: 2px;
   color: #8c8275;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
   letter-spacing: 0.08em;
 }
@@ -4044,7 +4067,7 @@ textarea.editorial-field {
 
 /* Inline code chips -> monospace on warm tint */
 .wf-editorial code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   color: #171717;
   background: rgba(239, 229, 211, 0.6);
   border: 1px solid #cfc3af;
@@ -4230,7 +4253,7 @@ textarea.editorial-field {
 .import-page h2,
 .import-page h3,
 .import-page h4 {
-  font-family: "Iowan Old Style", Baskerville, "Songti SC", serif;
+  font-family: var(--font-display-bold);
   color: #171717;
 }
 
@@ -4238,7 +4261,7 @@ textarea.editorial-field {
 .import-page code,
 .import-page pre,
 .import-page .font-mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
 }
 .import-page code,
 .import-page pre {
