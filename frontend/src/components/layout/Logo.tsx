@@ -27,6 +27,7 @@ export function Logo({
         height={32}
         alt=""
         priority
+        unoptimized
       />
       {!iconOnly && (
         <span className="magic-wordmark-name" aria-hidden="true">

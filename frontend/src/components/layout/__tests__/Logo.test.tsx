@@ -1,6 +1,18 @@
+import React from "react";
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CompactLogo, Logo } from "../Logo";
+
+vi.mock("next/image", () => ({
+  __esModule: true,
+  default: ({ src, alt, priority, unoptimized, ...props }: any) =>
+    React.createElement("img", {
+      src: typeof src === "string" ? src : src?.src,
+      alt,
+      ...props,
+      "data-image-optimization": unoptimized ? "bypassed" : "next",
+    }),
+}));
 
 describe("Logo", () => {
   it("uses the branded image asset and keeps the product name accessible", () => {
@@ -13,6 +25,7 @@ describe("Logo", () => {
     expect(mark?.getAttribute("src")).toContain(
       "/brand/magicpodcast-tuning-mark.png",
     );
+    expect(mark).toHaveAttribute("data-image-optimization", "bypassed");
     const name = brand.querySelector(".magic-wordmark-name");
     expect(name).toHaveTextContent("MagicPodcast");
     expect(name?.children).toHaveLength(0);
