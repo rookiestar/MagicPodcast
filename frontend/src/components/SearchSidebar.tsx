@@ -14,6 +14,7 @@ interface SearchSidebarProps {
 export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
   const [isFocused, setIsFocused] = useState(false);
   const [expandedPodcasts, setExpandedPodcasts] = useState(false);
   const [expandedEpisodes, setExpandedEpisodes] = useState(false);
@@ -37,9 +38,14 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
   // 自动聚焦
   useEffect(() => {
     if (isOpen && searchInputRef.current) {
+      previousFocusRef.current = document.activeElement as HTMLElement | null;
       searchInputRef.current.focus();
       setIsFocused(true); // 打开时设置焦点状态
+      return;
     }
+
+    previousFocusRef.current?.focus();
+    previousFocusRef.current = null;
   }, [isOpen]);
 
   // 重置状态当关闭时
@@ -113,26 +119,27 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
     <>
       {/* 遮罩层 */}
       <div
-        className={`fixed inset-0 bg-black/50 z-40 transition-all duration-700 ease-out ${
+        className={`search-workbench-backdrop fixed inset-0 z-40 ${
           isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
         onClick={handleClose}
+        aria-hidden="true"
       />
 
       {/* 侧边栏 */}
       <div
         ref={sidebarRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="全站搜索"
         tabIndex={-1}
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
-        className={`fixed right-0 top-0 h-full w-full max-w-3xl bg-white dark:bg-slate-800 z-50 flex flex-col transition-all duration-700 ${
+        className={`search-workbench fixed right-0 top-0 z-50 flex h-full w-full flex-col ${
           isOpen
-            ? "translate-x-0 scale-100 opacity-100 shadow-2xl"
-            : "translate-x-full scale-90 opacity-0"
+            ? "translate-x-0 opacity-100"
+            : "translate-x-full opacity-0"
         }`}
-        style={{
-          transitionTimingFunction: "cubic-bezier(0.34, 1.56, 0.64, 1)",
-        }}
       >
         <SearchSidebarHeader
           inputRef={searchInputRef}

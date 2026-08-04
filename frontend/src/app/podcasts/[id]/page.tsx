@@ -108,13 +108,16 @@ export default function PodcastDetailPage() {
 
   return (
     <PageLayout
+      rootClassName="editorial-page-shell"
+      className="podcast-detail-page"
       toolbar={{
         breadcrumbs: [{ label: "返回列表", href: backUrl }],
         title: getPodcastDetailTitle(podcast),
         description: getPodcastDetailDescription(podcast, episodes.length),
+        className: "editorial-page-toolbar",
       }}
     >
-      <div className="py-6">
+      <div className="podcast-detail-content py-6">
         <PodcastDetailContent
           error={error}
           podcast={podcast}

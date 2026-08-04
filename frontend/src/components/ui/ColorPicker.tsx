@@ -129,7 +129,7 @@ export default function ColorPicker({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
-          className="w-8 h-8 rounded cursor-pointer border-0 p-0"
+          className="w-11 h-11 rounded cursor-pointer border-0 p-0"
           aria-label="自定义颜色"
         />
         <span className="text-xs text-slate-500 dark:text-slate-500 font-mono">

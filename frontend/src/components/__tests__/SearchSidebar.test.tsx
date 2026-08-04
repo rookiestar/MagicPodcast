@@ -116,6 +116,18 @@ describe("SearchSidebar", () => {
 
     render(<SearchSidebar isOpen onClose={vi.fn()} />);
 
+    expect(
+      screen.getByRole("dialog", { name: "全站搜索" }),
+    ).toHaveAttribute("aria-modal", "true");
+    expect(screen.getByRole("button", { name: "全部 (22)" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "节目 (11)" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+
     fireEvent.click(screen.getByRole("button", { name: "节目 (11)" }));
 
     expect(setSearchType).toHaveBeenCalledWith("podcasts");

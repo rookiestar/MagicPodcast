@@ -1,5 +1,6 @@
 "use client";
 
+import { IconPlayerPlay } from "@tabler/icons-react";
 import { memo, useState, type FocusEvent } from "react";
 import type { Episode } from "@/types";
 import { EpisodeShowNotes } from "@/components/episodes/EpisodeShowNotes";
@@ -47,14 +48,14 @@ function EpisodeCard({
 
   return (
     <div
-      className="relative bg-white rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-slate-200 flex flex-col h-full"
+      className="podcast-episode-card"
       onMouseEnter={() => setIsExpanded(true)}
       onMouseLeave={() => setIsExpanded(false)}
       onFocus={() => setIsExpanded(true)}
       onBlur={handleBlur}
     >
       {/* Content */}
-      <div className="p-3 sm:p-4 flex-1 flex flex-col">
+      <div className="podcast-episode-card-inner">
         {/* Title with Thumbnail */}
         <div className="flex items-start gap-2 sm:gap-3 mb-3">
           <EpisodeThumbnail
@@ -67,18 +68,18 @@ function EpisodeCard({
           {/* Title, Meta Info and Play Button */}
           <div className="flex-1 min-w-0">
             {/* Title with Play Button */}
-            <div className="flex items-start justify-between gap-2 mb-1.5">
+            <div className="podcast-episode-card-heading">
               {showTitleLink ? (
                 <a
                   href={episode.link}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 rounded-sm font-semibold text-slate-900 text-xs sm:text-sm md:text-base line-clamp-2 leading-snug hover:text-blue-600 dark:hover:text-blue-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                  className="podcast-episode-title line-clamp-2"
                 >
                   {episode.title}
                 </a>
               ) : (
-                <span className="flex-1 font-semibold text-slate-900 text-xs sm:text-sm md:text-base line-clamp-2 leading-snug">
+                <span className="podcast-episode-title line-clamp-2">
                   {episode.title}
                 </span>
               )}
@@ -91,37 +92,31 @@ function EpisodeCard({
                     event.stopPropagation();
                     window.open(episode.medium_url, "_blank");
                   }}
-                  className="flex-shrink-0 w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white transition-all duration-200 hover:scale-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                  className="podcast-episode-play"
                   aria-label="播放"
                 >
-                  <svg
-                    className="w-5 h-5 ml-0.5"
-                    fill="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
+                  <IconPlayerPlay aria-hidden="true" stroke={1.8} />
                 </button>
               )}
             </div>
 
             {/* Meta Info */}
-            <div className="flex items-center gap-2 sm:gap-3 text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">
+            <div className="podcast-episode-meta">
               {episode.episode_no && (
-                <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-md font-medium">
+                <span className="podcast-episode-number">
                   {episode.episode_no}
                 </span>
               )}
               <span>{formatDate(episode.published_date)}</span>
               {durationLabel && (
                 <>
-                  <span>•</span>
+                  <span aria-hidden="true">/</span>
                   <span>{durationLabel}</span>
                 </>
               )}
               {fileSizeLabel && (
                 <>
-                  <span>•</span>
+                  <span aria-hidden="true">/</span>
                   <span>{fileSizeLabel}</span>
                 </>
               )}

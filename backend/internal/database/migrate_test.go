@@ -163,7 +163,7 @@ func TestApplyMigrationsUpgradesSchema13To14UserAgentRecoveryState(t *testing.T)
 	require.Equal(t, 13, mustSchemaStatus(t, db).CurrentVersion)
 
 	require.NoError(t, ApplyMigrations(db))
-	require.Equal(t, 14, mustSchemaStatus(t, db).CurrentVersion)
+	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, db).CurrentVersion)
 	require.True(t, db.Migrator().HasTable(feed.FeedUserAgentGateAuditsTableName))
 	require.True(t, db.Migrator().HasTable(feed.FeedUserAgentGateRecoveryFeedsTableName))
 	for _, column := range []string{"approved_by", "approved_at", "last_probe_at"} {
@@ -176,6 +176,25 @@ func TestApplyMigrationsUpgradesSchema13To14UserAgentRecoveryState(t *testing.T)
 		require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, column), "missing JobExecution schema 14 column %s", column)
 		require.True(t, db.Migrator().HasColumn(&models.JobFeedAttempt{}, column), "missing JobFeedAttempt schema 14 column %s", column)
 	}
+}
+
+func TestApplyMigrationsUpgradesSchema14To15EpisodeTriageDecisions(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:14]))
+	require.Equal(t, 14, mustSchemaStatus(t, db).CurrentVersion)
+
+	require.NoError(t, ApplyMigrations(db))
+	require.Equal(t, 15, mustSchemaStatus(t, db).CurrentVersion)
+	require.True(t, db.Migrator().HasTable(&models.EpisodeTriageDecision{}))
+	require.True(t, db.Migrator().HasColumn(&models.EpisodeTriageDecision{}, "episode_id"))
+	require.True(t, db.Migrator().HasColumn(&models.EpisodeTriageDecision{}, "state"))
+
+	var uniqueIndexCount int64
+	require.NoError(t, db.Raw(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'index' AND name = 'idx_episode_triage_decisions_episode_id'
+	`).Scan(&uniqueIndexCount).Error)
+	require.Equal(t, int64(1), uniqueIndexCount)
 }
 
 func mustSchemaStatus(t *testing.T, db *gorm.DB) SchemaStatus {

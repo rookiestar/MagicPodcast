@@ -48,8 +48,8 @@ export default function ResponsivePodcastCard({
         prefetchType="podcast"
         onClick={onNavigate}
       >
-        <div className="flex flex-row gap-3 p-3 bg-white rounded-xl shadow-md hover:shadow-lg active:scale-[0.97] active:shadow-sm transition-all duration-200 ease-out overflow-hidden cursor-pointer">
-          <div className="w-16 h-16 flex-shrink-0 relative rounded-lg overflow-hidden">
+        <article className="podcast-library-card is-mobile">
+          <div className="podcast-library-card-cover">
             <PodcastCover
               coverUrl={effectiveCoverUrl}
               title={podcast.title}
@@ -58,21 +58,21 @@ export default function ResponsivePodcastCard({
               sizes="64px"
             />
             {isNew && (
-              <div className="absolute top-0.5 right-0.5 px-0.5 py-0.5 bg-emerald-500/65 text-white text-[6px] font-bold uppercase tracking-wider rounded shadow-sm">
-                NEW
+              <div className="podcast-library-card-new">
+                New
               </div>
             )}
           </div>
 
-          <div className="flex-1 min-w-0 flex flex-col gap-2">
-            <h3 className="text-base font-semibold text-slate-900 line-clamp-1 leading-tight">
+          <div className="podcast-library-card-copy">
+            <h3 className="line-clamp-1">
               {podcast.title}
             </h3>
 
-            <p className="text-xs text-slate-600 mb-0.5">{podcast.author}</p>
+            <p className="podcast-library-card-author">{podcast.author}</p>
 
             {displayedDescription && (
-              <p className="text-xs text-slate-500 leading-snug line-clamp-2">
+              <p className="podcast-library-card-description line-clamp-2">
                 {displayedDescription}
               </p>
             )}
@@ -84,7 +84,7 @@ export default function ResponsivePodcastCard({
               className="mt-auto"
             />
           </div>
-        </div>
+        </article>
       </PrefetchLink>
     );
   }
@@ -96,8 +96,8 @@ export default function ResponsivePodcastCard({
       prefetchType="podcast"
       onClick={onNavigate}
     >
-      <div className="flex flex-col h-full bg-white rounded-xl shadow-md hover:shadow-lg active:scale-[0.97] active:shadow-sm transition-all duration-200 ease-out overflow-hidden cursor-pointer">
-        <div className="relative w-full pt-[100%] rounded-lg overflow-hidden bg-slate-200">
+      <article className="podcast-library-card">
+        <div className="podcast-library-card-cover">
           <PodcastCover
             coverUrl={effectiveCoverUrl}
             title={podcast.title}
@@ -107,23 +107,23 @@ export default function ResponsivePodcastCard({
             className="!absolute !inset-0 !aspect-none"
           />
           {isNew && (
-            <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-emerald-500/65 text-white text-[10px] font-bold uppercase tracking-wider rounded-md shadow-sm">
-              NEW
+            <div className="podcast-library-card-new">
+              New
             </div>
           )}
         </div>
 
-        <div className="flex-1 gap-2 md:gap-3 p-4 flex flex-col">
-          <h3 className="text-lg font-semibold text-slate-900 line-clamp-1 leading-tight">
+        <div className="podcast-library-card-copy">
+          <h3 className="line-clamp-1">
             {podcast.title}
           </h3>
 
-          <p className="text-xs sm:text-sm text-slate-600 mb-0.5">
+          <p className="podcast-library-card-author">
             {podcast.author}
           </p>
 
           {displayedDescription && (
-            <p className="text-sm text-slate-500 leading-snug line-clamp-2 md:line-clamp-3">
+            <p className="podcast-library-card-description line-clamp-2 md:line-clamp-3">
               {displayedDescription}
             </p>
           )}
@@ -135,12 +135,12 @@ export default function ResponsivePodcastCard({
             className="mt-auto"
           />
 
-          <div className="flex items-center justify-between text-xs text-slate-500 mt-auto pt-1 md:pt-3">
-            <span className="font-medium">{episodeCountText}</span>
-            <span className="text-slate-400">{relativeTime}</span>
+          <div className="podcast-library-card-footer">
+            <span>{episodeCountText}</span>
+            <span>{relativeTime}</span>
           </div>
         </div>
-      </div>
+      </article>
     </PrefetchLink>
   );
 }

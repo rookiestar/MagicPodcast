@@ -512,7 +512,7 @@ export default function WorkflowFormModal({
         observerRef.current.disconnect();
       }
     };
-  }, [isLoadingPodcasts, selectedTagIds, podcastSearch]); // ✅ 添加筛选条件依赖，确保它们变化时重建 Observer
+  }, [isLoadingPodcasts, selectedTagIds, podcastSearch]); // 添加筛选条件依赖，确保它们变化时重建 Observer
 
   // 当搜索或筛选条件变化时，重置 displayedCount
   useEffect(() => {
@@ -794,7 +794,7 @@ export default function WorkflowFormModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-start sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+    <div className="workflow-form-modal wf-editorial fixed inset-0 bg-black/50 z-[60] flex items-start sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
       <div className="bg-white dark:bg-slate-800 rounded-none sm:rounded-lg shadow-2xl w-full max-w-3xl min-h-[100dvh] sm:min-h-0 sm:max-h-[85vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="border-b border-slate-200 dark:border-slate-700 p-4 sm:p-6 shrink-0">
@@ -887,16 +887,6 @@ export default function WorkflowFormModal({
                           }
                         `}
                       >
-                        <span className="text-2xl">
-                          {preset.label.includes("凌晨") ||
-                          preset.label.includes("早上")
-                            ? "🌅"
-                            : preset.label.includes("晚上")
-                              ? "🌙"
-                              : preset.label.includes("周")
-                                ? "📅"
-                                : "⏰"}
-                        </span>
                         <div className="flex-1">
                           <div className="font-medium">{preset.label}</div>
                           <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -934,7 +924,7 @@ export default function WorkflowFormModal({
                         }
                       `}
                       >
-                        {customCron.trim() ? "✏️ 自定义" : "📋 预设"}
+                        {customCron.trim() ? "自定义" : "预设"}
                       </div>
                     )}
 
@@ -1001,7 +991,7 @@ export default function WorkflowFormModal({
                   </div>
                   {!customCron && lastCustomCron && (
                     <p className="mt-1 text-xs text-purple-600 dark:text-purple-400">
-                      💡 点击输入框可恢复上次输入:{" "}
+                       点击输入框可恢复上次输入:{" "}
                       <code className="bg-purple-50 dark:bg-purple-900/30 px-1 py-0.5 rounded text-purple-700 dark:text-purple-300">
                         {lastCustomCron}
                       </code>
@@ -1078,7 +1068,6 @@ export default function WorkflowFormModal({
                               }
                             >
                               <div className="flex items-center gap-2">
-                                <span className="text-sm">🏷️</span>
                                 <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
                                   按标签筛选
                                 </span>
@@ -1242,7 +1231,7 @@ export default function WorkflowFormModal({
                           {filteredPodcasts.length > 0 &&
                             !isLoadingPodcasts && (
                               <div className="hidden sm:block text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/30 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
-                                💡 <strong>提示：</strong>
+                                 <strong>提示：</strong>
                                 点击列表项选择节目，或点击中间的“全部添加”按钮批量加入
                               </div>
                             )}
@@ -1279,7 +1268,6 @@ export default function WorkflowFormModal({
                             {/* 左侧：搜索结果列表 - 移动端全宽显示 */}
                             <div className="col-span-1 sm:col-span-5">
                               <div className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
-                                <span>📻</span>
                                 <span>搜索结果</span>
                                 <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 rounded-full text-xs">
                                   {filteredPodcasts.length}
@@ -1326,7 +1314,6 @@ export default function WorkflowFormModal({
                                     {/* 结果过多提示 */}
                                     {filteredPodcasts.length > 100 && (
                                       <div className="text-xs text-amber-600 dark:text-amber-400 px-2 py-1 bg-amber-50 dark:bg-amber-900/20 rounded mb-2">
-                                        💡
                                         结果较多，建议使用标签或更精确的搜索词
                                       </div>
                                     )}
@@ -1406,7 +1393,6 @@ export default function WorkflowFormModal({
                             {/* 右侧：备选列表 - 仅桌面端显示 */}
                             <div className="hidden sm:block col-span-5">
                               <div className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
-                                <span>✅</span>
                                 <span>已选</span>
                                 <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs">
                                   {candidatePodcastIds.length}
@@ -1415,9 +1401,6 @@ export default function WorkflowFormModal({
                               <div className="h-80 overflow-y-auto border-2 border-green-200 dark:border-green-800 rounded-lg p-2 bg-green-50/50 dark:bg-green-900/10 transition-all duration-200 hover:border-green-300 dark:hover:border-green-700">
                                 {candidatePodcastIds.length === 0 ? (
                                   <div className="flex flex-col items-center justify-center h-full py-8 text-center">
-                                    <div className="text-3xl mb-2 opacity-50">
-                                      👈
-                                    </div>
                                     <div className="text-sm text-slate-500 dark:text-slate-400">
                                       从左侧搜索结果选择节目
                                     </div>
@@ -1534,7 +1517,6 @@ export default function WorkflowFormModal({
                 <details open className="group mb-4">
                   <summary className="flex items-center justify-between cursor-pointer p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                     <div className="flex items-center gap-2">
-                      <span className="text-lg">📋</span>
                       <span className="font-medium text-slate-700 dark:text-slate-300">
                         基础规则
                       </span>
@@ -1636,7 +1618,6 @@ export default function WorkflowFormModal({
                 <details className="group">
                   <summary className="flex items-center justify-between cursor-pointer p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                     <div className="flex items-center gap-2">
-                      <span className="text-lg">⚙️</span>
                       <span className="font-medium text-slate-700 dark:text-slate-300">
                         高级规则
                       </span>
@@ -1711,7 +1692,7 @@ export default function WorkflowFormModal({
 
               <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                 <p className="text-sm text-blue-800 dark:text-blue-200">
-                  ℹ️ 下一步可配置大模型智能摘要（可选功能）
+                  下一步可配置大模型智能摘要（可选功能）
                 </p>
               </div>
             </div>
@@ -1721,7 +1702,7 @@ export default function WorkflowFormModal({
             <div className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-4">
-                  🤖 大模型智能摘要 (可选)
+                   大模型智能摘要 (可选)
                 </label>
                 <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
                   启用后将使用大模型为抓取的单集生成智能摘要，帮助你快速了解内容要点
@@ -1803,7 +1784,6 @@ export default function WorkflowFormModal({
                     <details className="group">
                       <summary className="flex items-center justify-between cursor-pointer p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                         <div className="flex items-center gap-2">
-                          <span className="text-lg">⚙️</span>
                           <span className="font-medium text-slate-700 dark:text-slate-300">
                             高级设置
                           </span>
@@ -1872,7 +1852,6 @@ export default function WorkflowFormModal({
                     >
                       <summary className="flex items-center justify-between cursor-pointer p-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                         <div className="flex items-center gap-2">
-                          <span className="text-lg">📝</span>
                           <span className="font-medium text-slate-700 dark:text-slate-300">
                             自定义Prompt模板
                           </span>
@@ -1910,11 +1889,10 @@ export default function WorkflowFormModal({
                             rows={6}
                           />
                           <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-                            💡 支持Go template语法，可用变量：WorkflowName,
+                             支持Go template语法，可用变量：WorkflowName,
                             TotalEpisodes, NumPodcasts, Podcasts
                           </p>
                           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                            💡
                             系统提示词（角色定义+安全约束）已全局配置，此处只需定义分析任务和输出格式。
                           </p>
                         </div>

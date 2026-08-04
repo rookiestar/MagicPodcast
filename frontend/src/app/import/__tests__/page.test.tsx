@@ -147,8 +147,8 @@ describe("ImportPage", () => {
         screen.getByRole("heading", { name: "同步日志" }),
       ).toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: "同步元数据" })).toHaveAttribute(
-      "aria-pressed",
+    expect(screen.getByRole("tab", { name: "同步元数据" })).toHaveAttribute(
+      "aria-selected",
       "true",
     );
     expect(
@@ -162,7 +162,7 @@ describe("ImportPage", () => {
 
     render(<ImportPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "同步元数据" }));
+    fireEvent.click(screen.getByRole("tab", { name: "同步元数据" }));
     const startButton = screen.getByRole("button", { name: "开始同步" });
 
     fireEvent.click(startButton);
@@ -182,7 +182,7 @@ describe("ImportPage", () => {
 
     render(<ImportPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "同步元数据" }));
+    fireEvent.click(screen.getByRole("tab", { name: "同步元数据" }));
     fireEvent.click(screen.getByRole("button", { name: "开始同步" }));
 
     await waitFor(() => {
@@ -248,7 +248,7 @@ describe("ImportPage", () => {
     try {
       render(<ImportPage />);
 
-      fireEvent.click(screen.getByRole("button", { name: "同步元数据" }));
+      fireEvent.click(screen.getByRole("tab", { name: "同步元数据" }));
       fireEvent.click(screen.getByRole("button", { name: "开始同步" }));
 
       await waitFor(() => {
@@ -271,7 +271,7 @@ describe("ImportPage", () => {
     try {
       render(<ImportPage />);
 
-      fireEvent.click(screen.getByRole("button", { name: "同步元数据" }));
+      fireEvent.click(screen.getByRole("tab", { name: "同步元数据" }));
       fireEvent.click(screen.getByRole("button", { name: "开始同步" }));
 
       await waitFor(() => {
@@ -294,7 +294,7 @@ describe("ImportPage", () => {
 
     render(<ImportPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "同步元数据" }));
+    fireEvent.click(screen.getByRole("tab", { name: "同步元数据" }));
     fireEvent.click(screen.getByRole("button", { name: "开始同步" }));
 
     await act(async () => {
@@ -306,7 +306,7 @@ describe("ImportPage", () => {
       expect(screen.getByText("同步已完成")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "导入 OPML" }));
+    fireEvent.click(screen.getByRole("tab", { name: "导入 OPML" }));
 
     expect(
       screen.getByRole("heading", { name: "同步日志" }),
@@ -336,7 +336,7 @@ describe("ImportPage", () => {
 
     render(<ImportPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "同步元数据" }));
+    fireEvent.click(screen.getByRole("tab", { name: "同步元数据" }));
     fireEvent.click(screen.getByRole("button", { name: "开始同步" }));
 
     await waitFor(() => {

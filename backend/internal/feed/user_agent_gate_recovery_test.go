@@ -217,20 +217,21 @@ func TestUserAgentGateProbeFailureReblocksAndUARefusalResetsProgress(t *testing.
 	require.Equal(t, now.Add(25*time.Hour+time.Minute+DefaultUserAgentProbeFailureCooldown), failed.ProbeEligibleAt)
 
 	// A renewed explicit ACL refusal is terminal and clears any partial recovery.
-	_, err = store.ApproveProbe(ctx, "feeds.example", fingerprint, "owner", now.Add(50*time.Hour), true)
+	retryAt := failed.ProbeEligibleAt
+	_, err = store.ApproveProbe(ctx, "feeds.example", fingerprint, "owner", retryAt, true)
 	require.NoError(t, err)
-	decision, err = store.PreparePrimaryFetchForFeed(ctx, "feeds.example", fingerprint, feedFingerprint, now.Add(50*time.Hour))
+	decision, err = store.PreparePrimaryFetchForFeed(ctx, "feeds.example", fingerprint, feedFingerprint, retryAt)
 	require.NoError(t, err)
 	require.Equal(t, UserAgentGateFetchModeProbe, decision.Mode)
 	reset, err := store.RecordPrimaryFetchResult(ctx, "feeds.example", fingerprint, feedFingerprint, AccessOutcome{
 		HTTPStatus:    intPointer(http.StatusForbidden),
 		ErrorCategory: ErrorCategoryUserAgentDenied,
-	}, now.Add(50*time.Hour+time.Minute))
+	}, retryAt.Add(time.Minute))
 	require.NoError(t, err)
 	require.Equal(t, UserAgentGateStateBlocked, reset.State)
 	require.Equal(t, string(ErrorCategoryUserAgentDenied), reset.LastProbeResult)
 	require.Equal(t, 0, reset.RecoverySuccessCount)
-	require.Equal(t, now.Add(50*time.Hour+time.Minute+DefaultUserAgentProbeFailureCooldown), reset.ProbeEligibleAt)
+	require.Equal(t, retryAt.Add(time.Minute+DefaultUserAgentProbeFailureCooldown), reset.ProbeEligibleAt)
 }
 
 func TestFetcherUsesApprovedProbeAndGradualRecoveryWithoutLocalCache(t *testing.T) {

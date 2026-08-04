@@ -23,6 +23,12 @@ import { WorkflowStatusBadge, JobStatusBadge } from "@/components/ui/StatusBadge
 const TAB_VALUES = ["overview", "jobs", "config"] as const;
 type TabType = (typeof TAB_VALUES)[number];
 
+const WORKFLOW_TABS: ReadonlyArray<{ key: TabType; label: string }> = [
+  { key: "overview", label: "概览" },
+  { key: "jobs", label: "执行历史" },
+  { key: "config", label: "配置" },
+];
+
 function parseTab(value: string | null | undefined): TabType {
   if (value === "jobs" || value === "config" || value === "overview") {
     return value;
@@ -72,6 +78,24 @@ function WorkflowDetailContent() {
     setActiveTabState(tab);
     replaceTabInUrl(tab);
   }, []);
+
+  // 键盘导航：在 tab 之间用方向键/Home/End 移动焦点（roving tabindex）。
+  const onTabKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLButtonElement>, idx: number) => {
+      const last = WORKFLOW_TABS.length - 1;
+      let next = idx;
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") next = idx >= last ? 0 : idx + 1;
+      else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = idx <= 0 ? last : idx - 1;
+      else if (e.key === "Home") next = 0;
+      else if (e.key === "End") next = last;
+      else return;
+      e.preventDefault();
+      const key = WORKFLOW_TABS[next].key;
+      setActiveTab(key);
+      document.getElementById(`workflow-tab-${key}`)?.focus();
+    },
+    [setActiveTab],
+  );
 
   // 意图预取：悬停/聚焦/触摸时只拉第一页摘要
   const intentPrefetchJobs = useCallback(() => {
@@ -280,9 +304,12 @@ function WorkflowDetailContent() {
   if (workflowLoading) {
     return (
       <PageLayout
+        rootClassName="editorial-page-shell"
+        className="workflow-detail wf-editorial"
         toolbar={{
           breadcrumbs: [{ label: "返回列表", href: backLink }],
           title: "加载中...",
+          className: "editorial-page-toolbar",
         }}
       >
         <WorkflowDetailSkeleton />
@@ -294,18 +321,18 @@ function WorkflowDetailContent() {
   if (workflowError || !workflow) {
     return (
       <PageLayout
+        rootClassName="editorial-page-shell"
+        className="workflow-detail wf-editorial"
         toolbar={{
           breadcrumbs: [{ label: "返回列表", href: backLink }],
           title: "工作流详情",
+          className: "editorial-page-toolbar",
         }}
       >
-        <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-          <h3 className="text-red-800 font-semibold mb-2">加载失败</h3>
-          <p className="text-red-600">{workflowError ? "加载失败" : "工作流不存在"}</p>
-          <Link
-            href={backLink}
-            className="mt-4 inline-block text-blue-600 hover:text-blue-700"
-          >
+        <div className="editorial-state is-error">
+          <h3>加载失败</h3>
+          <p>{workflowError ? "加载失败" : "工作流不存在"}</p>
+          <Link href={backLink} className="editorial-btn editorial-btn--ghost">
             ← 返回列表
           </Link>
         </div>
@@ -315,6 +342,8 @@ function WorkflowDetailContent() {
 
   return (
     <PageLayout
+      rootClassName="editorial-page-shell"
+      className="workflow-detail wf-editorial"
       toolbar={{
         breadcrumbs: [{ label: "返回列表", href: backLink }],
         title: (
@@ -330,7 +359,7 @@ function WorkflowDetailContent() {
             <div className="sm:hidden relative" ref={moreMenuRef}>
               <button
                 onClick={() => setShowMoreMenu(!showMoreMenu)}
-                className="p-2.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg"
+                className="workflow-action-menu-trigger"
                 title="更多操作"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -395,11 +424,11 @@ function WorkflowDetailContent() {
             <div className="hidden sm:flex items-center gap-2">
               <button
                 onClick={handleTrigger}
-                className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-bold flex items-center gap-2"
+                className="editorial-btn editorial-btn--solid"
                 title="执行"
               >
                 <svg
-                  className="w-4 h-4 text-blue-600 dark:text-blue-400"
+                  className="w-4 h-4"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -415,11 +444,7 @@ function WorkflowDetailContent() {
               </button>
               <button
                 onClick={handleToggle}
-                className={`px-4 py-2 rounded-lg transition-colors text-sm font-bold flex items-center gap-2 ${
-                  workflow.is_enabled
-                    ? "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
-                    : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
-                }`}
+                className="editorial-btn editorial-btn--ghost"
                 title={workflow.is_enabled ? "停用" : "启用"}
               >
                 {workflow.is_enabled ? (
@@ -460,11 +485,11 @@ function WorkflowDetailContent() {
               </button>
               <button
                 onClick={() => setShowEditModal(true)}
-                className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-bold flex items-center gap-2"
+                className="editorial-btn editorial-btn--ghost"
                 title="编辑"
               >
                 <svg
-                  className="w-4 h-4 text-slate-800 dark:text-slate-200"
+                  className="w-4 h-4"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -480,7 +505,7 @@ function WorkflowDetailContent() {
               </button>
               <button
                 onClick={handleDelete}
-                className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-sm font-bold flex items-center gap-2"
+                className="editorial-btn editorial-btn--danger"
                 title="删除"
               >
                 <svg
@@ -501,53 +526,48 @@ function WorkflowDetailContent() {
             </div>
           </>
         ),
+        className: "editorial-page-toolbar",
       }}
     >
       <div className="py-6">
         {/* Tabs */}
-        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-4 mb-6">
-          <div className="flex gap-6">
-            <button
-              type="button"
-              onClick={() => setActiveTab("overview")}
-              className={`pb-2 border-b-2 transition-colors text-base ${
-                activeTab === "overview"
-                  ? "border-blue-600 text-blue-600 dark:text-blue-400"
-                  : "border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
-              }`}
-            >
-              📊 概览
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("jobs")}
-              onMouseEnter={intentPrefetchJobs}
-              onFocus={intentPrefetchJobs}
-              onTouchStart={intentPrefetchJobs}
-              className={`pb-2 border-b-2 transition-colors text-base ${
-                activeTab === "jobs"
-                  ? "border-blue-600 text-blue-600 dark:text-blue-400"
-                  : "border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
-              }`}
-            >
-              📜 执行历史
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("config")}
-              className={`pb-2 border-b-2 transition-colors text-base ${
-                activeTab === "config"
-                  ? "border-blue-600 text-blue-600 dark:text-blue-400"
-                  : "border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
-              }`}
-            >
-              ⚙️ 配置
-            </button>
-          </div>
+        <div className="editorial-tabs mb-6" role="tablist" aria-label="工作流详情视图">
+          {WORKFLOW_TABS.map((tab, idx) => {
+            const selected = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                id={`workflow-tab-${tab.key}`}
+                role="tab"
+                type="button"
+                aria-selected={selected}
+                aria-controls={`workflow-tabpanel-${tab.key}`}
+                tabIndex={selected ? 0 : -1}
+                onClick={() => setActiveTab(tab.key)}
+                onKeyDown={(e) => onTabKeyDown(e, idx)}
+                {...(tab.key === "jobs"
+                  ? {
+                      onMouseEnter: intentPrefetchJobs,
+                      onFocus: intentPrefetchJobs,
+                      onTouchStart: intentPrefetchJobs,
+                    }
+                  : {})}
+                className="editorial-tab"
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
 
         {/* Tab Content */}
-        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6">
+        <div
+          className="workflow-panel bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6"
+          role="tabpanel"
+          id={`workflow-tabpanel-${activeTab}`}
+          aria-labelledby={`workflow-tab-${activeTab}`}
+          tabIndex={0}
+        >
           {activeTab === "overview" && (
             <div>
               {/* 配置详情 */}
@@ -923,10 +943,20 @@ function WorkflowDetailContent() {
                       key={job.id}
                       className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden"
                     >
-                      {/* Job摘要卡片 - 可点击展开/收起 */}
+                      {/* Job摘要卡片 - 可点击/键盘展开/收起 */}
                       <div
                         onClick={() => fetchJobDetail(job.id)}
-                        className="p-3 sm:p-4 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors cursor-pointer"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            fetchJobDetail(job.id);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={selectedJobId === job.id}
+                        aria-label="查看执行记录详情"
+                        className="p-3 sm:p-4 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-400"
                       >
                         {/* === 移动端：单行紧凑布局 === */}
                         <div className="flex sm:hidden items-center justify-between gap-2">
@@ -961,13 +991,13 @@ function WorkflowDetailContent() {
                               }}
                               disabled={job.status !== "completed" && job.status !== "partial"}
                               aria-label="查看报告"
-                              className={`p-1.5 rounded ${
+                              className={`h-11 w-11 inline-flex items-center justify-center rounded ${
                                 job.status === "completed" || job.status === "partial"
                                   ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400"
                                   : "bg-slate-100 dark:bg-slate-800 text-slate-400"
                               }`}
                             >
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                               </svg>
                             </button>
@@ -976,9 +1006,9 @@ function WorkflowDetailContent() {
                                 e.stopPropagation();
                                 fetchJobDetail(job.id);
                               }}
-                              className="p-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded"
+                              className="h-11 w-11 inline-flex items-center justify-center bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded"
                             >
-                              <svg className={`w-3.5 h-3.5 transition-transform ${selectedJobId === job.id ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <svg className={`w-4 h-4 transition-transform ${selectedJobId === job.id ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                               </svg>
                             </button>
@@ -1003,7 +1033,7 @@ function WorkflowDetailContent() {
                               )}
                               {job.llm_tokens_used && job.llm_model_used && (
                                 <span className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 rounded-full font-medium flex-shrink-0">
-                                  🤖 AI: {formatTokenCount(job.llm_tokens_used)} ({job.llm_model_used})
+                                   AI: {formatTokenCount(job.llm_tokens_used)} ({job.llm_model_used})
                                 </span>
                               )}
                             </div>
@@ -1016,7 +1046,7 @@ function WorkflowDetailContent() {
                                   }
                                 }}
                                 disabled={job.status !== "completed" && job.status !== "partial"}
-                                className={`px-4 py-1.5 rounded text-sm font-medium flex items-center gap-2 flex-shrink-0 transition-colors ${
+                                className={`min-h-[44px] px-4 py-1.5 rounded text-sm font-medium flex items-center gap-2 flex-shrink-0 transition-colors ${
                                   job.status === "completed" || job.status === "partial"
                                     ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 cursor-pointer"
                                     : "bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed"
@@ -1048,7 +1078,7 @@ function WorkflowDetailContent() {
                                       alert("补偿启动失败，请查看控制台");
                                     }
                                   }}
-                                  className="px-4 py-1.5 rounded text-sm font-medium flex items-center gap-2 flex-shrink-0 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+                                  className="min-h-[44px] px-4 py-1.5 rounded text-sm font-medium flex items-center gap-2 flex-shrink-0 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/30"
                                 >
                                   仅重试失败 Feed
                                 </button>
@@ -1058,7 +1088,7 @@ function WorkflowDetailContent() {
                                   e.stopPropagation();
                                   fetchJobDetail(job.id);
                                 }}
-                                className="px-4 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center gap-2 flex-shrink-0"
+                                className="min-h-[44px] px-4 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center gap-2 flex-shrink-0"
                               >
                                 <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -1481,6 +1511,7 @@ export default function WorkflowDetailPage() {
     <Suspense fallback={
       <LoadingLayout
         showBack
+        tone="editorial"
         title="加载中..."
         rightContent={
           <div className="flex gap-2 animate-pulse">

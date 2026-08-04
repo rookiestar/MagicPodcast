@@ -1,4 +1,5 @@
 import type { ChangeEventHandler } from "react";
+import { IconFileUpload } from "@tabler/icons-react";
 
 interface ImportOpmlPanelProps {
   file: File | null;
@@ -17,44 +18,48 @@ export default function ImportOpmlPanel({
 }: ImportOpmlPanelProps) {
   return (
     <>
-      <div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/60">
-        <h3 className="mb-2 text-base font-medium text-slate-900 dark:text-slate-100">
-          关于导入OPML
+      <div className="import-guidance">
+        <p className="import-eyebrow">从其他应用迁移</p>
+        <h3 className="text-base font-medium text-slate-900 dark:text-slate-100">
+          导入 OPML
         </h3>
-        <ul className="list-inside list-disc space-y-1 text-sm text-slate-600 dark:text-slate-300">
-          <li>仅从本地PodcastIndex数据库匹配播客信息（快速）</li>
-          <li>导入完成后可选择是否在线同步最新元数据</li>
-          <li>支持从小宇宙、Apple Podcasts等应用导出的OPML文件</li>
-        </ul>
+        <p className="import-guidance-copy">
+          读取小宇宙、Apple Podcasts 等应用导出的订阅列表，先从本地索引快速匹配。
+        </p>
       </div>
 
-      <div className="mb-6">
-        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-          选择OPML文件
+      <div className="import-file-field">
+        <label
+          htmlFor="opml-file-input"
+          className="import-file-picker"
+        >
+          <IconFileUpload aria-hidden="true" />
+          <span>{file ? "更换 OPML 文件" : "选择 OPML 文件"}</span>
+          <input
+            id="opml-file-input"
+            type="file"
+            accept=".opml,.xml"
+            onChange={onFileChange}
+            disabled={disabled}
+            className="sr-only"
+          />
         </label>
-        <input
-          type="file"
-          accept=".opml,.xml"
-          onChange={onFileChange}
-          disabled={disabled}
-          className="block w-full text-sm text-slate-500 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:opacity-60 dark:text-slate-400"
-        />
-        {file && (
-          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-            已选择: {file.name} ({(file.size / 1024).toFixed(2)} KB)
-          </p>
-        )}
+        <p className="import-file-name">
+          {file
+            ? `${file.name} · ${(file.size / 1024).toFixed(2)} KB`
+            : "支持 .opml 与 .xml 文件"}
+        </p>
       </div>
 
-      <div className="mb-6">
+      <div className="import-primary-action">
         <button
           type="button"
           onClick={onImport}
           disabled={!file || disabled}
-          className={`min-h-[44px] rounded-lg px-6 py-2.5 text-sm font-medium text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+          className={`editorial-btn editorial-btn--primary min-h-[44px] px-6 py-2.5 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
             !file || disabled
-              ? "cursor-not-allowed bg-slate-300 dark:bg-slate-700"
-              : "cursor-pointer bg-green-600 hover:bg-green-700 dark:hover:bg-green-700"
+              ? "cursor-not-allowed is-disabled"
+              : "cursor-pointer"
           }`}
         >
           {importing ? "导入中..." : "开始导入"}

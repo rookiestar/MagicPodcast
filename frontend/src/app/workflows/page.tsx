@@ -9,10 +9,19 @@ import { requestTypedConfirmation } from "@/lib/confirmation";
 import { useWorkflows } from "@/hooks/useWorkflowSWR";
 import type { Workflow, WorkflowSortByType } from "@/types";
 import WorkflowActionMenu from "@/components/workflows/WorkflowActionMenu";
+import EditorialSortControls from "@/components/layout/EditorialSortControls";
 import PageLayout from "@/components/layout/PageLayout";
 import PrefetchLink from "@/components/common/PrefetchLink";
 import { WorkflowStatusBadge } from "@/components/ui/StatusBadge";
 import { formatDateTime } from "@/lib/timeUtils";
+import {
+  IconCircleCheck,
+  IconEdit,
+  IconLoader2,
+  IconPlayerPause,
+  IconPlayerPlay,
+  IconTrash,
+} from "@tabler/icons-react";
 
 // 动态导入 WorkflowFormModal，减少首屏 bundle 大小
 const WorkflowFormModal = dynamic(
@@ -169,39 +178,42 @@ export default function WorkflowsPage() {
 
   return (
     <PageLayout
+      rootClassName="editorial-page-shell"
+      className="workflow-page wf-editorial"
       toolbar={{
-        breadcrumbs: [{ label: "返回首页", href: "/" }],
         title: "工作流管理",
         description: workflows.length > 0 ? `${workflows.length} 个工作流` : undefined,
         rightContent: (
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowCreateModal(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+              className="editorial-btn editorial-btn--primary"
             >
               + 创建工作流
             </button>
 
-            <select
-              value={sortBy}
-              onChange={(e) =>
-                handleSortChange(e.target.value as WorkflowSortByType)
-              }
-              className="px-3 py-2 pr-8 border border-slate-300 rounded-lg bg-white text-sm text-slate-700 focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-colors appearance-none cursor-pointer"
-            >
-              <option value="updated">最近更新</option>
-              <option value="execution">下次执行</option>
-            </select>
+            <EditorialSortControls<WorkflowSortByType>
+              sortBy={sortBy}
+              options={[
+                { label: "最近更新", value: "updated" },
+                { label: "下次执行", value: "execution" },
+              ]}
+              onSortChange={handleSortChange}
+            />
           </div>
         ),
+        className: "editorial-page-toolbar",
       }}
     >
-      <div className="py-6">
+      <div className="workflow-content py-6">
         {/* Error State */}
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-            <h3 className="text-red-800 font-semibold mb-2">加载失败</h3>
-            <p className="text-red-600">{error}</p>
+          <div className="editorial-state is-error">
+            <h3>加载失败</h3>
+            <p>{error}</p>
+            <button onClick={() => mutate()} className="editorial-btn editorial-btn--danger">
+              重试
+            </button>
           </div>
         )}
 
@@ -209,27 +221,25 @@ export default function WorkflowsPage() {
 
         {/* Empty State - 只在非加载状态且无数据时显示 */}
         {!error && !isLoading && workflows.length === 0 && (
-          <div className="bg-white rounded-lg p-12 text-center shadow-sm">
-            <div className="text-6xl mb-4">⚙️</div>
-            <p className="text-slate-600 text-lg">暂无工作流</p>
-            <p className="text-slate-5000 text-sm mt-2">
-              点击上方按钮创建你的第一个工作流
-            </p>
+          <div className="editorial-state">
+            <h3>暂无工作流</h3>
+            <p>创建你的第一个工作流，自动抓取、筛选并整理感兴趣的播客单集。</p>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="editorial-btn editorial-btn--primary"
+            >
+              创建工作流
+            </button>
           </div>
         )}
 
         {/* Workflows List */}
         {!error && !isLoading && workflows.length > 0 && (
-          <div className="space-y-4">
-            {workflows.map((workflow, index) => (
-              <div
-                key={workflow.id}
-                className={`rounded-lg shadow-sm hover:shadow-md transition-shadow ${
-                  index % 2 === 0 ? "bg-white" : "bg-neutral-50"
-                }`}
-              >
+          <div className="workflow-list">
+            {workflows.map((workflow) => (
+              <div key={workflow.id} className="workflow-card">
                 {/* Mobile: Simplified Card */}
-                <div className="md:hidden p-4">
+                <div className="workflow-card-mobile md:hidden p-4">
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex-1 min-w-0">
                       {/* 标题 + 状态 */}
@@ -268,39 +278,9 @@ export default function WorkflowsPage() {
                         title="执行"
                       >
                         {triggeringId === workflow.id ? (
-                          <svg
-                            className="w-5 h-5 animate-spin"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                          >
-                            <circle
-                              className="opacity-25"
-                              cx="12"
-                              cy="12"
-                              r="10"
-                              stroke="currentColor"
-                              strokeWidth="4"
-                            ></circle>
-                            <path
-                              className="opacity-75"
-                              fill="currentColor"
-                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                            ></path>
-                          </svg>
+                          <IconLoader2 className="w-5 h-5 animate-spin" aria-hidden="true" />
                         ) : (
-                          <svg
-                            className="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2.5}
-                              d="M13 10V3L4 14h7v7l9-11h-7z"
-                            />
-                          </svg>
+                          <IconPlayerPlay className="w-5 h-5" aria-hidden="true" />
                         )}
                       </button>
 
@@ -331,197 +311,139 @@ export default function WorkflowsPage() {
                 </div>
 
                 {/* Desktop: Full Card */}
-                <div className="hidden md:block">
+                <div className="workflow-card-desktop hidden md:block">
                   <PrefetchLink
                     href={`/workflows/${workflow.id}${window.location.search}`}
                     prefetchId={workflow.id}
                     prefetchType="workflow"
-                    className="block p-5"
+                    className="workflow-card-body block"
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <h3 className="text-lg font-semibold text-slate-900">
-                            {workflow.id}: {workflow.name}
-                          </h3>
-                          <WorkflowStatusBadge isEnabled={workflow.is_enabled} size="sm" />
-                        </div>
-
-                        {workflow.description && (
-                          <p className="text-slate-600 text-sm mb-4">
-                            {workflow.description}
-                          </p>
-                        )}
-
-                        <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-600">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-medium">范围:</span>
-                            <span className="text-slate-500">
-                              {getScopeTypeLabel(workflow)}
-                            </span>
+                    <div className="workflow-card-main">
+                      <div className="workflow-card-heading">
+                        <span className="workflow-card-index" aria-hidden="true">
+                          {String(workflow.id).padStart(2, "0")}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h3 className="text-lg font-semibold text-slate-900">
+                              {workflow.name}
+                            </h3>
+                            <WorkflowStatusBadge isEnabled={workflow.is_enabled} size="sm" />
                           </div>
 
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-medium">时间范围:</span>
-                            <span className="text-slate-500">
-                              {formatTimeRange(workflow.rules_config?.time_range)}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-medium">定时:</span>
-                            <code className="px-1.5 py-0.5 bg-slate-100 rounded text-xs">
-                              {workflow.schedule}
-                            </code>
-                          </div>
-
-                          {workflow.stats && (
-                            <>
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-medium">上次执行:</span>
-                                <span className="text-slate-500">
-                                  {formatDateTime(workflow.stats.last_execution)}
-                                </span>
-                              </div>
-
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-medium">匹配单集:</span>
-                                <span className="text-blue-500">
-                                  {workflow.stats.total_episodes.toFixed(1)}
-                                </span>
-                              </div>
-
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-medium">下次执行:</span>
-                                <span className="text-slate-500">
-                                  {formatDateTime(workflow.stats.next_execution)}
-                                </span>
-                              </div>
-
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-medium">执行次数:</span>
-                                <span className="text-slate-500">
-                                  {workflow.stats.total_jobs}
-                                </span>
-                              </div>
-                            </>
+                          {workflow.description && (
+                            <p className="workflow-card-description text-slate-600 text-sm">
+                              {workflow.description}
+                            </p>
                           )}
                         </div>
                       </div>
 
-                      {/* Actions */}
-                      <div className="flex items-center gap-2 ml-4">
+                      <div className="workflow-card-metadata text-sm text-slate-600">
+                        <div className="workflow-card-meta">
+                          <span className="font-medium">范围</span>
+                          <span className="text-slate-500">
+                            {getScopeTypeLabel(workflow)}
+                          </span>
+                        </div>
+
+                        <div className="workflow-card-meta">
+                          <span className="font-medium">时间范围</span>
+                          <span className="text-slate-500">
+                            {formatTimeRange(workflow.rules_config?.time_range)}
+                          </span>
+                        </div>
+
+                        <div className="workflow-card-meta">
+                          <span className="font-medium">定时</span>
+                          <code className="px-1.5 py-0.5 bg-slate-100 rounded text-xs">
+                            {workflow.schedule}
+                          </code>
+                        </div>
+
+                        {workflow.stats && (
+                          <>
+                            <div className="workflow-card-meta">
+                              <span className="font-medium">上次执行</span>
+                              <span className="text-slate-500">
+                                {formatDateTime(workflow.stats.last_execution)}
+                              </span>
+                            </div>
+
+                            <div className="workflow-card-meta">
+                              <span className="font-medium">匹配单集</span>
+                              <span className="text-blue-500">
+                                {workflow.stats.total_episodes.toFixed(1)}
+                              </span>
+                            </div>
+
+                            <div className="workflow-card-meta">
+                              <span className="font-medium">下次执行</span>
+                              <span className="text-slate-500">
+                                {formatDateTime(workflow.stats.next_execution)}
+                              </span>
+                            </div>
+
+                            <div className="workflow-card-meta">
+                              <span className="font-medium">执行次数</span>
+                              <span className="text-slate-500">
+                                {workflow.stats.total_jobs}
+                              </span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="workflow-card-actions">
+                      <span className="workflow-card-detail-cue">查看详情</span>
+                      <div className="workflow-card-action-buttons">
                         {/* 执行 */}
                         <button
                           onClick={(e) => handleTrigger(workflow.id, e)}
                           disabled={triggeringId === workflow.id}
-                          className={`p-3 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-blue-300 dark:hover:border-blue-500 transition-all active:scale-95 ${
+                          className={`workflow-card-action ${
                             triggeringId === workflow.id
                               ? "opacity-50 cursor-not-allowed bg-slate-100"
-                              : "text-blue-600 dark:text-blue-400"
+                              : "text-blue-600"
                           }`}
-                          style={{ minWidth: "44px", minHeight: "44px" }}
                           title="执行"
+                          aria-label={`执行工作流：${workflow.name}`}
                         >
                           {triggeringId === workflow.id ? (
-                            <svg
-                              className="w-6 h-6 animate-spin"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                            >
-                              <circle
-                                className="opacity-25"
-                                cx="12"
-                                cy="12"
-                                r="10"
-                                stroke="currentColor"
-                                strokeWidth="4"
-                              ></circle>
-                              <path
-                                className="opacity-75"
-                                fill="currentColor"
-                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                              ></path>
-                            </svg>
+                            <IconLoader2 className="animate-spin" aria-hidden="true" />
                           ) : (
-                            <svg
-                              className="w-6 h-6"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2.5}
-                                d="M13 10V3L4 14h7v7l9-11h-7z"
-                              />
-                            </svg>
+                            <IconPlayerPlay aria-hidden="true" />
                           )}
                         </button>
 
                         {/* 启用/停用 */}
                         <button
                           onClick={(e) => handleToggle(workflow.id, e)}
-                          className={`p-3 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-300 dark:hover:border-slate-500 transition-all active:scale-95 ${
+                          className={`workflow-card-action ${
                             workflow.is_enabled
                               ? "text-amber-600 dark:text-amber-400"
                               : "text-green-600 dark:text-green-400"
                           }`}
-                          style={{ minWidth: "44px", minHeight: "44px" }}
                           title={workflow.is_enabled ? "停用" : "启用"}
+                          aria-label={`${workflow.is_enabled ? "停用" : "启用"}工作流：${workflow.name}`}
                         >
                           {workflow.is_enabled ? (
-                            <svg
-                              className="w-6 h-6"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2.5}
-                                d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                              />
-                            </svg>
+                            <IconPlayerPause aria-hidden="true" />
                           ) : (
-                            <svg
-                              className="w-6 h-6"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2.5}
-                                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                              />
-                            </svg>
+                            <IconCircleCheck aria-hidden="true" />
                           )}
                         </button>
 
                         {/* 编辑 */}
                         <button
                           onClick={(e) => handleEdit(workflow.id, e)}
-                          className="p-3 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-300 dark:hover:border-slate-500 transition-all active:scale-95"
-                          style={{ minWidth: "44px", minHeight: "44px" }}
+                          className="workflow-card-action text-slate-800 dark:text-slate-200"
                           title="编辑"
+                          aria-label={`编辑工作流：${workflow.name}`}
                         >
-                          <svg
-                            className="w-6 h-6"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2.5}
-                              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2h2.828l8.586-8.586z"
-                            />
-                          </svg>
+                          <IconEdit aria-hidden="true" />
                         </button>
 
                         {/* 删除 */}
@@ -530,23 +452,11 @@ export default function WorkflowsPage() {
                             e.preventDefault();
                             handleDelete(workflow.id);
                           }}
-                          className="p-3 text-red-600 dark:text-red-400 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 hover:border-red-300 dark:hover:border-red-500 transition-all active:scale-95"
-                          style={{ minWidth: "44px", minHeight: "44px" }}
+                          className="workflow-card-action text-red-600 dark:text-red-400"
                           title="删除"
+                          aria-label={`删除工作流：${workflow.name}`}
                         >
-                          <svg
-                            className="w-6 h-6"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2.5}
-                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                            />
-                          </svg>
+                          <IconTrash aria-hidden="true" />
                         </button>
                       </div>
                     </div>

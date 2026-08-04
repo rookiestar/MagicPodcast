@@ -94,7 +94,7 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/50">
+    <div className="report-modal wf-editorial fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/50">
       <div className="bg-white dark:bg-slate-800 rounded-none sm:rounded-lg shadow-xl w-full sm:max-w-4xl self-stretch sm:self-auto max-h-[calc(100dvh-1rem)] sm:max-h-[90vh] overflow-hidden flex flex-col m-0 sm:m-2">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
@@ -206,12 +206,12 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
               {/* LLM统计信息 */}
               {report.llm_tokens_used && report.llm_model_used && (
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-                  <span className="text-purple-800 dark:text-purple-300">🤖 AI: {formatTokenCount(report.llm_tokens_used)} ({report.llm_model_used})</span>
+                  <span className="text-purple-800 dark:text-purple-300">AI: {formatTokenCount(report.llm_tokens_used)} ({report.llm_model_used})</span>
                 </div>
               )}
               {report.llm_error && (
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-red-100 dark:bg-red-900/20 rounded-lg">
-                  <span className="text-red-800 dark:text-red-300">⚠️ AI摘要失败</span>
+                  <span className="text-red-800 dark:text-red-300">AI摘要失败</span>
                 </div>
               )}
             </div>

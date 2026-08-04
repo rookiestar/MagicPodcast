@@ -24,6 +24,8 @@ interface PageLayoutProps {
   onSearchClick?: () => void;
   /** 额外的CSS类名 */
   className?: string;
+  /** 页面最外层的CSS类名 */
+  rootClassName?: string;
   /** 最大宽度样式（默认container mx-auto） */
   maxWidth?: boolean;
 }
@@ -50,6 +52,7 @@ export default function PageLayout({
   syncStatus,
   onSearchClick,
   className = "",
+  rootClassName = "",
   maxWidth = true,
 }: PageLayoutProps) {
   const { isSearchOpen, openSearch, closeSearch } = useSearch();
@@ -70,7 +73,7 @@ export default function PageLayout({
   const paddingBottom = showBottomNav ? "60px" : "0px";
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className={`min-h-screen bg-slate-50 ${rootClassName}`}>
       {/* 全局导航栏（桌面端） */}
       {showNavbar && (
         <AppNavbar

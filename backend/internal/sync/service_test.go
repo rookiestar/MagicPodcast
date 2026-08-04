@@ -74,6 +74,17 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+func TestNewServiceLeavesPodcastIndexUnavailableWhenPathIsEmpty(t *testing.T) {
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, service.Close())
+	})
+
+	require.Nil(t, service.podcastIndexQuery)
+}
+
 func TestConvertGofeedToModelUsesPublishedDateForRecentUpdate(t *testing.T) {
 	db := setupTestDB(t)
 	service, err := NewService(db, "")

@@ -4,11 +4,15 @@ import { ToastProvider } from "@/lib/toast";
 import { SearchProvider } from "@/contexts/SearchContext";
 
 export const metadata: Metadata = {
-  title: "MagicPodcast - 个人播客管理",
+  title: "MagicPodcast - 个人播客知识库",
   description: "个人播客管理与自动化处理工具",
   icons: {
-    icon: "/favicon.svg",
-    apple: "/favicon.svg",
+    icon: {
+      url: "/brand/magicpodcast-tuning-mark.png",
+      type: "image/png",
+      sizes: "256x256",
+    },
+    apple: "/brand/magicpodcast-tuning-mark.png",
   },
 };
 

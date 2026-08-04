@@ -77,9 +77,14 @@ export function useUrlState<T>(
   }, [key, defaultValue, isArray, parseValue]);
 
   const [state, setStateInternal] = useState<T>(getInitialValue);
+  const stateRef = useRef(state);
 
   // 跟踪是否是内部更新（避免 popstate 循环）
   const isInternalUpdate = useRef(false);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   // 更新 URL
   const updateUrl = useCallback((newValue: T) => {
@@ -112,11 +117,13 @@ export function useUrlState<T>(
   // 包装 setState，同步更新 URL
   const setState = useCallback((value: T | ((prev: T) => T)) => {
     isInternalUpdate.current = true;
-    setStateInternal((prev) => {
-      const newValue = typeof value === "function" ? (value as (prev: T) => T)(prev) : value;
-      updateUrl(newValue);
-      return newValue;
-    });
+    const newValue =
+      typeof value === "function"
+        ? (value as (prev: T) => T)(stateRef.current)
+        : value;
+    stateRef.current = newValue;
+    setStateInternal(newValue);
+    updateUrl(newValue);
     // 延迟重置，确保 popstate 不会立即触发
     setTimeout(() => {
       isInternalUpdate.current = false;
@@ -132,10 +139,17 @@ export function useUrlState<T>(
 
       if (isArray) {
         const values = params.getAll(key);
-        setStateInternal(values.length > 0 ? values.map((v) => parseValue(v)) as T : defaultValue);
+        const nextValue =
+          values.length > 0
+            ? (values.map((v) => parseValue(v)) as T)
+            : defaultValue;
+        stateRef.current = nextValue;
+        setStateInternal(nextValue);
       } else {
         const value = params.get(key);
-        setStateInternal(parseValue(value));
+        const nextValue = parseValue(value);
+        stateRef.current = nextValue;
+        setStateInternal(nextValue);
       }
     };
 

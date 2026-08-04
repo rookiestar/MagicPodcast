@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 14
+const CurrentSchemaVersion = 15
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -128,6 +128,12 @@ func migrationRegistry() []Migration {
 			Description: "Add audited human probe approval and distinct-Feed gradual User-Agent recovery state (#49).",
 			Apply:       applyFeedUserAgentRecoveryMigration,
 		},
+		{
+			Version:     15,
+			Name:        "episode-triage-decisions",
+			Description: "Persist one idempotent pending, shortlisted, or discarded decision per library episode (#55).",
+			Apply:       applyEpisodeTriageDecisionsMigration,
+		},
 	}
 }
 
@@ -144,7 +150,7 @@ var baselineRequiredTables = []string{
 	"episodes_tags",
 }
 
-var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName)
+var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions")
 
 func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
 	if db == nil {
@@ -495,6 +501,13 @@ func applyFeedUserAgentRecoveryMigration(db *gorm.DB) error {
 		if err := db.Exec(statement).Error; err != nil {
 			return fmt.Errorf("apply User-Agent recovery schema: %w", err)
 		}
+	}
+	return nil
+}
+
+func applyEpisodeTriageDecisionsMigration(db *gorm.DB) error {
+	if err := db.AutoMigrate(&models.EpisodeTriageDecision{}); err != nil {
+		return fmt.Errorf("create episode triage decisions: %w", err)
 	}
 	return nil
 }

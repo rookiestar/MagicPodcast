@@ -112,6 +112,14 @@ func SetupRouter() *gin.Engine {
 	// API 路由组
 	v1 := r.Group("/api/v1")
 	{
+		discoveryHandler := handlers.NewDiscoveryHandler(
+			services.NewDiscoveryServiceWithLocation(database.GetDB(), cfg.DiscoveryLocation()),
+			services.NewTriageService(database.GetDB()),
+		)
+		v1.GET("/discovery/candidates", discoveryHandler.ListCandidates)
+		v1.GET("/discovery/shortlist/today", discoveryHandler.ListTodayShortlist)
+		v1.PUT("/discovery/candidates/:episodeID/decision", discoveryHandler.PutDecision)
+
 		// Podcast 路由
 		podcastHandler := handlers.NewPodcastHandler()
 		episodeHandler := handlers.NewEpisodeHandler()

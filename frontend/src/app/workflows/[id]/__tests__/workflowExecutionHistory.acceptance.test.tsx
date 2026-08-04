@@ -206,7 +206,7 @@ function firstPageJobsCalls(controller: ApiController) {
 async function waitForWorkflowReady() {
   await waitFor(() => {
     expect(
-      screen.getByRole("button", { name: /执行历史/ }),
+      screen.getByRole("tab", { name: /执行历史/ }),
     ).toBeInTheDocument();
   });
   await waitFor(() => {
@@ -216,11 +216,11 @@ async function waitForWorkflowReady() {
 }
 
 function clickJobsTab() {
-  fireEvent.click(screen.getByRole("button", { name: /执行历史/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /执行历史/ }));
 }
 
 function intentPrefetchJobsTab() {
-  fireEvent.mouseEnter(screen.getByRole("button", { name: /执行历史/ }));
+  fireEvent.mouseEnter(screen.getByRole("tab", { name: /执行历史/ }));
 }
 
 beforeEach(() => {
@@ -290,11 +290,11 @@ describe("工作流执行历史可见等待验收 (#34)", () => {
       expect(firstPageJobsCalls(controller).length).toBeGreaterThanOrEqual(1);
     });
     const prefetchCount = firstPageJobsCalls(controller).length;
-    fireEvent.focus(screen.getByRole("button", { name: /执行历史/ }));
+    fireEvent.focus(screen.getByRole("tab", { name: /执行历史/ }));
 
     const samples: number[] = [];
     for (let i = 0; i < 5; i += 1) {
-      fireEvent.click(screen.getByRole("button", { name: /概览/ }));
+      fireEvent.click(screen.getByRole("tab", { name: /概览/ }));
       const t0 = performance.now();
       clickJobsTab();
       await waitFor(() => {
@@ -367,7 +367,7 @@ describe("工作流执行历史可见等待验收 (#34)", () => {
       expect(screen.getAllByText(/匹配数/).length).toBeGreaterThan(0),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /概览/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /概览/ }));
     await waitFor(() =>
       expect(screen.getByText(/配置详情/)).toBeInTheDocument(),
     );

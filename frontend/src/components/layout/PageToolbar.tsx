@@ -1,5 +1,6 @@
 "use client";
 
+import { IconArrowLeft } from "@tabler/icons-react";
 import React from "react";
 import Link from "next/link";
 
@@ -78,29 +79,30 @@ export default function PageToolbar({
     >
       <div className="container mx-auto px-4">
         {/* 移动端：极简布局 */}
-        <div className="md:hidden py-3">
-          <div className="flex items-center justify-between gap-3">
-            {/* 左侧：返回按钮 + 标题 */}
-            <div className="flex items-center gap-3 flex-1 min-w-0">
+        <div className="page-toolbar-mobile editorial-inset-rule md:hidden py-3">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            {/* 左侧：返回按钮 + 标题。保留自然宽度：右侧放不下时由 flex-wrap 换行，
+                避免短标题（"工作流管理"）被挤成"工…"。 */}
+            <div className="page-toolbar-mobile-main flex items-center gap-3 min-w-0">
               {breadcrumbs && breadcrumbs.length > 0 && breadcrumbs[0] && (
                 <Link
                   href={breadcrumbs[0].href}
                   prefetch={false}
-                  className="flex-shrink-0 text-2xl text-slate-600 hover:text-slate-800 active:text-slate-900 active:scale-95 transition-all duration-200"
+                  className="page-toolbar-back"
                   aria-label="返回"
                 >
-                  ←
+                  <IconArrowLeft aria-hidden="true" stroke={1.8} />
                 </Link>
               )}
               {title && (
-                <h1 className="text-base font-semibold text-slate-800 truncate">
+                <h1 className="editorial-section-title min-w-0 text-base font-semibold text-slate-800 truncate">
                   {title}
                 </h1>
               )}
             </div>
 
             {/* 右侧：自定义内容或操作按钮 */}
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
               {rightContent ||
                 (actions &&
                   actions.map((action, index) => {
@@ -124,7 +126,7 @@ export default function PageToolbar({
         </div>
 
         {/* 桌面端：完整布局 */}
-        <div className="hidden md:flex items-center justify-between gap-4 py-3">
+        <div className="page-toolbar-desktop editorial-inset-rule hidden md:flex items-center justify-between gap-4 py-3">
           {/* 左侧：面包屑 + 标题 + 描述 */}
           <div className="flex-1 min-w-0">
             {leftContent || (
@@ -165,14 +167,16 @@ export default function PageToolbar({
 
                 {/* 标题和描述 */}
                 {(title || description) && (
-                  <div className="flex flex-col">
+                  <div className="page-toolbar-title-group editorial-title-group flex flex-col">
                     {title && (
-                      <h1 className="text-xl font-semibold text-slate-800">
+                      <h1 className="editorial-section-title text-xl font-semibold text-slate-800">
                         {title}
                       </h1>
                     )}
                     {description && (
-                      <p className="text-sm text-slate-600">{description}</p>
+                      <p className="page-toolbar-description text-sm text-slate-600">
+                        {description}
+                      </p>
                     )}
                   </div>
                 )}

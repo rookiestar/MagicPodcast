@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"magicpodcast/internal/logger"
+	"strings"
 	"sync"
 	"time"
 
@@ -151,12 +152,18 @@ func attachPersistentLastGood(db *gorm.DB, coordinator *feed.Coordinator) {
 // NewServiceWithFeedCoordinator keeps the workflow seam testable while the
 // normal constructor uses the process-wide Feed coordination boundary.
 func NewServiceWithFeedCoordinator(db *gorm.DB, podcastIndexPath string, coordinator *feed.Coordinator) (*Service, error) {
-	// 初始化PodcastIndex查询器
-	podcastIndexQuery, err := podcastindex.NewQuery(podcastIndexPath)
-	if err != nil {
-		logger.Infof("Warning: Failed to initialize PodcastIndex query: %v", err)
-		// 不返回错误，继续创建服务（PodcastIndex是可选的）
-		podcastIndexQuery = nil
+	// PodcastIndex is optional. An empty path means it is not configured; do
+	// not let SQLite turn that into an implicit in-memory database because it
+	// would incorrectly enable asynchronous alternative-feed prewarming.
+	var podcastIndexQuery *podcastindex.Query
+	if strings.TrimSpace(podcastIndexPath) != "" {
+		var err error
+		podcastIndexQuery, err = podcastindex.NewQuery(podcastIndexPath)
+		if err != nil {
+			logger.Infof("Warning: Failed to initialize PodcastIndex query: %v", err)
+			// 不返回错误，继续创建服务（PodcastIndex是可选的）
+			podcastIndexQuery = nil
+		}
 	}
 
 	feedFetcher := feed.NewFetcherWithCoordinator(30*time.Second, coordinator)

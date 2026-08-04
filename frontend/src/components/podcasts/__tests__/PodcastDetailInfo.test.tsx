@@ -87,4 +87,17 @@ describe("PodcastDetailInfo", () => {
     expect(screen.getByRole("button", { name: "保存中..." })).toBeDisabled();
     expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
   });
+
+  it("presents the desktop detail as a reading surface with adjacent management", () => {
+    render(<DesktopPodcastDetailInfo {...baseProps} />);
+
+    expect(
+      screen.getByRole("article", { name: "测试播客" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "标签与备注" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("标签与备注")).toBeInTheDocument();
+    expect(screen.queryByText("个人管理")).not.toBeInTheDocument();
+  });
 });
