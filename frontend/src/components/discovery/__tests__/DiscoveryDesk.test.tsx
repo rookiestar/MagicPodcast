@@ -191,6 +191,20 @@ describe("DiscoveryDesk", () => {
     expect(resizer).toHaveAttribute("aria-valuenow", "57");
   });
 
+  it("uses a compact directional icon for the current candidate", () => {
+    render(<DiscoveryDesk candidates={candidates} />);
+
+    const currentCandidate = screen.getByRole("button", {
+      name: "查看 模型能力如何转向真实应用",
+    });
+    const openState = currentCandidate.querySelector(".discovery-open-state");
+
+    expect(openState).toHaveAttribute("data-state", "current");
+    expect(openState).toHaveAttribute("title", "当前单集");
+    expect(openState?.querySelector("svg")).toBeInTheDocument();
+    expect(openState?.querySelector(".sr-only")).toHaveTextContent("当前单集");
+  });
+
   it("keeps the preview header concise and names the shortlist action", () => {
     render(<DiscoveryDesk candidates={candidates} onDecision={vi.fn()} />);
 
@@ -202,6 +216,24 @@ describe("DiscoveryDesk", () => {
     expect(
       screen.queryByRole("button", { name: "留到今天" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps the preview identity compact and groups secondary actions with metadata", () => {
+    render(<DiscoveryDesk candidates={candidates} />);
+
+    const title = screen.getByRole("heading", {
+      name: "模型能力如何转向真实应用",
+    });
+    const identity = title.closest(".discovery-preview-identity");
+    const metadata = identity?.querySelector(".discovery-preview-meta");
+
+    expect(identity?.querySelector(".discovery-preview-copy")).toBeTruthy();
+    expect(
+      identity?.querySelector(".discovery-preview-podcast"),
+    ).toHaveTextContent("声东击西");
+    expect(metadata).toContainElement(
+      screen.getByRole("link", { name: "打开节目页面" }),
+    );
   });
 
   it("uses icon-only decision controls with accessible hover labels", () => {
