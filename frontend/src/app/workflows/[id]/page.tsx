@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -142,7 +142,6 @@ function WorkflowDetailContent() {
 
   // 移动端更多菜单状态
   const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const moreMenuRef = useRef<HTMLDivElement>(null);
   const scopePodcastIds = useMemo(() => {
     if (workflow?.scope_type !== "specific_podcasts") {
       return [];
@@ -163,7 +162,10 @@ function WorkflowDetailContent() {
   // 点击外部关闭更多菜单
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
+      if (
+        !(event.target instanceof Element) ||
+        !event.target.closest("[data-workflow-more-menu]")
+      ) {
         setShowMoreMenu(false);
       }
     };
@@ -356,7 +358,7 @@ function WorkflowDetailContent() {
         rightContent: (
           <>
             {/* 移动端：更多操作下拉菜单 */}
-            <div className="sm:hidden relative" ref={moreMenuRef}>
+            <div className="sm:hidden relative" data-workflow-more-menu>
               <button
                 onClick={() => setShowMoreMenu(!showMoreMenu)}
                 className="workflow-action-menu-trigger"
