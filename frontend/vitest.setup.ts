@@ -37,6 +37,7 @@ vi.mock('next/image', () => ({
     React.createElement('img', {
       src: typeof src === 'string' ? src : src?.src,
       alt,
+      'data-optimized': unoptimized ? 'false' : 'true',
       ...props,
     }),
   ),

@@ -15,7 +15,8 @@ const BASE_CONTAINER_CLASS = "aspect-square bg-slate-200 relative w-full h-full 
 
 // 预加载距离阈值（像素）。扩大到 ~800px（约 2 行卡片高度），使图片在
 // 进入视口前有足够时间完成网络请求和渲染，避免快速滚动时出现灰底占位。
-const PRELOAD_MARGIN = "800px";
+const PRELOAD_MARGIN_PX = 800;
+const PRELOAD_MARGIN = `${PRELOAD_MARGIN_PX}px`;
 
 // 瞬时拥塞（409/429/5xx）或网络抖动下的有限退避重试：<img> 的 onError 拿不到
 // 状态码，统一按失败重试，超过次数再降级为占位，避免单次瞬时失败造成永久占位。
@@ -33,10 +34,44 @@ interface PodcastCoverProps {
   fetchPriority?: "high" | "low" | "auto";
 }
 
+function getNearestScrollRoot(element: HTMLElement): Element | null {
+  let parent = element.parentElement;
+  while (parent) {
+    const style = window.getComputedStyle(parent);
+    if (/(auto|scroll|overlay)/.test(`${style.overflow} ${style.overflowY}`)) {
+      return parent;
+    }
+    parent = parent.parentElement;
+  }
+  return null;
+}
+
+function isWithinPreloadRange(
+  element: HTMLElement,
+  root: Element | null,
+): boolean {
+  const targetRect = element.getBoundingClientRect();
+  if (targetRect.width <= 0 || targetRect.height <= 0) {
+    return false;
+  }
+  const rootRect = root?.getBoundingClientRect() ?? {
+    top: 0,
+    right: window.innerWidth,
+    bottom: window.innerHeight,
+    left: 0,
+  };
+
+  return (
+    targetRect.bottom >= rootRect.top - PRELOAD_MARGIN_PX &&
+    targetRect.top <= rootRect.bottom + PRELOAD_MARGIN_PX &&
+    targetRect.right >= rootRect.left &&
+    targetRect.left <= rootRect.right
+  );
+}
+
 function PodcastCover({
   coverUrl,
   title,
-  index = 0,
   priority = "medium",
   sizes = DEFAULT_SIZES,
   className = "",
@@ -50,21 +85,10 @@ function PodcastCover({
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 获取图片URL（优先使用代理URL）
-  const baseImageUrl = coverUrl ? getProxiedImageUrl(coverUrl) || "" : "";
+  const imageUrl = coverUrl ? getProxiedImageUrl(coverUrl) || "" : "";
 
-  // 检查是否是代理URL（代理URL使用普通img标签，避免Next.js图片优化器的HEAD请求问题）
-  const isProxiedUrl = baseImageUrl.includes("/images/proxy");
-
-  // 重试时附加缓存破坏后缀，强制浏览器发起新请求而非复用失败响应；仅对代理
-  // URL 生效，避免改写相对路径或 data URI。
-  const imageUrl =
-    retryCount > 0 && isProxiedUrl
-      ? `${baseImageUrl}&_retry=${retryCount}`
-      : baseImageUrl;
-
-  // 根据优先级设置加载策略。扩大高优先级范围到前 18 个（桌面端约 2-3 屏可视区域），
-  // 配合后端 imageOperation.MaxConcurrent=12 的并发能力，让首屏及附近图片立即加载。
-  const isHighPriority = priority === "high" || (priority !== "low" && index < 18);
+  // 仅调用方确认的首屏项立即挂载；其余项目统一通过实际可见性评估加载。
+  const isHighPriority = priority === "high";
 
   // 自动为首屏图片设置高优先级（如果未显式指定）
   const resolvedFetchPriority = fetchPriority ?? (isHighPriority ? "high" : "auto");
@@ -80,6 +104,14 @@ function PodcastCover({
     // 低优先级图片使用 Intersection Observer 提前预加载
     const container = containerRef.current;
     if (!container) return;
+    const root = getNearestScrollRoot(container);
+
+    // 数据和滚动容器首次就绪时主动评估，避免嵌套滚动区要等一次滚动事件
+    // 才收到观察器回调。
+    if (isWithinPreloadRange(container, root)) {
+      setShouldLoad(true);
+      return;
+    }
 
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -88,7 +120,7 @@ function PodcastCover({
           observer.disconnect();
         }
       },
-      { rootMargin: PRELOAD_MARGIN }
+      { root, rootMargin: PRELOAD_MARGIN },
     );
 
     observer.observe(container);
@@ -136,7 +168,8 @@ function PodcastCover({
     : BASE_CONTAINER_CLASS;
 
   // 瞬时拥塞（409/429/5xx）或网络抖动时有限退避重试，超过次数再降级为占位。
-  // <img> 的 onError 不区分状态码，统一按失败重试；每次重试换新的缓存破坏后缀。
+  // <img> 的 onError 不区分状态码，统一按失败重试；通过 key 重挂载图片节点，
+  // 但保持规范 URL 不变，避免为同一派生图制造新的浏览器/CDN 缓存项。
   const handleError = () => {
     if (retryCount < MAX_IMAGE_RETRIES) {
       const delay = IMAGE_RETRY_BASE_DELAY_MS * 2 ** retryCount;
@@ -172,6 +205,7 @@ function PodcastCover({
       <div className={containerClass} ref={containerRef}>
         {(shouldLoad || isHighPriority) && (
           <PlainImage
+            key={`${imageUrl}:${retryCount}`}
             src={imageUrl}
             alt={title}
             className="object-cover w-full h-full"
@@ -190,11 +224,11 @@ function PodcastCover({
     <div className={containerClass} ref={containerRef}>
       {(shouldLoad || isHighPriority) && (
         <Image
+          key={`${imageUrl}:${retryCount}`}
           src={imageUrl}
           alt={title}
           fill
           sizes={sizes}
-          unoptimized={isProxiedUrl}
           className="object-cover"
           priority={isHighPriority}
           loading={isHighPriority ? "eager" : "lazy"}
@@ -214,7 +248,6 @@ function arePropsEqual(
   return (
     prevProps.coverUrl === nextProps.coverUrl &&
     prevProps.title === nextProps.title &&
-    prevProps.index === nextProps.index &&
     prevProps.priority === nextProps.priority &&
     prevProps.sizes === nextProps.sizes &&
     prevProps.className === nextProps.className &&

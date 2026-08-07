@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getPodcastGridCoverPriority,
   getPodcastGridEstimateRowHeight,
   getLastVisiblePodcastRowIndex,
   getPodcastGridRowGap,
@@ -7,6 +8,13 @@ import {
 } from "../podcastGridVirtualization";
 
 describe("podcastGridVirtualization", () => {
+  it("only marks the estimated first screen as eager", () => {
+    expect(getPodcastGridCoverPriority(4, 5, false)).toBe("high");
+    expect(getPodcastGridCoverPriority(5, 5, false)).toBe("low");
+    expect(getPodcastGridCoverPriority(4, 1, true)).toBe("high");
+    expect(getPodcastGridCoverPriority(5, 1, true)).toBe("low");
+  });
+
   it("keeps row height estimates close to the rendered card shape", () => {
     expect(getPodcastGridEstimateRowHeight(true)).toBe(124);
     expect(getPodcastGridEstimateRowHeight(false)).toBe(482);

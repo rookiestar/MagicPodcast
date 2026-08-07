@@ -24,7 +24,7 @@ vi.mock("@/contexts/SearchContext", () => ({
 
 vi.mock("@/hooks/useBreakpoint", () => ({
   getPageSize: () => 20,
-  useBreakpoint: () => ({ isMobile: false, columns: 3 }),
+  useBreakpoint: () => ({ isMobile: false, columns: 3, isReady: true }),
 }));
 
 vi.mock("@/hooks/useTagSWR", () => ({

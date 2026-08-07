@@ -40,6 +40,7 @@ export const PodcastListItem = memo<PodcastListItemProps>(
               title={podcast.title}
               index={index}
               priority="low"
+              sizes="48px"
             />
           </div>
 
@@ -83,6 +84,7 @@ export const PodcastListItem = memo<PodcastListItemProps>(
                 title={podcast.title}
                 index={index}
                 priority="low"
+                sizes="40px"
               />
             </div>
 

@@ -37,8 +37,8 @@ export default function PodcastsContent() {
   const pendingScrollRestoreRef = useRef<PodcastListScrollSnapshot | null>(null);
   const lastRestoreLoadRequestCountRef = useRef<number | null>(null);
   const { openSearch } = useSearch();
-  const { isMobile, columns } = useBreakpoint();
-  const pageSize = getPageSize(columns);
+  const { isMobile, columns, isReady: isPageSizeReady } = useBreakpoint();
+  const pageSize = isPageSizeReady ? getPageSize(columns) : undefined;
 
   const [sortBy, setSortBy] = useUrlState<PodcastSortBy>(
     "sort_by",
@@ -70,6 +70,7 @@ export default function PodcastsContent() {
     loadMore,
     retryLastPage,
   } = usePodcastListInfinite({
+    enabled: isPageSizeReady,
     page_size: pageSize,
     sort_by: sortBy,
     tag_id: selectedTagIds.length > 0 ? selectedTagIds : undefined,
