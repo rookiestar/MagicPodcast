@@ -232,6 +232,7 @@ function PodcastCover({
           className="object-cover"
           priority={isHighPriority}
           loading={isHighPriority ? "eager" : "lazy"}
+          fetchPriority={resolvedFetchPriority}
           onLoad={() => setImageLoaded(true)}
           onError={handleError}
         />

@@ -30,6 +30,7 @@ describe("封面加载收敛验收 (#13/#14)", () => {
     const image = screen.getByRole("img", { name: "工作流小图" });
     expect(image).toHaveAttribute("sizes", "32px");
     expect(image).toHaveAttribute("data-optimized", "true");
+    expect(image).toHaveAttribute("fetchpriority", "high");
     expect(image.getAttribute("src")).toContain("/images/proxy?url=");
   });
 
