@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { fetcher } from "@/lib/fetcher";
@@ -135,26 +135,33 @@ const podcastListFetcher = async (
  */
 export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
   type PageData = { podcasts: Podcast[]; pagination: PodcastListApiResponse['pagination'] };
-  const activeControllersRef = useRef(new Set<AbortController>());
   const { enabled = true, ...requestParams } = params;
   const requestScopeKey = `${enabled ? "enabled" : "disabled"}:${buildPodcastListPath({
     view: "summary",
     ...requestParams,
     page: 1,
   })}`;
+  const requestScope = useMemo(
+    () => ({
+      key: requestScopeKey,
+      activeControllers: new Set<AbortController>(),
+    }),
+    [requestScopeKey],
+  );
   const fetchPodcastListPage = useCallback(
     (url: string) =>
-      podcastListFetcher(url, activeControllersRef.current),
-    [],
+      podcastListFetcher(url, requestScope.activeControllers),
+    [requestScope],
   );
 
   useEffect(() => {
-    const activeControllers = activeControllersRef.current;
     return () => {
-      activeControllers.forEach((controller) => controller.abort());
-      activeControllers.clear();
+      requestScope.activeControllers.forEach((controller) =>
+        controller.abort(),
+      );
+      requestScope.activeControllers.clear();
     };
-  }, [requestScopeKey]);
+  }, [requestScope]);
 
   const buildKey = (pageIndex: number, previousPageData: PageData | null) => {
     if (!enabled) {

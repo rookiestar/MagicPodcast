@@ -146,6 +146,61 @@ describe("播客无限滚动加载性能验收 (#65)", () => {
     expect(controller.calls[0]).toContain("page_size=10");
   });
 
+  it("响应式页大小确定后的首请求不会被旧作用域清理误取消", async () => {
+    const signals: AbortSignal[] = [];
+    const fetchMock = vi.fn(
+      (url: string | URL, init?: { signal?: AbortSignal }) =>
+        new Promise<Response>((resolve, reject) => {
+          const urlStr = typeof url === "string" ? url : url.toString();
+          const { page, pageSize } = pageFromUrl(urlStr);
+          const timer = setTimeout(
+            () => resolve(pageResponse(page, pageSize)),
+            50,
+          );
+          if (init?.signal) {
+            signals.push(init.signal);
+            init.signal.addEventListener(
+              "abort",
+              () => {
+                clearTimeout(timer);
+                reject(
+                  new DOMException("The user aborted a request", "AbortError"),
+                );
+              },
+              { once: true },
+            );
+          }
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result, rerender } = renderHook(
+      ({ ready }: { ready: boolean }) =>
+        usePodcastListInfinite({
+          enabled: ready,
+          page_size: ready ? 10 : undefined,
+        }),
+      {
+        initialProps: { ready: false },
+        wrapper: ({ children }) =>
+          createElement(
+            SWRConfig,
+            { value: { provider: () => new Map(), revalidateOnFocus: false } },
+            children,
+          ),
+      },
+    );
+
+    rerender({ ready: true });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+
+    await waitFor(() => expect(result.current.podcasts.length).toBe(10));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(signals[0]?.aborted).toBe(false);
+  });
+
   it.each([
     [
       "排序",
