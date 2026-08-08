@@ -218,6 +218,44 @@ describe("DiscoveryDesk", () => {
     ).not.toBeInTheDocument();
   });
 
+	it("uses the same episode-number display contract in list and preview", () => {
+		const numbered = candidates[0];
+		const unnumbered = {
+			...candidates[1],
+			episode_no: "",
+			duration: 4200,
+		};
+
+		render(<DiscoveryDesk candidates={[numbered, unnumbered]} />);
+
+		expect(screen.getByText("#11 · 52 分钟")).toBeInTheDocument();
+		expect(
+			screen
+				.getByRole("heading", { name: "模型能力如何转向真实应用" })
+				.closest(".discovery-preview-identity")
+				?.querySelector(".discovery-preview-meta p"),
+		).toHaveTextContent("#11 · 52 分钟");
+		fireEvent.click(
+			screen.getByRole("button", { name: "查看 缺少 Show Notes 的边界项" }),
+		);
+		expect(screen.getByText("70 分钟")).toBeInTheDocument();
+		expect(
+			screen
+				.getByRole("heading", { name: "缺少 Show Notes 的边界项" })
+				.closest(".discovery-preview-identity")
+				?.querySelector(".discovery-preview-meta p"),
+		).toHaveTextContent("70 分钟");
+		expect(
+			Array.from(
+				document.querySelectorAll(
+					".discovery-candidate-details, .discovery-preview-meta p",
+				),
+			)
+				.map((element) => element.textContent)
+				.join(" "),
+		).not.toContain("单集");
+	});
+
   it("keeps the preview identity compact and groups secondary actions with metadata", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 

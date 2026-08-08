@@ -86,6 +86,24 @@ export function formatEpisodeDuration(seconds?: number | null) {
   return parts.join("");
 }
 
+export function formatEpisodeNumber(value?: string | null) {
+  const normalized = value?.trim() ?? "";
+  if (!normalized) return null;
+
+  if (/^s\d{1,3}e\d{1,4}$/i.test(normalized)) {
+    return normalized.toUpperCase();
+  }
+
+  const numeric = normalized.match(
+    /^(?:#|e(?:pisode)?|ep|vol(?:ume)?)[ ._-]*(\d{1,4})$/i,
+  );
+  if (numeric) return `#${numeric[1]}`;
+  if (/^\d{1,4}$/.test(normalized)) return `#${normalized}`;
+  if (/^\d+$/.test(normalized)) return null;
+
+  return normalized;
+}
+
 export function formatEpisodeFileSize(bytes?: number | null) {
   if (!bytes || bytes <= 0) {
     return null;

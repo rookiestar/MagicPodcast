@@ -3,6 +3,7 @@ package services
 import (
 	"time"
 
+	episodelabel "magicpodcast/internal/episode"
 	"magicpodcast/internal/models"
 
 	"gorm.io/gorm"
@@ -161,7 +162,7 @@ func buildDiscoveryCandidate(episode models.Episode, preReadGeneratedAt time.Tim
 		PodcastAuthor:   episode.Podcast.Author,
 		PodcastCoverURL: episode.Podcast.CustomCoverURL,
 		EpisodeTitle:    episode.Title,
-		EpisodeNo:       episode.EpisodeNo,
+		EpisodeNo:       episodelabel.Normalize(episode.Title, episode.EpisodeNo),
 		Duration:        episode.Duration,
 		CandidateTime:   candidateTime,
 		TimeBasis:       timeBasis,

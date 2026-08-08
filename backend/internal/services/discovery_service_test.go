@@ -98,6 +98,40 @@ func TestDiscoveryService_ListRecentCandidates_UsesStableVerifiableRecency(t *te
 	assert.NotEmpty(t, candidates[0].OriginalURL)
 }
 
+func TestDiscoveryService_ListRecentCandidates_NormalizesEpisodeNoForDisplay(t *testing.T) {
+	db := setupDiscoveryTestDB(t)
+	podcast := createDiscoveryPodcast(t, db, "期号口径节目")
+
+	withTitleLabel := createDiscoveryEpisode(
+		t,
+		db,
+		podcast.ID,
+		"节目 S10E24 特别篇",
+		time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC),
+		nil,
+	)
+	withTitleLabel.EpisodeNo = "20240438"
+	require.NoError(t, db.Save(&withTitleLabel).Error)
+
+	withoutReliableLabel := createDiscoveryEpisode(
+		t,
+		db,
+		podcast.ID,
+		"无期号标题",
+		time.Date(2026, 7, 28, 8, 0, 0, 0, time.UTC),
+		nil,
+	)
+	withoutReliableLabel.EpisodeNo = "20240439"
+	require.NoError(t, db.Save(&withoutReliableLabel).Error)
+
+	candidates, err := NewDiscoveryService(db).ListRecentCandidates(2)
+
+	require.NoError(t, err)
+	require.Len(t, candidates, 2)
+	assert.Equal(t, "S10E24", candidates[0].EpisodeNo)
+	assert.Empty(t, candidates[1].EpisodeNo)
+}
+
 func TestDiscoveryService_ListRecentCandidates_ReturnsFourEvidenceBoundPreReads(t *testing.T) {
 	db := setupDiscoveryTestDB(t)
 	podcast := createDiscoveryPodcast(t, db, "个人播客")
