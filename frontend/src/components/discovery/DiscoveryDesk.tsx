@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent, TouchEvent } from "react";
 import {
+  IconArrowRight,
   IconBookmarkMinus,
   IconBookmarkPlus,
   IconEye,
@@ -387,6 +388,22 @@ export default function DiscoveryDesk({
           >
             {displayCandidates.map((candidate, index) => {
               const isSelected = candidate.episode_id === selected.episode_id;
+              const visualState = isSelected
+                ? "current"
+                : candidate.decision_state === "shortlisted"
+                  ? "shortlisted"
+                  : candidate.decision_state === "discarded"
+                    ? "discarded"
+                    : undefined;
+              const visualStateLabel =
+                visualState === "current"
+                  ? "当前单集"
+                  : visualState === "shortlisted"
+                    ? "今日备选"
+                    : visualState === "discarded"
+                      ? "已略过"
+                      : undefined;
+
               return (
                 <li key={candidate.episode_id}>
                   <button
@@ -420,14 +437,21 @@ export default function DiscoveryDesk({
                         {formatDuration(candidate.duration)}
                       </span>
                     </span>
-                    <span className="discovery-open-state">
-                      {candidate.decision_state === "shortlisted"
-                        ? "今日备选"
-                        : candidate.decision_state === "discarded"
-                          ? "已略过"
-                          : isSelected
-                            ? "当前单集"
-                            : ""}
+                    <span
+                      className="discovery-open-state"
+                      data-state={visualState}
+                      title={visualStateLabel}
+                    >
+                      {visualState === "current" ? (
+                        <IconArrowRight aria-hidden="true" />
+                      ) : visualState === "shortlisted" ? (
+                        <IconBookmarkPlus aria-hidden="true" />
+                      ) : visualState === "discarded" ? (
+                        <IconEyeOff aria-hidden="true" />
+                      ) : null}
+                      {visualStateLabel ? (
+                        <span className="sr-only">{visualStateLabel}</span>
+                      ) : null}
                     </span>
                   </button>
                 </li>
@@ -498,28 +522,32 @@ export default function DiscoveryDesk({
               candidate={selected}
               className="discovery-preview-cover"
             />
-            <div>
-              <span>{selected.podcast_title}</span>
+            <div className="discovery-preview-copy">
+              <span className="discovery-preview-podcast">
+                {selected.podcast_title}
+              </span>
               <h2>{selected.episode_title}</h2>
-              <p>
-                {selected.episode_no || "单集"} ·{" "}
-                {formatDuration(selected.duration)} ·{" "}
-                {formatCandidateDate(selected.candidate_time)}
-              </p>
-              {selected.original_url ? (
-                <a
-                  className="discovery-episode-link"
-                  href={selected.original_url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  打开节目页面
-                </a>
-              ) : (
-                <span className="discovery-episode-link is-unavailable">
-                  节目链接暂缺
-                </span>
-              )}
+              <div className="discovery-preview-meta">
+                <p>
+                  {selected.episode_no || "单集"} ·{" "}
+                  {formatDuration(selected.duration)} ·{" "}
+                  {formatCandidateDate(selected.candidate_time)}
+                </p>
+                {selected.original_url ? (
+                  <a
+                    className="discovery-episode-link"
+                    href={selected.original_url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    打开节目页面
+                  </a>
+                ) : (
+                  <span className="discovery-episode-link is-unavailable">
+                    节目链接暂缺
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
