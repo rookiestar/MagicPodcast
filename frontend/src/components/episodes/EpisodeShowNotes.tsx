@@ -29,7 +29,8 @@ export function EpisodeShowNotes({
         {isExpanded ? (
           <RichText
             html={html}
-            className="prose prose-sm dark:prose-invert max-w-none prose-headings:text-base prose-h1:text-base prose-h2:text-base prose-h3:text-base line-clamp-3 md:line-clamp-none"
+            density="compact"
+            className="line-clamp-3 md:line-clamp-none"
           />
         ) : (
           <p className="line-clamp-3 whitespace-pre-line">{preview}</p>

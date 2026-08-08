@@ -27,14 +27,8 @@
 
 ### **排版系统**
 
-#### 标题层级
-- **H1**: `text-6xl md:text-7xl font-bold`
-- **H2**: `text-4xl md:text-5xl font-bold`
-- **H3**: `text-xl font-semibold`
-
-#### 字间距
-- **标题**: `letter-spacing: -0.02em`
-- **正文**: 默认
+字体角色、语义字号、字重、字距与富文本规则统一见
+[字体与排版规范](TYPOGRAPHY.md)。本文件不再平行维护第二套排版数值。
 
 ### **组件规范**
 
