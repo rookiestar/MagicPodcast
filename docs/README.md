@@ -26,6 +26,7 @@ Agent 治理以根目录 [../AGENTS.md](../AGENTS.md) 为唯一权威合同；[.
 | 数据库索引 | [DATABASE_INDEX_GUIDE.md](DATABASE_INDEX_GUIDE.md) | 索引与查询性能说明 |
 | 清理规则 | [CLEAN_GUIDE.md](CLEAN_GUIDE.md) | 本地构建、日志和临时文件清理 |
 | 前端测试 | [FRONTEND_TESTING_SETUP.md](FRONTEND_TESTING_SETUP.md) | Vitest 和前端测试配置 |
+| 字体排版 | [design/TYPOGRAPHY.md](design/TYPOGRAPHY.md) | 字体角色、语义字号与统一富文本规范 |
 | 性能测试 | [PERFORMANCE_TESTING_GUIDE.md](PERFORMANCE_TESTING_GUIDE.md) | 性能测试方法和工具 |
 | 依赖健康 | [DEPENDENCY_REVIEW.md](DEPENDENCY_REVIEW.md) | 前后端依赖审计、升级边界和剩余风险 |
 | 工作流调度 | [WORKFLOW_SCHEDULER.md](WORKFLOW_SCHEDULER.md) | 当前工作流定时执行行为和调度接口 |

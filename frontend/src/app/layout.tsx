@@ -1,4 +1,9 @@
 import type { Metadata, Viewport } from "next";
+import "lxgw-wenkai-screen-webfont/lxgwwenkaigbscreen.css";
+import "@fontsource-variable/newsreader/standard.css";
+import "@fontsource-variable/ibm-plex-sans/wght.css";
+import "@fontsource/ibm-plex-mono/latin-500.css";
+import "@fontsource/ibm-plex-mono/latin-600.css";
 import "./globals.css";
 import { ToastProvider } from "@/lib/toast";
 import { SearchProvider } from "@/contexts/SearchContext";

@@ -3,10 +3,15 @@
 import { memo, useMemo } from "react";
 import { sanitizeRichTextHtml } from "@/lib/contentSanitizer";
 import { optimizeHtmlImageSources } from "@/lib/imageOptimization";
+import {
+  getRichTextClassName,
+  type RichTextDensity,
+} from "@/lib/typography";
 
 interface RichTextProps {
   html: string;
   className?: string;
+  density?: RichTextDensity;
 }
 
 /**
@@ -15,7 +20,11 @@ interface RichTextProps {
  * 支持纯文本和HTML格式
  * 自动将图片URL转换为<img>标签
  */
-function RichText({ html, className = "" }: RichTextProps) {
+function RichText({
+  html,
+  className = "",
+  density = "reading",
+}: RichTextProps) {
   // 净化HTML，移除危险的标签和属性
   const cleanHtml = useMemo(() => {
     let contentToSanitize = html;
@@ -49,7 +58,7 @@ function RichText({ html, className = "" }: RichTextProps) {
 
   return (
     <div
-      className={`rich-text prose prose-slate max-w-none dark:prose-invert ${className}`}
+      className={`rich-text ${getRichTextClassName(density, className)}`}
       dangerouslySetInnerHTML={{ __html: cleanHtml }}
     />
   );

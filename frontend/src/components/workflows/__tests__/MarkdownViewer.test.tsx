@@ -3,6 +3,29 @@ import { describe, expect, it } from "vitest";
 import MarkdownViewer from "../MarkdownViewer";
 
 describe("MarkdownViewer", () => {
+  it("uses the shared rich-text scale without a second prose system", () => {
+    const { container, rerender } = render(
+      <MarkdownViewer content="# 阅读报告" className="custom-class" />,
+    );
+
+    expect(container.firstElementChild).toHaveClass(
+      "editorial-rich-text",
+      "editorial-rich-text--reading",
+      "custom-class",
+    );
+    expect(container.firstElementChild).not.toHaveClass("prose");
+    expect(screen.getByRole("heading", { name: "阅读报告" })).not.toHaveClass(
+      "text-2xl",
+    );
+
+    rerender(<MarkdownViewer content="# 紧凑报告" density="compact" />);
+
+    expect(container.firstElementChild).toHaveClass(
+      "editorial-rich-text",
+      "editorial-rich-text--compact",
+    );
+  });
+
   it("removes raw active HTML and unapproved images while keeping Markdown", () => {
     const { container } = render(
       <MarkdownViewer
