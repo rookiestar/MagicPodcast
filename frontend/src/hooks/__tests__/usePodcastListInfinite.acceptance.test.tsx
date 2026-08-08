@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { usePodcastListInfinite } from "@/hooks/usePodcastSWR";
 
 /**
- * 加载性能回归验收（PRD #11 / 子任务 #13）。
+ * 播客列表请求与失败恢复验收（#65）。
  *
  * 只驱动前端分页契约，不请求真实后端，不写数据库，也不触发同步、工作流或付费能力。
  * 这些断言覆盖首屏、多页、超时、失败保留、重试、重复触发和分页收敛。
@@ -107,7 +107,271 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("播客无限滚动加载性能验收 (#13)", () => {
+describe("播客无限滚动加载性能验收 (#65)", () => {
+  it("响应式页大小确定前不请求，确定后仅请求一次首屏", async () => {
+    const controller: FetchController = {
+      calls: [],
+      hangPages: new Set(),
+      errorPages: new Map(),
+    };
+    installFetch(controller);
+
+    const { result, rerender } = renderHook(
+      ({ ready }: { ready: boolean }) =>
+        usePodcastListInfinite({
+          enabled: ready,
+          page_size: ready ? 10 : undefined,
+        }),
+      {
+        initialProps: { ready: false },
+        wrapper: ({ children }) =>
+          createElement(
+            SWRConfig,
+            { value: { provider: () => new Map(), revalidateOnFocus: false } },
+            children,
+          ),
+      },
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(controller.calls).toEqual([]);
+
+    rerender({ ready: true });
+    await waitFor(() => expect(result.current.podcasts.length).toBe(10));
+
+    expect(controller.calls).toHaveLength(1);
+    expect(controller.calls[0]).toContain("page=1");
+    expect(controller.calls[0]).toContain("page_size=10");
+  });
+
+  it("响应式页大小确定后的首请求不会被旧作用域清理误取消", async () => {
+    const signals: AbortSignal[] = [];
+    const fetchMock = vi.fn(
+      (url: string | URL, init?: { signal?: AbortSignal }) =>
+        new Promise<Response>((resolve, reject) => {
+          const urlStr = typeof url === "string" ? url : url.toString();
+          const { page, pageSize } = pageFromUrl(urlStr);
+          const timer = setTimeout(
+            () => resolve(pageResponse(page, pageSize)),
+            50,
+          );
+          if (init?.signal) {
+            signals.push(init.signal);
+            init.signal.addEventListener(
+              "abort",
+              () => {
+                clearTimeout(timer);
+                reject(
+                  new DOMException("The user aborted a request", "AbortError"),
+                );
+              },
+              { once: true },
+            );
+          }
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result, rerender } = renderHook(
+      ({ ready }: { ready: boolean }) =>
+        usePodcastListInfinite({
+          enabled: ready,
+          page_size: ready ? 10 : undefined,
+        }),
+      {
+        initialProps: { ready: false },
+        wrapper: ({ children }) =>
+          createElement(
+            SWRConfig,
+            { value: { provider: () => new Map(), revalidateOnFocus: false } },
+            children,
+          ),
+      },
+    );
+
+    rerender({ ready: true });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+
+    await waitFor(() => expect(result.current.podcasts.length).toBe(10));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(signals[0]?.aborted).toBe(false);
+  });
+
+  it.each([
+    [
+      "排序",
+      { page_size: PAGE_SIZE, sort_by: "recent_update" },
+      { page_size: PAGE_SIZE, sort_by: "title" },
+    ],
+    [
+      "标签",
+      { page_size: PAGE_SIZE, tag_id: [1] },
+      { page_size: PAGE_SIZE, tag_id: [2] },
+    ],
+    [
+      "页大小",
+      { page_size: PAGE_SIZE },
+      { page_size: 10 },
+    ],
+  ])("%s变化时取消旧请求", async (_name, initialParams, nextParams) => {
+    const calls: string[] = [];
+    const signals: AbortSignal[] = [];
+    const fetchMock = vi.fn(
+      (url: string | URL, init?: { signal?: AbortSignal }) => {
+        const urlStr = typeof url === "string" ? url : url.toString();
+        calls.push(urlStr);
+        if (init?.signal) {
+          signals.push(init.signal);
+        }
+
+        if (calls.length === 1) {
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () =>
+                reject(
+                  new DOMException("The user aborted a request", "AbortError"),
+                ),
+              { once: true },
+            );
+          });
+        }
+
+        const { page, pageSize } = pageFromUrl(urlStr);
+        return Promise.resolve(pageResponse(page, pageSize));
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result, rerender } = renderHook(
+      (params: Parameters<typeof usePodcastListInfinite>[0]) =>
+        usePodcastListInfinite(params),
+      {
+        initialProps: initialParams,
+        wrapper: ({ children }) =>
+          createElement(
+            SWRConfig,
+            { value: { provider: () => new Map(), revalidateOnFocus: false } },
+            children,
+          ),
+      },
+    );
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    rerender(nextParams);
+    await waitFor(() => expect(result.current.podcasts.length).toBeGreaterThan(0));
+
+    expect(calls).toHaveLength(2);
+    expect(signals[0]?.aborted).toBe(true);
+  });
+
+  it.each([502, 503, 504])(
+    "HTTP %s 时自动重试一次并恢复首屏",
+    async (status) => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(errorResponse(status, "网关暂时异常"))
+        .mockResolvedValueOnce(pageResponse(1, PAGE_SIZE));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { result } = renderInfiniteHook({ page_size: PAGE_SIZE });
+
+      await waitFor(() =>
+        expect(result.current.podcasts.length).toBe(PAGE_SIZE),
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("网络错误时自动重试一次并恢复首屏", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(pageResponse(1, PAGE_SIZE));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderInfiniteHook({ page_size: PAGE_SIZE });
+
+    await waitFor(() => expect(result.current.podcasts.length).toBe(PAGE_SIZE));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      expect.any(String),
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("4xx 不自动重试", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(errorResponse(400, "请求参数错误"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderInfiniteHook({ page_size: PAGE_SIZE });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("可重试错误连续发生时也只自动重试一次", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(errorResponse(503, "服务暂时不可用"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderInfiniteHook({ page_size: PAGE_SIZE });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("自动重试与首请求共用 15 秒总等待上限", async () => {
+    const fetchMock = vi.fn(
+      (_url: string | URL, init?: { signal?: AbortSignal }) => {
+        if (fetchMock.mock.calls.length === 1) {
+          return new Promise<Response>((_resolve, reject) => {
+            setTimeout(
+              () => reject(new TypeError("Failed to fetch")),
+              14_000,
+            );
+          });
+        }
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () =>
+              reject(
+                new DOMException("The user aborted a request", "AbortError"),
+              ),
+            { once: true },
+          );
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderInfiniteHook({ page_size: PAGE_SIZE });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(14_999);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current.isError).toBe(false);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current.error).toMatchObject({
+      message: "播客列表请求超时，请重试",
+    });
+  });
+
   it("首屏后可连续成功滚动至少三页且不重复节目", async () => {
     const controller: FetchController = {
       calls: [],

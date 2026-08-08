@@ -26,6 +26,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 export function useBreakpoint() {
   const [isMobile, setIsMobile] = useState(false);
   const [columns, setColumns] = useState(5); // 默认桌面端5列
+  const [isReady, setIsReady] = useState(false);
   const tickingRef = useRef(false);
 
   const checkBreakpoint = useCallback(() => {
@@ -44,6 +45,7 @@ export function useBreakpoint() {
     } else {
       setColumns(1);
     }
+    setIsReady(true);
   }, []);
 
   // 节流的 resize 处理器
@@ -70,7 +72,7 @@ export function useBreakpoint() {
     };
   }, [checkBreakpoint, handleResize]);
 
-  return { isMobile, columns };
+  return { isMobile, columns, isReady };
 }
 
 /**

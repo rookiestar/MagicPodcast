@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({
@@ -13,8 +13,12 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
-// Drop the dynamically-imported modals so only the chrome is exercised.
-vi.mock("next/dynamic", () => ({ default: () => () => null }));
+// Expose modal open state without loading the dynamically-imported form.
+vi.mock("next/dynamic", () => ({
+  default: () =>
+    ({ isOpen }: { isOpen?: boolean }) =>
+      isOpen ? <div role="dialog">编辑工作流弹窗</div> : null,
+}));
 
 vi.mock("@/components/layout/PageLayout", () => ({
   default: ({ rootClassName, className, toolbar, children }: any) => (
@@ -22,7 +26,8 @@ vi.mock("@/components/layout/PageLayout", () => ({
       {toolbar && (
         <div className={toolbar.className} data-testid="toolbar">
           {toolbar.title}
-          {toolbar.rightContent}
+          <div data-testid="toolbar-mobile">{toolbar.rightContent}</div>
+          <div data-testid="toolbar-desktop">{toolbar.rightContent}</div>
         </div>
       )}
       <div className={className}>{children}</div>
@@ -145,6 +150,24 @@ describe("workflow detail editorial chrome (#53)", () => {
     expect(
       document.querySelector(".workflow-action-menu-trigger"),
     ).toBeTruthy();
+  });
+
+  it("opens edit modal from either duplicated toolbar action menu", () => {
+    render(<WorkflowDetailPage />);
+
+    const moreButtons = screen.getAllByTitle("更多操作");
+    expect(moreButtons).toHaveLength(2);
+    fireEvent.click(moreButtons[0]);
+
+    const editButtons = screen
+      .getAllByRole("button", { name: "编辑" })
+      .filter((button) => button.className.includes("w-full"));
+    expect(editButtons).toHaveLength(2);
+
+    fireEvent.mouseDown(editButtons[0]);
+    fireEvent.click(editButtons[0]);
+
+    expect(screen.getByRole("dialog")).toHaveTextContent("编辑工作流弹窗");
   });
 
   it("renders the editorial error state when the workflow fails to load", () => {

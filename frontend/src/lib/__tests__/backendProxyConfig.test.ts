@@ -51,4 +51,28 @@ describe("frontend backend proxy", () => {
       ]),
     );
   });
+
+  it("uses finite responsive image buckets and modern formats", async () => {
+    const configModule = await import("../../../next.config.js");
+    const config = (configModule.default ?? configModule) as unknown as {
+      images: {
+        deviceSizes: number[];
+        imageSizes: number[];
+        formats: string[];
+        localPatterns: Array<{ pathname: string; search?: string }>;
+      };
+    };
+    const widths = [
+      ...config.images.imageSizes,
+      ...config.images.deviceSizes,
+    ].sort((left, right) => left - right);
+
+    expect(widths.find((width) => width >= 32 * 2)).toBe(96);
+    expect(widths.find((width) => width >= 228 * 2)).toBe(512);
+    expect(config.images.formats).toEqual(["image/avif", "image/webp"]);
+    expect(config.images.localPatterns).toEqual([
+      { pathname: "/**", search: "" },
+      { pathname: "/images/proxy" },
+    ]);
+  });
 });

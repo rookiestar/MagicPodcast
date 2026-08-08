@@ -4,6 +4,7 @@ import { useRef, useMemo, memo, useEffect, useState } from "react";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import ResponsivePodcastCard from "@/components/podcasts/ResponsivePodcastCard";
 import {
+  getPodcastGridCoverPriority,
   getPodcastGridEstimateRowHeight,
   getPodcastGridRowGap,
   getLastVisiblePodcastRowIndex,
@@ -79,7 +80,7 @@ const PodcastRow = memo(function PodcastRow({
                 podcastIndex: index,
               });
             }}
-            priority={index < 12 ? "high" : index < 24 ? "medium" : "low"}
+            priority={getPodcastGridCoverPriority(index, columns, isMobile)}
             isMobile={isMobile}
           />
         );

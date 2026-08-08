@@ -26,6 +26,14 @@ describe("RichText", () => {
     expect(container.querySelector("[onerror]")).toBeNull();
     expect(container.querySelector("[style]")).toBeNull();
     expect(container.querySelector('img[src*="evil.example"]')).toBeNull();
-    expect(container.querySelector('img[src*="/images/proxy"]')).toBeTruthy();
+    const approvedImage = container.querySelector("img");
+    const optimizerUrl = new URL(
+      approvedImage?.getAttribute("src") ?? "",
+      "http://localhost",
+    );
+    expect(optimizerUrl.pathname).toBe("/_next/image");
+    expect(optimizerUrl.searchParams.get("url")).toBe(
+      "/images/proxy?url=https%3A%2F%2Fi.typlog.com%2Fcover.png",
+    );
   });
 });

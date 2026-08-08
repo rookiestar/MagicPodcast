@@ -9,7 +9,7 @@ import {
 describe("imageOptimization", () => {
   it("builds a fixed-size optimizer URL for remote images", () => {
     expect(getOptimizedImageUrl("https://i.typlog.com/cover.jpg")).toBe(
-      "/images/proxy?url=https%3A%2F%2Fi.typlog.com%2Fcover.jpg",
+      "/_next/image?url=%2Fimages%2Fproxy%3Furl%3Dhttps%253A%252F%252Fi.typlog.com%252Fcover.jpg&w=128&q=75",
     );
   });
 
@@ -39,7 +39,7 @@ describe("imageOptimization", () => {
 
   it("detects URLs that should go through the optimizer URL", () => {
     expect(isOptimizableImageUrl("/cover.jpg")).toBe(true);
-    expect(isOptimizableImageUrl("/images/proxy?url=x")).toBe(false);
+    expect(isOptimizableImageUrl("/images/proxy?url=x")).toBe(true);
     expect(isOptimizableImageUrl("/_next/image?url=x&w=128&q=75")).toBe(false);
     expect(isOptimizableImageUrl("data:image/png;base64,abc")).toBe(false);
   });
@@ -52,7 +52,7 @@ describe("imageOptimization", () => {
         80,
       ),
     ).toBe(
-      '<p><img src="/images/proxy?url=https%3A%2F%2Fi.typlog.com%2Fa.jpg" alt="a"><img src="data:image/png;base64,abc"></p>',
+      '<p><img src="/_next/image?url=%2Fimages%2Fproxy%3Furl%3Dhttps%253A%252F%252Fi.typlog.com%252Fa.jpg&w=768&q=80" alt="a"><img src="data:image/png;base64,abc"></p>',
     );
   });
 

@@ -55,7 +55,7 @@ export default function ResponsivePodcastCard({
               title={podcast.title}
               index={index}
               priority={priority}
-              sizes="64px"
+              sizes="82px"
             />
             {isNew && (
               <div className="podcast-library-card-new">
@@ -103,7 +103,7 @@ export default function ResponsivePodcastCard({
             title={podcast.title}
             index={index}
             priority={priority}
-            sizes="(max-width: 640px) 64px, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 240px"
+            sizes="(max-width: 767px) calc(50vw - 24px), (max-width: 1023px) calc(33.333vw - 24px), (max-width: 1279px) calc(25vw - 24px), 228px"
             className="!absolute !inset-0 !aspect-none"
           />
           {isNew && (

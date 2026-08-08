@@ -31,12 +31,15 @@ vi.mock('next/image', () => ({
     alt,
     fill,
     priority,
+    fetchPriority,
     unoptimized,
     ...props
   }: any) =>
     React.createElement('img', {
       src: typeof src === 'string' ? src : src?.src,
       alt,
+      'data-optimized': unoptimized ? 'false' : 'true',
+      fetchpriority: fetchPriority,
       ...props,
     }),
   ),

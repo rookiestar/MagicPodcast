@@ -39,8 +39,12 @@ describe("MarkdownViewer", () => {
       <MarkdownViewer content="![封面](https://i.typlog.com/cover.png)" />,
     );
 
-    expect(screen.getByAltText("封面")).toHaveAttribute(
-      "src",
+    const optimizerUrl = new URL(
+      screen.getByAltText("封面").getAttribute("src") ?? "",
+      "http://localhost",
+    );
+    expect(optimizerUrl.pathname).toBe("/_next/image");
+    expect(optimizerUrl.searchParams.get("url")).toBe(
       "/images/proxy?url=https%3A%2F%2Fi.typlog.com%2Fcover.png",
     );
   });

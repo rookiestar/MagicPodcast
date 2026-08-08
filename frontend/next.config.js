@@ -24,6 +24,11 @@ const nextConfig = {
 
     // 远程图片统一经后端白名单代理，不允许 Next 优化器直接访问任意域名。
     remotePatterns: [],
+    // 普通同源静态图不允许附加任意查询；只有安全图片代理可携带规范源 URL。
+    localPatterns: [
+      { pathname: '/**', search: '' },
+      { pathname: '/images/proxy' },
+    ],
 
     // 最小缓存TTL（30天，配合后端缓存策略）
     minimumCacheTTL: 60 * 60 * 24 * 30,

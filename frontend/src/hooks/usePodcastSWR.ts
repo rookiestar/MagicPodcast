@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { fetcher } from "@/lib/fetcher";
@@ -40,6 +40,7 @@ interface PodcastListApiResponse {
 // 但我们需要 pagination 信息，所以需要自定义 fetcher
 
 interface UsePodcastListParams {
+  enabled?: boolean;
   page_size?: number;
   sort_by?: string;
   tag_id?: number[];
@@ -49,26 +50,82 @@ interface UsePodcastListParams {
 
 // 分页请求必须有明确终点，避免网络挂起时页尾永久停留在“加载更多…”。
 const PODCAST_LIST_REQUEST_TIMEOUT_MS = 15_000;
+const PODCAST_LIST_RETRYABLE_STATUSES = new Set([502, 503, 504]);
+
+function isSameOriginUrl(url: string): boolean {
+  if (url.startsWith("/") && !url.startsWith("//")) {
+    return true;
+  }
+  if (typeof window === "undefined") {
+    return false;
+  }
+  try {
+    return new URL(url).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
 
 // 自定义 fetcher，返回完整的页面数据（包含 podcasts 和 pagination）
-const podcastListFetcher = async (url: string): Promise<{ podcasts: Podcast[]; pagination: PodcastListApiResponse['pagination'] }> => {
+const podcastListFetcher = async (
+  url: string,
+  activeControllers?: Set<AbortController>,
+): Promise<{ podcasts: Podcast[]; pagination: PodcastListApiResponse['pagination'] }> => {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), PODCAST_LIST_REQUEST_TIMEOUT_MS);
+  activeControllers?.add(controller);
+  let didTimeOut = false;
+  const timeoutId = setTimeout(() => {
+    didTimeOut = true;
+    controller.abort();
+  }, PODCAST_LIST_REQUEST_TIMEOUT_MS);
 
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    const canRetry = isSameOriginUrl(url);
+    let didRetry = false;
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "GET",
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (
+        canRetry &&
+        !controller.signal.aborted &&
+        error instanceof TypeError
+      ) {
+        didRetry = true;
+        response = await fetch(url, {
+          method: "GET",
+          signal: controller.signal,
+        });
+      } else {
+        throw error;
+      }
+    }
+    if (
+      canRetry &&
+      !didRetry &&
+      PODCAST_LIST_RETRYABLE_STATUSES.has(response.status)
+    ) {
+      response = await fetch(url, {
+        method: "GET",
+        signal: controller.signal,
+      });
+    }
     if (!response.ok) {
       throw new Error(`播客列表请求失败（HTTP ${response.status}）`);
     }
     const json: PodcastListApiResponse = await response.json();
     return parsePodcastListApiPayload(json);
   } catch (error) {
-    if (controller.signal.aborted) {
+    if (didTimeOut) {
       throw new Error("播客列表请求超时，请重试");
     }
     throw error;
   } finally {
     clearTimeout(timeoutId);
+    activeControllers?.delete(controller);
   }
 };
 
@@ -78,22 +135,52 @@ const podcastListFetcher = async (url: string): Promise<{ podcasts: Podcast[]; p
  */
 export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
   type PageData = { podcasts: Podcast[]; pagination: PodcastListApiResponse['pagination'] };
+  const { enabled = true, ...requestParams } = params;
+  const requestScopeKey = `${enabled ? "enabled" : "disabled"}:${buildPodcastListPath({
+    view: "summary",
+    ...requestParams,
+    page: 1,
+  })}`;
+  const requestScope = useMemo(
+    () => ({
+      key: requestScopeKey,
+      activeControllers: new Set<AbortController>(),
+    }),
+    [requestScopeKey],
+  );
+  const fetchPodcastListPage = useCallback(
+    (url: string) =>
+      podcastListFetcher(url, requestScope.activeControllers),
+    [requestScope],
+  );
+
+  useEffect(() => {
+    return () => {
+      requestScope.activeControllers.forEach((controller) =>
+        controller.abort(),
+      );
+      requestScope.activeControllers.clear();
+    };
+  }, [requestScope]);
 
   const buildKey = (pageIndex: number, previousPageData: PageData | null) => {
+    if (!enabled) {
+      return null;
+    }
     if (shouldStopPodcastListPagination(previousPageData)) {
       return null;
     }
 
     return buildPodcastListPath({
       view: "summary",
-      ...params,
+      ...requestParams,
       page: pageIndex + 1,
     });
   };
 
   const { data, error, isLoading, isValidating, size, setSize, mutate } = useSWRInfinite(
     buildKey,
-    podcastListFetcher,
+    fetchPodcastListPage,
     {
       ...swrConfig,
       ...cacheStrategies.podcasts,

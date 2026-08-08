@@ -1,4 +1,16 @@
 const PODCAST_GRID_LOAD_MORE_ROW_BUFFER = 3;
+const MOBILE_FIRST_SCREEN_COVER_COUNT = 5;
+
+export function getPodcastGridCoverPriority(
+  index: number,
+  columns: number,
+  isMobile: boolean,
+): "high" | "low" {
+  const eagerCount = isMobile
+    ? MOBILE_FIRST_SCREEN_COVER_COUNT
+    : Math.max(1, columns);
+  return index < eagerCount ? "high" : "low";
+}
 
 export function getPodcastGridEstimateRowHeight(isMobile: boolean) {
   return isMobile ? 124 : 482;

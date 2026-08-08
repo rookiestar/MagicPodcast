@@ -16,8 +16,7 @@ export function isOptimizableImageUrl(src: string) {
 
   if (
     src.startsWith("data:") ||
-    src.startsWith("blob:") ||
-    src.startsWith("/images/proxy")
+    src.startsWith("blob:")
   ) {
     return false;
   }
@@ -61,10 +60,6 @@ export function optimizeHtmlImageSources(
 
     if (!isOptimizableImageUrl(safeSource)) {
       return `src=${quote}${safeSource}${quote}`;
-    }
-
-    if (safeSource.startsWith("/images/proxy")) {
-      return match;
     }
 
     return `src=${quote}${getOptimizedImageUrl(safeSource, width, quality)}${quote}`;
