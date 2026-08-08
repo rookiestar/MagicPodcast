@@ -8,6 +8,7 @@ import { EpisodeThumbnail } from "@/components/episodes/EpisodeThumbnail";
 import {
   formatEpisodeDuration,
   formatEpisodeFileSize,
+  formatEpisodeNumber,
   shouldShowEpisodePlayButton,
   shouldShowEpisodeShowNotes,
   shouldShowEpisodeTitleLink,
@@ -32,6 +33,7 @@ function EpisodeCard({
 
   const durationLabel = formatEpisodeDuration(episode.duration);
   const fileSizeLabel = formatEpisodeFileSize(episode.enclosure_length);
+  const episodeNumberLabel = formatEpisodeNumber(episode.episode_no);
   const showTitleLink = shouldShowEpisodeTitleLink(episode.link);
   const showPlayButton = shouldShowEpisodePlayButton(episode.medium_url);
   const showNotes = shouldShowEpisodeShowNotes(episode.show_notes);
@@ -102,9 +104,9 @@ function EpisodeCard({
 
             {/* Meta Info */}
             <div className="podcast-episode-meta">
-              {episode.episode_no && (
+              {episodeNumberLabel && (
                 <span className="podcast-episode-number">
-                  {episode.episode_no}
+                  {episodeNumberLabel}
                 </span>
               )}
               <span>{formatDate(episode.published_date)}</span>

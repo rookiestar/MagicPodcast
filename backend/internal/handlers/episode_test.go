@@ -117,6 +117,7 @@ func TestEpisodeHandler_ListByPodcast_SummaryViewUsesShorterShowNotes(t *testing
 	var body episodeListTestResponse
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
 	require.Len(t, body.Data, 1)
+	assert.Equal(t, "1", body.Data[0]["episode_no"])
 
 	summaryShowNotes, ok := body.Data[0]["show_notes"].(string)
 	require.True(t, ok)
@@ -135,6 +136,33 @@ func TestEpisodeHandler_ListByPodcast_SummaryViewUsesShorterShowNotes(t *testing
 	fullShowNotes, ok := body.Data[0]["show_notes"].(string)
 	require.True(t, ok)
 	assert.Greater(t, len([]rune(fullShowNotes)), len([]rune(summaryShowNotes)))
+}
+
+func TestEpisodeHandler_HidesUnreliableStoredEpisodeNumber(t *testing.T) {
+	db := setupEpisodeTestDB(t)
+	router := setupEpisodeTestRouter()
+	podcast := createEpisodeHandlerPodcast(t, db)
+	episode := createEpisodeHandlerEpisode(
+		t,
+		db,
+		podcast.ID,
+		1,
+		time.Date(2026, 8, 6, 14, 9, 44, 0, time.UTC),
+	)
+	require.NoError(t, db.Model(&episode).Updates(map[string]interface{}{
+		"title":      "昆山杜克大学周忆粟：AI 来了，年轻人的梯子被抽掉了",
+		"episode_no": "1",
+	}).Error)
+
+	request, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/podcasts/%d/episodes?page=1&page_size=1", podcast.ID), nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	var body episodeListTestResponse
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	require.Len(t, body.Data, 1)
+	assert.Equal(t, "", body.Data[0]["episode_no"])
 }
 
 func TestEpisodeHandler_ListByPodcast_PaginatesWithStableOrder(t *testing.T) {

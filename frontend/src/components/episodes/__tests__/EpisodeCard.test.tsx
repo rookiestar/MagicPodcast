@@ -57,7 +57,7 @@ describe("EpisodeCard", () => {
       "href",
       "https://example.com/episode",
     );
-    expect(screen.getByText("E12")).toBeInTheDocument();
+    expect(screen.getByText("#12")).toBeInTheDocument();
     expect(screen.getByText("1小时1分1秒")).toBeInTheDocument();
     expect(screen.getByText("2.3 MB")).toBeInTheDocument();
     expect(screen.getByAltText("单集标题")).toHaveAttribute(

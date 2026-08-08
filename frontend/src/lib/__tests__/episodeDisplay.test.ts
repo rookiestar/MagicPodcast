@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  formatEpisodeDuration,
+	formatEpisodeNumber,
+	formatEpisodeDuration,
   formatEpisodeFileSize,
   getEpisodeCoverDisplay,
   getEpisodeCoverImage,
@@ -15,6 +16,14 @@ import {
 } from "../episodeDisplay";
 
 describe("episodeDisplay", () => {
+	it("formats reliable episode numbers with a hash prefix", () => {
+		expect(formatEpisodeNumber("246")).toBe("#246");
+		expect(formatEpisodeNumber("E246")).toBe("#246");
+		expect(formatEpisodeNumber("S10E24")).toBe("S10E24");
+		expect(formatEpisodeNumber("20240438")).toBeNull();
+		expect(formatEpisodeNumber("")).toBeNull();
+	});
+
   it("chooses the episode cover before the podcast cover", () => {
     expect(
       getEpisodeCoverImage(

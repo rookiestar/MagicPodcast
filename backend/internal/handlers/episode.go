@@ -9,6 +9,7 @@ import (
 
 	"magicpodcast/internal/cache"
 	"magicpodcast/internal/database"
+	episodelabel "magicpodcast/internal/episode"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
 
@@ -92,7 +93,7 @@ func episodeToResponse(episode models.Episode, previewLimit int) EpisodeResponse
 		ID:              episode.ID,
 		GUID:            episode.GUID,
 		PodcastID:       episode.PodcastID,
-		EpisodeNo:       episode.EpisodeNo,
+		EpisodeNo:       episodelabel.Normalize(episode.Title, episode.EpisodeNo),
 		Title:           episode.Title,
 		MediumURL:       episode.MediumURL,
 		ShowNotes:       episodeShowNotesPreview(episode.ShowNotes, previewLimit),

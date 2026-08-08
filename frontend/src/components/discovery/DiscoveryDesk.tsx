@@ -11,6 +11,7 @@ import {
 } from "@tabler/icons-react";
 import Link from "next/link";
 import PlainImage from "@/components/ui/PlainImage";
+import { formatEpisodeNumber } from "@/lib/episodeDisplay";
 import type {
   DiscoveryCandidate,
   DiscoveryPreReadKind,
@@ -58,6 +59,12 @@ const preReadPresentation: Record<
 };
 
 const emptyPreReads: DiscoveryCandidate["pre_reads"] = [];
+
+function formatCandidateEpisodeMeta(episodeNo: string, duration: number) {
+  return [formatEpisodeNumber(episodeNo), formatDuration(duration)]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 function formatDuration(seconds: number) {
   if (seconds <= 0) return "时长未知";
@@ -433,8 +440,10 @@ export default function DiscoveryDesk({
                         {candidateExcerpt(candidate)}
                       </span>
                       <span className="discovery-candidate-details">
-                        {candidate.episode_no || "单集"} ·{" "}
-                        {formatDuration(candidate.duration)}
+                        {formatCandidateEpisodeMeta(
+                          candidate.episode_no,
+                          candidate.duration,
+                        )}
                       </span>
                     </span>
                     <span
@@ -529,8 +538,10 @@ export default function DiscoveryDesk({
               <h2>{selected.episode_title}</h2>
               <div className="discovery-preview-meta">
                 <p>
-                  {selected.episode_no || "单集"} ·{" "}
-                  {formatDuration(selected.duration)} ·{" "}
+                  {formatCandidateEpisodeMeta(
+                    selected.episode_no,
+                    selected.duration,
+                  )}{" "}·{" "}
                   {formatCandidateDate(selected.candidate_time)}
                 </p>
                 {selected.original_url ? (
