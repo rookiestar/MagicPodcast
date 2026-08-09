@@ -38,6 +38,21 @@ describe("PageLayout background", () => {
     expect(container.firstElementChild).not.toHaveClass("bg-slate-50");
   });
 
+  it("inlines the editorial first-paint canvas before external CSS arrives", () => {
+    const { container } = render(
+      <PageLayout toolbar={false} rootClassName="editorial-page-shell">
+        <div>content</div>
+      </PageLayout>,
+    );
+
+    const fallback = container.querySelector(
+      "style[data-editorial-page-fallback]",
+    );
+    expect(fallback).toBeTruthy();
+    expect(fallback?.textContent).toContain("background-color: #f7f1e5");
+    expect(fallback?.textContent).toContain("min-height: 100vh");
+  });
+
   it("keeps the slate background when no custom root background is supplied", () => {
     const { container } = render(
       <PageLayout toolbar={false}>

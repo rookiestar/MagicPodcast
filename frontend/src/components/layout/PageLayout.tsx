@@ -6,6 +6,7 @@ import MobileBottomNav from "./MobileBottomNav";
 import PageToolbar, { PageToolbarProps } from "./PageToolbar";
 import SearchSidebar from "@/components/SearchSidebar";
 import { useSearch } from "@/contexts/SearchContext";
+import { EDITORIAL_FIRST_PAINT_CSS } from "./editorialFirstPaint";
 
 interface PageLayoutProps {
   children: React.ReactNode;
@@ -72,9 +73,17 @@ export default function PageLayout({
   // 移动端底部padding（为底部导航栏留空间）
   const paddingBottom = showBottomNav ? "60px" : "0px";
   const defaultRootBackground = rootClassName ? "" : "bg-slate-50";
+  const hasEditorialRoot = rootClassName
+    .split(/\s+/)
+    .includes("editorial-page-shell");
 
   return (
     <div className={`min-h-screen ${defaultRootBackground} ${rootClassName}`}>
+      {hasEditorialRoot && (
+        <style data-editorial-page-fallback>
+          {EDITORIAL_FIRST_PAINT_CSS}
+        </style>
+      )}
       {/* 全局导航栏（桌面端） */}
       {showNavbar && (
         <AppNavbar
