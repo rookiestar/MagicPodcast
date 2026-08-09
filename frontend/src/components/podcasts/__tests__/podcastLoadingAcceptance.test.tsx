@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PodcastCover from "@/components/podcasts/PodcastCover";
 import PodcastListResults from "@/components/podcasts/PodcastListResults";
+import { podcastCoverLoadQueue } from "@/lib/podcastCoverLoadQueue";
 import type { PodcastSortBy } from "@/lib/podcastListState";
 import type { Podcast } from "@/types";
 
@@ -167,6 +168,97 @@ describe("封面加载收敛验收 (#13/#14)", () => {
     expect(
       screen.getByRole("img", { name: "不可见节目" }),
     ).toBeInTheDocument();
+  });
+
+  it("预载封面进入真实视口时使用独立观察器提级", () => {
+    let isTargetVisible = false;
+    const observers: Array<{
+      callback: IntersectionObserverCallback;
+      options?: IntersectionObserverInit;
+    }> = [];
+    const updatePriority = vi.fn();
+
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(
+          callback: IntersectionObserverCallback,
+          options?: IntersectionObserverInit,
+        ) {
+          observers.push({ callback, options });
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function getBoundingClientRect() {
+        if (this.dataset.scrollRoot === "true") {
+          return {
+            top: 0,
+            right: 320,
+            bottom: 240,
+            left: 0,
+            width: 320,
+            height: 240,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+          };
+        }
+        const top = isTargetVisible ? 16 : 300;
+        return {
+          top,
+          right: 48,
+          bottom: top + 32,
+          left: 16,
+          width: 32,
+          height: 32,
+          x: 16,
+          y: top,
+          toJSON: () => ({}),
+        };
+      },
+    );
+    vi.spyOn(podcastCoverLoadQueue, "request").mockImplementation(
+      ({ onStart }) => {
+        onStart();
+        return {
+          updatePriority,
+          release: vi.fn(),
+        };
+      },
+    );
+
+    render(
+      <div
+        data-scroll-root="true"
+        style={{ height: 240, overflowY: "auto" }}
+      >
+        <PodcastCover
+          coverUrl="https://i.typlog.com/preloaded.png"
+          title="预载后进入视口"
+          index={20}
+          priority="low"
+          sizes="32px"
+        />
+      </div>,
+    );
+
+    const viewportObserver = observers.find(
+      ({ options }) => options?.rootMargin === "0px",
+    );
+    expect(viewportObserver).toBeDefined();
+
+    isTargetVisible = true;
+    act(() => {
+      viewportObserver?.callback(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      );
+    });
+
+    expect(updatePriority).toHaveBeenCalledWith("medium");
   });
 
   it("非首屏封面不会仅因索引靠前就立即请求", () => {

@@ -184,26 +184,43 @@ function PodcastCover({
       return isVisible;
     };
 
-    // 数据和滚动容器首次就绪时主动评估，避免嵌套滚动区要等一次滚动事件
-    // 才收到观察器回调。
-    const isInitiallyVisible = isWithinPreloadRange(container, root)
-      ? updateLoadIntent()
-      : false;
+    // 预载区和真实视口必须分别观察。元素一旦进入带 rootMargin 的预载区，
+    // 后续进入真实视口不会再次跨越同一观察器的阈值，无法可靠升级优先级。
+    const isInitiallyWithinPreloadRange = isWithinPreloadRange(container, root);
+    const isInitiallyVisible = isWithinViewport(container, root);
+    if (isInitiallyWithinPreloadRange) {
+      updateLoadIntent();
+    }
 
-    const observer = new IntersectionObserver(
+    const preloadObserver = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting && updateLoadIntent()) {
-          observer.disconnect();
+        if (entry.isIntersecting) {
+          updateLoadIntent();
+          preloadObserver.disconnect();
         }
       },
       { root, rootMargin: PRELOAD_MARGIN, threshold: [0, 0.01] },
     );
+    const viewportObserver = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && updateLoadIntent()) {
+          viewportObserver.disconnect();
+        }
+      },
+      { root, rootMargin: "0px", threshold: [0, 0.01] },
+    );
 
-    if (!isInitiallyVisible || !isWithinViewport(container, root)) {
-      observer.observe(container);
+    if (!isInitiallyWithinPreloadRange) {
+      preloadObserver.observe(container);
+    }
+    if (!isInitiallyVisible) {
+      viewportObserver.observe(container);
     }
 
-    return () => observer.disconnect();
+    return () => {
+      preloadObserver.disconnect();
+      viewportObserver.disconnect();
+    };
   }, [isHighPriority, priority]);
 
   // 切换封面时重置错误与重试状态，并取消尚未触发的重试，避免上一张的失败影响新封面。
