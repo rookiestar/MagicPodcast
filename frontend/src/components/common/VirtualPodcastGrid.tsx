@@ -27,6 +27,7 @@ interface VirtualPodcastGridProps {
 }
 
 const SERVER_FALLBACK_ITEM_LIMIT = 15;
+const SERVER_STARTED_COVER_LIMIT = 10;
 
 function getPodcastDetailUrl(
   podcastId: number,
@@ -98,6 +99,7 @@ const PodcastRow = memo(function PodcastRow({
               });
             }}
             priority={getPodcastGridCoverPriority(index, columns, isMobile)}
+            startCoverOnServer={index < SERVER_STARTED_COVER_LIMIT}
             isMobile={isMobile}
             isScrolling={isScrolling}
           />
@@ -246,6 +248,7 @@ export default function VirtualPodcastGrid({
                 columns,
                 isMobile,
               )}
+              startCoverOnServer={index < SERVER_STARTED_COVER_LIMIT}
               isMobile={isMobile}
               isScrolling={isScrolling}
             />

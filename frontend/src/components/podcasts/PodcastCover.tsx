@@ -37,6 +37,7 @@ interface PodcastCoverProps {
   sizes?: string;
   className?: string;
   fetchPriority?: "high" | "low" | "auto";
+  startOnServer?: boolean;
 }
 
 function getNearestScrollRoot(element: HTMLElement): Element | null {
@@ -132,12 +133,15 @@ function PodcastCover({
   sizes = DEFAULT_SIZES,
   className = "",
   fetchPriority,
+  startOnServer = false,
 }: PodcastCoverProps) {
+  const isHighPriority = priority === "high";
+  const isCriticalCover = isHighPriority || startOnServer;
   const [imageError, setImageError] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
-  const [shouldLoad, setShouldLoad] = useState(false);
-  const [imageStarted, setImageStarted] = useState(false);
+  const [shouldLoad, setShouldLoad] = useState(isCriticalCover);
+  const [imageStarted, setImageStarted] = useState(isCriticalCover);
   const [requestedPriority, setRequestedPriority] =
     useState<PodcastCoverLoadPriority>(() => getBaseLoadPriority(priority));
   const requestedPriorityRef = useRef(requestedPriority);
@@ -151,9 +155,6 @@ function PodcastCover({
 
   // 获取图片URL（优先使用代理URL）
   const imageUrl = coverUrl ? getProxiedImageUrl(coverUrl) || "" : "";
-
-  // 仅调用方确认的首屏项立即挂载；其余项目统一通过实际可见性评估加载。
-  const isHighPriority = priority === "high";
 
   // 自动为首屏图片设置高优先级（如果未显式指定）
   const resolvedFetchPriority =
@@ -232,8 +233,8 @@ function PodcastCover({
     setRetryCount(0);
     setImageError(false);
     setImageLoaded(false);
-    setImageStarted(false);
-  }, [coverUrl]);
+    setImageStarted(isCriticalCover);
+  }, [coverUrl, isCriticalCover]);
 
   // 瞬时拥塞（409/429/5xx）或网络抖动时有限退避重试，超过次数再降级为占位。
   const handleError = useCallback(() => {
@@ -309,6 +310,20 @@ function PodcastCover({
     }
   }, [handleError, imageUrl]);
 
+  // 首屏图片可能在 React 水合前已由浏览器完成；主动同步完成态，避免队列
+  // 将已缓存或已下载的服务器图片误判为长期占用。
+  useEffect(() => {
+    const image = containerRef.current?.querySelector("img");
+    if (
+      imageStarted &&
+      !imageLoaded &&
+      image?.complete &&
+      image.naturalWidth > 0
+    ) {
+      handleLoad();
+    }
+  }, [handleLoad, imageLoaded, imageStarted, retryCount]);
+
   // 合并容器类名
   const containerClass = className
     ? `${BASE_CONTAINER_CLASS} ${className}`
@@ -317,7 +332,12 @@ function PodcastCover({
   // 如果没有封面URL或加载失败，显示占位符。
   if (!imageUrl || imageError) {
     return (
-      <div className={containerClass} ref={containerRef}>
+      <div
+        className={containerClass}
+        ref={containerRef}
+        data-podcast-cover-priority={priority}
+        data-podcast-cover-critical={isHighPriority ? "true" : undefined}
+      >
         <div
           className="w-full h-full flex items-center justify-center"
           role="img"
@@ -335,7 +355,12 @@ function PodcastCover({
 
   if (!canUseNextImage(imageUrl)) {
     return (
-      <div className={containerClass} ref={containerRef}>
+      <div
+        className={containerClass}
+        ref={containerRef}
+        data-podcast-cover-priority={priority}
+        data-podcast-cover-critical={isHighPriority ? "true" : undefined}
+      >
         {imageStarted && (
           <PlainImage
             key={`${imageUrl}:${retryCount}`}
@@ -354,7 +379,12 @@ function PodcastCover({
 
   // 使用 Next.js Image 组件。
   return (
-    <div className={containerClass} ref={containerRef}>
+    <div
+      className={containerClass}
+      ref={containerRef}
+      data-podcast-cover-priority={priority}
+      data-podcast-cover-critical={isHighPriority ? "true" : undefined}
+    >
       {imageStarted && (
         <Image
           key={`${imageUrl}:${retryCount}`}
@@ -385,7 +415,8 @@ function arePropsEqual(
     prevProps.priority === nextProps.priority &&
     prevProps.sizes === nextProps.sizes &&
     prevProps.className === nextProps.className &&
-    prevProps.fetchPriority === nextProps.fetchPriority
+    prevProps.fetchPriority === nextProps.fetchPriority &&
+    prevProps.startOnServer === nextProps.startOnServer
   );
 }
 

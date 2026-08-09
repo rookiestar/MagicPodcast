@@ -21,6 +21,7 @@ interface ResponsivePodcastCardProps {
   isMobile: boolean;
   isScrolling?: boolean;
   onNavigate?: () => void;
+  startCoverOnServer?: boolean;
 }
 
 export default function ResponsivePodcastCard({
@@ -31,6 +32,7 @@ export default function ResponsivePodcastCard({
   isMobile,
   isScrolling = false,
   onNavigate,
+  startCoverOnServer = false,
 }: ResponsivePodcastCardProps) {
   const displayedDescription = getPodcastCardDescription(
     podcast.description,
@@ -58,6 +60,7 @@ export default function ResponsivePodcastCard({
               title={podcast.title}
               index={index}
               priority={priority}
+              startOnServer={startCoverOnServer}
               sizes="82px"
             />
             {isNew && (
@@ -107,6 +110,7 @@ export default function ResponsivePodcastCard({
             title={podcast.title}
             index={index}
             priority={priority}
+            startOnServer={startCoverOnServer}
             sizes="(max-width: 767px) 82px, (max-width: 1023px) calc(33.333vw - 24px), (max-width: 1279px) calc(25vw - 24px), 228px"
             className="!absolute !inset-0 !aspect-none"
           />

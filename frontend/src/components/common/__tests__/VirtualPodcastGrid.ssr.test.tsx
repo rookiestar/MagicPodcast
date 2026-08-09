@@ -19,7 +19,7 @@ function podcast(id: number): Podcast {
     title: `服务端播客 ${id}`,
     description: "无需等待客户端脚本的首批内容",
     author: "作者",
-    cover_url: "",
+    cover_url: `https://i.typlog.com/server-cover-${id}.png`,
     episode_count: 1,
     newest_episode_date: "2026-08-09T00:00:00Z",
     created_at: "2026-08-09T00:00:00Z",
@@ -46,5 +46,24 @@ describe("VirtualPodcastGrid server fallback", () => {
     expect(html).toContain('href="/podcasts/1?sort_by=recent_update"');
     expect(html).toContain("服务端播客 10");
     expect(html).toContain("podcast-library-card is-mobile");
+  });
+
+  it("puts the bounded first cover batch in HTML with only the first row eager", () => {
+    const html = renderToString(
+      <VirtualPodcastGrid
+        podcasts={Array.from({ length: 15 }, (_, index) =>
+          podcast(index + 1),
+        )}
+        columns={5}
+        isMobile={false}
+        listStateKey="podcasts"
+        sortBy="recent_update"
+        selectedTagIds={[]}
+      />,
+    );
+
+    expect(html.match(/<img/g)).toHaveLength(10);
+    expect(html.match(/loading="eager"/g)).toHaveLength(5);
+    expect(html.match(/loading="lazy"/g)).toHaveLength(5);
   });
 });

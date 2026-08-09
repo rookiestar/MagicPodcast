@@ -84,4 +84,30 @@ describe("podcastCoverLoadQueue", () => {
 
     secondMount.release();
   });
+
+  it("records a server-started cover that completes while still queued", () => {
+    const handles = Array.from({ length: 5 }, (_, index) =>
+      podcastCoverLoadQueue.request({
+        src: `server-cover-${index}`,
+        priority: "high",
+        onStart: vi.fn(),
+      }),
+    );
+
+    expect(podcastCoverLoadQueue.getStatus()).toMatchObject({
+      active: 4,
+      queued: 1,
+      loaded: 0,
+    });
+
+    podcastCoverLoadQueue.complete("server-cover-4");
+
+    expect(podcastCoverLoadQueue.getStatus()).toMatchObject({
+      active: 4,
+      queued: 0,
+      loaded: 1,
+    });
+
+    handles.forEach((handle) => handle.release());
+  });
 });

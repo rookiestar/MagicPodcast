@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PodcastCover from "@/components/podcasts/PodcastCover";
 import PodcastListResults from "@/components/podcasts/PodcastListResults";
@@ -17,6 +18,39 @@ afterEach(() => {
 });
 
 describe("封面加载收敛验收 (#13/#14)", () => {
+  it("首屏高优先级封面直接存在于服务器 HTML，不等待水合", () => {
+    const html = renderToStaticMarkup(
+      <PodcastCover
+        coverUrl="https://i.typlog.com/server-cover.png"
+        title="服务器首屏节目"
+        index={0}
+        priority="high"
+        sizes="228px"
+      />,
+    );
+
+    expect(html).toContain("<img");
+    expect(html).toContain('loading="eager"');
+    expect(html).toContain('fetchpriority="high"');
+  });
+
+  it("服务器首批的非头部封面也进入 HTML，但保留浏览器懒加载优先级", () => {
+    const html = renderToStaticMarkup(
+      <PodcastCover
+        coverUrl="https://i.typlog.com/server-lazy-cover.png"
+        title="服务器首批后排节目"
+        index={7}
+        priority="low"
+        startOnServer
+        sizes="228px"
+      />,
+    );
+
+    expect(html).toContain("<img");
+    expect(html).toContain('loading="lazy"');
+    expect(html).toContain('fetchpriority="auto"');
+  });
+
   it("32px 代理封面交给响应式优化器生成尺寸候选", () => {
     render(
       <PodcastCover

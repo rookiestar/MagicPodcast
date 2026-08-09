@@ -25,16 +25,16 @@
     --ring: 222.2 84% 4.9%;
     --radius: 0.5rem;
 
-    /* Script-aware type system. Latin web fonts come first and fall through
-       to the CJK face because their bundled files only contain Latin glyphs. */
-    --font-latin-display: "Newsreader Variable", Georgia, serif;
-    --font-cjk-display: "LXGW WenKai Screen", "Songti SC", "STKaiti", serif;
-    --font-serif: "Newsreader Variable", "LXGW WenKai Screen", "Songti SC",
-      "STKaiti", serif;
-    --font-sans: "IBM Plex Sans Variable", -apple-system, BlinkMacSystemFont,
-      "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
-      Consolas, monospace;
+    /* First paint uses metric-compatible system faces. Web fonts and the
+       decorative texture activate after critical covers settle. */
+    --font-latin-display: Georgia, serif;
+    --font-cjk-display: "Songti SC", "STKaiti", serif;
+    --font-serif: Georgia, "Songti SC", "STKaiti", serif;
+    --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+      monospace;
+    --editorial-paper-texture: none;
     --font-body: var(--font-sans);
     --font-display: var(--font-serif);
     --font-display-bold: var(--font-serif);
@@ -57,6 +57,19 @@
     --type-label-leading: 1.4;
     --type-meta-size: 11px;
     --type-meta-leading: 1.4;
+  }
+
+  :root.editorial-assets-ready {
+    /* Latin web fonts come first and fall through to the CJK face because
+       their bundled files only contain Latin glyphs. */
+    --font-latin-display: "Newsreader Variable", Georgia, serif;
+    --font-cjk-display: "LXGW WenKai Screen", "Songti SC", "STKaiti", serif;
+    --font-serif: "Newsreader Variable", "LXGW WenKai Screen", "Songti SC",
+      "STKaiti", serif;
+    --font-sans: "IBM Plex Sans Variable", -apple-system, BlinkMacSystemFont,
+      "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+      Consolas, monospace;
   }
 
   .dark {
@@ -87,7 +100,7 @@
   .editorial-page-shell {
     color: #171717;
     background-color: #f7f1e5;
-    background-image: url("../assets/warm-paper-grid-texture-v1.jpg");
+    background-image: var(--editorial-paper-texture);
     background-repeat: repeat;
     background-size: 627px 627px;
   }
@@ -95,7 +108,7 @@
   .editorial-page-shell .editorial-page-toolbar {
     border-bottom: 0;
     background-color: #f7f1e5;
-    background-image: url("../assets/warm-paper-grid-texture-v1.jpg");
+    background-image: var(--editorial-paper-texture);
     background-repeat: repeat;
     background-size: 627px 627px;
     box-shadow: none;
@@ -343,7 +356,7 @@
     border-top: 2px solid #171717;
     color: #171717;
     background-color: #f7f1e5;
-    background-image: url("../assets/warm-paper-grid-texture-v1.jpg");
+    background-image: var(--editorial-paper-texture);
     background-size: 627px 627px;
   }
 
@@ -926,7 +939,7 @@
     border-left: 1px solid #171717;
     color: #171717;
     background-color: #f7f1e5;
-    background-image: url("../assets/warm-paper-grid-texture-v1.jpg");
+    background-image: var(--editorial-paper-texture);
     background-repeat: repeat;
     background-size: 627px 627px;
     box-shadow: -12px 0 0 rgba(23, 23, 23, 0.08);
@@ -1727,7 +1740,7 @@
     min-height: 100vh;
     color: #171717;
     background-color: #f7f1e5;
-    background-image: url("../assets/warm-paper-grid-texture-v1.jpg");
+    background-image: var(--editorial-paper-texture);
     background-size: 640px 640px;
   }
 
@@ -3476,7 +3489,7 @@ textarea.editorial-field {
   border-radius: 2px;
   color: #171717;
   background-color: #f7f1e5;
-  background-image: url("../assets/warm-paper-grid-texture-v1.jpg");
+  background-image: var(--editorial-paper-texture);
   background-repeat: repeat;
   background-size: 627px 627px;
 }
@@ -3521,7 +3534,7 @@ textarea.editorial-field {
 .editorial-loading {
   color: #171717;
   background-color: #f7f1e5;
-  background-image: url("../assets/warm-paper-grid-texture-v1.jpg");
+  background-image: var(--editorial-paper-texture);
   background-repeat: repeat;
   background-size: 627px 627px;
 }
@@ -3760,7 +3773,7 @@ textarea.editorial-field {
   font-weight: var(--font-display-weight);
   letter-spacing: 0;
   background-color: #f7f1e5;
-  background-image: url("../assets/warm-paper-grid-texture-v1.jpg");
+  background-image: var(--editorial-paper-texture);
   background-repeat: repeat;
   background-size: 627px 627px;
 }
@@ -4430,7 +4443,7 @@ textarea.editorial-field {
 .workflow-form-modal > div,
 .report-modal > div {
   background-color: #f7f1e5;
-  background-image: url("../assets/warm-paper-grid-texture-v1.jpg");
+  background-image: var(--editorial-paper-texture);
   background-repeat: repeat;
   background-size: 627px 627px;
   border: 1px solid #171717;

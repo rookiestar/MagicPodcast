@@ -94,7 +94,16 @@ class PodcastCoverLoadQueue {
 
   complete(src: string) {
     const entry = this.entries.get(src);
-    if (!entry || entry.status !== "loading") {
+    if (!entry || entry.status === "loaded") {
+      return;
+    }
+
+    if (entry.status === "queued") {
+      this.queuedEntries = this.queuedEntries.filter(
+        (queuedEntry) => queuedEntry !== entry,
+      );
+      entry.status = "loaded";
+      this.loadedSources.add(src);
       return;
     }
 
