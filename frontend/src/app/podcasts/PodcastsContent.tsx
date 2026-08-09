@@ -26,7 +26,9 @@ import {
   normalizePodcastTagIds,
   PODCAST_SORT_OPTIONS,
   type PodcastSortBy,
+  type PodcastListPage,
 } from "@/lib/podcastListState";
+import type { Podcast } from "@/types";
 import {
   clearPodcastListScrollSnapshot,
   getPodcastListScrollRestoreAction,
@@ -36,7 +38,13 @@ import {
   type PodcastListScrollSnapshot,
 } from "@/lib/podcastListScrollState";
 
-export default function PodcastsContent() {
+interface PodcastsContentProps {
+  initialPage?: PodcastListPage<Podcast>;
+}
+
+export default function PodcastsContent({
+  initialPage,
+}: PodcastsContentProps) {
   const [showAllTags, setShowAllTags] = useState(false);
   const pendingScrollRestoreRef = useRef<PodcastListScrollSnapshot | null>(null);
   const lastRestoreLoadRequestCountRef = useRef<number | null>(null);
@@ -82,6 +90,10 @@ export default function PodcastsContent() {
     page_size: pageSize,
     sort_by: sortBy,
     tag_id: selectedTagIds.length > 0 ? selectedTagIds : undefined,
+    initialPage:
+      sortBy === "recent_update" && selectedTagIds.length === 0
+        ? initialPage
+        : undefined,
   });
 
   useEffect(() => {

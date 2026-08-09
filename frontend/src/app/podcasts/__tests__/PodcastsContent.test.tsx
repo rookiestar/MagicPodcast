@@ -4,9 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   mockUseBreakpoint,
   mockUsePodcastListInfinite,
+  mockUseUrlState,
 } = vi.hoisted(() => ({
   mockUseBreakpoint: vi.fn(),
   mockUsePodcastListInfinite: vi.fn(),
+  mockUseUrlState: vi.fn(),
 }));
 
 vi.mock("@/components/layout/PageLayout", () => ({
@@ -57,7 +59,7 @@ vi.mock("@/hooks/usePodcastSWR", () => ({
 }));
 
 vi.mock("@/hooks/useUrlState", () => ({
-  useUrlState: (_key: string, initialValue: unknown) => [initialValue, vi.fn()],
+  useUrlState: mockUseUrlState,
 }));
 
 vi.mock("@/components/podcasts/PodcastListResults", () => ({
@@ -106,6 +108,9 @@ describe("podcast list page navigation", () => {
       columns: 3,
       isReady: true,
     });
+    mockUseUrlState.mockImplementation(
+      (_key: string, initialValue: unknown) => [initialValue, vi.fn()],
+    );
     mockUsePodcastListInfinite.mockReturnValue({
       podcasts: [],
       totalCount: 0,
@@ -145,6 +150,38 @@ describe("podcast list page navigation", () => {
         page_size: 10,
         sort_by: "recent_update",
       }),
+    );
+  });
+
+  it("forwards the server page only to the default unfiltered list", () => {
+    const initialPage = {
+      podcasts: [],
+      pagination: {
+        page: 1,
+        page_size: 10,
+        total: 0,
+        total_pages: 0,
+      },
+    };
+
+    render(<PodcastsContent initialPage={initialPage} />);
+
+    expect(mockUsePodcastListInfinite).toHaveBeenCalledWith(
+      expect.objectContaining({ initialPage }),
+    );
+
+    mockUseUrlState.mockImplementation(
+      (key: string, initialValue: unknown) => [
+        key === "sort_by" ? "title" : initialValue,
+        vi.fn(),
+      ],
+    );
+    mockUsePodcastListInfinite.mockClear();
+
+    render(<PodcastsContent initialPage={initialPage} />);
+
+    expect(mockUsePodcastListInfinite).toHaveBeenCalledWith(
+      expect.objectContaining({ initialPage: undefined, sort_by: "title" }),
     );
   });
 });

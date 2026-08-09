@@ -1365,6 +1365,10 @@
       padding: 12px;
     }
 
+    .podcast-library-card.is-mobile .podcast-library-card-footer {
+      display: none;
+    }
+
     .podcast-library-card-copy h3 {
       font-size: 18px;
     }

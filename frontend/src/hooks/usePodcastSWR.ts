@@ -13,6 +13,7 @@ import {
   getUniquePodcastsFromPages,
   parsePodcastListApiPayload,
   shouldStopPodcastListPagination,
+  type PodcastListPage,
 } from "@/lib/podcastListState";
 import { swrConfig, cacheStrategies } from "@/lib/swrConfig";
 import type { Podcast, Tag } from "@/types";
@@ -46,6 +47,7 @@ interface UsePodcastListParams {
   tag_id?: number[];
   search?: string;
   view?: "summary" | "full";
+  initialPage?: PodcastListPage<Podcast>;
 }
 
 // 分页请求必须有明确终点，避免网络挂起时页尾永久停留在“加载更多…”。
@@ -134,8 +136,11 @@ const podcastListFetcher = async (
  * 使用 SWR Infinite 实现分页缓存和自动去重
  */
 export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
-  type PageData = { podcasts: Podcast[]; pagination: PodcastListApiResponse['pagination'] };
-  const { enabled = true, ...requestParams } = params;
+  type PageData = PodcastListPage<Podcast>;
+  const { enabled = true, initialPage, ...requestParams } = params;
+  const shouldRefreshInitialPage =
+    initialPage !== undefined &&
+    initialPage.pagination.page_size !== requestParams.page_size;
   const requestScopeKey = `${enabled ? "enabled" : "disabled"}:${buildPodcastListPath({
     view: "summary",
     ...requestParams,
@@ -184,6 +189,9 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
     {
       ...swrConfig,
       ...cacheStrategies.podcasts,
+      fallbackData: initialPage ? [initialPage] : undefined,
+      revalidateOnMount:
+        initialPage === undefined ? undefined : shouldRefreshInitialPage,
       revalidateFirstPage: false, // 不重新验证第一页
       revalidateAll: false, // 不重新验证所有页
       persistSize: false, // 不持久化 size
@@ -212,12 +220,21 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
     if (loadMoreLockRef.current || !hasMore) {
       return;
     }
+    if (shouldRefreshInitialPage && isValidating) {
+      return;
+    }
     if (size > 1 && isValidating) {
       return;
     }
     loadMoreLockRef.current = true;
     setSize((currentSize) => currentSize + 1);
-  }, [hasMore, isValidating, setSize, size]);
+  }, [
+    hasMore,
+    isValidating,
+    setSize,
+    shouldRefreshInitialPage,
+    size,
+  ]);
 
   // 失败页重试不清空已有页面，也不把分页回退到第一页。
   const retryLastPage = useCallback(() => {
@@ -236,7 +253,7 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
     totalPages,
     currentPage: size,
     hasMore,
-    isLoading: isLoading && size === 1,
+    isLoading: isLoading && size === 1 && podcasts.length === 0,
     isLoadingMore,
     isError: !!error,
     error,

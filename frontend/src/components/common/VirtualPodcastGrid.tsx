@@ -26,6 +26,24 @@ interface VirtualPodcastGridProps {
   isLoading?: boolean;
 }
 
+const SERVER_FALLBACK_ITEM_LIMIT = 15;
+
+function getPodcastDetailUrl(
+  podcastId: number,
+  sortBy: string,
+  selectedTagIds: number[],
+) {
+  const params = new URLSearchParams();
+  if (sortBy) {
+    params.append("sort_by", sortBy);
+  }
+  if (selectedTagIds.length > 0) {
+    params.append("tag_ids", selectedTagIds.join(","));
+  }
+  const queryString = params.toString();
+  return `/podcasts/${podcastId}${queryString ? `?${queryString}` : ""}`;
+}
+
 // 单行渲染组件
 const PodcastRow = memo(function PodcastRow({
   rowPodcasts,
@@ -60,15 +78,11 @@ const PodcastRow = memo(function PodcastRow({
     >
       {validPodcasts.map((podcast, colIndex) => {
         const index = startIndex + colIndex;
-        const params = new URLSearchParams();
-        if (sortBy) {
-          params.append("sort_by", sortBy);
-        }
-        if (selectedTagIds.length > 0) {
-          params.append("tag_ids", selectedTagIds.join(","));
-        }
-        const queryString = params.toString();
-        const detailUrl = `/podcasts/${podcast.id}${queryString ? `?${queryString}` : ""}`;
+        const detailUrl = getPodcastDetailUrl(
+          podcast.id,
+          sortBy,
+          selectedTagIds,
+        );
 
         return (
           <ResponsivePodcastCard
@@ -196,6 +210,48 @@ export default function VirtualPodcastGrid({
 
   if (podcasts.length === 0) {
     return null;
+  }
+
+  // Window virtualization has no measured rows during server rendering and
+  // the first client render. Keep the first batch as real responsive cards so
+  // useful content does not wait for hydration; virtualization replaces this
+  // bounded fallback as soon as measurements are available.
+  if (virtualRows.length === 0) {
+    return (
+      <div
+        ref={listRef}
+        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-4 lg:gap-6"
+      >
+        {podcasts
+          .slice(0, SERVER_FALLBACK_ITEM_LIMIT)
+          .map((podcast, index) => (
+            <ResponsivePodcastCard
+              key={podcast.id}
+              podcast={podcast}
+              detailUrl={getPodcastDetailUrl(
+                podcast.id,
+                sortBy,
+                selectedTagIds,
+              )}
+              index={index}
+              onNavigate={() => {
+                savePodcastListScrollSnapshot({
+                  stateKey: listStateKey,
+                  scrollY: window.scrollY,
+                  podcastIndex: index,
+                });
+              }}
+              priority={getPodcastGridCoverPriority(
+                index,
+                columns,
+                isMobile,
+              )}
+              isMobile={isMobile}
+              isScrolling={isScrolling}
+            />
+          ))}
+      </div>
+    );
   }
 
   return (

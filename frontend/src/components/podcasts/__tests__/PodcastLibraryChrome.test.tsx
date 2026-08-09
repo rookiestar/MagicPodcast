@@ -52,7 +52,8 @@ describe("podcast library chrome", () => {
     expect(screen.queryByText("新")).not.toBeInTheDocument();
     expect(screen.getByRole("img", { name: "测试节目" })).toHaveAttribute(
       "sizes",
-      "(max-width: 767px) calc(50vw - 24px), (max-width: 1023px) calc(33.333vw - 24px), (max-width: 1279px) calc(25vw - 24px), 228px",
+      "(max-width: 767px) 82px, (max-width: 1023px) calc(33.333vw - 24px), (max-width: 1279px) calc(25vw - 24px), 228px",
     );
+    expect(screen.getByRole("article")).toHaveClass("is-mobile");
   });
 });

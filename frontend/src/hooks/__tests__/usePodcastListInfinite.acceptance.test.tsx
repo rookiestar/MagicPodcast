@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SWRConfig } from "swr";
 import { createElement } from "react";
 import { usePodcastListInfinite } from "@/hooks/usePodcastSWR";
+import type { Podcast } from "@/types";
 
 /**
  * 播客列表请求与失败恢复验收（#65）。
@@ -42,6 +43,33 @@ function pageResponse(page: number, pageSize: number): Response {
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
+}
+
+function initialPage(pageSize = 10) {
+  return {
+    podcasts: Array.from<unknown, Podcast>(
+      { length: pageSize },
+      (_, index) => ({
+        id: index + 1,
+        xyz_id: `xyz-${index + 1}`,
+        title: `播客 ${index + 1}`,
+        description: "",
+        author: "作者",
+        cover_url: "",
+        episode_count: 1,
+        newest_episode_date: "2026-08-09T00:00:00Z",
+        created_at: "2026-08-09T00:00:00Z",
+        is_subscribed: true,
+        is_dead: false,
+      }),
+    ),
+    pagination: {
+      page: 1,
+      page_size: pageSize,
+      total: TOTAL,
+      total_pages: Math.ceil(TOTAL / pageSize),
+    },
+  };
 }
 
 function errorResponse(status: number, message: string): Response {
@@ -108,6 +136,78 @@ afterEach(() => {
 });
 
 describe("播客无限滚动加载性能验收 (#65)", () => {
+  it("移动端直接复用服务端 10 条，且不重复请求第一页", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderInfiniteHook({
+      page_size: 10,
+      initialPage: initialPage(10),
+    });
+
+    expect(result.current.podcasts).toHaveLength(10);
+    expect(result.current.isLoading).toBe(false);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("桌面端先显示服务端 10 条，再用一次第一页请求补齐到 15 条", async () => {
+    let resolveFirstPage: ((response: Response) => void) | undefined;
+    const calls: string[] = [];
+    const fetchMock = vi.fn((url: string | URL) => {
+      calls.push(typeof url === "string" ? url : url.toString());
+      return new Promise<Response>((resolve) => {
+        resolveFirstPage = resolve;
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderInfiniteHook({
+      page_size: 15,
+      initialPage: initialPage(10),
+    });
+
+    expect(result.current.podcasts).toHaveLength(10);
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]).toContain("page=1");
+    expect(calls[0]).toContain("page_size=15");
+
+    act(() => {
+      result.current.loadMore();
+      result.current.loadMore();
+    });
+    expect(calls.filter((url) => url.includes("page=2"))).toHaveLength(0);
+
+    act(() => resolveFirstPage?.(pageResponse(1, 15)));
+    await waitFor(() => expect(result.current.podcasts).toHaveLength(15));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("桌面补齐失败时保留服务端 10 条并允许重试", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(errorResponse(500, "服务器错误"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderInfiniteHook({
+      page_size: 15,
+      initialPage: initialPage(10),
+    });
+
+    expect(result.current.podcasts).toHaveLength(10);
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(result.current.podcasts).toHaveLength(10);
+    expect(result.current.error).toMatchObject({
+      message: "播客列表请求失败（HTTP 500）",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("响应式页大小确定前不请求，确定后仅请求一次首屏", async () => {
     const controller: FetchController = {
       calls: [],
