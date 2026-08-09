@@ -799,7 +799,7 @@ export default function WorkflowFormModal({
         {/* Header */}
         <div className="border-b border-slate-200 dark:border-slate-700 p-4 sm:p-6 shrink-0">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-50">
+            <h2 className="text-xl sm:text-2xl font-semibold text-slate-900 dark:text-slate-50">
               {workflow ? "编辑工作流" : "创建工作流"} ({step}/4)
             </h2>
             <button
@@ -1239,7 +1239,7 @@ export default function WorkflowFormModal({
                           {/* 移动端底部操作栏 - 显示已选数量和批量操作 */}
                           <div className="sm:hidden sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 p-3 flex items-center gap-3 -mx-6 -mb-6 mt-4 z-10">
                             <span className="text-sm text-slate-600 dark:text-slate-400 flex-shrink-0">
-                              已选 <span className="font-bold text-green-600 dark:text-green-400">{candidatePodcastIds.length}</span>
+                              已选 <span className="font-semibold text-green-600 dark:text-green-400">{candidatePodcastIds.length}</span>
                             </span>
                             <div className="flex-1 flex gap-2">
                               {filteredPodcasts.length > 0 && !isLoadingPodcasts && (
@@ -1366,10 +1366,10 @@ export default function WorkflowFormModal({
                                     className="group w-11 h-11 flex flex-col items-center justify-center text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 mx-auto border-2 border-blue-200 dark:border-blue-800 transition-all duration-200 hover:scale-105"
                                     title="添加所有搜索结果"
                                   >
-                                    <span className="text-base font-bold group-hover:translate-x-0.5 transition-transform">
+                                    <span className="text-base font-semibold group-hover:translate-x-0.5 transition-transform">
                                       ≫
                                     </span>
-                                    <span className="text-[10px] leading-tight mt-0.5">
+                                    <span className="text-[11px] leading-tight mt-0.5">
                                       全部添加
                                     </span>
                                   </button>
@@ -1380,10 +1380,10 @@ export default function WorkflowFormModal({
                                   className="group w-11 h-11 flex flex-col items-center justify-center text-xs bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 mx-auto border-2 border-red-200 dark:border-red-800 transition-all duration-200 hover:scale-105"
                                   title="清空备选列表"
                                 >
-                                  <span className="text-sm font-bold group-hover:rotate-90 transition-transform">
+                                  <span className="text-sm font-semibold group-hover:rotate-90 transition-transform">
                                     ✕
                                   </span>
-                                  <span className="text-[10px] leading-tight mt-0.5">
+                                  <span className="text-[11px] leading-tight mt-0.5">
                                     清空
                                   </span>
                                 </button>

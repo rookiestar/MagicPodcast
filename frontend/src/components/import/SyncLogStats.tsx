@@ -11,7 +11,7 @@ function StatCard({
 }) {
   return (
     <div className="rounded-lg bg-slate-50 p-4 dark:bg-slate-900">
-      <p className={`text-2xl font-bold ${className}`}>{value}</p>
+      <p className={`text-2xl font-mono font-semibold ${className}`}>{value}</p>
       <p className="text-sm text-slate-600 dark:text-slate-400">{label}</p>
     </div>
   );

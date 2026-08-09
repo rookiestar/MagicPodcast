@@ -99,7 +99,7 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
           <div>
-            <h2 className="text-xl font-bold text-slate-900 dark:text-slate-50">
+            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-50">
               执行报告
             </h2>
             {report && (

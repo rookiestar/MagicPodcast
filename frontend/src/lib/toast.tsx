@@ -94,7 +94,7 @@ function ToastContainer() {
           key={toast.id}
           className={getToastStyles(toast.type) + " pointer-events-auto"}
         >
-          <span className="text-lg font-bold">{getIcon(toast.type)}</span>
+          <span className="text-lg font-semibold">{getIcon(toast.type)}</span>
           <span className="flex-1">{toast.message}</span>
           <button
             onClick={() => removeToast(toast.id)}

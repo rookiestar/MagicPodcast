@@ -827,7 +827,7 @@ function WorkflowDetailContent() {
                   </h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
-                      <p className="text-xl font-bold text-slate-900 dark:text-slate-50">
+                      <p className="text-xl font-mono font-semibold text-slate-900 dark:text-slate-50">
                         {workflow.stats.total_jobs}
                       </p>
                       <p className="text-sm text-slate-600 dark:text-slate-400">
@@ -835,7 +835,7 @@ function WorkflowDetailContent() {
                       </p>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
-                      <p className="text-xl font-bold text-slate-900 dark:text-slate-50">
+                      <p className="text-xl font-mono font-semibold text-slate-900 dark:text-slate-50">
                         {workflow.stats.total_jobs > 0
                           ? workflow.stats.total_episodes.toFixed(1)
                           : "0.0"}

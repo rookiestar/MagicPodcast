@@ -20,6 +20,7 @@ Agent 治理以根目录 [../AGENTS.md](../AGENTS.md) 为唯一权威合同；[.
 | 性能基线 | [performance/BASELINE_2026-05-31.md](performance/BASELINE_2026-05-31.md) | 最新页面、接口和后端并发基线 |
 | 性能专项方法 | [optimization/PERFORMANCE_PLAYBOOK.md](optimization/PERFORMANCE_PLAYBOOK.md) | 性能专项的体验不变量、根因分析、方案顺序和生产收口 |
 | 性能验收模板 | [optimization/PERFORMANCE_ACCEPTANCE_TEMPLATE.md](optimization/PERFORMANCE_ACCEPTANCE_TEMPLATE.md) | 正常、慢、失败、首次访问与冷暖态验收记录 |
+| 播客列表性能专项 | [optimization/PODCASTS_PERFORMANCE_AND_SHANGHAI_RELAY_2026-08-09.md](optimization/PODCASTS_PERFORMANCE_AND_SHANGHAI_RELAY_2026-08-09.md) | `/podcasts` 应用优化、公网瓶颈、上海私网双路径、运维与回退 |
 | 基线索引 | [BASELINE.md](BASELINE.md) | 当前基线入口和历史基线归档位置 |
 | 部署运维 | [DEPLOYMENT.md](DEPLOYMENT.md) | 启动、部署、服务管理 |
 | 环境配置 | [ENV_SETUP.md](ENV_SETUP.md) | 前后端环境变量说明 |
