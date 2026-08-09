@@ -5,6 +5,7 @@ import "@fontsource-variable/ibm-plex-sans/wght.css";
 import "@fontsource/ibm-plex-mono/latin-500.css";
 import "@fontsource/ibm-plex-mono/latin-600.css";
 import "./globals.css";
+import DeferredEditorialAssets from "@/components/layout/DeferredEditorialAssets";
 import { ToastProvider } from "@/lib/toast";
 import { SearchProvider } from "@/contexts/SearchContext";
 
@@ -36,6 +37,7 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body>
+        <DeferredEditorialAssets />
         <SearchProvider>
           <ToastProvider>{children}</ToastProvider>
         </SearchProvider>

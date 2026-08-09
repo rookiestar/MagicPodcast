@@ -18,7 +18,10 @@ START_SCRIPT="${MAGICPODCAST_START_SCRIPT:-$PROJECT_DIR/scripts/start.sh}"
 STOP_SCRIPT="${MAGICPODCAST_STOP_SCRIPT:-$PROJECT_DIR/scripts/stop.sh}"
 GO_BIN="${MAGICPODCAST_GO_BIN:-go}"
 NPM_BIN="${MAGICPODCAST_NPM_BIN:-npm}"
+NODE_BIN="${MAGICPODCAST_NODE_BIN:-node}"
 TEST_MODE="${MAGICPODCAST_RELEASE_TEST_MODE:-false}"
+IMAGE_OPTIMIZER_PATH="/_next/image.webp"
+IMAGE_OPTIMIZER_VERIFIER="$PROJECT_DIR/scripts/verify-image-optimizer-build.mjs"
 
 for bin_dir in /opt/homebrew/bin /usr/local/bin; do
   if [ -d "$bin_dir" ]; then
@@ -83,8 +86,13 @@ database_schema_version() {
 restore_frontend_tsconfig() {
   local stage="$1"
   local backup="$stage/tsconfig.before-build"
-  [ -f "$backup" ] || return 0
-  mv "$backup" "$FRONTEND_DIR/tsconfig.json"
+  local next_env_backup="$stage/next-env.before-build"
+  if [ -f "$backup" ]; then
+    mv "$backup" "$FRONTEND_DIR/tsconfig.json"
+  fi
+  if [ -f "$next_env_backup" ]; then
+    mv "$next_env_backup" "$FRONTEND_DIR/next-env.d.ts"
+  fi
 }
 
 write_manifest() {
@@ -247,12 +255,28 @@ build_release() {
     error "无法保存前端构建配置；当前运行版本未停止"
     return 1
   fi
+  if ! cp "$FRONTEND_DIR/next-env.d.ts" "$stage/next-env.before-build"; then
+    log ERROR "frontend next-env backup failed release=$release_id"
+    error "无法保存前端类型环境配置；当前运行版本未停止"
+    restore_frontend_tsconfig "$stage" || true
+    return 1
+  fi
   rm -rf "$frontend_dist"
-  if ! (cd "$FRONTEND_DIR" && MAGICPODCAST_NEXT_DIST_DIR="$frontend_dist_name" "$NPM_BIN" run build > "$stage/frontend-build.log" 2>&1); then
+  if ! (cd "$FRONTEND_DIR" && \
+    MAGICPODCAST_NEXT_DIST_DIR="$frontend_dist_name" \
+    NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH="$IMAGE_OPTIMIZER_PATH" \
+    "$NPM_BIN" run build > "$stage/frontend-build.log" 2>&1); then
     log ERROR "frontend build failed release=$release_id"
     restore_frontend_tsconfig "$stage" || true
     rm -rf "$frontend_dist"
     error "前端构建失败；当前运行版本未停止"
+    return 1
+  fi
+  if ! "$NODE_BIN" "$IMAGE_OPTIMIZER_VERIFIER" "$frontend_dist" "$IMAGE_OPTIMIZER_PATH" >> "$stage/frontend-build.log" 2>&1; then
+    log ERROR "frontend image optimizer path verification failed release=$release_id"
+    restore_frontend_tsconfig "$stage" || true
+    rm -rf "$frontend_dist"
+    error "前端图片优化路径校验失败；当前运行版本未停止"
     return 1
   fi
   if [ ! -f "$frontend_dist/BUILD_ID" ]; then
@@ -288,6 +312,7 @@ verify_stage() {
   [ -x "$stage/backend.api" ] || return 1
   [ -d "$stage/frontend.next" ] || return 1
   [ -f "$stage/frontend.next/BUILD_ID" ] || return 1
+  "$NODE_BIN" "$IMAGE_OPTIMIZER_VERIFIER" "$stage/frontend.next" "$IMAGE_OPTIMIZER_PATH" >/dev/null || return 1
   [ "$release_id" = "$(basename "$stage")" ] || return 1
   [ "$frontend_build_id" = "$(tr -d '\r\n' < "$stage/frontend.next/BUILD_ID")" ] || return 1
   [ "$backend_sha" = "$(hash_file "$stage/backend.api")" ] || return 1

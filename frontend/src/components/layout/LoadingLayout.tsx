@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { EDITORIAL_FIRST_PAINT_CSS } from "./editorialFirstPaint";
 
 interface LoadingLayoutProps {
   children: React.ReactNode;
@@ -114,6 +115,9 @@ function EditorialLoadingLayout({
 }: Omit<LoadingLayoutProps, "tone">) {
   return (
     <div className="editorial-loading min-h-screen">
+      <style data-editorial-loading-fallback>
+        {EDITORIAL_FIRST_PAINT_CSS}
+      </style>
       {/* 顶部导航栏骨架 */}
       <header className="editorial-loading-bar is-navbar fixed top-0 left-0 right-0 h-16 z-50 animate-pulse">
         <div className="container mx-auto h-full px-4 flex items-center justify-between">

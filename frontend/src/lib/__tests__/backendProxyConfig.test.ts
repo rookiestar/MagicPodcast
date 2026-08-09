@@ -37,6 +37,10 @@ describe("frontend backend proxy", () => {
     expect(rewrites).toEqual(
       expect.arrayContaining([
         {
+          source: "/_next/image.webp",
+          destination: "/_next/image",
+        },
+        {
           source: "/api/v1/:path*",
           destination: "http://127.0.0.1:18080/api/v1/:path*",
         },
@@ -59,6 +63,7 @@ describe("frontend backend proxy", () => {
         deviceSizes: number[];
         imageSizes: number[];
         formats: string[];
+        path: string;
         localPatterns: Array<{ pathname: string; search?: string }>;
       };
     };
@@ -70,6 +75,7 @@ describe("frontend backend proxy", () => {
     expect(widths.find((width) => width >= 32 * 2)).toBe(96);
     expect(widths.find((width) => width >= 228 * 2)).toBe(512);
     expect(config.images.formats).toEqual(["image/avif", "image/webp"]);
+    expect(config.images.path).toBe("/_next/image.webp");
     expect(config.images.localPatterns).toEqual([
       { pathname: "/**", search: "" },
       { pathname: "/images/proxy" },

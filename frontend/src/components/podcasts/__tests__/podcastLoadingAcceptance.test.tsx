@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PodcastCover from "@/components/podcasts/PodcastCover";
 import PodcastListResults from "@/components/podcasts/PodcastListResults";
+import { podcastCoverLoadQueue } from "@/lib/podcastCoverLoadQueue";
 import type { PodcastSortBy } from "@/lib/podcastListState";
 import type { Podcast } from "@/types";
 
@@ -16,6 +18,39 @@ afterEach(() => {
 });
 
 describe("封面加载收敛验收 (#13/#14)", () => {
+  it("首屏高优先级封面直接存在于服务器 HTML，不等待水合", () => {
+    const html = renderToStaticMarkup(
+      <PodcastCover
+        coverUrl="https://i.typlog.com/server-cover.png"
+        title="服务器首屏节目"
+        index={0}
+        priority="high"
+        sizes="228px"
+      />,
+    );
+
+    expect(html).toContain("<img");
+    expect(html).toContain('loading="eager"');
+    expect(html).toContain('fetchpriority="high"');
+  });
+
+  it("服务器首批的非头部封面也进入 HTML，但保留浏览器懒加载优先级", () => {
+    const html = renderToStaticMarkup(
+      <PodcastCover
+        coverUrl="https://i.typlog.com/server-lazy-cover.png"
+        title="服务器首批后排节目"
+        index={7}
+        priority="low"
+        startOnServer
+        sizes="228px"
+      />,
+    );
+
+    expect(html).toContain("<img");
+    expect(html).toContain('loading="lazy"');
+    expect(html).toContain('fetchpriority="auto"');
+  });
+
   it("32px 代理封面交给响应式优化器生成尺寸候选", () => {
     render(
       <PodcastCover
@@ -169,6 +204,97 @@ describe("封面加载收敛验收 (#13/#14)", () => {
     ).toBeInTheDocument();
   });
 
+  it("预载封面进入真实视口时使用独立观察器提级", () => {
+    let isTargetVisible = false;
+    const observers: Array<{
+      callback: IntersectionObserverCallback;
+      options?: IntersectionObserverInit;
+    }> = [];
+    const updatePriority = vi.fn();
+
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(
+          callback: IntersectionObserverCallback,
+          options?: IntersectionObserverInit,
+        ) {
+          observers.push({ callback, options });
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function getBoundingClientRect() {
+        if (this.dataset.scrollRoot === "true") {
+          return {
+            top: 0,
+            right: 320,
+            bottom: 240,
+            left: 0,
+            width: 320,
+            height: 240,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+          };
+        }
+        const top = isTargetVisible ? 16 : 300;
+        return {
+          top,
+          right: 48,
+          bottom: top + 32,
+          left: 16,
+          width: 32,
+          height: 32,
+          x: 16,
+          y: top,
+          toJSON: () => ({}),
+        };
+      },
+    );
+    vi.spyOn(podcastCoverLoadQueue, "request").mockImplementation(
+      ({ onStart }) => {
+        onStart();
+        return {
+          updatePriority,
+          release: vi.fn(),
+        };
+      },
+    );
+
+    render(
+      <div
+        data-scroll-root="true"
+        style={{ height: 240, overflowY: "auto" }}
+      >
+        <PodcastCover
+          coverUrl="https://i.typlog.com/preloaded.png"
+          title="预载后进入视口"
+          index={20}
+          priority="low"
+          sizes="32px"
+        />
+      </div>,
+    );
+
+    const viewportObserver = observers.find(
+      ({ options }) => options?.rootMargin === "0px",
+    );
+    expect(viewportObserver).toBeDefined();
+
+    isTargetVisible = true;
+    act(() => {
+      viewportObserver?.callback(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      );
+    });
+
+    expect(updatePriority).toHaveBeenCalledWith("medium");
+  });
+
   it("非首屏封面不会仅因索引靠前就立即请求", () => {
     vi.stubGlobal(
       "IntersectionObserver",
@@ -283,6 +409,39 @@ describe("封面加载收敛验收 (#13/#14)", () => {
     expect(
       screen.getByRole("img", { name: "播客 2封面暂不可用" }),
     ).toBeInTheDocument();
+  });
+
+  it("滚动返回后的缓存封面若新尺寸失败，仍会走有限重试", async () => {
+    const firstRender = render(
+      <PodcastCover
+        coverUrl="https://i.typlog.com/remounted-cache.png"
+        title="滚动返回节目"
+        index={0}
+        priority="high"
+      />,
+    );
+
+    fireEvent.load(screen.getByRole("img", { name: "滚动返回节目" }));
+    firstRender.unmount();
+
+    render(
+      <PodcastCover
+        coverUrl="https://i.typlog.com/remounted-cache.png"
+        title="滚动返回节目"
+        index={0}
+        priority="high"
+      />,
+    );
+
+    const remountedImage = screen.getByRole("img", { name: "滚动返回节目" });
+    fireEvent.error(remountedImage);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+
+    expect(screen.getByRole("img", { name: "滚动返回节目" })).not.toBe(
+      remountedImage,
+    );
   });
 });
 

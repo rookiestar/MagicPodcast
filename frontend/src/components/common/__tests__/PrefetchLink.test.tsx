@@ -92,4 +92,48 @@ describe("PrefetchLink", () => {
     expect(prefetchWorkflow).toHaveBeenCalledWith(7);
     expect(prefetchPodcast).not.toHaveBeenCalled();
   });
+
+  it("does not prefetch while the containing list is scrolling", async () => {
+    const { rerender } = render(
+      <PrefetchLink href="/podcasts/1" prefetchId={1} isScrolling>
+        Podcast
+      </PrefetchLink>,
+    );
+
+    const link = screen.getByRole("link", { name: "Podcast" });
+    fireEvent.mouseEnter(link);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(prefetchPodcast).not.toHaveBeenCalled();
+
+    rerender(
+      <PrefetchLink href="/podcasts/1" prefetchId={1} isScrolling={false}>
+        Podcast
+      </PrefetchLink>,
+    );
+    fireEvent.mouseEnter(link);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(prefetchPodcast).toHaveBeenCalledWith(1);
+  });
+
+  it("prefetches after explicit keyboard focus", async () => {
+    render(
+      <PrefetchLink href="/podcasts/1" prefetchId={1}>
+        Podcast
+      </PrefetchLink>,
+    );
+
+    fireEvent.focus(screen.getByRole("link", { name: "Podcast" }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(prefetchPodcast).toHaveBeenCalledWith(1);
+  });
 });

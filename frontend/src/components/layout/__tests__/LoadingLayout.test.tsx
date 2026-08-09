@@ -33,6 +33,23 @@ describe("LoadingLayout tone", () => {
     expect(container.querySelector(".editorial-loading-block")).toBeTruthy();
   });
 
+  it("inlines the editorial first-paint canvas before external CSS arrives", () => {
+    const { container } = render(
+      <LoadingLayout tone="editorial" title="标签管理" description="加载中...">
+        <div>children</div>
+      </LoadingLayout>,
+    );
+
+    const fallback = container.querySelector(
+      "style[data-editorial-loading-fallback]",
+    );
+    expect(fallback).toBeTruthy();
+    expect(fallback?.textContent).toMatch(/html,\s*body/);
+    expect(fallback?.textContent).toContain("margin: 0");
+    expect(fallback?.textContent).toContain("background-color: #f7f1e5");
+    expect(fallback?.textContent).toContain("min-height: 100vh");
+  });
+
   it("wraps editorial toolbar actions within a narrow viewport", () => {
     const { container } = render(
       <LoadingLayout

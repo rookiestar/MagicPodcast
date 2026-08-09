@@ -66,7 +66,7 @@ describe("MarkdownViewer", () => {
       screen.getByAltText("封面").getAttribute("src") ?? "",
       "http://localhost",
     );
-    expect(optimizerUrl.pathname).toBe("/_next/image");
+    expect(optimizerUrl.pathname).toBe("/_next/image.webp");
     expect(optimizerUrl.searchParams.get("url")).toBe(
       "/images/proxy?url=https%3A%2F%2Fi.typlog.com%2Fcover.png",
     );

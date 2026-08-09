@@ -1,21 +1,26 @@
 "use client";
 
-import { useState, useEffect, useRef, memo } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { IconHeadphones } from "@tabler/icons-react";
 import Image from "next/image";
 import PlainImage from "@/components/ui/PlainImage";
 import { canUseNextImage } from "@/lib/imageOptimization";
 import { getProxiedImageUrl } from "@/lib/imageProxy";
+import {
+  podcastCoverLoadQueue,
+  type PodcastCoverLoadPriority,
+} from "@/lib/podcastCoverLoadQueue";
 
 // 默认 sizes 常量
-const DEFAULT_SIZES = "(max-width: 640px) 50vw, (max-width: 828px) 33vw, (max-width: 1200px) 20vw, 256px";
+const DEFAULT_SIZES =
+  "(max-width: 640px) 50vw, (max-width: 828px) 33vw, (max-width: 1200px) 20vw, 256px";
 
 // 基础容器样式
-const BASE_CONTAINER_CLASS = "aspect-square bg-slate-200 relative w-full h-full overflow-hidden";
+const BASE_CONTAINER_CLASS =
+  "aspect-square bg-slate-200 relative w-full h-full overflow-hidden";
 
-// 预加载距离阈值（像素）。扩大到 ~800px（约 2 行卡片高度），使图片在
-// 进入视口前有足够时间完成网络请求和渲染，避免快速滚动时出现灰底占位。
-const PRELOAD_MARGIN_PX = 800;
+// 预加载只覆盖下一小段滚动距离，避免屏外封面占满浏览器调度预算。
+const PRELOAD_MARGIN_PX = 360;
 const PRELOAD_MARGIN = `${PRELOAD_MARGIN_PX}px`;
 
 // 瞬时拥塞（409/429/5xx）或网络抖动下的有限退避重试：<img> 的 onError 拿不到
@@ -32,6 +37,7 @@ interface PodcastCoverProps {
   sizes?: string;
   className?: string;
   fetchPriority?: "high" | "low" | "auto";
+  startOnServer?: boolean;
 }
 
 function getNearestScrollRoot(element: HTMLElement): Element | null {
@@ -46,6 +52,17 @@ function getNearestScrollRoot(element: HTMLElement): Element | null {
   return null;
 }
 
+function getRootRect(root: Element | null) {
+  return (
+    root?.getBoundingClientRect() ?? {
+      top: 0,
+      right: window.innerWidth,
+      bottom: window.innerHeight,
+      left: 0,
+    }
+  );
+}
+
 function isWithinPreloadRange(
   element: HTMLElement,
   root: Element | null,
@@ -54,12 +71,7 @@ function isWithinPreloadRange(
   if (targetRect.width <= 0 || targetRect.height <= 0) {
     return false;
   }
-  const rootRect = root?.getBoundingClientRect() ?? {
-    top: 0,
-    right: window.innerWidth,
-    bottom: window.innerHeight,
-    left: 0,
-  };
+  const rootRect = getRootRect(root);
 
   return (
     targetRect.bottom >= rootRect.top - PRELOAD_MARGIN_PX &&
@@ -69,6 +81,51 @@ function isWithinPreloadRange(
   );
 }
 
+function isWithinViewport(element: HTMLElement, root: Element | null) {
+  const targetRect = element.getBoundingClientRect();
+  if (targetRect.width <= 0 || targetRect.height <= 0) {
+    return false;
+  }
+  const rootRect = getRootRect(root);
+
+  return (
+    targetRect.bottom > rootRect.top &&
+    targetRect.top < rootRect.bottom &&
+    targetRect.right > rootRect.left &&
+    targetRect.left < rootRect.right
+  );
+}
+
+function getBaseLoadPriority(
+  priority: PodcastCoverProps["priority"],
+): PodcastCoverLoadPriority {
+  if (priority === "high") {
+    return "high";
+  }
+  if (priority === "medium") {
+    return "medium";
+  }
+  return "low";
+}
+
+function getPriorityScore(priority: PodcastCoverLoadPriority) {
+  switch (priority) {
+    case "high":
+      return 3;
+    case "medium":
+      return 2;
+    case "low":
+      return 1;
+  }
+}
+
+function getHigherPriority(
+  first: PodcastCoverLoadPriority,
+  second: PodcastCoverLoadPriority,
+) {
+  return getPriorityScore(first) >= getPriorityScore(second) ? first : second;
+}
+
 function PodcastCover({
   coverUrl,
   title,
@@ -76,59 +133,98 @@ function PodcastCover({
   sizes = DEFAULT_SIZES,
   className = "",
   fetchPriority,
+  startOnServer = false,
 }: PodcastCoverProps) {
+  const isHighPriority = priority === "high";
+  const isCriticalCover = isHighPriority || startOnServer;
   const [imageError, setImageError] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
-  const [shouldLoad, setShouldLoad] = useState(false);
+  const [shouldLoad, setShouldLoad] = useState(isCriticalCover);
+  const [imageStarted, setImageStarted] = useState(isCriticalCover);
+  const [requestedPriority, setRequestedPriority] =
+    useState<PodcastCoverLoadPriority>(() => getBaseLoadPriority(priority));
+  const requestedPriorityRef = useRef(requestedPriority);
+  requestedPriorityRef.current = requestedPriority;
   const containerRef = useRef<HTMLDivElement>(null);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadHandleRef = useRef<{
+    updatePriority: (nextPriority: PodcastCoverLoadPriority) => void;
+    release: () => void;
+  } | null>(null);
 
   // 获取图片URL（优先使用代理URL）
   const imageUrl = coverUrl ? getProxiedImageUrl(coverUrl) || "" : "";
 
-  // 仅调用方确认的首屏项立即挂载；其余项目统一通过实际可见性评估加载。
-  const isHighPriority = priority === "high";
-
   // 自动为首屏图片设置高优先级（如果未显式指定）
-  const resolvedFetchPriority = fetchPriority ?? (isHighPriority ? "high" : "auto");
+  const resolvedFetchPriority =
+    fetchPriority ??
+    (isHighPriority || requestedPriority === "medium" ? "high" : "auto");
+  const resolvedLoading =
+    isHighPriority || requestedPriority === "medium" ? "eager" : "lazy";
 
-  // 使用 Intersection Observer 实现提前预加载
+  // 使用 Intersection Observer 实现提前预加载，并在真正进入视口时升级请求优先级。
   useEffect(() => {
-    // 高优先级图片立即加载
     if (isHighPriority) {
+      setRequestedPriority("high");
       setShouldLoad(true);
       return;
     }
 
-    // 低优先级图片使用 Intersection Observer 提前预加载
     const container = containerRef.current;
     if (!container) return;
     const root = getNearestScrollRoot(container);
+    const basePriority = getBaseLoadPriority(priority);
 
-    // 数据和滚动容器首次就绪时主动评估，避免嵌套滚动区要等一次滚动事件
-    // 才收到观察器回调。
-    if (isWithinPreloadRange(container, root)) {
+    const updateLoadIntent = () => {
+      const isVisible = isWithinViewport(container, root);
+      setRequestedPriority(
+        getHigherPriority(basePriority, isVisible ? "medium" : "low"),
+      );
       setShouldLoad(true);
-      return;
+      return isVisible;
+    };
+
+    // 预载区和真实视口必须分别观察。元素一旦进入带 rootMargin 的预载区，
+    // 后续进入真实视口不会再次跨越同一观察器的阈值，无法可靠升级优先级。
+    const isInitiallyWithinPreloadRange = isWithinPreloadRange(container, root);
+    const isInitiallyVisible = isWithinViewport(container, root);
+    if (isInitiallyWithinPreloadRange) {
+      updateLoadIntent();
     }
 
-    const observer = new IntersectionObserver(
+    const preloadObserver = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
-          setShouldLoad(true);
-          observer.disconnect();
+          updateLoadIntent();
+          preloadObserver.disconnect();
         }
       },
-      { root, rootMargin: PRELOAD_MARGIN },
+      { root, rootMargin: PRELOAD_MARGIN, threshold: [0, 0.01] },
+    );
+    const viewportObserver = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && updateLoadIntent()) {
+          viewportObserver.disconnect();
+        }
+      },
+      { root, rootMargin: "0px", threshold: [0, 0.01] },
     );
 
-    observer.observe(container);
+    if (!isInitiallyWithinPreloadRange) {
+      preloadObserver.observe(container);
+    }
+    if (!isInitiallyVisible) {
+      viewportObserver.observe(container);
+    }
 
-    return () => observer.disconnect();
-  }, [isHighPriority]);
+    return () => {
+      preloadObserver.disconnect();
+      viewportObserver.disconnect();
+    };
+  }, [isHighPriority, priority]);
 
-  // 切换封面时重置错误与重试状态，并取消尚未触发的重试，避免上一张的失败影响新封面
+  // 切换封面时重置错误与重试状态，并取消尚未触发的重试，避免上一张的失败影响新封面。
   useEffect(() => {
     if (retryTimerRef.current) {
       clearTimeout(retryTimerRef.current);
@@ -137,22 +233,63 @@ function PodcastCover({
     setRetryCount(0);
     setImageError(false);
     setImageLoaded(false);
-  }, [coverUrl]);
+    setImageStarted(isCriticalCover);
+  }, [coverUrl, isCriticalCover]);
 
-  // 图片请求必须有界收敛：上游既不成功也不报错时，超时后进入稳定占位，
-  // 避免灰色骨架无限停留。失败重试仍由 handleError 使用更短的退避预算控制。
+  // 瞬时拥塞（409/429/5xx）或网络抖动时有限退避重试，超过次数再降级为占位。
+  const handleError = useCallback(() => {
+    if (retryCount < MAX_IMAGE_RETRIES) {
+      const delay = IMAGE_RETRY_BASE_DELAY_MS * 2 ** retryCount;
+      retryTimerRef.current = setTimeout(() => {
+        setRetryCount((count) => count + 1);
+      }, delay);
+      return;
+    }
+    setImageError(true);
+  }, [retryCount]);
+
+  // 只允许队列授予的真实图片元素开始请求；相同 URL 的挂载共享队列状态。
   useEffect(() => {
-    if (imageError || imageLoaded || !imageUrl || !(shouldLoad || isHighPriority)) {
+    if (imageError || imageLoaded || !imageUrl || !shouldLoad) {
+      return;
+    }
+
+    const handle = podcastCoverLoadQueue.request({
+      src: imageUrl,
+      priority: requestedPriorityRef.current,
+      onStart: () => setImageStarted(true),
+      onError: handleError,
+    });
+    loadHandleRef.current = handle;
+
+    return () => {
+      if (loadHandleRef.current === handle) {
+        loadHandleRef.current = null;
+      }
+      handle.release();
+    };
+  }, [handleError, imageError, imageLoaded, imageUrl, shouldLoad]);
+
+  // 预载请求进入真实视口后只升级排队优先级，不重新订阅或重启请求。
+  useEffect(() => {
+    loadHandleRef.current?.updatePriority(requestedPriority);
+  }, [requestedPriority]);
+
+  // 图片请求必须有界收敛：上游既不成功也不报错时，超时后进入稳定占位。
+  useEffect(() => {
+    if (imageError || imageLoaded || !imageUrl || !imageStarted) {
       return;
     }
 
     const timer = setTimeout(() => {
+      loadHandleRef.current?.release();
+      loadHandleRef.current = null;
       setImageError(true);
     }, COVER_LOAD_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [imageError, imageLoaded, imageUrl, isHighPriority, shouldLoad]);
+  }, [imageError, imageLoaded, imageStarted, imageUrl]);
 
-  // 卸载时清理重试定时器，避免在已卸载组件上更新状态
+  // 卸载时清理重试定时器，避免在已卸载组件上更新状态。
   useEffect(() => {
     return () => {
       if (retryTimerRef.current) {
@@ -162,29 +299,45 @@ function PodcastCover({
     };
   }, []);
 
+  const handleLoad = useCallback(() => {
+    podcastCoverLoadQueue.complete(imageUrl);
+    setImageLoaded(true);
+  }, [imageUrl]);
+
+  const handleImageError = useCallback(() => {
+    if (!podcastCoverLoadQueue.fail(imageUrl)) {
+      handleError();
+    }
+  }, [handleError, imageUrl]);
+
+  // 首屏图片可能在 React 水合前已由浏览器完成；主动同步完成态，避免队列
+  // 将已缓存或已下载的服务器图片误判为长期占用。
+  useEffect(() => {
+    const image = containerRef.current?.querySelector("img");
+    if (
+      imageStarted &&
+      !imageLoaded &&
+      image?.complete &&
+      image.naturalWidth > 0
+    ) {
+      handleLoad();
+    }
+  }, [handleLoad, imageLoaded, imageStarted, retryCount]);
+
   // 合并容器类名
   const containerClass = className
     ? `${BASE_CONTAINER_CLASS} ${className}`
     : BASE_CONTAINER_CLASS;
 
-  // 瞬时拥塞（409/429/5xx）或网络抖动时有限退避重试，超过次数再降级为占位。
-  // <img> 的 onError 不区分状态码，统一按失败重试；通过 key 重挂载图片节点，
-  // 但保持规范 URL 不变，避免为同一派生图制造新的浏览器/CDN 缓存项。
-  const handleError = () => {
-    if (retryCount < MAX_IMAGE_RETRIES) {
-      const delay = IMAGE_RETRY_BASE_DELAY_MS * 2 ** retryCount;
-      retryTimerRef.current = setTimeout(() => {
-        setRetryCount((count) => count + 1);
-      }, delay);
-      return;
-    }
-    setImageError(true);
-  };
-
-  // 如果没有封面URL或加载失败，显示占位符
+  // 如果没有封面URL或加载失败，显示占位符。
   if (!imageUrl || imageError) {
     return (
-      <div className={containerClass} ref={containerRef}>
+      <div
+        className={containerClass}
+        ref={containerRef}
+        data-podcast-cover-priority={priority}
+        data-podcast-cover-critical={isHighPriority ? "true" : undefined}
+      >
         <div
           className="w-full h-full flex items-center justify-center"
           role="img"
@@ -202,27 +355,37 @@ function PodcastCover({
 
   if (!canUseNextImage(imageUrl)) {
     return (
-      <div className={containerClass} ref={containerRef}>
-        {(shouldLoad || isHighPriority) && (
+      <div
+        className={containerClass}
+        ref={containerRef}
+        data-podcast-cover-priority={priority}
+        data-podcast-cover-critical={isHighPriority ? "true" : undefined}
+      >
+        {imageStarted && (
           <PlainImage
             key={`${imageUrl}:${retryCount}`}
             src={imageUrl}
             alt={title}
             className="object-cover w-full h-full"
-            loading={isHighPriority ? "eager" : "lazy"}
+            loading={resolvedLoading}
             fetchPriority={resolvedFetchPriority}
-            onLoad={() => setImageLoaded(true)}
-            onError={handleError}
+            onLoad={handleLoad}
+            onError={handleImageError}
           />
         )}
       </div>
     );
   }
 
-  // 使用 Next.js Image 组件
+  // 使用 Next.js Image 组件。
   return (
-    <div className={containerClass} ref={containerRef}>
-      {(shouldLoad || isHighPriority) && (
+    <div
+      className={containerClass}
+      ref={containerRef}
+      data-podcast-cover-priority={priority}
+      data-podcast-cover-critical={isHighPriority ? "true" : undefined}
+    >
+      {imageStarted && (
         <Image
           key={`${imageUrl}:${retryCount}`}
           src={imageUrl}
@@ -231,17 +394,17 @@ function PodcastCover({
           sizes={sizes}
           className="object-cover"
           priority={isHighPriority}
-          loading={isHighPriority ? "eager" : "lazy"}
+          loading={resolvedLoading}
           fetchPriority={resolvedFetchPriority}
-          onLoad={() => setImageLoaded(true)}
-          onError={handleError}
+          onLoad={handleLoad}
+          onError={handleImageError}
         />
       )}
     </div>
   );
 }
 
-// 自定义比较函数：只在关键 props 变化时才重新渲染
+// 自定义比较函数：只在关键 props 变化时才重新渲染。
 function arePropsEqual(
   prevProps: Readonly<PodcastCoverProps>,
   nextProps: Readonly<PodcastCoverProps>,
@@ -252,12 +415,13 @@ function arePropsEqual(
     prevProps.priority === nextProps.priority &&
     prevProps.sizes === nextProps.sizes &&
     prevProps.className === nextProps.className &&
-    prevProps.fetchPriority === nextProps.fetchPriority
+    prevProps.fetchPriority === nextProps.fetchPriority &&
+    prevProps.startOnServer === nextProps.startOnServer
   );
 }
 
-// 使用 React.memo 包装组件
+// 使用 React.memo 包装组件。
 export default memo(PodcastCover, arePropsEqual);
 
-// 添加 displayName 用于调试
+// 添加 displayName 用于调试。
 PodcastCover.displayName = "PodcastCover";

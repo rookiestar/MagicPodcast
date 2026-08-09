@@ -104,11 +104,16 @@ export interface PodcastListPageState {
   } | null;
 }
 
-interface PodcastListPaginationState {
+export interface PodcastListPaginationState {
   page: number;
   page_size: number;
   total: number;
   total_pages: number;
+}
+
+export interface PodcastListPage<T> {
+  podcasts: T[];
+  pagination: PodcastListPaginationState;
 }
 
 export interface PodcastListApiPayload<T> {

@@ -1,9 +1,12 @@
 /** @type {import('next').NextConfig} */
-const imageOptimizerPath = process.env.NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH || '/_next/image'
+const imageOptimizerPath = '/_next/image.webp'
 const nextDistDir = process.env.MAGICPODCAST_NEXT_DIST_DIR || '.next'
 
 const nextConfig = {
   reactStrictMode: true,
+  env: {
+    NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH: imageOptimizerPath,
+  },
   // 发布流程把新构建放在独立目录，验证通过后才切换为 .next。
   distDir: nextDistDir,
   // 生产构建时移除 console 语句（保留 console.error 和 console.warn）
@@ -55,6 +58,12 @@ module.exports = {
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL || 'http://127.0.0.1:8080'
     return [
+      {
+        // Next 16 的内置处理器仍固定在 /_next/image；本地直连时显式补齐
+        // 与生产 Nginx 相同的友好路径转发。
+        source: '/_next/image.webp',
+        destination: '/_next/image',
+      },
       {
         source: '/api/v1/:path*',
         destination: `${backendUrl}/api/v1/:path*`,

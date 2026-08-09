@@ -12,6 +12,7 @@ interface PrefetchLinkProps {
   prefetchId?: number;
   prefetchType?: PrefetchType;
   prefetch?: boolean;
+  isScrolling?: boolean;
   className?: string;
   onClick?: (e: React.MouseEvent) => void;
   title?: string;
@@ -28,11 +29,14 @@ export default function PrefetchLink({
   prefetchId,
   prefetchType = "podcast",
   prefetch = false,
+  isScrolling = false,
   className,
   onClick,
   title,
 }: PrefetchLinkProps) {
   const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isScrollingRef = useRef(isScrolling);
+  isScrollingRef.current = isScrolling;
 
   const clearPrefetchTimer = useCallback(() => {
     if (prefetchTimerRef.current) {
@@ -42,7 +46,7 @@ export default function PrefetchLink({
   }, []);
 
   const runPrefetch = useCallback(() => {
-    if (!prefetchId) return;
+    if (!prefetchId || isScrollingRef.current) return;
 
     if (prefetchType === "podcast") {
       prefetchPodcastData(prefetchId);
@@ -52,7 +56,7 @@ export default function PrefetchLink({
   }, [prefetchId, prefetchType]);
 
   const handleMouseEnter = useCallback(() => {
-    if (!prefetchId) return;
+    if (!prefetchId || isScrollingRef.current) return;
     clearPrefetchTimer();
     // 延迟 100ms 预取，避免快速划过时触发不必要的请求
     prefetchTimerRef.current = setTimeout(() => {
@@ -60,6 +64,10 @@ export default function PrefetchLink({
       runPrefetch();
     }, 100);
   }, [clearPrefetchTimer, prefetchId, runPrefetch]);
+
+  const handleFocus = useCallback(() => {
+    handleMouseEnter();
+  }, [handleMouseEnter]);
 
   useEffect(() => clearPrefetchTimer, [clearPrefetchTimer]);
 
@@ -71,6 +79,8 @@ export default function PrefetchLink({
       onClick={onClick}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={clearPrefetchTimer}
+      onFocus={handleFocus}
+      onBlur={clearPrefetchTimer}
       title={title}
     >
       {children}

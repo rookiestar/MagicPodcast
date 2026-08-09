@@ -19,7 +19,9 @@ interface ResponsivePodcastCardProps {
   priority?: "high" | "medium" | "low";
   detailUrl: string;
   isMobile: boolean;
+  isScrolling?: boolean;
   onNavigate?: () => void;
+  startCoverOnServer?: boolean;
 }
 
 export default function ResponsivePodcastCard({
@@ -28,7 +30,9 @@ export default function ResponsivePodcastCard({
   priority = "medium",
   detailUrl,
   isMobile,
+  isScrolling = false,
   onNavigate,
+  startCoverOnServer = false,
 }: ResponsivePodcastCardProps) {
   const displayedDescription = getPodcastCardDescription(
     podcast.description,
@@ -46,6 +50,7 @@ export default function ResponsivePodcastCard({
         href={detailUrl}
         prefetchId={podcast.id}
         prefetchType="podcast"
+        isScrolling={isScrolling}
         onClick={onNavigate}
       >
         <article className="podcast-library-card is-mobile">
@@ -55,6 +60,7 @@ export default function ResponsivePodcastCard({
               title={podcast.title}
               index={index}
               priority={priority}
+              startOnServer={startCoverOnServer}
               sizes="82px"
             />
             {isNew && (
@@ -94,16 +100,18 @@ export default function ResponsivePodcastCard({
       href={detailUrl}
       prefetchId={podcast.id}
       prefetchType="podcast"
+      isScrolling={isScrolling}
       onClick={onNavigate}
     >
-      <article className="podcast-library-card">
+      <article className="podcast-library-card is-mobile">
         <div className="podcast-library-card-cover">
           <PodcastCover
             coverUrl={effectiveCoverUrl}
             title={podcast.title}
             index={index}
             priority={priority}
-            sizes="(max-width: 767px) calc(50vw - 24px), (max-width: 1023px) calc(33.333vw - 24px), (max-width: 1279px) calc(25vw - 24px), 228px"
+            startOnServer={startCoverOnServer}
+            sizes="(max-width: 767px) 82px, (max-width: 1023px) calc(33.333vw - 24px), (max-width: 1279px) calc(25vw - 24px), 228px"
             className="!absolute !inset-0 !aspect-none"
           />
           {isNew && (

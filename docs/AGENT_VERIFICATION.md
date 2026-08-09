@@ -19,7 +19,8 @@
 | 后端 Go | `(cd backend && go test ./...)` 中与包相关的测试；必要时 `go vet`；涉及行为时补相关包测试 |
 | 前端 | `(cd frontend && npm run type-check)`；`(cd frontend && npm run test:run)` 或定向测试 |
 | 脚本（`scripts/*.sh` 等） | `bash -n` 语法检查；按脚本用途做 dry-run（若支持） |
-| 性能/启动路径 | 仅在改动触及启动、健康检查或性能脚本时：健康检查与 [performance/](performance/) 基线中的复跑命令 |
+| 性能、加载、缓存、分页、超时或重试行为 | 先读 [性能专项工作手册](optimization/PERFORMANCE_PLAYBOOK.md)；用 [验收模板](optimization/PERFORMANCE_ACCEPTANCE_TEMPLATE.md) 证明体验不变量、正常/慢/失败/首次访问和有效内容指标；命令见 [性能测试指南](PERFORMANCE_TESTING_GUIDE.md) |
+| 性能脚本 / 启动路径 | 仅在改动触及启动、健康检查或性能脚本时：健康检查与 [performance/](performance/) 基线中的复跑命令 |
 | 数据库迁移相关文档或迁移代码 | 对照 `CurrentSchemaVersion` 与注册表；真实 `--apply` **不在**日常验证范围，需单独授权并走迁移指南 |
 
 可选：工作区存在变更时，可运行 [.agents/skills/code-change-verification/scripts/verify.sh](../.agents/skills/code-change-verification/scripts/verify.sh) 做与变更路径绑定的基础检查。它辅助本指南，不取代 Issue 验收证据要求。

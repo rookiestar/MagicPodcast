@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getPodcastGridCoverPriority,
   getPodcastGridEstimateRowHeight,
+  getPodcastGridOverscan,
   getLastVisiblePodcastRowIndex,
   getPodcastGridRowGap,
   shouldLoadMorePodcastRows,
@@ -23,6 +24,11 @@ describe("podcastGridVirtualization", () => {
   it("keeps row gaps aligned with the responsive grid spacing", () => {
     expect(getPodcastGridRowGap(true)).toBe(12);
     expect(getPodcastGridRowGap(false)).toBe(24);
+  });
+
+  it("keeps the mounted overscan bounded for each viewport", () => {
+    expect(getPodcastGridOverscan(false)).toBe(2);
+    expect(getPodcastGridOverscan(true)).toBe(4);
   });
 
   it("ignores overscan rows below the visible viewport", () => {

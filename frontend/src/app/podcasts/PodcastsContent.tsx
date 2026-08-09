@@ -10,7 +10,11 @@ import PodcastListSortControls from "@/components/podcasts/PodcastListSortContro
 import { MobilePodcastListSummary } from "@/components/podcasts/PodcastListStates";
 import PodcastTagFilter from "@/components/podcasts/PodcastTagFilter";
 import { useSearch } from "@/contexts/SearchContext";
-import { useBreakpoint, getPageSize } from "@/hooks/useBreakpoint";
+import {
+  getPageSize,
+  getPageSizeForViewportWidth,
+  useBreakpoint,
+} from "@/hooks/useBreakpoint";
 import {
   getDefaultPodcastTagCount,
   getPodcastListDescription,
@@ -22,7 +26,9 @@ import {
   normalizePodcastTagIds,
   PODCAST_SORT_OPTIONS,
   type PodcastSortBy,
+  type PodcastListPage,
 } from "@/lib/podcastListState";
+import type { Podcast } from "@/types";
 import {
   clearPodcastListScrollSnapshot,
   getPodcastListScrollRestoreAction,
@@ -32,13 +38,23 @@ import {
   type PodcastListScrollSnapshot,
 } from "@/lib/podcastListScrollState";
 
-export default function PodcastsContent() {
+interface PodcastsContentProps {
+  initialPage?: PodcastListPage<Podcast>;
+}
+
+export default function PodcastsContent({
+  initialPage,
+}: PodcastsContentProps) {
   const [showAllTags, setShowAllTags] = useState(false);
   const pendingScrollRestoreRef = useRef<PodcastListScrollSnapshot | null>(null);
   const lastRestoreLoadRequestCountRef = useRef<number | null>(null);
   const { openSearch } = useSearch();
   const { isMobile, columns, isReady: isPageSizeReady } = useBreakpoint();
-  const pageSize = isPageSizeReady ? getPageSize(columns) : undefined;
+  const pageSize = isPageSizeReady
+    ? getPageSize(columns)
+    : getPageSizeForViewportWidth(
+        typeof window === "undefined" ? undefined : window.innerWidth,
+      );
 
   const [sortBy, setSortBy] = useUrlState<PodcastSortBy>(
     "sort_by",
@@ -70,10 +86,14 @@ export default function PodcastsContent() {
     loadMore,
     retryLastPage,
   } = usePodcastListInfinite({
-    enabled: isPageSizeReady,
+    enabled: true,
     page_size: pageSize,
     sort_by: sortBy,
     tag_id: selectedTagIds.length > 0 ? selectedTagIds : undefined,
+    initialPage:
+      sortBy === "recent_update" && selectedTagIds.length === 0
+        ? initialPage
+        : undefined,
   });
 
   useEffect(() => {
