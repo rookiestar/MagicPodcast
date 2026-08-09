@@ -10,7 +10,11 @@ import PodcastListSortControls from "@/components/podcasts/PodcastListSortContro
 import { MobilePodcastListSummary } from "@/components/podcasts/PodcastListStates";
 import PodcastTagFilter from "@/components/podcasts/PodcastTagFilter";
 import { useSearch } from "@/contexts/SearchContext";
-import { useBreakpoint, getPageSize } from "@/hooks/useBreakpoint";
+import {
+  getPageSize,
+  getPageSizeForViewportWidth,
+  useBreakpoint,
+} from "@/hooks/useBreakpoint";
 import {
   getDefaultPodcastTagCount,
   getPodcastListDescription,
@@ -38,7 +42,11 @@ export default function PodcastsContent() {
   const lastRestoreLoadRequestCountRef = useRef<number | null>(null);
   const { openSearch } = useSearch();
   const { isMobile, columns, isReady: isPageSizeReady } = useBreakpoint();
-  const pageSize = isPageSizeReady ? getPageSize(columns) : undefined;
+  const pageSize = isPageSizeReady
+    ? getPageSize(columns)
+    : getPageSizeForViewportWidth(
+        typeof window === "undefined" ? undefined : window.innerWidth,
+      );
 
   const [sortBy, setSortBy] = useUrlState<PodcastSortBy>(
     "sort_by",
@@ -70,7 +78,7 @@ export default function PodcastsContent() {
     loadMore,
     retryLastPage,
   } = usePodcastListInfinite({
-    enabled: isPageSizeReady,
+    enabled: true,
     page_size: pageSize,
     sort_by: sortBy,
     tag_id: selectedTagIds.length > 0 ? selectedTagIds : undefined,

@@ -3,7 +3,7 @@ import { getSafeImageSource } from "./imageSourcePolicy";
 const DEFAULT_IMAGE_WIDTH = 128;
 const DEFAULT_IMAGE_QUALITY = 75;
 const IMAGE_OPTIMIZER_PATH =
-  process.env.NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH || "/_next/image";
+  process.env.NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH || "/_next/image.webp";
 
 export function isOptimizableImageUrl(src: string) {
   if (!src) {

@@ -301,12 +301,17 @@ else
             fi
             print_status "复用已验证前端产物 (BUILD_ID: $FRONTEND_BUILD_ID)"
         else
-            export NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH="${NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH:-/_next/image.webp}"
+            export NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH="/_next/image.webp"
             echo "  图片优化路径: $NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH"
             echo "  清理旧生产构建..."
             rm -rf .next
             echo "  构建生产版本..."
             npm run build
+            if ! node "$PROJECT_DIR/scripts/verify-image-optimizer-build.mjs" \
+                "$FRONTEND_DIR/.next" "$NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH"; then
+                print_error "前端图片优化路径校验失败"
+                exit 1
+            fi
             if [ -z "$FRONTEND_BUILD_ID" ] && [ -f ".next/BUILD_ID" ]; then
                 FRONTEND_BUILD_ID="$(cat .next/BUILD_ID)"
                 export MAGICPODCAST_FRONTEND_BUILD_ID="$FRONTEND_BUILD_ID"

@@ -2,6 +2,16 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 
+const DEFAULT_VIEWPORT_WIDTH = 1280;
+
+export function getColumnsForViewportWidth(width: number): number {
+  if (width >= 1280) return 5;
+  if (width >= 1024) return 4;
+  if (width >= 768) return 3;
+  if (width >= 640) return 2;
+  return 1;
+}
+
 /**
  * 响应式断点检测 Hook
  *
@@ -32,19 +42,7 @@ export function useBreakpoint() {
   const checkBreakpoint = useCallback(() => {
     const width = window.innerWidth;
     setIsMobile(width < 640);
-
-    // 根据断点计算列数
-    if (width >= 1280) {
-      setColumns(5);
-    } else if (width >= 1024) {
-      setColumns(4);
-    } else if (width >= 768) {
-      setColumns(3);
-    } else if (width >= 640) {
-      setColumns(2);
-    } else {
-      setColumns(1);
-    }
+    setColumns(getColumnsForViewportWidth(width));
     setIsReady(true);
   }, []);
 
@@ -94,4 +92,10 @@ export function getPageSize(columns: number): number {
     default:
       return 15;
   }
+}
+
+export function getPageSizeForViewportWidth(
+  width = DEFAULT_VIEWPORT_WIDTH,
+): number {
+  return getPageSize(getColumnsForViewportWidth(width));
 }

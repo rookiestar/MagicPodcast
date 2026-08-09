@@ -71,9 +71,10 @@ export default function PageLayout({
   const paddingTop = showNavbar ? "64px" : "0px";
   // 移动端底部padding（为底部导航栏留空间）
   const paddingBottom = showBottomNav ? "60px" : "0px";
+  const defaultRootBackground = rootClassName ? "" : "bg-slate-50";
 
   return (
-    <div className={`min-h-screen bg-slate-50 ${rootClassName}`}>
+    <div className={`min-h-screen ${defaultRootBackground} ${rootClassName}`}>
       {/* 全局导航栏（桌面端） */}
       {showNavbar && (
         <AppNavbar

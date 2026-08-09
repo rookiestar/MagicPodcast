@@ -4,6 +4,7 @@ import { PodcastCardSkeleton } from "@/components/ui/Skeleton";
 export default function PodcastsLoading() {
   return (
     <LoadingLayout
+      tone="editorial"
       title="我的订阅"
       description="加载中..."
       rightContent={
