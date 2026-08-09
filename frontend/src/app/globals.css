@@ -1783,15 +1783,6 @@
     letter-spacing: 0;
   }
 
-  .discovery-workbench-description {
-    max-width: 540px;
-    margin: 0;
-    color: #5f574e;
-    font-size: 13px;
-    font-weight: 500;
-    line-height: 1.55;
-  }
-
   .discovery-workbench-actions {
     display: flex;
     align-items: stretch;
@@ -1955,9 +1946,9 @@
     width: 100%;
     min-height: 124px;
     display: grid;
-    grid-template-columns: 24px 84px minmax(0, 1fr) 44px;
+    grid-template-columns: 16px 84px minmax(0, 1fr) 44px;
     align-items: center;
-    gap: 12px;
+    gap: 20px;
     padding: 12px 10px 12px 6px;
     border: 0;
     border-bottom: 1px solid #cfc3af;
@@ -1984,7 +1975,7 @@
   .discovery-index {
     align-self: start;
     color: #e96321;
-    font: 600 10px/1.4 var(--font-mono);
+    font: 600 12px/1.4 var(--font-mono);
   }
 
   .discovery-list-cover,
@@ -2016,6 +2007,7 @@
     min-width: 0;
     display: grid;
     gap: 4px;
+    padding-left: 16px;
   }
 
   .discovery-meta-line {
@@ -2023,7 +2015,7 @@
     align-items: center;
     gap: 8px;
     color: #746b60;
-    font: 500 10px/1.4 var(--font-mono);
+    font: 500 11px/1.4 var(--font-mono);
   }
 
   .discovery-candidate-copy > strong {
@@ -2670,10 +2662,6 @@
     .discovery-workbench-copy h1 {
       font-size: 20px;
       white-space: nowrap;
-    }
-
-    .discovery-workbench-description {
-      display: none;
     }
 
     .discovery-workbench-actions {

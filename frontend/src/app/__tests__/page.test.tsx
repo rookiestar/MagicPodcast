@@ -52,7 +52,9 @@ describe("default page", () => {
     render(<Home />);
 
     expect(screen.queryByText("你的播客书架")).not.toBeInTheDocument();
-    expect(screen.getByText("订阅单集，按发布时间排序。")).toBeInTheDocument();
+    expect(
+      screen.queryByText("订阅单集，按发布时间排序。"),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole("region", { name: "个人库最近更新" }),
     ).toBeInTheDocument();
