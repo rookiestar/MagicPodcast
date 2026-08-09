@@ -1,5 +1,7 @@
 const PODCAST_GRID_LOAD_MORE_ROW_BUFFER = 3;
 const MOBILE_FIRST_SCREEN_COVER_COUNT = 5;
+const DESKTOP_OVERSCAN_ROWS = 2;
+const MOBILE_OVERSCAN_ROWS = 4;
 
 export function getPodcastGridCoverPriority(
   index: number,
@@ -18,6 +20,10 @@ export function getPodcastGridEstimateRowHeight(isMobile: boolean) {
 
 export function getPodcastGridRowGap(isMobile: boolean) {
   return isMobile ? 12 : 24;
+}
+
+export function getPodcastGridOverscan(isMobile: boolean) {
+  return isMobile ? MOBILE_OVERSCAN_ROWS : DESKTOP_OVERSCAN_ROWS;
 }
 
 interface PodcastVirtualRow {

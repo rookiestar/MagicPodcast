@@ -284,6 +284,39 @@ describe("封面加载收敛验收 (#13/#14)", () => {
       screen.getByRole("img", { name: "播客 2封面暂不可用" }),
     ).toBeInTheDocument();
   });
+
+  it("滚动返回后的缓存封面若新尺寸失败，仍会走有限重试", async () => {
+    const firstRender = render(
+      <PodcastCover
+        coverUrl="https://i.typlog.com/remounted-cache.png"
+        title="滚动返回节目"
+        index={0}
+        priority="high"
+      />,
+    );
+
+    fireEvent.load(screen.getByRole("img", { name: "滚动返回节目" }));
+    firstRender.unmount();
+
+    render(
+      <PodcastCover
+        coverUrl="https://i.typlog.com/remounted-cache.png"
+        title="滚动返回节目"
+        index={0}
+        priority="high"
+      />,
+    );
+
+    const remountedImage = screen.getByRole("img", { name: "滚动返回节目" });
+    fireEvent.error(remountedImage);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+
+    expect(screen.getByRole("img", { name: "滚动返回节目" })).not.toBe(
+      remountedImage,
+    );
+  });
 });
 
 describe("分页失败保留已加载节目验收 (#13/#12)", () => {

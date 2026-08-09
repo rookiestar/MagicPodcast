@@ -19,6 +19,7 @@ interface ResponsivePodcastCardProps {
   priority?: "high" | "medium" | "low";
   detailUrl: string;
   isMobile: boolean;
+  isScrolling?: boolean;
   onNavigate?: () => void;
 }
 
@@ -28,6 +29,7 @@ export default function ResponsivePodcastCard({
   priority = "medium",
   detailUrl,
   isMobile,
+  isScrolling = false,
   onNavigate,
 }: ResponsivePodcastCardProps) {
   const displayedDescription = getPodcastCardDescription(
@@ -46,6 +48,7 @@ export default function ResponsivePodcastCard({
         href={detailUrl}
         prefetchId={podcast.id}
         prefetchType="podcast"
+        isScrolling={isScrolling}
         onClick={onNavigate}
       >
         <article className="podcast-library-card is-mobile">
@@ -94,6 +97,7 @@ export default function ResponsivePodcastCard({
       href={detailUrl}
       prefetchId={podcast.id}
       prefetchType="podcast"
+      isScrolling={isScrolling}
       onClick={onNavigate}
     >
       <article className="podcast-library-card">

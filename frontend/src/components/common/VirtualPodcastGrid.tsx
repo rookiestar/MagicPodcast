@@ -7,6 +7,7 @@ import {
   getPodcastGridCoverPriority,
   getPodcastGridEstimateRowHeight,
   getPodcastGridRowGap,
+  getPodcastGridOverscan,
   getLastVisiblePodcastRowIndex,
   shouldLoadMorePodcastRows,
 } from "@/lib/podcastGridVirtualization";
@@ -33,6 +34,7 @@ const PodcastRow = memo(function PodcastRow({
   sortBy,
   selectedTagIds,
   isMobile,
+  isScrolling,
   listStateKey,
 }: {
   rowPodcasts: Podcast[];
@@ -41,6 +43,7 @@ const PodcastRow = memo(function PodcastRow({
   sortBy: string;
   selectedTagIds: number[];
   isMobile: boolean;
+  isScrolling: boolean;
   listStateKey: string;
 }) {
   // 过滤掉可能的 undefined 元素
@@ -82,6 +85,7 @@ const PodcastRow = memo(function PodcastRow({
             }}
             priority={getPodcastGridCoverPriority(index, columns, isMobile)}
             isMobile={isMobile}
+            isScrolling={isScrolling}
           />
         );
       })}
@@ -102,7 +106,11 @@ export default function VirtualPodcastGrid({
 }: VirtualPodcastGridProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const lastLoadMoreRowCountRef = useRef<number | null>(null);
+  const scrollingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [hasUserScrolled, setHasUserScrolled] = useState(false);
+  const [isScrolling, setIsScrolling] = useState(false);
 
   // 计算行数
   const rowCount = useMemo(
@@ -114,12 +122,12 @@ export default function VirtualPodcastGrid({
   const rowGap = getPodcastGridRowGap(isMobile);
 
   // 使用 window 虚拟化（基于页面滚动）
-  // overscan=12 保持约 12 行已挂载（桌面端 ~5800px），减少向下滚动时的卸载/
-  // 重挂载频率，配合图片代理的 Cache-Control 缓存头实现回滚时即时渲染。
+  // 只保留约 2 个桌面行 / 4 个移动行的 overscan，避免屏外封面和详情预取
+  // 抢占当前屏资源；已成功封面由共享队列和浏览器缓存复用。
   const rowVirtualizer = useWindowVirtualizer({
     count: rowCount,
     estimateSize: () => estimateRowHeight,
-    overscan: 12,
+    overscan: getPodcastGridOverscan(isMobile),
     scrollMargin: listRef.current?.offsetTop ?? 0,
   });
 
@@ -127,21 +135,34 @@ export default function VirtualPodcastGrid({
   const virtualRows = rowVirtualizer.getVirtualItems();
 
   useEffect(() => {
-    if (hasUserScrolled) {
-      return;
-    }
-
     const handleScroll = () => {
       if (window.scrollY > 0) {
         setHasUserScrolled(true);
       }
+
+      setIsScrolling(true);
+      if (scrollingStopTimerRef.current) {
+        clearTimeout(scrollingStopTimerRef.current);
+      }
+      scrollingStopTimerRef.current = setTimeout(() => {
+        scrollingStopTimerRef.current = null;
+        setIsScrolling(false);
+      }, 120);
     };
 
     window.addEventListener("scroll", handleScroll, { passive: true });
-    handleScroll();
+    if (window.scrollY > 0) {
+      setHasUserScrolled(true);
+    }
 
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [hasUserScrolled]);
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      if (scrollingStopTimerRef.current) {
+        clearTimeout(scrollingStopTimerRef.current);
+        scrollingStopTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // 检测是否需要加载更多
   useEffect(() => {
@@ -214,6 +235,7 @@ export default function VirtualPodcastGrid({
                 sortBy={sortBy}
                 selectedTagIds={selectedTagIds}
                 isMobile={isMobile}
+                isScrolling={isScrolling}
                 listStateKey={listStateKey}
               />
             </div>
