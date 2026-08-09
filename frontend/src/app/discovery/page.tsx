@@ -1,47 +1,44 @@
-"use client";
+import DiscoveryPageClient from "@/components/discovery/DiscoveryPageClient";
+import { resolveApiBaseUrl } from "@/lib/apiBaseUrl";
+import type { DiscoveryCandidate } from "@/types/discovery";
 
-import useSWR from "swr";
-import DiscoveryDesk from "@/components/discovery/DiscoveryDesk";
-import { SimplePageLayout } from "@/components/layout/PageLayout";
-import { apiClient, fetcher } from "@/lib/fetcher";
-import type {
-  DiscoveryCandidate,
-  TriageDecisionResponse,
-  TriageDecisionState,
-} from "@/types/discovery";
+const INITIAL_CANDIDATE_LIMIT = 5;
+const INITIAL_CANDIDATES_PATH =
+  `/api/v1/discovery/candidates?limit=${INITIAL_CANDIDATE_LIMIT}`;
+const INITIAL_FETCH_TIMEOUT_MS = 2500;
 
-export default function DiscoveryPage() {
-  const { data, error, isLoading, mutate } = useSWR<DiscoveryCandidate[]>(
-    "/api/v1/discovery/candidates?limit=30",
-    fetcher,
-  );
+interface DiscoveryCandidatesResponse {
+  success: boolean;
+  data?: DiscoveryCandidate[];
+}
 
-  const saveDecision = async (
-    episodeID: number,
-    state: TriageDecisionState,
-  ) => {
-    const response = await apiClient.put<{
-      success: boolean;
-      data: TriageDecisionResponse;
-    }>(`/api/v1/discovery/candidates/${episodeID}/decision`, { state });
-    await mutate();
-    return response.data.data;
-  };
+async function loadInitialCandidates(): Promise<
+  DiscoveryCandidate[] | undefined
+> {
+  try {
+    const response = await fetch(
+      `${resolveApiBaseUrl(false)}${INITIAL_CANDIDATES_PATH}`,
+      {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(INITIAL_FETCH_TIMEOUT_MS),
+      },
+    );
+    if (!response.ok) {
+      return undefined;
+    }
 
-  return (
-    <SimplePageLayout maxWidth={false} className="discovery-page-shell">
-      {isLoading ? (
-        <div className="discovery-page-state" aria-live="polite">
-          正在读取个人播客库…
-        </div>
-      ) : error ? (
-        <div className="discovery-page-state discovery-page-error" role="alert">
-          <strong>暂时无法读取最近更新</strong>
-          <span>播客库、搜索与其他功能仍可继续使用。</span>
-        </div>
-      ) : (
-        <DiscoveryDesk candidates={data ?? []} onDecision={saveDecision} />
-      )}
-    </SimplePageLayout>
-  );
+    const payload = (await response.json()) as DiscoveryCandidatesResponse;
+    if (!payload.success || !Array.isArray(payload.data)) {
+      return undefined;
+    }
+    return payload.data;
+  } catch {
+    return undefined;
+  }
+}
+
+export default async function DiscoveryPage() {
+  const initialCandidates = await loadInitialCandidates();
+  return <DiscoveryPageClient initialCandidates={initialCandidates} />;
 }
