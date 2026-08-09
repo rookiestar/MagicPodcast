@@ -55,6 +55,7 @@ vi.mock("@/components/layout/PageLayout", () => ({
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  window.sessionStorage.clear();
 });
 
 describe("default page", () => {
@@ -94,12 +95,17 @@ describe("default page", () => {
     );
   });
 
-  it("falls back to client loading when the server prefetch fails", async () => {
+  it("falls back to a structured skeleton when the server prefetch fails", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("unavailable")));
 
     render(await Home());
 
-    expect(screen.getByText("正在读取个人播客库…")).toBeInTheDocument();
+    expect(
+      screen.getByRole("main", { name: "正在读取个人库最近更新" }),
+    ).toHaveAttribute("aria-busy", "true");
+    expect(
+      screen.queryByText("暂时无法读取最近更新"),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("region", { name: "个人库最近更新" }),
     ).not.toBeInTheDocument();
