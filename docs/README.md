@@ -1,6 +1,6 @@
 # MagicPodcast 文档中心
 
-最后更新：2026-07-25
+最后更新：2026-08-09
 
 这份索引用来区分“当前维护文档”和“历史记录”。日常开发、部署、测试和重构优先看当前维护文档；阶段性总结和历史分析只作为查证背景，不作为最新状态依据。
 
@@ -18,6 +18,8 @@ Agent 治理以根目录 [../AGENTS.md](../AGENTS.md) 为唯一权威合同；[.
 | 人审队列 | [HUMAN_REVIEW_QUEUE.md](HUMAN_REVIEW_QUEUE.md) | 自动跳过、需要确认后再处理的事项 |
 | 发布检查 | [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) | 重构、升级、部署前的固定验证步骤 |
 | 性能基线 | [performance/BASELINE_2026-05-31.md](performance/BASELINE_2026-05-31.md) | 最新页面、接口和后端并发基线 |
+| 性能专项方法 | [optimization/PERFORMANCE_PLAYBOOK.md](optimization/PERFORMANCE_PLAYBOOK.md) | 性能专项的体验不变量、根因分析、方案顺序和生产收口 |
+| 性能验收模板 | [optimization/PERFORMANCE_ACCEPTANCE_TEMPLATE.md](optimization/PERFORMANCE_ACCEPTANCE_TEMPLATE.md) | 正常、慢、失败、首次访问与冷暖态验收记录 |
 | 基线索引 | [BASELINE.md](BASELINE.md) | 当前基线入口和历史基线归档位置 |
 | 部署运维 | [DEPLOYMENT.md](DEPLOYMENT.md) | 启动、部署、服务管理 |
 | 环境配置 | [ENV_SETUP.md](ENV_SETUP.md) | 前后端环境变量说明 |
