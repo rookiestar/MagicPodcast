@@ -348,9 +348,6 @@ export default function DiscoveryDesk({
       >
         <div className="discovery-workbench-copy editorial-title-group">
           <h1 className="editorial-section-title">最近更新</h1>
-          <p className="discovery-workbench-description">
-            订阅单集，按发布时间排序。
-          </p>
         </div>
         <div className="discovery-workbench-actions">
           <div

@@ -150,16 +150,16 @@ describe("DiscoveryDesk", () => {
     );
   });
 
-  it("keeps the recent-update header concise", () => {
+  it("keeps the recent-update header focused on the section title", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
     const recentUpdates = screen.getByRole("region", {
       name: "个人库最近更新",
     });
 
-    expect(recentUpdates).toContainElement(
-      screen.getByText("订阅单集，按发布时间排序。"),
-    );
+    expect(
+      screen.queryByText("订阅单集，按发布时间排序。"),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByText(
         "订阅更新、单集摘录、标签与备注，按原始内容留在同一处。",
