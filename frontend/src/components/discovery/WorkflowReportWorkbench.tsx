@@ -9,7 +9,6 @@ import {
   useState,
   type KeyboardEvent,
   type MouseEvent,
-  type TouchEvent,
 } from "react";
 import {
   IconBookmarkMinus,
@@ -25,7 +24,6 @@ import PlainImage from "@/components/ui/PlainImage";
 import {
   fetchHomepageReportDetail,
   formatReportDate,
-  reportThemeLabel,
   reportTypeLabel,
 } from "@/lib/discoveryReports";
 import { sanitizeContentUrl } from "@/lib/imageSourcePolicy";
@@ -58,12 +56,27 @@ function episodeMeta(episode: HomepageReportEpisode) {
   return parts.join(" · ");
 }
 
-function episodeContext(episode: HomepageReportEpisode) {
+function episodeShowNotesPreview(episode: HomepageReportEpisode) {
   return (episode.context || episode.excerpt || "").trim();
 }
 
-function episodeRecommendation(episode: HomepageReportEpisode) {
-  return (episode.recommendation || "").trim();
+function splitReportMarkdown(content: string, fallbackTitle: string) {
+  const normalized = content.trimStart();
+  const match = normalized.match(
+    /^(#\s+[^\r\n]+)(?:\r?\n+|$)([\s\S]*)$/,
+  );
+
+  if (match) {
+    return {
+      titleMarkdown: match[1],
+      bodyMarkdown: match[2].trimStart(),
+    };
+  }
+
+  return {
+    titleMarkdown: fallbackTitle.trim() ? `# ${fallbackTitle.trim()}` : "",
+    bodyMarkdown: content,
+  };
 }
 
 function EpisodeCover({
@@ -122,9 +135,7 @@ export default function WorkflowReportWorkbench({
     Record<number, TriageDecisionState>
   >({});
   const previewRef = useRef<HTMLDivElement>(null);
-  const bannerRef = useRef<HTMLDivElement>(null);
   const historyTriggerRef = useRef<HTMLButtonElement>(null);
-  const bannerTouchStart = useRef<{ x: number; y: number } | null>(null);
 
   // #94: no today report => hide entire region (even if history exists).
   const hasToday = todayReports.length > 0;
@@ -181,25 +192,6 @@ export default function WorkflowReportWorkbench({
       event.preventDefault();
       goNext();
     }
-  };
-
-  const handleBannerTouchStart = (event: TouchEvent<HTMLElement>) => {
-    const touch = event.changedTouches[0];
-    if (!touch) return;
-    bannerTouchStart.current = { x: touch.clientX, y: touch.clientY };
-  };
-
-  const handleBannerTouchEnd = (event: TouchEvent<HTMLElement>) => {
-    if (!canSwitch || !bannerTouchStart.current) return;
-    const touch = event.changedTouches[0];
-    if (!touch) return;
-    const dx = touch.clientX - bannerTouchStart.current.x;
-    const dy = touch.clientY - bannerTouchStart.current.y;
-    bannerTouchStart.current = null;
-    // Horizontal-dominant only so vertical page scroll is not stolen (#95).
-    if (Math.abs(dx) < 48 || Math.abs(dx) <= Math.abs(dy)) return;
-    if (dx < 0) goNext();
-    else goPrev();
   };
 
   const toggleExpand = (episodeID: number) => {
@@ -292,10 +284,10 @@ export default function WorkflowReportWorkbench({
     return (
       <section
         className="workflow-report-workbench is-loading"
-        aria-label="正在读取工作流报告"
+        aria-label="正在读取精选报告"
         aria-busy="true"
       >
-        <p className="sr-only">正在后台读取工作流报告，最近更新不受影响。</p>
+        <p className="sr-only">正在后台读取精选报告，最近更新不受影响。</p>
       </section>
     );
   }
@@ -304,12 +296,12 @@ export default function WorkflowReportWorkbench({
     return (
       <section
         className="workflow-report-workbench is-error"
-        aria-label="工作流报告"
+        aria-label="精选报告"
         role="alert"
       >
         <div className="workflow-report-error">
           <span>
-            <strong>工作流报告暂时无法读取</strong>
+            <strong>精选报告暂时无法读取</strong>
             <small>最近更新仍可继续使用。</small>
           </span>
           {onRetry && (
@@ -329,20 +321,32 @@ export default function WorkflowReportWorkbench({
 
   const positionLabel = historySelection
     ? "往期"
-    : `${safeIndex + 1} / ${todayReports.length}`;
+    : todayReports.length > 1
+      ? `${safeIndex + 1} / ${todayReports.length}`
+      : null;
+  const hasEpisodes = activeReport.episodes.length > 0;
+  const reportMarkdown = hasEpisodes
+    ? splitReportMarkdown(activeReport.content || "", activeReport.title)
+    : null;
 
   return (
     <section
       className="workflow-report-workbench"
-      aria-label="工作流报告"
+      aria-label="精选报告"
       tabIndex={canSwitch && !historyOpen ? 0 : undefined}
       onKeyDown={handleWorkbenchKeyDown}
     >
       <header className="workflow-report-header">
-        <div className="workflow-report-header-copy">
-          <p className="discovery-kicker">工作流报告</p>
+        <div className="workflow-report-header-copy editorial-title-group">
+          <h2 className="editorial-section-title">精选报告</h2>
           <div className="workflow-report-meta-row">
-            <span className="workflow-report-type">
+            <span
+              className={`workflow-report-type ${
+                activeReport.report_type === "weekly"
+                  ? "is-weekly"
+                  : "is-daily"
+              }`}
+            >
               {reportTypeLabel(activeReport.report_type)}
             </span>
             <span className="workflow-report-date">
@@ -351,9 +355,11 @@ export default function WorkflowReportWorkbench({
             <span className="workflow-report-workflow">
               {activeReport.workflow_name}
             </span>
-            <span className="workflow-report-position" aria-live="polite">
-              {positionLabel}
-            </span>
+            {positionLabel && (
+              <span className="workflow-report-position" aria-live="polite">
+                {positionLabel}
+              </span>
+            )}
           </div>
         </div>
         <div className="workflow-report-header-actions">
@@ -406,48 +412,6 @@ export default function WorkflowReportWorkbench({
         </div>
       </header>
 
-      {/* #95 Banner strip before full preview */}
-      {!historySelection && todayReports.length > 0 && (
-        <div
-          ref={bannerRef}
-          className="workflow-report-banner-strip"
-          role="listbox"
-          aria-label="当天报告"
-          onTouchStart={handleBannerTouchStart}
-          onTouchEnd={handleBannerTouchEnd}
-        >
-          {todayReports.map((report, index) => {
-            const selected = index === safeIndex;
-            return (
-              <button
-                key={report.id}
-                type="button"
-                role="option"
-                aria-selected={selected}
-                className={`workflow-report-banner-card ${selected ? "is-selected" : ""}`}
-                onClick={() => selectReport(index)}
-              >
-                <span className="workflow-report-type">
-                  {reportTypeLabel(report.report_type)}
-                </span>
-                <span className="workflow-report-banner-workflow">
-                  {report.workflow_name}
-                </span>
-                <span className="workflow-report-banner-theme">
-                  {reportThemeLabel(report)}
-                </span>
-                <span className="workflow-report-banner-date">
-                  {formatReportDate(report.completed_at)}
-                </span>
-                <span className="workflow-report-banner-position">
-                  {index + 1}/{todayReports.length}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
       {decisionError && (
         <div className="workflow-report-inline-error" role="alert">
           {decisionError}
@@ -465,114 +429,129 @@ export default function WorkflowReportWorkbench({
       )}
 
       <div className="workflow-report-preview" ref={previewRef}>
-        <div className="workflow-report-body">
-          <MarkdownViewer
-            content={activeReport.content || ""}
-            density="reading"
-          />
-        </div>
+        {reportMarkdown?.titleMarkdown && (
+          <div className="workflow-report-title">
+            <MarkdownViewer
+              content={reportMarkdown.titleMarkdown}
+              density="reading"
+            />
+          </div>
+        )}
 
-        <div className="workflow-report-episodes" aria-label="报告单集">
-          {activeReport.episodes.map((episode) => {
-            const expanded = expandedEpisodeIDs.has(episode.episode_id);
-            const decision = resolveDecision(episode);
-            const shortlisted = decision === "shortlisted";
-            const saving = savingEpisodeID === episode.episode_id;
-            const shortlistLabel = shortlisted
-              ? "移出今日备选"
-              : "加入今日备选";
-            const recommendation = episodeRecommendation(episode);
-            const context = episodeContext(episode);
-            const safeLink = sanitizeContentUrl(episode.link);
+        {hasEpisodes && (
+          <div className="workflow-report-episodes" aria-label="报告单集">
+            {activeReport.episodes.map((episode) => {
+              const expanded = expandedEpisodeIDs.has(episode.episode_id);
+              const decision = resolveDecision(episode);
+              const shortlisted = decision === "shortlisted";
+              const saving = savingEpisodeID === episode.episode_id;
+              const shortlistLabel = shortlisted
+                ? "移出今日备选"
+                : "加入今日备选";
+              const showNotesPreview = episodeShowNotesPreview(episode);
+              const safeLink = sanitizeContentUrl(episode.link);
 
-            return (
-              <article
-                key={`${activeReport.id}-${episode.episode_id}-${episode.order}`}
-                className={`workflow-report-episode ${expanded ? "is-expanded" : ""}`}
-              >
-                {/* #94: expand control and bookmark are siblings — never nested. */}
-                <div className="workflow-report-episode-row">
-                  <button
-                    type="button"
-                    className="workflow-report-episode-toggle"
-                    aria-expanded={expanded}
-                    aria-controls={`report-ep-detail-${activeReport.id}-${episode.episode_id}`}
-                    onClick={() => toggleExpand(episode.episode_id)}
-                  >
-                    <EpisodeCover
-                      episode={episode}
-                      className="workflow-report-episode-cover"
-                    />
-                    <div className="workflow-report-episode-copy">
-                      <p className="workflow-report-episode-podcast">
-                        {episode.podcast_title}
-                      </p>
-                      <h3 className="workflow-report-episode-title">
-                        {episode.episode_title}
-                      </h3>
-                      {episodeMeta(episode) && (
-                        <p className="workflow-report-episode-meta">
-                          {episodeMeta(episode)}
+              return (
+                <article
+                  key={`${activeReport.id}-${episode.episode_id}-${episode.order}`}
+                  className={`workflow-report-episode ${expanded ? "is-expanded" : ""}`}
+                >
+                  {/* #94: expand control and bookmark are siblings — never nested. */}
+                  <div className="workflow-report-episode-row">
+                    <button
+                      type="button"
+                      className="workflow-report-episode-toggle"
+                      aria-expanded={expanded}
+                      aria-controls={`report-ep-detail-${activeReport.id}-${episode.episode_id}`}
+                      onClick={() => toggleExpand(episode.episode_id)}
+                    >
+                      <EpisodeCover
+                        episode={episode}
+                        className="workflow-report-episode-cover"
+                      />
+                      <div className="workflow-report-episode-copy">
+                        <p className="workflow-report-episode-podcast">
+                          {episode.podcast_title}
+                        </p>
+                        <h3 className="workflow-report-episode-title">
+                          {episode.episode_title}
+                        </h3>
+                        {episodeMeta(episode) && (
+                          <p className="workflow-report-episode-meta">
+                            {episodeMeta(episode)}
+                          </p>
+                        )}
+                      </div>
+                      <IconChevronDown
+                        size={18}
+                        aria-hidden
+                        className={`workflow-report-episode-chevron ${expanded ? "is-open" : ""}`}
+                      />
+                      <span className="sr-only">
+                        {expanded ? "收起单集详情" : "展开单集详情"}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`workflow-report-shortlist ${shortlisted ? "is-on" : ""}`}
+                      aria-label={shortlistLabel}
+                      aria-pressed={shortlisted}
+                      title={shortlistLabel}
+                      disabled={saving || !onDecision}
+                      onClick={(event) => void toggleShortlist(event, episode)}
+                    >
+                      {shortlisted ? (
+                        <IconBookmarkMinus size={20} aria-hidden />
+                      ) : (
+                        <IconBookmarkPlus size={20} aria-hidden />
+                      )}
+                    </button>
+                  </div>
+                  {expanded && (
+                    <div
+                      id={`report-ep-detail-${activeReport.id}-${episode.episode_id}`}
+                      className="workflow-report-episode-detail"
+                    >
+                      {showNotesPreview && (
+                        <p className="workflow-report-episode-show-notes">
+                          <strong>Show Notes</strong>
+                          {showNotesPreview}
                         </p>
                       )}
+                      {safeLink && (
+                        <a
+                          href={safeLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="workflow-report-episode-link"
+                        >
+                          打开原单集
+                        </a>
+                      )}
                     </div>
-                    <IconChevronDown
-                      size={18}
-                      aria-hidden
-                      className={`workflow-report-episode-chevron ${expanded ? "is-open" : ""}`}
-                    />
-                    <span className="sr-only">
-                      {expanded ? "收起单集详情" : "展开单集详情"}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`workflow-report-shortlist ${shortlisted ? "is-on" : ""}`}
-                    aria-label={shortlistLabel}
-                    aria-pressed={shortlisted}
-                    title={shortlistLabel}
-                    disabled={saving || !onDecision}
-                    onClick={(event) => void toggleShortlist(event, episode)}
-                  >
-                    {shortlisted ? (
-                      <IconBookmarkMinus size={20} aria-hidden />
-                    ) : (
-                      <IconBookmarkPlus size={20} aria-hidden />
-                    )}
-                  </button>
-                </div>
-                {expanded && (
-                  <div
-                    id={`report-ep-detail-${activeReport.id}-${episode.episode_id}`}
-                    className="workflow-report-episode-detail"
-                  >
-                    <p className="workflow-report-episode-recommendation">
-                      <strong>推荐依据</strong>
-                      {recommendation ||
-                        "本条报告未附带逐单集推荐依据，请结合正文判断。"}
-                    </p>
-                    {context && (
-                      <p className="workflow-report-episode-context">
-                        <strong>节目上下文</strong>
-                        {context}
-                      </p>
-                    )}
-                    {safeLink && (
-                      <a
-                        href={safeLink}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="workflow-report-episode-link"
-                      >
-                        打开原单集
-                      </a>
-                    )}
-                  </div>
-                )}
-              </article>
-            );
-          })}
-        </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
+
+        {(!hasEpisodes || reportMarkdown?.bodyMarkdown) && (
+          <div
+            className={`workflow-report-body ${
+              hasEpisodes ? "is-continuation" : ""
+            }`}
+          >
+            <MarkdownViewer
+              content={
+                hasEpisodes
+                  ? reportMarkdown?.bodyMarkdown || ""
+                  : activeReport.content || ""
+              }
+              density="reading"
+            />
+          </div>
+        )}
       </div>
 
       {historyOpen && (
@@ -692,7 +671,13 @@ function HistoryDrawer({
                   className="workflow-report-history-item"
                   onClick={() => onSelect(report)}
                 >
-                  <span className="workflow-report-type">
+                  <span
+                    className={`workflow-report-type ${
+                      report.report_type === "weekly"
+                        ? "is-weekly"
+                        : "is-daily"
+                    }`}
+                  >
                     {reportTypeLabel(report.report_type)}
                   </span>
                   <span className="workflow-report-history-name">

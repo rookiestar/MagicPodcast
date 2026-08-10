@@ -224,6 +224,69 @@
    - The mobile action area intentionally follows the content instead of dominating the first viewport; it remains reachable and unobscured after normal scroll.
    - No actionable P0/P1/P2 findings remain.
 
+## 2026-08-10 annotation: simplify and align the selected-report header
+
+- Source visual truth: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-report-header-before.png`, plus the user annotations to remove the four-card report strip, align the header with `最近更新`, and rename it `精选报告`.
+- Desktop implementation: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-selected-report-after.png`.
+- Same-viewport comparison, source left / implementation right: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-report-before-after.png`.
+- Desktop source and implementation pixels and CSS viewport: `1280 × 720`; browser device pixel ratio `2`, with captures normalized to CSS pixels. State: first of four real reports selected.
+- Mobile implementation: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-selected-report-mobile.png`; pixels and CSS iframe viewport `390 × 844`, scale `1`, first report selected.
+- Fonts and typography: `精选报告` and `最近更新` both compute to the same display stack, `22px`, weight `650`, line-height `24.2px`, and normal tracking on desktop; mobile uses the shared `20px` section-title scale.
+- Spacing and layout rhythm: the redundant card strip is absent; the report header now uses the same `60px` editorial row, `16px` inset, and `2px` ink divider as the recent-update header. Mobile uses the same inset divider and has no horizontal overflow (`scrollWidth = clientWidth = 390`).
+- Colors and visual tokens: existing paper, ink, orange type badge, and control colors are unchanged.
+- Image quality and assets: report content and existing covers are unchanged; no new asset or placeholder was introduced.
+- Copy and content: visible and accessible section, loading, and error labels now use `精选报告`; report content is unchanged.
+- Interaction: desktop and mobile next-report controls changed `1 / 4 → 2 / 4`; mobile DOM touch activation also changed `2 / 4 → 3 / 4`. Single-report state has no switch group or `1 / 1`.
+- Console: no warnings or errors in the fresh desktop or mobile runs.
+- Comparison history: the initial source had one P1 density issue (four duplicate report cards) and one P2 consistency issue (small orange kicker without the shared section divider). Both were removed in the revised capture; no actionable P0/P1/P2 finding remains.
+
+## 2026-08-10 annotation: distinguish report cadence and surface quick-add episodes
+
+- Source visual truth: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-selected-report-after.png`, plus the user annotations to distinguish weekly/daily cadence with restrained colors and move the quick-add episode list below the report title.
+- Desktop implementation: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-report-order-color-desktop.png`.
+- Full-view comparison, source left / implementation right: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-report-order-color-compare.png`.
+- Focused header/report comparison, source left / implementation right: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-report-order-color-focus-compare.png`.
+- Desktop source and implementation pixels and CSS viewport: `1280 × 720`, compared directly at the same normalized CSS-pixel size. State: first weekly report selected with two real episodes.
+- Daily cadence state: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-report-daily-color-desktop.png`; second of four real reports selected.
+- Mobile implementation: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-report-order-color-mobile.png`; pixels and CSS viewport `390 × 844`, device pixel ratio `1`, first weekly report selected.
+- Fonts and typography: the report title and body retain the shared reading typography; the two compact episode rows now sit immediately after the H1 without changing their title or metadata scales.
+- Spacing and layout rhythm: visible order is `workflow-report-title → workflow-report-episodes → workflow-report-body`; the episode block uses the existing warm-gray separators, and one/two-item reports keep natural height. Mobile has no horizontal overflow (`scrollWidth = clientWidth = 390`).
+- Colors and visual tokens: weekly uses restrained gray-blue (`#53686f` text, `#65777b` border, `rgba(224, 231, 229, 0.88)` background); daily retains the existing terracotta treatment (`#c4552a`, `rgba(249, 236, 224, 0.9)`). Both remain secondary to ink and paper.
+- Image quality and assets: existing real episode covers, crops, and fallbacks are unchanged; no new image asset or approximation was introduced.
+- Copy and content: the Markdown H1 and body remain verbatim; only their visual placement around the existing episode controls changes. Zero-episode reports remain one complete Markdown document.
+- Interaction: next-report changed weekly `1 / 4` to daily `2 / 4` and exposed the correct cadence token; episode expand/collapse passed on mobile. Automated coverage retains shortlist behavior without writing production state during visual QA.
+- Console: no warnings or errors in the desktop/mobile run.
+- Comparison history: the source exposed a P2 action-discovery issue because quick-add episodes appeared only after the long report body, and a P2 cadence issue because weekly reused the daily orange token. The revised capture moves the episodes above the body and gives weekly a low-saturation gray-blue token; no actionable P0/P1/P2 finding remains.
+
+## 2026-08-10 annotation: distinguish the embedded episode block
+
+- Source visual truth: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-report-daily-color-desktop.png`, plus the user annotation requesting a refined background distinction between embedded episodes and the report.
+- Desktop implementation: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-report-episode-sage-desktop-collapsed.png`.
+- Full-view comparison, source left / implementation right: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-report-episode-sage-compare.png`.
+- Focused report comparison, source left / implementation right: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-report-episode-sage-focus-compare.png`.
+- Desktop source and implementation pixels and CSS viewport: `1280 × 720`, compared directly at the same normalized CSS-pixel size. State: second daily report selected with six real episodes, all collapsed.
+- Expanded-state implementation: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-report-episode-sage-desktop.png`.
+- Mobile implementation: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-report-episode-sage-mobile.png`; pixels and CSS viewport `390 × 844`, device pixel ratio `1`, same report and collapsed state.
+- Fonts and typography: title, show name, episode title, metadata, and controls are unchanged; the tint does not reduce text hierarchy or legibility.
+- Spacing and layout rhythm: component size, row height, separators, cover crops, and surrounding report spacing are unchanged. Mobile has no horizontal overflow (`scrollWidth = clientWidth = 390`).
+- Colors and visual tokens: the embedded episode block now uses low-saturation sage mist `rgba(224, 229, 220, 0.78)`, distinct from the warm report paper while remaining quieter than the daily terracotta and weekly gray-blue cadence tokens.
+- Image quality and assets: real episode covers and their borders/crops are unchanged; no new image asset or approximation was introduced.
+- Copy and content: report and episode copy are unchanged.
+- Interaction: desktop and mobile expand/collapse remain functional; shortlist controls are unchanged. No production decision write was made during visual QA.
+- Console: no warnings or errors in the desktop/mobile run.
+- Comparison history: the source had one P2 grouping issue because the embedded episode rows shared the report-paper background and visually merged with the body. The revised capture adds one restrained shared block tint without changing structure or semantics; no actionable P0/P1/P2 finding remains.
+
+## 2026-08-10 annotation: replace recommendation copy with Show Notes
+
+- Source visual truth: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-report-episode-sage-desktop.png`, plus the user annotation to remove the unimplemented recommendation rationale and show only the episode Show Notes preview.
+- Desktop implementation: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-report-shownotes-only-desktop.png`.
+- Focused comparison, source left / implementation right: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-report-shownotes-only-focus-compare.png`.
+- Mobile implementation: `/Users/bytedance/.codex/visualizations/2026/08/10/019fea29-2595-7f93-9509-3aaaf59d9614/magicpodcast-report-shownotes-only-mobile.png`; viewport `390 × 844`.
+- Copy and content: the expanded episode no longer renders recommendation data or the fallback recommendation sentence. `context`, then `excerpt`, supplies the `Show Notes` preview; when both are empty, the label is omitted and a valid source link remains available.
+- Interaction and layout: expand/collapse and shortlist behavior are unchanged; the sage episode grouping remains intact. Mobile has no horizontal overflow.
+- Console: no warnings or errors in the desktop/mobile run.
+- Comparison history: the source exposed a P1 truthfulness issue by presenting an unimplemented recommendation rationale and an invented fallback. The revised capture shows only source-backed Show Notes; no actionable P0/P1/P2 finding remains.
+
 ## Follow-up polish
 
 - P3: test a larger personal library with several episodes per show before treating five-item density as a performance or long-list benchmark.
