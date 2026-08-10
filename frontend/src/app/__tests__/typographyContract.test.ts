@@ -37,6 +37,19 @@ function getDeclarations(selector: string): Record<string, string> {
   return declarations;
 }
 
+function getDeclarationsForSelector(selector: string): Record<string, string> {
+  const declarations: Record<string, string> = {};
+
+  cssRoot.walkRules((rule) => {
+    if (!rule.selectors.includes(selector)) return;
+    rule.walkDecls((declaration) => {
+      declarations[declaration.prop] = declaration.value.trim();
+    });
+  });
+
+  return declarations;
+}
+
 const applicationSource = readApplicationSource(resolve("src"));
 
 describe("typography contract", () => {
@@ -80,6 +93,29 @@ describe("typography contract", () => {
     expect(getDeclarations(".podcast-sort-cancel")).toMatchObject({
       "font-family": "var(--font-sans)",
       "font-weight": "600",
+    });
+  });
+
+  it("keeps primary navigation and workflow reports on scoped semantic roles", () => {
+    expect(getDeclarations(".type-nav")).toMatchObject({
+      "font-family": "var(--font-sans)",
+      "font-size": "var(--type-nav-size)",
+      "font-weight": "600",
+      "line-height": "var(--type-nav-leading)",
+    });
+    expect(getDeclarationsForSelector(".app-navbar-links a")).toMatchObject({
+      "font-size": "var(--type-nav-size)",
+      "line-height": "var(--type-nav-leading)",
+    });
+    expect(
+      getDeclarationsForSelector(".mobile-bottom-nav a"),
+    ).toMatchObject({
+      "font-size": "var(--type-nav-size)",
+      "line-height": "var(--type-nav-leading)",
+    });
+    expect(getDeclarations(".editorial-rich-text--report")).toMatchObject({
+      "font-size": "var(--type-report-size)",
+      "line-height": "var(--type-report-leading)",
     });
   });
 

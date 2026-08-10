@@ -548,7 +548,7 @@ export default function WorkflowReportWorkbench({
                   ? reportMarkdown?.bodyMarkdown || ""
                   : activeReport.content || ""
               }
-              density="reading"
+              density="report"
             />
           </div>
         )}
