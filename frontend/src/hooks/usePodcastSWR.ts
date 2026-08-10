@@ -209,6 +209,7 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
   // 同一渲染周期内连续触发 loadMore 时，只允许一个请求把 size 加一。
   // SWR 自带的 key 去重无法阻止多个不同 size 更新在同一批次排队，因此这里需要同步锁。
   const loadMoreLockRef = useRef(false);
+  const pendingInitialPageLoadMoreScopeRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isValidating) {
@@ -216,11 +217,35 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
     }
   }, [isValidating]);
 
+  useEffect(() => {
+    pendingInitialPageLoadMoreScopeRef.current = null;
+    loadMoreLockRef.current = false;
+  }, [requestScopeKey]);
+
+  useEffect(() => {
+    if (
+      isValidating ||
+      error ||
+      pendingInitialPageLoadMoreScopeRef.current !== requestScopeKey
+    ) {
+      return;
+    }
+    if (!hasMore) {
+      pendingInitialPageLoadMoreScopeRef.current = null;
+      return;
+    }
+
+    pendingInitialPageLoadMoreScopeRef.current = null;
+    loadMoreLockRef.current = true;
+    setSize((currentSize) => currentSize + 1);
+  }, [error, hasMore, isValidating, requestScopeKey, setSize]);
+
   const loadMore = useCallback(() => {
     if (loadMoreLockRef.current || !hasMore) {
       return;
     }
     if (shouldRefreshInitialPage && isValidating) {
+      pendingInitialPageLoadMoreScopeRef.current = requestScopeKey;
       return;
     }
     if (size > 1 && isValidating) {
@@ -231,6 +256,7 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
   }, [
     hasMore,
     isValidating,
+    requestScopeKey,
     setSize,
     shouldRefreshInitialPage,
     size,
@@ -243,6 +269,7 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
   }, [mutate]);
 
   const reset = useCallback(() => {
+    pendingInitialPageLoadMoreScopeRef.current = null;
     loadMoreLockRef.current = false;
     setSize(1);
   }, [setSize]);

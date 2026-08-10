@@ -184,7 +184,7 @@ func TestApplyMigrationsUpgradesSchema14To15EpisodeTriageDecisions(t *testing.T)
 	require.Equal(t, 14, mustSchemaStatus(t, db).CurrentVersion)
 
 	require.NoError(t, ApplyMigrations(db))
-	require.Equal(t, 15, mustSchemaStatus(t, db).CurrentVersion)
+	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, db).CurrentVersion)
 	require.True(t, db.Migrator().HasTable(&models.EpisodeTriageDecision{}))
 	require.True(t, db.Migrator().HasColumn(&models.EpisodeTriageDecision{}, "episode_id"))
 	require.True(t, db.Migrator().HasColumn(&models.EpisodeTriageDecision{}, "state"))
@@ -195,6 +195,21 @@ func TestApplyMigrationsUpgradesSchema14To15EpisodeTriageDecisions(t *testing.T)
 		WHERE type = 'index' AND name = 'idx_episode_triage_decisions_episode_id'
 	`).Scan(&uniqueIndexCount).Error)
 	require.Equal(t, int64(1), uniqueIndexCount)
+}
+
+func TestApplyMigrationsUpgradesSchema15To16HomepageWorkflowReports(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:15]))
+	require.Equal(t, 15, mustSchemaStatus(t, db).CurrentVersion)
+
+	require.NoError(t, ApplyMigrations(db))
+	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, db).CurrentVersion)
+	require.True(t, db.Migrator().HasColumn(&models.Workflow{}, "publish_to_homepage"))
+	require.True(t, db.Migrator().HasColumn(&models.Workflow{}, "report_type"))
+	require.True(t, db.Migrator().HasColumn(&models.Report{}, "publish_to_homepage"))
+	require.True(t, db.Migrator().HasColumn(&models.Report{}, "report_type"))
+	require.True(t, db.Migrator().HasColumn(&models.Report{}, "workflow_name"))
+	require.True(t, db.Migrator().HasColumn(&models.Report{}, "structured_episodes"))
 }
 
 func mustSchemaStatus(t *testing.T, db *gorm.DB) SchemaStatus {

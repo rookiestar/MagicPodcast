@@ -61,3 +61,52 @@ export interface TodayShortlistData {
   timezone: string;
   candidates: DiscoveryCandidate[];
 }
+
+export type HomepageReportType = "daily" | "weekly";
+
+export interface HomepageReportEpisode {
+  episode_id: number;
+  order: number;
+  podcast_id: number;
+  podcast_title: string;
+  podcast_cover_url?: string;
+  episode_title: string;
+  episode_no?: string;
+  duration?: number;
+  published_date?: string;
+  image_url?: string;
+  link?: string;
+  /** Report-authored rationale; never ordinary Show Notes (#93). */
+  recommendation?: string;
+  /** Program context (e.g. Show Notes excerpt). */
+  context?: string;
+  /** Legacy alias; prefer context. */
+  excerpt?: string;
+  decision_state: TriageDecisionState;
+  decision_updated_at?: string;
+}
+
+export interface HomepageReport {
+  id: number;
+  job_id: number;
+  workflow_id: number;
+  workflow_name: string;
+  report_type: HomepageReportType | string;
+  title: string;
+  theme?: string;
+  content?: string;
+  summary?: string;
+  completed_at: string;
+  generated_at: string;
+  episode_count: number;
+  episodes: HomepageReportEpisode[];
+  /** History list rows omit full Markdown (#95). */
+  metadata_only?: boolean;
+}
+
+export interface HomepageReportsData {
+  date: string;
+  timezone: string;
+  today: HomepageReport[];
+  history?: HomepageReport[];
+}

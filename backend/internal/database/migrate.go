@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 15
+const CurrentSchemaVersion = 16
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -133,6 +133,12 @@ func migrationRegistry() []Migration {
 			Name:        "episode-triage-decisions",
 			Description: "Persist one idempotent pending, shortlisted, or discarded decision per library episode (#55).",
 			Apply:       applyEpisodeTriageDecisionsMigration,
+		},
+		{
+			Version:     16,
+			Name:        "homepage-workflow-reports",
+			Description: "Add workflow homepage publish config and structured report episodes for discovery (#89/#90).",
+			Apply:       applyHomepageWorkflowReportsMigration,
 		},
 	}
 }
@@ -508,6 +514,14 @@ func applyFeedUserAgentRecoveryMigration(db *gorm.DB) error {
 func applyEpisodeTriageDecisionsMigration(db *gorm.DB) error {
 	if err := db.AutoMigrate(&models.EpisodeTriageDecision{}); err != nil {
 		return fmt.Errorf("create episode triage decisions: %w", err)
+	}
+	return nil
+}
+
+func applyHomepageWorkflowReportsMigration(db *gorm.DB) error {
+	// AutoMigrate adds nullable-safe columns with defaults for existing rows.
+	if err := db.AutoMigrate(&models.Workflow{}, &models.Report{}); err != nil {
+		return fmt.Errorf("apply homepage workflow report columns: %w", err)
 	}
 	return nil
 }

@@ -84,16 +84,18 @@ func (h *WorkflowHandler) getBatchWorkflowStats(workflowIDs []uint) map[uint]*dt
 // toWorkflowResponseWithStats 使用预加载统计数据转换为响应格式（优化N+1查询）
 func (h *WorkflowHandler) toWorkflowResponseWithStats(workflow *models.Workflow, stats *dto.BatchWorkflowStats, subscribedPodcastCount int64) dto.WorkflowResponse {
 	resp := dto.WorkflowResponse{
-		ID:          workflow.ID,
-		Name:        workflow.Name,
-		Description: workflow.Description,
-		Schedule:    workflow.Schedule,
-		ScopeType:   workflow.ScopeType,
-		ScopeConfig: workflow.ScopeConfig,
-		RulesConfig: workflow.RulesConfig,
-		IsEnabled:   workflow.IsEnabled,
-		CreatedAt:   workflow.CreatedAt,
-		UpdatedAt:   workflow.UpdatedAt,
+		ID:                workflow.ID,
+		Name:              workflow.Name,
+		Description:       workflow.Description,
+		Schedule:          workflow.Schedule,
+		ScopeType:         workflow.ScopeType,
+		ScopeConfig:       workflow.ScopeConfig,
+		RulesConfig:       workflow.RulesConfig,
+		IsEnabled:         workflow.IsEnabled,
+		PublishToHomepage: workflow.PublishToHomepage,
+		ReportType:        workflow.ReportType,
+		CreatedAt:         workflow.CreatedAt,
+		UpdatedAt:         workflow.UpdatedAt,
 	}
 
 	// 添加最后一次执行任务信息
@@ -137,16 +139,18 @@ func workflowListRulesConfigSummary(config models.RulesConfig) models.RulesConfi
 // toWorkflowResponse 转换为响应格式
 func (h *WorkflowHandler) toWorkflowResponse(workflow *models.Workflow) dto.WorkflowResponse {
 	resp := dto.WorkflowResponse{
-		ID:          workflow.ID,
-		Name:        workflow.Name,
-		Description: workflow.Description,
-		Schedule:    workflow.Schedule,
-		ScopeType:   workflow.ScopeType,
-		ScopeConfig: workflow.ScopeConfig,
-		RulesConfig: workflow.RulesConfig,
-		IsEnabled:   workflow.IsEnabled,
-		CreatedAt:   workflow.CreatedAt,
-		UpdatedAt:   workflow.UpdatedAt,
+		ID:                workflow.ID,
+		Name:              workflow.Name,
+		Description:       workflow.Description,
+		Schedule:          workflow.Schedule,
+		ScopeType:         workflow.ScopeType,
+		ScopeConfig:       workflow.ScopeConfig,
+		RulesConfig:       workflow.RulesConfig,
+		IsEnabled:         workflow.IsEnabled,
+		PublishToHomepage: workflow.PublishToHomepage,
+		ReportType:        workflow.ReportType,
+		CreatedAt:         workflow.CreatedAt,
+		UpdatedAt:         workflow.UpdatedAt,
 	}
 
 	// 添加最后一次执行任务信息
@@ -362,24 +366,28 @@ func batchRemainingMs(job *models.Job) *int64 {
 
 func workflowReportResponse(report *models.Report) gin.H {
 	return gin.H{
-		"id":               report.ID,
-		"job_id":           report.JobID,
-		"title":            report.Title,
-		"content":          report.Content,
-		"summary":          report.Summary,
-		"episodes_count":   report.EpisodesCount,
-		"podcasts_count":   report.PodcastsCount,
-		"matched_count":    report.MatchedCount,
-		"time_range_start": report.TimeRangeStart,
-		"time_range_end":   report.TimeRangeEnd,
-		"time_range_mode":  report.TimeRangeMode,
-		"generated_at":     report.GeneratedAt,
-		"format":           report.Format,
-		"file_size":        report.FileSize,
-		"llm_summary":      report.LLMSummary,
-		"llm_model_used":   report.LLMModelUsed,
-		"llm_tokens_used":  report.LLMTokensUsed,
-		"llm_error":        report.LLMError,
+		"id":                   report.ID,
+		"job_id":               report.JobID,
+		"title":                report.Title,
+		"content":              report.Content,
+		"summary":              report.Summary,
+		"episodes_count":       report.EpisodesCount,
+		"podcasts_count":       report.PodcastsCount,
+		"matched_count":        report.MatchedCount,
+		"time_range_start":     report.TimeRangeStart,
+		"time_range_end":       report.TimeRangeEnd,
+		"time_range_mode":      report.TimeRangeMode,
+		"generated_at":         report.GeneratedAt,
+		"format":               report.Format,
+		"file_size":            report.FileSize,
+		"publish_to_homepage":  report.PublishToHomepage,
+		"report_type":          report.ReportType,
+		"workflow_name":        report.WorkflowName,
+		"structured_episodes":  report.StructuredEpisodes,
+		"llm_summary":          report.LLMSummary,
+		"llm_model_used":       report.LLMModelUsed,
+		"llm_tokens_used":      report.LLMTokensUsed,
+		"llm_error":            report.LLMError,
 	}
 }
 
@@ -505,6 +513,24 @@ func validateRulesConfig(config models.RulesConfig) error {
 	}
 
 	return nil
+}
+
+// validateHomepagePublishConfig validates explicit homepage publish settings (#90).
+func validateHomepagePublishConfig(publish bool, reportType string) error {
+	if !publish {
+		return nil
+	}
+	if !models.IsValidHomepageReportType(reportType) {
+		return fmt.Errorf("publish_to_homepage 时 report_type 必须是 daily 或 weekly")
+	}
+	return nil
+}
+
+func normalizeHomepageReportType(publish bool, reportType string) string {
+	if !publish {
+		return ""
+	}
+	return reportType
 }
 
 // ========== 排序辅助函数 ==========

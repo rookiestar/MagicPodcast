@@ -8,18 +8,20 @@ import (
 
 // WorkflowResponse Workflow 响应结构
 type WorkflowResponse struct {
-	ID          uint                     `json:"id"`
-	Name        string                   `json:"name"`
-	Description string                   `json:"description"`
-	Schedule    string                   `json:"schedule"`
-	ScopeType   models.WorkflowScopeType `json:"scope_type"`
-	ScopeConfig models.ScopeConfig       `json:"scope_config"`
-	RulesConfig models.RulesConfig       `json:"rules_config"`
-	IsEnabled   bool                     `json:"is_enabled"`
-	CreatedAt   time.Time                `json:"created_at"`
-	UpdatedAt   time.Time                `json:"updated_at"`
-	LastJob     *JobResponse             `json:"last_job,omitempty"`
-	Stats       *WorkflowStats           `json:"stats,omitempty"`
+	ID                uint                     `json:"id"`
+	Name              string                   `json:"name"`
+	Description       string                   `json:"description"`
+	Schedule          string                   `json:"schedule"`
+	ScopeType         models.WorkflowScopeType `json:"scope_type"`
+	ScopeConfig       models.ScopeConfig       `json:"scope_config"`
+	RulesConfig       models.RulesConfig       `json:"rules_config"`
+	IsEnabled         bool                     `json:"is_enabled"`
+	PublishToHomepage bool                     `json:"publish_to_homepage"`
+	ReportType        string                   `json:"report_type"`
+	CreatedAt         time.Time                `json:"created_at"`
+	UpdatedAt         time.Time                `json:"updated_at"`
+	LastJob           *JobResponse             `json:"last_job,omitempty"`
+	Stats             *WorkflowStats           `json:"stats,omitempty"`
 }
 
 // WorkflowStats 工作流统计信息

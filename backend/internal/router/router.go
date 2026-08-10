@@ -112,12 +112,17 @@ func SetupRouter() *gin.Engine {
 	// API 路由组
 	v1 := r.Group("/api/v1")
 	{
+		discoveryDB := database.GetDB()
+		discoveryLocation := cfg.DiscoveryLocation()
 		discoveryHandler := handlers.NewDiscoveryHandler(
-			services.NewDiscoveryServiceWithLocation(database.GetDB(), cfg.DiscoveryLocation()),
-			services.NewTriageService(database.GetDB()),
+			services.NewDiscoveryServiceWithLocation(discoveryDB, discoveryLocation),
+			services.NewTriageService(discoveryDB),
+			services.NewHomepageReportServiceWithLocation(discoveryDB, discoveryLocation),
 		)
 		v1.GET("/discovery/candidates", discoveryHandler.ListCandidates)
 		v1.GET("/discovery/shortlist/today", discoveryHandler.ListTodayShortlist)
+		v1.GET("/discovery/reports", discoveryHandler.ListHomepageReports)
+		v1.GET("/discovery/reports/:id", discoveryHandler.GetHomepageReport)
 		v1.PUT("/discovery/candidates/:episodeID/decision", discoveryHandler.PutDecision)
 
 		// Podcast 路由

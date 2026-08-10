@@ -2521,6 +2521,416 @@
     font-size: 11px;
   }
 
+  /* Workflow report workbench on discovery homepage (#89–#92) */
+  .workflow-report-workbench {
+    width: min(100%, 1380px);
+    margin: 0 auto 18px;
+    padding: 16px 0 8px;
+    border-bottom: 1px solid #b7ad9f;
+    color: #171717;
+  }
+
+  .workflow-report-workbench.is-loading {
+    min-height: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .workflow-report-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 12px;
+  }
+
+  .workflow-report-header-copy h2 {
+    margin: 4px 0 0;
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: var(--font-display-weight);
+    line-height: 1.2;
+  }
+
+  .workflow-report-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin-top: 6px;
+    font: 600 12px/1.4 var(--font-mono);
+    color: #5d574f;
+  }
+
+  .workflow-report-type {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 0 8px;
+    border: 1px solid #c4552a;
+    color: #c4552a;
+    background: rgba(249, 236, 224, 0.9);
+  }
+
+  .workflow-report-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .workflow-report-banner-strip {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    margin: 0 0 12px;
+    padding: 2px 0 8px;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+  }
+
+  .workflow-report-banner-card {
+    flex: 0 0 min(240px, 78vw);
+    scroll-snap-align: start;
+    display: grid;
+    gap: 4px;
+    min-height: 96px;
+    padding: 12px;
+    border: 1px solid #8c8275;
+    background: rgba(247, 241, 229, 0.92);
+    text-align: left;
+    cursor: pointer;
+    color: #171717;
+  }
+
+  .workflow-report-banner-card.is-selected {
+    border-color: #c4552a;
+    box-shadow: inset 0 0 0 1px #c4552a;
+    background: rgba(249, 236, 224, 0.95);
+  }
+
+  .workflow-report-banner-card:focus-visible {
+    outline: 3px solid #1768d0;
+    outline-offset: 2px;
+  }
+
+  .workflow-report-banner-workflow,
+  .workflow-report-banner-theme {
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: var(--font-display-weight);
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  .workflow-report-banner-date,
+  .workflow-report-banner-position {
+    font: 600 11px/1.3 var(--font-mono);
+    color: #6a6359;
+  }
+
+  .workflow-report-history-loading {
+    margin: 0 0 8px;
+    font: 600 12px/1.4 var(--font-mono);
+    color: #5d574f;
+  }
+
+  .workflow-report-history-trigger,
+  .workflow-report-back-today,
+  .workflow-report-arrow {
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 12px;
+    border: 1px solid #171717;
+    background: rgba(247, 241, 229, 0.92);
+    color: #171717;
+    font: 600 12px/1 var(--font-mono);
+    cursor: pointer;
+  }
+
+  .workflow-report-arrow:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .workflow-report-switchers {
+    display: inline-flex;
+    gap: 4px;
+  }
+
+  .workflow-report-preview {
+    max-height: 560px;
+    overflow: auto;
+    border: 1px solid #8c8275;
+    background: rgba(247, 241, 229, 0.88);
+    /* No forced min-height: 1–2 episodes shrink naturally (#90/#92). */
+  }
+
+  .workflow-report-body {
+    padding: 16px 18px 8px;
+    border-bottom: 1px solid #cfc4b4;
+  }
+
+  .workflow-report-episodes {
+    display: grid;
+    gap: 0;
+  }
+
+  .workflow-report-episode {
+    border-top: 1px solid #cfc4b4;
+  }
+
+  .workflow-report-episode:first-child {
+    border-top: 0;
+  }
+
+  .workflow-report-episode-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    gap: 8px;
+    align-items: center;
+    width: 100%;
+    min-height: 72px;
+    padding: 8px 10px;
+  }
+
+  .workflow-report-episode-toggle {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr) 20px;
+    gap: 12px;
+    align-items: center;
+    width: 100%;
+    min-height: 56px;
+    padding: 4px;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+  }
+
+  .workflow-report-episode-toggle:focus-visible {
+    outline: 3px solid #1768d0;
+    outline-offset: 2px;
+  }
+
+  .workflow-report-episode-chevron {
+    color: #6a6359;
+    transition: transform 0.15s ease;
+  }
+
+  .workflow-report-episode-chevron.is-open {
+    transform: rotate(180deg);
+  }
+
+  .workflow-report-episode-cover {
+    width: 56px;
+    height: 56px;
+    border: 1px solid #8c8275;
+    background: #efe6d5;
+  }
+
+  .workflow-report-episode-podcast {
+    margin: 0;
+    font: 600 11px/1.3 var(--font-mono);
+    color: #6a6359;
+  }
+
+  .workflow-report-episode-title {
+    margin: 2px 0 0;
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: var(--font-display-weight);
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+
+  .workflow-report-episode-meta {
+    margin: 4px 0 0;
+    font: 600 11px/1.3 var(--font-mono);
+    color: #6a6359;
+  }
+
+  .workflow-report-shortlist {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #171717;
+    cursor: pointer;
+  }
+
+  .workflow-report-shortlist.is-on {
+    color: #c4552a;
+    border-color: #c4552a;
+    background: rgba(249, 236, 224, 0.85);
+  }
+
+  .workflow-report-shortlist:focus-visible {
+    outline: 3px solid #1768d0;
+    outline-offset: 2px;
+  }
+
+  .workflow-report-shortlist:disabled {
+    opacity: 0.5;
+    cursor: wait;
+  }
+
+  .workflow-report-episode-detail {
+    padding: 0 12px 14px 80px;
+    color: #3f3a34;
+    font-size: 14px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+  }
+
+  .workflow-report-episode-recommendation,
+  .workflow-report-episode-context {
+    margin: 0 0 8px;
+  }
+
+  .workflow-report-episode-recommendation strong,
+  .workflow-report-episode-context strong {
+    display: block;
+    margin-bottom: 2px;
+    font: 600 11px/1.3 var(--font-mono);
+    color: #6a6359;
+  }
+
+  .workflow-report-episode-link {
+    display: inline-block;
+    margin-top: 8px;
+    color: #c4552a;
+    font: 600 12px/1.4 var(--font-mono);
+    text-decoration: underline;
+  }
+
+  .workflow-report-error,
+  .workflow-report-inline-error {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+    padding: 10px 12px;
+    border: 1px solid #ad695e;
+    background: #f5e4db;
+    color: #7c2d22;
+    font-size: 13px;
+  }
+
+  .workflow-report-error button {
+    min-height: 44px;
+    padding: 0 12px;
+    border: 1px solid currentColor;
+    background: transparent;
+    cursor: pointer;
+    font: 600 12px/1 var(--font-mono);
+  }
+
+  .workflow-report-history-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .workflow-report-history-backdrop {
+    position: absolute;
+    inset: 0;
+    border: 0;
+    background: rgba(23, 23, 23, 0.35);
+    cursor: pointer;
+  }
+
+  .workflow-report-history-drawer {
+    position: relative;
+    width: min(100%, 420px);
+    height: 100%;
+    overflow: auto;
+    border-left: 1px solid #171717;
+    background: #f7f1e5;
+    padding: 18px 16px 32px;
+    box-shadow: -8px 0 24px rgba(23, 23, 23, 0.12);
+  }
+
+  .workflow-report-history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #171717;
+  }
+
+  .workflow-report-history-header h2 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 20px;
+  }
+
+  .workflow-report-history-header button {
+    width: 44px;
+    height: 44px;
+    border: 1px solid #171717;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .workflow-report-history-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+  }
+
+  .workflow-report-history-item {
+    width: 100%;
+    display: grid;
+    gap: 4px;
+    padding: 12px;
+    border: 1px solid #8c8275;
+    background: rgba(247, 241, 229, 0.92);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .workflow-report-history-item:focus-visible {
+    outline: 3px solid #1768d0;
+    outline-offset: 2px;
+  }
+
+  .workflow-report-history-name {
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: var(--font-display-weight);
+  }
+
+  .workflow-report-history-date,
+  .workflow-report-history-count {
+    font: 600 11px/1.3 var(--font-mono);
+    color: #6a6359;
+  }
+
+  .workflow-report-history-empty {
+    color: #6a6359;
+    font-size: 14px;
+  }
+
   .discovery-page-skeleton {
     min-height: calc(100vh - 64px);
   }
@@ -2874,6 +3284,37 @@
 
     .discovery-desk {
       padding: 18px 16px 92px;
+    }
+
+    .workflow-report-workbench {
+      margin-bottom: 12px;
+      padding: 12px 0 4px;
+    }
+
+    .workflow-report-header {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+    }
+
+    .workflow-report-header-actions {
+      justify-content: space-between;
+    }
+
+    /* Mobile: natural page scroll only — no nested vertical scroll (#92). */
+    .workflow-report-preview {
+      max-height: none;
+      overflow: visible;
+      border-left: 0;
+      border-right: 0;
+    }
+
+    .workflow-report-episode-detail {
+      padding-left: 12px;
+    }
+
+    .workflow-report-history-drawer {
+      width: min(100%, 100vw);
     }
 
     .discovery-workspace {

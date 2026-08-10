@@ -23,11 +23,15 @@ function pageFromUrl(url: string): { page: number; pageSize: number } {
   };
 }
 
-function pageResponse(page: number, pageSize: number): Response {
-  const totalPages = Math.ceil(TOTAL / pageSize);
+function pageResponse(
+  page: number,
+  pageSize: number,
+  total = TOTAL,
+): Response {
+  const totalPages = Math.ceil(total / pageSize);
   const start = (page - 1) * pageSize;
   const data: Record<string, unknown>[] = [];
-  for (let i = 0; i < pageSize && start + i < TOTAL; i += 1) {
+  for (let i = 0; i < pageSize && start + i < total; i += 1) {
     const id = start + i + 1;
     data.push({
       id,
@@ -39,13 +43,13 @@ function pageResponse(page: number, pageSize: number): Response {
     JSON.stringify({
       success: true,
       data,
-      pagination: { page, page_size: pageSize, total: TOTAL, total_pages: totalPages },
+      pagination: { page, page_size: pageSize, total, total_pages: totalPages },
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
 }
 
-function initialPage(pageSize = 10) {
+function initialPage(pageSize = 10, total = TOTAL) {
   return {
     podcasts: Array.from<unknown, Podcast>(
       { length: pageSize },
@@ -66,8 +70,8 @@ function initialPage(pageSize = 10) {
     pagination: {
       page: 1,
       page_size: pageSize,
-      total: TOTAL,
-      total_pages: Math.ceil(TOTAL / pageSize),
+      total,
+      total_pages: Math.ceil(total / pageSize),
     },
   };
 }
@@ -175,16 +179,149 @@ describe("播客无限滚动加载性能验收 (#65)", () => {
     expect(calls[0]).toContain("page=1");
     expect(calls[0]).toContain("page_size=15");
 
+    act(() => resolveFirstPage?.(pageResponse(1, 15)));
+    await waitFor(() => expect(result.current.podcasts).toHaveLength(15));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("四列首屏补齐期间触底，补齐成功后自动加载一次第二页", async () => {
+    const total = 24;
+    let resolveFirstPage: ((response: Response) => void) | undefined;
+    const calls: string[] = [];
+    const fetchMock = vi.fn((url: string | URL) => {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      calls.push(urlStr);
+      const { page, pageSize } = pageFromUrl(urlStr);
+      if (page === 1) {
+        return new Promise<Response>((resolve) => {
+          resolveFirstPage = resolve;
+        });
+      }
+      return Promise.resolve(pageResponse(page, pageSize, total));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderInfiniteHook({
+      page_size: 12,
+      initialPage: initialPage(10, total),
+    });
+
+    expect(result.current.podcasts).toHaveLength(10);
+    await waitFor(() => expect(calls).toHaveLength(1));
+
     act(() => {
+      result.current.loadMore();
       result.current.loadMore();
       result.current.loadMore();
     });
     expect(calls.filter((url) => url.includes("page=2"))).toHaveLength(0);
 
-    act(() => resolveFirstPage?.(pageResponse(1, 15)));
-    await waitFor(() => expect(result.current.podcasts).toHaveLength(15));
+    act(() => resolveFirstPage?.(pageResponse(1, 12, total)));
+    await waitFor(() => expect(result.current.podcasts).toHaveLength(24));
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(calls.filter((url) => url.includes("page=2"))).toHaveLength(1);
+    const ids = result.current.podcasts.map((podcast) => podcast.id);
+    expect(new Set(ids).size).toBe(24);
+  });
+
+  it("四列首屏补齐失败后，重试成功再兑现触底意图", async () => {
+    const total = 24;
+    let resolveFirstPage: ((response: Response) => void) | undefined;
+    let shouldFailFirstPage = true;
+    const calls: string[] = [];
+    const fetchMock = vi.fn((url: string | URL) => {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      calls.push(urlStr);
+      const { page, pageSize } = pageFromUrl(urlStr);
+      if (page === 1 && shouldFailFirstPage) {
+        return new Promise<Response>((resolve) => {
+          resolveFirstPage = resolve;
+        });
+      }
+      return Promise.resolve(pageResponse(page, pageSize, total));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderInfiniteHook({
+      page_size: 12,
+      initialPage: initialPage(10, total),
+    });
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    act(() => result.current.loadMore());
+    act(() => resolveFirstPage?.(errorResponse(500, "服务器错误")));
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(result.current.podcasts).toHaveLength(10);
+    expect(calls.filter((url) => url.includes("page=2"))).toHaveLength(0);
+
+    shouldFailFirstPage = false;
+    act(() => result.current.retryLastPage());
+    await waitFor(() => expect(result.current.podcasts).toHaveLength(24));
+
+    expect(calls.filter((url) => url.includes("page=2"))).toHaveLength(1);
+    const ids = result.current.podcasts.map((podcast) => podcast.id);
+    expect(new Set(ids).size).toBe(24);
+  });
+
+  it("响应式页大小变化时丢弃旧首屏的触底意图", async () => {
+    const total = 24;
+    const calls: string[] = [];
+    const signals: AbortSignal[] = [];
+    const fetchMock = vi.fn(
+      (url: string | URL, init?: { signal?: AbortSignal }) => {
+        const urlStr = typeof url === "string" ? url : url.toString();
+        calls.push(urlStr);
+        if (init?.signal) {
+          signals.push(init.signal);
+        }
+        if (calls.length === 1) {
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () =>
+                reject(
+                  new DOMException("The user aborted a request", "AbortError"),
+                ),
+              { once: true },
+            );
+          });
+        }
+        const { page, pageSize } = pageFromUrl(urlStr);
+        return Promise.resolve(pageResponse(page, pageSize, total));
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result, rerender } = renderHook(
+      (props: Parameters<typeof usePodcastListInfinite>[0]) =>
+        usePodcastListInfinite(props),
+      {
+        initialProps: {
+          page_size: 12,
+          initialPage: initialPage(10, total),
+        },
+        wrapper: ({ children }) =>
+          createElement(
+            SWRConfig,
+            { value: { provider: () => new Map(), revalidateOnFocus: false } },
+            children,
+          ),
+      },
+    );
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    act(() => result.current.loadMore());
+
+    rerender({
+      page_size: 9,
+      initialPage: initialPage(10, total),
+    });
+    await waitFor(() => expect(result.current.podcasts).toHaveLength(9));
+
+    expect(signals[0]?.aborted).toBe(true);
+    expect(calls.filter((url) => url.includes("page=2"))).toHaveLength(0);
   });
 
   it("桌面补齐失败时保留服务端 10 条并允许重试", async () => {
