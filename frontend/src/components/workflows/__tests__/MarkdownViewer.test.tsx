@@ -18,6 +18,16 @@ describe("MarkdownViewer", () => {
       "text-2xl",
     );
 
+    rerender(<MarkdownViewer content="# 精选报告" density="report" />);
+
+    expect(container.firstElementChild).toHaveClass(
+      "editorial-rich-text",
+      "editorial-rich-text--report",
+    );
+    expect(container.firstElementChild).not.toHaveClass(
+      "editorial-rich-text--reading",
+    );
+
     rerender(<MarkdownViewer content="# 紧凑报告" density="compact" />);
 
     expect(container.firstElementChild).toHaveClass(

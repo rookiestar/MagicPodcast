@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import RichText from "../RichText";
 
 describe("RichText", () => {
-  it("uses the shared reading scale and supports the compact density", () => {
+  it("uses the shared reading scale and supports report and compact densities", () => {
     const { container, rerender } = render(
       <RichText html="<p>阅读正文</p>" className="custom-class" />,
     );
@@ -15,6 +15,16 @@ describe("RichText", () => {
       "custom-class",
     );
     expect(container.firstElementChild).not.toHaveClass("prose");
+
+    rerender(<RichText html="<p>报告正文</p>" density="report" />);
+
+    expect(container.firstElementChild).toHaveClass(
+      "editorial-rich-text",
+      "editorial-rich-text--report",
+    );
+    expect(container.firstElementChild).not.toHaveClass(
+      "editorial-rich-text--reading",
+    );
 
     rerender(<RichText html="<p>紧凑正文</p>" density="compact" />);
 

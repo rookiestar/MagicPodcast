@@ -8,17 +8,25 @@ import {
   IconBookmarkPlus,
   IconEye,
   IconEyeOff,
+  IconPencil,
 } from "@tabler/icons-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
+import DiscoveryMetadataEditor from "@/components/discovery/DiscoveryMetadataEditor";
 import PlainImage from "@/components/ui/PlainImage";
 import { formatEpisodeNumber } from "@/lib/episodeDisplay";
 import type {
   DiscoveryCandidate,
-  DiscoveryPreReadKind,
-  DiscoveryPreReadStatus,
   TriageDecisionResponse,
   TriageDecisionState,
 } from "@/types/discovery";
+
+const RichText = dynamic(() => import("@/components/RichText"), {
+  ssr: false,
+  loading: () => (
+    <p className="discovery-show-notes-loading">正在加载 Show Notes…</p>
+  ),
+});
 
 interface DiscoveryDeskProps {
   candidates: DiscoveryCandidate[];
@@ -27,38 +35,6 @@ interface DiscoveryDeskProps {
     state: TriageDecisionState,
   ) => Promise<TriageDecisionResponse>;
 }
-
-const preReadStatusLabels: Record<DiscoveryPreReadStatus, string> = {
-  available: "可核对",
-  pending: "尚未完成",
-  insufficient: "证据不足",
-  failed: "生成失败",
-  missing: "信息缺失",
-};
-
-const preReadPresentation: Record<
-  DiscoveryPreReadKind,
-  { label: string; purpose: string }
-> = {
-  summary: {
-    label: "摘要",
-    purpose: "这一集讲了什么",
-  },
-  viewpoints: {
-    label: "核心观点",
-    purpose: "节目提出的核心主张",
-  },
-  relevant: {
-    label: "与我相关",
-    purpose: "与你的标签和备注有何关联",
-  },
-  challenge: {
-    label: "证据边界",
-    purpose: "证据缺口、适用边界与待核问题",
-  },
-};
-
-const emptyPreReads: DiscoveryCandidate["pre_reads"] = [];
 
 function formatCandidateEpisodeMeta(episodeNo: string, duration: number) {
   return [formatEpisodeNumber(episodeNo), formatDuration(duration)]
@@ -145,10 +121,11 @@ export default function DiscoveryDesk({
   });
   const [savingDecision, setSavingDecision] = useState(false);
   const [decisionError, setDecisionError] = useState("");
-  const [selectedPreReadKind, setSelectedPreReadKind] =
-    useState<DiscoveryPreReadKind>("summary");
+  const [isMetadataEditorOpen, setIsMetadataEditorOpen] = useState(false);
   const [splitRatio, setSplitRatio] = useState(60);
   const workspaceRef = useRef<HTMLDivElement>(null);
+  const showNotesPaneRef = useRef<HTMLElement>(null);
+  const splitBeforeEditingRef = useRef(60);
   const touchStartX = useRef<number | null>(null);
 
   useEffect(() => {
@@ -172,16 +149,6 @@ export default function DiscoveryDesk({
         (candidate) => candidate.episode_id === selected.episode_id,
       )
     : -1;
-  const selectedPreReads = selected?.pre_reads ?? emptyPreReads;
-  const selectedPreRead = useMemo(
-    () =>
-      selectedPreReads.find(
-        (preRead) => preRead.kind === selectedPreReadKind,
-      ) ?? selectedPreReads[0],
-    [selectedPreReads, selectedPreReadKind],
-  );
-  const selectedPreReadSources = selectedPreRead?.sources ?? [];
-
   useEffect(() => {
     if (!selected || typeof window === "undefined") return;
     window.history.replaceState(
@@ -192,6 +159,25 @@ export default function DiscoveryDesk({
       "",
     );
   }, [selected]);
+
+  useEffect(() => {
+    if (showNotesPaneRef.current) {
+      showNotesPaneRef.current.scrollTop = 0;
+    }
+  }, [selected?.episode_id]);
+
+  useEffect(() => {
+    if (!isMetadataEditorOpen) return;
+
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setIsMetadataEditorOpen(false);
+      setSplitRatio(splitBeforeEditingRef.current);
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [isMetadataEditorOpen]);
 
   if (!selected) {
     return (
@@ -253,7 +239,19 @@ export default function DiscoveryDesk({
     const candidate = displayCandidates[index];
     if (!candidate) return;
     setSelectedID(candidate.episode_id);
-    setSelectedPreReadKind("summary");
+  };
+
+  const openMetadataEditor = () => {
+    if (isMetadataEditorOpen) return;
+    splitBeforeEditingRef.current = splitRatio;
+    setSplitRatio(Math.min(splitRatio, 48));
+    setIsMetadataEditorOpen(true);
+  };
+
+  const closeMetadataEditor = () => {
+    if (!isMetadataEditorOpen) return;
+    setIsMetadataEditorOpen(false);
+    setSplitRatio(splitBeforeEditingRef.current);
   };
 
   const setSplitFromClientX = (clientX: number) => {
@@ -366,6 +364,7 @@ export default function DiscoveryDesk({
       <div
         ref={workspaceRef}
         className="discovery-workspace"
+        data-editor-open={isMetadataEditorOpen}
         style={{
           gridTemplateColumns: `minmax(320px, ${splitRatio}fr) 18px minmax(400px, ${100 - splitRatio}fr)`,
         }}
@@ -376,7 +375,7 @@ export default function DiscoveryDesk({
           }`}
         >
           <div className="discovery-section-heading">
-            <h2>单集</h2>
+            <h2>Episodes</h2>
             <span>最近更新在前</span>
           </div>
           <ol
@@ -475,7 +474,7 @@ export default function DiscoveryDesk({
         <button
           type="button"
           role="separator"
-          aria-label="调整单集列表和单集预读宽度"
+          aria-label="调整 Episodes 列表与 Actions 区域宽度"
           aria-orientation="vertical"
           aria-valuemin={42}
           aria-valuemax={68}
@@ -493,13 +492,37 @@ export default function DiscoveryDesk({
 
         <aside
           className="discovery-preview"
+          data-editor-open={isMetadataEditorOpen}
           aria-live="polite"
           data-testid="discovery-mobile-card"
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
         >
           <div className="discovery-preview-heading">
-            <p className="discovery-kicker">单集预读</p>
+            <h2>Actions</h2>
+            <div className="discovery-preview-heading-tools">
+              <button
+                type="button"
+                className="discovery-edit-toggle"
+                aria-label={
+                  isMetadataEditorOpen ? "收起编辑" : "编辑标签与备注"
+                }
+                aria-expanded={isMetadataEditorOpen}
+                aria-controls="discovery-metadata-editor"
+                title={isMetadataEditorOpen ? "收起编辑" : "编辑标签与备注"}
+                onClick={
+                  isMetadataEditorOpen
+                    ? closeMetadataEditor
+                    : openMetadataEditor
+                }
+              >
+                <IconPencil aria-hidden="true" stroke={1.8} />
+              </button>
+              <strong className="discovery-current-count">
+                {String(selectedIndex + 1).padStart(2, "0")} /{" "}
+                {String(displayCandidates.length).padStart(2, "0")}
+              </strong>
+            </div>
             <div className="discovery-mobile-progress">
               <button
                 type="button"
@@ -524,15 +547,58 @@ export default function DiscoveryDesk({
           </div>
 
           <div className="discovery-preview-identity">
-            <CandidateCover
-              candidate={selected}
-              className="discovery-preview-cover"
-            />
             <div className="discovery-preview-copy">
-              <span className="discovery-preview-podcast">
-                {selected.podcast_title}
-              </span>
-              <h2>{selected.episode_title}</h2>
+              <div className="discovery-preview-program-row">
+                <span className="discovery-preview-podcast">
+                  {selected.podcast_title}
+                </span>
+                <div className="discovery-decision-actions">
+                  <button
+                    type="button"
+                    aria-label={discardActionLabel}
+                    aria-pressed={selected.decision_state === "discarded"}
+                    data-tooltip={discardActionLabel}
+                    title={discardActionLabel}
+                    disabled={!onDecision || savingDecision}
+                    onClick={() =>
+                      void updateDecision(
+                        selected.decision_state === "discarded"
+                          ? "pending"
+                          : "discarded",
+                      )
+                    }
+                  >
+                    {selected.decision_state === "discarded" ? (
+                      <IconEye aria-hidden="true" />
+                    ) : (
+                      <IconEyeOff aria-hidden="true" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className="is-primary"
+                    aria-label={shortlistActionLabel}
+                    aria-pressed={selected.decision_state === "shortlisted"}
+                    data-tooltip={shortlistActionLabel}
+                    title={shortlistActionLabel}
+                    disabled={!onDecision || savingDecision}
+                    onClick={() =>
+                      void updateDecision(
+                        selected.decision_state === "shortlisted"
+                          ? "pending"
+                          : "shortlisted",
+                      )
+                    }
+                  >
+                    {selected.decision_state === "shortlisted" ? (
+                      <IconBookmarkMinus aria-hidden="true" />
+                    ) : (
+                      <IconBookmarkPlus aria-hidden="true" />
+                    )}
+                  </button>
+                </div>
+              </div>
+              <h3>{selected.episode_title}</h3>
               <div className="discovery-preview-meta">
                 <p>
                   {formatCandidateEpisodeMeta(
@@ -556,142 +622,45 @@ export default function DiscoveryDesk({
                   </span>
                 )}
               </div>
+              {decisionError && (
+                <p className="discovery-decision-error" role="alert">
+                  {decisionError}
+                </p>
+              )}
             </div>
           </div>
 
-          <div className="discovery-preview-body">
-            {selectedPreReads.length > 0 ? (
-              <div className="discovery-preread-tabs" aria-label="四类预读">
-                {selectedPreReads.map((preRead) => (
-                  <button
-                    key={preRead.kind}
-                    type="button"
-                    aria-pressed={selectedPreRead?.kind === preRead.kind}
-                    className={
-                      preRead.kind === "relevant" ? "is-relevant" : undefined
-                    }
-                    onClick={() => setSelectedPreReadKind(preRead.kind)}
-                  >
-                    {preReadPresentation[preRead.kind].label}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="discovery-degraded">
-                <strong>预读内容尚未就绪</strong>
-                <p>原始信息仍在，留存状态不受影响。</p>
-              </div>
-            )}
-            {selectedPreRead && (
-              <section
-                className={`discovery-preread-panel is-${selectedPreRead.kind}`}
-                aria-label={`${preReadPresentation[selectedPreRead.kind].label}预读`}
-              >
-                <header>
-                  <div>
-                    <span>
-                      {preReadPresentation[selectedPreRead.kind].purpose}
-                    </span>
-                    {selectedPreRead.relation_strength && (
-                      <strong>{selectedPreRead.relation_strength}</strong>
-                    )}
-                  </div>
-                  <b data-status={selectedPreRead.status}>
-                    {preReadStatusLabels[selectedPreRead.status]}
-                  </b>
-                </header>
-                <p>{selectedPreRead.content}</p>
-                <footer>
-                  <span>
-                    {selectedPreRead.version} ·{" "}
-                    {formatCandidateDate(selectedPreRead.generated_at)}
-                  </span>
-                  <span className="discovery-preread-sources">
-                    {selectedPreReadSources.length > 0
-                      ? selectedPreReadSources.map((source) =>
-                          source.url ? (
-                            <a
-                              key={`${source.kind}-${source.label}`}
-                              href={source.url}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              {source.label}
-                            </a>
-                          ) : (
-                            <span key={`${source.kind}-${source.label}`}>
-                              {source.label}
-                            </span>
-                          ),
-                        )
-                      : "暂无可核对来源"}
-                  </span>
-                </footer>
-              </section>
-            )}
+          <div
+            className={`discovery-preview-workarea ${
+              isMetadataEditorOpen ? "is-editing" : ""
+            }`}
+          >
+            <section
+              ref={showNotesPaneRef}
+              className="discovery-show-notes"
+              aria-label="Show Notes"
+            >
+              <h4>Show Notes</h4>
+              {selected.show_notes_status === "available" &&
+              selected.show_notes.trim() ? (
+                <RichText
+                  html={selected.show_notes}
+                  className="discovery-show-notes-content"
+                />
+              ) : (
+                <p className="discovery-show-notes-empty">
+                  暂无 Show Notes
+                </p>
+              )}
+            </section>
+            {isMetadataEditorOpen ? (
+              <DiscoveryMetadataEditor
+                episodeId={selected.episode_id}
+                podcastId={selected.podcast_id}
+                onClose={closeMetadataEditor}
+              />
+            ) : null}
           </div>
-
-          <div className="discovery-decision-area">
-            <p className="discovery-decision-status">
-              留存：
-              <strong>
-                {selected.decision_state === "shortlisted"
-                  ? "今日备选"
-                  : selected.decision_state === "discarded"
-                    ? "已略过"
-                    : "尚未标记"}
-              </strong>
-            </p>
-            <div className="discovery-decision-actions">
-              <button
-                type="button"
-                aria-label={discardActionLabel}
-                aria-pressed={selected.decision_state === "discarded"}
-                data-tooltip={discardActionLabel}
-                title={discardActionLabel}
-                disabled={!onDecision || savingDecision}
-                onClick={() =>
-                  void updateDecision(
-                    selected.decision_state === "discarded"
-                      ? "pending"
-                      : "discarded",
-                  )
-                }
-              >
-                {selected.decision_state === "discarded" ? (
-                  <IconEye aria-hidden="true" />
-                ) : (
-                  <IconEyeOff aria-hidden="true" />
-                )}
-              </button>
-              <button
-                type="button"
-                className="is-primary"
-                aria-label={shortlistActionLabel}
-                aria-pressed={selected.decision_state === "shortlisted"}
-                data-tooltip={shortlistActionLabel}
-                title={shortlistActionLabel}
-                disabled={!onDecision || savingDecision}
-                onClick={() =>
-                  void updateDecision(
-                    selected.decision_state === "shortlisted"
-                      ? "pending"
-                      : "shortlisted",
-                  )
-                }
-              >
-                {selected.decision_state === "shortlisted"
-                  ? <IconBookmarkMinus aria-hidden="true" />
-                  : <IconBookmarkPlus aria-hidden="true" />}
-              </button>
-            </div>
-            {decisionError && (
-              <p className="discovery-decision-error" role="alert">
-                {decisionError}
-              </p>
-            )}
-          </div>
-
         </aside>
       </div>
     </main>

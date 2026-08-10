@@ -287,6 +287,17 @@
 - Console: no warnings or errors in the desktop/mobile run.
 - Comparison history: the source exposed a P1 truthfulness issue by presenting an unimplemented recommendation rationale and an invented fallback. The revised capture shows only source-backed Show Notes; no actionable P0/P1/P2 finding remains.
 
+## 2026-08-11 annotation: refactor the Actions reading and editing surface
+
+- Source visual truth: the approved marginalia direction with three refinements—Show Notes as the primary surface, existing Episode/Podcast tags and notes only, and a collapsible editor.
+- Desktop viewport `1440 × 1024`, using 30 real recent episodes. Episodes and Actions share an `862` CSS px workspace; the episode list and Show Notes scroll independently. Document width and scroll width are both `1440`.
+- Collapsed state gives Show Notes the full `531` CSS px Actions width. Expanded state uses a restrained `400 / 290` CSS px reading/editor split; collapsing restores the full reading width.
+- Copy and hierarchy: `Episodes` and `Actions` use the same editorial heading treatment. The duplicate cover and AI pre-read tabs are absent; source-backed Show Notes begin immediately after the compact episode identity.
+- Interaction: the pencil opens and closes metadata editing; switching episodes preserves the open editor; `Episode / Podcast` changes the existing tag-and-note target and loads metadata on demand. Decision icons remain beside the podcast name.
+- Mobile viewport `390 × 844`: Episodes is replaced by the existing previous/next flow, the editor becomes a fixed `390 × 784` CSS px layer above bottom navigation, and its close target is `44 × 44` CSS px. Closing preserves the underlying page position. Document width and scroll width are both `390`.
+- Runtime: the homepage responds `200`; Show Notes render after client hydration without invoking the browser-only sanitizer during SSR.
+- Console: no warnings or errors in fresh desktop and mobile runs. No actionable P0/P1/P2 finding remains.
+
 ## Follow-up polish
 
 - P3: test a larger personal library with several episodes per show before treating five-item density as a performance or long-list benchmark.
