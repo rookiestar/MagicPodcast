@@ -237,15 +237,21 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 		middleware.BadRequestResponse(c, "INVALID_RULES", err.Error())
 		return
 	}
+	if err := validateHomepagePublishConfig(req.PublishToHomepage, req.ReportType); err != nil {
+		middleware.BadRequestResponse(c, "INVALID_HOMEPAGE_PUBLISH", err.Error())
+		return
+	}
 
 	workflow := models.Workflow{
-		Name:        req.Name,
-		Description: req.Description,
-		Schedule:    req.Schedule,
-		ScopeType:   req.ScopeType,
-		ScopeConfig: req.ScopeConfig,
-		RulesConfig: req.RulesConfig,
-		IsEnabled:   req.IsEnabled,
+		Name:              req.Name,
+		Description:       req.Description,
+		Schedule:          req.Schedule,
+		ScopeType:         req.ScopeType,
+		ScopeConfig:       req.ScopeConfig,
+		RulesConfig:       req.RulesConfig,
+		IsEnabled:         req.IsEnabled,
+		PublishToHomepage: req.PublishToHomepage,
+		ReportType:        normalizeHomepageReportType(req.PublishToHomepage, req.ReportType),
 	}
 
 	// 使用 Omit 避免 GORM 的 RETURNING 问题，并手动设置时间
@@ -353,6 +359,10 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 		middleware.BadRequestResponse(c, "INVALID_RULES", err.Error())
 		return
 	}
+	if err := validateHomepagePublishConfig(req.PublishToHomepage, req.ReportType); err != nil {
+		middleware.BadRequestResponse(c, "INVALID_HOMEPAGE_PUBLISH", err.Error())
+		return
+	}
 
 	workflow.Name = req.Name
 	workflow.Description = req.Description
@@ -368,6 +378,8 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 	logger.Debugf("[Update] Workflow RulesConfig after assignment: %+v", workflow.RulesConfig)
 
 	workflow.IsEnabled = req.IsEnabled
+	workflow.PublishToHomepage = req.PublishToHomepage
+	workflow.ReportType = normalizeHomepageReportType(req.PublishToHomepage, req.ReportType)
 
 	// 如果工作流启用且配置了schedule，计算并更新下次执行时间
 	if workflow.IsEnabled && workflow.Schedule != "" {
@@ -382,13 +394,15 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 
 	// 使用Updates而不是Save，明确指定要更新的字段
 	updates := map[string]interface{}{
-		"name":         workflow.Name,
-		"description":  workflow.Description,
-		"schedule":     workflow.Schedule,
-		"scope_type":   workflow.ScopeType,
-		"scope_config": workflow.ScopeConfig,
-		"rules_config": workflow.RulesConfig,
-		"is_enabled":   workflow.IsEnabled,
+		"name":                workflow.Name,
+		"description":         workflow.Description,
+		"schedule":            workflow.Schedule,
+		"scope_type":          workflow.ScopeType,
+		"scope_config":        workflow.ScopeConfig,
+		"rules_config":        workflow.RulesConfig,
+		"is_enabled":          workflow.IsEnabled,
+		"publish_to_homepage": workflow.PublishToHomepage,
+		"report_type":         workflow.ReportType,
 	}
 
 	if workflow.NextRunAt != nil {
@@ -922,12 +936,14 @@ func (h *WorkflowHandler) Trigger(c *gin.Context) {
 
 // WorkflowRequest 创建/更新工作流请求结构
 type WorkflowRequest struct {
-	Name             string                   `json:"name" binding:"required,min=1,max=200"`
-	Description      string                   `json:"description"`
-	Schedule         string                   `json:"schedule" binding:"required"`
-	ScopeType        models.WorkflowScopeType `json:"scope_type" binding:"required"`
-	ScopeConfig      models.ScopeConfig       `json:"scope_config"`
-	RulesConfig      models.RulesConfig       `json:"rules_config"`
-	IsEnabled        bool                     `json:"is_enabled"`
-	ConfirmationText string                   `json:"confirmation_text,omitempty"`
+	Name              string                   `json:"name" binding:"required,min=1,max=200"`
+	Description       string                   `json:"description"`
+	Schedule          string                   `json:"schedule" binding:"required"`
+	ScopeType         models.WorkflowScopeType `json:"scope_type" binding:"required"`
+	ScopeConfig       models.ScopeConfig       `json:"scope_config"`
+	RulesConfig       models.RulesConfig       `json:"rules_config"`
+	IsEnabled         bool                     `json:"is_enabled"`
+	PublishToHomepage bool                     `json:"publish_to_homepage"`
+	ReportType        string                   `json:"report_type"`
+	ConfirmationText  string                   `json:"confirmation_text,omitempty"`
 }

@@ -56,6 +56,8 @@ func TestFrontendAPIContractRoutesRegistered(t *testing.T) {
 	frontendRoutes := []string{
 		"GET /api/v1/discovery/candidates",
 		"GET /api/v1/discovery/shortlist/today",
+		"GET /api/v1/discovery/reports",
+		"GET /api/v1/discovery/reports/:id",
 		"PUT /api/v1/discovery/candidates/:episodeID/decision",
 		"GET /api/v1/podcasts",
 		"POST /api/v1/podcasts/batch",

@@ -23,9 +23,9 @@
     "@tabler/icons-react": "^3.46.0",
     "@tanstack/react-virtual": "^3.13.18",
     "axios": "^1.18.1",
-    "dompurify": "^3.4.12",
+    "dompurify": "^3.4.13",
     "lxgw-wenkai-screen-webfont": "1.7.0",
-    "next": "^16.2.10",
+    "next": "^16.3.0",
     "pinyin-pro": "^3.28.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
@@ -38,21 +38,32 @@
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.3",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
-    "@vitejs/plugin-react": "^5.1.2",
+    "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.0.1",
     "eslint": "^9.39.5",
-    "eslint-config-next": "^16.2.10",
+    "eslint-config-next": "^16.3.0",
     "happy-dom": "^20.4.0",
-    "postcss": "^8.5.17",
+    "postcss": "^8.5.26",
     "tailwindcss": "^3.4.0",
     "typescript": "^5",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.10"
   },
   "overrides": {
+    "@babel/core": "7.29.7",
+    "esbuild": "0.28.2",
     "form-data": "4.0.6",
-    "postcss": "$postcss"
+    "js-yaml": "4.3.1",
+    "postcss": "$postcss",
+    "vite": "7.3.6",
+    "minimatch@3.1.5": {
+      "brace-expansion": "1.1.18"
+    },
+    "minimatch@10.2.5": {
+      "brace-expansion": "5.0.9"
+    }
   }
 }

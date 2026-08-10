@@ -103,6 +103,24 @@ func (r RulesConfig) Value() (driver.Value, error) {
 	return json.Marshal(r)
 }
 
+// HomepageReportType is the explicit report kind for homepage publishing (#89/#90).
+type HomepageReportType string
+
+const (
+	HomepageReportTypeDaily  HomepageReportType = "daily"
+	HomepageReportTypeWeekly HomepageReportType = "weekly"
+)
+
+// IsValidHomepageReportType reports whether value is a supported publish type.
+func IsValidHomepageReportType(value string) bool {
+	switch HomepageReportType(value) {
+	case HomepageReportTypeDaily, HomepageReportTypeWeekly:
+		return true
+	default:
+		return false
+	}
+}
+
 // Workflow 工作流模型
 type Workflow struct {
 	BaseModel
@@ -114,9 +132,14 @@ type Workflow struct {
 	ScopeConfig ScopeConfig       `gorm:"type:json" json:"scope_config"`
 	RulesConfig RulesConfig       `gorm:"type:json" json:"rules_config"`
 	IsEnabled   bool              `gorm:"index;not null" json:"is_enabled"`
-	LastJobID   *uint             `gorm:"index" json:"last_job_id,omitempty"`
-	LastJob     *Job              `gorm:"-" json:"last_job,omitempty"` // 不自动迁移，通过关联查询加载
-	Jobs        []Job             `gorm:"foreignKey:WorkflowID" json:"jobs,omitempty"`
+	// PublishToHomepage opts this workflow into the discovery homepage report source (#90).
+	// Existing workflows default to false and never appear on the homepage.
+	PublishToHomepage bool `gorm:"not null;default:false;index" json:"publish_to_homepage"`
+	// ReportType is "daily" or "weekly" when PublishToHomepage is true; empty otherwise.
+	ReportType string `gorm:"size:20;not null;default:''" json:"report_type"`
+	LastJobID  *uint  `gorm:"index" json:"last_job_id,omitempty"`
+	LastJob    *Job   `gorm:"-" json:"last_job,omitempty"` // 不自动迁移，通过关联查询加载
+	Jobs       []Job  `gorm:"foreignKey:WorkflowID" json:"jobs,omitempty"`
 
 	// 调度状态持久化字段（新增）
 	LastExecutionAt *time.Time `gorm:"index" json:"last_execution_at,omitempty"` // 上次执行时间
@@ -265,6 +288,77 @@ func (JobExecution) TableName() string {
 	return "job_executions"
 }
 
+// ReportEpisode is one structured episode carried by a workflow report.
+// Homepage expand/shortlist actions must use EpisodeID — never Markdown heuristics (#89/#90/#93).
+type ReportEpisode struct {
+	EpisodeID       uint   `json:"episode_id"`
+	Order           int    `json:"order"`
+	PodcastID       uint   `json:"podcast_id"`
+	PodcastTitle    string `json:"podcast_title"`
+	PodcastCoverURL string `json:"podcast_cover_url,omitempty"`
+	EpisodeTitle    string `json:"episode_title"`
+	EpisodeNo       string `json:"episode_no,omitempty"`
+	Duration        int    `json:"duration,omitempty"`
+	PublishedDate   string `json:"published_date,omitempty"`
+	ImageURL        string `json:"image_url,omitempty"`
+	Link            string `json:"link,omitempty"`
+	// Recommendation is report-authored listening rationale for this episode.
+	// It must never be filled from ordinary Show Notes (#93).
+	Recommendation string `json:"recommendation,omitempty"`
+	// Context is program context (e.g. Show Notes excerpt) from the same run.
+	Context string `json:"context,omitempty"`
+	// Excerpt is a legacy alias retained for older rows; readers prefer Context.
+	Excerpt string `json:"excerpt,omitempty"`
+}
+
+// ReportEpisodeList is a JSON column of structured report episodes.
+type ReportEpisodeList []ReportEpisode
+
+// Scan implements sql.Scanner.
+func (list *ReportEpisodeList) Scan(value interface{}) error {
+	if value == nil {
+		*list = nil
+		return nil
+	}
+	var bytes []byte
+	switch v := value.(type) {
+	case []byte:
+		bytes = v
+	case string:
+		bytes = []byte(v)
+	default:
+		return fmt.Errorf("unsupported type for ReportEpisodeList.Scan: %T", value)
+	}
+	if len(bytes) == 0 {
+		*list = nil
+		return nil
+	}
+	return json.Unmarshal(bytes, list)
+}
+
+// Value implements driver.Valuer.
+func (list ReportEpisodeList) Value() (driver.Value, error) {
+	if len(list) == 0 {
+		return nil, nil
+	}
+	return json.Marshal(list)
+}
+
+// ValidEpisodes returns only items with a real episode identity, preserving order.
+func (list ReportEpisodeList) ValidEpisodes() ReportEpisodeList {
+	if len(list) == 0 {
+		return nil
+	}
+	out := make(ReportEpisodeList, 0, len(list))
+	for _, item := range list {
+		if item.EpisodeID == 0 {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
 // Report 工作流执行报告
 type Report struct {
 	BaseModel
@@ -289,6 +383,13 @@ type Report struct {
 	GeneratedAt time.Time `gorm:"not null" json:"generated_at"`             // 生成时间
 	Format      string    `gorm:"size:20;default:'markdown'" json:"format"` // 报告格式
 	FileSize    int       `gorm:"default:0" json:"file_size"`               // 内容大小（字节）
+
+	// Homepage publish snapshot captured at generation time (#90).
+	// Independent of later workflow config edits so homepage eligibility stays stable.
+	PublishToHomepage bool              `gorm:"not null;default:false;index" json:"publish_to_homepage"`
+	ReportType        string            `gorm:"size:20;not null;default:''" json:"report_type"`
+	WorkflowName      string            `gorm:"size:200;not null;default:''" json:"workflow_name"`
+	StructuredEpisodes ReportEpisodeList `gorm:"type:json" json:"structured_episodes,omitempty"`
 
 	// LLM相关字段
 	LLMSummary    string `gorm:"type:text" json:"llm_summary,omitempty"`     // LLM生成的摘要

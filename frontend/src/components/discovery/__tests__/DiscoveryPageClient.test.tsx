@@ -1,13 +1,20 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DiscoveryPageClient from "../DiscoveryPageClient";
 import { writeDiscoveryCandidatesCache } from "@/lib/discoveryCandidates";
-import type { DiscoveryCandidate } from "@/types/discovery";
+import type { DiscoveryCandidate, HomepageReportsData } from "@/types/discovery";
 
 const useSWRMock = vi.hoisted(() => vi.fn());
+const apiPutMock = vi.hoisted(() => vi.fn());
 
 vi.mock("swr", () => ({
   default: useSWRMock,
+}));
+
+vi.mock("@/lib/fetcher", () => ({
+  apiClient: {
+    put: apiPutMock,
+  },
 }));
 
 vi.mock("@/components/layout/PageLayout", () => ({
@@ -17,13 +24,67 @@ vi.mock("@/components/layout/PageLayout", () => ({
 }));
 
 vi.mock("@/components/discovery/DiscoveryDesk", () => ({
-  default: ({ candidates }: { candidates: DiscoveryCandidate[] }) => (
+  default: ({
+    candidates,
+    onDecision,
+  }: {
+    candidates: DiscoveryCandidate[];
+    onDecision?: (
+      episodeID: number,
+      state: "pending" | "shortlisted",
+    ) => Promise<unknown>;
+  }) => (
     <main aria-label="个人库最近更新">
       {candidates.map((candidate) => (
         <article key={candidate.episode_id}>{candidate.episode_title}</article>
       ))}
+      <button
+        type="button"
+        onClick={() => {
+          void onDecision?.(1, "shortlisted");
+        }}
+      >
+        最近更新加入备选
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void onDecision?.(1, "pending");
+        }}
+      >
+        最近更新略过
+      </button>
     </main>
   ),
+}));
+
+vi.mock("@/components/discovery/WorkflowReportWorkbench", () => ({
+  default: ({
+    todayReports,
+    failed,
+    onDecision,
+  }: {
+    todayReports: { workflow_name: string }[];
+    failed?: boolean;
+    onDecision?: (episodeID: number, state: "shortlisted") => Promise<unknown>;
+  }) =>
+    failed ? (
+      <section aria-label="工作流报告">报告失败</section>
+    ) : todayReports.length > 0 ? (
+      <section aria-label="工作流报告">
+        {todayReports.map((report) => (
+          <div key={report.workflow_name}>{report.workflow_name}</div>
+        ))}
+        <button
+          type="button"
+          onClick={() => {
+            void onDecision?.(1, "shortlisted");
+          }}
+        >
+          报告加入备选
+        </button>
+      </section>
+    ) : null,
 }));
 
 const candidates: DiscoveryCandidate[] = [
@@ -48,22 +109,64 @@ const candidates: DiscoveryCandidate[] = [
   },
 ];
 
-describe("DiscoveryPageClient", () => {
-  const mutate = vi.fn();
+const emptyReports: HomepageReportsData = {
+  date: "2026-08-10",
+  timezone: "Asia/Shanghai",
+  today: [],
+  history: [],
+};
 
+function mockSWRPair(options: {
+  candidates?: {
+    data?: DiscoveryCandidate[];
+    error?: Error | null;
+    isValidating?: boolean;
+    mutate?: ReturnType<typeof vi.fn>;
+  };
+  reports?: {
+    data?: HomepageReportsData;
+    error?: Error | null;
+    isValidating?: boolean;
+    mutate?: ReturnType<typeof vi.fn>;
+  };
+}) {
+  const candidatesMutate = options.candidates?.mutate ?? vi.fn();
+  const reportsMutate = options.reports?.mutate ?? vi.fn();
+  useSWRMock.mockImplementation((key: string) => {
+    if (typeof key === "string" && key.includes("/discovery/reports")) {
+      return {
+        data: options.reports?.data,
+        error: options.reports?.error ?? null,
+        isValidating: options.reports?.isValidating ?? false,
+        mutate: reportsMutate,
+      };
+    }
+    return {
+      data: options.candidates?.data,
+      error: options.candidates?.error ?? null,
+      isLoading: options.candidates?.isValidating && !options.candidates?.data,
+      isValidating: options.candidates?.isValidating ?? false,
+      mutate: candidatesMutate,
+    };
+  });
+  return { candidatesMutate, reportsMutate };
+}
+
+describe("DiscoveryPageClient", () => {
   beforeEach(() => {
-    mutate.mockReset();
     useSWRMock.mockReset();
+    apiPutMock.mockReset();
     window.sessionStorage.clear();
   });
 
   it("shows a structured skeleton while the first client request is retrying", () => {
-    useSWRMock.mockReturnValue({
-      data: undefined,
-      error: new Error("retrying"),
-      isLoading: true,
-      isValidating: true,
-      mutate,
+    mockSWRPair({
+      candidates: {
+        data: undefined,
+        error: new Error("retrying"),
+        isValidating: true,
+      },
+      reports: { data: emptyReports },
     });
 
     render(<DiscoveryPageClient />);
@@ -83,12 +186,9 @@ describe("DiscoveryPageClient", () => {
   });
 
   it("keeps existing content visible while refreshing in the background", () => {
-    useSWRMock.mockReturnValue({
-      data: candidates,
-      error: null,
-      isLoading: false,
-      isValidating: true,
-      mutate,
+    mockSWRPair({
+      candidates: { data: candidates, isValidating: true },
+      reports: { data: emptyReports },
     });
 
     render(<DiscoveryPageClient initialCandidates={candidates} />);
@@ -100,12 +200,9 @@ describe("DiscoveryPageClient", () => {
 
   it("restores recent session content while a reload keeps retrying", async () => {
     writeDiscoveryCandidatesCache(window.sessionStorage, candidates);
-    useSWRMock.mockReturnValue({
-      data: undefined,
-      error: null,
-      isLoading: true,
-      isValidating: true,
-      mutate,
+    mockSWRPair({
+      candidates: { data: undefined, isValidating: true },
+      reports: { data: emptyReports },
     });
 
     render(<DiscoveryPageClient />);
@@ -120,12 +217,13 @@ describe("DiscoveryPageClient", () => {
   });
 
   it("keeps stale content and offers retry after background attempts fail", () => {
-    useSWRMock.mockReturnValue({
-      data: candidates,
-      error: new Error("unavailable"),
-      isLoading: false,
-      isValidating: false,
-      mutate,
+    const { candidatesMutate } = mockSWRPair({
+      candidates: {
+        data: candidates,
+        error: new Error("unavailable"),
+        isValidating: false,
+      },
+      reports: { data: emptyReports },
     });
 
     render(<DiscoveryPageClient initialCandidates={candidates} />);
@@ -136,16 +234,17 @@ describe("DiscoveryPageClient", () => {
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "重新尝试" }));
-    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(candidatesMutate).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the skeleton and only reports failure after retries are exhausted", () => {
-    useSWRMock.mockReturnValue({
-      data: undefined,
-      error: new Error("unavailable"),
-      isLoading: false,
-      isValidating: false,
-      mutate,
+    const { candidatesMutate } = mockSWRPair({
+      candidates: {
+        data: undefined,
+        error: new Error("unavailable"),
+        isValidating: false,
+      },
+      reports: { data: emptyReports },
     });
 
     render(<DiscoveryPageClient />);
@@ -158,6 +257,206 @@ describe("DiscoveryPageClient", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "重新尝试" }));
-    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(candidatesMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows workflow reports above recent updates without blocking them", () => {
+    mockSWRPair({
+      candidates: { data: candidates },
+      reports: {
+        data: {
+          date: "2026-08-10",
+          timezone: "Asia/Shanghai",
+          today: [
+            {
+              id: 1,
+              job_id: 1,
+              workflow_id: 1,
+              workflow_name: "晨间日报",
+              report_type: "daily",
+              title: "t",
+              content: "body",
+              completed_at: "2026-08-10T08:00:00Z",
+              generated_at: "2026-08-10T08:00:00Z",
+              episode_count: 1,
+              episodes: [],
+            },
+          ],
+          history: [],
+        },
+      },
+    });
+
+    render(<DiscoveryPageClient initialCandidates={candidates} />);
+
+    expect(screen.getByText("晨间日报")).toBeInTheDocument();
+    expect(screen.getByText("保留的最近更新")).toBeInTheDocument();
+  });
+
+  it("keeps recent updates when report request fails", () => {
+    mockSWRPair({
+      candidates: { data: candidates },
+      reports: {
+        data: undefined,
+        error: new Error("report down"),
+        isValidating: false,
+      },
+    });
+
+    render(<DiscoveryPageClient initialCandidates={candidates} />);
+
+    expect(screen.getByText("保留的最近更新")).toBeInTheDocument();
+    expect(screen.getByText("报告失败")).toBeInTheDocument();
+  });
+
+  it("does not mount report workbench when only history exists (#94)", () => {
+    mockSWRPair({
+      candidates: { data: candidates },
+      reports: {
+        data: {
+          date: "2026-08-10",
+          timezone: "Asia/Shanghai",
+          today: [],
+          history: [
+            {
+              id: 9,
+              job_id: 9,
+              workflow_id: 1,
+              workflow_name: "往期",
+              report_type: "daily",
+              title: "t",
+              content: "",
+              completed_at: "2026-08-01T08:00:00Z",
+              generated_at: "2026-08-01T08:00:00Z",
+              episode_count: 1,
+              episodes: [],
+              metadata_only: true,
+            },
+          ],
+        },
+      },
+    });
+
+    render(<DiscoveryPageClient initialCandidates={candidates} />);
+    expect(screen.getByText("保留的最近更新")).toBeInTheDocument();
+    expect(screen.queryByLabelText("工作流报告")).not.toBeInTheDocument();
+  });
+
+  it("deduplicates the same episode decision across report and recent updates (#94)", async () => {
+    let resolveRequest: ((value: unknown) => void) | undefined;
+    apiPutMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRequest = resolve;
+      }),
+    );
+    mockSWRPair({
+      candidates: { data: candidates },
+      reports: {
+        data: {
+          date: "2026-08-10",
+          timezone: "Asia/Shanghai",
+          today: [
+            {
+              id: 1,
+              job_id: 1,
+              workflow_id: 1,
+              workflow_name: "晨间日报",
+              report_type: "daily",
+              title: "晨间日报",
+              completed_at: "2026-08-10T08:00:00Z",
+              generated_at: "2026-08-10T08:00:00Z",
+              episode_count: 1,
+              episodes: [],
+            },
+          ],
+          history: [],
+        },
+      },
+    });
+
+    render(<DiscoveryPageClient initialCandidates={candidates} />);
+    fireEvent.click(screen.getByRole("button", { name: "报告加入备选" }));
+    fireEvent.click(screen.getByRole("button", { name: "最近更新加入备选" }));
+
+    expect(apiPutMock).toHaveBeenCalledTimes(1);
+    expect(apiPutMock).toHaveBeenCalledWith(
+      "/api/v1/discovery/candidates/1/decision",
+      { state: "shortlisted" },
+    );
+
+    resolveRequest?.({
+      data: {
+        data: {
+          episode_id: 1,
+          state: "shortlisted",
+          decision_updated_at: "2026-08-10T12:00:00Z",
+        },
+      },
+    });
+    await screen.findByText("保留的最近更新");
+  });
+
+  it("serializes different decisions for the same episode without losing the later intent (#94)", async () => {
+    let resolveFirst: ((value: unknown) => void) | undefined;
+    apiPutMock
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFirst = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({
+        data: {
+          data: {
+            episode_id: 1,
+            state: "pending",
+            decision_updated_at: "2026-08-10T12:01:00Z",
+          },
+        },
+      });
+    mockSWRPair({
+      candidates: { data: candidates },
+      reports: {
+        data: {
+          date: "2026-08-10",
+          timezone: "Asia/Shanghai",
+          today: [
+            {
+              id: 1,
+              job_id: 1,
+              workflow_id: 1,
+              workflow_name: "晨间日报",
+              report_type: "daily",
+              title: "晨间日报",
+              completed_at: "2026-08-10T08:00:00Z",
+              generated_at: "2026-08-10T08:00:00Z",
+              episode_count: 1,
+              episodes: [],
+            },
+          ],
+          history: [],
+        },
+      },
+    });
+
+    render(<DiscoveryPageClient initialCandidates={candidates} />);
+    fireEvent.click(screen.getByRole("button", { name: "报告加入备选" }));
+    fireEvent.click(screen.getByRole("button", { name: "最近更新略过" }));
+
+    expect(apiPutMock).toHaveBeenCalledTimes(1);
+    resolveFirst?.({
+      data: {
+        data: {
+          episode_id: 1,
+          state: "shortlisted",
+          decision_updated_at: "2026-08-10T12:00:00Z",
+        },
+      },
+    });
+
+    await waitFor(() => expect(apiPutMock).toHaveBeenCalledTimes(2));
+    expect(apiPutMock.mock.calls.map(([, body]) => body)).toEqual([
+      { state: "shortlisted" },
+      { state: "pending" },
+    ]);
   });
 });
