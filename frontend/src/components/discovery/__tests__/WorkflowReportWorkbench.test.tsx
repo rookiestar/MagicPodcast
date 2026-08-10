@@ -63,19 +63,65 @@ describe("WorkflowReportWorkbench", () => {
     fetchDetailMock.mockReset();
   });
 
-  it("renders banner cards and a single report body", () => {
+  it("renders the editorial heading and a single report without switch controls", () => {
     render(
       <WorkflowReportWorkbench
         todayReports={[makeReport({ id: 1, workflow_name: "晨间日报" })]}
       />,
     );
 
-    expect(screen.getByRole("listbox", { name: "当天报告" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /晨间日报/ })).toHaveAttribute(
-      "aria-selected",
-      "true",
+    expect(
+      screen.getByRole("region", { name: "精选报告" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "精选报告", level: 2 }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("listbox", { name: "当天报告" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("group", { name: "切换当天报告" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("1 / 1")).not.toBeInTheDocument();
+    expect(screen.getByText("晨间日报")).toBeInTheDocument();
+    expect(screen.getByText("日报")).toHaveClass("is-daily");
+
+    const markdownSections = screen.getAllByTestId("markdown-body");
+    expect(markdownSections).toHaveLength(2);
+    expect(markdownSections[0]).toHaveTextContent("# 晨间日报");
+    expect(markdownSections[1]).toHaveTextContent("正文内容");
+
+    const episode = screen.getByRole("article");
+    expect(
+      markdownSections[0].compareDocumentPosition(episode) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      episode.compareDocumentPosition(markdownSections[1]) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("keeps a zero-episode report as one complete markdown document", () => {
+    render(
+      <WorkflowReportWorkbench
+        todayReports={[
+          makeReport({
+            id: 10,
+            workflow_name: "空报告",
+            episode_count: 0,
+            episodes: [],
+            content: "# 空报告\n\n完整正文",
+          }),
+        ]}
+      />,
     );
-    expect(screen.getByTestId("markdown-body")).toHaveTextContent("正文内容");
+
+    expect(screen.queryByRole("article")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("markdown-body")).toHaveLength(1);
+    expect(screen.getByTestId("markdown-body")).toHaveTextContent(
+      "# 空报告 完整正文",
+    );
   });
 
   it("hides the entire region when today is empty even if history exists (#94)", () => {
@@ -96,7 +142,7 @@ describe("WorkflowReportWorkbench", () => {
     expect(screen.queryByText("今日暂无有效报告")).not.toBeInTheDocument();
   });
 
-  it("switches reports via banner without autoplay and collapses episodes", () => {
+  it("switches reports via compact header controls and collapses episodes", () => {
     render(
       <WorkflowReportWorkbench
         todayReports={[
@@ -138,11 +184,12 @@ describe("WorkflowReportWorkbench", () => {
     );
 
     fireEvent.click(screen.getByText("早报单集"));
-    expect(screen.getByText("节目上下文")).toBeInTheDocument();
+    expect(screen.getByText("Show Notes")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("option", { name: /午报/ }));
+    fireEvent.click(screen.getByRole("button", { name: "下一份报告" }));
     expect(screen.getByText("午报单集")).toBeInTheDocument();
     expect(screen.getByText("2 / 2")).toBeInTheDocument();
+    expect(screen.getByText("周报")).toHaveClass("is-weekly");
     // Collapsed after switch.
     expect(screen.queryByText("B")).not.toBeInTheDocument();
   });
@@ -169,8 +216,8 @@ describe("WorkflowReportWorkbench", () => {
                 podcast_id: 1,
                 podcast_title: "P1",
                 episode_title: "第一集",
-                recommendation: "",
-                context: "理由一",
+                recommendation: "不应展示的推荐依据",
+                context: "Shownotes 一",
                 decision_state: "pending",
               },
               {
@@ -179,7 +226,7 @@ describe("WorkflowReportWorkbench", () => {
                 podcast_id: 1,
                 podcast_title: "P2",
                 episode_title: "第二集",
-                context: "理由二",
+                context: "Shownotes 二",
                 decision_state: "pending",
               },
             ],
@@ -193,10 +240,10 @@ describe("WorkflowReportWorkbench", () => {
       name: /第一集/,
     });
     fireEvent.click(expandFirst);
-    expect(screen.getByText("理由一")).toBeInTheDocument();
-    expect(
-      screen.getByText("本条报告未附带逐单集推荐依据，请结合正文判断。"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Show Notes")).toBeInTheDocument();
+    expect(screen.getByText("Shownotes 一")).toBeInTheDocument();
+    expect(screen.queryByText("推荐依据")).not.toBeInTheDocument();
+    expect(screen.queryByText("不应展示的推荐依据")).not.toBeInTheDocument();
 
     const shortlist = screen.getAllByLabelText("加入今日备选")[0];
     expect(expandFirst.contains(shortlist)).toBe(false);
@@ -207,7 +254,7 @@ describe("WorkflowReportWorkbench", () => {
       expect(onDecision).toHaveBeenCalledWith(31, "shortlisted");
     });
     // Expand state unchanged by shortlist.
-    expect(screen.getByText("理由一")).toBeInTheDocument();
+    expect(screen.getByText("Shownotes 一")).toBeInTheDocument();
 
     const removeFromShortlist = screen.getAllByLabelText("移出今日备选")[0];
     removeFromShortlist.focus();
@@ -215,11 +262,11 @@ describe("WorkflowReportWorkbench", () => {
     await waitFor(() => {
       expect(onDecision).toHaveBeenNthCalledWith(2, 31, "pending");
     });
-    expect(screen.getByText("理由一")).toBeInTheDocument();
+    expect(screen.getByText("Shownotes 一")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /第二集/ }));
-    expect(screen.getByText("理由一")).toBeInTheDocument();
-    expect(screen.getByText("理由二")).toBeInTheDocument();
+    expect(screen.getByText("Shownotes 一")).toBeInTheDocument();
+    expect(screen.getByText("Shownotes 二")).toBeInTheDocument();
   });
 
   it("loads history on demand and restores prior today index on back (#94/#95)", async () => {
@@ -257,7 +304,7 @@ describe("WorkflowReportWorkbench", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("option", { name: /今日乙/ }));
+    fireEvent.click(screen.getByRole("button", { name: "下一份报告" }));
     expect(screen.getByText("2 / 2")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /往期/ }));
@@ -276,11 +323,8 @@ describe("WorkflowReportWorkbench", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "回到今日" }));
-    expect(screen.getByRole("option", { name: /今日乙/ })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
     expect(screen.getByText("2 / 2")).toBeInTheDocument();
+    expect(screen.getByText("单集 2")).toBeInTheDocument();
   });
 
   it("traps focus in the history drawer and closes on Escape (#94)", () => {
@@ -312,9 +356,42 @@ describe("WorkflowReportWorkbench", () => {
     render(
       <WorkflowReportWorkbench todayReports={[]} failed onRetry={onRetry} />,
     );
-    expect(screen.getByText("工作流报告暂时无法读取")).toBeInTheDocument();
+    expect(screen.getByText("精选报告暂时无法读取")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "重新尝试" }));
     expect(onRetry).toHaveBeenCalled();
+  });
+
+  it("omits recommendation placeholders when Show Notes are unavailable", () => {
+    render(
+      <WorkflowReportWorkbench
+        todayReports={[
+          makeReport({
+            id: 6,
+            workflow_name: "无简介日报",
+            episodes: [
+              {
+                episode_id: 60,
+                order: 1,
+                podcast_id: 1,
+                podcast_title: "P",
+                episode_title: "无简介单集",
+                link: "https://example.com/episode",
+                recommendation: "不应展示",
+                context: "",
+                excerpt: "",
+                decision_state: "pending",
+              },
+            ],
+          }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /无简介单集/ }));
+    expect(screen.queryByText("Show Notes")).not.toBeInTheDocument();
+    expect(screen.queryByText("推荐依据")).not.toBeInTheDocument();
+    expect(screen.queryByText("不应展示")).not.toBeInTheDocument();
+    expect(screen.getByText("打开原单集")).toBeInTheDocument();
   });
 
   it("strips dangerous episode links from the expand detail", () => {

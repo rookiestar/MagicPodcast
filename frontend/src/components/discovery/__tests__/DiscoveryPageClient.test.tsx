@@ -69,9 +69,9 @@ vi.mock("@/components/discovery/WorkflowReportWorkbench", () => ({
     onDecision?: (episodeID: number, state: "shortlisted") => Promise<unknown>;
   }) =>
     failed ? (
-      <section aria-label="工作流报告">报告失败</section>
+      <section aria-label="精选报告">报告失败</section>
     ) : todayReports.length > 0 ? (
-      <section aria-label="工作流报告">
+      <section aria-label="精选报告">
         {todayReports.map((report) => (
           <div key={report.workflow_name}>{report.workflow_name}</div>
         ))}
@@ -339,7 +339,7 @@ describe("DiscoveryPageClient", () => {
 
     render(<DiscoveryPageClient initialCandidates={candidates} />);
     expect(screen.getByText("保留的最近更新")).toBeInTheDocument();
-    expect(screen.queryByLabelText("工作流报告")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("精选报告")).not.toBeInTheDocument();
   });
 
   it("deduplicates the same episode decision across report and recent updates (#94)", async () => {
