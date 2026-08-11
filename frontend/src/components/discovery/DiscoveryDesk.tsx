@@ -8,6 +8,7 @@ import {
   IconBookmarkPlus,
   IconEye,
   IconEyeOff,
+  IconExternalLink,
   IconPencil,
 } from "@tabler/icons-react";
 import dynamic from "next/dynamic";
@@ -190,7 +191,7 @@ export default function DiscoveryDesk({
   }
 
   const discardActionLabel =
-    selected.decision_state === "discarded" ? "恢复显示" : "略过";
+    selected.decision_state === "discarded" ? "恢复显示" : "忽略";
   const shortlistActionLabel =
     selected.decision_state === "shortlisted"
       ? "移出今日备选"
@@ -474,7 +475,7 @@ export default function DiscoveryDesk({
         <button
           type="button"
           role="separator"
-          aria-label="调整 Episodes 列表与 Actions 区域宽度"
+          aria-label="调整 Episodes 列表与 Quick Actions 区域宽度"
           aria-orientation="vertical"
           aria-valuemin={42}
           aria-valuemax={68}
@@ -499,8 +500,78 @@ export default function DiscoveryDesk({
           onTouchEnd={handleTouchEnd}
         >
           <div className="discovery-preview-heading">
-            <h2>Actions</h2>
+            <h2>Quick Actions</h2>
             <div className="discovery-preview-heading-tools">
+              <div className="discovery-quick-actions" aria-label="单集快捷操作">
+                {selected.original_url ? (
+                  <a
+                    className="discovery-action-button"
+                    href={selected.original_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="打开节目页面"
+                    data-tooltip="打开节目页面"
+                    title="打开节目页面"
+                  >
+                    <IconExternalLink aria-hidden="true" stroke={1.8} />
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    className="discovery-action-button"
+                    aria-label="节目链接暂缺"
+                    data-tooltip="节目链接暂缺"
+                    title="节目链接暂缺"
+                    disabled
+                  >
+                    <IconExternalLink aria-hidden="true" stroke={1.8} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="discovery-action-button"
+                  aria-label={discardActionLabel}
+                  aria-pressed={selected.decision_state === "discarded"}
+                  data-tooltip={discardActionLabel}
+                  title={discardActionLabel}
+                  disabled={!onDecision || savingDecision}
+                  onClick={() =>
+                    void updateDecision(
+                      selected.decision_state === "discarded"
+                        ? "pending"
+                        : "discarded",
+                    )
+                  }
+                >
+                  {selected.decision_state === "discarded" ? (
+                    <IconEye aria-hidden="true" stroke={1.8} />
+                  ) : (
+                    <IconEyeOff aria-hidden="true" stroke={1.8} />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="discovery-action-button is-primary"
+                  aria-label={shortlistActionLabel}
+                  aria-pressed={selected.decision_state === "shortlisted"}
+                  data-tooltip={shortlistActionLabel}
+                  title={shortlistActionLabel}
+                  disabled={!onDecision || savingDecision}
+                  onClick={() =>
+                    void updateDecision(
+                      selected.decision_state === "shortlisted"
+                        ? "pending"
+                        : "shortlisted",
+                    )
+                  }
+                >
+                  {selected.decision_state === "shortlisted" ? (
+                    <IconBookmarkMinus aria-hidden="true" stroke={1.8} />
+                  ) : (
+                    <IconBookmarkPlus aria-hidden="true" stroke={1.8} />
+                  )}
+                </button>
+              </div>
               <button
                 type="button"
                 className="discovery-edit-toggle"
@@ -546,90 +617,6 @@ export default function DiscoveryDesk({
             </div>
           </div>
 
-          <div className="discovery-preview-identity">
-            <div className="discovery-preview-copy">
-              <div className="discovery-preview-program-row">
-                <span className="discovery-preview-podcast">
-                  {selected.podcast_title}
-                </span>
-                <div className="discovery-decision-actions">
-                  <button
-                    type="button"
-                    aria-label={discardActionLabel}
-                    aria-pressed={selected.decision_state === "discarded"}
-                    data-tooltip={discardActionLabel}
-                    title={discardActionLabel}
-                    disabled={!onDecision || savingDecision}
-                    onClick={() =>
-                      void updateDecision(
-                        selected.decision_state === "discarded"
-                          ? "pending"
-                          : "discarded",
-                      )
-                    }
-                  >
-                    {selected.decision_state === "discarded" ? (
-                      <IconEye aria-hidden="true" />
-                    ) : (
-                      <IconEyeOff aria-hidden="true" />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    className="is-primary"
-                    aria-label={shortlistActionLabel}
-                    aria-pressed={selected.decision_state === "shortlisted"}
-                    data-tooltip={shortlistActionLabel}
-                    title={shortlistActionLabel}
-                    disabled={!onDecision || savingDecision}
-                    onClick={() =>
-                      void updateDecision(
-                        selected.decision_state === "shortlisted"
-                          ? "pending"
-                          : "shortlisted",
-                      )
-                    }
-                  >
-                    {selected.decision_state === "shortlisted" ? (
-                      <IconBookmarkMinus aria-hidden="true" />
-                    ) : (
-                      <IconBookmarkPlus aria-hidden="true" />
-                    )}
-                  </button>
-                </div>
-              </div>
-              <h3>{selected.episode_title}</h3>
-              <div className="discovery-preview-meta">
-                <p>
-                  {formatCandidateEpisodeMeta(
-                    selected.episode_no,
-                    selected.duration,
-                  )}{" "}·{" "}
-                  {formatCandidateDate(selected.candidate_time)}
-                </p>
-                {selected.original_url ? (
-                  <a
-                    className="discovery-episode-link"
-                    href={selected.original_url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    打开节目页面
-                  </a>
-                ) : (
-                  <span className="discovery-episode-link is-unavailable">
-                    节目链接暂缺
-                  </span>
-                )}
-              </div>
-              {decisionError && (
-                <p className="discovery-decision-error" role="alert">
-                  {decisionError}
-                </p>
-              )}
-            </div>
-          </div>
-
           <div
             className={`discovery-preview-workarea ${
               isMetadataEditorOpen ? "is-editing" : ""
@@ -640,7 +627,11 @@ export default function DiscoveryDesk({
               className="discovery-show-notes"
               aria-label="Show Notes"
             >
-              <h4>Show Notes</h4>
+              {decisionError && (
+                <p className="discovery-decision-error" role="alert">
+                  {decisionError}
+                </p>
+              )}
               {selected.show_notes_status === "available" &&
               selected.show_notes.trim() ? (
                 <RichText

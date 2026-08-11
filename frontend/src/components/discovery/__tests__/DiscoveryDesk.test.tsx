@@ -265,7 +265,7 @@ describe("DiscoveryDesk", () => {
     expect(screen.getByText("最近更新已到底")).toBeInTheDocument();
 
     const resizer = screen.getByRole("separator", {
-      name: "调整 Episodes 列表与 Actions 区域宽度",
+      name: "调整 Episodes 列表与 Quick Actions 区域宽度",
     });
     expect(resizer).toHaveAttribute("aria-valuenow", "60");
 
@@ -287,15 +287,18 @@ describe("DiscoveryDesk", () => {
     expect(openState?.querySelector(".sr-only")).toHaveTextContent("当前单集");
   });
 
-  it("keeps the Actions header concise and defers metadata loading", () => {
+  it("keeps the Quick Actions header concise and defers metadata loading", () => {
     render(<DiscoveryDesk candidates={candidates} onDecision={vi.fn()} />);
 
     expect(
       screen.getByRole("heading", { name: "Episodes" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Actions" }),
+      screen.getByRole("heading", { name: "Quick Actions" }),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Show Notes" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("单集预读")).not.toBeInTheDocument();
     expect(screen.queryByText("摘要、观点、关联与质疑")).not.toBeInTheDocument();
     expect(
@@ -311,70 +314,52 @@ describe("DiscoveryDesk", () => {
     ).not.toBeInTheDocument();
   });
 
-	it("uses the same episode-number display contract in list and preview", () => {
-		const numbered = candidates[0];
-		const unnumbered = {
-			...candidates[1],
-			episode_no: "",
-			duration: 4200,
-		};
+  it("uses the same episode-number display contract in the compact list", () => {
+    const numbered = candidates[0];
+    const unnumbered = {
+      ...candidates[1],
+      episode_no: "",
+      duration: 4200,
+    };
 
-		render(<DiscoveryDesk candidates={[numbered, unnumbered]} />);
+    render(<DiscoveryDesk candidates={[numbered, unnumbered]} />);
 
-		expect(screen.getByText("#11 · 52 分钟")).toBeInTheDocument();
-		expect(
-			screen
-				.getByRole("heading", { name: "模型能力如何转向真实应用" })
-				.closest(".discovery-preview-identity")
-				?.querySelector(".discovery-preview-meta p"),
-		).toHaveTextContent("#11 · 52 分钟");
-		fireEvent.click(
-			screen.getByRole("button", { name: "查看 缺少 Show Notes 的边界项" }),
-		);
-		expect(screen.getByText("70 分钟")).toBeInTheDocument();
-		expect(
-			screen
-				.getByRole("heading", { name: "缺少 Show Notes 的边界项" })
-				.closest(".discovery-preview-identity")
-				?.querySelector(".discovery-preview-meta p"),
-		).toHaveTextContent("70 分钟");
-		expect(
-			Array.from(
-				document.querySelectorAll(
-					".discovery-candidate-details, .discovery-preview-meta p",
-				),
-			)
-				.map((element) => element.textContent)
-				.join(" "),
-		).not.toContain("单集");
-	});
+    expect(screen.getByText("#11 · 52 分钟")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "查看 缺少 Show Notes 的边界项" }),
+    );
+    expect(screen.getByText("70 分钟")).toBeInTheDocument();
+    expect(
+      Array.from(document.querySelectorAll(".discovery-candidate-details"))
+        .map((element) => element.textContent)
+        .join(" "),
+    ).not.toContain("单集");
+  });
 
-  it("keeps the preview identity compact and groups secondary actions with metadata", () => {
+  it("moves the three source and triage actions into the Quick Actions toolbar", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
-    const title = screen.getByRole("heading", {
-      name: "模型能力如何转向真实应用",
-    });
-    const identity = title.closest(".discovery-preview-identity");
-    const metadata = identity?.querySelector(".discovery-preview-meta");
-
-    expect(identity?.querySelector(".discovery-preview-copy")).toBeTruthy();
-    expect(identity?.querySelector(".discovery-preview-cover")).toBeNull();
-    expect(
-      identity?.querySelector(".discovery-preview-podcast"),
-    ).toHaveTextContent("声东击西");
-    expect(metadata).toContainElement(
+    expect(document.querySelector(".discovery-preview-identity")).toBeNull();
+    const toolbar = document.querySelector(".discovery-quick-actions");
+    expect(toolbar).toBeTruthy();
+    expect(toolbar).toContainElement(
       screen.getByRole("link", { name: "打开节目页面" }),
+    );
+    expect(toolbar).toContainElement(
+      screen.getByRole("button", { name: "忽略" }),
+    );
+    expect(toolbar).toContainElement(
+      screen.getByRole("button", { name: "加入今日备选" }),
     );
   });
 
   it("uses icon-only decision controls with accessible hover labels", () => {
     render(<DiscoveryDesk candidates={candidates} onDecision={vi.fn()} />);
 
-    const discard = screen.getByRole("button", { name: "略过" });
+    const discard = screen.getByRole("button", { name: "忽略" });
     const shortlist = screen.getByRole("button", { name: "加入今日备选" });
 
-    expect(discard).toHaveAttribute("title", "略过");
+    expect(discard).toHaveAttribute("title", "忽略");
     expect(shortlist).toHaveAttribute("title", "加入今日备选");
     expect(discard).toHaveTextContent("");
     expect(shortlist).toHaveTextContent("");
@@ -386,8 +371,8 @@ describe("DiscoveryDesk", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
     expect(
-      screen.getByRole("heading", { name: "模型能力如何转向真实应用" }),
-    ).toBeInTheDocument();
+      screen.getByRole("button", { name: "查看 模型能力如何转向真实应用" }),
+    ).toHaveAttribute("aria-pressed", "true");
     const list = screen.getByTestId("discovery-candidate-list");
 
     fireEvent.click(
@@ -397,9 +382,11 @@ describe("DiscoveryDesk", () => {
     );
 
     expect(
-      screen.getByRole("heading", { name: "缺少 Show Notes 的边界项" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("节目链接暂缺")).toBeInTheDocument();
+      screen.getByRole("button", { name: "查看 缺少 Show Notes 的边界项" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByRole("button", { name: "节目链接暂缺" }),
+    ).toBeDisabled();
     expect(screen.getByTestId("discovery-candidate-list")).toBe(list);
   });
 
@@ -410,7 +397,7 @@ describe("DiscoveryDesk", () => {
       screen.getByRole("heading", { name: "最近更新" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "模型能力如何转向真实应用" }),
+      screen.getByRole("button", { name: "查看 模型能力如何转向真实应用" }),
     ).toBeInTheDocument();
     expect(screen.getByText("07/29 16:00")).toBeInTheDocument();
     expect(
@@ -458,11 +445,11 @@ describe("DiscoveryDesk", () => {
     });
     expect(onDecision).toHaveBeenCalledWith(11, "pending");
 
-    fireEvent.click(screen.getByRole("button", { name: "略过" }));
+    fireEvent.click(screen.getByRole("button", { name: "忽略" }));
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent("决定保存失败");
     });
-    expect(screen.getByRole("button", { name: "略过" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "忽略" })).toHaveAttribute(
       "aria-pressed",
       "false",
     );
@@ -595,8 +582,8 @@ describe("DiscoveryDesk", () => {
     fireEvent.click(screen.getByRole("button", { name: "下一项" }));
 
     expect(
-      screen.getByRole("heading", { name: "缺少 Show Notes 的边界项" }),
-    ).toBeInTheDocument();
+      screen.getByRole("region", { name: "Show Notes" }),
+    ).toHaveTextContent("暂无 Show Notes");
     expect(screen.getByText("2 / 2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "下一项" })).toBeDisabled();
   });
@@ -606,9 +593,11 @@ describe("DiscoveryDesk", () => {
     const { unmount } = render(<DiscoveryDesk candidates={candidates} />);
 
     expect(
-      screen.getByRole("heading", { name: "缺少 Show Notes 的边界项" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("节目链接暂缺")).toBeInTheDocument();
+      screen.getByRole("button", { name: "查看 缺少 Show Notes 的边界项" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByRole("button", { name: "节目链接暂缺" }),
+    ).toBeDisabled();
     expect(screen.queryByText("节目原文")).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "加入今日备选" }),
@@ -617,8 +606,8 @@ describe("DiscoveryDesk", () => {
     unmount();
     render(<DiscoveryDesk candidates={candidates} />);
     expect(
-      screen.getByRole("heading", { name: "缺少 Show Notes 的边界项" }),
-    ).toBeInTheDocument();
+      screen.getByRole("button", { name: "查看 缺少 Show Notes 的边界项" }),
+    ).toHaveAttribute("aria-pressed", "true");
   });
 
   it("ignores edge swipes but supports a center swipe shortcut", () => {
