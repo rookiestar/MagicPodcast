@@ -298,6 +298,12 @@
 - Runtime: the homepage responds `200`; Show Notes render after client hydration without invoking the browser-only sanitizer during SSR.
 - Console: no warnings or errors in fresh desktop and mobile runs. No actionable P0/P1/P2 finding remains.
 
+## 2026-08-11 annotation: collapse discovery identity into Quick Actions
+
+- Copy and hierarchy: the preview heading is now `Quick Actions`; the selected episode identity block and visible `Show Notes` heading are removed so the source-backed reading surface starts immediately below the toolbar.
+- Interaction: open episode page, ignore/restore, and shortlist/unshortlist are icon-only controls with accessible labels and hover titles in the heading row. The existing pencil remains a separate entry point for the approved collapsible Episode/Podcast metadata editor.
+- Responsive check: at `390 × 844`, `Quick Actions` remains on one line, the three triage/source controls retain `44 × 44` px touch targets, and document width equals client width with no horizontal overflow.
+
 ## Follow-up polish
 
 - P3: test a larger personal library with several episodes per show before treating five-item density as a performance or long-list benchmark.
