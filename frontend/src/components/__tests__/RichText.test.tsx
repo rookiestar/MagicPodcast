@@ -69,5 +69,33 @@ describe("RichText", () => {
     expect(optimizerUrl.searchParams.get("url")).toBe(
       "/images/proxy?url=https%3A%2F%2Fi.typlog.com%2Fcover.png",
     );
+    expect(optimizerUrl.searchParams.get("w")).toBe("750");
+    expect(optimizerUrl.searchParams.get("q")).toBe("75");
+  });
+
+  it("turns bare URLs inside mixed Show Notes HTML into safe links", () => {
+    const { container } = render(
+      <RichText
+        html={[
+          "<p>原视频来自：</p>",
+          "<p>https://www.youtube.com/watch?v=example123</p>",
+          '<p><a href="https://example.com/transcript">已有文稿链接</a></p>',
+        ].join("")}
+      />,
+    );
+
+    const bareUrl = screen.getByRole("link", {
+      name: "https://www.youtube.com/watch?v=example123",
+    });
+    expect(bareUrl).toHaveAttribute(
+      "href",
+      "https://www.youtube.com/watch?v=example123",
+    );
+    expect(bareUrl).toHaveAttribute("target", "_blank");
+    expect(bareUrl).toHaveAttribute("rel", "noopener noreferrer");
+    expect(
+      screen.getByRole("link", { name: "已有文稿链接" }),
+    ).toHaveAttribute("href", "https://example.com/transcript");
+    expect(container.querySelectorAll("a")).toHaveLength(2);
   });
 });

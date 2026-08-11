@@ -9,7 +9,10 @@ import {
   sanitizeContentUrl,
 } from "@/lib/imageSourcePolicy";
 import { sanitizeMarkdownSource } from "@/lib/contentSanitizer";
-import { getOptimizedImageUrl } from "@/lib/imageOptimization";
+import {
+  getOptimizedImageUrl,
+  RICH_TEXT_IMAGE_WIDTH,
+} from "@/lib/imageOptimization";
 import {
   getRichTextClassName,
   type RichTextDensity,
@@ -83,7 +86,10 @@ export default function MarkdownViewer({
             }
             // 其他图片正常渲染
             const imageSrc = typeof src === "string" ? src : "";
-            const safeImageSrc = getOptimizedImageUrl(imageSrc, 768, 80);
+            const safeImageSrc = getOptimizedImageUrl(
+              imageSrc,
+              RICH_TEXT_IMAGE_WIDTH,
+            );
             if (!safeImageSrc) {
               return null;
             }

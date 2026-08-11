@@ -2142,16 +2142,17 @@
   }
 
   .discovery-quick-actions {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(3, 44px);
     align-items: center;
-    gap: 0;
+    gap: 4px;
     padding-left: 8px;
     border-left: 1px solid #cfc3af;
   }
 
   .discovery-action-button {
     position: relative;
-    width: 40px;
+    width: 44px;
     height: 44px;
     display: grid;
     place-items: center;
@@ -3399,16 +3400,20 @@
 
     .discovery-preview-heading h2 {
       min-width: 0;
-      font-size: 19px;
+      overflow: hidden;
+      font-size: 16px;
+      text-overflow: ellipsis;
       white-space: nowrap;
     }
 
     .discovery-preview-heading-tools {
-      gap: 4px;
+      gap: 0;
     }
 
     .discovery-quick-actions {
-      padding-left: 4px;
+      gap: 0;
+      padding-left: 0;
+      border-left: 0;
     }
 
     .discovery-action-button {
