@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  DEFAULT_IMAGE_QUALITY,
+  OPTIMIZED_IMAGE_WIDTHS,
+} from "../imageOptimization";
 
 type Rewrite = {
   source: string;
@@ -62,6 +66,7 @@ describe("frontend backend proxy", () => {
       images: {
         deviceSizes: number[];
         imageSizes: number[];
+        qualities: number[];
         formats: string[];
         path: string;
         localPatterns: Array<{ pathname: string; search?: string }>;
@@ -74,6 +79,8 @@ describe("frontend backend proxy", () => {
 
     expect(widths.find((width) => width >= 32 * 2)).toBe(96);
     expect(widths.find((width) => width >= 228 * 2)).toBe(512);
+    expect(new Set(widths)).toEqual(new Set(OPTIMIZED_IMAGE_WIDTHS));
+    expect(config.images.qualities).toEqual([DEFAULT_IMAGE_QUALITY]);
     expect(config.images.formats).toEqual(["image/avif", "image/webp"]);
     expect(config.images.path).toBe("/_next/image.webp");
     expect(config.images.localPatterns).toEqual([

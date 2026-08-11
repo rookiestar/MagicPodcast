@@ -80,6 +80,8 @@ describe("MarkdownViewer", () => {
     expect(optimizerUrl.searchParams.get("url")).toBe(
       "/images/proxy?url=https%3A%2F%2Fi.typlog.com%2Fcover.png",
     );
+    expect(optimizerUrl.searchParams.get("w")).toBe("750");
+    expect(optimizerUrl.searchParams.get("q")).toBe("75");
   });
 
   it("keeps bounded report QR images as inline PNGs", () => {
@@ -91,5 +93,18 @@ describe("MarkdownViewer", () => {
       "src",
       "data:image/png;base64,abc123=",
     );
+  });
+
+  it("turns bare URLs in featured reports into safe new-tab links", () => {
+    render(
+      <MarkdownViewer content={"原视频：\n\nhttps://youtu.be/example123"} />,
+    );
+
+    const link = screen.getByRole("link", {
+      name: "https://youtu.be/example123",
+    });
+    expect(link).toHaveAttribute("href", "https://youtu.be/example123");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
   });
 });

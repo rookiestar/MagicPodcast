@@ -14,6 +14,49 @@ interface RichTextProps {
   density?: RichTextDensity;
 }
 
+const BARE_URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
+const TRAILING_URL_PUNCTUATION = /[.,;:!?，。；：！？、]+$/;
+const AUTOLINK_BLOCKED_TAGS = new Set(["a", "code", "pre"]);
+
+function linkifyText(text: string) {
+  return text.replace(BARE_URL_PATTERN, (match) => {
+    const trailing = match.match(TRAILING_URL_PUNCTUATION)?.[0] ?? "";
+    const url = trailing ? match.slice(0, -trailing.length) : match;
+    if (!url) return match;
+
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>${trailing}`;
+  });
+}
+
+function linkifyBareUrlsInHtml(html: string) {
+  let blockedDepth = 0;
+
+  return html
+    .split(/(<[^>]+>)/g)
+    .map((token) => {
+      if (!token.startsWith("<")) {
+        return blockedDepth > 0 ? token : linkifyText(token);
+      }
+
+      const closingTag = token.match(/^<\s*\/\s*([a-z0-9-]+)/i)?.[1];
+      if (closingTag && AUTOLINK_BLOCKED_TAGS.has(closingTag.toLowerCase())) {
+        blockedDepth = Math.max(0, blockedDepth - 1);
+        return token;
+      }
+
+      const openingTag = token.match(/^<\s*([a-z0-9-]+)/i)?.[1];
+      if (
+        openingTag &&
+        AUTOLINK_BLOCKED_TAGS.has(openingTag.toLowerCase()) &&
+        !/\/\s*>$/.test(token)
+      ) {
+        blockedDepth += 1;
+      }
+      return token;
+    })
+    .join("");
+}
+
 /**
  * 富文本渲染组件
  * 使用DOMPurify净化HTML，防止XSS攻击
@@ -41,19 +84,14 @@ function RichText({
       /<\/?[a-z][\s\S]*?>/i.test(contentToSanitize) &&
       !/^<a\s+href[^>]*>.*<\/a>$/i.test(contentToSanitize);
 
-    // 如果是纯文本（没有HTML标签），将换行符转换为<br>，并处理其他链接
+    // 如果是纯文本（没有HTML标签），将换行符转换为<br>
     if (!hasHtmlTags) {
-      contentToSanitize = contentToSanitize
-        // 处理换行符
-        .replace(/\n/g, "<br>")
-        // 处理其他URL（非图片）
-        .replace(
-          /(https?:\/\/[^\s<>]+)(?<!\.(jpg|jpeg|png|gif|webp|svg|bmp))/gi,
-          '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>',
-        );
+      contentToSanitize = contentToSanitize.replace(/\n/g, "<br>");
     }
 
-    return optimizeHtmlImageSources(sanitizeRichTextHtml(contentToSanitize));
+    const sanitizedHtml = sanitizeRichTextHtml(contentToSanitize);
+    const linkedHtml = linkifyBareUrlsInHtml(sanitizedHtml);
+    return optimizeHtmlImageSources(sanitizeRichTextHtml(linkedHtml));
   }, [html]);
 
   return (

@@ -502,6 +502,10 @@ export default function DiscoveryDesk({
           <div className="discovery-preview-heading">
             <h2>Quick Actions</h2>
             <div className="discovery-preview-heading-tools">
+              <strong className="discovery-current-count">
+                {String(selectedIndex + 1).padStart(2, "0")} /{" "}
+                {String(displayCandidates.length).padStart(2, "0")}
+              </strong>
               <div className="discovery-quick-actions" aria-label="单集快捷操作">
                 {selected.original_url ? (
                   <a
@@ -589,10 +593,6 @@ export default function DiscoveryDesk({
               >
                 <IconPencil aria-hidden="true" stroke={1.8} />
               </button>
-              <strong className="discovery-current-count">
-                {String(selectedIndex + 1).padStart(2, "0")} /{" "}
-                {String(displayCandidates.length).padStart(2, "0")}
-              </strong>
             </div>
             <div className="discovery-mobile-progress">
               <button

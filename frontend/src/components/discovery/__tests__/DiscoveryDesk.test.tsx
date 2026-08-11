@@ -340,8 +340,27 @@ describe("DiscoveryDesk", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
     expect(document.querySelector(".discovery-preview-identity")).toBeNull();
-    const toolbar = document.querySelector(".discovery-quick-actions");
+    const headingTools = document.querySelector<HTMLElement>(
+      ".discovery-preview-heading-tools",
+    );
+    const currentCount = document.querySelector<HTMLElement>(
+      ".discovery-current-count",
+    );
+    const toolbar = document.querySelector<HTMLElement>(
+      ".discovery-quick-actions",
+    );
+    const editToggle = screen.getByRole("button", {
+      name: "编辑标签与备注",
+    });
+
+    expect(headingTools).toBeTruthy();
+    expect(currentCount).toHaveTextContent("01 / 02");
     expect(toolbar).toBeTruthy();
+    expect(toolbar).not.toContainElement(currentCount);
+    expect(headingTools?.children[0]).toBe(currentCount);
+    expect(headingTools?.children[1]).toBe(toolbar);
+    expect(headingTools?.children[2]).toBe(editToggle);
+    expect(toolbar?.children).toHaveLength(3);
     expect(toolbar).toContainElement(
       screen.getByRole("link", { name: "打开节目页面" }),
     );
