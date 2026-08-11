@@ -83,7 +83,10 @@ describe("default page", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("今日初筛工作区")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "默认首页最近更新" }),
+      screen.getByRole("button", { name: "查看 默认首页最近更新" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Quick Actions" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("个人播客管理与自动化处理工具")).not.toBeInTheDocument();
     expect(screen.queryByText("我的订阅管理")).not.toBeInTheDocument();
