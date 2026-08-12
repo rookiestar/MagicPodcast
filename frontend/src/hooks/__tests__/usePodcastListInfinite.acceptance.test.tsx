@@ -454,6 +454,16 @@ describe("播客无限滚动加载性能验收 (#65)", () => {
       { page_size: PAGE_SIZE },
       { page_size: 10 },
     ],
+    [
+      "搜索",
+      { page_size: PAGE_SIZE, search: "技术" },
+      { page_size: PAGE_SIZE, search: "商业" },
+    ],
+    [
+      "视图",
+      { page_size: PAGE_SIZE, view: "summary" as const },
+      { page_size: PAGE_SIZE, view: "full" as const },
+    ],
   ])("%s变化时取消旧请求", async (_name, initialParams, nextParams) => {
     const calls: string[] = [];
     const signals: AbortSignal[] = [];
@@ -696,6 +706,58 @@ describe("播客无限滚动加载性能验收 (#65)", () => {
     });
 
     expect(controller.calls.filter((url) => url.includes("page=2")).length).toBe(1);
+  });
+
+  it("后台重新验证期间的触底不会消耗下一页意图", async () => {
+    const calls: string[] = [];
+    let holdRequests = false;
+    const heldRequests: Array<{
+      resolve: (response: Response) => void;
+      page: number;
+      pageSize: number;
+    }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string | URL) => {
+        const urlStr = typeof url === "string" ? url : url.toString();
+        calls.push(urlStr);
+        const { page, pageSize } = pageFromUrl(urlStr);
+        if (holdRequests) {
+          return new Promise<Response>((resolve) => {
+            heldRequests.push({ resolve, page, pageSize });
+          });
+        }
+        return Promise.resolve(pageResponse(page, pageSize));
+      }),
+    );
+
+    const { result } = renderInfiniteHook({ page_size: PAGE_SIZE });
+    await waitFor(() => expect(result.current.podcasts.length).toBe(PAGE_SIZE));
+    act(() => result.current.loadMore());
+    await waitFor(() =>
+      expect(result.current.podcasts.length).toBe(PAGE_SIZE * 2),
+    );
+
+    holdRequests = true;
+    act(() => {
+      void result.current.mutate();
+    });
+    await waitFor(() => expect(result.current.isLoadingMore).toBe(true));
+    act(() => result.current.loadMore());
+
+    holdRequests = false;
+    act(() => {
+      heldRequests.forEach(({ resolve, page, pageSize }) =>
+        resolve(pageResponse(page, pageSize)),
+      );
+    });
+    await waitFor(() => expect(result.current.isLoadingMore).toBe(false));
+
+    act(() => result.current.loadMore());
+    await waitFor(() =>
+      expect(result.current.podcasts.length).toBe(PAGE_SIZE * 3),
+    );
+    expect(calls.filter((url) => url.includes("page=3"))).toHaveLength(1);
   });
 
   it("成功加载全部节目后不再触发额外分页请求", async () => {
