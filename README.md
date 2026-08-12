@@ -90,6 +90,7 @@ node scripts/performance-audit.mjs \
 - [需要人工确认的事项](docs/HUMAN_REVIEW_QUEUE.md)
 - [部署运维](docs/DEPLOYMENT.md)
 - [环境配置](docs/ENV_SETUP.md)
+- [数据 Profile](docs/DATA_PROFILES.md)
 - [备份恢复](docs/BACKUP_RECOVERY.md)
 - [前端测试](docs/FRONTEND_TESTING_SETUP.md)
 
@@ -98,6 +99,7 @@ node scripts/performance-audit.mjs \
 - 示例后端配置：`backend/configs/config.example.yaml`
 - 前端环境示例：`frontend/.env.example`
 - 本地数据库默认位于 `backend/data/`
+- 隔离网络开发使用 `./scripts/data-profile.sh use fixture`；详见 [数据 Profile](docs/DATA_PROFILES.md)
 - 真实配置、数据库、日志和构建产物不进入版本库
 
 ## 许可

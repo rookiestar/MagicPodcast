@@ -83,8 +83,10 @@ EOF
 }
 
 probe_backend() {
-  "$CURL_BIN" --fail --silent --show-error --max-time 5 http://127.0.0.1:8080/ready 2>/dev/null |
-    grep -q '"status":"ok"'
+  local health
+  health="$("$CURL_BIN" --fail --silent --show-error --max-time 5 http://127.0.0.1:8080/ready 2>/dev/null)" || return 1
+  printf '%s\n' "$health" | grep -Fq '"status":"ok"' || return 1
+  printf '%s\n' "$health" | grep -Fq '"data_profile":"production"'
 }
 
 probe_frontend() {

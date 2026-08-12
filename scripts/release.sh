@@ -219,6 +219,7 @@ verify_health() {
       health="$(cat "$MAGICPODCAST_RELEASE_TEST_HEALTH_FILE")"
       printf '%s\n' "$health" | grep -Fq "release_id=$release_id" || return 1
       printf '%s\n' "$health" | grep -Fq "frontend_build_id=$frontend_build_id" || return 1
+      printf '%s\n' "$health" | grep -Fq "data_profile=production" || return 1
     fi
     return 0
   fi
@@ -227,6 +228,7 @@ verify_health() {
   printf '%s\n' "$health" | grep -Fq "\"status\":\"ok\"" || return 1
   printf '%s\n' "$health" | grep -Fq "\"release_id\":\"$release_id\"" || return 1
   printf '%s\n' "$health" | grep -Fq "\"frontend_build_id\":\"$frontend_build_id\"" || return 1
+  printf '%s\n' "$health" | grep -Fq '"data_profile":"production"' || return 1
 }
 
 build_release() {

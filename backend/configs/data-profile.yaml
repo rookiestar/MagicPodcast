@@ -1,0 +1,96 @@
+# Safe local configuration used only by scripts/data-profile.sh.
+# The managed command injects the database path and profile metadata, disables
+# .env loading, and does not inherit production credentials.
+server:
+  host: "127.0.0.1"
+  port: 8080
+  mode: debug
+  read_timeout: 60
+  write_timeout: 60
+  cors:
+    enabled: true
+    allow_origins:
+      - "http://localhost:3000"
+      - "http://127.0.0.1:3000"
+    allow_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    allow_headers: ["Origin", "Content-Type", "Accept", "X-Requested-With"]
+    expose_headers: ["Content-Length"]
+    allow_credentials: false
+    max_age: 3600
+
+discovery:
+  timezone: "Asia/Shanghai"
+
+database:
+  path: "./data/profile-placeholder.db"
+  debug: false
+  max_idle_conns: 1
+  max_open_conns: 1
+  busy_timeout_ms: 5000
+  conn_max_lifetime: 3600
+
+xyz_api:
+  url: "http://127.0.0.1:9"
+  timeout: 2
+  max_retries: 0
+  retry_interval: 0
+
+sync:
+  enabled: false
+  schedule: "0 0 1 1 *"
+  concurrency: 1
+  request_interval: 1000
+  max_podcasts: 0
+
+podcast_index:
+  path: ""
+
+logging:
+  level: info
+  format: text
+  output: ""
+  rotate: false
+  max_size: 10
+  max_age: 1
+  max_backups: 1
+
+search:
+  default_page_size: 20
+  max_page_size: 100
+
+user:
+  phone: ""
+  access_token: ""
+  refresh_token: ""
+
+email:
+  enabled: false
+  smtp_host: ""
+  smtp_port: 0
+  username: ""
+  password: ""
+  from: ""
+  to: ""
+  use_tls: false
+
+llm:
+  enabled: false
+  provider: "openai"
+  api_key: ""
+  base_url: ""
+  default_model: ""
+  timeout: 5
+  max_retries: 0
+  retry_interval: 0
+  max_concurrent: 1
+  rate_limit_per_minute: 1
+  max_tokens_per_request: 1
+  prompts_dir: "./configs/prompts"
+  system_prompt: ""
+
+feed:
+  snapshot:
+    durable: false
+  diagnostics:
+    admin_enabled: false
+    configured_egress_label: "offline-profile"

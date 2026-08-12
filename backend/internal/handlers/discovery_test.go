@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -227,7 +228,7 @@ func TestDiscoveryHandler_SummaryListAndCandidateDetailSplitHeavyContent(t *test
 }
 
 func TestDiscoveryHandler_ListHomepageReports_ReturnsTodayAndDecisions(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:discovery_handler_reports?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "reports.db")), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.Workflow{},
@@ -240,8 +241,12 @@ func TestDiscoveryHandler_ListHomepageReports_ReturnsTodayAndDecisions(t *testin
 
 	location, err := time.LoadLocation("Asia/Shanghai")
 	require.NoError(t, err)
-	// Use real local "today" so we don't need to poke the service clock.
-	completedAt := time.Now().In(location).Add(-time.Hour)
+	localNow := time.Now().In(location)
+	// Noon is always inside the service's current local day, including midnight runs.
+	completedAt := time.Date(
+		localNow.Year(), localNow.Month(), localNow.Day(),
+		12, 0, 0, 0, location,
+	)
 
 	workflow := models.Workflow{
 		Name:              "首页日报",

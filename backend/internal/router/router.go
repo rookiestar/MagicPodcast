@@ -2,6 +2,7 @@ package router
 
 import (
 	"magicpodcast/internal/logger"
+	"os"
 	"time"
 
 	"magicpodcast/internal/config"
@@ -339,12 +340,17 @@ func SetupRouter() *gin.Engine {
 			}
 		}
 
-		// 启动调度器（在独立goroutine中）
-		go func() {
-			if err := globalScheduler.Start(); err != nil {
-				logger.Infof("❌ 启动调度器失败: %v", err)
-			}
-		}()
+		// 托管 Fixture/Snapshot 只用于离线开发与验收，禁止后台调度、
+		// missed-run 补偿和任何由启动触发的站外动作。
+		if os.Getenv("MAGICPODCAST_DISABLE_SCHEDULER") == "1" {
+			logger.Info("ℹ️  工作流调度器已由托管数据 Profile 禁用")
+		} else {
+			go func() {
+				if err := globalScheduler.Start(); err != nil {
+					logger.Infof("❌ 启动调度器失败: %v", err)
+				}
+			}()
+		}
 
 		return r
 	}

@@ -1,13 +1,17 @@
 package handlers
 
 import (
-	"magicpodcast/internal/database"
 	"net/http"
 	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"magicpodcast/internal/config"
+	"magicpodcast/internal/database"
+	"magicpodcast/internal/runtimeprofile"
 )
+
+var loadRuntimeProfile = runtimeprofile.Load
 
 // HealthHandler 健康检查处理器
 type HealthHandler struct{}
@@ -23,14 +27,32 @@ func runtimeMetadata() gin.H {
 	}
 	buildMode := strings.TrimSpace(os.Getenv("MAGICPODCAST_SERVER_MODE"))
 	if buildMode == "" {
-		buildMode = "unknown"
+		if cfg := config.Get(); cfg != nil && strings.TrimSpace(cfg.Server.Mode) != "" {
+			buildMode = cfg.Server.Mode
+		} else {
+			buildMode = "unknown"
+		}
 	}
 
-	return gin.H{
+	response := gin.H{
 		"release_id":        releaseID,
 		"frontend_build_id": frontendBuildID,
 		"build_mode":        buildMode,
 	}
+	databasePath := ""
+	if cfg := config.Get(); cfg != nil {
+		databasePath = cfg.Database.Path
+	}
+	profile, err := loadRuntimeProfile(databasePath, buildMode)
+	if err != nil {
+		response["data_profile"] = "invalid"
+		response["data_profile_error"] = "profile metadata validation failed"
+		return response
+	}
+	for key, value := range profile.PublicFields() {
+		response[key] = value
+	}
+	return response
 }
 
 // NewHealthHandler 创建健康检查处理器
@@ -72,6 +94,10 @@ func (h *HealthHandler) Health(c *gin.Context) {
 	for key, value := range runtimeMetadata() {
 		response[key] = value
 	}
+	if response["data_profile"] == "invalid" {
+		statusCode = http.StatusServiceUnavailable
+		response["status"] = "error"
+	}
 	c.JSON(statusCode, response)
 }
 
@@ -79,19 +105,77 @@ func (h *HealthHandler) Health(c *gin.Context) {
 // does not touch the database, so a dependency outage can be distinguished from
 // a dead process.
 func (h *HealthHandler) Live(c *gin.Context) {
-	response := gin.H{
-		"status":  "ok",
-		"service": "magicpodcast-backend",
+	releaseID := strings.TrimSpace(os.Getenv("MAGICPODCAST_RELEASE_ID"))
+	if releaseID == "" {
+		releaseID = "unknown"
 	}
-	for key, value := range runtimeMetadata() {
-		response[key] = value
+	frontendBuildID := strings.TrimSpace(os.Getenv("MAGICPODCAST_FRONTEND_BUILD_ID"))
+	if frontendBuildID == "" {
+		frontendBuildID = "unknown"
+	}
+	buildMode := strings.TrimSpace(os.Getenv("MAGICPODCAST_SERVER_MODE"))
+	if buildMode == "" {
+		if cfg := config.Get(); cfg != nil && strings.TrimSpace(cfg.Server.Mode) != "" {
+			buildMode = cfg.Server.Mode
+		} else {
+			buildMode = "unknown"
+		}
+	}
+	response := gin.H{
+		"status":            "ok",
+		"service":           "magicpodcast-backend",
+		"release_id":        releaseID,
+		"frontend_build_id": frontendBuildID,
+		"build_mode":        buildMode,
 	}
 	c.JSON(http.StatusOK, response)
 }
 
 // Ready is the explicit dependency-aware readiness endpoint.
 func (h *HealthHandler) Ready(c *gin.Context) {
-	h.Health(c)
+	db := database.GetDB()
+	sqlDB, err := db.DB()
+	if err != nil || sqlDB.Ping() != nil {
+		response := gin.H{
+			"status":   "error",
+			"service":  "magicpodcast-backend",
+			"database": "error",
+		}
+		for key, value := range runtimeMetadata() {
+			response[key] = value
+		}
+		c.JSON(http.StatusServiceUnavailable, response)
+		return
+	}
+	schema, err := database.InspectSchema(db)
+	if err != nil || schema.CurrentVersion != database.CurrentSchemaVersion || len(schema.RequiredTablesMissing) != 0 || len(schema.Pending) != 0 {
+		response := gin.H{
+			"status":         "error",
+			"service":        "magicpodcast-backend",
+			"database":       "error",
+			"schema_version": schema.CurrentVersion,
+		}
+		for key, value := range runtimeMetadata() {
+			response[key] = value
+		}
+		c.JSON(http.StatusServiceUnavailable, response)
+		return
+	}
+	response := gin.H{
+		"status":         "ok",
+		"service":        "magicpodcast-backend",
+		"database":       "ok",
+		"schema_version": schema.CurrentVersion,
+	}
+	for key, value := range runtimeMetadata() {
+		response[key] = value
+	}
+	if response["data_profile"] == "invalid" {
+		response["status"] = "error"
+		c.JSON(http.StatusServiceUnavailable, response)
+		return
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // Ping 简单的 ping 接口
