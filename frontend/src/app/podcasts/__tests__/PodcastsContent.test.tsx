@@ -135,6 +135,9 @@ describe("podcast list page navigation", () => {
       "href",
       "/import",
     );
+    expect(screen.getByRole("link", { name: "导入订阅" })).toHaveClass(
+      "md:hidden",
+    );
     expect(screen.getByTestId("mobile-toolbar-description")).toHaveTextContent(
       "共 0 个节目",
     );

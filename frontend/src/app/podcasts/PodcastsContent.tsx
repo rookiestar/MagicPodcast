@@ -190,7 +190,7 @@ export default function PodcastsContent({ initialPage }: PodcastsContentProps) {
             <Link
               href="/import"
               prefetch={false}
-              className="podcast-import-secondary"
+              className="podcast-import-secondary md:hidden"
             >
               <IconFileImport aria-hidden="true" stroke={1.8} />
               <span>导入订阅</span>
