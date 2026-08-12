@@ -322,8 +322,8 @@ describe("DiscoveryDesk", () => {
     );
   });
 
-  it("keeps report, recent updates and Focus in one shell without the legacy split", () => {
-    render(
+  it("keeps Focus beside the filters in the shared left rail", () => {
+    const { container } = render(
       <DiscoveryDesk
         candidates={candidates}
         reportContent={<section aria-label="精选报告">报告</section>}
@@ -336,7 +336,19 @@ describe("DiscoveryDesk", () => {
     expect(screen.getByRole("button", { name: "上一页" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "下一页" })).toBeDisabled();
     expect(screen.getByLabelText("精选报告")).toBeInTheDocument();
-    expect(screen.getByLabelText("Focus 快捷摘要")).toBeInTheDocument();
+    const sidebar = screen.getByRole("complementary", {
+      name: "Discovery 导航与筛选",
+    });
+    const focusRail = screen.getByRole("region", {
+      name: "Focus 快捷区域",
+    });
+    expect(sidebar).toContainElement(focusRail);
+    expect(focusRail).toContainElement(
+      screen.getByLabelText("Focus 快捷摘要"),
+    );
+    expect(container.querySelector(".discovery-stream")).not.toContainElement(
+      focusRail,
+    );
     expect(screen.queryByRole("separator")).not.toBeInTheDocument();
   });
 

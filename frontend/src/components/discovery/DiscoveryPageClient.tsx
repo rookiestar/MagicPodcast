@@ -139,6 +139,12 @@ function DiscoveryPageSkeleton({
             </span>
           ))}
         </div>
+        <section
+          className="discovery-focus-rail"
+          aria-label="Focus 快捷区域"
+        >
+          {focusContent}
+        </section>
       </aside>
 
       <section className="discovery-stream">
@@ -176,9 +182,6 @@ function DiscoveryPageSkeleton({
         </section>
       </section>
 
-      <aside className="discovery-focus-rail" aria-label="Focus 快捷区域">
-        {focusContent}
-      </aside>
     </main>
   );
 }
