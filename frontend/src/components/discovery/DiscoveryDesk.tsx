@@ -47,6 +47,9 @@ interface DiscoveryDeskProps {
     state: TriageDecisionState,
   ) => Promise<TriageDecisionResponse>;
   onRead?: (episodeID: number) => Promise<DiscoveryConsumptionResponse>;
+  onLoadCandidateDetails?: (
+    episodeID: number,
+  ) => Promise<DiscoveryCandidate>;
 }
 
 type RecentFilter = "all" | "unread" | "uncollected";
@@ -106,12 +109,14 @@ function candidateDateGroup(value: string) {
 }
 
 function candidateExcerpt(candidate: DiscoveryCandidate) {
+  if (candidate.excerpt?.trim()) return candidate.excerpt.trim();
+
   const summary = candidate.pre_reads?.find(
     (preRead) => preRead.kind === "summary",
   )?.content;
   if (summary?.trim()) return summary.trim();
 
-  const showNotesText = candidate.show_notes
+  const showNotesText = (candidate.show_notes ?? "")
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -158,24 +163,18 @@ export default function DiscoveryDesk({
   noticeContent,
   onDecision,
   onRead,
+  onLoadCandidateDetails,
 }: DiscoveryDeskProps) {
   const [displayCandidates, setDisplayCandidates] = useState(candidates);
   const [activeFilter, setActiveFilter] = useState<RecentFilter>("all");
   const [recentPage, setRecentPage] = useState(0);
-  const [selectedID, setSelectedID] = useState<number | null>(() => {
-    if (typeof window !== "undefined") {
-      const restoredID = window.history.state?.magicpodcastDiscoveryEpisodeID;
-      if (
-        typeof restoredID === "number" &&
-        candidates.some((candidate) => candidate.episode_id === restoredID)
-      ) {
-        return restoredID;
-      }
-    }
-    return null;
-  });
+  const [selectedID, setSelectedID] = useState<number | null>(null);
   const [savingEpisodeID, setSavingEpisodeID] = useState<number | null>(null);
   const [decisionError, setDecisionError] = useState("");
+  const [detailErrorEpisodeID, setDetailErrorEpisodeID] = useState<
+    number | null
+  >(null);
+  const [detailRetryVersion, setDetailRetryVersion] = useState(0);
   const [isMetadataEditorOpen, setIsMetadataEditorOpen] = useState(false);
   const candidateButtonRefs = useRef(new Map<number, HTMLButtonElement>());
   const previewRef = useRef<HTMLElement>(null);
@@ -185,7 +184,33 @@ export default function DiscoveryDesk({
   const touchStartX = useRef<number | null>(null);
 
   useEffect(() => {
-    setDisplayCandidates(candidates);
+    const restoredID = window.history.state?.magicpodcastDiscoveryEpisodeID;
+    if (
+      typeof restoredID === "number" &&
+      candidates.some((candidate) => candidate.episode_id === restoredID)
+    ) {
+      setSelectedID(restoredID);
+    }
+  }, [candidates]);
+
+  useEffect(() => {
+    setDisplayCandidates((currentCandidates) => {
+      const currentByEpisodeID = new Map(
+        currentCandidates.map((candidate) => [candidate.episode_id, candidate]),
+      );
+      return candidates.map((candidate) => {
+        const current = currentByEpisodeID.get(candidate.episode_id);
+        if (!candidate.metadata_only || !current || current.metadata_only) {
+          return candidate;
+        }
+        return {
+          ...candidate,
+          metadata_only: false,
+          show_notes: current.show_notes,
+          pre_reads: current.pre_reads,
+        };
+      });
+    });
     setSelectedID((currentID) =>
       currentID !== null &&
       candidates.some((candidate) => candidate.episode_id === currentID)
@@ -271,6 +296,55 @@ export default function DiscoveryDesk({
   }, [activeFilter, recentPage, safeRecentPage]);
 
   const selectedEpisodeID = selected?.episode_id;
+  const selectedMetadataOnly = Boolean(selected?.metadata_only);
+
+  useEffect(() => {
+    setDetailErrorEpisodeID(null);
+    if (
+      selectedEpisodeID === undefined ||
+      !selectedMetadataOnly ||
+      !onLoadCandidateDetails
+    ) {
+      return;
+    }
+
+    let active = true;
+    void onLoadCandidateDetails(selectedEpisodeID)
+      .then((details) => {
+        if (!active) return;
+        setDisplayCandidates((items) =>
+          items.map((item) =>
+            item.episode_id === selectedEpisodeID
+              ? {
+                  ...details,
+                  excerpt: item.excerpt ?? details.excerpt,
+                  metadata_only: false,
+                  decision_state: item.decision_state,
+                  decision_updated_at: item.decision_updated_at,
+                  queue_state: item.queue_state,
+                  dismissed_at: item.dismissed_at,
+                  queue_updated_at: item.queue_updated_at,
+                  in_progress_at: item.in_progress_at,
+                  read_at: item.read_at,
+                }
+              : item,
+          ),
+        );
+      })
+      .catch(() => {
+        if (active) setDetailErrorEpisodeID(selectedEpisodeID);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    detailRetryVersion,
+    onLoadCandidateDetails,
+    selectedEpisodeID,
+    selectedMetadataOnly,
+  ]);
+
   const closePreview = useCallback(() => {
     const episodeID = selectedEpisodeID;
     setIsMetadataEditorOpen(false);
@@ -454,7 +528,7 @@ export default function DiscoveryDesk({
       <aside className="discovery-sidebar" aria-label="Discovery 导航与筛选">
         <div className="discovery-workbench-copy editorial-title-group">
           <h1 className="editorial-section-title">Discovery</h1>
-          <span className="discovery-source-label">最近更新 · 14 天</span>
+          <span className="discovery-source-label">最近更新 · 7 天</span>
         </div>
         <div className="discovery-status-filters" aria-label="最近更新筛选">
           {(
@@ -490,7 +564,7 @@ export default function DiscoveryDesk({
               <p className="discovery-kicker">RECENT UPDATES</p>
               <h2>最近更新</h2>
             </div>
-            <span>按工作流同步时间 · 最近 14 天</span>
+            <span>按工作流同步时间 · 最近 7 天</span>
           </header>
 
           {decisionError && !selected && (
@@ -512,7 +586,7 @@ export default function DiscoveryDesk({
             ) : visibleCandidates.length === 0 ? (
               <div className="discovery-inline-empty" aria-live="polite">
                 <h3>当前筛选没有单集</h3>
-                <p>切换到“全部”继续浏览最近 14 天更新。</p>
+                <p>切换到“全部”继续浏览最近 7 天更新。</p>
                 <button
                   type="button"
                   onClick={() => {
@@ -881,14 +955,37 @@ export default function DiscoveryDesk({
                 ref={showNotesPaneRef}
                 className="discovery-show-notes"
                 aria-label="Show Notes"
+                aria-busy={
+                  selected.metadata_only &&
+                  detailErrorEpisodeID !== selected.episode_id
+                }
               >
                 {decisionError && (
                   <p className="discovery-decision-error" role="alert">
                     {decisionError}
                   </p>
                 )}
-                {selected.show_notes_status === "available" &&
-                selected.show_notes.trim() ? (
+                {selected.metadata_only ? (
+                  detailErrorEpisodeID === selected.episode_id ? (
+                    <div className="discovery-show-notes-error" role="alert">
+                      <p>Show Notes 暂时无法加载，最近更新列表仍可继续使用。</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDetailErrorEpisodeID(null);
+                          setDetailRetryVersion((version) => version + 1);
+                        }}
+                      >
+                        重新加载 Show Notes
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="discovery-show-notes-loading">
+                      正在加载 Show Notes…
+                    </p>
+                  )
+                ) : selected.show_notes_status === "available" &&
+                  selected.show_notes?.trim() ? (
                   <RichText
                     html={selected.show_notes}
                     className="discovery-show-notes-content"

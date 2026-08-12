@@ -13,7 +13,7 @@ const (
 	defaultDiscoveryCandidateLimit = 500
 	maxDiscoveryCandidateLimit     = 1000
 	discoverySourceRecentUpdates   = "最近更新"
-	discoveryRecentWindow          = 14 * 24 * time.Hour
+	discoveryRecentWindow          = 7 * 24 * time.Hour
 )
 
 type DiscoveryCandidate struct {
@@ -28,7 +28,9 @@ type DiscoveryCandidate struct {
 	CandidateTime     time.Time          `json:"candidate_time"`
 	TimeBasis         string             `json:"time_basis"`
 	Source            string             `json:"source"`
-	ShowNotes         string             `json:"show_notes"`
+	Excerpt           string             `json:"excerpt,omitempty"`
+	MetadataOnly      bool               `json:"metadata_only,omitempty"`
+	ShowNotes         string             `json:"show_notes,omitempty"`
 	ShowNotesStatus   string             `json:"show_notes_status"`
 	OriginalURL       string             `json:"original_url"`
 	ImageURL          string             `json:"image_url"`
@@ -39,7 +41,7 @@ type DiscoveryCandidate struct {
 	QueueUpdatedAt    *time.Time         `json:"queue_updated_at,omitempty"`
 	InProgressAt      *time.Time         `json:"in_progress_at,omitempty"`
 	ReadAt            *time.Time         `json:"read_at,omitempty"`
-	PreReads          []DiscoveryPreRead `json:"pre_reads"`
+	PreReads          []DiscoveryPreRead `json:"pre_reads,omitempty"`
 }
 
 type DiscoveryService struct {
@@ -55,6 +57,56 @@ func NewDiscoveryService(db *gorm.DB) *DiscoveryService {
 }
 
 func (s *DiscoveryService) ListRecentCandidates(limit int) ([]DiscoveryCandidate, error) {
+	episodes, err := s.listRecentCandidateEpisodes(limit, true)
+	if err != nil {
+		return nil, err
+	}
+
+	candidates := make([]DiscoveryCandidate, 0, len(episodes))
+	preReadGeneratedAt := s.now().UTC()
+	for _, episode := range episodes {
+		candidates = append(candidates, buildDiscoveryCandidate(episode, preReadGeneratedAt))
+	}
+
+	return candidates, nil
+}
+
+func (s *DiscoveryService) ListRecentCandidateSummaries(limit int) ([]DiscoveryCandidate, error) {
+	episodes, err := s.listRecentCandidateEpisodes(limit, false)
+	if err != nil {
+		return nil, err
+	}
+
+	candidates := make([]DiscoveryCandidate, 0, len(episodes))
+	for _, episode := range episodes {
+		candidates = append(candidates, buildDiscoveryCandidateSummary(episode))
+	}
+
+	return candidates, nil
+}
+
+func (s *DiscoveryService) GetCandidate(episodeID uint) (*DiscoveryCandidate, error) {
+	var episode models.Episode
+	err := s.db.
+		Preload("Podcast").
+		Preload("Podcast.Tags").
+		Preload("Tags").
+		Joins("JOIN podcasts ON podcasts.id = episodes.podcast_id").
+		Where("podcasts.is_subscribed = ?", true).
+		Where("episodes.id = ?", episodeID).
+		First(&episode).Error
+	if err != nil {
+		return nil, err
+	}
+
+	candidate := buildDiscoveryCandidate(episode, s.now().UTC())
+	return &candidate, nil
+}
+
+func (s *DiscoveryService) listRecentCandidateEpisodes(
+	limit int,
+	includeSignals bool,
+) ([]models.Episode, error) {
 	if limit <= 0 {
 		limit = defaultDiscoveryCandidateLimit
 	}
@@ -67,10 +119,11 @@ func (s *DiscoveryService) ListRecentCandidates(limit int) ([]DiscoveryCandidate
 	// Discovery only reads episodes already persisted by configured workflows.
 	// It must not trigger or broaden podcast synchronization.
 	var episodes []models.Episode
-	err := s.db.
-		Preload("Podcast").
-		Preload("Podcast.Tags").
-		Preload("Tags").
+	query := s.db.Preload("Podcast")
+	if includeSignals {
+		query = query.Preload("Podcast.Tags").Preload("Tags")
+	}
+	err := query.
 		Joins("JOIN podcasts ON podcasts.id = episodes.podcast_id").
 		Where("podcasts.is_subscribed = ?", true).
 		Where(recencyExpression+" >= ?", cutoff).
@@ -81,14 +134,7 @@ func (s *DiscoveryService) ListRecentCandidates(limit int) ([]DiscoveryCandidate
 	if err != nil {
 		return nil, err
 	}
-
-	candidates := make([]DiscoveryCandidate, 0, len(episodes))
-	preReadGeneratedAt := s.now().UTC()
-	for _, episode := range episodes {
-		candidates = append(candidates, buildDiscoveryCandidate(episode, preReadGeneratedAt))
-	}
-
-	return candidates, nil
+	return episodes, nil
 }
 
 func AttachConsumptionStateToCandidate(
@@ -105,6 +151,20 @@ func AttachConsumptionStateToCandidate(
 }
 
 func buildDiscoveryCandidate(episode models.Episode, preReadGeneratedAt time.Time) DiscoveryCandidate {
+	candidate := buildDiscoveryCandidateMetadata(episode)
+	candidate.ShowNotes = episode.ShowNotes
+	candidate.PreReads = buildDiscoveryPreReads(episode, preReadGeneratedAt)
+	return candidate
+}
+
+func buildDiscoveryCandidateSummary(episode models.Episode) DiscoveryCandidate {
+	candidate := buildDiscoveryCandidateMetadata(episode)
+	candidate.Excerpt = compactPreReadText(episode.ShowNotes, 220)
+	candidate.MetadataOnly = true
+	return candidate
+}
+
+func buildDiscoveryCandidateMetadata(episode models.Episode) DiscoveryCandidate {
 	candidateTime := episode.CreatedAt
 	timeBasis := "created_at"
 	if episode.FetchedAt != nil && !episode.FetchedAt.IsZero() {
@@ -129,12 +189,10 @@ func buildDiscoveryCandidate(episode models.Episode, preReadGeneratedAt time.Tim
 		CandidateTime:   candidateTime,
 		TimeBasis:       timeBasis,
 		Source:          discoverySourceRecentUpdates,
-		ShowNotes:       episode.ShowNotes,
 		ShowNotesStatus: showNotesStatus,
 		OriginalURL:     episode.Link,
 		ImageURL:        episode.ImageURL,
 		DecisionState:   models.TriageStatePending,
-		PreReads:        buildDiscoveryPreReads(episode, preReadGeneratedAt),
 	}
 	if candidate.PodcastCoverURL == "" {
 		candidate.PodcastCoverURL = episode.Podcast.CoverURL

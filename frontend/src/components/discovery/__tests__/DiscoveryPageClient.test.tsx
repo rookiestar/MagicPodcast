@@ -219,7 +219,7 @@ describe("DiscoveryPageClient", () => {
     ).toHaveAttribute("aria-busy", "true");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(useSWRMock).toHaveBeenCalledWith(
-      "/api/v1/discovery/candidates?limit=1000",
+      "/api/v1/discovery/candidates?limit=1000&view=summary",
       expect.any(Function),
       expect.objectContaining({
         keepPreviousData: true,

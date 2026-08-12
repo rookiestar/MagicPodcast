@@ -10,7 +10,9 @@ export interface DiscoveryCandidate {
   candidate_time: string;
   time_basis: "fetched_at" | "created_at";
   source: "最近更新";
-  show_notes: string;
+  excerpt?: string;
+  metadata_only?: boolean;
+  show_notes?: string;
   show_notes_status: "available" | "missing";
   original_url: string;
   image_url: string;
@@ -21,7 +23,7 @@ export interface DiscoveryCandidate {
   queue_updated_at?: string;
   in_progress_at?: string;
   read_at?: string;
-  pre_reads: DiscoveryPreRead[];
+  pre_reads?: DiscoveryPreRead[];
 }
 
 export type TriageDecisionState = "pending" | "shortlisted" | "discarded";
