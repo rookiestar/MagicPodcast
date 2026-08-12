@@ -214,6 +214,13 @@
     min-height: calc(100vh - 64px);
   }
 
+  .podcast-library-shell {
+    --font-cjk-display: var(--font-sans);
+    --font-serif: var(--font-latin-display), var(--font-sans);
+    --font-display: var(--font-serif);
+    --font-display-bold: var(--font-serif);
+  }
+
   .podcast-library-page > .container,
   .podcast-detail-page > .container {
     max-width: 1380px;
@@ -585,7 +592,7 @@
 
   .podcast-library-card-copy h3 {
     margin: 0;
-    font-family: var(--font-display-bold);
+    font-family: var(--font-sans);
     font-size: 20px;
     font-weight: var(--font-display-weight);
     line-height: 1.15;

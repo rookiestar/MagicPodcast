@@ -8,7 +8,7 @@
 
 ## 1. 原则
 
-1. 中文标题使用霞鹜文楷 Screen；纯英文标题使用 Newsreader。
+1. 报告、富文本和阅读页中文标题使用霞鹜文楷 Screen；高密度动态列表使用系统中文字体。纯英文编辑标题使用 Newsreader。
 2. 英文 UI 正文使用 IBM Plex Sans，元数据与代码使用 IBM Plex Mono。
 3. 中文层级优先依靠字号、颜色、间距和结构；文楷只使用真实 400，不合成粗体。
 4. 中文正文保留系统黑体，避免为连续阅读增加额外 CJK 字体负担。
@@ -20,13 +20,14 @@
 
 | 角色 | CSS 变量 | 字体栈 | 用途 |
 | --- | --- | --- | --- |
-| 中文标题 | `--font-cjk-display` | LXGW WenKai Screen、Songti SC、STKaiti | 页面、区块、卡片和内容标题中的中文 |
+| 中文编辑标题 | `--font-cjk-display` | LXGW WenKai Screen、Songti SC、STKaiti | 报告、富文本和阅读页标题中的中文 |
 | 英文标题 | `--font-latin-display` | Newsreader Variable、Georgia | 纯英文标题及标题中的拉丁字符 |
 | Sans | `--font-sans` | IBM Plex Sans Variable、系统字体、PingFang SC、Microsoft YaHei | 正文、导航、按钮、表单 |
 | Mono | `--font-mono` | IBM Plex Mono、系统等宽、SF Mono、Menlo | 日期、编号、统计、代码 |
 
 `--font-serif` 是英文 Newsreader + 中文文楷组成的复合标题栈。浏览器按字形覆盖自动选择，
-无需为了中英文混排拆分文本节点。
+无需为了中英文混排拆分文本节点。`/podcasts` 列表页在页面作用域内把中文标题回退到
+系统黑体，避免节目名动态字符触发大量文楷分片；报告、富文本和节目详情阅读场景不变。
 
 允许字重：
 
@@ -117,10 +118,12 @@ Tailwind Typography 的 `prose` 比例。
 ## 6. 字体加载
 
 - 文楷只加载简体中文 Screen 分片，使用 `unicode-range` 按页面字符请求。
-- Newsreader 与 IBM Plex Sans 使用可变 WOFF2；IBM Plex Mono 只加载 500 / 600。
+- Newsreader 与 IBM Plex Sans 使用只含 `wght` 轴的可变 WOFF2；IBM Plex Mono 只加载 500 / 600。
 - 所有字体使用 `font-display: swap`，缺失字形回退到系统字体。
 - 字体 CSS 在根布局静态导入，路径可分析；不在组件渲染期间动态加载。
 - 字体包由前端依赖锁定并随构建产物发布。
+- `/podcasts` 列表标题不得触发 LXGW 文楷分片；其冷载页面总编码传输预算见
+  [性能测试指南](../PERFORMANCE_TESTING_GUIDE.md)。
 
 ## 7. 验证
 

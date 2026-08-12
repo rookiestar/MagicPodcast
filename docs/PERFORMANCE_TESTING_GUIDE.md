@@ -1,6 +1,6 @@
 # MagicPodcast 性能测试指南
 
-最后更新：2026-08-09
+最后更新：2026-08-12
 
 本文只保留当前可复跑的性能检查方式。基线入口见 [BASELINE.md](BASELINE.md)，最新基线见 [performance/BASELINE_2026-05-31.md](performance/BASELINE_2026-05-31.md)。
 
@@ -34,6 +34,7 @@ node scripts/performance-audit.mjs \
 
 - 页面：首页、播客列表、播客详情、标签、导入、工作流列表、工作流详情。
 - API：健康检查、播客列表、标签列表、工作流列表、搜索、播客详情、单集列表、播客标签、播客备注、工作流详情、工作流任务。
+- 页面资源同时报告浏览器请求可比的编码传输量和源文件体积。严格门禁只按编码传输量判断；源文件体积保留为提示，不再把未压缩 `HEAD Content-Length` 当作用户下载量。
 
 常用参数：
 
@@ -48,7 +49,7 @@ node scripts/performance-audit.mjs --json
 
 - 页面平均耗时超过 2.5 秒标记为 `SLOW`。
 - API 平均耗时超过 800ms 标记为 `SLOW`。
-- 页面静态资源超过约 1.5MB 标记为 `HEAVY`。
+- 页面静态资源编码传输量超过约 1.5MB 标记为 `HEAVY`。
 - 请求失败标记为 `FAIL`。
 - 默认每个目标先预热 1 次再采样；如需观察冷态首跳，可设置 `--warmup-runs 0`。
 
@@ -59,6 +60,34 @@ node scripts/performance-audit.mjs --json
 - 首次访问是否暴露空白或过早错误态；
 - 缓存回访、分页失败或滚动返回是否重复请求；
 - 认证公网入口在持续时间窗内是否稳定。
+
+资源口径说明：
+
+- `assets ... transfer` 是服务端按 `br, gzip` 返回的编码字节，供 `--strict` 门禁使用。
+- `source` 是可获得的源资源体积，仅用于定位压缩机会；它不阻塞严格门禁。
+- 浏览器缓存命中、动态加载资源、图片和字体仍须用真实浏览器资源检查确认；HTTP 巡检不能代替冷载/热回访验收。
+
+`/podcasts` 当前浏览器预算：
+
+- 冷载编码传输量 `< 900KB`。
+- 热回访编码传输量 `< 50KB`。
+- 延后纸张纹理 `< 30KB`；Newsreader 拉丁字重文件 `< 65KB`。
+- 列表页不得加载 LXGW 文楷分片；请求出现 4xx / 5xx 或图片解码失败时门禁失败。
+- 预算回归：
+
+```bash
+node --test scripts/__tests__/performance-audit.test.mjs \
+  scripts/__tests__/podcasts-resource-budget.test.mjs
+
+node scripts/podcasts-resource-audit.mjs \
+  --base-url http://localhost:3000 \
+  --runs 3 \
+  --strict
+```
+
+浏览器资源巡检会为每轮创建独立冷态 Chrome 配置，并在同一配置内刷新一次测热回访；
+最终用冷、热传输量 P95 对照预算。可通过 `CHROME_BIN` 或 `--browser-bin` 指定
+Chrome/Chromium。
 
 ## 性能专项固定验收
 

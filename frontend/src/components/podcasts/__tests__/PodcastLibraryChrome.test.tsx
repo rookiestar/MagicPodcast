@@ -32,7 +32,7 @@ describe("podcast library chrome", () => {
       title: "测试节目",
       author: "测试作者",
       description: "测试简介",
-      cover_url: "/warm-paper-grid-texture.png",
+      cover_url: "/test-podcast-cover.jpg",
       newest_episode_date: new Date().toISOString(),
       episode_count: 3,
       tags: [],
