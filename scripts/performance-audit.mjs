@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 
+import http from "node:http";
+import https from "node:https";
 import { performance } from "node:perf_hooks";
+import {
+  brotliDecompressSync,
+  gunzipSync,
+  inflateSync,
+} from "node:zlib";
 
 const DEFAULTS = {
   baseUrl: "http://localhost:3000",
@@ -159,8 +166,8 @@ async function timedFetch(url, options = {}) {
 
 function parseEncodedBytes(headers, fallbackBytes) {
   const encodedBytes = Number.parseInt(
-    headers.get("x-encoded-content-length") ||
-      headers.get("content-length") ||
+    getHeader(headers, "x-encoded-content-length") ||
+      getHeader(headers, "content-length") ||
       "",
     10,
   );
@@ -169,12 +176,108 @@ function parseEncodedBytes(headers, fallbackBytes) {
 
 function parseSourceBytes(headers) {
   const sourceBytes = Number.parseInt(
-    headers.get("x-source-size") ||
-      headers.get("x-original-content-length") ||
+    getHeader(headers, "x-source-size") ||
+      getHeader(headers, "x-original-content-length") ||
       "",
     10,
   );
   return Number.isFinite(sourceBytes) ? sourceBytes : null;
+}
+
+function getHeader(headers, name) {
+  if (typeof headers?.get === "function") {
+    return headers.get(name);
+  }
+  const value = headers?.[name.toLowerCase()];
+  return Array.isArray(value) ? value[0] : value ?? null;
+}
+
+function measureSourceBytes(headers, encodedBody) {
+  const declaredSourceBytes = parseSourceBytes(headers);
+  if (declaredSourceBytes !== null) return declaredSourceBytes;
+
+  const encoding = String(getHeader(headers, "content-encoding") || "")
+    .trim()
+    .toLowerCase();
+  try {
+    if (encoding === "br") return brotliDecompressSync(encodedBody).length;
+    if (encoding === "gzip") return gunzipSync(encodedBody).length;
+    if (encoding === "deflate") return inflateSync(encodedBody).length;
+  } catch {
+    return null;
+  }
+  return encodedBody.length;
+}
+
+async function fetchEncodedAsset(url, options, redirectsRemaining = 5) {
+  const startedAt = performance.now();
+
+  return new Promise((resolve) => {
+    const target = new URL(url);
+    const transport = target.protocol === "https:" ? https : http;
+    const request = transport.get(
+      target,
+      {
+        headers: {
+          "accept-encoding": ACCEPT_ENCODING,
+        },
+      },
+      (response) => {
+        const chunks = [];
+        response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        response.on("end", async () => {
+          const status = response.statusCode || 0;
+          const location = getHeader(response.headers, "location");
+          if (
+            location &&
+            redirectsRemaining > 0 &&
+            status >= 300 &&
+            status < 400
+          ) {
+            resolve(
+              await fetchEncodedAsset(
+                new URL(location, target).href,
+                options,
+                redirectsRemaining - 1,
+              ),
+            );
+            return;
+          }
+
+          const encodedBody = Buffer.concat(chunks);
+          const endedAt = performance.now();
+          resolve({
+            ok: status >= 200 && status < 300,
+            status,
+            statusText: response.statusMessage || "",
+            url: target.href,
+            totalMs: endedAt - startedAt,
+            encodedBytes: encodedBody.length,
+            sourceBytes: measureSourceBytes(response.headers, encodedBody),
+            headers: response.headers,
+          });
+        });
+      },
+    );
+
+    request.setTimeout(options.timeoutMs, () => {
+      request.destroy(new Error("timeout"));
+    });
+    request.on("error", (error) => {
+      const endedAt = performance.now();
+      resolve({
+        ok: false,
+        status: 0,
+        statusText: "FETCH_ERROR",
+        url,
+        totalMs: endedAt - startedAt,
+        encodedBytes: 0,
+        sourceBytes: null,
+        headers: {},
+        error: error.message,
+      });
+    });
+  });
 }
 
 async function fetchJson(baseUrl, path, options) {
@@ -266,7 +369,7 @@ function extractStaticAssets(html) {
   while ((match = attributePattern.exec(html)) !== null) {
     const rawValue = match[1].replaceAll("&amp;", "&");
     if (
-      rawValue.startsWith("/_next/") ||
+      rawValue.startsWith("/_next/static/") ||
       rawValue.startsWith("/favicon") ||
       rawValue.startsWith("/icons/") ||
       rawValue.startsWith("/manifest")
@@ -285,16 +388,17 @@ async function estimateAssetBytes(baseUrl, assetPaths, options, cache) {
 
   for (const path of assetPaths) {
     if (!cache.has(path)) {
-      const result = await timedFetch(joinUrl(baseUrl, path), {
+      const result = await fetchEncodedAsset(joinUrl(baseUrl, path), {
         timeoutMs: options.timeoutMs,
       });
 
       if (result.ok) {
         cache.set(path, {
           bytes: result.encodedBytes,
-          sourceBytes: result.sourceBytes ?? result.body.length,
+          sourceBytes: result.sourceBytes ?? result.encodedBytes,
           status: result.status,
-          contentEncoding: result.headers["content-encoding"] || "identity",
+          contentEncoding:
+            getHeader(result.headers, "content-encoding") || "identity",
         });
       } else {
         cache.set(path, {
