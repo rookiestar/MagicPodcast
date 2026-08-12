@@ -4,7 +4,7 @@ import type { DiscoveryCandidate } from "@/types/discovery";
 
 const INITIAL_CANDIDATE_LIMIT = 5;
 const INITIAL_CANDIDATES_PATH =
-  `/api/v1/discovery/candidates?limit=${INITIAL_CANDIDATE_LIMIT}`;
+  `/api/v1/discovery/candidates?limit=${INITIAL_CANDIDATE_LIMIT}&view=summary`;
 const INITIAL_FETCH_TIMEOUT_MS = 2500;
 
 interface DiscoveryCandidatesResponse {

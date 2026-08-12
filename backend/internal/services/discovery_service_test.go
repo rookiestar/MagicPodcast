@@ -196,7 +196,11 @@ func TestDiscoveryService_ListRecentCandidates_ReturnsFourEvidenceBoundPreReads(
 	require.NoError(t, db.Create(&tag).Error)
 	require.NoError(t, db.Model(&episode).Association("Tags").Append(&tag))
 
-	candidates, err := NewDiscoveryService(db).ListRecentCandidates(1)
+	service := NewDiscoveryService(db)
+	service.now = func() time.Time {
+		return time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC)
+	}
+	candidates, err := service.ListRecentCandidates(1)
 
 	require.NoError(t, err)
 	require.Len(t, candidates, 1)
@@ -240,7 +244,11 @@ func TestDiscoveryService_ListRecentCandidates_DoesNotInventPreReadsWithoutEvide
 	)
 	require.NoError(t, db.Model(&episode).Update("show_notes", "").Error)
 
-	candidates, err := NewDiscoveryService(db).ListRecentCandidates(1)
+	service := NewDiscoveryService(db)
+	service.now = func() time.Time {
+		return time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC)
+	}
+	candidates, err := service.ListRecentCandidates(1)
 
 	require.NoError(t, err)
 	require.Len(t, candidates, 1)
@@ -256,7 +264,7 @@ func TestDiscoveryService_ListRecentCandidates_DoesNotInventPreReadsWithoutEvide
 	assert.Contains(t, preReads[PreReadKindRelevant].Content, "不生成个人关联")
 }
 
-func TestDiscoveryService_ListRecentCandidates_AllowsFullFourteenDayWindow(t *testing.T) {
+func TestDiscoveryService_ListRecentCandidates_AllowsFullSevenDayWindow(t *testing.T) {
 	db := setupDiscoveryTestDB(t)
 	podcast := createDiscoveryPodcast(t, db, "个人播客")
 	service := NewDiscoveryService(db)
@@ -281,18 +289,70 @@ func TestDiscoveryService_ListRecentCandidates_AllowsFullFourteenDayWindow(t *te
 	assert.Len(t, candidates, 105)
 }
 
-func TestDiscoveryService_ListRecentCandidates_UsesFourteenDayRollingBoundary(t *testing.T) {
+func TestDiscoveryService_ListRecentCandidateSummaries_OmitsHeavyContent(t *testing.T) {
 	db := setupDiscoveryTestDB(t)
-	podcast := createDiscoveryPodcast(t, db, "十四天边界")
+	podcast := createDiscoveryPodcast(t, db, "轻量候选节目")
+	episode := createDiscoveryEpisode(
+		t,
+		db,
+		podcast.ID,
+		"轻量候选单集",
+		time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC),
+		nil,
+	)
+	episode.ShowNotes = "<p>这是一段用于列表摘要、但不应完整返回的 Show Notes。</p>"
+	require.NoError(t, db.Save(&episode).Error)
+
+	service := NewDiscoveryService(db)
+	service.now = func() time.Time {
+		return time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC)
+	}
+	candidates, err := service.ListRecentCandidateSummaries(10)
+
+	require.NoError(t, err)
+	require.Len(t, candidates, 1)
+	assert.True(t, candidates[0].MetadataOnly)
+	assert.Contains(t, candidates[0].Excerpt, "这是一段用于列表摘要")
+	assert.Empty(t, candidates[0].ShowNotes)
+	assert.Empty(t, candidates[0].PreReads)
+	assert.Equal(t, "available", candidates[0].ShowNotesStatus)
+}
+
+func TestDiscoveryService_GetCandidate_ReturnsFullOnDemandContent(t *testing.T) {
+	db := setupDiscoveryTestDB(t)
+	podcast := createDiscoveryPodcast(t, db, "详情候选节目")
+	episode := createDiscoveryEpisode(
+		t,
+		db,
+		podcast.ID,
+		"详情候选单集",
+		time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC),
+		nil,
+	)
+	episode.ShowNotes = "<p>按需返回的完整 Show Notes</p>"
+	require.NoError(t, db.Save(&episode).Error)
+
+	candidate, err := NewDiscoveryService(db).GetCandidate(episode.ID)
+
+	require.NoError(t, err)
+	require.NotNil(t, candidate)
+	assert.False(t, candidate.MetadataOnly)
+	assert.Equal(t, episode.ShowNotes, candidate.ShowNotes)
+	require.Len(t, candidate.PreReads, 4)
+}
+
+func TestDiscoveryService_ListRecentCandidates_UsesSevenDayRollingBoundary(t *testing.T) {
+	db := setupDiscoveryTestDB(t)
+	podcast := createDiscoveryPodcast(t, db, "七天边界")
 	now := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)
 	includedAtBoundary := createDiscoveryEpisode(
-		t, db, podcast.ID, "刚好十四天", now.Add(-14*24*time.Hour), nil,
+		t, db, podcast.ID, "刚好七天", now.Add(-7*24*time.Hour), nil,
 	)
 	includedNewer := createDiscoveryEpisode(
-		t, db, podcast.ID, "窗口内", now.Add(-14*24*time.Hour+time.Second), nil,
+		t, db, podcast.ID, "窗口内", now.Add(-7*24*time.Hour+time.Second), nil,
 	)
 	createDiscoveryEpisode(
-		t, db, podcast.ID, "窗口外", now.Add(-14*24*time.Hour-time.Second), nil,
+		t, db, podcast.ID, "窗口外", now.Add(-7*24*time.Hour-time.Second), nil,
 	)
 	service := NewDiscoveryService(db)
 	service.now = func() time.Time { return now }

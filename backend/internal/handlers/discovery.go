@@ -53,7 +53,24 @@ func (h *DiscoveryHandler) ListCandidates(c *gin.Context) {
 		limit = parsedLimit
 	}
 
-	candidates, err := h.service.ListRecentCandidates(limit)
+	view := c.Query("view")
+	var candidates []services.DiscoveryCandidate
+	var err error
+	switch view {
+	case "":
+		candidates, err = h.service.ListRecentCandidates(limit)
+	case "summary":
+		candidates, err = h.service.ListRecentCandidateSummaries(limit)
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INVALID_VIEW",
+				"message": "view must be summary when provided",
+			},
+		})
+		return
+	}
 	if err != nil {
 		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to fetch discovery candidates")
 		return
@@ -77,6 +94,50 @@ func (h *DiscoveryHandler) ListCandidates(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    candidates,
+	})
+}
+
+func (h *DiscoveryHandler) GetCandidate(c *gin.Context) {
+	episodeID, err := strconv.ParseUint(c.Param("episodeID"), 10, 64)
+	if err != nil || episodeID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INVALID_EPISODE_ID",
+				"message": "invalid episode id",
+			},
+		})
+		return
+	}
+
+	candidate, err := h.service.GetCandidate(uint(episodeID))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "CANDIDATE_NOT_FOUND",
+					"message": "discovery candidate not found",
+				},
+			})
+			return
+		}
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to fetch discovery candidate")
+		return
+	}
+
+	decisions, err := h.triageService.DecisionsForEpisodes([]uint{candidate.EpisodeID})
+	if err != nil {
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to fetch triage decision")
+		return
+	}
+	if decision, exists := decisions[candidate.EpisodeID]; exists {
+		services.AttachConsumptionStateToCandidate(candidate, decision)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    candidate,
 	})
 }
 

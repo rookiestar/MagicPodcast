@@ -2483,6 +2483,28 @@
     font-size: 13px;
   }
 
+  .discovery-show-notes-error {
+    display: grid;
+    justify-items: start;
+    gap: 12px;
+    padding: 18px 0;
+    color: #8f2f26;
+    font-size: 13px;
+  }
+
+  .discovery-show-notes-error p {
+    margin: 0;
+  }
+
+  .discovery-show-notes-error button {
+    min-height: 40px;
+    padding: 0 14px;
+    border: 1px solid currentColor;
+    background: transparent;
+    color: inherit;
+    font-weight: 600;
+  }
+
   .discovery-metadata-panel {
     min-width: 0;
     min-height: 0;

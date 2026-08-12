@@ -91,7 +91,7 @@ describe("default page", () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByText("我的订阅管理")).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:8080/api/v1/discovery/candidates?limit=5",
+      "http://127.0.0.1:8080/api/v1/discovery/candidates?limit=5&view=summary",
       expect.objectContaining({
         cache: "no-store",
       }),

@@ -6,6 +6,7 @@ import {
   within,
 } from "@testing-library/react";
 import type { ReactElement } from "react";
+import { renderToString } from "react-dom/server";
 import { SWRConfig } from "swr";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DiscoveryDesk from "../DiscoveryDesk";
@@ -247,7 +248,7 @@ describe("DiscoveryDesk", () => {
 
     expect(
       screen.getByRole("region", { name: "工作流最近更新" }),
-    ).toHaveTextContent("按工作流同步时间 · 最近 14 天");
+    ).toHaveTextContent("按工作流同步时间 · 最近 7 天");
     expect(
       screen.getByRole("heading", {
         name: "工作流暂时没有同步到新单集",
@@ -312,9 +313,9 @@ describe("DiscoveryDesk", () => {
     expect(screen.getByRole("heading", { name: "Discovery" })).toHaveClass(
       "editorial-section-title",
     );
-    expect(screen.getByText("最近更新 · 14 天")).toBeInTheDocument();
+    expect(screen.getByText("最近更新 · 7 天")).toBeInTheDocument();
     expect(
-      screen.getByText("按工作流同步时间 · 最近 14 天"),
+      screen.getByText("按工作流同步时间 · 最近 7 天"),
     ).toBeInTheDocument();
     expect(sidebar.querySelector(".discovery-workbench-copy")).toHaveClass(
       "editorial-title-group",
@@ -399,6 +400,86 @@ describe("DiscoveryDesk", () => {
     expect(
       screen.getByRole("region", { name: "Show Notes" }),
     ).toHaveTextContent("第一条可核对内容");
+  });
+
+  it("loads full Show Notes only after a lightweight candidate is opened", async () => {
+    let resolveDetails:
+      | ((candidate: DiscoveryCandidate) => void)
+      | undefined;
+    const loadDetails = vi.fn(
+      () =>
+        new Promise<DiscoveryCandidate>((resolve) => {
+          resolveDetails = resolve;
+        }),
+    );
+    const summaryCandidate: DiscoveryCandidate = {
+      ...candidates[0],
+      excerpt: "列表保留的轻量摘要",
+      show_notes: "",
+      pre_reads: [],
+      metadata_only: true,
+    };
+
+    render(
+      <DiscoveryDesk
+        candidates={[summaryCandidate]}
+        onLoadCandidateDetails={loadDetails}
+      />,
+    );
+
+    expect(screen.getByTestId("candidate-excerpt-11")).toHaveTextContent(
+      "列表保留的轻量摘要",
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "预读 模型能力如何转向真实应用",
+      }),
+    );
+
+    expect(loadDetails).toHaveBeenCalledWith(11);
+    expect(
+      screen.getByRole("region", { name: "Show Notes" }),
+    ).toHaveTextContent("正在加载 Show Notes");
+
+    resolveDetails?.({ ...candidates[0], metadata_only: false });
+    expect(await screen.findByText("第一条可核对内容")).toBeInTheDocument();
+  });
+
+  it("keeps the list usable and retries when one detail request fails", async () => {
+    const loadDetails = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("detail unavailable"))
+      .mockResolvedValueOnce({ ...candidates[0], metadata_only: false });
+    const summaryCandidate: DiscoveryCandidate = {
+      ...candidates[0],
+      excerpt: "失败时仍保留的列表摘要",
+      show_notes: "",
+      pre_reads: [],
+      metadata_only: true,
+    };
+
+    render(
+      <DiscoveryDesk
+        candidates={[summaryCandidate]}
+        onLoadCandidateDetails={loadDetails}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "预读 模型能力如何转向真实应用",
+      }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Show Notes 暂时无法加载",
+    );
+    expect(screen.getByText("失败时仍保留的列表摘要")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "重新加载 Show Notes" }),
+    );
+    expect(await screen.findByText("第一条可核对内容")).toBeInTheDocument();
+    expect(loadDetails).toHaveBeenCalledTimes(2);
   });
 
   it("uses the same episode-number display contract in the compact list", () => {
@@ -750,6 +831,15 @@ describe("DiscoveryDesk", () => {
     expect(
       screen.getByRole("button", { name: "预读 缺少 Show Notes 的边界项" }),
     ).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("keeps server markup independent of browser history before restoring a preview", () => {
+    window.history.replaceState({ magicpodcastDiscoveryEpisodeID: 12 }, "");
+
+    const markup = renderToString(<DiscoveryDesk candidates={candidates} />);
+
+    expect(markup).not.toContain('role="dialog"');
+    expect(markup).not.toContain("discovery-preview-overlay");
   });
 
   it("ignores edge swipes but supports a center swipe shortcut", () => {

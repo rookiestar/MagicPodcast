@@ -120,6 +120,7 @@ func SetupRouter() *gin.Engine {
 			services.NewHomepageReportServiceWithLocation(discoveryDB, discoveryLocation),
 		)
 		v1.GET("/discovery/candidates", discoveryHandler.ListCandidates)
+		v1.GET("/discovery/candidates/:episodeID", discoveryHandler.GetCandidate)
 		v1.GET("/discovery/reports", discoveryHandler.ListHomepageReports)
 		v1.GET("/discovery/reports/:id", discoveryHandler.GetHomepageReport)
 		v1.GET("/consumption/summary", discoveryHandler.GetQueueSummary)

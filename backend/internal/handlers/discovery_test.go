@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -149,6 +150,80 @@ func TestDiscoveryHandler_ListCandidates_RejectsInvalidLimit(t *testing.T) {
 	router.ServeHTTP(response, request)
 
 	assert.Equal(t, http.StatusBadRequest, response.Code)
+}
+
+func TestDiscoveryHandler_SummaryListAndCandidateDetailSplitHeavyContent(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:discovery_handler_summary?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.Podcast{},
+		&models.Episode{},
+		&models.EpisodeTriageDecision{},
+	))
+
+	podcast := models.Podcast{
+		Title:        "按需详情节目",
+		FeedURL:      "https://example.com/detail.xml",
+		XYZID:        "discovery-handler-detail-podcast",
+		IsSubscribed: true,
+	}
+	require.NoError(t, db.Create(&podcast).Error)
+	episode := models.Episode{
+		PodcastID:     podcast.ID,
+		Title:         "按需详情单集",
+		GUID:          "discovery-handler-detail-episode",
+		PublishedDate: time.Now().UTC(),
+		ShowNotes:     "<p>完整正文只应由详情接口返回</p>",
+	}
+	require.NoError(t, db.Create(&episode).Error)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := handlers.NewDiscoveryHandler(
+		services.NewDiscoveryService(db),
+		services.NewTriageService(db),
+	)
+	router.GET("/api/v1/discovery/candidates", handler.ListCandidates)
+	router.GET("/api/v1/discovery/candidates/:episodeID", handler.GetCandidate)
+
+	summaryResponse := httptest.NewRecorder()
+	summaryRequest := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/discovery/candidates?limit=10&view=summary",
+		nil,
+	)
+	router.ServeHTTP(summaryResponse, summaryRequest)
+
+	require.Equal(t, http.StatusOK, summaryResponse.Code)
+	var summaryBody struct {
+		Success bool                     `json:"success"`
+		Data    []map[string]interface{} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(summaryResponse.Body.Bytes(), &summaryBody))
+	require.True(t, summaryBody.Success)
+	require.Len(t, summaryBody.Data, 1)
+	assert.Equal(t, true, summaryBody.Data[0]["metadata_only"])
+	assert.Contains(t, summaryBody.Data[0]["excerpt"], "完整正文只应由详情接口返回")
+	assert.NotContains(t, summaryBody.Data[0], "show_notes")
+	assert.NotContains(t, summaryBody.Data[0], "pre_reads")
+
+	detailResponse := httptest.NewRecorder()
+	detailRequest := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/discovery/candidates/"+strconv.FormatUint(uint64(episode.ID), 10),
+		nil,
+	)
+	router.ServeHTTP(detailResponse, detailRequest)
+
+	require.Equal(t, http.StatusOK, detailResponse.Code)
+	var detailBody struct {
+		Success bool                        `json:"success"`
+		Data    services.DiscoveryCandidate `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(detailResponse.Body.Bytes(), &detailBody))
+	assert.Equal(t, episode.ShowNotes, detailBody.Data.ShowNotes)
+	assert.Len(t, detailBody.Data.PreReads, 4)
+	assert.False(t, detailBody.Data.MetadataOnly)
 }
 
 func TestDiscoveryHandler_ListHomepageReports_ReturnsTodayAndDecisions(t *testing.T) {
