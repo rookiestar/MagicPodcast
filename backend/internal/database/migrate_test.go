@@ -212,6 +212,86 @@ func TestApplyMigrationsUpgradesSchema15To16HomepageWorkflowReports(t *testing.T
 	require.True(t, db.Migrator().HasColumn(&models.Report{}, "structured_episodes"))
 }
 
+func TestApplyMigrationsUpgradesSchema16To17ConsumptionStateWithoutLosingHistory(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:16]))
+	require.Equal(t, 16, mustSchemaStatus(t, db).CurrentVersion)
+
+	podcast := models.Podcast{
+		Title: "迁移测试", FeedURL: "https://example.com/migration.xml", XYZID: "migration-17",
+	}
+	require.NoError(t, db.Create(&podcast).Error)
+	episodes := []models.Episode{
+		{PodcastID: podcast.ID, Title: "跨日前已收集", GUID: "migration-shortlisted"},
+		{PodcastID: podcast.ID, Title: "不感兴趣", GUID: "migration-discarded"},
+		{PodcastID: podcast.ID, Title: "中性状态", GUID: "migration-pending"},
+	}
+	require.NoError(t, db.Create(&episodes).Error)
+	decidedAt := time.Date(2026, 7, 1, 8, 30, 0, 0, time.UTC)
+	require.NoError(t, db.Create(&[]models.EpisodeTriageDecision{
+		{EpisodeID: episodes[0].ID, State: models.TriageStateShortlisted, DecidedAt: decidedAt},
+		{EpisodeID: episodes[1].ID, State: models.TriageStateDiscarded, DecidedAt: decidedAt.Add(time.Hour)},
+		{EpisodeID: episodes[2].ID, State: models.TriageStatePending, DecidedAt: decidedAt.Add(2 * time.Hour)},
+	}).Error)
+
+	require.NoError(t, ApplyMigrations(db))
+	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, db).CurrentVersion)
+	for _, column := range []string{
+		"queue_state", "dismissed_at", "queue_updated_at", "in_progress_at", "read_at",
+	} {
+		require.True(t, db.Migrator().HasColumn(&models.EpisodeTriageDecision{}, column), "missing schema 17 column %s", column)
+	}
+
+	var migrated []models.EpisodeTriageDecision
+	require.NoError(t, db.Order("episode_id ASC").Find(&migrated).Error)
+	require.Len(t, migrated, 3)
+	require.NotNil(t, migrated[0].QueueState)
+	require.Equal(t, models.QueueStateInbox, *migrated[0].QueueState)
+	require.NotNil(t, migrated[0].QueueUpdatedAt)
+	require.True(t, migrated[0].QueueUpdatedAt.Equal(decidedAt))
+	require.Nil(t, migrated[0].DismissedAt)
+	require.NotNil(t, migrated[1].DismissedAt)
+	require.True(t, migrated[1].DismissedAt.Equal(decidedAt.Add(time.Hour)))
+	require.Nil(t, migrated[1].QueueState)
+	require.Nil(t, migrated[2].QueueState)
+	require.Nil(t, migrated[2].DismissedAt)
+	require.Nil(t, migrated[2].QueueUpdatedAt)
+	for _, row := range migrated {
+		require.Nil(t, row.InProgressAt)
+		require.Nil(t, row.ReadAt)
+	}
+}
+
+func TestEpisodeConsumptionStateMigrationIsIdempotentAndPreservesNewerQueueAction(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:16]))
+	podcast := models.Podcast{
+		Title: "幂等迁移", FeedURL: "https://example.com/idempotent.xml", XYZID: "migration-17-idempotent",
+	}
+	require.NoError(t, db.Create(&podcast).Error)
+	episode := models.Episode{PodcastID: podcast.ID, Title: "已更新状态", GUID: "migration-idempotent"}
+	require.NoError(t, db.Create(&episode).Error)
+	legacyAt := time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC)
+	require.NoError(t, db.Create(&models.EpisodeTriageDecision{
+		EpisodeID: episode.ID, State: models.TriageStateShortlisted, DecidedAt: legacyAt,
+	}).Error)
+
+	require.NoError(t, applyEpisodeConsumptionStateMigration(db))
+	focus := models.QueueStateFocus
+	newerAt := legacyAt.AddDate(0, 1, 0)
+	require.NoError(t, db.Model(&models.EpisodeTriageDecision{}).
+		Where("episode_id = ?", episode.ID).
+		Updates(map[string]any{"queue_state": focus, "queue_updated_at": newerAt}).Error)
+	require.NoError(t, applyEpisodeConsumptionStateMigration(db))
+
+	var row models.EpisodeTriageDecision
+	require.NoError(t, db.Where("episode_id = ?", episode.ID).First(&row).Error)
+	require.NotNil(t, row.QueueState)
+	require.Equal(t, models.QueueStateFocus, *row.QueueState)
+	require.NotNil(t, row.QueueUpdatedAt)
+	require.True(t, row.QueueUpdatedAt.Equal(newerAt))
+}
+
 func mustSchemaStatus(t *testing.T, db *gorm.DB) SchemaStatus {
 	t.Helper()
 	status, err := InspectSchema(db)

@@ -31,7 +31,7 @@ export default function TagList({
       {displayedTags.map((tag) => (
         <span
           key={tag.id}
-          className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-slate-100 hover:bg-slate-200"
+          className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-transparent hover:bg-black/5"
           title={tag.name}
         >
           <span
@@ -47,7 +47,7 @@ export default function TagList({
         </span>
       ))}
       {remainingTags > 0 && (
-        <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-500">
+        <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-transparent text-slate-500 hover:bg-black/5">
           +{remainingTags}
         </span>
       )}

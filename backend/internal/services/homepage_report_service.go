@@ -35,6 +35,11 @@ type HomepageReportEpisode struct {
 	Excerpt           string     `json:"excerpt,omitempty"`
 	DecisionState     string     `json:"decision_state"`
 	DecisionUpdatedAt *time.Time `json:"decision_updated_at,omitempty"`
+	QueueState        *string    `json:"queue_state"`
+	DismissedAt       *time.Time `json:"dismissed_at,omitempty"`
+	QueueUpdatedAt    *time.Time `json:"queue_updated_at,omitempty"`
+	InProgressAt      *time.Time `json:"in_progress_at,omitempty"`
+	ReadAt            *time.Time `json:"read_at,omitempty"`
 }
 
 // HomepageReport is a publishable workflow report for the discovery homepage.
@@ -446,6 +451,11 @@ func AttachHomepageReportDecisions(
 				reports[i].Episodes[j].DecisionState = decision.State
 				decidedAt := decision.DecidedAt
 				reports[i].Episodes[j].DecisionUpdatedAt = &decidedAt
+				reports[i].Episodes[j].QueueState = decision.QueueState
+				reports[i].Episodes[j].DismissedAt = decision.DismissedAt
+				reports[i].Episodes[j].QueueUpdatedAt = decision.QueueUpdatedAt
+				reports[i].Episodes[j].InProgressAt = decision.InProgressAt
+				reports[i].Episodes[j].ReadAt = decision.ReadAt
 			}
 		}
 	}

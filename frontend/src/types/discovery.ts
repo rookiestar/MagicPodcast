@@ -8,7 +8,7 @@ export interface DiscoveryCandidate {
   episode_no: string;
   duration: number;
   candidate_time: string;
-  time_basis: "published_date" | "updated_date";
+  time_basis: "fetched_at" | "created_at";
   source: "最近更新";
   show_notes: string;
   show_notes_status: "available" | "missing";
@@ -16,23 +16,22 @@ export interface DiscoveryCandidate {
   image_url: string;
   decision_state: TriageDecisionState;
   decision_updated_at?: string;
+  queue_state?: QueueState | null;
+  dismissed_at?: string;
+  queue_updated_at?: string;
+  in_progress_at?: string;
+  read_at?: string;
   pre_reads: DiscoveryPreRead[];
 }
 
 export type TriageDecisionState = "pending" | "shortlisted" | "discarded";
+export type QueueState = "inbox" | "focus" | "someday" | "done";
 
 export type DiscoveryPreReadKind =
-  | "summary"
-  | "viewpoints"
-  | "relevant"
-  | "challenge";
+  "summary" | "viewpoints" | "relevant" | "challenge";
 
 export type DiscoveryPreReadStatus =
-  | "available"
-  | "pending"
-  | "insufficient"
-  | "failed"
-  | "missing";
+  "available" | "pending" | "insufficient" | "failed" | "missing";
 
 export interface DiscoveryPreReadSource {
   kind: string;
@@ -56,10 +55,13 @@ export interface TriageDecisionResponse {
   decision_updated_at: string;
 }
 
-export interface TodayShortlistData {
-  date: string;
-  timezone: string;
-  candidates: DiscoveryCandidate[];
+export interface DiscoveryConsumptionResponse {
+  episode_id: number;
+  queue_state: QueueState | null;
+  dismissed_at?: string;
+  queue_updated_at?: string;
+  in_progress_at?: string;
+  read_at?: string;
 }
 
 export type HomepageReportType = "daily" | "weekly";
@@ -84,6 +86,11 @@ export interface HomepageReportEpisode {
   excerpt?: string;
   decision_state: TriageDecisionState;
   decision_updated_at?: string;
+  queue_state?: QueueState | null;
+  dismissed_at?: string;
+  queue_updated_at?: string;
+  in_progress_at?: string;
+  read_at?: string;
 }
 
 export interface HomepageReport {

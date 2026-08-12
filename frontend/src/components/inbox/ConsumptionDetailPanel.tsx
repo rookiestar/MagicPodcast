@@ -1,0 +1,661 @@
+"use client";
+
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
+import {
+  IconArrowRight,
+  IconBookmarkPlus,
+  IconCheck,
+  IconCircleCheck,
+  IconEdit,
+  IconExternalLink,
+  IconRefresh,
+  IconX,
+} from "@tabler/icons-react";
+import RichText from "@/components/RichText";
+import { episodeApi, tagApi } from "@/lib/api";
+import {
+  consumptionApi,
+  getConsumptionErrorDetails,
+} from "@/lib/api/consumption";
+import { sanitizeContentUrl } from "@/lib/imageSourcePolicy";
+import { getErrorMessage } from "@/lib/errorMessage";
+import type { Tag } from "@/types";
+import {
+  CONSUMPTION_QUEUES,
+  type ConsumptionItem,
+  type ConsumptionQueue,
+} from "@/types/consumption";
+import {
+  formatDuration,
+  formatPublishedDate,
+  QUEUE_PRESENTATION,
+} from "./presentation";
+import styles from "./InboxPage.module.css";
+
+interface ConsumptionDetailPanelProps {
+  item: ConsumptionItem;
+  isQueueBusy: boolean;
+  onClose: () => void;
+  onItemChange: (item: ConsumptionItem) => void;
+  onMove: (
+    item: ConsumptionItem,
+    target: ConsumptionQueue,
+  ) => Promise<ConsumptionItem | undefined>;
+}
+
+function getSafeOriginalUrl(value: string) {
+  const safeUrl = sanitizeContentUrl(value);
+  if (
+    /^https?:\/\//i.test(safeUrl) ||
+    (safeUrl.startsWith("/") && !safeUrl.startsWith("//"))
+  ) {
+    return safeUrl;
+  }
+  return "";
+}
+
+function EpisodeMetadata({
+  item,
+  onItemChange,
+}: {
+  item: ConsumptionItem;
+  onItemChange: (item: ConsumptionItem) => void;
+}) {
+  const [notes, setNotes] = useState(item.notes ?? "");
+  const [savedNotes, setSavedNotes] = useState(item.notes ?? "");
+  const [tags, setTags] = useState<Tag[]>(item.tags ?? []);
+  const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [selectedTagId, setSelectedTagId] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [isSavingNotes, setIsSavingNotes] = useState(false);
+  const [isUpdatingTags, setIsUpdatingTags] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadMetadata = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const [nextNotes, nextTags, availableTags] = await Promise.all([
+        episodeApi.getNotes(item.episode_id),
+        episodeApi.getTags(item.episode_id),
+        tagApi.list(),
+      ]);
+      setNotes(nextNotes);
+      setSavedNotes(nextNotes);
+      setTags(nextTags);
+      setAllTags(availableTags);
+      onItemChange({ ...item, notes: nextNotes, tags: nextTags });
+    } catch (loadError) {
+      setError(`备注与标签加载失败：${getErrorMessage(loadError)}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    setIsLoading(true);
+    setError(null);
+
+    void Promise.all([
+      episodeApi.getNotes(item.episode_id),
+      episodeApi.getTags(item.episode_id),
+      tagApi.list(),
+    ])
+      .then(([nextNotes, nextTags, availableTags]) => {
+        if (!active) return;
+        setNotes(nextNotes);
+        setSavedNotes(nextNotes);
+        setTags(nextTags);
+        setAllTags(availableTags);
+        onItemChange({ ...item, notes: nextNotes, tags: nextTags });
+      })
+      .catch((loadError: unknown) => {
+        if (!active) return;
+        setError(`备注与标签加载失败：${getErrorMessage(loadError)}`);
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+    // A new episode identity owns a new metadata session. Item updates from
+    // queue writes should not restart an in-flight note edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.episode_id]);
+
+  const availableTags = useMemo(() => {
+    const selected = new Set(tags.map((tag) => tag.id));
+    return allTags.filter((tag) => !selected.has(tag.id));
+  }, [allTags, tags]);
+
+  const saveNotes = async () => {
+    if (isSavingNotes || isUpdatingTags) return;
+    const previous = savedNotes;
+    setIsSavingNotes(true);
+    setError(null);
+    try {
+      await episodeApi.updateNotes(item.episode_id, notes);
+      setSavedNotes(notes);
+      setIsEditingNotes(false);
+      onItemChange({ ...item, notes, tags });
+    } catch (saveError) {
+      setNotes(previous);
+      setError(`备注保存失败：${getErrorMessage(saveError)}`);
+    } finally {
+      setIsSavingNotes(false);
+    }
+  };
+
+  const addSelectedTag = async () => {
+    const tagId = Number(selectedTagId);
+    const tag = availableTags.find((candidate) => candidate.id === tagId);
+    if (!tag || isUpdatingTags || isSavingNotes) return;
+
+    const previous = tags;
+    const next = [...tags, tag];
+    setTags(next);
+    setSelectedTagId("");
+    setIsUpdatingTags(true);
+    setError(null);
+    try {
+      await episodeApi.addTag(item.episode_id, tag.id);
+      onItemChange({ ...item, notes: savedNotes, tags: next });
+    } catch (tagError) {
+      setTags(previous);
+      setError(`标签更新失败：${getErrorMessage(tagError)}`);
+    } finally {
+      setIsUpdatingTags(false);
+    }
+  };
+
+  const removeTag = async (tag: Tag) => {
+    if (isUpdatingTags || isSavingNotes) return;
+    const previous = tags;
+    const next = tags.filter((candidate) => candidate.id !== tag.id);
+    setTags(next);
+    setIsUpdatingTags(true);
+    setError(null);
+    try {
+      await episodeApi.removeTag(item.episode_id, tag.id);
+      onItemChange({ ...item, notes: savedNotes, tags: next });
+    } catch (tagError) {
+      setTags(previous);
+      setError(`标签更新失败：${getErrorMessage(tagError)}`);
+    } finally {
+      setIsUpdatingTags(false);
+    }
+  };
+
+  return (
+    <section
+      className={styles.metadataSection}
+      aria-labelledby="metadata-title"
+    >
+      <div className={styles.detailSectionHeading}>
+        <div>
+          <span className={styles.detailKicker}>YOUR CONTEXT</span>
+          <h3 id="metadata-title">备注与标签</h3>
+        </div>
+        {isLoading && <span role="status">正在读取…</span>}
+      </div>
+
+      {error && (
+        <div className={styles.inlineError} role="alert">
+          <span>{error}</span>
+          {!isLoading && error.includes("加载失败") && (
+            <button
+              type="button"
+              className={styles.iconButton}
+              onClick={() => void loadMetadata()}
+              aria-label="重试加载备注与标签"
+              title="重试"
+            >
+              <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className={styles.metadataBlock}>
+        <div className={styles.metadataLabelRow}>
+          <span>单集备注</span>
+          {!isEditingNotes && (
+            <button
+              type="button"
+              className={styles.iconButton}
+              disabled={isLoading || isSavingNotes || isUpdatingTags}
+              onClick={() => setIsEditingNotes(true)}
+              aria-label="编辑单集备注"
+              title="编辑备注"
+            >
+              <IconEdit size={17} stroke={1.8} aria-hidden="true" />
+            </button>
+          )}
+        </div>
+        {isEditingNotes ? (
+          <>
+            <textarea
+              className={styles.notesTextarea}
+              value={notes}
+              rows={5}
+              disabled={isSavingNotes || isUpdatingTags}
+              onChange={(event) => setNotes(event.target.value)}
+              aria-label="单集备注"
+              placeholder="为这个单集留下自己的判断…"
+            />
+            <div className={styles.metadataActions}>
+              <button
+                type="button"
+                className={styles.iconButtonStrong}
+                disabled={isSavingNotes || isUpdatingTags}
+                onClick={() => void saveNotes()}
+                aria-label="保存单集备注"
+                title="保存"
+              >
+                <IconCheck size={18} stroke={1.9} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className={styles.iconButton}
+                disabled={isSavingNotes}
+                onClick={() => {
+                  setNotes(savedNotes);
+                  setIsEditingNotes(false);
+                }}
+                aria-label="取消编辑单集备注"
+                title="取消"
+              >
+                <IconX size={18} stroke={1.8} aria-hidden="true" />
+              </button>
+              {isSavingNotes && <span role="status">正在保存备注…</span>}
+            </div>
+          </>
+        ) : (
+          <p className={styles.notesReadOnly}>
+            {savedNotes.trim() || "尚未添加备注。"}
+          </p>
+        )}
+      </div>
+
+      <div className={styles.metadataBlock}>
+        <div className={styles.metadataLabelRow}>
+          <span>单集标签</span>
+          {isUpdatingTags && <span role="status">正在更新标签…</span>}
+        </div>
+        <div className={styles.tagList} aria-label="现有单集标签">
+          {tags.length === 0 ? (
+            <span className={styles.metadataEmpty}>尚未添加标签。</span>
+          ) : (
+            tags.map((tag) => (
+              <span className={styles.tagChip} key={tag.id}>
+                <span
+                  className={styles.tagDot}
+                  style={{ backgroundColor: tag.color || "#d7681d" }}
+                  aria-hidden="true"
+                />
+                {tag.name}
+                <button
+                  type="button"
+                  disabled={isUpdatingTags || isSavingNotes}
+                  onClick={() => void removeTag(tag)}
+                  aria-label={`移除标签 ${tag.name}`}
+                  title="移除标签"
+                >
+                  <IconX size={14} stroke={1.9} aria-hidden="true" />
+                </button>
+              </span>
+            ))
+          )}
+        </div>
+        <div className={styles.tagPicker}>
+          <select
+            value={selectedTagId}
+            onChange={(event) => setSelectedTagId(event.target.value)}
+            disabled={
+              isLoading ||
+              isUpdatingTags ||
+              isSavingNotes ||
+              availableTags.length === 0
+            }
+            aria-label="选择已有标签"
+          >
+            <option value="">
+              {availableTags.length > 0 ? "选择已有标签" : "没有可添加的标签"}
+            </option>
+            {availableTags.map((tag) => (
+              <option key={tag.id} value={tag.id}>
+                {tag.name}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className={styles.iconButton}
+            disabled={!selectedTagId || isUpdatingTags || isSavingNotes}
+            onClick={() => void addSelectedTag()}
+            aria-label="添加所选标签"
+            title="添加标签"
+          >
+            <IconBookmarkPlus size={18} stroke={1.8} aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export default function ConsumptionDetailPanel({
+  item,
+  isQueueBusy,
+  onClose,
+  onItemChange,
+  onMove,
+}: ConsumptionDetailPanelProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [externalState, setExternalState] = useState<
+    "idle" | "saving" | "failed"
+  >("idle");
+  const [moveTarget, setMoveTarget] = useState<ConsumptionQueue>(
+    item.queue_state === "focus" ? "someday" : "focus",
+  );
+  const safeOriginalUrl = getSafeOriginalUrl(item.original_url);
+
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    setIsRefreshing(true);
+    setDetailError(null);
+    void consumptionApi
+      .getItem(item.episode_id)
+      .then((canonicalItem) => {
+        if (active) onItemChange(canonicalItem);
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setDetailError(
+            `最新状态读取失败，当前内容仍可查看：${
+              getConsumptionErrorDetails(error).message
+            }`,
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setIsRefreshing(false);
+      });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.episode_id]);
+
+  const handlePanelKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab" || !panelRef.current) return;
+
+    const focusable = Array.from(
+      panelRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), a[href], select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((element) => !element.hasAttribute("hidden"));
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  const openOriginal = async () => {
+    if (!safeOriginalUrl || externalState === "saving") return;
+    setExternalState("saving");
+    setDetailError(null);
+
+    const saveIntent = consumptionApi.markInProgress(item.episode_id);
+    window.open(safeOriginalUrl, "_blank", "noopener,noreferrer");
+
+    try {
+      const updated = await saveIntent;
+      onItemChange(updated);
+      setExternalState("idle");
+    } catch {
+      setExternalState("failed");
+    }
+  };
+
+  const retryInProgress = async () => {
+    setExternalState("saving");
+    try {
+      const updated = await consumptionApi.markInProgress(item.episode_id);
+      onItemChange(updated);
+      setExternalState("idle");
+    } catch {
+      setExternalState("failed");
+    }
+  };
+
+  const moveItem = async (target: ConsumptionQueue) => {
+    const updated = await onMove(item, target);
+    if (updated) onItemChange(updated);
+  };
+
+  const currentQueue = item.queue_state
+    ? QUEUE_PRESENTATION[item.queue_state].label
+    : "未收集";
+  const queueOptions = CONSUMPTION_QUEUES.filter(
+    (queue) => queue !== item.queue_state,
+  );
+  const effectiveMoveTarget = queueOptions.includes(moveTarget)
+    ? moveTarget
+    : queueOptions[0];
+
+  return (
+    <div
+      className={styles.detailBackdrop}
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <div
+        ref={panelRef}
+        className={styles.detailPanel}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="consumption-detail-title"
+        onKeyDown={handlePanelKeyDown}
+      >
+        <header className={styles.detailHeader}>
+          <div>
+            <span className={styles.detailKicker}>EPISODE DESK</span>
+            <p>{item.podcast_title}</p>
+          </div>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            className={styles.detailClose}
+            onClick={onClose}
+            aria-label="关闭单集明细"
+            title="关闭"
+          >
+            <IconX size={22} stroke={1.7} aria-hidden="true" />
+          </button>
+        </header>
+
+        <div className={styles.detailScroll}>
+          <section className={styles.detailHero}>
+            <div className={styles.detailTitleBlock}>
+              <span className={styles.detailEpisodeNo}>
+                {item.episode_no || "EPISODE"}
+              </span>
+              <h2 id="consumption-detail-title">{item.episode_title}</h2>
+              <p className={styles.detailByline}>
+                {item.podcast_author || item.podcast_title}
+              </p>
+            </div>
+            <dl className={styles.detailFacts}>
+              <div>
+                <dt>队列</dt>
+                <dd>{currentQueue}</dd>
+              </div>
+              <div>
+                <dt>时长</dt>
+                <dd>{formatDuration(item.duration)}</dd>
+              </div>
+              <div>
+                <dt>发布日期</dt>
+                <dd>{formatPublishedDate(item.published_date)}</dd>
+              </div>
+              <div>
+                <dt>消费状态</dt>
+                <dd>
+                  {item.queue_state === "done"
+                    ? "已手动完成"
+                    : item.in_progress_at
+                      ? "进行中"
+                      : "尚未开始"}
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          {(detailError || externalState === "failed") && (
+            <div className={styles.detailNotice} role="alert">
+              <span>
+                {externalState === "failed"
+                  ? "原节目已打开，但进行中记录未保存。队列没有改变。"
+                  : detailError}
+              </span>
+              {externalState === "failed" && (
+                <button
+                  type="button"
+                  className={styles.iconButton}
+                  onClick={() => void retryInProgress()}
+                  aria-label="重试保存进行中记录"
+                  title="重试记录"
+                >
+                  <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className={styles.detailCommandBar}>
+            {safeOriginalUrl ? (
+              <button
+                type="button"
+                className={styles.primaryCommand}
+                disabled={externalState === "saving"}
+                onClick={() => void openOriginal()}
+              >
+                <IconExternalLink size={19} stroke={1.8} aria-hidden="true" />
+                打开原节目
+              </button>
+            ) : (
+              <span className={styles.unsafeOriginal}>
+                原节目链接不可安全打开
+              </span>
+            )}
+            {item.queue_state !== "done" && (
+              <button
+                type="button"
+                className={styles.secondaryCommand}
+                disabled={isQueueBusy}
+                onClick={() => void moveItem("done")}
+              >
+                <IconCircleCheck size={19} stroke={1.8} aria-hidden="true" />
+                标记 Done
+              </button>
+            )}
+            <div className={styles.detailMove}>
+              <select
+                aria-label="选择目标队列"
+                value={effectiveMoveTarget}
+                disabled={isQueueBusy}
+                onChange={(event) =>
+                  setMoveTarget(event.target.value as ConsumptionQueue)
+                }
+              >
+                {queueOptions.map((queue) => (
+                  <option key={queue} value={queue}>
+                    {QUEUE_PRESENTATION[queue].label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className={styles.iconButton}
+                disabled={isQueueBusy}
+                onClick={() => void moveItem(effectiveMoveTarget)}
+                aria-label={`移动到 ${
+                  QUEUE_PRESENTATION[effectiveMoveTarget].label
+                }`}
+                title="移动"
+              >
+                <IconArrowRight size={18} stroke={1.8} aria-hidden="true" />
+              </button>
+            </div>
+            {(isQueueBusy || externalState === "saving" || isRefreshing) && (
+              <span className={styles.commandStatus} role="status">
+                {isQueueBusy
+                  ? "正在保存队列…"
+                  : externalState === "saving"
+                    ? "正在记录进行中…"
+                    : "正在同步最新状态…"}
+              </span>
+            )}
+          </div>
+
+          <section
+            className={styles.showNotesSection}
+            aria-labelledby="show-notes-title"
+          >
+            <div className={styles.detailSectionHeading}>
+              <div>
+                <span className={styles.detailKicker}>FULL TEXT</span>
+                <h3 id="show-notes-title">Show Notes</h3>
+              </div>
+            </div>
+            {item.show_notes.trim() ? (
+              <RichText
+                html={item.show_notes}
+                className={styles.showNotesRichText}
+              />
+            ) : (
+              <p className={styles.showNotesEmpty}>该单集暂无 Show Notes。</p>
+            )}
+          </section>
+
+          <EpisodeMetadata item={item} onItemChange={onItemChange} />
+        </div>
+      </div>
+    </div>
+  );
+}

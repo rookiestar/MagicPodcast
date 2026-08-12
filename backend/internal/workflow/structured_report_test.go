@@ -81,13 +81,13 @@ func TestGenerateForJob_PersistsStructuredHomepageSnapshot(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&podcast).Error)
 
-	now := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	episode := models.Episode{
 		PodcastID:     podcast.ID,
 		GUID:          "structured-ep-1",
 		Title:         "结构化单集",
 		ShowNotes:     "<p>真实节目上下文</p>",
-		PublishedDate: now.Add(-2 * time.Hour),
+		PublishedDate: now.Add(-30 * time.Second),
 		Duration:      1800,
 	}
 	require.NoError(t, db.Create(&episode).Error)

@@ -64,6 +64,7 @@ const RICH_TEXT_OPTIONS = {
 
 const RICH_TEXT_TAGS = new Set(RICH_TEXT_OPTIONS.ALLOWED_TAGS);
 const RICH_TEXT_ATTRS = new Set(RICH_TEXT_OPTIONS.ALLOWED_ATTR);
+const SANITIZER_ROOT_GUARD = "__MAGICPODCAST_RICH_TEXT_ROOT__";
 
 function isAllowedContentUrl(value: string) {
   return RICH_TEXT_OPTIONS.ALLOWED_URI_REGEXP.test(value.trim());
@@ -84,10 +85,7 @@ function stripDangerousTags(value: string) {
 
 function stripUnsafeRawHtmlAttributes(value: string) {
   return value
-    .replace(
-      /\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,
-      "",
-    )
+    .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
     .replace(/\s+style\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
     .replace(/\s+srcset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
 }
@@ -159,12 +157,34 @@ function needsRichTextFallback(source: string, sanitized: string) {
   );
 }
 
+function stripUnsafeAnchorHrefs(html: string) {
+  return html.replace(/<a\b[^>]*>/gi, (tag) => {
+    const href = tag.match(/\shref\s*=\s*(["'])(.*?)\1/i)?.[2];
+    if (!href || isAllowedContentUrl(href)) {
+      return tag;
+    }
+    return tag
+      .replace(/\s+href\s*=\s*(?:"[^"]*"|'[^']*')/i, "")
+      .replace(/\s+target\s*=\s*(?:"[^"]*"|'[^']*')/i, "")
+      .replace(/\s+rel\s*=\s*(?:"[^"]*"|'[^']*')/i, "");
+  });
+}
+
+function sanitizeWithRootGuard(html: string) {
+  const guardedHtml = `${SANITIZER_ROOT_GUARD}${html}`;
+  const sanitized = DOMPurify.sanitize(guardedHtml, RICH_TEXT_OPTIONS);
+  return sanitized.startsWith(SANITIZER_ROOT_GUARD)
+    ? sanitized.slice(SANITIZER_ROOT_GUARD.length)
+    : sanitized.replace(SANITIZER_ROOT_GUARD, "");
+}
+
 export function sanitizeRichTextHtml(html: string) {
-  const source = stripDangerousTags(html);
-  const sanitized = DOMPurify.sanitize(source, RICH_TEXT_OPTIONS);
-  return needsRichTextFallback(source, sanitized)
+  const source = stripUnsafeAnchorHrefs(stripDangerousTags(html));
+  const sanitized = sanitizeWithRootGuard(source);
+  const result = needsRichTextFallback(source, sanitized)
     ? sanitizeRichTextFallback(source)
     : sanitized;
+  return stripUnsafeAnchorHrefs(result);
 }
 
 /**

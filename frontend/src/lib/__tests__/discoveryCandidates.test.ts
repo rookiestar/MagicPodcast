@@ -85,7 +85,7 @@ describe("discovery candidates session cache", () => {
       episode_no: "E1",
       duration: 1800,
       candidate_time: "2026-07-29T08:00:00+08:00",
-      time_basis: "published_date" as const,
+      time_basis: "fetched_at" as const,
       source: "最近更新" as const,
       show_notes: "",
       show_notes_status: "available" as const,

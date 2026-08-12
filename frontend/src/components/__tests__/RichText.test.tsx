@@ -41,7 +41,7 @@ describe("RichText", () => {
     const { container } = render(
       <RichText
         html={[
-          '<h2>节目简介</h2>',
+          "<h2>节目简介</h2>",
           '<p><a href="https://example.com" target="_blank">正常链接</a></p>',
           '<img src="https://i.typlog.com/cover.png" onerror="alert(1)" style="background:url(javascript:alert(1))">',
           '<img src="https://evil.example/track.png">',
@@ -50,7 +50,9 @@ describe("RichText", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "节目简介" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "节目简介" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "正常链接" })).toHaveAttribute(
       "href",
       "https://example.com",
@@ -93,9 +95,38 @@ describe("RichText", () => {
     );
     expect(bareUrl).toHaveAttribute("target", "_blank");
     expect(bareUrl).toHaveAttribute("rel", "noopener noreferrer");
-    expect(
-      screen.getByRole("link", { name: "已有文稿链接" }),
-    ).toHaveAttribute("href", "https://example.com/transcript");
+    expect(screen.getByRole("link", { name: "已有文稿链接" })).toHaveAttribute(
+      "href",
+      "https://example.com/transcript",
+    );
     expect(container.querySelectorAll("a")).toHaveLength(2);
+  });
+
+  it("keeps approved link protocols and strips dangerous href values", () => {
+    render(
+      <RichText
+        html={[
+          '<a href="https://example.com/transcript">网页</a>',
+          '<a href="mailto:owner@example.com">邮件</a>',
+          '<a href="tel:+8613800000000">电话</a>',
+          '<a href="javascript:alert(1)">危险</a>',
+        ].join(" ")}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "网页" })).toHaveAttribute(
+      "href",
+      "https://example.com/transcript",
+    );
+    expect(screen.getByRole("link", { name: "邮件" })).toHaveAttribute(
+      "href",
+      "mailto:owner@example.com",
+    );
+    expect(screen.getByRole("link", { name: "电话" })).toHaveAttribute(
+      "href",
+      "tel:+8613800000000",
+    );
+    expect(screen.queryByRole("link", { name: "危险" })).toBeNull();
+    expect(screen.getByText("危险")).not.toHaveAttribute("href");
   });
 });

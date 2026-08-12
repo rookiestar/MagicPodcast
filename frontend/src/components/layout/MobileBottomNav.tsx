@@ -1,14 +1,15 @@
 "use client";
 
+import { IconSearch } from "@tabler/icons-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const navItems = [
   { label: "首页", href: "/" },
   { label: "播客", href: "/podcasts" },
+  { label: "Inbox", href: "/inbox" },
   { label: "标签", href: "/tags" },
   { label: "工作流", href: "/workflows" },
-  { label: "导入", href: "/import" },
 ];
 
 interface MobileBottomNavProps {
@@ -43,8 +44,14 @@ export default function MobileBottomNav({
             </Link>
           );
         })}
-        <button type="button" aria-label="搜索" onClick={onSearchClick}>
-          搜索
+        <button
+          type="button"
+          className="mobile-global-search"
+          aria-label="搜索"
+          title="搜索"
+          onClick={onSearchClick}
+        >
+          <IconSearch aria-hidden="true" stroke={1.8} />
         </button>
       </div>
     </nav>

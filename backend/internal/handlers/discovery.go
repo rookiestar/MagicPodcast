@@ -15,6 +15,7 @@ import (
 type DiscoveryHandler struct {
 	service               *services.DiscoveryService
 	triageService         *services.TriageService
+	consumptionService    *services.ConsumptionService
 	homepageReportService *services.HomepageReportService
 }
 
@@ -30,6 +31,7 @@ func NewDiscoveryHandler(
 	return &DiscoveryHandler{
 		service:               service,
 		triageService:         triageService,
+		consumptionService:    triageService.Consumption(),
 		homepageReportService: reports,
 	}
 }
@@ -68,27 +70,13 @@ func (h *DiscoveryHandler) ListCandidates(c *gin.Context) {
 	}
 	for index := range candidates {
 		if decision, exists := decisions[candidates[index].EpisodeID]; exists {
-			candidates[index].DecisionState = decision.State
-			candidates[index].DecisionUpdatedAt = &decision.DecidedAt
+			services.AttachConsumptionStateToCandidate(&candidates[index], decision)
 		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    candidates,
-	})
-}
-
-func (h *DiscoveryHandler) ListTodayShortlist(c *gin.Context) {
-	shortlist, err := h.service.ListTodayShortlisted()
-	if err != nil {
-		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to fetch today's shortlist")
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    shortlist,
 	})
 }
 
@@ -188,54 +176,201 @@ func (h *DiscoveryHandler) GetHomepageReport(c *gin.Context) {
 	})
 }
 
-type putDecisionRequest struct {
-	State string `json:"state"`
+type putQueueRequest struct {
+	QueueState            string `json:"queue_state"`
+	AcknowledgeFocusLimit bool   `json:"acknowledge_focus_limit"`
 }
 
-func (h *DiscoveryHandler) PutDecision(c *gin.Context) {
+type putDismissedRequest struct {
+	Dismissed bool `json:"dismissed"`
+}
+
+func (h *DiscoveryHandler) ListQueue(c *gin.Context) {
+	queueState := c.Param("queue")
+	items, err := h.consumptionService.ListQueue(queueState)
+	if errors.Is(err, services.ErrInvalidQueueState) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "INVALID_QUEUE_STATE", "message": "invalid queue state"},
+		})
+		return
+	}
+	if err != nil {
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to fetch consumption queue")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"queue_state": queueState,
+			"items":       items,
+		},
+	})
+}
+
+func (h *DiscoveryHandler) GetQueueSummary(c *gin.Context) {
+	summary, err := h.consumptionService.QueueSummary()
+	if err != nil {
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to fetch queue summary")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": summary})
+}
+
+func (h *DiscoveryHandler) GetConsumptionItem(c *gin.Context) {
+	episodeID, ok := parseConsumptionEpisodeID(c)
+	if !ok {
+		return
+	}
+	item, err := h.consumptionService.GetItem(episodeID)
+	if errors.Is(err, services.ErrConsumptionEpisodeNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "EPISODE_NOT_FOUND", "message": "episode consumption state not found"},
+		})
+		return
+	}
+	if err != nil {
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to fetch consumption state")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+func (h *DiscoveryHandler) PutQueue(c *gin.Context) {
+	episodeID, ok := parseConsumptionEpisodeID(c)
+	if !ok {
+		return
+	}
+	var request putQueueRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "INVALID_REQUEST", "message": "invalid queue request"},
+		})
+		return
+	}
+	_, err := h.consumptionService.SetQueue(
+		episodeID,
+		request.QueueState,
+		services.QueueWriteOptions{AcknowledgeFocusLimit: request.AcknowledgeFocusLimit},
+	)
+	var focusErr *services.FocusLimitConfirmationError
+	switch {
+	case errors.Is(err, services.ErrInvalidQueueState):
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "INVALID_QUEUE_STATE", "message": "invalid queue state"},
+		})
+		return
+	case errors.Is(err, services.ErrConsumptionEpisodeNotFound):
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "EPISODE_NOT_FOUND", "message": "episode not found"},
+		})
+		return
+	case errors.As(err, &focusErr):
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":          "FOCUS_LIMIT_CONFIRMATION_REQUIRED",
+				"message":       "Focus soft limit confirmation required",
+				"current_count": focusErr.CurrentCount,
+				"focus_limit":   services.FocusSoftLimit,
+			},
+		})
+		return
+	case err != nil:
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to update queue state")
+		return
+	}
+	h.writeConsumptionItem(c, episodeID)
+}
+
+func (h *DiscoveryHandler) DeleteQueue(c *gin.Context) {
+	episodeID, ok := parseConsumptionEpisodeID(c)
+	if !ok {
+		return
+	}
+	if _, err := h.consumptionService.ClearQueue(episodeID); err != nil {
+		h.writeConsumptionError(c, err, "Failed to clear queue state")
+		return
+	}
+	h.writeConsumptionItem(c, episodeID)
+}
+
+func (h *DiscoveryHandler) PutDismissed(c *gin.Context) {
+	episodeID, ok := parseConsumptionEpisodeID(c)
+	if !ok {
+		return
+	}
+	var request putDismissedRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "INVALID_REQUEST", "message": "invalid dismissed request"},
+		})
+		return
+	}
+	if _, err := h.consumptionService.SetDismissed(episodeID, request.Dismissed); err != nil {
+		h.writeConsumptionError(c, err, "Failed to update dismissed state")
+		return
+	}
+	h.writeConsumptionItem(c, episodeID)
+}
+
+func (h *DiscoveryHandler) MarkRead(c *gin.Context) {
+	episodeID, ok := parseConsumptionEpisodeID(c)
+	if !ok {
+		return
+	}
+	if _, err := h.consumptionService.MarkRead(episodeID); err != nil {
+		h.writeConsumptionError(c, err, "Failed to mark episode as read")
+		return
+	}
+	h.writeConsumptionItem(c, episodeID)
+}
+
+func (h *DiscoveryHandler) MarkInProgress(c *gin.Context) {
+	episodeID, ok := parseConsumptionEpisodeID(c)
+	if !ok {
+		return
+	}
+	if _, err := h.consumptionService.MarkInProgress(episodeID); err != nil {
+		h.writeConsumptionError(c, err, "Failed to mark episode in progress")
+		return
+	}
+	h.writeConsumptionItem(c, episodeID)
+}
+
+func parseConsumptionEpisodeID(c *gin.Context) (uint, bool) {
 	episodeID, err := strconv.ParseUint(c.Param("episodeID"), 10, 64)
 	if err != nil || episodeID == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error":   gin.H{"code": "INVALID_EPISODE_ID", "message": "invalid episode id"},
 		})
+		return 0, false
+	}
+	return uint(episodeID), true
+}
+
+func (h *DiscoveryHandler) writeConsumptionItem(c *gin.Context, episodeID uint) {
+	item, err := h.consumptionService.GetItem(episodeID)
+	if err != nil {
+		h.writeConsumptionError(c, err, "Failed to read updated consumption state")
 		return
 	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
 
-	var request putDecisionRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   gin.H{"code": "INVALID_REQUEST", "message": "invalid decision request"},
-		})
-		return
-	}
-
-	decision, err := h.triageService.SetDecision(uint(episodeID), request.State)
-	switch {
-	case errors.Is(err, services.ErrInvalidTriageState):
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   gin.H{"code": "INVALID_TRIAGE_STATE", "message": "invalid triage state"},
-		})
-		return
-	case errors.Is(err, services.ErrTriageEpisodeNotFound):
+func (h *DiscoveryHandler) writeConsumptionError(c *gin.Context, err error, message string) {
+	if errors.Is(err, services.ErrConsumptionEpisodeNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error":   gin.H{"code": "EPISODE_NOT_FOUND", "message": "episode not found"},
 		})
 		return
-	case err != nil:
-		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to persist triage decision")
-		return
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"episode_id":          decision.EpisodeID,
-			"state":               decision.State,
-			"decision_updated_at": decision.DecidedAt,
-		},
-	})
+	middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", message)
 }
