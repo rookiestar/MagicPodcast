@@ -553,6 +553,12 @@ export default function DiscoveryDesk({
             </button>
           ))}
         </div>
+        <section
+          className="discovery-focus-rail"
+          aria-label="Focus 快捷区域"
+        >
+          {focusContent}
+        </section>
       </aside>
 
       <section className="discovery-stream">
@@ -784,10 +790,6 @@ export default function DiscoveryDesk({
           </footer>
         </section>
       </section>
-
-      <aside className="discovery-focus-rail" aria-label="Focus 快捷区域">
-        {focusContent}
-      </aside>
 
       {selected && (
         <div className="discovery-preview-overlay" role="presentation">
