@@ -364,3 +364,42 @@ func TestDiscoveryService_ListRecentCandidates_UsesSevenDayRollingBoundary(t *te
 	assert.Equal(t, includedNewer.ID, candidates[0].EpisodeID)
 	assert.Equal(t, includedAtBoundary.ID, candidates[1].EpisodeID)
 }
+
+func TestDiscoveryService_ListRecentCandidates_UsesAbsoluteTimeAcrossTimeZones(t *testing.T) {
+	db := setupDiscoveryTestDB(t)
+	podcast := createDiscoveryPodcast(t, db, "跨时区七天边界")
+	shanghai := time.FixedZone("Asia/Shanghai", 8*60*60)
+	now := time.Date(2026, 8, 11, 12, 0, 0, 0, shanghai)
+	includedAtBoundary := createDiscoveryEpisode(
+		t, db, podcast.ID, "本地时间刚好七天", now.Add(-7*24*time.Hour), nil,
+	)
+	createDiscoveryEpisode(
+		t, db, podcast.ID, "本地时间窗口外", now.Add(-7*24*time.Hour-time.Second), nil,
+	)
+	olderShanghai := createDiscoveryEpisode(
+		t,
+		db,
+		podcast.ID,
+		"上海时区较早",
+		time.Date(2026, 8, 5, 10, 0, 0, 0, shanghai),
+		nil,
+	)
+	newerUTC := createDiscoveryEpisode(
+		t,
+		db,
+		podcast.ID,
+		"UTC 时区较晚",
+		time.Date(2026, 8, 5, 3, 0, 0, 0, time.UTC),
+		nil,
+	)
+	service := NewDiscoveryService(db)
+	service.now = func() time.Time { return now }
+
+	candidates, err := service.ListRecentCandidates(20)
+
+	require.NoError(t, err)
+	require.Len(t, candidates, 3)
+	assert.Equal(t, newerUTC.ID, candidates[0].EpisodeID)
+	assert.Equal(t, olderShanghai.ID, candidates[1].EpisodeID)
+	assert.Equal(t, includedAtBoundary.ID, candidates[2].EpisodeID)
+}
