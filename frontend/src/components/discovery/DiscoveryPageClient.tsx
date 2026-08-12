@@ -452,6 +452,7 @@ export default function DiscoveryPageClient({
     <WorkflowReportWorkbench
       todayReports={todayReports}
       historyReports={historyReports}
+      timezone={reportsData?.timezone}
       onDecision={saveDecision}
       decisionOverrides={decisionOverrides}
       consumptionOverrides={consumptionOverrides}

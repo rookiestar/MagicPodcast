@@ -423,11 +423,59 @@ describe("WorkflowReportWorkbench", () => {
     expect(
       screen.getByRole("dialog", { name: "往期报告" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "关闭" })).toHaveFocus();
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(
       screen.queryByRole("dialog", { name: "往期报告" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("groups history by the report timezone and keeps each day newest first", () => {
+    render(
+      <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
+        todayReports={[makeReport({ id: 1, workflow_name: "今日" })]}
+        historyReports={[
+          makeReport({
+            id: 12,
+            workflow_name: "科技日报",
+            completed_at: "2026-08-12T00:30:00Z",
+            metadata_only: true,
+            content: "",
+          }),
+          makeReport({
+            id: 11,
+            workflow_name: "投资日报",
+            completed_at: "2026-08-11T23:30:00Z",
+            metadata_only: true,
+            content: "",
+          }),
+          makeReport({
+            id: 10,
+            workflow_name: "前日晚报",
+            completed_at: "2026-08-11T15:30:00Z",
+            metadata_only: true,
+            content: "",
+          }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /往期/ }));
+    const latestDay = screen.getByRole("region", {
+      name: "2026年8月12日 · 周三",
+    });
+    const priorDay = screen.getByRole("region", {
+      name: "2026年8月11日 · 周二",
+    });
+
+    expect(within(latestDay).getByText("2 份")).toBeInTheDocument();
+    expect(within(latestDay).getAllByRole("button")).toHaveLength(2);
+    expect(within(latestDay).getByText("08:30")).toBeInTheDocument();
+    expect(within(latestDay).getByText("07:30")).toBeInTheDocument();
+    expect(within(priorDay).getByText("1 份")).toBeInTheDocument();
+    expect(within(priorDay).getByText("23:30")).toBeInTheDocument();
   });
 
   it("shows compact retry feedback when report load fails", () => {

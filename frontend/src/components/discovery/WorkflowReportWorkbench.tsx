@@ -22,7 +22,10 @@ import MarkdownViewer from "@/components/workflows/MarkdownViewer";
 import PlainImage from "@/components/ui/PlainImage";
 import {
   fetchHomepageReportDetail,
+  formatReportDay,
   formatReportDate,
+  formatReportTime,
+  reportDayKey,
   reportTypeLabel,
 } from "@/lib/discoveryReports";
 import { sanitizeContentUrl } from "@/lib/imageSourcePolicy";
@@ -38,6 +41,7 @@ import type {
 export interface WorkflowReportWorkbenchProps {
   todayReports: HomepageReport[];
   historyReports?: HomepageReport[];
+  timezone?: string;
   onDecision?: (
     episodeID: number,
     state: TriageDecisionState,
@@ -86,13 +90,6 @@ function splitReportMarkdown(content: string, fallbackTitle: string) {
   };
 }
 
-function reportDayKey(report: HomepageReport) {
-  return (
-    report.completed_at.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] ??
-    report.completed_at
-  );
-}
-
 function EpisodeCover({
   episode,
   className,
@@ -127,6 +124,7 @@ function EpisodeCover({
 export default function WorkflowReportWorkbench({
   todayReports,
   historyReports = [],
+  timezone,
   onDecision,
   decisionOverrides,
   consumptionOverrides,
@@ -162,11 +160,12 @@ export default function WorkflowReportWorkbench({
 
   const hasToday = todayReports.length > 0;
   const latestHistoryDay = historyReports[0]
-    ? reportDayKey(historyReports[0])
+    ? reportDayKey(historyReports[0].completed_at, timezone)
     : "";
   const latestHistoryDayReports = latestHistoryDay
     ? historyReports.filter(
-        (report) => reportDayKey(report) === latestHistoryDay,
+        (report) =>
+          reportDayKey(report.completed_at, timezone) === latestHistoryDay,
       )
     : [];
   const defaultReports = hasToday
@@ -498,7 +497,7 @@ export default function WorkflowReportWorkbench({
           {reportTypeLabel(activeReport.report_type)}
         </span>
         <span className="workflow-report-date">
-          {formatReportDate(activeReport.completed_at)}
+          {formatReportDate(activeReport.completed_at, timezone)}
         </span>
         <span className="workflow-report-workflow">
           {activeReport.workflow_name}
@@ -667,6 +666,7 @@ export default function WorkflowReportWorkbench({
       {historyOpen && (
         <HistoryDrawer
           reports={historyReports}
+          timezone={timezone}
           onClose={closeHistory}
           onSelect={(report) => {
             void pickHistoryReport(report);
@@ -679,10 +679,12 @@ export default function WorkflowReportWorkbench({
 
 function HistoryDrawer({
   reports,
+  timezone,
   onClose,
   onSelect,
 }: {
   reports: HomepageReport[];
+  timezone?: string;
   onClose: () => void;
   onSelect: (report: HomepageReport) => void;
 }) {
@@ -699,6 +701,29 @@ function HistoryDrawer({
       ),
     [reports],
   );
+  const groups = useMemo(() => {
+    const result: Array<{
+      key: string;
+      label: string;
+      reports: HomepageReport[];
+    }> = [];
+
+    for (const report of ordered) {
+      const key = reportDayKey(report.completed_at, timezone);
+      const previous = result[result.length - 1];
+      if (previous?.key === key) {
+        previous.reports.push(report);
+        continue;
+      }
+      result.push({
+        key,
+        label: formatReportDay(report.completed_at, timezone),
+        reports: [report],
+      });
+    }
+
+    return result;
+  }, [ordered, timezone]);
 
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
@@ -764,43 +789,71 @@ function HistoryDrawer({
           <button
             ref={closeButtonRef}
             type="button"
+            className="editorial-modal-close"
             onClick={onClose}
             aria-label="关闭"
+            title="关闭"
           >
-            <IconX size={18} aria-hidden />
+            <IconX aria-hidden stroke={1.8} />
           </button>
         </header>
-        {ordered.length === 0 ? (
+        {groups.length === 0 ? (
           <p className="workflow-report-history-empty">暂无往期报告。</p>
         ) : (
-          <ul className="workflow-report-history-list">
-            {ordered.map((report) => (
-              <li key={report.id}>
-                <button
-                  type="button"
-                  className="workflow-report-history-item"
-                  onClick={() => onSelect(report)}
-                >
-                  <span
-                    className={`workflow-report-type ${
-                      report.report_type === "weekly" ? "is-weekly" : "is-daily"
-                    }`}
-                  >
-                    {reportTypeLabel(report.report_type)}
-                  </span>
-                  <span className="workflow-report-history-name">
-                    {report.workflow_name}
-                  </span>
-                  <span className="workflow-report-history-date">
-                    {formatReportDate(report.completed_at)}
-                  </span>
-                  <span className="workflow-report-history-count">
-                    {report.episode_count} 条单集
-                  </span>
-                </button>
-              </li>
+          <div className="workflow-report-history-groups">
+            {groups.map((group) => (
+              <section
+                key={group.key}
+                className="workflow-report-history-group"
+                aria-label={group.label}
+              >
+                <header className="workflow-report-history-day">
+                  <h3>
+                    <time dateTime={group.key}>{group.label}</time>
+                  </h3>
+                  <span>{group.reports.length} 份</span>
+                </header>
+                <ul className="workflow-report-history-list">
+                  {group.reports.map((report) => (
+                    <li key={report.id}>
+                      <button
+                        type="button"
+                        className="workflow-report-history-item"
+                        onClick={() => onSelect(report)}
+                      >
+                        <span className="workflow-report-history-item-main">
+                          <span
+                            className={`workflow-report-type ${
+                              report.report_type === "weekly"
+                                ? "is-weekly"
+                                : "is-daily"
+                            }`}
+                          >
+                            {reportTypeLabel(report.report_type)}
+                          </span>
+                          <span className="workflow-report-history-name">
+                            {report.workflow_name}
+                          </span>
+                        </span>
+                        <span className="workflow-report-history-meta">
+                          <time
+                            className="workflow-report-history-date"
+                            dateTime={report.completed_at}
+                          >
+                            {formatReportTime(report.completed_at, timezone)}
+                          </time>
+                          <span aria-hidden>·</span>
+                          <span className="workflow-report-history-count">
+                            {report.episode_count} 条单集
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             ))}
-          </ul>
+          </div>
         )}
       </aside>
     </div>
