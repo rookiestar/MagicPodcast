@@ -3202,12 +3202,36 @@
     font-size: 20px;
   }
 
-  .workflow-report-history-header button {
-    width: 44px;
-    height: 44px;
-    border: 1px solid #171717;
-    background: transparent;
-    cursor: pointer;
+  .workflow-report-history-groups {
+    display: grid;
+    gap: 20px;
+  }
+
+  .workflow-report-history-group {
+    display: grid;
+    gap: 8px;
+  }
+
+  .workflow-report-history-day {
+    min-height: 30px;
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 2px 7px;
+    border-bottom: 1px solid #8c8275;
+  }
+
+  .workflow-report-history-day h3 {
+    margin: 0;
+    color: #171717;
+    font: 600 12px/1.2 var(--font-mono);
+    letter-spacing: 0.02em;
+  }
+
+  .workflow-report-history-day > span {
+    color: #756c62;
+    font: 600 11px/1.2 var(--font-mono);
   }
 
   .workflow-report-history-list {
@@ -3221,17 +3245,32 @@
   .workflow-report-history-item {
     width: 100%;
     display: grid;
-    gap: 4px;
-    padding: 12px;
+    gap: 8px;
+    padding: 11px 12px;
     border: 1px solid #8c8275;
     background: rgba(247, 241, 229, 0.92);
     text-align: left;
     cursor: pointer;
+    transition:
+      border-color 150ms ease,
+      background-color 150ms ease;
+  }
+
+  .workflow-report-history-item:hover {
+    border-color: #171717;
+    background: #fff9ed;
   }
 
   .workflow-report-history-item:focus-visible {
     outline: 3px solid #1768d0;
     outline-offset: 2px;
+  }
+
+  .workflow-report-history-item-main {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
   }
 
   .workflow-report-history-name {
@@ -3240,10 +3279,17 @@
     font-weight: var(--font-display-weight);
   }
 
+  .workflow-report-history-meta {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding-left: 1px;
+    color: #6a6359;
+  }
+
   .workflow-report-history-date,
   .workflow-report-history-count {
     font: 600 11px/1.3 var(--font-mono);
-    color: #6a6359;
   }
 
   .workflow-report-history-empty {

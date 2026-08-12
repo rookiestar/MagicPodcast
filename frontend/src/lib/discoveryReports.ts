@@ -44,15 +44,75 @@ export function reportTypeLabel(reportType: string): string {
   }
 }
 
-export function formatReportDate(value: string): string {
-  if (!value) return "";
+function reportDate(value: string): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function reportTimeZone(timeZone?: string) {
+  return timeZone ? { timeZone } : {};
+}
+
+export function reportDayKey(value: string, timeZone?: string): string {
+  const date = reportDate(value);
+  if (!date) return value;
+
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    ...reportTimeZone(timeZone),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const read = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+
+  return `${read("year")}-${read("month")}-${read("day")}`;
+}
+
+export function formatReportDay(value: string, timeZone?: string): string {
+  const date = reportDate(value);
+  if (!date) return value;
+
+  const dateLabel = new Intl.DateTimeFormat("zh-CN", {
+    ...reportTimeZone(timeZone),
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(date);
+  const weekday = new Intl.DateTimeFormat("zh-CN", {
+    ...reportTimeZone(timeZone),
+    weekday: "short",
+  }).format(date);
+
+  return `${dateLabel} · ${weekday}`;
+}
+
+export function formatReportTime(value: string, timeZone?: string): string {
+  const date = reportDate(value);
+  if (!date) return value;
+
   return new Intl.DateTimeFormat("zh-CN", {
+    ...reportTimeZone(timeZone),
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+}
+
+export function formatReportDate(value: string, timeZone?: string): string {
+  const date = reportDate(value);
+  if (!date) return value;
+
+  return new Intl.DateTimeFormat("zh-CN", {
+    ...reportTimeZone(timeZone),
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(value));
+    hourCycle: "h23",
+  }).format(date);
 }
 
 /** Theme/topic line for Banner cards, with compatibility fallbacks for old APIs. */
