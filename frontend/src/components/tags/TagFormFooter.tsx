@@ -16,7 +16,7 @@ export default function TagFormFooter({
   onSubmit,
 }: TagFormFooterProps) {
   return (
-    <div className="editorial-modal-footer p-6">
+    <div className="editorial-modal-footer">
       <div className="flex justify-end gap-3">
         <button
           onClick={onClose}

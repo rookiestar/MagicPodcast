@@ -87,7 +87,7 @@ describe("workflows list editorial chrome (#53)", () => {
     const mobileSortButton = screen.getByRole("button", { name: "排序" });
     fireEvent.click(mobileSortButton);
     expect(
-      screen.getByRole("dialog", { name: "选择排序方式" }),
+      screen.getByRole("dialog", { name: "排序方式" }),
     ).toBeInTheDocument();
     const nextExecutionOption = screen.getByRole("button", {
       name: "下次执行",

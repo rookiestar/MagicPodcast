@@ -65,11 +65,10 @@ export default function SortDrawer({
       >
         <div className="podcast-sort-drawer-inner">
           <div className="podcast-sort-drawer-heading">
-            <h3
-              id="podcast-sort-drawer-title"
-            >
-              选择排序方式
-            </h3>
+            <div>
+              <h3 id="podcast-sort-drawer-title">排序方式</h3>
+              <small>播客库</small>
+            </div>
             <button
               onClick={onClose}
               className="podcast-sort-drawer-close"

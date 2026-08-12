@@ -20,7 +20,7 @@ export default function TagFormFields({
   onColorChange,
 }: TagFormFieldsProps) {
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       {error && (
         <div className="editorial-state is-error" style={{ margin: 0, padding: "12px 14px", textAlign: "left" }}>
           <p style={{ margin: 0 }}>{error}</p>

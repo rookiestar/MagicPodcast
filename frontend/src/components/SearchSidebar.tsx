@@ -131,7 +131,7 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
         ref={sidebarRef}
         role="dialog"
         aria-modal="true"
-        aria-label="全站搜索"
+        aria-labelledby="search-workbench-title"
         tabIndex={-1}
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}

@@ -3,8 +3,6 @@
 import {
   IconAlertTriangle,
   IconClock,
-  IconHeadphones,
-  IconRadio,
   IconSearch,
 } from "@tabler/icons-react";
 import { SearchEpisodeResultCard } from "@/components/search/SearchEpisodeResultCard";
@@ -144,7 +142,6 @@ export function SearchSidebarContent({
                 results.episodes.length,
               ) && (
                 <h3 className="search-results-heading">
-                  <IconRadio aria-hidden="true" stroke={1.7} />
                   节目 <span>{results.podcasts.length}</span>
                 </h3>
               )}
@@ -186,7 +183,6 @@ export function SearchSidebarContent({
                 <>
                   <div className="search-results-divider" />
                   <h3 className="search-results-heading">
-                    <IconHeadphones aria-hidden="true" stroke={1.7} />
                     单集 <span>{results.episodes.length}</span>
                   </h3>
                 </>

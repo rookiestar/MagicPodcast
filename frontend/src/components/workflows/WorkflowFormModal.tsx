@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { IconX } from "@tabler/icons-react";
 import { workflowApi, podcastApi, tagApi } from "@/lib/api";
 import type {
   WorkflowRequest,
@@ -809,23 +810,35 @@ export default function WorkflowFormModal({
 
   return (
     <div className="workflow-form-modal wf-editorial fixed inset-0 bg-black/50 z-[60] flex items-start sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
-      <div className="bg-white dark:bg-slate-800 rounded-none sm:rounded-lg shadow-2xl w-full max-w-3xl min-h-[100dvh] sm:min-h-0 sm:max-h-[85vh] overflow-hidden flex flex-col">
+      <div
+        className="bg-white dark:bg-slate-800 rounded-none sm:rounded-lg shadow-2xl w-full max-w-3xl min-h-[100dvh] sm:min-h-0 sm:max-h-[85vh] overflow-hidden flex flex-col"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="workflow-form-modal-title"
+      >
         {/* Header */}
-        <div className="border-b border-slate-200 dark:border-slate-700 p-4 sm:p-6 shrink-0">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl sm:text-2xl font-semibold text-slate-900 dark:text-slate-50">
-              {workflow ? "编辑工作流" : "创建工作流"} ({step}/4)
-            </h2>
+        <div className="workflow-modal-header border-b border-slate-200 dark:border-slate-700 shrink-0">
+          <div className="workflow-modal-heading">
+            <div className="workflow-modal-heading-copy">
+              <span className="editorial-modal-kicker">工作流</span>
+              <h2
+                id="workflow-form-modal-title"
+                className="text-xl sm:text-2xl font-semibold text-slate-900 dark:text-slate-50"
+              >
+                {workflow ? "编辑工作流" : "创建工作流"}
+              </h2>
+              <small>第 {step} / 4 步</small>
+            </div>
             <button
               onClick={handleClose}
-              className="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-2xl rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 active:bg-slate-200 dark:active:bg-slate-600 transition-colors"
+              className="editorial-modal-close"
               aria-label="关闭"
             >
-              ×
+              <IconX aria-hidden="true" stroke={1.8} />
             </button>
           </div>
           {/* Progress Bar */}
-          <div className="mt-4 flex gap-2">
+          <div className="workflow-modal-progress flex gap-2">
             <div
               className={`flex-1 h-1 rounded ${step >= 1 ? "bg-blue-600" : "bg-slate-200 dark:bg-slate-700"}`}
             />
@@ -1975,7 +1988,7 @@ export default function WorkflowFormModal({
         </div>
 
         {/* Footer */}
-        <div className="hidden sm:flex border-t border-slate-200 dark:border-slate-700 p-4 sm:p-6 justify-between">
+        <div className="workflow-modal-footer hidden sm:flex border-t border-slate-200 dark:border-slate-700 p-4 sm:p-6 justify-between">
           <button
             onClick={handleClose}
             className="px-4 sm:px-6 py-2 min-h-[44px] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
@@ -2002,7 +2015,7 @@ export default function WorkflowFormModal({
         </div>
 
         {/* 移动端底部固定操作栏 */}
-        <div className="sm:hidden shrink-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700">
+        <div className="workflow-modal-footer sm:hidden shrink-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700">
           <div className="flex gap-3 p-4">
             <button
               onClick={handleClose}

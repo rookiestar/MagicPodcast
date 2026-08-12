@@ -1,3 +1,6 @@
+[[31mERROR[0m] - (starship::print): Under a 'dumb' terminal (TERM=dumb).
+/Users/bytedance/.zshrc:source:103: no such file or directory: /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+/Users/bytedance/.zshrc:source:110: no such file or directory: /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 # Issue #53 / #59 Design QA
 
 ## Comparison target
@@ -307,5 +310,26 @@
 ## Follow-up polish
 
 - P3: test a larger personal library with several episodes per show before treating five-item density as a performance or long-list benchmark.
+
+## 2026-08-12 search overlay and modal unification
+
+- Visual source truth: `/Users/bytedance/.codex/generated_images/019fee58-2c9b-70e0-9dbd-768a3762ffdc/call_LkLwMv9tFYKrD6GSu1YpJU0P.png`.
+- Browser-rendered implementation: `/Users/bytedance/.codex/visualizations/2026/08/11/019fee58-2c9b-70e0-9dbd-768a3762ffdc/search-overlay-production-qa/search-implementation-1487x1058.png`.
+- Full-view comparison: `/Users/bytedance/.codex/visualizations/2026/08/11/019fee58-2c9b-70e0-9dbd-768a3762ffdc/search-overlay-production-qa/search-side-by-side.png`.
+- Focused drawer comparison: `/Users/bytedance/.codex/visualizations/2026/08/11/019fee58-2c9b-70e0-9dbd-768a3762ffdc/search-overlay-production-qa/search-drawer-focused-comparison.png`.
+- Source and implementation are both `1487 × 1058` pixels. Implementation CSS viewport is `1487 × 1058`, device pixel ratio `1`; the focused comparison normalizes the source drawer to the approved `640` CSS px width.
+- State: `/podcasts` with global search open, query `人工智能`, all results selected, `29` results (`9` podcasts and `20` episodes).
+- Fonts and typography: existing self-hosted display, body, and mono stacks are retained. The black kicker, search query, section headings, metadata, and snippets preserve the approved hierarchy.
+- Spacing and layout rhythm: desktop search is a `640 × 1058` right-side sheet with one readable result column. At `390 × 844`, search is full-screen and sorting is a bottom drawer. Tag, workflow, and report dialog internals have no horizontal overflow or overlapping persistent controls.
+- Colors and visual tokens: black/white contrast, warm paper, orange emphasis, blue focus ring, hard rules, square controls, and restrained shadows are shared across search, tag, workflow, report, and mobile sort overlays.
+- Image quality and assets: real podcast covers remain sharp. All revised controls use the existing Tabler icon library; no placeholder art, custom SVG, or new image asset was introduced.
+- Copy and content: search scope, counts, history, workflow steps, and report actions preserve existing semantics. No recommendation, shortcut, AI-search, or new sorting capability was added.
+- Interactions tested in the real browser: search input and scope filters, Escape close with focus restoration, tag-create dialog, workflow-create dialog, report dialog, report links/images/download action, and mobile sort drawer.
+- Responsive evidence: search is `390 × 844`; sort drawer is `390` wide; tag, workflow, and report dialogs have no internal horizontal overflow at `390 × 844`. Primary mobile controls and close controls meet the `44px` target.
+- Report evidence: the current real report renders `10` clickable links, `2` images, and the existing Markdown download action.
+- Browser console warnings/errors: none.
+- Automated evidence: `.agents/skills/code-change-verification/scripts/verify.sh` passed TypeScript and all `103` test files / `535` tests. `git diff --check` passed.
+- Comparison history: the earlier implementation retained a wider two-column podcast grid and inconsistent surrounding modal chrome. The revision uses the approved `640px` single-column search sheet and one editorial shell across related overlays. Post-fix same-size and focused comparisons have no actionable P0/P1/P2.
+- P3: the concept image and production use different dynamic timestamps and result records; structure, density, typography, and interaction hierarchy remain equivalent.
 
 final result: passed
