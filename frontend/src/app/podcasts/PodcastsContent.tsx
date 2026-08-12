@@ -9,7 +9,6 @@ import { useUrlState } from "@/hooks/useUrlState";
 import PageLayout from "@/components/layout/PageLayout";
 import PodcastListResults from "@/components/podcasts/PodcastListResults";
 import PodcastListSortControls from "@/components/podcasts/PodcastListSortControls";
-import { MobilePodcastListSummary } from "@/components/podcasts/PodcastListStates";
 import PodcastTagFilter from "@/components/podcasts/PodcastTagFilter";
 import { useSearch } from "@/contexts/SearchContext";
 import {
@@ -180,6 +179,7 @@ export default function PodcastsContent({ initialPage }: PodcastsContentProps) {
       toolbar={{
         title: "我的订阅",
         description: listDescription,
+        mobileDescription: listDescription,
         rightContent: (
           <div className="podcast-toolbar-actions">
             <PodcastListSortControls
@@ -200,11 +200,6 @@ export default function PodcastsContent({ initialPage }: PodcastsContentProps) {
         className: "editorial-page-toolbar",
       }}
     >
-      <MobilePodcastListSummary
-        totalCount={totalCount}
-        selectedTagCount={selectedTagIds.length}
-      />
-
       <PodcastTagFilter
         displayTags={displayTags}
         selectedTagIds={selectedTagIds}

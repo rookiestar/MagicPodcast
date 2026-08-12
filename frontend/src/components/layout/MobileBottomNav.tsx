@@ -7,7 +7,6 @@ import { usePathname } from "next/navigation";
 const navItems = [
   { label: "首页", href: "/" },
   { label: "播客", href: "/podcasts" },
-  { label: "Inbox", href: "/inbox" },
   { label: "标签", href: "/tags" },
   { label: "工作流", href: "/workflows" },
 ];
@@ -53,6 +52,15 @@ export default function MobileBottomNav({
         >
           <IconSearch aria-hidden="true" stroke={1.8} />
         </button>
+        <Link
+          href="/inbox"
+          prefetch={false}
+          aria-current={
+            isCurrentPath(pathname, "/inbox") ? "page" : undefined
+          }
+        >
+          Inbox
+        </Link>
       </div>
     </nav>
   );
