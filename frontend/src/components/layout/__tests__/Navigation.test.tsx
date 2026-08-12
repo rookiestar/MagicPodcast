@@ -24,7 +24,7 @@ describe("global navigation", () => {
   it("keeps core features reachable with one desktop Inbox and five mobile destinations", async () => {
     const { container } = render(
       <>
-        <AppNavbar />
+        <AppNavbar syncStatus={{ isSyncing: false }} />
         <MobileBottomNav />
       </>,
     );
@@ -43,11 +43,26 @@ describe("global navigation", () => {
       "aria-hidden",
       "true",
     );
+    const desktopActions = Array.from(
+      container.querySelectorAll(".app-navbar-actions > *"),
+    ).map((item) => item.getAttribute("aria-label") ?? item.textContent);
+    expect(desktopActions).toEqual(["未同步", "搜索", "Inbox"]);
     expect(
       container.querySelector(
         ".mobile-bottom-nav > div > .mobile-global-search",
       ),
     ).not.toBeNull();
+    const mobileItems = Array.from(
+      container.querySelectorAll(".mobile-bottom-nav > div > *"),
+    ).map((item) => item.getAttribute("aria-label") ?? item.textContent);
+    expect(mobileItems).toEqual([
+      "首页",
+      "播客",
+      "标签",
+      "工作流",
+      "搜索",
+      "Inbox",
+    ]);
     expect(screen.getAllByRole("link", { name: "首页" })[0]).toHaveAttribute(
       "aria-current",
       "page",

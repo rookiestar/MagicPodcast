@@ -1,28 +1,5 @@
 import { PodcastCardSkeleton } from "@/components/ui/Skeleton";
 
-interface MobilePodcastListSummaryProps {
-  totalCount: number;
-  selectedTagCount: number;
-}
-
-export function MobilePodcastListSummary({
-  totalCount,
-  selectedTagCount,
-}: MobilePodcastListSummaryProps) {
-  if (totalCount <= 0) {
-    return null;
-  }
-
-  return (
-    <div className="md:hidden px-4 py-2 bg-slate-50 border-b border-slate-200">
-      <p className="text-sm text-slate-600">
-        共 {totalCount} 个节目
-        {selectedTagCount > 0 && `（已选 ${selectedTagCount} 个标签）`}
-      </p>
-    </div>
-  );
-}
-
 interface PodcastListErrorStateProps {
   message: string;
   onRetry: () => void;

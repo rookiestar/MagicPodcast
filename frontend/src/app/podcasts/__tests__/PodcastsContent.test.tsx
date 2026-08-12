@@ -18,6 +18,11 @@ vi.mock("@/components/layout/PageLayout", () => ({
           </a>
         ))}
         {toolbar?.title && <h1>{toolbar.title}</h1>}
+        {toolbar?.mobileDescription && (
+          <p data-testid="mobile-toolbar-description">
+            {toolbar.mobileDescription}
+          </p>
+        )}
         {toolbar?.rightContent}
       </div>
       {children}
@@ -65,10 +70,6 @@ vi.mock("@/components/podcasts/PodcastListResults", () => ({
 
 vi.mock("@/components/podcasts/PodcastListSortControls", () => ({
   default: () => <div data-testid="podcast-sort-controls" />,
-}));
-
-vi.mock("@/components/podcasts/PodcastListStates", () => ({
-  MobilePodcastListSummary: () => <div data-testid="podcast-list-summary" />,
 }));
 
 vi.mock("@/components/podcasts/PodcastTagFilter", () => ({
@@ -134,6 +135,10 @@ describe("podcast list page navigation", () => {
       "href",
       "/import",
     );
+    expect(screen.getByTestId("mobile-toolbar-description")).toHaveTextContent(
+      "共 0 个节目",
+    );
+    expect(screen.queryByTestId("podcast-list-summary")).not.toBeInTheDocument();
   });
 
   it("starts the first list request with the viewport page size before the breakpoint effect settles", () => {
