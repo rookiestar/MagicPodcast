@@ -3,8 +3,10 @@ package workflow
 import (
 	"fmt"
 	"magicpodcast/internal/logger"
+	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"magicpodcast/internal/llm"
 	"magicpodcast/internal/models"
@@ -34,19 +36,23 @@ func NewReportGenerator(db *gorm.DB, summarizer SummarizerInterface) *ReportGene
 
 // EpisodeReportData 报告数据结构
 type EpisodeReportData struct {
-	PodcastID      uint
-	PodcastTitle   string
-	PodcastFeedURL string
-	Episodes       []EpisodeDetail
+	PodcastID       uint
+	PodcastTitle    string
+	PodcastFeedURL  string
+	PodcastCoverURL string
+	Episodes        []EpisodeDetail
 }
 
 // EpisodeDetail 单集详情
 type EpisodeDetail struct {
+	EpisodeID     uint // real library episode id; required for homepage interactivity (#90)
 	Title         string
 	ShowNotes     string
 	PublishedDate time.Time
 	UpdatedDate   *time.Time
 	EpisodeNo     string
+	Duration      int
+	ImageURL      string
 	Link          string
 	XYZID         string // 小宇宙ID
 	QRCode        string // 小宇宙二维码（base64编码）
@@ -218,6 +224,17 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 
 	// 6. 使用事务创建Report记录并更新Job（确保原子性）
 	matchedCount := rg.countEpisodes(reportData)
+	structured := rg.buildStructuredEpisodes(reportData)
+	publishToHomepage := false
+	reportType := ""
+	// Homepage publish requires explicit workflow config + at least one real episode id.
+	// Zero-episode successes remain successful jobs but never surface on the homepage (#90).
+	if workflow.PublishToHomepage &&
+		models.IsValidHomepageReportType(workflow.ReportType) &&
+		len(structured) > 0 {
+		publishToHomepage = true
+		reportType = workflow.ReportType
+	}
 	report := &models.Report{
 		JobID:          job.ID,
 		Title:          fmt.Sprintf("%s - %s", workflow.Name, job.CreatedAt.Format("2006-01-02 15:04:05")),
@@ -232,6 +249,11 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 		GeneratedAt:    time.Now(),
 		Format:         "markdown",
 		FileSize:       len(markdown),
+		// Homepage snapshot + structured episodes share this generation run (#90).
+		PublishToHomepage:  publishToHomepage,
+		ReportType:         reportType,
+		WorkflowName:       workflow.Name,
+		StructuredEpisodes: structured,
 		// LLM相关字段
 		LLMSummary:    llmSummary,
 		LLMModelUsed:  llmModelUsed,
@@ -355,13 +377,52 @@ func (rg *ReportGenerator) collectMatchedEpisodes(job *models.Job, timeRangeStar
 		episodesByPodcast[ep.PodcastID] = append(episodesByPodcast[ep.PodcastID], ep)
 	}
 
+	// Stable podcast order: by newest matched episode, then podcast id.
+	sortedPodcastIDs := make([]uint, 0, len(executionMap))
+	for podcastID := range executionMap {
+		if episodes, ok := episodesByPodcast[podcastID]; ok && len(episodes) > 0 {
+			sortedPodcastIDs = append(sortedPodcastIDs, podcastID)
+		}
+	}
+	sort.SliceStable(sortedPodcastIDs, func(i, j int) bool {
+		left := episodesByPodcast[sortedPodcastIDs[i]][0]
+		right := episodesByPodcast[sortedPodcastIDs[j]][0]
+		leftTime := left.PublishedDate
+		if left.UpdatedDate != nil && left.UpdatedDate.After(leftTime) {
+			leftTime = *left.UpdatedDate
+		}
+		rightTime := right.PublishedDate
+		if right.UpdatedDate != nil && right.UpdatedDate.After(rightTime) {
+			rightTime = *right.UpdatedDate
+		}
+		if !leftTime.Equal(rightTime) {
+			return leftTime.After(rightTime)
+		}
+		return sortedPodcastIDs[i] < sortedPodcastIDs[j]
+	})
+
+	// Podcast covers for structured homepage episodes (not inferred from Markdown).
+	coverByPodcast := make(map[uint]string, len(sortedPodcastIDs))
+	if len(sortedPodcastIDs) > 0 {
+		var podcasts []models.Podcast
+		if err := rg.db.Select("id", "cover_url", "custom_cover_url").
+			Where("id IN ?", sortedPodcastIDs).
+			Find(&podcasts).Error; err == nil {
+			for _, podcast := range podcasts {
+				cover := podcast.CustomCoverURL
+				if cover == "" {
+					cover = podcast.CoverURL
+				}
+				coverByPodcast[podcast.ID] = cover
+			}
+		}
+	}
+
 	// 构建 reportData
 	var reportData []EpisodeReportData
-	for podcastID, exec := range executionMap {
-		episodes, ok := episodesByPodcast[podcastID]
-		if !ok || len(episodes) == 0 {
-			continue
-		}
+	for _, podcastID := range sortedPodcastIDs {
+		exec := executionMap[podcastID]
+		episodes := episodesByPodcast[podcastID]
 
 		// 转换为报告数据结构
 		episodeDetails := make([]EpisodeDetail, len(episodes))
@@ -390,11 +451,14 @@ func (rg *ReportGenerator) collectMatchedEpisodes(job *models.Job, timeRangeStar
 			}
 
 			episodeDetails[i] = EpisodeDetail{
+				EpisodeID:     ep.ID,
 				Title:         ep.Title,
 				ShowNotes:     utils.HTMLToMarkdown(ep.ShowNotes),
 				PublishedDate: ep.PublishedDate,
 				UpdatedDate:   ep.UpdatedDate,
 				EpisodeNo:     ep.EpisodeNo,
+				Duration:      ep.Duration,
+				ImageURL:      ep.ImageURL,
 				Link:          ep.Link,
 				XYZID:         xyzID,
 				QRCode:        qrCode,
@@ -403,14 +467,92 @@ func (rg *ReportGenerator) collectMatchedEpisodes(job *models.Job, timeRangeStar
 		}
 
 		reportData = append(reportData, EpisodeReportData{
-			PodcastID:      *exec.PodcastID,
-			PodcastTitle:   exec.PodcastTitle,
-			PodcastFeedURL: exec.PodcastFeedURL,
-			Episodes:       episodeDetails,
+			PodcastID:       podcastID,
+			PodcastTitle:    exec.PodcastTitle,
+			PodcastFeedURL:  exec.PodcastFeedURL,
+			PodcastCoverURL: coverByPodcast[podcastID],
+			Episodes:        episodeDetails,
 		})
 	}
 
 	return reportData, nil
+}
+
+// buildStructuredEpisodes produces ordered report episodes with real episode IDs.
+// Only items with EpisodeID > 0 are included; Markdown is never parsed for identity.
+// Show Notes become Context only — never Recommendation (#93).
+func (rg *ReportGenerator) buildStructuredEpisodes(data []EpisodeReportData) models.ReportEpisodeList {
+	if len(data) == 0 {
+		return nil
+	}
+	out := make(models.ReportEpisodeList, 0)
+	order := 1
+	for _, podcast := range data {
+		for _, ep := range podcast.Episodes {
+			if ep.EpisodeID == 0 {
+				continue
+			}
+			imageURL := ep.ImageURL
+			published := ""
+			if !ep.PublishedDate.IsZero() {
+				published = ep.PublishedDate.UTC().Format(time.RFC3339)
+			}
+			out = append(out, models.ReportEpisode{
+				EpisodeID:       ep.EpisodeID,
+				Order:           order,
+				PodcastID:       podcast.PodcastID,
+				PodcastTitle:    podcast.PodcastTitle,
+				PodcastCoverURL: podcast.PodcastCoverURL,
+				EpisodeTitle:    ep.Title,
+				EpisodeNo:       ep.EpisodeNo,
+				Duration:        ep.Duration,
+				PublishedDate:   published,
+				ImageURL:        imageURL,
+				Link:            sanitizeHomepageEpisodeLink(ep.Link),
+				// No per-episode report rationale is produced today; leave empty so UI degrades explicitly.
+				Recommendation: "",
+				Context:        contextForReportEpisode(ep.ShowNotes),
+			})
+			order++
+		}
+	}
+	return out
+}
+
+const maxReportEpisodeContextRunes = 280
+
+func contextForReportEpisode(showNotes string) string {
+	text := strings.TrimSpace(showNotes)
+	if text == "" {
+		return ""
+	}
+	// Compact program context; not a report recommendation (#93).
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.Join(strings.Fields(text), " ")
+	if utf8.RuneCountInString(text) <= maxReportEpisodeContextRunes {
+		return text
+	}
+	runes := []rune(text)
+	return string(runes[:maxReportEpisodeContextRunes]) + "…"
+}
+
+// sanitizeHomepageEpisodeLink keeps only safe http(s) episode links for homepage actions.
+func sanitizeHomepageEpisodeLink(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	lower := strings.ToLower(raw)
+	if strings.HasPrefix(lower, "javascript:") ||
+		strings.HasPrefix(lower, "data:") ||
+		strings.HasPrefix(lower, "vbscript:") {
+		return ""
+	}
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return raw
+	}
+	// Relative paths and other schemes are not homepage-safe clickable links.
+	return ""
 }
 
 // generateMarkdown 生成Markdown内容

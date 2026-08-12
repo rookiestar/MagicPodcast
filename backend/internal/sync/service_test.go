@@ -880,6 +880,7 @@ func TestSyncPodcastEpisodeItemsSkipsUnchangedExistingEpisode(t *testing.T) {
 
 	published := time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC)
 	updated := time.Date(2024, 4, 2, 0, 0, 0, 0, time.UTC)
+	fetched := time.Date(2024, 4, 3, 0, 0, 0, 0, time.UTC)
 	existing := &models.Episode{
 		PodcastID:       podcast.ID,
 		Title:           "Same Episode",
@@ -888,6 +889,7 @@ func TestSyncPodcastEpisodeItemsSkipsUnchangedExistingEpisode(t *testing.T) {
 		ShowNotes:       "same description",
 		PublishedDate:   published,
 		UpdatedDate:     &updated,
+		FetchedAt:       &fetched,
 		Duration:        123,
 		Link:            "https://example.com/same",
 		Content:         "same content",
@@ -932,6 +934,8 @@ func TestSyncPodcastEpisodeItemsSkipsUnchangedExistingEpisode(t *testing.T) {
 	var unchanged models.Episode
 	assert.NoError(t, db.First(&unchanged, existing.ID).Error)
 	assert.True(t, originalUpdatedAt.Equal(unchanged.UpdatedAt))
+	require.NotNil(t, unchanged.FetchedAt)
+	assert.True(t, fetched.Equal(*unchanged.FetchedAt))
 	assert.Equal(t, "user note", unchanged.Notes)
 	assert.Equal(t, 4, unchanged.MyRate)
 }

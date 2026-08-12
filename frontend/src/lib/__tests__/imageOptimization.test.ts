@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   canUseNextImage,
+  DEFAULT_IMAGE_QUALITY,
   getOptimizedImageUrl,
   isOptimizableImageUrl,
   optimizeHtmlImageSources,
+  RICH_TEXT_IMAGE_WIDTH,
 } from "../imageOptimization";
 
 describe("imageOptimization", () => {
@@ -13,9 +15,9 @@ describe("imageOptimization", () => {
     );
   });
 
-  it("supports custom width and quality", () => {
-    expect(getOptimizedImageUrl("/cover.jpg", 256, 60)).toBe(
-      "/_next/image.webp?url=%2Fcover.jpg&w=256&q=60",
+  it("supports configured width buckets with the shared quality", () => {
+    expect(getOptimizedImageUrl("/cover.jpg", 256)).toBe(
+      `/_next/image.webp?url=%2Fcover.jpg&w=256&q=${DEFAULT_IMAGE_QUALITY}`,
     );
   });
 
@@ -48,11 +50,9 @@ describe("imageOptimization", () => {
     expect(
       optimizeHtmlImageSources(
         '<p><img src="https://i.typlog.com/a.jpg" alt="a"><img src="data:image/png;base64,abc"></p>',
-        768,
-        80,
       ),
     ).toBe(
-      '<p><img src="/_next/image.webp?url=%2Fimages%2Fproxy%3Furl%3Dhttps%253A%252F%252Fi.typlog.com%252Fa.jpg&w=768&q=80" alt="a"><img src="data:image/png;base64,abc"></p>',
+      `<p><img src="/_next/image.webp?url=%2Fimages%2Fproxy%3Furl%3Dhttps%253A%252F%252Fi.typlog.com%252Fa.jpg&w=${RICH_TEXT_IMAGE_WIDTH}&q=${DEFAULT_IMAGE_QUALITY}" alt="a"><img src="data:image/png;base64,abc"></p>`,
     );
   });
 

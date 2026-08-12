@@ -1,4 +1,4 @@
-export type RichTextDensity = "reading" | "compact";
+export type RichTextDensity = "reading" | "report" | "compact";
 
 export function getRichTextClassName(
   density: RichTextDensity,

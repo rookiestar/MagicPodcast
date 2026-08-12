@@ -13,7 +13,7 @@ const candidates = [
     episode_no: "E1",
     duration: 1800,
     candidate_time: "2026-07-29T08:00:00+08:00",
-    time_basis: "published_date" as const,
+    time_basis: "fetched_at" as const,
     source: "最近更新" as const,
     show_notes: "<p>默认首页摘要来源</p>",
     show_notes_status: "available" as const,
@@ -72,23 +72,26 @@ describe("default page", () => {
     render(await Home());
 
     expect(screen.queryByText("你的播客书架")).not.toBeInTheDocument();
-    expect(
-      screen.queryByText("正在读取个人播客库…"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText("正在读取个人播客库…")).not.toBeInTheDocument();
     expect(
       screen.queryByText("订阅单集，按发布时间排序。"),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("region", { name: "个人库最近更新" }),
+      screen.getByRole("region", { name: "工作流最近更新" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("今日初筛工作区")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "默认首页最近更新" }),
+      screen.getByRole("button", { name: "预读 默认首页最近更新" }),
     ).toBeInTheDocument();
-    expect(screen.queryByText("个人播客管理与自动化处理工具")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Focus 快捷摘要" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("个人播客管理与自动化处理工具"),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("我的订阅管理")).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:8080/api/v1/discovery/candidates?limit=5",
+      "http://127.0.0.1:8080/api/v1/discovery/candidates?limit=5&view=summary",
       expect.objectContaining({
         cache: "no-store",
       }),
@@ -101,13 +104,11 @@ describe("default page", () => {
     render(await Home());
 
     expect(
-      screen.getByRole("main", { name: "正在读取个人库最近更新" }),
+      screen.getByRole("main", { name: "正在读取工作流最近更新" }),
     ).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByText("暂时无法读取最近更新")).not.toBeInTheDocument();
     expect(
-      screen.queryByText("暂时无法读取最近更新"),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("region", { name: "个人库最近更新" }),
+      screen.queryByRole("region", { name: "工作流最近更新" }),
     ).not.toBeInTheDocument();
   });
 });

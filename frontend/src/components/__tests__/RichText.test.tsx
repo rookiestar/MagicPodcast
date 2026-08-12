@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import RichText from "../RichText";
 
 describe("RichText", () => {
-  it("uses the shared reading scale and supports the compact density", () => {
+  it("uses the shared reading scale and supports report and compact densities", () => {
     const { container, rerender } = render(
       <RichText html="<p>阅读正文</p>" className="custom-class" />,
     );
@@ -15,6 +15,16 @@ describe("RichText", () => {
       "custom-class",
     );
     expect(container.firstElementChild).not.toHaveClass("prose");
+
+    rerender(<RichText html="<p>报告正文</p>" density="report" />);
+
+    expect(container.firstElementChild).toHaveClass(
+      "editorial-rich-text",
+      "editorial-rich-text--report",
+    );
+    expect(container.firstElementChild).not.toHaveClass(
+      "editorial-rich-text--reading",
+    );
 
     rerender(<RichText html="<p>紧凑正文</p>" density="compact" />);
 
@@ -31,7 +41,7 @@ describe("RichText", () => {
     const { container } = render(
       <RichText
         html={[
-          '<h2>节目简介</h2>',
+          "<h2>节目简介</h2>",
           '<p><a href="https://example.com" target="_blank">正常链接</a></p>',
           '<img src="https://i.typlog.com/cover.png" onerror="alert(1)" style="background:url(javascript:alert(1))">',
           '<img src="https://evil.example/track.png">',
@@ -40,7 +50,9 @@ describe("RichText", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "节目简介" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "节目简介" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "正常链接" })).toHaveAttribute(
       "href",
       "https://example.com",
@@ -59,5 +71,62 @@ describe("RichText", () => {
     expect(optimizerUrl.searchParams.get("url")).toBe(
       "/images/proxy?url=https%3A%2F%2Fi.typlog.com%2Fcover.png",
     );
+    expect(optimizerUrl.searchParams.get("w")).toBe("750");
+    expect(optimizerUrl.searchParams.get("q")).toBe("75");
+  });
+
+  it("turns bare URLs inside mixed Show Notes HTML into safe links", () => {
+    const { container } = render(
+      <RichText
+        html={[
+          "<p>原视频来自：</p>",
+          "<p>https://www.youtube.com/watch?v=example123</p>",
+          '<p><a href="https://example.com/transcript">已有文稿链接</a></p>',
+        ].join("")}
+      />,
+    );
+
+    const bareUrl = screen.getByRole("link", {
+      name: "https://www.youtube.com/watch?v=example123",
+    });
+    expect(bareUrl).toHaveAttribute(
+      "href",
+      "https://www.youtube.com/watch?v=example123",
+    );
+    expect(bareUrl).toHaveAttribute("target", "_blank");
+    expect(bareUrl).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getByRole("link", { name: "已有文稿链接" })).toHaveAttribute(
+      "href",
+      "https://example.com/transcript",
+    );
+    expect(container.querySelectorAll("a")).toHaveLength(2);
+  });
+
+  it("keeps approved link protocols and strips dangerous href values", () => {
+    render(
+      <RichText
+        html={[
+          '<a href="https://example.com/transcript">网页</a>',
+          '<a href="mailto:owner@example.com">邮件</a>',
+          '<a href="tel:+8613800000000">电话</a>',
+          '<a href="javascript:alert(1)">危险</a>',
+        ].join(" ")}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "网页" })).toHaveAttribute(
+      "href",
+      "https://example.com/transcript",
+    );
+    expect(screen.getByRole("link", { name: "邮件" })).toHaveAttribute(
+      "href",
+      "mailto:owner@example.com",
+    );
+    expect(screen.getByRole("link", { name: "电话" })).toHaveAttribute(
+      "href",
+      "tel:+8613800000000",
+    );
+    expect(screen.queryByRole("link", { name: "危险" })).toBeNull();
+    expect(screen.getByText("危险")).not.toHaveAttribute("href");
   });
 });

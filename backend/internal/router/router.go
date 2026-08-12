@@ -112,13 +112,25 @@ func SetupRouter() *gin.Engine {
 	// API 路由组
 	v1 := r.Group("/api/v1")
 	{
+		discoveryDB := database.GetDB()
+		discoveryLocation := cfg.DiscoveryLocation()
 		discoveryHandler := handlers.NewDiscoveryHandler(
-			services.NewDiscoveryServiceWithLocation(database.GetDB(), cfg.DiscoveryLocation()),
-			services.NewTriageService(database.GetDB()),
+			services.NewDiscoveryService(discoveryDB),
+			services.NewTriageService(discoveryDB),
+			services.NewHomepageReportServiceWithLocation(discoveryDB, discoveryLocation),
 		)
 		v1.GET("/discovery/candidates", discoveryHandler.ListCandidates)
-		v1.GET("/discovery/shortlist/today", discoveryHandler.ListTodayShortlist)
-		v1.PUT("/discovery/candidates/:episodeID/decision", discoveryHandler.PutDecision)
+		v1.GET("/discovery/candidates/:episodeID", discoveryHandler.GetCandidate)
+		v1.GET("/discovery/reports", discoveryHandler.ListHomepageReports)
+		v1.GET("/discovery/reports/:id", discoveryHandler.GetHomepageReport)
+		v1.GET("/consumption/summary", discoveryHandler.GetQueueSummary)
+		v1.GET("/consumption/queues/:queue", discoveryHandler.ListQueue)
+		v1.GET("/consumption/episodes/:episodeID", discoveryHandler.GetConsumptionItem)
+		v1.PUT("/consumption/episodes/:episodeID/queue", discoveryHandler.PutQueue)
+		v1.DELETE("/consumption/episodes/:episodeID/queue", discoveryHandler.DeleteQueue)
+		v1.PUT("/consumption/episodes/:episodeID/dismissed", discoveryHandler.PutDismissed)
+		v1.POST("/consumption/episodes/:episodeID/read", discoveryHandler.MarkRead)
+		v1.POST("/consumption/episodes/:episodeID/in-progress", discoveryHandler.MarkInProgress)
 
 		// Podcast 路由
 		podcastHandler := handlers.NewPodcastHandler()

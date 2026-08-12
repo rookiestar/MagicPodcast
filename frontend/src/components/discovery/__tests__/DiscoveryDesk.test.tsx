@@ -1,7 +1,69 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render as testingRender,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import type { ReactElement } from "react";
+import { renderToString } from "react-dom/server";
+import { SWRConfig } from "swr";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DiscoveryDesk from "../DiscoveryDesk";
+import { availableTagCache } from "@/lib/tagAvailabilityCache";
+import type { Tag } from "@/types";
 import type { DiscoveryCandidate } from "@/types/discovery";
+
+const apiMocks = vi.hoisted(() => ({
+  episodeGetTags: vi.fn(),
+  episodeGetNotes: vi.fn(),
+  episodeAddTag: vi.fn(),
+  episodeRemoveTag: vi.fn(),
+  episodeUpdateNotes: vi.fn(),
+  podcastGetTags: vi.fn(),
+  podcastGetNotes: vi.fn(),
+  podcastAddTag: vi.fn(),
+  podcastRemoveTag: vi.fn(),
+  podcastUpdateNotes: vi.fn(),
+  tagList: vi.fn(),
+  tagCreate: vi.fn(),
+}));
+
+vi.mock("@/lib/api", () => ({
+  episodeApi: {
+    getTags: apiMocks.episodeGetTags,
+    getNotes: apiMocks.episodeGetNotes,
+    addTag: apiMocks.episodeAddTag,
+    removeTag: apiMocks.episodeRemoveTag,
+    updateNotes: apiMocks.episodeUpdateNotes,
+  },
+  podcastApi: {
+    getTags: apiMocks.podcastGetTags,
+    getNotes: apiMocks.podcastGetNotes,
+    addTag: apiMocks.podcastAddTag,
+    removeTag: apiMocks.podcastRemoveTag,
+    updateNotes: apiMocks.podcastUpdateNotes,
+  },
+  tagApi: {
+    list: apiMocks.tagList,
+    create: apiMocks.tagCreate,
+  },
+}));
+
+vi.mock("@/lib/toast", () => ({
+  toast: {
+    error: vi.fn(),
+  },
+}));
+
+const aiTag: Tag = { id: 1, name: "AI", color: "#7a2f27" };
+const productTag: Tag = { id: 2, name: "产品", color: "#1768d0" };
+
+function render(ui: ReactElement) {
+  return testingRender(
+    <SWRConfig value={{ provider: () => new Map() }}>{ui}</SWRConfig>,
+  );
+}
 
 const candidates: DiscoveryCandidate[] = [
   {
@@ -14,7 +76,7 @@ const candidates: DiscoveryCandidate[] = [
     episode_no: "E11",
     duration: 3120,
     candidate_time: "2026-07-29T08:00:00Z",
-    time_basis: "published_date",
+    time_basis: "fetched_at",
     source: "最近更新",
     show_notes: "<p>第一条可核对内容</p>",
     show_notes_status: "available",
@@ -78,7 +140,7 @@ const candidates: DiscoveryCandidate[] = [
     episode_no: "E12",
     duration: 1800,
     candidate_time: "2026-07-28T08:00:00Z",
-    time_basis: "updated_date",
+    time_basis: "fetched_at",
     source: "最近更新",
     show_notes: "",
     show_notes_status: "missing",
@@ -129,13 +191,37 @@ const candidates: DiscoveryCandidate[] = [
 describe("DiscoveryDesk", () => {
   beforeEach(() => {
     window.history.replaceState(null, "");
+    vi.clearAllMocks();
+    availableTagCache.clear();
+    apiMocks.episodeGetTags.mockImplementation(async (id: number) =>
+      id === 11 ? [aiTag] : [],
+    );
+    apiMocks.episodeGetNotes.mockImplementation(async (id: number) =>
+      id === 11 ? "单集旧备注" : "",
+    );
+    apiMocks.podcastGetTags.mockResolvedValue([productTag]);
+    apiMocks.podcastGetNotes.mockResolvedValue("节目旧备注");
+    apiMocks.episodeAddTag.mockResolvedValue(undefined);
+    apiMocks.episodeRemoveTag.mockResolvedValue(undefined);
+    apiMocks.episodeUpdateNotes.mockResolvedValue(undefined);
+    apiMocks.podcastAddTag.mockResolvedValue(undefined);
+    apiMocks.podcastRemoveTag.mockResolvedValue(undefined);
+    apiMocks.podcastUpdateNotes.mockResolvedValue(undefined);
+    apiMocks.tagList.mockResolvedValue([aiTag, productTag]);
+    apiMocks.tagCreate.mockImplementation(
+      async ({ name }: { name: string }) => ({
+        id: 3,
+        name,
+        color: "#746b60",
+      }),
+    );
   });
 
   it("leads with recent podcast content without duplicating global navigation", () => {
-    render(<DiscoveryDesk candidates={candidates} />);
+    const { container } = render(<DiscoveryDesk candidates={candidates} />);
 
     expect(
-      screen.getByRole("region", { name: "个人库最近更新" }),
+      screen.getByRole("region", { name: "工作流最近更新" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("个人播客知识库")).not.toBeInTheDocument();
     expect(screen.queryByText("你的播客书架")).not.toBeInTheDocument();
@@ -148,13 +234,69 @@ describe("DiscoveryDesk", () => {
     expect(screen.getByTestId("candidate-excerpt-11")).toHaveTextContent(
       "这是一段基于 Show Notes 的摘要。",
     );
+    expect(container.querySelectorAll(".discovery-unread-dot")).toHaveLength(2);
+    expect(
+      container
+        .querySelector(".discovery-index")
+        ?.querySelector(".discovery-unread-dot"),
+    ).not.toBeNull();
+    expect(container.querySelector(".discovery-unread-indicator")).toBeNull();
   });
 
-  it("keeps the recent-update header focused on the section title", () => {
+  it("states that recent updates are limited to workflow syncs", () => {
+    render(<DiscoveryDesk candidates={[]} />);
+
+    expect(
+      screen.getByRole("region", { name: "工作流最近更新" }),
+    ).toHaveTextContent("按工作流同步时间 · 最近 7 天");
+    expect(
+      screen.getByRole("heading", {
+        name: "工作流暂时没有同步到新单集",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "工作流抓取到的新单集会按系统同步时间显示在这里。",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("removes an opened episode from unread results while keeping its preview open", async () => {
+    const onRead = vi.fn().mockResolvedValue({
+      episode_id: 11,
+      queue_state: null,
+      read_at: "2026-07-29T08:10:00Z",
+    });
+    render(<DiscoveryDesk candidates={candidates} onRead={onRead} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "未读 2" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "预读 模型能力如何转向真实应用",
+      }),
+    );
+
+    expect(onRead).toHaveBeenCalledWith(11);
+    expect(
+      screen.queryByRole("button", {
+        name: "预读 模型能力如何转向真实应用",
+      }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toHaveAccessibleName(
+      "模型能力如何转向真实应用",
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "未读 1" }),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("uses Discovery as the section title and explains the rolling window", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
-    const recentUpdates = screen.getByRole("region", {
-      name: "个人库最近更新",
+    const sidebar = screen.getByRole("complementary", {
+      name: "Discovery 导航与筛选",
     });
 
     expect(
@@ -168,120 +310,265 @@ describe("DiscoveryDesk", () => {
     expect(
       screen.queryByText("按发布时间陈列；日期缺失时，以更新时间补位。"),
     ).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Discovery" })).toHaveClass(
+      "editorial-section-title",
+    );
+    expect(screen.getByText("最近更新 · 7 天")).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "最近更新" }),
-    ).toHaveClass("editorial-section-title");
-    expect(
-      recentUpdates.querySelector(".discovery-workbench-copy"),
-    ).toHaveClass("editorial-title-group");
-  });
-
-  it("marks the end of a short list and exposes an adjustable desktop split", () => {
-    render(<DiscoveryDesk candidates={candidates} />);
-
-    expect(screen.getByText("本轮 02 集")).toBeInTheDocument();
-    expect(screen.getByText("最近更新已到底")).toBeInTheDocument();
-
-    const resizer = screen.getByRole("separator", {
-      name: "调整单集列表和单集预读宽度",
-    });
-    expect(resizer).toHaveAttribute("aria-valuenow", "60");
-
-    fireEvent.keyDown(resizer, { key: "ArrowLeft" });
-    expect(resizer).toHaveAttribute("aria-valuenow", "57");
-  });
-
-  it("uses a compact directional icon for the current candidate", () => {
-    render(<DiscoveryDesk candidates={candidates} />);
-
-    const currentCandidate = screen.getByRole("button", {
-      name: "查看 模型能力如何转向真实应用",
-    });
-    const openState = currentCandidate.querySelector(".discovery-open-state");
-
-    expect(openState).toHaveAttribute("data-state", "current");
-    expect(openState).toHaveAttribute("title", "当前单集");
-    expect(openState?.querySelector("svg")).toBeInTheDocument();
-    expect(openState?.querySelector(".sr-only")).toHaveTextContent("当前单集");
-  });
-
-  it("keeps the preview header concise and names the shortlist action", () => {
-    render(<DiscoveryDesk candidates={candidates} onDecision={vi.fn()} />);
-
-    expect(screen.getByText("单集预读")).toBeInTheDocument();
-    expect(screen.queryByText("摘要、观点、关联与质疑")).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "加入今日备选" }),
+      screen.getByText("按工作流同步时间 · 最近 7 天"),
     ).toBeInTheDocument();
+    expect(sidebar.querySelector(".discovery-workbench-copy")).toHaveClass(
+      "editorial-title-group",
+    );
+  });
+
+  it("keeps report, recent updates and Focus in one shell without the legacy split", () => {
+    render(
+      <DiscoveryDesk
+        candidates={candidates}
+        reportContent={<section aria-label="精选报告">报告</section>}
+        focusContent={<section aria-label="Focus 快捷摘要">Focus</section>}
+      />,
+    );
+
+    expect(screen.getByText("共 02 集")).toBeInTheDocument();
+    expect(screen.getByText("1 / 1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "上一页" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "下一页" })).toBeDisabled();
+    expect(screen.getByLabelText("精选报告")).toBeInTheDocument();
+    expect(screen.getByLabelText("Focus 快捷摘要")).toBeInTheDocument();
+    expect(screen.queryByRole("separator")).not.toBeInTheDocument();
+  });
+
+  it("keeps recent updates in a fixed viewport and paginates four at a time", () => {
+    const pagedCandidates = Array.from({ length: 5 }, (_, index) => ({
+      ...candidates[0],
+      episode_id: 100 + index,
+      episode_title: `分页单集 ${index + 1}`,
+      candidate_time: `2026-07-29T0${8 - index}:00:00Z`,
+    }));
+
+    render(<DiscoveryDesk candidates={pagedCandidates} />);
+
+    expect(screen.getByTestId("discovery-candidate-viewport")).toBeInTheDocument();
+    expect(screen.getByText("分页单集 1")).toBeInTheDocument();
+    expect(screen.getByText("分页单集 4")).toBeInTheDocument();
+    expect(screen.queryByText("分页单集 5")).not.toBeInTheDocument();
+    expect(screen.getByText("1 / 2")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+
+    expect(screen.queryByText("分页单集 1")).not.toBeInTheDocument();
+    expect(screen.getByText("分页单集 5")).toBeInTheDocument();
+    expect(screen.getByText("2 / 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "下一页" })).toBeDisabled();
+  });
+
+  it("opens pre-read from the full card instead of a separate preview action", () => {
+    render(<DiscoveryDesk candidates={candidates} />);
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    const candidate = screen.getByRole("button", {
+      name: "预读 模型能力如何转向真实应用",
+    });
+    fireEvent.click(candidate);
+    expect(screen.getByRole("dialog")).toHaveAccessibleName(
+      "模型能力如何转向真实应用",
+    );
+    expect(candidate).toHaveAttribute("aria-expanded", "true");
     expect(
-      screen.queryByRole("button", { name: "留到今天" }),
+      screen.queryByRole("button", { name: "预读 Show Notes" }),
     ).not.toBeInTheDocument();
   });
 
-	it("uses the same episode-number display contract in list and preview", () => {
-		const numbered = candidates[0];
-		const unnumbered = {
-			...candidates[1],
-			episode_no: "",
-			duration: 4200,
-		};
+  it("defers pre-read and metadata until the episode card is opened", async () => {
+    render(<DiscoveryDesk candidates={candidates} onDecision={vi.fn()} />);
 
-		render(<DiscoveryDesk candidates={[numbered, unnumbered]} />);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(apiMocks.episodeGetTags).not.toHaveBeenCalled();
+    expect(apiMocks.episodeGetNotes).not.toHaveBeenCalled();
 
-		expect(screen.getByText("#11 · 52 分钟")).toBeInTheDocument();
-		expect(
-			screen
-				.getByRole("heading", { name: "模型能力如何转向真实应用" })
-				.closest(".discovery-preview-identity")
-				?.querySelector(".discovery-preview-meta p"),
-		).toHaveTextContent("#11 · 52 分钟");
-		fireEvent.click(
-			screen.getByRole("button", { name: "查看 缺少 Show Notes 的边界项" }),
-		);
-		expect(screen.getByText("70 分钟")).toBeInTheDocument();
-		expect(
-			screen
-				.getByRole("heading", { name: "缺少 Show Notes 的边界项" })
-				.closest(".discovery-preview-identity")
-				?.querySelector(".discovery-preview-meta p"),
-		).toHaveTextContent("70 分钟");
-		expect(
-			Array.from(
-				document.querySelectorAll(
-					".discovery-candidate-details, .discovery-preview-meta p",
-				),
-			)
-				.map((element) => element.textContent)
-				.join(" "),
-		).not.toContain("单集");
-	});
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "预读 模型能力如何转向真实应用",
+      }),
+    );
+    expect(
+      screen.getByRole("button", { name: "编辑标签与备注" }),
+    ).toHaveAttribute("aria-expanded", "false");
+    await screen.findByText("第一条可核对内容");
+    expect(
+      screen.getByRole("region", { name: "Show Notes" }),
+    ).toHaveTextContent("第一条可核对内容");
+  });
 
-  it("keeps the preview identity compact and groups secondary actions with metadata", () => {
+  it("loads full Show Notes only after a lightweight candidate is opened", async () => {
+    let resolveDetails:
+      | ((candidate: DiscoveryCandidate) => void)
+      | undefined;
+    const loadDetails = vi.fn(
+      () =>
+        new Promise<DiscoveryCandidate>((resolve) => {
+          resolveDetails = resolve;
+        }),
+    );
+    const summaryCandidate: DiscoveryCandidate = {
+      ...candidates[0],
+      excerpt: "列表保留的轻量摘要",
+      show_notes: "",
+      pre_reads: [],
+      metadata_only: true,
+    };
+
+    render(
+      <DiscoveryDesk
+        candidates={[summaryCandidate]}
+        onLoadCandidateDetails={loadDetails}
+      />,
+    );
+
+    expect(screen.getByTestId("candidate-excerpt-11")).toHaveTextContent(
+      "列表保留的轻量摘要",
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "预读 模型能力如何转向真实应用",
+      }),
+    );
+
+    expect(loadDetails).toHaveBeenCalledWith(11);
+    expect(
+      screen.getByRole("region", { name: "Show Notes" }),
+    ).toHaveTextContent("正在加载 Show Notes");
+
+    resolveDetails?.({ ...candidates[0], metadata_only: false });
+    expect(await screen.findByText("第一条可核对内容")).toBeInTheDocument();
+  });
+
+  it("keeps the list usable and retries when one detail request fails", async () => {
+    const loadDetails = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("detail unavailable"))
+      .mockResolvedValueOnce({ ...candidates[0], metadata_only: false });
+    const summaryCandidate: DiscoveryCandidate = {
+      ...candidates[0],
+      excerpt: "失败时仍保留的列表摘要",
+      show_notes: "",
+      pre_reads: [],
+      metadata_only: true,
+    };
+
+    render(
+      <DiscoveryDesk
+        candidates={[summaryCandidate]}
+        onLoadCandidateDetails={loadDetails}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "预读 模型能力如何转向真实应用",
+      }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Show Notes 暂时无法加载",
+    );
+    expect(screen.getByText("失败时仍保留的列表摘要")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "重新加载 Show Notes" }),
+    );
+    expect(await screen.findByText("第一条可核对内容")).toBeInTheDocument();
+    expect(loadDetails).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the same episode-number display contract in the compact list", () => {
+    const numbered = candidates[0];
+    const unnumbered = {
+      ...candidates[1],
+      episode_no: "",
+      duration: 4200,
+    };
+
+    render(<DiscoveryDesk candidates={[numbered, unnumbered]} />);
+
+    expect(screen.getByText("#11 · 52 分钟")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "预读 缺少 Show Notes 的边界项" }),
+    );
+    expect(screen.getAllByText("70 分钟")).toHaveLength(2);
+    expect(
+      Array.from(document.querySelectorAll(".discovery-candidate-details"))
+        .map((element) => element.textContent)
+        .join(" "),
+    ).not.toContain("单集");
+  });
+
+  it("keeps progress outside the balanced three-action toolbar", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
-    const title = screen.getByRole("heading", {
-      name: "模型能力如何转向真实应用",
+    expect(document.querySelector(".discovery-preview-identity")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "预读 模型能力如何转向真实应用",
+      }),
+    );
+    const headingTools = document.querySelector<HTMLElement>(
+      ".discovery-preview-heading-tools",
+    );
+    const currentCount = document.querySelector<HTMLElement>(
+      ".discovery-current-count",
+    );
+    const toolbar = document.querySelector<HTMLElement>(
+      ".discovery-quick-actions",
+    );
+    const editToggle = screen.getByRole("button", {
+      name: "编辑标签与备注",
     });
-    const identity = title.closest(".discovery-preview-identity");
-    const metadata = identity?.querySelector(".discovery-preview-meta");
 
-    expect(identity?.querySelector(".discovery-preview-copy")).toBeTruthy();
-    expect(
-      identity?.querySelector(".discovery-preview-podcast"),
-    ).toHaveTextContent("声东击西");
-    expect(metadata).toContainElement(
+    expect(headingTools).toBeTruthy();
+    expect(currentCount).toHaveTextContent("01 / 02");
+    expect(toolbar).toBeTruthy();
+    expect(toolbar).not.toContainElement(currentCount);
+    expect(headingTools?.children[0]).toBe(currentCount);
+    expect(headingTools?.children[1]).toBe(toolbar);
+    expect(headingTools?.children[2]).toBe(editToggle);
+    expect(headingTools?.children[3]).toBe(
+      document.querySelector(".discovery-preview-close"),
+    );
+    expect(toolbar?.children).toHaveLength(3);
+    expect(toolbar).toContainElement(
       screen.getByRole("link", { name: "打开节目页面" }),
+    );
+    expect(toolbar).toContainElement(
+      screen.getByRole("button", { name: "不感兴趣" }),
+    );
+    expect(toolbar).toContainElement(
+      within(toolbar!).getByRole("button", { name: "收集到 Inbox" }),
     );
   });
 
   it("uses icon-only decision controls with accessible hover labels", () => {
     render(<DiscoveryDesk candidates={candidates} onDecision={vi.fn()} />);
 
-    const discard = screen.getByRole("button", { name: "略过" });
-    const shortlist = screen.getByRole("button", { name: "加入今日备选" });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "预读 模型能力如何转向真实应用",
+      }),
+    );
+    const toolbar = document.querySelector<HTMLElement>(
+      ".discovery-quick-actions",
+    );
+    expect(toolbar).toBeTruthy();
+    const discard = within(toolbar!).getByRole("button", {
+      name: "不感兴趣",
+    });
+    const shortlist = within(toolbar!).getByRole("button", {
+      name: "收集到 Inbox",
+    });
 
-    expect(discard).toHaveAttribute("title", "略过");
-    expect(shortlist).toHaveAttribute("title", "加入今日备选");
+    expect(discard).toHaveAttribute("title", "不感兴趣");
+    expect(shortlist).toHaveAttribute("title", "收集到 Inbox");
     expect(discard).toHaveTextContent("");
     expect(shortlist).toHaveTextContent("");
     expect(discard.querySelector("svg")).toBeInTheDocument();
@@ -291,37 +578,34 @@ describe("DiscoveryDesk", () => {
   it("keeps the list in place while switching the selected candidate", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
-    expect(
-      screen.getByRole("heading", { name: "模型能力如何转向真实应用" }),
-    ).toBeInTheDocument();
     const list = screen.getByTestId("discovery-candidate-list");
-
     fireEvent.click(
       screen.getByRole("button", {
-        name: "查看 缺少 Show Notes 的边界项",
+        name: "预读 模型能力如何转向真实应用",
       }),
     );
-
+    fireEvent.click(screen.getByRole("button", { name: "下一项" }));
     expect(
-      screen.getByRole("heading", { name: "缺少 Show Notes 的边界项" }),
+      screen.getByRole("dialog", { name: "缺少 Show Notes 的边界项" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("节目链接暂缺")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "节目链接暂缺" })).toBeDisabled();
     expect(screen.getByTestId("discovery-candidate-list")).toBe(list);
   });
 
-  it("shows only verifiable recent-update metadata without recommendation scores", () => {
+  it("shows only verifiable recent-update metadata without recommendation scores", async () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
     expect(
-      screen.getByRole("heading", { name: "最近更新" }),
+      screen.getByRole("heading", { name: "Discovery" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "模型能力如何转向真实应用" }),
+      screen.getByRole("button", { name: "预读 模型能力如何转向真实应用" }),
     ).toBeInTheDocument();
     expect(screen.getByText("07/29 16:00")).toBeInTheDocument();
     expect(
       screen.getAllByText("这是一段基于 Show Notes 的摘要。"),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
+    expect(screen.queryByText("第一条可核对内容")).not.toBeInTheDocument();
     expect(
       screen.getAllByText(
         (_, element) => element?.textContent?.includes("52 分钟") ?? false,
@@ -332,155 +616,177 @@ describe("DiscoveryDesk", () => {
     expect(screen.queryByText("兴趣推荐")).not.toBeInTheDocument();
   });
 
-  it("updates, undoes, and rolls back decisions against server state", async () => {
+  it("collects into Inbox and rolls back a failed dismissal", async () => {
     const onDecision = vi
       .fn()
       .mockResolvedValueOnce({
         state: "shortlisted",
         decision_updated_at: "2026-07-29T08:10:00Z",
       })
-      .mockResolvedValueOnce({
-        state: "pending",
-        decision_updated_at: "2026-07-29T08:11:00Z",
-      })
       .mockRejectedValueOnce(new Error("server failed"));
 
     render(<DiscoveryDesk candidates={candidates} onDecision={onDecision} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "加入今日备选" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "收集到 Inbox" })[0]);
     await waitFor(() => {
       expect(
-        screen.getByRole("button", { name: "移出今日备选" }),
+        screen.getByRole("button", { name: "已在 Inbox" }),
       ).toBeInTheDocument();
     });
     expect(onDecision).toHaveBeenCalledWith(11, "shortlisted");
+    expect(screen.getByRole("button", { name: "已在 Inbox" })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "移出今日备选" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "预读 缺少 Show Notes 的边界项" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "不感兴趣" }));
     await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "加入今日备选" }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent("状态保存失败");
     });
-    expect(onDecision).toHaveBeenCalledWith(11, "pending");
-
-    fireEvent.click(screen.getByRole("button", { name: "略过" }));
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent("决定保存失败");
-    });
-    expect(screen.getByRole("button", { name: "略过" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "不感兴趣" })).toHaveAttribute(
       "aria-pressed",
       "false",
     );
   });
 
-  it("keeps four pre-reads independent and makes personal relevance distinct", () => {
+  it("uses source-backed Show Notes instead of AI pre-read tabs", async () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
-    expect(screen.getByRole("button", { name: "摘要" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "预读 模型能力如何转向真实应用",
+      }),
     );
+    expect(await screen.findByText("第一条可核对内容")).toBeInTheDocument();
     expect(
-      screen.getByRole("region", { name: "摘要预读" }),
-    ).toHaveTextContent("这是一段基于 Show Notes 的摘要。");
-
-    fireEvent.click(screen.getByRole("button", { name: "与我相关" }));
-
-    expect(screen.getByRole("button", { name: "与我相关" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
+      screen.queryByRole("button", { name: "摘要" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "与我相关" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "打开节目页面" })).toHaveAttribute(
+      "href",
+      "https://example.com/episodes/11",
     );
-    expect(screen.getByText("明确相关")).toBeInTheDocument();
-    expect(
-      screen.getByText("个人标签「AI 工具」与标题直接重合。"),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "摘要预读" })).not.toBeInTheDocument();
   });
 
-  it("explains each pre-read scope and links out instead of embedding show notes", () => {
-    render(<DiscoveryDesk candidates={candidates} />);
-
-    expect(screen.getByText("这一集讲了什么")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "核心观点" }));
-    expect(screen.getByText("节目提出的核心主张")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "与我相关" }));
-    expect(screen.getByText("与你的标签和备注有何关联")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "证据边界" }));
-    expect(
-      screen.getByText("证据缺口、适用边界与待核问题"),
-    ).toBeInTheDocument();
-
-    expect(screen.queryByText("节目原文")).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: "打开节目页面" }),
-    ).toHaveAttribute("href", "https://example.com/episodes/11");
-  });
-
-  it("keeps a pre-read usable when its source list is absent", () => {
-    const relevantWithoutSources = {
-      ...candidates[0],
-      pre_reads: candidates[0].pre_reads.map((preRead) =>
-        preRead.kind === "relevant"
-          ? { ...preRead, sources: null }
-          : preRead,
-      ),
-    } as unknown as DiscoveryCandidate;
-
-    render(<DiscoveryDesk candidates={[relevantWithoutSources]} />);
-    fireEvent.click(screen.getByRole("button", { name: "与我相关" }));
-
-    expect(screen.getByText("暂无可核对来源")).toBeInTheDocument();
-    expect(
-      screen.getByText("个人标签「AI 工具」与标题直接重合。"),
-    ).toBeInTheDocument();
-  });
-
-  it("shows pending, insufficient, failed, and missing pre-reads without blocking decisions", () => {
+  it("keeps decisions available when Show Notes are missing", () => {
     const onDecision = vi.fn().mockResolvedValue({
       state: "shortlisted",
       decision_updated_at: "2026-07-29T08:20:00Z",
     });
     render(<DiscoveryDesk candidates={candidates} onDecision={onDecision} />);
     fireEvent.click(
-      screen.getByRole("button", { name: "查看 缺少 Show Notes 的边界项" }),
+      screen.getByRole("button", { name: "预读 缺少 Show Notes 的边界项" }),
     );
 
-    expect(screen.getByText("信息缺失")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "核心观点" }));
-    expect(screen.getByText("尚未完成")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "与我相关" }));
-    expect(screen.getByText("证据不足")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "证据边界" }));
-    expect(screen.getByText("生成失败")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "加入今日备选" })).toBeEnabled();
+    expect(
+      screen.getByRole("region", { name: "Show Notes" }),
+    ).toHaveTextContent("暂无 Show Notes");
+    expect(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "收集到 Inbox",
+      }),
+    ).toBeEnabled();
   });
 
-  it("keeps the candidate usable when pre-read data has not arrived yet", () => {
-    const candidateWithoutPreReads = {
-      ...candidates[0],
-      pre_reads: undefined,
-    } as unknown as DiscoveryCandidate;
+  it("opens and closes metadata editing while preserving the reading surface", async () => {
+    render(<DiscoveryDesk candidates={candidates} />);
 
-    render(<DiscoveryDesk candidates={[candidateWithoutPreReads]} />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "预读 模型能力如何转向真实应用",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "编辑标签与备注" }));
+    expect(
+      screen.getAllByRole("button", { name: "收起编辑" })[0],
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("标签与备注编辑")).toBeInTheDocument();
+    expect(apiMocks.episodeGetTags).toHaveBeenCalledWith(11);
+    expect(apiMocks.episodeGetNotes).toHaveBeenCalledWith(11);
+    expect(await screen.findByText("单集旧备注")).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "收起编辑" })[0]);
+    expect(screen.queryByLabelText("标签与备注编辑")).not.toBeInTheDocument();
+    expect(await screen.findByText("第一条可核对内容")).toBeInTheDocument();
+  });
+
+  it("keeps editing open across episodes and loads Podcast metadata on demand", async () => {
+    render(<DiscoveryDesk candidates={candidates} />);
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "预读 模型能力如何转向真实应用",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "编辑标签与备注" }));
+    await screen.findByText("单集旧备注");
+    fireEvent.click(screen.getByRole("button", { name: "下一项" }));
 
     expect(
-      screen.getByRole("heading", { name: "模型能力如何转向真实应用" }),
-    ).toBeInTheDocument();
-    expect(screen.queryByLabelText("四类预读")).not.toBeInTheDocument();
-    expect(screen.getByText("预读内容尚未就绪")).toBeInTheDocument();
+      screen.getAllByRole("button", { name: "收起编辑" })[0],
+    ).toHaveAttribute("aria-expanded", "true");
+    await waitFor(() => {
+      expect(apiMocks.episodeGetTags).toHaveBeenCalledWith(12);
+      expect(apiMocks.episodeGetNotes).toHaveBeenCalledWith(12);
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Podcast" }));
+    await waitFor(() => {
+      expect(apiMocks.podcastGetTags).toHaveBeenCalledWith(2);
+      expect(apiMocks.podcastGetNotes).toHaveBeenCalledWith(2);
+    });
+    expect(await screen.findByText("节目旧备注")).toBeInTheDocument();
   });
 
-  it("replaces an unavailable cover with a stable fallback", () => {
+  it("reuses existing tag and note editing behavior", async () => {
+    render(<DiscoveryDesk candidates={candidates} />);
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "预读 模型能力如何转向真实应用",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "编辑标签与备注" }));
+    await screen.findByText("单集旧备注");
+
+    fireEvent.click(screen.getByRole("button", { name: "删除标签 AI" }));
+    await waitFor(() => {
+      expect(apiMocks.episodeRemoveTag).toHaveBeenCalledWith(11, 1);
+    });
+
+    const tagInput = screen.getByPlaceholderText(
+      "点击输入框从列表选择，或输入新标签名按回车添加",
+    );
+    fireEvent.focus(tagInput);
+    fireEvent.click(await screen.findByRole("button", { name: "产品" }));
+    await waitFor(() => {
+      expect(apiMocks.episodeAddTag).toHaveBeenCalledWith(11, 2);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+    fireEvent.change(screen.getByPlaceholderText("添加备注..."), {
+      target: { value: "单集新备注" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => {
+      expect(apiMocks.episodeUpdateNotes).toHaveBeenCalledWith(
+        11,
+        "单集新备注",
+      );
+    });
+  });
+
+  it("keeps the list cover fallback without duplicating it in Actions", () => {
     render(<DiscoveryDesk candidates={[candidates[0]]} />);
 
     for (const cover of screen.getAllByRole("img", { name: "声东击西封面" })) {
       fireEvent.error(cover);
     }
 
-    expect(screen.getAllByText("暂无封面")).toHaveLength(2);
+    expect(screen.getAllByText("暂无封面")).toHaveLength(1);
+    expect(document.querySelector(".discovery-preview-cover")).toBeNull();
     expect(
       screen.queryByRole("img", { name: "声东击西封面" }),
     ).not.toBeInTheDocument();
@@ -489,13 +795,18 @@ describe("DiscoveryDesk", () => {
   it("moves through one mobile candidate at a time with explicit progress", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "预读 模型能力如何转向真实应用",
+      }),
+    );
     expect(screen.getByText("1 / 2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "上一项" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "下一项" }));
 
     expect(
-      screen.getByRole("heading", { name: "缺少 Show Notes 的边界项" }),
-    ).toBeInTheDocument();
+      screen.getByRole("region", { name: "Show Notes" }),
+    ).toHaveTextContent("暂无 Show Notes");
     expect(screen.getByText("2 / 2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "下一项" })).toBeDisabled();
   });
@@ -505,21 +816,39 @@ describe("DiscoveryDesk", () => {
     const { unmount } = render(<DiscoveryDesk candidates={candidates} />);
 
     expect(
-      screen.getByRole("heading", { name: "缺少 Show Notes 的边界项" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("节目链接暂缺")).toBeInTheDocument();
+      screen.getByRole("button", { name: "预读 缺少 Show Notes 的边界项" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "节目链接暂缺" })).toBeDisabled();
     expect(screen.queryByText("节目原文")).not.toBeInTheDocument();
-    expect(screen.getByText("尚未标记")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "收集到 Inbox",
+      }),
+    ).toHaveAttribute("aria-pressed", "false");
 
     unmount();
     render(<DiscoveryDesk candidates={candidates} />);
     expect(
-      screen.getByRole("heading", { name: "缺少 Show Notes 的边界项" }),
-    ).toBeInTheDocument();
+      screen.getByRole("button", { name: "预读 缺少 Show Notes 的边界项" }),
+    ).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("keeps server markup independent of browser history before restoring a preview", () => {
+    window.history.replaceState({ magicpodcastDiscoveryEpisodeID: 12 }, "");
+
+    const markup = renderToString(<DiscoveryDesk candidates={candidates} />);
+
+    expect(markup).not.toContain('role="dialog"');
+    expect(markup).not.toContain("discovery-preview-overlay");
   });
 
   it("ignores edge swipes but supports a center swipe shortcut", () => {
     render(<DiscoveryDesk candidates={candidates} />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "预读 模型能力如何转向真实应用",
+      }),
+    );
     const preview = screen.getByTestId("discovery-mobile-card");
     vi.spyOn(preview, "getBoundingClientRect").mockReturnValue({
       bottom: 700,

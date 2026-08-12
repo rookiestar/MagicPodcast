@@ -1,10 +1,10 @@
 package handlers_test
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -152,83 +152,28 @@ func TestDiscoveryHandler_ListCandidates_RejectsInvalidLimit(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 }
 
-func TestDiscoveryHandler_ListTodayShortlist_ReturnsSharedCollection(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:discovery_handler_today?mode=memory&cache=shared"), &gorm.Config{})
+func TestDiscoveryHandler_SummaryListAndCandidateDetailSplitHeavyContent(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:discovery_handler_summary?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.Podcast{},
 		&models.Episode{},
 		&models.EpisodeTriageDecision{},
 	))
+
 	podcast := models.Podcast{
-		Title:        "今日备选节目",
-		FeedURL:      "https://example.com/today.xml",
-		XYZID:        "discovery-handler-today-podcast",
+		Title:        "按需详情节目",
+		FeedURL:      "https://example.com/detail.xml",
+		XYZID:        "discovery-handler-detail-podcast",
 		IsSubscribed: true,
 	}
 	require.NoError(t, db.Create(&podcast).Error)
 	episode := models.Episode{
 		PodcastID:     podcast.ID,
-		Title:         "今日保留单集",
-		GUID:          "discovery-handler-today-episode",
+		Title:         "按需详情单集",
+		GUID:          "discovery-handler-detail-episode",
 		PublishedDate: time.Now().UTC(),
-		ShowNotes:     "<p>今日备选摘要来源</p>",
-	}
-	require.NoError(t, db.Create(&episode).Error)
-	require.NoError(t, db.Create(&models.EpisodeTriageDecision{
-		EpisodeID: episode.ID,
-		State:     models.TriageStateShortlisted,
-		DecidedAt: time.Now().UTC(),
-	}).Error)
-	location, err := time.LoadLocation("Asia/Shanghai")
-	require.NoError(t, err)
-
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	handler := handlers.NewDiscoveryHandler(
-		services.NewDiscoveryServiceWithLocation(db, location),
-		services.NewTriageService(db),
-	)
-	router.GET("/api/v1/discovery/shortlist/today", handler.ListTodayShortlist)
-
-	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/shortlist/today", nil)
-	router.ServeHTTP(response, request)
-
-	require.Equal(t, http.StatusOK, response.Code)
-	var body struct {
-		Success bool                    `json:"success"`
-		Data    services.TodayShortlist `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-	require.True(t, body.Success)
-	assert.Equal(t, "Asia/Shanghai", body.Data.Timezone)
-	require.Len(t, body.Data.Candidates, 1)
-	assert.Equal(t, episode.ID, body.Data.Candidates[0].EpisodeID)
-	assert.Equal(t, models.TriageStateShortlisted, body.Data.Candidates[0].DecisionState)
-}
-
-func TestDiscoveryHandler_PutDecision_PersistsIdempotentServerState(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:discovery_handler_decision?mode=memory&cache=shared"), &gorm.Config{})
-	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(
-		&models.Podcast{},
-		&models.Episode{},
-		&models.EpisodeTriageDecision{},
-	))
-
-	podcast := models.Podcast{
-		Title:        "真实个人库节目",
-		FeedURL:      "https://example.com/decision.xml",
-		XYZID:        "discovery-handler-decision-podcast",
-		IsSubscribed: true,
-	}
-	require.NoError(t, db.Create(&podcast).Error)
-	episode := models.Episode{
-		PodcastID:     podcast.ID,
-		Title:         "可决定单集",
-		GUID:          "discovery-handler-decision-episode",
-		PublishedDate: time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC),
+		ShowNotes:     "<p>完整正文只应由详情接口返回</p>",
 	}
 	require.NoError(t, db.Create(&episode).Error)
 
@@ -239,35 +184,143 @@ func TestDiscoveryHandler_PutDecision_PersistsIdempotentServerState(t *testing.T
 		services.NewTriageService(db),
 	)
 	router.GET("/api/v1/discovery/candidates", handler.ListCandidates)
-	router.PUT("/api/v1/discovery/candidates/:episodeID/decision", handler.PutDecision)
+	router.GET("/api/v1/discovery/candidates/:episodeID", handler.GetCandidate)
 
-	for attempt := 0; attempt < 2; attempt++ {
-		response := httptest.NewRecorder()
-		request := httptest.NewRequest(
-			http.MethodPut,
-			"/api/v1/discovery/candidates/1/decision",
-			bytes.NewBufferString(`{"state":"shortlisted"}`),
-		)
-		request.Header.Set("Content-Type", "application/json")
-		router.ServeHTTP(response, request)
-		require.Equal(t, http.StatusOK, response.Code)
+	summaryResponse := httptest.NewRecorder()
+	summaryRequest := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/discovery/candidates?limit=10&view=summary",
+		nil,
+	)
+	router.ServeHTTP(summaryResponse, summaryRequest)
+
+	require.Equal(t, http.StatusOK, summaryResponse.Code)
+	var summaryBody struct {
+		Success bool                     `json:"success"`
+		Data    []map[string]interface{} `json:"data"`
 	}
+	require.NoError(t, json.Unmarshal(summaryResponse.Body.Bytes(), &summaryBody))
+	require.True(t, summaryBody.Success)
+	require.Len(t, summaryBody.Data, 1)
+	assert.Equal(t, true, summaryBody.Data[0]["metadata_only"])
+	assert.Contains(t, summaryBody.Data[0]["excerpt"], "完整正文只应由详情接口返回")
+	assert.NotContains(t, summaryBody.Data[0], "show_notes")
+	assert.NotContains(t, summaryBody.Data[0], "pre_reads")
 
-	var decisionCount int64
-	require.NoError(t, db.Model(&models.EpisodeTriageDecision{}).Count(&decisionCount).Error)
-	assert.Equal(t, int64(1), decisionCount)
+	detailResponse := httptest.NewRecorder()
+	detailRequest := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/discovery/candidates/"+strconv.FormatUint(uint64(episode.ID), 10),
+		nil,
+	)
+	router.ServeHTTP(detailResponse, detailRequest)
+
+	require.Equal(t, http.StatusOK, detailResponse.Code)
+	var detailBody struct {
+		Success bool                        `json:"success"`
+		Data    services.DiscoveryCandidate `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(detailResponse.Body.Bytes(), &detailBody))
+	assert.Equal(t, episode.ShowNotes, detailBody.Data.ShowNotes)
+	assert.Len(t, detailBody.Data.PreReads, 4)
+	assert.False(t, detailBody.Data.MetadataOnly)
+}
+
+func TestDiscoveryHandler_ListHomepageReports_ReturnsTodayAndDecisions(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:discovery_handler_reports?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.Workflow{},
+		&models.Job{},
+		&models.Report{},
+		&models.Podcast{},
+		&models.Episode{},
+		&models.EpisodeTriageDecision{},
+	))
+
+	location, err := time.LoadLocation("Asia/Shanghai")
+	require.NoError(t, err)
+	// Use real local "today" so we don't need to poke the service clock.
+	completedAt := time.Now().In(location).Add(-time.Hour)
+
+	workflow := models.Workflow{
+		Name:              "首页日报",
+		Schedule:          "0 0 8 * * *",
+		ScopeType:         models.ScopeTypeAllSubscribed,
+		IsEnabled:         true,
+		PublishToHomepage: true,
+		ReportType:        "daily",
+	}
+	require.NoError(t, db.Create(&workflow).Error)
+	end := completedAt.UTC()
+	job := models.Job{
+		WorkflowID:  workflow.ID,
+		Status:      models.JobStatusCompleted,
+		TriggeredBy: "cron",
+		EndTime:     &end,
+	}
+	require.NoError(t, db.Create(&job).Error)
+
+	podcast := models.Podcast{
+		Title: "报告节目", FeedURL: "https://example.com/r.xml", XYZID: "report-pod", IsSubscribed: true,
+	}
+	require.NoError(t, db.Create(&podcast).Error)
+	episode := models.Episode{
+		PodcastID: podcast.ID, Title: "报告单集", GUID: "report-ep", PublishedDate: completedAt.UTC(),
+	}
+	require.NoError(t, db.Create(&episode).Error)
+	require.NoError(t, db.Create(&models.EpisodeTriageDecision{
+		EpisodeID: episode.ID,
+		State:     models.TriageStateShortlisted,
+		DecidedAt: completedAt.UTC(),
+	}).Error)
+
+	require.NoError(t, db.Create(&models.Report{
+		JobID:             job.ID,
+		Title:             "首页日报 report",
+		Content:           "# 完整正文\n\n内容",
+		GeneratedAt:       completedAt.UTC(),
+		PublishToHomepage: true,
+		ReportType:        "daily",
+		WorkflowName:      "首页日报",
+		StructuredEpisodes: models.ReportEpisodeList{
+			{
+				EpisodeID:    episode.ID,
+				Order:        1,
+				PodcastID:    podcast.ID,
+				PodcastTitle: podcast.Title,
+				EpisodeTitle: episode.Title,
+				Context:      "节目上下文",
+			},
+		},
+	}).Error)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := handlers.NewDiscoveryHandler(
+		services.NewDiscoveryService(db),
+		services.NewTriageService(db),
+		services.NewHomepageReportServiceWithLocation(db, location),
+	)
+	router.GET("/api/v1/discovery/reports", handler.ListHomepageReports)
 
 	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/candidates", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/discovery/reports?history_limit=10", nil)
 	router.ServeHTTP(response, request)
-	require.Equal(t, http.StatusOK, response.Code)
 
+	require.Equal(t, http.StatusOK, response.Code)
 	var body struct {
-		Data []services.DiscoveryCandidate `json:"data"`
+		Success bool                            `json:"success"`
+		Data    services.HomepageReportsPayload `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
-	require.Len(t, body.Data, 1)
-	assert.Equal(t, models.TriageStateShortlisted, body.Data[0].DecisionState)
-	require.NotNil(t, body.Data[0].DecisionUpdatedAt)
-	assert.False(t, body.Data[0].DecisionUpdatedAt.IsZero())
+	require.True(t, body.Success)
+	require.Len(t, body.Data.Today, 1)
+	assert.Equal(t, "首页日报", body.Data.Today[0].WorkflowName)
+	assert.Equal(t, "daily", body.Data.Today[0].ReportType)
+	assert.Contains(t, body.Data.Today[0].Content, "完整正文")
+	require.Len(t, body.Data.Today[0].Episodes, 1)
+	assert.Equal(t, episode.ID, body.Data.Today[0].Episodes[0].EpisodeID)
+	assert.Equal(t, models.TriageStateShortlisted, body.Data.Today[0].Episodes[0].DecisionState)
+	assert.Empty(t, body.Data.History)
 }

@@ -1,13 +1,22 @@
 import type { DiscoveryCandidate } from "@/types/discovery";
 
 export const DISCOVERY_CANDIDATES_PATH =
-  "/api/v1/discovery/candidates?limit=30";
+  "/api/v1/discovery/candidates?limit=1000&view=summary";
 export const DISCOVERY_CANDIDATES_CACHE_TTL_MS = 30 * 60 * 1000;
 
 const DISCOVERY_FETCH_TIMEOUT_MS = 8000;
 const DISCOVERY_RETRY_DELAYS_MS = [1000, 2000] as const;
-const DISCOVERY_CANDIDATES_CACHE_KEY =
-  "magicpodcast:discovery-candidates:v1";
+const DISCOVERY_CANDIDATES_CACHE_KEY = "magicpodcast:discovery-candidates:v2";
+const DISCOVERY_DETAIL_CACHE_TTL_MS = 5 * 60 * 1000;
+const DISCOVERY_DETAIL_CACHE_MAX_ITEMS = 50;
+const discoveryCandidateDetails = new Map<
+  number,
+  { savedAt: number; data: DiscoveryCandidate }
+>();
+const discoveryCandidateDetailRequests = new Map<
+  number,
+  Promise<DiscoveryCandidate>
+>();
 
 interface DiscoveryCandidatesResponse {
   success: boolean;
@@ -53,9 +62,91 @@ function isDiscoveryCandidate(value: unknown): value is DiscoveryCandidate {
     typeof candidate.episode_id === "number" &&
     typeof candidate.podcast_id === "number" &&
     typeof candidate.episode_title === "string" &&
-    typeof candidate.podcast_title === "string" &&
-    Array.isArray(candidate.pre_reads)
+    typeof candidate.podcast_title === "string"
   );
+}
+
+function isDiscoveryCandidateDetail(
+  value: unknown,
+): value is DiscoveryCandidate {
+  if (!isDiscoveryCandidate(value)) return false;
+  const hasValidShowNotes =
+    (value.show_notes_status === "available" &&
+      typeof value.show_notes === "string") ||
+    (value.show_notes_status === "missing" &&
+      (value.show_notes === undefined || typeof value.show_notes === "string"));
+  return (
+    hasValidShowNotes &&
+    Array.isArray(value.pre_reads)
+  );
+}
+
+export function clearDiscoveryCandidateDetailsCache() {
+  discoveryCandidateDetails.clear();
+  discoveryCandidateDetailRequests.clear();
+}
+
+export function fetchDiscoveryCandidateDetails(
+  episodeID: number,
+  request: typeof fetch = fetch,
+): Promise<DiscoveryCandidate> {
+  const cached = discoveryCandidateDetails.get(episodeID);
+  if (cached && Date.now() - cached.savedAt <= DISCOVERY_DETAIL_CACHE_TTL_MS) {
+    return Promise.resolve(cached.data);
+  }
+  discoveryCandidateDetails.delete(episodeID);
+
+  const existing = discoveryCandidateDetailRequests.get(episodeID);
+  if (existing) return existing;
+
+  const detailRequest = (async () => {
+    const response = await request(
+      `/api/v1/discovery/candidates/${episodeID}`,
+      {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(DISCOVERY_FETCH_TIMEOUT_MS),
+      },
+    );
+    if (!response.ok) {
+      throw new DiscoveryCandidatesRequestError(
+        `Discovery candidate request failed with HTTP ${response.status}`,
+        isRetryableStatus(response.status),
+      );
+    }
+
+    const payload = (await response.json()) as {
+      success: boolean;
+      data?: DiscoveryCandidate;
+    };
+    if (!payload.success || !isDiscoveryCandidateDetail(payload.data)) {
+      throw new DiscoveryCandidatesRequestError(
+        "Discovery candidate response is invalid",
+        true,
+      );
+    }
+
+    if (discoveryCandidateDetails.size >= DISCOVERY_DETAIL_CACHE_MAX_ITEMS) {
+      const oldestEpisodeID = discoveryCandidateDetails.keys().next().value;
+      if (oldestEpisodeID !== undefined) {
+        discoveryCandidateDetails.delete(oldestEpisodeID);
+      }
+    }
+    discoveryCandidateDetails.set(episodeID, {
+      savedAt: Date.now(),
+      data: payload.data,
+    });
+    return payload.data;
+  })();
+
+  discoveryCandidateDetailRequests.set(episodeID, detailRequest);
+  const cleanup = () => {
+    if (discoveryCandidateDetailRequests.get(episodeID) === detailRequest) {
+      discoveryCandidateDetailRequests.delete(episodeID);
+    }
+  };
+  void detailRequest.then(cleanup, cleanup);
+  return detailRequest;
 }
 
 export function readDiscoveryCandidatesCache(

@@ -1,13 +1,24 @@
 package handlers
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"magicpodcast/internal/cache"
+	"magicpodcast/internal/database"
 	"magicpodcast/internal/feed"
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/scheduler"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestBatchRemainingMsForFinishedAndActiveJobs(t *testing.T) {
@@ -27,4 +38,105 @@ func TestBatchRemainingMsForFinishedAndActiveJobs(t *testing.T) {
 	// Roughly 8 minutes left of the 10-minute window; allow clock skew.
 	require.Greater(t, *activeRem, int64((7 * time.Minute).Milliseconds()))
 	require.Less(t, *activeRem, int64((9 * time.Minute).Milliseconds()))
+}
+
+func TestWorkflowHomepagePublishConfigPersistsAcrossCreateAndUpdate(t *testing.T) {
+	cache.GetCache().Clear()
+	db, err := gorm.Open(
+		sqlite.Open(fmt.Sprintf("file:workflow_homepage_config_%d?mode=memory&cache=shared", time.Now().UnixNano())),
+		&gorm.Config{},
+	)
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.Workflow{},
+		&models.Job{},
+		&models.Podcast{},
+	))
+	database.SetTestDB(db)
+	t.Cleanup(func() {
+		database.ResetDB()
+		sqlDB, openErr := db.DB()
+		if openErr == nil {
+			_ = sqlDB.Close()
+		}
+	})
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := NewWorkflowHandler(nil, scheduler.NewScheduler(db, nil), nil)
+	router.POST("/api/v1/workflows", handler.Create)
+	router.PUT("/api/v1/workflows/:id", handler.Update)
+
+	createBody := map[string]any{
+		"name":                "首页精选日报",
+		"description":         "测试发布配置",
+		"schedule":            "0 8 * * *",
+		"scope_type":          models.ScopeTypeAllSubscribed,
+		"scope_config":        models.ScopeConfig{},
+		"rules_config":        models.RulesConfig{},
+		"is_enabled":          false,
+		"publish_to_homepage": true,
+		"report_type":         "daily",
+	}
+	createJSON, err := json.Marshal(createBody)
+	require.NoError(t, err)
+	createRecorder := httptest.NewRecorder()
+	router.ServeHTTP(
+		createRecorder,
+		httptest.NewRequest(http.MethodPost, "/api/v1/workflows", bytes.NewReader(createJSON)),
+	)
+	require.Equal(t, http.StatusCreated, createRecorder.Code, createRecorder.Body.String())
+
+	var stored models.Workflow
+	require.NoError(t, db.Where("name = ?", "首页精选日报").First(&stored).Error)
+	require.True(t, stored.PublishToHomepage)
+	require.Equal(t, "daily", stored.ReportType)
+
+	updateBody := map[string]any{
+		"name":                stored.Name,
+		"description":         stored.Description,
+		"schedule":            stored.Schedule,
+		"scope_type":          stored.ScopeType,
+		"scope_config":        stored.ScopeConfig,
+		"rules_config":        stored.RulesConfig,
+		"is_enabled":          false,
+		"publish_to_homepage": true,
+		"report_type":         "weekly",
+		"confirmation_text":   fmt.Sprintf("UPDATE WORKFLOW %d", stored.ID),
+	}
+	updateJSON, err := json.Marshal(updateBody)
+	require.NoError(t, err)
+	updateRecorder := httptest.NewRecorder()
+	router.ServeHTTP(
+		updateRecorder,
+		httptest.NewRequest(
+			http.MethodPut,
+			fmt.Sprintf("/api/v1/workflows/%d", stored.ID),
+			bytes.NewReader(updateJSON),
+		),
+	)
+	require.Equal(t, http.StatusOK, updateRecorder.Code, updateRecorder.Body.String())
+
+	require.NoError(t, db.First(&stored, stored.ID).Error)
+	require.True(t, stored.PublishToHomepage)
+	require.Equal(t, "weekly", stored.ReportType)
+
+	updateBody["publish_to_homepage"] = false
+	updateBody["confirmation_text"] = fmt.Sprintf("UPDATE WORKFLOW %d", stored.ID)
+	disableJSON, err := json.Marshal(updateBody)
+	require.NoError(t, err)
+	disableRecorder := httptest.NewRecorder()
+	router.ServeHTTP(
+		disableRecorder,
+		httptest.NewRequest(
+			http.MethodPut,
+			fmt.Sprintf("/api/v1/workflows/%d", stored.ID),
+			bytes.NewReader(disableJSON),
+		),
+	)
+	require.Equal(t, http.StatusOK, disableRecorder.Code, disableRecorder.Body.String())
+
+	require.NoError(t, db.First(&stored, stored.ID).Error)
+	require.False(t, stored.PublishToHomepage)
+	require.Empty(t, stored.ReportType)
 }

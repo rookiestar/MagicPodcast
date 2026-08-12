@@ -1,7 +1,23 @@
 import { getSafeImageSource } from "./imageSourcePolicy";
 
-const DEFAULT_IMAGE_WIDTH = 128;
-const DEFAULT_IMAGE_QUALITY = 75;
+export const OPTIMIZED_IMAGE_WIDTHS = [
+  96,
+  128,
+  256,
+  384,
+  512,
+  640,
+  750,
+  828,
+  1080,
+  1200,
+  1920,
+] as const;
+export type OptimizedImageWidth = (typeof OPTIMIZED_IMAGE_WIDTHS)[number];
+
+export const DEFAULT_IMAGE_WIDTH: OptimizedImageWidth = 128;
+export const RICH_TEXT_IMAGE_WIDTH: OptimizedImageWidth = 750;
+export const DEFAULT_IMAGE_QUALITY = 75;
 const IMAGE_OPTIMIZER_PATH =
   process.env.NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH || "/_next/image.webp";
 
@@ -26,8 +42,7 @@ export function isOptimizableImageUrl(src: string) {
 
 export function getOptimizedImageUrl(
   src: string,
-  width = DEFAULT_IMAGE_WIDTH,
-  quality = DEFAULT_IMAGE_QUALITY,
+  width: OptimizedImageWidth = DEFAULT_IMAGE_WIDTH,
 ) {
   const safeSource = getSafeImageSource(src);
   if (!safeSource) {
@@ -41,7 +56,7 @@ export function getOptimizedImageUrl(
   const queryParams = new URLSearchParams({
     url: safeSource,
     w: width.toString(),
-    q: quality.toString(),
+    q: DEFAULT_IMAGE_QUALITY.toString(),
   });
 
   return `${IMAGE_OPTIMIZER_PATH}?${queryParams.toString()}`;
@@ -49,8 +64,7 @@ export function getOptimizedImageUrl(
 
 export function optimizeHtmlImageSources(
   html: string,
-  width = 768,
-  quality = DEFAULT_IMAGE_QUALITY,
+  width: OptimizedImageWidth = RICH_TEXT_IMAGE_WIDTH,
 ) {
   return html.replace(/\bsrc=(["'])([^"']+)\1/gi, (match, quote, src) => {
     const safeSource = getSafeImageSource(src);
@@ -62,7 +76,7 @@ export function optimizeHtmlImageSources(
       return `src=${quote}${safeSource}${quote}`;
     }
 
-    return `src=${quote}${getOptimizedImageUrl(safeSource, width, quality)}${quote}`;
+    return `src=${quote}${getOptimizedImageUrl(safeSource, width)}${quote}`;
   });
 }
 

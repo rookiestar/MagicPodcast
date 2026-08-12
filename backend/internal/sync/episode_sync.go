@@ -434,7 +434,7 @@ func (s *Service) refreshPodcastEpisodeSyncFieldsWithLastFetchedAt(podcast *mode
 	}
 
 	// 每次同步都从实际单集重新计算汇总，避免 feed 抓取时间或 RSS
-	// updated 字段污染“最近更新”的发布时间语义。
+	// updated 字段污染播客列表“最新单集”的发布时间语义。
 	var newestEpisode models.Episode
 	newestErr := s.db.Where("podcast_id = ?", podcast.ID).
 		Select("published_date").

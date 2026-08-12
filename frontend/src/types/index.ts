@@ -164,6 +164,23 @@ export interface RulesConfig {
   llm_user_prompt?: string; // 用户提示词模板（可选，留空使用默认）
 }
 
+export type HomepageReportType = "daily" | "weekly";
+
+export interface ReportEpisode {
+  episode_id: number;
+  order: number;
+  podcast_id: number;
+  podcast_title: string;
+  podcast_cover_url?: string;
+  episode_title: string;
+  episode_no?: string;
+  duration?: number;
+  published_date?: string;
+  image_url?: string;
+  link?: string;
+  excerpt?: string;
+}
+
 export interface Report {
   id: number;
   job_id: number;
@@ -179,6 +196,10 @@ export interface Report {
   generated_at: string;
   format: string;
   file_size: number;
+  publish_to_homepage?: boolean;
+  report_type?: string;
+  workflow_name?: string;
+  structured_episodes?: ReportEpisode[];
 
   // LLM相关字段
   llm_summary?: string; // LLM生成的摘要
@@ -196,6 +217,8 @@ export interface Workflow {
   scope_config: ScopeConfig;
   rules_config: RulesConfig;
   is_enabled: boolean;
+  publish_to_homepage?: boolean;
+  report_type?: string;
   created_at: string;
   updated_at: string;
   last_job?: Job;
@@ -314,6 +337,8 @@ export interface WorkflowRequest {
   scope_config: ScopeConfig;
   rules_config: RulesConfig;
   is_enabled: boolean;
+  publish_to_homepage?: boolean;
+  report_type?: string;
   confirmation_text?: string;
 }
 
