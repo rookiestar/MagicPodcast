@@ -121,7 +121,6 @@ export default function VirtualPodcastGrid({
   isLoading = false,
 }: VirtualPodcastGridProps) {
   const listRef = useRef<HTMLDivElement>(null);
-  const lastLoadMoreRowCountRef = useRef<number | null>(null);
   const scrollingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -198,16 +197,10 @@ export default function VirtualPodcastGrid({
     });
 
     if (!shouldLoadMore) {
-      if (!hasMore) {
-        lastLoadMoreRowCountRef.current = null;
-      }
       return;
     }
 
-    if (onLoadMore && lastLoadMoreRowCountRef.current !== rowCount) {
-      lastLoadMoreRowCountRef.current = rowCount;
-      onLoadMore();
-    }
+    onLoadMore?.();
   }, [hasUserScrolled, virtualRows, rowCount, hasMore, isLoading, onLoadMore]);
 
   if (podcasts.length === 0) {

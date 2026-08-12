@@ -206,20 +206,17 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
   );
   const isLoadingMore = isValidating && size > 1;
 
-  // 同一渲染周期内连续触发 loadMore 时，只允许一个请求把 size 加一。
-  // SWR 自带的 key 去重无法阻止多个不同 size 更新在同一批次排队，因此这里需要同步锁。
-  const loadMoreLockRef = useRef(false);
+  const lastSuccessfulPage =
+    data?.[data.length - 1]?.pagination.page ?? 0;
+  const loadMoreIntentKey = `${requestScopeKey}:${lastSuccessfulPage}:${podcasts.length}`;
+  // 分页意图由请求作用域、最后成功页和已落地唯一节目数共同标识。
+  // 同一意图可由滚动、resize、虚拟测量和重渲染反复提出，但只接受一次。
+  const acceptedLoadMoreIntentRef = useRef<string | null>(null);
   const pendingInitialPageLoadMoreScopeRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!isValidating) {
-      loadMoreLockRef.current = false;
-    }
-  }, [isValidating]);
-
-  useEffect(() => {
     pendingInitialPageLoadMoreScopeRef.current = null;
-    loadMoreLockRef.current = false;
+    acceptedLoadMoreIntentRef.current = null;
   }, [requestScopeKey]);
 
   useEffect(() => {
@@ -236,26 +233,41 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
     }
 
     pendingInitialPageLoadMoreScopeRef.current = null;
-    loadMoreLockRef.current = true;
+    if (acceptedLoadMoreIntentRef.current === loadMoreIntentKey) {
+      return;
+    }
+    acceptedLoadMoreIntentRef.current = loadMoreIntentKey;
     setSize((currentSize) => currentSize + 1);
-  }, [error, hasMore, isValidating, requestScopeKey, setSize]);
+  }, [
+    error,
+    hasMore,
+    isValidating,
+    loadMoreIntentKey,
+    requestScopeKey,
+    setSize,
+  ]);
 
   const loadMore = useCallback(() => {
-    if (loadMoreLockRef.current || !hasMore) {
+    if (
+      !hasMore ||
+      acceptedLoadMoreIntentRef.current === loadMoreIntentKey
+    ) {
       return;
     }
     if (shouldRefreshInitialPage && isValidating) {
+      acceptedLoadMoreIntentRef.current = loadMoreIntentKey;
       pendingInitialPageLoadMoreScopeRef.current = requestScopeKey;
       return;
     }
     if (size > 1 && isValidating) {
       return;
     }
-    loadMoreLockRef.current = true;
+    acceptedLoadMoreIntentRef.current = loadMoreIntentKey;
     setSize((currentSize) => currentSize + 1);
   }, [
     hasMore,
     isValidating,
+    loadMoreIntentKey,
     requestScopeKey,
     setSize,
     shouldRefreshInitialPage,
@@ -264,13 +276,13 @@ export function usePodcastListInfinite(params: UsePodcastListParams = {}) {
 
   // 失败页重试不清空已有页面，也不把分页回退到第一页。
   const retryLastPage = useCallback(() => {
-    loadMoreLockRef.current = false;
+    acceptedLoadMoreIntentRef.current = null;
     void mutate();
   }, [mutate]);
 
   const reset = useCallback(() => {
     pendingInitialPageLoadMoreScopeRef.current = null;
-    loadMoreLockRef.current = false;
+    acceptedLoadMoreIntentRef.current = null;
     setSize(1);
   }, [setSize]);
 
