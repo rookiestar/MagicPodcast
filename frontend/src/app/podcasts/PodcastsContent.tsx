@@ -174,7 +174,7 @@ export default function PodcastsContent({ initialPage }: PodcastsContentProps) {
 
   return (
     <PageLayout
-      rootClassName="editorial-page-shell"
+      rootClassName="editorial-page-shell podcast-library-shell"
       className="podcast-library-page"
       onSearchClick={openSearch}
       toolbar={{

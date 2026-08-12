@@ -15,6 +15,8 @@ const DEFAULTS = {
   json: false,
 };
 
+const ACCEPT_ENCODING = "br, gzip";
+
 function parseArgs(argv) {
   const options = { ...DEFAULTS };
 
@@ -112,7 +114,10 @@ async function timedFetch(url, options = {}) {
   try {
     const response = await fetch(url, {
       method: options.method || "GET",
-      headers: options.headers,
+      headers: {
+        "accept-encoding": ACCEPT_ENCODING,
+        ...options.headers,
+      },
       signal: controller.signal,
     });
     const headersAt = performance.now();
@@ -128,6 +133,8 @@ async function timedFetch(url, options = {}) {
       ttfbMs: headersAt - startedAt,
       totalMs: endedAt - startedAt,
       bytes: body.length,
+      encodedBytes: parseEncodedBytes(response.headers, body.length),
+      sourceBytes: parseSourceBytes(response.headers),
       headers: Object.fromEntries(response.headers.entries()),
       body,
     };
@@ -148,6 +155,26 @@ async function timedFetch(url, options = {}) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function parseEncodedBytes(headers, fallbackBytes) {
+  const encodedBytes = Number.parseInt(
+    headers.get("x-encoded-content-length") ||
+      headers.get("content-length") ||
+      "",
+    10,
+  );
+  return Number.isFinite(encodedBytes) ? encodedBytes : fallbackBytes;
+}
+
+function parseSourceBytes(headers) {
+  const sourceBytes = Number.parseInt(
+    headers.get("x-source-size") ||
+      headers.get("x-original-content-length") ||
+      "",
+    10,
+  );
+  return Number.isFinite(sourceBytes) ? sourceBytes : null;
 }
 
 async function fetchJson(baseUrl, path, options) {
@@ -253,30 +280,39 @@ function extractStaticAssets(html) {
 
 async function estimateAssetBytes(baseUrl, assetPaths, options, cache) {
   let totalBytes = 0;
+  let totalSourceBytes = 0;
   const details = [];
 
   for (const path of assetPaths) {
     if (!cache.has(path)) {
       const result = await timedFetch(joinUrl(baseUrl, path), {
-        method: "HEAD",
         timeoutMs: options.timeoutMs,
       });
-      const contentLength = Number.parseInt(result.headers["content-length"] || "", 10);
 
-      if (result.ok && Number.isFinite(contentLength)) {
-        cache.set(path, { bytes: contentLength, status: result.status });
+      if (result.ok) {
+        cache.set(path, {
+          bytes: result.encodedBytes,
+          sourceBytes: result.sourceBytes ?? result.body.length,
+          status: result.status,
+          contentEncoding: result.headers["content-encoding"] || "identity",
+        });
       } else {
-        const fallback = await timedFetch(joinUrl(baseUrl, path), { timeoutMs: options.timeoutMs });
-        cache.set(path, { bytes: fallback.bytes, status: fallback.status, error: fallback.error });
+        cache.set(path, {
+          bytes: 0,
+          sourceBytes: 0,
+          status: result.status,
+          error: result.error,
+        });
       }
     }
 
     const entry = cache.get(path);
     totalBytes += entry.bytes || 0;
+    totalSourceBytes += entry.sourceBytes || entry.bytes || 0;
     details.push({ path, ...entry });
   }
 
-  return { totalBytes, details };
+  return { totalBytes, totalSourceBytes, details };
 }
 
 async function auditPages(targets, options) {
@@ -315,6 +351,7 @@ async function auditPages(targets, options) {
       htmlBytes: latestSuccessfulBytes(samples),
       assetCount: assetPaths.length,
       assetBytes: assets.totalBytes,
+      assetSourceBytes: assets.totalSourceBytes,
       status: classifyPage(stats, assets.totalBytes, options),
       samples,
     });
@@ -473,7 +510,15 @@ function printReport(report) {
       { label: "avg", value: (row) => formatMs(row.avgTotalMs) },
       { label: "p95", value: (row) => formatMs(row.p95TotalMs) },
       { label: "html", value: (row) => formatBytes(row.htmlBytes) },
-      { label: "assets", value: (row) => `${row.assetCount}/${formatBytes(row.assetBytes)}` },
+      {
+        label: "assets",
+        value: (row) =>
+          `${row.assetCount}/${formatBytes(row.assetBytes)} transfer`,
+      },
+      {
+        label: "source",
+        value: (row) => formatBytes(row.assetSourceBytes),
+      },
     ],
     report.pages,
   );
@@ -515,7 +560,9 @@ function collectFindings(pages, apis, options) {
     } else if (page.status === "SLOW") {
       warnings.push(`Page ${page.name} averaged ${formatMs(page.avgTotalMs)} (${page.path})`);
     } else if (page.status === "HEAVY") {
-      warnings.push(`Page ${page.name} static assets total ${formatBytes(page.assetBytes)} (${page.path})`);
+      warnings.push(
+        `Page ${page.name} static assets transferred ${formatBytes(page.assetBytes)} (${page.path}); source size ${formatBytes(page.assetSourceBytes)}`,
+      );
     }
   }
 
