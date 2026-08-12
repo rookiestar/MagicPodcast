@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { IconAlertTriangle, IconDownload, IconRefresh, IconX } from '@tabler/icons-react'
 import { api } from '@/lib/api/client'
 import { workflowApi } from '@/lib/api'
 import { requestTypedConfirmation } from '@/lib/confirmation'
@@ -95,11 +96,17 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
 
   return (
     <div className="report-modal wf-editorial fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/50">
-      <div className="bg-white dark:bg-slate-800 rounded-none sm:rounded-lg shadow-xl w-full sm:max-w-4xl self-stretch sm:self-auto max-h-[calc(100dvh-1rem)] sm:max-h-[90vh] overflow-hidden flex flex-col m-0 sm:m-2">
+      <div
+        className="bg-white dark:bg-slate-800 rounded-none sm:rounded-lg shadow-xl w-full sm:max-w-4xl self-stretch sm:self-auto max-h-[calc(100dvh-1rem)] sm:max-h-[90vh] overflow-hidden flex flex-col m-0 sm:m-2"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="report-modal-title"
+      >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
-          <div>
-            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-50">
+        <div className="report-modal-header flex items-center justify-between border-b border-slate-200 dark:border-slate-700">
+          <div className="report-modal-heading">
+            <span className="editorial-modal-kicker">工作流报告</span>
+            <h2 id="report-modal-title" className="text-xl font-semibold text-slate-900 dark:text-slate-50">
               执行报告
             </h2>
             {report && (
@@ -110,12 +117,10 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+            className="editorial-modal-close"
             aria-label="关闭"
           >
-            <svg className="w-5 h-5 text-slate-600 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <IconX aria-hidden="true" stroke={1.8} />
           </button>
         </div>
 
@@ -133,9 +138,7 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
           ) : error ? (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6">
               <div className="flex items-start gap-3">
-                <svg className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <IconAlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5" aria-hidden="true" stroke={1.8} />
                 <div className="flex-1">
                   <h3 className="text-red-800 dark:text-red-200 font-semibold mb-1">报告加载失败</h3>
                   <p className="text-sm text-red-600 dark:text-red-400 mb-2">{error}</p>
@@ -157,9 +160,7 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
               {report.llm_error && (
                 <div className="mb-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
                   <div className="flex items-start gap-3">
-                    <svg className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M15 19a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+                    <IconAlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" aria-hidden="true" stroke={1.8} />
                     <div className="flex-1">
                       <h4 className="text-amber-800 dark:text-amber-200 font-semibold mb-1">AI摘要生成失败</h4>
                       <p className="text-sm text-amber-700 dark:text-amber-300 font-mono">{report.llm_error}</p>
@@ -178,9 +179,7 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
                           </>
                         ) : (
                           <>
-                            <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H14m0 0L9 14m0 0l-2-2m0 0L9 18m0 0a8.001 8.001 0 01-15.356-2m15.357 2H15" />
-                            </svg>
+                            <IconRefresh className="w-4 h-4 text-slate-500" aria-hidden="true" stroke={1.8} />
                             <span>重新生成摘要</span>
                           </>
                         )}
@@ -195,7 +194,7 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+        <div className="report-modal-footer flex items-center justify-between p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
           {report && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600 dark:text-slate-400">
               <div className="flex items-center gap-1">
@@ -232,9 +231,7 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
                 }}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
+                <IconDownload className="w-4 h-4" aria-hidden="true" stroke={1.8} />
                 下载 Markdown
               </button>
             )}

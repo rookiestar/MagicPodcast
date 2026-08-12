@@ -119,6 +119,9 @@ describe("SearchSidebar", () => {
     expect(
       screen.getByRole("dialog", { name: "全站搜索" }),
     ).toHaveAttribute("aria-modal", "true");
+    expect(
+      screen.getByRole("dialog", { name: "全站搜索" }),
+    ).toHaveAttribute("aria-labelledby", "search-workbench-title");
     expect(screen.getByRole("button", { name: "全部 (22)" })).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -131,6 +134,24 @@ describe("SearchSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "节目 (11)" }));
 
     expect(setSearchType).toHaveBeenCalledWith("podcasts");
+  });
+
+  it("renders podcast results as one readable list", () => {
+    mockSearchSidebarState();
+
+    const { container } = render(
+      <SearchSidebar isOpen onClose={vi.fn()} />,
+    );
+
+    expect(
+      container.querySelectorAll(".search-podcast-result"),
+    ).toHaveLength(10);
+    expect(
+      container.querySelector(".search-podcast-result > .search-result-cover"),
+    ).toBeTruthy();
+    expect(
+      container.querySelector(".search-podcast-result > .search-result-copy"),
+    ).toBeTruthy();
   });
 
   it("closes when pressing Escape", () => {

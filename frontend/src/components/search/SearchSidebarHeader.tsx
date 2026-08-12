@@ -35,7 +35,7 @@ export function SearchSidebarHeader({
     <header className="search-workbench-header">
       <div className="search-workbench-kicker">
         <div>
-          <span>全站搜索</span>
+          <span id="search-workbench-title">全站搜索</span>
           <small>节目与单集</small>
         </div>
         <button

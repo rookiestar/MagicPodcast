@@ -23,7 +23,7 @@ describe("SortDrawer", () => {
       />,
     );
 
-    expect(screen.queryByText("选择排序方式")).not.toBeInTheDocument();
+    expect(screen.queryByText("排序方式")).not.toBeInTheDocument();
   });
 
   it("locks page scroll while open", () => {
@@ -38,6 +38,10 @@ describe("SortDrawer", () => {
     );
 
     expect(document.body.style.overflow).toBe("hidden");
+    expect(
+      screen.getByRole("dialog", { name: "排序方式" }),
+    ).toHaveAttribute("aria-modal", "true");
+    expect(screen.getByText("播客库")).toBeInTheDocument();
     unmount();
     expect(document.body.style.overflow).toBe("");
   });
