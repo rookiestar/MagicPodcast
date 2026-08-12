@@ -1,11 +1,18 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DiscoveryPageClient from "../DiscoveryPageClient";
 import { writeDiscoveryCandidatesCache } from "@/lib/discoveryCandidates";
-import type { DiscoveryCandidate, HomepageReportsData } from "@/types/discovery";
+import type {
+  DiscoveryCandidate,
+  HomepageReportsData,
+} from "@/types/discovery";
 
 const useSWRMock = vi.hoisted(() => vi.fn());
 const apiPutMock = vi.hoisted(() => vi.fn());
+const apiDeleteMock = vi.hoisted(() => vi.fn());
+const apiPostMock = vi.hoisted(() => vi.fn());
+const revalidateConsumptionSummaryMock = vi.hoisted(() => vi.fn());
 
 vi.mock("swr", () => ({
   default: useSWRMock,
@@ -14,7 +21,13 @@ vi.mock("swr", () => ({
 vi.mock("@/lib/fetcher", () => ({
   apiClient: {
     put: apiPutMock,
+    delete: apiDeleteMock,
+    post: apiPostMock,
   },
+}));
+
+vi.mock("@/lib/api/consumption", () => ({
+  revalidateConsumptionSummary: revalidateConsumptionSummaryMock,
 }));
 
 vi.mock("@/components/layout/PageLayout", () => ({
@@ -26,15 +39,25 @@ vi.mock("@/components/layout/PageLayout", () => ({
 vi.mock("@/components/discovery/DiscoveryDesk", () => ({
   default: ({
     candidates,
+    reportContent,
+    focusContent,
+    noticeContent,
     onDecision,
+    onRead,
   }: {
     candidates: DiscoveryCandidate[];
+    reportContent?: ReactNode;
+    focusContent?: ReactNode;
+    noticeContent?: ReactNode;
     onDecision?: (
       episodeID: number,
       state: "pending" | "shortlisted",
     ) => Promise<unknown>;
+    onRead?: (episodeID: number) => Promise<unknown>;
   }) => (
-    <main aria-label="个人库最近更新">
+    <main aria-label="工作流最近更新">
+      {reportContent}
+      {noticeContent}
       {candidates.map((candidate) => (
         <article key={candidate.episode_id}>{candidate.episode_title}</article>
       ))}
@@ -54,6 +77,15 @@ vi.mock("@/components/discovery/DiscoveryDesk", () => ({
       >
         最近更新略过
       </button>
+      <button
+        type="button"
+        onClick={() => {
+          void onRead?.(1);
+        }}
+      >
+        标记已读
+      </button>
+      {focusContent}
     </main>
   ),
 }));
@@ -61,18 +93,22 @@ vi.mock("@/components/discovery/DiscoveryDesk", () => ({
 vi.mock("@/components/discovery/WorkflowReportWorkbench", () => ({
   default: ({
     todayReports,
+    historyReports = [],
     failed,
     onDecision,
   }: {
     todayReports: { workflow_name: string }[];
+    historyReports?: { workflow_name: string }[];
     failed?: boolean;
     onDecision?: (episodeID: number, state: "shortlisted") => Promise<unknown>;
-  }) =>
-    failed ? (
+  }) => {
+    const reports =
+      todayReports.length > 0 ? todayReports : historyReports.slice(0, 1);
+    return failed ? (
       <section aria-label="精选报告">报告失败</section>
-    ) : todayReports.length > 0 ? (
+    ) : reports.length > 0 ? (
       <section aria-label="精选报告">
-        {todayReports.map((report) => (
+        {reports.map((report) => (
           <div key={report.workflow_name}>{report.workflow_name}</div>
         ))}
         <button
@@ -84,7 +120,12 @@ vi.mock("@/components/discovery/WorkflowReportWorkbench", () => ({
           报告加入备选
         </button>
       </section>
-    ) : null,
+    ) : null;
+  },
+}));
+
+vi.mock("@/components/discovery/DiscoveryFocusSummary", () => ({
+  default: () => <aside aria-label="Focus 快捷摘要" />,
 }));
 
 const candidates: DiscoveryCandidate[] = [
@@ -98,7 +139,7 @@ const candidates: DiscoveryCandidate[] = [
     episode_no: "E1",
     duration: 1800,
     candidate_time: "2026-07-29T08:00:00+08:00",
-    time_basis: "published_date",
+    time_basis: "fetched_at",
     source: "最近更新",
     show_notes: "<p>默认首页摘要来源</p>",
     show_notes_status: "available",
@@ -156,6 +197,8 @@ describe("DiscoveryPageClient", () => {
   beforeEach(() => {
     useSWRMock.mockReset();
     apiPutMock.mockReset();
+    apiDeleteMock.mockReset();
+    apiPostMock.mockReset();
     window.sessionStorage.clear();
   });
 
@@ -172,11 +215,11 @@ describe("DiscoveryPageClient", () => {
     render(<DiscoveryPageClient />);
 
     expect(
-      screen.getByRole("main", { name: "正在读取个人库最近更新" }),
+      screen.getByRole("main", { name: "正在读取工作流最近更新" }),
     ).toHaveAttribute("aria-busy", "true");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(useSWRMock).toHaveBeenCalledWith(
-      "/api/v1/discovery/candidates?limit=30",
+      "/api/v1/discovery/candidates?limit=1000",
       expect.any(Function),
       expect.objectContaining({
         keepPreviousData: true,
@@ -212,7 +255,7 @@ describe("DiscoveryPageClient", () => {
       screen.getByText("正在后台更新，当前显示上次加载结果…"),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("main", { name: "正在读取个人库最近更新" }),
+      screen.queryByRole("main", { name: "正在读取工作流最近更新" }),
     ).not.toBeInTheDocument();
   });
 
@@ -250,11 +293,9 @@ describe("DiscoveryPageClient", () => {
     render(<DiscoveryPageClient />);
 
     expect(
-      screen.getByRole("main", { name: "正在读取个人库最近更新" }),
+      screen.getByRole("main", { name: "正在读取工作流最近更新" }),
     ).toHaveAttribute("aria-busy", "false");
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "最近更新暂时无法读取",
-    );
+    expect(screen.getByRole("alert")).toHaveTextContent("最近更新暂时无法读取");
 
     fireEvent.click(screen.getByRole("button", { name: "重新尝试" }));
     expect(candidatesMutate).toHaveBeenCalledTimes(1);
@@ -309,7 +350,7 @@ describe("DiscoveryPageClient", () => {
     expect(screen.getByText("报告失败")).toBeInTheDocument();
   });
 
-  it("does not mount report workbench when only history exists (#94)", () => {
+  it("shows the latest available report when only history exists", () => {
     mockSWRPair({
       candidates: { data: candidates },
       reports: {
@@ -339,7 +380,8 @@ describe("DiscoveryPageClient", () => {
 
     render(<DiscoveryPageClient initialCandidates={candidates} />);
     expect(screen.getByText("保留的最近更新")).toBeInTheDocument();
-    expect(screen.queryByLabelText("精选报告")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("精选报告")).toBeInTheDocument();
+    expect(screen.getByText("往期")).toBeInTheDocument();
   });
 
   it("deduplicates the same episode decision across report and recent updates (#94)", async () => {
@@ -380,39 +422,40 @@ describe("DiscoveryPageClient", () => {
 
     expect(apiPutMock).toHaveBeenCalledTimes(1);
     expect(apiPutMock).toHaveBeenCalledWith(
-      "/api/v1/discovery/candidates/1/decision",
-      { state: "shortlisted" },
+      "/api/v1/consumption/episodes/1/queue",
+      { queue_state: "inbox" },
     );
 
     resolveRequest?.({
       data: {
         data: {
           episode_id: 1,
-          state: "shortlisted",
-          decision_updated_at: "2026-08-10T12:00:00Z",
+          queue_state: "inbox",
+          queue_updated_at: "2026-08-10T12:00:00Z",
         },
       },
     });
-    await screen.findByText("保留的最近更新");
+    await waitFor(() =>
+      expect(revalidateConsumptionSummaryMock).toHaveBeenCalledTimes(1),
+    );
   });
 
   it("serializes different decisions for the same episode without losing the later intent (#94)", async () => {
     let resolveFirst: ((value: unknown) => void) | undefined;
-    apiPutMock
-      .mockReturnValueOnce(
-        new Promise((resolve) => {
-          resolveFirst = resolve;
-        }),
-      )
-      .mockResolvedValueOnce({
+    apiPutMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFirst = resolve;
+      }),
+    );
+    apiDeleteMock.mockResolvedValueOnce({
+      data: {
         data: {
-          data: {
-            episode_id: 1,
-            state: "pending",
-            decision_updated_at: "2026-08-10T12:01:00Z",
-          },
+          episode_id: 1,
+          queue_state: null,
+          queue_updated_at: "2026-08-10T12:01:00Z",
         },
-      });
+      },
+    });
     mockSWRPair({
       candidates: { data: candidates },
       reports: {
@@ -447,16 +490,19 @@ describe("DiscoveryPageClient", () => {
       data: {
         data: {
           episode_id: 1,
-          state: "shortlisted",
-          decision_updated_at: "2026-08-10T12:00:00Z",
+          queue_state: "inbox",
+          queue_updated_at: "2026-08-10T12:00:00Z",
         },
       },
     });
 
-    await waitFor(() => expect(apiPutMock).toHaveBeenCalledTimes(2));
-    expect(apiPutMock.mock.calls.map(([, body]) => body)).toEqual([
-      { state: "shortlisted" },
-      { state: "pending" },
-    ]);
+    await waitFor(() => expect(apiDeleteMock).toHaveBeenCalledTimes(1));
+    expect(apiPutMock).toHaveBeenCalledWith(
+      "/api/v1/consumption/episodes/1/queue",
+      { queue_state: "inbox" },
+    );
+    expect(apiDeleteMock).toHaveBeenCalledWith(
+      "/api/v1/consumption/episodes/1/queue",
+    );
   });
 });

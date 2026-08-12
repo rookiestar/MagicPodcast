@@ -1,13 +1,12 @@
 import type { DiscoveryCandidate } from "@/types/discovery";
 
 export const DISCOVERY_CANDIDATES_PATH =
-  "/api/v1/discovery/candidates?limit=30";
+  "/api/v1/discovery/candidates?limit=1000";
 export const DISCOVERY_CANDIDATES_CACHE_TTL_MS = 30 * 60 * 1000;
 
 const DISCOVERY_FETCH_TIMEOUT_MS = 8000;
 const DISCOVERY_RETRY_DELAYS_MS = [1000, 2000] as const;
-const DISCOVERY_CANDIDATES_CACHE_KEY =
-  "magicpodcast:discovery-candidates:v1";
+const DISCOVERY_CANDIDATES_CACHE_KEY = "magicpodcast:discovery-candidates:v1";
 
 interface DiscoveryCandidatesResponse {
   success: boolean;

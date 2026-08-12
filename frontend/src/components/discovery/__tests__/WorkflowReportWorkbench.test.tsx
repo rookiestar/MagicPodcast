@@ -24,8 +24,7 @@ vi.mock("@/lib/discoveryReports", async () => {
   );
   return {
     ...actual,
-    fetchHomepageReportDetail: (...args: unknown[]) =>
-      fetchDetailMock(...args),
+    fetchHomepageReportDetail: (...args: unknown[]) => fetchDetailMock(...args),
   };
 });
 
@@ -76,6 +75,7 @@ describe("WorkflowReportWorkbench", () => {
     expect(
       screen.getByRole("heading", { name: "精选报告", level: 2 }),
     ).toBeInTheDocument();
+    expect(screen.getByText("CURATED REPORTS")).toBeInTheDocument();
     expect(
       screen.queryByRole("listbox", { name: "当天报告" }),
     ).not.toBeInTheDocument();
@@ -124,22 +124,69 @@ describe("WorkflowReportWorkbench", () => {
     );
   });
 
-  it("hides the entire region when today is empty even if history exists (#94)", () => {
-    const { container } = render(
+  it("shows every report from the latest historical day when today is empty", async () => {
+    const firstMetadata = makeReport({
+      id: 9,
+      workflow_name: "科技日报",
+      metadata_only: true,
+      content: "",
+      completed_at: "2026-08-10T08:00:00Z",
+    });
+    const secondMetadata = makeReport({
+      id: 8,
+      workflow_name: "投资日报",
+      metadata_only: true,
+      content: "",
+      completed_at: "2026-08-10T07:00:00Z",
+    });
+    const olderMetadata = makeReport({
+      id: 7,
+      workflow_name: "更早报告",
+      metadata_only: true,
+      content: "",
+      completed_at: "2026-08-09T08:00:00Z",
+    });
+    const firstDetail = makeReport({
+      id: 9,
+      workflow_name: "科技日报",
+      content: "# 科技日报\n\n科技正文",
+      metadata_only: false,
+      completed_at: "2026-08-10T08:00:00Z",
+    });
+    const secondDetail = makeReport({
+      id: 8,
+      workflow_name: "投资日报",
+      content: "# 投资日报\n\n投资正文",
+      metadata_only: false,
+      completed_at: "2026-08-10T07:00:00Z",
+    });
+    fetchDetailMock.mockImplementation((id: number) =>
+      Promise.resolve(id === 9 ? firstDetail : secondDetail),
+    );
+
+    render(
       <WorkflowReportWorkbench
         todayReports={[]}
-        historyReports={[
-          makeReport({
-            id: 9,
-            workflow_name: "往期",
-            metadata_only: true,
-            content: "",
-          }),
-        ]}
+        historyReports={[firstMetadata, secondMetadata, olderMetadata]}
       />,
     );
-    expect(container).toBeEmptyDOMElement();
-    expect(screen.queryByText("今日暂无有效报告")).not.toBeInTheDocument();
+
+    expect(
+      screen.getByRole("region", { name: "精选报告" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("最新往期 · 1 / 2")).toBeInTheDocument();
+    expect(fetchDetailMock).toHaveBeenCalledWith(9);
+    await waitFor(() =>
+      expect(screen.getByText("科技正文")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "下一份报告" }));
+    expect(screen.getByText("最新往期 · 2 / 2")).toBeInTheDocument();
+    expect(fetchDetailMock).toHaveBeenCalledWith(8);
+    await waitFor(() =>
+      expect(screen.getByText("投资正文")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("更早报告")).not.toBeInTheDocument();
   });
 
   it("switches reports via compact header controls and collapses episodes", () => {
@@ -194,7 +241,7 @@ describe("WorkflowReportWorkbench", () => {
     expect(screen.queryByText("B")).not.toBeInTheDocument();
   });
 
-  it("keeps expand and shortlist as independent non-nested controls (#94)", async () => {
+  it("keeps expand and collect as independent controls and shows report-authored rationale", async () => {
     const user = userEvent.setup();
     const onDecision = vi.fn(
       async (_episodeID: number, state: "pending" | "shortlisted") => ({
@@ -240,33 +287,61 @@ describe("WorkflowReportWorkbench", () => {
       name: /第一集/,
     });
     fireEvent.click(expandFirst);
+    expect(screen.getByText("报告推荐")).toBeInTheDocument();
+    expect(screen.getByText("不应展示的推荐依据")).toBeInTheDocument();
     expect(screen.getByText("Show Notes")).toBeInTheDocument();
     expect(screen.getByText("Shownotes 一")).toBeInTheDocument();
-    expect(screen.queryByText("推荐依据")).not.toBeInTheDocument();
-    expect(screen.queryByText("不应展示的推荐依据")).not.toBeInTheDocument();
 
-    const shortlist = screen.getAllByLabelText("加入今日备选")[0];
-    expect(expandFirst.contains(shortlist)).toBe(false);
+    const collect = screen.getAllByLabelText("收集到 Inbox")[0];
+    expect(expandFirst.contains(collect)).toBe(false);
 
-    shortlist.focus();
+    collect.focus();
     await user.keyboard("{Enter}");
     await waitFor(() => {
       expect(onDecision).toHaveBeenCalledWith(31, "shortlisted");
     });
-    // Expand state unchanged by shortlist.
+    // Expand state remains open; Discovery does not remove an existing queue.
     expect(screen.getByText("Shownotes 一")).toBeInTheDocument();
-
-    const removeFromShortlist = screen.getAllByLabelText("移出今日备选")[0];
-    removeFromShortlist.focus();
-    await user.keyboard(" ");
-    await waitFor(() => {
-      expect(onDecision).toHaveBeenNthCalledWith(2, 31, "pending");
-    });
-    expect(screen.getByText("Shownotes 一")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("已在 Inbox")[0]).toBeDisabled();
+    expect(onDecision).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: /第二集/ }));
     expect(screen.getByText("Shownotes 一")).toBeInTheDocument();
     expect(screen.getByText("Shownotes 二")).toBeInTheDocument();
+    expect(
+      screen.getByText("这份报告未提供可核对的推荐理由。"),
+    ).toBeInTheDocument();
+  });
+
+  it("preserves an existing Focus state instead of resetting it to Inbox", () => {
+    const onDecision = vi.fn();
+    render(
+      <WorkflowReportWorkbench
+        todayReports={[
+          makeReport({
+            id: 4,
+            workflow_name: "Focus 日报",
+            episodes: [
+              {
+                episode_id: 41,
+                order: 1,
+                podcast_id: 1,
+                podcast_title: "P",
+                episode_title: "已投入单集",
+                decision_state: "shortlisted",
+                queue_state: "focus",
+              },
+            ],
+          }),
+        ]}
+        onDecision={onDecision}
+      />,
+    );
+
+    const state = screen.getByRole("button", { name: "已在 Focus" });
+    expect(state).toBeDisabled();
+    fireEvent.click(state);
+    expect(onDecision).not.toHaveBeenCalled();
   });
 
   it("loads history on demand and restores prior today index on back (#94/#95)", async () => {
@@ -308,7 +383,9 @@ describe("WorkflowReportWorkbench", () => {
     expect(screen.getByText("2 / 2")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /往期/ }));
-    expect(screen.getByRole("dialog", { name: "往期报告" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: "往期报告" }),
+    ).toBeInTheDocument();
     fireEvent.click(
       within(screen.getByRole("dialog", { name: "往期报告" })).getByText(
         "上周周报",
@@ -343,7 +420,9 @@ describe("WorkflowReportWorkbench", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /往期/ }));
-    expect(screen.getByRole("dialog", { name: "往期报告" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: "往期报告" }),
+    ).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(
@@ -361,7 +440,7 @@ describe("WorkflowReportWorkbench", () => {
     expect(onRetry).toHaveBeenCalled();
   });
 
-  it("omits recommendation placeholders when Show Notes are unavailable", () => {
+  it("shows a real report recommendation even when Show Notes are unavailable", () => {
     render(
       <WorkflowReportWorkbench
         todayReports={[
@@ -389,8 +468,8 @@ describe("WorkflowReportWorkbench", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /无简介单集/ }));
     expect(screen.queryByText("Show Notes")).not.toBeInTheDocument();
-    expect(screen.queryByText("推荐依据")).not.toBeInTheDocument();
-    expect(screen.queryByText("不应展示")).not.toBeInTheDocument();
+    expect(screen.getByText("报告推荐")).toBeInTheDocument();
+    expect(screen.getByText("不应展示")).toBeInTheDocument();
     expect(screen.getByText("打开原单集")).toBeInTheDocument();
   });
 

@@ -1,8 +1,10 @@
 "use client";
 
-import { IconSearch } from "@tabler/icons-react";
+import { IconInbox, IconSearch } from "@tabler/icons-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import useSWR from "swr";
+import { consumptionApi } from "@/lib/api/consumption";
 import { CompactLogo } from "./Logo";
 
 const navItems = [
@@ -33,6 +35,15 @@ export default function AppNavbar({
   syncStatus,
 }: AppNavbarProps) {
   const pathname = usePathname();
+  const { data: consumptionSummary } = useSWR(
+    "/api/v1/consumption/summary",
+    consumptionApi.getSummary,
+    {
+      revalidateOnFocus: true,
+      shouldRetryOnError: false,
+    },
+  );
+  const inboxCount = consumptionSummary?.counts.inbox;
 
   return (
     <nav className="app-navbar" aria-label="主导航">
@@ -56,6 +67,27 @@ export default function AppNavbar({
           })}
         </div>
         <div className="app-navbar-actions">
+          <Link
+            href="/inbox"
+            prefetch={false}
+            className="app-navbar-inbox"
+            aria-current={
+              isCurrentPath(pathname, "/inbox") ? "page" : undefined
+            }
+            aria-label="Inbox"
+          >
+            <IconInbox aria-hidden="true" stroke={1.8} />
+            <span>Inbox</span>
+            {typeof inboxCount === "number" && (
+              <span
+                className="app-navbar-inbox-count"
+                aria-hidden="true"
+                title={`${inboxCount} 项待处理`}
+              >
+                {inboxCount > 99 ? "99+" : inboxCount}
+              </span>
+            )}
+          </Link>
           <button
             type="button"
             className="app-navbar-search"

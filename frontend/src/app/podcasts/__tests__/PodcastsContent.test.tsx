@@ -1,15 +1,12 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const {
-  mockUseBreakpoint,
-  mockUsePodcastListInfinite,
-  mockUseUrlState,
-} = vi.hoisted(() => ({
-  mockUseBreakpoint: vi.fn(),
-  mockUsePodcastListInfinite: vi.fn(),
-  mockUseUrlState: vi.fn(),
-}));
+const { mockUseBreakpoint, mockUsePodcastListInfinite, mockUseUrlState } =
+  vi.hoisted(() => ({
+    mockUseBreakpoint: vi.fn(),
+    mockUsePodcastListInfinite: vi.fn(),
+    mockUseUrlState: vi.fn(),
+  }));
 
 vi.mock("@/components/layout/PageLayout", () => ({
   default: ({ toolbar, children }: any) => (
@@ -127,8 +124,16 @@ describe("podcast list page navigation", () => {
   it("does not repeat the global home navigation in the page toolbar", () => {
     render(<PodcastsContent />);
 
-    expect(screen.getByRole("heading", { name: "我的订阅" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "返回首页" })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "我的订阅" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "返回首页" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "导入订阅" })).toHaveAttribute(
+      "href",
+      "/import",
+    );
   });
 
   it("starts the first list request with the viewport page size before the breakpoint effect settles", () => {
@@ -170,12 +175,10 @@ describe("podcast list page navigation", () => {
       expect.objectContaining({ initialPage }),
     );
 
-    mockUseUrlState.mockImplementation(
-      (key: string, initialValue: unknown) => [
-        key === "sort_by" ? "title" : initialValue,
-        vi.fn(),
-      ],
-    );
+    mockUseUrlState.mockImplementation((key: string, initialValue: unknown) => [
+      key === "sort_by" ? "title" : initialValue,
+      vi.fn(),
+    ]);
     mockUsePodcastListInfinite.mockClear();
 
     render(<PodcastsContent initialPage={initialPage} />);

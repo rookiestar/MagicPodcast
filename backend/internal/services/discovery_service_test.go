@@ -63,35 +63,75 @@ func createDiscoveryEpisode(
 		ShowNotes:     "<p>可核对的 Show Notes</p>",
 		Link:          "https://example.com/episode",
 	}
+	fetchedAt := published
+	if fetchedAt.IsZero() && updated != nil {
+		fetchedAt = *updated
+	}
+	if !fetchedAt.IsZero() {
+		episode.FetchedAt = &fetchedAt
+	}
 	require.NoError(t, db.Create(&episode).Error)
 	return episode
 }
 
-func TestDiscoveryService_ListRecentCandidates_UsesStableVerifiableRecency(t *testing.T) {
+func setDiscoveryEpisodeSystemTime(
+	t *testing.T,
+	db *gorm.DB,
+	episode models.Episode,
+	fetchedAt *time.Time,
+	createdAt time.Time,
+) {
+	t.Helper()
+	require.NoError(t, db.Model(&episode).UpdateColumns(map[string]interface{}{
+		"fetched_at": fetchedAt,
+		"created_at": createdAt,
+	}).Error)
+}
+
+func TestDiscoveryService_ListRecentCandidates_UsesSystemSyncRecency(t *testing.T) {
 	db := setupDiscoveryTestDB(t)
 	podcast := createDiscoveryPodcast(t, db, "个人播客")
 	service := NewDiscoveryService(db)
+	service.now = func() time.Time {
+		return time.Date(2026, 7, 30, 8, 30, 0, 0, time.UTC)
+	}
 
-	samePublished := time.Date(2026, 7, 28, 9, 0, 0, 0, time.UTC)
-	olderPublished := time.Date(2026, 7, 27, 9, 0, 0, 0, time.UTC)
-	fallbackUpdated := time.Date(2026, 7, 29, 8, 30, 0, 0, time.UTC)
+	oldSourceDate := time.Date(2025, 1, 1, 8, 0, 0, 0, time.UTC)
+	recentSourceDate := time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC)
+	latestSync := time.Date(2026, 7, 29, 8, 30, 0, 0, time.UTC)
+	sameSync := time.Date(2026, 7, 28, 9, 0, 0, 0, time.UTC)
+	legacyCreated := time.Date(2026, 7, 27, 9, 0, 0, 0, time.UTC)
+	outsideWindow := time.Date(2026, 7, 10, 9, 0, 0, 0, time.UTC)
 
-	older := createDiscoveryEpisode(t, db, podcast.ID, "较早发布", olderPublished, nil)
-	firstTie := createDiscoveryEpisode(t, db, podcast.ID, "同时间先写入", samePublished, nil)
-	secondTie := createDiscoveryEpisode(t, db, podcast.ID, "同时间后写入", samePublished, nil)
-	fallback := createDiscoveryEpisode(t, db, podcast.ID, "缺少发布时间", time.Time{}, &fallbackUpdated)
+	latest := createDiscoveryEpisode(t, db, podcast.ID, "最近同步", oldSourceDate, nil)
+	firstTie := createDiscoveryEpisode(t, db, podcast.ID, "同时间先写入", oldSourceDate, nil)
+	secondTie := createDiscoveryEpisode(t, db, podcast.ID, "同时间后写入", oldSourceDate, nil)
+	legacy := createDiscoveryEpisode(t, db, podcast.ID, "历史记录回退", oldSourceDate, nil)
+	stale := createDiscoveryEpisode(t, db, podcast.ID, "源站新但同步早", recentSourceDate, nil)
+	setDiscoveryEpisodeSystemTime(t, db, latest, &latestSync, latestSync)
+	setDiscoveryEpisodeSystemTime(t, db, firstTie, &sameSync, sameSync)
+	setDiscoveryEpisodeSystemTime(t, db, secondTie, &sameSync, sameSync)
+	setDiscoveryEpisodeSystemTime(t, db, legacy, nil, legacyCreated)
+	setDiscoveryEpisodeSystemTime(t, db, stale, &outsideWindow, outsideWindow)
 
 	candidates, err := service.ListRecentCandidates(20)
 
 	require.NoError(t, err)
 	require.Len(t, candidates, 4)
-	assert.Equal(t, fallback.ID, candidates[0].EpisodeID)
+	assert.Equal(t, latest.ID, candidates[0].EpisodeID)
 	assert.Equal(t, secondTie.ID, candidates[1].EpisodeID)
 	assert.Equal(t, firstTie.ID, candidates[2].EpisodeID)
-	assert.Equal(t, older.ID, candidates[3].EpisodeID)
-	assert.Equal(t, fallbackUpdated, candidates[0].CandidateTime)
-	assert.Equal(t, "updated_date", candidates[0].TimeBasis)
-	assert.Equal(t, "published_date", candidates[1].TimeBasis)
+	assert.Equal(t, legacy.ID, candidates[3].EpisodeID)
+	assert.Equal(t, latestSync, candidates[0].CandidateTime)
+	assert.Equal(t, "fetched_at", candidates[0].TimeBasis)
+	assert.Equal(t, legacyCreated, candidates[3].CandidateTime)
+	assert.Equal(t, "created_at", candidates[3].TimeBasis)
+	assert.NotContains(t, []uint{
+		candidates[0].EpisodeID,
+		candidates[1].EpisodeID,
+		candidates[2].EpisodeID,
+		candidates[3].EpisodeID,
+	}, stale.ID)
 	assert.Equal(t, "最近更新", candidates[0].Source)
 	assert.Equal(t, "个人播客", candidates[0].PodcastTitle)
 	assert.NotEmpty(t, candidates[0].ShowNotes)
@@ -124,7 +164,11 @@ func TestDiscoveryService_ListRecentCandidates_NormalizesEpisodeNoForDisplay(t *
 	withoutReliableLabel.EpisodeNo = "20240439"
 	require.NoError(t, db.Save(&withoutReliableLabel).Error)
 
-	candidates, err := NewDiscoveryService(db).ListRecentCandidates(2)
+	service := NewDiscoveryService(db)
+	service.now = func() time.Time {
+		return time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC)
+	}
+	candidates, err := service.ListRecentCandidates(2)
 
 	require.NoError(t, err)
 	require.Len(t, candidates, 2)
@@ -212,73 +256,13 @@ func TestDiscoveryService_ListRecentCandidates_DoesNotInventPreReadsWithoutEvide
 	assert.Contains(t, preReads[PreReadKindRelevant].Content, "不生成个人关联")
 }
 
-func TestDiscoveryService_ListTodayShortlisted_UsesConfiguredTimezoneAndStableOrder(t *testing.T) {
-	db := setupDiscoveryTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.EpisodeTriageDecision{}))
-	podcast := createDiscoveryPodcast(t, db, "今日备选节目")
-	first := createDiscoveryEpisode(
-		t,
-		db,
-		podcast.ID,
-		"今日较早写入",
-		time.Date(2026, 7, 28, 8, 0, 0, 0, time.UTC),
-		nil,
-	)
-	second := createDiscoveryEpisode(
-		t,
-		db,
-		podcast.ID,
-		"今日较晚写入",
-		time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC),
-		nil,
-	)
-	previousDay := createDiscoveryEpisode(
-		t,
-		db,
-		podcast.ID,
-		"昨日备选",
-		time.Date(2026, 7, 27, 8, 0, 0, 0, time.UTC),
-		nil,
-	)
-	sameDecisionTime := time.Date(2026, 7, 28, 16, 30, 0, 0, time.UTC)
-	require.NoError(t, db.Create(&models.EpisodeTriageDecision{
-		EpisodeID: first.ID,
-		State:     models.TriageStateShortlisted,
-		DecidedAt: sameDecisionTime,
-	}).Error)
-	require.NoError(t, db.Create(&models.EpisodeTriageDecision{
-		EpisodeID: second.ID,
-		State:     models.TriageStateShortlisted,
-		DecidedAt: sameDecisionTime,
-	}).Error)
-	require.NoError(t, db.Create(&models.EpisodeTriageDecision{
-		EpisodeID: previousDay.ID,
-		State:     models.TriageStateShortlisted,
-		DecidedAt: time.Date(2026, 7, 28, 15, 59, 0, 0, time.UTC),
-	}).Error)
-	location, err := time.LoadLocation("Asia/Shanghai")
-	require.NoError(t, err)
-	service := NewDiscoveryServiceWithLocation(db, location)
-	service.now = func() time.Time {
-		return time.Date(2026, 7, 29, 10, 0, 0, 0, location)
-	}
-
-	shortlist, err := service.ListTodayShortlisted()
-
-	require.NoError(t, err)
-	assert.Equal(t, "2026-07-29", shortlist.Date)
-	assert.Equal(t, "Asia/Shanghai", shortlist.Timezone)
-	require.Len(t, shortlist.Candidates, 2)
-	assert.Equal(t, second.ID, shortlist.Candidates[0].EpisodeID)
-	assert.Equal(t, first.ID, shortlist.Candidates[1].EpisodeID)
-	assert.Equal(t, models.TriageStateShortlisted, shortlist.Candidates[0].DecisionState)
-	assert.NotEmpty(t, shortlist.Candidates[0].PreReads[0].Content)
-}
-
-func TestDiscoveryService_ListRecentCandidates_ClampsLimit(t *testing.T) {
+func TestDiscoveryService_ListRecentCandidates_AllowsFullFourteenDayWindow(t *testing.T) {
 	db := setupDiscoveryTestDB(t)
 	podcast := createDiscoveryPodcast(t, db, "个人播客")
 	service := NewDiscoveryService(db)
+	service.now = func() time.Time {
+		return time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
+	}
 
 	for index := 0; index < 105; index++ {
 		createDiscoveryEpisode(
@@ -294,5 +278,29 @@ func TestDiscoveryService_ListRecentCandidates_ClampsLimit(t *testing.T) {
 	candidates, err := service.ListRecentCandidates(1000)
 
 	require.NoError(t, err)
-	assert.Len(t, candidates, 100)
+	assert.Len(t, candidates, 105)
+}
+
+func TestDiscoveryService_ListRecentCandidates_UsesFourteenDayRollingBoundary(t *testing.T) {
+	db := setupDiscoveryTestDB(t)
+	podcast := createDiscoveryPodcast(t, db, "十四天边界")
+	now := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)
+	includedAtBoundary := createDiscoveryEpisode(
+		t, db, podcast.ID, "刚好十四天", now.Add(-14*24*time.Hour), nil,
+	)
+	includedNewer := createDiscoveryEpisode(
+		t, db, podcast.ID, "窗口内", now.Add(-14*24*time.Hour+time.Second), nil,
+	)
+	createDiscoveryEpisode(
+		t, db, podcast.ID, "窗口外", now.Add(-14*24*time.Hour-time.Second), nil,
+	)
+	service := NewDiscoveryService(db)
+	service.now = func() time.Time { return now }
+
+	candidates, err := service.ListRecentCandidates(20)
+
+	require.NoError(t, err)
+	require.Len(t, candidates, 2)
+	assert.Equal(t, includedNewer.ID, candidates[0].EpisodeID)
+	assert.Equal(t, includedAtBoundary.ID, candidates[1].EpisodeID)
 }

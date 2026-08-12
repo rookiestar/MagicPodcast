@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	defaultDiscoveryCandidateLimit = 20
-	maxDiscoveryCandidateLimit     = 100
+	defaultDiscoveryCandidateLimit = 500
+	maxDiscoveryCandidateLimit     = 1000
 	discoverySourceRecentUpdates   = "最近更新"
+	discoveryRecentWindow          = 14 * 24 * time.Hour
 )
 
 type DiscoveryCandidate struct {
@@ -33,27 +34,23 @@ type DiscoveryCandidate struct {
 	ImageURL          string             `json:"image_url"`
 	DecisionState     string             `json:"decision_state"`
 	DecisionUpdatedAt *time.Time         `json:"decision_updated_at,omitempty"`
+	QueueState        *string            `json:"queue_state"`
+	DismissedAt       *time.Time         `json:"dismissed_at,omitempty"`
+	QueueUpdatedAt    *time.Time         `json:"queue_updated_at,omitempty"`
+	InProgressAt      *time.Time         `json:"in_progress_at,omitempty"`
+	ReadAt            *time.Time         `json:"read_at,omitempty"`
 	PreReads          []DiscoveryPreRead `json:"pre_reads"`
 }
 
 type DiscoveryService struct {
-	db       *gorm.DB
-	location *time.Location
-	now      func() time.Time
+	db  *gorm.DB
+	now func() time.Time
 }
 
 func NewDiscoveryService(db *gorm.DB) *DiscoveryService {
-	return NewDiscoveryServiceWithLocation(db, time.UTC)
-}
-
-func NewDiscoveryServiceWithLocation(db *gorm.DB, location *time.Location) *DiscoveryService {
-	if location == nil {
-		location = time.UTC
-	}
 	return &DiscoveryService{
-		db:       db,
-		location: location,
-		now:      time.Now,
+		db:  db,
+		now: time.Now,
 	}
 }
 
@@ -64,7 +61,11 @@ func (s *DiscoveryService) ListRecentCandidates(limit int) ([]DiscoveryCandidate
 	if limit > maxDiscoveryCandidateLimit {
 		limit = maxDiscoveryCandidateLimit
 	}
+	cutoff := s.now().UTC().Add(-discoveryRecentWindow)
+	recencyExpression := "COALESCE(episodes.fetched_at, episodes.created_at)"
 
+	// Discovery only reads episodes already persisted by configured workflows.
+	// It must not trigger or broaden podcast synchronization.
 	var episodes []models.Episode
 	err := s.db.
 		Preload("Podcast").
@@ -72,11 +73,8 @@ func (s *DiscoveryService) ListRecentCandidates(limit int) ([]DiscoveryCandidate
 		Preload("Tags").
 		Joins("JOIN podcasts ON podcasts.id = episodes.podcast_id").
 		Where("podcasts.is_subscribed = ?", true).
-		Order(`CASE
-			WHEN episodes.published_date > '0001-01-02 00:00:00' THEN episodes.published_date
-			WHEN episodes.updated_date IS NOT NULL THEN episodes.updated_date
-			ELSE episodes.updated_at
-		END DESC`).
+		Where(recencyExpression+" >= ?", cutoff).
+		Order(recencyExpression + " DESC").
 		Order("episodes.id DESC").
 		Limit(limit).
 		Find(&episodes).Error
@@ -93,61 +91,25 @@ func (s *DiscoveryService) ListRecentCandidates(limit int) ([]DiscoveryCandidate
 	return candidates, nil
 }
 
-type TodayShortlist struct {
-	Date       string               `json:"date"`
-	Timezone   string               `json:"timezone"`
-	Candidates []DiscoveryCandidate `json:"candidates"`
-}
-
-func (s *DiscoveryService) ListTodayShortlisted() (TodayShortlist, error) {
-	now := s.now().In(s.location)
-	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, s.location)
-	end := start.AddDate(0, 0, 1)
-
-	var decisions []models.EpisodeTriageDecision
-	err := s.db.
-		Preload("Episode.Podcast").
-		Preload("Episode.Podcast.Tags").
-		Preload("Episode.Tags").
-		Where(
-			"state = ? AND decided_at >= ? AND decided_at < ?",
-			models.TriageStateShortlisted,
-			start.UTC(),
-			end.UTC(),
-		).
-		Order("decided_at DESC").
-		Order("episode_id DESC").
-		Find(&decisions).Error
-	if err != nil {
-		return TodayShortlist{}, err
-	}
-
-	candidates := make([]DiscoveryCandidate, 0, len(decisions))
-	generatedAt := now.UTC()
-	for _, decision := range decisions {
-		candidate := buildDiscoveryCandidate(decision.Episode, generatedAt)
-		candidate.DecisionState = decision.State
-		candidate.DecisionUpdatedAt = &decision.DecidedAt
-		candidates = append(candidates, candidate)
-	}
-
-	return TodayShortlist{
-		Date:       start.Format("2006-01-02"),
-		Timezone:   s.location.String(),
-		Candidates: candidates,
-	}, nil
+func AttachConsumptionStateToCandidate(
+	candidate *DiscoveryCandidate,
+	state models.EpisodeTriageDecision,
+) {
+	candidate.DecisionState = state.State
+	candidate.DecisionUpdatedAt = &state.DecidedAt
+	candidate.QueueState = state.QueueState
+	candidate.DismissedAt = state.DismissedAt
+	candidate.QueueUpdatedAt = state.QueueUpdatedAt
+	candidate.InProgressAt = state.InProgressAt
+	candidate.ReadAt = state.ReadAt
 }
 
 func buildDiscoveryCandidate(episode models.Episode, preReadGeneratedAt time.Time) DiscoveryCandidate {
-	candidateTime := episode.PublishedDate
-	timeBasis := "published_date"
-	if candidateTime.IsZero() {
-		timeBasis = "updated_date"
-		if episode.UpdatedDate != nil {
-			candidateTime = *episode.UpdatedDate
-		} else {
-			candidateTime = episode.UpdatedAt
-		}
+	candidateTime := episode.CreatedAt
+	timeBasis := "created_at"
+	if episode.FetchedAt != nil && !episode.FetchedAt.IsZero() {
+		candidateTime = *episode.FetchedAt
+		timeBasis = "fetched_at"
 	}
 
 	showNotesStatus := "available"

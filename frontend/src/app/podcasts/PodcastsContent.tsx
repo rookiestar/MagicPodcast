@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { IconFileImport } from "@tabler/icons-react";
+import Link from "next/link";
 import { useTags } from "@/hooks/useTagSWR";
 import { usePodcastListInfinite } from "@/hooks/usePodcastSWR";
 import { useUrlState } from "@/hooks/useUrlState";
@@ -42,11 +44,11 @@ interface PodcastsContentProps {
   initialPage?: PodcastListPage<Podcast>;
 }
 
-export default function PodcastsContent({
-  initialPage,
-}: PodcastsContentProps) {
+export default function PodcastsContent({ initialPage }: PodcastsContentProps) {
   const [showAllTags, setShowAllTags] = useState(false);
-  const pendingScrollRestoreRef = useRef<PodcastListScrollSnapshot | null>(null);
+  const pendingScrollRestoreRef = useRef<PodcastListScrollSnapshot | null>(
+    null,
+  );
   const lastRestoreLoadRequestCountRef = useRef<number | null>(null);
   const { openSearch } = useSearch();
   const { isMobile, columns, isReady: isPageSizeReady } = useBreakpoint();
@@ -179,11 +181,21 @@ export default function PodcastsContent({
         title: "我的订阅",
         description: listDescription,
         rightContent: (
-          <PodcastListSortControls
-            sortBy={sortBy}
-            options={PODCAST_SORT_OPTIONS}
-            onSortChange={handleSortChange}
-          />
+          <div className="podcast-toolbar-actions">
+            <PodcastListSortControls
+              sortBy={sortBy}
+              options={PODCAST_SORT_OPTIONS}
+              onSortChange={handleSortChange}
+            />
+            <Link
+              href="/import"
+              prefetch={false}
+              className="podcast-import-secondary"
+            >
+              <IconFileImport aria-hidden="true" stroke={1.8} />
+              <span>导入订阅</span>
+            </Link>
+          </div>
         ),
         className: "editorial-page-toolbar",
       }}

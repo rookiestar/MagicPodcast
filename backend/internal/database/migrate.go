@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 16
+const CurrentSchemaVersion = 17
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -139,6 +139,12 @@ func migrationRegistry() []Migration {
 			Name:        "homepage-workflow-reports",
 			Description: "Add workflow homepage publish config and structured report episodes for discovery (#89/#90).",
 			Apply:       applyHomepageWorkflowReportsMigration,
+		},
+		{
+			Version:     17,
+			Name:        "episode-consumption-state",
+			Description: "Expand episode triage into one cross-day consumption state for Inbox, queues, reading, and in-progress intent (#101/#102).",
+			Apply:       applyEpisodeConsumptionStateMigration,
 		},
 	}
 }
@@ -522,6 +528,38 @@ func applyHomepageWorkflowReportsMigration(db *gorm.DB) error {
 	// AutoMigrate adds nullable-safe columns with defaults for existing rows.
 	if err := db.AutoMigrate(&models.Workflow{}, &models.Report{}); err != nil {
 		return fmt.Errorf("apply homepage workflow report columns: %w", err)
+	}
+	return nil
+}
+
+func applyEpisodeConsumptionStateMigration(db *gorm.DB) error {
+	if err := db.AutoMigrate(&models.EpisodeTriageDecision{}); err != nil {
+		return fmt.Errorf("expand episode consumption state: %w", err)
+	}
+
+	// Backfill only legacy rows that have not already been expanded. The
+	// original decided_at remains the first queue/dismissal timestamp, so the
+	// migration is repeatable without rewriting newer user actions.
+	if err := db.Exec(`
+		UPDATE episode_triage_decisions
+		SET queue_state = ?,
+		    queue_updated_at = decided_at
+		WHERE state = ?
+		  AND queue_state IS NULL
+		  AND dismissed_at IS NULL
+		  AND queue_updated_at IS NULL
+	`, models.QueueStateInbox, models.TriageStateShortlisted).Error; err != nil {
+		return fmt.Errorf("backfill shortlisted episodes into Inbox: %w", err)
+	}
+	if err := db.Exec(`
+		UPDATE episode_triage_decisions
+		SET dismissed_at = decided_at
+		WHERE state = ?
+		  AND queue_state IS NULL
+		  AND dismissed_at IS NULL
+		  AND queue_updated_at IS NULL
+	`, models.TriageStateDiscarded).Error; err != nil {
+		return fmt.Errorf("backfill discarded episodes: %w", err)
 	}
 	return nil
 }
