@@ -34,6 +34,8 @@ export interface PageToolbarProps {
   title?: React.ReactNode;
   /** 页面描述 */
   description?: string;
+  /** 移动端标题下方的轻量描述 */
+  mobileDescription?: string;
   /** 右侧操作按钮 */
   actions?: ActionButton[];
   /** 自定义左侧内容（替代面包屑和标题） */
@@ -59,6 +61,7 @@ export default function PageToolbar({
   breadcrumbs,
   title,
   description,
+  mobileDescription,
   actions,
   leftContent,
   rightContent,
@@ -94,10 +97,19 @@ export default function PageToolbar({
                   <IconArrowLeft aria-hidden="true" stroke={1.8} />
                 </Link>
               )}
-              {title && (
-                <h1 className="editorial-section-title min-w-0 text-base font-semibold text-slate-800 truncate">
-                  {title}
-                </h1>
+              {(title || mobileDescription) && (
+                <div className="page-toolbar-mobile-copy min-w-0">
+                  {title && (
+                    <h1 className="editorial-section-title min-w-0 text-base font-semibold text-slate-800 truncate">
+                      {title}
+                    </h1>
+                  )}
+                  {mobileDescription && (
+                    <p className="page-toolbar-mobile-description truncate">
+                      {mobileDescription}
+                    </p>
+                  )}
+                </div>
               )}
             </div>
 

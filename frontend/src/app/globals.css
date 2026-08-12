@@ -189,6 +189,16 @@
     min-width: 0;
   }
 
+  .page-toolbar-mobile-copy {
+    display: grid;
+    gap: 2px;
+  }
+
+  .page-toolbar-mobile-description {
+    color: #746b60;
+    font: 600 11px/1.2 var(--font-mono);
+  }
+
   .page-toolbar-back svg {
     width: 20px;
     height: 20px;

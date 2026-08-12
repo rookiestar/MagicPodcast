@@ -67,6 +67,23 @@ export default function AppNavbar({
           })}
         </div>
         <div className="app-navbar-actions">
+          {syncStatus && (
+            <span className="app-navbar-sync" role="status">
+              {syncStatus.isSyncing
+                ? "同步中"
+                : syncStatus.lastSync
+                  ? "已同步"
+                  : "未同步"}
+            </span>
+          )}
+          <button
+            type="button"
+            className="app-navbar-search"
+            aria-label="搜索"
+            onClick={onSearchClick}
+          >
+            <IconSearch aria-hidden="true" stroke={1.8} />
+          </button>
           <Link
             href="/inbox"
             prefetch={false}
@@ -88,23 +105,6 @@ export default function AppNavbar({
               </span>
             )}
           </Link>
-          <button
-            type="button"
-            className="app-navbar-search"
-            aria-label="搜索"
-            onClick={onSearchClick}
-          >
-            <IconSearch aria-hidden="true" stroke={1.8} />
-          </button>
-          {syncStatus && (
-            <span className="app-navbar-sync" role="status">
-              {syncStatus.isSyncing
-                ? "同步中"
-                : syncStatus.lastSync
-                  ? "已同步"
-                  : "未同步"}
-            </span>
-          )}
         </div>
       </div>
     </nav>

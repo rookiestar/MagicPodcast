@@ -27,4 +27,21 @@ describe("PageToolbar mobile title layout", () => {
       "editorial-title-group",
     );
   });
+
+  it("keeps an opted-in mobile description with the title", () => {
+    const { container } = render(
+      <PageToolbar
+        title="我的订阅"
+        description="共 487 个节目"
+        mobileDescription="共 487 个节目"
+      />,
+    );
+
+    expect(
+      container.querySelector(".page-toolbar-mobile-description"),
+    ).toHaveTextContent("共 487 个节目");
+    expect(
+      container.querySelector(".page-toolbar-desktop .page-toolbar-description"),
+    ).toHaveTextContent("共 487 个节目");
+  });
 });
