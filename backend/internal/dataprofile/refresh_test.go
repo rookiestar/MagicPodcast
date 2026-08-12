@@ -955,6 +955,36 @@ func TestConsistentSQLiteBackupCancellationAndBusyFailureLeaveNoPublishedBundle(
 	_ = os.Remove(destination)
 }
 
+func TestConsistentSQLiteBackupDoesNotTreatForwardProgressAsBusyTimeout(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "large-source.db")
+	sourceDB, err := sql.Open("sqlite3", source)
+	require.NoError(t, err)
+	_, err = sourceDB.Exec(`
+		CREATE TABLE payload (data BLOB NOT NULL);
+		INSERT INTO payload(data) VALUES (zeroblob(4194304));
+	`)
+	require.NoError(t, err)
+	var pageCount int
+	require.NoError(t, sourceDB.QueryRow("PRAGMA page_count").Scan(&pageCount))
+	require.Greater(t, pageCount, 256, "backup must require more than one step")
+	require.NoError(t, sourceDB.Close())
+
+	destination := filepath.Join(t.TempDir(), "large-copy.db")
+	require.NoError(t, consistentSQLiteBackupContext(
+		context.Background(),
+		source,
+		destination,
+		5*time.Millisecond,
+	))
+
+	copyDB, err := sql.Open("sqlite3", "file:"+destination+"?mode=ro")
+	require.NoError(t, err)
+	var payloadBytes int
+	require.NoError(t, copyDB.QueryRow("SELECT length(data) FROM payload").Scan(&payloadBytes))
+	require.Equal(t, 4194304, payloadBytes)
+	require.NoError(t, copyDB.Close())
+}
+
 func assertNoPublishedTransferFiles(t *testing.T, directory string) {
 	t.Helper()
 	_, databaseErr := os.Stat(filepath.Join(directory, "magicpodcast.db"))

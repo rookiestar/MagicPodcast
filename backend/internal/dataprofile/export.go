@@ -3,7 +3,6 @@ package dataprofile
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -148,15 +147,15 @@ func consistentSQLiteBackupContext(
 	ctx context.Context,
 	sourcePath,
 	destinationPath string,
-	busyTimeout time.Duration,
+	stallTimeout time.Duration,
 ) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("SQLite consistent backup canceled: %w", err)
 	}
-	if busyTimeout <= 0 {
-		return fmt.Errorf("SQLite backup timeout must be positive")
+	if stallTimeout <= 0 {
+		return fmt.Errorf("SQLite backup stall timeout must be positive")
 	}
-	timeoutMilliseconds := busyTimeout.Milliseconds()
+	timeoutMilliseconds := stallTimeout.Milliseconds()
 	if timeoutMilliseconds < 1 {
 		timeoutMilliseconds = 1
 	}
@@ -186,7 +185,6 @@ func consistentSQLiteBackupContext(
 	}
 	defer destinationConn.Close()
 
-	deadline := time.Now().Add(busyTimeout)
 	return destinationConn.Raw(func(destinationDriver any) error {
 		destinationSQLite, ok := destinationDriver.(*sqlite3.SQLiteConn)
 		if !ok {
@@ -201,30 +199,51 @@ func consistentSQLiteBackupContext(
 			if err != nil {
 				return fmt.Errorf("initialize SQLite consistent backup: %w", err)
 			}
+			lastRemaining := -1
+			var noProgressSince time.Time
 			for {
 				if err := ctx.Err(); err != nil {
 					_ = backup.Close()
 					return fmt.Errorf("SQLite consistent backup canceled: %w", err)
 				}
-				if time.Now().After(deadline) {
-					_ = backup.Close()
-					return fmt.Errorf("SQLite consistent backup timed out while the source remained busy")
-				}
 				done, err := backup.Step(256)
 				if err != nil {
-					var sqliteError sqlite3.Error
-					if errors.As(err, &sqliteError) &&
-						(sqliteError.Code == sqlite3.ErrBusy || sqliteError.Code == sqlite3.ErrLocked) {
-						time.Sleep(10 * time.Millisecond)
-						continue
-					}
 					_ = backup.Close()
 					return fmt.Errorf("copy SQLite backup pages: %w", err)
 				}
 				if done {
 					return backup.Close()
 				}
-				time.Sleep(10 * time.Millisecond)
+				pageCount := backup.PageCount()
+				remaining := backup.Remaining()
+				madeProgress := false
+				if pageCount > 0 {
+					madeProgress = remaining < pageCount &&
+						(lastRemaining < 0 || remaining < lastRemaining)
+					lastRemaining = remaining
+				}
+				retryDelay := 10 * time.Millisecond
+				if madeProgress {
+					noProgressSince = time.Time{}
+					continue
+				}
+				if noProgressSince.IsZero() {
+					noProgressSince = time.Now()
+				}
+				idleFor := time.Since(noProgressSince)
+				if idleFor >= stallTimeout {
+					_ = backup.Close()
+					return fmt.Errorf("SQLite consistent backup made no progress for %s", stallTimeout)
+				}
+				retryDelay = min(retryDelay, stallTimeout-idleFor)
+				timer := time.NewTimer(retryDelay)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					_ = backup.Close()
+					return fmt.Errorf("SQLite consistent backup canceled: %w", ctx.Err())
+				case <-timer.C:
+				}
 			}
 		})
 	})
