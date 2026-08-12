@@ -114,7 +114,7 @@ func (s *DiscoveryService) listRecentCandidateEpisodes(
 		limit = maxDiscoveryCandidateLimit
 	}
 	cutoff := s.now().UTC().Add(-discoveryRecentWindow)
-	recencyExpression := "COALESCE(episodes.fetched_at, episodes.created_at)"
+	recencyExpression := "julianday(COALESCE(episodes.fetched_at, episodes.created_at))"
 
 	// Discovery only reads episodes already persisted by configured workflows.
 	// It must not trigger or broaden podcast synchronization.
@@ -126,7 +126,7 @@ func (s *DiscoveryService) listRecentCandidateEpisodes(
 	err := query.
 		Joins("JOIN podcasts ON podcasts.id = episodes.podcast_id").
 		Where("podcasts.is_subscribed = ?", true).
-		Where(recencyExpression+" >= ?", cutoff).
+		Where(recencyExpression+" >= julianday(?)", cutoff).
 		Order(recencyExpression + " DESC").
 		Order("episodes.id DESC").
 		Limit(limit).
