@@ -61,7 +61,9 @@ func TestControllerFixtureEndToEndUsesRealBackend(t *testing.T) {
 	require.True(t, first.Managed)
 	require.True(t, first.Ready)
 	require.Equal(t, "fixture", first.Profile)
-	require.Equal(t, CurrentFixtureVersion(), first.FixtureVersion)
+	require.Equal(t, fixture.Version, first.FixtureVersion)
+	require.Equal(t, DefaultFixtureScenario, first.FixtureScenario)
+	require.Equal(t, fixture.AnchorAt.Format(time.RFC3339), first.FixtureAnchorAt)
 
 	response, err := http.Get("http://127.0.0.1:" + portString(port) + "/api/v1/podcasts?page=1&page_size=10")
 	require.NoError(t, err)
@@ -326,11 +328,13 @@ func TestSafeBackendEnvironmentDoesNotInheritCredentials(t *testing.T) {
 		Timeout:     time.Second,
 	}
 	environment := controller.safeBackendEnvironment(RuntimeState{
-		Profile:        "fixture",
-		InstanceID:     "test-instance",
-		FixtureVersion: CurrentFixtureVersion(),
-		DatabasePath:   filepath.Join(controller.ProfileHome, "fixtures", CurrentFixtureVersion(), "magicpodcast.db"),
-		Port:           18080,
+		Profile:         "fixture",
+		InstanceID:      "test-instance",
+		FixtureVersion:  CurrentFixtureVersion(),
+		FixtureScenario: DefaultFixtureScenario,
+		FixtureAnchorAt: "2026-08-13T16:00:00Z",
+		DatabasePath:    filepath.Join(controller.ProfileHome, "fixtures", CurrentFixtureVersion(), "magicpodcast.db"),
+		Port:            18080,
 	})
 	joined := strings.Join(environment, "\n")
 
@@ -338,6 +342,8 @@ func TestSafeBackendEnvironmentDoesNotInheritCredentials(t *testing.T) {
 	require.NotContains(t, joined, "/known/production.db")
 	require.Contains(t, joined, "MAGICPODCAST_SKIP_DOTENV=1")
 	require.Contains(t, joined, "MAGICPODCAST_DISABLE_SCHEDULER=1")
+	require.Contains(t, joined, "MAGICPODCAST_FIXTURE_SCENARIO="+DefaultFixtureScenario)
+	require.Contains(t, joined, "MAGICPODCAST_FIXTURE_ANCHOR_AT=2026-08-13T16:00:00Z")
 }
 
 func TestReadStateRejectsTamperedPIDCommandAndPaths(t *testing.T) {
@@ -354,17 +360,19 @@ func TestReadStateRejectsTamperedPIDCommandAndPaths(t *testing.T) {
 	require.NoError(t, os.WriteFile(commandPath, []byte("binary"), 0o700))
 	controller := Controller{ProfileHome: home}
 	valid := RuntimeState{
-		FormatVersion:  runtimeStateFormatVersion,
-		Profile:        "fixture",
-		InstanceID:     "instance",
-		SchemaVersion:  database.CurrentSchemaVersion,
-		FixtureVersion: fixture.Version,
-		DatabasePath:   workPath,
-		ManifestPath:   fixture.ManifestPath,
-		CommandPath:    commandPath,
-		PID:            os.Getpid(),
-		Port:           18080,
-		StartedAt:      "2026-08-13T00:00:00Z",
+		FormatVersion:   runtimeStateFormatVersion,
+		Profile:         "fixture",
+		InstanceID:      "instance",
+		SchemaVersion:   database.CurrentSchemaVersion,
+		FixtureVersion:  fixture.Version,
+		FixtureScenario: fixture.Scenario,
+		FixtureAnchorAt: fixture.AnchorAt.Format(time.RFC3339),
+		DatabasePath:    workPath,
+		ManifestPath:    fixture.ManifestPath,
+		CommandPath:     commandPath,
+		PID:             os.Getpid(),
+		Port:            18080,
+		StartedAt:       "2026-08-13T00:00:00Z",
 	}
 	writeRaw := func(state RuntimeState) {
 		data, marshalErr := json.Marshal(state)
@@ -466,17 +474,19 @@ func TestControllerStopWaitsForForcedProcessExit(t *testing.T) {
 
 	controller := Controller{ProfileHome: home}
 	state := RuntimeState{
-		FormatVersion:  runtimeStateFormatVersion,
-		Profile:        "fixture",
-		InstanceID:     "forced-stop",
-		SchemaVersion:  database.CurrentSchemaVersion,
-		FixtureVersion: fixture.Version,
-		DatabasePath:   workPath,
-		ManifestPath:   fixture.ManifestPath,
-		CommandPath:    commandPath,
-		PID:            command.Process.Pid,
-		Port:           18080,
-		StartedAt:      "2026-08-13T00:00:00Z",
+		FormatVersion:   runtimeStateFormatVersion,
+		Profile:         "fixture",
+		InstanceID:      "forced-stop",
+		SchemaVersion:   database.CurrentSchemaVersion,
+		FixtureVersion:  fixture.Version,
+		FixtureScenario: fixture.Scenario,
+		FixtureAnchorAt: fixture.AnchorAt.Format(time.RFC3339),
+		DatabasePath:    workPath,
+		ManifestPath:    fixture.ManifestPath,
+		CommandPath:     commandPath,
+		PID:             command.Process.Pid,
+		Port:            18080,
+		StartedAt:       "2026-08-13T00:00:00Z",
 	}
 	require.NoError(t, controller.stop(state))
 	running, err := processExists(state.PID)
@@ -503,17 +513,19 @@ func TestControllerRejectsChangingManagedPortWhileStateExists(t *testing.T) {
 		Timeout:     time.Second,
 	}
 	require.NoError(t, controller.writeState(RuntimeState{
-		FormatVersion:  runtimeStateFormatVersion,
-		Profile:        "fixture",
-		InstanceID:     "instance",
-		SchemaVersion:  database.CurrentSchemaVersion,
-		FixtureVersion: fixture.Version,
-		DatabasePath:   workPath,
-		ManifestPath:   fixture.ManifestPath,
-		CommandPath:    commandPath,
-		PID:            os.Getpid(),
-		Port:           18080,
-		StartedAt:      "2026-08-13T00:00:00Z",
+		FormatVersion:   runtimeStateFormatVersion,
+		Profile:         "fixture",
+		InstanceID:      "instance",
+		SchemaVersion:   database.CurrentSchemaVersion,
+		FixtureVersion:  fixture.Version,
+		FixtureScenario: fixture.Scenario,
+		FixtureAnchorAt: fixture.AnchorAt.Format(time.RFC3339),
+		DatabasePath:    workPath,
+		ManifestPath:    fixture.ManifestPath,
+		CommandPath:     commandPath,
+		PID:             os.Getpid(),
+		Port:            18080,
+		StartedAt:       "2026-08-13T00:00:00Z",
 	}))
 
 	_, err = controller.UseFixture(context.Background())

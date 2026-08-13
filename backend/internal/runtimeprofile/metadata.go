@@ -24,6 +24,8 @@ type Metadata struct {
 	Profile            string
 	InstanceID         string
 	FixtureVersion     string
+	FixtureScenario    string
+	FixtureAnchorAt    string
 	SnapshotID         string
 	SnapshotCapturedAt string
 }
@@ -41,6 +43,8 @@ func Load(databasePath, serverMode string) (Metadata, error) {
 		Profile:            profile,
 		InstanceID:         strings.TrimSpace(os.Getenv("MAGICPODCAST_DATA_PROFILE_INSTANCE_ID")),
 		FixtureVersion:     strings.TrimSpace(os.Getenv("MAGICPODCAST_FIXTURE_VERSION")),
+		FixtureScenario:    strings.TrimSpace(os.Getenv("MAGICPODCAST_FIXTURE_SCENARIO")),
+		FixtureAnchorAt:    strings.TrimSpace(os.Getenv("MAGICPODCAST_FIXTURE_ANCHOR_AT")),
 		SnapshotID:         strings.TrimSpace(os.Getenv("MAGICPODCAST_SNAPSHOT_ID")),
 		SnapshotCapturedAt: strings.TrimSpace(os.Getenv("MAGICPODCAST_SNAPSHOT_CAPTURED_AT")),
 	}
@@ -83,6 +87,19 @@ func Load(databasePath, serverMode string) (Metadata, error) {
 		if !safeIdentifier.MatchString(metadata.FixtureVersion) {
 			return Metadata{}, fmt.Errorf("fixture profile requires a safe fixture version")
 		}
+		legacy := strings.HasPrefix(metadata.FixtureVersion, "basic-v1")
+		if legacy {
+			if metadata.FixtureScenario != "" || metadata.FixtureAnchorAt != "" {
+				return Metadata{}, fmt.Errorf("legacy fixture profile metadata is invalid")
+			}
+		} else {
+			if !safeIdentifier.MatchString(metadata.FixtureScenario) {
+				return Metadata{}, fmt.Errorf("fixture profile requires a safe fixture scenario")
+			}
+			if _, err := time.Parse(time.RFC3339, metadata.FixtureAnchorAt); err != nil {
+				return Metadata{}, fmt.Errorf("fixture profile requires an RFC3339 anchor time: %w", err)
+			}
+		}
 	case ProfileSnapshot:
 		if !safeIdentifier.MatchString(metadata.SnapshotID) {
 			return Metadata{}, fmt.Errorf("snapshot profile requires a safe snapshot ID")
@@ -104,6 +121,12 @@ func (m Metadata) PublicFields() map[string]any {
 	}
 	if m.FixtureVersion != "" {
 		fields["fixture_version"] = m.FixtureVersion
+	}
+	if m.FixtureScenario != "" {
+		fields["fixture_scenario"] = m.FixtureScenario
+	}
+	if m.FixtureAnchorAt != "" {
+		fields["fixture_anchor_at"] = m.FixtureAnchorAt
 	}
 	if m.SnapshotID != "" {
 		fields["snapshot_id"] = m.SnapshotID

@@ -21,11 +21,12 @@
 ```bash
 ./scripts/data-profile.sh status
 ./scripts/data-profile.sh use fixture
+./scripts/data-profile.sh use fixture focus-7
 ./scripts/data-profile.sh use snapshot latest
 ./scripts/data-profile.sh use snapshot <snapshot-id>
 ```
 
-状态与 `/ready` 只显示 Profile、schema、Fixture/快照版本和捕获时间，不显示数据库绝对路径。托管后端显式跳过 `.env`、不继承生产凭据，并禁用后台工作流调度；前端继续通过既有同源代理访问后端。
+状态显示 Profile、schema、Fixture 版本/场景/锚点或快照版本/捕获时间；`/ready` 保持只返回非敏感运行元数据，均不显示数据库绝对路径。托管后端显式跳过 `.env`、不继承生产凭据，并禁用后台工作流调度；前端继续通过既有同源代理访问后端。
 
 默认数据目录是系统用户配置目录下的 `MagicPodcast/data-profiles`。可为测试指定：
 
@@ -35,6 +36,34 @@ MAGICPODCAST_DATA_PROFILE_HOME=/safe/local/path \
 ```
 
 指定目录位于仓库内时，只允许使用已被 `.gitignore` 覆盖的 `.magicpodcast-data-profiles/`；其他仓库内路径会被拒绝。目录内的数据库、快照、工作副本、状态、日志和二进制均不得进入 Git。
+
+## Fixture 场景
+
+Fixture 以 Asia/Shanghai 当前整点为固定时间锚点，版本同时包含数据集版本、场景、小时和 schema；同一小时同一场景重复生成稳定且幂等。跨小时后使用新版本，使 14 天窗口与 6/7/29/30 天提示的漂移小于 1 小时。
+
+| 场景 | 用途 |
+| --- | --- |
+| `journey`（默认） | Discovery 多日期、未读/已读、未收集/已收集；同日两份精选报告及往期；Inbox、Focus 6、Someday、Done、进行中和时间提醒 |
+| `empty` | 主要空态 |
+| `focus-0` | Focus 空态 |
+| `focus-7` | Focus 软上限边界 |
+| `focus-over-limit` | 跨端并发后超过 7 项的保留与提示 |
+| `report-empty` | 无可展示精选报告 |
+| `report-single` | 单份当日报告 |
+
+使用：
+
+```bash
+./scripts/data-profile.sh use fixture
+./scripts/data-profile.sh use fixture empty
+./scripts/data-profile.sh use fixture focus-0
+./scripts/data-profile.sh use fixture focus-7
+./scripts/data-profile.sh use fixture focus-over-limit
+./scripts/data-profile.sh use fixture report-empty
+./scripts/data-profile.sh use fixture report-single
+```
+
+默认 `journey` 场景提供 14 天窗口内外、多报告、安全链接、允许图片、危险链接、异常富文本、长标题与缺图等数据。局部请求失败继续由测试层的可控错误注入验收，不通过损坏数据库制造；Fixture 不包含系统推荐、外部笔记连接器或飞书妙记假数据。
 
 ## Snapshot 刷新
 

@@ -37,6 +37,8 @@ type RuntimeState struct {
 	InstanceID         string `json:"instance_id"`
 	SchemaVersion      int    `json:"schema_version"`
 	FixtureVersion     string `json:"fixture_version,omitempty"`
+	FixtureScenario    string `json:"fixture_scenario,omitempty"`
+	FixtureAnchorAt    string `json:"fixture_anchor_at,omitempty"`
 	SnapshotID         string `json:"snapshot_id,omitempty"`
 	SnapshotCapturedAt string `json:"snapshot_captured_at,omitempty"`
 	DatabasePath       string `json:"database_path"`
@@ -53,6 +55,8 @@ type PublicStatus struct {
 	Ready              bool   `json:"ready"`
 	SchemaVersion      int    `json:"schema_version,omitempty"`
 	FixtureVersion     string `json:"fixture_version,omitempty"`
+	FixtureScenario    string `json:"fixture_scenario,omitempty"`
+	FixtureAnchorAt    string `json:"fixture_anchor_at,omitempty"`
 	SnapshotID         string `json:"snapshot_id,omitempty"`
 	SnapshotCapturedAt string `json:"snapshot_captured_at,omitempty"`
 	InstanceID         string `json:"instance_id,omitempty"`
@@ -83,6 +87,10 @@ func DefaultProfileHome() (string, error) {
 }
 
 func (c Controller) UseFixture(ctx context.Context) (PublicStatus, error) {
+	return c.UseFixtureScenario(ctx, DefaultFixtureScenario)
+}
+
+func (c Controller) UseFixtureScenario(ctx context.Context, scenario string) (PublicStatus, error) {
 	if err := c.validate(); err != nil {
 		return PublicStatus{}, err
 	}
@@ -91,16 +99,18 @@ func (c Controller) UseFixture(ctx context.Context) (PublicStatus, error) {
 		return PublicStatus{}, err
 	}
 	defer unlock()
+	fixture, err := EnsureFixtureScenario(c.ProfileHome, scenario)
+	if err != nil {
+		return PublicStatus{}, err
+	}
 	if current, err := c.readState(); err == nil &&
 		current.Profile == runtimeprofile.ProfileFixture &&
-		current.FixtureVersion == CurrentFixtureVersion() {
+		current.FixtureVersion == fixture.Version &&
+		current.FixtureScenario == fixture.Scenario &&
+		current.FixtureAnchorAt == fixture.AnchorAt.Format(time.RFC3339) {
 		if ready, _ := c.probeReady(ctx, current); ready {
 			return publicStatusFromState(current), nil
 		}
-	}
-	fixture, err := EnsureFixture(c.ProfileHome)
-	if err != nil {
-		return PublicStatus{}, err
 	}
 	instanceID, err := randomIdentifier()
 	if err != nil {
@@ -119,14 +129,16 @@ func (c Controller) UseFixture(ctx context.Context) (PublicStatus, error) {
 		}
 	}()
 	target := RuntimeState{
-		FormatVersion:  runtimeStateFormatVersion,
-		Profile:        runtimeprofile.ProfileFixture,
-		InstanceID:     instanceID,
-		SchemaVersion:  database.CurrentSchemaVersion,
-		FixtureVersion: fixture.Version,
-		DatabasePath:   workPath,
-		ManifestPath:   fixture.ManifestPath,
-		Port:           c.Port,
+		FormatVersion:   runtimeStateFormatVersion,
+		Profile:         runtimeprofile.ProfileFixture,
+		InstanceID:      instanceID,
+		SchemaVersion:   database.CurrentSchemaVersion,
+		FixtureVersion:  fixture.Version,
+		FixtureScenario: fixture.Scenario,
+		FixtureAnchorAt: fixture.AnchorAt.Format(time.RFC3339),
+		DatabasePath:    workPath,
+		ManifestPath:    fixture.ManifestPath,
+		Port:            c.Port,
 	}
 	status, err := c.switchTo(ctx, target)
 	if err != nil {
@@ -545,6 +557,8 @@ func (c Controller) safeBackendEnvironment(state RuntimeState) []string {
 		"MAGICPODCAST_DATA_PROFILE="+state.Profile,
 		"MAGICPODCAST_DATA_PROFILE_INSTANCE_ID="+state.InstanceID,
 		"MAGICPODCAST_FIXTURE_VERSION="+state.FixtureVersion,
+		"MAGICPODCAST_FIXTURE_SCENARIO="+state.FixtureScenario,
+		"MAGICPODCAST_FIXTURE_ANCHOR_AT="+state.FixtureAnchorAt,
 		"MAGICPODCAST_SNAPSHOT_ID="+state.SnapshotID,
 		"MAGICPODCAST_SNAPSHOT_CAPTURED_AT="+state.SnapshotCapturedAt,
 		"MAGICPODCAST_RELEASE_ID=data-profile-"+state.InstanceID,
@@ -607,6 +621,8 @@ func (c Controller) probeReady(ctx context.Context, state RuntimeState) (bool, e
 		InstanceID         string `json:"data_profile_instance_id"`
 		SchemaVersion      int    `json:"schema_version"`
 		FixtureVersion     string `json:"fixture_version"`
+		FixtureScenario    string `json:"fixture_scenario"`
+		FixtureAnchorAt    string `json:"fixture_anchor_at"`
 		SnapshotID         string `json:"snapshot_id"`
 		SnapshotCapturedAt string `json:"snapshot_captured_at"`
 	}
@@ -622,8 +638,11 @@ func (c Controller) probeReady(ctx context.Context, state RuntimeState) (bool, e
 	if body.SchemaVersion != database.CurrentSchemaVersion {
 		return false, fmt.Errorf("readiness schema version %d is not current", body.SchemaVersion)
 	}
-	if state.Profile == runtimeprofile.ProfileFixture && body.FixtureVersion != state.FixtureVersion {
-		return false, fmt.Errorf("readiness fixture version mismatch")
+	if state.Profile == runtimeprofile.ProfileFixture &&
+		(body.FixtureVersion != state.FixtureVersion ||
+			body.FixtureScenario != state.FixtureScenario ||
+			body.FixtureAnchorAt != state.FixtureAnchorAt) {
+		return false, fmt.Errorf("readiness fixture metadata mismatch")
 	}
 	if state.Profile == runtimeprofile.ProfileSnapshot &&
 		(body.SnapshotID != state.SnapshotID || body.SnapshotCapturedAt != state.SnapshotCapturedAt) {
@@ -831,15 +850,36 @@ func (c Controller) validateState(state RuntimeState) error {
 
 	switch state.Profile {
 	case runtimeprofile.ProfileFixture:
-		if !isSafeIdentifier(state.FixtureVersion) || state.SnapshotID != "" || state.SnapshotCapturedAt != "" {
+		if !isSafeIdentifier(state.FixtureVersion) ||
+			state.SnapshotID != "" ||
+			state.SnapshotCapturedAt != "" {
 			return fmt.Errorf("fixture metadata is invalid")
+		}
+		legacy := strings.HasPrefix(state.FixtureVersion, "basic-v1")
+		if legacy {
+			if state.FixtureScenario != "" || state.FixtureAnchorAt != "" {
+				return fmt.Errorf("legacy fixture metadata is invalid")
+			}
+		} else {
+			if !isSafeIdentifier(state.FixtureScenario) {
+				return fmt.Errorf("fixture scenario is invalid")
+			}
+			if _, ok := fixtureScenarioSet[state.FixtureScenario]; !ok {
+				return fmt.Errorf("fixture scenario is unsupported")
+			}
+			if _, err := parseRFC3339(state.FixtureAnchorAt); err != nil {
+				return fmt.Errorf("fixture anchor time is invalid: %w", err)
+			}
 		}
 		expectedManifest := filepath.Join(root, "fixtures", state.FixtureVersion, "manifest.json")
 		if err := requireExactManagedPath(state.ManifestPath, expectedManifest); err != nil {
 			return fmt.Errorf("fixture manifest path rejected: %w", err)
 		}
 	case runtimeprofile.ProfileSnapshot:
-		if !isSafeIdentifier(state.SnapshotID) || state.FixtureVersion != "" {
+		if !isSafeIdentifier(state.SnapshotID) ||
+			state.FixtureVersion != "" ||
+			state.FixtureScenario != "" ||
+			state.FixtureAnchorAt != "" {
 			return fmt.Errorf("snapshot metadata is invalid")
 		}
 		if _, err := parseRFC3339(state.SnapshotCapturedAt); err != nil {
@@ -882,6 +922,8 @@ func publicStatusFromState(state RuntimeState) PublicStatus {
 		Ready:              true,
 		SchemaVersion:      state.SchemaVersion,
 		FixtureVersion:     state.FixtureVersion,
+		FixtureScenario:    state.FixtureScenario,
+		FixtureAnchorAt:    state.FixtureAnchorAt,
 		SnapshotID:         state.SnapshotID,
 		SnapshotCapturedAt: state.SnapshotCapturedAt,
 		InstanceID:         state.InstanceID,
@@ -892,6 +934,8 @@ func sameTarget(current, target RuntimeState) bool {
 	return current.Profile == target.Profile &&
 		current.DatabasePath == target.DatabasePath &&
 		current.FixtureVersion == target.FixtureVersion &&
+		current.FixtureScenario == target.FixtureScenario &&
+		current.FixtureAnchorAt == target.FixtureAnchorAt &&
 		current.SnapshotID == target.SnapshotID &&
 		current.SnapshotCapturedAt == target.SnapshotCapturedAt &&
 		current.Port == target.Port
