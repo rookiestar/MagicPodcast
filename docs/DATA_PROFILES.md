@@ -26,6 +26,10 @@
 ./scripts/data-profile.sh use snapshot <snapshot-id>
 ```
 
+Agent 可使用项目 Skill
+[`magicpodcast-data-profile`](../.agents/skills/magicpodcast-data-profile/SKILL.md)。
+Skill 只包装上述统一命令；人工使用方式不变。
+
 状态显示 Profile、schema、Fixture 版本/场景/锚点或快照版本/捕获时间；`/ready` 保持只返回非敏感运行元数据，均不显示数据库绝对路径。托管后端显式跳过 `.env`、不继承生产凭据，并禁用后台工作流调度；前端继续通过既有同源代理访问后端。
 
 默认数据目录是系统用户配置目录下的 `MagicPodcast/data-profiles`。可为测试指定：
@@ -96,7 +100,7 @@ export MAGICPODCAST_SNAPSHOT_TRANSFER_ADAPTER=/absolute/path/to/approved-adapter
 
 适配器必须是绝对、可执行、非符号链接的普通文件；统一命令会把自己创建的空暂存目录作为最后一个参数传入，适配器只负责将 `magicpodcast.db` 与 `manifest.json` 写入该目录，不输出路径或敏感内容。凭据必须来自受保护配置，不能放入命令参数、日志、清单或 Issue。统一命令会在成功、校验失败或传输失败后清理自己创建的暂存目录。`--transfer-dir` 仅用于已准备好的本地人工交接和自动化测试，其来源目录始终由交接方管理，不会被自动删除。
 
-脱敏规则版本 `v4`：
+脱敏规则版本 `v5`：
 
 - 清空 `sync_configs`；
 - 替换节目 Feed URL，清空节目/单集音频 URL、备用 Feed URL、工作流自定义源与私人 LLM 提示；

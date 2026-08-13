@@ -13,9 +13,9 @@ import (
 	"strings"
 )
 
-const SanitizerVersion = "v4"
+const SanitizerVersion = "v5"
 const sanitizerSchemaFingerprint = "5d426495e506d43b7fc3ee1caad82d65f65303704ac72aafc042679a1e5981f0"
-const sanitizerSchemaObjectsFingerprint = "99535ec8cf42bffbbdcc79eb5e4f7c9c7dad16ff6a5d7257f20347102858c7d0"
+const sanitizerSchemaObjectsFingerprint = "561114c2ffd2d127d2bcbdda3128332111b33d1e627d612cd556c6470d10bf3a"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 
@@ -85,6 +85,9 @@ func SanitizeSnapshot(db *sql.DB) error {
 			return fmt.Errorf("apply snapshot redaction: %w", err)
 		}
 	}
+	if err := sanitizeEpisodeGUIDs(transaction); err != nil {
+		return err
+	}
 	if err := sanitizeRichTextURLs(transaction); err != nil {
 		return err
 	}
@@ -115,6 +118,9 @@ func VerifySanitizedSnapshot(db *sql.DB) error {
 		return fmt.Errorf("sensitive sync configuration remains after sanitization")
 	}
 	if err := verifyRichTextURLs(db); err != nil {
+		return err
+	}
+	if err := verifyEpisodeGUIDs(db); err != nil {
 		return err
 	}
 	if err := verifyReviewedSearchFTS(db); err != nil {
@@ -172,11 +178,65 @@ var richTextColumns = []richTextColumn{
 	{table: "episodes", column: "content"},
 	{table: "episodes", column: "link"},
 	{table: "episodes", column: "image_url"},
-	{table: "episodes", column: "guid"},
 	{table: "reports", column: "content"},
 	{table: "reports", column: "summary"},
 	{table: "reports", column: "llm_summary"},
 	{table: "reports", column: "structured_episodes"},
+}
+
+func sanitizeEpisodeGUIDs(transaction *sql.Tx) error {
+	rows, err := transaction.Query("SELECT id, COALESCE(guid, '') FROM episodes ORDER BY id")
+	if err != nil {
+		return fmt.Errorf("read episode GUIDs for URL redaction: %w", err)
+	}
+	type update struct {
+		id int64
+	}
+	var updates []update
+	for rows.Next() {
+		var id int64
+		var value string
+		if err := rows.Scan(&id, &value); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan episode GUIDs for URL redaction: %w", err)
+		}
+		if sanitizeURLs(value) != value {
+			updates = append(updates, update{id: id})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("read episode GUIDs for URL redaction: %w", err)
+	}
+	rows.Close()
+	for _, item := range updates {
+		if _, err := transaction.Exec(
+			"UPDATE episodes SET guid = 'snapshot://episode-guid/' || id WHERE id = ?",
+			item.id,
+		); err != nil {
+			return fmt.Errorf("redact episode GUID URL: %w", err)
+		}
+	}
+	return nil
+}
+
+func verifyEpisodeGUIDs(db *sql.DB) error {
+	rows, err := db.Query("SELECT id, COALESCE(guid, '') FROM episodes ORDER BY id")
+	if err != nil {
+		return fmt.Errorf("read episode GUIDs for URL verification: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var value string
+		if err := rows.Scan(&id, &value); err != nil {
+			return fmt.Errorf("scan episode GUIDs for URL verification: %w", err)
+		}
+		if sanitizeURLs(value) != value {
+			return fmt.Errorf("episodes.guid row %d retains URL credentials, query, or fragment", id)
+		}
+	}
+	return rows.Err()
 }
 
 func sanitizeRichTextURLs(transaction *sql.Tx) error {

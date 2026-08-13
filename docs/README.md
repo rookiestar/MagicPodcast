@@ -25,6 +25,7 @@ Agent 治理以根目录 [../AGENTS.md](../AGENTS.md) 为唯一权威合同；[.
 | 部署运维 | [DEPLOYMENT.md](DEPLOYMENT.md) | 启动、部署、服务管理 |
 | 环境配置 | [ENV_SETUP.md](ENV_SETUP.md) | 前后端环境变量说明 |
 | 数据 Profile | [DATA_PROFILES.md](DATA_PROFILES.md) | 隔离网络下 Fixture/Snapshot 切换、刷新与安全边界 |
+| 数据 Profile Skill | [../.agents/skills/magicpodcast-data-profile/SKILL.md](../.agents/skills/magicpodcast-data-profile/SKILL.md) | Agent 的 status-first 安全操作入口；只调用项目统一命令 |
 | 备份恢复 | [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md) | SQLite 备份、验证和恢复 |
 | 数据库迁移 | [migration/MIGRATION_GUIDE.md](migration/MIGRATION_GUIDE.md) | 当前迁移入口、索引补齐和高风险手工迁移边界 |
 | 数据库索引 | [DATABASE_INDEX_GUIDE.md](DATABASE_INDEX_GUIDE.md) | 索引与查询性能说明 |

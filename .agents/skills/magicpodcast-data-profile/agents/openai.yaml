@@ -1,0 +1,4 @@
+interface:
+  display_name: "MagicPodcast 数据 Profile"
+  short_description: "安全查询并切换 Fixture 与 Snapshot 数据源"
+  default_prompt: "使用 $magicpodcast-data-profile 查看当前数据 Profile，并按我的明确要求安全切换。"

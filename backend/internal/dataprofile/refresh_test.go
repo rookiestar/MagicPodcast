@@ -812,6 +812,183 @@ func TestExportNormalizesReviewedProductionLegacySchemaAndRebuildsSanitizedFTS(t
 	require.Zero(t, secretMatches)
 }
 
+func TestExportAcceptsReviewedProductionHistoricalIndexes(t *testing.T) {
+	home := t.TempDir()
+	fixture, err := EnsureFixture(home)
+	require.NoError(t, err)
+	sourcePath := filepath.Join(t.TempDir(), "production-historical-indexes.db")
+	require.NoError(t, copyRegularFile(fixture.DatabasePath, sourcePath, 0o600))
+	sourceDB, err := sql.Open("sqlite3", sourcePath)
+	require.NoError(t, err)
+	for _, index := range []string{
+		"idx_jobs_compensated_by_job_id",
+		"idx_jobs_compensation_of_job_id",
+	} {
+		_, err = sourceDB.Exec("DROP INDEX " + index)
+		require.NoError(t, err)
+	}
+	for _, statement := range reviewedProductionHistoricalIndexStatements() {
+		_, err = sourceDB.Exec(statement)
+		require.NoError(t, err)
+	}
+	require.NoError(t, sourceDB.Close())
+
+	exported, err := ExportSanitizedSnapshot(
+		sourcePath,
+		t.TempDir(),
+		"snapshot-production-historical-indexes",
+		"2026-08-14T00:00:00Z",
+	)
+	require.NoError(t, err)
+	exportDB, err := sql.Open("sqlite3", "file:"+exported.DatabasePath+"?mode=ro")
+	require.NoError(t, err)
+	defer exportDB.Close()
+	for _, index := range []string{
+		"idx_jobs_compensated_by_job_id",
+		"idx_jobs_compensation_of_job_id",
+	} {
+		var count int
+		require.NoError(t, exportDB.QueryRow(
+			"SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?",
+			index,
+		).Scan(&count))
+		require.Equal(t, 1, count)
+	}
+}
+
+func TestExportSanitizesCollidingPrivateEpisodeGUIDURLs(t *testing.T) {
+	home := t.TempDir()
+	fixture, err := EnsureFixture(home)
+	require.NoError(t, err)
+	sourcePath := filepath.Join(t.TempDir(), "private-episode-guid-collision.db")
+	require.NoError(t, copyRegularFile(fixture.DatabasePath, sourcePath, 0o600))
+	sourceDB, err := sql.Open("sqlite3", sourcePath)
+	require.NoError(t, err)
+	_, err = sourceDB.Exec(`
+		UPDATE episodes
+		SET guid = CASE id
+			WHEN 2001 THEN 'https://private.example/episode?token=FIRST'
+			WHEN 2002 THEN 'https://private.example/episode?token=SECOND'
+			ELSE guid
+		END
+		WHERE id IN (2001, 2002)`)
+	require.NoError(t, err)
+	require.NoError(t, sourceDB.Close())
+
+	exported, err := ExportSanitizedSnapshot(
+		sourcePath,
+		t.TempDir(),
+		"snapshot-private-episode-guid-collision",
+		"2026-08-14T00:00:00Z",
+	)
+	require.NoError(t, err)
+	exportDB, err := sql.Open("sqlite3", "file:"+exported.DatabasePath+"?mode=ro")
+	require.NoError(t, err)
+	defer exportDB.Close()
+	var firstGUID, secondGUID string
+	require.NoError(t, exportDB.QueryRow(
+		"SELECT guid FROM episodes WHERE id = 2001",
+	).Scan(&firstGUID))
+	require.NoError(t, exportDB.QueryRow(
+		"SELECT guid FROM episodes WHERE id = 2002",
+	).Scan(&secondGUID))
+	require.Equal(t, "snapshot://episode-guid/2001", firstGUID)
+	require.Equal(t, "snapshot://episode-guid/2002", secondGUID)
+}
+
+func TestExportRejectsUnreviewedMissingCurrentIndex(t *testing.T) {
+	home := t.TempDir()
+	fixture, err := EnsureFixture(home)
+	require.NoError(t, err)
+	sourcePath := filepath.Join(t.TempDir(), "missing-current-index.db")
+	require.NoError(t, copyRegularFile(fixture.DatabasePath, sourcePath, 0o600))
+	sourceDB, err := sql.Open("sqlite3", sourcePath)
+	require.NoError(t, err)
+	_, err = sourceDB.Exec("DROP INDEX idx_podcasts_added_date_desc")
+	require.NoError(t, err)
+	require.NoError(t, sourceDB.Close())
+
+	_, err = ExportSanitizedSnapshot(
+		sourcePath,
+		t.TempDir(),
+		"snapshot-unreviewed-missing-current-index",
+		"2026-08-14T00:00:00Z",
+	)
+	require.ErrorContains(t, err, "required database index idx_podcasts_added_date_desc is missing")
+}
+
+func TestExportRejectsReviewedProductionHistoricalIndexLookalike(t *testing.T) {
+	home := t.TempDir()
+	fixture, err := EnsureFixture(home)
+	require.NoError(t, err)
+	sourcePath := filepath.Join(t.TempDir(), "production-historical-index-lookalike.db")
+	require.NoError(t, copyRegularFile(fixture.DatabasePath, sourcePath, 0o600))
+	sourceDB, err := sql.Open("sqlite3", sourcePath)
+	require.NoError(t, err)
+	_, err = sourceDB.Exec(`
+		CREATE INDEX idx_podcasts_tags_podcast_id
+		ON podcasts_tags(tag_id)`)
+	require.NoError(t, err)
+	require.NoError(t, sourceDB.Close())
+
+	_, err = ExportSanitizedSnapshot(
+		sourcePath,
+		t.TempDir(),
+		"snapshot-production-historical-index-lookalike",
+		"2026-08-14T00:00:00Z",
+	)
+	require.ErrorContains(t, err, "definition requires sanitizer review")
+}
+
+func reviewedProductionHistoricalIndexStatements() []string {
+	return []string{
+		`CREATE INDEX idx_episodes_duration ON episodes(duration)`,
+		`CREATE INDEX idx_episodes_fetched_at ON episodes(fetched_at DESC) WHERE fetched_at IS NOT NULL`,
+		`CREATE INDEX idx_episodes_published_date ON episodes(podcast_id, published_date DESC)`,
+		`CREATE INDEX idx_episodes_tags_episode_id ON episodes_tags(episode_id)`,
+		`CREATE INDEX idx_episodes_tags_tag_id ON episodes_tags(tag_id)`,
+		`CREATE INDEX idx_episodes_updated_date ON episodes(podcast_id, updated_date DESC) WHERE updated_date IS NOT NULL`,
+		`CREATE INDEX idx_job_executions_job_id_status ON job_executions(job_id, status, created_at DESC)`,
+		`CREATE INDEX idx_job_executions_podcast_status ON job_executions(podcast_id, status) WHERE podcast_id IS NOT NULL`,
+		`CREATE INDEX idx_job_executions_status_retry ON job_executions(status, created_at DESC) WHERE status = 'failed'`,
+		`CREATE INDEX idx_jobs_start_time ON jobs(start_time DESC) WHERE start_time IS NOT NULL`,
+		`CREATE INDEX idx_jobs_status_created ON jobs(status, created_at DESC)`,
+		`CREATE INDEX idx_jobs_triggered_by ON jobs(triggered_by, created_at DESC)`,
+		`CREATE INDEX idx_jobs_workflow_created ON jobs(workflow_id, created_at DESC)`,
+		`CREATE INDEX idx_jobs_workflow_status_created ON jobs(workflow_id, status, created_at DESC)`,
+		`CREATE INDEX idx_podcasts_author_fts ON podcasts(author COLLATE NOCASE)`,
+		`CREATE INDEX idx_podcasts_data_source ON podcasts(data_source)`,
+		`CREATE INDEX idx_podcasts_deleted_author ON podcasts(deleted_at, author COLLATE NOCASE)`,
+		`CREATE INDEX idx_podcasts_deleted_title ON podcasts(deleted_at, title COLLATE NOCASE)`,
+		`CREATE INDEX idx_podcasts_fetch_error_count ON podcasts(fetch_error_count DESC) WHERE fetch_error_count > 0`,
+		`CREATE INDEX idx_podcasts_is_dead ON podcasts(is_dead) WHERE is_dead = true`,
+		`CREATE INDEX idx_podcasts_is_subscribed ON podcasts(is_subscribed) WHERE is_subscribed = true`,
+		`CREATE INDEX idx_podcasts_last_fetched_at ON podcasts(last_fetched_at DESC) WHERE last_fetched_at IS NOT NULL`,
+		`CREATE INDEX idx_podcasts_newest_episode_date_desc ON podcasts(newest_episode_date DESC)`,
+		`CREATE INDEX idx_podcasts_priority_dead ON podcasts(priority, is_dead) WHERE is_dead = false`,
+		`CREATE INDEX idx_podcasts_subscribed_newest_date ON podcasts(is_subscribed, newest_episode_date DESC) WHERE is_subscribed = true`,
+		`CREATE INDEX idx_podcasts_tags_podcast_id ON podcasts_tags(podcast_id)`,
+		`CREATE INDEX idx_podcasts_tags_tag_id ON podcasts_tags(tag_id)`,
+		`CREATE INDEX idx_podcasts_title_fts ON podcasts(title COLLATE NOCASE)`,
+		`CREATE INDEX idx_podcasts_valid_priority ON podcasts(is_dead, priority DESC) WHERE is_dead = false`,
+		`CREATE INDEX idx_reports_created_at ON reports(created_at DESC)`,
+		`CREATE UNIQUE INDEX idx_sync_configs_key ON sync_configs(config_key)`,
+		`DROP INDEX idx_workflows_deleted_at;
+		 CREATE INDEX idx_workflows_deleted_at ON workflows(deleted_at)`,
+		`DROP INDEX idx_workflows_is_enabled;
+		 CREATE INDEX idx_workflows_is_enabled ON workflows(is_enabled)`,
+		`DROP INDEX idx_workflows_last_execution_at;
+		 CREATE INDEX idx_workflows_last_execution_at ON workflows(last_execution_at)`,
+		`DROP INDEX idx_workflows_last_job_id;
+		 CREATE INDEX idx_workflows_last_job_id ON workflows(last_job_id)`,
+		`DROP INDEX idx_workflows_next_run_at;
+		 CREATE INDEX idx_workflows_next_run_at ON workflows(next_run_at)`,
+		`DROP INDEX idx_workflows_scope_type;
+		 CREATE INDEX idx_workflows_scope_type ON workflows(scope_type)`,
+		`CREATE INDEX idx_workflows_enabled_schedule ON workflows(is_enabled, schedule) WHERE is_enabled = true AND schedule != ''`,
+	}
+}
+
 func TestExportRejectsUnreviewedSearchFTSSchema(t *testing.T) {
 	home := t.TempDir()
 	fixture, err := EnsureFixture(home)
