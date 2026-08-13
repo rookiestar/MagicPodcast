@@ -13,7 +13,7 @@ const (
 	defaultDiscoveryCandidateLimit = 500
 	maxDiscoveryCandidateLimit     = 1000
 	discoverySourceRecentUpdates   = "最近更新"
-	discoveryRecentWindow          = 7 * 24 * time.Hour
+	discoveryRecentWindow          = 14 * 24 * time.Hour
 )
 
 type DiscoveryCandidate struct {

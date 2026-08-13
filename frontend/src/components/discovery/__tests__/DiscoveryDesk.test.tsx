@@ -248,7 +248,7 @@ describe("DiscoveryDesk", () => {
 
     expect(
       screen.getByRole("region", { name: "工作流最近更新" }),
-    ).toHaveTextContent("按工作流同步时间 · 最近 7 天");
+    ).toHaveTextContent("按工作流同步时间 · 最近 14 天");
     expect(
       screen.getByRole("heading", {
         name: "工作流暂时没有同步到新单集",
@@ -313,9 +313,9 @@ describe("DiscoveryDesk", () => {
     expect(screen.getByRole("heading", { name: "Discovery" })).toHaveClass(
       "editorial-section-title",
     );
-    expect(screen.getByText("最近更新 · 7 天")).toBeInTheDocument();
+    expect(screen.getByText("最近更新 · 14 天")).toBeInTheDocument();
     expect(
-      screen.getByText("按工作流同步时间 · 最近 7 天"),
+      screen.getByText("按工作流同步时间 · 最近 14 天"),
     ).toBeInTheDocument();
     expect(sidebar.querySelector(".discovery-workbench-copy")).toHaveClass(
       "editorial-title-group",

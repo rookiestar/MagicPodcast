@@ -264,7 +264,7 @@ func TestDiscoveryService_ListRecentCandidates_DoesNotInventPreReadsWithoutEvide
 	assert.Contains(t, preReads[PreReadKindRelevant].Content, "不生成个人关联")
 }
 
-func TestDiscoveryService_ListRecentCandidates_AllowsFullSevenDayWindow(t *testing.T) {
+func TestDiscoveryService_ListRecentCandidates_DoesNotTruncateLargeWindow(t *testing.T) {
 	db := setupDiscoveryTestDB(t)
 	podcast := createDiscoveryPodcast(t, db, "个人播客")
 	service := NewDiscoveryService(db)
@@ -341,18 +341,18 @@ func TestDiscoveryService_GetCandidate_ReturnsFullOnDemandContent(t *testing.T) 
 	require.Len(t, candidate.PreReads, 4)
 }
 
-func TestDiscoveryService_ListRecentCandidates_UsesSevenDayRollingBoundary(t *testing.T) {
+func TestDiscoveryService_ListRecentCandidates_UsesFourteenDayRollingBoundary(t *testing.T) {
 	db := setupDiscoveryTestDB(t)
-	podcast := createDiscoveryPodcast(t, db, "七天边界")
+	podcast := createDiscoveryPodcast(t, db, "十四天边界")
 	now := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)
 	includedAtBoundary := createDiscoveryEpisode(
-		t, db, podcast.ID, "刚好七天", now.Add(-7*24*time.Hour), nil,
+		t, db, podcast.ID, "刚好十四天", now.Add(-14*24*time.Hour), nil,
 	)
 	includedNewer := createDiscoveryEpisode(
-		t, db, podcast.ID, "窗口内", now.Add(-7*24*time.Hour+time.Second), nil,
+		t, db, podcast.ID, "窗口内", now.Add(-14*24*time.Hour+time.Second), nil,
 	)
 	createDiscoveryEpisode(
-		t, db, podcast.ID, "窗口外", now.Add(-7*24*time.Hour-time.Second), nil,
+		t, db, podcast.ID, "窗口外", now.Add(-14*24*time.Hour-time.Second), nil,
 	)
 	service := NewDiscoveryService(db)
 	service.now = func() time.Time { return now }
@@ -367,21 +367,21 @@ func TestDiscoveryService_ListRecentCandidates_UsesSevenDayRollingBoundary(t *te
 
 func TestDiscoveryService_ListRecentCandidates_UsesAbsoluteTimeAcrossTimeZones(t *testing.T) {
 	db := setupDiscoveryTestDB(t)
-	podcast := createDiscoveryPodcast(t, db, "跨时区七天边界")
+	podcast := createDiscoveryPodcast(t, db, "跨时区十四天边界")
 	shanghai := time.FixedZone("Asia/Shanghai", 8*60*60)
 	now := time.Date(2026, 8, 11, 12, 0, 0, 0, shanghai)
 	includedAtBoundary := createDiscoveryEpisode(
-		t, db, podcast.ID, "本地时间刚好七天", now.Add(-7*24*time.Hour), nil,
+		t, db, podcast.ID, "本地时间刚好十四天", now.Add(-14*24*time.Hour), nil,
 	)
 	createDiscoveryEpisode(
-		t, db, podcast.ID, "本地时间窗口外", now.Add(-7*24*time.Hour-time.Second), nil,
+		t, db, podcast.ID, "本地时间窗口外", now.Add(-14*24*time.Hour-time.Second), nil,
 	)
 	olderShanghai := createDiscoveryEpisode(
 		t,
 		db,
 		podcast.ID,
 		"上海时区较早",
-		time.Date(2026, 8, 5, 10, 0, 0, 0, shanghai),
+		time.Date(2026, 7, 29, 10, 0, 0, 0, shanghai),
 		nil,
 	)
 	newerUTC := createDiscoveryEpisode(
@@ -389,7 +389,7 @@ func TestDiscoveryService_ListRecentCandidates_UsesAbsoluteTimeAcrossTimeZones(t
 		db,
 		podcast.ID,
 		"UTC 时区较晚",
-		time.Date(2026, 8, 5, 3, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 29, 3, 0, 0, 0, time.UTC),
 		nil,
 	)
 	service := NewDiscoveryService(db)

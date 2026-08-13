@@ -129,7 +129,7 @@ function DiscoveryPageSkeleton({
       <aside className="discovery-sidebar" aria-label="Discovery 导航与筛选">
         <div className="discovery-workbench-copy editorial-title-group">
           <h1 className="editorial-section-title">Discovery</h1>
-          <span className="discovery-source-label">最近更新 · 7 天</span>
+          <span className="discovery-source-label">最近更新 · 14 天</span>
         </div>
         <div className="discovery-status-filters" aria-hidden="true">
           {["全部", "未读", "未收集"].map((label) => (
