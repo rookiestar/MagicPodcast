@@ -9,6 +9,7 @@ import {
   useState,
   type KeyboardEvent,
   type MouseEvent,
+  type TouchEvent,
 } from "react";
 import {
   IconBookmarkPlus,
@@ -26,6 +27,7 @@ import {
   formatReportDate,
   formatReportTime,
   reportDayKey,
+  reportThemeLabel,
   reportTypeLabel,
 } from "@/lib/discoveryReports";
 import { sanitizeContentUrl } from "@/lib/imageSourcePolicy";
@@ -157,6 +159,7 @@ export default function WorkflowReportWorkbench({
   >({});
   const previewRef = useRef<HTMLDivElement>(null);
   const historyTriggerRef = useRef<HTMLButtonElement>(null);
+  const bannerTouchStart = useRef<{ x: number; y: number } | null>(null);
 
   const hasToday = todayReports.length > 0;
   const latestHistoryDay = historyReports[0]
@@ -279,6 +282,24 @@ export default function WorkflowReportWorkbench({
       event.preventDefault();
       goNext();
     }
+  };
+
+  const handleBannerTouchStart = (event: TouchEvent<HTMLElement>) => {
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+    bannerTouchStart.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handleBannerTouchEnd = (event: TouchEvent<HTMLElement>) => {
+    const start = bannerTouchStart.current;
+    bannerTouchStart.current = null;
+    const touch = event.changedTouches[0];
+    if (!canSwitch || !start || !touch) return;
+
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (Math.abs(dx) < 48 || Math.abs(dx) <= Math.abs(dy)) return;
+    selectReport(safeIndex + (dx < 0 ? 1 : -1));
   };
 
   const toggleExpand = (episodeID: number) => {
@@ -488,6 +509,54 @@ export default function WorkflowReportWorkbench({
           )}
         </div>
       </header>
+      {!historySelection && hasToday && (
+        <div
+          className="workflow-report-banner-strip"
+          role="listbox"
+          aria-label="当天报告"
+          onTouchStart={handleBannerTouchStart}
+          onTouchEnd={handleBannerTouchEnd}
+        >
+          {todayReports.map((report, index) => {
+            const selected = index === safeIndex;
+            return (
+              <button
+                key={report.id}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                className={`workflow-report-banner-card ${
+                  selected ? "is-selected" : ""
+                }`}
+                onClick={() => selectReport(index)}
+              >
+                <span
+                  className={`workflow-report-type ${
+                    report.report_type === "weekly"
+                      ? "is-weekly"
+                      : "is-daily"
+                  }`}
+                >
+                  {reportTypeLabel(report.report_type)}
+                </span>
+                <span className="workflow-report-banner-workflow">
+                  {report.workflow_name}
+                </span>
+                <span className="workflow-report-banner-theme">
+                  {reportThemeLabel(report)}
+                </span>
+                <span className="workflow-report-banner-date">
+                  {formatReportDate(report.completed_at, timezone)}
+                </span>
+                <span className="workflow-report-banner-position">
+                  {String(index + 1).padStart(2, "0")} /{" "}
+                  {String(todayReports.length).padStart(2, "0")}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div className="workflow-report-meta-row">
         <span
           className={`workflow-report-type ${

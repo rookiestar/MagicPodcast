@@ -528,7 +528,7 @@ export default function DiscoveryDesk({
       <aside className="discovery-sidebar" aria-label="Discovery 导航与筛选">
         <div className="discovery-workbench-copy editorial-title-group">
           <h1 className="editorial-section-title">Discovery</h1>
-          <span className="discovery-source-label">最近更新 · 7 天</span>
+          <span className="discovery-source-label">最近更新 · 14 天</span>
         </div>
         <div className="discovery-status-filters" aria-label="最近更新筛选">
           {(
@@ -570,7 +570,7 @@ export default function DiscoveryDesk({
               <p className="discovery-kicker">RECENT UPDATES</p>
               <h2>最近更新</h2>
             </div>
-            <span>按工作流同步时间 · 最近 7 天</span>
+            <span>按工作流同步时间 · 最近 14 天</span>
           </header>
 
           {decisionError && !selected && (
@@ -592,7 +592,7 @@ export default function DiscoveryDesk({
             ) : visibleCandidates.length === 0 ? (
               <div className="discovery-inline-empty" aria-live="polite">
                 <h3>当前筛选没有单集</h3>
-                <p>切换到“全部”继续浏览最近 7 天更新。</p>
+                <p>切换到“全部”继续浏览最近 14 天更新。</p>
                 <button
                   type="button"
                   onClick={() => {
