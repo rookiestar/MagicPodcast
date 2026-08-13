@@ -100,6 +100,7 @@ node scripts/performance-audit.mjs \
 - 前端环境示例：`frontend/.env.example`
 - 本地数据库默认位于 `backend/data/`
 - 隔离网络开发使用 `./scripts/data-profile.sh use fixture`；详见 [数据 Profile](docs/DATA_PROFILES.md)
+- Agent 可使用项目 Skill [magicpodcast-data-profile](.agents/skills/magicpodcast-data-profile/SKILL.md)；人工仍可直接执行同一命令
 - 真实配置、数据库、日志和构建产物不进入版本库
 
 ## 许可

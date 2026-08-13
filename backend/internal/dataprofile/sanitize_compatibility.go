@@ -23,6 +23,179 @@ var reviewedLegacyColumns = map[string]map[string]string{
 	},
 }
 
+type reviewedHistoricalIndex struct {
+	table      string
+	definition string
+}
+
+// These performance-only indexes were inspected from the production schema on
+// 2026-08-14. Only the exact name, table, and SQL definition are compatible.
+var reviewedProductionHistoricalIndexes = map[string]reviewedHistoricalIndex{
+	"idx_episodes_duration": {
+		table:      "episodes",
+		definition: `CREATE INDEX idx_episodes_duration ON episodes(duration)`,
+	},
+	"idx_episodes_fetched_at": {
+		table:      "episodes",
+		definition: `CREATE INDEX idx_episodes_fetched_at ON episodes(fetched_at DESC) WHERE fetched_at IS NOT NULL`,
+	},
+	"idx_episodes_published_date": {
+		table:      "episodes",
+		definition: `CREATE INDEX idx_episodes_published_date ON episodes(podcast_id, published_date DESC)`,
+	},
+	"idx_episodes_tags_episode_id": {
+		table:      "episodes_tags",
+		definition: `CREATE INDEX idx_episodes_tags_episode_id ON episodes_tags(episode_id)`,
+	},
+	"idx_episodes_tags_tag_id": {
+		table:      "episodes_tags",
+		definition: `CREATE INDEX idx_episodes_tags_tag_id ON episodes_tags(tag_id)`,
+	},
+	"idx_episodes_updated_date": {
+		table:      "episodes",
+		definition: `CREATE INDEX idx_episodes_updated_date ON episodes(podcast_id, updated_date DESC) WHERE updated_date IS NOT NULL`,
+	},
+	"idx_job_executions_job_id_status": {
+		table:      "job_executions",
+		definition: `CREATE INDEX idx_job_executions_job_id_status ON job_executions(job_id, status, created_at DESC)`,
+	},
+	"idx_job_executions_podcast_status": {
+		table:      "job_executions",
+		definition: `CREATE INDEX idx_job_executions_podcast_status ON job_executions(podcast_id, status) WHERE podcast_id IS NOT NULL`,
+	},
+	"idx_job_executions_status_retry": {
+		table:      "job_executions",
+		definition: `CREATE INDEX idx_job_executions_status_retry ON job_executions(status, created_at DESC) WHERE status = 'failed'`,
+	},
+	"idx_jobs_start_time": {
+		table:      "jobs",
+		definition: `CREATE INDEX idx_jobs_start_time ON jobs(start_time DESC) WHERE start_time IS NOT NULL`,
+	},
+	"idx_jobs_status_created": {
+		table:      "jobs",
+		definition: `CREATE INDEX idx_jobs_status_created ON jobs(status, created_at DESC)`,
+	},
+	"idx_jobs_triggered_by": {
+		table:      "jobs",
+		definition: `CREATE INDEX idx_jobs_triggered_by ON jobs(triggered_by, created_at DESC)`,
+	},
+	"idx_jobs_workflow_created": {
+		table:      "jobs",
+		definition: `CREATE INDEX idx_jobs_workflow_created ON jobs(workflow_id, created_at DESC)`,
+	},
+	"idx_jobs_workflow_status_created": {
+		table:      "jobs",
+		definition: `CREATE INDEX idx_jobs_workflow_status_created ON jobs(workflow_id, status, created_at DESC)`,
+	},
+	"idx_podcasts_author_fts": {
+		table:      "podcasts",
+		definition: `CREATE INDEX idx_podcasts_author_fts ON podcasts(author COLLATE NOCASE)`,
+	},
+	"idx_podcasts_data_source": {
+		table:      "podcasts",
+		definition: `CREATE INDEX idx_podcasts_data_source ON podcasts(data_source)`,
+	},
+	"idx_podcasts_deleted_author": {
+		table:      "podcasts",
+		definition: `CREATE INDEX idx_podcasts_deleted_author ON podcasts(deleted_at, author COLLATE NOCASE)`,
+	},
+	"idx_podcasts_deleted_title": {
+		table:      "podcasts",
+		definition: `CREATE INDEX idx_podcasts_deleted_title ON podcasts(deleted_at, title COLLATE NOCASE)`,
+	},
+	"idx_podcasts_fetch_error_count": {
+		table:      "podcasts",
+		definition: `CREATE INDEX idx_podcasts_fetch_error_count ON podcasts(fetch_error_count DESC) WHERE fetch_error_count > 0`,
+	},
+	"idx_podcasts_is_dead": {
+		table:      "podcasts",
+		definition: `CREATE INDEX idx_podcasts_is_dead ON podcasts(is_dead) WHERE is_dead = true`,
+	},
+	"idx_podcasts_is_subscribed": {
+		table:      "podcasts",
+		definition: `CREATE INDEX idx_podcasts_is_subscribed ON podcasts(is_subscribed) WHERE is_subscribed = true`,
+	},
+	"idx_podcasts_last_fetched_at": {
+		table:      "podcasts",
+		definition: `CREATE INDEX idx_podcasts_last_fetched_at ON podcasts(last_fetched_at DESC) WHERE last_fetched_at IS NOT NULL`,
+	},
+	"idx_podcasts_newest_episode_date_desc": {
+		table:      "podcasts",
+		definition: `CREATE INDEX idx_podcasts_newest_episode_date_desc ON podcasts(newest_episode_date DESC)`,
+	},
+	"idx_podcasts_priority_dead": {
+		table:      "podcasts",
+		definition: `CREATE INDEX idx_podcasts_priority_dead ON podcasts(priority, is_dead) WHERE is_dead = false`,
+	},
+	"idx_podcasts_subscribed_newest_date": {
+		table:      "podcasts",
+		definition: `CREATE INDEX idx_podcasts_subscribed_newest_date ON podcasts(is_subscribed, newest_episode_date DESC) WHERE is_subscribed = true`,
+	},
+	"idx_podcasts_tags_podcast_id": {
+		table:      "podcasts_tags",
+		definition: `CREATE INDEX idx_podcasts_tags_podcast_id ON podcasts_tags(podcast_id)`,
+	},
+	"idx_podcasts_tags_tag_id": {
+		table:      "podcasts_tags",
+		definition: `CREATE INDEX idx_podcasts_tags_tag_id ON podcasts_tags(tag_id)`,
+	},
+	"idx_podcasts_title_fts": {
+		table:      "podcasts",
+		definition: `CREATE INDEX idx_podcasts_title_fts ON podcasts(title COLLATE NOCASE)`,
+	},
+	"idx_podcasts_valid_priority": {
+		table:      "podcasts",
+		definition: `CREATE INDEX idx_podcasts_valid_priority ON podcasts(is_dead, priority DESC) WHERE is_dead = false`,
+	},
+	"idx_reports_created_at": {
+		table:      "reports",
+		definition: `CREATE INDEX idx_reports_created_at ON reports(created_at DESC)`,
+	},
+	"idx_sync_configs_key": {
+		table:      "sync_configs",
+		definition: `CREATE UNIQUE INDEX idx_sync_configs_key ON sync_configs(config_key)`,
+	},
+	"idx_workflows_deleted_at": {
+		table:      "workflows",
+		definition: `CREATE INDEX idx_workflows_deleted_at ON workflows(deleted_at)`,
+	},
+	"idx_workflows_is_enabled": {
+		table:      "workflows",
+		definition: `CREATE INDEX idx_workflows_is_enabled ON workflows(is_enabled)`,
+	},
+	"idx_workflows_last_execution_at": {
+		table:      "workflows",
+		definition: `CREATE INDEX idx_workflows_last_execution_at ON workflows(last_execution_at)`,
+	},
+	"idx_workflows_last_job_id": {
+		table:      "workflows",
+		definition: `CREATE INDEX idx_workflows_last_job_id ON workflows(last_job_id)`,
+	},
+	"idx_workflows_next_run_at": {
+		table:      "workflows",
+		definition: `CREATE INDEX idx_workflows_next_run_at ON workflows(next_run_at)`,
+	},
+	"idx_workflows_scope_type": {
+		table:      "workflows",
+		definition: `CREATE INDEX idx_workflows_scope_type ON workflows(scope_type)`,
+	},
+	"idx_workflows_enabled_schedule": {
+		table:      "workflows",
+		definition: `CREATE INDEX idx_workflows_enabled_schedule ON workflows(is_enabled, schedule) WHERE is_enabled = true AND schedule != ''`,
+	},
+}
+
+var reviewedProductionMissingCurrentIndexes = map[string]reviewedHistoricalIndex{
+	"idx_jobs_compensated_by_job_id": {
+		table:      "jobs",
+		definition: "CREATE INDEX `idx_jobs_compensated_by_job_id` ON `jobs`(`compensated_by_job_id`)",
+	},
+	"idx_jobs_compensation_of_job_id": {
+		table:      "jobs",
+		definition: "CREATE INDEX `idx_jobs_compensation_of_job_id` ON `jobs`(`compensation_of_job_id`)",
+	},
+}
+
 var reviewedSearchFTSTableColumns = map[string][]string{
 	"podcast_search_fts":          {"title", "author", "description"},
 	"podcast_search_fts_content":  {"docid", "c0title", "c1author", "c2description"},
@@ -164,7 +337,8 @@ func normalizeReviewedProductionSchema(db *sql.DB) (bool, error) {
 	if err := validateReviewedLegacyIndexes(db); err != nil {
 		return false, err
 	}
-	if err := validateReviewedSchemaObjects(db, hasSearchFTS); err != nil {
+	missingCurrentIndexes, err := validateReviewedSchemaObjects(db, hasSearchFTS)
+	if err != nil {
 		return false, err
 	}
 	sort.Slice(legacyColumns, func(i, j int) bool {
@@ -200,6 +374,15 @@ func normalizeReviewedProductionSchema(db *sql.DB) (bool, error) {
 		)
 		if _, err := transaction.Exec(statement); err != nil {
 			return false, fmt.Errorf("drop reviewed legacy column %s.%s: %w", field[0], field[1], err)
+		}
+	}
+	for _, index := range missingCurrentIndexes {
+		if _, err := transaction.Exec(index.definition); err != nil {
+			return false, fmt.Errorf(
+				"create reviewed current index %s: %w",
+				index.name,
+				err,
+			)
 		}
 	}
 	if err := transaction.Commit(); err != nil {
@@ -338,17 +521,18 @@ func orderedIndexColumns(db *sql.DB, index string) ([]string, error) {
 type schemaObject struct {
 	objectType string
 	name       string
+	table      string
 	definition string
 }
 
-func validateReviewedSchemaObjects(db *sql.DB, hasSearchFTS bool) error {
+func validateReviewedSchemaObjects(db *sql.DB, hasSearchFTS bool) ([]schemaObject, error) {
 	actual, err := schemaObjects(db)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	expected, err := currentSanitizerSchemaObjects()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	delete(actual, schemaObjectKey("index", "idx_tags_deleted_at"))
 	if hasSearchFTS {
@@ -357,32 +541,59 @@ func validateReviewedSchemaObjects(db *sql.DB, hasSearchFTS bool) error {
 		}
 	}
 	for key, object := range actual {
+		reviewed, reviewedFound := reviewedProductionHistoricalIndexes[object.name]
+		if object.objectType == "index" &&
+			reviewedFound &&
+			object.table == reviewed.table &&
+			normalizeSQL(object.definition) == normalizeSQL(reviewed.definition) {
+			continue
+		}
 		expectedObject, found := expected[key]
 		if !found {
-			return fmt.Errorf(
+			if object.objectType == "index" && reviewedFound {
+				return nil, fmt.Errorf(
+					"database index %s definition requires sanitizer review",
+					object.name,
+				)
+			}
+			return nil, fmt.Errorf(
 				"unreviewed database %s %s requires sanitizer review",
 				object.objectType,
 				object.name,
 			)
 		}
-		if normalizeSQL(object.definition) != normalizeSQL(expectedObject.definition) {
-			return fmt.Errorf(
+		if object.table != expectedObject.table ||
+			normalizeSQL(object.definition) != normalizeSQL(expectedObject.definition) {
+			return nil, fmt.Errorf(
 				"database %s %s definition requires sanitizer review",
 				object.objectType,
 				object.name,
 			)
 		}
 	}
+	var missingCurrentIndexes []schemaObject
 	for key, object := range expected {
 		if _, found := actual[key]; !found {
-			return fmt.Errorf(
+			if object.objectType == "index" {
+				reviewed, reviewedFound := reviewedProductionMissingCurrentIndexes[object.name]
+				if reviewedFound &&
+					object.table == reviewed.table &&
+					normalizeSQL(object.definition) == normalizeSQL(reviewed.definition) {
+					missingCurrentIndexes = append(missingCurrentIndexes, object)
+					continue
+				}
+			}
+			return nil, fmt.Errorf(
 				"required database %s %s is missing",
 				object.objectType,
 				object.name,
 			)
 		}
 	}
-	return nil
+	sort.Slice(missingCurrentIndexes, func(i, j int) bool {
+		return missingCurrentIndexes[i].name < missingCurrentIndexes[j].name
+	})
+	return missingCurrentIndexes, nil
 }
 
 func currentSanitizerSchemaObjects() (map[string]schemaObject, error) {
@@ -416,7 +627,7 @@ func currentSanitizerSchemaObjects() (map[string]schemaObject, error) {
 
 func schemaObjects(db *sql.DB) (map[string]schemaObject, error) {
 	rows, err := db.Query(`
-		SELECT type, name, sql
+		SELECT type, name, tbl_name, sql
 		FROM sqlite_master
 		WHERE type IN ('index', 'trigger', 'view')
 		  AND sql IS NOT NULL
@@ -428,7 +639,12 @@ func schemaObjects(db *sql.DB) (map[string]schemaObject, error) {
 	result := make(map[string]schemaObject)
 	for rows.Next() {
 		var object schemaObject
-		if err := rows.Scan(&object.objectType, &object.name, &object.definition); err != nil {
+		if err := rows.Scan(
+			&object.objectType,
+			&object.name,
+			&object.table,
+			&object.definition,
+		); err != nil {
 			return nil, err
 		}
 		result[schemaObjectKey(object.objectType, object.name)] = object
@@ -445,7 +661,8 @@ func schemaObjectsFingerprint(objects map[string]schemaObject) string {
 	for _, object := range objects {
 		definitions = append(
 			definitions,
-			object.objectType+"\x00"+object.name+"\x00"+normalizeSQL(object.definition),
+			object.objectType+"\x00"+object.name+"\x00"+object.table+"\x00"+
+				normalizeSQL(object.definition),
 		)
 	}
 	sort.Strings(definitions)
