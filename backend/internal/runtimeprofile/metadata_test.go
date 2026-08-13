@@ -31,6 +31,54 @@ func TestLoadFixtureRequiresManagedDatabase(t *testing.T) {
 	require.ErrorContains(t, err, "database path rejected")
 }
 
+func TestLoadCompleteFixtureExposesScenarioAndAnchor(t *testing.T) {
+	root := t.TempDir()
+	fixtureDir := filepath.Join(root, "work", "fixture-instance")
+	require.NoError(t, os.MkdirAll(fixtureDir, 0o700))
+	fixturePath := filepath.Join(fixtureDir, "complete-v1.db")
+	require.NoError(t, os.WriteFile(fixturePath, []byte("fixture"), 0o600))
+
+	t.Setenv("MAGICPODCAST_DATA_PROFILE", ProfileFixture)
+	t.Setenv("MAGICPODCAST_DATA_PROFILE_HOME", root)
+	t.Setenv("MAGICPODCAST_DATA_PROFILE_INSTANCE_ID", "fixture-instance")
+	t.Setenv("MAGICPODCAST_FIXTURE_VERSION", "complete-v1-journey-schema-17")
+	t.Setenv("MAGICPODCAST_FIXTURE_SCENARIO", "journey")
+	t.Setenv("MAGICPODCAST_FIXTURE_ANCHOR_AT", "2026-08-14T10:00:00+08:00")
+
+	metadata, err := Load(fixturePath, "debug")
+	require.NoError(t, err)
+	require.Equal(t, "journey", metadata.FixtureScenario)
+	require.Equal(t, "2026-08-14T10:00:00+08:00", metadata.FixtureAnchorAt)
+	require.Equal(t, map[string]any{
+		"data_profile":             ProfileFixture,
+		"data_profile_instance_id": "fixture-instance",
+		"fixture_version":          "complete-v1-journey-schema-17",
+		"fixture_scenario":         "journey",
+		"fixture_anchor_at":        "2026-08-14T10:00:00+08:00",
+	}, metadata.PublicFields())
+}
+
+func TestLoadCompleteFixtureRequiresScenarioAndAnchor(t *testing.T) {
+	root := t.TempDir()
+	fixtureDir := filepath.Join(root, "work", "fixture-instance")
+	require.NoError(t, os.MkdirAll(fixtureDir, 0o700))
+	fixturePath := filepath.Join(fixtureDir, "complete-v1.db")
+	require.NoError(t, os.WriteFile(fixturePath, []byte("fixture"), 0o600))
+
+	t.Setenv("MAGICPODCAST_DATA_PROFILE", ProfileFixture)
+	t.Setenv("MAGICPODCAST_DATA_PROFILE_HOME", root)
+	t.Setenv("MAGICPODCAST_DATA_PROFILE_INSTANCE_ID", "fixture-instance")
+	t.Setenv("MAGICPODCAST_FIXTURE_VERSION", "complete-v1-journey-schema-17")
+
+	_, err := Load(fixturePath, "debug")
+	require.ErrorContains(t, err, "safe fixture scenario")
+
+	t.Setenv("MAGICPODCAST_FIXTURE_SCENARIO", "journey")
+	t.Setenv("MAGICPODCAST_FIXTURE_ANCHOR_AT", "not-a-time")
+	_, err = Load(fixturePath, "debug")
+	require.ErrorContains(t, err, "RFC3339 anchor time")
+}
+
 func TestLoadFixtureRejectsSymlinkEscape(t *testing.T) {
 	root := t.TempDir()
 	fixtureDir := filepath.Join(root, "work")

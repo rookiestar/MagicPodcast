@@ -77,10 +77,14 @@ func run(args []string) error {
 		}
 		switch remaining[1] {
 		case "fixture":
-			if len(remaining) != 2 {
+			if len(remaining) > 3 {
 				return usageError()
 			}
-			status, err = controller.UseFixture(ctx)
+			scenario := dataprofile.DefaultFixtureScenario
+			if len(remaining) == 3 {
+				scenario = remaining[2]
+			}
+			status, err = controller.UseFixtureScenario(ctx, scenario)
 		case "snapshot":
 			selector := "latest"
 			if len(remaining) == 3 {
@@ -160,6 +164,8 @@ func printStatus(status dataprofile.PublicStatus, asJSON bool) error {
 	}
 	if status.FixtureVersion != "" {
 		fmt.Printf("fixture_version=%s\n", status.FixtureVersion)
+		fmt.Printf("fixture_scenario=%s\n", status.FixtureScenario)
+		fmt.Printf("fixture_anchor_at=%s\n", status.FixtureAnchorAt)
 	}
 	if status.SnapshotID != "" {
 		fmt.Printf("snapshot_id=%s\n", status.SnapshotID)
@@ -172,5 +178,5 @@ func printStatus(status dataprofile.PublicStatus, asJSON bool) error {
 }
 
 func usageError() error {
-	return fmt.Errorf("usage: data-profile [flags] status | use fixture | use snapshot [latest|ID] | snapshot refresh")
+	return fmt.Errorf("usage: data-profile [flags] status | use fixture [scenario] | use snapshot [latest|ID] | snapshot refresh")
 }

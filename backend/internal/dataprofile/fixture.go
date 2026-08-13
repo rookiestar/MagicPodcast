@@ -4,33 +4,82 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"magicpodcast/internal/database"
-	"magicpodcast/internal/models"
-
-	"gorm.io/gorm"
 )
 
-const FixtureSeries = "basic-v1"
+const (
+	FixtureSeries          = "complete-v1"
+	DefaultFixtureScenario = "journey"
+
+	FixtureScenarioEmpty          = "empty"
+	FixtureScenarioFocusZero      = "focus-0"
+	FixtureScenarioFocusSeven     = "focus-7"
+	FixtureScenarioFocusOverLimit = "focus-over-limit"
+	FixtureScenarioReportEmpty    = "report-empty"
+	FixtureScenarioReportSingle   = "report-single"
+)
+
+var fixtureScenarioSet = map[string]struct{}{
+	DefaultFixtureScenario:        {},
+	FixtureScenarioEmpty:          {},
+	FixtureScenarioFocusZero:      {},
+	FixtureScenarioFocusSeven:     {},
+	FixtureScenarioFocusOverLimit: {},
+	FixtureScenarioReportEmpty:    {},
+	FixtureScenarioReportSingle:   {},
+}
 
 type Fixture struct {
 	Version      string
+	Scenario     string
+	AnchorAt     time.Time
 	DatabasePath string
 	ManifestPath string
 	Manifest     Manifest
 }
 
 func CurrentFixtureVersion() string {
-	return fmt.Sprintf("%s-schema-%d", FixtureSeries, database.CurrentSchemaVersion)
+	version, _ := CurrentFixtureVersionForScenario(DefaultFixtureScenario)
+	return version
+}
+
+func CurrentFixtureVersionForScenario(scenario string) (string, error) {
+	return fixtureVersion(scenario, fixtureAnchor(time.Now()))
+}
+
+func SupportedFixtureScenarios() []string {
+	return []string{
+		DefaultFixtureScenario,
+		FixtureScenarioEmpty,
+		FixtureScenarioFocusZero,
+		FixtureScenarioFocusSeven,
+		FixtureScenarioFocusOverLimit,
+		FixtureScenarioReportEmpty,
+		FixtureScenarioReportSingle,
+	}
 }
 
 func EnsureFixture(profileHome string) (Fixture, error) {
+	return EnsureFixtureScenario(profileHome, DefaultFixtureScenario)
+}
+
+func EnsureFixtureScenario(profileHome, scenario string) (Fixture, error) {
+	return ensureFixtureScenarioAt(profileHome, scenario, time.Now())
+}
+
+func ensureFixtureScenarioAt(profileHome, scenario string, now time.Time) (Fixture, error) {
 	root, err := ensureRoot(profileHome)
 	if err != nil {
 		return Fixture{}, err
 	}
-	version := CurrentFixtureVersion()
+	anchor := fixtureAnchor(now)
+	version, err := fixtureVersion(scenario, anchor)
+	if err != nil {
+		return Fixture{}, err
+	}
 	fixtureDir := filepath.Join(root, "fixtures", version)
 	databasePath := filepath.Join(fixtureDir, "magicpodcast.db")
 	manifestPath := filepath.Join(fixtureDir, "manifest.json")
@@ -40,11 +89,16 @@ func EnsureFixture(profileHome string) (Fixture, error) {
 		if validationErr != nil {
 			return Fixture{}, fmt.Errorf("existing fixture is invalid and was preserved: %w", validationErr)
 		}
-		if manifest.FixtureVersion != version || manifest.ID != version {
+		if manifest.FixtureVersion != version ||
+			manifest.FixtureScenario != scenario ||
+			manifest.FixtureAnchorAt != anchor.Format(time.RFC3339) ||
+			manifest.ID != version {
 			return Fixture{}, fmt.Errorf("existing fixture metadata does not match %s", version)
 		}
 		return Fixture{
 			Version:      version,
+			Scenario:     scenario,
+			AnchorAt:     anchor,
 			DatabasePath: databasePath,
 			ManifestPath: manifestPath,
 			Manifest:     manifest,
@@ -64,7 +118,7 @@ func EnsureFixture(profileHome string) (Fixture, error) {
 	defer os.RemoveAll(tempDir)
 
 	tempDatabase := filepath.Join(tempDir, "magicpodcast.db")
-	if err := buildFixtureDatabase(tempDatabase); err != nil {
+	if err := buildFixtureScenarioDatabase(tempDatabase, scenario, anchor); err != nil {
 		return Fixture{}, err
 	}
 	status, err := ValidateDatabase(tempDatabase)
@@ -76,13 +130,15 @@ func EnsureFixture(profileHome string) (Fixture, error) {
 		return Fixture{}, err
 	}
 	manifest := Manifest{
-		FormatVersion:  ManifestFormatVersion,
-		Kind:           "fixture",
-		ID:             version,
-		SchemaVersion:  status.SchemaVersion,
-		FixtureVersion: version,
-		SHA256:         hash,
-		Counts:         status.Counts,
+		FormatVersion:   ManifestFormatVersion,
+		Kind:            "fixture",
+		ID:              version,
+		SchemaVersion:   status.SchemaVersion,
+		FixtureVersion:  version,
+		FixtureScenario: scenario,
+		FixtureAnchorAt: anchor.Format(time.RFC3339),
+		SHA256:          hash,
+		Counts:          status.Counts,
 	}
 	if err := WriteManifest(filepath.Join(tempDir, "manifest.json"), manifest); err != nil {
 		return Fixture{}, err
@@ -99,10 +155,47 @@ func EnsureFixture(profileHome string) (Fixture, error) {
 
 	return Fixture{
 		Version:      version,
+		Scenario:     scenario,
+		AnchorAt:     anchor,
 		DatabasePath: databasePath,
 		ManifestPath: manifestPath,
 		Manifest:     manifest,
 	}, nil
+}
+
+func fixtureVersion(scenario string, anchor time.Time) (string, error) {
+	if _, ok := fixtureScenarioSet[scenario]; !ok {
+		return "", fmt.Errorf(
+			"unsupported fixture scenario %q (supported: %s)",
+			scenario,
+			strings.Join(SupportedFixtureScenarios(), ", "),
+		)
+	}
+	return fmt.Sprintf(
+		"%s-%s-%s-schema-%d",
+		FixtureSeries,
+		scenario,
+		anchor.Format("20060102T15"),
+		database.CurrentSchemaVersion,
+	), nil
+}
+
+func fixtureAnchor(now time.Time) time.Time {
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		location = time.FixedZone("Asia/Shanghai", 8*60*60)
+	}
+	local := now.In(location)
+	return time.Date(
+		local.Year(),
+		local.Month(),
+		local.Day(),
+		local.Hour(),
+		0,
+		0,
+		0,
+		location,
+	)
 }
 
 func buildFixtureDatabase(path string) error {
@@ -114,71 +207,24 @@ func buildFixtureDatabase(path string) error {
 	if err := database.ApplyMigrations(db); err != nil {
 		return fmt.Errorf("create fixture schema: %w", err)
 	}
+	return nil
+}
 
-	fixed := time.Date(2026, time.August, 1, 8, 0, 0, 0, time.UTC)
-	if err := db.Exec("UPDATE schema_migrations SET applied_at = ?", fixed).Error; err != nil {
+func buildFixtureScenarioDatabase(path, scenario string, anchor time.Time) error {
+	db, closeDB, err := openSQLite(path, false)
+	if err != nil {
+		return err
+	}
+	defer closeDB()
+	if err := database.ApplyMigrations(db); err != nil {
+		return fmt.Errorf("create fixture schema: %w", err)
+	}
+
+	if err := db.Exec("UPDATE schema_migrations SET applied_at = ?", anchor).Error; err != nil {
 		return fmt.Errorf("stabilize fixture migration timestamps: %w", err)
 	}
-	podcasts := []models.Podcast{
-		{
-			BaseModel: models.BaseModel{ID: 1001, CreatedAt: fixed, UpdatedAt: fixed},
-			XYZID:     "fixture-podcast-1001", Title: "Fixture：深度科技", FeedURL: "https://fixture.invalid/feeds/1001.xml",
-			Description: "用于离线开发的确定性科技播客。", Author: "MagicPodcast Fixture",
-			AddedDate: fixed, EpisodeCount: 2, NewestEpisodeDate: fixed.Add(-2 * time.Hour),
-			IsSubscribed: true, FeedURLValid: true, DataSource: "fixture",
-		},
-		{
-			BaseModel: models.BaseModel{ID: 1002, CreatedAt: fixed, UpdatedAt: fixed},
-			XYZID:     "fixture-podcast-1002", Title: "Fixture：产品笔记", FeedURL: "https://fixture.invalid/feeds/1002.xml",
-			Description: "用于验证节目列表和单集详情的确定性内容。", Author: "MagicPodcast Fixture",
-			AddedDate: fixed, EpisodeCount: 1, NewestEpisodeDate: fixed.Add(-4 * time.Hour),
-			IsSubscribed: true, FeedURLValid: true, DataSource: "fixture",
-		},
+	if scenario == FixtureScenarioEmpty {
+		return nil
 	}
-	if err := db.Session(&gorm.Session{SkipHooks: true}).Create(&podcasts).Error; err != nil {
-		return fmt.Errorf("create fixture podcasts: %w", err)
-	}
-
-	fetched := fixed
-	episodes := []models.Episode{
-		{
-			BaseModel: models.BaseModel{ID: 2001, CreatedAt: fixed, UpdatedAt: fixed},
-			PodcastID: 1001, EpisodeNo: "01", Title: "Fixture 单集：离线开发",
-			ShowNotes:     "<p>这是一条确定性 Show Notes，包含 <a href=\"https://example.invalid/report\">安全示例链接</a>。</p>",
-			PublishedDate: fixed.Add(-2 * time.Hour), Duration: 2400,
-			GUID: "fixture-episode-2001", FetchedAt: &fetched,
-		},
-		{
-			BaseModel: models.BaseModel{ID: 2002, CreatedAt: fixed, UpdatedAt: fixed},
-			PodcastID: 1001, EpisodeNo: "02", Title: "Fixture 单集：真实后端契约",
-			ShowNotes:     "通过真实 Go API 提供，不使用前端 Mock。",
-			PublishedDate: fixed.Add(-3 * time.Hour), Duration: 1800,
-			GUID: "fixture-episode-2002", FetchedAt: &fetched,
-		},
-		{
-			BaseModel: models.BaseModel{ID: 2003, CreatedAt: fixed, UpdatedAt: fixed},
-			PodcastID: 1002, EpisodeNo: "A", Title: "Fixture 单集：稳定身份",
-			ShowNotes:     "重复生成时保持相同节目、单集 ID 与 GUID。",
-			PublishedDate: fixed.Add(-4 * time.Hour), Duration: 1500,
-			GUID: "fixture-episode-2003", FetchedAt: &fetched,
-		},
-	}
-	if err := db.Session(&gorm.Session{SkipHooks: true}).Create(&episodes).Error; err != nil {
-		return fmt.Errorf("create fixture episodes: %w", err)
-	}
-
-	tags := []models.Tag{
-		{ID: 3001, Name: "Fixture 科技", Color: "#5B6B8C", CreatedAt: fixed, UpdatedAt: fixed},
-		{ID: 3002, Name: "Fixture 产品", Color: "#8A6F55", CreatedAt: fixed, UpdatedAt: fixed},
-	}
-	if err := db.Session(&gorm.Session{SkipHooks: true}).Create(&tags).Error; err != nil {
-		return fmt.Errorf("create fixture tags: %w", err)
-	}
-	if err := db.Exec(
-		"INSERT INTO podcasts_tags (podcast_id, tag_id) VALUES (?, ?), (?, ?)",
-		1001, 3001, 1002, 3002,
-	).Error; err != nil {
-		return fmt.Errorf("create fixture tag relations: %w", err)
-	}
-	return nil
+	return seedCompleteFixture(db, scenario, anchor)
 }

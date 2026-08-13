@@ -26,6 +26,8 @@ type Manifest struct {
 	ID               string           `json:"id"`
 	SchemaVersion    int              `json:"schema_version"`
 	FixtureVersion   string           `json:"fixture_version,omitempty"`
+	FixtureScenario  string           `json:"fixture_scenario,omitempty"`
+	FixtureAnchorAt  string           `json:"fixture_anchor_at,omitempty"`
 	CapturedAt       string           `json:"captured_at,omitempty"`
 	SanitizerVersion string           `json:"sanitizer_version,omitempty"`
 	SHA256           string           `json:"sha256"`

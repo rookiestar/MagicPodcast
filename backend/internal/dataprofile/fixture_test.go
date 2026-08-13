@@ -5,23 +5,29 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"magicpodcast/internal/database"
+	"magicpodcast/internal/models"
 )
 
 func TestEnsureFixtureCreatesStableCurrentSchemaData(t *testing.T) {
 	root := t.TempDir()
-	first, err := EnsureFixture(root)
+	now := time.Date(2026, time.August, 14, 2, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+	first, err := ensureFixtureScenarioAt(root, DefaultFixtureScenario, now)
 	require.NoError(t, err)
-	second, err := EnsureFixture(root)
+	second, err := ensureFixtureScenarioAt(root, DefaultFixtureScenario, now)
 	require.NoError(t, err)
 
 	require.Equal(t, first.DatabasePath, second.DatabasePath)
-	require.Equal(t, CurrentFixtureVersion(), first.Version)
-	require.Equal(t, int64(2), first.Manifest.Counts["podcasts"])
-	require.Equal(t, int64(3), first.Manifest.Counts["episodes"])
-	require.Equal(t, int64(0), first.Manifest.Counts["episode_triage_decisions"])
+	require.Equal(t, "complete-v1-journey-20260814T02-schema-17", first.Version)
+	require.Equal(t, DefaultFixtureScenario, first.Scenario)
+	require.Equal(t, "2026-08-14T02:00:00+08:00", first.Manifest.FixtureAnchorAt)
+	require.Equal(t, int64(3), first.Manifest.Counts["podcasts"])
+	require.Equal(t, int64(20), first.Manifest.Counts["episodes"])
+	require.Equal(t, int64(11), first.Manifest.Counts["episode_triage_decisions"])
+	require.Equal(t, int64(4), first.Manifest.Counts["reports"])
 
 	db, closeDB, err := openSQLite(first.DatabasePath, true)
 	require.NoError(t, err)
@@ -31,20 +37,64 @@ func TestEnsureFixtureCreatesStableCurrentSchemaData(t *testing.T) {
 		GUID string
 	}
 	require.NoError(t, db.Table("episodes").Select("id, guid").Order("id").Scan(&identities).Error)
-	require.Equal(t, []struct {
+	require.Len(t, identities, 20)
+	require.Equal(t, struct {
 		ID   uint
 		GUID string
-	}{
-		{ID: 2001, GUID: "fixture-episode-2001"},
-		{ID: 2002, GUID: "fixture-episode-2002"},
-		{ID: 2003, GUID: "fixture-episode-2003"},
-	}, identities)
+	}{ID: 2001, GUID: "fixture-episode-2001"}, identities[0])
+	require.Equal(t, struct {
+		ID   uint
+		GUID string
+	}{ID: 2020, GUID: "fixture-episode-2020"}, identities[len(identities)-1])
+	var covers []string
+	require.NoError(t, db.Table("podcasts").Order("id").Pluck("cover_url", &covers).Error)
+	require.Equal(t, []string{fixtureInlinePNG, "", fixtureInlinePNG}, covers)
 
-	other, err := EnsureFixture(t.TempDir())
+	other, err := ensureFixtureScenarioAt(t.TempDir(), DefaultFixtureScenario, now)
 	require.NoError(t, err)
 	require.Equal(t, first.Manifest.Counts, other.Manifest.Counts)
 	require.Equal(t, first.Manifest.FixtureVersion, other.Manifest.FixtureVersion)
 	require.Equal(t, fixtureSemanticFingerprint(t, first.DatabasePath), fixtureSemanticFingerprint(t, other.DatabasePath))
+}
+
+func TestFixtureScenariosCoverQueueAndReportBoundaries(t *testing.T) {
+	now := time.Date(2026, time.August, 14, 2, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+	tests := []struct {
+		scenario     string
+		focusCount   int64
+		reportCount  int64
+		episodeCount int64
+	}{
+		{DefaultFixtureScenario, 6, 4, 20},
+		{FixtureScenarioEmpty, 0, 0, 0},
+		{FixtureScenarioFocusZero, 0, 4, 20},
+		{FixtureScenarioFocusSeven, 7, 4, 20},
+		{FixtureScenarioFocusOverLimit, 8, 4, 20},
+		{FixtureScenarioReportEmpty, 6, 0, 20},
+		{FixtureScenarioReportSingle, 6, 3, 20},
+	}
+	for _, test := range tests {
+		t.Run(test.scenario, func(t *testing.T) {
+			fixture, err := ensureFixtureScenarioAt(t.TempDir(), test.scenario, now)
+			require.NoError(t, err)
+			db, closeDB, err := openSQLite(fixture.DatabasePath, true)
+			require.NoError(t, err)
+			defer closeDB()
+
+			var focusCount int64
+			require.NoError(t, db.Model(&models.EpisodeTriageDecision{}).
+				Where("queue_state = ?", models.QueueStateFocus).
+				Count(&focusCount).Error)
+			require.Equal(t, test.focusCount, focusCount)
+			require.Equal(t, test.reportCount, fixture.Manifest.Counts["reports"])
+			require.Equal(t, test.episodeCount, fixture.Manifest.Counts["episodes"])
+		})
+	}
+}
+
+func TestEnsureFixtureRejectsUnknownScenario(t *testing.T) {
+	_, err := EnsureFixtureScenario(t.TempDir(), "system-recommendation")
+	require.ErrorContains(t, err, "unsupported fixture scenario")
 }
 
 func fixtureSemanticFingerprint(t *testing.T, path string) []string {
@@ -78,7 +128,7 @@ func fixtureSemanticFingerprint(t *testing.T, path string) []string {
 		SELECT printf('%d|%d', podcast_id, tag_id)
 		FROM podcasts_tags
 		ORDER BY podcast_id, tag_id`).Scan(&relations).Error)
-	var emptyCounts []string
+	var tableCounts []string
 	for _, table := range []string{
 		"workflows",
 		"sync_configs",
@@ -94,7 +144,7 @@ func fixtureSemanticFingerprint(t *testing.T, path string) []string {
 	} {
 		var count int64
 		require.NoError(t, db.Table(table).Count(&count).Error)
-		emptyCounts = append(emptyCounts, fmt.Sprintf("%s|%d", table, count))
+		tableCounts = append(tableCounts, fmt.Sprintf("%s|%d", table, count))
 	}
 	fingerprint := append([]string{"schema"}, schemaVersions...)
 	fingerprint = append(fingerprint, "podcasts")
@@ -105,8 +155,8 @@ func fixtureSemanticFingerprint(t *testing.T, path string) []string {
 	fingerprint = append(fingerprint, tags...)
 	fingerprint = append(fingerprint, "relations")
 	fingerprint = append(fingerprint, relations...)
-	fingerprint = append(fingerprint, "empty-counts")
-	fingerprint = append(fingerprint, emptyCounts...)
+	fingerprint = append(fingerprint, "table-counts")
+	fingerprint = append(fingerprint, tableCounts...)
 	return fingerprint
 }
 
