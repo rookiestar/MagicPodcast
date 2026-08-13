@@ -13,8 +13,9 @@ import (
 	"strings"
 )
 
-const SanitizerVersion = "v3"
+const SanitizerVersion = "v4"
 const sanitizerSchemaFingerprint = "5d426495e506d43b7fc3ee1caad82d65f65303704ac72aafc042679a1e5981f0"
+const sanitizerSchemaObjectsFingerprint = "99535ec8cf42bffbbdcc79eb5e4f7c9c7dad16ff6a5d7257f20347102858c7d0"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 
@@ -398,7 +399,7 @@ func schemaColumns(db *sql.DB) (map[string]map[string]struct{}, error) {
 	}
 
 	for _, table := range tables {
-		query := fmt.Sprintf("PRAGMA table_info(%s)", quoteIdentifier(table))
+		query := fmt.Sprintf("PRAGMA table_xinfo(%s)", quoteIdentifier(table))
 		columns, err := db.Query(query)
 		if err != nil {
 			return nil, fmt.Errorf("inspect table %s: %w", table, err)
@@ -411,8 +412,17 @@ func schemaColumns(db *sql.DB) (map[string]map[string]struct{}, error) {
 				notNull      int
 				defaultValue any
 				primaryKey   int
+				hidden       int
 			)
-			if err := columns.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			if err := columns.Scan(
+				&cid,
+				&name,
+				&columnType,
+				&notNull,
+				&defaultValue,
+				&primaryKey,
+				&hidden,
+			); err != nil {
 				columns.Close()
 				return nil, err
 			}

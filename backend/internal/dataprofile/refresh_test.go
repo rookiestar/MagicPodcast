@@ -238,6 +238,15 @@ func TestDuplicateRefreshDoesNotMoveLatest(t *testing.T) {
 	require.Equal(t, first.ID, latest.ID)
 }
 
+func TestDefaultSnapshotIDDistinguishesCapturesWithinSameSecond(t *testing.T) {
+	first := DefaultSnapshotID(time.Date(2026, time.August, 13, 1, 2, 3, 100, time.UTC))
+	second := DefaultSnapshotID(time.Date(2026, time.August, 13, 1, 2, 3, 200, time.UTC))
+
+	require.NotEqual(t, first, second)
+	require.True(t, isSafeIdentifier(first))
+	require.True(t, isSafeIdentifier(second))
+}
+
 func TestRefreshFailuresDoNotPublishOrChangeLatest(t *testing.T) {
 	home := t.TempDir()
 	fixture, err := EnsureFixture(home)
@@ -537,6 +546,107 @@ func TestSanitizerFailsClosedForUnknownColumnsRegardlessOfName(t *testing.T) {
 	}
 }
 
+func TestExportFailsClosedForGeneratedColumnsHiddenFromTableInfo(t *testing.T) {
+	home := t.TempDir()
+	fixture, err := EnsureFixture(home)
+	require.NoError(t, err)
+	sourcePath := filepath.Join(t.TempDir(), "generated-column.db")
+	require.NoError(t, copyRegularFile(fixture.DatabasePath, sourcePath, 0o600))
+	sourceDB, err := sql.Open("sqlite3", sourcePath)
+	require.NoError(t, err)
+	_, err = sourceDB.Exec(`
+		ALTER TABLE podcasts
+		ADD COLUMN private_generated TEXT
+		GENERATED ALWAYS AS (notes) VIRTUAL`)
+	require.NoError(t, err)
+	require.NoError(t, sourceDB.Close())
+
+	_, err = ExportSanitizedSnapshot(
+		sourcePath,
+		t.TempDir(),
+		"snapshot-generated-column",
+		"2026-08-13T00:00:00Z",
+	)
+	require.ErrorContains(t, err, "podcasts.private_generated")
+}
+
+func TestExportFailsClosedForUnreviewedTriggerBeforeMutatingSource(t *testing.T) {
+	home := t.TempDir()
+	fixture, err := EnsureFixture(home)
+	require.NoError(t, err)
+	sourcePath := filepath.Join(t.TempDir(), "unreviewed-trigger.db")
+	require.NoError(t, copyRegularFile(fixture.DatabasePath, sourcePath, 0o600))
+	sourceDB, err := sql.Open("sqlite3", sourcePath)
+	require.NoError(t, err)
+	_, err = sourceDB.Exec(`
+		UPDATE podcasts SET notes = 'TOP-SECRET' WHERE id = 1001;
+		CREATE TRIGGER leak_private_notes
+		AFTER UPDATE OF notes ON podcasts
+		BEGIN
+			UPDATE podcasts SET description = old.notes WHERE id = new.id;
+		END`)
+	require.NoError(t, err)
+	require.NoError(t, sourceDB.Close())
+
+	_, err = ExportSanitizedSnapshot(
+		sourcePath,
+		t.TempDir(),
+		"snapshot-unreviewed-trigger",
+		"2026-08-13T00:00:00Z",
+	)
+	require.ErrorContains(t, err, "unreviewed database trigger")
+
+	sourceDB, err = sql.Open("sqlite3", sourcePath)
+	require.NoError(t, err)
+	defer sourceDB.Close()
+	var notes, description string
+	require.NoError(t, sourceDB.QueryRow(
+		"SELECT notes, description FROM podcasts WHERE id = 1001",
+	).Scan(&notes, &description))
+	require.Equal(t, "TOP-SECRET", notes)
+	require.NotEqual(t, "TOP-SECRET", description)
+}
+
+func TestExportFailsClosedForUnreviewedViewsAndIndexes(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		statement string
+		wantError string
+	}{
+		{
+			name:      "view",
+			statement: "CREATE VIEW private_notes_view AS SELECT notes FROM podcasts",
+			wantError: "unreviewed database view",
+		},
+		{
+			name:      "index",
+			statement: "CREATE INDEX private_notes_index ON podcasts(notes)",
+			wantError: "unreviewed database index",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			home := t.TempDir()
+			fixture, err := EnsureFixture(home)
+			require.NoError(t, err)
+			sourcePath := filepath.Join(t.TempDir(), "unreviewed-"+testCase.name+".db")
+			require.NoError(t, copyRegularFile(fixture.DatabasePath, sourcePath, 0o600))
+			sourceDB, err := sql.Open("sqlite3", sourcePath)
+			require.NoError(t, err)
+			_, err = sourceDB.Exec(testCase.statement)
+			require.NoError(t, err)
+			require.NoError(t, sourceDB.Close())
+
+			_, err = ExportSanitizedSnapshot(
+				sourcePath,
+				t.TempDir(),
+				"snapshot-unreviewed-"+testCase.name,
+				"2026-08-13T00:00:00Z",
+			)
+			require.ErrorContains(t, err, testCase.wantError)
+		})
+	}
+}
+
 func TestSanitizerFailsClosedForMissingReviewedColumn(t *testing.T) {
 	home := t.TempDir()
 	fixture, err := EnsureFixture(home)
@@ -620,6 +730,9 @@ func TestSanitizerSchemaFingerprintMatchesReviewedCurrentSchema(t *testing.T) {
 	schema, err := currentSanitizerSchema()
 	require.NoError(t, err)
 	require.Equal(t, sanitizerSchemaFingerprint, schemaFingerprint(schema))
+	objects, err := currentSanitizerSchemaObjects()
+	require.NoError(t, err)
+	require.Equal(t, sanitizerSchemaObjectsFingerprint, schemaObjectsFingerprint(objects))
 }
 
 func TestExportNormalizesReviewedProductionLegacySchemaAndRebuildsSanitizedFTS(t *testing.T) {

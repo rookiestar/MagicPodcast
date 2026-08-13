@@ -483,5 +483,5 @@ func (c Controller) enforceSnapshotRetention(keep int, newestID, previousLatest 
 }
 
 func DefaultSnapshotID(now time.Time) string {
-	return "snapshot-" + now.UTC().Format("20060102T150405Z")
+	return "snapshot-" + now.UTC().Format("20060102T150405.000000000Z")
 }

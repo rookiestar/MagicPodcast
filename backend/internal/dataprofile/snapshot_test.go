@@ -294,12 +294,18 @@ func TestControllerSwitchesFixtureSnapshotFixtureAndPreservesBaseline(t *testing
 	require.NoError(t, err)
 	require.Equal(t, "fixture", fixtureStatus.Profile)
 	require.Contains(t, getPodcastListBody(t, port), "Fixture：深度科技")
+	fixtureState, err := controller.readState()
+	require.NoError(t, err)
 	snapshotStatus, err := controller.UseSnapshot(context.Background(), "latest")
 	require.NoError(t, err)
 	require.Equal(t, "snapshot", snapshotStatus.Profile)
 	require.Equal(t, "snapshot-001", snapshotStatus.SnapshotID)
 	require.Equal(t, "2026-08-01T08:00:00Z", snapshotStatus.SnapshotCapturedAt)
 	require.Contains(t, getPodcastListBody(t, port), "Snapshot：独立数据源")
+	require.NoFileExists(t, fixtureState.DatabasePath)
+	require.NoFileExists(t, fixtureState.CommandPath)
+	snapshotState, err := controller.readState()
+	require.NoError(t, err)
 
 	coverRequest, err := http.NewRequest(
 		http.MethodPut,
@@ -321,6 +327,8 @@ func TestControllerSwitchesFixtureSnapshotFixtureAndPreservesBaseline(t *testing
 	reselected, err := controller.UseSnapshot(context.Background(), "snapshot-001")
 	require.NoError(t, err)
 	require.NotEqual(t, snapshotStatus.InstanceID, reselected.InstanceID)
+	require.NoFileExists(t, snapshotState.DatabasePath)
+	require.NoFileExists(t, snapshotState.CommandPath)
 	detailResponse, err := http.Get("http://127.0.0.1:" + portString(port) + "/api/v1/podcasts/1001")
 	require.NoError(t, err)
 	detailBody, err := io.ReadAll(detailResponse.Body)

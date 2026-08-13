@@ -1,8 +1,11 @@
 package dataprofile
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -159,6 +162,9 @@ func normalizeReviewedProductionSchema(db *sql.DB) (bool, error) {
 		}
 	}
 	if err := validateReviewedLegacyIndexes(db); err != nil {
+		return false, err
+	}
+	if err := validateReviewedSchemaObjects(db, hasSearchFTS); err != nil {
 		return false, err
 	}
 	sort.Slice(legacyColumns, func(i, j int) bool {
@@ -327,6 +333,124 @@ func orderedIndexColumns(db *sql.DB, index string) ([]string, error) {
 		}
 	}
 	return result, rows.Err()
+}
+
+type schemaObject struct {
+	objectType string
+	name       string
+	definition string
+}
+
+func validateReviewedSchemaObjects(db *sql.DB, hasSearchFTS bool) error {
+	actual, err := schemaObjects(db)
+	if err != nil {
+		return err
+	}
+	expected, err := currentSanitizerSchemaObjects()
+	if err != nil {
+		return err
+	}
+	delete(actual, schemaObjectKey("index", "idx_tags_deleted_at"))
+	if hasSearchFTS {
+		for name := range reviewedSearchFTSTriggers {
+			delete(actual, schemaObjectKey("trigger", name))
+		}
+	}
+	for key, object := range actual {
+		expectedObject, found := expected[key]
+		if !found {
+			return fmt.Errorf(
+				"unreviewed database %s %s requires sanitizer review",
+				object.objectType,
+				object.name,
+			)
+		}
+		if normalizeSQL(object.definition) != normalizeSQL(expectedObject.definition) {
+			return fmt.Errorf(
+				"database %s %s definition requires sanitizer review",
+				object.objectType,
+				object.name,
+			)
+		}
+	}
+	for key, object := range expected {
+		if _, found := actual[key]; !found {
+			return fmt.Errorf(
+				"required database %s %s is missing",
+				object.objectType,
+				object.name,
+			)
+		}
+	}
+	return nil
+}
+
+func currentSanitizerSchemaObjects() (map[string]schemaObject, error) {
+	directory, err := os.MkdirTemp("", "magicpodcast-sanitizer-objects-*")
+	if err != nil {
+		return nil, fmt.Errorf("create sanitizer object workspace: %w", err)
+	}
+	defer os.RemoveAll(directory)
+	path := filepath.Join(directory, "reference.db")
+	if err := buildFixtureDatabase(path); err != nil {
+		return nil, fmt.Errorf("build sanitizer object reference: %w", err)
+	}
+	reference, err := openSQLDatabase(path, true)
+	if err != nil {
+		return nil, fmt.Errorf("open sanitizer object reference: %w", err)
+	}
+	defer reference.Close()
+	objects, err := schemaObjects(reference)
+	if err != nil {
+		return nil, err
+	}
+	actualFingerprint := schemaObjectsFingerprint(objects)
+	if actualFingerprint != sanitizerSchemaObjectsFingerprint {
+		return nil, fmt.Errorf(
+			"sanitizer schema-object contract requires review: got %s",
+			actualFingerprint,
+		)
+	}
+	return objects, nil
+}
+
+func schemaObjects(db *sql.DB) (map[string]schemaObject, error) {
+	rows, err := db.Query(`
+		SELECT type, name, sql
+		FROM sqlite_master
+		WHERE type IN ('index', 'trigger', 'view')
+		  AND sql IS NOT NULL
+		ORDER BY type, name`)
+	if err != nil {
+		return nil, fmt.Errorf("inspect database schema objects: %w", err)
+	}
+	defer rows.Close()
+	result := make(map[string]schemaObject)
+	for rows.Next() {
+		var object schemaObject
+		if err := rows.Scan(&object.objectType, &object.name, &object.definition); err != nil {
+			return nil, err
+		}
+		result[schemaObjectKey(object.objectType, object.name)] = object
+	}
+	return result, rows.Err()
+}
+
+func schemaObjectKey(objectType, name string) string {
+	return objectType + "\x00" + name
+}
+
+func schemaObjectsFingerprint(objects map[string]schemaObject) string {
+	var definitions []string
+	for _, object := range objects {
+		definitions = append(
+			definitions,
+			object.objectType+"\x00"+object.name+"\x00"+normalizeSQL(object.definition),
+		)
+	}
+	sort.Strings(definitions)
+	sum := sha256.Sum256([]byte(strings.Join(definitions, "\n")))
+	return fmt.Sprintf("%x", sum)
 }
 
 func reviewedSearchFTSSchema(db *sql.DB) (bool, map[string]struct{}, error) {

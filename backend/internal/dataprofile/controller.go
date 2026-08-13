@@ -288,7 +288,22 @@ func (c Controller) switchTo(ctx context.Context, target RuntimeState) (PublicSt
 		}
 		return PublicStatus{}, stateErr
 	}
+	if previousErr == nil && previous.InstanceID != started.InstanceID {
+		c.cleanupInactiveInstance(previous, started)
+	}
 	return publicStatusFromState(started), nil
+}
+
+func (c Controller) cleanupInactiveInstance(previous, active RuntimeState) {
+	if previous.DatabasePath != active.DatabasePath {
+		_ = os.Remove(previous.DatabasePath)
+		_ = os.Remove(previous.DatabasePath + "-wal")
+		_ = os.Remove(previous.DatabasePath + "-shm")
+		_ = os.Remove(filepath.Dir(previous.DatabasePath))
+	}
+	if previous.CommandPath != active.CommandPath {
+		_ = os.Remove(previous.CommandPath)
+	}
 }
 
 func (c Controller) restorePrevious(previous RuntimeState) error {
@@ -642,7 +657,17 @@ func (c Controller) stop(state RuntimeState) error {
 	if err := process.Signal(syscall.SIGKILL); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return fmt.Errorf("force stop managed backend: %w", err)
 	}
-	return nil
+	for i := 0; i < 20; i++ {
+		running, err := processExists(state.PID)
+		if err != nil {
+			return fmt.Errorf("confirm forced backend stop: %w", err)
+		}
+		if !running {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("managed backend still running after forced stop")
 }
 
 func (c Controller) isManagedProcess(state RuntimeState) (bool, error) {

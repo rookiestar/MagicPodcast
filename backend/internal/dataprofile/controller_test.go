@@ -9,15 +9,31 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"magicpodcast/internal/database"
 )
+
+func TestProfileStopHelperProcess(t *testing.T) {
+	if os.Getenv("MAGICPODCAST_PROFILE_STOP_HELPER") != "1" {
+		return
+	}
+	signal.Ignore(syscall.SIGTERM)
+	marker := os.Getenv("MAGICPODCAST_PROFILE_STOP_MARKER")
+	if err := os.WriteFile(marker, []byte("ready"), 0o600); err != nil {
+		os.Exit(2)
+	}
+	for {
+		time.Sleep(time.Hour)
+	}
+}
 
 func TestControllerFixtureEndToEndUsesRealBackend(t *testing.T) {
 	projectDir, err := filepath.Abs(filepath.Join("..", "..", ".."))
@@ -208,6 +224,56 @@ func TestControllerStateCommitFailureRestoresRunningFixture(t *testing.T) {
 	require.Equal(t, fixtureStatus.InstanceID, status.InstanceID)
 }
 
+func TestSnapshotStartFailureRestoresRunningFixture(t *testing.T) {
+	projectDir, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	require.NoError(t, err)
+	home := t.TempDir()
+	fixture, err := EnsureFixture(home)
+	require.NoError(t, err)
+	snapshot, err := publishPreparedTestSnapshot(
+		t,
+		home,
+		"snapshot-start-failure",
+		fixture.DatabasePath,
+		"2026-08-13T02:00:00Z",
+		SanitizerVersion,
+	)
+	require.NoError(t, err)
+	snapshotHash, err := SHA256File(snapshot.DatabasePath)
+	require.NoError(t, err)
+	port, err := FreeLoopbackPort()
+	require.NoError(t, err)
+	controller := Controller{
+		ProjectDir:  projectDir,
+		ProfileHome: home,
+		Port:        port,
+		Timeout:     30 * time.Second,
+	}
+	t.Cleanup(func() {
+		if state, readErr := controller.readState(); readErr == nil {
+			_ = controller.stop(state)
+		}
+	})
+
+	fixtureStatus, err := controller.UseFixture(context.Background())
+	require.NoError(t, err)
+	require.Contains(t, getPodcastListBody(t, port), "Fixture：深度科技")
+
+	controller.Command = []string{"/usr/bin/false"}
+	_, err = controller.UseSnapshot(context.Background(), "latest")
+	require.ErrorContains(t, err, "previous profile restored")
+
+	status, err := controller.Status(context.Background())
+	require.NoError(t, err)
+	require.True(t, status.Ready)
+	require.Equal(t, "fixture", status.Profile)
+	require.Equal(t, fixtureStatus.InstanceID, status.InstanceID)
+	require.Contains(t, getPodcastListBody(t, port), "Fixture：深度科技")
+	afterHash, err := SHA256File(snapshot.DatabasePath)
+	require.NoError(t, err)
+	require.Equal(t, snapshotHash, afterHash)
+}
+
 func TestControllerPortConflictDoesNotPublishProfileState(t *testing.T) {
 	projectDir, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	require.NoError(t, err)
@@ -359,6 +425,63 @@ func TestManagedCommandRequiresExactExecutablePrefix(t *testing.T) {
 	require.False(t, commandLineStartsWithExecutable("/bin/sh /managed/api", "/managed/api"))
 	require.False(t, commandLineStartsWithExecutable("/tmp/not-managed/api", "/managed/api"))
 	require.False(t, commandLineStartsWithExecutable("/managed/api-evil", "/managed/api"))
+}
+
+func TestControllerStopWaitsForForcedProcessExit(t *testing.T) {
+	home := t.TempDir()
+	fixture, err := EnsureFixture(home)
+	require.NoError(t, err)
+	workDir := filepath.Join(home, "work", "fixture-"+fixture.Version)
+	require.NoError(t, os.MkdirAll(workDir, 0o700))
+	workPath := filepath.Join(workDir, "forced-stop.db")
+	require.NoError(t, copyRegularFile(fixture.DatabasePath, workPath, 0o600))
+	binDir := filepath.Join(home, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o700))
+	commandPath := filepath.Join(binDir, "magicpodcast-api-forced-stop")
+	testExecutable, err := os.Executable()
+	require.NoError(t, err)
+	require.NoError(t, copyRegularFile(testExecutable, commandPath, 0o700))
+
+	marker := filepath.Join(t.TempDir(), "ready")
+	command := exec.Command(commandPath, "-test.run=^TestProfileStopHelperProcess$")
+	command.Env = append(
+		os.Environ(),
+		"MAGICPODCAST_PROFILE_STOP_HELPER=1",
+		"MAGICPODCAST_PROFILE_STOP_MARKER="+marker,
+	)
+	require.NoError(t, command.Start())
+	waitDone := make(chan error, 1)
+	go func() { waitDone <- command.Wait() }()
+	t.Cleanup(func() {
+		_ = command.Process.Kill()
+		select {
+		case <-waitDone:
+		case <-time.After(time.Second):
+		}
+	})
+	require.Eventually(t, func() bool {
+		_, statErr := os.Stat(marker)
+		return statErr == nil
+	}, 5*time.Second, 20*time.Millisecond)
+
+	controller := Controller{ProfileHome: home}
+	state := RuntimeState{
+		FormatVersion:  runtimeStateFormatVersion,
+		Profile:        "fixture",
+		InstanceID:     "forced-stop",
+		SchemaVersion:  database.CurrentSchemaVersion,
+		FixtureVersion: fixture.Version,
+		DatabasePath:   workPath,
+		ManifestPath:   fixture.ManifestPath,
+		CommandPath:    commandPath,
+		PID:            command.Process.Pid,
+		Port:           18080,
+		StartedAt:      "2026-08-13T00:00:00Z",
+	}
+	require.NoError(t, controller.stop(state))
+	running, err := processExists(state.PID)
+	require.NoError(t, err)
+	require.False(t, running)
 }
 
 func TestControllerRejectsChangingManagedPortWhileStateExists(t *testing.T) {
