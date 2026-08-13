@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"magicpodcast/internal/feed"
 )
 
 func TestLoadAppliesRuntimeEnvOverrides(t *testing.T) {
@@ -117,6 +118,68 @@ func TestValidateRejectsNonLoopbackServerHost(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAssertManagedProfileSafeRejectsCredentialAndIntegrationOverrides(t *testing.T) {
+	t.Setenv("MAGICPODCAST_DATA_PROFILE", "fixture")
+	t.Setenv("MAGICPODCAST_SKIP_DOTENV", "1")
+	t.Setenv("MAGICPODCAST_DISABLE_SCHEDULER", "1")
+	disabled := false
+	safe := Config{
+		Server: ServerConfig{Host: "127.0.0.1", Mode: "debug"},
+		XYZAPI: XYZAPIConfig{URL: "http://127.0.0.1:9"},
+		Feed: feed.FeedConfig{
+			Diagnostics: feed.FeedDiagnostics{AdminEnabled: &disabled},
+			Snapshot:    feed.FeedSnapshotConfig{Durable: &disabled},
+		},
+	}
+	require.NoError(t, safe.AssertManagedProfileSafe())
+
+	cases := map[string]func(*Config){
+		"sync":          func(c *Config) { c.Sync.Enabled = true },
+		"email":         func(c *Config) { c.Email.Enabled = true },
+		"llm":           func(c *Config) { c.LLM.Enabled = true },
+		"user token":    func(c *Config) { c.User.AccessToken = "secret" },
+		"email contact": func(c *Config) { c.Email.To = "owner@example.com" },
+		"llm key":       func(c *Config) { c.LLM.APIKey = "secret" },
+		"external data": func(c *Config) { c.PodcastIndex.Path = "/outside/podcastindex.db" },
+		"xyz network":   func(c *Config) { c.XYZAPI.URL = "https://api.xiaoyuzhoufm.com" },
+		"feed admin": func(c *Config) {
+			enabled := true
+			c.Feed.Diagnostics.AdminEnabled = &enabled
+		},
+		"feed snapshot": func(c *Config) {
+			enabled := true
+			c.Feed.Snapshot.Durable = &enabled
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			cfg := safe
+			mutate(&cfg)
+			require.Error(t, cfg.AssertManagedProfileSafe())
+		})
+	}
+}
+
+func TestLoadManagedProfileConfigStaysInert(t *testing.T) {
+	t.Cleanup(func() {
+		cfg = nil
+		viper.Reset()
+	})
+	viper.Reset()
+	t.Setenv("MAGICPODCAST_DATA_PROFILE", "fixture")
+	t.Setenv("MAGICPODCAST_SKIP_DOTENV", "1")
+	t.Setenv("MAGICPODCAST_DISABLE_SCHEDULER", "1")
+	t.Setenv("MAGICPODCAST_SERVER_HOST", "127.0.0.1")
+	t.Setenv("MAGICPODCAST_SERVER_PORT", "18080")
+	t.Setenv("MAGICPODCAST_SERVER_MODE", "debug")
+	t.Setenv("MAGICPODCAST_DATABASE_PATH", filepath.Join(t.TempDir(), "fixture.db"))
+
+	configPath := filepath.Join("..", "..", "configs", "data-profile.yaml")
+	loaded, err := Load(configPath)
+	require.NoError(t, err)
+	require.NoError(t, loaded.AssertManagedProfileSafe())
 }
 
 func TestValidateDiscoveryTimezone(t *testing.T) {

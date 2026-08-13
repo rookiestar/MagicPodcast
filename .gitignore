@@ -27,6 +27,7 @@ backend/bin/
 *.sqlite3
 backend/data/*
 !backend/data/.gitkeep
+.magicpodcast-data-profiles/
 
 # Empty database file markers
 *-empty.db

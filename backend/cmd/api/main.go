@@ -17,21 +17,26 @@ import (
 	"magicpodcast/internal/feed"
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/router"
+	"magicpodcast/internal/runtimeprofile"
 )
 
 func main() {
 	// 加载 .env 文件（如果存在）
 	// 优先从当前目录查找，然后从上级目录查找
-	envPaths := []string{".env", "../.env", "../../.env"}
 	envLoaded := false
-	for _, envPath := range envPaths {
-		if err := godotenv.Load(envPath); err == nil {
-			logger.Infof("✅ Loaded .env from: %s", envPath)
-			envLoaded = true
-			break
+	if os.Getenv("MAGICPODCAST_SKIP_DOTENV") == "1" {
+		logger.Info("ℹ️  .env loading explicitly disabled for managed data profile")
+	} else {
+		envPaths := []string{".env", "../.env", "../../.env"}
+		for _, envPath := range envPaths {
+			if err := godotenv.Load(envPath); err == nil {
+				logger.Infof("✅ Loaded .env from: %s", envPath)
+				envLoaded = true
+				break
+			}
 		}
 	}
-	if !envLoaded {
+	if !envLoaded && os.Getenv("MAGICPODCAST_SKIP_DOTENV") != "1" {
 		logger.Info("ℹ️  No .env file found, using config file values only")
 	}
 
@@ -55,12 +60,19 @@ func main() {
 	if err != nil {
 		logger.Fatalf("Failed to load config: %v", err)
 	}
+	if err := cfg.AssertManagedProfileSafe(); err != nil {
+		logger.Fatalf("Managed data profile configuration failed closed: %v", err)
+	}
+	profileMetadata, err := runtimeprofile.Load(cfg.Database.Path, cfg.Server.Mode)
+	if err != nil {
+		logger.Fatalf("Data profile validation failed: %v", err)
+	}
 
 	// 打印配置信息
 	logger.Info("✅ Config loaded successfully")
 	logger.Infof("   Server Mode: %s", cfg.Server.Mode)
 	logger.Infof("   Server Port: %d", cfg.Server.Port)
-	logger.Infof("   Database: %s", cfg.Database.Path)
+	logger.Infof("   Data Profile: %s", profileMetadata.Profile)
 	logger.Infof("   XYZ API: %s", cfg.XYZAPI.URL)
 
 	// Apply the startup-loaded Feed fetcher / coordinator configuration to the

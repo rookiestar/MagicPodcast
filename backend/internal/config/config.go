@@ -218,6 +218,46 @@ func Load(configPath string) (*Config, error) {
 	return cfg, nil
 }
 
+// AssertManagedProfileSafe verifies that a managed Fixture/Snapshot process
+// stayed on the inert local configuration after every override was applied.
+func (c *Config) AssertManagedProfileSafe() error {
+	if os.Getenv("MAGICPODCAST_DATA_PROFILE") != "fixture" &&
+		os.Getenv("MAGICPODCAST_DATA_PROFILE") != "snapshot" {
+		return nil
+	}
+	if os.Getenv("MAGICPODCAST_SKIP_DOTENV") != "1" {
+		return fmt.Errorf("managed data profile requires dotenv loading to be disabled")
+	}
+	if os.Getenv("MAGICPODCAST_DISABLE_SCHEDULER") != "1" {
+		return fmt.Errorf("managed data profile requires the scheduler to be disabled")
+	}
+	if c.Server.Mode != "debug" {
+		return fmt.Errorf("managed data profile requires debug server mode")
+	}
+	if parsed := net.ParseIP(c.Server.Host); parsed == nil || !parsed.IsLoopback() {
+		return fmt.Errorf("managed data profile requires a loopback server host")
+	}
+	if c.Sync.Enabled || c.Email.Enabled || c.LLM.Enabled {
+		return fmt.Errorf("managed data profile requires sync, email, and LLM integrations to be disabled")
+	}
+	if c.XYZAPI.URL != "http://127.0.0.1:9" {
+		return fmt.Errorf("managed data profile requires the inert loopback XYZ API endpoint")
+	}
+	if c.Feed.Diagnostics.AdminEnabled == nil || *c.Feed.Diagnostics.AdminEnabled ||
+		c.Feed.Snapshot.Durable == nil || *c.Feed.Snapshot.Durable {
+		return fmt.Errorf("managed data profile requires Feed admin diagnostics and durable snapshots to be disabled")
+	}
+	if c.User.Phone != "" || c.User.AccessToken != "" || c.User.RefreshToken != "" ||
+		c.Email.Username != "" || c.Email.Password != "" || c.Email.From != "" || c.Email.To != "" ||
+		c.LLM.APIKey != "" {
+		return fmt.Errorf("managed data profile configuration contains credentials or personal contact fields")
+	}
+	if strings.TrimSpace(c.PodcastIndex.Path) != "" {
+		return fmt.Errorf("managed data profile cannot attach a PodcastIndex database")
+	}
+	return nil
+}
+
 // bindFeedEnvKeys binds the feed configuration leaf keys to their
 // MAGICPODCAST_FEED_* environment variables so operators can override any
 // startup-loaded feed knob without editing the YAML. BindEnv must run before
@@ -427,6 +467,11 @@ func (c *Config) applyEnvOverrides() {
 // Get 获取配置实例
 func Get() *Config {
 	return cfg
+}
+
+// SetTestConfig replaces the process configuration for handler tests.
+func SetTestConfig(testConfig *Config) {
+	cfg = testConfig
 }
 
 // Validate 验证配置
