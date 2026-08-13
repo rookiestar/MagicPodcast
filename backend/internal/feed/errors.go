@@ -213,6 +213,10 @@ func ClassifyError(feedURL string, err error) *FeedError {
 	if errors.As(err, &statusErr) {
 		status := statusErr.StatusCode
 		switch {
+		case status == http.StatusPaymentRequired:
+			return &FeedError{Type: ErrorTypePaymentRequired, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("付费播客（需要订阅）: %s", safeURL)}
+		case status == http.StatusNotFound:
+			return &FeedError{Type: ErrorTypeNotFound, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("Feed不存在: %s", safeURL)}
 		case status == http.StatusUnauthorized || status == http.StatusForbidden:
 			return &FeedError{Type: ErrorTypeAccessDenied, FeedURL: safeURL, Original: err, Message: fmt.Sprintf("访问被拒绝: %s", safeURL)}
 		case status == http.StatusTooManyRequests:

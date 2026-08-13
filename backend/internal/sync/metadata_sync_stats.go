@@ -87,6 +87,7 @@ func (stats metadataSyncStats) reportProgress(current, total int, reporter Progr
 
 func (stats metadataSyncStats) summary(total int, duration time.Duration) *SyncSummary {
 	return &SyncSummary{
+		Operation:        "sync",
 		TotalPodcasts:    total,
 		SuccessPodcasts:  stats.successCount,
 		FailedPodcasts:   stats.failedCount,

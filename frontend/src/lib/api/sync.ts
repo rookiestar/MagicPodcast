@@ -1,13 +1,7 @@
+import { isOperationCompletionEvent } from "@/lib/syncOperationMessages";
 import { sseFormDataRequest, sseRequest } from "@/lib/sseClient";
 
 const TEN_MINUTES = 10 * 60 * 1000;
-
-type BasicProgressCallback = (
-  type: string,
-  message: string,
-  current?: number,
-  total?: number,
-) => void;
 
 type SyncProgressCallback = (
   type: string,
@@ -19,11 +13,13 @@ type SyncProgressCallback = (
 
 function pickSummaryData(data: any) {
   return {
+    operation: data.operation,
     total_podcasts: data.total_podcasts,
     success_podcasts: data.success_podcasts,
     failed_podcasts: data.failed_podcasts,
     skipped_podcasts: data.skipped_podcasts,
     no_update_podcasts: data.no_update_podcasts,
+    stub_podcasts: data.stub_podcasts,
     total_episodes: data.total_episodes,
     new_episodes: data.new_episodes,
     updated_episodes: data.updated_episodes,
@@ -31,10 +27,14 @@ function pickSummaryData(data: any) {
   };
 }
 
+function isSummaryComplete(data: { type?: string; message?: string }) {
+  return isOperationCompletionEvent("sync", data.type || "", data.message || "");
+}
+
 export const syncApi = {
   importOPMLSSE: async (
     file: File,
-    onProgress: BasicProgressCallback,
+    onProgress: SyncProgressCallback,
     confirmationText: string,
   ): Promise<void> => {
     const formData = new FormData();
@@ -43,8 +43,9 @@ export const syncApi = {
     return sseFormDataRequest(
       "/api/v1/sync/import-sse",
       formData,
-      (type, message, current, total) => {
-        onProgress(type, message, current, total);
+      (type, message, current, total, data) => {
+        const dataToPass = type === "summary" ? pickSummaryData(data) : data;
+        onProgress(type, message, current, total, dataToPass);
       },
       {
         headers: { "X-MagicPodcast-Confirmation": confirmationText },
@@ -55,8 +56,7 @@ export const syncApi = {
         timeoutMessage: "导入超时（10分钟），可能是网络较慢或文件太大",
         requireCompletion: true,
         incompleteMessage: "导入连接提前结束，未收到完成确认",
-        isComplete: (data) =>
-          data.type === "success" && data.message.includes("导入完成"),
+        isComplete: isSummaryComplete,
       },
     );
   },
@@ -79,7 +79,7 @@ export const syncApi = {
         completeOnTypeComplete: false,
         requireCompletion: true,
         incompleteMessage: "同步连接提前结束，未收到完成确认",
-        isComplete: (data) => data.type === "summary",
+        isComplete: isSummaryComplete,
       },
       (type, message, current, total, data) => {
         const dataToPass = type === "summary" ? pickSummaryData(data) : data;

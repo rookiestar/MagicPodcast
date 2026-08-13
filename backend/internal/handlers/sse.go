@@ -224,17 +224,25 @@ func (r *SSEProgressReporter) ReportSummary(summary *syncpkg.SyncSummary) {
 		return
 	}
 
+	doneLabel := "同步完成"
+	if summary.Operation == "import" {
+		doneLabel = "导入完成"
+	}
+
 	// 构建汇总消息
 	summaryMsg := map[string]interface{}{
 		"type": "summary",
-		"message": fmt.Sprintf("同步完成！成功: %d, 失败: %d, 跳过: %d",
+		"message": fmt.Sprintf("%s！成功: %d, 失败: %d, 跳过: %d",
+			doneLabel,
 			summary.SuccessPodcasts,
 			summary.FailedPodcasts,
 			summary.SkippedPodcasts),
+		"operation":          summary.Operation,
 		"total_podcasts":     summary.TotalPodcasts,
 		"success_podcasts":   summary.SuccessPodcasts,
 		"failed_podcasts":    summary.FailedPodcasts,
 		"skipped_podcasts":   summary.SkippedPodcasts,
+		"stub_podcasts":      summary.StubPodcasts,
 		"no_update_podcasts": summary.NoUpdatePodcasts,
 		"total_episodes":     summary.TotalEpisodes,
 		"new_episodes":       summary.NewEpisodes,
@@ -388,7 +396,7 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 
 	// 在goroutine中执行导入，避免阻塞
 	// 但由于SSE需要保持连接，我们在这里同步执行
-	logger.Infof("[SSE] 开始导入OPML（仅本地数据库）: %s", file.Filename)
+	logger.Infof("[SSE] 开始导入OPML（本地匹配 + 在线同步）: %s", file.Filename)
 	result, err := h.syncService.ImportOPMLFromPodcastIndexOnly(tempFilePath, reporter)
 	if err != nil {
 		logger.Warnf("[SSE] 导入失败: %v", err)
@@ -396,16 +404,8 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 		return
 	}
 
-	logger.Infof("[SSE] 导入成功，发送完成消息: 成功=%d 失败=%d",
+	logger.Infof("[SSE] 导入完成，summary 已发送: 成功=%d 失败=%d",
 		result.SuccessPodcasts, result.FailedPodcasts)
-
-	// 发送完成消息
-	reporter.ReportSuccess(fmt.Sprintf("导入完成！成功: %d, 失败: %d",
-		result.SuccessPodcasts, result.FailedPodcasts))
-
-	reporter.ReportComplete("导入完成")
-
-	logger.Debugf("[SSE] 已发送complete消息")
 }
 
 // SyncPodcastsMetadataSSE 同步所有播客的元数据（SSE流式响应）

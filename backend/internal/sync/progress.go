@@ -55,15 +55,17 @@ type ProgressReporter interface {
 
 // SyncSummary 同步汇总信息
 type SyncSummary struct {
-	TotalPodcasts    int           `json:"total_podcasts"`     // 总播客数
-	SuccessPodcasts  int           `json:"success_podcasts"`   // 成功同步的播客数
-	FailedPodcasts   int           `json:"failed_podcasts"`    // 失败的播客数
-	SkippedPodcasts  int           `json:"skipped_podcasts"`   // 跳过的播客数
-	NoUpdatePodcasts int           `json:"no_update_podcasts"` // 无更新的播客数
-	TotalEpisodes    int           `json:"total_episodes"`     // 同步的总单集数
-	NewEpisodes      int           `json:"new_episodes"`       // 新增的单集数
-	UpdatedEpisodes  int           `json:"updated_episodes"`   // 更新的单集数
-	Duration         time.Duration `json:"duration"`           // 总耗时
+	Operation        string        `json:"operation,omitempty"`     // import 或 sync
+	TotalPodcasts    int           `json:"total_podcasts"`          // 总播客数
+	SuccessPodcasts  int           `json:"success_podcasts"`        // 成功同步的播客数
+	FailedPodcasts   int           `json:"failed_podcasts"`         // 失败的播客数
+	SkippedPodcasts  int           `json:"skipped_podcasts"`        // 跳过的播客数
+	StubPodcasts     int           `json:"stub_podcasts,omitempty"` // 导入时因临时错误创建的待同步记录
+	NoUpdatePodcasts int           `json:"no_update_podcasts"`      // 无更新的播客数
+	TotalEpisodes    int           `json:"total_episodes"`          // 同步的总单集数
+	NewEpisodes      int           `json:"new_episodes"`            // 新增的单集数
+	UpdatedEpisodes  int           `json:"updated_episodes"`        // 更新的单集数
+	Duration         time.Duration `json:"duration"`                // 总耗时
 }
 
 // LogProgressReporter 使用log的进度报告器
@@ -152,6 +154,13 @@ func formatDuration(d time.Duration) string {
 		minutes := int(d.Minutes()) - hours*60
 		return fmt.Sprintf("%d小时%d分", hours, minutes)
 	}
+}
+
+func summaryCompletionLabel(operation string) string {
+	if operation == "import" {
+		return "导入完成"
+	}
+	return "同步完成"
 }
 
 func truncateMessage(message string, maxRunes int) string {
@@ -387,20 +396,24 @@ func (r *SSEProgressReporter) ReportSummary(summary *SyncSummary) {
 		return
 	}
 
+	doneLabel := summaryCompletionLabel(summary.Operation)
 	// 创建基础消息
 	msg := SSEMessage{
 		Type: "summary",
-		Message: fmt.Sprintf("同步完成！成功: %d, 失败: %d, 跳过: %d, 耗时: %s",
+		Message: fmt.Sprintf("%s！成功: %d, 失败: %d, 跳过: %d, 耗时: %s",
+			doneLabel,
 			summary.SuccessPodcasts,
 			summary.FailedPodcasts,
 			summary.SkippedPodcasts,
 			formatDuration(summary.Duration),
 		),
 		Data: map[string]interface{}{
+			"operation":          summary.Operation,
 			"total_podcasts":     summary.TotalPodcasts,
 			"success_podcasts":   summary.SuccessPodcasts,
 			"failed_podcasts":    summary.FailedPodcasts,
 			"skipped_podcasts":   summary.SkippedPodcasts,
+			"stub_podcasts":      summary.StubPodcasts,
 			"no_update_podcasts": summary.NoUpdatePodcasts,
 			"total_episodes":     summary.TotalEpisodes,
 			"new_episodes":       summary.NewEpisodes,

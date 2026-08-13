@@ -122,7 +122,9 @@ export function computeSyncStats(logs: LogEntry[]): SyncStats {
       stats.total = numberOrZero(log.data.total_podcasts);
       stats.success = numberOrZero(log.data.success_podcasts);
       stats.errors = numberOrZero(log.data.failed_podcasts);
-      stats.skips = numberOrZero(log.data.skipped_podcasts);
+      stats.skips =
+        numberOrZero(log.data.skipped_podcasts) +
+        numberOrZero(log.data.stub_podcasts);
       stats.skipNoUpdate = numberOrZero(log.data.no_update_podcasts);
       stats.duration =
         typeof log.data.duration === "string" ? log.data.duration : "";

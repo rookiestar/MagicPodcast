@@ -96,7 +96,7 @@ export function useImportSyncOperations({
         await runSseOperation({
           mode: "import",
           addLog,
-          startMessage: "开始导入OPML（本地匹配模式）...",
+          startMessage: "开始导入OPML（本地匹配 + 在线同步）...",
           fallbackSuccessMessage: "导入完成",
           run: (onProgress) =>
             syncApi.importOPMLSSE(file, onProgress, confirmationText),

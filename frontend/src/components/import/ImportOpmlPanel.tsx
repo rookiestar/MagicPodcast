@@ -24,7 +24,8 @@ export default function ImportOpmlPanel({
           导入 OPML
         </h3>
         <p className="import-guidance-copy">
-          读取小宇宙、Apple Podcasts 等应用导出的订阅列表，先从本地索引快速匹配。
+          读取小宇宙、Apple Podcasts 等应用导出的订阅列表。先匹配本地索引，未命中或需要刷新时会在线抓取
+          RSS。
         </p>
       </div>
 
