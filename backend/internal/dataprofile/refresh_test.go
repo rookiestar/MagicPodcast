@@ -622,6 +622,152 @@ func TestSanitizerSchemaFingerprintMatchesReviewedCurrentSchema(t *testing.T) {
 	require.Equal(t, sanitizerSchemaFingerprint, schemaFingerprint(schema))
 }
 
+func TestExportNormalizesReviewedProductionLegacySchemaAndRebuildsSanitizedFTS(t *testing.T) {
+	home := t.TempDir()
+	fixture, err := EnsureFixture(home)
+	require.NoError(t, err)
+	sourcePath := filepath.Join(t.TempDir(), "production-history.db")
+	require.NoError(t, copyRegularFile(fixture.DatabasePath, sourcePath, 0o600))
+	sourceDB, err := sql.Open("sqlite3", sourcePath)
+	require.NoError(t, err)
+	for _, statement := range []string{
+		"ALTER TABLE job_executions ADD COLUMN job INTEGER",
+		"ALTER TABLE tags ADD COLUMN deleted_at DATETIME",
+		"CREATE INDEX idx_tags_deleted_at ON tags(`deleted_at`)",
+		"ALTER TABLE tags ADD COLUMN description TEXT",
+		`CREATE TABLE tags_temp("INSERT INTO tags (name) VALUES ('两性');" TEXT)`,
+		"ALTER TABLE workflows ADD COLUMN last_job INTEGER",
+		`UPDATE episodes
+		 SET show_notes = 'Reviewed notes https://private.example/note?token=TOPSECRET'
+		 WHERE id = 2001`,
+	} {
+		_, err = sourceDB.Exec(statement)
+		require.NoError(t, err)
+	}
+	searchSQL, err := os.ReadFile(filepath.Join("..", "..", "scripts", "migrations", "add_search_fts.sql"))
+	require.NoError(t, err)
+	_, err = sourceDB.Exec(string(searchSQL))
+	require.NoError(t, err)
+	require.NoError(t, sourceDB.Close())
+
+	output := t.TempDir()
+	exported, err := ExportSanitizedSnapshot(
+		sourcePath,
+		output,
+		"snapshot-production-history",
+		"2026-08-13T00:00:00Z",
+	)
+	require.NoError(t, err)
+
+	exportDB, err := sql.Open("sqlite3", "file:"+exported.DatabasePath+"?mode=ro")
+	require.NoError(t, err)
+	defer exportDB.Close()
+	for table, columns := range map[string][]string{
+		"job_executions": {"job"},
+		"tags":           {"deleted_at", "description"},
+		"workflows":      {"last_job"},
+	} {
+		for _, column := range columns {
+			var count int
+			require.NoError(t, exportDB.QueryRow(
+				"SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?",
+				table,
+				column,
+			).Scan(&count))
+			require.Zero(t, count, "%s.%s must not leave the sanitized snapshot", table, column)
+		}
+	}
+	var legacyTableCount int
+	require.NoError(t, exportDB.QueryRow(
+		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'tags_temp'",
+	).Scan(&legacyTableCount))
+	require.Zero(t, legacyTableCount)
+
+	var sourceNotes, indexedNotes string
+	require.NoError(t, exportDB.QueryRow(
+		"SELECT show_notes FROM episodes WHERE id = 2001",
+	).Scan(&sourceNotes))
+	require.NoError(t, exportDB.QueryRow(
+		"SELECT show_notes FROM episode_search_fts WHERE rowid = 2001",
+	).Scan(&indexedNotes))
+	require.Equal(t, "Reviewed notes https://private.example/note", sourceNotes)
+	require.Equal(t, sourceNotes, indexedNotes)
+	var secretMatches int
+	require.NoError(t, exportDB.QueryRow(
+		"SELECT COUNT(*) FROM episode_search_fts WHERE episode_search_fts MATCH 'TOPSECRET'",
+	).Scan(&secretMatches))
+	require.Zero(t, secretMatches)
+}
+
+func TestExportRejectsUnreviewedSearchFTSSchema(t *testing.T) {
+	home := t.TempDir()
+	fixture, err := EnsureFixture(home)
+	require.NoError(t, err)
+	sourcePath := filepath.Join(t.TempDir(), "unreviewed-search.db")
+	require.NoError(t, copyRegularFile(fixture.DatabasePath, sourcePath, 0o600))
+	sourceDB, err := sql.Open("sqlite3", sourcePath)
+	require.NoError(t, err)
+	_, err = sourceDB.Exec(`
+		CREATE VIRTUAL TABLE podcast_search_fts
+		USING fts4(title, author, description, private_payload, tokenize=unicode61)`)
+	require.NoError(t, err)
+	require.NoError(t, sourceDB.Close())
+
+	_, err = ExportSanitizedSnapshot(
+		sourcePath,
+		t.TempDir(),
+		"snapshot-unreviewed-search",
+		"2026-08-13T00:00:00Z",
+	)
+	require.ErrorContains(t, err, "search FTS schema")
+}
+
+func TestExportRejectsProductionCompatibilityLookalikes(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		statement string
+		wantError string
+	}{
+		{
+			name:      "reviewed legacy column with different type",
+			statement: "ALTER TABLE job_executions ADD COLUMN job TEXT",
+			wantError: "unexpected type",
+		},
+		{
+			name:      "legacy table with different contents",
+			statement: `CREATE TABLE tags_temp("INSERT INTO tags (name) VALUES ('其他');" TEXT)`,
+			wantError: "tags_temp schema requires review",
+		},
+		{
+			name: "legacy deleted-at index with different shape",
+			statement: `ALTER TABLE tags ADD COLUMN deleted_at DATETIME;
+				CREATE INDEX idx_tags_deleted_at ON tags(deleted_at, id)`,
+			wantError: "deleted-at index requires review",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			home := t.TempDir()
+			fixture, err := EnsureFixture(home)
+			require.NoError(t, err)
+			sourcePath := filepath.Join(t.TempDir(), "compatibility-lookalike.db")
+			require.NoError(t, copyRegularFile(fixture.DatabasePath, sourcePath, 0o600))
+			sourceDB, err := sql.Open("sqlite3", sourcePath)
+			require.NoError(t, err)
+			_, err = sourceDB.Exec(testCase.statement)
+			require.NoError(t, err)
+			require.NoError(t, sourceDB.Close())
+
+			_, err = ExportSanitizedSnapshot(
+				sourcePath,
+				t.TempDir(),
+				"snapshot-compatibility-lookalike",
+				"2026-08-13T00:00:00Z",
+			)
+			require.ErrorContains(t, err, testCase.wantError)
+		})
+	}
+}
+
 func TestRefreshRetentionProtectsActiveAndLatestSnapshots(t *testing.T) {
 	home := t.TempDir()
 	fixture, err := EnsureFixture(home)

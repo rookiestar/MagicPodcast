@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-const SanitizerVersion = "v2"
+const SanitizerVersion = "v3"
 const sanitizerSchemaFingerprint = "5d426495e506d43b7fc3ee1caad82d65f65303704ac72aafc042679a1e5981f0"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
@@ -24,6 +24,10 @@ var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 func SanitizeSnapshot(db *sql.DB) error {
 	if db == nil {
 		return fmt.Errorf("snapshot database is nil")
+	}
+	hadSearchFTS, err := normalizeReviewedProductionSchema(db)
+	if err != nil {
+		return err
 	}
 	unknown, err := unknownSensitiveColumns(db)
 	if err != nil {
@@ -83,6 +87,11 @@ func SanitizeSnapshot(db *sql.DB) error {
 	if err := sanitizeRichTextURLs(transaction); err != nil {
 		return err
 	}
+	if hadSearchFTS {
+		if err := rebuildReviewedSearchFTS(transaction); err != nil {
+			return err
+		}
+	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit sanitizer transaction: %w", err)
 	}
@@ -105,6 +114,9 @@ func VerifySanitizedSnapshot(db *sql.DB) error {
 		return fmt.Errorf("sensitive sync configuration remains after sanitization")
 	}
 	if err := verifyRichTextURLs(db); err != nil {
+		return err
+	}
+	if err := verifyReviewedSearchFTS(db); err != nil {
 		return err
 	}
 	for _, check := range []struct {
@@ -283,6 +295,13 @@ func unknownSensitiveColumns(db *sql.DB) ([]string, error) {
 	actual, err := schemaColumns(db)
 	if err != nil {
 		return nil, err
+	}
+	_, ignoredSearchFTSTables, err := reviewedSearchFTSSchema(db)
+	if err != nil {
+		return nil, err
+	}
+	for table := range ignoredSearchFTSTables {
+		delete(actual, table)
 	}
 	var unknown []string
 	for table, columns := range actual {
