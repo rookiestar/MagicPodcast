@@ -7,23 +7,11 @@ interface OperationLogMessage {
 }
 
 export function isOperationCompletionEvent(
-  mode: SyncLogMode,
+  _mode: SyncLogMode,
   type: string,
-  message: string,
+  _message: string,
 ) {
-  if (type === "summary" || type === "complete") {
-    return true;
-  }
-
-  if (type !== "success") {
-    return false;
-  }
-
-  if (mode === "import") {
-    return message.includes("导入完成");
-  }
-
-  return message.includes("同步") && message.includes("完成");
+  return type === "summary" || type === "complete";
 }
 
 export function buildImportErrorLogs(error: unknown): OperationLogMessage[] {

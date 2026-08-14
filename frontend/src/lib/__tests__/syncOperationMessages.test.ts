@@ -37,14 +37,17 @@ describe("syncOperationMessages", () => {
 
   it("detects completion events without adding duplicate fallback logs", () => {
     expect(isOperationCompletionEvent("import", "summary", "")).toBe(true);
-    expect(isOperationCompletionEvent("import", "success", "导入完成")).toBe(
+    expect(isOperationCompletionEvent("import", "complete", "导入完成")).toBe(
       true,
+    );
+    expect(isOperationCompletionEvent("import", "success", "导入完成")).toBe(
+      false,
     );
     expect(isOperationCompletionEvent("sync", "success", "同步已完成")).toBe(
-      true,
-    );
-    expect(isOperationCompletionEvent("sync", "success", "更新成功")).toBe(
       false,
+    );
+    expect(isOperationCompletionEvent("sync", "summary", "同步完成")).toBe(
+      true,
     );
   });
 

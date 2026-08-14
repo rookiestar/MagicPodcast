@@ -7,6 +7,7 @@ import (
 	"magicpodcast/internal/models"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDetectPodcastMetadataUpdate(t *testing.T) {
@@ -85,4 +86,20 @@ func TestPlanEpisodeSync(t *testing.T) {
 
 		assert.False(t, plan.shouldSync)
 	})
+}
+
+func TestSyncPodcastsMetadataSSEEmptyLibrarySendsSummary(t *testing.T) {
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, service.Close()) })
+
+	reporter := &recordingReporter{}
+	require.NoError(t, service.SyncPodcastsMetadataSSE(reporter))
+
+	_, _, summaries := reporter.snapshot()
+	require.Len(t, summaries, 1)
+	assert.Equal(t, "sync", summaries[0].Operation)
+	assert.Equal(t, 0, summaries[0].TotalPodcasts)
+	assert.Equal(t, 0, summaries[0].SuccessPodcasts)
 }

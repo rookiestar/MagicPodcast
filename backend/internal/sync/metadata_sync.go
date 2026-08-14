@@ -40,6 +40,10 @@ func (s *Service) SyncPodcastsMetadataSSE(reporter ProgressReporter) error {
 	total := len(podcasts)
 	if total == 0 {
 		reporter.Report("没有已订阅的播客")
+		reporter.ReportSummary(&SyncSummary{
+			Operation: "sync",
+			Duration:  time.Since(startTime),
+		})
 		return nil
 	}
 

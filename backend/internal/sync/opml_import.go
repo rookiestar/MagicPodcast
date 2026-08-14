@@ -169,8 +169,8 @@ func (s *Service) ImportOPMLWithProgressAndConfig(filePath string, reporter Prog
 
 // ImportOPMLFromPodcastIndexOnly 从PodcastIndex导入并在线同步元数据
 func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter ProgressReporter) (*SyncResult, error) {
-	logger.Infof("🚀 开始导入OPML（智能模式）: %s", filePath)
-	reporter.Report("开始导入OPML文件（智能模式：本地匹配+在线同步）: " + filePath)
+	logger.Infof("开始导入OPML（本地匹配 + 在线同步）: %s", filePath)
+	reporter.Report("开始导入OPML（本地匹配 + 在线同步）")
 
 	// 1. 解析OPML文件
 	outlines, err := s.opmlParser.ParseFile(filePath)
@@ -195,13 +195,15 @@ func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter Progr
 		podcast *models.Podcast
 		err     error
 		title   string
+		stub    bool
 	}
 	resultChan := make(chan importResult, len(outlines))
 
 	// 统计（使用 mutex 保护并发安全）
 	var mu sync.Mutex
 	matchedCount := 0
-	notFoundCount := 0
+	skipCount := 0
+	stubCount := 0
 	processedCount := 0
 
 	startTime := time.Now()
@@ -217,13 +219,13 @@ func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter Progr
 				title := outline.GetTitle()
 				logger.Infof("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ [Worker %d] %s", workerID, title)
 
-				// 仅从PodcastIndex查询，不在线抓取
-				podcast, err := s.syncPodcastFromPodcastIndexOnly(&outline, outline.XMLURL, reporter)
+				podcast, stub, err := s.syncPodcastFromPodcastIndexOnly(&outline, outline.XMLURL, reporter)
 
 				resultChan <- importResult{
 					podcast: podcast,
 					err:     err,
 					title:   title,
+					stub:    stub,
 				}
 			}
 		}(i)
@@ -249,30 +251,32 @@ func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter Progr
 			fmt.Sprintf("处理中: %d/%d", processedCount, len(outlines)))
 
 		if res.err != nil {
-			// 检查是否为跳过类型
-			if shouldSkip, reasonStr, _ := feed.GetSkipReasonFromError(res.err); shouldSkip {
-				notFoundCount++
+			if shouldSkip, reasonStr, description := feed.GetSkipReasonFromError(res.err); shouldSkip {
+				skipCount++
 				reason := SkipReason(reasonStr)
-				reporter.ReportSkip(reason, fmt.Sprintf("%s - %s", res.title, res.err.Error()))
-				logger.Infof("⏭️  [%d/%d] %s - 跳过: %v", processedCount, len(outlines), res.title, res.err)
+				reporter.ReportSkip(reason, fmt.Sprintf("%s - %s", res.title, description))
+				logger.Infof("[%d/%d] %s - 跳过: %s", processedCount, len(outlines), res.title, description)
 			} else {
 				result.FailedPodcasts++
 				result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", res.title, res.err))
 				reporter.ReportError(fmt.Sprintf("%s - %v", res.title, res.err))
-				logger.Infof("❌ [%d/%d] %s - 失败: %v", processedCount, len(outlines), res.title, res.err)
+				logger.Infof("[%d/%d] %s - 失败: %v", processedCount, len(outlines), res.title, res.err)
 			}
 		} else if res.podcast != nil {
-			// 保存播客
 			if err := s.saveOrUpdatePodcast(res.podcast); err != nil {
 				result.FailedPodcasts++
 				result.Errors = append(result.Errors, fmt.Sprintf("%s: save failed - %v", res.title, err))
 				reporter.ReportError(fmt.Sprintf("保存失败: %s - %v", res.title, err))
-				logger.Infof("❌ [%d/%d] %s - 保存失败: %v", processedCount, len(outlines), res.title, err)
+				logger.Infof("[%d/%d] %s - 保存失败: %v", processedCount, len(outlines), res.title, err)
+			} else if res.stub {
+				stubCount++
+				reporter.ReportSkip(SkipReasonOther, fmt.Sprintf("%s - 临时错误，已创建待同步记录", res.title))
+				logger.Infof("[%d/%d] %s - 已创建待同步记录", processedCount, len(outlines), res.title)
 			} else {
 				s.scheduleAlternativePrewarm(res.podcast)
 				matchedCount++
 				reporter.ReportSuccess(fmt.Sprintf("成功导入: %s", res.title))
-				logger.Infof("✅ [%d/%d] %s - 成功", processedCount, len(outlines), res.title)
+				logger.Infof("[%d/%d] %s - 成功", processedCount, len(outlines), res.title)
 			}
 		}
 		mu.Unlock()
@@ -280,17 +284,19 @@ func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter Progr
 
 	duration := time.Since(startTime)
 
-	logger.Infof("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 📊 导入汇总")
-	logger.Infof("✅ 匹配成功: %d", matchedCount)
-	logger.Infof("📭 未找到: %d", notFoundCount)
-	logger.Infof("❌ 失败: %d", result.FailedPodcasts)
-	logger.Infof("⏱️  总耗时: %v", duration)
-	logger.Infof("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	reporter.ReportSuccess(fmt.Sprintf("导入完成！成功: %d, 未找到: %d, 失败: %d, 耗时: %v",
-		matchedCount, notFoundCount, result.FailedPodcasts, duration))
+	logger.Infof("导入汇总 成功=%d 跳过=%d 待同步=%d 失败=%d 耗时=%v",
+		matchedCount, skipCount, stubCount, result.FailedPodcasts, duration)
 
 	result.SuccessPodcasts = matchedCount
+	reporter.ReportSummary(&SyncSummary{
+		Operation:       "import",
+		TotalPodcasts:   len(outlines),
+		SuccessPodcasts: matchedCount,
+		FailedPodcasts:  result.FailedPodcasts,
+		SkippedPodcasts: skipCount,
+		StubPodcasts:    stubCount,
+		Duration:        duration,
+	})
 	return result, nil
 }
 
@@ -422,8 +428,9 @@ func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL st
 	return nil, fmt.Errorf("failed after %d retries: %w", policy.Budget, lastErr)
 }
 
-// syncPodcastFromPodcastIndexOnly 智能同步：先本地匹配，再在线抓取
-func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL string, reporter ProgressReporter) (*models.Podcast, error) {
+// syncPodcastFromPodcastIndexOnly 先本地匹配，再在线抓取。
+// 第三个返回值表示这是一条待同步空壳：调用方不得计入成功。
+func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL string, reporter ProgressReporter) (*models.Podcast, bool, error) {
 	title := ""
 	if outline != nil {
 		title = outline.GetTitle()
@@ -483,12 +490,12 @@ func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL
 			logger.Infof("%s   ⚠️  在线更新失败: %v，使用本地数据库数据", logPrefix, updateErr)
 			reporter.Report(fmt.Sprintf("%s - 在线更新失败，使用本地数据", title))
 			// 即使在线更新失败，也返回本地数据
-			return podcast, nil
+			return podcast, false, nil
 		}
 
 		logger.Infof("%s   ✅ 同步完成: %s", logPrefix, updatedPodcast.Title)
 		reporter.Report(fmt.Sprintf("%s - 同步完成", title))
-		return updatedPodcast, nil
+		return updatedPodcast, false, nil
 	}
 
 	// 情况B: 本地数据库未匹配 - 在线抓取完整信息
@@ -500,15 +507,13 @@ func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL
 		// 检查是否为永久性错误（402付费、SSL过期、403/404等）
 		// 对于永久性错误，直接跳过，不创建数据库记录
 		if shouldSkip, reasonStr, description := feed.GetSkipReasonFromError(fetchErr); shouldSkip {
-			reason := SkipReason(reasonStr)
 			logger.Infof("%s   ⏭️  永久性错误，跳过此feed: %s - %s", logPrefix, reasonStr, description)
-			reporter.ReportSkip(reason, fmt.Sprintf("%s - %s", title, description))
-			return nil, fetchErr
+			return nil, false, fetchErr
 		}
 
 		// 对于临时性错误（网络故障、超时等），创建基础记录以便稍后重试
 		logger.Infof("%s   ⚠️  临时性错误，创建基础记录: %v", logPrefix, fetchErr)
-		reporter.Report(fmt.Sprintf("%s - 临时错误，已创建基础记录（可稍后同步）", title))
+		reporter.Report(fmt.Sprintf("%s - 临时错误，将创建待同步记录", title))
 
 		// 创建基础播客对象
 		basePodcast := &models.Podcast{
@@ -536,12 +541,12 @@ func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL
 			}
 		}
 
-		return basePodcast, nil
+		return basePodcast, true, nil
 	}
 
 	logger.Infof("%s   ✅ 在线抓取成功: %s", logPrefix, podcast.Title)
 	reporter.Report(fmt.Sprintf("%s - 在线抓取成功", title))
-	return podcast, nil
+	return podcast, false, nil
 }
 
 // updatePodcastMetadataOnline 在线更新播客的4个关键字段

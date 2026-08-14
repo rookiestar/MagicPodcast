@@ -15,7 +15,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// saveOrUpdatePodcast 保存或更新播客
+// saveOrUpdatePodcast 保存或更新播客。更新走字段白名单，避免覆盖
+// CustomCoverURL、备注、评分、失效标记等用户字段。
 func (s *Service) saveOrUpdatePodcast(podcast *models.Podcast) error {
 	var existing models.Podcast
 
@@ -34,23 +35,69 @@ func (s *Service) saveOrUpdatePodcast(podcast *models.Podcast) error {
 		return err
 	}
 
-	// 更新现有播客（保留用户自定义数据）
 	podcast.ID = existing.ID
-	podcast.XYZID = existing.XYZID // 保留原有的xyz_id
+	podcast.XYZID = existing.XYZID
 	podcast.Notes = existing.Notes
 	podcast.MyRate = existing.MyRate
 	podcast.CreatedAt = existing.CreatedAt
-	podcast.AddedDate = existing.AddedDate // 保留原有的添加日期
+	podcast.AddedDate = existing.AddedDate
+	podcast.CustomCoverURL = existing.CustomCoverURL
+
+	if isImportStub(podcast) {
+		return nil
+	}
+
 	mainFeedChanged := feed.CanonicalizeURL(existing.FeedURL) != feed.CanonicalizeURL(podcast.FeedURL)
 	identityChanged := parseITunesID(existing.ITunesID) != parseITunesID(podcast.ITunesID) ||
 		normalizeIdentity(existing.PodcastGUID) != normalizeIdentity(podcast.PodcastGUID)
-	if err := s.db.Save(podcast).Error; err != nil {
+	if err := s.db.Model(&existing).Updates(podcastImportUpdates(podcast)).Error; err != nil {
 		return err
 	}
 	if mainFeedChanged || identityChanged {
 		s.InvalidateAlternativeCache(podcast.ID)
 	}
 	return nil
+}
+
+func isImportStub(podcast *models.Podcast) bool {
+	return podcast != nil && !podcast.FeedURLValid && podcast.EpisodeCount == 0 && podcast.CoverURL == ""
+}
+
+func podcastImportUpdates(incoming *models.Podcast) map[string]interface{} {
+	updates := map[string]interface{}{
+		"title":                     incoming.Title,
+		"description":               incoming.Description,
+		"author":                    incoming.Author,
+		"cover_url":                 incoming.CoverURL,
+		"link":                      incoming.Link,
+		"newest_enclosure_url":      incoming.NewestEnclosureURL,
+		"newest_enclosure_duration": incoming.NewestEnclosureDuration,
+		"episode_count":             incoming.EpisodeCount,
+		"newest_episode_date":       incoming.NewestEpisodeDate,
+		"data_source":               incoming.DataSource,
+		"is_subscribed":             incoming.IsSubscribed,
+		"feed_url_valid":            incoming.FeedURLValid,
+		"fetch_error_count":         incoming.FetchErrorCount,
+		"popularity_score":          incoming.PopularityScore,
+		"priority":                  incoming.Priority,
+		"update_frequency":          incoming.UpdateFrequency,
+	}
+	if incoming.ITunesID != "" {
+		updates["i_tunes_id"] = incoming.ITunesID
+	}
+	if incoming.PodcastGUID != "" {
+		updates["podcast_guid"] = incoming.PodcastGUID
+	}
+	if incoming.LastFetchedAt != nil {
+		updates["last_fetched_at"] = incoming.LastFetchedAt
+	}
+	if incoming.LastUpdate != nil {
+		updates["last_update"] = incoming.LastUpdate
+	}
+	if incoming.OldestEpisodeDate != nil {
+		updates["oldest_episode_date"] = incoming.OldestEpisodeDate
+	}
+	return updates
 }
 
 // feedURLToID 从feed URL生成唯一ID

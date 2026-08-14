@@ -52,13 +52,16 @@ describe("runSseOperation", () => {
       startMessage: "开始导入",
       fallbackSuccessMessage: "导入完成",
       run: async (onProgress: SseProgressHandler) => {
-        onProgress("success", "导入完成：已处理 1 个播客");
+        onProgress("summary", "导入完成", undefined, undefined, {
+          operation: "import",
+          success_podcasts: 1,
+        });
       },
     });
 
     expect(logs.map((log) => [log.type, log.message])).toEqual([
       ["info", "开始导入"],
-      ["success", "导入完成：已处理 1 个播客"],
+      ["summary", "导入完成"],
     ]);
   });
 });

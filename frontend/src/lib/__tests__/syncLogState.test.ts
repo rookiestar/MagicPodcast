@@ -52,6 +52,31 @@ describe("syncLogState", () => {
     });
   });
 
+  it("counts import stub podcasts as skips in summary stats", () => {
+    const stats = computeSyncStats([
+      {
+        ...makeLog("summary"),
+        data: {
+          operation: "import",
+          total_podcasts: 5,
+          success_podcasts: 2,
+          failed_podcasts: 0,
+          skipped_podcasts: 1,
+          stub_podcasts: 2,
+          duration: "3s",
+        },
+      },
+    ]);
+
+    expect(stats).toMatchObject({
+      total: 5,
+      success: 2,
+      errors: 0,
+      skips: 3,
+      fromSummary: true,
+    });
+  });
+
   it("ignores invalid saved logs and normalizes unknown types", () => {
     expect(parseSavedLogs("{bad json")).toEqual([]);
 

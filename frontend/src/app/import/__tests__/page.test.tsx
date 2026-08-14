@@ -218,7 +218,14 @@ describe("ImportPage", () => {
 
   it("does not add fallback import completion when the stream already completed", async () => {
     importOPMLSSE.mockImplementation(async (_file, onProgress) => {
-      onProgress("success", "导入完成：已处理 1 个播客");
+      onProgress("summary", "导入完成", undefined, undefined, {
+        operation: "import",
+        total_podcasts: 1,
+        success_podcasts: 1,
+        failed_podcasts: 0,
+        skipped_podcasts: 0,
+        stub_podcasts: 0,
+      });
     });
 
     render(<ImportPage />);
@@ -234,9 +241,8 @@ describe("ImportPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "开始导入" }));
 
     await waitFor(() => {
-      expect(screen.getByText("导入完成：已处理 1 个播客")).toBeInTheDocument();
+      expect(screen.getAllByText("导入完成")).toHaveLength(1);
     });
-    expect(screen.queryByText("导入完成")).not.toBeInTheDocument();
   });
 
   it("shows sync errors even when the thrown value is not an Error", async () => {

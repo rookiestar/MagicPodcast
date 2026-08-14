@@ -23,19 +23,33 @@ export default function SyncLogEntryRow({ log }: { log: LogEntry }) {
         </span>
         {log.type === "summary" && log.data ? (
           <div className="min-w-0 flex-1 space-y-1 text-slate-700 dark:text-slate-200">
-            <p className="font-semibold">同步完成</p>
+            <p className="font-semibold">
+              {log.data.operation === "import" ? "导入完成" : "同步完成"}
+            </p>
             <p>
               播客统计: 总计 {log.data.total_podcasts} | 成功{" "}
               {log.data.success_podcasts} | 失败 {log.data.failed_podcasts} |
-              跳过 {log.data.skipped_podcasts} | 无更新{" "}
-              {log.data.no_update_podcasts || 0}
-            </p>
-            <p>
-              单集统计: 总处理 {log.data.total_episodes || 0} | 新增{" "}
-              {log.data.new_episodes || 0} | 更新{" "}
-              {log.data.updated_episodes || 0}
+              跳过 {log.data.skipped_podcasts}
+              {log.data.operation === "import" ? (
+                <>
+                  {" "}
+                  | 待同步 {log.data.stub_podcasts || 0}
+                </>
+              ) : (
+                <>
+                  {" "}
+                  | 无更新 {log.data.no_update_podcasts || 0}
+                </>
+              )}
               {log.data.duration && <span> | 耗时: {log.data.duration}</span>}
             </p>
+            {log.data.operation === "import" ? null : (
+              <p>
+                单集统计: 总处理 {log.data.total_episodes || 0} | 新增{" "}
+                {log.data.new_episodes || 0} | 更新{" "}
+                {log.data.updated_episodes || 0}
+              </p>
+            )}
           </div>
         ) : (
           <p className="min-w-0 flex-1 break-words text-slate-700 dark:text-slate-200">
