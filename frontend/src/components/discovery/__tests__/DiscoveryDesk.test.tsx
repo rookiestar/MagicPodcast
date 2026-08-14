@@ -613,7 +613,13 @@ describe("DiscoveryDesk", () => {
     expect(
       screen.getByRole("button", { name: "预读 模型能力如何转向真实应用" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("07/29 16:00")).toBeInTheDocument();
+    const expectedCandidateDate = new Intl.DateTimeFormat("zh-CN", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(candidates[0].candidate_time));
+    expect(screen.getByText(expectedCandidateDate)).toBeInTheDocument();
     expect(
       screen.getAllByText("这是一段基于 Show Notes 的摘要。"),
     ).toHaveLength(1);

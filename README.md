@@ -89,6 +89,7 @@ node scripts/performance-audit.mjs \
 - [重构路线图](docs/REFACTORING_ROADMAP.md)
 - [需要人工确认的事项](docs/HUMAN_REVIEW_QUEUE.md)
 - [部署运维](docs/DEPLOYMENT.md)
+- [远程生产发布](docs/REMOTE_PRODUCTION_DEPLOYMENT.md)
 - [环境配置](docs/ENV_SETUP.md)
 - [数据 Profile](docs/DATA_PROFILES.md)
 - [备份恢复](docs/BACKUP_RECOVERY.md)

@@ -1,0 +1,51 @@
+name: Production rollback
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: magicpodcast-production
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Roll back on production Mac mini
+    runs-on: [self-hosted, macos, magicpodcast-production]
+    environment:
+      name: production
+    timeout-minutes: 20
+    env:
+      PRODUCTION_DIR: ${{ vars.MAGICPODCAST_PRODUCTION_DIR }}
+    steps:
+      - name: Check out current workflow code in runner workspace
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate runner configuration
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_REF" = "refs/heads/main" ] || {
+            echo "Run this workflow from main." >&2
+            exit 1
+          }
+          [ -n "$PRODUCTION_DIR" ] || {
+            echo "Configure production environment variable MAGICPODCAST_PRODUCTION_DIR." >&2
+            exit 1
+          }
+          [[ "$PRODUCTION_DIR" = /* ]] || {
+            echo "MAGICPODCAST_PRODUCTION_DIR must be an absolute path." >&2
+            exit 1
+          }
+
+      - name: Roll back paired release
+        env:
+          MAGICPODCAST_PRODUCTION_DIR: ${{ vars.MAGICPODCAST_PRODUCTION_DIR }}
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE/scripts/production-deploy.sh" rollback

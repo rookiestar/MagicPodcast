@@ -14,6 +14,7 @@ import (
 
 func TestDownloadRecordsSHA256AndRejectsChangingObjectMetadata(t *testing.T) {
 	archiveBytes := archiveBytesForTest(t, []archiveTestEntry{validArchiveEntry(sqliteHeaderBytes())})
+	probe := testDownloadDiskProbe()
 	var headCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		etag := "\"object-a\""
@@ -39,6 +40,7 @@ func TestDownloadRecordsSHA256AndRejectsChangingObjectMetadata(t *testing.T) {
 	result, err := Download(context.Background(), DownloadOptions{
 		URL:        server.URL + "/podcastindex_feeds.db.tgz",
 		StagingDir: t.TempDir(),
+		Probe:      probe,
 		Client:     NewDirectHTTPClient(5 * time.Second),
 	})
 	if err == nil {
@@ -59,6 +61,7 @@ func TestDownloadRecordsSHA256AndRejectsChangingObjectMetadata(t *testing.T) {
 
 func TestDownloadAcceptsStableObjectAndComputesSHA256(t *testing.T) {
 	archiveBytes := archiveBytesForTest(t, []archiveTestEntry{validArchiveEntry(sqliteHeaderBytes())})
+	probe := testDownloadDiskProbe()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", formatInt64(int64(len(archiveBytes))))
 		w.Header().Set("Content-Type", "application/gzip")
@@ -75,6 +78,7 @@ func TestDownloadAcceptsStableObjectAndComputesSHA256(t *testing.T) {
 	result, err := Download(context.Background(), DownloadOptions{
 		URL:        server.URL + "/podcastindex_feeds.db.tgz",
 		StagingDir: t.TempDir(),
+		Probe:      probe,
 		Client:     NewDirectHTTPClient(5 * time.Second),
 	})
 	if err != nil {
@@ -145,4 +149,16 @@ func archiveBytesForTest(t *testing.T, entries []archiveTestEntry) []byte {
 
 func formatInt64(value int64) string {
 	return strconv.FormatInt(value, 10)
+}
+
+func testDownloadDiskProbe() DiskProbe {
+	return func(path string) (DiskStats, error) {
+		giB := int64(1024 * 1024 * 1024)
+		return DiskStats{
+			Path:           path,
+			FilesystemID:   "test-volume",
+			CapacityBytes:  100 * giB,
+			AvailableBytes: 80 * giB,
+		}, nil
+	}
 }
