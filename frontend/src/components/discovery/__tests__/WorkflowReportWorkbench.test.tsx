@@ -62,7 +62,7 @@ describe("WorkflowReportWorkbench", () => {
     fetchDetailMock.mockReset();
   });
 
-  it("renders the editorial heading and a single report banner without switch controls", () => {
+  it("renders the editorial heading and a single report without switch controls", () => {
     render(
       <WorkflowReportWorkbench
         todayReports={[makeReport({ id: 1, workflow_name: "晨间日报" })]}
@@ -77,20 +77,14 @@ describe("WorkflowReportWorkbench", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("CURATED REPORTS")).toBeInTheDocument();
     expect(
-      screen.getByRole("listbox", { name: "当天报告" }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /晨间日报/ })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+      screen.queryByRole("listbox", { name: "当天报告" }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("group", { name: "切换当天报告" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("1 / 1")).not.toBeInTheDocument();
-    expect(screen.getAllByText("晨间日报")).toHaveLength(2);
-    expect(screen.getAllByText("日报").every((node) =>
-      node.classList.contains("is-daily"),
-    )).toBe(true);
+    expect(screen.getByText("晨间日报")).toBeInTheDocument();
+    expect(screen.getByText("日报")).toHaveClass("is-daily");
 
     const markdownSections = screen.getAllByTestId("markdown-body");
     expect(markdownSections).toHaveLength(2);
@@ -195,7 +189,7 @@ describe("WorkflowReportWorkbench", () => {
     expect(screen.queryByText("更早报告")).not.toBeInTheDocument();
   });
 
-  it("switches reports via banner and compact controls while collapsing episodes", () => {
+  it("switches reports via compact header controls while collapsing episodes", () => {
     render(
       <WorkflowReportWorkbench
         todayReports={[
@@ -239,7 +233,7 @@ describe("WorkflowReportWorkbench", () => {
     fireEvent.click(screen.getByText("早报单集"));
     expect(screen.getByText("Show Notes")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("option", { name: /午报/ }));
+    fireEvent.click(screen.getByRole("button", { name: "下一份报告" }));
     expect(screen.getByText("午报单集")).toBeInTheDocument();
     expect(screen.getByText("2 / 2")).toBeInTheDocument();
     expect(screen.getAllByText("周报").every((node) =>
@@ -249,41 +243,7 @@ describe("WorkflowReportWorkbench", () => {
     expect(screen.queryByText("B")).not.toBeInTheDocument();
   });
 
-  it("switches on horizontal-dominant touch only", () => {
-    render(
-      <WorkflowReportWorkbench
-        todayReports={[
-          makeReport({ id: 1, workflow_name: "早报" }),
-          makeReport({ id: 2, workflow_name: "午报" }),
-        ]}
-      />,
-    );
-
-    const strip = screen.getByRole("listbox", { name: "当天报告" });
-    fireEvent.touchStart(strip, {
-      changedTouches: [{ clientX: 240, clientY: 100 }],
-    });
-    fireEvent.touchEnd(strip, {
-      changedTouches: [{ clientX: 220, clientY: 180 }],
-    });
-    expect(screen.getByRole("option", { name: /早报/ })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-
-    fireEvent.touchStart(strip, {
-      changedTouches: [{ clientX: 260, clientY: 100 }],
-    });
-    fireEvent.touchEnd(strip, {
-      changedTouches: [{ clientX: 180, clientY: 108 }],
-    });
-    expect(screen.getByRole("option", { name: /午报/ })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-  });
-
-  it("keeps expand and collect as independent controls and shows report-authored rationale", async () => {
+  it("keeps expand and collect as independent controls and shows source-backed Show Notes", async () => {
     const user = userEvent.setup();
     const onDecision = vi.fn(
       async (_episodeID: number, state: "pending" | "shortlisted") => ({
@@ -305,7 +265,6 @@ describe("WorkflowReportWorkbench", () => {
                 podcast_id: 1,
                 podcast_title: "P1",
                 episode_title: "第一集",
-                recommendation: "不应展示的推荐依据",
                 context: "Shownotes 一",
                 decision_state: "pending",
               },
@@ -329,8 +288,6 @@ describe("WorkflowReportWorkbench", () => {
       name: /第一集/,
     });
     fireEvent.click(expandFirst);
-    expect(screen.getByText("报告推荐")).toBeInTheDocument();
-    expect(screen.getByText("不应展示的推荐依据")).toBeInTheDocument();
     expect(screen.getByText("Show Notes")).toBeInTheDocument();
     expect(screen.getByText("Shownotes 一")).toBeInTheDocument();
 
@@ -350,9 +307,6 @@ describe("WorkflowReportWorkbench", () => {
     fireEvent.click(screen.getByRole("button", { name: /第二集/ }));
     expect(screen.getByText("Shownotes 一")).toBeInTheDocument();
     expect(screen.getByText("Shownotes 二")).toBeInTheDocument();
-    expect(
-      screen.getByText("这份报告未提供可核对的推荐理由。"),
-    ).toBeInTheDocument();
   });
 
   it("preserves an existing Focus state instead of resetting it to Inbox", () => {
@@ -530,7 +484,7 @@ describe("WorkflowReportWorkbench", () => {
     expect(onRetry).toHaveBeenCalled();
   });
 
-  it("shows a real report recommendation even when Show Notes are unavailable", () => {
+  it("does not show report recommendations when Show Notes are unavailable", () => {
     render(
       <WorkflowReportWorkbench
         todayReports={[
@@ -558,8 +512,8 @@ describe("WorkflowReportWorkbench", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /无简介单集/ }));
     expect(screen.queryByText("Show Notes")).not.toBeInTheDocument();
-    expect(screen.getByText("报告推荐")).toBeInTheDocument();
-    expect(screen.getByText("不应展示")).toBeInTheDocument();
+    expect(screen.queryByText("报告推荐")).not.toBeInTheDocument();
+    expect(screen.queryByText("不应展示")).not.toBeInTheDocument();
     expect(screen.getByText("打开原单集")).toBeInTheDocument();
   });
 
