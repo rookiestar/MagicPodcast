@@ -58,6 +58,22 @@
 | 后端 | `http://localhost:8080` |
 | 后端健康检查 | `http://localhost:8080/health` |
 
+## 正式访问路径
+
+所有者日常访问以上海私网中继为主，Cloudflare Access 为备用：
+
+- 当前电脑主路径：`http://127.0.0.1:18089`。
+- 手机主路径：开启 MagicPodcast WireGuard 后访问 `https://rookiestar.cn`。
+- 备用路径：关闭 WireGuard 或本地中继不可用时访问 `https://rookiestar.cn`，经 Cloudflare Access 认证。
+
+路径状态使用只读命令检查：
+
+```bash
+./scripts/access-path-status.sh
+```
+
+详细门槛、故障切换与回退见[正式访问路径](runbooks/PRIMARY_ACCESS_PATH.md)。
+
 ## 健康检查
 
 ```bash
@@ -124,7 +140,7 @@ frontend/.env.local
 
 ## Cloudflare Tunnel
 
-> **安全切换状态（2026-07-12）：已完成并持续验证。** Mac mini 的 Nginx、前端和后端只监听 loopback，命名 Tunnel `magicpodcast-prod` 仅连接 `127.0.0.1:8088`，历史 `scripts/cloudflare-tunnel.sh` 已拒绝 Quick Tunnel 和 Basic Auth。`rookiestar.cn` 已启用 Cloudflare Access、HTTP→HTTPS、HSTS 和唯一 Google 身份策略；公网只读验收确认页面、API、图片、框架资源和健康接口均先进入 Access。日常访问只走 HTTPS 域名，紧急访问仅限 Mac mini 本机或临时 SSH 转发。
+> **备用路径状态（2026-08-16）：已启用并持续验证。** Mac mini 的 Nginx、前端和后端只监听 loopback，命名 Tunnel `magicpodcast-prod` 仅连接 `127.0.0.1:8088`，历史 `scripts/cloudflare-tunnel.sh` 已拒绝 Quick Tunnel 和 Basic Auth。`rookiestar.cn` 已启用 Cloudflare Access、HTTP→HTTPS、HSTS 和唯一 Google 身份策略；公网只读验收确认页面、API、图片、框架资源和健康接口均先进入 Access。Cloudflare 作为正式备用入口，不得因中继故障而关闭 Access 或开放直连端口。
 
 ### 公网访问安全切换运行手册（Issue #2）
 

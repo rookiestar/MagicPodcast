@@ -79,9 +79,21 @@ node scripts/performance-audit.mjs \
   --base-url http://localhost:3000 \
   --api-url http://localhost:8080 \
   --runs 3
+
+# 正式访问路径
+./scripts/access-path-status.sh
 ```
 
 最新性能基线见 [docs/performance/BASELINE_2026-05-31.md](docs/performance/BASELINE_2026-05-31.md)。
+
+## 正式访问
+
+所有者默认使用上海私网中继；Cloudflare Access 保留为备用：
+
+- 当前电脑：主路径 `http://127.0.0.1:18089`，备用 `https://rookiestar.cn`。
+- 手机：开启 MagicPodcast WireGuard 后访问 `https://rookiestar.cn`；关闭 WireGuard 即回到 Cloudflare。
+
+运行方式、验收门槛和故障切换见[正式访问路径](docs/runbooks/PRIMARY_ACCESS_PATH.md)。
 
 ## 文档入口
 
@@ -93,6 +105,7 @@ node scripts/performance-audit.mjs \
 - [环境配置](docs/ENV_SETUP.md)
 - [数据 Profile](docs/DATA_PROFILES.md)
 - [备份恢复](docs/BACKUP_RECOVERY.md)
+- [正式访问路径](docs/runbooks/PRIMARY_ACCESS_PATH.md)
 - [前端测试](docs/FRONTEND_TESTING_SETUP.md)
 
 ## 数据与配置
