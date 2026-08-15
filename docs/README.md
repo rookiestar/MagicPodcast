@@ -17,7 +17,7 @@ Agent 治理以根目录 [../AGENTS.md](../AGENTS.md) 为唯一权威合同；[.
 | 专项收尾 | [AUTOMATED_REFACTORING_CLOSEOUT.md](AUTOMATED_REFACTORING_CLOSEOUT.md) | 本轮自动化重构专项总结、验证结果和下一步 |
 | 人审队列 | [HUMAN_REVIEW_QUEUE.md](HUMAN_REVIEW_QUEUE.md) | 自动跳过、需要确认后再处理的事项 |
 | 发布检查 | [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) | 重构、升级、部署前的固定验证步骤 |
-| 远程生产发布 | [REMOTE_PRODUCTION_DEPLOYMENT.md](REMOTE_PRODUCTION_DEPLOYMENT.md) | Self-hosted Runner、审批、固定 SHA 发布与回退 |
+| 远程生产发布 | [REMOTE_PRODUCTION_DEPLOYMENT.md](REMOTE_PRODUCTION_DEPLOYMENT.md) | 唯一远程操作手册：Self-hosted Runner、审批、固定 SHA 发布与回退 |
 | 性能基线 | [performance/BASELINE_2026-05-31.md](performance/BASELINE_2026-05-31.md) | 最新页面、接口和后端并发基线 |
 | 性能专项方法 | [optimization/PERFORMANCE_PLAYBOOK.md](optimization/PERFORMANCE_PLAYBOOK.md) | 性能专项的体验不变量、根因分析、方案顺序和生产收口 |
 | 性能验收模板 | [optimization/PERFORMANCE_ACCEPTANCE_TEMPLATE.md](optimization/PERFORMANCE_ACCEPTANCE_TEMPLATE.md) | 正常、慢、失败、首次访问与冷暖态验收记录 |

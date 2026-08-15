@@ -27,7 +27,7 @@ Actions 的临时工作目录只用于拿到工作流脚本，不能承载生产
 ## 已落地的仓库能力
 
 - `.github/workflows/ci.yml`：PR 和 `main` 合并后的 Go/前端检查。
-- `.github/workflows/production-deploy.yml`：手动选择 `main` 的完整 40 位 SHA，先确认该 SHA 的 CI 已成功，再进入生产审批。
+- `.github/workflows/production-deploy.yml`：默认固化触发时选中的 `main` 提交，也可填写历史 `main` 的完整 40 位 SHA；确认该 SHA 的 CI 成功后进入生产审批。
 - `.github/workflows/production-rollback.yml`：单独的人工审批回退入口。
 - `scripts/production-deploy.sh`：校验生产目录、拒绝脏工作树、串行锁、固定 SHA、强制 `production` Profile，并在失败时恢复代码目录。
 - `scripts/release.sh`：发布和回退健康门禁同时要求 `build_mode=release`。
@@ -93,8 +93,8 @@ MAGICPODCAST_PRODUCTION_DIR=/Users/rookiestar/VSCode/Projects/MagicPodcast
 ## 日常发布
 
 1. 等待目标 SHA 的 `CI` 成功。
-2. GitHub `Actions → Production deploy → Run workflow`，选择 `main`，填写完整 40 位 SHA。
-3. 审批 `production` Environment。
+2. GitHub `Actions → Production deploy → Run workflow`，选择 `main`。通常留空 `commit_sha`，工作流会固化本次触发时选中的 `main` 提交；只有发布历史版本时才填写完整 40 位 SHA。
+3. 在预检摘要核对最终 SHA 和对应 CI；审批 `production` Environment 时，生产任务名称也会显示短 SHA。
 4. Runner 自动执行：固定 SHA 校验、`release.sh --dry-run`、`restart.sh --prod` 和本机前后端健康校验。
 5. 以 `/health` 为发布证据，必须同时看到：
 
@@ -107,6 +107,8 @@ data_profile=production
 ```
 
 发布脚本不会执行数据库迁移，也不会把 fixture/snapshot 自动切成 production 以外的 Profile。迁移仍按 [迁移指南](migration/MIGRATION_GUIDE.md) 单独审批和执行。
+
+若 CI 刚完成但 GitHub API 尚未返回成功记录，预检会在 60 秒内每 5 秒重查一次；超过时限仍未成功才会终止，不会进入生产 Runner。
 
 ## 回退
 
@@ -126,11 +128,11 @@ release.sh --rollback
 ## 安全边界
 
 - 只有手动 workflow 能触发生产发布；没有 PR 自动部署。
-- 固定到用户明确输入的 `main` SHA，不跟随“最新 main”漂移。
+- 固定到触发时选中的 `main` SHA 或用户明确输入的历史 `main` SHA；预检后不再跟随“最新 main”漂移。
 - Environment 审批和并发锁防止未经确认的重叠发布。
 - CI、发布和回退都不写真实数据库；启动时强制 `data_profile=production`，避免误用本地 Profile。
 - 所有发布动作最终以本机 `/health` 和前端 HTTP 响应为准，不把“Runner 命令成功”当作生产已发布。
 
 ## 尚需人工完成
 
-本仓库无法替代以下一次性外部配置：Runner 注册与开机自启、生产 Environment 审批人、main 分支保护、Runner 用户的 Git 只读凭据，以及 Mac mini 上现有服务与备份配置的复核。当前环境也未执行生产发布。
+本仓库无法替代以下一次性外部配置：Runner 注册与开机自启、生产 Environment 审批人、main 分支保护、Runner 用户的 Git 只读凭据，以及 Mac mini 上现有服务与备份配置的复核。
