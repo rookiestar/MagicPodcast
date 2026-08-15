@@ -1,0 +1,4 @@
+# Custom labels used by the production self-hosted runner.
+self-hosted-runner:
+  labels:
+    - magicpodcast-production

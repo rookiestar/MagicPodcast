@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out requested SHA
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.commit_sha }}
           fetch-depth: 0
@@ -77,7 +77,7 @@ jobs:
       PRODUCTION_DIR: ${{ vars.MAGICPODCAST_PRODUCTION_DIR }}
     steps:
       - name: Check out requested SHA in runner workspace
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.commit_sha }}
           fetch-depth: 1
