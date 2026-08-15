@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: Full 40-character SHA from main to deploy
-        required: true
+        description: Optional full main SHA; blank deploys the selected main commit
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -21,17 +22,21 @@ jobs:
     name: Validate release candidate
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      deploy_sha: ${{ steps.validate.outputs.deploy_sha }}
+      short_sha: ${{ steps.validate.outputs.short_sha }}
     steps:
       - name: Check out requested SHA
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.commit_sha }}
+          ref: ${{ inputs.commit_sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Require main SHA and green CI
+        id: validate
         env:
-          DEPLOY_SHA: ${{ inputs.commit_sha }}
+          DEPLOY_SHA: ${{ inputs.commit_sha || github.sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -53,21 +58,51 @@ jobs:
             echo "Requested SHA is not an ancestor of origin/main." >&2
             exit 1
           }
-          ci_run_id="$(
-            gh run list --workflow ci.yml --commit "$DEPLOY_SHA" --limit 20 \
-              --json databaseId,status,conclusion,headSha |
+
+          ci_run_id=""
+          ci_state="not found"
+          for attempt in $(seq 1 13); do
+            ci_runs="$(
+              gh run list --workflow ci.yml --commit "$DEPLOY_SHA" --limit 20 \
+                --json databaseId,status,conclusion,headSha
+            )"
+            ci_run_id="$(
               jq -r --arg sha "$DEPLOY_SHA" \
-                '[.[] | select(.headSha == $sha and .status == "completed" and .conclusion == "success")][0].databaseId // empty'
-          )"
-          [ -n "$ci_run_id" ] || {
-            echo "No successful CI run was found for the requested SHA." >&2
-            exit 1
-          }
+                '[.[] | select(.headSha == $sha and .status == "completed" and .conclusion == "success")][0].databaseId // empty' \
+                <<<"$ci_runs"
+            )"
+            if [ -n "$ci_run_id" ]; then
+              break
+            fi
+            ci_state="$(
+              jq -r --arg sha "$DEPLOY_SHA" \
+                '[.[] | select(.headSha == $sha)][0] |
+                  if . == null then "not found"
+                  else (.status + "/" + (if (.conclusion // "") == "" then "pending" else .conclusion end))
+                  end' \
+                <<<"$ci_runs"
+            )"
+            if [ "$attempt" -eq 13 ]; then
+              echo "No successful CI run was found after 60 seconds (latest state: $ci_state)." >&2
+              exit 1
+            fi
+            echo "CI is not visible as successful yet (state: $ci_state); retrying in 5 seconds."
+            sleep 5
+          done
+
+          echo "deploy_sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${DEPLOY_SHA:0:7}" >> "$GITHUB_OUTPUT"
           echo "release_candidate=$DEPLOY_SHA"
           echo "ci_run_id=$ci_run_id"
+          {
+            echo "### Production release candidate"
+            echo
+            echo "- SHA: \`$DEPLOY_SHA\`"
+            echo "- CI: https://github.com/$GITHUB_REPOSITORY/actions/runs/$ci_run_id"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
-    name: Deploy on production Mac mini
+    name: Deploy ${{ needs.preflight.outputs.short_sha }} on production Mac mini
     needs: preflight
     runs-on: [self-hosted, macos, magicpodcast-production]
     environment:
@@ -79,7 +114,7 @@ jobs:
       - name: Check out requested SHA in runner workspace
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.commit_sha }}
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -105,7 +140,7 @@ jobs:
 
       - name: Deploy fixed SHA
         env:
-          DEPLOY_SHA: ${{ inputs.commit_sha }}
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
           MAGICPODCAST_PRODUCTION_DIR: ${{ vars.MAGICPODCAST_PRODUCTION_DIR }}
         run: |
           set -euo pipefail

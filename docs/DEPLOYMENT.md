@@ -32,7 +32,7 @@
 ./scripts/release.sh --dry-run
 ```
 
-不在 Mac mini 局域网内时，使用[远程生产发布方案](REMOTE_PRODUCTION_DEPLOYMENT.md)的 GitHub Actions 手动入口。它通过受保护的 `production` Environment 和 Mac mini self-hosted Runner，固定发布到指定 `main` SHA；不要直接在 Actions 临时工作目录执行 `restart.sh --prod`。
+不在 Mac mini 局域网内时，使用[远程生产发布方案](REMOTE_PRODUCTION_DEPLOYMENT.md)的 GitHub Actions 手动入口；该文档是远程发布与回退的唯一操作手册。流程通过受保护的 `production` Environment 和 Mac mini self-hosted Runner 固定发布到指定 `main` SHA；不要直接在 Actions 临时工作目录执行 `restart.sh --prod`。
 
 发布日志只记录版本、构建、验证、切换和回退状态，不记录环境变量、令牌或配置内容，默认写入 `logs/release.log`。构建失败或最低验证失败会在停止当前服务前退出。启停脚本会核对工作目录、进程命令、PID 文件和 loopback 监听，拒绝接管未知进程。
 
