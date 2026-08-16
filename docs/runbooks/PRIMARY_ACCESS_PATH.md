@@ -50,9 +50,13 @@
 
 ```text
 primary_status=healthy
-fallback_status=standby_ready
+fallback_status=access_gate_reachable
 fallback_access_gate=present
+fallback_login_page=not_checked
+fallback_authenticated_app=not_checked
 ```
+
+该命令只验证未认证请求确实被 Cloudflare Access 拦截；`access_gate_reachable` 不等于备用路径已可用。登录页和认证后应用必须在真实手机浏览器中单独验收，并分别记录结果。
 
 手机主路径：
 

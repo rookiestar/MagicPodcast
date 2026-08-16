@@ -72,6 +72,8 @@
 ./scripts/access-path-status.sh
 ```
 
+该命令只检查主路径健康和 Cloudflare Access 门禁是否存在，不代表手机登录页或认证后的备用应用可用；后两项需按[正式访问路径](runbooks/PRIMARY_ACCESS_PATH.md)手动验收。
+
 详细门槛、故障切换与回退见[正式访问路径](runbooks/PRIMARY_ACCESS_PATH.md)。
 
 ## 健康检查

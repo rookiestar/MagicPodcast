@@ -2,7 +2,7 @@
 
 日期：2026-08-16
 
-状态：桌面主路径通过；手机与故障切换待人审
+状态：桌面主路径通过；Cloudflare 仅完成 Access 门禁结构检查；手机与故障切换待人审
 
 ## 决策
 
@@ -15,7 +15,7 @@
 | 生产 release | `20260815T042300Z-02f0bb1-37483` |
 | build mode | `release` |
 | 桌面主路径 | `http://127.0.0.1:18089` 健康 |
-| Cloudflare 备用 | 未认证 `/health` 返回 Access 302 |
+| Cloudflare 备用 | 未认证 `/health` 返回 Access 302；登录页和认证后应用未验证 |
 | 公共暴露 | 未发现绕过 Access 的 200 响应 |
 
 ## 桌面主路径冷载
@@ -54,9 +54,11 @@ primary_status=healthy
 primary_http_code=200
 primary_release_id=20260815T042300Z-02f0bb1-37483
 primary_build_mode=release
-fallback_status=standby_ready
+fallback_status=access_gate_reachable
 fallback_http_code=302
 fallback_access_gate=present
+fallback_login_page=not_checked
+fallback_authenticated_app=not_checked
 ```
 
 ## 未完成

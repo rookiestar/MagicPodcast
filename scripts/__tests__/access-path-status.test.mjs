@@ -80,14 +80,17 @@ async function withFixture(
   );
 }
 
-test("passes only when the relay is healthy and Access protects standby", async (t) => {
+test("reports a reachable Access gate without overstating fallback usability", async (t) => {
   const result = await withFixture(t);
 
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stdout, /primary_status=healthy/);
   assert.match(result.stdout, /primary_release_id=fixture-release/);
-  assert.match(result.stdout, /fallback_status=standby_ready/);
+  assert.match(result.stdout, /fallback_status=access_gate_reachable/);
   assert.match(result.stdout, /fallback_access_gate=present/);
+  assert.match(result.stdout, /fallback_login_page=not_checked/);
+  assert.match(result.stdout, /fallback_authenticated_app=not_checked/);
+  assert.doesNotMatch(result.stdout, /standby_ready/);
 });
 
 test("fails when the primary relay is unhealthy", async (t) => {
@@ -95,7 +98,7 @@ test("fails when the primary relay is unhealthy", async (t) => {
 
   assert.equal(result.code, 1);
   assert.match(result.stdout, /primary_status=unhealthy/);
-  assert.match(result.stdout, /fallback_status=standby_ready/);
+  assert.match(result.stdout, /fallback_status=access_gate_reachable/);
 });
 
 test("fails closed when the public standby bypasses Access", async (t) => {

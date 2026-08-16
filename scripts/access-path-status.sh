@@ -1,5 +1,5 @@
 #!/bin/bash
-# Read-only health check for the owner relay primary path and Cloudflare standby.
+# Read-only structural check for the owner relay primary path and Cloudflare Access gate.
 
 set -u
 
@@ -19,7 +19,8 @@ Usage: ./scripts/access-path-status.sh
 
 Checks:
   primary   Owner relay health endpoint (default: loopback relay)
-  fallback  Unauthenticated Cloudflare Access gate
+  fallback  Unauthenticated Cloudflare Access gate only; browser login and
+            authenticated application use are not checked by this script
 
 Environment:
   MAGICPODCAST_PRIMARY_HEALTH_URL
@@ -88,14 +89,17 @@ fallback_code="$(
 )"
 if [ "$fallback_code" = "302" ] &&
   grep -qi '^location: .*\/cdn-cgi\/access\/login' "$fallback_headers"; then
-  fallback_status="standby_ready"
+  fallback_status="access_gate_reachable"
   fallback_access_gate="present"
 else
   fallback_status="unavailable"
   fallback_access_gate="missing"
 fi
 
-echo "policy=relay_primary_cloudflare_standby"
+fallback_login_page="not_checked"
+fallback_authenticated_app="not_checked"
+
+echo "policy=relay_primary_cloudflare_fallback"
 echo "primary_status=$primary_status"
 echo "primary_http_code=${primary_code:-000}"
 echo "primary_release_id=${primary_release_id:-unknown}"
@@ -103,7 +107,10 @@ echo "primary_build_mode=${primary_build_mode:-unknown}"
 echo "fallback_status=$fallback_status"
 echo "fallback_http_code=${fallback_code:-000}"
 echo "fallback_access_gate=$fallback_access_gate"
+echo "fallback_login_page=$fallback_login_page"
+echo "fallback_authenticated_app=$fallback_authenticated_app"
 
-if [ "$primary_status" != "healthy" ] || [ "$fallback_status" != "standby_ready" ]; then
+if [ "$primary_status" != "healthy" ] ||
+  [ "$fallback_status" != "access_gate_reachable" ]; then
   exit 1
 fi
