@@ -366,28 +366,28 @@ func batchRemainingMs(job *models.Job) *int64 {
 
 func workflowReportResponse(report *models.Report) gin.H {
 	return gin.H{
-		"id":                   report.ID,
-		"job_id":               report.JobID,
-		"title":                report.Title,
-		"content":              report.Content,
-		"summary":              report.Summary,
-		"episodes_count":       report.EpisodesCount,
-		"podcasts_count":       report.PodcastsCount,
-		"matched_count":        report.MatchedCount,
-		"time_range_start":     report.TimeRangeStart,
-		"time_range_end":       report.TimeRangeEnd,
-		"time_range_mode":      report.TimeRangeMode,
-		"generated_at":         report.GeneratedAt,
-		"format":               report.Format,
-		"file_size":            report.FileSize,
-		"publish_to_homepage":  report.PublishToHomepage,
-		"report_type":          report.ReportType,
-		"workflow_name":        report.WorkflowName,
-		"structured_episodes":  report.StructuredEpisodes,
-		"llm_summary":          report.LLMSummary,
-		"llm_model_used":       report.LLMModelUsed,
-		"llm_tokens_used":      report.LLMTokensUsed,
-		"llm_error":            report.LLMError,
+		"id":                  report.ID,
+		"job_id":              report.JobID,
+		"title":               report.Title,
+		"content":             report.Content,
+		"summary":             report.Summary,
+		"episodes_count":      report.EpisodesCount,
+		"podcasts_count":      report.PodcastsCount,
+		"matched_count":       report.MatchedCount,
+		"time_range_start":    report.TimeRangeStart,
+		"time_range_end":      report.TimeRangeEnd,
+		"time_range_mode":     report.TimeRangeMode,
+		"generated_at":        report.GeneratedAt,
+		"format":              report.Format,
+		"file_size":           report.FileSize,
+		"publish_to_homepage": report.PublishToHomepage,
+		"report_type":         report.ReportType,
+		"workflow_name":       report.WorkflowName,
+		"structured_episodes": report.StructuredEpisodes,
+		"llm_summary":         report.LLMSummary,
+		"llm_model_used":      report.LLMModelUsed,
+		"llm_tokens_used":     report.LLMTokensUsed,
+		"llm_error":           report.LLMError,
 	}
 }
 
@@ -405,7 +405,7 @@ func (h *WorkflowHandler) getBatchReports(jobIDs []uint, includeLongFields bool)
 	var reports []models.Report
 	query := db.Where("job_id IN ?", jobIDs)
 	if !includeLongFields {
-		query = query.Select("job_id", "llm_model_used", "llm_tokens_used")
+		query = query.Select("job_id", "llm_model_used", "llm_tokens_used", "llm_error")
 	}
 	if err := query.Find(&reports).Error; err != nil {
 		return result

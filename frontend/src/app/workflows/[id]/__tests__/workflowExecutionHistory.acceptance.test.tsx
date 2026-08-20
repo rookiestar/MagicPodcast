@@ -269,6 +269,50 @@ describe("工作流执行历史可见等待验收 (#34)", () => {
     expect(window.location.search).toContain("tab=jobs");
   });
 
+  it("AI 摘要失败时列表显示失败标记，状态仍为已完成且错误数为 0", async () => {
+    const controller: ApiController = {
+      workflowDelayMs: 0,
+      jobsDelayMs: 0,
+      jobsFail: false,
+      jobsByPage: new Map([
+        [
+          1,
+          [
+            makeJob(1301, {
+              status: "completed",
+              error_count: 0,
+              llm_error:
+                "读取响应失败: context deadline exceeded (Client.Timeout or context cancellation while reading body)",
+            }),
+            makeJob(1302, {
+              status: "completed",
+              error_count: 0,
+              llm_tokens_used: 8900,
+              llm_model_used: "deepseek-v4-flash",
+            }),
+          ],
+        ],
+      ]),
+      totalPages: 1,
+      batchGetCalls: 0,
+      calls: [],
+    };
+    installApi(controller);
+    installBatchGet(controller);
+
+    renderDetail();
+    await waitForWorkflowReady();
+    clickJobsTab();
+
+    await waitFor(() => {
+      expect(screen.getAllByText("AI摘要失败").length).toBeGreaterThan(0);
+    });
+    expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("0").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "仅重试失败 Feed" })).not.toBeInTheDocument();
+    expect(screen.getByText(/AI: 8.9K \(deepseek-v4-flash\)/)).toBeInTheDocument();
+  });
+
   it("意图预取后进入：缓存命中时点击到首条可见 P95 ≤300ms，且无 router 导航", async () => {
     const controller: ApiController = {
       workflowDelayMs: 0,

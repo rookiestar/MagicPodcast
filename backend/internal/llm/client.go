@@ -208,90 +208,84 @@ func (c *Client) GenerateSummary(ctx context.Context, systemPrompt, userPrompt s
 		return nil, fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	// 构建HTTP请求
 	url := fmt.Sprintf("%s/chat/completions", c.config.BaseURL)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("创建HTTP请求失败: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	// 根据provider设置不同的认证方式
+	authHeader := fmt.Sprintf("Bearer %s", apiKey)
 	if c.config.Provider == "zhipuai" {
-		// 智谱AI需要使用JWT token认证
-		token, err := generateZhipuJWTToken(apiKey)
-		if err != nil {
-			return nil, fmt.Errorf("生成智谱AI token失败: %w", err)
+		token, tokenErr := generateZhipuJWTToken(apiKey)
+		if tokenErr != nil {
+			return nil, fmt.Errorf("生成智谱AI token失败: %w", tokenErr)
 		}
-		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	} else {
-		// 其他provider使用标准Bearer token
-		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+		authHeader = fmt.Sprintf("Bearer %s", token)
 	}
 
-	// 发送请求（带重试）
-	var resp *http.Response
+	var lastErr error
 	for attempt := 0; attempt <= c.config.MaxRetries; attempt++ {
 		if attempt > 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, fmt.Errorf("HTTP请求失败: %w", err)
+			}
 			logger.Infof("LLM请求重试 %d/%d", attempt, c.config.MaxRetries)
-			time.Sleep(time.Duration(c.config.RetryInterval) * time.Millisecond)
+			if c.config.RetryInterval > 0 {
+				time.Sleep(time.Duration(c.config.RetryInterval) * time.Millisecond)
+			}
 		}
 
-		resp, err = c.httpClient.Do(httpReq)
+		result, retryable, err := c.doChatCompletion(ctx, url, authHeader, reqBody)
 		if err == nil {
-			break
+			return result, nil
 		}
+		lastErr = err
+		if !retryable || attempt == c.config.MaxRetries {
+			if retryable && attempt > 0 {
+				return nil, fmt.Errorf("%v（重试%d次后）", err, c.config.MaxRetries)
+			}
+			return nil, err
+		}
+	}
+	return nil, lastErr
+}
 
-		if attempt == c.config.MaxRetries {
-			return nil, fmt.Errorf("HTTP请求失败（重试%d次后）: %w", c.config.MaxRetries, err)
-		}
+func (c *Client) doChatCompletion(ctx context.Context, url, authHeader string, reqBody []byte) (*SummaryResult, bool, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, false, fmt.Errorf("创建HTTP请求失败: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", authHeader)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, true, fmt.Errorf("HTTP请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// 读取响应
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %w", err)
+		return nil, true, fmt.Errorf("读取响应失败: %w", err)
 	}
 
-	// 解析响应
 	var chatResp ChatCompletionResponse
 	if err := json.Unmarshal(body, &chatResp); err != nil {
-		return nil, fmt.Errorf("解析响应失败: %w, body: %s", err, string(body))
+		return nil, false, fmt.Errorf("解析响应失败: %w, body: %s", err, string(body))
 	}
-
-	// 检查API错误
 	if chatResp.Error != nil {
-		return nil, fmt.Errorf("LLM API错误: %s (code: %s)", chatResp.Error.Message, chatResp.Error.Code)
+		return nil, false, fmt.Errorf("LLM API错误: %s (code: %s)", chatResp.Error.Message, chatResp.Error.Code)
 	}
-
-	// 检查响应状态
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("LLM API返回错误状态: %d, body: %s", resp.StatusCode, string(body))
+		return nil, false, fmt.Errorf("LLM API返回错误状态: %d, body: %s", resp.StatusCode, string(body))
 	}
-
-	// 检查是否有结果
 	if len(chatResp.Choices) == 0 {
-		return nil, fmt.Errorf("LLM API未返回任何结果")
+		return nil, false, fmt.Errorf("LLM API未返回任何结果")
 	}
 
-	// 更新统计
 	c.updateStats(chatResp.Usage.TotalTokens)
-
-	// 格式化摘要（清理多余换行）
-	formattedSummary := formatSummary(chatResp.Choices[0].Message.Content)
-
-	// 构建结果
-	result := &SummaryResult{
-		Summary:      formattedSummary,
+	return &SummaryResult{
+		Summary:      formatSummary(chatResp.Choices[0].Message.Content),
 		ModelUsed:    chatResp.Model,
 		TokensUsed:   chatResp.Usage.TotalTokens,
 		PromptTokens: chatResp.Usage.PromptTokens,
 		TotalTokens:  chatResp.Usage.TotalTokens,
-	}
-
-	return result, nil
+	}, false, nil
 }
 
 // ValidateAPIKey sends a tiny request to verify that the configured provider,

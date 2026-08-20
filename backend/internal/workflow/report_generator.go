@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"fmt"
 	"magicpodcast/internal/logger"
 	"sort"
@@ -23,7 +24,7 @@ type ReportGenerator struct {
 
 // SummarizerInterface 摘要生成器接口（避免循环依赖）
 type SummarizerInterface interface {
-	GenerateForReport(data []llm.EpisodeReportData, workflowName string, userPrompt string, options llm.SummaryOptions) (*llm.SummaryResult, error)
+	GenerateForReport(ctx context.Context, data []llm.EpisodeReportData, workflowName string, userPrompt string, options llm.SummaryOptions) (*llm.SummaryResult, error)
 }
 
 // NewReportGenerator 创建报告生成器
@@ -102,7 +103,10 @@ func ConvertToLLMReportData(data []EpisodeReportData) []llm.EpisodeReportData {
 }
 
 // GenerateForJob 为Job生成报告
-func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, error) {
+func (rg *ReportGenerator) GenerateForJob(ctx context.Context, job *models.Job) (*models.Report, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	// 重新从数据库查询Job，确保操作的是最新记录
 	var freshJob models.Job
 	if err := rg.db.First(&freshJob, job.ID).Error; err != nil {
@@ -200,6 +204,7 @@ func (rg *ReportGenerator) GenerateForJob(job *models.Job) (*models.Report, erro
 		// 调用摘要生成器（只传入user prompt，system prompt从config获取）
 		logger.Debugf("  - Calling summarizer.GenerateForReport...")
 		result, err := rg.summarizer.GenerateForReport(
+			ctx,
 			llmReportData,
 			workflow.Name,
 			workflow.RulesConfig.LLMUserPrompt, // 只传入user prompt

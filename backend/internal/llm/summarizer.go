@@ -56,7 +56,7 @@ func NewSummarizer(client *Client, tplManager *PromptManager) *Summarizer {
 }
 
 // GenerateForReport 为工作流报告生成LLM摘要
-func (s *Summarizer) GenerateForReport(data []EpisodeReportData, workflowName string, userPrompt string, options SummaryOptions) (*SummaryResult, error) {
+func (s *Summarizer) GenerateForReport(ctx context.Context, data []EpisodeReportData, workflowName string, userPrompt string, options SummaryOptions) (*SummaryResult, error) {
 	// 数据量采样策略
 	totalEpisodes := countEpisodes(data)
 
@@ -84,7 +84,10 @@ func (s *Summarizer) GenerateForReport(data []EpisodeReportData, workflowName st
 	}
 
 	// 调用LLM（传入system和user prompt）
-	result, err := s.client.GenerateSummary(context.Background(), systemPrompt, userPrompt, options)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	result, err := s.client.GenerateSummary(ctx, systemPrompt, userPrompt, options)
 	if err != nil {
 		return nil, fmt.Errorf("LLM摘要生成失败: %w", err)
 	}

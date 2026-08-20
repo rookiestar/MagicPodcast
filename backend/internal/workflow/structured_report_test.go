@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -112,7 +113,7 @@ func TestGenerateForJob_PersistsStructuredHomepageSnapshot(t *testing.T) {
 	}).Error)
 
 	rg := NewReportGenerator(db, nil)
-	report, err := rg.GenerateForJob(&job)
+	report, err := rg.GenerateForJob(context.Background(), &job)
 	require.NoError(t, err)
 	require.NotNil(t, report)
 	assert.True(t, report.PublishToHomepage)
@@ -161,7 +162,7 @@ func TestGenerateForJob_ZeroEpisodesDoesNotPublishHomepage(t *testing.T) {
 	require.NoError(t, db.Create(&job).Error)
 
 	rg := NewReportGenerator(db, nil)
-	report, err := rg.GenerateForJob(&job)
+	report, err := rg.GenerateForJob(context.Background(), &job)
 	require.NoError(t, err)
 	assert.False(t, report.PublishToHomepage)
 	assert.Empty(t, report.ReportType)
@@ -213,7 +214,7 @@ func TestGenerateForJob_UnpublishedWorkflowNeverHomepage(t *testing.T) {
 	}).Error)
 
 	rg := NewReportGenerator(db, nil)
-	report, err := rg.GenerateForJob(&job)
+	report, err := rg.GenerateForJob(context.Background(), &job)
 	require.NoError(t, err)
 	assert.False(t, report.PublishToHomepage)
 	// Structured data may still be stored for future use, but publish flag stays false.

@@ -818,6 +818,7 @@ func (h *WorkflowHandler) RegenerateLLMSummary(c *gin.Context) {
 	}
 
 	result, err := h.summarizer.GenerateForReport(
+		c.Request.Context(),
 		workflow.ConvertToLLMReportData(reportData),
 		workflowConfig.Name,
 		workflowConfig.RulesConfig.LLMUserPrompt,
