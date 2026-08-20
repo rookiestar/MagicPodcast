@@ -170,12 +170,12 @@ func (e *Executor) ExecuteCompensation(ctx context.Context, sourceJobID uint) (*
 		return job, err
 	}
 	if len(podcasts) == 0 {
-		e.finalizeJob(job, []*models.JobExecution{})
+		e.finalizeJob(ctx, job, []*models.JobExecution{})
 		return job, nil
 	}
 
 	results := e.executeSync(ctx, &workflow, job, podcasts)
-	e.finalizeJob(job, results)
+	e.finalizeJob(ctx, job, results)
 
 	// Reload links for the response.
 	_ = e.db.First(job, job.ID).Error
@@ -210,7 +210,7 @@ func (e *Executor) Execute(ctx context.Context, workflow *models.Workflow, trigg
 
 	if len(podcasts) == 0 {
 		logger.Infof("⚠️  没有需要处理的播客")
-		e.finalizeJob(job, []*models.JobExecution{})
+		e.finalizeJob(ctx, job, []*models.JobExecution{})
 		return job, nil
 	}
 
@@ -218,7 +218,7 @@ func (e *Executor) Execute(ctx context.Context, workflow *models.Workflow, trigg
 	results := e.executeSync(ctx, workflow, job, podcasts)
 
 	// 4. 汇总结果并更新Job（含 finalizing → 报告 → 终态，持锁到报告持久化）
-	e.finalizeJob(job, results)
+	e.finalizeJob(ctx, job, results)
 
 	logger.Infof("✅ 工作流执行完成 [JobID=%d, 处理=%d, 成功=%d, 失败=%d]",
 		job.ID, job.PodcastsProcessed,
@@ -970,7 +970,7 @@ func applyFeedAccessOutcome(execution *models.JobExecution, outcome *feed.Access
 // finalizeJob aggregates execution outcomes, holds finalizing until one report
 // is persisted (or generation fails with an explicit terminal status), then
 // releases the active-job slot by writing a terminal status (#38).
-func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecution) {
+func (e *Executor) finalizeJob(ctx context.Context, job *models.Job, executions []*models.JobExecution) {
 	var successCount, failedCount, skippedCount int
 	var totalEpisodes int
 	var totalMatched int
@@ -1017,7 +1017,7 @@ func (e *Executor) finalizeJob(job *models.Job, executions []*models.JobExecutio
 	if exists, err := HasReportForJob(e.db, job.ID); err == nil && exists {
 		logger.Infof("ℹ️  报告已存在，跳过重复生成 [JobID=%d]", job.ID)
 	} else {
-		report, err := reportGen.GenerateForJob(job)
+		report, err := reportGen.GenerateForJob(ctx, job)
 		if err != nil {
 			logger.Infof("❌ 生成报告失败 [JobID=%d]: %v", job.ID, err)
 			// Even without a report row, release the lock with the terminal status.

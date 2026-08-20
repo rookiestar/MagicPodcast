@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,4 +140,85 @@ func TestWorkflowHomepagePublishConfigPersistsAcrossCreateAndUpdate(t *testing.T
 	require.NoError(t, db.First(&stored, stored.ID).Error)
 	require.False(t, stored.PublishToHomepage)
 	require.Empty(t, stored.ReportType)
+}
+
+func TestListJobsSummaryIncludesLLMErrorWithoutLongSummary(t *testing.T) {
+	cache.GetCache().Clear()
+	db, err := gorm.Open(
+		sqlite.Open(fmt.Sprintf("file:list_jobs_llm_error_%d?mode=memory&cache=shared", time.Now().UnixNano())),
+		&gorm.Config{},
+	)
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.Workflow{},
+		&models.Job{},
+		&models.Report{},
+	))
+	database.SetTestDB(db)
+	t.Cleanup(func() {
+		database.ResetDB()
+		sqlDB, openErr := db.DB()
+		if openErr == nil {
+			_ = sqlDB.Close()
+		}
+	})
+
+	workflow := models.Workflow{
+		Name:      "教育精选",
+		ScopeType: models.ScopeTypeAllSubscribed,
+		IsEnabled: true,
+	}
+	require.NoError(t, db.Create(&workflow).Error)
+	now := time.Now()
+	job := models.Job{
+		WorkflowID:        workflow.ID,
+		Status:            models.JobStatusCompleted,
+		TriggeredBy:       "cron",
+		StartTime:         &now,
+		EndTime:           &now,
+		PodcastsProcessed: 9,
+		ErrorCount:        0,
+	}
+	require.NoError(t, db.Create(&job).Error)
+	require.NoError(t, db.Create(&models.Report{
+		JobID:         job.ID,
+		Title:         "教育精选",
+		Content:       "# 报告正文",
+		GeneratedAt:   now,
+		LLMSummary:    strings.Repeat("LONG-SUMMARY-", 200),
+		LLMError:      "读取响应失败: context deadline exceeded (Client.Timeout or context cancellation while reading body)",
+		LLMModelUsed:  "",
+		LLMTokensUsed: 0,
+	}).Error)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := NewWorkflowHandler(nil, scheduler.NewScheduler(db, nil), nil)
+	router.GET("/api/v1/workflows/:id/jobs", handler.ListJobs)
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(
+		recorder,
+		httptest.NewRequest(
+			http.MethodGet,
+			fmt.Sprintf("/api/v1/workflows/%d/jobs?page=1&page_size=10&view=summary", workflow.ID),
+			nil,
+		),
+	)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+
+	var envelope struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Jobs []map[string]any `json:"jobs"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &envelope))
+	require.Len(t, envelope.Data.Jobs, 1)
+	got := envelope.Data.Jobs[0]
+	require.Equal(t, "completed", got["status"])
+	require.Equal(t, float64(0), got["error_count"])
+	require.Equal(t, "读取响应失败: context deadline exceeded (Client.Timeout or context cancellation while reading body)", got["llm_error"])
+	_, hasSummary := got["llm_summary"]
+	require.False(t, hasSummary)
 }

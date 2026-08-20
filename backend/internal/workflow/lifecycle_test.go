@@ -192,7 +192,7 @@ func TestExecuteHoldsFinalizingUntilReportAndRejectsOverlap(t *testing.T) {
 
 	// Idempotent report path: GenerateForJob twice yields one row.
 	rg := NewReportGenerator(db, nil)
-	_, err = rg.GenerateForJob(job)
+	_, err = rg.GenerateForJob(context.Background(), job)
 	require.NoError(t, err)
 	require.NoError(t, db.Model(&models.Report{}).Where("job_id = ?", job.ID).Count(&reportCount).Error)
 	require.Equal(t, int64(1), reportCount)

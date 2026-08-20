@@ -968,6 +968,11 @@ function WorkflowDetailContent() {
                               {job.triggered_by === "cron" ? "定时" : "手动"}
                             </span>
                             <JobStatusBadge status={job.status} />
+                            {job.llm_error ? (
+                              <span className="text-xs px-1.5 py-0.5 bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300 rounded font-medium">
+                                AI摘要失败
+                              </span>
+                            ) : null}
                           </div>
 
                           {/* 中间：简化统计（仅匹配数和错误数） */}
@@ -1033,11 +1038,15 @@ function WorkflowDetailContent() {
                                   耗时：{Math.floor(job.duration / 1000)}s
                                 </span>
                               )}
-                              {job.llm_tokens_used && job.llm_model_used && (
+                              {job.llm_error ? (
+                                <span className="text-xs px-2 py-1 bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300 rounded-full font-medium flex-shrink-0">
+                                  AI摘要失败
+                                </span>
+                              ) : job.llm_tokens_used && job.llm_model_used ? (
                                 <span className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 rounded-full font-medium flex-shrink-0">
                                    AI: {formatTokenCount(job.llm_tokens_used)} ({job.llm_model_used})
                                 </span>
-                              )}
+                              ) : null}
                             </div>
                             <div className="flex items-center gap-3">
                               <button
