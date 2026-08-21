@@ -7,7 +7,9 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import WorkflowReportWorkbench from "@/components/discovery/WorkflowReportWorkbench";
+import WorkflowReportWorkbench, {
+  HistoryDrawer,
+} from "@/components/discovery/WorkflowReportWorkbench";
 import type { HomepageReport } from "@/types/discovery";
 
 const fetchDetailMock = vi.hoisted(() => vi.fn());
@@ -633,12 +635,12 @@ describe("WorkflowReportWorkbench", () => {
       ).toHaveLength(2);
     });
 
-    it("shows the filter entry with the loaded-scope hint and newest-first options", () => {
+    it("shows the filter entry with the 30-report scope hint and newest-first options", () => {
       renderWorkbench(baseHistory());
       const drawer = openDrawer();
       expandFilter(drawer);
 
-      expect(within(drawer).getByText("筛选最近 3 份报告")).toBeInTheDocument();
+      expect(within(drawer).getByText("筛选最近 30 份报告")).toBeInTheDocument();
       expect(
         within(drawer).getByRole("searchbox", { name: "搜索工作流" }),
       ).toBeInTheDocument();
@@ -917,6 +919,88 @@ describe("WorkflowReportWorkbench", () => {
       ).toHaveValue("");
     });
 
+    it("keeps the selection in the empty-result state with a direct clear entry", () => {
+      const onClearSelection = vi.fn();
+      render(
+        <HistoryDrawer
+          reports={[]}
+          timezone="Asia/Shanghai"
+          onClose={() => {}}
+          onSelect={() => {}}
+          filter={{
+            options: [
+              {
+                workflowId: 10,
+                label: "科技日报",
+                names: ["科技日报"],
+                latestCompletedAt: "2026-08-12T01:00:00Z",
+                reportCount: 2,
+              },
+              {
+                workflowId: 20,
+                label: "投资周报",
+                names: ["投资周报"],
+                latestCompletedAt: "2026-08-11T02:00:00Z",
+                reportCount: 1,
+              },
+            ],
+            selectedIds: new Set([10]),
+            keyword: "",
+            open: false,
+            onToggleOpen: () => {},
+            onKeywordChange: () => {},
+            onToggleSelection: () => {},
+            onClearSelection,
+          }}
+        />,
+      );
+
+      expect(
+        screen.getByText("没有符合所选工作流的报告。"),
+      ).toBeInTheDocument();
+      // The selection is retained (badge still counts it) until cleared.
+      expect(screen.getByText("已选 1")).toBeInTheDocument();
+      const noresults = screen
+        .getByText("没有符合所选工作流的报告。")
+        .closest("div");
+      expect(noresults).not.toBeNull();
+      fireEvent.click(
+        within(noresults as HTMLElement).getByRole("button", {
+          name: "清除筛选",
+        }),
+      );
+      expect(onClearSelection).toHaveBeenCalledTimes(1);
+    });
+
+    it("resets the whole filter after a page refresh (remount)", () => {
+      const { unmount } = renderWorkbench(baseHistory());
+      const drawer = openDrawer();
+      expandFilter(drawer);
+      fireEvent.click(
+        within(drawer).getByRole("checkbox", { name: /科技日报/ }),
+      );
+      fireEvent.change(
+        within(drawer).getByRole("searchbox", { name: "搜索工作流" }),
+        { target: { value: "科技" } },
+      );
+      expect(within(drawer).getByText("已选 1")).toBeInTheDocument();
+      unmount();
+
+      renderWorkbench(baseHistory());
+      const reopened = openDrawer();
+      expect(within(reopened).queryByText("已选 1")).not.toBeInTheDocument();
+      expect(
+        within(reopened).getAllByRole("button", { name: /投资周报/ }),
+      ).toHaveLength(1);
+      expect(
+        within(reopened).getByRole("button", { name: /筛选工作流/ }),
+      ).toHaveAttribute("aria-expanded", "false");
+      expandFilter(reopened);
+      expect(
+        within(reopened).getByRole("searchbox", { name: "搜索工作流" }),
+      ).toHaveValue("");
+    });
+
     it("prunes stale selections on data refresh while keeping valid ones", () => {
       const { rerender } = renderWorkbench(baseHistory());
       const drawer = openDrawer();
@@ -981,6 +1065,58 @@ describe("WorkflowReportWorkbench", () => {
       expect(
         within(reset).getAllByRole("button", { name: /环保周报/ }),
       ).toHaveLength(1);
+    });
+
+    it("does not resurrect a selection pruned by an earlier refresh", () => {
+      const { rerender } = renderWorkbench(baseHistory());
+      const drawer = openDrawer();
+      expandFilter(drawer);
+      fireEvent.click(
+        within(drawer).getByRole("checkbox", { name: /投资周报/ }),
+      );
+
+      // Refresh drops 投资周报: the selection is pruned and committed to
+      // source state, not just hidden for this render.
+      rerender(
+        <WorkflowReportWorkbench
+          timezone="Asia/Shanghai"
+          todayReports={[makeReport({ id: 1, workflow_name: "今日" })]}
+          historyReports={historyMetadata([
+            {
+              id: 101,
+              workflow_id: 10,
+              workflow_name: "科技日报",
+              completed_at: "2026-08-12T01:00:00Z",
+            },
+          ])}
+        />,
+      );
+      const pruned = screen.getByRole("dialog", { name: "往期报告" });
+      expect(within(pruned).queryByText(/已选/)).not.toBeInTheDocument();
+
+      // A later refresh brings 投资周报 back: the removed selection stays
+      // removed and the full list renders unfiltered.
+      rerender(
+        <WorkflowReportWorkbench
+          timezone="Asia/Shanghai"
+          todayReports={[makeReport({ id: 1, workflow_name: "今日" })]}
+          historyReports={baseHistory()}
+        />,
+      );
+      const restored = screen.getByRole("dialog", { name: "往期报告" });
+      expect(within(restored).queryByText(/已选/)).not.toBeInTheDocument();
+      // Unfiltered: both 科技日报 reports and the restored 投资周报 render.
+      expect(
+        within(restored).getAllByRole("button", { name: /科技日报/ }),
+      ).toHaveLength(2);
+      expect(
+        within(restored).getAllByRole("button", { name: /投资周报/ }),
+      ).toHaveLength(1);
+      // The panel stayed expanded across rerenders; the restored workflow's
+      // checkbox is unchecked.
+      expect(
+        within(restored).getByRole("checkbox", { name: /投资周报/ }),
+      ).not.toBeChecked();
     });
 
     it("loads the filtered report body on demand without prefetching others", async () => {

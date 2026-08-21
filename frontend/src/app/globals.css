@@ -3346,8 +3346,7 @@
   }
 
   .workflow-report-history-filter-toggle:focus-visible,
-  .workflow-report-history-filter-clear:focus-visible,
-  .workflow-report-history-filter-noresults button:focus-visible {
+  .workflow-report-history-filter-clear:focus-visible {
     outline: 3px solid #1768d0;
     outline-offset: 2px;
   }
@@ -3459,17 +3458,8 @@
     font-size: 14px;
   }
 
-  .workflow-report-history-filter-noresults button {
+  .workflow-report-history-filter-noresults .workflow-report-history-filter-clear {
     justify-self: start;
-    min-height: 44px;
-    display: inline-flex;
-    align-items: center;
-    padding: 0 12px;
-    border: 1px solid #171717;
-    background: rgba(247, 241, 229, 0.92);
-    color: #171717;
-    font: 600 12px/1 var(--font-mono);
-    cursor: pointer;
   }
 
 

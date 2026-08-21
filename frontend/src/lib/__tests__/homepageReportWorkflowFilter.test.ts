@@ -115,6 +115,33 @@ describe("buildWorkflowFilterOptions", () => {
       "较早工作流",
     ]);
   });
+
+  it("treats invalid completion dates as the oldest with stable ordering", () => {
+    const options = buildWorkflowFilterOptions([
+      makeReport({
+        id: 1,
+        workflow_id: 30,
+        workflow_name: "坏时间工作流",
+        completed_at: "not-a-date",
+      }),
+      makeReport({
+        id: 2,
+        workflow_id: 10,
+        workflow_name: "科技日报",
+        completed_at: "2026-08-12T08:00:00Z",
+      }),
+      makeReport({
+        id: 3,
+        workflow_id: 40,
+        workflow_name: "另一个坏时间",
+        completed_at: "",
+      }),
+    ]);
+
+    // Invalid dates count as 0 (oldest) and keep the id tiebreak stable.
+    expect(options.map((option) => option.workflowId)).toEqual([10, 30, 40]);
+    expect(options[0].latestCompletedAt).toBe("2026-08-12T08:00:00Z");
+  });
 });
 
 describe("normalizeWorkflowFilterKeyword", () => {
