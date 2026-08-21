@@ -113,6 +113,7 @@
 - 390px 移动端检查不横向溢出、触摸目标、抽屉滚动和筛选面板占用。
 - 键盘检查 Tab 顺序、复选框、清除按钮、Escape 和关闭后的焦点恢复。
 - 实施完成后运行前端定向测试、全量测试、类型检查、lint、生产构建、Markdown 链接检查及 `git diff --check`。
+- 验收截图（2026-08-21，fixture journey 场景注入多工作流与改名用例）：[桌面筛选面板](screenshots/homepage-workflow-filter-desktop-2026-08-21.png)、[390px 移动端](screenshots/homepage-workflow-filter-mobile-390-2026-08-21.png)。
 
 ## 5. 不在本次范围
 

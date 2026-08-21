@@ -28,6 +28,7 @@ import {
   reportDayKey,
   reportTypeClassName,
   reportTypeLabel,
+  HOMEPAGE_HISTORY_METADATA_LIMIT,
 } from "@/lib/discoveryReports";
 import {
   buildWorkflowFilterOptions,
@@ -175,24 +176,27 @@ export default function WorkflowReportWorkbench({
     () => buildWorkflowFilterOptions(historyReports),
     [historyReports],
   );
-  const filteredHistoryReports = useMemo(
-    () => filterReportsByWorkflowSelection(historyReports, workflowFilterIds),
-    [historyReports, workflowFilterIds],
-  );
-
   // Data refresh: drop selections whose workflow left the loaded window,
-  // keep the ones still present (#144).
-  useEffect(() => {
-    setWorkflowFilterIds((current) => {
-      const available = new Set(
-        workflowFilterOptions.map((option) => option.workflowId),
-      );
-      const next = new Set(
-        [...current].filter((workflowId) => available.has(workflowId)),
-      );
-      return next.size === current.size ? current : next;
-    });
-  }, [workflowFilterOptions]);
+  // keep the ones still present (#144). Derived during render so a refresh
+  // never flashes the filtered-empty state before pruning lands.
+  const effectiveWorkflowFilterIds = useMemo(() => {
+    if (workflowFilterIds.size === 0) return workflowFilterIds;
+    const available = new Set(
+      workflowFilterOptions.map((option) => option.workflowId),
+    );
+    const next = new Set(
+      [...workflowFilterIds].filter((workflowId) => available.has(workflowId)),
+    );
+    return next.size === workflowFilterIds.size ? workflowFilterIds : next;
+  }, [workflowFilterIds, workflowFilterOptions]);
+  const filteredHistoryReports = useMemo(
+    () =>
+      filterReportsByWorkflowSelection(
+        historyReports,
+        effectiveWorkflowFilterIds,
+      ),
+    [historyReports, effectiveWorkflowFilterIds],
+  );
 
   const latestHistoryDay = historyReports[0]
     ? reportDayKey(historyReports[0].completed_at, timezone)
@@ -722,52 +726,59 @@ export default function WorkflowReportWorkbench({
           onSelect={(report) => {
             void pickHistoryReport(report);
           }}
-          filterOptions={workflowFilterOptions}
-          filterSelectedIds={workflowFilterIds}
-          filterKeyword={workflowFilterKeyword}
-          filterOpen={workflowFilterOpen}
-          scopeCount={historyReports.length}
-          onToggleFilterOpen={() =>
-            setWorkflowFilterOpen((open) => !open)
-          }
-          onFilterKeywordChange={setWorkflowFilterKeyword}
-          onToggleFilterSelection={toggleWorkflowFilterSelection}
-          onClearFilterSelection={clearWorkflowFilterSelection}
+          filter={{
+            options: workflowFilterOptions,
+            selectedIds: effectiveWorkflowFilterIds,
+            keyword: workflowFilterKeyword,
+            open: workflowFilterOpen,
+            onToggleOpen: () => setWorkflowFilterOpen((open) => !open),
+            onKeywordChange: setWorkflowFilterKeyword,
+            onToggleSelection: toggleWorkflowFilterSelection,
+            onClearSelection: clearWorkflowFilterSelection,
+          }}
         />
       )}
     </section>
   );
 }
 
-function HistoryDrawer({
+/** Filter state and callbacks the history drawer renders (#144). */
+interface HistoryDrawerFilter {
+  options: WorkflowFilterOption[];
+  selectedIds: ReadonlySet<number>;
+  keyword: string;
+  open: boolean;
+  onToggleOpen: () => void;
+  onKeywordChange: (keyword: string) => void;
+  onToggleSelection: (workflowId: number, checked: boolean) => void;
+  onClearSelection: () => void;
+}
+
+// Exported for component tests that exercise the drawer's rendering
+// contract directly (e.g. the defensive empty-result state).
+export function HistoryDrawer({
   reports,
   timezone,
   onClose,
   onSelect,
-  filterOptions,
-  filterSelectedIds,
-  filterKeyword,
-  filterOpen,
-  scopeCount,
-  onToggleFilterOpen,
-  onFilterKeywordChange,
-  onToggleFilterSelection,
-  onClearFilterSelection,
+  filter,
 }: {
   reports: HomepageReport[];
   timezone?: string;
   onClose: () => void;
   onSelect: (report: HomepageReport) => void;
-  filterOptions: WorkflowFilterOption[];
-  filterSelectedIds: ReadonlySet<number>;
-  filterKeyword: string;
-  filterOpen: boolean;
-  scopeCount: number;
-  onToggleFilterOpen: () => void;
-  onFilterKeywordChange: (keyword: string) => void;
-  onToggleFilterSelection: (workflowId: number, checked: boolean) => void;
-  onClearFilterSelection: () => void;
+  filter: HistoryDrawerFilter;
 }) {
+  const {
+    options: filterOptions,
+    selectedIds: filterSelectedIds,
+    keyword: filterKeyword,
+    open: filterOpen,
+    onToggleOpen: onToggleFilterOpen,
+    onKeywordChange: onFilterKeywordChange,
+    onToggleSelection: onToggleFilterSelection,
+    onClearSelection: onClearFilterSelection,
+  } = filter;
   const titleId = useId();
   const filterPanelId = useId();
   const drawerRef = useRef<HTMLElement>(null);
@@ -929,7 +940,7 @@ function HistoryDrawer({
                 className="workflow-report-history-filter-panel"
               >
                 <p className="workflow-report-history-filter-scope">
-                  筛选最近 {scopeCount} 份报告
+                  筛选最近 {HOMEPAGE_HISTORY_METADATA_LIMIT} 份报告
                 </p>
                 <input
                   type="search"
@@ -980,7 +991,11 @@ function HistoryDrawer({
         {reports.length === 0 && hasFilterSelection ? (
           <div className="workflow-report-history-filter-noresults">
             <p>没有符合所选工作流的报告。</p>
-            <button type="button" onClick={onClearFilterSelection}>
+            <button
+              type="button"
+              className="workflow-report-history-filter-clear"
+              onClick={onClearFilterSelection}
+            >
               清除筛选
             </button>
           </div>

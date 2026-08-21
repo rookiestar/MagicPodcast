@@ -15,6 +15,7 @@ export interface WorkflowFilterOption {
   reportCount: number;
 }
 
+/** Single parse point for completion times; invalid dates count as 0. */
 function completedTime(report: HomepageReport): number {
   const time = new Date(report.completed_at).getTime();
   return Number.isNaN(time) ? 0 : time;
@@ -65,19 +66,17 @@ export function buildWorkflowFilterOptions(
   }
 
   return [...byId.entries()]
+    .sort(
+      ([idA, entryA], [idB, entryB]) =>
+        entryB.latestTime - entryA.latestTime || idA - idB,
+    )
     .map(([workflowId, entry]) => ({
       workflowId,
       label: entry.label,
       names: entry.names,
       latestCompletedAt: entry.latestCompletedAt,
       reportCount: entry.reportCount,
-    }))
-    .sort((a, b) => {
-      const byTime =
-        new Date(b.latestCompletedAt).getTime() -
-        new Date(a.latestCompletedAt).getTime();
-      return byTime !== 0 ? byTime : a.workflowId - b.workflowId;
-    });
+    }));
 }
 
 /** Keyword matches when any name seen in the window contains it (#144). */
