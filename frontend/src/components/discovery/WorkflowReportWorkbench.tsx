@@ -178,7 +178,9 @@ export default function WorkflowReportWorkbench({
   );
   // Data refresh: drop selections whose workflow left the loaded window,
   // keep the ones still present (#144). Derived during render so a refresh
-  // never flashes the filtered-empty state before pruning lands.
+  // never flashes the filtered-empty state before pruning lands; the prune
+  // is also committed back to source state so a removed selection cannot
+  // resurrect if a later refresh brings the workflow back into the window.
   const effectiveWorkflowFilterIds = useMemo(() => {
     if (workflowFilterIds.size === 0) return workflowFilterIds;
     const available = new Set(
@@ -189,6 +191,9 @@ export default function WorkflowReportWorkbench({
     );
     return next.size === workflowFilterIds.size ? workflowFilterIds : next;
   }, [workflowFilterIds, workflowFilterOptions]);
+  if (effectiveWorkflowFilterIds.size !== workflowFilterIds.size) {
+    setWorkflowFilterIds(new Set(effectiveWorkflowFilterIds));
+  }
   const filteredHistoryReports = useMemo(
     () =>
       filterReportsByWorkflowSelection(

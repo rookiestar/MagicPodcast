@@ -1067,6 +1067,58 @@ describe("WorkflowReportWorkbench", () => {
       ).toHaveLength(1);
     });
 
+    it("does not resurrect a selection pruned by an earlier refresh", () => {
+      const { rerender } = renderWorkbench(baseHistory());
+      const drawer = openDrawer();
+      expandFilter(drawer);
+      fireEvent.click(
+        within(drawer).getByRole("checkbox", { name: /投资周报/ }),
+      );
+
+      // Refresh drops 投资周报: the selection is pruned and committed to
+      // source state, not just hidden for this render.
+      rerender(
+        <WorkflowReportWorkbench
+          timezone="Asia/Shanghai"
+          todayReports={[makeReport({ id: 1, workflow_name: "今日" })]}
+          historyReports={historyMetadata([
+            {
+              id: 101,
+              workflow_id: 10,
+              workflow_name: "科技日报",
+              completed_at: "2026-08-12T01:00:00Z",
+            },
+          ])}
+        />,
+      );
+      const pruned = screen.getByRole("dialog", { name: "往期报告" });
+      expect(within(pruned).queryByText(/已选/)).not.toBeInTheDocument();
+
+      // A later refresh brings 投资周报 back: the removed selection stays
+      // removed and the full list renders unfiltered.
+      rerender(
+        <WorkflowReportWorkbench
+          timezone="Asia/Shanghai"
+          todayReports={[makeReport({ id: 1, workflow_name: "今日" })]}
+          historyReports={baseHistory()}
+        />,
+      );
+      const restored = screen.getByRole("dialog", { name: "往期报告" });
+      expect(within(restored).queryByText(/已选/)).not.toBeInTheDocument();
+      // Unfiltered: both 科技日报 reports and the restored 投资周报 render.
+      expect(
+        within(restored).getAllByRole("button", { name: /科技日报/ }),
+      ).toHaveLength(2);
+      expect(
+        within(restored).getAllByRole("button", { name: /投资周报/ }),
+      ).toHaveLength(1);
+      // The panel stayed expanded across rerenders; the restored workflow's
+      // checkbox is unchecked.
+      expect(
+        within(restored).getByRole("checkbox", { name: /投资周报/ }),
+      ).not.toBeChecked();
+    });
+
     it("loads the filtered report body on demand without prefetching others", async () => {
       fetchDetailMock.mockResolvedValue(
         makeReport({
