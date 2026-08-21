@@ -3291,6 +3291,188 @@
     font-size: 14px;
   }
 
+  /* Workflow filter inside the history drawer (#144): editorial look,
+     44px touch targets, no horizontal overflow at 390px. */
+  .workflow-report-history-filter {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .workflow-report-history-filter-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #8c8275;
+  }
+
+  .workflow-report-history-filter-toggle {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 2px;
+    border: 0;
+    background: transparent;
+    color: #171717;
+    font: 600 12px/1.2 var(--font-mono);
+    letter-spacing: 0.02em;
+    cursor: pointer;
+  }
+
+  .workflow-report-history-filter-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 20px;
+    padding: 2px 8px;
+    border: 1px solid #171717;
+    background: #171717;
+    color: #f7f1e5;
+    font: 600 11px/1.2 var(--font-mono);
+  }
+
+  .workflow-report-history-filter-clear {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 12px;
+    border: 1px solid #171717;
+    background: rgba(247, 241, 229, 0.92);
+    color: #171717;
+    font: 600 12px/1 var(--font-mono);
+    cursor: pointer;
+  }
+
+  .workflow-report-history-filter-toggle:focus-visible,
+  .workflow-report-history-filter-clear:focus-visible,
+  .workflow-report-history-filter-noresults button:focus-visible {
+    outline: 3px solid #1768d0;
+    outline-offset: 2px;
+  }
+
+  .workflow-report-history-filter-chevron {
+    color: #6a6359;
+    transition: transform 0.15s ease;
+  }
+
+  .workflow-report-history-filter-chevron.is-open {
+    transform: rotate(180deg);
+  }
+
+  .workflow-report-history-filter-panel {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid #8c8275;
+    background: rgba(247, 241, 229, 0.92);
+  }
+
+  .workflow-report-history-filter-scope {
+    margin: 0;
+    color: #756c62;
+    font: 600 11px/1.3 var(--font-mono);
+  }
+
+  .workflow-report-history-filter-search {
+    width: 100%;
+    min-height: 36px;
+    padding: 6px 10px;
+    border: 1px solid #8c8275;
+    background: #fff9ed;
+    color: #171717;
+    font: 600 13px/1.3 var(--font-mono);
+  }
+
+  .workflow-report-history-filter-search:focus-visible {
+    outline: 3px solid #1768d0;
+    outline-offset: 2px;
+  }
+
+  .workflow-report-history-filter-options {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+    max-height: 264px;
+    overflow: auto;
+  }
+
+  .workflow-report-history-filter-option {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    padding: 4px 8px;
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+
+  .workflow-report-history-filter-option:hover {
+    border-color: #8c8275;
+    background: #fff9ed;
+  }
+
+  .workflow-report-history-filter-option:focus-within {
+    outline: 3px solid #1768d0;
+    outline-offset: 2px;
+  }
+
+  .workflow-report-history-filter-option input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: #171717;
+  }
+
+  .workflow-report-history-filter-name {
+    overflow-wrap: anywhere;
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: var(--font-display-weight);
+  }
+
+  .workflow-report-history-filter-count {
+    color: #756c62;
+    font: 600 11px/1.3 var(--font-mono);
+    white-space: nowrap;
+  }
+
+  .workflow-report-history-filter-empty {
+    margin: 0;
+    color: #6a6359;
+    font-size: 13px;
+  }
+
+  .workflow-report-history-filter-noresults {
+    display: grid;
+    gap: 10px;
+    padding: 16px 12px;
+    border: 1px dashed #8c8275;
+  }
+
+  .workflow-report-history-filter-noresults p {
+    margin: 0;
+    color: #6a6359;
+    font-size: 14px;
+  }
+
+  .workflow-report-history-filter-noresults button {
+    justify-self: start;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 12px;
+    border: 1px solid #171717;
+    background: rgba(247, 241, 229, 0.92);
+    color: #171717;
+    font: 600 12px/1 var(--font-mono);
+    cursor: pointer;
+  }
+
+
   .discovery-focus-summary {
     width: min(calc(100% - 32px), 1348px);
     min-height: 58px;

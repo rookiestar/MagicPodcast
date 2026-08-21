@@ -40,6 +40,7 @@ Agent 治理以根目录 [../AGENTS.md](../AGENTS.md) 为唯一权威合同；[.
 | 工作流调度 | [WORKFLOW_SCHEDULER.md](WORKFLOW_SCHEDULER.md) | 当前工作流定时执行行为和调度接口 |
 | 工作流执行历史 | [WORKFLOW_EXECUTION_HISTORY.md](WORKFLOW_EXECUTION_HISTORY.md) | 当前执行历史、任务详情和报告入口行为 |
 | 设计系统 | [design/DESIGN_SYSTEM.md](design/DESIGN_SYSTEM.md) | 前端视觉与组件规范 |
+| 领域词汇表 | [DOMAIN_GLOSSARY.md](DOMAIN_GLOSSARY.md) | 项目共享领域词与相近词边界 |
 
 ## 专题目录
 

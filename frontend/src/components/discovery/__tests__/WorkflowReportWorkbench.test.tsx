@@ -543,4 +543,476 @@ describe("WorkflowReportWorkbench", () => {
     fireEvent.click(screen.getByRole("button", { name: /危险链接单集/ }));
     expect(screen.queryByText("打开原单集")).not.toBeInTheDocument();
   });
+
+  describe("history workflow filter (#144)", () => {
+    function historyMetadata(
+      overrides: Array<{
+        id: number;
+        workflow_id: number;
+        workflow_name: string;
+        completed_at: string;
+      }>,
+    ): HomepageReport[] {
+      return overrides.map((item) =>
+        makeReport({
+          ...item,
+          metadata_only: true,
+          content: "",
+        }),
+      );
+    }
+
+    // Fixed timezone keeps date grouping deterministic: 8/12 (Wed) and 8/11 (Tue).
+    const baseHistory = () =>
+      historyMetadata([
+        {
+          id: 101,
+          workflow_id: 10,
+          workflow_name: "科技日报",
+          completed_at: "2026-08-12T01:00:00Z",
+        },
+        {
+          id: 102,
+          workflow_id: 20,
+          workflow_name: "投资周报",
+          completed_at: "2026-08-11T02:00:00Z",
+        },
+        {
+          id: 103,
+          workflow_id: 10,
+          workflow_name: "科技日报",
+          completed_at: "2026-08-11T01:00:00Z",
+        },
+      ]);
+
+    function renderWorkbench(historyReports: HomepageReport[]) {
+      return render(
+        <WorkflowReportWorkbench
+          timezone="Asia/Shanghai"
+          todayReports={[makeReport({ id: 1, workflow_name: "今日" })]}
+          historyReports={historyReports}
+        />,
+      );
+    }
+
+    function openDrawer() {
+      fireEvent.click(screen.getByRole("button", { name: /往期/ }));
+      return screen.getByRole("dialog", { name: "往期报告" });
+    }
+
+    function expandFilter(drawer: HTMLElement) {
+      fireEvent.click(
+        within(drawer).getByRole("button", { name: /筛选工作流/ }),
+      );
+    }
+
+    it("hides the filter entry when history has fewer than two workflows", () => {
+      renderWorkbench(
+        historyMetadata([
+          {
+            id: 101,
+            workflow_id: 10,
+            workflow_name: "科技日报",
+            completed_at: "2026-08-12T01:00:00Z",
+          },
+          {
+            id: 103,
+            workflow_id: 10,
+            workflow_name: "科技日报",
+            completed_at: "2026-08-11T01:00:00Z",
+          },
+        ]),
+      );
+      const drawer = openDrawer();
+
+      expect(
+        within(drawer).queryByRole("button", { name: /筛选工作流/ }),
+      ).not.toBeInTheDocument();
+      expect(
+        within(drawer).getAllByRole("button", { name: /科技日报/ }),
+      ).toHaveLength(2);
+    });
+
+    it("shows the filter entry with the loaded-scope hint and newest-first options", () => {
+      renderWorkbench(baseHistory());
+      const drawer = openDrawer();
+      expandFilter(drawer);
+
+      expect(within(drawer).getByText("筛选最近 3 份报告")).toBeInTheDocument();
+      expect(
+        within(drawer).getByRole("searchbox", { name: "搜索工作流" }),
+      ).toBeInTheDocument();
+
+      const checkboxes = within(drawer).getAllByRole("checkbox");
+      expect(checkboxes).toHaveLength(2);
+      expect(checkboxes[0].closest("label")).toHaveTextContent("科技日报2 份");
+      expect(checkboxes[1].closest("label")).toHaveTextContent("投资周报1 份");
+    });
+
+    it("filters to one workflow and hides date groups without matches", () => {
+      renderWorkbench(baseHistory());
+      const drawer = openDrawer();
+      expandFilter(drawer);
+
+      fireEvent.click(
+        within(drawer).getByRole("checkbox", { name: /投资周报/ }),
+      );
+
+      expect(
+        within(drawer).getAllByRole("button", { name: /投资周报/ }),
+      ).toHaveLength(1);
+      expect(
+        within(drawer).queryByRole("button", { name: /科技日报/ }),
+      ).not.toBeInTheDocument();
+      expect(
+        within(drawer).getByRole("region", { name: "2026年8月11日 · 周二" }),
+      ).toBeInTheDocument();
+      expect(
+        within(drawer).queryByRole("region", {
+          name: "2026年8月12日 · 周三",
+        }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("combines multiple workflows with OR semantics", () => {
+      renderWorkbench(baseHistory());
+      const drawer = openDrawer();
+      expandFilter(drawer);
+
+      fireEvent.click(
+        within(drawer).getByRole("checkbox", { name: /科技日报/ }),
+      );
+      fireEvent.click(
+        within(drawer).getByRole("checkbox", { name: /投资周报/ }),
+      );
+
+      expect(
+        within(drawer).getAllByRole("button", { name: /科技日报|投资周报/ }),
+      ).toHaveLength(3);
+      expect(
+        within(drawer).getByRole("region", { name: "2026年8月12日 · 周三" }),
+      ).toBeInTheDocument();
+      expect(
+        within(drawer).getByRole("region", { name: "2026年8月11日 · 周二" }),
+      ).toBeInTheDocument();
+    });
+
+    it("restores the full list after unchecking and clearing", () => {
+      renderWorkbench(baseHistory());
+      const drawer = openDrawer();
+      expandFilter(drawer);
+
+      fireEvent.click(
+        within(drawer).getByRole("checkbox", { name: /科技日报/ }),
+      );
+      fireEvent.click(
+        within(drawer).getByRole("checkbox", { name: /投资周报/ }),
+      );
+      expect(
+        within(drawer).getAllByRole("button", { name: /科技日报|投资周报/ }),
+      ).toHaveLength(3);
+
+      // Uncheck one: only the other workflow remains.
+      fireEvent.click(
+        within(drawer).getByRole("checkbox", { name: /科技日报/ }),
+      );
+      expect(
+        within(drawer).queryByRole("button", { name: /科技日报/ }),
+      ).not.toBeInTheDocument();
+
+      fireEvent.click(within(drawer).getByRole("button", { name: "清除筛选" }));
+      expect(
+        within(drawer).getAllByRole("button", { name: /科技日报|投资周报/ }),
+      ).toHaveLength(3);
+      expect(within(drawer).queryByText(/已选/)).not.toBeInTheDocument();
+    });
+
+    it("shows the selected count on the collapsed entry with a direct clear action", () => {
+      renderWorkbench(baseHistory());
+      const drawer = openDrawer();
+      expandFilter(drawer);
+
+      fireEvent.click(
+        within(drawer).getByRole("checkbox", { name: /科技日报/ }),
+      );
+      expandFilter(drawer); // collapse again
+
+      expect(within(drawer).getByText("已选 1")).toBeInTheDocument();
+      expect(
+        within(drawer).queryByRole("searchbox", { name: "搜索工作流" }),
+      ).not.toBeInTheDocument();
+
+      fireEvent.click(within(drawer).getByRole("button", { name: "清除筛选" }));
+      expect(
+        within(drawer).getAllByRole("button", { name: /科技日报|投资周报/ }),
+      ).toHaveLength(3);
+      expect(within(drawer).queryByText(/已选/)).not.toBeInTheDocument();
+    });
+
+    it("narrows only the option list with the keyword, not the reports", () => {
+      renderWorkbench(baseHistory());
+      const drawer = openDrawer();
+      expandFilter(drawer);
+
+      const search = within(drawer).getByRole("searchbox", {
+        name: "搜索工作流",
+      });
+      fireEvent.change(search, { target: { value: "科技" } });
+
+      expect(
+        within(drawer).getByRole("checkbox", { name: /科技日报/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(drawer).queryByRole("checkbox", { name: /投资周报/ }),
+      ).not.toBeInTheDocument();
+      expect(
+        within(drawer).getAllByRole("button", { name: /科技日报|投资周报/ }),
+      ).toHaveLength(3);
+
+      fireEvent.change(search, { target: { value: "" } });
+      expect(
+        within(drawer).getByRole("checkbox", { name: /投资周报/ }),
+      ).toBeInTheDocument();
+    });
+
+    it("matches historical workflow names while showing the latest name", () => {
+      renderWorkbench(
+        historyMetadata([
+          {
+            id: 101,
+            workflow_id: 10,
+            workflow_name: "科技日报",
+            completed_at: "2026-08-12T01:00:00Z",
+          },
+          {
+            id: 103,
+            workflow_id: 10,
+            workflow_name: "科技快报",
+            completed_at: "2026-08-11T01:00:00Z",
+          },
+          {
+            id: 102,
+            workflow_id: 20,
+            workflow_name: "投资周报",
+            completed_at: "2026-08-11T02:00:00Z",
+          },
+        ]),
+      );
+      const drawer = openDrawer();
+      expandFilter(drawer);
+
+      const techOption = within(drawer).getByRole("checkbox", {
+        name: /科技日报/,
+      });
+      expect(techOption.closest("label")).toHaveTextContent("2 份");
+      expect(
+        within(drawer).queryByRole("checkbox", { name: /科技快报/ }),
+      ).not.toBeInTheDocument();
+
+      const search = within(drawer).getByRole("searchbox", {
+        name: "搜索工作流",
+      });
+      fireEvent.change(search, { target: { value: "科技快报" } });
+
+      expect(
+        within(drawer).getByRole("checkbox", { name: /科技日报/ }),
+      ).toBeInTheDocument();
+    });
+
+    it("keeps selections when the keyword matches nothing", () => {
+      renderWorkbench(baseHistory());
+      const drawer = openDrawer();
+      expandFilter(drawer);
+
+      fireEvent.click(
+        within(drawer).getByRole("checkbox", { name: /投资周报/ }),
+      );
+      fireEvent.change(
+        within(drawer).getByRole("searchbox", { name: "搜索工作流" }),
+        { target: { value: "不存在的工作流" } },
+      );
+
+      expect(within(drawer).getByText("没有匹配的工作流。")).toBeInTheDocument();
+      expect(
+        within(drawer).getAllByRole("button", { name: /投资周报/ }),
+      ).toHaveLength(1);
+      expect(
+        within(drawer).queryByRole("button", { name: /科技日报/ }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("keeps selections across drawer close/reopen but collapses the panel and clears the keyword", () => {
+      renderWorkbench(baseHistory());
+      const drawer = openDrawer();
+      expandFilter(drawer);
+
+      fireEvent.click(
+        within(drawer).getByRole("checkbox", { name: /科技日报/ }),
+      );
+      fireEvent.change(
+        within(drawer).getByRole("searchbox", { name: "搜索工作流" }),
+        { target: { value: "科技" } },
+      );
+      fireEvent.click(within(drawer).getByRole("button", { name: "关闭" }));
+      expect(
+        screen.queryByRole("dialog", { name: "往期报告" }),
+      ).not.toBeInTheDocument();
+
+      const reopened = openDrawer();
+      expect(
+        within(reopened).getAllByRole("button", { name: /科技日报/ }),
+      ).toHaveLength(2);
+      expect(
+        within(reopened).queryByRole("button", { name: /投资周报/ }),
+      ).not.toBeInTheDocument();
+      expect(within(reopened).getByText("已选 1")).toBeInTheDocument();
+      expect(
+        within(reopened).getByRole("button", { name: /筛选工作流/ }),
+      ).toHaveAttribute("aria-expanded", "false");
+
+      expandFilter(reopened);
+      expect(
+        within(reopened).getByRole("searchbox", { name: "搜索工作流" }),
+      ).toHaveValue("");
+    });
+
+    it("collapses the panel and clears the keyword when picking a report closes the drawer", async () => {
+      fetchDetailMock.mockResolvedValue(
+        makeReport({
+          id: 101,
+          workflow_id: 10,
+          workflow_name: "科技日报",
+          completed_at: "2026-08-12T01:00:00Z",
+          content: "# 科技日报\n\n科技全文",
+          metadata_only: false,
+        }),
+      );
+      renderWorkbench(baseHistory());
+      const drawer = openDrawer();
+      expandFilter(drawer);
+      fireEvent.click(
+        within(drawer).getByRole("checkbox", { name: /科技日报/ }),
+      );
+      fireEvent.change(
+        within(drawer).getByRole("searchbox", { name: "搜索工作流" }),
+        { target: { value: "科技" } },
+      );
+      fireEvent.click(
+        within(drawer).getAllByRole("button", { name: /科技日报/ })[0],
+      );
+      await waitFor(() => {
+        expect(
+          screen.queryByRole("dialog", { name: "往期报告" }),
+        ).not.toBeInTheDocument();
+      });
+
+      const reopened = openDrawer();
+      expect(within(reopened).getByText("已选 1")).toBeInTheDocument();
+      expect(
+        within(reopened).getByRole("button", { name: /筛选工作流/ }),
+      ).toHaveAttribute("aria-expanded", "false");
+      expandFilter(reopened);
+      expect(
+        within(reopened).getByRole("searchbox", { name: "搜索工作流" }),
+      ).toHaveValue("");
+    });
+
+    it("prunes stale selections on data refresh while keeping valid ones", () => {
+      const { rerender } = renderWorkbench(baseHistory());
+      const drawer = openDrawer();
+      expandFilter(drawer);
+      fireEvent.click(
+        within(drawer).getByRole("checkbox", { name: /科技日报/ }),
+      );
+      fireEvent.click(
+        within(drawer).getByRole("checkbox", { name: /投资周报/ }),
+      );
+
+      // Refresh drops 投资周报 and introduces 环保周报.
+      rerender(
+        <WorkflowReportWorkbench
+          timezone="Asia/Shanghai"
+          todayReports={[makeReport({ id: 1, workflow_name: "今日" })]}
+          historyReports={historyMetadata([
+            {
+              id: 101,
+              workflow_id: 10,
+              workflow_name: "科技日报",
+              completed_at: "2026-08-12T01:00:00Z",
+            },
+            {
+              id: 104,
+              workflow_id: 30,
+              workflow_name: "环保周报",
+              completed_at: "2026-08-11T01:00:00Z",
+            },
+          ])}
+        />,
+      );
+      const refreshed = screen.getByRole("dialog", { name: "往期报告" });
+      expect(within(refreshed).getByText("已选 1")).toBeInTheDocument();
+      expect(
+        within(refreshed).getAllByRole("button", { name: /科技日报/ }),
+      ).toHaveLength(1);
+      expect(
+        within(refreshed).queryByRole("button", { name: /环保周报/ }),
+      ).not.toBeInTheDocument();
+
+      // Refresh removes the last selected workflow too: filter resets to none.
+      rerender(
+        <WorkflowReportWorkbench
+          timezone="Asia/Shanghai"
+          todayReports={[makeReport({ id: 1, workflow_name: "今日" })]}
+          historyReports={historyMetadata([
+            {
+              id: 104,
+              workflow_id: 30,
+              workflow_name: "环保周报",
+              completed_at: "2026-08-11T01:00:00Z",
+            },
+          ])}
+        />,
+      );
+      // One workflow left → entry hidden, full list restored.
+      const reset = screen.getByRole("dialog", { name: "往期报告" });
+      expect(
+        within(reset).queryByRole("button", { name: /筛选工作流/ }),
+      ).not.toBeInTheDocument();
+      expect(
+        within(reset).getAllByRole("button", { name: /环保周报/ }),
+      ).toHaveLength(1);
+    });
+
+    it("loads the filtered report body on demand without prefetching others", async () => {
+      fetchDetailMock.mockResolvedValue(
+        makeReport({
+          id: 101,
+          workflow_id: 10,
+          workflow_name: "科技日报",
+          completed_at: "2026-08-12T01:00:00Z",
+          content: "# 科技日报\n\n科技全文",
+          metadata_only: false,
+        }),
+      );
+      renderWorkbench(baseHistory());
+      const drawer = openDrawer();
+      expandFilter(drawer);
+
+      fireEvent.click(
+        within(drawer).getByRole("checkbox", { name: /科技日报/ }),
+      );
+      fireEvent.click(
+        within(drawer).getAllByRole("button", { name: /科技日报/ })[0],
+      );
+
+      expect(fetchDetailMock).toHaveBeenCalledTimes(1);
+      expect(fetchDetailMock).toHaveBeenCalledWith(101);
+      await waitFor(() => {
+        expect(screen.getByText("科技全文")).toBeInTheDocument();
+      });
+      expect(
+        screen.queryByRole("dialog", { name: "往期报告" }),
+      ).not.toBeInTheDocument();
+    });
+  });
 });
