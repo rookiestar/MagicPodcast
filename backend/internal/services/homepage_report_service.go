@@ -185,12 +185,15 @@ func (s *HomepageReportService) listPublished(from, to time.Time, limit int, met
 		Where("jobs.status IN ?", homepageReportJobStatuses())
 
 	// Completion clock: prefer job end_time, fall back to report.generated_at.
-	completionExpr := "COALESCE(jobs.end_time, reports.generated_at)"
+	// Normalize SQLite timestamps before comparing: stored values may carry a
+	// local offset, while query bounds are UTC. Lexical comparison would put
+	// reports across a day boundary in the wrong homepage bucket.
+	completionExpr := "julianday(COALESCE(jobs.end_time, reports.generated_at))"
 	if !from.IsZero() {
-		query = query.Where(completionExpr+" >= ?", from.UTC())
+		query = query.Where(completionExpr+" >= julianday(?)", from.UTC())
 	}
 	if !to.IsZero() {
-		query = query.Where(completionExpr+" < ?", to.UTC())
+		query = query.Where(completionExpr+" < julianday(?)", to.UTC())
 	}
 	query = query.Order(completionExpr + " DESC").Order("reports.id DESC")
 
