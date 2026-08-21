@@ -876,6 +876,47 @@ describe("WorkflowReportWorkbench", () => {
       ).toHaveValue("");
     });
 
+    it("collapses the panel and clears the keyword when picking a report closes the drawer", async () => {
+      fetchDetailMock.mockResolvedValue(
+        makeReport({
+          id: 101,
+          workflow_id: 10,
+          workflow_name: "科技日报",
+          completed_at: "2026-08-12T01:00:00Z",
+          content: "# 科技日报\n\n科技全文",
+          metadata_only: false,
+        }),
+      );
+      renderWorkbench(baseHistory());
+      const drawer = openDrawer();
+      expandFilter(drawer);
+      fireEvent.click(
+        within(drawer).getByRole("checkbox", { name: /科技日报/ }),
+      );
+      fireEvent.change(
+        within(drawer).getByRole("searchbox", { name: "搜索工作流" }),
+        { target: { value: "科技" } },
+      );
+      fireEvent.click(
+        within(drawer).getAllByRole("button", { name: /科技日报/ })[0],
+      );
+      await waitFor(() => {
+        expect(
+          screen.queryByRole("dialog", { name: "往期报告" }),
+        ).not.toBeInTheDocument();
+      });
+
+      const reopened = openDrawer();
+      expect(within(reopened).getByText("已选 1")).toBeInTheDocument();
+      expect(
+        within(reopened).getByRole("button", { name: /筛选工作流/ }),
+      ).toHaveAttribute("aria-expanded", "false");
+      expandFilter(reopened);
+      expect(
+        within(reopened).getByRole("searchbox", { name: "搜索工作流" }),
+      ).toHaveValue("");
+    });
+
     it("prunes stale selections on data refresh while keeping valid ones", () => {
       const { rerender } = renderWorkbench(baseHistory());
       const drawer = openDrawer();

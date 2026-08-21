@@ -1,6 +1,6 @@
 # 首页往期报告按工作流筛选方案
 
-状态：已确认，待实施
+状态：已实施（PR #146，2026-08-21 合入 main；实现见 `frontend/src/lib/homepageReportWorkflowFilter.ts` 与 `WorkflowReportWorkbench.tsx`）
 日期：2026-08-21
 
 ## 1. 背景与目标

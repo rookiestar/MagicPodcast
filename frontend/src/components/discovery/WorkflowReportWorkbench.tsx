@@ -400,7 +400,10 @@ export default function WorkflowReportWorkbench({
 
   const pickHistoryReport = async (report: HomepageReport) => {
     setHistoryLoadError("");
-    setHistoryOpen(false);
+    // Picking a report closes the drawer through the same cleanup path as the
+    // close button / Escape (#144): collapse the filter panel and drop the
+    // transient keyword while keeping the selection.
+    closeHistory();
     // Metadata-only history: fetch full body on demand (#95).
     if (report.metadata_only || !report.content) {
       setHistoryLoading(true);
