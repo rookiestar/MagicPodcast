@@ -26,6 +26,7 @@ import {
   formatReportDate,
   formatReportTime,
   reportDayKey,
+  reportTypeClassName,
   reportTypeLabel,
 } from "@/lib/discoveryReports";
 import { sanitizeContentUrl } from "@/lib/imageSourcePolicy";
@@ -490,9 +491,9 @@ export default function WorkflowReportWorkbench({
       </header>
       <div className="workflow-report-meta-row">
         <span
-          className={`workflow-report-type ${
-            activeReport.report_type === "weekly" ? "is-weekly" : "is-daily"
-          }`}
+          className={`workflow-report-type ${reportTypeClassName(
+            activeReport.report_type,
+          )}`}
         >
           {reportTypeLabel(activeReport.report_type)}
         </span>
@@ -816,11 +817,9 @@ function HistoryDrawer({
                       >
                         <span className="workflow-report-history-item-main">
                           <span
-                            className={`workflow-report-type ${
-                              report.report_type === "weekly"
-                                ? "is-weekly"
-                                : "is-daily"
-                            }`}
+                            className={`workflow-report-type ${reportTypeClassName(
+                              report.report_type,
+                            )}`}
                           >
                             {reportTypeLabel(report.report_type)}
                           </span>

@@ -127,7 +127,7 @@ func TestGenerateForJob_PersistsStructuredHomepageSnapshot(t *testing.T) {
 	assert.Contains(t, report.Content, "结构化单集")
 }
 
-func TestGenerateForJob_ZeroEpisodesDoesNotPublishHomepage(t *testing.T) {
+func TestGenerateForJob_ZeroEpisodesKeepsHomepageSnapshotButIsFilteredByService(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:structured_homepage_zero?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
@@ -164,13 +164,13 @@ func TestGenerateForJob_ZeroEpisodesDoesNotPublishHomepage(t *testing.T) {
 	rg := NewReportGenerator(db, nil)
 	report, err := rg.GenerateForJob(context.Background(), &job)
 	require.NoError(t, err)
-	assert.False(t, report.PublishToHomepage)
-	assert.Empty(t, report.ReportType)
+	assert.True(t, report.PublishToHomepage)
+	assert.Equal(t, "daily", report.ReportType)
 	assert.Empty(t, report.StructuredEpisodes)
 	assert.NotEmpty(t, report.Content) // full body still saved
 }
 
-func TestGenerateForJob_UnpublishedWorkflowNeverHomepage(t *testing.T) {
+func TestGenerateForJob_LegacyPublishFlagDoesNotGateHomepageSnapshot(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:structured_homepage_off?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
@@ -216,8 +216,6 @@ func TestGenerateForJob_UnpublishedWorkflowNeverHomepage(t *testing.T) {
 	rg := NewReportGenerator(db, nil)
 	report, err := rg.GenerateForJob(context.Background(), &job)
 	require.NoError(t, err)
-	assert.False(t, report.PublishToHomepage)
-	// Structured data may still be stored for future use, but publish flag stays false.
-	// Spec: unpublished workflows never enter homepage — listing filters on publish snapshot.
-	assert.False(t, report.PublishToHomepage)
+	assert.True(t, report.PublishToHomepage)
+	assert.Equal(t, "daily", report.ReportType)
 }

@@ -230,16 +230,11 @@ func (rg *ReportGenerator) GenerateForJob(ctx context.Context, job *models.Job) 
 	// 6. 使用事务创建Report记录并更新Job（确保原子性）
 	matchedCount := rg.countEpisodes(reportData)
 	structured := rg.buildStructuredEpisodes(reportData)
-	publishToHomepage := false
-	reportType := ""
-	// Homepage publish requires explicit workflow config + at least one real episode id.
-	// Zero-episode successes remain successful jobs but never surface on the homepage (#90).
-	if workflow.PublishToHomepage &&
-		models.IsValidHomepageReportType(workflow.ReportType) &&
-		len(structured) > 0 {
-		publishToHomepage = true
-		reportType = workflow.ReportType
-	}
+	// Every persisted report is a homepage report. The legacy workflow publish
+	// flag and manually selected type no longer gate visibility; the cycle is
+	// derived from the workflow schedule so every job follows the same rule.
+	publishToHomepage := true
+	reportType := string(models.InferHomepageReportType(workflow.Schedule))
 	report := &models.Report{
 		JobID:          job.ID,
 		Title:          fmt.Sprintf("%s - %s", workflow.Name, job.CreatedAt.Format("2006-01-02 15:04:05")),

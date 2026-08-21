@@ -164,7 +164,7 @@ export interface RulesConfig {
   llm_user_prompt?: string; // 用户提示词模板（可选，留空使用默认）
 }
 
-export type HomepageReportType = "daily" | "weekly";
+export type HomepageReportType = "daily" | "weekly" | "custom";
 
 export interface ReportEpisode {
   episode_id: number;

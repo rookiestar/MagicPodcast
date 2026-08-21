@@ -237,11 +237,6 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 		middleware.BadRequestResponse(c, "INVALID_RULES", err.Error())
 		return
 	}
-	if err := validateHomepagePublishConfig(req.PublishToHomepage, req.ReportType); err != nil {
-		middleware.BadRequestResponse(c, "INVALID_HOMEPAGE_PUBLISH", err.Error())
-		return
-	}
-
 	workflow := models.Workflow{
 		Name:              req.Name,
 		Description:       req.Description,
@@ -250,8 +245,8 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 		ScopeConfig:       req.ScopeConfig,
 		RulesConfig:       req.RulesConfig,
 		IsEnabled:         req.IsEnabled,
-		PublishToHomepage: req.PublishToHomepage,
-		ReportType:        normalizeHomepageReportType(req.PublishToHomepage, req.ReportType),
+		PublishToHomepage: true,
+		ReportType:        string(models.InferHomepageReportType(req.Schedule)),
 	}
 
 	// 使用 Omit 避免 GORM 的 RETURNING 问题，并手动设置时间
@@ -359,11 +354,6 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 		middleware.BadRequestResponse(c, "INVALID_RULES", err.Error())
 		return
 	}
-	if err := validateHomepagePublishConfig(req.PublishToHomepage, req.ReportType); err != nil {
-		middleware.BadRequestResponse(c, "INVALID_HOMEPAGE_PUBLISH", err.Error())
-		return
-	}
-
 	workflow.Name = req.Name
 	workflow.Description = req.Description
 	workflow.Schedule = req.Schedule
@@ -378,8 +368,8 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 	logger.Debugf("[Update] Workflow RulesConfig after assignment: %+v", workflow.RulesConfig)
 
 	workflow.IsEnabled = req.IsEnabled
-	workflow.PublishToHomepage = req.PublishToHomepage
-	workflow.ReportType = normalizeHomepageReportType(req.PublishToHomepage, req.ReportType)
+	workflow.PublishToHomepage = true
+	workflow.ReportType = string(models.InferHomepageReportType(req.Schedule))
 
 	// 如果工作流启用且配置了schedule，计算并更新下次执行时间
 	if workflow.IsEnabled && workflow.Schedule != "" {
@@ -401,7 +391,7 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 		"scope_config":        workflow.ScopeConfig,
 		"rules_config":        workflow.RulesConfig,
 		"is_enabled":          workflow.IsEnabled,
-		"publish_to_homepage": workflow.PublishToHomepage,
+		"publish_to_homepage": true,
 		"report_type":         workflow.ReportType,
 	}
 

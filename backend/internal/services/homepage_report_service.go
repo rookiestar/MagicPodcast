@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	defaultHomepageHistoryLimit = 30
-	maxHomepageHistoryLimit     = 100
+	defaultHomepageHistoryLimit  = 30
+	maxHomepageHistoryLimit      = 100
+	homepageReportQueryBatchSize = 100
 )
 
 // HomepageReportEpisode is one interactive episode on a discovery homepage report.
@@ -112,32 +113,30 @@ func (s *HomepageReportService) ListHistory(limit int) ([]HomepageReport, error)
 	return s.listPublished(time.Time{}, start, limit, true)
 }
 
-// GetPublishedReport returns one publishable report with full body for on-demand history reading (#95).
+// GetPublishedReport returns one report with full body for on-demand history reading (#95).
 func (s *HomepageReportService) GetPublishedReport(reportID uint) (*HomepageReport, error) {
 	if reportID == 0 {
 		return nil, gorm.ErrRecordNotFound
 	}
 	type reportRow struct {
 		models.Report
-		WorkflowID uint       `gorm:"column:workflow_id"`
-		JobStatus  string     `gorm:"column:job_status"`
-		JobEndTime *time.Time `gorm:"column:job_end_time"`
+		WorkflowID       uint       `gorm:"column:workflow_id"`
+		WorkflowSchedule string     `gorm:"column:workflow_schedule"`
+		JobStatus        string     `gorm:"column:job_status"`
+		JobEndTime       *time.Time `gorm:"column:job_end_time"`
 	}
 	var row reportRow
 	err := s.db.Table("reports").
-		Select(`reports.*, jobs.workflow_id AS workflow_id, jobs.status AS job_status, jobs.end_time AS job_end_time`).
+		Select(`reports.*, jobs.workflow_id AS workflow_id, workflows.schedule AS workflow_schedule, jobs.status AS job_status, jobs.end_time AS job_end_time`).
 		Joins("JOIN jobs ON jobs.id = reports.job_id AND jobs.deleted_at IS NULL").
+		Joins("LEFT JOIN workflows ON workflows.id = jobs.workflow_id AND workflows.deleted_at IS NULL").
 		Where("reports.id = ?", reportID).
-		Where("reports.publish_to_homepage = ?", true).
-		Where("reports.report_type IN ?", []string{
-			string(models.HomepageReportTypeDaily),
-			string(models.HomepageReportTypeWeekly),
-		}).
-		Where("jobs.status = ?", string(models.JobStatusCompleted)).
+		Where("jobs.status IN ?", homepageReportJobStatuses()).
 		First(&row).Error
 	if err != nil {
 		return nil, err
 	}
+	row.Report.ReportType = resolveHomepageReportType(row.Report, row.WorkflowSchedule)
 	return s.toHomepageReport(row.Report, row.WorkflowID, row.JobEndTime, false), nil
 }
 
@@ -171,61 +170,98 @@ func (s *HomepageReportService) todayBounds() (time.Time, time.Time) {
 func (s *HomepageReportService) listPublished(from, to time.Time, limit int, metadataOnly bool) ([]HomepageReport, error) {
 	type reportRow struct {
 		models.Report
-		WorkflowID uint       `gorm:"column:workflow_id"`
-		JobStatus  string     `gorm:"column:job_status"`
-		JobEndTime *time.Time `gorm:"column:job_end_time"`
+		WorkflowID       uint       `gorm:"column:workflow_id"`
+		WorkflowSchedule string     `gorm:"column:workflow_schedule"`
+		JobStatus        string     `gorm:"column:job_status"`
+		JobEndTime       *time.Time `gorm:"column:job_end_time"`
 	}
 
-	// #93: only completed jobs — partial/failed/cancelled never enter homepage lists.
+	// Every report-bearing completed/partial Job is eligible. Failed and
+	// cancelled Jobs do not represent a usable report result.
 	query := s.db.Table("reports").
-		Select(`reports.*, jobs.workflow_id AS workflow_id, jobs.status AS job_status, jobs.end_time AS job_end_time`).
+		Select(`reports.*, jobs.workflow_id AS workflow_id, workflows.schedule AS workflow_schedule, jobs.status AS job_status, jobs.end_time AS job_end_time`).
 		Joins("JOIN jobs ON jobs.id = reports.job_id AND jobs.deleted_at IS NULL").
-		Where("reports.publish_to_homepage = ?", true).
-		Where("reports.report_type IN ?", []string{
-			string(models.HomepageReportTypeDaily),
-			string(models.HomepageReportTypeWeekly),
-		}).
-		Where("jobs.status = ?", string(models.JobStatusCompleted))
+		Joins("LEFT JOIN workflows ON workflows.id = jobs.workflow_id AND workflows.deleted_at IS NULL").
+		Where("jobs.status IN ?", homepageReportJobStatuses())
 
 	// Completion clock: prefer job end_time, fall back to report.generated_at.
-	completionExpr := "COALESCE(jobs.end_time, reports.generated_at)"
+	// Normalize SQLite timestamps before comparing: stored values may carry a
+	// local offset, while query bounds are UTC. Lexical comparison would put
+	// reports across a day boundary in the wrong homepage bucket.
+	completionExpr := "julianday(COALESCE(jobs.end_time, reports.generated_at))"
 	if !from.IsZero() {
-		query = query.Where(completionExpr+" >= ?", from.UTC())
+		query = query.Where(completionExpr+" >= julianday(?)", from.UTC())
 	}
 	if !to.IsZero() {
-		query = query.Where(completionExpr+" < ?", to.UTC())
+		query = query.Where(completionExpr+" < julianday(?)", to.UTC())
 	}
 	query = query.Order(completionExpr + " DESC").Order("reports.id DESC")
-	if limit > 0 {
-		query = query.Limit(limit)
-	}
 
-	var rows []reportRow
-	if err := query.Find(&rows).Error; err != nil {
-		return nil, err
-	}
-
-	// Batch-resolve live episode IDs once for all rows (#93).
-	candidateIDs := make([]uint, 0)
-	for _, row := range rows {
-		for _, item := range row.StructuredEpisodes.ValidEpisodes() {
-			candidateIDs = append(candidateIDs, item.EpisodeID)
+	out := make([]HomepageReport, 0)
+	offset := 0
+	for {
+		batchQuery := query
+		if limit > 0 {
+			// Apply the history limit after homepage eligibility filtering. A
+			// newer empty/deleted report must not consume a visible slot.
+			batchQuery = batchQuery.Limit(homepageReportQueryBatchSize).Offset(offset)
 		}
-	}
-	liveIDs, err := s.liveEpisodeIDSet(candidateIDs)
-	if err != nil {
-		return nil, err
-	}
 
-	out := make([]HomepageReport, 0, len(rows))
-	for _, row := range rows {
-		report := s.toHomepageReportFiltered(row.Report, row.WorkflowID, row.JobEndTime, metadataOnly, liveIDs)
-		if report == nil {
-			continue
+		var rows []reportRow
+		if err := batchQuery.Find(&rows).Error; err != nil {
+			return nil, err
 		}
-		out = append(out, *report)
+		if len(rows) == 0 {
+			break
+		}
+
+		// Batch-resolve live episode IDs once for all rows (#93).
+		candidateIDs := make([]uint, 0)
+		for _, row := range rows {
+			for _, item := range row.StructuredEpisodes.ValidEpisodes() {
+				candidateIDs = append(candidateIDs, item.EpisodeID)
+			}
+		}
+		liveIDs, err := s.liveEpisodeIDSet(candidateIDs)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, row := range rows {
+			row.Report.ReportType = resolveHomepageReportType(row.Report, row.WorkflowSchedule)
+			report := s.toHomepageReportFiltered(row.Report, row.WorkflowID, row.JobEndTime, metadataOnly, liveIDs)
+			if report == nil {
+				continue
+			}
+			out = append(out, *report)
+			if limit > 0 && len(out) >= limit {
+				return out[:limit], nil
+			}
+		}
+
+		if limit == 0 || len(rows) < homepageReportQueryBatchSize {
+			break
+		}
+		offset += len(rows)
 	}
 	return out, nil
+}
+
+func homepageReportJobStatuses() []string {
+	return []string{
+		string(models.JobStatusCompleted),
+		string(models.JobStatusPartial),
+	}
+}
+
+func resolveHomepageReportType(report models.Report, schedule string) string {
+	if strings.TrimSpace(schedule) != "" {
+		return string(models.InferHomepageReportType(schedule))
+	}
+	if models.IsValidHomepageReportType(report.ReportType) {
+		return report.ReportType
+	}
+	return string(models.HomepageReportTypeCustom)
 }
 
 func (s *HomepageReportService) liveEpisodeIDSet(ids []uint) (map[uint]struct{}, error) {
@@ -341,10 +377,9 @@ func (s *HomepageReportService) toHomepageReportFiltered(
 		})
 	}
 	if len(episodes) == 0 {
-		// After live filtering, zero interactive episodes => report not homepage-eligible (#93).
+		// A report with no live, interactive episode cannot be consumed on the homepage.
 		return nil
 	}
-
 	content := report.Content
 	summary := report.Summary
 	if metadataOnly {

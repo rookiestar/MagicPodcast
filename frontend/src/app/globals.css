@@ -2907,6 +2907,12 @@
     background: rgba(224, 231, 229, 0.88);
   }
 
+  .workflow-report-type.is-custom {
+    border: 1px solid #7a5a8a;
+    color: #6b4b7c;
+    background: rgba(238, 228, 242, 0.9);
+  }
+
   .workflow-report-header-actions {
     display: flex;
     flex-wrap: wrap;

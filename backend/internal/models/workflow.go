@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -103,22 +104,59 @@ func (r RulesConfig) Value() (driver.Value, error) {
 	return json.Marshal(r)
 }
 
-// HomepageReportType is the explicit report kind for homepage publishing (#89/#90).
+// HomepageReportType is the report cycle shown on the homepage (#89/#90).
 type HomepageReportType string
 
 const (
 	HomepageReportTypeDaily  HomepageReportType = "daily"
 	HomepageReportTypeWeekly HomepageReportType = "weekly"
+	HomepageReportTypeCustom HomepageReportType = "custom"
 )
 
 // IsValidHomepageReportType reports whether value is a supported publish type.
 func IsValidHomepageReportType(value string) bool {
 	switch HomepageReportType(value) {
-	case HomepageReportTypeDaily, HomepageReportTypeWeekly:
+	case HomepageReportTypeDaily, HomepageReportTypeWeekly, HomepageReportTypeCustom:
 		return true
 	default:
 		return false
 	}
+}
+
+// InferHomepageReportType derives the report cycle from a workflow's cron
+// schedule. The schedule describes trigger cadence; RulesConfig.TimeRange is
+// the content coverage window and is intentionally not used here.
+func InferHomepageReportType(schedule string) HomepageReportType {
+	if err := ValidateCron(schedule); err != nil {
+		return HomepageReportTypeCustom
+	}
+	parts := strings.Fields(schedule)
+	if len(parts) == 5 {
+		parts = append([]string{"0"}, parts...)
+	}
+	if len(parts) != 6 {
+		return HomepageReportTypeCustom
+	}
+
+	dayOfMonth, month, dayOfWeek := parts[3], parts[4], parts[5]
+	if dayOfMonth == "*" && month == "*" {
+		if dayOfWeek == "*" {
+			return HomepageReportTypeDaily
+		}
+		if isSingleCronWeekday(dayOfWeek) {
+			return HomepageReportTypeWeekly
+		}
+	}
+	return HomepageReportTypeCustom
+}
+
+func isSingleCronWeekday(value string) bool {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT":
+		return true
+	}
+	day, err := strconv.Atoi(strings.TrimSpace(value))
+	return err == nil && day >= 0 && day <= 7
 }
 
 // Workflow 工作流模型
@@ -132,10 +170,13 @@ type Workflow struct {
 	ScopeConfig ScopeConfig       `gorm:"type:json" json:"scope_config"`
 	RulesConfig RulesConfig       `gorm:"type:json" json:"rules_config"`
 	IsEnabled   bool              `gorm:"index;not null" json:"is_enabled"`
-	// PublishToHomepage opts this workflow into the discovery homepage report source (#90).
-	// Existing workflows default to false and never appear on the homepage.
+	// PublishToHomepage is retained for API and database compatibility. New
+	// reports are published automatically; homepage listing no longer treats
+	// this legacy flag as an opt-in gate.
 	PublishToHomepage bool `gorm:"not null;default:false;index" json:"publish_to_homepage"`
-	// ReportType is "daily" or "weekly" when PublishToHomepage is true; empty otherwise.
+	// ReportType is retained as a compatibility snapshot. New reports derive it
+	// from Schedule and may also be "custom"; homepage reads can recalculate it
+	// from the current schedule to repair legacy manual values.
 	ReportType string `gorm:"size:20;not null;default:''" json:"report_type"`
 	LastJobID  *uint  `gorm:"index" json:"last_job_id,omitempty"`
 	LastJob    *Job   `gorm:"-" json:"last_job,omitempty"` // 不自动迁移，通过关联查询加载
@@ -384,11 +425,12 @@ type Report struct {
 	Format      string    `gorm:"size:20;default:'markdown'" json:"format"` // 报告格式
 	FileSize    int       `gorm:"default:0" json:"file_size"`               // 内容大小（字节）
 
-	// Homepage publish snapshot captured at generation time (#90).
-	// Independent of later workflow config edits so homepage eligibility stays stable.
-	PublishToHomepage bool              `gorm:"not null;default:false;index" json:"publish_to_homepage"`
-	ReportType        string            `gorm:"size:20;not null;default:''" json:"report_type"`
-	WorkflowName      string            `gorm:"size:200;not null;default:''" json:"workflow_name"`
+	// Legacy homepage compatibility fields captured at generation time (#90).
+	// Homepage eligibility is resolved from Job status and structured episodes;
+	// the legacy publish flag is no longer an opt-in gate.
+	PublishToHomepage  bool              `gorm:"not null;default:false;index" json:"publish_to_homepage"`
+	ReportType         string            `gorm:"size:20;not null;default:''" json:"report_type"`
+	WorkflowName       string            `gorm:"size:200;not null;default:''" json:"workflow_name"`
 	StructuredEpisodes ReportEpisodeList `gorm:"type:json" json:"structured_episodes,omitempty"`
 
 	// LLM相关字段

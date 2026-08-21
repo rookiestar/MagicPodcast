@@ -49,10 +49,6 @@ export default function WorkflowFormModal({
   const [customCron, setCustomCron] = useState("");
   const [lastCustomCron, setLastCustomCron] = useState(""); // 保存上一次的自定义Cron
   const [cronError, setCronError] = useState("");
-  // Homepage publish (#90): default off for existing and new workflows.
-  const [publishToHomepage, setPublishToHomepage] = useState(false);
-  const [reportType, setReportType] = useState<"daily" | "weekly">("daily");
-
   // Step 2: 范围配置
   const [scopeType, setScopeType] =
     useState<WorkflowScopeType>("all_subscribed");
@@ -172,8 +168,6 @@ export default function WorkflowFormModal({
     setLlmModel("");
     setLlmTemperature(0.7);
     setLlmMaxTokens(1000);
-    setPublishToHomepage(false);
-    setReportType("daily");
     setStep(1);
   }, []);
 
@@ -383,11 +377,6 @@ export default function WorkflowFormModal({
           setLlmMaxTokens(workflow.rules_config.llm_max_tokens || 1000);
           setLlmUserPrompt(workflow.rules_config.llm_user_prompt || "");
         }
-
-        setPublishToHomepage(Boolean(workflow.publish_to_homepage));
-        setReportType(
-          workflow.report_type === "weekly" ? "weekly" : "daily",
-        );
 
       } else {
         // 创建模式：重置为默认值
@@ -714,8 +703,6 @@ export default function WorkflowFormModal({
         scope_config: scopeConfig,
         rules_config: rulesConfig,
         is_enabled: shouldBeEnabled,
-        publish_to_homepage: publishToHomepage,
-        report_type: publishToHomepage ? reportType : "",
       };
 
       if (workflow) {
@@ -775,8 +762,6 @@ export default function WorkflowFormModal({
     setLlmModel("");
     setLlmTemperature(0.7);
     setLlmMaxTokens(1000);
-    setPublishToHomepage(false);
-    setReportType("daily");
     onClose();
   };
 
@@ -884,53 +869,14 @@ export default function WorkflowFormModal({
                 />
               </div>
 
-              <div className="p-4 border border-slate-200 dark:border-slate-700 rounded-lg bg-amber-50/60 dark:bg-amber-950/20 space-y-3">
-                <div className="flex items-start gap-3">
-                  <input
-                    type="checkbox"
-                    id="publish-to-homepage"
-                    checked={publishToHomepage}
-                    onChange={(e) => setPublishToHomepage(e.target.checked)}
-                    className="mt-1 w-5 h-5 text-amber-700 border-slate-300 rounded focus:ring-amber-500"
-                  />
-                  <label htmlFor="publish-to-homepage" className="flex-1 cursor-pointer">
-                    <div className="font-medium text-slate-900 dark:text-slate-50">
-                      发布到首页
-                    </div>
-                    <div className="text-sm text-slate-600 dark:text-slate-400">
-                      仅在成功执行并产出至少一条可解析单集时，将日报/周报展示在发现页「最近更新」之前。默认不发布。
-                    </div>
-                  </label>
+              <div className="p-4 border border-slate-200 dark:border-slate-700 rounded-lg bg-amber-50/60 dark:bg-amber-950/20">
+                <div className="font-medium text-slate-900 dark:text-slate-50">
+                  报告自动发布到首页
                 </div>
-                {publishToHomepage && (
-                  <div>
-                    <span className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                      报告类型
-                    </span>
-                    <div className="flex gap-3" role="radiogroup" aria-label="报告类型">
-                      <label className="inline-flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="report-type"
-                          value="daily"
-                          checked={reportType === "daily"}
-                          onChange={() => setReportType("daily")}
-                        />
-                        <span>日报</span>
-                      </label>
-                      <label className="inline-flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="report-type"
-                          value="weekly"
-                          checked={reportType === "weekly"}
-                          onChange={() => setReportType("weekly")}
-                        />
-                        <span>周报</span>
-                      </label>
-                    </div>
-                  </div>
-                )}
+                <div className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                  有可展示单集的报告会自动进入发现页；失败或空报告不展示。
+                  日报、周报或自定义周期由定时规则自动识别。
+                </div>
               </div>
 
               <div>
