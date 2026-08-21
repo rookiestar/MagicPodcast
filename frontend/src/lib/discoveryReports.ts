@@ -39,8 +39,21 @@ export function reportTypeLabel(reportType: string): string {
       return "日报";
     case "weekly":
       return "周报";
+    case "custom":
+      return "自定义周期";
     default:
       return reportType || "报告";
+  }
+}
+
+export function reportTypeClassName(reportType: string): string {
+  switch (reportType) {
+    case "weekly":
+      return "is-weekly";
+    case "custom":
+      return "is-custom";
+    default:
+      return "is-daily";
   }
 }
 

@@ -51,11 +51,16 @@ func seedPublishedReport(
 	jobStatus models.JobStatus,
 	completedAt time.Time,
 	episodes models.ReportEpisodeList,
+	schedule ...string,
 ) models.Report {
 	t.Helper()
+	cronSchedule := "0 0 8 * * *"
+	if len(schedule) > 0 && schedule[0] != "" {
+		cronSchedule = schedule[0]
+	}
 	workflow := models.Workflow{
 		Name:              workflowName,
-		Schedule:          "0 0 8 * * *",
+		Schedule:          cronSchedule,
 		ScopeType:         models.ScopeTypeAllSubscribed,
 		IsEnabled:         true,
 		PublishToHomepage: publish,
@@ -89,7 +94,7 @@ func seedPublishedReport(
 	return report
 }
 
-func TestHomepageReportService_OnlyCompletedJobs(t *testing.T) {
+func TestHomepageReportService_IncludesPartialJobsAndIgnoresLegacyPublishFlag(t *testing.T) {
 	loc := time.FixedZone("CST", 8*3600)
 	db := openHomepageReportTestDB(t, "homepage_completed_only")
 	svc := NewHomepageReportServiceWithLocation(db, loc)
@@ -103,7 +108,7 @@ func TestHomepageReportService_OnlyCompletedJobs(t *testing.T) {
 	seedPublishedReport(t, db, "完成日报", "daily", true, models.JobStatusCompleted, todayNoon, models.ReportEpisodeList{
 		{EpisodeID: live.ID, Order: 1, EpisodeTitle: live.Title, PodcastTitle: "P", Recommendation: "", Context: "节目上下文"},
 	})
-	seedPublishedReport(t, db, "部分日报", "daily", true, models.JobStatusPartial, todayNoon, models.ReportEpisodeList{
+	seedPublishedReport(t, db, "部分日报", "daily", false, models.JobStatusPartial, todayNoon, models.ReportEpisodeList{
 		{EpisodeID: live.ID, Order: 1, EpisodeTitle: live.Title, PodcastTitle: "P"},
 	})
 	seedPublishedReport(t, db, "失败日报", "daily", true, models.JobStatusFailed, todayNoon, models.ReportEpisodeList{
@@ -112,8 +117,9 @@ func TestHomepageReportService_OnlyCompletedJobs(t *testing.T) {
 
 	today, err := svc.ListToday()
 	require.NoError(t, err)
-	require.Len(t, today, 1)
-	assert.Equal(t, "完成日报", today[0].WorkflowName)
+	require.Len(t, today, 2)
+	assert.Equal(t, "部分日报", today[0].WorkflowName)
+	assert.Equal(t, "完成日报", today[1].WorkflowName)
 	assert.NotEmpty(t, today[0].Content)
 }
 
@@ -189,9 +195,9 @@ func TestHomepageReportService_HistoryKeepsPublishSnapshotAndMetadataOnly(t *tes
 	yesterday := time.Date(2026, 8, 9, 12, 0, 0, 0, loc).UTC()
 
 	// Snapshot published even if workflow later disables publish.
-	report := seedPublishedReport(t, db, "往期快照", "weekly", true, models.JobStatusCompleted, yesterday, models.ReportEpisodeList{
+	report := seedPublishedReport(t, db, "往期快照", "daily", true, models.JobStatusCompleted, yesterday, models.ReportEpisodeList{
 		{EpisodeID: live.ID, Order: 1, EpisodeTitle: "hist", PodcastTitle: "P", Context: "往期上下文"},
-	})
+	}, "0 0 8 * * 1")
 	require.NoError(t, db.Model(&models.Workflow{}).Where("name = ?", "往期快照").
 		Updates(map[string]interface{}{"publish_to_homepage": false, "report_type": ""}).Error)
 
@@ -199,6 +205,7 @@ func TestHomepageReportService_HistoryKeepsPublishSnapshotAndMetadataOnly(t *tes
 	require.NoError(t, err)
 	require.Len(t, history, 1)
 	assert.Equal(t, "往期快照", history[0].WorkflowName)
+	assert.Equal(t, "weekly", history[0].ReportType)
 	assert.True(t, history[0].MetadataOnly)
 	assert.Empty(t, history[0].Content, "history list must not ship full markdown bodies")
 	assert.NotEmpty(t, history[0].Episodes)
@@ -206,6 +213,7 @@ func TestHomepageReportService_HistoryKeepsPublishSnapshotAndMetadataOnly(t *tes
 	full, err := svc.GetPublishedReport(report.ID)
 	require.NoError(t, err)
 	require.NotNil(t, full)
+	assert.Equal(t, "weekly", full.ReportType)
 	assert.False(t, full.MetadataOnly)
 	assert.Contains(t, full.Content, "full markdown")
 }
@@ -227,15 +235,64 @@ func TestHomepageReportService_ZeroAndOneAndTwoEpisodes(t *testing.T) {
 	seedPublishedReport(t, db, "两条", "weekly", true, models.JobStatusCompleted, now.Add(2*time.Hour), models.ReportEpisodeList{
 		{EpisodeID: e1.ID, Order: 1, EpisodeTitle: "one", PodcastTitle: "P"},
 		{EpisodeID: e2.ID, Order: 2, EpisodeTitle: "two", PodcastTitle: "P"},
-	})
+	}, "0 0 8 * * 1")
 
 	today, err := svc.ListToday()
 	require.NoError(t, err)
 	require.Len(t, today, 2)
 	assert.Equal(t, "两条", today[0].WorkflowName)
+	assert.Equal(t, "weekly", today[0].ReportType)
 	assert.Equal(t, 2, today[0].EpisodeCount)
 	assert.Equal(t, "一条", today[1].WorkflowName)
 	assert.Equal(t, 1, today[1].EpisodeCount)
+}
+
+func TestHomepageReportService_InfersCustomReportTypeFromCron(t *testing.T) {
+	db := openHomepageReportTestDB(t, "homepage_report_types")
+	svc := NewHomepageReportServiceWithLocation(db, time.UTC)
+	svc.now = func() time.Time { return time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC) }
+	episode := seedLiveEpisode(t, db, "cron-type")
+	now := time.Date(2026, 8, 10, 10, 0, 0, 0, time.UTC)
+
+	seedPublishedReport(t, db, "日报", "weekly", false, models.JobStatusCompleted, now, models.ReportEpisodeList{
+		{EpisodeID: episode.ID, Order: 1, EpisodeTitle: episode.Title, PodcastTitle: "P"},
+	}, "0 8 * * *")
+	seedPublishedReport(t, db, "周报", "daily", false, models.JobStatusCompleted, now.Add(time.Minute), models.ReportEpisodeList{
+		{EpisodeID: episode.ID, Order: 1, EpisodeTitle: episode.Title, PodcastTitle: "P"},
+	}, "0 0 8 * * 5")
+	seedPublishedReport(t, db, "自定义", "daily", false, models.JobStatusCompleted, now.Add(2*time.Minute), models.ReportEpisodeList{
+		{EpisodeID: episode.ID, Order: 1, EpisodeTitle: episode.Title, PodcastTitle: "P"},
+	}, "0 0 8 1 * *")
+
+	today, err := svc.ListToday()
+	require.NoError(t, err)
+	require.Len(t, today, 3)
+	got := make(map[string]string, len(today))
+	for _, report := range today {
+		got[report.WorkflowName] = report.ReportType
+	}
+	assert.Equal(t, "daily", got["日报"])
+	assert.Equal(t, "weekly", got["周报"])
+	assert.Equal(t, "custom", got["自定义"])
+}
+
+func TestHomepageReportService_HistoryLimitCountsDisplayableReports(t *testing.T) {
+	loc := time.UTC
+	db := openHomepageReportTestDB(t, "homepage_history_limit")
+	svc := NewHomepageReportServiceWithLocation(db, loc)
+	svc.now = func() time.Time { return time.Date(2026, 8, 10, 12, 0, 0, 0, loc) }
+	live := seedLiveEpisode(t, db, "history-limit")
+	yesterday := time.Date(2026, 8, 9, 10, 0, 0, 0, loc)
+
+	seedPublishedReport(t, db, "旧的有效报告", "daily", false, models.JobStatusCompleted, yesterday, models.ReportEpisodeList{
+		{EpisodeID: live.ID, Order: 1, EpisodeTitle: live.Title, PodcastTitle: "P"},
+	})
+	seedPublishedReport(t, db, "更新的空报告", "daily", false, models.JobStatusCompleted, yesterday.Add(time.Hour), nil)
+
+	history, err := svc.ListHistory(1)
+	require.NoError(t, err)
+	require.Len(t, history, 1)
+	assert.Equal(t, "旧的有效报告", history[0].WorkflowName)
 }
 
 func TestHomepageReportService_ThemeUsesReportSummaryThenEpisodeFallback(t *testing.T) {

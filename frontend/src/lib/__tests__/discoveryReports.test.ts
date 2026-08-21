@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { reportThemeLabel } from "@/lib/discoveryReports";
+import {
+  reportThemeLabel,
+  reportTypeClassName,
+  reportTypeLabel,
+} from "@/lib/discoveryReports";
 import type { HomepageReport } from "@/types/discovery";
 
 function makeReport(overrides: Partial<HomepageReport> = {}): HomepageReport {
@@ -55,5 +59,12 @@ describe("reportThemeLabel", () => {
         ],
       }),
     ).toBe("AI 组织变革进入落地期 等精选");
+  });
+});
+
+describe("report type presentation", () => {
+  it("labels and styles custom cycles distinctly", () => {
+    expect(reportTypeLabel("custom")).toBe("自定义周期");
+    expect(reportTypeClassName("custom")).toBe("is-custom");
   });
 });

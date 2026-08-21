@@ -66,7 +66,7 @@ export interface DiscoveryConsumptionResponse {
   read_at?: string;
 }
 
-export type HomepageReportType = "daily" | "weekly";
+export type HomepageReportType = "daily" | "weekly" | "custom";
 
 export interface HomepageReportEpisode {
   episode_id: number;

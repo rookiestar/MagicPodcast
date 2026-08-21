@@ -92,8 +92,8 @@ func (h *WorkflowHandler) toWorkflowResponseWithStats(workflow *models.Workflow,
 		ScopeConfig:       workflow.ScopeConfig,
 		RulesConfig:       workflow.RulesConfig,
 		IsEnabled:         workflow.IsEnabled,
-		PublishToHomepage: workflow.PublishToHomepage,
-		ReportType:        workflow.ReportType,
+		PublishToHomepage: true,
+		ReportType:        string(models.InferHomepageReportType(workflow.Schedule)),
 		CreatedAt:         workflow.CreatedAt,
 		UpdatedAt:         workflow.UpdatedAt,
 	}
@@ -147,8 +147,8 @@ func (h *WorkflowHandler) toWorkflowResponse(workflow *models.Workflow) dto.Work
 		ScopeConfig:       workflow.ScopeConfig,
 		RulesConfig:       workflow.RulesConfig,
 		IsEnabled:         workflow.IsEnabled,
-		PublishToHomepage: workflow.PublishToHomepage,
-		ReportType:        workflow.ReportType,
+		PublishToHomepage: true,
+		ReportType:        string(models.InferHomepageReportType(workflow.Schedule)),
 		CreatedAt:         workflow.CreatedAt,
 		UpdatedAt:         workflow.UpdatedAt,
 	}
@@ -513,24 +513,6 @@ func validateRulesConfig(config models.RulesConfig) error {
 	}
 
 	return nil
-}
-
-// validateHomepagePublishConfig validates explicit homepage publish settings (#90).
-func validateHomepagePublishConfig(publish bool, reportType string) error {
-	if !publish {
-		return nil
-	}
-	if !models.IsValidHomepageReportType(reportType) {
-		return fmt.Errorf("publish_to_homepage 时 report_type 必须是 daily 或 weekly")
-	}
-	return nil
-}
-
-func normalizeHomepageReportType(publish bool, reportType string) string {
-	if !publish {
-		return ""
-	}
-	return reportType
 }
 
 // ========== 排序辅助函数 ==========

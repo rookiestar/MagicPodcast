@@ -41,7 +41,7 @@ func TestBatchRemainingMsForFinishedAndActiveJobs(t *testing.T) {
 	require.Less(t, *activeRem, int64((9 * time.Minute).Milliseconds()))
 }
 
-func TestWorkflowHomepagePublishConfigPersistsAcrossCreateAndUpdate(t *testing.T) {
+func TestWorkflowHomepagePublishConfigIsAutomaticAndCronDerived(t *testing.T) {
 	cache.GetCache().Clear()
 	db, err := gorm.Open(
 		sqlite.Open(fmt.Sprintf("file:workflow_homepage_config_%d?mode=memory&cache=shared", time.Now().UnixNano())),
@@ -96,7 +96,7 @@ func TestWorkflowHomepagePublishConfigPersistsAcrossCreateAndUpdate(t *testing.T
 	updateBody := map[string]any{
 		"name":                stored.Name,
 		"description":         stored.Description,
-		"schedule":            stored.Schedule,
+		"schedule":            "0 0 8 * * 5",
 		"scope_type":          stored.ScopeType,
 		"scope_config":        stored.ScopeConfig,
 		"rules_config":        stored.RulesConfig,
@@ -138,8 +138,8 @@ func TestWorkflowHomepagePublishConfigPersistsAcrossCreateAndUpdate(t *testing.T
 	require.Equal(t, http.StatusOK, disableRecorder.Code, disableRecorder.Body.String())
 
 	require.NoError(t, db.First(&stored, stored.ID).Error)
-	require.False(t, stored.PublishToHomepage)
-	require.Empty(t, stored.ReportType)
+	require.True(t, stored.PublishToHomepage)
+	require.Equal(t, "weekly", stored.ReportType)
 }
 
 func TestListJobsSummaryIncludesLLMErrorWithoutLongSummary(t *testing.T) {
