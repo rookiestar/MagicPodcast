@@ -6,7 +6,9 @@ set -euo pipefail
 PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export PATH
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${MAGICPODCAST_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+source "$SCRIPT_DIR/production-maintenance.sh"
 LOG_FILE="${MAGICPODCAST_SUPERVISOR_LOG:-$PROJECT_DIR/logs/supervisor.log}"
 STATUS_FILE="${MAGICPODCAST_SUPERVISOR_STATUS_FILE:-$PROJECT_DIR/logs/supervisor.status}"
 CHECK_INTERVAL="${MAGICPODCAST_SUPERVISOR_INTERVAL:-15}"
@@ -71,6 +73,15 @@ write_status() {
   local backend="$3"
   local frontend="$4"
   local tunnel="$5"
+  local maintenance_info="${6:-}"
+  local maintenance_owner_pid=""
+  local maintenance_started_at=""
+  local maintenance_operation=""
+  if [ "$state" = maintenance ]; then
+    maintenance_owner_pid="$(printf '%s\n' "$maintenance_info" | awk -F= '$1 == "owner_pid" { print $2; exit }')"
+    maintenance_started_at="$(printf '%s\n' "$maintenance_info" | awk -F= '$1 == "started_at" { print $2; exit }')"
+    maintenance_operation="$(printf '%s\n' "$maintenance_info" | awk -F= '$1 == "operation" { print $2; exit }')"
+  fi
   umask 077
   cat > "$STATUS_FILE" <<EOF
 state=$state
@@ -79,6 +90,9 @@ backend=$backend
 frontend=$frontend
 tunnel=$tunnel
 updated_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+maintenance_owner_pid=$maintenance_owner_pid
+maintenance_started_at=$maintenance_started_at
+maintenance_operation=$maintenance_operation
 EOF
 }
 
@@ -170,7 +184,12 @@ cycles=0
 while :; do
   cycles=$((cycles + 1))
   rotate_service_logs
-  if check_once "$failure_count"; then
+  maintenance_info=""
+  if maintenance_info="$(production_maintenance_inspect 2>/dev/null)"; then
+    write_status maintenance 0 maintenance maintenance "$(tunnel_state)" "$maintenance_info"
+    log "maintenance window active $(printf '%s' "$maintenance_info" | tr '\n' ' ')"
+    failure_count=0
+  elif check_once "$failure_count"; then
     failure_count=0
   else
     failure_count=$((failure_count + 1))

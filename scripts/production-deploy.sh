@@ -4,6 +4,8 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 usage() {
   cat <<'EOF'
 用法:
@@ -66,6 +68,10 @@ RELEASE_ROOT="${MAGICPODCAST_RELEASE_ROOT:-$PROJECT_DIR/.magicpodcast-releases}"
 CURRENT_FILE="$RELEASE_ROOT/current.env"
 SOURCE_STATE_FILE="$RELEASE_ROOT/source-state.env"
 LOCK_DIR="${MAGICPODCAST_DEPLOY_LOCK_DIR:-/tmp/magicpodcast-production-deploy.lock}"
+export MAGICPODCAST_DEPLOY_LOCK_DIR="$LOCK_DIR"
+# This wrapper runs from the Actions checkout while PROJECT_DIR points at the
+# persistent production checkout, so source the protocol from this checkout.
+source "$SCRIPT_DIR/production-maintenance.sh"
 
 git_at() {
   "$GIT_BIN" -C "$PROJECT_DIR" "$@"
@@ -144,22 +150,30 @@ restore_source() {
   git_at checkout --detach "$sha" >/dev/null
 }
 
+MAINTENANCE_STARTED=false
+
 acquire_lock() {
-  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-    fail "another production deploy is already running: $LOCK_DIR"
-  fi
-  printf '%s\n' "$$" > "$LOCK_DIR/pid"
+  production_maintenance_begin "$ACTION" ||
+    fail "another production maintenance window is already running: $LOCK_DIR"
+  MAINTENANCE_STARTED=true
 }
 
 release_lock() {
-  if [ -d "$LOCK_DIR" ]; then
-    rm -f "$LOCK_DIR/pid"
-    rmdir "$LOCK_DIR" 2>/dev/null || true
+  if [ "$MAINTENANCE_STARTED" != true ] &&
+    [ "$MAGICPODCAST_MAINTENANCE_OWNERSHIP" != owned ]; then
+    return 0
   fi
+  if ! production_maintenance_finish; then
+    printf 'production maintenance lock release failed: %s\n' "$LOCK_DIR" >&2
+    return 1
+  fi
+  MAINTENANCE_STARTED=false
 }
 
 export_production_environment() {
   export MAGICPODCAST_PROJECT_DIR="$PROJECT_DIR"
+  export MAGICPODCAST_RELEASE_ROOT="$RELEASE_ROOT"
+  export MAGICPODCAST_DEPLOY_LOCK_DIR="$LOCK_DIR"
   export MAGICPODCAST_DATA_PROFILE=production
   export MAGICPODCAST_PRODUCTION_PROFILE_CONFIRM=I_UNDERSTAND_THIS_USES_PRODUCTION_DATA
   export MAGICPODCAST_SERVER_MODE=release
@@ -226,14 +240,16 @@ finish() {
       status=1
     fi
   fi
-  release_lock
+  if ! release_lock; then
+    status=1
+  fi
   exit "$status"
 }
 
 require_project
 ensure_clean_worktree
-acquire_lock
 trap finish EXIT
+acquire_lock
 
 ORIGINAL_SOURCE_SHA="$(git_at rev-parse HEAD)"
 

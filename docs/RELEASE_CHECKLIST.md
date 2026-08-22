@@ -30,6 +30,8 @@ node scripts/performance-audit.mjs --base-url http://localhost:3000 --api-url ht
 
 `restart.sh --prod` 会在停止当前服务前完成前后端构建和配对校验，并显式锁定 `production` 数据 Profile；切换后的 `/health` 必须同时返回新 `release_id`、`frontend_build_id`、`build_mode=release` 和 `data_profile=production`。发布失败时应确认旧 PID、旧 `.next` 和旧 `backend/api` 仍可恢复，并检查 `logs/release.log` 没有环境变量或凭据内容。
 
+生产发布与回退还必须持有共享维护窗口 `/tmp/magicpodcast-production-deploy.lock`（可由 `MAGICPODCAST_DEPLOY_LOCK_DIR` 覆盖）。窗口内 `logs/supervisor.status` 应为 `state=maintenance` 并记录 owner PID、开始时间和操作；supervisor 不得执行停启恢复。只有发布或回滚完成健康校验后才可释放锁；异常退出由 heartbeat、owner PID 和 stale 超时兜底回收，不以手动卸载 supervisor 作为发布步骤。
+
 远程生产发布使用 [REMOTE_PRODUCTION_DEPLOYMENT.md](REMOTE_PRODUCTION_DEPLOYMENT.md)：先由 GitHub CI 验证固定 `main` SHA，再经 `production` Environment 审批，最后由 Mac mini Runner 在固定生产目录执行 `scripts/production-deploy.sh`。Runner 注册、Environment 审批人和分支保护属于仓库外的一次性人工配置，未配置完成前不得把 workflow 视为可发布。
 
 代码回退前还必须确认发布元数据中的 schema 版本与当前数据库一致。涉及数据库迁移时，先准备并验证迁移前备份；`release.sh --rollback` 会在停止服务前拒绝缺少配对信息或 schema 不一致的回退，不能把它当作数据库恢复命令。

@@ -4,6 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/production-maintenance.sh"
 PROJECT_DIR="${MAGICPODCAST_PROJECT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
 BACKEND_DIR="$PROJECT_DIR/backend"
@@ -580,6 +581,19 @@ if [ "$DRY_RUN" = true ]; then
   printf 'previous_release=%s\n' "$(manifest_value release_id "$PREVIOUS_FILE")"
   printf 'no mutation performed\n'
   exit 0
+fi
+
+finish_maintenance() {
+  local status=$?
+  if ! production_maintenance_finish; then
+    status=1
+  fi
+  exit "$status"
+}
+
+trap finish_maintenance EXIT
+if [ "$MODE" = deploy ] || [ "$MODE" = rollback ]; then
+  production_maintenance_enter "$MODE" || exit 1
 fi
 
 mkdir -p "$RELEASE_ROOT"

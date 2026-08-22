@@ -9,6 +9,7 @@ if [ "$(uname)" != "Darwin" ]; then
 fi
 
 PROJECT_DIR="${MAGICPODCAST_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+DEPLOY_LOCK_DIR="${MAGICPODCAST_DEPLOY_LOCK_DIR:-/tmp/magicpodcast-production-deploy.lock}"
 LABEL="com.magicpodcast.supervisor"
 LEGACY_LABEL="com.magicpodcast"
 PLIST_PATH="$HOME/Library/LaunchAgents/$LABEL.plist"
@@ -58,6 +59,8 @@ render_plist() {
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>MAGICPODCAST_PROJECT_DIR</key>
     <string>$PROJECT_DIR</string>
+    <key>MAGICPODCAST_DEPLOY_LOCK_DIR</key>
+    <string>$DEPLOY_LOCK_DIR</string>
     <key>MAGICPODCAST_SUPERVISOR_LOG</key>
     <string>$PROJECT_DIR/logs/supervisor.log</string>
     <key>MAGICPODCAST_SUPERVISOR_STATUS_FILE</key>

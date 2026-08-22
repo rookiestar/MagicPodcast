@@ -1,6 +1,6 @@
 # 远程生产发布
 
-最后更新：2026-08-15
+最后更新：2026-08-22
 
 本方案解决“不在 Mac mini 局域网内也能安全发布”的问题。仓库负责发布逻辑；Mac mini 上的 Runner、GitHub Environment 审批人和生产目录仍需一次人工配置。本方案不会自动切换数据 Profile、执行数据库迁移或保存生产凭据。
 
@@ -17,6 +17,8 @@ Mac mini self-hosted Runner
     ↓
 固定生产目录校验干净 → fetch main → checkout 固定 SHA
     ↓
+共享生产维护窗口（发布锁 + supervisor maintenance 状态）
+    ↓
 release.sh --dry-run → restart.sh --prod
     ↓
 /health 校验 release_id / frontend_build_id / build_mode / data_profile
@@ -29,8 +31,10 @@ Actions 的临时工作目录只用于拿到工作流脚本，不能承载生产
 - `.github/workflows/ci.yml`：PR 和 `main` 合并后的 Go/前端检查。
 - `.github/workflows/production-deploy.yml`：默认固化触发时选中的 `main` 提交，也可填写历史 `main` 的完整 40 位 SHA；确认该 SHA 的 CI 成功后进入生产审批。
 - `.github/workflows/production-rollback.yml`：单独的人工审批回退入口。
-- `scripts/production-deploy.sh`：校验生产目录、拒绝脏工作树、串行锁、固定 SHA、强制 `production` Profile，并在失败时恢复代码目录。
-- `scripts/release.sh`：发布和回退健康门禁同时要求 `build_mode=release`。
+- `scripts/production-deploy.sh`：校验生产目录、拒绝脏工作树、持有共享维护锁、固定 SHA、强制 `production` Profile，并在失败时恢复代码目录。
+- `scripts/release.sh`：直接生产发布/回退也进入同一维护协议；发布和回退健康门禁同时要求 `build_mode=release`。
+- `scripts/production-maintenance.sh`：以 `/tmp/magicpodcast-production-deploy.lock`（可由环境变量覆盖）作为原子维护标记，记录 owner PID、进程启动时间、开始时间、操作和 heartbeat，并在 owner 失效且超时后安全回收 stale 锁。
+- `scripts/service-supervisor.sh`：维护窗口内只记录 `state=maintenance`，不探测、不停启服务；健康校验完成后发布器才释放锁。
 
 ## Mac mini 一次性配置
 
@@ -96,7 +100,8 @@ MAGICPODCAST_PRODUCTION_DIR=/Users/rookiestar/VSCode/Projects/MagicPodcast
 2. GitHub `Actions → Production deploy → Run workflow`，选择 `main`。通常留空 `commit_sha`，工作流会固化本次触发时选中的 `main` 提交；只有发布历史版本时才填写完整 40 位 SHA。
 3. 在预检摘要核对最终 SHA 和对应 CI；审批 `production` Environment 时，生产任务名称也会显示短 SHA。
 4. Runner 自动执行：固定 SHA 校验、`release.sh --dry-run`、`restart.sh --prod` 和本机前后端健康校验。
-5. 以 `/health` 为发布证据，必须同时看到：
+5. 发布期间不要手动 `bootout` supervisor；检查 `logs/supervisor.status` 可看到 `state=maintenance` 及 owner 信息。
+6. 以 `/health` 为发布证据，必须同时看到：
 
 ```text
 status=ok
@@ -123,7 +128,7 @@ release.sh --rollback
 
 `source-state.env` 从第一次受控发布开始记录代码 SHA。此前已有的生产版本没有这份代码状态，首次接入前如需回退，仍使用 Mac mini 上既有的 `./scripts/release.sh --rollback`，并按 [发布清单](RELEASE_CHECKLIST.md) 人工核对代码和 schema。
 
-发布失败时，现有 `release.sh` 会优先自动恢复上一对前后端产物；包装脚本随后恢复生产代码目录。若代码目录恢复失败，下一次发布前必须先人工检查 `git status` 和当前服务健康状态。
+发布失败时，现有 `release.sh` 会在维护窗口内优先自动恢复上一对前后端产物并完成健康校验；包装脚本随后恢复生产代码目录，最后才释放维护锁。若代码目录恢复失败，下一次发布前必须先人工检查 `git status` 和当前服务健康状态。
 
 ## 安全边界
 

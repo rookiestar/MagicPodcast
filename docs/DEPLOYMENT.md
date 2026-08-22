@@ -25,7 +25,7 @@
 ./scripts/restart.sh --dev
 ```
 
-生产重启会先进入可回退发布流程：新版本先写入 `.magicpodcast-releases/<release-id>/` 并完成后端编译、前端生产构建和配对校验；只有验证通过后才停止当前服务。运行版本可从本机 `/health` 的 `release_id`、`frontend_build_id` 和 `build_mode` 字段确认。切换失败时脚本会自动恢复上一版本；也可以用单一步骤手动回退：
+生产重启会先进入可回退发布流程：新版本先写入 `.magicpodcast-releases/<release-id>/` 并完成后端编译、前端生产构建和配对校验；只有验证通过后才停止当前服务。生产发布与回退会持有共享维护窗口 `/tmp/magicpodcast-production-deploy.lock`，launchd supervisor 在窗口内只记录 `maintenance` 状态，不会抢先拉起旧产物；健康校验完成后才释放窗口。运行版本可从本机 `/health` 的 `release_id`、`frontend_build_id` 和 `build_mode` 字段确认。切换失败时脚本会自动恢复上一版本；也可以用单一步骤手动回退：
 
 ```bash
 ./scripts/release.sh --rollback
