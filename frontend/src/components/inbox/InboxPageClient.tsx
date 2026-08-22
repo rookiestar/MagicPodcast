@@ -353,6 +353,8 @@ export default function InboxPageClient() {
     try {
       const payload = await consumptionApi.listQueue(queue);
       if (requestVersion !== queueRequestVersion.current[queue]) return;
+      const currentRevision = queuesRef.current[queue].revision;
+      if (currentRevision !== null && payload.revision < currentRevision) return;
       setQueues((previous) => ({
         ...previous,
         [queue]: {

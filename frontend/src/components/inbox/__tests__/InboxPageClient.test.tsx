@@ -543,6 +543,90 @@ describe("InboxPageClient", () => {
     expect(within(queueSection("done")).getByText("可处理单集")).toBeInTheDocument();
   });
 
+  it("拖放成功后不让旧的队列加载结果覆盖规范顺序", async () => {
+    const doneItem: ConsumptionItem = {
+      ...inboxItem,
+      episode_id: 202,
+      episode_title: "已有完成项",
+      queue_state: "done",
+    };
+    let resolveStaleDone!: (payload: ConsumptionQueuePayload) => void;
+    const staleDone = new Promise<ConsumptionQueuePayload>((resolve) => {
+      resolveStaleDone = resolve;
+    });
+    let doneLoadCount = 0;
+    apiMocks.getSummary.mockResolvedValue({
+      ...emptySummary,
+      counts: { ...emptySummary.counts, done: 1 },
+    });
+    apiMocks.listQueue.mockImplementation((queue: ConsumptionQueue) => {
+      if (queue === "done") {
+        doneLoadCount += 1;
+        if (doneLoadCount === 2) return staleDone;
+        return Promise.resolve({
+          queue_state: "done",
+          revision: 1,
+          items: [doneItem],
+        });
+      }
+      return Promise.resolve({
+        queue_state: queue,
+        revision: 1,
+        items: queue === "inbox" ? [inboxItem] : [],
+      });
+    });
+    apiMocks.setQueue.mockResolvedValue({ ...doneItem, queue_state: "inbox" });
+    apiMocks.placeQueue.mockResolvedValue({
+      queues: {
+        inbox: { queue_state: "inbox", revision: 2, items: [] },
+        done: {
+          queue_state: "done",
+          revision: 2,
+          items: [{ ...inboxItem, queue_state: "done" }],
+        },
+      },
+    });
+    dragMediaMatches = true;
+
+    render(<InboxPageClient />);
+    await screen.findByRole("button", { name: "拖动《可处理单集》调整队列" });
+    await within(queueSection("done")).findByText("已有完成项");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "将 已有完成项 移动到其他队列" }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "移至 Inbox" }));
+    await waitFor(() => expect(doneLoadCount).toBe(2));
+
+    act(() =>
+      dndMocks.onDragStart?.(
+        dragEvent({ source: "inbox", activeEpisodeId: 101, target: "inbox" }),
+      ),
+    );
+    act(() =>
+      dndMocks.onDragEnd?.(
+        dragEvent({ source: "inbox", activeEpisodeId: 101, target: "done" }),
+      ),
+    );
+
+    await waitFor(() => {
+      expect(apiMocks.placeQueue).toHaveBeenCalledWith(101, {
+        queue_state: "done",
+        before_episode_id: null,
+        expected_revisions: { inbox: 1, done: 1 },
+        acknowledge_focus_limit: false,
+      });
+    });
+    expect(within(queueSection("done")).getByText("可处理单集")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveStaleDone({ queue_state: "done", revision: 1, items: [] });
+      await Promise.resolve();
+    });
+
+    expect(within(queueSection("done")).getByText("可处理单集")).toBeInTheDocument();
+  });
+
   it("队列版本冲突时恢复并提示重新拖放", async () => {
     apiMocks.placeQueue.mockRejectedValueOnce(new Error("过期布局"));
     apiMocks.isQueueOrderConflict.mockReturnValueOnce(true);
