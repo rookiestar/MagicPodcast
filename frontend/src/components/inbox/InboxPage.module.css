@@ -206,6 +206,11 @@
   transform: translateY(-1px);
 }
 
+/* Hover transform creates a stacking context; keep an open menu above later cards. */
+.cardMenuOpen {
+  z-index: 1;
+}
+
 .card[aria-busy="true"] {
   opacity: 0.7;
 }

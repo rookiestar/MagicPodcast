@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import InboxPageClient from "../InboxPageClient";
+import styles from "../InboxPage.module.css";
 import type {
   ConsumptionItem,
   ConsumptionQueue,
@@ -187,6 +188,21 @@ describe("InboxPageClient", () => {
         acknowledgeFocusLimit: true,
       });
     });
+  });
+
+  it("raises the card while its move menu is open", async () => {
+    render(<InboxPageClient />);
+    const trigger = await screen.findByRole("button", {
+      name: "将 可处理单集 移动到其他队列",
+    });
+    const card = trigger.closest("article");
+
+    expect(card).not.toHaveClass(styles.cardMenuOpen);
+    fireEvent.click(trigger);
+
+    expect(card).toHaveClass(styles.cardMenuOpen);
+    fireEvent.mouseDown(document.body);
+    await waitFor(() => expect(card).not.toHaveClass(styles.cardMenuOpen));
   });
 
   it("returns focus to the originating card after closing detail", async () => {
