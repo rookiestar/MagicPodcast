@@ -58,11 +58,15 @@ func newTestFeedServer(tb testing.TB, delay time.Duration) *httptest.Server {
 
 // setupTestDB 创建测试数据库
 func setupTestDB(t *testing.T) *gorm.DB {
-	dbName := fmt.Sprintf("file:testdb_%d?mode=memory&cache=shared", time.Now().UnixNano())
+	dbName := fmt.Sprintf("file:testdb_%d?mode=memory&cache=shared&_foreign_keys=on&_busy_timeout=5000", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	assert.NoError(t, err)
 	sqlDB, err := db.DB()
 	assert.NoError(t, err)
+	// Mirror the single-connection SQLite runtime: background prewarming and
+	// foreground sync share the same database without competing write handles.
+	sqlDB.SetMaxIdleConns(1)
+	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() {
 		_ = sqlDB.Close()
 	})
