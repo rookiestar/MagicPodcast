@@ -724,6 +724,7 @@ export default function WorkflowReportWorkbench({
       {historyOpen && (
         <HistoryDrawer
           reports={filteredHistoryReports}
+          currentReportId={historySelection?.id}
           timezone={timezone}
           onClose={closeHistory}
           onSelect={(report) => {
@@ -761,12 +762,14 @@ interface HistoryDrawerFilter {
 // contract directly (e.g. the defensive empty-result state).
 export function HistoryDrawer({
   reports,
+  currentReportId,
   timezone,
   onClose,
   onSelect,
   filter,
 }: {
   reports: HomepageReport[];
+  currentReportId?: number;
   timezone?: string;
   onClose: () => void;
   onSelect: (report: HomepageReport) => void;
@@ -786,6 +789,7 @@ export function HistoryDrawer({
   const filterPanelId = useId();
   const drawerRef = useRef<HTMLElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const currentReportRef = useRef<HTMLButtonElement>(null);
 
   const hasFilterSelection = filterSelectedIds.size > 0;
   const showFilterEntry = filterOptions.length >= 2;
@@ -829,6 +833,16 @@ export function HistoryDrawer({
 
     return result;
   }, [ordered, timezone]);
+
+  useEffect(() => {
+    if (currentReportId == null || !currentReportRef.current) return;
+    // Keep the current report and its immediate neighbors in view without
+    // changing focus away from the drawer close button (#153).
+    currentReportRef.current.scrollIntoView({
+      behavior: "auto",
+      block: "center",
+    });
+  }, [currentReportId, reports]);
 
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
@@ -1019,40 +1033,57 @@ export function HistoryDrawer({
                   <span>{group.reports.length} 份</span>
                 </header>
                 <ul className="workflow-report-history-list">
-                  {group.reports.map((report) => (
-                    <li key={report.id}>
-                      <button
-                        type="button"
-                        className="workflow-report-history-item"
-                        onClick={() => onSelect(report)}
-                      >
-                        <span className="workflow-report-history-item-main">
-                          <span
-                            className={`workflow-report-type ${reportTypeClassName(
-                              report.report_type,
-                            )}`}
-                          >
-                            {reportTypeLabel(report.report_type)}
+                  {group.reports.map((report) => {
+                    const isCurrent = report.id === currentReportId;
+                    return (
+                      <li key={report.id}>
+                        <button
+                          ref={isCurrent ? currentReportRef : undefined}
+                          type="button"
+                          className={`workflow-report-history-item${
+                            isCurrent ? " is-current" : ""
+                          }`}
+                          onClick={() => onSelect(report)}
+                          aria-current={isCurrent ? "true" : undefined}
+                        >
+                          <span className="workflow-report-history-item-main">
+                            <span
+                              className={`workflow-report-type ${reportTypeClassName(
+                                report.report_type,
+                              )}`}
+                            >
+                              {reportTypeLabel(report.report_type)}
+                            </span>
+                            <span className="workflow-report-history-title-row">
+                              <span className="workflow-report-history-name">
+                                {report.workflow_name}
+                              </span>
+                              {isCurrent && (
+                                <span
+                                  className="workflow-report-history-current"
+                                  aria-hidden="true"
+                                >
+                                  当前查看
+                                </span>
+                              )}
+                            </span>
                           </span>
-                          <span className="workflow-report-history-name">
-                            {report.workflow_name}
+                          <span className="workflow-report-history-meta">
+                            <time
+                              className="workflow-report-history-date"
+                              dateTime={report.completed_at}
+                            >
+                              {formatReportTime(report.completed_at, timezone)}
+                            </time>
+                            <span aria-hidden>·</span>
+                            <span className="workflow-report-history-count">
+                              {report.episode_count} 条单集
+                            </span>
                           </span>
-                        </span>
-                        <span className="workflow-report-history-meta">
-                          <time
-                            className="workflow-report-history-date"
-                            dateTime={report.completed_at}
-                          >
-                            {formatReportTime(report.completed_at, timezone)}
-                          </time>
-                          <span aria-hidden>·</span>
-                          <span className="workflow-report-history-count">
-                            {report.episode_count} 条单集
-                          </span>
-                        </span>
-                      </button>
-                    </li>
-                  ))}
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               </section>
             ))}

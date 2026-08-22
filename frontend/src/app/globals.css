@@ -3262,6 +3262,7 @@
 
   .workflow-report-history-item {
     width: 100%;
+    min-height: 44px;
     display: grid;
     gap: 8px;
     padding: 11px 12px;
@@ -3272,6 +3273,12 @@
     transition:
       border-color 150ms ease,
       background-color 150ms ease;
+  }
+
+  .workflow-report-history-item.is-current {
+    border-color: #e96321;
+    background: #fff9ed;
+    box-shadow: inset 3px 0 0 #e96321;
   }
 
   .workflow-report-history-item:hover {
@@ -3291,10 +3298,33 @@
     gap: 10px;
   }
 
+  .workflow-report-history-title-row {
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+  }
+
   .workflow-report-history-name {
+    min-width: 0;
+    overflow-wrap: anywhere;
     font-family: var(--font-display);
     font-size: 16px;
     font-weight: var(--font-display-weight);
+  }
+
+  .workflow-report-history-current {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    min-height: 22px;
+    padding: 2px 6px;
+    border: 1px solid #e96321;
+    background: #fff;
+    color: #8a3513;
+    font: 600 11px/1.1 var(--font-mono);
+    letter-spacing: 0.02em;
   }
 
   .workflow-report-history-meta {
