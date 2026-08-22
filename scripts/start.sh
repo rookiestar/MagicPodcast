@@ -5,13 +5,16 @@
 
 set -euo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$SCRIPT_DIR/production-maintenance.sh"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
 BACKEND_DIR="$PROJECT_DIR/backend"
 FRONTEND_PID_FILE="${MAGICPODCAST_FRONTEND_PID_FILE:-/tmp/magicpodcast-frontend.pid}"
 BACKEND_PID_FILE="${MAGICPODCAST_BACKEND_PID_FILE:-/tmp/magicpodcast-backend.pid}"
 FRONTEND_LOG="${MAGICPODCAST_FRONTEND_LOG:-/tmp/magicpodcast-frontend.log}"
 BACKEND_LOG="${MAGICPODCAST_BACKEND_LOG:-/tmp/magicpodcast-backend.log}"
+SUPERVISOR_STATUS_FILE="${MAGICPODCAST_SUPERVISOR_STATUS_FILE:-$PROJECT_DIR/logs/supervisor.status}"
 FRONTEND_SCREEN_SESSION="magicpodcast-frontend"
 BACKEND_SCREEN_SESSION="magicpodcast-backend"
 
@@ -25,6 +28,29 @@ NC='\033[0m'
 print_status() { echo -e "${GREEN}✓${NC} $1"; }
 print_warning() { echo -e "${YELLOW}⚠${NC} $1"; }
 print_error() { echo -e "${RED}✗${NC} $1"; }
+
+write_maintenance_status() {
+    local info="$1"
+    local owner_pid
+    local started_at
+    local operation
+    owner_pid="$(printf '%s\n' "$info" | awk -F= '$1 == "owner_pid" { print $2; exit }')"
+    started_at="$(printf '%s\n' "$info" | awk -F= '$1 == "started_at" { print $2; exit }')"
+    operation="$(printf '%s\n' "$info" | awk -F= '$1 == "operation" { print $2; exit }')"
+    mkdir -p "$(dirname "$SUPERVISOR_STATUS_FILE")"
+    umask 077
+    cat > "$SUPERVISOR_STATUS_FILE" <<EOF
+state=maintenance
+failure_count=0
+backend=maintenance
+frontend=maintenance
+tunnel=unknown
+updated_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+maintenance_owner_pid=$owner_pid
+maintenance_started_at=$started_at
+maintenance_operation=$operation
+EOF
+}
 
 listener_pid() {
     local port="$1"
@@ -187,6 +213,23 @@ if [ "$FRONTEND_MODE" != "production" ] && [ "$FRONTEND_MODE" != "development" ]
     print_error "无效前端模式: $FRONTEND_MODE"
     echo "请使用 production 或 development"
     exit 1
+fi
+
+# Compatibility guard for a supervisor process that was already running when
+# this script was updated. A publisher with the matching owner context may
+# start the pair; any other start attempt must not resurrect the old release
+# during the maintenance window.
+maintenance_info=""
+if maintenance_info="$(production_maintenance_inspect 2>/dev/null)"; then
+    if ! production_maintenance_context_matches; then
+        while :; do
+            write_maintenance_status "$maintenance_info"
+            sleep 1
+            maintenance_info="$(production_maintenance_inspect 2>/dev/null)" || break
+        done
+        print_warning "生产发布维护窗口进行中，跳过非发布方启动"
+        exit 0
+    fi
 fi
 
 echo -e "${BLUE}========================================"
