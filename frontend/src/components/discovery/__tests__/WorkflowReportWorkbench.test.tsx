@@ -6,7 +6,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WorkflowReportWorkbench, {
   HistoryDrawer,
 } from "@/components/discovery/WorkflowReportWorkbench";
@@ -62,6 +62,10 @@ function makeReport(
 describe("WorkflowReportWorkbench", () => {
   beforeEach(() => {
     fetchDetailMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("renders the editorial heading and a single report without switch controls", () => {
@@ -464,6 +468,109 @@ describe("WorkflowReportWorkbench", () => {
     expect(screen.getByText("单集 2")).toBeInTheDocument();
   });
 
+  it("marks and returns to the current history report without moving focus (#153)", () => {
+    const scrollIntoView = vi
+      .spyOn(HTMLElement.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+
+    render(
+      <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
+        todayReports={[makeReport({ id: 1, workflow_name: "今日报告" })]}
+        historyReports={[
+          makeReport({
+            id: 9,
+            workflow_name: "上周周报",
+            completed_at: "2026-08-03T08:00:00Z",
+          }),
+          makeReport({
+            id: 8,
+            workflow_name: "更早日报",
+            completed_at: "2026-08-02T08:00:00Z",
+          }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /往期/ }));
+    const firstDrawer = screen.getByRole("dialog", { name: "往期报告" });
+    expect(within(firstDrawer).queryByText("当前查看")).not.toBeInTheDocument();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      within(firstDrawer).getByRole("button", { name: /上周周报/ }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /往期/ }));
+
+    const reopenedDrawer = screen.getByRole("dialog", { name: "往期报告" });
+    const currentReport = within(reopenedDrawer).getByRole("button", {
+      name: /上周周报/,
+    });
+    expect(currentReport).toHaveAttribute("aria-current", "true");
+    expect(within(currentReport).getByText("当前查看")).toBeInTheDocument();
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "auto",
+      block: "center",
+    });
+    expect(screen.getByRole("button", { name: "关闭" })).toHaveFocus();
+  });
+
+  it("updates the history anchor and clears it after returning to today (#153)", () => {
+    render(
+      <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
+        todayReports={[makeReport({ id: 1, workflow_name: "今日报告" })]}
+        historyReports={[
+          makeReport({
+            id: 9,
+            workflow_name: "上周周报",
+            completed_at: "2026-08-03T08:00:00Z",
+          }),
+          makeReport({
+            id: 8,
+            workflow_name: "更早日报",
+            completed_at: "2026-08-02T08:00:00Z",
+          }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /往期/ }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "往期报告" })).getByRole(
+        "button",
+        { name: /上周周报/ },
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /往期/ }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "往期报告" })).getByRole(
+        "button",
+        { name: /更早日报/ },
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /往期/ }));
+
+    const updatedDrawer = screen.getByRole("dialog", { name: "往期报告" });
+    expect(
+      within(updatedDrawer).getByRole("button", { name: /上周周报/ }),
+    ).not.toHaveAttribute("aria-current");
+    expect(
+      within(updatedDrawer).getByRole("button", { name: /更早日报/ }),
+    ).toHaveAttribute("aria-current", "true");
+
+    fireEvent.click(
+      within(updatedDrawer).getByRole("button", { name: "关闭" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "回到今日" }));
+    fireEvent.click(screen.getByRole("button", { name: /往期/ }));
+    expect(
+      within(screen.getByRole("dialog", { name: "往期报告" })).queryByText(
+        "当前查看",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
   it("applies a pending history pick before the body request resolves", async () => {
     let resolveDetail: (report: HomepageReport) => void = () => {};
     fetchDetailMock.mockImplementation(
@@ -577,6 +684,12 @@ describe("WorkflowReportWorkbench", () => {
       screen.getByRole("heading", { name: "今日乙", level: 3 }),
     ).toBeInTheDocument();
     expect(screen.getByText("2 / 2")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /往期/ }));
+    expect(
+      within(screen.getByRole("dialog", { name: "往期报告" })).queryByText(
+        "当前查看",
+      ),
+    ).not.toBeInTheDocument();
   });
 
   it("does not revive a pending history pick after returning to today", async () => {
