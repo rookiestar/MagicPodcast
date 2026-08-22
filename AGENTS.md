@@ -1,133 +1,122 @@
 # MagicPodcast Agent 合同
 
-本文件是仓库级 **唯一权威** Agent 治理合同。所有编码代理（Claude、Codex、Cursor、Grok 等）以本文件为准；其他入口文件只转发到这里，不得平行维护第二套规则。
+本文件是仓库级 **唯一权威** Agent 合同。所有编码代理以本文件为准；`CLAUDE.md` 等入口只转发到这里，不平行维护第二套规则。
 
-易变事实（依赖具体版本号、commit、当前 Issue 前沿、一次性事故统计）**不得**写入本文件；请跟随下方「当前事实来源」到活文档与源码查证。
+本文件仅保存长期稳定的操作方式与安全边界。依赖版本、commit、端口、当前 Issue、一次性统计等易变事实，必须从当前清单、配置、源码、测试、运行结果或跟踪系统核实。
 
-## 1. 当前事实与阅读顺序
+## 1. Project Overview
 
-新任务按任务类型取当前事实，不要从归档或阶段报告推断现状。
+MagicPodcast 是面向个人长期积累与复用的播客知识库，后端为 Go 服务，前端为 Next.js / React 应用，数据主要存储于 SQLite。
 
-| 优先级 | 入口 | 用途 |
-| --- | --- | --- |
-| 1 | [README.md](README.md) | 项目总览、本地启动与常用检查 |
-| 2 | [docs/README.md](docs/README.md) | 文档中心：当前事实 / 研究方案 / 历史归档 |
-| 3 | [docs/REFACTORING_ROADMAP.md](docs/REFACTORING_ROADMAP.md) | 当前重构进度与下一步边界 |
-| 4 | [docs/HUMAN_REVIEW_QUEUE.md](docs/HUMAN_REVIEW_QUEUE.md) | 不可无人值守、需人审的事项 |
-| 5 | 任务相关专题文档（迁移、部署、性能、runbook 等） | 以 `docs/README.md` 索引为准 |
-| 6 | 源码与测试 | 与文档冲突时，以当前源码、测试和运行结果为准 |
+- 项目定位、当前功能和本地入口：`README.md`。
+- 产品术语与语义边界：`CONTEXT.md`。
+- 精确版本：`backend/go.mod`、`frontend/package.json`、lockfile 和当前源码。
 
-归档路径只作历史追溯：
+## 2. Repository Map
 
-- `docs/archive/`
-- 根目录 `archive/`
-
-引用归档内容前，必须用当前源码、测试、构建或运行结果重新验证。
-
-研究与方案目录：
-
-- [docs/research/](docs/research/)：一手研究、已确认决策与设计提案。**不是**默认生产事实；引用时须区分已实现行为、ADR 与尚未落地的 Spec。
-
-技术栈与默认本地端口以 [README.md](README.md) 与源码为准，勿在本文件固化版本号。
-
-## 2. 权限与授权边界
-
-未经用户**明确批准**，禁止：
-
-| 类别 | 示例 |
+| 路径 | 用途 |
 | --- | --- |
-| Git 写远端 / 历史改写 | `git commit`（除非用户明确要求提交）、`git push`、force-push、amend 已发布提交、删除分支 |
-| 生产与部署 | 部署、回退、改生产配置、启停被标明为生产的服务（除非任务明确要求且用户已知情） |
-| 真实数据库写 | `cmd/migrate --apply`、`cmd/maint/*`、会改写真库的 SQL、覆盖当前库的恢复 |
-| 敏感与本地态 | 删除本地配置、数据库、日志、备份、可能含凭据的文件 |
-| 代理委派 | 启动 Subagent / 并行代理（见 §8） |
-| 范围外破坏 | 清理无关脏文件、改动用户未要求的路径 |
+| `backend/` | Go API、数据库、工作流和命令；命令风险见 `backend/cmd/README.md` |
+| `frontend/src/` | 页面、组件、Hooks、客户端逻辑和测试 |
+| `scripts/` | 启停、验证、数据 Profile、备份恢复、发布和性能工具 |
+| `docs/` | 当前维护文档；专题入口见 `docs/README.md` |
+| `docs/research/`、`docs/archive/`、`archive/` | 研究/方案与历史材料，不是默认生产事实 |
+| `.agents/skills/`、`.github/workflows/` | 项目 Agent 工作流与 CI/发布门禁 |
 
-默认允许（仍须符合本文件其余条款）：
+## 3. Context
 
-- 只读查证：读源码、文档、测试输出、`git status` / `git diff` / `git log`
-- 本地可逆编辑：任务范围内的代码与文档修改
-- 与改动成比例的本地验证（见 [docs/AGENT_VERIFICATION.md](docs/AGENT_VERIFICATION.md)）
+只使用仓库相对路径；按任务触发读取，不固定全量预读。
 
-人审事项以 [docs/HUMAN_REVIEW_QUEUE.md](docs/HUMAN_REVIEW_QUEUE.md) 为准；队列中的项不得当作已授权自动处理。
+| 触发条件 | 先读 |
+| --- | --- |
+| 首次进入、启动或常用检查 | `README.md` |
+| 产品定位、推荐/发现、报告或知识处理语义 | `CONTEXT.md` |
+| 定位专题文档或判断当前/研究/归档 | `docs/README.md` |
+| 重构范围与优先级 | `docs/REFACTORING_ROADMAP.md` |
+| 高风险清理、升级、真实数据、缓存/搜索/通知语义 | `docs/HUMAN_REVIEW_QUEUE.md` |
+| 依赖、构建、测试或 CI 门禁 | `.github/workflows/ci.yml` |
 
-## 3. 变更原则
+文档冲突时，以当前源码、测试和观察到的运行结果为准。跨模块修改须沿入口、调用链和测试建立事实；研究、Spec 和归档内容复用前必须重新验证。人审队列记录不等于操作授权。
 
-1. **不擅自改变产品行为**：除非任务明确要求，不改用户可见功能、API 语义、搜索排序、通知策略、部署方式或数据库 schema。
-2. **最小必要 diff**：只改完成任务所需的文件；不顺手重构、不扩 scope、不「顺便」清理无关脏树。
-3. **保护既有脏文件**：工作区里与任务无关的未跟踪/已修改路径（例如本地浏览器产物目录）一律不动。
-4. **文档与代码一致**：修正或新增文档时，陈述必须能被当前源码或已批准决策支撑；冲突时改文档或显式标为待人审，不编造实现。
-5. **高风险先登记**：真实数据库写、跨主版本升级、搜索/缓存语义变化、通知打扰策略、部署方式变化 → 先写入或遵循人审队列，再等人明确授权。
-6. **最小充分防御规则**：默认沿用现有机制；只有在明确的具体失败场景中，现有机制无法阻止或识别该失败时，才新增 hash、contract 冻结、baseline 或 gate。新增前必须同时说明：具体失败场景、现有机制为何不足，以及新增机制如何直接覆盖该缺口；否则不新增。
-7. **用户体验不变量**：性能、可靠性或容错优化不得默认以减少首屏内容、展示空白/错误态、延后核心交互或降低可用性为代价。凡改动加载态、空态、错误态、超时、缓存、陈旧数据或重试策略，实施前必须列出正常、慢请求、请求失败、首次访问四种用户可见结果与取舍，获用户明确确认后再改；验收必须同时证明响应时间与有效内容出现时间，不得以“请求更快返回”代替“用户更快看到可用内容”。
+## 4. Commands & Local Workflow
 
-性能、加载、缓存、分页、超时或重试任务开始前，必须读取 [性能专项工作手册](docs/optimization/PERFORMANCE_PLAYBOOK.md)；方案与收口使用 [性能专项验收模板](docs/optimization/PERFORMANCE_ACCEPTANCE_TEMPLATE.md)，具体命令以 [性能测试指南](docs/PERFORMANCE_TESTING_GUIDE.md) 为准。
+- 安装、开发和统一启动命令以 `README.md`、manifest 和当前脚本为准。
+- CI 必跑命令以 `.github/workflows/ci.yml` 为准；优先运行相关包或测试，再按风险扩大。
+- 数据敏感的启动或验证前先运行 `./scripts/data-profile.sh status`。切换 Fixture / Snapshot 前读 `docs/DATA_PROFILES.md` 或使用 `magicpodcast-data-profile` Skill。
+- 性能、发布、迁移和生产检查走 §9 的专项入口，不从普通命令推断。
 
-## 4. Issue 与依赖
+## 5. Verification Guide
 
-1. 有父 Issue / 子 Issue / Blocked-by 时，**严格按依赖顺序**实施与收口；被阻塞的票不得在依赖未关闭时当作完成。
-2. 每张实施票的验收标准必须映射到**可观察证据**（命令输出、文件内容、链接检查结果、Issue 评论中的摘录），不能只用叙述性总结代替验收。
-3. 跳过的检查必须在证据里写明原因；不得把未跑项写成已通过。
-4. 关闭顺序：先满足子票全部验收并关闭子票，再复核父票并关闭父票（若任务要求关闭）。
-5. 当前具体 Issue 编号与看板状态是易变信息，不写入本合同时效条款；以任务说明与跟踪系统为准。
+日常改动和 Issue 验收以 `docs/AGENT_VERIFICATION.md` 为准；发布、回退和生产健康以 `docs/RELEASE_CHECKLIST.md` 为准。本地通过不等于生产已验证。
 
-## 5. 验证与完成标准
+1. 每条验收标准映射到可观察证据。
+2. 先做最快、最相关的检查，再按风险扩大；用户可见行为还要检查真实页面、API 或产物。
+3. 文档改动检查相对链接、关键陈述、`git diff --check`，并确认没有产品源码 diff。
+4. 最终复核 `git status` 和 `git diff`；跳过、失败或部分执行的检查必须如实记录。
+5. 可用 `.agents/skills/code-change-verification/scripts/verify.sh` 辅助选择检查，但它不替代验收证据或操作授权。
 
-日常与 Issue 向验证的权威说明见：
+完成标准：验收证据齐全、验证与风险成比例、未发生未授权写操作、剩余限制已明确。最终用简洁中文报告**改动、验证、状态、风险**，不把推断或未执行操作写成事实。
 
-- **[docs/AGENT_VERIFICATION.md](docs/AGENT_VERIFICATION.md)**（定向检查、证据分层、完成定义）
+## 6. Change Workflow
 
-发布、回退与生产健康检查的权威说明见：
+1. **Preflight**：确认真实仓库、分支/工作树和既有脏文件。
+2. **Route**：按 §3 读取上下文，确认边界、依赖和验收标准。
+3. **Scope**：选择最小必要切片，不顺手重构或清理。
+4. **Implement**：沿用现有模块；文档只写源码、测试或已批准决策支持的事实。
+5. **最小充分防御**：默认复用现有行为/API 契约、Fixture/Snapshot、测试和门禁。只有先明确可复现的具体失败场景，并证明现有机制无法阻止或识别该失败时，才新增直接覆盖缺口的最小 hash/指纹、契约冻结副本、baseline 或 gate。新增前须记录失败场景、已检查机制、机制缺口，以及新增机制为何最小且充分；不得仅为“更保险”并行造第二套机制。
+6. **Verify**：按 §5 验证，修复并复测当前改动造成的失败。
+7. **Review**：复读最终 diff；外部写入按 §8 单独授权。
 
-- **[docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)**
+Issue 存在父子或 Blocked-by 时，严格按依赖顺序实施；每条验收标准须有证据。任务要求关闭时先关闭已满足的子票，再复核父票；未要求时只报告可关闭状态。
 
-二者不得混用：普通改动的验证入口是验证指南，不是发布清单；不得把部署/回退/生产探活当作默认必跑项。
+新增文档引用前确认路径存在；`CLAUDE.md` 等入口只转发到本文件；文档修改后检查本地链接。
 
-完成一条任务的最低标准：
+## 7. Code Style Patterns
 
-1. 验收标准逐条有观察到的证据；
-2. 验证范围与风险成比例（见验证指南）；
-3. 未批准的 Git / 部署 / 数据库写未发生；
-4. 最终汇报为简洁中文（见 §9）。
+- Go：修改文件使用 `gofmt`；可执行入口放在 `backend/cmd/`，共享实现放在 `backend/internal/`。
+- 前端：延续 App Router 和相邻代码；ESLint、TypeScript 配置及现有测试结构为准。
+- 不在无关任务中重排结构、全局格式化、放宽静态检查或测试门禁。
 
-可选辅助脚本（存在时可用，不替代本文件与验证指南）：
+## 8. Boundaries & Guardrails
 
-- [.agents/skills/code-change-verification/scripts/verify.sh](.agents/skills/code-change-verification/scripts/verify.sh)
+### Always do
 
-## 6. 生产与数据库边界
+- 默认允许只读查证、任务范围内的本地可逆编辑和与改动成比例的本地验证。
+- 保护用户已有脏文件、未跟踪文件、本地配置、数据和运行产物。
+- 区分已验证事实、合理推断、判断和未知项；高风险事项先查或登记 `docs/HUMAN_REVIEW_QUEUE.md`。
+- 性能、加载、缓存、分页、超时或重试任务开始前，读取 `docs/optimization/PERFORMANCE_PLAYBOOK.md`；方案与收口使用验收模板和测试指南。
 
-1. **生产写操作**（迁移 apply、维护命令、覆盖恢复、发布切换）需要单独的明确授权，且通常要求：已验证备份、相关服务已停或处于约定维护窗、schema/发布元数据可配对、回退路径就绪。
-2. 普通 API 启动只做 schema **只读**校验，不得假设启动会自动迁移。
-3. 迁移与回退步骤以 [docs/migration/MIGRATION_GUIDE.md](docs/migration/MIGRATION_GUIDE.md)、[docs/BACKUP_RECOVERY.md](docs/BACKUP_RECOVERY.md)、[docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) 为准。
-4. 当前 schema 版本号以源码 `backend/internal/database/migrate.go` 中的 `CurrentSchemaVersion` 为准，不在本文件抄写数字。
+### Ask first
 
-## 7. 文档维护
+除非用户已在当前任务明确授权，否则执行前必须确认：
 
-1. 主线入口（本文件、`docs/README.md`、README、发布清单、人审队列、迁移指南等）必须指向**现存**路径；新增引用前确认目标在主线存在。
-2. 不盲目恢复历史 skill 或归档治理文件；需要技能时只引用主线已有路径，或在任务明确要求时新增最小文档。
-3. 文档改动后应做本地 Markdown 链接检查（验证指南与发布清单中的检查方式均可）。
-4. `docs/research/` 中的 Spec/研究在落地前不得被主线入口写成「已是生产行为」，除非源码与测试已证实。
+| 类别 | 操作 |
+| --- | --- |
+| Git | commit、push、force-push、amend 已发布提交、删除分支、修改配置、破坏性重置或清理 |
+| 生产 | 部署、回退、改配置、启停服务、切换版本 |
+| 真实数据库 | migrate apply、`cmd/maint/*`、写 SQL、覆盖恢复、schema 变更 |
+| 行为与依赖 | 未明确要求的产品/API/搜索/缓存/通知/部署语义变化，或跨主版本升级 |
+| 敏感与本地态 | 删除配置、数据库、日志、备份、凭据或运行产物 |
+| 代理委派 | 启动 Subagent、并行代理或委派核心实施；“可并行”仅授权对应范围 |
 
-## 8. Git 与 Subagent 策略
+真实生产写通常还要求：备份已验证、服务已停或处于维护窗、schema/发布元数据可配对、回退路径就绪。破坏性操作须先确认精确目标、影响和可恢复路径。获准提交后，提交信息说明目的，范围不得超出授权。
 
-**Git**
+不得以减少首屏有效内容、展示空白/错误态、延后核心交互或降低可用性换取响应更快。凡改动加载态、空态、错误态、超时、缓存、陈旧数据或重试策略，实施前必须列出正常、慢请求、失败、首次访问四种用户可见结果并取得确认；验收同时证明响应时间与有效内容出现时间。
 
-- 默认不 commit、不 push、不改写历史。
-- 仅在用户明确要求提交时才 commit；提交信息应说明为何而做，且不包含密钥。
-- 不修改 Git 配置；不使用破坏性命令（`reset --hard`、强制清工作区等），除非用户明确要求且已理解后果。
+### Never do
 
-**Subagent**
+- 不清理、覆盖或回退任务外的用户改动。
+- 不把人审队列记录当作授权。
+- 不让普通 API 启动自动迁移；启动只做只读校验，当前版本从 `backend/internal/database/migrate.go` 的 `CurrentSchemaVersion` 读取。
+- 不把归档或未落地 Spec 写成当前生产事实，不编造验证或生产结论。
+- 不提交密钥、真实配置、数据库、日志、备份或其他敏感文件。
 
-- **禁止**在未获用户批准时启动 Subagent、并行代理或把核心实施委派给子代理。
-- 任务写明「可并行」或用户当场批准后，方可委派；委派范围不得扩大授权（子代理同样遵守本合同）。
+## 9. Related Documentation
 
-## 9. 汇报口径
+- 文档总索引：`docs/README.md`。
+- 日常验证：`docs/AGENT_VERIFICATION.md`。
+- 发布与生产：`docs/RELEASE_CHECKLIST.md`、`docs/REMOTE_PRODUCTION_DEPLOYMENT.md`。
+- 数据库与备份：`docs/migration/MIGRATION_GUIDE.md`、`docs/BACKUP_RECOVERY.md`。
+- 性能：`docs/optimization/PERFORMANCE_PLAYBOOK.md`、`docs/optimization/PERFORMANCE_ACCEPTANCE_TEMPLATE.md`、`docs/PERFORMANCE_TESTING_GUIDE.md`。
 
-最终汇报使用**简洁中文**，至少覆盖：
-
-1. **改动**：改了什么、边界在哪里；
-2. **验证**：跑了什么、观察到什么；
-3. **状态**：Issue/任务是否可关闭、还缺什么；
-4. **剩余风险**：已知未决与人审项。
-
-不展开无关实现细节；不把未验证内容写成已完成。
+其他专题从 `docs/README.md` 进入，不在本文件复制长文。
