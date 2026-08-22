@@ -42,7 +42,19 @@ export interface ConsumptionSummary {
 
 export interface ConsumptionQueuePayload {
   queue_state: ConsumptionQueue;
+  revision: number;
   items: ConsumptionItem[];
+}
+
+export interface ConsumptionQueuePlacementRequest {
+  queue_state: ConsumptionQueue;
+  before_episode_id: number | null;
+  expected_revisions: Partial<Record<ConsumptionQueue, number>>;
+  acknowledge_focus_limit?: boolean;
+}
+
+export interface ConsumptionQueuePlacementResult {
+  queues: Partial<Record<ConsumptionQueue, ConsumptionQueuePayload>>;
 }
 
 export interface ConsumptionErrorDetails {

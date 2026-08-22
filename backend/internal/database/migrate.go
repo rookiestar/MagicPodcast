@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 17
+const CurrentSchemaVersion = 18
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -146,6 +146,12 @@ func migrationRegistry() []Migration {
 			Description: "Expand episode triage into one cross-day consumption state for Inbox, queues, reading, and in-progress intent (#101/#102).",
 			Apply:       applyEpisodeConsumptionStateMigration,
 		},
+		{
+			Version:     18,
+			Name:        "consumption-queue-order",
+			Description: "Persist independent queue positions and revisions for precise Inbox ordering (#157).",
+			Apply:       applyConsumptionQueueOrderMigration,
+		},
 	}
 }
 
@@ -162,7 +168,7 @@ var baselineRequiredTables = []string{
 	"episodes_tags",
 }
 
-var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions")
+var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders")
 
 func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
 	if db == nil {
@@ -560,6 +566,57 @@ func applyEpisodeConsumptionStateMigration(db *gorm.DB) error {
 		  AND queue_updated_at IS NULL
 	`, models.TriageStateDiscarded).Error; err != nil {
 		return fmt.Errorf("backfill discarded episodes: %w", err)
+	}
+	return nil
+}
+
+func applyConsumptionQueueOrderMigration(db *gorm.DB) error {
+	if err := db.AutoMigrate(&models.EpisodeTriageDecision{}, &models.ConsumptionQueueOrder{}); err != nil {
+		return fmt.Errorf("create consumption queue order schema: %w", err)
+	}
+	if err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_episode_triage_queue_position
+		ON episode_triage_decisions(queue_state, queue_position, episode_id)
+	`).Error; err != nil {
+		return fmt.Errorf("create consumption queue position index: %w", err)
+	}
+
+	for _, queueState := range []string{
+		models.QueueStateInbox,
+		models.QueueStateFocus,
+		models.QueueStateSomeday,
+		models.QueueStateDone,
+	} {
+		var episodeIDs []uint
+		if err := db.Model(&models.EpisodeTriageDecision{}).
+			Where("queue_state = ?", queueState).
+			Order("queue_updated_at DESC").
+			Order("episode_id DESC").
+			Pluck("episode_id", &episodeIDs).Error; err != nil {
+			return fmt.Errorf("read %s queue order: %w", queueState, err)
+		}
+		for position, episodeID := range episodeIDs {
+			if err := db.Exec(
+				"UPDATE episode_triage_decisions SET queue_position = ? WHERE episode_id = ?",
+				position,
+				episodeID,
+			).Error; err != nil {
+				return fmt.Errorf("backfill %s queue position: %w", queueState, err)
+			}
+		}
+
+		var existing models.ConsumptionQueueOrder
+		err := db.Where("queue_state = ?", queueState).First(&existing).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if err := db.Create(&models.ConsumptionQueueOrder{
+				QueueState: queueState,
+				Revision:   1,
+			}).Error; err != nil {
+				return fmt.Errorf("create %s queue revision: %w", queueState, err)
+			}
+		} else if err != nil {
+			return fmt.Errorf("read %s queue revision: %w", queueState, err)
+		}
 	}
 	return nil
 }

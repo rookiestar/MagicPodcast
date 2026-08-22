@@ -1,6 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import { useDroppable } from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import {
   IconAlertTriangle,
   IconArrowRight,
@@ -8,6 +20,7 @@ import {
   IconBookmarkPlus,
   IconCircleCheck,
   IconClock,
+  IconGripVertical,
   IconRefresh,
   IconTargetArrow,
 } from "@tabler/icons-react";
@@ -24,6 +37,12 @@ import {
   formatPublishedDate,
   QUEUE_PRESENTATION,
 } from "./presentation";
+import {
+  episodeDragId,
+  queueDropId,
+  type QueueDragData,
+  type QueuePlacementPreview,
+} from "./drag";
 import styles from "./InboxPage.module.css";
 
 interface ConsumptionQueueColumnProps {
@@ -41,6 +60,8 @@ interface ConsumptionQueueColumnProps {
     item: ConsumptionItem,
     target: ConsumptionQueue,
   ) => Promise<ConsumptionItem | undefined>;
+  dragEnabled: boolean;
+  dragPreview: QueuePlacementPreview | null;
 }
 
 function QueueIcon({
@@ -68,6 +89,12 @@ function ConsumptionCard({
   busy,
   onOpen,
   onMove,
+  cardRef,
+  cardStyle,
+  isDragging = false,
+  dragHandle,
+  showInsertBefore = false,
+  showInsertAfter = false,
 }: {
   item: ConsumptionItem;
   busy: boolean;
@@ -76,6 +103,12 @@ function ConsumptionCard({
     item: ConsumptionItem,
     target: ConsumptionQueue,
   ) => Promise<ConsumptionItem | undefined>;
+  cardRef?: (node: HTMLElement | null) => void;
+  cardStyle?: CSSProperties;
+  isDragging?: boolean;
+  dragHandle?: ReactNode;
+  showInsertBefore?: boolean;
+  showInsertAfter?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -103,10 +136,17 @@ function ConsumptionCard({
 
   return (
     <article
-      className={`${styles.card}${menuOpen ? ` ${styles.cardMenuOpen}` : ""}`}
+      ref={cardRef}
+      style={cardStyle}
+      className={`${styles.card}${menuOpen ? ` ${styles.cardMenuOpen}` : ""}${
+        isDragging ? ` ${styles.cardDragging}` : ""
+      }${showInsertBefore ? ` ${styles.cardInsertBefore}` : ""}${
+        showInsertAfter ? ` ${styles.cardInsertAfter}` : ""
+      }`}
       aria-busy={busy}
       data-episode-id={item.episode_id}
     >
+      {dragHandle}
       <button
         type="button"
         className={styles.cardMain}
@@ -230,6 +270,192 @@ function ConsumptionCard({
   );
 }
 
+function SortableConsumptionCard({
+  item,
+  queue,
+  busy,
+  onOpen,
+  onMove,
+  showInsertBefore,
+  showInsertAfter,
+}: {
+  item: ConsumptionItem;
+  queue: ConsumptionQueue;
+  busy: boolean;
+  onOpen: (item: ConsumptionItem, trigger: HTMLButtonElement) => void;
+  onMove: (
+    item: ConsumptionItem,
+    target: ConsumptionQueue,
+  ) => Promise<ConsumptionItem | undefined>;
+  showInsertBefore: boolean;
+  showInsertAfter: boolean;
+}) {
+  const {
+    attributes,
+    listeners,
+    setActivatorNodeRef,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: episodeDragId(item.episode_id),
+    disabled: busy,
+    data: {
+      kind: "item",
+      queue,
+      episodeId: item.episode_id,
+    } satisfies QueueDragData,
+  });
+
+  const cardStyle: CSSProperties = {
+    transform: transform
+      ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
+      : undefined,
+    transition,
+  };
+
+  return (
+    <ConsumptionCard
+      item={item}
+      busy={busy}
+      onOpen={onOpen}
+      onMove={onMove}
+      cardRef={setNodeRef}
+      cardStyle={cardStyle}
+      isDragging={isDragging}
+      showInsertBefore={showInsertBefore}
+      showInsertAfter={showInsertAfter}
+      dragHandle={
+        <button
+          ref={setActivatorNodeRef}
+          type="button"
+          className={styles.dragHandle}
+          disabled={busy}
+          aria-label={`拖动《${item.episode_title}》调整队列`}
+          title="拖动调整队列"
+          {...attributes}
+          {...listeners}
+        >
+          <IconGripVertical size={18} stroke={1.9} aria-hidden="true" />
+        </button>
+      }
+    />
+  );
+}
+
+function QueueCards({
+  queue,
+  items,
+  busyEpisodes,
+  onOpen,
+  onMove,
+  dragEnabled,
+  dragPreview,
+}: {
+  queue: ConsumptionQueue;
+  items: ConsumptionItem[];
+  busyEpisodes: Set<number>;
+  onOpen: (item: ConsumptionItem, trigger: HTMLButtonElement) => void;
+  onMove: (
+    item: ConsumptionItem,
+    target: ConsumptionQueue,
+  ) => Promise<ConsumptionItem | undefined>;
+  dragEnabled: boolean;
+  dragPreview: QueuePlacementPreview | null;
+}) {
+  const previewForQueue = dragPreview?.queue === queue ? dragPreview : null;
+  const renderCard = (item: ConsumptionItem, index: number) => {
+    const showInsertBefore =
+      previewForQueue?.beforeEpisodeId === item.episode_id;
+    const showInsertAfter =
+      previewForQueue?.beforeEpisodeId === null && index === items.length - 1;
+
+    return dragEnabled ? (
+      <SortableConsumptionCard
+        key={item.episode_id}
+        item={item}
+        queue={queue}
+        busy={busyEpisodes.has(item.episode_id)}
+        onOpen={onOpen}
+        onMove={onMove}
+        showInsertBefore={showInsertBefore}
+        showInsertAfter={showInsertAfter}
+      />
+    ) : (
+      <ConsumptionCard
+        key={item.episode_id}
+        item={item}
+        busy={busyEpisodes.has(item.episode_id)}
+        onOpen={onOpen}
+        onMove={onMove}
+        showInsertBefore={showInsertBefore}
+        showInsertAfter={showInsertAfter}
+      />
+    );
+  };
+
+  const content = <>{items.map(renderCard)}</>;
+
+  if (!dragEnabled) return content;
+  return (
+    <SortableContext
+      items={items.map((item) => episodeDragId(item.episode_id))}
+      strategy={verticalListSortingStrategy}
+    >
+      {content}
+    </SortableContext>
+  );
+}
+
+function DroppableQueueItems({
+  queue,
+  isPreviewTarget,
+  children,
+}: {
+  queue: ConsumptionQueue;
+  isPreviewTarget: boolean;
+  children: ReactNode;
+}) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: queueDropId(queue),
+    data: { kind: "queue", queue } satisfies QueueDragData,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`${styles.queueItems}${
+        isOver || isPreviewTarget ? ` ${styles.queueItemsDropActive}` : ""
+      }`}
+      data-queue-drop={queue}
+    >
+      {children}
+    </div>
+  );
+}
+
+function QueueItemsContainer({
+  queue,
+  dragEnabled,
+  isPreviewTarget,
+  children,
+}: {
+  queue: ConsumptionQueue;
+  dragEnabled: boolean;
+  isPreviewTarget: boolean;
+  children: ReactNode;
+}) {
+  if (!dragEnabled) {
+    return <div className={styles.queueItems}>{children}</div>;
+  }
+  return (
+    <DroppableQueueItems queue={queue} isPreviewTarget={isPreviewTarget}>
+      {children}
+    </DroppableQueueItems>
+  );
+}
+
 export default function ConsumptionQueueColumn({
   queue,
   items,
@@ -242,8 +468,11 @@ export default function ConsumptionQueueColumn({
   onRetry,
   onOpen,
   onMove,
+  dragEnabled,
+  dragPreview,
 }: ConsumptionQueueColumnProps) {
   const presentation = QUEUE_PRESENTATION[queue];
+  const canDragInQueue = dragEnabled && !isLoading && !error;
 
   return (
     <section
@@ -273,7 +502,11 @@ export default function ConsumptionQueueColumn({
         </div>
       )}
 
-      <div className={styles.queueItems}>
+      <QueueItemsContainer
+        queue={queue}
+        dragEnabled={canDragInQueue}
+        isPreviewTarget={dragPreview?.queue === queue}
+      >
         {error && (
           <div className={styles.queueError} role="alert">
             <p>{presentation.label} 加载失败，不影响其他队列。</p>
@@ -298,17 +531,17 @@ export default function ConsumptionQueueColumn({
         ) : items.length === 0 && !error ? (
           <p className={styles.queueEmpty}>{presentation.empty}</p>
         ) : (
-          items.map((item) => (
-            <ConsumptionCard
-              key={item.episode_id}
-              item={item}
-              busy={busyEpisodes.has(item.episode_id)}
-              onOpen={onOpen}
-              onMove={onMove}
-            />
-          ))
+          <QueueCards
+            queue={queue}
+            items={items}
+            busyEpisodes={busyEpisodes}
+            onOpen={onOpen}
+            onMove={onMove}
+            dragEnabled={canDragInQueue}
+            dragPreview={dragPreview}
+          />
         )}
-      </div>
+      </QueueItemsContainer>
     </section>
   );
 }

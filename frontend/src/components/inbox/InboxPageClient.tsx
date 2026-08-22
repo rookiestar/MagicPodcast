@@ -2,6 +2,22 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  closestCorners,
+  DndContext,
+  DragOverlay,
+  MouseSensor,
+  pointerWithin,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type CollisionDetection,
+  type DragCancelEvent,
+  type DragEndEvent,
+  type DragMoveEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import {
   IconAlertTriangle,
   IconArrowRight,
   IconCircleCheck,
@@ -11,6 +27,7 @@ import PageLayout from "@/components/layout/PageLayout";
 import {
   consumptionApi,
   getConsumptionErrorDetails,
+  isQueueOrderConflict,
   requiresFocusConfirmation,
 } from "@/lib/api/consumption";
 import {
@@ -22,11 +39,17 @@ import {
 import ConsumptionDetailPanel from "./ConsumptionDetailPanel";
 import ConsumptionQueueColumn from "./ConsumptionQueueColumn";
 import FocusLimitDialog from "./FocusLimitDialog";
-import { sortQueueItems } from "./presentation";
+import {
+  isNoOpQueuePlacement,
+  resolveQueuePlacement,
+  type QueueDragData,
+  type QueuePlacementPreview,
+} from "./drag";
 import styles from "./InboxPage.module.css";
 
 interface QueueViewState {
   items: ConsumptionItem[];
+  revision: number | null;
   isLoading: boolean;
   error: string | null;
 }
@@ -37,6 +60,7 @@ interface FocusPrompt {
   item: ConsumptionItem;
   currentCount: number;
   limit: number;
+  placement?: QueuePlacementPreview;
 }
 
 interface FailedAction {
@@ -44,15 +68,172 @@ interface FailedAction {
   target: ConsumptionQueue;
   acknowledgeFocusLimit: boolean;
   message: string;
+  placement?: QueuePlacementPreview;
+  isQueueOrderConflict?: boolean;
+}
+
+interface ActiveQueueDrag {
+  item: ConsumptionItem;
+  source: ConsumptionQueue;
+}
+
+const queueCollisionDetection: CollisionDetection = (args) => {
+  const droppableContainers = args.droppableContainers.filter(
+    (container) => container.id !== args.active.id,
+  );
+  const pointerCollisions = pointerWithin({ ...args, droppableContainers });
+  const itemCollision = pointerCollisions.find(
+    (collision) =>
+      collision.data?.droppableContainer.data.current?.kind === "item",
+  );
+  if (itemCollision) return [itemCollision];
+  if (pointerCollisions.length > 0) return pointerCollisions;
+  return closestCorners({ ...args, droppableContainers });
+};
+
+function isSameQueuePlacement(
+  left: QueuePlacementPreview | null,
+  right: QueuePlacementPreview | null,
+) {
+  return (
+    left?.queue === right?.queue &&
+    left?.beforeEpisodeId === right?.beforeEpisodeId
+  );
 }
 
 function makeInitialQueues(): QueueViewStateMap {
   return {
-    inbox: { items: [], isLoading: true, error: null },
-    focus: { items: [], isLoading: true, error: null },
-    someday: { items: [], isLoading: true, error: null },
-    done: { items: [], isLoading: true, error: null },
+    inbox: { items: [], revision: null, isLoading: true, error: null },
+    focus: { items: [], revision: null, isLoading: true, error: null },
+    someday: { items: [], revision: null, isLoading: true, error: null },
+    done: { items: [], revision: null, isLoading: true, error: null },
   };
+}
+
+function cloneQueues(previous: QueueViewStateMap): QueueViewStateMap {
+  return {
+    inbox: { ...previous.inbox, items: [...previous.inbox.items] },
+    focus: { ...previous.focus, items: [...previous.focus.items] },
+    someday: { ...previous.someday, items: [...previous.someday.items] },
+    done: { ...previous.done, items: [...previous.done.items] },
+  };
+}
+
+function replaceQueueSnapshots(
+  previous: QueueViewStateMap,
+  snapshots: Partial<Record<ConsumptionQueue, { revision: number; items: ConsumptionItem[] }>>,
+): QueueViewStateMap {
+  const next = cloneQueues(previous);
+  for (const queue of CONSUMPTION_QUEUES) {
+    const snapshot = snapshots[queue];
+    if (!snapshot) continue;
+    next[queue] = {
+      ...next[queue],
+      items: snapshot.items,
+      revision: snapshot.revision,
+      isLoading: false,
+      error: null,
+    };
+  }
+  return next;
+}
+
+function affectedQueues(
+  source: ConsumptionQueue | null,
+  target: ConsumptionQueue,
+) {
+  return source && source !== target ? [source, target] : [target];
+}
+
+function queuesForRefresh(
+  ...candidates: Array<ConsumptionQueue | null | undefined>
+) {
+  return CONSUMPTION_QUEUES.filter((queue) => candidates.includes(queue));
+}
+
+function expectedRevisionsForPlacement(
+  source: ConsumptionQueue | null,
+  target: ConsumptionQueue,
+  queues: QueueViewStateMap,
+) {
+  const revisions: Partial<Record<ConsumptionQueue, number>> = {};
+  for (const queue of affectedQueues(source, target)) {
+    const revision = queues[queue].revision;
+    if (revision !== null) revisions[queue] = revision;
+  }
+  return revisions;
+}
+
+function hasExpectedRevisions(
+  source: ConsumptionQueue | null,
+  target: ConsumptionQueue,
+  revisions: Partial<Record<ConsumptionQueue, number>>,
+) {
+  return affectedQueues(source, target).every(
+    (queue) => typeof revisions[queue] === "number" && revisions[queue]! > 0,
+  );
+}
+
+function previewQueuePlacement(
+  previous: QueueViewStateMap,
+  item: ConsumptionItem,
+  source: ConsumptionQueue | null,
+  placement: QueuePlacementPreview,
+): QueueViewStateMap {
+  const next = cloneQueues(previous);
+  const target = placement.queue;
+  const movedItem: ConsumptionItem =
+    source === target
+      ? item
+      : {
+          ...item,
+          queue_state: target,
+          queue_updated_at: new Date().toISOString(),
+          in_progress_at: target === "done" ? undefined : item.in_progress_at,
+          attention: "",
+        };
+
+  if (source) {
+    next[source] = {
+      ...next[source],
+      items: next[source].items.filter(
+        (candidate) => candidate.episode_id !== item.episode_id,
+      ),
+    };
+  }
+
+  const targetItems = next[target].items.filter(
+    (candidate) => candidate.episode_id !== item.episode_id,
+  );
+  const insertionIndex =
+    placement.beforeEpisodeId === null
+      ? targetItems.length
+      : targetItems.findIndex(
+          (candidate) => candidate.episode_id === placement.beforeEpisodeId,
+        );
+  targetItems.splice(
+    insertionIndex < 0 ? targetItems.length : insertionIndex,
+    0,
+    movedItem,
+  );
+  next[target] = { ...next[target], items: targetItems };
+  return next;
+}
+
+function readQueueDragData(value: unknown): QueueDragData | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<QueueDragData>;
+  if (
+    (candidate.kind !== "item" && candidate.kind !== "queue") ||
+    !candidate.queue ||
+    !CONSUMPTION_QUEUES.includes(candidate.queue)
+  ) {
+    return null;
+  }
+  if (candidate.kind === "item" && typeof candidate.episodeId !== "number") {
+    return null;
+  }
+  return candidate as QueueDragData;
 }
 
 function updateItemAcrossQueues(
@@ -69,9 +250,14 @@ function updateItemAcrossQueues(
     };
   }
   if (item.queue_state) {
+    const existingIndex = previous[item.queue_state].items.findIndex(
+      (candidate) => candidate.episode_id === item.episode_id,
+    );
+    const targetItems = [...next[item.queue_state].items];
+    targetItems.splice(existingIndex >= 0 ? existingIndex : 0, 0, item);
     next[item.queue_state] = {
       ...next[item.queue_state],
-      items: sortQueueItems([item, ...next[item.queue_state].items]),
+      items: targetItems,
     };
   }
   return next;
@@ -107,9 +293,14 @@ export default function InboxPageClient() {
   const [focusPrompt, setFocusPrompt] = useState<FocusPrompt | null>(null);
   const [failedAction, setFailedAction] = useState<FailedAction | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  const [dragEnabled, setDragEnabled] = useState(false);
+  const [activeDrag, setActiveDrag] = useState<ActiveQueueDrag | null>(null);
+  const [dragPreview, setDragPreview] =
+    useState<QueuePlacementPreview | null>(null);
   const queuesRef = useRef(queues);
   const summaryRef = useRef(summary);
   const busyEpisodesRef = useRef(new Set<number>());
+  const dragSnapshotRef = useRef<QueueViewStateMap | null>(null);
   const queueRequestVersion = useRef<Record<ConsumptionQueue, number>>({
     inbox: 0,
     focus: 0,
@@ -127,6 +318,28 @@ export default function InboxPageClient() {
     summaryRef.current = summary;
   }, [summary]);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const media = window.matchMedia(
+      "(min-width: 900px) and (orientation: landscape)",
+    );
+    const updateDragEnabled = () => setDragEnabled(media.matches);
+    updateDragEnabled();
+    if (media.addEventListener) {
+      media.addEventListener("change", updateDragEnabled);
+      return () => media.removeEventListener("change", updateDragEnabled);
+    }
+    media.addListener(updateDragEnabled);
+    return () => media.removeListener(updateDragEnabled);
+  }, []);
+
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 250, tolerance: 5 },
+    }),
+  );
+
   const loadQueue = useCallback(async (queue: ConsumptionQueue) => {
     const requestVersion = ++queueRequestVersion.current[queue];
     setQueues((previous) => ({
@@ -143,7 +356,8 @@ export default function InboxPageClient() {
       setQueues((previous) => ({
         ...previous,
         [queue]: {
-          items: sortQueueItems(payload.items),
+          items: payload.items,
+          revision: payload.revision,
           isLoading: false,
           error: null,
         },
@@ -244,6 +458,11 @@ export default function InboxPageClient() {
           `${item.episode_title} 已移至 ${target === "done" ? "Done" : target}.`,
         );
         void loadSummary();
+        const queuesToReload = new Set<ConsumptionQueue>([target]);
+        if (source) queuesToReload.add(source);
+        void Promise.allSettled(
+          Array.from(queuesToReload).map((queue) => loadQueue(queue)),
+        );
         return canonical;
       } catch (error) {
         setQueues((previous) => updateItemAcrossQueues(previous, item));
@@ -289,6 +508,378 @@ export default function InboxPageClient() {
     [performMove],
   );
 
+  const performPlacement = useCallback(
+    async (
+      item: ConsumptionItem,
+      source: ConsumptionQueue | null,
+      placement: QueuePlacementPreview,
+      rollback: QueueViewStateMap,
+      expectedRevisions: Partial<Record<ConsumptionQueue, number>>,
+      acknowledgeFocusLimit = false,
+    ) => {
+      if (busyEpisodesRef.current.has(item.episode_id)) return;
+      const target = placement.queue;
+      if (!hasExpectedRevisions(source, target, expectedRevisions)) {
+        setFailedAction({
+          item,
+          target,
+          acknowledgeFocusLimit,
+          placement,
+          message: "队列正在刷新，请重新拖放。",
+        });
+        return;
+      }
+
+      const currentSummary = summaryRef.current;
+      const focusLimit = currentSummary?.focus_limit ?? 7;
+      const focusCount =
+        currentSummary?.counts.focus ?? queuesRef.current.focus.items.length;
+      if (
+        target === "focus" &&
+        source !== "focus" &&
+        !acknowledgeFocusLimit &&
+        focusCount >= focusLimit
+      ) {
+        setFocusPrompt({ item, currentCount: focusCount, limit: focusLimit, placement });
+        return;
+      }
+
+      busyEpisodesRef.current.add(item.episode_id);
+      setBusyEpisodes(new Set(busyEpisodesRef.current));
+      setFailedAction(null);
+
+      const optimistic = previewQueuePlacement(rollback, item, source, placement);
+      queuesRef.current = optimistic;
+      setQueues(optimistic);
+      const optimisticItem = optimistic[target].items.find(
+        (candidate) => candidate.episode_id === item.episode_id,
+      );
+      if (optimisticItem) {
+        setDetailItem((previous) =>
+          previous?.episode_id === item.episode_id ? optimisticItem : previous,
+        );
+      }
+      setSummary((previous) => adjustSummary(previous, source, target, 1));
+
+      try {
+        const result = await consumptionApi.placeQueue(item.episode_id, {
+          queue_state: target,
+          before_episode_id: placement.beforeEpisodeId,
+          expected_revisions: expectedRevisions,
+          acknowledge_focus_limit: acknowledgeFocusLimit,
+        });
+        const canonicalQueues = replaceQueueSnapshots(
+          queuesRef.current,
+          result.queues,
+        );
+        queuesRef.current = canonicalQueues;
+        setQueues(canonicalQueues);
+        let canonicalItem: ConsumptionItem | undefined;
+        for (const snapshot of Object.values(result.queues)) {
+          canonicalItem = snapshot?.items.find(
+            (candidate) => candidate.episode_id === item.episode_id,
+          );
+          if (canonicalItem) break;
+        }
+        if (canonicalItem) {
+          setDetailItem((previous) =>
+            previous?.episode_id === item.episode_id ? canonicalItem : previous,
+          );
+        }
+        setAnnouncement(
+          `${item.episode_title} 已${source === target ? "调整顺序" : `移至 ${target === "done" ? "Done" : target}` }。`,
+        );
+        void loadSummary();
+      } catch (error) {
+        const restored = cloneQueues(rollback);
+        queuesRef.current = restored;
+        setQueues(restored);
+        const restoredItem = (source ? restored[source] : restored[target]).items.find(
+          (candidate) => candidate.episode_id === item.episode_id,
+        );
+        if (restoredItem) {
+          setDetailItem((previous) =>
+            previous?.episode_id === item.episode_id ? restoredItem : previous,
+          );
+        }
+        setSummary((previous) => adjustSummary(previous, source, target, -1));
+
+        const details = getConsumptionErrorDetails(error);
+        const queueOrderConflict = isQueueOrderConflict(error);
+        if (target === "focus" && requiresFocusConfirmation(error)) {
+          setFocusPrompt({
+            item,
+            currentCount: details.currentCount ?? focusCount,
+            limit: details.focusLimit ?? focusLimit,
+            placement,
+          });
+        } else if (queueOrderConflict) {
+          setFailedAction({
+            item,
+            target,
+            acknowledgeFocusLimit,
+            placement,
+            isQueueOrderConflict: true,
+            message: "队列顺序已在另一设备修改，请重新拖放。",
+          });
+        } else {
+          setFailedAction({
+            item,
+            target,
+            acknowledgeFocusLimit,
+            placement,
+            message: details.message,
+          });
+        }
+
+        const queuesToRefresh = queueOrderConflict
+          ? CONSUMPTION_QUEUES
+          : affectedQueues(source, target);
+        void Promise.allSettled([
+          ...queuesToRefresh.map((queue) => loadQueue(queue)),
+          loadSummary(),
+        ]);
+      } finally {
+        busyEpisodesRef.current.delete(item.episode_id);
+        setBusyEpisodes(new Set(busyEpisodesRef.current));
+      }
+    },
+    [loadQueue, loadSummary],
+  );
+
+  const retryPlacement = useCallback(
+    (action: FailedAction) => {
+      if (!action.placement) return;
+      const rollback = cloneQueues(queuesRef.current);
+      let currentItem: ConsumptionItem | undefined;
+      for (const queue of CONSUMPTION_QUEUES) {
+        currentItem = rollback[queue].items.find(
+          (candidate) => candidate.episode_id === action.item.episode_id,
+        );
+        if (currentItem) break;
+      }
+      const item = currentItem ?? action.item;
+      const source = item.queue_state;
+      const expectedRevisions = expectedRevisionsForPlacement(
+        source,
+        action.placement.queue,
+        rollback,
+      );
+      void performPlacement(
+        item,
+        source,
+        action.placement,
+        rollback,
+        expectedRevisions,
+        action.acknowledgeFocusLimit,
+      );
+    },
+    [performPlacement],
+  );
+
+  const confirmFocusPlacement = useCallback(
+    async (prompt: FocusPrompt) => {
+      if (!prompt.placement) {
+        await performMove(prompt.item, "focus", true);
+        return;
+      }
+
+      const target = prompt.placement.queue;
+      const source = prompt.item.queue_state;
+      try {
+        const latestItem = await consumptionApi.getItem(prompt.item.episode_id);
+        const queueStates = queuesForRefresh(
+          source,
+          latestItem.queue_state,
+          target,
+        );
+        for (const queue of queueStates) {
+          queueRequestVersion.current[queue] += 1;
+        }
+        const payloads = await Promise.all(
+          queueStates.map(async (queue) => [
+            queue,
+            await consumptionApi.listQueue(queue),
+          ] as const),
+        );
+        const snapshots: Partial<
+          Record<ConsumptionQueue, { revision: number; items: ConsumptionItem[] }>
+        > = {};
+        for (const [queue, payload] of payloads) snapshots[queue] = payload;
+        const freshQueues = replaceQueueSnapshots(queuesRef.current, snapshots);
+        queuesRef.current = freshQueues;
+        setQueues(freshQueues);
+
+        if (!source || latestItem.queue_state !== source) {
+          setFailedAction({
+            item: prompt.item,
+            target,
+            acknowledgeFocusLimit: true,
+            placement: prompt.placement,
+            isQueueOrderConflict: true,
+            message: "队列顺序已在另一设备修改，请重新拖放。",
+          });
+          void Promise.allSettled([
+            ...CONSUMPTION_QUEUES.map((queue) => loadQueue(queue)),
+            loadSummary(),
+          ]);
+          return;
+        }
+
+        const listedItem = freshQueues[source].items.find(
+          (candidate) => candidate.episode_id === latestItem.episode_id,
+        );
+        if (!listedItem) {
+          setFailedAction({
+            item: prompt.item,
+            target,
+            acknowledgeFocusLimit: true,
+            placement: prompt.placement,
+            isQueueOrderConflict: true,
+            message: "队列顺序已在另一设备修改，请重新拖放。",
+          });
+          void Promise.allSettled([
+            ...CONSUMPTION_QUEUES.map((queue) => loadQueue(queue)),
+            loadSummary(),
+          ]);
+          return;
+        }
+
+        await performPlacement(
+          listedItem,
+          source,
+          prompt.placement,
+          freshQueues,
+          expectedRevisionsForPlacement(source, target, freshQueues),
+          true,
+        );
+      } catch (error) {
+        const details = getConsumptionErrorDetails(error);
+        setFailedAction({
+          item: prompt.item,
+          target,
+          acknowledgeFocusLimit: true,
+          placement: prompt.placement,
+          message: details.message,
+        });
+        void Promise.allSettled([
+          ...affectedQueues(prompt.item.queue_state, target).map((queue) =>
+            loadQueue(queue),
+          ),
+          loadSummary(),
+        ]);
+      }
+    },
+    [loadQueue, loadSummary, performMove, performPlacement],
+  );
+
+  const resolvePlacementFromDragEvent = useCallback(
+    (
+      event: DragMoveEvent | DragOverEvent | DragEndEvent,
+      view: QueueViewStateMap,
+    ) => {
+      if (!event.over) return null;
+      const activeData = readQueueDragData(event.active.data.current);
+      const overData = readQueueDragData(event.over.data.current);
+      if (activeData?.kind !== "item" || !overData) return null;
+
+      const overEpisodeId =
+        overData.kind === "item" ? overData.episodeId ?? null : null;
+      const translated = event.active.rect.current.translated;
+      const initial = event.active.rect.current.initial;
+      const activeCenter = translated
+        ? translated.top + translated.height / 2
+        : initial
+          ? initial.top + initial.height / 2 + event.delta.y
+          : event.over.rect.top;
+      return resolveQueuePlacement({
+        sourceQueue: activeData.queue,
+        targetQueue: overData.queue,
+        activeEpisodeId: activeData.episodeId,
+        targetItems: view[overData.queue].items,
+        overEpisodeId,
+        placeAfter:
+          overEpisodeId !== null &&
+          activeCenter > event.over.rect.top + event.over.rect.height / 2,
+      });
+    },
+    [],
+  );
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const activeData = readQueueDragData(event.active.data.current);
+    if (activeData?.kind !== "item") return;
+    if (busyEpisodesRef.current.has(activeData.episodeId)) return;
+    const snapshot = cloneQueues(queuesRef.current);
+    const item = snapshot[activeData.queue].items.find(
+      (candidate) => candidate.episode_id === activeData.episodeId,
+    );
+    if (!item) return;
+    dragSnapshotRef.current = snapshot;
+    setFailedAction(null);
+    setActiveDrag({ item, source: activeData.queue });
+    setDragPreview(null);
+  }, []);
+
+  const handleDragMove = useCallback(
+    (event: DragMoveEvent | DragOverEvent) => {
+      const next = resolvePlacementFromDragEvent(event, queuesRef.current);
+      setDragPreview((current) =>
+        isSameQueuePlacement(current, next) ? current : next,
+      );
+    },
+    [resolvePlacementFromDragEvent],
+  );
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const snapshot = dragSnapshotRef.current;
+      const activeData = readQueueDragData(event.active.data.current);
+      const placement = snapshot
+        ? resolvePlacementFromDragEvent(event, snapshot)
+        : null;
+      dragSnapshotRef.current = null;
+      setActiveDrag(null);
+      setDragPreview(null);
+      if (activeData?.kind !== "item" || !snapshot || !placement) return;
+
+      const sourceItems = snapshot[activeData.queue].items;
+      const item = sourceItems.find(
+        (candidate) => candidate.episode_id === activeData.episodeId,
+      );
+      if (!item) return;
+      if (
+        isNoOpQueuePlacement(
+          activeData.queue,
+          placement.queue,
+          sourceItems,
+          item.episode_id,
+          placement.beforeEpisodeId,
+        )
+      ) {
+        return;
+      }
+      void performPlacement(
+        item,
+        activeData.queue,
+        placement,
+        snapshot,
+        expectedRevisionsForPlacement(
+          activeData.queue,
+          placement.queue,
+          snapshot,
+        ),
+      );
+    },
+    [performPlacement, resolvePlacementFromDragEvent],
+  );
+
+  const handleDragCancel = useCallback((_event: DragCancelEvent) => {
+    dragSnapshotRef.current = null;
+    setActiveDrag(null);
+    setDragPreview(null);
+  }, []);
+
   const openDetail = (item: ConsumptionItem, trigger: HTMLButtonElement) => {
     detailTriggerRef.current = trigger;
     setDetailItem(item);
@@ -316,6 +907,28 @@ export default function InboxPageClient() {
   const focusLimit = summary?.focus_limit ?? 7;
   const focusCount = summary?.counts.focus ?? queues.focus.items.length;
   const isFocusOverLimit = summary?.focus_over_limit ?? focusCount > focusLimit;
+  const board = (
+    <div className={styles.board}>
+      {CONSUMPTION_QUEUES.map((queue) => (
+        <ConsumptionQueueColumn
+          key={queue}
+          queue={queue}
+          items={queues[queue].items}
+          count={summary?.counts[queue] ?? queues[queue].items.length}
+          isLoading={queues[queue].isLoading}
+          error={queues[queue].error}
+          focusLimit={focusLimit}
+          isFocusOverLimit={isFocusOverLimit}
+          busyEpisodes={busyEpisodes}
+          onRetry={() => void loadQueue(queue)}
+          onOpen={openDetail}
+          onMove={requestMove}
+          dragEnabled={dragEnabled}
+          dragPreview={dragPreview}
+        />
+      ))}
+    </div>
+  );
 
   return (
     <PageLayout
@@ -347,26 +960,36 @@ export default function InboxPageClient() {
           <div className={styles.actionError} role="alert">
             <IconAlertTriangle size={18} stroke={1.8} aria-hidden="true" />
             <span>
-              《{failedAction.item.episode_title}》移动失败，已恢复原队列：
-              {failedAction.message}
+              {failedAction.isQueueOrderConflict
+                ? failedAction.message
+                : failedAction.placement &&
+                    failedAction.item.queue_state === failedAction.target
+                  ? `《${failedAction.item.episode_title}》调整失败，已恢复原顺序：${failedAction.message}`
+                  : `《${failedAction.item.episode_title}》移动失败，已恢复原队列：${failedAction.message}`}
             </span>
-            <button
-              type="button"
-              className={styles.iconButton}
-              onClick={() => {
-                const action = failedAction;
-                setFailedAction(null);
-                void performMove(
-                  action.item,
-                  action.target,
-                  action.acknowledgeFocusLimit,
-                );
-              }}
-              aria-label={`重试移动 ${failedAction.item.episode_title}`}
-              title="重试移动"
-            >
-              <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
-            </button>
+            {!failedAction.isQueueOrderConflict && (
+              <button
+                type="button"
+                className={styles.iconButton}
+                onClick={() => {
+                  const action = failedAction;
+                  setFailedAction(null);
+                  if (action.placement) {
+                    retryPlacement(action);
+                    return;
+                  }
+                  void performMove(
+                    action.item,
+                    action.target,
+                    action.acknowledgeFocusLimit,
+                  );
+                }}
+                aria-label={`重试移动 ${failedAction.item.episode_title}`}
+                title="重试移动"
+              >
+                <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
+              </button>
+            )}
           </div>
         )}
 
@@ -375,24 +998,29 @@ export default function InboxPageClient() {
           aria-label="消费队列横向总览"
           tabIndex={0}
         >
-          <div className={styles.board}>
-            {CONSUMPTION_QUEUES.map((queue) => (
-              <ConsumptionQueueColumn
-                key={queue}
-                queue={queue}
-                items={queues[queue].items}
-                count={summary?.counts[queue] ?? queues[queue].items.length}
-                isLoading={queues[queue].isLoading}
-                error={queues[queue].error}
-                focusLimit={focusLimit}
-                isFocusOverLimit={isFocusOverLimit}
-                busyEpisodes={busyEpisodes}
-                onRetry={() => void loadQueue(queue)}
-                onOpen={openDetail}
-                onMove={requestMove}
-              />
-            ))}
-          </div>
+          {dragEnabled ? (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={queueCollisionDetection}
+              onDragStart={handleDragStart}
+              onDragMove={handleDragMove}
+              onDragOver={handleDragMove}
+              onDragEnd={handleDragEnd}
+              onDragCancel={handleDragCancel}
+            >
+              {board}
+              <DragOverlay>
+                {activeDrag && (
+                  <div className={styles.dragOverlay} aria-hidden="true">
+                    <span>{activeDrag.item.podcast_title}</span>
+                    <strong>{activeDrag.item.episode_title}</strong>
+                  </div>
+                )}
+              </DragOverlay>
+            </DndContext>
+          ) : (
+            board
+          )}
         </section>
 
         <footer className={styles.pageFooter}>
@@ -431,7 +1059,7 @@ export default function InboxPageClient() {
           onConfirm={() => {
             const prompt = focusPrompt;
             setFocusPrompt(null);
-            void performMove(prompt.item, "focus", true);
+            void confirmFocusPlacement(prompt);
           }}
         />
       )}

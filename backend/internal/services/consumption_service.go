@@ -92,131 +92,18 @@ func (s *ConsumptionService) SetQueue(
 	queueState string,
 	options QueueWriteOptions,
 ) (*models.EpisodeTriageDecision, error) {
-	if !ValidQueueState(queueState) {
-		return nil, ErrInvalidQueueState
-	}
-
-	var result models.EpisodeTriageDecision
-	err := s.db.Transaction(func(tx *gorm.DB) error {
-		current, err := s.ensureState(tx, episodeID)
-		if err != nil {
-			return err
-		}
-		result = *current
-
-		if current.QueueState != nil &&
-			*current.QueueState == queueState &&
-			current.DismissedAt == nil {
-			return nil
-		}
-
-		if queueState == models.QueueStateFocus &&
-			!options.AcknowledgeFocusLimit {
-			var focusCount int64
-			if err := tx.Model(&models.EpisodeTriageDecision{}).
-				Where("queue_state = ? AND episode_id <> ?", models.QueueStateFocus, episodeID).
-				Count(&focusCount).Error; err != nil {
-				return err
-			}
-			if focusCount >= FocusSoftLimit {
-				return &FocusLimitConfirmationError{CurrentCount: int(focusCount)}
-			}
-		}
-
-		now := s.now().UTC()
-		updates := map[string]any{
-			"queue_state":      queueState,
-			"dismissed_at":     nil,
-			"queue_updated_at": now,
-			"state":            models.TriageStateShortlisted,
-			"decided_at":       now,
-		}
-		if queueState == models.QueueStateDone {
-			updates["in_progress_at"] = nil
-		}
-		if err := tx.Model(current).Updates(updates).Error; err != nil {
-			return err
-		}
-		result = models.EpisodeTriageDecision{}
-		return tx.Where("episode_id = ?", episodeID).First(&result).Error
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return s.moveQueueToHead(episodeID, queueState, options)
 }
 
 func (s *ConsumptionService) ClearQueue(episodeID uint) (*models.EpisodeTriageDecision, error) {
-	var result models.EpisodeTriageDecision
-	err := s.db.Transaction(func(tx *gorm.DB) error {
-		current, err := s.ensureState(tx, episodeID)
-		if err != nil {
-			return err
-		}
-		result = *current
-		if current.QueueState == nil && current.DismissedAt == nil {
-			return nil
-		}
-
-		now := s.now().UTC()
-		if err := tx.Model(current).Updates(map[string]any{
-			"queue_state":      nil,
-			"dismissed_at":     nil,
-			"queue_updated_at": now,
-			"state":            models.TriageStatePending,
-			"decided_at":       now,
-		}).Error; err != nil {
-			return err
-		}
-		result = models.EpisodeTriageDecision{}
-		return tx.Where("episode_id = ?", episodeID).First(&result).Error
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return s.clearQueueState(episodeID)
 }
 
 func (s *ConsumptionService) SetDismissed(
 	episodeID uint,
 	dismissed bool,
 ) (*models.EpisodeTriageDecision, error) {
-	var result models.EpisodeTriageDecision
-	err := s.db.Transaction(func(tx *gorm.DB) error {
-		current, err := s.ensureState(tx, episodeID)
-		if err != nil {
-			return err
-		}
-		result = *current
-		if dismissed && current.DismissedAt != nil && current.QueueState == nil {
-			return nil
-		}
-		if !dismissed && current.DismissedAt == nil && current.QueueState == nil {
-			return nil
-		}
-
-		now := s.now().UTC()
-		state := models.TriageStatePending
-		var dismissedAt any
-		if dismissed {
-			state = models.TriageStateDiscarded
-			dismissedAt = now
-		}
-		if err := tx.Model(current).Updates(map[string]any{
-			"queue_state":  nil,
-			"dismissed_at": dismissedAt,
-			"state":        state,
-			"decided_at":   now,
-		}).Error; err != nil {
-			return err
-		}
-		result = models.EpisodeTriageDecision{}
-		return tx.Where("episode_id = ?", episodeID).First(&result).Error
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return s.setDismissedState(episodeID, dismissed)
 }
 
 func (s *ConsumptionService) MarkRead(episodeID uint) (*models.EpisodeTriageDecision, error) {
@@ -261,30 +148,8 @@ func (s *ConsumptionService) updateTimestamp(
 	return &result, nil
 }
 
-func (s *ConsumptionService) ListQueue(queueState string) ([]ConsumptionItem, error) {
-	if !ValidQueueState(queueState) {
-		return nil, ErrInvalidQueueState
-	}
-
-	var states []models.EpisodeTriageDecision
-	err := s.db.
-		Joins("JOIN episodes ON episodes.id = episode_triage_decisions.episode_id AND episodes.deleted_at IS NULL").
-		Preload("Episode.Podcast").
-		Preload("Episode.Tags").
-		Where("episode_triage_decisions.queue_state = ?", queueState).
-		Order("episode_triage_decisions.queue_updated_at DESC").
-		Order("episode_triage_decisions.episode_id DESC").
-		Find(&states).Error
-	if err != nil {
-		return nil, err
-	}
-
-	now := s.now().UTC()
-	items := make([]ConsumptionItem, 0, len(states))
-	for index := range states {
-		items = append(items, buildConsumptionItem(states[index], now))
-	}
-	return items, nil
+func (s *ConsumptionService) ListQueue(queueState string) (QueueSnapshot, error) {
+	return s.listQueueSnapshot(queueState)
 }
 
 func (s *ConsumptionService) QueueSummary() (QueueSummary, error) {

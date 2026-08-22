@@ -89,7 +89,15 @@ func ValidateDatabase(path string) (DatabaseStatus, error) {
 	}
 
 	counts := make(map[string]int64)
-	for _, table := range []string{"podcasts", "episodes", "tags", "workflows", "reports", "episode_triage_decisions"} {
+	for _, table := range []string{
+		"podcasts",
+		"episodes",
+		"tags",
+		"workflows",
+		"reports",
+		"episode_triage_decisions",
+		"consumption_queue_orders",
+	} {
 		var count int64
 		if err := db.Table(table).Count(&count).Error; err != nil {
 			return DatabaseStatus{}, fmt.Errorf("count %s: %w", table, err)

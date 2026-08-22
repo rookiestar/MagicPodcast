@@ -21,12 +21,13 @@ func TestEnsureFixtureCreatesStableCurrentSchemaData(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, first.DatabasePath, second.DatabasePath)
-	require.Equal(t, "complete-v1-journey-20260814T02-schema-17", first.Version)
+	require.Equal(t, "complete-v1-journey-20260814T02-schema-18", first.Version)
 	require.Equal(t, DefaultFixtureScenario, first.Scenario)
 	require.Equal(t, "2026-08-14T02:00:00+08:00", first.Manifest.FixtureAnchorAt)
 	require.Equal(t, int64(3), first.Manifest.Counts["podcasts"])
 	require.Equal(t, int64(20), first.Manifest.Counts["episodes"])
 	require.Equal(t, int64(11), first.Manifest.Counts["episode_triage_decisions"])
+	require.Equal(t, int64(4), first.Manifest.Counts["consumption_queue_orders"])
 	require.Equal(t, int64(4), first.Manifest.Counts["reports"])
 
 	db, closeDB, err := openSQLite(first.DatabasePath, true)
@@ -128,6 +129,11 @@ func fixtureSemanticFingerprint(t *testing.T, path string) []string {
 		SELECT printf('%d|%d', podcast_id, tag_id)
 		FROM podcasts_tags
 		ORDER BY podcast_id, tag_id`).Scan(&relations).Error)
+	var queueOrders []string
+	require.NoError(t, db.Raw(`
+		SELECT queue_state || '|' || CAST(revision AS TEXT) || '|' || CAST(updated_at AS TEXT)
+		FROM consumption_queue_orders
+		ORDER BY queue_state`).Scan(&queueOrders).Error)
 	var tableCounts []string
 	for _, table := range []string{
 		"workflows",
@@ -137,6 +143,7 @@ func fixtureSemanticFingerprint(t *testing.T, path string) []string {
 		"job_feed_attempts",
 		"reports",
 		"episode_triage_decisions",
+		"consumption_queue_orders",
 		"feed_snapshots",
 		"feed_user_agent_gates",
 		"feed_user_agent_gate_audits",
@@ -155,6 +162,8 @@ func fixtureSemanticFingerprint(t *testing.T, path string) []string {
 	fingerprint = append(fingerprint, tags...)
 	fingerprint = append(fingerprint, "relations")
 	fingerprint = append(fingerprint, relations...)
+	fingerprint = append(fingerprint, "queue-orders")
+	fingerprint = append(fingerprint, queueOrders...)
 	fingerprint = append(fingerprint, "table-counts")
 	fingerprint = append(fingerprint, tableCounts...)
 	return fingerprint

@@ -1,4 +1,4 @@
-import type { ConsumptionItem, ConsumptionQueue } from "@/types/consumption";
+import type { ConsumptionQueue } from "@/types/consumption";
 
 export interface QueuePresentation {
   label: string;
@@ -61,13 +61,4 @@ export function formatActivityDate(value?: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
-}
-
-export function sortQueueItems(items: ConsumptionItem[]) {
-  return [...items].sort((left, right) => {
-    const leftTime = Date.parse(left.queue_updated_at ?? "") || 0;
-    const rightTime = Date.parse(right.queue_updated_at ?? "") || 0;
-    if (leftTime !== rightTime) return rightTime - leftTime;
-    return right.episode_id - left.episode_id;
-  });
 }

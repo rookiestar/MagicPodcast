@@ -186,6 +186,37 @@
 .queueItems {
   display: grid;
   gap: 9px;
+  min-height: 42px;
+  transition:
+    background 150ms ease,
+    outline-color 150ms ease;
+}
+
+.queueItemsDropActive {
+  outline: 2px dashed var(--queue-accent);
+  outline-offset: 4px;
+  background: rgba(23, 21, 18, 0.045);
+}
+
+.cardInsertBefore::before,
+.cardInsertAfter::after {
+  position: absolute;
+  z-index: 3;
+  right: 2px;
+  left: 2px;
+  height: 3px;
+  content: "";
+  background: var(--queue-accent);
+  box-shadow: 0 0 0 2px rgba(255, 250, 240, 0.88);
+  pointer-events: none;
+}
+
+.cardInsertBefore::before {
+  top: -6px;
+}
+
+.cardInsertAfter::after {
+  bottom: -6px;
 }
 
 .card {
@@ -215,6 +246,49 @@
   opacity: 0.7;
 }
 
+.cardDragging {
+  opacity: 0.28;
+  box-shadow: none;
+}
+
+.dragHandle {
+  position: absolute;
+  z-index: 2;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--ink-soft);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: rgba(251, 247, 238, 0.9);
+  cursor: grab;
+  touch-action: none;
+}
+
+.dragHandle:hover:not(:disabled) {
+  color: var(--orange-dark);
+  border-color: rgba(23, 21, 18, 0.24);
+  background: #fffaf0;
+}
+
+.dragHandle:active:not(:disabled) {
+  cursor: grabbing;
+}
+
+.dragHandle:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.dragHandle + .cardMain {
+  padding-right: 42px;
+}
+
 .cardMain {
   display: flex;
   width: 100%;
@@ -229,6 +303,7 @@
 }
 
 .cardMain:focus-visible,
+.dragHandle:focus-visible,
 .iconButton:focus-visible,
 .iconButtonStrong:focus-visible,
 .detailClose:focus-visible,
@@ -518,6 +593,39 @@
   font-size: 14px;
   line-height: 1.55;
   text-align: center;
+}
+
+.dragOverlay {
+  display: grid;
+  width: min(300px, calc(100vw - 48px));
+  gap: 4px;
+  padding: 11px 13px;
+  color: var(--ink);
+  border: 1px solid var(--queue-accent, var(--ink));
+  background: #fffaf0;
+  box-shadow: 7px 8px 0 rgba(23, 21, 18, 0.18);
+  pointer-events: none;
+}
+
+.dragOverlay span {
+  overflow: hidden;
+  color: var(--orange-dark);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dragOverlay strong {
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .summaryError,

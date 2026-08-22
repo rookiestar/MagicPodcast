@@ -5,6 +5,8 @@ import type {
   ConsumptionErrorDetails,
   ConsumptionItem,
   ConsumptionQueue,
+  ConsumptionQueuePlacementRequest,
+  ConsumptionQueuePlacementResult,
   ConsumptionQueuePayload,
   ConsumptionSummary,
 } from "@/types/consumption";
@@ -28,6 +30,7 @@ interface AxiosLikeError {
 }
 
 export const FOCUS_CONFIRMATION_ERROR = "FOCUS_LIMIT_CONFIRMATION_REQUIRED";
+export const QUEUE_ORDER_CONFLICT = "QUEUE_ORDER_CONFLICT";
 export const CONSUMPTION_SUMMARY_KEY = "/api/v1/consumption/summary";
 
 export function revalidateConsumptionSummary() {
@@ -55,6 +58,10 @@ export function getConsumptionErrorDetails(
 
 export function requiresFocusConfirmation(error: unknown) {
   return getConsumptionErrorDetails(error).code === FOCUS_CONFIRMATION_ERROR;
+}
+
+export function isQueueOrderConflict(error: unknown) {
+  return getConsumptionErrorDetails(error).code === QUEUE_ORDER_CONFLICT;
 }
 
 export const consumptionApi = {
@@ -96,6 +103,19 @@ export const consumptionApi = {
     const item = handleResponse(response);
     void revalidateConsumptionSummary();
     return item;
+  },
+
+  placeQueue: async (
+    episodeId: number,
+    request: ConsumptionQueuePlacementRequest,
+  ): Promise<ConsumptionQueuePlacementResult> => {
+    const response = await api.put<ApiResponse<ConsumptionQueuePlacementResult>>(
+      `/api/v1/consumption/episodes/${episodeId}/placement`,
+      request,
+    );
+    const result = handleResponse(response);
+    void revalidateConsumptionSummary();
+    return result;
   },
 
   clearQueue: async (episodeId: number): Promise<ConsumptionItem> => {
