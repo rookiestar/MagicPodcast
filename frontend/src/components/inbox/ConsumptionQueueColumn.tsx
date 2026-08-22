@@ -103,7 +103,7 @@ function ConsumptionCard({
 
   return (
     <article
-      className={styles.card}
+      className={`${styles.card}${menuOpen ? ` ${styles.cardMenuOpen}` : ""}`}
       aria-busy={busy}
       data-episode-id={item.episode_id}
     >
