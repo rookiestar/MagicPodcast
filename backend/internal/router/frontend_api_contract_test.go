@@ -62,6 +62,7 @@ func TestFrontendAPIContractRoutesRegistered(t *testing.T) {
 		"GET /api/v1/consumption/queues/:queue",
 		"GET /api/v1/consumption/episodes/:episodeID",
 		"PUT /api/v1/consumption/episodes/:episodeID/queue",
+		"PUT /api/v1/consumption/episodes/:episodeID/placement",
 		"DELETE /api/v1/consumption/episodes/:episodeID/queue",
 		"PUT /api/v1/consumption/episodes/:episodeID/dismissed",
 		"POST /api/v1/consumption/episodes/:episodeID/read",

@@ -2,6 +2,7 @@ package dataprofile
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"magicpodcast/internal/models"
@@ -255,6 +256,27 @@ func fixtureDecisions(scenario string, anchor time.Time) []models.EpisodeTriageD
 			InProgressAt:   progressAt,
 			ReadAt:         readAt,
 		})
+	}
+
+	byQueue := make(map[string][]int)
+	for index := range decisions {
+		if decisions[index].QueueState != nil {
+			byQueue[*decisions[index].QueueState] = append(byQueue[*decisions[index].QueueState], index)
+		}
+	}
+	for _, indexes := range byQueue {
+		sort.Slice(indexes, func(left, right int) bool {
+			leftDecision := decisions[indexes[left]]
+			rightDecision := decisions[indexes[right]]
+			if !leftDecision.QueueUpdatedAt.Equal(*rightDecision.QueueUpdatedAt) {
+				return leftDecision.QueueUpdatedAt.After(*rightDecision.QueueUpdatedAt)
+			}
+			return leftDecision.EpisodeID > rightDecision.EpisodeID
+		})
+		for position, index := range indexes {
+			queuePosition := int64(position)
+			decisions[index].QueuePosition = &queuePosition
+		}
 	}
 	return decisions
 }

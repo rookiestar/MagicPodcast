@@ -223,6 +223,9 @@ func buildFixtureScenarioDatabase(path, scenario string, anchor time.Time) error
 	if err := db.Exec("UPDATE schema_migrations SET applied_at = ?", anchor).Error; err != nil {
 		return fmt.Errorf("stabilize fixture migration timestamps: %w", err)
 	}
+	if err := db.Exec("UPDATE consumption_queue_orders SET updated_at = ?", anchor).Error; err != nil {
+		return fmt.Errorf("stabilize fixture queue order timestamps: %w", err)
+	}
 	if scenario == FixtureScenarioEmpty {
 		return nil
 	}

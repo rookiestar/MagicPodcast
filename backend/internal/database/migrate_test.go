@@ -292,6 +292,68 @@ func TestEpisodeConsumptionStateMigrationIsIdempotentAndPreservesNewerQueueActio
 	require.True(t, row.QueueUpdatedAt.Equal(newerAt))
 }
 
+func TestApplyMigrationsUpgradesSchema17To18WithStableQueueOrder(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:17]))
+	require.Equal(t, 17, mustSchemaStatus(t, db).CurrentVersion)
+	// The baseline uses the current models, so explicitly remove the schema-18
+	// objects to model the persisted shape of an actual version-17 database.
+	require.NoError(t, db.Migrator().DropTable(&models.ConsumptionQueueOrder{}))
+	require.NoError(t, db.Migrator().DropColumn(&models.EpisodeTriageDecision{}, "queue_position"))
+	require.False(t, db.Migrator().HasTable(&models.ConsumptionQueueOrder{}))
+	require.False(t, db.Migrator().HasColumn(&models.EpisodeTriageDecision{}, "queue_position"))
+
+	podcast := models.Podcast{
+		Title: "队列顺序迁移", FeedURL: "https://example.com/queue-order.xml", XYZID: "migration-18",
+	}
+	require.NoError(t, db.Create(&podcast).Error)
+	episodes := []models.Episode{
+		{PodcastID: podcast.ID, Title: "较早", GUID: "migration-18-older"},
+		{PodcastID: podcast.ID, Title: "并列先写", GUID: "migration-18-tie-first"},
+		{PodcastID: podcast.ID, Title: "并列后写", GUID: "migration-18-tie-second"},
+	}
+	require.NoError(t, db.Create(&episodes).Error)
+	older := time.Date(2026, 8, 1, 8, 0, 0, 0, time.UTC)
+	tie := older.Add(time.Hour)
+	inbox := models.QueueStateInbox
+	require.NoError(t, db.Omit("QueuePosition").Create(&[]models.EpisodeTriageDecision{
+		{EpisodeID: episodes[0].ID, State: models.TriageStateShortlisted, DecidedAt: older, QueueState: &inbox, QueueUpdatedAt: &older},
+		{EpisodeID: episodes[1].ID, State: models.TriageStateShortlisted, DecidedAt: tie, QueueState: &inbox, QueueUpdatedAt: &tie},
+		{EpisodeID: episodes[2].ID, State: models.TriageStateShortlisted, DecidedAt: tie, QueueState: &inbox, QueueUpdatedAt: &tie},
+	}).Error)
+
+	require.NoError(t, ApplyMigrations(db))
+	require.NoError(t, RequireSchemaReady(db))
+	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, db).CurrentVersion)
+	require.True(t, db.Migrator().HasColumn(&models.EpisodeTriageDecision{}, "queue_position"))
+	require.True(t, db.Migrator().HasTable(&models.ConsumptionQueueOrder{}))
+
+	var ordered []models.EpisodeTriageDecision
+	require.NoError(t, db.Where("queue_state = ?", inbox).Order("queue_position ASC").Find(&ordered).Error)
+	require.Equal(t, []uint{episodes[2].ID, episodes[1].ID, episodes[0].ID}, []uint{
+		ordered[0].EpisodeID,
+		ordered[1].EpisodeID,
+		ordered[2].EpisodeID,
+	})
+	for position, row := range ordered {
+		require.NotNil(t, row.QueuePosition)
+		require.Equal(t, int64(position), *row.QueuePosition)
+	}
+
+	var orders []models.ConsumptionQueueOrder
+	require.NoError(t, db.Order("queue_state ASC").Find(&orders).Error)
+	require.Len(t, orders, 4)
+	for _, order := range orders {
+		require.Equal(t, int64(1), order.Revision)
+	}
+	var indexCount int64
+	require.NoError(t, db.Raw(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'index' AND name = 'idx_episode_triage_queue_position'
+	`).Scan(&indexCount).Error)
+	require.Equal(t, int64(1), indexCount)
+}
+
 func mustSchemaStatus(t *testing.T, db *gorm.DB) SchemaStatus {
 	t.Helper()
 	status, err := InspectSchema(db)

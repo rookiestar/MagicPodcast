@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -530,6 +531,81 @@ func TestControllerRejectsChangingManagedPortWhileStateExists(t *testing.T) {
 
 	_, err = controller.UseFixture(context.Background())
 	require.ErrorContains(t, err, "active profile is managed on port 18080")
+}
+
+func TestControllerReplacesPriorSchemaProfileState(t *testing.T) {
+	projectDir, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	require.NoError(t, err)
+	home := t.TempDir()
+	fixture, err := EnsureFixture(home)
+	require.NoError(t, err)
+	port, err := FreeLoopbackPort()
+	require.NoError(t, err)
+	controller := Controller{
+		ProjectDir:  projectDir,
+		ProfileHome: home,
+		Port:        port,
+		Timeout:     30 * time.Second,
+	}
+	t.Cleanup(func() {
+		if state, readErr := controller.readState(); readErr == nil {
+			_ = controller.stop(state)
+		}
+	})
+
+	workDir := filepath.Join(home, "work", "fixture-"+fixture.Version)
+	require.NoError(t, os.MkdirAll(workDir, 0o700))
+	workPath := filepath.Join(workDir, "prior-schema.db")
+	require.NoError(t, copyRegularFile(fixture.DatabasePath, workPath, 0o600))
+	binDir := filepath.Join(home, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o700))
+	commandPath := filepath.Join(binDir, "magicpodcast-api-prior-schema")
+	require.NoError(t, os.WriteFile(commandPath, []byte("binary"), 0o700))
+	require.NoError(t, controller.writeState(RuntimeState{
+		FormatVersion:   runtimeStateFormatVersion,
+		Profile:         "fixture",
+		InstanceID:      "prior-schema",
+		SchemaVersion:   database.CurrentSchemaVersion - 1,
+		FixtureVersion:  fixture.Version,
+		FixtureScenario: fixture.Scenario,
+		FixtureAnchorAt: fixture.AnchorAt.Format(time.RFC3339),
+		DatabasePath:    workPath,
+		ManifestPath:    fixture.ManifestPath,
+		CommandPath:     commandPath,
+		PID:             999999999,
+		Port:            port,
+		StartedAt:       "2026-08-13T00:00:00Z",
+	}))
+
+	status, err := controller.UseFixture(context.Background())
+	require.NoError(t, err)
+	require.True(t, status.Ready)
+	require.Equal(t, database.CurrentSchemaVersion, status.SchemaVersion)
+	require.NoFileExists(t, workPath)
+	require.NoFileExists(t, commandPath)
+}
+
+func TestControllerProbeReadyMatchesPriorSchemaStateForRollback(t *testing.T) {
+	state := RuntimeState{
+		Profile:         "fixture",
+		InstanceID:      "prior-schema",
+		SchemaVersion:   database.CurrentSchemaVersion - 1,
+		FixtureVersion:  "legacy-fixture",
+		FixtureScenario: DefaultFixtureScenario,
+		FixtureAnchorAt: "2026-08-13T00:00:00Z",
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		require.Equal(t, "/ready", request.URL.Path)
+		writer.Header().Set("Content-Type", "application/json")
+		_, err := writer.Write([]byte(`{"status":"ok","data_profile":"fixture","data_profile_instance_id":"prior-schema","schema_version":` + strconv.Itoa(state.SchemaVersion) + `,"fixture_version":"legacy-fixture","fixture_scenario":"journey","fixture_anchor_at":"2026-08-13T00:00:00Z"}`))
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+	state.Port = server.Listener.Addr().(*net.TCPAddr).Port
+
+	ready, err := (Controller{}).probeReady(context.Background(), state)
+	require.NoError(t, err)
+	require.True(t, ready)
 }
 
 func TestControllerRejectsUnignoredProfileHomeInsideRepository(t *testing.T) {

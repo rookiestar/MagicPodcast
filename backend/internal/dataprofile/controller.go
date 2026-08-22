@@ -104,6 +104,7 @@ func (c Controller) UseFixtureScenario(ctx context.Context, scenario string) (Pu
 		return PublicStatus{}, err
 	}
 	if current, err := c.readState(); err == nil &&
+		current.SchemaVersion == database.CurrentSchemaVersion &&
 		current.Profile == runtimeprofile.ProfileFixture &&
 		current.FixtureVersion == fixture.Version &&
 		current.FixtureScenario == fixture.Scenario &&
@@ -219,6 +220,10 @@ func (c Controller) Status(ctx context.Context) (PublicStatus, error) {
 		return PublicStatus{}, err
 	}
 	status := publicStatusFromState(state)
+	if state.SchemaVersion != database.CurrentSchemaVersion {
+		status.Ready = false
+		return status, nil
+	}
 	ready, err := c.probeReady(ctx, state)
 	if err != nil {
 		status.Ready = false
@@ -635,8 +640,8 @@ func (c Controller) probeReady(ctx context.Context, state RuntimeState) (bool, e
 	if body.DataProfile != state.Profile || body.InstanceID != state.InstanceID {
 		return false, fmt.Errorf("readiness belongs to a different data profile process")
 	}
-	if body.SchemaVersion != database.CurrentSchemaVersion {
-		return false, fmt.Errorf("readiness schema version %d is not current", body.SchemaVersion)
+	if body.SchemaVersion != state.SchemaVersion {
+		return false, fmt.Errorf("readiness schema version %d does not match profile state %d", body.SchemaVersion, state.SchemaVersion)
 	}
 	if state.Profile == runtimeprofile.ProfileFixture &&
 		(body.FixtureVersion != state.FixtureVersion ||
@@ -791,8 +796,8 @@ func (c Controller) validateState(state RuntimeState) error {
 	if !isSafeIdentifier(state.InstanceID) {
 		return fmt.Errorf("instance ID is invalid")
 	}
-	if state.SchemaVersion != database.CurrentSchemaVersion {
-		return fmt.Errorf("schema version %d is not current", state.SchemaVersion)
+	if state.SchemaVersion <= 0 || state.SchemaVersion > database.CurrentSchemaVersion {
+		return fmt.Errorf("schema version %d is unsupported", state.SchemaVersion)
 	}
 	if state.PID <= 0 {
 		return fmt.Errorf("PID is invalid")
@@ -931,7 +936,8 @@ func publicStatusFromState(state RuntimeState) PublicStatus {
 }
 
 func sameTarget(current, target RuntimeState) bool {
-	return current.Profile == target.Profile &&
+	return current.SchemaVersion == target.SchemaVersion &&
+		current.Profile == target.Profile &&
 		current.DatabasePath == target.DatabasePath &&
 		current.FixtureVersion == target.FixtureVersion &&
 		current.FixtureScenario == target.FixtureScenario &&

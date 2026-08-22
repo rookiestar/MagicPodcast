@@ -13,6 +13,7 @@ var AllModels = []interface{}{
 	PodcastAlternativeFeed{},
 	Episode{},
 	EpisodeTriageDecision{},
+	ConsumptionQueueOrder{},
 	Job{},
 	JobExecution{},
 	JobFeedAttempt{},

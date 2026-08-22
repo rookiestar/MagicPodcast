@@ -242,13 +242,20 @@ type putQueueRequest struct {
 	AcknowledgeFocusLimit bool   `json:"acknowledge_focus_limit"`
 }
 
+type putPlacementRequest struct {
+	QueueState            string           `json:"queue_state"`
+	BeforeEpisodeID       *uint            `json:"before_episode_id"`
+	ExpectedRevisions     map[string]int64 `json:"expected_revisions"`
+	AcknowledgeFocusLimit bool             `json:"acknowledge_focus_limit"`
+}
+
 type putDismissedRequest struct {
 	Dismissed bool `json:"dismissed"`
 }
 
 func (h *DiscoveryHandler) ListQueue(c *gin.Context) {
 	queueState := c.Param("queue")
-	items, err := h.consumptionService.ListQueue(queueState)
+	snapshot, err := h.consumptionService.ListQueue(queueState)
 	if errors.Is(err, services.ErrInvalidQueueState) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -262,10 +269,7 @@ func (h *DiscoveryHandler) ListQueue(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data": gin.H{
-			"queue_state": queueState,
-			"items":       items,
-		},
+		"data":    snapshot,
 	})
 }
 
@@ -346,6 +350,75 @@ func (h *DiscoveryHandler) PutQueue(c *gin.Context) {
 		return
 	}
 	h.writeConsumptionItem(c, episodeID)
+}
+
+func (h *DiscoveryHandler) PutPlacement(c *gin.Context) {
+	episodeID, ok := parseConsumptionEpisodeID(c)
+	if !ok {
+		return
+	}
+	var request putPlacementRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "INVALID_REQUEST", "message": "invalid queue placement request"},
+		})
+		return
+	}
+	result, err := h.consumptionService.PlaceQueue(
+		episodeID,
+		request.QueueState,
+		services.QueuePlacementOptions{
+			BeforeEpisodeID:       request.BeforeEpisodeID,
+			ExpectedRevisions:     request.ExpectedRevisions,
+			AcknowledgeFocusLimit: request.AcknowledgeFocusLimit,
+		},
+	)
+	var focusErr *services.FocusLimitConfirmationError
+	switch {
+	case errors.Is(err, services.ErrInvalidQueueState):
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "INVALID_QUEUE_STATE", "message": "invalid queue state"},
+		})
+		return
+	case errors.Is(err, services.ErrInvalidQueuePlacement):
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "INVALID_QUEUE_PLACEMENT", "message": "invalid queue placement"},
+		})
+		return
+	case errors.Is(err, services.ErrConsumptionEpisodeNotFound):
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "EPISODE_NOT_FOUND", "message": "episode not found"},
+		})
+		return
+	case errors.Is(err, services.ErrQueueOrderConflict):
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "QUEUE_ORDER_CONFLICT",
+				"message": "Consumption queue order changed; reload and try again",
+			},
+		})
+		return
+	case errors.As(err, &focusErr):
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":          "FOCUS_LIMIT_CONFIRMATION_REQUIRED",
+				"message":       "Focus soft limit confirmation required",
+				"current_count": focusErr.CurrentCount,
+				"focus_limit":   services.FocusSoftLimit,
+			},
+		})
+		return
+	case err != nil:
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to place consumption episode")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
 }
 
 func (h *DiscoveryHandler) DeleteQueue(c *gin.Context) {

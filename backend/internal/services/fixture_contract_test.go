@@ -41,7 +41,7 @@ func TestJourneyFixtureCoversDiscoveryConsumptionAndReportContracts(t *testing.T
 	focus, err := consumption.ListQueue(models.QueueStateFocus)
 	require.NoError(t, err)
 	attention := map[uint]string{}
-	for _, item := range focus {
+	for _, item := range focus.Items {
 		attention[item.EpisodeID] = item.Attention
 	}
 	require.Equal(t, services.AttentionNone, attention[2006])
@@ -51,7 +51,7 @@ func TestJourneyFixtureCoversDiscoveryConsumptionAndReportContracts(t *testing.T
 	someday, err := consumption.ListQueue(models.QueueStateSomeday)
 	require.NoError(t, err)
 	attention = map[uint]string{}
-	for _, item := range someday {
+	for _, item := range someday.Items {
 		attention[item.EpisodeID] = item.Attention
 	}
 	require.Equal(t, services.AttentionStale, attention[2011])
