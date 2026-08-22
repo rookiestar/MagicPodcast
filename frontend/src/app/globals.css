@@ -2878,16 +2878,6 @@
     letter-spacing: 0;
   }
 
-  .workflow-report-meta-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px 12px;
-    margin: 0;
-    font: 600 12px/1.4 var(--font-mono);
-    color: #5d574f;
-  }
-
   .workflow-report-type {
     display: inline-flex;
     align-items: center;
@@ -2918,6 +2908,7 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
+    min-width: 0;
   }
 
   .workflow-report-history-loading {
@@ -2943,6 +2934,13 @@
     cursor: pointer;
   }
 
+  .workflow-report-history-trigger:focus-visible,
+  .workflow-report-back-today:focus-visible,
+  .workflow-report-arrow:focus-visible {
+    outline: 3px solid #1768d0;
+    outline-offset: 2px;
+  }
+
   .workflow-report-arrow:disabled {
     opacity: 0.35;
     cursor: not-allowed;
@@ -2950,7 +2948,23 @@
 
   .workflow-report-switchers {
     display: inline-flex;
-    gap: 4px;
+    align-items: stretch;
+    flex-shrink: 0;
+    gap: 0;
+    margin-left: 2px;
+    padding-left: 8px;
+    border-left: 1px solid #171717;
+  }
+
+  .workflow-report-position {
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 8px;
+    font: 600 12px/1 var(--font-mono);
+    color: #171717;
   }
 
   .workflow-report-preview {
@@ -2963,6 +2977,16 @@
 
   .workflow-report-title {
     padding: 16px 18px 10px;
+  }
+
+  .workflow-report-heading {
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .workflow-report-heading-meta {
+    margin: 8px 0 0;
+    color: #5d574f;
   }
 
   .workflow-report-episodes {
@@ -3923,12 +3947,12 @@
       white-space: nowrap;
     }
 
-    .workflow-report-meta-row {
-      margin-top: 6px;
+    .workflow-report-header-actions {
+      justify-content: flex-start;
     }
 
-    .workflow-report-header-actions {
-      justify-content: space-between;
+    .workflow-report-heading {
+      font-size: var(--type-section-title-size);
     }
 
     /* Mobile: natural page scroll only — no nested vertical scroll (#92). */
@@ -6625,14 +6649,6 @@ textarea.editorial-field {
   letter-spacing: 0.12em;
 }
 
-.discovery-stream .workflow-report-meta-row {
-  min-height: 36px;
-  margin: 0;
-  padding: 5px 14px;
-  border-bottom: 1px solid #cfc3af;
-  background: rgba(239, 229, 211, 0.88);
-}
-
 .discovery-stream .workflow-report-preview {
   height: clamp(420px, 56vh, 560px);
   max-height: none;
@@ -7290,12 +7306,7 @@ textarea.editorial-field {
   }
 
   .discovery-stream .workflow-report-header-actions {
-    justify-content: space-between;
-  }
-
-  .discovery-stream .workflow-report-meta-row {
-    min-height: 34px;
-    padding: 5px 10px;
+    justify-content: flex-start;
   }
 
   .discovery-stream .workflow-report-preview {

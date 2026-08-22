@@ -67,6 +67,7 @@ describe("WorkflowReportWorkbench", () => {
   it("renders the editorial heading and a single report without switch controls", () => {
     render(
       <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
         todayReports={[makeReport({ id: 1, workflow_name: "晨间日报" })]}
       />,
     );
@@ -79,34 +80,46 @@ describe("WorkflowReportWorkbench", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("CURATED REPORTS")).toBeInTheDocument();
     expect(
+      screen.getByRole("heading", { name: "晨间日报", level: 3 }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("晨间日报")).toHaveLength(1);
+    expect(
+      screen.getByText("日报 · 完成于 2026/08/10 16:00"),
+    ).toBeInTheDocument();
+    expect(
       screen.queryByRole("listbox", { name: "当天报告" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("group", { name: "切换当天报告" }),
+      screen.queryByRole("group", { name: "按完成时间浏览报告" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("1 / 1")).not.toBeInTheDocument();
-    expect(screen.getByText("晨间日报")).toBeInTheDocument();
-    expect(screen.getByText("日报")).toHaveClass("is-daily");
+    expect(
+      screen.queryByRole("button", { name: "查看更新一份报告" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "查看更早一份报告" }),
+    ).not.toBeInTheDocument();
 
     const markdownSections = screen.getAllByTestId("markdown-body");
-    expect(markdownSections).toHaveLength(2);
-    expect(markdownSections[0]).toHaveTextContent("# 晨间日报");
-    expect(markdownSections[1]).toHaveTextContent("正文内容");
+    expect(markdownSections).toHaveLength(1);
+    expect(markdownSections[0]).toHaveTextContent("正文内容");
+    expect(markdownSections[0]).not.toHaveTextContent("# 晨间日报");
 
+    const heading = screen.getByRole("heading", { name: "晨间日报", level: 3 });
     const episode = screen.getByRole("article");
     expect(
-      markdownSections[0].compareDocumentPosition(episode) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+      heading.compareDocumentPosition(episode) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      episode.compareDocumentPosition(markdownSections[1]) &
+      episode.compareDocumentPosition(markdownSections[0]) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 
-  it("keeps a zero-episode report as one complete markdown document", () => {
+  it("keeps a zero-episode report complete after removing the leading heading", () => {
     render(
       <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
         todayReports={[
           makeReport({
             id: 10,
@@ -120,10 +133,12 @@ describe("WorkflowReportWorkbench", () => {
     );
 
     expect(screen.queryByRole("article")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "空报告", level: 3 }),
+    ).toBeInTheDocument();
     expect(screen.getAllByTestId("markdown-body")).toHaveLength(1);
-    expect(screen.getByTestId("markdown-body")).toHaveTextContent(
-      "# 空报告 完整正文",
-    );
+    expect(screen.getByTestId("markdown-body")).toHaveTextContent("完整正文");
+    expect(screen.getByTestId("markdown-body")).not.toHaveTextContent("# 空报告");
   });
 
   it("shows every report from the latest historical day when today is empty", async () => {
@@ -168,6 +183,7 @@ describe("WorkflowReportWorkbench", () => {
 
     render(
       <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
         todayReports={[]}
         historyReports={[firstMetadata, secondMetadata, olderMetadata]}
       />,
@@ -176,14 +192,30 @@ describe("WorkflowReportWorkbench", () => {
     expect(
       screen.getByRole("region", { name: "精选报告" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("最新往期 · 1 / 2")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "科技日报", level: 3 }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("日报 · 完成于 2026/08/10 16:00"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("最新往期")).not.toBeInTheDocument();
+    const latestPager = screen.getByRole("group", {
+      name: "按完成时间浏览报告",
+    });
+    expect(within(latestPager).getByRole("status")).toHaveTextContent("1 / 2");
     expect(fetchDetailMock).toHaveBeenCalledWith(9);
     await waitFor(() =>
       expect(screen.getByText("科技正文")).toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "下一份报告" }));
-    expect(screen.getByText("最新往期 · 2 / 2")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "查看更早一份报告" }));
+    expect(within(latestPager).getByRole("status")).toHaveTextContent("2 / 2");
+    expect(
+      screen.getByRole("heading", { name: "投资日报", level: 3 }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("日报 · 完成于 2026/08/10 15:00"),
+    ).toBeInTheDocument();
     expect(fetchDetailMock).toHaveBeenCalledWith(8);
     await waitFor(() =>
       expect(screen.getByText("投资正文")).toBeInTheDocument(),
@@ -194,6 +226,7 @@ describe("WorkflowReportWorkbench", () => {
   it("switches reports via compact header controls while collapsing episodes", () => {
     render(
       <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
         todayReports={[
           makeReport({
             id: 1,
@@ -235,12 +268,31 @@ describe("WorkflowReportWorkbench", () => {
     fireEvent.click(screen.getByText("早报单集"));
     expect(screen.getByText("Show Notes")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "下一份报告" }));
+    expect(
+      screen.getByRole("heading", { name: "早报", level: 3 }),
+    ).toBeInTheDocument();
+    const pager = screen.getByRole("group", { name: "按完成时间浏览报告" });
+    expect(within(pager).getByRole("status")).toHaveTextContent("1 / 2");
+    expect(
+      within(pager).getByRole("button", { name: "查看更新一份报告" }),
+    ).toBeDisabled();
+    expect(
+      within(pager).getByRole("button", { name: "查看更早一份报告" }),
+    ).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "查看更早一份报告" }));
     expect(screen.getByText("午报单集")).toBeInTheDocument();
-    expect(screen.getByText("2 / 2")).toBeInTheDocument();
-    expect(screen.getAllByText("周报").every((node) =>
-      node.classList.contains("is-weekly"),
-    )).toBe(true);
+    expect(
+      screen.getByRole("heading", { name: "午报", level: 3 }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "早报" })).not.toBeInTheDocument();
+    expect(
+      screen.getByText("周报 · 完成于 2026/08/10 20:00"),
+    ).toBeInTheDocument();
+    expect(within(pager).getByRole("status")).toHaveTextContent("2 / 2");
+    expect(
+      within(pager).getByRole("button", { name: "查看更早一份报告" }),
+    ).toBeDisabled();
     // Collapsed after switch.
     expect(screen.queryByText("B")).not.toBeInTheDocument();
   });
@@ -356,6 +408,7 @@ describe("WorkflowReportWorkbench", () => {
 
     render(
       <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
         todayReports={[
           makeReport({ id: 1, workflow_name: "今日甲" }),
           makeReport({
@@ -377,7 +430,7 @@ describe("WorkflowReportWorkbench", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "下一份报告" }));
+    fireEvent.click(screen.getByRole("button", { name: "查看更早一份报告" }));
     expect(screen.getByText("2 / 2")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /往期/ }));
@@ -390,16 +443,204 @@ describe("WorkflowReportWorkbench", () => {
       ),
     );
 
+    expect(
+      screen.getByRole("heading", { name: "上周周报", level: 3 }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("group", { name: "按完成时间浏览报告" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("周报 · 完成于 2026/08/03 16:00"),
+    ).toBeInTheDocument();
     await waitFor(() => {
       expect(fetchDetailMock).toHaveBeenCalledWith(9);
-    });
-    await waitFor(() => {
-      expect(screen.getByText("上周周报")).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "回到今日" }));
     expect(screen.getByText("2 / 2")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "今日乙", level: 3 }),
+    ).toBeInTheDocument();
     expect(screen.getByText("单集 2")).toBeInTheDocument();
+  });
+
+  it("applies a pending history pick before the body request resolves", async () => {
+    let resolveDetail: (report: HomepageReport) => void = () => {};
+    fetchDetailMock.mockImplementation(
+      () =>
+        new Promise<HomepageReport>((resolve) => {
+          resolveDetail = resolve;
+        }),
+    );
+
+    render(
+      <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
+        todayReports={[
+          makeReport({ id: 1, workflow_name: "今日甲" }),
+          makeReport({
+            id: 2,
+            workflow_name: "今日乙",
+            completed_at: "2026-08-10T12:00:00Z",
+          }),
+        ]}
+        historyReports={[
+          makeReport({
+            id: 9,
+            workflow_name: "上周周报",
+            report_type: "weekly",
+            completed_at: "2026-08-03T08:00:00Z",
+            metadata_only: true,
+            content: "",
+          }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "查看更早一份报告" }));
+    fireEvent.click(screen.getByRole("button", { name: /往期/ }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "往期报告" })).getByText(
+        "上周周报",
+      ),
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "上周周报", level: 3 }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("周报 · 完成于 2026/08/03 16:00"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("group", { name: "按完成时间浏览报告" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("正在加载往期报告…")).toBeInTheDocument();
+    expect(screen.queryByText("往期正文")).not.toBeInTheDocument();
+
+    resolveDetail(
+      makeReport({
+        id: 9,
+        workflow_name: "上周周报",
+        report_type: "weekly",
+        completed_at: "2026-08-03T08:00:00Z",
+        content: "# 往期全文\n\n往期正文",
+        metadata_only: false,
+      }),
+    );
+    await waitFor(() => {
+      expect(screen.getByText("往期正文")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("markdown-body")).not.toHaveTextContent(
+      "# 往期全文",
+    );
+  });
+
+  it("restores the previous report if a pending history body fails", async () => {
+    fetchDetailMock.mockRejectedValue(new Error("load failed"));
+
+    render(
+      <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
+        todayReports={[
+          makeReport({ id: 1, workflow_name: "今日甲" }),
+          makeReport({
+            id: 2,
+            workflow_name: "今日乙",
+            completed_at: "2026-08-10T12:00:00Z",
+          }),
+        ]}
+        historyReports={[
+          makeReport({
+            id: 9,
+            workflow_name: "上周周报",
+            report_type: "weekly",
+            completed_at: "2026-08-03T08:00:00Z",
+            metadata_only: true,
+            content: "",
+          }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "查看更早一份报告" }));
+    fireEvent.click(screen.getByRole("button", { name: /往期/ }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "往期报告" })).getByText(
+        "上周周报",
+      ),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("往期报告加载失败，可重试选择。")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole("heading", { name: "今日乙", level: 3 }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("2 / 2")).toBeInTheDocument();
+  });
+
+  it("does not revive a pending history pick after returning to today", async () => {
+    let resolveDetail: (report: HomepageReport) => void = () => {};
+    fetchDetailMock.mockImplementation(
+      () =>
+        new Promise<HomepageReport>((resolve) => {
+          resolveDetail = resolve;
+        }),
+    );
+
+    render(
+      <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
+        todayReports={[
+          makeReport({ id: 1, workflow_name: "今日甲" }),
+          makeReport({
+            id: 2,
+            workflow_name: "今日乙",
+            completed_at: "2026-08-10T12:00:00Z",
+          }),
+        ]}
+        historyReports={[
+          makeReport({
+            id: 9,
+            workflow_name: "上周周报",
+            report_type: "weekly",
+            completed_at: "2026-08-03T08:00:00Z",
+            metadata_only: true,
+            content: "",
+          }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "查看更早一份报告" }));
+    fireEvent.click(screen.getByRole("button", { name: /往期/ }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "往期报告" })).getByText(
+        "上周周报",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "回到今日" }));
+    expect(
+      screen.getByRole("heading", { name: "今日乙", level: 3 }),
+    ).toBeInTheDocument();
+
+    resolveDetail(
+      makeReport({
+        id: 9,
+        workflow_name: "上周周报",
+        report_type: "weekly",
+        completed_at: "2026-08-03T08:00:00Z",
+        content: "# 往期全文\n\n往期正文",
+        metadata_only: false,
+      }),
+    );
+    await waitFor(() => {
+      expect(fetchDetailMock).toHaveBeenCalledWith(9);
+    });
+    expect(
+      screen.getByRole("heading", { name: "今日乙", level: 3 }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("往期正文")).not.toBeInTheDocument();
   });
 
   it("traps focus in the history drawer and closes on Escape (#94)", () => {
@@ -546,7 +787,207 @@ describe("WorkflowReportWorkbench", () => {
     expect(screen.queryByText("打开原单集")).not.toBeInTheDocument();
   });
 
+  it("keeps indented markdown after removing a leading heading", () => {
+    render(
+      <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
+        todayReports={[
+          makeReport({
+            id: 24,
+            workflow_name: "晨间日报",
+            episode_count: 0,
+            episodes: [],
+            content: "# 晨间日报\n\n    const x = 1\n",
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId("markdown-body").textContent).toBe(
+      "    const x = 1\n",
+    );
+  });
+
+  it("strips a CommonMark heading indented by up to three spaces", () => {
+    render(
+      <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
+        todayReports={[
+          makeReport({
+            id: 26,
+            workflow_name: "晨间日报",
+            episode_count: 0,
+            episodes: [],
+            content: "  \n   # 晨间日报\n\n摘要一段\n",
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByText("晨间日报")).toHaveLength(1);
+    expect(screen.getByTestId("markdown-body").textContent).toBe("摘要一段\n");
+    expect(screen.getByTestId("markdown-body").textContent).not.toContain(
+      "# 晨间日报",
+    );
+  });
+
+  it("does not treat an indented heading as the report title source", () => {
+    render(
+      <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
+        todayReports={[
+          makeReport({
+            id: 25,
+            workflow_name: "晨间日报",
+            episode_count: 0,
+            episodes: [],
+            content: "    # 这不是标题\n    const x = 1\n",
+          }),
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "晨间日报", level: 3 }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("markdown-body").textContent).toBe(
+      "    # 这不是标题\n    const x = 1\n",
+    );
+  });
+
+  it("strips only the first markdown heading and keeps the rest of the body", () => {
+    render(
+      <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
+        todayReports={[
+          makeReport({
+            id: 21,
+            workflow_name: "晨间日报",
+            content:
+              "# 晨间日报 2026-08-10 08:00:00\n\n摘要一段\n\n## 后续标题\n\n保留段落",
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByText("晨间日报")).toHaveLength(1);
+    expect(screen.getByTestId("markdown-body")).toHaveTextContent("摘要一段");
+    expect(screen.getByTestId("markdown-body")).toHaveTextContent("## 后续标题");
+    expect(screen.getByTestId("markdown-body")).toHaveTextContent("保留段落");
+    expect(screen.getByTestId("markdown-body")).not.toHaveTextContent(
+      "# 晨间日报 2026-08-10 08:00:00",
+    );
+  });
+
+  it("falls back to the report title when workflow_name is missing", () => {
+    render(
+      <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
+        todayReports={[
+          makeReport({
+            id: 22,
+            workflow_name: "   ",
+            title: "历史标题回退",
+            content: "没有一级标题\n\n正文仍在",
+          }),
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "历史标题回退", level: 3 }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("markdown-body")).toHaveTextContent("没有一级标题");
+    expect(screen.getByTestId("markdown-body")).toHaveTextContent("正文仍在");
+  });
+
+  it("keeps a long mixed title readable without pager chrome on a single report", () => {
+    render(
+      <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
+        todayReports={[
+          makeReport({
+            id: 23,
+            workflow_name: "DeepSeek Morning Brief 晨间深读长标题",
+          }),
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", {
+        name: "DeepSeek Morning Brief 晨间深读长标题",
+        level: 3,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("1 / 1")).not.toBeInTheDocument();
+  });
+
+  it("switches reports with arrow keys and ignores them while the drawer is open", async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkflowReportWorkbench
+        timezone="Asia/Shanghai"
+        todayReports={[
+          makeReport({ id: 1, workflow_name: "早报" }),
+          makeReport({
+            id: 2,
+            workflow_name: "午报",
+            completed_at: "2026-08-10T12:00:00Z",
+          }),
+        ]}
+        historyReports={[
+          makeReport({
+            id: 9,
+            workflow_id: 9,
+            workflow_name: "科技日报",
+            completed_at: "2026-08-03T08:00:00Z",
+            metadata_only: true,
+            content: "",
+          }),
+          makeReport({
+            id: 8,
+            workflow_id: 8,
+            workflow_name: "投资周报",
+            report_type: "weekly",
+            completed_at: "2026-08-02T08:00:00Z",
+            metadata_only: true,
+            content: "",
+          }),
+        ]}
+      />,
+    );
+
+    const workbench = screen.getByRole("region", { name: "精选报告" });
+    workbench.focus();
+    fireEvent.keyDown(workbench, { key: "ArrowRight" });
+    expect(
+      screen.getByRole("heading", { name: "午报", level: 3 }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("2 / 2")).toBeInTheDocument();
+
+    fireEvent.keyDown(workbench, { key: "ArrowLeft" });
+    expect(
+      screen.getByRole("heading", { name: "早报", level: 3 }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /往期/ }));
+    const drawer = screen.getByRole("dialog", { name: "往期报告" });
+    fireEvent.keyDown(workbench, { key: "ArrowRight" });
+    expect(
+      screen.getByRole("heading", { name: "早报", level: 3 }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(within(drawer).getByRole("button", { name: /筛选工作流/ }));
+    const search = within(drawer).getByRole("searchbox", { name: "搜索工作流" });
+    fireEvent.keyDown(search, { key: "ArrowRight" });
+    expect(
+      screen.getByRole("heading", { name: "早报", level: 3 }),
+    ).toBeInTheDocument();
+  });
+
   describe("history workflow filter (#144)", () => {
+
     function historyMetadata(
       overrides: Array<{
         id: number;

@@ -81,21 +81,34 @@ function episodeShowNotesPreview(episode: HomepageReportEpisode) {
   return (episode.context || episode.excerpt || "").trim();
 }
 
-function splitReportMarkdown(content: string, fallbackTitle: string) {
-  const normalized = content.trimStart();
-  const match = normalized.match(/^(#\s+[^\r\n]+)(?:\r?\n+|$)([\s\S]*)$/);
+function reportDisplayTitle(report: HomepageReport): string {
+  const workflowName = report.workflow_name?.trim();
+  if (workflowName) return workflowName;
+  const title = report.title?.trim();
+  if (title) return title;
+  return "工作流报告";
+}
 
-  if (match) {
-    return {
-      titleMarkdown: match[1],
-      bodyMarkdown: match[2].trimStart(),
-    };
-  }
+function reportCompletionLine(report: HomepageReport, timezone?: string): string {
+  return `${reportTypeLabel(report.report_type)} · 完成于 ${formatReportDate(
+    report.completed_at,
+    timezone,
+  )}`;
+}
 
-  return {
-    titleMarkdown: fallbackTitle.trim() ? `# ${fallbackTitle.trim()}` : "",
-    bodyMarkdown: content,
-  };
+function stripLeadingMarkdownH1(content: string): string {
+  const match = content.match(
+    /^(?:[ \t]*\r?\n)* {0,3}#[ \t]+[^\r\n]+(?:\r?\n+|$)/,
+  );
+  if (!match) return content;
+  return content.slice(match[0].length);
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }
 
 function EpisodeCover({
@@ -170,6 +183,7 @@ export default function WorkflowReportWorkbench({
   >({});
   const previewRef = useRef<HTMLDivElement>(null);
   const historyTriggerRef = useRef<HTMLButtonElement>(null);
+  const historyDetailRequestRef = useRef(0);
 
   const hasToday = todayReports.length > 0;
   const workflowFilterOptions = useMemo(
@@ -315,7 +329,7 @@ export default function WorkflowReportWorkbench({
   const goNext = () => selectReport(safeIndex + 1);
 
   const handleWorkbenchKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (historyOpen || !canSwitch) return;
+    if (historyOpen || !canSwitch || isTypingTarget(event.target)) return;
     if (event.key === "ArrowLeft") {
       event.preventDefault();
       goPrev();
@@ -408,31 +422,43 @@ export default function WorkflowReportWorkbench({
   };
 
   const pickHistoryReport = async (report: HomepageReport) => {
+    const requestId = ++historyDetailRequestRef.current;
+    const previousSelection = historySelection;
+    const previousIndex = historySelection ? safeIndex : indexBeforeHistory;
     setHistoryLoadError("");
+    // Apply metadata immediately so the title block and pager hide before
+    // the on-demand body arrives (#150).
+    setHistorySelection(report);
+    setActiveIndex(0);
     // Picking a report closes the drawer through the same cleanup path as the
     // close button / Escape (#144): collapse the filter panel and drop the
     // transient keyword while keeping the selection.
     closeHistory();
-    // Metadata-only history: fetch full body on demand (#95).
-    if (report.metadata_only || !report.content) {
-      setHistoryLoading(true);
-      try {
-        const full = await fetchHomepageReportDetail(report.id);
-        setHistorySelection(full);
-        setActiveIndex(0);
-      } catch {
-        setHistoryLoadError("往期报告加载失败，可重试选择。");
-        setHistorySelection(null);
-      } finally {
-        setHistoryLoading(false);
-      }
+    if (!report.metadata_only && report.content) {
+      setHistoryLoading(false);
       return;
     }
-    setHistorySelection(report);
-    setActiveIndex(0);
+    // Metadata-only history: fetch full body on demand (#95).
+    setHistoryLoading(true);
+    try {
+      const full = await fetchHomepageReportDetail(report.id);
+      if (requestId !== historyDetailRequestRef.current) return;
+      setHistorySelection(full);
+    } catch {
+      if (requestId !== historyDetailRequestRef.current) return;
+      setHistoryLoadError("往期报告加载失败，可重试选择。");
+      setHistorySelection(previousSelection);
+      setActiveIndex(previousIndex);
+    } finally {
+      if (requestId === historyDetailRequestRef.current) {
+        setHistoryLoading(false);
+      }
+    }
   };
 
   const clearHistorySelection = () => {
+    historyDetailRequestRef.current += 1;
+    setHistoryLoading(false);
     setHistorySelection(null);
     setHistoryLoadError("");
     setActiveIndex(
@@ -480,19 +506,12 @@ export default function WorkflowReportWorkbench({
     return null;
   }
 
-  const positionLabel = historySelection
-    ? "往期"
-    : !hasToday
-      ? defaultReports.length > 1
-        ? `最新往期 · ${safeIndex + 1} / ${defaultReports.length}`
-        : "最新往期"
-      : todayReports.length > 1
-        ? `${safeIndex + 1} / ${todayReports.length}`
-        : null;
   const hasEpisodes = activeReport.episodes.length > 0;
-  const reportMarkdown = hasEpisodes
-    ? splitReportMarkdown(activeReport.content || "", activeReport.title)
-    : null;
+  const reportTitle = reportDisplayTitle(activeReport);
+  const reportMeta = reportCompletionLine(activeReport, timezone);
+  const previewBodyMarkdown = stripLeadingMarkdownH1(
+    activeReport.content || "",
+  );
 
   return (
     <section
@@ -531,23 +550,31 @@ export default function WorkflowReportWorkbench({
             <div
               className="workflow-report-switchers"
               role="group"
-              aria-label={hasToday ? "切换当天报告" : "切换最近历史报告"}
+              aria-label="按完成时间浏览报告"
             >
               <button
                 type="button"
                 className="workflow-report-arrow"
                 onClick={goPrev}
                 disabled={safeIndex <= 0}
-                aria-label="上一份报告"
+                aria-label="查看更新一份报告"
               >
                 <IconChevronLeft size={20} aria-hidden />
               </button>
+              <span
+                className="workflow-report-position"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                {safeIndex + 1} / {defaultReports.length}
+              </span>
               <button
                 type="button"
                 className="workflow-report-arrow"
                 onClick={goNext}
                 disabled={safeIndex >= defaultReports.length - 1}
-                aria-label="下一份报告"
+                aria-label="查看更早一份报告"
               >
                 <IconChevronRight size={20} aria-hidden />
               </button>
@@ -555,26 +582,6 @@ export default function WorkflowReportWorkbench({
           )}
         </div>
       </header>
-      <div className="workflow-report-meta-row">
-        <span
-          className={`workflow-report-type ${reportTypeClassName(
-            activeReport.report_type,
-          )}`}
-        >
-          {reportTypeLabel(activeReport.report_type)}
-        </span>
-        <span className="workflow-report-date">
-          {formatReportDate(activeReport.completed_at, timezone)}
-        </span>
-        <span className="workflow-report-workflow">
-          {activeReport.workflow_name}
-        </span>
-        {positionLabel && (
-          <span className="workflow-report-position" aria-live="polite">
-            {positionLabel}
-          </span>
-        )}
-      </div>
 
       {decisionError && (
         <div className="workflow-report-inline-error" role="alert">
@@ -603,14 +610,12 @@ export default function WorkflowReportWorkbench({
       )}
 
       <div className="workflow-report-preview" ref={previewRef}>
-        {reportMarkdown?.titleMarkdown && (
-          <div className="workflow-report-title">
-            <MarkdownViewer
-              content={reportMarkdown.titleMarkdown}
-              density="reading"
-            />
-          </div>
-        )}
+        <div className="workflow-report-title">
+          <h3 className="workflow-report-heading type-section-title">
+            {reportTitle}
+          </h3>
+          <p className="workflow-report-heading-meta type-meta">{reportMeta}</p>
+        </div>
 
         {hasEpisodes && (
           <div className="workflow-report-episodes" aria-label="报告单集">
@@ -705,20 +710,13 @@ export default function WorkflowReportWorkbench({
           </div>
         )}
 
-        {(!hasEpisodes || reportMarkdown?.bodyMarkdown) && (
+        {previewBodyMarkdown && (
           <div
             className={`workflow-report-body ${
               hasEpisodes ? "is-continuation" : ""
             }`}
           >
-            <MarkdownViewer
-              content={
-                hasEpisodes
-                  ? reportMarkdown?.bodyMarkdown || ""
-                  : activeReport.content || ""
-              }
-              density="report"
-            />
+            <MarkdownViewer content={previewBodyMarkdown} density="report" />
           </div>
         )}
       </div>
