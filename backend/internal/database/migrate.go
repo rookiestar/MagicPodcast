@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 19
+const CurrentSchemaVersion = 20
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -158,6 +158,12 @@ func migrationRegistry() []Migration {
 			Description: "Persist one durable completion fact per episode and backfill only provable current Done state (#168/#169).",
 			Apply:       applyEpisodeCompletionFactsMigration,
 		},
+		{
+			Version:     20,
+			Name:        "episode-processing-foundation",
+			Description: "Persist episode processing runs, checkpoints, immutable artifact sets, and independent knowledge deliveries (#179).",
+			Apply:       applyEpisodeProcessingFoundationMigration,
+		},
 	}
 }
 
@@ -174,7 +180,7 @@ var baselineRequiredTables = []string{
 	"episodes_tags",
 }
 
-var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions")
+var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions", "episode_processing_runs", "processing_checkpoints", "episode_artifact_sets", "knowledge_deliveries")
 
 func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
 	if db == nil {
@@ -662,6 +668,27 @@ func applyEpisodeCompletionFactsMigration(db *gorm.DB) error {
 		ON CONFLICT(episode_id) DO NOTHING
 	`, models.QueueStateDone).Error; err != nil {
 		return fmt.Errorf("backfill current Done completion facts: %w", err)
+	}
+	return nil
+}
+
+func applyEpisodeProcessingFoundationMigration(db *gorm.DB) error {
+	if err := db.AutoMigrate(
+		&models.EpisodeProcessingRun{},
+		&models.ProcessingCheckpoint{},
+		&models.EpisodeArtifactSet{},
+		&models.KnowledgeDelivery{},
+	); err != nil {
+		return fmt.Errorf("create episode processing foundation: %w", err)
+	}
+	for _, statement := range []string{
+		models.ActiveProcessingRunUniqueIndexSQL,
+		models.CurrentEpisodeArtifactSetUniqueIndexSQL,
+		models.ProcessingRunTerminalStatusTriggerSQL,
+	} {
+		if err := db.Exec(statement).Error; err != nil {
+			return fmt.Errorf("apply episode processing invariant: %w", err)
+		}
 	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"magicpodcast/internal/logger"
 	"os"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"magicpodcast/internal/llm"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/notifier"
+	"magicpodcast/internal/processing"
 	"magicpodcast/internal/repository"
 	"magicpodcast/internal/scheduler"
 	"magicpodcast/internal/services"
@@ -135,6 +137,24 @@ func SetupRouter() *gin.Engine {
 		v1.PUT("/consumption/episodes/:episodeID/dismissed", discoveryHandler.PutDismissed)
 		v1.POST("/consumption/episodes/:episodeID/read", discoveryHandler.MarkRead)
 		v1.POST("/consumption/episodes/:episodeID/in-progress", discoveryHandler.MarkInProgress)
+
+		processingService := processing.NewService(discoveryDB)
+		recovery, err := processingService.RecoverNonTerminalRuns(context.Background(), time.Now().UTC())
+		if err != nil {
+			panic(err)
+		}
+		if len(recovery.FailedRunIDs) > 0 || len(recovery.FailedDeliveryIDs) > 0 {
+			logger.Infof(
+				"Closed %d interrupted processing run(s) and %d knowledge delivery attempt(s) during startup recovery",
+				len(recovery.FailedRunIDs),
+				len(recovery.FailedDeliveryIDs),
+			)
+		}
+		processingHandler := handlers.NewProcessingHandler(processingService, nil)
+		v1.POST("/episodes/:id/processing-runs", processingHandler.Start)
+		v1.GET("/episodes/:id/processing-runs", processingHandler.ListEpisodeRuns)
+		v1.GET("/processing-runs/:id", processingHandler.Get)
+		v1.POST("/processing-runs/:id/cancel", processingHandler.Cancel)
 
 		// Podcast 路由
 		podcastHandler := handlers.NewPodcastHandler()

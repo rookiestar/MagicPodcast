@@ -433,6 +433,94 @@ func TestEpisodeCompletionMigrationRejectsDoneWithoutCompletionTime(t *testing.T
 	require.False(t, db.Migrator().HasTable(&models.EpisodeCompletion{}))
 }
 
+func TestApplyMigrationsUpgradesSchema19To20WithProcessingInvariants(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:19]))
+	require.Equal(t, 19, mustSchemaStatus(t, db).CurrentVersion)
+	for _, model := range []any{
+		&models.KnowledgeDelivery{},
+		&models.EpisodeArtifactSet{},
+		&models.ProcessingCheckpoint{},
+		&models.EpisodeProcessingRun{},
+	} {
+		require.NoError(t, db.Migrator().DropTable(model))
+	}
+
+	require.NoError(t, ApplyMigrations(db))
+	require.NoError(t, RequireSchemaReady(db))
+	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, db).CurrentVersion)
+	for _, model := range []any{
+		&models.EpisodeProcessingRun{},
+		&models.ProcessingCheckpoint{},
+		&models.EpisodeArtifactSet{},
+		&models.KnowledgeDelivery{},
+	} {
+		require.True(t, db.Migrator().HasTable(model))
+	}
+	require.True(t, db.Migrator().HasColumn(
+		&models.ProcessingCheckpoint{},
+		"adapter_version",
+	))
+	for _, name := range []string{
+		"idx_episode_processing_runs_one_active",
+		"idx_episode_artifact_sets_one_current",
+	} {
+		var count int64
+		require.NoError(t, db.Raw(
+			"SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?",
+			name,
+		).Scan(&count).Error)
+		require.Equal(t, int64(1), count)
+	}
+	var triggerCount int64
+	require.NoError(t, db.Raw(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'trigger' AND name = 'trg_episode_processing_runs_terminal_status'
+	`).Scan(&triggerCount).Error)
+	require.Equal(t, int64(1), triggerCount)
+
+	podcast := models.Podcast{
+		Title: "加工迁移", FeedURL: "https://example.com/processing.xml", XYZID: "migration-20",
+	}
+	require.NoError(t, db.Create(&podcast).Error)
+	episode := models.Episode{
+		PodcastID: podcast.ID, Title: "加工单集", GUID: "migration-20-episode",
+	}
+	require.NoError(t, db.Create(&episode).Error)
+	now := time.Date(2026, 8, 24, 8, 0, 0, 0, time.UTC)
+	first := models.EpisodeProcessingRun{
+		EpisodeID:       episode.ID,
+		ProcessingKey:   strings.Repeat("1", 64),
+		AudioDigest:     strings.Repeat("a", 64),
+		PipelineVersion: "v1",
+		TriggerSource:   models.ProcessingTriggerManual,
+		Status:          models.ProcessingRunStatusQueued,
+		MaxAttempts:     3,
+		RetryDeadlineAt: now.Add(time.Hour),
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	require.NoError(t, db.Create(&first).Error)
+	second := first
+	second.ID = 0
+	second.CreatedAt = now.Add(time.Second)
+	require.ErrorContains(t, db.Create(&second).Error, "UNIQUE constraint failed")
+	invalid := first
+	invalid.ID = 0
+	invalid.Status = "mystery"
+	require.ErrorContains(t, db.Create(&invalid).Error, "CHECK constraint failed")
+
+	require.NoError(t, db.Model(&first).Updates(map[string]any{
+		"status":      models.ProcessingRunStatusFailed,
+		"finished_at": now,
+	}).Error)
+	require.ErrorContains(
+		t,
+		db.Model(&first).Update("status", models.ProcessingRunStatusRunning).Error,
+		"terminal processing run status is immutable",
+	)
+}
+
 func mustSchemaStatus(t *testing.T, db *gorm.DB) SchemaStatus {
 	t.Helper()
 	status, err := InspectSchema(db)

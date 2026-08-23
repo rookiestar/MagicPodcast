@@ -13,9 +13,9 @@ import (
 	"strings"
 )
 
-const SanitizerVersion = "v5"
-const sanitizerSchemaFingerprint = "c0e8fdf7dea1045471a69d5e462f735ca1b7768d9c3dc10ff5c791deb2a8faff"
-const sanitizerSchemaObjectsFingerprint = "45ef580d849f0dee8d328d6c653fda26087673c20c909655c9454c878ae13921"
+const SanitizerVersion = "v6"
+const sanitizerSchemaFingerprint = "a5032b2e17f739e1724dab904a4049c82d5fb934b7642f14e3f11769519e597f"
+const sanitizerSchemaObjectsFingerprint = "90a23270834f54907558faac2597f32a10bd7b9f331498a764c59c2b83759fea"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 
@@ -80,6 +80,14 @@ func SanitizeSnapshot(db *sql.DB) error {
 		 SET main_feed_url = '',
 		     alternative_feed_url = ''`,
 		"DELETE FROM feed_snapshots",
+		// Processing rows reference local artifact paths and opaque provider
+		// identities that are not part of a database-only snapshot. Removing
+		// the whole graph is safer and more truthful than retaining broken
+		// artifact or external-delivery state.
+		"DELETE FROM knowledge_deliveries",
+		"DELETE FROM processing_checkpoints",
+		"DELETE FROM episode_artifact_sets",
+		"DELETE FROM episode_processing_runs",
 	} {
 		if _, err := transaction.Exec(statement); err != nil {
 			return fmt.Errorf("apply snapshot redaction: %w", err)
@@ -153,6 +161,10 @@ func VerifySanitizedSnapshot(db *sql.DB) error {
 		{`SELECT COUNT(*) FROM podcast_alternative_feeds
 		  WHERE main_feed_url <> '' OR alternative_feed_url <> ''`, "alternative Feed URLs"},
 		{"SELECT COUNT(*) FROM feed_snapshots", "durable feed bodies"},
+		{"SELECT COUNT(*) FROM knowledge_deliveries", "knowledge delivery identities"},
+		{"SELECT COUNT(*) FROM processing_checkpoints", "processing provider checkpoints"},
+		{"SELECT COUNT(*) FROM episode_artifact_sets", "local processing artifact paths"},
+		{"SELECT COUNT(*) FROM episode_processing_runs", "processing run metadata"},
 	} {
 		if err := db.QueryRow(check.query).Scan(&count); err != nil {
 			return fmt.Errorf("verify %s redaction: %w", check.label, err)
