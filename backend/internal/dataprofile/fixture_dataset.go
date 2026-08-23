@@ -43,11 +43,38 @@ func seedCompleteFixture(db *gorm.DB, scenario string, anchor time.Time) error {
 			return fmt.Errorf("create fixture consumption states: %w", err)
 		}
 	}
+	completions := fixtureCompletions(decisions)
+	if len(completions) > 0 {
+		if err := db.Session(&gorm.Session{SkipHooks: true}).Create(&completions).Error; err != nil {
+			return fmt.Errorf("create fixture completion facts: %w", err)
+		}
+	}
 
 	if scenario == FixtureScenarioReportEmpty {
 		return nil
 	}
 	return seedFixtureReports(db, scenario, reference)
+}
+
+func fixtureCompletions(
+	decisions []models.EpisodeTriageDecision,
+) []models.EpisodeCompletion {
+	completions := make([]models.EpisodeCompletion, 0)
+	for _, decision := range decisions {
+		if decision.QueueState == nil ||
+			*decision.QueueState != models.QueueStateDone ||
+			decision.QueueUpdatedAt == nil {
+			continue
+		}
+		completedAt := *decision.QueueUpdatedAt
+		completions = append(completions, models.EpisodeCompletion{
+			EpisodeID:   decision.EpisodeID,
+			CompletedAt: completedAt,
+			CreatedAt:   completedAt,
+			UpdatedAt:   completedAt,
+		})
+	}
+	return completions
 }
 
 func fixturePodcasts(anchor time.Time) []models.Podcast {

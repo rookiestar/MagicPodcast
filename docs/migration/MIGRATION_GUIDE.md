@@ -6,7 +6,7 @@
 
 ## 当前版本化迁移
 
-当前 schema 版本为 `18`（与源码 `backend/internal/database/migrate.go` 中 `CurrentSchemaVersion` 一致），版本记录保存在 `schema_migrations`。迁移注册表位于同一文件，每个版本包含名称、说明和事务内的执行函数。当前版本链为：
+当前 schema 版本为 `19`（与源码 `backend/internal/database/migrate.go` 中 `CurrentSchemaVersion` 一致），版本记录保存在 `schema_migrations`。迁移注册表位于同一文件，每个版本包含名称、说明和事务内的执行函数。当前版本链为：
 
 1. `1 baseline-current-model`：空数据库创建当前模型表和索引；已有且完整的数据库只记录 baseline。
 2. `2 feed-access-observability`：记录 Feed HTTP 状态、错误类别、耗时、缓存和出口等观测字段。
@@ -26,6 +26,7 @@
 16. `16 homepage-workflow-reports`：为工作流与报告增加首页发布、报告类型、工作流名称和结构化单集字段（#89/#90）。
 17. `17 episode-consumption-state`：把单集判断扩展为跨日 Inbox、Focus、Someday、Done、进行中与已读状态；历史 shortlisted 迁入 Inbox，discarded 保留为不感兴趣（#101/#102）。生产 apply 需单独授权。
 18. `18 consumption-queue-order`：为四条消费队列增加独立位置和版本；按升级前的稳定可见顺序回填，供刷新、跨设备一致的精确排序使用（#157）。生产 apply 需单独授权。
+19. `19 episode-completion-facts`：为每个单集建立唯一完成事实；只从当前 Done 且具有既有队列更新时间的记录回填，缺少时间则预检失败（#168/#169）。生产 apply 需单独授权。
 
 运行约束（非独立版本号）：
 

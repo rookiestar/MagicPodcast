@@ -1,6 +1,7 @@
 package services
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -13,7 +14,11 @@ import (
 func setupConsumptionService(t *testing.T, now time.Time) (*ConsumptionService, models.Podcast) {
 	t.Helper()
 	db := setupDiscoveryTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.EpisodeTriageDecision{}, &models.ConsumptionQueueOrder{}))
+	require.NoError(t, db.AutoMigrate(
+		&models.EpisodeCompletion{},
+		&models.EpisodeTriageDecision{},
+		&models.ConsumptionQueueOrder{},
+	))
 	require.NoError(t, db.Create(&[]models.ConsumptionQueueOrder{
 		{QueueState: models.QueueStateInbox, Revision: 1},
 		{QueueState: models.QueueStateFocus, Revision: 1},
@@ -471,6 +476,219 @@ func TestConsumptionService_PlaceQueueFocusLimitDoesNotWriteBeforeConfirmation(t
 	require.Equal(t, focus.Revision, afterFocus.Revision)
 	require.Equal(t, []uint{candidate.ID}, consumptionItemIDs(afterInbox.Items))
 	require.Len(t, afterFocus.Items, FocusSoftLimit)
+}
+
+func TestConsumptionService_RecentCompletionsUseWindowLimitAndCurrentDone(t *testing.T) {
+	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	service, podcast := setupConsumptionService(t, now)
+	outside := createDiscoveryEpisode(t, service.db, podcast.ID, "窗口外", now, nil)
+	boundary := createDiscoveryEpisode(t, service.db, podcast.ID, "窗口边界", now, nil)
+	recent := createDiscoveryEpisode(t, service.db, podcast.ID, "最近完成", now, nil)
+
+	service.now = func() time.Time { return now.Add(-RecentCompletionWindow - time.Nanosecond) }
+	_, err := service.SetQueue(outside.ID, models.QueueStateDone, QueueWriteOptions{})
+	require.NoError(t, err)
+	service.now = func() time.Time { return now.Add(-RecentCompletionWindow) }
+	_, err = service.SetQueue(boundary.ID, models.QueueStateDone, QueueWriteOptions{})
+	require.NoError(t, err)
+	service.now = func() time.Time { return now }
+	_, err = service.SetQueue(recent.ID, models.QueueStateDone, QueueWriteOptions{})
+	require.NoError(t, err)
+
+	snapshot, err := service.ListQueue(models.QueueStateDone)
+	require.NoError(t, err)
+	require.Equal(t, []uint{recent.ID, boundary.ID}, consumptionItemIDs(snapshot.Items))
+	require.False(t, snapshot.HasMore)
+	require.NotNil(t, snapshot.Items[0].CompletedAt)
+	require.True(t, snapshot.Items[0].CompletedAt.Equal(now))
+
+	for index := 0; index < RecentCompletionLimit; index++ {
+		episode := createDiscoveryEpisode(
+			t,
+			service.db,
+			podcast.ID,
+			"溢出完成",
+			now.Add(time.Duration(index)*time.Minute),
+			nil,
+		)
+		completedAt := now.Add(time.Duration(index+1) * time.Minute)
+		service.now = func() time.Time { return completedAt }
+		_, err := service.SetQueue(episode.ID, models.QueueStateDone, QueueWriteOptions{})
+		require.NoError(t, err)
+	}
+	service.now = func() time.Time { return now.Add(2 * time.Hour) }
+	snapshot, err = service.ListQueue(models.QueueStateDone)
+	require.NoError(t, err)
+	require.Len(t, snapshot.Items, RecentCompletionLimit)
+	require.True(t, snapshot.HasMore)
+	for index := 1; index < len(snapshot.Items); index++ {
+		require.True(
+			t,
+			snapshot.Items[index-1].CompletedAt.After(*snapshot.Items[index].CompletedAt),
+		)
+	}
+
+	_, err = service.SetQueue(recent.ID, models.QueueStateInbox, QueueWriteOptions{})
+	require.NoError(t, err)
+	_, err = service.SetDismissed(recent.ID, true)
+	require.NoError(t, err)
+	snapshot, err = service.ListQueue(models.QueueStateDone)
+	require.NoError(t, err)
+	require.NotContains(t, consumptionItemIDs(snapshot.Items), recent.ID)
+	var completionCount int64
+	require.NoError(t, service.db.Model(&models.EpisodeCompletion{}).
+		Where("episode_id = ?", recent.ID).
+		Count(&completionCount).Error)
+	require.Equal(t, int64(1), completionCount)
+}
+
+func TestConsumptionService_UndoCompletionRestoresQueuePositionAndCompletionFact(t *testing.T) {
+	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	service, podcast := setupConsumptionService(t, now)
+	first := createDiscoveryEpisode(t, service.db, podcast.ID, "第一项", now, nil)
+	second := createDiscoveryEpisode(t, service.db, podcast.ID, "第二项", now, nil)
+	third := createDiscoveryEpisode(t, service.db, podcast.ID, "第三项", now, nil)
+	for _, episode := range []models.Episode{first, second, third} {
+		_, err := service.SetQueue(episode.ID, models.QueueStateInbox, QueueWriteOptions{})
+		require.NoError(t, err)
+	}
+	progress, err := service.MarkInProgress(second.ID)
+	require.NoError(t, err)
+	require.NotNil(t, progress.InProgressAt)
+	originalProgressAt := *progress.InProgressAt
+	before, err := service.ListQueue(models.QueueStateInbox)
+	require.NoError(t, err)
+	require.Equal(t, []uint{third.ID, second.ID, first.ID}, consumptionItemIDs(before.Items))
+
+	now = now.Add(time.Hour)
+	completed, err := service.SetQueueWithResult(second.ID, models.QueueStateDone, QueueWriteOptions{})
+	require.NoError(t, err)
+	require.NotNil(t, completed.CompletionUndo)
+	var completionCount int64
+	require.NoError(t, service.db.Model(&models.EpisodeCompletion{}).
+		Where("episode_id = ?", second.ID).
+		Count(&completionCount).Error)
+	require.Equal(t, int64(1), completionCount)
+
+	result, err := service.UndoCompletion(second.ID, completed.CompletionUndo.Token)
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		[]uint{third.ID, second.ID, first.ID},
+		consumptionItemIDs(result.Queues[models.QueueStateInbox].Items),
+	)
+	require.Empty(t, result.Queues[models.QueueStateDone].Items)
+	restored, err := service.GetItem(second.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.QueueStateInbox, *restored.QueueState)
+	require.NotNil(t, restored.InProgressAt)
+	require.True(t, restored.InProgressAt.Equal(originalProgressAt))
+	require.NoError(t, service.db.Model(&models.EpisodeCompletion{}).
+		Where("episode_id = ?", second.ID).
+		Count(&completionCount).Error)
+	require.Zero(t, completionCount)
+}
+
+func TestConsumptionService_UndoRepeatedCompletionRestoresPreviousFact(t *testing.T) {
+	now := time.Date(2026, 8, 20, 9, 0, 0, 0, time.UTC)
+	service, podcast := setupConsumptionService(t, now)
+	episode := createDiscoveryEpisode(t, service.db, podcast.ID, "再次完成", now, nil)
+	_, err := service.SetQueue(episode.ID, models.QueueStateInbox, QueueWriteOptions{})
+	require.NoError(t, err)
+	firstCompletedAt := now.Add(time.Hour)
+	service.now = func() time.Time { return firstCompletedAt }
+	_, err = service.SetQueue(episode.ID, models.QueueStateDone, QueueWriteOptions{})
+	require.NoError(t, err)
+	service.now = func() time.Time { return firstCompletedAt.Add(time.Hour) }
+	_, err = service.SetQueue(episode.ID, models.QueueStateInbox, QueueWriteOptions{})
+	require.NoError(t, err)
+
+	secondCompletedAt := firstCompletedAt.Add(2 * time.Hour)
+	service.now = func() time.Time { return secondCompletedAt }
+	completed, err := service.SetQueueWithResult(episode.ID, models.QueueStateDone, QueueWriteOptions{})
+	require.NoError(t, err)
+	require.NotNil(t, completed.CompletionUndo)
+	_, err = service.UndoCompletion(episode.ID, completed.CompletionUndo.Token)
+	require.NoError(t, err)
+
+	item, err := service.GetItem(episode.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.QueueStateInbox, *item.QueueState)
+	require.NotNil(t, item.CompletedAt)
+	require.True(t, item.CompletedAt.Equal(firstCompletedAt))
+}
+
+func TestConsumptionService_UndoCompletionRejectsExpiredAndConflictingState(t *testing.T) {
+	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	service, podcast := setupConsumptionService(t, now)
+	candidate := createDiscoveryEpisode(t, service.db, podcast.ID, "冲突完成", now, nil)
+	other := createDiscoveryEpisode(t, service.db, podcast.ID, "另一设备改动", now, nil)
+	for _, episode := range []models.Episode{candidate, other} {
+		_, err := service.SetQueue(episode.ID, models.QueueStateInbox, QueueWriteOptions{})
+		require.NoError(t, err)
+	}
+	completed, err := service.SetQueueWithResult(candidate.ID, models.QueueStateDone, QueueWriteOptions{})
+	require.NoError(t, err)
+	_, err = service.SetQueue(other.ID, models.QueueStateSomeday, QueueWriteOptions{})
+	require.NoError(t, err)
+	_, err = service.UndoCompletion(candidate.ID, completed.CompletionUndo.Token)
+	require.ErrorIs(t, err, ErrCompletionUndoConflict)
+	item, err := service.GetItem(candidate.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.QueueStateDone, *item.QueueState)
+	require.NotNil(t, item.CompletedAt)
+
+	expiring := createDiscoveryEpisode(t, service.db, podcast.ID, "超时完成", now, nil)
+	_, err = service.SetQueue(expiring.ID, models.QueueStateInbox, QueueWriteOptions{})
+	require.NoError(t, err)
+	service.now = func() time.Time { return now }
+	expiringResult, err := service.SetQueueWithResult(expiring.ID, models.QueueStateDone, QueueWriteOptions{})
+	require.NoError(t, err)
+	service.now = func() time.Time { return now.Add(CompletionUndoWindow + time.Nanosecond) }
+	_, err = service.UndoCompletion(expiring.ID, expiringResult.CompletionUndo.Token)
+	require.ErrorIs(t, err, ErrCompletionUndoExpired)
+	item, err = service.GetItem(expiring.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.QueueStateDone, *item.QueueState)
+}
+
+func TestConsumptionService_ConcurrentCompletionKeepsOneFact(t *testing.T) {
+	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	service, podcast := setupConsumptionService(t, now)
+	sqlDB, err := service.db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	episode := createDiscoveryEpisode(t, service.db, podcast.ID, "并发完成", now, nil)
+	_, err = service.SetQueue(episode.ID, models.QueueStateInbox, QueueWriteOptions{})
+	require.NoError(t, err)
+
+	var wait sync.WaitGroup
+	errorsCh := make(chan error, 8)
+	for index := 0; index < 8; index++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			_, completionErr := service.SetQueueWithResult(
+				episode.ID,
+				models.QueueStateDone,
+				QueueWriteOptions{},
+			)
+			errorsCh <- completionErr
+		}()
+	}
+	wait.Wait()
+	close(errorsCh)
+	for completionErr := range errorsCh {
+		require.NoError(t, completionErr)
+	}
+	var completionCount int64
+	require.NoError(t, service.db.Model(&models.EpisodeCompletion{}).
+		Where("episode_id = ?", episode.ID).
+		Count(&completionCount).Error)
+	require.Equal(t, int64(1), completionCount)
+	recent, err := service.ListQueue(models.QueueStateDone)
+	require.NoError(t, err)
+	require.Equal(t, []uint{episode.ID}, consumptionItemIDs(recent.Items))
 }
 
 func consumptionItemIDs(items []ConsumptionItem) []uint {

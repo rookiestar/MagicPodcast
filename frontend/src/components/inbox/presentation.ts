@@ -23,9 +23,9 @@ export const QUEUE_PRESENTATION: Record<ConsumptionQueue, QueuePresentation> = {
     empty: "没有留待以后处理的单集。",
   },
   done: {
-    label: "Done",
-    policy: "只记录你明确确认完成的内容。",
-    empty: "还没有手动完成的单集。",
+    label: "最近完成",
+    policy: "连续 7 天内最近完成的内容，最多显示 20 条。",
+    empty: "最近 7 天还没有完成的单集。",
   },
 };
 
@@ -52,6 +52,18 @@ export function formatPublishedDate(value: string) {
 }
 
 export function formatActivityDate(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+export function formatCompletedDate(value?: string) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";

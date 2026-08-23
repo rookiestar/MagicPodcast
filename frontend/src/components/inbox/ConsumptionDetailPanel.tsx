@@ -591,7 +591,7 @@ export default function ConsumptionDetailPanel({
                 onClick={() => void moveItem("done")}
               >
                 <IconCircleCheck size={19} stroke={1.8} aria-hidden="true" />
-                标记 Done
+                标记完成
               </button>
             )}
             <div className={styles.detailMove}>

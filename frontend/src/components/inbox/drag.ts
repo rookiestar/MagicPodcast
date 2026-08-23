@@ -31,6 +31,9 @@ export function resolveQueuePlacement({
   overEpisodeId,
   placeAfter,
 }: ResolveQueuePlacementOptions): QueuePlacementPreview | null {
+  if (targetQueue === "done") {
+    return { queue: "done", beforeEpisodeId: null };
+  }
   const targetIDs = targetItems.map((item) => item.episode_id);
   const withoutActive = targetIDs.filter((id) => id !== activeEpisodeId);
 
@@ -64,6 +67,7 @@ export function isNoOpQueuePlacement(
   activeEpisodeId: number,
   beforeEpisodeId: number | null,
 ) {
+  if (sourceQueue === "done" && targetQueue === "done") return true;
   if (sourceQueue !== targetQueue) return false;
   const activeIndex = sourceItems.findIndex(
     (item) => item.episode_id === activeEpisodeId,

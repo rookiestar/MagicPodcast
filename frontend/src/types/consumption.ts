@@ -10,6 +10,11 @@ export const CONSUMPTION_QUEUES = [
 export type ConsumptionQueue = (typeof CONSUMPTION_QUEUES)[number];
 export type ConsumptionAttention = "" | "stale" | "review";
 
+export interface CompletionUndo {
+  token: string;
+  expires_at: string;
+}
+
 export interface ConsumptionItem {
   episode_id: number;
   podcast_id: number;
@@ -28,10 +33,12 @@ export interface ConsumptionItem {
   queue_state: ConsumptionQueue | null;
   dismissed_at?: string;
   queue_updated_at?: string;
+  completed_at?: string;
   in_progress_at?: string;
   read_at?: string;
   activity_at?: string;
   attention?: ConsumptionAttention;
+  completion_undo?: CompletionUndo;
 }
 
 export interface ConsumptionSummary {
@@ -44,6 +51,7 @@ export interface ConsumptionQueuePayload {
   queue_state: ConsumptionQueue;
   revision: number;
   items: ConsumptionItem[];
+  has_more: boolean;
 }
 
 export interface ConsumptionQueuePlacementRequest {
@@ -55,6 +63,7 @@ export interface ConsumptionQueuePlacementRequest {
 
 export interface ConsumptionQueuePlacementResult {
   queues: Partial<Record<ConsumptionQueue, ConsumptionQueuePayload>>;
+  completion_undo?: CompletionUndo;
 }
 
 export interface ConsumptionErrorDetails {

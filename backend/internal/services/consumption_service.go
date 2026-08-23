@@ -43,38 +43,42 @@ type QueueSummary struct {
 }
 
 type ConsumptionItem struct {
-	EpisodeID       uint         `json:"episode_id"`
-	PodcastID       uint         `json:"podcast_id"`
-	PodcastTitle    string       `json:"podcast_title"`
-	PodcastAuthor   string       `json:"podcast_author"`
-	PodcastCoverURL string       `json:"podcast_cover_url"`
-	EpisodeTitle    string       `json:"episode_title"`
-	EpisodeNo       string       `json:"episode_no"`
-	Duration        int          `json:"duration"`
-	PublishedDate   time.Time    `json:"published_date"`
-	ShowNotes       string       `json:"show_notes"`
-	OriginalURL     string       `json:"original_url"`
-	ImageURL        string       `json:"image_url"`
-	Notes           string       `json:"notes"`
-	Tags            []models.Tag `json:"tags"`
-	QueueState      *string      `json:"queue_state"`
-	DismissedAt     *time.Time   `json:"dismissed_at,omitempty"`
-	QueueUpdatedAt  *time.Time   `json:"queue_updated_at,omitempty"`
-	InProgressAt    *time.Time   `json:"in_progress_at,omitempty"`
-	ReadAt          *time.Time   `json:"read_at,omitempty"`
-	ActivityAt      *time.Time   `json:"activity_at,omitempty"`
-	Attention       string       `json:"attention,omitempty"`
+	EpisodeID       uint            `json:"episode_id"`
+	PodcastID       uint            `json:"podcast_id"`
+	PodcastTitle    string          `json:"podcast_title"`
+	PodcastAuthor   string          `json:"podcast_author"`
+	PodcastCoverURL string          `json:"podcast_cover_url"`
+	EpisodeTitle    string          `json:"episode_title"`
+	EpisodeNo       string          `json:"episode_no"`
+	Duration        int             `json:"duration"`
+	PublishedDate   time.Time       `json:"published_date"`
+	ShowNotes       string          `json:"show_notes"`
+	OriginalURL     string          `json:"original_url"`
+	ImageURL        string          `json:"image_url"`
+	Notes           string          `json:"notes"`
+	Tags            []models.Tag    `json:"tags"`
+	QueueState      *string         `json:"queue_state"`
+	DismissedAt     *time.Time      `json:"dismissed_at,omitempty"`
+	QueueUpdatedAt  *time.Time      `json:"queue_updated_at,omitempty"`
+	CompletedAt     *time.Time      `json:"completed_at,omitempty"`
+	InProgressAt    *time.Time      `json:"in_progress_at,omitempty"`
+	ReadAt          *time.Time      `json:"read_at,omitempty"`
+	ActivityAt      *time.Time      `json:"activity_at,omitempty"`
+	Attention       string          `json:"attention,omitempty"`
+	CompletionUndo  *CompletionUndo `json:"completion_undo,omitempty"`
 }
 
 type ConsumptionService struct {
-	db  *gorm.DB
-	now func() time.Time
+	db      *gorm.DB
+	now     func() time.Time
+	undoKey []byte
 }
 
 func NewConsumptionService(db *gorm.DB) *ConsumptionService {
 	return &ConsumptionService{
-		db:  db,
-		now: func() time.Time { return time.Now().UTC() },
+		db:      db,
+		now:     func() time.Time { return time.Now().UTC() },
+		undoKey: newCompletionUndoKey(),
 	}
 }
 
@@ -92,7 +96,11 @@ func (s *ConsumptionService) SetQueue(
 	queueState string,
 	options QueueWriteOptions,
 ) (*models.EpisodeTriageDecision, error) {
-	return s.moveQueueToHead(episodeID, queueState, options)
+	result, err := s.SetQueueWithResult(episodeID, queueState, options)
+	if err != nil {
+		return nil, err
+	}
+	return result.Decision, nil
 }
 
 func (s *ConsumptionService) ClearQueue(episodeID uint) (*models.EpisodeTriageDecision, error) {
@@ -213,7 +221,11 @@ func (s *ConsumptionService) GetItem(episodeID uint) (*ConsumptionItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	item := buildConsumptionItem(state, s.now().UTC())
+	completedAt, err := completionTimeForEpisode(s.db, episodeID)
+	if err != nil {
+		return nil, err
+	}
+	item := buildConsumptionItem(state, completedAt, s.now().UTC())
 	return &item, nil
 }
 
@@ -254,6 +266,7 @@ func (s *ConsumptionService) ensureState(
 
 func buildConsumptionItem(
 	state models.EpisodeTriageDecision,
+	completedAt *time.Time,
 	now time.Time,
 ) ConsumptionItem {
 	episode := state.Episode
@@ -298,6 +311,7 @@ func buildConsumptionItem(
 		QueueState:      state.QueueState,
 		DismissedAt:     state.DismissedAt,
 		QueueUpdatedAt:  state.QueueUpdatedAt,
+		CompletedAt:     completedAt,
 		InProgressAt:    state.InProgressAt,
 		ReadAt:          state.ReadAt,
 		ActivityAt:      activityAt,

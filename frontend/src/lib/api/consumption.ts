@@ -31,6 +31,8 @@ interface AxiosLikeError {
 
 export const FOCUS_CONFIRMATION_ERROR = "FOCUS_LIMIT_CONFIRMATION_REQUIRED";
 export const QUEUE_ORDER_CONFLICT = "QUEUE_ORDER_CONFLICT";
+export const COMPLETION_UNDO_CONFLICT = "COMPLETION_UNDO_CONFLICT";
+export const COMPLETION_UNDO_EXPIRED = "COMPLETION_UNDO_EXPIRED";
 export const CONSUMPTION_SUMMARY_KEY = "/api/v1/consumption/summary";
 
 export function revalidateConsumptionSummary() {
@@ -62,6 +64,14 @@ export function requiresFocusConfirmation(error: unknown) {
 
 export function isQueueOrderConflict(error: unknown) {
   return getConsumptionErrorDetails(error).code === QUEUE_ORDER_CONFLICT;
+}
+
+export function isCompletionUndoConflict(error: unknown) {
+  return getConsumptionErrorDetails(error).code === COMPLETION_UNDO_CONFLICT;
+}
+
+export function isCompletionUndoExpired(error: unknown) {
+  return getConsumptionErrorDetails(error).code === COMPLETION_UNDO_EXPIRED;
 }
 
 export const consumptionApi = {
@@ -112,6 +122,19 @@ export const consumptionApi = {
     const response = await api.put<ApiResponse<ConsumptionQueuePlacementResult>>(
       `/api/v1/consumption/episodes/${episodeId}/placement`,
       request,
+    );
+    const result = handleResponse(response);
+    void revalidateConsumptionSummary();
+    return result;
+  },
+
+  undoCompletion: async (
+    episodeId: number,
+    token: string,
+  ): Promise<ConsumptionQueuePlacementResult> => {
+    const response = await api.post<ApiResponse<ConsumptionQueuePlacementResult>>(
+      `/api/v1/consumption/episodes/${episodeId}/completion/undo`,
+      { token },
     );
     const result = handleResponse(response);
     void revalidateConsumptionSummary();

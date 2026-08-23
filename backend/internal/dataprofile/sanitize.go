@@ -14,8 +14,8 @@ import (
 )
 
 const SanitizerVersion = "v5"
-const sanitizerSchemaFingerprint = "f4cf496adf2a76ace6155794721051ee2fd3ea9b68d8eb348d20b65297f5e84a"
-const sanitizerSchemaObjectsFingerprint = "20717d9bec694459df93438e6a95a325afdf245080d3ef7804c4a5731ac15b5e"
+const sanitizerSchemaFingerprint = "c0e8fdf7dea1045471a69d5e462f735ca1b7768d9c3dc10ff5c791deb2a8faff"
+const sanitizerSchemaObjectsFingerprint = "45ef580d849f0dee8d328d6c653fda26087673c20c909655c9454c878ae13921"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 

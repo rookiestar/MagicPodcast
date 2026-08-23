@@ -59,8 +59,8 @@ describe("resolveQueuePlacement", () => {
         sourceQueue: "inbox",
         targetQueue: "done",
         activeEpisodeId: 1,
-        targetItems: [],
-        overEpisodeId: null,
+        targetItems,
+        overEpisodeId: 11,
         placeAfter: false,
       }),
     ).toEqual({ queue: "done", beforeEpisodeId: null });
@@ -72,5 +72,6 @@ describe("resolveQueuePlacement", () => {
     expect(isNoOpQueuePlacement("inbox", "inbox", items, 2, 3)).toBe(true);
     expect(isNoOpQueuePlacement("inbox", "inbox", items, 2, 1)).toBe(false);
     expect(isNoOpQueuePlacement("inbox", "focus", items, 2, 3)).toBe(false);
+    expect(isNoOpQueuePlacement("done", "done", items, 1, 2)).toBe(true);
   });
 });

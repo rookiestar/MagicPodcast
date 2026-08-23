@@ -415,6 +415,7 @@
 }
 
 .progressSignal,
+.completedSignal,
 .staleSignal,
 .reviewSignal,
 .activitySignal {
@@ -429,6 +430,11 @@
 
 .progressSignal {
   color: #9f4310;
+}
+
+.completedSignal {
+  color: #3f684b;
+  font-weight: 600;
 }
 
 .staleSignal {
@@ -616,6 +622,16 @@
   text-align: center;
 }
 
+.recentOverflow {
+  margin: 10px 0 0;
+  padding: 9px 10px;
+  color: #3f684b;
+  border: 1px solid rgba(74, 103, 81, 0.3);
+  background: rgba(74, 103, 81, 0.07);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 .dragOverlay {
   display: grid;
   width: min(300px, calc(100vw - 48px));
@@ -654,6 +670,60 @@
   margin: 0 0 14px;
   padding: 8px 10px 8px 12px;
   font-size: 12px;
+}
+
+.undoStack {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.undoNotice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px 9px 12px;
+  color: #284a33;
+  border: 1px solid rgba(74, 103, 81, 0.42);
+  background: rgba(74, 103, 81, 0.1);
+  font-size: 12px;
+}
+
+.undoNotice > svg {
+  flex: 0 0 auto;
+}
+
+.undoNotice > span {
+  flex: 1 1 auto;
+}
+
+.undoButton {
+  display: inline-flex;
+  min-height: 36px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 0 11px;
+  color: #fff;
+  border: 1px solid #284a33;
+  background: #3f684b;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.undoButton:hover:not(:disabled) {
+  background: #284a33;
+}
+
+.undoButton:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+
+.undoButton:disabled {
+  opacity: 0.5;
+  cursor: wait;
 }
 
 .summaryError > svg,

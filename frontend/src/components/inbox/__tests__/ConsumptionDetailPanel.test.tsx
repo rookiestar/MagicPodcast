@@ -172,7 +172,7 @@ describe("ConsumptionDetailPanel", () => {
       .mockResolvedValue({ ...item, queue_state: "done" });
     renderDetail({ onMove });
 
-    fireEvent.click(screen.getByRole("button", { name: "标记 Done" }));
+    fireEvent.click(screen.getByRole("button", { name: "标记完成" }));
 
     await waitFor(() => expect(onMove).toHaveBeenCalledWith(item, "done"));
     expect(apiMocks.markInProgress).not.toHaveBeenCalled();

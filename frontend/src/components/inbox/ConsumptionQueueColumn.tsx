@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { useDroppable } from "@dnd-kit/core";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 import {
   SortableContext,
   useSortable,
@@ -37,6 +37,7 @@ import {
 } from "@/types/consumption";
 import {
   formatActivityDate,
+  formatCompletedDate,
   formatDuration,
   formatPublishedDate,
   QUEUE_PRESENTATION,
@@ -53,6 +54,7 @@ interface ConsumptionQueueColumnProps {
   queue: ConsumptionQueue;
   items: ConsumptionItem[];
   count: number;
+  hasMore: boolean;
   isLoading: boolean;
   error: string | null;
   focusLimit: number;
@@ -301,6 +303,12 @@ function ConsumptionCard({
               进行中
             </span>
           )}
+          {currentQueue === "done" && item.completed_at && (
+            <span className={styles.completedSignal}>
+              <IconCircleCheck size={14} stroke={1.8} aria-hidden="true" />
+              完成于 {formatCompletedDate(item.completed_at)}
+            </span>
+          )}
           {item.attention === "stale" && (
             <span className={styles.staleSignal}>
               <IconClock size={14} stroke={1.8} aria-hidden="true" />
@@ -313,11 +321,14 @@ function ConsumptionCard({
               需要复盘
             </span>
           )}
-          {!item.in_progress_at && !item.attention && item.activity_at && (
+          {currentQueue !== "done" &&
+            !item.in_progress_at &&
+            !item.attention &&
+            item.activity_at && (
             <span className={styles.activitySignal}>
               更新于 {formatActivityDate(item.activity_at)}
             </span>
-          )}
+            )}
         </div>
 
         <div className={styles.cardActions}>
@@ -327,8 +338,8 @@ function ConsumptionCard({
               className={styles.iconButton}
               disabled={busy}
               onClick={() => void handleMove("done")}
-              aria-label={`将 ${item.episode_title} 标记 Done`}
-              title="标记 Done"
+              aria-label={`将 ${item.episode_title} 标记完成`}
+              title="标记完成"
             >
               <IconCircleCheck size={18} stroke={1.8} aria-hidden="true" />
             </button>
@@ -372,7 +383,9 @@ function ConsumptionCard({
                   onClick={() => void handleMove(queue)}
                 >
                   <QueueIcon queue={queue} size={16} />
-                  移至 {QUEUE_PRESENTATION[queue].label}
+                  {queue === "done"
+                    ? "标记完成"
+                    : `移至 ${QUEUE_PRESENTATION[queue].label}`}
                 </button>
               ))}
             </div>,
@@ -462,6 +475,68 @@ function SortableConsumptionCard({
   );
 }
 
+function DraggableCompletedCard({
+  item,
+  busy,
+  onOpen,
+  onMove,
+}: {
+  item: ConsumptionItem;
+  busy: boolean;
+  onOpen: (item: ConsumptionItem, trigger: HTMLButtonElement) => void;
+  onMove: (
+    item: ConsumptionItem,
+    target: ConsumptionQueue,
+  ) => Promise<ConsumptionItem | undefined>;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    isDragging,
+  } = useDraggable({
+    id: episodeDragId(item.episode_id),
+    disabled: busy,
+    data: {
+      kind: "item",
+      queue: "done",
+      episodeId: item.episode_id,
+    } satisfies QueueDragData,
+  });
+
+  return (
+    <ConsumptionCard
+      item={item}
+      busy={busy}
+      onOpen={onOpen}
+      onMove={onMove}
+      cardRef={setNodeRef}
+      cardStyle={{
+        transform: transform
+          ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
+          : undefined,
+      }}
+      isDragging={isDragging}
+      dragHandle={
+        <button
+          ref={setActivatorNodeRef}
+          type="button"
+          className={styles.dragHandle}
+          disabled={busy}
+          aria-label={`拖动《${item.episode_title}》重新处理`}
+          title="拖出最近完成以重新处理"
+          {...attributes}
+          {...listeners}
+        >
+          <IconGripVertical size={18} stroke={1.9} aria-hidden="true" />
+        </button>
+      }
+    />
+  );
+}
+
 function QueueCards({
   queue,
   items,
@@ -482,14 +557,23 @@ function QueueCards({
   dragEnabled: boolean;
   dragPreview: QueuePlacementPreview | null;
 }) {
-  const previewForQueue = dragPreview?.queue === queue ? dragPreview : null;
+  const previewForQueue =
+    queue !== "done" && dragPreview?.queue === queue ? dragPreview : null;
   const renderCard = (item: ConsumptionItem, index: number) => {
     const showInsertBefore =
       previewForQueue?.beforeEpisodeId === item.episode_id;
     const showInsertAfter =
       previewForQueue?.beforeEpisodeId === null && index === items.length - 1;
 
-    return dragEnabled ? (
+    return dragEnabled && queue === "done" ? (
+      <DraggableCompletedCard
+        key={item.episode_id}
+        item={item}
+        busy={busyEpisodes.has(item.episode_id)}
+        onOpen={onOpen}
+        onMove={onMove}
+      />
+    ) : dragEnabled ? (
       <SortableConsumptionCard
         key={item.episode_id}
         item={item}
@@ -515,7 +599,7 @@ function QueueCards({
 
   const content = <>{items.map(renderCard)}</>;
 
-  if (!dragEnabled) return content;
+  if (!dragEnabled || queue === "done") return content;
   return (
     <SortableContext
       items={items.map((item) => episodeDragId(item.episode_id))}
@@ -578,6 +662,7 @@ export default function ConsumptionQueueColumn({
   queue,
   items,
   count,
+  hasMore,
   isLoading,
   error,
   focusLimit,
@@ -660,6 +745,11 @@ export default function ConsumptionQueueColumn({
           />
         )}
       </QueueItemsContainer>
+      {queue === "done" && hasMore && !error && (
+        <p className={styles.recentOverflow} role="status">
+          最近 7 天还有未展示的完成记录。
+        </p>
+      )}
     </section>
   );
 }

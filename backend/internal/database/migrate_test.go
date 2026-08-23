@@ -354,6 +354,85 @@ func TestApplyMigrationsUpgradesSchema17To18WithStableQueueOrder(t *testing.T) {
 	require.Equal(t, int64(1), indexCount)
 }
 
+func TestApplyMigrationsUpgradesSchema18To19WithProvableCompletionFacts(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:18]))
+	require.Equal(t, 18, mustSchemaStatus(t, db).CurrentVersion)
+	require.NoError(t, db.Migrator().DropTable(&models.EpisodeCompletion{}))
+
+	podcast := models.Podcast{
+		Title: "完成事实迁移", FeedURL: "https://example.com/completions.xml", XYZID: "migration-19",
+	}
+	require.NoError(t, db.Create(&podcast).Error)
+	episodes := []models.Episode{
+		{PodcastID: podcast.ID, Title: "当前完成", GUID: "migration-19-done"},
+		{PodcastID: podcast.ID, Title: "当前行动", GUID: "migration-19-inbox"},
+	}
+	require.NoError(t, db.Create(&episodes).Error)
+	completedAt := time.Date(2026, 8, 20, 8, 30, 0, 0, time.UTC)
+	done := models.QueueStateDone
+	inbox := models.QueueStateInbox
+	positions := []int64{0, 0}
+	require.NoError(t, db.Create(&[]models.EpisodeTriageDecision{
+		{
+			EpisodeID: episodes[0].ID, State: models.TriageStateShortlisted,
+			DecidedAt: completedAt, QueueState: &done, QueuePosition: &positions[0],
+			QueueUpdatedAt: &completedAt,
+		},
+		{
+			EpisodeID: episodes[1].ID, State: models.TriageStateShortlisted,
+			DecidedAt: completedAt, QueueState: &inbox, QueuePosition: &positions[1],
+			QueueUpdatedAt: &completedAt,
+		},
+	}).Error)
+
+	require.NoError(t, ApplyMigrations(db))
+	require.NoError(t, RequireSchemaReady(db))
+	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, db).CurrentVersion)
+
+	var completions []models.EpisodeCompletion
+	require.NoError(t, db.Find(&completions).Error)
+	require.Len(t, completions, 1)
+	require.Equal(t, episodes[0].ID, completions[0].EpisodeID)
+	require.True(t, completions[0].CompletedAt.Equal(completedAt))
+
+	require.NoError(t, applyEpisodeCompletionFactsMigration(db))
+	var count int64
+	require.NoError(t, db.Model(&models.EpisodeCompletion{}).Count(&count).Error)
+	require.Equal(t, int64(1), count)
+
+	require.NoError(t, db.Unscoped().Delete(&episodes[0]).Error)
+	require.NoError(t, db.Model(&models.EpisodeCompletion{}).Count(&count).Error)
+	require.Zero(t, count)
+}
+
+func TestEpisodeCompletionMigrationRejectsDoneWithoutCompletionTime(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:18]))
+	require.NoError(t, db.Migrator().DropTable(&models.EpisodeCompletion{}))
+
+	podcast := models.Podcast{
+		Title: "完成事实预检", FeedURL: "https://example.com/completion-preflight.xml", XYZID: "migration-19-preflight",
+	}
+	require.NoError(t, db.Create(&podcast).Error)
+	episode := models.Episode{
+		PodcastID: podcast.ID, Title: "缺少完成时间", GUID: "migration-19-missing-time",
+	}
+	require.NoError(t, db.Create(&episode).Error)
+	done := models.QueueStateDone
+	position := int64(0)
+	require.NoError(t, db.Create(&models.EpisodeTriageDecision{
+		EpisodeID: episode.ID, State: models.TriageStateShortlisted,
+		DecidedAt:  time.Date(2026, 8, 20, 9, 0, 0, 0, time.UTC),
+		QueueState: &done, QueuePosition: &position,
+	}).Error)
+
+	err := ApplyMigrations(db)
+	require.ErrorContains(t, err, "have no queue_updated_at")
+	require.Equal(t, 18, mustSchemaStatus(t, db).CurrentVersion)
+	require.False(t, db.Migrator().HasTable(&models.EpisodeCompletion{}))
+}
+
 func mustSchemaStatus(t *testing.T, db *gorm.DB) SchemaStatus {
 	t.Helper()
 	status, err := InspectSchema(db)
