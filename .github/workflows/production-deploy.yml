@@ -26,10 +26,10 @@ jobs:
       deploy_sha: ${{ steps.validate.outputs.deploy_sha }}
       short_sha: ${{ steps.validate.outputs.short_sha }}
     steps:
-      - name: Check out requested SHA
+      - name: Check out main for SHA resolution
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.commit_sha || github.sha }}
+          ref: main
           fetch-depth: 0
           persist-credentials: false
 
@@ -37,6 +37,7 @@ jobs:
         id: validate
         env:
           DEPLOY_SHA: ${{ inputs.commit_sha || github.sha }}
+          REQUESTED_SHA: ${{ inputs.commit_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -49,8 +50,11 @@ jobs:
             exit 1
           }
           DEPLOY_SHA="$(printf '%s' "$DEPLOY_SHA" | tr '[:upper:]' '[:lower:]')"
+          if [ -n "$REQUESTED_SHA" ]; then
+            git checkout --detach "$DEPLOY_SHA"
+          fi
           [ "$(git rev-parse HEAD)" = "$DEPLOY_SHA" ] || {
-            echo "actions/checkout did not resolve the requested SHA." >&2
+            echo "The checkout did not resolve the requested SHA." >&2
             exit 1
           }
           git fetch --no-tags origin main --quiet
