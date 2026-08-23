@@ -104,6 +104,51 @@ func TestExportAndRefreshSanitizesAndDoesNotSwitchActiveProfile(t *testing.T) {
 			'https://private.example/llm?api_key=TOP-SECRET', 'fixture', 1, ''
 		)`)
 	require.NoError(t, err)
+	_, err = sourceDB.Exec(`
+		INSERT INTO episode_processing_runs(
+			id, episode_id, processing_key, audio_digest, pipeline_version,
+			trigger_source, status, retry_deadline_at, created_at, updated_at
+		) VALUES (
+			9101, 2001,
+			'1111111111111111111111111111111111111111111111111111111111111111',
+			'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			'pipeline-private', 'manual', 'completed',
+			CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+		);
+		INSERT INTO processing_checkpoints(
+			id, run_id, step, adapter, adapter_version, status, state_json, state_hash,
+			created_at, updated_at
+		) VALUES (
+			9102, 9101, 'transcription', 'minutes', 'minutes-v1', 'completed',
+			'{"minute_token":"TOP-SECRET"}',
+			'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+			CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+		);
+		INSERT INTO episode_artifact_sets(
+			id, run_id, episode_id, pipeline_version, root_path, manifest_path,
+			manifest_sha256, transcript_sha256, notes_sha256, is_current,
+			created_at
+		) VALUES (
+			9103, 9101, 2001, 'pipeline-private',
+			'/Users/private/MagicPodcast/artifacts/episode-2001', 'manifest.json',
+			'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+			'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+			'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+			1, CURRENT_TIMESTAMP
+		);
+		INSERT INTO knowledge_deliveries(
+			id, artifact_set_id, target, destination, adapter_version,
+			delivery_key, status, attempt_count, remote_ref, public_url,
+			created_at, updated_at
+		) VALUES (
+			9104, 9103, 'gemini', 'private-notebook',
+			'gemini-private',
+			'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+			'delivered', 1, 'TOP-SECRET-REMOTE-REF',
+			'https://private.example/source?token=TOP-SECRET',
+			CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+		)`)
+	require.NoError(t, err)
 	require.NoError(t, sourceDB.Close())
 	sourceHashBefore, err := SHA256File(sourcePath)
 	require.NoError(t, err)
@@ -178,6 +223,17 @@ func TestExportAndRefreshSanitizesAndDoesNotSwitchActiveProfile(t *testing.T) {
 	require.NoError(t, exportDB.QueryRow(`
 		SELECT alternative_feed_url FROM podcast_alternative_feeds WHERE id = 9001`).Scan(&alternativeURL))
 	require.Empty(t, alternativeURL)
+	for _, table := range []string{
+		"knowledge_deliveries",
+		"processing_checkpoints",
+		"episode_artifact_sets",
+		"episode_processing_runs",
+	} {
+		require.NoError(t, exportDB.QueryRow(
+			"SELECT COUNT(*) FROM "+table,
+		).Scan(&sensitiveRows))
+		require.Zero(t, sensitiveRows)
+	}
 	require.NoError(t, exportDB.Close())
 	sourceHashAfter, err := SHA256File(sourcePath)
 	require.NoError(t, err)

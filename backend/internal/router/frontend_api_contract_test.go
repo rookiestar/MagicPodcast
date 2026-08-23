@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
+	"magicpodcast/internal/models"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -114,5 +116,92 @@ func TestFrontendAPIContractRoutesRegistered(t *testing.T) {
 		if _, ok := registered[route]; !ok {
 			t.Errorf("frontend API route is not registered by backend: %s", route)
 		}
+	}
+}
+
+func TestSetupRouterLeavesProcessingRecoveryToExplicitWorker(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	configPath := filepath.Join(filepath.Dir(sourceFile), "..", "..", "configs", "config.example.yaml")
+	if _, err := config.Load(configPath); err != nil {
+		t.Fatalf("load test config: %v", err)
+	}
+	t.Setenv("MAGICPODCAST_DISABLE_SCHEDULER", "1")
+
+	dsn := fmt.Sprintf("file:router_read_only_%d?mode=memory&cache=shared", time.Now().UnixNano())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open router database: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get router database: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+	if err := database.ApplyMigrations(db); err != nil {
+		t.Fatalf("apply router schema: %v", err)
+	}
+
+	now := time.Date(2026, 8, 24, 17, 0, 0, 0, time.UTC)
+	podcast := models.Podcast{
+		XYZID:        "router-processing-recovery",
+		Title:        "Router processing recovery",
+		FeedURL:      "https://example.com/router-processing-recovery.xml",
+		IsSubscribed: true,
+	}
+	if err := db.Create(&podcast).Error; err != nil {
+		t.Fatalf("create podcast: %v", err)
+	}
+	episode := models.Episode{
+		PodcastID:     podcast.ID,
+		Title:         "Router processing recovery episode",
+		GUID:          "router-processing-recovery-episode",
+		PublishedDate: now,
+	}
+	if err := db.Create(&episode).Error; err != nil {
+		t.Fatalf("create episode: %v", err)
+	}
+	run := models.EpisodeProcessingRun{
+		EpisodeID:       episode.ID,
+		ProcessingKey:   strings.Repeat("1", 64),
+		AudioDigest:     strings.Repeat("2", 64),
+		PipelineVersion: "pipeline-v1",
+		TriggerSource:   models.ProcessingTriggerManual,
+		Status:          models.ProcessingRunStatusRunning,
+		CurrentStep:     "episode_notes",
+		AttemptCount:    1,
+		MaxAttempts:     3,
+		RetryDeadlineAt: now.Add(time.Hour),
+		StartedAt:       &now,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := db.Create(&run).Error; err != nil {
+		t.Fatalf("create processing run: %v", err)
+	}
+
+	database.SetTestDB(db)
+	t.Cleanup(func() {
+		database.ResetDB()
+		_ = sqlDB.Close()
+	})
+	if err := db.Exec("PRAGMA query_only = ON").Error; err != nil {
+		t.Fatalf("enable query-only database: %v", err)
+	}
+
+	_ = SetupRouter()
+
+	var reloaded models.EpisodeProcessingRun
+	if err := db.First(&reloaded, run.ID).Error; err != nil {
+		t.Fatalf("reload processing run: %v", err)
+	}
+	if reloaded.Status != models.ProcessingRunStatusRunning {
+		t.Fatalf("processing status = %q, want unchanged running", reloaded.Status)
+	}
+	if reloaded.CurrentStep != "episode_notes" {
+		t.Fatalf("processing step = %q, want unchanged episode_notes", reloaded.CurrentStep)
 	}
 }
