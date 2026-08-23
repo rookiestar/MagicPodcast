@@ -237,11 +237,6 @@
   transform: translateY(-1px);
 }
 
-/* Hover transform creates a stacking context; keep an open menu above later cards. */
-.cardMenuOpen {
-  z-index: 1;
-}
-
 .card[aria-busy="true"] {
   opacity: 0.7;
 }
@@ -488,15 +483,9 @@
   cursor: not-allowed;
 }
 
-.moveMenu {
-  position: relative;
-}
-
 .moveMenuPopover {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 5px);
-  right: 0;
+  position: fixed;
+  z-index: 40;
   display: grid;
   width: max-content;
   min-width: 156px;
