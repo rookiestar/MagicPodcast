@@ -1026,14 +1026,19 @@ export default function InboxPageClient() {
         </section>
 
         <footer className={styles.pageFooter}>
-          <span>
-            <IconArrowRight size={16} stroke={1.8} aria-hidden="true" />
-            打开原节目只记录“进行中”
-          </span>
-          <span>
-            <IconCircleCheck size={16} stroke={1.8} aria-hidden="true" />
-            Done 必须手动确认
-          </span>
+          <p>
+            <span>
+              <IconArrowRight size={14} stroke={1.8} aria-hidden="true" />
+              打开原节目只记录“进行中”
+            </span>
+            <span className={styles.pageFooterDivider} aria-hidden="true">
+              ·
+            </span>
+            <span>
+              <IconCircleCheck size={14} stroke={1.8} aria-hidden="true" />
+              Done 必须手动确认
+            </span>
+          </p>
         </footer>
 
         <p className={styles.srOnly} aria-live="polite">

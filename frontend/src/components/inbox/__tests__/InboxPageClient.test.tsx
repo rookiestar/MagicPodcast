@@ -378,6 +378,11 @@ describe("InboxPageClient", () => {
     const menu = screen.getByRole("menu", { name: "移动 可处理单集" });
     expect(menu.parentElement).toBe(document.body);
     expect(card).not.toContainElement(menu);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("menuitem", { name: "移至 Focus" }),
+      ).toHaveFocus(),
+    );
 
     fireEvent.pointerDown(menu);
     expect(menu).toBeInTheDocument();
@@ -388,6 +393,55 @@ describe("InboxPageClient", () => {
         screen.queryByRole("menu", { name: "移动 可处理单集" }),
       ).toBeNull(),
     );
+  });
+
+  it("closes the move menu with Escape and restores trigger focus", async () => {
+    render(<InboxPageClient />);
+    const trigger = await screen.findByRole("button", {
+      name: "将 可处理单集 移动到其他队列",
+    });
+
+    fireEvent.click(trigger);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("menuitem", { name: "移至 Focus" }),
+      ).toHaveFocus(),
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("menu", { name: "移动 可处理单集" }),
+      ).toBeNull(),
+    );
+    expect(trigger).toHaveFocus();
+  });
+
+  it("traverses move menu items with menu navigation keys", async () => {
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "将 可处理单集 移动到其他队列",
+      }),
+    );
+    const menu = screen.getByRole("menu", { name: "移动 可处理单集" });
+    const focusItem = screen.getByRole("menuitem", { name: "移至 Focus" });
+    const somedayItem = screen.getByRole("menuitem", {
+      name: "移至 Someday",
+    });
+    const doneItem = screen.getByRole("menuitem", { name: "移至 Done" });
+
+    await waitFor(() => expect(focusItem).toHaveFocus());
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(somedayItem).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "End" });
+    expect(doneItem).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(focusItem).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    expect(doneItem).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "Home" });
+    expect(focusItem).toHaveFocus();
   });
 
   it("returns focus to the originating card after closing detail", async () => {

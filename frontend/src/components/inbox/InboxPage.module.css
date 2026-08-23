@@ -1,4 +1,5 @@
-.shell {
+.shell,
+.moveMenuPopover {
   --ink: #171512;
   --ink-soft: #554d43;
   --paper: #f3ecdd;
@@ -7,6 +8,9 @@
   --rule: rgba(23, 21, 18, 0.22);
   --orange: #d7681d;
   --orange-dark: #9f4310;
+}
+
+.shell {
   min-height: 100vh;
   color: var(--ink);
   background:
@@ -78,14 +82,13 @@
   position: relative;
   min-width: 0;
   min-height: 460px;
-  padding: 17px 13px 15px;
+  padding: 16px 12px 14px;
   overflow: visible;
-  border: 1px solid rgba(23, 21, 18, 0.32);
-  border-top: 5px solid var(--queue-accent);
+  border: 1px solid rgba(23, 21, 18, 0.19);
+  border-top: 3px solid var(--queue-accent);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.44), transparent 100px),
-    rgba(247, 241, 229, 0.72);
-  box-shadow: 0 8px 26px rgba(50, 39, 22, 0.055);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.36), transparent 96px),
+    rgba(247, 241, 229, 0.56);
   scroll-snap-align: start;
 }
 
@@ -116,7 +119,7 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  gap: 10px;
+  gap: 9px;
 }
 
 .queueIcon {
@@ -124,8 +127,8 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   color: #fff;
   background: var(--queue-accent);
 }
@@ -148,8 +151,9 @@
   min-height: 30px;
   padding: 0 8px;
   color: var(--queue-accent);
-  border: 1px solid currentColor;
+  border: 1px solid rgba(23, 21, 18, 0.16);
   border-radius: 999px;
+  background: rgba(255, 250, 240, 0.45);
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 600;
@@ -157,10 +161,10 @@
 
 .queuePolicy {
   min-height: 38px;
-  margin: 11px 0 13px;
-  padding-bottom: 11px;
+  margin: 10px 0 12px;
+  padding-bottom: 10px;
   color: var(--ink-soft);
-  border-bottom: 1px solid var(--rule);
+  border-bottom: 1px solid rgba(23, 21, 18, 0.12);
   font-size: 11px;
   line-height: 1.55;
 }
@@ -222,9 +226,9 @@
 .card {
   position: relative;
   min-width: 0;
-  border: 1px solid rgba(23, 21, 18, 0.25);
+  border: 1px solid rgba(23, 21, 18, 0.18);
   background: var(--paper-card);
-  box-shadow: 0 3px 0 rgba(23, 21, 18, 0.08);
+  box-shadow: 0 1px 0 rgba(23, 21, 18, 0.04);
   transition:
     border-color 160ms ease,
     box-shadow 160ms ease,
@@ -233,7 +237,7 @@
 
 .card:hover {
   border-color: var(--queue-accent);
-  box-shadow: 0 6px 16px rgba(45, 34, 19, 0.09);
+  box-shadow: 0 4px 12px rgba(45, 34, 19, 0.065);
   transform: translateY(-1px);
 }
 
@@ -260,9 +264,21 @@
   color: var(--ink-soft);
   border: 1px solid transparent;
   border-radius: 3px;
-  background: rgba(251, 247, 238, 0.9);
+  background: rgba(251, 247, 238, 0.62);
   cursor: grab;
+  opacity: 0.48;
   touch-action: none;
+  transition:
+    color 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease,
+    opacity 140ms ease;
+}
+
+.card:hover .dragHandle,
+.card:focus-within .dragHandle,
+.cardDragging .dragHandle {
+  opacity: 1;
 }
 
 .dragHandle:hover:not(:disabled) {
@@ -384,10 +400,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 43px;
+  min-height: 44px;
   gap: 8px;
-  padding: 6px 7px 7px 10px;
-  border-top: 1px solid rgba(23, 21, 18, 0.12);
+  padding: 4px 6px 5px 10px;
+  border-top: 1px solid rgba(23, 21, 18, 0.07);
 }
 
 .cardSignals {
@@ -449,7 +465,7 @@
   height: 44px;
   padding: 0;
   color: var(--ink);
-  border: 1px solid rgba(23, 21, 18, 0.25);
+  border: 1px solid rgba(23, 21, 18, 0.18);
   background: transparent;
   cursor: pointer;
   transition:
@@ -493,6 +509,7 @@
   border: 1px solid var(--ink);
   background: #fffaf0;
   box-shadow: 5px 6px 0 rgba(23, 21, 18, 0.16);
+  color: var(--ink);
 }
 
 .moveMenuPopover button {
@@ -507,11 +524,25 @@
   background: transparent;
   cursor: pointer;
   font-size: 12px;
+  transition:
+    color 140ms ease,
+    background 140ms ease;
 }
 
-.moveMenuPopover button:hover {
-  color: #fff;
-  background: var(--ink);
+.moveMenuPopover button:hover,
+.moveMenuPopover button:focus-visible {
+  color: var(--orange-dark);
+  background: rgba(215, 104, 29, 0.12);
+}
+
+.moveMenuPopover button:active:not(:disabled) {
+  color: var(--ink);
+  background: rgba(215, 104, 29, 0.2);
+}
+
+.moveMenuPopover button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
 }
 
 .cardBusy {
@@ -575,11 +606,12 @@
 
 .queueEmpty {
   margin: 0;
-  padding: 26px 14px;
+  padding: 24px 14px;
   color: var(--ink-soft);
-  border: 1px dashed rgba(23, 21, 18, 0.26);
+  border: 1px solid rgba(23, 21, 18, 0.08);
+  background: rgba(255, 250, 240, 0.18);
   font-family: var(--font-display);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.55;
   text-align: center;
 }
@@ -637,19 +669,29 @@
 .pageFooter {
   display: flex;
   justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 16px;
   padding: 12px 2px 0;
-  color: var(--ink-soft);
+  color: #746a5f;
   font-family: var(--font-mono);
   font-size: 9px;
   letter-spacing: 0.04em;
 }
 
+.pageFooter p {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+}
+
 .pageFooter span {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
+}
+
+.pageFooterDivider {
+  opacity: 0.42;
 }
 
 .detailBackdrop,
