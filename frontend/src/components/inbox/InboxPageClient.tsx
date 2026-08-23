@@ -89,6 +89,11 @@ interface CompletionUndoNotice {
   expiresAt: number;
 }
 
+interface InboxLocateTarget {
+  queue: ConsumptionQueue;
+  episodeId: number;
+}
+
 const queueCollisionDetection: CollisionDetection = (args) => {
   const droppableContainers = args.droppableContainers.filter(
     (container) => container.id !== args.active.id,
@@ -350,6 +355,9 @@ export default function InboxPageClient() {
   const [activeDrag, setActiveDrag] = useState<ActiveQueueDrag | null>(null);
   const [dragPreview, setDragPreview] =
     useState<QueuePlacementPreview | null>(null);
+  const [locateTarget, setLocateTarget] = useState<InboxLocateTarget | null>(
+    null,
+  );
   const queuesRef = useRef(queues);
   const summaryRef = useRef(summary);
   const busyEpisodesRef = useRef(new Set<number>());
@@ -362,6 +370,7 @@ export default function InboxPageClient() {
   });
   const summaryRequestVersion = useRef(0);
   const detailTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const locatedEpisodeRef = useRef<number | null>(null);
 
   useEffect(() => {
     queuesRef.current = queues;
@@ -399,6 +408,48 @@ export default function InboxPageClient() {
     media.addListener(updateDragEnabled);
     return () => media.removeListener(updateDragEnabled);
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const queue = params.get("queue");
+    const episodeId = Number(params.get("episode"));
+    if (
+      (queue === "inbox" || queue === "focus" || queue === "someday") &&
+      Number.isInteger(episodeId) &&
+      episodeId > 0
+    ) {
+      setLocateTarget({ queue, episodeId });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!locateTarget || locatedEpisodeRef.current === locateTarget.episodeId) {
+      return;
+    }
+    const queueState = queues[locateTarget.queue];
+    if (queueState.isLoading || queueState.error) return;
+    const item = queueState.items.find(
+      (candidate) => candidate.episode_id === locateTarget.episodeId,
+    );
+    if (!item) {
+      locatedEpisodeRef.current = locateTarget.episodeId;
+      setAnnouncement("该单集已不在原行动队列；当前工作台已刷新。");
+      return;
+    }
+    const card = document.querySelector<HTMLElement>(
+      `[data-episode-id="${locateTarget.episodeId}"]`,
+    );
+    const trigger = card?.querySelector<HTMLButtonElement>(
+      'button[aria-label^="打开 "]',
+    );
+    if (!card || !trigger) return;
+    locatedEpisodeRef.current = locateTarget.episodeId;
+    card.scrollIntoView({ behavior: "auto", block: "center", inline: "center" });
+    trigger.focus({ preventScroll: true });
+    setAnnouncement(
+      `已定位《${item.episode_title}》到 ${locateTarget.queue} 队列。`,
+    );
+  }, [locateTarget, queues]);
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),

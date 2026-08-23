@@ -20,6 +20,9 @@ func seedCompleteFixture(db *gorm.DB, scenario string, anchor time.Time) error {
 	}
 
 	episodes := fixtureEpisodes(reference)
+	if scenario == FixtureScenarioCompletionHistory {
+		episodes = append(episodes, fixtureCompletionHistoryEpisodes(reference)...)
+	}
 	if err := db.Session(&gorm.Session{SkipHooks: true}).Create(&episodes).Error; err != nil {
 		return fmt.Errorf("create fixture episodes: %w", err)
 	}
@@ -38,12 +41,21 @@ func seedCompleteFixture(db *gorm.DB, scenario string, anchor time.Time) error {
 	}
 
 	decisions := fixtureDecisions(scenario, anchor)
+	if scenario == FixtureScenarioCompletionHistory {
+		decisions = append(decisions, fixtureCompletionHistoryDecisions(anchor)...)
+	}
 	if len(decisions) > 0 {
 		if err := db.Session(&gorm.Session{SkipHooks: true}).Create(&decisions).Error; err != nil {
 			return fmt.Errorf("create fixture consumption states: %w", err)
 		}
 	}
 	completions := fixtureCompletions(decisions)
+	if scenario == FixtureScenarioCompletionHistory {
+		completions = append(
+			completions,
+			fixtureCompletionHistoryFacts(anchor)...,
+		)
+	}
 	if len(completions) > 0 {
 		if err := db.Session(&gorm.Session{SkipHooks: true}).Create(&completions).Error; err != nil {
 			return fmt.Errorf("create fixture completion facts: %w", err)
@@ -213,6 +225,86 @@ func fixtureEpisodes(anchor time.Time) []models.Episode {
 		})
 	}
 	return episodes
+}
+
+func fixtureCompletionHistoryEpisodes(anchor time.Time) []models.Episode {
+	episodes := make([]models.Episode, 0, 55)
+	for index := 0; index < 55; index++ {
+		id := uint(2101 + index)
+		podcastID := uint(1001 + index%3)
+		title := fmt.Sprintf("Fixture 完成历史第 %02d 条", index+1)
+		switch index {
+		case 0:
+			title = "Fixture 历史：不感兴趣后仍可重新处理"
+		case 1:
+			title = "Fixture 历史：唯一检索针"
+		}
+		fetchedAt := anchor.Add(-time.Duration(9*24+index) * time.Hour)
+		episodes = append(episodes, models.Episode{
+			BaseModel: models.BaseModel{
+				ID:        id,
+				CreatedAt: fetchedAt,
+				UpdatedAt: fetchedAt,
+			},
+			PodcastID:     podcastID,
+			EpisodeNo:     fmt.Sprintf("H%02d", index+1),
+			Title:         title,
+			ShowNotes:     "用于完成历史搜索、分页、状态与重新处理验收。",
+			PublishedDate: fetchedAt.Add(-2 * time.Hour),
+			Duration:      1800 + index*15,
+			Link:          fmt.Sprintf("https://example.invalid/episodes/%d", id),
+			GUID:          fmt.Sprintf("fixture-history-episode-%d", id),
+			FetchedAt:     &fetchedAt,
+		})
+	}
+	return episodes
+}
+
+func fixtureCompletionHistoryDecisions(anchor time.Time) []models.EpisodeTriageDecision {
+	dismissedAt := anchor.Add(-4 * time.Hour)
+	return []models.EpisodeTriageDecision{
+		{
+			BaseModel: models.BaseModel{
+				ID:        7901,
+				CreatedAt: dismissedAt,
+				UpdatedAt: dismissedAt,
+			},
+			EpisodeID:   2101,
+			State:       models.TriageStateDiscarded,
+			DecidedAt:   dismissedAt,
+			DismissedAt: &dismissedAt,
+		},
+	}
+}
+
+func fixtureCompletionHistoryFacts(anchor time.Time) []models.EpisodeCompletion {
+	completions := []models.EpisodeCompletion{
+		fixtureCompletionFact(2002, anchor.Add(-8*24*time.Hour)),
+		fixtureCompletionFact(2003, anchor.Add(-9*24*time.Hour)),
+		fixtureCompletionFact(2009, anchor.Add(-10*24*time.Hour)),
+	}
+	for index := 0; index < 55; index++ {
+		completions = append(
+			completions,
+			fixtureCompletionFact(
+				uint(2101+index),
+				anchor.Add(-time.Duration(11*24+index)*time.Hour),
+			),
+		)
+	}
+	return completions
+}
+
+func fixtureCompletionFact(
+	episodeID uint,
+	completedAt time.Time,
+) models.EpisodeCompletion {
+	return models.EpisodeCompletion{
+		EpisodeID:   episodeID,
+		CompletedAt: completedAt,
+		CreatedAt:   completedAt,
+		UpdatedAt:   completedAt,
+	}
 }
 
 func fixtureTags(anchor time.Time) []models.Tag {

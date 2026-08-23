@@ -51,6 +51,7 @@ func setupConsumptionHandler(t *testing.T) (*gorm.DB, *gin.Engine, models.Podcas
 	)
 	router.GET("/api/v1/consumption/summary", handler.GetQueueSummary)
 	router.GET("/api/v1/consumption/queues/:queue", handler.ListQueue)
+	router.GET("/api/v1/consumption/completions", handler.ListCompletionHistory)
 	router.GET("/api/v1/consumption/episodes/:episodeID", handler.GetConsumptionItem)
 	router.PUT("/api/v1/consumption/episodes/:episodeID/queue", handler.PutQueue)
 	router.PUT("/api/v1/consumption/episodes/:episodeID/placement", handler.PutPlacement)
@@ -422,4 +423,86 @@ func TestConsumptionHandler_RejectsInvalidEpisodeAndQueue(t *testing.T) {
 		"",
 	)
 	require.Equal(t, http.StatusBadRequest, response.Code)
+}
+
+func TestConsumptionHandler_ListsSearchableCompletionHistoryWithStableCursor(t *testing.T) {
+	db, router, podcast := setupConsumptionHandler(t)
+	first := createConsumptionHandlerEpisode(
+		t, db, podcast.ID, "Alpha 完成历史", time.Now().UTC(),
+	)
+	second := createConsumptionHandlerEpisode(
+		t, db, podcast.ID, "Beta 完成历史", time.Now().UTC(),
+	)
+	for _, episode := range []models.Episode{first, second} {
+		response := performJSONRequest(
+			t,
+			router,
+			http.MethodPut,
+			fmt.Sprintf("/api/v1/consumption/episodes/%d/queue", episode.ID),
+			`{"queue_state":"done"}`,
+		)
+		require.Equal(t, http.StatusOK, response.Code)
+	}
+
+	response := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/v1/consumption/completions?limit=1",
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	var firstPage struct {
+		Success bool                               `json:"success"`
+		Data    services.CompletionHistorySnapshot `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &firstPage))
+	require.True(t, firstPage.Success)
+	require.Equal(t, int64(2), firstPage.Data.TotalCount)
+	require.Equal(t, int64(2), firstPage.Data.MatchCount)
+	require.Len(t, firstPage.Data.Items, 1)
+	require.True(t, firstPage.Data.HasMore)
+	require.NotEmpty(t, firstPage.Data.NextCursor)
+
+	response = performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/v1/consumption/completions?q=Alpha",
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	var searched struct {
+		Data services.CompletionHistorySnapshot `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &searched))
+	require.Equal(t, int64(2), searched.Data.TotalCount)
+	require.Equal(t, int64(1), searched.Data.MatchCount)
+	require.Equal(t, []uint{first.ID}, completionHandlerHistoryItemIDs(searched.Data.Items))
+
+	response = performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/v1/consumption/completions?limit=51",
+		"",
+	)
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	response = performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/v1/consumption/completions?cursor=invalid",
+		"",
+	)
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	require.Contains(t, response.Body.String(), "INVALID_CURSOR")
+}
+
+func completionHandlerHistoryItemIDs(items []services.CompletionHistoryItem) []uint {
+	result := make([]uint, 0, len(items))
+	for _, item := range items {
+		result = append(result, item.EpisodeID)
+	}
+	return result
 }

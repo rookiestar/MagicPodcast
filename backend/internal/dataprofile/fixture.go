@@ -14,22 +14,24 @@ const (
 	FixtureSeries          = "complete-v2"
 	DefaultFixtureScenario = "journey"
 
-	FixtureScenarioEmpty          = "empty"
-	FixtureScenarioFocusZero      = "focus-0"
-	FixtureScenarioFocusSeven     = "focus-7"
-	FixtureScenarioFocusOverLimit = "focus-over-limit"
-	FixtureScenarioReportEmpty    = "report-empty"
-	FixtureScenarioReportSingle   = "report-single"
+	FixtureScenarioEmpty             = "empty"
+	FixtureScenarioFocusZero         = "focus-0"
+	FixtureScenarioFocusSeven        = "focus-7"
+	FixtureScenarioFocusOverLimit    = "focus-over-limit"
+	FixtureScenarioCompletionHistory = "completion-history"
+	FixtureScenarioReportEmpty       = "report-empty"
+	FixtureScenarioReportSingle      = "report-single"
 )
 
 var fixtureScenarioSet = map[string]struct{}{
-	DefaultFixtureScenario:        {},
-	FixtureScenarioEmpty:          {},
-	FixtureScenarioFocusZero:      {},
-	FixtureScenarioFocusSeven:     {},
-	FixtureScenarioFocusOverLimit: {},
-	FixtureScenarioReportEmpty:    {},
-	FixtureScenarioReportSingle:   {},
+	DefaultFixtureScenario:           {},
+	FixtureScenarioEmpty:             {},
+	FixtureScenarioFocusZero:         {},
+	FixtureScenarioFocusSeven:        {},
+	FixtureScenarioFocusOverLimit:    {},
+	FixtureScenarioCompletionHistory: {},
+	FixtureScenarioReportEmpty:       {},
+	FixtureScenarioReportSingle:      {},
 }
 
 type Fixture struct {
@@ -57,6 +59,7 @@ func SupportedFixtureScenarios() []string {
 		FixtureScenarioFocusZero,
 		FixtureScenarioFocusSeven,
 		FixtureScenarioFocusOverLimit,
+		FixtureScenarioCompletionHistory,
 		FixtureScenarioReportEmpty,
 		FixtureScenarioReportSingle,
 	}

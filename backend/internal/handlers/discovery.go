@@ -277,6 +277,49 @@ func (h *DiscoveryHandler) ListQueue(c *gin.Context) {
 	})
 }
 
+func (h *DiscoveryHandler) ListCompletionHistory(c *gin.Context) {
+	limit := services.CompletionHistoryDefaultLimit
+	if rawLimit := c.Query("limit"); rawLimit != "" {
+		parsedLimit, err := strconv.Atoi(rawLimit)
+		if err != nil || parsedLimit < 1 || parsedLimit > services.CompletionHistoryMaxLimit {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "INVALID_LIMIT",
+					"message": "limit must be between 1 and 50",
+				},
+			})
+			return
+		}
+		limit = parsedLimit
+	}
+	snapshot, err := h.consumptionService.ListCompletionHistory(
+		services.CompletionHistoryOptions{
+			Query:  c.Query("q"),
+			Cursor: c.Query("cursor"),
+			Limit:  limit,
+		},
+	)
+	if errors.Is(err, services.ErrInvalidCompletionHistoryCursor) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INVALID_CURSOR",
+				"message": "completion history cursor is invalid",
+			},
+		})
+		return
+	}
+	if err != nil {
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to fetch completion history")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    snapshot,
+	})
+}
+
 func (h *DiscoveryHandler) GetQueueSummary(c *gin.Context) {
 	summary, err := h.consumptionService.QueueSummary()
 	if err != nil {

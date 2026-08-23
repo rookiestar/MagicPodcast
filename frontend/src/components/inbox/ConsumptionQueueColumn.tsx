@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -690,9 +691,20 @@ export default function ConsumptionQueueColumn({
           </span>
           <h2 id={`consumption-queue-${queue}`}>{presentation.label}</h2>
         </div>
-        <span className={styles.queueCount} aria-label={`${count} 项`}>
-          {queue === "focus" ? `${count} / ${focusLimit}` : count}
-        </span>
+        <div className={styles.queueHeaderActions}>
+          {queue === "done" && (
+            <Link
+              href="/inbox/history"
+              prefetch={false}
+              className={styles.historyLink}
+            >
+              查看全部
+            </Link>
+          )}
+          <span className={styles.queueCount} aria-label={`${count} 项`}>
+            {queue === "focus" ? `${count} / ${focusLimit}` : count}
+          </span>
+        </div>
       </header>
       <p className={styles.queuePolicy}>{presentation.policy}</p>
 
