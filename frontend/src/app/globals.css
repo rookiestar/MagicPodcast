@@ -3098,23 +3098,18 @@
 
   .workflow-report-shortlist.is-on {
     color: #1768d0;
-    border-color: #1768d0;
-    background: rgba(249, 236, 224, 0.85);
   }
 
   .workflow-report-shortlist.is-focus {
     color: #c4552a;
-    border-color: #c4552a;
   }
 
   .workflow-report-shortlist.is-someday {
     color: #7a5b92;
-    border-color: #7a5b92;
   }
 
   .workflow-report-shortlist.is-done {
     color: #4f7462;
-    border-color: #4f7462;
   }
 
   .workflow-report-shortlist:focus-visible {
@@ -6890,22 +6885,18 @@ textarea.editorial-field {
 }
 
 .discovery-card-action[data-state="inbox"] {
-  border-color: #1768d0;
   color: #1768d0;
 }
 
 .discovery-card-action[data-state="focus"] {
-  border-color: #c4552a;
   color: #c4552a;
 }
 
 .discovery-card-action[data-state="someday"] {
-  border-color: #7a5b92;
   color: #7a5b92;
 }
 
 .discovery-card-action[data-state="done"] {
-  border-color: #4f7462;
   color: #4f7462;
 }
 

@@ -11,6 +11,7 @@ import {
   type MouseEvent,
 } from "react";
 import {
+  IconBookmarkFilled,
   IconBookmarkPlus,
   IconChevronLeft,
   IconChevronRight,
@@ -348,31 +349,42 @@ export default function WorkflowReportWorkbench({
     });
   };
 
-  const collectToInbox = async (
+  const toggleInbox = async (
     event: MouseEvent<HTMLButtonElement>,
     episode: HomepageReportEpisode,
   ) => {
     event.preventDefault();
     event.stopPropagation();
-    if (!onDecision || savingEpisodeID === episode.episode_id) return;
+    if (!onDecision || savingEpisodeID !== null) return;
 
     const previousDecision = resolveDecision(episode);
     const previousQueue = resolveQueue(episode);
-    if (previousQueue) return;
+    if (previousQueue && previousQueue !== "inbox") return;
+    const removing = previousQueue === "inbox";
+    const nextDecision = removing ? "pending" : "shortlisted";
+    const nextQueue = removing ? null : "inbox";
     setDecisionError("");
     setSavingEpisodeID(episode.episode_id);
     setLocalDecisions((map) => ({
       ...map,
-      [episode.episode_id]: "shortlisted",
+      [episode.episode_id]: nextDecision,
     }));
-    setLocalQueues((map) => ({ ...map, [episode.episode_id]: "inbox" }));
+    setLocalQueues((map) => ({
+      ...map,
+      [episode.episode_id]: nextQueue,
+    }));
 
     try {
-      const result = await onDecision(episode.episode_id, "shortlisted");
+      const result = await onDecision(episode.episode_id, nextDecision);
       setLocalDecisions((map) => ({
         ...map,
         [episode.episode_id]: result.state,
       }));
+      setLocalQueues((map) => {
+        const next = { ...map };
+        delete next[episode.episode_id];
+        return next;
+      });
     } catch {
       setLocalDecisions((map) => ({
         ...map,
@@ -382,7 +394,11 @@ export default function WorkflowReportWorkbench({
         ...map,
         [episode.episode_id]: previousQueue,
       }));
-      setDecisionError("收集失败，已恢复原状态，可重试。");
+      setDecisionError(
+        removing
+          ? "移除失败，已恢复原状态，可重试。"
+          : "收集失败，已恢复原状态，可重试。",
+      );
     } finally {
       setSavingEpisodeID(null);
     }
@@ -623,9 +639,12 @@ export default function WorkflowReportWorkbench({
               const expanded = expandedEpisodeIDs.has(episode.episode_id);
               const queue = resolveQueue(episode);
               const saving = savingEpisodeID === episode.episode_id;
-              const collectLabel = queue
-                ? `已在 ${queueLabels[queue]}`
-                : "收集到 Inbox";
+              const collectLabel =
+                queue === "inbox"
+                  ? "从 Inbox 移除"
+                  : queue
+                    ? `已在 ${queueLabels[queue]}`
+                    : "收集到 Inbox";
               const showNotesPreview = episodeShowNotesPreview(episode);
               const safeLink = sanitizeContentUrl(episode.link);
 
@@ -673,12 +692,21 @@ export default function WorkflowReportWorkbench({
                       type="button"
                       className={`workflow-report-shortlist ${queue ? `is-on is-${queue}` : ""}`}
                       aria-label={collectLabel}
-                      aria-pressed={Boolean(queue)}
+                      aria-pressed={queue === "inbox"}
+                      aria-busy={saving || undefined}
                       title={collectLabel}
-                      disabled={saving || !onDecision || Boolean(queue)}
-                      onClick={(event) => void collectToInbox(event, episode)}
+                      disabled={
+                        savingEpisodeID !== null ||
+                        !onDecision ||
+                        Boolean(queue && queue !== "inbox")
+                      }
+                      onClick={(event) => void toggleInbox(event, episode)}
                     >
-                      <IconBookmarkPlus size={20} aria-hidden />
+                      {queue ? (
+                        <IconBookmarkFilled size={20} aria-hidden />
+                      ) : (
+                        <IconBookmarkPlus size={20} aria-hidden />
+                      )}
                     </button>
                   </div>
                   {expanded && (

@@ -58,6 +58,11 @@ vi.mock("@/lib/toast", () => ({
 
 const aiTag: Tag = { id: 1, name: "AI", color: "#7a2f27" };
 const productTag: Tag = { id: 2, name: "产品", color: "#1768d0" };
+const queueLabelsForTest = {
+  focus: "Focus",
+  someday: "Someday",
+  done: "Done",
+} as const;
 
 function render(ui: ReactElement) {
   return testingRender(
@@ -634,12 +639,16 @@ describe("DiscoveryDesk", () => {
     expect(screen.queryByText("兴趣推荐")).not.toBeInTheDocument();
   });
 
-  it("collects into Inbox and rolls back a failed dismissal", async () => {
+  it("round-trips Inbox state between the recent list and preview", async () => {
     const onDecision = vi
       .fn()
       .mockResolvedValueOnce({
         state: "shortlisted",
         decision_updated_at: "2026-07-29T08:10:00Z",
+      })
+      .mockResolvedValueOnce({
+        state: "pending",
+        decision_updated_at: "2026-07-29T08:11:00Z",
       })
       .mockRejectedValueOnce(new Error("server failed"));
 
@@ -648,12 +657,37 @@ describe("DiscoveryDesk", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "收集到 Inbox" })[0]);
     await waitFor(() => {
       expect(
-        screen.getByRole("button", { name: "已在 Inbox" }),
+        screen.getByRole("button", { name: "从 Inbox 移除" }),
       ).toBeInTheDocument();
     });
     expect(onDecision).toHaveBeenCalledWith(11, "shortlisted");
-    expect(screen.getByRole("button", { name: "已在 Inbox" })).toBeDisabled();
+    const listToggle = screen.getByRole("button", { name: "从 Inbox 移除" });
+    expect(listToggle).toBeEnabled();
+    expect(listToggle).toHaveAttribute("aria-pressed", "true");
+    expect(
+      listToggle.querySelector(".tabler-icon-bookmark-filled"),
+    ).toBeInTheDocument();
 
+    fireEvent.click(
+      screen.getByRole("button", { name: "预读 模型能力如何转向真实应用" }),
+    );
+    const previewToggle = within(screen.getByRole("dialog")).getByRole(
+      "button",
+      { name: "从 Inbox 移除" },
+    );
+    fireEvent.click(previewToggle);
+    await waitFor(() => {
+      expect(
+        within(screen.getByRole("dialog")).getByRole("button", {
+          name: "收集到 Inbox",
+        }),
+      ).toBeEnabled();
+    });
+    expect(onDecision).toHaveBeenCalledWith(11, "pending");
+
+    fireEvent.click(
+      document.querySelector<HTMLButtonElement>(".discovery-preview-close")!,
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "预读 缺少 Show Notes 的边界项" }),
     );
@@ -666,6 +700,66 @@ describe("DiscoveryDesk", () => {
       "false",
     );
   });
+
+  it("rolls back a failed Inbox removal with an action-specific error", async () => {
+    const onDecision = vi.fn().mockRejectedValue(new Error("server failed"));
+    render(
+      <DiscoveryDesk
+        candidates={[
+          {
+            ...candidates[0],
+            decision_state: "shortlisted",
+            queue_state: "inbox",
+          },
+        ]}
+        onDecision={onDecision}
+      />,
+    );
+
+    const remove = screen.getByRole("button", { name: "从 Inbox 移除" });
+    expect(remove).toBeEnabled();
+    fireEvent.click(remove);
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "移除失败，已恢复服务端原状态，可重试。",
+      );
+    });
+    expect(
+      screen.getByRole("button", { name: "从 Inbox 移除" }),
+    ).toBeEnabled();
+    expect(onDecision).toHaveBeenCalledWith(11, "pending");
+  });
+
+  it.each(["focus", "someday", "done"] as const)(
+    "keeps %s as a display-only queue state",
+    (queue) => {
+      const onDecision = vi.fn();
+      render(
+        <DiscoveryDesk
+          candidates={[
+            {
+              ...candidates[0],
+              decision_state: "shortlisted",
+              queue_state: queue,
+            },
+          ]}
+          onDecision={onDecision}
+        />,
+      );
+
+      const state = screen.getByRole("button", {
+        name: `已在 ${queueLabelsForTest[queue]}`,
+      });
+      expect(state).toBeDisabled();
+      expect(state).toHaveAttribute("aria-pressed", "false");
+      expect(
+        state.querySelector(".tabler-icon-bookmark-filled"),
+      ).toBeInTheDocument();
+      fireEvent.click(state);
+      expect(onDecision).not.toHaveBeenCalled();
+    },
+  );
 
   it("uses source-backed Show Notes instead of AI pre-read tabs", async () => {
     render(<DiscoveryDesk candidates={candidates} />);
