@@ -261,6 +261,7 @@ export default function DiscoveryPageClient({
           await existing.promise.catch(() => undefined);
         }
         let response;
+        let revalidateDiscoveryContent = false;
         if (state === "shortlisted") {
           response = await apiClient.put<{
             success: boolean;
@@ -269,6 +270,7 @@ export default function DiscoveryPageClient({
             queue_state: "inbox",
           });
         } else if (state === "discarded") {
+          revalidateDiscoveryContent = true;
           response = await apiClient.put<{
             success: boolean;
             data: DiscoveryConsumptionResponse;
@@ -288,6 +290,7 @@ export default function DiscoveryPageClient({
           const restoringDismissed =
             existing?.state !== "shortlisted" &&
             Boolean(candidateState?.dismissed_at ?? reportState?.dismissed_at);
+          revalidateDiscoveryContent = restoringDismissed;
           response = restoringDismissed
             ? await apiClient.put<{
                 success: boolean;
@@ -313,11 +316,11 @@ export default function DiscoveryPageClient({
                 ? applyConsumptionToCandidate(candidate, consumption)
                 : candidate,
             ),
-          { revalidate: true },
+          { revalidate: revalidateDiscoveryContent },
         );
         await mutateReports(
           (current) => applyConsumptionToReports(current, consumption),
-          { revalidate: true },
+          { revalidate: revalidateDiscoveryContent },
         );
         const decision: TriageDecisionResponse = {
           state: legacyStateFromConsumption(consumption),
