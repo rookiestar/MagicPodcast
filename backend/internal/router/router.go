@@ -126,6 +126,7 @@ func SetupRouter() *gin.Engine {
 		v1.GET("/discovery/reports/:id", discoveryHandler.GetHomepageReport)
 		v1.GET("/consumption/summary", discoveryHandler.GetQueueSummary)
 		v1.GET("/consumption/queues/:queue", discoveryHandler.ListQueue)
+		v1.GET("/consumption/completions", discoveryHandler.ListCompletionHistory)
 		v1.GET("/consumption/episodes/:episodeID", discoveryHandler.GetConsumptionItem)
 		v1.PUT("/consumption/episodes/:episodeID/queue", discoveryHandler.PutQueue)
 		v1.PUT("/consumption/episodes/:episodeID/placement", discoveryHandler.PutPlacement)

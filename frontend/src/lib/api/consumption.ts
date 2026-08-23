@@ -2,6 +2,7 @@ import { api, handleResponse } from "./client";
 import { mutate } from "swr";
 import type { ApiResponse } from "@/types";
 import type {
+  CompletionHistoryPayload,
   ConsumptionErrorDetails,
   ConsumptionItem,
   ConsumptionQueue,
@@ -87,6 +88,25 @@ export const consumptionApi = {
   ): Promise<ConsumptionQueuePayload> => {
     const response = await api.get<ApiResponse<ConsumptionQueuePayload>>(
       `/api/v1/consumption/queues/${queue}`,
+    );
+    return handleResponse(response);
+  },
+
+  listCompletionHistory: async (
+    options: {
+      query?: string;
+      cursor?: string;
+      limit?: number;
+    } = {},
+  ): Promise<CompletionHistoryPayload> => {
+    const params = new URLSearchParams();
+    const query = options.query?.trim();
+    if (query) params.set("q", query);
+    if (options.cursor) params.set("cursor", options.cursor);
+    if (options.limit) params.set("limit", String(options.limit));
+    const suffix = params.size > 0 ? `?${params.toString()}` : "";
+    const response = await api.get<ApiResponse<CompletionHistoryPayload>>(
+      `/api/v1/consumption/completions${suffix}`,
     );
     return handleResponse(response);
   },

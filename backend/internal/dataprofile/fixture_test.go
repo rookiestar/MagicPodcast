@@ -62,18 +62,20 @@ func TestEnsureFixtureCreatesStableCurrentSchemaData(t *testing.T) {
 func TestFixtureScenariosCoverQueueAndReportBoundaries(t *testing.T) {
 	now := time.Date(2026, time.August, 14, 2, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60))
 	tests := []struct {
-		scenario     string
-		focusCount   int64
-		reportCount  int64
-		episodeCount int64
+		scenario        string
+		focusCount      int64
+		reportCount     int64
+		episodeCount    int64
+		completionCount int64
 	}{
-		{DefaultFixtureScenario, 6, 4, 20},
-		{FixtureScenarioEmpty, 0, 0, 0},
-		{FixtureScenarioFocusZero, 0, 4, 20},
-		{FixtureScenarioFocusSeven, 7, 4, 20},
-		{FixtureScenarioFocusOverLimit, 8, 4, 20},
-		{FixtureScenarioReportEmpty, 6, 0, 20},
-		{FixtureScenarioReportSingle, 6, 3, 20},
+		{DefaultFixtureScenario, 6, 4, 20, 1},
+		{FixtureScenarioEmpty, 0, 0, 0, 0},
+		{FixtureScenarioFocusZero, 0, 4, 20, 1},
+		{FixtureScenarioFocusSeven, 7, 4, 20, 1},
+		{FixtureScenarioFocusOverLimit, 8, 4, 20, 1},
+		{FixtureScenarioCompletionHistory, 6, 4, 75, 59},
+		{FixtureScenarioReportEmpty, 6, 0, 20, 1},
+		{FixtureScenarioReportSingle, 6, 3, 20, 1},
 	}
 	for _, test := range tests {
 		t.Run(test.scenario, func(t *testing.T) {
@@ -90,6 +92,11 @@ func TestFixtureScenariosCoverQueueAndReportBoundaries(t *testing.T) {
 			require.Equal(t, test.focusCount, focusCount)
 			require.Equal(t, test.reportCount, fixture.Manifest.Counts["reports"])
 			require.Equal(t, test.episodeCount, fixture.Manifest.Counts["episodes"])
+			require.Equal(
+				t,
+				test.completionCount,
+				fixture.Manifest.Counts["episode_completions"],
+			)
 		})
 	}
 }

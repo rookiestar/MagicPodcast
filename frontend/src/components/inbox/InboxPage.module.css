@@ -122,6 +122,37 @@
   gap: 9px;
 }
 
+.queueHeaderActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.historyLink {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  padding: 0 8px;
+  color: #3f684b;
+  border-bottom: 1px solid rgba(74, 103, 81, 0.55);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+}
+
+.historyLink:hover {
+  color: #284a33;
+  border-bottom-color: #284a33;
+}
+
+.historyLink:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+
 .queueIcon {
   display: inline-flex;
   flex: 0 0 auto;

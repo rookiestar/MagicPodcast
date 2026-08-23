@@ -52,6 +52,7 @@ Fixture 以 Asia/Shanghai 当前整点为固定时间锚点，版本同时包含
 | `focus-0` | Focus 空态 |
 | `focus-7` | Focus 软上限边界 |
 | `focus-over-limit` | 跨端并发后超过 7 项的保留与提示 |
+| `completion-history` | 59 条唯一完成事实，覆盖搜索、50 条分页、当前队列定位与不感兴趣后重新处理 |
 | `report-empty` | 无可展示精选报告 |
 | `report-single` | 单份当日报告 |
 
@@ -63,6 +64,7 @@ Fixture 以 Asia/Shanghai 当前整点为固定时间锚点，版本同时包含
 ./scripts/data-profile.sh use fixture focus-0
 ./scripts/data-profile.sh use fixture focus-7
 ./scripts/data-profile.sh use fixture focus-over-limit
+./scripts/data-profile.sh use fixture completion-history
 ./scripts/data-profile.sh use fixture report-empty
 ./scripts/data-profile.sh use fixture report-single
 ```

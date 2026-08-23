@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -691,7 +692,160 @@ func TestConsumptionService_ConcurrentCompletionKeepsOneFact(t *testing.T) {
 	require.Equal(t, []uint{episode.ID}, consumptionItemIDs(recent.Items))
 }
 
+func TestConsumptionService_CompletionHistorySearchesAndPaginatesStableUniqueFacts(t *testing.T) {
+	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	service, firstPodcast := setupConsumptionService(t, now)
+	secondPodcast := createDiscoveryPodcast(t, service.db, "可检索节目")
+	episodes := make([]models.Episode, 0, 55)
+
+	for index := 0; index < 55; index++ {
+		podcastID := firstPodcast.ID
+		if index%2 == 1 {
+			podcastID = secondPodcast.ID
+		}
+		title := fmt.Sprintf("完成历史 %02d", index)
+		if index == 7 {
+			title = "唯一检索针 100%_完成"
+		}
+		episode := createDiscoveryEpisode(
+			t,
+			service.db,
+			podcastID,
+			title,
+			now.Add(-time.Duration(index)*time.Hour),
+			nil,
+		)
+		episodes = append(episodes, episode)
+		completedAt := now.Add(-time.Duration(index/2) * time.Minute)
+		service.now = func() time.Time { return completedAt }
+		_, err := service.SetQueue(episode.ID, models.QueueStateDone, QueueWriteOptions{})
+		require.NoError(t, err)
+	}
+
+	service.now = func() time.Time { return now.Add(time.Hour) }
+	_, err := service.SetQueue(episodes[0].ID, models.QueueStateInbox, QueueWriteOptions{})
+	require.NoError(t, err)
+	_, err = service.SetQueue(episodes[1].ID, models.QueueStateFocus, QueueWriteOptions{})
+	require.NoError(t, err)
+	_, err = service.SetQueue(episodes[2].ID, models.QueueStateSomeday, QueueWriteOptions{})
+	require.NoError(t, err)
+	_, err = service.SetDismissed(episodes[3].ID, true)
+	require.NoError(t, err)
+	_, err = service.ClearQueue(episodes[5].ID)
+	require.NoError(t, err)
+
+	var (
+		cursor        string
+		allItems      []CompletionHistoryItem
+		previousItem  *CompletionHistoryItem
+		observedPages int
+	)
+	for {
+		page, pageErr := service.ListCompletionHistory(CompletionHistoryOptions{
+			Cursor: cursor,
+			Limit:  10,
+		})
+		require.NoError(t, pageErr)
+		require.Equal(t, int64(55), page.TotalCount)
+		require.Equal(t, int64(55), page.MatchCount)
+		require.LessOrEqual(t, len(page.Items), 10)
+		observedPages++
+		for index := range page.Items {
+			item := page.Items[index]
+			if previousItem != nil {
+				require.True(t,
+					previousItem.CompletedAt.After(item.CompletedAt) ||
+						(previousItem.CompletedAt.Equal(item.CompletedAt) &&
+							previousItem.EpisodeID > item.EpisodeID),
+				)
+			}
+			itemCopy := item
+			previousItem = &itemCopy
+			allItems = append(allItems, item)
+		}
+		if !page.HasMore {
+			require.Empty(t, page.NextCursor)
+			break
+		}
+		require.NotEmpty(t, page.NextCursor)
+		cursor = page.NextCursor
+	}
+	require.Equal(t, 6, observedPages)
+	require.Len(t, allItems, 55)
+	seen := make(map[uint]struct{}, len(allItems))
+	for _, item := range allItems {
+		_, duplicate := seen[item.EpisodeID]
+		require.False(t, duplicate)
+		seen[item.EpisodeID] = struct{}{}
+	}
+
+	statuses := make(map[uint]string, len(allItems))
+	for _, item := range allItems {
+		statuses[item.EpisodeID] = item.CurrentStatus
+	}
+	require.Equal(t, models.QueueStateInbox, statuses[episodes[0].ID])
+	require.Equal(t, models.QueueStateFocus, statuses[episodes[1].ID])
+	require.Equal(t, models.QueueStateSomeday, statuses[episodes[2].ID])
+	require.Equal(t, CompletionHistoryStatusDismissed, statuses[episodes[3].ID])
+	require.Equal(t, models.QueueStateDone, statuses[episodes[4].ID])
+	require.Equal(t, CompletionHistoryStatusUnassigned, statuses[episodes[5].ID])
+
+	titleSearch, err := service.ListCompletionHistory(CompletionHistoryOptions{
+		Query: " 唯一检索针 ",
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(55), titleSearch.TotalCount)
+	require.Equal(t, int64(1), titleSearch.MatchCount)
+	require.Equal(t, []uint{episodes[7].ID}, completionHistoryItemIDs(titleSearch.Items))
+
+	literalSearch, err := service.ListCompletionHistory(CompletionHistoryOptions{
+		Query: "100%_完成",
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), literalSearch.MatchCount)
+	require.Equal(t, []uint{episodes[7].ID}, completionHistoryItemIDs(literalSearch.Items))
+
+	podcastSearch, err := service.ListCompletionHistory(CompletionHistoryOptions{
+		Query: "可检索节目",
+		Limit: 5,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(27), podcastSearch.MatchCount)
+	require.Len(t, podcastSearch.Items, 5)
+	require.True(t, podcastSearch.HasMore)
+
+	_, err = service.ListCompletionHistory(CompletionHistoryOptions{
+		Query:  "另一条件",
+		Cursor: podcastSearch.NextCursor,
+		Limit:  5,
+	})
+	require.ErrorIs(t, err, ErrInvalidCompletionHistoryCursor)
+	_, err = service.ListCompletionHistory(CompletionHistoryOptions{
+		Cursor: "not-a-cursor",
+	})
+	require.ErrorIs(t, err, ErrInvalidCompletionHistoryCursor)
+
+	require.Equal(t, models.QueueStateDone, statuses[episodes[4].ID])
+	_, err = service.SetQueue(episodes[4].ID, models.QueueStateInbox, QueueWriteOptions{})
+	require.NoError(t, err)
+	reprocessed, err := service.ListCompletionHistory(CompletionHistoryOptions{
+		Query: episodes[4].Title,
+	})
+	require.NoError(t, err)
+	require.Len(t, reprocessed.Items, 1)
+	require.Equal(t, models.QueueStateInbox, reprocessed.Items[0].CurrentStatus)
+	require.False(t, reprocessed.Items[0].CompletedAt.IsZero())
+}
+
 func consumptionItemIDs(items []ConsumptionItem) []uint {
+	result := make([]uint, 0, len(items))
+	for _, item := range items {
+		result = append(result, item.EpisodeID)
+	}
+	return result
+}
+
+func completionHistoryItemIDs(items []CompletionHistoryItem) []uint {
 	result := make([]uint, 0, len(items))
 	for _, item := range items {
 		result = append(result, item.EpisodeID)

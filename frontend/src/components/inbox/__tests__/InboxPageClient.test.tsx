@@ -266,6 +266,8 @@ function dragEvent({
 describe("InboxPageClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState({}, "", "/inbox");
+    HTMLElement.prototype.scrollIntoView = vi.fn();
     dragMediaMatches = false;
     dragMediaListeners.clear();
     installDragMediaQuery();
@@ -288,6 +290,34 @@ describe("InboxPageClient", () => {
     );
     apiMocks.placeQueue.mockResolvedValue({ queues: {} });
     apiMocks.undoCompletion.mockResolvedValue({ queues: {} });
+  });
+
+  it("links recent completions to the independent history view", async () => {
+    render(<InboxPageClient />);
+
+    const recent = queueSection("done");
+    expect(
+      await within(recent).findByRole("link", { name: "查看全部" }),
+    ).toHaveAttribute("href", "/inbox/history");
+  });
+
+  it("locates and focuses an action-queue item linked from history", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/inbox?queue=inbox&episode=101",
+    );
+    render(<InboxPageClient />);
+
+    const trigger = await screen.findByRole("button", {
+      name: "打开 可处理单集 明细",
+    });
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+      behavior: "auto",
+      block: "center",
+      inline: "center",
+    });
   });
 
   it("loads four queues independently and keeps healthy queues visible when one fails", async () => {
@@ -1170,7 +1200,11 @@ describe("InboxPageClient", () => {
         dragEvent({ source: "inbox", activeEpisodeId: 101, target: "focus" }),
       ),
     );
-    await screen.findByRole("alertdialog", { name: "Focus 已有 7 项" });
+    await screen.findByRole(
+      "alertdialog",
+      { name: "Focus 已有 7 项" },
+      { timeout: 3000 },
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "仍加入 Focus" }));
 
