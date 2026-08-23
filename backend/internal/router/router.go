@@ -1,8 +1,6 @@
 package router
 
 import (
-	"context"
-	"magicpodcast/internal/logger"
 	"os"
 	"time"
 
@@ -11,6 +9,7 @@ import (
 	"magicpodcast/internal/feed"
 	"magicpodcast/internal/handlers"
 	"magicpodcast/internal/llm"
+	"magicpodcast/internal/logger"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/notifier"
 	"magicpodcast/internal/processing"
@@ -139,17 +138,8 @@ func SetupRouter() *gin.Engine {
 		v1.POST("/consumption/episodes/:episodeID/in-progress", discoveryHandler.MarkInProgress)
 
 		processingService := processing.NewService(discoveryDB)
-		recovery, err := processingService.RecoverNonTerminalRuns(context.Background(), time.Now().UTC())
-		if err != nil {
-			panic(err)
-		}
-		if len(recovery.FailedRunIDs) > 0 || len(recovery.FailedDeliveryIDs) > 0 {
-			logger.Infof(
-				"Closed %d interrupted processing run(s) and %d knowledge delivery attempt(s) during startup recovery",
-				len(recovery.FailedRunIDs),
-				len(recovery.FailedDeliveryIDs),
-			)
-		}
+		// API startup remains read-only. The explicitly started processing
+		// worker owns restart recovery before it claims durable work.
 		processingHandler := handlers.NewProcessingHandler(processingService, nil)
 		v1.POST("/episodes/:id/processing-runs", processingHandler.Start)
 		v1.GET("/episodes/:id/processing-runs", processingHandler.ListEpisodeRuns)

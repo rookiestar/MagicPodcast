@@ -487,6 +487,35 @@ func TestEngineRuntimeRetryReusesCompletedTranscriptionCheckpoint(t *testing.T) 
 	require.Equal(t, ExternalProgressCompleted, checkpoint.Status)
 }
 
+func TestEngineRejectsCompletedTranscriptionWithoutRecoverableCheckpoint(t *testing.T) {
+	db := openProcessingTestDB(t)
+	service := newProcessingService(db)
+	episode := createProcessingEpisode(t, db, true, "engine-missing-completed-checkpoint")
+	run := startProcessingRun(t, service, episode.ID)
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	transcriber := &fakeTranscriber{
+		beginProgress: []TranscriptionProgress{{
+			Status:     ExternalProgressCompleted,
+			Transcript: "# Transcript\n",
+		}},
+	}
+	engine, err := NewEngine(service, transcriber, &fakeRuntime{}, store, nil)
+	require.NoError(t, err)
+
+	failed, err := engine.Advance(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusFailed, failed.Status)
+	require.Equal(t, "missing_completed_checkpoint", failed.ErrorCode)
+	require.False(t, failed.ErrorRetryable)
+	require.Equal(t, 1, transcriber.BeginCallCount())
+
+	terminal, err := engine.Advance(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusFailed, terminal.Status)
+	require.Equal(t, 1, transcriber.BeginCallCount())
+}
+
 func TestEngineContextCancellationCannotLeaveRunStuckRunning(t *testing.T) {
 	db := openProcessingTestDB(t)
 	service := newProcessingService(
@@ -506,6 +535,7 @@ func TestEngineContextCancellationCannotLeaveRunStuckRunning(t *testing.T) {
 		onBegin: cancel,
 		beginProgress: []TranscriptionProgress{{
 			Status:     ExternalProgressCompleted,
+			Checkpoint: json.RawMessage(`{"transcript_ref":"cancelled-context"}`),
 			Transcript: "# Transcript\n",
 		}},
 	}
@@ -514,7 +544,7 @@ func TestEngineContextCancellationCannotLeaveRunStuckRunning(t *testing.T) {
 
 	retrying, err := engine.Advance(ctx, run.ID)
 	require.NoError(t, err)
-	require.Equal(t, models.ProcessingRunStatusQueued, retrying.Status)
+	require.Equal(t, models.ProcessingRunStatusWaitingExternal, retrying.Status)
 	require.Equal(t, "processing_state_update_failed", retrying.ErrorCode)
 	require.True(t, retrying.ErrorRetryable)
 	require.Equal(t, StepTranscription, retrying.CurrentStep)
@@ -567,6 +597,7 @@ func TestEngineCancellationCannotBeOverwrittenByWorker(t *testing.T) {
 	transcriber := &fakeTranscriber{
 		beginProgress: []TranscriptionProgress{{
 			Status:     ExternalProgressCompleted,
+			Checkpoint: json.RawMessage(`{"transcript_ref":"cancel-race"}`),
 			Transcript: "# Transcript\n",
 		}},
 	}
@@ -813,6 +844,65 @@ func TestEngineKnowledgeDeliveriesAreIndependentPerTargetAndDestination(t *testi
 	require.NotEqual(t, keyByTarget["gemini"], keyByTarget["ima"])
 }
 
+func TestEnginePersistsSuccessfulDeliveryAfterContextCancellation(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 24, 16, 30, 0, 0, time.UTC)
+	service := newProcessingService(db, WithClock(func() time.Time { return now }))
+	episode := createProcessingEpisode(t, db, true, "delivery-success-after-cancel")
+	run := startProcessingRun(t, service, episode.ID)
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+		Where("id = ?", run.ID).
+		Updates(map[string]any{
+			"status":      models.ProcessingRunStatusCompleted,
+			"finished_at": now,
+			"updated_at":  now,
+		}).Error)
+	artifact := models.EpisodeArtifactSet{
+		RunID:            run.ID,
+		EpisodeID:        episode.ID,
+		PipelineVersion:  run.PipelineVersion,
+		RootPath:         "/managed/artifacts",
+		ManifestPath:     "manifest.json",
+		ManifestSHA256:   strings.Repeat("1", 64),
+		TranscriptSHA256: strings.Repeat("2", 64),
+		NotesSHA256:      strings.Repeat("3", 64),
+		IsCurrent:        true,
+		CreatedAt:        now,
+	}
+	require.NoError(t, db.Create(&artifact).Error)
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	engine, err := NewEngine(service, &fakeTranscriber{}, &fakeRuntime{}, store, nil)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	bridge := &fakeBridge{
+		target:       "gemini",
+		version:      "fake-gemini-v1",
+		receipt:      DeliveryReceipt{RemoteRef: "source-1"},
+		afterDeliver: cancel,
+	}
+
+	require.NoError(t, engine.deliver(
+		ctx,
+		artifact,
+		KnowledgePackage{
+			EpisodeID:       episode.ID,
+			PipelineVersion: run.PipelineVersion,
+			ManifestSHA256:  artifact.ManifestSHA256,
+			Transcript:      "# Transcript\n",
+			EpisodeNotes:    "# Episode notes\n",
+		},
+		BridgeBinding{Destination: "notebook-a", Adapter: bridge},
+	))
+
+	detail, err := service.GetProcessingRun(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Len(t, detail.Deliveries, 1)
+	require.Equal(t, models.DeliveryStatusDelivered, detail.Deliveries[0].Status)
+	require.Equal(t, "source-1", detail.Deliveries[0].RemoteRef)
+	require.NotNil(t, detail.Deliveries[0].DeliveredAt)
+}
+
 type fakeTranscriber struct {
 	mu             sync.Mutex
 	name           string
@@ -863,6 +953,7 @@ func (f *fakeTranscriber) Begin(
 	}
 	return TranscriptionProgress{
 		Status:     ExternalProgressCompleted,
+		Checkpoint: json.RawMessage(`{"transcript_ref":"default"}`),
 		Transcript: "# Transcript\n",
 	}, nil
 }
@@ -992,6 +1083,7 @@ type fakeBridge struct {
 	err          error
 	calls        int
 	deliveryKeys []string
+	afterDeliver func()
 }
 
 func (f *fakeBridge) Target() string         { return f.target }
@@ -1002,13 +1094,19 @@ func (f *fakeBridge) Deliver(
 	request DeliveryRequest,
 ) (DeliveryReceipt, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.calls++
 	f.deliveryKeys = append(f.deliveryKeys, request.DeliveryKey)
-	if f.err != nil {
-		return DeliveryReceipt{}, f.err
+	err := f.err
+	receipt := f.receipt
+	afterDeliver := f.afterDeliver
+	f.mu.Unlock()
+	if afterDeliver != nil {
+		afterDeliver()
 	}
-	return f.receipt, nil
+	if err != nil {
+		return DeliveryReceipt{}, err
+	}
+	return receipt, nil
 }
 
 func (f *fakeBridge) Cancel(_ context.Context, _ uint) error { return nil }

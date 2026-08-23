@@ -348,7 +348,8 @@ type RecoveryResult struct {
 	FailedDeliveryIDs []uint `json:"failed_delivery_ids"`
 }
 
-// RecoverNonTerminalRuns is called once after a service restart. Queued work
+// RecoverNonTerminalRuns is called by an explicitly started processing worker
+// after a service restart. Normal API setup must remain read-only. Queued work
 // and external waits with durable checkpoints remain recoverable. Local work
 // and in-flight deliveries cannot survive the process boundary, so they are
 // closed explicitly instead of appearing active forever.

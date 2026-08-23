@@ -79,6 +79,9 @@ type TranscriptionProgress struct {
 type TranscriptionAdapter interface {
 	Name() string
 	Version() string
+	// A completed result must include a valid checkpoint that lets Resume
+	// reproduce the completed transcript and raw metadata after a retry or
+	// restart. The engine rejects non-recoverable completed results.
 	Begin(context.Context, TranscriptionRequest) (TranscriptionProgress, error)
 	Resume(context.Context, TranscriptionRequest, json.RawMessage) (TranscriptionProgress, error)
 	Cancel(context.Context, uint, json.RawMessage) error

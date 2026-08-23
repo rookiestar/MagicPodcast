@@ -266,6 +266,19 @@ func (e *Engine) Advance(
 				ExternalProgressCompleted,
 			)
 		}
+		if len(progress.Checkpoint) == 0 {
+			return e.handleStepError(
+				runCtx,
+				run.ID,
+				NewAdapterError(
+					"missing_completed_checkpoint",
+					"completed transcription did not return a recoverable checkpoint",
+					false,
+				),
+				nil,
+				ExternalProgressCompleted,
+			)
+		}
 	default:
 		return e.handleStepError(
 			runCtx,
@@ -1021,7 +1034,7 @@ func (e *Engine) deliver(
 			}).Error
 	}
 	deliveredAt := e.service.now().UTC()
-	return e.service.db.WithContext(ctx).
+	return e.service.db.WithContext(context.WithoutCancel(ctx)).
 		Model(&models.KnowledgeDelivery{}).
 		Where("id = ?", delivery.ID).
 		Updates(map[string]any{
