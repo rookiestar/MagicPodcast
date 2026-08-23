@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -131,11 +132,25 @@ function ConsumptionCard({
     const trigger = menuTriggerRef.current;
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
+    const menuHeight = menuRef.current?.getBoundingClientRect().height ?? 0;
+    const viewportMargin = 8;
+    const triggerGap = 5;
+    const belowTop = rect.bottom + triggerGap;
+    const fitsBelow =
+      menuHeight === 0 ||
+      belowTop + menuHeight <= window.innerHeight - viewportMargin;
     setMenuPosition({
-      top: rect.bottom + 5,
-      right: Math.max(8, window.innerWidth - rect.right),
+      top: fitsBelow
+        ? belowTop
+        : Math.max(viewportMargin, rect.top - menuHeight - triggerGap),
+      right: Math.max(viewportMargin, window.innerWidth - rect.right),
     });
   }, []);
+
+  useLayoutEffect(() => {
+    if (!menuOpen) return;
+    updateMenuPosition();
+  }, [menuOpen, updateMenuPosition]);
 
   useEffect(() => {
     if (!menuOpen) return;

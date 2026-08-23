@@ -395,6 +395,45 @@ describe("InboxPageClient", () => {
     );
   });
 
+  it("places the move menu above its trigger when it would overflow", async () => {
+    render(<InboxPageClient />);
+    const trigger = await screen.findByRole("button", {
+      name: "将 可处理单集 移动到其他队列",
+    });
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({
+      top: 700,
+      right: 300,
+      bottom: 744,
+      left: 256,
+      width: 44,
+      height: 44,
+      x: 256,
+      y: 700,
+      toJSON: () => ({}),
+    });
+
+    fireEvent.click(trigger);
+    const menu = screen.getByRole("menu", { name: "移动 可处理单集" });
+    vi.spyOn(menu, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      right: 300,
+      bottom: 144,
+      left: 144,
+      width: 156,
+      height: 144,
+      x: 144,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    fireEvent(window, new Event("resize"));
+
+    await waitFor(() => {
+      const menuTop = Number.parseFloat(menu.style.top);
+      expect(menuTop).toBeLessThan(700);
+      expect(menuTop + 144).toBeLessThanOrEqual(window.innerHeight);
+    });
+  });
+
   it("closes the move menu with Escape and restores trigger focus", async () => {
     render(<InboxPageClient />);
     const trigger = await screen.findByRole("button", {
