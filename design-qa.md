@@ -333,3 +333,26 @@
 - P3: the concept image and production use different dynamic timestamps and result records; structure, density, typography, and interaction hierarchy remain equivalent.
 
 final result: passed
+
+## 2026-08-23 Issue #173: reversible homepage Inbox bookmark
+
+- Source visual truth: `/Users/bytedance/.codex/generated_images/01a02eea-5e0f-7f41-a15f-af8a56ec2564/exec-e7c76356-badc-4836-aff3-3fc4e8698338.png` (`1905 × 825` pixels).
+- Browser-rendered implementation:
+  - Desktop: `/Users/bytedance/.codex/visualizations/2026/08/23/01a02eea-5e0f-7f41-a15f-af8a56ec2564/issue-173/implementation-desktop-1440-inbox.png` (`1440 × 1000` pixels and CSS viewport, device scale factor `1`).
+  - Mobile: `/Users/bytedance/.codex/visualizations/2026/08/23/01a02eea-5e0f-7f41-a15f-af8a56ec2564/issue-173/implementation-mobile-390-inbox.png` (`390 × 844` pixels and CSS viewport, device scale factor `1`).
+- Full-view comparison, source left and implementation right: `/Users/bytedance/.codex/visualizations/2026/08/23/01a02eea-5e0f-7f41-a15f-af8a56ec2564/issue-173/comparison-source-left-desktop-right.png`.
+- Focused comparison, source left and implementation right: `/Users/bytedance/.codex/visualizations/2026/08/23/01a02eea-5e0f-7f41-a15f-af8a56ec2564/issue-173/comparison-focused-icons-normalized.png`. The crop was normalized to `220` pixels high; no density conversion was needed.
+- State: the same Fixture episode is in Inbox in the report, recent list, and mobile preview. The implementation uses the selected blue solid bookmark without the former persistent blue rectangular frame.
+- Full-view evidence: existing editorial hierarchy, report/list layout, typography, paper texture, covers, copy, and responsive structure are unchanged. Mobile document width and scroll width are both `390`.
+- Focused evidence: the orange outlined bookmark-plus becomes the existing Tabler solid bookmark, colored `rgb(23, 104, 208)`. Report, list, and preview controls are `44 × 44` CSS px. Inbox controls have transparent background and transparent/zero-width visible border; keyboard focus remains a `3px` blue outline.
+- Interaction evidence: collection and removal were exercised from report and preview, with synchronized report/recent/preview states, Inbox count, and the `未收集` filter; the Fixture was restored afterward. Focus/Someday/Done protection and failed-write rollback are covered by the Discovery integration tests. Browser console warnings/errors: none.
+- Required fidelity surfaces:
+  - Fonts and typography: unchanged.
+  - Spacing and layout rhythm: unchanged; the icon remains optically centered in the existing `44 × 44` target.
+  - Colors and visual tokens: existing orange action and blue Inbox tokens match the approved source.
+  - Image quality and assets: existing covers are unchanged; the solid bookmark comes from the existing Tabler icon library, with no new image or custom SVG.
+  - Copy and content: visible content is unchanged; accessible action names switch between `收集到 Inbox` and `从 Inbox 移除`.
+- Findings: no actionable P0/P1/P2 difference. The source is a focused state concept rather than a complete page mock, so unchanged surrounding layout and content are expected.
+- Comparison history: the first combined full-view and focused comparisons passed; no visual fix iteration was required.
+
+final result: passed

@@ -10,6 +10,7 @@ import {
 } from "react";
 import type { ReactNode, TouchEvent } from "react";
 import {
+  IconBookmarkFilled,
   IconBookmarkPlus,
   IconChevronLeft,
   IconChevronRight,
@@ -438,7 +439,13 @@ export default function DiscoveryDesk({
           candidate.episode_id === previous.episode_id ? previous : candidate,
         ),
       );
-      setDecisionError("状态保存失败，已恢复服务端原状态，可重试。");
+      setDecisionError(
+        state === "shortlisted"
+          ? "收集失败，已恢复服务端原状态，可重试。"
+          : state === "pending" && previous.queue_state === "inbox"
+            ? "移除失败，已恢复服务端原状态，可重试。"
+            : "状态保存失败，已恢复服务端原状态，可重试。",
+      );
     } finally {
       setSavingEpisodeID(null);
     }
@@ -519,9 +526,12 @@ export default function DiscoveryDesk({
   };
 
   const discardActionLabel = selected?.dismissed_at ? "恢复显示" : "不感兴趣";
-  const collectActionLabel = selected?.queue_state
-    ? `已在 ${queueLabels[selected.queue_state]}`
-    : "收集到 Inbox";
+  const collectActionLabel =
+    selected?.queue_state === "inbox"
+      ? "从 Inbox 移除"
+      : selected?.queue_state
+        ? `已在 ${queueLabels[selected.queue_state]}`
+        : "收集到 Inbox";
 
   return (
     <main className="discovery-desk discovery-unified-layout">
@@ -611,6 +621,17 @@ export default function DiscoveryDesk({
                 {pagedCandidates.map((candidate, index) => {
                 const isSelected =
                   candidate.episode_id === selected?.episode_id;
+                const isInInbox = candidate.queue_state === "inbox";
+                const hasProtectedQueue = Boolean(
+                  candidate.queue_state && !isInInbox,
+                );
+                const queueActionLabel = isInInbox
+                  ? "从 Inbox 移除"
+                  : candidate.queue_state
+                    ? `已在 ${queueLabels[candidate.queue_state]}`
+                    : candidate.dismissed_at
+                      ? "不感兴趣"
+                      : "收集到 Inbox";
                 const dateGroup = candidateDateGroup(candidate.candidate_time);
                 const previousDateGroup =
                   index > 0
@@ -710,34 +731,30 @@ export default function DiscoveryDesk({
                               candidate.queue_state ??
                               (candidate.dismissed_at ? "discarded" : "pending")
                             }
-                            aria-label={
-                              candidate.queue_state
-                                ? `已在 ${queueLabels[candidate.queue_state]}`
-                                : candidate.dismissed_at
-                                  ? "不感兴趣"
-                                  : "收集到 Inbox"
+                            aria-label={queueActionLabel}
+                            aria-pressed={isInInbox}
+                            aria-busy={
+                              savingEpisodeID === candidate.episode_id ||
+                              undefined
                             }
-                            aria-pressed={Boolean(candidate.queue_state)}
-                            title={
-                              candidate.queue_state
-                                ? `已在 ${queueLabels[candidate.queue_state]}`
-                                : candidate.dismissed_at
-                                  ? "不感兴趣"
-                                  : "收集到 Inbox"
-                            }
+                            title={queueActionLabel}
                             disabled={
                               !onDecision ||
                               savingEpisodeID !== null ||
-                              Boolean(
-                                candidate.queue_state || candidate.dismissed_at,
-                              )
+                              Boolean(candidate.dismissed_at) ||
+                              hasProtectedQueue
                             }
                             onClick={() =>
-                              void updateDecision(candidate, "shortlisted")
+                              void updateDecision(
+                                candidate,
+                                isInInbox ? "pending" : "shortlisted",
+                              )
                             }
                           >
                             {candidate.dismissed_at ? (
                               <IconEyeOff aria-hidden="true" />
+                            ) : candidate.queue_state ? (
+                              <IconBookmarkFilled aria-hidden="true" />
                             ) : (
                               <IconBookmarkPlus aria-hidden="true" />
                             )}
@@ -884,17 +901,34 @@ export default function DiscoveryDesk({
                     type="button"
                     className="discovery-action-button is-primary"
                     aria-label={collectActionLabel}
-                    aria-pressed={Boolean(selected.queue_state)}
+                    aria-pressed={selected.queue_state === "inbox"}
+                    aria-busy={
+                      savingEpisodeID === selected.episode_id || undefined
+                    }
                     data-tooltip={collectActionLabel}
                     title={collectActionLabel}
                     disabled={
                       !onDecision ||
                       savingEpisodeID !== null ||
-                      Boolean(selected.queue_state)
+                      Boolean(
+                        selected.queue_state &&
+                          selected.queue_state !== "inbox",
+                      )
                     }
-                    onClick={() => void updateDecision(selected, "shortlisted")}
+                    onClick={() =>
+                      void updateDecision(
+                        selected,
+                        selected.queue_state === "inbox"
+                          ? "pending"
+                          : "shortlisted",
+                      )
+                    }
                   >
-                    <IconBookmarkPlus aria-hidden="true" stroke={1.8} />
+                    {selected.queue_state ? (
+                      <IconBookmarkFilled aria-hidden="true" />
+                    ) : (
+                      <IconBookmarkPlus aria-hidden="true" stroke={1.8} />
+                    )}
                   </button>
                 </div>
                 <button

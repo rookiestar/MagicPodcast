@@ -357,17 +357,29 @@ describe("WorkflowReportWorkbench", () => {
     await waitFor(() => {
       expect(onDecision).toHaveBeenCalledWith(31, "shortlisted");
     });
-    // Expand state remains open; Discovery does not remove an existing queue.
+    // Expand state remains open while the same control supports reversal.
     expect(screen.getByText("Shownotes 一")).toBeInTheDocument();
-    expect(screen.getAllByLabelText("已在 Inbox")[0]).toBeDisabled();
-    expect(onDecision).toHaveBeenCalledTimes(1);
+    const remove = screen.getAllByLabelText("从 Inbox 移除")[0];
+    expect(remove).toBeEnabled();
+    expect(remove).toHaveAttribute("aria-pressed", "true");
+    expect(
+      remove.querySelector(".tabler-icon-bookmark-filled"),
+    ).toBeInTheDocument();
+
+    remove.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => {
+      expect(onDecision).toHaveBeenLastCalledWith(31, "pending");
+    });
+    expect(screen.getAllByLabelText("收集到 Inbox")[0]).toBeEnabled();
+    expect(onDecision).toHaveBeenCalledTimes(2);
 
     fireEvent.click(screen.getByRole("button", { name: /第二集/ }));
     expect(screen.getByText("Shownotes 一")).toBeInTheDocument();
     expect(screen.getByText("Shownotes 二")).toBeInTheDocument();
   });
 
-  it("preserves an existing Focus state instead of resetting it to Inbox", () => {
+  it("keeps Focus, Someday, and Done as display-only states", () => {
     const onDecision = vi.fn();
     render(
       <WorkflowReportWorkbench
@@ -385,6 +397,24 @@ describe("WorkflowReportWorkbench", () => {
                 decision_state: "shortlisted",
                 queue_state: "focus",
               },
+              {
+                episode_id: 42,
+                order: 2,
+                podcast_id: 1,
+                podcast_title: "P",
+                episode_title: "稍后单集",
+                decision_state: "shortlisted",
+                queue_state: "someday",
+              },
+              {
+                episode_id: 43,
+                order: 3,
+                podcast_id: 1,
+                podcast_title: "P",
+                episode_title: "完成单集",
+                decision_state: "shortlisted",
+                queue_state: "done",
+              },
             ],
           }),
         ]}
@@ -392,10 +422,84 @@ describe("WorkflowReportWorkbench", () => {
       />,
     );
 
-    const state = screen.getByRole("button", { name: "已在 Focus" });
-    expect(state).toBeDisabled();
-    fireEvent.click(state);
+    for (const label of ["已在 Focus", "已在 Someday", "已在 Done"]) {
+      const state = screen.getByRole("button", { name: label });
+      expect(state).toBeDisabled();
+      expect(state).toHaveAttribute("aria-pressed", "false");
+      expect(
+        state.querySelector(".tabler-icon-bookmark-filled"),
+      ).toBeInTheDocument();
+      fireEvent.click(state);
+    }
     expect(onDecision).not.toHaveBeenCalled();
+  });
+
+  it("exposes a busy state and blocks duplicate Inbox writes", async () => {
+    let resolveDecision:
+      | ((value: {
+          state: "shortlisted";
+          decision_updated_at: string;
+        }) => void)
+      | undefined;
+    const onDecision = vi.fn(
+      () =>
+        new Promise<{
+          state: "shortlisted";
+          decision_updated_at: string;
+        }>((resolve) => {
+          resolveDecision = resolve;
+        }),
+    );
+    render(
+      <WorkflowReportWorkbench
+        todayReports={[
+          makeReport({
+            id: 5,
+            workflow_name: "忙碌态日报",
+            episodes: [
+              {
+                episode_id: 51,
+                order: 1,
+                podcast_id: 1,
+                podcast_title: "P",
+                episode_title: "写入中的单集",
+                decision_state: "pending",
+              },
+              {
+                episode_id: 52,
+                order: 2,
+                podcast_id: 1,
+                podcast_title: "P",
+                episode_title: "等待中的单集",
+                decision_state: "pending",
+              },
+            ],
+          }),
+        ]}
+        onDecision={onDecision}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "收集到 Inbox" })[0]);
+    const busy = screen.getByRole("button", { name: "从 Inbox 移除" });
+    const waiting = screen.getByRole("button", { name: "收集到 Inbox" });
+    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute("aria-busy", "true");
+    expect(waiting).toBeDisabled();
+    fireEvent.click(busy);
+    fireEvent.click(waiting);
+    expect(onDecision).toHaveBeenCalledTimes(1);
+
+    resolveDecision?.({
+      state: "shortlisted",
+      decision_updated_at: "2026-08-10T12:00:00Z",
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "从 Inbox 移除" }),
+      ).toBeEnabled();
+    });
+    expect(screen.getByRole("button", { name: "收集到 Inbox" })).toBeEnabled();
   });
 
   it("loads history on demand and restores prior today index on back (#94/#95)", async () => {
