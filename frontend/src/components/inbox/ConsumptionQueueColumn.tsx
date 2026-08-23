@@ -1,12 +1,14 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { useDroppable } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -111,36 +113,89 @@ function ConsumptionCard({
   showInsertAfter?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{
+    top: number;
+    right: number;
+  } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
   const currentQueue = item.queue_state;
+  const menuId = `consumption-move-menu-${item.episode_id}`;
   const coverSource = getOptimizedImageUrl(
     item.image_url || item.podcast_cover_url,
     96,
   );
 
+  const updateMenuPosition = useCallback(() => {
+    const trigger = menuTriggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    setMenuPosition({
+      top: rect.bottom + 5,
+      right: Math.max(8, window.innerWidth - rect.right),
+    });
+  }, []);
+
   useEffect(() => {
     if (!menuOpen) return;
-    const closeOnOutsideClick = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setMenuOpen(false);
+    const closeOnOutsidePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        (menuRef.current?.contains(target) ||
+          menuTriggerRef.current?.contains(target))
+      ) {
+        return;
       }
+      setMenuOpen(false);
     };
-    document.addEventListener("mousedown", closeOnOutsideClick);
-    return () => document.removeEventListener("mousedown", closeOnOutsideClick);
-  }, [menuOpen]);
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setMenuOpen(false);
+      menuTriggerRef.current?.focus();
+    };
+    const visualViewport = window.visualViewport;
+    document.addEventListener("pointerdown", closeOnOutsidePointerDown, true);
+    document.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    visualViewport?.addEventListener("resize", updateMenuPosition);
+    visualViewport?.addEventListener("scroll", updateMenuPosition);
+    return () => {
+      document.removeEventListener(
+        "pointerdown",
+        closeOnOutsidePointerDown,
+        true,
+      );
+      document.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+      visualViewport?.removeEventListener("resize", updateMenuPosition);
+      visualViewport?.removeEventListener("scroll", updateMenuPosition);
+    };
+  }, [menuOpen, updateMenuPosition]);
 
   const handleMove = async (target: ConsumptionQueue) => {
     setMenuOpen(false);
     await onMove(item, target);
   };
 
+  const toggleMenu = () => {
+    if (menuOpen) {
+      setMenuOpen(false);
+      return;
+    }
+    updateMenuPosition();
+    setMenuOpen(true);
+  };
+
   return (
     <article
       ref={cardRef}
       style={cardStyle}
-      className={`${styles.card}${menuOpen ? ` ${styles.cardMenuOpen}` : ""}${
-        isDragging ? ` ${styles.cardDragging}` : ""
-      }${showInsertBefore ? ` ${styles.cardInsertBefore}` : ""}${
+      className={`${styles.card}${isDragging ? ` ${styles.cardDragging}` : ""}${
+        showInsertBefore ? ` ${styles.cardInsertBefore}` : ""
+      }${
         showInsertAfter ? ` ${styles.cardInsertAfter}` : ""
       }`}
       aria-busy={busy}
@@ -224,43 +279,51 @@ function ConsumptionCard({
               <IconCircleCheck size={18} stroke={1.8} aria-hidden="true" />
             </button>
           )}
-          <div className={styles.moveMenu} ref={menuRef}>
+          <div>
             <button
+              ref={menuTriggerRef}
               type="button"
               className={styles.iconButton}
               disabled={busy}
-              onClick={() => setMenuOpen((open) => !open)}
+              onClick={toggleMenu}
               aria-label={`将 ${item.episode_title} 移动到其他队列`}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
+              aria-controls={menuOpen ? menuId : undefined}
               title="移动到其他队列"
             >
               <IconArrowsExchange size={18} stroke={1.8} aria-hidden="true" />
             </button>
-            {menuOpen && (
-              <div
-                className={styles.moveMenuPopover}
-                role="menu"
-                aria-label={`移动 ${item.episode_title}`}
-              >
-                {CONSUMPTION_QUEUES.filter(
-                  (queue) => queue !== currentQueue,
-                ).map((queue) => (
-                  <button
-                    key={queue}
-                    type="button"
-                    role="menuitem"
-                    onClick={() => void handleMove(queue)}
-                  >
-                    <QueueIcon queue={queue} size={16} />
-                    移至 {QUEUE_PRESENTATION[queue].label}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       </div>
+      {menuOpen && menuPosition && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={menuRef}
+              id={menuId}
+              className={styles.moveMenuPopover}
+              style={menuPosition}
+              role="menu"
+              aria-label={`移动 ${item.episode_title}`}
+            >
+              {CONSUMPTION_QUEUES.filter(
+                (queue) => queue !== currentQueue,
+              ).map((queue) => (
+                <button
+                  key={queue}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void handleMove(queue)}
+                >
+                  <QueueIcon queue={queue} size={16} />
+                  移至 {QUEUE_PRESENTATION[queue].label}
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
       {busy && (
         <span className={styles.cardBusy} role="status">
           正在保存队列状态…
