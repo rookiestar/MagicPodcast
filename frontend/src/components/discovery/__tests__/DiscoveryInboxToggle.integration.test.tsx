@@ -233,6 +233,107 @@ describe("Discovery Inbox toggle integration", () => {
     expect(revalidateConsumptionSummaryMock).toHaveBeenCalledTimes(4);
   });
 
+  it("keeps report Inbox feedback local without announcing a content refresh", async () => {
+    let candidatesValidating = false;
+    let reportsValidating = false;
+    const candidatesMutate = vi
+      .fn()
+      .mockImplementation(
+        async (_data: unknown, options?: { revalidate?: boolean }) => {
+          candidatesValidating = options?.revalidate !== false;
+        },
+      );
+    const reportsMutate = vi
+      .fn()
+      .mockImplementation(
+        async (_data: unknown, options?: { revalidate?: boolean }) => {
+          reportsValidating = options?.revalidate !== false;
+        },
+      );
+    useSWRMock.mockImplementation((key: string) =>
+      key.includes("/discovery/reports")
+        ? {
+            data: reports,
+            error: null,
+            isValidating: reportsValidating,
+            mutate: reportsMutate,
+          }
+        : {
+            data: [candidate],
+            error: null,
+            isValidating: candidatesValidating,
+            mutate: candidatesMutate,
+          },
+    );
+    apiPutMock.mockResolvedValue(queueResponse("inbox"));
+    apiDeleteMock.mockResolvedValue(queueResponse(null));
+
+    const view = render(
+      <DiscoveryPageClient initialCandidates={[candidate]} />,
+    );
+    const report = screen.getByRole("region", { name: "精选报告" });
+
+    fireEvent.click(
+      within(report).getByRole("button", { name: "收集到 Inbox" }),
+    );
+    await waitFor(() => expect(reportsMutate).toHaveBeenCalledTimes(1));
+    view.rerender(<DiscoveryPageClient initialCandidates={[candidate]} />);
+
+    expect(
+      screen.queryByText("正在后台更新最近内容…"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("正在后台更新，当前显示上次加载结果…"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      within(report).getByRole("button", { name: "从 Inbox 移除" }),
+    );
+    await waitFor(() => expect(reportsMutate).toHaveBeenCalledTimes(2));
+    view.rerender(<DiscoveryPageClient initialCandidates={[candidate]} />);
+
+    expect(
+      screen.queryByText("正在后台更新最近内容…"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("正在后台更新，当前显示上次加载结果…"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps a successful Inbox write when content refresh is unavailable", async () => {
+    const rejectRevalidation = vi
+      .fn()
+      .mockImplementation(
+        async (_data: unknown, options?: { revalidate?: boolean }) => {
+          if (options?.revalidate !== false) {
+            throw new Error("content refresh unavailable");
+          }
+        },
+      );
+    useSWRMock.mockImplementation((key: string) => ({
+      data: key.includes("/discovery/reports") ? reports : [candidate],
+      error: null,
+      isValidating: false,
+      mutate: rejectRevalidation,
+    }));
+    apiPutMock.mockResolvedValue(queueResponse("inbox"));
+
+    render(<DiscoveryPageClient initialCandidates={[candidate]} />);
+    const report = screen.getByRole("region", { name: "精选报告" });
+
+    fireEvent.click(
+      within(report).getByRole("button", { name: "收集到 Inbox" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        within(report).getByRole("button", { name: "从 Inbox 移除" }),
+      ).toBeEnabled();
+    });
+    expect(within(report).queryByRole("alert")).not.toBeInTheDocument();
+    expect(revalidateConsumptionSummaryMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rolls back failed collection and removal before allowing retry", async () => {
     mockDiscoveryData();
     apiPutMock
