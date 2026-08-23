@@ -97,6 +97,7 @@ func ValidateDatabase(path string) (DatabaseStatus, error) {
 		"reports",
 		"episode_triage_decisions",
 		"consumption_queue_orders",
+		"episode_completions",
 	} {
 		var count int64
 		if err := db.Table(table).Count(&count).Error; err != nil {

@@ -21,12 +21,15 @@ const apiMocks = vi.hoisted(() => ({
   getItem: vi.fn(),
   setQueue: vi.fn(),
   placeQueue: vi.fn(),
+  undoCompletion: vi.fn(),
   markInProgress: vi.fn(),
   getConsumptionErrorDetails: vi.fn((error: unknown) => ({
     message: error instanceof Error ? error.message : "请求失败",
   })),
   requiresFocusConfirmation: vi.fn(() => false),
   isQueueOrderConflict: vi.fn(() => false),
+  isCompletionUndoConflict: vi.fn(() => false),
+  isCompletionUndoExpired: vi.fn(() => false),
 }));
 
 const dndMocks = vi.hoisted(() => ({
@@ -50,11 +53,14 @@ vi.mock("@/lib/api/consumption", () => ({
     getItem: apiMocks.getItem,
     setQueue: apiMocks.setQueue,
     placeQueue: apiMocks.placeQueue,
+    undoCompletion: apiMocks.undoCompletion,
     markInProgress: apiMocks.markInProgress,
   },
   getConsumptionErrorDetails: apiMocks.getConsumptionErrorDetails,
   requiresFocusConfirmation: apiMocks.requiresFocusConfirmation,
   isQueueOrderConflict: apiMocks.isQueueOrderConflict,
+  isCompletionUndoConflict: apiMocks.isCompletionUndoConflict,
+  isCompletionUndoExpired: apiMocks.isCompletionUndoExpired,
 }));
 
 vi.mock("@dnd-kit/core", async () => {
@@ -90,6 +96,14 @@ vi.mock("@dnd-kit/core", async () => {
     pointerWithin: vi.fn(() => []),
     useSensor: vi.fn(() => ({})),
     useSensors: vi.fn((...sensors: unknown[]) => sensors),
+    useDraggable: vi.fn(() => ({
+      attributes: {},
+      listeners: {},
+      setActivatorNodeRef: () => undefined,
+      setNodeRef: () => undefined,
+      transform: null,
+      isDragging: false,
+    })),
     useDroppable: vi.fn(() => ({ isOver: false, setNodeRef: () => undefined })),
   };
 });
@@ -155,6 +169,7 @@ function queuePayload(queue: ConsumptionQueue): ConsumptionQueuePayload {
     queue_state: queue,
     revision: 1,
     items: queue === "inbox" ? [inboxItem] : [],
+    has_more: false,
   };
 }
 
@@ -169,7 +184,7 @@ function queueSection(name: ConsumptionQueue) {
             ? "Focus"
             : name === "someday"
               ? "Someday"
-              : "Done",
+              : "最近完成",
     })
     .closest("section") as HTMLElement;
 }
@@ -272,6 +287,7 @@ describe("InboxPageClient", () => {
       }),
     );
     apiMocks.placeQueue.mockResolvedValue({ queues: {} });
+    apiMocks.undoCompletion.mockResolvedValue({ queues: {} });
   });
 
   it("loads four queues independently and keeps healthy queues visible when one fails", async () => {
@@ -284,13 +300,193 @@ describe("InboxPageClient", () => {
 
     expect(await screen.findByText("可处理单集")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Focus" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Done" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "最近完成" }),
+    ).toBeInTheDocument();
     expect(
       await screen.findByText("Someday 加载失败，不影响其他队列。"),
     ).toBeInTheDocument();
     expect(
       within(queueSection("inbox")).getByText("可处理单集"),
     ).toBeInTheDocument();
+  });
+
+  it("keeps action queues usable while recent completions load or fail", async () => {
+    let rejectDone!: (error: Error) => void;
+    const pendingDone = new Promise<ConsumptionQueuePayload>((_resolve, reject) => {
+      rejectDone = reject;
+    });
+    apiMocks.listQueue.mockImplementation((queue: ConsumptionQueue) =>
+      queue === "done" ? pendingDone : Promise.resolve(queuePayload(queue)),
+    );
+
+    render(<InboxPageClient />);
+
+    expect(
+      await within(queueSection("inbox")).findByText("可处理单集"),
+    ).toBeInTheDocument();
+    expect(
+      within(queueSection("done")).getByText("正在加载 最近完成…"),
+    ).toBeInTheDocument();
+    expect(
+      within(queueSection("done")).queryByText(
+        "最近 7 天还没有完成的单集。",
+      ),
+    ).toBeNull();
+
+    rejectDone(new Error("最近完成暂不可用"));
+    expect(
+      await within(queueSection("done")).findByText(
+        "最近完成 加载失败，不影响其他队列。",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(queueSection("inbox")).getByText("可处理单集"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the actual bounded recent-completion count, overflow, and completion time", async () => {
+    const completedItem: ConsumptionItem = {
+      ...inboxItem,
+      queue_state: "done",
+      completed_at: "2026-08-23T08:30:00Z",
+    };
+    apiMocks.getSummary.mockResolvedValue({
+      ...emptySummary,
+      counts: { ...emptySummary.counts, done: 37 },
+    });
+    apiMocks.listQueue.mockImplementation(async (queue: ConsumptionQueue) => ({
+      ...queuePayload(queue),
+      items: queue === "done" ? [completedItem] : queuePayload(queue).items,
+      has_more: queue === "done",
+    }));
+
+    render(<InboxPageClient />);
+
+    const recentSection = queueSection("done");
+    expect(
+      await within(recentSection).findByText("可处理单集"),
+    ).toBeInTheDocument();
+    expect(within(recentSection).getByLabelText("1 项")).toHaveTextContent("1");
+    expect(
+      within(recentSection).getByText("最近 7 天还有未展示的完成记录。"),
+    ).toBeInTheDocument();
+    expect(within(recentSection).getByText(/完成于 8\/23/)).toBeInTheDocument();
+  });
+
+  it("offers a page-session undo and restores the canonical queue position", async () => {
+    let currentQueue: ConsumptionQueue = "inbox";
+    const completedItem: ConsumptionItem = {
+      ...inboxItem,
+      queue_state: "done",
+      completed_at: new Date().toISOString(),
+      completion_undo: {
+        token: "signed-page-session-token",
+        expires_at: new Date(Date.now() + 15_000).toISOString(),
+      },
+    };
+    apiMocks.listQueue.mockImplementation(async (queue: ConsumptionQueue) => ({
+      queue_state: queue,
+      revision: currentQueue === queue ? 2 : 1,
+      items:
+        currentQueue === queue
+          ? [{ ...inboxItem, queue_state: currentQueue }]
+          : [],
+      has_more: false,
+    }));
+    apiMocks.setQueue.mockImplementation(async () => {
+      currentQueue = "done";
+      return completedItem;
+    });
+    apiMocks.undoCompletion.mockImplementation(async () => {
+      currentQueue = "inbox";
+      return {
+        queues: {
+          inbox: {
+            queue_state: "inbox",
+            revision: 3,
+            items: [inboxItem],
+            has_more: false,
+          },
+          done: {
+            queue_state: "done",
+            revision: 3,
+            items: [],
+            has_more: false,
+          },
+        },
+      };
+    });
+
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "将 可处理单集 标记完成",
+      }),
+    );
+
+    expect(
+      await screen.findByText(/《可处理单集》已完成，\d+ 秒内可撤销。/),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "撤销完成 可处理单集" }),
+    );
+
+    await waitFor(() =>
+      expect(apiMocks.undoCompletion).toHaveBeenCalledWith(
+        101,
+        "signed-page-session-token",
+      ),
+    );
+    expect(
+      await within(queueSection("inbox")).findByText("可处理单集"),
+    ).toBeInTheDocument();
+    expect(within(queueSection("done")).queryByText("可处理单集")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "撤销完成 可处理单集" }),
+    ).toBeNull();
+  });
+
+  it("refreshes canonical state when completion undo conflicts", async () => {
+    const completedItem: ConsumptionItem = {
+      ...inboxItem,
+      queue_state: "done",
+      completion_undo: {
+        token: "conflicting-token",
+        expires_at: new Date(Date.now() + 15_000).toISOString(),
+      },
+    };
+    apiMocks.setQueue.mockResolvedValue(completedItem);
+    apiMocks.undoCompletion.mockRejectedValue(new Error("state changed"));
+    apiMocks.isCompletionUndoConflict.mockReturnValue(true);
+
+    render(<InboxPageClient />);
+    const completeButton = await screen.findByRole("button", {
+      name: "将 可处理单集 标记完成",
+    });
+    const initialLoads = apiMocks.listQueue.mock.calls.length;
+    fireEvent.click(completeButton);
+    await screen.findByRole("button", {
+      name: "撤销完成 可处理单集",
+    });
+    await waitFor(() =>
+      expect(apiMocks.listQueue).toHaveBeenCalledTimes(initialLoads + 2),
+    );
+    const loadsBeforeUndo = apiMocks.listQueue.mock.calls.length;
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "撤销完成 可处理单集",
+      }),
+    );
+
+    expect(
+      await screen.findByText(
+        "状态已在另一设备改变，无法撤销；已刷新，请从最近完成重新处理。",
+      ),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(apiMocks.listQueue).toHaveBeenCalledTimes(loadsBeforeUndo + 4),
+    );
   });
 
   it("uses the canonical server order instead of queue activity timestamps", async () => {
@@ -304,6 +500,7 @@ describe("InboxPageClient", () => {
       queue_state: queue,
       revision: 6,
       items: queue === "inbox" ? [serverFirst, inboxItem] : [],
+      has_more: false,
     }));
 
     render(<InboxPageClient />);
@@ -323,7 +520,7 @@ describe("InboxPageClient", () => {
 
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "将 可处理单集 标记 Done",
+        name: "将 可处理单集 标记完成",
       }),
     );
 
@@ -468,7 +665,7 @@ describe("InboxPageClient", () => {
     const somedayItem = screen.getByRole("menuitem", {
       name: "移至 Someday",
     });
-    const doneItem = screen.getByRole("menuitem", { name: "移至 Done" });
+    const doneItem = screen.getByRole("menuitem", { name: "标记完成" });
 
     await waitFor(() => expect(focusItem).toHaveFocus());
     fireEvent.keyDown(menu, { key: "ArrowDown" });
@@ -543,10 +740,16 @@ describe("InboxPageClient", () => {
       queue_state: queue,
       revision: queue === "inbox" ? 6 : 1,
       items: queue === "inbox" ? [first, second] : [],
+      has_more: false,
     }));
     apiMocks.placeQueue.mockResolvedValue({
       queues: {
-        inbox: { queue_state: "inbox", revision: 7, items: [second, first] },
+        inbox: {
+          queue_state: "inbox",
+          revision: 7,
+          items: [second, first],
+          has_more: false,
+        },
       },
     });
     dragMediaMatches = true;
@@ -610,11 +813,17 @@ describe("InboxPageClient", () => {
   it("支持跨泳道落入空队列", async () => {
     apiMocks.placeQueue.mockResolvedValue({
       queues: {
-        inbox: { queue_state: "inbox", revision: 2, items: [] },
+        inbox: {
+          queue_state: "inbox",
+          revision: 2,
+          items: [],
+          has_more: false,
+        },
         done: {
           queue_state: "done",
           revision: 2,
           items: [{ ...inboxItem, queue_state: "done", in_progress_at: undefined }],
+          has_more: false,
         },
       },
     });
@@ -644,6 +853,82 @@ describe("InboxPageClient", () => {
     expect(within(queueSection("done")).getByText("可处理单集")).toBeInTheDocument();
   });
 
+  it("recent completions cannot be reordered but can be dragged out precisely", async () => {
+    const completedItem: ConsumptionItem = {
+      ...inboxItem,
+      episode_id: 202,
+      episode_title: "最近完成项",
+      queue_state: "done",
+      completed_at: "2026-08-23T08:30:00Z",
+    };
+    apiMocks.listQueue.mockImplementation(async (queue: ConsumptionQueue) => ({
+      queue_state: queue,
+      revision: queue === "done" ? 3 : 1,
+      items:
+        queue === "done"
+          ? [completedItem]
+          : queue === "inbox"
+            ? [inboxItem]
+            : [],
+      has_more: false,
+    }));
+    apiMocks.placeQueue.mockResolvedValue({
+      queues: {
+        done: {
+          queue_state: "done",
+          revision: 4,
+          items: [],
+          has_more: false,
+        },
+        inbox: {
+          queue_state: "inbox",
+          revision: 2,
+          items: [{ ...completedItem, queue_state: "inbox" }, inboxItem],
+          has_more: false,
+        },
+      },
+    });
+    dragMediaMatches = true;
+
+    render(<InboxPageClient />);
+    await screen.findByRole("button", {
+      name: "拖动《最近完成项》重新处理",
+    });
+    act(() =>
+      dndMocks.onDragStart?.(
+        dragEvent({
+          source: "done",
+          activeEpisodeId: completedItem.episode_id,
+          target: "done",
+        }),
+      ),
+    );
+    act(() =>
+      dndMocks.onDragEnd?.(
+        dragEvent({
+          source: "done",
+          activeEpisodeId: completedItem.episode_id,
+          target: "inbox",
+          overEpisodeId: inboxItem.episode_id,
+        }),
+      ),
+    );
+
+    await waitFor(() =>
+      expect(apiMocks.placeQueue).toHaveBeenCalledWith(completedItem.episode_id, {
+        queue_state: "inbox",
+        before_episode_id: inboxItem.episode_id,
+        expected_revisions: { inbox: 1, done: 3 },
+        acknowledge_focus_limit: false,
+      }),
+    );
+    expect(
+      within(queueSection("inbox")).getAllByRole("button", {
+        name: /打开 .* 明细/,
+      })[0],
+    ).toHaveAttribute("aria-label", "打开 最近完成项 明细");
+  });
+
   it("拖放成功后不让旧的队列加载结果覆盖规范顺序", async () => {
     const doneItem: ConsumptionItem = {
       ...inboxItem,
@@ -668,22 +953,30 @@ describe("InboxPageClient", () => {
           queue_state: "done",
           revision: 1,
           items: [doneItem],
+          has_more: false,
         });
       }
       return Promise.resolve({
         queue_state: queue,
         revision: 1,
         items: queue === "inbox" ? [inboxItem] : [],
+        has_more: false,
       });
     });
     apiMocks.setQueue.mockResolvedValue({ ...doneItem, queue_state: "inbox" });
     apiMocks.placeQueue.mockResolvedValue({
       queues: {
-        inbox: { queue_state: "inbox", revision: 2, items: [] },
+        inbox: {
+          queue_state: "inbox",
+          revision: 2,
+          items: [],
+          has_more: false,
+        },
         done: {
           queue_state: "done",
           revision: 2,
           items: [{ ...inboxItem, queue_state: "done" }],
+          has_more: false,
         },
       },
     });
@@ -721,7 +1014,12 @@ describe("InboxPageClient", () => {
     expect(within(queueSection("done")).getByText("可处理单集")).toBeInTheDocument();
 
     await act(async () => {
-      resolveStaleDone({ queue_state: "done", revision: 1, items: [] });
+      resolveStaleDone({
+        queue_state: "done",
+        revision: 1,
+        items: [],
+        has_more: false,
+      });
       await Promise.resolve();
     });
 
@@ -774,15 +1072,22 @@ describe("InboxPageClient", () => {
       queue_state: queue,
       revision: queue === "focus" ? 9 : 4,
       items: queue === "inbox" ? [inboxItem] : queue === "focus" ? focusItems : [],
+      has_more: false,
     }));
     apiMocks.getItem.mockResolvedValue(inboxItem);
     apiMocks.placeQueue.mockResolvedValue({
       queues: {
-        inbox: { queue_state: "inbox", revision: 5, items: [] },
+        inbox: {
+          queue_state: "inbox",
+          revision: 5,
+          items: [],
+          has_more: false,
+        },
         focus: {
           queue_state: "focus",
           revision: 10,
           items: [...focusItems, { ...inboxItem, queue_state: "focus" }],
+          has_more: false,
         },
       },
     });
@@ -845,6 +1150,7 @@ describe("InboxPageClient", () => {
             : queue === "someday" && remoteMoveObserved
               ? [remotelyMoved]
               : [],
+      has_more: false,
     }));
     apiMocks.getItem.mockImplementation(async () => {
       remoteMoveObserved = true;

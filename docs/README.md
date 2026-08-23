@@ -1,6 +1,6 @@
 # MagicPodcast 文档中心
 
-最后更新：2026-08-21
+最后更新：2026-08-23
 
 这份索引用来区分“当前维护文档”和“历史记录”。日常开发、部署、测试和重构优先看当前维护文档；阶段性总结和历史分析只作为查证背景，不作为最新状态依据。
 
@@ -21,6 +21,7 @@ Agent 治理以根目录 [../AGENTS.md](../AGENTS.md) 为唯一权威合同；[.
 | 性能基线 | [performance/BASELINE_2026-05-31.md](performance/BASELINE_2026-05-31.md) | 最新页面、接口和后端并发基线 |
 | 性能专项方法 | [optimization/PERFORMANCE_PLAYBOOK.md](optimization/PERFORMANCE_PLAYBOOK.md) | 性能专项的体验不变量、根因分析、方案顺序和生产收口 |
 | 性能验收模板 | [optimization/PERFORMANCE_ACCEPTANCE_TEMPLATE.md](optimization/PERFORMANCE_ACCEPTANCE_TEMPLATE.md) | 正常、慢、失败、首次访问与冷暖态验收记录 |
+| Inbox 最近完成验收 | [optimization/INBOX_RECENT_COMPLETIONS_ACCEPTANCE_2026-08-23.md](optimization/INBOX_RECENT_COMPLETIONS_ACCEPTANCE_2026-08-23.md) | #169 本地正常、慢、失败、首次访问和多视口证据 |
 | 播客列表性能专项 | [optimization/PODCASTS_PERFORMANCE_AND_SHANGHAI_RELAY_2026-08-09.md](optimization/PODCASTS_PERFORMANCE_AND_SHANGHAI_RELAY_2026-08-09.md) | `/podcasts` 应用优化、公网瓶颈、上海私网双路径、运维与回退 |
 | 首页主路径验收 | [optimization/HOME_PRIMARY_PATH_ACCEPTANCE_2026-08-16.md](optimization/HOME_PRIMARY_PATH_ACCEPTANCE_2026-08-16.md) | 上海中继正式主路径的运行态、冷载证据和剩余人审 |
 | 正式访问路径 | [runbooks/PRIMARY_ACCESS_PATH.md](runbooks/PRIMARY_ACCESS_PATH.md) | 上海中继主路径、Cloudflare 备用、验收和故障切换 |
@@ -53,6 +54,10 @@ Agent 治理以根目录 [../AGENTS.md](../AGENTS.md) 为唯一权威合同；[.
 | [research/](research/) | **研究与方案**（非默认生产事实）：一手研究、ADR、设计提案与尚未完全落地的 Spec；落地前须用源码/测试核对 |
 | [runbooks/](runbooks/) | 运维诊断手册；步骤须与当前实现和已批准 Spec 的细粒度策略一致 |
 | [archive/](archive/) | **历史材料**：已从当前入口移出的阶段报告和测试报告，不作为最新状态依据 |
+
+分阶段落地的方案：
+
+- [Inbox Done 与完成历史设计](research/INBOX_DONE_HISTORY_DESIGN_2026-08-23.md)：#169 已交付完成事实、最近完成与 15 秒撤销；独立完成历史由 #170 继续交付。两阶段的本地实现均不代表生产已迁移或部署。
 
 文档角色速查：
 

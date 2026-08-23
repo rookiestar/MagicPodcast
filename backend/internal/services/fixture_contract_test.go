@@ -38,6 +38,13 @@ func TestJourneyFixtureCoversDiscoveryConsumptionAndReportContracts(t *testing.T
 	require.Equal(t, int64(1), summary.Counts[models.QueueStateDone])
 	require.False(t, summary.FocusOverLimit)
 
+	recent, err := consumption.ListQueue(models.QueueStateDone)
+	require.NoError(t, err)
+	require.Equal(t, []uint{2012}, fixtureConsumptionItemIDs(recent.Items))
+	require.False(t, recent.HasMore)
+	require.NotNil(t, recent.Items[0].CompletedAt)
+	require.True(t, recent.Items[0].CompletedAt.Equal(fixture.AnchorAt.Add(-3*24*time.Hour)))
+
 	focus, err := consumption.ListQueue(models.QueueStateFocus)
 	require.NoError(t, err)
 	attention := map[uint]string{}
@@ -76,6 +83,14 @@ func TestJourneyFixtureCoversDiscoveryConsumptionAndReportContracts(t *testing.T
 	require.Len(t, canonicalDecisions, 1)
 	require.Equal(t, uint(2002), canonicalDecisions[0].EpisodeID)
 	require.Equal(t, models.QueueStateInbox, *canonicalDecisions[0].QueueState)
+}
+
+func fixtureConsumptionItemIDs(items []services.ConsumptionItem) []uint {
+	ids := make([]uint, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.EpisodeID)
+	}
+	return ids
 }
 
 func TestFixtureReportScenariosExposeZeroOneAndMultipleTodayReports(t *testing.T) {

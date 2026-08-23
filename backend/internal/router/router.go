@@ -129,6 +129,7 @@ func SetupRouter() *gin.Engine {
 		v1.GET("/consumption/episodes/:episodeID", discoveryHandler.GetConsumptionItem)
 		v1.PUT("/consumption/episodes/:episodeID/queue", discoveryHandler.PutQueue)
 		v1.PUT("/consumption/episodes/:episodeID/placement", discoveryHandler.PutPlacement)
+		v1.POST("/consumption/episodes/:episodeID/completion/undo", discoveryHandler.UndoCompletion)
 		v1.DELETE("/consumption/episodes/:episodeID/queue", discoveryHandler.DeleteQueue)
 		v1.PUT("/consumption/episodes/:episodeID/dismissed", discoveryHandler.PutDismissed)
 		v1.POST("/consumption/episodes/:episodeID/read", discoveryHandler.MarkRead)

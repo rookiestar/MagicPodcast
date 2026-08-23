@@ -253,6 +253,10 @@ type putDismissedRequest struct {
 	Dismissed bool `json:"dismissed"`
 }
 
+type undoCompletionRequest struct {
+	Token string `json:"token" binding:"required"`
+}
+
 func (h *DiscoveryHandler) ListQueue(c *gin.Context) {
 	queueState := c.Param("queue")
 	snapshot, err := h.consumptionService.ListQueue(queueState)
@@ -315,7 +319,7 @@ func (h *DiscoveryHandler) PutQueue(c *gin.Context) {
 		})
 		return
 	}
-	_, err := h.consumptionService.SetQueue(
+	result, err := h.consumptionService.SetQueueWithResult(
 		episodeID,
 		request.QueueState,
 		services.QueueWriteOptions{AcknowledgeFocusLimit: request.AcknowledgeFocusLimit},
@@ -349,7 +353,7 @@ func (h *DiscoveryHandler) PutQueue(c *gin.Context) {
 		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to update queue state")
 		return
 	}
-	h.writeConsumptionItem(c, episodeID)
+	h.writeConsumptionItemWithUndo(c, episodeID, result.CompletionUndo)
 }
 
 func (h *DiscoveryHandler) PutPlacement(c *gin.Context) {
@@ -477,6 +481,56 @@ func (h *DiscoveryHandler) MarkInProgress(c *gin.Context) {
 	h.writeConsumptionItem(c, episodeID)
 }
 
+func (h *DiscoveryHandler) UndoCompletion(c *gin.Context) {
+	episodeID, ok := parseConsumptionEpisodeID(c)
+	if !ok {
+		return
+	}
+	var request undoCompletionRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "INVALID_REQUEST", "message": "invalid completion undo request"},
+		})
+		return
+	}
+	result, err := h.consumptionService.UndoCompletion(episodeID, request.Token)
+	switch {
+	case errors.Is(err, services.ErrInvalidCompletionUndo):
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "INVALID_COMPLETION_UNDO", "message": "completion undo token is invalid"},
+		})
+		return
+	case errors.Is(err, services.ErrCompletionUndoExpired):
+		c.JSON(http.StatusGone, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "COMPLETION_UNDO_EXPIRED", "message": "completion undo has expired"},
+		})
+		return
+	case errors.Is(err, services.ErrCompletionUndoConflict),
+		errors.Is(err, services.ErrQueueOrderConflict):
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "COMPLETION_UNDO_CONFLICT",
+				"message": "Consumption state changed; reload and reprocess the episode",
+			},
+		})
+		return
+	case errors.Is(err, services.ErrConsumptionEpisodeNotFound):
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "EPISODE_NOT_FOUND", "message": "episode not found"},
+		})
+		return
+	case err != nil:
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to undo completion")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+}
+
 func parseConsumptionEpisodeID(c *gin.Context) (uint, bool) {
 	episodeID, err := strconv.ParseUint(c.Param("episodeID"), 10, 64)
 	if err != nil || episodeID == 0 {
@@ -490,11 +544,20 @@ func parseConsumptionEpisodeID(c *gin.Context) (uint, bool) {
 }
 
 func (h *DiscoveryHandler) writeConsumptionItem(c *gin.Context, episodeID uint) {
+	h.writeConsumptionItemWithUndo(c, episodeID, nil)
+}
+
+func (h *DiscoveryHandler) writeConsumptionItemWithUndo(
+	c *gin.Context,
+	episodeID uint,
+	undo *services.CompletionUndo,
+) {
 	item, err := h.consumptionService.GetItem(episodeID)
 	if err != nil {
 		h.writeConsumptionError(c, err, "Failed to read updated consumption state")
 		return
 	}
+	item.CompletionUndo = undo
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
 }
 

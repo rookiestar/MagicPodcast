@@ -19,6 +19,7 @@ import {
 } from "@dnd-kit/core";
 import {
   IconAlertTriangle,
+  IconArrowBackUp,
   IconArrowRight,
   IconCircleCheck,
   IconRefresh,
@@ -27,11 +28,14 @@ import PageLayout from "@/components/layout/PageLayout";
 import {
   consumptionApi,
   getConsumptionErrorDetails,
+  isCompletionUndoConflict,
+  isCompletionUndoExpired,
   isQueueOrderConflict,
   requiresFocusConfirmation,
 } from "@/lib/api/consumption";
 import {
   CONSUMPTION_QUEUES,
+  type CompletionUndo,
   type ConsumptionItem,
   type ConsumptionQueue,
   type ConsumptionSummary,
@@ -50,6 +54,7 @@ import styles from "./InboxPage.module.css";
 interface QueueViewState {
   items: ConsumptionItem[];
   revision: number | null;
+  hasMore: boolean;
   isLoading: boolean;
   error: string | null;
 }
@@ -75,6 +80,13 @@ interface FailedAction {
 interface ActiveQueueDrag {
   item: ConsumptionItem;
   source: ConsumptionQueue;
+}
+
+interface CompletionUndoNotice {
+  episodeId: number;
+  episodeTitle: string;
+  token: string;
+  expiresAt: number;
 }
 
 const queueCollisionDetection: CollisionDetection = (args) => {
@@ -103,10 +115,34 @@ function isSameQueuePlacement(
 
 function makeInitialQueues(): QueueViewStateMap {
   return {
-    inbox: { items: [], revision: null, isLoading: true, error: null },
-    focus: { items: [], revision: null, isLoading: true, error: null },
-    someday: { items: [], revision: null, isLoading: true, error: null },
-    done: { items: [], revision: null, isLoading: true, error: null },
+    inbox: {
+      items: [],
+      revision: null,
+      hasMore: false,
+      isLoading: true,
+      error: null,
+    },
+    focus: {
+      items: [],
+      revision: null,
+      hasMore: false,
+      isLoading: true,
+      error: null,
+    },
+    someday: {
+      items: [],
+      revision: null,
+      hasMore: false,
+      isLoading: true,
+      error: null,
+    },
+    done: {
+      items: [],
+      revision: null,
+      hasMore: false,
+      isLoading: true,
+      error: null,
+    },
   };
 }
 
@@ -121,7 +157,12 @@ function cloneQueues(previous: QueueViewStateMap): QueueViewStateMap {
 
 function replaceQueueSnapshots(
   previous: QueueViewStateMap,
-  snapshots: Partial<Record<ConsumptionQueue, { revision: number; items: ConsumptionItem[] }>>,
+  snapshots: Partial<
+    Record<
+      ConsumptionQueue,
+      { revision: number; items: ConsumptionItem[]; has_more: boolean }
+    >
+  >,
 ): QueueViewStateMap {
   const next = cloneQueues(previous);
   for (const queue of CONSUMPTION_QUEUES) {
@@ -131,6 +172,7 @@ function replaceQueueSnapshots(
       ...next[queue],
       items: snapshot.items,
       revision: snapshot.revision,
+      hasMore: snapshot.has_more,
       isLoading: false,
       error: null,
     };
@@ -189,6 +231,8 @@ function previewQueuePlacement(
           ...item,
           queue_state: target,
           queue_updated_at: new Date().toISOString(),
+          completed_at:
+            target === "done" ? new Date().toISOString() : item.completed_at,
           in_progress_at: target === "done" ? undefined : item.in_progress_at,
           attention: "",
         };
@@ -206,7 +250,9 @@ function previewQueuePlacement(
     (candidate) => candidate.episode_id !== item.episode_id,
   );
   const insertionIndex =
-    placement.beforeEpisodeId === null
+    target === "done"
+      ? 0
+      : placement.beforeEpisodeId === null
       ? targetItems.length
       : targetItems.findIndex(
           (candidate) => candidate.episode_id === placement.beforeEpisodeId,
@@ -292,6 +338,13 @@ export default function InboxPageClient() {
   const [detailItem, setDetailItem] = useState<ConsumptionItem | null>(null);
   const [focusPrompt, setFocusPrompt] = useState<FocusPrompt | null>(null);
   const [failedAction, setFailedAction] = useState<FailedAction | null>(null);
+  const [completionUndos, setCompletionUndos] = useState<
+    CompletionUndoNotice[]
+  >([]);
+  const [completionUndoError, setCompletionUndoError] = useState<string | null>(
+    null,
+  );
+  const [undoNow, setUndoNow] = useState(() => Date.now());
   const [announcement, setAnnouncement] = useState("");
   const [dragEnabled, setDragEnabled] = useState(false);
   const [activeDrag, setActiveDrag] = useState<ActiveQueueDrag | null>(null);
@@ -317,6 +370,20 @@ export default function InboxPageClient() {
   useEffect(() => {
     summaryRef.current = summary;
   }, [summary]);
+
+  useEffect(() => {
+    if (completionUndos.length === 0) return;
+    const pruneExpired = () => {
+      const now = Date.now();
+      setUndoNow(now);
+      setCompletionUndos((current) =>
+        current.filter((notice) => notice.expiresAt > now),
+      );
+    };
+    pruneExpired();
+    const timer = window.setInterval(pruneExpired, 250);
+    return () => window.clearInterval(timer);
+  }, [completionUndos.length]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
@@ -360,6 +427,7 @@ export default function InboxPageClient() {
         [queue]: {
           items: payload.items,
           revision: payload.revision,
+          hasMore: payload.has_more,
           isLoading: false,
           error: null,
         },
@@ -404,6 +472,29 @@ export default function InboxPageClient() {
     );
   }, []);
 
+  const registerCompletionUndo = useCallback(
+    (
+      item: Pick<ConsumptionItem, "episode_id" | "episode_title">,
+      undo?: CompletionUndo,
+    ) => {
+      if (!undo) return;
+      const expiresAt = new Date(undo.expires_at).getTime();
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return;
+      setCompletionUndoError(null);
+      setUndoNow(Date.now());
+      setCompletionUndos((current) => [
+        ...current.filter((notice) => notice.episodeId !== item.episode_id),
+        {
+          episodeId: item.episode_id,
+          episodeTitle: item.episode_title,
+          token: undo.token,
+          expiresAt,
+        },
+      ]);
+    },
+    [],
+  );
+
   const performMove = useCallback(
     async (
       item: ConsumptionItem,
@@ -440,6 +531,8 @@ export default function InboxPageClient() {
         ...item,
         queue_state: target,
         queue_updated_at: new Date().toISOString(),
+        completed_at:
+          target === "done" ? new Date().toISOString() : item.completed_at,
         in_progress_at: target === "done" ? undefined : item.in_progress_at,
         attention: "",
       };
@@ -455,9 +548,13 @@ export default function InboxPageClient() {
           target,
           { acknowledgeFocusLimit },
         );
-        reconcileItem(canonical);
+        const canonicalItem = { ...canonical, completion_undo: undefined };
+        reconcileItem(canonicalItem);
+        if (target === "done") {
+          registerCompletionUndo(canonical, canonical.completion_undo);
+        }
         setAnnouncement(
-          `${item.episode_title} 已移至 ${target === "done" ? "Done" : target}.`,
+          `${item.episode_title} ${target === "done" ? "已完成" : `已移至 ${target}`}。`,
         );
         void loadSummary();
         const queuesToReload = new Set<ConsumptionQueue>([target]);
@@ -465,7 +562,7 @@ export default function InboxPageClient() {
         void Promise.allSettled(
           Array.from(queuesToReload).map((queue) => loadQueue(queue)),
         );
-        return canonical;
+        return canonicalItem;
       } catch (error) {
         setQueues((previous) => updateItemAcrossQueues(previous, item));
         setDetailItem((previous) =>
@@ -501,7 +598,7 @@ export default function InboxPageClient() {
         setBusyEpisodes(new Set(busyEpisodesRef.current));
       }
     },
-    [loadQueue, loadSummary, reconcileItem],
+    [loadQueue, loadSummary, reconcileItem, registerCompletionUndo],
   );
 
   const requestMove = useCallback(
@@ -588,8 +685,17 @@ export default function InboxPageClient() {
             previous?.episode_id === item.episode_id ? canonicalItem : previous,
           );
         }
+        if (target === "done") {
+          registerCompletionUndo(item, result.completion_undo);
+        }
         setAnnouncement(
-          `${item.episode_title} 已${source === target ? "调整顺序" : `移至 ${target === "done" ? "Done" : target}` }。`,
+          `${item.episode_title} ${
+            target === "done"
+              ? "已完成"
+              : source === target
+                ? "已调整顺序"
+                : `已移至 ${target}`
+          }。`,
         );
         void loadSummary();
       } catch (error) {
@@ -646,7 +752,7 @@ export default function InboxPageClient() {
         setBusyEpisodes(new Set(busyEpisodesRef.current));
       }
     },
-    [loadQueue, loadSummary],
+    [loadQueue, loadSummary, registerCompletionUndo],
   );
 
   const retryPlacement = useCallback(
@@ -705,7 +811,10 @@ export default function InboxPageClient() {
           ] as const),
         );
         const snapshots: Partial<
-          Record<ConsumptionQueue, { revision: number; items: ConsumptionItem[] }>
+          Record<
+            ConsumptionQueue,
+            { revision: number; items: ConsumptionItem[]; has_more: boolean }
+          >
         > = {};
         for (const [queue, payload] of payloads) snapshots[queue] = payload;
         const freshQueues = replaceQueueSnapshots(queuesRef.current, snapshots);
@@ -773,6 +882,66 @@ export default function InboxPageClient() {
       }
     },
     [loadQueue, loadSummary, performMove, performPlacement],
+  );
+
+  const undoCompletion = useCallback(
+    async (notice: CompletionUndoNotice) => {
+      if (
+        notice.expiresAt <= Date.now() ||
+        busyEpisodesRef.current.has(notice.episodeId)
+      ) {
+        return;
+      }
+      busyEpisodesRef.current.add(notice.episodeId);
+      setBusyEpisodes(new Set(busyEpisodesRef.current));
+      setCompletionUndoError(null);
+      try {
+        const result = await consumptionApi.undoCompletion(
+          notice.episodeId,
+          notice.token,
+        );
+        const canonicalQueues = replaceQueueSnapshots(
+          queuesRef.current,
+          result.queues,
+        );
+        queuesRef.current = canonicalQueues;
+        setQueues(canonicalQueues);
+        setCompletionUndos((current) =>
+          current.filter((candidate) => candidate.token !== notice.token),
+        );
+        setAnnouncement(`${notice.episodeTitle} 已恢复到完成前的位置。`);
+        void loadSummary();
+        void consumptionApi
+          .getItem(notice.episodeId)
+          .then(reconcileItem)
+          .catch(() => undefined);
+      } catch (error) {
+        setCompletionUndos((current) =>
+          current.filter((candidate) => candidate.token !== notice.token),
+        );
+        if (isCompletionUndoConflict(error)) {
+          setCompletionUndoError(
+            "状态已在另一设备改变，无法撤销；已刷新，请从最近完成重新处理。",
+          );
+          void Promise.allSettled([
+            ...CONSUMPTION_QUEUES.map((queue) => loadQueue(queue)),
+            loadSummary(),
+          ]);
+        } else if (isCompletionUndoExpired(error)) {
+          setCompletionUndoError(
+            "15 秒撤销窗口已结束；可从最近完成重新处理。",
+          );
+        } else {
+          setCompletionUndoError(
+            `撤销失败：${getConsumptionErrorDetails(error).message}`,
+          );
+        }
+      } finally {
+        busyEpisodesRef.current.delete(notice.episodeId);
+        setBusyEpisodes(new Set(busyEpisodesRef.current));
+      }
+    },
+    [loadQueue, loadSummary, reconcileItem],
   );
 
   const resolvePlacementFromDragEvent = useCallback(
@@ -916,7 +1085,12 @@ export default function InboxPageClient() {
           key={queue}
           queue={queue}
           items={queues[queue].items}
-          count={summary?.counts[queue] ?? queues[queue].items.length}
+          count={
+            queue === "done"
+              ? queues.done.items.length
+              : (summary?.counts[queue] ?? queues[queue].items.length)
+          }
+          hasMore={queues[queue].hasMore}
           isLoading={queues[queue].isLoading}
           error={queues[queue].error}
           focusLimit={focusLimit}
@@ -941,6 +1115,46 @@ export default function InboxPageClient() {
     >
       <main className={styles.page}>
         <h1 className={styles.srOnly}>Inbox</h1>
+
+        {completionUndos.length > 0 && (
+          <div className={styles.undoStack} aria-label="可撤销的完成操作">
+            {completionUndos.map((notice) => {
+              const secondsLeft = Math.max(
+                1,
+                Math.ceil((notice.expiresAt - undoNow) / 1000),
+              );
+              return (
+                <div
+                  key={notice.token}
+                  className={styles.undoNotice}
+                  role="status"
+                >
+                  <IconCircleCheck size={18} stroke={1.8} aria-hidden="true" />
+                  <span>
+                    《{notice.episodeTitle}》已完成，{secondsLeft} 秒内可撤销。
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.undoButton}
+                    disabled={busyEpisodes.has(notice.episodeId)}
+                    onClick={() => void undoCompletion(notice)}
+                    aria-label={`撤销完成 ${notice.episodeTitle}`}
+                  >
+                    <IconArrowBackUp size={17} stroke={1.8} aria-hidden="true" />
+                    撤销
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {completionUndoError && (
+          <div className={styles.actionError} role="alert">
+            <IconAlertTriangle size={18} stroke={1.8} aria-hidden="true" />
+            <span>{completionUndoError}</span>
+          </div>
+        )}
 
         {summaryError && (
           <div className={styles.summaryError} role="alert">
@@ -1036,7 +1250,7 @@ export default function InboxPageClient() {
             </span>
             <span>
               <IconCircleCheck size={14} stroke={1.8} aria-hidden="true" />
-              Done 必须手动确认
+              最近完成只来自手动确认
             </span>
           </p>
         </footer>

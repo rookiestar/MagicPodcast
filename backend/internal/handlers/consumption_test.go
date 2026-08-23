@@ -28,6 +28,7 @@ func setupConsumptionHandler(t *testing.T) (*gorm.DB, *gin.Engine, models.Podcas
 		&models.Podcast{},
 		&models.Episode{},
 		&models.Tag{},
+		&models.EpisodeCompletion{},
 		&models.EpisodeTriageDecision{},
 		&models.ConsumptionQueueOrder{},
 	))
@@ -53,6 +54,7 @@ func setupConsumptionHandler(t *testing.T) (*gorm.DB, *gin.Engine, models.Podcas
 	router.GET("/api/v1/consumption/episodes/:episodeID", handler.GetConsumptionItem)
 	router.PUT("/api/v1/consumption/episodes/:episodeID/queue", handler.PutQueue)
 	router.PUT("/api/v1/consumption/episodes/:episodeID/placement", handler.PutPlacement)
+	router.POST("/api/v1/consumption/episodes/:episodeID/completion/undo", handler.UndoCompletion)
 	router.DELETE("/api/v1/consumption/episodes/:episodeID/queue", handler.DeleteQueue)
 	router.PUT("/api/v1/consumption/episodes/:episodeID/dismissed", handler.PutDismissed)
 	router.POST("/api/v1/consumption/episodes/:episodeID/read", handler.MarkRead)
@@ -228,6 +230,165 @@ func TestConsumptionHandler_PlacesQueueItemsAndRejectsStaleRevision(t *testing.T
 	)
 	require.Equal(t, http.StatusConflict, stale.Code)
 	require.Contains(t, stale.Body.String(), "QUEUE_ORDER_CONFLICT")
+}
+
+func TestConsumptionHandler_CompletesAndPreciselyUndoesThroughHTTP(t *testing.T) {
+	db, router, podcast := setupConsumptionHandler(t)
+	first := createConsumptionHandlerEpisode(t, db, podcast.ID, "撤销前项", time.Now().UTC())
+	completed := createConsumptionHandlerEpisode(t, db, podcast.ID, "可撤销完成", time.Now().UTC())
+	for _, episode := range []models.Episode{first, completed} {
+		response := performJSONRequest(
+			t,
+			router,
+			http.MethodPut,
+			fmt.Sprintf("/api/v1/consumption/episodes/%d/queue", episode.ID),
+			`{"queue_state":"inbox"}`,
+		)
+		require.Equal(t, http.StatusOK, response.Code)
+	}
+
+	queueResponse := performJSONRequest(t, router, http.MethodGet, "/api/v1/consumption/queues/inbox", "")
+	require.Equal(t, http.StatusOK, queueResponse.Code)
+	var queueBody struct {
+		Data struct {
+			Revision int64 `json:"revision"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(queueResponse.Body.Bytes(), &queueBody))
+
+	completionResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPut,
+		fmt.Sprintf("/api/v1/consumption/episodes/%d/placement", completed.ID),
+		fmt.Sprintf(
+			`{"queue_state":"done","before_episode_id":%d,"expected_revisions":{"inbox":%d,"done":1}}`,
+			first.ID,
+			queueBody.Data.Revision,
+		),
+	)
+	require.Equal(t, http.StatusOK, completionResponse.Code)
+	var completionBody struct {
+		Success bool                          `json:"success"`
+		Data    services.QueuePlacementResult `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(completionResponse.Body.Bytes(), &completionBody))
+	require.True(t, completionBody.Success)
+	require.NotNil(t, completionBody.Data.CompletionUndo)
+	require.NotEmpty(t, completionBody.Data.CompletionUndo.Token)
+	require.WithinDuration(
+		t,
+		time.Now().UTC().Add(services.CompletionUndoWindow),
+		completionBody.Data.CompletionUndo.ExpiresAt,
+		2*time.Second,
+	)
+	require.Equal(
+		t,
+		[]uint{first.ID},
+		consumptionHandlerItemIDs(completionBody.Data.Queues[models.QueueStateInbox].Items),
+	)
+	require.Equal(
+		t,
+		[]uint{completed.ID},
+		consumptionHandlerItemIDs(completionBody.Data.Queues[models.QueueStateDone].Items),
+	)
+
+	undoBody, err := json.Marshal(map[string]string{
+		"token": completionBody.Data.CompletionUndo.Token,
+	})
+	require.NoError(t, err)
+	undoResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		fmt.Sprintf("/api/v1/consumption/episodes/%d/completion/undo", completed.ID),
+		string(undoBody),
+	)
+	require.Equal(t, http.StatusOK, undoResponse.Code)
+	var undoResult struct {
+		Success bool                          `json:"success"`
+		Data    services.QueuePlacementResult `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(undoResponse.Body.Bytes(), &undoResult))
+	require.True(t, undoResult.Success)
+	require.Equal(
+		t,
+		[]uint{completed.ID, first.ID},
+		consumptionHandlerItemIDs(undoResult.Data.Queues[models.QueueStateInbox].Items),
+	)
+	require.Empty(t, undoResult.Data.Queues[models.QueueStateDone].Items)
+
+	var completionCount int64
+	require.NoError(t, db.Model(&models.EpisodeCompletion{}).
+		Where("episode_id = ?", completed.ID).
+		Count(&completionCount).Error)
+	require.Zero(t, completionCount)
+}
+
+func TestConsumptionHandler_UndoCompletionReturnsExplicitConflict(t *testing.T) {
+	db, router, podcast := setupConsumptionHandler(t)
+	episode := createConsumptionHandlerEpisode(
+		t,
+		db,
+		podcast.ID,
+		"冲突完成项",
+		time.Now().UTC(),
+	)
+	inboxResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPut,
+		fmt.Sprintf("/api/v1/consumption/episodes/%d/queue", episode.ID),
+		`{"queue_state":"inbox"}`,
+	)
+	require.Equal(t, http.StatusOK, inboxResponse.Code)
+
+	completionResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPut,
+		fmt.Sprintf("/api/v1/consumption/episodes/%d/queue", episode.ID),
+		`{"queue_state":"done"}`,
+	)
+	require.Equal(t, http.StatusOK, completionResponse.Code)
+	var completionBody struct {
+		Data services.ConsumptionItem `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(completionResponse.Body.Bytes(), &completionBody))
+	require.NotNil(t, completionBody.Data.CompletionUndo)
+
+	reprocessResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPut,
+		fmt.Sprintf("/api/v1/consumption/episodes/%d/queue", episode.ID),
+		`{"queue_state":"someday"}`,
+	)
+	require.Equal(t, http.StatusOK, reprocessResponse.Code)
+
+	undoBody, err := json.Marshal(map[string]string{
+		"token": completionBody.Data.CompletionUndo.Token,
+	})
+	require.NoError(t, err)
+	undoResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		fmt.Sprintf("/api/v1/consumption/episodes/%d/completion/undo", episode.ID),
+		string(undoBody),
+	)
+	require.Equal(t, http.StatusConflict, undoResponse.Code)
+	require.Contains(t, undoResponse.Body.String(), "COMPLETION_UNDO_CONFLICT")
+
+	var decision models.EpisodeTriageDecision
+	require.NoError(t, db.Where("episode_id = ?", episode.ID).First(&decision).Error)
+	require.NotNil(t, decision.QueueState)
+	require.Equal(t, models.QueueStateSomeday, *decision.QueueState)
+	var completionCount int64
+	require.NoError(t, db.Model(&models.EpisodeCompletion{}).
+		Where("episode_id = ?", episode.ID).
+		Count(&completionCount).Error)
+	require.Equal(t, int64(1), completionCount)
 }
 
 func consumptionHandlerItemIDs(items []services.ConsumptionItem) []uint {

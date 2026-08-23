@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"magicpodcast/internal/models"
 
@@ -20,6 +21,7 @@ type QueueSnapshot struct {
 	QueueState string            `json:"queue_state"`
 	Revision   int64             `json:"revision"`
 	Items      []ConsumptionItem `json:"items"`
+	HasMore    bool              `json:"has_more"`
 }
 
 type QueuePlacementOptions struct {
@@ -29,7 +31,8 @@ type QueuePlacementOptions struct {
 }
 
 type QueuePlacementResult struct {
-	Queues map[string]QueueSnapshot `json:"queues"`
+	Queues         map[string]QueueSnapshot `json:"queues"`
+	CompletionUndo *CompletionUndo          `json:"completion_undo,omitempty"`
 }
 
 func (s *ConsumptionService) moveQueueToHead(
@@ -226,6 +229,16 @@ func (s *ConsumptionService) PlaceQueue(
 	if !ValidQueueState(queueState) {
 		return QueuePlacementResult{}, ErrInvalidQueueState
 	}
+	if queueState == models.QueueStateDone {
+		mutation, err := s.completeEpisode(episodeID, options.ExpectedRevisions)
+		if err != nil {
+			return QueuePlacementResult{}, err
+		}
+		return QueuePlacementResult{
+			Queues:         mutation.queues,
+			CompletionUndo: mutation.undo,
+		}, nil
+	}
 
 	var result QueuePlacementResult
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -338,6 +351,9 @@ func (s *ConsumptionService) readQueueSnapshot(
 	if err != nil {
 		return QueueSnapshot{}, err
 	}
+	if queueState == models.QueueStateDone {
+		return s.readRecentCompletionSnapshot(tx, revision)
+	}
 	var states []models.EpisodeTriageDecision
 	if err := tx.
 		Joins("JOIN episodes ON episodes.id = episode_triage_decisions.episode_id AND episodes.deleted_at IS NULL").
@@ -350,15 +366,74 @@ func (s *ConsumptionService) readQueueSnapshot(
 		return QueueSnapshot{}, err
 	}
 
+	episodeIDs := make([]uint, len(states))
+	for index := range states {
+		episodeIDs[index] = states[index].EpisodeID
+	}
+	completionTimes, err := completionTimesForEpisodeIDs(tx, episodeIDs)
+	if err != nil {
+		return QueueSnapshot{}, err
+	}
 	now := s.now().UTC()
 	items := make([]ConsumptionItem, 0, len(states))
 	for index := range states {
-		items = append(items, buildConsumptionItem(states[index], now))
+		var completedAt *time.Time
+		if value, exists := completionTimes[states[index].EpisodeID]; exists {
+			valueCopy := value
+			completedAt = &valueCopy
+		}
+		items = append(items, buildConsumptionItem(states[index], completedAt, now))
 	}
 	return QueueSnapshot{
 		QueueState: queueState,
 		Revision:   revision,
 		Items:      items,
+		HasMore:    false,
+	}, nil
+}
+
+func (s *ConsumptionService) readRecentCompletionSnapshot(
+	tx *gorm.DB,
+	revision int64,
+) (QueueSnapshot, error) {
+	var states []models.EpisodeTriageDecision
+	if err := tx.
+		Joins("JOIN episodes ON episodes.id = episode_triage_decisions.episode_id AND episodes.deleted_at IS NULL").
+		Joins("JOIN episode_completions ON episode_completions.episode_id = episode_triage_decisions.episode_id").
+		Preload("Episode.Podcast").
+		Preload("Episode.Tags").
+		Where("episode_triage_decisions.queue_state = ?", models.QueueStateDone).
+		Where("episode_completions.completed_at >= ?", s.now().UTC().Add(-RecentCompletionWindow)).
+		Order("episode_completions.completed_at DESC").
+		Order("episode_triage_decisions.episode_id DESC").
+		Limit(RecentCompletionLimit + 1).
+		Find(&states).Error; err != nil {
+		return QueueSnapshot{}, err
+	}
+
+	hasMore := len(states) > RecentCompletionLimit
+	if hasMore {
+		states = states[:RecentCompletionLimit]
+	}
+	episodeIDs := make([]uint, len(states))
+	for index := range states {
+		episodeIDs[index] = states[index].EpisodeID
+	}
+	completionTimes, err := completionTimesForEpisodeIDs(tx, episodeIDs)
+	if err != nil {
+		return QueueSnapshot{}, err
+	}
+	now := s.now().UTC()
+	items := make([]ConsumptionItem, 0, len(states))
+	for index := range states {
+		completedAt := completionTimes[states[index].EpisodeID]
+		items = append(items, buildConsumptionItem(states[index], &completedAt, now))
+	}
+	return QueueSnapshot{
+		QueueState: models.QueueStateDone,
+		Revision:   revision,
+		Items:      items,
+		HasMore:    hasMore,
 	}, nil
 }
 

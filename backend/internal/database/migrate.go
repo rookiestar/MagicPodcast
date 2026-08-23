@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 18
+const CurrentSchemaVersion = 19
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -152,6 +152,12 @@ func migrationRegistry() []Migration {
 			Description: "Persist independent queue positions and revisions for precise Inbox ordering (#157).",
 			Apply:       applyConsumptionQueueOrderMigration,
 		},
+		{
+			Version:     19,
+			Name:        "episode-completion-facts",
+			Description: "Persist one durable completion fact per episode and backfill only provable current Done state (#168/#169).",
+			Apply:       applyEpisodeCompletionFactsMigration,
+		},
 	}
 }
 
@@ -168,7 +174,7 @@ var baselineRequiredTables = []string{
 	"episodes_tags",
 }
 
-var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders")
+var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions")
 
 func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
 	if db == nil {
@@ -617,6 +623,45 @@ func applyConsumptionQueueOrderMigration(db *gorm.DB) error {
 		} else if err != nil {
 			return fmt.Errorf("read %s queue revision: %w", queueState, err)
 		}
+	}
+	return nil
+}
+
+func applyEpisodeCompletionFactsMigration(db *gorm.DB) error {
+	var missingCompletionTime int64
+	if err := db.Model(&models.EpisodeTriageDecision{}).
+		Where("queue_state = ? AND queue_updated_at IS NULL", models.QueueStateDone).
+		Count(&missingCompletionTime).Error; err != nil {
+		return fmt.Errorf("preflight current Done completion times: %w", err)
+	}
+	if missingCompletionTime > 0 {
+		return fmt.Errorf(
+			"preflight current Done completion times: %d episode(s) have no queue_updated_at",
+			missingCompletionTime,
+		)
+	}
+
+	if err := db.AutoMigrate(&models.EpisodeCompletion{}); err != nil {
+		return fmt.Errorf("create episode completion facts: %w", err)
+	}
+	if err := db.Exec(`
+		INSERT INTO episode_completions (
+			episode_id,
+			completed_at,
+			created_at,
+			updated_at
+		)
+		SELECT
+			episode_id,
+			queue_updated_at,
+			queue_updated_at,
+			queue_updated_at
+		FROM episode_triage_decisions
+		WHERE queue_state = ?
+		  AND queue_updated_at IS NOT NULL
+		ON CONFLICT(episode_id) DO NOTHING
+	`, models.QueueStateDone).Error; err != nil {
+		return fmt.Errorf("backfill current Done completion facts: %w", err)
 	}
 	return nil
 }

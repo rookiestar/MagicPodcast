@@ -21,13 +21,14 @@ func TestEnsureFixtureCreatesStableCurrentSchemaData(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, first.DatabasePath, second.DatabasePath)
-	require.Equal(t, "complete-v1-journey-20260814T02-schema-18", first.Version)
+	require.Equal(t, "complete-v2-journey-20260814T02-schema-19", first.Version)
 	require.Equal(t, DefaultFixtureScenario, first.Scenario)
 	require.Equal(t, "2026-08-14T02:00:00+08:00", first.Manifest.FixtureAnchorAt)
 	require.Equal(t, int64(3), first.Manifest.Counts["podcasts"])
 	require.Equal(t, int64(20), first.Manifest.Counts["episodes"])
 	require.Equal(t, int64(11), first.Manifest.Counts["episode_triage_decisions"])
 	require.Equal(t, int64(4), first.Manifest.Counts["consumption_queue_orders"])
+	require.Equal(t, int64(1), first.Manifest.Counts["episode_completions"])
 	require.Equal(t, int64(4), first.Manifest.Counts["reports"])
 
 	db, closeDB, err := openSQLite(first.DatabasePath, true)
@@ -144,6 +145,7 @@ func fixtureSemanticFingerprint(t *testing.T, path string) []string {
 		"reports",
 		"episode_triage_decisions",
 		"consumption_queue_orders",
+		"episode_completions",
 		"feed_snapshots",
 		"feed_user_agent_gates",
 		"feed_user_agent_gate_audits",
