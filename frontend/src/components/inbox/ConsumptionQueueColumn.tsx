@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -138,6 +139,9 @@ function ConsumptionCard({
 
   useEffect(() => {
     if (!menuOpen) return;
+    menuRef.current
+      ?.querySelector<HTMLButtonElement>('[role="menuitem"]')
+      ?.focus();
     const closeOnOutsidePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (
@@ -178,6 +182,41 @@ function ConsumptionCard({
   const handleMove = async (target: ConsumptionQueue) => {
     setMenuOpen(false);
     await onMove(item, target);
+  };
+
+  const handleMenuKeyDown = (
+    event: ReactKeyboardEvent<HTMLDivElement>,
+  ) => {
+    const items = Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitem"]:not(:disabled)',
+      ) ?? [],
+    );
+    if (items.length === 0) return;
+
+    const currentIndex = items.indexOf(
+      document.activeElement as HTMLButtonElement,
+    );
+    let nextIndex: number;
+    switch (event.key) {
+      case "ArrowDown":
+        nextIndex = (currentIndex + 1) % items.length;
+        break;
+      case "ArrowUp":
+        nextIndex = (currentIndex - 1 + items.length) % items.length;
+        break;
+      case "Home":
+        nextIndex = 0;
+        break;
+      case "End":
+        nextIndex = items.length - 1;
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    items[nextIndex]?.focus();
   };
 
   const toggleMenu = () => {
@@ -306,6 +345,7 @@ function ConsumptionCard({
               style={menuPosition}
               role="menu"
               aria-label={`移动 ${item.episode_title}`}
+              onKeyDown={handleMenuKeyDown}
             >
               {CONSUMPTION_QUEUES.filter(
                 (queue) => queue !== currentQueue,
