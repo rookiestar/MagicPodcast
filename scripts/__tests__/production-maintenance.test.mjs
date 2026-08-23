@@ -231,6 +231,63 @@ test("supervisor records maintenance and skips recovery during an active publish
   assert.match(guardedStdout, /跳过非发布方启动/);
 });
 
+test("supervisor rechecks maintenance after a probe before recovery", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "magicpodcast-maintenance-race-"));
+  const lockDir = path.join(root, "production.lock");
+  const callsFile = path.join(root, "service-calls.log");
+  const fakeCurl = path.join(root, "curl");
+  const fakeStart = path.join(root, "start");
+  const fakeStop = path.join(root, "stop");
+  const armedFile = path.join(root, "curl-armed");
+
+  await writeExecutable(
+    fakeCurl,
+    [
+      "#!/bin/bash",
+      "if [ ! -e '" + armedFile + "' ]; then",
+      "  touch '" + armedFile + "'",
+      "  mkdir '" + lockDir + "'",
+      "  printf 'maintenance\\n' > '" + lockDir + "/state'",
+      "fi",
+      "exit 1",
+      "",
+    ].join("\n"),
+  );
+  await writeExecutable(
+    fakeStart,
+    "#!/bin/bash\nprintf 'start\\n' >> '" + callsFile + "'\nexit 0\n",
+  );
+  await writeExecutable(
+    fakeStop,
+    "#!/bin/bash\nprintf 'stop\\n' >> '" + callsFile + "'\nexit 0\n",
+  );
+
+  t.after(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const result = await run("/bin/bash", [supervisorScript], {
+    env: {
+      ...lockEnv(lockDir),
+      MAGICPODCAST_PROJECT_DIR: root,
+      MAGICPODCAST_SUPERVISOR_LOG: path.join(root, "supervisor.log"),
+      MAGICPODCAST_SUPERVISOR_STATUS_FILE: path.join(root, "supervisor.status"),
+      MAGICPODCAST_SUPERVISOR_INTERVAL: "1",
+      MAGICPODCAST_SUPERVISOR_MAX_BACKOFF: "1",
+      MAGICPODCAST_SUPERVISOR_MAX_CYCLES: "1",
+      MAGICPODCAST_SUPERVISOR_NO_BUILD: "true",
+      MAGICPODCAST_CURL_BIN: fakeCurl,
+      MAGICPODCAST_START_SCRIPT: fakeStart,
+      MAGICPODCAST_STOP_SCRIPT: fakeStop,
+    },
+  });
+
+  assert.equal(result.code, 0, result.stderr);
+  const status = await readFile(path.join(root, "supervisor.status"), "utf8");
+  assert.match(status, /^state=maintenance$/m);
+  assert.equal(existsSync(callsFile), false, "supervisor recovered after the publisher claimed the lock");
+});
+
 test("stale maintenance locks are reclaimed only after the owner is gone", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "magicpodcast-stale-lock-"));
   const lockDir = path.join(root, "production.lock");
