@@ -143,6 +143,14 @@ load_release_metadata() {
 }
 
 restart_verified_pair() {
+  # A supervisor cycle may have started its health probe just before a
+  # publisher claimed the maintenance window. Re-check immediately before
+  # invoking stop.sh so a stale recovery branch cannot interrupt a release.
+  if production_maintenance_inspect >/dev/null 2>&1; then
+    log "maintenance window claimed during health probe; skipping recovery"
+    return 1
+  fi
+
   load_release_metadata
   if [ "$NO_BUILD" = true ] && [ -x "$BACKEND_DIR/api" ] && [ -f "$FRONTEND_DIR/.next/BUILD_ID" ]; then
     "$STOP_SCRIPT"
@@ -162,6 +170,16 @@ check_once() {
 
   if [ "$backend" = ready ] && [ "$frontend" = ready ]; then
     write_status healthy "$failure_count" "$backend" "$frontend" "$(tunnel_state)"
+    return 0
+  fi
+
+  # The publisher can claim the lock while the two probes above are running.
+  # Do not enter recovery after that point; the publisher owns the service
+  # transition and will perform the paired health check itself.
+  local maintenance_info=""
+  if maintenance_info="$(production_maintenance_inspect 2>/dev/null)"; then
+    write_status maintenance 0 maintenance maintenance "$(tunnel_state)" "$maintenance_info"
+    log "maintenance window active after health probe $(printf '%s' "$maintenance_info" | tr '\n' ' ')"
     return 0
   fi
 
