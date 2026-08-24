@@ -136,6 +136,8 @@ type managedExecution struct {
 	subscribers     int
 	pendingReads    int
 	retainUntil     time.Time
+	handoffPending  bool
+	handoffUntil    time.Time
 
 	started     chan struct{}
 	terminal    chan struct{}
@@ -798,6 +800,9 @@ func (h *ProcessHost) acceptFrame(
 		execution.snapshot.Status = StatusRunning
 		execution.snapshot.RuntimeVersion = frame.RuntimeVersion
 		execution.snapshot.StartedAt = &now
+		execution.handoffPending = true
+		execution.handoffUntil = now.Add(h.config.ResultReadGrace)
+		time.AfterFunc(h.config.ResultReadGrace, h.evictTerminalExecutions)
 		if !h.appendEventLocked(execution, Event{
 			ExecutionID: execution.snapshot.ID,
 			Sequence:    frame.Sequence,
@@ -1240,6 +1245,8 @@ func (h *ProcessHost) acquireSubscriber(
 		)
 	}
 	execution.mu.Lock()
+	execution.handoffPending = false
+	execution.handoffUntil = time.Time{}
 	execution.subscribers++
 	execution.mu.Unlock()
 	return execution, nil
@@ -1284,11 +1291,14 @@ func (h *ProcessHost) evictTerminalExecutions() {
 		subscribers := execution.subscribers
 		pendingReads := execution.pendingReads
 		retainUntil := execution.retainUntil
+		handoffPending := execution.handoffPending
+		handoffUntil := execution.handoffUntil
 		execution.mu.Unlock()
 		if !terminal ||
 			!processClosed ||
 			completedAt == nil ||
 			subscribers > 0 ||
+			(handoffPending && now.Before(handoffUntil)) ||
 			(pendingReads > 0 && now.Before(retainUntil)) {
 			continue
 		}
@@ -1332,11 +1342,15 @@ func (h *ProcessHost) snapshotAndMarkRead(
 	defer execution.mu.Unlock()
 	snapshot := execution.snapshot
 	snapshot.Result = cloneRawMessage(snapshot.Result)
-	if snapshot.Status.Terminal() && execution.pendingReads > 0 {
-		execution.pendingReads--
-	}
-	if execution.pendingReads == 0 {
-		execution.retainUntil = time.Time{}
+	if snapshot.Status.Terminal() {
+		execution.handoffPending = false
+		execution.handoffUntil = time.Time{}
+		if execution.pendingReads > 0 {
+			execution.pendingReads--
+		}
+		if execution.pendingReads == 0 {
+			execution.retainUntil = time.Time{}
+		}
 	}
 	return snapshot
 }

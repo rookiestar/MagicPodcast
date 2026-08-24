@@ -129,6 +129,93 @@ func TestProcessHostBoundsTerminalRetention(t *testing.T) {
 	require.NoError(t, closeHost(t, host))
 }
 
+func TestProcessHostRetainsFastExecutionThroughFirstSubscriberHandoff(
+	t *testing.T,
+) {
+	host, workRoot := newHelperHost(t, "success")
+	host.config.MaxRetainedExecutions = 1
+	host.config.ResultReadGrace = time.Second
+
+	first, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: newExecutionDir(t, workRoot, "handoff-first-"),
+			Prompt:           "success",
+			OutputSchema:     episodeNotesSchema,
+		},
+	)
+	require.NoError(t, err)
+
+	for index := 0; index < 2; index++ {
+		newer, createErr := host.CreateExecution(
+			context.Background(),
+			ExecutionRequest{
+				Kind: ExecutionKindEpisodeNotes,
+				WorkingDirectory: newExecutionDir(
+					t,
+					workRoot,
+					fmt.Sprintf("handoff-newer-%d-", index),
+				),
+				Prompt:       "success",
+				OutputSchema: episodeNotesSchema,
+			},
+		)
+		require.NoError(t, createErr)
+		events, subscribeErr := host.SubscribeExecution(
+			context.Background(),
+			newer.ID,
+		)
+		require.NoError(t, subscribeErr)
+		_ = collectEvents(events)
+		_, getErr := host.GetExecution(context.Background(), newer.ID)
+		require.NoError(t, getErr)
+	}
+
+	events, err := host.SubscribeExecution(context.Background(), first.ID)
+	require.NoError(t, err)
+	_ = collectEvents(events)
+	final, err := host.GetExecution(context.Background(), first.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusCompleted, final.Status)
+	require.NoError(t, closeHost(t, host))
+}
+
+func TestProcessHostEvictsExpiredSubscriberHandoffWithoutLifecycleEvent(
+	t *testing.T,
+) {
+	host, workRoot := newHelperHost(t, "success")
+	host.config.MaxRetainedExecutions = 1
+	host.config.ResultReadGrace = 50 * time.Millisecond
+
+	var completed []ExecutionID
+	for index := 0; index < 2; index++ {
+		snapshot, err := host.CreateExecution(
+			context.Background(),
+			ExecutionRequest{
+				Kind: ExecutionKindEpisodeNotes,
+				WorkingDirectory: newExecutionDir(
+					t,
+					workRoot,
+					fmt.Sprintf("handoff-expiry-%d-", index),
+				),
+				Prompt:       "success",
+				OutputSchema: episodeNotesSchema,
+			},
+		)
+		require.NoError(t, err)
+		completed = append(completed, snapshot.ID)
+	}
+
+	require.Eventually(t, func() bool {
+		return host.Diagnostics().TrackedExecutions == 1
+	}, time.Second, 10*time.Millisecond)
+	_, err := host.GetExecution(context.Background(), completed[0])
+	require.Error(t, err)
+	require.Equal(t, ErrorExecutionNotFound, ErrorCode(err))
+	require.NoError(t, closeHost(t, host))
+}
+
 func TestProcessHostRetainsTerminalExecutionForActiveSubscriberResultRead(
 	t *testing.T,
 ) {
