@@ -85,6 +85,9 @@ func TestLoadAppliesProcessingEnvOverrides(t *testing.T) {
 	t.Setenv("MAGICPODCAST_PROCESSING_RUNTIME_PYTHON", "/opt/codex/bin/python")
 	t.Setenv("MAGICPODCAST_PROCESSING_RUNTIME_HOST_SCRIPT", "/opt/codex/runtime_host.py")
 	t.Setenv("MAGICPODCAST_PROCESSING_RUNTIME_WORK_ROOT", "/tmp/magicpodcast/runtime")
+	t.Setenv("MAGICPODCAST_PROCESSING_IMA_ENABLED", "true")
+	t.Setenv("MAGICPODCAST_PROCESSING_IMA_PACKAGE_ROOT", "/tmp/magicpodcast/ima")
+	t.Setenv("MAGICPODCAST_PROCESSING_IMA_DESTINATION", "manual-import")
 
 	writeTestConfig(t, configPath, minimalBaseConfigYAML)
 	loaded, err := Load(configPath)
@@ -101,6 +104,9 @@ func TestLoadAppliesProcessingEnvOverrides(t *testing.T) {
 	require.Equal(t, "/opt/codex/bin/python", loaded.Processing.Runtime.Python)
 	require.Equal(t, "/opt/codex/runtime_host.py", loaded.Processing.Runtime.HostScript)
 	require.Equal(t, "/tmp/magicpodcast/runtime", loaded.Processing.Runtime.WorkRoot)
+	require.True(t, loaded.Processing.IMA.Enabled)
+	require.Equal(t, "/tmp/magicpodcast/ima", loaded.Processing.IMA.PackageRoot)
+	require.Equal(t, "manual-import", loaded.Processing.IMA.Destination)
 }
 
 func TestLoadDefaultsServerHostToLoopback(t *testing.T) {
@@ -263,6 +269,11 @@ func TestValidateProcessingRequiresExplicitSafeConfiguration(t *testing.T) {
 				HostScript: "/srv/magicpodcast/runtime_host.py",
 				WorkRoot:   "/srv/magicpodcast/runtime",
 			},
+			IMA: ProcessingIMAConfig{
+				Enabled:     true,
+				PackageRoot: "/srv/magicpodcast/ima",
+				Destination: "manual-import",
+			},
 		},
 	}
 	require.NoError(t, base.Validate())
@@ -275,9 +286,29 @@ func TestValidateProcessingRequiresExplicitSafeConfiguration(t *testing.T) {
 	incompleteRuntime.Processing.Runtime.Python = ""
 	require.ErrorContains(t, incompleteRuntime.Validate(), "commands are incomplete")
 
+	relativeIMA := base
+	relativeIMA.Processing.IMA.PackageRoot = "./ima"
+	require.ErrorContains(t, relativeIMA.Validate(), "ima package_root must be an absolute path")
+
+	rootIMA := base
+	rootIMA.Processing.IMA.PackageRoot = "/"
+	require.ErrorContains(t, rootIMA.Validate(), "ima package_root must be an absolute path")
+
+	missingIMADestination := base
+	missingIMADestination.Processing.IMA.Destination = ""
+	require.ErrorContains(t, missingIMADestination.Validate(), "ima destination must be a safe identity")
+
+	traversingIMADestination := base
+	traversingIMADestination.Processing.IMA.Destination = "../ima"
+	require.ErrorContains(t, traversingIMADestination.Validate(), "ima destination must be a safe identity")
+
 	disabled := base
 	disabled.Processing = ProcessingConfig{}
 	require.NoError(t, disabled.Validate())
+
+	orphanedIMA := disabled
+	orphanedIMA.Processing.IMA.Enabled = true
+	require.ErrorContains(t, orphanedIMA.Validate(), "ima requires processing to be enabled")
 }
 
 func writeTestConfig(t *testing.T, path string, contents string) {

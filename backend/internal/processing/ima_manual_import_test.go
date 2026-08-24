@@ -175,6 +175,11 @@ func TestIMAManualImportBridgeSchemaUpgradeUsesNewPackageIdentity(t *testing.T) 
 	require.Equal(t, upgradedRequest.DeliveryKey, manifest.PackageID)
 }
 
+func TestIMAManualImportBridgeRejectsFilesystemRoot(t *testing.T) {
+	_, err := NewIMAManualImportBridge(string(os.PathSeparator))
+	require.ErrorContains(t, err, "cannot be the filesystem root")
+}
+
 func TestIMAManualImportBridgeAllowsMissingPublicSource(t *testing.T) {
 	request := validIMAManualImportRequest()
 	request.Package.SourceURL = ""
@@ -192,6 +197,32 @@ func TestIMAManualImportBridgeAllowsMissingPublicSource(t *testing.T) {
 	require.NoError(t, json.Unmarshal(files["metadata.json"], &metadata))
 	require.Empty(t, metadata.Episode.SourceURL)
 	require.Contains(t, string(files["knowledge.md"]), "来源：未提供公开链接")
+}
+
+func TestIMAManualImportBridgePreservesRestrictedFeishuTraceRefs(t *testing.T) {
+	request := validIMAManualImportRequest()
+	request.Package.Sources = map[string]string{
+		"episode":           "https://example.com/episodes/9",
+		"transcription":     "feishu-minutes",
+		"feishu_drive_ref":  "sha256:" + strings.Repeat("a", 64),
+		"feishu_minute_ref": "sha256:" + strings.Repeat("b", 64),
+	}
+	bridge, err := NewIMAManualImportBridge(t.TempDir())
+	require.NoError(t, err)
+
+	_, err = bridge.Deliver(context.Background(), request)
+	require.NoError(t, err)
+	files := readIMAPackageFiles(
+		t,
+		filepath.Join(bridge.root, "packages", request.DeliveryKey),
+	)
+	var metadata imaPackageMetadata
+	require.NoError(t, json.Unmarshal(files["metadata.json"], &metadata))
+	require.Equal(t, request.Package.Sources, metadata.Sources)
+	for _, content := range files {
+		require.NotContains(t, string(content), "file_token")
+		require.NotContains(t, string(content), "minute_token")
+	}
 }
 
 func TestIMAManualImportBridgeMarksMissingPublicationDateUnavailable(t *testing.T) {
@@ -302,6 +333,15 @@ func TestIMAManualImportBridgeRejectsTraversalSymlinksAndSensitiveSources(t *tes
 		}},
 		{"API key source", func(request *DeliveryRequest) {
 			request.Package.Sources["api_key"] = "https://example.com/resource"
+		}},
+		{"invalid restricted digest", func(request *DeliveryRequest) {
+			request.Package.Sources["feishu_drive_ref"] = "sha256:not-a-digest"
+		}},
+		{"unsafe source trace", func(request *DeliveryRequest) {
+			request.Package.Sources["transcription"] = "/Users/private/adapter"
+		}},
+		{"unexpected plain source identity", func(request *DeliveryRequest) {
+			request.Package.Sources["document"] = "opaque-private-identity"
 		}},
 		{"private note key", func(request *DeliveryRequest) {
 			request.Package.Sources["private_notes"] = "https://example.com/resource"

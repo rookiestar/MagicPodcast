@@ -65,6 +65,11 @@ processing:
     python: "/absolute/path/to/venv-0.147.0/bin/python"
     host_script: "/absolute/path/to/MagicPodcast/backend/internal/codexruntime/runtime_host.py"
     work_root: "/absolute/path/to/magicpodcast/processing/runtime"
+  # 可选：为每个成功产物自动生成 ima 人工导入包；不会登录或上传 ima。
+  ima:
+    enabled: false
+    package_root: "/absolute/path/to/magicpodcast/processing/ima"
+    destination: "manual-import"
 
 database:
   # SQLite 数据库文件路径

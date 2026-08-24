@@ -105,6 +105,9 @@ func NewIMAManualImportBridge(root string) (*IMAManualImportBridge, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve ima manual import root: %w", err)
 	}
+	if filepath.Clean(absolute) == filepath.Clean(string(os.PathSeparator)) {
+		return nil, fmt.Errorf("ima manual import root cannot be the filesystem root")
+	}
 	if err := os.MkdirAll(absolute, 0o700); err != nil {
 		return nil, fmt.Errorf("create ima manual import root: %w", err)
 	}
@@ -207,8 +210,8 @@ func validateIMAManualImportRequest(request DeliveryRequest) error {
 		if !safeSingleLine(key) || sensitiveSourceKey(key) {
 			return invalidIMAPackage("source trace contains a sensitive key")
 		}
-		if err := validateSafeHTTPURL(value); err != nil {
-			return invalidIMAPackage("source trace contains an unsafe URL")
+		if err := validateIMASourceTrace(key, value); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -668,9 +671,39 @@ func sensitiveSourceKey(key string) bool {
 	return strings.Contains(normalized, "file_token") ||
 		strings.Contains(normalized, "minute_token") ||
 		strings.Contains(normalized, "private_note") ||
-		strings.Contains(normalized, "local_path") ||
-		strings.Contains(normalized, "feishu") ||
-		strings.Contains(normalized, "lark")
+		strings.Contains(normalized, "local_path")
+}
+
+func validateIMASourceTrace(key string, value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.ContainsAny(value, "\r\n\x00") {
+		return invalidIMAPackage("source trace is incomplete")
+	}
+	if strings.HasPrefix(value, "sha256:") {
+		if isLowerSHA256(strings.TrimPrefix(value, "sha256:")) {
+			return nil
+		}
+		return invalidIMAPackage("source trace contains an invalid digest")
+	}
+	if validateSafeHTTPURL(value) == nil {
+		return nil
+	}
+	if key != "transcription" {
+		return invalidIMAPackage("source trace contains an unsafe value")
+	}
+	if len(value) > 100 {
+		return invalidIMAPackage("source trace identity is too long")
+	}
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') ||
+			(character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') ||
+			character == '.' || character == '_' || character == '-' {
+			continue
+		}
+		return invalidIMAPackage("source trace contains an unsafe value")
+	}
+	return nil
 }
 
 func validateIMAPackageText(value string) error {
