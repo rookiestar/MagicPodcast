@@ -1150,7 +1150,6 @@ func (h *ProcessHost) acquireSubscriber(
 	}
 	execution.mu.Lock()
 	execution.subscribers++
-	execution.retainUntil = time.Time{}
 	execution.mu.Unlock()
 	return execution, nil
 }
