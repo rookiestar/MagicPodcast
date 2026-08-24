@@ -43,6 +43,7 @@ type ProcessHostConfig struct {
 	Profiles              map[ExecutionKind]Profile
 	Capabilities          map[string]string
 	Environment           map[string]string
+	testEnvironment       map[string]string
 	StartupTimeout        time.Duration
 	NativeCancelTimeout   time.Duration
 	TerminateTimeout      time.Duration
@@ -57,6 +58,18 @@ type ProcessHostConfig struct {
 	SubscriberBufferSize  int
 	MaxRetainedExecutions int
 	ResultReadGrace       time.Duration
+}
+
+var processEnvironmentAllowlist = map[string]struct{}{
+	"CODEX_HOME":      {},
+	"HOME":            {},
+	"LANG":            {},
+	"LC_ALL":          {},
+	"PATH":            {},
+	"SSL_CERT_DIR":    {},
+	"SSL_CERT_FILE":   {},
+	"TMPDIR":          {},
+	"XDG_CONFIG_HOME": {},
 }
 
 func DefaultProfiles() map[ExecutionKind]Profile {
@@ -110,7 +123,8 @@ type managedExecution struct {
 	stdin   *os.File
 	pid     int
 
-	writeMu sync.Mutex
+	writeMu              sync.Mutex
+	cancelSupervisorOnce sync.Once
 
 	lastSequence    uint64
 	startedClosed   bool
@@ -127,6 +141,8 @@ type managedExecution struct {
 	terminal    chan struct{}
 	nativeAck   chan struct{}
 	processDone chan struct{}
+	cancelDone  chan struct{}
+	cancelErr   error
 }
 
 type executeFrame struct {
@@ -255,6 +271,7 @@ func (h *ProcessHost) CreateExecution(
 		terminal:    make(chan struct{}),
 		nativeAck:   make(chan struct{}),
 		processDone: make(chan struct{}),
+		cancelDone:  make(chan struct{}),
 	}
 
 	if err := command.Start(); err != nil {
@@ -446,37 +463,61 @@ func (h *ProcessHost) CancelExecution(
 		}
 	}
 
+	execution.cancelSupervisorOnce.Do(func() {
+		go h.superviseCancellation(execution)
+	})
+	select {
+	case <-execution.processDone:
+		return h.cancellationResult(execution), nil
+	case <-execution.cancelDone:
+		execution.mu.Lock()
+		cancelErr := execution.cancelErr
+		execution.mu.Unlock()
+		if cancelErr != nil {
+			return CancellationResult{}, cancelErr
+		}
+		return h.cancellationResult(execution), nil
+	case <-ctx.Done():
+		return CancellationResult{}, ctx.Err()
+	}
+}
+
+func (h *ProcessHost) superviseCancellation(execution *managedExecution) {
+	defer close(execution.cancelDone)
 	nativeTimer := time.NewTimer(h.config.NativeCancelTimeout)
 	defer nativeTimer.Stop()
 	select {
 	case <-execution.nativeAck:
 		h.setCancellationMethod(execution, CancellationNativeInterrupt)
 	case <-execution.processDone:
-		return h.cancellationResult(execution), nil
-	case <-ctx.Done():
-		return CancellationResult{}, ctx.Err()
+		return
 	case <-nativeTimer.C:
 		h.setCancellationMethod(execution, CancellationSIGTERM)
 		h.forceStop(execution, syscall.SIGTERM)
 	}
 
-	if h.waitForDone(ctx, execution.processDone, h.config.TerminateTimeout) {
-		return h.cancellationResult(execution), nil
+	if h.waitForDone(
+		context.Background(),
+		execution.processDone,
+		h.config.TerminateTimeout,
+	) {
+		return
 	}
-
 	h.setCancellationMethod(execution, CancellationSIGKILL)
 	h.forceStop(execution, syscall.SIGKILL)
-	if !h.waitForDone(ctx, execution.processDone, h.config.KillTimeout) {
-		if err := ctx.Err(); err != nil {
-			return CancellationResult{}, err
-		}
-		return CancellationResult{}, newRuntimeError(
+	if !h.waitForDone(
+		context.Background(),
+		execution.processDone,
+		h.config.KillTimeout,
+	) {
+		execution.mu.Lock()
+		execution.cancelErr = newRuntimeError(
 			ErrorExecutionFailed,
 			"runtime process could not be reaped",
 			true,
 		)
+		execution.mu.Unlock()
 	}
-	return h.cancellationResult(execution), nil
 }
 
 func (h *ProcessHost) GetExecution(
@@ -1007,11 +1048,14 @@ func (h *ProcessHost) waitForProcess(
 	if !execution.snapshot.Status.Terminal() {
 		now := time.Now().UTC()
 		execution.lastSequence++
-		if execution.cancelRequested {
+		cancellationMethod := execution.snapshot.CancellationMethod
+		if cancellationMethod == CancellationNone {
+			cancellationMethod = cleanupSignal
+		}
+		if execution.cancelRequested &&
+			cancellationMethod != CancellationNone {
 			execution.snapshot.Status = StatusCancelled
-			if execution.snapshot.CancellationMethod == CancellationNone {
-				execution.snapshot.CancellationMethod = cleanupSignal
-			}
+			execution.snapshot.CancellationMethod = cancellationMethod
 		} else {
 			execution.snapshot.Status = StatusFailed
 			execution.snapshot.ErrorCode = ErrorProtocol
@@ -1336,25 +1380,17 @@ func (h *ProcessHost) writeFrame(
 }
 
 func (h *ProcessHost) commandEnvironment() []string {
-	if h.config.Environment != nil {
-		return environmentMap(h.config.Environment)
-	}
-	allowed := []string{
-		"CODEX_HOME",
-		"HOME",
-		"LANG",
-		"LC_ALL",
-		"PATH",
-		"SSL_CERT_DIR",
-		"SSL_CERT_FILE",
-		"TMPDIR",
-		"XDG_CONFIG_HOME",
-	}
-	environment := make(map[string]string, len(allowed))
-	for _, name := range allowed {
+	environment := make(map[string]string, len(processEnvironmentAllowlist))
+	for name := range processEnvironmentAllowlist {
 		if value, exists := os.LookupEnv(name); exists {
 			environment[name] = value
 		}
+	}
+	for name, value := range h.config.Environment {
+		environment[name] = value
+	}
+	for name, value := range h.config.testEnvironment {
+		environment[name] = value
 	}
 	return environmentMap(environment)
 }
@@ -1447,7 +1483,19 @@ func normalizeProcessHostConfig(
 		}
 	}
 	config.Capabilities = cloneStringMap(config.Capabilities)
+	for name, value := range config.Environment {
+		if _, allowed := processEnvironmentAllowlist[name]; !allowed ||
+			strings.ContainsRune(name, '\x00') ||
+			strings.ContainsRune(value, '\x00') {
+			return ProcessHostConfig{}, newRuntimeError(
+				ErrorInvalidRequest,
+				"runtime environment contains a forbidden variable",
+				false,
+			)
+		}
+	}
 	config.Environment = cloneOptionalStringMap(config.Environment)
+	config.testEnvironment = cloneOptionalStringMap(config.testEnvironment)
 
 	if config.StartupTimeout <= 0 {
 		config.StartupTimeout = defaultStartupTimeout

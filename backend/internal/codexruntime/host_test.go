@@ -378,6 +378,72 @@ func TestProcessHostEscalatesOnlyTargetProcessGroupAndReapsChildren(
 	require.Equal(t, 0, host.Diagnostics().LiveProcessGroups)
 }
 
+func TestProcessHostCallerDeadlineDoesNotStopTargetedCancellationCleanup(
+	t *testing.T,
+) {
+	host, workRoot := newHelperHost(t, "ignore_cancel")
+	host.config.NativeCancelTimeout = 200 * time.Millisecond
+	workDir := newExecutionDir(t, workRoot, "cancel-deadline-")
+	snapshot, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: workDir,
+			Prompt:           "ignore",
+			OutputSchema:     episodeNotesSchema,
+		},
+	)
+	require.NoError(t, err)
+	childPID := waitForChildPID(t, filepath.Join(workDir, "child.pid"))
+
+	cancelCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	_, err = host.CancelExecution(cancelCtx, snapshot.ID)
+	cancel()
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Eventually(t, func() bool {
+		childErr := syscall.Kill(childPID, 0)
+		return errors.Is(childErr, syscall.ESRCH) &&
+			host.Diagnostics().ActiveExecutions == 0 &&
+			host.Diagnostics().LiveProcessGroups == 0
+	}, 3*time.Second, 20*time.Millisecond)
+	final, err := host.GetExecution(context.Background(), snapshot.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusCancelled, final.Status)
+	require.Contains(
+		t,
+		[]CancellationMethod{CancellationSIGTERM, CancellationSIGKILL},
+		final.CancellationMethod,
+	)
+	require.NoError(t, closeHost(t, host))
+}
+
+func TestProcessHostCancelRequestWithoutAckOrSupervisorSignalFailsProtocol(
+	t *testing.T,
+) {
+	host, workRoot := newHelperHost(t, "cancel_then_exit")
+	snapshot, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: newExecutionDir(t, workRoot, "cancel-crash-"),
+			Prompt:           "crash after cancel",
+			OutputSchema:     episodeNotesSchema,
+		},
+	)
+	require.NoError(t, err)
+
+	cancelled, err := host.CancelExecution(context.Background(), snapshot.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusFailed, cancelled.Status)
+	require.Equal(t, CancellationNone, cancelled.Method)
+	final, err := host.GetExecution(context.Background(), snapshot.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusFailed, final.Status)
+	require.Equal(t, ErrorProtocol, final.ErrorCode)
+	require.Equal(t, CancellationNone, final.CancellationMethod)
+	require.NoError(t, closeHost(t, host))
+}
+
 func TestProcessHostCloseDeadlineStillKillsAndReapsTargetProcessGroup(
 	t *testing.T,
 ) {
@@ -505,7 +571,7 @@ func TestPythonSDKHostUsesStableRestrictedConfiguration(t *testing.T) {
 	host, err := NewProcessHost(ProcessHostConfig{
 		Command:             []string{python, script},
 		WorkRoot:            workRoot,
-		Environment:         environment,
+		testEnvironment:     environment,
 		StartupTimeout:      3 * time.Second,
 		NativeCancelTimeout: 500 * time.Millisecond,
 		TerminateTimeout:    500 * time.Millisecond,
@@ -635,6 +701,18 @@ func TestPythonSDKHostUsesStableRestrictedConfiguration(t *testing.T) {
 	require.Empty(t, entries)
 }
 
+func TestProcessHostRejectsEnvironmentOutsideAllowlist(t *testing.T) {
+	_, err := NewProcessHost(ProcessHostConfig{
+		Command:  []string{os.Args[0]},
+		WorkRoot: t.TempDir(),
+		Environment: map[string]string{
+			"OPENAI_API_KEY": "must-not-reach-runtime",
+		},
+	})
+	require.Error(t, err)
+	require.Equal(t, ErrorInvalidRequest, ErrorCode(err))
+}
+
 func TestPythonSDKHostRejectsMismatchedRuntimeVersion(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -653,9 +731,9 @@ func TestPythonSDKHostRejectsMismatchedRuntimeVersion(t *testing.T) {
 			python,
 			filepath.Join(packageDir, "runtime_host.py"),
 		},
-		WorkRoot:       workRoot,
-		Environment:    environment,
-		StartupTimeout: 3 * time.Second,
+		WorkRoot:        workRoot,
+		testEnvironment: environment,
+		StartupTimeout:  3 * time.Second,
 	})
 	require.NoError(t, err)
 
@@ -692,9 +770,9 @@ func TestPythonSDKHostFailsPreflightWhenAuthenticationIsMissing(t *testing.T) {
 			python,
 			filepath.Join(packageDir, "runtime_host.py"),
 		},
-		WorkRoot:       workRoot,
-		Environment:    environment,
-		StartupTimeout: 3 * time.Second,
+		WorkRoot:        workRoot,
+		testEnvironment: environment,
+		StartupTimeout:  3 * time.Second,
 	})
 	require.NoError(t, err)
 	_, err = host.CreateExecution(
@@ -850,6 +928,15 @@ func helperRuntimeMain() {
 		write(base)
 		_ = scanner.Scan()
 		select {}
+	case "cancel_then_exit":
+		base.Sequence = 1
+		base.Type = "ready"
+		base.RuntimeVersion = "helper-runtime-1"
+		write(base)
+		if !scanner.Scan() {
+			os.Exit(2)
+		}
+		os.Exit(3)
 	default:
 		os.Exit(2)
 	}
@@ -897,7 +984,7 @@ func newHelperHost(
 			"-test.run=^TestProcessHostHelper$",
 		},
 		WorkRoot: workRoot,
-		Environment: map[string]string{
+		testEnvironment: map[string]string{
 			"GO_WANT_RUNTIME_HELPER":  "1",
 			"GORACE":                  "atexit_sleep_ms=0",
 			"PATH":                    os.Getenv("PATH"),
