@@ -416,7 +416,17 @@ export default function EpisodeProcessingPanel({
       </div>
 
       {artifactContent && (
-        <div className={styles.processingDocument}>
+        <div
+          className={styles.processingDocument}
+          data-copilot-source={
+            artifactContent.kind === "transcript" ? "transcript" : undefined
+          }
+          data-copilot-episode-id={
+            artifactContent.kind === "transcript"
+              ? item.episode_id
+              : undefined
+          }
+        >
           <div className={styles.metadataLabelRow}>
             <span>
               {artifactContent.kind === "transcript" ? "规范逐字稿" : "单集纪要"}

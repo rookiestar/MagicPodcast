@@ -90,6 +90,8 @@ func TestFrontendAPIContractRoutesRegistered(t *testing.T) {
 		"GET /api/v1/episodes/:id/tags",
 		"POST /api/v1/episodes/:id/tags",
 		"DELETE /api/v1/episodes/:id/tags/:tagId",
+		"GET /api/v1/episodes/:id/copilot/context",
+		"POST /api/v1/episodes/:id/copilot/questions",
 		"POST /api/v1/sync/import-sse",
 		"POST /api/v1/sync/podcasts/metadata-sse",
 		"GET /api/v1/sync/status",

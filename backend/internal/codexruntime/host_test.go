@@ -83,6 +83,67 @@ func TestProcessHostConformanceSuccessStreamsAndReplays(t *testing.T) {
 	require.Equal(t, 0, host.Diagnostics().LiveProcessGroups)
 }
 
+func TestProcessHostExecutionToolRestrictionCanOnlyNarrowProfile(t *testing.T) {
+	host, workRoot := newHelperHost(t, "from_prompt")
+
+	withoutTools, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindAssistant,
+			WorkingDirectory: newExecutionDir(t, workRoot, "no-tools-"),
+			Prompt:           "expect_no_tools",
+			ToolRestriction: &ToolRestriction{
+				Allowed: []ToolCapability{},
+			},
+		},
+	)
+	require.NoError(t, err)
+	events, err := host.SubscribeExecution(
+		context.Background(),
+		withoutTools.ID,
+	)
+	require.NoError(t, err)
+	_ = collectEvents(events)
+	final, err := host.GetExecution(context.Background(), withoutTools.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusCompleted, final.Status)
+
+	withProfileTool, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindAssistant,
+			WorkingDirectory: newExecutionDir(t, workRoot, "web-search-"),
+			Prompt:           "expect_web_search",
+		},
+	)
+	require.NoError(t, err)
+	events, err = host.SubscribeExecution(
+		context.Background(),
+		withProfileTool.ID,
+	)
+	require.NoError(t, err)
+	_ = collectEvents(events)
+	final, err = host.GetExecution(context.Background(), withProfileTool.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusCompleted, final.Status)
+
+	_, err = host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: newExecutionDir(t, workRoot, "broaden-"),
+			Prompt:           "must reject",
+			OutputSchema:     episodeNotesSchema,
+			ToolRestriction: &ToolRestriction{
+				Allowed: []ToolCapability{ToolWebSearch},
+			},
+		},
+	)
+	require.Error(t, err)
+	require.Equal(t, ErrorInvalidRequest, ErrorCode(err))
+	require.NoError(t, closeHost(t, host))
+}
+
 func TestProcessHostBoundsTerminalRetention(t *testing.T) {
 	host, workRoot := newHelperHost(t, "success")
 	host.config.MaxRetainedExecutions = 2
@@ -1088,6 +1149,33 @@ func helperRuntimeMain() {
 		base.Text = ""
 		base.Status = StatusCompleted
 		base.Result = json.RawMessage(`{"episode_notes":"# Helper notes"}`)
+		write(base)
+	case "expect_no_tools", "expect_web_search":
+		wantTools := []ToolCapability{}
+		if scenario == "expect_web_search" {
+			wantTools = []ToolCapability{ToolWebSearch}
+		}
+		matches := len(wantTools) == len(request.AllowedTools)
+		for index := range wantTools {
+			matches = matches && wantTools[index] == request.AllowedTools[index]
+		}
+		if !matches {
+			os.Exit(2)
+		}
+		base.Sequence = 1
+		base.Type = "ready"
+		base.RuntimeVersion = "helper-runtime-1"
+		write(base)
+		base.Sequence = 2
+		base.Type = "output_delta"
+		base.RuntimeVersion = ""
+		base.Text = "ok"
+		write(base)
+		base.Sequence = 3
+		base.Type = "terminal"
+		base.Text = ""
+		base.Status = StatusCompleted
+		base.Result = json.RawMessage(`{"text":"ok"}`)
 		write(base)
 	case "block":
 		base.Sequence = 1

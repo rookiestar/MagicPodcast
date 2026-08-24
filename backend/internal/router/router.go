@@ -6,6 +6,7 @@ import (
 
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
+	"magicpodcast/internal/episodecopilot"
 	"magicpodcast/internal/feed"
 	"magicpodcast/internal/handlers"
 	"magicpodcast/internal/llm"
@@ -32,6 +33,7 @@ var globalPromptManager *llm.PromptManager
 type routerDependencies struct {
 	processingService  *processing.Service
 	processingCanceler processing.RunCanceler
+	episodeCopilot     episodecopilot.Module
 }
 
 type Option func(*routerDependencies)
@@ -43,6 +45,12 @@ func WithProcessingModule(
 	return func(dependencies *routerDependencies) {
 		dependencies.processingService = service
 		dependencies.processingCanceler = canceler
+	}
+}
+
+func WithEpisodeCopilotModule(module episodecopilot.Module) Option {
+	return func(dependencies *routerDependencies) {
+		dependencies.episodeCopilot = module
 	}
 }
 
@@ -102,6 +110,11 @@ func SetupRouter(options ...Option) *gin.Engine {
 	llmOperation := resourceLimiter.Middleware("llm", middleware.OperationPolicy{
 		MaxConcurrent: 1,
 		MaxRequests:   5,
+		Window:        time.Minute,
+	})
+	copilotOperation := resourceLimiter.Middleware("episode-copilot", middleware.OperationPolicy{
+		MaxConcurrent: 2,
+		MaxRequests:   20,
 		Window:        time.Minute,
 	})
 	// 图片代理是无状态只读字节转发，且已有 reviewed-hosts 白名单、私网/CGNAT
@@ -177,6 +190,16 @@ func SetupRouter(options ...Option) *gin.Engine {
 		v1.POST("/processing-runs/:id/cancel", processingHandler.Cancel)
 		v1.POST("/processing-runs/:id/retry", processingHandler.Retry)
 		v1.GET("/artifact-sets/:id/:kind", processingHandler.GetArtifactContent)
+
+		episodeCopilotHandler := handlers.NewEpisodeCopilotHandler(
+			dependencies.episodeCopilot,
+		)
+		v1.GET("/episodes/:id/copilot/context", episodeCopilotHandler.Context)
+		v1.POST(
+			"/episodes/:id/copilot/questions",
+			copilotOperation,
+			episodeCopilotHandler.Ask,
+		)
 
 		// Podcast 路由
 		podcastHandler := handlers.NewPodcastHandler()
