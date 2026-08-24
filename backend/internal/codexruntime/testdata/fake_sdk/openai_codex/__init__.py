@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import signal
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -143,6 +144,14 @@ class FakeTurn:
         return SimpleNamespace()
 
     async def stream(self):
+        if "HANG_FOR_SIGKILL" in self.prompt:
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            yield notification(
+                "item/agentMessage/delta",
+                delta="runtime started",
+            )
+            await asyncio.Event().wait()
+
         if "FORCED_TOOL_EVENT" in self.prompt:
             yield notification(
                 "item/started",

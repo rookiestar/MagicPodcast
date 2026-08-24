@@ -15,7 +15,7 @@ import os
 import re
 import signal
 import sys
-import tempfile
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -356,6 +356,24 @@ def safe_runtime_environment(isolated_home: Path) -> dict[str, str]:
     return environment
 
 
+def parent_owned_runtime_home() -> Path:
+    configured_home = os.environ.get(
+        "MAGICPODCAST_CODEX_RUNTIME_HOME",
+        "",
+    )
+    isolated_home = Path(configured_home)
+    if (
+        not configured_home
+        or not isolated_home.is_absolute()
+        or not isolated_home.is_dir()
+    ):
+        raise HostFailure(
+            "runtime_unavailable",
+            "runtime isolation directory is unavailable",
+        )
+    return isolated_home
+
+
 def codex_config_overrides(request: Request) -> tuple[str, ...]:
     web_search = (
         "live"
@@ -565,10 +583,7 @@ async def run_sdk(
 
     try:
         auth_file = source_auth_file()
-        with tempfile.TemporaryDirectory(
-            prefix="magicpodcast-codex-",
-        ) as isolated_home_value:
-            isolated_home = Path(isolated_home_value)
+        with nullcontext(parent_owned_runtime_home()) as isolated_home:
             try:
                 (isolated_home / "auth.json").symlink_to(auth_file)
             except OSError as exc:

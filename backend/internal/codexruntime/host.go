@@ -21,6 +21,9 @@ import (
 )
 
 const (
+	runtimeHomeEnvironment = "MAGICPODCAST_CODEX_RUNTIME_HOME"
+	runtimeHomePrefix      = "magicpodcast-codex-"
+
 	defaultStartupTimeout   = 20 * time.Second
 	defaultNativeCancelWait = 3 * time.Second
 	defaultTerminateWait    = 2 * time.Second
@@ -119,9 +122,10 @@ type managedExecution struct {
 	bytes    int
 	notify   chan struct{}
 
-	command *exec.Cmd
-	stdin   *os.File
-	pid     int
+	command     *exec.Cmd
+	stdin       *os.File
+	pid         int
+	runtimeHome string
 
 	writeMu              sync.Mutex
 	cancelSupervisorOnce sync.Once
@@ -219,6 +223,21 @@ func (h *ProcessHost) CreateExecution(
 		)
 	}
 
+	runtimeHome, err := h.createRuntimeHome()
+	if err != nil {
+		return ExecutionSnapshot{}, newRuntimeError(
+			ErrorRuntimeUnavailable,
+			"runtime isolation directory could not be created",
+			true,
+		)
+	}
+	cleanupRuntimeHome := true
+	defer func() {
+		if cleanupRuntimeHome {
+			_ = os.RemoveAll(runtimeHome)
+		}
+	}()
+
 	stdinReader, stdinWriter, err := os.Pipe()
 	if err != nil {
 		return ExecutionSnapshot{}, newRuntimeError(
@@ -252,7 +271,10 @@ func (h *ProcessHost) CreateExecution(
 
 	command := exec.Command(h.config.Command[0], h.config.Command[1:]...)
 	command.Dir = workingDirectory
-	command.Env = h.commandEnvironment()
+	command.Env = append(
+		h.commandEnvironment(),
+		runtimeHomeEnvironment+"="+runtimeHome,
+	)
 	command.Stdin = stdinReader
 	command.Stdout = stdoutWriter
 	command.Stderr = stderrWriter
@@ -269,6 +291,7 @@ func (h *ProcessHost) CreateExecution(
 		notify:      make(chan struct{}),
 		command:     command,
 		stdin:       stdinWriter,
+		runtimeHome: runtimeHome,
 		started:     make(chan struct{}),
 		terminal:    make(chan struct{}),
 		nativeAck:   make(chan struct{}),
@@ -312,6 +335,7 @@ func (h *ProcessHost) CreateExecution(
 	}
 	h.executions[executionID] = execution
 	h.mu.Unlock()
+	cleanupRuntimeHome = false
 
 	readerDone := make(chan struct{})
 	go h.readFrames(execution, stdoutReader, readerDone)
@@ -1053,6 +1077,7 @@ func (h *ProcessHost) waitForProcess(
 	cleanupSignal := h.ensureProcessGroupStopped(execution.pid)
 	_ = execution.stdin.Close()
 	<-readerDone
+	_ = os.RemoveAll(execution.runtimeHome)
 
 	execution.mu.Lock()
 	if cleanupSignal != CancellationNone &&
@@ -1420,6 +1445,17 @@ func (h *ProcessHost) commandEnvironment() []string {
 		environment[name] = value
 	}
 	return environmentMap(environment)
+}
+
+func (h *ProcessHost) createRuntimeHome() (string, error) {
+	tempRoot := ""
+	if value := h.config.Environment["TMPDIR"]; value != "" {
+		tempRoot = value
+	}
+	if value := h.config.testEnvironment["TMPDIR"]; value != "" {
+		tempRoot = value
+	}
+	return os.MkdirTemp(tempRoot, runtimeHomePrefix)
 }
 
 func normalizeProcessHostConfig(

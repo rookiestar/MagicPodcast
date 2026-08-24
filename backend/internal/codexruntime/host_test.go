@@ -811,6 +811,42 @@ func TestPythonSDKHostUsesStableRestrictedConfiguration(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, StatusFailed, forcedToolFinal.Status)
 	require.Equal(t, ErrorCapabilityDenied, forcedToolFinal.ErrorCode)
+
+	forcedTermination, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind: ExecutionKindEpisodeNotes,
+			WorkingDirectory: newExecutionDir(
+				t,
+				workRoot,
+				"python-forced-termination-",
+			),
+			Prompt:       "HANG_FOR_SIGKILL",
+			OutputSchema: episodeNotesSchema,
+		},
+	)
+	require.NoError(t, err)
+	host.mu.RLock()
+	forcedExecution := host.executions[forcedTermination.ID]
+	host.mu.RUnlock()
+	require.NotNil(t, forcedExecution)
+	runtimeHome := forcedExecution.runtimeHome
+	require.DirExists(t, runtimeHome)
+	_, err = os.Lstat(filepath.Join(runtimeHome, "auth.json"))
+	require.NoError(t, err)
+
+	forcedCancellation, err := host.CancelExecution(
+		context.Background(),
+		forcedTermination.ID,
+	)
+	require.NoError(t, err)
+	require.Equal(t, StatusCancelled, forcedCancellation.Status)
+	require.Equal(t, CancellationSIGKILL, forcedCancellation.Method)
+	require.Eventually(t, func() bool {
+		_, statErr := os.Stat(runtimeHome)
+		return errors.Is(statErr, os.ErrNotExist)
+	}, 2*time.Second, 20*time.Millisecond)
+
 	require.NoError(t, closeHost(t, host))
 	require.Equal(t, 0, host.Diagnostics().LiveProcessGroups)
 	entries, err := os.ReadDir(isolatedTempRoot)
