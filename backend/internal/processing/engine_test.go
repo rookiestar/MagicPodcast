@@ -21,6 +21,13 @@ func TestEngineRecoversExternalWaitPublishesAndKeepsDeliveryIndependent(t *testi
 	now := time.Date(2026, 8, 24, 13, 0, 0, 0, time.UTC)
 	service := newProcessingService(db, WithClock(func() time.Time { return now }))
 	episode := createProcessingEpisode(t, db, true, "engine-success")
+	require.NoError(t, db.Model(&models.Episode{}).
+		Where("id = ?", episode.ID).
+		Updates(map[string]any{
+			"link":       "https://example.com/episode",
+			"show_notes": "<p>公开 Show Notes</p>",
+			"notes":      "PRIVATE-NOTE",
+		}).Error)
 	completedAt := now.Add(-24 * time.Hour)
 	require.NoError(t, db.Create(&models.EpisodeCompletion{
 		EpisodeID:   episode.ID,
@@ -99,6 +106,12 @@ func TestEngineRecoversExternalWaitPublishesAndKeepsDeliveryIndependent(t *testi
 	require.Len(t, detail.Deliveries, 1)
 	require.Equal(t, models.DeliveryStatusFailed, detail.Deliveries[0].Status)
 	require.Equal(t, models.ProcessingRunStatusCompleted, detail.Run.Status)
+	deliveredPackage := bridge.LastPackage()
+	require.Equal(t, episode.Title, deliveredPackage.EpisodeTitle)
+	require.Equal(t, "Processing engine-success", deliveredPackage.PodcastTitle)
+	require.Equal(t, "https://example.com/episode", deliveredPackage.SourceURL)
+	require.Equal(t, "公开 Show Notes", deliveredPackage.ShowNotes)
+	require.NotContains(t, deliveredPackage.ShowNotes, "PRIVATE-NOTE")
 	for _, name := range []string{"manifest.json", "transcript.md", "episode-notes.md"} {
 		_, statErr := os.Stat(filepath.Join(detail.Artifact.RootPath, name))
 		require.NoError(t, statErr)
@@ -1083,6 +1096,7 @@ type fakeBridge struct {
 	err          error
 	calls        int
 	deliveryKeys []string
+	packages     []KnowledgePackage
 	afterDeliver func()
 }
 
@@ -1096,6 +1110,7 @@ func (f *fakeBridge) Deliver(
 	f.mu.Lock()
 	f.calls++
 	f.deliveryKeys = append(f.deliveryKeys, request.DeliveryKey)
+	f.packages = append(f.packages, request.Package)
 	err := f.err
 	receipt := f.receipt
 	afterDeliver := f.afterDeliver
@@ -1121,6 +1136,15 @@ func (f *fakeBridge) DeliveryKeys() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.deliveryKeys...)
+}
+
+func (f *fakeBridge) LastPackage() KnowledgePackage {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.packages) == 0 {
+		return KnowledgePackage{}
+	}
+	return f.packages[len(f.packages)-1]
 }
 
 type postPublishBlockingStore struct {

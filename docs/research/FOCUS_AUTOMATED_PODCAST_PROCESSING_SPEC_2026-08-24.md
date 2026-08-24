@@ -2,7 +2,7 @@
 
 日期：2026-08-24
 
-状态：已确认设计；#179 Foundation 已在实施分支完成，尚未合并、迁移或部署
+状态：已确认设计；#179 Foundation 已合并到当前代码基线，尚未迁移或部署
 
 关联：[领域词汇](../../CONTEXT.md)、[ADR-0007](../adr/0007-use-local-codex-runtime-for-intelligent-processing.md)、[ADR-0008](../adr/0008-separate-action-processing-and-knowledge-delivery-state.md)
 
@@ -367,7 +367,8 @@ Adapter 只能返回规范回执：目标、远端对象身份、状态、时间
 
 ## 14. 分阶段实施
 
-截至 2026-08-24，阶段 A 已在 `codex/focus-processing-spec` 实现并通过本地自动测试；这不代表 PR 已合并、生产数据库已迁移或运行态已部署。阶段 B–H 尚未实现。
+截至 2026-08-24，阶段 A 已合并到当前代码基线；阶段 H 已在当前代码中实现
+并通过本地自动测试，但尚未部署或完成真实 ima 导入验收。阶段 B–G 尚未实现。
 
 | 阶段 | 交付 | 依赖 |
 | --- | --- | --- |

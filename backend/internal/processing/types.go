@@ -139,12 +139,21 @@ type ArtifactStore interface {
 }
 
 type KnowledgePackage struct {
-	EpisodeID       uint
-	PipelineVersion string
-	ManifestSHA256  string
-	Transcript      string
-	EpisodeNotes    string
-	Sources         map[string]string
+	RunID               uint
+	EpisodeID           uint
+	EpisodeTitle        string
+	PodcastTitle        string
+	PublishedAt         time.Time
+	SourceURL           string
+	ShowNotes           string
+	PipelineVersion     string
+	ArtifactGeneratedAt time.Time
+	ManifestSHA256      string
+	TranscriptSHA256    string
+	EpisodeNotesSHA256  string
+	Transcript          string
+	EpisodeNotes        string
+	Sources             map[string]string
 }
 
 type DeliveryRequest struct {
@@ -157,6 +166,9 @@ type DeliveryRequest struct {
 type DeliveryReceipt struct {
 	RemoteRef string
 	PublicURL string
+	// Status is optional for compatibility. Existing automatic bridges leave
+	// it empty and are recorded as delivered. Manual bridges return pending.
+	Status string
 }
 
 type KnowledgeBridge interface {
