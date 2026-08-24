@@ -107,12 +107,16 @@ func main() {
 	// 设置路由
 	logger.Info("🔧 Setting up routes...")
 	var (
-		routerOptions       []router.Option
-		processingWorker    *processing.Worker
-		processingRuntime   codexruntime.Runtime
-		processingCancel    context.CancelFunc
-		processingWorkerErr chan error
-		processingStopped   bool
+		routerOptions             []router.Option
+		processingWorker          *processing.Worker
+		processingScheduler       *processing.Scheduler
+		processingRuntime         codexruntime.Runtime
+		processingCancel          context.CancelFunc
+		processingScheduleCancel  context.CancelFunc
+		processingWorkerErr       chan error
+		processingScheduleErr     chan error
+		processingStopped         bool
+		processingScheduleStopped bool
 	)
 	if cfg.Processing.Enabled {
 		audioStore, err := processing.NewDiskAudioStore(db, cfg.Processing.AudioRoot)
@@ -206,6 +210,19 @@ func main() {
 		if err != nil {
 			logger.Fatalf("Failed to initialize processing worker: %v", err)
 		}
+		processingScheduler, err = processing.NewScheduler(
+			db,
+			processingService,
+			processing.SchedulerConfig{
+				Enabled:   cfg.Processing.Schedule.Enabled,
+				Cron:      cfg.Processing.Schedule.Cron,
+				Timezone:  cfg.Processing.Schedule.Timezone,
+				BatchSize: cfg.Processing.Schedule.BatchSize,
+			},
+		)
+		if err != nil {
+			logger.Fatalf("Failed to initialize Focus processing scheduler: %v", err)
+		}
 		copilotContextLoader, err := episodecopilot.NewGORMContextLoader(
 			db,
 			artifactStore,
@@ -226,6 +243,7 @@ func main() {
 			router.WithProcessingModule(
 				processingService,
 				processingWorker.Canceler(),
+				processingScheduler,
 			),
 			router.WithEpisodeCopilotModule(episodeCopilot),
 		)
@@ -238,6 +256,14 @@ func main() {
 		processingWorkerErr = make(chan error, 1)
 		go func() {
 			processingWorkerErr <- processingWorker.Run(workerContext)
+		}()
+	}
+	if processingScheduler != nil && cfg.Processing.Schedule.Enabled {
+		var scheduleContext context.Context
+		scheduleContext, processingScheduleCancel = context.WithCancel(context.Background())
+		processingScheduleErr = make(chan error, 1)
+		go func() {
+			processingScheduleErr <- processingScheduler.Run(scheduleContext)
 		}()
 	}
 
@@ -266,7 +292,7 @@ func main() {
 	// 优雅关闭
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	if processingWorkerErr == nil {
+	if processingWorkerErr == nil && processingScheduleErr == nil {
 		<-quit
 	} else {
 		select {
@@ -275,6 +301,11 @@ func main() {
 			processingStopped = true
 			if workerErr != nil {
 				logger.Errorf("Processing worker stopped: %v", workerErr)
+			}
+		case scheduleErr := <-processingScheduleErr:
+			processingScheduleStopped = true
+			if scheduleErr != nil {
+				logger.Errorf("Focus processing scheduler stopped: %v", scheduleErr)
 			}
 		}
 	}
@@ -297,6 +328,19 @@ func main() {
 				}
 			case <-time.After(10 * time.Second):
 				logger.Error("Processing worker shutdown timed out")
+			}
+		}
+	}
+	if processingScheduleCancel != nil {
+		processingScheduleCancel()
+		if !processingScheduleStopped {
+			select {
+			case scheduleErr := <-processingScheduleErr:
+				if scheduleErr != nil {
+					logger.Errorf("Focus processing scheduler shutdown failed: %v", scheduleErr)
+				}
+			case <-time.After(10 * time.Second):
+				logger.Error("Focus processing scheduler shutdown timed out")
 			}
 		}
 	}

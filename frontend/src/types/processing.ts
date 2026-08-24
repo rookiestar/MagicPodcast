@@ -86,3 +86,48 @@ export interface ProcessingErrorDetails {
   message: string;
   status?: number;
 }
+
+export type ProcessingScheduleRunStatus = "running" | "completed" | "failed";
+
+export interface ProcessingScheduleItem {
+  id: number;
+  schedule_run_id: number;
+  episode_id: number;
+  queue_position: number;
+  outcome: "started" | "skipped";
+  reason?: string;
+  processing_run_id?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProcessingScheduleRun {
+  id: number;
+  scheduled_for: string;
+  cron_expression: string;
+  timezone: string;
+  batch_size: number;
+  status: ProcessingScheduleRunStatus;
+  candidate_count: number;
+  started_count: number;
+  skipped_count: number;
+  error_code?: string;
+  error_message?: string;
+  finished_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProcessingScheduleRunDetail {
+  run: ProcessingScheduleRun;
+  items: ProcessingScheduleItem[];
+}
+
+export interface ProcessingScheduleStatus {
+  enabled: boolean;
+  cron: string;
+  timezone: string;
+  batch_size: number;
+  next_run_at?: string;
+  latest_run?: ProcessingScheduleRunDetail;
+}

@@ -105,6 +105,9 @@ func (s *Service) StartEpisodeProcessing(
 	}
 	input, err := s.inputResolver.ResolveProcessingInput(ctx, normalized.EpisodeID)
 	if err != nil {
+		if normalized.RequireReadyAudio {
+			return StartResult{}, ErrProcessingInputUnavailable
+		}
 		if s.audioPreparer == nil {
 			return StartResult{}, ErrProcessingInputUnavailable
 		}
@@ -179,6 +182,7 @@ func (s *Service) startAudioPreparationRun(
 			AudioDigest:     "",
 			PipelineVersion: pipelineVersion,
 			TriggerSource:   request.TriggerSource,
+			ScheduleRunID:   request.ScheduleRunID,
 			Status:          models.ProcessingRunStatusQueued,
 			CurrentStep:     StepAudioPreparation,
 			PreviousRunID:   previousRunID,
@@ -412,6 +416,35 @@ func (s *Service) startResolvedEpisodeProcessing(
 			case !errors.Is(completedErr, gorm.ErrRecordNotFound):
 				return fmt.Errorf("read reusable processing run: %w", completedErr)
 			}
+
+			// The engine owns bounded automatic retry for one processing run. Once
+			// it reaches a terminal state, a later cron tick must not create a
+			// fresh external request for the same audio/pipeline identity. That is
+			// especially important for fail-closed unknown external write results.
+			// Manual RetryProcessingRun remains the explicit, reviewable escape
+			// hatch after an operator fixes the cause.
+			if request.TriggerSource == models.ProcessingTriggerScheduled {
+				var terminal models.EpisodeProcessingRun
+				terminalErr := tx.
+					Where(
+						"episode_id = ? AND processing_key = ? AND status IN ?",
+						request.EpisodeID,
+						key,
+						[]string{
+							models.ProcessingRunStatusFailed,
+							models.ProcessingRunStatusCancelled,
+						},
+					).
+					Order("finished_at DESC, id DESC").
+					First(&terminal).Error
+				switch {
+				case terminalErr == nil:
+					result = StartResult{Run: terminal, ReusedTerminal: true}
+					return nil
+				case !errors.Is(terminalErr, gorm.ErrRecordNotFound):
+					return fmt.Errorf("read terminal processing run: %w", terminalErr)
+				}
+			}
 		}
 
 		var previousRunID *uint
@@ -435,6 +468,7 @@ func (s *Service) startResolvedEpisodeProcessing(
 			AudioDigest:     input.AudioDigest,
 			PipelineVersion: input.PipelineVersion,
 			TriggerSource:   request.TriggerSource,
+			ScheduleRunID:   request.ScheduleRunID,
 			Status:          models.ProcessingRunStatusQueued,
 			PreviousRunID:   previousRunID,
 			MaxAttempts:     s.retryPolicy.MaxAttempts,
@@ -989,6 +1023,14 @@ func normalizeStartRequest(request StartRequest) (StartRequest, error) {
 	case models.ProcessingTriggerManual, models.ProcessingTriggerScheduled:
 	default:
 		return StartRequest{}, fmt.Errorf("%w: invalid trigger source", ErrInvalidStart)
+	}
+	if request.RequireReadyAudio && request.TriggerSource != models.ProcessingTriggerScheduled {
+		return StartRequest{}, fmt.Errorf("%w: ready-audio requirement is scheduled-only", ErrInvalidStart)
+	}
+	if request.ScheduleRunID != nil {
+		if *request.ScheduleRunID == 0 || request.TriggerSource != models.ProcessingTriggerScheduled {
+			return StartRequest{}, fmt.Errorf("%w: invalid schedule run", ErrInvalidStart)
+		}
 	}
 	return request, nil
 }

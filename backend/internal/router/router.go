@@ -31,9 +31,10 @@ var globalScheduler *scheduler.Scheduler
 var globalPromptManager *llm.PromptManager
 
 type routerDependencies struct {
-	processingService  *processing.Service
-	processingCanceler processing.RunCanceler
-	episodeCopilot     episodecopilot.Module
+	processingService   *processing.Service
+	processingCanceler  processing.RunCanceler
+	processingScheduler processing.ScheduleStatusProvider
+	episodeCopilot      episodecopilot.Module
 }
 
 type Option func(*routerDependencies)
@@ -41,10 +42,14 @@ type Option func(*routerDependencies)
 func WithProcessingModule(
 	service *processing.Service,
 	canceler processing.RunCanceler,
+	schedulers ...processing.ScheduleStatusProvider,
 ) Option {
 	return func(dependencies *routerDependencies) {
 		dependencies.processingService = service
 		dependencies.processingCanceler = canceler
+		if len(schedulers) > 0 {
+			dependencies.processingScheduler = schedulers[0]
+		}
 	}
 }
 
@@ -182,10 +187,12 @@ func SetupRouter(options ...Option) *gin.Engine {
 		processingHandler := handlers.NewProcessingHandler(
 			processingService,
 			dependencies.processingCanceler,
+			dependencies.processingScheduler,
 		)
 		v1.POST("/episodes/:id/processing-runs", processingHandler.Start)
 		v1.GET("/episodes/:id/processing-runs", processingHandler.ListEpisodeRuns)
 		v1.GET("/episodes/:id/audio-assets/latest", processingHandler.GetLatestAudio)
+		v1.GET("/processing-schedule", processingHandler.GetScheduleStatus)
 		v1.GET("/processing-runs/:id", processingHandler.Get)
 		v1.POST("/processing-runs/:id/cancel", processingHandler.Cancel)
 		v1.POST("/processing-runs/:id/retry", processingHandler.Retry)

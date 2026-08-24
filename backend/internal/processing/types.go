@@ -20,9 +20,11 @@ const (
 )
 
 type StartRequest struct {
-	EpisodeID     uint
-	TriggerSource string
-	Force         bool
+	EpisodeID         uint
+	TriggerSource     string
+	Force             bool
+	RequireReadyAudio bool
+	ScheduleRunID     *uint
 }
 
 type ProcessingInput struct {
@@ -46,8 +48,12 @@ type StartResult struct {
 	Run              models.EpisodeProcessingRun `json:"run"`
 	ReusedActive     bool                        `json:"reused_active"`
 	ReusedSuccessful bool                        `json:"reused_successful"`
-	AudioAsset       *models.EpisodeAudioAsset   `json:"audio_asset,omitempty"`
-	PreparingAudio   bool                        `json:"preparing_audio"`
+	// ReusedTerminal is scheduler-internal. A scheduled trigger must not turn
+	// a failed or cancelled run of the same immutable input back into an
+	// unbounded automatic retry; a user can still use the explicit retry flow.
+	ReusedTerminal bool                      `json:"-"`
+	AudioAsset     *models.EpisodeAudioAsset `json:"audio_asset,omitempty"`
+	PreparingAudio bool                      `json:"preparing_audio"`
 }
 
 type RetryPolicy struct {

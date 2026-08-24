@@ -1,0 +1,401 @@
+package processing
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"magicpodcast/internal/models"
+
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+)
+
+func TestSchedulerSelectsFocusInPersistentOrderAndRecordsSkips(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 25, 3, 0, 0, 0, time.UTC)
+	resolver := newEpisodeInputResolver()
+	service := NewService(
+		db,
+		WithProcessingInputResolver(resolver),
+		WithClock(func() time.Time { return now }),
+	)
+	scheduler := newTestScheduler(t, db, service, now, 1)
+
+	active := createProcessingEpisode(t, db, true, "schedule-active")
+	completed := createProcessingEpisode(t, db, true, "schedule-completed")
+	noAudio := createProcessingEpisode(t, db, true, "schedule-no-audio")
+	eligible := createProcessingEpisode(t, db, true, "schedule-eligible")
+	for _, episode := range []models.Episode{active, completed, eligible} {
+		resolver.SetReady(episode.ID)
+	}
+	resolver.SetError(noAudio.ID, errors.New("managed audio is not ready"))
+	setFocusPositions(t, db, active.ID, completed.ID, noAudio.ID, eligible.ID)
+
+	activeRun, err := service.StartEpisodeProcessing(context.Background(), StartRequest{
+		EpisodeID:     active.ID,
+		TriggerSource: models.ProcessingTriggerManual,
+	})
+	require.NoError(t, err)
+
+	completedRun, err := service.StartEpisodeProcessing(context.Background(), StartRequest{
+		EpisodeID:     completed.ID,
+		TriggerSource: models.ProcessingTriggerManual,
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+		Where("id = ?", completedRun.Run.ID).
+		Updates(map[string]any{
+			"status":      models.ProcessingRunStatusCompleted,
+			"finished_at": now,
+			"updated_at":  now,
+		}).Error)
+	require.NoError(t, db.Create(&models.EpisodeArtifactSet{
+		RunID:            completedRun.Run.ID,
+		EpisodeID:        completed.ID,
+		PipelineVersion:  "pipeline-v1",
+		RootPath:         "/private/completed",
+		ManifestPath:     "manifest.json",
+		ManifestSHA256:   strings.Repeat("1", 64),
+		TranscriptSHA256: strings.Repeat("2", 64),
+		NotesSHA256:      strings.Repeat("3", 64),
+		IsCurrent:        true,
+		CreatedAt:        now,
+	}).Error)
+
+	detail, reused, err := scheduler.RunAt(context.Background(), now)
+	require.NoError(t, err)
+	require.False(t, reused)
+	require.Equal(t, models.ProcessingScheduleRunStatusCompleted, detail.Run.Status)
+	require.Equal(t, 4, detail.Run.CandidateCount)
+	require.Equal(t, 1, detail.Run.StartedCount)
+	require.Equal(t, 3, detail.Run.SkippedCount)
+	require.Len(t, detail.Items, 4)
+	require.Equal(t, []uint{active.ID, completed.ID, noAudio.ID, eligible.ID}, scheduleItemEpisodeIDs(detail.Items))
+	require.Equal(t, scheduleSkipActiveRun, detail.Items[0].Reason)
+	require.Equal(t, scheduleSkipCurrentArtifact, detail.Items[1].Reason)
+	require.Equal(t, scheduleSkipAudioNotReady, detail.Items[2].Reason)
+	require.Equal(t, models.ProcessingScheduleItemOutcomeStarted, detail.Items[3].Outcome)
+	require.NotNil(t, detail.Items[3].ProcessingRunID)
+
+	var scheduledRun models.EpisodeProcessingRun
+	require.NoError(t, db.Where("id = ?", *detail.Items[3].ProcessingRunID).First(&scheduledRun).Error)
+	require.Equal(t, models.ProcessingTriggerScheduled, scheduledRun.TriggerSource)
+	require.Equal(t, detail.Run.ID, *scheduledRun.ScheduleRunID)
+	var noAudioRuns int64
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).Where("episode_id = ?", noAudio.ID).Count(&noAudioRuns).Error)
+	require.Zero(t, noAudioRuns)
+	require.NotZero(t, activeRun.Run.ID)
+}
+
+func TestSchedulerDuplicateTriggerAndRestartRecoveryDoNotRepeat(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 25, 4, 0, 0, 0, time.UTC)
+	resolver := newEpisodeInputResolver()
+	service := NewService(
+		db,
+		WithProcessingInputResolver(resolver),
+		WithClock(func() time.Time { return now }),
+	)
+	scheduler := newTestScheduler(t, db, service, now, 1)
+	episode := createProcessingEpisode(t, db, true, "schedule-duplicate")
+	resolver.SetReady(episode.ID)
+	setFocusPositions(t, db, episode.ID)
+
+	first, reused, err := scheduler.RunAt(context.Background(), now)
+	require.NoError(t, err)
+	require.False(t, reused)
+	second, reused, err := scheduler.RunAt(context.Background(), now)
+	require.NoError(t, err)
+	require.True(t, reused)
+	require.Equal(t, first.Run.ID, second.Run.ID)
+	var firstCount int64
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).Where("episode_id = ?", episode.ID).Count(&firstCount).Error)
+	require.Equal(t, int64(1), firstCount)
+
+	interruptedAt := now.Add(time.Minute)
+	interrupted := models.ProcessingScheduleRun{
+		TriggerKey:     scheduleTriggerKey("0 * * * * *", "UTC", interruptedAt),
+		ScheduledFor:   interruptedAt,
+		CronExpression: "0 * * * * *",
+		Timezone:       "UTC",
+		BatchSize:      1,
+		Status:         models.ProcessingScheduleRunStatusRunning,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	require.NoError(t, db.Create(&interrupted).Error)
+	recoveredEpisode := createProcessingEpisode(t, db, true, "schedule-recovered")
+	resolver.SetReady(recoveredEpisode.ID)
+	recoveredStart, err := service.StartEpisodeProcessing(context.Background(), StartRequest{
+		EpisodeID:     recoveredEpisode.ID,
+		TriggerSource: models.ProcessingTriggerScheduled,
+		ScheduleRunID: &interrupted.ID,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, scheduler.RecoverIncompleteRuns(context.Background(), now.Add(2*time.Minute)))
+	var recovered models.ProcessingScheduleRun
+	require.NoError(t, db.First(&recovered, interrupted.ID).Error)
+	require.Equal(t, models.ProcessingScheduleRunStatusFailed, recovered.Status)
+	require.Equal(t, "schedule_interrupted_by_restart", recovered.ErrorCode)
+	require.Equal(t, 1, recovered.StartedCount)
+	var recoveredItems []models.ProcessingScheduleItem
+	require.NoError(t, db.Where("schedule_run_id = ?", interrupted.ID).Find(&recoveredItems).Error)
+	require.Len(t, recoveredItems, 1)
+	require.Equal(t, recoveredStart.Run.ID, *recoveredItems[0].ProcessingRunID)
+
+	_, reused, err = scheduler.RunAt(context.Background(), interruptedAt)
+	require.NoError(t, err)
+	require.True(t, reused)
+	var recoveredRunCount int64
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).Where("episode_id = ?", recoveredEpisode.ID).Count(&recoveredRunCount).Error)
+	require.Equal(t, int64(1), recoveredRunCount)
+}
+
+func TestSchedulerDoesNotRecreateSameVersionTerminalRun(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 25, 4, 30, 0, 0, time.UTC)
+	resolver := newEpisodeInputResolver()
+	service := NewService(
+		db,
+		WithProcessingInputResolver(resolver),
+		WithClock(func() time.Time { return now }),
+	)
+	scheduler := newTestScheduler(t, db, service, now, 1)
+	episode := createProcessingEpisode(t, db, true, "schedule-terminal-run")
+	resolver.SetReady(episode.ID)
+	setFocusPositions(t, db, episode.ID)
+
+	first, reused, err := scheduler.RunAt(context.Background(), now)
+	require.NoError(t, err)
+	require.False(t, reused)
+	require.Len(t, first.Items, 1)
+	require.NotNil(t, first.Items[0].ProcessingRunID)
+	processingRunID := *first.Items[0].ProcessingRunID
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+		Where("id = ?", processingRunID).
+		Updates(map[string]any{
+			"status":          models.ProcessingRunStatusFailed,
+			"finished_at":     now,
+			"error_code":      "lark_result_unknown",
+			"error_message":   "Feishu write result is unknown",
+			"error_retryable": false,
+			"updated_at":      now,
+		}).Error)
+
+	second, reused, err := scheduler.RunAt(context.Background(), now.Add(time.Minute))
+	require.NoError(t, err)
+	require.False(t, reused)
+	require.Equal(t, models.ProcessingScheduleRunStatusCompleted, second.Run.Status)
+	require.Equal(t, 0, second.Run.StartedCount)
+	require.Equal(t, 1, second.Run.SkippedCount)
+	require.Len(t, second.Items, 1)
+	require.Equal(t, models.ProcessingScheduleItemOutcomeSkipped, second.Items[0].Outcome)
+	require.Equal(t, scheduleSkipTerminalRun, second.Items[0].Reason)
+	require.Equal(t, processingRunID, *second.Items[0].ProcessingRunID)
+
+	var runCount int64
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+		Where("episode_id = ?", episode.ID).
+		Count(&runCount).Error)
+	require.Equal(t, int64(1), runCount)
+}
+
+func TestSchedulerFailurePreservesRecordedAndBackfilledItems(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 25, 4, 45, 0, 0, time.UTC)
+	resolver := newEpisodeInputResolver()
+	service := NewService(
+		db,
+		WithProcessingInputResolver(resolver),
+		WithClock(func() time.Time { return now }),
+	)
+	scheduler := newTestScheduler(t, db, service, now, 1)
+	scheduleRun, duplicate, err := scheduler.claimRun(context.Background(), now)
+	require.NoError(t, err)
+	require.False(t, duplicate)
+
+	startedEpisode := createProcessingEpisode(t, db, true, "schedule-failure-started")
+	skippedEpisode := createProcessingEpisode(t, db, true, "schedule-failure-skipped")
+	resolver.SetReady(startedEpisode.ID)
+	setFocusPositions(t, db, startedEpisode.ID, skippedEpisode.ID)
+	started, err := service.StartEpisodeProcessing(context.Background(), StartRequest{
+		EpisodeID:         startedEpisode.ID,
+		TriggerSource:     models.ProcessingTriggerScheduled,
+		RequireReadyAudio: true,
+		ScheduleRunID:     &scheduleRun.ID,
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.Create(&models.ProcessingScheduleItem{
+		ScheduleRunID: scheduleRun.ID,
+		EpisodeID:     skippedEpisode.ID,
+		QueuePosition: 1,
+		Outcome:       models.ProcessingScheduleItemOutcomeSkipped,
+		Reason:        scheduleSkipAudioNotReady,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}).Error)
+
+	cause := errors.New("schedule item write failed")
+	detail, _, err := scheduler.failRun(
+		context.Background(),
+		scheduleRun.ID,
+		"schedule_item_record_failed",
+		"unable to record schedule result",
+		cause,
+	)
+	require.ErrorIs(t, err, cause)
+	require.Equal(t, models.ProcessingScheduleRunStatusFailed, detail.Run.Status)
+	require.Equal(t, 1, detail.Run.StartedCount)
+	require.Equal(t, 1, detail.Run.SkippedCount)
+	require.Len(t, detail.Items, 2)
+
+	var startedItem models.ProcessingScheduleItem
+	require.NoError(t, db.Where(
+		"schedule_run_id = ? AND episode_id = ?",
+		scheduleRun.ID,
+		startedEpisode.ID,
+	).First(&startedItem).Error)
+	require.NotNil(t, startedItem.ProcessingRunID)
+	require.Equal(t, started.Run.ID, *startedItem.ProcessingRunID)
+}
+
+func TestSchedulerRechecksFocusBeforeCreatingScheduledRun(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 25, 5, 0, 0, 0, time.UTC)
+	resolver := newEpisodeInputResolver()
+	service := NewService(db, WithProcessingInputResolver(resolver), WithClock(func() time.Time { return now }))
+	scheduler := newTestScheduler(t, db, service, now, 1)
+	episode := createProcessingEpisode(t, db, true, "schedule-focus-recheck")
+	resolver.SetReady(episode.ID)
+	setFocusPositions(t, db, episode.ID)
+
+	run, duplicate, err := scheduler.claimRun(context.Background(), now)
+	require.NoError(t, err)
+	require.False(t, duplicate)
+	someday := models.QueueStateSomeday
+	require.NoError(t, db.Model(&models.EpisodeTriageDecision{}).
+		Where("episode_id = ?", episode.ID).
+		Update("queue_state", someday).Error)
+
+	outcome, reason, runID, err := scheduler.startCandidate(context.Background(), run.ID, episode.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingScheduleItemOutcomeSkipped, outcome)
+	require.Equal(t, scheduleSkipNotFocused, reason)
+	require.Nil(t, runID)
+	var processingCount int64
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).Where("episode_id = ?", episode.ID).Count(&processingCount).Error)
+	require.Zero(t, processingCount)
+}
+
+func TestSchedulerStatusAndConfigurationValidation(t *testing.T) {
+	normalized, err := ValidateSchedulerConfig(SchedulerConfig{
+		Enabled:   true,
+		Cron:      "15 3 * * *",
+		Timezone:  "Asia/Shanghai",
+		BatchSize: 1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "0 15 3 * * *", normalized.Cron)
+	_, err = ValidateSchedulerConfig(SchedulerConfig{Enabled: true, Cron: "bad", Timezone: "UTC", BatchSize: 1})
+	require.Error(t, err)
+
+	db := openProcessingTestDB(t)
+	service := newProcessingService(db)
+	disabled, err := NewScheduler(db, service, SchedulerConfig{})
+	require.NoError(t, err)
+	status, err := disabled.Status(context.Background())
+	require.NoError(t, err)
+	require.False(t, status.Enabled)
+	require.Nil(t, status.NextRunAt)
+}
+
+func newTestScheduler(
+	t *testing.T,
+	db *gorm.DB,
+	service *Service,
+	now time.Time,
+	batchSize int,
+) *Scheduler {
+	t.Helper()
+	scheduler, err := NewScheduler(
+		db,
+		service,
+		SchedulerConfig{
+			Enabled:   true,
+			Cron:      "0 * * * * *",
+			Timezone:  "UTC",
+			BatchSize: batchSize,
+		},
+		WithSchedulerClock(func() time.Time { return now }),
+	)
+	require.NoError(t, err)
+	return scheduler
+}
+
+func setFocusPositions(t *testing.T, db *gorm.DB, episodeIDs ...uint) {
+	t.Helper()
+	for position, episodeID := range episodeIDs {
+		require.NoError(t, db.Model(&models.EpisodeTriageDecision{}).
+			Where("episode_id = ?", episodeID).
+			Update("queue_position", int64(position)).Error)
+	}
+}
+
+func scheduleItemEpisodeIDs(items []models.ProcessingScheduleItem) []uint {
+	result := make([]uint, 0, len(items))
+	for _, item := range items {
+		result = append(result, item.EpisodeID)
+	}
+	return result
+}
+
+type episodeInputResolver struct {
+	mu     sync.Mutex
+	inputs map[uint]ProcessingInput
+	errors map[uint]error
+}
+
+func newEpisodeInputResolver() *episodeInputResolver {
+	return &episodeInputResolver{
+		inputs: make(map[uint]ProcessingInput),
+		errors: make(map[uint]error),
+	}
+}
+
+func (r *episodeInputResolver) PipelineVersion() string {
+	return "pipeline-v1"
+}
+
+func (r *episodeInputResolver) ResolveProcessingInput(_ context.Context, episodeID uint) (ProcessingInput, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.errors[episodeID]; err != nil {
+		return ProcessingInput{}, err
+	}
+	if input, ok := r.inputs[episodeID]; ok {
+		return input, nil
+	}
+	return ProcessingInput{}, errors.New("managed audio is not ready")
+}
+
+func (r *episodeInputResolver) SetReady(episodeID uint) {
+	r.mu.Lock()
+	r.inputs[episodeID] = ProcessingInput{
+		AudioDigest:     strings.Repeat("a", 64),
+		PipelineVersion: "pipeline-v1",
+	}
+	delete(r.errors, episodeID)
+	r.mu.Unlock()
+}
+
+func (r *episodeInputResolver) SetError(episodeID uint, err error) {
+	r.mu.Lock()
+	r.errors[episodeID] = err
+	delete(r.inputs, episodeID)
+	r.mu.Unlock()
+}

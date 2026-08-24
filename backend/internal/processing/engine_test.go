@@ -408,6 +408,22 @@ func TestEngineRetryIsBoundedByAttempts(t *testing.T) {
 	require.Equal(t, 3, transcriber.BeginCallCount())
 }
 
+func TestEngineRetryDelayUsesBoundedDeterministicJitter(t *testing.T) {
+	engine := &Engine{service: &Service{retryPolicy: RetryPolicy{BaseDelay: 10 * time.Second}}}
+
+	first := engine.retryDelay(41, 1)
+	require.Equal(t, first, engine.retryDelay(41, 1))
+	require.GreaterOrEqual(t, first, 10*time.Second)
+	require.LessOrEqual(t, first, 12*time.Second)
+
+	second := engine.retryDelay(41, 2)
+	require.GreaterOrEqual(t, second, 20*time.Second)
+	require.LessOrEqual(t, second, 24*time.Second)
+
+	capped := &Engine{service: &Service{retryPolicy: RetryPolicy{BaseDelay: time.Hour}}}
+	require.Equal(t, time.Hour, capped.retryDelay(41, 1))
+}
+
 func TestEngineRetryPreservesExternalCheckpointWithoutRecreatingRequest(t *testing.T) {
 	db := openProcessingTestDB(t)
 	now := time.Date(2026, 8, 24, 14, 15, 0, 0, time.UTC)

@@ -5,8 +5,9 @@ import type {
   EpisodeAudioAsset,
   ProcessingErrorDetails,
   ProcessingRun,
-  ProcessingRunDetail,
-  ProcessingStartResult,
+	ProcessingRunDetail,
+	ProcessingScheduleStatus,
+	ProcessingStartResult,
 } from "@/types/processing";
 
 interface AxiosLikeError {
@@ -66,6 +67,13 @@ export const processingApi = {
   getLatestAudio: async (episodeId: number): Promise<EpisodeAudioAsset> => {
     const response = await api.get<ApiResponse<EpisodeAudioAsset>>(
       `/api/v1/episodes/${episodeId}/audio-assets/latest`,
+    );
+    return handleResponse(response);
+  },
+
+  getScheduleStatus: async (): Promise<ProcessingScheduleStatus> => {
+    const response = await api.get<ApiResponse<ProcessingScheduleStatus>>(
+      "/api/v1/processing-schedule",
     );
     return handleResponse(response);
   },

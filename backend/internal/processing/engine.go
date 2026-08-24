@@ -976,7 +976,7 @@ func (e *Engine) handleStepError(
 			classified.retryable &&
 			run.AttemptCount < run.MaxAttempts &&
 			now.Before(run.RetryDeadlineAt) {
-			nextAttempt := now.Add(e.retryDelay(run.AttemptCount))
+			nextAttempt := now.Add(e.retryDelay(run.ID, run.AttemptCount))
 			if nextAttempt.After(run.RetryDeadlineAt) {
 				nextAttempt = run.RetryDeadlineAt
 			}
@@ -1018,15 +1018,27 @@ func (e *Engine) handleStepError(
 	return run, nil
 }
 
-func (e *Engine) retryDelay(attempt int) time.Duration {
+func (e *Engine) retryDelay(runID uint, attempt int) time.Duration {
 	delay := e.service.retryPolicy.BaseDelay
 	for index := 1; index < attempt && delay < time.Hour; index++ {
 		delay *= 2
 	}
 	if delay > time.Hour {
+		delay = time.Hour
+	}
+	if delay <= 0 || delay == time.Hour {
+		return delay
+	}
+
+	// Deterministic jitter spreads simultaneous failures without making retry
+	// timing non-reproducible after a restart. It stays in [0, 20%] of the
+	// exponential delay and never exceeds the one-hour cap.
+	seed := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%d", runID, attempt)))
+	jitter := time.Duration(int64(delay) * int64(seed[0]) / (255 * 5))
+	if delay > time.Hour-jitter {
 		return time.Hour
 	}
-	return delay
+	return delay + jitter
 }
 
 func (e *Engine) completeWithArtifact(

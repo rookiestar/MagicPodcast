@@ -15,15 +15,21 @@ import (
 )
 
 type ProcessingHandler struct {
-	service  *processing.Service
-	canceler processing.RunCanceler
+	service   *processing.Service
+	canceler  processing.RunCanceler
+	scheduler processing.ScheduleStatusProvider
 }
 
 func NewProcessingHandler(
 	service *processing.Service,
 	canceler processing.RunCanceler,
+	schedulers ...processing.ScheduleStatusProvider,
 ) *ProcessingHandler {
-	return &ProcessingHandler{service: service, canceler: canceler}
+	handler := &ProcessingHandler{service: service, canceler: canceler}
+	if len(schedulers) > 0 {
+		handler.scheduler = schedulers[0]
+	}
+	return handler
 }
 
 type startProcessingRequest struct {
@@ -152,6 +158,19 @@ func (h *ProcessingHandler) GetLatestAudio(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": asset})
+}
+
+func (h *ProcessingHandler) GetScheduleStatus(c *gin.Context) {
+	status := processing.ScheduleStatus{Enabled: false}
+	if h.scheduler != nil {
+		var err error
+		status, err = h.scheduler.Status(c.Request.Context())
+		if err != nil {
+			middleware.InternalErrorResponseWithCode(c, "PROCESSING_SCHEDULE_READ_FAILED", "Failed to read processing schedule")
+			return
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": status})
 }
 
 func (h *ProcessingHandler) Cancel(c *gin.Context) {

@@ -11,6 +11,7 @@ import type {
 const apiMocks = vi.hoisted(() => ({
   listEpisodeRuns: vi.fn(),
   getLatestAudio: vi.fn(),
+  getScheduleStatus: vi.fn(),
   getRun: vi.fn(),
   start: vi.fn(),
   cancel: vi.fn(),
@@ -107,6 +108,12 @@ describe("EpisodeProcessingPanel", () => {
     apiMocks.getLatestAudio.mockRejectedValue({
       response: { status: 404 },
     });
+    apiMocks.getScheduleStatus.mockResolvedValue({
+      enabled: false,
+      cron: "",
+      timezone: "",
+      batch_size: 0,
+    });
   });
 
   it("keeps a stable first-visit state while processing status is slow", async () => {
@@ -180,6 +187,71 @@ describe("EpisodeProcessingPanel", () => {
     expect(
       screen.getByRole("button", { name: "重试读取加工状态" }),
     ).toBeEnabled();
+  });
+
+  it("shows scheduled state and the selected episode's skip reason", async () => {
+    apiMocks.getScheduleStatus.mockResolvedValue({
+      enabled: true,
+      cron: "0 0 9 * * *",
+      timezone: "Asia/Shanghai",
+      batch_size: 1,
+      next_run_at: "2026-08-25T09:00:00Z",
+      latest_run: {
+        run: {
+          id: 71,
+          scheduled_for: "2026-08-25T08:00:00Z",
+          cron_expression: "0 0 9 * * *",
+          timezone: "Asia/Shanghai",
+          batch_size: 1,
+          status: "completed",
+          candidate_count: 2,
+          started_count: 1,
+          skipped_count: 1,
+          created_at: "2026-08-25T08:00:00Z",
+          updated_at: "2026-08-25T08:00:01Z",
+        },
+        items: [
+          {
+            id: 72,
+            schedule_run_id: 71,
+            episode_id: item.episode_id,
+            queue_position: 0,
+            outcome: "skipped",
+            reason: "audio_not_ready",
+            created_at: "2026-08-25T08:00:01Z",
+            updated_at: "2026-08-25T08:00:01Z",
+          },
+        ],
+      },
+    });
+
+    render(<EpisodeProcessingPanel item={item} />);
+
+    expect(await screen.findByText("已启用 · 每批 1 集")).toBeVisible();
+    expect(screen.getByText("最近定时：已完成")).toBeVisible();
+    expect(screen.getByText("此集跳过：没有可用音频")).toBeVisible();
+  });
+
+  it("keeps manual processing available when scheduled status is slow or fails", async () => {
+    let rejectSchedule: (reason?: unknown) => void = () => undefined;
+    apiMocks.getScheduleStatus.mockReturnValue(
+      new Promise((_, reject) => {
+        rejectSchedule = reject;
+      }),
+    );
+
+    render(<EpisodeProcessingPanel item={item} />);
+
+    expect(screen.getAllByText("正在读取…").length).toBeGreaterThan(0);
+    expect(
+      await screen.findByRole("button", { name: "开始加工" }),
+    ).toBeEnabled();
+
+    rejectSchedule(new Error("定时网络超时"));
+    expect(
+      await screen.findByText("定时计划暂时无法读取：定时网络超时"),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "开始加工" })).toBeEnabled();
   });
 
   it("does not disguise managed-audio read failures as an empty first visit", async () => {
