@@ -15,6 +15,8 @@ const apiMocks = vi.hoisted(() => ({
   listTags: vi.fn(),
   listEpisodeRuns: vi.fn(),
   getLatestAudio: vi.fn(),
+  getCopilotContext: vi.fn(),
+  askCopilot: vi.fn(),
 }));
 
 vi.mock("@/lib/api/consumption", () => ({
@@ -46,6 +48,14 @@ vi.mock("@/lib/api/processing", () => ({
   getProcessingErrorDetails: vi.fn((error: unknown) => ({
     message: error instanceof Error ? error.message : "加工状态读取失败",
   })),
+}));
+
+vi.mock("@/lib/api/episodeCopilot", () => ({
+  episodeCopilotApi: {
+    getContext: apiMocks.getCopilotContext,
+    ask: apiMocks.askCopilot,
+  },
+  isEpisodeCopilotCancellation: vi.fn(() => false),
 }));
 
 const item: ConsumptionItem = {
@@ -122,6 +132,12 @@ describe("ConsumptionDetailPanel", () => {
     apiMocks.getLatestAudio.mockRejectedValue({
       response: { status: 404 },
     });
+    apiMocks.getCopilotContext.mockResolvedValue({
+      episode_id: item.episode_id,
+      show_notes_available: true,
+      transcript_available: false,
+      private_note_available: true,
+    });
     vi.spyOn(window, "open").mockImplementation(() => null);
   });
 
@@ -155,6 +171,12 @@ describe("ConsumptionDetailPanel", () => {
     expect(container.querySelector('img[alt="拒绝图片"]')).not.toHaveAttribute(
       "src",
     );
+    expect(
+      screen.getByRole("heading", { name: "单集助手" }),
+    ).toBeInTheDocument();
+    expect(
+      container.querySelector('[data-copilot-source="show_notes"]'),
+    ).toHaveAttribute("data-copilot-episode-id", "201");
     await waitFor(() => {
       expect(screen.queryByText("正在读取…")).not.toBeInTheDocument();
       expect(screen.queryByText("正在同步最新状态…")).not.toBeInTheDocument();

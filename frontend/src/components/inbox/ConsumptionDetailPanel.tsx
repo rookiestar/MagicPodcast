@@ -36,6 +36,7 @@ import {
   formatPublishedDate,
   QUEUE_PRESENTATION,
 } from "./presentation";
+import EpisodeCopilotPanel from "./EpisodeCopilotPanel";
 import EpisodeProcessingPanel from "./EpisodeProcessingPanel";
 import styles from "./InboxPage.module.css";
 
@@ -639,6 +640,8 @@ export default function ConsumptionDetailPanel({
           <section
             className={styles.showNotesSection}
             aria-labelledby="show-notes-title"
+            data-copilot-source="show_notes"
+            data-copilot-episode-id={item.episode_id}
           >
             <div className={styles.detailSectionHeading}>
               <div>
@@ -655,6 +658,8 @@ export default function ConsumptionDetailPanel({
               <p className={styles.showNotesEmpty}>该单集暂无 Show Notes。</p>
             )}
           </section>
+
+          <EpisodeCopilotPanel item={item} />
 
           <EpisodeMetadata item={item} onItemChange={onItemChange} />
         </div>
