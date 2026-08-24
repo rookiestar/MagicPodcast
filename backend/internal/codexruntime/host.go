@@ -33,26 +33,28 @@ const (
 	defaultMaxSchemaBytes   = 256 << 10
 	defaultMaxResultBytes   = 2 << 20
 	defaultSubscriberBuffer = 16
+	defaultMaxRetained      = 256
 )
 
 type ProcessHostConfig struct {
-	Command              []string
-	WorkRoot             string
-	Profiles             map[ExecutionKind]Profile
-	Capabilities         map[string]string
-	Environment          map[string]string
-	StartupTimeout       time.Duration
-	NativeCancelTimeout  time.Duration
-	TerminateTimeout     time.Duration
-	KillTimeout          time.Duration
-	PostExitGrace        time.Duration
-	MaxFrameBytes        int
-	MaxEventBytes        int
-	MaxEvents            int
-	MaxPromptBytes       int
-	MaxSchemaBytes       int
-	MaxResultBytes       int
-	SubscriberBufferSize int
+	Command               []string
+	WorkRoot              string
+	Profiles              map[ExecutionKind]Profile
+	Capabilities          map[string]string
+	Environment           map[string]string
+	StartupTimeout        time.Duration
+	NativeCancelTimeout   time.Duration
+	TerminateTimeout      time.Duration
+	KillTimeout           time.Duration
+	PostExitGrace         time.Duration
+	MaxFrameBytes         int
+	MaxEventBytes         int
+	MaxEvents             int
+	MaxPromptBytes        int
+	MaxSchemaBytes        int
+	MaxResultBytes        int
+	SubscriberBufferSize  int
+	MaxRetainedExecutions int
 }
 
 func DefaultProfiles() map[ExecutionKind]Profile {
@@ -992,6 +994,7 @@ func (h *ProcessHost) waitForProcess(
 	execution.processClosed = true
 	close(execution.processDone)
 	execution.mu.Unlock()
+	h.evictTerminalExecutions()
 }
 
 func (h *ProcessHost) ensureProcessGroupStopped(pid int) CancellationMethod {
@@ -1111,6 +1114,49 @@ func (h *ProcessHost) execution(
 		)
 	}
 	return execution, nil
+}
+
+func (h *ProcessHost) evictTerminalExecutions() {
+	type candidate struct {
+		id          ExecutionID
+		completedAt time.Time
+		createdAt   time.Time
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	candidates := make([]candidate, 0, len(h.executions))
+	for executionID, execution := range h.executions {
+		execution.mu.Lock()
+		terminal := execution.snapshot.Status.Terminal()
+		processClosed := execution.processClosed
+		createdAt := execution.snapshot.CreatedAt
+		completedAt := execution.snapshot.CompletedAt
+		execution.mu.Unlock()
+		if !terminal || !processClosed || completedAt == nil {
+			continue
+		}
+		candidates = append(candidates, candidate{
+			id:          executionID,
+			completedAt: *completedAt,
+			createdAt:   createdAt,
+		})
+	}
+	if len(candidates) <= h.config.MaxRetainedExecutions {
+		return
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if !candidates[i].createdAt.Equal(candidates[j].createdAt) {
+			return candidates[i].createdAt.Before(candidates[j].createdAt)
+		}
+		if !candidates[i].completedAt.Equal(candidates[j].completedAt) {
+			return candidates[i].completedAt.Before(candidates[j].completedAt)
+		}
+		return candidates[i].id < candidates[j].id
+	})
+	for _, expired := range candidates[:len(candidates)-h.config.MaxRetainedExecutions] {
+		delete(h.executions, expired.id)
+	}
 }
 
 func (h *ProcessHost) snapshot(
@@ -1310,6 +1356,9 @@ func normalizeProcessHostConfig(
 	}
 	if config.SubscriberBufferSize <= 0 {
 		config.SubscriberBufferSize = defaultSubscriberBuffer
+	}
+	if config.MaxRetainedExecutions <= 0 {
+		config.MaxRetainedExecutions = defaultMaxRetained
 	}
 	return config, nil
 }

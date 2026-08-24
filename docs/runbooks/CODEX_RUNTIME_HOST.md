@@ -24,10 +24,13 @@ Processing / Assistant
 
 - 固定 `ApprovalMode.deny_all`。
 - 默认 `read_only`；只有受管写入类型可声明 `workspace_write`；拒绝 `full_access`。
-- Shell、文件写入、外部工具、子代理和未知工具默认拒绝；助手只可显式声明 `web_search`。
-- SDK/Runtime 版本、认证、工作目录或必需能力缺失时返回 `runtime_unavailable`。
+- 每次执行使用临时 `CODEX_HOME`/`HOME`，只链接主机 `auth.json`；不继承用户配置、MCP、Plugin 或 Skill，结束后删除临时状态。
+- Shell、文件写入、图片、外部工具、Plugin、Skill 和子代理在模型获得工具目录前关闭；助手只可显式声明 `web_search`。`item/started` 检查继续作为纵深防御。
+- SDK 与 CLI Runtime 都必须匹配 `0.147.0`；版本、文件认证、工作目录或必需能力缺失时返回 `runtime_unavailable`。
 - 事件必须携带唯一 execution identity 和连续序号；缺失、冲突、乱序、超限或终态后继续输出均标记 `runtime_protocol_error` 并定向清理。
-- Go 只传递 HOME、PATH、区域、证书和 Codex 配置目录等白名单环境变量；提示词、结果、凭据和完整私有路径不得进入诊断输出。
+- 主机 Codex 登录必须提供受限权限的 `auth.json`；Runtime 可把令牌刷新写回该文件，但不得读取同目录其他配置。
+- Go 只传递 PATH、区域、证书、临时目录和 Codex 认证位置等白名单环境变量；提示词、结果、凭据和完整私有路径不得进入诊断输出。
+- Go Host 默认只保留最近 256 个已终结且进程已关闭的执行；活动执行不淘汰，数据库加工运行仍是长期权威记录。
 
 ## 3. 取消与清理
 
@@ -52,7 +55,7 @@ python3.12 -m venv /absolute/path/venv-0.147.0
 升级必须同时修改并验证：
 
 1. `requirements.txt` 的固定 SDK 版本；
-2. `runtime_host.py` 的 `EXPECTED_SDK_VERSION`；
+2. `runtime_host.py` 的 SDK 与 Runtime 固定版本；
 3. Fake conformance 与 Python SDK Host 测试；
 4. Mac mini 脱敏 Smoke；
 5. Spec、ADR 和兼容性说明。

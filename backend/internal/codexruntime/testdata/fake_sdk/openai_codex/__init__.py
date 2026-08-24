@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 __version__ = "0.147.0"
@@ -24,19 +25,57 @@ class CodexConfig:
         cwd=None,
         env=None,
         experimental_api=True,
+        config_overrides=(),
         **_kwargs,
     ):
         if experimental_api is not False:
             raise AssertionError("experimental_api must be false")
         self.cwd = cwd
         self.env = env
+        self.config_overrides = tuple(config_overrides)
+        required_overrides = {
+            'cli_auth_credentials_store="file"',
+            "features.apps=false",
+            "features.hooks=false",
+            "features.image_generation=false",
+            "features.multi_agent=false",
+            "features.plugins=false",
+            "features.shell_tool=false",
+            "features.skill_search=false",
+            "features.tool_suggest=false",
+            "features.unified_exec=false",
+            "features.view_image=false",
+        }
+        if not required_overrides.issubset(self.config_overrides):
+            raise AssertionError("restricted feature overrides are missing")
+        if not {
+            'web_search="disabled"',
+            'web_search="live"',
+        }.intersection(self.config_overrides):
+            raise AssertionError("web search mode is not explicit")
+        isolated_home = Path(self.env["CODEX_HOME"])
+        source_home = Path(os.environ["CODEX_HOME"])
+        if isolated_home == source_home:
+            raise AssertionError("CODEX_HOME must be isolated")
+        if self.env["HOME"] != str(isolated_home):
+            raise AssertionError("HOME must be isolated")
+        if not (isolated_home / "auth.json").is_symlink():
+            raise AssertionError("isolated auth link is missing")
 
 
 class AsyncCodex:
     def __init__(self, config):
         self.config = config
         self.metadata = SimpleNamespace(
-            serverInfo=SimpleNamespace(version="fake-runtime-1")
+            serverInfo=SimpleNamespace(
+                version=os.environ.get(
+                    "FAKE_CODEX_RUNTIME_VERSION",
+                    (
+                        "0.147.0 (Mac OS 26.6.1; arm64) "
+                        "unknown (codex_python_sdk; 0.147.0)"
+                    ),
+                )
+            )
         )
 
     async def __aenter__(self):
@@ -67,13 +106,14 @@ class AsyncCodex:
         assert developer_instructions
         assert ephemeral is True
         assert sandbox in {Sandbox.read_only, Sandbox.workspace_write}
-        return FakeThread(cwd, sandbox)
+        return FakeThread(cwd, sandbox, self.config)
 
 
 class FakeThread:
-    def __init__(self, cwd, sandbox):
+    def __init__(self, cwd, sandbox, config):
         self.cwd = cwd
         self.sandbox = sandbox
+        self.config = config
 
     async def turn(
         self,
@@ -87,13 +127,15 @@ class FakeThread:
         assert approval_mode == ApprovalMode.deny_all
         assert cwd == self.cwd
         assert sandbox == self.sandbox
-        return FakeTurn(prompt, output_schema)
+        return FakeTurn(prompt, output_schema, self.cwd, self.config)
 
 
 class FakeTurn:
-    def __init__(self, prompt, output_schema):
+    def __init__(self, prompt, output_schema, cwd, config):
         self.prompt = prompt
         self.output_schema = output_schema
+        self.cwd = cwd
+        self.config = config
         self.interrupted = asyncio.Event()
 
     async def interrupt(self):
@@ -101,7 +143,7 @@ class FakeTurn:
         return SimpleNamespace()
 
     async def stream(self):
-        if "TOOL_VIOLATION" in self.prompt:
+        if "FORCED_TOOL_EVENT" in self.prompt:
             yield notification(
                 "item/started",
                 item=SimpleNamespace(
@@ -111,6 +153,26 @@ class FakeTurn:
             await self.interrupted.wait()
             yield terminal_notification("interrupted", "")
             return
+
+        if "TOOL_VIOLATION" in self.prompt:
+            shell_enabled = (
+                "features.shell_tool=false"
+                not in self.config.config_overrides
+            )
+            if shell_enabled:
+                Path(self.cwd, "forbidden-tool-dispatched").write_text(
+                    "dispatched",
+                    encoding="utf-8",
+                )
+                yield notification(
+                    "item/started",
+                    item=SimpleNamespace(
+                        root=SimpleNamespace(type="commandExecution")
+                    ),
+                )
+                await self.interrupted.wait()
+                yield terminal_notification("interrupted", "")
+                return
 
         if self.output_schema is None:
             encoded = "Plain assistant answer."

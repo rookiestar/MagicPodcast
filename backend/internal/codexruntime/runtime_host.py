@@ -12,14 +12,17 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import signal
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 PROTOCOL_VERSION = 1
 EXPECTED_SDK_VERSION = "0.147.0"
+EXPECTED_RUNTIME_VERSION = "0.147.0"
 MAX_COMMAND_BYTES = 8 << 20
 ALLOWED_COMMAND_KEYS = {
     "protocol_version",
@@ -57,6 +60,38 @@ DENIED_CAPABILITY_NAMES = {
     "subAgentActivity": "subagent",
     "webSearch": "web_search",
 }
+DISABLED_RUNTIME_FEATURES = (
+    "apps",
+    "browser_use",
+    "browser_use_external",
+    "browser_use_full_cdp_access",
+    "chronicle",
+    "code_mode",
+    "code_mode_host",
+    "computer_use",
+    "enable_mcp_apps",
+    "executor_capability_discovery",
+    "exec_permission_approvals",
+    "hooks",
+    "image_generation",
+    "in_app_browser",
+    "memories",
+    "multi_agent",
+    "multi_agent_v2",
+    "plugins",
+    "plugin_sharing",
+    "recommended_plugins",
+    "remote_plugin",
+    "request_permissions_tool",
+    "shell_snapshot",
+    "shell_tool",
+    "skill_mcp_dependency_install",
+    "skill_search",
+    "standalone_web_search",
+    "tool_suggest",
+    "unified_exec",
+    "view_image",
+)
 
 
 class HostFailure(Exception):
@@ -279,19 +314,62 @@ async def watch_commands(
         cancel_state.request()
 
 
-def safe_runtime_environment() -> dict[str, str]:
+def source_auth_file() -> Path:
+    configured_home = os.environ.get("CODEX_HOME")
+    source_home = (
+        Path(configured_home).expanduser()
+        if configured_home
+        else Path.home() / ".codex"
+    )
+    try:
+        auth_file = (source_home / "auth.json").resolve(strict=True)
+    except OSError as exc:
+        raise HostFailure(
+            "runtime_unavailable",
+            "runtime authentication is unavailable",
+        ) from exc
+    if not auth_file.is_file():
+        raise HostFailure(
+            "runtime_unavailable",
+            "runtime authentication is unavailable",
+        )
+    return auth_file
+
+
+def safe_runtime_environment(isolated_home: Path) -> dict[str, str]:
     allowed = {
-        "CODEX_HOME",
-        "HOME",
         "LANG",
         "LC_ALL",
         "PATH",
         "SSL_CERT_DIR",
         "SSL_CERT_FILE",
         "TMPDIR",
-        "XDG_CONFIG_HOME",
     }
-    return {name: os.environ[name] for name in allowed if name in os.environ}
+    environment = {
+        name: os.environ[name]
+        for name in allowed
+        if name in os.environ
+    }
+    environment["CODEX_HOME"] = str(isolated_home)
+    environment["HOME"] = str(isolated_home)
+    environment["XDG_CONFIG_HOME"] = str(isolated_home / "config")
+    return environment
+
+
+def codex_config_overrides(request: Request) -> tuple[str, ...]:
+    web_search = (
+        "live"
+        if "web_search" in request.allowed_tools
+        else "disabled"
+    )
+    return (
+        'cli_auth_credentials_store="file"',
+        f'web_search="{web_search}"',
+        *(
+            f"features.{feature}=false"
+            for feature in DISABLED_RUNTIME_FEATURES
+        ),
+    )
 
 
 def value_of(value: Any) -> str:
@@ -306,7 +384,20 @@ def runtime_version(metadata: Any) -> str:
             "runtime_unavailable",
             "runtime version could not be verified",
         )
-    return f"sdk/{EXPECTED_SDK_VERSION};runtime/{version.strip()}"
+    normalized = version.strip()
+    match = re.fullmatch(
+        r"(?P<version>\d+\.\d+\.\d+)(?:\s+[^\r\n]+)?",
+        normalized,
+    )
+    if (
+        match is None
+        or match.group("version") != EXPECTED_RUNTIME_VERSION
+    ):
+        raise HostFailure(
+            "runtime_unavailable",
+            "runtime version is incompatible",
+        )
+    return f"sdk/{EXPECTED_SDK_VERSION};runtime/{normalized}"
 
 
 def ensure_authenticated(account_response: Any) -> None:
@@ -465,11 +556,6 @@ async def run_sdk(
         if request.sandbox == "read_only"
         else openai_codex.Sandbox.workspace_write
     )
-    config = openai_codex.CodexConfig(
-        cwd=request.working_directory,
-        env=safe_runtime_environment(),
-        experimental_api=False,
-    )
     developer_instructions = (
         "Operate only inside the supplied working directory. "
         "Do not call a tool unless the execution policy explicitly allows it. "
@@ -478,102 +564,128 @@ async def run_sdk(
     )
 
     try:
-        async with openai_codex.AsyncCodex(config) as client:
-            account_response = await client.account(refresh_token=False)
-            ensure_authenticated(account_response)
-            verified_runtime_version = runtime_version(client.metadata)
-            thread = await client.thread_start(
-                approval_mode=openai_codex.ApprovalMode.deny_all,
-                cwd=request.working_directory,
-                developer_instructions=developer_instructions,
-                ephemeral=True,
-                sandbox=sandbox,
-            )
-            turn = await thread.turn(
-                request.prompt,
-                approval_mode=openai_codex.ApprovalMode.deny_all,
-                cwd=request.working_directory,
-                output_schema=request.output_schema,
-                sandbox=sandbox,
-            )
-            sdk_started = asyncio.Event()
-            host_ready = asyncio.Event()
-            stream_task = asyncio.create_task(
-                consume_turn(
-                    turn,
-                    request,
-                    emitter,
-                    sdk_started,
-                    host_ready,
-                )
-            )
-            sdk_started_task = asyncio.create_task(sdk_started.wait())
-            done, _ = await asyncio.wait(
-                {stream_task, sdk_started_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if stream_task in done and not sdk_started.is_set():
-                sdk_started_task.cancel()
-                await asyncio.gather(
-                    sdk_started_task,
-                    return_exceptions=True,
-                )
-                return await stream_task
-            await sdk_started_task
-            emitter.emit(
-                "ready",
-                runtime_version=verified_runtime_version,
-            )
-            host_ready.set()
-
-            cancel_task = asyncio.create_task(cancel_state.event.wait())
-            done, _ = await asyncio.wait(
-                {stream_task, cancel_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if stream_task in done:
-                cancel_task.cancel()
-                await asyncio.gather(cancel_task, return_exceptions=True)
-                try:
-                    return await stream_task
-                except HostFailure:
-                    await turn.interrupt()
-                    raise
-
-            if cancel_state.protocol_error:
-                await turn.interrupt()
-                await asyncio.gather(stream_task, return_exceptions=True)
-                raise HostFailure(
-                    "runtime_protocol_error",
-                    "runtime cancellation command is invalid",
-                )
-
+        auth_file = source_auth_file()
+        with tempfile.TemporaryDirectory(
+            prefix="magicpodcast-codex-",
+        ) as isolated_home_value:
+            isolated_home = Path(isolated_home_value)
             try:
-                await turn.interrupt()
-            except Exception as exc:
-                diagnostic = str(getattr(exc, "message", "")).strip()
-                if diagnostic == "no active turn to interrupt":
-                    return await stream_task
+                (isolated_home / "auth.json").symlink_to(auth_file)
+            except OSError as exc:
                 raise HostFailure(
-                    "native_interrupt_failed",
-                    (
-                        "runtime native interrupt failed "
-                        f"({type(exc).__name__})"
-                    ),
+                    "runtime_unavailable",
+                    "runtime authentication could not be isolated",
                 ) from exc
-            emitter.emit(
-                "cancel_ack",
-                cancellation_method="native_interrupt",
+            config = openai_codex.CodexConfig(
+                config_overrides=codex_config_overrides(request),
+                cwd=request.working_directory,
+                env=safe_runtime_environment(isolated_home),
+                experimental_api=False,
             )
-            try:
-                outcome = await stream_task
-            except HostFailure:
-                raise
-            except Exception:
+            async with openai_codex.AsyncCodex(config) as client:
+                account_response = await client.account(refresh_token=False)
+                ensure_authenticated(account_response)
+                verified_runtime_version = runtime_version(client.metadata)
+                thread = await client.thread_start(
+                    approval_mode=openai_codex.ApprovalMode.deny_all,
+                    cwd=request.working_directory,
+                    developer_instructions=developer_instructions,
+                    ephemeral=True,
+                    sandbox=sandbox,
+                )
+                turn = await thread.turn(
+                    request.prompt,
+                    approval_mode=openai_codex.ApprovalMode.deny_all,
+                    cwd=request.working_directory,
+                    output_schema=request.output_schema,
+                    sandbox=sandbox,
+                )
+                sdk_started = asyncio.Event()
+                host_ready = asyncio.Event()
+                stream_task = asyncio.create_task(
+                    consume_turn(
+                        turn,
+                        request,
+                        emitter,
+                        sdk_started,
+                        host_ready,
+                    )
+                )
+                sdk_started_task = asyncio.create_task(sdk_started.wait())
+                done, _ = await asyncio.wait(
+                    {stream_task, sdk_started_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if stream_task in done and not sdk_started.is_set():
+                    sdk_started_task.cancel()
+                    await asyncio.gather(
+                        sdk_started_task,
+                        return_exceptions=True,
+                    )
+                    return await stream_task
+                await sdk_started_task
+                emitter.emit(
+                    "ready",
+                    runtime_version=verified_runtime_version,
+                )
+                host_ready.set()
+
+                cancel_task = asyncio.create_task(cancel_state.event.wait())
+                done, _ = await asyncio.wait(
+                    {stream_task, cancel_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if stream_task in done:
+                    cancel_task.cancel()
+                    await asyncio.gather(
+                        cancel_task,
+                        return_exceptions=True,
+                    )
+                    try:
+                        return await stream_task
+                    except HostFailure:
+                        await turn.interrupt()
+                        raise
+
+                if cancel_state.protocol_error:
+                    await turn.interrupt()
+                    await asyncio.gather(
+                        stream_task,
+                        return_exceptions=True,
+                    )
+                    raise HostFailure(
+                        "runtime_protocol_error",
+                        "runtime cancellation command is invalid",
+                    )
+
+                try:
+                    await turn.interrupt()
+                except Exception as exc:
+                    diagnostic = str(
+                        getattr(exc, "message", "")
+                    ).strip()
+                    if diagnostic == "no active turn to interrupt":
+                        return await stream_task
+                    raise HostFailure(
+                        "native_interrupt_failed",
+                        (
+                            "runtime native interrupt failed "
+                            f"({type(exc).__name__})"
+                        ),
+                    ) from exc
+                emitter.emit(
+                    "cancel_ack",
+                    cancellation_method="native_interrupt",
+                )
+                try:
+                    outcome = await stream_task
+                except HostFailure:
+                    raise
+                except Exception:
+                    return Outcome(status="cancelled")
+                if outcome.status == "completed":
+                    return outcome
                 return Outcome(status="cancelled")
-            if outcome.status == "completed":
-                return outcome
-            return Outcome(status="cancelled")
     except HostFailure:
         raise
     except Exception as exc:

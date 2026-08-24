@@ -174,7 +174,8 @@ Gemini Notebook Enterprise 失败不影响 ima 包，ima 未自动上传也不�
 - 批处理采用 SDK 的 `output_schema` 结构化运行语义；Host 持有 Turn 并消费 Stream，以同时提供流式事件和原生 `interrupt`。交互助手复用同一 Runtime Module，不建立第二套协议。
 - 只有 SDK/Runtime 版本、认证、目标工作目录、必需能力均通过，并观察到首个真实 SDK 事件后，执行才进入 `running`；失败统一为 `runtime_unavailable` 或中立失败码。
 - 固定使用 `ApprovalMode.deny_all`；默认只读 sandbox，明确需要写入受管运行目录时才允许 `workspace_write`，永不接受 `full_access`。
-- Shell、文件写入、外部工具、子代理和未知工具默认拒绝；只允许运行类型明确声明的中立能力，冲突或未知事件身份 fail-closed。
+- 每次执行使用临时 Codex Home，只链接主机文件认证，不继承用户配置、MCP、Plugin 或 Skill；终态进程内历史有界保留，数据库运行仍是长期权威状态。
+- Shell、文件写入、图片、外部工具、Plugin、Skill、子代理和未知工具在模型获得工具目录前默认关闭；只允许运行类型明确声明的中立能力，事件流检查继续 fail-closed。
 - 取消先调用目标 Turn 的原生 `interrupt`；超时后只向该执行的进程组发送 `SIGTERM`，仍未退出才 `SIGKILL`，并记录实际取消方式。
 - 父进程 EOF、服务关闭、协议错误或异常退出都会触发定向收口；其他执行的进程组不受影响。
 

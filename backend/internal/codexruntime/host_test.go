@@ -82,6 +82,50 @@ func TestProcessHostConformanceSuccessStreamsAndReplays(t *testing.T) {
 	require.Equal(t, 0, host.Diagnostics().LiveProcessGroups)
 }
 
+func TestProcessHostBoundsTerminalRetention(t *testing.T) {
+	host, workRoot := newHelperHost(t, "success")
+	host.config.MaxRetainedExecutions = 2
+
+	var completed []ExecutionID
+	for index := 0; index < 3; index++ {
+		snapshot, err := host.CreateExecution(
+			context.Background(),
+			ExecutionRequest{
+				Kind: ExecutionKindEpisodeNotes,
+				WorkingDirectory: newExecutionDir(
+					t,
+					workRoot,
+					fmt.Sprintf("retained-%d-", index),
+				),
+				Prompt:       "success",
+				OutputSchema: episodeNotesSchema,
+			},
+		)
+		require.NoError(t, err)
+		events, err := host.SubscribeExecution(
+			context.Background(),
+			snapshot.ID,
+		)
+		require.NoError(t, err)
+		_ = collectEvents(events)
+		completed = append(completed, snapshot.ID)
+	}
+
+	require.Equal(t, 2, host.Diagnostics().TrackedExecutions)
+	_, err := host.GetExecution(context.Background(), completed[0])
+	require.Error(t, err)
+	require.Equal(t, ErrorExecutionNotFound, ErrorCode(err))
+	for _, executionID := range completed[1:] {
+		snapshot, getErr := host.GetExecution(
+			context.Background(),
+			executionID,
+		)
+		require.NoError(t, getErr)
+		require.Equal(t, StatusCompleted, snapshot.Status)
+	}
+	require.NoError(t, closeHost(t, host))
+}
+
 func TestProcessHostFailsClosedOnIdentityOrderingAndProtocolConflicts(
 	t *testing.T,
 ) {
@@ -272,14 +316,11 @@ func TestPythonSDKHostUsesStableRestrictedConfiguration(t *testing.T) {
 	script := filepath.Join(packageDir, "runtime_host.py")
 	fakeSDK := filepath.Join(packageDir, "testdata", "fake_sdk")
 	workRoot := t.TempDir()
+	environment, isolatedTempRoot := fakeSDKEnvironment(t, fakeSDK, nil)
 	host, err := NewProcessHost(ProcessHostConfig{
-		Command:  []string{python, script},
-		WorkRoot: workRoot,
-		Environment: map[string]string{
-			"PATH":                    os.Getenv("PATH"),
-			"PYTHONDONTWRITEBYTECODE": "1",
-			"PYTHONPATH":              fakeSDK,
-		},
+		Command:             []string{python, script},
+		WorkRoot:            workRoot,
+		Environment:         environment,
 		StartupTimeout:      3 * time.Second,
 		NativeCancelTimeout: 500 * time.Millisecond,
 		TerminateTimeout:    500 * time.Millisecond,
@@ -305,7 +346,8 @@ func TestPythonSDKHostUsesStableRestrictedConfiguration(t *testing.T) {
 	require.Equal(t, StatusCompleted, final.Status)
 	require.Equal(
 		t,
-		"sdk/0.147.0;runtime/fake-runtime-1",
+		"sdk/0.147.0;runtime/0.147.0 (Mac OS 26.6.1; arm64) "+
+			"unknown (codex_python_sdk; 0.147.0)",
 		final.RuntimeVersion,
 	)
 
@@ -348,11 +390,12 @@ func TestPythonSDKHostUsesStableRestrictedConfiguration(t *testing.T) {
 	require.Equal(t, StatusCancelled, cancelled.Status)
 	require.Equal(t, CancellationNativeInterrupt, cancelled.Method)
 
+	toolDir := newExecutionDir(t, workRoot, "python-tool-")
 	toolExecution, err := host.CreateExecution(
 		context.Background(),
 		ExecutionRequest{
 			Kind:             ExecutionKindEpisodeNotes,
-			WorkingDirectory: newExecutionDir(t, workRoot, "python-tool-"),
+			WorkingDirectory: toolDir,
 			Prompt:           "TOOL_VIOLATION",
 			OutputSchema:     episodeNotesSchema,
 		},
@@ -369,10 +412,80 @@ func TestPythonSDKHostUsesStableRestrictedConfiguration(t *testing.T) {
 		toolExecution.ID,
 	)
 	require.NoError(t, err)
-	require.Equal(t, StatusFailed, toolFinal.Status)
-	require.Equal(t, ErrorCapabilityDenied, toolFinal.ErrorCode)
+	require.Equal(t, StatusCompleted, toolFinal.Status)
+	_, err = os.Stat(filepath.Join(toolDir, "forbidden-tool-dispatched"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	forcedToolExecution, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind: ExecutionKindEpisodeNotes,
+			WorkingDirectory: newExecutionDir(
+				t,
+				workRoot,
+				"python-forced-tool-",
+			),
+			Prompt:       "FORCED_TOOL_EVENT",
+			OutputSchema: episodeNotesSchema,
+		},
+	)
+	require.NoError(t, err)
+	forcedToolEvents, err := host.SubscribeExecution(
+		context.Background(),
+		forcedToolExecution.ID,
+	)
+	require.NoError(t, err)
+	_ = collectEvents(forcedToolEvents)
+	forcedToolFinal, err := host.GetExecution(
+		context.Background(),
+		forcedToolExecution.ID,
+	)
+	require.NoError(t, err)
+	require.Equal(t, StatusFailed, forcedToolFinal.Status)
+	require.Equal(t, ErrorCapabilityDenied, forcedToolFinal.ErrorCode)
 	require.NoError(t, closeHost(t, host))
 	require.Equal(t, 0, host.Diagnostics().LiveProcessGroups)
+	entries, err := os.ReadDir(isolatedTempRoot)
+	require.NoError(t, err)
+	require.Empty(t, entries)
+}
+
+func TestPythonSDKHostRejectsMismatchedRuntimeVersion(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is not available")
+	}
+	_, currentFile, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	packageDir := filepath.Dir(currentFile)
+	fakeSDK := filepath.Join(packageDir, "testdata", "fake_sdk")
+	workRoot := t.TempDir()
+	environment, _ := fakeSDKEnvironment(t, fakeSDK, map[string]string{
+		"FAKE_CODEX_RUNTIME_VERSION": "0.148.0",
+	})
+	host, err := NewProcessHost(ProcessHostConfig{
+		Command: []string{
+			python,
+			filepath.Join(packageDir, "runtime_host.py"),
+		},
+		WorkRoot:       workRoot,
+		Environment:    environment,
+		StartupTimeout: 3 * time.Second,
+	})
+	require.NoError(t, err)
+
+	_, err = host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: newExecutionDir(t, workRoot, "bad-version-"),
+			Prompt:           "SUCCESS",
+			OutputSchema:     episodeNotesSchema,
+		},
+	)
+	require.Error(t, err)
+	require.Equal(t, ErrorRuntimeUnavailable, ErrorCode(err))
+	require.NoError(t, closeHost(t, host))
 }
 
 func TestPythonSDKHostFailsPreflightWhenAuthenticationIsMissing(t *testing.T) {
@@ -384,22 +497,18 @@ func TestPythonSDKHostFailsPreflightWhenAuthenticationIsMissing(t *testing.T) {
 	require.True(t, ok)
 	packageDir := filepath.Dir(currentFile)
 	workRoot := t.TempDir()
+	environment, _ := fakeSDKEnvironment(
+		t,
+		filepath.Join(packageDir, "testdata", "fake_sdk"),
+		map[string]string{"FAKE_CODEX_UNAUTH": "1"},
+	)
 	host, err := NewProcessHost(ProcessHostConfig{
 		Command: []string{
 			python,
 			filepath.Join(packageDir, "runtime_host.py"),
 		},
-		WorkRoot: workRoot,
-		Environment: map[string]string{
-			"FAKE_CODEX_UNAUTH":       "1",
-			"PATH":                    os.Getenv("PATH"),
-			"PYTHONDONTWRITEBYTECODE": "1",
-			"PYTHONPATH": filepath.Join(
-				packageDir,
-				"testdata",
-				"fake_sdk",
-			),
-		},
+		WorkRoot:       workRoot,
+		Environment:    environment,
 		StartupTimeout: 3 * time.Second,
 	})
 	require.NoError(t, err)
@@ -560,6 +669,32 @@ func helperRuntimeMain() {
 
 func signalIgnoreTermination() {
 	signalIgnore(syscall.SIGTERM)
+}
+
+func fakeSDKEnvironment(
+	t *testing.T,
+	fakeSDK string,
+	extra map[string]string,
+) (map[string]string, string) {
+	t.Helper()
+	sourceCodexHome := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(sourceCodexHome, "auth.json"),
+		[]byte("{}"),
+		0o600,
+	))
+	isolatedTempRoot := t.TempDir()
+	environment := map[string]string{
+		"CODEX_HOME":              sourceCodexHome,
+		"PATH":                    os.Getenv("PATH"),
+		"PYTHONDONTWRITEBYTECODE": "1",
+		"PYTHONPATH":              fakeSDK,
+		"TMPDIR":                  isolatedTempRoot,
+	}
+	for name, value := range extra {
+		environment[name] = value
+	}
+	return environment, isolatedTempRoot
 }
 
 func newHelperHost(
