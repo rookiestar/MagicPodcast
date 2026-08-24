@@ -25,6 +25,7 @@ const (
 	scheduleSkipEpisodeMissing  = "episode_not_found"
 	scheduleSkipTerminalRun     = "previous_terminal_run"
 	scheduleSkipStartFailed     = "start_failed"
+	scheduleSkipBatchLimit      = "batch_limit"
 )
 
 // SchedulerConfig is startup-loaded operator configuration. It deliberately
@@ -208,9 +209,6 @@ func (s *Scheduler) RunAt(
 	skipped := 0
 	hadUnexpectedFailure := false
 	for _, candidate := range candidates {
-		if started >= s.config.BatchSize {
-			break
-		}
 		if err := ctx.Err(); err != nil {
 			return s.failRun(
 				ctx,
@@ -220,11 +218,17 @@ func (s *Scheduler) RunAt(
 				err,
 			)
 		}
-		outcome, reason, processingRunID, startErr := s.startCandidate(ctx, run.ID, candidate.EpisodeID)
-		if startErr != nil {
-			outcome = models.ProcessingScheduleItemOutcomeSkipped
-			reason = scheduleSkipStartFailed
-			hadUnexpectedFailure = true
+		outcome := models.ProcessingScheduleItemOutcomeSkipped
+		reason := scheduleSkipBatchLimit
+		var processingRunID *uint
+		if started < s.config.BatchSize {
+			var startErr error
+			outcome, reason, processingRunID, startErr = s.startCandidate(ctx, run.ID, candidate.EpisodeID)
+			if startErr != nil {
+				outcome = models.ProcessingScheduleItemOutcomeSkipped
+				reason = scheduleSkipStartFailed
+				hadUnexpectedFailure = true
+			}
 		}
 		item := models.ProcessingScheduleItem{
 			ScheduleRunID:   run.ID,
@@ -284,9 +288,6 @@ func (s *Scheduler) Status(ctx context.Context) (ScheduleStatus, error) {
 // any already-created processing run, records it when possible, and closes the
 // schedule record so the next cron instant can proceed honestly.
 func (s *Scheduler) RecoverIncompleteRuns(ctx context.Context, recoveredAt time.Time) error {
-	if !s.config.Enabled {
-		return nil
-	}
 	var runs []models.ProcessingScheduleRun
 	if err := s.db.WithContext(ctx).
 		Where("status = ?", models.ProcessingScheduleRunStatusRunning).

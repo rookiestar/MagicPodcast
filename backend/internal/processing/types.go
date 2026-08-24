@@ -102,6 +102,21 @@ type TranscriptionAdapter interface {
 	Cancel(context.Context, uint, json.RawMessage) error
 }
 
+// TranscriptionCancellationDisposition describes what remains observable after
+// local cancellation. It deliberately contains no checkpoint or remote
+// identity, because those values must not leave the adapter boundary.
+type TranscriptionCancellationDisposition struct {
+	RemoteMayContinue bool
+	Message           string
+}
+
+// TranscriptionCancellationReporter is optional. Adapters that can determine
+// whether an already-started external operation may outlive local cancellation
+// use it to surface a bounded, user-safe warning.
+type TranscriptionCancellationReporter interface {
+	CancellationDisposition(json.RawMessage) (TranscriptionCancellationDisposition, error)
+}
+
 type RuntimeRequest struct {
 	RunID           uint
 	EpisodeID       uint

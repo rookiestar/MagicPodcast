@@ -223,6 +223,9 @@ func main() {
 		if err != nil {
 			logger.Fatalf("Failed to initialize Focus processing scheduler: %v", err)
 		}
+		if err := processingScheduler.RecoverIncompleteRuns(context.Background(), time.Now().UTC()); err != nil {
+			logger.Fatalf("Failed to recover interrupted Focus processing schedules: %v", err)
+		}
 		copilotContextLoader, err := episodecopilot.NewGORMContextLoader(
 			db,
 			artifactStore,

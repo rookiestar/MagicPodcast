@@ -91,6 +91,40 @@ func TestSchedulerSelectsFocusInPersistentOrderAndRecordsSkips(t *testing.T) {
 	require.NotZero(t, activeRun.Run.ID)
 }
 
+func TestSchedulerRecordsCandidatesSkippedByBatchLimit(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 25, 3, 30, 0, 0, time.UTC)
+	resolver := newEpisodeInputResolver()
+	service := NewService(
+		db,
+		WithProcessingInputResolver(resolver),
+		WithClock(func() time.Time { return now }),
+	)
+	scheduler := newTestScheduler(t, db, service, now, 1)
+	first := createProcessingEpisode(t, db, true, "schedule-batch-first")
+	second := createProcessingEpisode(t, db, true, "schedule-batch-second")
+	third := createProcessingEpisode(t, db, true, "schedule-batch-third")
+	for _, episode := range []models.Episode{first, second, third} {
+		resolver.SetReady(episode.ID)
+	}
+	setFocusPositions(t, db, first.ID, second.ID, third.ID)
+
+	detail, reused, err := scheduler.RunAt(context.Background(), now)
+	require.NoError(t, err)
+	require.False(t, reused)
+	require.Equal(t, 3, detail.Run.CandidateCount)
+	require.Equal(t, 1, detail.Run.StartedCount)
+	require.Equal(t, 2, detail.Run.SkippedCount)
+	require.Equal(t, []uint{first.ID, second.ID, third.ID}, scheduleItemEpisodeIDs(detail.Items))
+	require.Equal(t, models.ProcessingScheduleItemOutcomeStarted, detail.Items[0].Outcome)
+	require.Equal(t, scheduleSkipBatchLimit, detail.Items[1].Reason)
+	require.Equal(t, scheduleSkipBatchLimit, detail.Items[2].Reason)
+
+	var processingCount int64
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).Count(&processingCount).Error)
+	require.EqualValues(t, 1, processingCount)
+}
+
 func TestSchedulerDuplicateTriggerAndRestartRecoveryDoNotRepeat(t *testing.T) {
 	db := openProcessingTestDB(t)
 	now := time.Date(2026, 8, 25, 4, 0, 0, 0, time.UTC)
@@ -154,6 +188,48 @@ func TestSchedulerDuplicateTriggerAndRestartRecoveryDoNotRepeat(t *testing.T) {
 	var recoveredRunCount int64
 	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).Where("episode_id = ?", recoveredEpisode.ID).Count(&recoveredRunCount).Error)
 	require.Equal(t, int64(1), recoveredRunCount)
+}
+
+func TestSchedulerRecoversInterruptedRunsWhenScheduleIsDisabled(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 25, 4, 15, 0, 0, time.UTC)
+	resolver := newEpisodeInputResolver()
+	service := NewService(
+		db,
+		WithProcessingInputResolver(resolver),
+		WithClock(func() time.Time { return now }),
+	)
+	scheduler, err := NewScheduler(db, service, SchedulerConfig{})
+	require.NoError(t, err)
+	interrupted := models.ProcessingScheduleRun{
+		TriggerKey:     scheduleTriggerKey("0 * * * * *", "UTC", now),
+		ScheduledFor:   now,
+		CronExpression: "0 * * * * *",
+		Timezone:       "UTC",
+		BatchSize:      1,
+		Status:         models.ProcessingScheduleRunStatusRunning,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	require.NoError(t, db.Create(&interrupted).Error)
+	episode := createProcessingEpisode(t, db, true, "schedule-disabled-recovery")
+	resolver.SetReady(episode.ID)
+	started, err := service.StartEpisodeProcessing(context.Background(), StartRequest{
+		EpisodeID:     episode.ID,
+		TriggerSource: models.ProcessingTriggerScheduled,
+		ScheduleRunID: &interrupted.ID,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, scheduler.RecoverIncompleteRuns(context.Background(), now.Add(time.Minute)))
+	var recovered models.ProcessingScheduleRun
+	require.NoError(t, db.First(&recovered, interrupted.ID).Error)
+	require.Equal(t, models.ProcessingScheduleRunStatusFailed, recovered.Status)
+	require.Equal(t, "schedule_interrupted_by_restart", recovered.ErrorCode)
+	var items []models.ProcessingScheduleItem
+	require.NoError(t, db.Where("schedule_run_id = ?", interrupted.ID).Find(&items).Error)
+	require.Len(t, items, 1)
+	require.Equal(t, started.Run.ID, *items[0].ProcessingRunID)
 }
 
 func TestSchedulerDoesNotRecreateSameVersionTerminalRun(t *testing.T) {

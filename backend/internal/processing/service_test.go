@@ -59,6 +59,43 @@ func TestServiceStartIsIdempotentAndSeparateFromConsumption(t *testing.T) {
 	)
 }
 
+func TestServiceCancellationClearsPreviousErrorAndKeepsCancellationNotice(t *testing.T) {
+	db := openProcessingTestDB(t)
+	service := newProcessingService(db)
+	episode := createProcessingEpisode(t, db, true, "cancellation-notice")
+	started, err := service.StartEpisodeProcessing(
+		context.Background(),
+		processingStartRequest(episode.ID),
+	)
+	require.NoError(t, err)
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+		Where("id = ?", started.Run.ID).
+		Updates(map[string]any{
+			"error_code":      "stale_error",
+			"error_message":   "stale error message",
+			"error_retryable": true,
+		}).Error)
+
+	cancelled, err := service.CancelProcessingRun(context.Background(), started.Run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusCancelled, cancelled.Status)
+	require.Empty(t, cancelled.ErrorCode)
+	require.Empty(t, cancelled.ErrorMessage)
+	require.False(t, cancelled.ErrorRetryable)
+
+	noticed, err := service.recordCancellationNotice(
+		context.Background(),
+		started.Run.ID,
+		cancellationExternalResultUnknown,
+		"已取消本机加工；外部转写状态无法确认，任务可能继续。",
+	)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusCancelled, noticed.Status)
+	require.Equal(t, cancellationExternalResultUnknown, noticed.ErrorCode)
+	require.Contains(t, noticed.ErrorMessage, "外部转写状态无法确认")
+	require.False(t, noticed.ErrorRetryable)
+}
+
 func TestServiceDuplicateStartReturnsActiveRunAfterEpisodeLeavesFocus(t *testing.T) {
 	db := openProcessingTestDB(t)
 	service := newProcessingService(db)

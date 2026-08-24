@@ -592,6 +592,10 @@ func processingActionSuggestion(run models.EpisodeProcessingRun) string {
 		return "请补齐飞书云空间与妙记所需的用户权限后重试。"
 	case "lark_drive_result_unknown", "lark_minutes_result_unknown", "external_result_unknown":
 		return "请先在飞书确认远端资源是否已创建；系统不会自动重复上传。"
+	case cancellationExternalResultUnknown:
+		return "请先在飞书确认转写是否仍在继续或远端资源是否已创建；确认前不可重新加工。"
+	case cancellationRuntimeResultUnknown:
+		return "请确认本地 Codex Runtime 已停止后再重新加工。"
 	case "runtime_unavailable", "runtime_error":
 		return "请检查本地 Codex Runtime 后重试，已完成的逐字稿会继续复用。"
 	case "transcript_empty", "empty_transcript":
@@ -715,6 +719,9 @@ func (s *Service) CancelProcessingRun(
 				"cancelled_at":    now,
 				"finished_at":     now,
 				"next_attempt_at": nil,
+				"error_code":      "",
+				"error_message":   "",
+				"error_retryable": false,
 				"updated_at":      now,
 			})
 		if update.Error != nil {
@@ -726,6 +733,39 @@ func (s *Service) CancelProcessingRun(
 		return nil
 	})
 	return run, err
+}
+
+func (s *Service) recordCancellationNotice(
+	ctx context.Context,
+	runID uint,
+	code string,
+	message string,
+) (models.EpisodeProcessingRun, error) {
+	code = strings.TrimSpace(code)
+	message = strings.TrimSpace(message)
+	if code == "" || message == "" {
+		return models.EpisodeProcessingRun{}, fmt.Errorf("cancellation notice is incomplete")
+	}
+	update := s.db.WithContext(ctx).
+		Model(&models.EpisodeProcessingRun{}).
+		Where("id = ? AND status = ?", runID, models.ProcessingRunStatusCancelled).
+		Updates(map[string]any{
+			"error_code":      code,
+			"error_message":   message,
+			"error_retryable": false,
+			"updated_at":      s.now().UTC(),
+		})
+	if update.Error != nil {
+		return models.EpisodeProcessingRun{}, fmt.Errorf("record cancellation notice: %w", update.Error)
+	}
+	run, err := s.getRunModel(ctx, runID)
+	if err != nil {
+		return models.EpisodeProcessingRun{}, err
+	}
+	if run.Status != models.ProcessingRunStatusCancelled {
+		return run, fmt.Errorf("processing run %d is no longer cancelled", runID)
+	}
+	return run, nil
 }
 
 func (s *Service) RetryProcessingRun(

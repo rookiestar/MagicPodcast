@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IconFileText,
   IconPlayerPlay,
@@ -52,6 +52,7 @@ const scheduleSkipLabels: Record<string, string> = {
   episode_not_found: "单集不存在",
   previous_terminal_run: "已有同版本失败或已取消运行，需人工重试",
   start_failed: "启动失败",
+  batch_limit: "本批已达上限",
 };
 
 function isActive(run?: ProcessingRun) {
@@ -86,11 +87,16 @@ export default function EpisodeProcessingPanel({
     useState<ProcessingScheduleStatus | null>(null);
   const [isScheduleLoading, setIsScheduleLoading] = useState(true);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const hasLoadedScheduleStatus = useRef(false);
 
   const loadScheduleStatus = useCallback(async () => {
-    setIsScheduleLoading(true);
+    const isInitialLoad = !hasLoadedScheduleStatus.current;
+    if (isInitialLoad) {
+      setIsScheduleLoading(true);
+    }
     try {
       setScheduleStatus(await processingApi.getScheduleStatus());
+      hasLoadedScheduleStatus.current = true;
       setScheduleError(null);
     } catch (loadError) {
       setScheduleError(
@@ -99,7 +105,9 @@ export default function EpisodeProcessingPanel({
         }`,
       );
     } finally {
-      setIsScheduleLoading(false);
+      if (isInitialLoad) {
+        setIsScheduleLoading(false);
+      }
     }
   }, []);
 
@@ -338,7 +346,7 @@ export default function EpisodeProcessingPanel({
           <div>
             <dt>定时计划</dt>
             <dd>
-              {isScheduleLoading
+              {isScheduleLoading && !scheduleStatus
                 ? "正在读取…"
                 : scheduleStatus?.enabled
                   ? `已启用 · 每批 ${scheduleStatus.batch_size} 集`
@@ -389,8 +397,22 @@ export default function EpisodeProcessingPanel({
           </div>
         )}
 
+        {isActive(run) && run.next_attempt_at && (
+          <div className={styles.processingHint} role="status">
+            自动重试：{formatUpdatedAt(run.next_attempt_at)}（已尝试 {run.attempt_count}/
+            {run.max_attempts} 次）
+          </div>
+        )}
+
         {run?.error_message && (
-          <div className={styles.processingFailure}>
+          <div
+            className={
+              run.status === "cancelled"
+                ? styles.processingCancellation
+                : styles.processingFailure
+            }
+            role={run.status === "cancelled" ? "status" : undefined}
+          >
             <strong>{run.error_code || "PROCESSING_FAILED"}</strong>
             <span>{run.error_message}</span>
             {detail?.action_suggestion && (

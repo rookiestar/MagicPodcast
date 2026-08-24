@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import EpisodeProcessingPanel from "../EpisodeProcessingPanel";
 import type { ConsumptionItem } from "@/types/consumption";
@@ -217,7 +217,7 @@ describe("EpisodeProcessingPanel", () => {
             episode_id: item.episode_id,
             queue_position: 0,
             outcome: "skipped",
-            reason: "audio_not_ready",
+            reason: "batch_limit",
             created_at: "2026-08-25T08:00:01Z",
             updated_at: "2026-08-25T08:00:01Z",
           },
@@ -229,7 +229,105 @@ describe("EpisodeProcessingPanel", () => {
 
     expect(await screen.findByText("已启用 · 每批 1 集")).toBeVisible();
     expect(screen.getByText("最近定时：已完成")).toBeVisible();
-    expect(screen.getByText("此集跳过：没有可用音频")).toBeVisible();
+    expect(screen.getByText("此集跳过：本批已达上限")).toBeVisible();
+  });
+
+  it("keeps the last successful schedule visible while a processing poll refreshes slowly", async () => {
+    vi.useFakeTimers();
+    try {
+      const activeRun: ProcessingRun = {
+        ...failedRun,
+        status: "waiting_external",
+        current_step: "transcription",
+        error_code: undefined,
+        error_message: undefined,
+        error_retryable: false,
+      };
+      const schedule = {
+        enabled: true,
+        cron: "0 0 9 * * *",
+        timezone: "Asia/Shanghai",
+        batch_size: 1,
+        next_run_at: "2026-08-25T09:00:00Z",
+      };
+      let resolveRefresh: (value: typeof schedule) => void = () => undefined;
+      apiMocks.listEpisodeRuns.mockResolvedValue([activeRun]);
+      apiMocks.getRun.mockResolvedValue(detail(activeRun));
+      apiMocks.getScheduleStatus
+        .mockResolvedValueOnce(schedule)
+        .mockReturnValueOnce(
+          new Promise<typeof schedule>((resolve) => {
+            resolveRefresh = resolve;
+          }),
+        );
+
+      render(<EpisodeProcessingPanel item={item} />);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.getByText("已启用 · 每批 1 集")).toBeVisible();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000);
+      });
+      expect(apiMocks.getScheduleStatus).toHaveBeenCalledTimes(2);
+      expect(screen.getByText("已启用 · 每批 1 集")).toBeVisible();
+      expect(screen.queryByText("正在读取…")).not.toBeInTheDocument();
+
+      resolveRefresh(schedule);
+      await act(async () => {
+        await Promise.resolve();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the last successful schedule visible when a processing poll refresh fails", async () => {
+    vi.useFakeTimers();
+    try {
+      const activeRun: ProcessingRun = {
+        ...failedRun,
+        status: "waiting_external",
+        current_step: "transcription",
+        error_code: undefined,
+        error_message: undefined,
+        error_retryable: false,
+      };
+      const schedule = {
+        enabled: true,
+        cron: "0 0 9 * * *",
+        timezone: "Asia/Shanghai",
+        batch_size: 1,
+        next_run_at: "2026-08-25T09:00:00Z",
+      };
+      apiMocks.listEpisodeRuns.mockResolvedValue([activeRun]);
+      apiMocks.getRun.mockResolvedValue(detail(activeRun));
+      apiMocks.getScheduleStatus
+        .mockResolvedValueOnce(schedule)
+        .mockRejectedValueOnce(new Error("定时网络超时"));
+
+      render(<EpisodeProcessingPanel item={item} />);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.getByText("已启用 · 每批 1 集")).toBeVisible();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000);
+      });
+      expect(
+        screen.getByText("定时计划暂时无法读取：定时网络超时"),
+      ).toBeVisible();
+      expect(screen.getByText("已启用 · 每批 1 集")).toBeVisible();
+      expect(screen.queryByText("正在读取…")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps manual processing available when scheduled status is slow or fails", async () => {
@@ -276,6 +374,28 @@ describe("EpisodeProcessingPanel", () => {
     ).toBeVisible();
   });
 
+  it("shows a pending automatic retry without hiding the active run", async () => {
+    const retryingRun: ProcessingRun = {
+      ...failedRun,
+      status: "waiting_external",
+      current_step: "transcription",
+      next_attempt_at: "2026-08-25T09:15:00Z",
+      attempt_count: 2,
+      max_attempts: 3,
+      error_code: undefined,
+      error_message: undefined,
+      error_retryable: true,
+    };
+    apiMocks.listEpisodeRuns.mockResolvedValue([retryingRun]);
+    apiMocks.getRun.mockResolvedValue(detail(retryingRun));
+
+    render(<EpisodeProcessingPanel item={item} />);
+
+    expect(await screen.findByText("等待飞书转写")).toBeVisible();
+    expect(screen.getByText(/自动重试：.*已尝试 2\/3 次/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "取消" })).toBeEnabled();
+  });
+
   it("shows the previous successful artifact and retries from a safe checkpoint", async () => {
     apiMocks.listEpisodeRuns.mockResolvedValue([failedRun]);
     apiMocks.getRun.mockResolvedValue(detail());
@@ -319,6 +439,28 @@ describe("EpisodeProcessingPanel", () => {
     render(<EpisodeProcessingPanel item={item} />);
 
     expect(await screen.findByText("加工失败")).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "从检查点重试" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows a cancellation warning and blocks retry while external work may continue", async () => {
+    const cancelledRun: ProcessingRun = {
+      ...failedRun,
+      status: "cancelled",
+      current_step: "",
+      error_code: "cancelled_external_result_unknown",
+      error_message:
+        "已取消本机加工；飞书端任务可能继续，已创建的远端资源会保留。",
+      error_retryable: false,
+    };
+    apiMocks.listEpisodeRuns.mockResolvedValue([cancelledRun]);
+    apiMocks.getRun.mockResolvedValue(detail(cancelledRun));
+
+    render(<EpisodeProcessingPanel item={item} />);
+
+    expect(await screen.findByText("已取消")).toBeVisible();
+    expect(screen.getByText("飞书端任务可能继续", { exact: false })).toBeVisible();
     expect(
       screen.queryByRole("button", { name: "从检查点重试" }),
     ).not.toBeInTheDocument();

@@ -750,6 +750,78 @@ func TestEngineCancellationCannotBeOverwrittenByWorker(t *testing.T) {
 	require.Zero(t, artifactCount)
 }
 
+func TestEngineCancellationPersistsExternalContinuationNotice(t *testing.T) {
+	db := openProcessingTestDB(t)
+	service := newProcessingService(db)
+	episode := createProcessingEpisode(t, db, true, "engine-cancel-external")
+	run := startProcessingRun(t, service, episode.ID)
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	transcriber := &fakeTranscriber{
+		cancellationDisposition: TranscriptionCancellationDisposition{
+			RemoteMayContinue: true,
+			Message:           "已取消本机加工；飞书端任务可能继续，已创建的远端资源会保留。",
+		},
+	}
+	engine, err := NewEngine(service, transcriber, &fakeRuntime{}, store, nil)
+	require.NoError(t, err)
+
+	cancelled, err := engine.Cancel(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusCancelled, cancelled.Status)
+	require.Equal(t, cancellationExternalResultUnknown, cancelled.ErrorCode)
+	require.Contains(t, cancelled.ErrorMessage, "飞书端任务可能继续")
+	require.False(t, cancelled.ErrorRetryable)
+	_, err = service.RetryProcessingRun(context.Background(), run.ID)
+	require.ErrorIs(t, err, ErrRetryUnsafe)
+}
+
+func TestEngineCancellationRecordsAdapterAndRuntimeCancelFailures(t *testing.T) {
+	t.Run("transcriber", func(t *testing.T) {
+		db := openProcessingTestDB(t)
+		service := newProcessingService(db)
+		episode := createProcessingEpisode(t, db, true, "engine-cancel-transcriber-failure")
+		run := startProcessingRun(t, service, episode.ID)
+		store, err := NewDiskArtifactStore(t.TempDir())
+		require.NoError(t, err)
+		engine, err := NewEngine(
+			service,
+			&fakeTranscriber{cancelErr: errors.New("remote cancellation unavailable")},
+			&fakeRuntime{},
+			store,
+			nil,
+		)
+		require.NoError(t, err)
+
+		cancelled, err := engine.Cancel(context.Background(), run.ID)
+		require.NoError(t, err)
+		require.Equal(t, cancellationExternalResultUnknown, cancelled.ErrorCode)
+		require.Contains(t, cancelled.ErrorMessage, "外部转写状态无法确认")
+	})
+
+	t.Run("runtime", func(t *testing.T) {
+		db := openProcessingTestDB(t)
+		service := newProcessingService(db)
+		episode := createProcessingEpisode(t, db, true, "engine-cancel-runtime-failure")
+		run := startProcessingRun(t, service, episode.ID)
+		store, err := NewDiskArtifactStore(t.TempDir())
+		require.NoError(t, err)
+		engine, err := NewEngine(
+			service,
+			&fakeTranscriber{},
+			&fakeRuntime{cancelErr: errors.New("runtime cancellation unavailable")},
+			store,
+			nil,
+		)
+		require.NoError(t, err)
+
+		cancelled, err := engine.Cancel(context.Background(), run.ID)
+		require.NoError(t, err)
+		require.Equal(t, cancellationRuntimeResultUnknown, cancelled.ErrorCode)
+		require.Contains(t, cancelled.ErrorMessage, "Codex Runtime")
+	})
+}
+
 func TestEngineCancellationAfterFilePublishDiscardsUnrecordedSet(t *testing.T) {
 	db := openProcessingTestDB(t)
 	service := newProcessingService(db)
@@ -1014,17 +1086,20 @@ func TestEnginePersistsSuccessfulDeliveryAfterContextCancellation(t *testing.T) 
 }
 
 type fakeTranscriber struct {
-	mu             sync.Mutex
-	name           string
-	version        string
-	beginProgress  []TranscriptionProgress
-	beginErrors    []error
-	resumeProgress []TranscriptionProgress
-	resumeErrors   []error
-	beginCalls     int
-	resumeCalls    int
-	cancelled      bool
-	onBegin        func()
+	mu                         sync.Mutex
+	name                       string
+	version                    string
+	beginProgress              []TranscriptionProgress
+	beginErrors                []error
+	resumeProgress             []TranscriptionProgress
+	resumeErrors               []error
+	beginCalls                 int
+	resumeCalls                int
+	cancelled                  bool
+	cancelErr                  error
+	cancellationDisposition    TranscriptionCancellationDisposition
+	cancellationDispositionErr error
+	onBegin                    func()
 }
 
 func (f *fakeTranscriber) Name() string {
@@ -1096,8 +1171,17 @@ func (f *fakeTranscriber) Cancel(
 ) error {
 	f.mu.Lock()
 	f.cancelled = true
+	err := f.cancelErr
 	f.mu.Unlock()
-	return nil
+	return err
+}
+
+func (f *fakeTranscriber) CancellationDisposition(
+	json.RawMessage,
+) (TranscriptionCancellationDisposition, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.cancellationDisposition, f.cancellationDispositionErr
 }
 
 func (f *fakeTranscriber) BeginCallCount() int {
@@ -1123,6 +1207,7 @@ type fakeRuntime struct {
 	name      string
 	result    RuntimeResult
 	err       error
+	cancelErr error
 	entered   chan struct{}
 	block     bool
 	cancelled bool
@@ -1175,8 +1260,9 @@ func (f *fakeRuntime) Execute(
 func (f *fakeRuntime) Cancel(_ context.Context, _ uint) error {
 	f.mu.Lock()
 	f.cancelled = true
+	err := f.cancelErr
 	f.mu.Unlock()
-	return nil
+	return err
 }
 
 func (f *fakeRuntime) WasCancelled() bool {
