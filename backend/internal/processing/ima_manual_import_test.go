@@ -229,8 +229,26 @@ func TestIMAManualImportBridgeRejectsTraversalSymlinksAndSensitiveSources(t *tes
 			request.Package.Transcript += "\nfile:///Users/private/audio.mp3"
 			request.Package.TranscriptSHA256 = digestString(request.Package.Transcript)
 		}},
+		{"uppercase file transcript path", func(request *DeliveryRequest) {
+			request.Package.Transcript += "\nFILE:///home/private/audio.mp3"
+			request.Package.TranscriptSHA256 = digestString(request.Package.Transcript)
+		}},
+		{"Linux transcript path", func(request *DeliveryRequest) {
+			request.Package.Transcript += "\n/home/private/audio.mp3"
+			request.Package.TranscriptSHA256 = digestString(request.Package.Transcript)
+		}},
+		{"Windows notes path", func(request *DeliveryRequest) {
+			request.Package.EpisodeNotes += "\nC:\\temp\\private.txt"
+			request.Package.EpisodeNotesSHA256 = digestString(request.Package.EpisodeNotes)
+		}},
+		{"UNC show notes path", func(request *DeliveryRequest) {
+			request.Package.ShowNotes = "\\\\server\\share\\private.txt"
+		}},
 		{"credential show notes URL", func(request *DeliveryRequest) {
 			request.Package.ShowNotes = "[restricted](https://example.com/doc?token=SECRET)"
+		}},
+		{"uppercase loopback show notes URL", func(request *DeliveryRequest) {
+			request.Package.ShowNotes = "[restricted](HTTP://127.0.0.1/private)"
 		}},
 		{"loopback source URL", func(request *DeliveryRequest) {
 			request.Package.SourceURL = "http://127.0.0.1/episode"
@@ -336,7 +354,7 @@ func validIMAManualImportRequest() DeliveryRequest {
 			PodcastTitle:        "MagicPodcast 测试节目",
 			PublishedAt:         time.Date(2026, 8, 20, 8, 0, 0, 0, time.UTC),
 			SourceURL:           "https://example.com/episodes/9",
-			ShowNotes:           "公开 Show Notes 与 [资料](https://example.com/resource)。",
+			ShowNotes:           "公开 Show Notes 与 [资料](https://example.com/home/resource)。",
 			PipelineVersion:     "focus-v1",
 			ArtifactGeneratedAt: time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC),
 			ManifestSHA256:      strings.Repeat("1", 64),

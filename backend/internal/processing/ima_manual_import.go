@@ -27,8 +27,12 @@ const (
 )
 
 var (
-	imaHTTPURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
-	imaWindowsPath    = regexp.MustCompile(`(?i)[a-z]:\\(?:users|documents|windows)\\`)
+	imaHTTPURLPattern = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)
+	imaUnixPath       = regexp.MustCompile(
+		`(?i)(?:^|[\s("'` + "`" + `])/(?:users|home|private|var|tmp|opt|etc|volumes)/[^\s<>"']*`,
+	)
+	imaWindowsPath = regexp.MustCompile(`(?i)\b[a-z]:\\[^\s<>"']+`)
+	imaUNCPath     = regexp.MustCompile(`\\\\[^\\\s<>"']+\\[^\s<>"']+`)
 )
 
 type IMAManualImportBridge struct {
@@ -654,17 +658,19 @@ func sensitiveSourceKey(key string) bool {
 
 func validateIMAPackageText(value string) error {
 	lower := strings.ToLower(value)
-	if strings.Contains(lower, "file://") ||
-		strings.Contains(value, "/Users/") ||
-		strings.Contains(value, "~/") ||
-		imaWindowsPath.MatchString(value) {
-		return invalidIMAPackage("package content contains a local path")
-	}
 	for _, raw := range imaHTTPURLPattern.FindAllString(value, -1) {
 		candidate := strings.TrimRight(raw, ".,;:!?)]}")
 		if err := validateSafeHTTPURL(candidate); err != nil {
 			return invalidIMAPackage("package content contains an unsafe URL")
 		}
+	}
+	textWithoutHTTPURLs := imaHTTPURLPattern.ReplaceAllString(value, "")
+	if strings.Contains(lower, "file://") ||
+		strings.Contains(textWithoutHTTPURLs, "~/") ||
+		imaUnixPath.MatchString(textWithoutHTTPURLs) ||
+		imaWindowsPath.MatchString(textWithoutHTTPURLs) ||
+		imaUNCPath.MatchString(textWithoutHTTPURLs) {
+		return invalidIMAPackage("package content contains a local path")
 	}
 	return nil
 }
@@ -672,7 +678,8 @@ func validateIMAPackageText(value string) error {
 func validateSafeHTTPURL(raw string) error {
 	raw = strings.TrimSpace(raw)
 	parsed, err := url.Parse(raw)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") ||
+	scheme := strings.ToLower(parsed.Scheme)
+	if err != nil || (scheme != "http" && scheme != "https") ||
 		parsed.Host == "" || parsed.User != nil {
 		return fmt.Errorf("URL must be HTTP(S) without credentials")
 	}
