@@ -175,6 +175,25 @@ func TestIMAManualImportBridgeSchemaUpgradeUsesNewPackageIdentity(t *testing.T) 
 	require.Equal(t, upgradedRequest.DeliveryKey, manifest.PackageID)
 }
 
+func TestIMAManualImportBridgeAllowsMissingPublicSource(t *testing.T) {
+	request := validIMAManualImportRequest()
+	request.Package.SourceURL = ""
+	delete(request.Package.Sources, "episode")
+	bridge, err := NewIMAManualImportBridge(t.TempDir())
+	require.NoError(t, err)
+
+	_, err = bridge.Deliver(context.Background(), request)
+	require.NoError(t, err)
+	files := readIMAPackageFiles(
+		t,
+		filepath.Join(bridge.root, "packages", request.DeliveryKey),
+	)
+	var metadata imaPackageMetadata
+	require.NoError(t, json.Unmarshal(files["metadata.json"], &metadata))
+	require.Empty(t, metadata.Episode.SourceURL)
+	require.Contains(t, string(files["knowledge.md"]), "来源：未提供公开链接")
+}
+
 func TestIMAManualImportBridgeRejectsIncompleteArtifacts(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -187,7 +206,6 @@ func TestIMAManualImportBridgeRejectsIncompleteArtifacts(t *testing.T) {
 		{"title", func(request *DeliveryRequest) { request.Package.EpisodeTitle = "" }},
 		{"podcast", func(request *DeliveryRequest) { request.Package.PodcastTitle = "" }},
 		{"publication date", func(request *DeliveryRequest) { request.Package.PublishedAt = time.Time{} }},
-		{"source URL", func(request *DeliveryRequest) { request.Package.SourceURL = "" }},
 		{"pipeline", func(request *DeliveryRequest) { request.Package.PipelineVersion = "" }},
 		{"artifact time", func(request *DeliveryRequest) { request.Package.ArtifactGeneratedAt = time.Time{} }},
 		{"manifest checksum", func(request *DeliveryRequest) { request.Package.ManifestSHA256 = "" }},
@@ -300,6 +318,9 @@ func TestIMAManualImportBridgeRejectsTraversalSymlinksAndSensitiveSources(t *tes
 		}},
 		{"assigned macOS path", func(request *DeliveryRequest) {
 			request.Package.ShowNotes = "path=/Users/private/audio.mp3"
+		}},
+		{"workspace path", func(request *DeliveryRequest) {
+			request.Package.ShowNotes = "path=/workspace/MagicPodcast/backend/data/podcast.db"
 		}},
 		{"single slash file URI", func(request *DeliveryRequest) {
 			request.Package.ShowNotes = "FILE:/etc/passwd"

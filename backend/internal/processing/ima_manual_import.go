@@ -29,12 +29,10 @@ const (
 var (
 	imaHTTPURLPattern = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)
 	imaFileURLPattern = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])file:(?:/{1,3}|\\+)`)
-	imaUnixPath       = regexp.MustCompile(
-		`(?i)(?:^|[^[:alnum:]_])/(?:users|home|private|var|tmp|opt|etc|volumes|root|mnt|media|srv|run|proc|sys|dev|data|usr|library|applications)(?:/|$)[^\s<>"']*`,
-	)
-	imaWindowsPath = regexp.MustCompile(`(?i)(?:^|[^[:alnum:]_])[a-z]:[\\/][^\s<>"']+`)
-	imaUNCPath     = regexp.MustCompile(`\\\\[^\\\s<>"']+\\[^\s<>"']+`)
-	imaCredential  = regexp.MustCompile(
+	imaUnixPath       = regexp.MustCompile(`(?:^|[^[:alnum:]_<>/])/[^\s<>"']+`)
+	imaWindowsPath    = regexp.MustCompile(`(?i)(?:^|[^[:alnum:]_])[a-z]:[\\/][^\s<>"']+`)
+	imaUNCPath        = regexp.MustCompile(`\\\\[^\\\s<>"']+\\[^\s<>"']+`)
+	imaCredential     = regexp.MustCompile(
 		`(?i)(?:^|[^a-z0-9])["']?(?:file[_-]?token|minute[_-]?token|access[_-]?token|refresh[_-]?token|id[_-]?token|token|api[_-]?key|access[_-]?key|secret|credential(?:s)?|password|passwd|authorization|cookie|session(?:[_-]?id)?|jwt|signature|sig)["']?\s*[:=]\s*["']?[^\s"',;]+`,
 	)
 )
@@ -170,8 +168,6 @@ func validateIMAManualImportRequest(request DeliveryRequest) error {
 		return invalidIMAPackage("episode title and podcast are required")
 	case pkg.PublishedAt.IsZero():
 		return invalidIMAPackage("episode publication date is required")
-	case strings.TrimSpace(pkg.SourceURL) == "":
-		return invalidIMAPackage("episode source URL is required")
 	case strings.TrimSpace(pkg.PipelineVersion) == "":
 		return invalidIMAPackage("pipeline version is required")
 	case pkg.ArtifactGeneratedAt.IsZero():
@@ -188,8 +184,10 @@ func validateIMAManualImportRequest(request DeliveryRequest) error {
 		digestString(pkg.EpisodeNotes) != pkg.EpisodeNotesSHA256 {
 		return invalidIMAPackage("artifact content does not match its checksum")
 	}
-	if err := validateSafeHTTPURL(pkg.SourceURL); err != nil {
-		return invalidIMAPackage("episode source URL is unsafe")
+	if strings.TrimSpace(pkg.SourceURL) != "" {
+		if err := validateSafeHTTPURL(pkg.SourceURL); err != nil {
+			return invalidIMAPackage("episode source URL is unsafe")
+		}
 	}
 	for _, field := range []string{
 		pkg.EpisodeTitle,
@@ -287,7 +285,11 @@ func renderIMAKnowledge(request DeliveryRequest, trace imaArtifactTrace) string 
 	builder.WriteString("## 单集信息\n\n")
 	fmt.Fprintf(&builder, "- 节目：%s\n", strings.TrimSpace(pkg.PodcastTitle))
 	fmt.Fprintf(&builder, "- 发布日期：%s\n", pkg.PublishedAt.UTC().Format("2006-01-02"))
-	fmt.Fprintf(&builder, "- 来源：[%s](%s)\n", strings.TrimSpace(pkg.SourceURL), strings.TrimSpace(pkg.SourceURL))
+	if sourceURL := strings.TrimSpace(pkg.SourceURL); sourceURL != "" {
+		fmt.Fprintf(&builder, "- 来源：[%s](%s)\n", sourceURL, sourceURL)
+	} else {
+		builder.WriteString("- 来源：未提供公开链接\n")
+	}
 	fmt.Fprintf(&builder, "- 包 Schema：`%s/%s`\n", IMAManualImportPackageSchema, IMAManualImportSchemaVersion)
 	fmt.Fprintf(&builder, "- 产物集：`%d`\n", request.ArtifactSetID)
 	fmt.Fprintf(&builder, "- 产物 Manifest SHA-256：`%s`\n\n", trace.ManifestSHA256)
@@ -443,8 +445,10 @@ func verifyExistingIMAPackage(root string, request DeliveryRequest) error {
 	if err := validateIMAPackageText(metadata.Episode.Podcast); err != nil {
 		return err
 	}
-	if err := validateSafeHTTPURL(metadata.Episode.SourceURL); err != nil {
-		return invalidIMAPackage("published package source URL is unsafe")
+	if strings.TrimSpace(metadata.Episode.SourceURL) != "" {
+		if err := validateSafeHTTPURL(metadata.Episode.SourceURL); err != nil {
+			return invalidIMAPackage("published package source URL is unsafe")
+		}
 	}
 	if err := validateIMAPackageText(metadata.Episode.ShowNotes); err != nil {
 		return err

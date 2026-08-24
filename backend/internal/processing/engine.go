@@ -358,6 +358,23 @@ func (e *Engine) Advance(
 	if err := e.setCurrentStep(runCtx, run.ID, StepArtifactPublish); err != nil {
 		return e.currentAfterConditionalFailure(runCtx, run.ID, err)
 	}
+	var packageEpisode models.Episode
+	if len(e.bridges) > 0 {
+		packageEpisode, err = e.loadKnowledgePackageEpisode(runCtx, run.EpisodeID)
+		if err != nil {
+			return e.handleStepError(
+				runCtx,
+				run.ID,
+				NewAdapterError(
+					"knowledge_package_load_failed",
+					"knowledge package metadata could not be loaded",
+					true,
+				),
+				progress.Checkpoint,
+				ExternalProgressCompleted,
+			)
+		}
+	}
 	published, err := e.artifactStore.Publish(runCtx, ArtifactPublishRequest{
 		RunID:                run.ID,
 		EpisodeID:            run.EpisodeID,
@@ -403,17 +420,17 @@ func (e *Engine) Advance(
 			return run, err
 		}
 	}
-	pkg, err := e.buildKnowledgePackage(
-		context.WithoutCancel(runCtx),
+	if len(e.bridges) == 0 {
+		return run, nil
+	}
+	pkg := buildKnowledgePackage(
 		run,
 		artifact,
+		packageEpisode,
 		progress.Transcript,
 		runtimeResult.EpisodeNotes,
 		progress.SourceRefs,
 	)
-	if err != nil {
-		return run, err
-	}
 	for _, binding := range e.bridges {
 		if err := e.deliver(runCtx, artifact, pkg, binding); err != nil {
 			// Delivery state is persisted independently; local processing
@@ -424,23 +441,34 @@ func (e *Engine) Advance(
 	return run, nil
 }
 
-func (e *Engine) buildKnowledgePackage(
+func (e *Engine) loadKnowledgePackageEpisode(
 	ctx context.Context,
-	run models.EpisodeProcessingRun,
-	artifact models.EpisodeArtifactSet,
-	transcript string,
-	episodeNotes string,
-	sourceRefs map[string]string,
-) (KnowledgePackage, error) {
+	episodeID uint,
+) (models.Episode, error) {
 	var episode models.Episode
 	if err := e.service.db.WithContext(ctx).
 		Preload("Podcast").
-		First(&episode, run.EpisodeID).Error; err != nil {
-		return KnowledgePackage{}, fmt.Errorf("load knowledge package episode: %w", err)
+		First(&episode, episodeID).Error; err != nil {
+		return models.Episode{}, fmt.Errorf("load knowledge package episode: %w", err)
+	}
+	return episode, nil
+}
+
+func buildKnowledgePackage(
+	run models.EpisodeProcessingRun,
+	artifact models.EpisodeArtifactSet,
+	episode models.Episode,
+	transcript string,
+	episodeNotes string,
+	sourceRefs map[string]string,
+) KnowledgePackage {
+	sourceURL := strings.TrimSpace(episode.Link)
+	if sourceURL == "" {
+		sourceURL = strings.TrimSpace(episode.MediumURL)
 	}
 	sources := cloneStringMap(sourceRefs)
-	if strings.TrimSpace(episode.Link) != "" {
-		sources["episode"] = strings.TrimSpace(episode.Link)
+	if sourceURL != "" {
+		sources["episode"] = sourceURL
 	}
 	return KnowledgePackage{
 		RunID:               run.ID,
@@ -448,7 +476,7 @@ func (e *Engine) buildKnowledgePackage(
 		EpisodeTitle:        episode.Title,
 		PodcastTitle:        episode.Podcast.Title,
 		PublishedAt:         episode.PublishedDate,
-		SourceURL:           episode.Link,
+		SourceURL:           sourceURL,
 		ShowNotes:           utils.HTMLToMarkdown(episode.ShowNotes),
 		PipelineVersion:     run.PipelineVersion,
 		ArtifactGeneratedAt: artifact.CreatedAt,
@@ -458,7 +486,7 @@ func (e *Engine) buildKnowledgePackage(
 		Transcript:          transcript,
 		EpisodeNotes:        episodeNotes,
 		Sources:             sources,
-	}, nil
+	}
 }
 
 func (e *Engine) reconcilePublishedArtifact(
