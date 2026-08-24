@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-08-24T00:22:09.002302Z",
+  "host": "RookieStarMac-mini.local",
+  "sdk_version": "0.147.0",
+  "runtime_version": "sdk/0.147.0;runtime/0.147.0 (Mac OS 26.6.1; arm64) unknown (codex_python_sdk; 0.147.0)",
+  "completed": {
+    "status": "completed",
+    "create_ms": 5550,
+    "first_delta_ms": 144505,
+    "complete_ms": 144583,
+    "event_count": 10,
+    "output_delta_count": 8,
+    "sequence_valid": true,
+    "result_shape_valid": true
+  },
+  "cancelled": {
+    "status": "cancelled",
+    "create_ms": 5891,
+    "complete_ms": 5945,
+    "event_count": 3,
+    "output_delta_count": 0,
+    "sequence_valid": true,
+    "result_shape_valid": false,
+    "cancellation_method": "native_interrupt"
+  },
+  "identity_unique": true,
+  "diagnostics": {
+    "tracked_executions": 2,
+    "active_executions": 0,
+    "live_process_groups": 0
+  },
+  "orphan_free": true
+}

@@ -1,0 +1,639 @@
+package codexruntime
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+)
+
+var episodeNotesSchema = json.RawMessage(`{
+	"type":"object",
+	"additionalProperties":false,
+	"properties":{"episode_notes":{"type":"string"}},
+	"required":["episode_notes"]
+}`)
+
+func TestProcessHostConformanceSuccessStreamsAndReplays(t *testing.T) {
+	host, workRoot := newHelperHost(t, "success")
+	workDir := newExecutionDir(t, workRoot, "success-")
+
+	snapshot, err := host.CreateExecution(context.Background(), ExecutionRequest{
+		Kind:             ExecutionKindEpisodeNotes,
+		WorkingDirectory: workDir,
+		Prompt:           "success",
+		OutputSchema:     episodeNotesSchema,
+	})
+	require.NoError(t, err)
+	require.Contains(
+		t,
+		[]ExecutionStatus{StatusRunning, StatusCompleted},
+		snapshot.Status,
+	)
+	require.Equal(t, "helper-runtime-1", snapshot.RuntimeVersion)
+
+	events, err := host.SubscribeExecution(
+		context.Background(),
+		snapshot.ID,
+	)
+	require.NoError(t, err)
+	var received []Event
+	for event := range events {
+		received = append(received, event)
+	}
+	require.Equal(
+		t,
+		[]EventType{EventStarted, EventOutputDelta, EventTerminal},
+		eventTypes(received),
+	)
+	for index, event := range received {
+		require.Equal(t, snapshot.ID, event.ExecutionID)
+		require.Equal(t, uint64(index+1), event.Sequence)
+	}
+
+	final, err := host.GetExecution(context.Background(), snapshot.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusCompleted, final.Status)
+	require.JSONEq(
+		t,
+		`{"episode_notes":"# Helper notes"}`,
+		string(final.Result),
+	)
+
+	replayed, err := host.SubscribeExecution(
+		context.Background(),
+		snapshot.ID,
+	)
+	require.NoError(t, err)
+	require.Len(t, collectEvents(replayed), 3)
+	require.NoError(t, closeHost(t, host))
+	require.Equal(t, 0, host.Diagnostics().LiveProcessGroups)
+}
+
+func TestProcessHostFailsClosedOnIdentityOrderingAndProtocolConflicts(
+	t *testing.T,
+) {
+	scenarios := []string{
+		"wrong_identity",
+		"missing_identity",
+		"out_of_order",
+		"malformed",
+		"no_terminal",
+		"terminal_then_invalid",
+		"terminal_hang",
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario, func(t *testing.T) {
+			host, workRoot := newHelperHost(t, scenario)
+			snapshot, err := host.CreateExecution(
+				context.Background(),
+				ExecutionRequest{
+					Kind:             ExecutionKindEpisodeNotes,
+					WorkingDirectory: newExecutionDir(t, workRoot, scenario+"-"),
+					Prompt:           scenario,
+					OutputSchema:     episodeNotesSchema,
+				},
+			)
+			if err != nil {
+				require.Equal(t, ErrorProtocol, ErrorCode(err))
+			} else {
+				events, subscribeErr := host.SubscribeExecution(
+					context.Background(),
+					snapshot.ID,
+				)
+				require.NoError(t, subscribeErr)
+				_ = collectEvents(events)
+				final, getErr := host.GetExecution(
+					context.Background(),
+					snapshot.ID,
+				)
+				require.NoError(t, getErr)
+				require.Equal(t, StatusFailed, final.Status)
+				require.Equal(t, ErrorProtocol, final.ErrorCode)
+			}
+			require.NoError(t, closeHost(t, host))
+			require.Equal(t, 0, host.Diagnostics().LiveProcessGroups)
+		})
+	}
+}
+
+func TestProcessHostNativeCancellationAndTargetIsolation(t *testing.T) {
+	host, workRoot := newHelperHost(t, "from_prompt")
+	blockingDir := newExecutionDir(t, workRoot, "blocking-")
+	successDir := newExecutionDir(t, workRoot, "success-")
+
+	blocking, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: blockingDir,
+			Prompt:           "block",
+			OutputSchema:     episodeNotesSchema,
+		},
+	)
+	require.NoError(t, err)
+
+	var success ExecutionSnapshot
+	var successErr error
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(1)
+	go func() {
+		defer waitGroup.Done()
+		success, successErr = host.CreateExecution(
+			context.Background(),
+			ExecutionRequest{
+				Kind:             ExecutionKindEpisodeNotes,
+				WorkingDirectory: successDir,
+				Prompt:           "success",
+				OutputSchema:     episodeNotesSchema,
+			},
+		)
+	}()
+
+	cancelled, err := host.CancelExecution(
+		context.Background(),
+		blocking.ID,
+	)
+	require.NoError(t, err)
+	require.Equal(t, StatusCancelled, cancelled.Status)
+	require.Equal(t, CancellationNativeInterrupt, cancelled.Method)
+	waitGroup.Wait()
+	require.NoError(t, successErr)
+
+	successEvents, err := host.SubscribeExecution(
+		context.Background(),
+		success.ID,
+	)
+	require.NoError(t, err)
+	_ = collectEvents(successEvents)
+	successFinal, err := host.GetExecution(context.Background(), success.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusCompleted, successFinal.Status)
+
+	blockingFinal, err := host.GetExecution(context.Background(), blocking.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusCancelled, blockingFinal.Status)
+	require.Equal(
+		t,
+		CancellationNativeInterrupt,
+		blockingFinal.CancellationMethod,
+	)
+	require.NoError(t, closeHost(t, host))
+	require.Equal(t, 0, host.Diagnostics().LiveProcessGroups)
+}
+
+func TestProcessHostEscalatesOnlyTargetProcessGroupAndReapsChildren(
+	t *testing.T,
+) {
+	host, workRoot := newHelperHost(t, "ignore_cancel")
+	workDir := newExecutionDir(t, workRoot, "fallback-")
+	snapshot, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: workDir,
+			Prompt:           "ignore",
+			OutputSchema:     episodeNotesSchema,
+		},
+	)
+	require.NoError(t, err)
+	childPID := waitForChildPID(t, filepath.Join(workDir, "child.pid"))
+
+	cancelled, err := host.CancelExecution(context.Background(), snapshot.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusCancelled, cancelled.Status)
+	require.Contains(
+		t,
+		[]CancellationMethod{CancellationSIGTERM, CancellationSIGKILL},
+		cancelled.Method,
+	)
+	require.Eventually(t, func() bool {
+		err := syscall.Kill(childPID, 0)
+		return errors.Is(err, syscall.ESRCH)
+	}, 3*time.Second, 20*time.Millisecond)
+	require.NoError(t, closeHost(t, host))
+	require.Equal(t, 0, host.Diagnostics().LiveProcessGroups)
+}
+
+func TestProcessHostPreflightRejectsMissingCapabilitiesAndEscapedWorkdir(
+	t *testing.T,
+) {
+	host, workRoot := newHelperHost(t, "success")
+	validDir := newExecutionDir(t, workRoot, "valid-")
+
+	_, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:                 ExecutionKindEpisodeNotes,
+			WorkingDirectory:     validDir,
+			Prompt:               "success",
+			OutputSchema:         episodeNotesSchema,
+			RequiredCapabilities: []string{"lark-minutes"},
+		},
+	)
+	require.Error(t, err)
+	require.Equal(t, ErrorRuntimeUnavailable, ErrorCode(err))
+
+	outside := t.TempDir()
+	_, err = host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: outside,
+			Prompt:           "success",
+			OutputSchema:     episodeNotesSchema,
+		},
+	)
+	require.Error(t, err)
+	require.Equal(t, ErrorInvalidRequest, ErrorCode(err))
+	require.NoError(t, closeHost(t, host))
+}
+
+func TestPythonSDKHostUsesStableRestrictedConfiguration(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is not available")
+	}
+	_, currentFile, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	packageDir := filepath.Dir(currentFile)
+	script := filepath.Join(packageDir, "runtime_host.py")
+	fakeSDK := filepath.Join(packageDir, "testdata", "fake_sdk")
+	workRoot := t.TempDir()
+	host, err := NewProcessHost(ProcessHostConfig{
+		Command:  []string{python, script},
+		WorkRoot: workRoot,
+		Environment: map[string]string{
+			"PATH":                    os.Getenv("PATH"),
+			"PYTHONDONTWRITEBYTECODE": "1",
+			"PYTHONPATH":              fakeSDK,
+		},
+		StartupTimeout:      3 * time.Second,
+		NativeCancelTimeout: 500 * time.Millisecond,
+		TerminateTimeout:    500 * time.Millisecond,
+		KillTimeout:         500 * time.Millisecond,
+	})
+	require.NoError(t, err)
+
+	completed, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: newExecutionDir(t, workRoot, "python-success-"),
+			Prompt:           "SUCCESS",
+			OutputSchema:     episodeNotesSchema,
+		},
+	)
+	require.NoError(t, err)
+	events, err := host.SubscribeExecution(context.Background(), completed.ID)
+	require.NoError(t, err)
+	require.Contains(t, eventTypes(collectEvents(events)), EventOutputDelta)
+	final, err := host.GetExecution(context.Background(), completed.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusCompleted, final.Status)
+	require.Equal(
+		t,
+		"sdk/0.147.0;runtime/fake-runtime-1",
+		final.RuntimeVersion,
+	)
+
+	assistant, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindAssistant,
+			WorkingDirectory: newExecutionDir(t, workRoot, "python-assistant-"),
+			Prompt:           "Answer using the supplied episode context.",
+		},
+	)
+	require.NoError(t, err)
+	assistantEvents, err := host.SubscribeExecution(
+		context.Background(),
+		assistant.ID,
+	)
+	require.NoError(t, err)
+	require.Contains(t, eventTypes(collectEvents(assistantEvents)), EventOutputDelta)
+	assistantFinal, err := host.GetExecution(context.Background(), assistant.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusCompleted, assistantFinal.Status)
+	require.JSONEq(
+		t,
+		`{"text":"Plain assistant answer."}`,
+		string(assistantFinal.Result),
+	)
+
+	blocked, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: newExecutionDir(t, workRoot, "python-cancel-"),
+			Prompt:           "BLOCK_UNTIL_CANCEL",
+			OutputSchema:     episodeNotesSchema,
+		},
+	)
+	require.NoError(t, err)
+	cancelled, err := host.CancelExecution(context.Background(), blocked.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusCancelled, cancelled.Status)
+	require.Equal(t, CancellationNativeInterrupt, cancelled.Method)
+
+	toolExecution, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: newExecutionDir(t, workRoot, "python-tool-"),
+			Prompt:           "TOOL_VIOLATION",
+			OutputSchema:     episodeNotesSchema,
+		},
+	)
+	require.NoError(t, err)
+	toolEvents, err := host.SubscribeExecution(
+		context.Background(),
+		toolExecution.ID,
+	)
+	require.NoError(t, err)
+	_ = collectEvents(toolEvents)
+	toolFinal, err := host.GetExecution(
+		context.Background(),
+		toolExecution.ID,
+	)
+	require.NoError(t, err)
+	require.Equal(t, StatusFailed, toolFinal.Status)
+	require.Equal(t, ErrorCapabilityDenied, toolFinal.ErrorCode)
+	require.NoError(t, closeHost(t, host))
+	require.Equal(t, 0, host.Diagnostics().LiveProcessGroups)
+}
+
+func TestPythonSDKHostFailsPreflightWhenAuthenticationIsMissing(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is not available")
+	}
+	_, currentFile, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	packageDir := filepath.Dir(currentFile)
+	workRoot := t.TempDir()
+	host, err := NewProcessHost(ProcessHostConfig{
+		Command: []string{
+			python,
+			filepath.Join(packageDir, "runtime_host.py"),
+		},
+		WorkRoot: workRoot,
+		Environment: map[string]string{
+			"FAKE_CODEX_UNAUTH":       "1",
+			"PATH":                    os.Getenv("PATH"),
+			"PYTHONDONTWRITEBYTECODE": "1",
+			"PYTHONPATH": filepath.Join(
+				packageDir,
+				"testdata",
+				"fake_sdk",
+			),
+		},
+		StartupTimeout: 3 * time.Second,
+	})
+	require.NoError(t, err)
+	_, err = host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: newExecutionDir(t, workRoot, "unauth-"),
+			Prompt:           "SUCCESS",
+			OutputSchema:     episodeNotesSchema,
+		},
+	)
+	require.Error(t, err)
+	require.Equal(t, ErrorRuntimeUnavailable, ErrorCode(err))
+	require.NoError(t, closeHost(t, host))
+}
+
+func TestProcessHostHelper(t *testing.T) {
+	if os.Getenv("GO_WANT_RUNTIME_HELPER") != "1" {
+		return
+	}
+	helperRuntimeMain()
+	os.Exit(0)
+}
+
+func helperRuntimeMain() {
+	scanner := bufio.NewScanner(os.Stdin)
+	if !scanner.Scan() {
+		os.Exit(2)
+	}
+	var request executeFrame
+	if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
+		os.Exit(2)
+	}
+	scenario := os.Getenv("RUNTIME_HELPER_SCENARIO")
+	if scenario == "from_prompt" {
+		scenario = request.Prompt
+	}
+	write := func(frame runtimeFrame) {
+		payload, _ := json.Marshal(frame)
+		_, _ = fmt.Fprintln(os.Stdout, string(payload))
+	}
+	base := runtimeFrame{
+		ProtocolVersion: ProtocolVersion,
+		ExecutionID:     request.ExecutionID,
+	}
+	switch scenario {
+	case "success":
+		base.Sequence = 1
+		base.Type = "ready"
+		base.RuntimeVersion = "helper-runtime-1"
+		write(base)
+		base.Sequence = 2
+		base.Type = "output_delta"
+		base.RuntimeVersion = ""
+		base.Text = `{"episode_notes":"# Helper notes"}`
+		write(base)
+		base.Sequence = 3
+		base.Type = "terminal"
+		base.Text = ""
+		base.Status = StatusCompleted
+		base.Result = json.RawMessage(`{"episode_notes":"# Helper notes"}`)
+		write(base)
+	case "block":
+		base.Sequence = 1
+		base.Type = "ready"
+		base.RuntimeVersion = "helper-runtime-1"
+		write(base)
+		if !scanner.Scan() {
+			os.Exit(2)
+		}
+		base.Sequence = 2
+		base.Type = "cancel_ack"
+		base.RuntimeVersion = ""
+		base.CancellationMethod = CancellationNativeInterrupt
+		write(base)
+		base.Sequence = 3
+		base.Type = "terminal"
+		base.CancellationMethod = ""
+		base.Status = StatusCancelled
+		write(base)
+	case "wrong_identity":
+		base.Sequence = 1
+		base.ExecutionID = "conflicting-execution"
+		base.Type = "ready"
+		base.RuntimeVersion = "helper-runtime-1"
+		write(base)
+	case "missing_identity":
+		base.Sequence = 1
+		base.ExecutionID = ""
+		base.Type = "ready"
+		base.RuntimeVersion = "helper-runtime-1"
+		write(base)
+	case "out_of_order":
+		base.Sequence = 1
+		base.Type = "ready"
+		base.RuntimeVersion = "helper-runtime-1"
+		write(base)
+		base.Sequence = 3
+		base.Type = "output_delta"
+		base.Text = "skipped sequence"
+		base.RuntimeVersion = ""
+		write(base)
+	case "malformed":
+		_, _ = fmt.Fprintln(os.Stdout, "{not-json")
+	case "no_terminal":
+		return
+	case "terminal_then_invalid":
+		base.Sequence = 1
+		base.Type = "ready"
+		base.RuntimeVersion = "helper-runtime-1"
+		write(base)
+		base.Sequence = 2
+		base.Type = "terminal"
+		base.RuntimeVersion = ""
+		base.Status = StatusCompleted
+		base.Result = json.RawMessage(`{"episode_notes":"# Helper notes"}`)
+		write(base)
+		base.Sequence = 3
+		base.Type = "output_delta"
+		base.Status = ""
+		base.Result = nil
+		base.Text = "late output"
+		write(base)
+	case "terminal_hang":
+		base.Sequence = 1
+		base.Type = "ready"
+		base.RuntimeVersion = "helper-runtime-1"
+		write(base)
+		base.Sequence = 2
+		base.Type = "terminal"
+		base.RuntimeVersion = ""
+		base.Status = StatusCompleted
+		base.Result = json.RawMessage(`{"episode_notes":"# Helper notes"}`)
+		write(base)
+		select {}
+	case "ignore_cancel":
+		signalIgnoreTermination()
+		child := exec.Command("sleep", "30")
+		if err := child.Start(); err != nil {
+			os.Exit(2)
+		}
+		_ = os.WriteFile(
+			filepath.Join(request.WorkingDirectory, "child.pid"),
+			[]byte(fmt.Sprintf("%d", child.Process.Pid)),
+			0o600,
+		)
+		base.Sequence = 1
+		base.Type = "ready"
+		base.RuntimeVersion = "helper-runtime-1"
+		write(base)
+		_ = scanner.Scan()
+		select {}
+	default:
+		os.Exit(2)
+	}
+}
+
+func signalIgnoreTermination() {
+	signalIgnore(syscall.SIGTERM)
+}
+
+func newHelperHost(
+	t *testing.T,
+	scenario string,
+) (*ProcessHost, string) {
+	t.Helper()
+	workRoot := t.TempDir()
+	host, err := NewProcessHost(ProcessHostConfig{
+		Command: []string{
+			os.Args[0],
+			"-test.run=^TestProcessHostHelper$",
+		},
+		WorkRoot: workRoot,
+		Environment: map[string]string{
+			"GO_WANT_RUNTIME_HELPER":  "1",
+			"GORACE":                  "atexit_sleep_ms=0",
+			"PATH":                    os.Getenv("PATH"),
+			"RUNTIME_HELPER_SCENARIO": scenario,
+		},
+		StartupTimeout:      2 * time.Second,
+		NativeCancelTimeout: 500 * time.Millisecond,
+		TerminateTimeout:    500 * time.Millisecond,
+		KillTimeout:         2 * time.Second,
+		PostExitGrace:       50 * time.Millisecond,
+	})
+	require.NoError(t, err)
+	return host, workRoot
+}
+
+func newExecutionDir(
+	t *testing.T,
+	workRoot string,
+	prefix string,
+) string {
+	t.Helper()
+	path, err := os.MkdirTemp(workRoot, prefix)
+	require.NoError(t, err)
+	return path
+}
+
+func eventTypes(events []Event) []EventType {
+	types := make([]EventType, 0, len(events))
+	for _, event := range events {
+		types = append(types, event.Type)
+	}
+	return types
+}
+
+func collectEvents(events <-chan Event) []Event {
+	var collected []Event
+	for event := range events {
+		collected = append(collected, event)
+	}
+	return collected
+}
+
+func waitForChildPID(t *testing.T, path string) int {
+	t.Helper()
+	var pid int
+	require.Eventually(t, func() bool {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			return false
+		}
+		_, err = fmt.Sscanf(strings.TrimSpace(string(payload)), "%d", &pid)
+		return err == nil && pid > 0
+	}, 2*time.Second, 20*time.Millisecond)
+	return pid
+}
+
+func closeHost(t *testing.T, host *ProcessHost) error {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return host.Close(ctx)
+}
