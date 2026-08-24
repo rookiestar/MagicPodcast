@@ -294,7 +294,17 @@ func (h *ProcessHost) CreateExecution(
 		Sandbox:          profile.Sandbox,
 		AllowedTools:     append([]ToolCapability{}, profile.AllowedTools...),
 	}
-	if err := h.writeFrame(execution, frame); err != nil {
+	timer := time.NewTimer(h.config.StartupTimeout)
+	defer timer.Stop()
+	writeResult := make(chan error, 1)
+	go func() {
+		writeResult <- h.writeFrame(execution, frame)
+	}()
+	select {
+	case err := <-writeResult:
+		if err == nil {
+			break
+		}
 		h.failExecution(
 			execution,
 			ErrorRuntimeUnavailable,
@@ -302,10 +312,23 @@ func (h *ProcessHost) CreateExecution(
 		)
 		h.forceStop(execution, syscall.SIGKILL)
 		return ExecutionSnapshot{}, h.snapshotError(execution)
+	case <-ctx.Done():
+		execution.mu.Lock()
+		execution.cancelRequested = true
+		execution.mu.Unlock()
+		h.setCancellationMethod(execution, CancellationSIGKILL)
+		h.forceStop(execution, syscall.SIGKILL)
+		return ExecutionSnapshot{}, ctx.Err()
+	case <-timer.C:
+		h.failExecution(
+			execution,
+			ErrorRuntimeUnavailable,
+			"runtime host preflight timed out",
+		)
+		h.forceStop(execution, syscall.SIGKILL)
+		return ExecutionSnapshot{}, h.snapshotError(execution)
 	}
 
-	timer := time.NewTimer(h.config.StartupTimeout)
-	defer timer.Stop()
 	select {
 	case <-execution.started:
 		return h.snapshot(execution), nil
@@ -482,11 +505,15 @@ func (h *ProcessHost) Close(ctx context.Context) error {
 		if !terminal {
 			if _, err := h.CancelExecution(ctx, executionID); err != nil {
 				closeErrors = append(closeErrors, err)
+				h.forceStopForClose(execution)
 			}
 		}
 		select {
 		case <-execution.processDone:
 		case <-ctx.Done():
+			for _, pending := range executions {
+				h.forceStopForClose(pending)
+			}
 			closeErrors = append(closeErrors, ctx.Err())
 			return errors.Join(closeErrors...)
 		}
@@ -1040,6 +1067,18 @@ func (h *ProcessHost) forceStop(
 	_ = signalProcessGroup(execution.pid, signal)
 }
 
+func (h *ProcessHost) forceStopForClose(execution *managedExecution) {
+	execution.mu.Lock()
+	if execution.processClosed {
+		execution.mu.Unlock()
+		return
+	}
+	execution.cancelRequested = true
+	execution.mu.Unlock()
+	h.setCancellationMethod(execution, CancellationSIGKILL)
+	h.forceStop(execution, syscall.SIGKILL)
+}
+
 func (h *ProcessHost) ensureTerminalProcessExit(execution *managedExecution) {
 	if h.waitForDone(
 		context.Background(),
@@ -1167,6 +1206,9 @@ func (h *ProcessHost) releaseSubscriber(
 		execution.retainUntil = time.Now().UTC().Add(h.config.ResultReadGrace)
 	}
 	execution.mu.Unlock()
+	if expectsResultRead {
+		time.AfterFunc(h.config.ResultReadGrace, h.evictTerminalExecutions)
+	}
 	h.evictTerminalExecutions()
 }
 

@@ -192,6 +192,47 @@ func TestProcessHostRetainsTerminalExecutionForActiveSubscriberResultRead(
 	require.NoError(t, closeHost(t, host))
 }
 
+func TestProcessHostEvictsExpiredResultLeaseWithoutNewLifecycleEvent(
+	t *testing.T,
+) {
+	host, workRoot := newHelperHost(t, "success")
+	host.config.MaxRetainedExecutions = 1
+	host.config.ResultReadGrace = 50 * time.Millisecond
+
+	var completed []ExecutionID
+	for index := 0; index < 2; index++ {
+		snapshot, err := host.CreateExecution(
+			context.Background(),
+			ExecutionRequest{
+				Kind: ExecutionKindEpisodeNotes,
+				WorkingDirectory: newExecutionDir(
+					t,
+					workRoot,
+					fmt.Sprintf("lease-%d-", index),
+				),
+				Prompt:       "success",
+				OutputSchema: episodeNotesSchema,
+			},
+		)
+		require.NoError(t, err)
+		events, err := host.SubscribeExecution(
+			context.Background(),
+			snapshot.ID,
+		)
+		require.NoError(t, err)
+		_ = collectEvents(events)
+		completed = append(completed, snapshot.ID)
+	}
+
+	require.Eventually(t, func() bool {
+		return host.Diagnostics().TrackedExecutions == 1
+	}, time.Second, 10*time.Millisecond)
+	_, err := host.GetExecution(context.Background(), completed[0])
+	require.Error(t, err)
+	require.Equal(t, ErrorExecutionNotFound, ErrorCode(err))
+	require.NoError(t, closeHost(t, host))
+}
+
 func TestProcessHostFailsClosedOnIdentityOrderingAndProtocolConflicts(
 	t *testing.T,
 ) {
@@ -335,6 +376,61 @@ func TestProcessHostEscalatesOnlyTargetProcessGroupAndReapsChildren(
 	}, 3*time.Second, 20*time.Millisecond)
 	require.NoError(t, closeHost(t, host))
 	require.Equal(t, 0, host.Diagnostics().LiveProcessGroups)
+}
+
+func TestProcessHostCloseDeadlineStillKillsAndReapsTargetProcessGroup(
+	t *testing.T,
+) {
+	host, workRoot := newHelperHost(t, "ignore_cancel")
+	workDir := newExecutionDir(t, workRoot, "close-deadline-")
+	_, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: workDir,
+			Prompt:           "ignore",
+			OutputSchema:     episodeNotesSchema,
+		},
+	)
+	require.NoError(t, err)
+	childPID := waitForChildPID(t, filepath.Join(workDir, "child.pid"))
+
+	closeCtx, cancel := context.WithTimeout(
+		context.Background(),
+		50*time.Millisecond,
+	)
+	err = host.Close(closeCtx)
+	cancel()
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Eventually(t, func() bool {
+		childErr := syscall.Kill(childPID, 0)
+		return errors.Is(childErr, syscall.ESRCH) &&
+			host.Diagnostics().LiveProcessGroups == 0
+	}, 3*time.Second, 20*time.Millisecond)
+	require.NoError(t, closeHost(t, host))
+}
+
+func TestProcessHostBoundsInitialFrameWriteByStartupTimeout(t *testing.T) {
+	host, workRoot := newHelperHost(t, "no_read")
+	host.config.StartupTimeout = 100 * time.Millisecond
+	startedAt := time.Now()
+
+	_, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: newExecutionDir(t, workRoot, "blocked-write-"),
+			Prompt:           strings.Repeat("x", 1<<20),
+			OutputSchema:     episodeNotesSchema,
+		},
+	)
+	require.Error(t, err)
+	require.Equal(t, ErrorRuntimeUnavailable, ErrorCode(err))
+	require.Less(t, time.Since(startedAt), time.Second)
+	require.Eventually(t, func() bool {
+		return host.Diagnostics().LiveProcessGroups == 0
+	}, 3*time.Second, 20*time.Millisecond)
+	require.NoError(t, closeHost(t, host))
 }
 
 func TestProcessHostPreflightRejectsMissingCapabilitiesAndEscapedWorkdir(
@@ -601,6 +697,10 @@ func TestProcessHostHelper(t *testing.T) {
 }
 
 func helperRuntimeMain() {
+	scenario := os.Getenv("RUNTIME_HELPER_SCENARIO")
+	if scenario == "no_read" {
+		select {}
+	}
 	scanner := bufio.NewScanner(os.Stdin)
 	if !scanner.Scan() {
 		os.Exit(2)
@@ -609,7 +709,6 @@ func helperRuntimeMain() {
 	if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
 		os.Exit(2)
 	}
-	scenario := os.Getenv("RUNTIME_HELPER_SCENARIO")
 	if scenario == "from_prompt" {
 		scenario = request.Prompt
 	}
