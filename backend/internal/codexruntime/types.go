@@ -36,12 +36,20 @@ type Profile struct {
 	AllowedTools []ToolCapability
 }
 
+// ToolRestriction can only reduce the tools granted by an execution kind's
+// host profile. A nil restriction uses the profile unchanged; an explicit
+// empty Allowed list disables every tool for that execution.
+type ToolRestriction struct {
+	Allowed []ToolCapability
+}
+
 type ExecutionRequest struct {
 	Kind                 ExecutionKind
 	WorkingDirectory     string
 	Prompt               string
 	OutputSchema         json.RawMessage
 	RequiredCapabilities []string
+	ToolRestriction      *ToolRestriction
 }
 
 type ExecutionStatus string
