@@ -433,6 +433,29 @@ func TestProcessHostBoundsInitialFrameWriteByStartupTimeout(t *testing.T) {
 	require.NoError(t, closeHost(t, host))
 }
 
+func TestProcessHostRejectsOversizedEncodedFrameBeforeProcessLaunch(
+	t *testing.T,
+) {
+	host, workRoot := newHelperHost(t, "success")
+	host.config.MaxPromptBytes = 1024
+	host.config.MaxFrameBytes = 512
+
+	_, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: newExecutionDir(t, workRoot, "encoded-limit-"),
+			Prompt:           strings.Repeat("\"", 400),
+			OutputSchema:     episodeNotesSchema,
+		},
+	)
+	require.Error(t, err)
+	require.Equal(t, ErrorInvalidRequest, ErrorCode(err))
+	require.Equal(t, 0, host.Diagnostics().TrackedExecutions)
+	require.Equal(t, 0, host.Diagnostics().LiveProcessGroups)
+	require.NoError(t, closeHost(t, host))
+}
+
 func TestProcessHostPreflightRejectsMissingCapabilitiesAndEscapedWorkdir(
 	t *testing.T,
 ) {

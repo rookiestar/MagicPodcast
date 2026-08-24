@@ -181,6 +181,25 @@ func (h *ProcessHost) CreateExecution(
 			true,
 		)
 	}
+	frame := executeFrame{
+		ProtocolVersion:  ProtocolVersion,
+		Type:             "execute",
+		ExecutionID:      executionID,
+		Kind:             request.Kind,
+		WorkingDirectory: workingDirectory,
+		Prompt:           request.Prompt,
+		OutputSchema:     cloneRawMessage(request.OutputSchema),
+		Sandbox:          profile.Sandbox,
+		AllowedTools:     append([]ToolCapability{}, profile.AllowedTools...),
+	}
+	encodedFrame, err := json.Marshal(frame)
+	if err != nil || len(encodedFrame)+1 > h.config.MaxFrameBytes {
+		return ExecutionSnapshot{}, newRuntimeError(
+			ErrorInvalidRequest,
+			"runtime execution frame exceeds the allowed size",
+			false,
+		)
+	}
 
 	stdinReader, stdinWriter, err := os.Pipe()
 	if err != nil {
@@ -283,17 +302,6 @@ func (h *ProcessHost) CreateExecution(
 	}()
 	go h.waitForProcess(execution, readerDone)
 
-	frame := executeFrame{
-		ProtocolVersion:  ProtocolVersion,
-		Type:             "execute",
-		ExecutionID:      executionID,
-		Kind:             request.Kind,
-		WorkingDirectory: workingDirectory,
-		Prompt:           request.Prompt,
-		OutputSchema:     cloneRawMessage(request.OutputSchema),
-		Sandbox:          profile.Sandbox,
-		AllowedTools:     append([]ToolCapability{}, profile.AllowedTools...),
-	}
 	timer := time.NewTimer(h.config.StartupTimeout)
 	defer timer.Stop()
 	writeResult := make(chan error, 1)
