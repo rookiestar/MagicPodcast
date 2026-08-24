@@ -108,6 +108,9 @@ func TestProcessHostBoundsTerminalRetention(t *testing.T) {
 		)
 		require.NoError(t, err)
 		_ = collectEvents(events)
+		final, err := host.GetExecution(context.Background(), snapshot.ID)
+		require.NoError(t, err)
+		require.Equal(t, StatusCompleted, final.Status)
 		completed = append(completed, snapshot.ID)
 	}
 
@@ -123,6 +126,69 @@ func TestProcessHostBoundsTerminalRetention(t *testing.T) {
 		require.NoError(t, getErr)
 		require.Equal(t, StatusCompleted, snapshot.Status)
 	}
+	require.NoError(t, closeHost(t, host))
+}
+
+func TestProcessHostRetainsTerminalExecutionForActiveSubscriberResultRead(
+	t *testing.T,
+) {
+	host, workRoot := newHelperHost(t, "success")
+	host.config.MaxRetainedExecutions = 1
+	host.config.SubscriberBufferSize = 1
+	host.config.ResultReadGrace = time.Second
+
+	longRunning, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: newExecutionDir(t, workRoot, "consumer-"),
+			Prompt:           "success",
+			OutputSchema:     episodeNotesSchema,
+		},
+	)
+	require.NoError(t, err)
+	longEvents, err := host.SubscribeExecution(
+		context.Background(),
+		longRunning.ID,
+	)
+	require.NoError(t, err)
+
+	for index := 0; index < 2; index++ {
+		snapshot, createErr := host.CreateExecution(
+			context.Background(),
+			ExecutionRequest{
+				Kind: ExecutionKindEpisodeNotes,
+				WorkingDirectory: newExecutionDir(
+					t,
+					workRoot,
+					fmt.Sprintf("newer-%d-", index),
+				),
+				Prompt:       "success",
+				OutputSchema: episodeNotesSchema,
+			},
+		)
+		require.NoError(t, createErr)
+		events, subscribeErr := host.SubscribeExecution(
+			context.Background(),
+			snapshot.ID,
+		)
+		require.NoError(t, subscribeErr)
+		_ = collectEvents(events)
+		_, getErr := host.GetExecution(context.Background(), snapshot.ID)
+		require.NoError(t, getErr)
+	}
+
+	_, err = host.execution(longRunning.ID)
+	require.NoError(t, err)
+	_ = collectEvents(longEvents)
+	final, err := host.GetExecution(context.Background(), longRunning.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusCompleted, final.Status)
+	require.JSONEq(
+		t,
+		`{"episode_notes":"# Helper notes"}`,
+		string(final.Result),
+	)
 	require.NoError(t, closeHost(t, host))
 }
 

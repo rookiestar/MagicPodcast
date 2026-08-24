@@ -34,6 +34,7 @@ const (
 	defaultMaxResultBytes   = 2 << 20
 	defaultSubscriberBuffer = 16
 	defaultMaxRetained      = 256
+	defaultResultReadGrace  = 30 * time.Second
 )
 
 type ProcessHostConfig struct {
@@ -55,6 +56,7 @@ type ProcessHostConfig struct {
 	MaxResultBytes        int
 	SubscriberBufferSize  int
 	MaxRetainedExecutions int
+	ResultReadGrace       time.Duration
 }
 
 func DefaultProfiles() map[ExecutionKind]Profile {
@@ -117,6 +119,9 @@ type managedExecution struct {
 	processClosed   bool
 	terminalFrame   bool
 	cancelRequested bool
+	subscribers     int
+	pendingReads    int
+	retainUntil     time.Time
 
 	started     chan struct{}
 	terminal    chan struct{}
@@ -329,13 +334,17 @@ func (h *ProcessHost) SubscribeExecution(
 	ctx context.Context,
 	executionID ExecutionID,
 ) (<-chan Event, error) {
-	execution, err := h.execution(executionID)
+	execution, err := h.acquireSubscriber(executionID)
 	if err != nil {
 		return nil, err
 	}
 	output := make(chan Event, h.config.SubscriberBufferSize)
 	go func() {
 		defer close(output)
+		expectsResultRead := false
+		defer func() {
+			h.releaseSubscriber(execution, expectsResultRead)
+		}()
 		index := 0
 		for {
 			execution.mu.Lock()
@@ -354,6 +363,7 @@ func (h *ProcessHost) SubscribeExecution(
 				}
 			}
 			if terminal && processClosed {
+				expectsResultRead = true
 				return
 			}
 			select {
@@ -449,7 +459,9 @@ func (h *ProcessHost) GetExecution(
 	if err != nil {
 		return ExecutionSnapshot{}, err
 	}
-	return h.snapshot(execution), nil
+	snapshot := h.snapshotAndMarkRead(execution)
+	h.evictTerminalExecutions()
+	return snapshot, nil
 }
 
 func (h *ProcessHost) Close(ctx context.Context) error {
@@ -1116,6 +1128,49 @@ func (h *ProcessHost) execution(
 	return execution, nil
 }
 
+func (h *ProcessHost) acquireSubscriber(
+	executionID ExecutionID,
+) (*managedExecution, error) {
+	if executionID == "" {
+		return nil, newRuntimeError(
+			ErrorExecutionNotFound,
+			"runtime execution was not found",
+			false,
+		)
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	execution := h.executions[executionID]
+	if execution == nil {
+		return nil, newRuntimeError(
+			ErrorExecutionNotFound,
+			"runtime execution was not found",
+			false,
+		)
+	}
+	execution.mu.Lock()
+	execution.subscribers++
+	execution.retainUntil = time.Time{}
+	execution.mu.Unlock()
+	return execution, nil
+}
+
+func (h *ProcessHost) releaseSubscriber(
+	execution *managedExecution,
+	expectsResultRead bool,
+) {
+	execution.mu.Lock()
+	if execution.subscribers > 0 {
+		execution.subscribers--
+	}
+	if expectsResultRead {
+		execution.pendingReads++
+		execution.retainUntil = time.Now().UTC().Add(h.config.ResultReadGrace)
+	}
+	execution.mu.Unlock()
+	h.evictTerminalExecutions()
+}
+
 func (h *ProcessHost) evictTerminalExecutions() {
 	type candidate struct {
 		id          ExecutionID
@@ -1125,6 +1180,7 @@ func (h *ProcessHost) evictTerminalExecutions() {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	now := time.Now().UTC()
 	candidates := make([]candidate, 0, len(h.executions))
 	for executionID, execution := range h.executions {
 		execution.mu.Lock()
@@ -1132,8 +1188,15 @@ func (h *ProcessHost) evictTerminalExecutions() {
 		processClosed := execution.processClosed
 		createdAt := execution.snapshot.CreatedAt
 		completedAt := execution.snapshot.CompletedAt
+		subscribers := execution.subscribers
+		pendingReads := execution.pendingReads
+		retainUntil := execution.retainUntil
 		execution.mu.Unlock()
-		if !terminal || !processClosed || completedAt == nil {
+		if !terminal ||
+			!processClosed ||
+			completedAt == nil ||
+			subscribers > 0 ||
+			(pendingReads > 0 && now.Before(retainUntil)) {
 			continue
 		}
 		candidates = append(candidates, candidate{
@@ -1166,6 +1229,22 @@ func (h *ProcessHost) snapshot(
 	defer execution.mu.Unlock()
 	snapshot := execution.snapshot
 	snapshot.Result = cloneRawMessage(snapshot.Result)
+	return snapshot
+}
+
+func (h *ProcessHost) snapshotAndMarkRead(
+	execution *managedExecution,
+) ExecutionSnapshot {
+	execution.mu.Lock()
+	defer execution.mu.Unlock()
+	snapshot := execution.snapshot
+	snapshot.Result = cloneRawMessage(snapshot.Result)
+	if snapshot.Status.Terminal() && execution.pendingReads > 0 {
+		execution.pendingReads--
+	}
+	if execution.pendingReads == 0 {
+		execution.retainUntil = time.Time{}
+	}
 	return snapshot
 }
 
@@ -1359,6 +1438,9 @@ func normalizeProcessHostConfig(
 	}
 	if config.MaxRetainedExecutions <= 0 {
 		config.MaxRetainedExecutions = defaultMaxRetained
+	}
+	if config.ResultReadGrace <= 0 {
+		config.ResultReadGrace = defaultResultReadGrace
 	}
 	return config, nil
 }
