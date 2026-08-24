@@ -29,9 +29,10 @@ const (
 var (
 	imaHTTPURLPattern = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)
 	imaFileURLPattern = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])file:(?:/{1,3}|\\+)`)
-	imaUnixPath       = regexp.MustCompile(`(?:^|[^[:alnum:]_<>/])/[^\s<>"']+`)
+	imaUnixPath       = regexp.MustCompile(`(?:^|[^\pL\pN_<>/])/[^\s<>"']+`)
 	imaWindowsPath    = regexp.MustCompile(`(?i)(?:^|[^[:alnum:]_])[a-z]:[\\/][^\s<>"']+`)
 	imaUNCPath        = regexp.MustCompile(`\\\\[^\\\s<>"']+\\[^\s<>"']+`)
+	imaLegacyIPv4Host = regexp.MustCompile(`(?i)^(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+)){0,3}$`)
 	imaCredential     = regexp.MustCompile(
 		`(?i)(?:^|[^a-z0-9])["']?(?:file[_-]?token|minute[_-]?token|access[_-]?token|refresh[_-]?token|id[_-]?token|token|api[_-]?key|access[_-]?key|secret|credential(?:s)?|password|passwd|authorization|cookie|session(?:[_-]?id)?|jwt|signature|sig)["']?\s*[:=]\s*["']?[^\s"',;]+`,
 	)
@@ -54,12 +55,12 @@ type imaPackageMetadata struct {
 }
 
 type imaEpisodeMetadata struct {
-	ID          uint   `json:"id"`
-	Title       string `json:"title"`
-	Podcast     string `json:"podcast"`
-	PublishedAt string `json:"published_at"`
-	SourceURL   string `json:"source_url"`
-	ShowNotes   string `json:"show_notes"`
+	ID          uint    `json:"id"`
+	Title       string  `json:"title"`
+	Podcast     string  `json:"podcast"`
+	PublishedAt *string `json:"published_at"`
+	SourceURL   string  `json:"source_url"`
+	ShowNotes   string  `json:"show_notes"`
 }
 
 type imaArtifactTrace struct {
@@ -166,8 +167,6 @@ func validateIMAManualImportRequest(request DeliveryRequest) error {
 		return invalidIMAPackage("run and episode identity are required")
 	case !safeSingleLine(pkg.EpisodeTitle) || !safeSingleLine(pkg.PodcastTitle):
 		return invalidIMAPackage("episode title and podcast are required")
-	case pkg.PublishedAt.IsZero():
-		return invalidIMAPackage("episode publication date is required")
 	case strings.TrimSpace(pkg.PipelineVersion) == "":
 		return invalidIMAPackage("pipeline version is required")
 	case pkg.ArtifactGeneratedAt.IsZero():
@@ -226,7 +225,7 @@ func renderIMAManualImportPackage(
 			ID:          request.Package.EpisodeID,
 			Title:       strings.TrimSpace(request.Package.EpisodeTitle),
 			Podcast:     strings.TrimSpace(request.Package.PodcastTitle),
-			PublishedAt: stableTime(request.Package.PublishedAt),
+			PublishedAt: optionalStableTime(request.Package.PublishedAt),
 			SourceURL:   strings.TrimSpace(request.Package.SourceURL),
 			ShowNotes:   strings.TrimSpace(request.Package.ShowNotes),
 		},
@@ -284,7 +283,11 @@ func renderIMAKnowledge(request DeliveryRequest, trace imaArtifactTrace) string 
 	fmt.Fprintf(&builder, "# %s\n\n", strings.TrimSpace(pkg.EpisodeTitle))
 	builder.WriteString("## 单集信息\n\n")
 	fmt.Fprintf(&builder, "- 节目：%s\n", strings.TrimSpace(pkg.PodcastTitle))
-	fmt.Fprintf(&builder, "- 发布日期：%s\n", pkg.PublishedAt.UTC().Format("2006-01-02"))
+	publishedDate := "不可用"
+	if !pkg.PublishedAt.IsZero() {
+		publishedDate = pkg.PublishedAt.UTC().Format("2006-01-02")
+	}
+	fmt.Fprintf(&builder, "- 发布日期：%s\n", publishedDate)
 	if sourceURL := strings.TrimSpace(pkg.SourceURL); sourceURL != "" {
 		fmt.Fprintf(&builder, "- 来源：[%s](%s)\n", sourceURL, sourceURL)
 	} else {
@@ -436,8 +439,10 @@ func verifyExistingIMAPackage(root string, request DeliveryRequest) error {
 		!safeSingleLine(metadata.Episode.Podcast) {
 		return invalidIMAPackage("published package metadata identity does not match")
 	}
-	if _, err := time.Parse(time.RFC3339Nano, metadata.Episode.PublishedAt); err != nil {
-		return invalidIMAPackage("published package publication date is invalid")
+	if metadata.Episode.PublishedAt != nil {
+		if _, err := time.Parse(time.RFC3339Nano, *metadata.Episode.PublishedAt); err != nil {
+			return invalidIMAPackage("published package publication date is invalid")
+		}
 	}
 	if err := validateIMAPackageText(metadata.Episode.Title); err != nil {
 		return err
@@ -714,6 +719,8 @@ func validateSafeHTTPURL(raw string) error {
 			address.IsUnspecified() {
 			return fmt.Errorf("URL address must be public")
 		}
+	} else if imaLegacyIPv4Host.MatchString(hostname) {
+		return fmt.Errorf("URL host uses a non-canonical numeric address")
 	}
 	for _, privateHost := range []string{
 		"feishu.cn",
@@ -794,6 +801,14 @@ func digestBytes(value []byte) string {
 
 func stableTime(value time.Time) string {
 	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func optionalStableTime(value time.Time) *string {
+	if value.IsZero() {
+		return nil
+	}
+	formatted := stableTime(value)
+	return &formatted
 }
 
 func imaTraceForRequest(request DeliveryRequest) imaArtifactTrace {

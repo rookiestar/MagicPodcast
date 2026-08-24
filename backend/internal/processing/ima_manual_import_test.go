@@ -194,6 +194,25 @@ func TestIMAManualImportBridgeAllowsMissingPublicSource(t *testing.T) {
 	require.Contains(t, string(files["knowledge.md"]), "来源：未提供公开链接")
 }
 
+func TestIMAManualImportBridgeMarksMissingPublicationDateUnavailable(t *testing.T) {
+	request := validIMAManualImportRequest()
+	request.Package.PublishedAt = time.Time{}
+	bridge, err := NewIMAManualImportBridge(t.TempDir())
+	require.NoError(t, err)
+
+	_, err = bridge.Deliver(context.Background(), request)
+	require.NoError(t, err)
+	files := readIMAPackageFiles(
+		t,
+		filepath.Join(bridge.root, "packages", request.DeliveryKey),
+	)
+	var metadata imaPackageMetadata
+	require.NoError(t, json.Unmarshal(files["metadata.json"], &metadata))
+	require.Nil(t, metadata.Episode.PublishedAt)
+	require.Contains(t, string(files["knowledge.md"]), "- 发布日期：不可用")
+	require.NotContains(t, string(files["knowledge.md"]), "0001-01-01")
+}
+
 func TestIMAManualImportBridgeRejectsIncompleteArtifacts(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -205,7 +224,6 @@ func TestIMAManualImportBridgeRejectsIncompleteArtifacts(t *testing.T) {
 		{"episode", func(request *DeliveryRequest) { request.Package.EpisodeID = 0 }},
 		{"title", func(request *DeliveryRequest) { request.Package.EpisodeTitle = "" }},
 		{"podcast", func(request *DeliveryRequest) { request.Package.PodcastTitle = "" }},
-		{"publication date", func(request *DeliveryRequest) { request.Package.PublishedAt = time.Time{} }},
 		{"pipeline", func(request *DeliveryRequest) { request.Package.PipelineVersion = "" }},
 		{"artifact time", func(request *DeliveryRequest) { request.Package.ArtifactGeneratedAt = time.Time{} }},
 		{"manifest checksum", func(request *DeliveryRequest) { request.Package.ManifestSHA256 = "" }},
@@ -322,6 +340,9 @@ func TestIMAManualImportBridgeRejectsTraversalSymlinksAndSensitiveSources(t *tes
 		{"workspace path", func(request *DeliveryRequest) {
 			request.Package.ShowNotes = "path=/workspace/MagicPodcast/backend/data/podcast.db"
 		}},
+		{"prose absolute POSIX path", func(request *DeliveryRequest) {
+			request.Package.ShowNotes = "调试文件位于 /workspace/MagicPodcast/backend/data/podcast.db，请勿上传。"
+		}},
 		{"single slash file URI", func(request *DeliveryRequest) {
 			request.Package.ShowNotes = "FILE:/etc/passwd"
 		}},
@@ -354,6 +375,18 @@ func TestIMAManualImportBridgeRejectsTraversalSymlinksAndSensitiveSources(t *tes
 		{"private source URL", func(request *DeliveryRequest) {
 			request.Package.SourceURL = "https://10.0.0.1/episode"
 		}},
+		{"decimal loopback source URL", func(request *DeliveryRequest) {
+			request.Package.SourceURL = "http://2130706433/episode"
+		}},
+		{"hex loopback source URL", func(request *DeliveryRequest) {
+			request.Package.SourceURL = "http://0x7f000001/episode"
+		}},
+		{"octal loopback source URL", func(request *DeliveryRequest) {
+			request.Package.SourceURL = "http://0177.0.0.1/episode"
+		}},
+		{"short loopback source URL", func(request *DeliveryRequest) {
+			request.Package.SourceURL = "http://127.1/episode"
+		}},
 		{"local hostname source URL", func(request *DeliveryRequest) {
 			request.Package.SourceURL = "https://podcast.local/episode"
 		}},
@@ -369,6 +402,40 @@ func TestIMAManualImportBridgeRejectsTraversalSymlinksAndSensitiveSources(t *tes
 			require.NoError(t, err)
 			_, err = bridge.Deliver(context.Background(), request)
 			require.Error(t, err)
+		})
+	}
+}
+
+func TestIMAManualImportBridgeAllowsCJKProseSlashes(t *testing.T) {
+	request := validIMAManualImportRequest()
+	request.Package.EpisodeTitle = "支持输入/输出格式"
+	request.Package.PodcastTitle = "产品/设计"
+	request.Package.ShowNotes = "支持音频/视频与导入/导出。"
+	request.Package.Transcript += "\n支持输入/输出格式。\n"
+	request.Package.TranscriptSHA256 = digestString(request.Package.Transcript)
+	request.Package.EpisodeNotes += "\n- 比较之前/之后的结果\n"
+	request.Package.EpisodeNotesSHA256 = digestString(request.Package.EpisodeNotes)
+	bridge, err := NewIMAManualImportBridge(t.TempDir())
+	require.NoError(t, err)
+
+	_, err = bridge.Deliver(context.Background(), request)
+	require.NoError(t, err)
+}
+
+func TestIMAManualImportBridgeAllowsNumericLabelsInPublicDomains(t *testing.T) {
+	for _, sourceURL := range []string{
+		"https://2130706433.example.com/episode",
+		"https://0x7f000001.example.com/episode",
+	} {
+		t.Run(sourceURL, func(t *testing.T) {
+			request := validIMAManualImportRequest()
+			request.Package.SourceURL = sourceURL
+			request.Package.Sources["episode"] = sourceURL
+			bridge, err := NewIMAManualImportBridge(t.TempDir())
+			require.NoError(t, err)
+
+			_, err = bridge.Deliver(context.Background(), request)
+			require.NoError(t, err)
 		})
 	}
 }
