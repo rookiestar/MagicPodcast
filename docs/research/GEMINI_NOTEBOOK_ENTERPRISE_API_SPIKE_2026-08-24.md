@@ -251,14 +251,16 @@ created_at / updated_at
 1. `(target, episode_id, package_sha256)` 已为 `COMPLETE`：no-op。
 2. 已有 `source_resource_name` 且状态未终止：恢复轮询。
 3. POST 响应已返回：先持久化资源 ID，再继续。
-4. POST 结果不明：先通过 `Notebook.get` 查找带哈希的展示名；无法唯一匹配则进入人工/补偿态，禁止盲重试。
-5. 替换采用“新 Source 完成 → 删除旧 Source → 验证旧 Source 消失”；若不能容忍短暂重复，则 No-Go。
+4. `notebooks.create` 结果不明：记录 `NOTEBOOK_CREATE_UNKNOWN` 并停止自动重试。服务端生成 `notebookId`，`notebooks.get` 需要完整资源名；`listRecentlyViewed` 也没有按调用方幂等键唯一查找的承诺，不能证明该次创建是否成功。真实 Spike 证明可唯一发现和清理前，此路径是生产 Adapter 的 No-Go，必须人工补偿。
+5. Source POST 结果不明：仅在已知 `notebook_resource_name` 时，通过 `Notebook.get` 查找带包哈希的 Source 展示名；无法唯一匹配则进入 `SOURCE_UPLOAD_UNKNOWN` 人工/补偿态，禁止盲重试。
+6. 替换采用“新 Source 完成 → 删除旧 Source → 验证旧 Source 消失”；若不能容忍短暂重复，则 No-Go。
 
 ### 真实账号必须回答
 
 - 同包连续上传两次是否生成两个 Source。
 - 相同 `title`/展示名是否允许重复。
-- 客户端超时后服务端最终成功时如何恢复。
+- Notebook 创建响应丢失后，是否存在稳定且可唯一归因的发现/清理办法；若不存在，生产 Adapter 保持 No-Go。
+- Source 上传响应丢失后，`Notebook.get` 何时可见、能否用展示名和包哈希唯一恢复。
 - `batchDelete` 后 `get` 的状态序列和最终错误码。
 - 新 Source 完成后删除旧 Source 是否影响 Notebook 可用性。
 
