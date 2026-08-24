@@ -36,6 +36,7 @@ import {
   formatPublishedDate,
   QUEUE_PRESENTATION,
 } from "./presentation";
+import EpisodeProcessingPanel from "./EpisodeProcessingPanel";
 import styles from "./InboxPage.module.css";
 
 interface ConsumptionDetailPanelProps {
@@ -632,6 +633,8 @@ export default function ConsumptionDetailPanel({
               </span>
             )}
           </div>
+
+          <EpisodeProcessingPanel item={item} />
 
           <section
             className={styles.showNotesSection}

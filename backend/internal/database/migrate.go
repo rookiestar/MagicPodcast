@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 20
+const CurrentSchemaVersion = 21
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -164,6 +164,12 @@ func migrationRegistry() []Migration {
 			Description: "Persist episode processing runs, checkpoints, immutable artifact sets, and independent knowledge deliveries (#179).",
 			Apply:       applyEpisodeProcessingFoundationMigration,
 		},
+		{
+			Version:     21,
+			Name:        "managed-episode-audio-assets",
+			Description: "Persist managed episode-audio preparation state without retaining source URLs or exposing local paths (#181).",
+			Apply:       applyEpisodeAudioAssetMigration,
+		},
 	}
 }
 
@@ -180,7 +186,7 @@ var baselineRequiredTables = []string{
 	"episodes_tags",
 }
 
-var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions", "episode_processing_runs", "processing_checkpoints", "episode_artifact_sets", "knowledge_deliveries")
+var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions", "episode_processing_runs", "processing_checkpoints", "episode_artifact_sets", "knowledge_deliveries", "episode_audio_assets")
 
 func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
 	if db == nil {
@@ -688,6 +694,21 @@ func applyEpisodeProcessingFoundationMigration(db *gorm.DB) error {
 	} {
 		if err := db.Exec(statement).Error; err != nil {
 			return fmt.Errorf("apply episode processing invariant: %w", err)
+		}
+	}
+	return nil
+}
+
+func applyEpisodeAudioAssetMigration(db *gorm.DB) error {
+	if err := db.AutoMigrate(&models.EpisodeAudioAsset{}); err != nil {
+		return fmt.Errorf("create managed episode audio assets: %w", err)
+	}
+	for _, statement := range []string{
+		models.ActiveEpisodeAudioAssetUniqueIndexSQL,
+		models.ReadyEpisodeAudioAssetUniqueIndexSQL,
+	} {
+		if err := db.Exec(statement).Error; err != nil {
+			return fmt.Errorf("apply managed episode audio invariant: %w", err)
 		}
 	}
 	return nil

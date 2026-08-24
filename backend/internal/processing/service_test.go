@@ -133,6 +133,103 @@ func TestServiceResolvesAuthoritativeInputOnlyForNewRun(t *testing.T) {
 	require.Equal(t, 2, resolver.CallCount())
 }
 
+func TestServiceQueuesManagedAudioInsideOneCancelableRun(t *testing.T) {
+	db := openProcessingTestDB(t)
+	resolver := &staticProcessingInputResolver{
+		input: ProcessingInput{PipelineVersion: "pipeline-v1"},
+		err:   errors.New("not ready"),
+	}
+	audio := &workerFakeAudio{enqueueResult: AudioEnqueueResult{
+		Asset: models.EpisodeAudioAsset{
+			ID:           88,
+			SourceDigest: strings.Repeat("b", 64),
+			Status:       models.EpisodeAudioAssetStatusQueued,
+		},
+	}}
+	service := NewService(
+		db,
+		WithProcessingInputResolver(resolver),
+		WithAudioPreparer(audio),
+	)
+	episode := createProcessingEpisode(t, db, true, "audio-prepare")
+	audio.enqueueResult.Asset.EpisodeID = episode.ID
+
+	result, err := service.StartEpisodeProcessing(
+		context.Background(),
+		processingStartRequest(episode.ID),
+	)
+	require.NoError(t, err)
+	require.True(t, result.PreparingAudio)
+	require.NotNil(t, result.AudioAsset)
+	require.Equal(t, uint(88), result.AudioAsset.ID)
+	require.NotZero(t, result.Run.ID)
+	require.Equal(t, models.ProcessingRunStatusQueued, result.Run.Status)
+	require.Equal(t, StepAudioPreparation, result.Run.CurrentStep)
+	require.Empty(t, result.Run.AudioDigest)
+
+	duplicate, err := service.StartEpisodeProcessing(
+		context.Background(),
+		processingStartRequest(episode.ID),
+	)
+	require.NoError(t, err)
+	require.True(t, duplicate.ReusedActive)
+	require.Equal(t, result.Run.ID, duplicate.Run.ID)
+
+	cancelled, err := service.CancelProcessingRun(context.Background(), result.Run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusCancelled, cancelled.Status)
+	var runCount int64
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+		Where("episode_id = ?", episode.ID).
+		Count(&runCount).Error)
+	require.EqualValues(t, 1, runCount)
+}
+
+func TestServiceRetriesAudioFailureThroughPreparationRun(t *testing.T) {
+	db := openProcessingTestDB(t)
+	resolver := &staticProcessingInputResolver{
+		input: ProcessingInput{PipelineVersion: "pipeline-v1"},
+		err:   errors.New("not ready"),
+	}
+	audio := &workerFakeAudio{enqueueResult: AudioEnqueueResult{
+		Asset: models.EpisodeAudioAsset{
+			ID:           89,
+			SourceDigest: strings.Repeat("b", 64),
+			Status:       models.EpisodeAudioAssetStatusQueued,
+		},
+	}}
+	service := NewService(
+		db,
+		WithProcessingInputResolver(resolver),
+		WithAudioPreparer(audio),
+	)
+	episode := createProcessingEpisode(t, db, true, "audio-retry")
+	audio.enqueueResult.Asset.EpisodeID = episode.ID
+
+	started, err := service.StartEpisodeProcessing(
+		context.Background(),
+		processingStartRequest(episode.ID),
+	)
+	require.NoError(t, err)
+	require.NoError(t, service.failAudioPreparation(
+		context.Background(),
+		episode.ID,
+		AudioErrorSourceUnavailable,
+		"episode audio source is unavailable",
+		true,
+	))
+
+	audio.enqueueResult.Asset.ID = 90
+	retry, err := service.RetryProcessingRun(context.Background(), started.Run.ID)
+	require.NoError(t, err)
+	require.True(t, retry.PreparingAudio)
+	require.Equal(t, StepAudioPreparation, retry.Run.CurrentStep)
+	require.NotNil(t, retry.Run.PreviousRunID)
+	require.Equal(t, started.Run.ID, *retry.Run.PreviousRunID)
+	require.NotNil(t, retry.AudioAsset)
+	require.Equal(t, uint(90), retry.AudioAsset.ID)
+}
+
 func TestServiceReusesSuccessfulArtifactAndForceLinksNewRun(t *testing.T) {
 	db := openProcessingTestDB(t)
 	now := time.Date(2026, 8, 24, 9, 30, 0, 0, time.UTC)
@@ -237,6 +334,66 @@ func TestServiceConcurrentStartCreatesOneActiveRun(t *testing.T) {
 		Where("episode_id = ? AND status IN ?", episode.ID, models.ProcessingRunActiveStatuses).
 		Count(&activeCount).Error)
 	require.Equal(t, int64(1), activeCount)
+}
+
+func TestServiceRetryCopiesSafeCheckpointAndBlocksUnknownResult(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 24, 11, 0, 0, 0, time.UTC)
+	service := newProcessingService(db, WithClock(func() time.Time { return now }))
+	episode := createProcessingEpisode(t, db, true, "safe-retry")
+	source := startProcessingRun(t, service, episode.ID)
+	state := `{"version":1,"phase":"transcript_stored"}`
+	sum := sha256.Sum256([]byte(state))
+	require.NoError(t, db.Create(&models.ProcessingCheckpoint{
+		RunID:          source.ID,
+		Step:           StepTranscription,
+		Adapter:        "fake-minutes",
+		AdapterVersion: "fake-minutes-v1",
+		Status:         ExternalProgressCompleted,
+		StateJSON:      state,
+		StateHash:      hex.EncodeToString(sum[:]),
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error)
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+		Where("id = ?", source.ID).
+		Updates(map[string]any{
+			"status":          models.ProcessingRunStatusFailed,
+			"error_code":      "runtime_unavailable",
+			"error_message":   "runtime unavailable",
+			"error_retryable": true,
+			"finished_at":     now,
+			"updated_at":      now,
+		}).Error)
+
+	retry, err := service.RetryProcessingRun(context.Background(), source.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusQueued, retry.Run.Status)
+	require.NotNil(t, retry.Run.PreviousRunID)
+	require.Equal(t, source.ID, *retry.Run.PreviousRunID)
+	var copied models.ProcessingCheckpoint
+	require.NoError(t, db.Where(
+		"run_id = ? AND step = ?",
+		retry.Run.ID,
+		StepTranscription,
+	).First(&copied).Error)
+	require.Equal(t, state, copied.StateJSON)
+	require.Equal(t, ExternalProgressCompleted, copied.Status)
+
+	unknownEpisode := createProcessingEpisode(t, db, true, "unknown-retry")
+	unknown := startProcessingRun(t, service, unknownEpisode.ID)
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+		Where("id = ?", unknown.ID).
+		Updates(map[string]any{
+			"status":          models.ProcessingRunStatusFailed,
+			"error_code":      "lark_drive_result_unknown",
+			"error_message":   "unknown",
+			"error_retryable": false,
+			"finished_at":     now,
+			"updated_at":      now,
+		}).Error)
+	_, err = service.RetryProcessingRun(context.Background(), unknown.ID)
+	require.ErrorIs(t, err, ErrRetryUnsafe)
 }
 
 func TestServiceRecoveryClosesInterruptedAndKeepsRecoverableRuns(t *testing.T) {
@@ -481,6 +638,12 @@ type staticProcessingInputResolver struct {
 	input     ProcessingInput
 	err       error
 	callCount int
+}
+
+func (r *staticProcessingInputResolver) PipelineVersion() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.input.PipelineVersion
 }
 
 func (r *staticProcessingInputResolver) ResolveProcessingInput(

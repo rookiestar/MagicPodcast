@@ -29,6 +29,23 @@ var globalScheduler *scheduler.Scheduler
 // 全局PromptManager实例（用于Prompt模板API）
 var globalPromptManager *llm.PromptManager
 
+type routerDependencies struct {
+	processingService  *processing.Service
+	processingCanceler processing.RunCanceler
+}
+
+type Option func(*routerDependencies)
+
+func WithProcessingModule(
+	service *processing.Service,
+	canceler processing.RunCanceler,
+) Option {
+	return func(dependencies *routerDependencies) {
+		dependencies.processingService = service
+		dependencies.processingCanceler = canceler
+	}
+}
+
 func workflowPodcastIndexPath(cfg *config.Config) string {
 	if cfg == nil {
 		return ""
@@ -45,8 +62,14 @@ func feedDiagnosticsEnabled() bool {
 }
 
 // SetupRouter 配置并返回路由器
-func SetupRouter() *gin.Engine {
+func SetupRouter(options ...Option) *gin.Engine {
 	cfg := config.Get()
+	dependencies := &routerDependencies{}
+	for _, option := range options {
+		if option != nil {
+			option(dependencies)
+		}
+	}
 
 	// 设置 Gin 模式
 	if cfg.IsProduction() {
@@ -137,14 +160,23 @@ func SetupRouter() *gin.Engine {
 		v1.POST("/consumption/episodes/:episodeID/read", discoveryHandler.MarkRead)
 		v1.POST("/consumption/episodes/:episodeID/in-progress", discoveryHandler.MarkInProgress)
 
-		processingService := processing.NewService(discoveryDB)
+		processingService := dependencies.processingService
+		if processingService == nil {
+			processingService = processing.NewService(discoveryDB)
+		}
 		// API startup remains read-only. The explicitly started processing
 		// worker owns restart recovery before it claims durable work.
-		processingHandler := handlers.NewProcessingHandler(processingService, nil)
+		processingHandler := handlers.NewProcessingHandler(
+			processingService,
+			dependencies.processingCanceler,
+		)
 		v1.POST("/episodes/:id/processing-runs", processingHandler.Start)
 		v1.GET("/episodes/:id/processing-runs", processingHandler.ListEpisodeRuns)
+		v1.GET("/episodes/:id/audio-assets/latest", processingHandler.GetLatestAudio)
 		v1.GET("/processing-runs/:id", processingHandler.Get)
 		v1.POST("/processing-runs/:id/cancel", processingHandler.Cancel)
+		v1.POST("/processing-runs/:id/retry", processingHandler.Retry)
+		v1.GET("/artifact-sets/:id/:kind", processingHandler.GetArtifactContent)
 
 		// Podcast 路由
 		podcastHandler := handlers.NewPodcastHandler()

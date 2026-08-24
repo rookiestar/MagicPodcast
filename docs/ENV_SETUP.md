@@ -1,6 +1,6 @@
 # MagicPodcast 环境配置
 
-最后更新：2026-08-12
+最后更新：2026-08-24
 
 本项目使用 `MAGICPODCAST_` 前缀的环境变量覆盖本机配置。真实 `.env`、`config.yaml`、数据库和日志不进入版本库。
 
@@ -53,6 +53,18 @@ backend/.env
 | `MAGICPODCAST_USER_PHONE` | 小宇宙手机号 |
 | `MAGICPODCAST_USER_ACCESS_TOKEN` | 小宇宙访问令牌 |
 | `MAGICPODCAST_USER_REFRESH_TOKEN` | 小宇宙刷新令牌 |
+| `MAGICPODCAST_PROCESSING_ENABLED` | 是否显式启动 Focus 加工 Worker；默认关闭 |
+| `MAGICPODCAST_PROCESSING_PIPELINE_VERSION` | 当前加工管道版本 |
+| `MAGICPODCAST_PROCESSING_AUDIO_ROOT` | 受管原音频绝对目录 |
+| `MAGICPODCAST_PROCESSING_ARTIFACT_ROOT` | 逐字稿与纪要产物绝对目录 |
+| `MAGICPODCAST_PROCESSING_LARK_CLI` | `lark-cli` 可执行文件路径 |
+| `MAGICPODCAST_PROCESSING_LARK_WORK_ROOT` | 飞书 CLI 检查点文件绝对目录 |
+| `MAGICPODCAST_PROCESSING_WORKER_SCAN_INTERVAL` | 持久队列扫描间隔 |
+| `MAGICPODCAST_PROCESSING_EXTERNAL_POLL_INTERVAL` | 飞书妙记异步轮询间隔 |
+| `MAGICPODCAST_PROCESSING_WORKER_BATCH_SIZE` | 单轮最多处理的受管音频/运行数 |
+| `MAGICPODCAST_PROCESSING_RUNTIME_PYTHON` | 固定 Codex SDK 虚拟环境 Python |
+| `MAGICPODCAST_PROCESSING_RUNTIME_HOST_SCRIPT` | `runtime_host.py` 绝对路径 |
+| `MAGICPODCAST_PROCESSING_RUNTIME_WORK_ROOT` | Codex Runtime 受管工作绝对目录 |
 
 生产模式下，`./scripts/start.sh --prod` 会默认设置：
 
@@ -63,6 +75,17 @@ MAGICPODCAST_DATA_PROFILE=production
 ```
 
 生产启动脚本同时设置内部启动门禁；如果已显式设置同名环境变量，脚本不会覆盖，值不正确时后端拒绝启动。该固定值只证明进程来自规范生产启动路径，不代表用户已授权部署或生产操作。
+
+## Focus 加工启用前置
+
+`processing.enabled` 缺省为 `false`。启用前必须同时满足：
+
+1. 显式应用当前数据库迁移；普通 API 启动不会自动迁移。
+2. 按 [Codex Runtime Host Runbook](runbooks/CODEX_RUNTIME_HOST.md) 安装固定 SDK/Runtime。
+3. 安装 `lark-cli`，并以 user 身份完成云空间与妙记最小权限授权。
+4. 为音频、飞书工作、Codex 工作和产物配置互相独立的绝对目录。
+
+启用只会启动本机 Worker；不等于已授权迁移、部署或上传真实播客音频。飞书不可用时不会自动切换到本地 ASR。
 
 ## 前端配置
 

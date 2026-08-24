@@ -13,6 +13,8 @@ const apiMocks = vi.hoisted(() => ({
   addTag: vi.fn(),
   removeTag: vi.fn(),
   listTags: vi.fn(),
+  listEpisodeRuns: vi.fn(),
+  getLatestAudio: vi.fn(),
 }));
 
 vi.mock("@/lib/api/consumption", () => ({
@@ -34,6 +36,16 @@ vi.mock("@/lib/api", () => ({
   tagApi: {
     list: apiMocks.listTags,
   },
+}));
+
+vi.mock("@/lib/api/processing", () => ({
+  processingApi: {
+    listEpisodeRuns: apiMocks.listEpisodeRuns,
+    getLatestAudio: apiMocks.getLatestAudio,
+  },
+  getProcessingErrorDetails: vi.fn((error: unknown) => ({
+    message: error instanceof Error ? error.message : "加工状态读取失败",
+  })),
 }));
 
 const item: ConsumptionItem = {
@@ -106,6 +118,10 @@ describe("ConsumptionDetailPanel", () => {
     apiMocks.listTags.mockResolvedValue([
       { id: 9, name: "AI", color: "#d7681d" },
     ]);
+    apiMocks.listEpisodeRuns.mockResolvedValue([]);
+    apiMocks.getLatestAudio.mockRejectedValue({
+      response: { status: 404 },
+    });
     vi.spyOn(window, "open").mockImplementation(() => null);
   });
 

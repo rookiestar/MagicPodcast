@@ -159,6 +159,114 @@ func TestProcessingHandlerFailsClosedWithoutAuthoritativeInputResolver(t *testin
 	require.Contains(t, response.Body.String(), "PROCESSING_INPUT_UNAVAILABLE")
 }
 
+func TestProcessingHandlerAudioRetryAndArtifactRoutes(t *testing.T) {
+	db, router, episode, _ := setupProcessingHandler(t)
+	focus := models.QueueStateFocus
+	now := time.Date(2026, 8, 24, 16, 0, 0, 0, time.UTC)
+	require.NoError(t, db.Create(&models.EpisodeTriageDecision{
+		EpisodeID:      episode.ID,
+		State:          models.TriageStateShortlisted,
+		DecidedAt:      now,
+		QueueState:     &focus,
+		QueueUpdatedAt: &now,
+	}).Error)
+	require.NoError(t, db.Create(&models.EpisodeAudioAsset{
+		EpisodeID:       episode.ID,
+		SourceDigest:    strings.Repeat("d", 64),
+		Status:          models.EpisodeAudioAssetStatusReady,
+		RelativePath:    "private/episode.mp3",
+		SHA256:          strings.Repeat("a", 64),
+		SizeBytes:       1024,
+		DurationSeconds: 60,
+		MediaType:       "audio/mpeg",
+		Extension:       ".mp3",
+		ClaimToken:      "private-claim-token",
+		QueuedAt:        now,
+		ReadyAt:         &now,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}).Error)
+
+	response := processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/episodes/%d/audio-assets/latest", episode.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(t, response.Body.String(), `"status":"ready"`)
+	require.NotContains(t, response.Body.String(), "private/episode.mp3")
+	require.NotContains(t, response.Body.String(), "private-claim-token")
+	require.NotContains(t, response.Body.String(), strings.Repeat("d", 64))
+
+	response = processingRequest(
+		router,
+		http.MethodPost,
+		fmt.Sprintf("/api/v1/episodes/%d/processing-runs", episode.ID),
+		`{}`,
+	)
+	require.Equal(t, http.StatusCreated, response.Code)
+	var started struct {
+		Data struct {
+			Run models.EpisodeProcessingRun `json:"run"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &started))
+
+	response = processingRequest(
+		router,
+		http.MethodPost,
+		fmt.Sprintf("/api/v1/processing-runs/%d/cancel", started.Data.Run.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	response = processingRequest(
+		router,
+		http.MethodPost,
+		fmt.Sprintf("/api/v1/processing-runs/%d/retry", started.Data.Run.ID),
+		"",
+	)
+	require.Equal(t, http.StatusCreated, response.Code)
+	require.Contains(
+		t,
+		response.Body.String(),
+		fmt.Sprintf(`"previous_run_id":%d`, started.Data.Run.ID),
+	)
+
+	artifact := models.EpisodeArtifactSet{
+		RunID:            started.Data.Run.ID,
+		EpisodeID:        episode.ID,
+		PipelineVersion:  "pipeline-v1",
+		RootPath:         "/private/artifact/root",
+		ManifestPath:     "manifest.json",
+		ManifestSHA256:   strings.Repeat("1", 64),
+		TranscriptSHA256: strings.Repeat("2", 64),
+		NotesSHA256:      strings.Repeat("3", 64),
+		IsCurrent:        true,
+		CreatedAt:        now,
+	}
+	require.NoError(t, db.Create(&artifact).Error)
+
+	response = processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/artifact-sets/%d/transcript", artifact.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(t, response.Body.String(), "规范逐字稿")
+	require.NotContains(t, response.Body.String(), "/private/artifact/root")
+
+	response = processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/artifact-sets/%d/manifest", artifact.ID),
+		"",
+	)
+	require.Equal(t, http.StatusUnprocessableEntity, response.Code)
+	require.Contains(t, response.Body.String(), "ARTIFACT_INVALID")
+}
+
 func setupProcessingHandler(
 	t *testing.T,
 ) (*gorm.DB, *gin.Engine, models.Episode, *recordingRunCanceler) {
@@ -189,13 +297,17 @@ func setupProcessingHandler(
 	service := processing.NewService(
 		db,
 		processing.WithProcessingInputResolver(handlerProcessingInputResolver{}),
+		processing.WithArtifactReader(handlerArtifactReader{}),
 	)
 	canceler := &recordingRunCanceler{service: service}
 	handler := handlers.NewProcessingHandler(service, canceler)
 	router.POST("/api/v1/episodes/:id/processing-runs", handler.Start)
 	router.GET("/api/v1/episodes/:id/processing-runs", handler.ListEpisodeRuns)
+	router.GET("/api/v1/episodes/:id/audio-assets/latest", handler.GetLatestAudio)
 	router.GET("/api/v1/processing-runs/:id", handler.Get)
 	router.POST("/api/v1/processing-runs/:id/cancel", handler.Cancel)
+	router.POST("/api/v1/processing-runs/:id/retry", handler.Retry)
+	router.GET("/api/v1/artifact-sets/:id/:kind", handler.GetArtifactContent)
 	return db, router, episode, canceler
 }
 
@@ -216,6 +328,10 @@ func processingRequest(
 
 type handlerProcessingInputResolver struct{}
 
+func (handlerProcessingInputResolver) PipelineVersion() string {
+	return "pipeline-v1"
+}
+
 func (handlerProcessingInputResolver) ResolveProcessingInput(
 	_ context.Context,
 	_ uint,
@@ -223,6 +339,23 @@ func (handlerProcessingInputResolver) ResolveProcessingInput(
 	return processing.ProcessingInput{
 		AudioDigest:     strings.Repeat("a", 64),
 		PipelineVersion: "pipeline-v1",
+	}, nil
+}
+
+type handlerArtifactReader struct{}
+
+func (handlerArtifactReader) ReadText(
+	_ context.Context,
+	_ models.EpisodeArtifactSet,
+	kind string,
+) (processing.ArtifactContent, error) {
+	if kind != "transcript" && kind != "episode_notes" {
+		return processing.ArtifactContent{}, processing.ErrInvalidArtifact
+	}
+	return processing.ArtifactContent{
+		Kind:    kind,
+		Content: "# 规范逐字稿",
+		SHA256:  strings.Repeat("2", 64),
 	}, nil
 }
 

@@ -13,9 +13,9 @@ import (
 	"strings"
 )
 
-const SanitizerVersion = "v6"
-const sanitizerSchemaFingerprint = "a5032b2e17f739e1724dab904a4049c82d5fb934b7642f14e3f11769519e597f"
-const sanitizerSchemaObjectsFingerprint = "90a23270834f54907558faac2597f32a10bd7b9f331498a764c59c2b83759fea"
+const SanitizerVersion = "v7"
+const sanitizerSchemaFingerprint = "e7be71d710f179892abaecf49e4e7603f54fff981e9e6b34ab9f1059f2b1d5d0"
+const sanitizerSchemaObjectsFingerprint = "80b7fac5fc00be978c4ae8390f73b96390b6c42411d494bd6bd0a282d43bc872"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 
@@ -84,6 +84,7 @@ func SanitizeSnapshot(db *sql.DB) error {
 		// identities that are not part of a database-only snapshot. Removing
 		// the whole graph is safer and more truthful than retaining broken
 		// artifact or external-delivery state.
+		"DELETE FROM episode_audio_assets",
 		"DELETE FROM knowledge_deliveries",
 		"DELETE FROM processing_checkpoints",
 		"DELETE FROM episode_artifact_sets",
@@ -161,6 +162,7 @@ func VerifySanitizedSnapshot(db *sql.DB) error {
 		{`SELECT COUNT(*) FROM podcast_alternative_feeds
 		  WHERE main_feed_url <> '' OR alternative_feed_url <> ''`, "alternative Feed URLs"},
 		{"SELECT COUNT(*) FROM feed_snapshots", "durable feed bodies"},
+		{"SELECT COUNT(*) FROM episode_audio_assets", "managed episode audio paths and sources"},
 		{"SELECT COUNT(*) FROM knowledge_deliveries", "knowledge delivery identities"},
 		{"SELECT COUNT(*) FROM processing_checkpoints", "processing provider checkpoints"},
 		{"SELECT COUNT(*) FROM episode_artifact_sets", "local processing artifact paths"},
