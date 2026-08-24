@@ -14,6 +14,7 @@ import (
 	"magicpodcast/internal/models"
 
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestEngineRecoversExternalWaitPublishesAndKeepsDeliveryIndependent(t *testing.T) {
@@ -21,6 +22,13 @@ func TestEngineRecoversExternalWaitPublishesAndKeepsDeliveryIndependent(t *testi
 	now := time.Date(2026, 8, 24, 13, 0, 0, 0, time.UTC)
 	service := newProcessingService(db, WithClock(func() time.Time { return now }))
 	episode := createProcessingEpisode(t, db, true, "engine-success")
+	require.NoError(t, db.Model(&models.Episode{}).
+		Where("id = ?", episode.ID).
+		Updates(map[string]any{
+			"link":       "https://example.com/episode",
+			"show_notes": "<p>公开 Show Notes</p>",
+			"notes":      "PRIVATE-NOTE",
+		}).Error)
 	completedAt := now.Add(-24 * time.Hour)
 	require.NoError(t, db.Create(&models.EpisodeCompletion{
 		EpisodeID:   episode.ID,
@@ -99,6 +107,12 @@ func TestEngineRecoversExternalWaitPublishesAndKeepsDeliveryIndependent(t *testi
 	require.Len(t, detail.Deliveries, 1)
 	require.Equal(t, models.DeliveryStatusFailed, detail.Deliveries[0].Status)
 	require.Equal(t, models.ProcessingRunStatusCompleted, detail.Run.Status)
+	deliveredPackage := bridge.LastPackage()
+	require.Equal(t, episode.Title, deliveredPackage.EpisodeTitle)
+	require.Equal(t, "Processing engine-success", deliveredPackage.PodcastTitle)
+	require.Equal(t, "https://example.com/episode", deliveredPackage.SourceURL)
+	require.Equal(t, "公开 Show Notes", deliveredPackage.ShowNotes)
+	require.NotContains(t, deliveredPackage.ShowNotes, "PRIVATE-NOTE")
 	for _, name := range []string{"manifest.json", "transcript.md", "episode-notes.md"} {
 		_, statErr := os.Stat(filepath.Join(detail.Artifact.RootPath, name))
 		require.NoError(t, statErr)
@@ -548,6 +562,86 @@ func TestEngineContextCancellationCannotLeaveRunStuckRunning(t *testing.T) {
 	require.Equal(t, "processing_state_update_failed", retrying.ErrorCode)
 	require.True(t, retrying.ErrorRetryable)
 	require.Equal(t, StepTranscription, retrying.CurrentStep)
+}
+
+func TestEngineDoesNotCompleteWhenKnowledgePackageLoadFails(t *testing.T) {
+	db := openProcessingTestDB(t)
+	service := newProcessingService(db)
+	episode := createProcessingEpisode(t, db, true, "knowledge-load-failure")
+	run := startProcessingRun(t, service, episode.ID)
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	bridge := &fakeBridge{target: "fake-knowledge", version: "fake-v1"}
+	engine, err := NewEngine(
+		service,
+		&fakeTranscriber{},
+		&fakeRuntime{},
+		store,
+		[]BridgeBinding{{Destination: "kb-test", Adapter: bridge}},
+	)
+	require.NoError(t, err)
+
+	callbackName := "test:fail_knowledge_package_episode_query"
+	require.NoError(t, db.Callback().Query().Before("gorm:query").Register(
+		callbackName,
+		func(tx *gorm.DB) {
+			if tx.Statement.Schema != nil && tx.Statement.Schema.Table == "episodes" {
+				tx.AddError(errors.New("injected episode query failure"))
+			}
+		},
+	))
+	t.Cleanup(func() {
+		_ = db.Callback().Query().Remove(callbackName)
+	})
+
+	retrying, err := engine.Advance(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusWaitingExternal, retrying.Status)
+	require.Equal(t, "knowledge_package_load_failed", retrying.ErrorCode)
+	require.True(t, retrying.ErrorRetryable)
+	require.Zero(t, bridge.CallCount())
+
+	var artifactCount int64
+	require.NoError(t, db.Model(&models.EpisodeArtifactSet{}).
+		Where("run_id = ?", run.ID).
+		Count(&artifactCount).Error)
+	require.Zero(t, artifactCount)
+	var deliveryCount int64
+	require.NoError(t, db.Model(&models.KnowledgeDelivery{}).
+		Count(&deliveryCount).Error)
+	require.Zero(t, deliveryCount)
+}
+
+func TestEngineUsesEnclosureSourceWhenEpisodeLinkIsMissing(t *testing.T) {
+	db := openProcessingTestDB(t)
+	service := newProcessingService(db)
+	episode := createProcessingEpisode(t, db, true, "knowledge-source-fallback")
+	enclosureURL := "https://media.example.com/episode.mp3"
+	require.NoError(t, db.Model(&models.Episode{}).
+		Where("id = ?", episode.ID).
+		Updates(map[string]any{
+			"link":       "",
+			"medium_url": enclosureURL,
+		}).Error)
+	run := startProcessingRun(t, service, episode.ID)
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	bridge := &fakeBridge{target: "fake-knowledge", version: "fake-v1"}
+	engine, err := NewEngine(
+		service,
+		&fakeTranscriber{},
+		&fakeRuntime{},
+		store,
+		[]BridgeBinding{{Destination: "kb-test", Adapter: bridge}},
+	)
+	require.NoError(t, err)
+
+	completed, err := engine.Advance(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusCompleted, completed.Status)
+	pkg := bridge.LastPackage()
+	require.Equal(t, enclosureURL, pkg.SourceURL)
+	require.Equal(t, enclosureURL, pkg.Sources["episode"])
 }
 
 func TestEngineRetryIsBoundedByTotalElapsedTime(t *testing.T) {
@@ -1083,6 +1177,7 @@ type fakeBridge struct {
 	err          error
 	calls        int
 	deliveryKeys []string
+	packages     []KnowledgePackage
 	afterDeliver func()
 }
 
@@ -1096,6 +1191,7 @@ func (f *fakeBridge) Deliver(
 	f.mu.Lock()
 	f.calls++
 	f.deliveryKeys = append(f.deliveryKeys, request.DeliveryKey)
+	f.packages = append(f.packages, request.Package)
 	err := f.err
 	receipt := f.receipt
 	afterDeliver := f.afterDeliver
@@ -1121,6 +1217,15 @@ func (f *fakeBridge) DeliveryKeys() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.deliveryKeys...)
+}
+
+func (f *fakeBridge) LastPackage() KnowledgePackage {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.packages) == 0 {
+		return KnowledgePackage{}
+	}
+	return f.packages[len(f.packages)-1]
 }
 
 type postPublishBlockingStore struct {

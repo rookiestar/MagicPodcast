@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/utils"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -409,6 +410,23 @@ func (e *Engine) Advance(
 	if err := e.setCurrentStep(runCtx, run.ID, StepArtifactPublish); err != nil {
 		return e.currentAfterConditionalFailure(runCtx, run.ID, err)
 	}
+	var packageEpisode models.Episode
+	if len(e.bridges) > 0 {
+		packageEpisode, err = e.loadKnowledgePackageEpisode(runCtx, run.EpisodeID)
+		if err != nil {
+			return e.handleStepError(
+				runCtx,
+				run.ID,
+				NewAdapterError(
+					"knowledge_package_load_failed",
+					"knowledge package metadata could not be loaded",
+					true,
+				),
+				progress.Checkpoint,
+				ExternalProgressCompleted,
+			)
+		}
+	}
 	published, err := e.artifactStore.Publish(runCtx, ArtifactPublishRequest{
 		RunID:                run.ID,
 		EpisodeID:            run.EpisodeID,
@@ -454,14 +472,17 @@ func (e *Engine) Advance(
 			return run, err
 		}
 	}
-	pkg := KnowledgePackage{
-		EpisodeID:       run.EpisodeID,
-		PipelineVersion: run.PipelineVersion,
-		ManifestSHA256:  artifact.ManifestSHA256,
-		Transcript:      progress.Transcript,
-		EpisodeNotes:    runtimeResult.EpisodeNotes,
-		Sources:         cloneStringMap(progress.SourceRefs),
+	if len(e.bridges) == 0 {
+		return run, nil
 	}
+	pkg := buildKnowledgePackage(
+		run,
+		artifact,
+		packageEpisode,
+		progress.Transcript,
+		runtimeResult.EpisodeNotes,
+		progress.SourceRefs,
+	)
 	for _, binding := range e.bridges {
 		if err := e.deliver(runCtx, artifact, pkg, binding); err != nil {
 			// Delivery state is persisted independently; local processing
@@ -470,6 +491,54 @@ func (e *Engine) Advance(
 		}
 	}
 	return run, nil
+}
+
+func (e *Engine) loadKnowledgePackageEpisode(
+	ctx context.Context,
+	episodeID uint,
+) (models.Episode, error) {
+	var episode models.Episode
+	if err := e.service.db.WithContext(ctx).
+		Preload("Podcast").
+		First(&episode, episodeID).Error; err != nil {
+		return models.Episode{}, fmt.Errorf("load knowledge package episode: %w", err)
+	}
+	return episode, nil
+}
+
+func buildKnowledgePackage(
+	run models.EpisodeProcessingRun,
+	artifact models.EpisodeArtifactSet,
+	episode models.Episode,
+	transcript string,
+	episodeNotes string,
+	sourceRefs map[string]string,
+) KnowledgePackage {
+	sourceURL := strings.TrimSpace(episode.Link)
+	if sourceURL == "" {
+		sourceURL = strings.TrimSpace(episode.MediumURL)
+	}
+	sources := cloneStringMap(sourceRefs)
+	if sourceURL != "" {
+		sources["episode"] = sourceURL
+	}
+	return KnowledgePackage{
+		RunID:               run.ID,
+		EpisodeID:           run.EpisodeID,
+		EpisodeTitle:        episode.Title,
+		PodcastTitle:        episode.Podcast.Title,
+		PublishedAt:         episode.PublishedDate,
+		SourceURL:           sourceURL,
+		ShowNotes:           utils.HTMLToMarkdown(episode.ShowNotes),
+		PipelineVersion:     run.PipelineVersion,
+		ArtifactGeneratedAt: artifact.CreatedAt,
+		ManifestSHA256:      artifact.ManifestSHA256,
+		TranscriptSHA256:    artifact.TranscriptSHA256,
+		EpisodeNotesSHA256:  artifact.NotesSHA256,
+		Transcript:          transcript,
+		EpisodeNotes:        episodeNotes,
+		Sources:             sources,
+	}
 }
 
 func (e *Engine) reconcilePublishedArtifact(
@@ -1085,20 +1154,52 @@ func (e *Engine) deliver(
 				"updated_at":      e.service.now().UTC(),
 			}).Error
 	}
-	deliveredAt := e.service.now().UTC()
-	return e.service.db.WithContext(context.WithoutCancel(ctx)).
-		Model(&models.KnowledgeDelivery{}).
-		Where("id = ?", delivery.ID).
-		Updates(map[string]any{
-			"status":          models.DeliveryStatusDelivered,
-			"remote_ref":      receipt.RemoteRef,
-			"public_url":      receipt.PublicURL,
-			"delivered_at":    deliveredAt,
-			"error_code":      "",
-			"error_message":   "",
-			"error_retryable": false,
-			"updated_at":      deliveredAt,
-		}).Error
+	receiptStatus := receipt.Status
+	if receiptStatus == "" {
+		receiptStatus = models.DeliveryStatusDelivered
+	}
+	updatedAt := e.service.now().UTC()
+	switch receiptStatus {
+	case models.DeliveryStatusPending:
+		return e.service.db.WithContext(context.WithoutCancel(ctx)).
+			Model(&models.KnowledgeDelivery{}).
+			Where("id = ?", delivery.ID).
+			Updates(map[string]any{
+				"status":          models.DeliveryStatusPending,
+				"remote_ref":      receipt.RemoteRef,
+				"public_url":      receipt.PublicURL,
+				"delivered_at":    nil,
+				"error_code":      "",
+				"error_message":   "",
+				"error_retryable": false,
+				"updated_at":      updatedAt,
+			}).Error
+	case models.DeliveryStatusDelivered:
+		return e.service.db.WithContext(context.WithoutCancel(ctx)).
+			Model(&models.KnowledgeDelivery{}).
+			Where("id = ?", delivery.ID).
+			Updates(map[string]any{
+				"status":          models.DeliveryStatusDelivered,
+				"remote_ref":      receipt.RemoteRef,
+				"public_url":      receipt.PublicURL,
+				"delivered_at":    updatedAt,
+				"error_code":      "",
+				"error_message":   "",
+				"error_retryable": false,
+				"updated_at":      updatedAt,
+			}).Error
+	default:
+		return e.service.db.WithContext(context.WithoutCancel(ctx)).
+			Model(&models.KnowledgeDelivery{}).
+			Where("id = ?", delivery.ID).
+			Updates(map[string]any{
+				"status":          models.DeliveryStatusFailed,
+				"error_code":      "invalid_delivery_receipt",
+				"error_message":   "knowledge bridge returned an invalid delivery status",
+				"error_retryable": false,
+				"updated_at":      updatedAt,
+			}).Error
+	}
 }
 
 func deliveryKey(
