@@ -280,6 +280,7 @@ https://www.googleapis.com/auth/discoveryengine.serving.readwrite
 
 ```text
 discoveryengine.notebooks.create
+discoveryengine.notebooks.delete
 discoveryengine.notebooks.get
 discoveryengine.notebooks.list
 discoveryengine.sources.create
@@ -290,6 +291,7 @@ discoveryengine.sources.delete
 来源：
 
 - [Notebook create authorization](https://docs.cloud.google.com/gemini/enterprise/docs/reference/rest/v1alpha/projects.locations.notebooks/create)
+- [Notebook batch delete authorization](https://docs.cloud.google.com/gemini/enterprise/docs/reference/rest/v1alpha/projects.locations.notebooks/batchDelete)
 - [Source batch create authorization](https://docs.cloud.google.com/gemini/enterprise/docs/reference/rest/v1alpha/projects.locations.notebooks.sources/batchCreate)
 - [Source get authorization](https://docs.cloud.google.com/gemini/enterprise/docs/reference/rest/v1alpha/projects.locations.notebooks.sources/get)
 - [Source delete authorization](https://docs.cloud.google.com/gemini/enterprise/docs/reference/rest/v1alpha/projects.locations.notebooks.sources/batchDelete)
