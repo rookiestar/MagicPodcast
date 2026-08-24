@@ -2,7 +2,7 @@
 
 日期：2026-08-24
 
-状态：已确认设计；#179 Foundation 已在实施分支完成，尚未合并、迁移或部署
+状态：已确认设计；#179 Foundation 已合并；#180 Runtime 仓库实现与 Mac mini 脱敏 Smoke 已完成，尚未合并、部署或启用生产运行
 
 关联：[领域词汇](../../CONTEXT.md)、[ADR-0007](../adr/0007-use-local-codex-runtime-for-intelligent-processing.md)、[ADR-0008](../adr/0008-separate-action-processing-and-knowledge-delivery-state.md)
 
@@ -166,12 +166,18 @@ Gemini Notebook Enterprise 失败不影响 ima 包，ima 未自动上传也不�
 
 ### 6.3 Runtime Host
 
+- Runtime Module 对调用方只暴露创建执行、订阅事件、取消、读取终态/结构化结果和关闭；类型中不出现供应商会话或 Turn 字段。
 - 每个加工运行或助手请求拥有独立 Runtime execution identity、工作目录、取消句柄和事件流。
 - Codex 会话只提供执行能力；数据库中的加工运行才是权威状态。
-- 批处理优先采用官方推荐的自动化集成面；需要会话历史和流式交互的助手可使用 app-server 稳定 `stdio` JSONL。
-- 不使用 app-server 实验性 WebSocket 作为生产边界；浏览器只连接 MagicPodcast API。
-- Runtime 启动前验证 Codex CLI 版本、认证、目标工作目录和必需 Skill/CLI；失败时标记 `runtime_unavailable`。
-- 不继承 `danger-full-access`、免审批或任意 shell 权限。权限按运行类型声明，未知工具请求 fail-closed。
+- Go Runtime Host 每次执行只启动一个受管 Python Host 进程，并通过版本化、供应商中立的 `stdio` JSONL 通信；不使用 WebSocket。
+- Python Host 固定使用 `openai-codex==0.147.0` 及其配套 CLI Runtime，并显式设置 `CodexConfig(experimental_api=False)`；MagicPodcast 不直接依赖实验性 `codex app-server` 命令。
+- 批处理采用 SDK 的 `output_schema` 结构化运行语义；Host 持有 Turn 并消费 Stream，以同时提供流式事件和原生 `interrupt`。交互助手复用同一 Runtime Module，不建立第二套协议。
+- 只有 SDK/Runtime 版本、认证、目标工作目录、必需能力均通过，并观察到首个真实 SDK 事件后，执行才进入 `running`；失败统一为 `runtime_unavailable` 或中立失败码。
+- 固定使用 `ApprovalMode.deny_all`；默认只读 sandbox，明确需要写入受管运行目录时才允许 `workspace_write`，永不接受 `full_access`。
+- 每次执行使用临时 Codex Home，只链接主机文件认证，不继承用户配置、MCP、Plugin 或 Skill；终态进程内历史有界保留，数据库运行仍是长期权威状态。
+- Shell、文件写入、图片、外部工具、Plugin、Skill、子代理和未知工具在模型获得工具目录前默认关闭；只允许运行类型明确声明的中立能力，事件流检查继续 fail-closed。
+- 取消先调用目标 Turn 的原生 `interrupt`；超时后只向该执行的进程组发送 `SIGTERM`，仍未退出才 `SIGKILL`，并记录实际取消方式。
+- 父进程 EOF、服务关闭、协议错误或异常退出都会触发定向收口；其他执行的进程组不受影响。
 
 允许的首期运行类型：
 
@@ -367,7 +373,7 @@ Adapter 只能返回规范回执：目标、远端对象身份、状态、时间
 
 ## 14. 分阶段实施
 
-截至 2026-08-24，阶段 A 已在 `codex/focus-processing-spec` 实现并通过本地自动测试；这不代表 PR 已合并、生产数据库已迁移或运行态已部署。阶段 B–H 尚未实现。
+截至 2026-08-24，阶段 A、B 已合并到 `main`，但生产数据库尚未迁移。阶段 C 已完成仓库实现并接入显式启用的本机 Worker；真实飞书 Smoke、生产启用和部署尚未执行。阶段 D–H 尚未完整实现。
 
 | 阶段 | 交付 | 依赖 |
 | --- | --- | --- |
@@ -397,6 +403,7 @@ A Foundation -> H ima 导入包
 - 重启收口、取消、有限重试、检查点恢复和上一成功产物保护均有自动测试。
 - Fake Runtime/Minutes/Bridge 通过同一 Module interface 的 conformance。
 - 真实 Codex Smoke 证明创建、流式、取消、终态和无孤儿进程；保存脱敏事件证据。
+- #180 真实证据见 [`CODEX_RUNTIME_SMOKE_2026-08-24.json`](evidence/CODEX_RUNTIME_SMOKE_2026-08-24.json)：固定 SDK/Runtime `0.147.0`，完成和取消 identity 独立，原生取消，活动执行与进程组均为 0。
 
 ### 15.2 飞书手动与定时
 
@@ -429,7 +436,8 @@ A Foundation -> H ima 导入包
 
 ## 16. 一手来源与未验证门槛
 
-- [OpenAI Codex app-server](https://learn.chatgpt.com/docs/app-server)：深度产品集成、稳定 stdio JSONL、会话/流式/取消；WebSocket 标记为实验且不支持生产。
+- [OpenAI Codex SDK](https://learn.chatgpt.com/docs/codex-sdk)：稳定 Python SDK、结构化结果、Turn 流式事件与原生中断。
+- [OpenAI Codex app-server](https://learn.chatgpt.com/docs/app-server)：直接 `codex app-server` 命令和 WebSocket 当前属于实验性、非生产支持能力，不作为 MagicPodcast 生产边界。
 - [Gemini Enterprise authentication](https://docs.cloud.google.com/gemini/enterprise/docs/authentication)：ADC、服务账号模拟和 WIF。
 - [Gemini Notebook Enterprise notebooks/sources API](https://docs.cloud.google.com/gemini/enterprise/notebooklm-enterprise/docs/api-notebooks-sources)：Preview、Markdown/音频来源和异步 Source 状态。
 - [Gemini Notebook Enterprise licensing](https://docs.cloud.google.com/gemini/enterprise/notebooklm-enterprise/docs/set-up-licensing)：界面用户许可、最低 15 席和 14 天试用。
@@ -437,8 +445,8 @@ A Foundation -> H ima 导入包
 
 仍需真实验证：
 
-- Mac mini 当前 Codex/lark-cli 版本、认证、权限和运行资源；
-- Codex 自动化批处理最终采用 SDK/exec 还是 app-server stdio；
+- #181 合并后生产 Worker 的安装路径、启动配置、资源上限、日志轮转和真实重启恢复；
+- Mac mini 当前 `lark-cli` 版本、认证、权限和运行资源；
 - 飞书妙记异步状态、限流、远端资源保留和生产账号配额；
 - Gemini Notebook 服务账号/WIF 是否可完成全链路、许可是否适用于 API 身份；
 - Notebook 分组与更新策略；

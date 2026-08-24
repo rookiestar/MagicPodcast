@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"magicpodcast/internal/codexruntime"
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/feed"
 	"magicpodcast/internal/logger"
+	"magicpodcast/internal/processing"
 	"magicpodcast/internal/router"
 	"magicpodcast/internal/runtimeprofile"
 )
@@ -103,7 +105,120 @@ func main() {
 
 	// 设置路由
 	logger.Info("🔧 Setting up routes...")
-	r := router.SetupRouter()
+	var (
+		routerOptions       []router.Option
+		processingWorker    *processing.Worker
+		processingRuntime   codexruntime.Runtime
+		processingCancel    context.CancelFunc
+		processingWorkerErr chan error
+		processingStopped   bool
+	)
+	if cfg.Processing.Enabled {
+		audioStore, err := processing.NewDiskAudioStore(db, cfg.Processing.AudioRoot)
+		if err != nil {
+			logger.Fatalf("Failed to initialize managed audio: %v", err)
+		}
+		inputResolver, err := processing.NewManagedAudioInputResolver(
+			audioStore,
+			cfg.Processing.PipelineVersion,
+		)
+		if err != nil {
+			logger.Fatalf("Failed to initialize processing input resolver: %v", err)
+		}
+		artifactStore, err := processing.NewDiskArtifactStore(
+			cfg.Processing.ArtifactRoot,
+		)
+		if err != nil {
+			logger.Fatalf("Failed to initialize processing artifacts: %v", err)
+		}
+		if err := os.MkdirAll(cfg.Processing.Runtime.WorkRoot, 0o700); err != nil {
+			logger.Fatalf("Failed to initialize Codex Runtime work root: %v", err)
+		}
+		if err := os.Chmod(cfg.Processing.Runtime.WorkRoot, 0o700); err != nil {
+			logger.Fatalf("Failed to protect Codex Runtime work root: %v", err)
+		}
+		runtimeHost, err := codexruntime.NewProcessHost(
+			codexruntime.ProcessHostConfig{
+				Command: []string{
+					cfg.Processing.Runtime.Python,
+					cfg.Processing.Runtime.HostScript,
+				},
+				WorkRoot: cfg.Processing.Runtime.WorkRoot,
+				Profiles: codexruntime.DefaultProfiles(),
+			},
+		)
+		if err != nil {
+			logger.Fatalf("Failed to initialize Codex Runtime Host: %v", err)
+		}
+		processingRuntime = runtimeHost
+		runtimeAdapter, err := processing.NewLocalRuntimeAdapter(
+			runtimeHost,
+			cfg.Processing.Runtime.WorkRoot,
+		)
+		if err != nil {
+			logger.Fatalf("Failed to initialize processing Runtime adapter: %v", err)
+		}
+		minutesAdapter, err := processing.NewFeishuMinutesAdapter(
+			cfg.Processing.LarkCLI,
+			cfg.Processing.LarkWorkRoot,
+			func(
+				ctx context.Context,
+				episodeID uint,
+			) (string, string, error) {
+				audio, resolveErr := audioStore.ResolveReadyAudio(ctx, episodeID)
+				return audio.Path, audio.SHA256, resolveErr
+			},
+		)
+		if err != nil {
+			logger.Fatalf("Failed to initialize Feishu Minutes adapter: %v", err)
+		}
+		processingService := processing.NewService(
+			db,
+			processing.WithProcessingInputResolver(inputResolver),
+			processing.WithAudioPreparer(audioStore),
+			processing.WithArtifactReader(artifactStore),
+		)
+		engine, err := processing.NewEngine(
+			processingService,
+			minutesAdapter,
+			runtimeAdapter,
+			artifactStore,
+			nil,
+		)
+		if err != nil {
+			logger.Fatalf("Failed to initialize processing engine: %v", err)
+		}
+		processingWorker, err = processing.NewWorker(
+			processingService,
+			engine,
+			audioStore,
+			processing.WorkerConfig{
+				ScanInterval:         cfg.Processing.WorkerScanInterval,
+				ExternalPollInterval: cfg.Processing.ExternalPollInterval,
+				BatchSize:            cfg.Processing.WorkerBatchSize,
+			},
+		)
+		if err != nil {
+			logger.Fatalf("Failed to initialize processing worker: %v", err)
+		}
+		routerOptions = append(
+			routerOptions,
+			router.WithProcessingModule(
+				processingService,
+				processingWorker.Canceler(),
+			),
+		)
+	}
+	r := router.SetupRouter(routerOptions...)
+
+	if processingWorker != nil {
+		var workerContext context.Context
+		workerContext, processingCancel = context.WithCancel(context.Background())
+		processingWorkerErr = make(chan error, 1)
+		go func() {
+			processingWorkerErr <- processingWorker.Run(workerContext)
+		}()
+	}
 
 	listenAddress := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
 
@@ -130,7 +245,18 @@ func main() {
 	// 优雅关闭
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	if processingWorkerErr == nil {
+		<-quit
+	} else {
+		select {
+		case <-quit:
+		case workerErr := <-processingWorkerErr:
+			processingStopped = true
+			if workerErr != nil {
+				logger.Errorf("Processing worker stopped: %v", workerErr)
+			}
+		}
+	}
 
 	logger.Info("\n🛑 Shutting down server...")
 
@@ -139,6 +265,29 @@ func main() {
 
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Fatalf("Server forced to shutdown: %v", err)
+	}
+	if processingCancel != nil {
+		processingCancel()
+		if !processingStopped {
+			select {
+			case workerErr := <-processingWorkerErr:
+				if workerErr != nil {
+					logger.Errorf("Processing worker shutdown failed: %v", workerErr)
+				}
+			case <-time.After(10 * time.Second):
+				logger.Error("Processing worker shutdown timed out")
+			}
+		}
+	}
+	if processingRuntime != nil {
+		runtimeCtx, runtimeCancel := context.WithTimeout(
+			context.Background(),
+			10*time.Second,
+		)
+		if err := processingRuntime.Close(runtimeCtx); err != nil {
+			logger.Errorf("Codex Runtime shutdown failed: %v", err)
+		}
+		runtimeCancel()
 	}
 
 	logger.Info("✅ Server exited gracefully")

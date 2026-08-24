@@ -557,10 +557,13 @@ discoveryengine.googleapis.com/notebooklm_enterprise_user_activity
 4. 重复上传完全相同的包，观察 Source 数量与 ID。
 5. 模拟一次响应丢失/客户端中断，验证恢复策略。
 6. 创建新版本 Source，验证“新完成 → 删旧 → 回读”的替换流程。
-7. 用服务账号/WIF 重复 1–6，验证许可、所有权和 UI 可见性。
-8. 让 Mac mini 在无交互 shell 中换取新 token，验证过期续期。
-9. 用合成内容短时开启 usage audit logging，回读日志后关闭。
-10. 读取项目 API 配额、试用/费用和到期行为。
+7. 用代表性合成 Source 比较“一集一个 Notebook”“一个节目一个 Notebook”“节目 + 分卷”；记录检索体验、处理耗时、Source/Notebook 数量和首期分组决策。
+8. 用服务账号/WIF 重复 1–7，验证许可、所有权和 UI 可见性。
+9. 让 Mac mini 在无交互 shell 中换取新 token，验证过期续期。
+10. 用合成内容短时开启 usage audit logging，回读日志后关闭。
+11. 读取项目 API 配额、试用/费用和到期行为。
+12. 对两个身份创建的全部已知 Notebook 执行 `notebooks.batchDelete`，逐一回读确认资源已消失；同时确认旧 Source 随 Notebook 删除或单独删除完成。
+13. 对 `NOTEBOOK_CREATE_UNKNOWN` 等无法获得资源名的结果停止自动重试，记录人工清理责任人、控制台核查范围、发现与删除结果；未证明无遗留资源时，Spike 不得收口。
 
 每一步只保存脱敏请求形状、资源名哈希、状态、耗时、错误分类和费用；不保存 token、ADC 内容或私有正文。
 
@@ -580,6 +583,8 @@ discoveryengine.googleapis.com/notebooklm_enterprise_user_activity
 8. `global/us/eu` 的驻留、许可和端点一致性满足要求。
 9. 审计不泄露 token/私有正文，日志保留和访问边界已批准。
 10. 团队明确接受 Preview / Pre-GA 稳定性与支持风险。
+11. 代表性多 Source/分卷测试已完成，首期 Notebook 分组策略有可复现证据并满足容量、检索和删除边界。
+12. 两类身份创建的已知资源均已删除并回读；任何未知创建结果均已完成人工发现和清理，未遗留无法定位的资源。
 
 ### No-Go
 

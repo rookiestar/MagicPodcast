@@ -41,6 +41,7 @@ Agent 治理以根目录 [../AGENTS.md](../AGENTS.md) 为唯一权威合同；[.
 | 依赖健康 | [DEPENDENCY_REVIEW.md](DEPENDENCY_REVIEW.md) | 前后端依赖审计、升级边界和剩余风险 |
 | 工作流调度 | [WORKFLOW_SCHEDULER.md](WORKFLOW_SCHEDULER.md) | 当前工作流定时执行行为和调度接口 |
 | 工作流执行历史 | [WORKFLOW_EXECUTION_HISTORY.md](WORKFLOW_EXECUTION_HISTORY.md) | 当前执行历史、任务详情和报告入口行为 |
+| Codex Runtime Host | [runbooks/CODEX_RUNTIME_HOST.md](runbooks/CODEX_RUNTIME_HOST.md) | 固定 SDK、受限执行、取消/清理、升级和脱敏 Smoke |
 | 设计系统 | [design/DESIGN_SYSTEM.md](design/DESIGN_SYSTEM.md) | 前端视觉与组件规范 |
 | 领域词汇表 | [DOMAIN_GLOSSARY.md](DOMAIN_GLOSSARY.md) | 项目共享领域词与相近词边界 |
 
@@ -59,7 +60,7 @@ Agent 治理以根目录 [../AGENTS.md](../AGENTS.md) 为唯一权威合同；[.
 分阶段落地的方案：
 
 - [Inbox Done 与完成历史设计](research/INBOX_DONE_HISTORY_DESIGN_2026-08-23.md)：#169 已交付完成事实、最近完成与 15 秒撤销；#170 已实现独立完成历史。两阶段的本地实现与测试均不代表生产已迁移或部署。
-- [Focus 自动化播客加工与单集助手 Spec](research/FOCUS_AUTOMATED_PODCAST_PROCESSING_SPEC_2026-08-24.md)：已确认 Mac mini 本地 Codex Runtime、飞书妙记加工、知识桥和只读单集助手边界；#179 Foundation 已在实施分支完成但尚未合并、迁移或部署，后续阶段未实现。
+- [Focus 自动化播客加工与单集助手 Spec](research/FOCUS_AUTOMATED_PODCAST_PROCESSING_SPEC_2026-08-24.md)：已确认 Mac mini 本地 Codex Runtime、飞书妙记加工、知识桥和只读单集助手边界；#179–#181 仓库实现已合并，#181 仍待真实飞书 Smoke 与生产启用，后续阶段尚未落地。
 - [Gemini Notebook Enterprise 无人值守 API Spike](research/GEMINI_NOTEBOOK_ENTERPRISE_API_SPIKE_2026-08-24.md)：官方 API、许可、幂等与本机认证前置研究；生产 Adapter 当前 No-Go，真实隔离 Spike 已授权但仍缺项目、Billing、区域、许可和无人值守身份。
 
 文档角色速查：

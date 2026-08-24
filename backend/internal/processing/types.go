@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	StepTranscription   = "transcription"
-	StepEpisodeNotes    = "episode_notes"
-	StepArtifactPublish = "artifact_publish"
+	StepAudioPreparation = "audio_prepare"
+	StepTranscription    = "transcription"
+	StepEpisodeNotes     = "episode_notes"
+	StepArtifactPublish  = "artifact_publish"
 
 	ExternalProgressWaiting   = "waiting"
 	ExternalProgressCompleted = "completed"
@@ -34,6 +35,7 @@ type ProcessingInput struct {
 // trigger source; they cannot forge an idempotency key.
 type ProcessingInputResolver interface {
 	ResolveProcessingInput(context.Context, uint) (ProcessingInput, error)
+	PipelineVersion() string
 }
 
 type RunCanceler interface {
@@ -44,6 +46,8 @@ type StartResult struct {
 	Run              models.EpisodeProcessingRun `json:"run"`
 	ReusedActive     bool                        `json:"reused_active"`
 	ReusedSuccessful bool                        `json:"reused_successful"`
+	AudioAsset       *models.EpisodeAudioAsset   `json:"audio_asset,omitempty"`
+	PreparingAudio   bool                        `json:"preparing_audio"`
 }
 
 type RetryPolicy struct {
@@ -65,6 +69,11 @@ type TranscriptionRequest struct {
 	EpisodeID       uint
 	AudioDigest     string
 	PipelineVersion string
+	// PersistCheckpoint lets an adapter durably record an external-write
+	// intent before the write and the returned remote identity immediately
+	// afterwards. A write adapter must not perform a second external write in
+	// the same Begin/Resume call.
+	PersistCheckpoint func(context.Context, string, json.RawMessage) error
 }
 
 type TranscriptionProgress struct {
@@ -136,6 +145,19 @@ type ArtifactPublishResult struct {
 type ArtifactStore interface {
 	Publish(context.Context, ArtifactPublishRequest) (ArtifactPublishResult, error)
 	Discard(context.Context, ArtifactPublishResult) error
+}
+
+type ArtifactContent struct {
+	Kind    string `json:"kind"`
+	Content string `json:"content"`
+	SHA256  string `json:"sha256"`
+}
+
+// ArtifactReader exposes only the two normalized Markdown documents from an
+// already recorded artifact set. Implementations must validate the recorded
+// root and expected digest instead of accepting arbitrary paths from callers.
+type ArtifactReader interface {
+	ReadText(context.Context, models.EpisodeArtifactSet, string) (ArtifactContent, error)
 }
 
 type KnowledgePackage struct {

@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"magicpodcast/internal/models"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -152,6 +154,44 @@ func TestDiskArtifactStoreRefusesToDiscardTamperedSet(t *testing.T) {
 	require.ErrorIs(t, store.Discard(context.Background(), published), ErrInvalidArtifact)
 	_, err = os.Stat(published.RootPath)
 	require.NoError(t, err)
+}
+
+func TestDiskArtifactStoreReadsOnlyVerifiedNormalizedText(t *testing.T) {
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	request := artifactTestRequest(51)
+	published, err := store.Publish(context.Background(), request)
+	require.NoError(t, err)
+	artifact := models.EpisodeArtifactSet{
+		ID:               1,
+		RunID:            request.RunID,
+		EpisodeID:        request.EpisodeID,
+		PipelineVersion:  request.PipelineVersion,
+		RootPath:         published.RootPath,
+		ManifestPath:     published.ManifestPath,
+		ManifestSHA256:   published.ManifestSHA256,
+		TranscriptSHA256: published.TranscriptSHA256,
+		NotesSHA256:      published.NotesSHA256,
+	}
+
+	transcript, err := store.ReadText(context.Background(), artifact, "transcript")
+	require.NoError(t, err)
+	require.Equal(t, request.Transcript, transcript.Content)
+	require.Equal(t, published.TranscriptSHA256, transcript.SHA256)
+	notes, err := store.ReadText(context.Background(), artifact, "episode_notes")
+	require.NoError(t, err)
+	require.Equal(t, request.EpisodeNotes, notes.Content)
+
+	_, err = store.ReadText(context.Background(), artifact, "../raw")
+	require.ErrorIs(t, err, ErrInvalidArtifact)
+
+	require.NoError(t, os.WriteFile(
+		filepath.Join(published.RootPath, "transcript.md"),
+		[]byte("tampered"),
+		0o600,
+	))
+	_, err = store.ReadText(context.Background(), artifact, "transcript")
+	require.ErrorIs(t, err, ErrInvalidArtifact)
 }
 
 func artifactTestRequest(runID uint) ArtifactPublishRequest {

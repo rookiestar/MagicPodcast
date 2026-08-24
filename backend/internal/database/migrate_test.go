@@ -63,6 +63,9 @@ func TestApplyMigrationsCreatesVersionedReadySchema(t *testing.T) {
 	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_identity_verification"))
 	require.True(t, db.Migrator().HasTable(&models.SchedulerRun{}))
 	require.True(t, db.Migrator().HasTable("feed_snapshots"))
+	require.True(t, db.Migrator().HasTable(&models.EpisodeAudioAsset{}))
+	require.True(t, db.Migrator().HasColumn(&models.EpisodeAudioAsset{}, "source_digest"))
+	require.True(t, db.Migrator().HasColumn(&models.EpisodeAudioAsset{}, "relative_path"))
 	var activeJobIndexCount int64
 	require.NoError(t, db.Raw(`
 		SELECT COUNT(*) FROM sqlite_master
@@ -116,6 +119,18 @@ func TestRequireSchemaReadyRejectsMissingUserAgentRecoveryTables(t *testing.T) {
 			require.False(t, db.Migrator().HasTable(table), "readiness must not recreate recovery tables")
 		})
 	}
+}
+
+func TestRequireSchemaReadyRejectsMissingEpisodeAudioAssetsTable(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, ApplyMigrations(db))
+	require.NoError(t, db.Migrator().DropTable(&models.EpisodeAudioAsset{}))
+
+	status, err := InspectSchema(db)
+	require.NoError(t, err)
+	require.Contains(t, status.RequiredTablesMissing, "episode_audio_assets")
+	require.ErrorIs(t, RequireSchemaReady(db), ErrSchemaNotReady)
+	require.False(t, db.Migrator().HasTable(&models.EpisodeAudioAsset{}))
 }
 
 func TestApplyMigrationsUpgradesSchemaV5ToV6WithSchedulerRuns(t *testing.T) {
@@ -519,6 +534,116 @@ func TestApplyMigrationsUpgradesSchema19To20WithProcessingInvariants(t *testing.
 		db.Model(&first).Update("status", models.ProcessingRunStatusRunning).Error,
 		"terminal processing run status is immutable",
 	)
+}
+
+func TestApplyMigrationsUpgradesSchema20To21WithManagedAudioInvariants(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:20]))
+	require.Equal(t, 20, mustSchemaStatus(t, db).CurrentVersion)
+	require.False(t, db.Migrator().HasTable(&models.EpisodeAudioAsset{}))
+
+	require.NoError(t, ApplyMigrations(db))
+	require.NoError(t, RequireSchemaReady(db))
+	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, db).CurrentVersion)
+	require.True(t, db.Migrator().HasTable(&models.EpisodeAudioAsset{}))
+	for _, column := range []string{
+		"source_digest",
+		"status",
+		"relative_path",
+		"sha256",
+		"size_bytes",
+		"duration_seconds",
+		"media_type",
+		"extension",
+		"error_code",
+		"error_message",
+		"claim_token",
+		"claim_expires_at",
+		"queued_at",
+		"downloading_at",
+		"ready_at",
+		"failed_at",
+	} {
+		require.True(
+			t,
+			db.Migrator().HasColumn(&models.EpisodeAudioAsset{}, column),
+			"missing episode_audio_assets.%s",
+			column,
+		)
+	}
+	for _, name := range []string{
+		"idx_episode_audio_assets_one_active",
+		"idx_episode_audio_assets_ready_source",
+	} {
+		var count int64
+		require.NoError(t, db.Raw(
+			"SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?",
+			name,
+		).Scan(&count).Error)
+		require.Equal(t, int64(1), count)
+	}
+
+	podcast := models.Podcast{
+		Title: "受管音频迁移", FeedURL: "https://example.com/managed-audio.xml", XYZID: "migration-21",
+	}
+	require.NoError(t, db.Create(&podcast).Error)
+	episode := models.Episode{
+		PodcastID: podcast.ID, Title: "受管音频单集", GUID: "migration-21-episode",
+	}
+	require.NoError(t, db.Create(&episode).Error)
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	first := models.EpisodeAudioAsset{
+		EpisodeID:       episode.ID,
+		SourceDigest:    strings.Repeat("a", 64),
+		Status:          models.EpisodeAudioAssetStatusQueued,
+		DurationSeconds: 60,
+		QueuedAt:        now,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	require.NoError(t, db.Create(&first).Error)
+	concurrent := first
+	concurrent.ID = 0
+	concurrent.SourceDigest = strings.Repeat("b", 64)
+	require.ErrorContains(t, db.Create(&concurrent).Error, "UNIQUE constraint failed")
+
+	require.NoError(t, db.Model(&first).Updates(map[string]any{
+		"status":        models.EpisodeAudioAssetStatusReady,
+		"relative_path": "episodes/1/asset.mp3",
+		"sha256":        strings.Repeat("c", 64),
+		"size_bytes":    10,
+		"media_type":    "audio/mpeg",
+		"extension":     "mp3",
+		"ready_at":      now,
+	}).Error)
+	duplicateReady := first
+	duplicateReady.ID = 0
+	duplicateReady.Status = models.EpisodeAudioAssetStatusReady
+	require.ErrorContains(t, db.Create(&duplicateReady).Error, "UNIQUE constraint failed")
+
+	invalid := first
+	invalid.ID = 0
+	invalid.SourceDigest = strings.Repeat("d", 64)
+	invalid.Status = "mystery"
+	require.ErrorContains(t, db.Create(&invalid).Error, "CHECK constraint failed")
+
+	require.NoError(t, db.Unscoped().Delete(&episode).Error)
+	var count int64
+	require.NoError(t, db.Model(&models.EpisodeAudioAsset{}).Count(&count).Error)
+	require.Zero(t, count)
+}
+
+func TestApplyMigrationsLeavesCurrentManagedAudioSchemaUnchanged(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, ApplyMigrations(db))
+	require.NoError(t, ApplyMigrations(db))
+	require.NoError(t, RequireSchemaReady(db))
+
+	var count int64
+	require.NoError(t, db.Model(&SchemaMigration{}).
+		Where("version = ?", CurrentSchemaVersion).
+		Count(&count).Error)
+	require.Equal(t, int64(1), count)
 }
 
 func mustSchemaStatus(t *testing.T, db *gorm.DB) SchemaStatus {

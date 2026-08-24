@@ -65,6 +65,44 @@ xyz_api:
 	}
 }
 
+func TestLoadAppliesProcessingEnvOverrides(t *testing.T) {
+	t.Cleanup(func() {
+		cfg = nil
+		viper.Reset()
+	})
+	viper.Reset()
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv("MAGICPODCAST_PROCESSING_ENABLED", "true")
+	t.Setenv("MAGICPODCAST_PROCESSING_PIPELINE_VERSION", "focus-processing-env")
+	t.Setenv("MAGICPODCAST_PROCESSING_AUDIO_ROOT", "/tmp/magicpodcast/audio")
+	t.Setenv("MAGICPODCAST_PROCESSING_ARTIFACT_ROOT", "/tmp/magicpodcast/artifacts")
+	t.Setenv("MAGICPODCAST_PROCESSING_LARK_CLI", "/opt/bin/lark-cli")
+	t.Setenv("MAGICPODCAST_PROCESSING_LARK_WORK_ROOT", "/tmp/magicpodcast/lark")
+	t.Setenv("MAGICPODCAST_PROCESSING_WORKER_SCAN_INTERVAL", "2s")
+	t.Setenv("MAGICPODCAST_PROCESSING_EXTERNAL_POLL_INTERVAL", "45s")
+	t.Setenv("MAGICPODCAST_PROCESSING_WORKER_BATCH_SIZE", "7")
+	t.Setenv("MAGICPODCAST_PROCESSING_RUNTIME_PYTHON", "/opt/codex/bin/python")
+	t.Setenv("MAGICPODCAST_PROCESSING_RUNTIME_HOST_SCRIPT", "/opt/codex/runtime_host.py")
+	t.Setenv("MAGICPODCAST_PROCESSING_RUNTIME_WORK_ROOT", "/tmp/magicpodcast/runtime")
+
+	writeTestConfig(t, configPath, minimalBaseConfigYAML)
+	loaded, err := Load(configPath)
+	require.NoError(t, err)
+	require.True(t, loaded.Processing.Enabled)
+	require.Equal(t, "focus-processing-env", loaded.Processing.PipelineVersion)
+	require.Equal(t, "/tmp/magicpodcast/audio", loaded.Processing.AudioRoot)
+	require.Equal(t, "/tmp/magicpodcast/artifacts", loaded.Processing.ArtifactRoot)
+	require.Equal(t, "/opt/bin/lark-cli", loaded.Processing.LarkCLI)
+	require.Equal(t, "/tmp/magicpodcast/lark", loaded.Processing.LarkWorkRoot)
+	require.Equal(t, 2*time.Second, loaded.Processing.WorkerScanInterval)
+	require.Equal(t, 45*time.Second, loaded.Processing.ExternalPollInterval)
+	require.Equal(t, 7, loaded.Processing.WorkerBatchSize)
+	require.Equal(t, "/opt/codex/bin/python", loaded.Processing.Runtime.Python)
+	require.Equal(t, "/opt/codex/runtime_host.py", loaded.Processing.Runtime.HostScript)
+	require.Equal(t, "/tmp/magicpodcast/runtime", loaded.Processing.Runtime.WorkRoot)
+}
+
 func TestLoadDefaultsServerHostToLoopback(t *testing.T) {
 	t.Cleanup(func() {
 		cfg = nil
@@ -139,6 +177,7 @@ func TestAssertManagedProfileSafeRejectsCredentialAndIntegrationOverrides(t *tes
 		"sync":          func(c *Config) { c.Sync.Enabled = true },
 		"email":         func(c *Config) { c.Email.Enabled = true },
 		"llm":           func(c *Config) { c.LLM.Enabled = true },
+		"processing":    func(c *Config) { c.Processing.Enabled = true },
 		"user token":    func(c *Config) { c.User.AccessToken = "secret" },
 		"email contact": func(c *Config) { c.Email.To = "owner@example.com" },
 		"llm key":       func(c *Config) { c.LLM.APIKey = "secret" },
@@ -201,6 +240,44 @@ func TestValidateDiscoveryTimezone(t *testing.T) {
 	defaulted.Discovery.Timezone = ""
 	require.NoError(t, defaulted.Validate())
 	assert.Equal(t, "Asia/Shanghai", defaulted.Discovery.Timezone)
+}
+
+func TestValidateProcessingRequiresExplicitSafeConfiguration(t *testing.T) {
+	base := Config{
+		Server:    ServerConfig{Host: "127.0.0.1", Port: 8080, Mode: "release"},
+		Database:  DatabaseConfig{Path: "./data/test.db"},
+		XYZAPI:    XYZAPIConfig{URL: "http://127.0.0.1:8081"},
+		Discovery: DiscoveryConfig{Timezone: "Asia/Shanghai"},
+		Processing: ProcessingConfig{
+			Enabled:              true,
+			PipelineVersion:      "focus-processing-v1",
+			AudioRoot:            "/srv/magicpodcast/audio",
+			ArtifactRoot:         "/srv/magicpodcast/artifacts",
+			LarkCLI:              "/opt/bin/lark-cli",
+			LarkWorkRoot:         "/srv/magicpodcast/lark",
+			WorkerScanInterval:   time.Second,
+			ExternalPollInterval: 30 * time.Second,
+			WorkerBatchSize:      4,
+			Runtime: ProcessingRuntimeConfig{
+				Python:     "/srv/magicpodcast/venv/bin/python",
+				HostScript: "/srv/magicpodcast/runtime_host.py",
+				WorkRoot:   "/srv/magicpodcast/runtime",
+			},
+		},
+	}
+	require.NoError(t, base.Validate())
+
+	relative := base
+	relative.Processing.AudioRoot = "./audio"
+	require.ErrorContains(t, relative.Validate(), "absolute path")
+
+	incompleteRuntime := base
+	incompleteRuntime.Processing.Runtime.Python = ""
+	require.ErrorContains(t, incompleteRuntime.Validate(), "commands are incomplete")
+
+	disabled := base
+	disabled.Processing = ProcessingConfig{}
+	require.NoError(t, disabled.Validate())
 }
 
 func writeTestConfig(t *testing.T, path string, contents string) {
