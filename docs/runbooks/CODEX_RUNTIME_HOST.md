@@ -2,7 +2,7 @@
 
 最后更新：2026-08-24
 
-本 Runbook 说明 #180 的仓库实现与验证方式。它不授权生产部署、数据库迁移、真实音频上传或凭据变更。
+本 Runbook 说明 #180 的 Runtime 实现，以及 #181 如何把它接入 Focus 加工 Worker。它不授权生产部署、数据库迁移、真实音频上传或凭据变更。
 
 ## 1. 固定边界
 
@@ -87,7 +87,7 @@ Smoke 必须证明：
 
 ## 6. 当前未启用项
 
-- 生产 Worker 尚未实例化 Runtime Host 或 Processing Adapter。
-- 未配置生产日志、资源上限、LaunchAgent 或重启恢复。
-- 未安装或配置飞书、Google 生产能力。
+- 仓库已支持在 `processing.enabled=true` 时显式实例化 Runtime Host、飞书 Adapter 与持久 Worker；默认仍关闭，生产尚未启用。
+- Worker 已支持进程重启后的持久运行恢复；生产资源上限、LaunchAgent 配置和运行证据尚未完成。
+- 飞书 Adapter 已实现，生产 user 授权和真实音频 Smoke 尚未执行；Google 能力不属于 #181。
 - 未执行数据库 migration apply、部署或真实数据运行。

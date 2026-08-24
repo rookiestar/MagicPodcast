@@ -105,7 +105,19 @@ func TestExportAndRefreshSanitizesAndDoesNotSwitchActiveProfile(t *testing.T) {
 		)`)
 	require.NoError(t, err)
 	_, err = sourceDB.Exec(`
-		INSERT INTO episode_processing_runs(
+			INSERT INTO episode_audio_assets(
+				id, episode_id, source_digest, status, relative_path, sha256,
+				size_bytes, duration_seconds, media_type, extension,
+				queued_at, ready_at, created_at, updated_at
+			) VALUES (
+				9100, 2001,
+				'9999999999999999999999999999999999999999999999999999999999999999',
+				'ready', 'episodes/2001/asset-private.mp3',
+				'8888888888888888888888888888888888888888888888888888888888888888',
+				1234, 3600, 'audio/mpeg', 'mp3',
+				CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+			);
+			INSERT INTO episode_processing_runs(
 			id, episode_id, processing_key, audio_digest, pipeline_version,
 			trigger_source, status, retry_deadline_at, created_at, updated_at
 		) VALUES (
@@ -228,6 +240,7 @@ func TestExportAndRefreshSanitizesAndDoesNotSwitchActiveProfile(t *testing.T) {
 		"processing_checkpoints",
 		"episode_artifact_sets",
 		"episode_processing_runs",
+		"episode_audio_assets",
 	} {
 		require.NoError(t, exportDB.QueryRow(
 			"SELECT COUNT(*) FROM "+table,

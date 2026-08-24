@@ -19,10 +19,12 @@ import (
 var sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 type Service struct {
-	db            *gorm.DB
-	inputResolver ProcessingInputResolver
-	retryPolicy   RetryPolicy
-	now           func() time.Time
+	db             *gorm.DB
+	inputResolver  ProcessingInputResolver
+	artifactReader ArtifactReader
+	audioPreparer  AudioPreparer
+	retryPolicy    RetryPolicy
+	now            func() time.Time
 }
 
 type ServiceOption func(*Service)
@@ -36,6 +38,18 @@ func WithRetryPolicy(policy RetryPolicy) ServiceOption {
 func WithProcessingInputResolver(resolver ProcessingInputResolver) ServiceOption {
 	return func(service *Service) {
 		service.inputResolver = resolver
+	}
+}
+
+func WithArtifactReader(reader ArtifactReader) ServiceOption {
+	return func(service *Service) {
+		service.artifactReader = reader
+	}
+}
+
+func WithAudioPreparer(preparer AudioPreparer) ServiceOption {
+	return func(service *Service) {
+		service.audioPreparer = preparer
 	}
 }
 
@@ -91,13 +105,249 @@ func (s *Service) StartEpisodeProcessing(
 	}
 	input, err := s.inputResolver.ResolveProcessingInput(ctx, normalized.EpisodeID)
 	if err != nil {
-		return StartResult{}, ErrProcessingInputUnavailable
+		if s.audioPreparer == nil {
+			return StartResult{}, ErrProcessingInputUnavailable
+		}
+		queued, queueErr := s.audioPreparer.Enqueue(ctx, normalized.EpisodeID)
+		if queueErr != nil {
+			return StartResult{}, queueErr
+		}
+		if queued.ReusedReady {
+			return StartResult{}, ErrProcessingInputUnavailable
+		}
+		return s.startAudioPreparationRun(ctx, normalized, queued, nil)
 	}
 	input, err = normalizeProcessingInput(input)
 	if err != nil {
 		return StartResult{}, err
 	}
 	return s.startResolvedEpisodeProcessing(ctx, normalized, input)
+}
+
+func (s *Service) startAudioPreparationRun(
+	ctx context.Context,
+	request StartRequest,
+	queued AudioEnqueueResult,
+	previousRunID *uint,
+) (StartResult, error) {
+	pipelineVersion := strings.TrimSpace(s.inputResolver.PipelineVersion())
+	if pipelineVersion == "" || len(pipelineVersion) > 100 ||
+		queued.Asset.ID == 0 ||
+		queued.Asset.EpisodeID != request.EpisodeID ||
+		!sha256Pattern.MatchString(queued.Asset.SourceDigest) {
+		return StartResult{}, ErrProcessingInputUnavailable
+	}
+	now := s.now().UTC()
+	provisionalKey := audioPreparationKey(
+		request.EpisodeID,
+		queued.Asset.SourceDigest,
+		pipelineVersion,
+	)
+	var result StartResult
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var active models.EpisodeProcessingRun
+		activeErr := tx.
+			Where("episode_id = ? AND status IN ?", request.EpisodeID, models.ProcessingRunActiveStatuses).
+			Order("created_at DESC, id DESC").
+			First(&active).Error
+		switch {
+		case activeErr == nil:
+			result = StartResult{
+				Run:            active,
+				ReusedActive:   true,
+				AudioAsset:     &queued.Asset,
+				PreparingAudio: active.CurrentStep == StepAudioPreparation,
+			}
+			return nil
+		case !errors.Is(activeErr, gorm.ErrRecordNotFound):
+			return fmt.Errorf("read active processing run: %w", activeErr)
+		}
+
+		var focusCount int64
+		if err := tx.Model(&models.EpisodeTriageDecision{}).
+			Where("episode_id = ? AND queue_state = ?", request.EpisodeID, models.QueueStateFocus).
+			Count(&focusCount).Error; err != nil {
+			return fmt.Errorf("check Focus eligibility: %w", err)
+		}
+		if focusCount == 0 {
+			return ErrEpisodeNotFocused
+		}
+
+		run := models.EpisodeProcessingRun{
+			EpisodeID:       request.EpisodeID,
+			ProcessingKey:   provisionalKey,
+			AudioDigest:     "",
+			PipelineVersion: pipelineVersion,
+			TriggerSource:   request.TriggerSource,
+			Status:          models.ProcessingRunStatusQueued,
+			CurrentStep:     StepAudioPreparation,
+			PreviousRunID:   previousRunID,
+			MaxAttempts:     s.retryPolicy.MaxAttempts,
+			RetryDeadlineAt: now.Add(s.retryPolicy.MaxElapsed),
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		}
+		if err := tx.Create(&run).Error; err != nil {
+			if isUniqueConstraintError(err) {
+				var concurrent models.EpisodeProcessingRun
+				if queryErr := tx.
+					Where("episode_id = ? AND status IN ?", request.EpisodeID, models.ProcessingRunActiveStatuses).
+					Order("created_at DESC, id DESC").
+					First(&concurrent).Error; queryErr == nil {
+					result = StartResult{
+						Run:            concurrent,
+						ReusedActive:   true,
+						AudioAsset:     &queued.Asset,
+						PreparingAudio: concurrent.CurrentStep == StepAudioPreparation,
+					}
+					return nil
+				}
+			}
+			return fmt.Errorf("create audio preparation run: %w", err)
+		}
+		result = StartResult{
+			Run:            run,
+			AudioAsset:     &queued.Asset,
+			PreparingAudio: true,
+		}
+		return nil
+	})
+	return result, err
+}
+
+func (s *Service) completeAudioPreparation(
+	ctx context.Context,
+	episodeID uint,
+	ready ReadyAudio,
+) (models.EpisodeProcessingRun, bool, error) {
+	input, err := normalizeProcessingInput(ProcessingInput{
+		AudioDigest:     ready.SHA256,
+		PipelineVersion: s.inputResolver.PipelineVersion(),
+	})
+	if err != nil {
+		return models.EpisodeProcessingRun{}, false, err
+	}
+	var run models.EpisodeProcessingRun
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		queryErr := tx.
+			Where(
+				"episode_id = ? AND status = ? AND current_step = ?",
+				episodeID,
+				models.ProcessingRunStatusQueued,
+				StepAudioPreparation,
+			).
+			Order("created_at DESC, id DESC").
+			First(&run).Error
+		if errors.Is(queryErr, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if queryErr != nil {
+			return fmt.Errorf("read audio preparation run: %w", queryErr)
+		}
+		update := tx.Model(&models.EpisodeProcessingRun{}).
+			Where(
+				"id = ? AND status = ? AND current_step = ?",
+				run.ID,
+				models.ProcessingRunStatusQueued,
+				StepAudioPreparation,
+			).
+			Updates(map[string]any{
+				"processing_key":   processingKey(episodeID, input.AudioDigest, input.PipelineVersion),
+				"audio_digest":     input.AudioDigest,
+				"pipeline_version": input.PipelineVersion,
+				"current_step":     "",
+				"updated_at":       s.now().UTC(),
+			})
+		if update.Error != nil {
+			return fmt.Errorf("complete audio preparation run: %w", update.Error)
+		}
+		if update.RowsAffected == 0 {
+			run = models.EpisodeProcessingRun{}
+			return nil
+		}
+		return loadProcessingRun(tx, run.ID, &run)
+	})
+	return run, run.ID != 0, err
+}
+
+func (s *Service) failAudioPreparation(
+	ctx context.Context,
+	episodeID uint,
+	code string,
+	message string,
+	retryable bool,
+) error {
+	var run models.EpisodeProcessingRun
+	err := s.db.WithContext(ctx).
+		Where(
+			"episode_id = ? AND status = ? AND current_step = ?",
+			episodeID,
+			models.ProcessingRunStatusQueued,
+			StepAudioPreparation,
+		).
+		Order("created_at DESC, id DESC").
+		First(&run).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read audio preparation run: %w", err)
+	}
+	code = strings.TrimSpace(code)
+	message = strings.TrimSpace(message)
+	if code == "" {
+		code = AudioErrorDownloadFailed
+	}
+	if message == "" {
+		message = "episode audio preparation failed"
+	}
+	return s.failRun(ctx, run.ID, code, message, retryable, s.now().UTC())
+}
+
+func (s *Service) listAudioPreparationRuns(
+	ctx context.Context,
+) ([]models.EpisodeProcessingRun, error) {
+	runs := make([]models.EpisodeProcessingRun, 0)
+	if err := s.db.WithContext(ctx).
+		Where(
+			"status = ? AND current_step = ?",
+			models.ProcessingRunStatusQueued,
+			StepAudioPreparation,
+		).
+		Order("created_at ASC, id ASC").
+		Find(&runs).Error; err != nil {
+		return nil, fmt.Errorf("list audio preparation runs: %w", err)
+	}
+	return runs, nil
+}
+
+func (s *Service) GetLatestEpisodeAudioAsset(
+	ctx context.Context,
+	episodeID uint,
+) (models.EpisodeAudioAsset, error) {
+	if episodeID == 0 {
+		return models.EpisodeAudioAsset{}, ErrEpisodeNotFound
+	}
+	var episodeCount int64
+	if err := s.db.WithContext(ctx).Model(&models.Episode{}).
+		Where("id = ?", episodeID).
+		Count(&episodeCount).Error; err != nil {
+		return models.EpisodeAudioAsset{}, fmt.Errorf("check audio episode: %w", err)
+	}
+	if episodeCount == 0 {
+		return models.EpisodeAudioAsset{}, ErrEpisodeNotFound
+	}
+	var asset models.EpisodeAudioAsset
+	if err := s.db.WithContext(ctx).
+		Where("episode_id = ?", episodeID).
+		Order("created_at DESC, id DESC").
+		First(&asset).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return models.EpisodeAudioAsset{}, ErrProcessingInputUnavailable
+		}
+		return models.EpisodeAudioAsset{}, fmt.Errorf("read episode audio asset: %w", err)
+	}
+	return asset, nil
 }
 
 func (s *Service) startResolvedEpisodeProcessing(
@@ -253,9 +503,11 @@ func (s *Service) requireFocusedEpisode(ctx context.Context, episodeID uint) err
 }
 
 type RunDetail struct {
-	Run        models.EpisodeProcessingRun `json:"run"`
-	Artifact   *models.EpisodeArtifactSet  `json:"artifact,omitempty"`
-	Deliveries []models.KnowledgeDelivery  `json:"deliveries"`
+	Run              models.EpisodeProcessingRun `json:"run"`
+	Artifact         *models.EpisodeArtifactSet  `json:"artifact,omitempty"`
+	CurrentArtifact  *models.EpisodeArtifactSet  `json:"current_artifact,omitempty"`
+	Deliveries       []models.KnowledgeDelivery  `json:"deliveries"`
+	ActionSuggestion string                      `json:"action_suggestion,omitempty"`
 }
 
 func (s *Service) GetProcessingRun(ctx context.Context, runID uint) (RunDetail, error) {
@@ -264,6 +516,7 @@ func (s *Service) GetProcessingRun(ctx context.Context, runID uint) (RunDetail, 
 		return RunDetail{}, err
 	}
 	detail := RunDetail{Run: run, Deliveries: []models.KnowledgeDelivery{}}
+	detail.ActionSuggestion = processingActionSuggestion(run)
 
 	var artifact models.EpisodeArtifactSet
 	artifactErr := s.db.WithContext(ctx).Where("run_id = ?", runID).First(&artifact).Error
@@ -279,7 +532,68 @@ func (s *Service) GetProcessingRun(ctx context.Context, runID uint) (RunDetail, 
 	case !errors.Is(artifactErr, gorm.ErrRecordNotFound):
 		return RunDetail{}, fmt.Errorf("read processing artifact: %w", artifactErr)
 	}
+	var currentArtifact models.EpisodeArtifactSet
+	currentArtifactErr := s.db.WithContext(ctx).
+		Where("episode_id = ? AND is_current = ?", run.EpisodeID, true).
+		Order("created_at DESC, id DESC").
+		First(&currentArtifact).Error
+	switch {
+	case currentArtifactErr == nil:
+		detail.CurrentArtifact = &currentArtifact
+	case !errors.Is(currentArtifactErr, gorm.ErrRecordNotFound):
+		return RunDetail{}, fmt.Errorf("read current episode artifact: %w", currentArtifactErr)
+	}
 	return detail, nil
+}
+
+func processingActionSuggestion(run models.EpisodeProcessingRun) string {
+	switch run.ErrorCode {
+	case "audio_not_ready", "audio_digest_mismatch":
+		return "请重新准备受管音频后再开始加工。"
+	case "lark_cli_unavailable":
+		return "请检查生产机上的 lark-cli 安装。"
+	case "lark_auth_expired":
+		return "请在生产机重新完成飞书用户登录后重试。"
+	case "lark_permission_denied":
+		return "请补齐飞书云空间与妙记所需的用户权限后重试。"
+	case "lark_drive_result_unknown", "lark_minutes_result_unknown", "external_result_unknown":
+		return "请先在飞书确认远端资源是否已创建；系统不会自动重复上传。"
+	case "runtime_unavailable", "runtime_error":
+		return "请检查本地 Codex Runtime 后重试，已完成的逐字稿会继续复用。"
+	case "transcript_empty", "empty_transcript":
+		return "请等待飞书转写完成或检查妙记产物后重试。"
+	}
+	if strings.HasPrefix(run.ErrorCode, "audio_") {
+		if run.ErrorRetryable {
+			return "请检查音频来源或本机存储后从准备阶段重试。"
+		}
+		return "请修正音频来源、格式、大小或时长后重试。"
+	}
+	if run.ErrorRetryable {
+		return "当前检查点可安全重试。"
+	}
+	return ""
+}
+
+func (s *Service) GetArtifactContent(
+	ctx context.Context,
+	artifactSetID uint,
+	kind string,
+) (ArtifactContent, error) {
+	if artifactSetID == 0 {
+		return ArtifactContent{}, ErrInvalidArtifact
+	}
+	if s.artifactReader == nil {
+		return ArtifactContent{}, ErrInvalidArtifact
+	}
+	var artifact models.EpisodeArtifactSet
+	if err := s.db.WithContext(ctx).First(&artifact, artifactSetID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ArtifactContent{}, ErrArtifactNotFound
+		}
+		return ArtifactContent{}, fmt.Errorf("read artifact set: %w", err)
+	}
+	return s.artifactReader.ReadText(ctx, artifact, kind)
 }
 
 func (s *Service) ListEpisodeProcessingRuns(
@@ -303,6 +617,44 @@ func (s *Service) ListEpisodeProcessingRuns(
 		return nil, fmt.Errorf("list episode processing runs: %w", err)
 	}
 	return runs, nil
+}
+
+func (s *Service) listRunnableRunIDs(
+	ctx context.Context,
+	now time.Time,
+	externalPollInterval time.Duration,
+	limit int,
+) ([]uint, error) {
+	if limit < 1 {
+		limit = 1
+	}
+	pollBefore := now.Add(-externalPollInterval)
+	var runIDs []uint
+	err := s.db.WithContext(ctx).
+		Model(&models.EpisodeProcessingRun{}).
+		Select("id").
+		Where(
+			`(status = ? AND current_step <> ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?))
+			 OR
+			 (status = ? AND (
+			   (next_attempt_at IS NOT NULL AND next_attempt_at <= ?)
+			   OR
+			   (next_attempt_at IS NULL AND updated_at <= ?)
+			))`,
+			models.ProcessingRunStatusQueued,
+			StepAudioPreparation,
+			now,
+			models.ProcessingRunStatusWaitingExternal,
+			now,
+			pollBefore,
+		).
+		Order("created_at ASC, id ASC").
+		Limit(limit).
+		Pluck("id", &runIDs).Error
+	if err != nil {
+		return nil, fmt.Errorf("list runnable processing runs: %w", err)
+	}
+	return runIDs, nil
 }
 
 func (s *Service) CancelProcessingRun(
@@ -340,6 +692,139 @@ func (s *Service) CancelProcessingRun(
 		return nil
 	})
 	return run, err
+}
+
+func (s *Service) RetryProcessingRun(
+	ctx context.Context,
+	sourceRunID uint,
+) (StartResult, error) {
+	source, err := s.getRunModel(ctx, sourceRunID)
+	if err != nil {
+		return StartResult{}, err
+	}
+	if source.Status != models.ProcessingRunStatusFailed &&
+		source.Status != models.ProcessingRunStatusCancelled {
+		return StartResult{}, ErrRetryUnsafe
+	}
+	if strings.Contains(source.ErrorCode, "result_unknown") {
+		return StartResult{}, ErrRetryUnsafe
+	}
+	if active, found, err := s.findActiveRun(ctx, source.EpisodeID); err != nil {
+		return StartResult{}, err
+	} else if found {
+		return StartResult{Run: active, ReusedActive: true}, nil
+	}
+	if err := s.requireFocusedEpisode(ctx, source.EpisodeID); err != nil {
+		return StartResult{}, err
+	}
+	if s.inputResolver == nil {
+		return StartResult{}, ErrProcessingInputUnavailable
+	}
+	input, err := s.inputResolver.ResolveProcessingInput(ctx, source.EpisodeID)
+	if err != nil {
+		if s.audioPreparer != nil && strings.HasPrefix(source.ErrorCode, "audio_") {
+			queued, queueErr := s.audioPreparer.Enqueue(ctx, source.EpisodeID)
+			if queueErr != nil {
+				return StartResult{}, queueErr
+			}
+			if !queued.ReusedReady {
+				retryRequest := StartRequest{
+					EpisodeID:     source.EpisodeID,
+					TriggerSource: models.ProcessingTriggerManual,
+				}
+				return s.startAudioPreparationRun(
+					ctx,
+					retryRequest,
+					queued,
+					&source.ID,
+				)
+			}
+		}
+		return StartResult{}, ErrProcessingInputUnavailable
+	}
+	input, err = normalizeProcessingInput(input)
+	if err != nil {
+		return StartResult{}, err
+	}
+	if processingKey(source.EpisodeID, input.AudioDigest, input.PipelineVersion) !=
+		source.ProcessingKey {
+		return StartResult{}, ErrRetryUnsafe
+	}
+
+	now := s.now().UTC()
+	var result StartResult
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := loadProcessingRun(tx, sourceRunID, &source); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrRunNotFound
+			}
+			return err
+		}
+		if source.Status != models.ProcessingRunStatusFailed &&
+			source.Status != models.ProcessingRunStatusCancelled {
+			return ErrRetryUnsafe
+		}
+		var active models.EpisodeProcessingRun
+		activeErr := tx.
+			Where("episode_id = ? AND status IN ?", source.EpisodeID, models.ProcessingRunActiveStatuses).
+			Order("created_at DESC, id DESC").
+			First(&active).Error
+		switch {
+		case activeErr == nil:
+			result = StartResult{Run: active, ReusedActive: true}
+			return nil
+		case !errors.Is(activeErr, gorm.ErrRecordNotFound):
+			return activeErr
+		}
+
+		var checkpoint models.ProcessingCheckpoint
+		checkpointErr := tx.
+			Where("run_id = ? AND step = ?", sourceRunID, StepTranscription).
+			First(&checkpoint).Error
+		switch {
+		case checkpointErr == nil:
+			if !checkpointIsValid(checkpoint) {
+				return ErrRetryUnsafe
+			}
+		case errors.Is(checkpointErr, gorm.ErrRecordNotFound):
+			if !source.ErrorRetryable &&
+				source.Status != models.ProcessingRunStatusCancelled {
+				return ErrRetryUnsafe
+			}
+		default:
+			return checkpointErr
+		}
+
+		retry := models.EpisodeProcessingRun{
+			EpisodeID:       source.EpisodeID,
+			ProcessingKey:   source.ProcessingKey,
+			AudioDigest:     source.AudioDigest,
+			PipelineVersion: source.PipelineVersion,
+			TriggerSource:   models.ProcessingTriggerManual,
+			Status:          models.ProcessingRunStatusQueued,
+			PreviousRunID:   &source.ID,
+			MaxAttempts:     s.retryPolicy.MaxAttempts,
+			RetryDeadlineAt: now.Add(s.retryPolicy.MaxElapsed),
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		}
+		if err := tx.Create(&retry).Error; err != nil {
+			return fmt.Errorf("create processing retry: %w", err)
+		}
+		if checkpointErr == nil {
+			checkpoint.ID = 0
+			checkpoint.RunID = retry.ID
+			checkpoint.Run = models.EpisodeProcessingRun{}
+			checkpoint.CreatedAt = now
+			checkpoint.UpdatedAt = now
+			if err := tx.Create(&checkpoint).Error; err != nil {
+				return fmt.Errorf("copy processing checkpoint: %w", err)
+			}
+		}
+		result = StartResult{Run: retry}
+		return nil
+	})
+	return result, err
 }
 
 type RecoveryResult struct {
@@ -525,6 +1010,20 @@ func processingKey(episodeID uint, audioDigest, pipelineVersion string) string {
 		"%d\x00%s\x00%s",
 		episodeID,
 		audioDigest,
+		pipelineVersion,
+	)))
+	return hex.EncodeToString(sum[:])
+}
+
+func audioPreparationKey(
+	episodeID uint,
+	sourceDigest string,
+	pipelineVersion string,
+) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf(
+		"audio-prepare\x00%d\x00%s\x00%s",
+		episodeID,
+		sourceDigest,
 		pipelineVersion,
 	)))
 	return hex.EncodeToString(sum[:])
