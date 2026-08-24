@@ -28,11 +28,15 @@ const (
 
 var (
 	imaHTTPURLPattern = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)
+	imaFileURLPattern = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])file:(?:/{1,3}|\\+)`)
 	imaUnixPath       = regexp.MustCompile(
-		`(?i)(?:^|[\s("'` + "`" + `])/(?:users|home|private|var|tmp|opt|etc|volumes)/[^\s<>"']*`,
+		`(?i)(?:^|[^[:alnum:]_])/(?:users|home|private|var|tmp|opt|etc|volumes|root|mnt|media|srv|run|proc|sys|dev|data|usr|library|applications)(?:/|$)[^\s<>"']*`,
 	)
-	imaWindowsPath = regexp.MustCompile(`(?i)\b[a-z]:\\[^\s<>"']+`)
+	imaWindowsPath = regexp.MustCompile(`(?i)(?:^|[^[:alnum:]_])[a-z]:[\\/][^\s<>"']+`)
 	imaUNCPath     = regexp.MustCompile(`\\\\[^\\\s<>"']+\\[^\s<>"']+`)
+	imaCredential  = regexp.MustCompile(
+		`(?i)(?:^|[^a-z0-9])["']?(?:file[_-]?token|minute[_-]?token|access[_-]?token|refresh[_-]?token|id[_-]?token|token|api[_-]?key|access[_-]?key|secret|credential(?:s)?|password|passwd|authorization|cookie|session(?:[_-]?id)?|jwt|signature|sig)["']?\s*[:=]\s*["']?[^\s"',;]+`,
+	)
 )
 
 type IMAManualImportBridge struct {
@@ -657,7 +661,6 @@ func sensitiveSourceKey(key string) bool {
 }
 
 func validateIMAPackageText(value string) error {
-	lower := strings.ToLower(value)
 	for _, raw := range imaHTTPURLPattern.FindAllString(value, -1) {
 		candidate := strings.TrimRight(raw, ".,;:!?)]}")
 		if err := validateSafeHTTPURL(candidate); err != nil {
@@ -665,7 +668,10 @@ func validateIMAPackageText(value string) error {
 		}
 	}
 	textWithoutHTTPURLs := imaHTTPURLPattern.ReplaceAllString(value, "")
-	if strings.Contains(lower, "file://") ||
+	if imaCredential.MatchString(value) {
+		return invalidIMAPackage("package content contains credentials")
+	}
+	if imaFileURLPattern.MatchString(textWithoutHTTPURLs) ||
 		strings.Contains(textWithoutHTTPURLs, "~/") ||
 		imaUnixPath.MatchString(textWithoutHTTPURLs) ||
 		imaWindowsPath.MatchString(textWithoutHTTPURLs) ||
@@ -678,8 +684,11 @@ func validateIMAPackageText(value string) error {
 func validateSafeHTTPURL(raw string) error {
 	raw = strings.TrimSpace(raw)
 	parsed, err := url.Parse(raw)
+	if err != nil || parsed == nil {
+		return fmt.Errorf("URL must be valid")
+	}
 	scheme := strings.ToLower(parsed.Scheme)
-	if err != nil || (scheme != "http" && scheme != "https") ||
+	if (scheme != "http" && scheme != "https") ||
 		parsed.Host == "" || parsed.User != nil {
 		return fmt.Errorf("URL must be HTTP(S) without credentials")
 	}

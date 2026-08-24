@@ -121,6 +121,60 @@ func TestIMAManualImportBridgePublishesDeterministicRestrictedPackage(t *testing
 	)
 }
 
+func TestIMAManualImportBridgeSchemaUpgradeUsesNewPackageIdentity(t *testing.T) {
+	request := validIMAManualImportRequest()
+	bridge, err := NewIMAManualImportBridge(t.TempDir())
+	require.NoError(t, err)
+	_, err = bridge.Deliver(context.Background(), request)
+	require.NoError(t, err)
+
+	legacyVersion := "0.9.0"
+	legacyPath := filepath.Join(bridge.root, "packages", request.DeliveryKey)
+	legacyFiles := readIMAPackageFiles(t, legacyPath)
+	var metadata imaPackageMetadata
+	require.NoError(t, json.Unmarshal(legacyFiles["metadata.json"], &metadata))
+	metadata.Version = legacyVersion
+	legacyFiles["metadata.json"], err = marshalStableJSON(metadata)
+	require.NoError(t, err)
+	legacyFiles["knowledge.md"] = []byte(strings.ReplaceAll(
+		string(legacyFiles["knowledge.md"]),
+		IMAManualImportSchemaVersion,
+		legacyVersion,
+	))
+
+	var manifest imaPackageManifest
+	require.NoError(t, json.Unmarshal(legacyFiles["manifest.json"], &manifest))
+	manifest.Version = legacyVersion
+	for index := range manifest.Files {
+		content := legacyFiles[manifest.Files[index].Path]
+		manifest.Files[index].Size = len(content)
+		manifest.Files[index].SHA256 = digestBytes(content)
+	}
+	legacyFiles["manifest.json"], err = marshalStableJSON(manifest)
+	require.NoError(t, err)
+	for name, content := range legacyFiles {
+		require.NoError(t, os.WriteFile(filepath.Join(legacyPath, name), content, 0o600))
+	}
+
+	_, err = bridge.Deliver(context.Background(), request)
+	require.Error(t, err)
+	var adapterErr *AdapterError
+	require.ErrorAs(t, err, &adapterErr)
+	require.Equal(t, "invalid_ima_manual_import_package", adapterErr.ErrorCode)
+
+	upgradedRequest := request
+	upgradedRequest.DeliveryKey = strings.Repeat("b", 64)
+	_, err = bridge.Deliver(context.Background(), upgradedRequest)
+	require.NoError(t, err)
+	upgradedFiles := readIMAPackageFiles(
+		t,
+		filepath.Join(bridge.root, "packages", upgradedRequest.DeliveryKey),
+	)
+	require.NoError(t, json.Unmarshal(upgradedFiles["manifest.json"], &manifest))
+	require.Equal(t, IMAManualImportSchemaVersion, manifest.Version)
+	require.Equal(t, upgradedRequest.DeliveryKey, manifest.PackageID)
+}
+
 func TestIMAManualImportBridgeRejectsIncompleteArtifacts(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -244,8 +298,28 @@ func TestIMAManualImportBridgeRejectsTraversalSymlinksAndSensitiveSources(t *tes
 		{"UNC show notes path", func(request *DeliveryRequest) {
 			request.Package.ShowNotes = "\\\\server\\share\\private.txt"
 		}},
+		{"assigned macOS path", func(request *DeliveryRequest) {
+			request.Package.ShowNotes = "path=/Users/private/audio.mp3"
+		}},
+		{"single slash file URI", func(request *DeliveryRequest) {
+			request.Package.ShowNotes = "FILE:/etc/passwd"
+		}},
+		{"forward slash Windows path", func(request *DeliveryRequest) {
+			request.Package.ShowNotes = "cache=C:/temp/private.txt"
+		}},
+		{"credential assignment in transcript", func(request *DeliveryRequest) {
+			request.Package.Transcript += "\nfile_token=SECRET"
+			request.Package.TranscriptSHA256 = digestString(request.Package.Transcript)
+		}},
+		{"credential JSON in notes", func(request *DeliveryRequest) {
+			request.Package.EpisodeNotes += "\n{\"access_token\": \"SECRET\"}"
+			request.Package.EpisodeNotesSHA256 = digestString(request.Package.EpisodeNotes)
+		}},
 		{"credential show notes URL", func(request *DeliveryRequest) {
 			request.Package.ShowNotes = "[restricted](https://example.com/doc?token=SECRET)"
+		}},
+		{"malformed show notes URL", func(request *DeliveryRequest) {
+			request.Package.ShowNotes = "[broken](https://example.com/%zz)"
 		}},
 		{"uppercase loopback show notes URL", func(request *DeliveryRequest) {
 			request.Package.ShowNotes = "[restricted](HTTP://127.0.0.1/private)"
