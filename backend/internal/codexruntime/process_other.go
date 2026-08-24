@@ -21,6 +21,10 @@ func signalProcessGroup(pid int, signal syscall.Signal) error {
 	return process.Signal(os.Interrupt)
 }
 
+func signalLiveProcessGroup(pid int, signal syscall.Signal) bool {
+	return signalProcessGroup(pid, signal) == nil
+}
+
 func processGroupAlive(_ int) bool {
 	return false
 }

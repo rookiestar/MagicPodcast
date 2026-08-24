@@ -561,6 +561,52 @@ func TestProcessHostCancelRequestWithoutAckOrSupervisorSignalFailsProtocol(
 	require.NoError(t, closeHost(t, host))
 }
 
+func TestProcessHostFailedCancelWriteDoesNotRecordUndeliveredSignal(
+	t *testing.T,
+) {
+	host, _ := newHelperHost(t, "success")
+	readPipe, writePipe, err := os.Pipe()
+	require.NoError(t, err)
+	require.NoError(t, readPipe.Close())
+	t.Cleanup(func() {
+		_ = writePipe.Close()
+	})
+
+	executionID := ExecutionID("cancel-write-race")
+	processDone := make(chan struct{})
+	execution := &managedExecution{
+		snapshot: ExecutionSnapshot{
+			ID:                 executionID,
+			Status:             StatusRunning,
+			CancellationMethod: CancellationNone,
+		},
+		stdin:       writePipe,
+		pid:         1 << 30,
+		nativeAck:   make(chan struct{}),
+		processDone: processDone,
+		cancelDone:  make(chan struct{}),
+	}
+	host.mu.Lock()
+	host.executions[executionID] = execution
+	host.mu.Unlock()
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		execution.mu.Lock()
+		execution.snapshot.Status = StatusFailed
+		execution.snapshot.ErrorCode = ErrorProtocol
+		execution.processClosed = true
+		close(processDone)
+		execution.mu.Unlock()
+	}()
+
+	cancelled, err := host.CancelExecution(context.Background(), executionID)
+	require.NoError(t, err)
+	require.Equal(t, StatusFailed, cancelled.Status)
+	require.Equal(t, CancellationNone, cancelled.Method)
+	require.NoError(t, closeHost(t, host))
+}
+
 func TestProcessHostCloseDeadlineStillKillsAndReapsTargetProcessGroup(
 	t *testing.T,
 ) {
@@ -864,6 +910,58 @@ func TestProcessHostRejectsEnvironmentOutsideAllowlist(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Equal(t, ErrorInvalidRequest, ErrorCode(err))
+}
+
+func TestProcessHostResolvesRelativeExecutableBeforeExecutionDirectory(
+	t *testing.T,
+) {
+	currentDirectory, err := os.Getwd()
+	require.NoError(t, err)
+	relativeExecutable, err := filepath.Rel(currentDirectory, os.Args[0])
+	require.NoError(t, err)
+	if !strings.Contains(relativeExecutable, string(os.PathSeparator)) {
+		relativeExecutable = "." +
+			string(os.PathSeparator) +
+			relativeExecutable
+	}
+	workRoot := t.TempDir()
+	host, err := NewProcessHost(ProcessHostConfig{
+		Command: []string{
+			relativeExecutable,
+			"-test.run=^TestProcessHostHelper$",
+		},
+		WorkRoot: workRoot,
+		testEnvironment: map[string]string{
+			"GO_WANT_RUNTIME_HELPER":  "1",
+			"GORACE":                  "atexit_sleep_ms=0",
+			"PATH":                    os.Getenv("PATH"),
+			"RUNTIME_HELPER_SCENARIO": "success",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, filepath.IsAbs(host.config.Command[0]))
+
+	snapshot, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind: ExecutionKindEpisodeNotes,
+			WorkingDirectory: newExecutionDir(
+				t,
+				workRoot,
+				"relative-command-",
+			),
+			Prompt:       "success",
+			OutputSchema: episodeNotesSchema,
+		},
+	)
+	require.NoError(t, err)
+	events, err := host.SubscribeExecution(context.Background(), snapshot.ID)
+	require.NoError(t, err)
+	_ = collectEvents(events)
+	final, err := host.GetExecution(context.Background(), snapshot.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusCompleted, final.Status)
+	require.NoError(t, closeHost(t, host))
 }
 
 func TestPythonSDKHostRejectsMismatchedRuntimeVersion(t *testing.T) {

@@ -367,8 +367,11 @@ func (h *ProcessHost) CreateExecution(
 		execution.mu.Lock()
 		execution.cancelRequested = true
 		execution.mu.Unlock()
-		h.setCancellationMethod(execution, CancellationSIGKILL)
-		h.forceStop(execution, syscall.SIGKILL)
+		h.stopForCancellation(
+			execution,
+			syscall.SIGKILL,
+			CancellationSIGKILL,
+		)
 		return ExecutionSnapshot{}, ctx.Err()
 	case <-timer.C:
 		h.failExecution(
@@ -484,8 +487,11 @@ func (h *ProcessHost) CancelExecution(
 			Type:            "cancel",
 			ExecutionID:     executionID,
 		}); err != nil {
-			h.setCancellationMethod(execution, CancellationSIGTERM)
-			h.forceStop(execution, syscall.SIGTERM)
+			h.stopForCancellation(
+				execution,
+				syscall.SIGTERM,
+				CancellationSIGTERM,
+			)
 		}
 	}
 
@@ -519,9 +525,11 @@ func (h *ProcessHost) superviseCancellation(execution *managedExecution) {
 	case <-execution.processDone:
 		return
 	case <-nativeTimer.C:
-		h.setCancellationMethod(execution, CancellationSIGTERM)
-		h.forceStop(execution, syscall.SIGTERM)
-		sentSIGTERM = true
+		sentSIGTERM = h.stopForCancellation(
+			execution,
+			syscall.SIGTERM,
+			CancellationSIGTERM,
+		)
 	}
 
 	if h.waitForDone(
@@ -532,8 +540,11 @@ func (h *ProcessHost) superviseCancellation(execution *managedExecution) {
 		return
 	}
 	if !sentSIGTERM {
-		h.setCancellationMethod(execution, CancellationSIGTERM)
-		h.forceStop(execution, syscall.SIGTERM)
+		h.stopForCancellation(
+			execution,
+			syscall.SIGTERM,
+			CancellationSIGTERM,
+		)
 		if h.waitForDone(
 			context.Background(),
 			execution.processDone,
@@ -542,8 +553,11 @@ func (h *ProcessHost) superviseCancellation(execution *managedExecution) {
 			return
 		}
 	}
-	h.setCancellationMethod(execution, CancellationSIGKILL)
-	h.forceStop(execution, syscall.SIGKILL)
+	h.stopForCancellation(
+		execution,
+		syscall.SIGKILL,
+		CancellationSIGKILL,
+	)
 	if !h.waitForDone(
 		context.Background(),
 		execution.processDone,
@@ -1139,20 +1153,26 @@ func (h *ProcessHost) ensureProcessGroupStopped(pid int) CancellationMethod {
 	if !processGroupAlive(pid) {
 		return CancellationNone
 	}
-	_ = signalProcessGroup(pid, syscall.SIGTERM)
+	sentSIGTERM := signalLiveProcessGroup(pid, syscall.SIGTERM)
 	deadline = time.Now().Add(h.config.TerminateTimeout)
 	for processGroupAlive(pid) && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	if !processGroupAlive(pid) {
-		return CancellationSIGTERM
+		if sentSIGTERM {
+			return CancellationSIGTERM
+		}
+		return CancellationNone
 	}
-	_ = signalProcessGroup(pid, syscall.SIGKILL)
+	sentSIGKILL := signalLiveProcessGroup(pid, syscall.SIGKILL)
 	deadline = time.Now().Add(h.config.KillTimeout)
 	for processGroupAlive(pid) && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
-	return CancellationSIGKILL
+	if sentSIGKILL {
+		return CancellationSIGKILL
+	}
+	return CancellationNone
 }
 
 func (h *ProcessHost) forceStop(
@@ -1170,8 +1190,11 @@ func (h *ProcessHost) forceStopForClose(execution *managedExecution) {
 	}
 	execution.cancelRequested = true
 	execution.mu.Unlock()
-	h.setCancellationMethod(execution, CancellationSIGKILL)
-	h.forceStop(execution, syscall.SIGKILL)
+	h.stopForCancellation(
+		execution,
+		syscall.SIGKILL,
+		CancellationSIGKILL,
+	)
 }
 
 func (h *ProcessHost) ensureTerminalProcessExit(execution *managedExecution) {
@@ -1198,6 +1221,29 @@ func (h *ProcessHost) setCancellationMethod(
 	method CancellationMethod,
 ) {
 	execution.mu.Lock()
+	h.setCancellationMethodLocked(execution, method)
+	execution.mu.Unlock()
+}
+
+func (h *ProcessHost) stopForCancellation(
+	execution *managedExecution,
+	signal syscall.Signal,
+	method CancellationMethod,
+) bool {
+	execution.mu.Lock()
+	defer execution.mu.Unlock()
+	if execution.processClosed ||
+		!signalLiveProcessGroup(execution.pid, signal) {
+		return false
+	}
+	h.setCancellationMethodLocked(execution, method)
+	return true
+}
+
+func (h *ProcessHost) setCancellationMethodLocked(
+	execution *managedExecution,
+	method CancellationMethod,
+) {
 	switch {
 	case method == CancellationSIGKILL:
 		execution.snapshot.CancellationMethod = method
@@ -1207,7 +1253,6 @@ func (h *ProcessHost) setCancellationMethod(
 	case execution.snapshot.CancellationMethod == CancellationNone:
 		execution.snapshot.CancellationMethod = method
 	}
-	execution.mu.Unlock()
 }
 
 func (h *ProcessHost) waitForDone(
@@ -1473,6 +1518,14 @@ func normalizeProcessHostConfig(
 		return ProcessHostConfig{}, newRuntimeError(
 			ErrorRuntimeUnavailable,
 			"runtime host command is unavailable",
+			false,
+		)
+	}
+	commandPath, err = filepath.Abs(commandPath)
+	if err != nil {
+		return ProcessHostConfig{}, newRuntimeError(
+			ErrorRuntimeUnavailable,
+			"runtime host command could not be resolved",
 			false,
 		)
 	}
