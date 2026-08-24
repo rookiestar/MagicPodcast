@@ -6,11 +6,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
+
+	"magicpodcast/internal/models"
 )
+
+const maxArtifactTextBytes = 32 << 20
 
 type DiskArtifactStore struct {
 	root string
@@ -259,6 +265,117 @@ func (s *DiskArtifactStore) Discard(
 		return fmt.Errorf("discard unrecorded artifact set: %w", err)
 	}
 	return nil
+}
+
+func (s *DiskArtifactStore) ReadText(
+	ctx context.Context,
+	artifact models.EpisodeArtifactSet,
+	kind string,
+) (ArtifactContent, error) {
+	if err := ctx.Err(); err != nil {
+		return ArtifactContent{}, err
+	}
+	var relativeName, expectedHash string
+	switch kind {
+	case "transcript":
+		relativeName = "transcript.md"
+		expectedHash = artifact.TranscriptSHA256
+	case "episode_notes":
+		relativeName = "episode-notes.md"
+		expectedHash = artifact.NotesSHA256
+	default:
+		return ArtifactContent{}, fmt.Errorf("%w: unsupported artifact content kind", ErrInvalidArtifact)
+	}
+	if artifact.ID == 0 || artifact.RunID == 0 || artifact.EpisodeID == 0 ||
+		!sha256Pattern.MatchString(expectedHash) ||
+		!sha256Pattern.MatchString(artifact.ManifestSHA256) ||
+		artifact.ManifestPath != "manifest.json" {
+		return ArtifactContent{}, fmt.Errorf("%w: recorded artifact identity is incomplete", ErrInvalidArtifact)
+	}
+
+	root := filepath.Clean(artifact.RootPath)
+	expectedRoot := filepath.Join(
+		s.root,
+		"episodes",
+		fmt.Sprintf("%d", artifact.EpisodeID),
+		"sets",
+		fmt.Sprintf("run-%d", artifact.RunID),
+	)
+	if root != expectedRoot {
+		return ArtifactContent{}, fmt.Errorf("%w: recorded artifact root is outside the managed layout", ErrInvalidArtifact)
+	}
+	rootInfo, err := os.Lstat(root)
+	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 {
+		return ArtifactContent{}, fmt.Errorf("%w: recorded artifact root is unavailable", ErrInvalidArtifact)
+	}
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil || filepath.Clean(canonicalRoot) != root {
+		return ArtifactContent{}, fmt.Errorf("%w: recorded artifact root is not canonical", ErrInvalidArtifact)
+	}
+
+	manifestBytes, err := readRegularFile(
+		filepath.Join(root, artifact.ManifestPath),
+		maxArtifactTextBytes,
+	)
+	if err != nil {
+		return ArtifactContent{}, err
+	}
+	if digestBytes(manifestBytes) != artifact.ManifestSHA256 {
+		return ArtifactContent{}, fmt.Errorf("%w: manifest digest mismatch", ErrInvalidArtifact)
+	}
+	var manifest artifactManifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil ||
+		manifest.RunID != artifact.RunID ||
+		manifest.EpisodeID != artifact.EpisodeID {
+		return ArtifactContent{}, fmt.Errorf("%w: manifest identity mismatch", ErrInvalidArtifact)
+	}
+	manifestHash := ""
+	for _, file := range manifest.Files {
+		if file.Path == relativeName {
+			manifestHash = file.SHA256
+			break
+		}
+	}
+	if manifestHash != expectedHash {
+		return ArtifactContent{}, fmt.Errorf("%w: manifest content digest mismatch", ErrInvalidArtifact)
+	}
+
+	content, err := readRegularFile(filepath.Join(root, relativeName), maxArtifactTextBytes)
+	if err != nil {
+		return ArtifactContent{}, err
+	}
+	if !utf8.Valid(content) || digestBytes(content) != expectedHash {
+		return ArtifactContent{}, fmt.Errorf("%w: artifact content failed integrity validation", ErrInvalidArtifact)
+	}
+	return ArtifactContent{Kind: kind, Content: string(content), SHA256: expectedHash}, nil
+}
+
+func readRegularFile(path string, limit int64) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("%w: artifact file is unavailable", ErrInvalidArtifact)
+	}
+	if info.Size() < 0 || info.Size() > limit {
+		return nil, fmt.Errorf("%w: artifact file exceeds the read limit", ErrInvalidArtifact)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open artifact file: %w", err)
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("read artifact file: %w", err)
+	}
+	if int64(len(content)) > limit {
+		return nil, fmt.Errorf("%w: artifact file exceeds the read limit", ErrInvalidArtifact)
+	}
+	return content, nil
+}
+
+func digestBytes(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
 }
 
 func writeArtifactFile(root, relativePath string, content []byte) (string, error) {

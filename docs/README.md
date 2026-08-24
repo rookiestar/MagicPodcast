@@ -41,6 +41,7 @@ Agent 治理以根目录 [../AGENTS.md](../AGENTS.md) 为唯一权威合同；[.
 | 依赖健康 | [DEPENDENCY_REVIEW.md](DEPENDENCY_REVIEW.md) | 前后端依赖审计、升级边界和剩余风险 |
 | 工作流调度 | [WORKFLOW_SCHEDULER.md](WORKFLOW_SCHEDULER.md) | 当前工作流定时执行行为和调度接口 |
 | 工作流执行历史 | [WORKFLOW_EXECUTION_HISTORY.md](WORKFLOW_EXECUTION_HISTORY.md) | 当前执行历史、任务详情和报告入口行为 |
+| Codex Runtime Host | [runbooks/CODEX_RUNTIME_HOST.md](runbooks/CODEX_RUNTIME_HOST.md) | 固定 SDK、受限执行、取消/清理、升级和脱敏 Smoke |
 | 设计系统 | [design/DESIGN_SYSTEM.md](design/DESIGN_SYSTEM.md) | 前端视觉与组件规范 |
 | 领域词汇表 | [DOMAIN_GLOSSARY.md](DOMAIN_GLOSSARY.md) | 项目共享领域词与相近词边界 |
 
@@ -59,7 +60,7 @@ Agent 治理以根目录 [../AGENTS.md](../AGENTS.md) 为唯一权威合同；[.
 分阶段落地的方案：
 
 - [Inbox Done 与完成历史设计](research/INBOX_DONE_HISTORY_DESIGN_2026-08-23.md)：#169 已交付完成事实、最近完成与 15 秒撤销；#170 已实现独立完成历史。两阶段的本地实现与测试均不代表生产已迁移或部署。
-- [Focus 自动化播客加工与单集助手 Spec](research/FOCUS_AUTOMATED_PODCAST_PROCESSING_SPEC_2026-08-24.md)：已确认 Mac mini 本地 Codex Runtime、飞书妙记加工、知识桥和只读单集助手边界；#179 Foundation 已合并到当前代码基线，但尚未迁移或部署。
+- [Focus 自动化播客加工与单集助手 Spec](research/FOCUS_AUTOMATED_PODCAST_PROCESSING_SPEC_2026-08-24.md)：已确认 Mac mini 本地 Codex Runtime、飞书妙记加工、知识桥和只读单集助手边界；#179–#181 仓库实现已合并，#181 仍待真实飞书 Smoke 与生产启用；#186 已在实施分支完成但尚未合并或完成人工导入验收。
 - [ima 人工导入与公开写入能力调研](research/ima-manual-import.md)：截至 2026-08-24 未找到受支持的公开知识库写入 API/CLI；当前只生成本地人工导入包，真实格式兼容、重复导入和索引结果仍须用获批测试知识库人工验收。
 
 文档角色速查：

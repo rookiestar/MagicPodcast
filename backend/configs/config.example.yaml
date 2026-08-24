@@ -49,6 +49,23 @@ discovery:
   # “今日备选”的日界线与日期显示时区
   timezone: "Asia/Shanghai"
 
+# Focus 单集加工。默认关闭；开启前必须显式迁移数据库、安装固定版本
+# Codex Runtime 与 lark-cli，并完成飞书用户身份授权。
+processing:
+  enabled: false
+  pipeline_version: "focus-processing-v1"
+  audio_root: "/absolute/path/to/magicpodcast/processing/audio"
+  artifact_root: "/absolute/path/to/magicpodcast/processing/artifacts"
+  lark_cli: "/absolute/path/to/lark-cli"
+  lark_work_root: "/absolute/path/to/magicpodcast/processing/lark"
+  worker_scan_interval: "2s"
+  external_poll_interval: "30s"
+  worker_batch_size: 8
+  runtime:
+    python: "/absolute/path/to/venv-0.147.0/bin/python"
+    host_script: "/absolute/path/to/MagicPodcast/backend/internal/codexruntime/runtime_host.py"
+    work_root: "/absolute/path/to/magicpodcast/processing/runtime"
+
 database:
   # SQLite 数据库文件路径
   path: ./data/magicpodcast.db

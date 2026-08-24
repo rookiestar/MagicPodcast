@@ -24,16 +24,20 @@ const (
 	IMAManualImportPackageSchema  = "magicpodcast.ima.manual_import.package"
 	IMAManualImportSchemaVersion  = "1.0.0"
 	DeliveryModeManualImport      = "manual_import"
+	imaMaxNestedURLDepth          = 4
+	imaMaxURLDecodePasses         = 8
 )
 
 var (
-	imaHTTPURLPattern = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)
-	imaFileURLPattern = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])file:(?:/{1,3}|\\+)`)
-	imaUnixPath       = regexp.MustCompile(`(?:^|[^\pL\pN_<>/])/[^\s<>"']+`)
-	imaWindowsPath    = regexp.MustCompile(`(?i)(?:^|[^[:alnum:]_])[a-z]:[\\/][^\s<>"']+`)
-	imaUNCPath        = regexp.MustCompile(`\\\\[^\\\s<>"']+\\[^\s<>"']+`)
-	imaLegacyIPv4Host = regexp.MustCompile(`(?i)^(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+)){0,3}$`)
-	imaCredential     = regexp.MustCompile(
+	imaHTTPURLPattern           = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)
+	imaSchemeRelativeURLPattern = regexp.MustCompile(`(?i)(?:^|[\s=("''])//[^\s<>"']+`)
+	imaRootRelativeMarkdownLink = regexp.MustCompile(`!?\[[^\]\r\n]*\]\(/[^\s<>"')]+(?:\s+["'][^"'\r\n]*["'])?\)`)
+	imaFileURLPattern           = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])file:(?:/{1,3}|\\+)`)
+	imaUnixPath                 = regexp.MustCompile(`(?:^|[^\pL\pN_<>/])/[^\s<>"']+`)
+	imaWindowsPath              = regexp.MustCompile(`(?i)(?:^|[^[:alnum:]_])[a-z]:[\\/][^\s<>"']+`)
+	imaUNCPath                  = regexp.MustCompile(`\\\\[^\\\s<>"']+\\[^\s<>"']+`)
+	imaLegacyIPv4Host           = regexp.MustCompile(`(?i)^(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+)){0,3}$`)
+	imaCredential               = regexp.MustCompile(
 		`(?i)(?:^|[^a-z0-9])["']?(?:file[_-]?token|minute[_-]?token|access[_-]?token|refresh[_-]?token|id[_-]?token|token|api[_-]?key|access[_-]?key|secret|credential(?:s)?|password|passwd|authorization|cookie|session(?:[_-]?id)?|jwt|signature|sig)["']?\s*[:=]\s*["']?[^\s"',;]+`,
 	)
 )
@@ -677,6 +681,10 @@ func validateIMAPackageText(value string) error {
 		}
 	}
 	textWithoutHTTPURLs := imaHTTPURLPattern.ReplaceAllString(value, "")
+	textWithoutHTTPURLs = imaRootRelativeMarkdownLink.ReplaceAllString(
+		textWithoutHTTPURLs,
+		"",
+	)
 	if imaCredential.MatchString(value) {
 		return invalidIMAPackage("package content contains credentials")
 	}
@@ -691,6 +699,13 @@ func validateIMAPackageText(value string) error {
 }
 
 func validateSafeHTTPURL(raw string) error {
+	return validateSafeHTTPURLDepth(raw, 0)
+}
+
+func validateSafeHTTPURLDepth(raw string, depth int) error {
+	if depth > imaMaxNestedURLDepth {
+		return fmt.Errorf("URL nesting exceeds the safety limit")
+	}
 	raw = strings.TrimSpace(raw)
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed == nil {
@@ -731,17 +746,72 @@ func validateSafeHTTPURL(raw string) error {
 			return fmt.Errorf("URL host may expose a Feishu token")
 		}
 	}
-	for key := range parsed.Query() {
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return fmt.Errorf("URL query must be valid")
+	}
+	for key, values := range query {
 		if sensitiveURLKey(key) {
 			return fmt.Errorf("URL query contains credentials")
 		}
+		for _, value := range values {
+			if err := validateNestedHTTPURLs(value, depth+1); err != nil {
+				return err
+			}
+		}
 	}
 	if parsed.Fragment != "" {
-		if fragment, err := url.ParseQuery(parsed.Fragment); err == nil {
-			for key := range fragment {
-				if sensitiveURLKey(key) {
-					return fmt.Errorf("URL fragment contains credentials")
+		if err := validateNestedHTTPURLs(parsed.Fragment, depth+1); err != nil {
+			return err
+		}
+		fragment, err := url.ParseQuery(parsed.Fragment)
+		if err != nil {
+			return fmt.Errorf("URL fragment must be valid")
+		}
+		for key, values := range fragment {
+			if sensitiveURLKey(key) {
+				return fmt.Errorf("URL fragment contains credentials")
+			}
+			for _, value := range values {
+				if err := validateNestedHTTPURLs(value, depth+1); err != nil {
+					return err
 				}
+			}
+		}
+	}
+	return nil
+}
+
+func validateNestedHTTPURLs(value string, depth int) error {
+	decodedValues := []string{value}
+	for range imaMaxURLDecodePasses {
+		decoded, err := url.QueryUnescape(decodedValues[len(decodedValues)-1])
+		if err != nil {
+			return fmt.Errorf("nested URL encoding must be valid")
+		}
+		if decoded == decodedValues[len(decodedValues)-1] {
+			break
+		}
+		decodedValues = append(decodedValues, decoded)
+	}
+	lastDecoded := decodedValues[len(decodedValues)-1]
+	if decoded, err := url.QueryUnescape(lastDecoded); err != nil {
+		return fmt.Errorf("nested URL encoding must be valid")
+	} else if decoded != lastDecoded {
+		return fmt.Errorf("nested URL encoding exceeds the safety limit")
+	}
+	for _, decoded := range decodedValues {
+		for _, raw := range imaHTTPURLPattern.FindAllString(decoded, -1) {
+			candidate := strings.TrimRight(raw, ".,;:!?)]}")
+			if err := validateSafeHTTPURLDepth(candidate, depth); err != nil {
+				return fmt.Errorf("nested URL is unsafe: %w", err)
+			}
+		}
+		for _, raw := range imaSchemeRelativeURLPattern.FindAllString(decoded, -1) {
+			candidate := strings.TrimLeft(raw, " \t\r\n=(\"'")
+			candidate = strings.TrimRight(candidate, ".,;:!?)]}")
+			if err := validateSafeHTTPURLDepth("https:"+candidate, depth); err != nil {
+				return fmt.Errorf("nested URL is unsafe: %w", err)
 			}
 		}
 	}
@@ -792,11 +862,6 @@ func isLowerSHA256(value string) bool {
 
 func digestString(value string) string {
 	return digestBytes([]byte(value))
-}
-
-func digestBytes(value []byte) string {
-	sum := sha256.Sum256(value)
-	return hex.EncodeToString(sum[:])
 }
 
 func stableTime(value time.Time) string {

@@ -115,6 +115,24 @@ func (e *Engine) Advance(
 		EpisodeID:       run.EpisodeID,
 		AudioDigest:     run.AudioDigest,
 		PipelineVersion: run.PipelineVersion,
+		PersistCheckpoint: func(
+			checkpointCtx context.Context,
+			status string,
+			state json.RawMessage,
+		) error {
+			if checkpointCtx == nil {
+				checkpointCtx = context.Background()
+			}
+			return e.saveCheckpoint(
+				context.WithoutCancel(checkpointCtx),
+				run.ID,
+				StepTranscription,
+				e.transcriber.Name(),
+				e.transcriber.Version(),
+				status,
+				state,
+			)
+		},
 	}
 
 	var progress TranscriptionProgress
@@ -124,7 +142,41 @@ func (e *Engine) Advance(
 		if err != nil || models.IsProcessingRunTerminal(run.Status) {
 			return run, err
 		}
-		progress, err = e.transcriber.Begin(runCtx, request)
+		var checkpoint models.ProcessingCheckpoint
+		checkpoint, err = e.loadCheckpoint(runCtx, run.ID, StepTranscription)
+		switch {
+		case err == nil:
+			if !checkpointIsValid(checkpoint) ||
+				checkpoint.Adapter != e.transcriber.Name() ||
+				checkpoint.AdapterVersion != e.transcriber.Version() {
+				return e.handleStepError(
+					runCtx,
+					run.ID,
+					NewAdapterError(
+						"checkpoint_adapter_mismatch",
+						"external processing checkpoint cannot be resumed by the configured adapter",
+						false,
+					),
+					nil,
+					"",
+				)
+			}
+			progress, err = e.transcriber.Resume(
+				runCtx,
+				request,
+				json.RawMessage(checkpoint.StateJSON),
+			)
+			if len(progress.Checkpoint) == 0 {
+				progress.Checkpoint = append(
+					json.RawMessage(nil),
+					[]byte(checkpoint.StateJSON)...,
+				)
+			}
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			progress, err = e.transcriber.Begin(runCtx, request)
+		default:
+			return run, err
+		}
 		if err != nil {
 			return e.handleStepError(
 				runCtx,

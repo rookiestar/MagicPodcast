@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ type Config struct {
 	User         UserConfig         `mapstructure:"user"`
 	Email        EmailConfig        `mapstructure:"email"`
 	LLM          LLMConfig          `mapstructure:"llm"`
+	Processing   ProcessingConfig   `mapstructure:"processing"`
 	// Feed carries the startup-loaded Feed fetcher / coordinator configuration.
 	// It is applied once at process start (no hot reload) via
 	// feed.ConfigureSharedRuntime, so changes require a restart.
@@ -171,6 +173,25 @@ type DiscoveryConfig struct {
 	Timezone string `mapstructure:"timezone"`
 }
 
+type ProcessingConfig struct {
+	Enabled              bool                    `mapstructure:"enabled"`
+	PipelineVersion      string                  `mapstructure:"pipeline_version"`
+	AudioRoot            string                  `mapstructure:"audio_root"`
+	ArtifactRoot         string                  `mapstructure:"artifact_root"`
+	LarkCLI              string                  `mapstructure:"lark_cli"`
+	LarkWorkRoot         string                  `mapstructure:"lark_work_root"`
+	WorkerScanInterval   time.Duration           `mapstructure:"worker_scan_interval"`
+	ExternalPollInterval time.Duration           `mapstructure:"external_poll_interval"`
+	WorkerBatchSize      int                     `mapstructure:"worker_batch_size"`
+	Runtime              ProcessingRuntimeConfig `mapstructure:"runtime"`
+}
+
+type ProcessingRuntimeConfig struct {
+	Python     string `mapstructure:"python"`
+	HostScript string `mapstructure:"host_script"`
+	WorkRoot   string `mapstructure:"work_root"`
+}
+
 var cfg *Config
 
 const defaultServerHost = "127.0.0.1"
@@ -189,6 +210,7 @@ func Load(configPath string) (*Config, error) {
 	viper.SetDefault("discovery.timezone", "Asia/Shanghai")
 	_ = viper.BindEnv("discovery.timezone")
 	bindFeedEnvKeys()
+	bindProcessingEnvKeys()
 
 	// 读取配置文件
 	if err := viper.ReadInConfig(); err != nil {
@@ -237,8 +259,8 @@ func (c *Config) AssertManagedProfileSafe() error {
 	if parsed := net.ParseIP(c.Server.Host); parsed == nil || !parsed.IsLoopback() {
 		return fmt.Errorf("managed data profile requires a loopback server host")
 	}
-	if c.Sync.Enabled || c.Email.Enabled || c.LLM.Enabled {
-		return fmt.Errorf("managed data profile requires sync, email, and LLM integrations to be disabled")
+	if c.Sync.Enabled || c.Email.Enabled || c.LLM.Enabled || c.Processing.Enabled {
+		return fmt.Errorf("managed data profile requires sync, email, LLM, and processing integrations to be disabled")
 	}
 	if c.XYZAPI.URL != "http://127.0.0.1:9" {
 		return fmt.Errorf("managed data profile requires the inert loopback XYZ API endpoint")
@@ -256,6 +278,25 @@ func (c *Config) AssertManagedProfileSafe() error {
 		return fmt.Errorf("managed data profile cannot attach a PodcastIndex database")
 	}
 	return nil
+}
+
+func bindProcessingEnvKeys() {
+	for _, key := range []string{
+		"processing.enabled",
+		"processing.pipeline_version",
+		"processing.audio_root",
+		"processing.artifact_root",
+		"processing.lark_cli",
+		"processing.lark_work_root",
+		"processing.worker_scan_interval",
+		"processing.external_poll_interval",
+		"processing.worker_batch_size",
+		"processing.runtime.python",
+		"processing.runtime.host_script",
+		"processing.runtime.work_root",
+	} {
+		_ = viper.BindEnv(key)
+	}
 }
 
 // bindFeedEnvKeys binds the feed configuration leaf keys to their
@@ -509,6 +550,32 @@ func (c *Config) Validate() error {
 	}
 	if _, err := time.LoadLocation(c.Discovery.Timezone); err != nil {
 		return fmt.Errorf("invalid discovery timezone %q: %w", c.Discovery.Timezone, err)
+	}
+	if c.Processing.Enabled {
+		if strings.TrimSpace(c.Processing.PipelineVersion) == "" ||
+			len(c.Processing.PipelineVersion) > 100 {
+			return fmt.Errorf("processing pipeline_version is required and must be at most 100 characters")
+		}
+		for label, value := range map[string]string{
+			"audio_root":        c.Processing.AudioRoot,
+			"artifact_root":     c.Processing.ArtifactRoot,
+			"lark_work_root":    c.Processing.LarkWorkRoot,
+			"runtime.work_root": c.Processing.Runtime.WorkRoot,
+		} {
+			if !filepath.IsAbs(strings.TrimSpace(value)) {
+				return fmt.Errorf("processing %s must be an absolute path", label)
+			}
+		}
+		if strings.TrimSpace(c.Processing.LarkCLI) == "" ||
+			strings.TrimSpace(c.Processing.Runtime.Python) == "" ||
+			!filepath.IsAbs(strings.TrimSpace(c.Processing.Runtime.HostScript)) {
+			return fmt.Errorf("processing CLI and runtime commands are incomplete")
+		}
+		if c.Processing.WorkerScanInterval <= 0 ||
+			c.Processing.ExternalPollInterval <= 0 ||
+			c.Processing.WorkerBatchSize < 1 {
+			return fmt.Errorf("processing worker configuration is invalid")
+		}
 	}
 
 	return nil

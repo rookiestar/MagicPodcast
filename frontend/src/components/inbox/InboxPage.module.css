@@ -1024,13 +1024,119 @@
   flex: 1 1 auto;
 }
 
+.processingSection,
 .showNotesSection,
 .metadataSection {
   padding: 30px;
 }
 
+.processingSection,
 .showNotesSection {
   border-bottom: 1px solid var(--ink);
+}
+
+.processingSummary {
+  display: grid;
+  gap: 16px;
+}
+
+.processingSummary dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  border: 1px solid var(--ink);
+}
+
+.processingSummary dl > div {
+  min-width: 0;
+  padding: 10px 12px;
+  border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.processingSummary dl > div:nth-child(2n) {
+  border-right: 0;
+}
+
+.processingSummary dl > div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.processingSummary dt {
+  margin-bottom: 4px;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.processingSummary dd {
+  overflow-wrap: anywhere;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.processingFailure {
+  display: grid;
+  gap: 4px;
+  padding: 11px 13px;
+  color: #6f261e;
+  border-left: 4px solid #a83d2f;
+  background: rgba(168, 61, 47, 0.08);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.processingFailure strong {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+}
+
+.processingActions,
+.processingArtifacts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.processingActions > span,
+.processingHint {
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.processingArtifacts {
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+
+.processingArtifacts > div {
+  display: grid;
+  flex: 1 1 220px;
+  gap: 3px;
+}
+
+.processingArtifacts strong {
+  font-size: 12px;
+}
+
+.processingArtifacts span {
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
+.processingDocument {
+  max-height: 480px;
+  overflow: auto;
+  margin-top: 18px;
+  padding: 15px;
+  border: 1px solid var(--ink);
+  background: #fffaf0;
 }
 
 .detailSectionHeading {

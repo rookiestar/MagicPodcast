@@ -360,6 +360,21 @@ func TestIMAManualImportBridgeRejectsTraversalSymlinksAndSensitiveSources(t *tes
 		{"credential show notes URL", func(request *DeliveryRequest) {
 			request.Package.ShowNotes = "[restricted](https://example.com/doc?token=SECRET)"
 		}},
+		{"encoded nested loopback URL", func(request *DeliveryRequest) {
+			request.Package.ShowNotes = "[redirect](https://redirect.example/?next=http%3A%2F%2F127.0.0.1%2Fprivate)"
+		}},
+		{"double encoded nested credential URL", func(request *DeliveryRequest) {
+			request.Package.ShowNotes = "[redirect](https://redirect.example/?next=https%253A%252F%252Fexample.com%252Fprivate%253Ftoken%253DSECRET)"
+		}},
+		{"over encoded nested private URL", func(request *DeliveryRequest) {
+			request.Package.ShowNotes = "[redirect](https://redirect.example/?next=http%2525252525252525253A%2525252525252525252F%2525252525252525252F127.0.0.1%2525252525252525252Fprivate)"
+		}},
+		{"fragment nested private URL", func(request *DeliveryRequest) {
+			request.Package.ShowNotes = "[redirect](https://redirect.example/#next=https%3A%2F%2F10.0.0.1%2Fprivate)"
+		}},
+		{"scheme relative nested loopback URL", func(request *DeliveryRequest) {
+			request.Package.ShowNotes = "[redirect](https://redirect.example/?next=%2F%2F127.0.0.1%2Fprivate)"
+		}},
 		{"malformed show notes URL", func(request *DeliveryRequest) {
 			request.Package.ShowNotes = "[broken](https://example.com/%zz)"
 		}},
@@ -415,6 +430,32 @@ func TestIMAManualImportBridgeAllowsCJKProseSlashes(t *testing.T) {
 	request.Package.TranscriptSHA256 = digestString(request.Package.Transcript)
 	request.Package.EpisodeNotes += "\n- 比较之前/之后的结果\n"
 	request.Package.EpisodeNotesSHA256 = digestString(request.Package.EpisodeNotes)
+	bridge, err := NewIMAManualImportBridge(t.TempDir())
+	require.NoError(t, err)
+
+	_, err = bridge.Deliver(context.Background(), request)
+	require.NoError(t, err)
+}
+
+func TestIMAManualImportBridgeAllowsRootRelativeShowNoteLinks(t *testing.T) {
+	request := validIMAManualImportRequest()
+	request.Package.ShowNotes = "继续阅读 [单集页面](/episodes/1) 和 ![封面](/images/cover.jpg)。"
+	bridge, err := NewIMAManualImportBridge(t.TempDir())
+	require.NoError(t, err)
+
+	_, err = bridge.Deliver(context.Background(), request)
+	require.NoError(t, err)
+	files := readIMAPackageFiles(
+		t,
+		filepath.Join(bridge.root, "packages", request.DeliveryKey),
+	)
+	require.Contains(t, string(files["knowledge.md"]), "[单集页面](/episodes/1)")
+	require.Contains(t, string(files["knowledge.md"]), "![封面](/images/cover.jpg)")
+}
+
+func TestIMAManualImportBridgeAllowsNestedPublicURLs(t *testing.T) {
+	request := validIMAManualImportRequest()
+	request.Package.ShowNotes = "[redirect](https://redirect.example/?next=https%3A%2F%2Fpublic.example%2Fresource)"
 	bridge, err := NewIMAManualImportBridge(t.TempDir())
 	require.NoError(t, err)
 
