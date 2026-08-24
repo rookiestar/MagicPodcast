@@ -546,13 +546,14 @@ discoveryengine.googleapis.com/notebooklm_enterprise_user_activity
    - 专用服务账号或 WIF workload principal，用于验证无人值守。
 8. 明确 WIF 的外部 IdP/短期凭据来源；禁止默认创建服务账号 key。
 9. 准备无隐私、可公开的标准 Markdown 包和固定 SHA-256。
-10. 设定预算、日志保留和试用到期清理责任人。
-11. 在真实执行前锁定资源清理范围和回读证据；本票已授权创建、重复上传、删除和审计配置变更。
+10. 设定预算、日志保留、试用/订阅取消和席位撤销责任人；除非所有者另行批准转入付费生产，Spike 结束前必须停止续费。
+11. 准备模式 `0600` 的受限本地检查点，只保存清理必需的完整 Notebook/Source 资源名；Issue、共享日志和脱敏证据只保存哈希。
+12. 在真实执行前锁定资源、许可、订阅和检查点的清理范围与回读证据；本票已授权创建、重复上传、删除和审计配置变更。
 
 ## 12. 建议的真实 Spike 顺序
 
-1. 用已许可用户执行 Notebook create/get，证明产品与区域基线。
-2. 上传合成 Markdown，保存 Source ID。
+1. 建立受限检查点并记录预算/取消责任人，再用已许可用户执行 Notebook create/get；响应返回后立即持久化完整 Notebook 资源名。
+2. 上传合成 Markdown；响应返回后立即在受限检查点保存完整 Source 资源名。
 3. 轮询 Source 到 `COMPLETE` 或 `ERROR`，记录耗时和失败模型。
 4. 重复上传完全相同的包，观察 Source 数量与 ID。
 5. 模拟一次响应丢失/客户端中断，验证恢复策略。
@@ -564,8 +565,9 @@ discoveryengine.googleapis.com/notebooklm_enterprise_user_activity
 11. 读取项目 API 配额、试用/费用和到期行为。
 12. 对两个身份创建的全部已知 Notebook 执行 `notebooks.batchDelete`，逐一回读确认资源已消失；同时确认旧 Source 随 Notebook 删除或单独删除完成。
 13. 对 `NOTEBOOK_CREATE_UNKNOWN` 等无法获得资源名的结果停止自动重试，记录人工清理责任人、控制台核查范围、发现与删除结果；未证明无遗留资源时，Spike 不得收口。
+14. 除非所有者另行批准转入付费生产，取消试用/订阅的自动续费、撤销测试席位与临时 IAM，并回读确认没有继续计费；随后安全删除受限资源检查点。
 
-每一步只保存脱敏请求形状、资源名哈希、状态、耗时、错误分类和费用；不保存 token、ADC 内容或私有正文。
+受限本地检查点只保存清理必需的完整资源名，权限固定为 `0600`，不得进入 Git、Issue、共享日志或最终证据；资源清理回读完成后立即删除。其他证据只保存脱敏请求形状、资源名哈希、状态、耗时、错误分类和费用，不保存 token、ADC 内容或私有正文。
 
 ## 13. Go / No-Go 门槛
 
@@ -585,6 +587,7 @@ discoveryengine.googleapis.com/notebooklm_enterprise_user_activity
 10. 团队明确接受 Preview / Pre-GA 稳定性与支持风险。
 11. 代表性多 Source/分卷测试已完成，首期 Notebook 分组策略有可复现证据并满足容量、检索和删除边界。
 12. 两类身份创建的已知资源均已删除并回读；任何未知创建结果均已完成人工发现和清理，未遗留无法定位的资源。
+13. 不再需要的试用/订阅续费、测试席位与临时 IAM 已撤销并回读；若转入付费生产，已取得所有者对费用、席位和续费责任的明确批准。
 
 ### No-Go
 
