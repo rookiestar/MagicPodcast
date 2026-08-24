@@ -60,8 +60,9 @@ Agent 治理以根目录 [../AGENTS.md](../AGENTS.md) 为唯一权威合同；[.
 分阶段落地的方案：
 
 - [Inbox Done 与完成历史设计](research/INBOX_DONE_HISTORY_DESIGN_2026-08-23.md)：#169 已交付完成事实、最近完成与 15 秒撤销；#170 已实现独立完成历史。两阶段的本地实现与测试均不代表生产已迁移或部署。
-- [Focus 自动化播客加工与单集助手 Spec](research/FOCUS_AUTOMATED_PODCAST_PROCESSING_SPEC_2026-08-24.md)：已确认 Mac mini 本地 Codex Runtime、飞书妙记加工、知识桥和只读单集助手边界；#179–#181 仓库实现已合并，#181 仍待真实飞书 Smoke 与生产启用，后续阶段尚未落地。
+- [Focus 自动化播客加工与单集助手 Spec](research/FOCUS_AUTOMATED_PODCAST_PROCESSING_SPEC_2026-08-24.md)：已确认 Mac mini 本地 Codex Runtime、飞书妙记加工、知识桥和只读单集助手边界；#179–#181、#185、#186 的仓库实现已合并，#181 仍待真实飞书 Smoke 与生产启用，#186 仍待人工导入验收。
 - [Gemini Notebook Enterprise 无人值守 API Spike](research/GEMINI_NOTEBOOK_ENTERPRISE_API_SPIKE_2026-08-24.md)：官方 API、许可、幂等与本机认证前置研究；生产 Adapter 当前 No-Go，真实隔离 Spike 已授权但仍缺项目、Billing、区域、许可和无人值守身份。
+- [ima 人工导入与公开写入能力调研](research/ima-manual-import.md)：截至 2026-08-24 未找到受支持的公开知识库写入 API/CLI；当前只生成本地人工导入包，真实格式兼容、重复导入和索引结果仍须用获批测试知识库人工验收。
 
 文档角色速查：
 

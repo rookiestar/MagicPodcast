@@ -65,6 +65,9 @@ backend/.env
 | `MAGICPODCAST_PROCESSING_RUNTIME_PYTHON` | 固定 Codex SDK 虚拟环境 Python |
 | `MAGICPODCAST_PROCESSING_RUNTIME_HOST_SCRIPT` | `runtime_host.py` 绝对路径 |
 | `MAGICPODCAST_PROCESSING_RUNTIME_WORK_ROOT` | Codex Runtime 受管工作绝对目录 |
+| `MAGICPODCAST_PROCESSING_IMA_ENABLED` | 是否为成功产物自动生成 ima 人工导入包；默认关闭 |
+| `MAGICPODCAST_PROCESSING_IMA_PACKAGE_ROOT` | ima 人工导入包受管绝对目录 |
+| `MAGICPODCAST_PROCESSING_IMA_DESTINATION` | ima 导入目标的稳定标识；首期仅用于交付幂等 |
 
 生产模式下，`./scripts/start.sh --prod` 会默认设置：
 
@@ -86,6 +89,8 @@ MAGICPODCAST_DATA_PROFILE=production
 4. 为音频、飞书工作、Codex 工作和产物配置互相独立的绝对目录。
 
 启用只会启动本机 Worker；不等于已授权迁移、部署或上传真实播客音频。飞书不可用时不会自动切换到本地 ASR。
+`processing.ima.enabled` 仍需单独显式开启；开启后只在本机生成 `manual_import`
+包，状态保持“待人工导入”，不会自动登录或上传 ima。
 
 ## 前端配置
 

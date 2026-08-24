@@ -184,12 +184,19 @@ type ProcessingConfig struct {
 	ExternalPollInterval time.Duration           `mapstructure:"external_poll_interval"`
 	WorkerBatchSize      int                     `mapstructure:"worker_batch_size"`
 	Runtime              ProcessingRuntimeConfig `mapstructure:"runtime"`
+	IMA                  ProcessingIMAConfig     `mapstructure:"ima"`
 }
 
 type ProcessingRuntimeConfig struct {
 	Python     string `mapstructure:"python"`
 	HostScript string `mapstructure:"host_script"`
 	WorkRoot   string `mapstructure:"work_root"`
+}
+
+type ProcessingIMAConfig struct {
+	Enabled     bool   `mapstructure:"enabled"`
+	PackageRoot string `mapstructure:"package_root"`
+	Destination string `mapstructure:"destination"`
 }
 
 var cfg *Config
@@ -294,6 +301,9 @@ func bindProcessingEnvKeys() {
 		"processing.runtime.python",
 		"processing.runtime.host_script",
 		"processing.runtime.work_root",
+		"processing.ima.enabled",
+		"processing.ima.package_root",
+		"processing.ima.destination",
 	} {
 		_ = viper.BindEnv(key)
 	}
@@ -576,6 +586,30 @@ func (c *Config) Validate() error {
 			c.Processing.WorkerBatchSize < 1 {
 			return fmt.Errorf("processing worker configuration is invalid")
 		}
+		if c.Processing.IMA.Enabled {
+			packageRoot := filepath.Clean(strings.TrimSpace(c.Processing.IMA.PackageRoot))
+			if !filepath.IsAbs(packageRoot) ||
+				packageRoot == filepath.Clean(string(os.PathSeparator)) {
+				return fmt.Errorf("processing ima package_root must be an absolute path")
+			}
+			destination := strings.TrimSpace(c.Processing.IMA.Destination)
+			if destination == "" ||
+				destination != c.Processing.IMA.Destination ||
+				len(destination) > 255 ||
+				destination == "." ||
+				destination == ".." ||
+				filepath.IsAbs(destination) ||
+				strings.ContainsAny(destination, `/\`) {
+				return fmt.Errorf("processing ima destination must be a safe identity")
+			}
+			for _, character := range destination {
+				if character < 0x20 || character == 0x7f {
+					return fmt.Errorf("processing ima destination must be a safe identity")
+				}
+			}
+		}
+	} else if c.Processing.IMA.Enabled {
+		return fmt.Errorf("processing ima requires processing to be enabled")
 	}
 
 	return nil

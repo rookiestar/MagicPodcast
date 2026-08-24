@@ -179,12 +179,16 @@ func main() {
 			processing.WithAudioPreparer(audioStore),
 			processing.WithArtifactReader(artifactStore),
 		)
+		bridges, err := newProcessingBridgeBindings(cfg.Processing)
+		if err != nil {
+			logger.Fatalf("Failed to initialize processing knowledge bridges: %v", err)
+		}
 		engine, err := processing.NewEngine(
 			processingService,
 			minutesAdapter,
 			runtimeAdapter,
 			artifactStore,
-			nil,
+			bridges,
 		)
 		if err != nil {
 			logger.Fatalf("Failed to initialize processing engine: %v", err)
@@ -308,4 +312,22 @@ func main() {
 	}
 
 	logger.Info("✅ Server exited gracefully")
+}
+
+func newProcessingBridgeBindings(
+	processingConfig config.ProcessingConfig,
+) ([]processing.BridgeBinding, error) {
+	if !processingConfig.IMA.Enabled {
+		return nil, nil
+	}
+	bridge, err := processing.NewIMAManualImportBridge(
+		processingConfig.IMA.PackageRoot,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return []processing.BridgeBinding{{
+		Destination: processingConfig.IMA.Destination,
+		Adapter:     bridge,
+	}}, nil
 }
