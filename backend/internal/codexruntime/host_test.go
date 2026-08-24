@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -463,6 +464,35 @@ func TestProcessHostEscalatesOnlyTargetProcessGroupAndReapsChildren(
 	}, 3*time.Second, 20*time.Millisecond)
 	require.NoError(t, closeHost(t, host))
 	require.Equal(t, 0, host.Diagnostics().LiveProcessGroups)
+}
+
+func TestProcessHostNativeAckEscalatesThroughSIGTERMGraceBeforeSIGKILL(
+	t *testing.T,
+) {
+	host, workRoot := newHelperHost(t, "ack_ignore_term")
+	terminateTimeout := 150 * time.Millisecond
+	host.config.TerminateTimeout = terminateTimeout
+	workDir := newExecutionDir(t, workRoot, "ack-fallback-")
+	snapshot, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: workDir,
+			Prompt:           "ack then ignore termination",
+			OutputSchema:     episodeNotesSchema,
+		},
+	)
+	require.NoError(t, err)
+
+	startedAt := time.Now()
+	cancelled, err := host.CancelExecution(context.Background(), snapshot.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusCancelled, cancelled.Status)
+	require.Equal(t, CancellationSIGKILL, cancelled.Method)
+	require.GreaterOrEqual(t, time.Since(startedAt), 2*terminateTimeout)
+	require.FileExists(t, filepath.Join(workDir, "sigterm.received"))
+	require.Equal(t, 0, host.Diagnostics().LiveProcessGroups)
+	require.NoError(t, closeHost(t, host))
 }
 
 func TestProcessHostCallerDeadlineDoesNotStopTargetedCancellationCleanup(
@@ -1014,6 +1044,30 @@ func helperRuntimeMain() {
 		base.RuntimeVersion = "helper-runtime-1"
 		write(base)
 		_ = scanner.Scan()
+		select {}
+	case "ack_ignore_term":
+		terminationSignals := make(chan os.Signal, 1)
+		signal.Notify(terminationSignals, syscall.SIGTERM)
+		go func() {
+			<-terminationSignals
+			_ = os.WriteFile(
+				filepath.Join(request.WorkingDirectory, "sigterm.received"),
+				[]byte("received"),
+				0o600,
+			)
+		}()
+		base.Sequence = 1
+		base.Type = "ready"
+		base.RuntimeVersion = "helper-runtime-1"
+		write(base)
+		if !scanner.Scan() {
+			os.Exit(2)
+		}
+		base.Sequence = 2
+		base.Type = "cancel_ack"
+		base.RuntimeVersion = ""
+		base.CancellationMethod = CancellationNativeInterrupt
+		write(base)
 		select {}
 	case "cancel_then_exit":
 		base.Sequence = 1

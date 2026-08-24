@@ -488,6 +488,7 @@ func (h *ProcessHost) superviseCancellation(execution *managedExecution) {
 	defer close(execution.cancelDone)
 	nativeTimer := time.NewTimer(h.config.NativeCancelTimeout)
 	defer nativeTimer.Stop()
+	sentSIGTERM := false
 	select {
 	case <-execution.nativeAck:
 		h.setCancellationMethod(execution, CancellationNativeInterrupt)
@@ -496,6 +497,7 @@ func (h *ProcessHost) superviseCancellation(execution *managedExecution) {
 	case <-nativeTimer.C:
 		h.setCancellationMethod(execution, CancellationSIGTERM)
 		h.forceStop(execution, syscall.SIGTERM)
+		sentSIGTERM = true
 	}
 
 	if h.waitForDone(
@@ -504,6 +506,17 @@ func (h *ProcessHost) superviseCancellation(execution *managedExecution) {
 		h.config.TerminateTimeout,
 	) {
 		return
+	}
+	if !sentSIGTERM {
+		h.setCancellationMethod(execution, CancellationSIGTERM)
+		h.forceStop(execution, syscall.SIGTERM)
+		if h.waitForDone(
+			context.Background(),
+			execution.processDone,
+			h.config.TerminateTimeout,
+		) {
+			return
+		}
 	}
 	h.setCancellationMethod(execution, CancellationSIGKILL)
 	h.forceStop(execution, syscall.SIGKILL)
