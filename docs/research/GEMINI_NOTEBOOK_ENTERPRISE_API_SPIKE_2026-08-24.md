@@ -374,14 +374,48 @@ REST Reference 暴露 IAM permission 和 OAuth scope，不能据此推导许可�
 脱敏复现原则：
 
 ```bash
-gcloud version
-gcloud auth list --filter='status:ACTIVE' --format='value(account)'
-gcloud config get-value project
-gcloud info --format='value(config.paths.global_config_dir)'
-gcloud auth application-default print-access-token >/dev/null
+# 依次输出：账号查询成功布尔值、活动账号计数、活动账号集合 SHA-256
+if active_accounts="$(gcloud auth list --filter='status:ACTIVE' --format='value(account)' 2>/dev/null)"; then
+  printf 'true\n'
+else
+  active_accounts=''
+  printf 'false\n'
+fi
+printf '%s\n' "$active_accounts" | awk 'NF { count++ } END { print count + 0 }'
+printf '%s\n' "$active_accounts" | LC_ALL=C sort | shasum -a 256 | awk '{ print $1 }'
+
+# 依次输出：项目查询成功布尔值、项目存在布尔值、项目 SHA-256（未配置时为 false）
+if project_id="$(gcloud config get-value project 2>/dev/null)"; then
+  printf 'true\n'
+else
+  project_id=''
+  printf 'false\n'
+fi
+if [ -n "$project_id" ] && [ "$project_id" != '(unset)' ]; then
+  printf 'true\n'
+  printf '%s' "$project_id" | shasum -a 256 | awk '{ print $1 }'
+else
+  printf 'false\nfalse\n'
+fi
+
+# 仅输出 ADC 文件存在布尔值，不输出配置目录
+gcloud_config_dir="$(gcloud info --format='value(config.paths.global_config_dir)' 2>/dev/null)"
+if [ -n "$gcloud_config_dir" ] &&
+  [ -f "$gcloud_config_dir/application_default_credentials.json" ]; then
+  printf 'true\n'
+else
+  printf 'false\n'
+fi
+
+# token 丢弃，仅输出 ADC token 签发成功布尔值
+if gcloud auth application-default print-access-token >/dev/null 2>&1; then
+  printf 'true\n'
+else
+  printf 'false\n'
+fi
 ```
 
-执行时必须对账号/项目做哈希或仅报告是否存在；不得打印 ADC JSON、refresh token 或 access token。
+命令自身只输出布尔值、计数或完整 SHA-256；不得打印账号、项目、配置目录、ADC JSON、refresh token 或 access token。
 
 ## 7. 许可、试用与费用
 
