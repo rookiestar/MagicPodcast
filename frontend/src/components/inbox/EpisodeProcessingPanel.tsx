@@ -88,8 +88,14 @@ export default function EpisodeProcessingPanel({
   const [isScheduleLoading, setIsScheduleLoading] = useState(true);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const hasLoadedScheduleStatus = useRef(false);
+  const scheduleStatusInFlight = useRef(false);
+  const loadingEpisodeIDs = useRef(new Set<number>());
+  const activeEpisodeID = useRef(item.episode_id);
+  activeEpisodeID.current = item.episode_id;
 
   const loadScheduleStatus = useCallback(async () => {
+    if (scheduleStatusInFlight.current) return;
+    scheduleStatusInFlight.current = true;
     const isInitialLoad = !hasLoadedScheduleStatus.current;
     if (isInitialLoad) {
       setIsScheduleLoading(true);
@@ -105,6 +111,7 @@ export default function EpisodeProcessingPanel({
         }`,
       );
     } finally {
+      scheduleStatusInFlight.current = false;
       if (isInitialLoad) {
         setIsScheduleLoading(false);
       }
@@ -112,35 +119,59 @@ export default function EpisodeProcessingPanel({
   }, []);
 
   const loadLatest = useCallback(async () => {
+    const episodeID = item.episode_id;
+    if (loadingEpisodeIDs.current.has(episodeID)) return;
+    loadingEpisodeIDs.current.add(episodeID);
+    const isCurrentEpisode = () => activeEpisodeID.current === episodeID;
     void loadScheduleStatus();
-    const runs = await processingApi.listEpisodeRuns(item.episode_id);
-    if (runs.length === 0) {
-      setDetail(null);
-      try {
-        setAudioAsset(await processingApi.getLatestAudio(item.episode_id));
-      } catch (audioError) {
-        if (getProcessingErrorDetails(audioError).status === 404) {
-          setAudioAsset(null);
-        } else {
-          throw audioError;
+    try {
+      const runs = await processingApi.listEpisodeRuns(episodeID);
+      if (!isCurrentEpisode()) return;
+      if (runs.length === 0) {
+        setDetail(null);
+        try {
+          const latestAudio = await processingApi.getLatestAudio(episodeID);
+          if (isCurrentEpisode()) {
+            setAudioAsset(latestAudio);
+          }
+        } catch (audioError) {
+          if (getProcessingErrorDetails(audioError).status === 404) {
+            if (isCurrentEpisode()) {
+              setAudioAsset(null);
+            }
+          } else {
+            throw audioError;
+          }
         }
+        return;
       }
-      return;
-    }
-    const nextDetail = await processingApi.getRun(runs[0].id);
-    setDetail(nextDetail);
-    if (nextDetail.run.current_step === "audio_prepare") {
-      try {
-        setAudioAsset(await processingApi.getLatestAudio(item.episode_id));
-      } catch (audioError) {
-        if (getProcessingErrorDetails(audioError).status === 404) {
-          setAudioAsset(null);
-        } else {
-          throw audioError;
+      const nextDetail = await processingApi.getRun(runs[0].id);
+      if (!isCurrentEpisode()) return;
+      setDetail(nextDetail);
+      if (nextDetail.run.current_step === "audio_prepare") {
+        try {
+          const latestAudio = await processingApi.getLatestAudio(episodeID);
+          if (isCurrentEpisode()) {
+            setAudioAsset(latestAudio);
+          }
+        } catch (audioError) {
+          if (getProcessingErrorDetails(audioError).status === 404) {
+            if (isCurrentEpisode()) {
+              setAudioAsset(null);
+            }
+          } else {
+            throw audioError;
+          }
         }
+      } else {
+        setAudioAsset(null);
       }
-    } else {
-      setAudioAsset(null);
+    } catch (loadError) {
+      if (isCurrentEpisode()) {
+        throw loadError;
+      }
+    } finally {
+      loadingEpisodeIDs.current.delete(episodeID);
     }
   }, [item.episode_id, loadScheduleStatus]);
 

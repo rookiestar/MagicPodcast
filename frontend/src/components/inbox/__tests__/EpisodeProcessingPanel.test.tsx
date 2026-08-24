@@ -170,6 +170,36 @@ describe("EpisodeProcessingPanel", () => {
     );
   });
 
+  it("ignores a stale processing response after switching episodes", async () => {
+    let resolveFirst: (runs: ProcessingRun[]) => void = () => undefined;
+    apiMocks.listEpisodeRuns
+      .mockReturnValueOnce(
+        new Promise<ProcessingRun[]>((resolve) => {
+          resolveFirst = resolve;
+        }),
+      )
+      .mockResolvedValueOnce([]);
+    apiMocks.getRun.mockResolvedValue(detail());
+    const { rerender } = render(<EpisodeProcessingPanel item={item} />);
+
+    rerender(
+      <EpisodeProcessingPanel
+        item={{ ...item, episode_id: 202, episode_title: "第二集" }}
+      />,
+    );
+    await waitFor(() =>
+      expect(apiMocks.listEpisodeRuns).toHaveBeenCalledWith(202),
+    );
+    resolveFirst([failedRun]);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(apiMocks.getRun).not.toHaveBeenCalled();
+    expect(screen.queryByText("加工失败")).not.toBeInTheDocument();
+    expect(screen.getByText("尚未加工")).toBeVisible();
+  });
+
   it("reports status failures without hiding the panel controls", async () => {
     apiMocks.listEpisodeRuns.mockRejectedValue(new Error("网络超时"));
 
@@ -280,6 +310,65 @@ describe("EpisodeProcessingPanel", () => {
       await act(async () => {
         await Promise.resolve();
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not overlap slow schedule status polls", async () => {
+    vi.useFakeTimers();
+    try {
+      const activeRun: ProcessingRun = {
+        ...failedRun,
+        status: "waiting_external",
+        current_step: "transcription",
+        error_code: undefined,
+        error_message: undefined,
+        error_retryable: false,
+      };
+      const schedule = {
+        enabled: true,
+        cron: "0 0 9 * * *",
+        timezone: "Asia/Shanghai",
+        batch_size: 1,
+        next_run_at: "2026-08-25T09:00:00Z",
+      };
+      let resolvePoll: (value: typeof schedule) => void = () => undefined;
+      apiMocks.listEpisodeRuns.mockResolvedValue([activeRun]);
+      apiMocks.getRun.mockResolvedValue(detail(activeRun));
+      apiMocks.getScheduleStatus
+        .mockResolvedValueOnce(schedule)
+        .mockReturnValueOnce(
+          new Promise<typeof schedule>((resolve) => {
+            resolvePoll = resolve;
+          }),
+        );
+
+      render(<EpisodeProcessingPanel item={item} />);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000);
+      });
+      expect(apiMocks.getScheduleStatus).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(12000);
+      });
+      expect(apiMocks.getScheduleStatus).toHaveBeenCalledTimes(2);
+
+      resolvePoll(schedule);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000);
+      });
+      expect(apiMocks.getScheduleStatus).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
     }

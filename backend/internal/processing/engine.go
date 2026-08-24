@@ -143,6 +143,12 @@ func (e *Engine) Advance(
 	var progress TranscriptionProgress
 	switch run.Status {
 	case models.ProcessingRunStatusQueued:
+		if run.TriggerSource == models.ProcessingTriggerScheduled {
+			run, err = e.service.cancelQueuedScheduledRunOutsideFocus(runCtx, run.ID)
+			if err != nil || models.IsProcessingRunTerminal(run.Status) {
+				return run, err
+			}
+		}
 		run, err = e.beginQueuedAttempt(runCtx, run.ID)
 		if err != nil || models.IsProcessingRunTerminal(run.Status) {
 			return run, err
