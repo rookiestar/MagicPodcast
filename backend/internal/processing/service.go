@@ -108,7 +108,7 @@ func (s *Service) StartEpisodeProcessing(
 	input, err := s.inputResolver.ResolveProcessingInput(ctx, normalized.EpisodeID)
 	if err != nil {
 		if normalized.RequireReadyAudio {
-			return StartResult{}, ErrProcessingInputUnavailable
+			return StartResult{}, classifyScheduledReadyAudioError(err)
 		}
 		if s.audioPreparer == nil {
 			return StartResult{}, ErrProcessingInputUnavailable
@@ -127,6 +127,30 @@ func (s *Service) StartEpisodeProcessing(
 		return StartResult{}, err
 	}
 	return s.startResolvedEpisodeProcessing(ctx, normalized, input)
+}
+
+// classifyScheduledReadyAudioError keeps a scheduler skip limited to the one
+// expected condition: a managed audio asset has not finished preparation.
+// Storage and integrity failures must surface as a failed schedule run rather
+// than being silently treated as a normal candidate skip.
+func classifyScheduledReadyAudioError(err error) error {
+	switch {
+	case errors.Is(err, ErrProcessingInputUnavailable):
+		return ErrProcessingInputUnavailable
+	case errors.Is(err, ErrEpisodeNotFound):
+		return ErrEpisodeNotFound
+	}
+
+	var audioErr *AudioStoreError
+	if errors.As(err, &audioErr) {
+		switch audioErr.Code {
+		case AudioErrorNotReady:
+			return ErrProcessingInputUnavailable
+		case AudioErrorAssetNotFound:
+			return ErrEpisodeNotFound
+		}
+	}
+	return fmt.Errorf("resolve scheduled ready audio: %w", err)
 }
 
 func (s *Service) startAudioPreparationRun(

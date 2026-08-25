@@ -32,7 +32,7 @@ func TestSchedulerSelectsFocusInPersistentOrderAndRecordsSkips(t *testing.T) {
 	for _, episode := range []models.Episode{active, completed, eligible} {
 		resolver.SetReady(episode.ID)
 	}
-	resolver.SetError(noAudio.ID, errors.New("managed audio is not ready"))
+	resolver.SetError(noAudio.ID, newAudioStoreError(AudioErrorNotReady, "managed audio is not ready", true))
 	setFocusPositions(t, db, active.ID, completed.ID, noAudio.ID, eligible.ID)
 
 	activeRun, err := service.StartEpisodeProcessing(context.Background(), StartRequest{
@@ -89,6 +89,38 @@ func TestSchedulerSelectsFocusInPersistentOrderAndRecordsSkips(t *testing.T) {
 	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).Where("episode_id = ?", noAudio.ID).Count(&noAudioRuns).Error)
 	require.Zero(t, noAudioRuns)
 	require.NotZero(t, activeRun.Run.ID)
+}
+
+func TestSchedulerFailsUnexpectedReadyAudioError(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 25, 3, 10, 0, 0, time.UTC)
+	resolver := newEpisodeInputResolver()
+	service := NewService(
+		db,
+		WithProcessingInputResolver(resolver),
+		WithClock(func() time.Time { return now }),
+	)
+	scheduler := newTestScheduler(t, db, service, now, 1)
+	episode := createProcessingEpisode(t, db, true, "schedule-storage-failure")
+	resolver.SetError(episode.ID, newAudioStoreError(
+		AudioErrorStorageFailed,
+		"managed audio state is unavailable",
+		true,
+	))
+	setFocusPositions(t, db, episode.ID)
+
+	detail, reused, err := scheduler.RunAt(context.Background(), now)
+	require.NoError(t, err)
+	require.False(t, reused)
+	require.Equal(t, models.ProcessingScheduleRunStatusFailed, detail.Run.Status)
+	require.Equal(t, "candidate_start_failed", detail.Run.ErrorCode)
+	require.Len(t, detail.Items, 1)
+	require.Equal(t, models.ProcessingScheduleItemOutcomeSkipped, detail.Items[0].Outcome)
+	require.Equal(t, scheduleSkipStartFailed, detail.Items[0].Reason)
+
+	var count int64
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).Where("episode_id = ?", episode.ID).Count(&count).Error)
+	require.Zero(t, count)
 }
 
 func TestSchedulerFinishRunUsesPersistedItemCounts(t *testing.T) {
@@ -678,7 +710,7 @@ func (r *episodeInputResolver) ResolveProcessingInput(_ context.Context, episode
 	if input, ok := r.inputs[episodeID]; ok {
 		return input, nil
 	}
-	return ProcessingInput{}, errors.New("managed audio is not ready")
+	return ProcessingInput{}, newAudioStoreError(AudioErrorNotReady, "managed audio is not ready", true)
 }
 
 func (r *episodeInputResolver) SetReady(episodeID uint) {

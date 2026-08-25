@@ -170,6 +170,58 @@ func TestServiceResolvesAuthoritativeInputOnlyForNewRun(t *testing.T) {
 	require.Equal(t, 2, resolver.CallCount())
 }
 
+func TestServiceScheduledStartClassifiesOnlyExpectedReadyAudioErrorsAsSkips(t *testing.T) {
+	for _, testCase := range []struct {
+		name             string
+		resolverErr      error
+		want             error
+		preservedErrCode string
+	}{
+		{
+			name:        "not ready",
+			resolverErr: newAudioStoreError(AudioErrorNotReady, "managed episode audio is not ready", true),
+			want:        ErrProcessingInputUnavailable,
+		},
+		{
+			name:        "missing episode",
+			resolverErr: newAudioStoreError(AudioErrorAssetNotFound, "episode was not found", false),
+			want:        ErrEpisodeNotFound,
+		},
+		{
+			name:             "storage failure",
+			resolverErr:      newAudioStoreError(AudioErrorStorageFailed, "managed audio state is unavailable", true),
+			preservedErrCode: AudioErrorStorageFailed,
+		},
+		{
+			name:             "invalid ready file",
+			resolverErr:      newAudioStoreError(AudioErrorReadyFileInvalid, "managed episode audio file is unavailable", true),
+			preservedErrCode: AudioErrorReadyFileInvalid,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			db := openProcessingTestDB(t)
+			service, resolver := newProcessingServiceWithResolver(db)
+			episode := createProcessingEpisode(t, db, true, "scheduled-ready-"+testCase.name)
+			resolver.SetError(testCase.resolverErr)
+
+			_, err := service.StartEpisodeProcessing(context.Background(), StartRequest{
+				EpisodeID:         episode.ID,
+				TriggerSource:     models.ProcessingTriggerScheduled,
+				RequireReadyAudio: true,
+			})
+			require.Error(t, err)
+			if testCase.want != nil {
+				require.ErrorIs(t, err, testCase.want)
+				return
+			}
+			require.False(t, errors.Is(err, ErrProcessingInputUnavailable))
+			var audioErr *AudioStoreError
+			require.True(t, errors.As(err, &audioErr))
+			require.Equal(t, testCase.preservedErrCode, audioErr.Code)
+		})
+	}
+}
+
 func TestServiceQueuesManagedAudioInsideOneCancelableRun(t *testing.T) {
 	db := openProcessingTestDB(t)
 	resolver := &staticProcessingInputResolver{
