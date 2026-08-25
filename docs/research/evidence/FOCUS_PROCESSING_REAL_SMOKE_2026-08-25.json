@@ -81,6 +81,35 @@
       "note": "This probe includes the local Runtime Host fix but was built from an uncommitted worktree; it is not commit-bound acceptance evidence."
     }
   },
+  "runtime_committed_acceptance": {
+    "started_at": "2026-08-25T01:32:20.388964Z",
+    "finished_at": "2026-08-25T01:35:56.454233Z",
+    "status": "completed",
+    "resume_only": true,
+    "audio_reused_without_upload": true,
+    "transcript_bytes": 177999,
+    "runtime": {
+      "status": "completed",
+      "notes_bytes": 11521,
+      "runtime_version": "sdk/0.147.0;runtime/0.147.0 (Mac OS 26.6.1; arm64)",
+      "prompt_version": "episode-notes-v1",
+      "tracked_executions": 1,
+      "cleanup_succeeded": true
+    },
+    "artifacts": {
+      "published": true,
+      "manifest_sha256": "509e7c9714ce788ed5ee902148fb8ff595e6d286741cb2e26947d21caf39d7d9",
+      "transcript_sha256": "c295dd6ad27cb742b14ea99c00262ca0cc9c22a0550a36abaa958ec07eea5991",
+      "notes_sha256": "50b8595b5f8c7f064c7ddf815cd76f58323c0f658b5723c863a1fdd605931ab1",
+      "raw_artifact_count": 2,
+      "verified_file_count": 5
+    },
+    "source_binding": {
+      "smoke_binary_revision": "eeb4aed30444bd6664da77d80a51a45f610804ea",
+      "vcs_modified": false,
+      "verified": true
+    }
+  },
   "event_sequences": {
     "first_attempt": [
       "preflight",
