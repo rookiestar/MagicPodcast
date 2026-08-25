@@ -51,6 +51,36 @@
       "verified_file_count": 5
     }
   },
+  "runtime_fix_probe": {
+    "started_at": "2026-08-25T01:19:25.798150Z",
+    "finished_at": "2026-08-25T01:22:45.173543Z",
+    "status": "completed",
+    "resume_only": true,
+    "audio_reused_without_upload": true,
+    "transcript_bytes": 177999,
+    "runtime": {
+      "status": "completed",
+      "notes_bytes": 10866,
+      "runtime_version": "sdk/0.147.0;runtime/0.147.0 (Mac OS 26.6.1; arm64)",
+      "prompt_version": "episode-notes-v1",
+      "tracked_executions": 1,
+      "cleanup_succeeded": true
+    },
+    "artifacts": {
+      "published": true,
+      "manifest_sha256": "d0120a4ef768ff17dc756d68f24d2aeb1447c0b2da5037689bc195102f8d5ee7",
+      "transcript_sha256": "c295dd6ad27cb742b14ea99c00262ca0cc9c22a0550a36abaa958ec07eea5991",
+      "notes_sha256": "6f64767280c52332e76bd92f531e4a8e848097c4f6b4214c26ee758e5dce4f60",
+      "raw_artifact_count": 2,
+      "verified_file_count": 5
+    },
+    "source_binding": {
+      "smoke_binary_revision": "0d3e9bf9ab70914d2caa3d8ca03095a4f8615a59",
+      "vcs_modified": true,
+      "verified": false,
+      "note": "This probe includes the local Runtime Host fix but was built from an uncommitted worktree; it is not commit-bound acceptance evidence."
+    }
+  },
   "event_sequences": {
     "first_attempt": [
       "preflight",
