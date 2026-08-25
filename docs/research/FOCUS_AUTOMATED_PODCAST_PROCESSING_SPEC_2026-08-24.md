@@ -2,7 +2,7 @@
 
 日期：2026-08-24
 
-状态：已确认设计；#179、#180、#185 已关闭。#181 的仓库实现、提交绑定的真实飞书 Smoke 与妙记 pending 修复 [PR #194](https://github.com/rookiestar/MagicPodcast/pull/194) 已合并，仍待人工复核后收口；#182 的仓库实现已合并，待与 #181 联合验收后收口。#186 的人工导入包与状态展示 [PR #196](https://github.com/rookiestar/MagicPodcast/pull/196) 已合并，仍待人工 ima 导入验收。#183 为 No-Go，#184 因此 blocked；生产启用另按发布门禁验收。
+状态：已确认设计；#179、#180、#185 已关闭。#181 的仓库实现与 [PR #194](https://github.com/rookiestar/MagicPodcast/pull/194) 的妙记 pending 修复已合并；提交绑定的真实飞书 Smoke 构建于 `61d4e9c`，早于该修复，故最终修复仍缺获批的干净构建真实验收与人工复核。#182 的仓库实现已合并，但受 #181 阻塞，暂不可收口。#186 的人工导入包与状态展示 [PR #196](https://github.com/rookiestar/MagicPodcast/pull/196) 已合并，仍待人工 ima 导入验收。#183 为 No-Go，#184 因此 blocked；生产启用另按发布门禁验收。
 
 关联：[领域词汇](../../CONTEXT.md)、[ADR-0007](../adr/0007-use-local-codex-runtime-for-intelligent-processing.md)、[ADR-0008](../adr/0008-separate-action-processing-and-knowledge-delivery-state.md)
 
@@ -373,7 +373,7 @@ Adapter 只能返回规范回执：目标、远端对象身份、状态、时间
 
 ## 14. 分阶段实施
 
-截至 2026-08-25，阶段 A、B、G、H 的人工导入包与阶段 D 的仓库实现已合并到 `main`。阶段 C 的仓库实现、提交绑定的真实飞书 Smoke 与 [PR #194](https://github.com/rookiestar/MagicPodcast/pull/194) 的妙记 pending 修复均已合并；C/D 仍待人工联合验收后收口。阶段 H 还缺人工 ima 导入验收；阶段 E 已记录 No-Go，阶段 F 因此 blocked。数据库迁移、部署和生产启用均以独立发布证据为准，本 Spec 不作结论。
+截至 2026-08-25，阶段 A、B、G、H 的人工导入包与阶段 D 的仓库实现已合并到 `main`。阶段 C 的仓库实现和 [PR #194](https://github.com/rookiestar/MagicPodcast/pull/194) 的妙记 pending 修复均已合并；现有提交绑定的真实飞书 Smoke 早于该修复，因此 C/D 仍缺获批的最终修复真实验收，不能收口。阶段 H 还缺人工 ima 导入验收；阶段 E 已记录 No-Go，阶段 F 因此 blocked。数据库迁移、部署和生产启用均以独立发布证据为准，本 Spec 不作结论。
 
 | 阶段 | 交付 | 依赖 |
 | --- | --- | --- |
