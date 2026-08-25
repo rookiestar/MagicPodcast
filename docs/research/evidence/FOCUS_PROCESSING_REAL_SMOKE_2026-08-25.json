@@ -110,6 +110,42 @@
       "verified": true
     }
   },
+  "commit_bound_acceptance": {
+    "started_at": "2026-08-25T03:15:22.448491Z",
+    "finished_at": "2026-08-25T03:25:48.885414Z",
+    "elapsed_ms": 626436,
+    "status": "completed",
+    "resume_only": false,
+    "feishu": {
+      "polls": 12,
+      "checkpoint_writes": 7,
+      "transcript_bytes": 177823,
+      "raw_artifact_count": 2,
+      "source_ref_count": 3,
+      "skill_version_count": 2
+    },
+    "runtime": {
+      "status": "completed",
+      "notes_bytes": 10257,
+      "runtime_version": "sdk/0.147.0;runtime/0.147.0 (Mac OS 26.6.1; arm64) unknown (codex_python_sdk; 0.147.0)",
+      "prompt_version": "episode-notes-v1",
+      "tracked_executions": 1,
+      "cleanup_succeeded": true
+    },
+    "artifacts": {
+      "published": true,
+      "manifest_sha256": "05c7ce14936117a25f4f55fb7388568e7c5812148ad669a12a0ecc1c6972bbc1",
+      "transcript_sha256": "25c822e69aee68943384e5d2d23b4884f88364f0a8ee86c75c6149ace22a7236",
+      "notes_sha256": "73a050aafa1cad6ed01b7e3eb3b3d4792b831ff26fb1dcdb47e3ce043989828a",
+      "raw_artifact_count": 2,
+      "verified_file_count": 5
+    },
+    "build": {
+      "go_version": "go1.25.5",
+      "vcs_revision": "61d4e9c02430b27ba9461a71b7510df90ec6bc5b",
+      "vcs_modified": false
+    }
+  },
   "event_sequences": {
     "first_attempt": [
       "preflight",
@@ -123,12 +159,22 @@
       "runtime_started",
       "runtime_complete",
       "artifacts_published"
+    ],
+    "commit_bound_acceptance": [
+      "preflight_complete",
+      "drive_upload_started",
+      "feishu_waiting",
+      "feishu_complete",
+      "runtime_started",
+      "runtime_complete",
+      "artifacts_published"
     ]
   },
   "source_binding": {
-    "smoke_binary_commit": null,
-    "verified": false,
-    "note": "The real-smoke binary was built in a temporary Mac mini directory; its build commit was not captured."
+    "smoke_binary_commit": "61d4e9c02430b27ba9461a71b7510df90ec6bc5b",
+    "vcs_modified": false,
+    "verified": true,
+    "note": "The commit-bound acceptance run was built from the exact Issue 181 fix commit in a fresh Mac mini worktree."
   },
   "excluded_probe": {
     "tool": "codex-cli",
