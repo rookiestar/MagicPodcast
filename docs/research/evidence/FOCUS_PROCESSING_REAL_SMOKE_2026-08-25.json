@@ -1,0 +1,82 @@
+{
+  "schema_version": "1.0.0",
+  "scope": "issue-181-feishu-manual-processing",
+  "environment": {
+    "host": "RookieStarMac-mini.local",
+    "production": false,
+    "audio_uploaded_for_this_evidence": true
+  },
+  "observed_window": {
+    "first_attempt_started_at": "2026-08-24T17:23:56.360833Z",
+    "first_attempt_finished_at": "2026-08-24T17:25:40.438331Z",
+    "resume_attempt_started_at": "2026-08-24T17:33:57.041040Z",
+    "resume_attempt_finished_at": "2026-08-24T17:35:21.462700Z"
+  },
+  "audio": {
+    "bytes": 166307094,
+    "sha256": "d97358e4e0199d297538912bc51a8c4be4278691041d5baac15674edc907172e"
+  },
+  "first_attempt": {
+    "status": "failed",
+    "stage": "feishu_transcription",
+    "error_code": "lark_minutes_unavailable",
+    "polls": 2,
+    "checkpoint_writes": 6,
+    "artifacts_published": false,
+    "runtime_started": false,
+    "cleanup_succeeded": false
+  },
+  "resume_attempt": {
+    "status": "completed",
+    "checkpoint_writes": 1,
+    "transcript_bytes": 177999,
+    "raw_artifact_count": 2,
+    "source_ref_count": 3,
+    "skill_version_count": 2,
+    "resume_repeated_external_upload": false,
+    "runtime": {
+      "status": "completed",
+      "notes_bytes": 8131,
+      "runtime_version": "sdk/0.147.0;runtime/0.147.0 (Mac OS 26.6.1; arm64)",
+      "prompt_version": "episode-notes-v1",
+      "tracked_executions": 1,
+      "cleanup_succeeded": true
+    },
+    "artifacts": {
+      "published": true,
+      "manifest_sha256": "ca2fccd4dda3123072bb38c40b3365deaf5f44538d2e9d82e5122110696f33f7",
+      "transcript_sha256": "c295dd6ad27cb742b14ea99c00262ca0cc9c22a0550a36abaa958ec07eea5991",
+      "notes_sha256": "e6ef6b8bc9f5deb844a3f312344c50139847d168610514487eaed51eb91f3d21",
+      "raw_artifact_count": 2,
+      "verified_file_count": 5
+    }
+  },
+  "event_sequences": {
+    "first_attempt": [
+      "preflight",
+      "drive_upload",
+      "feishu_waiting",
+      "failed"
+    ],
+    "resume_attempt": [
+      "feishu_resume",
+      "feishu_complete",
+      "runtime_started",
+      "runtime_complete",
+      "artifacts_published"
+    ]
+  },
+  "source_binding": {
+    "smoke_binary_commit": null,
+    "verified": false,
+    "note": "The real-smoke binary was built in a temporary Mac mini directory; its build commit was not captured."
+  },
+  "excluded_probe": {
+    "tool": "codex-cli",
+    "version": "0.144.1",
+    "status": "failed",
+    "error": "timed out waiting for cloud config bundle after 15s",
+    "counted_as_issue_181_acceptance": false,
+    "note": "This probe does not replace the pinned 0.147.0 Runtime Host evidence."
+  }
+}
