@@ -311,6 +311,13 @@ export default function EpisodeProcessingPanel({
     item.queue_state === "focus" &&
     (run?.status === "failed" || run?.status === "cancelled") &&
     !run.error_code?.toLowerCase().includes("result_unknown");
+  const scheduleSummary = !scheduleStatus
+    ? isScheduleLoading
+      ? "正在读取…"
+      : "定时状态暂时不可用"
+    : scheduleStatus.enabled
+      ? `已启用 · 每批 ${scheduleStatus.batch_size} 集`
+      : "未启用";
 
   return (
     <section
@@ -381,13 +388,7 @@ export default function EpisodeProcessingPanel({
           </div>
           <div>
             <dt>定时计划</dt>
-            <dd>
-              {isScheduleLoading && !scheduleStatus
-                ? "正在读取…"
-                : scheduleStatus?.enabled
-                  ? `已启用 · 每批 ${scheduleStatus.batch_size} 集`
-                  : "未启用"}
-            </dd>
+            <dd>{scheduleSummary}</dd>
           </div>
           <div>
             <dt>下次计划</dt>
@@ -402,6 +403,16 @@ export default function EpisodeProcessingPanel({
         {scheduleError && (
           <div className={styles.processingHint} role="status">
             {scheduleError}
+          </div>
+        )}
+        {scheduleStatus?.enabled && (
+          <div className={styles.processingHint}>
+            <strong>定时配置</strong>
+            <span>
+              cron：{scheduleStatus.cron} · 时区：{scheduleStatus.timezone} · 每批 {" "}
+              {scheduleStatus.batch_size} 集
+            </span>
+            <span>修改主机配置并重启服务后生效。</span>
           </div>
         )}
         {latestScheduleRun && (

@@ -318,6 +318,11 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// Stop future cron selection before waiting for HTTP connections to drain.
+	// A shutdown window must not create a new scheduled processing run.
+	if processingScheduleCancel != nil {
+		processingScheduleCancel()
+	}
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Fatalf("Server forced to shutdown: %v", err)
 	}
@@ -335,7 +340,6 @@ func main() {
 		}
 	}
 	if processingScheduleCancel != nil {
-		processingScheduleCancel()
 		if !processingScheduleStopped {
 			select {
 			case scheduleErr := <-processingScheduleErr:

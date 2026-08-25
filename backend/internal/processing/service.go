@@ -18,6 +18,8 @@ import (
 
 var sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
+const scheduledRunCancelledOutsideFocusCode = "scheduled_not_in_focus"
+
 type Service struct {
 	db             *gorm.DB
 	inputResolver  ProcessingInputResolver
@@ -424,19 +426,19 @@ func (s *Service) startResolvedEpisodeProcessing(
 			// it reaches a terminal state, a later cron tick must not create a
 			// fresh external request for the same audio/pipeline identity. That is
 			// especially important for fail-closed unknown external write results.
-			// Manual RetryProcessingRun remains the explicit, reviewable escape
-			// hatch after an operator fixes the cause.
+			// The sole exception is a queued scheduled run that was skipped after
+			// the episode left Focus: it has made no external request, so a later
+			// return to Focus is eligible for a fresh scheduled run.
 			if request.TriggerSource == models.ProcessingTriggerScheduled {
 				var terminal models.EpisodeProcessingRun
 				terminalErr := tx.
 					Where(
-						"episode_id = ? AND processing_key = ? AND status IN ?",
+						"episode_id = ? AND processing_key = ? AND (status = ? OR (status = ? AND error_code <> ?))",
 						request.EpisodeID,
 						key,
-						[]string{
-							models.ProcessingRunStatusFailed,
-							models.ProcessingRunStatusCancelled,
-						},
+						models.ProcessingRunStatusFailed,
+						models.ProcessingRunStatusCancelled,
+						scheduledRunCancelledOutsideFocusCode,
 					).
 					Order("finished_at DESC, id DESC").
 					First(&terminal).Error
@@ -748,7 +750,7 @@ func (s *Service) cancelQueuedScheduledRunOutsideFocusTx(
 			"cancelled_at":    now,
 			"finished_at":     now,
 			"next_attempt_at": nil,
-			"error_code":      "scheduled_not_in_focus",
+			"error_code":      scheduledRunCancelledOutsideFocusCode,
 			"error_message":   "episode left Focus before scheduled processing began",
 			"error_retryable": false,
 			"updated_at":      now,

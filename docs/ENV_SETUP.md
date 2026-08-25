@@ -68,6 +68,10 @@ backend/.env
 | `MAGICPODCAST_PROCESSING_IMA_ENABLED` | 是否为成功产物自动生成 ima 人工导入包；默认关闭 |
 | `MAGICPODCAST_PROCESSING_IMA_PACKAGE_ROOT` | ima 人工导入包受管绝对目录 |
 | `MAGICPODCAST_PROCESSING_IMA_DESTINATION` | ima 导入目标的稳定标识；首期仅用于交付幂等 |
+| `MAGICPODCAST_PROCESSING_SCHEDULE_ENABLED` | 是否显式启用 Focus 定时加工；默认关闭 |
+| `MAGICPODCAST_PROCESSING_SCHEDULE_CRON` | Focus 定时加工 cron；启用时必填 |
+| `MAGICPODCAST_PROCESSING_SCHEDULE_TIMEZONE` | Focus 定时加工 IANA 时区；启用时必填 |
+| `MAGICPODCAST_PROCESSING_SCHEDULE_BATCH_SIZE` | 单次定时选择的最大单集数；启用时至少为 1 |
 
 生产模式下，`./scripts/start.sh --prod` 会默认设置：
 
@@ -91,6 +95,10 @@ MAGICPODCAST_DATA_PROFILE=production
 启用只会启动本机 Worker；不等于已授权迁移、部署或上传真实播客音频。飞书不可用时不会自动切换到本地 ASR。
 `processing.ima.enabled` 仍需单独显式开启；开启后只在本机生成 `manual_import`
 包，状态保持“待人工导入”，不会自动登录或上传 ima。
+
+## Focus 定时加工配置
+
+`processing.schedule` 是主机启动配置：默认 `enabled: false`，只有显式启用后才按 cron、时区和每批上限选择当前 Focus 单集。配置可写入受限 `config.yaml`，或使用上表对应环境变量；修改后需重启服务才会生效。页面只回读当前配置、下一次计划和最近一次结果，不提供在线改配置，避免在未审计的运行中改变无人值守行为。
 
 ## 前端配置
 

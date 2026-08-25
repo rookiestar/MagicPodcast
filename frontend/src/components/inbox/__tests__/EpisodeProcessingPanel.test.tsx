@@ -258,6 +258,10 @@ describe("EpisodeProcessingPanel", () => {
     render(<EpisodeProcessingPanel item={item} />);
 
     expect(await screen.findByText("已启用 · 每批 1 集")).toBeVisible();
+    expect(
+      screen.getByText("cron：0 0 9 * * * · 时区：Asia/Shanghai · 每批 1 集"),
+    ).toBeVisible();
+    expect(screen.getByText("修改主机配置并重启服务后生效。")).toBeVisible();
     expect(screen.getByText("最近定时：已完成")).toBeVisible();
     expect(screen.getByText("此集跳过：本批已达上限")).toBeVisible();
   });
@@ -480,6 +484,8 @@ describe("EpisodeProcessingPanel", () => {
     expect(
       await screen.findByText("定时计划暂时无法读取：定时网络超时"),
     ).toBeVisible();
+    expect(screen.getByText("定时状态暂时不可用")).toBeVisible();
+    expect(screen.queryByText("未启用")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "开始加工" })).toBeEnabled();
   });
 
