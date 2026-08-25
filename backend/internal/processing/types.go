@@ -20,9 +20,14 @@ const (
 )
 
 type StartRequest struct {
-	EpisodeID     uint
-	TriggerSource string
-	Force         bool
+	EpisodeID         uint
+	TriggerSource     string
+	Force             bool
+	RequireReadyAudio bool
+	ScheduleRunID     *uint
+	// ScheduleQueuePosition is supplied only by the scheduler so a newly
+	// created scheduled run can register its item in the same transaction.
+	ScheduleQueuePosition *int64
 }
 
 type ProcessingInput struct {
@@ -46,8 +51,12 @@ type StartResult struct {
 	Run              models.EpisodeProcessingRun `json:"run"`
 	ReusedActive     bool                        `json:"reused_active"`
 	ReusedSuccessful bool                        `json:"reused_successful"`
-	AudioAsset       *models.EpisodeAudioAsset   `json:"audio_asset,omitempty"`
-	PreparingAudio   bool                        `json:"preparing_audio"`
+	// ReusedTerminal is scheduler-internal. A scheduled trigger must not turn
+	// a failed or cancelled run of the same immutable input back into an
+	// unbounded automatic retry; a user can still use the explicit retry flow.
+	ReusedTerminal bool                      `json:"-"`
+	AudioAsset     *models.EpisodeAudioAsset `json:"audio_asset,omitempty"`
+	PreparingAudio bool                      `json:"preparing_audio"`
 }
 
 type RetryPolicy struct {
@@ -94,6 +103,21 @@ type TranscriptionAdapter interface {
 	Begin(context.Context, TranscriptionRequest) (TranscriptionProgress, error)
 	Resume(context.Context, TranscriptionRequest, json.RawMessage) (TranscriptionProgress, error)
 	Cancel(context.Context, uint, json.RawMessage) error
+}
+
+// TranscriptionCancellationDisposition describes what remains observable after
+// local cancellation. It deliberately contains no checkpoint or remote
+// identity, because those values must not leave the adapter boundary.
+type TranscriptionCancellationDisposition struct {
+	RemoteMayContinue bool
+	Message           string
+}
+
+// TranscriptionCancellationReporter is optional. Adapters that can determine
+// whether an already-started external operation may outlive local cancellation
+// use it to surface a bounded, user-safe warning.
+type TranscriptionCancellationReporter interface {
+	CancellationDisposition(json.RawMessage) (TranscriptionCancellationDisposition, error)
 }
 
 type RuntimeRequest struct {

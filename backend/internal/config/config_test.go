@@ -88,6 +88,10 @@ func TestLoadAppliesProcessingEnvOverrides(t *testing.T) {
 	t.Setenv("MAGICPODCAST_PROCESSING_IMA_ENABLED", "true")
 	t.Setenv("MAGICPODCAST_PROCESSING_IMA_PACKAGE_ROOT", "/tmp/magicpodcast/ima")
 	t.Setenv("MAGICPODCAST_PROCESSING_IMA_DESTINATION", "manual-import")
+	t.Setenv("MAGICPODCAST_PROCESSING_SCHEDULE_ENABLED", "true")
+	t.Setenv("MAGICPODCAST_PROCESSING_SCHEDULE_CRON", "15 3 * * *")
+	t.Setenv("MAGICPODCAST_PROCESSING_SCHEDULE_TIMEZONE", "Asia/Shanghai")
+	t.Setenv("MAGICPODCAST_PROCESSING_SCHEDULE_BATCH_SIZE", "1")
 
 	writeTestConfig(t, configPath, minimalBaseConfigYAML)
 	loaded, err := Load(configPath)
@@ -107,6 +111,10 @@ func TestLoadAppliesProcessingEnvOverrides(t *testing.T) {
 	require.True(t, loaded.Processing.IMA.Enabled)
 	require.Equal(t, "/tmp/magicpodcast/ima", loaded.Processing.IMA.PackageRoot)
 	require.Equal(t, "manual-import", loaded.Processing.IMA.Destination)
+	require.True(t, loaded.Processing.Schedule.Enabled)
+	require.Equal(t, "0 15 3 * * *", loaded.Processing.Schedule.Cron)
+	require.Equal(t, "Asia/Shanghai", loaded.Processing.Schedule.Timezone)
+	require.Equal(t, 1, loaded.Processing.Schedule.BatchSize)
 }
 
 func TestLoadDefaultsServerHostToLoopback(t *testing.T) {
@@ -274,6 +282,12 @@ func TestValidateProcessingRequiresExplicitSafeConfiguration(t *testing.T) {
 				PackageRoot: "/srv/magicpodcast/ima",
 				Destination: "manual-import",
 			},
+			Schedule: ProcessingScheduleConfig{
+				Enabled:   true,
+				Cron:      "0 0 3 * * *",
+				Timezone:  "Asia/Shanghai",
+				BatchSize: 1,
+			},
 		},
 	}
 	require.NoError(t, base.Validate())
@@ -302,6 +316,18 @@ func TestValidateProcessingRequiresExplicitSafeConfiguration(t *testing.T) {
 	traversingIMADestination.Processing.IMA.Destination = "../ima"
 	require.ErrorContains(t, traversingIMADestination.Validate(), "ima destination must be a safe identity")
 
+	invalidSchedule := base
+	invalidSchedule.Processing.Schedule.Cron = "bad"
+	require.ErrorContains(t, invalidSchedule.Validate(), "schedule configuration is invalid")
+
+	missingScheduleTimezone := base
+	missingScheduleTimezone.Processing.Schedule.Timezone = ""
+	require.ErrorContains(t, missingScheduleTimezone.Validate(), "schedule configuration is invalid")
+
+	zeroScheduleBatch := base
+	zeroScheduleBatch.Processing.Schedule.BatchSize = 0
+	require.ErrorContains(t, zeroScheduleBatch.Validate(), "schedule configuration is invalid")
+
 	disabled := base
 	disabled.Processing = ProcessingConfig{}
 	require.NoError(t, disabled.Validate())
@@ -309,6 +335,10 @@ func TestValidateProcessingRequiresExplicitSafeConfiguration(t *testing.T) {
 	orphanedIMA := disabled
 	orphanedIMA.Processing.IMA.Enabled = true
 	require.ErrorContains(t, orphanedIMA.Validate(), "ima requires processing to be enabled")
+
+	orphanedSchedule := disabled
+	orphanedSchedule.Processing.Schedule.Enabled = true
+	require.ErrorContains(t, orphanedSchedule.Validate(), "schedule requires processing to be enabled")
 }
 
 func writeTestConfig(t *testing.T, path string, contents string) {

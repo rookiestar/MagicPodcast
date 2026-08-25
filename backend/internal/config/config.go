@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+	"magicpodcast/internal/cronexpr"
 	"magicpodcast/internal/feed"
 )
 
@@ -174,17 +175,18 @@ type DiscoveryConfig struct {
 }
 
 type ProcessingConfig struct {
-	Enabled              bool                    `mapstructure:"enabled"`
-	PipelineVersion      string                  `mapstructure:"pipeline_version"`
-	AudioRoot            string                  `mapstructure:"audio_root"`
-	ArtifactRoot         string                  `mapstructure:"artifact_root"`
-	LarkCLI              string                  `mapstructure:"lark_cli"`
-	LarkWorkRoot         string                  `mapstructure:"lark_work_root"`
-	WorkerScanInterval   time.Duration           `mapstructure:"worker_scan_interval"`
-	ExternalPollInterval time.Duration           `mapstructure:"external_poll_interval"`
-	WorkerBatchSize      int                     `mapstructure:"worker_batch_size"`
-	Runtime              ProcessingRuntimeConfig `mapstructure:"runtime"`
-	IMA                  ProcessingIMAConfig     `mapstructure:"ima"`
+	Enabled              bool                     `mapstructure:"enabled"`
+	PipelineVersion      string                   `mapstructure:"pipeline_version"`
+	AudioRoot            string                   `mapstructure:"audio_root"`
+	ArtifactRoot         string                   `mapstructure:"artifact_root"`
+	LarkCLI              string                   `mapstructure:"lark_cli"`
+	LarkWorkRoot         string                   `mapstructure:"lark_work_root"`
+	WorkerScanInterval   time.Duration            `mapstructure:"worker_scan_interval"`
+	ExternalPollInterval time.Duration            `mapstructure:"external_poll_interval"`
+	WorkerBatchSize      int                      `mapstructure:"worker_batch_size"`
+	Runtime              ProcessingRuntimeConfig  `mapstructure:"runtime"`
+	IMA                  ProcessingIMAConfig      `mapstructure:"ima"`
+	Schedule             ProcessingScheduleConfig `mapstructure:"schedule"`
 }
 
 type ProcessingRuntimeConfig struct {
@@ -197,6 +199,13 @@ type ProcessingIMAConfig struct {
 	Enabled     bool   `mapstructure:"enabled"`
 	PackageRoot string `mapstructure:"package_root"`
 	Destination string `mapstructure:"destination"`
+}
+
+type ProcessingScheduleConfig struct {
+	Enabled   bool   `mapstructure:"enabled"`
+	Cron      string `mapstructure:"cron"`
+	Timezone  string `mapstructure:"timezone"`
+	BatchSize int    `mapstructure:"batch_size"`
 }
 
 var cfg *Config
@@ -304,6 +313,10 @@ func bindProcessingEnvKeys() {
 		"processing.ima.enabled",
 		"processing.ima.package_root",
 		"processing.ima.destination",
+		"processing.schedule.enabled",
+		"processing.schedule.cron",
+		"processing.schedule.timezone",
+		"processing.schedule.batch_size",
 	} {
 		_ = viper.BindEnv(key)
 	}
@@ -608,8 +621,28 @@ func (c *Config) Validate() error {
 				}
 			}
 		}
+		if c.Processing.Schedule.Enabled {
+			cronExpression := strings.TrimSpace(c.Processing.Schedule.Cron)
+			timezone := strings.TrimSpace(c.Processing.Schedule.Timezone)
+			if cronExpression == "" || len(cronExpression) > 120 ||
+				timezone == "" || len(timezone) > 80 ||
+				c.Processing.Schedule.BatchSize < 1 {
+				return fmt.Errorf("processing schedule configuration is invalid")
+			}
+			if _, err := time.LoadLocation(timezone); err != nil {
+				return fmt.Errorf("processing schedule configuration is invalid: %w", err)
+			}
+			normalizedCron, _, err := cronexpr.Parse(cronExpression)
+			if err != nil {
+				return fmt.Errorf("processing schedule configuration is invalid: %w", err)
+			}
+			c.Processing.Schedule.Cron = normalizedCron
+			c.Processing.Schedule.Timezone = timezone
+		}
 	} else if c.Processing.IMA.Enabled {
 		return fmt.Errorf("processing ima requires processing to be enabled")
+	} else if c.Processing.Schedule.Enabled {
+		return fmt.Errorf("processing schedule requires processing to be enabled")
 	}
 
 	return nil
