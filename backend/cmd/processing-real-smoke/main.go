@@ -78,6 +78,11 @@ type buildEvidence struct {
 	VCSModified string `json:"vcs_modified,omitempty"`
 }
 
+var (
+	buildRevision = "unknown"
+	buildModified = "unknown"
+)
+
 func main() {
 	os.Exit(run())
 }
@@ -451,8 +456,8 @@ func record(path string, evidence *smokeEvidence, event string) {
 func buildMetadata() buildEvidence {
 	evidence := buildEvidence{
 		GoVersion:   "unknown",
-		VCSRevision: "unknown",
-		VCSModified: "unknown",
+		VCSRevision: buildRevision,
+		VCSModified: buildModified,
 	}
 	info, ok := debug.ReadBuildInfo()
 	if !ok {

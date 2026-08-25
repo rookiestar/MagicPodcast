@@ -92,7 +92,10 @@ Smoke 必须证明：
 首次运行会创建外部资源，只有在单独授权真实音频上传和用户凭据后才能执行：
 
 ```bash
-(cd backend && go build -o /absolute/path/processing-real-smoke ./cmd/processing-real-smoke)
+commit=$(git rev-parse HEAD)
+(cd backend && go build -buildvcs=false \
+  -ldflags "-X main.buildRevision=${commit} -X main.buildModified=false" \
+  -o /absolute/path/processing-real-smoke ./cmd/processing-real-smoke)
 /absolute/path/processing-real-smoke \
   --audio /absolute/path/episode.m4a \
   --lark-cli /absolute/path/lark-cli-isolated \
