@@ -1101,6 +1101,48 @@ func TestPythonSDKHostFailsPreflightWhenAuthenticationIsMissing(t *testing.T) {
 	require.NoError(t, closeHost(t, host))
 }
 
+func TestPythonSDKHostUsesCompletedAgentMessageWhenNoDelta(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is not available")
+	}
+	_, currentFile, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	packageDir := filepath.Dir(currentFile)
+	fakeSDK := filepath.Join(packageDir, "testdata", "fake_sdk")
+	workRoot := t.TempDir()
+	environment, _ := fakeSDKEnvironment(t, fakeSDK, nil)
+	host, err := NewProcessHost(ProcessHostConfig{
+		Command: []string{
+			python,
+			filepath.Join(packageDir, "runtime_host.py"),
+		},
+		WorkRoot:        workRoot,
+		testEnvironment: environment,
+		StartupTimeout:  3 * time.Second,
+	})
+	require.NoError(t, err)
+
+	snapshot, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindEpisodeNotes,
+			WorkingDirectory: newExecutionDir(t, workRoot, "item-completed-only-"),
+			Prompt:           "ITEM_COMPLETED_ONLY",
+			OutputSchema:     episodeNotesSchema,
+		},
+	)
+	require.NoError(t, err)
+	events, err := host.SubscribeExecution(context.Background(), snapshot.ID)
+	require.NoError(t, err)
+	_ = collectEvents(events)
+	final, err := host.GetExecution(context.Background(), snapshot.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusCompleted, final.Status)
+	require.JSONEq(t, `{"episode_notes":"# Fake episode notes"}`, string(final.Result))
+	require.NoError(t, closeHost(t, host))
+}
+
 func TestProcessHostHelper(t *testing.T) {
 	if os.Getenv("GO_WANT_RUNTIME_HELPER") != "1" {
 		return

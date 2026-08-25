@@ -210,8 +210,11 @@ func TestIMAManualImportBridgePreservesRestrictedFeishuTraceRefs(t *testing.T) {
 	bridge, err := NewIMAManualImportBridge(t.TempDir())
 	require.NoError(t, err)
 
-	_, err = bridge.Deliver(context.Background(), request)
+	first, err := bridge.Deliver(context.Background(), request)
 	require.NoError(t, err)
+	second, err := bridge.Deliver(context.Background(), request)
+	require.NoError(t, err)
+	require.Equal(t, first, second)
 	files := readIMAPackageFiles(
 		t,
 		filepath.Join(bridge.root, "packages", request.DeliveryKey),

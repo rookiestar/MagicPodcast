@@ -192,6 +192,15 @@ class FakeTurn:
                 ensure_ascii=False,
                 separators=(",", ":"),
             )
+        if "ITEM_COMPLETED_ONLY" in self.prompt:
+            yield notification(
+                "item/completed",
+                item=SimpleNamespace(
+                    root=SimpleNamespace(type="agentMessage", text=encoded)
+                ),
+            )
+            yield terminal_notification("completed", "")
+            return
         midpoint = max(1, len(encoded) // 2)
         yield notification(
             "item/agentMessage/delta",

@@ -469,8 +469,8 @@ func verifyExistingIMAPackage(root string, request DeliveryRequest) error {
 		if !safeSingleLine(key) || sensitiveSourceKey(key) {
 			return invalidIMAPackage("published package source trace contains a sensitive key")
 		}
-		if err := validateSafeHTTPURL(value); err != nil {
-			return invalidIMAPackage("published package source trace contains an unsafe URL")
+		if err := validateIMASourceTrace(key, value); err != nil {
+			return err
 		}
 	}
 	if err := validateIMAPackageText(string(files["knowledge.md"])); err != nil {

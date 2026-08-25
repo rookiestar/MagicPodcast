@@ -371,6 +371,20 @@ func (a *FeishuMinutesAdapter) readMinute(
 		"json",
 	)
 	if commandErr != nil {
+		// lark-cli can return exit 1 while still returning a structured per-Minute
+		// "not ready" entry on stdout. That is the normal asynchronous state, not
+		// a provider outage: retain the existing checkpoint and let the Worker poll
+		// again without consuming the retry budget or repeating an external write.
+		var larkErr *larkCommandError
+		if errors.As(commandErr, &larkErr) {
+			if detail, found, parseErr := parseMinuteDetail(
+				larkErr.stdout,
+				checkpoint.MinuteToken,
+			); parseErr == nil && found && detail.Pending &&
+				strings.TrimSpace(detail.TranscriptFile) == "" {
+				return progressWithCheckpoint(checkpoint), nil
+			}
+		}
 		mapped, _ := classifyLarkCommandError(commandErr)
 		if errors.Is(mapped, errLarkMinutesPending) {
 			return progressWithCheckpoint(checkpoint), nil
@@ -784,6 +798,7 @@ func parseMinuteIdentity(output []byte) (string, string, error) {
 type minuteDetail struct {
 	MinuteToken    string `json:"minute_token"`
 	TranscriptFile string `json:"transcript_file"`
+	Pending        bool   `json:"-"`
 }
 
 type minuteDetailEntry struct {
@@ -791,6 +806,7 @@ type minuteDetailEntry struct {
 	Artifacts   struct {
 		TranscriptFile string `json:"transcript_file"`
 	} `json:"artifacts"`
+	Error json.RawMessage `json:"error"`
 }
 
 type minuteDetailOutput struct {
@@ -823,10 +839,45 @@ func parseMinuteDetail(
 			return minuteDetail{
 				MinuteToken:    entry.MinuteToken,
 				TranscriptFile: entry.Artifacts.TranscriptFile,
+				Pending:        minuteDetailEntryPending(entry.Error),
 			}, true, nil
 		}
 	}
 	return minuteDetail{}, false, nil
+}
+
+func minuteDetailEntryPending(raw json.RawMessage) bool {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return false
+	}
+	var message string
+	if err := json.Unmarshal(raw, &message); err == nil {
+		return minutePendingMessage(message)
+	}
+	var structured struct {
+		Type    string          `json:"type"`
+		Code    json.RawMessage `json:"code"`
+		Message string          `json:"message"`
+		Status  string          `json:"status"`
+	}
+	if err := json.Unmarshal(raw, &structured); err != nil {
+		return false
+	}
+	return larkMinutesPending(
+		structured.Type,
+		rawJSONScalar(structured.Code),
+		structured.Message,
+		structured.Status,
+	)
+}
+
+func minutePendingMessage(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return strings.Contains(value, "not ready") ||
+		strings.Contains(value, "still processing") ||
+		strings.Contains(value, "currently processing") ||
+		strings.Contains(value, "being processed")
 }
 
 func readManagedTranscript(

@@ -138,9 +138,11 @@ type larkErrorEnvelope struct {
 		Type    string          `json:"type"`
 		Code    json.RawMessage `json:"code"`
 		Message string          `json:"message"`
+		Status  string          `json:"status"`
 	} `json:"error"`
 	Code    json.RawMessage `json:"code"`
 	Message string          `json:"message"`
+	Status  string          `json:"status"`
 }
 
 func classifyLarkCommandError(err error) (error, bool) {
@@ -180,6 +182,10 @@ func classifyLarkCommandError(err error) (error, bool) {
 		code = rawJSONScalar(envelope.Code)
 	}
 	message := strings.ToLower(strings.TrimSpace(envelope.Error.Message + " " + envelope.Message))
+	status := envelope.Error.Status
+	if strings.TrimSpace(status) == "" {
+		status = envelope.Status
+	}
 	switch {
 	case strings.Contains(errorType, "auth"),
 		strings.Contains(errorType, "login"),
@@ -209,10 +215,7 @@ func classifyLarkCommandError(err error) (error, bool) {
 			"Feishu request rate is limited",
 			true,
 		), true
-	case strings.Contains(errorType, "processing"),
-		strings.Contains(errorType, "not_ready"),
-		strings.Contains(message, "still processing"),
-		strings.Contains(message, "not ready"):
+	case larkMinutesPending(errorType, code, message, status):
 		return errLarkMinutesPending, true
 	case strings.Contains(errorType, "invalid"),
 		strings.Contains(errorType, "unsupported"),
@@ -247,10 +250,38 @@ func decodeLarkErrorEnvelope(content []byte) (larkErrorEnvelope, bool) {
 		len(envelope.Error.Code) == 0 &&
 		len(envelope.Code) == 0 &&
 		envelope.Message == "" &&
+		envelope.Status == "" &&
+		envelope.Error.Status == "" &&
 		envelope.Error.Message == "" {
 		return larkErrorEnvelope{}, false
 	}
 	return envelope, true
+}
+
+func larkMinutesPending(errorType string, code string, message string, status string) bool {
+	return minutePendingState(errorType) ||
+		minutePendingState(code) ||
+		minutePendingState(status) ||
+		minutePendingMessage(message)
+}
+
+func minutePendingState(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.NewReplacer("-", "_", " ", "_").Replace(value)
+	switch value {
+	case "processing",
+		"pending",
+		"not_ready",
+		"minutes_processing",
+		"minutes_pending",
+		"minutes_not_ready",
+		"transcript_processing",
+		"transcript_pending",
+		"transcript_not_ready":
+		return true
+	default:
+		return false
+	}
 }
 
 func rawJSONScalar(value json.RawMessage) string {

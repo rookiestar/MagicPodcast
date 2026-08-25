@@ -1,0 +1,187 @@
+{
+  "schema_version": "1.0.0",
+  "scope": "issue-181-feishu-manual-processing",
+  "environment": {
+    "host": "RookieStarMac-mini.local",
+    "production": false,
+    "audio_uploaded_for_this_evidence": true
+  },
+  "observed_window": {
+    "first_attempt_started_at": "2026-08-24T17:23:56.360833Z",
+    "first_attempt_finished_at": "2026-08-24T17:25:40.438331Z",
+    "resume_attempt_started_at": "2026-08-24T17:33:57.041040Z",
+    "resume_attempt_finished_at": "2026-08-24T17:35:21.462700Z"
+  },
+  "audio": {
+    "bytes": 166307094,
+    "sha256": "d97358e4e0199d297538912bc51a8c4be4278691041d5baac15674edc907172e"
+  },
+  "first_attempt": {
+    "status": "failed",
+    "stage": "feishu_transcription",
+    "error_code": "lark_minutes_unavailable",
+    "polls": 2,
+    "checkpoint_writes": 6,
+    "artifacts_published": false,
+    "runtime_started": false,
+    "cleanup_succeeded": false
+  },
+  "resume_attempt": {
+    "status": "completed",
+    "checkpoint_writes": 1,
+    "transcript_bytes": 177999,
+    "raw_artifact_count": 2,
+    "source_ref_count": 3,
+    "skill_version_count": 2,
+    "resume_repeated_external_upload": false,
+    "runtime": {
+      "status": "completed",
+      "notes_bytes": 8131,
+      "runtime_version": "sdk/0.147.0;runtime/0.147.0 (Mac OS 26.6.1; arm64)",
+      "prompt_version": "episode-notes-v1",
+      "tracked_executions": 1,
+      "cleanup_succeeded": true
+    },
+    "artifacts": {
+      "published": true,
+      "manifest_sha256": "ca2fccd4dda3123072bb38c40b3365deaf5f44538d2e9d82e5122110696f33f7",
+      "transcript_sha256": "c295dd6ad27cb742b14ea99c00262ca0cc9c22a0550a36abaa958ec07eea5991",
+      "notes_sha256": "e6ef6b8bc9f5deb844a3f312344c50139847d168610514487eaed51eb91f3d21",
+      "raw_artifact_count": 2,
+      "verified_file_count": 5
+    }
+  },
+  "runtime_fix_probe": {
+    "started_at": "2026-08-25T01:19:25.798150Z",
+    "finished_at": "2026-08-25T01:22:45.173543Z",
+    "status": "completed",
+    "resume_only": true,
+    "audio_reused_without_upload": true,
+    "transcript_bytes": 177999,
+    "runtime": {
+      "status": "completed",
+      "notes_bytes": 10866,
+      "runtime_version": "sdk/0.147.0;runtime/0.147.0 (Mac OS 26.6.1; arm64)",
+      "prompt_version": "episode-notes-v1",
+      "tracked_executions": 1,
+      "cleanup_succeeded": true
+    },
+    "artifacts": {
+      "published": true,
+      "manifest_sha256": "d0120a4ef768ff17dc756d68f24d2aeb1447c0b2da5037689bc195102f8d5ee7",
+      "transcript_sha256": "c295dd6ad27cb742b14ea99c00262ca0cc9c22a0550a36abaa958ec07eea5991",
+      "notes_sha256": "6f64767280c52332e76bd92f531e4a8e848097c4f6b4214c26ee758e5dce4f60",
+      "raw_artifact_count": 2,
+      "verified_file_count": 5
+    },
+    "source_binding": {
+      "smoke_binary_revision": "0d3e9bf9ab70914d2caa3d8ca03095a4f8615a59",
+      "vcs_modified": true,
+      "verified": false,
+      "note": "This probe includes the local Runtime Host fix but was built from an uncommitted worktree; it is not commit-bound acceptance evidence."
+    }
+  },
+  "runtime_committed_acceptance": {
+    "started_at": "2026-08-25T01:32:20.388964Z",
+    "finished_at": "2026-08-25T01:35:56.454233Z",
+    "status": "completed",
+    "resume_only": true,
+    "audio_reused_without_upload": true,
+    "transcript_bytes": 177999,
+    "runtime": {
+      "status": "completed",
+      "notes_bytes": 11521,
+      "runtime_version": "sdk/0.147.0;runtime/0.147.0 (Mac OS 26.6.1; arm64)",
+      "prompt_version": "episode-notes-v1",
+      "tracked_executions": 1,
+      "cleanup_succeeded": true
+    },
+    "artifacts": {
+      "published": true,
+      "manifest_sha256": "509e7c9714ce788ed5ee902148fb8ff595e6d286741cb2e26947d21caf39d7d9",
+      "transcript_sha256": "c295dd6ad27cb742b14ea99c00262ca0cc9c22a0550a36abaa958ec07eea5991",
+      "notes_sha256": "50b8595b5f8c7f064c7ddf815cd76f58323c0f658b5723c863a1fdd605931ab1",
+      "raw_artifact_count": 2,
+      "verified_file_count": 5
+    },
+    "source_binding": {
+      "smoke_binary_revision": "eeb4aed30444bd6664da77d80a51a45f610804ea",
+      "vcs_modified": false,
+      "verified": true
+    }
+  },
+  "commit_bound_acceptance": {
+    "started_at": "2026-08-25T03:15:22.448491Z",
+    "finished_at": "2026-08-25T03:25:48.885414Z",
+    "elapsed_ms": 626436,
+    "status": "completed",
+    "resume_only": false,
+    "feishu": {
+      "polls": 12,
+      "checkpoint_writes": 7,
+      "transcript_bytes": 177823,
+      "raw_artifact_count": 2,
+      "source_ref_count": 3,
+      "skill_version_count": 2
+    },
+    "runtime": {
+      "status": "completed",
+      "notes_bytes": 10257,
+      "runtime_version": "sdk/0.147.0;runtime/0.147.0 (Mac OS 26.6.1; arm64) unknown (codex_python_sdk; 0.147.0)",
+      "prompt_version": "episode-notes-v1",
+      "tracked_executions": 1,
+      "cleanup_succeeded": true
+    },
+    "artifacts": {
+      "published": true,
+      "manifest_sha256": "05c7ce14936117a25f4f55fb7388568e7c5812148ad669a12a0ecc1c6972bbc1",
+      "transcript_sha256": "25c822e69aee68943384e5d2d23b4884f88364f0a8ee86c75c6149ace22a7236",
+      "notes_sha256": "73a050aafa1cad6ed01b7e3eb3b3d4792b831ff26fb1dcdb47e3ce043989828a",
+      "raw_artifact_count": 2,
+      "verified_file_count": 5
+    },
+    "build": {
+      "go_version": "go1.25.5",
+      "vcs_revision": "61d4e9c02430b27ba9461a71b7510df90ec6bc5b",
+      "vcs_modified": false
+    }
+  },
+  "event_sequences": {
+    "first_attempt": [
+      "preflight",
+      "drive_upload",
+      "feishu_waiting",
+      "failed"
+    ],
+    "resume_attempt": [
+      "feishu_resume",
+      "feishu_complete",
+      "runtime_started",
+      "runtime_complete",
+      "artifacts_published"
+    ],
+    "commit_bound_acceptance": [
+      "preflight_complete",
+      "drive_upload_started",
+      "feishu_waiting",
+      "feishu_complete",
+      "runtime_started",
+      "runtime_complete",
+      "artifacts_published"
+    ]
+  },
+  "source_binding": {
+    "smoke_binary_commit": "61d4e9c02430b27ba9461a71b7510df90ec6bc5b",
+    "vcs_modified": false,
+    "verified": true,
+    "note": "The commit-bound acceptance run was built from the exact Issue 181 fix commit in a fresh Mac mini worktree."
+  },
+  "excluded_probe": {
+    "tool": "codex-cli",
+    "version": "0.144.1",
+    "status": "failed",
+    "error": "timed out waiting for cloud config bundle after 15s",
+    "counted_as_issue_181_acceptance": false,
+    "note": "This probe does not replace the pinned 0.147.0 Runtime Host evidence."
+  }
+}

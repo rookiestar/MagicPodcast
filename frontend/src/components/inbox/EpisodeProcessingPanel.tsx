@@ -16,6 +16,7 @@ import type { ConsumptionItem } from "@/types/consumption";
 import type {
   ArtifactContent,
   EpisodeAudioAsset,
+  KnowledgeDelivery,
   ProcessingRun,
   ProcessingRunDetail,
   ProcessingScheduleStatus,
@@ -36,6 +37,14 @@ const stepLabels: Record<string, string> = {
   transcription: "飞书妙记转写",
   episode_notes: "Codex 生成单集纪要",
   artifact_publish: "发布本地产物",
+};
+
+const deliveryStatusLabels: Record<KnowledgeDelivery["status"], string> = {
+  pending: "包已生成 / 待人工导入",
+  delivering: "交付中",
+  delivered: "已交付",
+  failed: "交付失败",
+  cancelled: "已取消",
 };
 
 const scheduleStatusLabels: Record<string, string> = {
@@ -576,6 +585,27 @@ export default function EpisodeProcessingPanel({
               <IconFileText size={18} stroke={1.8} aria-hidden="true" />
               单集纪要
             </button>
+          </div>
+        )}
+
+        {detail && detail.deliveries.length > 0 && (
+          <div className={styles.processingArtifacts}>
+            <div>
+              <strong>知识交付</strong>
+              {detail.deliveries.map((delivery) => (
+                <span key={delivery.id}>
+                  {delivery.target} · {delivery.destination} ·{" "}
+                  {deliveryStatusLabels[delivery.status] || delivery.status}
+                </span>
+              ))}
+            </div>
+            {detail.deliveries.some(
+              (delivery) => delivery.status === "pending",
+            ) && (
+              <span className={styles.processingHint}>
+                本地包已保存，可按说明人工导入。
+              </span>
+            )}
           </div>
         )}
       </div>
