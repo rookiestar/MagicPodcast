@@ -856,26 +856,28 @@ func minuteDetailEntryPending(raw json.RawMessage) bool {
 		return minutePendingMessage(message)
 	}
 	var structured struct {
-		Type    string `json:"type"`
-		Code    string `json:"code"`
-		Message string `json:"message"`
-		Status  string `json:"status"`
+		Type    string          `json:"type"`
+		Code    json.RawMessage `json:"code"`
+		Message string          `json:"message"`
+		Status  string          `json:"status"`
 	}
 	if err := json.Unmarshal(raw, &structured); err != nil {
 		return false
 	}
-	return minutePendingMessage(strings.Join([]string{
+	return larkMinutesPending(
 		structured.Type,
-		structured.Code,
+		rawJSONScalar(structured.Code),
 		structured.Message,
 		structured.Status,
-	}, " "))
+	)
 }
 
 func minutePendingMessage(value string) bool {
 	value = strings.ToLower(strings.TrimSpace(value))
-	return strings.Contains(value, "processing") ||
-		strings.Contains(value, "not ready")
+	return strings.Contains(value, "not ready") ||
+		strings.Contains(value, "still processing") ||
+		strings.Contains(value, "currently processing") ||
+		strings.Contains(value, "being processed")
 }
 
 func readManagedTranscript(

@@ -281,6 +281,86 @@ func TestFeishuMinutesAdapterTreatsNestedNotReadyDetailAsWaiting(t *testing.T) {
 	require.Len(t, runner.calls, 1)
 }
 
+func TestFeishuMinutesAdapterTreatsNumericCodeNotReadyDetailAsWaiting(t *testing.T) {
+	workRoot := t.TempDir()
+	digest := strings.Repeat("f", 64)
+	notReadyOutput := []byte(`{"data":{"minutes":[{"minute_token":"obcn_pending_456","error":{"code":123,"message":"transcript not ready"}}]}}`)
+	runner := &scriptedLarkRunner{steps: []scriptedLarkStep{{
+		output: notReadyOutput,
+		err: &larkCommandError{
+			exitCode: 1,
+			stdout:   notReadyOutput,
+			stderr:   []byte("provider returned a nonzero exit"),
+			cause:    errors.New("exit status 1"),
+		},
+	}}}
+	adapter, err := newFeishuMinutesAdapterWithRunner(
+		runner,
+		workRoot,
+		func(context.Context, uint) (string, string, error) {
+			return "", "", errors.New("unused")
+		},
+	)
+	require.NoError(t, err)
+	request, _ := feishuTestRequest(digest)
+	checkpoint, err := encodeFeishuCheckpoint(feishuCheckpoint{
+		Version:     feishuCheckpointVersion,
+		Phase:       feishuPhaseMinutesCreated,
+		AudioDigest: digest,
+		FileToken:   "boxcn_pending_456",
+		MinuteToken: "obcn_pending_456",
+		MinuteURL:   "https://example.feishu.cn/minutes/obcn_pending_456",
+	})
+	require.NoError(t, err)
+
+	progress, err := adapter.Resume(context.Background(), request, checkpoint)
+	require.NoError(t, err)
+	require.Equal(t, ExternalProgressWaiting, progress.Status)
+	require.JSONEq(t, string(checkpoint), string(progress.Checkpoint))
+	require.Len(t, runner.calls, 1)
+}
+
+func TestFeishuMinutesAdapterDoesNotTreatProcessingFailureDetailAsWaiting(t *testing.T) {
+	workRoot := t.TempDir()
+	digest := strings.Repeat("a", 64)
+	failureOutput := []byte(`{"data":{"minutes":[{"minute_token":"obcn_failed_123","error":{"type":"processing_failed","code":123,"message":"transcript processing failed"}}]}}`)
+	runner := &scriptedLarkRunner{steps: []scriptedLarkStep{{
+		output: failureOutput,
+		err: &larkCommandError{
+			exitCode: 1,
+			stdout:   failureOutput,
+			stderr:   []byte("provider returned a nonzero exit"),
+			cause:    errors.New("exit status 1"),
+		},
+	}}}
+	adapter, err := newFeishuMinutesAdapterWithRunner(
+		runner,
+		workRoot,
+		func(context.Context, uint) (string, string, error) {
+			return "", "", errors.New("unused")
+		},
+	)
+	require.NoError(t, err)
+	request, _ := feishuTestRequest(digest)
+	checkpoint, err := encodeFeishuCheckpoint(feishuCheckpoint{
+		Version:     feishuCheckpointVersion,
+		Phase:       feishuPhaseMinutesCreated,
+		AudioDigest: digest,
+		FileToken:   "boxcn_failed_123",
+		MinuteToken: "obcn_failed_123",
+		MinuteURL:   "https://example.feishu.cn/minutes/obcn_failed_123",
+	})
+	require.NoError(t, err)
+
+	progress, err := adapter.Resume(context.Background(), request, checkpoint)
+	var adapterErr *AdapterError
+	require.ErrorAs(t, err, &adapterErr)
+	require.Equal(t, "lark_minutes_unavailable", adapterErr.ErrorCode)
+	require.Equal(t, ExternalProgressWaiting, progress.Status)
+	require.JSONEq(t, string(checkpoint), string(progress.Checkpoint))
+	require.Len(t, runner.calls, 1)
+}
+
 func TestFeishuMinutesAdapterRejectsTranscriptTraversal(t *testing.T) {
 	workRoot := t.TempDir()
 	runDirectory := filepath.Join(workRoot, "run-91")
