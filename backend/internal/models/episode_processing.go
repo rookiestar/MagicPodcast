@@ -13,6 +13,13 @@ const (
 	ProcessingTriggerManual    = "manual"
 	ProcessingTriggerScheduled = "scheduled"
 
+	ProcessingScheduleRunStatusRunning   = "running"
+	ProcessingScheduleRunStatusCompleted = "completed"
+	ProcessingScheduleRunStatusFailed    = "failed"
+
+	ProcessingScheduleItemOutcomeStarted = "started"
+	ProcessingScheduleItemOutcomeSkipped = "skipped"
+
 	DeliveryStatusPending    = "pending"
 	DeliveryStatusDelivering = "delivering"
 	DeliveryStatusDelivered  = "delivered"
@@ -51,6 +58,7 @@ type EpisodeProcessingRun struct {
 	AudioDigest     string                `gorm:"size:64;not null" json:"audio_digest"`
 	PipelineVersion string                `gorm:"size:100;not null" json:"pipeline_version"`
 	TriggerSource   string                `gorm:"size:20;not null;check:chk_processing_run_trigger,trigger_source IN ('manual','scheduled')" json:"trigger_source"`
+	ScheduleRunID   *uint                 `gorm:"index" json:"schedule_run_id,omitempty"`
 	Status          string                `gorm:"size:24;not null;index;check:chk_processing_run_status,status IN ('queued','running','waiting_external','completed','failed','cancelled')" json:"status"`
 	CurrentStep     string                `gorm:"size:64;not null;default:''" json:"current_step"`
 	PreviousRunID   *uint                 `gorm:"index" json:"previous_run_id,omitempty"`
@@ -132,6 +140,48 @@ type KnowledgeDelivery struct {
 
 func (KnowledgeDelivery) TableName() string { return "knowledge_deliveries" }
 
+// ProcessingScheduleRun is the durable record of one configured Focus
+// scheduling instant. TriggerKey prevents a restart or duplicate callback
+// from creating a second batch for the same planned instant.
+type ProcessingScheduleRun struct {
+	ID             uint       `gorm:"primaryKey" json:"id"`
+	TriggerKey     string     `gorm:"size:64;not null" json:"-"`
+	ScheduledFor   time.Time  `gorm:"not null;index" json:"scheduled_for"`
+	CronExpression string     `gorm:"size:120;not null" json:"cron_expression"`
+	Timezone       string     `gorm:"size:80;not null" json:"timezone"`
+	BatchSize      int        `gorm:"not null" json:"batch_size"`
+	Status         string     `gorm:"size:24;not null;index;check:chk_processing_schedule_status,status IN ('running','completed','failed')" json:"status"`
+	CandidateCount int        `gorm:"not null;default:0" json:"candidate_count"`
+	StartedCount   int        `gorm:"not null;default:0" json:"started_count"`
+	SkippedCount   int        `gorm:"not null;default:0" json:"skipped_count"`
+	ErrorCode      string     `gorm:"size:80;not null;default:''" json:"error_code,omitempty"`
+	ErrorMessage   string     `gorm:"size:500;not null;default:''" json:"error_message,omitempty"`
+	FinishedAt     *time.Time `gorm:"index" json:"finished_at,omitempty"`
+	CreatedAt      time.Time  `gorm:"not null;index" json:"created_at"`
+	UpdatedAt      time.Time  `gorm:"not null;index" json:"updated_at"`
+}
+
+func (ProcessingScheduleRun) TableName() string { return "processing_schedule_runs" }
+
+// ProcessingScheduleItem records why one Focus candidate was started or
+// skipped during a durable schedule run. While its parent run is still
+// running, a skipped item with reason selection_pending is a durable
+// reservation, not a final skip; recovery resolves it explicitly. It never
+// changes consumption state.
+type ProcessingScheduleItem struct {
+	ID              uint      `gorm:"primaryKey" json:"id"`
+	ScheduleRunID   uint      `gorm:"not null;index" json:"schedule_run_id"`
+	EpisodeID       uint      `gorm:"not null;index" json:"episode_id"`
+	QueuePosition   int64     `gorm:"not null" json:"queue_position"`
+	Outcome         string    `gorm:"size:24;not null;check:chk_processing_schedule_item_outcome,outcome IN ('started','skipped')" json:"outcome"`
+	Reason          string    `gorm:"size:80;not null;default:''" json:"reason,omitempty"`
+	ProcessingRunID *uint     `gorm:"index" json:"processing_run_id,omitempty"`
+	CreatedAt       time.Time `gorm:"not null;index" json:"created_at"`
+	UpdatedAt       time.Time `gorm:"not null;index" json:"updated_at"`
+}
+
+func (ProcessingScheduleItem) TableName() string { return "processing_schedule_items" }
+
 const ActiveProcessingRunUniqueIndexSQL = `
 CREATE UNIQUE INDEX IF NOT EXISTS idx_episode_processing_runs_one_active
 ON episode_processing_runs(episode_id)
@@ -150,3 +200,11 @@ WHEN OLD.status IN ('completed', 'failed', 'cancelled')
 BEGIN
 	SELECT RAISE(ABORT, 'terminal processing run status is immutable');
 END`
+
+const ProcessingScheduleRunTriggerKeyUniqueIndexSQL = `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_processing_schedule_runs_trigger_key
+ON processing_schedule_runs(trigger_key)`
+
+const ProcessingScheduleItemUniqueIndexSQL = `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_processing_schedule_items_run_episode
+ON processing_schedule_items(schedule_run_id, episode_id)`

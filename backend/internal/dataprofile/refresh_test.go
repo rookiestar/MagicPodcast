@@ -117,17 +117,34 @@ func TestExportAndRefreshSanitizesAndDoesNotSwitchActiveProfile(t *testing.T) {
 				1234, 3600, 'audio/mpeg', 'mp3',
 				CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 			);
+			INSERT INTO processing_schedule_runs(
+				id, trigger_key, scheduled_for, cron_expression, timezone, batch_size,
+				status, candidate_count, started_count, skipped_count, error_code,
+				error_message, finished_at, created_at, updated_at
+			) VALUES (
+				9105, 'schedule-private-trigger-key', CURRENT_TIMESTAMP,
+				'0 0 3 * * *', 'Asia/Shanghai', 1, 'failed', 1, 0, 1,
+				'private_schedule_error', 'TOP-SECRET schedule failure', CURRENT_TIMESTAMP,
+				CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+			);
 			INSERT INTO episode_processing_runs(
-			id, episode_id, processing_key, audio_digest, pipeline_version,
-			trigger_source, status, retry_deadline_at, created_at, updated_at
-		) VALUES (
-			9101, 2001,
-			'1111111111111111111111111111111111111111111111111111111111111111',
-			'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-			'pipeline-private', 'manual', 'completed',
-			CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-		);
-		INSERT INTO processing_checkpoints(
+				id, episode_id, processing_key, audio_digest, pipeline_version,
+				trigger_source, schedule_run_id, status, retry_deadline_at, created_at, updated_at
+			) VALUES (
+				9101, 2001,
+				'1111111111111111111111111111111111111111111111111111111111111111',
+				'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+				'pipeline-private', 'scheduled', 9105, 'completed',
+				CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+			);
+			INSERT INTO processing_schedule_items(
+				id, schedule_run_id, episode_id, queue_position, outcome, reason,
+				processing_run_id, created_at, updated_at
+			) VALUES (
+				9106, 9105, 2001, 0, 'skipped', 'TOP-SECRET skipped reason', 9101,
+				CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+			);
+			INSERT INTO processing_checkpoints(
 			id, run_id, step, adapter, adapter_version, status, state_json, state_hash,
 			created_at, updated_at
 		) VALUES (
@@ -238,8 +255,10 @@ func TestExportAndRefreshSanitizesAndDoesNotSwitchActiveProfile(t *testing.T) {
 	for _, table := range []string{
 		"knowledge_deliveries",
 		"processing_checkpoints",
+		"processing_schedule_items",
 		"episode_artifact_sets",
 		"episode_processing_runs",
+		"processing_schedule_runs",
 		"episode_audio_assets",
 	} {
 		require.NoError(t, exportDB.QueryRow(

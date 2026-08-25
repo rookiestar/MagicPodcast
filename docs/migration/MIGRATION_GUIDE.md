@@ -1,12 +1,12 @@
 # MagicPodcast 数据库迁移指南
 
-最后更新：2026-08-24
+最后更新：2026-08-25
 
 本文只记录当前仍适用的数据库迁移入口和操作顺序。旧的项目搬家记录已移入 [../archive/reports/PROJECT_LOCATION_MIGRATION_2026-01-21.md](../archive/reports/PROJECT_LOCATION_MIGRATION_2026-01-21.md)。
 
 ## 当前版本化迁移
 
-当前 schema 版本为 `20`（与源码 `backend/internal/database/migrate.go` 中 `CurrentSchemaVersion` 一致），版本记录保存在 `schema_migrations`。迁移注册表位于同一文件，每个版本包含名称、说明和事务内的执行函数。当前版本链为：
+当前 schema 版本为 `22`（与源码 `backend/internal/database/migrate.go` 中 `CurrentSchemaVersion` 一致），版本记录保存在 `schema_migrations`。迁移注册表位于同一文件，每个版本包含名称、说明和事务内的执行函数。当前版本链为：
 
 1. `1 baseline-current-model`：空数据库创建当前模型表和索引；已有且完整的数据库只记录 baseline。
 2. `2 feed-access-observability`：记录 Feed HTTP 状态、错误类别、耗时、缓存和出口等观测字段。
@@ -28,6 +28,8 @@
 18. `18 consumption-queue-order`：为四条消费队列增加独立位置和版本；按升级前的稳定可见顺序回填，供刷新、跨设备一致的精确排序使用（#157）。生产 apply 需单独授权。
 19. `19 episode-completion-facts`：为每个单集建立唯一完成事实；只从当前 Done 且具有既有队列更新时间的记录回填，缺少时间则预检失败（#168/#169）。生产 apply 需单独授权。
 20. `20 episode-processing-foundation`：新增独立的单集加工运行、可恢复检查点、不可变产物集与逐目标知识交付记录；数据库约束保证每集最多一个活动运行、一个当前产物集及终态不可回退（#179）。生产 apply 需单独授权。
+21. `21 managed-episode-audio-assets`：新增受管音频准备状态，记录本地可用性而不保存源 URL 或暴露本地路径（#181）。生产 apply 需单独授权。
+22. `22 focus-processing-schedule-history`：新增 Focus 定时加工的幂等触发与候选结果记录，不复用 Feed 工作流调度（#182）。生产 apply 需单独授权。
 
 运行约束（非独立版本号）：
 

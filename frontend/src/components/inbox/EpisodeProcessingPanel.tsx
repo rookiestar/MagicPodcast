@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IconFileText,
   IconPlayerPlay,
@@ -19,6 +19,7 @@ import type {
   KnowledgeDelivery,
   ProcessingRun,
   ProcessingRunDetail,
+  ProcessingScheduleStatus,
 } from "@/types/processing";
 import styles from "./InboxPage.module.css";
 
@@ -44,6 +45,25 @@ const deliveryStatusLabels: Record<KnowledgeDelivery["status"], string> = {
   delivered: "已交付",
   failed: "交付失败",
   cancelled: "已取消",
+};
+
+const scheduleStatusLabels: Record<string, string> = {
+  running: "正在选择候选",
+  completed: "已完成",
+  failed: "本次失败",
+};
+
+const scheduleSkipLabels: Record<string, string> = {
+  active_run: "已有活动运行",
+  current_artifact: "已有当前版本产物",
+  not_in_focus: "已移出 Focus",
+  audio_not_ready: "没有可用音频",
+  episode_not_found: "单集不存在",
+  previous_terminal_run: "已有同版本失败或已取消运行，需人工重试",
+  start_failed: "启动失败",
+  batch_limit: "本批已达上限",
+  selection_interrupted: "本次选择未完成",
+  selection_interrupted_by_restart: "服务重启前未完成选择",
 };
 
 function isActive(run?: ProcessingRun) {
@@ -74,38 +94,97 @@ export default function EpisodeProcessingPanel({
     useState<ArtifactContent | null>(null);
   const [audioAsset, setAudioAsset] = useState<EpisodeAudioAsset | null>(null);
   const [isReadingArtifact, setIsReadingArtifact] = useState(false);
+  const [scheduleStatus, setScheduleStatus] =
+    useState<ProcessingScheduleStatus | null>(null);
+  const [isScheduleLoading, setIsScheduleLoading] = useState(true);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const hasLoadedScheduleStatus = useRef(false);
+  const scheduleStatusInFlight = useRef(false);
+  const loadingEpisodeIDs = useRef(new Set<number>());
+  const activeEpisodeID = useRef(item.episode_id);
+  activeEpisodeID.current = item.episode_id;
+
+  const loadScheduleStatus = useCallback(async () => {
+    if (scheduleStatusInFlight.current) return;
+    scheduleStatusInFlight.current = true;
+    const isInitialLoad = !hasLoadedScheduleStatus.current;
+    if (isInitialLoad) {
+      setIsScheduleLoading(true);
+    }
+    try {
+      setScheduleStatus(await processingApi.getScheduleStatus());
+      hasLoadedScheduleStatus.current = true;
+      setScheduleError(null);
+    } catch (loadError) {
+      setScheduleError(
+        `定时计划暂时无法读取：${
+          getProcessingErrorDetails(loadError).message
+        }`,
+      );
+    } finally {
+      scheduleStatusInFlight.current = false;
+      if (isInitialLoad) {
+        setIsScheduleLoading(false);
+      }
+    }
+  }, []);
 
   const loadLatest = useCallback(async () => {
-    const runs = await processingApi.listEpisodeRuns(item.episode_id);
-    if (runs.length === 0) {
-      setDetail(null);
-      try {
-        setAudioAsset(await processingApi.getLatestAudio(item.episode_id));
-      } catch (audioError) {
-        if (getProcessingErrorDetails(audioError).status === 404) {
-          setAudioAsset(null);
-        } else {
-          throw audioError;
+    const episodeID = item.episode_id;
+    if (loadingEpisodeIDs.current.has(episodeID)) return;
+    loadingEpisodeIDs.current.add(episodeID);
+    const isCurrentEpisode = () => activeEpisodeID.current === episodeID;
+    void loadScheduleStatus();
+    try {
+      const runs = await processingApi.listEpisodeRuns(episodeID);
+      if (!isCurrentEpisode()) return;
+      if (runs.length === 0) {
+        setDetail(null);
+        try {
+          const latestAudio = await processingApi.getLatestAudio(episodeID);
+          if (isCurrentEpisode()) {
+            setAudioAsset(latestAudio);
+          }
+        } catch (audioError) {
+          if (getProcessingErrorDetails(audioError).status === 404) {
+            if (isCurrentEpisode()) {
+              setAudioAsset(null);
+            }
+          } else {
+            throw audioError;
+          }
         }
+        return;
       }
-      return;
-    }
-    const nextDetail = await processingApi.getRun(runs[0].id);
-    setDetail(nextDetail);
-    if (nextDetail.run.current_step === "audio_prepare") {
-      try {
-        setAudioAsset(await processingApi.getLatestAudio(item.episode_id));
-      } catch (audioError) {
-        if (getProcessingErrorDetails(audioError).status === 404) {
-          setAudioAsset(null);
-        } else {
-          throw audioError;
+      const nextDetail = await processingApi.getRun(runs[0].id);
+      if (!isCurrentEpisode()) return;
+      setDetail(nextDetail);
+      if (nextDetail.run.current_step === "audio_prepare") {
+        try {
+          const latestAudio = await processingApi.getLatestAudio(episodeID);
+          if (isCurrentEpisode()) {
+            setAudioAsset(latestAudio);
+          }
+        } catch (audioError) {
+          if (getProcessingErrorDetails(audioError).status === 404) {
+            if (isCurrentEpisode()) {
+              setAudioAsset(null);
+            }
+          } else {
+            throw audioError;
+          }
         }
+      } else {
+        setAudioAsset(null);
       }
-    } else {
-      setAudioAsset(null);
+    } catch (loadError) {
+      if (isCurrentEpisode()) {
+        throw loadError;
+      }
+    } finally {
+      loadingEpisodeIDs.current.delete(episodeID);
     }
-  }, [item.episode_id]);
+  }, [item.episode_id, loadScheduleStatus]);
 
   useEffect(() => {
     let active = true;
@@ -226,6 +305,13 @@ export default function EpisodeProcessingPanel({
 
   const run = detail?.run;
   const currentArtifact = detail?.current_artifact;
+  const latestScheduleRun = scheduleStatus?.latest_run;
+  const latestScheduleItem = latestScheduleRun?.items.find(
+    (scheduleItem) => scheduleItem.episode_id === item.episode_id,
+  );
+  const latestScheduleItemPending =
+    latestScheduleRun?.run.status === "running" &&
+    latestScheduleItem?.reason === "selection_pending";
   const canStart = item.queue_state === "focus" && !run;
   const audioPreparing =
     run?.current_step === "audio_prepare" ||
@@ -234,6 +320,13 @@ export default function EpisodeProcessingPanel({
     item.queue_state === "focus" &&
     (run?.status === "failed" || run?.status === "cancelled") &&
     !run.error_code?.toLowerCase().includes("result_unknown");
+  const scheduleSummary = !scheduleStatus
+    ? isScheduleLoading
+      ? "正在读取…"
+      : "定时状态暂时不可用"
+    : scheduleStatus.enabled
+      ? `已启用 · 每批 ${scheduleStatus.batch_size} 集`
+      : "未启用";
 
   return (
     <section
@@ -302,10 +395,82 @@ export default function EpisodeProcessingPanel({
             <dt>最近更新</dt>
             <dd>{formatUpdatedAt(run?.updated_at || audioAsset?.updated_at)}</dd>
           </div>
+          <div>
+            <dt>定时计划</dt>
+            <dd>{scheduleSummary}</dd>
+          </div>
+          <div>
+            <dt>下次计划</dt>
+            <dd>
+              {scheduleStatus?.enabled
+                ? formatUpdatedAt(scheduleStatus.next_run_at)
+                : "—"}
+            </dd>
+          </div>
         </dl>
 
+        {scheduleError && (
+          <div className={styles.processingHint} role="status">
+            {scheduleError}
+          </div>
+        )}
+        {scheduleStatus?.enabled && (
+          <div className={styles.processingHint}>
+            <strong>定时配置</strong>
+            <span>
+              cron：{scheduleStatus.cron} · 时区：{scheduleStatus.timezone} · 每批 {" "}
+              {scheduleStatus.batch_size} 集
+            </span>
+            <span>修改主机配置并重启服务后生效。</span>
+          </div>
+        )}
+        {latestScheduleRun && (
+          <div className={styles.processingHint}>
+            <strong>
+              最近定时：
+              {scheduleStatusLabels[latestScheduleRun.run.status] ||
+                latestScheduleRun.run.status}
+            </strong>
+            <span>
+              {formatUpdatedAt(latestScheduleRun.run.scheduled_for)} · 已入队 {" "}
+              {latestScheduleRun.run.started_count} 集 · 跳过 {" "}
+              {latestScheduleRun.run.skipped_count} 集
+            </span>
+            {latestScheduleItem && (
+              <span>
+                {latestScheduleItemPending
+                  ? "此集正在确认加工资格"
+                  : latestScheduleItem.outcome === "started"
+                  ? "此集已加入加工队列"
+                  : `此集跳过：${
+                      scheduleSkipLabels[latestScheduleItem.reason || ""] ||
+                      latestScheduleItem.reason ||
+                      "未满足条件"
+                    }`}
+              </span>
+            )}
+            {latestScheduleRun.run.error_message && (
+              <span>{latestScheduleRun.run.error_message}</span>
+            )}
+          </div>
+        )}
+
+        {isActive(run) && run.next_attempt_at && (
+          <div className={styles.processingHint} role="status">
+            自动重试：{formatUpdatedAt(run.next_attempt_at)}（已尝试 {run.attempt_count}/
+            {run.max_attempts} 次）
+          </div>
+        )}
+
         {run?.error_message && (
-          <div className={styles.processingFailure}>
+          <div
+            className={
+              run.status === "cancelled"
+                ? styles.processingCancellation
+                : styles.processingFailure
+            }
+            role={run.status === "cancelled" ? "status" : undefined}
+          >
             <strong>{run.error_code || "PROCESSING_FAILED"}</strong>
             <span>{run.error_message}</span>
             {detail?.action_suggestion && (

@@ -166,6 +166,43 @@ func TestFeishuMinutesAdapterDoesNotRepeatUnknownDriveWrite(t *testing.T) {
 	require.Len(t, runner.calls, 1)
 }
 
+func TestFeishuMinutesCancellationDispositionIsConservativeAfterRemoteIntent(t *testing.T) {
+	adapter := &FeishuMinutesAdapter{}
+	digest := strings.Repeat("c", 64)
+	for _, phase := range []string{
+		feishuPhaseDriveIntent,
+		feishuPhaseDriveUploaded,
+		feishuPhaseMinutesReady,
+		feishuPhaseMinutesIntent,
+		feishuPhaseMinutesCreated,
+		feishuPhaseTranscriptStored,
+	} {
+		state, err := encodeFeishuCheckpoint(feishuCheckpoint{
+			Version:     feishuCheckpointVersion,
+			Phase:       phase,
+			AudioDigest: digest,
+		})
+		require.NoError(t, err)
+		disposition, err := adapter.CancellationDisposition(state)
+		require.NoError(t, err)
+		require.True(t, disposition.RemoteMayContinue, phase)
+		require.Contains(t, disposition.Message, "飞书端任务可能继续")
+	}
+
+	safeState, err := encodeFeishuCheckpoint(feishuCheckpoint{
+		Version:     feishuCheckpointVersion,
+		Phase:       feishuPhaseDriveReady,
+		AudioDigest: digest,
+	})
+	require.NoError(t, err)
+	safeDisposition, err := adapter.CancellationDisposition(safeState)
+	require.NoError(t, err)
+	require.False(t, safeDisposition.RemoteMayContinue)
+
+	_, err = adapter.CancellationDisposition(json.RawMessage(`[]`))
+	require.Error(t, err)
+}
+
 func TestFeishuMinutesAdapterKnownAuthFailureReturnsSafeReadyCheckpoint(t *testing.T) {
 	audioPath := filepath.Join(t.TempDir(), "episode.mp3")
 	require.NoError(t, os.WriteFile(audioPath, []byte("audio"), 0o600))
