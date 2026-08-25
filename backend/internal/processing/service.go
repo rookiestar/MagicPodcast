@@ -209,6 +209,9 @@ func (s *Service) startAudioPreparationRun(
 			}
 			return fmt.Errorf("create audio preparation run: %w", err)
 		}
+		if err := createScheduledProcessingItem(tx, request, run, now); err != nil {
+			return err
+		}
 		result = StartResult{
 			Run:            run,
 			AudioAsset:     &queued.Asset,
@@ -489,6 +492,9 @@ func (s *Service) startResolvedEpisodeProcessing(
 			}
 			return fmt.Errorf("create processing run: %w", err)
 		}
+		if err := createScheduledProcessingItem(tx, request, run, now); err != nil {
+			return err
+		}
 		result = StartResult{Run: run}
 		return nil
 	})
@@ -702,76 +708,87 @@ func (s *Service) cancelQueuedScheduledRunOutsideFocus(
 	ctx context.Context,
 	runID uint,
 ) (models.EpisodeProcessingRun, error) {
-	now := s.now().UTC()
 	var run models.EpisodeProcessingRun
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := loadProcessingRun(tx, runID, &run); err != nil {
 			return err
 		}
-		if run.Status != models.ProcessingRunStatusQueued ||
-			run.TriggerSource != models.ProcessingTriggerScheduled {
-			return nil
-		}
-		var focusCount int64
-		if err := tx.Model(&models.EpisodeTriageDecision{}).
-			Where("episode_id = ? AND queue_state = ?", run.EpisodeID, models.QueueStateFocus).
-			Count(&focusCount).Error; err != nil {
-			return fmt.Errorf("recheck scheduled Focus eligibility: %w", err)
-		}
-		if focusCount > 0 {
-			return nil
-		}
-		update := tx.Model(&models.EpisodeProcessingRun{}).
-			Where("id = ? AND status = ?", run.ID, models.ProcessingRunStatusQueued).
-			Updates(map[string]any{
-				"status":          models.ProcessingRunStatusCancelled,
-				"current_step":    "",
-				"cancelled_at":    now,
-				"finished_at":     now,
-				"next_attempt_at": nil,
-				"error_code":      "scheduled_not_in_focus",
-				"error_message":   "episode left Focus before scheduled processing began",
-				"error_retryable": false,
-				"updated_at":      now,
-			})
-		if update.Error != nil {
-			return fmt.Errorf("cancel queued scheduled processing run: %w", update.Error)
-		}
-		if update.RowsAffected == 0 {
-			return loadProcessingRun(tx, runID, &run)
-		}
-		if run.ScheduleRunID != nil {
-			itemUpdate := tx.Model(&models.ProcessingScheduleItem{}).
-				Where(
-					"schedule_run_id = ? AND episode_id = ? AND processing_run_id = ? AND outcome = ?",
-					*run.ScheduleRunID,
-					run.EpisodeID,
-					run.ID,
-					models.ProcessingScheduleItemOutcomeStarted,
-				).
-				Updates(map[string]any{
-					"outcome":    models.ProcessingScheduleItemOutcomeSkipped,
-					"reason":     scheduleSkipNotFocused,
-					"updated_at": now,
-				})
-			if itemUpdate.Error != nil {
-				return fmt.Errorf("record skipped scheduled processing item: %w", itemUpdate.Error)
-			}
-			if itemUpdate.RowsAffected > 0 {
-				if err := tx.Model(&models.ProcessingScheduleRun{}).
-					Where("id = ?", *run.ScheduleRunID).
-					Updates(map[string]any{
-						"started_count": gorm.Expr("CASE WHEN started_count > 0 THEN started_count - 1 ELSE 0 END"),
-						"skipped_count": gorm.Expr("skipped_count + 1"),
-						"updated_at":    now,
-					}).Error; err != nil {
-					return fmt.Errorf("update scheduled processing counts: %w", err)
-				}
-			}
-		}
-		return loadProcessingRun(tx, runID, &run)
+		return s.cancelQueuedScheduledRunOutsideFocusTx(tx, &run)
 	})
 	return run, err
+}
+
+// cancelQueuedScheduledRunOutsideFocusTx is deliberately called from the
+// queued-run claim transaction as well as the preflight path. The preflight
+// check improves observability, but only this transaction closes the race
+// between the final Focus check and changing queued into running.
+func (s *Service) cancelQueuedScheduledRunOutsideFocusTx(
+	tx *gorm.DB,
+	run *models.EpisodeProcessingRun,
+) error {
+	if run.Status != models.ProcessingRunStatusQueued ||
+		run.TriggerSource != models.ProcessingTriggerScheduled {
+		return nil
+	}
+	var focusCount int64
+	if err := tx.Model(&models.EpisodeTriageDecision{}).
+		Where("episode_id = ? AND queue_state = ?", run.EpisodeID, models.QueueStateFocus).
+		Count(&focusCount).Error; err != nil {
+		return fmt.Errorf("recheck scheduled Focus eligibility: %w", err)
+	}
+	if focusCount > 0 {
+		return nil
+	}
+	now := s.now().UTC()
+	update := tx.Model(&models.EpisodeProcessingRun{}).
+		Where("id = ? AND status = ?", run.ID, models.ProcessingRunStatusQueued).
+		Updates(map[string]any{
+			"status":          models.ProcessingRunStatusCancelled,
+			"current_step":    "",
+			"cancelled_at":    now,
+			"finished_at":     now,
+			"next_attempt_at": nil,
+			"error_code":      "scheduled_not_in_focus",
+			"error_message":   "episode left Focus before scheduled processing began",
+			"error_retryable": false,
+			"updated_at":      now,
+		})
+	if update.Error != nil {
+		return fmt.Errorf("cancel queued scheduled processing run: %w", update.Error)
+	}
+	if update.RowsAffected == 0 {
+		return loadProcessingRun(tx, run.ID, run)
+	}
+	if run.ScheduleRunID != nil {
+		itemUpdate := tx.Model(&models.ProcessingScheduleItem{}).
+			Where(
+				"schedule_run_id = ? AND episode_id = ? AND processing_run_id = ? AND outcome = ?",
+				*run.ScheduleRunID,
+				run.EpisodeID,
+				run.ID,
+				models.ProcessingScheduleItemOutcomeStarted,
+			).
+			Updates(map[string]any{
+				"outcome":    models.ProcessingScheduleItemOutcomeSkipped,
+				"reason":     scheduleSkipNotFocused,
+				"updated_at": now,
+			})
+		if itemUpdate.Error != nil {
+			return fmt.Errorf("record skipped scheduled processing item: %w", itemUpdate.Error)
+		}
+		if itemUpdate.RowsAffected > 0 {
+			if err := tx.Model(&models.ProcessingScheduleRun{}).
+				Where("id = ?", *run.ScheduleRunID).
+				Updates(map[string]any{
+					"started_count": gorm.Expr("CASE WHEN started_count > 0 THEN started_count - 1 ELSE 0 END"),
+					"skipped_count": gorm.Expr("skipped_count + 1"),
+					"updated_at":    now,
+				}).Error; err != nil {
+				return fmt.Errorf("update scheduled processing counts: %w", err)
+			}
+		}
+	}
+	return loadProcessingRun(tx, run.ID, run)
 }
 
 func (s *Service) CancelProcessingRun(
@@ -1151,7 +1168,39 @@ func normalizeStartRequest(request StartRequest) (StartRequest, error) {
 			return StartRequest{}, fmt.Errorf("%w: invalid schedule run", ErrInvalidStart)
 		}
 	}
+	if request.ScheduleQueuePosition != nil && request.ScheduleRunID == nil {
+		return StartRequest{}, fmt.Errorf("%w: schedule queue position requires schedule run", ErrInvalidStart)
+	}
 	return request, nil
+}
+
+func createScheduledProcessingItem(
+	tx *gorm.DB,
+	request StartRequest,
+	run models.EpisodeProcessingRun,
+	now time.Time,
+) error {
+	if request.ScheduleRunID == nil {
+		return nil
+	}
+	queuePosition := int64(-1)
+	if request.ScheduleQueuePosition != nil {
+		queuePosition = *request.ScheduleQueuePosition
+	}
+	processingRunID := run.ID
+	item := models.ProcessingScheduleItem{
+		ScheduleRunID:   *request.ScheduleRunID,
+		EpisodeID:       run.EpisodeID,
+		QueuePosition:   queuePosition,
+		Outcome:         models.ProcessingScheduleItemOutcomeStarted,
+		ProcessingRunID: &processingRunID,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := tx.Create(&item).Error; err != nil {
+		return fmt.Errorf("create scheduled processing item: %w", err)
+	}
+	return nil
 }
 
 func normalizeProcessingInput(input ProcessingInput) (ProcessingInput, error) {

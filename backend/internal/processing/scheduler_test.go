@@ -358,7 +358,11 @@ func TestSchedulerRechecksFocusBeforeCreatingScheduledRun(t *testing.T) {
 		Where("episode_id = ?", episode.ID).
 		Update("queue_state", someday).Error)
 
-	outcome, reason, runID, err := scheduler.startCandidate(context.Background(), run.ID, episode.ID)
+	outcome, reason, runID, _, err := scheduler.startCandidate(
+		context.Background(),
+		run.ID,
+		scheduleCandidate{EpisodeID: episode.ID, QueuePosition: 0},
+	)
 	require.NoError(t, err)
 	require.Equal(t, models.ProcessingScheduleItemOutcomeSkipped, outcome)
 	require.Equal(t, scheduleSkipNotFocused, reason)
@@ -366,6 +370,50 @@ func TestSchedulerRechecksFocusBeforeCreatingScheduledRun(t *testing.T) {
 	var processingCount int64
 	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).Where("episode_id = ?", episode.ID).Count(&processingCount).Error)
 	require.Zero(t, processingCount)
+}
+
+func TestScheduledStartRegistersScheduleItemWithProcessingRun(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 25, 5, 15, 0, 0, time.UTC)
+	resolver := newEpisodeInputResolver()
+	service := NewService(
+		db,
+		WithProcessingInputResolver(resolver),
+		WithClock(func() time.Time { return now }),
+	)
+	episode := createProcessingEpisode(t, db, true, "schedule-atomic-item")
+	resolver.SetReady(episode.ID)
+	scheduleRun := models.ProcessingScheduleRun{
+		TriggerKey:     "schedule-atomic-item",
+		ScheduledFor:   now,
+		CronExpression: "0 * * * * *",
+		Timezone:       "UTC",
+		BatchSize:      1,
+		Status:         models.ProcessingScheduleRunStatusRunning,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	require.NoError(t, db.Create(&scheduleRun).Error)
+	queuePosition := int64(7)
+	started, err := service.StartEpisodeProcessing(context.Background(), StartRequest{
+		EpisodeID:             episode.ID,
+		TriggerSource:         models.ProcessingTriggerScheduled,
+		RequireReadyAudio:     true,
+		ScheduleRunID:         &scheduleRun.ID,
+		ScheduleQueuePosition: &queuePosition,
+	})
+	require.NoError(t, err)
+
+	var item models.ProcessingScheduleItem
+	require.NoError(t, db.Where(
+		"schedule_run_id = ? AND episode_id = ?",
+		scheduleRun.ID,
+		episode.ID,
+	).First(&item).Error)
+	require.Equal(t, models.ProcessingScheduleItemOutcomeStarted, item.Outcome)
+	require.Equal(t, queuePosition, item.QueuePosition)
+	require.NotNil(t, item.ProcessingRunID)
+	require.Equal(t, started.Run.ID, *item.ProcessingRunID)
 }
 
 func TestSchedulerStatusAndConfigurationValidation(t *testing.T) {

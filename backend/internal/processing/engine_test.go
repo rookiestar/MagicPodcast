@@ -1106,22 +1106,15 @@ func TestEngineSkipsQueuedScheduledRunWhenEpisodeLeavesFocus(t *testing.T) {
 		UpdatedAt:      now,
 	}
 	require.NoError(t, db.Create(&scheduleRun).Error)
+	queuePosition := int64(0)
 	started, err := service.StartEpisodeProcessing(context.Background(), StartRequest{
-		EpisodeID:         episode.ID,
-		TriggerSource:     models.ProcessingTriggerScheduled,
-		RequireReadyAudio: true,
-		ScheduleRunID:     &scheduleRun.ID,
+		EpisodeID:             episode.ID,
+		TriggerSource:         models.ProcessingTriggerScheduled,
+		RequireReadyAudio:     true,
+		ScheduleRunID:         &scheduleRun.ID,
+		ScheduleQueuePosition: &queuePosition,
 	})
 	require.NoError(t, err)
-	require.NoError(t, db.Create(&models.ProcessingScheduleItem{
-		ScheduleRunID:   scheduleRun.ID,
-		EpisodeID:       episode.ID,
-		QueuePosition:   0,
-		Outcome:         models.ProcessingScheduleItemOutcomeStarted,
-		ProcessingRunID: &started.Run.ID,
-		CreatedAt:       now,
-		UpdatedAt:       now,
-	}).Error)
 
 	someday := models.QueueStateSomeday
 	require.NoError(t, db.Model(&models.EpisodeTriageDecision{}).
@@ -1150,6 +1143,60 @@ func TestEngineSkipsQueuedScheduledRunWhenEpisodeLeavesFocus(t *testing.T) {
 	require.Equal(t, 1, updatedScheduleRun.SkippedCount)
 }
 
+func TestEngineRechecksScheduledFocusInsideQueuedClaim(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 25, 9, 15, 0, 0, time.UTC)
+	service, _ := newProcessingServiceWithResolver(
+		db,
+		WithClock(func() time.Time { return now }),
+	)
+	episode := createProcessingEpisode(t, db, true, "scheduled-run-focus-claim-race")
+	scheduleRun := models.ProcessingScheduleRun{
+		TriggerKey:     "scheduled-run-focus-claim-race",
+		ScheduledFor:   now,
+		CronExpression: "0 15 9 * * *",
+		Timezone:       "UTC",
+		BatchSize:      1,
+		Status:         models.ProcessingScheduleRunStatusCompleted,
+		CandidateCount: 1,
+		StartedCount:   1,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	require.NoError(t, db.Create(&scheduleRun).Error)
+	queuePosition := int64(0)
+	started, err := service.StartEpisodeProcessing(context.Background(), StartRequest{
+		EpisodeID:             episode.ID,
+		TriggerSource:         models.ProcessingTriggerScheduled,
+		RequireReadyAudio:     true,
+		ScheduleRunID:         &scheduleRun.ID,
+		ScheduleQueuePosition: &queuePosition,
+	})
+	require.NoError(t, err)
+
+	someday := models.QueueStateSomeday
+	require.NoError(t, db.Model(&models.EpisodeTriageDecision{}).
+		Where("episode_id = ?", episode.ID).
+		Update("queue_state", someday).Error)
+	transcriber := &fakeTranscriber{}
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	engine, err := NewEngine(service, transcriber, &fakeRuntime{}, store, nil)
+	require.NoError(t, err)
+
+	claimed, err := engine.beginQueuedAttempt(context.Background(), started.Run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusCancelled, claimed.Status)
+	require.Equal(t, "scheduled_not_in_focus", claimed.ErrorCode)
+	require.Zero(t, transcriber.BeginCallCount())
+
+	var item models.ProcessingScheduleItem
+	require.NoError(t, db.Where("schedule_run_id = ? AND episode_id = ?", scheduleRun.ID, episode.ID).
+		First(&item).Error)
+	require.Equal(t, models.ProcessingScheduleItemOutcomeSkipped, item.Outcome)
+	require.Equal(t, scheduleSkipNotFocused, item.Reason)
+}
+
 func TestEngineKeepsStartedScheduledRunWhenEpisodeLeavesFocus(t *testing.T) {
 	db := openProcessingTestDB(t)
 	now := time.Date(2026, 8, 25, 9, 0, 0, 0, time.UTC)
@@ -1171,22 +1218,15 @@ func TestEngineKeepsStartedScheduledRunWhenEpisodeLeavesFocus(t *testing.T) {
 		UpdatedAt:      now,
 	}
 	require.NoError(t, db.Create(&scheduleRun).Error)
+	queuePosition := int64(0)
 	started, err := service.StartEpisodeProcessing(context.Background(), StartRequest{
-		EpisodeID:         episode.ID,
-		TriggerSource:     models.ProcessingTriggerScheduled,
-		RequireReadyAudio: true,
-		ScheduleRunID:     &scheduleRun.ID,
+		EpisodeID:             episode.ID,
+		TriggerSource:         models.ProcessingTriggerScheduled,
+		RequireReadyAudio:     true,
+		ScheduleRunID:         &scheduleRun.ID,
+		ScheduleQueuePosition: &queuePosition,
 	})
 	require.NoError(t, err)
-	require.NoError(t, db.Create(&models.ProcessingScheduleItem{
-		ScheduleRunID:   scheduleRun.ID,
-		EpisodeID:       episode.ID,
-		QueuePosition:   0,
-		Outcome:         models.ProcessingScheduleItemOutcomeStarted,
-		ProcessingRunID: &started.Run.ID,
-		CreatedAt:       now,
-		UpdatedAt:       now,
-	}).Error)
 	transcriber := &fakeTranscriber{}
 	store, err := NewDiskArtifactStore(t.TempDir())
 	require.NoError(t, err)

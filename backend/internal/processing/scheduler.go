@@ -223,11 +223,24 @@ func (s *Scheduler) RunAt(
 		var processingRunID *uint
 		if started < s.config.BatchSize {
 			var startErr error
-			outcome, reason, processingRunID, startErr = s.startCandidate(ctx, run.ID, candidate.EpisodeID)
+			var itemRecorded bool
+			outcome, reason, processingRunID, itemRecorded, startErr = s.startCandidate(
+				ctx,
+				run.ID,
+				candidate,
+			)
 			if startErr != nil {
 				outcome = models.ProcessingScheduleItemOutcomeSkipped
 				reason = scheduleSkipStartFailed
 				hadUnexpectedFailure = true
+			}
+			if itemRecorded {
+				if outcome == models.ProcessingScheduleItemOutcomeStarted {
+					started++
+				} else {
+					skipped++
+				}
+				continue
 			}
 		}
 		item := models.ProcessingScheduleItem{
@@ -346,31 +359,33 @@ func (s *Scheduler) listFocusCandidates(ctx context.Context) ([]scheduleCandidat
 func (s *Scheduler) startCandidate(
 	ctx context.Context,
 	scheduleRunID uint,
-	episodeID uint,
-) (string, string, *uint, error) {
+	candidate scheduleCandidate,
+) (string, string, *uint, bool, error) {
+	queuePosition := candidate.QueuePosition
 	result, err := s.service.StartEpisodeProcessing(ctx, StartRequest{
-		EpisodeID:         episodeID,
-		TriggerSource:     models.ProcessingTriggerScheduled,
-		RequireReadyAudio: true,
-		ScheduleRunID:     &scheduleRunID,
+		EpisodeID:             candidate.EpisodeID,
+		TriggerSource:         models.ProcessingTriggerScheduled,
+		RequireReadyAudio:     true,
+		ScheduleRunID:         &scheduleRunID,
+		ScheduleQueuePosition: &queuePosition,
 	})
 	switch {
 	case err == nil && result.ReusedActive:
-		return models.ProcessingScheduleItemOutcomeSkipped, scheduleSkipActiveRun, &result.Run.ID, nil
+		return models.ProcessingScheduleItemOutcomeSkipped, scheduleSkipActiveRun, &result.Run.ID, false, nil
 	case err == nil && result.ReusedSuccessful:
-		return models.ProcessingScheduleItemOutcomeSkipped, scheduleSkipCurrentArtifact, &result.Run.ID, nil
+		return models.ProcessingScheduleItemOutcomeSkipped, scheduleSkipCurrentArtifact, &result.Run.ID, false, nil
 	case err == nil && result.ReusedTerminal:
-		return models.ProcessingScheduleItemOutcomeSkipped, scheduleSkipTerminalRun, &result.Run.ID, nil
+		return models.ProcessingScheduleItemOutcomeSkipped, scheduleSkipTerminalRun, &result.Run.ID, false, nil
 	case err == nil:
-		return models.ProcessingScheduleItemOutcomeStarted, "", &result.Run.ID, nil
+		return models.ProcessingScheduleItemOutcomeStarted, "", &result.Run.ID, true, nil
 	case errors.Is(err, ErrEpisodeNotFocused):
-		return models.ProcessingScheduleItemOutcomeSkipped, scheduleSkipNotFocused, nil, nil
+		return models.ProcessingScheduleItemOutcomeSkipped, scheduleSkipNotFocused, nil, false, nil
 	case errors.Is(err, ErrProcessingInputUnavailable):
-		return models.ProcessingScheduleItemOutcomeSkipped, scheduleSkipAudioNotReady, nil, nil
+		return models.ProcessingScheduleItemOutcomeSkipped, scheduleSkipAudioNotReady, nil, false, nil
 	case errors.Is(err, ErrEpisodeNotFound):
-		return models.ProcessingScheduleItemOutcomeSkipped, scheduleSkipEpisodeMissing, nil, nil
+		return models.ProcessingScheduleItemOutcomeSkipped, scheduleSkipEpisodeMissing, nil, false, nil
 	default:
-		return "", "", nil, err
+		return "", "", nil, false, err
 	}
 }
 

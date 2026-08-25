@@ -739,6 +739,17 @@ func (e *Engine) beginQueuedAttempt(
 			}
 			return ErrRunBusy
 		}
+		if run.TriggerSource == models.ProcessingTriggerScheduled {
+			if err := e.service.cancelQueuedScheduledRunOutsideFocusTx(tx, &run); err != nil {
+				return err
+			}
+			if run.Status != models.ProcessingRunStatusQueued {
+				if models.IsProcessingRunTerminal(run.Status) {
+					return nil
+				}
+				return ErrRunBusy
+			}
+		}
 		if run.AttemptCount >= run.MaxAttempts || !now.Before(run.RetryDeadlineAt) {
 			if err := tx.Model(&models.EpisodeProcessingRun{}).
 				Where("id = ? AND status = ?", runID, models.ProcessingRunStatusQueued).

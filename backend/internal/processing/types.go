@@ -25,6 +25,9 @@ type StartRequest struct {
 	Force             bool
 	RequireReadyAudio bool
 	ScheduleRunID     *uint
+	// ScheduleQueuePosition is supplied only by the scheduler so a newly
+	// created scheduled run can register its item in the same transaction.
+	ScheduleQueuePosition *int64
 }
 
 type ProcessingInput struct {
