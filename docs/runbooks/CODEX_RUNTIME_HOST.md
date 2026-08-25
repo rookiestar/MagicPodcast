@@ -85,9 +85,31 @@ Smoke 必须证明：
 
 证据只保存主机、版本、状态、时延、事件计数、取消方式和清理结果，不保存提示词、输出正文、账号、路径或凭据。当前证据见 [`CODEX_RUNTIME_SMOKE_2026-08-24.json`](../research/evidence/CODEX_RUNTIME_SMOKE_2026-08-24.json)。
 
-## 6. 当前未启用项
+## 6. 飞书手动加工真实 Smoke
+
+`backend/cmd/processing-real-smoke` 运行 #181 的真实 Adapter 链：飞书妙记转写、固定 Runtime 生成单集纪要和本地产物原子发布。它必须从与待验收提交一致的 Git worktree 构建；最终证据的 `build.vcs_revision` 必须等于该提交，`build.vcs_modified` 必须为 `false`。
+
+首次运行会创建外部资源，只有在单独授权真实音频上传和用户凭据后才能执行：
+
+```bash
+(cd backend && go build -o /absolute/path/processing-real-smoke ./cmd/processing-real-smoke)
+/absolute/path/processing-real-smoke \
+  --audio /absolute/path/episode.m4a \
+  --lark-cli /absolute/path/lark-cli-isolated \
+  --lark-work-root /absolute/path/lark-work \
+  --python /absolute/path/venv-0.147.0/bin/python \
+  --host-script /absolute/path/runtime_host.py \
+  --runtime-work-root /absolute/path/runtime-work \
+  --artifact-root /absolute/path/artifacts \
+  --evidence /absolute/path/processing-real-smoke.json \
+  --timeout 2h
+```
+
+重启恢复验收使用已有 `lark-work/smoke-checkpoint.json` 时必须加 `--resume-only`；该模式不调用新的 Drive/Minutes 上传。证据应回读 `events`、`build`、逐字稿/纪要大小、产物校验和及 Runtime 清理结果，并明确是否为首次上传或恢复运行。当前 #181 证据见 [`FOCUS_PROCESSING_REAL_SMOKE_2026-08-25.json`](../research/evidence/FOCUS_PROCESSING_REAL_SMOKE_2026-08-25.json)。
+
+## 7. 当前未启用项
 
 - 仓库已支持在 `processing.enabled=true` 时显式实例化 Runtime Host、飞书 Adapter 与持久 Worker；默认仍关闭，生产尚未启用。
 - Worker 已支持进程重启后的持久运行恢复；生产资源上限、LaunchAgent 配置和运行证据尚未完成。
-- 飞书 Adapter 已实现，生产 user 授权和真实音频 Smoke 尚未执行；Google 能力不属于 #181。
+- 飞书 Adapter 已实现；真实 Smoke 仅作为获批测试音频的隔离验收，不等于生产 Worker 已启用；Google 能力不属于 #181。
 - 未执行数据库 migration apply、部署或真实数据运行。
