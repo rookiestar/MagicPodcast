@@ -581,6 +581,46 @@ describe("EpisodeProcessingPanel", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shows pending manual knowledge delivery separately from local completion", async () => {
+    const completedRun: ProcessingRun = {
+      ...failedRun,
+      id: 61,
+      status: "completed",
+      current_step: "",
+      error_code: undefined,
+      error_message: undefined,
+      error_retryable: false,
+    };
+    apiMocks.listEpisodeRuns.mockResolvedValue([completedRun]);
+    apiMocks.getRun.mockResolvedValue({
+      run: completedRun,
+      current_artifact: { ...artifact, run_id: completedRun.id },
+      deliveries: [
+        {
+          id: 71,
+          artifact_set_id: artifact.id,
+          target: "ima",
+          destination: "manual-import",
+          adapter_version: "ima-manual-import-v1",
+          status: "pending",
+          attempt_count: 1,
+          error_retryable: false,
+          created_at: "2026-08-24T08:06:00Z",
+          updated_at: "2026-08-24T08:06:00Z",
+        },
+      ],
+    });
+
+    render(<EpisodeProcessingPanel item={item} />);
+
+    expect(await screen.findByText("已完成")).toBeVisible();
+    expect(screen.getByText("知识交付")).toBeVisible();
+    expect(
+      screen.getByText("ima · manual-import · 包已生成 / 待人工导入"),
+    ).toBeVisible();
+    expect(screen.getByText("本地包已保存，可按说明人工导入。")).toBeVisible();
+  });
+
   it("shows a cancellation warning and blocks retry while external work may continue", async () => {
     const cancelledRun: ProcessingRun = {
       ...failedRun,
