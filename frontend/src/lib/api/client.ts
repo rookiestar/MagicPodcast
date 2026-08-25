@@ -1,4 +1,7 @@
-import axios, { type AxiosInstance } from "axios";
+import axios, {
+  type AxiosInstance,
+  type AxiosRequestConfig,
+} from "axios";
 import { apiBaseUrl } from "../apiBaseUrl";
 import { getApiErrorMessage, handleApiError } from "./errorHandler";
 import type { ApiResponse } from "@/types";
@@ -16,6 +19,18 @@ class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
+}
+
+export type ApiRequestConfig = AxiosRequestConfig & {
+  errorPresentation?: "global" | "inline";
+};
+
+export const inlineApiErrorConfig: ApiRequestConfig = {
+  errorPresentation: "inline",
+};
+
+export function shouldPresentApiErrorGlobally(config?: ApiRequestConfig) {
+  return config?.errorPresentation !== "inline";
 }
 
 /**
@@ -91,27 +106,29 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    console.error("[API] Response error:", error.message, error.config?.url);
-
     const apiMessage = getApiErrorMessage(error.response?.data);
-    if (apiMessage) {
-      error.message = apiMessage;
-    }
+    if (apiMessage) error.message = apiMessage;
 
-    if (error.code === "ECONNABORTED") {
-      console.error("[API] Request timeout");
-    } else if (error.response) {
-      console.error(
-        "[API] Server responded with:",
-        error.response.status,
-        error.response.data,
-      );
-    } else if (error.request) {
-      console.error("[API] No response received:", error.request);
-    }
+    if (
+      shouldPresentApiErrorGlobally(error.config as ApiRequestConfig | undefined)
+    ) {
+      console.error("[API] Response error:", error.message, error.config?.url);
 
-    // 使用全局错误处理器处理错误
-    handleApiError(error, error.config?.url);
+      if (error.code === "ECONNABORTED") {
+        console.error("[API] Request timeout");
+      } else if (error.response) {
+        console.error(
+          "[API] Server responded with:",
+          error.response.status,
+          error.response.data,
+        );
+      } else if (error.request) {
+        console.error("[API] No response received:", error.request);
+      }
+
+      // 使用全局错误处理器处理错误
+      handleApiError(error, error.config?.url);
+    }
 
     return Promise.reject(error);
   },

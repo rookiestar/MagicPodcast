@@ -29,6 +29,11 @@ type Engine struct {
 	active   map[uint]context.CancelFunc
 }
 
+const (
+	cancellationExternalResultUnknown = "cancelled_external_result_unknown"
+	cancellationRuntimeResultUnknown  = "cancelled_runtime_result_unknown"
+)
+
 func NewEngine(
 	service *Service,
 	transcriber TranscriptionAdapter,
@@ -138,6 +143,12 @@ func (e *Engine) Advance(
 	var progress TranscriptionProgress
 	switch run.Status {
 	case models.ProcessingRunStatusQueued:
+		if run.TriggerSource == models.ProcessingTriggerScheduled {
+			run, err = e.service.cancelQueuedScheduledRunOutsideFocus(runCtx, run.ID)
+			if err != nil || models.IsProcessingRunTerminal(run.Status) {
+				return run, err
+			}
+		}
 		run, err = e.beginQueuedAttempt(runCtx, run.ID)
 		if err != nil || models.IsProcessingRunTerminal(run.Status) {
 			return run, err
@@ -643,13 +654,69 @@ func (e *Engine) Cancel(
 		cancel()
 	}
 
-	checkpoint, checkpointErr := e.loadCheckpoint(ctx, runID, StepTranscription)
+	durableCtx := context.WithoutCancel(ctx)
+	checkpoint, checkpointErr := e.loadCheckpoint(durableCtx, runID, StepTranscription)
 	var state json.RawMessage
+	noticeCode := ""
+	noticeMessages := make([]string, 0, 2)
+	addNotice := func(code string, message string) {
+		if noticeCode == "" {
+			noticeCode = code
+		}
+		for _, existing := range noticeMessages {
+			if existing == message {
+				return
+			}
+		}
+		noticeMessages = append(noticeMessages, message)
+	}
 	if checkpointErr == nil {
 		state = json.RawMessage(checkpoint.StateJSON)
+	} else if !errors.Is(checkpointErr, gorm.ErrRecordNotFound) {
+		addNotice(
+			cancellationExternalResultUnknown,
+			"已取消本机加工；外部转写状态无法确认，任务可能继续。",
+		)
 	}
-	_ = e.transcriber.Cancel(ctx, runID, state)
-	_ = e.runtime.Cancel(ctx, runID)
+	if err := e.transcriber.Cancel(durableCtx, runID, state); err != nil {
+		addNotice(
+			cancellationExternalResultUnknown,
+			"已取消本机加工；外部转写状态无法确认，任务可能继续。",
+		)
+	} else if reporter, ok := e.transcriber.(TranscriptionCancellationReporter); ok {
+		disposition, dispositionErr := reporter.CancellationDisposition(state)
+		switch {
+		case dispositionErr != nil:
+			addNotice(
+				cancellationExternalResultUnknown,
+				"已取消本机加工；外部转写状态无法确认，任务可能继续。",
+			)
+		case disposition.RemoteMayContinue:
+			message := strings.TrimSpace(disposition.Message)
+			if message == "" {
+				message = "已取消本机加工；外部转写任务可能继续，已创建的远端资源会保留。"
+			}
+			addNotice(cancellationExternalResultUnknown, message)
+		}
+	}
+	if err := e.runtime.Cancel(durableCtx, runID); err != nil {
+		addNotice(
+			cancellationRuntimeResultUnknown,
+			"已取消本机加工；本地 Codex Runtime 的取消状态无法确认，可能仍在运行。",
+		)
+	}
+	if noticeCode != "" {
+		updated, recordErr := e.service.recordCancellationNotice(
+			durableCtx,
+			runID,
+			noticeCode,
+			strings.Join(noticeMessages, " "),
+		)
+		if recordErr != nil {
+			return run, recordErr
+		}
+		return updated, nil
+	}
 	return run, nil
 }
 
@@ -671,6 +738,17 @@ func (e *Engine) beginQueuedAttempt(
 				return nil
 			}
 			return ErrRunBusy
+		}
+		if run.TriggerSource == models.ProcessingTriggerScheduled {
+			if err := e.service.cancelQueuedScheduledRunOutsideFocusTx(tx, &run); err != nil {
+				return err
+			}
+			if run.Status != models.ProcessingRunStatusQueued {
+				if models.IsProcessingRunTerminal(run.Status) {
+					return nil
+				}
+				return ErrRunBusy
+			}
 		}
 		if run.AttemptCount >= run.MaxAttempts || !now.Before(run.RetryDeadlineAt) {
 			if err := tx.Model(&models.EpisodeProcessingRun{}).
@@ -976,7 +1054,7 @@ func (e *Engine) handleStepError(
 			classified.retryable &&
 			run.AttemptCount < run.MaxAttempts &&
 			now.Before(run.RetryDeadlineAt) {
-			nextAttempt := now.Add(e.retryDelay(run.AttemptCount))
+			nextAttempt := now.Add(e.retryDelay(run.ID, run.AttemptCount))
 			if nextAttempt.After(run.RetryDeadlineAt) {
 				nextAttempt = run.RetryDeadlineAt
 			}
@@ -1018,15 +1096,27 @@ func (e *Engine) handleStepError(
 	return run, nil
 }
 
-func (e *Engine) retryDelay(attempt int) time.Duration {
+func (e *Engine) retryDelay(runID uint, attempt int) time.Duration {
 	delay := e.service.retryPolicy.BaseDelay
 	for index := 1; index < attempt && delay < time.Hour; index++ {
 		delay *= 2
 	}
 	if delay > time.Hour {
+		delay = time.Hour
+	}
+	if delay <= 0 || delay == time.Hour {
+		return delay
+	}
+
+	// Deterministic jitter spreads simultaneous failures without making retry
+	// timing non-reproducible after a restart. It stays in [0, 20%] of the
+	// exponential delay and never exceeds the one-hour cap.
+	seed := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%d", runID, attempt)))
+	jitter := time.Duration(int64(delay) * int64(seed[0]) / (255 * 5))
+	if delay > time.Hour-jitter {
 		return time.Hour
 	}
-	return delay
+	return delay + jitter
 }
 
 func (e *Engine) completeWithArtifact(

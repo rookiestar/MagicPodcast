@@ -408,6 +408,22 @@ func TestEngineRetryIsBoundedByAttempts(t *testing.T) {
 	require.Equal(t, 3, transcriber.BeginCallCount())
 }
 
+func TestEngineRetryDelayUsesBoundedDeterministicJitter(t *testing.T) {
+	engine := &Engine{service: &Service{retryPolicy: RetryPolicy{BaseDelay: 10 * time.Second}}}
+
+	first := engine.retryDelay(41, 1)
+	require.Equal(t, first, engine.retryDelay(41, 1))
+	require.GreaterOrEqual(t, first, 10*time.Second)
+	require.LessOrEqual(t, first, 12*time.Second)
+
+	second := engine.retryDelay(41, 2)
+	require.GreaterOrEqual(t, second, 20*time.Second)
+	require.LessOrEqual(t, second, 24*time.Second)
+
+	capped := &Engine{service: &Service{retryPolicy: RetryPolicy{BaseDelay: time.Hour}}}
+	require.Equal(t, time.Hour, capped.retryDelay(41, 1))
+}
+
 func TestEngineRetryPreservesExternalCheckpointWithoutRecreatingRequest(t *testing.T) {
 	db := openProcessingTestDB(t)
 	now := time.Date(2026, 8, 24, 14, 15, 0, 0, time.UTC)
@@ -734,6 +750,78 @@ func TestEngineCancellationCannotBeOverwrittenByWorker(t *testing.T) {
 	require.Zero(t, artifactCount)
 }
 
+func TestEngineCancellationPersistsExternalContinuationNotice(t *testing.T) {
+	db := openProcessingTestDB(t)
+	service := newProcessingService(db)
+	episode := createProcessingEpisode(t, db, true, "engine-cancel-external")
+	run := startProcessingRun(t, service, episode.ID)
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	transcriber := &fakeTranscriber{
+		cancellationDisposition: TranscriptionCancellationDisposition{
+			RemoteMayContinue: true,
+			Message:           "已取消本机加工；飞书端任务可能继续，已创建的远端资源会保留。",
+		},
+	}
+	engine, err := NewEngine(service, transcriber, &fakeRuntime{}, store, nil)
+	require.NoError(t, err)
+
+	cancelled, err := engine.Cancel(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusCancelled, cancelled.Status)
+	require.Equal(t, cancellationExternalResultUnknown, cancelled.ErrorCode)
+	require.Contains(t, cancelled.ErrorMessage, "飞书端任务可能继续")
+	require.False(t, cancelled.ErrorRetryable)
+	_, err = service.RetryProcessingRun(context.Background(), run.ID)
+	require.ErrorIs(t, err, ErrRetryUnsafe)
+}
+
+func TestEngineCancellationRecordsAdapterAndRuntimeCancelFailures(t *testing.T) {
+	t.Run("transcriber", func(t *testing.T) {
+		db := openProcessingTestDB(t)
+		service := newProcessingService(db)
+		episode := createProcessingEpisode(t, db, true, "engine-cancel-transcriber-failure")
+		run := startProcessingRun(t, service, episode.ID)
+		store, err := NewDiskArtifactStore(t.TempDir())
+		require.NoError(t, err)
+		engine, err := NewEngine(
+			service,
+			&fakeTranscriber{cancelErr: errors.New("remote cancellation unavailable")},
+			&fakeRuntime{},
+			store,
+			nil,
+		)
+		require.NoError(t, err)
+
+		cancelled, err := engine.Cancel(context.Background(), run.ID)
+		require.NoError(t, err)
+		require.Equal(t, cancellationExternalResultUnknown, cancelled.ErrorCode)
+		require.Contains(t, cancelled.ErrorMessage, "外部转写状态无法确认")
+	})
+
+	t.Run("runtime", func(t *testing.T) {
+		db := openProcessingTestDB(t)
+		service := newProcessingService(db)
+		episode := createProcessingEpisode(t, db, true, "engine-cancel-runtime-failure")
+		run := startProcessingRun(t, service, episode.ID)
+		store, err := NewDiskArtifactStore(t.TempDir())
+		require.NoError(t, err)
+		engine, err := NewEngine(
+			service,
+			&fakeTranscriber{},
+			&fakeRuntime{cancelErr: errors.New("runtime cancellation unavailable")},
+			store,
+			nil,
+		)
+		require.NoError(t, err)
+
+		cancelled, err := engine.Cancel(context.Background(), run.ID)
+		require.NoError(t, err)
+		require.Equal(t, cancellationRuntimeResultUnknown, cancelled.ErrorCode)
+		require.Contains(t, cancelled.ErrorMessage, "Codex Runtime")
+	})
+}
+
 func TestEngineCancellationAfterFilePublishDiscardsUnrecordedSet(t *testing.T) {
 	db := openProcessingTestDB(t)
 	service := newProcessingService(db)
@@ -997,18 +1085,192 @@ func TestEnginePersistsSuccessfulDeliveryAfterContextCancellation(t *testing.T) 
 	require.NotNil(t, detail.Deliveries[0].DeliveredAt)
 }
 
+func TestEngineSkipsQueuedScheduledRunWhenEpisodeLeavesFocus(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 25, 9, 0, 0, 0, time.UTC)
+	service, _ := newProcessingServiceWithResolver(
+		db,
+		WithClock(func() time.Time { return now }),
+	)
+	episode := createProcessingEpisode(t, db, true, "scheduled-run-left-focus")
+	scheduleRun := models.ProcessingScheduleRun{
+		TriggerKey:     "scheduled-run-left-focus",
+		ScheduledFor:   now,
+		CronExpression: "0 0 9 * * *",
+		Timezone:       "UTC",
+		BatchSize:      1,
+		Status:         models.ProcessingScheduleRunStatusCompleted,
+		CandidateCount: 1,
+		StartedCount:   1,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	require.NoError(t, db.Create(&scheduleRun).Error)
+	queuePosition := int64(0)
+	started, err := service.StartEpisodeProcessing(context.Background(), StartRequest{
+		EpisodeID:             episode.ID,
+		TriggerSource:         models.ProcessingTriggerScheduled,
+		RequireReadyAudio:     true,
+		ScheduleRunID:         &scheduleRun.ID,
+		ScheduleQueuePosition: &queuePosition,
+	})
+	require.NoError(t, err)
+
+	someday := models.QueueStateSomeday
+	require.NoError(t, db.Model(&models.EpisodeTriageDecision{}).
+		Where("episode_id = ?", episode.ID).
+		Update("queue_state", someday).Error)
+	transcriber := &fakeTranscriber{}
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	engine, err := NewEngine(service, transcriber, &fakeRuntime{}, store, nil)
+	require.NoError(t, err)
+
+	result, err := engine.Advance(context.Background(), started.Run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusCancelled, result.Status)
+	require.Equal(t, "scheduled_not_in_focus", result.ErrorCode)
+	require.Zero(t, transcriber.BeginCallCount())
+
+	var item models.ProcessingScheduleItem
+	require.NoError(t, db.Where("schedule_run_id = ? AND episode_id = ?", scheduleRun.ID, episode.ID).
+		First(&item).Error)
+	require.Equal(t, models.ProcessingScheduleItemOutcomeSkipped, item.Outcome)
+	require.Equal(t, scheduleSkipNotFocused, item.Reason)
+	var updatedScheduleRun models.ProcessingScheduleRun
+	require.NoError(t, db.First(&updatedScheduleRun, scheduleRun.ID).Error)
+	require.Zero(t, updatedScheduleRun.StartedCount)
+	require.Equal(t, 1, updatedScheduleRun.SkippedCount)
+}
+
+func TestEngineRechecksScheduledFocusInsideQueuedClaim(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 25, 9, 15, 0, 0, time.UTC)
+	service, _ := newProcessingServiceWithResolver(
+		db,
+		WithClock(func() time.Time { return now }),
+	)
+	episode := createProcessingEpisode(t, db, true, "scheduled-run-focus-claim-race")
+	scheduleRun := models.ProcessingScheduleRun{
+		TriggerKey:     "scheduled-run-focus-claim-race",
+		ScheduledFor:   now,
+		CronExpression: "0 15 9 * * *",
+		Timezone:       "UTC",
+		BatchSize:      1,
+		Status:         models.ProcessingScheduleRunStatusCompleted,
+		CandidateCount: 1,
+		StartedCount:   1,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	require.NoError(t, db.Create(&scheduleRun).Error)
+	queuePosition := int64(0)
+	started, err := service.StartEpisodeProcessing(context.Background(), StartRequest{
+		EpisodeID:             episode.ID,
+		TriggerSource:         models.ProcessingTriggerScheduled,
+		RequireReadyAudio:     true,
+		ScheduleRunID:         &scheduleRun.ID,
+		ScheduleQueuePosition: &queuePosition,
+	})
+	require.NoError(t, err)
+
+	someday := models.QueueStateSomeday
+	require.NoError(t, db.Model(&models.EpisodeTriageDecision{}).
+		Where("episode_id = ?", episode.ID).
+		Update("queue_state", someday).Error)
+	transcriber := &fakeTranscriber{}
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	engine, err := NewEngine(service, transcriber, &fakeRuntime{}, store, nil)
+	require.NoError(t, err)
+
+	claimed, err := engine.beginQueuedAttempt(context.Background(), started.Run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusCancelled, claimed.Status)
+	require.Equal(t, "scheduled_not_in_focus", claimed.ErrorCode)
+	require.Zero(t, transcriber.BeginCallCount())
+
+	var item models.ProcessingScheduleItem
+	require.NoError(t, db.Where("schedule_run_id = ? AND episode_id = ?", scheduleRun.ID, episode.ID).
+		First(&item).Error)
+	require.Equal(t, models.ProcessingScheduleItemOutcomeSkipped, item.Outcome)
+	require.Equal(t, scheduleSkipNotFocused, item.Reason)
+}
+
+func TestEngineKeepsStartedScheduledRunWhenEpisodeLeavesFocus(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 25, 9, 0, 0, 0, time.UTC)
+	service, _ := newProcessingServiceWithResolver(
+		db,
+		WithClock(func() time.Time { return now }),
+	)
+	episode := createProcessingEpisode(t, db, true, "scheduled-run-started-before-focus-leave")
+	scheduleRun := models.ProcessingScheduleRun{
+		TriggerKey:     "scheduled-run-started-before-focus-leave",
+		ScheduledFor:   now,
+		CronExpression: "0 0 9 * * *",
+		Timezone:       "UTC",
+		BatchSize:      1,
+		Status:         models.ProcessingScheduleRunStatusCompleted,
+		CandidateCount: 1,
+		StartedCount:   1,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	require.NoError(t, db.Create(&scheduleRun).Error)
+	queuePosition := int64(0)
+	started, err := service.StartEpisodeProcessing(context.Background(), StartRequest{
+		EpisodeID:             episode.ID,
+		TriggerSource:         models.ProcessingTriggerScheduled,
+		RequireReadyAudio:     true,
+		ScheduleRunID:         &scheduleRun.ID,
+		ScheduleQueuePosition: &queuePosition,
+	})
+	require.NoError(t, err)
+	transcriber := &fakeTranscriber{}
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	engine, err := NewEngine(service, transcriber, &fakeRuntime{}, store, nil)
+	require.NoError(t, err)
+	claimed, err := engine.beginQueuedAttempt(context.Background(), started.Run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusRunning, claimed.Status)
+
+	someday := models.QueueStateSomeday
+	require.NoError(t, db.Model(&models.EpisodeTriageDecision{}).
+		Where("episode_id = ?", episode.ID).
+		Update("queue_state", someday).Error)
+
+	result, err := engine.Advance(context.Background(), started.Run.ID)
+	require.ErrorIs(t, err, ErrRunBusy)
+	require.Equal(t, models.ProcessingRunStatusRunning, result.Status)
+	require.Zero(t, transcriber.BeginCallCount())
+
+	var item models.ProcessingScheduleItem
+	require.NoError(t, db.Where("schedule_run_id = ? AND episode_id = ?", scheduleRun.ID, episode.ID).
+		First(&item).Error)
+	require.Equal(t, models.ProcessingScheduleItemOutcomeStarted, item.Outcome)
+	var updatedScheduleRun models.ProcessingScheduleRun
+	require.NoError(t, db.First(&updatedScheduleRun, scheduleRun.ID).Error)
+	require.Equal(t, 1, updatedScheduleRun.StartedCount)
+	require.Zero(t, updatedScheduleRun.SkippedCount)
+}
+
 type fakeTranscriber struct {
-	mu             sync.Mutex
-	name           string
-	version        string
-	beginProgress  []TranscriptionProgress
-	beginErrors    []error
-	resumeProgress []TranscriptionProgress
-	resumeErrors   []error
-	beginCalls     int
-	resumeCalls    int
-	cancelled      bool
-	onBegin        func()
+	mu                         sync.Mutex
+	name                       string
+	version                    string
+	beginProgress              []TranscriptionProgress
+	beginErrors                []error
+	resumeProgress             []TranscriptionProgress
+	resumeErrors               []error
+	beginCalls                 int
+	resumeCalls                int
+	cancelled                  bool
+	cancelErr                  error
+	cancellationDisposition    TranscriptionCancellationDisposition
+	cancellationDispositionErr error
+	onBegin                    func()
 }
 
 func (f *fakeTranscriber) Name() string {
@@ -1080,8 +1342,17 @@ func (f *fakeTranscriber) Cancel(
 ) error {
 	f.mu.Lock()
 	f.cancelled = true
+	err := f.cancelErr
 	f.mu.Unlock()
-	return nil
+	return err
+}
+
+func (f *fakeTranscriber) CancellationDisposition(
+	json.RawMessage,
+) (TranscriptionCancellationDisposition, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.cancellationDisposition, f.cancellationDispositionErr
 }
 
 func (f *fakeTranscriber) BeginCallCount() int {
@@ -1107,6 +1378,7 @@ type fakeRuntime struct {
 	name      string
 	result    RuntimeResult
 	err       error
+	cancelErr error
 	entered   chan struct{}
 	block     bool
 	cancelled bool
@@ -1159,8 +1431,9 @@ func (f *fakeRuntime) Execute(
 func (f *fakeRuntime) Cancel(_ context.Context, _ uint) error {
 	f.mu.Lock()
 	f.cancelled = true
+	err := f.cancelErr
 	f.mu.Unlock()
-	return nil
+	return err
 }
 
 func (f *fakeRuntime) WasCancelled() bool {

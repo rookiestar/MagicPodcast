@@ -175,6 +175,32 @@ func (a *FeishuMinutesAdapter) Cancel(
 	return nil
 }
 
+func (a *FeishuMinutesAdapter) CancellationDisposition(
+	state json.RawMessage,
+) (TranscriptionCancellationDisposition, error) {
+	if len(state) == 0 {
+		return TranscriptionCancellationDisposition{}, nil
+	}
+	checkpoint, err := decodeFeishuCheckpoint(state)
+	if err != nil {
+		return TranscriptionCancellationDisposition{}, fmt.Errorf("decode cancellation checkpoint: %w", err)
+	}
+	switch checkpoint.Phase {
+	case feishuPhaseDriveIntent,
+		feishuPhaseDriveUploaded,
+		feishuPhaseMinutesReady,
+		feishuPhaseMinutesIntent,
+		feishuPhaseMinutesCreated,
+		feishuPhaseTranscriptStored:
+		return TranscriptionCancellationDisposition{
+			RemoteMayContinue: true,
+			Message:           "已取消本机加工；飞书端任务可能继续，已创建的远端资源会保留。",
+		}, nil
+	default:
+		return TranscriptionCancellationDisposition{}, nil
+	}
+}
+
 func (a *FeishuMinutesAdapter) uploadDriveFile(
 	ctx context.Context,
 	request TranscriptionRequest,
