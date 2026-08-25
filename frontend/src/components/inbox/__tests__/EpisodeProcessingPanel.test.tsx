@@ -262,6 +262,48 @@ describe("EpisodeProcessingPanel", () => {
     expect(screen.getByText("此集跳过：本批已达上限")).toBeVisible();
   });
 
+  it("does not present a pending scheduled candidate as skipped", async () => {
+    apiMocks.getScheduleStatus.mockResolvedValue({
+      enabled: true,
+      cron: "0 0 9 * * *",
+      timezone: "Asia/Shanghai",
+      batch_size: 1,
+      latest_run: {
+        run: {
+          id: 73,
+          scheduled_for: "2026-08-25T08:00:00Z",
+          cron_expression: "0 0 9 * * *",
+          timezone: "Asia/Shanghai",
+          batch_size: 1,
+          status: "running",
+          candidate_count: 1,
+          started_count: 0,
+          skipped_count: 0,
+          created_at: "2026-08-25T08:00:00Z",
+          updated_at: "2026-08-25T08:00:01Z",
+        },
+        items: [
+          {
+            id: 74,
+            schedule_run_id: 73,
+            episode_id: item.episode_id,
+            queue_position: 0,
+            outcome: "skipped",
+            reason: "selection_pending",
+            created_at: "2026-08-25T08:00:01Z",
+            updated_at: "2026-08-25T08:00:01Z",
+          },
+        ],
+      },
+    });
+
+    render(<EpisodeProcessingPanel item={item} />);
+
+    expect(await screen.findByText("最近定时：正在选择候选")).toBeVisible();
+    expect(screen.getByText("此集正在确认加工资格")).toBeVisible();
+    expect(screen.queryByText(/^此集跳过：/)).not.toBeInTheDocument();
+  });
+
   it("keeps the last successful schedule visible while a processing poll refreshes slowly", async () => {
     vi.useFakeTimers();
     try {

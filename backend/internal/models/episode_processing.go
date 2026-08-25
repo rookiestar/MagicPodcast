@@ -164,7 +164,10 @@ type ProcessingScheduleRun struct {
 func (ProcessingScheduleRun) TableName() string { return "processing_schedule_runs" }
 
 // ProcessingScheduleItem records why one Focus candidate was started or
-// skipped during a durable schedule run. It never changes consumption state.
+// skipped during a durable schedule run. While its parent run is still
+// running, a skipped item with reason selection_pending is a durable
+// reservation, not a final skip; recovery resolves it explicitly. It never
+// changes consumption state.
 type ProcessingScheduleItem struct {
 	ID              uint      `gorm:"primaryKey" json:"id"`
 	ScheduleRunID   uint      `gorm:"not null;index" json:"schedule_run_id"`

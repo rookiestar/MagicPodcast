@@ -1188,6 +1188,26 @@ func createScheduledProcessingItem(
 		queuePosition = *request.ScheduleQueuePosition
 	}
 	processingRunID := run.ID
+	reserved := tx.Model(&models.ProcessingScheduleItem{}).
+		Where(
+			"schedule_run_id = ? AND episode_id = ? AND outcome = ? AND reason = ? AND processing_run_id IS NULL",
+			*request.ScheduleRunID,
+			run.EpisodeID,
+			models.ProcessingScheduleItemOutcomeSkipped,
+			scheduleSelectionPending,
+		).
+		Updates(map[string]any{
+			"outcome":           models.ProcessingScheduleItemOutcomeStarted,
+			"reason":            "",
+			"processing_run_id": processingRunID,
+			"updated_at":        now,
+		})
+	if reserved.Error != nil {
+		return fmt.Errorf("promote scheduled processing candidate: %w", reserved.Error)
+	}
+	if reserved.RowsAffected > 0 {
+		return nil
+	}
 	item := models.ProcessingScheduleItem{
 		ScheduleRunID:   *request.ScheduleRunID,
 		EpisodeID:       run.EpisodeID,

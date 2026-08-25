@@ -18,14 +18,17 @@ import (
 )
 
 const (
-	scheduleSkipActiveRun       = "active_run"
-	scheduleSkipCurrentArtifact = "current_artifact"
-	scheduleSkipNotFocused      = "not_in_focus"
-	scheduleSkipAudioNotReady   = "audio_not_ready"
-	scheduleSkipEpisodeMissing  = "episode_not_found"
-	scheduleSkipTerminalRun     = "previous_terminal_run"
-	scheduleSkipStartFailed     = "start_failed"
-	scheduleSkipBatchLimit      = "batch_limit"
+	scheduleSkipActiveRun        = "active_run"
+	scheduleSkipCurrentArtifact  = "current_artifact"
+	scheduleSkipNotFocused       = "not_in_focus"
+	scheduleSkipAudioNotReady    = "audio_not_ready"
+	scheduleSkipEpisodeMissing   = "episode_not_found"
+	scheduleSkipTerminalRun      = "previous_terminal_run"
+	scheduleSkipStartFailed      = "start_failed"
+	scheduleSkipBatchLimit       = "batch_limit"
+	scheduleSelectionPending     = "selection_pending"
+	scheduleSkipSelectionStopped = "selection_interrupted"
+	scheduleSkipSelectionRestart = "selection_interrupted_by_restart"
 )
 
 // SchedulerConfig is startup-loaded operator configuration. It deliberately
@@ -197,16 +200,12 @@ func (s *Scheduler) RunAt(
 		return detail, true, loadErr
 	}
 
-	candidates, err := s.listFocusCandidates(ctx)
+	candidates, err := s.planCandidates(ctx, run.ID)
 	if err != nil {
-		return s.failRun(ctx, run.ID, "candidate_list_failed", "unable to list Focus candidates", err)
-	}
-	if err := s.updateRunProgress(ctx, run.ID, len(candidates), 0, 0); err != nil {
-		return s.failRun(ctx, run.ID, "schedule_progress_failed", "unable to record schedule candidates", err)
+		return s.failRun(ctx, run.ID, "candidate_plan_failed", "unable to persist Focus schedule candidates", err)
 	}
 
 	started := 0
-	skipped := 0
 	hadUnexpectedFailure := false
 	for _, candidate := range candidates {
 		if err := ctx.Err(); err != nil {
@@ -237,35 +236,21 @@ func (s *Scheduler) RunAt(
 			if itemRecorded {
 				if outcome == models.ProcessingScheduleItemOutcomeStarted {
 					started++
-				} else {
-					skipped++
 				}
 				continue
 			}
 		}
-		item := models.ProcessingScheduleItem{
-			ScheduleRunID:   run.ID,
-			EpisodeID:       candidate.EpisodeID,
-			QueuePosition:   candidate.QueuePosition,
-			Outcome:         outcome,
-			Reason:          reason,
-			ProcessingRunID: processingRunID,
-			CreatedAt:       s.now().UTC(),
-			UpdatedAt:       s.now().UTC(),
-		}
-		if err := s.db.WithContext(ctx).Create(&item).Error; err != nil {
+		if err := s.recordCandidateOutcome(ctx, run.ID, candidate, outcome, reason, processingRunID); err != nil {
 			return s.failRun(ctx, run.ID, "schedule_item_record_failed", "unable to record schedule result", err)
 		}
 		if outcome == models.ProcessingScheduleItemOutcomeStarted {
 			started++
-		} else {
-			skipped++
 		}
 	}
 	if hadUnexpectedFailure {
-		return s.finishRun(ctx, run.ID, started, skipped, models.ProcessingScheduleRunStatusFailed, "candidate_start_failed", "one or more candidates could not be started")
+		return s.finishRun(ctx, run.ID, models.ProcessingScheduleRunStatusFailed, "candidate_start_failed", "one or more candidates could not be started", s.now().UTC())
 	}
-	return s.finishRun(ctx, run.ID, started, skipped, models.ProcessingScheduleRunStatusCompleted, "", "")
+	return s.finishRun(ctx, run.ID, models.ProcessingScheduleRunStatusCompleted, "", "", s.now().UTC())
 }
 
 func (s *Scheduler) Status(ctx context.Context) (ScheduleStatus, error) {
@@ -312,24 +297,23 @@ func (s *Scheduler) RecoverIncompleteRuns(ctx context.Context, recoveredAt time.
 		if err := s.backfillStartedItems(ctx, run.ID, recoveredAt.UTC()); err != nil {
 			return err
 		}
-		started, skipped, err := s.runCounts(ctx, run.ID)
-		if err != nil {
+		if err := s.markPendingCandidatesSkipped(
+			ctx,
+			run.ID,
+			scheduleSkipSelectionRestart,
+			recoveredAt.UTC(),
+		); err != nil {
 			return err
 		}
-		update := s.db.WithContext(ctx).
-			Model(&models.ProcessingScheduleRun{}).
-			Where("id = ? AND status = ?", run.ID, models.ProcessingScheduleRunStatusRunning).
-			Updates(map[string]any{
-				"status":        models.ProcessingScheduleRunStatusFailed,
-				"started_count": started,
-				"skipped_count": skipped,
-				"error_code":    "schedule_interrupted_by_restart",
-				"error_message": "schedule selection was interrupted by service restart",
-				"finished_at":   recoveredAt.UTC(),
-				"updated_at":    recoveredAt.UTC(),
-			})
-		if update.Error != nil {
-			return fmt.Errorf("close interrupted processing schedule run %d: %w", run.ID, update.Error)
+		if _, _, err := s.finishRun(
+			ctx,
+			run.ID,
+			models.ProcessingScheduleRunStatusFailed,
+			"schedule_interrupted_by_restart",
+			"schedule selection was interrupted by service restart",
+			recoveredAt.UTC(),
+		); err != nil {
+			return fmt.Errorf("close interrupted processing schedule run %d: %w", run.ID, err)
 		}
 	}
 	return nil
@@ -340,9 +324,9 @@ type scheduleCandidate struct {
 	QueuePosition int64
 }
 
-func (s *Scheduler) listFocusCandidates(ctx context.Context) ([]scheduleCandidate, error) {
+func listFocusCandidates(db *gorm.DB) ([]scheduleCandidate, error) {
 	candidates := make([]scheduleCandidate, 0)
-	err := s.db.WithContext(ctx).
+	err := db.
 		Table("episode_triage_decisions").
 		Select("episode_triage_decisions.episode_id, COALESCE(episode_triage_decisions.queue_position, -1) AS queue_position").
 		Joins("JOIN episodes ON episodes.id = episode_triage_decisions.episode_id AND episodes.deleted_at IS NULL").
@@ -354,6 +338,89 @@ func (s *Scheduler) listFocusCandidates(ctx context.Context) ([]scheduleCandidat
 		return nil, fmt.Errorf("list Focus schedule candidates: %w", err)
 	}
 	return candidates, nil
+}
+
+// planCandidates atomically snapshots the current Focus candidates and records
+// an unresolved row for each before any start attempt. A crash can then be
+// represented honestly during recovery instead of losing a skip decision.
+func (s *Scheduler) planCandidates(
+	ctx context.Context,
+	runID uint,
+) ([]scheduleCandidate, error) {
+	candidates := make([]scheduleCandidate, 0)
+	now := s.now().UTC()
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var listErr error
+		candidates, listErr = listFocusCandidates(tx)
+		if listErr != nil {
+			return listErr
+		}
+		for _, candidate := range candidates {
+			item := models.ProcessingScheduleItem{
+				ScheduleRunID: runID,
+				EpisodeID:     candidate.EpisodeID,
+				QueuePosition: candidate.QueuePosition,
+				Outcome:       models.ProcessingScheduleItemOutcomeSkipped,
+				Reason:        scheduleSelectionPending,
+				CreatedAt:     now,
+				UpdatedAt:     now,
+			}
+			if err := tx.Create(&item).Error; err != nil {
+				return fmt.Errorf("reserve Focus schedule candidate: %w", err)
+			}
+		}
+		update := tx.Model(&models.ProcessingScheduleRun{}).
+			Where("id = ? AND status = ?", runID, models.ProcessingScheduleRunStatusRunning).
+			Updates(map[string]any{
+				"candidate_count": len(candidates),
+				"started_count":   0,
+				"skipped_count":   0,
+				"updated_at":      now,
+			})
+		if update.Error != nil {
+			return fmt.Errorf("record processing schedule candidates: %w", update.Error)
+		}
+		if update.RowsAffected == 0 {
+			return fmt.Errorf("processing schedule run %d is no longer active", runID)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return candidates, nil
+}
+
+func (s *Scheduler) recordCandidateOutcome(
+	ctx context.Context,
+	runID uint,
+	candidate scheduleCandidate,
+	outcome string,
+	reason string,
+	processingRunID *uint,
+) error {
+	update := s.db.WithContext(ctx).
+		Model(&models.ProcessingScheduleItem{}).
+		Where(
+			"schedule_run_id = ? AND episode_id = ? AND outcome = ? AND reason = ?",
+			runID,
+			candidate.EpisodeID,
+			models.ProcessingScheduleItemOutcomeSkipped,
+			scheduleSelectionPending,
+		).
+		Updates(map[string]any{
+			"outcome":           outcome,
+			"reason":            reason,
+			"processing_run_id": processingRunID,
+			"updated_at":        s.now().UTC(),
+		})
+	if update.Error != nil {
+		return fmt.Errorf("record Focus schedule candidate outcome: %w", update.Error)
+	}
+	if update.RowsAffected == 0 {
+		return fmt.Errorf("Focus schedule candidate %d is no longer pending", candidate.EpisodeID)
+	}
+	return nil
 }
 
 func (s *Scheduler) startCandidate(
@@ -420,41 +487,14 @@ func (s *Scheduler) claimRun(
 	return run, false, nil
 }
 
-func (s *Scheduler) updateRunProgress(
-	ctx context.Context,
-	runID uint,
-	candidateCount int,
-	started int,
-	skipped int,
-) error {
-	update := s.db.WithContext(ctx).
-		Model(&models.ProcessingScheduleRun{}).
-		Where("id = ? AND status = ?", runID, models.ProcessingScheduleRunStatusRunning).
-		Updates(map[string]any{
-			"candidate_count": candidateCount,
-			"started_count":   started,
-			"skipped_count":   skipped,
-			"updated_at":      s.now().UTC(),
-		})
-	if update.Error != nil {
-		return fmt.Errorf("update processing schedule run: %w", update.Error)
-	}
-	if update.RowsAffected == 0 {
-		return fmt.Errorf("processing schedule run %d is no longer active", runID)
-	}
-	return nil
-}
-
 func (s *Scheduler) finishRun(
 	ctx context.Context,
 	runID uint,
-	started int,
-	skipped int,
 	status string,
 	errorCode string,
 	errorMessage string,
+	finishedAt time.Time,
 ) (ScheduleRunDetail, bool, error) {
-	now := s.now().UTC()
 	// A cancellation here is normally process shutdown. The selection and its
 	// item rows are already durable, so preserve their terminal schedule record
 	// instead of leaving a misleading running batch for the next startup.
@@ -463,13 +503,16 @@ func (s *Scheduler) finishRun(
 		Model(&models.ProcessingScheduleRun{}).
 		Where("id = ? AND status = ?", runID, models.ProcessingScheduleRunStatusRunning).
 		Updates(map[string]any{
-			"status":        status,
-			"started_count": started,
-			"skipped_count": skipped,
+			"status": status,
+			// Count from durable items in the same UPDATE statement. A queued worker
+			// can turn a just-started item into a skip before or after this terminal
+			// write, but can no longer be overwritten by a stale local counter.
+			"started_count": gorm.Expr("(SELECT COUNT(*) FROM processing_schedule_items WHERE schedule_run_id = ? AND outcome = ?)", runID, models.ProcessingScheduleItemOutcomeStarted),
+			"skipped_count": gorm.Expr("(SELECT COUNT(*) FROM processing_schedule_items WHERE schedule_run_id = ? AND outcome = ?)", runID, models.ProcessingScheduleItemOutcomeSkipped),
 			"error_code":    errorCode,
 			"error_message": errorMessage,
-			"finished_at":   now,
-			"updated_at":    now,
+			"finished_at":   finishedAt,
+			"updated_at":    finishedAt,
 		})
 	if update.Error != nil {
 		return ScheduleRunDetail{}, false, fmt.Errorf("finish processing schedule run: %w", update.Error)
@@ -493,18 +536,16 @@ func (s *Scheduler) failRun(
 	if err := s.backfillStartedItems(durableCtx, runID, now); err != nil {
 		return ScheduleRunDetail{}, false, err
 	}
-	started, skipped, err := s.runCounts(durableCtx, runID)
-	if err != nil {
+	if err := s.markPendingCandidatesSkipped(durableCtx, runID, scheduleSkipSelectionStopped, now); err != nil {
 		return ScheduleRunDetail{}, false, err
 	}
 	detail, _, finishErr := s.finishRun(
 		durableCtx,
 		runID,
-		started,
-		skipped,
 		models.ProcessingScheduleRunStatusFailed,
 		code,
 		message,
+		now,
 	)
 	if finishErr != nil {
 		return ScheduleRunDetail{}, false, finishErr
@@ -540,6 +581,27 @@ func (s *Scheduler) backfillStartedItems(
 		return fmt.Errorf("list scheduled processing runs for recovery: %w", err)
 	}
 	for _, processingRun := range processingRuns {
+		promoted := s.db.WithContext(ctx).
+			Model(&models.ProcessingScheduleItem{}).
+			Where(
+				"schedule_run_id = ? AND episode_id = ? AND outcome = ? AND reason = ? AND processing_run_id IS NULL",
+				scheduleRunID,
+				processingRun.EpisodeID,
+				models.ProcessingScheduleItemOutcomeSkipped,
+				scheduleSelectionPending,
+			).
+			Updates(map[string]any{
+				"outcome":           models.ProcessingScheduleItemOutcomeStarted,
+				"reason":            "recovered_after_restart",
+				"processing_run_id": processingRun.ID,
+				"updated_at":        now,
+			})
+		if promoted.Error != nil {
+			return fmt.Errorf("promote recovered schedule item: %w", promoted.Error)
+		}
+		if promoted.RowsAffected > 0 {
+			continue
+		}
 		var existing int64
 		if err := s.db.WithContext(ctx).
 			Model(&models.ProcessingScheduleItem{}).
@@ -567,31 +629,28 @@ func (s *Scheduler) backfillStartedItems(
 	return nil
 }
 
-func (s *Scheduler) runCounts(ctx context.Context, runID uint) (int, int, error) {
-	type countRow struct {
-		Outcome string
-		Count   int
-	}
-	var rows []countRow
-	if err := s.db.WithContext(ctx).
+func (s *Scheduler) markPendingCandidatesSkipped(
+	ctx context.Context,
+	runID uint,
+	reason string,
+	now time.Time,
+) error {
+	update := s.db.WithContext(ctx).
 		Model(&models.ProcessingScheduleItem{}).
-		Select("outcome, COUNT(*) AS count").
-		Where("schedule_run_id = ?", runID).
-		Group("outcome").
-		Scan(&rows).Error; err != nil {
-		return 0, 0, fmt.Errorf("count processing schedule items: %w", err)
+		Where(
+			"schedule_run_id = ? AND outcome = ? AND reason = ?",
+			runID,
+			models.ProcessingScheduleItemOutcomeSkipped,
+			scheduleSelectionPending,
+		).
+		Updates(map[string]any{
+			"reason":     reason,
+			"updated_at": now,
+		})
+	if update.Error != nil {
+		return fmt.Errorf("mark interrupted Focus schedule candidates: %w", update.Error)
 	}
-	started := 0
-	skipped := 0
-	for _, row := range rows {
-		switch row.Outcome {
-		case models.ProcessingScheduleItemOutcomeStarted:
-			started = row.Count
-		case models.ProcessingScheduleItemOutcomeSkipped:
-			skipped = row.Count
-		}
-	}
-	return started, skipped, nil
+	return nil
 }
 
 func scheduleTriggerKey(cronExpression string, timezone string, scheduledFor time.Time) string {

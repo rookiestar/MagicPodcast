@@ -91,6 +91,96 @@ func TestSchedulerSelectsFocusInPersistentOrderAndRecordsSkips(t *testing.T) {
 	require.NotZero(t, activeRun.Run.ID)
 }
 
+func TestSchedulerFinishRunUsesPersistedItemCounts(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 25, 3, 15, 0, 0, time.UTC)
+	service := newProcessingService(db)
+	scheduler := newTestScheduler(t, db, service, now, 1)
+	scheduleRun, duplicate, err := scheduler.claimRun(context.Background(), now)
+	require.NoError(t, err)
+	require.False(t, duplicate)
+
+	episode := createProcessingEpisode(t, db, true, "schedule-finish-persisted-count")
+	require.NoError(t, db.Create(&models.ProcessingScheduleItem{
+		ScheduleRunID: scheduleRun.ID,
+		EpisodeID:     episode.ID,
+		QueuePosition: 0,
+		Outcome:       models.ProcessingScheduleItemOutcomeSkipped,
+		Reason:        scheduleSkipNotFocused,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}).Error)
+
+	// A worker can update a queued scheduled item after selection has counted it
+	// as started. Finishing must use the durable item state, not that stale count.
+	detail, _, err := scheduler.finishRun(
+		context.Background(),
+		scheduleRun.ID,
+		models.ProcessingScheduleRunStatusCompleted,
+		"",
+		"",
+		now,
+	)
+	require.NoError(t, err)
+	require.Zero(t, detail.Run.StartedCount)
+	require.Equal(t, 1, detail.Run.SkippedCount)
+}
+
+func TestSchedulerRecoveryMarksPendingCandidateAsInterrupted(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 25, 3, 20, 0, 0, time.UTC)
+	scheduler := newTestScheduler(t, db, newProcessingService(db), now, 1)
+	scheduleRun, duplicate, err := scheduler.claimRun(context.Background(), now)
+	require.NoError(t, err)
+	require.False(t, duplicate)
+
+	episode := createProcessingEpisode(t, db, true, "schedule-pending-recovery")
+	setFocusPositions(t, db, episode.ID)
+	candidates, err := scheduler.planCandidates(context.Background(), scheduleRun.ID)
+	require.NoError(t, err)
+	require.Len(t, candidates, 1)
+
+	recoveredAt := now.Add(time.Minute)
+	require.NoError(t, scheduler.RecoverIncompleteRuns(context.Background(), recoveredAt))
+
+	var item models.ProcessingScheduleItem
+	require.NoError(t, db.Where("schedule_run_id = ? AND episode_id = ?", scheduleRun.ID, episode.ID).First(&item).Error)
+	require.Equal(t, models.ProcessingScheduleItemOutcomeSkipped, item.Outcome)
+	require.Equal(t, scheduleSkipSelectionRestart, item.Reason)
+}
+
+func TestSchedulerFailureMarksPendingCandidateAsInterrupted(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 25, 3, 25, 0, 0, time.UTC)
+	scheduler := newTestScheduler(t, db, newProcessingService(db), now, 1)
+	scheduleRun, duplicate, err := scheduler.claimRun(context.Background(), now)
+	require.NoError(t, err)
+	require.False(t, duplicate)
+
+	episode := createProcessingEpisode(t, db, true, "schedule-pending-failure")
+	setFocusPositions(t, db, episode.ID)
+	_, err = scheduler.planCandidates(context.Background(), scheduleRun.ID)
+	require.NoError(t, err)
+
+	cause := errors.New("schedule selection interrupted")
+	detail, _, err := scheduler.failRun(
+		context.Background(),
+		scheduleRun.ID,
+		"schedule_interrupted",
+		"schedule selection was interrupted",
+		cause,
+	)
+	require.ErrorIs(t, err, cause)
+	require.Equal(t, models.ProcessingScheduleRunStatusFailed, detail.Run.Status)
+	require.Zero(t, detail.Run.StartedCount)
+	require.Equal(t, 1, detail.Run.SkippedCount)
+
+	var item models.ProcessingScheduleItem
+	require.NoError(t, db.Where("schedule_run_id = ? AND episode_id = ?", scheduleRun.ID, episode.ID).First(&item).Error)
+	require.Equal(t, models.ProcessingScheduleItemOutcomeSkipped, item.Outcome)
+	require.Equal(t, scheduleSkipSelectionStopped, item.Reason)
+}
+
 func TestSchedulerRecordsCandidatesSkippedByBatchLimit(t *testing.T) {
 	db := openProcessingTestDB(t)
 	now := time.Date(2026, 8, 25, 3, 30, 0, 0, time.UTC)

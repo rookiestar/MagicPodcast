@@ -53,6 +53,8 @@ const scheduleSkipLabels: Record<string, string> = {
   previous_terminal_run: "已有同版本失败或已取消运行，需人工重试",
   start_failed: "启动失败",
   batch_limit: "本批已达上限",
+  selection_interrupted: "本次选择未完成",
+  selection_interrupted_by_restart: "服务重启前未完成选择",
 };
 
 function isActive(run?: ProcessingRun) {
@@ -298,6 +300,9 @@ export default function EpisodeProcessingPanel({
   const latestScheduleItem = latestScheduleRun?.items.find(
     (scheduleItem) => scheduleItem.episode_id === item.episode_id,
   );
+  const latestScheduleItemPending =
+    latestScheduleRun?.run.status === "running" &&
+    latestScheduleItem?.reason === "selection_pending";
   const canStart = item.queue_state === "focus" && !run;
   const audioPreparing =
     run?.current_step === "audio_prepare" ||
@@ -413,7 +418,9 @@ export default function EpisodeProcessingPanel({
             </span>
             {latestScheduleItem && (
               <span>
-                {latestScheduleItem.outcome === "started"
+                {latestScheduleItemPending
+                  ? "此集正在确认加工资格"
+                  : latestScheduleItem.outcome === "started"
                   ? "此集已加入加工队列"
                   : `此集跳过：${
                       scheduleSkipLabels[latestScheduleItem.reason || ""] ||
