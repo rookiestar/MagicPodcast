@@ -464,21 +464,50 @@ def enforce_tool_policy(notification: Any, request: Request) -> None:
     )
 
 
-def final_agent_text(turn: Any, streamed_text: str) -> str:
+def agent_message_text(item: Any) -> tuple[str | None, str | None]:
+    item = getattr(item, "root", item)
+    if isinstance(item, dict):
+        item_type = value_of(item.get("type", ""))
+        phase = item.get("phase")
+        text = item.get("text")
+    else:
+        item_type = value_of(getattr(item, "type", ""))
+        phase = getattr(item, "phase", None)
+        text = getattr(item, "text", None)
+    if item_type != "agentMessage" or not isinstance(text, str) or not text:
+        return None, None
+    return value_of(phase) if phase is not None else None, text
+
+
+def final_agent_text(
+    turn: Any,
+    streamed_text: str,
+    completed_items: list[Any] | None = None,
+) -> str:
+    fallback: str | None = None
+    sources = []
+    if completed_items:
+        sources.append(completed_items)
     items = getattr(turn, "items", None)
     if isinstance(items, list):
-        for item in reversed(items):
-            if value_of(getattr(item, "type", "")) == "agentMessage":
-                text = getattr(item, "text", None)
-                if isinstance(text, str) and text:
-                    return text
-    return streamed_text
+        sources.append(items)
+    for source in sources:
+        for item in reversed(source):
+            phase, text = agent_message_text(item)
+            if text is None:
+                continue
+            if phase == "final_answer":
+                return text
+            if fallback is None:
+                fallback = text
+    return fallback or streamed_text
 
 
 def completed_outcome(
     turn: Any,
     streamed_text: str,
     request: Request,
+    completed_items: list[Any] | None = None,
 ) -> Outcome:
     status = value_of(getattr(turn, "status", ""))
     if status == "interrupted":
@@ -489,7 +518,7 @@ def completed_outcome(
             error_code="execution_failed",
             safe_message="runtime turn failed",
         )
-    final_text = final_agent_text(turn, streamed_text)
+    final_text = final_agent_text(turn, streamed_text, completed_items)
     if request.output_schema is None:
         if not final_text.strip():
             raise HostFailure(
@@ -520,6 +549,7 @@ async def consume_turn(
     host_ready: asyncio.Event,
 ) -> Outcome:
     streamed_parts: list[str] = []
+    completed_items: list[Any] = []
     async for notification in turn_handle.stream():
         if not sdk_started.is_set():
             sdk_started.set()
@@ -532,6 +562,10 @@ async def consume_turn(
             if isinstance(delta, str) and delta:
                 streamed_parts.append(delta)
                 emitter.emit("output_delta", text=delta)
+        if method == "item/completed":
+            item = getattr(payload, "item", None)
+            if item is not None:
+                completed_items.append(item)
         if method == "turn/completed":
             turn = getattr(payload, "turn", None)
             if turn is None:
@@ -543,6 +577,7 @@ async def consume_turn(
                 turn,
                 "".join(streamed_parts),
                 request,
+                completed_items,
             )
     raise HostFailure(
         "runtime_protocol_error",
