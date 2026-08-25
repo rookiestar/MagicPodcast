@@ -44,8 +44,33 @@ export interface ProcessingRunDetail {
   run: ProcessingRun;
   artifact?: EpisodeArtifactSet;
   current_artifact?: EpisodeArtifactSet;
-  deliveries: unknown[];
+  deliveries: KnowledgeDelivery[];
   action_suggestion?: string;
+}
+
+export type KnowledgeDeliveryStatus =
+  | "pending"
+  | "delivering"
+  | "delivered"
+  | "failed"
+  | "cancelled";
+
+export interface KnowledgeDelivery {
+  id: number;
+  artifact_set_id: number;
+  target: string;
+  destination: string;
+  adapter_version: string;
+  status: KnowledgeDeliveryStatus;
+  attempt_count: number;
+  remote_ref?: string;
+  public_url?: string;
+  error_code?: string;
+  error_message?: string;
+  error_retryable: boolean;
+  delivered_at?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ProcessingStartResult {
