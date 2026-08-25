@@ -1097,6 +1097,23 @@
   letter-spacing: 0.05em;
 }
 
+.processingCancellation {
+  display: grid;
+  gap: 4px;
+  padding: 11px 13px;
+  color: #665238;
+  border-left: 4px solid #bd7c20;
+  background: rgba(189, 124, 32, 0.1);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.processingCancellation strong {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+}
+
 .processingActions,
 .processingArtifacts {
   display: flex;

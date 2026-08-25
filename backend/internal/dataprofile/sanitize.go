@@ -13,9 +13,9 @@ import (
 	"strings"
 )
 
-const SanitizerVersion = "v7"
-const sanitizerSchemaFingerprint = "e7be71d710f179892abaecf49e4e7603f54fff981e9e6b34ab9f1059f2b1d5d0"
-const sanitizerSchemaObjectsFingerprint = "80b7fac5fc00be978c4ae8390f73b96390b6c42411d494bd6bd0a282d43bc872"
+const SanitizerVersion = "v8"
+const sanitizerSchemaFingerprint = "ad010a5728da1c70b24e63290a6b9aab6d77333d96584b7681f41ba0026ef29d"
+const sanitizerSchemaObjectsFingerprint = "bba7aa3483aa7de6e17e65b951610b838ed670065c526acb14b59abb27cb90b1"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 
@@ -80,15 +80,18 @@ func SanitizeSnapshot(db *sql.DB) error {
 		 SET main_feed_url = '',
 		     alternative_feed_url = ''`,
 		"DELETE FROM feed_snapshots",
-		// Processing rows reference local artifact paths and opaque provider
-		// identities that are not part of a database-only snapshot. Removing
-		// the whole graph is safer and more truthful than retaining broken
-		// artifact or external-delivery state.
+		// Processing rows and their schedule history reference local artifact
+		// paths, opaque provider identities, and private processing intent that
+		// are not part of a database-only snapshot. Removing the whole graph is
+		// safer and more truthful than retaining broken artifact, scheduling, or
+		// external-delivery state.
 		"DELETE FROM episode_audio_assets",
 		"DELETE FROM knowledge_deliveries",
 		"DELETE FROM processing_checkpoints",
+		"DELETE FROM processing_schedule_items",
 		"DELETE FROM episode_artifact_sets",
 		"DELETE FROM episode_processing_runs",
+		"DELETE FROM processing_schedule_runs",
 	} {
 		if _, err := transaction.Exec(statement); err != nil {
 			return fmt.Errorf("apply snapshot redaction: %w", err)
@@ -165,8 +168,10 @@ func VerifySanitizedSnapshot(db *sql.DB) error {
 		{"SELECT COUNT(*) FROM episode_audio_assets", "managed episode audio paths and sources"},
 		{"SELECT COUNT(*) FROM knowledge_deliveries", "knowledge delivery identities"},
 		{"SELECT COUNT(*) FROM processing_checkpoints", "processing provider checkpoints"},
+		{"SELECT COUNT(*) FROM processing_schedule_items", "processing schedule candidate history"},
 		{"SELECT COUNT(*) FROM episode_artifact_sets", "local processing artifact paths"},
 		{"SELECT COUNT(*) FROM episode_processing_runs", "processing run metadata"},
+		{"SELECT COUNT(*) FROM processing_schedule_runs", "processing schedule trigger history"},
 	} {
 		if err := db.QueryRow(check.query).Scan(&count); err != nil {
 			return fmt.Errorf("verify %s redaction: %w", check.label, err)

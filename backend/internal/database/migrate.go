@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 21
+const CurrentSchemaVersion = 22
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -170,6 +170,12 @@ func migrationRegistry() []Migration {
 			Description: "Persist managed episode-audio preparation state without retaining source URLs or exposing local paths (#181).",
 			Apply:       applyEpisodeAudioAssetMigration,
 		},
+		{
+			Version:     22,
+			Name:        "focus-processing-schedule-history",
+			Description: "Persist idempotent Focus schedule triggers and candidate outcomes without reusing Feed workflow scheduling (#182).",
+			Apply:       applyFocusProcessingScheduleMigration,
+		},
 	}
 }
 
@@ -186,7 +192,7 @@ var baselineRequiredTables = []string{
 	"episodes_tags",
 }
 
-var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions", "episode_processing_runs", "processing_checkpoints", "episode_artifact_sets", "knowledge_deliveries", "episode_audio_assets")
+var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions", "episode_processing_runs", "processing_checkpoints", "episode_artifact_sets", "knowledge_deliveries", "episode_audio_assets", "processing_schedule_runs", "processing_schedule_items")
 
 func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
 	if db == nil {
@@ -709,6 +715,25 @@ func applyEpisodeAudioAssetMigration(db *gorm.DB) error {
 	} {
 		if err := db.Exec(statement).Error; err != nil {
 			return fmt.Errorf("apply managed episode audio invariant: %w", err)
+		}
+	}
+	return nil
+}
+
+func applyFocusProcessingScheduleMigration(db *gorm.DB) error {
+	if err := db.AutoMigrate(
+		&models.EpisodeProcessingRun{},
+		&models.ProcessingScheduleRun{},
+		&models.ProcessingScheduleItem{},
+	); err != nil {
+		return fmt.Errorf("create Focus processing schedule history: %w", err)
+	}
+	for _, statement := range []string{
+		models.ProcessingScheduleRunTriggerKeyUniqueIndexSQL,
+		models.ProcessingScheduleItemUniqueIndexSQL,
+	} {
+		if err := db.Exec(statement).Error; err != nil {
+			return fmt.Errorf("apply Focus processing schedule invariant: %w", err)
 		}
 	}
 	return nil

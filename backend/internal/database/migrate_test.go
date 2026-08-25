@@ -633,6 +633,68 @@ func TestApplyMigrationsUpgradesSchema20To21WithManagedAudioInvariants(t *testin
 	require.Zero(t, count)
 }
 
+func TestApplyMigrationsUpgradesSchema21To22WithFocusScheduleHistory(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:21]))
+	require.Equal(t, 21, mustSchemaStatus(t, db).CurrentVersion)
+	require.False(t, db.Migrator().HasTable(&models.ProcessingScheduleRun{}))
+	require.False(t, db.Migrator().HasTable(&models.ProcessingScheduleItem{}))
+
+	require.NoError(t, ApplyMigrations(db))
+	require.NoError(t, RequireSchemaReady(db))
+	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, db).CurrentVersion)
+	require.True(t, db.Migrator().HasTable(&models.ProcessingScheduleRun{}))
+	require.True(t, db.Migrator().HasTable(&models.ProcessingScheduleItem{}))
+	require.True(t, db.Migrator().HasColumn(&models.EpisodeProcessingRun{}, "schedule_run_id"))
+	for _, name := range []string{
+		"idx_processing_schedule_runs_trigger_key",
+		"idx_processing_schedule_items_run_episode",
+	} {
+		var count int64
+		require.NoError(t, db.Raw(
+			"SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?",
+			name,
+		).Scan(&count).Error)
+		require.Equal(t, int64(1), count)
+	}
+
+	now := time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC)
+	run := models.ProcessingScheduleRun{
+		TriggerKey:     strings.Repeat("a", 64),
+		ScheduledFor:   now,
+		CronExpression: "0 0 3 * * *",
+		Timezone:       "Asia/Shanghai",
+		BatchSize:      1,
+		Status:         models.ProcessingScheduleRunStatusCompleted,
+		FinishedAt:     &now,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	require.NoError(t, db.Create(&run).Error)
+	duplicate := run
+	duplicate.ID = 0
+	require.ErrorContains(t, db.Create(&duplicate).Error, "UNIQUE constraint failed")
+	invalid := run
+	invalid.ID = 0
+	invalid.TriggerKey = strings.Repeat("b", 64)
+	invalid.Status = "mystery"
+	require.ErrorContains(t, db.Create(&invalid).Error, "CHECK constraint failed")
+
+	item := models.ProcessingScheduleItem{
+		ScheduleRunID: run.ID,
+		EpisodeID:     99,
+		QueuePosition: 0,
+		Outcome:       models.ProcessingScheduleItemOutcomeSkipped,
+		Reason:        "audio_not_ready",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	require.NoError(t, db.Create(&item).Error)
+	duplicateItem := item
+	duplicateItem.ID = 0
+	require.ErrorContains(t, db.Create(&duplicateItem).Error, "UNIQUE constraint failed")
+}
+
 func TestApplyMigrationsLeavesCurrentManagedAudioSchemaUnchanged(t *testing.T) {
 	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
 	require.NoError(t, ApplyMigrations(db))

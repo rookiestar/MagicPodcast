@@ -10,7 +10,7 @@ import {
   normalizeSSEOptions,
   readSSEStream,
 } from "../sseStreamReader";
-import { api, handleResponse } from "./client";
+import { api, handleResponse, inlineApiErrorConfig } from "./client";
 
 const episodeCopilotTimeoutMS = 10 * 60 * 1000;
 
@@ -36,6 +36,7 @@ export const episodeCopilotApi = {
   ): Promise<EpisodeCopilotContextScope> => {
     const response = await api.get<ApiResponse<EpisodeCopilotContextScope>>(
       `/api/v1/episodes/${episodeId}/copilot/context`,
+      inlineApiErrorConfig,
     );
     return handleResponse(response);
   },

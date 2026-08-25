@@ -159,6 +159,59 @@ func TestProcessingHandlerFailsClosedWithoutAuthoritativeInputResolver(t *testin
 	require.Contains(t, response.Body.String(), "PROCESSING_INPUT_UNAVAILABLE")
 }
 
+func TestProcessingHandlerGetsScheduleStatusWithoutExposingInternalState(t *testing.T) {
+	db, _, _, _ := setupProcessingHandler(t)
+	next := time.Date(2026, 8, 25, 9, 0, 0, 0, time.UTC)
+	handler := handlers.NewProcessingHandler(
+		processing.NewService(db),
+		nil,
+		staticScheduleStatusProvider{status: processing.ScheduleStatus{
+			Enabled:   true,
+			Cron:      "0 0 9 * * *",
+			Timezone:  "Asia/Shanghai",
+			BatchSize: 1,
+			NextRunAt: &next,
+			LatestRun: &processing.ScheduleRunDetail{
+				Run: models.ProcessingScheduleRun{
+					ID:           77,
+					Status:       models.ProcessingScheduleRunStatusCompleted,
+					StartedCount: 1,
+					SkippedCount: 1,
+				},
+				Items: []models.ProcessingScheduleItem{{
+					EpisodeID: 9,
+					Outcome:   models.ProcessingScheduleItemOutcomeSkipped,
+					Reason:    "audio_not_ready",
+				}},
+			},
+		}},
+	)
+	router := gin.New()
+	router.GET("/api/v1/processing-schedule", handler.GetScheduleStatus)
+
+	response := processingRequest(router, http.MethodGet, "/api/v1/processing-schedule", "")
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(t, response.Body.String(), `"enabled":true`)
+	require.Contains(t, response.Body.String(), `"next_run_at"`)
+	require.Contains(t, response.Body.String(), `"audio_not_ready"`)
+	require.NotContains(t, response.Body.String(), "trigger_key")
+}
+
+func TestProcessingHandlerReportsScheduleStatusReadFailure(t *testing.T) {
+	db, _, _, _ := setupProcessingHandler(t)
+	handler := handlers.NewProcessingHandler(
+		processing.NewService(db),
+		nil,
+		staticScheduleStatusProvider{err: fmt.Errorf("database unavailable")},
+	)
+	router := gin.New()
+	router.GET("/api/v1/processing-schedule", handler.GetScheduleStatus)
+
+	response := processingRequest(router, http.MethodGet, "/api/v1/processing-schedule", "")
+	require.Equal(t, http.StatusInternalServerError, response.Code)
+	require.Contains(t, response.Body.String(), "PROCESSING_SCHEDULE_READ_FAILED")
+}
+
 func TestProcessingHandlerAudioRetryAndArtifactRoutes(t *testing.T) {
 	db, router, episode, _ := setupProcessingHandler(t)
 	focus := models.QueueStateFocus
@@ -357,6 +410,15 @@ func (handlerArtifactReader) ReadText(
 		Content: "# 规范逐字稿",
 		SHA256:  strings.Repeat("2", 64),
 	}, nil
+}
+
+type staticScheduleStatusProvider struct {
+	status processing.ScheduleStatus
+	err    error
+}
+
+func (p staticScheduleStatusProvider) Status(context.Context) (processing.ScheduleStatus, error) {
+	return p.status, p.err
 }
 
 type recordingRunCanceler struct {

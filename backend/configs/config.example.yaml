@@ -70,6 +70,12 @@ processing:
     enabled: false
     package_root: "/absolute/path/to/magicpodcast/processing/ima"
     destination: "manual-import"
+  # 定时加工默认关闭。仅显式开启后，才按 Focus 持久顺序选择已有可用音频的单集。
+  schedule:
+    enabled: false
+    cron: "0 0 3 * * *"
+    timezone: "Asia/Shanghai"
+    batch_size: 1
 
 database:
   # SQLite 数据库文件路径
