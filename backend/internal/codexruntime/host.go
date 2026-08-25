@@ -691,6 +691,43 @@ func (h *ProcessHost) validateExecutionRequest(
 			false,
 		)
 	}
+	if request.ToolRestriction != nil {
+		profileTools := make(
+			map[ToolCapability]struct{},
+			len(profile.AllowedTools),
+		)
+		for _, tool := range profile.AllowedTools {
+			profileTools[tool] = struct{}{}
+		}
+		seen := make(
+			map[ToolCapability]struct{},
+			len(request.ToolRestriction.Allowed),
+		)
+		restricted := make(
+			[]ToolCapability,
+			0,
+			len(request.ToolRestriction.Allowed),
+		)
+		for _, tool := range request.ToolRestriction.Allowed {
+			if _, allowed := profileTools[tool]; !allowed {
+				return Profile{}, "", newRuntimeError(
+					ErrorInvalidRequest,
+					"runtime execution cannot broaden its tool profile",
+					false,
+				)
+			}
+			if _, duplicate := seen[tool]; duplicate {
+				return Profile{}, "", newRuntimeError(
+					ErrorInvalidRequest,
+					"runtime execution tool restriction contains a duplicate capability",
+					false,
+				)
+			}
+			seen[tool] = struct{}{}
+			restricted = append(restricted, tool)
+		}
+		profile.AllowedTools = restricted
+	}
 	workingDirectory, err := h.resolveWorkingDirectory(request.WorkingDirectory)
 	if err != nil {
 		return Profile{}, "", err

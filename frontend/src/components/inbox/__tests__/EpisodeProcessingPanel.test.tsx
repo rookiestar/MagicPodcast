@@ -219,12 +219,15 @@ describe("EpisodeProcessingPanel", () => {
       sha256: artifact.transcript_sha256,
     });
 
-    render(<EpisodeProcessingPanel item={item} />);
+    const { container } = render(<EpisodeProcessingPanel item={item} />);
 
     expect(await screen.findByText("加工失败")).toBeVisible();
     expect(screen.getByText("上一成功版本")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "逐字稿" }));
     expect(await screen.findByText("# 规范逐字稿")).toBeVisible();
+    expect(
+      container.querySelector('[data-copilot-source="transcript"]'),
+    ).toHaveAttribute("data-copilot-episode-id", "201");
 
     fireEvent.click(screen.getByRole("button", { name: "从检查点重试" }));
     await waitFor(() => expect(apiMocks.retry).toHaveBeenCalledWith(31));

@@ -15,6 +15,7 @@ import (
 	"magicpodcast/internal/codexruntime"
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
+	"magicpodcast/internal/episodecopilot"
 	"magicpodcast/internal/feed"
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/processing"
@@ -205,12 +206,28 @@ func main() {
 		if err != nil {
 			logger.Fatalf("Failed to initialize processing worker: %v", err)
 		}
+		copilotContextLoader, err := episodecopilot.NewGORMContextLoader(
+			db,
+			artifactStore,
+		)
+		if err != nil {
+			logger.Fatalf("Failed to initialize episode Copilot context: %v", err)
+		}
+		episodeCopilot, err := episodecopilot.NewService(
+			copilotContextLoader,
+			runtimeHost,
+			cfg.Processing.Runtime.WorkRoot,
+		)
+		if err != nil {
+			logger.Fatalf("Failed to initialize episode Copilot: %v", err)
+		}
 		routerOptions = append(
 			routerOptions,
 			router.WithProcessingModule(
 				processingService,
 				processingWorker.Canceler(),
 			),
+			router.WithEpisodeCopilotModule(episodeCopilot),
 		)
 	}
 	r := router.SetupRouter(routerOptions...)
