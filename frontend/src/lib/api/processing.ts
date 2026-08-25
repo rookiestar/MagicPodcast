@@ -1,4 +1,4 @@
-import { api, handleResponse } from "./client";
+import { api, handleResponse, inlineApiErrorConfig } from "./client";
 import type { ApiResponse } from "@/types";
 import type {
   ArtifactContent,
@@ -42,6 +42,7 @@ export const processingApi = {
   listEpisodeRuns: async (episodeId: number): Promise<ProcessingRun[]> => {
     const response = await api.get<ApiResponse<ProcessingRun[]>>(
       `/api/v1/episodes/${episodeId}/processing-runs`,
+      inlineApiErrorConfig,
     );
     return handleResponse(response);
   },
@@ -60,6 +61,7 @@ export const processingApi = {
   getRun: async (runId: number): Promise<ProcessingRunDetail> => {
     const response = await api.get<ApiResponse<ProcessingRunDetail>>(
       `/api/v1/processing-runs/${runId}`,
+      inlineApiErrorConfig,
     );
     return handleResponse(response);
   },
@@ -67,6 +69,7 @@ export const processingApi = {
   getLatestAudio: async (episodeId: number): Promise<EpisodeAudioAsset> => {
     const response = await api.get<ApiResponse<EpisodeAudioAsset>>(
       `/api/v1/episodes/${episodeId}/audio-assets/latest`,
+      inlineApiErrorConfig,
     );
     return handleResponse(response);
   },
@@ -74,6 +77,7 @@ export const processingApi = {
   getScheduleStatus: async (): Promise<ProcessingScheduleStatus> => {
     const response = await api.get<ApiResponse<ProcessingScheduleStatus>>(
       "/api/v1/processing-schedule",
+      inlineApiErrorConfig,
     );
     return handleResponse(response);
   },
@@ -98,6 +102,7 @@ export const processingApi = {
   ): Promise<ArtifactContent> => {
     const response = await api.get<ApiResponse<ArtifactContent>>(
       `/api/v1/artifact-sets/${artifactSetId}/${kind}`,
+      inlineApiErrorConfig,
     );
     return handleResponse(response);
   },
