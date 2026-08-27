@@ -147,7 +147,7 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 
 	updateLastFetchedAt := result.FeedAccess == nil ||
 		(result.FeedAccess.SourceType != feed.AccessSourceLastGood && result.FeedAccess.SourceType != feed.AccessSourceLocalCache)
-	episodeResult, err := s.syncPodcastEpisodeItemsWithLastFetchedAt(&podcast, items, config, updateLastFetchedAt)
+	episodeResult, err := s.syncPodcastEpisodeItemsWithLastFetchedAt(ctx, &podcast, items, config, updateLastFetchedAt)
 	episodeResult.FeedAccess = result.FeedAccess
 	result = episodeResult
 	if err != nil {
@@ -161,10 +161,10 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 }
 
 func (s *Service) syncPodcastEpisodeItems(podcast *models.Podcast, items []*gofeed.Item, config EpisodeSyncConfig) (*EpisodeSyncResult, error) {
-	return s.syncPodcastEpisodeItemsWithLastFetchedAt(podcast, items, config, true)
+	return s.syncPodcastEpisodeItemsWithLastFetchedAt(context.Background(), podcast, items, config, true)
 }
 
-func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(podcast *models.Podcast, items []*gofeed.Item, config EpisodeSyncConfig, updateLastFetchedAt bool) (*EpisodeSyncResult, error) {
+func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(ctx context.Context, podcast *models.Podcast, items []*gofeed.Item, config EpisodeSyncConfig, updateLastFetchedAt bool) (*EpisodeSyncResult, error) {
 	result := &EpisodeSyncResult{
 		PodcastID:    podcast.ID,
 		PodcastTitle: podcast.Title,
@@ -193,6 +193,7 @@ func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(podcast *models.Podca
 		return result, fmt.Errorf("查询已有单集身份失败: %w", err)
 	}
 	var firstWriteErr error
+	videoCandidates := make([]videoProbeCandidate, 0)
 
 	for index, episode := range episodes {
 		item := items[index]
@@ -240,6 +241,7 @@ func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(podcast *models.Podca
 				if identityKey, ok := episodeIdentityKey(episode); ok {
 					existingByIdentity[identityKey] = *episode
 				}
+				videoCandidates = enqueueVideoProbe(videoCandidates, *episode, true, true)
 			}
 			continue
 		}
@@ -250,21 +252,26 @@ func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(podcast *models.Podca
 			// primary-source fields, and user-owned fields.
 			logger.Infof("   🔄 跳过跨源重复episode: %s", item.Title)
 			result.Skipped++
+			videoCandidates = enqueueVideoProbe(videoCandidates, existing, false, false)
 			continue
 		}
 
 		if exists {
 			// 已存在
 			if config.UpdateExisting {
-				if !episodeNeedsUpdate(&existing, episode) {
+				contentChanged := episodeNeedsUpdate(&existing, episode)
+				if !contentChanged {
 					result.Skipped++
+					videoCandidates = enqueueVideoProbe(videoCandidates, existing, false, false)
 					continue
 				}
 
-				// 更新（保留用户自定义字段）
+				// 内容变化后先回到 unknown；只有本批成功探测才恢复终态，
+				// 避免下架或链接变化后继续展示陈旧的「看视频」。
 				episode.ID = existing.ID
 				episode.Notes = existing.Notes
 				episode.MyRate = existing.MyRate
+				episode.VideoAvailability = ""
 				episode.CreatedAt = existing.CreatedAt
 
 				if err := s.db.Save(episode).Error; err != nil {
@@ -280,12 +287,16 @@ func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(podcast *models.Podca
 					if identityKey, ok := episodeIdentityKey(episode); ok {
 						existingByIdentity[identityKey] = *episode
 					}
+					videoCandidates = enqueueVideoProbe(videoCandidates, *episode, false, contentChanged)
 				}
 			} else {
 				result.Skipped++
+				videoCandidates = enqueueVideoProbe(videoCandidates, existing, false, false)
 			}
 		}
 	}
+
+	s.probeEpisodeVideoAvailability(ctx, videoCandidates)
 
 	if err := s.refreshPodcastEpisodeSyncFieldsWithLastFetchedAt(podcast, result, updateLastFetchedAt); err != nil {
 		return result, fmt.Errorf("刷新播客汇总字段失败: %w", err)

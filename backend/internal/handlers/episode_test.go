@@ -136,6 +136,33 @@ func TestEpisodeHandler_ListByPodcast_SummaryViewUsesShorterShowNotes(t *testing
 	fullShowNotes, ok := body.Data[0]["show_notes"].(string)
 	require.True(t, ok)
 	assert.Greater(t, len([]rune(fullShowNotes)), len([]rune(summaryShowNotes)))
+	assert.Equal(t, "unknown", body.Data[0]["video_availability"])
+}
+
+func TestEpisodeHandler_ListByPodcast_IncludesVideoAvailability(t *testing.T) {
+	db := setupEpisodeTestDB(t)
+	router := setupEpisodeTestRouter()
+	podcast := createEpisodeHandlerPodcast(t, db)
+	publishedDate := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	available := createEpisodeHandlerEpisode(t, db, podcast.ID, 1, publishedDate)
+	require.NoError(t, db.Model(&available).Update("video_availability", models.VideoAvailabilityAvailable).Error)
+	unavailable := createEpisodeHandlerEpisode(t, db, podcast.ID, 2, publishedDate.Add(-time.Hour))
+	require.NoError(t, db.Model(&unavailable).Update("video_availability", models.VideoAvailabilityUnavailable).Error)
+	createEpisodeHandlerEpisode(t, db, podcast.ID, 3, publishedDate.Add(-2*time.Hour))
+
+	request, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/podcasts/%d/episodes?page=1&page_size=10", podcast.ID), nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	require.Equal(t, http.StatusOK, response.Code)
+
+	var body episodeListTestResponse
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	require.Len(t, body.Data, 3)
+	assert.Equal(t, "available", body.Data[0]["video_availability"])
+	assert.Equal(t, "unavailable", body.Data[1]["video_availability"])
+	assert.Equal(t, "unknown", body.Data[2]["video_availability"])
+	assert.NotContains(t, response.Body.String(), "m3u8")
+	assert.NotContains(t, response.Body.String(), "auth_key")
 }
 
 func TestEpisodeHandler_HidesUnreliableStoredEpisodeNumber(t *testing.T) {

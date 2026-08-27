@@ -58,6 +58,7 @@ export interface Episode {
   enclosure_length: number; // 音频文件大小（字节）
   my_rate: number;
   notes: string;
+  video_availability?: "unknown" | "unavailable" | "available";
 }
 
 // Tag 类型定义

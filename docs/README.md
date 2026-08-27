@@ -53,7 +53,7 @@ Agent 治理以根目录 [../AGENTS.md](../AGENTS.md) 为唯一权威合同；[.
 | [migration/](migration/) | 数据迁移、去重和兼容处理 |
 | [optimization/README.md](optimization/README.md) | 当前性能优化入口和下一步边界 |
 | [performance/](performance/) | 当前和后续性能基线 |
-| [research/](research/) | **研究与方案**（非默认生产事实）：一手研究、ADR、设计提案与尚未完全落地的 Spec；落地前须用源码/测试核对。近期示例：[打开原节目页 403 恢复](research/ORIGINAL_EPISODE_PAGE_403_RECOVERY_SPEC_2026-08-27.md) |
+| [research/](research/) | **研究与方案**（非默认生产事实）：一手研究、ADR、设计提案与尚未完全落地的 Spec；落地前须用源码/测试核对。近期示例：[打开原节目页 403 恢复](research/ORIGINAL_EPISODE_PAGE_403_RECOVERY_SPEC_2026-08-27.md)、[小宇宙视频单集 URL](research/XIAOYUZHOU_VIDEO_EPISODE_URL_2026-08-27.md)、[详情页视频链接](research/PODCAST_DETAIL_VIDEO_LINK_SPEC_2026-08-27.md) |
 | [runbooks/](runbooks/) | 运维诊断手册；步骤须与当前实现和已批准 Spec 的细粒度策略一致 |
 | [archive/](archive/) | **历史材料**：已从当前入口移出的阶段报告和测试报告，不作为最新状态依据 |
 

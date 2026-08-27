@@ -1,8 +1,29 @@
 package models
 
 import (
+	"strings"
 	"time"
 )
+
+const (
+	VideoAvailabilityUnknown     = "unknown"
+	VideoAvailabilityUnavailable = "unavailable"
+	VideoAvailabilityAvailable   = "available"
+)
+
+// NormalizeVideoAvailability maps stored or inbound values onto the public
+// tri-state. Empty and unrecognized values are unknown so a failed probe never
+// pretends the episode has no video.
+func NormalizeVideoAvailability(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case VideoAvailabilityAvailable:
+		return VideoAvailabilityAvailable
+	case VideoAvailabilityUnavailable:
+		return VideoAvailabilityUnavailable
+	default:
+		return VideoAvailabilityUnknown
+	}
+}
 
 // Episode 播客单集模型
 type Episode struct {
@@ -35,6 +56,10 @@ type Episode struct {
 	// 用户自定义
 	MyRate int    `gorm:"default:0" json:"my_rate"` // 个人评分 (0-5)
 	Notes  string `gorm:"type:text" json:"notes"`   // 个人备注
+
+	// VideoAvailability is the persisted tri-state for Xiaoyuzhou video pages.
+	// Empty and "unknown" both mean unknown; signed HLS is never stored here.
+	VideoAvailability string `gorm:"size:16;not null;default:''" json:"video_availability"`
 
 	// 关联关系
 	Tags []Tag `gorm:"many2many:episodes_tags;constraint:OnDelete:CASCADE" json:"tags,omitempty"`

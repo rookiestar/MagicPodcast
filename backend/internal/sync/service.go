@@ -13,6 +13,7 @@ import (
 	"magicpodcast/internal/opml"
 	"magicpodcast/internal/podcastindex"
 	"magicpodcast/internal/scraper"
+	"magicpodcast/internal/xyzvideo"
 
 	"gorm.io/gorm"
 )
@@ -48,6 +49,8 @@ type Service struct {
 	alternativePrewarmSem    chan struct{}
 	alternativePrewarmWG     sync.WaitGroup
 	alternativePrewarmClosed bool
+
+	videoProber *xyzvideo.Prober
 }
 
 // SyncResult 同步结果
@@ -171,6 +174,7 @@ func NewServiceWithFeedCoordinator(db *gorm.DB, podcastIndexPath string, coordin
 		feedFetcher.SetUserAgentGateStore(gateStore)
 	}
 
+	httpConfig := feed.SharedHTTPConfig()
 	return &Service{
 		db:                    db,
 		opmlParser:            opml.NewParser(),
@@ -179,6 +183,10 @@ func NewServiceWithFeedCoordinator(db *gorm.DB, podcastIndexPath string, coordin
 		scraper:               scraper.NewScraper(),
 		retryPolicy:           feed.SharedRetryPolicy(),
 		alternativePrewarmSem: make(chan struct{}, 2),
+		videoProber: xyzvideo.NewProber(xyzvideo.ProberConfig{
+			Slotter:   coordinator,
+			UserAgent: httpConfig.UserAgent,
+		}),
 	}, nil
 }
 
