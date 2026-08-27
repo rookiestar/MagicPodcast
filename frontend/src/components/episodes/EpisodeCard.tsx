@@ -2,9 +2,10 @@
 
 import { IconPlayerPlay } from "@tabler/icons-react";
 import { memo, useState, type FocusEvent } from "react";
-import type { Episode } from "@/types";
+import { OriginalEpisodeRecovery } from "@/components/common/OriginalEpisodeRecovery";
 import { EpisodeShowNotes } from "@/components/episodes/EpisodeShowNotes";
 import { EpisodeThumbnail } from "@/components/episodes/EpisodeThumbnail";
+import type { OriginalEpisodeRecoveryController } from "@/hooks/useOriginalEpisodeRecovery";
 import {
   formatEpisodeDuration,
   formatEpisodeFileSize,
@@ -14,13 +15,16 @@ import {
   shouldShowEpisodeTitleLink,
   type EpisodeImagePriority,
 } from "@/lib/episodeDisplay";
+import { planSafeOriginalEpisodeOpen } from "@/lib/originalEpisodeOpen";
 import { formatDate } from "@/lib/timeUtils";
+import type { Episode } from "@/types";
 
 interface EpisodeCardProps {
   episode: Episode;
   podcastCover?: string;
   index?: number;
   priority?: EpisodeImagePriority;
+  originalRecovery: OriginalEpisodeRecoveryController;
 }
 
 function EpisodeCard({
@@ -28,15 +32,22 @@ function EpisodeCard({
   podcastCover,
   index = 0,
   priority = "medium",
+  originalRecovery,
 }: EpisodeCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const durationLabel = formatEpisodeDuration(episode.duration);
   const fileSizeLabel = formatEpisodeFileSize(episode.enclosure_length);
   const episodeNumberLabel = formatEpisodeNumber(episode.episode_no);
-  const showTitleLink = shouldShowEpisodeTitleLink(episode.link);
+  const originalPlan = planSafeOriginalEpisodeOpen(episode.link);
+  const showTitleLink = shouldShowEpisodeTitleLink(originalPlan?.openUrl);
   const showPlayButton = shouldShowEpisodePlayButton(episode.medium_url);
   const showNotes = shouldShowEpisodeShowNotes(episode.show_notes);
+  const handleOriginalOpen = () => {
+    if (originalPlan) {
+      originalRecovery.activate(episode.id, originalPlan);
+    }
+  };
 
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
     const nextFocusedElement = event.relatedTarget as Node | null;
@@ -71,12 +82,13 @@ function EpisodeCard({
           <div className="flex-1 min-w-0">
             {/* Title with Play Button */}
             <div className="podcast-episode-card-heading">
-              {showTitleLink ? (
+              {showTitleLink && originalPlan ? (
                 <a
-                  href={episode.link}
+                  href={originalPlan.openUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="podcast-episode-title line-clamp-2"
+                  onClick={handleOriginalOpen}
                 >
                   {episode.title}
                 </a>
@@ -130,10 +142,21 @@ function EpisodeCard({
         {showNotes && (
           <EpisodeShowNotes
             html={episode.show_notes}
-            link={episode.link}
+            link={originalPlan?.openUrl ?? ""}
             isExpanded={isExpanded}
+            onOriginalOpen={handleOriginalOpen}
           />
         )}
+        {originalRecovery.plan &&
+          originalRecovery.activeKey === episode.id && (
+            <OriginalEpisodeRecovery
+              copyError={originalRecovery.copyError}
+              onRetry={originalRecovery.retry}
+              onOpenApp={originalRecovery.openApp}
+              onCopy={() => void originalRecovery.copy()}
+              onDismiss={originalRecovery.dismiss}
+            />
+          )}
       </div>
     </div>
   );
@@ -144,6 +167,11 @@ function arePropsEqual(
   prevProps: Readonly<EpisodeCardProps>,
   nextProps: Readonly<EpisodeCardProps>,
 ) {
+  const wasRecoveryActive =
+    prevProps.originalRecovery.activeKey === prevProps.episode.id;
+  const isRecoveryActive =
+    nextProps.originalRecovery.activeKey === nextProps.episode.id;
+
   return (
     prevProps.episode.id === nextProps.episode.id &&
     prevProps.episode.title === nextProps.episode.title &&
@@ -157,7 +185,13 @@ function arePropsEqual(
     prevProps.episode.show_notes === nextProps.episode.show_notes &&
     prevProps.podcastCover === nextProps.podcastCover &&
     prevProps.index === nextProps.index &&
-    prevProps.priority === nextProps.priority
+    prevProps.priority === nextProps.priority &&
+    wasRecoveryActive === isRecoveryActive &&
+    (!isRecoveryActive ||
+      (prevProps.originalRecovery.plan ===
+        nextProps.originalRecovery.plan &&
+        prevProps.originalRecovery.copyError ===
+          nextProps.originalRecovery.copyError))
   );
 }
 

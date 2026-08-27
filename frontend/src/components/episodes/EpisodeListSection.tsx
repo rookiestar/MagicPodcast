@@ -1,6 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
+import { useOriginalEpisodeRecovery } from "@/hooks/useOriginalEpisodeRecovery";
 import {
   getEpisodeListDisplayTotal,
   getEpisodeListFinishedMessage,
@@ -133,6 +134,7 @@ export default function EpisodeListSection({
   loadMoreRef,
   onRetry,
 }: EpisodeListSectionProps) {
+  const originalRecovery = useOriginalEpisodeRecovery();
   const episodeListStatus = getEpisodeListStatus({
     episodeCount: episodes.length,
     episodesLoading,
@@ -183,6 +185,7 @@ export default function EpisodeListSection({
                   podcastCover={podcastCover}
                   index={index}
                   priority={getEpisodeImagePriority(index)}
+                  originalRecovery={originalRecovery}
                 />
               </div>
             ))}

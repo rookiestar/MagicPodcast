@@ -1,0 +1,71 @@
+.recovery {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 12px;
+  color: #712f22;
+  border: 1px solid rgba(139, 47, 34, 0.38);
+  background: rgba(151, 53, 39, 0.08);
+}
+
+.message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.copyError {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.action,
+.dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 12px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.action {
+  color: #fff;
+  border: 1px solid #171512;
+  background: #171512;
+}
+
+.action:hover,
+.action:focus-visible {
+  border-color: #c4552a;
+  background: #c4552a;
+}
+
+.dismiss {
+  color: #712f22;
+  border: 1px solid rgba(139, 47, 34, 0.5);
+  background: transparent;
+}
+
+.dismiss:hover,
+.dismiss:focus-visible {
+  border-color: #712f22;
+}
+
+.action:focus-visible,
+.dismiss:focus-visible {
+  outline: 2px solid #c4552a;
+  outline-offset: 2px;
+}

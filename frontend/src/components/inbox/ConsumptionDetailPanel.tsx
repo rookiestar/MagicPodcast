@@ -17,14 +17,19 @@ import {
   IconRefresh,
   IconX,
 } from "@tabler/icons-react";
+import { OriginalEpisodeRecovery } from "@/components/common/OriginalEpisodeRecovery";
 import RichText from "@/components/RichText";
+import { useOriginalEpisodeRecovery } from "@/hooks/useOriginalEpisodeRecovery";
 import { episodeApi, tagApi } from "@/lib/api";
 import {
   consumptionApi,
   getConsumptionErrorDetails,
 } from "@/lib/api/consumption";
-import { sanitizeContentUrl } from "@/lib/imageSourcePolicy";
 import { getErrorMessage } from "@/lib/errorMessage";
+import {
+  openOriginalEpisodeTab,
+  planSafeOriginalEpisodeOpen,
+} from "@/lib/originalEpisodeOpen";
 import type { Tag } from "@/types";
 import {
   CONSUMPTION_QUEUES,
@@ -49,17 +54,6 @@ interface ConsumptionDetailPanelProps {
     item: ConsumptionItem,
     target: ConsumptionQueue,
   ) => Promise<ConsumptionItem | undefined>;
-}
-
-function getSafeOriginalUrl(value: string) {
-  const safeUrl = sanitizeContentUrl(value);
-  if (
-    /^https?:\/\//i.test(safeUrl) ||
-    (safeUrl.startsWith("/") && !safeUrl.startsWith("//"))
-  ) {
-    return safeUrl;
-  }
-  return "";
 }
 
 function EpisodeMetadata({
@@ -373,7 +367,11 @@ export default function ConsumptionDetailPanel({
   const [moveTarget, setMoveTarget] = useState<ConsumptionQueue>(
     item.queue_state === "focus" ? "someday" : "focus",
   );
-  const safeOriginalUrl = getSafeOriginalUrl(item.original_url);
+  const originalPlan = useMemo(
+    () => planSafeOriginalEpisodeOpen(item.original_url),
+    [item.original_url],
+  );
+  const originalRecovery = useOriginalEpisodeRecovery();
 
   useEffect(() => {
     closeButtonRef.current?.focus();
@@ -437,12 +435,13 @@ export default function ConsumptionDetailPanel({
   };
 
   const openOriginal = async () => {
-    if (!safeOriginalUrl || externalState === "saving") return;
+    if (!originalPlan || externalState === "saving") return;
     setExternalState("saving");
     setDetailError(null);
 
     const saveIntent = consumptionApi.markInProgress(item.episode_id);
-    window.open(safeOriginalUrl, "_blank", "noopener,noreferrer");
+    openOriginalEpisodeTab(originalPlan.openUrl);
+    originalRecovery.activate(item.episode_id, originalPlan);
 
     try {
       const updated = await saveIntent;
@@ -569,8 +568,21 @@ export default function ConsumptionDetailPanel({
             </div>
           )}
 
+          {originalRecovery.plan &&
+            originalRecovery.activeKey === item.episode_id && (
+              <div className={styles.recoverySlot}>
+                <OriginalEpisodeRecovery
+                  copyError={originalRecovery.copyError}
+                  onRetry={originalRecovery.retry}
+                  onOpenApp={originalRecovery.openApp}
+                  onCopy={() => void originalRecovery.copy()}
+                  onDismiss={originalRecovery.dismiss}
+                />
+              </div>
+            )}
+
           <div className={styles.detailCommandBar}>
-            {safeOriginalUrl ? (
+            {originalPlan ? (
               <button
                 type="button"
                 className={styles.primaryCommand}

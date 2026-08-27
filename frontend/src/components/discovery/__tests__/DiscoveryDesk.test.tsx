@@ -782,6 +782,70 @@ describe("DiscoveryDesk", () => {
     );
   });
 
+  it("offers Xiaoyuzhou recovery after opening the original episode page", () => {
+    const xyzCandidates: DiscoveryCandidate[] = [
+      {
+        ...candidates[0],
+        original_url:
+          "https://www.xiaoyuzhoufm.com/episode/6a8cf80a1352af56ff3b7e2d?utm_source=rss",
+      },
+      candidates[1],
+    ];
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    render(<DiscoveryDesk candidates={xyzCandidates} />);
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "预读 模型能力如何转向真实应用",
+      }),
+    );
+    fireEvent.click(screen.getByRole("link", { name: "打开节目页面" }));
+
+    expect(
+      screen.getByRole("region", { name: "原节目页恢复" }),
+    ).toHaveTextContent("如果新页面是 403");
+    fireEvent.click(screen.getByRole("button", { name: "用小宇宙打开" }));
+    expect(openSpy).toHaveBeenCalledWith(
+      "cosmos://page.cos/episode/6a8cf80a1352af56ff3b7e2d",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    openSpy.mockRestore();
+  });
+
+  it("keeps recovery with Show Notes when the metadata editor opens", () => {
+    const xyzCandidates: DiscoveryCandidate[] = [
+      {
+        ...candidates[0],
+        original_url:
+          "https://www.xiaoyuzhoufm.com/episode/6a8cf80a1352af56ff3b7e2d?utm_source=rss",
+      },
+      candidates[1],
+    ];
+    render(<DiscoveryDesk candidates={xyzCandidates} />);
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "预读 模型能力如何转向真实应用",
+      }),
+    );
+    fireEvent.click(screen.getByRole("link", { name: "打开节目页面" }));
+    fireEvent.click(screen.getByRole("button", { name: "编辑标签与备注" }));
+
+    const recovery = screen.getByRole("region", { name: "原节目页恢复" });
+    const showNotes = screen.getByRole("region", { name: "Show Notes" });
+    const editor = screen.getByRole("complementary", {
+      name: "标签与备注编辑",
+    });
+    const primaryPane = recovery.closest(".discovery-preview-primary");
+    const workarea = recovery.closest(".discovery-preview-workarea");
+
+    expect(primaryPane).not.toBeNull();
+    expect(primaryPane).toContainElement(showNotes);
+    expect(primaryPane?.parentElement).toBe(workarea);
+    expect(editor.parentElement).toBe(workarea);
+  });
+
   it("keeps decisions available when Show Notes are missing", () => {
     const onDecision = vi.fn().mockResolvedValue({
       state: "shortlisted",

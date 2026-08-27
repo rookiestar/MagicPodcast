@@ -8,12 +8,14 @@ interface EpisodeShowNotesProps {
   html: string;
   link: string;
   isExpanded: boolean;
+  onOriginalOpen?: () => void;
 }
 
 export function EpisodeShowNotes({
   html,
   link,
   isExpanded,
+  onOriginalOpen,
 }: EpisodeShowNotesProps) {
   const preview = useMemo(() => stripHtml(html, 220), [html]);
 
@@ -49,6 +51,7 @@ export function EpisodeShowNotes({
           target="_blank"
           rel="noopener noreferrer"
           className="block rounded-sm text-center text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 mt-2 py-2 border-t border-slate-200 dark:border-slate-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 md:hidden"
+          onClick={onOriginalOpen}
         >
           查看详情 →
         </a>
