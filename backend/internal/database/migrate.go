@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 23
+const CurrentSchemaVersion = 24
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -29,10 +29,11 @@ type SchemaMigration struct {
 func (SchemaMigration) TableName() string { return "schema_migrations" }
 
 type Migration struct {
-	Version     int
-	Name        string
-	Description string
-	Apply       func(*gorm.DB) error
+	Version                     int
+	Name                        string
+	Description                 string
+	Apply                       func(*gorm.DB) error
+	RequiresForeignKeysDisabled bool
 }
 
 type SchemaStatus struct {
@@ -182,6 +183,13 @@ func migrationRegistry() []Migration {
 			Description: "Persist Xiaoyuzhou episode video tri-state on episodes without storing signed HLS (#199).",
 			Apply:       applyEpisodeVideoAvailabilityMigration,
 		},
+		{
+			Version:                     24,
+			Name:                        "episode-video-availability-check",
+			Description:                 "Constrain persisted Xiaoyuzhou episode video tri-state values (#199).",
+			Apply:                       applyEpisodeVideoAvailabilityConstraintMigration,
+			RequiresForeignKeysDisabled: true,
+		},
 	}
 }
 
@@ -269,7 +277,8 @@ func ApplyMigrations(db *gorm.DB) error {
 
 func applyMigrationSet(db *gorm.DB, migrations []Migration) error {
 	sort.Slice(migrations, func(i, j int) bool { return migrations[i].Version < migrations[j].Version })
-	return db.Transaction(func(tx *gorm.DB) error {
+	apply := func(rawTx *gorm.DB) error {
+		tx := rawTx.Session(&gorm.Session{NewDB: true})
 		if err := tx.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
             version INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
@@ -300,12 +309,75 @@ func applyMigrationSet(db *gorm.DB, migrations []Migration) error {
 			current = migration.Version
 		}
 		return nil
+	}
+
+	needsForeignKeysDisabled, err := migrationSetNeedsForeignKeysDisabled(db, migrations)
+	if err != nil {
+		return err
+	}
+	if !needsForeignKeysDisabled {
+		return db.Transaction(apply)
+	}
+
+	// SQLite cannot toggle foreign_keys inside an active transaction. Pin one
+	// connection, disable enforcement before BEGIN, and restore it after the
+	// atomic migration transaction. This is required by migrations that rebuild
+	// a referenced table; otherwise DROP TABLE would cascade into child rows.
+	return db.Connection(func(conn *gorm.DB) error {
+		var foreignKeys int
+		if err := conn.Raw("PRAGMA foreign_keys").Row().Scan(&foreignKeys); err != nil {
+			return fmt.Errorf("read sqlite foreign_keys pragma: %w", err)
+		}
+		if foreignKeys != 0 && foreignKeys != 1 {
+			return fmt.Errorf("sqlite foreign_keys pragma is %d, want 0 or 1 before migration", foreignKeys)
+		}
+		if foreignKeys == 1 {
+			if err := conn.Exec("PRAGMA foreign_keys = OFF").Error; err != nil {
+				return fmt.Errorf("disable sqlite foreign_keys for migration: %w", err)
+			}
+		}
+		migrationErr := conn.Transaction(apply)
+		var restoreErr error
+		if foreignKeys == 1 {
+			restoreErr = conn.Exec("PRAGMA foreign_keys = ON").Error
+		}
+		if migrationErr != nil {
+			return migrationErr
+		}
+		if restoreErr != nil {
+			return fmt.Errorf("restore sqlite foreign_keys after migration: %w", restoreErr)
+		}
+		return nil
 	})
+}
+
+func migrationSetNeedsForeignKeysDisabled(db *gorm.DB, migrations []Migration) (bool, error) {
+	needs := false
+	for _, migration := range migrations {
+		if migration.RequiresForeignKeysDisabled {
+			needs = true
+			break
+		}
+	}
+	if !needs || !db.Migrator().HasTable(&SchemaMigration{}) {
+		return needs, nil
+	}
+	current, err := currentSchemaVersion(db)
+	if err != nil {
+		return false, err
+	}
+	for _, migration := range migrations {
+		if migration.RequiresForeignKeysDisabled && migration.Version > current {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func currentSchemaVersion(db *gorm.DB) (int, error) {
 	var current int
-	if err := db.Model(&SchemaMigration{}).Select("COALESCE(MAX(version), 0)").Scan(&current).Error; err != nil {
+	if err := db.Session(&gorm.Session{NewDB: true}).Model(&SchemaMigration{}).
+		Select("COALESCE(MAX(version), 0)").Scan(&current).Error; err != nil {
 		return 0, fmt.Errorf("read current schema version: %w", err)
 	}
 	return current, nil
@@ -754,6 +826,34 @@ func applyEpisodeVideoAvailabilityMigration(db *gorm.DB) error {
 	}
 	if err := db.Exec("ALTER TABLE episodes ADD COLUMN video_availability TEXT NOT NULL DEFAULT ''").Error; err != nil {
 		return fmt.Errorf("add episodes.video_availability: %w", err)
+	}
+	return nil
+}
+
+func applyEpisodeVideoAvailabilityConstraintMigration(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&models.Episode{}) || !db.Migrator().HasColumn(&models.Episode{}, "video_availability") {
+		return nil
+	}
+	if db.Migrator().HasConstraint(&models.Episode{}, models.VideoAvailabilityConstraint) {
+		return nil
+	}
+
+	// Schema 23 accepted arbitrary text. Preserve known states and map legacy
+	// or malformed values to the existing unknown representation before the
+	// table is rebuilt with the CHECK constraint.
+	if err := db.Exec(`
+		UPDATE episodes
+		SET video_availability = CASE lower(trim(video_availability))
+			WHEN 'unknown' THEN 'unknown'
+			WHEN 'unavailable' THEN 'unavailable'
+			WHEN 'available' THEN 'available'
+			ELSE ''
+		END
+	`).Error; err != nil {
+		return fmt.Errorf("normalize episodes.video_availability: %w", err)
+	}
+	if err := db.Migrator().CreateConstraint(&models.Episode{}, models.VideoAvailabilityConstraint); err != nil {
+		return fmt.Errorf("constrain episodes.video_availability: %w", err)
 	}
 	return nil
 }

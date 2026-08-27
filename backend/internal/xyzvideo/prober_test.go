@@ -69,6 +69,42 @@ func TestProberTimeoutStaysUnknownAndHalts(t *testing.T) {
 	require.True(t, outcome.HaltBatch)
 }
 
+type statusErrorGetter struct {
+	status int
+	body   []byte
+	err    error
+}
+
+func (g statusErrorGetter) Get(context.Context, string) (int, []byte, error) {
+	return g.status, g.body, g.err
+}
+
+func TestProberReadErrorStaysUnknownForTerminalStatus(t *testing.T) {
+	hlsBody := []byte(`{"playback":{"master":{"url":"https://video.xyzcdn.net/x/master.m3u8?auth_key=secret"}}}`)
+	for _, test := range []struct {
+		name   string
+		status int
+	}{
+		{name: "ok", status: http.StatusOK},
+		{name: "not found", status: http.StatusNotFound},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			prober := NewProber(ProberConfig{
+				BaseURL: "https://www.xiaoyuzhoufm.com",
+				Getter: statusErrorGetter{
+					status: test.status,
+					body:   hlsBody,
+					err:    io.ErrUnexpectedEOF,
+				},
+			})
+
+			outcome := prober.Probe(context.Background(), "6a734c29ab3a91c24a1067fa")
+			require.Equal(t, models.VideoAvailabilityUnknown, outcome.Availability)
+			require.True(t, outcome.HaltBatch)
+		})
+	}
+}
+
 type recordingSlotter struct {
 	acquired string
 	status   int

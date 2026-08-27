@@ -9,6 +9,7 @@ const (
 	VideoAvailabilityUnknown     = "unknown"
 	VideoAvailabilityUnavailable = "unavailable"
 	VideoAvailabilityAvailable   = "available"
+	VideoAvailabilityConstraint  = "chk_episodes_video_availability"
 )
 
 // NormalizeVideoAvailability maps stored or inbound values onto the public
@@ -59,7 +60,7 @@ type Episode struct {
 
 	// VideoAvailability is the persisted tri-state for Xiaoyuzhou video pages.
 	// Empty and "unknown" both mean unknown; signed HLS is never stored here.
-	VideoAvailability string `gorm:"size:16;not null;default:''" json:"video_availability"`
+	VideoAvailability string `gorm:"size:16;not null;default:'';check:chk_episodes_video_availability,video_availability IN ('','unknown','unavailable','available')" json:"video_availability"`
 
 	// 关联关系
 	Tags []Tag `gorm:"many2many:episodes_tags;constraint:OnDelete:CASCADE" json:"tags,omitempty"`
