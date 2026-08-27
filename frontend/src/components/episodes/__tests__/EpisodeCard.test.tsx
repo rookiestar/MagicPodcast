@@ -1,5 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useOriginalEpisodeRecovery } from "@/hooks/useOriginalEpisodeRecovery";
 import type { Episode } from "@/types";
 import { useQueuedEpisodeImage } from "@/hooks/useQueuedEpisodeImage";
 import EpisodeCard from "../EpisodeCard";
@@ -21,6 +23,35 @@ vi.mock("@/hooks/useQueuedEpisodeImage", () => ({
 }));
 
 const useQueuedEpisodeImageMock = vi.mocked(useQueuedEpisodeImage);
+
+type TestEpisodeCardProps = Omit<
+  ComponentProps<typeof EpisodeCard>,
+  "originalRecovery"
+>;
+
+function TestEpisodeCard(props: TestEpisodeCardProps) {
+  const originalRecovery = useOriginalEpisodeRecovery();
+  return <EpisodeCard {...props} originalRecovery={originalRecovery} />;
+}
+
+function EpisodeCardPairHarness() {
+  const originalRecovery = useOriginalEpisodeRecovery();
+  const episodeUrl = (id: number) =>
+    `https://www.xiaoyuzhoufm.com/episode/${id}?utm_source=rss`;
+
+  return (
+    <>
+      <EpisodeCard
+        episode={makeEpisode({ id: 1, title: "单集 A", link: episodeUrl(1) })}
+        originalRecovery={originalRecovery}
+      />
+      <EpisodeCard
+        episode={makeEpisode({ id: 2, title: "单集 B", link: episodeUrl(2) })}
+        originalRecovery={originalRecovery}
+      />
+    </>
+  );
+}
 
 function makeEpisode(overrides: Partial<Episode> = {}): Episode {
   return {
@@ -51,7 +82,7 @@ describe("EpisodeCard", () => {
   it("renders core episode information and opens the audio link", () => {
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
 
-    render(<EpisodeCard episode={makeEpisode()} podcastCover="cover.jpg" />);
+    render(<TestEpisodeCard episode={makeEpisode()} podcastCover="cover.jpg" />);
 
     expect(screen.getByRole("link", { name: "单集标题" })).toHaveAttribute(
       "href",
@@ -74,8 +105,65 @@ describe("EpisodeCard", () => {
     openSpy.mockRestore();
   });
 
+  it("offers Xiaoyuzhou recovery after opening the original episode page", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    render(
+      <TestEpisodeCard
+        episode={makeEpisode({
+          link: "https://www.xiaoyuzhoufm.com/episode/6a8cf80a1352af56ff3b7e2d?utm_source=rss",
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "单集标题" }));
+    expect(
+      screen.getByRole("region", { name: "原节目页恢复" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "重试打开" }));
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://www.xiaoyuzhoufm.com/episode/6a8cf80a1352af56ff3b7e2d",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "复制页面链接" }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        "https://www.xiaoyuzhoufm.com/episode/6a8cf80a1352af56ff3b7e2d",
+      ),
+    );
+    openSpy.mockRestore();
+  });
+
+  it("keeps only the latest episode recovery in a shared list", () => {
+    render(<EpisodeCardPairHarness />);
+
+    fireEvent.click(screen.getByRole("link", { name: "单集 A" }));
+    expect(screen.getAllByRole("region", { name: "原节目页恢复" })).toHaveLength(
+      1,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "单集 B" }));
+    expect(screen.getAllByRole("region", { name: "原节目页恢复" })).toHaveLength(
+      1,
+    );
+    expect(
+      screen
+        .getByRole("link", { name: "单集 B" })
+        .closest(".podcast-episode-card"),
+    ).toContainElement(
+      screen.getByRole("region", { name: "原节目页恢复" }),
+    );
+  });
+
   it("queues only episode-specific cover images", () => {
-    render(<EpisodeCard episode={makeEpisode()} podcastCover="cover.jpg" />);
+    render(<TestEpisodeCard episode={makeEpisode()} podcastCover="cover.jpg" />);
 
     const queuedSource =
       useQueuedEpisodeImageMock.mock.calls[0]?.[0].src ?? "";
@@ -88,7 +176,7 @@ describe("EpisodeCard", () => {
 
   it("renders the podcast fallback cover directly without queueing it", () => {
     render(
-      <EpisodeCard
+      <TestEpisodeCard
         episode={makeEpisode({ image_url: "" })}
         podcastCover="cover.jpg"
       />,
@@ -105,7 +193,7 @@ describe("EpisodeCard", () => {
 
   it("lazy-loads lower priority fallback cover images", () => {
     render(
-      <EpisodeCard
+      <TestEpisodeCard
         episode={makeEpisode({ image_url: "" })}
         podcastCover="cover.jpg"
         index={10}
@@ -116,7 +204,7 @@ describe("EpisodeCard", () => {
   });
 
   it("expands show notes when keyboard focus enters the card", () => {
-    const { container } = render(<EpisodeCard episode={makeEpisode()} />);
+    const { container } = render(<TestEpisodeCard episode={makeEpisode()} />);
     const showNotes = screen.getByText("旧简介").parentElement;
 
     expect(showNotes).toHaveClass("md:max-h-24");
@@ -134,12 +222,12 @@ describe("EpisodeCard", () => {
 
   it("rerenders when memoized episode display fields change", () => {
     const episode = makeEpisode();
-    const { rerender } = render(<EpisodeCard episode={episode} />);
+    const { rerender } = render(<TestEpisodeCard episode={episode} />);
 
     expect(screen.getAllByText("旧简介")).toHaveLength(1);
 
     rerender(
-      <EpisodeCard
+      <TestEpisodeCard
         episode={{
           ...episode,
           show_notes: "新简介",

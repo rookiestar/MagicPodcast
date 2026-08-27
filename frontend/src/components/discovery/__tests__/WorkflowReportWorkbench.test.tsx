@@ -1004,6 +1004,45 @@ describe("WorkflowReportWorkbench", () => {
     expect(screen.queryByText("打开原单集")).not.toBeInTheDocument();
   });
 
+  it("offers Xiaoyuzhou recovery after opening the original episode", () => {
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    render(
+      <WorkflowReportWorkbench
+        todayReports={[
+          makeReport({
+            id: 7,
+            workflow_name: "小宇宙日报",
+            episodes: [
+              {
+                episode_id: 70,
+                order: 1,
+                podcast_id: 1,
+                podcast_title: "P",
+                episode_title: "物理AI单集",
+                link: "https://www.xiaoyuzhoufm.com/episode/6a8cf80a1352af56ff3b7e2d?utm_source=rss",
+                context: "ctx",
+                decision_state: "pending",
+              },
+            ],
+          }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /物理AI单集/ }));
+    fireEvent.click(screen.getByRole("link", { name: "打开原单集" }));
+    expect(
+      screen.getByRole("region", { name: "原节目页恢复" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重试打开" }));
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://www.xiaoyuzhoufm.com/episode/6a8cf80a1352af56ff3b7e2d",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    openSpy.mockRestore();
+  });
+
   it("keeps indented markdown after removing a leading heading", () => {
     render(
       <WorkflowReportWorkbench

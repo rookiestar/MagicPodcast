@@ -1,12 +1,42 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { OriginalEpisodeRecoveryController } from "@/hooks/useOriginalEpisodeRecovery";
 import type { Episode } from "@/types";
 import EpisodeListSection from "../EpisodeListSection";
 
 vi.mock("../EpisodeCard", () => ({
-  default: ({ episode }: { episode: Episode }) => (
-    <article data-testid="episode-card">{episode.title}</article>
-  ),
+  default: ({
+    episode,
+    originalRecovery,
+  }: {
+    episode: Episode;
+    originalRecovery?: OriginalEpisodeRecoveryController;
+  }) => {
+    const active = originalRecovery?.activeKey === episode.id;
+    const retryUrl = `https://www.xiaoyuzhoufm.com/episode/${episode.id}`;
+    return (
+      <article data-testid="episode-card">
+        {episode.title}
+        {originalRecovery ? (
+          <button
+            type="button"
+            onClick={() =>
+              originalRecovery.activate(episode.id, {
+                recovery: true,
+                openUrl: `${retryUrl}?utm_source=rss`,
+                retryUrl,
+                appUrl: `cosmos://page.cos/episode/${episode.id}`,
+                copyText: retryUrl,
+              })
+            }
+          >
+            打开 {episode.title}
+          </button>
+        ) : null}
+        {active ? <div role="region">恢复 {episode.title}</div> : null}
+      </article>
+    );
+  },
 }));
 
 function makeEpisode(id: number): Episode {
@@ -73,6 +103,23 @@ describe("EpisodeListSection", () => {
     expect(container.querySelector("#episode-1")).toHaveStyle({
       contentVisibility: "auto",
     });
+  });
+
+  it("replaces the previous episode recovery when another episode opens", () => {
+    render(
+      <EpisodeListSection
+        {...baseProps}
+        episodes={[makeEpisode(1), makeEpisode(2)]}
+        totalEpisodes={2}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "打开 Episode 1" }));
+    expect(screen.getByRole("region")).toHaveTextContent("恢复 Episode 1");
+
+    fireEvent.click(screen.getByRole("button", { name: "打开 Episode 2" }));
+    expect(screen.getAllByRole("region")).toHaveLength(1);
+    expect(screen.getByRole("region")).toHaveTextContent("恢复 Episode 2");
   });
 
   it("shows loading-more and finished messages", () => {

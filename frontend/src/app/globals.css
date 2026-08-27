@@ -2538,12 +2538,21 @@
     min-height: 0;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     overflow: hidden;
     background: rgba(247, 241, 229, 0.68);
   }
 
   .discovery-preview-workarea.is-editing {
     grid-template-columns: minmax(0, 1fr) minmax(250px, 42%);
+  }
+
+  .discovery-preview-primary {
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
   }
 
   .discovery-show-notes {
@@ -4156,6 +4165,11 @@
 
     .discovery-preview-workarea,
     .discovery-preview-workarea.is-editing {
+      display: block;
+      overflow: visible;
+    }
+
+    .discovery-preview-primary {
       display: block;
       overflow: visible;
     }
@@ -7442,6 +7456,13 @@ textarea.editorial-field {
   .discovery-preview-overlay .discovery-preview-workarea,
   .discovery-preview-overlay .discovery-preview-workarea.is-editing {
     display: block;
+    overflow: hidden;
+  }
+
+  .discovery-preview-overlay .discovery-preview-primary {
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
     overflow: hidden;
   }
 

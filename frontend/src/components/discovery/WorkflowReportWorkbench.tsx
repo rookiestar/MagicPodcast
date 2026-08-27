@@ -19,8 +19,10 @@ import {
   IconHistory,
   IconX,
 } from "@tabler/icons-react";
+import { OriginalEpisodeRecovery } from "@/components/common/OriginalEpisodeRecovery";
 import MarkdownViewer from "@/components/workflows/MarkdownViewer";
 import PlainImage from "@/components/ui/PlainImage";
+import { useOriginalEpisodeRecovery } from "@/hooks/useOriginalEpisodeRecovery";
 import {
   fetchHomepageReportDetail,
   formatReportDay,
@@ -37,7 +39,7 @@ import {
   workflowOptionMatchesKeyword,
   type WorkflowFilterOption,
 } from "@/lib/homepageReportWorkflowFilter";
-import { sanitizeContentUrl } from "@/lib/imageSourcePolicy";
+import { planSafeOriginalEpisodeOpen } from "@/lib/originalEpisodeOpen";
 import type {
   DiscoveryConsumptionResponse,
   HomepageReport,
@@ -175,6 +177,7 @@ export default function WorkflowReportWorkbench({
     () => new Set(),
   );
   const [savingEpisodeID, setSavingEpisodeID] = useState<number | null>(null);
+  const originalRecovery = useOriginalEpisodeRecovery();
   const [decisionError, setDecisionError] = useState("");
   const [localDecisions, setLocalDecisions] = useState<
     Record<number, TriageDecisionState>
@@ -646,7 +649,7 @@ export default function WorkflowReportWorkbench({
                     ? `已在 ${queueLabels[queue]}`
                     : "收集到 Inbox";
               const showNotesPreview = episodeShowNotesPreview(episode);
-              const safeLink = sanitizeContentUrl(episode.link);
+              const originalPlan = planSafeOriginalEpisodeOpen(episode.link);
 
               return (
                 <article
@@ -720,16 +723,32 @@ export default function WorkflowReportWorkbench({
                           {showNotesPreview}
                         </p>
                       )}
-                      {safeLink && (
+                      {originalPlan && (
                         <a
-                          href={safeLink}
+                          href={originalPlan.openUrl}
                           target="_blank"
-                          rel="noreferrer"
+                          rel="noopener noreferrer"
                           className="workflow-report-episode-link"
+                          onClick={() =>
+                            originalRecovery.activate(
+                              episode.episode_id,
+                              originalPlan,
+                            )
+                          }
                         >
                           打开原单集
                         </a>
                       )}
+                      {originalRecovery.plan &&
+                        originalRecovery.activeKey === episode.episode_id && (
+                          <OriginalEpisodeRecovery
+                            copyError={originalRecovery.copyError}
+                            onRetry={originalRecovery.retry}
+                            onOpenApp={originalRecovery.openApp}
+                            onCopy={() => void originalRecovery.copy()}
+                            onDismiss={originalRecovery.dismiss}
+                          />
+                        )}
                     </div>
                   )}
                 </article>

@@ -21,9 +21,12 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import dynamic from "next/dynamic";
+import { OriginalEpisodeRecovery } from "@/components/common/OriginalEpisodeRecovery";
 import DiscoveryMetadataEditor from "@/components/discovery/DiscoveryMetadataEditor";
 import PlainImage from "@/components/ui/PlainImage";
+import { useOriginalEpisodeRecovery } from "@/hooks/useOriginalEpisodeRecovery";
 import { formatEpisodeNumber } from "@/lib/episodeDisplay";
+import { planSafeOriginalEpisodeOpen } from "@/lib/originalEpisodeOpen";
 import type {
   DiscoveryConsumptionResponse,
   DiscoveryCandidate,
@@ -177,6 +180,7 @@ export default function DiscoveryDesk({
   >(null);
   const [detailRetryVersion, setDetailRetryVersion] = useState(0);
   const [isMetadataEditorOpen, setIsMetadataEditorOpen] = useState(false);
+  const originalRecovery = useOriginalEpisodeRecovery();
   const candidateButtonRefs = useRef(new Map<number, HTMLButtonElement>());
   const previewRef = useRef<HTMLElement>(null);
   const previewCloseRef = useRef<HTMLButtonElement>(null);
@@ -269,6 +273,9 @@ export default function DiscoveryDesk({
         (candidate) => candidate.episode_id === selected.episode_id,
       )
     : -1;
+  const selectedOriginalPlan = selected
+    ? planSafeOriginalEpisodeOpen(selected.original_url)
+    : null;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -848,15 +855,21 @@ export default function DiscoveryDesk({
                   className="discovery-quick-actions"
                   aria-label="单集快捷操作"
                 >
-                  {selected.original_url ? (
+                  {selectedOriginalPlan ? (
                     <a
                       className="discovery-action-button"
-                      href={selected.original_url}
+                      href={selectedOriginalPlan.openUrl}
                       target="_blank"
-                      rel="noreferrer"
+                      rel="noopener noreferrer"
                       aria-label="打开节目页面"
                       data-tooltip="打开节目页面"
                       title="打开节目页面"
+                      onClick={() =>
+                        originalRecovery.activate(
+                          selected.episode_id,
+                          selectedOriginalPlan,
+                        )
+                      }
                     >
                       <IconExternalLink aria-hidden="true" stroke={1.8} />
                     </a>
@@ -987,49 +1000,65 @@ export default function DiscoveryDesk({
                 isMetadataEditorOpen ? "is-editing" : ""
               }`}
             >
-              <section
-                ref={showNotesPaneRef}
-                className="discovery-show-notes"
-                aria-label="Show Notes"
-                aria-busy={
-                  selected.metadata_only &&
-                  detailErrorEpisodeID !== selected.episode_id
-                }
-              >
-                {decisionError && (
-                  <p className="discovery-decision-error" role="alert">
-                    {decisionError}
-                  </p>
-                )}
-                {selected.metadata_only ? (
-                  detailErrorEpisodeID === selected.episode_id ? (
-                    <div className="discovery-show-notes-error" role="alert">
-                      <p>Show Notes 暂时无法加载，最近更新列表仍可继续使用。</p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDetailErrorEpisodeID(null);
-                          setDetailRetryVersion((version) => version + 1);
-                        }}
-                      >
-                        重新加载 Show Notes
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="discovery-show-notes-loading">
-                      正在加载 Show Notes…
+              <div className="discovery-preview-primary">
+                {originalRecovery.plan &&
+                  originalRecovery.activeKey === selected.episode_id && (
+                    <OriginalEpisodeRecovery
+                      copyError={originalRecovery.copyError}
+                      onRetry={originalRecovery.retry}
+                      onOpenApp={originalRecovery.openApp}
+                      onCopy={() => void originalRecovery.copy()}
+                      onDismiss={originalRecovery.dismiss}
+                    />
+                  )}
+                <section
+                  ref={showNotesPaneRef}
+                  className="discovery-show-notes"
+                  aria-label="Show Notes"
+                  aria-busy={
+                    selected.metadata_only &&
+                    detailErrorEpisodeID !== selected.episode_id
+                  }
+                >
+                  {decisionError && (
+                    <p className="discovery-decision-error" role="alert">
+                      {decisionError}
                     </p>
-                  )
-                ) : selected.show_notes_status === "available" &&
-                  selected.show_notes?.trim() ? (
-                  <RichText
-                    html={selected.show_notes}
-                    className="discovery-show-notes-content"
-                  />
-                ) : (
-                  <p className="discovery-show-notes-empty">暂无 Show Notes</p>
-                )}
-              </section>
+                  )}
+                  {selected.metadata_only ? (
+                    detailErrorEpisodeID === selected.episode_id ? (
+                      <div className="discovery-show-notes-error" role="alert">
+                        <p>
+                          Show Notes 暂时无法加载，最近更新列表仍可继续使用。
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDetailErrorEpisodeID(null);
+                            setDetailRetryVersion((version) => version + 1);
+                          }}
+                        >
+                          重新加载 Show Notes
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="discovery-show-notes-loading">
+                        正在加载 Show Notes…
+                      </p>
+                    )
+                  ) : selected.show_notes_status === "available" &&
+                    selected.show_notes?.trim() ? (
+                    <RichText
+                      html={selected.show_notes}
+                      className="discovery-show-notes-content"
+                    />
+                  ) : (
+                    <p className="discovery-show-notes-empty">
+                      暂无 Show Notes
+                    </p>
+                  )}
+                </section>
+              </div>
               {isMetadataEditorOpen ? (
                 <DiscoveryMetadataEditor
                   episodeId={selected.episode_id}

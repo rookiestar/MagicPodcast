@@ -92,17 +92,19 @@ type OnMove = (
 
 function renderDetail(
   overrides: Partial<{
+    item: ConsumptionItem;
     onItemChange: OnItemChange;
     onMove: OnMove;
   }> = {},
 ) {
+  const currentItem = overrides.item ?? item;
   const onItemChange = overrides.onItemChange ?? vi.fn<OnItemChange>();
   const onMove =
     overrides.onMove ??
-    vi.fn<OnMove>().mockResolvedValue({ ...item, queue_state: "done" });
+    vi.fn<OnMove>().mockResolvedValue({ ...currentItem, queue_state: "done" });
   render(
     <ConsumptionDetailPanel
-      item={item}
+      item={currentItem}
       isQueueBusy={false}
       onClose={vi.fn()}
       onItemChange={onItemChange}
@@ -111,6 +113,12 @@ function renderDetail(
   );
   return { onItemChange, onMove };
 }
+
+const xyzItem: ConsumptionItem = {
+  ...item,
+  original_url:
+    "https://www.xiaoyuzhoufm.com/episode/6a8cf80a1352af56ff3b7e2d?utm_source=rss",
+};
 
 describe("ConsumptionDetailPanel", () => {
   beforeEach(() => {
@@ -202,6 +210,84 @@ describe("ConsumptionDetailPanel", () => {
       ),
     ).toBeInTheDocument();
     expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it("keeps Xiaoyuzhou recovery available without changing the queue", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const onMove = vi.fn();
+    renderDetail({ item: xyzItem, onMove });
+
+    fireEvent.click(screen.getByRole("button", { name: "打开原节目" }));
+
+    expect(window.open).toHaveBeenCalledWith(
+      xyzItem.original_url,
+      "_blank",
+      "noopener,noreferrer",
+    );
+    expect(apiMocks.markInProgress).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("region", { name: "原节目页恢复" }),
+    ).toHaveTextContent("如果新页面是 403");
+
+    fireEvent.click(screen.getByRole("button", { name: "重试打开" }));
+    expect(window.open).toHaveBeenLastCalledWith(
+      "https://www.xiaoyuzhoufm.com/episode/6a8cf80a1352af56ff3b7e2d",
+      "_blank",
+      "noopener,noreferrer",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "用小宇宙打开" }));
+    expect(window.open).toHaveBeenLastCalledWith(
+      "cosmos://page.cos/episode/6a8cf80a1352af56ff3b7e2d",
+      "_blank",
+      "noopener,noreferrer",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "复制页面链接" }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        "https://www.xiaoyuzhoufm.com/episode/6a8cf80a1352af56ff3b7e2d",
+      ),
+    );
+    expect(apiMocks.markInProgress).toHaveBeenCalledTimes(1);
+    expect(onMove).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "关闭原节目页恢复" }));
+    expect(
+      screen.queryByRole("region", { name: "原节目页恢复" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows a copy failure instead of pretending the link was copied", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) },
+    });
+    renderDetail({ item: xyzItem });
+
+    fireEvent.click(screen.getByRole("button", { name: "打开原节目" }));
+    fireEvent.click(screen.getByRole("button", { name: "复制页面链接" }));
+
+    expect(
+      await screen.findByText("复制失败，请改用重试或用小宇宙打开。"),
+    ).toBeInTheDocument();
+  });
+
+  it("does not show original-page recovery for ordinary hosts", async () => {
+    renderDetail();
+
+    fireEvent.click(screen.getByRole("button", { name: "打开原节目" }));
+
+    expect(
+      screen.queryByRole("region", { name: "原节目页恢复" }),
+    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(apiMocks.markInProgress).toHaveBeenCalledWith(201),
+    );
   });
 
   it("only enters Done after the explicit Done action", async () => {

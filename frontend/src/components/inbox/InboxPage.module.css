@@ -1024,6 +1024,14 @@
   flex: 1 1 auto;
 }
 
+.recoverySlot {
+  margin: 15px 30px 0;
+}
+
+.recoverySlot > * {
+  margin: 0;
+}
+
 .processingSection,
 .showNotesSection,
 .copilotSection,
