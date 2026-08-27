@@ -1,10 +1,15 @@
 package sync
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/xyzvideo"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -102,4 +107,74 @@ func TestSyncPodcastsMetadataSSEEmptyLibrarySendsSummary(t *testing.T) {
 	assert.Equal(t, "sync", summaries[0].Operation)
 	assert.Equal(t, 0, summaries[0].TotalPodcasts)
 	assert.Equal(t, 0, summaries[0].SuccessPodcasts)
+}
+
+type metadataDeadlineGetter struct {
+	deadline    time.Time
+	hasDeadline bool
+}
+
+func (g *metadataDeadlineGetter) Get(ctx context.Context, rawURL string) (int, []byte, error) {
+	g.deadline, g.hasDeadline = ctx.Deadline()
+	_ = rawURL
+	return http.StatusNotFound, nil, nil
+}
+
+func TestMetadataSyncPassesDeadlineToVideoProbe(t *testing.T) {
+	originalProbeBatchDuration := maxVideoProbeBatchDuration
+	maxVideoProbeBatchDuration = 2 * time.Minute
+	t.Cleanup(func() { maxVideoProbeBatchDuration = originalProbeBatchDuration })
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, err := io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Metadata Deadline Test</title>
+    <description>Deadline propagation</description>
+    <item>
+      <title>Video Episode</title>
+      <guid>metadata-deadline-video</guid>
+      <link>https://www.xiaoyuzhoufm.com/episode/6a734c29ab3a91c24a1067fa</link>
+      <pubDate>Sat, 01 Aug 2026 00:00:00 GMT</pubDate>
+      <description>Video episode</description>
+      <enclosure url="https://media.example.invalid/episode.m4a" type="audio/mp4" />
+    </item>
+  </channel>
+</rss>`)
+		require.NoError(t, err)
+	}))
+	t.Cleanup(server.Close)
+
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, service.Close()) })
+
+	getter := &metadataDeadlineGetter{}
+	service.videoProber = xyzvideo.NewProber(xyzvideo.ProberConfig{
+		BaseURL: "https://www.xiaoyuzhoufm.com",
+		Getter:  getter,
+	})
+
+	podcast := &models.Podcast{
+		XYZID:        "metadata-deadline",
+		Title:        "Metadata Deadline",
+		FeedURL:      server.URL,
+		DataSource:   "rss",
+		IsSubscribed: true,
+		FeedURLValid: true,
+	}
+	require.NoError(t, db.Create(podcast).Error)
+
+	err, noUpdate, episodeResult := service.syncPodcastMetadataWithUpdateCheck(podcast)
+	require.NoError(t, err)
+	require.False(t, noUpdate)
+	require.NotNil(t, episodeResult)
+	require.True(t, getter.hasDeadline)
+	require.Greater(t, time.Until(getter.deadline), 0*time.Second)
+	require.Less(t, time.Until(getter.deadline), 45*time.Second)
 }

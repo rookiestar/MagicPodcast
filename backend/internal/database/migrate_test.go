@@ -696,7 +696,7 @@ func TestApplyMigrationsUpgradesSchema21To22WithFocusScheduleHistory(t *testing.
 	require.ErrorContains(t, db.Create(&duplicateItem).Error, "UNIQUE constraint failed")
 }
 
-func TestApplyMigrationsUpgradesSchema22To23VideoAvailability(t *testing.T) {
+func TestApplyMigrationsUpgradesSchema22To24VideoAvailability(t *testing.T) {
 	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
 	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:22]))
 	require.Equal(t, 22, mustSchemaStatus(t, db).CurrentVersion)
@@ -704,6 +704,9 @@ func TestApplyMigrationsUpgradesSchema22To23VideoAvailability(t *testing.T) {
 	// Baseline AutoMigrate uses current models. Remove the new column to model a
 	// real schema-22 library before migration 23 is applied.
 	if db.Migrator().HasColumn(&models.Episode{}, "video_availability") {
+		if db.Migrator().HasConstraint(&models.Episode{}, models.VideoAvailabilityConstraint) {
+			require.NoError(t, db.Migrator().DropConstraint(&models.Episode{}, models.VideoAvailabilityConstraint))
+		}
 		require.NoError(t, db.Exec("ALTER TABLE episodes DROP COLUMN video_availability").Error)
 	}
 	require.False(t, db.Migrator().HasColumn(&models.Episode{}, "video_availability"))
@@ -717,15 +720,36 @@ func TestApplyMigrationsUpgradesSchema22To23VideoAvailability(t *testing.T) {
 		podcast.ID, "历史单集", "migration-video", time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
 	).Error)
 
+	registry := migrationRegistry()
+	require.NoError(t, applyMigrationSet(db, registry[:23]))
+	require.Equal(t, 23, mustSchemaStatus(t, db).CurrentVersion)
+	require.NoError(t, db.Exec(
+		`UPDATE episodes SET video_availability = ? WHERE guid = ?`,
+		"legacy-value", "migration-video",
+	).Error)
+	var legacyEpisode models.Episode
+	require.NoError(t, db.Where("guid = ?", "migration-video").First(&legacyEpisode).Error)
+	decision := models.EpisodeTriageDecision{
+		EpisodeID: legacyEpisode.ID,
+		State:     models.TriageStatePending,
+		DecidedAt: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC),
+	}
+	require.NoError(t, db.Create(&decision).Error)
+
 	require.NoError(t, ApplyMigrations(db))
 	require.NoError(t, RequireSchemaReady(db))
 	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, db).CurrentVersion)
 	require.True(t, db.Migrator().HasColumn(&models.Episode{}, "video_availability"))
+	require.True(t, db.Migrator().HasConstraint(&models.Episode{}, models.VideoAvailabilityConstraint))
 
 	var stored models.Episode
 	require.NoError(t, db.Where("guid = ?", "migration-video").First(&stored).Error)
 	require.Equal(t, "", stored.VideoAvailability)
 	require.Equal(t, models.VideoAvailabilityUnknown, models.NormalizeVideoAvailability(stored.VideoAvailability))
+	var preservedDecision models.EpisodeTriageDecision
+	require.NoError(t, db.First(&preservedDecision, decision.ID).Error)
+	require.Equal(t, stored.ID, preservedDecision.EpisodeID)
+	require.Error(t, db.Model(&models.Episode{}).Where("id = ?", stored.ID).Update("video_availability", "invalid").Error)
 }
 
 func TestApplyMigrationsLeavesCurrentManagedAudioSchemaUnchanged(t *testing.T) {

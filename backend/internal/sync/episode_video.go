@@ -14,19 +14,19 @@ const maxVideoProbesPerPodcast = 5
 var maxVideoProbeBatchDuration = 15 * time.Second
 
 type videoProbeCandidate struct {
-	rowID uint
-	xyzID string
+	rowID     uint
+	episodeID string
 }
 
 func enqueueVideoProbe(candidates []videoProbeCandidate, episode models.Episode, isNew, identityChanged bool) []videoProbeCandidate {
 	if !xyzvideo.ShouldProbe(episode.Link, episode.VideoAvailability, identityChanged, isNew) {
 		return candidates
 	}
-	xyzID, ok := xyzvideo.ParseEpisodeID(episode.Link)
+	episodeID, ok := xyzvideo.ParseEpisodeID(episode.Link)
 	if !ok || episode.ID == 0 {
 		return candidates
 	}
-	return append(candidates, videoProbeCandidate{rowID: episode.ID, xyzID: xyzID})
+	return append(candidates, videoProbeCandidate{rowID: episode.ID, episodeID: episodeID})
 }
 
 func (s *Service) probeEpisodeVideoAvailability(ctx context.Context, candidates []videoProbeCandidate) {
@@ -47,11 +47,11 @@ func (s *Service) probeEpisodeVideoAvailability(ctx context.Context, candidates 
 		if probeCtx.Err() != nil {
 			return
 		}
-		if candidate.rowID == 0 || candidate.xyzID == "" {
+		if candidate.rowID == 0 || candidate.episodeID == "" {
 			continue
 		}
 		probed++
-		outcome := s.videoProber.Probe(probeCtx, candidate.xyzID)
+		outcome := s.videoProber.Probe(probeCtx, candidate.episodeID)
 		if outcome.Availability == models.VideoAvailabilityAvailable || outcome.Availability == models.VideoAvailabilityUnavailable {
 			if err := s.db.Model(&models.Episode{}).
 				Where("id = ?", candidate.rowID).

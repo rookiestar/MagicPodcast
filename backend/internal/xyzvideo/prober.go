@@ -49,10 +49,9 @@ type ProberConfig struct {
 // Prober reads Xiaoyuzhou's public video-playback endpoint and returns only a
 // tri-state. It never returns or retains signed HLS URLs.
 type Prober struct {
-	getter    Getter
-	slotter   Slotter
-	baseURL   string
-	userAgent string
+	getter  Getter
+	slotter Slotter
+	baseURL string
 }
 
 func NewProber(config ProberConfig) *Prober {
@@ -69,10 +68,9 @@ func NewProber(config ProberConfig) *Prober {
 		getter = NewHTTPGetter(nil, userAgent)
 	}
 	return &Prober{
-		getter:    getter,
-		slotter:   config.Slotter,
-		baseURL:   baseURL,
-		userAgent: userAgent,
+		getter:  getter,
+		slotter: config.Slotter,
+		baseURL: baseURL,
 	}
 }
 
@@ -98,10 +96,12 @@ func (p *Prober) Probe(ctx context.Context, episodeID string) Outcome {
 	if p.slotter != nil {
 		p.slotter.ObserveDomainProbe(rawURL, status, err)
 	}
+	if err != nil {
+		return Outcome{Availability: models.VideoAvailabilityUnknown, HaltBatch: true}
+	}
 	// Drop the body immediately after classification so auth_key / m3u8 cannot
 	// leak into callers or logs.
 	availability := ParsePlaybackResponse(status, body)
-	_ = body
 	return Outcome{
 		Availability: availability,
 		HaltBatch:    haltAfterStatus(status, err),

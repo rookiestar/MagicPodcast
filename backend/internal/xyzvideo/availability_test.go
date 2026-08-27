@@ -47,10 +47,3 @@ func TestParsePlaybackResponse(t *testing.T) {
 	require.Equal(t, models.VideoAvailabilityUnknown, ParsePlaybackResponse(http.StatusGatewayTimeout, nil))
 	require.Equal(t, models.VideoAvailabilityUnknown, ParsePlaybackResponse(0, nil))
 }
-
-func TestParseEpisodePage(t *testing.T) {
-	require.Equal(t, models.VideoAvailabilityAvailable, ParseEpisodePage([]byte(`{"episode":{"video":{"available":true}}}`)))
-	require.Equal(t, models.VideoAvailabilityUnavailable, ParseEpisodePage([]byte(`{"video":{"available":false}}`)))
-	require.Equal(t, models.VideoAvailabilityUnknown, ParseEpisodePage([]byte(`{"episode":{}}`)))
-	require.Equal(t, models.VideoAvailabilityUnknown, ParseEpisodePage([]byte(`not-json`)))
-}

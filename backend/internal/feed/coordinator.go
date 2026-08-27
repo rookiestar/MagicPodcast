@@ -17,7 +17,11 @@ import (
 	"magicpodcast/internal/logger"
 )
 
-const XiaoyuzhouFeedDomain = "feed.xyzfm.space"
+const (
+	XiaoyuzhouFeedDomain      = "feed.xyzfm.space"
+	XiaoyuzhouWebDomain       = "www.xiaoyuzhoufm.com"
+	XiaoyuzhouLegacyWebDomain = "web.xiaoyuzhoufm.com"
+)
 
 const (
 	defaultCircuitCooldown     = 10 * time.Minute
@@ -1029,7 +1033,7 @@ func (c *Coordinator) circuitBlockedLocked(domain string, policy DomainPolicy) (
 func SharedQueueDomain(rawURL string) string {
 	host := TargetDomain(rawURL)
 	switch host {
-	case "www.xiaoyuzhoufm.com", "web.xiaoyuzhoufm.com":
+	case XiaoyuzhouWebDomain, XiaoyuzhouLegacyWebDomain:
 		return XiaoyuzhouFeedDomain
 	default:
 		return host

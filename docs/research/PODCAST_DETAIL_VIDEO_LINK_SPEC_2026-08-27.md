@@ -1,6 +1,6 @@
 # 播客详情页附上视频链接
 
-状态：已实施（源码与测试为准；生产库 schema 23 仍须人审 `--apply`，未当作生产发布完成）
+状态：已实施（源码与测试为准；生产库 schema 24 仍须人审 `--apply`，未当作生产发布完成）
 日期：2026-08-27
 跟踪：[GitHub #199](https://github.com/rookiestar/MagicPodcast/issues/199)
 依据：[小宇宙视频单集 URL 研究](XIAOYUZHOU_VIDEO_EPISODE_URL_2026-08-27.md)；产品要求在播客详情页单集上附上视频链接

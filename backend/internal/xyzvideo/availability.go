@@ -1,19 +1,17 @@
 package xyzvideo
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 
+	"magicpodcast/internal/feed"
 	"magicpodcast/internal/models"
 )
 
 const (
-	webHost     = "www.xiaoyuzhoufm.com"
-	legacyHost  = "web.xiaoyuzhoufm.com"
-	defaultBase = "https://www.xiaoyuzhoufm.com"
+	defaultBase = "https://" + feed.XiaoyuzhouWebDomain
 )
 
 var episodeIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
@@ -29,7 +27,7 @@ func ParseEpisodeID(rawURL string) (string, bool) {
 		return "", false
 	}
 	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
-	if host != webHost && host != legacyHost {
+	if host != feed.XiaoyuzhouWebDomain && host != feed.XiaoyuzhouLegacyWebDomain {
 		return "", false
 	}
 	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
@@ -71,34 +69,6 @@ func ParsePlaybackResponse(status int, _ []byte) string {
 	default:
 		return models.VideoAvailabilityUnknown
 	}
-}
-
-// ParseEpisodePage maps a public episode JSON document onto the tri-state.
-func ParseEpisodePage(body []byte) string {
-	var payload struct {
-		Video   pageVideo `json:"video"`
-		Episode struct {
-			Video pageVideo `json:"video"`
-		} `json:"episode"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return models.VideoAvailabilityUnknown
-	}
-	available := payload.Video.Available
-	if available == nil {
-		available = payload.Episode.Video.Available
-	}
-	if available == nil {
-		return models.VideoAvailabilityUnknown
-	}
-	if *available {
-		return models.VideoAvailabilityAvailable
-	}
-	return models.VideoAvailabilityUnavailable
-}
-
-type pageVideo struct {
-	Available *bool `json:"available"`
 }
 
 func haltAfterStatus(status int, err error) bool {
