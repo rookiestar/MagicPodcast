@@ -105,6 +105,67 @@ describe("EpisodeCard", () => {
     openSpy.mockRestore();
   });
 
+  it("shows 看视频 only for available episodes and opens the page instead of HLS", () => {
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    const xyz =
+      "https://www.xiaoyuzhoufm.com/episode/6a734c29ab3a91c24a1067fa?utm_source=rss";
+
+    const { rerender } = render(
+      <TestEpisodeCard
+        episode={makeEpisode({
+          link: xyz,
+          video_availability: "available",
+        })}
+      />,
+    );
+
+    const videoLink = screen.getByRole("link", { name: "看视频" });
+    expect(videoLink).toHaveAttribute("href", xyz);
+    expect(videoLink.getAttribute("href")).not.toContain("m3u8");
+
+    fireEvent.click(screen.getByRole("button", { name: "播放" }));
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://example.com/audio.mp3",
+      "_blank",
+    );
+
+    fireEvent.click(videoLink);
+    expect(
+      screen.getByRole("region", { name: "原节目页恢复" }),
+    ).toBeInTheDocument();
+
+    rerender(
+      <TestEpisodeCard
+        episode={makeEpisode({
+          link: xyz,
+          video_availability: "unknown",
+        })}
+      />,
+    );
+    expect(screen.queryByRole("link", { name: "看视频" })).not.toBeInTheDocument();
+
+    rerender(
+      <TestEpisodeCard
+        episode={makeEpisode({
+          link: xyz,
+          video_availability: "unavailable",
+        })}
+      />,
+    );
+    expect(screen.queryByRole("link", { name: "看视频" })).not.toBeInTheDocument();
+
+    rerender(
+      <TestEpisodeCard
+        episode={makeEpisode({
+          link: "javascript:alert(1)",
+          video_availability: "available",
+        })}
+      />,
+    );
+    expect(screen.queryByRole("link", { name: "看视频" })).not.toBeInTheDocument();
+    openSpy.mockRestore();
+  });
+
   it("offers Xiaoyuzhou recovery after opening the original episode page", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {

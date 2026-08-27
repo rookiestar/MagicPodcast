@@ -61,6 +61,7 @@ func TestApplyMigrationsCreatesVersionedReadySchema(t *testing.T) {
 	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_circuit_state"))
 	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_source_url"))
 	require.True(t, db.Migrator().HasColumn(&models.JobExecution{}, "feed_identity_verification"))
+	require.True(t, db.Migrator().HasColumn(&models.Episode{}, "video_availability"))
 	require.True(t, db.Migrator().HasTable(&models.SchedulerRun{}))
 	require.True(t, db.Migrator().HasTable("feed_snapshots"))
 	require.True(t, db.Migrator().HasTable(&models.EpisodeAudioAsset{}))
@@ -693,6 +694,38 @@ func TestApplyMigrationsUpgradesSchema21To22WithFocusScheduleHistory(t *testing.
 	duplicateItem := item
 	duplicateItem.ID = 0
 	require.ErrorContains(t, db.Create(&duplicateItem).Error, "UNIQUE constraint failed")
+}
+
+func TestApplyMigrationsUpgradesSchema22To23VideoAvailability(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:22]))
+	require.Equal(t, 22, mustSchemaStatus(t, db).CurrentVersion)
+
+	// Baseline AutoMigrate uses current models. Remove the new column to model a
+	// real schema-22 library before migration 23 is applied.
+	if db.Migrator().HasColumn(&models.Episode{}, "video_availability") {
+		require.NoError(t, db.Exec("ALTER TABLE episodes DROP COLUMN video_availability").Error)
+	}
+	require.False(t, db.Migrator().HasColumn(&models.Episode{}, "video_availability"))
+
+	podcast := models.Podcast{
+		Title: "视频三态迁移", FeedURL: "https://example.com/video-availability.xml", XYZID: "migration-23",
+	}
+	require.NoError(t, db.Create(&podcast).Error)
+	require.NoError(t, db.Exec(
+		`INSERT INTO episodes (podcast_id, title, guid, published_date) VALUES (?, ?, ?, ?)`,
+		podcast.ID, "历史单集", "migration-video", time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+	).Error)
+
+	require.NoError(t, ApplyMigrations(db))
+	require.NoError(t, RequireSchemaReady(db))
+	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, db).CurrentVersion)
+	require.True(t, db.Migrator().HasColumn(&models.Episode{}, "video_availability"))
+
+	var stored models.Episode
+	require.NoError(t, db.Where("guid = ?", "migration-video").First(&stored).Error)
+	require.Equal(t, "", stored.VideoAvailability)
+	require.Equal(t, models.VideoAvailabilityUnknown, models.NormalizeVideoAvailability(stored.VideoAvailability))
 }
 
 func TestApplyMigrationsLeavesCurrentManagedAudioSchemaUnchanged(t *testing.T) {

@@ -1023,6 +1023,88 @@ func (c *Coordinator) circuitBlockedLocked(domain string, policy DomainPolicy) (
 	return time.Time{}, false
 }
 
+// SharedQueueDomain maps Xiaoyuzhou web/API hosts onto the Feed domain used for
+// the shared single queue. Video probes wait here instead of opening a second
+// concurrent path to the same operator.
+func SharedQueueDomain(rawURL string) string {
+	host := TargetDomain(rawURL)
+	switch host {
+	case "www.xiaoyuzhoufm.com", "web.xiaoyuzhoufm.com":
+		return XiaoyuzhouFeedDomain
+	default:
+		return host
+	}
+}
+
+// AcquireDomainSlot serializes a non-Feed HTTP call onto the same per-domain
+// queue used by Feed fetches. It does not snapshot the body, coalesce by URL,
+// or mutate the circuit. Xiaoyuzhou episode pages share feed.xyzfm.space.
+func (c *Coordinator) AcquireDomainSlot(ctx context.Context, rawURL string) (func(), error) {
+	noop := func() {}
+	if c == nil {
+		return noop, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	domain := SharedQueueDomain(rawURL)
+	if domain == "" {
+		return noop, nil
+	}
+	policy := c.policyFor(domain)
+
+	var releaseSem func()
+	if policy.MaxConcurrency > 0 {
+		state := c.domainSemaphore(domain, policy.MaxConcurrency)
+		select {
+		case state <- struct{}{}:
+			releaseSem = func() { <-state }
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if policy.SoftRateEnabled && c.softRate != nil {
+		if err := c.softRate.Wait(ctx, domain); err != nil {
+			if releaseSem != nil {
+				releaseSem()
+			}
+			return nil, err
+		}
+	}
+	if releaseSem == nil {
+		return noop, nil
+	}
+	return releaseSem, nil
+}
+
+// ObserveDomainProbe updates Xiaoyuzhou soft-rate from a video probe without
+// treating the response as a Feed snapshot or opening the circuit.
+func (c *Coordinator) ObserveDomainProbe(rawURL string, status int, err error) {
+	if c == nil || c.softRate == nil {
+		return
+	}
+	domain := SharedQueueDomain(rawURL)
+	if domain == "" {
+		return
+	}
+	policy := c.policyFor(domain)
+	if !policy.SoftRateEnabled {
+		return
+	}
+	if err != nil {
+		c.softRate.ObserveTransientFailure(domain)
+		return
+	}
+	switch {
+	case status == http.StatusForbidden || status == http.StatusUnauthorized:
+		c.softRate.ObserveAccessDenied(domain)
+	case status == http.StatusTooManyRequests || status >= 500:
+		c.softRate.ObserveTransientFailure(domain)
+	case status == http.StatusOK || status == http.StatusNotFound:
+		c.softRate.ObserveSuccess(domain)
+	}
+}
+
 func (c *Coordinator) domainSemaphore(domain string, maxConcurrency int) chan struct{} {
 	key := fmt.Sprintf("%s:%d", domain, maxConcurrency)
 	c.mu.Lock()

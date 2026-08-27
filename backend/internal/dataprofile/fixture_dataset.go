@@ -178,9 +178,9 @@ func fixtureEpisodes(anchor time.Time) []models.Episode {
 		{2012, 1002, "204", "Done：已手动完成", anchor.Add(-3 * 24 * time.Hour),
 			"Done 只来自显式用户动作。", "https://example.invalid/episodes/2012", "", 1560},
 		{2013, 1002, "205", "14 天窗口内侧的多日期候选", anchor.Add(-14*24*time.Hour + time.Hour),
-			"应出现在最近更新。", "https://example.invalid/episodes/2013", "", 1740},
+			"应出现在最近更新。", "https://www.xiaoyuzhoufm.com/episode/6a734c29ab3a91c24a1067fa?utm_source=rss", "", 1740},
 		{2014, 1002, "206", "14 天窗口外侧的对照候选", anchor.Add(-14*24*time.Hour - time.Hour),
-			"不应出现在最近更新。", "https://example.invalid/episodes/2014", "", 1860},
+			"不应出现在最近更新。", "https://www.xiaoyuzhoufm.com/episode/6a8cf80a1352af56ff3b7e2d?utm_source=rss", "", 1860},
 		{2015, 1003, "301", "报告中的安全链接与允许图片", anchor.Add(-90 * time.Minute),
 			"精选报告和最近更新复用该 episode。", "https://example.invalid/episodes/2015", fixtureInlinePNG, 2880},
 		{2016, 1002, "207",
@@ -205,6 +205,13 @@ func fixtureEpisodes(anchor time.Time) []models.Episode {
 		if seed.id == 2019 {
 			deletedAt = gorm.DeletedAt{Time: anchor.Add(-30 * time.Minute), Valid: true}
 		}
+		videoAvailability := ""
+		switch seed.id {
+		case 2013:
+			videoAvailability = models.VideoAvailabilityAvailable
+		case 2014:
+			videoAvailability = models.VideoAvailabilityUnavailable
+		}
 		episodes = append(episodes, models.Episode{
 			BaseModel: models.BaseModel{
 				ID:        seed.id,
@@ -212,16 +219,17 @@ func fixtureEpisodes(anchor time.Time) []models.Episode {
 				UpdatedAt: seed.fetched,
 				DeletedAt: deletedAt,
 			},
-			PodcastID:     seed.podcastID,
-			EpisodeNo:     seed.number,
-			Title:         seed.title,
-			ShowNotes:     seed.showNotes,
-			PublishedDate: seed.fetched.Add(-2 * time.Hour),
-			Duration:      seed.duration,
-			Link:          seed.link,
-			ImageURL:      seed.image,
-			GUID:          fmt.Sprintf("fixture-episode-%d", seed.id),
-			FetchedAt:     &fetched,
+			PodcastID:         seed.podcastID,
+			EpisodeNo:         seed.number,
+			Title:             seed.title,
+			ShowNotes:         seed.showNotes,
+			PublishedDate:     seed.fetched.Add(-2 * time.Hour),
+			Duration:          seed.duration,
+			Link:              seed.link,
+			ImageURL:          seed.image,
+			GUID:              fmt.Sprintf("fixture-episode-%d", seed.id),
+			FetchedAt:         &fetched,
+			VideoAvailability: videoAvailability,
 		})
 	}
 	return episodes

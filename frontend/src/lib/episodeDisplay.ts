@@ -1,3 +1,4 @@
+import { getSafeOriginalUrl } from "@/lib/originalEpisodeOpen";
 import type { Episode } from "@/types";
 
 export type EpisodeImagePriority = "high" | "medium" | "low";
@@ -138,4 +139,22 @@ export function shouldShowEpisodePlayButton(mediumUrl?: string | null) {
 
 export function shouldShowEpisodeShowNotes(showNotes?: string | null) {
   return Boolean(showNotes);
+}
+
+export type EpisodeVideoAction =
+  | { show: false }
+  | { show: true; href: string };
+
+export function planEpisodeVideoAction(
+  videoAvailability: string | undefined | null,
+  openUrl: string | undefined | null,
+): EpisodeVideoAction {
+  if (videoAvailability !== "available") {
+    return { show: false };
+  }
+  const href = getSafeOriginalUrl(openUrl);
+  if (!href) {
+    return { show: false };
+  }
+  return { show: true, href };
 }

@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 22
+const CurrentSchemaVersion = 23
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -175,6 +175,12 @@ func migrationRegistry() []Migration {
 			Name:        "focus-processing-schedule-history",
 			Description: "Persist idempotent Focus schedule triggers and candidate outcomes without reusing Feed workflow scheduling (#182).",
 			Apply:       applyFocusProcessingScheduleMigration,
+		},
+		{
+			Version:     23,
+			Name:        "episode-video-availability",
+			Description: "Persist Xiaoyuzhou episode video tri-state on episodes without storing signed HLS (#199).",
+			Apply:       applyEpisodeVideoAvailabilityMigration,
 		},
 	}
 }
@@ -735,6 +741,19 @@ func applyFocusProcessingScheduleMigration(db *gorm.DB) error {
 		if err := db.Exec(statement).Error; err != nil {
 			return fmt.Errorf("apply Focus processing schedule invariant: %w", err)
 		}
+	}
+	return nil
+}
+
+func applyEpisodeVideoAvailabilityMigration(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&models.Episode{}) {
+		return nil
+	}
+	if db.Migrator().HasColumn(&models.Episode{}, "video_availability") {
+		return nil
+	}
+	if err := db.Exec("ALTER TABLE episodes ADD COLUMN video_availability TEXT NOT NULL DEFAULT ''").Error; err != nil {
+		return fmt.Errorf("add episodes.video_availability: %w", err)
 	}
 	return nil
 }

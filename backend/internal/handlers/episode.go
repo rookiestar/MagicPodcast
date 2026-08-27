@@ -27,21 +27,22 @@ func NewEpisodeHandler() *EpisodeHandler {
 
 // EpisodeResponse 单集响应结构
 type EpisodeResponse struct {
-	ID              uint   `json:"id"`
-	GUID            string `json:"guid"` // RSS item GUID，用于单集去重
-	PodcastID       uint   `json:"podcast_id"`
-	EpisodeNo       string `json:"episode_no"`
-	Title           string `json:"title"`
-	MediumURL       string `json:"medium_url"`
-	ShowNotes       string `json:"show_notes"`
-	PublishedDate   string `json:"published_date"`
-	Duration        int    `json:"duration"`         // 音频时长（秒）
-	Link            string `json:"link"`             // 单集网页链接
-	ImageURL        string `json:"image_url"`        // 单集封面图URL
-	EnclosureType   string `json:"enclosure_type"`   // 音频MIME类型
-	EnclosureLength int64  `json:"enclosure_length"` // 音频文件大小（字节）
-	MyRate          int    `json:"my_rate"`
-	Notes           string `json:"notes"`
+	ID                uint   `json:"id"`
+	GUID              string `json:"guid"` // RSS item GUID，用于单集去重
+	PodcastID         uint   `json:"podcast_id"`
+	EpisodeNo         string `json:"episode_no"`
+	Title             string `json:"title"`
+	MediumURL         string `json:"medium_url"`
+	ShowNotes         string `json:"show_notes"`
+	PublishedDate     string `json:"published_date"`
+	Duration          int    `json:"duration"`         // 音频时长（秒）
+	Link              string `json:"link"`             // 单集网页链接
+	ImageURL          string `json:"image_url"`        // 单集封面图URL
+	EnclosureType     string `json:"enclosure_type"`   // 音频MIME类型
+	EnclosureLength   int64  `json:"enclosure_length"` // 音频文件大小（字节）
+	MyRate            int    `json:"my_rate"`
+	Notes             string `json:"notes"`
+	VideoAvailability string `json:"video_availability"`
 }
 
 const (
@@ -68,7 +69,8 @@ const episodeListSelectColumns = `
 	image_url,
 	enclosure_type,
 	enclosure_length,
-	my_rate
+	my_rate,
+	video_availability
 `
 
 func episodeShowNotesPreview(showNotes string, previewLimit int) string {
@@ -90,21 +92,22 @@ func episodeShowNotesPreview(showNotes string, previewLimit int) string {
 
 func episodeToResponse(episode models.Episode, previewLimit int) EpisodeResponse {
 	return EpisodeResponse{
-		ID:              episode.ID,
-		GUID:            episode.GUID,
-		PodcastID:       episode.PodcastID,
-		EpisodeNo:       episodelabel.Normalize(episode.Title, episode.EpisodeNo),
-		Title:           episode.Title,
-		MediumURL:       episode.MediumURL,
-		ShowNotes:       episodeShowNotesPreview(episode.ShowNotes, previewLimit),
-		PublishedDate:   episode.PublishedDate.Format("2006-01-02T15:04:05Z07:00"),
-		Duration:        episode.Duration,
-		Link:            episode.Link,
-		ImageURL:        episode.ImageURL,
-		EnclosureType:   episode.EnclosureType,
-		EnclosureLength: episode.EnclosureLength,
-		MyRate:          episode.MyRate,
-		Notes:           "",
+		ID:                episode.ID,
+		GUID:              episode.GUID,
+		PodcastID:         episode.PodcastID,
+		EpisodeNo:         episodelabel.Normalize(episode.Title, episode.EpisodeNo),
+		Title:             episode.Title,
+		MediumURL:         episode.MediumURL,
+		ShowNotes:         episodeShowNotesPreview(episode.ShowNotes, previewLimit),
+		PublishedDate:     episode.PublishedDate.Format("2006-01-02T15:04:05Z07:00"),
+		Duration:          episode.Duration,
+		Link:              episode.Link,
+		ImageURL:          episode.ImageURL,
+		EnclosureType:     episode.EnclosureType,
+		EnclosureLength:   episode.EnclosureLength,
+		MyRate:            episode.MyRate,
+		Notes:             "",
+		VideoAvailability: models.NormalizeVideoAvailability(episode.VideoAvailability),
 	}
 }
 

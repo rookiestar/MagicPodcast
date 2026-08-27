@@ -10,6 +10,7 @@ import {
   formatEpisodeDuration,
   formatEpisodeFileSize,
   formatEpisodeNumber,
+  planEpisodeVideoAction,
   shouldShowEpisodePlayButton,
   shouldShowEpisodeShowNotes,
   shouldShowEpisodeTitleLink,
@@ -42,6 +43,10 @@ function EpisodeCard({
   const originalPlan = planSafeOriginalEpisodeOpen(episode.link);
   const showTitleLink = shouldShowEpisodeTitleLink(originalPlan?.openUrl);
   const showPlayButton = shouldShowEpisodePlayButton(episode.medium_url);
+  const videoAction = planEpisodeVideoAction(
+    episode.video_availability,
+    originalPlan?.openUrl,
+  );
   const showNotes = shouldShowEpisodeShowNotes(episode.show_notes);
   const handleOriginalOpen = () => {
     if (originalPlan) {
@@ -98,19 +103,34 @@ function EpisodeCard({
                 </span>
               )}
 
-              {/* Play Button Icon */}
-              {showPlayButton && (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    window.open(episode.medium_url, "_blank");
-                  }}
-                  className="podcast-episode-play"
-                  aria-label="播放"
-                >
-                  <IconPlayerPlay aria-hidden="true" stroke={1.8} />
-                </button>
+              {(showPlayButton || videoAction.show) && (
+                <div className="podcast-episode-actions">
+                  {showPlayButton && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        window.open(episode.medium_url, "_blank");
+                      }}
+                      className="podcast-episode-play"
+                      aria-label="播放"
+                    >
+                      <IconPlayerPlay aria-hidden="true" stroke={1.8} />
+                    </button>
+                  )}
+                  {videoAction.show && (
+                    <a
+                      href={videoAction.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="podcast-episode-video"
+                      aria-label="看视频"
+                      onClick={handleOriginalOpen}
+                    >
+                      看视频
+                    </a>
+                  )}
+                </div>
               )}
             </div>
 
@@ -183,6 +203,8 @@ function arePropsEqual(
     prevProps.episode.duration === nextProps.episode.duration &&
     prevProps.episode.enclosure_length === nextProps.episode.enclosure_length &&
     prevProps.episode.show_notes === nextProps.episode.show_notes &&
+    prevProps.episode.video_availability ===
+      nextProps.episode.video_availability &&
     prevProps.podcastCover === nextProps.podcastCover &&
     prevProps.index === nextProps.index &&
     prevProps.priority === nextProps.priority &&

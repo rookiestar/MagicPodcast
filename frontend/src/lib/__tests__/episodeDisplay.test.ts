@@ -10,6 +10,7 @@ import {
   getEpisodeImagePriority,
   shouldShowEpisodeImageLoader,
   shouldShowEpisodeImagePlaceholder,
+  planEpisodeVideoAction,
   shouldShowEpisodePlayButton,
   shouldShowEpisodeShowNotes,
   shouldShowEpisodeTitleLink,
@@ -117,5 +118,20 @@ describe("episodeDisplay", () => {
     expect(shouldShowEpisodePlayButton("")).toBe(false);
     expect(shouldShowEpisodeShowNotes("<p>notes</p>")).toBe(true);
     expect(shouldShowEpisodeShowNotes("")).toBe(false);
+  });
+
+  it("shows the video action only for available episodes with a safe page URL", () => {
+    const xyz =
+      "https://www.xiaoyuzhoufm.com/episode/6a734c29ab3a91c24a1067fa?utm_source=rss";
+    expect(planEpisodeVideoAction("available", xyz)).toEqual({
+      show: true,
+      href: xyz,
+    });
+    expect(planEpisodeVideoAction("unknown", xyz)).toEqual({ show: false });
+    expect(planEpisodeVideoAction("unavailable", xyz)).toEqual({ show: false });
+    expect(planEpisodeVideoAction("available", "javascript:alert(1)")).toEqual({
+      show: false,
+    });
+    expect(planEpisodeVideoAction("available", "")).toEqual({ show: false });
   });
 });
