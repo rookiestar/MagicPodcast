@@ -2,7 +2,7 @@
 
 日期：2026-08-24
 
-状态：已确认设计；#179–#181 仓库实现已合并，尚未迁移、部署或完成真实飞书验收；#186 已在实施分支完成但尚未合并或完成人工导入验收
+状态：截至 2026-08-28，#179–#182、#185 已完成并关闭；#186 实现已合并，仍待真实 ima 人工导入验收；#183、#184 已按所有者决定以 `not planned` 关闭，当前不接入 Gemini Notebook Enterprise；生产迁移、启用和部署仍需独立授权
 
 关联：[领域词汇](../../CONTEXT.md)、[ADR-0007](../adr/0007-use-local-codex-runtime-for-intelligent-processing.md)、[ADR-0008](../adr/0008-separate-action-processing-and-knowledge-delivery-state.md)
 
@@ -25,6 +25,8 @@ Focus 加工资格
 
 当前单集划词/提问 ─> MagicPodcast API ─> 只读 Codex 会话 ─> 带来源答案
 ```
+
+> 2026-08-28 决策：Gemini Notebook Enterprise 的研究内容保留作历史候选，但不属于当前交付范围，也不构成试用、IAM、凭据配置或外部写入授权。未来若重启，须重新立票和批准。
 
 核心分工：
 
@@ -373,7 +375,7 @@ Adapter 只能返回规范回执：目标、远端对象身份、状态、时间
 
 ## 14. 分阶段实施
 
-截至 2026-08-24，阶段 A–C 已合并到 `main`，但生产数据库尚未迁移；真实飞书 Smoke、生产启用和部署尚未执行。阶段 H 已在实施分支完成并通过本地自动测试，但尚未合并或完成真实 ima 导入验收。阶段 D–G 尚未完整实现。
+截至 2026-08-28，阶段 A–D、G 的仓库实现与隔离验收已完成，相关 Issue 已关闭；阶段 H 已合并，仍缺真实 ima 人工导入验收。阶段 E、F 已按所有者决定暂不实施。生产数据库迁移、启用和部署不由这些关闭状态自动授权。
 
 | 阶段 | 交付 | 依赖 |
 | --- | --- | --- |
@@ -381,8 +383,8 @@ Adapter 只能返回规范回执：目标、远端对象身份、状态、时间
 | B | Mac mini Codex Runtime Host 与受限执行 | A |
 | C | 飞书妙记手动加工闭环 | B |
 | D | Focus 定时加工、恢复、重试、取消与状态展示 | C |
-| E | Gemini Notebook Enterprise 无人值守 API Spike | 可与 A–D 并行 |
-| F | Gemini Notebook Enterprise Adapter | E 成功 |
+| E | Gemini Notebook Enterprise 无人值守 API Spike | 暂不实施；#183 `not planned` |
+| F | Gemini Notebook Enterprise Adapter | 暂不实施；#184 `not planned` |
 | G | 当前单集只读助手 | B |
 | H | ima 标准导入包与占位 Adapter | A |
 
@@ -391,7 +393,7 @@ Adapter 只能返回规范回执：目标、远端对象身份、状态、时间
 ```text
 A Foundation -> B Runtime -> C 飞书手动 -> D 定时加工
                          └-> G 单集助手
-E Gemini Notebook Spike -> F Gemini Notebook Adapter
+E Gemini Notebook Spike -> F Gemini Notebook Adapter（当前均暂不实施）
 A Foundation -> H ima 导入包
 ```
 
@@ -414,8 +416,7 @@ A Foundation -> H ima 导入包
 
 ### 15.3 知识桥
 
-- Gemini Notebook Spike 真实证明无人值守认证、创建、上传、轮询和幂等；许可/费用未确认则不得进入 Adapter 票。
-- Gemini Notebook Adapter 通过 Fake 和真实测试，外部失败不影响本地产物。
+- Gemini Notebook 当前不实施；未运行试用、IAM、认证或外部写入。未来重启时须重新立票，并重新满足 Spike 与 Adapter 的独立验收。
 - ima 只能验收“包可导入”和状态诚实，不得宣称自动交付。
 
 ### 15.4 单集助手

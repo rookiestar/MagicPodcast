@@ -576,6 +576,7 @@ describe("WorkflowReportWorkbench", () => {
     const scrollIntoView = vi
       .spyOn(HTMLElement.prototype, "scrollIntoView")
       .mockImplementation(() => {});
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
 
     render(
       <WorkflowReportWorkbench
@@ -616,6 +617,7 @@ describe("WorkflowReportWorkbench", () => {
       behavior: "auto",
       block: "center",
     });
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
     expect(screen.getByRole("button", { name: "关闭" })).toHaveFocus();
   });
 
