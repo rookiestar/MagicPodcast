@@ -893,7 +893,7 @@ export function HistoryDrawer({
 
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    closeButtonRef.current?.focus();
+    closeButtonRef.current?.focus({ preventScroll: true });
 
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
