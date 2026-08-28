@@ -277,6 +277,30 @@ describe("ConsumptionDetailPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps recovery actions visible when saving and copying both fail", async () => {
+    apiMocks.markInProgress.mockRejectedValue(new Error("离线"));
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) },
+    });
+    renderDetail({ item: xyzItem });
+
+    fireEvent.click(screen.getByRole("button", { name: "打开原节目" }));
+    expect(
+      await screen.findByText(
+        "原节目已打开，但进行中记录未保存。队列没有改变。",
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "复制页面链接" }));
+    expect(
+      await screen.findByText("复制失败，请改用重试或用小宇宙打开。"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "原节目页恢复" }),
+    ).toBeInTheDocument();
+  });
+
   it("does not show original-page recovery for ordinary hosts", async () => {
     renderDetail();
 
