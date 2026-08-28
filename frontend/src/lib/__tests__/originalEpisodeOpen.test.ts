@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   getSafeOriginalUrl,
-  planOriginalEpisodeOpen,
+  planSafeOriginalEpisodeOpen,
 } from "../originalEpisodeOpen";
 
 const XYZ_ID = "6a8cf80a1352af56ff3b7e2d";
 
-describe("planOriginalEpisodeOpen", () => {
+describe("planSafeOriginalEpisodeOpen", () => {
   it("offers recovery for Xiaoyuzhou www episode URLs with RSS tracking", () => {
     const openUrl = `https://www.xiaoyuzhoufm.com/episode/${XYZ_ID}?utm_source=rss`;
-    expect(planOriginalEpisodeOpen(openUrl)).toEqual({
+    expect(planSafeOriginalEpisodeOpen(openUrl)).toEqual({
       recovery: true,
       openUrl,
       retryUrl: `https://www.xiaoyuzhoufm.com/episode/${XYZ_ID}`,
@@ -20,7 +20,7 @@ describe("planOriginalEpisodeOpen", () => {
 
   it("offers recovery for the web subdomain and ignores a trailing slash", () => {
     const openUrl = `https://web.xiaoyuzhoufm.com/episode/${XYZ_ID}/`;
-    expect(planOriginalEpisodeOpen(openUrl)).toEqual({
+    expect(planSafeOriginalEpisodeOpen(openUrl)).toEqual({
       recovery: true,
       openUrl,
       retryUrl: `https://www.xiaoyuzhoufm.com/episode/${XYZ_ID}`,
@@ -31,7 +31,7 @@ describe("planOriginalEpisodeOpen", () => {
 
   it("does not offer recovery for non-episode Xiaoyuzhou paths or extra segments", () => {
     expect(
-      planOriginalEpisodeOpen(
+      planSafeOriginalEpisodeOpen(
         `https://www.xiaoyuzhoufm.com/podcast/${XYZ_ID}`,
       ),
     ).toEqual({
@@ -39,7 +39,7 @@ describe("planOriginalEpisodeOpen", () => {
       openUrl: `https://www.xiaoyuzhoufm.com/podcast/${XYZ_ID}`,
     });
     expect(
-      planOriginalEpisodeOpen(
+      planSafeOriginalEpisodeOpen(
         `https://www.xiaoyuzhoufm.com/episode/${XYZ_ID}/comments`,
       ),
     ).toEqual({
@@ -47,7 +47,7 @@ describe("planOriginalEpisodeOpen", () => {
       openUrl: `https://www.xiaoyuzhoufm.com/episode/${XYZ_ID}/comments`,
     });
     expect(
-      planOriginalEpisodeOpen("https://www.xiaoyuzhoufm.com/episode/"),
+      planSafeOriginalEpisodeOpen("https://www.xiaoyuzhoufm.com/episode/"),
     ).toEqual({
       recovery: false,
       openUrl: "https://www.xiaoyuzhoufm.com/episode/",
@@ -56,20 +56,27 @@ describe("planOriginalEpisodeOpen", () => {
 
   it("does not offer recovery for other hosts or unsafe schemes", () => {
     expect(
-      planOriginalEpisodeOpen("https://example.com/episode/201"),
+      planSafeOriginalEpisodeOpen("https://example.com/episode/201"),
     ).toEqual({
       recovery: false,
       openUrl: "https://example.com/episode/201",
     });
-    expect(planOriginalEpisodeOpen("javascript:alert(1)")).toEqual({
-      recovery: false,
-      openUrl: "javascript:alert(1)",
-    });
+    expect(planSafeOriginalEpisodeOpen("javascript:alert(1)")).toBeNull();
     expect(
-      planOriginalEpisodeOpen("data:text/html,<script>alert(1)</script>"),
-    ).toEqual({
-      recovery: false,
-      openUrl: "data:text/html,<script>alert(1)</script>",
+      planSafeOriginalEpisodeOpen("data:text/html,<script>alert(1)</script>"),
+    ).toBeNull();
+  });
+
+  it("keeps recovery for any nonempty Xiaoyuzhou episode path segment", () => {
+    const episodeId = "a".repeat(129);
+    const openUrl = `https://www.xiaoyuzhoufm.com/episode/${episodeId}`;
+
+    expect(planSafeOriginalEpisodeOpen(openUrl)).toEqual({
+      recovery: true,
+      openUrl,
+      retryUrl: openUrl,
+      appUrl: `cosmos://page.cos/episode/${episodeId}`,
+      copyText: openUrl,
     });
   });
 });

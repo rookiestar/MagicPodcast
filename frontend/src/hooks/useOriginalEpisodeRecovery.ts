@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   openOriginalEpisodeTab,
   type OriginalEpisodeOpenPlan,
@@ -13,9 +13,11 @@ export function useOriginalEpisodeRecovery() {
     plan: OriginalEpisodeRecoveryPlan;
   } | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
+  const copyAttemptRef = useRef(0);
 
   const activate = useCallback(
     (key: string | number, plan: OriginalEpisodeOpenPlan) => {
+      copyAttemptRef.current += 1;
       if (plan.recovery) {
         setState({ key, plan });
         setCopyError(null);
@@ -28,6 +30,7 @@ export function useOriginalEpisodeRecovery() {
   );
 
   const dismiss = useCallback(() => {
+    copyAttemptRef.current += 1;
     setState(null);
     setCopyError(null);
   }, []);
@@ -48,11 +51,17 @@ export function useOriginalEpisodeRecovery() {
     if (!state) {
       return;
     }
+
+    const copyAttempt = ++copyAttemptRef.current;
     try {
       await navigator.clipboard.writeText(state.plan.copyText);
-      setCopyError(null);
+      if (copyAttempt === copyAttemptRef.current) {
+        setCopyError(null);
+      }
     } catch {
-      setCopyError(COPY_FAILED_MESSAGE);
+      if (copyAttempt === copyAttemptRef.current) {
+        setCopyError(COPY_FAILED_MESSAGE);
+      }
     }
   }, [state]);
 

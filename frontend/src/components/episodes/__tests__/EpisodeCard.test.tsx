@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useOriginalEpisodeRecovery } from "@/hooks/useOriginalEpisodeRecovery";
@@ -221,6 +221,54 @@ describe("EpisodeCard", () => {
     ).toContainElement(
       screen.getByRole("region", { name: "原节目页恢复" }),
     );
+  });
+
+  it("ignores a stale copy failure after switching episodes", async () => {
+    let rejectFirstCopy: (reason?: unknown) => void;
+    const firstCopy = new Promise<void>((_resolve, reject) => {
+      rejectFirstCopy = reject;
+    });
+    const writeText = vi.fn().mockImplementationOnce(() => firstCopy);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    render(<EpisodeCardPairHarness />);
+
+    fireEvent.click(screen.getByRole("link", { name: "单集 A" }));
+    fireEvent.click(screen.getByRole("button", { name: "复制页面链接" }));
+    fireEvent.click(screen.getByRole("link", { name: "单集 B" }));
+
+    await act(async () => {
+      rejectFirstCopy(new Error("denied"));
+      await Promise.resolve();
+    });
+
+    expect(
+      screen
+        .getByRole("link", { name: "单集 B" })
+        .closest(".podcast-episode-card"),
+    ).toContainElement(
+      screen.getByRole("region", { name: "原节目页恢复" }),
+    );
+    expect(
+      screen.queryByText("复制失败，请改用重试或用小宇宙打开。"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers recovery from the mobile Show Notes detail link", () => {
+    render(
+      <TestEpisodeCard
+        episode={makeEpisode({
+          link: "https://www.xiaoyuzhoufm.com/episode/6a8cf80a1352af56ff3b7e2d?utm_source=rss",
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: /查看详情/ }));
+    expect(
+      screen.getByRole("region", { name: "原节目页恢复" }),
+    ).toBeInTheDocument();
   });
 
   it("queues only episode-specific cover images", () => {

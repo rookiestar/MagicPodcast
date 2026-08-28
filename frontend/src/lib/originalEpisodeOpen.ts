@@ -5,8 +5,6 @@ const XIAOYUZHOU_EPISODE_HOSTS = new Set([
   "web.xiaoyuzhoufm.com",
 ]);
 
-const XIAOYUZHOU_EPISODE_ID = /^[A-Za-z0-9_-]{1,128}$/;
-
 export type OriginalEpisodeOpenPlan =
   | {
       recovery: false;
@@ -36,7 +34,7 @@ export function getSafeOriginalUrl(value: string | undefined | null) {
   return "";
 }
 
-export function planOriginalEpisodeOpen(openUrl: string): OriginalEpisodeOpenPlan {
+function planOriginalEpisodeOpen(openUrl: string): OriginalEpisodeOpenPlan {
   const parsed = parseHttpUrl(openUrl);
   if (!parsed) {
     return { recovery: false, openUrl };
@@ -53,10 +51,6 @@ export function planOriginalEpisodeOpen(openUrl: string): OriginalEpisodeOpenPla
   }
 
   const episodeId = segments[1];
-  if (!XIAOYUZHOU_EPISODE_ID.test(episodeId)) {
-    return { recovery: false, openUrl };
-  }
-
   const retryUrl = `https://www.xiaoyuzhoufm.com/episode/${episodeId}`;
   return {
     recovery: true,
