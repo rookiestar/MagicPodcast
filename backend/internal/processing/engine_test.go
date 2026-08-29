@@ -850,6 +850,64 @@ func TestEngineRetryIsBoundedByTotalElapsedTime(t *testing.T) {
 	require.Equal(t, 1, transcriber.BeginCallCount())
 }
 
+func TestEngineExternalWaitExpiresWithoutAQueuedRetry(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 29, 14, 30, 0, 0, time.UTC)
+	service := newProcessingService(
+		db,
+		WithClock(func() time.Time { return now }),
+		WithRetryPolicy(RetryPolicy{
+			MaxAttempts: 5,
+			MaxElapsed:  time.Second,
+			BaseDelay:   0,
+		}),
+	)
+	episode := createProcessingEpisode(t, db, true, "engine-external-wait-deadline")
+	run := startProcessingRun(t, service, episode.ID)
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	transcriber := &fakeTranscriber{
+		beginProgress: []TranscriptionProgress{{
+			Status:     ExternalProgressWaiting,
+			Checkpoint: json.RawMessage(`{"minute_ref":"summary-still-missing"}`),
+		}},
+		resumeProgress: []TranscriptionProgress{{
+			Status:     ExternalProgressWaiting,
+			Checkpoint: json.RawMessage(`{"minute_ref":"summary-still-missing"}`),
+		}},
+	}
+	engine, err := NewEngine(service, transcriber, &fakeRuntime{}, store, nil)
+	require.NoError(t, err)
+
+	waiting, err := engine.Advance(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusWaitingExternal, waiting.Status)
+	require.Nil(t, waiting.NextAttemptAt)
+	require.Equal(t, 1, waiting.AttemptCount)
+
+	now = now.Add(2 * time.Second)
+	failed, err := engine.Advance(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusFailed, failed.Status)
+	require.Equal(t, externalWaitTimeoutCode, failed.ErrorCode)
+	require.False(t, failed.ErrorRetryable)
+	require.Empty(t, failed.CurrentStep)
+	require.Nil(t, failed.NextAttemptAt)
+	require.NotNil(t, failed.FinishedAt)
+	require.Equal(t, 1, transcriber.BeginCallCount())
+	require.Zero(t, transcriber.ResumeCallCount())
+
+	detail, err := service.GetProcessingRun(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Contains(t, detail.ActionSuggestion, "完整纪要与逐字稿")
+
+	retry, err := service.RetryProcessingRun(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusQueued, retry.Run.Status)
+	require.NotNil(t, retry.Run.PreviousRunID)
+	require.Equal(t, run.ID, *retry.Run.PreviousRunID)
+}
+
 func TestEngineCancellationCannotBeOverwrittenByWorker(t *testing.T) {
 	db := openProcessingTestDB(t)
 	service := newProcessingService(db)

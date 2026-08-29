@@ -32,6 +32,7 @@ type Engine struct {
 const (
 	cancellationExternalResultUnknown = "cancelled_external_result_unknown"
 	cancellationRuntimeResultUnknown  = "cancelled_runtime_result_unknown"
+	externalWaitTimeoutCode           = "external_wait_timeout"
 )
 
 func NewEngine(
@@ -857,6 +858,23 @@ func (e *Engine) claimExternalWait(
 				return nil
 			}
 			return ErrRunBusy
+		}
+		if run.NextAttemptAt == nil && !now.Before(run.RetryDeadlineAt) {
+			if err := tx.Model(&models.EpisodeProcessingRun{}).
+				Where("id = ? AND status = ?", runID, models.ProcessingRunStatusWaitingExternal).
+				Updates(map[string]any{
+					"status":          models.ProcessingRunStatusFailed,
+					"current_step":    "",
+					"finished_at":     now,
+					"next_attempt_at": nil,
+					"error_code":      externalWaitTimeoutCode,
+					"error_message":   "external processing did not produce complete artifacts before the processing deadline",
+					"error_retryable": false,
+					"updated_at":      now,
+				}).Error; err != nil {
+				return err
+			}
+			return loadProcessingRun(tx, runID, &run)
 		}
 		attemptCount := run.AttemptCount
 		if run.NextAttemptAt != nil {

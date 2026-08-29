@@ -665,6 +665,8 @@ func processingActionSuggestion(run models.EpisodeProcessingRun) string {
 		return "请检查本地 Codex Runtime 后重试，已完成的逐字稿会继续复用。"
 	case "transcript_empty", "empty_transcript":
 		return "请等待飞书转写完成或检查妙记产物后重试。"
+	case externalWaitTimeoutCode:
+		return "请检查飞书妙记是否已生成完整纪要与逐字稿，确认后重试转写。"
 	}
 	if strings.HasPrefix(run.ErrorCode, "audio_") {
 		if run.ErrorRetryable {
