@@ -199,8 +199,11 @@ describe("ConsumptionDetailPanel", () => {
       "src",
     );
     expect(
-      screen.getByRole("heading", { name: "单集助手" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("heading", { name: "单集助手" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "单集助手" }),
+    ).toHaveAttribute("aria-expanded", "false");
     expect(
       container.querySelector('[data-copilot-source="show_notes"]'),
     ).toHaveAttribute("data-copilot-episode-id", "201");

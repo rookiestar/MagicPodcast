@@ -25,6 +25,7 @@ import styles from "./InboxPage.module.css";
 
 interface EpisodeCopilotPanelProps {
   item: ConsumptionItem;
+  showHeading?: boolean;
 }
 
 interface CapturedSelection {
@@ -49,6 +50,7 @@ function selectionLabel(source: EpisodeCopilotSelectionSource) {
 
 export default function EpisodeCopilotPanel({
   item,
+  showHeading = true,
 }: EpisodeCopilotPanelProps) {
   const [scope, setScope] = useState<EpisodeCopilotContextScope | null>(null);
   const [scopeError, setScopeError] = useState<string | null>(null);
@@ -182,6 +184,7 @@ export default function EpisodeCopilotPanel({
     if (event.type === "complete") {
       setPhase("completed");
       setStatusMessage("回答完成");
+      setSelection(null);
       setMetrics({
         firstContentMS: event.first_content_ms ?? 0,
         totalMS: event.total_ms ?? 0,
@@ -249,15 +252,17 @@ export default function EpisodeCopilotPanel({
   return (
     <section
       className={styles.copilotSection}
-      aria-labelledby="episode-copilot-title"
+      aria-labelledby={showHeading ? "episode-copilot-title" : undefined}
     >
-      <div className={styles.detailSectionHeading}>
-        <div>
-          <span className={styles.detailKicker}>EPISODE COPILOT</span>
-          <h3 id="episode-copilot-title">单集助手</h3>
+      {showHeading && (
+        <div className={styles.detailSectionHeading}>
+          <div>
+            <span className={styles.detailKicker}>EPISODE COPILOT</span>
+            <h3 id="episode-copilot-title">单集助手</h3>
+          </div>
+          <IconSparkles size={22} stroke={1.6} aria-hidden="true" />
         </div>
-        <IconSparkles size={22} stroke={1.6} aria-hidden="true" />
-      </div>
+      )}
 
       <p className={styles.copilotDataFlow}>
         问题与当前单集上下文会交给 Mac mini 上的本地 Codex Runtime。助手只读，不会修改备注、队列、产物或知识中心。
