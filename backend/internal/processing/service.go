@@ -588,6 +588,9 @@ func (s *Service) GetProcessingRun(ctx context.Context, runID uint) (RunDetail, 
 	artifactErr := s.db.WithContext(ctx).Where("run_id = ?", runID).First(&artifact).Error
 	switch {
 	case artifactErr == nil:
+		if err := s.hydrateArtifactCapabilities(ctx, &artifact); err != nil {
+			return RunDetail{}, err
+		}
 		detail.Artifact = &artifact
 		if err := s.db.WithContext(ctx).
 			Where("artifact_set_id = ?", artifact.ID).
@@ -605,6 +608,9 @@ func (s *Service) GetProcessingRun(ctx context.Context, runID uint) (RunDetail, 
 		First(&currentArtifact).Error
 	switch {
 	case currentArtifactErr == nil:
+		if err := s.hydrateArtifactCapabilities(ctx, &currentArtifact); err != nil {
+			return RunDetail{}, err
+		}
 		detail.CurrentArtifact = &currentArtifact
 	case !errors.Is(currentArtifactErr, gorm.ErrRecordNotFound):
 		return RunDetail{}, fmt.Errorf("read current episode artifact: %w", currentArtifactErr)
@@ -663,7 +669,56 @@ func (s *Service) GetArtifactContent(
 		}
 		return ArtifactContent{}, fmt.Errorf("read artifact set: %w", err)
 	}
-	return s.artifactReader.ReadText(ctx, artifact, kind)
+	content, err := s.artifactReader.ReadText(ctx, artifact, kind)
+	if err != nil {
+		return ArtifactContent{}, err
+	}
+	if kind == "transcript" && sha256Pattern.MatchString(artifact.AudioSHA256) {
+		var count int64
+		if err := s.db.WithContext(ctx).Model(&models.EpisodeAudioAsset{}).
+			Where(
+				"episode_id = ? AND status = ? AND sha256 = ?",
+				artifact.EpisodeID,
+				models.EpisodeAudioAssetStatusReady,
+				artifact.AudioSHA256,
+			).
+			Count(&count).Error; err != nil {
+			return ArtifactContent{}, fmt.Errorf("check artifact audio capability: %w", err)
+		}
+		content.MediaAvailable = count > 0
+	}
+	return content, nil
+}
+
+func (s *Service) hydrateArtifactCapabilities(
+	ctx context.Context,
+	artifact *models.EpisodeArtifactSet,
+) error {
+	if artifact == nil {
+		return nil
+	}
+	artifact.Capabilities = models.EpisodeArtifactCapabilities{
+		MinutesSummary:     sha256Pattern.MatchString(artifact.MinutesSummarySHA256),
+		Transcript:         sha256Pattern.MatchString(artifact.TranscriptSHA256),
+		StructuredTimeline: sha256Pattern.MatchString(artifact.TranscriptTimelineSHA256),
+		LegacyEpisodeNotes: sha256Pattern.MatchString(artifact.NotesSHA256),
+	}
+	if !sha256Pattern.MatchString(artifact.AudioSHA256) {
+		return nil
+	}
+	var count int64
+	if err := s.db.WithContext(ctx).Model(&models.EpisodeAudioAsset{}).
+		Where(
+			"episode_id = ? AND status = ? AND sha256 = ?",
+			artifact.EpisodeID,
+			models.EpisodeAudioAssetStatusReady,
+			artifact.AudioSHA256,
+		).
+		Count(&count).Error; err != nil {
+		return fmt.Errorf("read artifact audio capability: %w", err)
+	}
+	artifact.Capabilities.MatchingAudio = count > 0
+	return nil
 }
 
 func (s *Service) ListEpisodeProcessingRuns(

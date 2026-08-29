@@ -100,22 +100,34 @@ func (ProcessingCheckpoint) TableName() string { return "processing_checkpoints"
 // EpisodeArtifactSet identifies one immutable, atomically published local
 // artifact directory. RootPath never leaves the backend API.
 type EpisodeArtifactSet struct {
-	ID               uint                 `gorm:"primaryKey" json:"id"`
-	RunID            uint                 `gorm:"not null;uniqueIndex" json:"run_id"`
-	Run              EpisodeProcessingRun `gorm:"foreignKey:RunID;constraint:OnDelete:CASCADE" json:"-"`
-	EpisodeID        uint                 `gorm:"not null;index" json:"episode_id"`
-	Episode          Episode              `gorm:"foreignKey:EpisodeID;constraint:OnDelete:CASCADE" json:"-"`
-	PipelineVersion  string               `gorm:"size:100;not null" json:"pipeline_version"`
-	RootPath         string               `gorm:"type:text;not null" json:"-"`
-	ManifestPath     string               `gorm:"size:255;not null" json:"manifest_path"`
-	ManifestSHA256   string               `gorm:"size:64;not null" json:"manifest_sha256"`
-	TranscriptSHA256 string               `gorm:"size:64;not null" json:"transcript_sha256"`
-	NotesSHA256      string               `gorm:"size:64;not null" json:"notes_sha256"`
-	IsCurrent        bool                 `gorm:"not null;default:false;index" json:"is_current"`
-	CreatedAt        time.Time            `gorm:"not null;index" json:"created_at"`
+	ID                       uint                        `gorm:"primaryKey" json:"id"`
+	RunID                    uint                        `gorm:"not null;uniqueIndex" json:"run_id"`
+	Run                      EpisodeProcessingRun        `gorm:"foreignKey:RunID;constraint:OnDelete:CASCADE" json:"-"`
+	EpisodeID                uint                        `gorm:"not null;index" json:"episode_id"`
+	Episode                  Episode                     `gorm:"foreignKey:EpisodeID;constraint:OnDelete:CASCADE" json:"-"`
+	PipelineVersion          string                      `gorm:"size:100;not null" json:"pipeline_version"`
+	RootPath                 string                      `gorm:"type:text;not null" json:"-"`
+	ManifestPath             string                      `gorm:"size:255;not null" json:"manifest_path"`
+	ManifestSHA256           string                      `gorm:"size:64;not null" json:"manifest_sha256"`
+	AudioSHA256              string                      `gorm:"size:64;not null;default:''" json:"-"`
+	MinutesSummarySHA256     string                      `gorm:"size:64;not null;default:''" json:"minutes_summary_sha256,omitempty"`
+	TranscriptSHA256         string                      `gorm:"size:64;not null" json:"transcript_sha256"`
+	TranscriptTimelineSHA256 string                      `gorm:"size:64;not null;default:''" json:"transcript_timeline_sha256,omitempty"`
+	NotesSHA256              string                      `gorm:"size:64;not null" json:"notes_sha256"`
+	Capabilities             EpisodeArtifactCapabilities `gorm:"-" json:"capabilities"`
+	IsCurrent                bool                        `gorm:"not null;default:false;index" json:"is_current"`
+	CreatedAt                time.Time                   `gorm:"not null;index" json:"created_at"`
 }
 
 func (EpisodeArtifactSet) TableName() string { return "episode_artifact_sets" }
+
+type EpisodeArtifactCapabilities struct {
+	MinutesSummary     bool `json:"minutes_summary"`
+	Transcript         bool `json:"transcript"`
+	StructuredTimeline bool `json:"structured_timeline"`
+	MatchingAudio      bool `json:"matching_audio"`
+	LegacyEpisodeNotes bool `json:"legacy_episode_notes"`
+}
 
 // KnowledgeDelivery is independent from both processing and consumption.
 type KnowledgeDelivery struct {

@@ -9,6 +9,8 @@ import (
 )
 
 const (
+	NativeMinutesPipelineVersion = "focus-processing-v2"
+
 	StepAudioPreparation = "audio_prepare"
 	StepTranscription    = "transcription"
 	StepEpisodeNotes     = "episode_notes"
@@ -86,12 +88,21 @@ type TranscriptionRequest struct {
 }
 
 type TranscriptionProgress struct {
-	Status        string
-	Checkpoint    json.RawMessage
-	Transcript    string
-	RawArtifacts  map[string][]byte
-	SourceRefs    map[string]string
-	SkillVersions map[string]string
+	Status         string
+	Checkpoint     json.RawMessage
+	MinutesSummary string
+	Transcript     string
+	Segments       []TranscriptSegment
+	RawArtifacts   map[string][]byte
+	SourceRefs     map[string]string
+	SkillVersions  map[string]string
+}
+
+type TranscriptSegment struct {
+	Order   int    `json:"order"`
+	Speaker string `json:"speaker"`
+	StartMS int64  `json:"start_ms"`
+	Text    string `json:"text"`
 }
 
 type TranscriptionAdapter interface {
@@ -145,7 +156,10 @@ type ArtifactPublishRequest struct {
 	EpisodeID            uint
 	AudioDigest          string
 	PipelineVersion      string
+	NativeMinutes        bool
+	MinutesSummary       string
 	Transcript           string
+	TranscriptSegments   []TranscriptSegment
 	EpisodeNotes         string
 	TranscriptionAdapter string
 	TranscriptionVersion string
@@ -159,11 +173,14 @@ type ArtifactPublishRequest struct {
 }
 
 type ArtifactPublishResult struct {
-	RootPath         string
-	ManifestPath     string
-	ManifestSHA256   string
-	TranscriptSHA256 string
-	NotesSHA256      string
+	RootPath                 string
+	ManifestPath             string
+	ManifestSHA256           string
+	AudioSHA256              string
+	MinutesSummarySHA256     string
+	TranscriptSHA256         string
+	TranscriptTimelineSHA256 string
+	NotesSHA256              string
 }
 
 type ArtifactStore interface {
@@ -172,34 +189,40 @@ type ArtifactStore interface {
 }
 
 type ArtifactContent struct {
-	Kind    string `json:"kind"`
-	Content string `json:"content"`
-	SHA256  string `json:"sha256"`
+	Kind           string              `json:"kind"`
+	Content        string              `json:"content"`
+	SHA256         string              `json:"sha256"`
+	Segments       []TranscriptSegment `json:"segments,omitempty"`
+	TimelineSHA256 string              `json:"timeline_sha256,omitempty"`
+	MediaAvailable bool                `json:"media_available"`
 }
 
-// ArtifactReader exposes only the two normalized Markdown documents from an
-// already recorded artifact set. Implementations must validate the recorded
-// root and expected digest instead of accepting arbitrary paths from callers.
+// ArtifactReader exposes only normalized public documents from an already
+// recorded artifact set. Implementations must validate the recorded root and
+// expected digest instead of accepting arbitrary paths from callers.
 type ArtifactReader interface {
 	ReadText(context.Context, models.EpisodeArtifactSet, string) (ArtifactContent, error)
 }
 
 type KnowledgePackage struct {
-	RunID               uint
-	EpisodeID           uint
-	EpisodeTitle        string
-	PodcastTitle        string
-	PublishedAt         time.Time
-	SourceURL           string
-	ShowNotes           string
-	PipelineVersion     string
-	ArtifactGeneratedAt time.Time
-	ManifestSHA256      string
-	TranscriptSHA256    string
-	EpisodeNotesSHA256  string
-	Transcript          string
-	EpisodeNotes        string
-	Sources             map[string]string
+	RunID                    uint
+	EpisodeID                uint
+	EpisodeTitle             string
+	PodcastTitle             string
+	PublishedAt              time.Time
+	SourceURL                string
+	ShowNotes                string
+	PipelineVersion          string
+	ArtifactGeneratedAt      time.Time
+	ManifestSHA256           string
+	MinutesSummarySHA256     string
+	TranscriptSHA256         string
+	TranscriptTimelineSHA256 string
+	EpisodeNotesSHA256       string
+	MinutesSummary           string
+	Transcript               string
+	EpisodeNotes             string
+	Sources                  map[string]string
 }
 
 type DeliveryRequest struct {

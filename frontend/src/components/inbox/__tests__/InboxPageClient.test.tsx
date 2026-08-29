@@ -14,6 +14,11 @@ import type {
   ConsumptionQueuePayload,
   ConsumptionSummary,
 } from "@/types/consumption";
+import type {
+  EpisodeArtifactSet,
+  ProcessingRun,
+  ProcessingRunDetail,
+} from "@/types/processing";
 
 const apiMocks = vi.hoisted(() => ({
   getSummary: vi.fn(),
@@ -33,7 +38,11 @@ const apiMocks = vi.hoisted(() => ({
   listEpisodeRuns: vi.fn(),
   getLatestAudio: vi.fn(),
   getScheduleStatus: vi.fn(),
+  getProcessingRun: vi.fn(),
+  getArtifactContent: vi.fn(),
   startProcessing: vi.fn(),
+  cancelProcessing: vi.fn(),
+  retryProcessing: vi.fn(),
   getCopilotContext: vi.fn(),
 }));
 
@@ -91,7 +100,11 @@ vi.mock("@dnd-kit/core", async () => {
       dndMocks.onDragOver = onDragOver;
       dndMocks.onDragEnd = onDragEnd;
       dndMocks.onDragCancel = onDragCancel;
-      return React.createElement("div", { "data-testid": "dnd-context" }, children);
+      return React.createElement(
+        "div",
+        { "data-testid": "dnd-context" },
+        children,
+      );
     },
     DragOverlay: ({ children }: { children: React.ReactNode }) =>
       React.createElement(React.Fragment, null, children),
@@ -149,7 +162,11 @@ vi.mock("@/lib/api/processing", () => ({
     listEpisodeRuns: apiMocks.listEpisodeRuns,
     getLatestAudio: apiMocks.getLatestAudio,
     getScheduleStatus: apiMocks.getScheduleStatus,
+    getRun: apiMocks.getProcessingRun,
+    getArtifactContent: apiMocks.getArtifactContent,
     start: apiMocks.startProcessing,
+    cancel: apiMocks.cancelProcessing,
+    retry: apiMocks.retryProcessing,
   },
   getProcessingErrorDetails: vi.fn((error: unknown) => ({
     message: error instanceof Error ? error.message : "加工状态读取失败",
@@ -227,10 +244,16 @@ function installDragMediaQuery() {
       },
       media: "(min-width: 900px) and (orientation: landscape)",
       onchange: null,
-      addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+      addEventListener: (
+        _type: string,
+        listener: (event: MediaQueryListEvent) => void,
+      ) => {
         dragMediaListeners.add(listener);
       },
-      removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+      removeEventListener: (
+        _type: string,
+        listener: (event: MediaQueryListEvent) => void,
+      ) => {
         dragMediaListeners.delete(listener);
       },
       addListener: (listener: (event: MediaQueryListEvent) => void) => {
@@ -317,6 +340,15 @@ describe("InboxPageClient", () => {
       timezone: "",
       batch_size: 0,
     });
+    apiMocks.getArtifactContent.mockImplementation(
+      (_artifactSetId: number, kind: string) =>
+        Promise.resolve({
+          kind,
+          content: "",
+          sha256: "a".repeat(64),
+          media_available: false,
+        }),
+    );
     apiMocks.getCopilotContext.mockResolvedValue({
       episode_id: inboxItem.episode_id,
       show_notes_available: true,
@@ -344,11 +376,7 @@ describe("InboxPageClient", () => {
   });
 
   it("locates and focuses an action-queue item linked from history", async () => {
-    window.history.replaceState(
-      {},
-      "",
-      "/inbox?queue=inbox&episode=101",
-    );
+    window.history.replaceState({}, "", "/inbox?queue=inbox&episode=101");
     render(<InboxPageClient />);
 
     const trigger = await screen.findByRole("button", {
@@ -385,9 +413,11 @@ describe("InboxPageClient", () => {
 
   it("keeps action queues usable while recent completions load or fail", async () => {
     let rejectDone!: (error: Error) => void;
-    const pendingDone = new Promise<ConsumptionQueuePayload>((_resolve, reject) => {
-      rejectDone = reject;
-    });
+    const pendingDone = new Promise<ConsumptionQueuePayload>(
+      (_resolve, reject) => {
+        rejectDone = reject;
+      },
+    );
     apiMocks.listQueue.mockImplementation((queue: ConsumptionQueue) =>
       queue === "done" ? pendingDone : Promise.resolve(queuePayload(queue)),
     );
@@ -401,9 +431,7 @@ describe("InboxPageClient", () => {
       within(queueSection("done")).getByText("正在加载 最近完成…"),
     ).toBeInTheDocument();
     expect(
-      within(queueSection("done")).queryByText(
-        "最近 7 天还没有完成的单集。",
-      ),
+      within(queueSection("done")).queryByText("最近 7 天还没有完成的单集。"),
     ).toBeNull();
 
     rejectDone(new Error("最近完成暂不可用"));
@@ -802,6 +830,288 @@ describe("InboxPageClient", () => {
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 
+  it("reads native Minutes summary by default and keeps the transcript selection in the detail session", async () => {
+    const completedRun: ProcessingRun = {
+      id: 81,
+      episode_id: inboxItem.episode_id,
+      pipeline_version: "focus-processing-v2",
+      trigger_source: "manual",
+      status: "completed",
+      current_step: "",
+      attempt_count: 1,
+      max_attempts: 3,
+      error_retryable: false,
+      created_at: "2026-08-29T08:00:00Z",
+      updated_at: "2026-08-29T08:05:00Z",
+    };
+    const nativeArtifact: EpisodeArtifactSet = {
+      id: 82,
+      run_id: completedRun.id,
+      episode_id: inboxItem.episode_id,
+      pipeline_version: completedRun.pipeline_version,
+      manifest_path: "manifest.json",
+      manifest_sha256: "1".repeat(64),
+      minutes_summary_sha256: "2".repeat(64),
+      transcript_sha256: "3".repeat(64),
+      transcript_timeline_sha256: "4".repeat(64),
+      notes_sha256: "",
+      capabilities: {
+        minutes_summary: true,
+        transcript: true,
+        structured_timeline: true,
+        matching_audio: true,
+        legacy_episode_notes: false,
+      },
+      is_current: true,
+      created_at: "2026-08-29T08:05:00Z",
+    };
+    apiMocks.listEpisodeRuns.mockResolvedValue([completedRun]);
+    apiMocks.getProcessingRun.mockResolvedValue({
+      run: completedRun,
+      current_artifact: nativeArtifact,
+      deliveries: [],
+    } satisfies ProcessingRunDetail);
+    apiMocks.getArtifactContent.mockImplementation(
+      (_artifactSetId: number, kind: string) =>
+        Promise.resolve(
+          kind === "minutes_summary"
+            ? {
+                kind,
+                content: "# 妙记原生纪要",
+                sha256: nativeArtifact.minutes_summary_sha256,
+                media_available: false,
+              }
+            : {
+                kind,
+                content: "# 妙记结构化逐字稿",
+                sha256: nativeArtifact.transcript_sha256,
+                timeline_sha256: nativeArtifact.transcript_timeline_sha256,
+                segments: [
+                  {
+                    order: 1,
+                    speaker: "主持人",
+                    start_ms: 195,
+                    text: "开场",
+                  },
+                ],
+                media_available: true,
+              },
+        ),
+    );
+
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "打开 可处理单集 明细",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "可处理单集",
+    });
+    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+
+    expect(
+      await within(dialog).findByRole("heading", {
+        name: "妙记原生纪要",
+      }),
+    ).toBeVisible();
+    expect(within(dialog).getByRole("tab", { name: "纪要" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(apiMocks.getArtifactContent).toHaveBeenCalledWith(
+      nativeArtifact.id,
+      "minutes_summary",
+    );
+
+    fireEvent.click(within(dialog).getByRole("tab", { name: "逐字稿" }));
+    expect(
+      await within(dialog).findByRole("heading", {
+        name: "妙记结构化逐字稿",
+      }),
+    ).toBeVisible();
+    expect(within(dialog).getByText("逐字稿 · 1 段")).toBeVisible();
+    expect(within(dialog).getByText("音频可用")).toBeVisible();
+
+    fireEvent.click(within(dialog).getByRole("tab", { name: "Show Notes" }));
+    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+    expect(within(dialog).getByRole("tab", { name: "逐字稿" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(
+      within(dialog).getByRole("heading", {
+        name: "妙记结构化逐字稿",
+      }),
+    ).toBeVisible();
+    expect(
+      within(dialog).queryByText("来自同一条飞书妙记"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps a legacy previous success readable when the new run fails", async () => {
+    const failedRun: ProcessingRun = {
+      id: 91,
+      episode_id: inboxItem.episode_id,
+      pipeline_version: "focus-processing-v2",
+      trigger_source: "manual",
+      status: "failed",
+      current_step: "transcription",
+      attempt_count: 1,
+      max_attempts: 3,
+      error_code: "TRANSCRIPT_TIMELINE_INVALID",
+      error_message: "妙记逐字稿时间轴格式无法解析",
+      error_retryable: false,
+      created_at: "2026-08-29T09:00:00Z",
+      updated_at: "2026-08-29T09:05:00Z",
+    };
+    const legacyArtifact: EpisodeArtifactSet = {
+      id: 92,
+      run_id: 90,
+      episode_id: inboxItem.episode_id,
+      pipeline_version: "focus-processing-v1",
+      manifest_path: "manifest.json",
+      manifest_sha256: "5".repeat(64),
+      transcript_sha256: "6".repeat(64),
+      notes_sha256: "7".repeat(64),
+      capabilities: {
+        minutes_summary: false,
+        transcript: true,
+        structured_timeline: false,
+        matching_audio: false,
+        legacy_episode_notes: true,
+      },
+      is_current: true,
+      created_at: "2026-08-28T08:00:00Z",
+    };
+    apiMocks.listEpisodeRuns.mockResolvedValue([failedRun]);
+    apiMocks.getProcessingRun.mockResolvedValue({
+      run: failedRun,
+      current_artifact: legacyArtifact,
+      deliveries: [],
+      action_suggestion: "检查妙记格式后重试。",
+    } satisfies ProcessingRunDetail);
+    apiMocks.getArtifactContent.mockImplementation(
+      (_artifactSetId: number, kind: string) =>
+        Promise.resolve({
+          kind,
+          content:
+            kind === "episode_notes"
+              ? "# 仍可阅读的旧版纪要"
+              : "# 仍可阅读的旧版逐字稿",
+          sha256:
+            kind === "episode_notes"
+              ? legacyArtifact.notes_sha256
+              : legacyArtifact.transcript_sha256,
+          media_available: false,
+        }),
+    );
+
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "打开 可处理单集 明细",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "可处理单集",
+    });
+    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+
+    expect(await within(dialog).findByText("加工失败")).toBeVisible();
+    expect(within(dialog).getByText("上一成功版本")).toBeVisible();
+    expect(
+      within(dialog).getByText(
+        "这是旧版纪要；重新转写后可获得妙记纪要和同步逐字稿。",
+      ),
+    ).toBeVisible();
+    expect(
+      await within(dialog).findByRole("heading", {
+        name: "仍可阅读的旧版纪要",
+      }),
+    ).toBeVisible();
+  });
+
+  it("keeps the transcription shell stable while processing detail is slow", async () => {
+    const completedRun: ProcessingRun = {
+      id: 101,
+      episode_id: inboxItem.episode_id,
+      pipeline_version: "focus-processing-v2",
+      trigger_source: "manual",
+      status: "completed",
+      current_step: "",
+      attempt_count: 1,
+      max_attempts: 3,
+      error_retryable: false,
+      created_at: "2026-08-29T10:00:00Z",
+      updated_at: "2026-08-29T10:05:00Z",
+    };
+    const nativeArtifact: EpisodeArtifactSet = {
+      id: 102,
+      run_id: completedRun.id,
+      episode_id: inboxItem.episode_id,
+      pipeline_version: completedRun.pipeline_version,
+      manifest_path: "manifest.json",
+      manifest_sha256: "8".repeat(64),
+      minutes_summary_sha256: "9".repeat(64),
+      transcript_sha256: "a".repeat(64),
+      transcript_timeline_sha256: "b".repeat(64),
+      notes_sha256: "",
+      capabilities: {
+        minutes_summary: true,
+        transcript: true,
+        structured_timeline: true,
+        matching_audio: false,
+        legacy_episode_notes: false,
+      },
+      is_current: true,
+      created_at: "2026-08-29T10:05:00Z",
+    };
+    let resolveDetail: (detail: ProcessingRunDetail) => void = () => undefined;
+    apiMocks.listEpisodeRuns.mockResolvedValue([completedRun]);
+    apiMocks.getProcessingRun.mockReturnValue(
+      new Promise<ProcessingRunDetail>((resolve) => {
+        resolveDetail = resolve;
+      }),
+    );
+    apiMocks.getArtifactContent.mockResolvedValue({
+      kind: "minutes_summary",
+      content: "# 慢请求完成后的纪要",
+      sha256: nativeArtifact.minutes_summary_sha256,
+      media_available: false,
+    });
+
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "打开 可处理单集 明细",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "可处理单集",
+    });
+    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+    expect(
+      within(dialog).getByRole("heading", { name: "自动加工" }),
+    ).toBeVisible();
+    expect(within(dialog).getByText("尚未加工")).toBeVisible();
+    expect(within(dialog).getByRole("tab", { name: "纪要" })).toBeDisabled();
+    expect(within(dialog).getByRole("tab", { name: "逐字稿" })).toBeDisabled();
+
+    await act(async () => {
+      resolveDetail({
+        run: completedRun,
+        current_artifact: nativeArtifact,
+        deliveries: [],
+      });
+    });
+    expect(
+      await within(dialog).findByRole("heading", {
+        name: "慢请求完成后的纪要",
+      }),
+    ).toBeVisible();
+  });
+
   it("仅在宽屏横屏显示独立拖拽把手", async () => {
     render(<InboxPageClient />);
     await screen.findByText("可处理单集");
@@ -929,7 +1239,9 @@ describe("InboxPageClient", () => {
         done: {
           queue_state: "done",
           revision: 2,
-          items: [{ ...inboxItem, queue_state: "done", in_progress_at: undefined }],
+          items: [
+            { ...inboxItem, queue_state: "done", in_progress_at: undefined },
+          ],
           has_more: false,
         },
       },
@@ -957,7 +1269,9 @@ describe("InboxPageClient", () => {
         acknowledge_focus_limit: false,
       });
     });
-    expect(within(queueSection("done")).getByText("可处理单集")).toBeInTheDocument();
+    expect(
+      within(queueSection("done")).getByText("可处理单集"),
+    ).toBeInTheDocument();
   });
 
   it("recent completions cannot be reordered but can be dragged out precisely", async () => {
@@ -1022,12 +1336,15 @@ describe("InboxPageClient", () => {
     );
 
     await waitFor(() =>
-      expect(apiMocks.placeQueue).toHaveBeenCalledWith(completedItem.episode_id, {
-        queue_state: "inbox",
-        before_episode_id: inboxItem.episode_id,
-        expected_revisions: { inbox: 1, done: 3 },
-        acknowledge_focus_limit: false,
-      }),
+      expect(apiMocks.placeQueue).toHaveBeenCalledWith(
+        completedItem.episode_id,
+        {
+          queue_state: "inbox",
+          before_episode_id: inboxItem.episode_id,
+          expected_revisions: { inbox: 1, done: 3 },
+          acknowledge_focus_limit: false,
+        },
+      ),
     );
     expect(
       within(queueSection("inbox")).getAllByRole("button", {
@@ -1118,7 +1435,9 @@ describe("InboxPageClient", () => {
         acknowledge_focus_limit: false,
       });
     });
-    expect(within(queueSection("done")).getByText("可处理单集")).toBeInTheDocument();
+    expect(
+      within(queueSection("done")).getByText("可处理单集"),
+    ).toBeInTheDocument();
 
     await act(async () => {
       resolveStaleDone({
@@ -1130,7 +1449,9 @@ describe("InboxPageClient", () => {
       await Promise.resolve();
     });
 
-    expect(within(queueSection("done")).getByText("可处理单集")).toBeInTheDocument();
+    expect(
+      within(queueSection("done")).getByText("可处理单集"),
+    ).toBeInTheDocument();
   });
 
   it("队列版本冲突时恢复并提示重新拖放", async () => {
@@ -1155,7 +1476,9 @@ describe("InboxPageClient", () => {
     expect(
       await screen.findByText("队列顺序已在另一设备修改，请重新拖放。"),
     ).toBeInTheDocument();
-    expect(within(queueSection("inbox")).getByText("可处理单集")).toBeInTheDocument();
+    expect(
+      within(queueSection("inbox")).getByText("可处理单集"),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "重试移动 可处理单集" }),
     ).toBeNull();
@@ -1178,7 +1501,8 @@ describe("InboxPageClient", () => {
     apiMocks.listQueue.mockImplementation(async (queue: ConsumptionQueue) => ({
       queue_state: queue,
       revision: queue === "focus" ? 9 : 4,
-      items: queue === "inbox" ? [inboxItem] : queue === "focus" ? focusItems : [],
+      items:
+        queue === "inbox" ? [inboxItem] : queue === "focus" ? focusItems : [],
       has_more: false,
     }));
     apiMocks.getItem.mockResolvedValue(inboxItem);
@@ -1217,7 +1541,9 @@ describe("InboxPageClient", () => {
       await screen.findByRole("alertdialog", { name: "Focus 已有 7 项" }),
     ).toBeInTheDocument();
     expect(apiMocks.placeQueue).not.toHaveBeenCalled();
-    expect(within(queueSection("inbox")).getByText("可处理单集")).toBeInTheDocument();
+    expect(
+      within(queueSection("inbox")).getByText("可处理单集"),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "仍加入 Focus" }));
     await waitFor(() => {
@@ -1289,6 +1615,8 @@ describe("InboxPageClient", () => {
       await screen.findByText("队列顺序已在另一设备修改，请重新拖放。"),
     ).toBeInTheDocument();
     expect(apiMocks.placeQueue).not.toHaveBeenCalled();
-    expect(within(queueSection("someday")).getByText("可处理单集")).toBeInTheDocument();
+    expect(
+      within(queueSection("someday")).getByText("可处理单集"),
+    ).toBeInTheDocument();
   });
 });

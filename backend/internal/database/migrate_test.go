@@ -765,6 +765,73 @@ func TestApplyMigrationsLeavesCurrentManagedAudioSchemaUnchanged(t *testing.T) {
 	require.Equal(t, int64(1), count)
 }
 
+func TestApplyMigrationsUpgradesSchema24To25WithoutRewritingLegacyArtifacts(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:24]))
+	require.Equal(t, 24, mustSchemaStatus(t, db).CurrentVersion)
+
+	podcast := models.Podcast{
+		Title: "妙记产物迁移", FeedURL: "https://example.com/minutes-artifacts.xml",
+		XYZID: "migration-25",
+	}
+	require.NoError(t, db.Create(&podcast).Error)
+	episode := models.Episode{
+		PodcastID: podcast.ID, Title: "旧版产物", GUID: "migration-25-episode",
+	}
+	require.NoError(t, db.Create(&episode).Error)
+	now := time.Date(2026, 8, 29, 8, 0, 0, 0, time.UTC)
+	run := models.EpisodeProcessingRun{
+		EpisodeID:       episode.ID,
+		ProcessingKey:   strings.Repeat("1", 64),
+		AudioDigest:     strings.Repeat("a", 64),
+		PipelineVersion: "focus-processing-v1",
+		TriggerSource:   models.ProcessingTriggerManual,
+		Status:          models.ProcessingRunStatusCompleted,
+		MaxAttempts:     3,
+		RetryDeadlineAt: now.Add(time.Hour),
+		FinishedAt:      &now,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	require.NoError(t, db.Create(&run).Error)
+	legacyNotesSHA := strings.Repeat("3", 64)
+	require.NoError(t, db.Exec(`
+		INSERT INTO episode_artifact_sets (
+			run_id, episode_id, pipeline_version, root_path, manifest_path,
+			manifest_sha256, transcript_sha256, notes_sha256, is_current, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		run.ID,
+		episode.ID,
+		run.PipelineVersion,
+		"/managed/legacy",
+		"manifest.json",
+		strings.Repeat("1", 64),
+		strings.Repeat("2", 64),
+		legacyNotesSHA,
+		true,
+		now,
+	).Error)
+
+	require.NoError(t, ApplyMigrations(db))
+	require.NoError(t, RequireSchemaReady(db))
+	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, db).CurrentVersion)
+	for _, column := range []string{
+		"audio_sha256",
+		"minutes_summary_sha256",
+		"transcript_timeline_sha256",
+		"notes_sha256",
+	} {
+		require.True(t, db.Migrator().HasColumn(&models.EpisodeArtifactSet{}, column))
+	}
+	var artifact models.EpisodeArtifactSet
+	require.NoError(t, db.Where("run_id = ?", run.ID).First(&artifact).Error)
+	require.Equal(t, legacyNotesSHA, artifact.NotesSHA256)
+	require.Empty(t, artifact.AudioSHA256)
+	require.Empty(t, artifact.MinutesSummarySHA256)
+	require.Empty(t, artifact.TranscriptTimelineSHA256)
+}
+
 func mustSchemaStatus(t *testing.T, db *gorm.DB) SchemaStatus {
 	t.Helper()
 	status, err := InspectSchema(db)

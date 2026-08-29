@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	IMAManualImportAdapterVersion = "ima-manual-import-v1"
+	IMAManualImportAdapterVersion = "ima-manual-import-v2"
 	IMAManualImportPackageSchema  = "magicpodcast.ima.manual_import.package"
-	IMAManualImportSchemaVersion  = "1.0.0"
+	IMAManualImportSchemaVersion  = "2.0.0"
 	DeliveryModeManualImport      = "manual_import"
 	imaMaxNestedURLDepth          = 4
 	imaMaxURLDecodePasses         = 8
@@ -68,13 +68,15 @@ type imaEpisodeMetadata struct {
 }
 
 type imaArtifactTrace struct {
-	RunID              uint   `json:"run_id"`
-	ArtifactSetID      uint   `json:"artifact_set_id"`
-	PipelineVersion    string `json:"pipeline_version"`
-	GeneratedAt        string `json:"generated_at"`
-	ManifestSHA256     string `json:"manifest_sha256"`
-	TranscriptSHA256   string `json:"transcript_sha256"`
-	EpisodeNotesSHA256 string `json:"episode_notes_sha256"`
+	RunID                    uint   `json:"run_id"`
+	ArtifactSetID            uint   `json:"artifact_set_id"`
+	PipelineVersion          string `json:"pipeline_version"`
+	GeneratedAt              string `json:"generated_at"`
+	ManifestSHA256           string `json:"manifest_sha256"`
+	MinutesSummarySHA256     string `json:"minutes_summary_sha256,omitempty"`
+	TranscriptSHA256         string `json:"transcript_sha256"`
+	TranscriptTimelineSHA256 string `json:"transcript_timeline_sha256,omitempty"`
+	EpisodeNotesSHA256       string `json:"episode_notes_sha256,omitempty"`
 }
 
 type imaPackageManifest struct {
@@ -179,16 +181,33 @@ func validateIMAManualImportRequest(request DeliveryRequest) error {
 	case pkg.ArtifactGeneratedAt.IsZero():
 		return invalidIMAPackage("artifact generation time is required")
 	case !isLowerSHA256(pkg.ManifestSHA256) ||
-		!isLowerSHA256(pkg.TranscriptSHA256) ||
-		!isLowerSHA256(pkg.EpisodeNotesSHA256):
+		!isLowerSHA256(pkg.TranscriptSHA256):
 		return invalidIMAPackage("artifact checksums are incomplete")
-	case strings.TrimSpace(pkg.Transcript) == "" ||
-		strings.TrimSpace(pkg.EpisodeNotes) == "":
-		return invalidIMAPackage("transcript and episode notes are required")
+	case strings.TrimSpace(pkg.Transcript) == "":
+		return invalidIMAPackage("transcript is required")
 	}
-	if digestString(pkg.Transcript) != pkg.TranscriptSHA256 ||
-		digestString(pkg.EpisodeNotes) != pkg.EpisodeNotesSHA256 {
+	if digestString(pkg.Transcript) != pkg.TranscriptSHA256 {
 		return invalidIMAPackage("artifact content does not match its checksum")
+	}
+	if usesNativeMinutesPipeline(pkg.PipelineVersion) {
+		if !isLowerSHA256(pkg.MinutesSummarySHA256) ||
+			!isLowerSHA256(pkg.TranscriptTimelineSHA256) ||
+			strings.TrimSpace(pkg.MinutesSummary) == "" {
+			return invalidIMAPackage(
+				"minutes summary and transcript timeline are required",
+			)
+		}
+		if digestString(pkg.MinutesSummary) != pkg.MinutesSummarySHA256 {
+			return invalidIMAPackage("artifact content does not match its checksum")
+		}
+	} else {
+		if !isLowerSHA256(pkg.EpisodeNotesSHA256) ||
+			strings.TrimSpace(pkg.EpisodeNotes) == "" {
+			return invalidIMAPackage("legacy episode notes are required")
+		}
+		if digestString(pkg.EpisodeNotes) != pkg.EpisodeNotesSHA256 {
+			return invalidIMAPackage("artifact content does not match its checksum")
+		}
 	}
 	if strings.TrimSpace(pkg.SourceURL) != "" {
 		if err := validateSafeHTTPURL(pkg.SourceURL); err != nil {
@@ -199,6 +218,7 @@ func validateIMAManualImportRequest(request DeliveryRequest) error {
 		pkg.EpisodeTitle,
 		pkg.PodcastTitle,
 		pkg.ShowNotes,
+		pkg.MinutesSummary,
 		pkg.Transcript,
 		pkg.EpisodeNotes,
 	} {
@@ -305,8 +325,19 @@ func renderIMAKnowledge(request DeliveryRequest, trace imaArtifactTrace) string 
 	fmt.Fprintf(&builder, "- 产物 Manifest SHA-256：`%s`\n\n", trace.ManifestSHA256)
 	builder.WriteString("## Show Notes\n\n")
 	builder.WriteString(showNotes)
-	builder.WriteString("\n\n## 单集纪要\n\n")
-	builder.WriteString(strings.TrimSpace(pkg.EpisodeNotes))
+	if usesNativeMinutesPipeline(pkg.PipelineVersion) {
+		builder.WriteString("\n\n## 妙记纪要\n\n")
+		builder.WriteString(strings.TrimSpace(pkg.MinutesSummary))
+		fmt.Fprintf(
+			&builder,
+			"\n\n- 纪要 SHA-256：`%s`\n- 时间轴 SHA-256：`%s`\n",
+			trace.MinutesSummarySHA256,
+			trace.TranscriptTimelineSHA256,
+		)
+	} else {
+		builder.WriteString("\n\n## 旧版纪要\n\n")
+		builder.WriteString(strings.TrimSpace(pkg.EpisodeNotes))
+	}
 	builder.WriteString("\n\n## 规范逐字稿\n\n")
 	builder.WriteString(strings.TrimSpace(pkg.Transcript))
 	if len(pkg.Sources) > 0 {
@@ -330,7 +361,7 @@ func renderIMAImportInstructions(packageID string) string {
 
 1. 在 ima 官方产品中打开获批的测试知识库。
 2. 先选择本包的 `+"`knowledge.md`"+` 进行人工上传；其余 JSON/说明文件仅用于本地校验与追溯。
-3. 导入后人工核对标题、Show Notes、单集纪要、逐字稿与来源链接。
+3. 导入后人工核对标题、Show Notes、纪要、逐字稿、时间轴摘要与来源链接。
 4. 重复导入、覆盖、批量文件和 JSON 支持情况尚未验证，不要推断产品行为。
 
 当前状态仅为“包已生成 / 待人工导入”，不代表 ima 已接收、索引或交付成功。不要在验收记录中保存账号、Cookie、Token、二维码或会话。
@@ -911,13 +942,15 @@ func optionalStableTime(value time.Time) *string {
 
 func imaTraceForRequest(request DeliveryRequest) imaArtifactTrace {
 	return imaArtifactTrace{
-		RunID:              request.Package.RunID,
-		ArtifactSetID:      request.ArtifactSetID,
-		PipelineVersion:    strings.TrimSpace(request.Package.PipelineVersion),
-		GeneratedAt:        stableTime(request.Package.ArtifactGeneratedAt),
-		ManifestSHA256:     request.Package.ManifestSHA256,
-		TranscriptSHA256:   request.Package.TranscriptSHA256,
-		EpisodeNotesSHA256: request.Package.EpisodeNotesSHA256,
+		RunID:                    request.Package.RunID,
+		ArtifactSetID:            request.ArtifactSetID,
+		PipelineVersion:          strings.TrimSpace(request.Package.PipelineVersion),
+		GeneratedAt:              stableTime(request.Package.ArtifactGeneratedAt),
+		ManifestSHA256:           request.Package.ManifestSHA256,
+		MinutesSummarySHA256:     request.Package.MinutesSummarySHA256,
+		TranscriptSHA256:         request.Package.TranscriptSHA256,
+		TranscriptTimelineSHA256: request.Package.TranscriptTimelineSHA256,
+		EpisodeNotesSHA256:       request.Package.EpisodeNotesSHA256,
 	}
 }
 

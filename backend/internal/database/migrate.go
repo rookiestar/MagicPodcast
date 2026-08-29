@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 24
+const CurrentSchemaVersion = 25
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -189,6 +189,12 @@ func migrationRegistry() []Migration {
 			Description:                 "Constrain persisted Xiaoyuzhou episode video tri-state values (#199).",
 			Apply:                       applyEpisodeVideoAvailabilityConstraintMigration,
 			RequiresForeignKeysDisabled: true,
+		},
+		{
+			Version:     25,
+			Name:        "native-minutes-artifact-integrity",
+			Description: "Add forward-compatible audio, Minutes summary, and transcript timeline integrity fields to immutable artifact sets (#206).",
+			Apply:       applyNativeMinutesArtifactIntegrityMigration,
 		},
 	}
 }
@@ -854,6 +860,13 @@ func applyEpisodeVideoAvailabilityConstraintMigration(db *gorm.DB) error {
 	}
 	if err := db.Migrator().CreateConstraint(&models.Episode{}, models.VideoAvailabilityConstraint); err != nil {
 		return fmt.Errorf("constrain episodes.video_availability: %w", err)
+	}
+	return nil
+}
+
+func applyNativeMinutesArtifactIntegrityMigration(db *gorm.DB) error {
+	if err := db.AutoMigrate(&models.EpisodeArtifactSet{}); err != nil {
+		return fmt.Errorf("add native Minutes artifact integrity: %w", err)
 	}
 	return nil
 }

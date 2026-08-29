@@ -53,7 +53,7 @@ discovery:
 # Codex Runtime 与 lark-cli，并完成飞书用户身份授权。
 processing:
   enabled: false
-  pipeline_version: "focus-processing-v1"
+  pipeline_version: "focus-processing-v2"
   audio_root: "/absolute/path/to/magicpodcast/processing/audio"
   artifact_root: "/absolute/path/to/magicpodcast/processing/artifacts"
   lark_cli: "/absolute/path/to/lark-cli"

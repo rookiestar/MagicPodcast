@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import EpisodeProcessingPanel from "../EpisodeProcessingPanel";
 import type { ConsumptionItem } from "@/types/consumption";
@@ -88,6 +94,13 @@ const artifact: EpisodeArtifactSet = {
   manifest_sha256: "a".repeat(64),
   transcript_sha256: "b".repeat(64),
   notes_sha256: "c".repeat(64),
+  capabilities: {
+    minutes_summary: false,
+    transcript: true,
+    structured_timeline: false,
+    matching_audio: false,
+    legacy_episode_notes: true,
+  },
   is_current: true,
   created_at: "2026-08-24T07:00:00Z",
 };
@@ -114,6 +127,15 @@ describe("EpisodeProcessingPanel", () => {
       timezone: "",
       batch_size: 0,
     });
+    apiMocks.getArtifactContent.mockImplementation(
+      (_artifactSetId: number, kind: string) =>
+        Promise.resolve({
+          kind,
+          content: kind === "transcript" ? "# 规范逐字稿" : "# 旧版纪要",
+          sha256: "d".repeat(64),
+          media_available: false,
+        }),
+    );
   });
 
   it("keeps a stable first-visit state while processing status is slow", async () => {
@@ -136,9 +158,7 @@ describe("EpisodeProcessingPanel", () => {
     await waitFor(() =>
       expect(screen.queryByText("正在读取…")).not.toBeInTheDocument(),
     );
-    expect(
-      screen.getByRole("button", { name: "开始转写" }),
-    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: "开始转写" })).toBeEnabled();
   });
 
   it("clears the previous episode state before a slow identity switch", async () => {
@@ -206,14 +226,10 @@ describe("EpisodeProcessingPanel", () => {
     render(<EpisodeProcessingPanel item={item} />);
 
     expect(
-      await screen.findByText(
-        "加工状态读取失败，单集内容不受影响：网络超时",
-      ),
+      await screen.findByText("加工状态读取失败，单集内容不受影响：网络超时"),
     ).toBeVisible();
     expect(screen.getByText("尚未加工")).toBeVisible();
-    expect(
-      screen.getByRole("button", { name: "开始转写" }),
-    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: "开始转写" })).toBeEnabled();
     expect(
       screen.getByRole("button", { name: "重试读取加工状态" }),
     ).toBeEnabled();
@@ -542,17 +558,14 @@ describe("EpisodeProcessingPanel", () => {
       reused_successful: false,
       preparing_audio: false,
     });
-    apiMocks.getArtifactContent.mockResolvedValue({
-      kind: "transcript",
-      content: "# 规范逐字稿",
-      sha256: artifact.transcript_sha256,
-    });
-
     const { container } = render(<EpisodeProcessingPanel item={item} />);
 
     expect(await screen.findByText("加工失败")).toBeVisible();
     expect(screen.getByText("上一成功版本")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "逐字稿" }));
+    expect(
+      screen.getByText("这是旧版纪要；重新转写后可获得妙记纪要和同步逐字稿。"),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "逐字稿" }));
     expect(await screen.findByText("# 规范逐字稿")).toBeVisible();
     expect(
       container.querySelector('[data-copilot-source="transcript"]'),
@@ -561,6 +574,91 @@ describe("EpisodeProcessingPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "重试转写" }));
     await waitFor(() => expect(apiMocks.retry).toHaveBeenCalledWith(31));
     await waitFor(() => expect(apiMocks.getRun).toHaveBeenCalledWith(32));
+  });
+
+  it("defaults native Minutes artifacts to summary and preserves the selected subtab", async () => {
+    const completedRun: ProcessingRun = {
+      ...failedRun,
+      id: 62,
+      pipeline_version: "focus-processing-v2",
+      status: "completed",
+      current_step: "",
+      error_code: undefined,
+      error_message: undefined,
+      error_retryable: false,
+    };
+    const nativeArtifact: EpisodeArtifactSet = {
+      ...artifact,
+      run_id: completedRun.id,
+      pipeline_version: completedRun.pipeline_version,
+      minutes_summary_sha256: "e".repeat(64),
+      notes_sha256: "",
+      transcript_timeline_sha256: "f".repeat(64),
+      capabilities: {
+        minutes_summary: true,
+        transcript: true,
+        structured_timeline: true,
+        matching_audio: true,
+        legacy_episode_notes: false,
+      },
+    };
+    apiMocks.listEpisodeRuns.mockResolvedValue([completedRun]);
+    apiMocks.getRun.mockResolvedValue({
+      run: completedRun,
+      current_artifact: nativeArtifact,
+      deliveries: [],
+    });
+    apiMocks.getArtifactContent.mockImplementation(
+      (_artifactSetId: number, kind: string) =>
+        Promise.resolve(
+          kind === "minutes_summary"
+            ? {
+                kind,
+                content: "# 妙记纪要",
+                sha256: nativeArtifact.minutes_summary_sha256,
+                media_available: false,
+              }
+            : {
+                kind,
+                content: "# 妙记逐字稿",
+                sha256: nativeArtifact.transcript_sha256,
+                timeline_sha256: nativeArtifact.transcript_timeline_sha256,
+                segments: [
+                  {
+                    order: 1,
+                    speaker: "说话人",
+                    start_ms: 195,
+                    text: "正文",
+                  },
+                ],
+                media_available: true,
+              },
+        ),
+    );
+
+    const { rerender } = render(<EpisodeProcessingPanel item={item} />);
+
+    expect(await screen.findByText("# 妙记纪要")).toBeVisible();
+    expect(screen.getByRole("tab", { name: "纪要" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(apiMocks.getArtifactContent).toHaveBeenCalledWith(
+      nativeArtifact.id,
+      "minutes_summary",
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "逐字稿" }));
+    expect(await screen.findByText("# 妙记逐字稿")).toBeVisible();
+    expect(screen.getByText("逐字稿 · 1 段")).toBeVisible();
+    expect(screen.getByText("音频可用")).toBeVisible();
+
+    rerender(<EpisodeProcessingPanel item={item} />);
+    expect(screen.getByRole("tab", { name: "逐字稿" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.queryByText("来自同一条飞书妙记")).not.toBeInTheDocument();
   });
 
   it("does not offer an unsafe retry when an external write result is unknown", async () => {
@@ -601,7 +699,7 @@ describe("EpisodeProcessingPanel", () => {
           artifact_set_id: artifact.id,
           target: "ima",
           destination: "manual-import",
-          adapter_version: "ima-manual-import-v1",
+          adapter_version: "ima-manual-import-v2",
           status: "pending",
           attempt_count: 1,
           error_retryable: false,
@@ -637,7 +735,9 @@ describe("EpisodeProcessingPanel", () => {
     render(<EpisodeProcessingPanel item={item} />);
 
     expect(await screen.findByText("已取消")).toBeVisible();
-    expect(screen.getByText("飞书端任务可能继续", { exact: false })).toBeVisible();
+    expect(
+      screen.getByText("飞书端任务可能继续", { exact: false }),
+    ).toBeVisible();
     expect(
       screen.queryByRole("button", { name: "重试转写" }),
     ).not.toBeInTheDocument();

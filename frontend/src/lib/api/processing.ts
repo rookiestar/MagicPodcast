@@ -1,13 +1,14 @@
 import { api, handleResponse, inlineApiErrorConfig } from "./client";
 import type { ApiResponse } from "@/types";
 import type {
+  ArtifactContentKind,
   ArtifactContent,
   EpisodeAudioAsset,
   ProcessingErrorDetails,
   ProcessingRun,
-	ProcessingRunDetail,
-	ProcessingScheduleStatus,
-	ProcessingStartResult,
+  ProcessingRunDetail,
+  ProcessingScheduleStatus,
+  ProcessingStartResult,
 } from "@/types/processing";
 
 interface AxiosLikeError {
@@ -98,7 +99,7 @@ export const processingApi = {
 
   getArtifactContent: async (
     artifactSetId: number,
-    kind: "transcript" | "episode_notes",
+    kind: ArtifactContentKind,
   ): Promise<ArtifactContent> => {
     const response = await api.get<ApiResponse<ArtifactContent>>(
       `/api/v1/artifact-sets/${artifactSetId}/${kind}`,

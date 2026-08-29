@@ -34,10 +34,21 @@ export interface EpisodeArtifactSet {
   pipeline_version: string;
   manifest_path: string;
   manifest_sha256: string;
+  minutes_summary_sha256?: string;
   transcript_sha256: string;
   notes_sha256: string;
+  transcript_timeline_sha256?: string;
+  capabilities: EpisodeArtifactCapabilities;
   is_current: boolean;
   created_at: string;
+}
+
+export interface EpisodeArtifactCapabilities {
+  minutes_summary: boolean;
+  transcript: boolean;
+  structured_timeline: boolean;
+  matching_audio: boolean;
+  legacy_episode_notes: boolean;
 }
 
 export interface ProcessingRunDetail {
@@ -49,11 +60,7 @@ export interface ProcessingRunDetail {
 }
 
 export type KnowledgeDeliveryStatus =
-  | "pending"
-  | "delivering"
-  | "delivered"
-  | "failed"
-  | "cancelled";
+  "pending" | "delivering" | "delivered" | "failed" | "cancelled";
 
 export interface KnowledgeDelivery {
   id: number;
@@ -101,9 +108,22 @@ export interface EpisodeAudioAsset {
 }
 
 export interface ArtifactContent {
-  kind: "transcript" | "episode_notes";
+  kind: ArtifactContentKind;
   content: string;
   sha256: string;
+  segments?: TranscriptSegment[];
+  timeline_sha256?: string;
+  media_available: boolean;
+}
+
+export type ArtifactContentKind =
+  "minutes_summary" | "transcript" | "episode_notes";
+
+export interface TranscriptSegment {
+  order: number;
+  speaker: string;
+  start_ms: number;
+  text: string;
 }
 
 export interface ProcessingErrorDetails {

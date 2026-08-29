@@ -155,13 +155,17 @@ func TestExportAndRefreshSanitizesAndDoesNotSwitchActiveProfile(t *testing.T) {
 		);
 		INSERT INTO episode_artifact_sets(
 			id, run_id, episode_id, pipeline_version, root_path, manifest_path,
-			manifest_sha256, transcript_sha256, notes_sha256, is_current,
-			created_at
+			manifest_sha256, audio_sha256, minutes_summary_sha256,
+			transcript_sha256, transcript_timeline_sha256, notes_sha256,
+			is_current, created_at
 		) VALUES (
 			9103, 9101, 2001, 'pipeline-private',
 			'/Users/private/MagicPodcast/artifacts/episode-2001', 'manifest.json',
 			'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+			'1111111111111111111111111111111111111111111111111111111111111111',
+			'2222222222222222222222222222222222222222222222222222222222222222',
 			'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+			'3333333333333333333333333333333333333333333333333333333333333333',
 			'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
 			1, CURRENT_TIMESTAMP
 		);

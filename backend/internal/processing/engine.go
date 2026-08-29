@@ -87,6 +87,10 @@ func validAdapterIdentityPart(value string) bool {
 	return trimmed != "" && value == trimmed
 }
 
+func usesNativeMinutesPipeline(version string) bool {
+	return strings.TrimSpace(version) == NativeMinutesPipelineVersion
+}
+
 // Advance performs bounded work for one run. External waiting returns
 // immediately after persisting the checkpoint; a later call resumes it.
 func (e *Engine) Advance(
@@ -330,6 +334,21 @@ func (e *Engine) Advance(
 				ExternalProgressCompleted,
 			)
 		}
+		if usesNativeMinutesPipeline(run.PipelineVersion) &&
+			(strings.TrimSpace(progress.MinutesSummary) == "" ||
+				!validTranscriptSegments(progress.Segments)) {
+			return e.handleStepError(
+				runCtx,
+				run.ID,
+				NewAdapterError(
+					"minutes_artifacts_incomplete",
+					"Feishu Minutes completed without a valid summary and transcript timeline",
+					false,
+				),
+				progress.Checkpoint,
+				ExternalProgressCompleted,
+			)
+		}
 		if len(progress.Checkpoint) == 0 {
 			return e.handleStepError(
 				runCtx,
@@ -369,53 +388,58 @@ func (e *Engine) Advance(
 			return e.currentAfterConditionalFailure(runCtx, run.ID, err)
 		}
 	}
-	if err := e.setCurrentStep(runCtx, run.ID, StepEpisodeNotes); err != nil {
-		return e.currentAfterConditionalFailure(runCtx, run.ID, err)
-	}
-	runtimeResult, err := e.runtime.Execute(runCtx, RuntimeRequest{
-		RunID:           run.ID,
-		EpisodeID:       run.EpisodeID,
-		PipelineVersion: run.PipelineVersion,
-		Transcript:      progress.Transcript,
-	})
-	if err != nil {
-		return e.handleStepError(
-			runCtx,
-			run.ID,
-			err,
-			progress.Checkpoint,
-			ExternalProgressCompleted,
+	nativeMinutes := usesNativeMinutesPipeline(run.PipelineVersion)
+	runtimeResult := RuntimeResult{}
+	skillVersions := cloneStringMap(progress.SkillVersions)
+	if !nativeMinutes {
+		if err := e.setCurrentStep(runCtx, run.ID, StepEpisodeNotes); err != nil {
+			return e.currentAfterConditionalFailure(runCtx, run.ID, err)
+		}
+		runtimeResult, err = e.runtime.Execute(runCtx, RuntimeRequest{
+			RunID:           run.ID,
+			EpisodeID:       run.EpisodeID,
+			PipelineVersion: run.PipelineVersion,
+			Transcript:      progress.Transcript,
+		})
+		if err != nil {
+			return e.handleStepError(
+				runCtx,
+				run.ID,
+				err,
+				progress.Checkpoint,
+				ExternalProgressCompleted,
+			)
+		}
+		if runtimeResult.EpisodeNotes == "" {
+			return e.handleStepError(
+				runCtx,
+				run.ID,
+				NewAdapterError(
+					"empty_episode_notes",
+					"runtime completed without episode notes",
+					false,
+				),
+				progress.Checkpoint,
+				ExternalProgressCompleted,
+			)
+		}
+		skillVersions, err = mergeVersionMaps(
+			progress.SkillVersions,
+			runtimeResult.SkillVersions,
 		)
-	}
-	if runtimeResult.EpisodeNotes == "" {
-		return e.handleStepError(
-			runCtx,
-			run.ID,
-			NewAdapterError(
-				"empty_episode_notes",
-				"runtime completed without episode notes",
-				false,
-			),
-			progress.Checkpoint,
-			ExternalProgressCompleted,
-		)
-	}
-	skillVersions, err := mergeVersionMaps(
-		progress.SkillVersions,
-		runtimeResult.SkillVersions,
-	)
-	if err != nil {
-		return e.handleStepError(
-			runCtx,
-			run.ID,
-			NewAdapterError(
-				"skill_version_conflict",
-				"processing adapters reported conflicting skill versions",
-				false,
-			),
-			progress.Checkpoint,
-			ExternalProgressCompleted,
-		)
+		if err != nil {
+			return e.handleStepError(
+				runCtx,
+				run.ID,
+				NewAdapterError(
+					"skill_version_conflict",
+					"processing adapters reported conflicting skill versions",
+					false,
+				),
+				progress.Checkpoint,
+				ExternalProgressCompleted,
+			)
+		}
 	}
 
 	if err := e.setCurrentStep(runCtx, run.ID, StepArtifactPublish); err != nil {
@@ -438,16 +462,23 @@ func (e *Engine) Advance(
 			)
 		}
 	}
+	runtimeAdapterName := ""
+	if !nativeMinutes {
+		runtimeAdapterName = e.runtime.Name()
+	}
 	published, err := e.artifactStore.Publish(runCtx, ArtifactPublishRequest{
 		RunID:                run.ID,
 		EpisodeID:            run.EpisodeID,
 		AudioDigest:          run.AudioDigest,
 		PipelineVersion:      run.PipelineVersion,
+		NativeMinutes:        nativeMinutes,
+		MinutesSummary:       progress.MinutesSummary,
 		Transcript:           progress.Transcript,
+		TranscriptSegments:   progress.Segments,
 		EpisodeNotes:         runtimeResult.EpisodeNotes,
 		TranscriptionAdapter: e.transcriber.Name(),
 		TranscriptionVersion: e.transcriber.Version(),
-		RuntimeAdapter:       e.runtime.Name(),
+		RuntimeAdapter:       runtimeAdapterName,
 		RuntimeVersion:       runtimeResult.RuntimeVersion,
 		PromptVersion:        runtimeResult.PromptVersion,
 		SkillVersions:        skillVersions,
@@ -490,6 +521,7 @@ func (e *Engine) Advance(
 		run,
 		artifact,
 		packageEpisode,
+		progress.MinutesSummary,
 		progress.Transcript,
 		runtimeResult.EpisodeNotes,
 		progress.SourceRefs,
@@ -521,6 +553,7 @@ func buildKnowledgePackage(
 	run models.EpisodeProcessingRun,
 	artifact models.EpisodeArtifactSet,
 	episode models.Episode,
+	minutesSummary string,
 	transcript string,
 	episodeNotes string,
 	sourceRefs map[string]string,
@@ -534,21 +567,24 @@ func buildKnowledgePackage(
 		sources["episode"] = sourceURL
 	}
 	return KnowledgePackage{
-		RunID:               run.ID,
-		EpisodeID:           run.EpisodeID,
-		EpisodeTitle:        episode.Title,
-		PodcastTitle:        episode.Podcast.Title,
-		PublishedAt:         episode.PublishedDate,
-		SourceURL:           sourceURL,
-		ShowNotes:           utils.HTMLToMarkdown(episode.ShowNotes),
-		PipelineVersion:     run.PipelineVersion,
-		ArtifactGeneratedAt: artifact.CreatedAt,
-		ManifestSHA256:      artifact.ManifestSHA256,
-		TranscriptSHA256:    artifact.TranscriptSHA256,
-		EpisodeNotesSHA256:  artifact.NotesSHA256,
-		Transcript:          transcript,
-		EpisodeNotes:        episodeNotes,
-		Sources:             sources,
+		RunID:                    run.ID,
+		EpisodeID:                run.EpisodeID,
+		EpisodeTitle:             episode.Title,
+		PodcastTitle:             episode.Podcast.Title,
+		PublishedAt:              episode.PublishedDate,
+		SourceURL:                sourceURL,
+		ShowNotes:                utils.HTMLToMarkdown(episode.ShowNotes),
+		PipelineVersion:          run.PipelineVersion,
+		ArtifactGeneratedAt:      artifact.CreatedAt,
+		ManifestSHA256:           artifact.ManifestSHA256,
+		MinutesSummarySHA256:     artifact.MinutesSummarySHA256,
+		TranscriptSHA256:         artifact.TranscriptSHA256,
+		TranscriptTimelineSHA256: artifact.TranscriptTimelineSHA256,
+		EpisodeNotesSHA256:       artifact.NotesSHA256,
+		MinutesSummary:           minutesSummary,
+		Transcript:               transcript,
+		EpisodeNotes:             episodeNotes,
+		Sources:                  sources,
 	}
 }
 
@@ -632,7 +668,10 @@ func artifactMatchesPublished(
 	return artifact.RootPath == published.RootPath &&
 		artifact.ManifestPath == published.ManifestPath &&
 		artifact.ManifestSHA256 == published.ManifestSHA256 &&
+		artifact.AudioSHA256 == published.AudioSHA256 &&
+		artifact.MinutesSummarySHA256 == published.MinutesSummarySHA256 &&
 		artifact.TranscriptSHA256 == published.TranscriptSHA256 &&
+		artifact.TranscriptTimelineSHA256 == published.TranscriptTimelineSHA256 &&
 		artifact.NotesSHA256 == published.NotesSHA256
 }
 
@@ -699,11 +738,13 @@ func (e *Engine) Cancel(
 			addNotice(cancellationExternalResultUnknown, message)
 		}
 	}
-	if err := e.runtime.Cancel(durableCtx, runID); err != nil {
-		addNotice(
-			cancellationRuntimeResultUnknown,
-			"已取消本机加工；本地 Codex Runtime 的取消状态无法确认，可能仍在运行。",
-		)
+	if !usesNativeMinutesPipeline(run.PipelineVersion) {
+		if err := e.runtime.Cancel(durableCtx, runID); err != nil {
+			addNotice(
+				cancellationRuntimeResultUnknown,
+				"已取消本机加工；本地 Codex Runtime 的取消状态无法确认，可能仍在运行。",
+			)
+		}
 	}
 	if noticeCode != "" {
 		updated, recordErr := e.service.recordCancellationNotice(
@@ -1140,16 +1181,19 @@ func (e *Engine) completeWithArtifact(
 			return fmt.Errorf("retire previous artifact set: %w", err)
 		}
 		artifact = models.EpisodeArtifactSet{
-			RunID:            run.ID,
-			EpisodeID:        run.EpisodeID,
-			PipelineVersion:  run.PipelineVersion,
-			RootPath:         published.RootPath,
-			ManifestPath:     published.ManifestPath,
-			ManifestSHA256:   published.ManifestSHA256,
-			TranscriptSHA256: published.TranscriptSHA256,
-			NotesSHA256:      published.NotesSHA256,
-			IsCurrent:        true,
-			CreatedAt:        now,
+			RunID:                    run.ID,
+			EpisodeID:                run.EpisodeID,
+			PipelineVersion:          run.PipelineVersion,
+			RootPath:                 published.RootPath,
+			ManifestPath:             published.ManifestPath,
+			ManifestSHA256:           published.ManifestSHA256,
+			AudioSHA256:              published.AudioSHA256,
+			MinutesSummarySHA256:     published.MinutesSummarySHA256,
+			TranscriptSHA256:         published.TranscriptSHA256,
+			TranscriptTimelineSHA256: published.TranscriptTimelineSHA256,
+			NotesSHA256:              published.NotesSHA256,
+			IsCurrent:                true,
+			CreatedAt:                now,
 		}
 		if err := tx.Create(&artifact).Error; err != nil {
 			return fmt.Errorf("record artifact set: %w", err)
