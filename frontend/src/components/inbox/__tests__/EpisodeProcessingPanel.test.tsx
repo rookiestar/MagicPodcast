@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import EpisodeProcessingPanel from "../EpisodeProcessingPanel";
 import type { ConsumptionItem } from "@/types/consumption";
 import type {
+  ArtifactContent,
   EpisodeArtifactSet,
   ProcessingRun,
   ProcessingRunDetail,
@@ -608,36 +609,49 @@ describe("EpisodeProcessingPanel", () => {
       current_artifact: nativeArtifact,
       deliveries: [],
     });
-    apiMocks.getArtifactContent.mockImplementation(
-      (_artifactSetId: number, kind: string) =>
-        Promise.resolve(
-          kind === "minutes_summary"
-            ? {
-                kind,
-                content: "# 妙记纪要",
-                sha256: nativeArtifact.minutes_summary_sha256,
-                media_available: false,
-              }
-            : {
-                kind,
-                content: "# 妙记逐字稿",
-                sha256: nativeArtifact.transcript_sha256,
-                timeline_sha256: nativeArtifact.transcript_timeline_sha256,
-                segments: [
-                  {
-                    order: 1,
-                    speaker: "说话人",
-                    start_ms: 195,
-                    text: "正文",
-                  },
-                ],
-                media_available: true,
-              },
-        ),
-    );
+    const summaryContent: ArtifactContent = {
+      kind: "minutes_summary",
+      content: "# 妙记纪要",
+      sha256: nativeArtifact.minutes_summary_sha256 ?? "",
+      media_available: false,
+    };
+    const transcriptContent: ArtifactContent = {
+      kind: "transcript",
+      content: "# 妙记逐字稿",
+      sha256: nativeArtifact.transcript_sha256,
+      timeline_sha256: nativeArtifact.transcript_timeline_sha256,
+      segments: [
+        {
+          order: 1,
+          speaker: "说话人",
+          start_ms: 195,
+          text: "正文",
+        },
+      ],
+      media_available: true,
+    };
+    let resolveSummary: (content: ArtifactContent) => void = () => undefined;
+    let resolveTranscript: (content: ArtifactContent) => void = () => undefined;
+    apiMocks.getArtifactContent
+      .mockReturnValueOnce(
+        new Promise<ArtifactContent>((resolve) => {
+          resolveSummary = resolve;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise<ArtifactContent>((resolve) => {
+          resolveTranscript = resolve;
+        }),
+      )
+      .mockResolvedValueOnce(summaryContent);
 
     const { rerender } = render(<EpisodeProcessingPanel item={item} />);
 
+    expect(await screen.findByText("正在读取纪要…")).toBeVisible();
+    expect(screen.queryByText("# 妙记纪要")).not.toBeInTheDocument();
+    await act(async () => {
+      resolveSummary(summaryContent);
+    });
     expect(await screen.findByText("# 妙记纪要")).toBeVisible();
     expect(screen.getByRole("tab", { name: "纪要" })).toHaveAttribute(
       "aria-selected",
@@ -649,9 +663,33 @@ describe("EpisodeProcessingPanel", () => {
     );
 
     fireEvent.click(screen.getByRole("tab", { name: "逐字稿" }));
+    expect(screen.queryByText("# 妙记纪要")).not.toBeInTheDocument();
+    expect(screen.getByText("正在读取逐字稿…")).toBeVisible();
+    await act(async () => {
+      resolveTranscript(transcriptContent);
+    });
     expect(await screen.findByText("# 妙记逐字稿")).toBeVisible();
     expect(screen.getByText("逐字稿 · 1 段")).toBeVisible();
     expect(screen.getByText("音频可用")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("tab", { name: "纪要" }));
+    expect(await screen.findByText("# 妙记纪要")).toBeVisible();
+
+    let rejectTranscript: (reason?: unknown) => void = () => undefined;
+    apiMocks.getArtifactContent.mockReturnValueOnce(
+      new Promise<ArtifactContent>((_, reject) => {
+        rejectTranscript = reject;
+      }),
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "逐字稿" }));
+    expect(screen.queryByText("# 妙记纪要")).not.toBeInTheDocument();
+    expect(screen.getByText("正在读取逐字稿…")).toBeVisible();
+    await act(async () => {
+      rejectTranscript(new Error("网络超时"));
+    });
+    expect(await screen.findByText("产物读取失败：网络超时")).toBeVisible();
+    expect(screen.queryByText("# 妙记纪要")).not.toBeInTheDocument();
+    expect(screen.queryByText("# 妙记逐字稿")).not.toBeInTheDocument();
 
     rerender(<EpisodeProcessingPanel item={item} />);
     expect(screen.getByRole("tab", { name: "逐字稿" })).toHaveAttribute(
@@ -659,6 +697,93 @@ describe("EpisodeProcessingPanel", () => {
       "true",
     );
     expect(screen.queryByText("来自同一条飞书妙记")).not.toBeInTheDocument();
+  });
+
+  it("hides the previous artifact while a processing poll loads its replacement", async () => {
+    vi.useFakeTimers();
+    try {
+      const activeRun: ProcessingRun = {
+        ...failedRun,
+        status: "waiting_external",
+        current_step: "transcription",
+        error_code: undefined,
+        error_message: undefined,
+        error_retryable: false,
+      };
+      const completedRun: ProcessingRun = {
+        ...activeRun,
+        status: "completed",
+        current_step: "",
+      };
+      const replacementArtifact: EpisodeArtifactSet = {
+        ...artifact,
+        id: 42,
+        run_id: completedRun.id,
+        pipeline_version: "focus-processing-v2",
+        minutes_summary_sha256: "e".repeat(64),
+        notes_sha256: "",
+        transcript_timeline_sha256: "f".repeat(64),
+        capabilities: {
+          minutes_summary: true,
+          transcript: true,
+          structured_timeline: true,
+          matching_audio: true,
+          legacy_episode_notes: false,
+        },
+      };
+      let resolveReplacement: (content: ArtifactContent) => void = () =>
+        undefined;
+      apiMocks.listEpisodeRuns.mockResolvedValue([activeRun]);
+      apiMocks.getRun
+        .mockResolvedValueOnce(detail(activeRun))
+        .mockResolvedValueOnce({
+          run: completedRun,
+          current_artifact: replacementArtifact,
+          deliveries: [],
+        });
+      apiMocks.getArtifactContent
+        .mockResolvedValueOnce({
+          kind: "episode_notes",
+          content: "# 上一成功纪要",
+          sha256: artifact.notes_sha256,
+          media_available: false,
+        } satisfies ArtifactContent)
+        .mockReturnValueOnce(
+          new Promise<ArtifactContent>((resolve) => {
+            resolveReplacement = resolve;
+          }),
+        );
+
+      render(<EpisodeProcessingPanel item={item} />);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.getByText("# 上一成功纪要")).toBeVisible();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000);
+      });
+      expect(apiMocks.getArtifactContent).toHaveBeenCalledWith(
+        replacementArtifact.id,
+        "minutes_summary",
+      );
+      expect(screen.queryByText("# 上一成功纪要")).not.toBeInTheDocument();
+      expect(screen.getByText("正在读取纪要…")).toBeVisible();
+
+      await act(async () => {
+        resolveReplacement({
+          kind: "minutes_summary",
+          content: "# 新妙记纪要",
+          sha256: replacementArtifact.minutes_summary_sha256 ?? "",
+          media_available: false,
+        });
+      });
+      expect(screen.getByText("# 新妙记纪要")).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not offer an unsafe retry when an external write result is unknown", async () => {

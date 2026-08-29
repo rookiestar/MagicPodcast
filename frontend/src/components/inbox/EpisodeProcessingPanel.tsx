@@ -337,8 +337,6 @@ const EpisodeProcessingPanel = forwardRef<
         setError(
           `产物读取失败：${getProcessingErrorDetails(readError).message}`,
         );
-        setArtifactContent(null);
-        setArtifactContentSetID(null);
       } finally {
         if (artifactReadSequence.current === sequence) {
           setIsReadingArtifact(false);
@@ -357,6 +355,18 @@ const EpisodeProcessingPanel = forwardRef<
       ? "episode_notes"
       : null;
   const transcriptAvailable = currentArtifact?.capabilities.transcript === true;
+  const requestedArtifactKind: ArtifactContentKind | null = !currentArtifact
+    ? null
+    : activeArtifactTab === "summary"
+      ? summaryKind
+      : transcriptAvailable
+        ? "transcript"
+        : null;
+  const artifactContentMatchesSelection =
+    currentArtifact !== undefined &&
+    requestedArtifactKind !== null &&
+    artifactContentSetID === currentArtifact.id &&
+    artifactContent?.kind === requestedArtifactKind;
   const latestScheduleRun = scheduleStatus?.latest_run;
   const latestScheduleItem = latestScheduleRun?.items.find(
     (scheduleItem) => scheduleItem.episode_id === item.episode_id,
@@ -391,13 +401,7 @@ const EpisodeProcessingPanel = forwardRef<
       setArtifactContentSetID(null);
       return;
     }
-    const requestedKind =
-      activeArtifactTab === "summary"
-        ? summaryKind
-        : transcriptAvailable
-          ? "transcript"
-          : null;
-    if (!requestedKind) {
+    if (!requestedArtifactKind) {
       const fallback: ArtifactTab | null = summaryKind
         ? "summary"
         : transcriptAvailable
@@ -411,19 +415,16 @@ const EpisodeProcessingPanel = forwardRef<
       }
       return;
     }
-    if (
-      artifactContentSetID === currentArtifact.id &&
-      artifactContent?.kind === requestedKind
-    ) {
+    if (artifactContentMatchesSelection) {
       return;
     }
-    void readArtifact(currentArtifact.id, requestedKind);
+    void readArtifact(currentArtifact.id, requestedArtifactKind);
   }, [
     activeArtifactTab,
-    artifactContent?.kind,
-    artifactContentSetID,
+    artifactContentMatchesSelection,
     currentArtifact,
     readArtifact,
+    requestedArtifactKind,
     summaryKind,
     transcriptAvailable,
   ]);
@@ -799,11 +800,13 @@ const EpisodeProcessingPanel = forwardRef<
               : "暂无可阅读的转写产物。"}
           </div>
         )}
-        {currentArtifact && isReadingArtifact && (
-          <div className={styles.processingHint} role="status">
-            正在读取{activeArtifactTab === "summary" ? "纪要" : "逐字稿"}…
-          </div>
-        )}
+        {currentArtifact &&
+          !artifactContentMatchesSelection &&
+          isReadingArtifact && (
+            <div className={styles.processingHint} role="status">
+              正在读取{activeArtifactTab === "summary" ? "纪要" : "逐字稿"}…
+            </div>
+          )}
 
         {currentArtifact && (
           <div className={styles.processingArtifacts}>
@@ -848,37 +851,41 @@ const EpisodeProcessingPanel = forwardRef<
         )}
       </div>
 
-      {currentArtifact && artifactContent && (
-        <div
-          className={styles.processingDocument}
-          data-copilot-source={
-            artifactContent.kind === "transcript" ? "transcript" : undefined
-          }
-          data-copilot-episode-id={
-            artifactContent.kind === "transcript" ? item.episode_id : undefined
-          }
-        >
-          <div className={styles.metadataLabelRow}>
-            <span>
-              {artifactContent.kind === "transcript"
-                ? `逐字稿${
-                    artifactContent.segments?.length
-                      ? ` · ${artifactContent.segments.length} 段`
-                      : ""
-                  }`
-                : artifactContent.kind === "minutes_summary"
-                  ? "纪要"
-                  : "旧版纪要"}
-            </span>
-            {artifactContent.kind === "transcript" && (
+      {currentArtifact &&
+        artifactContentMatchesSelection &&
+        artifactContent && (
+          <div
+            className={styles.processingDocument}
+            data-copilot-source={
+              artifactContent.kind === "transcript" ? "transcript" : undefined
+            }
+            data-copilot-episode-id={
+              artifactContent.kind === "transcript"
+                ? item.episode_id
+                : undefined
+            }
+          >
+            <div className={styles.metadataLabelRow}>
               <span>
-                {artifactContent.media_available ? "音频可用" : "音频不可用"}
+                {artifactContent.kind === "transcript"
+                  ? `逐字稿${
+                      artifactContent.segments?.length
+                        ? ` · ${artifactContent.segments.length} 段`
+                        : ""
+                    }`
+                  : artifactContent.kind === "minutes_summary"
+                    ? "纪要"
+                    : "旧版纪要"}
               </span>
-            )}
+              {artifactContent.kind === "transcript" && (
+                <span>
+                  {artifactContent.media_available ? "音频可用" : "音频不可用"}
+                </span>
+              )}
+            </div>
+            <MarkdownViewer content={artifactContent.content} />
           </div>
-          <MarkdownViewer content={artifactContent.content} />
-        </div>
-      )}
+        )}
     </section>
   );
 });
