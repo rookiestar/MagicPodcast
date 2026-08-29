@@ -138,6 +138,62 @@ func TestFeishuMinutesAdapterExecutesRecoverableOneWriteStages(t *testing.T) {
 	require.Len(t, runner.calls, 3)
 }
 
+func TestFeishuMinutesAdapterPreservesLegacyCompletionWithoutV2Artifacts(t *testing.T) {
+	workRoot := t.TempDir()
+	digest := strings.Repeat("7", 64)
+	runner := &scriptedLarkRunner{steps: []scriptedLarkStep{{
+		output: []byte(`{"minutes":[{"minute_token":"obcn_legacy_123","artifacts":{"transcript_file":"detail/transcript.txt"}}]}`),
+		beforeReturn: func(cwd string) {
+			require.NoError(t, os.WriteFile(
+				filepath.Join(cwd, "detail", "transcript.txt"),
+				[]byte("没有说话人与时间戳的旧版逐字稿"),
+				0o600,
+			))
+		},
+	}}}
+	adapter, err := newFeishuMinutesAdapterWithRunner(
+		runner,
+		workRoot,
+		func(context.Context, uint) (string, string, error) {
+			return "", "", errors.New("unused")
+		},
+	)
+	require.NoError(t, err)
+	request, _ := feishuTestRequest(digest)
+	request.PipelineVersion = "focus-processing-v1"
+	checkpoint, err := encodeFeishuCheckpoint(feishuCheckpoint{
+		Version:     feishuCheckpointVersion,
+		Phase:       feishuPhaseMinutesCreated,
+		AudioDigest: digest,
+		FileToken:   "boxcn_legacy_123",
+		MinuteToken: "obcn_legacy_123",
+		MinuteURL:   "https://example.feishu.cn/minutes/obcn_legacy_123",
+	})
+	require.NoError(t, err)
+
+	completed, err := adapter.Resume(context.Background(), request, checkpoint)
+	require.NoError(t, err)
+	require.Equal(t, ExternalProgressCompleted, completed.Status)
+	require.Equal(
+		t,
+		"# Transcript\n\n没有说话人与时间戳的旧版逐字稿\n",
+		completed.Transcript,
+	)
+	require.Empty(t, completed.MinutesSummary)
+	require.Empty(t, completed.Segments)
+
+	replayed, err := adapter.Resume(
+		context.Background(),
+		request,
+		completed.Checkpoint,
+	)
+	require.NoError(t, err)
+	require.Equal(t, completed.Transcript, replayed.Transcript)
+	require.Empty(t, replayed.MinutesSummary)
+	require.Empty(t, replayed.Segments)
+	require.Len(t, runner.calls, 1)
+}
+
 func TestFeishuMinutesAdapterWaitsForMissingArtifactsAndRejectsExplicitEmptySummary(t *testing.T) {
 	workRoot := t.TempDir()
 	digest := strings.Repeat("8", 64)
@@ -492,7 +548,7 @@ func feishuTestRequest(
 		RunID:           91,
 		EpisodeID:       42,
 		AudioDigest:     digest,
-		PipelineVersion: "pipeline-v1",
+		PipelineVersion: NativeMinutesPipelineVersion,
 		PersistCheckpoint: func(
 			_ context.Context,
 			_ string,
