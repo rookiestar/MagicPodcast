@@ -56,6 +56,7 @@ export interface ProcessingRunDetail {
   artifact?: EpisodeArtifactSet;
   current_artifact?: EpisodeArtifactSet;
   deliveries: KnowledgeDelivery[];
+  external_result_unresolved?: boolean;
   action_suggestion?: string;
 }
 

@@ -113,6 +113,54 @@ func TestProcessingHandlerStartGetListAndCancel(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, response.Code)
 	require.Contains(t, response.Body.String(), `"status":"cancelled"`)
+
+	checkpointState := `{"version":1,"phase":"transcript_stored"}`
+	checkpointHash := sha256.Sum256([]byte(checkpointState))
+	require.NoError(t, db.Create(&models.ProcessingCheckpoint{
+		RunID:          started.Data.Run.ID,
+		Step:           processing.StepTranscription,
+		Adapter:        "feishu-minutes",
+		AdapterVersion: "feishu-minutes-cli-v1",
+		Status:         processing.ExternalProgressCompleted,
+		StateJSON:      checkpointState,
+		StateHash:      fmt.Sprintf("%x", checkpointHash[:]),
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error)
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+		Where("id = ?", started.Data.Run.ID).
+		Updates(map[string]any{
+			"error_code":      "cancelled_external_result_unknown",
+			"error_message":   "legacy cancellation warning",
+			"error_retryable": false,
+			"updated_at":      now,
+		}).Error)
+	response = processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/processing-runs/%d", started.Data.Run.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(t, response.Body.String(), `"external_result_unresolved":false`)
+	require.Contains(t, response.Body.String(), "可重新转写")
+
+	require.NoError(t, db.Model(&models.ProcessingCheckpoint{}).
+		Where(
+			"run_id = ? AND step = ?",
+			started.Data.Run.ID,
+			processing.StepTranscription,
+		).
+		Update("status", processing.ExternalProgressWaiting).Error)
+	response = processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/processing-runs/%d", started.Data.Run.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(t, response.Body.String(), `"external_result_unresolved":true`)
+	require.Contains(t, response.Body.String(), "确认前不可重新加工")
 }
 
 func TestProcessingHandlerRejectsInvalidRequestAndMissingRun(t *testing.T) {

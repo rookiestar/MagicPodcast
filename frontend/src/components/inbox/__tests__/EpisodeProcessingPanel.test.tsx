@@ -989,6 +989,48 @@ describe("EpisodeProcessingPanel", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("allows a legacy restart when the backend confirms the transcript was stored", async () => {
+    const cancelledRun: ProcessingRun = {
+      ...failedRun,
+      status: "cancelled",
+      current_step: "",
+      error_code: "cancelled_external_result_unknown",
+      error_message: "旧版取消提示",
+      error_retryable: false,
+    };
+    const pendingRun: ProcessingRun = {
+      ...cancelledRun,
+      id: 65,
+      pipeline_version: "focus-processing-v2",
+      status: "queued",
+      current_step: "transcription",
+      error_code: undefined,
+      error_message: undefined,
+    };
+    apiMocks.listEpisodeRuns.mockResolvedValue([cancelledRun]);
+    apiMocks.getRun.mockResolvedValue({
+      ...detail(cancelledRun),
+      external_result_unresolved: false,
+      action_suggestion: "飞书逐字稿已完整保存，可重新转写。",
+    });
+    apiMocks.start.mockResolvedValue({
+      run: pendingRun,
+      reused_active: false,
+      reused_successful: false,
+      preparing_audio: false,
+    });
+
+    render(<EpisodeProcessingPanel item={item} />);
+
+    expect(await screen.findByText("已取消")).toBeVisible();
+    const restart = screen.getByRole("button", { name: "重新转写" });
+    fireEvent.click(restart);
+    await waitFor(() =>
+      expect(apiMocks.start).toHaveBeenCalledWith(item.episode_id),
+    );
+    expect(apiMocks.retry).not.toHaveBeenCalled();
+  });
+
   it("tracks managed audio preparation after a manual start", async () => {
     const pendingRun: ProcessingRun = {
       ...failedRun,

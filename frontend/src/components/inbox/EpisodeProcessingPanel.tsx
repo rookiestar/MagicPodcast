@@ -385,8 +385,9 @@ const EpisodeProcessingPanel = forwardRef<
     latestScheduleItem?.reason === "selection_pending";
   const canStart = item.queue_state === "focus" && !run;
   const externalResultUnknown =
-    typeof run?.error_code === "string" &&
-    unresolvedExternalResultCodes.has(run.error_code.trim().toLowerCase());
+    detail?.external_result_unresolved ??
+    (typeof run?.error_code === "string" &&
+      unresolvedExternalResultCodes.has(run.error_code.trim().toLowerCase()));
   const canReprocessLegacy =
     item.queue_state === "focus" &&
     run?.pipeline_version === legacyProcessingPipelineVersion &&

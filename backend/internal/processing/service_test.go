@@ -483,6 +483,47 @@ func TestServiceRetryCopiesSafeCheckpointAndBlocksUnknownResult(t *testing.T) {
 		}).Error)
 	_, err = service.RetryProcessingRun(context.Background(), unknown.ID)
 	require.ErrorIs(t, err, ErrRetryUnsafe)
+
+	safeCancelledEpisode := createProcessingEpisode(t, db, true, "safe-cancelled-retry")
+	safeCancelled := startProcessingRun(t, service, safeCancelledEpisode.ID)
+	require.NoError(t, db.Create(&models.ProcessingCheckpoint{
+		RunID:          safeCancelled.ID,
+		Step:           StepTranscription,
+		Adapter:        "fake-minutes",
+		AdapterVersion: "fake-minutes-v1",
+		Status:         ExternalProgressCompleted,
+		StateJSON:      state,
+		StateHash:      hex.EncodeToString(sum[:]),
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error)
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+		Where("id = ?", safeCancelled.ID).
+		Updates(map[string]any{
+			"status":          models.ProcessingRunStatusCancelled,
+			"error_code":      cancellationExternalResultUnknown,
+			"error_message":   "legacy cancellation warning",
+			"error_retryable": false,
+			"finished_at":     now,
+			"cancelled_at":    now,
+			"updated_at":      now,
+		}).Error)
+
+	safeDetail, err := service.GetProcessingRun(context.Background(), safeCancelled.ID)
+	require.NoError(t, err)
+	require.False(t, safeDetail.ExternalResultUnresolved)
+	require.Contains(t, safeDetail.ActionSuggestion, "可重新转写")
+
+	safeRetry, err := service.RetryProcessingRun(context.Background(), safeCancelled.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusQueued, safeRetry.Run.Status)
+	var safeCopied models.ProcessingCheckpoint
+	require.NoError(t, db.Where(
+		"run_id = ? AND step = ?",
+		safeRetry.Run.ID,
+		StepTranscription,
+	).First(&safeCopied).Error)
+	require.Equal(t, ExternalProgressCompleted, safeCopied.Status)
 }
 
 func TestServiceRetryNativeMinutesCheckpointPolicy(t *testing.T) {
