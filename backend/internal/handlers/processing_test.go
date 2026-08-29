@@ -3,10 +3,12 @@ package handlers_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -325,7 +327,14 @@ func TestProcessingArtifactHTTPContractForNativeAndLegacyArtifacts(t *testing.T)
 	now := time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC)
 	store, err := processing.NewDiskArtifactStore(t.TempDir())
 	require.NoError(t, err)
-	service := processing.NewService(db, processing.WithArtifactReader(store))
+	audioRoot := filepath.Join(t.TempDir(), "managed-audio")
+	audioStore, err := processing.NewDiskAudioStore(db, audioRoot)
+	require.NoError(t, err)
+	service := processing.NewService(
+		db,
+		processing.WithArtifactReader(store),
+		processing.WithAudioPreparer(audioStore),
+	)
 	handler := handlers.NewProcessingHandler(service, nil)
 	router := gin.New()
 	router.GET("/api/v1/processing-runs/:id", handler.Get)
@@ -380,7 +389,32 @@ func TestProcessingArtifactHTTPContractForNativeAndLegacyArtifacts(t *testing.T)
 		return artifact
 	}
 
-	audioDigest := strings.Repeat("a", 64)
+	require.NoError(t, db.Model(&episode).Updates(map[string]any{
+		"medium_url": "https://audio.example/native.mp3",
+		"duration":   60,
+	}).Error)
+	queuedAudio, err := audioStore.Enqueue(context.Background(), episode.ID)
+	require.NoError(t, err)
+	audioBody := []byte("ID3\x04managed-native-audio")
+	audioSum := sha256.Sum256(audioBody)
+	audioDigest := fmt.Sprintf("%x", audioSum[:])
+	audioRelativePath := filepath.Join("ready", "native.mp3")
+	audioPath := filepath.Join(audioRoot, audioRelativePath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(audioPath), 0o700))
+	require.NoError(t, os.WriteFile(audioPath, audioBody, 0o600))
+	require.NoError(t, db.Model(&models.EpisodeAudioAsset{}).
+		Where("id = ?", queuedAudio.Asset.ID).
+		Updates(map[string]any{
+			"status":           models.EpisodeAudioAssetStatusReady,
+			"relative_path":    filepath.ToSlash(audioRelativePath),
+			"sha256":           audioDigest,
+			"size_bytes":       len(audioBody),
+			"duration_seconds": 60,
+			"media_type":       "audio/mpeg",
+			"extension":        ".mp3",
+			"ready_at":         &now,
+		}).Error)
+
 	nativeRun := createCompletedRun(
 		episode.ID,
 		strings.Repeat("1", 64),
@@ -413,22 +447,6 @@ func TestProcessingArtifactHTTPContractForNativeAndLegacyArtifacts(t *testing.T)
 	)
 	require.NoError(t, err)
 	nativeArtifact := recordArtifact(nativeRun, nativePublished)
-	require.NoError(t, db.Create(&models.EpisodeAudioAsset{
-		EpisodeID:       episode.ID,
-		SourceDigest:    strings.Repeat("b", 64),
-		Status:          models.EpisodeAudioAssetStatusReady,
-		RelativePath:    "private/audio.mp3",
-		SHA256:          audioDigest,
-		SizeBytes:       1024,
-		DurationSeconds: 60,
-		MediaType:       "audio/mpeg",
-		Extension:       ".mp3",
-		ClaimToken:      "SECRET-CLAIM",
-		QueuedAt:        now,
-		ReadyAt:         &now,
-		CreatedAt:       now,
-		UpdatedAt:       now,
-	}).Error)
 
 	response := processingRequest(
 		router,
@@ -473,17 +491,66 @@ func TestProcessingArtifactHTTPContractForNativeAndLegacyArtifacts(t *testing.T)
 	require.NotContains(t, response.Body.String(), audioDigest)
 	require.NotContains(t, response.Body.String(), "SECRET")
 
-	require.NoError(t, db.Model(&models.EpisodeAudioAsset{}).
-		Where("episode_id = ?", episode.ID).
-		Update("sha256", strings.Repeat("c", 64)).Error)
-	response = processingRequest(
-		router,
-		http.MethodGet,
-		fmt.Sprintf("/api/v1/artifact-sets/%d/transcript", nativeArtifact.ID),
-		"",
+	assertAudioAvailability := func(target *gin.Engine, expected bool) {
+		t.Helper()
+		want := "false"
+		if expected {
+			want = "true"
+		}
+		runResponse := processingRequest(
+			target,
+			http.MethodGet,
+			fmt.Sprintf("/api/v1/processing-runs/%d", nativeRun.ID),
+			"",
+		)
+		require.Equal(t, http.StatusOK, runResponse.Code)
+		require.Contains(
+			t,
+			runResponse.Body.String(),
+			fmt.Sprintf(`"matching_audio":%s`, want),
+		)
+		transcriptResponse := processingRequest(
+			target,
+			http.MethodGet,
+			fmt.Sprintf("/api/v1/artifact-sets/%d/transcript", nativeArtifact.ID),
+			"",
+		)
+		require.Equal(t, http.StatusOK, transcriptResponse.Code)
+		require.Contains(
+			t,
+			transcriptResponse.Body.String(),
+			fmt.Sprintf(`"media_available":%s`, want),
+		)
+	}
+
+	noAudioHandler := handlers.NewProcessingHandler(
+		processing.NewService(db, processing.WithArtifactReader(store)),
+		nil,
 	)
-	require.Equal(t, http.StatusOK, response.Code)
-	require.Contains(t, response.Body.String(), `"media_available":false`)
+	noAudioRouter := gin.New()
+	noAudioRouter.GET("/api/v1/processing-runs/:id", noAudioHandler.Get)
+	noAudioRouter.GET(
+		"/api/v1/artifact-sets/:id/:kind",
+		noAudioHandler.GetArtifactContent,
+	)
+	assertAudioAvailability(noAudioRouter, false)
+
+	require.NoError(t, db.Model(&models.EpisodeAudioAsset{}).
+		Where("id = ?", queuedAudio.Asset.ID).
+		Update("sha256", strings.Repeat("c", 64)).Error)
+	assertAudioAvailability(router, false)
+
+	require.NoError(t, db.Model(&models.EpisodeAudioAsset{}).
+		Where("id = ?", queuedAudio.Asset.ID).
+		Update("sha256", audioDigest).Error)
+	require.NoError(t, os.WriteFile(audioPath, append(audioBody, 'x'), 0o600))
+	assertAudioAvailability(router, false)
+
+	require.NoError(t, os.WriteFile(audioPath, audioBody, 0o600))
+	assertAudioAvailability(router, true)
+
+	require.NoError(t, os.Remove(audioPath))
+	assertAudioAvailability(router, false)
 
 	legacyEpisode := models.Episode{
 		PodcastID: episode.PodcastID,

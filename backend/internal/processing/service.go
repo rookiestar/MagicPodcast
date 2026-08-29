@@ -700,19 +700,8 @@ func (s *Service) GetArtifactContent(
 	if err != nil {
 		return ArtifactContent{}, err
 	}
-	if kind == "transcript" && sha256Pattern.MatchString(artifact.AudioSHA256) {
-		var count int64
-		if err := s.db.WithContext(ctx).Model(&models.EpisodeAudioAsset{}).
-			Where(
-				"episode_id = ? AND status = ? AND sha256 = ?",
-				artifact.EpisodeID,
-				models.EpisodeAudioAssetStatusReady,
-				artifact.AudioSHA256,
-			).
-			Count(&count).Error; err != nil {
-			return ArtifactContent{}, fmt.Errorf("check artifact audio capability: %w", err)
-		}
-		content.MediaAvailable = count > 0
+	if kind == "transcript" {
+		content.MediaAvailable = s.hasMatchingManagedAudio(ctx, artifact)
 	}
 	return content, nil
 }
@@ -733,19 +722,20 @@ func (s *Service) hydrateArtifactCapabilities(
 	if !sha256Pattern.MatchString(artifact.AudioSHA256) {
 		return nil
 	}
-	var count int64
-	if err := s.db.WithContext(ctx).Model(&models.EpisodeAudioAsset{}).
-		Where(
-			"episode_id = ? AND status = ? AND sha256 = ?",
-			artifact.EpisodeID,
-			models.EpisodeAudioAssetStatusReady,
-			artifact.AudioSHA256,
-		).
-		Count(&count).Error; err != nil {
-		return fmt.Errorf("read artifact audio capability: %w", err)
-	}
-	artifact.Capabilities.MatchingAudio = count > 0
+	artifact.Capabilities.MatchingAudio = s.hasMatchingManagedAudio(ctx, *artifact)
 	return nil
+}
+
+func (s *Service) hasMatchingManagedAudio(
+	ctx context.Context,
+	artifact models.EpisodeArtifactSet,
+) bool {
+	if s.audioPreparer == nil ||
+		!sha256Pattern.MatchString(artifact.AudioSHA256) {
+		return false
+	}
+	audio, err := s.audioPreparer.ResolveReadyAudio(ctx, artifact.EpisodeID)
+	return err == nil && audio.SHA256 == artifact.AudioSHA256
 }
 
 func (s *Service) ListEpisodeProcessingRuns(
