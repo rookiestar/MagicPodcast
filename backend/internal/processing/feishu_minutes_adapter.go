@@ -760,11 +760,11 @@ func completedFeishuProgress(
 	}
 	normalizedSummary, err := normalizeMinutesSummary(summary)
 	if err != nil {
-		return TranscriptionProgress{}, err
+		return progressWithCheckpoint(checkpoint), err
 	}
 	normalizedTranscript, segments, err := normalizeTranscript(string(transcript))
 	if err != nil {
-		return TranscriptionProgress{}, err
+		return progressWithCheckpoint(checkpoint), err
 	}
 	return TranscriptionProgress{
 		Status:         ExternalProgressCompleted,

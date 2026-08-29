@@ -256,7 +256,7 @@ func TestFeishuMinutesAdapterRejectsTranscriptFormatDrift(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	request, _ := feishuTestRequest(digest)
+	request, persisted := feishuTestRequest(digest)
 	checkpoint, err := encodeFeishuCheckpoint(feishuCheckpoint{
 		Version:     feishuCheckpointVersion,
 		Phase:       feishuPhaseMinutesCreated,
@@ -267,12 +267,18 @@ func TestFeishuMinutesAdapterRejectsTranscriptFormatDrift(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = adapter.Resume(context.Background(), request, checkpoint)
+	progress, err := adapter.Resume(context.Background(), request, checkpoint)
 	var adapterErr *AdapterError
 	require.ErrorAs(t, err, &adapterErr)
 	require.Equal(t, "transcript_timeline_invalid", adapterErr.ErrorCode)
 	require.Contains(t, adapterErr.SafeMessage, "timestamps")
 	require.NotContains(t, adapterErr.SafeMessage, workRoot)
+	stored := mustDecodeFeishuCheckpoint(t, progress.Checkpoint)
+	require.Equal(t, feishuPhaseTranscriptStored, stored.Phase)
+	require.NotEmpty(t, stored.TranscriptRelativePath)
+	require.NotEmpty(t, stored.DetailRelativePath)
+	require.Len(t, *persisted, 1)
+	require.JSONEq(t, string((*persisted)[0]), string(progress.Checkpoint))
 }
 
 func TestFeishuMinutesAdapterDoesNotRepeatUnknownDriveWrite(t *testing.T) {

@@ -263,6 +263,84 @@ func TestEngineNativeMinutesPipelineSkipsRuntimeAndPublishesCompleteArtifacts(t 
 	require.Empty(t, delivered.EpisodeNotesSHA256)
 }
 
+func TestEnginePreservesStoredMinutesCheckpointWhenTimelineValidationFails(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 29, 13, 30, 0, 0, time.UTC)
+	service, resolver := newProcessingServiceWithResolver(
+		db,
+		WithClock(func() time.Time { return now }),
+	)
+	digest := strings.Repeat("9", 64)
+	resolver.Set(ProcessingInput{
+		AudioDigest:     digest,
+		PipelineVersion: NativeMinutesPipelineVersion,
+	})
+	episode := createProcessingEpisode(t, db, true, "timeline-audit-checkpoint")
+	run := startProcessingRun(t, service, episode.ID)
+	workRoot := t.TempDir()
+	runner := &scriptedLarkRunner{steps: []scriptedLarkStep{{
+		output: []byte(`{"minutes":[{"minute_token":"obcn_audit_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
+		beforeReturn: func(cwd string) {
+			require.NoError(t, os.WriteFile(
+				filepath.Join(cwd, "detail", "transcript.txt"),
+				[]byte("没有说话人与时间戳的内容"),
+				0o600,
+			))
+		},
+	}}}
+	adapter, err := newFeishuMinutesAdapterWithRunner(
+		runner,
+		workRoot,
+		func(context.Context, uint) (string, string, error) {
+			return "", "", errors.New("unused")
+		},
+	)
+	require.NoError(t, err)
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	engine, err := NewEngine(service, adapter, &fakeRuntime{}, store, nil)
+	require.NoError(t, err)
+	checkpoint, err := encodeFeishuCheckpoint(feishuCheckpoint{
+		Version:     feishuCheckpointVersion,
+		Phase:       feishuPhaseMinutesCreated,
+		AudioDigest: digest,
+		FileToken:   "boxcn_audit_123",
+		MinuteToken: "obcn_audit_123",
+		MinuteURL:   "https://example.feishu.cn/minutes/obcn_audit_123",
+	})
+	require.NoError(t, err)
+	require.NoError(t, engine.saveCheckpoint(
+		context.Background(),
+		run.ID,
+		StepTranscription,
+		adapter.Name(),
+		adapter.Version(),
+		ExternalProgressWaiting,
+		checkpoint,
+	))
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+		Where("id = ?", run.ID).
+		Updates(map[string]any{
+			"status":       models.ProcessingRunStatusWaitingExternal,
+			"current_step": StepTranscription,
+			"updated_at":   now,
+		}).Error)
+
+	failed, err := engine.Advance(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusFailed, failed.Status)
+	require.Equal(t, "transcript_timeline_invalid", failed.ErrorCode)
+
+	stored, err := engine.loadCheckpoint(context.Background(), run.ID, StepTranscription)
+	require.NoError(t, err)
+	storedState := mustDecodeFeishuCheckpoint(t, json.RawMessage(stored.StateJSON))
+	require.Equal(t, feishuPhaseTranscriptStored, storedState.Phase)
+	require.NotEmpty(t, storedState.TranscriptRelativePath)
+	require.NotEmpty(t, storedState.DetailRelativePath)
+	require.FileExists(t, filepath.Join(workRoot, storedState.TranscriptRelativePath))
+	require.FileExists(t, filepath.Join(workRoot, storedState.DetailRelativePath))
+}
+
 func TestNewEngineRejectsIncompleteAdapterIdentity(t *testing.T) {
 	db := openProcessingTestDB(t)
 	service := newProcessingService(db)
