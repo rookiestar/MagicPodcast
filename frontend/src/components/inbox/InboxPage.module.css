@@ -810,6 +810,12 @@
   backdrop-filter: blur(2px);
 }
 
+.detailBackdropWorkspace {
+  z-index: 100;
+  inset: 0;
+  background: rgba(18, 15, 11, 0.72);
+}
+
 .detailPanel {
   display: flex;
   width: min(920px, 82vw);
@@ -828,6 +834,12 @@
   animation: detailEnter 190ms ease-out both;
 }
 
+.detailPanel.detailPanelWorkspace {
+  width: 100%;
+  border-left: 0;
+  box-shadow: none;
+}
+
 .detailHeader {
   position: relative;
   z-index: 2;
@@ -839,6 +851,50 @@
   padding: 13px 22px;
   border-bottom: 2px solid var(--ink);
   background: rgba(243, 236, 221, 0.96);
+}
+
+.detailHeader[hidden] {
+  display: none;
+}
+
+.detailHeaderActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.detailCopilotTrigger,
+.copilotReturn {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  background: rgba(255, 250, 240, 0.74);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.detailCopilotTrigger:hover,
+.copilotReturn:hover {
+  color: #fffaf0;
+  border-color: var(--orange-dark);
+  background: var(--orange-dark);
+}
+
+.detailCopilotTrigger:focus-visible,
+.copilotReturn:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+
+.detailCopilotTrigger[hidden] {
+  display: none;
 }
 
 .detailHeader p {
@@ -857,8 +913,83 @@
   height: 44px;
 }
 
+.detailWorkspace {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.detailPanelWorkspace .detailWorkspace {
+  grid-template-columns: minmax(520px, 1fr) minmax(360px, 34vw);
+}
+
 .detailScroll {
   min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.copilotWorkspace {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 2px solid var(--ink);
+  background:
+    radial-gradient(
+      circle at 100% 0,
+      rgba(215, 104, 29, 0.16),
+      transparent 19rem
+    ),
+    var(--paper);
+}
+
+.copilotWorkspace[hidden] {
+  display: none;
+}
+
+.copilotWorkspaceHeader {
+  display: flex;
+  min-height: 82px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 16px 13px 20px;
+  border-bottom: 2px solid var(--ink);
+  background: rgba(243, 236, 221, 0.97);
+}
+
+.copilotWorkspaceHeader h2 {
+  margin: 2px 0 0;
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 630;
+  letter-spacing: -0.025em;
+  line-height: 1;
+}
+
+.copilotWorkspaceHeader p {
+  max-width: 34ch;
+  margin: 5px 0 0;
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copilotReturn {
+  flex: 0 0 auto;
+}
+
+.copilotWorkspaceScroll {
+  min-height: 0;
+  flex: 1 1 auto;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -1381,6 +1512,11 @@
     linear-gradient(rgba(215, 104, 29, 0.06) 1px, transparent 1px),
     rgba(255, 250, 240, 0.72);
   background-size: 24px 24px;
+}
+
+.copilotWorkspaceScroll .copilotSection {
+  min-height: 100%;
+  border-bottom: 0;
 }
 
 .copilotSection::before {
@@ -1937,6 +2073,38 @@
     height: 100%;
     border-left: 0;
     box-shadow: none;
+  }
+
+  .detailPanelWorkspace .detailWorkspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .copilotWorkspace {
+    border-left: 0;
+  }
+
+  .copilotWorkspaceHeader {
+    min-height: calc(72px + env(safe-area-inset-top));
+    padding:
+      calc(10px + env(safe-area-inset-top))
+      14px
+      10px;
+  }
+
+  .copilotWorkspaceHeader h2 {
+    font-size: 24px;
+  }
+
+  .copilotWorkspaceHeader p {
+    max-width: 22ch;
+  }
+
+  .copilotReturn {
+    min-width: 106px;
+  }
+
+  .copilotWorkspaceScroll {
+    padding-bottom: env(safe-area-inset-bottom);
   }
 
   .detailHeader {
