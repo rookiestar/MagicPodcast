@@ -365,6 +365,10 @@ const EpisodeProcessingPanel = forwardRef<
     latestScheduleRun?.run.status === "running" &&
     latestScheduleItem?.reason === "selection_pending";
   const canStart = item.queue_state === "focus" && !run;
+  const canReprocessLegacy =
+    item.queue_state === "focus" &&
+    run?.status === "completed" &&
+    currentArtifact?.capabilities.legacy_episode_notes === true;
   const audioPreparing =
     run?.current_step === "audio_prepare" ||
     audioAsset?.status === "queued" ||
@@ -738,6 +742,17 @@ const EpisodeProcessingPanel = forwardRef<
             >
               <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
               重试转写
+            </button>
+          )}
+          {canReprocessLegacy && (
+            <button
+              type="button"
+              className={styles.secondaryCommand}
+              disabled={isMutating}
+              onClick={() => void startProcessing()}
+            >
+              <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
+              重新转写
             </button>
           )}
           {isMutating && <span role="status">正在提交…</span>}

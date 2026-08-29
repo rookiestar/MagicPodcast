@@ -949,6 +949,122 @@ describe("InboxPageClient", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("lets a Focus user re-transcribe a completed legacy artifact", async () => {
+    const focusItem: ConsumptionItem = {
+      ...inboxItem,
+      queue_state: "focus",
+    };
+    const legacyRun: ProcessingRun = {
+      id: 89,
+      episode_id: focusItem.episode_id,
+      pipeline_version: "focus-processing-v1",
+      trigger_source: "manual",
+      status: "completed",
+      current_step: "",
+      attempt_count: 1,
+      max_attempts: 3,
+      error_retryable: false,
+      created_at: "2026-08-28T08:00:00Z",
+      updated_at: "2026-08-28T08:05:00Z",
+    };
+    const legacyArtifact: EpisodeArtifactSet = {
+      id: 90,
+      run_id: legacyRun.id,
+      episode_id: focusItem.episode_id,
+      pipeline_version: legacyRun.pipeline_version,
+      manifest_path: "manifest.json",
+      manifest_sha256: "5".repeat(64),
+      transcript_sha256: "6".repeat(64),
+      notes_sha256: "7".repeat(64),
+      capabilities: {
+        minutes_summary: false,
+        transcript: true,
+        structured_timeline: false,
+        matching_audio: false,
+        legacy_episode_notes: true,
+      },
+      is_current: true,
+      created_at: "2026-08-28T08:05:00Z",
+    };
+    const pendingRun: ProcessingRun = {
+      ...legacyRun,
+      id: 91,
+      pipeline_version: "focus-processing-v2",
+      status: "queued",
+      current_step: "transcription",
+      created_at: "2026-08-29T10:00:00Z",
+      updated_at: "2026-08-29T10:00:00Z",
+    };
+    apiMocks.listQueue.mockImplementation(
+      async (queue: ConsumptionQueue): Promise<ConsumptionQueuePayload> => ({
+        queue_state: queue,
+        revision: 1,
+        items: queue === "focus" ? [focusItem] : [],
+        has_more: false,
+      }),
+    );
+    apiMocks.getItem.mockResolvedValue(focusItem);
+    apiMocks.listEpisodeRuns.mockResolvedValue([legacyRun]);
+    apiMocks.getProcessingRun
+      .mockResolvedValueOnce({
+        run: legacyRun,
+        current_artifact: legacyArtifact,
+        deliveries: [],
+      } satisfies ProcessingRunDetail)
+      .mockResolvedValue({
+        run: pendingRun,
+        current_artifact: legacyArtifact,
+        deliveries: [],
+      } satisfies ProcessingRunDetail);
+    apiMocks.startProcessing.mockResolvedValue({
+      run: pendingRun,
+      reused_active: false,
+      reused_successful: false,
+      preparing_audio: false,
+    });
+    apiMocks.getArtifactContent.mockImplementation(
+      (_artifactSetId: number, kind: string) =>
+        Promise.resolve({
+          kind,
+          content:
+            kind === "episode_notes" ? "# 旧版纪要" : "# 旧版逐字稿",
+          sha256:
+            kind === "episode_notes"
+              ? legacyArtifact.notes_sha256
+              : legacyArtifact.transcript_sha256,
+          media_available: false,
+        }),
+    );
+
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "打开 可处理单集 明细",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "可处理单集",
+    });
+    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+
+    expect(
+      await within(dialog).findByRole("button", { name: "重新转写" }),
+    ).toBeEnabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "重新转写" }));
+
+    await waitFor(() =>
+      expect(apiMocks.startProcessing).toHaveBeenCalledWith(
+        focusItem.episode_id,
+      ),
+    );
+    await waitFor(() =>
+      expect(apiMocks.getProcessingRun).toHaveBeenCalledWith(pendingRun.id),
+    );
+    expect(
+      within(dialog).queryByRole("button", { name: "重新转写" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("keeps a legacy previous success readable when the new run fails", async () => {
     const failedRun: ProcessingRun = {
       id: 91,
