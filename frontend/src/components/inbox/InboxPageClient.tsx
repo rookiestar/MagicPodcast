@@ -94,6 +94,13 @@ interface InboxLocateTarget {
   episodeId: number;
 }
 
+interface CopilotListSnapshot {
+  windowX: number;
+  windowY: number;
+  viewportScrollLeft: number;
+  viewportScrollTop: number;
+}
+
 const queueCollisionDetection: CollisionDetection = (args) => {
   const droppableContainers = args.droppableContainers.filter(
     (container) => container.id !== args.active.id,
@@ -370,6 +377,8 @@ export default function InboxPageClient() {
   });
   const summaryRequestVersion = useRef(0);
   const detailTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const boardViewportRef = useRef<HTMLElement | null>(null);
+  const copilotListSnapshotRef = useRef<CopilotListSnapshot | null>(null);
   const locatedEpisodeRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -1107,9 +1116,46 @@ export default function InboxPageClient() {
     setDetailItem(item);
   };
 
+  const restoreCopilotListSnapshot = useCallback(() => {
+    const snapshot = copilotListSnapshotRef.current;
+    copilotListSnapshotRef.current = null;
+    if (!snapshot) return;
+    window.requestAnimationFrame(() => {
+      const viewport = boardViewportRef.current;
+      if (viewport) {
+        viewport.scrollLeft = snapshot.viewportScrollLeft;
+        viewport.scrollTop = snapshot.viewportScrollTop;
+      }
+      if (
+        window.scrollX !== snapshot.windowX ||
+        window.scrollY !== snapshot.windowY
+      ) {
+        window.scrollTo(snapshot.windowX, snapshot.windowY);
+      }
+    });
+  }, []);
+
+  const handleCopilotWorkspaceChange = useCallback(
+    (isOpen: boolean) => {
+      if (!isOpen) {
+        restoreCopilotListSnapshot();
+        return;
+      }
+      const viewport = boardViewportRef.current;
+      copilotListSnapshotRef.current = {
+        windowX: window.scrollX,
+        windowY: window.scrollY,
+        viewportScrollLeft: viewport?.scrollLeft ?? 0,
+        viewportScrollTop: viewport?.scrollTop ?? 0,
+      };
+    },
+    [restoreCopilotListSnapshot],
+  );
+
   const closeDetail = () => {
     const episodeId = detailItem?.episode_id;
     const originalTrigger = detailTriggerRef.current;
+    restoreCopilotListSnapshot();
     setDetailItem(null);
     window.requestAnimationFrame(() => {
       if (originalTrigger?.isConnected) {
@@ -1119,10 +1165,12 @@ export default function InboxPageClient() {
       if (episodeId) {
         document
           .querySelector<HTMLButtonElement>(
-            `[data-episode-id="${episodeId}"] button`,
+            `[data-episode-id="${episodeId}"] button[aria-label^="打开 "]`,
           )
           ?.focus();
+        if (document.activeElement !== document.body) return;
       }
+      boardViewportRef.current?.focus();
     });
   };
 
@@ -1261,6 +1309,7 @@ export default function InboxPageClient() {
         )}
 
         <section
+          ref={boardViewportRef}
           className={styles.boardViewport}
           aria-label="消费队列横向总览"
           tabIndex={0}
@@ -1318,6 +1367,7 @@ export default function InboxPageClient() {
           onClose={closeDetail}
           onItemChange={reconcileItem}
           onMove={requestMove}
+          onCopilotWorkspaceChange={handleCopilotWorkspaceChange}
         />
       )}
 

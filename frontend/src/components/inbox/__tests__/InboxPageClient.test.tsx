@@ -44,6 +44,7 @@ const apiMocks = vi.hoisted(() => ({
   cancelProcessing: vi.fn(),
   retryProcessing: vi.fn(),
   getCopilotContext: vi.fn(),
+  askCopilot: vi.fn(),
 }));
 
 const dndMocks = vi.hoisted(() => ({
@@ -177,7 +178,7 @@ vi.mock("@/lib/api/processing", () => ({
 vi.mock("@/lib/api/episodeCopilot", () => ({
   episodeCopilotApi: {
     getContext: apiMocks.getCopilotContext,
-    ask: vi.fn(),
+    ask: apiMocks.askCopilot,
   },
   isEpisodeCopilotCancellation: vi.fn(() => false),
 }));
@@ -355,6 +356,7 @@ describe("InboxPageClient", () => {
       transcript_available: false,
       private_note_available: false,
     });
+    apiMocks.askCopilot.mockResolvedValue(undefined);
     apiMocks.setQueue.mockImplementation(
       async (_episodeId: number, queue: ConsumptionQueue) => ({
         ...inboxItem,
@@ -830,7 +832,233 @@ describe("InboxPageClient", () => {
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 
-  it("reads native Minutes by default and synchronizes managed audio in the detail session", async () => {
+  it("promotes the desktop detail drawer into a two-column Copilot workspace and restores context", async () => {
+    render(<InboxPageClient />);
+    const trigger = await screen.findByRole("button", {
+      name: "打开 可处理单集 明细",
+    });
+    const boardViewport = screen.getByRole("region", {
+      name: "消费队列横向总览",
+    });
+    boardViewport.scrollLeft = 137;
+
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole("dialog", {
+      name: "可处理单集",
+    });
+    const showNotes = within(dialog).getByRole("tabpanel", {
+      name: "Show Notes",
+    });
+    const source = within(showNotes).getByText("正文");
+    const range = document.createRange();
+    range.selectNodeContents(source);
+    const selectionSpy = vi.spyOn(window, "getSelection").mockReturnValue({
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => range,
+      toString: () => "正文",
+    } as unknown as Selection);
+    fireEvent(document, new Event("selectionchange"));
+
+    const detailScroll = within(dialog).getByRole("tablist", {
+      name: "单集详情内容",
+    }).parentElement as HTMLElement;
+    detailScroll.scrollTop = 164;
+    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+
+    const openCopilot = within(dialog).getByRole("button", {
+      name: "单集助手",
+    });
+    fireEvent.click(openCopilot);
+
+    const workspace = await within(dialog).findByRole("complementary", {
+      name: "单集助手双栏工作台",
+    });
+    expect(
+      within(dialog).getByRole("heading", { name: "自动加工" }),
+    ).toBeVisible();
+    expect(within(dialog).getByRole("tab", { name: "转写" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(within(workspace).getByText("已选 Show Notes")).toBeVisible();
+    const closeCopilot = within(workspace).getByRole("button", {
+      name: "关闭助手",
+    });
+    await waitFor(() => expect(closeCopilot).toHaveFocus());
+    expect(detailScroll.scrollTop).toBe(164);
+
+    boardViewport.scrollLeft = 0;
+    fireEvent.click(closeCopilot);
+
+    await waitFor(() => expect(openCopilot).toHaveFocus());
+    expect(
+      within(dialog).queryByRole("complementary", {
+        name: "单集助手双栏工作台",
+      }),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("tab", { name: "转写" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(detailScroll.scrollTop).toBe(164);
+    expect(boardViewport.scrollLeft).toBe(137);
+    selectionSpy.mockRestore();
+  });
+
+  it.each([390, 800])(
+    "uses a dedicated narrow-screen Copilot at %ipx and returns to the same detail state",
+    async (viewportWidth) => {
+      const previousWidth = window.innerWidth;
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: viewportWidth,
+      });
+      try {
+        render(<InboxPageClient />);
+        fireEvent.click(
+          await screen.findByRole("button", {
+            name: "打开 可处理单集 明细",
+          }),
+        );
+        const detailDialog = await screen.findByRole("dialog", {
+          name: "可处理单集",
+        });
+        fireEvent.click(
+          within(detailDialog).getByRole("tab", { name: "笔记" }),
+        );
+        const openCopilot = within(detailDialog).getByRole("button", {
+          name: "单集助手",
+        });
+        fireEvent.click(openCopilot);
+
+        const mobileDialog = await screen.findByRole("dialog", {
+          name: "单集助手",
+        });
+        const workspace = within(mobileDialog).getByRole("complementary", {
+          name: "移动端单集助手",
+        });
+        const returnButton = within(workspace).getByRole("button", {
+          name: "返回单集",
+        });
+        await waitFor(() => expect(returnButton).toHaveFocus());
+        expect(
+          within(mobileDialog).queryByRole("tablist", {
+            name: "单集详情内容",
+          }),
+        ).not.toBeInTheDocument();
+
+        fireEvent.click(returnButton);
+
+        const restoredDialog = await screen.findByRole("dialog", {
+          name: "可处理单集",
+        });
+        expect(
+          within(restoredDialog).getByRole("tab", { name: "笔记" }),
+        ).toHaveAttribute("aria-selected", "true");
+        await waitFor(() => expect(openCopilot).toHaveFocus());
+      } finally {
+        Object.defineProperty(window, "innerWidth", {
+          configurable: true,
+          value: previousWidth,
+        });
+        fireEvent(window, new Event("resize"));
+      }
+    },
+  );
+
+  it("keeps the Copilot question, quote, and partial answer through failure, close, and retry", async () => {
+    apiMocks.askCopilot
+      .mockImplementationOnce(async (_episodeId, _request, onEvent) => {
+        onEvent({
+          type: "answer_delta",
+          message: "已生成的部分回答。",
+          transcript_used: false,
+          private_note_included: false,
+        });
+        throw new Error("连接中断");
+      })
+      .mockImplementationOnce(async (_episodeId, _request, onEvent) => {
+        onEvent({
+          type: "answer_delta",
+          message: "重试后的完整回答。",
+          transcript_used: false,
+          private_note_included: false,
+        });
+        onEvent({
+          type: "complete",
+          message: "回答完成",
+          transcript_used: false,
+          private_note_included: false,
+          first_content_ms: 180,
+          total_ms: 640,
+        });
+      });
+
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "打开 可处理单集 明细",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "可处理单集",
+    });
+    const source = within(dialog).getByText("正文");
+    const range = document.createRange();
+    range.selectNodeContents(source);
+    const selectionSpy = vi.spyOn(window, "getSelection").mockReturnValue({
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => range,
+      toString: () => "正文",
+    } as unknown as Selection);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "单集助手" }));
+
+    const question = await within(dialog).findByRole("textbox", {
+      name: "向单集助手提问",
+    });
+    fireEvent.change(question, { target: { value: "这段内容说明什么？" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "提问" }));
+
+    expect(
+      await within(dialog).findByText("已生成的部分回答。"),
+    ).toBeVisible();
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "问题、选区和已有答案已保留",
+    );
+    expect(
+      within(
+        within(dialog).getByRole("tabpanel", { name: "Show Notes" }),
+      ).getByText("正文"),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "关闭助手" }),
+    );
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: "单集助手" }),
+      ).toHaveFocus(),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "单集助手" }));
+
+    expect(await within(dialog).findByText("已生成的部分回答。")).toBeVisible();
+    expect(
+      within(dialog).getByRole("textbox", { name: "向单集助手提问" }),
+    ).toHaveValue("这段内容说明什么？");
+    expect(within(dialog).getByText("已选 Show Notes")).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "重试" }));
+
+    expect(
+      await within(dialog).findByText("重试后的完整回答。"),
+    ).toBeVisible();
+    expect(within(dialog).queryByText("已选 Show Notes")).toBeNull();
+    selectionSpy.mockRestore();
+  });
+
+  it("reads native Minutes, synchronizes managed audio, and preserves transcript selection", async () => {
     const completedRun: ProcessingRun = {
       id: 81,
       episode_id: inboxItem.episode_id,
@@ -1032,16 +1260,44 @@ describe("InboxPageClient", () => {
     expect(load).toHaveBeenCalledTimes(1);
     expect(audio).toHaveAttribute("src", mediaSource);
 
+    const transcriptSource = within(dialog).getByText("开场");
+    const range = document.createRange();
+    range.selectNodeContents(transcriptSource);
+    const selectionSpy = vi.spyOn(window, "getSelection").mockReturnValue({
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => range,
+      toString: () => "开场",
+    } as unknown as Selection);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "单集助手" }),
+    );
+    expect(await within(dialog).findByText("已选 逐字稿")).toBeVisible();
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "关闭助手" }),
+    );
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: "单集助手" }),
+      ).toHaveFocus(),
+    );
+
     fireEvent.click(within(dialog).getByRole("tab", { name: "Show Notes" }));
     fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
     expect(within(dialog).getByRole("tab", { name: "逐字稿" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    expect(within(dialog).getByText("开场")).toBeVisible();
+    expect(
+      within(dialog).getByRole("button", {
+        name: "00:00 主持人：开场",
+      }),
+    ).toBeVisible();
     expect(
       within(dialog).queryByText("来自同一条飞书妙记"),
     ).not.toBeInTheDocument();
+    selectionSpy.mockRestore();
   });
 
   it("lets a Focus user re-transcribe a completed legacy artifact", async () => {
@@ -1645,6 +1901,7 @@ describe("InboxPageClient", () => {
 
     render(<InboxPageClient />);
     await screen.findByRole("button", { name: "拖动《可处理单集》调整队列" });
+    await waitFor(() => expect(dndMocks.onDragEnd).toBeDefined());
     act(() =>
       dndMocks.onDragStart?.(
         dragEvent({ source: "inbox", activeEpisodeId: 101, target: "inbox" }),
@@ -1710,6 +1967,7 @@ describe("InboxPageClient", () => {
     await screen.findByRole("button", {
       name: "拖动《最近完成项》重新处理",
     });
+    await waitFor(() => expect(dndMocks.onDragEnd).toBeDefined());
     act(() =>
       dndMocks.onDragStart?.(
         dragEvent({
@@ -1810,6 +2068,7 @@ describe("InboxPageClient", () => {
     );
     fireEvent.click(screen.getByRole("menuitem", { name: "移至 Inbox" }));
     await waitFor(() => expect(doneLoadCount).toBe(2));
+    await waitFor(() => expect(dndMocks.onDragEnd).toBeDefined());
 
     act(() =>
       dndMocks.onDragStart?.(
@@ -1856,6 +2115,7 @@ describe("InboxPageClient", () => {
 
     render(<InboxPageClient />);
     await screen.findByRole("button", { name: "拖动《可处理单集》调整队列" });
+    await waitFor(() => expect(dndMocks.onDragEnd).toBeDefined());
     const initialQueueLoads = apiMocks.listQueue.mock.calls.length;
     act(() =>
       dndMocks.onDragStart?.(
@@ -1922,6 +2182,7 @@ describe("InboxPageClient", () => {
     render(<InboxPageClient />);
     await screen.findByRole("button", { name: "拖动《可处理单集》调整队列" });
     await within(queueSection("focus")).findByText("Focus 7");
+    await waitFor(() => expect(dndMocks.onDragEnd).toBeDefined());
     act(() =>
       dndMocks.onDragStart?.(
         dragEvent({ source: "inbox", activeEpisodeId: 101, target: "inbox" }),
@@ -1989,6 +2250,7 @@ describe("InboxPageClient", () => {
 
     render(<InboxPageClient />);
     await screen.findByRole("button", { name: "拖动《可处理单集》调整队列" });
+    await waitFor(() => expect(dndMocks.onDragEnd).toBeDefined());
     act(() =>
       dndMocks.onDragStart?.(
         dragEvent({ source: "inbox", activeEpisodeId: 101, target: "inbox" }),

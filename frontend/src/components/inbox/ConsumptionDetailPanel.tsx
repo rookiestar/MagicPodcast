@@ -9,6 +9,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import {
+  IconArrowLeft,
   IconArrowRight,
   IconBookmarkPlus,
   IconCheck,
@@ -17,6 +18,7 @@ import {
   IconEdit,
   IconExternalLink,
   IconRefresh,
+  IconSparkles,
   IconX,
 } from "@tabler/icons-react";
 import { OriginalEpisodeRecovery } from "@/components/common/OriginalEpisodeRecovery";
@@ -59,6 +61,7 @@ interface ConsumptionDetailPanelProps {
     item: ConsumptionItem,
     target: ConsumptionQueue,
   ) => Promise<ConsumptionItem | undefined>;
+  onCopilotWorkspaceChange?: (isOpen: boolean) => void;
 }
 
 const DETAIL_TABS = [
@@ -377,9 +380,17 @@ export default function ConsumptionDetailPanel({
   onClose,
   onItemChange,
   onMove,
+  onCopilotWorkspaceChange,
 }: ConsumptionDetailPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const detailScrollRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const copilotTriggerRef = useRef<HTMLButtonElement>(null);
+  const copilotReturnRef = useRef<HTMLButtonElement>(null);
+  const copilotRestoreRef = useRef<{
+    detailScrollTop: number;
+    focusedElement: HTMLElement | null;
+  } | null>(null);
   const processingPanelRef = useRef<EpisodeProcessingPanelHandle>(null);
   const tabRefs = useRef<Record<DetailTab, HTMLButtonElement | null>>({
     "show-notes": null,
@@ -387,6 +398,8 @@ export default function ConsumptionDetailPanel({
     notes: null,
   });
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<DetailTab>("show-notes");
   const [processingHeader, setProcessingHeader] =
@@ -413,6 +426,17 @@ export default function ConsumptionDetailPanel({
   }, []);
 
   useEffect(() => {
+    const updateViewport = () => {
+      setIsMobileViewport(window.innerWidth <= 900);
+    };
+    updateViewport();
+    window.addEventListener("resize", updateViewport, { passive: true });
+    return () => window.removeEventListener("resize", updateViewport);
+  }, []);
+
+  useEffect(() => {
+    setIsCopilotOpen(false);
+    copilotRestoreRef.current = null;
     setActiveTab("show-notes");
     setProcessingHeader(INITIAL_PROCESSING_HEADER);
   }, [item.episode_id]);
@@ -447,7 +471,11 @@ export default function ConsumptionDetailPanel({
   const handlePanelKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") {
       event.preventDefault();
-      onClose();
+      if (isCopilotOpen) {
+        closeCopilot();
+      } else {
+        onClose();
+      }
       return;
     }
     if (event.key !== "Tab" || !panelRef.current) return;
@@ -528,6 +556,45 @@ export default function ConsumptionDetailPanel({
     [],
   );
 
+  const openCopilot = useCallback(() => {
+    if (isCopilotOpen) return;
+    copilotRestoreRef.current = {
+      detailScrollTop: detailScrollRef.current?.scrollTop ?? 0,
+      focusedElement:
+        copilotTriggerRef.current ??
+        (document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null),
+    };
+    onCopilotWorkspaceChange?.(true);
+    setIsCopilotOpen(true);
+  }, [isCopilotOpen, onCopilotWorkspaceChange]);
+
+  const closeCopilot = useCallback(() => {
+    if (!isCopilotOpen) return;
+    setIsCopilotOpen(false);
+    onCopilotWorkspaceChange?.(false);
+  }, [isCopilotOpen, onCopilotWorkspaceChange]);
+
+  useEffect(() => {
+    const snapshot = copilotRestoreRef.current;
+    if (!snapshot) return;
+    if (detailScrollRef.current) {
+      detailScrollRef.current.scrollTop = snapshot.detailScrollTop;
+    }
+    if (isCopilotOpen) {
+      copilotReturnRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    const restoreTarget =
+      snapshot.focusedElement?.isConnected &&
+      panelRef.current?.contains(snapshot.focusedElement)
+        ? snapshot.focusedElement
+        : copilotTriggerRef.current ?? closeButtonRef.current;
+    restoreTarget?.focus({ preventScroll: true });
+    copilotRestoreRef.current = null;
+  }, [isCopilotOpen]);
+
   const handleTabKeyDown = (
     event: KeyboardEvent<HTMLButtonElement>,
     currentTab: DetailTab,
@@ -554,37 +621,67 @@ export default function ConsumptionDetailPanel({
 
   return (
     <div
-      className={styles.detailBackdrop}
+      className={`${styles.detailBackdrop} ${
+        isCopilotOpen ? styles.detailBackdropWorkspace : ""
+      }`}
       onMouseDown={(event) => {
         if (event.currentTarget === event.target) onClose();
       }}
     >
       <div
         ref={panelRef}
-        className={styles.detailPanel}
+        className={`${styles.detailPanel} ${
+          isCopilotOpen ? styles.detailPanelWorkspace : ""
+        }`}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="consumption-detail-title"
+        aria-labelledby={
+          isCopilotOpen && isMobileViewport
+            ? "episode-copilot-workspace-title"
+            : "consumption-detail-title"
+        }
         onKeyDown={handlePanelKeyDown}
       >
-        <header className={styles.detailHeader}>
+        <header
+          className={styles.detailHeader}
+          hidden={isCopilotOpen && isMobileViewport}
+        >
           <div>
             <span className={styles.detailKicker}>FOCUS DETAIL</span>
             <p>{item.podcast_title}</p>
           </div>
-          <button
-            ref={closeButtonRef}
-            type="button"
-            className={styles.detailClose}
-            onClick={onClose}
-            aria-label="关闭单集明细"
-            title="关闭"
-          >
-            <IconX size={22} stroke={1.7} aria-hidden="true" />
-          </button>
+          <div className={styles.detailHeaderActions}>
+            <button
+              ref={copilotTriggerRef}
+              type="button"
+              className={styles.detailCopilotTrigger}
+              aria-expanded={isCopilotOpen}
+              aria-controls="episode-copilot-workspace"
+              hidden={isCopilotOpen}
+              onClick={openCopilot}
+            >
+              <IconSparkles size={18} stroke={1.7} aria-hidden="true" />
+              单集助手
+            </button>
+            <button
+              ref={closeButtonRef}
+              type="button"
+              className={styles.detailClose}
+              onClick={onClose}
+              aria-label="关闭单集明细"
+              title="关闭"
+            >
+              <IconX size={22} stroke={1.7} aria-hidden="true" />
+            </button>
+          </div>
         </header>
 
-        <div className={styles.detailScroll}>
+        <div className={styles.detailWorkspace}>
+          <div
+            ref={detailScrollRef}
+            className={styles.detailScroll}
+            hidden={isCopilotOpen && isMobileViewport}
+          >
           <section className={styles.detailHero}>
             <div className={styles.detailTitleBlock}>
               <span className={styles.detailEpisodeNo}>
@@ -820,7 +917,38 @@ export default function ConsumptionDetailPanel({
             <EpisodeMetadata item={item} onItemChange={onItemChange} />
           </div>
 
-          <EpisodeCopilotPanel item={item} />
+          </div>
+
+          <aside
+            id="episode-copilot-workspace"
+            className={styles.copilotWorkspace}
+            aria-label={
+              isMobileViewport
+                ? "移动端单集助手"
+                : "单集助手双栏工作台"
+            }
+            hidden={!isCopilotOpen}
+          >
+            <header className={styles.copilotWorkspaceHeader}>
+              <div>
+                <span className={styles.detailKicker}>EPISODE COPILOT</span>
+                <h2 id="episode-copilot-workspace-title">单集助手</h2>
+                <p>{item.episode_title}</p>
+              </div>
+              <button
+                ref={copilotReturnRef}
+                type="button"
+                className={styles.copilotReturn}
+                onClick={closeCopilot}
+              >
+                <IconArrowLeft size={18} stroke={1.8} aria-hidden="true" />
+                {isMobileViewport ? "返回单集" : "关闭助手"}
+              </button>
+            </header>
+            <div className={styles.copilotWorkspaceScroll}>
+              <EpisodeCopilotPanel item={item} showHeading={false} />
+            </div>
+          </aside>
         </div>
       </div>
     </div>
