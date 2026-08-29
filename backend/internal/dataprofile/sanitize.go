@@ -13,11 +13,11 @@ import (
 	"strings"
 )
 
-const SanitizerVersion = "v8"
+const SanitizerVersion = "v9"
 
 // episodes.video_availability is a reviewed public tri-state. Snapshot export
 // preserves it; no HLS URL, credential, or private note is stored in the field.
-const sanitizerSchemaFingerprint = "59942353a00496791880b6470290d06fca238028f4c9b64aea2ef63cf5751031"
+const sanitizerSchemaFingerprint = "8044ed5f4fbfaeda5676a83e94ad06b0842f08142db18b87c1a42cda53f8c7be"
 const sanitizerSchemaObjectsFingerprint = "bba7aa3483aa7de6e17e65b951610b838ed670065c526acb14b59abb27cb90b1"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)

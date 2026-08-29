@@ -483,6 +483,161 @@ func TestServiceRetryCopiesSafeCheckpointAndBlocksUnknownResult(t *testing.T) {
 		}).Error)
 	_, err = service.RetryProcessingRun(context.Background(), unknown.ID)
 	require.ErrorIs(t, err, ErrRetryUnsafe)
+
+	safeCancelledEpisode := createProcessingEpisode(t, db, true, "safe-cancelled-retry")
+	safeCancelled := startProcessingRun(t, service, safeCancelledEpisode.ID)
+	require.NoError(t, db.Create(&models.ProcessingCheckpoint{
+		RunID:          safeCancelled.ID,
+		Step:           StepTranscription,
+		Adapter:        "fake-minutes",
+		AdapterVersion: "fake-minutes-v1",
+		Status:         ExternalProgressCompleted,
+		StateJSON:      state,
+		StateHash:      hex.EncodeToString(sum[:]),
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error)
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+		Where("id = ?", safeCancelled.ID).
+		Updates(map[string]any{
+			"status":          models.ProcessingRunStatusCancelled,
+			"error_code":      cancellationExternalResultUnknown,
+			"error_message":   "legacy cancellation warning",
+			"error_retryable": false,
+			"finished_at":     now,
+			"cancelled_at":    now,
+			"updated_at":      now,
+		}).Error)
+
+	safeDetail, err := service.GetProcessingRun(context.Background(), safeCancelled.ID)
+	require.NoError(t, err)
+	require.False(t, safeDetail.ExternalResultUnresolved)
+	require.Contains(t, safeDetail.ActionSuggestion, "可重新转写")
+
+	safeRetry, err := service.RetryProcessingRun(context.Background(), safeCancelled.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusQueued, safeRetry.Run.Status)
+	var safeCopied models.ProcessingCheckpoint
+	require.NoError(t, db.Where(
+		"run_id = ? AND step = ?",
+		safeRetry.Run.ID,
+		StepTranscription,
+	).First(&safeCopied).Error)
+	require.Equal(t, ExternalProgressCompleted, safeCopied.Status)
+}
+
+func TestServiceRetryNativeMinutesCheckpointPolicy(t *testing.T) {
+	testCases := []struct {
+		name                 string
+		errorCode            string
+		errorRetryable       bool
+		restartTranscription bool
+	}{
+		{
+			name:                 "invalid timeline",
+			errorCode:            "transcript_timeline_invalid",
+			restartTranscription: true,
+		},
+		{
+			name:                 "stored transcript unavailable",
+			errorCode:            "stored_transcript_unavailable",
+			restartTranscription: true,
+		},
+		{
+			name:                 "stored summary unavailable",
+			errorCode:            "stored_summary_unavailable",
+			restartTranscription: true,
+		},
+		{
+			name:                 "artifact exceeds public read limit",
+			errorCode:            artifactPublicReadLimitExceededCode,
+			restartTranscription: true,
+		},
+		{
+			name:                 "artifact text invalid",
+			errorCode:            artifactTextInvalidCode,
+			restartTranscription: true,
+		},
+		{
+			name:           "other retryable failure",
+			errorCode:      "runtime_unavailable",
+			errorRetryable: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			db := openProcessingTestDB(t)
+			now := time.Date(2026, 8, 29, 13, 0, 0, 0, time.UTC)
+			service, resolver := newProcessingServiceWithResolver(
+				db,
+				WithClock(func() time.Time { return now }),
+			)
+			resolver.Set(ProcessingInput{
+				AudioDigest:     strings.Repeat("a", 64),
+				PipelineVersion: NativeMinutesPipelineVersion,
+			})
+			episode := createProcessingEpisode(
+				t,
+				db,
+				true,
+				"native-minutes-retry-"+strings.ReplaceAll(testCase.name, " ", "-"),
+			)
+			source := startProcessingRun(t, service, episode.ID)
+			state := `{"version":1,"phase":"transcript_stored"}`
+			sum := sha256.Sum256([]byte(state))
+			require.NoError(t, db.Create(&models.ProcessingCheckpoint{
+				RunID:          source.ID,
+				Step:           StepTranscription,
+				Adapter:        "feishu-minutes",
+				AdapterVersion: "feishu-minutes-v1",
+				Status:         ExternalProgressCompleted,
+				StateJSON:      state,
+				StateHash:      hex.EncodeToString(sum[:]),
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			}).Error)
+			require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+				Where("id = ?", source.ID).
+				Updates(map[string]any{
+					"status":          models.ProcessingRunStatusFailed,
+					"error_code":      testCase.errorCode,
+					"error_message":   testCase.name,
+					"error_retryable": testCase.errorRetryable,
+					"finished_at":     now,
+					"updated_at":      now,
+				}).Error)
+
+			retry, err := service.RetryProcessingRun(context.Background(), source.ID)
+			require.NoError(t, err)
+			require.Equal(t, models.ProcessingRunStatusQueued, retry.Run.Status)
+			require.Equal(t, NativeMinutesPipelineVersion, retry.Run.PipelineVersion)
+			require.NotNil(t, retry.Run.PreviousRunID)
+			require.Equal(t, source.ID, *retry.Run.PreviousRunID)
+
+			var sourceCheckpoint models.ProcessingCheckpoint
+			require.NoError(t, db.Where(
+				"run_id = ? AND step = ?",
+				source.ID,
+				StepTranscription,
+			).First(&sourceCheckpoint).Error)
+			require.Equal(t, state, sourceCheckpoint.StateJSON)
+
+			var retryCheckpoints []models.ProcessingCheckpoint
+			require.NoError(t, db.Where(
+				"run_id = ? AND step = ?",
+				retry.Run.ID,
+				StepTranscription,
+			).Find(&retryCheckpoints).Error)
+			if testCase.restartTranscription {
+				require.Empty(t, retryCheckpoints)
+			} else {
+				require.Len(t, retryCheckpoints, 1)
+				require.Equal(t, state, retryCheckpoints[0].StateJSON)
+				require.Equal(t, ExternalProgressCompleted, retryCheckpoints[0].Status)
+			}
+		})
+	}
 }
 
 func TestServiceRecoveryClosesInterruptedAndKeepsRecoverableRuns(t *testing.T) {

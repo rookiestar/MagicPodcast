@@ -77,8 +77,19 @@ func TestIMAManualImportBridgePublishesDeterministicRestrictedPackage(t *testing
 	require.Equal(t, request.Package.PodcastTitle, metadata.Episode.Podcast)
 	require.Equal(t, request.ArtifactSetID, metadata.Artifact.ArtifactSetID)
 	require.Equal(t, request.Package.ManifestSHA256, metadata.Artifact.ManifestSHA256)
+	require.Equal(
+		t,
+		request.Package.MinutesSummarySHA256,
+		metadata.Artifact.MinutesSummarySHA256,
+	)
+	require.Equal(
+		t,
+		request.Package.TranscriptTimelineSHA256,
+		metadata.Artifact.TranscriptTimelineSHA256,
+	)
 	require.Contains(t, string(firstFiles["knowledge.md"]), "规范逐字稿")
-	require.Contains(t, string(firstFiles["knowledge.md"]), "单集纪要")
+	require.Contains(t, string(firstFiles["knowledge.md"]), "妙记纪要")
+	require.Contains(t, string(firstFiles["knowledge.md"]), "时间轴 SHA-256")
 	require.Contains(t, string(firstFiles["knowledge.md"]), "Show Notes")
 
 	allContent := string(firstFiles["knowledge.md"]) +
@@ -261,10 +272,12 @@ func TestIMAManualImportBridgeRejectsIncompleteArtifacts(t *testing.T) {
 		{"pipeline", func(request *DeliveryRequest) { request.Package.PipelineVersion = "" }},
 		{"artifact time", func(request *DeliveryRequest) { request.Package.ArtifactGeneratedAt = time.Time{} }},
 		{"manifest checksum", func(request *DeliveryRequest) { request.Package.ManifestSHA256 = "" }},
+		{"summary checksum", func(request *DeliveryRequest) { request.Package.MinutesSummarySHA256 = "" }},
+		{"timeline checksum", func(request *DeliveryRequest) { request.Package.TranscriptTimelineSHA256 = "" }},
+		{"summary", func(request *DeliveryRequest) { request.Package.MinutesSummary = "" }},
 		{"transcript", func(request *DeliveryRequest) { request.Package.Transcript = "" }},
-		{"notes", func(request *DeliveryRequest) { request.Package.EpisodeNotes = "" }},
+		{"summary mismatch", func(request *DeliveryRequest) { request.Package.MinutesSummary += "tampered" }},
 		{"transcript mismatch", func(request *DeliveryRequest) { request.Package.Transcript += "tampered" }},
-		{"notes mismatch", func(request *DeliveryRequest) { request.Package.EpisodeNotes += "tampered" }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -370,9 +383,9 @@ func TestIMAManualImportBridgeRejectsTraversalSymlinksAndSensitiveSources(t *tes
 			request.Package.Transcript += "\n/home/private/audio.mp3"
 			request.Package.TranscriptSHA256 = digestString(request.Package.Transcript)
 		}},
-		{"Windows notes path", func(request *DeliveryRequest) {
-			request.Package.EpisodeNotes += "\nC:\\temp\\private.txt"
-			request.Package.EpisodeNotesSHA256 = digestString(request.Package.EpisodeNotes)
+		{"Windows summary path", func(request *DeliveryRequest) {
+			request.Package.MinutesSummary += "\nC:\\temp\\private.txt"
+			request.Package.MinutesSummarySHA256 = digestString(request.Package.MinutesSummary)
 		}},
 		{"UNC show notes path", func(request *DeliveryRequest) {
 			request.Package.ShowNotes = "\\\\server\\share\\private.txt"
@@ -396,9 +409,9 @@ func TestIMAManualImportBridgeRejectsTraversalSymlinksAndSensitiveSources(t *tes
 			request.Package.Transcript += "\nfile_token=SECRET"
 			request.Package.TranscriptSHA256 = digestString(request.Package.Transcript)
 		}},
-		{"credential JSON in notes", func(request *DeliveryRequest) {
-			request.Package.EpisodeNotes += "\n{\"access_token\": \"SECRET\"}"
-			request.Package.EpisodeNotesSHA256 = digestString(request.Package.EpisodeNotes)
+		{"credential JSON in summary", func(request *DeliveryRequest) {
+			request.Package.MinutesSummary += "\n{\"access_token\": \"SECRET\"}"
+			request.Package.MinutesSummarySHA256 = digestString(request.Package.MinutesSummary)
 		}},
 		{"credential show notes URL", func(request *DeliveryRequest) {
 			request.Package.ShowNotes = "[restricted](https://example.com/doc?token=SECRET)"
@@ -471,8 +484,8 @@ func TestIMAManualImportBridgeAllowsCJKProseSlashes(t *testing.T) {
 	request.Package.ShowNotes = "支持音频/视频与导入/导出。"
 	request.Package.Transcript += "\n支持输入/输出格式。\n"
 	request.Package.TranscriptSHA256 = digestString(request.Package.Transcript)
-	request.Package.EpisodeNotes += "\n- 比较之前/之后的结果\n"
-	request.Package.EpisodeNotesSHA256 = digestString(request.Package.EpisodeNotes)
+	request.Package.MinutesSummary += "\n- 比较之前/之后的结果\n"
+	request.Package.MinutesSummarySHA256 = digestString(request.Package.MinutesSummary)
 	bridge, err := NewIMAManualImportBridge(t.TempDir())
 	require.NoError(t, err)
 
@@ -556,7 +569,7 @@ func TestEngineKeepsManualImportDeliveryPending(t *testing.T) {
 	require.NoError(t, err)
 	bridge, err := NewIMAManualImportBridge(t.TempDir())
 	require.NoError(t, err)
-	pkg := validIMAManualImportRequest().Package
+	pkg := validLegacyIMAManualImportRequest().Package
 	pkg.RunID = run.ID
 	pkg.EpisodeID = episode.ID
 	pkg.PipelineVersion = run.PipelineVersion
@@ -588,31 +601,44 @@ func TestEngineKeepsManualImportDeliveryPending(t *testing.T) {
 
 func validIMAManualImportRequest() DeliveryRequest {
 	transcript := "# Transcript\n\n[00:00] 可核对内容\n"
-	notes := "# Episode notes\n\n- 关键观点\n"
+	summary := "# 纪要\n\n- 关键观点\n"
 	return DeliveryRequest{
 		ArtifactSetID: 42,
 		DeliveryKey:   strings.Repeat("a", 64),
 		Destination:   "manual-import",
 		Package: KnowledgePackage{
-			RunID:               7,
-			EpisodeID:           9,
-			EpisodeTitle:        "确定性播客加工",
-			PodcastTitle:        "MagicPodcast 测试节目",
-			PublishedAt:         time.Date(2026, 8, 20, 8, 0, 0, 0, time.UTC),
-			SourceURL:           "https://example.com/episodes/9",
-			ShowNotes:           "公开 Show Notes 与 [资料](https://example.com/home/resource)。",
-			PipelineVersion:     "focus-v1",
-			ArtifactGeneratedAt: time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC),
-			ManifestSHA256:      strings.Repeat("1", 64),
-			TranscriptSHA256:    digestString(transcript),
-			EpisodeNotesSHA256:  digestString(notes),
-			Transcript:          transcript,
-			EpisodeNotes:        notes,
+			RunID:                    7,
+			EpisodeID:                9,
+			EpisodeTitle:             "确定性播客加工",
+			PodcastTitle:             "MagicPodcast 测试节目",
+			PublishedAt:              time.Date(2026, 8, 20, 8, 0, 0, 0, time.UTC),
+			SourceURL:                "https://example.com/episodes/9",
+			ShowNotes:                "公开 Show Notes 与 [资料](https://example.com/home/resource)。",
+			PipelineVersion:          NativeMinutesPipelineVersion,
+			ArtifactGeneratedAt:      time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC),
+			ManifestSHA256:           strings.Repeat("1", 64),
+			MinutesSummarySHA256:     digestString(summary),
+			TranscriptSHA256:         digestString(transcript),
+			TranscriptTimelineSHA256: strings.Repeat("2", 64),
+			MinutesSummary:           summary,
+			Transcript:               transcript,
 			Sources: map[string]string{
 				"episode": "https://example.com/episodes/9",
 			},
 		},
 	}
+}
+
+func validLegacyIMAManualImportRequest() DeliveryRequest {
+	request := validIMAManualImportRequest()
+	notes := "# Episode notes\n\n- 关键观点\n"
+	request.Package.PipelineVersion = "focus-processing-v1"
+	request.Package.MinutesSummary = ""
+	request.Package.MinutesSummarySHA256 = ""
+	request.Package.TranscriptTimelineSHA256 = ""
+	request.Package.EpisodeNotes = notes
+	request.Package.EpisodeNotesSHA256 = digestString(notes)
+	return request
 }
 
 func readIMAPackageFiles(t *testing.T, root string) map[string][]byte {

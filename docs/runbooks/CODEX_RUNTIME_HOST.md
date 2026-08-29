@@ -1,8 +1,8 @@
 # Codex Runtime Host Runbook
 
-最后更新：2026-08-24
+最后更新：2026-08-29
 
-本 Runbook 说明 #180 的 Runtime 实现，以及 #181 如何把它接入 Focus 加工 Worker。它不授权生产部署、数据库迁移、真实音频上传或凭据变更。
+本 Runbook 说明 #180 的 Runtime 实现，以及 #206 后 Focus 加工如何直接发布飞书妙记原生产物。Runtime 继续服务其他获批用途；新转写管道不再调用它生成第二份纪要。本文件不授权生产部署、数据库迁移、真实音频上传或凭据变更。
 
 ## 1. 固定边界
 
@@ -85,9 +85,9 @@ Smoke 必须证明：
 
 证据只保存主机、版本、状态、时延、事件计数、取消方式和清理结果，不保存提示词、输出正文、账号、路径或凭据。当前证据见 [`CODEX_RUNTIME_SMOKE_2026-08-24.json`](../research/evidence/CODEX_RUNTIME_SMOKE_2026-08-24.json)。
 
-## 6. 飞书手动加工真实 Smoke
+## 6. 飞书原生产物真实 Smoke
 
-`backend/cmd/processing-real-smoke` 运行 #181 的真实 Adapter 链：飞书妙记转写、固定 Runtime 生成单集纪要和本地产物原子发布。它必须从与待验收提交一致的 Git worktree 构建；最终证据的 `build.vcs_revision` 必须等于该提交，`build.vcs_modified` 必须为 `false`。
+`backend/cmd/processing-real-smoke` 运行 #206 的真实 Adapter 链：读取同一妙记的 Summary、Transcript 和结构化时间轴，再原子发布本地产物；不调用 Codex Runtime。它必须从与待验收提交一致的 Git worktree 构建；最终证据的 `build.vcs_revision` 必须等于该提交，`build.vcs_modified` 必须为 `false`。
 
 首次运行会创建外部资源，只有在单独授权真实音频上传和用户凭据后才能执行：
 
@@ -100,19 +100,16 @@ commit=$(git rev-parse HEAD)
   --audio /absolute/path/episode.m4a \
   --lark-cli /absolute/path/lark-cli-isolated \
   --lark-work-root /absolute/path/lark-work \
-  --python /absolute/path/venv-0.147.0/bin/python \
-  --host-script /absolute/path/runtime_host.py \
-  --runtime-work-root /absolute/path/runtime-work \
   --artifact-root /absolute/path/artifacts \
   --evidence /absolute/path/processing-real-smoke.json \
   --timeout 2h
 ```
 
-重启恢复验收使用已有 `lark-work/smoke-checkpoint.json` 时必须加 `--resume-only`；该模式不调用新的 Drive/Minutes 上传。证据应回读 `events`、`build`、逐字稿/纪要大小、产物校验和及 Runtime 清理结果，并明确是否为首次上传或恢复运行。当前 #181 证据见 [`FOCUS_PROCESSING_REAL_SMOKE_2026-08-25.json`](../research/evidence/FOCUS_PROCESSING_REAL_SMOKE_2026-08-25.json)。
+重启恢复验收使用已有 `lark-work/smoke-checkpoint.json` 时必须加 `--resume-only`；该模式不调用新的 Drive/Minutes 上传。证据应回读 `events`、`build`、Summary/Transcript 字节数、段落数和全部产物校验值，并明确是否为首次上传或恢复运行。现存 [`FOCUS_PROCESSING_REAL_SMOKE_2026-08-25.json`](../research/evidence/FOCUS_PROCESSING_REAL_SMOKE_2026-08-25.json) 仅是旧 #181 管道证据，不能替代 #206 的另行授权真实验收。
 
 ## 7. 当前未启用项
 
-- 仓库已支持在 `processing.enabled=true` 时显式实例化 Runtime Host、飞书 Adapter 与持久 Worker；默认仍关闭，生产尚未启用。
+- 仓库已支持在 `processing.enabled=true` 时显式实例化飞书 Adapter 与持久 Worker；Runtime Host 仍可供其他能力使用。默认仍关闭，生产尚未启用。
 - Worker 已支持进程重启后的持久运行恢复；生产资源上限、LaunchAgent 配置和运行证据尚未完成。
 - 飞书 Adapter 已实现；真实 Smoke 仅作为获批测试音频的隔离验收，不等于生产 Worker 已启用；Google 能力不属于 #181。
 - 未执行数据库 migration apply、部署或真实数据运行。

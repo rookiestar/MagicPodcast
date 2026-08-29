@@ -1,7 +1,7 @@
-// processing-real-smoke runs the actual #181 adapter chain in an isolated
+// processing-real-smoke runs the actual #206 native Minutes adapter chain in an isolated
 // directory. Its evidence intentionally contains hashes, sizes, statuses, and
-// cleanup diagnostics only; it never serializes transcripts, notes, paths,
-// remote identities, or credentials.
+// counts only; it never serializes transcripts, summaries, paths, remote
+// identities, or credentials.
 package main
 
 import (
@@ -20,7 +20,6 @@ import (
 	"strings"
 	"time"
 
-	"magicpodcast/internal/codexruntime"
 	"magicpodcast/internal/processing"
 )
 
@@ -46,29 +45,23 @@ type smokeEvidence struct {
 		CheckpointWrites       int    `json:"checkpoint_writes"`
 		LatestCheckpointSHA256 string `json:"latest_checkpoint_sha256,omitempty"`
 		Status                 string `json:"status,omitempty"`
+		SummaryBytes           int    `json:"summary_bytes,omitempty"`
 		TranscriptBytes        int    `json:"transcript_bytes,omitempty"`
+		SegmentCount           int    `json:"segment_count,omitempty"`
 		RawArtifactCount       int    `json:"raw_artifact_count,omitempty"`
 		RecoverableReadErrors  int    `json:"recoverable_read_errors,omitempty"`
 		SourceRefCount         int    `json:"source_ref_count,omitempty"`
 		SkillVersionCount      int    `json:"skill_version_count,omitempty"`
 	} `json:"feishu"`
-	Runtime struct {
-		Status            string `json:"status,omitempty"`
-		NotesBytes        int    `json:"notes_bytes,omitempty"`
-		RuntimeVersion    string `json:"runtime_version,omitempty"`
-		PromptVersion     string `json:"prompt_version,omitempty"`
-		ActiveExecutions  int    `json:"active_executions,omitempty"`
-		LiveProcessGroups int    `json:"live_process_groups,omitempty"`
-		TrackedExecutions int    `json:"tracked_executions,omitempty"`
-		CleanupSucceeded  bool   `json:"cleanup_succeeded"`
-	} `json:"runtime"`
 	Artifacts struct {
-		Published         bool   `json:"published"`
-		ManifestSHA256    string `json:"manifest_sha256,omitempty"`
-		TranscriptSHA256  string `json:"transcript_sha256,omitempty"`
-		NotesSHA256       string `json:"notes_sha256,omitempty"`
-		RawArtifactCount  int    `json:"raw_artifact_count,omitempty"`
-		VerifiedFileCount int    `json:"verified_file_count,omitempty"`
+		Published                bool   `json:"published"`
+		ManifestSHA256           string `json:"manifest_sha256,omitempty"`
+		AudioSHA256              string `json:"audio_sha256,omitempty"`
+		MinutesSummarySHA256     string `json:"minutes_summary_sha256,omitempty"`
+		TranscriptSHA256         string `json:"transcript_sha256,omitempty"`
+		TranscriptTimelineSHA256 string `json:"transcript_timeline_sha256,omitempty"`
+		RawArtifactCount         int    `json:"raw_artifact_count,omitempty"`
+		VerifiedFileCount        int    `json:"verified_file_count,omitempty"`
 	} `json:"artifacts"`
 }
 
@@ -89,25 +82,22 @@ func main() {
 
 func run() int {
 	var (
-		audioPath       = flag.String("audio", "", "managed local audio file")
-		larkCLI         = flag.String("lark-cli", "", "isolated lark-cli wrapper")
-		larkWorkRoot    = flag.String("lark-work-root", "", "isolated Feishu work root")
-		pythonPath      = flag.String("python", "", "fixed Codex SDK Python")
-		hostScript      = flag.String("host-script", "", "runtime_host.py")
-		runtimeWorkRoot = flag.String("runtime-work-root", "", "runtime working root")
-		artifactRoot    = flag.String("artifact-root", "", "artifact root")
-		evidencePath    = flag.String("evidence", "", "sanitized evidence JSON")
-		pollInterval    = flag.Duration("poll-interval", 30*time.Second, "Feishu artifact poll interval")
-		timeout         = flag.Duration("timeout", 2*time.Hour, "whole smoke timeout")
-		runID           = flag.Uint("run-id", 181001, "isolated run identity")
-		episodeID       = flag.Uint("episode-id", 181001, "isolated episode identity")
-		resumeOnly      = flag.Bool("resume-only", false, "resume the durable Feishu checkpoint without a new upload")
+		audioPath    = flag.String("audio", "", "managed local audio file")
+		larkCLI      = flag.String("lark-cli", "", "isolated lark-cli wrapper")
+		larkWorkRoot = flag.String("lark-work-root", "", "isolated Feishu work root")
+		artifactRoot = flag.String("artifact-root", "", "artifact root")
+		evidencePath = flag.String("evidence", "", "sanitized evidence JSON")
+		pollInterval = flag.Duration("poll-interval", 30*time.Second, "Feishu artifact poll interval")
+		timeout      = flag.Duration("timeout", 2*time.Hour, "whole smoke timeout")
+		runID        = flag.Uint("run-id", 181001, "isolated run identity")
+		episodeID    = flag.Uint("episode-id", 181001, "isolated episode identity")
+		resumeOnly   = flag.Bool("resume-only", false, "resume the durable Feishu checkpoint without a new upload")
 	)
 	flag.Parse()
 
 	started := time.Now().UTC()
 	evidence := smokeEvidence{
-		SchemaVersion: "1.0.0",
+		SchemaVersion: "2.0.0",
 		Status:        "running",
 		Stage:         "preflight",
 		ResumeOnly:    *resumeOnly,
@@ -137,9 +127,6 @@ func run() int {
 		*audioPath,
 		*larkCLI,
 		*larkWorkRoot,
-		*pythonPath,
-		*hostScript,
-		*runtimeWorkRoot,
 		*artifactRoot,
 		*evidencePath,
 	} {
@@ -156,9 +143,6 @@ func run() int {
 	evidence.Audio.SHA256 = digest
 	if _, err := ensurePrivateDirectory(*larkWorkRoot); err != nil {
 		return fail("preflight", "lark_work_root_unavailable")
-	}
-	if _, err := ensurePrivateDirectory(*runtimeWorkRoot); err != nil {
-		return fail("preflight", "runtime_work_root_unavailable")
 	}
 	if _, err := ensurePrivateDirectory(*artifactRoot); err != nil {
 		return fail("preflight", "artifact_root_unavailable")
@@ -182,7 +166,7 @@ func run() int {
 		RunID:           uint(*runID),
 		EpisodeID:       uint(*episodeID),
 		AudioDigest:     digest,
-		PipelineVersion: "focus-processing-v1",
+		PipelineVersion: processing.NativeMinutesPipelineVersion,
 		PersistCheckpoint: func(_ context.Context, _ string, state json.RawMessage) error {
 			if err := writePrivateFile(checkpointPath, state); err != nil {
 				return err
@@ -238,60 +222,20 @@ func run() int {
 		}
 		progress, err = adapter.Resume(ctx, request, progress.Checkpoint)
 	}
-	if strings.TrimSpace(progress.Transcript) == "" {
-		return fail("feishu_transcription", "empty_transcript")
+	if strings.TrimSpace(progress.MinutesSummary) == "" ||
+		strings.TrimSpace(progress.Transcript) == "" ||
+		len(progress.Segments) == 0 {
+		return fail("feishu_transcription", "incomplete_minutes_artifacts")
 	}
 	evidence.Feishu.Status = progress.Status
+	evidence.Feishu.SummaryBytes = len(progress.MinutesSummary)
 	evidence.Feishu.TranscriptBytes = len(progress.Transcript)
+	evidence.Feishu.SegmentCount = len(progress.Segments)
 	evidence.Feishu.RawArtifactCount = len(progress.RawArtifacts)
 	evidence.Feishu.SourceRefCount = len(progress.SourceRefs)
 	evidence.Feishu.SkillVersionCount = len(progress.SkillVersions)
 	evidence.Stage = "feishu_complete"
 	record(*evidencePath, &evidence, "feishu_complete")
-
-	runtimeHost, err := codexruntime.NewProcessHost(codexruntime.ProcessHostConfig{
-		Command:  []string{*pythonPath, *hostScript},
-		WorkRoot: *runtimeWorkRoot,
-		Profiles: codexruntime.DefaultProfiles(),
-	})
-	if err != nil {
-		return fail("runtime_setup", "runtime_unavailable")
-	}
-	defer func() {
-		closeCtx, closeCancel := context.WithTimeout(context.Background(), 20*time.Second)
-		closeErr := runtimeHost.Close(closeCtx)
-		closeCancel()
-		diagnostics := runtimeHost.Diagnostics()
-		evidence.Runtime.ActiveExecutions = diagnostics.ActiveExecutions
-		evidence.Runtime.LiveProcessGroups = diagnostics.LiveProcessGroups
-		evidence.Runtime.TrackedExecutions = diagnostics.TrackedExecutions
-		evidence.Runtime.CleanupSucceeded = closeErr == nil && diagnostics.ActiveExecutions == 0 && diagnostics.LiveProcessGroups == 0
-		if !evidence.Runtime.CleanupSucceeded && evidence.Status == "completed" {
-			evidence.Status = "failed"
-			evidence.Stage = "runtime_cleanup"
-			evidence.ErrorCode = "runtime_cleanup_failed"
-		}
-	}()
-	runtimeAdapter, err := processing.NewLocalRuntimeAdapter(runtimeHost, *runtimeWorkRoot)
-	if err != nil {
-		return fail("runtime_setup", "runtime_unavailable")
-	}
-	evidence.Stage = "episode_notes"
-	record(*evidencePath, &evidence, "runtime_started")
-	runtimeResult, err := runtimeAdapter.Execute(ctx, processing.RuntimeRequest{
-		RunID:           uint(*runID),
-		EpisodeID:       uint(*episodeID),
-		PipelineVersion: "focus-processing-v1",
-		Transcript:      progress.Transcript,
-	})
-	if err != nil {
-		return fail("episode_notes", adapterErrorCode(err))
-	}
-	evidence.Runtime.Status = "completed"
-	evidence.Runtime.NotesBytes = len(runtimeResult.EpisodeNotes)
-	evidence.Runtime.RuntimeVersion = runtimeResult.RuntimeVersion
-	evidence.Runtime.PromptVersion = runtimeResult.PromptVersion
-	record(*evidencePath, &evidence, "runtime_complete")
 
 	store, err := processing.NewDiskArtifactStore(*artifactRoot)
 	if err != nil {
@@ -302,15 +246,14 @@ func run() int {
 		RunID:                uint(*runID),
 		EpisodeID:            uint(*episodeID),
 		AudioDigest:          digest,
-		PipelineVersion:      "focus-processing-v1",
+		PipelineVersion:      processing.NativeMinutesPipelineVersion,
+		NativeMinutes:        true,
+		MinutesSummary:       progress.MinutesSummary,
 		Transcript:           progress.Transcript,
-		EpisodeNotes:         runtimeResult.EpisodeNotes,
+		TranscriptSegments:   progress.Segments,
 		TranscriptionAdapter: adapter.Name(),
 		TranscriptionVersion: adapter.Version(),
-		RuntimeAdapter:       runtimeAdapter.Name(),
-		RuntimeVersion:       runtimeResult.RuntimeVersion,
-		PromptVersion:        runtimeResult.PromptVersion,
-		SkillVersions:        mergedVersions(progress.SkillVersions, runtimeResult.SkillVersions),
+		SkillVersions:        progress.SkillVersions,
 		Sources:              progress.SourceRefs,
 		RawArtifacts:         progress.RawArtifacts,
 		GeneratedAt:          time.Now().UTC(),
@@ -324,8 +267,10 @@ func run() int {
 	}
 	evidence.Artifacts.Published = true
 	evidence.Artifacts.ManifestSHA256 = published.ManifestSHA256
+	evidence.Artifacts.AudioSHA256 = published.AudioSHA256
+	evidence.Artifacts.MinutesSummarySHA256 = published.MinutesSummarySHA256
 	evidence.Artifacts.TranscriptSHA256 = published.TranscriptSHA256
-	evidence.Artifacts.NotesSHA256 = published.NotesSHA256
+	evidence.Artifacts.TranscriptTimelineSHA256 = published.TranscriptTimelineSHA256
 	evidence.Artifacts.RawArtifactCount = len(progress.RawArtifacts)
 	evidence.Artifacts.VerifiedFileCount = files
 	evidence.Status = "completed"
@@ -338,9 +283,6 @@ func adapterErrorCode(err error) string {
 	var adapterErr *processing.AdapterError
 	if errors.As(err, &adapterErr) && strings.TrimSpace(adapterErr.ErrorCode) != "" {
 		return adapterErr.ErrorCode
-	}
-	if code := codexruntime.ErrorCode(err); code != "" {
-		return code
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return "smoke_timeout"
@@ -483,30 +425,16 @@ func parseStartedAt(value string) time.Time {
 	return parsed
 }
 
-func mergedVersions(left, right map[string]string) map[string]string {
-	merged := make(map[string]string, len(left)+len(right))
-	for key, value := range left {
-		if strings.TrimSpace(key) != "" && strings.TrimSpace(value) != "" {
-			merged[key] = value
-		}
-	}
-	for key, value := range right {
-		if strings.TrimSpace(key) != "" && strings.TrimSpace(value) != "" {
-			merged[key] = value
-		}
-	}
-	return merged
-}
-
 func verifyArtifactSet(published processing.ArtifactPublishResult, rawCount int) (int, error) {
 	rootInfo, err := os.Lstat(published.RootPath)
 	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 {
 		return 0, fmt.Errorf("artifact root invalid")
 	}
 	files := map[string]string{
-		"manifest.json":    published.ManifestSHA256,
-		"transcript.md":    published.TranscriptSHA256,
-		"episode-notes.md": published.NotesSHA256,
+		"manifest.json":      published.ManifestSHA256,
+		"minutes-summary.md": published.MinutesSummarySHA256,
+		"transcript.md":      published.TranscriptSHA256,
+		"transcript.json":    published.TranscriptTimelineSHA256,
 	}
 	for relative, expected := range files {
 		_, actual, err := digestRegularFile(filepath.Join(published.RootPath, relative))
@@ -524,7 +452,7 @@ func verifyArtifactSet(published processing.ArtifactPublishResult, rawCount int)
 		}
 		return nil
 	})
-	if err != nil || count != rawCount+3 {
+	if err != nil || count != rawCount+4 {
 		return 0, fmt.Errorf("artifact file count invalid")
 	}
 	return count, nil

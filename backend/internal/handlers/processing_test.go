@@ -3,10 +3,12 @@ package handlers_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -111,6 +113,54 @@ func TestProcessingHandlerStartGetListAndCancel(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, response.Code)
 	require.Contains(t, response.Body.String(), `"status":"cancelled"`)
+
+	checkpointState := `{"version":1,"phase":"transcript_stored"}`
+	checkpointHash := sha256.Sum256([]byte(checkpointState))
+	require.NoError(t, db.Create(&models.ProcessingCheckpoint{
+		RunID:          started.Data.Run.ID,
+		Step:           processing.StepTranscription,
+		Adapter:        "feishu-minutes",
+		AdapterVersion: "feishu-minutes-cli-v1",
+		Status:         processing.ExternalProgressCompleted,
+		StateJSON:      checkpointState,
+		StateHash:      fmt.Sprintf("%x", checkpointHash[:]),
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error)
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+		Where("id = ?", started.Data.Run.ID).
+		Updates(map[string]any{
+			"error_code":      "cancelled_external_result_unknown",
+			"error_message":   "legacy cancellation warning",
+			"error_retryable": false,
+			"updated_at":      now,
+		}).Error)
+	response = processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/processing-runs/%d", started.Data.Run.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(t, response.Body.String(), `"external_result_unresolved":false`)
+	require.Contains(t, response.Body.String(), "可重新转写")
+
+	require.NoError(t, db.Model(&models.ProcessingCheckpoint{}).
+		Where(
+			"run_id = ? AND step = ?",
+			started.Data.Run.ID,
+			processing.StepTranscription,
+		).
+		Update("status", processing.ExternalProgressWaiting).Error)
+	response = processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/processing-runs/%d", started.Data.Run.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(t, response.Body.String(), `"external_result_unresolved":true`)
+	require.Contains(t, response.Body.String(), "确认前不可重新加工")
 }
 
 func TestProcessingHandlerRejectsInvalidRequestAndMissingRun(t *testing.T) {
@@ -320,6 +370,298 @@ func TestProcessingHandlerAudioRetryAndArtifactRoutes(t *testing.T) {
 	require.Contains(t, response.Body.String(), "ARTIFACT_INVALID")
 }
 
+func TestProcessingArtifactHTTPContractForNativeAndLegacyArtifacts(t *testing.T) {
+	db, _, episode, _ := setupProcessingHandler(t)
+	now := time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC)
+	store, err := processing.NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	audioRoot := filepath.Join(t.TempDir(), "managed-audio")
+	audioStore, err := processing.NewDiskAudioStore(db, audioRoot)
+	require.NoError(t, err)
+	service := processing.NewService(
+		db,
+		processing.WithArtifactReader(store),
+		processing.WithAudioPreparer(audioStore),
+	)
+	handler := handlers.NewProcessingHandler(service, nil)
+	router := gin.New()
+	router.GET("/api/v1/processing-runs/:id", handler.Get)
+	router.GET("/api/v1/artifact-sets/:id/:kind", handler.GetArtifactContent)
+
+	createCompletedRun := func(
+		targetEpisodeID uint,
+		processingKey string,
+		audioDigest string,
+		pipelineVersion string,
+	) models.EpisodeProcessingRun {
+		t.Helper()
+		run := models.EpisodeProcessingRun{
+			EpisodeID:       targetEpisodeID,
+			ProcessingKey:   processingKey,
+			AudioDigest:     audioDigest,
+			PipelineVersion: pipelineVersion,
+			TriggerSource:   models.ProcessingTriggerManual,
+			Status:          models.ProcessingRunStatusCompleted,
+			CurrentStep:     processing.StepArtifactPublish,
+			AttemptCount:    1,
+			MaxAttempts:     3,
+			RetryDeadlineAt: now.Add(24 * time.Hour),
+			FinishedAt:      &now,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		}
+		require.NoError(t, db.Create(&run).Error)
+		return run
+	}
+	recordArtifact := func(
+		run models.EpisodeProcessingRun,
+		published processing.ArtifactPublishResult,
+	) models.EpisodeArtifactSet {
+		t.Helper()
+		artifact := models.EpisodeArtifactSet{
+			RunID:                    run.ID,
+			EpisodeID:                run.EpisodeID,
+			PipelineVersion:          run.PipelineVersion,
+			RootPath:                 published.RootPath,
+			ManifestPath:             published.ManifestPath,
+			ManifestSHA256:           published.ManifestSHA256,
+			AudioSHA256:              published.AudioSHA256,
+			MinutesSummarySHA256:     published.MinutesSummarySHA256,
+			TranscriptSHA256:         published.TranscriptSHA256,
+			TranscriptTimelineSHA256: published.TranscriptTimelineSHA256,
+			NotesSHA256:              published.NotesSHA256,
+			IsCurrent:                true,
+			CreatedAt:                now,
+		}
+		require.NoError(t, db.Create(&artifact).Error)
+		return artifact
+	}
+
+	require.NoError(t, db.Model(&episode).Updates(map[string]any{
+		"medium_url": "https://audio.example/native.mp3",
+		"duration":   60,
+	}).Error)
+	queuedAudio, err := audioStore.Enqueue(context.Background(), episode.ID)
+	require.NoError(t, err)
+	audioBody := []byte("ID3\x04managed-native-audio")
+	audioSum := sha256.Sum256(audioBody)
+	audioDigest := fmt.Sprintf("%x", audioSum[:])
+	audioRelativePath := filepath.Join("ready", "native.mp3")
+	audioPath := filepath.Join(audioRoot, audioRelativePath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(audioPath), 0o700))
+	require.NoError(t, os.WriteFile(audioPath, audioBody, 0o600))
+	require.NoError(t, db.Model(&models.EpisodeAudioAsset{}).
+		Where("id = ?", queuedAudio.Asset.ID).
+		Updates(map[string]any{
+			"status":           models.EpisodeAudioAssetStatusReady,
+			"relative_path":    filepath.ToSlash(audioRelativePath),
+			"sha256":           audioDigest,
+			"size_bytes":       len(audioBody),
+			"duration_seconds": 60,
+			"media_type":       "audio/mpeg",
+			"extension":        ".mp3",
+			"ready_at":         &now,
+		}).Error)
+
+	nativeRun := createCompletedRun(
+		episode.ID,
+		strings.Repeat("1", 64),
+		audioDigest,
+		processing.NativeMinutesPipelineVersion,
+	)
+	summary := "# 纪要\n\n- 原生妙记纪要\n"
+	transcript := "# 逐字稿\n\n说话人 00:00:00.195\n正文\n"
+	segments := []processing.TranscriptSegment{{
+		Order: 1, Speaker: "说话人", StartMS: 195, Text: "正文",
+	}}
+	nativePublished, err := store.Publish(
+		context.Background(),
+		processing.ArtifactPublishRequest{
+			RunID:                nativeRun.ID,
+			EpisodeID:            nativeRun.EpisodeID,
+			AudioDigest:          audioDigest,
+			PipelineVersion:      processing.NativeMinutesPipelineVersion,
+			NativeMinutes:        true,
+			MinutesSummary:       summary,
+			Transcript:           transcript,
+			TranscriptSegments:   segments,
+			TranscriptionAdapter: "feishu-minutes",
+			TranscriptionVersion: "feishu-minutes-cli-v1",
+			RawArtifacts: map[string][]byte{
+				"minutes-detail.json": []byte(`{"file_token":"SECRET"}`),
+			},
+			GeneratedAt: now,
+		},
+	)
+	require.NoError(t, err)
+	nativeArtifact := recordArtifact(nativeRun, nativePublished)
+
+	response := processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/processing-runs/%d", nativeRun.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(t, response.Body.String(), `"minutes_summary":true`)
+	require.Contains(t, response.Body.String(), `"transcript":true`)
+	require.Contains(t, response.Body.String(), `"structured_timeline":true`)
+	require.Contains(t, response.Body.String(), `"matching_audio":true`)
+	require.Contains(t, response.Body.String(), `"legacy_episode_notes":false`)
+	require.NotContains(t, response.Body.String(), nativePublished.RootPath)
+	require.NotContains(t, response.Body.String(), "SECRET")
+
+	response = processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/artifact-sets/%d/minutes_summary", nativeArtifact.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(t, response.Body.String(), `"kind":"minutes_summary"`)
+	require.Contains(t, response.Body.String(), "原生妙记纪要")
+	require.Contains(t, response.Body.String(), nativePublished.MinutesSummarySHA256)
+	require.NotContains(t, response.Body.String(), nativePublished.RootPath)
+	require.NotContains(t, response.Body.String(), audioDigest)
+	require.NotContains(t, response.Body.String(), "SECRET")
+
+	response = processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/artifact-sets/%d/transcript", nativeArtifact.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(t, response.Body.String(), `"start_ms":195`)
+	require.Contains(t, response.Body.String(), nativePublished.TranscriptTimelineSHA256)
+	require.Contains(t, response.Body.String(), `"media_available":true`)
+	require.NotContains(t, response.Body.String(), nativePublished.RootPath)
+	require.NotContains(t, response.Body.String(), audioDigest)
+	require.NotContains(t, response.Body.String(), "SECRET")
+
+	assertAudioAvailability := func(target *gin.Engine, expected bool) {
+		t.Helper()
+		want := "false"
+		if expected {
+			want = "true"
+		}
+		runResponse := processingRequest(
+			target,
+			http.MethodGet,
+			fmt.Sprintf("/api/v1/processing-runs/%d", nativeRun.ID),
+			"",
+		)
+		require.Equal(t, http.StatusOK, runResponse.Code)
+		require.Contains(
+			t,
+			runResponse.Body.String(),
+			fmt.Sprintf(`"matching_audio":%s`, want),
+		)
+		transcriptResponse := processingRequest(
+			target,
+			http.MethodGet,
+			fmt.Sprintf("/api/v1/artifact-sets/%d/transcript", nativeArtifact.ID),
+			"",
+		)
+		require.Equal(t, http.StatusOK, transcriptResponse.Code)
+		require.Contains(
+			t,
+			transcriptResponse.Body.String(),
+			fmt.Sprintf(`"media_available":%s`, want),
+		)
+	}
+
+	noAudioHandler := handlers.NewProcessingHandler(
+		processing.NewService(db, processing.WithArtifactReader(store)),
+		nil,
+	)
+	noAudioRouter := gin.New()
+	noAudioRouter.GET("/api/v1/processing-runs/:id", noAudioHandler.Get)
+	noAudioRouter.GET(
+		"/api/v1/artifact-sets/:id/:kind",
+		noAudioHandler.GetArtifactContent,
+	)
+	assertAudioAvailability(noAudioRouter, false)
+
+	require.NoError(t, db.Model(&models.EpisodeAudioAsset{}).
+		Where("id = ?", queuedAudio.Asset.ID).
+		Update("sha256", strings.Repeat("c", 64)).Error)
+	assertAudioAvailability(router, false)
+
+	require.NoError(t, db.Model(&models.EpisodeAudioAsset{}).
+		Where("id = ?", queuedAudio.Asset.ID).
+		Update("sha256", audioDigest).Error)
+	require.NoError(t, os.WriteFile(audioPath, append(audioBody, 'x'), 0o600))
+	assertAudioAvailability(router, false)
+
+	require.NoError(t, os.WriteFile(audioPath, audioBody, 0o600))
+	assertAudioAvailability(router, true)
+
+	require.NoError(t, os.Remove(audioPath))
+	assertAudioAvailability(router, false)
+
+	legacyEpisode := models.Episode{
+		PodcastID: episode.PodcastID,
+		Title:     "Legacy artifact episode",
+		GUID:      "legacy-artifact-http-contract",
+	}
+	require.NoError(t, db.Create(&legacyEpisode).Error)
+	legacyRun := createCompletedRun(
+		legacyEpisode.ID,
+		strings.Repeat("2", 64),
+		strings.Repeat("d", 64),
+		"focus-processing-v1",
+	)
+	legacyPublished, err := store.Publish(
+		context.Background(),
+		processing.ArtifactPublishRequest{
+			RunID:                legacyRun.ID,
+			EpisodeID:            legacyRun.EpisodeID,
+			AudioDigest:          legacyRun.AudioDigest,
+			PipelineVersion:      legacyRun.PipelineVersion,
+			Transcript:           "# Transcript\n\nLegacy transcript\n",
+			EpisodeNotes:         "# Legacy notes\n\nOld content\n",
+			TranscriptionAdapter: "feishu-minutes",
+			TranscriptionVersion: "feishu-minutes-cli-v1",
+			RuntimeAdapter:       "codex-runtime",
+			RuntimeVersion:       "codex-v1",
+			PromptVersion:        "episode-notes-v1",
+			GeneratedAt:          now,
+		},
+	)
+	require.NoError(t, err)
+	legacyArtifact := recordArtifact(legacyRun, legacyPublished)
+
+	response = processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/processing-runs/%d", legacyRun.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(t, response.Body.String(), `"minutes_summary":false`)
+	require.Contains(t, response.Body.String(), `"structured_timeline":false`)
+	require.Contains(t, response.Body.String(), `"legacy_episode_notes":true`)
+
+	response = processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/artifact-sets/%d/episode_notes", legacyArtifact.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(t, response.Body.String(), `"kind":"episode_notes"`)
+	require.Contains(t, response.Body.String(), "Legacy notes")
+	response = processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/artifact-sets/%d/minutes_summary", legacyArtifact.ID),
+		"",
+	)
+	require.Equal(t, http.StatusUnprocessableEntity, response.Code)
+	require.Contains(t, response.Body.String(), "ARTIFACT_INVALID")
+}
+
 func setupProcessingHandler(
 	t *testing.T,
 ) (*gorm.DB, *gin.Engine, models.Episode, *recordingRunCanceler) {
@@ -402,7 +744,7 @@ func (handlerArtifactReader) ReadText(
 	_ models.EpisodeArtifactSet,
 	kind string,
 ) (processing.ArtifactContent, error) {
-	if kind != "transcript" && kind != "episode_notes" {
+	if kind != "transcript" && kind != "minutes_summary" && kind != "episode_notes" {
 		return processing.ArtifactContent{}, processing.ErrInvalidArtifact
 	}
 	return processing.ArtifactContent{

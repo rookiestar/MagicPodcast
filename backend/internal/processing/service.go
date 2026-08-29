@@ -454,6 +454,43 @@ func (s *Service) startResolvedEpisodeProcessing(
 			// the episode left Focus: it has made no external request, so a later
 			// return to Focus is eligible for a fresh scheduled run.
 			if request.TriggerSource == models.ProcessingTriggerScheduled {
+				// External write results remain unsafe across pipeline upgrades:
+				// a new processing key must not let cron repeat an unresolved
+				// Drive upload or Minute creation from an older pipeline. Local
+				// Runtime uncertainty does not block v2, which never invokes it.
+				var unresolvedCandidates []models.EpisodeProcessingRun
+				unresolvedErr := tx.
+					Where(
+						"episode_id = ? AND status IN ? AND error_code IN ?",
+						request.EpisodeID,
+						[]string{
+							models.ProcessingRunStatusFailed,
+							models.ProcessingRunStatusCancelled,
+						},
+						unresolvedExternalResultCodes(),
+					).
+					Order("finished_at DESC, id DESC").
+					Find(&unresolvedCandidates).Error
+				if unresolvedErr != nil {
+					return fmt.Errorf(
+						"read unresolved processing result: %w",
+						unresolvedErr,
+					)
+				}
+				for _, candidate := range unresolvedCandidates {
+					unresolved, unresolvedErr := externalResultUnresolved(tx, candidate)
+					if unresolvedErr != nil {
+						return fmt.Errorf(
+							"check unresolved processing result: %w",
+							unresolvedErr,
+						)
+					}
+					if unresolved {
+						result = StartResult{Run: candidate, ReusedTerminal: true}
+						return nil
+					}
+				}
+
 				var terminal models.EpisodeProcessingRun
 				terminalErr := tx.
 					Where(
@@ -569,11 +606,12 @@ func (s *Service) requireFocusedEpisode(ctx context.Context, episodeID uint) err
 }
 
 type RunDetail struct {
-	Run              models.EpisodeProcessingRun `json:"run"`
-	Artifact         *models.EpisodeArtifactSet  `json:"artifact,omitempty"`
-	CurrentArtifact  *models.EpisodeArtifactSet  `json:"current_artifact,omitempty"`
-	Deliveries       []models.KnowledgeDelivery  `json:"deliveries"`
-	ActionSuggestion string                      `json:"action_suggestion,omitempty"`
+	Run                      models.EpisodeProcessingRun `json:"run"`
+	Artifact                 *models.EpisodeArtifactSet  `json:"artifact,omitempty"`
+	CurrentArtifact          *models.EpisodeArtifactSet  `json:"current_artifact,omitempty"`
+	Deliveries               []models.KnowledgeDelivery  `json:"deliveries"`
+	ExternalResultUnresolved bool                        `json:"external_result_unresolved"`
+	ActionSuggestion         string                      `json:"action_suggestion,omitempty"`
 }
 
 func (s *Service) GetProcessingRun(ctx context.Context, runID uint) (RunDetail, error) {
@@ -582,12 +620,25 @@ func (s *Service) GetProcessingRun(ctx context.Context, runID uint) (RunDetail, 
 		return RunDetail{}, err
 	}
 	detail := RunDetail{Run: run, Deliveries: []models.KnowledgeDelivery{}}
-	detail.ActionSuggestion = processingActionSuggestion(run)
+	detail.ExternalResultUnresolved, err = externalResultUnresolved(
+		s.db.WithContext(ctx),
+		run,
+	)
+	if err != nil {
+		return RunDetail{}, fmt.Errorf("check external processing result: %w", err)
+	}
+	detail.ActionSuggestion = processingActionSuggestion(
+		run,
+		detail.ExternalResultUnresolved,
+	)
 
 	var artifact models.EpisodeArtifactSet
 	artifactErr := s.db.WithContext(ctx).Where("run_id = ?", runID).First(&artifact).Error
 	switch {
 	case artifactErr == nil:
+		if err := s.hydrateArtifactCapabilities(ctx, &artifact); err != nil {
+			return RunDetail{}, err
+		}
 		detail.Artifact = &artifact
 		if err := s.db.WithContext(ctx).
 			Where("artifact_set_id = ?", artifact.ID).
@@ -605,6 +656,9 @@ func (s *Service) GetProcessingRun(ctx context.Context, runID uint) (RunDetail, 
 		First(&currentArtifact).Error
 	switch {
 	case currentArtifactErr == nil:
+		if err := s.hydrateArtifactCapabilities(ctx, &currentArtifact); err != nil {
+			return RunDetail{}, err
+		}
 		detail.CurrentArtifact = &currentArtifact
 	case !errors.Is(currentArtifactErr, gorm.ErrRecordNotFound):
 		return RunDetail{}, fmt.Errorf("read current episode artifact: %w", currentArtifactErr)
@@ -612,7 +666,10 @@ func (s *Service) GetProcessingRun(ctx context.Context, runID uint) (RunDetail, 
 	return detail, nil
 }
 
-func processingActionSuggestion(run models.EpisodeProcessingRun) string {
+func processingActionSuggestion(
+	run models.EpisodeProcessingRun,
+	externalResultUnresolved bool,
+) string {
 	switch run.ErrorCode {
 	case "audio_not_ready", "audio_digest_mismatch":
 		return "请重新准备受管音频后再开始加工。"
@@ -625,6 +682,9 @@ func processingActionSuggestion(run models.EpisodeProcessingRun) string {
 	case "lark_drive_result_unknown", "lark_minutes_result_unknown", "external_result_unknown":
 		return "请先在飞书确认远端资源是否已创建；系统不会自动重复上传。"
 	case cancellationExternalResultUnknown:
+		if !externalResultUnresolved {
+			return "飞书逐字稿已完整保存，可重新转写。"
+		}
 		return "请先在飞书确认转写是否仍在继续或远端资源是否已创建；确认前不可重新加工。"
 	case cancellationRuntimeResultUnknown:
 		return "请确认本地 Codex Runtime 已停止后再重新加工。"
@@ -632,6 +692,12 @@ func processingActionSuggestion(run models.EpisodeProcessingRun) string {
 		return "请检查本地 Codex Runtime 后重试，已完成的逐字稿会继续复用。"
 	case "transcript_empty", "empty_transcript":
 		return "请等待飞书转写完成或检查妙记产物后重试。"
+	case externalWaitTimeoutCode:
+		return "请检查飞书妙记是否已生成完整纪要与逐字稿，确认后重试转写。"
+	case artifactPublicReadLimitExceededCode:
+		return "生成产物超过公开读取上限；请缩短音频或确认妙记内容后重新转写。"
+	case artifactTextInvalidCode:
+		return "生成产物不是有效文本；请确认妙记内容后重新转写。"
 	}
 	if strings.HasPrefix(run.ErrorCode, "audio_") {
 		if run.ErrorRetryable {
@@ -663,7 +729,46 @@ func (s *Service) GetArtifactContent(
 		}
 		return ArtifactContent{}, fmt.Errorf("read artifact set: %w", err)
 	}
-	return s.artifactReader.ReadText(ctx, artifact, kind)
+	content, err := s.artifactReader.ReadText(ctx, artifact, kind)
+	if err != nil {
+		return ArtifactContent{}, err
+	}
+	if kind == "transcript" {
+		content.MediaAvailable = s.hasMatchingManagedAudio(ctx, artifact)
+	}
+	return content, nil
+}
+
+func (s *Service) hydrateArtifactCapabilities(
+	ctx context.Context,
+	artifact *models.EpisodeArtifactSet,
+) error {
+	if artifact == nil {
+		return nil
+	}
+	artifact.Capabilities = models.EpisodeArtifactCapabilities{
+		MinutesSummary:     sha256Pattern.MatchString(artifact.MinutesSummarySHA256),
+		Transcript:         sha256Pattern.MatchString(artifact.TranscriptSHA256),
+		StructuredTimeline: sha256Pattern.MatchString(artifact.TranscriptTimelineSHA256),
+		LegacyEpisodeNotes: sha256Pattern.MatchString(artifact.NotesSHA256),
+	}
+	if !sha256Pattern.MatchString(artifact.AudioSHA256) {
+		return nil
+	}
+	artifact.Capabilities.MatchingAudio = s.hasMatchingManagedAudio(ctx, *artifact)
+	return nil
+}
+
+func (s *Service) hasMatchingManagedAudio(
+	ctx context.Context,
+	artifact models.EpisodeArtifactSet,
+) bool {
+	if s.audioPreparer == nil ||
+		!sha256Pattern.MatchString(artifact.AudioSHA256) {
+		return false
+	}
+	audio, err := s.audioPreparer.ResolveReadyAudio(ctx, artifact.EpisodeID)
+	return err == nil && audio.SHA256 == artifact.AudioSHA256
 }
 
 func (s *Service) ListEpisodeProcessingRuns(
@@ -890,6 +995,65 @@ func (s *Service) recordCancellationNotice(
 	return run, nil
 }
 
+func shouldRestartTranscriptionOnRetry(run models.EpisodeProcessingRun) bool {
+	if !usesNativeMinutesPipeline(run.PipelineVersion) {
+		return false
+	}
+	switch run.ErrorCode {
+	case "transcript_timeline_invalid",
+		"stored_transcript_unavailable",
+		"stored_summary_unavailable",
+		artifactPublicReadLimitExceededCode,
+		artifactTextInvalidCode:
+		return true
+	default:
+		return false
+	}
+}
+
+func unresolvedExternalResultCodes() []string {
+	return []string{
+		"lark_result_unknown",
+		"lark_drive_result_unknown",
+		"lark_minutes_result_unknown",
+		"external_result_unknown",
+		cancellationExternalResultUnknown,
+	}
+}
+
+func externalResultUnresolved(
+	db *gorm.DB,
+	run models.EpisodeProcessingRun,
+) (bool, error) {
+	isExternalResultCode := false
+	for _, code := range unresolvedExternalResultCodes() {
+		if run.ErrorCode == code {
+			isExternalResultCode = true
+			break
+		}
+	}
+	if !isExternalResultCode {
+		return false, nil
+	}
+	if run.ErrorCode != cancellationExternalResultUnknown {
+		return true, nil
+	}
+
+	var checkpoint models.ProcessingCheckpoint
+	err := db.
+		Where("run_id = ? AND step = ?", run.ID, StepTranscription).
+		First(&checkpoint).Error
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		return true, nil
+	case err != nil:
+		return false, err
+	default:
+		return !checkpointIsValid(checkpoint) ||
+			checkpoint.Status != ExternalProgressCompleted, nil
+	}
+}
+
 func (s *Service) RetryProcessingRun(
 	ctx context.Context,
 	sourceRunID uint,
@@ -903,7 +1067,19 @@ func (s *Service) RetryProcessingRun(
 		return StartResult{}, ErrRetryUnsafe
 	}
 	if strings.Contains(source.ErrorCode, "result_unknown") {
-		return StartResult{}, ErrRetryUnsafe
+		if source.ErrorCode != cancellationExternalResultUnknown {
+			return StartResult{}, ErrRetryUnsafe
+		}
+		unresolved, unresolvedErr := externalResultUnresolved(
+			s.db.WithContext(ctx),
+			source,
+		)
+		if unresolvedErr != nil {
+			return StartResult{}, unresolvedErr
+		}
+		if unresolved {
+			return StartResult{}, ErrRetryUnsafe
+		}
 	}
 	if active, found, err := s.findActiveRun(ctx, source.EpisodeID); err != nil {
 		return StartResult{}, err
@@ -960,6 +1136,7 @@ func (s *Service) RetryProcessingRun(
 			source.Status != models.ProcessingRunStatusCancelled {
 			return ErrRetryUnsafe
 		}
+		restartTranscription := shouldRestartTranscriptionOnRetry(source)
 		var active models.EpisodeProcessingRun
 		activeErr := tx.
 			Where("episode_id = ? AND status IN ?", source.EpisodeID, models.ProcessingRunActiveStatuses).
@@ -979,11 +1156,12 @@ func (s *Service) RetryProcessingRun(
 			First(&checkpoint).Error
 		switch {
 		case checkpointErr == nil:
-			if !checkpointIsValid(checkpoint) {
+			if !restartTranscription && !checkpointIsValid(checkpoint) {
 				return ErrRetryUnsafe
 			}
 		case errors.Is(checkpointErr, gorm.ErrRecordNotFound):
-			if !source.ErrorRetryable &&
+			if !restartTranscription &&
+				!source.ErrorRetryable &&
 				source.Status != models.ProcessingRunStatusCancelled {
 				return ErrRetryUnsafe
 			}
@@ -1007,7 +1185,7 @@ func (s *Service) RetryProcessingRun(
 		if err := tx.Create(&retry).Error; err != nil {
 			return fmt.Errorf("create processing retry: %w", err)
 		}
-		if checkpointErr == nil {
+		if checkpointErr == nil && !restartTranscription {
 			checkpoint.ID = 0
 			checkpoint.RunID = retry.ID
 			checkpoint.Run = models.EpisodeProcessingRun{}

@@ -188,6 +188,159 @@ func TestEngineRecoversExternalWaitPublishesAndKeepsDeliveryIndependent(t *testi
 	require.Equal(t, completedAt, completion.CompletedAt)
 }
 
+func TestEngineNativeMinutesPipelineSkipsRuntimeAndPublishesCompleteArtifacts(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC)
+	service, resolver := newProcessingServiceWithResolver(
+		db,
+		WithClock(func() time.Time { return now }),
+	)
+	resolver.Set(ProcessingInput{
+		AudioDigest:     strings.Repeat("a", 64),
+		PipelineVersion: NativeMinutesPipelineVersion,
+	})
+	episode := createProcessingEpisode(t, db, true, "native-minutes")
+	require.NoError(t, db.Model(&models.Episode{}).
+		Where("id = ?", episode.ID).
+		Updates(map[string]any{
+			"link":       "https://example.com/native-minutes",
+			"show_notes": "<p>公开 Show Notes</p>",
+		}).Error)
+	run := startProcessingRun(t, service, episode.ID)
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	transcriber := &fakeTranscriber{beginProgress: []TranscriptionProgress{{
+		Status:         ExternalProgressCompleted,
+		Checkpoint:     json.RawMessage(`{"minute_ref":"native-complete"}`),
+		MinutesSummary: "# 纪要\n\n妙记原生总结\n",
+		Transcript:     "# 逐字稿\n\n张三 00:00:00.100\n正文\n",
+		Segments: []TranscriptSegment{{
+			Order: 1, Speaker: "张三", StartMS: 100, Text: "正文",
+		}},
+		RawArtifacts:  map[string][]byte{"minutes-detail.json": []byte(`{"ok":true}`)},
+		SourceRefs:    map[string]string{"transcription": "feishu-minutes"},
+		SkillVersions: map[string]string{"lark-minutes": "1.0.0"},
+	}}}
+	runtime := &fakeRuntime{err: errors.New("must not execute")}
+	bridge := &fakeBridge{target: "ima", version: "fake-v2"}
+	engine, err := NewEngine(
+		service,
+		transcriber,
+		runtime,
+		store,
+		[]BridgeBinding{{Destination: "manual-import", Adapter: bridge}},
+	)
+	require.NoError(t, err)
+
+	completed, err := engine.Advance(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusCompleted, completed.Status)
+	require.Zero(t, runtime.ExecuteCallCount())
+
+	detail, err := service.GetProcessingRun(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.NotNil(t, detail.Artifact)
+	require.Len(t, detail.Artifact.MinutesSummarySHA256, 64)
+	require.Len(t, detail.Artifact.TranscriptTimelineSHA256, 64)
+	require.Empty(t, detail.Artifact.NotesSHA256)
+	for _, name := range []string{
+		"manifest.json",
+		"minutes-summary.md",
+		"transcript.md",
+		"transcript.json",
+	} {
+		_, statErr := os.Stat(filepath.Join(detail.Artifact.RootPath, name))
+		require.NoError(t, statErr)
+	}
+	_, statErr := os.Stat(filepath.Join(detail.Artifact.RootPath, "episode-notes.md"))
+	require.True(t, os.IsNotExist(statErr))
+
+	delivered := bridge.LastPackage()
+	require.Equal(t, "# 纪要\n\n妙记原生总结\n", delivered.MinutesSummary)
+	require.Equal(t, detail.Artifact.MinutesSummarySHA256, delivered.MinutesSummarySHA256)
+	require.Equal(t, detail.Artifact.TranscriptTimelineSHA256, delivered.TranscriptTimelineSHA256)
+	require.Empty(t, delivered.EpisodeNotes)
+	require.Empty(t, delivered.EpisodeNotesSHA256)
+}
+
+func TestEnginePreservesStoredMinutesCheckpointWhenTimelineValidationFails(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 29, 13, 30, 0, 0, time.UTC)
+	service, resolver := newProcessingServiceWithResolver(
+		db,
+		WithClock(func() time.Time { return now }),
+	)
+	digest := strings.Repeat("9", 64)
+	resolver.Set(ProcessingInput{
+		AudioDigest:     digest,
+		PipelineVersion: NativeMinutesPipelineVersion,
+	})
+	episode := createProcessingEpisode(t, db, true, "timeline-audit-checkpoint")
+	run := startProcessingRun(t, service, episode.ID)
+	workRoot := t.TempDir()
+	runner := &scriptedLarkRunner{steps: []scriptedLarkStep{{
+		output: []byte(`{"minutes":[{"minute_token":"obcn_audit_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
+		beforeReturn: func(cwd string) {
+			require.NoError(t, os.WriteFile(
+				filepath.Join(cwd, "detail", "transcript.txt"),
+				[]byte("没有说话人与时间戳的内容"),
+				0o600,
+			))
+		},
+	}}}
+	adapter, err := newFeishuMinutesAdapterWithRunner(
+		runner,
+		workRoot,
+		func(context.Context, uint) (string, string, error) {
+			return "", "", errors.New("unused")
+		},
+	)
+	require.NoError(t, err)
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	engine, err := NewEngine(service, adapter, &fakeRuntime{}, store, nil)
+	require.NoError(t, err)
+	checkpoint, err := encodeFeishuCheckpoint(feishuCheckpoint{
+		Version:     feishuCheckpointVersion,
+		Phase:       feishuPhaseMinutesCreated,
+		AudioDigest: digest,
+		FileToken:   "boxcn_audit_123",
+		MinuteToken: "obcn_audit_123",
+		MinuteURL:   "https://example.feishu.cn/minutes/obcn_audit_123",
+	})
+	require.NoError(t, err)
+	require.NoError(t, engine.saveCheckpoint(
+		context.Background(),
+		run.ID,
+		StepTranscription,
+		adapter.Name(),
+		adapter.Version(),
+		ExternalProgressWaiting,
+		checkpoint,
+	))
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+		Where("id = ?", run.ID).
+		Updates(map[string]any{
+			"status":       models.ProcessingRunStatusWaitingExternal,
+			"current_step": StepTranscription,
+			"updated_at":   now,
+		}).Error)
+
+	failed, err := engine.Advance(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusFailed, failed.Status)
+	require.Equal(t, "transcript_timeline_invalid", failed.ErrorCode)
+
+	stored, err := engine.loadCheckpoint(context.Background(), run.ID, StepTranscription)
+	require.NoError(t, err)
+	storedState := mustDecodeFeishuCheckpoint(t, json.RawMessage(stored.StateJSON))
+	require.Equal(t, feishuPhaseTranscriptStored, storedState.Phase)
+	require.NotEmpty(t, storedState.TranscriptRelativePath)
+	require.NotEmpty(t, storedState.DetailRelativePath)
+	require.FileExists(t, filepath.Join(workRoot, storedState.TranscriptRelativePath))
+	require.FileExists(t, filepath.Join(workRoot, storedState.DetailRelativePath))
+}
+
 func TestNewEngineRejectsIncompleteAdapterIdentity(t *testing.T) {
 	db := openProcessingTestDB(t)
 	service := newProcessingService(db)
@@ -695,6 +848,64 @@ func TestEngineRetryIsBoundedByTotalElapsedTime(t *testing.T) {
 	require.Empty(t, failed.CurrentStep)
 	require.Nil(t, failed.NextAttemptAt)
 	require.Equal(t, 1, transcriber.BeginCallCount())
+}
+
+func TestEngineExternalWaitExpiresWithoutAQueuedRetry(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 29, 14, 30, 0, 0, time.UTC)
+	service := newProcessingService(
+		db,
+		WithClock(func() time.Time { return now }),
+		WithRetryPolicy(RetryPolicy{
+			MaxAttempts: 5,
+			MaxElapsed:  time.Second,
+			BaseDelay:   0,
+		}),
+	)
+	episode := createProcessingEpisode(t, db, true, "engine-external-wait-deadline")
+	run := startProcessingRun(t, service, episode.ID)
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	transcriber := &fakeTranscriber{
+		beginProgress: []TranscriptionProgress{{
+			Status:     ExternalProgressWaiting,
+			Checkpoint: json.RawMessage(`{"minute_ref":"summary-still-missing"}`),
+		}},
+		resumeProgress: []TranscriptionProgress{{
+			Status:     ExternalProgressWaiting,
+			Checkpoint: json.RawMessage(`{"minute_ref":"summary-still-missing"}`),
+		}},
+	}
+	engine, err := NewEngine(service, transcriber, &fakeRuntime{}, store, nil)
+	require.NoError(t, err)
+
+	waiting, err := engine.Advance(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusWaitingExternal, waiting.Status)
+	require.Nil(t, waiting.NextAttemptAt)
+	require.Equal(t, 1, waiting.AttemptCount)
+
+	now = now.Add(2 * time.Second)
+	failed, err := engine.Advance(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusFailed, failed.Status)
+	require.Equal(t, externalWaitTimeoutCode, failed.ErrorCode)
+	require.False(t, failed.ErrorRetryable)
+	require.Empty(t, failed.CurrentStep)
+	require.Nil(t, failed.NextAttemptAt)
+	require.NotNil(t, failed.FinishedAt)
+	require.Equal(t, 1, transcriber.BeginCallCount())
+	require.Zero(t, transcriber.ResumeCallCount())
+
+	detail, err := service.GetProcessingRun(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Contains(t, detail.ActionSuggestion, "完整纪要与逐字稿")
+
+	retry, err := service.RetryProcessingRun(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusQueued, retry.Run.Status)
+	require.NotNil(t, retry.Run.PreviousRunID)
+	require.Equal(t, run.ID, *retry.Run.PreviousRunID)
 }
 
 func TestEngineCancellationCannotBeOverwrittenByWorker(t *testing.T) {
@@ -1374,15 +1585,16 @@ func (f *fakeTranscriber) WasCancelled() bool {
 }
 
 type fakeRuntime struct {
-	mu        sync.Mutex
-	name      string
-	result    RuntimeResult
-	err       error
-	cancelErr error
-	entered   chan struct{}
-	block     bool
-	cancelled bool
-	enterOnce sync.Once
+	mu           sync.Mutex
+	name         string
+	result       RuntimeResult
+	err          error
+	executeCalls int
+	cancelErr    error
+	entered      chan struct{}
+	block        bool
+	cancelled    bool
+	enterOnce    sync.Once
 }
 
 func newBlockingFakeRuntime() *fakeRuntime {
@@ -1412,6 +1624,7 @@ func (f *fakeRuntime) Execute(
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.executeCalls++
 	if f.err != nil {
 		return RuntimeResult{}, f.err
 	}
@@ -1426,6 +1639,12 @@ func (f *fakeRuntime) Execute(
 		result.PromptVersion = "fake-prompt-v1"
 	}
 	return result, nil
+}
+
+func (f *fakeRuntime) ExecuteCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.executeCalls
 }
 
 func (f *fakeRuntime) Cancel(_ context.Context, _ uint) error {

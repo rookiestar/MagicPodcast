@@ -71,6 +71,90 @@ func TestDiskArtifactStorePublishesCompleteImmutableSet(t *testing.T) {
 	require.Equal(t, request.Transcript, string(transcript))
 }
 
+func TestDiskArtifactStorePublishesAndReadsNativeMinutesSet(t *testing.T) {
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	request := nativeArtifactTestRequest(13)
+
+	published, err := store.Publish(context.Background(), request)
+	require.NoError(t, err)
+	require.Len(t, published.AudioSHA256, 64)
+	require.Len(t, published.MinutesSummarySHA256, 64)
+	require.Len(t, published.TranscriptSHA256, 64)
+	require.Len(t, published.TranscriptTimelineSHA256, 64)
+	require.Empty(t, published.NotesSHA256)
+
+	for _, relative := range []string{
+		"manifest.json",
+		"minutes-summary.md",
+		"transcript.md",
+		"transcript.json",
+		filepath.Join("raw", "minutes-detail.json"),
+	} {
+		info, statErr := os.Stat(filepath.Join(published.RootPath, relative))
+		require.NoError(t, statErr)
+		require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	}
+	_, err = os.Stat(filepath.Join(published.RootPath, "episode-notes.md"))
+	require.True(t, os.IsNotExist(err))
+
+	artifact := models.EpisodeArtifactSet{
+		ID:                       1,
+		RunID:                    request.RunID,
+		EpisodeID:                request.EpisodeID,
+		PipelineVersion:          request.PipelineVersion,
+		RootPath:                 published.RootPath,
+		ManifestPath:             published.ManifestPath,
+		ManifestSHA256:           published.ManifestSHA256,
+		AudioSHA256:              published.AudioSHA256,
+		MinutesSummarySHA256:     published.MinutesSummarySHA256,
+		TranscriptSHA256:         published.TranscriptSHA256,
+		TranscriptTimelineSHA256: published.TranscriptTimelineSHA256,
+	}
+	summary, err := store.ReadText(context.Background(), artifact, "minutes_summary")
+	require.NoError(t, err)
+	require.Equal(t, request.MinutesSummary, summary.Content)
+	require.Equal(t, published.MinutesSummarySHA256, summary.SHA256)
+	transcript, err := store.ReadText(context.Background(), artifact, "transcript")
+	require.NoError(t, err)
+	require.Equal(t, request.TranscriptSegments, transcript.Segments)
+	require.Equal(t, published.TranscriptTimelineSHA256, transcript.TimelineSHA256)
+	require.False(t, transcript.MediaAvailable)
+
+	require.NoError(t, os.WriteFile(
+		filepath.Join(published.RootPath, "transcript.json"),
+		[]byte(`{"tampered":true}`),
+		0o600,
+	))
+	_, err = store.ReadText(context.Background(), artifact, "transcript")
+	require.ErrorIs(t, err, ErrInvalidArtifact)
+}
+
+func TestDiskArtifactStoreRejectsOversizedGeneratedTimelineBeforePublish(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewDiskArtifactStore(root)
+	require.NoError(t, err)
+	request := nativeArtifactTestRequest(14)
+	request.TranscriptSegments[0].Text = strings.Repeat("x", maxArtifactTextBytes)
+
+	_, err = store.Publish(context.Background(), request)
+	require.ErrorIs(t, err, ErrInvalidArtifact)
+	require.ErrorContains(t, err, "transcript.json exceeds the public read limit")
+	var adapterErr *AdapterError
+	require.ErrorAs(t, err, &adapterErr)
+	require.Equal(t, artifactPublicReadLimitExceededCode, adapterErr.ErrorCode)
+	require.False(t, adapterErr.CanRetry)
+
+	finalPath := filepath.Join(root, "episodes", "7", "sets", "run-14")
+	_, statErr := os.Stat(finalPath)
+	require.True(t, os.IsNotExist(statErr))
+	entries, err := os.ReadDir(filepath.Dir(finalPath))
+	require.NoError(t, err)
+	for _, entry := range entries {
+		require.False(t, strings.HasPrefix(entry.Name(), ".run-14-"))
+	}
+}
+
 func TestDiskArtifactStoreRejectsTraversalWithoutPartialPublish(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewDiskArtifactStore(root)
@@ -213,5 +297,28 @@ func artifactTestRequest(runID uint) ArtifactPublishRequest {
 			"minutes-transcript.json": []byte(`{"text":"内容"}`),
 		},
 		GeneratedAt: time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC),
+	}
+}
+
+func nativeArtifactTestRequest(runID uint) ArtifactPublishRequest {
+	return ArtifactPublishRequest{
+		RunID:           runID,
+		EpisodeID:       7,
+		AudioDigest:     strings.Repeat("a", 64),
+		PipelineVersion: NativeMinutesPipelineVersion,
+		NativeMinutes:   true,
+		MinutesSummary:  "# 纪要\n\n原生妙记总结\n",
+		Transcript:      "# 逐字稿\n\n张三 00:00:00.195\n内容\n",
+		TranscriptSegments: []TranscriptSegment{{
+			Order: 1, Speaker: "张三", StartMS: 195, Text: "内容",
+		}},
+		TranscriptionAdapter: "fake-minutes",
+		TranscriptionVersion: "fake-minutes-v1",
+		SkillVersions:        map[string]string{"minutes": "skill-v1"},
+		Sources:              map[string]string{"episode": "https://example.com/episodes/7"},
+		RawArtifacts: map[string][]byte{
+			"minutes-detail.json": []byte(`{"ok":true}`),
+		},
+		GeneratedAt: time.Date(2026, 8, 29, 10, 0, 0, 0, time.UTC),
 	}
 }

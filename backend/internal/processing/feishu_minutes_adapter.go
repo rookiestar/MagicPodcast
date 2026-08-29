@@ -154,7 +154,7 @@ func (a *FeishuMinutesAdapter) Resume(
 	case feishuPhaseMinutesCreated:
 		return a.readMinute(ctx, request, checkpoint)
 	case feishuPhaseTranscriptStored:
-		return a.readStoredResult(ctx, checkpoint)
+		return a.readStoredResult(ctx, request.PipelineVersion, checkpoint)
 	default:
 		return TranscriptionProgress{}, NewAdapterError(
 			"invalid_external_checkpoint",
@@ -407,8 +407,30 @@ func (a *FeishuMinutesAdapter) readMinute(
 			false,
 		)
 	}
-	if !found || strings.TrimSpace(detail.TranscriptFile) == "" {
+	if !found || detail.Pending || !detail.TranscriptFilePresent {
 		return progressWithCheckpoint(checkpoint), nil
+	}
+	if request.PipelineVersion == NativeMinutesPipelineVersion &&
+		!detail.SummaryPresent {
+		return progressWithCheckpoint(checkpoint), nil
+	}
+	if request.PipelineVersion == NativeMinutesPipelineVersion &&
+		strings.TrimSpace(detail.Summary) == "" {
+		return progressWithCheckpoint(checkpoint), NewAdapterError(
+			"summary_empty",
+			"Feishu Minutes summary is empty; retry after the Minute finishes processing",
+			false,
+		)
+	}
+	if strings.TrimSpace(detail.TranscriptFile) == "" {
+		if request.PipelineVersion != NativeMinutesPipelineVersion {
+			return progressWithCheckpoint(checkpoint), nil
+		}
+		return progressWithCheckpoint(checkpoint), NewAdapterError(
+			"transcript_empty",
+			"Feishu transcript is empty; retry after the Minute finishes processing",
+			false,
+		)
 	}
 	transcriptPath, transcript, err := readManagedTranscript(
 		runDirectory,
@@ -418,7 +440,14 @@ func (a *FeishuMinutesAdapter) readMinute(
 		return progressWithCheckpoint(checkpoint), err
 	}
 	if len(bytes.TrimSpace(transcript)) == 0 {
-		return progressWithCheckpoint(checkpoint), nil
+		if request.PipelineVersion != NativeMinutesPipelineVersion {
+			return progressWithCheckpoint(checkpoint), nil
+		}
+		return progressWithCheckpoint(checkpoint), NewAdapterError(
+			"transcript_empty",
+			"Feishu transcript is empty; retry after the Minute finishes processing",
+			false,
+		)
 	}
 
 	detailPath := filepath.Join(runDirectory, "minutes-detail.json")
@@ -451,11 +480,18 @@ func (a *FeishuMinutesAdapter) readMinute(
 	if err := persistFeishuCheckpoint(ctx, request, checkpoint); err != nil {
 		return progressWithCheckpoint(checkpoint), err
 	}
-	return completedFeishuProgress(checkpoint, transcript, output), nil
+	return completedFeishuProgress(
+		checkpoint,
+		request.PipelineVersion,
+		detail.Summary,
+		transcript,
+		output,
+	)
 }
 
 func (a *FeishuMinutesAdapter) readStoredResult(
 	ctx context.Context,
+	pipelineVersion string,
 	checkpoint feishuCheckpoint,
 ) (TranscriptionProgress, error) {
 	transcript, err := a.readStoredFile(
@@ -482,7 +518,30 @@ func (a *FeishuMinutesAdapter) readStoredResult(
 			false,
 		)
 	}
-	return completedFeishuProgress(checkpoint, transcript, detail), nil
+	summary := ""
+	if pipelineVersion == NativeMinutesPipelineVersion {
+		parsedDetail, found, parseErr := parseMinuteDetail(
+			detail,
+			checkpoint.MinuteToken,
+		)
+		if parseErr != nil || !found ||
+			!parsedDetail.SummaryPresent ||
+			strings.TrimSpace(parsedDetail.Summary) == "" {
+			return TranscriptionProgress{}, NewAdapterError(
+				"stored_summary_unavailable",
+				"stored Feishu Minutes summary is unavailable",
+				false,
+			)
+		}
+		summary = parsedDetail.Summary
+	}
+	return completedFeishuProgress(
+		checkpoint,
+		pipelineVersion,
+		summary,
+		transcript,
+		detail,
+	)
 }
 
 func (a *FeishuMinutesAdapter) handleWriteFailure(
@@ -667,18 +726,52 @@ func progressWithCheckpoint(checkpoint feishuCheckpoint) TranscriptionProgress {
 
 func completedFeishuProgress(
 	checkpoint feishuCheckpoint,
+	pipelineVersion string,
+	summary string,
 	transcript []byte,
 	detail []byte,
-) TranscriptionProgress {
+) (TranscriptionProgress, error) {
 	state, _ := encodeFeishuCheckpoint(checkpoint)
-	text := strings.TrimSpace(string(transcript))
-	if !strings.HasPrefix(text, "#") {
-		text = "# Transcript\n\n" + text
+	if pipelineVersion != NativeMinutesPipelineVersion {
+		text := strings.TrimSpace(string(transcript))
+		if !strings.HasPrefix(text, "#") {
+			text = "# Transcript\n\n" + text
+		}
+		return TranscriptionProgress{
+			Status:     ExternalProgressCompleted,
+			Checkpoint: state,
+			Transcript: text + "\n",
+			RawArtifacts: map[string][]byte{
+				"minutes-detail.json":    append([]byte(nil), detail...),
+				"minutes-transcript.txt": append([]byte(nil), transcript...),
+			},
+			SourceRefs: map[string]string{
+				"transcription":    "feishu-minutes",
+				"feishu_drive_ref": restrictedIdentityRef(checkpoint.FileToken),
+				"feishu_minute_ref": restrictedIdentityRef(
+					checkpoint.MinuteToken,
+				),
+			},
+			SkillVersions: map[string]string{
+				"lark-drive":   "1.0.0",
+				"lark-minutes": "1.0.0",
+			},
+		}, nil
+	}
+	normalizedSummary, err := normalizeMinutesSummary(summary)
+	if err != nil {
+		return progressWithCheckpoint(checkpoint), err
+	}
+	normalizedTranscript, segments, err := normalizeTranscript(string(transcript))
+	if err != nil {
+		return progressWithCheckpoint(checkpoint), err
 	}
 	return TranscriptionProgress{
-		Status:     ExternalProgressCompleted,
-		Checkpoint: state,
-		Transcript: text + "\n",
+		Status:         ExternalProgressCompleted,
+		Checkpoint:     state,
+		MinutesSummary: normalizedSummary,
+		Transcript:     normalizedTranscript,
+		Segments:       segments,
 		RawArtifacts: map[string][]byte{
 			"minutes-detail.json":    append([]byte(nil), detail...),
 			"minutes-transcript.txt": append([]byte(nil), transcript...),
@@ -694,7 +787,7 @@ func completedFeishuProgress(
 			"lark-drive":   "1.0.0",
 			"lark-minutes": "1.0.0",
 		},
-	}
+	}, nil
 }
 
 func restrictedIdentityRef(identity string) string {
@@ -796,15 +889,19 @@ func parseMinuteIdentity(output []byte) (string, string, error) {
 }
 
 type minuteDetail struct {
-	MinuteToken    string `json:"minute_token"`
-	TranscriptFile string `json:"transcript_file"`
-	Pending        bool   `json:"-"`
+	MinuteToken           string
+	Summary               string
+	SummaryPresent        bool
+	TranscriptFile        string
+	TranscriptFilePresent bool
+	Pending               bool
 }
 
 type minuteDetailEntry struct {
 	MinuteToken string `json:"minute_token"`
 	Artifacts   struct {
-		TranscriptFile string `json:"transcript_file"`
+		Summary        *string `json:"summary"`
+		TranscriptFile *string `json:"transcript_file"`
 	} `json:"artifacts"`
 	Error json.RawMessage `json:"error"`
 }
@@ -836,11 +933,19 @@ func parseMinuteDetail(
 	}
 	for _, entry := range entries {
 		if entry.MinuteToken == expectedToken {
-			return minuteDetail{
-				MinuteToken:    entry.MinuteToken,
-				TranscriptFile: entry.Artifacts.TranscriptFile,
-				Pending:        minuteDetailEntryPending(entry.Error),
-			}, true, nil
+			detail := minuteDetail{
+				MinuteToken: entry.MinuteToken,
+				Pending:     minuteDetailEntryPending(entry.Error),
+			}
+			if entry.Artifacts.Summary != nil {
+				detail.Summary = *entry.Artifacts.Summary
+				detail.SummaryPresent = true
+			}
+			if entry.Artifacts.TranscriptFile != nil {
+				detail.TranscriptFile = *entry.Artifacts.TranscriptFile
+				detail.TranscriptFilePresent = true
+			}
+			return detail, true, nil
 		}
 	}
 	return minuteDetail{}, false, nil

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,7 +17,11 @@ import (
 	"magicpodcast/internal/models"
 )
 
-const maxArtifactTextBytes = 32 << 20
+const (
+	maxArtifactTextBytes                = 32 << 20
+	artifactPublicReadLimitExceededCode = "artifact_public_read_limit_exceeded"
+	artifactTextInvalidCode             = "artifact_text_invalid"
+)
 
 type DiskArtifactStore struct {
 	root string
@@ -42,6 +47,11 @@ type artifactManifest struct {
 type artifactFile struct {
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256"`
+}
+
+type transcriptTimeline struct {
+	SchemaVersion string              `json:"schema_version"`
+	Segments      []TranscriptSegment `json:"segments"`
 }
 
 func NewDiskArtifactStore(root string) (*DiskArtifactStore, error) {
@@ -74,18 +84,30 @@ func (s *DiskArtifactStore) Publish(
 		return ArtifactPublishResult{}, err
 	}
 	if request.RunID == 0 || request.EpisodeID == 0 ||
-		strings.TrimSpace(request.AudioDigest) == "" ||
+		!sha256Pattern.MatchString(request.AudioDigest) ||
 		strings.TrimSpace(request.PipelineVersion) == "" ||
 		strings.TrimSpace(request.Transcript) == "" ||
-		strings.TrimSpace(request.EpisodeNotes) == "" ||
 		strings.TrimSpace(request.TranscriptionAdapter) == "" ||
 		strings.TrimSpace(request.TranscriptionVersion) == "" ||
-		strings.TrimSpace(request.RuntimeAdapter) == "" ||
-		strings.TrimSpace(request.RuntimeVersion) == "" ||
-		strings.TrimSpace(request.PromptVersion) == "" ||
 		request.GeneratedAt.IsZero() ||
 		!validVersionMap(request.SkillVersions) {
 		return ArtifactPublishResult{}, fmt.Errorf("%w: required content is missing", ErrInvalidArtifact)
+	}
+	switch {
+	case request.NativeMinutes:
+		if strings.TrimSpace(request.MinutesSummary) == "" ||
+			strings.TrimSpace(request.EpisodeNotes) != "" ||
+			strings.TrimSpace(request.RuntimeAdapter) != "" ||
+			strings.TrimSpace(request.RuntimeVersion) != "" ||
+			strings.TrimSpace(request.PromptVersion) != "" ||
+			!validTranscriptSegments(request.TranscriptSegments) {
+			return ArtifactPublishResult{}, fmt.Errorf("%w: native Minutes content is incomplete", ErrInvalidArtifact)
+		}
+	case strings.TrimSpace(request.EpisodeNotes) == "" ||
+		strings.TrimSpace(request.RuntimeAdapter) == "" ||
+		strings.TrimSpace(request.RuntimeVersion) == "" ||
+		strings.TrimSpace(request.PromptVersion) == "":
+		return ArtifactPublishResult{}, fmt.Errorf("%w: legacy episode notes content is incomplete", ErrInvalidArtifact)
 	}
 
 	setsRoot := filepath.Join(
@@ -118,17 +140,61 @@ func (s *DiskArtifactStore) Publish(
 		return ArtifactPublishResult{}, fmt.Errorf("protect artifact staging directory: %w", err)
 	}
 
-	files := make([]artifactFile, 0, len(request.RawArtifacts)+2)
-	transcriptHash, err := writeArtifactFile(stagingPath, "transcript.md", []byte(request.Transcript))
+	files := make([]artifactFile, 0, len(request.RawArtifacts)+3)
+	summaryHash := ""
+	timelineHash := ""
+	notesHash := ""
+	if request.NativeMinutes {
+		summaryHash, err = writeReadableArtifactFile(
+			stagingPath,
+			"minutes-summary.md",
+			[]byte(request.MinutesSummary),
+		)
+		if err != nil {
+			return ArtifactPublishResult{}, err
+		}
+		files = append(files, artifactFile{
+			Path: "minutes-summary.md", SHA256: summaryHash,
+		})
+	}
+	transcriptHash, err := writeReadableArtifactFile(
+		stagingPath,
+		"transcript.md",
+		[]byte(request.Transcript),
+	)
 	if err != nil {
 		return ArtifactPublishResult{}, err
 	}
 	files = append(files, artifactFile{Path: "transcript.md", SHA256: transcriptHash})
-	notesHash, err := writeArtifactFile(stagingPath, "episode-notes.md", []byte(request.EpisodeNotes))
-	if err != nil {
-		return ArtifactPublishResult{}, err
+	if request.NativeMinutes {
+		timelineBytes, marshalErr := json.MarshalIndent(transcriptTimeline{
+			SchemaVersion: "1.0.0",
+			Segments:      append([]TranscriptSegment(nil), request.TranscriptSegments...),
+		}, "", "  ")
+		if marshalErr != nil {
+			return ArtifactPublishResult{}, fmt.Errorf("encode transcript timeline: %w", marshalErr)
+		}
+		timelineBytes = append(timelineBytes, '\n')
+		timelineHash, err = writeReadableArtifactFile(
+			stagingPath,
+			"transcript.json",
+			timelineBytes,
+		)
+		if err != nil {
+			return ArtifactPublishResult{}, err
+		}
+		files = append(files, artifactFile{Path: "transcript.json", SHA256: timelineHash})
+	} else {
+		notesHash, err = writeReadableArtifactFile(
+			stagingPath,
+			"episode-notes.md",
+			[]byte(request.EpisodeNotes),
+		)
+		if err != nil {
+			return ArtifactPublishResult{}, err
+		}
+		files = append(files, artifactFile{Path: "episode-notes.md", SHA256: notesHash})
 	}
-	files = append(files, artifactFile{Path: "episode-notes.md", SHA256: notesHash})
 
 	rawRoot := filepath.Join(stagingPath, "raw")
 	if err := os.Mkdir(rawRoot, 0o700); err != nil {
@@ -151,8 +217,12 @@ func (s *DiskArtifactStore) Publish(
 		files = append(files, artifactFile{Path: filepath.ToSlash(relativePath), SHA256: hash})
 	}
 
+	manifestSchemaVersion := "1.0.0"
+	if request.NativeMinutes {
+		manifestSchemaVersion = "2.0.0"
+	}
 	manifest := artifactManifest{
-		SchemaVersion:        "1.0.0",
+		SchemaVersion:        manifestSchemaVersion,
 		RunID:                request.RunID,
 		EpisodeID:            request.EpisodeID,
 		AudioDigest:          request.AudioDigest,
@@ -172,7 +242,11 @@ func (s *DiskArtifactStore) Publish(
 		return ArtifactPublishResult{}, fmt.Errorf("encode artifact manifest: %w", err)
 	}
 	manifestBytes = append(manifestBytes, '\n')
-	manifestHash, err := writeArtifactFile(stagingPath, "manifest.json", manifestBytes)
+	manifestHash, err := writeReadableArtifactFile(
+		stagingPath,
+		"manifest.json",
+		manifestBytes,
+	)
 	if err != nil {
 		return ArtifactPublishResult{}, err
 	}
@@ -185,11 +259,14 @@ func (s *DiskArtifactStore) Publish(
 	}
 	published = true
 	return ArtifactPublishResult{
-		RootPath:         finalPath,
-		ManifestPath:     "manifest.json",
-		ManifestSHA256:   manifestHash,
-		TranscriptSHA256: transcriptHash,
-		NotesSHA256:      notesHash,
+		RootPath:                 finalPath,
+		ManifestPath:             "manifest.json",
+		ManifestSHA256:           manifestHash,
+		AudioSHA256:              request.AudioDigest,
+		MinutesSummarySHA256:     summaryHash,
+		TranscriptSHA256:         transcriptHash,
+		TranscriptTimelineSHA256: timelineHash,
+		NotesSHA256:              notesHash,
 	}, nil
 }
 
@@ -280,6 +357,9 @@ func (s *DiskArtifactStore) ReadText(
 	case "transcript":
 		relativeName = "transcript.md"
 		expectedHash = artifact.TranscriptSHA256
+	case "minutes_summary":
+		relativeName = "minutes-summary.md"
+		expectedHash = artifact.MinutesSummarySHA256
 	case "episode_notes":
 		relativeName = "episode-notes.md"
 		expectedHash = artifact.NotesSHA256
@@ -326,7 +406,8 @@ func (s *DiskArtifactStore) ReadText(
 	var manifest artifactManifest
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil ||
 		manifest.RunID != artifact.RunID ||
-		manifest.EpisodeID != artifact.EpisodeID {
+		manifest.EpisodeID != artifact.EpisodeID ||
+		manifest.PipelineVersion != artifact.PipelineVersion {
 		return ArtifactContent{}, fmt.Errorf("%w: manifest identity mismatch", ErrInvalidArtifact)
 	}
 	manifestHash := ""
@@ -347,7 +428,42 @@ func (s *DiskArtifactStore) ReadText(
 	if !utf8.Valid(content) || digestBytes(content) != expectedHash {
 		return ArtifactContent{}, fmt.Errorf("%w: artifact content failed integrity validation", ErrInvalidArtifact)
 	}
-	return ArtifactContent{Kind: kind, Content: string(content), SHA256: expectedHash}, nil
+	result := ArtifactContent{Kind: kind, Content: string(content), SHA256: expectedHash}
+	if kind != "transcript" || artifact.TranscriptTimelineSHA256 == "" {
+		return result, nil
+	}
+	if manifest.SchemaVersion != "2.0.0" ||
+		!sha256Pattern.MatchString(artifact.AudioSHA256) ||
+		manifest.AudioDigest != artifact.AudioSHA256 ||
+		!sha256Pattern.MatchString(artifact.TranscriptTimelineSHA256) ||
+		manifestFileHash(manifest, "transcript.json") != artifact.TranscriptTimelineSHA256 {
+		return ArtifactContent{}, fmt.Errorf("%w: transcript timeline identity is incomplete", ErrInvalidArtifact)
+	}
+	timelineBytes, err := readRegularFile(
+		filepath.Join(root, "transcript.json"),
+		maxArtifactTextBytes,
+	)
+	if err != nil || digestBytes(timelineBytes) != artifact.TranscriptTimelineSHA256 {
+		return ArtifactContent{}, fmt.Errorf("%w: transcript timeline failed integrity validation", ErrInvalidArtifact)
+	}
+	var timeline transcriptTimeline
+	if err := strictJSONDecode(timelineBytes, &timeline); err != nil ||
+		timeline.SchemaVersion != "1.0.0" ||
+		!validTranscriptSegments(timeline.Segments) {
+		return ArtifactContent{}, fmt.Errorf("%w: transcript timeline is invalid", ErrInvalidArtifact)
+	}
+	result.Segments = timeline.Segments
+	result.TimelineSHA256 = artifact.TranscriptTimelineSHA256
+	return result, nil
+}
+
+func manifestFileHash(manifest artifactManifest, name string) string {
+	for _, file := range manifest.Files {
+		if file.Path == name {
+			return file.SHA256
+		}
+	}
+	return ""
 }
 
 func readRegularFile(path string, limit int64) ([]byte, error) {
@@ -391,6 +507,42 @@ func writeArtifactFile(root, relativePath string, content []byte) (string, error
 	return hex.EncodeToString(sum[:]), nil
 }
 
+func writeReadableArtifactFile(
+	root string,
+	relativePath string,
+	content []byte,
+) (string, error) {
+	if int64(len(content)) > maxArtifactTextBytes {
+		return "", errors.Join(
+			fmt.Errorf(
+				"%w: artifact %s exceeds the public read limit",
+				ErrInvalidArtifact,
+				relativePath,
+			),
+			NewAdapterError(
+				artifactPublicReadLimitExceededCode,
+				"generated processing artifact exceeds the public read limit",
+				false,
+			),
+		)
+	}
+	if !utf8.Valid(content) {
+		return "", errors.Join(
+			fmt.Errorf(
+				"%w: artifact %s is not valid UTF-8",
+				ErrInvalidArtifact,
+				relativePath,
+			),
+			NewAdapterError(
+				artifactTextInvalidCode,
+				"generated processing artifact is not valid text",
+				false,
+			),
+		)
+	}
+	return writeArtifactFile(root, relativePath, content)
+}
+
 func cloneStringMap(input map[string]string) map[string]string {
 	if len(input) == 0 {
 		return map[string]string{}
@@ -405,6 +557,22 @@ func cloneStringMap(input map[string]string) map[string]string {
 func validVersionMap(input map[string]string) bool {
 	for name, version := range input {
 		if strings.TrimSpace(name) == "" || strings.TrimSpace(version) == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func validTranscriptSegments(segments []TranscriptSegment) bool {
+	if len(segments) == 0 {
+		return false
+	}
+	for index, segment := range segments {
+		if segment.Order != index+1 ||
+			strings.TrimSpace(segment.Speaker) == "" ||
+			segment.StartMS < 0 ||
+			strings.TrimSpace(segment.Text) == "" ||
+			(index > 0 && segment.StartMS < segments[index-1].StartMS) {
 			return false
 		}
 	}

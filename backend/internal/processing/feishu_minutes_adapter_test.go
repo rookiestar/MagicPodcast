@@ -24,11 +24,11 @@ func TestFeishuMinutesAdapterExecutesRecoverableOneWriteStages(t *testing.T) {
 			{output: []byte(`{"file_token":"boxcn_file_123"}`)},
 			{output: []byte(`{"minute_url":"https://example.feishu.cn/minutes/obcn_minute_123"}`)},
 			{
-				output: []byte(`{"minutes":[{"minute_token":"obcn_minute_123","artifacts":{"summary":"summary","chapters":[],"keywords":[],"transcript_file":"detail/transcript.txt"}}]}`),
+				output: []byte(`{"minutes":[{"minute_token":"obcn_minute_123","artifacts":{"summary":"## 核心观点\n\n原生妙记纪要","chapters":[],"keywords":[],"transcript_file":"detail/transcript.txt"}}]}`),
 				beforeReturn: func(cwd string) {
 					require.NoError(t, os.WriteFile(
 						filepath.Join(cwd, "detail", "transcript.txt"),
-						[]byte("Speaker 00:00\nHello\n"),
+						[]byte("张三 00:00:00.195\n第一段\n\n李四 00:01:02.340\n第二段\n"),
 						0o600,
 					))
 				},
@@ -81,7 +81,12 @@ func TestFeishuMinutesAdapterExecutesRecoverableOneWriteStages(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, ExternalProgressCompleted, completed.Status)
-	require.Contains(t, completed.Transcript, "Speaker 00:00")
+	require.Contains(t, completed.MinutesSummary, "原生妙记纪要")
+	require.Contains(t, completed.Transcript, "张三 00:00:00.195")
+	require.Equal(t, []TranscriptSegment{
+		{Order: 1, Speaker: "张三", StartMS: 195, Text: "第一段"},
+		{Order: 2, Speaker: "李四", StartMS: 62340, Text: "第二段"},
+	}, completed.Segments)
 	require.Contains(t, completed.RawArtifacts, "minutes-detail.json")
 	require.Contains(t, completed.RawArtifacts, "minutes-transcript.txt")
 	require.Equal(t, "feishu-minutes", completed.SourceRefs["transcription"])
@@ -127,8 +132,153 @@ func TestFeishuMinutesAdapterExecutesRecoverableOneWriteStages(t *testing.T) {
 		completed.Checkpoint,
 	)
 	require.NoError(t, err)
+	require.Equal(t, completed.MinutesSummary, replayed.MinutesSummary)
 	require.Equal(t, completed.Transcript, replayed.Transcript)
+	require.Equal(t, completed.Segments, replayed.Segments)
 	require.Len(t, runner.calls, 3)
+}
+
+func TestFeishuMinutesAdapterPreservesLegacyCompletionWithoutV2Artifacts(t *testing.T) {
+	workRoot := t.TempDir()
+	digest := strings.Repeat("7", 64)
+	runner := &scriptedLarkRunner{steps: []scriptedLarkStep{{
+		output: []byte(`{"minutes":[{"minute_token":"obcn_legacy_123","artifacts":{"transcript_file":"detail/transcript.txt"}}]}`),
+		beforeReturn: func(cwd string) {
+			require.NoError(t, os.WriteFile(
+				filepath.Join(cwd, "detail", "transcript.txt"),
+				[]byte("没有说话人与时间戳的旧版逐字稿"),
+				0o600,
+			))
+		},
+	}}}
+	adapter, err := newFeishuMinutesAdapterWithRunner(
+		runner,
+		workRoot,
+		func(context.Context, uint) (string, string, error) {
+			return "", "", errors.New("unused")
+		},
+	)
+	require.NoError(t, err)
+	request, _ := feishuTestRequest(digest)
+	request.PipelineVersion = "focus-processing-v1"
+	checkpoint, err := encodeFeishuCheckpoint(feishuCheckpoint{
+		Version:     feishuCheckpointVersion,
+		Phase:       feishuPhaseMinutesCreated,
+		AudioDigest: digest,
+		FileToken:   "boxcn_legacy_123",
+		MinuteToken: "obcn_legacy_123",
+		MinuteURL:   "https://example.feishu.cn/minutes/obcn_legacy_123",
+	})
+	require.NoError(t, err)
+
+	completed, err := adapter.Resume(context.Background(), request, checkpoint)
+	require.NoError(t, err)
+	require.Equal(t, ExternalProgressCompleted, completed.Status)
+	require.Equal(
+		t,
+		"# Transcript\n\n没有说话人与时间戳的旧版逐字稿\n",
+		completed.Transcript,
+	)
+	require.Empty(t, completed.MinutesSummary)
+	require.Empty(t, completed.Segments)
+
+	replayed, err := adapter.Resume(
+		context.Background(),
+		request,
+		completed.Checkpoint,
+	)
+	require.NoError(t, err)
+	require.Equal(t, completed.Transcript, replayed.Transcript)
+	require.Empty(t, replayed.MinutesSummary)
+	require.Empty(t, replayed.Segments)
+	require.Len(t, runner.calls, 1)
+}
+
+func TestFeishuMinutesAdapterWaitsForMissingArtifactsAndRejectsExplicitEmptySummary(t *testing.T) {
+	workRoot := t.TempDir()
+	digest := strings.Repeat("8", 64)
+	runner := &scriptedLarkRunner{steps: []scriptedLarkStep{
+		{
+			output: []byte(`{"minutes":[{"minute_token":"obcn_incomplete_123","artifacts":{"transcript_file":"detail/transcript.txt"}}]}`),
+		},
+		{
+			output: []byte(`{"minutes":[{"minute_token":"obcn_incomplete_123","artifacts":{"summary":"","transcript_file":"detail/transcript.txt"}}]}`),
+		},
+	}}
+	adapter, err := newFeishuMinutesAdapterWithRunner(
+		runner,
+		workRoot,
+		func(context.Context, uint) (string, string, error) {
+			return "", "", errors.New("unused")
+		},
+	)
+	require.NoError(t, err)
+	request, _ := feishuTestRequest(digest)
+	checkpoint, err := encodeFeishuCheckpoint(feishuCheckpoint{
+		Version:     feishuCheckpointVersion,
+		Phase:       feishuPhaseMinutesCreated,
+		AudioDigest: digest,
+		FileToken:   "boxcn_incomplete_123",
+		MinuteToken: "obcn_incomplete_123",
+		MinuteURL:   "https://example.feishu.cn/minutes/obcn_incomplete_123",
+	})
+	require.NoError(t, err)
+
+	waiting, err := adapter.Resume(context.Background(), request, checkpoint)
+	require.NoError(t, err)
+	require.Equal(t, ExternalProgressWaiting, waiting.Status)
+
+	_, err = adapter.Resume(context.Background(), request, checkpoint)
+	var adapterErr *AdapterError
+	require.ErrorAs(t, err, &adapterErr)
+	require.Equal(t, "summary_empty", adapterErr.ErrorCode)
+	require.False(t, adapterErr.CanRetry)
+}
+
+func TestFeishuMinutesAdapterRejectsTranscriptFormatDrift(t *testing.T) {
+	workRoot := t.TempDir()
+	digest := strings.Repeat("9", 64)
+	runner := &scriptedLarkRunner{steps: []scriptedLarkStep{{
+		output: []byte(`{"minutes":[{"minute_token":"obcn_drift_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
+		beforeReturn: func(cwd string) {
+			require.NoError(t, os.WriteFile(
+				filepath.Join(cwd, "detail", "transcript.txt"),
+				[]byte("没有说话人与时间戳的内容"),
+				0o600,
+			))
+		},
+	}}}
+	adapter, err := newFeishuMinutesAdapterWithRunner(
+		runner,
+		workRoot,
+		func(context.Context, uint) (string, string, error) {
+			return "", "", errors.New("unused")
+		},
+	)
+	require.NoError(t, err)
+	request, persisted := feishuTestRequest(digest)
+	checkpoint, err := encodeFeishuCheckpoint(feishuCheckpoint{
+		Version:     feishuCheckpointVersion,
+		Phase:       feishuPhaseMinutesCreated,
+		AudioDigest: digest,
+		FileToken:   "boxcn_drift_123",
+		MinuteToken: "obcn_drift_123",
+		MinuteURL:   "https://example.feishu.cn/minutes/obcn_drift_123",
+	})
+	require.NoError(t, err)
+
+	progress, err := adapter.Resume(context.Background(), request, checkpoint)
+	var adapterErr *AdapterError
+	require.ErrorAs(t, err, &adapterErr)
+	require.Equal(t, "transcript_timeline_invalid", adapterErr.ErrorCode)
+	require.Contains(t, adapterErr.SafeMessage, "timestamps")
+	require.NotContains(t, adapterErr.SafeMessage, workRoot)
+	stored := mustDecodeFeishuCheckpoint(t, progress.Checkpoint)
+	require.Equal(t, feishuPhaseTranscriptStored, stored.Phase)
+	require.NotEmpty(t, stored.TranscriptRelativePath)
+	require.NotEmpty(t, stored.DetailRelativePath)
+	require.Len(t, *persisted, 1)
+	require.JSONEq(t, string((*persisted)[0]), string(progress.Checkpoint))
 }
 
 func TestFeishuMinutesAdapterDoesNotRepeatUnknownDriveWrite(t *testing.T) {
@@ -368,7 +518,7 @@ func TestFeishuMinutesAdapterRejectsTranscriptTraversal(t *testing.T) {
 	outside := filepath.Join(workRoot, "outside.txt")
 	require.NoError(t, os.WriteFile(outside, []byte("secret"), 0o600))
 	runner := &scriptedLarkRunner{steps: []scriptedLarkStep{{
-		output: []byte(`{"minutes":[{"minute_token":"obcn_safe_123","artifacts":{"transcript_file":"../outside.txt"}}]}`),
+		output: []byte(`{"minutes":[{"minute_token":"obcn_safe_123","artifacts":{"summary":"summary","transcript_file":"../outside.txt"}}]}`),
 	}}}
 	adapter, err := newFeishuMinutesAdapterWithRunner(
 		runner,
@@ -404,7 +554,7 @@ func feishuTestRequest(
 		RunID:           91,
 		EpisodeID:       42,
 		AudioDigest:     digest,
-		PipelineVersion: "pipeline-v1",
+		PipelineVersion: NativeMinutesPipelineVersion,
 		PersistCheckpoint: func(
 			_ context.Context,
 			_ string,

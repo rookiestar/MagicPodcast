@@ -10,19 +10,16 @@ import {
   useState,
 } from "react";
 import {
-  IconFileText,
   IconPlayerPlay,
   IconPlayerStop,
   IconRefresh,
 } from "@tabler/icons-react";
 import MarkdownViewer from "@/components/workflows/MarkdownViewer";
-import {
-  getProcessingErrorDetails,
-  processingApi,
-} from "@/lib/api/processing";
+import { getProcessingErrorDetails, processingApi } from "@/lib/api/processing";
 import type { ConsumptionItem } from "@/types/consumption";
 import type {
   ArtifactContent,
+  ArtifactContentKind,
   EpisodeAudioAsset,
   KnowledgeDelivery,
   ProcessingRun,
@@ -30,6 +27,17 @@ import type {
   ProcessingScheduleStatus,
 } from "@/types/processing";
 import styles from "./InboxPage.module.css";
+
+type ArtifactTab = "summary" | "transcript";
+
+const legacyProcessingPipelineVersion = "focus-processing-v1";
+const unresolvedExternalResultCodes = new Set([
+  "lark_result_unknown",
+  "lark_drive_result_unknown",
+  "lark_minutes_result_unknown",
+  "external_result_unknown",
+  "cancelled_external_result_unknown",
+]);
 
 const statusLabels: Record<ProcessingRun["status"], string> = {
   queued: "等待加工",
@@ -95,7 +103,7 @@ export interface EpisodeProcessingHeaderState {
   detail: string;
   primaryLabel: string;
   primaryDisabled: boolean;
-  action: "start" | "view" | "retry" | "details" | null;
+  action: "start" | "reprocess" | "view" | "retry" | "details" | null;
 }
 
 export interface EpisodeProcessingPanelHandle {
@@ -121,6 +129,11 @@ const EpisodeProcessingPanel = forwardRef<
   const [error, setError] = useState<string | null>(null);
   const [artifactContent, setArtifactContent] =
     useState<ArtifactContent | null>(null);
+  const [artifactContentSetID, setArtifactContentSetID] = useState<
+    number | null
+  >(null);
+  const [activeArtifactTab, setActiveArtifactTab] =
+    useState<ArtifactTab>("summary");
   const [audioAsset, setAudioAsset] = useState<EpisodeAudioAsset | null>(null);
   const [isReadingArtifact, setIsReadingArtifact] = useState(false);
   const [scheduleStatus, setScheduleStatus] =
@@ -130,6 +143,7 @@ const EpisodeProcessingPanel = forwardRef<
   const hasLoadedScheduleStatus = useRef(false);
   const scheduleStatusInFlight = useRef(false);
   const loadingEpisodeIDs = useRef(new Set<number>());
+  const artifactReadSequence = useRef(0);
   const activeEpisodeID = useRef(item.episode_id);
   activeEpisodeID.current = item.episode_id;
 
@@ -146,9 +160,7 @@ const EpisodeProcessingPanel = forwardRef<
       setScheduleError(null);
     } catch (loadError) {
       setScheduleError(
-        `定时计划暂时无法读取：${
-          getProcessingErrorDetails(loadError).message
-        }`,
+        `定时计划暂时无法读取：${getProcessingErrorDetails(loadError).message}`,
       );
     } finally {
       scheduleStatusInFlight.current = false;
@@ -220,6 +232,9 @@ const EpisodeProcessingPanel = forwardRef<
     setDetail(null);
     setAudioAsset(null);
     setArtifactContent(null);
+    setArtifactContentSetID(null);
+    setActiveArtifactTab("summary");
+    artifactReadSequence.current += 1;
     setIsLoading(true);
     setError(null);
     void loadLatest()
@@ -274,9 +289,7 @@ const EpisodeProcessingPanel = forwardRef<
     return () => window.clearInterval(timer);
   }, [audioAsset?.status, detail?.run, loadLatest]);
 
-  const mutateRun = async (
-    operation: () => Promise<ProcessingRun>,
-  ) => {
+  const mutateRun = async (operation: () => Promise<ProcessingRun>) => {
     if (isMutating) return;
     setIsMutating(true);
     setError(null);
@@ -314,26 +327,55 @@ const EpisodeProcessingPanel = forwardRef<
     }
   }, [isMutating, item.episode_id]);
 
-  const readArtifact = async (
-    artifactSetId: number,
-    kind: "transcript" | "episode_notes",
-  ) => {
-    if (isReadingArtifact) return;
-    setIsReadingArtifact(true);
-    setError(null);
-    try {
-      setArtifactContent(
-        await processingApi.getArtifactContent(artifactSetId, kind),
-      );
-    } catch (readError) {
-      setError(`产物读取失败：${getProcessingErrorDetails(readError).message}`);
-    } finally {
-      setIsReadingArtifact(false);
-    }
-  };
+  const readArtifact = useCallback(
+    async (artifactSetId: number, kind: ArtifactContentKind) => {
+      const sequence = artifactReadSequence.current + 1;
+      artifactReadSequence.current = sequence;
+      setIsReadingArtifact(true);
+      setError(null);
+      try {
+        const content = await processingApi.getArtifactContent(
+          artifactSetId,
+          kind,
+        );
+        if (artifactReadSequence.current !== sequence) return;
+        setArtifactContent(content);
+        setArtifactContentSetID(artifactSetId);
+      } catch (readError) {
+        if (artifactReadSequence.current !== sequence) return;
+        setError(
+          `产物读取失败：${getProcessingErrorDetails(readError).message}`,
+        );
+      } finally {
+        if (artifactReadSequence.current === sequence) {
+          setIsReadingArtifact(false);
+        }
+      }
+    },
+    [],
+  );
 
   const run = detail?.run;
   const currentArtifact = detail?.current_artifact;
+  const summaryKind: ArtifactContentKind | null = currentArtifact?.capabilities
+    .minutes_summary
+    ? "minutes_summary"
+    : currentArtifact?.capabilities.legacy_episode_notes
+      ? "episode_notes"
+      : null;
+  const transcriptAvailable = currentArtifact?.capabilities.transcript === true;
+  const requestedArtifactKind: ArtifactContentKind | null = !currentArtifact
+    ? null
+    : activeArtifactTab === "summary"
+      ? summaryKind
+      : transcriptAvailable
+        ? "transcript"
+        : null;
+  const artifactContentMatchesSelection =
+    currentArtifact !== undefined &&
+    requestedArtifactKind !== null &&
+    artifactContentSetID === currentArtifact.id &&
+    artifactContent?.kind === requestedArtifactKind;
   const latestScheduleRun = scheduleStatus?.latest_run;
   const latestScheduleItem = latestScheduleRun?.items.find(
     (scheduleItem) => scheduleItem.episode_id === item.episode_id,
@@ -342,13 +384,26 @@ const EpisodeProcessingPanel = forwardRef<
     latestScheduleRun?.run.status === "running" &&
     latestScheduleItem?.reason === "selection_pending";
   const canStart = item.queue_state === "focus" && !run;
+  const externalResultUnknown =
+    detail?.external_result_unresolved ??
+    (typeof run?.error_code === "string" &&
+      unresolvedExternalResultCodes.has(run.error_code.trim().toLowerCase()));
+  const canReprocessLegacy =
+    item.queue_state === "focus" &&
+    run?.pipeline_version === legacyProcessingPipelineVersion &&
+    (run.status === "completed" ||
+      run.status === "failed" ||
+      run.status === "cancelled") &&
+    !externalResultUnknown;
   const audioPreparing =
     run?.current_step === "audio_prepare" ||
-    audioAsset?.status === "queued" || audioAsset?.status === "downloading";
+    audioAsset?.status === "queued" ||
+    audioAsset?.status === "downloading";
   const canRetry =
     item.queue_state === "focus" &&
     (run?.status === "failed" || run?.status === "cancelled") &&
-    !run.error_code?.toLowerCase().includes("result_unknown");
+    !canReprocessLegacy &&
+    !externalResultUnknown;
   const scheduleSummary = !scheduleStatus
     ? isScheduleLoading
       ? "正在读取…"
@@ -356,6 +411,40 @@ const EpisodeProcessingPanel = forwardRef<
     : scheduleStatus.enabled
       ? `已启用 · 每批 ${scheduleStatus.batch_size} 集`
       : "未启用";
+
+  useEffect(() => {
+    if (!currentArtifact) {
+      setArtifactContent(null);
+      setArtifactContentSetID(null);
+      return;
+    }
+    if (!requestedArtifactKind) {
+      const fallback: ArtifactTab | null = summaryKind
+        ? "summary"
+        : transcriptAvailable
+          ? "transcript"
+          : null;
+      if (fallback && fallback !== activeArtifactTab) {
+        setActiveArtifactTab(fallback);
+      } else {
+        setArtifactContent(null);
+        setArtifactContentSetID(null);
+      }
+      return;
+    }
+    if (artifactContentMatchesSelection) {
+      return;
+    }
+    void readArtifact(currentArtifact.id, requestedArtifactKind);
+  }, [
+    activeArtifactTab,
+    artifactContentMatchesSelection,
+    currentArtifact,
+    readArtifact,
+    requestedArtifactKind,
+    summaryKind,
+    transcriptAvailable,
+  ]);
 
   const retryProcessing = useCallback(async () => {
     if (isMutating || !run) return;
@@ -370,9 +459,7 @@ const EpisodeProcessingPanel = forwardRef<
       setDetail(await processingApi.getRun(result.run.id));
     } catch (retryError) {
       const failure = getProcessingErrorDetails(retryError);
-      setError(
-        `${failure.code ? `${failure.code}：` : ""}${failure.message}`,
-      );
+      setError(`${failure.code ? `${failure.code}：` : ""}${failure.message}`);
     } finally {
       setIsMutating(false);
     }
@@ -412,9 +499,17 @@ const EpisodeProcessingPanel = forwardRef<
           detail?.action_suggestion ||
           run.error_message ||
           "可查看原因后安全重试",
-        primaryLabel: canRetry ? "重试转写" : "查看详情",
-        primaryDisabled: false,
-        action: canRetry ? "retry" : "details",
+        primaryLabel: canReprocessLegacy
+          ? "重新转写"
+          : canRetry
+            ? "重试转写"
+            : "查看详情",
+        primaryDisabled: isMutating,
+        action: canReprocessLegacy
+          ? "reprocess"
+          : canRetry
+            ? "retry"
+            : "details",
       };
     }
     if (currentArtifact) {
@@ -442,6 +537,7 @@ const EpisodeProcessingPanel = forwardRef<
   }, [
     audioAsset,
     audioPreparing,
+    canReprocessLegacy,
     canRetry,
     canStart,
     currentArtifact,
@@ -461,7 +557,10 @@ const EpisodeProcessingPanel = forwardRef<
     () => ({
       activatePrimary: () => {
         if (headerState.primaryDisabled) return;
-        if (headerState.action === "start") {
+        if (
+          headerState.action === "start" ||
+          headerState.action === "reprocess"
+        ) {
           void startProcessing();
           return;
         }
@@ -469,10 +568,7 @@ const EpisodeProcessingPanel = forwardRef<
           void retryProcessing();
           return;
         }
-        if (
-          headerState.action === "view" ||
-          headerState.action === "details"
-        ) {
+        if (headerState.action === "view" || headerState.action === "details") {
           onViewTranscript?.();
         }
       },
@@ -541,11 +637,13 @@ const EpisodeProcessingPanel = forwardRef<
           </div>
           <div>
             <dt>来源</dt>
-            <dd>飞书妙记 · 本地 Codex Runtime</dd>
+            <dd>飞书妙记</dd>
           </div>
           <div>
             <dt>最近更新</dt>
-            <dd>{formatUpdatedAt(run?.updated_at || audioAsset?.updated_at)}</dd>
+            <dd>
+              {formatUpdatedAt(run?.updated_at || audioAsset?.updated_at)}
+            </dd>
           </div>
           <div>
             <dt>定时计划</dt>
@@ -570,8 +668,8 @@ const EpisodeProcessingPanel = forwardRef<
           <div className={styles.processingHint}>
             <strong>定时配置</strong>
             <span>
-              cron：{scheduleStatus.cron} · 时区：{scheduleStatus.timezone} · 每批 {" "}
-              {scheduleStatus.batch_size} 集
+              cron：{scheduleStatus.cron} · 时区：{scheduleStatus.timezone} ·
+              每批 {scheduleStatus.batch_size} 集
             </span>
             <span>修改主机配置并重启服务后生效。</span>
           </div>
@@ -584,8 +682,8 @@ const EpisodeProcessingPanel = forwardRef<
                 latestScheduleRun.run.status}
             </strong>
             <span>
-              {formatUpdatedAt(latestScheduleRun.run.scheduled_for)} · 已入队 {" "}
-              {latestScheduleRun.run.started_count} 集 · 跳过 {" "}
+              {formatUpdatedAt(latestScheduleRun.run.scheduled_for)} · 已入队{" "}
+              {latestScheduleRun.run.started_count} 集 · 跳过{" "}
               {latestScheduleRun.run.skipped_count} 集
             </span>
             {latestScheduleItem && (
@@ -593,12 +691,12 @@ const EpisodeProcessingPanel = forwardRef<
                 {latestScheduleItemPending
                   ? "此集正在确认加工资格"
                   : latestScheduleItem.outcome === "started"
-                  ? "此集已加入加工队列"
-                  : `此集跳过：${
-                      scheduleSkipLabels[latestScheduleItem.reason || ""] ||
-                      latestScheduleItem.reason ||
-                      "未满足条件"
-                    }`}
+                    ? "此集已加入加工队列"
+                    : `此集跳过：${
+                        scheduleSkipLabels[latestScheduleItem.reason || ""] ||
+                        latestScheduleItem.reason ||
+                        "未满足条件"
+                      }`}
               </span>
             )}
             {latestScheduleRun.run.error_message && (
@@ -609,8 +707,8 @@ const EpisodeProcessingPanel = forwardRef<
 
         {isActive(run) && run.next_attempt_at && (
           <div className={styles.processingHint} role="status">
-            自动重试：{formatUpdatedAt(run.next_attempt_at)}（已尝试 {run.attempt_count}/
-            {run.max_attempts} 次）
+            自动重试：{formatUpdatedAt(run.next_attempt_at)}（已尝试{" "}
+            {run.attempt_count}/{run.max_attempts} 次）
           </div>
         )}
 
@@ -632,7 +730,9 @@ const EpisodeProcessingPanel = forwardRef<
         )}
         {!run && audioAsset?.error_message && (
           <div className={styles.processingFailure}>
-            <strong>{audioAsset.error_code || "AUDIO_PREPARATION_FAILED"}</strong>
+            <strong>
+              {audioAsset.error_code || "AUDIO_PREPARATION_FAILED"}
+            </strong>
             <span>{audioAsset.error_message}</span>
             <span>修正音频来源后可重新开始；失败文件不会保留。</span>
           </div>
@@ -655,7 +755,9 @@ const EpisodeProcessingPanel = forwardRef<
               type="button"
               className={styles.secondaryCommand}
               disabled={isMutating}
-              onClick={() => void mutateRun(() => processingApi.cancel(run!.id))}
+              onClick={() =>
+                void mutateRun(() => processingApi.cancel(run!.id))
+              }
             >
               <IconPlayerStop size={18} stroke={1.8} aria-hidden="true" />
               取消
@@ -672,6 +774,17 @@ const EpisodeProcessingPanel = forwardRef<
               重试转写
             </button>
           )}
+          {canReprocessLegacy && (
+            <button
+              type="button"
+              className={styles.secondaryCommand}
+              disabled={isMutating}
+              onClick={() => void startProcessing()}
+            >
+              <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
+              重新转写
+            </button>
+          )}
           {isMutating && <span role="status">正在提交…</span>}
           {audioPreparing && <span role="status">正在下载并校验音频…</span>}
           {!run && item.queue_state !== "focus" && (
@@ -680,6 +793,49 @@ const EpisodeProcessingPanel = forwardRef<
             </span>
           )}
         </div>
+
+        <div
+          className={styles.processingArtifactTabs}
+          role="tablist"
+          aria-label="转写产物"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeArtifactTab === "summary"}
+            disabled={!summaryKind}
+            onClick={() => setActiveArtifactTab("summary")}
+          >
+            纪要
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeArtifactTab === "transcript"}
+            disabled={!transcriptAvailable}
+            onClick={() => setActiveArtifactTab("transcript")}
+          >
+            逐字稿
+          </button>
+        </div>
+
+        {!currentArtifact && (
+          <div
+            className={styles.processingHint}
+            role={isActive(run) ? "status" : undefined}
+          >
+            {isActive(run)
+              ? "转写完成后可在这里阅读纪要和逐字稿。"
+              : "暂无可阅读的转写产物。"}
+          </div>
+        )}
+        {currentArtifact &&
+          !artifactContentMatchesSelection &&
+          isReadingArtifact && (
+            <div className={styles.processingHint} role="status">
+              正在读取{activeArtifactTab === "summary" ? "纪要" : "逐字稿"}…
+            </div>
+          )}
 
         {currentArtifact && (
           <div className={styles.processingArtifacts}>
@@ -694,31 +850,11 @@ const EpisodeProcessingPanel = forwardRef<
                 {formatUpdatedAt(currentArtifact.created_at)}
               </span>
             </div>
-            <button
-              type="button"
-              className={styles.secondaryCommand}
-              disabled={isReadingArtifact}
-              onClick={() =>
-                void readArtifact(currentArtifact.id, "transcript")
-              }
-            >
-              <IconFileText size={18} stroke={1.8} aria-hidden="true" />
-              逐字稿
-            </button>
-            <button
-              type="button"
-              className={styles.secondaryCommand}
-              disabled={isReadingArtifact}
-              onClick={() =>
-                void readArtifact(currentArtifact.id, "episode_notes")
-              }
-            >
-              <IconFileText size={18} stroke={1.8} aria-hidden="true" />
-              旧版纪要
-            </button>
-            <span className={styles.processingHint}>
-              重新转写后可获得妙记纪要和同步逐字稿。
-            </span>
+            {currentArtifact.capabilities.legacy_episode_notes && (
+              <span className={styles.processingHint}>
+                这是旧版纪要；重新转写后可获得妙记纪要和同步逐字稿。
+              </span>
+            )}
           </div>
         )}
 
@@ -744,34 +880,41 @@ const EpisodeProcessingPanel = forwardRef<
         )}
       </div>
 
-      {artifactContent && (
-        <div
-          className={styles.processingDocument}
-          data-copilot-source={
-            artifactContent.kind === "transcript" ? "transcript" : undefined
-          }
-          data-copilot-episode-id={
-            artifactContent.kind === "transcript"
-              ? item.episode_id
-              : undefined
-          }
-        >
-          <div className={styles.metadataLabelRow}>
-            <span>
-              {artifactContent.kind === "transcript" ? "规范逐字稿" : "旧版纪要"}
-            </span>
-            <button
-              type="button"
-              className={styles.iconButton}
-              onClick={() => setArtifactContent(null)}
-              aria-label="关闭加工产物"
-            >
-              关闭
-            </button>
+      {currentArtifact &&
+        artifactContentMatchesSelection &&
+        artifactContent && (
+          <div
+            className={styles.processingDocument}
+            data-copilot-source={
+              artifactContent.kind === "transcript" ? "transcript" : undefined
+            }
+            data-copilot-episode-id={
+              artifactContent.kind === "transcript"
+                ? item.episode_id
+                : undefined
+            }
+          >
+            <div className={styles.metadataLabelRow}>
+              <span>
+                {artifactContent.kind === "transcript"
+                  ? `逐字稿${
+                      artifactContent.segments?.length
+                        ? ` · ${artifactContent.segments.length} 段`
+                        : ""
+                    }`
+                  : artifactContent.kind === "minutes_summary"
+                    ? "纪要"
+                    : "旧版纪要"}
+              </span>
+              {artifactContent.kind === "transcript" && (
+                <span>
+                  {artifactContent.media_available ? "音频可用" : "音频不可用"}
+                </span>
+              )}
+            </div>
+            <MarkdownViewer content={artifactContent.content} />
           </div>
-          <MarkdownViewer content={artifactContent.content} />
-        </div>
-      )}
+        )}
     </section>
   );
 });
