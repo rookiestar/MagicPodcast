@@ -454,6 +454,33 @@ func (s *Service) startResolvedEpisodeProcessing(
 			// the episode left Focus: it has made no external request, so a later
 			// return to Focus is eligible for a fresh scheduled run.
 			if request.TriggerSource == models.ProcessingTriggerScheduled {
+				// Unknown results remain unsafe across pipeline upgrades: a new
+				// processing key must not let cron repeat an unresolved external
+				// write from an older pipeline.
+				var unresolved models.EpisodeProcessingRun
+				unresolvedErr := tx.
+					Where(
+						"episode_id = ? AND status IN ? AND error_code LIKE ?",
+						request.EpisodeID,
+						[]string{
+							models.ProcessingRunStatusFailed,
+							models.ProcessingRunStatusCancelled,
+						},
+						"%result_unknown%",
+					).
+					Order("finished_at DESC, id DESC").
+					First(&unresolved).Error
+				switch {
+				case unresolvedErr == nil:
+					result = StartResult{Run: unresolved, ReusedTerminal: true}
+					return nil
+				case !errors.Is(unresolvedErr, gorm.ErrRecordNotFound):
+					return fmt.Errorf(
+						"read unresolved processing result: %w",
+						unresolvedErr,
+					)
+				}
+
 				var terminal models.EpisodeProcessingRun
 				terminalErr := tx.
 					Where(
