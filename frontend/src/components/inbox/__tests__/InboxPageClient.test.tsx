@@ -30,6 +30,11 @@ const apiMocks = vi.hoisted(() => ({
   isQueueOrderConflict: vi.fn(() => false),
   isCompletionUndoConflict: vi.fn(() => false),
   isCompletionUndoExpired: vi.fn(() => false),
+  listEpisodeRuns: vi.fn(),
+  getLatestAudio: vi.fn(),
+  getScheduleStatus: vi.fn(),
+  startProcessing: vi.fn(),
+  getCopilotContext: vi.fn(),
 }));
 
 const dndMocks = vi.hoisted(() => ({
@@ -137,6 +142,27 @@ vi.mock("@/lib/api", () => ({
   tagApi: {
     list: vi.fn().mockResolvedValue([]),
   },
+}));
+
+vi.mock("@/lib/api/processing", () => ({
+  processingApi: {
+    listEpisodeRuns: apiMocks.listEpisodeRuns,
+    getLatestAudio: apiMocks.getLatestAudio,
+    getScheduleStatus: apiMocks.getScheduleStatus,
+    start: apiMocks.startProcessing,
+  },
+  getProcessingErrorDetails: vi.fn((error: unknown) => ({
+    message: error instanceof Error ? error.message : "加工状态读取失败",
+    status: (error as { response?: { status?: number } })?.response?.status,
+  })),
+}));
+
+vi.mock("@/lib/api/episodeCopilot", () => ({
+  episodeCopilotApi: {
+    getContext: apiMocks.getCopilotContext,
+    ask: vi.fn(),
+  },
+  isEpisodeCopilotCancellation: vi.fn(() => false),
 }));
 
 const inboxItem: ConsumptionItem = {
@@ -281,6 +307,22 @@ describe("InboxPageClient", () => {
       queuePayload(queue),
     );
     apiMocks.getItem.mockResolvedValue(inboxItem);
+    apiMocks.listEpisodeRuns.mockResolvedValue([]);
+    apiMocks.getLatestAudio.mockRejectedValue({
+      response: { status: 404 },
+    });
+    apiMocks.getScheduleStatus.mockResolvedValue({
+      enabled: false,
+      cron: "",
+      timezone: "",
+      batch_size: 0,
+    });
+    apiMocks.getCopilotContext.mockResolvedValue({
+      episode_id: inboxItem.episode_id,
+      show_notes_available: true,
+      transcript_available: false,
+      private_note_available: false,
+    });
     apiMocks.setQueue.mockImplementation(
       async (_episodeId: number, queue: ConsumptionQueue) => ({
         ...inboxItem,
@@ -722,6 +764,41 @@ describe("InboxPageClient", () => {
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "关闭单集明细" }));
 
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it("keeps the full action-workbench flow usable through the new detail tabs", async () => {
+    render(<InboxPageClient />);
+    const trigger = await screen.findByRole("button", {
+      name: "打开 可处理单集 明细",
+    });
+
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole("dialog", {
+      name: "可处理单集",
+    });
+    const tabs = within(dialog).getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      "Show Notes",
+      "转写",
+      "笔记",
+    ]);
+    expect(within(dialog).getByText("正文")).toBeVisible();
+
+    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+    expect(
+      within(dialog).getByRole("heading", { name: "自动加工" }),
+    ).toBeVisible();
+
+    fireEvent.click(within(dialog).getByRole("tab", { name: "笔记" }));
+    expect(
+      within(dialog).getByRole("heading", { name: "备注与标签" }),
+    ).toBeVisible();
+    expect(within(dialog).queryByText("YOUR CONTEXT")).not.toBeInTheDocument();
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "关闭单集明细" }),
+    );
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 

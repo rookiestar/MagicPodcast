@@ -15,6 +15,12 @@ const apiMocks = vi.hoisted(() => ({
   listTags: vi.fn(),
   listEpisodeRuns: vi.fn(),
   getLatestAudio: vi.fn(),
+  getScheduleStatus: vi.fn(),
+  getRun: vi.fn(),
+  startProcessing: vi.fn(),
+  cancelProcessing: vi.fn(),
+  retryProcessing: vi.fn(),
+  getArtifactContent: vi.fn(),
   getCopilotContext: vi.fn(),
   askCopilot: vi.fn(),
 }));
@@ -44,9 +50,16 @@ vi.mock("@/lib/api/processing", () => ({
   processingApi: {
     listEpisodeRuns: apiMocks.listEpisodeRuns,
     getLatestAudio: apiMocks.getLatestAudio,
+    getScheduleStatus: apiMocks.getScheduleStatus,
+    getRun: apiMocks.getRun,
+    start: apiMocks.startProcessing,
+    cancel: apiMocks.cancelProcessing,
+    retry: apiMocks.retryProcessing,
+    getArtifactContent: apiMocks.getArtifactContent,
   },
   getProcessingErrorDetails: vi.fn((error: unknown) => ({
     message: error instanceof Error ? error.message : "加工状态读取失败",
+    status: (error as { response?: { status?: number } })?.response?.status,
   })),
 }));
 
@@ -140,6 +153,12 @@ describe("ConsumptionDetailPanel", () => {
     apiMocks.getLatestAudio.mockRejectedValue({
       response: { status: 404 },
     });
+    apiMocks.getScheduleStatus.mockResolvedValue({
+      enabled: false,
+      cron: "",
+      timezone: "",
+      batch_size: 0,
+    });
     apiMocks.getCopilotContext.mockResolvedValue({
       episode_id: item.episode_id,
       show_notes_available: true,
@@ -191,12 +210,113 @@ describe("ConsumptionDetailPanel", () => {
     });
   });
 
+  it("provides a stable three-tab reading framework with keyboard navigation", async () => {
+    renderDetail();
+
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      "Show Notes",
+      "转写",
+      "笔记",
+    ]);
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel", { name: "Show Notes" })).toBeVisible();
+    expect(screen.queryByText("YOUR CONTEXT")).not.toBeInTheDocument();
+
+    tabs[0].focus();
+    fireEvent.keyDown(tabs[0], { key: "ArrowRight" });
+    await waitFor(() => expect(tabs[1]).toHaveFocus());
+    expect(tabs[1]).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.getByRole("heading", { name: "自动加工" }),
+    ).toBeVisible();
+
+    fireEvent.keyDown(tabs[1], { key: "End" });
+    await waitFor(() => expect(tabs[2]).toHaveFocus());
+    expect(
+      screen.getByRole("heading", { name: "备注与标签" }),
+    ).toBeVisible();
+  });
+
+  it("exposes the current transcription action in the compact header", async () => {
+    apiMocks.startProcessing.mockResolvedValue({
+      reused_active: false,
+      reused_successful: false,
+      preparing_audio: true,
+      audio_asset: {
+        id: 51,
+        episode_id: item.episode_id,
+        status: "queued",
+        size_bytes: 0,
+        duration_seconds: 0,
+        queued_at: "2026-08-29T08:00:00Z",
+        created_at: "2026-08-29T08:00:00Z",
+        updated_at: "2026-08-29T08:00:00Z",
+      },
+    });
+    renderDetail();
+
+    const start = await screen.findByRole("button", { name: "开始转写" });
+    fireEvent.click(start);
+
+    await waitFor(() =>
+      expect(apiMocks.startProcessing).toHaveBeenCalledWith(item.episode_id),
+    );
+    expect(
+      await screen.findByRole("status", { name: "转写状态：准备音频" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "原节目" })).toBeVisible();
+    expect(
+      screen.queryByRole("link", { name: "原节目" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps identity, tabs, and Show Notes visible while regional requests are slow", () => {
+    apiMocks.getItem.mockReturnValue(new Promise(() => undefined));
+    apiMocks.listEpisodeRuns.mockReturnValue(new Promise(() => undefined));
+    apiMocks.getNotes.mockReturnValue(new Promise(() => undefined));
+    apiMocks.getTags.mockReturnValue(new Promise(() => undefined));
+    apiMocks.listTags.mockReturnValue(new Promise(() => undefined));
+
+    renderDetail();
+
+    expect(
+      screen.getByRole("heading", { name: "站外消费测试" }),
+    ).toBeVisible();
+    expect(screen.getByRole("tablist", { name: "单集详情内容" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "安全链接" })).toBeVisible();
+    expect(
+      screen.getByRole("status", { name: "转写状态：正在读取" }),
+    ).toBeVisible();
+  });
+
+  it("keeps other content usable when detail, processing, and metadata regions fail", async () => {
+    apiMocks.getItem.mockRejectedValue(new Error("详情离线"));
+    apiMocks.listEpisodeRuns.mockRejectedValue(new Error("转写离线"));
+    apiMocks.getNotes.mockRejectedValue(new Error("笔记离线"));
+
+    renderDetail();
+
+    expect(
+      await screen.findByText("最新状态读取失败，当前内容仍可查看：保存失败"),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "安全链接" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "转写" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("tab", { name: "笔记" }));
+    expect(
+      await screen.findByText("备注与标签加载失败：笔记离线"),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "Show Notes" }));
+    expect(screen.getByRole("link", { name: "安全链接" })).toBeVisible();
+  });
+
   it("opens the original URL even when saving in-progress fails and never auto-completes", async () => {
     apiMocks.markInProgress.mockRejectedValue(new Error("离线"));
     const onMove = vi.fn();
     renderDetail({ onMove });
 
-    fireEvent.click(screen.getByRole("button", { name: "打开原节目" }));
+    fireEvent.click(screen.getByRole("button", { name: "原节目" }));
 
     expect(window.open).toHaveBeenCalledWith(
       "https://example.com/episode/201",
@@ -221,7 +341,7 @@ describe("ConsumptionDetailPanel", () => {
     const onMove = vi.fn();
     renderDetail({ item: xyzItem, onMove });
 
-    fireEvent.click(screen.getByRole("button", { name: "打开原节目" }));
+    fireEvent.click(screen.getByRole("button", { name: "原节目" }));
 
     expect(window.open).toHaveBeenCalledWith(
       xyzItem.original_url,
@@ -269,7 +389,7 @@ describe("ConsumptionDetailPanel", () => {
     });
     renderDetail({ item: xyzItem });
 
-    fireEvent.click(screen.getByRole("button", { name: "打开原节目" }));
+    fireEvent.click(screen.getByRole("button", { name: "原节目" }));
     fireEvent.click(screen.getByRole("button", { name: "复制页面链接" }));
 
     expect(
@@ -285,7 +405,7 @@ describe("ConsumptionDetailPanel", () => {
     });
     renderDetail({ item: xyzItem });
 
-    fireEvent.click(screen.getByRole("button", { name: "打开原节目" }));
+    fireEvent.click(screen.getByRole("button", { name: "原节目" }));
     expect(
       await screen.findByText(
         "原节目已打开，但进行中记录未保存。队列没有改变。",
@@ -304,7 +424,7 @@ describe("ConsumptionDetailPanel", () => {
   it("does not show original-page recovery for ordinary hosts", async () => {
     renderDetail();
 
-    fireEvent.click(screen.getByRole("button", { name: "打开原节目" }));
+    fireEvent.click(screen.getByRole("button", { name: "原节目" }));
 
     expect(
       screen.queryByRole("region", { name: "原节目页恢复" }),
@@ -329,6 +449,7 @@ describe("ConsumptionDetailPanel", () => {
   it("reuses the existing notes and tags APIs instead of creating parallel metadata", async () => {
     renderDetail();
 
+    fireEvent.click(screen.getByRole("tab", { name: "笔记" }));
     expect(await screen.findByText("旧备注")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "编辑单集备注" }));
     fireEvent.change(screen.getByRole("textbox", { name: "单集备注" }), {

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -12,6 +13,7 @@ import {
   IconBookmarkPlus,
   IconCheck,
   IconCircleCheck,
+  IconDots,
   IconEdit,
   IconExternalLink,
   IconRefresh,
@@ -42,7 +44,10 @@ import {
   QUEUE_PRESENTATION,
 } from "./presentation";
 import EpisodeCopilotPanel from "./EpisodeCopilotPanel";
-import EpisodeProcessingPanel from "./EpisodeProcessingPanel";
+import EpisodeProcessingPanel, {
+  type EpisodeProcessingHeaderState,
+  type EpisodeProcessingPanelHandle,
+} from "./EpisodeProcessingPanel";
 import styles from "./InboxPage.module.css";
 
 interface ConsumptionDetailPanelProps {
@@ -55,6 +60,23 @@ interface ConsumptionDetailPanelProps {
     target: ConsumptionQueue,
   ) => Promise<ConsumptionItem | undefined>;
 }
+
+const DETAIL_TABS = [
+  { id: "show-notes", label: "Show Notes" },
+  { id: "transcript", label: "转写" },
+  { id: "notes", label: "笔记" },
+] as const;
+
+type DetailTab = (typeof DETAIL_TABS)[number]["id"];
+
+const INITIAL_PROCESSING_HEADER: EpisodeProcessingHeaderState = {
+  kind: "loading",
+  label: "正在读取",
+  detail: "Show Notes 可继续阅读",
+  primaryLabel: "读取转写状态",
+  primaryDisabled: true,
+  action: null,
+};
 
 function EpisodeMetadata({
   item,
@@ -199,7 +221,6 @@ function EpisodeMetadata({
     >
       <div className={styles.detailSectionHeading}>
         <div>
-          <span className={styles.detailKicker}>YOUR CONTEXT</span>
           <h3 id="metadata-title">备注与标签</h3>
         </div>
         {isLoading && <span role="status">正在读取…</span>}
@@ -359,8 +380,17 @@ export default function ConsumptionDetailPanel({
 }: ConsumptionDetailPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const processingPanelRef = useRef<EpisodeProcessingPanelHandle>(null);
+  const tabRefs = useRef<Record<DetailTab, HTMLButtonElement | null>>({
+    "show-notes": null,
+    transcript: null,
+    notes: null,
+  });
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<DetailTab>("show-notes");
+  const [processingHeader, setProcessingHeader] =
+    useState<EpisodeProcessingHeaderState>(INITIAL_PROCESSING_HEADER);
   const [externalState, setExternalState] = useState<
     "idle" | "saving" | "failed"
   >("idle");
@@ -381,6 +411,11 @@ export default function ConsumptionDetailPanel({
       document.body.style.overflow = previousOverflow;
     };
   }, []);
+
+  useEffect(() => {
+    setActiveTab("show-notes");
+    setProcessingHeader(INITIAL_PROCESSING_HEADER);
+  }, [item.episode_id]);
 
   useEffect(() => {
     let active = true;
@@ -419,9 +454,14 @@ export default function ConsumptionDetailPanel({
 
     const focusable = Array.from(
       panelRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), a[href], select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        'button:not([disabled]), a[href], summary, select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
       ),
-    ).filter((element) => !element.hasAttribute("hidden"));
+    ).filter(
+      (element) =>
+        !element.closest("[hidden]") &&
+        (element.tagName === "SUMMARY" ||
+          !element.closest("details:not([open])")),
+    );
     if (focusable.length === 0) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
@@ -478,6 +518,40 @@ export default function ConsumptionDetailPanel({
     ? moveTarget
     : queueOptions[0];
 
+  const selectTab = useCallback(
+    (tab: DetailTab, shouldFocus = false) => {
+      setActiveTab(tab);
+      if (shouldFocus) {
+        window.requestAnimationFrame(() => tabRefs.current[tab]?.focus());
+      }
+    },
+    [],
+  );
+
+  const handleTabKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    currentTab: DetailTab,
+  ) => {
+    const currentIndex = DETAIL_TABS.findIndex(
+      (candidate) => candidate.id === currentTab,
+    );
+    let nextIndex = currentIndex;
+    if (event.key === "ArrowRight") {
+      nextIndex = (currentIndex + 1) % DETAIL_TABS.length;
+    } else if (event.key === "ArrowLeft") {
+      nextIndex =
+        (currentIndex - 1 + DETAIL_TABS.length) % DETAIL_TABS.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = DETAIL_TABS.length - 1;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    selectTab(DETAIL_TABS[nextIndex].id, true);
+  };
+
   return (
     <div
       className={styles.detailBackdrop}
@@ -495,7 +569,7 @@ export default function ConsumptionDetailPanel({
       >
         <header className={styles.detailHeader}>
           <div>
-            <span className={styles.detailKicker}>EPISODE DESK</span>
+            <span className={styles.detailKicker}>FOCUS DETAIL</span>
             <p>{item.podcast_title}</p>
           </div>
           <button
@@ -523,26 +597,12 @@ export default function ConsumptionDetailPanel({
             </div>
             <dl className={styles.detailFacts}>
               <div>
-                <dt>队列</dt>
-                <dd>{currentQueue}</dd>
-              </div>
-              <div>
                 <dt>时长</dt>
                 <dd>{formatDuration(item.duration)}</dd>
               </div>
               <div>
                 <dt>发布日期</dt>
                 <dd>{formatPublishedDate(item.published_date)}</dd>
-              </div>
-              <div>
-                <dt>消费状态</dt>
-                <dd>
-                  {item.queue_state === "done"
-                    ? "已手动完成"
-                    : item.in_progress_at
-                      ? "进行中"
-                      : "尚未开始"}
-                </dd>
               </div>
             </dl>
           </section>
@@ -579,88 +639,154 @@ export default function ConsumptionDetailPanel({
                   onDismiss={originalRecovery.dismiss}
                 />
               </div>
-            )}
+          )}
 
           <div className={styles.detailCommandBar}>
+            <div
+              className={styles.processingHeadline}
+              data-state={processingHeader.kind}
+              role="status"
+              aria-label={`转写状态：${processingHeader.label}`}
+            >
+              <span className={styles.processingDot} aria-hidden="true" />
+              <span>
+                <strong>{processingHeader.label}</strong>
+                <small>{processingHeader.detail}</small>
+              </span>
+            </div>
+            <button
+              type="button"
+              className={styles.primaryCommand}
+              disabled={processingHeader.primaryDisabled}
+              onClick={() => processingPanelRef.current?.activatePrimary()}
+            >
+              {processingHeader.primaryLabel}
+            </button>
             {originalPlan ? (
               <button
                 type="button"
-                className={styles.primaryCommand}
+                className={styles.originalLink}
                 disabled={externalState === "saving"}
                 onClick={() => void openOriginal()}
               >
-                <IconExternalLink size={19} stroke={1.8} aria-hidden="true" />
-                打开原节目
+                原节目
+                <IconExternalLink size={16} stroke={1.8} aria-hidden="true" />
               </button>
             ) : (
               <span className={styles.unsafeOriginal}>
                 原节目链接不可安全打开
               </span>
             )}
-            {item.queue_state !== "done" && (
-              <button
-                type="button"
-                className={styles.secondaryCommand}
-                disabled={isQueueBusy}
-                onClick={() => void moveItem("done")}
-              >
-                <IconCircleCheck size={19} stroke={1.8} aria-hidden="true" />
-                标记完成
-              </button>
-            )}
-            <div className={styles.detailMove}>
-              <select
-                aria-label="选择目标队列"
-                value={effectiveMoveTarget}
-                disabled={isQueueBusy}
-                onChange={(event) =>
-                  setMoveTarget(event.target.value as ConsumptionQueue)
-                }
-              >
-                {queueOptions.map((queue) => (
-                  <option key={queue} value={queue}>
-                    {QUEUE_PRESENTATION[queue].label}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className={styles.iconButton}
-                disabled={isQueueBusy}
-                onClick={() => void moveItem(effectiveMoveTarget)}
-                aria-label={`移动到 ${
-                  QUEUE_PRESENTATION[effectiveMoveTarget].label
-                }`}
-                title="移动"
-              >
-                <IconArrowRight size={18} stroke={1.8} aria-hidden="true" />
-              </button>
-            </div>
-            {(isQueueBusy || externalState === "saving" || isRefreshing) && (
-              <span className={styles.commandStatus} role="status">
-                {isQueueBusy
-                  ? "正在保存队列…"
-                  : externalState === "saving"
-                    ? "正在记录进行中…"
-                    : "正在同步最新状态…"}
-              </span>
-            )}
+            <details className={styles.secondaryActions}>
+              <summary>
+                <IconDots size={19} stroke={1.8} aria-hidden="true" />
+                更多操作
+              </summary>
+              <div className={styles.secondaryActionsMenu}>
+                <span className={styles.secondaryContext}>
+                  {currentQueue} ·{" "}
+                  {item.queue_state === "done"
+                    ? "已手动完成"
+                    : item.in_progress_at
+                      ? "进行中"
+                      : "尚未开始"}
+                </span>
+                {item.queue_state !== "done" && (
+                  <button
+                    type="button"
+                    className={styles.secondaryCommand}
+                    disabled={isQueueBusy}
+                    onClick={() => void moveItem("done")}
+                  >
+                    <IconCircleCheck
+                      size={19}
+                      stroke={1.8}
+                      aria-hidden="true"
+                    />
+                    标记完成
+                  </button>
+                )}
+                <div className={styles.detailMove}>
+                  <select
+                    aria-label="选择目标队列"
+                    value={effectiveMoveTarget}
+                    disabled={isQueueBusy}
+                    onChange={(event) =>
+                      setMoveTarget(event.target.value as ConsumptionQueue)
+                    }
+                  >
+                    {queueOptions.map((queue) => (
+                      <option key={queue} value={queue}>
+                        {QUEUE_PRESENTATION[queue].label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    disabled={isQueueBusy}
+                    onClick={() => void moveItem(effectiveMoveTarget)}
+                    aria-label={`移动到 ${
+                      QUEUE_PRESENTATION[effectiveMoveTarget].label
+                    }`}
+                    title="移动"
+                  >
+                    <IconArrowRight
+                      size={18}
+                      stroke={1.8}
+                      aria-hidden="true"
+                    />
+                  </button>
+                </div>
+                {(isQueueBusy ||
+                  externalState === "saving" ||
+                  isRefreshing) && (
+                  <span className={styles.commandStatus} role="status">
+                    {isQueueBusy
+                      ? "正在保存队列…"
+                      : externalState === "saving"
+                        ? "正在记录进行中…"
+                        : "正在同步最新状态…"}
+                  </span>
+                )}
+              </div>
+            </details>
           </div>
 
-          <EpisodeProcessingPanel item={item} />
+          <div
+            className={styles.detailTabs}
+            role="tablist"
+            aria-label="单集详情内容"
+          >
+            {DETAIL_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                ref={(node) => {
+                  tabRefs.current[tab.id] = node;
+                }}
+                id={`detail-tab-${tab.id}`}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                aria-controls={`detail-panel-${tab.id}`}
+                tabIndex={activeTab === tab.id ? 0 : -1}
+                onClick={() => selectTab(tab.id)}
+                onKeyDown={(event) => handleTabKeyDown(event, tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
           <section
+            id="detail-panel-show-notes"
             className={styles.showNotesSection}
-            aria-labelledby="show-notes-title"
+            role="tabpanel"
+            aria-labelledby="detail-tab-show-notes"
+            hidden={activeTab !== "show-notes"}
             data-copilot-source="show_notes"
             data-copilot-episode-id={item.episode_id}
           >
-            <div className={styles.detailSectionHeading}>
-              <div>
-                <span className={styles.detailKicker}>FULL TEXT</span>
-                <h3 id="show-notes-title">Show Notes</h3>
-              </div>
-            </div>
             {item.show_notes.trim() ? (
               <RichText
                 html={item.show_notes}
@@ -671,9 +797,30 @@ export default function ConsumptionDetailPanel({
             )}
           </section>
 
-          <EpisodeCopilotPanel item={item} />
+          <div
+            id="detail-panel-transcript"
+            role="tabpanel"
+            aria-labelledby="detail-tab-transcript"
+            hidden={activeTab !== "transcript"}
+          >
+            <EpisodeProcessingPanel
+              ref={processingPanelRef}
+              item={item}
+              onHeaderStateChange={setProcessingHeader}
+              onViewTranscript={() => selectTab("transcript", true)}
+            />
+          </div>
 
-          <EpisodeMetadata item={item} onItemChange={onItemChange} />
+          <div
+            id="detail-panel-notes"
+            role="tabpanel"
+            aria-labelledby="detail-tab-notes"
+            hidden={activeTab !== "notes"}
+          >
+            <EpisodeMetadata item={item} onItemChange={onItemChange} />
+          </div>
+
+          <EpisodeCopilotPanel item={item} />
         </div>
       </div>
     </div>

@@ -137,7 +137,7 @@ describe("EpisodeProcessingPanel", () => {
       expect(screen.queryByText("正在读取…")).not.toBeInTheDocument(),
     );
     expect(
-      screen.getByRole("button", { name: "开始加工" }),
+      screen.getByRole("button", { name: "开始转写" }),
     ).toBeEnabled();
   });
 
@@ -212,7 +212,7 @@ describe("EpisodeProcessingPanel", () => {
     ).toBeVisible();
     expect(screen.getByText("尚未加工")).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "开始加工" }),
+      screen.getByRole("button", { name: "开始转写" }),
     ).toBeEnabled();
     expect(
       screen.getByRole("button", { name: "重试读取加工状态" }),
@@ -477,7 +477,7 @@ describe("EpisodeProcessingPanel", () => {
 
     expect(screen.getAllByText("正在读取…").length).toBeGreaterThan(0);
     expect(
-      await screen.findByRole("button", { name: "开始加工" }),
+      await screen.findByRole("button", { name: "开始转写" }),
     ).toBeEnabled();
 
     rejectSchedule(new Error("定时网络超时"));
@@ -486,7 +486,7 @@ describe("EpisodeProcessingPanel", () => {
     ).toBeVisible();
     expect(screen.getByText("定时状态暂时不可用")).toBeVisible();
     expect(screen.queryByText("未启用")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "开始加工" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "开始转写" })).toBeEnabled();
   });
 
   it("does not disguise managed-audio read failures as an empty first visit", async () => {
@@ -558,7 +558,7 @@ describe("EpisodeProcessingPanel", () => {
       container.querySelector('[data-copilot-source="transcript"]'),
     ).toHaveAttribute("data-copilot-episode-id", "201");
 
-    fireEvent.click(screen.getByRole("button", { name: "从检查点重试" }));
+    fireEvent.click(screen.getByRole("button", { name: "重试转写" }));
     await waitFor(() => expect(apiMocks.retry).toHaveBeenCalledWith(31));
     await waitFor(() => expect(apiMocks.getRun).toHaveBeenCalledWith(32));
   });
@@ -577,7 +577,7 @@ describe("EpisodeProcessingPanel", () => {
 
     expect(await screen.findByText("加工失败")).toBeVisible();
     expect(
-      screen.queryByRole("button", { name: "从检查点重试" }),
+      screen.queryByRole("button", { name: "重试转写" }),
     ).not.toBeInTheDocument();
   });
 
@@ -639,7 +639,7 @@ describe("EpisodeProcessingPanel", () => {
     expect(await screen.findByText("已取消")).toBeVisible();
     expect(screen.getByText("飞书端任务可能继续", { exact: false })).toBeVisible();
     expect(
-      screen.queryByRole("button", { name: "从检查点重试" }),
+      screen.queryByRole("button", { name: "重试转写" }),
     ).not.toBeInTheDocument();
   });
 
@@ -676,10 +676,10 @@ describe("EpisodeProcessingPanel", () => {
 
     render(<EpisodeProcessingPanel item={item} />);
     expect(
-      await screen.findByRole("button", { name: "开始加工" }),
+      await screen.findByRole("button", { name: "开始转写" }),
     ).toBeEnabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "开始加工" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始转写" }));
 
     expect(await screen.findByText("等待准备音频")).toBeVisible();
     expect(screen.getByText("准备与校验音频")).toBeVisible();
