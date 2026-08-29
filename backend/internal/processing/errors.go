@@ -14,6 +14,8 @@ var (
 	ErrArtifactNotFound           = errors.New("artifact set not found")
 	ErrArtifactExists             = errors.New("artifact set already exists")
 	ErrInvalidArtifact            = errors.New("invalid artifact set")
+	ErrArtifactAudioUnavailable   = errors.New("artifact audio is unavailable")
+	ErrArtifactAudioMismatch      = errors.New("artifact audio digest does not match")
 )
 
 // AdapterError is the provider-neutral error contract used by every

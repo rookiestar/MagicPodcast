@@ -739,6 +739,36 @@ func (s *Service) GetArtifactContent(
 	return content, nil
 }
 
+func (s *Service) GetArtifactAudio(
+	ctx context.Context,
+	artifactSetID uint,
+) (ReadyAudio, error) {
+	if artifactSetID == 0 {
+		return ReadyAudio{}, ErrInvalidArtifact
+	}
+	var artifact models.EpisodeArtifactSet
+	if err := s.db.WithContext(ctx).First(&artifact, artifactSetID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ReadyAudio{}, ErrArtifactNotFound
+		}
+		return ReadyAudio{}, fmt.Errorf("read artifact set for audio: %w", err)
+	}
+	if !sha256Pattern.MatchString(artifact.AudioSHA256) {
+		return ReadyAudio{}, ErrInvalidArtifact
+	}
+	if s.audioPreparer == nil {
+		return ReadyAudio{}, ErrArtifactAudioUnavailable
+	}
+	audio, err := s.audioPreparer.ResolveReadyAudio(ctx, artifact.EpisodeID)
+	if err != nil {
+		return ReadyAudio{}, fmt.Errorf("%w: managed audio could not be resolved", ErrArtifactAudioUnavailable)
+	}
+	if audio.SHA256 != artifact.AudioSHA256 {
+		return ReadyAudio{}, ErrArtifactAudioMismatch
+	}
+	return audio, nil
+}
+
 func (s *Service) hydrateArtifactCapabilities(
 	ctx context.Context,
 	artifact *models.EpisodeArtifactSet,

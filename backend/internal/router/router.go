@@ -94,10 +94,15 @@ func SetupRouter(options ...Option) *gin.Engine {
 	r := gin.New()
 
 	// 中间件
-	r.Use(gin.Recovery())                     // 恢复 panic
-	r.Use(gin.Logger())                       // 请求日志
-	r.Use(gzip.Gzip(gzip.DefaultCompression)) // Gzip 压缩
-	r.Use(middleware.CORS())                  // CORS 跨域支持
+	r.Use(gin.Recovery()) // 恢复 panic
+	r.Use(gin.Logger())   // 请求日志
+	r.Use(gzip.Gzip(
+		gzip.DefaultCompression,
+		gzip.WithExcludedPathsRegexs([]string{
+			`^/api/v1/artifact-sets/[1-9][0-9]*/audio$`,
+		}),
+	)) // Gzip 压缩；受管媒体保持原始字节与 Range 语义
+	r.Use(middleware.CORS()) // CORS 跨域支持
 
 	// 单人服务的高成本操作采用进程内准入控制：不信任客户端身份头，
 	// 通过稳定的 409/413/429 错误让前端能明确区分冲突、超限和过快请求。
@@ -197,6 +202,7 @@ func SetupRouter(options ...Option) *gin.Engine {
 		v1.POST("/processing-runs/:id/cancel", processingHandler.Cancel)
 		v1.POST("/processing-runs/:id/retry", processingHandler.Retry)
 		v1.GET("/artifact-sets/:id/:kind", processingHandler.GetArtifactContent)
+		v1.HEAD("/artifact-sets/:id/audio", processingHandler.GetArtifactAudio)
 
 		episodeCopilotHandler := handlers.NewEpisodeCopilotHandler(
 			dependencies.episodeCopilot,

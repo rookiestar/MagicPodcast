@@ -830,7 +830,7 @@ describe("InboxPageClient", () => {
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 
-  it("reads native Minutes summary by default and keeps the transcript selection in the detail session", async () => {
+  it("reads native Minutes by default and synchronizes managed audio in the detail session", async () => {
     const completedRun: ProcessingRun = {
       id: 81,
       episode_id: inboxItem.episode_id,
@@ -890,8 +890,20 @@ describe("InboxPageClient", () => {
                   {
                     order: 1,
                     speaker: "主持人",
-                    start_ms: 195,
+                    start_ms: 0,
                     text: "开场",
+                  },
+                  {
+                    order: 2,
+                    speaker: "嘉宾",
+                    start_ms: 30_000,
+                    text: "中段",
+                  },
+                  {
+                    order: 3,
+                    speaker: "主持人",
+                    start_ms: 60_000,
+                    text: "尾段",
                   },
                 ],
                 media_available: true,
@@ -925,13 +937,100 @@ describe("InboxPageClient", () => {
     );
 
     fireEvent.click(within(dialog).getByRole("tab", { name: "逐字稿" }));
-    expect(
-      await within(dialog).findByRole("heading", {
-        name: "妙记结构化逐字稿",
-      }),
-    ).toBeVisible();
-    expect(within(dialog).getByText("逐字稿 · 1 段")).toBeVisible();
+    expect(await within(dialog).findByText("开场")).toBeVisible();
+    expect(within(dialog).getByText("中段")).toBeVisible();
+    expect(within(dialog).getByText("尾段")).toBeVisible();
+    expect(within(dialog).getByText("逐字稿 · 3 段")).toBeVisible();
     expect(within(dialog).getByText("音频可用")).toBeVisible();
+    expect(within(dialog).getByText("正在加载音频…")).toBeVisible();
+
+    const audio = dialog.querySelector("audio")!;
+    let paused = true;
+    Object.defineProperties(audio, {
+      duration: { configurable: true, value: 90 },
+      currentTime: { configurable: true, writable: true, value: 0 },
+      paused: { configurable: true, get: () => paused },
+    });
+    const play = vi.fn(async () => {
+      paused = false;
+      fireEvent.play(audio);
+    });
+    const pause = vi.fn(() => {
+      paused = true;
+      fireEvent.pause(audio);
+    });
+    const load = vi.fn();
+    Object.defineProperties(audio, {
+      play: { configurable: true, value: play },
+      pause: { configurable: true, value: pause },
+      load: { configurable: true, value: load },
+    });
+    fireEvent.loadedMetadata(audio);
+    fireEvent.click(within(dialog).getByRole("button", { name: "播放音频" }));
+    await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+
+    audio.currentTime = 31;
+    fireEvent.timeUpdate(audio);
+    const middleSegment = within(dialog).getByRole("button", {
+      name: "00:30 嘉宾：中段",
+    });
+    expect(middleSegment).toHaveAttribute("aria-current", "true");
+    expect(within(dialog).getByText("正在播放")).toBeVisible();
+
+    const slider = within(dialog).getByRole("slider", { name: "音频进度" });
+    slider.focus();
+    fireEvent.keyDown(slider, { key: "End" });
+    expect(slider).toHaveFocus();
+    expect(audio.currentTime).toBe(90);
+    expect(
+      within(dialog).getByRole("button", {
+        name: "01:00 主持人：尾段",
+      }),
+    ).toHaveAttribute("aria-current", "true");
+
+    middleSegment.focus();
+    fireEvent.click(middleSegment);
+    expect(middleSegment).toHaveFocus();
+    expect(audio.currentTime).toBe(30);
+
+    const transcriptRegion = within(dialog).getByRole("region", {
+      name: "同步逐字稿",
+    });
+    const tailSegment = within(dialog).getByRole("button", {
+      name: "01:00 主持人：尾段",
+    });
+    Object.defineProperty(transcriptRegion, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ top: 0, bottom: 100 }),
+    });
+    Object.defineProperty(tailSegment, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ top: 130, bottom: 170 }),
+    });
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(tailSegment, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    fireEvent.scroll(transcriptRegion);
+    audio.currentTime = 61;
+    fireEvent.timeUpdate(audio);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    fireEvent.play(audio);
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      block: "nearest",
+      behavior: "auto",
+    });
+
+    const mediaSource = audio.getAttribute("src");
+    fireEvent.error(audio);
+    expect(
+      within(dialog).getByText("音频加载失败，逐字稿仍可阅读。"),
+    ).toBeVisible();
+    expect(within(dialog).getByText("中段")).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "重试" }));
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(audio).toHaveAttribute("src", mediaSource);
 
     fireEvent.click(within(dialog).getByRole("tab", { name: "Show Notes" }));
     fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
@@ -939,11 +1038,7 @@ describe("InboxPageClient", () => {
       "aria-selected",
       "true",
     );
-    expect(
-      within(dialog).getByRole("heading", {
-        name: "妙记结构化逐字稿",
-      }),
-    ).toBeVisible();
+    expect(within(dialog).getByText("开场")).toBeVisible();
     expect(
       within(dialog).queryByText("来自同一条飞书妙记"),
     ).not.toBeInTheDocument();

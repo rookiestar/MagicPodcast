@@ -387,6 +387,7 @@ func TestProcessingArtifactHTTPContractForNativeAndLegacyArtifacts(t *testing.T)
 	router := gin.New()
 	router.GET("/api/v1/processing-runs/:id", handler.Get)
 	router.GET("/api/v1/artifact-sets/:id/:kind", handler.GetArtifactContent)
+	router.HEAD("/api/v1/artifact-sets/:id/audio", handler.GetArtifactAudio)
 
 	createCompletedRun := func(
 		targetEpisodeID uint,
@@ -539,6 +540,121 @@ func TestProcessingArtifactHTTPContractForNativeAndLegacyArtifacts(t *testing.T)
 	require.NotContains(t, response.Body.String(), audioDigest)
 	require.NotContains(t, response.Body.String(), "SECRET")
 
+	requestArtifactAudio := func(method string, rangeHeader string) *httptest.ResponseRecorder {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(
+			method,
+			fmt.Sprintf("/api/v1/artifact-sets/%d/audio", nativeArtifact.ID),
+			nil,
+		)
+		if rangeHeader != "" {
+			request.Header.Set("Range", rangeHeader)
+		}
+		router.ServeHTTP(recorder, request)
+		return recorder
+	}
+	assertSafeAudioFailure := func(recorder *httptest.ResponseRecorder) {
+		t.Helper()
+		visible := recorder.Body.String() + fmt.Sprint(recorder.Header())
+		require.NotContains(t, visible, audioRoot)
+		require.NotContains(t, visible, audioRelativePath)
+		require.NotContains(t, visible, audioDigest)
+		require.NotContains(t, visible, "SECRET")
+	}
+
+	response = requestArtifactAudio(http.MethodGet, "")
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Equal(t, audioBody, response.Body.Bytes())
+	require.Equal(t, "audio/mpeg", response.Header().Get("Content-Type"))
+	require.Equal(t, "bytes", response.Header().Get("Accept-Ranges"))
+	require.Equal(t, fmt.Sprint(len(audioBody)), response.Header().Get("Content-Length"))
+	require.Equal(t, "nosniff", response.Header().Get("X-Content-Type-Options"))
+	require.Equal(t, "private, no-store", response.Header().Get("Cache-Control"))
+	require.Equal(
+		t,
+		"same-origin",
+		response.Header().Get("Cross-Origin-Resource-Policy"),
+	)
+
+	response = requestArtifactAudio(http.MethodHead, "")
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Empty(t, response.Body.Bytes())
+	require.Equal(t, "audio/mpeg", response.Header().Get("Content-Type"))
+	require.Equal(t, "bytes", response.Header().Get("Accept-Ranges"))
+	require.Equal(t, fmt.Sprint(len(audioBody)), response.Header().Get("Content-Length"))
+
+	rangeCases := []struct {
+		name         string
+		header       string
+		start        int
+		endExclusive int
+		contentRange string
+	}{
+		{
+			name: "first bytes", header: "bytes=0-2", start: 0, endExclusive: 3,
+			contentRange: fmt.Sprintf("bytes 0-2/%d", len(audioBody)),
+		},
+		{
+			name: "middle bytes", header: "bytes=4-10", start: 4, endExclusive: 11,
+			contentRange: fmt.Sprintf("bytes 4-10/%d", len(audioBody)),
+		},
+		{
+			name:   "tail bytes",
+			header: fmt.Sprintf("bytes=%d-%d", len(audioBody)-4, len(audioBody)-1),
+			start:  len(audioBody) - 4, endExclusive: len(audioBody),
+			contentRange: fmt.Sprintf(
+				"bytes %d-%d/%d",
+				len(audioBody)-4,
+				len(audioBody)-1,
+				len(audioBody),
+			),
+		},
+		{
+			name: "open tail", header: "bytes=5-", start: 5, endExclusive: len(audioBody),
+			contentRange: fmt.Sprintf("bytes 5-%d/%d", len(audioBody)-1, len(audioBody)),
+		},
+	}
+	for _, testCase := range rangeCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			rangeResponse := requestArtifactAudio(http.MethodGet, testCase.header)
+			require.Equal(t, http.StatusPartialContent, rangeResponse.Code)
+			require.Equal(
+				t,
+				audioBody[testCase.start:testCase.endExclusive],
+				rangeResponse.Body.Bytes(),
+			)
+			require.Equal(t, "bytes", rangeResponse.Header().Get("Accept-Ranges"))
+			require.Equal(
+				t,
+				testCase.contentRange,
+				rangeResponse.Header().Get("Content-Range"),
+			)
+			require.Equal(
+				t,
+				fmt.Sprint(testCase.endExclusive-testCase.start),
+				rangeResponse.Header().Get("Content-Length"),
+			)
+			require.Equal(t, "audio/mpeg", rangeResponse.Header().Get("Content-Type"))
+		})
+	}
+
+	response = requestArtifactAudio(
+		http.MethodGet,
+		fmt.Sprintf("bytes=%d-", len(audioBody)),
+	)
+	require.Equal(t, http.StatusRequestedRangeNotSatisfiable, response.Code)
+	require.Equal(
+		t,
+		fmt.Sprintf("bytes */%d", len(audioBody)),
+		response.Header().Get("Content-Range"),
+	)
+	assertSafeAudioFailure(response)
+
+	response = requestArtifactAudio(http.MethodGet, "bytes=invalid")
+	require.Equal(t, http.StatusRequestedRangeNotSatisfiable, response.Code)
+	assertSafeAudioFailure(response)
+
 	assertAudioAvailability := func(target *gin.Engine, expected bool) {
 		t.Helper()
 		want := "false"
@@ -587,18 +703,71 @@ func TestProcessingArtifactHTTPContractForNativeAndLegacyArtifacts(t *testing.T)
 		Where("id = ?", queuedAudio.Asset.ID).
 		Update("sha256", strings.Repeat("c", 64)).Error)
 	assertAudioAvailability(router, false)
+	response = requestArtifactAudio(http.MethodGet, "")
+	require.Equal(t, http.StatusConflict, response.Code)
+	require.Contains(t, response.Body.String(), "ARTIFACT_AUDIO_MISMATCH")
+	assertSafeAudioFailure(response)
 
 	require.NoError(t, db.Model(&models.EpisodeAudioAsset{}).
 		Where("id = ?", queuedAudio.Asset.ID).
 		Update("sha256", audioDigest).Error)
 	require.NoError(t, os.WriteFile(audioPath, append(audioBody, 'x'), 0o600))
 	assertAudioAvailability(router, false)
+	response = requestArtifactAudio(http.MethodGet, "")
+	require.Equal(t, http.StatusNotFound, response.Code)
+	require.Contains(t, response.Body.String(), "ARTIFACT_AUDIO_UNAVAILABLE")
+	assertSafeAudioFailure(response)
 
 	require.NoError(t, os.WriteFile(audioPath, audioBody, 0o600))
 	assertAudioAvailability(router, true)
 
+	sameSizeTamperedAudio := append([]byte(nil), audioBody...)
+	sameSizeTamperedAudio[len(sameSizeTamperedAudio)-1] ^= 0xff
+	require.NoError(t, os.WriteFile(audioPath, sameSizeTamperedAudio, 0o600))
+	response = requestArtifactAudio(http.MethodGet, "")
+	require.Equal(t, http.StatusNotFound, response.Code)
+	require.Contains(t, response.Body.String(), "ARTIFACT_AUDIO_UNAVAILABLE")
+	assertSafeAudioFailure(response)
+	require.NoError(t, os.WriteFile(audioPath, audioBody, 0o600))
+
+	externalPath := filepath.Join(t.TempDir(), "private-external-audio.mp3")
+	require.NoError(t, os.WriteFile(externalPath, audioBody, 0o600))
+	require.NoError(t, os.Remove(audioPath))
+	require.NoError(t, os.Symlink(externalPath, audioPath))
+	response = requestArtifactAudio(http.MethodGet, "")
+	require.Equal(t, http.StatusNotFound, response.Code)
+	assertSafeAudioFailure(response)
+	require.NotContains(t, response.Body.String(), externalPath)
+
+	require.NoError(t, os.Remove(audioPath))
+	require.NoError(t, os.WriteFile(audioPath, audioBody, 0o600))
+	require.NoError(t, db.Model(&models.EpisodeAudioAsset{}).
+		Where("id = ?", queuedAudio.Asset.ID).
+		Update("relative_path", "../private-external-audio.mp3").Error)
+	response = requestArtifactAudio(http.MethodGet, "")
+	require.Equal(t, http.StatusNotFound, response.Code)
+	assertSafeAudioFailure(response)
+	require.NoError(t, db.Model(&models.EpisodeAudioAsset{}).
+		Where("id = ?", queuedAudio.Asset.ID).
+		Update("relative_path", filepath.ToSlash(audioRelativePath)).Error)
+
+	require.NoError(t, os.WriteFile(audioPath, nil, 0o600))
+	require.NoError(t, db.Model(&models.EpisodeAudioAsset{}).
+		Where("id = ?", queuedAudio.Asset.ID).
+		Update("size_bytes", 0).Error)
+	response = requestArtifactAudio(http.MethodGet, "")
+	require.Equal(t, http.StatusNotFound, response.Code)
+	assertSafeAudioFailure(response)
+	require.NoError(t, os.WriteFile(audioPath, audioBody, 0o600))
+	require.NoError(t, db.Model(&models.EpisodeAudioAsset{}).
+		Where("id = ?", queuedAudio.Asset.ID).
+		Update("size_bytes", len(audioBody)).Error)
+
 	require.NoError(t, os.Remove(audioPath))
 	assertAudioAvailability(router, false)
+	response = requestArtifactAudio(http.MethodGet, "")
+	require.Equal(t, http.StatusNotFound, response.Code)
+	assertSafeAudioFailure(response)
 
 	legacyEpisode := models.Episode{
 		PodcastID: episode.PodcastID,
@@ -703,6 +872,7 @@ func setupProcessingHandler(
 	router.POST("/api/v1/processing-runs/:id/cancel", handler.Cancel)
 	router.POST("/api/v1/processing-runs/:id/retry", handler.Retry)
 	router.GET("/api/v1/artifact-sets/:id/:kind", handler.GetArtifactContent)
+	router.HEAD("/api/v1/artifact-sets/:id/audio", handler.GetArtifactAudio)
 	return db, router, episode, canceler
 }
 

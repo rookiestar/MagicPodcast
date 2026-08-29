@@ -1153,12 +1153,17 @@ func (s *DiskAudioStore) findReadyAsset(
 func (s *DiskAudioStore) resolveReadyAsset(
 	asset models.EpisodeAudioAsset,
 ) (ReadyAudio, error) {
+	extension := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(asset.Extension)), ".")
+	mediaType := strings.ToLower(strings.TrimSpace(asset.MediaType))
+	allowedMediaTypes, extensionAllowed := audioContentTypesByExtension[extension]
+	_, mediaTypeAllowed := allowedMediaTypes[mediaType]
 	if asset.Status != models.EpisodeAudioAssetStatusReady ||
 		len(asset.SHA256) != sha256.Size*2 ||
 		asset.SizeBytes <= 0 ||
 		asset.DurationSeconds <= 0 ||
 		asset.DurationSeconds > int(MaxManagedAudioDuration/time.Second) ||
-		strings.TrimSpace(asset.MediaType) == "" {
+		!extensionAllowed ||
+		!mediaTypeAllowed {
 		return ReadyAudio{}, newAudioStoreError(
 			AudioErrorReadyFileInvalid,
 			"managed episode audio metadata is invalid",
@@ -1201,7 +1206,7 @@ func (s *DiskAudioStore) resolveReadyAsset(
 		SHA256:          asset.SHA256,
 		SizeBytes:       asset.SizeBytes,
 		DurationSeconds: asset.DurationSeconds,
-		MediaType:       asset.MediaType,
+		MediaType:       mediaType,
 	}, nil
 }
 
