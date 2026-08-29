@@ -55,9 +55,10 @@ func parseTranscriptSegments(raw string) ([]TranscriptSegment, error) {
 	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
 	segments := make([]TranscriptSegment, 0)
 	var (
-		speaker string
-		startMS int64
-		body    []string
+		speaker           string
+		startMS           int64
+		body              []string
+		previousLineBlank = true
 	)
 	flush := func() error {
 		if speaker == "" {
@@ -82,7 +83,9 @@ func parseTranscriptSegments(raw string) ([]TranscriptSegment, error) {
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		match := transcriptSegmentHeaderPattern.FindStringSubmatch(trimmed)
-		if len(match) == 3 {
+		// Minutes separates speaker blocks with a blank line. Restricting
+		// headers to block boundaries keeps spoken lines ending in times intact.
+		if len(match) == 3 && (speaker == "" || previousLineBlank) {
 			if err := flush(); err != nil {
 				return nil, err
 			}
@@ -96,15 +99,18 @@ func parseTranscriptSegments(raw string) ([]TranscriptSegment, error) {
 			}
 			startMS = parsedStart
 			body = body[:0]
+			previousLineBlank = false
 			continue
 		}
 		if speaker == "" {
 			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				previousLineBlank = trimmed == ""
 				continue
 			}
 			return nil, fmt.Errorf("transcript content precedes the first timestamp")
 		}
 		body = append(body, line)
+		previousLineBlank = trimmed == ""
 	}
 	if err := flush(); err != nil {
 		return nil, err
