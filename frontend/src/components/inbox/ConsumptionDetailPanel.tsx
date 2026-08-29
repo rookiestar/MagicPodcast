@@ -427,7 +427,7 @@ export default function ConsumptionDetailPanel({
 
   useEffect(() => {
     const updateViewport = () => {
-      setIsMobileViewport(window.innerWidth <= 700);
+      setIsMobileViewport(window.innerWidth <= 900);
     };
     updateViewport();
     window.addEventListener("resize", updateViewport, { passive: true });

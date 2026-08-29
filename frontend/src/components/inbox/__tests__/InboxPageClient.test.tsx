@@ -906,63 +906,66 @@ describe("InboxPageClient", () => {
     selectionSpy.mockRestore();
   });
 
-  it("uses a dedicated mobile Copilot screen and returns to the same detail state", async () => {
-    const previousWidth = window.innerWidth;
-    Object.defineProperty(window, "innerWidth", {
-      configurable: true,
-      value: 390,
-    });
-    try {
-      render(<InboxPageClient />);
-      fireEvent.click(
-        await screen.findByRole("button", {
-          name: "打开 可处理单集 明细",
-        }),
-      );
-      const detailDialog = await screen.findByRole("dialog", {
-        name: "可处理单集",
-      });
-      fireEvent.click(
-        within(detailDialog).getByRole("tab", { name: "笔记" }),
-      );
-      const openCopilot = within(detailDialog).getByRole("button", {
-        name: "单集助手",
-      });
-      fireEvent.click(openCopilot);
-
-      const mobileDialog = await screen.findByRole("dialog", {
-        name: "单集助手",
-      });
-      const workspace = within(mobileDialog).getByRole("complementary", {
-        name: "移动端单集助手",
-      });
-      const returnButton = within(workspace).getByRole("button", {
-        name: "返回单集",
-      });
-      await waitFor(() => expect(returnButton).toHaveFocus());
-      expect(
-        within(mobileDialog).queryByRole("tablist", {
-          name: "单集详情内容",
-        }),
-      ).not.toBeInTheDocument();
-
-      fireEvent.click(returnButton);
-
-      const restoredDialog = await screen.findByRole("dialog", {
-        name: "可处理单集",
-      });
-      expect(
-        within(restoredDialog).getByRole("tab", { name: "笔记" }),
-      ).toHaveAttribute("aria-selected", "true");
-      await waitFor(() => expect(openCopilot).toHaveFocus());
-    } finally {
+  it.each([390, 800])(
+    "uses a dedicated narrow-screen Copilot at %ipx and returns to the same detail state",
+    async (viewportWidth) => {
+      const previousWidth = window.innerWidth;
       Object.defineProperty(window, "innerWidth", {
         configurable: true,
-        value: previousWidth,
+        value: viewportWidth,
       });
-      fireEvent(window, new Event("resize"));
-    }
-  });
+      try {
+        render(<InboxPageClient />);
+        fireEvent.click(
+          await screen.findByRole("button", {
+            name: "打开 可处理单集 明细",
+          }),
+        );
+        const detailDialog = await screen.findByRole("dialog", {
+          name: "可处理单集",
+        });
+        fireEvent.click(
+          within(detailDialog).getByRole("tab", { name: "笔记" }),
+        );
+        const openCopilot = within(detailDialog).getByRole("button", {
+          name: "单集助手",
+        });
+        fireEvent.click(openCopilot);
+
+        const mobileDialog = await screen.findByRole("dialog", {
+          name: "单集助手",
+        });
+        const workspace = within(mobileDialog).getByRole("complementary", {
+          name: "移动端单集助手",
+        });
+        const returnButton = within(workspace).getByRole("button", {
+          name: "返回单集",
+        });
+        await waitFor(() => expect(returnButton).toHaveFocus());
+        expect(
+          within(mobileDialog).queryByRole("tablist", {
+            name: "单集详情内容",
+          }),
+        ).not.toBeInTheDocument();
+
+        fireEvent.click(returnButton);
+
+        const restoredDialog = await screen.findByRole("dialog", {
+          name: "可处理单集",
+        });
+        expect(
+          within(restoredDialog).getByRole("tab", { name: "笔记" }),
+        ).toHaveAttribute("aria-selected", "true");
+        await waitFor(() => expect(openCopilot).toHaveFocus());
+      } finally {
+        Object.defineProperty(window, "innerWidth", {
+          configurable: true,
+          value: previousWidth,
+        });
+        fireEvent(window, new Event("resize"));
+      }
+    },
+  );
 
   it("keeps the Copilot question, quote, and partial answer through failure, close, and retry", async () => {
     apiMocks.askCopilot
