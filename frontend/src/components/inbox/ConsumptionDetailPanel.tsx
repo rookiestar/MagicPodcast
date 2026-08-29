@@ -663,20 +663,15 @@ export default function ConsumptionDetailPanel({
               {processingHeader.primaryLabel}
             </button>
             {originalPlan ? (
-              <a
+              <button
+                type="button"
                 className={styles.originalLink}
-                href={originalPlan.openUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-disabled={externalState === "saving"}
-                onClick={(event) => {
-                  event.preventDefault();
-                  if (externalState !== "saving") void openOriginal();
-                }}
+                disabled={externalState === "saving"}
+                onClick={() => void openOriginal()}
               >
                 原节目
                 <IconExternalLink size={16} stroke={1.8} aria-hidden="true" />
-              </a>
+              </button>
             ) : (
               <span className={styles.unsafeOriginal}>
                 原节目链接不可安全打开

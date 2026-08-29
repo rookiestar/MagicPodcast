@@ -265,7 +265,10 @@ describe("ConsumptionDetailPanel", () => {
     expect(
       await screen.findByRole("status", { name: "转写状态：准备音频" }),
     ).toBeVisible();
-    expect(screen.getByRole("link", { name: "原节目" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "原节目" })).toBeVisible();
+    expect(
+      screen.queryByRole("link", { name: "原节目" }),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps identity, tabs, and Show Notes visible while regional requests are slow", () => {
@@ -313,7 +316,7 @@ describe("ConsumptionDetailPanel", () => {
     const onMove = vi.fn();
     renderDetail({ onMove });
 
-    fireEvent.click(screen.getByRole("link", { name: "原节目" }));
+    fireEvent.click(screen.getByRole("button", { name: "原节目" }));
 
     expect(window.open).toHaveBeenCalledWith(
       "https://example.com/episode/201",
@@ -338,7 +341,7 @@ describe("ConsumptionDetailPanel", () => {
     const onMove = vi.fn();
     renderDetail({ item: xyzItem, onMove });
 
-    fireEvent.click(screen.getByRole("link", { name: "原节目" }));
+    fireEvent.click(screen.getByRole("button", { name: "原节目" }));
 
     expect(window.open).toHaveBeenCalledWith(
       xyzItem.original_url,
@@ -386,7 +389,7 @@ describe("ConsumptionDetailPanel", () => {
     });
     renderDetail({ item: xyzItem });
 
-    fireEvent.click(screen.getByRole("link", { name: "原节目" }));
+    fireEvent.click(screen.getByRole("button", { name: "原节目" }));
     fireEvent.click(screen.getByRole("button", { name: "复制页面链接" }));
 
     expect(
@@ -402,7 +405,7 @@ describe("ConsumptionDetailPanel", () => {
     });
     renderDetail({ item: xyzItem });
 
-    fireEvent.click(screen.getByRole("link", { name: "原节目" }));
+    fireEvent.click(screen.getByRole("button", { name: "原节目" }));
     expect(
       await screen.findByText(
         "原节目已打开，但进行中记录未保存。队列没有改变。",
@@ -421,7 +424,7 @@ describe("ConsumptionDetailPanel", () => {
   it("does not show original-page recovery for ordinary hosts", async () => {
     renderDetail();
 
-    fireEvent.click(screen.getByRole("link", { name: "原节目" }));
+    fireEvent.click(screen.getByRole("button", { name: "原节目" }));
 
     expect(
       screen.queryByRole("region", { name: "原节目页恢复" }),
