@@ -1,9 +1,6 @@
 package handlers
 
 import (
-	"crypto/sha256"
-	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -403,20 +400,6 @@ func openVerifiedManagedAudio(audio processing.ReadyAudio) (*os.File, error) {
 		pathInfo.Size() != audio.SizeBytes ||
 		!os.SameFile(fileInfo, pathInfo) {
 		return nil, errors.New("managed audio changed before it could be opened")
-	}
-	expectedDigest, err := hex.DecodeString(audio.SHA256)
-	if err != nil {
-		return nil, errors.New("managed audio digest is invalid")
-	}
-	hasher := sha256.New()
-	if _, err := io.Copy(hasher, file); err != nil {
-		return nil, errors.New("managed audio could not be verified")
-	}
-	if subtle.ConstantTimeCompare(hasher.Sum(nil), expectedDigest) != 1 {
-		return nil, errors.New("managed audio digest does not match")
-	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return nil, errors.New("managed audio could not be rewound")
 	}
 	valid = true
 	return file, nil

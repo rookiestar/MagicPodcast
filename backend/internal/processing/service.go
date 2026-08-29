@@ -759,12 +759,23 @@ func (s *Service) GetArtifactAudio(
 	if s.audioPreparer == nil {
 		return ReadyAudio{}, ErrArtifactAudioUnavailable
 	}
-	audio, err := s.audioPreparer.ResolveReadyAudio(ctx, artifact.EpisodeID)
+	audio, err := s.audioPreparer.ResolveReadyAudioByDigest(
+		ctx,
+		artifact.EpisodeID,
+		artifact.AudioSHA256,
+	)
 	if err != nil {
+		currentAudio, currentErr := s.audioPreparer.ResolveReadyAudio(
+			ctx,
+			artifact.EpisodeID,
+		)
+		if currentErr == nil && currentAudio.SHA256 != artifact.AudioSHA256 {
+			return ReadyAudio{}, ErrArtifactAudioMismatch
+		}
 		return ReadyAudio{}, fmt.Errorf("%w: managed audio could not be resolved", ErrArtifactAudioUnavailable)
 	}
-	if audio.SHA256 != artifact.AudioSHA256 {
-		return ReadyAudio{}, ErrArtifactAudioMismatch
+	if !isBrowserPlayableMediaType(audio.MediaType) {
+		return ReadyAudio{}, ErrArtifactAudioUnavailable
 	}
 	return audio, nil
 }
@@ -797,8 +808,33 @@ func (s *Service) hasMatchingManagedAudio(
 		!sha256Pattern.MatchString(artifact.AudioSHA256) {
 		return false
 	}
-	audio, err := s.audioPreparer.ResolveReadyAudio(ctx, artifact.EpisodeID)
-	return err == nil && audio.SHA256 == artifact.AudioSHA256
+	audio, err := s.audioPreparer.ResolveReadyAudioByDigest(
+		ctx,
+		artifact.EpisodeID,
+		artifact.AudioSHA256,
+	)
+	return err == nil && isBrowserPlayableMediaType(audio.MediaType)
+}
+
+func isBrowserPlayableMediaType(mediaType string) bool {
+	switch strings.ToLower(strings.TrimSpace(mediaType)) {
+	case "audio/aac",
+		"audio/mp3",
+		"audio/mp4",
+		"audio/mpeg",
+		"audio/ogg",
+		"audio/vnd.wave",
+		"audio/wav",
+		"audio/wave",
+		"audio/x-aac",
+		"audio/x-m4a",
+		"audio/x-mp3",
+		"audio/x-wav",
+		"application/ogg":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) ListEpisodeProcessingRuns(

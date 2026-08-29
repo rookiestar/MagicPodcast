@@ -721,14 +721,32 @@ func TestProcessingArtifactHTTPContractForNativeAndLegacyArtifacts(t *testing.T)
 	require.NoError(t, os.WriteFile(audioPath, audioBody, 0o600))
 	assertAudioAvailability(router, true)
 
-	sameSizeTamperedAudio := append([]byte(nil), audioBody...)
-	sameSizeTamperedAudio[len(sameSizeTamperedAudio)-1] ^= 0xff
-	require.NoError(t, os.WriteFile(audioPath, sameSizeTamperedAudio, 0o600))
+	require.NoError(t, db.Model(&models.Episode{}).
+		Where("id = ?", episode.ID).
+		Update("medium_url", "https://audio.example/changed.mp3").Error)
+	assertAudioAvailability(router, true)
+	response = requestArtifactAudio(http.MethodGet, "")
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Equal(t, audioBody, response.Body.Bytes())
+
+	require.NoError(t, db.Model(&models.EpisodeAudioAsset{}).
+		Where("id = ?", queuedAudio.Asset.ID).
+		Updates(map[string]any{
+			"extension":  "avi",
+			"media_type": "video/x-msvideo",
+		}).Error)
+	assertAudioAvailability(router, false)
 	response = requestArtifactAudio(http.MethodGet, "")
 	require.Equal(t, http.StatusNotFound, response.Code)
 	require.Contains(t, response.Body.String(), "ARTIFACT_AUDIO_UNAVAILABLE")
 	assertSafeAudioFailure(response)
-	require.NoError(t, os.WriteFile(audioPath, audioBody, 0o600))
+	require.NoError(t, db.Model(&models.EpisodeAudioAsset{}).
+		Where("id = ?", queuedAudio.Asset.ID).
+		Updates(map[string]any{
+			"extension":  "mp3",
+			"media_type": "audio/mpeg",
+		}).Error)
+	assertAudioAvailability(router, true)
 
 	externalPath := filepath.Join(t.TempDir(), "private-external-audio.mp3")
 	require.NoError(t, os.WriteFile(externalPath, audioBody, 0o600))

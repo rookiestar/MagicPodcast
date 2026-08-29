@@ -87,6 +87,7 @@ type AudioPreparer interface {
 	Prepare(context.Context, AudioClaim) (ReadyAudio, error)
 	GetReady(context.Context, uint) (models.EpisodeAudioAsset, error)
 	ResolveReadyAudio(context.Context, uint) (ReadyAudio, error)
+	ResolveReadyAudioByDigest(context.Context, uint, string) (ReadyAudio, error)
 }
 
 // AudioStoreError carries a stable code and a source-safe message. The
@@ -780,6 +781,54 @@ func (s *DiskAudioStore) ResolveReadyAudio(
 	asset, err := s.GetReady(ctx, episodeID)
 	if err != nil {
 		return ReadyAudio{}, err
+	}
+	return s.resolveReadyAsset(asset)
+}
+
+func (s *DiskAudioStore) ResolveReadyAudioByDigest(
+	ctx context.Context,
+	episodeID uint,
+	audioDigest string,
+) (ReadyAudio, error) {
+	if episodeID == 0 ||
+		len(audioDigest) != sha256.Size*2 ||
+		strings.ToLower(audioDigest) != audioDigest {
+		return ReadyAudio{}, newAudioStoreError(
+			AudioErrorReadyFileInvalid,
+			"managed episode audio identity is invalid",
+			false,
+		)
+	}
+	if _, err := hex.DecodeString(audioDigest); err != nil {
+		return ReadyAudio{}, newAudioStoreError(
+			AudioErrorReadyFileInvalid,
+			"managed episode audio identity is invalid",
+			false,
+		)
+	}
+	var asset models.EpisodeAudioAsset
+	err := s.db.WithContext(ctx).
+		Where(
+			"episode_id = ? AND sha256 = ? AND status = ?",
+			episodeID,
+			audioDigest,
+			models.EpisodeAudioAssetStatusReady,
+		).
+		Order("id DESC").
+		First(&asset).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return ReadyAudio{}, newAudioStoreError(
+			AudioErrorNotReady,
+			"matching managed episode audio is not ready",
+			true,
+		)
+	}
+	if err != nil {
+		return ReadyAudio{}, newAudioStoreError(
+			AudioErrorStorageFailed,
+			"managed episode audio state is unavailable",
+			true,
+		)
 	}
 	return s.resolveReadyAsset(asset)
 }
