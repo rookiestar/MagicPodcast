@@ -1804,6 +1804,7 @@ describe("InboxPageClient", () => {
 
     render(<InboxPageClient />);
     await screen.findByRole("button", { name: "拖动《可处理单集》调整队列" });
+    await waitFor(() => expect(dndMocks.onDragEnd).toBeDefined());
     act(() =>
       dndMocks.onDragStart?.(
         dragEvent({ source: "inbox", activeEpisodeId: 101, target: "inbox" }),
@@ -1869,6 +1870,7 @@ describe("InboxPageClient", () => {
     await screen.findByRole("button", {
       name: "拖动《最近完成项》重新处理",
     });
+    await waitFor(() => expect(dndMocks.onDragEnd).toBeDefined());
     act(() =>
       dndMocks.onDragStart?.(
         dragEvent({
@@ -1969,6 +1971,7 @@ describe("InboxPageClient", () => {
     );
     fireEvent.click(screen.getByRole("menuitem", { name: "移至 Inbox" }));
     await waitFor(() => expect(doneLoadCount).toBe(2));
+    await waitFor(() => expect(dndMocks.onDragEnd).toBeDefined());
 
     act(() =>
       dndMocks.onDragStart?.(
@@ -2015,6 +2018,7 @@ describe("InboxPageClient", () => {
 
     render(<InboxPageClient />);
     await screen.findByRole("button", { name: "拖动《可处理单集》调整队列" });
+    await waitFor(() => expect(dndMocks.onDragEnd).toBeDefined());
     const initialQueueLoads = apiMocks.listQueue.mock.calls.length;
     act(() =>
       dndMocks.onDragStart?.(
@@ -2081,6 +2085,7 @@ describe("InboxPageClient", () => {
     render(<InboxPageClient />);
     await screen.findByRole("button", { name: "拖动《可处理单集》调整队列" });
     await within(queueSection("focus")).findByText("Focus 7");
+    await waitFor(() => expect(dndMocks.onDragEnd).toBeDefined());
     act(() =>
       dndMocks.onDragStart?.(
         dragEvent({ source: "inbox", activeEpisodeId: 101, target: "inbox" }),
@@ -2148,6 +2153,7 @@ describe("InboxPageClient", () => {
 
     render(<InboxPageClient />);
     await screen.findByRole("button", { name: "拖动《可处理单集》调整队列" });
+    await waitFor(() => expect(dndMocks.onDragEnd).toBeDefined());
     act(() =>
       dndMocks.onDragStart?.(
         dragEvent({ source: "inbox", activeEpisodeId: 101, target: "inbox" }),
