@@ -453,6 +453,56 @@ func TestSchedulerDoesNotRecreateUnknownResultAcrossPipelineVersions(t *testing.
 	require.Equal(t, int64(1), runCount)
 }
 
+func TestSchedulerAllowsV2AfterLegacyRuntimeResultUnknown(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 29, 18, 20, 0, 0, time.UTC)
+	resolver := newEpisodeInputResolver()
+	service := NewService(
+		db,
+		WithProcessingInputResolver(resolver),
+		WithClock(func() time.Time { return now }),
+	)
+	scheduler := newTestScheduler(t, db, service, now, 1)
+	episode := createProcessingEpisode(t, db, true, "schedule-runtime-unknown-upgrade")
+	resolver.SetReadyWithPipeline(episode.ID, "focus-processing-v1")
+	setFocusPositions(t, db, episode.ID)
+
+	first, reused, err := scheduler.RunAt(context.Background(), now)
+	require.NoError(t, err)
+	require.False(t, reused)
+	require.Len(t, first.Items, 1)
+	require.NotNil(t, first.Items[0].ProcessingRunID)
+	legacyRunID := *first.Items[0].ProcessingRunID
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+		Where("id = ?", legacyRunID).
+		Updates(map[string]any{
+			"status":          models.ProcessingRunStatusFailed,
+			"finished_at":     now,
+			"error_code":      "runtime_result_unknown",
+			"error_message":   "local Codex result is unknown",
+			"error_retryable": false,
+			"updated_at":      now,
+		}).Error)
+	resolver.SetReadyWithPipeline(episode.ID, NativeMinutesPipelineVersion)
+
+	second, reused, err := scheduler.RunAt(context.Background(), now.Add(time.Minute))
+	require.NoError(t, err)
+	require.False(t, reused)
+	require.Equal(t, models.ProcessingScheduleRunStatusCompleted, second.Run.Status)
+	require.Equal(t, 1, second.Run.StartedCount)
+	require.Equal(t, 0, second.Run.SkippedCount)
+	require.Len(t, second.Items, 1)
+	require.Equal(t, models.ProcessingScheduleItemOutcomeStarted, second.Items[0].Outcome)
+	require.NotNil(t, second.Items[0].ProcessingRunID)
+	require.NotEqual(t, legacyRunID, *second.Items[0].ProcessingRunID)
+
+	var runCount int64
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+		Where("episode_id = ?", episode.ID).
+		Count(&runCount).Error)
+	require.Equal(t, int64(2), runCount)
+}
+
 func TestSchedulerReprocessesAfterQueuedRunWasSkippedOutsideFocus(t *testing.T) {
 	db := openProcessingTestDB(t)
 	now := time.Date(2026, 8, 25, 4, 35, 0, 0, time.UTC)

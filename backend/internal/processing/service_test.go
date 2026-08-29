@@ -508,6 +508,16 @@ func TestServiceRetryNativeMinutesCheckpointPolicy(t *testing.T) {
 			restartTranscription: true,
 		},
 		{
+			name:                 "artifact exceeds public read limit",
+			errorCode:            artifactPublicReadLimitExceededCode,
+			restartTranscription: true,
+		},
+		{
+			name:                 "artifact text invalid",
+			errorCode:            artifactTextInvalidCode,
+			restartTranscription: true,
+		},
+		{
 			name:           "other retryable failure",
 			errorCode:      "runtime_unavailable",
 			errorRetryable: true,

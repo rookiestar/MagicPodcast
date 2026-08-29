@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,7 +17,11 @@ import (
 	"magicpodcast/internal/models"
 )
 
-const maxArtifactTextBytes = 32 << 20
+const (
+	maxArtifactTextBytes                = 32 << 20
+	artifactPublicReadLimitExceededCode = "artifact_public_read_limit_exceeded"
+	artifactTextInvalidCode             = "artifact_text_invalid"
+)
 
 type DiskArtifactStore struct {
 	root string
@@ -508,17 +513,31 @@ func writeReadableArtifactFile(
 	content []byte,
 ) (string, error) {
 	if int64(len(content)) > maxArtifactTextBytes {
-		return "", fmt.Errorf(
-			"%w: artifact %s exceeds the public read limit",
-			ErrInvalidArtifact,
-			relativePath,
+		return "", errors.Join(
+			fmt.Errorf(
+				"%w: artifact %s exceeds the public read limit",
+				ErrInvalidArtifact,
+				relativePath,
+			),
+			NewAdapterError(
+				artifactPublicReadLimitExceededCode,
+				"generated processing artifact exceeds the public read limit",
+				false,
+			),
 		)
 	}
 	if !utf8.Valid(content) {
-		return "", fmt.Errorf(
-			"%w: artifact %s is not valid UTF-8",
-			ErrInvalidArtifact,
-			relativePath,
+		return "", errors.Join(
+			fmt.Errorf(
+				"%w: artifact %s is not valid UTF-8",
+				ErrInvalidArtifact,
+				relativePath,
+			),
+			NewAdapterError(
+				artifactTextInvalidCode,
+				"generated processing artifact is not valid text",
+				false,
+			),
 		)
 	}
 	return writeArtifactFile(root, relativePath, content)

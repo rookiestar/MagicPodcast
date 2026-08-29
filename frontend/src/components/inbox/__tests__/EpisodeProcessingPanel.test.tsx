@@ -889,6 +889,42 @@ describe("EpisodeProcessingPanel", () => {
     expect(apiMocks.start).not.toHaveBeenCalled();
   });
 
+  it("allows v2 restart after a legacy local Runtime result is unknown", async () => {
+    const runtimeUnknownRun: ProcessingRun = {
+      ...failedRun,
+      error_code: "RUNTIME_RESULT_UNKNOWN",
+      error_message: "本地 Codex Runtime 结果未知",
+      error_retryable: false,
+    };
+    const pendingRun: ProcessingRun = {
+      ...runtimeUnknownRun,
+      id: 64,
+      pipeline_version: "focus-processing-v2",
+      status: "queued",
+      current_step: "transcription",
+      error_code: undefined,
+      error_message: undefined,
+    };
+    apiMocks.listEpisodeRuns.mockResolvedValue([runtimeUnknownRun]);
+    apiMocks.getRun.mockResolvedValue(detail(runtimeUnknownRun));
+    apiMocks.start.mockResolvedValue({
+      run: pendingRun,
+      reused_active: false,
+      reused_successful: false,
+      preparing_audio: false,
+    });
+
+    render(<EpisodeProcessingPanel item={item} />);
+
+    expect(await screen.findByText("加工失败")).toBeVisible();
+    const restart = screen.getByRole("button", { name: "重新转写" });
+    fireEvent.click(restart);
+    await waitFor(() =>
+      expect(apiMocks.start).toHaveBeenCalledWith(item.episode_id),
+    );
+    expect(apiMocks.retry).not.toHaveBeenCalled();
+  });
+
   it("shows pending manual knowledge delivery separately from local completion", async () => {
     const completedRun: ProcessingRun = {
       ...failedRun,

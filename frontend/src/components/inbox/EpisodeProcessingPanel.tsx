@@ -31,6 +31,13 @@ import styles from "./InboxPage.module.css";
 type ArtifactTab = "summary" | "transcript";
 
 const legacyProcessingPipelineVersion = "focus-processing-v1";
+const unresolvedExternalResultCodes = new Set([
+  "lark_result_unknown",
+  "lark_drive_result_unknown",
+  "lark_minutes_result_unknown",
+  "external_result_unknown",
+  "cancelled_external_result_unknown",
+]);
 
 const statusLabels: Record<ProcessingRun["status"], string> = {
   queued: "等待加工",
@@ -378,7 +385,8 @@ const EpisodeProcessingPanel = forwardRef<
     latestScheduleItem?.reason === "selection_pending";
   const canStart = item.queue_state === "focus" && !run;
   const externalResultUnknown =
-    run?.error_code?.toLowerCase().includes("result_unknown") === true;
+    typeof run?.error_code === "string" &&
+    unresolvedExternalResultCodes.has(run.error_code.trim().toLowerCase());
   const canReprocessLegacy =
     item.queue_state === "focus" &&
     run?.pipeline_version === legacyProcessingPipelineVersion &&

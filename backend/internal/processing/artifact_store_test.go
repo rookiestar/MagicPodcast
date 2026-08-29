@@ -140,6 +140,10 @@ func TestDiskArtifactStoreRejectsOversizedGeneratedTimelineBeforePublish(t *test
 	_, err = store.Publish(context.Background(), request)
 	require.ErrorIs(t, err, ErrInvalidArtifact)
 	require.ErrorContains(t, err, "transcript.json exceeds the public read limit")
+	var adapterErr *AdapterError
+	require.ErrorAs(t, err, &adapterErr)
+	require.Equal(t, artifactPublicReadLimitExceededCode, adapterErr.ErrorCode)
+	require.False(t, adapterErr.CanRetry)
 
 	finalPath := filepath.Join(root, "episodes", "7", "sets", "run-14")
 	_, statErr := os.Stat(finalPath)

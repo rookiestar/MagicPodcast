@@ -454,19 +454,20 @@ func (s *Service) startResolvedEpisodeProcessing(
 			// the episode left Focus: it has made no external request, so a later
 			// return to Focus is eligible for a fresh scheduled run.
 			if request.TriggerSource == models.ProcessingTriggerScheduled {
-				// Unknown results remain unsafe across pipeline upgrades: a new
-				// processing key must not let cron repeat an unresolved external
-				// write from an older pipeline.
+				// External write results remain unsafe across pipeline upgrades:
+				// a new processing key must not let cron repeat an unresolved
+				// Drive upload or Minute creation from an older pipeline. Local
+				// Runtime uncertainty does not block v2, which never invokes it.
 				var unresolved models.EpisodeProcessingRun
 				unresolvedErr := tx.
 					Where(
-						"episode_id = ? AND status IN ? AND error_code LIKE ?",
+						"episode_id = ? AND status IN ? AND error_code IN ?",
 						request.EpisodeID,
 						[]string{
 							models.ProcessingRunStatusFailed,
 							models.ProcessingRunStatusCancelled,
 						},
-						"%result_unknown%",
+						unresolvedExternalResultCodes(),
 					).
 					Order("finished_at DESC, id DESC").
 					First(&unresolved).Error
@@ -667,6 +668,10 @@ func processingActionSuggestion(run models.EpisodeProcessingRun) string {
 		return "请等待飞书转写完成或检查妙记产物后重试。"
 	case externalWaitTimeoutCode:
 		return "请检查飞书妙记是否已生成完整纪要与逐字稿，确认后重试转写。"
+	case artifactPublicReadLimitExceededCode:
+		return "生成产物超过公开读取上限；请缩短音频或确认妙记内容后重新转写。"
+	case artifactTextInvalidCode:
+		return "生成产物不是有效文本；请确认妙记内容后重新转写。"
 	}
 	if strings.HasPrefix(run.ErrorCode, "audio_") {
 		if run.ErrorRetryable {
@@ -971,10 +976,22 @@ func shouldRestartTranscriptionOnRetry(run models.EpisodeProcessingRun) bool {
 	switch run.ErrorCode {
 	case "transcript_timeline_invalid",
 		"stored_transcript_unavailable",
-		"stored_summary_unavailable":
+		"stored_summary_unavailable",
+		artifactPublicReadLimitExceededCode,
+		artifactTextInvalidCode:
 		return true
 	default:
 		return false
+	}
+}
+
+func unresolvedExternalResultCodes() []string {
+	return []string{
+		"lark_result_unknown",
+		"lark_drive_result_unknown",
+		"lark_minutes_result_unknown",
+		"external_result_unknown",
+		cancellationExternalResultUnknown,
 	}
 }
 
