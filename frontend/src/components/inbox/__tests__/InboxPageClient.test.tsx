@@ -1065,6 +1065,144 @@ describe("InboxPageClient", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("starts v2 from the top-level action when the latest legacy run failed", async () => {
+    const focusItem: ConsumptionItem = {
+      ...inboxItem,
+      queue_state: "focus",
+    };
+    const legacyRun: ProcessingRun = {
+      id: 93,
+      episode_id: focusItem.episode_id,
+      pipeline_version: "focus-processing-v1",
+      trigger_source: "manual",
+      status: "failed",
+      current_step: "episode_notes",
+      attempt_count: 1,
+      max_attempts: 3,
+      error_code: "RUNTIME_UNAVAILABLE",
+      error_message: "旧版加工失败",
+      error_retryable: true,
+      created_at: "2026-08-29T08:00:00Z",
+      updated_at: "2026-08-29T08:05:00Z",
+    };
+    const legacyArtifact: EpisodeArtifactSet = {
+      id: 94,
+      run_id: 92,
+      episode_id: focusItem.episode_id,
+      pipeline_version: legacyRun.pipeline_version,
+      manifest_path: "manifest.json",
+      manifest_sha256: "c".repeat(64),
+      transcript_sha256: "d".repeat(64),
+      notes_sha256: "e".repeat(64),
+      capabilities: {
+        minutes_summary: false,
+        transcript: true,
+        structured_timeline: false,
+        matching_audio: false,
+        legacy_episode_notes: true,
+      },
+      is_current: true,
+      created_at: "2026-08-28T08:05:00Z",
+    };
+    const pendingRun: ProcessingRun = {
+      ...legacyRun,
+      id: 95,
+      pipeline_version: "focus-processing-v2",
+      status: "queued",
+      current_step: "transcription",
+      error_code: undefined,
+      error_message: undefined,
+      error_retryable: false,
+      created_at: "2026-08-29T10:00:00Z",
+      updated_at: "2026-08-29T10:00:00Z",
+    };
+    const startResult = {
+      run: pendingRun,
+      reused_active: false,
+      reused_successful: false,
+      preparing_audio: false,
+    };
+    let resolveStart: (result: typeof startResult) => void = () => undefined;
+    apiMocks.listQueue.mockImplementation(
+      async (queue: ConsumptionQueue): Promise<ConsumptionQueuePayload> => ({
+        queue_state: queue,
+        revision: 1,
+        items: queue === "focus" ? [focusItem] : [],
+        has_more: false,
+      }),
+    );
+    apiMocks.getItem.mockResolvedValue(focusItem);
+    apiMocks.listEpisodeRuns.mockResolvedValue([legacyRun]);
+    apiMocks.getProcessingRun
+      .mockResolvedValueOnce({
+        run: legacyRun,
+        current_artifact: legacyArtifact,
+        deliveries: [],
+      } satisfies ProcessingRunDetail)
+      .mockResolvedValue({
+        run: pendingRun,
+        current_artifact: legacyArtifact,
+        deliveries: [],
+      } satisfies ProcessingRunDetail);
+    apiMocks.startProcessing.mockReturnValue(
+      new Promise<typeof startResult>((resolve) => {
+        resolveStart = resolve;
+      }),
+    );
+    apiMocks.getArtifactContent.mockResolvedValue({
+      kind: "episode_notes",
+      content: "# 失败前的旧版纪要",
+      sha256: legacyArtifact.notes_sha256,
+      media_available: false,
+    });
+
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "打开 可处理单集 明细",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "可处理单集",
+    });
+    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+
+    expect(
+      await within(dialog).findByRole("heading", {
+        name: "失败前的旧版纪要",
+      }),
+    ).toBeVisible();
+    const actions = within(dialog).getAllByRole("button", {
+      name: "重新转写",
+    });
+    expect(actions).toHaveLength(2);
+    expect(
+      within(dialog).queryByRole("button", { name: "重试转写" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(actions[0]);
+
+    await waitFor(() =>
+      expect(apiMocks.startProcessing).toHaveBeenCalledWith(
+        focusItem.episode_id,
+      ),
+    );
+    expect(actions[0]).toBeDisabled();
+    expect(actions[1]).toBeDisabled();
+    expect(within(dialog).getByText("正在提交…")).toBeVisible();
+    expect(
+      within(dialog).getByRole("heading", {
+        name: "失败前的旧版纪要",
+      }),
+    ).toBeVisible();
+    expect(apiMocks.retryProcessing).not.toHaveBeenCalled();
+    await act(async () => {
+      resolveStart(startResult);
+    });
+    await waitFor(() =>
+      expect(apiMocks.getProcessingRun).toHaveBeenCalledWith(pendingRun.id),
+    );
+  });
+
   it("keeps a legacy previous success readable when the new run fails", async () => {
     const failedRun: ProcessingRun = {
       id: 91,

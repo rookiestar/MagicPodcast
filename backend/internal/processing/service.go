@@ -1015,6 +1015,9 @@ func (s *Service) RetryProcessingRun(
 			source.Status != models.ProcessingRunStatusCancelled {
 			return ErrRetryUnsafe
 		}
+		restartTranscription :=
+			source.PipelineVersion == NativeMinutesPipelineVersion &&
+				source.ErrorCode == "transcript_timeline_invalid"
 		var active models.EpisodeProcessingRun
 		activeErr := tx.
 			Where("episode_id = ? AND status IN ?", source.EpisodeID, models.ProcessingRunActiveStatuses).
@@ -1034,11 +1037,12 @@ func (s *Service) RetryProcessingRun(
 			First(&checkpoint).Error
 		switch {
 		case checkpointErr == nil:
-			if !checkpointIsValid(checkpoint) {
+			if !restartTranscription && !checkpointIsValid(checkpoint) {
 				return ErrRetryUnsafe
 			}
 		case errors.Is(checkpointErr, gorm.ErrRecordNotFound):
-			if !source.ErrorRetryable &&
+			if !restartTranscription &&
+				!source.ErrorRetryable &&
 				source.Status != models.ProcessingRunStatusCancelled {
 				return ErrRetryUnsafe
 			}
@@ -1062,7 +1066,7 @@ func (s *Service) RetryProcessingRun(
 		if err := tx.Create(&retry).Error; err != nil {
 			return fmt.Errorf("create processing retry: %w", err)
 		}
-		if checkpointErr == nil {
+		if checkpointErr == nil && !restartTranscription {
 			checkpoint.ID = 0
 			checkpoint.RunID = retry.ID
 			checkpoint.Run = models.EpisodeProcessingRun{}

@@ -30,6 +30,8 @@ import styles from "./InboxPage.module.css";
 
 type ArtifactTab = "summary" | "transcript";
 
+const legacyProcessingPipelineVersion = "focus-processing-v1";
+
 const statusLabels: Record<ProcessingRun["status"], string> = {
   queued: "等待加工",
   running: "加工中",
@@ -94,7 +96,7 @@ export interface EpisodeProcessingHeaderState {
   detail: string;
   primaryLabel: string;
   primaryDisabled: boolean;
-  action: "start" | "view" | "retry" | "details" | null;
+  action: "start" | "reprocess" | "view" | "retry" | "details" | null;
 }
 
 export interface EpisodeProcessingPanelHandle {
@@ -377,7 +379,10 @@ const EpisodeProcessingPanel = forwardRef<
   const canStart = item.queue_state === "focus" && !run;
   const canReprocessLegacy =
     item.queue_state === "focus" &&
-    run?.status === "completed" &&
+    run?.pipeline_version === legacyProcessingPipelineVersion &&
+    (run.status === "completed" ||
+      run.status === "failed" ||
+      run.status === "cancelled") &&
     currentArtifact?.capabilities.legacy_episode_notes === true;
   const audioPreparing =
     run?.current_step === "audio_prepare" ||
@@ -386,6 +391,7 @@ const EpisodeProcessingPanel = forwardRef<
   const canRetry =
     item.queue_state === "focus" &&
     (run?.status === "failed" || run?.status === "cancelled") &&
+    !canReprocessLegacy &&
     !run.error_code?.toLowerCase().includes("result_unknown");
   const scheduleSummary = !scheduleStatus
     ? isScheduleLoading
@@ -482,9 +488,17 @@ const EpisodeProcessingPanel = forwardRef<
           detail?.action_suggestion ||
           run.error_message ||
           "可查看原因后安全重试",
-        primaryLabel: canRetry ? "重试转写" : "查看详情",
-        primaryDisabled: false,
-        action: canRetry ? "retry" : "details",
+        primaryLabel: canReprocessLegacy
+          ? "重新转写"
+          : canRetry
+            ? "重试转写"
+            : "查看详情",
+        primaryDisabled: isMutating,
+        action: canReprocessLegacy
+          ? "reprocess"
+          : canRetry
+            ? "retry"
+            : "details",
       };
     }
     if (currentArtifact) {
@@ -512,6 +526,7 @@ const EpisodeProcessingPanel = forwardRef<
   }, [
     audioAsset,
     audioPreparing,
+    canReprocessLegacy,
     canRetry,
     canStart,
     currentArtifact,
@@ -531,7 +546,10 @@ const EpisodeProcessingPanel = forwardRef<
     () => ({
       activatePrimary: () => {
         if (headerState.primaryDisabled) return;
-        if (headerState.action === "start") {
+        if (
+          headerState.action === "start" ||
+          headerState.action === "reprocess"
+        ) {
           void startProcessing();
           return;
         }

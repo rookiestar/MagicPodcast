@@ -485,6 +485,63 @@ func TestServiceRetryCopiesSafeCheckpointAndBlocksUnknownResult(t *testing.T) {
 	require.ErrorIs(t, err, ErrRetryUnsafe)
 }
 
+func TestServiceRetryRestartsNativeMinutesAfterInvalidTimeline(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 29, 13, 0, 0, 0, time.UTC)
+	service, resolver := newProcessingServiceWithResolver(
+		db,
+		WithClock(func() time.Time { return now }),
+	)
+	resolver.Set(ProcessingInput{
+		AudioDigest:     strings.Repeat("a", 64),
+		PipelineVersion: NativeMinutesPipelineVersion,
+	})
+	episode := createProcessingEpisode(t, db, true, "invalid-timeline-retry")
+	source := startProcessingRun(t, service, episode.ID)
+	state := `{"version":1,"phase":"transcript_stored"}`
+	sum := sha256.Sum256([]byte(state))
+	require.NoError(t, db.Create(&models.ProcessingCheckpoint{
+		RunID:          source.ID,
+		Step:           StepTranscription,
+		Adapter:        "feishu-minutes",
+		AdapterVersion: "feishu-minutes-v1",
+		Status:         ExternalProgressCompleted,
+		StateJSON:      state,
+		StateHash:      hex.EncodeToString(sum[:]),
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error)
+	require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+		Where("id = ?", source.ID).
+		Updates(map[string]any{
+			"status":          models.ProcessingRunStatusFailed,
+			"error_code":      "transcript_timeline_invalid",
+			"error_message":   "Feishu transcript timestamps could not be parsed",
+			"error_retryable": false,
+			"finished_at":     now,
+			"updated_at":      now,
+		}).Error)
+
+	retry, err := service.RetryProcessingRun(context.Background(), source.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusQueued, retry.Run.Status)
+	require.Equal(t, NativeMinutesPipelineVersion, retry.Run.PipelineVersion)
+	require.NotNil(t, retry.Run.PreviousRunID)
+	require.Equal(t, source.ID, *retry.Run.PreviousRunID)
+
+	var retryCheckpointCount int64
+	require.NoError(t, db.Model(&models.ProcessingCheckpoint{}).
+		Where("run_id = ? AND step = ?", retry.Run.ID, StepTranscription).
+		Count(&retryCheckpointCount).Error)
+	require.Zero(t, retryCheckpointCount)
+
+	var sourceCheckpointCount int64
+	require.NoError(t, db.Model(&models.ProcessingCheckpoint{}).
+		Where("run_id = ? AND step = ?", source.ID, StepTranscription).
+		Count(&sourceCheckpointCount).Error)
+	require.EqualValues(t, 1, sourceCheckpointCount)
+}
+
 func TestServiceRecoveryClosesInterruptedAndKeepsRecoverableRuns(t *testing.T) {
 	db := openProcessingTestDB(t)
 	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)

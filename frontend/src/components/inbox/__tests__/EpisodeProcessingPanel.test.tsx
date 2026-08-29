@@ -551,10 +551,19 @@ describe("EpisodeProcessingPanel", () => {
   });
 
   it("shows the previous successful artifact and retries from a safe checkpoint", async () => {
-    apiMocks.listEpisodeRuns.mockResolvedValue([failedRun]);
-    apiMocks.getRun.mockResolvedValue(detail());
+    const nativeFailedRun: ProcessingRun = {
+      ...failedRun,
+      pipeline_version: "focus-processing-v2",
+    };
+    apiMocks.listEpisodeRuns.mockResolvedValue([nativeFailedRun]);
+    apiMocks.getRun.mockResolvedValue(detail(nativeFailedRun));
     apiMocks.retry.mockResolvedValue({
-      run: { ...failedRun, id: 32, status: "queued", error_message: undefined },
+      run: {
+        ...nativeFailedRun,
+        id: 32,
+        status: "queued",
+        error_message: undefined,
+      },
       reused_active: false,
       reused_successful: false,
       preparing_audio: false,
@@ -575,6 +584,41 @@ describe("EpisodeProcessingPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "重试转写" }));
     await waitFor(() => expect(apiMocks.retry).toHaveBeenCalledWith(31));
     await waitFor(() => expect(apiMocks.getRun).toHaveBeenCalledWith(32));
+  });
+
+  it("restarts a failed legacy run while preserving old content on slow failure", async () => {
+    let rejectStart: (reason: Error) => void = () => undefined;
+    apiMocks.listEpisodeRuns.mockResolvedValue([failedRun]);
+    apiMocks.getRun.mockResolvedValue(detail());
+    apiMocks.start.mockReturnValue(
+      new Promise((_, reject) => {
+        rejectStart = reject;
+      }),
+    );
+
+    render(<EpisodeProcessingPanel item={item} />);
+
+    expect(await screen.findByText("加工失败")).toBeVisible();
+    expect(await screen.findByText("# 旧版纪要")).toBeVisible();
+    const reprocess = screen.getByRole("button", { name: "重新转写" });
+    expect(
+      screen.queryByRole("button", { name: "重试转写" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(reprocess);
+    expect(reprocess).toBeDisabled();
+    expect(screen.getByText("正在提交…")).toBeVisible();
+    expect(screen.getByText("# 旧版纪要")).toBeVisible();
+    fireEvent.click(reprocess);
+    expect(apiMocks.start).toHaveBeenCalledTimes(1);
+    expect(apiMocks.start).toHaveBeenCalledWith(item.episode_id);
+    expect(apiMocks.retry).not.toHaveBeenCalled();
+
+    rejectStart(new Error("新转写启动失败"));
+    expect(await screen.findByText("新转写启动失败")).toBeVisible();
+    expect(screen.getByText("加工失败")).toBeVisible();
+    expect(screen.getByText("# 旧版纪要")).toBeVisible();
+    expect(reprocess).toBeEnabled();
   });
 
   it("defaults native Minutes artifacts to summary and preserves the selected subtab", async () => {
