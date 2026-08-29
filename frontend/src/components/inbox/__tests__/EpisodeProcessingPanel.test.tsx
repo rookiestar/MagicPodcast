@@ -621,6 +621,43 @@ describe("EpisodeProcessingPanel", () => {
     expect(reprocess).toBeEnabled();
   });
 
+  it("starts v2 for a terminal legacy run without an artifact", async () => {
+    const pendingRun: ProcessingRun = {
+      ...failedRun,
+      id: 33,
+      pipeline_version: "focus-processing-v2",
+      status: "queued",
+      current_step: "transcription",
+      error_code: undefined,
+      error_message: undefined,
+      error_retryable: false,
+    };
+    apiMocks.listEpisodeRuns.mockResolvedValue([failedRun]);
+    apiMocks.getRun.mockResolvedValue({
+      run: failedRun,
+      deliveries: [],
+    });
+    apiMocks.start.mockResolvedValue({
+      run: pendingRun,
+      reused_active: false,
+      reused_successful: false,
+      preparing_audio: false,
+    });
+
+    render(<EpisodeProcessingPanel item={item} />);
+
+    expect(await screen.findByText("加工失败")).toBeVisible();
+    const reprocess = screen.getByRole("button", { name: "重新转写" });
+    expect(
+      screen.queryByRole("button", { name: "重试转写" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(reprocess);
+    await waitFor(() =>
+      expect(apiMocks.start).toHaveBeenCalledWith(item.episode_id),
+    );
+    expect(apiMocks.retry).not.toHaveBeenCalled();
+  });
+
   it("defaults native Minutes artifacts to summary and preserves the selected subtab", async () => {
     const completedRun: ProcessingRun = {
       ...failedRun,
@@ -846,6 +883,10 @@ describe("EpisodeProcessingPanel", () => {
     expect(
       screen.queryByRole("button", { name: "重试转写" }),
     ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "重新转写" }),
+    ).not.toBeInTheDocument();
+    expect(apiMocks.start).not.toHaveBeenCalled();
   });
 
   it("shows pending manual knowledge delivery separately from local completion", async () => {

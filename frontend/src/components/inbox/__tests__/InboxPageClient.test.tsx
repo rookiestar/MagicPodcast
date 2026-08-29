@@ -1065,7 +1065,7 @@ describe("InboxPageClient", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("starts v2 from the top-level action when the latest legacy run failed", async () => {
+  it("starts v2 from the top-level action when a terminal legacy run has no artifact", async () => {
     const focusItem: ConsumptionItem = {
       ...inboxItem,
       queue_state: "focus",
@@ -1084,25 +1084,6 @@ describe("InboxPageClient", () => {
       error_retryable: true,
       created_at: "2026-08-29T08:00:00Z",
       updated_at: "2026-08-29T08:05:00Z",
-    };
-    const legacyArtifact: EpisodeArtifactSet = {
-      id: 94,
-      run_id: 92,
-      episode_id: focusItem.episode_id,
-      pipeline_version: legacyRun.pipeline_version,
-      manifest_path: "manifest.json",
-      manifest_sha256: "c".repeat(64),
-      transcript_sha256: "d".repeat(64),
-      notes_sha256: "e".repeat(64),
-      capabilities: {
-        minutes_summary: false,
-        transcript: true,
-        structured_timeline: false,
-        matching_audio: false,
-        legacy_episode_notes: true,
-      },
-      is_current: true,
-      created_at: "2026-08-28T08:05:00Z",
     };
     const pendingRun: ProcessingRun = {
       ...legacyRun,
@@ -1136,12 +1117,10 @@ describe("InboxPageClient", () => {
     apiMocks.getProcessingRun
       .mockResolvedValueOnce({
         run: legacyRun,
-        current_artifact: legacyArtifact,
         deliveries: [],
       } satisfies ProcessingRunDetail)
       .mockResolvedValue({
         run: pendingRun,
-        current_artifact: legacyArtifact,
         deliveries: [],
       } satisfies ProcessingRunDetail);
     apiMocks.startProcessing.mockReturnValue(
@@ -1149,13 +1128,6 @@ describe("InboxPageClient", () => {
         resolveStart = resolve;
       }),
     );
-    apiMocks.getArtifactContent.mockResolvedValue({
-      kind: "episode_notes",
-      content: "# 失败前的旧版纪要",
-      sha256: legacyArtifact.notes_sha256,
-      media_available: false,
-    });
-
     render(<InboxPageClient />);
     fireEvent.click(
       await screen.findByRole("button", {
@@ -1167,12 +1139,7 @@ describe("InboxPageClient", () => {
     });
     fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
 
-    expect(
-      await within(dialog).findByRole("heading", {
-        name: "失败前的旧版纪要",
-      }),
-    ).toBeVisible();
-    const actions = within(dialog).getAllByRole("button", {
+    const actions = await within(dialog).findAllByRole("button", {
       name: "重新转写",
     });
     expect(actions).toHaveLength(2);
@@ -1189,11 +1156,6 @@ describe("InboxPageClient", () => {
     expect(actions[0]).toBeDisabled();
     expect(actions[1]).toBeDisabled();
     expect(within(dialog).getByText("正在提交…")).toBeVisible();
-    expect(
-      within(dialog).getByRole("heading", {
-        name: "失败前的旧版纪要",
-      }),
-    ).toBeVisible();
     expect(apiMocks.retryProcessing).not.toHaveBeenCalled();
     await act(async () => {
       resolveStart(startResult);
@@ -1201,6 +1163,90 @@ describe("InboxPageClient", () => {
     await waitFor(() =>
       expect(apiMocks.getProcessingRun).toHaveBeenCalledWith(pendingRun.id),
     );
+  });
+
+  it("blocks legacy restart while an external result remains unknown", async () => {
+    const focusItem: ConsumptionItem = {
+      ...inboxItem,
+      queue_state: "focus",
+    };
+    const unknownRun: ProcessingRun = {
+      id: 96,
+      episode_id: focusItem.episode_id,
+      pipeline_version: "focus-processing-v1",
+      trigger_source: "manual",
+      status: "cancelled",
+      current_step: "",
+      attempt_count: 1,
+      max_attempts: 3,
+      error_code: "cancelled_external_result_unknown",
+      error_message:
+        "已取消本机加工；飞书端任务可能继续，已创建的远端资源会保留。",
+      error_retryable: false,
+      created_at: "2026-08-29T08:00:00Z",
+      updated_at: "2026-08-29T08:05:00Z",
+    };
+    const legacyArtifact: EpisodeArtifactSet = {
+      id: 97,
+      run_id: 95,
+      episode_id: focusItem.episode_id,
+      pipeline_version: unknownRun.pipeline_version,
+      manifest_path: "manifest.json",
+      manifest_sha256: "c".repeat(64),
+      transcript_sha256: "d".repeat(64),
+      notes_sha256: "e".repeat(64),
+      capabilities: {
+        minutes_summary: false,
+        transcript: true,
+        structured_timeline: false,
+        matching_audio: false,
+        legacy_episode_notes: true,
+      },
+      is_current: true,
+      created_at: "2026-08-28T08:05:00Z",
+    };
+    apiMocks.listQueue.mockImplementation(
+      async (queue: ConsumptionQueue): Promise<ConsumptionQueuePayload> => ({
+        queue_state: queue,
+        revision: 1,
+        items: queue === "focus" ? [focusItem] : [],
+        has_more: false,
+      }),
+    );
+    apiMocks.getItem.mockResolvedValue(focusItem);
+    apiMocks.listEpisodeRuns.mockResolvedValue([unknownRun]);
+    apiMocks.getProcessingRun.mockResolvedValue({
+      run: unknownRun,
+      current_artifact: legacyArtifact,
+      deliveries: [],
+      action_suggestion:
+        "请先在飞书确认转写是否仍在继续或远端资源是否已创建；确认前不可重新加工。",
+    } satisfies ProcessingRunDetail);
+
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "打开 可处理单集 明细",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "可处理单集",
+    });
+    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+
+    expect(
+      await within(dialog).findAllByText(
+        "请先在飞书确认转写是否仍在继续或远端资源是否已创建；确认前不可重新加工。",
+      ),
+    ).not.toHaveLength(0);
+    expect(
+      within(dialog).queryByRole("button", { name: "重新转写" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("button", { name: "重试转写" }),
+    ).not.toBeInTheDocument();
+    expect(apiMocks.startProcessing).not.toHaveBeenCalled();
+    expect(apiMocks.retryProcessing).not.toHaveBeenCalled();
   });
 
   it("keeps a legacy previous success readable when the new run fails", async () => {

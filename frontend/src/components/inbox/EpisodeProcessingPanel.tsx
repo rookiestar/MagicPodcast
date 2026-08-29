@@ -377,13 +377,15 @@ const EpisodeProcessingPanel = forwardRef<
     latestScheduleRun?.run.status === "running" &&
     latestScheduleItem?.reason === "selection_pending";
   const canStart = item.queue_state === "focus" && !run;
+  const externalResultUnknown =
+    run?.error_code?.toLowerCase().includes("result_unknown") === true;
   const canReprocessLegacy =
     item.queue_state === "focus" &&
     run?.pipeline_version === legacyProcessingPipelineVersion &&
     (run.status === "completed" ||
       run.status === "failed" ||
       run.status === "cancelled") &&
-    currentArtifact?.capabilities.legacy_episode_notes === true;
+    !externalResultUnknown;
   const audioPreparing =
     run?.current_step === "audio_prepare" ||
     audioAsset?.status === "queued" ||
@@ -392,7 +394,7 @@ const EpisodeProcessingPanel = forwardRef<
     item.queue_state === "focus" &&
     (run?.status === "failed" || run?.status === "cancelled") &&
     !canReprocessLegacy &&
-    !run.error_code?.toLowerCase().includes("result_unknown");
+    !externalResultUnknown;
   const scheduleSummary = !scheduleStatus
     ? isScheduleLoading
       ? "正在读取…"
