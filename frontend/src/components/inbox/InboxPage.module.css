@@ -857,6 +857,10 @@
   display: none;
 }
 
+.detailHeader > div:first-child {
+  min-width: 0;
+}
+
 .detailHeaderActions {
   display: flex;
   flex: 0 0 auto;
