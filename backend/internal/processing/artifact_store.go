@@ -140,7 +140,7 @@ func (s *DiskArtifactStore) Publish(
 	timelineHash := ""
 	notesHash := ""
 	if request.NativeMinutes {
-		summaryHash, err = writeArtifactFile(
+		summaryHash, err = writeReadableArtifactFile(
 			stagingPath,
 			"minutes-summary.md",
 			[]byte(request.MinutesSummary),
@@ -152,7 +152,11 @@ func (s *DiskArtifactStore) Publish(
 			Path: "minutes-summary.md", SHA256: summaryHash,
 		})
 	}
-	transcriptHash, err := writeArtifactFile(stagingPath, "transcript.md", []byte(request.Transcript))
+	transcriptHash, err := writeReadableArtifactFile(
+		stagingPath,
+		"transcript.md",
+		[]byte(request.Transcript),
+	)
 	if err != nil {
 		return ArtifactPublishResult{}, err
 	}
@@ -166,13 +170,21 @@ func (s *DiskArtifactStore) Publish(
 			return ArtifactPublishResult{}, fmt.Errorf("encode transcript timeline: %w", marshalErr)
 		}
 		timelineBytes = append(timelineBytes, '\n')
-		timelineHash, err = writeArtifactFile(stagingPath, "transcript.json", timelineBytes)
+		timelineHash, err = writeReadableArtifactFile(
+			stagingPath,
+			"transcript.json",
+			timelineBytes,
+		)
 		if err != nil {
 			return ArtifactPublishResult{}, err
 		}
 		files = append(files, artifactFile{Path: "transcript.json", SHA256: timelineHash})
 	} else {
-		notesHash, err = writeArtifactFile(stagingPath, "episode-notes.md", []byte(request.EpisodeNotes))
+		notesHash, err = writeReadableArtifactFile(
+			stagingPath,
+			"episode-notes.md",
+			[]byte(request.EpisodeNotes),
+		)
 		if err != nil {
 			return ArtifactPublishResult{}, err
 		}
@@ -225,7 +237,11 @@ func (s *DiskArtifactStore) Publish(
 		return ArtifactPublishResult{}, fmt.Errorf("encode artifact manifest: %w", err)
 	}
 	manifestBytes = append(manifestBytes, '\n')
-	manifestHash, err := writeArtifactFile(stagingPath, "manifest.json", manifestBytes)
+	manifestHash, err := writeReadableArtifactFile(
+		stagingPath,
+		"manifest.json",
+		manifestBytes,
+	)
 	if err != nil {
 		return ArtifactPublishResult{}, err
 	}
@@ -484,6 +500,28 @@ func writeArtifactFile(root, relativePath string, content []byte) (string, error
 	}
 	sum := sha256.Sum256(content)
 	return hex.EncodeToString(sum[:]), nil
+}
+
+func writeReadableArtifactFile(
+	root string,
+	relativePath string,
+	content []byte,
+) (string, error) {
+	if int64(len(content)) > maxArtifactTextBytes {
+		return "", fmt.Errorf(
+			"%w: artifact %s exceeds the public read limit",
+			ErrInvalidArtifact,
+			relativePath,
+		)
+	}
+	if !utf8.Valid(content) {
+		return "", fmt.Errorf(
+			"%w: artifact %s is not valid UTF-8",
+			ErrInvalidArtifact,
+			relativePath,
+		)
+	}
+	return writeArtifactFile(root, relativePath, content)
 }
 
 func cloneStringMap(input map[string]string) map[string]string {

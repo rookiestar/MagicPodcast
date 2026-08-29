@@ -130,6 +130,27 @@ func TestDiskArtifactStorePublishesAndReadsNativeMinutesSet(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidArtifact)
 }
 
+func TestDiskArtifactStoreRejectsOversizedGeneratedTimelineBeforePublish(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewDiskArtifactStore(root)
+	require.NoError(t, err)
+	request := nativeArtifactTestRequest(14)
+	request.TranscriptSegments[0].Text = strings.Repeat("x", maxArtifactTextBytes)
+
+	_, err = store.Publish(context.Background(), request)
+	require.ErrorIs(t, err, ErrInvalidArtifact)
+	require.ErrorContains(t, err, "transcript.json exceeds the public read limit")
+
+	finalPath := filepath.Join(root, "episodes", "7", "sets", "run-14")
+	_, statErr := os.Stat(finalPath)
+	require.True(t, os.IsNotExist(statErr))
+	entries, err := os.ReadDir(filepath.Dir(finalPath))
+	require.NoError(t, err)
+	for _, entry := range entries {
+		require.False(t, strings.HasPrefix(entry.Name(), ".run-14-"))
+	}
+}
+
 func TestDiskArtifactStoreRejectsTraversalWithoutPartialPublish(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewDiskArtifactStore(root)
