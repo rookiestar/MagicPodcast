@@ -945,6 +945,20 @@ func (s *Service) recordCancellationNotice(
 	return run, nil
 }
 
+func shouldRestartTranscriptionOnRetry(run models.EpisodeProcessingRun) bool {
+	if !usesNativeMinutesPipeline(run.PipelineVersion) {
+		return false
+	}
+	switch run.ErrorCode {
+	case "transcript_timeline_invalid",
+		"stored_transcript_unavailable",
+		"stored_summary_unavailable":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Service) RetryProcessingRun(
 	ctx context.Context,
 	sourceRunID uint,
@@ -1015,9 +1029,7 @@ func (s *Service) RetryProcessingRun(
 			source.Status != models.ProcessingRunStatusCancelled {
 			return ErrRetryUnsafe
 		}
-		restartTranscription :=
-			source.PipelineVersion == NativeMinutesPipelineVersion &&
-				source.ErrorCode == "transcript_timeline_invalid"
+		restartTranscription := shouldRestartTranscriptionOnRetry(source)
 		var active models.EpisodeProcessingRun
 		activeErr := tx.
 			Where("episode_id = ? AND status IN ?", source.EpisodeID, models.ProcessingRunActiveStatuses).
