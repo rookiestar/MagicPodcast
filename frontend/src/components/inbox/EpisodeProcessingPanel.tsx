@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   IconFileText,
   IconPlayerPlay,
@@ -81,11 +89,32 @@ function formatUpdatedAt(value?: string) {
   return date.toLocaleString("zh-CN", { hour12: false });
 }
 
-export default function EpisodeProcessingPanel({
-  item,
-}: {
+export interface EpisodeProcessingHeaderState {
+  kind: "loading" | "idle" | "active" | "completed" | "failed";
+  label: string;
+  detail: string;
+  primaryLabel: string;
+  primaryDisabled: boolean;
+  action: "start" | "view" | "retry" | "details" | null;
+}
+
+export interface EpisodeProcessingPanelHandle {
+  activatePrimary: () => void;
+}
+
+interface EpisodeProcessingPanelProps {
   item: ConsumptionItem;
-}) {
+  onHeaderStateChange?: (state: EpisodeProcessingHeaderState) => void;
+  onViewTranscript?: () => void;
+}
+
+const EpisodeProcessingPanel = forwardRef<
+  EpisodeProcessingPanelHandle,
+  EpisodeProcessingPanelProps
+>(function EpisodeProcessingPanel(
+  { item, onHeaderStateChange, onViewTranscript },
+  ref,
+) {
   const [detail, setDetail] = useState<ProcessingRunDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isMutating, setIsMutating] = useState(false);
@@ -262,7 +291,7 @@ export default function EpisodeProcessingPanel({
     }
   };
 
-  const startProcessing = async () => {
+  const startProcessing = useCallback(async () => {
     if (isMutating) return;
     setIsMutating(true);
     setError(null);
@@ -283,7 +312,7 @@ export default function EpisodeProcessingPanel({
     } finally {
       setIsMutating(false);
     }
-  };
+  }, [isMutating, item.episode_id]);
 
   const readArtifact = async (
     artifactSetId: number,
@@ -327,6 +356,129 @@ export default function EpisodeProcessingPanel({
     : scheduleStatus.enabled
       ? `已启用 · 每批 ${scheduleStatus.batch_size} 集`
       : "未启用";
+
+  const retryProcessing = useCallback(async () => {
+    if (isMutating || !run) return;
+    setIsMutating(true);
+    setError(null);
+    try {
+      const result = await processingApi.retry(run.id);
+      if (!result.run) {
+        throw new Error("重试请求未返回加工运行");
+      }
+      setAudioAsset(result.audio_asset ?? null);
+      setDetail(await processingApi.getRun(result.run.id));
+    } catch (retryError) {
+      const failure = getProcessingErrorDetails(retryError);
+      setError(
+        `${failure.code ? `${failure.code}：` : ""}${failure.message}`,
+      );
+    } finally {
+      setIsMutating(false);
+    }
+  }, [isMutating, run]);
+
+  const headerState = useMemo<EpisodeProcessingHeaderState>(() => {
+    if (isLoading && !run && !audioAsset) {
+      return {
+        kind: "loading",
+        label: "正在读取",
+        detail: "Show Notes 可继续阅读",
+        primaryLabel: "读取转写状态",
+        primaryDisabled: true,
+        action: null,
+      };
+    }
+    if (audioPreparing || isActive(run)) {
+      return {
+        kind: "active",
+        label:
+          run?.status === "waiting_external"
+            ? "等待妙记"
+            : audioPreparing
+              ? "准备音频"
+              : "转写中",
+        detail: "转写在后台继续，当前正文不受影响",
+        primaryLabel: "转写中",
+        primaryDisabled: true,
+        action: null,
+      };
+    }
+    if (run?.status === "failed" || run?.status === "cancelled") {
+      return {
+        kind: "failed",
+        label: run.status === "cancelled" ? "已取消" : "转写失败",
+        detail:
+          detail?.action_suggestion ||
+          run.error_message ||
+          "可查看原因后安全重试",
+        primaryLabel: canRetry ? "重试转写" : "查看详情",
+        primaryDisabled: false,
+        action: canRetry ? "retry" : "details",
+      };
+    }
+    if (currentArtifact) {
+      return {
+        kind: "completed",
+        label: "已完成",
+        detail: "已有可阅读的转写产物",
+        primaryLabel: "查看转写",
+        primaryDisabled: false,
+        action: "view",
+      };
+    }
+    return {
+      kind: "idle",
+      label: "未转写",
+      detail:
+        item.queue_state === "focus"
+          ? "可开始飞书妙记转写"
+          : "加入 Focus 后可开始转写",
+      primaryLabel:
+        item.queue_state === "focus" ? "开始转写" : "加入 Focus 后转写",
+      primaryDisabled: !canStart || isMutating,
+      action: canStart ? "start" : null,
+    };
+  }, [
+    audioAsset,
+    audioPreparing,
+    canRetry,
+    canStart,
+    currentArtifact,
+    detail?.action_suggestion,
+    isLoading,
+    isMutating,
+    item.queue_state,
+    run,
+  ]);
+
+  useEffect(() => {
+    onHeaderStateChange?.(headerState);
+  }, [headerState, onHeaderStateChange]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      activatePrimary: () => {
+        if (headerState.primaryDisabled) return;
+        if (headerState.action === "start") {
+          void startProcessing();
+          return;
+        }
+        if (headerState.action === "retry") {
+          void retryProcessing();
+          return;
+        }
+        if (
+          headerState.action === "view" ||
+          headerState.action === "details"
+        ) {
+          onViewTranscript?.();
+        }
+      },
+    }),
+    [headerState, onViewTranscript, retryProcessing, startProcessing],
+  );
 
   return (
     <section
@@ -495,7 +647,7 @@ export default function EpisodeProcessingPanel({
               onClick={() => void startProcessing()}
             >
               <IconPlayerPlay size={18} stroke={1.8} aria-hidden="true" />
-              开始加工
+              开始转写
             </button>
           )}
           {isActive(run) && (
@@ -514,31 +666,10 @@ export default function EpisodeProcessingPanel({
               type="button"
               className={styles.primaryCommand}
               disabled={isMutating}
-              onClick={() =>
-                void (async () => {
-                  if (isMutating) return;
-                  setIsMutating(true);
-                  setError(null);
-                  try {
-                    const result = await processingApi.retry(run!.id);
-                    if (!result.run) {
-                      throw new Error("重试请求未返回加工运行");
-                    }
-                    setAudioAsset(result.audio_asset ?? null);
-                    setDetail(await processingApi.getRun(result.run.id));
-                  } catch (retryError) {
-                    const failure = getProcessingErrorDetails(retryError);
-                    setError(
-                      `${failure.code ? `${failure.code}：` : ""}${failure.message}`,
-                    );
-                  } finally {
-                    setIsMutating(false);
-                  }
-                })()
-              }
+              onClick={() => void retryProcessing()}
             >
               <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
-              从检查点重试
+              重试转写
             </button>
           )}
           {isMutating && <span role="status">正在提交…</span>}
@@ -583,8 +714,11 @@ export default function EpisodeProcessingPanel({
               }
             >
               <IconFileText size={18} stroke={1.8} aria-hidden="true" />
-              单集纪要
+              旧版纪要
             </button>
+            <span className={styles.processingHint}>
+              重新转写后可获得妙记纪要和同步逐字稿。
+            </span>
           </div>
         )}
 
@@ -624,7 +758,7 @@ export default function EpisodeProcessingPanel({
         >
           <div className={styles.metadataLabelRow}>
             <span>
-              {artifactContent.kind === "transcript" ? "规范逐字稿" : "单集纪要"}
+              {artifactContent.kind === "transcript" ? "规范逐字稿" : "旧版纪要"}
             </span>
             <button
               type="button"
@@ -640,4 +774,6 @@ export default function EpisodeProcessingPanel({
       )}
     </section>
   );
-}
+});
+
+export default EpisodeProcessingPanel;

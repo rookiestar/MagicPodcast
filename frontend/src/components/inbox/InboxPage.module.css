@@ -351,6 +351,9 @@
 .detailClose:focus-visible,
 .primaryCommand:focus-visible,
 .secondaryCommand:focus-visible,
+.originalLink:focus-visible,
+.secondaryActions summary:focus-visible,
+.detailTabs button:focus-visible,
 .confirmPrimary:focus-visible,
 .confirmSecondary:focus-visible,
 .moveMenuPopover button:focus-visible,
@@ -808,7 +811,7 @@
 
 .detailPanel {
   display: flex;
-  width: min(780px, 72vw);
+  width: min(920px, 82vw);
   min-width: 0;
   height: 100%;
   flex-direction: column;
@@ -861,7 +864,7 @@
 
 .detailHero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(230px, 0.43fr);
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 0.34fr);
   gap: 28px;
   padding: 32px 30px 26px;
   border-bottom: 1px solid var(--ink);
@@ -925,13 +928,67 @@
 }
 
 .detailCommandBar {
-  display: flex;
+  position: relative;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto auto;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
   padding: 14px 30px;
   border-bottom: 1px solid var(--rule);
   background: rgba(255, 250, 240, 0.52);
+}
+
+.processingHeadline {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.processingHeadline > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.processingHeadline strong {
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.processingHeadline small {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.processingDot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
+}
+
+.processingHeadline[data-state="active"] .processingDot,
+.processingHeadline[data-state="loading"] .processingDot {
+  border-color: var(--orange-dark);
+  background: var(--orange);
+}
+
+.processingHeadline[data-state="completed"] .processingDot {
+  border-color: #315f3d;
+  background: #5d8a68;
+}
+
+.processingHeadline[data-state="failed"] .processingDot {
+  border-color: #75251d;
+  background: #b44839;
 }
 
 .primaryCommand,
@@ -979,6 +1036,78 @@
   min-width: 0;
   align-items: center;
   gap: 5px;
+}
+
+.originalLink {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 7px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.originalLink:hover {
+  color: var(--orange-dark);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.originalLink[aria-disabled="true"] {
+  opacity: 0.48;
+  pointer-events: none;
+}
+
+.secondaryActions {
+  position: relative;
+}
+
+.secondaryActions summary {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  color: var(--ink);
+  border: 1px solid rgba(23, 21, 18, 0.28);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  list-style: none;
+}
+
+.secondaryActions summary::-webkit-details-marker {
+  display: none;
+}
+
+.secondaryActions[open] summary,
+.secondaryActions summary:hover {
+  color: var(--orange-dark);
+  border-color: var(--orange);
+}
+
+.secondaryActionsMenu {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 7px);
+  right: 0;
+  display: grid;
+  width: 290px;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 7px 8px 0 rgba(23, 21, 18, 0.16);
+}
+
+.secondaryContext {
+  color: var(--ink-soft);
+  font-size: 10px;
 }
 
 .detailMove select,
@@ -1030,6 +1159,48 @@
 
 .recoverySlot > * {
   margin: 0;
+}
+
+.detailTabs {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  min-width: 0;
+  padding: 0 30px;
+  border-bottom: 1px solid var(--ink);
+  background: var(--paper);
+}
+
+.detailTabs button {
+  position: relative;
+  min-height: 50px;
+  padding: 0 18px;
+  color: var(--ink-soft);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.detailTabs button::after {
+  position: absolute;
+  height: 3px;
+  background: transparent;
+  content: "";
+  inset: auto 10px -1px;
+}
+
+.detailTabs button:hover {
+  color: var(--ink);
+}
+
+.detailTabs button[aria-selected="true"] {
+  color: var(--ink);
+}
+
+.detailTabs button[aria-selected="true"]::after {
+  background: var(--orange-dark);
 }
 
 .processingSection,
@@ -1414,48 +1585,10 @@
 
 .showNotesRichText {
   color: #29251f;
-  font-family: var(--font-serif);
-  font-size: 16px;
-  line-height: 1.78;
 }
 
 .showNotesSection :global(.rich-text) {
   max-width: 68ch;
-}
-
-.showNotesSection :global(.rich-text p) {
-  margin: 0 0 1.05em;
-}
-
-.showNotesSection :global(.rich-text h1),
-.showNotesSection :global(.rich-text h2),
-.showNotesSection :global(.rich-text h3) {
-  margin: 1.4em 0 0.55em;
-  color: var(--ink);
-  font-family: var(--font-display);
-  line-height: 1.18;
-}
-
-.showNotesSection :global(.rich-text a) {
-  color: var(--orange-dark);
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
-}
-
-.showNotesSection :global(.rich-text img) {
-  display: block;
-  max-width: 100%;
-  height: auto;
-  margin: 18px 0;
-  border: 1px solid rgba(23, 21, 18, 0.2);
-}
-
-.showNotesSection :global(.rich-text blockquote) {
-  margin: 1.4em 0;
-  padding: 0.2em 0 0.2em 1em;
-  color: var(--ink-soft);
-  border-left: 3px solid var(--orange);
 }
 
 .showNotesEmpty,
@@ -1790,17 +1923,45 @@
   }
 
   .detailCommandBar {
-    position: sticky;
-    z-index: 2;
-    top: 0;
+    grid-template-columns: minmax(0, 1fr) auto;
     padding: 10px 14px;
     background: rgba(243, 236, 221, 0.97);
     backdrop-filter: blur(8px);
   }
 
-  .primaryCommand,
-  .secondaryCommand {
-    flex: 1 1 calc(50% - 4px);
+  .processingHeadline {
+    grid-column: 1 / -1;
+  }
+
+  .processingHeadline small {
+    white-space: normal;
+  }
+
+  .detailCommandBar > .primaryCommand {
+    width: 100%;
+  }
+
+  .originalLink {
+    min-width: 82px;
+  }
+
+  .secondaryActions {
+    grid-column: 1 / -1;
+  }
+
+  .secondaryActions summary {
+    width: 100%;
+  }
+
+  .secondaryActionsMenu {
+    position: static;
+    width: 100%;
+    margin-top: 7px;
+    box-shadow: none;
+  }
+
+  .secondaryActionsMenu .secondaryCommand {
+    width: 100%;
   }
 
   .detailMove {
@@ -1815,6 +1976,20 @@
     margin: 12px 14px 0;
   }
 
+  .detailTabs {
+    position: sticky;
+    top: 0;
+    padding: 0 8px;
+    background: rgba(243, 236, 221, 0.97);
+    backdrop-filter: blur(8px);
+  }
+
+  .detailTabs button {
+    min-width: 0;
+    flex: 1 1 0;
+    padding-inline: 8px;
+  }
+
   .processingSection,
   .showNotesSection,
   .copilotSection,
@@ -1827,7 +2002,7 @@
   }
 
   .showNotesRichText {
-    font-size: 15px;
+    overflow-wrap: anywhere;
   }
 
   .confirmDialog {
