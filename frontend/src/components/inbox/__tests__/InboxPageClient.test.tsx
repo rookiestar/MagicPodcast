@@ -1826,6 +1826,7 @@ describe("InboxPageClient", () => {
 
     render(<InboxPageClient />);
     await screen.findByRole("button", { name: "拖动《可处理单集》调整队列" });
+    await within(queueSection("focus")).findByText("Focus 7");
     act(() =>
       dndMocks.onDragStart?.(
         dragEvent({ source: "inbox", activeEpisodeId: 101, target: "inbox" }),
