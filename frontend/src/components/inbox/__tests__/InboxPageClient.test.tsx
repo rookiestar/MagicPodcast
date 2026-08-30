@@ -1745,7 +1745,13 @@ describe("InboxPageClient", () => {
     expect(
       within(dialog).getByRole("heading", { name: "自动加工" }),
     ).toBeVisible();
-    expect(within(dialog).getByText("尚未加工")).toBeVisible();
+    expect(within(dialog).getByText("正在读取转写状态…")).toBeVisible();
+    expect(
+      within(dialog).queryByText("暂无可阅读的转写产物。"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("tabpanel", { name: "纪要" }),
+    ).toHaveAttribute("aria-busy", "true");
     expect(within(dialog).getByRole("tab", { name: "纪要" })).toBeDisabled();
     expect(within(dialog).getByRole("tab", { name: "逐字稿" })).toBeDisabled();
 

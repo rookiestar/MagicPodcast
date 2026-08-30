@@ -115,9 +115,17 @@ function detail(run: ProcessingRun = failedRun): ProcessingRunDetail {
   };
 }
 
+function openProcessingDiagnostics() {
+  const summary = screen.getByText("加工状态").closest("summary");
+  if (!summary) throw new Error("processing diagnostics summary not found");
+  if (!summary.parentElement?.hasAttribute("open")) {
+    fireEvent.click(summary);
+  }
+}
+
 describe("EpisodeProcessingPanel", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    Object.values(apiMocks).forEach((mock) => mock.mockReset());
     apiMocks.listEpisodeRuns.mockResolvedValue([]);
     apiMocks.getLatestAudio.mockRejectedValue({
       response: { status: 404 },
@@ -150,15 +158,25 @@ describe("EpisodeProcessingPanel", () => {
     render(<EpisodeProcessingPanel item={item} />);
 
     expect(screen.getByRole("heading", { name: "自动加工" })).toBeVisible();
-    expect(screen.getByRole("status", { name: "" })).toHaveTextContent(
-      "正在读取…",
+    expect(screen.getByText("正在读取转写状态…")).toBeVisible();
+    expect(screen.getByRole("tabpanel", { name: "纪要" })).toHaveAttribute(
+      "aria-busy",
+      "true",
     );
-    expect(screen.getByText("尚未加工")).toBeVisible();
+    expect(
+      screen.getByText("加工状态").closest("details"),
+    ).not.toHaveAttribute("open");
+    expect(
+      screen.queryByText("暂无可阅读的转写产物。"),
+    ).not.toBeInTheDocument();
 
-    resolveRuns([]);
+    await act(async () => {
+      resolveRuns([]);
+    });
     await waitFor(() =>
       expect(screen.queryByText("正在读取…")).not.toBeInTheDocument(),
     );
+    expect(screen.getByText("暂无可阅读的转写产物。")).toBeVisible();
     expect(screen.getByRole("button", { name: "开始转写" })).toBeEnabled();
   });
 
@@ -184,11 +202,17 @@ describe("EpisodeProcessingPanel", () => {
 
     expect(screen.queryByText("加工失败")).not.toBeInTheDocument();
     expect(screen.queryByText("上一成功版本")).not.toBeInTheDocument();
-    expect(screen.getByText("尚未加工")).toBeVisible();
-    resolveSecond([]);
+    expect(screen.getByText("正在读取转写状态…")).toBeVisible();
+    expect(
+      screen.queryByText("暂无可阅读的转写产物。"),
+    ).not.toBeInTheDocument();
+    await act(async () => {
+      resolveSecond([]);
+    });
     await waitFor(() =>
       expect(screen.queryByText("正在读取…")).not.toBeInTheDocument(),
     );
+    expect(screen.getByText("尚未加工")).toBeVisible();
   });
 
   it("ignores a stale processing response after switching episodes", async () => {
@@ -222,7 +246,9 @@ describe("EpisodeProcessingPanel", () => {
   });
 
   it("reports status failures without hiding the panel controls", async () => {
-    apiMocks.listEpisodeRuns.mockRejectedValue(new Error("网络超时"));
+    apiMocks.listEpisodeRuns
+      .mockRejectedValueOnce(new Error("网络超时"))
+      .mockResolvedValueOnce([]);
 
     render(<EpisodeProcessingPanel item={item} />);
 
@@ -230,10 +256,26 @@ describe("EpisodeProcessingPanel", () => {
       await screen.findByText("加工状态读取失败，单集内容不受影响：网络超时"),
     ).toBeVisible();
     expect(screen.getByText("尚未加工")).toBeVisible();
+    expect(
+      screen.getByText("暂时无法确认转写产物，请重试读取。"),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("暂无可阅读的转写产物。"),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "开始转写" })).toBeEnabled();
     expect(
       screen.getByRole("button", { name: "重试读取加工状态" }),
     ).toBeEnabled();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "重试读取加工状态" }),
+    );
+    expect(
+      await screen.findByText("暂无可阅读的转写产物。"),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("加工状态读取失败，单集内容不受影响：网络超时"),
+    ).not.toBeInTheDocument();
   });
 
   it("shows scheduled state and the selected episode's skip reason", async () => {
@@ -273,6 +315,7 @@ describe("EpisodeProcessingPanel", () => {
     });
 
     render(<EpisodeProcessingPanel item={item} />);
+    openProcessingDiagnostics();
 
     expect(await screen.findByText("已启用 · 每批 1 集")).toBeVisible();
     expect(
@@ -319,6 +362,7 @@ describe("EpisodeProcessingPanel", () => {
     });
 
     render(<EpisodeProcessingPanel item={item} />);
+    openProcessingDiagnostics();
 
     expect(await screen.findByText("最近定时：正在选择候选")).toBeVisible();
     expect(screen.getByText("此集正在确认加工资格")).toBeVisible();
@@ -355,6 +399,7 @@ describe("EpisodeProcessingPanel", () => {
         );
 
       render(<EpisodeProcessingPanel item={item} />);
+      openProcessingDiagnostics();
       await act(async () => {
         await Promise.resolve();
         await Promise.resolve();
@@ -408,6 +453,7 @@ describe("EpisodeProcessingPanel", () => {
         );
 
       render(<EpisodeProcessingPanel item={item} />);
+      openProcessingDiagnostics();
       await act(async () => {
         await Promise.resolve();
         await Promise.resolve();
@@ -462,6 +508,7 @@ describe("EpisodeProcessingPanel", () => {
         .mockRejectedValueOnce(new Error("定时网络超时"));
 
       render(<EpisodeProcessingPanel item={item} />);
+      openProcessingDiagnostics();
       await act(async () => {
         await Promise.resolve();
         await Promise.resolve();
@@ -491,6 +538,7 @@ describe("EpisodeProcessingPanel", () => {
     );
 
     render(<EpisodeProcessingPanel item={item} />);
+    openProcessingDiagnostics();
 
     expect(screen.getAllByText("正在读取…").length).toBeGreaterThan(0);
     expect(
@@ -544,6 +592,7 @@ describe("EpisodeProcessingPanel", () => {
     apiMocks.getRun.mockResolvedValue(detail(retryingRun));
 
     render(<EpisodeProcessingPanel item={item} />);
+    openProcessingDiagnostics();
 
     expect(await screen.findByText("等待飞书转写")).toBeVisible();
     expect(screen.getByText(/自动重试：.*已尝试 2\/3 次/)).toBeVisible();
@@ -734,16 +783,26 @@ describe("EpisodeProcessingPanel", () => {
       resolveSummary(summaryContent);
     });
     expect(await screen.findByText("# 妙记纪要")).toBeVisible();
-    expect(screen.getByRole("tab", { name: "纪要" })).toHaveAttribute(
+    const summaryTab = screen.getByRole("tab", { name: "纪要" });
+    const transcriptTab = screen.getByRole("tab", { name: "逐字稿" });
+    expect(summaryTab).toHaveAttribute(
       "aria-selected",
       "true",
     );
+    expect(summaryTab).toHaveAttribute(
+      "aria-controls",
+      "processing-artifact-panel-summary",
+    );
+    expect(screen.getByRole("tabpanel", { name: "纪要" })).toBeVisible();
     expect(apiMocks.getArtifactContent).toHaveBeenCalledWith(
       nativeArtifact.id,
       "minutes_summary",
     );
 
-    fireEvent.click(screen.getByRole("tab", { name: "逐字稿" }));
+    summaryTab.focus();
+    fireEvent.keyDown(summaryTab, { key: "ArrowRight" });
+    expect(transcriptTab).toHaveFocus();
+    expect(transcriptTab).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByText("# 妙记纪要")).not.toBeInTheDocument();
     expect(screen.getByText("正在读取逐字稿…")).toBeVisible();
     await act(async () => {
@@ -754,25 +813,16 @@ describe("EpisodeProcessingPanel", () => {
     expect(screen.getByRole("region", { name: "同步逐字稿" })).toBeVisible();
     expect(screen.getByText("逐字稿 · 1 段")).toBeVisible();
     expect(screen.getByText("音频可用")).toBeVisible();
+    expect(screen.getByRole("tabpanel", { name: "逐字稿" })).toBeVisible();
 
-    fireEvent.click(screen.getByRole("tab", { name: "纪要" }));
+    fireEvent.keyDown(transcriptTab, { key: "Home" });
+    expect(summaryTab).toHaveFocus();
+    expect(summaryTab).toHaveAttribute("aria-selected", "true");
     expect(await screen.findByText("# 妙记纪要")).toBeVisible();
 
-    let rejectTranscript: (reason?: unknown) => void = () => undefined;
-    apiMocks.getArtifactContent.mockReturnValueOnce(
-      new Promise<ArtifactContent>((_, reject) => {
-        rejectTranscript = reject;
-      }),
-    );
     fireEvent.click(screen.getByRole("tab", { name: "逐字稿" }));
-    expect(screen.queryByText("# 妙记纪要")).not.toBeInTheDocument();
-    expect(screen.getByText("正在读取逐字稿…")).toBeVisible();
-    await act(async () => {
-      rejectTranscript(new Error("网络超时"));
-    });
-    expect(await screen.findByText("产物读取失败：网络超时")).toBeVisible();
-    expect(screen.queryByText("# 妙记纪要")).not.toBeInTheDocument();
-    expect(screen.queryByText("正文")).not.toBeInTheDocument();
+    expect(screen.getByText("正文")).toBeVisible();
+    expect(apiMocks.getArtifactContent).toHaveBeenCalledTimes(2);
 
     rerender(<EpisodeProcessingPanel item={item} />);
     expect(screen.getByRole("tab", { name: "逐字稿" })).toHaveAttribute(
@@ -782,7 +832,7 @@ describe("EpisodeProcessingPanel", () => {
     expect(screen.queryByText("来自同一条飞书妙记")).not.toBeInTheDocument();
   });
 
-  it("hides the previous artifact while a processing poll loads its replacement", async () => {
+  it("keeps the previous artifact when a replacement read is slow or fails", async () => {
     vi.useFakeTimers();
     try {
       const activeRun: ProcessingRun = {
@@ -814,8 +864,7 @@ describe("EpisodeProcessingPanel", () => {
           legacy_episode_notes: false,
         },
       };
-      let resolveReplacement: (content: ArtifactContent) => void = () =>
-        undefined;
+      let rejectReplacement: (reason?: unknown) => void = () => undefined;
       apiMocks.listEpisodeRuns.mockResolvedValue([activeRun]);
       apiMocks.getRun
         .mockResolvedValueOnce(detail(activeRun))
@@ -832,10 +881,16 @@ describe("EpisodeProcessingPanel", () => {
           media_available: false,
         } satisfies ArtifactContent)
         .mockReturnValueOnce(
-          new Promise<ArtifactContent>((resolve) => {
-            resolveReplacement = resolve;
+          new Promise<ArtifactContent>((_, reject) => {
+            rejectReplacement = reject;
           }),
-        );
+        )
+        .mockResolvedValueOnce({
+          kind: "minutes_summary",
+          content: "# 重试后的新纪要",
+          sha256: replacementArtifact.minutes_summary_sha256 ?? "",
+          media_available: false,
+        });
 
       render(<EpisodeProcessingPanel item={item} />);
       await act(async () => {
@@ -852,18 +907,27 @@ describe("EpisodeProcessingPanel", () => {
         replacementArtifact.id,
         "minutes_summary",
       );
-      expect(screen.queryByText("# 上一成功纪要")).not.toBeInTheDocument();
-      expect(screen.getByText("正在读取纪要…")).toBeVisible();
+      expect(screen.getByText("# 上一成功纪要")).toBeVisible();
+      expect(
+        screen.getByText("正在读取纪要，暂时显示上一成功内容…"),
+      ).toBeVisible();
 
       await act(async () => {
-        resolveReplacement({
-          kind: "minutes_summary",
-          content: "# 新妙记纪要",
-          sha256: replacementArtifact.minutes_summary_sha256 ?? "",
-          media_available: false,
-        });
+        rejectReplacement(new Error("网络超时"));
       });
-      expect(screen.getByText("# 新妙记纪要")).toBeVisible();
+      expect(screen.getByText("产物读取失败：网络超时")).toBeVisible();
+      expect(screen.getByText("# 上一成功纪要")).toBeVisible();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "重试读取纪要" }));
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.getByText("# 重试后的新纪要")).toBeVisible();
+      expect(
+        screen.queryByText("产物读取失败：网络超时"),
+      ).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -958,6 +1022,7 @@ describe("EpisodeProcessingPanel", () => {
     });
 
     render(<EpisodeProcessingPanel item={item} />);
+    openProcessingDiagnostics();
 
     expect(await screen.findByText("已完成")).toBeVisible();
     expect(screen.getByText("知识交付")).toBeVisible();
@@ -981,6 +1046,7 @@ describe("EpisodeProcessingPanel", () => {
     apiMocks.getRun.mockResolvedValue(detail(cancelledRun));
 
     render(<EpisodeProcessingPanel item={item} />);
+    openProcessingDiagnostics();
 
     expect(await screen.findByText("已取消")).toBeVisible();
     expect(
@@ -1070,6 +1136,7 @@ describe("EpisodeProcessingPanel", () => {
     ).toBeEnabled();
 
     fireEvent.click(screen.getByRole("button", { name: "开始转写" }));
+    openProcessingDiagnostics();
 
     expect(await screen.findByText("等待准备音频")).toBeVisible();
     expect(screen.getByText("准备与校验音频")).toBeVisible();

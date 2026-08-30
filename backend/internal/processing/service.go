@@ -765,10 +765,19 @@ func (s *Service) GetArtifactAudio(
 		artifact.AudioSHA256,
 	)
 	if err != nil {
+		var audioErr *AudioStoreError
+		if errors.As(err, &audioErr) &&
+			audioErr.Code == AudioErrorReadyFileMismatch {
+			return ReadyAudio{}, ErrArtifactAudioMismatch
+		}
 		currentAudio, currentErr := s.audioPreparer.ResolveReadyAudio(
 			ctx,
 			artifact.EpisodeID,
 		)
+		if errors.As(currentErr, &audioErr) &&
+			audioErr.Code == AudioErrorReadyFileMismatch {
+			return ReadyAudio{}, ErrArtifactAudioMismatch
+		}
 		if currentErr == nil && currentAudio.SHA256 != artifact.AudioSHA256 {
 			return ReadyAudio{}, ErrArtifactAudioMismatch
 		}

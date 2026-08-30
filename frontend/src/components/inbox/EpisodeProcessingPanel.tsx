@@ -2,6 +2,7 @@
 
 import {
   forwardRef,
+  type KeyboardEvent,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -30,6 +31,22 @@ import styles from "./InboxPage.module.css";
 import TranscriptAudioPlayer from "./TranscriptAudioPlayer";
 
 type ArtifactTab = "summary" | "transcript";
+
+const artifactTabs: ReadonlyArray<{ id: ArtifactTab; label: string }> = [
+  { id: "summary", label: "纪要" },
+  { id: "transcript", label: "逐字稿" },
+];
+
+interface LoadedArtifactContent {
+  artifactSetId: number;
+  content: ArtifactContent;
+}
+
+const emptyArtifactContents: Record<ArtifactTab, LoadedArtifactContent | null> =
+  {
+    summary: null,
+    transcript: null,
+  };
 
 const legacyProcessingPipelineVersion = "focus-processing-v1";
 const unresolvedExternalResultCodes = new Set([
@@ -128,11 +145,9 @@ const EpisodeProcessingPanel = forwardRef<
   const [isLoading, setIsLoading] = useState(true);
   const [isMutating, setIsMutating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [artifactContent, setArtifactContent] =
-    useState<ArtifactContent | null>(null);
-  const [artifactContentSetID, setArtifactContentSetID] = useState<
-    number | null
-  >(null);
+  const [artifactContents, setArtifactContents] = useState(
+    emptyArtifactContents,
+  );
   const [activeArtifactTab, setActiveArtifactTab] =
     useState<ArtifactTab>("summary");
   const [audioAsset, setAudioAsset] = useState<EpisodeAudioAsset | null>(null);
@@ -145,6 +160,12 @@ const EpisodeProcessingPanel = forwardRef<
   const scheduleStatusInFlight = useRef(false);
   const loadingEpisodeIDs = useRef(new Set<number>());
   const artifactReadSequence = useRef(0);
+  const artifactTabRefs = useRef<
+    Record<ArtifactTab, HTMLButtonElement | null>
+  >({
+    summary: null,
+    transcript: null,
+  });
   const activeEpisodeID = useRef(item.episode_id);
   activeEpisodeID.current = item.episode_id;
 
@@ -232,8 +253,7 @@ const EpisodeProcessingPanel = forwardRef<
     let active = true;
     setDetail(null);
     setAudioAsset(null);
-    setArtifactContent(null);
-    setArtifactContentSetID(null);
+    setArtifactContents(emptyArtifactContents);
     setActiveArtifactTab("summary");
     artifactReadSequence.current += 1;
     setIsLoading(true);
@@ -340,8 +360,15 @@ const EpisodeProcessingPanel = forwardRef<
           kind,
         );
         if (artifactReadSequence.current !== sequence) return;
-        setArtifactContent(content);
-        setArtifactContentSetID(artifactSetId);
+        const tab: ArtifactTab =
+          content.kind === "transcript" ? "transcript" : "summary";
+        setArtifactContents((current) => ({
+          ...current,
+          [tab]: {
+            artifactSetId,
+            content,
+          },
+        }));
       } catch (readError) {
         if (artifactReadSequence.current !== sequence) return;
         setError(
@@ -372,11 +399,12 @@ const EpisodeProcessingPanel = forwardRef<
       : transcriptAvailable
         ? "transcript"
         : null;
+  const selectedArtifactContent = artifactContents[activeArtifactTab];
   const artifactContentMatchesSelection =
     currentArtifact !== undefined &&
     requestedArtifactKind !== null &&
-    artifactContentSetID === currentArtifact.id &&
-    artifactContent?.kind === requestedArtifactKind;
+    selectedArtifactContent?.artifactSetId === currentArtifact.id &&
+    selectedArtifactContent.content.kind === requestedArtifactKind;
   const latestScheduleRun = scheduleStatus?.latest_run;
   const latestScheduleItem = latestScheduleRun?.items.find(
     (scheduleItem) => scheduleItem.episode_id === item.episode_id,
@@ -412,11 +440,95 @@ const EpisodeProcessingPanel = forwardRef<
     : scheduleStatus.enabled
       ? `已启用 · 每批 ${scheduleStatus.batch_size} 集`
       : "未启用";
+  const processingStatusLabel =
+    isLoading && !run && !audioAsset
+      ? "正在读取"
+      : run
+        ? run.current_step === "audio_prepare"
+          ? audioAsset?.status === "downloading"
+            ? "正在准备音频"
+            : "等待准备音频"
+          : statusLabels[run.status]
+        : audioAsset?.status === "queued"
+          ? "等待准备音频"
+          : audioAsset?.status === "downloading"
+            ? "正在准备音频"
+            : audioAsset?.status === "ready"
+              ? "音频已就绪"
+              : audioAsset?.status === "failed"
+                ? "音频准备失败"
+                : "尚未加工";
+  const showArtifactSkeleton =
+    !selectedArtifactContent &&
+    ((isLoading && !currentArtifact) ||
+      (Boolean(currentArtifact) && isReadingArtifact));
+  const artifactReadFailed =
+    typeof error === "string" && error.startsWith("产物读取失败");
+  const canRetryArtifactRead =
+    artifactReadFailed &&
+    currentArtifact !== undefined &&
+    requestedArtifactKind !== null;
+
+  const retryCurrentRead = useCallback(async () => {
+    if (canRetryArtifactRead) {
+      await readArtifact(currentArtifact.id, requestedArtifactKind);
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      await loadLatest();
+      setError(null);
+    } catch (loadError) {
+      setError(
+        `加工状态读取失败，单集内容不受影响：${
+          getProcessingErrorDetails(loadError).message
+        }`,
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [
+    canRetryArtifactRead,
+    currentArtifact,
+    loadLatest,
+    readArtifact,
+    requestedArtifactKind,
+  ]);
+
+  const isArtifactTabAvailable = (tab: ArtifactTab) =>
+    tab === "summary" ? Boolean(summaryKind) : transcriptAvailable;
+
+  const handleArtifactTabKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    currentTab: ArtifactTab,
+  ) => {
+    const enabledTabs = artifactTabs.filter((tab) =>
+      isArtifactTabAvailable(tab.id),
+    );
+    if (enabledTabs.length === 0) return;
+    const currentIndex = enabledTabs.findIndex((tab) => tab.id === currentTab);
+    let nextIndex = currentIndex < 0 ? 0 : currentIndex;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      nextIndex = (nextIndex + 1) % enabledTabs.length;
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      nextIndex = (nextIndex - 1 + enabledTabs.length) % enabledTabs.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = enabledTabs.length - 1;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    const nextTab = enabledTabs[nextIndex].id;
+    setActiveArtifactTab(nextTab);
+    artifactTabRefs.current[nextTab]?.focus();
+  };
 
   useEffect(() => {
     if (!currentArtifact) {
-      setArtifactContent(null);
-      setArtifactContentSetID(null);
+      setArtifactContents(emptyArtifactContents);
       return;
     }
     if (!requestedArtifactKind) {
@@ -428,8 +540,7 @@ const EpisodeProcessingPanel = forwardRef<
       if (fallback && fallback !== activeArtifactTab) {
         setActiveArtifactTab(fallback);
       } else {
-        setArtifactContent(null);
-        setArtifactContentSetID(null);
+        setArtifactContents(emptyArtifactContents);
       }
       return;
     }
@@ -577,6 +688,138 @@ const EpisodeProcessingPanel = forwardRef<
     [headerState, onViewTranscript, retryProcessing, startProcessing],
   );
 
+  const artifactPanelContent = (
+    <>
+      {currentArtifact && (
+        <div className={styles.processingArtifacts}>
+          <div>
+            <strong>
+              {run?.id === currentArtifact.run_id
+                ? "当前成功产物"
+                : "上一成功版本"}
+            </strong>
+            <span>
+              {currentArtifact.pipeline_version} ·{" "}
+              {formatUpdatedAt(currentArtifact.created_at)}
+            </span>
+          </div>
+          {currentArtifact.capabilities.legacy_episode_notes && (
+            <span className={styles.processingHint}>
+              这是旧版纪要；重新转写后可获得妙记纪要和同步逐字稿。
+            </span>
+          )}
+        </div>
+      )}
+
+      {currentArtifact &&
+        !artifactContentMatchesSelection &&
+        isReadingArtifact &&
+        selectedArtifactContent && (
+          <div className={styles.processingHint} role="status">
+            正在读取{activeArtifactTab === "summary" ? "纪要" : "逐字稿"}
+            ，暂时显示上一成功内容…
+          </div>
+        )}
+
+      {showArtifactSkeleton && (
+        <div className={styles.processingDocumentSkeleton} role="status">
+          <span>
+            {isLoading && !currentArtifact
+              ? "正在读取转写状态…"
+              : `正在读取${
+                  activeArtifactTab === "summary" ? "纪要" : "逐字稿"
+                }…`}
+          </span>
+          <div aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </div>
+        </div>
+      )}
+
+      {!currentArtifact && !showArtifactSkeleton && (
+        <div
+          className={`${styles.processingEmpty} ${
+            error ? styles.processingEmptyFailure : ""
+          }`}
+          role={isActive(run) || error ? "status" : undefined}
+        >
+          {error
+            ? "暂时无法确认转写产物，请重试读取。"
+            : isActive(run)
+              ? "转写完成后可在这里阅读纪要和逐字稿。"
+              : "暂无可阅读的转写产物。"}
+        </div>
+      )}
+
+      {currentArtifact &&
+        !selectedArtifactContent &&
+        !showArtifactSkeleton &&
+        artifactReadFailed && (
+          <div
+            className={`${styles.processingEmpty} ${styles.processingEmptyFailure}`}
+            role="status"
+          >
+            暂时无法读取
+            {activeArtifactTab === "summary" ? "纪要" : "逐字稿"}，请重试。
+          </div>
+        )}
+
+      {currentArtifact && selectedArtifactContent && (
+        <div
+          className={`${styles.processingDocument} ${
+            selectedArtifactContent.content.kind === "transcript" &&
+            selectedArtifactContent.content.segments?.length
+              ? styles.processingTranscriptDocument
+              : ""
+          }`}
+          data-copilot-source={
+            selectedArtifactContent.content.kind === "transcript"
+              ? "transcript"
+              : undefined
+          }
+          data-copilot-episode-id={
+            selectedArtifactContent.content.kind === "transcript"
+              ? item.episode_id
+              : undefined
+          }
+        >
+          <div className={styles.metadataLabelRow}>
+            <span>
+              {selectedArtifactContent.content.kind === "transcript"
+                ? `逐字稿${
+                    selectedArtifactContent.content.segments?.length
+                      ? ` · ${selectedArtifactContent.content.segments.length} 段`
+                      : ""
+                  }`
+                : selectedArtifactContent.content.kind === "minutes_summary"
+                  ? "纪要"
+                  : "旧版纪要"}
+            </span>
+            {selectedArtifactContent.content.kind === "transcript" && (
+              <span>
+                {selectedArtifactContent.content.media_available
+                  ? "音频可用"
+                  : "音频不可用"}
+              </span>
+            )}
+          </div>
+          {selectedArtifactContent.content.kind === "transcript" &&
+          selectedArtifactContent.content.segments?.length ? (
+            <TranscriptAudioPlayer
+              artifactSetId={selectedArtifactContent.artifactSetId}
+              segments={selectedArtifactContent.content.segments}
+              mediaAvailable={selectedArtifactContent.content.media_available}
+            />
+          ) : (
+            <MarkdownViewer content={selectedArtifactContent.content.content} />
+          )}
+        </div>
+      )}
+    </>
+  );
+
   return (
     <section
       className={styles.processingSection}
@@ -596,9 +839,15 @@ const EpisodeProcessingPanel = forwardRef<
           <button
             type="button"
             className={styles.iconButton}
-            disabled={isLoading}
-            onClick={() => void loadLatest()}
-            aria-label="重试读取加工状态"
+            disabled={isLoading || isReadingArtifact}
+            onClick={() => void retryCurrentRead()}
+            aria-label={
+              canRetryArtifactRead
+                ? `重试读取${
+                    activeArtifactTab === "summary" ? "纪要" : "逐字稿"
+                  }`
+                : "重试读取加工状态"
+            }
             title="重试"
           >
             <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
@@ -607,138 +856,6 @@ const EpisodeProcessingPanel = forwardRef<
       )}
 
       <div className={styles.processingSummary}>
-        <dl>
-          <div>
-            <dt>状态</dt>
-            <dd>
-              {run
-                ? run.current_step === "audio_prepare"
-                  ? audioAsset?.status === "downloading"
-                    ? "正在准备音频"
-                    : "等待准备音频"
-                  : statusLabels[run.status]
-                : audioAsset?.status === "queued"
-                  ? "等待准备音频"
-                  : audioAsset?.status === "downloading"
-                    ? "正在准备音频"
-                    : audioAsset?.status === "ready"
-                      ? "音频已就绪"
-                      : audioAsset?.status === "failed"
-                        ? "音频准备失败"
-                        : "尚未加工"}
-            </dd>
-          </div>
-          <div>
-            <dt>当前步骤</dt>
-            <dd>
-              {run?.current_step
-                ? stepLabels[run.current_step] || run.current_step
-                : "—"}
-            </dd>
-          </div>
-          <div>
-            <dt>来源</dt>
-            <dd>飞书妙记</dd>
-          </div>
-          <div>
-            <dt>最近更新</dt>
-            <dd>
-              {formatUpdatedAt(run?.updated_at || audioAsset?.updated_at)}
-            </dd>
-          </div>
-          <div>
-            <dt>定时计划</dt>
-            <dd>{scheduleSummary}</dd>
-          </div>
-          <div>
-            <dt>下次计划</dt>
-            <dd>
-              {scheduleStatus?.enabled
-                ? formatUpdatedAt(scheduleStatus.next_run_at)
-                : "—"}
-            </dd>
-          </div>
-        </dl>
-
-        {scheduleError && (
-          <div className={styles.processingHint} role="status">
-            {scheduleError}
-          </div>
-        )}
-        {scheduleStatus?.enabled && (
-          <div className={styles.processingHint}>
-            <strong>定时配置</strong>
-            <span>
-              cron：{scheduleStatus.cron} · 时区：{scheduleStatus.timezone} ·
-              每批 {scheduleStatus.batch_size} 集
-            </span>
-            <span>修改主机配置并重启服务后生效。</span>
-          </div>
-        )}
-        {latestScheduleRun && (
-          <div className={styles.processingHint}>
-            <strong>
-              最近定时：
-              {scheduleStatusLabels[latestScheduleRun.run.status] ||
-                latestScheduleRun.run.status}
-            </strong>
-            <span>
-              {formatUpdatedAt(latestScheduleRun.run.scheduled_for)} · 已入队{" "}
-              {latestScheduleRun.run.started_count} 集 · 跳过{" "}
-              {latestScheduleRun.run.skipped_count} 集
-            </span>
-            {latestScheduleItem && (
-              <span>
-                {latestScheduleItemPending
-                  ? "此集正在确认加工资格"
-                  : latestScheduleItem.outcome === "started"
-                    ? "此集已加入加工队列"
-                    : `此集跳过：${
-                        scheduleSkipLabels[latestScheduleItem.reason || ""] ||
-                        latestScheduleItem.reason ||
-                        "未满足条件"
-                      }`}
-              </span>
-            )}
-            {latestScheduleRun.run.error_message && (
-              <span>{latestScheduleRun.run.error_message}</span>
-            )}
-          </div>
-        )}
-
-        {isActive(run) && run.next_attempt_at && (
-          <div className={styles.processingHint} role="status">
-            自动重试：{formatUpdatedAt(run.next_attempt_at)}（已尝试{" "}
-            {run.attempt_count}/{run.max_attempts} 次）
-          </div>
-        )}
-
-        {run?.error_message && (
-          <div
-            className={
-              run.status === "cancelled"
-                ? styles.processingCancellation
-                : styles.processingFailure
-            }
-            role={run.status === "cancelled" ? "status" : undefined}
-          >
-            <strong>{run.error_code || "PROCESSING_FAILED"}</strong>
-            <span>{run.error_message}</span>
-            {detail?.action_suggestion && (
-              <span>{detail.action_suggestion}</span>
-            )}
-          </div>
-        )}
-        {!run && audioAsset?.error_message && (
-          <div className={styles.processingFailure}>
-            <strong>
-              {audioAsset.error_code || "AUDIO_PREPARATION_FAILED"}
-            </strong>
-            <span>{audioAsset.error_message}</span>
-            <span>修正音频来源后可重新开始；失败文件不会保留。</span>
-          </div>
-        )}
-
         <div className={styles.processingActions}>
           {canStart && !audioPreparing && (
             <button
@@ -800,136 +917,192 @@ const EpisodeProcessingPanel = forwardRef<
           role="tablist"
           aria-label="转写产物"
         >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeArtifactTab === "summary"}
-            disabled={!summaryKind}
-            onClick={() => setActiveArtifactTab("summary")}
-          >
-            纪要
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeArtifactTab === "transcript"}
-            disabled={!transcriptAvailable}
-            onClick={() => setActiveArtifactTab("transcript")}
-          >
-            逐字稿
-          </button>
+          {artifactTabs.map((tab) => {
+            const selected = activeArtifactTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                ref={(node) => {
+                  artifactTabRefs.current[tab.id] = node;
+                }}
+                id={`processing-artifact-tab-${tab.id}`}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                aria-controls={`processing-artifact-panel-${tab.id}`}
+                tabIndex={selected ? 0 : -1}
+                disabled={!isArtifactTabAvailable(tab.id)}
+                onClick={() => setActiveArtifactTab(tab.id)}
+                onKeyDown={(event) =>
+                  handleArtifactTabKeyDown(event, tab.id)
+                }
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
 
-        {!currentArtifact && (
+        {artifactTabs.map((tab) => (
           <div
-            className={styles.processingHint}
-            role={isActive(run) ? "status" : undefined}
+            key={tab.id}
+            id={`processing-artifact-panel-${tab.id}`}
+            className={styles.processingArtifactPanel}
+            role="tabpanel"
+            aria-labelledby={`processing-artifact-tab-${tab.id}`}
+            aria-busy={activeArtifactTab === tab.id && showArtifactSkeleton}
+            tabIndex={0}
+            hidden={activeArtifactTab !== tab.id}
           >
-            {isActive(run)
-              ? "转写完成后可在这里阅读纪要和逐字稿。"
-              : "暂无可阅读的转写产物。"}
+            {activeArtifactTab === tab.id && artifactPanelContent}
           </div>
-        )}
-        {currentArtifact &&
-          !artifactContentMatchesSelection &&
-          isReadingArtifact && (
+        ))}
+      </div>
+
+      <details className={styles.processingDiagnostics}>
+        <summary>
+          <span>加工状态</span>
+          <span>{processingStatusLabel}</span>
+        </summary>
+        <div className={styles.processingDiagnosticsBody}>
+          <dl>
+            <div>
+              <dt>详细状态</dt>
+              <dd>当前：{processingStatusLabel}</dd>
+            </div>
+            <div>
+              <dt>当前步骤</dt>
+              <dd>
+                {run?.current_step
+                  ? stepLabels[run.current_step] || run.current_step
+                  : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt>来源</dt>
+              <dd>飞书妙记</dd>
+            </div>
+            <div>
+              <dt>最近更新</dt>
+              <dd>
+                {formatUpdatedAt(run?.updated_at || audioAsset?.updated_at)}
+              </dd>
+            </div>
+            <div>
+              <dt>定时计划</dt>
+              <dd>{scheduleSummary}</dd>
+            </div>
+            <div>
+              <dt>下次计划</dt>
+              <dd>
+                {scheduleStatus?.enabled
+                  ? formatUpdatedAt(scheduleStatus.next_run_at)
+                  : "—"}
+              </dd>
+            </div>
+          </dl>
+
+          {scheduleError && (
             <div className={styles.processingHint} role="status">
-              正在读取{activeArtifactTab === "summary" ? "纪要" : "逐字稿"}…
+              {scheduleError}
+            </div>
+          )}
+          {scheduleStatus?.enabled && (
+            <div className={styles.processingHint}>
+              <strong>定时配置</strong>
+              <span>
+                cron：{scheduleStatus.cron} · 时区：{scheduleStatus.timezone} ·
+                每批 {scheduleStatus.batch_size} 集
+              </span>
+              <span>修改主机配置并重启服务后生效。</span>
+            </div>
+          )}
+          {latestScheduleRun && (
+            <div className={styles.processingHint}>
+              <strong>
+                最近定时：
+                {scheduleStatusLabels[latestScheduleRun.run.status] ||
+                  latestScheduleRun.run.status}
+              </strong>
+              <span>
+                {formatUpdatedAt(latestScheduleRun.run.scheduled_for)} · 已入队{" "}
+                {latestScheduleRun.run.started_count} 集 · 跳过{" "}
+                {latestScheduleRun.run.skipped_count} 集
+              </span>
+              {latestScheduleItem && (
+                <span>
+                  {latestScheduleItemPending
+                    ? "此集正在确认加工资格"
+                    : latestScheduleItem.outcome === "started"
+                      ? "此集已加入加工队列"
+                      : `此集跳过：${
+                          scheduleSkipLabels[latestScheduleItem.reason || ""] ||
+                          latestScheduleItem.reason ||
+                          "未满足条件"
+                        }`}
+                </span>
+              )}
+              {latestScheduleRun.run.error_message && (
+                <span>{latestScheduleRun.run.error_message}</span>
+              )}
             </div>
           )}
 
-        {currentArtifact && (
-          <div className={styles.processingArtifacts}>
-            <div>
+          {isActive(run) && run.next_attempt_at && (
+            <div className={styles.processingHint} role="status">
+              自动重试：{formatUpdatedAt(run.next_attempt_at)}（已尝试{" "}
+              {run.attempt_count}/{run.max_attempts} 次）
+            </div>
+          )}
+
+          {run?.error_message && (
+            <div
+              className={
+                run.status === "cancelled"
+                  ? styles.processingCancellation
+                  : styles.processingFailure
+              }
+              role={run.status === "cancelled" ? "status" : undefined}
+            >
+              <strong>{run.error_code || "PROCESSING_FAILED"}</strong>
+              <span>{run.error_message}</span>
+              {detail?.action_suggestion && (
+                <span>{detail.action_suggestion}</span>
+              )}
+            </div>
+          )}
+          {!run && audioAsset?.error_message && (
+            <div className={styles.processingFailure}>
               <strong>
-                {run?.id === currentArtifact.run_id
-                  ? "当前成功产物"
-                  : "上一成功版本"}
+                {audioAsset.error_code || "AUDIO_PREPARATION_FAILED"}
               </strong>
-              <span>
-                {currentArtifact.pipeline_version} ·{" "}
-                {formatUpdatedAt(currentArtifact.created_at)}
-              </span>
+              <span>{audioAsset.error_message}</span>
+              <span>修正音频来源后可重新开始；失败文件不会保留。</span>
             </div>
-            {currentArtifact.capabilities.legacy_episode_notes && (
-              <span className={styles.processingHint}>
-                这是旧版纪要；重新转写后可获得妙记纪要和同步逐字稿。
-              </span>
-            )}
-          </div>
-        )}
+          )}
 
-        {detail && detail.deliveries.length > 0 && (
-          <div className={styles.processingArtifacts}>
-            <div>
-              <strong>知识交付</strong>
-              {detail.deliveries.map((delivery) => (
-                <span key={delivery.id}>
-                  {delivery.target} · {delivery.destination} ·{" "}
-                  {deliveryStatusLabels[delivery.status] || delivery.status}
-                </span>
-              ))}
-            </div>
-            {detail.deliveries.some(
-              (delivery) => delivery.status === "pending",
-            ) && (
-              <span className={styles.processingHint}>
-                本地包已保存，可按说明人工导入。
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {currentArtifact &&
-        artifactContentMatchesSelection &&
-        artifactContent && (
-          <div
-            className={`${styles.processingDocument} ${
-              artifactContent.kind === "transcript" &&
-              artifactContent.segments?.length
-                ? styles.processingTranscriptDocument
-                : ""
-            }`}
-            data-copilot-source={
-              artifactContent.kind === "transcript" ? "transcript" : undefined
-            }
-            data-copilot-episode-id={
-              artifactContent.kind === "transcript"
-                ? item.episode_id
-                : undefined
-            }
-          >
-            <div className={styles.metadataLabelRow}>
-              <span>
-                {artifactContent.kind === "transcript"
-                  ? `逐字稿${
-                      artifactContent.segments?.length
-                        ? ` · ${artifactContent.segments.length} 段`
-                        : ""
-                    }`
-                  : artifactContent.kind === "minutes_summary"
-                    ? "纪要"
-                    : "旧版纪要"}
-              </span>
-              {artifactContent.kind === "transcript" && (
-                <span>
-                  {artifactContent.media_available ? "音频可用" : "音频不可用"}
+          {detail && detail.deliveries.length > 0 && (
+            <div className={styles.processingArtifacts}>
+              <div>
+                <strong>知识交付</strong>
+                {detail.deliveries.map((delivery) => (
+                  <span key={delivery.id}>
+                    {delivery.target} · {delivery.destination} ·{" "}
+                    {deliveryStatusLabels[delivery.status] || delivery.status}
+                  </span>
+                ))}
+              </div>
+              {detail.deliveries.some(
+                (delivery) => delivery.status === "pending",
+              ) && (
+                <span className={styles.processingHint}>
+                  本地包已保存，可按说明人工导入。
                 </span>
               )}
             </div>
-            {artifactContent.kind === "transcript" &&
-            artifactContent.segments?.length ? (
-              <TranscriptAudioPlayer
-                artifactSetId={currentArtifact.id}
-                segments={artifactContent.segments}
-                mediaAvailable={artifactContent.media_available}
-              />
-            ) : (
-              <MarkdownViewer content={artifactContent.content} />
-            )}
-          </div>
-        )}
+          )}
+        </div>
+      </details>
     </section>
   );
 });

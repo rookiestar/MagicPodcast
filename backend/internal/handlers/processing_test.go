@@ -711,6 +711,22 @@ func TestProcessingArtifactHTTPContractForNativeAndLegacyArtifacts(t *testing.T)
 	require.NoError(t, db.Model(&models.EpisodeAudioAsset{}).
 		Where("id = ?", queuedAudio.Asset.ID).
 		Update("sha256", audioDigest).Error)
+	tamperedAudioBody := bytes.Repeat([]byte("x"), len(audioBody))
+	require.NotEqual(t, audioBody, tamperedAudioBody)
+	require.NoError(t, os.WriteFile(audioPath, tamperedAudioBody, 0o600))
+	tamperedAt := time.Now().Add(time.Second)
+	require.NoError(t, os.Chtimes(audioPath, tamperedAt, tamperedAt))
+	assertAudioAvailability(router, false)
+	response = requestArtifactAudio(http.MethodGet, "")
+	require.Equal(t, http.StatusConflict, response.Code)
+	require.Contains(t, response.Body.String(), "ARTIFACT_AUDIO_MISMATCH")
+	assertSafeAudioFailure(response)
+
+	require.NoError(t, os.WriteFile(audioPath, audioBody, 0o600))
+	restoredAt := tamperedAt.Add(time.Second)
+	require.NoError(t, os.Chtimes(audioPath, restoredAt, restoredAt))
+	assertAudioAvailability(router, true)
+
 	require.NoError(t, os.WriteFile(audioPath, append(audioBody, 'x'), 0o600))
 	assertAudioAvailability(router, false)
 	response = requestArtifactAudio(http.MethodGet, "")
