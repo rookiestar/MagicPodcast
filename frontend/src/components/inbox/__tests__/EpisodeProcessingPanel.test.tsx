@@ -5,8 +5,11 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { createRef, type RefObject } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import EpisodeProcessingPanel from "../EpisodeProcessingPanel";
+import EpisodeProcessingPanel, {
+  type EpisodeProcessingPanelHandle,
+} from "../EpisodeProcessingPanel";
 import type { ConsumptionItem } from "@/types/consumption";
 import type {
   ArtifactContent,
@@ -115,12 +118,30 @@ function detail(run: ProcessingRun = failedRun): ProcessingRunDetail {
   };
 }
 
-function openProcessingDiagnostics() {
-  const summary = screen.getByText("加工状态").closest("summary");
+async function openProcessingDiagnostics() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const summary = screen.getByText("运行详情").closest("summary");
   if (!summary) throw new Error("processing diagnostics summary not found");
   if (!summary.parentElement?.hasAttribute("open")) {
     fireEvent.click(summary);
   }
+}
+
+function renderWithPrimaryAction() {
+  const panelRef = createRef<EpisodeProcessingPanelHandle>();
+  const result = render(<EpisodeProcessingPanel ref={panelRef} item={item} />);
+  return { ...result, panelRef };
+}
+
+function activatePrimary(
+  panelRef: RefObject<EpisodeProcessingPanelHandle | null>,
+) {
+  act(() => panelRef.current?.activatePrimary());
 }
 
 describe("EpisodeProcessingPanel", () => {
@@ -155,29 +176,33 @@ describe("EpisodeProcessingPanel", () => {
       }),
     );
 
-    render(<EpisodeProcessingPanel item={item} />);
-
-    expect(screen.getByRole("heading", { name: "自动加工" })).toBeVisible();
-    expect(screen.getByText("正在读取转写状态…")).toBeVisible();
-    expect(screen.getByRole("tabpanel", { name: "纪要" })).toHaveAttribute(
-      "aria-busy",
-      "true",
+    const onHeaderStateChange = vi.fn();
+    render(
+      <EpisodeProcessingPanel
+        item={item}
+        onHeaderStateChange={onHeaderStateChange}
+      />,
     );
-    expect(
-      screen.getByText("加工状态").closest("details"),
-    ).not.toHaveAttribute("open");
-    expect(
-      screen.queryByText("暂无可阅读的转写产物。"),
-    ).not.toBeInTheDocument();
+
+    expect(screen.queryByText("自动加工")).not.toBeInTheDocument();
+    expect(screen.getByText("正在读取转写内容")).toBeVisible();
+    expect(screen.queryByRole("tab", { name: "纪要" })).not.toBeInTheDocument();
+    expect(screen.queryByText("运行详情")).not.toBeInTheDocument();
 
     await act(async () => {
       resolveRuns([]);
     });
-    await waitFor(() =>
-      expect(screen.queryByText("正在读取…")).not.toBeInTheDocument(),
+    await waitFor(() => expect(screen.getByText("暂无转写记录")).toBeVisible());
+    expect(
+      screen.queryByRole("button", { name: "开始转写" }),
+    ).not.toBeInTheDocument();
+    expect(onHeaderStateChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        action: "start",
+        primaryLabel: "开始转写",
+        showTranscriptTab: false,
+      }),
     );
-    expect(screen.getByText("暂无可阅读的转写产物。")).toBeVisible();
-    expect(screen.getByRole("button", { name: "开始转写" })).toBeEnabled();
   });
 
   it("clears the previous episode state before a slow identity switch", async () => {
@@ -191,8 +216,7 @@ describe("EpisodeProcessingPanel", () => {
       );
     apiMocks.getRun.mockResolvedValue(detail());
     const { rerender } = render(<EpisodeProcessingPanel item={item} />);
-    expect(await screen.findByText("加工失败")).toBeVisible();
-    expect(screen.getByText("上一成功版本")).toBeVisible();
+    expect(await screen.findByText("上一成功版本")).toBeVisible();
 
     rerender(
       <EpisodeProcessingPanel
@@ -200,19 +224,12 @@ describe("EpisodeProcessingPanel", () => {
       />,
     );
 
-    expect(screen.queryByText("加工失败")).not.toBeInTheDocument();
     expect(screen.queryByText("上一成功版本")).not.toBeInTheDocument();
-    expect(screen.getByText("正在读取转写状态…")).toBeVisible();
-    expect(
-      screen.queryByText("暂无可阅读的转写产物。"),
-    ).not.toBeInTheDocument();
+    expect(screen.getByText("正在读取转写内容")).toBeVisible();
     await act(async () => {
       resolveSecond([]);
     });
-    await waitFor(() =>
-      expect(screen.queryByText("正在读取…")).not.toBeInTheDocument(),
-    );
-    expect(screen.getByText("尚未加工")).toBeVisible();
+    await waitFor(() => expect(screen.getByText("暂无转写记录")).toBeVisible());
   });
 
   it("ignores a stale processing response after switching episodes", async () => {
@@ -241,8 +258,7 @@ describe("EpisodeProcessingPanel", () => {
     });
 
     expect(apiMocks.getRun).not.toHaveBeenCalled();
-    expect(screen.queryByText("加工失败")).not.toBeInTheDocument();
-    expect(screen.getByText("尚未加工")).toBeVisible();
+    expect(screen.getByText("暂无转写记录")).toBeVisible();
   });
 
   it("reports status failures without hiding the panel controls", async () => {
@@ -255,24 +271,16 @@ describe("EpisodeProcessingPanel", () => {
     expect(
       await screen.findByText("加工状态读取失败，单集内容不受影响：网络超时"),
     ).toBeVisible();
-    expect(screen.getByText("尚未加工")).toBeVisible();
+    expect(screen.getByText("转写信息暂时不可用")).toBeVisible();
     expect(
-      screen.getByText("暂时无法确认转写产物，请重试读取。"),
-    ).toBeVisible();
-    expect(
-      screen.queryByText("暂无可阅读的转写产物。"),
+      screen.queryByRole("button", { name: "开始转写" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "开始转写" })).toBeEnabled();
     expect(
       screen.getByRole("button", { name: "重试读取加工状态" }),
     ).toBeEnabled();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "重试读取加工状态" }),
-    );
-    expect(
-      await screen.findByText("暂无可阅读的转写产物。"),
-    ).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "重试读取加工状态" }));
+    expect(await screen.findByText("暂无转写记录")).toBeVisible();
     expect(
       screen.queryByText("加工状态读取失败，单集内容不受影响：网络超时"),
     ).not.toBeInTheDocument();
@@ -315,7 +323,7 @@ describe("EpisodeProcessingPanel", () => {
     });
 
     render(<EpisodeProcessingPanel item={item} />);
-    openProcessingDiagnostics();
+    await openProcessingDiagnostics();
 
     expect(await screen.findByText("已启用 · 每批 1 集")).toBeVisible();
     expect(
@@ -362,7 +370,7 @@ describe("EpisodeProcessingPanel", () => {
     });
 
     render(<EpisodeProcessingPanel item={item} />);
-    openProcessingDiagnostics();
+    await openProcessingDiagnostics();
 
     expect(await screen.findByText("最近定时：正在选择候选")).toBeVisible();
     expect(screen.getByText("此集正在确认加工资格")).toBeVisible();
@@ -399,7 +407,7 @@ describe("EpisodeProcessingPanel", () => {
         );
 
       render(<EpisodeProcessingPanel item={item} />);
-      openProcessingDiagnostics();
+      await openProcessingDiagnostics();
       await act(async () => {
         await Promise.resolve();
         await Promise.resolve();
@@ -453,7 +461,7 @@ describe("EpisodeProcessingPanel", () => {
         );
 
       render(<EpisodeProcessingPanel item={item} />);
-      openProcessingDiagnostics();
+      await openProcessingDiagnostics();
       await act(async () => {
         await Promise.resolve();
         await Promise.resolve();
@@ -508,7 +516,7 @@ describe("EpisodeProcessingPanel", () => {
         .mockRejectedValueOnce(new Error("定时网络超时"));
 
       render(<EpisodeProcessingPanel item={item} />);
-      openProcessingDiagnostics();
+      await openProcessingDiagnostics();
       await act(async () => {
         await Promise.resolve();
         await Promise.resolve();
@@ -537,21 +545,31 @@ describe("EpisodeProcessingPanel", () => {
       }),
     );
 
-    render(<EpisodeProcessingPanel item={item} />);
-    openProcessingDiagnostics();
+    const onHeaderStateChange = vi.fn();
+    render(
+      <EpisodeProcessingPanel
+        item={item}
+        onHeaderStateChange={onHeaderStateChange}
+      />,
+    );
 
-    expect(screen.getAllByText("正在读取…").length).toBeGreaterThan(0);
-    expect(
-      await screen.findByRole("button", { name: "开始转写" }),
-    ).toBeEnabled();
+    await waitFor(() =>
+      expect(onHeaderStateChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ action: "start", primaryDisabled: false }),
+      ),
+    );
+    expect(screen.queryByText("运行详情")).not.toBeInTheDocument();
 
     rejectSchedule(new Error("定时网络超时"));
+    await openProcessingDiagnostics();
     expect(
       await screen.findByText("定时计划暂时无法读取：定时网络超时"),
     ).toBeVisible();
     expect(screen.getByText("定时状态暂时不可用")).toBeVisible();
     expect(screen.queryByText("未启用")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "开始转写" })).toBeEnabled();
+    expect(onHeaderStateChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ action: "start", primaryDisabled: false }),
+    );
   });
 
   it("does not disguise managed-audio read failures as an empty first visit", async () => {
@@ -592,9 +610,9 @@ describe("EpisodeProcessingPanel", () => {
     apiMocks.getRun.mockResolvedValue(detail(retryingRun));
 
     render(<EpisodeProcessingPanel item={item} />);
-    openProcessingDiagnostics();
+    await openProcessingDiagnostics();
 
-    expect(await screen.findByText("等待飞书转写")).toBeVisible();
+    expect(screen.getAllByText("等待飞书转写").length).toBeGreaterThan(0);
     expect(screen.getByText(/自动重试：.*已尝试 2\/3 次/)).toBeVisible();
     expect(screen.getByRole("button", { name: "取消" })).toBeEnabled();
   });
@@ -617,10 +635,9 @@ describe("EpisodeProcessingPanel", () => {
       reused_successful: false,
       preparing_audio: false,
     });
-    const { container } = render(<EpisodeProcessingPanel item={item} />);
+    const { container, panelRef } = renderWithPrimaryAction();
 
-    expect(await screen.findByText("加工失败")).toBeVisible();
-    expect(screen.getByText("上一成功版本")).toBeVisible();
+    expect(await screen.findByText("上一成功版本")).toBeVisible();
     expect(
       screen.getByText("这是旧版纪要；重新转写后可获得妙记纪要和同步逐字稿。"),
     ).toBeVisible();
@@ -630,7 +647,10 @@ describe("EpisodeProcessingPanel", () => {
       container.querySelector('[data-copilot-source="transcript"]'),
     ).toHaveAttribute("data-copilot-episode-id", "201");
 
-    fireEvent.click(screen.getByRole("button", { name: "重试转写" }));
+    expect(
+      screen.queryByRole("button", { name: "重试转写" }),
+    ).not.toBeInTheDocument();
+    activatePrimary(panelRef);
     await waitFor(() => expect(apiMocks.retry).toHaveBeenCalledWith(31));
     await waitFor(() => expect(apiMocks.getRun).toHaveBeenCalledWith(32));
   });
@@ -645,29 +665,22 @@ describe("EpisodeProcessingPanel", () => {
       }),
     );
 
-    render(<EpisodeProcessingPanel item={item} />);
+    const { panelRef } = renderWithPrimaryAction();
 
-    expect(await screen.findByText("加工失败")).toBeVisible();
     expect(await screen.findByText("# 旧版纪要")).toBeVisible();
-    const reprocess = screen.getByRole("button", { name: "重新转写" });
     expect(
-      screen.queryByRole("button", { name: "重试转写" }),
+      screen.queryByRole("button", { name: "重新转写" }),
     ).not.toBeInTheDocument();
 
-    fireEvent.click(reprocess);
-    expect(reprocess).toBeDisabled();
-    expect(screen.getByText("正在提交…")).toBeVisible();
+    activatePrimary(panelRef);
+    await waitFor(() => expect(apiMocks.start).toHaveBeenCalledTimes(1));
     expect(screen.getByText("# 旧版纪要")).toBeVisible();
-    fireEvent.click(reprocess);
-    expect(apiMocks.start).toHaveBeenCalledTimes(1);
     expect(apiMocks.start).toHaveBeenCalledWith(item.episode_id);
     expect(apiMocks.retry).not.toHaveBeenCalled();
 
     rejectStart(new Error("新转写启动失败"));
     expect(await screen.findByText("新转写启动失败")).toBeVisible();
-    expect(screen.getByText("加工失败")).toBeVisible();
     expect(screen.getByText("# 旧版纪要")).toBeVisible();
-    expect(reprocess).toBeEnabled();
   });
 
   it("starts v2 for a terminal legacy run without an artifact", async () => {
@@ -693,14 +706,13 @@ describe("EpisodeProcessingPanel", () => {
       preparing_audio: false,
     });
 
-    render(<EpisodeProcessingPanel item={item} />);
+    const { panelRef } = renderWithPrimaryAction();
 
-    expect(await screen.findByText("加工失败")).toBeVisible();
-    const reprocess = screen.getByRole("button", { name: "重新转写" });
+    expect(await screen.findByText("转写失败")).toBeVisible();
     expect(
-      screen.queryByRole("button", { name: "重试转写" }),
+      screen.queryByRole("button", { name: "重新转写" }),
     ).not.toBeInTheDocument();
-    fireEvent.click(reprocess);
+    activatePrimary(panelRef);
     await waitFor(() =>
       expect(apiMocks.start).toHaveBeenCalledWith(item.episode_id),
     );
@@ -785,10 +797,7 @@ describe("EpisodeProcessingPanel", () => {
     expect(await screen.findByText("# 妙记纪要")).toBeVisible();
     const summaryTab = screen.getByRole("tab", { name: "纪要" });
     const transcriptTab = screen.getByRole("tab", { name: "逐字稿" });
-    expect(summaryTab).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(summaryTab).toHaveAttribute("aria-selected", "true");
     expect(summaryTab).toHaveAttribute(
       "aria-controls",
       "processing-artifact-panel-summary",
@@ -945,7 +954,7 @@ describe("EpisodeProcessingPanel", () => {
 
     render(<EpisodeProcessingPanel item={item} />);
 
-    expect(await screen.findByText("加工失败")).toBeVisible();
+    expect(await screen.findByText("# 旧版纪要")).toBeVisible();
     expect(
       screen.queryByRole("button", { name: "重试转写" }),
     ).not.toBeInTheDocument();
@@ -980,11 +989,10 @@ describe("EpisodeProcessingPanel", () => {
       preparing_audio: false,
     });
 
-    render(<EpisodeProcessingPanel item={item} />);
+    const { panelRef } = renderWithPrimaryAction();
 
-    expect(await screen.findByText("加工失败")).toBeVisible();
-    const restart = screen.getByRole("button", { name: "重新转写" });
-    fireEvent.click(restart);
+    expect(await screen.findByText("# 旧版纪要")).toBeVisible();
+    activatePrimary(panelRef);
     await waitFor(() =>
       expect(apiMocks.start).toHaveBeenCalledWith(item.episode_id),
     );
@@ -1022,9 +1030,9 @@ describe("EpisodeProcessingPanel", () => {
     });
 
     render(<EpisodeProcessingPanel item={item} />);
-    openProcessingDiagnostics();
+    await openProcessingDiagnostics();
 
-    expect(await screen.findByText("已完成")).toBeVisible();
+    expect((await screen.findAllByText("已完成")).length).toBeGreaterThan(0);
     expect(screen.getByText("知识交付")).toBeVisible();
     expect(
       screen.getByText("ima · manual-import · 包已生成 / 待人工导入"),
@@ -1046,9 +1054,9 @@ describe("EpisodeProcessingPanel", () => {
     apiMocks.getRun.mockResolvedValue(detail(cancelledRun));
 
     render(<EpisodeProcessingPanel item={item} />);
-    openProcessingDiagnostics();
+    await openProcessingDiagnostics();
 
-    expect(await screen.findByText("已取消")).toBeVisible();
+    expect((await screen.findAllByText("已取消")).length).toBeGreaterThan(0);
     expect(
       screen.getByText("飞书端任务可能继续", { exact: false }),
     ).toBeVisible();
@@ -1088,11 +1096,10 @@ describe("EpisodeProcessingPanel", () => {
       preparing_audio: false,
     });
 
-    render(<EpisodeProcessingPanel item={item} />);
+    const { panelRef } = renderWithPrimaryAction();
 
-    expect(await screen.findByText("已取消")).toBeVisible();
-    const restart = screen.getByRole("button", { name: "重新转写" });
-    fireEvent.click(restart);
+    expect(await screen.findByText("# 旧版纪要")).toBeVisible();
+    activatePrimary(panelRef);
     await waitFor(() =>
       expect(apiMocks.start).toHaveBeenCalledWith(item.episode_id),
     );
@@ -1130,17 +1137,15 @@ describe("EpisodeProcessingPanel", () => {
       },
     });
 
-    render(<EpisodeProcessingPanel item={item} />);
-    expect(
-      await screen.findByRole("button", { name: "开始转写" }),
-    ).toBeEnabled();
+    const { panelRef } = renderWithPrimaryAction();
+    expect(await screen.findByText("暂无转写记录")).toBeVisible();
 
-    fireEvent.click(screen.getByRole("button", { name: "开始转写" }));
-    openProcessingDiagnostics();
+    activatePrimary(panelRef);
+    await openProcessingDiagnostics();
 
-    expect(await screen.findByText("等待准备音频")).toBeVisible();
+    expect(screen.getAllByText("等待准备音频").length).toBeGreaterThan(0);
     expect(screen.getByText("准备与校验音频")).toBeVisible();
-    expect(screen.getByText("正在下载并校验音频…")).toBeVisible();
+    expect(screen.getByText("音频就绪后会自动提交飞书妙记。")).toBeVisible();
     expect(screen.getByRole("button", { name: "取消" })).toBeEnabled();
     expect(apiMocks.start).toHaveBeenCalledWith(item.episode_id);
     expect(apiMocks.getRun).toHaveBeenCalledWith(pendingRun.id);

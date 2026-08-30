@@ -201,9 +201,16 @@ describe("ConsumptionDetailPanel", () => {
     expect(
       screen.queryByRole("heading", { name: "单集助手" }),
     ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "单集助手" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "单集助手" })).toHaveTextContent(
+      "AI",
+    );
     expect(
-      screen.getByRole("button", { name: "单集助手" }),
-    ).toHaveAttribute("aria-expanded", "false");
+      container.querySelector('summary[aria-label="更多操作"]'),
+    ).not.toHaveTextContent("更多操作");
     expect(
       container.querySelector('[data-copilot-source="show_notes"]'),
     ).toHaveAttribute("data-copilot-episode-id", "201");
@@ -213,15 +220,11 @@ describe("ConsumptionDetailPanel", () => {
     });
   });
 
-  it("provides a stable three-tab reading framework with keyboard navigation", async () => {
+  it("hides the unstarted transcript and navigates only visible tabs", async () => {
     renderDetail();
 
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual([
-      "Show Notes",
-      "转写",
-      "笔记",
-    ]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Show Notes", "笔记"]);
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel", { name: "Show Notes" })).toBeVisible();
     expect(screen.queryByText("YOUR CONTEXT")).not.toBeInTheDocument();
@@ -230,15 +233,9 @@ describe("ConsumptionDetailPanel", () => {
     fireEvent.keyDown(tabs[0], { key: "ArrowRight" });
     await waitFor(() => expect(tabs[1]).toHaveFocus());
     expect(tabs[1]).toHaveAttribute("aria-selected", "true");
-    expect(
-      screen.getByRole("heading", { name: "自动加工" }),
-    ).toBeVisible();
-
-    fireEvent.keyDown(tabs[1], { key: "End" });
-    await waitFor(() => expect(tabs[2]).toHaveFocus());
-    expect(
-      screen.getByRole("heading", { name: "备注与标签" }),
-    ).toBeVisible();
+    expect(screen.queryByText("备注与标签")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "备注" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "标签" })).toBeVisible();
   });
 
   it("exposes the current transcription action in the compact header", async () => {
@@ -265,6 +262,7 @@ describe("ConsumptionDetailPanel", () => {
     await waitFor(() =>
       expect(apiMocks.startProcessing).toHaveBeenCalledWith(item.episode_id),
     );
+    expect(await screen.findByRole("tab", { name: "转写" })).toBeVisible();
     expect(
       await screen.findByRole("status", { name: "转写状态：准备音频" }),
     ).toBeVisible();
@@ -272,6 +270,15 @@ describe("ConsumptionDetailPanel", () => {
     expect(
       screen.queryByRole("link", { name: "原节目" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps the idle transcription status concise", async () => {
+    renderDetail();
+
+    expect(
+      await screen.findByRole("status", { name: "转写状态：未转写" }),
+    ).toBeVisible();
+    expect(screen.queryByText("可开始飞书妙记转写")).not.toBeInTheDocument();
   });
 
   it("keeps identity, tabs, and Show Notes visible while regional requests are slow", () => {
@@ -283,9 +290,7 @@ describe("ConsumptionDetailPanel", () => {
 
     renderDetail();
 
-    expect(
-      screen.getByRole("heading", { name: "站外消费测试" }),
-    ).toBeVisible();
+    expect(screen.getByRole("heading", { name: "站外消费测试" })).toBeVisible();
     expect(screen.getByRole("tablist", { name: "单集详情内容" })).toBeVisible();
     expect(screen.getByRole("link", { name: "安全链接" })).toBeVisible();
     expect(
@@ -468,5 +473,25 @@ describe("ConsumptionDetailPanel", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "添加所选标签" }));
     await waitFor(() => expect(apiMocks.addTag).toHaveBeenCalledWith(201, 9));
+  });
+
+  it("uses aligned note and tag cards without the redundant section heading", async () => {
+    apiMocks.getNotes.mockResolvedValue("");
+    apiMocks.getTags.mockResolvedValue([]);
+    renderDetail();
+
+    fireEvent.click(screen.getByRole("tab", { name: "笔记" }));
+
+    expect(
+      await screen.findByRole("region", { name: "单集笔记与标签" }),
+    ).toBeVisible();
+    expect(screen.queryByText("备注与标签")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("暂无备注。记录这一集值得留下的判断。"),
+    ).toBeVisible();
+    expect(screen.getByText("暂无标签。")).toBeVisible();
+    expect(
+      screen.getByRole("combobox", { name: "选择已有标签" }),
+    ).toBeVisible();
   });
 });
