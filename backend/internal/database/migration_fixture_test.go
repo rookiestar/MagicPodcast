@@ -84,6 +84,33 @@ func TestSchema24FixtureIsHistoricalSanitizedAndComplete(t *testing.T) {
 	require.Contains(t, explicitMigrationProtectedTables, "processing_schedule_items")
 }
 
+func TestMigrationSnapshotPreservesDuplicateRowsWithoutPrimaryKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "duplicate-rows.db")
+	db, err := gorm.Open(sqlite.Open(path+"?_foreign_keys=on"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxIdleConns(1)
+	sqlDB.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	require.NoError(t, db.Exec("CREATE TABLE duplicate_rows (value TEXT NOT NULL)").Error)
+	require.NoError(t, db.Exec("INSERT INTO duplicate_rows (value) VALUES (?)", "same").Error)
+	require.NoError(t, db.Exec("INSERT INTO duplicate_rows (value) VALUES (?)", "same").Error)
+	require.NoError(t, db.Exec("CREATE VIRTUAL TABLE duplicate_search USING fts4(title, show_notes)").Error)
+	require.NoError(t, db.Exec("INSERT INTO duplicate_search (title, show_notes) VALUES (?, ?)", "same", "same").Error)
+	require.NoError(t, db.Exec("INSERT INTO duplicate_search (title, show_notes) VALUES (?, ?)", "same", "same").Error)
+
+	snapshot, err := captureMigrationDatabaseSnapshot(db)
+	require.NoError(t, err)
+	for _, tableName := range []string{"duplicate_rows", "duplicate_search"} {
+		table, ok := snapshot.Tables[tableName]
+		require.True(t, ok, tableName)
+		require.Equal(t, int64(2), table.Summary.Rows, tableName)
+		require.Len(t, table.Rows, 2, tableName)
+	}
+}
+
 func TestMigrationProtectionFollowsAllForeignKeyDescendants(t *testing.T) {
 	snapshot := migrationDatabaseSnapshot{
 		Tables: map[string]migrationTableSnapshot{
