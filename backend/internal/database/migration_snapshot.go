@@ -132,13 +132,15 @@ func captureMigrationTable(db *gorm.DB, tableName string) (migrationTableSnapsho
 			table.IdentityCols = append(table.IdentityCols, name)
 		}
 	}
-	if len(table.IdentityCols) == 0 {
-		for _, column := range table.Columns {
-			table.IdentityCols = append(table.IdentityCols, column.Name)
-		}
+	useRowID := len(table.IdentityCols) == 0
+	query := "SELECT * FROM " + quoteMigrationIdentifier(tableName)
+	if useRowID {
+		// Tables without a declared primary key can legitimately contain
+		// duplicate rows (including SQLite FTS and auxiliary tables). Their
+		// rowid is the only stable identity available to the snapshot.
+		query = "SELECT rowid AS " + quoteMigrationIdentifier("__migration_rowid__") + ", * FROM " + quoteMigrationIdentifier(tableName)
 	}
-
-	rows, err := db.Raw("SELECT * FROM " + quoteMigrationIdentifier(tableName)).Rows()
+	rows, err := db.Raw(query).Rows()
 	if err != nil {
 		return migrationTableSnapshot{}, fmt.Errorf("read table %s for migration snapshot: %w", tableName, err)
 	}
@@ -156,13 +158,24 @@ func captureMigrationTable(db *gorm.DB, tableName string) (migrationTableSnapsho
 		if err := rows.Scan(destinations...); err != nil {
 			return migrationTableSnapshot{}, fmt.Errorf("scan table %s migration snapshot: %w", tableName, err)
 		}
-		encoded := make(map[string]string, len(columnNames))
-		for i, name := range columnNames {
+		rowID := ""
+		columnOffset := 0
+		if useRowID {
+			rowID = encodeMigrationValue(values[0])
+			columnOffset = 1
+		}
+		encoded := make(map[string]string, len(columnNames)-columnOffset)
+		for i := columnOffset; i < len(columnNames); i++ {
+			name := columnNames[i]
 			encoded[name] = encodeMigrationValue(values[i])
 		}
-		identityParts := make([]string, 0, len(table.IdentityCols))
-		for _, name := range table.IdentityCols {
-			identityParts = append(identityParts, name+"="+encoded[name])
+		identityParts := make([]string, 0, len(table.IdentityCols)+1)
+		if useRowID {
+			identityParts = append(identityParts, "rowid="+rowID)
+		} else {
+			for _, name := range table.IdentityCols {
+				identityParts = append(identityParts, name+"="+encoded[name])
+			}
 		}
 		identity := hashMigrationStrings(identityParts)
 		if _, exists := table.Rows[identity]; exists {
