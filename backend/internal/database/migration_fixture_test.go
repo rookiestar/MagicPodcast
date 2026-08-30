@@ -509,7 +509,7 @@ func TestAuthorizedBackupDestructiveMigrationDrill(t *testing.T) {
 		t.Skip("requires separately authorized production-backup drill")
 	}
 	targetCommit := strings.TrimSpace(os.Getenv("MAGICPODCAST_AUTHORIZED_DRILL_TARGET_COMMIT"))
-	shadowPath, _, err := restoreVerifiedMigrationBackup(backup)
+	shadowPath, backupSHA, err := restoreVerifiedMigrationBackup(backup)
 	require.NoError(t, err)
 	defer removeMigrationShadow(shadowPath)
 	source, closeSource, err := openMigrationShadow(shadowPath)
@@ -517,18 +517,37 @@ func TestAuthorizedBackupDestructiveMigrationDrill(t *testing.T) {
 	defer closeSource()
 	status, err := InspectSchema(source)
 	require.NoError(t, err)
+	var triageCountBefore int64
+	require.NoError(t, source.Table("episode_triage_decisions").Count(&triageCountBefore).Error)
 	dangerous := dangerousEpisodeRebuildMigration()
 	dangerous.Version = status.CurrentVersion + 1
 	dangerous.Name = "authorized-drill-episode-parent-rebuild"
 
-	report, err := newMigrationRunner([]Migration{dangerous}).preflight(source, MigrationPreflightOptions{
-		BackupPath: backup, TargetCommit: targetCommit,
-	})
+	executions, err := newMigrationRunner([]Migration{dangerous}).run(source)
 	require.Error(t, err)
-	require.False(t, report.Result.ApplyEligible)
-	require.Equal(t, "migration_contract_rejected", report.Result.FailureCode)
-	require.NotEmpty(t, report.Executions)
-	require.NotEmpty(t, report.Executions[0].Violations)
+	require.NotEmpty(t, executions)
+	require.NotEmpty(t, executions[0].Violations)
+	report := MigrationReport{
+		ReportVersion:       MigrationReportVersion,
+		TargetCommit:        targetCommit,
+		SourceSchemaVersion: status.CurrentVersion,
+		TargetSchemaVersion: dangerous.Version,
+		BackupSHA256:        backupSHA,
+		Executions:          executions,
+		Result: MigrationReportResult{
+			Status:        "failed",
+			ApplyEligible: false,
+			FailureCode:   "migration_contract_rejected",
+			FailureDetail: err.Error(),
+		},
+	}
+	report.PlanID = migrationReportPlanID(report)
+	finalStatus, statusErr := InspectSchema(source)
+	require.NoError(t, statusErr)
+	require.Equal(t, status.CurrentVersion, finalStatus.CurrentVersion)
+	var triageCountAfter int64
+	require.NoError(t, source.Table("episode_triage_decisions").Count(&triageCountAfter).Error)
+	require.Equal(t, triageCountBefore, triageCountAfter)
 	if output := strings.TrimSpace(os.Getenv("MAGICPODCAST_AUTHORIZED_DRILL_REPORT")); output != "" {
 		require.NoError(t, WriteMigrationReport(output, report))
 	}

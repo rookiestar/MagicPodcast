@@ -84,7 +84,13 @@ trap 'production_maintenance_finish' EXIT
 production_maintenance_inspect
 sed -n '1,20p' logs/supervisor.status
 
-./scripts/start.sh --prod --no-build
+current_release_file=".magicpodcast-releases/current.env"
+release_id="$(sed -n 's/^release_id=//p' "$current_release_file")"
+frontend_build_id="$(sed -n 's/^frontend_build_id=//p' "$current_release_file")"
+[ -n "$release_id" ] && [ -n "$frontend_build_id" ]
+MAGICPODCAST_RELEASE_ID="$release_id" \
+MAGICPODCAST_FRONTEND_BUILD_ID="$frontend_build_id" \
+  ./scripts/start.sh --prod --no-build
 curl --fail --silent http://127.0.0.1:8080/health
 production_maintenance_finish
 trap - EXIT
