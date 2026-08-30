@@ -880,8 +880,8 @@
   border: 1px solid var(--ink);
   background: rgba(255, 250, 240, 0.74);
   cursor: pointer;
-  font-size: 11px;
-  font-weight: 650;
+  font: 600 var(--type-label-size) / var(--type-label-leading)
+    var(--font-sans);
 }
 
 .detailCopilotTrigger:hover,
@@ -970,11 +970,11 @@
 
 .copilotWorkspaceHeader h2 {
   margin: 2px 0 0;
-  font-family: var(--font-display);
-  font-size: 26px;
-  font-weight: 630;
-  letter-spacing: -0.025em;
-  line-height: 1;
+  font-family: var(--font-serif);
+  font-size: var(--type-section-title-size);
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: var(--type-section-title-leading);
 }
 
 .copilotWorkspaceHeader p {
@@ -982,7 +982,8 @@
   margin: 5px 0 0;
   overflow: hidden;
   color: var(--ink-soft);
-  font-size: 10px;
+  font: 400 var(--type-secondary-size) / var(--type-secondary-leading)
+    var(--font-sans);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1089,15 +1090,14 @@
 }
 
 .processingHeadline strong {
-  font-size: 13px;
-  line-height: 1.3;
+  font: 400 var(--type-secondary-size) / var(--type-secondary-leading)
+    var(--font-sans);
 }
 
 .processingHeadline small {
   overflow: hidden;
   color: var(--ink-soft);
-  font-size: 10px;
-  line-height: 1.35;
+  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1185,8 +1185,8 @@
   border: 0;
   background: transparent;
   cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
+  font: 600 var(--type-label-size) / var(--type-label-leading)
+    var(--font-sans);
   text-decoration: none;
 }
 
@@ -1215,8 +1215,8 @@
   color: var(--ink);
   border: 1px solid rgba(23, 21, 18, 0.28);
   cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
+  font: 600 var(--type-label-size) / var(--type-label-leading)
+    var(--font-sans);
   list-style: none;
 }
 
@@ -1246,7 +1246,8 @@
 
 .secondaryContext {
   color: var(--ink-soft);
-  font-size: 10px;
+  font: 400 var(--type-secondary-size) / var(--type-secondary-leading)
+    var(--font-sans);
 }
 
 .detailMove select,
@@ -1318,8 +1319,7 @@
   border: 0;
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
+  font: 600 var(--type-nav-size) / var(--type-nav-leading) var(--font-sans);
 }
 
 .detailTabs button::after {
@@ -1357,45 +1357,96 @@
 
 .processingSummary {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
-.processingSummary dl {
+.processingDiagnostics {
+  margin-top: 18px;
+  border: 1px solid var(--rule);
+  background: rgba(243, 236, 221, 0.46);
+}
+
+.processingDiagnostics > summary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  font: 600 var(--type-label-size) / var(--type-label-leading)
+    var(--font-sans);
+  list-style-position: inside;
+}
+
+.processingDiagnostics > summary > span:last-child {
+  color: var(--ink-soft);
+  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
+}
+
+.processingDiagnostics > summary > span:first-child::before {
+  margin-right: 7px;
+  content: "＋";
+}
+
+.processingDiagnostics[open] > summary > span:first-child::before {
+  content: "−";
+}
+
+.processingDiagnostics > summary:hover {
+  color: var(--orange-dark);
+}
+
+.processingDiagnostics > summary:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+
+.processingDiagnostics[open] > summary {
+  border-bottom: 1px solid var(--rule);
+}
+
+.processingDiagnosticsBody {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.processingDiagnosticsBody dl {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 0;
   border: 1px solid var(--ink);
 }
 
-.processingSummary dl > div {
+.processingDiagnosticsBody dl > div {
   min-width: 0;
   padding: 10px 12px;
   border-right: 1px solid var(--rule);
   border-bottom: 1px solid var(--rule);
 }
 
-.processingSummary dl > div:nth-child(2n) {
+.processingDiagnosticsBody dl > div:nth-child(2n) {
   border-right: 0;
 }
 
-.processingSummary dl > div:nth-last-child(-n + 2) {
+.processingDiagnosticsBody dl > div:nth-last-child(-n + 2) {
   border-bottom: 0;
 }
 
-.processingSummary dt {
+.processingDiagnosticsBody dt {
   margin-bottom: 4px;
   color: var(--ink-soft);
-  font-family: var(--font-mono);
-  font-size: 9px;
+  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.processingSummary dd {
+.processingDiagnosticsBody dd {
   overflow-wrap: anywhere;
   margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
+  font: 400 var(--type-secondary-size) / var(--type-secondary-leading)
+    var(--font-sans);
 }
 
 .processingFailure {
@@ -1405,13 +1456,12 @@
   color: #6f261e;
   border-left: 4px solid #a83d2f;
   background: rgba(168, 61, 47, 0.08);
-  font-size: 11px;
-  line-height: 1.5;
+  font: 400 var(--type-secondary-size) / var(--type-secondary-leading)
+    var(--font-sans);
 }
 
 .processingFailure strong {
-  font-family: var(--font-mono);
-  font-size: 9px;
+  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
   letter-spacing: 0.05em;
 }
 
@@ -1422,13 +1472,12 @@
   color: #665238;
   border-left: 4px solid #bd7c20;
   background: rgba(189, 124, 32, 0.1);
-  font-size: 11px;
-  line-height: 1.5;
+  font: 400 var(--type-secondary-size) / var(--type-secondary-leading)
+    var(--font-sans);
 }
 
 .processingCancellation strong {
-  font-family: var(--font-mono);
-  font-size: 9px;
+  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
   letter-spacing: 0.05em;
 }
 
@@ -1443,8 +1492,13 @@
 .processingActions > span,
 .processingHint {
   color: var(--ink-soft);
-  font-size: 11px;
-  line-height: 1.5;
+  font: 400 var(--type-secondary-size) / var(--type-secondary-leading)
+    var(--font-sans);
+}
+
+.processingDiagnosticsBody > .processingHint {
+  display: grid;
+  gap: 3px;
 }
 
 .processingArtifactTabs {
@@ -1461,8 +1515,8 @@
   border: 0;
   background: transparent;
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 650;
+  font: 600 var(--type-label-size) / var(--type-label-leading)
+    var(--font-sans);
 }
 
 .processingArtifactTabs button + button {
@@ -1479,9 +1533,79 @@
   opacity: 0.45;
 }
 
+.processingArtifactPanel {
+  display: grid;
+  min-height: 168px;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--ink);
+  border-top: 0;
+  background: rgba(255, 250, 240, 0.72);
+}
+
+.processingArtifactPanel[hidden] {
+  display: none;
+}
+
+.processingEmpty {
+  display: grid;
+  min-height: 138px;
+  place-items: center;
+  padding: 22px;
+  color: var(--ink-soft);
+  border: 1px dashed var(--rule);
+  font: 400 var(--type-secondary-size) / var(--type-secondary-leading)
+    var(--font-sans);
+  text-align: center;
+}
+
+.processingEmptyFailure {
+  color: #6f261e;
+  border-color: rgba(168, 61, 47, 0.48);
+  background: rgba(168, 61, 47, 0.06);
+}
+
+.processingDocumentSkeleton {
+  display: grid;
+  min-height: 138px;
+  align-content: start;
+  gap: 18px;
+  padding: 18px;
+  color: var(--ink-soft);
+  border: 1px solid var(--rule);
+  background: #fffaf0;
+  font: 400 var(--type-secondary-size) / var(--type-secondary-leading)
+    var(--font-sans);
+}
+
+.processingDocumentSkeleton > div {
+  display: grid;
+  gap: 10px;
+}
+
+.processingDocumentSkeleton i {
+  display: block;
+  width: 100%;
+  height: 12px;
+  background: linear-gradient(
+    90deg,
+    rgba(23, 21, 18, 0.08),
+    rgba(23, 21, 18, 0.15),
+    rgba(23, 21, 18, 0.08)
+  );
+}
+
+.processingDocumentSkeleton i:nth-child(2) {
+  width: 84%;
+}
+
+.processingDocumentSkeleton i:nth-child(3) {
+  width: 66%;
+}
+
 .processingArtifacts {
-  padding-top: 14px;
-  border-top: 1px solid var(--rule);
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
 }
 
 .processingArtifacts > div {
@@ -1491,18 +1615,18 @@
 }
 
 .processingArtifacts strong {
-  font-size: 12px;
+  font: 600 var(--type-label-size) / var(--type-label-leading)
+    var(--font-sans);
 }
 
 .processingArtifacts span {
   color: var(--ink-soft);
-  font-size: 10px;
+  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
 }
 
 .processingDocument {
   max-height: 480px;
   overflow: auto;
-  margin-top: 18px;
   padding: 15px;
   border: 1px solid var(--ink);
   background: #fffaf0;
@@ -1590,8 +1714,7 @@
 .transcriptTime {
   min-width: 94px;
   color: var(--ink-soft);
-  font-family: var(--font-mono);
-  font-size: 10px;
+  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
   text-align: right;
   white-space: nowrap;
 }
@@ -1601,14 +1724,15 @@
   justify-self: start;
   gap: 5px;
   padding: 0 10px;
-  font-size: 11px;
+  font: 600 var(--type-label-size) / var(--type-label-leading)
+    var(--font-sans);
 }
 
 .transcriptMediaStatus {
   grid-column: 2 / -1;
   color: var(--ink-soft);
-  font-size: 11px;
-  line-height: 1.45;
+  font: 400 var(--type-secondary-size) / var(--type-secondary-leading)
+    var(--font-sans);
 }
 
 .transcriptSegments {
@@ -1664,12 +1788,12 @@ button.transcriptSegment:hover {
   align-items: center;
   gap: 6px 10px;
   color: var(--ink-soft);
-  font-size: 10px;
+  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
 }
 
 .transcriptSegmentHeader > span:first-child {
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .transcriptSegmentHeader time {
@@ -1681,14 +1805,13 @@ button.transcriptSegment:hover {
   padding: 2px 6px;
   color: #fffaf0;
   background: var(--orange-dark);
-  font-size: 9px;
-  font-weight: 700;
+  font: 600 var(--type-label-size) / var(--type-label-leading)
+    var(--font-sans);
 }
 
 .transcriptSegmentText {
   white-space: pre-wrap;
-  font-size: 13px;
-  line-height: 1.72;
+  font: 400 var(--type-body-size) / var(--type-body-leading) var(--font-sans);
 }
 
 .copilotSection {
@@ -2276,10 +2399,6 @@ button.transcriptSegment:hover {
       calc(10px + env(safe-area-inset-top))
       14px
       10px;
-  }
-
-  .copilotWorkspaceHeader h2 {
-    font-size: 24px;
   }
 
   .copilotWorkspaceHeader p {

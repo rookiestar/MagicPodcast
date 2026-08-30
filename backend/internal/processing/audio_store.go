@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"magicpodcast/internal/models"
@@ -54,6 +56,7 @@ const (
 	AudioErrorDownloadFailed     = "audio_download_failed"
 	AudioErrorStorageFailed      = "audio_storage_failed"
 	AudioErrorReadyFileInvalid   = "audio_ready_file_invalid"
+	AudioErrorReadyFileMismatch  = "audio_ready_file_digest_mismatch"
 )
 
 // ReadyAudio is the process-local handoff to transcription and processing.
@@ -166,6 +169,12 @@ type DiskAudioStore struct {
 	maxRedirects int
 	now          func() time.Time
 	client       *http.Client
+	verified     sync.Map
+}
+
+type verifiedAudioDigest struct {
+	info   os.FileInfo
+	digest string
 }
 
 func NewDiskAudioStore(db *gorm.DB, root string) (*DiskAudioStore, error) {
@@ -1250,6 +1259,9 @@ func (s *DiskAudioStore) resolveReadyAsset(
 			false,
 		)
 	}
+	if err := s.verifyReadyAssetDigest(path, info, asset.SHA256); err != nil {
+		return ReadyAudio{}, err
+	}
 	return ReadyAudio{
 		Path:            path,
 		SHA256:          asset.SHA256,
@@ -1257,6 +1269,96 @@ func (s *DiskAudioStore) resolveReadyAsset(
 		DurationSeconds: asset.DurationSeconds,
 		MediaType:       mediaType,
 	}, nil
+}
+
+func (s *DiskAudioStore) verifyReadyAssetDigest(
+	path string,
+	info os.FileInfo,
+	expectedDigest string,
+) error {
+	if cachedValue, ok := s.verified.Load(path); ok {
+		cached := cachedValue.(verifiedAudioDigest)
+		if cached.digest == expectedDigest &&
+			cached.info.Size() == info.Size() &&
+			cached.info.ModTime().Equal(info.ModTime()) &&
+			os.SameFile(cached.info, info) {
+			return nil
+		}
+	}
+
+	file, err := os.OpenFile(
+		path,
+		os.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW,
+		0,
+	)
+	if err != nil {
+		return newAudioStoreError(
+			AudioErrorReadyFileInvalid,
+			"managed episode audio file is unavailable",
+			true,
+		)
+	}
+	defer file.Close()
+
+	openedInfo, fileErr := file.Stat()
+	pathInfo, pathErr := os.Lstat(path)
+	if fileErr != nil ||
+		pathErr != nil ||
+		!openedInfo.Mode().IsRegular() ||
+		!pathInfo.Mode().IsRegular() ||
+		pathInfo.Mode()&os.ModeSymlink != 0 ||
+		openedInfo.Mode().Perm() != 0o600 ||
+		pathInfo.Mode().Perm() != 0o600 ||
+		openedInfo.Size() != info.Size() ||
+		pathInfo.Size() != info.Size() ||
+		!openedInfo.ModTime().Equal(info.ModTime()) ||
+		!pathInfo.ModTime().Equal(info.ModTime()) ||
+		!os.SameFile(openedInfo, pathInfo) ||
+		!os.SameFile(openedInfo, info) {
+		return newAudioStoreError(
+			AudioErrorReadyFileInvalid,
+			"managed episode audio file changed before it could be verified",
+			true,
+		)
+	}
+
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, file); err != nil {
+		return newAudioStoreError(
+			AudioErrorReadyFileInvalid,
+			"managed episode audio file could not be verified",
+			true,
+		)
+	}
+	if hex.EncodeToString(hasher.Sum(nil)) != expectedDigest {
+		s.verified.Delete(path)
+		return newAudioStoreError(
+			AudioErrorReadyFileMismatch,
+			"managed episode audio digest does not match its recorded identity",
+			false,
+		)
+	}
+
+	verifiedInfo, fileErr := file.Stat()
+	verifiedPathInfo, pathErr := os.Lstat(path)
+	if fileErr != nil ||
+		pathErr != nil ||
+		verifiedInfo.Size() != openedInfo.Size() ||
+		!verifiedInfo.ModTime().Equal(openedInfo.ModTime()) ||
+		!verifiedPathInfo.ModTime().Equal(openedInfo.ModTime()) ||
+		!os.SameFile(verifiedInfo, openedInfo) ||
+		!os.SameFile(verifiedInfo, verifiedPathInfo) {
+		return newAudioStoreError(
+			AudioErrorReadyFileInvalid,
+			"managed episode audio file changed while it was being verified",
+			true,
+		)
+	}
+	s.verified.Store(path, verifiedAudioDigest{
+		info:   verifiedInfo,
+		digest: expectedDigest,
+	})
+	return nil
 }
 
 func (s *DiskAudioStore) invalidateReadyAsset(
