@@ -865,8 +865,22 @@ func applyEpisodeVideoAvailabilityConstraintMigration(db *gorm.DB) error {
 }
 
 func applyNativeMinutesArtifactIntegrityMigration(db *gorm.DB) error {
-	if err := db.AutoMigrate(&models.EpisodeArtifactSet{}); err != nil {
-		return fmt.Errorf("add native Minutes artifact integrity: %w", err)
+	// Keep this migration strictly additive. AutoMigrate follows the artifact
+	// model's Episode association and may rebuild the referenced episodes table;
+	// inside the versioned transaction SQLite cannot disable foreign keys, so
+	// dropping that table would cascade-delete episode-owned records.
+	columns := []struct {
+		name string
+		ddl  string
+	}{
+		{name: "audio_sha256", ddl: "TEXT NOT NULL DEFAULT ''"},
+		{name: "minutes_summary_sha256", ddl: "TEXT NOT NULL DEFAULT ''"},
+		{name: "transcript_timeline_sha256", ddl: "TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, column := range columns {
+		if err := addColumnIfMissing(db, &models.EpisodeArtifactSet{}, column.name, column.ddl); err != nil {
+			return fmt.Errorf("add native Minutes artifact integrity: %w", err)
+		}
 	}
 	return nil
 }
@@ -881,6 +895,8 @@ func addColumnIfMissing(db *gorm.DB, model any, name, ddl string) error {
 		table = (models.JobExecution{}).TableName()
 	case *models.JobFeedAttempt:
 		table = (models.JobFeedAttempt{}).TableName()
+	case *models.EpisodeArtifactSet:
+		table = (models.EpisodeArtifactSet{}).TableName()
 	default:
 		return fmt.Errorf("cannot resolve table for column %s", name)
 	}
