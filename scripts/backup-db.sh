@@ -26,7 +26,7 @@ if [ "$COMPRESS" = "true" ] && ! command -v gzip >/dev/null 2>&1; then
 fi
 
 if [ ! -f "$DB_PATH" ]; then
-  echo "Database not found: $DB_PATH" >&2
+  echo "Database not found." >&2
   exit 1
 fi
 
@@ -48,8 +48,8 @@ cleanup_tmp() {
 trap cleanup_tmp EXIT
 
 echo "Creating backup..."
-echo "  source: $DB_PATH"
-echo "  target: $backup_file"
+echo "  source: magicpodcast_sqlite"
+echo "  target: $(basename "$backup_file")"
 
 sqlite3 "$DB_PATH" ".timeout 5000" ".backup '$tmp_file'"
 mv "$tmp_file" "$backup_file"
@@ -59,6 +59,43 @@ sqlite3 "$backup_file" "PRAGMA journal_mode=DELETE;" >/dev/null
 rm -f "$backup_file-wal" "$backup_file-shm"
 
 uncompressed_size="$(wc -c < "$backup_file" | tr -d ' ')"
+schema_version="$(sqlite3 -readonly "$backup_file" "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;")"
+code_commit="$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || printf 'unknown')"
+
+table_count() {
+  local table="$1"
+  local exists
+  exists="$(sqlite3 -readonly "$backup_file" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$table';")"
+  if [ "$exists" = "1" ]; then
+    sqlite3 -readonly "$backup_file" "SELECT COUNT(*) FROM $table;"
+  else
+    printf '0\n'
+  fi
+}
+
+podcasts_count="$(table_count podcasts)"
+episodes_count="$(table_count episodes)"
+tags_count="$(table_count tags)"
+triage_count="$(table_count episode_triage_decisions)"
+completion_count="$(table_count episode_completions)"
+processing_run_count="$(table_count episode_processing_runs)"
+artifact_set_count="$(table_count episode_artifact_sets)"
+delivery_count="$(table_count knowledge_deliveries)"
+audio_asset_count="$(table_count episode_audio_assets)"
+
+queue_count() {
+  local state="$1"
+  if [ "$triage_count" = "0" ]; then
+    printf '0\n'
+    return
+  fi
+  sqlite3 -readonly "$backup_file" "SELECT COUNT(*) FROM episode_triage_decisions WHERE queue_state='$state';"
+}
+
+queue_inbox_count="$(queue_count inbox)"
+queue_focus_count="$(queue_count focus)"
+queue_someday_count="$(queue_count someday)"
+queue_done_count="$(queue_count "done")"
 
 if [ "$COMPRESS" = "true" ]; then
   echo "Compressing backup..."
@@ -72,12 +109,27 @@ shasum -a 256 "$final_file" > "$final_file.sha256"
 
 cat > "$final_file.meta" <<EOF
 created_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-source=$DB_PATH
+source_kind=magicpodcast_sqlite
 compressed=$COMPRESS
 retention_days=$RETENTION_DAYS
 uncompressed_size_bytes=$uncompressed_size
 size_bytes=$compressed_size
 sha256=$(awk '{print $1}' "$final_file.sha256")
+schema_version=$schema_version
+target_commit=$code_commit
+podcasts_count=$podcasts_count
+episodes_count=$episodes_count
+tags_count=$tags_count
+episode_triage_decisions_count=$triage_count
+episode_completions_count=$completion_count
+episode_processing_runs_count=$processing_run_count
+episode_artifact_sets_count=$artifact_set_count
+knowledge_deliveries_count=$delivery_count
+episode_audio_assets_count=$audio_asset_count
+queue_inbox_count=$queue_inbox_count
+queue_focus_count=$queue_focus_count
+queue_someday_count=$queue_someday_count
+queue_done_count=$queue_done_count
 EOF
 
 remove_backup_family() {
@@ -104,4 +156,4 @@ if [ -n "$KEEP" ]; then
   done
 fi
 
-echo "Backup complete: $final_file"
+echo "Backup complete: $(basename "$final_file")"

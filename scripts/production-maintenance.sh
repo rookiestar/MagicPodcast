@@ -12,8 +12,7 @@ MAGICPODCAST_MAINTENANCE_HEARTBEAT_PID=""
 
 production_maintenance_validate_config() {
   [[ "$MAGICPODCAST_MAINTENANCE_LOCK_DIR" = /* ]] || {
-    printf 'production lock path must be absolute: %s\n' \
-      "$MAGICPODCAST_MAINTENANCE_LOCK_DIR" >&2
+    printf 'production lock path must be absolute\n' >&2
     return 1
   }
   if ! [[ "$MAGICPODCAST_MAINTENANCE_STALE_AFTER" =~ ^[0-9]+$ ]] ||
@@ -102,7 +101,11 @@ production_maintenance_age() {
 
 production_maintenance_is_stale() {
   local dir="${1:-$MAGICPODCAST_MAINTENANCE_LOCK_DIR}"
-  local age
+  local age lock_state
+  lock_state="$(production_maintenance_value state "$dir")"
+  # A dead owner in the database-write phase is ambiguous: the transaction
+  # may already be committed. Only an explicit recovery operation may claim it.
+  [ "$lock_state" != critical ] && [ "$lock_state" != recovery_required ] || return 1
   production_maintenance_owner_alive "$dir" && return 1
   age="$(production_maintenance_age "$dir")" || return 1
   [ "$age" -ge "$MAGICPODCAST_MAINTENANCE_STALE_AFTER" ]
@@ -152,10 +155,25 @@ production_maintenance_inspect() {
     return 0
   fi
 
-  local owner_pid started_at operation age
+  local owner_pid started_at operation lock_state age
   owner_pid="$(production_maintenance_value owner_pid)"
   started_at="$(production_maintenance_value started_at)"
   operation="$(production_maintenance_value operation)"
+  lock_state="$(production_maintenance_value state)"
+  if [ "$lock_state" = recovery_required ]; then
+    printf 'state=recovery_required\n'
+    printf 'owner_pid=%s\n' "${owner_pid:-unknown}"
+    printf 'started_at=%s\n' "${started_at:-unknown}"
+    printf 'operation=%s\n' "${operation:-unknown}"
+    return 0
+  fi
+  if [ "$lock_state" = critical ] && ! production_maintenance_owner_alive; then
+    printf 'state=recovery_required\n'
+    printf 'owner_pid=%s\n' "${owner_pid:-unknown}"
+    printf 'started_at=%s\n' "${started_at:-unknown}"
+    printf 'operation=%s\n' "${operation:-unknown}"
+    return 0
+  fi
   if production_maintenance_owner_alive; then
     printf 'state=active\n'
     printf 'owner_pid=%s\n' "${owner_pid:-unknown}"
@@ -205,22 +223,71 @@ production_maintenance_begin() {
   local operation="${1:-deploy}"
   local owner_pid owner_start started_at started_epoch
   case "$operation" in
-    deploy|rollback) ;;
+    deploy|rollback|migration|recovery) ;;
     *) printf 'invalid production maintenance operation: %s\n' "$operation" >&2; return 1 ;;
   esac
   production_maintenance_validate_config || return 1
 
+  if [ "$operation" = recovery ] && [ -d "$MAGICPODCAST_MAINTENANCE_LOCK_DIR" ]; then
+    local held_state claim_dir claim_age
+    held_state="$(production_maintenance_value state 2>/dev/null || true)"
+    if { [ "$held_state" = recovery_required ] || [ "$held_state" = critical ]; } &&
+      ! production_maintenance_owner_alive; then
+      claim_dir="$MAGICPODCAST_MAINTENANCE_LOCK_DIR/.recovery-claim"
+      if [ -d "$claim_dir" ]; then
+        claim_age="$(production_maintenance_age "$claim_dir" 2>/dev/null || true)"
+        if production_maintenance_owner_alive "$claim_dir" || [ -z "$claim_age" ] ||
+          [ "$claim_age" -lt "$MAGICPODCAST_MAINTENANCE_STALE_AFTER" ]; then
+          printf 'another recovery claimant is active\n' >&2
+          return 1
+        fi
+        production_maintenance_remove_dir "$claim_dir" 2>/dev/null || return 1
+      fi
+      if ! (umask 077 && mkdir "$claim_dir"); then
+        printf 'failed to claim held recovery window\n' >&2
+        return 1
+      fi
+      owner_pid="$$"
+      owner_start="$(production_maintenance_process_start "$owner_pid")"
+      printf '%s\n' "$owner_pid" > "$claim_dir/owner.pid"
+      printf '%s\n' "$owner_start" > "$claim_dir/owner.started_at"
+      if production_maintenance_owner_alive ||
+        { [ "$(production_maintenance_value state 2>/dev/null || true)" != recovery_required ] &&
+          [ "$(production_maintenance_value state 2>/dev/null || true)" != critical ]; }; then
+        production_maintenance_remove_dir "$claim_dir" 2>/dev/null || true
+        printf 'held recovery window changed while claiming\n' >&2
+        return 1
+      fi
+      started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+      started_epoch="$(date +%s)"
+      printf '%s\n' "$owner_pid" > "$MAGICPODCAST_MAINTENANCE_LOCK_DIR/owner.pid"
+      printf '%s\n' "$owner_start" > "$MAGICPODCAST_MAINTENANCE_LOCK_DIR/owner.started_at"
+      printf '%s\n' "$started_at" > "$MAGICPODCAST_MAINTENANCE_LOCK_DIR/started_at"
+      printf '%s\n' "$started_epoch" > "$MAGICPODCAST_MAINTENANCE_LOCK_DIR/started_epoch"
+      printf '%s\n' "$started_epoch" > "$MAGICPODCAST_MAINTENANCE_LOCK_DIR/heartbeat_epoch"
+      printf 'recovery\n' > "$MAGICPODCAST_MAINTENANCE_LOCK_DIR/operation"
+      # A recovery takeover inherits the ambiguous database state. Keep it
+      # non-reclaimable until paired release readiness succeeds.
+      printf 'critical\n' > "$MAGICPODCAST_MAINTENANCE_LOCK_DIR/state"
+      production_maintenance_remove_dir "$claim_dir" 2>/dev/null || return 1
+      MAGICPODCAST_MAINTENANCE_OWNER_PID="$owner_pid"
+      MAGICPODCAST_MAINTENANCE_OWNER_START="$owner_start"
+      export MAGICPODCAST_MAINTENANCE_OWNER_PID MAGICPODCAST_MAINTENANCE_OWNER_START
+      MAGICPODCAST_MAINTENANCE_OWNERSHIP=owned
+      production_maintenance_heartbeat_loop "$owner_pid" "$owner_start" &
+      MAGICPODCAST_MAINTENANCE_HEARTBEAT_PID="$!"
+      return 0
+    fi
+  fi
   if [ -e "$MAGICPODCAST_MAINTENANCE_LOCK_DIR" ]; then
     production_maintenance_inspect >/dev/null 2>&1 || true
     [ ! -e "$MAGICPODCAST_MAINTENANCE_LOCK_DIR" ] || {
-      printf 'another production maintenance window is active: %s\n' \
-        "$MAGICPODCAST_MAINTENANCE_LOCK_DIR" >&2
+      printf 'another production maintenance window is active\n' >&2
       return 1
     }
   fi
   if ! (umask 077 && mkdir "$MAGICPODCAST_MAINTENANCE_LOCK_DIR"); then
-    printf 'failed to claim production maintenance lock: %s\n' \
-      "$MAGICPODCAST_MAINTENANCE_LOCK_DIR" >&2
+    printf 'failed to claim production maintenance lock\n' >&2
     return 1
   fi
 
@@ -250,6 +317,7 @@ production_maintenance_begin() {
 }
 
 production_maintenance_adopt() {
+  local expected_operation="${1:-deploy}"
   [ -n "${MAGICPODCAST_MAINTENANCE_OWNER_PID:-}" ] || {
     printf 'production maintenance owner context is missing\n' >&2
     return 1
@@ -260,6 +328,10 @@ production_maintenance_adopt() {
   }
   production_maintenance_context_matches || {
     printf 'production maintenance lock owner does not match inherited context\n' >&2
+    return 1
+  }
+  [ "$(production_maintenance_value operation)" = "$expected_operation" ] || {
+    printf 'production maintenance operation does not match inherited context\n' >&2
     return 1
   }
   MAGICPODCAST_MAINTENANCE_OWNERSHIP=adopted
@@ -280,7 +352,7 @@ production_maintenance_context_matches() {
 production_maintenance_enter() {
   local operation="${1:-deploy}"
   if [ -n "${MAGICPODCAST_MAINTENANCE_OWNER_PID:-}" ]; then
-    production_maintenance_adopt
+    production_maintenance_adopt "$operation"
   else
     production_maintenance_begin "$operation"
   fi
@@ -304,9 +376,43 @@ production_maintenance_finish() {
     wait "$MAGICPODCAST_MAINTENANCE_HEARTBEAT_PID" 2>/dev/null || true
   fi
   production_maintenance_remove_dir "$MAGICPODCAST_MAINTENANCE_LOCK_DIR" || {
-    printf 'failed to release production maintenance lock: %s\n' \
-      "$MAGICPODCAST_MAINTENANCE_LOCK_DIR" >&2
+    printf 'failed to release production maintenance lock\n' >&2
     return 1
   }
   MAGICPODCAST_MAINTENANCE_OWNERSHIP=none
+}
+
+production_maintenance_mark_critical() {
+  [ "$MAGICPODCAST_MAINTENANCE_OWNERSHIP" = owned ] || {
+    printf 'only the maintenance owner may mark a critical window\n' >&2
+    return 1
+  }
+  production_maintenance_context_matches || {
+    printf 'refusing to mark a production lock owned by another process\n' >&2
+    return 1
+  }
+  case "$(production_maintenance_value operation)" in
+    migration|recovery) ;;
+    *) printf 'only migration or recovery may enter database critical state\n' >&2; return 1 ;;
+  esac
+  printf 'critical\n' > "$MAGICPODCAST_MAINTENANCE_LOCK_DIR/state"
+  printf '%s\n' "$(date +%s)" > "$MAGICPODCAST_MAINTENANCE_LOCK_DIR/heartbeat_epoch"
+}
+
+production_maintenance_hold_for_recovery() {
+  [ "$MAGICPODCAST_MAINTENANCE_OWNERSHIP" = owned ] || {
+    printf 'only the maintenance owner may hold recovery state\n' >&2
+    return 1
+  }
+  production_maintenance_context_matches || {
+    printf 'refusing to hold a production lock owned by another process\n' >&2
+    return 1
+  }
+  if [[ "$MAGICPODCAST_MAINTENANCE_HEARTBEAT_PID" =~ ^[1-9][0-9]*$ ]]; then
+    kill "$MAGICPODCAST_MAINTENANCE_HEARTBEAT_PID" 2>/dev/null || true
+    wait "$MAGICPODCAST_MAINTENANCE_HEARTBEAT_PID" 2>/dev/null || true
+  fi
+  printf 'recovery_required\n' > "$MAGICPODCAST_MAINTENANCE_LOCK_DIR/state"
+  printf '%s\n' "$(date +%s)" > "$MAGICPODCAST_MAINTENANCE_LOCK_DIR/heartbeat_epoch"
+  MAGICPODCAST_MAINTENANCE_OWNERSHIP=held
 }

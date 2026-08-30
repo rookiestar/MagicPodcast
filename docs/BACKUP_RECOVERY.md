@@ -1,6 +1,6 @@
 # MagicPodcast 数据备份与恢复
 
-最后更新：2026-05-31
+最后更新：2026-08-30
 
 ## 目标
 
@@ -46,6 +46,8 @@ BACKUP_DIR=/path/to/backups RETENTION_DAYS=14 ./scripts/backup-db.sh
 4. 生成 `.sha256` 校验文件。
 5. 生成 `.meta` 元信息文件。
 6. 默认清理 14 天前的备份。
+
+`.meta` 只保存非敏感迁移基线：schema 版本、目标代码 commit、核心表计数和 Inbox/Focus/Someday/Done 聚合；不再记录数据库绝对路径。它可与 Migration Report 对账，但不能替代影子迁移和数据变化合同。
 
 备份默认存放在：
 
@@ -145,15 +147,17 @@ export MAGICPODCAST_AGE_IDENTITY_FILE=/path/to/owner-controlled-age-identity
 ./scripts/restore-db.sh backend/data/backups/magicpodcast_YYYYMMDD_HHMMSS.db.gz
 ```
 
-脚本会先验证备份文件，再恢复数据库。若当前数据库存在，默认会先自动创建一份安全备份。恢复脚本同时支持 `.db` 和 `.db.gz`。
+脚本先取得与 deploy、rollback、migration 共用的 `recovery` 维护窗口，再验证并恢复备份；其他生产写操作正在运行时会直接拒绝。恢复不再提供绕过端口检查的 `--force`，8080/3000 任一仍监听都会拒绝替换数据库。数据库替换阶段进入不可自动回收的 `critical` 状态，异常中断后必须由下一次显式 recovery 接管。若当前数据库存在，默认会先自动创建一份安全备份。恢复脚本同时支持 `.db` 和 `.db.gz`。
 
-如果明确知道服务正在运行但仍要恢复，可以使用：
+数据库文件验证通过后仍保留 `recovery_required`，不会让 Supervisor 自动启动未知产物。先在与恢复后 schema 配对的干净代码 checkout 运行 `release.sh --prepare`，再由 release 模块原地接管、启动和验收：
 
 ```bash
-./scripts/restore-db.sh backend/data/backups/magicpodcast_YYYYMMDD_HHMMSS.db.gz --force
+MAGICPODCAST_RELEASE_MAINTENANCE_OPERATION=recovery \
+MAGICPODCAST_RELEASE_SCHEMA_VERSION_OVERRIDE=<restored-schema> \
+./scripts/release.sh --activate-prepared /absolute/path/to/paired-stage
 ```
 
-这个选项只建议在你清楚当前风险时使用。
+只有目标 release 的 `/health` 与 `/ready`（含 schema、release、frontend build、production Profile）都验收通过后，release 模块才释放 recovery 窗口；再复核关键业务投影。
 
 ## 最新恢复演练
 

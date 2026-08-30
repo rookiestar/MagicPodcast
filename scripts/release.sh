@@ -20,6 +20,7 @@ STOP_SCRIPT="${MAGICPODCAST_STOP_SCRIPT:-$PROJECT_DIR/scripts/stop.sh}"
 GO_BIN="${MAGICPODCAST_GO_BIN:-go}"
 NPM_BIN="${MAGICPODCAST_NPM_BIN:-npm}"
 NODE_BIN="${MAGICPODCAST_NODE_BIN:-node}"
+CURL_BIN="${MAGICPODCAST_CURL_BIN:-curl}"
 TEST_MODE="${MAGICPODCAST_RELEASE_TEST_MODE:-false}"
 IMAGE_OPTIMIZER_PATH="/_next/image.webp"
 IMAGE_OPTIMIZER_VERIFIER="$PROJECT_DIR/scripts/verify-image-optimizer-build.mjs"
@@ -41,6 +42,8 @@ usage() {
 用法:
   ./scripts/release.sh --prod       构建、验证并切换生产版本
   ./scripts/release.sh --prepare    只构建并验证，不停止当前服务
+  ./scripts/release.sh --activate-prepared /absolute/stage
+                                    在既有维护窗口内切换已验证 stage
   ./scripts/release.sh --rollback   用单一步骤恢复上一版本
   ./scripts/release.sh --dry-run    只显示目标和当前状态，不写入或停止服务
 EOF
@@ -234,12 +237,37 @@ verify_health() {
   printf '%s\n' "$health" | grep -Fq '"data_profile":"production"' || return 1
 }
 
+verify_schema_ready() {
+  local release_id="$1"
+  local frontend_build_id="$2"
+  local schema_version="$3"
+  local ready
+  if [ "$TEST_MODE" = true ]; then
+    [ "${MAGICPODCAST_RELEASE_TEST_READY_FAIL:-false}" != true ] || return 1
+    return 0
+  fi
+  ready="$($CURL_BIN --fail --silent --show-error http://127.0.0.1:8080/ready 2>/dev/null)" || return 1
+  printf '%s\n' "$ready" | grep -Fq '"status":"ok"' || return 1
+  printf '%s\n' "$ready" | grep -Fq "\"release_id\":\"$release_id\"" || return 1
+  printf '%s\n' "$ready" | grep -Fq "\"frontend_build_id\":\"$frontend_build_id\"" || return 1
+  printf '%s\n' "$ready" | grep -Fq "\"schema_version\":$schema_version" || return 1
+  printf '%s\n' "$ready" | grep -Fq '"build_mode":"release"' || return 1
+  printf '%s\n' "$ready" | grep -Fq '"data_profile":"production"' || return 1
+}
+
 build_release() {
   local release_id="$1"
   local stage="$RELEASE_ROOT/$release_id"
   local frontend_dist_name=".next-release-$release_id"
   local frontend_dist="$FRONTEND_DIR/$frontend_dist_name"
-  local frontend_build_id backend_sha commit schema_version
+  local frontend_build_id backend_sha commit schema_version worktree_clean
+
+  worktree_clean=false
+  if git -C "$PROJECT_DIR" diff --quiet --ignore-submodules -- &&
+    git -C "$PROJECT_DIR" diff --cached --quiet --ignore-submodules -- &&
+    [ -z "$(git -C "$PROJECT_DIR" status --porcelain=v1 --untracked-files=normal)" ]; then
+    worktree_clean=true
+  fi
 
   mkdir -p "$stage"
   log INFO "build started release=$release_id"
@@ -294,7 +322,7 @@ build_release() {
 
   frontend_build_id="$(tr -d '\r\n' < "$frontend_dist/BUILD_ID")"
   backend_sha="$(hash_file "$stage/backend.api")"
-  commit="$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || printf 'nogit')"
+  commit="$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || printf 'nogit')"
   schema_version="$(database_schema_version || printf 'unknown')"
   if ! restore_frontend_tsconfig "$stage"; then
     log ERROR "frontend tsconfig restore failed release=$release_id"
@@ -304,6 +332,7 @@ build_release() {
   fi
   mv "$frontend_dist" "$stage/frontend.next"
   write_manifest "$stage/manifest.env" "$release_id" "$frontend_build_id" "$backend_sha" "$commit" "$schema_version"
+  printf 'worktree_clean=%s\n' "$worktree_clean" >> "$stage/manifest.env"
   log INFO "build verified release=$release_id frontend_build_id=$frontend_build_id"
   printf '%s\n' "$stage"
 }
@@ -387,11 +416,16 @@ capture_previous_artifacts() {
 
 install_stage() {
   local stage="$1"
-  if ! mv "$stage/backend.api" "$BACKEND_DIR/api"; then
+  local preserve_stage="${2:-false}"
+  if [ "$preserve_stage" = true ]; then
+    cp -p "$stage/backend.api" "$BACKEND_DIR/api" || return 1
+  elif ! mv "$stage/backend.api" "$BACKEND_DIR/api"; then
     return 1
   fi
   NEW_BACKEND_INSTALLED=true
-  if ! mv "$stage/frontend.next" "$FRONTEND_DIR/.next"; then
+  if [ "$preserve_stage" = true ]; then
+    cp -R "$stage/frontend.next" "$FRONTEND_DIR/.next" || return 1
+  elif ! mv "$stage/frontend.next" "$FRONTEND_DIR/.next"; then
     return 1
   fi
   NEW_FRONTEND_INSTALLED=true
@@ -430,16 +464,22 @@ restore_previous() {
 
 deploy_release() {
   local stage="$1"
+  local services_already_stopped="${2:-false}"
   local release_id frontend_id backend_sha schema_version current_id current_frontend_id current_backend_sha current_schema_version
 
   release_id="$(manifest_value release_id "$stage/manifest.env")"
   frontend_id="$(manifest_value frontend_build_id "$stage/manifest.env")"
   backend_sha="$(manifest_value backend_sha256 "$stage/manifest.env")"
-  schema_version="$(manifest_value schema_version "$stage/manifest.env")"
+  schema_version="${MAGICPODCAST_RELEASE_SCHEMA_VERSION_OVERRIDE:-$(manifest_value schema_version "$stage/manifest.env")}"
+  [[ "$schema_version" =~ ^[0-9]+$ ]] || return 1
   ACTIVE_RELEASE_ID="$release_id"
   ACTIVE_FRONTEND_ID="$frontend_id"
 
-  verify_current_processes || return 1
+  if [ "$services_already_stopped" = true ]; then
+    wait_for_ports_gone || return 1
+  else
+    verify_current_processes || return 1
+  fi
   current_id="$(manifest_value release_id "$CURRENT_FILE")"
   current_frontend_id="$(manifest_value frontend_build_id "$CURRENT_FILE")"
   current_backend_sha="$(manifest_value backend_sha256 "$CURRENT_FILE")"
@@ -460,7 +500,7 @@ deploy_release() {
     current_schema_version="$(database_schema_version || printf 'unknown')"
   fi
 
-  if ! stop_services; then
+  if [ "$services_already_stopped" != true ] && ! stop_services; then
     log WARN "stop incomplete; attempting to keep previous release available"
     start_services "$current_id" "$current_frontend_id" || true
     return 1
@@ -477,9 +517,17 @@ deploy_release() {
     start_services "$current_id" "$current_frontend_id" || true
     return 1
   fi
-  if ! install_stage "$stage"; then
+  if ! install_stage "$stage" "$services_already_stopped"; then
     error "新版本切换失败，开始自动回退"
     log ERROR "install failed release=$release_id"
+    restore_previous || return 1
+    return 1
+  fi
+
+  if [ "$(hash_file "$BACKEND_DIR/api")" != "$backend_sha" ] ||
+    [ "$(tr -d '\r\n' < "$FRONTEND_DIR/.next/BUILD_ID")" != "$frontend_id" ]; then
+    error "已安装产物与目标 stage 不一致，开始自动回退"
+    log ERROR "installed artifact verification failed release=$release_id"
     restore_previous || return 1
     return 1
   fi
@@ -562,10 +610,17 @@ rollback_command() {
 
 MODE="deploy"
 DRY_RUN=false
+ACTIVATE_STAGE=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --prod|--production) MODE="deploy" ;;
     --prepare) MODE="prepare" ;;
+    --activate-prepared)
+      MODE="activate"
+      shift
+      [ "$#" -gt 0 ] || { usage >&2; exit 2; }
+      ACTIVATE_STAGE="$1"
+      ;;
     --rollback) MODE="rollback" ;;
     --dry-run) DRY_RUN=true ;;
     --help|-h) usage; exit 0 ;;
@@ -585,7 +640,12 @@ fi
 
 finish_maintenance() {
   local status=$?
-  if ! production_maintenance_finish; then
+  if [ "$status" -ne 0 ] && [ "$MODE" = activate ] &&
+    [ "$MAGICPODCAST_MAINTENANCE_OWNERSHIP" = owned ] &&
+    [ "${maintenance_operation:-}" = recovery ]; then
+    stop_services || status=1
+    production_maintenance_hold_for_recovery || status=1
+  elif ! production_maintenance_finish; then
     status=1
   fi
   exit "$status"
@@ -594,12 +654,45 @@ finish_maintenance() {
 trap finish_maintenance EXIT
 if [ "$MODE" = deploy ] || [ "$MODE" = rollback ]; then
   production_maintenance_enter "$MODE" || exit 1
+elif [ "$MODE" = activate ]; then
+  maintenance_operation="${MAGICPODCAST_RELEASE_MAINTENANCE_OPERATION:-deploy}"
+  case "$maintenance_operation" in
+    migration|recovery) ;;
+    *) error "prepared activation requires migration or recovery maintenance"; exit 1 ;;
+  esac
+  production_maintenance_enter "$maintenance_operation" || exit 1
 fi
 
 mkdir -p "$RELEASE_ROOT"
 if [ "$MODE" = rollback ]; then
   rollback_command
   exit $?
+fi
+
+if [ "$MODE" = activate ]; then
+  [[ "${MAGICPODCAST_RELEASE_SCHEMA_VERSION_OVERRIDE:-}" =~ ^[0-9]+$ ]] || {
+    error "prepared activation requires the accepted schema version"
+    exit 1
+  }
+  ACTIVATE_STAGE="$(cd "$(dirname "$ACTIVATE_STAGE")" && pwd)/$(basename "$ACTIVATE_STAGE")"
+  RELEASE_ROOT="$(cd "$RELEASE_ROOT" && pwd)"
+  case "$ACTIVATE_STAGE" in
+    "$RELEASE_ROOT"/*) ;;
+    *) error "prepared stage must be inside release root"; exit 1 ;;
+  esac
+  if ! verify_stage "$ACTIVATE_STAGE" ||
+    [ "$(manifest_value worktree_clean "$ACTIVATE_STAGE/manifest.env")" != true ]; then
+    error "prepared release verification failed"
+    exit 1
+  fi
+  deploy_release "$ACTIVATE_STAGE" true || exit 1
+  activation_release_id="$(manifest_value release_id "$ACTIVATE_STAGE/manifest.env")"
+  activation_frontend_id="$(manifest_value frontend_build_id "$ACTIVATE_STAGE/manifest.env")"
+  verify_schema_ready "$activation_release_id" "$activation_frontend_id" "$MAGICPODCAST_RELEASE_SCHEMA_VERSION_OVERRIDE" || {
+    error "prepared release readiness verification failed"
+    exit 1
+  }
+  exit 0
 fi
 
 RELEASE_ID="$(date -u '+%Y%m%dT%H%M%SZ')-$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || printf 'nogit')-$$"
@@ -612,6 +705,7 @@ fi
 
 if [ "$MODE" = prepare ]; then
   info "构建验证完成，未切换: release=$RELEASE_ID"
+  printf 'prepared_stage=%s\n' "$STAGE"
   exit 0
 fi
 

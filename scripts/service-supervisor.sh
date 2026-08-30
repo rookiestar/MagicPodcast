@@ -196,7 +196,7 @@ check_once() {
   return 1
 }
 
-log "supervisor started project=$PROJECT_DIR interval=$CHECK_INTERVAL no_build=$NO_BUILD"
+log "supervisor started interval=$CHECK_INTERVAL no_build=$NO_BUILD"
 failure_count=0
 cycles=0
 while :; do

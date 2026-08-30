@@ -51,6 +51,9 @@ func main() {
 	if err := sqlDB.Ping(); err != nil {
 		log.Fatalf("Failed to ping database: %v", err)
 	}
+	if err := requireEmptyInitializationTarget(db); err != nil {
+		log.Fatalf("Refusing to initialize a non-empty database: %v", err)
+	}
 
 	fmt.Println("\n📊 Running explicit versioned migrations...")
 	if err := database.ApplyMigrations(db); err != nil {
@@ -69,6 +72,25 @@ func main() {
 	fmt.Println("\n✅ Database initialization completed successfully!")
 	fmt.Println("   You can now start the API server with:")
 	fmt.Println("   go run cmd/api/main.go")
+}
+
+func requireEmptyInitializationTarget(db *gorm.DB) error {
+	if db == nil {
+		return fmt.Errorf("database is nil")
+	}
+	var objects int64
+	if err := db.Raw(`
+		SELECT COUNT(*)
+		FROM sqlite_master
+		WHERE name NOT LIKE 'sqlite_%'
+		  AND type IN ('table', 'index', 'trigger', 'view')
+	`).Scan(&objects).Error; err != nil {
+		return fmt.Errorf("inspect initialization target: %w", err)
+	}
+	if objects != 0 {
+		return fmt.Errorf("database already contains %d schema object(s); use the production migration runner", objects)
+	}
+	return nil
 }
 
 // seedData 插入种子数据

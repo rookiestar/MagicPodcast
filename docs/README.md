@@ -1,6 +1,6 @@
 # MagicPodcast 文档中心
 
-最后更新：2026-08-24
+最后更新：2026-08-30
 
 这份索引用来区分“当前维护文档”和“历史记录”。日常开发、部署、测试和重构优先看当前维护文档；阶段性总结和历史分析只作为查证背景，不作为最新状态依据。
 
@@ -33,6 +33,7 @@ Agent 治理以根目录 [../AGENTS.md](../AGENTS.md) 为唯一权威合同；[.
 | 数据 Profile Skill | [../.agents/skills/magicpodcast-data-profile/SKILL.md](../.agents/skills/magicpodcast-data-profile/SKILL.md) | Agent 的 status-first 安全操作入口；只调用项目统一命令 |
 | 备份恢复 | [BACKUP_RECOVERY.md](BACKUP_RECOVERY.md) | SQLite 备份、验证和恢复 |
 | 数据库迁移 | [migration/MIGRATION_GUIDE.md](migration/MIGRATION_GUIDE.md) | 当前迁移入口、索引补齐和高风险手工迁移边界 |
+| 生产迁移演练 | [migration/PRODUCTION_MIGRATION_SAFETY_DRILL.md](migration/PRODUCTION_MIGRATION_SAFETY_DRILL.md) | #219 ready-for-human 演练、授权停点、RPO/RTO 与证据模板 |
 | 数据库索引 | [DATABASE_INDEX_GUIDE.md](DATABASE_INDEX_GUIDE.md) | 索引与查询性能说明 |
 | 清理规则 | [CLEAN_GUIDE.md](CLEAN_GUIDE.md) | 本地构建、日志和临时文件清理 |
 | 前端测试 | [FRONTEND_TESTING_SETUP.md](FRONTEND_TESTING_SETUP.md) | Vitest 和前端测试配置 |

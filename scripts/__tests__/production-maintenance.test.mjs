@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { chmod, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -29,6 +30,8 @@ const productionDeployScript = path.join(
   "scripts",
   "production-deploy.sh",
 );
+const migrateScript = path.join(projectRoot, "scripts", "migrate-db.sh");
+const restoreScript = path.join(projectRoot, "scripts", "restore-db.sh");
 
 function run(command, args = [], options = {}) {
   return new Promise((resolve) => {
@@ -194,12 +197,30 @@ test("supervisor records maintenance and skips recovery during an active publish
   );
   assert.equal(adopted.code, 0, adopted.stderr);
 
-  const contention = await run(
+  const wrongAdoption = await run(
     "/bin/bash",
-    ["-c", "source '" + maintenanceScript + "'; production_maintenance_begin rollback"],
-    { env: lockEnv(lockDir) },
+    [
+      "-c",
+      "source '" + maintenanceScript + "'; production_maintenance_enter migration",
+    ],
+    {
+      env: {
+        ...lockEnv(lockDir),
+        MAGICPODCAST_MAINTENANCE_OWNER_PID: ownerPid,
+        MAGICPODCAST_MAINTENANCE_OWNER_START: ownerStart,
+      },
+    },
   );
-  assert.equal(contention.code, 1, "active maintenance lock was stolen");
+  assert.equal(wrongAdoption.code, 1, "migration adopted a deploy window");
+
+  for (const operation of ["rollback", "migration", "recovery"]) {
+    const contention = await run(
+      "/bin/bash",
+      ["-c", "source '" + maintenanceScript + "'; production_maintenance_begin " + operation],
+      { env: lockEnv(lockDir) },
+    );
+    assert.equal(contention.code, 1, operation + " stole an active maintenance lock");
+  }
   assert.equal(existsSync(path.join(lockDir, "state")), true);
 
   guardedStart = spawn("/bin/bash", [startScript, "--prod"], {
@@ -338,6 +359,414 @@ test("stale maintenance locks are reclaimed only after the owner is gone", async
   assert.equal(existsSync(incompleteLockDir), false, "incomplete stale lock was not reclaimed");
 });
 
+test("critical migration lock is never reclaimed without explicit recovery", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "magicpodcast-critical-lock-"));
+  const lockDir = path.join(root, "production.lock");
+  await mkdir(lockDir, { recursive: true, mode: 0o700 });
+  const oldEpoch = String(Math.floor(Date.now() / 1000) - 3600);
+  for (const [name, value] of Object.entries({
+    "owner.pid": "99999999\n",
+    "owner.started_at": "dead-owner\n",
+    started_at: "2000-01-01T00:00:00Z\n",
+    started_epoch: oldEpoch + "\n",
+    heartbeat_epoch: oldEpoch + "\n",
+    operation: "migration\n",
+    state: "critical\n",
+  })) {
+    await writeFile(path.join(lockDir, name), value);
+  }
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const inspected = await run(
+    "/bin/bash",
+    ["-c", "source '" + maintenanceScript + "'; production_maintenance_inspect"],
+    { env: lockEnv(lockDir) },
+  );
+  assert.equal(inspected.code, 0, inspected.stderr);
+  assert.match(inspected.stdout, /^state=recovery_required$/m);
+  assert.equal(existsSync(lockDir), true, "critical lock was reclaimed");
+
+  const deploy = await run(
+    "/bin/bash",
+    ["-c", "source '" + maintenanceScript + "'; production_maintenance_begin deploy"],
+    { env: lockEnv(lockDir) },
+  );
+  assert.equal(deploy.code, 1, "deploy stole a critical migration lock");
+
+  const invalidBackup = path.join(root, "invalid-backup.db");
+  await writeFile(invalidBackup, "invalid\n");
+  const failedRecovery = await run(
+    "/bin/bash",
+    [restoreScript, invalidBackup, "--no-safety-backup"],
+    { env: { ...lockEnv(lockDir), DB_PATH: path.join(root, "target.db") } },
+  );
+  assert.notEqual(failedRecovery.code, 0);
+  assert.equal(
+    (await readFile(path.join(lockDir, "state"), "utf8")).trim(),
+    "recovery_required",
+    "failed recovery released an ambiguous database",
+  );
+
+  const recovery = await run(
+    "/bin/bash",
+    [
+      "-c",
+      "source '" + maintenanceScript + "'; production_maintenance_begin recovery; production_maintenance_finish",
+    ],
+    { env: lockEnv(lockDir) },
+  );
+  assert.equal(recovery.code, 0, recovery.stderr);
+  assert.equal(existsSync(lockDir), false, "explicit recovery did not release the lock");
+});
+
+test("restore cannot overlap an active migration window", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "magicpodcast-restore-lock-"));
+  const lockDir = path.join(root, "production.lock");
+  const backup = path.join(root, "backup.db");
+  await writeFile(backup, "not-read-because-lock-fails\n");
+  const owner = spawn(
+    "/bin/bash",
+    [
+      "-c",
+      "source '" + maintenanceScript + "'; production_maintenance_begin migration; exec /bin/sleep 30",
+    ],
+    { env: { ...process.env, ...lockEnv(lockDir) }, stdio: "ignore" },
+  );
+  t.after(async () => {
+    if (owner.exitCode === null && owner.signalCode === null) {
+      owner.kill("SIGKILL");
+      await waitForExit(owner);
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+  await waitFor(() => existsSync(path.join(lockDir, "owner.pid")));
+
+  const restored = await run(
+    "/bin/bash",
+    [restoreScript, backup, "--no-safety-backup"],
+    { env: { ...lockEnv(lockDir), DB_PATH: path.join(root, "target.db") } },
+  );
+  assert.equal(restored.code, 1);
+  assert.match(restored.stderr, /another production maintenance window is active/);
+});
+
+test("successful restore remains held until a paired release is accepted", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "magicpodcast-restore-hold-"));
+  const lockDir = path.join(root, "production.lock");
+  const backup = path.join(root, "backup.db");
+  const target = path.join(root, "target.db");
+  const fakeLsof = path.join(root, "lsof");
+  await writeExecutable(fakeLsof, "#!/bin/bash\nexit 1\n");
+  const schema = [
+    "podcasts",
+    "episodes",
+    "tags",
+    "podcasts_tags",
+    "workflows",
+    "jobs",
+    "job_executions",
+    "reports",
+    "sync_configs",
+  ]
+    .map((table) => "CREATE TABLE " + table + " (id INTEGER PRIMARY KEY);")
+    .join(" ");
+  const created = await run("sqlite3", [backup, schema]);
+  assert.equal(created.code, 0, created.stderr);
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const forced = await run("/bin/bash", [restoreScript, backup, "--force"], {
+    env: { ...lockEnv(lockDir), DB_PATH: target, MAGICPODCAST_LSOF_BIN: fakeLsof },
+  });
+  assert.notEqual(forced.code, 0, "restore still accepted --force");
+
+  const restored = await run(
+    "/bin/bash",
+    [restoreScript, backup, "--no-safety-backup"],
+    { env: { ...lockEnv(lockDir), DB_PATH: target, MAGICPODCAST_LSOF_BIN: fakeLsof } },
+  );
+  assert.equal(restored.code, 0, restored.stderr);
+  assert.match(restored.stdout, /Recovery lock retained/);
+  assert.equal(
+    (await readFile(path.join(lockDir, "state"), "utf8")).trim(),
+    "recovery_required",
+  );
+});
+
+async function createMigrationApplyFixture(
+  t,
+  { goFails = false, startFails = false, healthFails = false } = {},
+) {
+  const root = await mkdtemp(path.join(tmpdir(), "magicpodcast-migration-apply-"));
+  const lockDir = path.join(root, "production.lock");
+  const binDir = path.join(root, "bin");
+  const callsFile = path.join(root, "calls.log");
+  const database = path.join(root, "source.db");
+  const backup = path.join(root, "backup.db.gz");
+  const report = path.join(root, "migration-report.json");
+  const config = path.join(root, "config.yaml");
+  const releaseRoot = path.join(root, "releases");
+  const artifactDir = path.join(releaseRoot, "fixture-release");
+  const backendArtifact = path.join(artifactDir, "backend.api");
+  const frontendBuildIDFile = path.join(artifactDir, "frontend.next", "BUILD_ID");
+  const targetCommitResult = await run("git", ["rev-parse", "HEAD"]);
+  assert.equal(targetCommitResult.code, 0, targetCommitResult.stderr);
+  const targetCommit = targetCommitResult.stdout.trim();
+  await mkdir(binDir, { recursive: true });
+  await mkdir(path.dirname(frontendBuildIDFile), { recursive: true });
+  await writeFile(database, "fixture\n");
+  await writeFile(backup, "fixture-backup\n");
+  await writeFile(backup + ".sha256", "fixture-sha  backup.db.gz\n");
+  await writeFile(backup + ".meta", "source_kind=magicpodcast_sqlite\n");
+  await writeFile(config, "database:\n  path: fixture\n");
+  const backendContents = "fixture-backend-artifact\n";
+  await writeExecutable(backendArtifact, "#!/bin/bash\n" + backendContents);
+  const backendSHA = createHash("sha256")
+    .update("#!/bin/bash\n" + backendContents)
+    .digest("hex");
+  await writeFile(frontendBuildIDFile, "fixture-frontend\n");
+  await writeFile(
+    path.join(releaseRoot, "current.env"),
+    [
+      "release_id=fixture-release",
+      "frontend_build_id=fixture-frontend",
+      "backend_sha256=" + backendSHA,
+      "artifact_dir=" + artifactDir,
+      "schema_version=24",
+      "",
+    ].join("\n"),
+  );
+  await writeFile(
+    path.join(artifactDir, "manifest.env"),
+    [
+      "release_id=fixture-release",
+      "frontend_build_id=fixture-frontend",
+      "backend_sha256=" + backendSHA,
+      "commit=" + targetCommit,
+      "worktree_clean=true",
+      "schema_version=24",
+      "",
+    ].join("\n"),
+  );
+  await writeFile(
+    report,
+    JSON.stringify(
+      {
+        report_version: "migration_report.v1",
+        plan_id: "fixture-plan",
+        backup_sha256: "fixture-backup-sha",
+        result: { status: "passed", apply_eligible: true },
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  await writeExecutable(
+    path.join(binDir, "stop"),
+    [
+      "#!/bin/bash",
+      "set -euo pipefail",
+      "[ \"$(cat '" + lockDir + "/operation')\" = migration ]",
+      "printf 'stop\\n' >> '" + callsFile + "'",
+      "",
+    ].join("\n"),
+  );
+  await writeExecutable(
+    path.join(binDir, "release"),
+    [
+      "#!/bin/bash",
+      "set -euo pipefail",
+      "[ \"$(cat '" + lockDir + "/operation')\" = migration ]",
+      "[ \"$(cat '" + lockDir + "/state')\" = critical ]",
+      "[ \"$MAGICPODCAST_RELEASE_MAINTENANCE_OPERATION\" = migration ]",
+      "[ \"$MAGICPODCAST_RELEASE_SCHEMA_VERSION_OVERRIDE\" = 25 ]",
+      "[ \"$1\" = --activate-prepared ]",
+      "[ \"$2\" = '" + artifactDir + "' ]",
+      "printf 'activate\\n' >> '" + callsFile + "'",
+      startFails ? "exit 1" : "exit 0",
+      "",
+    ].join("\n"),
+  );
+  await writeExecutable(path.join(binDir, "lsof"), "#!/bin/bash\nexit 1\n");
+  await writeExecutable(
+    path.join(binDir, "go"),
+    [
+      "#!/bin/bash",
+      "[ \"$(cat '" + lockDir + "/state')\" = critical ]",
+      "printf 'go:%s\\n' \"$*\" >> '" + callsFile + "'",
+      goFails ? "exit 1" : "exit 0",
+      "",
+    ].join("\n"),
+  );
+  await writeExecutable(
+    path.join(binDir, "sqlite3"),
+    [
+      "#!/bin/bash",
+      "query=\"${@: -1}\"",
+      "case \"$query\" in",
+      "  *'MAX(version)'*) printf '25\\n' ;;",
+      "  *'episode_triage_decisions'*) printf 'focus=3\\ninbox=4\\nsomeday=3\\ndone=3\\n' ;;",
+      "  *'episode_processing_runs'*) printf 'completed=1\\n' ;;",
+      "  *) exit 1 ;;",
+      "esac",
+      "",
+    ].join("\n"),
+  );
+  await writeExecutable(
+    path.join(binDir, "curl"),
+    healthFails
+      ? "#!/bin/bash\nexit 1\n"
+      : "#!/bin/bash\n[ \"${@: -1}\" = http://127.0.0.1:8080/ready ]\nprintf '%s\\n' '{\"status\":\"ok\",\"schema_version\":25,\"release_id\":\"fixture-release\",\"frontend_build_id\":\"fixture-frontend\",\"build_mode\":\"release\",\"data_profile\":\"production\"}'\n",
+  );
+  t.after(() => rm(root, { recursive: true, force: true }));
+  return {
+    root,
+    lockDir,
+    callsFile,
+    env: {
+      CONFIG_PATH: config,
+      DB_PATH: database,
+      MAGICPODCAST_MIGRATION_BACKUP: backup,
+      MAGICPODCAST_MIGRATION_REPORT: report,
+      MAGICPODCAST_RELEASE_ROOT: releaseRoot,
+      MAGICPODCAST_MIGRATION_RELEASE_STAGE: artifactDir,
+      MAGICPODCAST_MIGRATION_RELEASE_SCRIPT: path.join(binDir, "release"),
+      MAGICPODCAST_TARGET_COMMIT: targetCommit,
+      MAGICPODCAST_MIGRATION_CONFIRM: "I_UNDERSTAND_THIS_WRITES_DATA",
+      MAGICPODCAST_MIGRATION_RELEASE_CONFIRM: "I_UNDERSTAND_THIS_SWITCHES_RELEASE",
+      MAGICPODCAST_MIGRATION_STOP_SCRIPT: path.join(binDir, "stop"),
+      MAGICPODCAST_GO_BIN: path.join(binDir, "go"),
+      MAGICPODCAST_SQLITE_BIN: path.join(binDir, "sqlite3"),
+      MAGICPODCAST_LSOF_BIN: path.join(binDir, "lsof"),
+      MAGICPODCAST_CURL_BIN: path.join(binDir, "curl"),
+      MAGICPODCAST_MIGRATION_HEALTH_ATTEMPTS: "1",
+      MAGICPODCAST_MIGRATION_HEALTH_INTERVAL: "1",
+      ...lockEnv(lockDir),
+    },
+  };
+}
+
+test("migration apply owns the shared window through post-start verification", async (t) => {
+  const fixture = await createMigrationApplyFixture(t);
+  const result = await run("/bin/bash", [migrateScript, "--apply"], { env: fixture.env });
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(existsSync(fixture.lockDir), false, "successful migration left the lock behind");
+  assert.match(result.stdout, /^migration_post_start_schema=25$/m);
+  assert.match(result.stdout, /^migration_post_start_release=fixture-release$/m);
+  assert.match(result.stdout, /^migration_post_start_frontend_build=fixture-frontend$/m);
+  assert.match(result.stdout, /^migration_post_start_queue_counts=.*focus=3.*inbox=4/m);
+  assert.match(result.stdout, /^migration_post_start_processing_counts=completed=1/m);
+  assert.match(result.stdout, /^migration_service_state=running$/m);
+  const calls = await readFile(fixture.callsFile, "utf8");
+  assert.match(calls, /^stop$/m);
+  assert.match(calls, /^go:run \.\/cmd\/migrate --apply$/m);
+  assert.match(calls, /^activate$/m);
+  assert.ok(calls.indexOf("stop") < calls.indexOf("go:"));
+  assert.ok(calls.indexOf("go:") < calls.indexOf("activate"));
+});
+
+test("migration apply rejects a release that is not bound to target commit", async (t) => {
+  const fixture = await createMigrationApplyFixture(t);
+  const manifest = path.join(
+    fixture.env.MAGICPODCAST_RELEASE_ROOT,
+    "fixture-release",
+    "manifest.env",
+  );
+  const content = await readFile(manifest, "utf8");
+  await writeFile(
+    manifest,
+    content.replace(/^commit=.*$/m, "commit=0000000000000000000000000000000000000000"),
+  );
+  const result = await run("/bin/bash", [migrateScript, "--apply"], { env: fixture.env });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /目标 release 与目标 commit 未配对/);
+  assert.equal(existsSync(fixture.callsFile), false, "migration stopped services before release validation");
+});
+
+test("migration apply requires independent release-switch confirmation", async (t) => {
+  const fixture = await createMigrationApplyFixture(t);
+  const env = { ...fixture.env };
+  delete env.MAGICPODCAST_MIGRATION_RELEASE_CONFIRM;
+  const result = await run("/bin/bash", [migrateScript, "--apply"], { env });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /单独确认目标 release 切换/);
+  assert.equal(existsSync(fixture.callsFile), false);
+});
+
+test("failed migration keeps services stopped and supervisor suppressed until recovery", async (t) => {
+  const fixture = await createMigrationApplyFixture(t, { goFails: true });
+  const result = await run("/bin/bash", [migrateScript, "--apply"], { env: fixture.env });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /^migration_recovery_required=true$/m);
+  assert.match(result.stderr, /^migration_service_state=stopped$/m);
+  assert.equal(existsSync(fixture.lockDir), true);
+  assert.equal((await readFile(path.join(fixture.lockDir, "state"), "utf8")).trim(), "recovery_required");
+  assert.equal((await readFile(path.join(fixture.lockDir, "operation"), "utf8")).trim(), "migration");
+  const calls = await readFile(fixture.callsFile, "utf8");
+  assert.match(calls, /^stop$/m);
+  assert.equal(calls.includes("activate"), false);
+
+  const fakeCurl = path.join(fixture.root, "supervisor-curl");
+  const fakeStart = path.join(fixture.root, "supervisor-start");
+  const fakeStop = path.join(fixture.root, "supervisor-stop");
+  const supervisorCalls = path.join(fixture.root, "supervisor-calls.log");
+  await writeExecutable(fakeCurl, "#!/bin/bash\nexit 1\n");
+  await writeExecutable(fakeStart, "#!/bin/bash\nprintf 'start\\n' >> '" + supervisorCalls + "'\n");
+  await writeExecutable(fakeStop, "#!/bin/bash\nprintf 'stop\\n' >> '" + supervisorCalls + "'\n");
+  const supervised = await run("/bin/bash", [supervisorScript], {
+    env: {
+      ...lockEnv(fixture.lockDir),
+      MAGICPODCAST_PROJECT_DIR: fixture.root,
+      MAGICPODCAST_SUPERVISOR_LOG: path.join(fixture.root, "supervisor.log"),
+      MAGICPODCAST_SUPERVISOR_STATUS_FILE: path.join(fixture.root, "supervisor.status"),
+      MAGICPODCAST_SUPERVISOR_INTERVAL: "1",
+      MAGICPODCAST_SUPERVISOR_MAX_BACKOFF: "1",
+      MAGICPODCAST_SUPERVISOR_MAX_CYCLES: "1",
+      MAGICPODCAST_CURL_BIN: fakeCurl,
+      MAGICPODCAST_START_SCRIPT: fakeStart,
+      MAGICPODCAST_STOP_SCRIPT: fakeStop,
+    },
+  });
+  assert.equal(supervised.code, 0, supervised.stderr);
+  assert.equal(existsSync(supervisorCalls), false, "supervisor restarted services during migration recovery hold");
+  const status = await readFile(path.join(fixture.root, "supervisor.status"), "utf8");
+  assert.match(status, /^state=maintenance$/m);
+  assert.match(status, /^maintenance_operation=migration$/m);
+
+  const recovered = await run(
+    "/bin/bash",
+    [
+      "-c",
+      "source '" + maintenanceScript + "'; production_maintenance_enter recovery; [ \"$(cat '" + fixture.lockDir + "/operation')\" = recovery ]; production_maintenance_finish",
+    ],
+    { env: lockEnv(fixture.lockDir) },
+  );
+  assert.equal(recovered.code, 0, recovered.stderr);
+  assert.equal(existsSync(fixture.lockDir), false);
+});
+
+test("post-commit start failure keeps the migration window in recovery state", async (t) => {
+  const fixture = await createMigrationApplyFixture(t, { startFails: true });
+  const result = await run("/bin/bash", [migrateScript, "--apply"], { env: fixture.env });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /^migration_recovery_required=true$/m);
+  assert.match(result.stderr, /^migration_service_state=stopped$/m);
+  assert.equal((await readFile(path.join(fixture.lockDir, "state"), "utf8")).trim(), "recovery_required");
+  const calls = await readFile(fixture.callsFile, "utf8");
+  assert.match(calls, /^go:run \.\/cmd\/migrate --apply$/m);
+  assert.match(calls, /^activate$/m);
+});
+
+test("post-start acceptance failure keeps the migration window in recovery state", async (t) => {
+  const fixture = await createMigrationApplyFixture(t, { healthFails: true });
+  const result = await run("/bin/bash", [migrateScript, "--apply"], { env: fixture.env });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /迁移后服务验收失败/);
+  assert.match(result.stderr, /^migration_recovery_required=true$/m);
+  assert.equal((await readFile(path.join(fixture.lockDir, "state"), "utf8")).trim(), "recovery_required");
+  const calls = await readFile(fixture.callsFile, "utf8");
+  assert.match(calls, /^activate$/m);
+});
+
 async function createReleaseFixture(t, { failFirstStart = false } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), "magicpodcast-release-"));
   const backendDir = path.join(root, "backend");
@@ -404,7 +833,8 @@ async function createReleaseFixture(t, { failFirstStart = false } = {}) {
     path.join(root, "stop"),
     [
       "#!/bin/bash",
-      "[ -f \"" + lockDir + "/state\" ] && [ \"$(cat \"" + lockDir + "/state\")\" = maintenance ] || exit 91",
+      "state=\"$(cat '" + lockDir + "/state')\"",
+      "[ \"$state\" = maintenance ] || [ \"$state\" = critical ] || exit 91",
       "printf 'stop\\n' >> '" + callsFile + "'",
       "",
     ].join("\n"),
@@ -414,12 +844,14 @@ async function createReleaseFixture(t, { failFirstStart = false } = {}) {
     [
       "#!/bin/bash",
       "set -euo pipefail",
-      "[ -f \"" + lockDir + "/state\" ] && [ \"$(cat \"" + lockDir + "/state\")\" = maintenance ] || exit 91",
+      "state=\"$(cat '" + lockDir + "/state')\"",
+      "[ \"$state\" = maintenance ] || [ \"$state\" = critical ] || exit 91",
       "printf 'start=%s\\n' \"" +
         "$" +
         "{MAGICPODCAST_RELEASE_ID:-}\" >> '" +
         callsFile +
         "'",
+      "printf 'start_state=%s\\n' \"$state\" >> '" + callsFile + "'",
       "count=\"$(grep -c '^start=' '" + callsFile + "' || true)\"",
       "if [ '" + String(failFirstStart) + "' = true ] && [ \"$count\" -eq 1 ]; then exit 1; fi",
       "",
@@ -481,6 +913,140 @@ test("failed direct release rolls back before releasing maintenance", async (t) 
   assert.match(current, /^release_id=old-release$/m);
   const calls = await readFile(fixture.callsFile, "utf8");
   assert.equal((calls.match(/^start=/gm) ?? []).length, 2);
+});
+
+test("prepared release activates inside an inherited critical migration window", async (t) => {
+  const fixture = await createReleaseFixture(t);
+  const prepared = await run("/bin/bash", [releaseScript, "--prepare"], {
+    env: fixture.env,
+  });
+  assert.equal(prepared.code, 0, prepared.stderr);
+  const match = prepared.stdout.match(/^prepared_stage=(.+)$/m);
+  assert.ok(match, prepared.stdout);
+  const stage = match[1].trim();
+  const releaseID = path.basename(stage);
+  const manifest = path.join(stage, "manifest.env");
+  const manifestBody = await readFile(manifest, "utf8");
+  await writeFile(
+    manifest,
+    manifestBody.replace(/^worktree_clean=.*$/m, "worktree_clean=true"),
+  );
+
+  const activated = await run(
+    "/bin/bash",
+    [
+      "-c",
+      [
+        "source '" + maintenanceScript + "'",
+        "production_maintenance_begin migration",
+        "production_maintenance_mark_critical",
+        "MAGICPODCAST_RELEASE_MAINTENANCE_OPERATION=migration " +
+          "MAGICPODCAST_RELEASE_SCHEMA_VERSION_OVERRIDE=2 " +
+          "'" + releaseScript + "' --activate-prepared '" + stage + "'",
+        "production_maintenance_finish",
+      ].join("\n"),
+    ],
+    { env: fixture.env },
+  );
+  assert.equal(activated.code, 0, activated.stderr);
+  assert.equal(existsSync(fixture.lockDir), false);
+  const current = await readFile(path.join(fixture.releaseRoot, "current.env"), "utf8");
+  assert.match(current, new RegExp("^release_id=" + releaseID + "$", "m"));
+  assert.match(current, /^schema_version=2$/m);
+  const calls = await readFile(fixture.callsFile, "utf8");
+  assert.match(calls, new RegExp("^start=" + releaseID + "$", "m"));
+  assert.match(calls, /^start_state=critical$/m);
+});
+
+test("prepared release atomically takes over a held recovery window", async (t) => {
+  const fixture = await createReleaseFixture(t);
+  const prepared = await run("/bin/bash", [releaseScript, "--prepare"], {
+    env: fixture.env,
+  });
+  assert.equal(prepared.code, 0, prepared.stderr);
+  const match = prepared.stdout.match(/^prepared_stage=(.+)$/m);
+  assert.ok(match, prepared.stdout);
+  const stage = match[1].trim();
+  const releaseID = path.basename(stage);
+  const manifest = path.join(stage, "manifest.env");
+  await writeFile(
+    manifest,
+    (await readFile(manifest, "utf8")).replace(
+      /^worktree_clean=.*$/m,
+      "worktree_clean=true",
+    ),
+  );
+  const held = await run(
+    "/bin/bash",
+    [
+      "-c",
+      [
+        "source '" + maintenanceScript + "'",
+        "production_maintenance_begin recovery",
+        "production_maintenance_mark_critical",
+        "production_maintenance_hold_for_recovery",
+      ].join("\n"),
+    ],
+    { env: fixture.env },
+  );
+  assert.equal(held.code, 0, held.stderr);
+  assert.equal(
+    (await readFile(path.join(fixture.lockDir, "state"), "utf8")).trim(),
+    "recovery_required",
+  );
+
+  const activated = await run(
+    "/bin/bash",
+    [releaseScript, "--activate-prepared", stage],
+    {
+      env: {
+        ...fixture.env,
+        MAGICPODCAST_RELEASE_MAINTENANCE_OPERATION: "recovery",
+        MAGICPODCAST_RELEASE_SCHEMA_VERSION_OVERRIDE: "2",
+      },
+    },
+  );
+  assert.equal(activated.code, 0, activated.stderr);
+  assert.equal(existsSync(fixture.lockDir), false);
+  const current = await readFile(path.join(fixture.releaseRoot, "current.env"), "utf8");
+  assert.match(current, new RegExp("^release_id=" + releaseID + "$", "m"));
+  assert.match(current, /^schema_version=2$/m);
+  const calls = await readFile(fixture.callsFile, "utf8");
+  assert.match(calls, /^start_state=critical$/m);
+
+  const heldAgain = await run(
+    "/bin/bash",
+    [
+      "-c",
+      [
+        "source '" + maintenanceScript + "'",
+        "production_maintenance_begin recovery",
+        "production_maintenance_mark_critical",
+        "production_maintenance_hold_for_recovery",
+      ].join("\n"),
+    ],
+    { env: fixture.env },
+  );
+  assert.equal(heldAgain.code, 0, heldAgain.stderr);
+  const failedReady = await run(
+    "/bin/bash",
+    [releaseScript, "--activate-prepared", stage],
+    {
+      env: {
+        ...fixture.env,
+        MAGICPODCAST_RELEASE_MAINTENANCE_OPERATION: "recovery",
+        MAGICPODCAST_RELEASE_SCHEMA_VERSION_OVERRIDE: "2",
+        MAGICPODCAST_RELEASE_TEST_READY_FAIL: "true",
+      },
+    },
+  );
+  assert.equal(failedReady.code, 1);
+  assert.equal(
+    (await readFile(path.join(fixture.lockDir, "state"), "utf8")).trim(),
+    "recovery_required",
+  );
+  const failedCalls = await readFile(fixture.callsFile, "utf8");
+  assert.match(failedCalls, /^stop$/m);
 });
 
 async function createManagedDeployFixture(t) {
@@ -590,6 +1156,8 @@ test("managed production workflow keeps the shared maintenance lock through rele
   assert.match(workflow, /production-deploy\.sh" deploy "\$DEPLOY_SHA"/);
   assert.match(workflow, /MAGICPODCAST_PRODUCTION_DIR/);
   assert.match(rollbackWorkflow, /production-deploy\.sh" rollback/);
+  assert.doesNotMatch(workflow, /migrate-db|--apply/);
+  assert.doesNotMatch(rollbackWorkflow, /migrate-db|--apply/);
 
   const result = await run(
     "/bin/bash",
