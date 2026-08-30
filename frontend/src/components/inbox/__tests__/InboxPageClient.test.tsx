@@ -1134,7 +1134,7 @@ describe("InboxPageClient", () => {
     const dialog = await screen.findByRole("dialog", {
       name: "可处理单集",
     });
-    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
 
     expect(
       await within(dialog).findByRole("heading", {
@@ -1266,7 +1266,7 @@ describe("InboxPageClient", () => {
     );
 
     fireEvent.click(within(dialog).getByRole("tab", { name: "Show Notes" }));
-    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
     expect(within(dialog).getByRole("tab", { name: "逐字稿" })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -1377,7 +1377,7 @@ describe("InboxPageClient", () => {
     const dialog = await screen.findByRole("dialog", {
       name: "可处理单集",
     });
-    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
 
     expect(
       await within(dialog).findByRole("button", { name: "重新转写" }),
@@ -1469,7 +1469,7 @@ describe("InboxPageClient", () => {
     const dialog = await screen.findByRole("dialog", {
       name: "可处理单集",
     });
-    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
 
     const actions = await within(dialog).findAllByRole("button", {
       name: "重新转写",
@@ -1563,7 +1563,7 @@ describe("InboxPageClient", () => {
     const dialog = await screen.findByRole("dialog", {
       name: "可处理单集",
     });
-    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
 
     expect(
       await within(dialog).findAllByText(
@@ -1647,7 +1647,7 @@ describe("InboxPageClient", () => {
     const dialog = await screen.findByRole("dialog", {
       name: "可处理单集",
     });
-    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
 
     expect(
       await within(dialog).findByRole("status", { name: "转写状态：转写失败" }),
@@ -1723,7 +1723,7 @@ describe("InboxPageClient", () => {
     const dialog = await screen.findByRole("dialog", {
       name: "可处理单集",
     });
-    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
     expect(within(dialog).queryByText("自动加工")).not.toBeInTheDocument();
     expect(within(dialog).getByText("正在读取转写内容")).toBeVisible();
     expect(
