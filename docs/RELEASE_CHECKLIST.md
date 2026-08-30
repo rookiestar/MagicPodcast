@@ -1,6 +1,6 @@
 # MagicPodcast 发布前检查清单
 
-最后更新：2026-08-15
+最后更新：2026-08-30
 
 这份清单用于重构、依赖升级、部署前复查。目标是确认改动没有破坏现有功能、数据库可恢复、文档仍指向当前入口。
 
@@ -30,7 +30,7 @@ node scripts/performance-audit.mjs --base-url http://localhost:3000 --api-url ht
 
 `restart.sh --prod` 会在停止当前服务前完成前后端构建和配对校验，并显式锁定 `production` 数据 Profile；切换后的 `/health` 必须同时返回新 `release_id`、`frontend_build_id`、`build_mode=release` 和 `data_profile=production`。发布失败时应确认旧 PID、旧 `.next` 和旧 `backend/api` 仍可恢复，并检查 `logs/release.log` 没有环境变量或凭据内容。
 
-生产发布与回退还必须持有共享维护窗口 `/tmp/magicpodcast-production-deploy.lock`（可由 `MAGICPODCAST_DEPLOY_LOCK_DIR` 覆盖）。窗口内 `logs/supervisor.status` 应为 `state=maintenance` 并记录 owner PID、开始时间和操作；supervisor 不得执行停启恢复。只有发布或回滚完成健康校验后才可释放锁；异常退出由 heartbeat、owner PID 和 stale 超时兜底回收，不以手动卸载 supervisor 作为发布步骤。
+生产发布、回退、migration apply 和 `restore-db.sh` recovery 必须持有同一个维护窗口 `/tmp/magicpodcast-production-deploy.lock`（可由 `MAGICPODCAST_DEPLOY_LOCK_DIR` 覆盖），四种操作互斥。窗口内 `logs/supervisor.status` 应为 `state=maintenance` 并记录 owner PID、开始时间和 operation；supervisor 不得执行停启恢复。数据库写入阶段使用 `critical` 状态：即使 owner 被强杀也不自动 stale reclaim，只能由显式 recovery 在原锁目录内原子接管。迁移先消费 `release.sh --prepare` 的目标 stage，恢复则在文件验证后继续保留 `recovery_required`；只有配对 stage 启动并完成健康校验才释放锁。普通非关键 stale 窗口仍由 heartbeat、owner PID、PID 启动时间和超时兜底。不以手动卸载 supervisor 或直接删锁作为发布/恢复步骤。
 
 远程生产发布使用 [REMOTE_PRODUCTION_DEPLOYMENT.md](REMOTE_PRODUCTION_DEPLOYMENT.md)：先由 GitHub CI 验证固定 `main` SHA，再经 `production` Environment 审批，最后由 Mac mini Runner 在固定生产目录执行 `scripts/production-deploy.sh`。Runner 注册、Environment 审批人和分支保护属于仓库外的一次性人工配置，未配置完成前不得把 workflow 视为可发布。
 

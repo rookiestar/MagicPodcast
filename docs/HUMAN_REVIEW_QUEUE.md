@@ -1,6 +1,6 @@
 # 需要人工确认的事项
 
-最后更新：2026-08-27
+最后更新：2026-08-30
 
 这些事项不影响当前功能验证，但需要使用者按真实使用习惯确认后再继续清理或改动。
 
@@ -9,7 +9,9 @@
 | 事项 | 原因 | 建议 |
 | --- | --- | --- |
 | `backend/cmd/maint/` 下的一次性维护命令 | 多数脚本面向历史数据修复，无法仅凭代码判断是否仍会被使用 | 后续按真实维护需求保留、合并或归档 |
-| `backend/cmd/migrate` 版本化迁移命令 | `--apply` 会改写真实数据库，属于高风险数据库写操作 | 仅按 `docs/migration/MIGRATION_GUIDE.md` 先备份、验证、停服务，再用确认字符串和备份路径运行；普通启动不再自动迁移 |
+| `backend/cmd/migrate` 版本化迁移命令 | `--apply` 会改写真实数据库，属于高风险数据库写操作 | 仅按 `docs/migration/MIGRATION_GUIDE.md` 先备份、验证并完成影子 `--preflight`；真实 apply 仍须停服务、确认字符串和单独授权，普通启动不自动迁移 |
+| `scripts/restore-db.sh` 数据库恢复 | 会原子替换真实数据库；共享 recovery 锁只能防并发，不能替代恢复授权与配对判断 | 仅按 `docs/BACKUP_RECOVERY.md` 验证备份并单独授权；失败后保留 `recovery_required`，不得直接删锁 |
+| #219 生产迁移安全门禁演练 | 需要 Mac mini、真实备份读取、服务停启和可能的生产 apply；自动化完成不构成这些授权 | 严格按 `docs/migration/PRODUCTION_MIGRATION_SAFETY_DRILL.md` 分阶段审批；无 pending 时不得为了验收执行生产写 |
 | `backend/scripts/fix_newest_episode_date.sql` 和 `backend/scripts/init_tags.sql` | 属于会改写真实数据的一次性 SQL，不能仅凭未被代码引用就自动删除 | 后续确认是否仍需手工维护入口；如不需要可迁入归档或删除 |
 | `archive/` 下的旧 Docker / Nginx 配置 | 当前启动方式已改为脚本，但旧部署记录可能仍有参考价值 | 确认不再需要 Docker 部署后再删除 |
 | 工作流详情页和 `WorkflowFormModal` 大组件 | 文件仍偏大，继续拆分需要页面级交互验证 | 单独安排工作流专项，先截图和点击验证后再拆 |

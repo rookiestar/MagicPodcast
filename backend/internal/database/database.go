@@ -116,7 +116,7 @@ func initDB() (*gorm.DB, error) {
 	if err := VerifySQLiteSettings(db); err != nil {
 		return nil, err
 	}
-	logger.Infof("✅ Database connected: %s (journal_mode=WAL, foreign_keys=ON, busy_timeout=%dms, max_open_conns=%d)", dbPath, busyTimeoutMS, maxOpenConns)
+	logger.Infof("✅ Database connected (journal_mode=WAL, foreign_keys=ON, busy_timeout=%dms, max_open_conns=%d)", busyTimeoutMS, maxOpenConns)
 
 	return db, nil
 }

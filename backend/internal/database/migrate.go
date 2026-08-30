@@ -34,6 +34,7 @@ type Migration struct {
 	Description                 string
 	Apply                       func(*gorm.DB) error
 	RequiresForeignKeysDisabled bool
+	Contract                    MigrationContract
 }
 
 type SchemaStatus struct {
@@ -195,6 +196,13 @@ func migrationRegistry() []Migration {
 			Name:        "native-minutes-artifact-integrity",
 			Description: "Add forward-compatible audio, Minutes summary, and transcript timeline integrity fields to immutable artifact sets (#206).",
 			Apply:       applyNativeMinutesArtifactIntegrityMigration,
+			Contract: MigrationContract{
+				SchemaChanges: []SchemaChangeRule{
+					{Operation: SchemaChangeAddColumn, Table: "episode_artifact_sets", Object: "audio_sha256"},
+					{Operation: SchemaChangeAddColumn, Table: "episode_artifact_sets", Object: "minutes_summary_sha256"},
+					{Operation: SchemaChangeAddColumn, Table: "episode_artifact_sets", Object: "transcript_timeline_sha256"},
+				},
+			},
 		},
 	}
 }
@@ -271,9 +279,10 @@ func migrationNames(migrations []Migration) []string {
 	return names
 }
 
-// ApplyMigrations is the only production schema mutation entry point. Every
-// migration and its version record run in one transaction so a failed change
-// cannot leave a partially recorded schema version.
+// ApplyMigrations is the low-level registry executor used by isolated test and
+// bootstrap paths. The production command must use
+// ApplyProductionMigrationReport, which requires a bound preflight plan and
+// adds the business-data safety contract around this transaction.
 func ApplyMigrations(db *gorm.DB) error {
 	if db == nil {
 		return fmt.Errorf("database is nil")
