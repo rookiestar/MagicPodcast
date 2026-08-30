@@ -27,6 +27,7 @@ import type {
   ProcessingScheduleStatus,
 } from "@/types/processing";
 import styles from "./InboxPage.module.css";
+import TranscriptAudioPlayer from "./TranscriptAudioPlayer";
 
 type ArtifactTab = "summary" | "transcript";
 
@@ -884,7 +885,12 @@ const EpisodeProcessingPanel = forwardRef<
         artifactContentMatchesSelection &&
         artifactContent && (
           <div
-            className={styles.processingDocument}
+            className={`${styles.processingDocument} ${
+              artifactContent.kind === "transcript" &&
+              artifactContent.segments?.length
+                ? styles.processingTranscriptDocument
+                : ""
+            }`}
             data-copilot-source={
               artifactContent.kind === "transcript" ? "transcript" : undefined
             }
@@ -912,7 +918,16 @@ const EpisodeProcessingPanel = forwardRef<
                 </span>
               )}
             </div>
-            <MarkdownViewer content={artifactContent.content} />
+            {artifactContent.kind === "transcript" &&
+            artifactContent.segments?.length ? (
+              <TranscriptAudioPlayer
+                artifactSetId={currentArtifact.id}
+                segments={artifactContent.segments}
+                mediaAvailable={artifactContent.media_available}
+              />
+            ) : (
+              <MarkdownViewer content={artifactContent.content} />
+            )}
           </div>
         )}
     </section>

@@ -749,7 +749,9 @@ describe("EpisodeProcessingPanel", () => {
     await act(async () => {
       resolveTranscript(transcriptContent);
     });
-    expect(await screen.findByText("# 妙记逐字稿")).toBeVisible();
+    expect(await screen.findByText("正文")).toBeVisible();
+    expect(screen.getByLabelText("逐字稿音频播放器")).toBeVisible();
+    expect(screen.getByRole("region", { name: "同步逐字稿" })).toBeVisible();
     expect(screen.getByText("逐字稿 · 1 段")).toBeVisible();
     expect(screen.getByText("音频可用")).toBeVisible();
 
@@ -770,7 +772,7 @@ describe("EpisodeProcessingPanel", () => {
     });
     expect(await screen.findByText("产物读取失败：网络超时")).toBeVisible();
     expect(screen.queryByText("# 妙记纪要")).not.toBeInTheDocument();
-    expect(screen.queryByText("# 妙记逐字稿")).not.toBeInTheDocument();
+    expect(screen.queryByText("正文")).not.toBeInTheDocument();
 
     rerender(<EpisodeProcessingPanel item={item} />);
     expect(screen.getByRole("tab", { name: "逐字稿" })).toHaveAttribute(

@@ -739,6 +739,47 @@ func (s *Service) GetArtifactContent(
 	return content, nil
 }
 
+func (s *Service) GetArtifactAudio(
+	ctx context.Context,
+	artifactSetID uint,
+) (ReadyAudio, error) {
+	if artifactSetID == 0 {
+		return ReadyAudio{}, ErrInvalidArtifact
+	}
+	var artifact models.EpisodeArtifactSet
+	if err := s.db.WithContext(ctx).First(&artifact, artifactSetID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ReadyAudio{}, ErrArtifactNotFound
+		}
+		return ReadyAudio{}, fmt.Errorf("read artifact set for audio: %w", err)
+	}
+	if !sha256Pattern.MatchString(artifact.AudioSHA256) {
+		return ReadyAudio{}, ErrInvalidArtifact
+	}
+	if s.audioPreparer == nil {
+		return ReadyAudio{}, ErrArtifactAudioUnavailable
+	}
+	audio, err := s.audioPreparer.ResolveReadyAudioByDigest(
+		ctx,
+		artifact.EpisodeID,
+		artifact.AudioSHA256,
+	)
+	if err != nil {
+		currentAudio, currentErr := s.audioPreparer.ResolveReadyAudio(
+			ctx,
+			artifact.EpisodeID,
+		)
+		if currentErr == nil && currentAudio.SHA256 != artifact.AudioSHA256 {
+			return ReadyAudio{}, ErrArtifactAudioMismatch
+		}
+		return ReadyAudio{}, fmt.Errorf("%w: managed audio could not be resolved", ErrArtifactAudioUnavailable)
+	}
+	if !isBrowserPlayableMediaType(audio.MediaType) {
+		return ReadyAudio{}, ErrArtifactAudioUnavailable
+	}
+	return audio, nil
+}
+
 func (s *Service) hydrateArtifactCapabilities(
 	ctx context.Context,
 	artifact *models.EpisodeArtifactSet,
@@ -767,8 +808,33 @@ func (s *Service) hasMatchingManagedAudio(
 		!sha256Pattern.MatchString(artifact.AudioSHA256) {
 		return false
 	}
-	audio, err := s.audioPreparer.ResolveReadyAudio(ctx, artifact.EpisodeID)
-	return err == nil && audio.SHA256 == artifact.AudioSHA256
+	audio, err := s.audioPreparer.ResolveReadyAudioByDigest(
+		ctx,
+		artifact.EpisodeID,
+		artifact.AudioSHA256,
+	)
+	return err == nil && isBrowserPlayableMediaType(audio.MediaType)
+}
+
+func isBrowserPlayableMediaType(mediaType string) bool {
+	switch strings.ToLower(strings.TrimSpace(mediaType)) {
+	case "audio/aac",
+		"audio/mp3",
+		"audio/mp4",
+		"audio/mpeg",
+		"audio/ogg",
+		"audio/vnd.wave",
+		"audio/wav",
+		"audio/wave",
+		"audio/x-aac",
+		"audio/x-m4a",
+		"audio/x-mp3",
+		"audio/x-wav",
+		"application/ogg":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) ListEpisodeProcessingRuns(

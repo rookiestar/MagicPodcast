@@ -342,3 +342,11 @@ func (f *workerFakeAudio) ResolveReadyAudio(
 		MediaType:       "audio/mpeg",
 	}, nil
 }
+
+func (f *workerFakeAudio) ResolveReadyAudioByDigest(
+	ctx context.Context,
+	episodeID uint,
+	_ string,
+) (ReadyAudio, error) {
+	return f.ResolveReadyAudio(ctx, episodeID)
+}

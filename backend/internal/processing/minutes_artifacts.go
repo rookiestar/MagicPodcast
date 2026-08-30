@@ -11,6 +11,10 @@ var transcriptSegmentHeaderPattern = regexp.MustCompile(
 	`^(.+?)\s+((?:\d{1,3}:)?[0-5]\d:[0-5]\d(?:\.\d{1,9})?)$`,
 )
 
+var feishuTranscriptMetadataPattern = regexp.MustCompile(
+	`^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+\S+\|(?:\d+h\s+)?\d+min\s+\d+s$`,
+)
+
 func normalizeMinutesSummary(raw string) (string, error) {
 	summary := strings.TrimSpace(strings.ReplaceAll(raw, "\r\n", "\n"))
 	if summary == "" {
@@ -58,6 +62,7 @@ func parseTranscriptSegments(raw string) ([]TranscriptSegment, error) {
 		speaker           string
 		startMS           int64
 		body              []string
+		preamble          []string
 		previousLineBlank = true
 	)
 	flush := func() error {
@@ -86,6 +91,9 @@ func parseTranscriptSegments(raw string) ([]TranscriptSegment, error) {
 		// Minutes separates speaker blocks with a blank line. Restricting
 		// headers to block boundaries keeps spoken lines ending in times intact.
 		if len(match) == 3 && (speaker == "" || previousLineBlank) {
+			if speaker == "" && !validTranscriptPreamble(preamble) {
+				return nil, fmt.Errorf("transcript preamble is invalid")
+			}
 			if err := flush(); err != nil {
 				return nil, err
 			}
@@ -103,11 +111,9 @@ func parseTranscriptSegments(raw string) ([]TranscriptSegment, error) {
 			continue
 		}
 		if speaker == "" {
-			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-				previousLineBlank = trimmed == ""
-				continue
-			}
-			return nil, fmt.Errorf("transcript content precedes the first timestamp")
+			preamble = append(preamble, line)
+			previousLineBlank = trimmed == ""
+			continue
 		}
 		body = append(body, line)
 		previousLineBlank = trimmed == ""
@@ -119,6 +125,30 @@ func parseTranscriptSegments(raw string) ([]TranscriptSegment, error) {
 		return nil, fmt.Errorf("transcript has no timestamped segments")
 	}
 	return segments, nil
+}
+
+func validTranscriptPreamble(lines []string) bool {
+	meaningful := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		meaningful = append(meaningful, trimmed)
+	}
+	if len(meaningful) == 0 {
+		return true
+	}
+	if !feishuTranscriptMetadataPattern.MatchString(meaningful[0]) {
+		return false
+	}
+	if len(meaningful) == 1 {
+		return true
+	}
+	if meaningful[1] != "Keywords:" {
+		return false
+	}
+	return len(meaningful) <= 3
 }
 
 func parseRelativeTimestampMS(value string) (int64, error) {

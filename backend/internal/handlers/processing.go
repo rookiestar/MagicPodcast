@@ -5,7 +5,10 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"strings"
+	"syscall"
+	"time"
 
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
@@ -305,6 +308,10 @@ func (h *ProcessingHandler) ListEpisodeRuns(c *gin.Context) {
 }
 
 func (h *ProcessingHandler) GetArtifactContent(c *gin.Context) {
+	if c.Param("kind") == "audio" {
+		h.GetArtifactAudio(c)
+		return
+	}
 	artifactSetID, ok := ParseUintParam(c, "id")
 	if !ok {
 		return
@@ -338,6 +345,99 @@ func (h *ProcessingHandler) GetArtifactContent(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": content})
+}
+
+func (h *ProcessingHandler) GetArtifactAudio(c *gin.Context) {
+	artifactSetID, ok := ParseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	audio, err := h.service.GetArtifactAudio(c.Request.Context(), artifactSetID)
+	if err != nil {
+		writeArtifactAudioError(c, err)
+		return
+	}
+	file, err := openVerifiedManagedAudio(audio)
+	if err != nil {
+		writeArtifactAudioError(c, processing.ErrArtifactAudioUnavailable)
+		return
+	}
+	defer file.Close()
+
+	c.Header("Cache-Control", "private, no-store")
+	c.Header("Content-Type", audio.MediaType)
+	c.Header("Cross-Origin-Resource-Policy", "same-origin")
+	c.Header("X-Content-Type-Options", "nosniff")
+	http.ServeContent(c.Writer, c.Request, "", time.Time{}, file)
+}
+
+func openVerifiedManagedAudio(audio processing.ReadyAudio) (*os.File, error) {
+	file, err := os.OpenFile(
+		audio.Path,
+		os.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW,
+		0,
+	)
+	if err != nil {
+		return nil, err
+	}
+	valid := false
+	defer func() {
+		if !valid {
+			_ = file.Close()
+		}
+	}()
+
+	fileInfo, fileErr := file.Stat()
+	pathInfo, pathErr := os.Lstat(audio.Path)
+	if fileErr != nil ||
+		pathErr != nil ||
+		!fileInfo.Mode().IsRegular() ||
+		!pathInfo.Mode().IsRegular() ||
+		pathInfo.Mode()&os.ModeSymlink != 0 ||
+		fileInfo.Mode().Perm() != 0o600 ||
+		pathInfo.Mode().Perm() != 0o600 ||
+		fileInfo.Size() != audio.SizeBytes ||
+		pathInfo.Size() != audio.SizeBytes ||
+		!os.SameFile(fileInfo, pathInfo) {
+		return nil, errors.New("managed audio changed before it could be opened")
+	}
+	valid = true
+	return file, nil
+}
+
+func writeArtifactAudioError(c *gin.Context, err error) {
+	status := http.StatusInternalServerError
+	code := "ARTIFACT_AUDIO_READ_FAILED"
+	message := "Failed to read artifact audio"
+	switch {
+	case errors.Is(err, processing.ErrArtifactNotFound):
+		status = http.StatusNotFound
+		code = "ARTIFACT_NOT_FOUND"
+		message = "artifact set not found"
+	case errors.Is(err, processing.ErrInvalidArtifact):
+		status = http.StatusUnprocessableEntity
+		code = "ARTIFACT_INVALID"
+		message = "artifact audio identity failed validation"
+	case errors.Is(err, processing.ErrArtifactAudioUnavailable):
+		status = http.StatusNotFound
+		code = "ARTIFACT_AUDIO_UNAVAILABLE"
+		message = "artifact audio is unavailable"
+	case errors.Is(err, processing.ErrArtifactAudioMismatch):
+		status = http.StatusConflict
+		code = "ARTIFACT_AUDIO_MISMATCH"
+		message = "artifact audio does not match this transcript"
+	}
+	if c.Request.Method == http.MethodHead {
+		c.Status(status)
+		return
+	}
+	c.JSON(status, gin.H{
+		"success": false,
+		"error": gin.H{
+			"code":    code,
+			"message": message,
+		},
+	})
 }
 
 func isAudioStoreError(err error) bool {

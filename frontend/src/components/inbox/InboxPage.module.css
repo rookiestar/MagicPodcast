@@ -1508,6 +1508,189 @@
   background: #fffaf0;
 }
 
+.processingTranscriptDocument {
+  max-height: none;
+  overflow: visible;
+}
+
+.transcriptExperience {
+  display: grid;
+  gap: 12px;
+}
+
+.transcriptPlayer {
+  display: grid;
+  grid-template-columns: 38px minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: 9px 12px;
+  padding: 10px;
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  background: rgba(243, 236, 221, 0.68);
+}
+
+.audioElement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.transcriptPlayButton,
+.transcriptRetryButton {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  color: #fffaf0;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: var(--ink);
+  cursor: pointer;
+}
+
+.transcriptPlayButton {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+}
+
+.transcriptPlayButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.transcriptPlayButton:focus-visible,
+.transcriptRetryButton:focus-visible,
+.transcriptProgress input:focus-visible,
+.transcriptSegment:focus-visible,
+.transcriptSegments:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+
+.transcriptProgress {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.transcriptProgress input {
+  width: 100%;
+  accent-color: var(--orange-dark);
+  cursor: pointer;
+}
+
+.transcriptProgress input:disabled {
+  cursor: not-allowed;
+}
+
+.transcriptTime {
+  min-width: 94px;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.transcriptRetryButton {
+  grid-column: 2;
+  justify-self: start;
+  gap: 5px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+
+.transcriptMediaStatus {
+  grid-column: 2 / -1;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.transcriptSegments {
+  max-height: 420px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-block: 1px solid var(--ink);
+  background: rgba(255, 250, 240, 0.78);
+}
+
+.transcriptSegments ol {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.transcriptSegments li + li {
+  border-top: 1px solid var(--rule);
+}
+
+.transcriptSegment {
+  display: grid;
+  width: 100%;
+  gap: 7px;
+  padding: 13px 14px 14px;
+  color: var(--ink);
+  border: 0;
+  border-left: 4px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+
+button.transcriptSegment {
+  cursor: pointer;
+}
+
+button.transcriptSegment:hover {
+  background: rgba(215, 104, 29, 0.06);
+}
+
+.transcriptSegment[aria-current="true"] {
+  border-left-color: var(--orange-dark);
+  background: rgba(215, 104, 29, 0.11);
+}
+
+.transcriptSegmentHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
+.transcriptSegmentHeader > span:first-child {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.transcriptSegmentHeader time {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.transcriptCurrentMarker {
+  padding: 2px 6px;
+  color: #fffaf0;
+  background: var(--orange-dark);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.transcriptSegmentText {
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.72;
+}
+
 .copilotSection {
   position: relative;
   overflow: hidden;
@@ -2211,6 +2394,29 @@
 
   .showNotesRichText {
     overflow-wrap: anywhere;
+  }
+
+  .transcriptPlayer {
+    grid-template-columns: 38px minmax(0, 1fr);
+  }
+
+  .transcriptTime {
+    grid-column: 1 / -1;
+    min-width: 0;
+    text-align: left;
+  }
+
+  .transcriptRetryButton,
+  .transcriptMediaStatus {
+    grid-column: 1 / -1;
+  }
+
+  .transcriptSegments {
+    max-height: min(52vh, 420px);
+  }
+
+  .transcriptSegment {
+    padding-inline: 11px;
   }
 
   .confirmDialog {

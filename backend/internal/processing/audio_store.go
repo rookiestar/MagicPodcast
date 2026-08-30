@@ -87,6 +87,7 @@ type AudioPreparer interface {
 	Prepare(context.Context, AudioClaim) (ReadyAudio, error)
 	GetReady(context.Context, uint) (models.EpisodeAudioAsset, error)
 	ResolveReadyAudio(context.Context, uint) (ReadyAudio, error)
+	ResolveReadyAudioByDigest(context.Context, uint, string) (ReadyAudio, error)
 }
 
 // AudioStoreError carries a stable code and a source-safe message. The
@@ -784,6 +785,54 @@ func (s *DiskAudioStore) ResolveReadyAudio(
 	return s.resolveReadyAsset(asset)
 }
 
+func (s *DiskAudioStore) ResolveReadyAudioByDigest(
+	ctx context.Context,
+	episodeID uint,
+	audioDigest string,
+) (ReadyAudio, error) {
+	if episodeID == 0 ||
+		len(audioDigest) != sha256.Size*2 ||
+		strings.ToLower(audioDigest) != audioDigest {
+		return ReadyAudio{}, newAudioStoreError(
+			AudioErrorReadyFileInvalid,
+			"managed episode audio identity is invalid",
+			false,
+		)
+	}
+	if _, err := hex.DecodeString(audioDigest); err != nil {
+		return ReadyAudio{}, newAudioStoreError(
+			AudioErrorReadyFileInvalid,
+			"managed episode audio identity is invalid",
+			false,
+		)
+	}
+	var asset models.EpisodeAudioAsset
+	err := s.db.WithContext(ctx).
+		Where(
+			"episode_id = ? AND sha256 = ? AND status = ?",
+			episodeID,
+			audioDigest,
+			models.EpisodeAudioAssetStatusReady,
+		).
+		Order("id DESC").
+		First(&asset).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return ReadyAudio{}, newAudioStoreError(
+			AudioErrorNotReady,
+			"matching managed episode audio is not ready",
+			true,
+		)
+	}
+	if err != nil {
+		return ReadyAudio{}, newAudioStoreError(
+			AudioErrorStorageFailed,
+			"managed episode audio state is unavailable",
+			true,
+		)
+	}
+	return s.resolveReadyAsset(asset)
+}
+
 func (s *DiskAudioStore) loadAndValidateEpisode(
 	ctx context.Context,
 	episodeID uint,
@@ -1153,12 +1202,17 @@ func (s *DiskAudioStore) findReadyAsset(
 func (s *DiskAudioStore) resolveReadyAsset(
 	asset models.EpisodeAudioAsset,
 ) (ReadyAudio, error) {
+	extension := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(asset.Extension)), ".")
+	mediaType := strings.ToLower(strings.TrimSpace(asset.MediaType))
+	allowedMediaTypes, extensionAllowed := audioContentTypesByExtension[extension]
+	_, mediaTypeAllowed := allowedMediaTypes[mediaType]
 	if asset.Status != models.EpisodeAudioAssetStatusReady ||
 		len(asset.SHA256) != sha256.Size*2 ||
 		asset.SizeBytes <= 0 ||
 		asset.DurationSeconds <= 0 ||
 		asset.DurationSeconds > int(MaxManagedAudioDuration/time.Second) ||
-		strings.TrimSpace(asset.MediaType) == "" {
+		!extensionAllowed ||
+		!mediaTypeAllowed {
 		return ReadyAudio{}, newAudioStoreError(
 			AudioErrorReadyFileInvalid,
 			"managed episode audio metadata is invalid",
@@ -1201,7 +1255,7 @@ func (s *DiskAudioStore) resolveReadyAsset(
 		SHA256:          asset.SHA256,
 		SizeBytes:       asset.SizeBytes,
 		DurationSeconds: asset.DurationSeconds,
-		MediaType:       asset.MediaType,
+		MediaType:       mediaType,
 	}, nil
 }
 

@@ -416,11 +416,10 @@ func (a *FeishuMinutesAdapter) readMinute(
 	}
 	if request.PipelineVersion == NativeMinutesPipelineVersion &&
 		strings.TrimSpace(detail.Summary) == "" {
-		return progressWithCheckpoint(checkpoint), NewAdapterError(
-			"summary_empty",
-			"Feishu Minutes summary is empty; retry after the Minute finishes processing",
-			false,
-		)
+		// Real Minutes uploads can expose Transcript, chapters, and keywords
+		// before Summary is populated. Keep the durable Minute checkpoint and
+		// let the bounded external-artifact wait poll again.
+		return progressWithCheckpoint(checkpoint), nil
 	}
 	if strings.TrimSpace(detail.TranscriptFile) == "" {
 		if request.PipelineVersion != NativeMinutesPipelineVersion {
