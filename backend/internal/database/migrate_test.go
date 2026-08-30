@@ -767,8 +767,25 @@ func TestApplyMigrationsLeavesCurrentManagedAudioSchemaUnchanged(t *testing.T) {
 
 func TestApplyMigrationsUpgradesSchema24To25WithoutRewritingLegacyArtifacts(t *testing.T) {
 	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:22]))
+	if db.Migrator().HasColumn(&models.Episode{}, "video_availability") {
+		if db.Migrator().HasConstraint(&models.Episode{}, models.VideoAvailabilityConstraint) {
+			require.NoError(t, db.Migrator().DropConstraint(&models.Episode{}, models.VideoAvailabilityConstraint))
+		}
+		require.NoError(t, db.Exec("ALTER TABLE episodes DROP COLUMN video_availability").Error)
+	}
 	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:24]))
 	require.Equal(t, 24, mustSchemaStatus(t, db).CurrentVersion)
+	for _, column := range []string{
+		"audio_sha256",
+		"minutes_summary_sha256",
+		"transcript_timeline_sha256",
+	} {
+		if db.Migrator().HasColumn(&models.EpisodeArtifactSet{}, column) {
+			require.NoError(t, db.Migrator().DropColumn(&models.EpisodeArtifactSet{}, column))
+		}
+		require.False(t, db.Migrator().HasColumn(&models.EpisodeArtifactSet{}, column))
+	}
 
 	podcast := models.Podcast{
 		Title: "妙记产物迁移", FeedURL: "https://example.com/minutes-artifacts.xml",
@@ -780,6 +797,16 @@ func TestApplyMigrationsUpgradesSchema24To25WithoutRewritingLegacyArtifacts(t *t
 	}
 	require.NoError(t, db.Create(&episode).Error)
 	now := time.Date(2026, 8, 29, 8, 0, 0, 0, time.UTC)
+	queueState := models.QueueStateFocus
+	decision := models.EpisodeTriageDecision{
+		EpisodeID:      episode.ID,
+		State:          models.TriageStateShortlisted,
+		DecidedAt:      now,
+		QueueState:     &queueState,
+		QueueUpdatedAt: &now,
+		ReadAt:         &now,
+	}
+	require.NoError(t, db.Create(&decision).Error)
 	run := models.EpisodeProcessingRun{
 		EpisodeID:       episode.ID,
 		ProcessingKey:   strings.Repeat("1", 64),
@@ -830,6 +857,11 @@ func TestApplyMigrationsUpgradesSchema24To25WithoutRewritingLegacyArtifacts(t *t
 	require.Empty(t, artifact.AudioSHA256)
 	require.Empty(t, artifact.MinutesSummarySHA256)
 	require.Empty(t, artifact.TranscriptTimelineSHA256)
+	var preservedDecision models.EpisodeTriageDecision
+	require.NoError(t, db.First(&preservedDecision, decision.ID).Error)
+	require.NotNil(t, preservedDecision.QueueState)
+	require.Equal(t, queueState, *preservedDecision.QueueState)
+	require.NotNil(t, preservedDecision.ReadAt)
 }
 
 func mustSchemaStatus(t *testing.T, db *gorm.DB) SchemaStatus {
