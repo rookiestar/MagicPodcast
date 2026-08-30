@@ -26,9 +26,40 @@ func TestParseTranscriptSegmentsSupportsMinutesAndHours(t *testing.T) {
 	}, segments)
 }
 
+func TestParseTranscriptSegmentsAllowsFeishuMetadataPrelude(t *testing.T) {
+	segments, err := parseTranscriptSegments(`
+2026-08-30 08:13:51 CST|36min 32s
+
+Keywords:
+成本、迭代、第三方
+
+Speaker 1 00:00:01.890
+there's something there.
+
+Speaker 2 00:18:16.830
+中段内容
+`)
+	require.NoError(t, err)
+	require.Equal(t, []TranscriptSegment{
+		{
+			Order:   1,
+			Speaker: "Speaker 1",
+			StartMS: 1890,
+			Text:    "there's something there.",
+		},
+		{
+			Order:   2,
+			Speaker: "Speaker 2",
+			StartMS: 1096830,
+			Text:    "中段内容",
+		},
+	}, segments)
+}
+
 func TestParseTranscriptSegmentsRejectsMissingOrRegressingTimeline(t *testing.T) {
 	for _, transcript := range []string{
 		"没有时间轴",
+		"任意前言\n\n张三 00:00\n正文",
 		"张三 00:02\n后段\n\n李四 00:01\n前段",
 		"张三 00:00\n\n李四 00:01\n有内容",
 	} {

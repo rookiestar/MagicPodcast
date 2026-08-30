@@ -194,7 +194,7 @@ func TestFeishuMinutesAdapterPreservesLegacyCompletionWithoutV2Artifacts(t *test
 	require.Len(t, runner.calls, 1)
 }
 
-func TestFeishuMinutesAdapterWaitsForMissingArtifactsAndRejectsExplicitEmptySummary(t *testing.T) {
+func TestFeishuMinutesAdapterWaitsForMissingAndTemporarilyEmptySummary(t *testing.T) {
 	workRoot := t.TempDir()
 	digest := strings.Repeat("8", 64)
 	runner := &scriptedLarkRunner{steps: []scriptedLarkStep{
@@ -203,6 +203,16 @@ func TestFeishuMinutesAdapterWaitsForMissingArtifactsAndRejectsExplicitEmptySumm
 		},
 		{
 			output: []byte(`{"minutes":[{"minute_token":"obcn_incomplete_123","artifacts":{"summary":"","transcript_file":"detail/transcript.txt"}}]}`),
+		},
+		{
+			output: []byte(`{"minutes":[{"minute_token":"obcn_incomplete_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
+			beforeReturn: func(cwd string) {
+				require.NoError(t, os.WriteFile(
+					filepath.Join(cwd, "detail", "transcript.txt"),
+					[]byte("Speaker 1 00:00:01.890\n开头\n\nSpeaker 2 00:18:16.830\n中段\n"),
+					0o600,
+				))
+			},
 		},
 	}}
 	adapter, err := newFeishuMinutesAdapterWithRunner(
@@ -228,11 +238,15 @@ func TestFeishuMinutesAdapterWaitsForMissingArtifactsAndRejectsExplicitEmptySumm
 	require.NoError(t, err)
 	require.Equal(t, ExternalProgressWaiting, waiting.Status)
 
-	_, err = adapter.Resume(context.Background(), request, checkpoint)
-	var adapterErr *AdapterError
-	require.ErrorAs(t, err, &adapterErr)
-	require.Equal(t, "summary_empty", adapterErr.ErrorCode)
-	require.False(t, adapterErr.CanRetry)
+	waiting, err = adapter.Resume(context.Background(), request, checkpoint)
+	require.NoError(t, err)
+	require.Equal(t, ExternalProgressWaiting, waiting.Status)
+
+	completed, err := adapter.Resume(context.Background(), request, checkpoint)
+	require.NoError(t, err)
+	require.Equal(t, ExternalProgressCompleted, completed.Status)
+	require.Contains(t, completed.MinutesSummary, "完整纪要")
+	require.Len(t, completed.Segments, 2)
 }
 
 func TestFeishuMinutesAdapterRejectsTranscriptFormatDrift(t *testing.T) {
