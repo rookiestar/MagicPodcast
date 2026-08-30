@@ -808,21 +808,16 @@ describe("InboxPageClient", () => {
       name: "可处理单集",
     });
     const tabs = within(dialog).getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual([
-      "Show Notes",
-      "转写",
-      "笔记",
-    ]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Show Notes", "笔记"]);
     expect(within(dialog).getByText("正文")).toBeVisible();
-
-    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
     expect(
-      within(dialog).getByRole("heading", { name: "自动加工" }),
-    ).toBeVisible();
+      within(dialog).queryByRole("tab", { name: "转写" }),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole("tab", { name: "笔记" }));
+    expect(within(dialog).queryByText("备注与标签")).not.toBeInTheDocument();
     expect(
-      within(dialog).getByRole("heading", { name: "备注与标签" }),
+      within(dialog).getByRole("region", { name: "单集笔记与标签" }),
     ).toBeVisible();
     expect(within(dialog).queryByText("YOUR CONTEXT")).not.toBeInTheDocument();
 
@@ -864,7 +859,7 @@ describe("InboxPageClient", () => {
       name: "单集详情内容",
     }).parentElement as HTMLElement;
     detailScroll.scrollTop = 164;
-    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+    fireEvent.click(within(dialog).getByRole("tab", { name: "笔记" }));
 
     const openCopilot = within(dialog).getByRole("button", {
       name: "单集助手",
@@ -874,10 +869,7 @@ describe("InboxPageClient", () => {
     const workspace = await within(dialog).findByRole("complementary", {
       name: "单集助手双栏工作台",
     });
-    expect(
-      within(dialog).getByRole("heading", { name: "自动加工" }),
-    ).toBeVisible();
-    expect(within(dialog).getByRole("tab", { name: "转写" })).toHaveAttribute(
+    expect(within(dialog).getByRole("tab", { name: "笔记" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -897,7 +889,7 @@ describe("InboxPageClient", () => {
         name: "单集助手双栏工作台",
       }),
     ).not.toBeInTheDocument();
-    expect(within(dialog).getByRole("tab", { name: "转写" })).toHaveAttribute(
+    expect(within(dialog).getByRole("tab", { name: "笔记" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -1022,9 +1014,7 @@ describe("InboxPageClient", () => {
     fireEvent.change(question, { target: { value: "这段内容说明什么？" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "提问" }));
 
-    expect(
-      await within(dialog).findByText("已生成的部分回答。"),
-    ).toBeVisible();
+    expect(await within(dialog).findByText("已生成的部分回答。")).toBeVisible();
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "问题、选区和已有答案已保留",
     );
@@ -1034,9 +1024,7 @@ describe("InboxPageClient", () => {
       ).getByText("正文"),
     ).toBeInTheDocument();
 
-    fireEvent.click(
-      within(dialog).getByRole("button", { name: "关闭助手" }),
-    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "关闭助手" }));
     await waitFor(() =>
       expect(
         within(dialog).getByRole("button", { name: "单集助手" }),
@@ -1051,9 +1039,7 @@ describe("InboxPageClient", () => {
     expect(within(dialog).getByText("已选 Show Notes")).toBeVisible();
     fireEvent.click(within(dialog).getByRole("button", { name: "重试" }));
 
-    expect(
-      await within(dialog).findByText("重试后的完整回答。"),
-    ).toBeVisible();
+    expect(await within(dialog).findByText("重试后的完整回答。")).toBeVisible();
     expect(within(dialog).queryByText("已选 Show Notes")).toBeNull();
     selectionSpy.mockRestore();
   });
@@ -1270,13 +1256,9 @@ describe("InboxPageClient", () => {
       toString: () => "开场",
     } as unknown as Selection);
     fireEvent(document, new Event("selectionchange"));
-    fireEvent.click(
-      within(dialog).getByRole("button", { name: "单集助手" }),
-    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "单集助手" }));
     expect(await within(dialog).findByText("已选 逐字稿")).toBeVisible();
-    fireEvent.click(
-      within(dialog).getByRole("button", { name: "关闭助手" }),
-    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "关闭助手" }));
     await waitFor(() =>
       expect(
         within(dialog).getByRole("button", { name: "单集助手" }),
@@ -1377,8 +1359,7 @@ describe("InboxPageClient", () => {
       (_artifactSetId: number, kind: string) =>
         Promise.resolve({
           kind,
-          content:
-            kind === "episode_notes" ? "# 旧版纪要" : "# 旧版逐字稿",
+          content: kind === "episode_notes" ? "# 旧版纪要" : "# 旧版逐字稿",
           sha256:
             kind === "episode_notes"
               ? legacyArtifact.notes_sha256
@@ -1493,7 +1474,7 @@ describe("InboxPageClient", () => {
     const actions = await within(dialog).findAllByRole("button", {
       name: "重新转写",
     });
-    expect(actions).toHaveLength(2);
+    expect(actions).toHaveLength(1);
     expect(
       within(dialog).queryByRole("button", { name: "重试转写" }),
     ).not.toBeInTheDocument();
@@ -1505,8 +1486,7 @@ describe("InboxPageClient", () => {
       ),
     );
     expect(actions[0]).toBeDisabled();
-    expect(actions[1]).toBeDisabled();
-    expect(within(dialog).getByText("正在提交…")).toBeVisible();
+    expect(within(dialog).getByText("正在重试转写")).toBeVisible();
     expect(apiMocks.retryProcessing).not.toHaveBeenCalled();
     await act(async () => {
       resolveStart(startResult);
@@ -1669,7 +1649,9 @@ describe("InboxPageClient", () => {
     });
     fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
 
-    expect(await within(dialog).findByText("加工失败")).toBeVisible();
+    expect(
+      await within(dialog).findByRole("status", { name: "转写状态：转写失败" }),
+    ).toBeVisible();
     expect(within(dialog).getByText("上一成功版本")).toBeVisible();
     expect(
       within(dialog).getByText(
@@ -1742,18 +1724,11 @@ describe("InboxPageClient", () => {
       name: "可处理单集",
     });
     fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+    expect(within(dialog).queryByText("自动加工")).not.toBeInTheDocument();
+    expect(within(dialog).getByText("正在读取转写内容")).toBeVisible();
     expect(
-      within(dialog).getByRole("heading", { name: "自动加工" }),
-    ).toBeVisible();
-    expect(within(dialog).getByText("正在读取转写状态…")).toBeVisible();
-    expect(
-      within(dialog).queryByText("暂无可阅读的转写产物。"),
+      within(dialog).queryByRole("tab", { name: "纪要" }),
     ).not.toBeInTheDocument();
-    expect(
-      within(dialog).getByRole("tabpanel", { name: "纪要" }),
-    ).toHaveAttribute("aria-busy", "true");
-    expect(within(dialog).getByRole("tab", { name: "纪要" })).toBeDisabled();
-    expect(within(dialog).getByRole("tab", { name: "逐字稿" })).toBeDisabled();
 
     await act(async () => {
       resolveDetail({

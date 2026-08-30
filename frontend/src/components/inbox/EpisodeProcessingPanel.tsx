@@ -10,11 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  IconPlayerPlay,
-  IconPlayerStop,
-  IconRefresh,
-} from "@tabler/icons-react";
+import { IconPlayerStop, IconRefresh } from "@tabler/icons-react";
 import MarkdownViewer from "@/components/workflows/MarkdownViewer";
 import { getProcessingErrorDetails, processingApi } from "@/lib/api/processing";
 import type { ConsumptionItem } from "@/types/consumption";
@@ -122,6 +118,7 @@ export interface EpisodeProcessingHeaderState {
   primaryLabel: string;
   primaryDisabled: boolean;
   action: "start" | "reprocess" | "view" | "retry" | "details" | null;
+  showTranscriptTab: boolean;
 }
 
 export interface EpisodeProcessingPanelHandle {
@@ -142,6 +139,7 @@ const EpisodeProcessingPanel = forwardRef<
   ref,
 ) {
   const [detail, setDetail] = useState<ProcessingRunDetail | null>(null);
+  const [hasProcessingHistory, setHasProcessingHistory] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isMutating, setIsMutating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -160,12 +158,12 @@ const EpisodeProcessingPanel = forwardRef<
   const scheduleStatusInFlight = useRef(false);
   const loadingEpisodeIDs = useRef(new Set<number>());
   const artifactReadSequence = useRef(0);
-  const artifactTabRefs = useRef<
-    Record<ArtifactTab, HTMLButtonElement | null>
-  >({
-    summary: null,
-    transcript: null,
-  });
+  const artifactTabRefs = useRef<Record<ArtifactTab, HTMLButtonElement | null>>(
+    {
+      summary: null,
+      transcript: null,
+    },
+  );
   const activeEpisodeID = useRef(item.episode_id);
   activeEpisodeID.current = item.episode_id;
 
@@ -207,11 +205,13 @@ const EpisodeProcessingPanel = forwardRef<
           const latestAudio = await processingApi.getLatestAudio(episodeID);
           if (isCurrentEpisode()) {
             setAudioAsset(latestAudio);
+            setHasProcessingHistory(true);
           }
         } catch (audioError) {
           if (getProcessingErrorDetails(audioError).status === 404) {
             if (isCurrentEpisode()) {
               setAudioAsset(null);
+              setHasProcessingHistory(false);
             }
           } else {
             throw audioError;
@@ -219,6 +219,7 @@ const EpisodeProcessingPanel = forwardRef<
         }
         return;
       }
+      setHasProcessingHistory(true);
       const nextDetail = await processingApi.getRun(runs[0].id);
       if (!isCurrentEpisode()) return;
       setDetail(nextDetail);
@@ -242,6 +243,7 @@ const EpisodeProcessingPanel = forwardRef<
       }
     } catch (loadError) {
       if (isCurrentEpisode()) {
+        setHasProcessingHistory(true);
         throw loadError;
       }
     } finally {
@@ -252,6 +254,7 @@ const EpisodeProcessingPanel = forwardRef<
   useEffect(() => {
     let active = true;
     setDetail(null);
+    setHasProcessingHistory(false);
     setAudioAsset(null);
     setArtifactContents(emptyArtifactContents);
     setActiveArtifactTab("summary");
@@ -327,6 +330,7 @@ const EpisodeProcessingPanel = forwardRef<
 
   const startProcessing = useCallback(async () => {
     if (isMutating) return;
+    setHasProcessingHistory(true);
     setIsMutating(true);
     setError(null);
     try {
@@ -458,6 +462,11 @@ const EpisodeProcessingPanel = forwardRef<
               : audioAsset?.status === "failed"
                 ? "音频准备失败"
                 : "尚未加工";
+  const showTranscriptTab =
+    hasProcessingHistory ||
+    Boolean(run) ||
+    Boolean(audioAsset) ||
+    Boolean(currentArtifact);
   const showArtifactSkeleton =
     !selectedArtifactContent &&
     ((isLoading && !currentArtifact) ||
@@ -586,6 +595,7 @@ const EpisodeProcessingPanel = forwardRef<
         primaryLabel: "读取转写状态",
         primaryDisabled: true,
         action: null,
+        showTranscriptTab,
       };
     }
     if (audioPreparing || isActive(run)) {
@@ -601,6 +611,7 @@ const EpisodeProcessingPanel = forwardRef<
         primaryLabel: "转写中",
         primaryDisabled: true,
         action: null,
+        showTranscriptTab,
       };
     }
     if (run?.status === "failed" || run?.status === "cancelled") {
@@ -622,29 +633,31 @@ const EpisodeProcessingPanel = forwardRef<
           : canRetry
             ? "retry"
             : "details",
+        showTranscriptTab,
       };
     }
     if (currentArtifact) {
       return {
         kind: "completed",
         label: "已完成",
-        detail: "已有可阅读的转写产物",
-        primaryLabel: "查看转写",
-        primaryDisabled: false,
-        action: "view",
+        detail: canReprocessLegacy
+          ? "当前为旧版产物，可升级为妙记纪要与同步逐字稿"
+          : "已有可阅读的转写产物",
+        primaryLabel: canReprocessLegacy ? "重新转写" : "查看转写",
+        primaryDisabled: isMutating,
+        action: canReprocessLegacy ? "reprocess" : "view",
+        showTranscriptTab,
       };
     }
     return {
       kind: "idle",
       label: "未转写",
-      detail:
-        item.queue_state === "focus"
-          ? "可开始飞书妙记转写"
-          : "加入 Focus 后可开始转写",
+      detail: item.queue_state === "focus" ? "" : "加入 Focus 后可开始转写",
       primaryLabel:
         item.queue_state === "focus" ? "开始转写" : "加入 Focus 后转写",
       primaryDisabled: !canStart || isMutating,
       action: canStart ? "start" : null,
+      showTranscriptTab,
     };
   }, [
     audioAsset,
@@ -658,6 +671,7 @@ const EpisodeProcessingPanel = forwardRef<
     isMutating,
     item.queue_state,
     run,
+    showTranscriptTab,
   ]);
 
   useEffect(() => {
@@ -688,21 +702,86 @@ const EpisodeProcessingPanel = forwardRef<
     [headerState, onViewTranscript, retryProcessing, startProcessing],
   );
 
+  const availableArtifactTabs = artifactTabs.filter((tab) =>
+    isArtifactTabAvailable(tab.id),
+  );
+  const showRunDetails = Boolean(
+    run ||
+    audioAsset ||
+    detail?.deliveries.length ||
+    scheduleStatus?.enabled ||
+    latestScheduleRun ||
+    scheduleError,
+  );
+  const processingStateKind =
+    error && !run && !audioAsset
+      ? "failed"
+      : audioPreparing || isActive(run) || isMutating
+        ? "active"
+        : run?.status === "failed" || run?.status === "cancelled"
+          ? "failed"
+          : run?.status === "completed"
+            ? "completed"
+            : "idle";
+  const processingStateTitle = isMutating
+    ? run?.status === "failed" || run?.status === "cancelled"
+      ? "正在重试转写"
+      : "正在发起转写"
+    : isLoading
+      ? "正在读取转写内容"
+      : error && !run && !audioAsset
+        ? "转写信息暂时不可用"
+        : run?.status === "waiting_external"
+          ? "飞书妙记转写中"
+          : audioPreparing
+            ? "正在准备音频"
+            : isActive(run)
+              ? "转写进行中"
+              : run?.status === "failed"
+                ? "转写失败"
+                : run?.status === "cancelled"
+                  ? "转写已取消"
+                  : run?.status === "completed"
+                    ? "转写已完成"
+                    : audioAsset?.status === "failed"
+                      ? "音频准备失败"
+                      : audioAsset?.status === "ready"
+                        ? "音频已就绪"
+                        : "暂无转写记录";
+  const processingStateDescription = isMutating
+    ? "正在创建飞书妙记任务…"
+    : isLoading
+      ? "正在同步最近一次运行。"
+      : error && !run && !audioAsset
+        ? "请重试读取，Show Notes 与笔记不受影响。"
+        : run?.status === "waiting_external"
+          ? "飞书妙记正在生成纪要与逐字稿。"
+          : audioPreparing
+            ? "音频就绪后会自动提交飞书妙记。"
+            : isActive(run)
+              ? "任务在后台继续，可随时返回查看。"
+              : run?.status === "failed" || run?.status === "cancelled"
+                ? detail?.action_suggestion ||
+                  run.error_message ||
+                  "可从页面顶部重新发起。"
+                : run?.status === "completed"
+                  ? "暂未发现可阅读的转写产物。"
+                  : audioAsset?.status === "failed"
+                    ? audioAsset.error_message || "请检查音频来源后重试。"
+                    : audioAsset?.status === "ready"
+                      ? "正在等待创建转写任务。"
+                      : "开始转写后，纪要与逐字稿会显示在这里。";
+
   const artifactPanelContent = (
     <>
       {currentArtifact && (
-        <div className={styles.processingArtifacts}>
-          <div>
-            <strong>
-              {run?.id === currentArtifact.run_id
-                ? "当前成功产物"
-                : "上一成功版本"}
-            </strong>
-            <span>
-              {currentArtifact.pipeline_version} ·{" "}
-              {formatUpdatedAt(currentArtifact.created_at)}
-            </span>
-          </div>
+        <div className={styles.processingArtifactMeta}>
+          <span>
+            {run?.id === currentArtifact.run_id ? "当前版本" : "上一成功版本"}
+          </span>
+          <time dateTime={currentArtifact.created_at}>
+            更新于 {formatUpdatedAt(currentArtifact.created_at)}
+          </time>
           {currentArtifact.capabilities.legacy_episode_notes && (
             <span className={styles.processingHint}>
               这是旧版纪要；重新转写后可获得妙记纪要和同步逐字稿。
@@ -735,21 +814,6 @@ const EpisodeProcessingPanel = forwardRef<
             <i />
             <i />
           </div>
-        </div>
-      )}
-
-      {!currentArtifact && !showArtifactSkeleton && (
-        <div
-          className={`${styles.processingEmpty} ${
-            error ? styles.processingEmptyFailure : ""
-          }`}
-          role={isActive(run) || error ? "status" : undefined}
-        >
-          {error
-            ? "暂时无法确认转写产物，请重试读取。"
-            : isActive(run)
-              ? "转写完成后可在这里阅读纪要和逐字稿。"
-              : "暂无可阅读的转写产物。"}
         </div>
       )}
 
@@ -821,18 +885,7 @@ const EpisodeProcessingPanel = forwardRef<
   );
 
   return (
-    <section
-      className={styles.processingSection}
-      aria-labelledby="processing-title"
-    >
-      <div className={styles.detailSectionHeading}>
-        <div>
-          <span className={styles.detailKicker}>FOCUS PROCESSING</span>
-          <h3 id="processing-title">自动加工</h3>
-        </div>
-        {isLoading && <span role="status">正在读取…</span>}
-      </div>
-
+    <section className={styles.processingSection} aria-label="转写内容">
       {error && (
         <div className={styles.inlineError} role="alert">
           <span>{error}</span>
@@ -855,19 +908,36 @@ const EpisodeProcessingPanel = forwardRef<
         </div>
       )}
 
-      <div className={styles.processingSummary}>
-        <div className={styles.processingActions}>
-          {canStart && !audioPreparing && (
-            <button
-              type="button"
-              className={styles.primaryCommand}
-              disabled={isMutating}
-              onClick={() => void startProcessing()}
-            >
-              <IconPlayerPlay size={18} stroke={1.8} aria-hidden="true" />
-              开始转写
-            </button>
-          )}
+      {currentArtifact && isActive(run) && (
+        <div className={styles.processingRunNotice} role="status">
+          <span className={styles.processingStateDot} aria-hidden="true" />
+          <span>
+            <strong>{processingStateTitle}</strong>
+            <small>当前仍可阅读上一成功版本。</small>
+          </span>
+          <button
+            type="button"
+            className={styles.secondaryCommand}
+            disabled={isMutating}
+            onClick={() => void mutateRun(() => processingApi.cancel(run.id))}
+          >
+            <IconPlayerStop size={18} stroke={1.8} aria-hidden="true" />
+            取消
+          </button>
+        </div>
+      )}
+
+      {!currentArtifact && (
+        <div
+          className={styles.processingStateCard}
+          data-state={processingStateKind}
+          role={isLoading || isActive(run) || isMutating ? "status" : undefined}
+        >
+          <span className={styles.processingStateDot} aria-hidden="true" />
+          <div className={styles.processingStateCopy}>
+            <strong>{processingStateTitle}</strong>
+            <p>{processingStateDescription}</p>
+          </div>
           {isActive(run) && (
             <button
               type="button"
@@ -881,228 +951,202 @@ const EpisodeProcessingPanel = forwardRef<
               取消
             </button>
           )}
-          {canRetry && (
-            <button
-              type="button"
-              className={styles.primaryCommand}
-              disabled={isMutating}
-              onClick={() => void retryProcessing()}
-            >
-              <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
-              重试转写
-            </button>
-          )}
-          {canReprocessLegacy && (
-            <button
-              type="button"
-              className={styles.secondaryCommand}
-              disabled={isMutating}
-              onClick={() => void startProcessing()}
-            >
-              <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
-              重新转写
-            </button>
-          )}
-          {isMutating && <span role="status">正在提交…</span>}
-          {audioPreparing && <span role="status">正在下载并校验音频…</span>}
-          {!run && item.queue_state !== "focus" && (
-            <span className={styles.processingHint}>
-              加入 Focus 后可手动加工；加入本身不会自动触发。
-            </span>
-          )}
         </div>
+      )}
 
-        <div
-          className={styles.processingArtifactTabs}
-          role="tablist"
-          aria-label="转写产物"
-        >
-          {artifactTabs.map((tab) => {
-            const selected = activeArtifactTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                ref={(node) => {
-                  artifactTabRefs.current[tab.id] = node;
-                }}
-                id={`processing-artifact-tab-${tab.id}`}
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                aria-controls={`processing-artifact-panel-${tab.id}`}
-                tabIndex={selected ? 0 : -1}
-                disabled={!isArtifactTabAvailable(tab.id)}
-                onClick={() => setActiveArtifactTab(tab.id)}
-                onKeyDown={(event) =>
-                  handleArtifactTabKeyDown(event, tab.id)
-                }
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {artifactTabs.map((tab) => (
+      {currentArtifact && (
+        <div className={styles.processingSummary}>
           <div
-            key={tab.id}
-            id={`processing-artifact-panel-${tab.id}`}
-            className={styles.processingArtifactPanel}
-            role="tabpanel"
-            aria-labelledby={`processing-artifact-tab-${tab.id}`}
-            aria-busy={activeArtifactTab === tab.id && showArtifactSkeleton}
-            tabIndex={0}
-            hidden={activeArtifactTab !== tab.id}
+            className={styles.processingArtifactTabs}
+            role="tablist"
+            aria-label="转写产物"
           >
-            {activeArtifactTab === tab.id && artifactPanelContent}
+            {availableArtifactTabs.map((tab) => {
+              const selected = activeArtifactTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  ref={(node) => {
+                    artifactTabRefs.current[tab.id] = node;
+                  }}
+                  id={`processing-artifact-tab-${tab.id}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  aria-controls={`processing-artifact-panel-${tab.id}`}
+                  tabIndex={selected ? 0 : -1}
+                  onClick={() => setActiveArtifactTab(tab.id)}
+                  onKeyDown={(event) => handleArtifactTabKeyDown(event, tab.id)}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
           </div>
-        ))}
-      </div>
 
-      <details className={styles.processingDiagnostics}>
-        <summary>
-          <span>加工状态</span>
-          <span>{processingStatusLabel}</span>
-        </summary>
-        <div className={styles.processingDiagnosticsBody}>
-          <dl>
-            <div>
-              <dt>详细状态</dt>
-              <dd>当前：{processingStatusLabel}</dd>
-            </div>
-            <div>
-              <dt>当前步骤</dt>
-              <dd>
-                {run?.current_step
-                  ? stepLabels[run.current_step] || run.current_step
-                  : "—"}
-              </dd>
-            </div>
-            <div>
-              <dt>来源</dt>
-              <dd>飞书妙记</dd>
-            </div>
-            <div>
-              <dt>最近更新</dt>
-              <dd>
-                {formatUpdatedAt(run?.updated_at || audioAsset?.updated_at)}
-              </dd>
-            </div>
-            <div>
-              <dt>定时计划</dt>
-              <dd>{scheduleSummary}</dd>
-            </div>
-            <div>
-              <dt>下次计划</dt>
-              <dd>
-                {scheduleStatus?.enabled
-                  ? formatUpdatedAt(scheduleStatus.next_run_at)
-                  : "—"}
-              </dd>
-            </div>
-          </dl>
-
-          {scheduleError && (
-            <div className={styles.processingHint} role="status">
-              {scheduleError}
-            </div>
-          )}
-          {scheduleStatus?.enabled && (
-            <div className={styles.processingHint}>
-              <strong>定时配置</strong>
-              <span>
-                cron：{scheduleStatus.cron} · 时区：{scheduleStatus.timezone} ·
-                每批 {scheduleStatus.batch_size} 集
-              </span>
-              <span>修改主机配置并重启服务后生效。</span>
-            </div>
-          )}
-          {latestScheduleRun && (
-            <div className={styles.processingHint}>
-              <strong>
-                最近定时：
-                {scheduleStatusLabels[latestScheduleRun.run.status] ||
-                  latestScheduleRun.run.status}
-              </strong>
-              <span>
-                {formatUpdatedAt(latestScheduleRun.run.scheduled_for)} · 已入队{" "}
-                {latestScheduleRun.run.started_count} 集 · 跳过{" "}
-                {latestScheduleRun.run.skipped_count} 集
-              </span>
-              {latestScheduleItem && (
-                <span>
-                  {latestScheduleItemPending
-                    ? "此集正在确认加工资格"
-                    : latestScheduleItem.outcome === "started"
-                      ? "此集已加入加工队列"
-                      : `此集跳过：${
-                          scheduleSkipLabels[latestScheduleItem.reason || ""] ||
-                          latestScheduleItem.reason ||
-                          "未满足条件"
-                        }`}
-                </span>
-              )}
-              {latestScheduleRun.run.error_message && (
-                <span>{latestScheduleRun.run.error_message}</span>
-              )}
-            </div>
-          )}
-
-          {isActive(run) && run.next_attempt_at && (
-            <div className={styles.processingHint} role="status">
-              自动重试：{formatUpdatedAt(run.next_attempt_at)}（已尝试{" "}
-              {run.attempt_count}/{run.max_attempts} 次）
-            </div>
-          )}
-
-          {run?.error_message && (
+          {availableArtifactTabs.map((tab) => (
             <div
-              className={
-                run.status === "cancelled"
-                  ? styles.processingCancellation
-                  : styles.processingFailure
-              }
-              role={run.status === "cancelled" ? "status" : undefined}
+              key={tab.id}
+              id={`processing-artifact-panel-${tab.id}`}
+              className={styles.processingArtifactPanel}
+              role="tabpanel"
+              aria-labelledby={`processing-artifact-tab-${tab.id}`}
+              aria-busy={activeArtifactTab === tab.id && showArtifactSkeleton}
+              tabIndex={0}
+              hidden={activeArtifactTab !== tab.id}
             >
-              <strong>{run.error_code || "PROCESSING_FAILED"}</strong>
-              <span>{run.error_message}</span>
-              {detail?.action_suggestion && (
-                <span>{detail.action_suggestion}</span>
-              )}
+              {activeArtifactTab === tab.id && artifactPanelContent}
             </div>
-          )}
-          {!run && audioAsset?.error_message && (
-            <div className={styles.processingFailure}>
-              <strong>
-                {audioAsset.error_code || "AUDIO_PREPARATION_FAILED"}
-              </strong>
-              <span>{audioAsset.error_message}</span>
-              <span>修正音频来源后可重新开始；失败文件不会保留。</span>
-            </div>
-          )}
-
-          {detail && detail.deliveries.length > 0 && (
-            <div className={styles.processingArtifacts}>
-              <div>
-                <strong>知识交付</strong>
-                {detail.deliveries.map((delivery) => (
-                  <span key={delivery.id}>
-                    {delivery.target} · {delivery.destination} ·{" "}
-                    {deliveryStatusLabels[delivery.status] || delivery.status}
-                  </span>
-                ))}
-              </div>
-              {detail.deliveries.some(
-                (delivery) => delivery.status === "pending",
-              ) && (
-                <span className={styles.processingHint}>
-                  本地包已保存，可按说明人工导入。
-                </span>
-              )}
-            </div>
-          )}
+          ))}
         </div>
-      </details>
+      )}
+
+      {showRunDetails && (
+        <details className={styles.processingDiagnostics}>
+          <summary>
+            <span>运行详情</span>
+            <span>{processingStatusLabel}</span>
+          </summary>
+          <div className={styles.processingDiagnosticsBody}>
+            <dl>
+              <div>
+                <dt>状态</dt>
+                <dd>{processingStatusLabel}</dd>
+              </div>
+              <div>
+                <dt>当前步骤</dt>
+                <dd>
+                  {run?.current_step
+                    ? stepLabels[run.current_step] || run.current_step
+                    : "—"}
+                </dd>
+              </div>
+              <div>
+                <dt>更新时间</dt>
+                <dd>
+                  {formatUpdatedAt(run?.updated_at || audioAsset?.updated_at)}
+                </dd>
+              </div>
+              {(scheduleStatus?.enabled ||
+                scheduleError ||
+                latestScheduleRun) && (
+                <div>
+                  <dt>定时计划</dt>
+                  <dd>{scheduleSummary}</dd>
+                </div>
+              )}
+              {scheduleStatus?.enabled && (
+                <div>
+                  <dt>下次计划</dt>
+                  <dd>{formatUpdatedAt(scheduleStatus.next_run_at)}</dd>
+                </div>
+              )}
+            </dl>
+
+            {scheduleError && (
+              <div className={styles.processingHint} role="status">
+                {scheduleError}
+              </div>
+            )}
+            {scheduleStatus?.enabled && (
+              <div className={styles.processingHint}>
+                <strong>定时配置</strong>
+                <span>
+                  cron：{scheduleStatus.cron} · 时区：{scheduleStatus.timezone}{" "}
+                  · 每批 {scheduleStatus.batch_size} 集
+                </span>
+                <span>修改主机配置并重启服务后生效。</span>
+              </div>
+            )}
+            {latestScheduleRun && (
+              <div className={styles.processingHint}>
+                <strong>
+                  最近定时：
+                  {scheduleStatusLabels[latestScheduleRun.run.status] ||
+                    latestScheduleRun.run.status}
+                </strong>
+                <span>
+                  {formatUpdatedAt(latestScheduleRun.run.scheduled_for)} ·
+                  已入队 {latestScheduleRun.run.started_count} 集 · 跳过{" "}
+                  {latestScheduleRun.run.skipped_count} 集
+                </span>
+                {latestScheduleItem && (
+                  <span>
+                    {latestScheduleItemPending
+                      ? "此集正在确认加工资格"
+                      : latestScheduleItem.outcome === "started"
+                        ? "此集已加入加工队列"
+                        : `此集跳过：${
+                            scheduleSkipLabels[
+                              latestScheduleItem.reason || ""
+                            ] ||
+                            latestScheduleItem.reason ||
+                            "未满足条件"
+                          }`}
+                  </span>
+                )}
+                {latestScheduleRun.run.error_message && (
+                  <span>{latestScheduleRun.run.error_message}</span>
+                )}
+              </div>
+            )}
+
+            {isActive(run) && run.next_attempt_at && (
+              <div className={styles.processingHint} role="status">
+                自动重试：{formatUpdatedAt(run.next_attempt_at)}（已尝试{" "}
+                {run.attempt_count}/{run.max_attempts} 次）
+              </div>
+            )}
+
+            {run?.error_message && (
+              <div
+                className={
+                  run.status === "cancelled"
+                    ? styles.processingCancellation
+                    : styles.processingFailure
+                }
+                role={run.status === "cancelled" ? "status" : undefined}
+              >
+                <strong>{run.error_code || "PROCESSING_FAILED"}</strong>
+                <span>{run.error_message}</span>
+                {detail?.action_suggestion && (
+                  <span>{detail.action_suggestion}</span>
+                )}
+              </div>
+            )}
+            {!run && audioAsset?.error_message && (
+              <div className={styles.processingFailure}>
+                <strong>
+                  {audioAsset.error_code || "AUDIO_PREPARATION_FAILED"}
+                </strong>
+                <span>{audioAsset.error_message}</span>
+                <span>修正音频来源后可重新开始；失败文件不会保留。</span>
+              </div>
+            )}
+
+            {detail && detail.deliveries.length > 0 && (
+              <div className={styles.processingArtifacts}>
+                <div>
+                  <strong>知识交付</strong>
+                  {detail.deliveries.map((delivery) => (
+                    <span key={delivery.id}>
+                      {delivery.target} · {delivery.destination} ·{" "}
+                      {deliveryStatusLabels[delivery.status] || delivery.status}
+                    </span>
+                  ))}
+                </div>
+                {detail.deliveries.some(
+                  (delivery) => delivery.status === "pending",
+                ) && (
+                  <span className={styles.processingHint}>
+                    本地包已保存，可按说明人工导入。
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </details>
+      )}
     </section>
   );
 });
