@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"html"
 	"regexp"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	episodelabel "magicpodcast/internal/episode"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -43,6 +45,13 @@ type EpisodeResponse struct {
 	MyRate            int    `json:"my_rate"`
 	Notes             string `json:"notes"`
 	VideoAvailability string `json:"video_availability"`
+}
+
+// EpisodeShowNotesResponse exposes only the public display document and the
+// identity needed by clients to reject a stale response.
+type EpisodeShowNotesResponse struct {
+	EpisodeID         uint                    `json:"episode_id"`
+	ShowNotesDocument utils.ShowNotesDocument `json:"show_notes_document"`
 }
 
 const (
@@ -230,4 +239,35 @@ func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 	memCache.SetWithTTL(cacheKey, resp, 2*time.Minute)
 	setPrivateCache(c, 60)
 	c.JSON(200, resp)
+}
+
+// GetShowNotes returns the complete read-time display document for one episode.
+// Stored source text remains unchanged; all format decisions stay centralized
+// in BuildShowNotesDocument.
+func (h *EpisodeHandler) GetShowNotes(c *gin.Context) {
+	db := database.GetDB()
+
+	episodeID, ok := ParseUintParam(c, "id")
+	if !ok {
+		return
+	}
+
+	var episode models.Episode
+	if err := db.Select("id", "show_notes").First(&episode, episodeID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			middleware.NotFoundResponse(c, "NOT_FOUND", "Episode not found")
+			return
+		}
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to fetch episode Show Notes")
+		return
+	}
+
+	setPrivateCache(c, 60)
+	c.JSON(200, gin.H{
+		"success": true,
+		"data": EpisodeShowNotesResponse{
+			EpisodeID:         episode.ID,
+			ShowNotesDocument: utils.BuildShowNotesDocument(episode.ShowNotes),
+		},
+	})
 }

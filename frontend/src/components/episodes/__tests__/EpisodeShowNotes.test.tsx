@@ -6,19 +6,27 @@ describe("EpisodeShowNotes", () => {
   it("uses the compact rich-text density when expanded", () => {
     const { container } = render(
       <EpisodeShowNotes
-        html="<h2>章节</h2><p>单集简介</p>"
+        summary="单集简介"
         link="https://example.com/episode"
         isExpanded
+        status="success"
+        document={{
+          content: "<h2>章节</h2><p>单集简介</p>",
+          format: "html",
+        }}
+        onRetry={() => undefined}
       />,
     );
 
     expect(container.querySelector(".editorial-rich-text")).toHaveClass(
       "editorial-rich-text--compact",
-      "line-clamp-3",
-      "md:line-clamp-none",
     );
     expect(container.querySelector(".editorial-rich-text")).not.toHaveClass(
       "prose",
     );
+    expect(
+      container.querySelector(".podcast-episode-show-notes-reader"),
+    ).toHaveAttribute("tabindex", "0");
+    expect(container.querySelector(".bg-gradient-to-t")).not.toBeInTheDocument();
   });
 });

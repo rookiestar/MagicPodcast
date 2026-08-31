@@ -1,56 +1,72 @@
 "use client";
 
-import { useMemo } from "react";
-import RichText from "@/components/RichText";
-import { stripHtml } from "@/lib/textUtils";
+import { ShowNotesDocumentView } from "@/components/common/ShowNotesDocumentView";
+import type { ShowNotesDocument } from "@/types/showNotes";
 
 interface EpisodeShowNotesProps {
-  html: string;
+  summary: string;
   link: string;
   isExpanded: boolean;
+  status: "idle" | "loading" | "success" | "error";
+  document?: ShowNotesDocument;
+  onRetry: () => void;
   onOriginalOpen?: () => void;
 }
 
 export function EpisodeShowNotes({
-  html,
+  summary,
   link,
   isExpanded,
+  status,
+  document,
+  onRetry,
   onOriginalOpen,
 }: EpisodeShowNotesProps) {
-  const preview = useMemo(() => stripHtml(html, 220), [html]);
+  const preview = <p className="podcast-episode-show-notes-preview">{summary}</p>;
 
   return (
-    <div className="relative">
-      <div
-        className={`relative max-h-20 overflow-hidden text-xs text-slate-600 transition-[max-height] duration-300 md:text-sm md:text-slate-600 md:dark:text-slate-400 ${
-          isExpanded
-            ? "md:max-h-96 md:overflow-y-auto"
-            : "md:max-h-24 md:overflow-hidden"
-        }`}
-      >
-        {isExpanded ? (
-          <RichText
-            html={html}
-            density="compact"
-            className="line-clamp-3 md:line-clamp-none"
-          />
-        ) : (
-          <p className="line-clamp-3 whitespace-pre-line">{preview}</p>
-        )}
-      </div>
+    <div className="podcast-episode-show-notes">
+      {!isExpanded || status === "idle" ? preview : null}
 
-      <div
-        className={`absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-white dark:from-slate-800 to-transparent pointer-events-none md:h-8 ${
-          isExpanded ? "md:hidden" : ""
-        }`}
-      />
+      {isExpanded && status === "loading" && (
+        <div className="podcast-episode-show-notes-state" aria-live="polite">
+          {preview}
+          <p role="status">正在读取完整 Show Notes…</p>
+        </div>
+      )}
+
+      {isExpanded && status === "error" && (
+        <div className="podcast-episode-show-notes-state" role="alert">
+          {preview}
+          <p>完整 Show Notes 读取失败，预览仍可查看。</p>
+          <button type="button" onClick={onRetry}>
+            重试全文
+          </button>
+        </div>
+      )}
+
+      {isExpanded && status === "success" && document && (
+        <div
+          className="podcast-episode-show-notes-reader"
+          role="region"
+          aria-label="完整 Show Notes"
+          tabIndex={0}
+        >
+          <ShowNotesDocumentView
+            document={document}
+            density="compact"
+            className="podcast-episode-show-notes-content"
+            emptyFallback={<p>该单集暂无完整 Show Notes。</p>}
+          />
+        </div>
+      )}
 
       {link && (
         <a
           href={link}
           target="_blank"
           rel="noopener noreferrer"
-          className="block rounded-sm text-center text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 mt-2 py-2 border-t border-slate-200 dark:border-slate-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 md:hidden"
+          className="podcast-episode-show-notes-link md:hidden"
           onClick={onOriginalOpen}
         >
           查看详情 →

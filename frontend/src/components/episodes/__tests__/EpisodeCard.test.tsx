@@ -1,9 +1,13 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ComponentProps } from "react";
+import { useMemo, type ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useOriginalEpisodeRecovery } from "@/hooks/useOriginalEpisodeRecovery";
 import type { Episode } from "@/types";
 import { useQueuedEpisodeImage } from "@/hooks/useQueuedEpisodeImage";
+import {
+  createEpisodeShowNotesStore,
+  type EpisodeShowNotesStore,
+} from "@/lib/episodeShowNotesStore";
 import EpisodeCard from "../EpisodeCard";
 
 vi.mock("@/components/RichText", () => ({
@@ -23,19 +27,45 @@ vi.mock("@/hooks/useQueuedEpisodeImage", () => ({
 }));
 
 const useQueuedEpisodeImageMock = vi.mocked(useQueuedEpisodeImage);
+const getShowNotesMock = vi.fn((episodeId: number) =>
+  Promise.resolve({
+    episode_id: episodeId,
+    show_notes_document: {
+      content: `<h2>完整正文 ${episodeId}</h2><p>可滚动内容</p>`,
+      format: "html" as const,
+    },
+  }),
+);
 
 type TestEpisodeCardProps = Omit<
   ComponentProps<typeof EpisodeCard>,
-  "originalRecovery"
->;
+  "originalRecovery" | "showNotesStore"
+> & { showNotesStore?: EpisodeShowNotesStore };
 
-function TestEpisodeCard(props: TestEpisodeCardProps) {
+function TestEpisodeCard({
+  showNotesStore,
+  ...props
+}: TestEpisodeCardProps) {
   const originalRecovery = useOriginalEpisodeRecovery();
-  return <EpisodeCard {...props} originalRecovery={originalRecovery} />;
+  const fallbackStore = useMemo(
+    () => createEpisodeShowNotesStore(getShowNotesMock),
+    [],
+  );
+  return (
+    <EpisodeCard
+      {...props}
+      originalRecovery={originalRecovery}
+      showNotesStore={showNotesStore ?? fallbackStore}
+    />
+  );
 }
 
 function EpisodeCardPairHarness() {
   const originalRecovery = useOriginalEpisodeRecovery();
+  const showNotesStore = useMemo(
+    () => createEpisodeShowNotesStore(getShowNotesMock),
+    [],
+  );
   const episodeUrl = (id: number) =>
     `https://www.xiaoyuzhoufm.com/episode/${id}?utm_source=rss`;
 
@@ -44,10 +74,12 @@ function EpisodeCardPairHarness() {
       <EpisodeCard
         episode={makeEpisode({ id: 1, title: "单集 A", link: episodeUrl(1) })}
         originalRecovery={originalRecovery}
+        showNotesStore={showNotesStore}
       />
       <EpisodeCard
         episode={makeEpisode({ id: 2, title: "单集 B", link: episodeUrl(2) })}
         originalRecovery={originalRecovery}
+        showNotesStore={showNotesStore}
       />
     </>
   );
@@ -77,6 +109,28 @@ function makeEpisode(overrides: Partial<Episode> = {}): Episode {
 describe("EpisodeCard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getShowNotesMock.mockImplementation((episodeId: number) =>
+      Promise.resolve({
+        episode_id: episodeId,
+        show_notes_document: {
+          content: `<h2>完整正文 ${episodeId}</h2><p>可滚动内容</p>`,
+          format: "html" as const,
+        },
+      }),
+    );
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn((query: string) => ({
+        matches: query === "(min-width: 768px)",
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
   });
 
   it("renders core episode information and opens the audio link", () => {
@@ -312,21 +366,152 @@ describe("EpisodeCard", () => {
     expect(screen.getByAltText("单集标题")).toHaveAttribute("loading", "lazy");
   });
 
-  it("expands show notes when keyboard focus enters the card", () => {
-    const { container } = render(<TestEpisodeCard episode={makeEpisode()} />);
-    const showNotes = screen.getByText("旧简介").parentElement;
+  it("loads full show notes when keyboard focus enters the card", async () => {
+    render(<TestEpisodeCard episode={makeEpisode()} />);
 
-    expect(showNotes).toHaveClass("md:max-h-24");
+    expect(screen.getByText("旧简介")).toBeVisible();
+    expect(getShowNotesMock).not.toHaveBeenCalled();
     expect(screen.queryByTestId("rich-text")).not.toBeInTheDocument();
 
     fireEvent.focus(screen.getByRole("link", { name: "单集标题" }));
 
-    expect(screen.getByTestId("rich-text").parentElement).toHaveClass(
-      "md:max-h-96",
+    expect(await screen.findByRole("region", { name: "完整 Show Notes" })).toBeVisible();
+    expect(screen.getByTestId("rich-text")).toHaveTextContent("完整正文 1");
+    expect(getShowNotesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the preview during a slow request and reuses the successful result", async () => {
+    let resolveRequest!: (value: Awaited<ReturnType<typeof getShowNotesMock>>) => void;
+    getShowNotesMock.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveRequest = resolve)),
     );
-    expect(container.querySelectorAll('[data-testid="rich-text"]')).toHaveLength(
-      1,
+    render(<TestEpisodeCard episode={makeEpisode()} />);
+    const card = screen.getByRole("link", { name: "单集标题" }).closest(
+      ".podcast-episode-card",
+    )!;
+
+    fireEvent.mouseEnter(card);
+    expect(screen.getByText("旧简介")).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "正在读取完整 Show Notes",
     );
+
+    resolveRequest({
+      episode_id: 1,
+      show_notes_document: {
+        content: "<h2>慢请求完成</h2>",
+        format: "html",
+      },
+    });
+    expect(await screen.findByText("<h2>慢请求完成</h2>")).toBeVisible();
+
+    fireEvent.mouseLeave(card);
+    expect(screen.getByText("旧简介")).toBeVisible();
+    fireEvent.mouseEnter(card);
+    expect(await screen.findByText("<h2>慢请求完成</h2>")).toBeVisible();
+    expect(getShowNotesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the preview and original entry on failure, then retries", async () => {
+    getShowNotesMock
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({
+        episode_id: 1,
+        show_notes_document: {
+          content: "<h2>重试成功</h2>",
+          format: "html",
+        },
+      });
+    render(<TestEpisodeCard episode={makeEpisode()} />);
+
+    fireEvent.focus(screen.getByRole("link", { name: "单集标题" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "预览仍可查看",
+    );
+    expect(screen.getByText("旧简介")).toBeVisible();
+    expect(screen.getByRole("link", { name: "单集标题" })).toHaveAttribute(
+      "href",
+      "https://example.com/episode",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "重试全文" }));
+    expect(await screen.findByText("<h2>重试成功</h2>")).toBeVisible();
+    expect(getShowNotesMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not collapse a focused card when the pointer leaves", async () => {
+    render(<TestEpisodeCard episode={makeEpisode()} />);
+    const title = screen.getByRole("link", { name: "单集标题" });
+    const card = title.closest(".podcast-episode-card")!;
+
+    fireEvent.mouseEnter(card);
+    fireEvent.focus(title);
+    expect(await screen.findByRole("region", { name: "完整 Show Notes" })).toBeVisible();
+    fireEvent.mouseLeave(card);
+
+    expect(screen.getByRole("region", { name: "完整 Show Notes" })).toBeVisible();
+  });
+
+  it("ignores a late response after the card identity changes", async () => {
+    let resolveFirst!: (value: Awaited<ReturnType<typeof getShowNotesMock>>) => void;
+    getShowNotesMock
+      .mockImplementationOnce(
+        () => new Promise((resolve) => (resolveFirst = resolve)),
+      )
+      .mockResolvedValueOnce({
+        episode_id: 2,
+        show_notes_document: {
+          content: "<h2>单集 B 全文</h2>",
+          format: "html",
+        },
+      });
+    const { rerender } = render(
+      <TestEpisodeCard episode={makeEpisode({ id: 1, title: "单集 A" })} />,
+    );
+    fireEvent.focus(screen.getByRole("link", { name: "单集 A" }));
+
+    rerender(
+      <TestEpisodeCard episode={makeEpisode({ id: 2, title: "单集 B" })} />,
+    );
+    fireEvent.focus(screen.getByRole("link", { name: "单集 B" }));
+    expect(await screen.findByText("<h2>单集 B 全文</h2>")).toBeVisible();
+
+    resolveFirst({
+      episode_id: 1,
+      show_notes_document: {
+        content: "<h2>迟到的单集 A</h2>",
+        format: "html",
+      },
+    });
+    await act(async () => Promise.resolve());
+    expect(screen.queryByText("<h2>迟到的单集 A</h2>")).not.toBeInTheDocument();
+    expect(screen.getByText("<h2>单集 B 全文</h2>")).toBeVisible();
+  });
+
+  it("does not request full show notes in a mobile viewport", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+    render(<TestEpisodeCard episode={makeEpisode()} />);
+    const title = screen.getByRole("link", { name: "单集标题" });
+    const card = title.closest(".podcast-episode-card")!;
+
+    fireEvent.mouseEnter(card);
+    fireEvent.focus(title);
+
+    expect(screen.getByText("旧简介")).toBeVisible();
+    expect(screen.getByRole("link", { name: /查看详情/ })).toBeVisible();
+    expect(getShowNotesMock).not.toHaveBeenCalled();
   });
 
   it("rerenders when memoized episode display fields change", () => {

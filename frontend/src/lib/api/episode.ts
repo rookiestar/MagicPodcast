@@ -1,7 +1,12 @@
 import { api } from "./client";
-import { handleResponse, handleVoidResponse } from "./client";
+import {
+  handleResponse,
+  handleVoidResponse,
+  inlineApiErrorConfig,
+} from "./client";
 import { buildPodcastEpisodesCollectionPath } from "@/lib/podcastApiPaths";
 import type { ApiResponse, Episode, Tag } from "@/types";
+import type { EpisodeShowNotesPayload } from "@/types/showNotes";
 
 export const episodeApi = {
   // 获取播客的单集列表（支持分页）
@@ -38,6 +43,14 @@ export const episodeApi = {
       episodes: handleResponse(response),
       pagination: response.data.pagination,
     };
+  },
+
+  getShowNotes: async (id: number): Promise<EpisodeShowNotesPayload> => {
+    const response = await api.get<ApiResponse<EpisodeShowNotesPayload>>(
+      `/api/v1/episodes/${id}/show-notes`,
+      inlineApiErrorConfig,
+    );
+    return handleResponse(response);
   },
 
   // 获取单集备注

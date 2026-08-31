@@ -22,8 +22,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { OriginalEpisodeRecovery } from "@/components/common/OriginalEpisodeRecovery";
-import RichText from "@/components/RichText";
-import MarkdownViewer from "@/components/workflows/MarkdownViewer";
+import { ShowNotesDocumentView } from "@/components/common/ShowNotesDocumentView";
 import { useOriginalEpisodeRecovery } from "@/hooks/useOriginalEpisodeRecovery";
 import { episodeApi, tagApi } from "@/lib/api";
 import {
@@ -919,21 +918,15 @@ export default function ConsumptionDetailPanel({
               data-copilot-source="show_notes"
               data-copilot-episode-id={item.episode_id}
             >
-              {item.show_notes_document.content.trim() ? (
-                item.show_notes_document.format === "html" ? (
-                  <RichText
-                    html={item.show_notes_document.content}
-                    className={styles.showNotesRichText}
-                  />
-                ) : (
-                  <MarkdownViewer
-                    content={item.show_notes_document.content}
-                    className={styles.showNotesRichText}
-                  />
-                )
-              ) : (
-                <p className={styles.showNotesEmpty}>该单集暂无 Show Notes。</p>
-              )}
+              <ShowNotesDocumentView
+                document={item.show_notes_document}
+                className={styles.showNotesRichText}
+                emptyFallback={
+                  <p className={styles.showNotesEmpty}>
+                    该单集暂无 Show Notes。
+                  </p>
+                }
+              />
             </section>
 
             <div

@@ -57,6 +57,7 @@ func setupEpisodeTestRouter() *gin.Engine {
 	router := gin.New()
 	episodeHandler := handlers.NewEpisodeHandler()
 	router.GET("/api/v1/podcasts/:id/episodes", episodeHandler.ListByPodcast)
+	router.GET("/api/v1/episodes/:id/show-notes", episodeHandler.GetShowNotes)
 	return router
 }
 
@@ -249,4 +250,103 @@ func TestEpisodeHandler_ListByPodcast_ReturnsNotFoundForMissingPodcast(t *testin
 	router.ServeHTTP(response, request)
 
 	assert.Equal(t, http.StatusNotFound, response.Code)
+}
+
+func TestEpisodeHandler_GetShowNotes_ReturnsFullDisplayDocumentWithoutPrivateFields(t *testing.T) {
+	db := setupEpisodeTestDB(t)
+	router := setupEpisodeTestRouter()
+	podcast := createEpisodeHandlerPodcast(t, db)
+	episode := createEpisodeHandlerEpisode(t, db, podcast.ID, 1, time.Now().UTC())
+	showNotes := "<p># 完整章节</p><p>" + strings.Repeat("**完整正文** ", 80) + "</p>"
+	require.NoError(t, db.Model(&episode).Updates(map[string]interface{}{
+		"show_notes": showNotes,
+		"notes":      "private note must stay private",
+		"medium_url": "https://example.com/private-audio.mp3",
+	}).Error)
+
+	request := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/episodes/%d/show-notes", episode.ID), nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	assert.Equal(t, "private, max-age=60, stale-while-revalidate=300", response.Header().Get("Cache-Control"))
+
+	var envelope struct {
+		Success bool `json:"success"`
+		Data    struct {
+			EpisodeID uint `json:"episode_id"`
+			Document  struct {
+				Content string `json:"content"`
+				Format  string `json:"format"`
+			} `json:"show_notes_document"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+	assert.True(t, envelope.Success)
+	assert.Equal(t, episode.ID, envelope.Data.EpisodeID)
+	assert.Equal(t, "markdown", envelope.Data.Document.Format)
+	assert.Contains(t, envelope.Data.Document.Content, "# 完整章节")
+	assert.Greater(t, len([]rune(envelope.Data.Document.Content)), 600)
+
+	var rawEnvelope map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &rawEnvelope))
+	var rawData map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rawEnvelope["data"], &rawData))
+	assert.ElementsMatch(t, []string{"episode_id", "show_notes_document"}, mapKeys(rawData))
+	assert.NotContains(t, response.Body.String(), "private note must stay private")
+	assert.NotContains(t, response.Body.String(), "private-audio.mp3")
+}
+
+func TestEpisodeHandler_GetShowNotes_ReturnsExplicitEmptyDocument(t *testing.T) {
+	db := setupEpisodeTestDB(t)
+	router := setupEpisodeTestRouter()
+	podcast := createEpisodeHandlerPodcast(t, db)
+	episode := createEpisodeHandlerEpisode(t, db, podcast.ID, 1, time.Now().UTC())
+	require.NoError(t, db.Model(&episode).Update("show_notes", "  \n ").Error)
+
+	request := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/episodes/%d/show-notes", episode.ID), nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	assert.JSONEq(t, fmt.Sprintf(`{
+		"success": true,
+		"data": {
+			"episode_id": %d,
+			"show_notes_document": {"content": "", "format": "markdown"}
+		}
+	}`, episode.ID), response.Body.String())
+}
+
+func TestEpisodeHandler_GetShowNotes_ReturnsNotFoundForMissingEpisode(t *testing.T) {
+	setupEpisodeTestDB(t)
+	router := setupEpisodeTestRouter()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/episodes/9999/show-notes", nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusNotFound, response.Code)
+	assert.Contains(t, response.Body.String(), "Episode not found")
+}
+
+func TestEpisodeHandler_GetShowNotes_ReturnsDatabaseError(t *testing.T) {
+	db := setupEpisodeTestDB(t)
+	router := setupEpisodeTestRouter()
+	require.NoError(t, db.Migrator().DropTable(&models.Episode{}))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/episodes/1/show-notes", nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusInternalServerError, response.Code)
+	assert.Contains(t, response.Body.String(), "DATABASE_ERROR")
+}
+
+func mapKeys(values map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	return keys
 }

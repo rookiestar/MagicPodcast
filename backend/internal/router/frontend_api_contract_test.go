@@ -73,6 +73,7 @@ func TestFrontendAPIContractRoutesRegistered(t *testing.T) {
 		"POST /api/v1/podcasts/batch",
 		"GET /api/v1/podcasts/:id",
 		"GET /api/v1/podcasts/:id/episodes",
+		"GET /api/v1/episodes/:id/show-notes",
 		"PUT /api/v1/podcasts/:id/custom-cover",
 		"GET /api/v1/search",
 		"GET /api/v1/tags",
