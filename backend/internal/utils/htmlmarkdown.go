@@ -103,16 +103,16 @@ func walkHTMLToMarkdown(b *strings.Builder, n *html.Node) {
 			b.WriteString("*" + text + "*")
 		}
 	case "code":
-		text := childMarkdown(n)
+		text := htmlTextContent(n)
 		if strings.ContainsAny(text, "\n`") {
-			b.WriteString("\n```\n" + strings.TrimSpace(text) + "\n```\n")
+			b.WriteString(markdownCodeBlock(text))
 		} else {
 			b.WriteString("`" + text + "`")
 		}
 	case "pre":
-		text := strings.TrimSpace(childMarkdown(n))
+		text := strings.TrimSpace(htmlTextContent(n))
 		if text != "" {
-			b.WriteString("\n```\n" + text + "\n```\n")
+			b.WriteString(markdownCodeBlock(text))
 		}
 	case "h1", "h2", "h3", "h4", "h5", "h6":
 		level := int(n.Data[1] - '0')
@@ -187,6 +187,40 @@ func childMarkdown(n *html.Node) string {
 	return b.String()
 }
 
+func htmlTextContent(n *html.Node) string {
+	var b strings.Builder
+	var walk func(*html.Node)
+	walk = func(node *html.Node) {
+		if node == nil || node.Type == html.CommentNode {
+			return
+		}
+		if node.Type == html.TextNode {
+			b.WriteString(node.Data)
+			return
+		}
+		if node.Type == html.ElementNode {
+			switch node.Data {
+			case "script", "style", "head", "title", "noscript", "template":
+				return
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(n)
+	return b.String()
+}
+
+func markdownCodeBlock(text string) string {
+	text = strings.TrimSpace(text)
+	fence := "```"
+	for strings.Contains(text, fence) {
+		fence += "`"
+	}
+	return "\n" + fence + "\n" + text + "\n" + fence + "\n"
+}
+
 func getHTMLAttr(n *html.Node, key string) string {
 	for _, a := range n.Attr {
 		if a.Key == key {
@@ -206,6 +240,7 @@ func isSafeMarkdownURL(u string) bool {
 	return strings.HasPrefix(lower, "http://") ||
 		strings.HasPrefix(lower, "https://") ||
 		strings.HasPrefix(lower, "mailto:") ||
+		strings.HasPrefix(lower, "tel:") ||
 		strings.HasPrefix(lower, "/")
 }
 

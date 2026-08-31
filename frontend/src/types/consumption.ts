@@ -19,6 +19,11 @@ export interface CompletionUndo {
   expires_at: string;
 }
 
+export interface ShowNotesDocument {
+  content: string;
+  format: "html" | "markdown";
+}
+
 export interface ConsumptionItem {
   episode_id: number;
   podcast_id: number;
@@ -30,6 +35,7 @@ export interface ConsumptionItem {
   duration: number;
   published_date: string;
   show_notes: string;
+  show_notes_document: ShowNotesDocument;
   original_url: string;
   image_url: string;
   notes: string;

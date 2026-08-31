@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	FixtureSeries          = "complete-v2"
+	FixtureSeries          = "complete-v3"
 	DefaultFixtureScenario = "journey"
 
 	FixtureScenarioEmpty             = "empty"

@@ -194,6 +194,7 @@ const inboxItem: ConsumptionItem = {
   duration: 1800,
   published_date: "2026-08-11T08:00:00Z",
   show_notes: "<p>正文</p>",
+  show_notes_document: { content: "<p>正文</p>", format: "html" },
   original_url: "https://example.com/101",
   image_url: "",
   notes: "",
@@ -201,6 +202,32 @@ const inboxItem: ConsumptionItem = {
   queue_state: "inbox",
   queue_updated_at: "2026-08-11T08:00:00Z",
 };
+
+const mixedShowNotesItem = {
+  ...inboxItem,
+  episode_id: 224,
+  episode_title: "AI 原生组织转型",
+  queue_state: "focus",
+  show_notes: [
+    "<p># 转型开场",
+    "<br><br><br>**对齐事实**",
+    "<br><br><br>---",
+    "<br><br><br>- 建立共同语言",
+    '<br><br><br>[延伸阅读](https://example.com/notes)',
+    '<br><br><br>![转型示意图](https://i.typlog.com/cover.png)</p>',
+  ].join(""),
+  show_notes_document: {
+    content: [
+      "# 转型开场",
+      "**对齐事实**",
+      "---",
+      "- 建立共同语言",
+      "[延伸阅读](https://example.com/notes)",
+      "![转型示意图](https://i.typlog.com/cover.png)",
+    ].join("\n\n"),
+    format: "markdown",
+  },
+} as ConsumptionItem;
 
 const emptySummary: ConsumptionSummary = {
   counts: { inbox: 1, focus: 0, someday: 0, done: 0 },
@@ -272,6 +299,20 @@ function setDragMediaMatches(matches: boolean) {
   dragMediaMatches = matches;
   const event = { matches } as MediaQueryListEvent;
   for (const listener of dragMediaListeners) listener(event);
+}
+
+function mockSingleFocusItem(focusItem: ConsumptionItem) {
+  apiMocks.getSummary.mockResolvedValue({
+    ...emptySummary,
+    counts: { ...emptySummary.counts, inbox: 0, focus: 1 },
+  });
+  apiMocks.listQueue.mockImplementation(async (queue: ConsumptionQueue) => ({
+    queue_state: queue,
+    revision: 1,
+    items: queue === "focus" ? [focusItem] : [],
+    has_more: false,
+  }));
+  apiMocks.getItem.mockResolvedValue(focusItem);
 }
 
 function dragEvent({
@@ -366,6 +407,201 @@ describe("InboxPageClient", () => {
     );
     apiMocks.placeQueue.mockResolvedValue({ queues: {} });
     apiMocks.undoCompletion.mockResolvedValue({ queues: {} });
+  });
+
+  it("renders mixed Show Notes from the public display document with semantic structure", async () => {
+    mockSingleFocusItem(mixedShowNotesItem);
+
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "打开 AI 原生组织转型 明细",
+      }),
+    );
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "AI 原生组织转型",
+    });
+    const showNotes = within(dialog).getByRole("tabpanel", {
+      name: "Show Notes",
+    });
+
+    expect(
+      within(showNotes).getByRole("heading", {
+        level: 1,
+        name: "转型开场",
+      }),
+    ).toBeVisible();
+    expect(within(showNotes).getByText("对齐事实").closest("strong")).not.toBeNull();
+    expect(within(showNotes).getByRole("separator")).toBeVisible();
+    const list = within(showNotes).getByRole("list");
+    expect(list).toBeVisible();
+    expect(within(list).getByText("建立共同语言").closest("li")).not.toBeNull();
+    expect(
+      within(showNotes).getByRole("link", { name: "延伸阅读" }),
+    ).toHaveAttribute("href", "https://example.com/notes");
+    expect(
+      within(showNotes).getByRole("img", { name: "转型示意图" }),
+    ).toBeVisible();
+    expect(showNotes).not.toHaveTextContent("**");
+    expect(showNotes.querySelector("br + br + br")).toBeNull();
+  });
+
+  it("keeps pure HTML semantic and safe in the Inbox detail", async () => {
+    const content = [
+      "<h2>HTML 标题</h2>",
+      "<p><strong>HTML 重点</strong></p>",
+      "<hr>",
+      "<ul><li>HTML 列表项</li></ul>",
+      '<p><a href="https://example.com/html" target="_blank" rel="noopener noreferrer">HTML 链接</a></p>',
+      '<img src="https://i.typlog.com/cover.png" alt="HTML 图片">',
+      '<script>alert("危险脚本")</script>',
+      '<a href="javascript:alert(1)">危险 HTML 链接</a>',
+      '<img src="javascript:alert(1)" onerror="alert(1)" alt="危险 HTML 图片">',
+    ].join("");
+    const htmlItem = {
+      ...inboxItem,
+      episode_id: 225,
+      episode_title: "纯 HTML 单集",
+      queue_state: "focus",
+      show_notes: content,
+      show_notes_document: { content, format: "html" },
+    } as ConsumptionItem;
+    mockSingleFocusItem(htmlItem);
+
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "打开 纯 HTML 单集 明细" }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "纯 HTML 单集" });
+    const showNotes = within(dialog).getByRole("tabpanel", {
+      name: "Show Notes",
+    });
+
+    expect(
+      within(showNotes).getByRole("heading", { level: 2, name: "HTML 标题" }),
+    ).toBeVisible();
+    expect(within(showNotes).getByText("HTML 重点").closest("strong")).not.toBeNull();
+    expect(within(showNotes).getByRole("separator")).toBeVisible();
+    expect(within(showNotes).getByRole("list")).toBeVisible();
+    expect(
+      within(showNotes).getByRole("link", { name: "HTML 链接" }),
+    ).toHaveAttribute("target", "_blank");
+    expect(
+      within(showNotes).getByRole("img", { name: "HTML 图片" }),
+    ).toBeVisible();
+    expect(showNotes).not.toHaveTextContent("危险脚本");
+    expect(
+      within(showNotes).queryByRole("link", { name: "危险 HTML 链接" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(showNotes).getByRole("img", { name: "危险 HTML 图片" }),
+    ).not.toHaveAttribute("src");
+  });
+
+  it("renders pure Markdown semantics while blocking unsafe raw content", async () => {
+    const content = [
+      "# Markdown 标题",
+      "**Markdown 重点**",
+      "---",
+      "1. Markdown 列表项",
+      "[Markdown 链接](https://example.com/markdown)",
+      "![Markdown 图片](https://i.typlog.com/cover.png)",
+      "[危险 Markdown 链接](javascript:alert(1))",
+      '<script>alert("Markdown 危险脚本")</script>',
+    ].join("\n\n");
+    const markdownItem = {
+      ...inboxItem,
+      episode_id: 226,
+      episode_title: "纯 Markdown 单集",
+      queue_state: "focus",
+      show_notes: content,
+      show_notes_document: { content, format: "markdown" },
+    } as ConsumptionItem;
+    mockSingleFocusItem(markdownItem);
+
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "打开 纯 Markdown 单集 明细",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "纯 Markdown 单集",
+    });
+    const showNotes = within(dialog).getByRole("tabpanel", {
+      name: "Show Notes",
+    });
+
+    expect(
+      within(showNotes).getByRole("heading", {
+        level: 1,
+        name: "Markdown 标题",
+      }),
+    ).toBeVisible();
+    expect(within(showNotes).getByText("Markdown 重点").closest("strong")).not.toBeNull();
+    expect(within(showNotes).getByRole("separator")).toBeVisible();
+    expect(within(showNotes).getByRole("list")).toBeVisible();
+    expect(
+      within(showNotes).getByRole("link", { name: "Markdown 链接" }),
+    ).toHaveAttribute("target", "_blank");
+    expect(
+      within(showNotes).getByRole("img", { name: "Markdown 图片" }),
+    ).toBeVisible();
+    expect(
+      within(showNotes).queryByRole("link", {
+        name: "危险 Markdown 链接",
+      }),
+    ).not.toBeInTheDocument();
+    expect(showNotes).not.toHaveTextContent("Markdown 危险脚本");
+  });
+
+  it("keeps ordinary text readable through the Markdown display contract", async () => {
+    const plainTextItem = {
+      ...inboxItem,
+      episode_id: 227,
+      episode_title: "普通文本单集",
+      queue_state: "focus",
+      show_notes: "第一段普通文本。\n第二行仍然可读。",
+      show_notes_document: {
+        content: "第一段普通文本。\n第二行仍然可读。",
+        format: "markdown",
+      },
+    } as ConsumptionItem;
+    mockSingleFocusItem(plainTextItem);
+
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "打开 普通文本单集 明细" }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "普通文本单集" });
+    expect(within(dialog).getByText(/第一段普通文本。/)).toHaveTextContent(
+      "第一段普通文本。 第二行仍然可读。",
+    );
+  });
+
+  it("uses the display document for the empty state without rewriting stored Show Notes", async () => {
+    const emptyItem = {
+      ...inboxItem,
+      episode_id: 228,
+      episode_title: "空 Show Notes 单集",
+      queue_state: "focus",
+      show_notes: "<p>库存原文仍被保留</p>",
+      show_notes_document: { content: "", format: "markdown" },
+    } as ConsumptionItem;
+    mockSingleFocusItem(emptyItem);
+
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "打开 空 Show Notes 单集 明细",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "空 Show Notes 单集",
+    });
+    expect(within(dialog).getByText("该单集暂无 Show Notes。")).toBeVisible();
+    expect(within(dialog).queryByText("库存原文仍被保留")).not.toBeInTheDocument();
   });
 
   it("links recent completions to the independent history view", async () => {

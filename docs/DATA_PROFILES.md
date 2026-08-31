@@ -47,7 +47,7 @@ Fixture 以 Asia/Shanghai 当前整点为固定时间锚点，版本同时包含
 
 | 场景 | 用途 |
 | --- | --- |
-| `journey`（默认） | Discovery 多日期、未读/已读、未收集/已收集；同日两份精选报告及往期；Inbox、Focus 6、Someday、Done、进行中和时间提醒 |
+| `journey`（默认） | Discovery 多日期、未读/已读、未收集/已收集；同日两份精选报告及往期；Inbox、Focus 6（含混合格式 Show Notes）、Someday、Done、进行中和时间提醒 |
 | `empty` | 主要空态 |
 | `focus-0` | Focus 空态 |
 | `focus-7` | Focus 软上限边界 |

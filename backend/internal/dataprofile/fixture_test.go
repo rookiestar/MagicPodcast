@@ -21,7 +21,7 @@ func TestEnsureFixtureCreatesStableCurrentSchemaData(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, first.DatabasePath, second.DatabasePath)
-	require.Equal(t, "complete-v2-journey-20260814T02-schema-25", first.Version)
+	require.Equal(t, "complete-v3-journey-20260814T02-schema-25", first.Version)
 	require.Equal(t, DefaultFixtureScenario, first.Scenario)
 	require.Equal(t, "2026-08-14T02:00:00+08:00", first.Manifest.FixtureAnchorAt)
 	require.Equal(t, int64(3), first.Manifest.Counts["podcasts"])
@@ -63,6 +63,17 @@ func TestEnsureFixtureCreatesStableCurrentSchemaData(t *testing.T) {
 	var covers []string
 	require.NoError(t, db.Table("podcasts").Order("id").Pluck("cover_url", &covers).Error)
 	require.Equal(t, []string{fixtureInlinePNG, "", fixtureInlinePNG}, covers)
+	var mixedShowNotes struct {
+		Title     string
+		ShowNotes string
+	}
+	require.NoError(t, db.Model(&models.Episode{}).
+		Select("title, show_notes").
+		Where("id = ?", 2003).
+		Scan(&mixedShowNotes).Error)
+	require.Equal(t, "Focus：混合格式 Show Notes", mixedShowNotes.Title)
+	require.Contains(t, mixedShowNotes.ShowNotes, "<br><br><br>**对齐事实**")
+	require.Contains(t, mixedShowNotes.ShowNotes, "![转型示意图](/brand/magicpodcast-tuning-mark.png)")
 
 	other, err := ensureFixtureScenarioAt(t.TempDir(), DefaultFixtureScenario, now)
 	require.NoError(t, err)

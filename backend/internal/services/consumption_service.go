@@ -7,6 +7,7 @@ import (
 
 	episodelabel "magicpodcast/internal/episode"
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/utils"
 
 	"gorm.io/gorm"
 )
@@ -43,29 +44,30 @@ type QueueSummary struct {
 }
 
 type ConsumptionItem struct {
-	EpisodeID       uint            `json:"episode_id"`
-	PodcastID       uint            `json:"podcast_id"`
-	PodcastTitle    string          `json:"podcast_title"`
-	PodcastAuthor   string          `json:"podcast_author"`
-	PodcastCoverURL string          `json:"podcast_cover_url"`
-	EpisodeTitle    string          `json:"episode_title"`
-	EpisodeNo       string          `json:"episode_no"`
-	Duration        int             `json:"duration"`
-	PublishedDate   time.Time       `json:"published_date"`
-	ShowNotes       string          `json:"show_notes"`
-	OriginalURL     string          `json:"original_url"`
-	ImageURL        string          `json:"image_url"`
-	Notes           string          `json:"notes"`
-	Tags            []models.Tag    `json:"tags"`
-	QueueState      *string         `json:"queue_state"`
-	DismissedAt     *time.Time      `json:"dismissed_at,omitempty"`
-	QueueUpdatedAt  *time.Time      `json:"queue_updated_at,omitempty"`
-	CompletedAt     *time.Time      `json:"completed_at,omitempty"`
-	InProgressAt    *time.Time      `json:"in_progress_at,omitempty"`
-	ReadAt          *time.Time      `json:"read_at,omitempty"`
-	ActivityAt      *time.Time      `json:"activity_at,omitempty"`
-	Attention       string          `json:"attention,omitempty"`
-	CompletionUndo  *CompletionUndo `json:"completion_undo,omitempty"`
+	EpisodeID         uint                    `json:"episode_id"`
+	PodcastID         uint                    `json:"podcast_id"`
+	PodcastTitle      string                  `json:"podcast_title"`
+	PodcastAuthor     string                  `json:"podcast_author"`
+	PodcastCoverURL   string                  `json:"podcast_cover_url"`
+	EpisodeTitle      string                  `json:"episode_title"`
+	EpisodeNo         string                  `json:"episode_no"`
+	Duration          int                     `json:"duration"`
+	PublishedDate     time.Time               `json:"published_date"`
+	ShowNotes         string                  `json:"show_notes"`
+	ShowNotesDocument utils.ShowNotesDocument `json:"show_notes_document"`
+	OriginalURL       string                  `json:"original_url"`
+	ImageURL          string                  `json:"image_url"`
+	Notes             string                  `json:"notes"`
+	Tags              []models.Tag            `json:"tags"`
+	QueueState        *string                 `json:"queue_state"`
+	DismissedAt       *time.Time              `json:"dismissed_at,omitempty"`
+	QueueUpdatedAt    *time.Time              `json:"queue_updated_at,omitempty"`
+	CompletedAt       *time.Time              `json:"completed_at,omitempty"`
+	InProgressAt      *time.Time              `json:"in_progress_at,omitempty"`
+	ReadAt            *time.Time              `json:"read_at,omitempty"`
+	ActivityAt        *time.Time              `json:"activity_at,omitempty"`
+	Attention         string                  `json:"attention,omitempty"`
+	CompletionUndo    *CompletionUndo         `json:"completion_undo,omitempty"`
 }
 
 type ConsumptionService struct {
@@ -294,27 +296,28 @@ func buildConsumptionItem(
 		tags = []models.Tag{}
 	}
 	return ConsumptionItem{
-		EpisodeID:       episode.ID,
-		PodcastID:       episode.PodcastID,
-		PodcastTitle:    episode.Podcast.Title,
-		PodcastAuthor:   episode.Podcast.Author,
-		PodcastCoverURL: coverURL,
-		EpisodeTitle:    episode.Title,
-		EpisodeNo:       episodelabel.Normalize(episode.Title, episode.EpisodeNo),
-		Duration:        episode.Duration,
-		PublishedDate:   episode.PublishedDate,
-		ShowNotes:       episode.ShowNotes,
-		OriginalURL:     episode.Link,
-		ImageURL:        episode.ImageURL,
-		Notes:           episode.Notes,
-		Tags:            tags,
-		QueueState:      state.QueueState,
-		DismissedAt:     state.DismissedAt,
-		QueueUpdatedAt:  state.QueueUpdatedAt,
-		CompletedAt:     completedAt,
-		InProgressAt:    state.InProgressAt,
-		ReadAt:          state.ReadAt,
-		ActivityAt:      activityAt,
-		Attention:       attention,
+		EpisodeID:         episode.ID,
+		PodcastID:         episode.PodcastID,
+		PodcastTitle:      episode.Podcast.Title,
+		PodcastAuthor:     episode.Podcast.Author,
+		PodcastCoverURL:   coverURL,
+		EpisodeTitle:      episode.Title,
+		EpisodeNo:         episodelabel.Normalize(episode.Title, episode.EpisodeNo),
+		Duration:          episode.Duration,
+		PublishedDate:     episode.PublishedDate,
+		ShowNotes:         episode.ShowNotes,
+		ShowNotesDocument: utils.BuildShowNotesDocument(episode.ShowNotes),
+		OriginalURL:       episode.Link,
+		ImageURL:          episode.ImageURL,
+		Notes:             episode.Notes,
+		Tags:              tags,
+		QueueState:        state.QueueState,
+		DismissedAt:       state.DismissedAt,
+		QueueUpdatedAt:    state.QueueUpdatedAt,
+		CompletedAt:       completedAt,
+		InProgressAt:      state.InProgressAt,
+		ReadAt:            state.ReadAt,
+		ActivityAt:        activityAt,
+		Attention:         attention,
 	}
 }

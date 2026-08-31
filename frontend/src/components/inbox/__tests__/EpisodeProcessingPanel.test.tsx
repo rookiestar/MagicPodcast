@@ -65,6 +65,7 @@ const item: ConsumptionItem = {
   duration: 2400,
   published_date: "2026-08-10T08:00:00Z",
   show_notes: "<p>正文</p>",
+  show_notes_document: { content: "<p>正文</p>", format: "html" },
   original_url: "https://example.com/episode/201",
   image_url: "",
   notes: "",
