@@ -217,6 +217,7 @@ func SetupRouter(options ...Option) *gin.Engine {
 		// Podcast 路由
 		podcastHandler := handlers.NewPodcastHandler()
 		episodeHandler := handlers.NewEpisodeHandler()
+		v1.GET("/episodes/:id/show-notes", episodeHandler.GetShowNotes)
 		podcasts := v1.Group("/podcasts")
 		{
 			podcasts.GET("", podcastHandler.List)

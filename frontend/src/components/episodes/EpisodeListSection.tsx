@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { useOriginalEpisodeRecovery } from "@/hooks/useOriginalEpisodeRecovery";
 import {
   getEpisodeListDisplayTotal,
@@ -11,6 +11,7 @@ import {
   shouldShowEpisodeListHeading,
 } from "@/lib/episodeListState";
 import { getEpisodeImagePriority } from "@/lib/episodeDisplay";
+import { createEpisodeShowNotesStore } from "@/lib/episodeShowNotesStore";
 import type { Episode } from "@/types";
 import EpisodeCard from "./EpisodeCard";
 
@@ -135,6 +136,7 @@ export default function EpisodeListSection({
   onRetry,
 }: EpisodeListSectionProps) {
   const originalRecovery = useOriginalEpisodeRecovery();
+  const showNotesStore = useMemo(() => createEpisodeShowNotesStore(), []);
   const episodeListStatus = getEpisodeListStatus({
     episodeCount: episodes.length,
     episodesLoading,
@@ -186,6 +188,7 @@ export default function EpisodeListSection({
                   index={index}
                   priority={getEpisodeImagePriority(index)}
                   originalRecovery={originalRecovery}
+                  showNotesStore={showNotesStore}
                 />
               </div>
             ))}

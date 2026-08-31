@@ -1,11 +1,12 @@
 "use client";
 
 import { IconPlayerPlay } from "@tabler/icons-react";
-import { memo, useState, type FocusEvent } from "react";
+import { memo, type FocusEvent } from "react";
 import { OriginalEpisodeRecovery } from "@/components/common/OriginalEpisodeRecovery";
 import { EpisodeShowNotes } from "@/components/episodes/EpisodeShowNotes";
 import { EpisodeThumbnail } from "@/components/episodes/EpisodeThumbnail";
 import type { OriginalEpisodeRecoveryController } from "@/hooks/useOriginalEpisodeRecovery";
+import { useEpisodeShowNotes } from "@/hooks/useEpisodeShowNotes";
 import {
   formatEpisodeDuration,
   formatEpisodeFileSize,
@@ -17,6 +18,7 @@ import {
   type EpisodeImagePriority,
 } from "@/lib/episodeDisplay";
 import { planSafeOriginalEpisodeOpen } from "@/lib/originalEpisodeOpen";
+import type { EpisodeShowNotesStore } from "@/lib/episodeShowNotesStore";
 import { formatDate } from "@/lib/timeUtils";
 import type { Episode } from "@/types";
 
@@ -26,6 +28,7 @@ interface EpisodeCardProps {
   index?: number;
   priority?: EpisodeImagePriority;
   originalRecovery: OriginalEpisodeRecoveryController;
+  showNotesStore: EpisodeShowNotesStore;
 }
 
 function EpisodeCard({
@@ -34,9 +37,8 @@ function EpisodeCard({
   index = 0,
   priority = "medium",
   originalRecovery,
+  showNotesStore,
 }: EpisodeCardProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
-
   const durationLabel = formatEpisodeDuration(episode.duration);
   const fileSizeLabel = formatEpisodeFileSize(episode.enclosure_length);
   const episodeNumberLabel = formatEpisodeNumber(episode.episode_no);
@@ -48,6 +50,11 @@ function EpisodeCard({
     originalPlan?.openUrl,
   );
   const showNotes = shouldShowEpisodeShowNotes(episode.show_notes);
+  const showNotesState = useEpisodeShowNotes(
+    episode.id,
+    showNotes,
+    showNotesStore,
+  );
   const handleOriginalOpen = () => {
     if (originalPlan) {
       originalRecovery.activate(episode.id, originalPlan);
@@ -60,16 +67,16 @@ function EpisodeCard({
       !nextFocusedElement ||
       !event.currentTarget.contains(nextFocusedElement)
     ) {
-      setIsExpanded(false);
+      showNotesState.leaveFocus();
     }
   };
 
   return (
     <div
       className="podcast-episode-card"
-      onMouseEnter={() => setIsExpanded(true)}
-      onMouseLeave={() => setIsExpanded(false)}
-      onFocus={() => setIsExpanded(true)}
+      onMouseEnter={showNotesState.enterHover}
+      onMouseLeave={showNotesState.leaveHover}
+      onFocus={showNotesState.enterFocus}
       onBlur={handleBlur}
     >
       {/* Content */}
@@ -161,9 +168,12 @@ function EpisodeCard({
         {/* Show Notes */}
         {showNotes && (
           <EpisodeShowNotes
-            html={episode.show_notes}
+            summary={episode.show_notes}
             link={originalPlan?.openUrl ?? ""}
-            isExpanded={isExpanded}
+            isExpanded={showNotesState.isExpanded}
+            status={showNotesState.status}
+            document={showNotesState.document}
+            onRetry={() => void showNotesState.retry()}
             onOriginalOpen={handleOriginalOpen}
           />
         )}
@@ -208,6 +218,7 @@ function arePropsEqual(
     prevProps.podcastCover === nextProps.podcastCover &&
     prevProps.index === nextProps.index &&
     prevProps.priority === nextProps.priority &&
+    prevProps.showNotesStore === nextProps.showNotesStore &&
     wasRecoveryActive === isRecoveryActive &&
     (!isRecoveryActive ||
       (prevProps.originalRecovery.plan ===

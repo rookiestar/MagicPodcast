@@ -1,4 +1,7 @@
 import type { Tag } from "@/types";
+import type { ShowNotesDocument } from "@/types/showNotes";
+
+export type { ShowNotesDocument } from "@/types/showNotes";
 
 export const CONSUMPTION_QUEUES = [
   "inbox",
@@ -17,11 +20,6 @@ export type CompletionHistoryStatus =
 export interface CompletionUndo {
   token: string;
   expires_at: string;
-}
-
-export interface ShowNotesDocument {
-  content: string;
-  format: "html" | "markdown";
 }
 
 export interface ConsumptionItem {
