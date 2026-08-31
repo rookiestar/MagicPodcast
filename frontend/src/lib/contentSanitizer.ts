@@ -20,6 +20,7 @@ const RICH_TEXT_OPTIONS = {
   ALLOWED_TAGS: [
     "p",
     "br",
+    "hr",
     "span",
     "strong",
     "b",
@@ -147,7 +148,7 @@ function needsRichTextFallback(source: string, sanitized: string) {
   }
 
   const allowedTagsInSource = source.match(
-    /<\s*(p|br|span|strong|b|em|i|u|a|ul|ol|li|h[1-6]|blockquote|code|pre|div|img)\b/gi,
+    /<\s*(p|br|hr|span|strong|b|em|i|u|a|ul|ol|li|h[1-6]|blockquote|code|pre|div|img)\b/gi,
   );
   return Boolean(
     allowedTagsInSource?.some((tag) => {

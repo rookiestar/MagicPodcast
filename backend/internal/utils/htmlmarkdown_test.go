@@ -43,6 +43,7 @@ func TestHTMLToMarkdown_Basics(t *testing.T) {
 		{"heading", "<h2>标题</h2>", "## 标题"},
 		{"linebreak", "a<br>b", "a\nb"},
 		{"hr", "<hr>", "---"},
+		{"telephone link", `<a href="tel:+8613800000000">电话</a>`, "[电话](tel:+8613800000000)"},
 		{"unsafe link dropped", `<a href="javascript:alert(1)">x</a>`, "x"},
 	}
 	for _, c := range cases {
@@ -85,5 +86,18 @@ func TestHTMLToMarkdown_StripsScriptAndStyle(t *testing.T) {
 	}
 	if !strings.Contains(out, "可见文本") {
 		t.Fatalf("正常文本丢失，输出:%q", out)
+	}
+}
+
+func TestHTMLToMarkdown_PreservesPreformattedMarkdownAsCode(t *testing.T) {
+	in := "<p># 正文标题</p><pre><code># 示例标题\n**示例强调**</code></pre>"
+
+	out := HTMLToMarkdown(in)
+
+	if !strings.Contains(out, "```\n# 示例标题\n**示例强调**\n```") {
+		t.Fatalf("预格式内容未作为单一代码块保留，输出:\n%s", out)
+	}
+	if strings.Count(out, "```") != 2 {
+		t.Fatalf("预格式内容生成了嵌套代码围栏，输出:\n%s", out)
 	}
 }

@@ -89,6 +89,17 @@ const item: ConsumptionItem = {
     '<img src="https://i.typlog.com/cover.png" alt="允许图片">',
     '<img src="https://evil.example/track.png" alt="拒绝图片">',
   ].join(""),
+  show_notes_document: {
+    content: [
+      '<p><a href="https://example.com/transcript">安全链接</a></p>',
+      '<p><a href="mailto:owner@example.com">邮件链接</a></p>',
+      '<p><a href="tel:+8613800000000">电话链接</a></p>',
+      '<p><a href="javascript:alert(1)">危险链接</a></p>',
+      '<img src="https://i.typlog.com/cover.png" alt="允许图片">',
+      '<img src="https://evil.example/track.png" alt="拒绝图片">',
+    ].join(""),
+    format: "html",
+  },
   original_url: "https://example.com/episode/201",
   image_url: "",
   notes: "旧备注",

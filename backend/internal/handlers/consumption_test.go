@@ -12,6 +12,7 @@ import (
 	"magicpodcast/internal/handlers"
 	"magicpodcast/internal/models"
 	"magicpodcast/internal/services"
+	"magicpodcast/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -96,6 +97,47 @@ func performJSONRequest(
 	}
 	router.ServeHTTP(recorder, request)
 	return recorder
+}
+
+func TestConsumptionHandler_ReturnsShowNotesDisplayDocumentWithoutChangingSource(t *testing.T) {
+	db, router, podcast := setupConsumptionHandler(t)
+	episode := createConsumptionHandlerEpisode(
+		t, db, podcast.ID, "混合格式单集", time.Now().UTC(),
+	)
+	source := `<p># 展示标题<br><br><br>**展示重点**<br><br><br>---</p>`
+	require.NoError(t, db.Model(&episode).Update("show_notes", source).Error)
+	queueState := models.QueueStateFocus
+	now := time.Now().UTC()
+	require.NoError(t, db.Create(&models.EpisodeTriageDecision{
+		EpisodeID:      episode.ID,
+		State:          models.TriageStateShortlisted,
+		DecidedAt:      now,
+		QueueState:     &queueState,
+		QueueUpdatedAt: &now,
+	}).Error)
+
+	response := performJSONRequest(
+		t,
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/consumption/episodes/%d", episode.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	var body struct {
+		Success bool `json:"success"`
+		Data    struct {
+			ShowNotes         string                  `json:"show_notes"`
+			ShowNotesDocument utils.ShowNotesDocument `json:"show_notes_document"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	require.True(t, body.Success)
+	require.Equal(t, source, body.Data.ShowNotes)
+	require.Equal(t, utils.ShowNotesFormatMarkdown, body.Data.ShowNotesDocument.Format)
+	require.Contains(t, body.Data.ShowNotesDocument.Content, "# 展示标题")
+	require.Contains(t, body.Data.ShowNotesDocument.Content, "**展示重点**")
+	require.NotContains(t, body.Data.ShowNotesDocument.Content, "\n\n\n")
 }
 
 func TestConsumptionHandler_CollectsIntoCrossDayInboxIdempotently(t *testing.T) {
