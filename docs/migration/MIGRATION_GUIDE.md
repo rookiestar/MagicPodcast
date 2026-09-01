@@ -1,12 +1,12 @@
 # MagicPodcast 数据库迁移指南
 
-最后更新：2026-08-30
+最后更新：2026-09-01
 
 本文只记录当前仍适用的数据库迁移入口和操作顺序。旧的项目搬家记录已移入 [../archive/reports/PROJECT_LOCATION_MIGRATION_2026-01-21.md](../archive/reports/PROJECT_LOCATION_MIGRATION_2026-01-21.md)。
 
 ## 当前版本化迁移
 
-当前 schema 版本为 `25`（与源码 `backend/internal/database/migrate.go` 中 `CurrentSchemaVersion` 一致），版本记录保存在 `schema_migrations`。迁移注册表位于同一文件，每个版本包含名称、说明和事务内的执行函数。当前版本链为：
+当前 schema 版本为 `26`（与源码 `backend/internal/database/migrate.go` 中 `CurrentSchemaVersion` 一致），版本记录保存在 `schema_migrations`。迁移注册表位于同一文件，每个版本包含名称、说明和事务内的执行函数。当前版本链为：
 
 1. `1 baseline-current-model`：空数据库创建当前模型表和索引；已有且完整的数据库只记录 baseline。
 2. `2 feed-access-observability`：记录 Feed HTTP 状态、错误类别、耗时、缓存和出口等观测字段。
@@ -33,6 +33,7 @@
 23. `23 episode-video-availability`：为单集增加 `video_availability` 三态列（空/`unknown` / `unavailable` / `available`），供播客详情「看视频」使用；不存签名 HLS（#199）。生产 apply 需单独授权。
 24. `24 episode-video-availability-check`：规范 `video_availability` 仅可保存空、`unknown`、`unavailable` 或 `available`；历史未知值归一为空。生产 apply 需单独授权。
 25. `25 native-minutes-artifact-integrity`：为不可变产物集新增受管音频、妙记纪要与结构化时间轴摘要；旧 notes 摘要保留且不回填历史产物（#206）。生产 apply 需单独授权。
+26. `26 episode-artifact-audio-recovery`：为不可变产物集新增独立、可重启恢复的受管音频任务状态；恢复只从受保护飞书 Drive 检查点取源，校验通过后原子恢复本地音频，不改变加工和交付状态（#234）。生产 apply 需单独授权。
 
 运行约束（非独立版本号）：
 

@@ -202,6 +202,7 @@ func SetupRouter(options ...Option) *gin.Engine {
 		v1.POST("/processing-runs/:id/cancel", processingHandler.Cancel)
 		v1.POST("/processing-runs/:id/retry", processingHandler.Retry)
 		v1.GET("/artifact-sets/:id/:kind", processingHandler.GetArtifactContent)
+		v1.POST("/artifact-sets/:id/audio/recovery", processingHandler.RecoverArtifactAudio)
 		v1.HEAD("/artifact-sets/:id/audio", processingHandler.GetArtifactAudio)
 
 		episodeCopilotHandler := handlers.NewEpisodeCopilotHandler(

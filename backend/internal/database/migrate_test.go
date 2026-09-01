@@ -864,6 +864,53 @@ func TestApplyMigrationsUpgradesSchema24To25WithoutRewritingLegacyArtifacts(t *t
 	require.NotNil(t, preservedDecision.ReadAt)
 }
 
+func TestApplyMigrationsCreatesAudioRecoverySchemaAndIndexes(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:25]))
+	require.Equal(t, 25, mustSchemaStatus(t, db).CurrentVersion)
+	require.False(t, db.Migrator().HasTable(&models.EpisodeArtifactAudioRecovery{}))
+
+	require.NoError(t, ApplyMigrations(db))
+	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, db).CurrentVersion)
+	require.True(t, db.Migrator().HasTable(&models.EpisodeArtifactAudioRecovery{}))
+	for _, column := range []string{
+		"id", "artifact_set_id", "episode_id", "audio_asset_id", "audio_sha256",
+		"status", "attempt_count", "max_attempts", "retry_deadline_at",
+		"next_attempt_at", "claim_token", "claim_expires_at", "error_code",
+		"error_message", "error_retryable", "queued_at", "downloading_at",
+		"completed_at", "failed_at", "created_at", "updated_at",
+	} {
+		require.True(t, db.Migrator().HasColumn(&models.EpisodeArtifactAudioRecovery{}, column), "missing audio recovery column %s", column)
+	}
+
+	var indexNames []string
+	require.NoError(t, db.Raw(`
+		SELECT name
+		FROM sqlite_master
+		WHERE type = 'index' AND tbl_name = ?
+		  AND name IN (?, ?, ?)
+		ORDER BY name
+	`,
+		models.EpisodeArtifactAudioRecovery{}.TableName(),
+		"idx_episode_artifact_audio_recoveries_artifact_set_id",
+		"idx_episode_artifact_audio_recoveries_claim",
+		"idx_episode_artifact_audio_recoveries_next_attempt",
+	).Scan(&indexNames).Error)
+	require.Equal(t, []string{
+		"idx_episode_artifact_audio_recoveries_artifact_set_id",
+		"idx_episode_artifact_audio_recoveries_claim",
+		"idx_episode_artifact_audio_recoveries_next_attempt",
+	}, indexNames)
+
+	var unique int
+	require.NoError(t, db.Raw(`
+		SELECT "unique"
+		FROM pragma_index_list('episode_artifact_audio_recoveries')
+		WHERE name = ?
+	`, "idx_episode_artifact_audio_recoveries_artifact_set_id").Scan(&unique).Error)
+	require.Equal(t, 1, unique)
+}
+
 func mustSchemaStatus(t *testing.T, db *gorm.DB) SchemaStatus {
 	t.Helper()
 	status, err := InspectSchema(db)

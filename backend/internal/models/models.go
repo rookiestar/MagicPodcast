@@ -18,6 +18,8 @@ var AllModels = []interface{}{
 	EpisodeProcessingRun{},
 	ProcessingCheckpoint{},
 	EpisodeArtifactSet{},
+	// EpisodeArtifactAudioRecovery is created by its versioned migration after
+	// the historical processing foundation is present.
 	KnowledgeDelivery{},
 	Job{},
 	JobExecution{},

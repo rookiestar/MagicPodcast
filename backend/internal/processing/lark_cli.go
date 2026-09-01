@@ -206,6 +206,16 @@ func classifyLarkCommandError(err error) (error, bool) {
 			"Feishu user permission is insufficient",
 			false,
 		), true
+	case strings.Contains(errorType, "not_found"),
+		strings.Contains(errorType, "notfound"),
+		strings.Contains(message, "not found"),
+		strings.Contains(message, "does not exist"),
+		strings.Contains(message, "deleted"):
+		return NewAdapterError(
+			"lark_resource_not_found",
+			"Feishu resource was not found",
+			false,
+		), true
 	case strings.Contains(errorType, "rate"),
 		strings.Contains(message, "rate limit"),
 		strings.Contains(message, "frequency"),

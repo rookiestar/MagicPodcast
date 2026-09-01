@@ -17,8 +17,8 @@ const SanitizerVersion = "v9"
 
 // episodes.video_availability is a reviewed public tri-state. Snapshot export
 // preserves it; no HLS URL, credential, or private note is stored in the field.
-const sanitizerSchemaFingerprint = "8044ed5f4fbfaeda5676a83e94ad06b0842f08142db18b87c1a42cda53f8c7be"
-const sanitizerSchemaObjectsFingerprint = "bba7aa3483aa7de6e17e65b951610b838ed670065c526acb14b59abb27cb90b1"
+const sanitizerSchemaFingerprint = "ab0316ab2ac4c6d4f3ec31ce9a7c5fa27c3f2fe0603c7050ae5428fdb41f084e"
+const sanitizerSchemaObjectsFingerprint = "403203ff8bd57de8270f23d428fdc03e7c73f56112722822b333c3335caf7923"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 
@@ -92,6 +92,7 @@ func SanitizeSnapshot(db *sql.DB) error {
 		"DELETE FROM knowledge_deliveries",
 		"DELETE FROM processing_checkpoints",
 		"DELETE FROM processing_schedule_items",
+		"DELETE FROM episode_artifact_audio_recoveries",
 		"DELETE FROM episode_artifact_sets",
 		"DELETE FROM episode_processing_runs",
 		"DELETE FROM processing_schedule_runs",
@@ -172,6 +173,7 @@ func VerifySanitizedSnapshot(db *sql.DB) error {
 		{"SELECT COUNT(*) FROM knowledge_deliveries", "knowledge delivery identities"},
 		{"SELECT COUNT(*) FROM processing_checkpoints", "processing provider checkpoints"},
 		{"SELECT COUNT(*) FROM processing_schedule_items", "processing schedule candidate history"},
+		{"SELECT COUNT(*) FROM episode_artifact_audio_recoveries", "audio recovery state"},
 		{"SELECT COUNT(*) FROM episode_artifact_sets", "local processing artifact paths"},
 		{"SELECT COUNT(*) FROM episode_processing_runs", "processing run metadata"},
 		{"SELECT COUNT(*) FROM processing_schedule_runs", "processing schedule trigger history"},

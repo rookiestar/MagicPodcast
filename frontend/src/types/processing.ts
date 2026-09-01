@@ -115,10 +115,31 @@ export interface ArtifactContent {
   segments?: TranscriptSegment[];
   timeline_sha256?: string;
   media_available: boolean;
+  audio_recovery?: AudioRecoverySummary;
 }
 
 export type ArtifactContentKind =
   "minutes_summary" | "transcript" | "episode_notes";
+
+export type AudioRecoveryStatus = "queued" | "downloading" | "completed" | "failed";
+
+export interface AudioRecoverySummary {
+  recoverable: boolean;
+  status?: AudioRecoveryStatus;
+  error_code?: string;
+  error_message?: string;
+  can_retry: boolean;
+  next_attempt_at?: string;
+  updated_at?: string;
+}
+
+export interface AudioRecoveryEnqueueResult {
+  artifact_set_id: number;
+  audio_recovery: AudioRecoverySummary;
+  queued: boolean;
+  reused: boolean;
+  already_available: boolean;
+}
 
 export interface TranscriptSegment {
   order: number;

@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 25
+const CurrentSchemaVersion = 26
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -204,6 +204,20 @@ func migrationRegistry() []Migration {
 				},
 			},
 		},
+		{
+			Version:     26,
+			Name:        "episode-artifact-audio-recovery",
+			Description: "Persist explicit, restart-safe recovery state for immutable artifact-set audio without changing processing or delivery state (#234).",
+			Apply:       applyEpisodeArtifactAudioRecoveryMigration,
+			Contract: MigrationContract{
+				SchemaChanges: []SchemaChangeRule{
+					{Operation: SchemaChangeCreateTable, Table: models.EpisodeArtifactAudioRecovery{}.TableName()},
+					{Operation: SchemaChangeCreateIndex, Table: models.EpisodeArtifactAudioRecovery{}.TableName(), Object: "idx_episode_artifact_audio_recoveries_artifact_set_id"},
+					{Operation: SchemaChangeCreateIndex, Table: models.EpisodeArtifactAudioRecovery{}.TableName(), Object: "idx_episode_artifact_audio_recoveries_claim"},
+					{Operation: SchemaChangeCreateIndex, Table: models.EpisodeArtifactAudioRecovery{}.TableName(), Object: "idx_episode_artifact_audio_recoveries_next_attempt"},
+				},
+			},
+		},
 	}
 }
 
@@ -220,7 +234,7 @@ var baselineRequiredTables = []string{
 	"episodes_tags",
 }
 
-var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions", "episode_processing_runs", "processing_checkpoints", "episode_artifact_sets", "knowledge_deliveries", "episode_audio_assets", "processing_schedule_runs", "processing_schedule_items")
+var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions", "episode_processing_runs", "processing_checkpoints", "episode_artifact_sets", "knowledge_deliveries", "episode_audio_assets", "processing_schedule_runs", "processing_schedule_items", models.EpisodeArtifactAudioRecovery{}.TableName())
 
 func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
 	if db == nil {
@@ -889,6 +903,22 @@ func applyNativeMinutesArtifactIntegrityMigration(db *gorm.DB) error {
 	for _, column := range columns {
 		if err := addColumnIfMissing(db, &models.EpisodeArtifactSet{}, column.name, column.ddl); err != nil {
 			return fmt.Errorf("add native Minutes artifact integrity: %w", err)
+		}
+	}
+	return nil
+}
+
+func applyEpisodeArtifactAudioRecoveryMigration(db *gorm.DB) error {
+	if err := db.Exec(models.EpisodeArtifactAudioRecoveryCreateTableSQL).Error; err != nil {
+		return fmt.Errorf("create episode artifact audio recoveries: %w", err)
+	}
+	for _, statement := range []string{
+		models.EpisodeArtifactAudioRecoveryUniqueIndexSQL,
+		models.EpisodeArtifactAudioRecoveryClaimIndexSQL,
+		models.EpisodeArtifactAudioRecoveryNextAttemptIndexSQL,
+	} {
+		if err := db.Exec(statement).Error; err != nil {
+			return fmt.Errorf("apply episode artifact audio recovery invariant: %w", err)
 		}
 	}
 	return nil

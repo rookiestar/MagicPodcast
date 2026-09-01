@@ -906,6 +906,7 @@ func setupProcessingHandler(
 	router.POST("/api/v1/processing-runs/:id/cancel", handler.Cancel)
 	router.POST("/api/v1/processing-runs/:id/retry", handler.Retry)
 	router.GET("/api/v1/artifact-sets/:id/:kind", handler.GetArtifactContent)
+	router.POST("/api/v1/artifact-sets/:id/audio/recovery", handler.RecoverArtifactAudio)
 	router.HEAD("/api/v1/artifact-sets/:id/audio", handler.GetArtifactAudio)
 	return db, router, episode, canceler
 }

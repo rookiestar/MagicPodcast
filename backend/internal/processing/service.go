@@ -25,6 +25,7 @@ type Service struct {
 	inputResolver  ProcessingInputResolver
 	artifactReader ArtifactReader
 	audioPreparer  AudioPreparer
+	audioRecovery  AudioRecovery
 	retryPolicy    RetryPolicy
 	now            func() time.Time
 }
@@ -52,6 +53,12 @@ func WithArtifactReader(reader ArtifactReader) ServiceOption {
 func WithAudioPreparer(preparer AudioPreparer) ServiceOption {
 	return func(service *Service) {
 		service.audioPreparer = preparer
+	}
+}
+
+func WithAudioRecovery(recovery AudioRecovery) ServiceOption {
+	return func(service *Service) {
+		service.audioRecovery = recovery
 	}
 }
 
@@ -735,8 +742,42 @@ func (s *Service) GetArtifactContent(
 	}
 	if kind == "transcript" {
 		content.MediaAvailable = s.hasMatchingManagedAudio(ctx, artifact)
+		if s.audioRecovery != nil {
+			recovery, recoveryErr := s.audioRecovery.Summary(ctx, artifact)
+			if recoveryErr != nil {
+				// Recovery state is supplementary to the immutable transcript. A
+				// transient state-store failure must not make an already readable
+				// document disappear from the API.
+				content.AudioRecovery = &AudioRecoverySummary{
+					ErrorCode:    AudioRecoveryErrorUnavailable,
+					ErrorMessage: "音频恢复状态暂时不可用",
+				}
+			} else {
+				content.AudioRecovery = &recovery
+			}
+		}
 	}
 	return content, nil
+}
+
+func (s *Service) RequestArtifactAudioRecovery(
+	ctx context.Context,
+	artifactSetID uint,
+) (AudioRecoveryEnqueueResult, error) {
+	if artifactSetID == 0 {
+		return AudioRecoveryEnqueueResult{}, ErrInvalidArtifact
+	}
+	if s.audioRecovery == nil {
+		return AudioRecoveryEnqueueResult{}, ErrAudioRecoveryUnavailable
+	}
+	var artifact models.EpisodeArtifactSet
+	if err := s.db.WithContext(ctx).First(&artifact, artifactSetID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return AudioRecoveryEnqueueResult{}, ErrArtifactNotFound
+		}
+		return AudioRecoveryEnqueueResult{}, fmt.Errorf("read artifact for audio recovery: %w", err)
+	}
+	return s.audioRecovery.Enqueue(ctx, artifact.ID)
 }
 
 func (s *Service) GetArtifactAudio(

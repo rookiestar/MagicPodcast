@@ -1820,6 +1820,56 @@
   overflow: visible;
 }
 
+.audioRecovery {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--orange-dark);
+  background: rgba(215, 104, 29, 0.07);
+}
+
+.audioRecovery[data-state="failed"],
+.audioRecovery[data-state="unavailable"] {
+  color: #6f261e;
+  border-left-color: #a83d2f;
+  background: rgba(168, 61, 47, 0.06);
+}
+
+.audioRecoveryCopy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.audioRecoveryCopy strong {
+  font: 650 var(--type-label-size) / var(--type-label-leading) var(--font-sans);
+}
+
+.audioRecoveryCopy span,
+.audioRecoveryCopy small {
+  color: var(--ink-soft);
+  font: 400 var(--type-secondary-size) / var(--type-secondary-leading)
+    var(--font-sans);
+}
+
+.audioRecoveryCopy small {
+  font-size: var(--type-meta-size);
+}
+
+.audioRecovery[data-state="failed"] .audioRecoveryCopy span,
+.audioRecovery[data-state="unavailable"] .audioRecoveryCopy span {
+  color: #6f261e;
+}
+
+.audioRecovery > .secondaryCommand {
+  min-height: 38px;
+  white-space: nowrap;
+}
+
 .transcriptExperience {
   display: grid;
   gap: 12px;
@@ -2819,6 +2869,15 @@ button.transcriptSegment:hover {
 
   .transcriptPlayer {
     grid-template-columns: 38px minmax(0, 1fr);
+  }
+
+  .audioRecovery {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .audioRecovery > .secondaryCommand {
+    width: 100%;
   }
 
   .transcriptTime {
