@@ -27,7 +27,7 @@ describe("frontend backend proxy", () => {
     vi.resetModules();
   });
 
-  it("forwards API, image, and health requests even when the legacy mock flag is set", async () => {
+  it("forwards API, image, health, and readiness requests even when the legacy mock flag is set", async () => {
     process.env.MAGICPODCAST_FRONTEND_MOCK_API = "1";
     process.env.BACKEND_URL = "http://127.0.0.1:18080";
     vi.resetModules();
@@ -55,6 +55,10 @@ describe("frontend backend proxy", () => {
         {
           source: "/health",
           destination: "http://127.0.0.1:18080/health",
+        },
+        {
+          source: "/ready",
+          destination: "http://127.0.0.1:18080/ready",
         },
       ]),
     );
