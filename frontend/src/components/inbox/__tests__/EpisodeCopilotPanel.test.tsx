@@ -36,10 +36,6 @@ const item: ConsumptionItem = {
   duration: 2400,
   published_date: "2026-08-10T08:00:00Z",
   show_notes: "Runtime permissions are reduced per turn.",
-  show_notes_document: {
-    content: "Runtime permissions are reduced per turn.",
-    format: "markdown",
-  },
   original_url: "https://example.com/episode/201",
   image_url: "",
   notes: "私有备注",

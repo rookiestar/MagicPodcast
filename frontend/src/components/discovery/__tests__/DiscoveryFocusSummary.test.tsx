@@ -33,7 +33,6 @@ const inboxItem: ConsumptionItem = {
   duration: 1800,
   published_date: "2026-08-11T08:00:00Z",
   show_notes: "<p>正文</p>",
-  show_notes_document: { content: "<p>正文</p>", format: "html" },
   original_url: "https://example.com/11",
   image_url: "",
   notes: "",

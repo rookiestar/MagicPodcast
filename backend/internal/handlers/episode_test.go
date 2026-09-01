@@ -140,6 +140,32 @@ func TestEpisodeHandler_ListByPodcast_SummaryViewUsesShorterShowNotes(t *testing
 	assert.Equal(t, "unknown", body.Data[0]["video_availability"])
 }
 
+func TestEpisodeHandler_ListByPodcast_SeparatesShowNotesAvailabilityFromPreviewText(t *testing.T) {
+	db := setupEpisodeTestDB(t)
+	router := setupEpisodeTestRouter()
+	podcast := createEpisodeHandlerPodcast(t, db)
+	episode := createEpisodeHandlerEpisode(t, db, podcast.ID, 1, time.Now().UTC())
+	require.NoError(t, db.Model(&episode).Update(
+		"show_notes",
+		`<img src="https://example.com/show-notes.png" alt="完整图文 Show Notes"><br>`,
+	).Error)
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/podcasts/%d/episodes?view=summary", podcast.ID),
+		nil,
+	)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	var body episodeListTestResponse
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	require.Len(t, body.Data, 1)
+	assert.Equal(t, "", body.Data[0]["show_notes"])
+	assert.Equal(t, true, body.Data[0]["has_show_notes"])
+}
+
 func TestEpisodeHandler_ListByPodcast_IncludesVideoAvailability(t *testing.T) {
 	db := setupEpisodeTestDB(t)
 	router := setupEpisodeTestRouter()

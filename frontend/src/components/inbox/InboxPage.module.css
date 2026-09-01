@@ -2250,6 +2250,13 @@ button.transcriptSegment:hover {
   color: #29251f;
 }
 
+.showNotesState {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .showNotesSection :global(.rich-text) {
   width: 100%;
   max-width: none;

@@ -119,6 +119,34 @@ describe("typography contract", () => {
     });
   });
 
+  it("keeps episode Show Notes on semantic roles with bounded internal scrolling", () => {
+    expect(getDeclarations(".podcast-episode-show-notes")).toMatchObject({
+      "font-size": "var(--type-secondary-size)",
+      "line-height": "var(--type-secondary-leading)",
+    });
+    expect(
+      getDeclarations(
+        ".podcast-episode-show-notes-state > p:not(.podcast-episode-show-notes-preview)",
+      ),
+    ).toMatchObject({
+      font:
+        "600 var(--type-meta-size)/var(--type-meta-leading) var(--font-mono)",
+    });
+    expect(getDeclarations(".podcast-episode-show-notes-state button")).toMatchObject({
+      font:
+        "600 var(--type-label-size)/var(--type-label-leading) var(--font-mono)",
+    });
+    expect(getDeclarations(".podcast-episode-show-notes-link")).toMatchObject({
+      font:
+        "600 var(--type-label-size)/var(--type-label-leading) var(--font-mono)",
+    });
+    expect(getDeclarations(".podcast-episode-show-notes-reader")).toMatchObject({
+      "max-height": "min(24rem, 44vh)",
+      "overflow-y": "auto",
+      "overscroll-behavior": "contain",
+    });
+  });
+
   it("reserves sub-11px text for decorative kickers and markers", () => {
     const approvedTinySelectors = new Set([
       ".editorial-kicker",

@@ -49,7 +49,10 @@ function EpisodeCard({
     episode.video_availability,
     originalPlan?.openUrl,
   );
-  const showNotes = shouldShowEpisodeShowNotes(episode.show_notes);
+  const showNotes = shouldShowEpisodeShowNotes(
+    episode.show_notes,
+    episode.has_show_notes,
+  );
   const showNotesState = useEpisodeShowNotes(
     episode.id,
     showNotes,
@@ -213,6 +216,7 @@ function arePropsEqual(
     prevProps.episode.duration === nextProps.episode.duration &&
     prevProps.episode.enclosure_length === nextProps.episode.enclosure_length &&
     prevProps.episode.show_notes === nextProps.episode.show_notes &&
+    prevProps.episode.has_show_notes === nextProps.episode.has_show_notes &&
     prevProps.episode.video_availability ===
       nextProps.episode.video_availability &&
     prevProps.podcastCover === nextProps.podcastCover &&

@@ -10,10 +10,15 @@ import (
 )
 
 var (
-	htmlMarkdownBlankLines = regexp.MustCompile(`\n{3,}`)
-	htmlMarkdownSpaceRun   = regexp.MustCompile(`[ \t\r\n\f\v]+`)
-	htmlMarkdownTagStrip   = regexp.MustCompile(`<[^>]+>`)
+	htmlMarkdownBlankLines       = regexp.MustCompile(`\n{3,}`)
+	htmlMarkdownSpaceRun         = regexp.MustCompile(`[ \t\r\n\f\v]+`)
+	htmlMarkdownHorizontalSpaces = regexp.MustCompile(`[ \t\f\v]+`)
+	htmlMarkdownTagStrip         = regexp.MustCompile(`<[^>]+>`)
 )
+
+type htmlToMarkdownOptions struct {
+	preserveTextLineBreaks bool
+}
 
 // HTMLToMarkdown 把常见 show-notes HTML 转成 GitHub Flavored Markdown，保留
 // 链接、图片、强调与列表；无法解析的输入降级为“去标签 + 反转义 + 折叠空白”。
@@ -23,6 +28,14 @@ var (
 // 输入看到同一份内容，而不是一坨 raw HTML 标签。ShowNotes 来自 RSS/小宇宙的
 // description，本身就是 HTML。
 func HTMLToMarkdown(s string) string {
+	return htmlToMarkdown(s, htmlToMarkdownOptions{})
+}
+
+func htmlToMarkdownPreservingTextLineBreaks(s string) string {
+	return htmlToMarkdown(s, htmlToMarkdownOptions{preserveTextLineBreaks: true})
+}
+
+func htmlToMarkdown(s string, options htmlToMarkdownOptions) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return ""
@@ -35,7 +48,7 @@ func HTMLToMarkdown(s string) string {
 
 	var b strings.Builder
 	for c := doc.FirstChild; c != nil; c = c.NextSibling {
-		walkHTMLToMarkdown(&b, c)
+		walkHTMLToMarkdown(&b, c, options)
 	}
 
 	out := normalizeMarkdown(b.String())
@@ -43,7 +56,7 @@ func HTMLToMarkdown(s string) string {
 }
 
 // walkHTMLToMarkdown 递归把 HTML 节点树写成 Markdown 片段。
-func walkHTMLToMarkdown(b *strings.Builder, n *html.Node) {
+func walkHTMLToMarkdown(b *strings.Builder, n *html.Node, options htmlToMarkdownOptions) {
 	if n == nil {
 		return
 	}
@@ -51,13 +64,13 @@ func walkHTMLToMarkdown(b *strings.Builder, n *html.Node) {
 	switch n.Type {
 	case html.TextNode:
 		// 非保留空白语义下折叠连续空白为单空格；解析器已反转义实体。
-		b.WriteString(htmlMarkdownSpaceRun.ReplaceAllString(n.Data, " "))
+		b.WriteString(normalizeHTMLMarkdownText(n.Data, options))
 		return
 	case html.CommentNode:
 		return
 	case html.DocumentNode:
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walkHTMLToMarkdown(b, c)
+			walkHTMLToMarkdown(b, c, options)
 		}
 		return
 	}
@@ -80,7 +93,7 @@ func walkHTMLToMarkdown(b *strings.Builder, n *html.Node) {
 	switch n.Data {
 	case "a":
 		href := getHTMLAttr(n, "href")
-		text := childMarkdown(n)
+		text := childMarkdown(n, options)
 		if isSafeMarkdownURL(href) {
 			b.WriteString("[" + text + "](" + href + ")")
 		} else {
@@ -93,12 +106,12 @@ func walkHTMLToMarkdown(b *strings.Builder, n *html.Node) {
 			b.WriteString("![" + alt + "](" + src + ")")
 		}
 	case "strong", "b":
-		text := strings.TrimSpace(childMarkdown(n))
+		text := strings.TrimSpace(childMarkdown(n, options))
 		if text != "" {
 			b.WriteString("**" + text + "**")
 		}
 	case "em", "i":
-		text := strings.TrimSpace(childMarkdown(n))
+		text := strings.TrimSpace(childMarkdown(n, options))
 		if text != "" {
 			b.WriteString("*" + text + "*")
 		}
@@ -116,25 +129,25 @@ func walkHTMLToMarkdown(b *strings.Builder, n *html.Node) {
 		}
 	case "h1", "h2", "h3", "h4", "h5", "h6":
 		level := int(n.Data[1] - '0')
-		text := strings.TrimSpace(childMarkdown(n))
+		text := strings.TrimSpace(childMarkdown(n, options))
 		if text != "" {
 			b.WriteString("\n\n" + strings.Repeat("#", level) + " " + text + "\n\n")
 		}
 	case "p", "div", "section", "article":
-		text := strings.TrimSpace(childMarkdown(n))
+		text := strings.TrimSpace(childMarkdown(n, options))
 		if text != "" {
 			b.WriteString("\n\n" + text + "\n\n")
 		}
 	case "ul":
-		if rendered := renderHTMLList(n, false); rendered != "" {
+		if rendered := renderHTMLList(n, false, options); rendered != "" {
 			b.WriteString("\n" + rendered + "\n")
 		}
 	case "ol":
-		if rendered := renderHTMLList(n, true); rendered != "" {
+		if rendered := renderHTMLList(n, true, options); rendered != "" {
 			b.WriteString("\n" + rendered + "\n")
 		}
 	case "blockquote":
-		text := strings.TrimSpace(childMarkdown(n))
+		text := strings.TrimSpace(childMarkdown(n, options))
 		if text != "" {
 			b.WriteString("\n\n")
 			for _, line := range strings.Split(text, "\n") {
@@ -144,13 +157,27 @@ func walkHTMLToMarkdown(b *strings.Builder, n *html.Node) {
 	default:
 		// span / u / font / 未识别标签：透传子节点。
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walkHTMLToMarkdown(b, c)
+			walkHTMLToMarkdown(b, c, options)
 		}
 	}
 }
 
+func normalizeHTMLMarkdownText(text string, options htmlToMarkdownOptions) string {
+	if !options.preserveTextLineBreaks {
+		return htmlMarkdownSpaceRun.ReplaceAllString(text, " ")
+	}
+
+	normalized := strings.ReplaceAll(text, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	lines := strings.Split(normalized, "\n")
+	for index := range lines {
+		lines[index] = htmlMarkdownHorizontalSpaces.ReplaceAllString(lines[index], " ")
+	}
+	return strings.Join(lines, "\n")
+}
+
 // renderHTMLList 把 <ul>/<ol> 渲染为 Markdown 列表，支持嵌套。
-func renderHTMLList(n *html.Node, ordered bool) string {
+func renderHTMLList(n *html.Node, ordered bool, options htmlToMarkdownOptions) string {
 	var b strings.Builder
 	idx := 0
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -160,7 +187,7 @@ func renderHTMLList(n *html.Node, ordered bool) string {
 		idx++
 		var cb strings.Builder
 		for gc := c.FirstChild; gc != nil; gc = gc.NextSibling {
-			walkHTMLToMarkdown(&cb, gc)
+			walkHTMLToMarkdown(&cb, gc, options)
 		}
 		item := strings.TrimSpace(cb.String())
 		if item == "" {
@@ -179,10 +206,10 @@ func renderHTMLList(n *html.Node, ordered bool) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func childMarkdown(n *html.Node) string {
+func childMarkdown(n *html.Node, options htmlToMarkdownOptions) string {
 	var b strings.Builder
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		walkHTMLToMarkdown(&b, c)
+		walkHTMLToMarkdown(&b, c, options)
 	}
 	return b.String()
 }

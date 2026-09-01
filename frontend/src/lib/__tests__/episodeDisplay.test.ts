@@ -118,6 +118,8 @@ describe("episodeDisplay", () => {
     expect(shouldShowEpisodePlayButton("")).toBe(false);
     expect(shouldShowEpisodeShowNotes("<p>notes</p>")).toBe(true);
     expect(shouldShowEpisodeShowNotes("")).toBe(false);
+    expect(shouldShowEpisodeShowNotes("", true)).toBe(true);
+    expect(shouldShowEpisodeShowNotes("preview", false)).toBe(false);
   });
 
   it("shows the video action only for available episodes with a safe page URL", () => {

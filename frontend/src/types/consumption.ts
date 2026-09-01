@@ -1,7 +1,4 @@
 import type { Tag } from "@/types";
-import type { ShowNotesDocument } from "@/types/showNotes";
-
-export type { ShowNotesDocument } from "@/types/showNotes";
 
 export const CONSUMPTION_QUEUES = [
   "inbox",
@@ -33,7 +30,6 @@ export interface ConsumptionItem {
   duration: number;
   published_date: string;
   show_notes: string;
-  show_notes_document: ShowNotesDocument;
   original_url: string;
   image_url: string;
   notes: string;

@@ -17,7 +17,6 @@ function item(episodeId: number): ConsumptionItem {
     duration: 60,
     published_date: "2026-08-22T00:00:00Z",
     show_notes: "",
-    show_notes_document: { content: "", format: "markdown" },
     original_url: "",
     image_url: "",
     notes: "",

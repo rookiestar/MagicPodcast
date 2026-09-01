@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ConsumptionDetailPanel from "../ConsumptionDetailPanel";
 import type { ConsumptionItem } from "@/types/consumption";
@@ -12,6 +12,7 @@ const apiMocks = vi.hoisted(() => ({
   updateNotes: vi.fn(),
   addTag: vi.fn(),
   removeTag: vi.fn(),
+  getShowNotes: vi.fn(),
   listTags: vi.fn(),
   listEpisodeRuns: vi.fn(),
   getLatestAudio: vi.fn(),
@@ -35,6 +36,7 @@ vi.mock("@/lib/api/consumption", () => ({
 
 vi.mock("@/lib/api", () => ({
   episodeApi: {
+    getShowNotes: apiMocks.getShowNotes,
     getNotes: apiMocks.getNotes,
     getTags: apiMocks.getTags,
     updateNotes: apiMocks.updateNotes,
@@ -71,6 +73,15 @@ vi.mock("@/lib/api/episodeCopilot", () => ({
   isEpisodeCopilotCancellation: vi.fn(() => false),
 }));
 
+const showNotesContent = [
+  '<p><a href="https://example.com/transcript">安全链接</a></p>',
+  '<p><a href="mailto:owner@example.com">邮件链接</a></p>',
+  '<p><a href="tel:+8613800000000">电话链接</a></p>',
+  '<p><a href="javascript:alert(1)">危险链接</a></p>',
+  '<img src="https://i.typlog.com/cover.png" alt="允许图片">',
+  '<img src="https://evil.example/track.png" alt="拒绝图片">',
+].join("");
+
 const item: ConsumptionItem = {
   episode_id: 201,
   podcast_id: 20,
@@ -81,25 +92,7 @@ const item: ConsumptionItem = {
   episode_no: "201",
   duration: 2400,
   published_date: "2026-08-10T08:00:00Z",
-  show_notes: [
-    '<p><a href="https://example.com/transcript">安全链接</a></p>',
-    '<p><a href="mailto:owner@example.com">邮件链接</a></p>',
-    '<p><a href="tel:+8613800000000">电话链接</a></p>',
-    '<p><a href="javascript:alert(1)">危险链接</a></p>',
-    '<img src="https://i.typlog.com/cover.png" alt="允许图片">',
-    '<img src="https://evil.example/track.png" alt="拒绝图片">',
-  ].join(""),
-  show_notes_document: {
-    content: [
-      '<p><a href="https://example.com/transcript">安全链接</a></p>',
-      '<p><a href="mailto:owner@example.com">邮件链接</a></p>',
-      '<p><a href="tel:+8613800000000">电话链接</a></p>',
-      '<p><a href="javascript:alert(1)">危险链接</a></p>',
-      '<img src="https://i.typlog.com/cover.png" alt="允许图片">',
-      '<img src="https://evil.example/track.png" alt="拒绝图片">',
-    ].join(""),
-    format: "html",
-  },
+  show_notes: showNotesContent,
   original_url: "https://example.com/episode/201",
   image_url: "",
   notes: "旧备注",
@@ -152,6 +145,10 @@ describe("ConsumptionDetailPanel", () => {
       ...item,
       in_progress_at: "2026-08-11T08:00:00Z",
     });
+    apiMocks.getShowNotes.mockResolvedValue({
+      episode_id: item.episode_id,
+      show_notes_document: { content: showNotesContent, format: "html" },
+    });
     apiMocks.getNotes.mockResolvedValue("旧备注");
     apiMocks.getTags.mockResolvedValue([]);
     apiMocks.updateNotes.mockResolvedValue(undefined);
@@ -190,7 +187,7 @@ describe("ConsumptionDetailPanel", () => {
       />,
     );
 
-    expect(screen.getByRole("link", { name: "安全链接" })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: "安全链接" })).toHaveAttribute(
       "href",
       "https://example.com/transcript",
     );
@@ -229,6 +226,47 @@ describe("ConsumptionDetailPanel", () => {
       expect(screen.queryByText("正在读取…")).not.toBeInTheDocument();
       expect(screen.queryByText("正在同步最新状态…")).not.toBeInTheDocument();
     });
+  });
+
+  it("keeps the episode identity visible while Show Notes load", async () => {
+    let resolveShowNotes!: (value: {
+      episode_id: number;
+      show_notes_document: { content: string; format: "html" };
+    }) => void;
+    apiMocks.getShowNotes.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveShowNotes = resolve)),
+    );
+
+    renderDetail();
+
+    expect(screen.getByRole("heading", { name: item.episode_title })).toBeVisible();
+    expect(screen.getByRole("status", { name: "转写状态：正在读取" })).toBeVisible();
+    expect(screen.getByText("正在读取 Show Notes…")).toBeVisible();
+
+    await act(async () => {
+      resolveShowNotes({
+        episode_id: item.episode_id,
+        show_notes_document: { content: showNotesContent, format: "html" },
+      });
+    });
+    expect(await screen.findByRole("link", { name: "安全链接" })).toBeVisible();
+  });
+
+  it("keeps the detail usable when Show Notes fail and retries locally", async () => {
+    apiMocks.getShowNotes
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({
+        episode_id: item.episode_id,
+        show_notes_document: { content: showNotesContent, format: "html" },
+      });
+
+    renderDetail();
+
+    expect(await screen.findByText(/Show Notes 读取失败：offline/)).toBeVisible();
+    expect(screen.getByRole("heading", { name: item.episode_title })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "重试读取 Show Notes" }));
+    expect(await screen.findByRole("link", { name: "安全链接" })).toBeVisible();
+    expect(apiMocks.getShowNotes).toHaveBeenCalledTimes(2);
   });
 
   it("hides the unstarted transcript and navigates only visible tabs", async () => {
@@ -292,7 +330,7 @@ describe("ConsumptionDetailPanel", () => {
     expect(screen.queryByText("可开始飞书妙记转写")).not.toBeInTheDocument();
   });
 
-  it("keeps identity, tabs, and Show Notes visible while regional requests are slow", () => {
+  it("keeps identity, tabs, and Show Notes visible while regional requests are slow", async () => {
     apiMocks.getItem.mockReturnValue(new Promise(() => undefined));
     apiMocks.listEpisodeRuns.mockReturnValue(new Promise(() => undefined));
     apiMocks.getNotes.mockReturnValue(new Promise(() => undefined));
@@ -303,7 +341,7 @@ describe("ConsumptionDetailPanel", () => {
 
     expect(screen.getByRole("heading", { name: "站外消费测试" })).toBeVisible();
     expect(screen.getByRole("tablist", { name: "单集详情内容" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "安全链接" })).toBeVisible();
+    expect(await screen.findByRole("link", { name: "安全链接" })).toBeVisible();
     expect(
       screen.getByRole("status", { name: "转写状态：正在读取" }),
     ).toBeVisible();
@@ -319,7 +357,7 @@ describe("ConsumptionDetailPanel", () => {
     expect(
       await screen.findByText("最新状态读取失败，当前内容仍可查看：保存失败"),
     ).toBeVisible();
-    expect(screen.getByRole("link", { name: "安全链接" })).toBeVisible();
+    expect(await screen.findByRole("link", { name: "安全链接" })).toBeVisible();
     expect(screen.getByRole("tab", { name: "转写" })).toBeEnabled();
 
     fireEvent.click(screen.getByRole("tab", { name: "笔记" }));

@@ -34,12 +34,14 @@ import {
   openOriginalEpisodeTab,
   planSafeOriginalEpisodeOpen,
 } from "@/lib/originalEpisodeOpen";
+import { createEpisodeShowNotesStore } from "@/lib/episodeShowNotesStore";
 import type { Tag } from "@/types";
 import {
   CONSUMPTION_QUEUES,
   type ConsumptionItem,
   type ConsumptionQueue,
 } from "@/types/consumption";
+import type { ShowNotesDocument } from "@/types/showNotes";
 import {
   formatDuration,
   formatPublishedDate,
@@ -71,6 +73,11 @@ const DETAIL_TABS = [
 ] as const;
 
 type DetailTab = (typeof DETAIL_TABS)[number]["id"];
+
+type ShowNotesLoadState =
+  | { episodeId: number; status: "loading" }
+  | { episodeId: number; status: "success"; document: ShowNotesDocument }
+  | { episodeId: number; status: "error"; message: string };
 
 const INITIAL_PROCESSING_HEADER: EpisodeProcessingHeaderState = {
   kind: "loading",
@@ -403,6 +410,7 @@ export default function ConsumptionDetailPanel({
     focusedElement: HTMLElement | null;
   } | null>(null);
   const processingPanelRef = useRef<EpisodeProcessingPanelHandle>(null);
+  const showNotesRequestSequence = useRef(0);
   const tabRefs = useRef<Record<DetailTab, HTMLButtonElement | null>>({
     "show-notes": null,
     transcript: null,
@@ -413,6 +421,10 @@ export default function ConsumptionDetailPanel({
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<DetailTab>("show-notes");
+  const [loadedShowNotes, setLoadedShowNotes] = useState<ShowNotesLoadState>({
+    episodeId: item.episode_id,
+    status: "loading",
+  });
   const [processingHeader, setProcessingHeader] =
     useState<EpisodeProcessingHeaderState>(INITIAL_PROCESSING_HEADER);
   const [externalState, setExternalState] = useState<
@@ -426,6 +438,34 @@ export default function ConsumptionDetailPanel({
     [item.original_url],
   );
   const originalRecovery = useOriginalEpisodeRecovery();
+  const showNotesStore = useMemo(
+    () => createEpisodeShowNotesStore(episodeApi.getShowNotes),
+    [],
+  );
+
+  const loadShowNotes = useCallback(async () => {
+    const episodeId = item.episode_id;
+    const requestSequence = ++showNotesRequestSequence.current;
+    setLoadedShowNotes({ episodeId, status: "loading" });
+    try {
+      const document = await showNotesStore.load(episodeId);
+      if (showNotesRequestSequence.current === requestSequence) {
+        setLoadedShowNotes({
+          episodeId,
+          status: "success",
+          document,
+        });
+      }
+    } catch (error) {
+      if (showNotesRequestSequence.current === requestSequence) {
+        setLoadedShowNotes({
+          episodeId,
+          status: "error",
+          message: getErrorMessage(error),
+        });
+      }
+    }
+  }, [item.episode_id, showNotesStore]);
 
   useEffect(() => {
     closeButtonRef.current?.focus();
@@ -451,6 +491,13 @@ export default function ConsumptionDetailPanel({
     setActiveTab("show-notes");
     setProcessingHeader(INITIAL_PROCESSING_HEADER);
   }, [item.episode_id]);
+
+  useEffect(() => {
+    void loadShowNotes();
+    return () => {
+      showNotesRequestSequence.current += 1;
+    };
+  }, [loadShowNotes]);
 
   useEffect(() => {
     let active = true;
@@ -556,6 +603,10 @@ export default function ConsumptionDetailPanel({
   const effectiveMoveTarget = queueOptions.includes(moveTarget)
     ? moveTarget
     : queueOptions[0];
+  const showNotesState =
+    loadedShowNotes.episodeId === item.episode_id
+      ? loadedShowNotes
+      : ({ episodeId: item.episode_id, status: "loading" } as const);
 
   const selectTab = useCallback((tab: DetailTab, shouldFocus = false) => {
     setActiveTab(tab);
@@ -918,15 +969,38 @@ export default function ConsumptionDetailPanel({
               data-copilot-source="show_notes"
               data-copilot-episode-id={item.episode_id}
             >
-              <ShowNotesDocumentView
-                document={item.show_notes_document}
-                className={styles.showNotesRichText}
-                emptyFallback={
+              {showNotesState.status === "loading" && (
+                <p className={styles.showNotesEmpty} role="status">
+                  正在读取 Show Notes…
+                </p>
+              )}
+              {showNotesState.status === "error" && (
+                <div className={styles.showNotesState} role="alert">
                   <p className={styles.showNotesEmpty}>
-                    该单集暂无 Show Notes。
+                    Show Notes 读取失败：{showNotesState.message}
                   </p>
-                }
-              />
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    onClick={() => void loadShowNotes()}
+                    aria-label="重试读取 Show Notes"
+                    title="重试读取"
+                  >
+                    <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+              {showNotesState.status === "success" && (
+                <ShowNotesDocumentView
+                  document={showNotesState.document}
+                  className={styles.showNotesRichText}
+                  emptyFallback={
+                    <p className={styles.showNotesEmpty}>
+                      该单集暂无 Show Notes。
+                    </p>
+                  }
+                />
+              )}
             </section>
 
             <div

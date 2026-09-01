@@ -47,7 +47,7 @@ func BuildShowNotesDocument(source string) ShowNotesDocument {
 		return ShowNotesDocument{Content: source, Format: ShowNotesFormatHTML}
 	}
 	return ShowNotesDocument{
-		Content: HTMLToMarkdown(source),
+		Content: htmlToMarkdownPreservingTextLineBreaks(source),
 		Format:  ShowNotesFormatMarkdown,
 	}
 }

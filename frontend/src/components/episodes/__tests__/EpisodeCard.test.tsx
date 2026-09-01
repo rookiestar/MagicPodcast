@@ -380,6 +380,21 @@ describe("EpisodeCard", () => {
     expect(getShowNotesMock).toHaveBeenCalledTimes(1);
   });
 
+  it("loads full show notes when the explicit availability flag has no text preview", async () => {
+    render(
+      <TestEpisodeCard
+        episode={makeEpisode({ show_notes: "", has_show_notes: true })}
+      />,
+    );
+
+    fireEvent.focus(screen.getByRole("link", { name: "单集标题" }));
+
+    expect(
+      await screen.findByRole("region", { name: "完整 Show Notes" }),
+    ).toBeVisible();
+    expect(getShowNotesMock).toHaveBeenCalledWith(1);
+  });
+
   it("keeps the preview during a slow request and reuses the successful result", async () => {
     let resolveRequest!: (value: Awaited<ReturnType<typeof getShowNotesMock>>) => void;
     getShowNotesMock.mockImplementationOnce(
