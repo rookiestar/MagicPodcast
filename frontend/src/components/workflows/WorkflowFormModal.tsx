@@ -1318,7 +1318,11 @@ export default function WorkflowFormModal({
                                               type="button"
                                               onClick={() => void loadNextPodcastPage()}
                                               disabled={isLoadingMorePodcasts}
-                                              className="text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
+                                              className={`text-blue-600 dark:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed ${
+                                                isLoadingMorePodcasts
+                                                  ? ""
+                                                  : "hover:underline"
+                                              }`}
                                             >
                                               {isLoadingMorePodcasts
                                                 ? "加载中..."
@@ -1953,7 +1957,9 @@ export default function WorkflowFormModal({
             <button
               onClick={handleNext}
               disabled={loading}
-              className="px-4 sm:px-6 py-2 min-h-[44px] bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className={`px-4 sm:px-6 py-2 min-h-[44px] bg-blue-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${
+                loading ? "" : "hover:bg-blue-700"
+              }`}
             >
               {loading ? "处理中..." : step === 4 ? "保存" : "下一步"}
             </button>
@@ -1980,7 +1986,9 @@ export default function WorkflowFormModal({
             <button
               onClick={handleNext}
               disabled={loading}
-              className="flex-1 min-h-[44px] px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+              className={`flex-1 min-h-[44px] px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium ${
+                loading ? "" : "hover:bg-blue-700"
+              }`}
             >
               {loading ? "处理中..." : step === 4 ? "保存" : "下一步"}
             </button>

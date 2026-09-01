@@ -104,11 +104,12 @@ function TagSuggestionOption({
       onMouseEnter={onHighlight}
       className={`
         w-full px-4 py-2 text-left transition-colors focus:outline-none
-        disabled:cursor-not-allowed disabled:opacity-50
         ${
-          highlighted
-            ? "bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-500"
-            : "hover:bg-slate-100 dark:hover:bg-slate-700"
+          disabled
+            ? "cursor-not-allowed opacity-50"
+            : highlighted
+              ? "bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-500"
+              : "hover:bg-slate-100 dark:hover:bg-slate-700"
         }
       `}
     >
@@ -138,7 +139,11 @@ function CreateTagOption({ label, disabled, onCreate }: CreateTagOptionProps) {
         type="button"
         disabled={disabled}
         onClick={onCreate}
-        className="w-full px-4 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors focus:outline-none focus:bg-slate-100 dark:focus:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+        className={`w-full px-4 py-2 text-left transition-colors focus:outline-none ${
+          disabled
+            ? "cursor-not-allowed opacity-50"
+            : "hover:bg-slate-100 dark:hover:bg-slate-700 focus:bg-slate-100 dark:focus:bg-slate-700"
+        }`}
       >
         <div className="flex items-center gap-3">
           <span className="text-sm text-blue-600 dark:text-blue-400">

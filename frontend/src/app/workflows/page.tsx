@@ -269,10 +269,10 @@ export default function WorkflowsPage() {
                           handleTrigger(workflow.id, e);
                         }}
                         disabled={triggeringId === workflow.id}
-                        className={`p-2.5 border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-blue-300 transition-all active:scale-95 flex-shrink-0 ${
+                        className={`p-2.5 border border-slate-200 rounded-lg transition-all flex-shrink-0 ${
                           triggeringId === workflow.id
                             ? "opacity-50 cursor-not-allowed bg-slate-100"
-                            : "text-blue-600"
+                            : "text-blue-600 hover:bg-slate-50 hover:border-blue-300 active:scale-95"
                         }`}
                         style={{ minWidth: "44px", minHeight: "44px" }}
                         title="执行"
