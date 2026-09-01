@@ -521,11 +521,22 @@ describe("工作流执行历史可见等待验收 (#34)", () => {
       expect(screen.getAllByText("11").length).toBeGreaterThan(0),
     );
 
+    expect(screen.getByRole("button", { name: "上一页" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "上一页" }).className,
+    ).not.toContain("hover:bg-slate-200");
+    expect(
+      screen.getByRole("button", { name: "下一页" }).className,
+    ).toContain("hover:bg-slate-200");
+
     fireEvent.click(screen.getByRole("button", { name: "下一页" }));
     await waitFor(() => {
       expect(controller.calls.some((c) => c.includes("page=2"))).toBe(true);
       expect(screen.getAllByText("22").length).toBeGreaterThan(0);
     });
+    expect(
+      screen.getByRole("button", { name: "下一页" }).className,
+    ).not.toContain("hover:bg-slate-200");
     expect(JOBS_PAGE2_PATH).toContain("page=2");
   });
 

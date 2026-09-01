@@ -15,7 +15,9 @@ function tabClassName(active: boolean, disabled: boolean) {
   return `import-tab min-h-[44px] px-4 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
     active
       ? "is-active text-blue-700 dark:text-blue-300"
-      : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
+      : disabled
+        ? "text-slate-600 dark:text-slate-400"
+        : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
   } ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`;
 }
 

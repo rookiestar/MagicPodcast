@@ -570,8 +570,8 @@
     background 140ms ease;
 }
 
-.moveMenuPopover button:hover,
-.moveMenuPopover button:focus-visible {
+.moveMenuPopover button:hover:not(:disabled),
+.moveMenuPopover button:focus-visible:not(:disabled) {
   color: var(--orange-dark);
   background: rgba(215, 104, 29, 0.12);
 }
