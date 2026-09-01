@@ -87,4 +87,25 @@ describe("TagSuggestionsDropdown", () => {
     fireEvent.mouseEnter(aiButton);
     expect(props.onHighlightTag).toHaveBeenCalledWith(1);
   });
+
+  it("does not expose hover styling while tag options are disabled", () => {
+    renderDropdown({ disabled: true });
+
+    for (const button of screen.getAllByRole("button")) {
+      expect(button).toBeDisabled();
+      expect(button.className).not.toContain("hover:");
+    }
+  });
+
+  it("does not expose hover styling while creating a tag is disabled", () => {
+    renderDropdown({
+      filteredTags: [],
+      inputValue: "新标签",
+      disabled: true,
+    });
+
+    const createButton = screen.getByRole("button", { name: /创建/ });
+    expect(createButton).toBeDisabled();
+    expect(createButton.className).not.toContain("hover:");
+  });
 });

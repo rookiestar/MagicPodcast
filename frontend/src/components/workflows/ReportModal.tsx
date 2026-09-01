@@ -170,7 +170,11 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
                       <button
                         onClick={regenerateLLMSummary}
                         disabled={regenerating}
-                        className="mt-3 px-4 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 dark:text-slate-300 text-sm rounded transition-all flex items-center gap-2"
+                        className={`mt-3 px-4 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 dark:text-slate-300 text-sm rounded transition-all flex items-center gap-2 ${
+                          regenerating
+                            ? ""
+                            : "hover:bg-slate-50 dark:hover:bg-slate-800"
+                        }`}
                       >
                         {regenerating ? (
                           <>

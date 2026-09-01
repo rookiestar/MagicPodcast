@@ -890,6 +890,9 @@ export default function DiscoveryDesk({
                     className="discovery-action-button"
                     aria-label={discardActionLabel}
                     aria-pressed={Boolean(selected.dismissed_at)}
+                    aria-busy={
+                      savingEpisodeID === selected.episode_id || undefined
+                    }
                     data-tooltip={discardActionLabel}
                     title={discardActionLabel}
                     disabled={

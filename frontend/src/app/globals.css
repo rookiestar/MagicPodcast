@@ -2566,8 +2566,12 @@
   }
 
   .discovery-action-button:disabled {
-    cursor: wait;
+    cursor: not-allowed;
     opacity: 0.62;
+  }
+
+  .discovery-action-button:disabled[aria-busy="true"] {
+    cursor: wait;
   }
 
   @media (hover: hover) and (pointer: fine) {
@@ -4402,11 +4406,11 @@
     transform 150ms ease;
 }
 
-.editorial-btn:hover {
+.editorial-btn:hover:not(:disabled) {
   text-decoration: none;
 }
 
-.editorial-btn:active {
+.editorial-btn:active:not(:disabled) {
   transform: translateY(1px);
 }
 
@@ -4425,7 +4429,7 @@
   background: #ff8a3d;
 }
 
-.editorial-btn--primary:hover {
+.editorial-btn--primary:hover:not(:disabled) {
   background: #f47a2f;
 }
 
@@ -4434,7 +4438,7 @@
   background: #171717;
 }
 
-.editorial-btn--solid:hover {
+.editorial-btn--solid:hover:not(:disabled) {
   color: #f7f1e5;
   background: #2a2520;
 }
@@ -4444,7 +4448,7 @@
   background: transparent;
 }
 
-.editorial-btn--ghost:hover {
+.editorial-btn--ghost:hover:not(:disabled) {
   background: rgba(247, 241, 229, 0.8);
 }
 
@@ -4454,7 +4458,7 @@
   background: #f7f1e5;
 }
 
-.editorial-btn--danger:hover {
+.editorial-btn--danger:hover:not(:disabled) {
   color: #f7f1e5;
   background: #9d2d20;
 }
@@ -4467,7 +4471,7 @@
   background: transparent;
 }
 
-.editorial-btn--link:hover {
+.editorial-btn--link:hover:not(:disabled) {
   color: #e96321;
 }
 
@@ -5572,7 +5576,7 @@ textarea.editorial-field {
   stroke-width: 1.7;
 }
 
-.workflow-page .workflow-card-action:hover {
+.workflow-page .workflow-card-action:hover:not(:disabled) {
   background: rgba(239, 229, 211, 0.72);
 }
 
@@ -5594,7 +5598,7 @@ textarea.editorial-field {
   color: #e96321;
 }
 
-.workflow-page .workflow-card button[title="执行"]:hover {
+.workflow-page .workflow-card button[title="执行"]:hover:not(:disabled) {
   background-color: rgba(233, 99, 33, 0.1);
 }
 
@@ -6141,9 +6145,19 @@ textarea.editorial-field {
     background-color 150ms ease;
 }
 
+.import-page .import-file-picker.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .import-page .import-file-picker:hover {
   color: #fff9ed;
   background: #171717;
+}
+
+.import-page .import-file-picker.is-disabled:hover {
+  color: #171717;
+  background: transparent;
 }
 
 .import-page .import-file-picker:focus-within {

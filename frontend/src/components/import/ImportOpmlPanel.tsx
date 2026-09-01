@@ -32,7 +32,8 @@ export default function ImportOpmlPanel({
       <div className="import-file-field">
         <label
           htmlFor="opml-file-input"
-          className="import-file-picker"
+          aria-disabled={disabled}
+          className={`import-file-picker${disabled ? " is-disabled" : ""}`}
         >
           <IconFileUpload aria-hidden="true" />
           <span>{file ? "更换 OPML 文件" : "选择 OPML 文件"}</span>
