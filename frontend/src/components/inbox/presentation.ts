@@ -9,22 +9,22 @@ export interface QueuePresentation {
 export const QUEUE_PRESENTATION: Record<ConsumptionQueue, QueuePresentation> = {
   inbox: {
     label: "Inbox",
-    policy: "先收进来，再决定投入或稍后。",
+    policy: "念头在此落脚",
     empty: "没有待决定的单集。",
   },
   focus: {
     label: "Focus",
-    policy: "短承诺队列，建议保持在 7 项以内。",
+    policy: "心力所系，不过七事",
     empty: "近期还没有明确投入的单集。",
   },
   someday: {
     label: "Someday",
-    policy: "保留价值，但暂不占用近期注意力。",
+    policy: "留一份可能给来日",
     empty: "没有留待以后处理的单集。",
   },
   done: {
     label: "最近完成",
-    policy: "连续 7 天内最近完成的内容，最多显示 20 条。",
+    policy: "走过的，皆有痕迹",
     empty: "最近 7 天还没有完成的单集。",
   },
 };
