@@ -10,13 +10,18 @@ import {
   useRef,
   useState,
 } from "react";
-import { IconPlayerStop, IconRefresh } from "@tabler/icons-react";
+import {
+  IconDownload,
+  IconPlayerStop,
+  IconRefresh,
+} from "@tabler/icons-react";
 import MarkdownViewer from "@/components/workflows/MarkdownViewer";
 import { getProcessingErrorDetails, processingApi } from "@/lib/api/processing";
 import type { ConsumptionItem } from "@/types/consumption";
 import type {
   ArtifactContent,
   ArtifactContentKind,
+  AudioRecoverySummary,
   EpisodeAudioAsset,
   KnowledgeDelivery,
   ProcessingRun,
@@ -111,6 +116,52 @@ function formatUpdatedAt(value?: string) {
   return date.toLocaleString("zh-CN", { hour12: false });
 }
 
+function audioRecoveryState(
+  recovery: AudioRecoverySummary | undefined,
+): "available" | "queued" | "downloading" | "failed" | "unavailable" {
+  if (!recovery?.recoverable) return "unavailable";
+  switch (recovery.status) {
+    case "queued":
+      return "queued";
+    case "downloading":
+      return "downloading";
+    case "failed":
+      return "failed";
+    default:
+      return "available";
+  }
+}
+
+function audioRecoveryLabel(recovery: AudioRecoverySummary) {
+  if (!recovery.recoverable) return "音频暂不可恢复";
+  switch (recovery.status) {
+    case "queued":
+      return "恢复已排队";
+    case "downloading":
+      return "正在恢复音频";
+    case "failed":
+      return "音频恢复失败";
+    case "completed":
+      return "正在确认恢复结果";
+    default:
+      return "可以恢复音频";
+  }
+}
+
+function audioRecoveryDetail(recovery: AudioRecoverySummary) {
+  if (recovery.error_message) return recovery.error_message;
+  switch (recovery.status) {
+    case "queued":
+      return "已记录恢复请求，后台会继续处理。";
+    case "downloading":
+      return "后台正在恢复本地播放缓存，逐字稿保持可读。";
+    case "completed":
+      return "正在重新读取音频可用性，请稍候。";
+    default:
+      return "来源：受保护的飞书 Drive 原始音频，仅用于恢复本地播放缓存。";
+  }
+}
+
 export interface EpisodeProcessingHeaderState {
   kind: "loading" | "idle" | "active" | "completed" | "failed";
   label: string;
@@ -142,6 +193,7 @@ const EpisodeProcessingPanel = forwardRef<
   const [hasProcessingHistory, setHasProcessingHistory] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isMutating, setIsMutating] = useState(false);
+  const [isRecoveringAudio, setIsRecoveringAudio] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [artifactContents, setArtifactContents] = useState(
     emptyArtifactContents,
@@ -389,6 +441,39 @@ const EpisodeProcessingPanel = forwardRef<
 
   const run = detail?.run;
   const currentArtifact = detail?.current_artifact;
+  const requestAudioRecovery = useCallback(async () => {
+    if (isRecoveringAudio || !currentArtifact) return;
+    setIsRecoveringAudio(true);
+    setError(null);
+    try {
+      const result = await processingApi.recoverAudio(currentArtifact.id);
+      setArtifactContents((current) => {
+        const transcript = current.transcript;
+        if (!transcript || transcript.artifactSetId !== currentArtifact.id) {
+          return current;
+        }
+        return {
+          ...current,
+          transcript: {
+            ...transcript,
+            content: {
+              ...transcript.content,
+              audio_recovery: result.audio_recovery,
+            },
+          },
+        };
+      });
+      // The POST only acknowledges durable state. media_available becomes
+      // true only after this read observes the backend's verified result.
+      await readArtifact(currentArtifact.id, "transcript");
+    } catch (recoveryError) {
+      const failure = getProcessingErrorDetails(recoveryError);
+      setError(`${failure.code ? `${failure.code}：` : ""}${failure.message}`);
+    } finally {
+      setIsRecoveringAudio(false);
+    }
+  }, [currentArtifact, isRecoveringAudio, readArtifact]);
+
   const summaryKind: ArtifactContentKind | null = currentArtifact?.capabilities
     .minutes_summary
     ? "minutes_summary"
@@ -477,6 +562,40 @@ const EpisodeProcessingPanel = forwardRef<
     artifactReadFailed &&
     currentArtifact !== undefined &&
     requestedArtifactKind !== null;
+
+  const transcriptRecovery =
+    selectedArtifactContent?.content.kind === "transcript"
+      ? selectedArtifactContent.content.audio_recovery
+      : undefined;
+  const transcriptMediaAvailable =
+    selectedArtifactContent?.content.kind === "transcript" &&
+    selectedArtifactContent.content.media_available;
+  const audioRecoveryStateValue = audioRecoveryState(transcriptRecovery);
+  const audioRecoveryInFlight =
+    transcriptRecovery?.status === "queued" ||
+    transcriptRecovery?.status === "downloading";
+  const recoveryArtifactId = currentArtifact?.id;
+  const canRequestAudioRecovery =
+    !transcriptMediaAvailable &&
+    transcriptRecovery?.recoverable === true &&
+    !audioRecoveryInFlight &&
+    transcriptRecovery?.status !== "completed" &&
+    (transcriptRecovery?.status !== "failed" || transcriptRecovery.can_retry) &&
+    !isRecoveringAudio;
+
+  useEffect(() => {
+    if (
+      !recoveryArtifactId ||
+      (transcriptRecovery?.status !== "queued" &&
+        transcriptRecovery?.status !== "downloading")
+    ) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void readArtifact(recoveryArtifactId, "transcript");
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [readArtifact, recoveryArtifactId, transcriptRecovery?.status]);
 
   const retryCurrentRead = useCallback(async () => {
     if (canRetryArtifactRead) {
@@ -869,6 +988,63 @@ const EpisodeProcessingPanel = forwardRef<
               </span>
             )}
           </div>
+          {selectedArtifactContent.content.kind === "transcript" &&
+            transcriptRecovery &&
+            !transcriptMediaAvailable &&
+            (transcriptRecovery.recoverable ||
+              Boolean(transcriptRecovery.error_message)) && (
+              <div
+                className={styles.audioRecovery}
+                data-state={audioRecoveryStateValue}
+                role={
+                  audioRecoveryInFlight || isRecoveringAudio
+                    ? "status"
+                    : transcriptRecovery.error_message
+                      ? "alert"
+                      : undefined
+                }
+                aria-live="polite"
+              >
+                <div className={styles.audioRecoveryCopy}>
+                  <strong>{audioRecoveryLabel(transcriptRecovery)}</strong>
+                  <span>{audioRecoveryDetail(transcriptRecovery)}</span>
+                  {transcriptRecovery.recoverable &&
+                    !transcriptRecovery.error_message && (
+                      <small>
+                        远端只用于修复本地音频，不会改变逐字稿或重新加工。
+                      </small>
+                    )}
+                </div>
+                {transcriptRecovery.recoverable &&
+                  transcriptRecovery.status !== "completed" &&
+                  (transcriptRecovery.status !== "failed" ||
+                    transcriptRecovery.can_retry) && (
+                    <button
+                      type="button"
+                      className={styles.secondaryCommand}
+                      disabled={
+                        !canRequestAudioRecovery || audioRecoveryInFlight
+                      }
+                      onClick={() => void requestAudioRecovery()}
+                    >
+                      {transcriptRecovery.status === "failed" ? (
+                        <IconRefresh size={17} stroke={1.8} aria-hidden="true" />
+                      ) : (
+                        <IconDownload size={17} stroke={1.8} aria-hidden="true" />
+                      )}
+                      {isRecoveringAudio
+                        ? "正在提交…"
+                        : transcriptRecovery.status === "queued"
+                          ? "已排队"
+                          : transcriptRecovery.status === "downloading"
+                            ? "恢复中"
+                            : transcriptRecovery.status === "failed"
+                              ? "重试恢复"
+                              : "恢复音频"}
+                    </button>
+                  )}
+              </div>
+            )}
           {selectedArtifactContent.content.kind === "transcript" &&
           selectedArtifactContent.content.segments?.length ? (
             <TranscriptAudioPlayer

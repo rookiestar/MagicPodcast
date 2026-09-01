@@ -48,7 +48,10 @@ func TestSchema24FixtureIsHistoricalSanitizedAndComplete(t *testing.T) {
 	status, err := InspectSchema(db)
 	require.NoError(t, err)
 	require.Equal(t, 24, status.CurrentVersion)
-	require.Equal(t, []string{"25:native-minutes-artifact-integrity"}, migrationNames(status.Pending))
+	require.Equal(t, []string{
+		"25:native-minutes-artifact-integrity",
+		"26:episode-artifact-audio-recovery",
+	}, migrationNames(status.Pending))
 
 	for table, want := range map[string]int64{
 		"podcasts":                  1,
@@ -133,7 +136,7 @@ func TestProductionMigrationRunnerPreservesSchema24ProtectedDataAndIsIdempotent(
 
 	reports, err := newProductionMigrationRunner().run(db)
 	require.NoError(t, err)
-	require.Len(t, reports, 1)
+	require.Len(t, reports, 2)
 	require.Equal(t, 25, reports[0].Version)
 	require.Empty(t, reports[0].Violations)
 	require.Equal(t, []DDLChange{
@@ -141,6 +144,8 @@ func TestProductionMigrationRunnerPreservesSchema24ProtectedDataAndIsIdempotent(
 		{Operation: SchemaChangeAddColumn, Table: "episode_artifact_sets", Object: "minutes_summary_sha256"},
 		{Operation: SchemaChangeAddColumn, Table: "episode_artifact_sets", Object: "transcript_timeline_sha256"},
 	}, reports[0].DDL)
+	require.Equal(t, 26, reports[1].Version)
+	require.Empty(t, reports[1].Violations)
 
 	after, err := captureMigrationDatabaseSnapshot(db)
 	require.NoError(t, err)
@@ -308,12 +313,13 @@ func TestProductionMigrationPreflightBuildsBoundSanitizedReportWithoutWritingSou
 	require.Equal(t, MigrationReportVersion, report.ReportVersion)
 	require.Equal(t, targetCommit, report.TargetCommit)
 	require.Equal(t, 24, report.SourceSchemaVersion)
-	require.Equal(t, 25, report.TargetSchemaVersion)
+	require.Equal(t, CurrentSchemaVersion, report.TargetSchemaVersion)
 	require.True(t, report.Result.ApplyEligible)
 	require.Equal(t, "passed", report.Result.Status)
-	require.Len(t, report.PendingMigrations, 1)
+	require.Len(t, report.PendingMigrations, 2)
 	require.Equal(t, "native-minutes-artifact-integrity", report.PendingMigrations[0].Name)
-	require.Len(t, report.Executions, 1)
+	require.Equal(t, "episode-artifact-audio-recovery", report.PendingMigrations[1].Name)
+	require.Len(t, report.Executions, 2)
 	require.Contains(t, report.ForeignKeyDependencies, ForeignKeyEdge{Parent: "episodes", Child: "episode_triage_decisions"})
 	require.Contains(t, report.ProtectedTables, "episode_triage_decisions")
 	require.Equal(t, int64(13), migrationSummaryByTable(t, report.ProtectedBefore, "episode_triage_decisions").Rows)
@@ -590,11 +596,11 @@ func TestApplyProductionMigrationReportCommitsMatchingPlanAndProjections(t *test
 	require.NoError(t, err)
 	require.Equal(t, "committed", result.Status)
 	require.True(t, result.DatabaseCommitted)
-	require.Equal(t, 25, result.SchemaVersion)
+	require.Equal(t, CurrentSchemaVersion, result.SchemaVersion)
 	require.True(t, result.KeyProjectionReadable)
 	require.Equal(t, map[string]int64{"inbox": 4, "focus": 3, "someday": 3, "done": 3}, result.QueueCounts)
 	require.Equal(t, int64(1), result.ProcessingStatusCounts[models.ProcessingRunStatusCompleted])
-	require.Equal(t, 25, mustSchemaStatus(t, target).CurrentVersion)
+	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, target).CurrentVersion)
 	assertMigrationDatabaseHealthy(t, target)
 	storedPlan.Apply = &result
 	reportPath := filepath.Join(t.TempDir(), "applied-migration-report.json")
@@ -609,7 +615,7 @@ func TestApplyProductionMigrationReportCommitsMatchingPlanAndProjections(t *test
 	require.NoError(t, err)
 	require.Equal(t, "already_applied", repeated.Status)
 	require.True(t, repeated.DatabaseCommitted)
-	require.Equal(t, 25, mustSchemaStatus(t, target).CurrentVersion)
+	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, target).CurrentVersion)
 }
 
 func TestApplyProductionMigrationReportRejectsEveryPlanDriftBeforeWriting(t *testing.T) {

@@ -189,12 +189,13 @@ type ArtifactStore interface {
 }
 
 type ArtifactContent struct {
-	Kind           string              `json:"kind"`
-	Content        string              `json:"content"`
-	SHA256         string              `json:"sha256"`
-	Segments       []TranscriptSegment `json:"segments,omitempty"`
-	TimelineSHA256 string              `json:"timeline_sha256,omitempty"`
-	MediaAvailable bool                `json:"media_available"`
+	Kind           string                `json:"kind"`
+	Content        string                `json:"content"`
+	SHA256         string                `json:"sha256"`
+	Segments       []TranscriptSegment   `json:"segments,omitempty"`
+	TimelineSHA256 string                `json:"timeline_sha256,omitempty"`
+	MediaAvailable bool                  `json:"media_available"`
+	AudioRecovery  *AudioRecoverySummary `json:"audio_recovery,omitempty"`
 }
 
 // ArtifactReader exposes only normalized public documents from an already

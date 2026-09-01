@@ -371,6 +371,54 @@ func (h *ProcessingHandler) GetArtifactAudio(c *gin.Context) {
 	http.ServeContent(c.Writer, c.Request, "", time.Time{}, file)
 }
 
+func (h *ProcessingHandler) RecoverArtifactAudio(c *gin.Context) {
+	artifactSetID, ok := ParseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	result, err := h.service.RequestArtifactAudioRecovery(
+		c.Request.Context(),
+		artifactSetID,
+	)
+	switch {
+	case errors.Is(err, processing.ErrArtifactNotFound):
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "ARTIFACT_NOT_FOUND",
+				"message": "artifact set not found",
+			},
+		})
+		return
+	case errors.Is(err, processing.ErrInvalidArtifact):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "ARTIFACT_INVALID",
+				"message": "artifact set is not eligible for audio recovery",
+			},
+		})
+		return
+	case errors.Is(err, processing.ErrAudioRecoveryUnavailable):
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "AUDIO_RECOVERY_UNAVAILABLE",
+				"message": "audio recovery is unavailable",
+			},
+		})
+		return
+	case err != nil:
+		writeAudioRecoveryError(c, err)
+		return
+	}
+	status := http.StatusAccepted
+	if result.AlreadyAvailable {
+		status = http.StatusOK
+	}
+	c.JSON(status, gin.H{"success": true, "data": result})
+}
+
 func openVerifiedManagedAudio(audio processing.ReadyAudio) (*os.File, error) {
 	file, err := os.OpenFile(
 		audio.Path,
@@ -460,6 +508,25 @@ func writeAudioStoreError(c *gin.Context, err error) {
 		"error": gin.H{
 			"code":    strings.ToUpper(audioErr.Code),
 			"message": audioErr.SafeMessage,
+		},
+	})
+}
+
+func writeAudioRecoveryError(c *gin.Context, err error) {
+	var recoveryErr *processing.AudioRecoveryError
+	if !errors.As(err, &recoveryErr) {
+		middleware.InternalErrorResponseWithCode(c, "AUDIO_RECOVERY_FAILED", "Failed to recover artifact audio")
+		return
+	}
+	status := http.StatusConflict
+	if recoveryErr.Retryable {
+		status = http.StatusServiceUnavailable
+	}
+	c.JSON(status, gin.H{
+		"success": false,
+		"error": gin.H{
+			"code":    strings.ToUpper(recoveryErr.Code),
+			"message": recoveryErr.SafeMessage,
 		},
 	})
 }

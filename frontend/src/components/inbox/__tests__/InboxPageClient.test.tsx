@@ -15,7 +15,9 @@ import type {
   ConsumptionSummary,
 } from "@/types/consumption";
 import type {
+  ArtifactContent,
   EpisodeArtifactSet,
+  AudioRecoverySummary,
   ProcessingRun,
   ProcessingRunDetail,
 } from "@/types/processing";
@@ -44,6 +46,7 @@ const apiMocks = vi.hoisted(() => ({
   startProcessing: vi.fn(),
   cancelProcessing: vi.fn(),
   retryProcessing: vi.fn(),
+  recoverAudio: vi.fn(),
   getShowNotes: vi.fn(),
   getCopilotContext: vi.fn(),
   askCopilot: vi.fn(),
@@ -171,6 +174,7 @@ vi.mock("@/lib/api/processing", () => ({
     start: apiMocks.startProcessing,
     cancel: apiMocks.cancelProcessing,
     retry: apiMocks.retryProcessing,
+    recoverAudio: apiMocks.recoverAudio,
   },
   getProcessingErrorDetails: vi.fn((error: unknown) => ({
     message: error instanceof Error ? error.message : "加工状态读取失败",
@@ -1415,6 +1419,9 @@ describe("InboxPageClient", () => {
     expect(within(dialog).getByText("尾段")).toBeVisible();
     expect(within(dialog).getByText("逐字稿 · 3 段")).toBeVisible();
     expect(within(dialog).getByText("音频可用")).toBeVisible();
+    expect(
+      within(dialog).queryByRole("button", { name: "恢复音频" }),
+    ).not.toBeInTheDocument();
     expect(within(dialog).getByText("正在加载音频…")).toBeVisible();
 
     const audio = dialog.querySelector("audio")!;
@@ -1539,6 +1546,154 @@ describe("InboxPageClient", () => {
       within(dialog).queryByText("来自同一条飞书妙记"),
     ).not.toBeInTheDocument();
     selectionSpy.mockRestore();
+  });
+
+  it("queues missing audio from the transcript and confirms success after re-entry", async () => {
+    const completedRun: ProcessingRun = {
+      id: 101,
+      episode_id: inboxItem.episode_id,
+      pipeline_version: "focus-processing-v2",
+      trigger_source: "manual",
+      status: "completed",
+      current_step: "",
+      attempt_count: 1,
+      max_attempts: 3,
+      error_retryable: false,
+      created_at: "2026-08-29T08:00:00Z",
+      updated_at: "2026-08-29T08:05:00Z",
+    };
+    const nativeArtifact: EpisodeArtifactSet = {
+      id: 102,
+      run_id: completedRun.id,
+      episode_id: inboxItem.episode_id,
+      pipeline_version: completedRun.pipeline_version,
+      manifest_path: "manifest.json",
+      manifest_sha256: "1".repeat(64),
+      minutes_summary_sha256: "2".repeat(64),
+      transcript_sha256: "3".repeat(64),
+      transcript_timeline_sha256: "4".repeat(64),
+      notes_sha256: "",
+      capabilities: {
+        minutes_summary: true,
+        transcript: true,
+        structured_timeline: true,
+        matching_audio: false,
+        legacy_episode_notes: false,
+      },
+      is_current: true,
+      created_at: "2026-08-29T08:05:00Z",
+    };
+    const initialRecovery: AudioRecoverySummary = {
+      recoverable: true,
+      can_retry: false,
+    };
+    const queuedResponse: AudioRecoverySummary = {
+      recoverable: true,
+      status: "queued",
+      can_retry: false,
+    };
+    let mediaAvailable = false;
+    let backendRecovery = initialRecovery;
+    apiMocks.listEpisodeRuns.mockResolvedValue([completedRun]);
+    apiMocks.getProcessingRun.mockResolvedValue({
+      run: completedRun,
+      current_artifact: nativeArtifact,
+      deliveries: [],
+    } satisfies ProcessingRunDetail);
+    apiMocks.getArtifactContent.mockImplementation(
+      (_artifactSetId: number, kind: string): Promise<ArtifactContent> =>
+        Promise.resolve(
+          kind === "minutes_summary"
+            ? {
+                kind: "minutes_summary",
+                content: "# 妙记原生纪要",
+                sha256: nativeArtifact.minutes_summary_sha256!,
+                media_available: false,
+              }
+            : {
+                kind: "transcript",
+                content: "# 可持续阅读的逐字稿",
+                sha256: nativeArtifact.transcript_sha256,
+                timeline_sha256: nativeArtifact.transcript_timeline_sha256,
+                segments: [
+                  {
+                    order: 1,
+                    speaker: "主持人",
+                    start_ms: 0,
+                    text: "恢复期间正文仍在这里。",
+                  },
+                ],
+                media_available: mediaAvailable,
+                audio_recovery: backendRecovery,
+              },
+        ),
+    );
+    apiMocks.recoverAudio.mockImplementation(async () => {
+      // The write acknowledges a queued task. The following transcript read
+      // observes the fake worker's durable completion.
+      backendRecovery = {
+        recoverable: true,
+        status: "completed",
+        can_retry: false,
+      };
+      mediaAvailable = true;
+      return {
+        artifact_set_id: nativeArtifact.id,
+        audio_recovery: queuedResponse,
+        queued: true,
+        reused: false,
+        already_available: false,
+      };
+    });
+
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "打开 可处理单集 明细",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "可处理单集",
+    });
+    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
+    fireEvent.click(await within(dialog).findByRole("tab", { name: "逐字稿" }));
+
+    expect(
+      await within(dialog).findByRole("button", { name: "恢复音频" }),
+    ).toBeEnabled();
+    expect(within(dialog).getByText("恢复期间正文仍在这里。")).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "恢复音频" }));
+
+    await waitFor(() =>
+      expect(apiMocks.recoverAudio).toHaveBeenCalledWith(nativeArtifact.id),
+    );
+    expect(await within(dialog).findByText("音频可用")).toBeVisible();
+    expect(dialog.querySelector("audio")).not.toBeNull();
+    expect(
+      within(dialog).queryByRole("button", { name: "恢复音频" }),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).getByText("恢复期间正文仍在这里。")).toBeVisible();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "关闭单集明细" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "可处理单集" })).toBeNull(),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "打开 可处理单集 明细",
+      }),
+    );
+    const reopened = await screen.findByRole("dialog", {
+      name: "可处理单集",
+    });
+    fireEvent.click(await within(reopened).findByRole("tab", { name: "转写" }));
+    fireEvent.click(
+      await within(reopened).findByRole("tab", { name: "逐字稿" }),
+    );
+    expect(await within(reopened).findByText("音频可用")).toBeVisible();
+    expect(
+      within(reopened).queryByRole("button", { name: "恢复音频" }),
+    ).not.toBeInTheDocument();
   });
 
   it("lets a Focus user re-transcribe a completed legacy artifact", async () => {

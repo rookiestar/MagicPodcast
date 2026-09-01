@@ -13,6 +13,7 @@ import EpisodeProcessingPanel, {
 import type { ConsumptionItem } from "@/types/consumption";
 import type {
   ArtifactContent,
+  AudioRecoverySummary,
   EpisodeArtifactSet,
   ProcessingRun,
   ProcessingRunDetail,
@@ -26,6 +27,7 @@ const apiMocks = vi.hoisted(() => ({
   start: vi.fn(),
   cancel: vi.fn(),
   retry: vi.fn(),
+  recoverAudio: vi.fn(),
   getArtifactContent: vi.fn(),
 }));
 
@@ -115,6 +117,22 @@ function detail(run: ProcessingRun = failedRun): ProcessingRunDetail {
     current_artifact: artifact,
     deliveries: [],
     action_suggestion: "恢复 Runtime 后从检查点重试。",
+  };
+}
+
+function transcriptContent(
+  audioRecovery: AudioRecoverySummary | undefined,
+  mediaAvailable = false,
+): ArtifactContent {
+  return {
+    kind: "transcript",
+    content: "# 可读逐字稿\n\n音频状态不应遮挡这段正文。",
+    sha256: "b".repeat(64),
+    media_available: mediaAvailable,
+    audio_recovery: audioRecovery,
+    segments: [
+      { order: 1, speaker: "主持人", start_ms: 0, text: "正文段落" },
+    ],
   };
 }
 
@@ -1149,5 +1167,197 @@ describe("EpisodeProcessingPanel", () => {
     expect(screen.getByRole("button", { name: "取消" })).toBeEnabled();
     expect(apiMocks.start).toHaveBeenCalledWith(item.episode_id);
     expect(apiMocks.getRun).toHaveBeenCalledWith(pendingRun.id);
+  });
+
+  it("queues recoverable missing audio once and keeps the transcript readable", async () => {
+    const initialRecovery: AudioRecoverySummary = {
+      recoverable: true,
+      can_retry: false,
+    };
+    const queuedRecovery: AudioRecoverySummary = {
+      recoverable: true,
+      status: "queued",
+      can_retry: false,
+      updated_at: "2026-09-01T05:00:00Z",
+    };
+    let transcriptReads = 0;
+    apiMocks.listEpisodeRuns.mockResolvedValue([failedRun]);
+    apiMocks.getRun.mockResolvedValue(detail());
+    apiMocks.getArtifactContent.mockImplementation(
+      (_artifactSetId: number, kind: string) =>
+        Promise.resolve(
+          kind === "transcript"
+            ? transcriptContent(
+                transcriptReads++ === 0 ? initialRecovery : queuedRecovery,
+              )
+            : {
+                kind,
+                content: "# 旧版纪要",
+                sha256: "c".repeat(64),
+                media_available: false,
+              },
+        ),
+    );
+    apiMocks.recoverAudio.mockResolvedValue({
+      artifact_set_id: artifact.id,
+      audio_recovery: queuedRecovery,
+      queued: true,
+      reused: false,
+      already_available: false,
+    });
+
+    render(<EpisodeProcessingPanel item={item} />);
+    expect(await screen.findByText("# 旧版纪要")).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "逐字稿" }));
+
+    const recoverButton = await screen.findByRole("button", {
+      name: "恢复音频",
+    });
+    expect(screen.getByText("正文段落")).toBeVisible();
+    fireEvent.click(recoverButton);
+
+    await waitFor(() =>
+      expect(apiMocks.recoverAudio).toHaveBeenCalledWith(artifact.id),
+    );
+    expect(
+      await screen.findByRole("button", { name: "已排队" }),
+    ).toBeDisabled();
+    expect(screen.getByText("恢复已排队")).toBeVisible();
+    expect(screen.getByText("正文段落")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "已排队" }));
+    expect(apiMocks.recoverAudio).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows downloading and terminal failure without replacing transcript text", async () => {
+    const cases: Array<{
+      name: string;
+      recovery: AudioRecoverySummary;
+      button?: string;
+      label: string;
+    }> = [
+      {
+        name: "downloading",
+        recovery: {
+          recoverable: true,
+          status: "downloading",
+          can_retry: false,
+        },
+        button: "恢复中",
+        label: "正在恢复音频",
+      },
+      {
+        name: "terminal failure",
+        recovery: {
+          recoverable: true,
+          status: "failed",
+          error_code: "AUDIO_RECOVERY_DIGEST_MISMATCH",
+          error_message: "远端音频与目标产物不一致，无法恢复。",
+          can_retry: false,
+        },
+        label: "音频恢复失败",
+      },
+      {
+        name: "unavailable",
+        recovery: {
+          recoverable: false,
+          error_code: "AUDIO_RECOVERY_CHECKPOINT_MISSING",
+          error_message: "没有可用的受保护恢复来源。",
+          can_retry: false,
+        },
+        label: "音频暂不可恢复",
+      },
+	    ];
+
+	    for (const testCase of cases) {
+	      apiMocks.listEpisodeRuns.mockReset();
+	      apiMocks.getRun.mockReset();
+	      apiMocks.getArtifactContent.mockReset();
+	      apiMocks.listEpisodeRuns.mockResolvedValue([failedRun]);
+	      apiMocks.getRun.mockResolvedValue(detail());
+      apiMocks.getArtifactContent.mockImplementation(
+        (_artifactSetId: number, kind: string) =>
+          Promise.resolve(
+            kind === "transcript"
+              ? transcriptContent(testCase.recovery)
+              : {
+                  kind,
+                  content: "# 旧版纪要",
+                  sha256: "c".repeat(64),
+                  media_available: false,
+	              },
+	          ),
+	      );
+
+	      const { unmount } = render(<EpisodeProcessingPanel item={item} />);
+      expect(await screen.findByText("# 旧版纪要")).toBeVisible();
+      fireEvent.click(screen.getByRole("tab", { name: "逐字稿" }));
+      expect(await screen.findByText(testCase.label)).toBeVisible();
+      expect(screen.getByText("正文段落")).toBeVisible();
+      if (testCase.button) {
+        expect(
+          screen.getByRole("button", { name: testCase.button }),
+        ).toBeDisabled();
+      } else {
+        expect(
+          screen.queryByRole("button", { name: "重试恢复" }),
+        ).not.toBeInTheDocument();
+      }
+      unmount();
+    }
+  });
+
+  it("offers an explicit retry and adopts media only after the transcript read confirms it", async () => {
+    const failedRecovery: AudioRecoverySummary = {
+      recoverable: true,
+      status: "failed",
+      error_code: "AUDIO_RECOVERY_DOWNLOAD_FAILED",
+      error_message: "下载暂时失败，请稍后重试。",
+      can_retry: true,
+    };
+    const queuedRecovery: AudioRecoverySummary = {
+      recoverable: true,
+      status: "queued",
+      can_retry: false,
+    };
+    let transcriptReads = 0;
+    apiMocks.listEpisodeRuns.mockResolvedValue([failedRun]);
+    apiMocks.getRun.mockResolvedValue(detail());
+    apiMocks.getArtifactContent.mockImplementation(
+      (_artifactSetId: number, kind: string) =>
+        Promise.resolve(
+          kind === "transcript"
+            ? transcriptContent(
+                transcriptReads++ === 0 ? failedRecovery : queuedRecovery,
+              )
+            : {
+                kind,
+                content: "# 旧版纪要",
+                sha256: "c".repeat(64),
+                media_available: false,
+              },
+        ),
+    );
+    apiMocks.recoverAudio.mockResolvedValue({
+      artifact_set_id: artifact.id,
+      audio_recovery: queuedRecovery,
+      queued: true,
+      reused: false,
+      already_available: false,
+    });
+
+    render(<EpisodeProcessingPanel item={item} />);
+    expect(await screen.findByText("# 旧版纪要")).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "逐字稿" }));
+    expect(await screen.findByText("音频恢复失败")).toBeVisible();
+    expect(screen.getByText("下载暂时失败，请稍后重试。")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "重试恢复" }));
+    await waitFor(() =>
+      expect(apiMocks.recoverAudio).toHaveBeenCalledTimes(1),
+    );
+    expect(
+      await screen.findByRole("button", { name: "已排队" }),
+    ).toBeDisabled();
+    expect(screen.getByText("正文段落")).toBeVisible();
   });
 });

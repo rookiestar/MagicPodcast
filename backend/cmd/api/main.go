@@ -177,11 +177,20 @@ func main() {
 		if err != nil {
 			logger.Fatalf("Failed to initialize Feishu Minutes adapter: %v", err)
 		}
+		audioRecovery, err := processing.NewFeishuDriveAudioRecovery(
+			db,
+			audioStore,
+			cfg.Processing.LarkCLI,
+		)
+		if err != nil {
+			logger.Fatalf("Failed to initialize audio recovery: %v", err)
+		}
 		processingService := processing.NewService(
 			db,
 			processing.WithProcessingInputResolver(inputResolver),
 			processing.WithAudioPreparer(audioStore),
 			processing.WithArtifactReader(artifactStore),
+			processing.WithAudioRecovery(audioRecovery),
 		)
 		bridges, err := newProcessingBridgeBindings(cfg.Processing)
 		if err != nil {

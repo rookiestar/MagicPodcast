@@ -76,6 +76,11 @@ func (w *Worker) Run(ctx context.Context) error {
 }
 
 func (w *Worker) RunOnce(ctx context.Context) error {
+	if w.service.audioRecovery != nil {
+		if err := w.reconcileAudioRecoveries(ctx); err != nil {
+			return err
+		}
+	}
 	if w.audio != nil {
 		if err := w.reconcileAudioPreparationRuns(ctx); err != nil {
 			return err
@@ -148,6 +153,37 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 			default:
 				return fmt.Errorf("advance processing run %d: %w", runID, err)
 			}
+		}
+	}
+	return nil
+}
+
+func (w *Worker) reconcileAudioRecoveries(ctx context.Context) error {
+	ids, err := w.service.audioRecovery.ListClaimable(ctx, w.config.BatchSize)
+	if err != nil {
+		return err
+	}
+	for _, recoveryID := range ids {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		claim, claimed, err := w.service.audioRecovery.Claim(ctx, recoveryID)
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return err
+			}
+			continue
+		}
+		if !claimed {
+			continue
+		}
+		if err := w.service.audioRecovery.Recover(ctx, claim); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return err
+			}
+			// The recovery store durably records ordinary supplier, validation,
+			// and storage failures. Keep the worker available for other jobs.
+			continue
 		}
 	}
 	return nil

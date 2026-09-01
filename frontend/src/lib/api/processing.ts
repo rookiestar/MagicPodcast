@@ -3,6 +3,7 @@ import type { ApiResponse } from "@/types";
 import type {
   ArtifactContentKind,
   ArtifactContent,
+  AudioRecoveryEnqueueResult,
   EpisodeAudioAsset,
   ProcessingErrorDetails,
   ProcessingRun,
@@ -104,6 +105,15 @@ export const processingApi = {
     const response = await api.get<ApiResponse<ArtifactContent>>(
       `/api/v1/artifact-sets/${artifactSetId}/${kind}`,
       inlineApiErrorConfig,
+    );
+    return handleResponse(response);
+  },
+
+  recoverAudio: async (
+    artifactSetId: number,
+  ): Promise<AudioRecoveryEnqueueResult> => {
+    const response = await api.post<ApiResponse<AudioRecoveryEnqueueResult>>(
+      `/api/v1/artifact-sets/${artifactSetId}/audio/recovery`,
     );
     return handleResponse(response);
   },
