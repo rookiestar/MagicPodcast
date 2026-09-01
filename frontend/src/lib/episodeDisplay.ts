@@ -137,8 +137,11 @@ export function shouldShowEpisodePlayButton(mediumUrl?: string | null) {
   return Boolean(mediumUrl);
 }
 
-export function shouldShowEpisodeShowNotes(showNotes?: string | null) {
-  return Boolean(showNotes);
+export function shouldShowEpisodeShowNotes(
+  showNotes?: string | null,
+  hasShowNotes?: boolean,
+) {
+  return hasShowNotes ?? Boolean(showNotes);
 }
 
 export type EpisodeVideoAction =

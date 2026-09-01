@@ -50,6 +50,7 @@ export interface Episode {
   title: string;
   medium_url: string;
   show_notes: string;
+  has_show_notes?: boolean;
   published_date: string;
   duration: number; // 音频时长（秒）
   link: string; // 单集网页链接

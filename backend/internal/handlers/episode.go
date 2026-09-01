@@ -36,6 +36,7 @@ type EpisodeResponse struct {
 	Title             string `json:"title"`
 	MediumURL         string `json:"medium_url"`
 	ShowNotes         string `json:"show_notes"`
+	HasShowNotes      bool   `json:"has_show_notes"`
 	PublishedDate     string `json:"published_date"`
 	Duration          int    `json:"duration"`         // 音频时长（秒）
 	Link              string `json:"link"`             // 单集网页链接
@@ -108,6 +109,7 @@ func episodeToResponse(episode models.Episode, previewLimit int) EpisodeResponse
 		Title:             episode.Title,
 		MediumURL:         episode.MediumURL,
 		ShowNotes:         episodeShowNotesPreview(episode.ShowNotes, previewLimit),
+		HasShowNotes:      strings.TrimSpace(episode.ShowNotes) != "",
 		PublishedDate:     episode.PublishedDate.Format("2006-01-02T15:04:05Z07:00"),
 		Duration:          episode.Duration,
 		Link:              episode.Link,

@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Episode, Podcast } from "@/types";
 import type { EpisodeShowNotesPayload } from "@/types/showNotes";
@@ -142,6 +149,37 @@ describe("podcast detail Show Notes user flow", () => {
     fireEvent.focus(screen.getByRole("link", { name: "单集 A" }));
     expect(await screen.findByRole("heading", { name: "完整 A" })).toBeVisible();
     expect(apiMocks.getShowNotes).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps long full Show Notes inside the bounded scroll region", async () => {
+    const longDocument = Array.from(
+      { length: 80 },
+      (_, index) => `长文段落 ${index + 1}：用于验证完整内容没有被截断。`,
+    ).join("\n\n");
+    apiMocks.getShowNotes.mockResolvedValueOnce({
+      episode_id: 1,
+      show_notes_document: {
+        content: longDocument,
+        format: "markdown",
+      },
+    });
+    render(<PodcastDetailContent {...baseProps} />);
+
+    fireEvent.mouseEnter(cardFor("单集 A"));
+    const reader = await screen.findByRole("region", {
+      name: "完整 Show Notes",
+    });
+    expect(within(reader).getByText(/长文段落 80/)).toBeVisible();
+
+    Object.defineProperties(reader, {
+      clientHeight: { configurable: true, value: 384 },
+      scrollHeight: { configurable: true, value: 2565 },
+    });
+    expect(reader.scrollHeight).toBeGreaterThan(reader.clientHeight);
+    reader.scrollTop = 320;
+    fireEvent.scroll(reader);
+    expect(reader.scrollTop).toBe(320);
+    expect(cardFor("单集 A")).toContainElement(reader);
   });
 
   it("keeps summary content through slow and failed reads, then retries", async () => {

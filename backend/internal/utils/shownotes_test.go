@@ -40,6 +40,22 @@ func TestBuildShowNotesDocument_NormalizesMixedHTMLAndMarkdown(t *testing.T) {
 	}
 }
 
+func TestBuildShowNotesDocument_PreservesMarkdownLinesInsideHTMLTextNodes(t *testing.T) {
+	document := BuildShowNotesDocument("<div># 标题\n\n- 项目 A\n- 项目 B</div>")
+
+	if document.Format != ShowNotesFormatMarkdown {
+		t.Fatalf("format = %q, want %q", document.Format, ShowNotesFormatMarkdown)
+	}
+	for _, want := range []string{"# 标题", "\n\n- 项目 A\n- 项目 B"} {
+		if !strings.Contains(document.Content, want) {
+			t.Fatalf("content missing %q:\n%s", want, document.Content)
+		}
+	}
+	if strings.Contains(document.Content, "# 标题 - 项目 A") {
+		t.Fatalf("content collapsed Markdown blocks: %q", document.Content)
+	}
+}
+
 func TestBuildShowNotesDocument_ClassifiesConservatively(t *testing.T) {
 	tests := []struct {
 		name        string
