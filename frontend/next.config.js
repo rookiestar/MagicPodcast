@@ -79,6 +79,10 @@ module.exports = {
         source: '/health',
         destination: `${backendUrl}/health`,
       },
+      {
+        source: '/ready',
+        destination: `${backendUrl}/ready`,
+      },
     ]
   },
 }

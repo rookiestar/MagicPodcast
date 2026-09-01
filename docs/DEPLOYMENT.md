@@ -165,7 +165,7 @@ frontend/.env.local
 #### Cloudflare 精确设置
 
 1. 在 Mac mini 以仅所有者可读的环境创建一个命名 Tunnel：`magicpodcast-prod`。记录其 UUID，但不把 UUID 凭据文件或登录证书提交到仓库。
-2. 将 `rookiestar.cn` 的 Tunnel 公共主机名指向 `http://127.0.0.1:8088`。这是 Nginx 的仅本机入口；Nginx 再转发页面与框架资源到 `127.0.0.1:3000`，并转发 API、图片和 `/health` 到 `127.0.0.1:8080`。不得为前端或后端另开公网主机名或直连端口。Tunnel 配置只有一个允许的主机名，其他主机名返回 `404`。
+2. 将 `rookiestar.cn` 的 Tunnel 公共主机名指向 `http://127.0.0.1:8088`。这是 Nginx 的仅本机入口；页面与框架资源转发到 `127.0.0.1:3000`，前端同源代理将 API、图片和健康检查请求（`/health`、`/ready`）转发到 `127.0.0.1:8080`。不得为前端或后端另开公网主机名或直连端口。Tunnel 配置只有一个允许的主机名，其他主机名返回 `404`。
 3. 在 Cloudflare DNS 中让 `rookiestar.cn` 指向该 Tunnel 的 `*.cfargotunnel.com` 目标。若现有记录冲突，只能在已保存原记录且获得授权后替换。
 4. 在 Access settings 中启用独立 MFA，仅允许 `Security key` 和 `Biometrics`，认证时长设为 24 小时或更短；不启用“Use identity provider MFA”，因为 Google 身份提供方不支持 Access 的 IdP MFA 强制校验。保留“Apply global MFA settings by default”为关闭，避免把该要求扩展到未来的无关应用。
 5. 创建一个 Self-hosted Access 应用，应用域名为 `rookiestar.cn`，不设置路径例外。策略默认拒绝，仅有一个 `Allow` 策略：`Include: Emails` 精确匹配所有者身份，`Require: Login Methods = Google`。在应用 Authentication 的 MFA 中选择自定义设置，仅允许 `Security key` 和 `Biometrics`。应用会话时长设为 30 天；不创建服务令牌、旁路策略或公开路径。
