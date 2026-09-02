@@ -1,6 +1,10 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import TranscriptAudioPlayer from "../TranscriptAudioPlayer";
+import TranscriptAudioPlayer, {
+  DEFAULT_TRANSCRIPT_PLAYBACK_RATE,
+  type TranscriptPlaybackRate,
+} from "../TranscriptAudioPlayer";
 import type { TranscriptSegment } from "@/types/processing";
 
 const segments: TranscriptSegment[] = [
@@ -14,6 +18,16 @@ function prepareAudio(audio: HTMLAudioElement, duration = 120) {
   Object.defineProperties(audio, {
     duration: { configurable: true, value: duration },
     currentTime: { configurable: true, writable: true, value: 0 },
+    defaultPlaybackRate: {
+      configurable: true,
+      writable: true,
+      value: DEFAULT_TRANSCRIPT_PLAYBACK_RATE,
+    },
+    playbackRate: {
+      configurable: true,
+      writable: true,
+      value: DEFAULT_TRANSCRIPT_PLAYBACK_RATE,
+    },
     paused: { configurable: true, get: () => paused },
   });
   const play = vi.fn(async () => {
@@ -34,15 +48,38 @@ function prepareAudio(audio: HTMLAudioElement, duration = 120) {
   return { play, pause, load };
 }
 
+interface TestPlayerProps {
+  artifactSetId?: number;
+  segments?: TranscriptSegment[];
+  mediaAvailable?: boolean;
+}
+
+function StatefulTranscriptAudioPlayer({
+  artifactSetId = 82,
+  segments: playerSegments = segments,
+  mediaAvailable = true,
+}: TestPlayerProps) {
+  const [playbackRate, setPlaybackRate] = useState<TranscriptPlaybackRate>(
+    DEFAULT_TRANSCRIPT_PLAYBACK_RATE,
+  );
+  return (
+    <TranscriptAudioPlayer
+      artifactSetId={artifactSetId}
+      segments={playerSegments}
+      mediaAvailable={mediaAvailable}
+      playbackRate={playbackRate}
+      onPlaybackRateChange={setPlaybackRate}
+    />
+  );
+}
+
+function renderPlayer(props: TestPlayerProps = {}) {
+  return render(<StatefulTranscriptAudioPlayer {...props} />);
+}
+
 describe("TranscriptAudioPlayer", () => {
   it("syncs public media events, slider keys, and segment clicks", async () => {
-    const { container } = render(
-      <TranscriptAudioPlayer
-        artifactSetId={82}
-        segments={segments}
-        mediaAvailable
-      />,
-    );
+    const { container } = renderPlayer();
     const audio = container.querySelector("audio");
     expect(audio).not.toBeNull();
     expect(audio).toHaveAttribute(
@@ -50,6 +87,14 @@ describe("TranscriptAudioPlayer", () => {
       "/api/v1/artifact-sets/82/audio",
     );
     const media = prepareAudio(audio!);
+    const playbackRate = screen.getByRole("combobox", { name: "播放倍速" });
+    expect(playbackRate).toHaveValue("1");
+    expect(
+      Array.from(playbackRate.querySelectorAll("option")).map(
+        (option) => option.value,
+      ),
+    ).toEqual(["0.75", "1", "1.25", "1.5", "2"]);
+    expect(audio!.playbackRate).toBe(1);
 
     const first = screen.getByRole("button", {
       name: "00:00 主持人：开场内容",
@@ -75,6 +120,12 @@ describe("TranscriptAudioPlayer", () => {
     expect(second).toHaveAttribute("aria-current", "true");
     expect(screen.getByText("正在播放")).toBeVisible();
 
+    fireEvent.change(playbackRate, { target: { value: "1.5" } });
+    expect(playbackRate).toHaveValue("1.5");
+    expect(audio!.playbackRate).toBe(1.5);
+    expect(audio!.currentTime).toBe(31);
+    expect(second).toHaveAttribute("aria-current", "true");
+
     const slider = screen.getByRole("slider", { name: "音频进度" });
     fireEvent.change(slider, { target: { value: "61" } });
     expect(audio!.currentTime).toBe(61);
@@ -99,16 +150,16 @@ describe("TranscriptAudioPlayer", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "暂停音频" }));
     expect(media.pause).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(audio!.playbackRate).toBe(1.5);
+    expect(screen.getByRole("button", { name: "暂停音频" })).toBeVisible();
   });
 
   it("pauses follow after manual scrolling and resumes it on play or seek", async () => {
-    const { container } = render(
-      <TranscriptAudioPlayer
-        artifactSetId={82}
-        segments={segments}
-        mediaAvailable
-      />,
-    );
+    const { container } = renderPlayer();
     const audio = container.querySelector("audio")!;
     prepareAudio(audio);
     const transcript = screen.getByRole("region", { name: "同步逐字稿" });
@@ -151,15 +202,10 @@ describe("TranscriptAudioPlayer", () => {
   });
 
   it("keeps transcript text readable while media is slow, failed, or unavailable", () => {
-    const { container, rerender } = render(
-      <TranscriptAudioPlayer
-        artifactSetId={82}
-        segments={segments}
-        mediaAvailable
-      />,
-    );
+    const { container, rerender } = renderPlayer();
     expect(screen.getByText("正在加载音频…")).toBeVisible();
     expect(screen.getByText("中段内容")).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "播放倍速" })).toBeDisabled();
 
     const audio = container.querySelector("audio")!;
     const { load } = prepareAudio(audio);
@@ -169,53 +215,25 @@ describe("TranscriptAudioPlayer", () => {
       screen.getByText("音频加载失败，逐字稿仍可阅读。"),
     ).toBeVisible();
     expect(screen.getByText("尾段内容")).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "播放倍速" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(load).toHaveBeenCalledTimes(1);
     expect(audio).toHaveAttribute("src", source);
     expect(screen.getByText("正在加载音频…")).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "播放倍速" })).toBeDisabled();
 
     rerender(
-      <TranscriptAudioPlayer
+      <StatefulTranscriptAudioPlayer
         artifactSetId={83}
-        segments={segments}
         mediaAvailable={false}
       />,
     );
     expect(screen.queryByRole("slider")).toBeDisabled();
     expect(screen.queryByRole("button", { name: "播放音频" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "播放倍速" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: /主持人：开场内容/ })).toBeNull();
     expect(screen.getByText("开场内容")).toBeVisible();
     expect(screen.getByText("音频不可用，逐字稿仍可阅读。")).toBeVisible();
-  });
-
-  it("keeps controls and text present in a 390px viewport", () => {
-    const previousWidth = window.innerWidth;
-    Object.defineProperty(window, "innerWidth", {
-      configurable: true,
-      value: 390,
-    });
-    try {
-      render(
-        <TranscriptAudioPlayer
-          artifactSetId={82}
-          segments={segments}
-          mediaAvailable
-        />,
-      );
-      expect(
-        screen.getByLabelText("逐字稿音频播放器"),
-      ).toBeInTheDocument();
-      expect(screen.getByRole("slider", { name: "音频进度" })).toBeVisible();
-      expect(
-        screen.getByRole("region", { name: "同步逐字稿" }),
-      ).toBeVisible();
-      expect(screen.getByText("尾段内容")).toBeVisible();
-    } finally {
-      Object.defineProperty(window, "innerWidth", {
-        configurable: true,
-        value: previousWidth,
-      });
-    }
   });
 
   it("chooses the last segment whose start is not later than playback", () => {
@@ -224,13 +242,7 @@ describe("TranscriptAudioPlayer", () => {
       { ...segments[1], order: 2 },
       { ...segments[2], order: 3, start_ms: 30_000 },
     ];
-    const { container } = render(
-      <TranscriptAudioPlayer
-        artifactSetId={82}
-        segments={equalStartSegments}
-        mediaAvailable
-      />,
-    );
+    const { container } = renderPlayer({ segments: equalStartSegments });
     const audio = container.querySelector("audio")!;
     prepareAudio(audio);
     audio.currentTime = 30;

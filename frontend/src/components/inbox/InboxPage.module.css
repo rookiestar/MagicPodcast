@@ -1877,7 +1877,7 @@
 
 .transcriptPlayer {
   display: grid;
-  grid-template-columns: 38px minmax(120px, 1fr) auto;
+  grid-template-columns: 38px minmax(120px, 1fr) auto auto;
   align-items: center;
   gap: 9px 12px;
   padding: 10px;
@@ -1922,6 +1922,7 @@
 .transcriptPlayButton:focus-visible,
 .transcriptRetryButton:focus-visible,
 .transcriptProgress input:focus-visible,
+.transcriptPlaybackRate select:focus-visible,
 .transcriptSegment:focus-visible,
 .transcriptSegments:focus-visible {
   outline: 2px solid var(--orange);
@@ -1950,6 +1951,29 @@
   font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
   text-align: right;
   white-space: nowrap;
+}
+
+.transcriptPlaybackRate {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+}
+
+.transcriptPlaybackRate select {
+  min-height: 36px;
+  min-width: 76px;
+  padding: 0 25px 0 9px;
+  color: var(--ink);
+  border: 1px solid rgba(23, 21, 18, 0.3);
+  border-radius: 0;
+  background: #fffaf0;
+  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
+  cursor: pointer;
+}
+
+.transcriptPlaybackRate select:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
 }
 
 .transcriptRetryButton {
@@ -2868,7 +2892,7 @@ button.transcriptSegment:hover {
   }
 
   .transcriptPlayer {
-    grid-template-columns: 38px minmax(0, 1fr);
+    grid-template-columns: 76px minmax(0, 1fr);
   }
 
   .audioRecovery {
@@ -2881,9 +2905,14 @@ button.transcriptSegment:hover {
   }
 
   .transcriptTime {
-    grid-column: 1 / -1;
+    grid-column: 2;
     min-width: 0;
-    text-align: left;
+    text-align: right;
+  }
+
+  .transcriptPlaybackRate {
+    grid-column: 1;
+    justify-self: start;
   }
 
   .transcriptRetryButton,

@@ -5,6 +5,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type ChangeEvent,
   type KeyboardEvent,
 } from "react";
 import {
@@ -19,9 +20,16 @@ interface TranscriptAudioPlayerProps {
   artifactSetId: number;
   segments: TranscriptSegment[];
   mediaAvailable: boolean;
+  playbackRate: TranscriptPlaybackRate;
+  onPlaybackRateChange: (rate: TranscriptPlaybackRate) => void;
 }
 
 type MediaState = "loading" | "ready" | "waiting" | "error" | "unavailable";
+
+export const TRANSCRIPT_PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2] as const;
+export type TranscriptPlaybackRate =
+  (typeof TRANSCRIPT_PLAYBACK_RATES)[number];
+export const DEFAULT_TRANSCRIPT_PLAYBACK_RATE: TranscriptPlaybackRate = 1;
 
 const transcriptScrollKeys = new Set([
   "ArrowDown",
@@ -32,6 +40,22 @@ const transcriptScrollKeys = new Set([
   "PageUp",
   " ",
 ]);
+
+function parseTranscriptPlaybackRate(value: string): TranscriptPlaybackRate {
+  const candidate = Number(value);
+  for (const rate of TRANSCRIPT_PLAYBACK_RATES) {
+    if (rate === candidate) return rate;
+  }
+  return DEFAULT_TRANSCRIPT_PLAYBACK_RATE;
+}
+
+function applyPlaybackRate(
+  audio: HTMLAudioElement,
+  rate: TranscriptPlaybackRate,
+) {
+  audio.defaultPlaybackRate = rate;
+  audio.playbackRate = rate;
+}
 
 function formatPlaybackTime(seconds: number, unknown = false) {
   if (!Number.isFinite(seconds) || seconds < 0 || unknown) return "--:--";
@@ -82,6 +106,8 @@ export default function TranscriptAudioPlayer({
   artifactSetId,
   segments,
   mediaAvailable,
+  playbackRate,
+  onPlaybackRateChange,
 }: TranscriptAudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -166,6 +192,12 @@ export default function TranscriptAudioPlayer({
     setFollowEnabled(true);
   }, [artifactSetId, mediaAvailable, segments, setFollowEnabled]);
 
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    applyPlaybackRate(audio, playbackRate);
+  }, [artifactSetId, mediaAvailable, playbackRate]);
+
   useEffect(
     () => () => {
       if (programmaticScrollFrame.current !== null) {
@@ -191,6 +223,16 @@ export default function TranscriptAudioPlayer({
       setMediaState("error");
     }
   }, [mediaState, setFollowEnabled, updatePosition]);
+
+  const handlePlaybackRateChange = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) => {
+      const nextRate = parseTranscriptPlaybackRate(event.currentTarget.value);
+      const audio = audioRef.current;
+      if (audio) applyPlaybackRate(audio, nextRate);
+      onPlaybackRateChange(nextRate);
+    },
+    [onPlaybackRateChange],
+  );
 
   const handleSliderKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
@@ -255,6 +297,7 @@ export default function TranscriptAudioPlayer({
             preload="metadata"
             aria-hidden="true"
             onLoadedMetadata={(event) => {
+              applyPlaybackRate(event.currentTarget, playbackRate);
               const nextDuration = Number.isFinite(event.currentTarget.duration)
                 ? event.currentTarget.duration
                 : 0;
@@ -331,6 +374,26 @@ export default function TranscriptAudioPlayer({
           {formatPlaybackTime(currentTime)} /{" "}
           {formatPlaybackTime(duration, duration <= 0)}
         </span>
+
+        <label className={styles.transcriptPlaybackRate}>
+          <span className={styles.srOnly}>播放倍速</span>
+          <select
+            value={playbackRate}
+            aria-label="播放倍速"
+            disabled={
+              !mediaAvailable ||
+              mediaState === "loading" ||
+              mediaState === "error"
+            }
+            onChange={handlePlaybackRateChange}
+          >
+            {TRANSCRIPT_PLAYBACK_RATES.map((rate) => (
+              <option key={rate} value={rate}>
+                {rate}×
+              </option>
+            ))}
+          </select>
+        </label>
 
         {mediaState === "error" && (
           <button

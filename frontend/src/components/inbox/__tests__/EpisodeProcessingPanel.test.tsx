@@ -136,6 +136,16 @@ function transcriptContent(
   };
 }
 
+function prepareTranscriptAudio(audio: HTMLAudioElement, duration = 120) {
+  Object.defineProperties(audio, {
+    duration: { configurable: true, value: duration },
+    currentTime: { configurable: true, writable: true, value: 0 },
+    defaultPlaybackRate: { configurable: true, writable: true, value: 1 },
+    playbackRate: { configurable: true, writable: true, value: 1 },
+  });
+  fireEvent.loadedMetadata(audio);
+}
+
 async function openProcessingDiagnostics() {
   await act(async () => {
     await Promise.resolve();
@@ -842,6 +852,15 @@ describe("EpisodeProcessingPanel", () => {
     expect(screen.getByText("音频可用")).toBeVisible();
     expect(screen.getByRole("tabpanel", { name: "逐字稿" })).toBeVisible();
 
+    const transcriptAudio = document.querySelector("audio");
+    expect(transcriptAudio).not.toBeNull();
+    prepareTranscriptAudio(transcriptAudio!);
+    const playbackRate = screen.getByRole("combobox", { name: "播放倍速" });
+    expect(playbackRate).toHaveValue("1");
+    fireEvent.change(playbackRate, { target: { value: "1.5" } });
+    expect(playbackRate).toHaveValue("1.5");
+    expect(transcriptAudio!.playbackRate).toBe(1.5);
+
     fireEvent.keyDown(transcriptTab, { key: "Home" });
     expect(summaryTab).toHaveFocus();
     expect(summaryTab).toHaveAttribute("aria-selected", "true");
@@ -850,6 +869,8 @@ describe("EpisodeProcessingPanel", () => {
     fireEvent.click(screen.getByRole("tab", { name: "逐字稿" }));
     expect(screen.getByText("正文")).toBeVisible();
     expect(apiMocks.getArtifactContent).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("combobox", { name: "播放倍速" })).toHaveValue("1.5");
+    expect(document.querySelector("audio")?.playbackRate).toBe(1.5);
 
     rerender(<EpisodeProcessingPanel item={item} />);
     expect(screen.getByRole("tab", { name: "逐字稿" })).toHaveAttribute(
@@ -857,6 +878,73 @@ describe("EpisodeProcessingPanel", () => {
       "true",
     );
     expect(screen.queryByText("来自同一条飞书妙记")).not.toBeInTheDocument();
+
+    const nextItem = {
+      ...item,
+      episode_id: 202,
+      episode_title: "下一集",
+    };
+    const nextRun: ProcessingRun = {
+      ...completedRun,
+      id: 63,
+      episode_id: nextItem.episode_id,
+    };
+    const nextArtifact: EpisodeArtifactSet = {
+      ...nativeArtifact,
+      id: 42,
+      run_id: nextRun.id,
+      episode_id: nextItem.episode_id,
+    };
+    const nextSummaryContent: ArtifactContent = {
+      ...summaryContent,
+      content: "# 新集纪要",
+      sha256: nextArtifact.minutes_summary_sha256 ?? "",
+    };
+    const nextTranscriptContent: ArtifactContent = {
+      ...transcriptContent,
+      content: "# 新集逐字稿",
+      sha256: nextArtifact.transcript_sha256,
+      timeline_sha256: nextArtifact.transcript_timeline_sha256,
+      segments: [
+        {
+          order: 1,
+          speaker: "说话人",
+          start_ms: 195,
+          text: "新集正文",
+        },
+      ],
+    };
+    apiMocks.listEpisodeRuns.mockImplementation((episodeID: number) =>
+      Promise.resolve(episodeID === nextItem.episode_id ? [nextRun] : [completedRun]),
+    );
+    apiMocks.getRun.mockImplementation((runID: number) =>
+      Promise.resolve(
+        runID === nextRun.id
+          ? {
+              run: nextRun,
+              current_artifact: nextArtifact,
+              deliveries: [],
+            }
+          : {
+              run: completedRun,
+              current_artifact: nativeArtifact,
+              deliveries: [],
+            },
+      ),
+    );
+    apiMocks.getArtifactContent.mockReset();
+    apiMocks.getArtifactContent.mockImplementation(
+      (_artifactSetId: number, kind: string) =>
+        Promise.resolve(
+          kind === "transcript" ? nextTranscriptContent : nextSummaryContent,
+        ),
+    );
+
+    rerender(<EpisodeProcessingPanel item={nextItem} />);
+    expect(await screen.findByText("# 新集纪要")).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "逐字稿" }));
+    expect(await screen.findByText("新集正文")).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "播放倍速" })).toHaveValue("1");
   });
 
   it("keeps the previous artifact when a replacement read is slow or fails", async () => {
