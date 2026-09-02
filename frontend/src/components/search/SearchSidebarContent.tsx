@@ -105,7 +105,7 @@ export function SearchSidebarContent({
       {panelState === "prompt" && (
         <div className="search-workbench-state">
           <IconSearch aria-hidden="true" stroke={1.25} />
-          <p>输入关键词开始搜索</p>
+          <p data-editorial-display-text="true">输入关键词开始搜索</p>
           <small>支持节目标题、作者、简介和单集内容</small>
         </div>
       )}
@@ -113,7 +113,7 @@ export function SearchSidebarContent({
       {panelState === "error" && (
         <div className="search-workbench-state is-error">
           <IconAlertTriangle aria-hidden="true" stroke={1.4} />
-          <p>搜索失败</p>
+          <p data-editorial-display-text="true">搜索失败</p>
           <small>{searchError}</small>
         </div>
       )}
@@ -121,7 +121,7 @@ export function SearchSidebarContent({
       {panelState === "empty" && (
         <div className="search-workbench-state">
           <IconSearch aria-hidden="true" stroke={1.25} />
-          <p>未找到相关结果</p>
+          <p data-editorial-display-text="true">未找到相关结果</p>
           <small>试试其他关键词</small>
         </div>
       )}

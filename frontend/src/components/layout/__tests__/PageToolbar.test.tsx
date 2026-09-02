@@ -15,6 +15,14 @@ describe("PageToolbar mobile title layout", () => {
     );
 
     const title = screen.getAllByRole("heading", { name: longTitle })[0];
+    for (const renderedTitle of screen.getAllByRole("heading", {
+      name: longTitle,
+    })) {
+      expect(renderedTitle).toHaveAttribute(
+        "data-editorial-display-text",
+        "true",
+      );
+    }
     const mainRow = title.closest(".page-toolbar-mobile-main");
 
     expect(mainRow).not.toBeNull();

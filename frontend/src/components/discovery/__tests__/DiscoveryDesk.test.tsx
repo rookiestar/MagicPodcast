@@ -267,6 +267,10 @@ describe("DiscoveryDesk", () => {
     expect(screen.getByTestId("candidate-excerpt-11")).toHaveTextContent(
       "这是一段基于 Show Notes 的摘要。",
     );
+    expect(screen.getByText("模型能力如何转向真实应用")).toHaveAttribute(
+      "data-editorial-display-text",
+      "true",
+    );
     expect(container.querySelectorAll(".discovery-unread-dot")).toHaveLength(2);
     expect(
       container
@@ -1024,6 +1028,9 @@ describe("DiscoveryDesk", () => {
     const editor = screen.getByRole("complementary", {
       name: "标签与备注编辑",
     });
+    for (const tab of screen.getAllByRole("tab")) {
+      expect(tab).toHaveAttribute("data-editorial-display-text", "true");
+    }
     const primaryPane = recovery.closest(".discovery-preview-primary");
     const workarea = recovery.closest(".discovery-preview-workarea");
 

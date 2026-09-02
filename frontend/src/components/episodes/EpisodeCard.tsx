@@ -103,12 +103,16 @@ function EpisodeCard({
                   target="_blank"
                   rel="noopener noreferrer"
                   className="podcast-episode-title line-clamp-2"
+                  data-editorial-display-text="true"
                   onClick={handleOriginalOpen}
                 >
                   {episode.title}
                 </a>
               ) : (
-                <span className="podcast-episode-title line-clamp-2">
+                <span
+                  className="podcast-episode-title line-clamp-2"
+                  data-editorial-display-text="true"
+                >
                   {episode.title}
                 </span>
               )}

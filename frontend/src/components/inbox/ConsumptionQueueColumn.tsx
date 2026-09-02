@@ -287,7 +287,12 @@ function ConsumptionCard({
             {item.podcast_title}
             {item.episode_no ? ` · ${item.episode_no}` : ""}
           </span>
-          <span className={styles.episodeTitle}>{item.episode_title}</span>
+          <span
+            className={styles.episodeTitle}
+            data-editorial-display-text="true"
+          >
+            {item.episode_title}
+          </span>
           <span className={styles.cardMeta}>
             {formatDuration(item.duration)}
             <span aria-hidden="true">·</span>

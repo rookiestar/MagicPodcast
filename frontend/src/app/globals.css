@@ -65,18 +65,21 @@
   }
 
   :root.editorial-assets-ready {
-    /* Latin web fonts come first and fall through to the CJK face because
-       their bundled files only contain Latin glyphs. */
-    --font-latin-display: "Newsreader Variable", Georgia, serif;
-    --font-cjk-display: "LXGW WenKai Screen", "Songti SC", "STKaiti", serif;
-    --font-serif:
-      "Newsreader Variable", "LXGW WenKai Screen", "Songti SC", "STKaiti", serif;
     --font-sans:
       "IBM Plex Sans Variable", -apple-system, BlinkMacSystemFont,
       "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     --font-mono:
       "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
       monospace;
+  }
+
+  :root.editorial-typography-ready {
+    /* Latin web fonts come first and fall through to the CJK face because
+       their bundled files only contain Latin glyphs. */
+    --font-latin-display: "Newsreader Variable", Georgia, serif;
+    --font-cjk-display: "LXGW WenKai Screen", "Songti SC", "STKaiti", serif;
+    --font-serif:
+      "Newsreader Variable", "LXGW WenKai Screen", "Songti SC", "STKaiti", serif;
   }
 
   .dark {

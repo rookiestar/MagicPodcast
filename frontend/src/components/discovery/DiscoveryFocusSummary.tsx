@@ -126,7 +126,7 @@ export default function DiscoveryFocusSummary({
         <div className="discovery-focus-heading">
           <IconTargetArrow aria-hidden="true" stroke={1.8} />
           <span>
-            <strong>Focus</strong>
+            <strong data-editorial-display-text="true">Focus</strong>
             <small>
               {focusCount} / {focusLimit}
             </small>
@@ -219,7 +219,9 @@ export default function DiscoveryFocusSummary({
                   <li key={item.episode_id}>
                     <span>
                       <small>{item.podcast_title}</small>
-                      <strong>{item.episode_title}</strong>
+                      <strong data-editorial-display-text="true">
+                        {item.episode_title}
+                      </strong>
                     </span>
                     <button
                       type="button"

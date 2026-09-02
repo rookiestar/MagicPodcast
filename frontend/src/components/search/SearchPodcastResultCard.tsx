@@ -38,7 +38,10 @@ export function SearchPodcastResultCard({
         />
       </div>
       <div className="search-result-copy">
-        <h3 className="search-result-title line-clamp-1">
+        <h3
+          className="search-result-title line-clamp-1"
+          data-editorial-display-text="true"
+        >
           <SearchHighlightedText text={podcast.title} keyword={query} />
         </h3>
         <p className="search-result-meta">

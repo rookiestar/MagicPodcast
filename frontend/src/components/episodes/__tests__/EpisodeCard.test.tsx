@@ -142,6 +142,10 @@ describe("EpisodeCard", () => {
       "href",
       "https://example.com/episode",
     );
+    expect(screen.getByRole("link", { name: "单集标题" })).toHaveAttribute(
+      "data-editorial-display-text",
+      "true",
+    );
     expect(screen.getByText("#12")).toBeInTheDocument();
     expect(screen.getByText("1小时1分1秒")).toBeInTheDocument();
     expect(screen.getByText("2.3 MB")).toBeInTheDocument();

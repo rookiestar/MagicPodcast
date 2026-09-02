@@ -152,7 +152,9 @@ function DiscoveryPageSkeleton({
         {failed && (
           <div className="discovery-load-notice is-error" role="alert">
             <span>
-              <strong>最近更新暂时无法读取</strong>
+              <strong data-editorial-display-text="true">
+                最近更新暂时无法读取
+              </strong>
               <small>连接多次未成功，页面其他功能仍可继续使用。</small>
             </span>
             <button type="button" onClick={onRetry}>

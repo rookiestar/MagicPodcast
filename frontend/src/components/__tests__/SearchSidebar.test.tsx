@@ -152,6 +152,9 @@ describe("SearchSidebar", () => {
     expect(
       container.querySelector(".search-podcast-result > .search-result-copy"),
     ).toBeTruthy();
+    for (const title of container.querySelectorAll(".search-result-title")) {
+      expect(title).toHaveAttribute("data-editorial-display-text", "true");
+    }
   });
 
   it("closes when pressing Escape", () => {
