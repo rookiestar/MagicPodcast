@@ -29,7 +29,10 @@ import type {
   ProcessingScheduleStatus,
 } from "@/types/processing";
 import styles from "./InboxPage.module.css";
-import TranscriptAudioPlayer from "./TranscriptAudioPlayer";
+import TranscriptAudioPlayer, {
+  DEFAULT_TRANSCRIPT_PLAYBACK_RATE,
+  type TranscriptPlaybackRate,
+} from "./TranscriptAudioPlayer";
 
 type ArtifactTab = "summary" | "transcript";
 
@@ -200,6 +203,8 @@ const EpisodeProcessingPanel = forwardRef<
   );
   const [activeArtifactTab, setActiveArtifactTab] =
     useState<ArtifactTab>("summary");
+  const [transcriptPlaybackRate, setTranscriptPlaybackRate] =
+    useState<TranscriptPlaybackRate>(DEFAULT_TRANSCRIPT_PLAYBACK_RATE);
   const [audioAsset, setAudioAsset] = useState<EpisodeAudioAsset | null>(null);
   const [isReadingArtifact, setIsReadingArtifact] = useState(false);
   const [scheduleStatus, setScheduleStatus] =
@@ -310,6 +315,7 @@ const EpisodeProcessingPanel = forwardRef<
     setAudioAsset(null);
     setArtifactContents(emptyArtifactContents);
     setActiveArtifactTab("summary");
+    setTranscriptPlaybackRate(DEFAULT_TRANSCRIPT_PLAYBACK_RATE);
     artifactReadSequence.current += 1;
     setIsLoading(true);
     setError(null);
@@ -1051,6 +1057,8 @@ const EpisodeProcessingPanel = forwardRef<
               artifactSetId={selectedArtifactContent.artifactSetId}
               segments={selectedArtifactContent.content.segments}
               mediaAvailable={selectedArtifactContent.content.media_available}
+              playbackRate={transcriptPlaybackRate}
+              onPlaybackRateChange={setTranscriptPlaybackRate}
             />
           ) : (
             <MarkdownViewer content={selectedArtifactContent.content.content} />
