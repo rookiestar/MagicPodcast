@@ -176,6 +176,7 @@ export default function WorkflowReportWorkbench({
   const [expandedEpisodeIDs, setExpandedEpisodeIDs] = useState<Set<number>>(
     () => new Set(),
   );
+  const [mobileReportExpanded, setMobileReportExpanded] = useState(false);
   const [savingEpisodeID, setSavingEpisodeID] = useState<number | null>(null);
   const originalRecovery = useOriginalEpisodeRecovery();
   const [decisionError, setDecisionError] = useState("");
@@ -186,6 +187,7 @@ export default function WorkflowReportWorkbench({
     Record<number, QueueState | null>
   >({});
   const previewRef = useRef<HTMLDivElement>(null);
+  const previewID = useId();
   const historyTriggerRef = useRef<HTMLButtonElement>(null);
   const historyDetailRequestRef = useRef(0);
 
@@ -535,6 +537,7 @@ export default function WorkflowReportWorkbench({
   return (
     <section
       className="workflow-report-workbench"
+      data-mobile-expanded={mobileReportExpanded}
       aria-label="精选报告"
       tabIndex={canSwitch && !historyOpen ? 0 : undefined}
       onKeyDown={handleWorkbenchKeyDown}
@@ -545,6 +548,20 @@ export default function WorkflowReportWorkbench({
           <h2 className="editorial-section-title">精选报告</h2>
         </div>
         <div className="workflow-report-header-actions">
+          <button
+            type="button"
+            className="workflow-report-mobile-toggle"
+            aria-controls={previewID}
+            aria-expanded={mobileReportExpanded}
+            onClick={() => setMobileReportExpanded((expanded) => !expanded)}
+          >
+            <IconChevronDown
+              size={18}
+              aria-hidden
+              className={mobileReportExpanded ? "is-open" : ""}
+            />
+            {mobileReportExpanded ? "收起报告" : "展开报告"}
+          </button>
           {historySelection && (
             <button
               type="button"
@@ -628,7 +645,7 @@ export default function WorkflowReportWorkbench({
         </p>
       )}
 
-      <div className="workflow-report-preview" ref={previewRef}>
+      <div id={previewID} className="workflow-report-preview" ref={previewRef}>
         <div className="workflow-report-title">
           <h3 className="workflow-report-heading type-section-title">
             {reportTitle}

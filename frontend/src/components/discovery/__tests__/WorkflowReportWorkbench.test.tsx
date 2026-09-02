@@ -120,6 +120,30 @@ describe("WorkflowReportWorkbench", () => {
     ).toBeTruthy();
   });
 
+  it("defaults the mobile report body to collapsed and lets the user expand it", () => {
+    render(
+      <WorkflowReportWorkbench
+        todayReports={[makeReport({ id: 1, workflow_name: "晨间日报" })]}
+      />,
+    );
+
+    const workbench = screen.getByRole("region", { name: "精选报告" });
+    const toggle = screen.getByRole("button", { name: "展开报告" });
+    const previewID = toggle.getAttribute("aria-controls");
+    expect(workbench).toHaveAttribute("data-mobile-expanded", "false");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(document.getElementById(previewID!)).toHaveClass(
+      "workflow-report-preview",
+    );
+
+    fireEvent.click(toggle);
+
+    expect(workbench).toHaveAttribute("data-mobile-expanded", "true");
+    expect(
+      screen.getByRole("button", { name: "收起报告" }),
+    ).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("keeps a zero-episode report complete after removing the leading heading", () => {
     render(
       <WorkflowReportWorkbench
