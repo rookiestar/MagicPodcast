@@ -100,7 +100,10 @@ export default function PageToolbar({
               {(title || mobileDescription) && (
                 <div className="page-toolbar-mobile-copy min-w-0">
                   {title && (
-                    <h1 className="editorial-section-title min-w-0 text-base font-semibold text-slate-800 truncate">
+                    <h1
+                      className="editorial-section-title min-w-0 text-base font-semibold text-slate-800 truncate"
+                      data-editorial-display-text="true"
+                    >
                       {title}
                     </h1>
                   )}
@@ -181,7 +184,10 @@ export default function PageToolbar({
                 {(title || description) && (
                   <div className="page-toolbar-title-group editorial-title-group flex flex-col">
                     {title && (
-                      <h1 className="editorial-section-title text-xl font-semibold text-slate-800">
+                      <h1
+                        className="editorial-section-title text-xl font-semibold text-slate-800"
+                        data-editorial-display-text="true"
+                      >
                         {title}
                       </h1>
                     )}

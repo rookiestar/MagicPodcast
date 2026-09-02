@@ -296,6 +296,10 @@ describe("DiscoveryPageClient", () => {
       screen.getByRole("main", { name: "正在读取工作流最近更新" }),
     ).toHaveAttribute("aria-busy", "false");
     expect(screen.getByRole("alert")).toHaveTextContent("最近更新暂时无法读取");
+    expect(screen.getByText("最近更新暂时无法读取")).toHaveAttribute(
+      "data-editorial-display-text",
+      "true",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "重新尝试" }));
     expect(candidatesMutate).toHaveBeenCalledTimes(1);

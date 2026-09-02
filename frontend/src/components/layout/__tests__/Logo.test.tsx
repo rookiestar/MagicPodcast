@@ -28,6 +28,7 @@ describe("Logo", () => {
     expect(mark).toHaveAttribute("data-image-optimization", "bypassed");
     const name = brand.querySelector(".magic-wordmark-name");
     expect(name).toHaveTextContent("MagicPodcast");
+    expect(name).toHaveAttribute("data-editorial-display-text", "true");
     expect(name?.children).toHaveLength(0);
     expect(screen.queryByText("PODCAST · 01")).not.toBeInTheDocument();
   });

@@ -9,8 +9,12 @@ describe("editorial asset critical path", () => {
   it("keeps web fonts and the paper texture behind the ready class", () => {
     expect(globalsCss).toContain(":root.editorial-assets-ready");
     expect(globalsCss).toMatch(
-      /:root\.editorial-assets-ready[\s\S]*--font-serif:\s*"Newsreader Variable"/,
+      /:root\.editorial-typography-ready[\s\S]*--font-serif:\s*"Newsreader Variable"/,
     );
+    const assetsReadyBlock =
+      globalsCss.match(/:root\.editorial-assets-ready\s*{([\s\S]*?)\n  }/)?.[1] ?? "";
+    expect(assetsReadyBlock).not.toContain("--font-serif");
+    expect(assetsReadyBlock).not.toContain("--font-cjk-display");
     expect(globalsCss).toMatch(
       /:root\s*{[\s\S]*--editorial-paper-texture:\s*none/,
     );

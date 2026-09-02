@@ -954,6 +954,10 @@ describe("WorkflowReportWorkbench", () => {
 
     expect(within(latestDay).getByText("2 份")).toBeInTheDocument();
     expect(within(latestDay).getAllByRole("button")).toHaveLength(2);
+    expect(within(latestDay).getByText("科技日报")).toHaveAttribute(
+      "data-editorial-display-text",
+      "true",
+    );
     expect(within(latestDay).getByText("08:30")).toBeInTheDocument();
     expect(within(latestDay).getByText("07:30")).toBeInTheDocument();
     expect(within(priorDay).getByText("1 份")).toBeInTheDocument();

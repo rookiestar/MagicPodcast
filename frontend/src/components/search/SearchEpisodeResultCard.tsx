@@ -26,7 +26,10 @@ export function SearchEpisodeResultCard({
       rel="noopener noreferrer"
       className="search-episode-result"
     >
-      <h3 className="search-result-title">
+      <h3
+        className="search-result-title"
+        data-editorial-display-text="true"
+      >
         <SearchHighlightedText text={episode.title} keyword={query} />
       </h3>
       <p className="search-result-meta">

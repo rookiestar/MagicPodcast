@@ -663,7 +663,10 @@ describe("InboxPageClient", () => {
 
     render(<InboxPageClient />);
 
-    expect(await screen.findByText("可处理单集")).toBeInTheDocument();
+    expect(await screen.findByText("可处理单集")).toHaveAttribute(
+      "data-editorial-display-text",
+      "true",
+    );
     expect(screen.getByRole("heading", { name: "Focus" })).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "最近完成" }),

@@ -51,6 +51,7 @@ export default function DiscoveryMetadataEditor({
               key={item}
               type="button"
               role="tab"
+              data-editorial-display-text="true"
               aria-selected={target === item}
               aria-controls="discovery-metadata-content"
               disabled={isBusy}

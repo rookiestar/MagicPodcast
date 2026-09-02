@@ -84,6 +84,10 @@ describe("DiscoveryFocusSummary", () => {
     const add = await screen.findByRole("button", {
       name: "将 值得投入的单集 添加到 Focus",
     });
+    expect(screen.getByText("值得投入的单集")).toHaveAttribute(
+      "data-editorial-display-text",
+      "true",
+    );
     fireEvent.click(add);
 
     await waitFor(() => {

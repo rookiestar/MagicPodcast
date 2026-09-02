@@ -846,7 +846,9 @@ export default function DiscoveryDesk({
                                 {formatCandidateDate(candidate.candidate_time)}
                               </span>
                             </span>
-                            <strong>{candidate.episode_title}</strong>
+                            <strong data-editorial-display-text="true">
+                              {candidate.episode_title}
+                            </strong>
                             <span
                               className="discovery-candidate-excerpt"
                               data-testid={`candidate-excerpt-${candidate.episode_id}`}

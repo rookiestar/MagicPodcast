@@ -1329,7 +1329,9 @@ export default function InboxPageClient() {
                 {activeDrag && (
                   <div className={styles.dragOverlay} aria-hidden="true">
                     <span>{activeDrag.item.podcast_title}</span>
-                    <strong>{activeDrag.item.episode_title}</strong>
+                    <strong data-editorial-display-text="true">
+                      {activeDrag.item.episode_title}
+                    </strong>
                   </div>
                 )}
               </DragOverlay>

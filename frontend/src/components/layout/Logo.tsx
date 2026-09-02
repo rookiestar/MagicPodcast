@@ -30,7 +30,11 @@ export function Logo({
         unoptimized
       />
       {!iconOnly && (
-        <span className="magic-wordmark-name" aria-hidden="true">
+        <span
+          className="magic-wordmark-name"
+          data-editorial-display-text="true"
+          aria-hidden="true"
+        >
           MagicPodcast
         </span>
       )}

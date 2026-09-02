@@ -1054,7 +1054,10 @@ export function HistoryDrawer({
                               )
                             }
                           />
-                          <span className="workflow-report-history-filter-name">
+                          <span
+                            className="workflow-report-history-filter-name"
+                            data-editorial-display-text="true"
+                          >
                             {option.label}
                           </span>
                           <span className="workflow-report-history-filter-count">
@@ -1119,7 +1122,10 @@ export function HistoryDrawer({
                               {reportTypeLabel(report.report_type)}
                             </span>
                             <span className="workflow-report-history-title-row">
-                              <span className="workflow-report-history-name">
+                              <span
+                                className="workflow-report-history-name"
+                                data-editorial-display-text="true"
+                              >
                                 {report.workflow_name}
                               </span>
                               {isCurrent && (
