@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from "react";
@@ -58,7 +59,51 @@ interface DiscoveryDeskProps {
 
 type RecentFilter = "all" | "unread" | "uncollected";
 
-const RECENT_PAGE_SIZE = 4;
+interface RecentPaginationState {
+  page: number;
+  pageSize: number;
+}
+
+type RecentPaginationAction =
+  | { type: "set-page"; page: number }
+  | { type: "reset-page" }
+  | { type: "resize"; pageSize: number; preferredIndex?: number };
+
+const DEFAULT_RECENT_PAGE_SIZE = 4;
+
+function recentPageSizeForViewport(width: number, height: number) {
+  const heightBasedSize =
+    height < 700
+      ? 3
+      : height < 900
+        ? 4
+        : height < 1000
+          ? 5
+          : height < 1200
+            ? 6
+            : 8;
+  const widthCap = width <= 480 ? 4 : width <= 1100 ? 5 : 8;
+  return Math.min(heightBasedSize, widthCap);
+}
+
+function recentPaginationReducer(
+  state: RecentPaginationState,
+  action: RecentPaginationAction,
+): RecentPaginationState {
+  if (action.type === "set-page") {
+    return action.page === state.page ? state : { ...state, page: action.page };
+  }
+  if (action.type === "reset-page") {
+    return state.page === 0 ? state : { ...state, page: 0 };
+  }
+  if (action.pageSize === state.pageSize) return state;
+
+  const anchorIndex = action.preferredIndex ?? state.page * state.pageSize;
+  return {
+    page: Math.floor(anchorIndex / action.pageSize),
+    pageSize: action.pageSize,
+  };
+}
 
 const queueLabels = {
   inbox: "Inbox",
@@ -171,7 +216,10 @@ export default function DiscoveryDesk({
 }: DiscoveryDeskProps) {
   const [displayCandidates, setDisplayCandidates] = useState(candidates);
   const [activeFilter, setActiveFilter] = useState<RecentFilter>("all");
-  const [recentPage, setRecentPage] = useState(0);
+  const [recentPagination, dispatchRecentPagination] = useReducer(
+    recentPaginationReducer,
+    { page: 0, pageSize: DEFAULT_RECENT_PAGE_SIZE },
+  );
   const [selectedID, setSelectedID] = useState<number | null>(null);
   const [savingEpisodeID, setSavingEpisodeID] = useState<number | null>(null);
   const [decisionError, setDecisionError] = useState("");
@@ -185,8 +233,9 @@ export default function DiscoveryDesk({
   const previewRef = useRef<HTMLElement>(null);
   const previewCloseRef = useRef<HTMLButtonElement>(null);
   const showNotesPaneRef = useRef<HTMLElement>(null);
-  const recentViewportRef = useRef<HTMLDivElement>(null);
   const touchStartX = useRef<number | null>(null);
+  const visibleCandidatesRef = useRef<DiscoveryCandidate[]>([]);
+  const selectedIDRef = useRef<number | null>(null);
 
   useEffect(() => {
     const restoredID = window.history.state?.magicpodcastDiscoveryEpisodeID;
@@ -246,18 +295,54 @@ export default function DiscoveryDesk({
       }),
     [activeFilter, displayCandidates],
   );
+  visibleCandidatesRef.current = visibleCandidates;
+  selectedIDRef.current = selectedID;
+
+  useEffect(() => {
+    const visualViewport = window.visualViewport;
+    const updatePageSize = () => {
+      const width = visualViewport?.width ?? window.innerWidth;
+      const height = visualViewport?.height ?? window.innerHeight;
+      const focusedEpisodeID = Array.from(
+        candidateButtonRefs.current.entries(),
+      ).find(([, button]) => button === document.activeElement)?.[0];
+      const preferredEpisodeID = selectedIDRef.current ?? focusedEpisodeID;
+      const preferredIndex =
+        preferredEpisodeID === undefined || preferredEpisodeID === null
+          ? -1
+          : visibleCandidatesRef.current.findIndex(
+              (candidate) => candidate.episode_id === preferredEpisodeID,
+            );
+
+      dispatchRecentPagination({
+        type: "resize",
+        pageSize: recentPageSizeForViewport(width, height),
+        preferredIndex: preferredIndex >= 0 ? preferredIndex : undefined,
+      });
+    };
+
+    updatePageSize();
+    window.addEventListener("resize", updatePageSize);
+    visualViewport?.addEventListener("resize", updatePageSize);
+    return () => {
+      window.removeEventListener("resize", updatePageSize);
+      visualViewport?.removeEventListener("resize", updatePageSize);
+    };
+  }, []);
+
+  const { page: recentPage, pageSize: recentPageSize } = recentPagination;
   const recentPageCount = Math.max(
     1,
-    Math.ceil(visibleCandidates.length / RECENT_PAGE_SIZE),
+    Math.ceil(visibleCandidates.length / recentPageSize),
   );
   const safeRecentPage = Math.min(
     Math.max(recentPage, 0),
     recentPageCount - 1,
   );
-  const recentPageStart = safeRecentPage * RECENT_PAGE_SIZE;
+  const recentPageStart = safeRecentPage * recentPageSize;
   const pagedCandidates = visibleCandidates.slice(
     recentPageStart,
-    recentPageStart + RECENT_PAGE_SIZE,
+    recentPageStart + recentPageSize,
   );
   const selected = useMemo(
     () =>
@@ -296,10 +381,7 @@ export default function DiscoveryDesk({
 
   useEffect(() => {
     if (recentPage !== safeRecentPage) {
-      setRecentPage(safeRecentPage);
-    }
-    if (recentViewportRef.current) {
-      recentViewportRef.current.scrollTop = 0;
+      dispatchRecentPagination({ type: "set-page", page: safeRecentPage });
     }
   }, [activeFilter, recentPage, safeRecentPage]);
 
@@ -465,7 +547,10 @@ export default function DiscoveryDesk({
       (item) => item.episode_id === candidate.episode_id,
     );
     if (visibleIndex >= 0) {
-      setRecentPage(Math.floor(visibleIndex / RECENT_PAGE_SIZE));
+      dispatchRecentPagination({
+        type: "set-page",
+        page: Math.floor(visibleIndex / recentPageSize),
+      });
     }
     setSelectedID(candidate.episode_id);
     if (!candidate.read_at && onRead) {
@@ -562,7 +647,7 @@ export default function DiscoveryDesk({
               aria-pressed={activeFilter === value}
               onClick={() => {
                 setActiveFilter(value);
-                setRecentPage(0);
+                dispatchRecentPagination({ type: "reset-page" });
               }}
             >
               <span>{label}</span>
@@ -597,7 +682,6 @@ export default function DiscoveryDesk({
           )}
 
           <div
-            ref={recentViewportRef}
             className="discovery-candidate-viewport"
             data-testid="discovery-candidate-viewport"
           >
@@ -614,7 +698,7 @@ export default function DiscoveryDesk({
                   type="button"
                   onClick={() => {
                     setActiveFilter("all");
-                    setRecentPage(0);
+                    dispatchRecentPagination({ type: "reset-page" });
                   }}
                 >
                   查看全部
@@ -789,13 +873,22 @@ export default function DiscoveryDesk({
                 title="上一页"
                 disabled={safeRecentPage <= 0}
                 onClick={() =>
-                  setRecentPage((page) => Math.max(0, page - 1))
+                  dispatchRecentPagination({
+                    type: "set-page",
+                    page: Math.max(0, recentPage - 1),
+                  })
                 }
               >
                 <IconChevronLeft aria-hidden="true" />
               </button>
-              <span aria-live="polite">
-                {safeRecentPage + 1} / {recentPageCount}
+              <span aria-live="polite" aria-atomic="true">
+                <span aria-hidden="true">
+                  {safeRecentPage + 1} / {recentPageCount}
+                </span>
+                <span className="sr-only">
+                  第 {safeRecentPage + 1} 页，共 {recentPageCount} 页，本页显示
+                  {pagedCandidates.length} 集
+                </span>
               </span>
               <button
                 type="button"
@@ -803,9 +896,10 @@ export default function DiscoveryDesk({
                 title="下一页"
                 disabled={safeRecentPage >= recentPageCount - 1}
                 onClick={() =>
-                  setRecentPage((page) =>
-                    Math.min(recentPageCount - 1, page + 1),
-                  )
+                  dispatchRecentPagination({
+                    type: "set-page",
+                    page: Math.min(recentPageCount - 1, recentPage + 1),
+                  })
                 }
               >
                 <IconChevronRight aria-hidden="true" />

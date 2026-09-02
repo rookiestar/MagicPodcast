@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render as testingRender,
   screen,
@@ -68,6 +69,28 @@ function render(ui: ReactElement) {
   return testingRender(
     <SWRConfig value={{ provider: () => new Map() }}>{ui}</SWRConfig>,
   );
+}
+
+function setWindowViewport(width: number, height: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: width,
+  });
+  Object.defineProperty(window, "innerHeight", {
+    configurable: true,
+    value: height,
+  });
+}
+
+function makePagedCandidates(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    ...candidates[0],
+    episode_id: 100 + index,
+    episode_title: `分页单集 ${index + 1}`,
+    candidate_time: new Date(
+      Date.UTC(2026, 6, 29, 8, 0, 0) - index * 60_000,
+    ).toISOString(),
+  }));
 }
 
 const candidates: DiscoveryCandidate[] = [
@@ -195,6 +218,11 @@ const candidates: DiscoveryCandidate[] = [
 
 describe("DiscoveryDesk", () => {
   beforeEach(() => {
+    setWindowViewport(1024, 768);
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
     window.history.replaceState(null, "");
     vi.clearAllMocks();
     availableTagCache.clear();
@@ -357,13 +385,8 @@ describe("DiscoveryDesk", () => {
     expect(screen.queryByRole("separator")).not.toBeInTheDocument();
   });
 
-  it("keeps recent updates in a fixed viewport and paginates four at a time", () => {
-    const pagedCandidates = Array.from({ length: 5 }, (_, index) => ({
-      ...candidates[0],
-      episode_id: 100 + index,
-      episode_title: `分页单集 ${index + 1}`,
-      candidate_time: `2026-07-29T0${8 - index}:00:00Z`,
-    }));
+  it("paginates four at a time in a 1024 by 768 viewport", () => {
+    const pagedCandidates = makePagedCandidates(5);
 
     render(<DiscoveryDesk candidates={pagedCandidates} />);
 
@@ -379,6 +402,75 @@ describe("DiscoveryDesk", () => {
     expect(screen.getByText("分页单集 5")).toBeInTheDocument();
     expect(screen.getByText("2 / 2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "下一页" })).toBeDisabled();
+  });
+
+  it.each([
+    [1280, 699, 3],
+    [390, 844, 4],
+    [1024, 768, 4],
+    [1440, 900, 5],
+    [1920, 1080, 6],
+    [1920, 1200, 8],
+    [480, 1200, 4],
+    [1100, 1200, 5],
+  ])(
+    "shows the responsive page capacity at %i by %i",
+    async (width, height, expectedCount) => {
+      setWindowViewport(width, height);
+
+      render(<DiscoveryDesk candidates={makePagedCandidates(9)} />);
+
+      await waitFor(() =>
+        expect(
+          screen.getAllByRole("button", { name: /^预读 分页单集/ }),
+        ).toHaveLength(expectedCount),
+      );
+    },
+  );
+
+  it("uses visual viewport changes and keeps the open episode restorable", async () => {
+    const visualViewport = Object.assign(new EventTarget(), {
+      width: 1440,
+      height: 900,
+    });
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: visualViewport,
+    });
+    const pagedCandidates = makePagedCandidates(12);
+    render(<DiscoveryDesk candidates={pagedCandidates} />);
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("button", { name: /^预读 分页单集/ }),
+      ).toHaveLength(5),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "预读 分页单集 10" }),
+    );
+
+    visualViewport.width = 700;
+    visualViewport.height = 650;
+    act(() => {
+      visualViewport.dispatchEvent(new Event("resize"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("4 / 4")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "预读 分页单集 10" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      document.querySelector<HTMLButtonElement>(".discovery-preview-close")!,
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "预读 分页单集 10" }),
+      ).toHaveFocus(),
+    );
   });
 
   it("opens pre-read from the full card instead of a separate preview action", () => {
