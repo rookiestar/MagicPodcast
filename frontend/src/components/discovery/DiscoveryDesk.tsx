@@ -71,6 +71,12 @@ type RecentPaginationAction =
 
 const DEFAULT_RECENT_PAGE_SIZE = 4;
 
+const recentFilterLabels: Record<RecentFilter, string> = {
+  all: "全部",
+  unread: "未读",
+  uncollected: "未收集",
+};
+
 function recentPageSizeForViewport(width: number, height: number) {
   const heightBasedSize =
     height < 700
@@ -230,12 +236,18 @@ export default function DiscoveryDesk({
   const [isMetadataEditorOpen, setIsMetadataEditorOpen] = useState(false);
   const originalRecovery = useOriginalEpisodeRecovery();
   const candidateButtonRefs = useRef(new Map<number, HTMLButtonElement>());
+  const candidateActionRefs = useRef(new Map<number, HTMLButtonElement>());
   const previewRef = useRef<HTMLElement>(null);
   const previewCloseRef = useRef<HTMLButtonElement>(null);
   const showNotesPaneRef = useRef<HTMLElement>(null);
   const touchStartX = useRef<number | null>(null);
   const visibleCandidatesRef = useRef<DiscoveryCandidate[]>([]);
   const selectedIDRef = useRef<number | null>(null);
+  const recentPageSizeRef = useRef(DEFAULT_RECENT_PAGE_SIZE);
+  const pendingResizeFocusRef = useRef<{
+    episodeID: number;
+    control: "candidate" | "action";
+  } | null>(null);
 
   useEffect(() => {
     const restoredID = window.history.state?.magicpodcastDiscoveryEpisodeID;
@@ -297,16 +309,30 @@ export default function DiscoveryDesk({
   );
   visibleCandidatesRef.current = visibleCandidates;
   selectedIDRef.current = selectedID;
+  recentPageSizeRef.current = recentPagination.pageSize;
 
   useEffect(() => {
     const visualViewport = window.visualViewport;
     const updatePageSize = () => {
       const width = visualViewport?.width ?? window.innerWidth;
       const height = visualViewport?.height ?? window.innerHeight;
-      const focusedEpisodeID = Array.from(
+      const nextPageSize = recentPageSizeForViewport(width, height);
+      if (nextPageSize === recentPageSizeRef.current) return;
+
+      const focusedCandidateID = Array.from(
         candidateButtonRefs.current.entries(),
       ).find(([, button]) => button === document.activeElement)?.[0];
-      const preferredEpisodeID = selectedIDRef.current ?? focusedEpisodeID;
+      const focusedActionID = Array.from(
+        candidateActionRefs.current.entries(),
+      ).find(([, button]) => button === document.activeElement)?.[0];
+      const focusedControl =
+        focusedCandidateID !== undefined
+          ? { episodeID: focusedCandidateID, control: "candidate" as const }
+          : focusedActionID !== undefined
+            ? { episodeID: focusedActionID, control: "action" as const }
+            : null;
+      const preferredEpisodeID =
+        selectedIDRef.current ?? focusedControl?.episodeID;
       const preferredIndex =
         preferredEpisodeID === undefined || preferredEpisodeID === null
           ? -1
@@ -314,9 +340,12 @@ export default function DiscoveryDesk({
               (candidate) => candidate.episode_id === preferredEpisodeID,
             );
 
+      pendingResizeFocusRef.current =
+        selectedIDRef.current === null ? focusedControl : null;
+
       dispatchRecentPagination({
         type: "resize",
-        pageSize: recentPageSizeForViewport(width, height),
+        pageSize: nextPageSize,
         preferredIndex: preferredIndex >= 0 ? preferredIndex : undefined,
       });
     };
@@ -344,6 +373,24 @@ export default function DiscoveryDesk({
     recentPageStart,
     recentPageStart + recentPageSize,
   );
+
+  useEffect(() => {
+    const pendingFocus = pendingResizeFocusRef.current;
+    if (!pendingFocus) return;
+
+    const frame = requestAnimationFrame(() => {
+      const refs =
+        pendingFocus.control === "candidate"
+          ? candidateButtonRefs.current
+          : candidateActionRefs.current;
+      const control = refs.get(pendingFocus.episodeID);
+      pendingResizeFocusRef.current = null;
+      if (!control) return;
+      control.focus();
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [recentPageSize, safeRecentPage]);
   const selected = useMemo(
     () =>
       selectedID === null
@@ -816,6 +863,18 @@ export default function DiscoveryDesk({
                         </button>
                         <span className="discovery-candidate-state">
                           <button
+                            ref={(node) => {
+                              if (node) {
+                                candidateActionRefs.current.set(
+                                  candidate.episode_id,
+                                  node,
+                                );
+                              } else {
+                                candidateActionRefs.current.delete(
+                                  candidate.episode_id,
+                                );
+                              }
+                            }}
                             type="button"
                             className="discovery-card-action"
                             data-state={
@@ -881,13 +940,14 @@ export default function DiscoveryDesk({
               >
                 <IconChevronLeft aria-hidden="true" />
               </button>
-              <span aria-live="polite" aria-atomic="true">
+              <span role="status" aria-live="polite" aria-atomic="true">
                 <span aria-hidden="true">
                   {safeRecentPage + 1} / {recentPageCount}
                 </span>
                 <span className="sr-only">
-                  第 {safeRecentPage + 1} 页，共 {recentPageCount} 页，本页显示
-                  {pagedCandidates.length} 集
+                  当前筛选{recentFilterLabels[activeFilter]}，共
+                  {visibleCandidates.length} 集，第 {safeRecentPage + 1} 页，共
+                  {recentPageCount} 页，本页显示 {pagedCandidates.length} 集
                 </span>
               </span>
               <button

@@ -473,6 +473,101 @@ describe("DiscoveryDesk", () => {
     );
   });
 
+  it("keeps the current page anchor through consecutive viewport changes", async () => {
+    setWindowViewport(1440, 900);
+    render(<DiscoveryDesk candidates={makePagedCandidates(12)} />);
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("button", { name: /^预读 分页单集/ }),
+      ).toHaveLength(5),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    screen.getByRole("button", { name: "下一页" }).focus();
+    expect(
+      screen.getByRole("button", { name: "预读 分页单集 6" }),
+    ).toBeInTheDocument();
+
+    setWindowViewport(1280, 699);
+    act(() => window.dispatchEvent(new Event("resize")));
+
+    await waitFor(() => {
+      expect(screen.getByText("2 / 4")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "预读 分页单集 6" }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "下一页" })).toHaveFocus();
+    });
+
+    setWindowViewport(1920, 1200);
+    act(() => window.dispatchEvent(new Event("resize")));
+
+    await waitFor(() => {
+      expect(screen.getByText("1 / 2")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "预读 分页单集 6" }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "下一页" })).toHaveFocus();
+    });
+  });
+
+  it("restores focus to a row action after responsive repagination", async () => {
+    setWindowViewport(1440, 900);
+    render(
+      <DiscoveryDesk
+        candidates={makePagedCandidates(6)}
+        onDecision={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("button", { name: /^预读 分页单集/ }),
+      ).toHaveLength(5),
+    );
+    const fifthCandidate = screen
+      .getByRole("button", { name: "预读 分页单集 5" })
+      .closest("article")!;
+    within(fifthCandidate)
+      .getByRole("button", { name: "收集到 Inbox" })
+      .focus();
+
+    setWindowViewport(1280, 699);
+    act(() => window.dispatchEvent(new Event("resize")));
+
+    await waitFor(() => {
+      const resizedCandidate = screen
+        .getByRole("button", { name: "预读 分页单集 5" })
+        .closest("article")!;
+      expect(
+        within(resizedCandidate).getByRole("button", {
+          name: "收集到 Inbox",
+        }),
+      ).toHaveFocus();
+    });
+  });
+
+  it("announces filter and total changes even when page count is unchanged", async () => {
+    const filteredCandidates = makePagedCandidates(8).map(
+      (candidate, index) =>
+        index === 0
+          ? { ...candidate, read_at: "2026-07-29T09:00:00Z" }
+          : candidate,
+    );
+    render(<DiscoveryDesk candidates={filteredCandidates} />);
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "当前筛选全部，共8 集，第 1 页，共2 页",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "未读 7" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "当前筛选未读，共7 集，第 1 页，共2 页",
+      ),
+    );
+  });
+
   it("opens pre-read from the full card instead of a separate preview action", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
