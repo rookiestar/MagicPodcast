@@ -272,8 +272,11 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 		name := strings.ToLower(node.Data)
 		if name == "a" || name == "bookmark" {
 			href := strings.TrimSpace(noteLinkNodeAttribute(node, "href"))
+			if href == "" || noteLinkNodeHasUnsupportedDescendant(node) {
+				return noteLinkNodeScan{}
+			}
 			return noteLinkNodeScan{
-				valid:      href != "",
+				valid:      true,
 				recognized: 1,
 				hrefs:      []string{href},
 			}
@@ -313,6 +316,22 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 	default:
 		return noteLinkNodeScan{valid: true}
 	}
+}
+
+func noteLinkNodeHasUnsupportedDescendant(node *nethtml.Node) bool {
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type != nethtml.ElementNode {
+			continue
+		}
+		name := strings.ToLower(child.Data)
+		if name == "a" || name == "bookmark" || strings.TrimSpace(noteLinkNodeAttribute(child, "href")) != "" {
+			return true
+		}
+		if noteLinkNodeHasUnsupportedDescendant(child) {
+			return true
+		}
+	}
+	return false
 }
 
 func noteLinkNodeAttribute(node *nethtml.Node, name string) string {

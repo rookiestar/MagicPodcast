@@ -39,6 +39,7 @@ func TestEvaluateReadableNoteDocumentRejectsResidualRelatedLinkContent(t *testin
 	}{
 		{name: "plain URL residual", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a></li><li>https://example.com/unparsed</li></ul>`},
 		{name: "unknown link element", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a><provider-link href="https://example.com/provider">外部</provider-link></li></ul>`},
+		{name: "unknown nested link element", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/docx/internal"><provider-link href="https://example.com/provider">外部</provider-link></a></li></ul>`},
 		{name: "text residual in sibling container", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a></li><li>documentation pending</li></ul>`},
 		{name: "self-closing public link", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://example.com/guide"/></p>`},
 		{name: "text residual beside public link", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://example.com/guide">指南</a></li><li>documentation pending</li></ul>`},
