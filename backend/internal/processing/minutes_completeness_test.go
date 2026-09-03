@@ -33,14 +33,22 @@ func TestEvaluateReadableNoteDocumentIgnoresFilteredInternalLinks(t *testing.T) 
 }
 
 func TestEvaluateReadableNoteDocumentRejectsResidualRelatedLinkContent(t *testing.T) {
-	for _, document := range []string{
-		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a></li><li>https://example.com/unparsed</li></ul>`,
-		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a><provider-link href="https://example.com/provider">外部</provider-link></li></ul>`,
+	for _, test := range []struct {
+		name     string
+		document string
+	}{
+		{name: "plain URL residual", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a></li><li>https://example.com/unparsed</li></ul>`},
+		{name: "unknown link element", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a><provider-link href="https://example.com/provider">外部</provider-link></li></ul>`},
+		{name: "text residual in sibling container", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a></li><li>documentation pending</li></ul>`},
+		{name: "self-closing public link", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://example.com/guide"/></p>`},
+		{name: "text residual beside public link", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://example.com/guide">指南</a></li><li>documentation pending</li></ul>`},
 	} {
-		decision := evaluateReadableNoteDocument(document, "", false, false)
-		require.False(t, decision.Complete)
-		require.Equal(t, minutesEnrichmentSectionCode, decision.Code)
-		require.Equal(t, "note_section_unparsed:相关链接", decision.Diagnostic)
+		t.Run(test.name, func(t *testing.T) {
+			decision := evaluateReadableNoteDocument(test.document, "", false, false)
+			require.False(t, decision.Complete)
+			require.Equal(t, minutesEnrichmentSectionCode, decision.Code)
+			require.Equal(t, "note_section_unparsed:相关链接", decision.Diagnostic)
+		})
 	}
 }
 

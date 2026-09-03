@@ -166,8 +166,16 @@ func firstUnparsedTargetSection(document string) (string, bool) {
 		if strings.TrimSpace(raw) == "" {
 			continue
 		}
-		if check.count > 0 ||
-			(check.name == "相关链接" && noteLinksSectionIsFullyAccounted(raw)) {
+		if check.name == "相关链接" {
+			if noteLinksSectionIsFullyAccounted(raw) {
+				continue
+			}
+			visible := strings.TrimSpace(stripXMLTags(raw))
+			if visible != "" && isPlaceholderText(visible) {
+				continue
+			}
+			return check.name, true
+		} else if check.count > 0 {
 			continue
 		}
 		visible := strings.TrimSpace(stripXMLTags(raw))
@@ -194,6 +202,7 @@ func noteLinksSectionIsFullyAccounted(section string) bool {
 
 	recognized := 0
 	unaccounted := false
+	hrefs := make([]string, 0)
 	for _, fragment := range fragments {
 		scan := scanNoteLinkNode(fragment)
 		if !scan.valid {
@@ -201,14 +210,35 @@ func noteLinksSectionIsFullyAccounted(section string) bool {
 		}
 		recognized += scan.recognized
 		unaccounted = unaccounted || scan.unaccounted
+		hrefs = append(hrefs, scan.hrefs...)
 	}
-	return recognized > 0 && !unaccounted
+	if recognized == 0 && !unaccounted && strings.TrimSpace(stripXMLTags(section)) == "" {
+		return true
+	}
+	if recognized == 0 || unaccounted {
+		return false
+	}
+	extracted := make(map[string]struct{})
+	for _, link := range extractNoteLinks(section) {
+		extracted[link.URL] = struct{}{}
+	}
+	for _, href := range hrefs {
+		safeURL, ok := sanitizePublicMinutesURL(href)
+		if !ok {
+			continue
+		}
+		if _, ok := extracted[safeURL]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 type noteLinkNodeScan struct {
 	valid       bool
 	recognized  int
 	unaccounted bool
+	hrefs       []string
 }
 
 var noteLinkContainerTags = map[string]struct{}{
@@ -243,9 +273,11 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 	case nethtml.ElementNode:
 		name := strings.ToLower(node.Data)
 		if name == "a" || name == "bookmark" {
+			href := strings.TrimSpace(noteLinkNodeAttribute(node, "href"))
 			return noteLinkNodeScan{
-				valid:      strings.TrimSpace(noteLinkNodeAttribute(node, "href")) != "",
+				valid:      href != "",
 				recognized: 1,
+				hrefs:      []string{href},
 			}
 		}
 		if _, ok := noteLinkContainerTags[name]; !ok {
@@ -259,15 +291,13 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 				return noteLinkNodeScan{}
 			}
 			scan.recognized += childScan.recognized
+			scan.unaccounted = scan.unaccounted || childScan.unaccounted
+			scan.hrefs = append(scan.hrefs, childScan.hrefs...)
 		}
-		// Text outside an explicit link is only a label when this container
-		// also contains a recognized link. A URL-like text node is never a
-		// label and remains an unparsed residual.
+		// Text outside an explicit link remains residual content even when the
+		// same container also contains a recognized link.
 		if scan.recognized == 0 && scan.unaccounted {
 			return noteLinkNodeScan{}
-		}
-		if scan.recognized > 0 {
-			scan.unaccounted = false
 		}
 		return scan
 	case nethtml.DocumentNode:
@@ -279,6 +309,7 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 			}
 			scan.recognized += childScan.recognized
 			scan.unaccounted = scan.unaccounted || childScan.unaccounted
+			scan.hrefs = append(scan.hrefs, childScan.hrefs...)
 		}
 		return scan
 	default:
