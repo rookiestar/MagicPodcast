@@ -42,6 +42,15 @@ func isMinutesEnrichmentResyncError(code string) bool {
 	}
 }
 
+func isMinutesEnrichmentCredentialError(code string) bool {
+	switch strings.TrimSpace(code) {
+	case "lark_auth_expired", "lark_permission_denied":
+		return true
+	default:
+		return false
+	}
+}
+
 type minutesEnrichmentDecision struct {
 	Complete   bool
 	Wait       bool

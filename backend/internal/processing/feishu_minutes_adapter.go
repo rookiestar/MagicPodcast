@@ -904,10 +904,10 @@ func (a *FeishuMinutesAdapter) waitForMinutesEnrichment(
 	if detail == nil {
 		fetched, raw, wait, fetchErr := a.fetchMinuteDetailForEnrichment(ctx, request, checkpoint)
 		if fetchErr != nil {
-			if expired {
-				return a.failEnrichmentWait(ctx, request, checkpoint, minutesEnrichmentTimeoutDecision())
-			}
 			if minutesErrorIsWaitable(fetchErr) {
+				if expired {
+					return a.failEnrichmentWait(ctx, request, checkpoint, minutesEnrichmentTimeoutDecision())
+				}
 				if err := persistFeishuCheckpoint(ctx, request, checkpoint); err != nil {
 					return enrichmentWaitingProgress(checkpoint), err
 				}
@@ -921,10 +921,18 @@ func (a *FeishuMinutesAdapter) waitForMinutesEnrichment(
 			var adapterErr *AdapterError
 			if errors.As(fetchErr, &adapterErr) && !adapterErr.CanRetry {
 				switch adapterErr.ErrorCode {
-				case minutesEnrichmentSectionCode, "invalid_external_checkpoint":
+				case minutesEnrichmentSectionCode, "invalid_external_checkpoint",
+					"lark_auth_expired", "lark_permission_denied":
 					decision.Code = adapterErr.ErrorCode
 					decision.Message = adapterErr.SafeMessage
+					decision.Retryable = adapterErr.CanRetry
+					if isMinutesEnrichmentCredentialError(adapterErr.ErrorCode) {
+						decision.Diagnostic = "note_permission_unavailable"
+					}
 				}
+			}
+			if expired && !isMinutesEnrichmentCredentialError(decision.Code) {
+				return a.failEnrichmentWait(ctx, request, checkpoint, minutesEnrichmentTimeoutDecision())
 			}
 			return a.failEnrichmentWait(ctx, request, checkpoint, decision)
 		}
@@ -1390,12 +1398,24 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 		if minutesErrorIsWaitable(docErr) {
 			return progress, minutesEnrichmentDecision{Wait: true, Diagnostic: "note_document_pending"}
 		}
-		progress = addMinutesEnrichmentDiagnostic(progress, "note_document_unavailable")
-		return progress, minutesEnrichmentDecision{
+		decision := minutesEnrichmentDecision{
 			Code:       minutesEnrichmentNoteUnreadableCode,
 			Message:    minutesEnrichmentNoteUnreadableMsg,
 			Diagnostic: "note_document_unavailable",
 		}
+		mapped, _ := classifyLarkCommandError(docErr)
+		var adapterErr *AdapterError
+		if errors.As(mapped, &adapterErr) && !adapterErr.CanRetry {
+			switch adapterErr.ErrorCode {
+			case "lark_auth_expired", "lark_permission_denied":
+				decision.Code = adapterErr.ErrorCode
+				decision.Message = adapterErr.SafeMessage
+				decision.Retryable = adapterErr.CanRetry
+				decision.Diagnostic = "note_permission_unavailable"
+			}
+		}
+		progress = addMinutesEnrichmentDiagnostic(progress, decision.Diagnostic)
+		return progress, decision
 	}
 	progress.RawArtifacts["note-document.json"] = append([]byte(nil), docOutput...)
 	content, ok := parseDocsFetchContent(docOutput)

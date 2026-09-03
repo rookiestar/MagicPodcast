@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
 	"image/png"
 	"os"
@@ -744,6 +745,23 @@ func TestFeishuMinutesAdapterDoesNotCompleteUntilSourceNoteIsComplete(t *testing
 			wantDiagnostic: "note_sections_unrecognized",
 		},
 		{
+			name: "document permission fails",
+			steps: []scriptedLarkStep{
+				{
+					output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","note_id":"note_document_denied_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
+					beforeReturn: writeCoreTranscript,
+				},
+				{output: []byte(`{"note_doc_token":"docx_document_denied_123"}`)},
+				{err: &larkCommandError{
+					exitCode: 1,
+					stderr:   []byte(`{"ok":false,"error":{"type":"permission_denied","message":"document permission denied"}}`),
+					cause:    errors.New("exit status 1"),
+				}},
+			},
+			wantError:      "lark_permission_denied",
+			wantDiagnostic: "note_permission_unavailable",
+		},
+		{
 			name: "whiteboard export failure waits",
 			steps: []scriptedLarkStep{
 				{
@@ -828,6 +846,55 @@ func TestFeishuMinutesAdapterDoesNotCompleteUntilSourceNoteIsComplete(t *testing
 					testCase.wantDiagnostic,
 				)
 			}
+		})
+	}
+}
+
+func TestFeishuMinutesAdapterPreservesCredentialErrorsDuringEnrichmentRefresh(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		errorType string
+		wantCode  string
+	}{
+		{name: "expired login", errorType: "auth_expired", wantCode: "lark_auth_expired"},
+		{name: "permission denied", errorType: "permission_denied", wantCode: "lark_permission_denied"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			workRoot := t.TempDir()
+			digest := strings.Repeat("4", 64)
+			runner := &scriptedLarkRunner{steps: []scriptedLarkStep{{err: &larkCommandError{
+				exitCode: 1,
+				stderr: []byte(fmt.Sprintf(
+					`{"ok":false,"error":{"type":"%s","message":"credential failure"}}`,
+					testCase.errorType,
+				)),
+				cause: errors.New("exit status 1"),
+			}}}}
+			adapter, err := newFeishuMinutesAdapterWithRunner(
+				runner,
+				workRoot,
+				func(context.Context, uint) (string, string, error) {
+					return "", "", errors.New("unused")
+				},
+			)
+			require.NoError(t, err)
+			request, _ := feishuTestRequest(digest)
+			checkpoint, err := encodeFeishuCheckpoint(feishuCheckpoint{
+				Version:     feishuCheckpointVersion,
+				Phase:       feishuPhaseMinutesEnrichment,
+				AudioDigest: digest,
+				FileToken:   "boxcn_refresh_123",
+				MinuteToken: "obcn_refresh_123",
+				MinuteURL:   "https://example.feishu.cn/minutes/obcn_refresh_123",
+			})
+			require.NoError(t, err)
+
+			progress, err := adapter.Resume(context.Background(), request, checkpoint)
+			var adapterErr *AdapterError
+			require.ErrorAs(t, err, &adapterErr)
+			require.Equal(t, testCase.wantCode, adapterErr.ErrorCode)
+			require.Equal(t, ExternalProgressWaiting, progress.Status)
+			require.Contains(t, string(progress.RawArtifacts[minutesEnrichmentDiagnosticFileName]), "note_permission_unavailable")
 		})
 	}
 }
