@@ -231,8 +231,8 @@ const mixedShowNotesItem: ConsumptionItem = {
     "<br><br><br>**对齐事实**",
     "<br><br><br>---",
     "<br><br><br>- 建立共同语言",
-    '<br><br><br>[延伸阅读](https://example.com/notes)',
-    '<br><br><br>![转型示意图](https://i.typlog.com/cover.png)</p>',
+    "<br><br><br>[延伸阅读](https://example.com/notes)",
+    "<br><br><br>![转型示意图](https://i.typlog.com/cover.png)</p>",
   ].join(""),
 };
 
@@ -458,7 +458,9 @@ describe("InboxPageClient", () => {
         name: "转型开场",
       }),
     ).toBeVisible();
-    expect(within(showNotes).getByText("对齐事实").closest("strong")).not.toBeNull();
+    expect(
+      within(showNotes).getByText("对齐事实").closest("strong"),
+    ).not.toBeNull();
     expect(within(showNotes).getByRole("separator")).toBeVisible();
     const list = within(showNotes).getByRole("list");
     expect(list).toBeVisible();
@@ -509,7 +511,9 @@ describe("InboxPageClient", () => {
         name: "HTML 标题",
       }),
     ).toBeVisible();
-    expect(within(showNotes).getByText("HTML 重点").closest("strong")).not.toBeNull();
+    expect(
+      within(showNotes).getByText("HTML 重点").closest("strong"),
+    ).not.toBeNull();
     expect(within(showNotes).getByRole("separator")).toBeVisible();
     expect(within(showNotes).getByRole("list")).toBeVisible();
     expect(
@@ -566,7 +570,9 @@ describe("InboxPageClient", () => {
         name: "Markdown 标题",
       }),
     ).toBeVisible();
-    expect(within(showNotes).getByText("Markdown 重点").closest("strong")).not.toBeNull();
+    expect(
+      within(showNotes).getByText("Markdown 重点").closest("strong"),
+    ).not.toBeNull();
     expect(within(showNotes).getByRole("separator")).toBeVisible();
     expect(within(showNotes).getByRole("list")).toBeVisible();
     expect(
@@ -592,8 +598,8 @@ describe("InboxPageClient", () => {
       show_notes: "第一段普通文本。\n第二行仍然可读。",
     };
     mockSingleFocusItem(plainTextItem, {
-        content: "第一段普通文本。\n第二行仍然可读。",
-        format: "markdown",
+      content: "第一段普通文本。\n第二行仍然可读。",
+      format: "markdown",
     });
 
     render(<InboxPageClient />);
@@ -601,9 +607,9 @@ describe("InboxPageClient", () => {
       await screen.findByRole("button", { name: "打开 普通文本单集 明细" }),
     );
     const dialog = await screen.findByRole("dialog", { name: "普通文本单集" });
-    expect(await within(dialog).findByText(/第一段普通文本。/)).toHaveTextContent(
-      "第一段普通文本。 第二行仍然可读。",
-    );
+    expect(
+      await within(dialog).findByText(/第一段普通文本。/),
+    ).toHaveTextContent("第一段普通文本。 第二行仍然可读。");
   });
 
   it("uses the display document for the empty state without rewriting stored Show Notes", async () => {
@@ -628,7 +634,9 @@ describe("InboxPageClient", () => {
     expect(
       await within(dialog).findByText("该单集暂无 Show Notes。"),
     ).toBeVisible();
-    expect(within(dialog).queryByText("库存原文仍被保留")).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByText("库存原文仍被保留"),
+    ).not.toBeInTheDocument();
   });
 
   it("links recent completions to the independent history view", async () => {
@@ -1627,6 +1635,10 @@ describe("InboxPageClient", () => {
                     url: "https://example.com/report?completion=50%25",
                   },
                   {
+                    title: "minute_token=obcn_secret_title",
+                    url: "https://example.com/safe-reference",
+                  },
+                  {
                     title: "飞书内部",
                     url: "https://example.feishu.cn/minutes/obcn_secret",
                   },
@@ -1654,6 +1666,7 @@ describe("InboxPageClient", () => {
                 content: "# 妙记结构化逐字稿",
                 sha256: nativeArtifact.transcript_sha256,
                 timeline_sha256: nativeArtifact.transcript_timeline_sha256,
+                chapters,
                 segments: [
                   {
                     order: 1,
@@ -1688,10 +1701,21 @@ describe("InboxPageClient", () => {
 
     expect(await within(dialog).findByText("飞书智能纪要")).toBeVisible();
     expect(
-      within(dialog).getByText("内容由飞书 AI 生成，可能不准确。"),
+      within(dialog).getByText("飞书妙记 · 内容由 AI 生成，可能不准确"),
     ).toBeVisible();
+    expect(within(dialog).getByRole("heading", { name: "总结" })).toBeVisible();
     expect(within(dialog).getByText("本集核心结论")).toBeVisible();
+    expect(
+      within(dialog).queryByRole("heading", { name: "纪要" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("heading", { name: "妙记原生纪要" }),
+    ).not.toBeInTheDocument();
     expect(within(dialog).queryByText("单集纪要")).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("heading", { name: "智能章节" }),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("章节 1")).not.toBeInTheDocument();
     const preview = within(dialog).getByRole("img", {
       name: "飞书智能纪要画板",
     });
@@ -1701,13 +1725,25 @@ describe("InboxPageClient", () => {
         `/api/v1/artifact-sets/${nativeArtifact.id}/media/whiteboard`,
       ),
     );
-    fireEvent.click(within(dialog).getByRole("button", { name: /放大查看画板/ }));
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /放大查看画板/ }),
+    );
     const lightbox = await within(dialog).findByRole("dialog", {
       name: "画板预览",
     });
-    expect(within(lightbox).getByRole("button", { name: "关闭" })).toHaveFocus();
+    expect(
+      within(lightbox).getByRole("img", { name: "飞书智能纪要画板" }),
+    ).toHaveAttribute(
+      "src",
+      `/api/v1/artifact-sets/${nativeArtifact.id}/media/whiteboard`,
+    );
+    expect(
+      within(lightbox).getByRole("button", { name: "关闭" }),
+    ).toHaveFocus();
     fireEvent.keyDown(lightbox, { key: "Tab" });
-    expect(within(lightbox).getByRole("button", { name: "关闭" })).toHaveFocus();
+    expect(
+      within(lightbox).getByRole("button", { name: "关闭" }),
+    ).toHaveFocus();
     fireEvent.keyDown(lightbox, { key: "Escape" });
     await waitFor(() =>
       expect(
@@ -1717,11 +1753,15 @@ describe("InboxPageClient", () => {
     expect(
       within(dialog).getByRole("heading", { name: "可处理单集" }),
     ).toBeVisible();
-    fireEvent.click(within(dialog).getByRole("button", { name: /放大查看画板/ }));
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /放大查看画板/ }),
+    );
     const lightboxAgain = await within(dialog).findByRole("dialog", {
       name: "画板预览",
     });
-    fireEvent.click(within(lightboxAgain).getByRole("button", { name: "关闭" }));
+    fireEvent.click(
+      within(lightboxAgain).getByRole("button", { name: "关闭" }),
+    );
     await waitFor(() =>
       expect(
         within(dialog).queryByRole("dialog", { name: "画板预览" }),
@@ -1746,38 +1786,45 @@ describe("InboxPageClient", () => {
     expect(
       within(dialog).getByRole("link", { name: "百分号链接" }),
     ).toHaveAttribute("href", "https://example.com/report?completion=50%25");
+    expect(
+      within(dialog).getByRole("link", {
+        name: "https://example.com/safe-reference",
+      }),
+    ).toHaveAttribute("href", "https://example.com/safe-reference");
     expect(within(dialog).queryByText("飞书内部")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("本机地址")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("嵌套本机地址")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("嵌套飞书地址")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("obcn_secret")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("minute_token")).not.toBeInTheDocument();
-    expect(within(dialog).getByText("章节 1")).toBeVisible();
-    expect(within(dialog).getByText("章节 6")).toBeVisible();
-    expect(within(dialog).queryByText("章节 7")).not.toBeInTheDocument();
-    fireEvent.click(
-      within(dialog).getByRole("button", { name: "展开全部 8 个章节" }),
-    );
-    expect(within(dialog).getByText("章节 7")).toBeVisible();
-    expect(within(dialog).getByText("章节 8")).toBeVisible();
-    fireEvent.click(within(dialog).getByRole("button", { name: "收起章节" }));
-    expect(within(dialog).queryByText("章节 7")).not.toBeInTheDocument();
-    expect(within(dialog).getByText("章节 6")).toBeVisible();
-
-    fireEvent.click(
-      within(dialog).getByRole("button", { name: /00:30\s+章节 2/ }),
-    );
     expect(
-      await within(dialog).findByRole("tab", { name: "逐字稿" }),
-    ).toHaveAttribute("aria-selected", "true");
+      within(dialog).queryByRole("heading", { name: "关键词" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("tab", { name: "逐字稿" }));
+    const chapterNav = await within(dialog).findByText("智能章节 · 8");
+    expect(chapterNav).toBeVisible();
+    const chapterDetails = chapterNav.closest("details");
+    expect(chapterDetails).not.toBeNull();
+    expect(chapterDetails).not.toHaveAttribute("open");
+    fireEvent.click(chapterNav);
+    expect(chapterDetails).toHaveAttribute("open");
+    expect(within(dialog).getByText("章节 1")).toBeVisible();
+    expect(within(dialog).getByText("章节 8")).toBeVisible();
     const audio = dialog.querySelector("audio")!;
+    const play = vi.fn().mockResolvedValue(undefined);
     Object.defineProperties(audio, {
       duration: { configurable: true, value: 180 },
       currentTime: { configurable: true, writable: true, value: 0 },
       paused: { configurable: true, value: true },
+      play: { configurable: true, value: play },
     });
     fireEvent.loadedMetadata(audio);
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /00:30\s+章节 2/ }),
+    );
     expect(audio.currentTime).toBe(30);
+    expect(play).toHaveBeenCalled();
     expect(
       within(dialog).getByRole("button", { name: "00:30 嘉宾：中段" }),
     ).toHaveAttribute("aria-current", "true");
@@ -1791,146 +1838,386 @@ describe("InboxPageClient", () => {
   }, 12000);
 
   it("keeps previous rich minutes during a slow replacement and locates text without audio", async () => {
-      const waitingRun: ProcessingRun = {
-        id: 249,
-        episode_id: inboxItem.episode_id,
-        pipeline_version: "focus-processing-v2",
-        trigger_source: "manual",
-        status: "waiting_external",
-        current_step: "transcription",
-        attempt_count: 1,
-        max_attempts: 3,
-        error_retryable: false,
-        created_at: "2026-09-03T08:00:00Z",
-        updated_at: "2026-09-03T08:01:00Z",
-      };
-      const completedRun: ProcessingRun = {
-        ...waitingRun,
-        status: "completed",
-        current_step: "",
-        updated_at: "2026-09-03T08:05:00Z",
-      };
-      const previousArtifact: EpisodeArtifactSet = {
-        id: 250,
-        run_id: 248,
-        episode_id: inboxItem.episode_id,
-        pipeline_version: completedRun.pipeline_version,
-        manifest_path: "manifest.json",
-        manifest_sha256: "1".repeat(64),
-        minutes_summary_sha256: "2".repeat(64),
-        transcript_sha256: "3".repeat(64),
-        transcript_timeline_sha256: "4".repeat(64),
-        notes_sha256: "",
-        capabilities: {
-          minutes_summary: true,
-          transcript: true,
-          structured_timeline: true,
-          matching_audio: false,
-          legacy_episode_notes: false,
-        },
-        is_current: true,
-        created_at: "2026-09-03T07:00:00Z",
-      };
-      const replacementArtifact: EpisodeArtifactSet = {
-        ...previousArtifact,
-        id: 251,
-        run_id: completedRun.id,
-        created_at: "2026-09-03T08:05:00Z",
-      };
-      let rejectReplacement: (reason?: unknown) => void = () => undefined;
-      apiMocks.listEpisodeRuns.mockResolvedValue([waitingRun]);
-      apiMocks.getProcessingRun
-        .mockResolvedValueOnce({
-          run: waitingRun,
-          current_artifact: previousArtifact,
-          deliveries: [],
-        })
-        .mockResolvedValue({
-          run: completedRun,
-          current_artifact: replacementArtifact,
-          deliveries: [],
-        });
-      apiMocks.getArtifactContent.mockImplementation(
-        (artifactSetId: number, kind: string) => {
-          if (kind === "transcript") {
-            return Promise.resolve({
-              kind,
-              content: "# 逐字稿",
-              sha256: previousArtifact.transcript_sha256,
-              timeline_sha256: previousArtifact.transcript_timeline_sha256,
-              segments: [
-                { order: 1, speaker: "主持人", start_ms: 0, text: "开场" },
-                { order: 2, speaker: "嘉宾", start_ms: 45_000, text: "中段" },
-              ],
-              media_available: false,
-            });
-          }
-          if (artifactSetId === previousArtifact.id) {
-            return Promise.resolve({
-              kind,
-              content: "# 上一成功纪要",
-              sha256: previousArtifact.minutes_summary_sha256,
-              media_available: false,
-              chapters: [
-                {
-                  order: 1,
-                  start_ms: 45_000,
-                  title: "中段章节",
-                  summary: "可定位",
-                },
-              ],
-              decisions: ["继续观察"],
-            });
-          }
-          return new Promise<ArtifactContent>((_, reject) => {
-            rejectReplacement = reject;
-          });
-        },
-      );
-
-      render(<InboxPageClient />);
-      fireEvent.click(
-        await screen.findByRole("button", { name: "打开 可处理单集 明细" }),
-      );
-      const dialog = await screen.findByRole("dialog", { name: "可处理单集" });
-      fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
-      expect(await within(dialog).findByText("上一成功纪要")).toBeVisible();
-      expect(within(dialog).getByText("继续观察")).toBeVisible();
-      expect(
-        within(dialog).queryByRole("heading", { name: "金句时刻" }),
-      ).not.toBeInTheDocument();
-      expect(within(dialog).queryByRole("heading", { name: "关键词" })).not.toBeInTheDocument();
-
-      expect(
-        await within(dialog).findByText("正在读取纪要，暂时显示上一成功内容…", {}, { timeout: 8000 }),
-      ).toBeVisible();
-      expect(within(dialog).getByText("上一成功纪要")).toBeVisible();
-      fireEvent.click(within(dialog).getByRole("tab", { name: "Show Notes" }));
-      expect(within(dialog).getByText("正文")).toBeVisible();
-      fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
-      expect(within(dialog).getByText("上一成功纪要")).toBeVisible();
-      await act(async () => {
-        rejectReplacement(new Error("纪要读取失败"));
+    const waitingRun: ProcessingRun = {
+      id: 249,
+      episode_id: inboxItem.episode_id,
+      pipeline_version: "focus-processing-v2",
+      trigger_source: "manual",
+      status: "waiting_external",
+      current_step: "minutes_enrichment",
+      attempt_count: 1,
+      max_attempts: 3,
+      error_retryable: false,
+      created_at: "2026-09-03T08:00:00Z",
+      updated_at: "2026-09-03T08:01:00Z",
+    };
+    const completedRun: ProcessingRun = {
+      ...waitingRun,
+      status: "completed",
+      current_step: "",
+      updated_at: "2026-09-03T08:05:00Z",
+    };
+    const previousArtifact: EpisodeArtifactSet = {
+      id: 250,
+      run_id: 248,
+      episode_id: inboxItem.episode_id,
+      pipeline_version: completedRun.pipeline_version,
+      manifest_path: "manifest.json",
+      manifest_sha256: "1".repeat(64),
+      minutes_summary_sha256: "2".repeat(64),
+      transcript_sha256: "3".repeat(64),
+      transcript_timeline_sha256: "4".repeat(64),
+      notes_sha256: "",
+      capabilities: {
+        minutes_summary: true,
+        transcript: true,
+        structured_timeline: true,
+        matching_audio: false,
+        legacy_episode_notes: false,
+      },
+      is_current: true,
+      created_at: "2026-09-03T07:00:00Z",
+    };
+    const replacementArtifact: EpisodeArtifactSet = {
+      ...previousArtifact,
+      id: 251,
+      run_id: completedRun.id,
+      created_at: "2026-09-03T08:05:00Z",
+    };
+    let rejectReplacement: (reason?: unknown) => void = () => undefined;
+    apiMocks.listEpisodeRuns.mockResolvedValue([waitingRun]);
+    apiMocks.getProcessingRun
+      .mockResolvedValueOnce({
+        run: waitingRun,
+        current_artifact: previousArtifact,
+        deliveries: [],
+      })
+      .mockResolvedValue({
+        run: completedRun,
+        current_artifact: replacementArtifact,
+        deliveries: [],
       });
+    apiMocks.getArtifactContent.mockImplementation(
+      (artifactSetId: number, kind: string) => {
+        if (kind === "transcript") {
+          return Promise.resolve({
+            kind,
+            content: "# 逐字稿",
+            sha256: previousArtifact.transcript_sha256,
+            timeline_sha256: previousArtifact.transcript_timeline_sha256,
+            chapters: [
+              {
+                order: 1,
+                start_ms: 45_000,
+                title: "中段章节",
+                summary: "可定位",
+              },
+            ],
+            segments: [
+              { order: 1, speaker: "主持人", start_ms: 0, text: "开场" },
+              { order: 2, speaker: "嘉宾", start_ms: 45_000, text: "中段" },
+            ],
+            media_available: false,
+          });
+        }
+        if (artifactSetId === previousArtifact.id) {
+          return Promise.resolve({
+            kind,
+            content: "# 上一成功纪要",
+            sha256: previousArtifact.minutes_summary_sha256,
+            media_available: false,
+            chapters: [
+              {
+                order: 1,
+                start_ms: 45_000,
+                title: "中段章节",
+                summary: "可定位",
+              },
+            ],
+            decisions: ["继续观察"],
+          });
+        }
+        return new Promise<ArtifactContent>((_, reject) => {
+          rejectReplacement = reject;
+        });
+      },
+    );
+
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "打开 可处理单集 明细" }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "可处理单集" });
+    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
+    expect(await within(dialog).findByText("上一成功纪要")).toBeVisible();
+    expect(
+      within(dialog).getAllByText("等待飞书智能纪要").length,
+    ).toBeGreaterThan(0);
+    expect(
+      within(dialog).getByText(
+        "正在等待飞书智能纪要完整后发布，当前仍可阅读上一成功版本。",
+      ),
+    ).toBeVisible();
+    expect(within(dialog).getByText("继续观察")).toBeVisible();
+    expect(
+      within(dialog).queryByRole("heading", { name: "金句时刻" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("heading", { name: "关键词" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("heading", { name: "智能章节" }),
+    ).not.toBeInTheDocument();
+
+    expect(
+      await within(dialog).findByText(
+        "正在读取纪要，暂时显示上一成功内容…",
+        {},
+        { timeout: 8000 },
+      ),
+    ).toBeVisible();
+    expect(within(dialog).getByText("上一成功纪要")).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("tab", { name: "Show Notes" }));
+    expect(within(dialog).getByText("正文")).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+    expect(within(dialog).getByText("上一成功纪要")).toBeVisible();
+    await act(async () => {
+      rejectReplacement(new Error("纪要读取失败"));
+    });
+    expect(
+      await within(dialog).findByRole("button", { name: "重试读取纪要" }),
+    ).toBeVisible();
+    expect(within(dialog).queryByText("正文")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("tab", { name: "逐字稿" }));
+    fireEvent.click(await within(dialog).findByText("智能章节 · 1"));
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /00:45\s+中段章节/ }),
+    );
+    expect(
+      await within(dialog).findByRole("tab", { name: "逐字稿" }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(
+      within(dialog).getByText("音频不可用，逐字稿仍可阅读。"),
+    ).toBeVisible();
+    await waitFor(() =>
       expect(
-        await within(dialog).findByRole("button", { name: "重试读取纪要" }),
-      ).toBeVisible();
-      expect(within(dialog).queryByText("正文")).toBeInTheDocument();
-      fireEvent.click(
-        within(dialog).getByRole("button", { name: /00:45\s+中段章节/ }),
-      );
-      expect(
-        await within(dialog).findByRole("tab", { name: "逐字稿" }),
-      ).toHaveAttribute("aria-selected", "true");
-      expect(
-        within(dialog).getByText("音频不可用，逐字稿仍可阅读。"),
-      ).toBeVisible();
-      await waitFor(() =>
-        expect(
-          within(dialog).getByText("中段").closest("[aria-current='true']"),
-        ).toBeTruthy(),
-      );
+        within(dialog).getByText("中段").closest("[aria-current='true']"),
+      ).toBeTruthy(),
+    );
   }, 12000);
+
+  it("hides empty optional minutes sections and keeps first-run progress without a draft", async () => {
+    const completedRun: ProcessingRun = {
+      id: 260,
+      episode_id: inboxItem.episode_id,
+      pipeline_version: "focus-processing-v2",
+      trigger_source: "manual",
+      status: "completed",
+      current_step: "",
+      attempt_count: 1,
+      max_attempts: 3,
+      error_retryable: false,
+      created_at: "2026-09-03T08:00:00Z",
+      updated_at: "2026-09-03T08:05:00Z",
+    };
+    const artifact: EpisodeArtifactSet = {
+      id: 261,
+      run_id: completedRun.id,
+      episode_id: inboxItem.episode_id,
+      pipeline_version: completedRun.pipeline_version,
+      manifest_path: "manifest.json",
+      manifest_sha256: "1".repeat(64),
+      minutes_summary_sha256: "2".repeat(64),
+      transcript_sha256: "3".repeat(64),
+      transcript_timeline_sha256: "4".repeat(64),
+      notes_sha256: "",
+      capabilities: {
+        minutes_summary: true,
+        transcript: true,
+        structured_timeline: true,
+        matching_audio: false,
+        legacy_episode_notes: false,
+      },
+      is_current: true,
+      created_at: "2026-09-03T08:05:00Z",
+    };
+    apiMocks.listEpisodeRuns.mockResolvedValue([completedRun]);
+    apiMocks.getProcessingRun.mockResolvedValue({
+      run: completedRun,
+      current_artifact: artifact,
+      deliveries: [],
+    });
+    apiMocks.getArtifactContent.mockImplementation(
+      (_id: number, kind: string) =>
+        Promise.resolve(
+          kind === "minutes_summary"
+            ? {
+                kind,
+                content: "# 纪要\n\n只有总结",
+                sha256: artifact.minutes_summary_sha256,
+                media_available: false,
+              }
+            : {
+                kind,
+                content: "# 逐字稿",
+                sha256: artifact.transcript_sha256,
+                timeline_sha256: artifact.transcript_timeline_sha256,
+                segments: [
+                  { order: 1, speaker: "主持人", start_ms: 0, text: "开场" },
+                ],
+                media_available: false,
+              },
+        ),
+    );
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "打开 可处理单集 明细" }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "可处理单集" });
+    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
+    expect(
+      await within(dialog).findByRole("heading", { name: "总结" }),
+    ).toBeVisible();
+    expect(within(dialog).getByText("只有总结")).toBeVisible();
+    expect(
+      within(dialog).queryByRole("heading", { name: "关键决策" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("heading", { name: "金句时刻" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("heading", { name: "相关链接" }),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("关键词")).not.toBeInTheDocument();
+  });
+
+  it("shows first-run progress without a draft and failed resync with the previous version", async () => {
+    const waitingRun: ProcessingRun = {
+      id: 270,
+      episode_id: inboxItem.episode_id,
+      pipeline_version: "focus-processing-v2",
+      trigger_source: "manual",
+      status: "waiting_external",
+      current_step: "minutes_enrichment",
+      attempt_count: 1,
+      max_attempts: 3,
+      error_retryable: false,
+      created_at: "2026-09-03T08:00:00Z",
+      updated_at: "2026-09-03T08:01:00Z",
+    };
+    apiMocks.listEpisodeRuns.mockResolvedValue([waitingRun]);
+    apiMocks.getProcessingRun.mockResolvedValue({
+      run: waitingRun,
+      deliveries: [],
+    });
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "打开 可处理单集 明细" }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "可处理单集" });
+    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
+    expect(
+      (await within(dialog).findAllByText("等待飞书智能纪要")).length,
+    ).toBeGreaterThan(0);
+    expect(
+      within(dialog).getByText(
+        "核心转写已就绪，正在只读等待飞书智能纪要完整。",
+      ),
+    ).toBeVisible();
+    expect(within(dialog).queryByText("完整纪要")).not.toBeInTheDocument();
+  });
+
+  it("keeps the previous minutes readable after enrichment failure and offers resync", async () => {
+    const focusItem: ConsumptionItem = { ...inboxItem, queue_state: "focus" };
+    mockSingleFocusItem(focusItem);
+    const failedRun: ProcessingRun = {
+      id: 280,
+      episode_id: inboxItem.episode_id,
+      pipeline_version: "focus-processing-v2",
+      trigger_source: "manual",
+      status: "failed",
+      current_step: "",
+      attempt_count: 1,
+      max_attempts: 3,
+      error_code: "minutes_enrichment_timeout",
+      error_message:
+        "Feishu intelligent minutes did not become complete before the wait ended",
+      error_retryable: false,
+      created_at: "2026-09-03T08:00:00Z",
+      updated_at: "2026-09-03T08:40:00Z",
+    };
+    const previousArtifact: EpisodeArtifactSet = {
+      id: 281,
+      run_id: 279,
+      episode_id: inboxItem.episode_id,
+      pipeline_version: failedRun.pipeline_version,
+      manifest_path: "manifest.json",
+      manifest_sha256: "1".repeat(64),
+      minutes_summary_sha256: "2".repeat(64),
+      transcript_sha256: "3".repeat(64),
+      transcript_timeline_sha256: "4".repeat(64),
+      notes_sha256: "",
+      capabilities: {
+        minutes_summary: true,
+        transcript: true,
+        structured_timeline: true,
+        matching_audio: false,
+        legacy_episode_notes: false,
+      },
+      is_current: true,
+      created_at: "2026-09-03T07:00:00Z",
+    };
+    apiMocks.listEpisodeRuns.mockResolvedValue([failedRun]);
+    apiMocks.getProcessingRun.mockResolvedValue({
+      run: failedRun,
+      current_artifact: previousArtifact,
+      deliveries: [],
+      action_suggestion: "可重新同步同一条妙记，不会重复上传音频或新建妙记。",
+    });
+    const retryResult = {
+      run: { ...failedRun, id: 282, status: "queued" },
+      reused_active: false,
+      reused_successful: false,
+      preparing_audio: false,
+    };
+    let resolveRetry: (result: typeof retryResult) => void = () => undefined;
+    apiMocks.retryProcessing.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRetry = resolve;
+      }),
+    );
+    apiMocks.getArtifactContent.mockResolvedValue({
+      kind: "minutes_summary",
+      content: "# 纪要\n\n上一成功纪要",
+      sha256: previousArtifact.minutes_summary_sha256,
+      media_available: false,
+    });
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "打开 可处理单集 明细" }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "可处理单集" });
+    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
+    expect(await within(dialog).findByText("上一成功纪要")).toBeVisible();
+    expect(
+      within(dialog).getAllByText("智能纪要同步失败").length,
+    ).toBeGreaterThan(0);
+    fireEvent.click(
+      within(dialog).getAllByRole("button", { name: "重新同步" })[0],
+    );
+    expect(within(dialog).getByText("正在重新同步智能纪要")).toBeVisible();
+    expect(
+      within(dialog).getByText(
+        "正在续取同一条妙记，不会重新上传音频或创建妙记。",
+      ),
+    ).toBeVisible();
+    await waitFor(() =>
+      expect(apiMocks.retryProcessing).toHaveBeenCalledWith(failedRun.id),
+    );
+    await act(async () => {
+      resolveRetry(retryResult);
+    });
+  });
 
   it("queues missing audio from the transcript and confirms success after re-entry", async () => {
     const completedRun: ProcessingRun = {
@@ -2058,7 +2345,9 @@ describe("InboxPageClient", () => {
     ).not.toBeInTheDocument();
     expect(within(dialog).getByText("恢复期间正文仍在这里。")).toBeVisible();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "关闭单集明细" }));
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "关闭单集明细" }),
+    );
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "可处理单集" })).toBeNull(),
     );
@@ -2450,6 +2739,9 @@ describe("InboxPageClient", () => {
     expect(
       await within(dialog).findByRole("status", { name: "转写状态：转写失败" }),
     ).toBeVisible();
+    expect(
+      within(dialog).queryByText("智能纪要同步失败"),
+    ).not.toBeInTheDocument();
     expect(within(dialog).getByText("上一成功版本")).toBeVisible();
     expect(
       within(dialog).getByText(

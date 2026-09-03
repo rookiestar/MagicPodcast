@@ -5,7 +5,7 @@ import TranscriptAudioPlayer, {
   DEFAULT_TRANSCRIPT_PLAYBACK_RATE,
   type TranscriptPlaybackRate,
 } from "../TranscriptAudioPlayer";
-import type { TranscriptSegment } from "@/types/processing";
+import type { MinutesChapter, TranscriptSegment } from "@/types/processing";
 
 const segments: TranscriptSegment[] = [
   { order: 1, speaker: "主持人", start_ms: 0, text: "开场内容" },
@@ -52,12 +52,14 @@ interface TestPlayerProps {
   artifactSetId?: number;
   segments?: TranscriptSegment[];
   mediaAvailable?: boolean;
+  chapters?: MinutesChapter[];
 }
 
 function StatefulTranscriptAudioPlayer({
   artifactSetId = 82,
   segments: playerSegments = segments,
   mediaAvailable = true,
+  chapters,
 }: TestPlayerProps) {
   const [playbackRate, setPlaybackRate] = useState<TranscriptPlaybackRate>(
     DEFAULT_TRANSCRIPT_PLAYBACK_RATE,
@@ -69,6 +71,7 @@ function StatefulTranscriptAudioPlayer({
       mediaAvailable={mediaAvailable}
       playbackRate={playbackRate}
       onPlaybackRateChange={setPlaybackRate}
+      chapters={chapters}
     />
   );
 }
@@ -82,10 +85,7 @@ describe("TranscriptAudioPlayer", () => {
     const { container } = renderPlayer();
     const audio = container.querySelector("audio");
     expect(audio).not.toBeNull();
-    expect(audio).toHaveAttribute(
-      "src",
-      "/api/v1/artifact-sets/82/audio",
-    );
+    expect(audio).toHaveAttribute("src", "/api/v1/artifact-sets/82/audio");
     const media = prepareAudio(audio!);
     const playbackRate = screen.getByRole("combobox", { name: "播放倍速" });
     expect(playbackRate).toHaveValue("1");
@@ -211,9 +211,7 @@ describe("TranscriptAudioPlayer", () => {
     const { load } = prepareAudio(audio);
     const source = audio.getAttribute("src");
     fireEvent.error(audio);
-    expect(
-      screen.getByText("音频加载失败，逐字稿仍可阅读。"),
-    ).toBeVisible();
+    expect(screen.getByText("音频加载失败，逐字稿仍可阅读。")).toBeVisible();
     expect(screen.getByText("尾段内容")).toBeVisible();
     expect(screen.getByRole("combobox", { name: "播放倍速" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
@@ -231,7 +229,9 @@ describe("TranscriptAudioPlayer", () => {
     expect(screen.queryByRole("slider")).toBeDisabled();
     expect(screen.queryByRole("button", { name: "播放音频" })).toBeDisabled();
     expect(screen.getByRole("combobox", { name: "播放倍速" })).toBeDisabled();
-    expect(screen.queryByRole("button", { name: /主持人：开场内容/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /主持人：开场内容/ }),
+    ).toBeNull();
     expect(screen.getByText("开场内容")).toBeVisible();
     expect(screen.getByText("音频不可用，逐字稿仍可阅读。")).toBeVisible();
   });
@@ -250,5 +250,65 @@ describe("TranscriptAudioPlayer", () => {
     expect(
       screen.getByRole("button", { name: "00:30 主持人：尾段内容" }),
     ).toHaveAttribute("aria-current", "true");
+  });
+
+  it("keeps chapters collapsed until opened and seeks plus plays on click", async () => {
+    const { container } = renderPlayer({
+      chapters: [
+        { order: 1, start_ms: 0, title: "开场章节", summary: "介绍" },
+        { order: 2, start_ms: 30_000, title: "中段章节", summary: "讨论" },
+      ],
+    });
+    const chapterNav = screen.getByText("智能章节 · 2");
+    const chapterDetails = chapterNav.closest("details");
+    expect(chapterDetails).not.toHaveAttribute("open");
+    fireEvent.click(chapterNav);
+    expect(chapterDetails).toHaveAttribute("open");
+    expect(screen.getByText("中段章节")).toBeVisible();
+    const audio = container.querySelector("audio")!;
+    const media = prepareAudio(audio);
+    fireEvent.click(screen.getByRole("button", { name: /00:30\s+中段章节/ }));
+    expect(audio.currentTime).toBe(30);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(media.play).toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "00:30 嘉宾：中段内容" }),
+    ).toHaveAttribute("aria-current", "true");
+  });
+
+  it("scrolls to the matching transcript text when audio is unavailable", () => {
+    renderPlayer({
+      mediaAvailable: false,
+      chapters: [
+        { order: 1, start_ms: 0, title: "开场章节", summary: "介绍" },
+        { order: 2, start_ms: 30_000, title: "中段章节", summary: "讨论" },
+      ],
+    });
+    const transcript = screen.getByRole("region", { name: "同步逐字稿" });
+    const target = screen.getByText("中段内容").closest("article")!;
+    Object.defineProperty(transcript, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ top: 0, bottom: 100 }),
+    });
+    Object.defineProperty(target, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ top: 130, bottom: 170 }),
+    });
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(target, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    fireEvent.click(screen.getByText("智能章节 · 2"));
+    fireEvent.click(screen.getByRole("button", { name: /00:30\s+中段章节/ }));
+
+    expect(target).toHaveAttribute("aria-current", "true");
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      block: "nearest",
+      behavior: "auto",
+    });
   });
 });

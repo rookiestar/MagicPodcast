@@ -1112,6 +1112,7 @@ func TestEngineExternalWaitCheckpointAndStatusCommitAtomically(t *testing.T) {
 		context.Background(),
 		run.ID,
 		json.RawMessage(`{"minute_ref":"must-not-commit"}`),
+		"",
 	)
 	require.NoError(t, err)
 	require.Equal(t, models.ProcessingRunStatusCancelled, current.Status)

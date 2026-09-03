@@ -1,0 +1,101 @@
+package processing
+
+import (
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestEvaluateReadableNoteDocumentAllowsEmptyKnownSections(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p></p><h1>关键决策</h1><p>暂无</p><h1>金句时刻</h1><p>无</p><h1>相关链接</h1><p></p>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.False(t, decision.Wait)
+	require.Empty(t, decision.Code)
+}
+
+func TestEvaluateReadableNoteDocumentAllowsEmptyDocument(t *testing.T) {
+	decision := evaluateReadableNoteDocument("   ", "", false, false)
+	require.True(t, decision.Complete)
+	require.False(t, decision.Wait)
+}
+
+func TestEvaluateReadableNoteDocumentRejectsUnknownTemplate(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>未知模板</h1><p>不能当作成功</p>`,
+		"",
+		false,
+		false,
+	)
+	require.False(t, decision.Complete)
+	require.Equal(t, minutesEnrichmentTemplateCode, decision.Code)
+	require.Equal(t, "note_sections_unrecognized", decision.Diagnostic)
+}
+
+func TestEvaluateReadableNoteDocumentRejectsUnknownEmptyShell(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<weird><unknown-block token="abc"/></weird>`,
+		"",
+		false,
+		false,
+	)
+	require.False(t, decision.Complete)
+	require.Equal(t, minutesEnrichmentTemplateCode, decision.Code)
+}
+
+func TestEvaluateReadableNoteDocumentWaitsForTemporaryWhiteboard(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><whiteboard token="wbcn_board_123"/><h1>关键决策</h1><ul><li>继续推进</li></ul>`,
+		"wbcn_board_123",
+		false,
+		true,
+	)
+	require.True(t, decision.Wait)
+	require.False(t, decision.Complete)
+	require.Equal(t, "whiteboard_pending", decision.Diagnostic)
+}
+
+func TestEvaluateReadableNoteDocumentFailsPermanentWhiteboard(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><whiteboard token="wbcn_board_123"/><h1>关键决策</h1><ul><li>继续推进</li></ul>`,
+		"wbcn_board_123",
+		false,
+		false,
+	)
+	require.False(t, decision.Complete)
+	require.False(t, decision.Wait)
+	require.Equal(t, minutesEnrichmentWhiteboardCode, decision.Code)
+}
+
+func TestMinutesEnrichmentDeadlineIsFixedFromCoreReady(t *testing.T) {
+	coreReady := time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC)
+	deadline := minutesEnrichmentDeadline(coreReady, coreReady.Add(2*time.Minute))
+	require.Equal(t, coreReady.Add(30*time.Minute), deadline)
+	require.False(t, enrichmentWaitExpired(deadline, coreReady.Add(29*time.Minute)))
+	require.True(t, enrichmentWaitExpired(deadline, coreReady.Add(30*time.Minute)))
+}
+
+func TestMinutesErrorIsWaitableForPendingAndUnknownReads(t *testing.T) {
+	require.True(t, minutesErrorIsWaitable(errLarkMinutesPending))
+	require.True(t, minutesErrorIsWaitable(errors.New("network down")))
+	require.True(t, minutesErrorIsWaitable(NewUnknownExternalResultError(
+		"lark_result_unknown",
+		"Feishu CLI result is unknown",
+	)))
+	require.True(t, minutesErrorIsWaitable(NewAdapterError(
+		"lark_rate_limited",
+		"Feishu request rate is limited",
+		true,
+	)))
+	require.False(t, minutesErrorIsWaitable(NewAdapterError(
+		"lark_permission_denied",
+		"Feishu user permission is insufficient",
+		false,
+	)))
+}

@@ -11,10 +11,11 @@ import (
 const (
 	NativeMinutesPipelineVersion = "focus-processing-v2"
 
-	StepAudioPreparation = "audio_prepare"
-	StepTranscription    = "transcription"
-	StepEpisodeNotes     = "episode_notes"
-	StepArtifactPublish  = "artifact_publish"
+	StepAudioPreparation  = "audio_prepare"
+	StepTranscription     = "transcription"
+	StepMinutesEnrichment = "minutes_enrichment"
+	StepEpisodeNotes      = "episode_notes"
+	StepArtifactPublish   = "artifact_publish"
 
 	ExternalProgressWaiting   = "waiting"
 	ExternalProgressCompleted = "completed"
@@ -89,6 +90,7 @@ type TranscriptionRequest struct {
 
 type TranscriptionProgress struct {
 	Status            string
+	CurrentStep       string
 	Checkpoint        json.RawMessage
 	MinutesSummary    string
 	Transcript        string
