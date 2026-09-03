@@ -116,6 +116,39 @@ export interface ArtifactContent {
   timeline_sha256?: string;
   media_available: boolean;
   audio_recovery?: AudioRecoverySummary;
+  chapters?: MinutesChapter[];
+  keywords?: string[];
+  decisions?: string[];
+  quotes?: MinutesQuote[];
+  links?: MinutesLink[];
+  whiteboard?: MinutesWhiteboard;
+}
+
+export interface MinutesChapter {
+  order: number;
+  start_ms: number;
+  end_ms?: number;
+  title: string;
+  summary?: string;
+}
+
+export interface MinutesQuote {
+  quote: string;
+  explanation?: string;
+}
+
+export interface MinutesLink {
+  title: string;
+  url: string;
+}
+
+export interface MinutesWhiteboard {
+  media_id: string;
+  media_type: string;
+  width?: number;
+  height?: number;
+  sha256: string;
+  alt: string;
 }
 
 export type ArtifactContentKind =

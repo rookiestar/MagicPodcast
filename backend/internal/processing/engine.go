@@ -476,6 +476,8 @@ func (e *Engine) Advance(
 		MinutesSummary:       progress.MinutesSummary,
 		Transcript:           progress.Transcript,
 		TranscriptSegments:   progress.Segments,
+		MinutesEnrichment:    progress.MinutesEnrichment,
+		WhiteboardPreview:    progress.WhiteboardPreview,
 		EpisodeNotes:         runtimeResult.EpisodeNotes,
 		TranscriptionAdapter: e.transcriber.Name(),
 		TranscriptionVersion: e.transcriber.Version(),

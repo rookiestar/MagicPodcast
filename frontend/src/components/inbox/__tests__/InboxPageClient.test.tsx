@@ -1551,6 +1551,372 @@ describe("InboxPageClient", () => {
     selectionSpy.mockRestore();
   });
 
+  it("renders rich Feishu intelligent minutes and jumps chapters in the transcript", async () => {
+    const completedRun: ProcessingRun = {
+      id: 247,
+      episode_id: inboxItem.episode_id,
+      pipeline_version: "focus-processing-v2",
+      trigger_source: "manual",
+      status: "completed",
+      current_step: "",
+      attempt_count: 1,
+      max_attempts: 3,
+      error_retryable: false,
+      created_at: "2026-09-03T08:00:00Z",
+      updated_at: "2026-09-03T08:05:00Z",
+    };
+    const nativeArtifact: EpisodeArtifactSet = {
+      id: 248,
+      run_id: completedRun.id,
+      episode_id: inboxItem.episode_id,
+      pipeline_version: completedRun.pipeline_version,
+      manifest_path: "manifest.json",
+      manifest_sha256: "1".repeat(64),
+      minutes_summary_sha256: "2".repeat(64),
+      transcript_sha256: "3".repeat(64),
+      transcript_timeline_sha256: "4".repeat(64),
+      notes_sha256: "",
+      capabilities: {
+        minutes_summary: true,
+        transcript: true,
+        structured_timeline: true,
+        matching_audio: true,
+        legacy_episode_notes: false,
+      },
+      is_current: true,
+      created_at: "2026-09-03T08:05:00Z",
+    };
+    const chapters = Array.from({ length: 8 }, (_, index) => ({
+      order: index + 1,
+      start_ms: index * 30_000,
+      title: `章节 ${index + 1}`,
+      summary: `摘要 ${index + 1}`,
+    }));
+    apiMocks.listEpisodeRuns.mockResolvedValue([completedRun]);
+    apiMocks.getProcessingRun.mockResolvedValue({
+      run: completedRun,
+      current_artifact: nativeArtifact,
+      deliveries: [],
+    } satisfies ProcessingRunDetail);
+    apiMocks.getArtifactContent.mockImplementation(
+      (_artifactSetId: number, kind: string) =>
+        Promise.resolve(
+          kind === "minutes_summary"
+            ? {
+                kind,
+                content: "# 妙记原生纪要\n\n本集核心结论",
+                sha256: nativeArtifact.minutes_summary_sha256,
+                media_available: false,
+                chapters,
+                keywords: ["AI", "产品"],
+                decisions: ["采用方案 A"],
+                quotes: [
+                  {
+                    quote: "真正重要的是长期主义",
+                    explanation: "这句话强调节奏。",
+                  },
+                ],
+                links: [
+                  { title: "外部指南", url: "https://example.com/guide" },
+                  {
+                    title: "飞书内部",
+                    url: "https://example.feishu.cn/minutes/obcn_secret",
+                  },
+                ],
+                whiteboard: {
+                  media_id: "whiteboard",
+                  media_type: "image/png",
+                  width: 320,
+                  height: 180,
+                  sha256: "5".repeat(64),
+                  alt: "飞书智能纪要画板",
+                },
+              }
+            : {
+                kind,
+                content: "# 妙记结构化逐字稿",
+                sha256: nativeArtifact.transcript_sha256,
+                timeline_sha256: nativeArtifact.transcript_timeline_sha256,
+                segments: [
+                  {
+                    order: 1,
+                    speaker: "主持人",
+                    start_ms: 0,
+                    text: "开场",
+                  },
+                  {
+                    order: 2,
+                    speaker: "嘉宾",
+                    start_ms: 30_000,
+                    text: "中段",
+                  },
+                  {
+                    order: 3,
+                    speaker: "主持人",
+                    start_ms: 90_000,
+                    text: "尾段",
+                  },
+                ],
+                media_available: true,
+              },
+        ),
+    );
+
+    render(<InboxPageClient />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "打开 可处理单集 明细" }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "可处理单集" });
+    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
+
+    expect(await within(dialog).findByText("飞书智能纪要")).toBeVisible();
+    expect(
+      within(dialog).getByText("内容由飞书 AI 生成，可能不准确。"),
+    ).toBeVisible();
+    expect(within(dialog).getByText("本集核心结论")).toBeVisible();
+    expect(within(dialog).queryByText("单集纪要")).not.toBeInTheDocument();
+    const preview = within(dialog).getByRole("img", {
+      name: "飞书智能纪要画板",
+    });
+    expect(preview).toHaveAttribute(
+      "src",
+      `/api/v1/artifact-sets/${nativeArtifact.id}/media/whiteboard`,
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: /放大查看画板/ }));
+    const lightbox = await within(dialog).findByRole("dialog", {
+      name: "画板预览",
+    });
+    expect(within(lightbox).getByRole("button", { name: "关闭" })).toHaveFocus();
+    fireEvent.keyDown(lightbox, { key: "Tab" });
+    expect(within(lightbox).getByRole("button", { name: "关闭" })).toHaveFocus();
+    fireEvent.keyDown(lightbox, { key: "Escape" });
+    await waitFor(() =>
+      expect(
+        within(dialog).queryByRole("dialog", { name: "画板预览" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      within(dialog).getByRole("heading", { name: "可处理单集" }),
+    ).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: /放大查看画板/ }));
+    const lightboxAgain = await within(dialog).findByRole("dialog", {
+      name: "画板预览",
+    });
+    fireEvent.click(within(lightboxAgain).getByRole("button", { name: "关闭" }));
+    await waitFor(() =>
+      expect(
+        within(dialog).queryByRole("dialog", { name: "画板预览" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      within(dialog).getByRole("button", { name: /放大查看画板/ }),
+    ).toHaveFocus();
+
+    expect(within(dialog).getByText("采用方案 A")).toBeVisible();
+    expect(within(dialog).getByText("真正重要的是长期主义")).toBeVisible();
+    expect(within(dialog).getByText("这句话强调节奏。")).toBeVisible();
+    const keywordList = within(dialog).getByRole("list", { name: "关键词" });
+    expect(within(keywordList).getByText("AI")).toBeVisible();
+    expect(within(keywordList).getByText("产品")).toBeVisible();
+    expect(
+      within(dialog).getByRole("link", { name: "外部指南" }),
+    ).toHaveAttribute("href", "https://example.com/guide");
+    expect(within(dialog).queryByText("飞书内部")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("obcn_secret")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("minute_token")).not.toBeInTheDocument();
+    expect(within(dialog).getByText("章节 1")).toBeVisible();
+    expect(within(dialog).getByText("章节 6")).toBeVisible();
+    expect(within(dialog).queryByText("章节 7")).not.toBeInTheDocument();
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "展开全部 8 个章节" }),
+    );
+    expect(within(dialog).getByText("章节 7")).toBeVisible();
+    expect(within(dialog).getByText("章节 8")).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "收起章节" }));
+    expect(within(dialog).queryByText("章节 7")).not.toBeInTheDocument();
+    expect(within(dialog).getByText("章节 6")).toBeVisible();
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /00:30\s+章节 2/ }),
+    );
+    expect(
+      await within(dialog).findByRole("tab", { name: "逐字稿" }),
+    ).toHaveAttribute("aria-selected", "true");
+    const audio = dialog.querySelector("audio")!;
+    Object.defineProperties(audio, {
+      duration: { configurable: true, value: 180 },
+      currentTime: { configurable: true, writable: true, value: 0 },
+      paused: { configurable: true, value: true },
+    });
+    fireEvent.loadedMetadata(audio);
+    expect(audio.currentTime).toBe(30);
+    expect(
+      within(dialog).getByRole("button", { name: "00:30 嘉宾：中段" }),
+    ).toHaveAttribute("aria-current", "true");
+
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1280,
+    });
+    fireEvent.click(within(dialog).getByRole("tab", { name: "纪要" }));
+    expect(await within(dialog).findByText("飞书智能纪要")).toBeVisible();
+    const desktopPanel = within(dialog).getByRole("tabpanel", { name: "纪要" });
+    expect(desktopPanel.scrollWidth).toBeLessThanOrEqual(
+      Math.max(desktopPanel.clientWidth, 1),
+    );
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 390,
+    });
+    window.dispatchEvent(new Event("resize"));
+    const mobilePanel = within(dialog).getByRole("tabpanel", { name: "纪要" });
+    expect(mobilePanel.scrollWidth).toBeLessThanOrEqual(
+      Math.max(mobilePanel.clientWidth, 390),
+    );
+    expect(within(dialog).getByText("真正重要的是长期主义")).toBeVisible();
+    expect(
+      within(dialog).getByRole("img", { name: "飞书智能纪要画板" }),
+    ).toBeVisible();
+  });
+
+  it("keeps previous rich minutes during a slow replacement and locates text without audio", async () => {
+      const waitingRun: ProcessingRun = {
+        id: 249,
+        episode_id: inboxItem.episode_id,
+        pipeline_version: "focus-processing-v2",
+        trigger_source: "manual",
+        status: "waiting_external",
+        current_step: "transcription",
+        attempt_count: 1,
+        max_attempts: 3,
+        error_retryable: false,
+        created_at: "2026-09-03T08:00:00Z",
+        updated_at: "2026-09-03T08:01:00Z",
+      };
+      const completedRun: ProcessingRun = {
+        ...waitingRun,
+        status: "completed",
+        current_step: "",
+        updated_at: "2026-09-03T08:05:00Z",
+      };
+      const previousArtifact: EpisodeArtifactSet = {
+        id: 250,
+        run_id: 248,
+        episode_id: inboxItem.episode_id,
+        pipeline_version: completedRun.pipeline_version,
+        manifest_path: "manifest.json",
+        manifest_sha256: "1".repeat(64),
+        minutes_summary_sha256: "2".repeat(64),
+        transcript_sha256: "3".repeat(64),
+        transcript_timeline_sha256: "4".repeat(64),
+        notes_sha256: "",
+        capabilities: {
+          minutes_summary: true,
+          transcript: true,
+          structured_timeline: true,
+          matching_audio: false,
+          legacy_episode_notes: false,
+        },
+        is_current: true,
+        created_at: "2026-09-03T07:00:00Z",
+      };
+      const replacementArtifact: EpisodeArtifactSet = {
+        ...previousArtifact,
+        id: 251,
+        run_id: completedRun.id,
+        created_at: "2026-09-03T08:05:00Z",
+      };
+      let rejectReplacement: (reason?: unknown) => void = () => undefined;
+      apiMocks.listEpisodeRuns.mockResolvedValue([waitingRun]);
+      apiMocks.getProcessingRun
+        .mockResolvedValueOnce({
+          run: waitingRun,
+          current_artifact: previousArtifact,
+          deliveries: [],
+        })
+        .mockResolvedValue({
+          run: completedRun,
+          current_artifact: replacementArtifact,
+          deliveries: [],
+        });
+      apiMocks.getArtifactContent.mockImplementation(
+        (artifactSetId: number, kind: string) => {
+          if (kind === "transcript") {
+            return Promise.resolve({
+              kind,
+              content: "# 逐字稿",
+              sha256: previousArtifact.transcript_sha256,
+              timeline_sha256: previousArtifact.transcript_timeline_sha256,
+              segments: [
+                { order: 1, speaker: "主持人", start_ms: 0, text: "开场" },
+                { order: 2, speaker: "嘉宾", start_ms: 45_000, text: "中段" },
+              ],
+              media_available: false,
+            });
+          }
+          if (artifactSetId === previousArtifact.id) {
+            return Promise.resolve({
+              kind,
+              content: "# 上一成功纪要",
+              sha256: previousArtifact.minutes_summary_sha256,
+              media_available: false,
+              chapters: [
+                {
+                  order: 1,
+                  start_ms: 45_000,
+                  title: "中段章节",
+                  summary: "可定位",
+                },
+              ],
+              decisions: ["继续观察"],
+            });
+          }
+          return new Promise<ArtifactContent>((_, reject) => {
+            rejectReplacement = reject;
+          });
+        },
+      );
+
+      render(<InboxPageClient />);
+      fireEvent.click(
+        await screen.findByRole("button", { name: "打开 可处理单集 明细" }),
+      );
+      const dialog = await screen.findByRole("dialog", { name: "可处理单集" });
+      fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
+      expect(await within(dialog).findByText("上一成功纪要")).toBeVisible();
+      expect(within(dialog).getByText("继续观察")).toBeVisible();
+      expect(within(dialog).queryByRole("heading", { name: "金句" })).not.toBeInTheDocument();
+      expect(within(dialog).queryByRole("heading", { name: "关键词" })).not.toBeInTheDocument();
+
+      expect(
+        await within(dialog).findByText("正在读取纪要，暂时显示上一成功内容…", {}, { timeout: 8000 }),
+      ).toBeVisible();
+      expect(within(dialog).getByText("上一成功纪要")).toBeVisible();
+      fireEvent.click(within(dialog).getByRole("tab", { name: "Show Notes" }));
+      expect(within(dialog).getByText("正文")).toBeVisible();
+      fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+      expect(within(dialog).getByText("上一成功纪要")).toBeVisible();
+      await act(async () => {
+        rejectReplacement(new Error("纪要读取失败"));
+      });
+      expect(
+        await within(dialog).findByRole("button", { name: "重试读取纪要" }),
+      ).toBeVisible();
+      expect(within(dialog).queryByText("正文")).toBeInTheDocument();
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: /00:45\s+中段章节/ }),
+      );
+      expect(
+        await within(dialog).findByRole("tab", { name: "逐字稿" }),
+      ).toHaveAttribute("aria-selected", "true");
+      expect(
+        within(dialog).getByText("音频不可用，逐字稿仍可阅读。"),
+      ).toBeVisible();
+      expect(
+        within(dialog).getByText("中段").closest("[aria-current='true']"),
+      ).toBeTruthy();
+  }, 12000);
+
   it("queues missing audio from the transcript and confirms success after re-entry", async () => {
     const completedRun: ProcessingRun = {
       id: 101,

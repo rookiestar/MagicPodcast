@@ -22,6 +22,7 @@ interface TranscriptAudioPlayerProps {
   mediaAvailable: boolean;
   playbackRate: TranscriptPlaybackRate;
   onPlaybackRateChange: (rate: TranscriptPlaybackRate) => void;
+  initialSeekMs?: number | null;
 }
 
 type MediaState = "loading" | "ready" | "waiting" | "error" | "unavailable";
@@ -108,6 +109,7 @@ export default function TranscriptAudioPlayer({
   mediaAvailable,
   playbackRate,
   onPlaybackRateChange,
+  initialSeekMs,
 }: TranscriptAudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -173,11 +175,12 @@ export default function TranscriptAudioPlayer({
 
   const seekTo = useCallback(
     (seconds: number) => {
-      const audio = audioRef.current;
-      if (!audio) return;
       const bounded =
         duration > 0 ? Math.min(Math.max(seconds, 0), duration) : Math.max(seconds, 0);
-      audio.currentTime = bounded;
+      const audio = audioRef.current;
+      if (audio) {
+        audio.currentTime = bounded;
+      }
       updatePosition(bounded, true);
     },
     [duration, updatePosition],
@@ -187,10 +190,21 @@ export default function TranscriptAudioPlayer({
     setMediaState(mediaAvailable ? "loading" : "unavailable");
     setIsPlaying(false);
     setDuration(0);
-    setCurrentTime(0);
-    setCurrentSegmentIndex(currentSegmentAt(segments, 0));
+    const initialSeconds =
+      typeof initialSeekMs === "number" && Number.isFinite(initialSeekMs)
+        ? Math.max(initialSeekMs, 0) / 1000
+        : 0;
+    setCurrentTime(initialSeconds);
+    setCurrentSegmentIndex(currentSegmentAt(segments, initialSeconds));
     setFollowEnabled(true);
-  }, [artifactSetId, mediaAvailable, segments, setFollowEnabled]);
+  }, [artifactSetId, initialSeekMs, mediaAvailable, segments, setFollowEnabled]);
+
+  useEffect(() => {
+    if (typeof initialSeekMs !== "number" || !Number.isFinite(initialSeekMs)) {
+      return;
+    }
+    seekTo(Math.max(initialSeekMs, 0) / 1000);
+  }, [artifactSetId, initialSeekMs, seekTo]);
 
   useEffect(() => {
     const audio = audioRef.current;
