@@ -2,6 +2,7 @@ package processing
 
 import (
 	"errors"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -260,6 +261,9 @@ func noteLinksSectionIsFullyAccounted(section string) bool {
 	for _, href := range hrefs {
 		safeURL, ok := sanitizePublicMinutesURL(href)
 		if !ok {
+			if !isFilteredInternalMinutesURL(href) {
+				return false
+			}
 			continue
 		}
 		if _, ok := extracted[safeURL]; !ok {
@@ -424,6 +428,9 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 				return noteLinkNodeScan{}
 			}
 			_, public := sanitizePublicMinutesURL(href)
+			if !public && !isFilteredInternalMinutesURL(href) {
+				return noteLinkNodeScan{}
+			}
 			visible := strings.TrimSpace(noteLinkNodeText(node))
 			if (!public && plainURLPattern.MatchString(visible) && visible != href) ||
 				noteLinkNodeHasUnsupportedDescendant(node) {
@@ -510,6 +517,23 @@ func noteLinkNodeHasUnsupportedDescendant(node *nethtml.Node) bool {
 func noteLinkNodeHasURLAttribute(node *nethtml.Node) bool {
 	for _, attribute := range node.Attr {
 		if isNoteLinkURLAttribute(attribute.Key) && strings.TrimSpace(attribute.Val) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func isFilteredInternalMinutesURL(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.User != nil || parsed.Hostname() == "" {
+		return false
+	}
+	if parsed.Scheme != "" && parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	for _, suffix := range feishuLinkHosts {
+		if host == suffix || strings.HasSuffix(host, "."+suffix) {
 			return true
 		}
 	}
