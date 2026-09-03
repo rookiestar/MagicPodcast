@@ -109,6 +109,14 @@ func TestParseNoteSectionsExtractsSafeLinksWithHTMLAttributeSyntax(t *testing.T)
 	}, links)
 }
 
+func TestParseNoteSectionsIgnoresSimilarAttributeNames(t *testing.T) {
+	_, _, links, _ := parseNoteSections(`
+<h1>相关链接</h1>
+<p><a data-href='https://example.com/wrong' href='https://feishu.cn/docx/internal'>内部</a></p>
+`)
+	require.Empty(t, links)
+}
+
 func TestPlaceholderOnlyDecisionsAreOmitted(t *testing.T) {
 	decisions, quotes, links, token := parseNoteSections(`
 <h1>关键决策</h1>
