@@ -979,6 +979,20 @@ func TestProcessingRichMinutesHTTPContract(t *testing.T) {
 	require.Contains(t, response.Body.String(), `"media_id":"whiteboard"`)
 	assertNoLeak(response.Body.String())
 
+	enrichmentPath := filepath.Join(published.RootPath, "minutes-enrichment.json")
+	enrichmentBytes, err := os.ReadFile(enrichmentPath)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(enrichmentPath, []byte(`{"schema_version":"1.0.0","keywords":["tampered"]}`), 0o600))
+	corruptedEnrichment := processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/artifact-sets/%d/minutes_summary", artifact.ID),
+		"",
+	)
+	require.Equal(t, http.StatusUnprocessableEntity, corruptedEnrichment.Code)
+	assertNoLeak(corruptedEnrichment.Body.String())
+	require.NoError(t, os.WriteFile(enrichmentPath, enrichmentBytes, 0o600))
+
 	media := processingRequest(
 		router,
 		http.MethodGet,

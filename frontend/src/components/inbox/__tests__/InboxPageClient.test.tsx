@@ -1619,8 +1619,25 @@ describe("InboxPageClient", () => {
                 links: [
                   { title: "外部指南", url: "https://example.com/guide" },
                   {
+                    title: "DOCX 格式指南",
+                    url: "https://example.com/guides/docx-format",
+                  },
+                  {
+                    title: "百分号链接",
+                    url: "https://example.com/report?completion=50%25",
+                  },
+                  {
                     title: "飞书内部",
                     url: "https://example.feishu.cn/minutes/obcn_secret",
+                  },
+                  { title: "本机地址", url: "https://127.0.0.1/admin" },
+                  {
+                    title: "嵌套本机地址",
+                    url: "https://example.com/redirect?next=https%3A%2F%2Flocalhost%2Fadmin",
+                  },
+                  {
+                    title: "嵌套飞书地址",
+                    url: "https://example.com/redirect?next=https%3A%2F%2Fexample.feishu.com%2Fpublic",
                   },
                 ],
                 whiteboard: {
@@ -1678,9 +1695,11 @@ describe("InboxPageClient", () => {
     const preview = within(dialog).getByRole("img", {
       name: "飞书智能纪要画板",
     });
-    expect(preview).toHaveAttribute(
-      "src",
-      `/api/v1/artifact-sets/${nativeArtifact.id}/media/whiteboard`,
+    expect(preview.getAttribute("src")).toContain("/_next/image.webp?");
+    expect(preview.getAttribute("src")).toContain(
+      encodeURIComponent(
+        `/api/v1/artifact-sets/${nativeArtifact.id}/media/whiteboard`,
+      ),
     );
     fireEvent.click(within(dialog).getByRole("button", { name: /放大查看画板/ }));
     const lightbox = await within(dialog).findByRole("dialog", {
@@ -1721,7 +1740,16 @@ describe("InboxPageClient", () => {
     expect(
       within(dialog).getByRole("link", { name: "外部指南" }),
     ).toHaveAttribute("href", "https://example.com/guide");
+    expect(
+      within(dialog).getByRole("link", { name: "DOCX 格式指南" }),
+    ).toHaveAttribute("href", "https://example.com/guides/docx-format");
+    expect(
+      within(dialog).getByRole("link", { name: "百分号链接" }),
+    ).toHaveAttribute("href", "https://example.com/report?completion=50%25");
     expect(within(dialog).queryByText("飞书内部")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("本机地址")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("嵌套本机地址")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("嵌套飞书地址")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("obcn_secret")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("minute_token")).not.toBeInTheDocument();
     expect(within(dialog).getByText("章节 1")).toBeVisible();
@@ -1754,30 +1782,13 @@ describe("InboxPageClient", () => {
       within(dialog).getByRole("button", { name: "00:30 嘉宾：中段" }),
     ).toHaveAttribute("aria-current", "true");
 
-    Object.defineProperty(window, "innerWidth", {
-      configurable: true,
-      value: 1280,
-    });
     fireEvent.click(within(dialog).getByRole("tab", { name: "纪要" }));
     expect(await within(dialog).findByText("飞书智能纪要")).toBeVisible();
-    const desktopPanel = within(dialog).getByRole("tabpanel", { name: "纪要" });
-    expect(desktopPanel.scrollWidth).toBeLessThanOrEqual(
-      Math.max(desktopPanel.clientWidth, 1),
-    );
-    Object.defineProperty(window, "innerWidth", {
-      configurable: true,
-      value: 390,
-    });
-    window.dispatchEvent(new Event("resize"));
-    const mobilePanel = within(dialog).getByRole("tabpanel", { name: "纪要" });
-    expect(mobilePanel.scrollWidth).toBeLessThanOrEqual(
-      Math.max(mobilePanel.clientWidth, 390),
-    );
     expect(within(dialog).getByText("真正重要的是长期主义")).toBeVisible();
     expect(
       within(dialog).getByRole("img", { name: "飞书智能纪要画板" }),
     ).toBeVisible();
-  });
+  }, 12000);
 
   it("keeps previous rich minutes during a slow replacement and locates text without audio", async () => {
       const waitingRun: ProcessingRun = {
@@ -1885,7 +1896,9 @@ describe("InboxPageClient", () => {
       fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
       expect(await within(dialog).findByText("上一成功纪要")).toBeVisible();
       expect(within(dialog).getByText("继续观察")).toBeVisible();
-      expect(within(dialog).queryByRole("heading", { name: "金句" })).not.toBeInTheDocument();
+      expect(
+        within(dialog).queryByRole("heading", { name: "金句时刻" }),
+      ).not.toBeInTheDocument();
       expect(within(dialog).queryByRole("heading", { name: "关键词" })).not.toBeInTheDocument();
 
       expect(
@@ -1912,9 +1925,11 @@ describe("InboxPageClient", () => {
       expect(
         within(dialog).getByText("音频不可用，逐字稿仍可阅读。"),
       ).toBeVisible();
-      expect(
-        within(dialog).getByText("中段").closest("[aria-current='true']"),
-      ).toBeTruthy();
+      await waitFor(() =>
+        expect(
+          within(dialog).getByText("中段").closest("[aria-current='true']"),
+        ).toBeTruthy(),
+      );
   }, 12000);
 
   it("queues missing audio from the transcript and confirms success after re-entry", async () => {

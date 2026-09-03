@@ -86,6 +86,34 @@ func TestPlaceholderOnlyDecisionsAreOmitted(t *testing.T) {
 	require.Empty(t, token)
 }
 
+func TestParseNoteSectionsExtractsProviderParagraphQuotes(t *testing.T) {
+	_, quotes, _, _ := parseNoteSections(`
+<h1>金句时刻</h1>
+<p>「所以最终你发现他其实不是一个技术的判断，最后是个经济学的判断。」</p>
+<p>—— 精准点出了技术路线选择背后的核心逻辑。</p>
+<p></p>
+<p>「这是第一次，我觉得工作不再占据人的主要时间了。」</p>
+<p>—— 指出了 AI 对社会结构的长期影响。</p>
+`)
+	require.Equal(t, []MinutesQuote{
+		{
+			Quote:       "「所以最终你发现他其实不是一个技术的判断，最后是个经济学的判断。」",
+			Explanation: "精准点出了技术路线选择背后的核心逻辑。",
+		},
+		{
+			Quote:       "「这是第一次，我觉得工作不再占据人的主要时间了。」",
+			Explanation: "指出了 AI 对社会结构的长期影响。",
+		},
+	}, quotes)
+}
+
+func TestNoteSectionDiagnosticsDistinguishKnownAndUnknownTopLevelSections(t *testing.T) {
+	require.True(t, hasKnownTopLevelNoteSection(`<h1>总结</h1><p>正文</p>`))
+	require.False(t, hasUnknownTopLevelNoteSection(`<h1>总结</h1><h2>子标题</h2>`))
+	require.True(t, hasUnknownTopLevelNoteSection(`<h1>总结</h1><h1>供应商新增模块</h1>`))
+	require.False(t, hasKnownTopLevelNoteSection(`<weird><unknown-block/></weird>`))
+}
+
 func TestSniffManagedImageRejectsWrongTypeAndOversize(t *testing.T) {
 	var pngBuf bytes.Buffer
 	require.NoError(t, png.Encode(&pngBuf, image.NewRGBA(image.Rect(0, 0, 2, 2))))
@@ -99,6 +127,8 @@ func TestSniffManagedImageRejectsWrongTypeAndOversize(t *testing.T) {
 	require.Error(t, err)
 	_, err = sniffManagedImage(bytes.Repeat([]byte("x"), int(maxWhiteboardPreviewBytes)+1))
 	require.Error(t, err)
+	require.False(t, validManagedImageDimensions(maxWhiteboardPreviewDimension+1, 1))
+	require.False(t, validManagedImageDimensions(8192, 4097))
 }
 
 func TestEncodeMinutesEnrichmentOmitsEmptyDocument(t *testing.T) {
@@ -120,13 +150,26 @@ func TestEncodeMinutesEnrichmentOmitsEmptyDocument(t *testing.T) {
 }
 
 func TestSanitizePublicMinutesURLRejectsFeishuAndSecrets(t *testing.T) {
-	_, ok := sanitizePublicMinutesURL("https://example.com/a")
-	require.True(t, ok)
+	for _, raw := range []string{
+		"https://example.com/a",
+		"https://example.com/guides/docx-format",
+	} {
+		_, ok := sanitizePublicMinutesURL(raw)
+		require.True(t, ok, raw)
+	}
 	for _, raw := range []string{
 		"http://example.com/a",
 		"https://feishu.cn/minutes/abc",
 		"https://open.feishu.cn/open-apis/drive/v1/files",
 		"https://example.com/doc?note_id=abc",
+		"https://example.com/resource/obcn_secret_123",
+		"https://example.com/redirect?next=https%3A%2F%2Flocalhost%2Fadmin",
+		"https://example.com/redirect?next=https%3A%2F%2Fexample.feishu.com%2Fpublic",
+		"https://example.com/redirect?next=%2F%2Fexample.larksuite.cn%2Fpublic",
+		"https://example.com/redirect?next=javascript%3Aalert%281%29",
+		"https://localhost/a",
+		"https://127.0.0.1/a",
+		"https://10.0.0.7/a",
 		"https://user:pass@example.com/a",
 		"javascript:alert(1)",
 	} {
