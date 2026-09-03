@@ -427,6 +427,22 @@ func TestProcessingMinutesCompletenessHTTPContract(t *testing.T) {
 		h.assertNoLeak(summary.Body.String())
 	})
 
+	t.Run("filtered links do not hide residual related-link content", func(t *testing.T) {
+		minuteDetail := []byte(`{"minutes":[{"minute_token":"obcn_http_residual_links","note_id":"note_http_residual_links","artifacts":{"summary":"核心总结","transcript_file":"detail/transcript.txt"}}]}`)
+		h := newMinutesHTTPHarness(t, []scriptedMinutesStep{
+			{output: minuteDetail, beforeReturn: writeHTTPTranscript},
+			{output: []byte(`{"note_doc_token":"docx_http_residual_links"}`)},
+			{output: []byte(`{"data":{"document":{"content":"<h1>总结</h1><p>纪要正文</p><h1>相关链接</h1><ul><li><a href=\"https://bytedance.larkoffice.com/minutes/obcn_internal\">妙记</a></li><li>https://example.com/unparsed</li></ul>"}}}`)},
+		})
+		run := h.start(models.ProcessingTriggerManual)
+		h.seedCoreReady(run, "obcn_http_residual_links")
+
+		failed, err := h.engine.Advance(context.Background(), run.ID)
+		require.NoError(t, err)
+		require.Equal(t, models.ProcessingRunStatusFailed, failed.Status)
+		require.Equal(t, "minutes_section_unparsed", failed.ErrorCode)
+	})
+
 	t.Run("unknown template does not replace the current artifact", func(t *testing.T) {
 		h := newMinutesHTTPHarness(t, []scriptedMinutesStep{
 			{

@@ -2,8 +2,12 @@ package processing
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"time"
+
+	nethtml "golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 )
 
 const (
@@ -163,7 +167,7 @@ func firstUnparsedTargetSection(document string) (string, bool) {
 			continue
 		}
 		if check.count > 0 ||
-			(check.name == "相关链接" && hasRecognizedNoteLink(raw)) {
+			(check.name == "相关链接" && noteLinksSectionIsFullyAccounted(raw)) {
 			continue
 		}
 		visible := strings.TrimSpace(stripXMLTags(raw))
@@ -175,22 +179,120 @@ func firstUnparsedTargetSection(document string) (string, bool) {
 	return "", false
 }
 
-// hasRecognizedNoteLink distinguishes a link block whose links were all
-// filtered for safety from a block whose non-empty content was not parsed at
-// all. Internal Feishu links are intentionally omitted from the public
-// snapshot, but they must not make otherwise valid enrichment fail closed.
-func hasRecognizedNoteLink(section string) bool {
-	for _, match := range anchorPattern.FindAllStringSubmatch(section, -1) {
-		if strings.TrimSpace(firstAttribute(match[1], hrefPattern)) != "" {
-			return true
+// noteLinksSectionIsFullyAccounted distinguishes a link block whose links
+// were all filtered for safety from a block whose non-empty content was not
+// parsed at all. Internal Feishu links are intentionally omitted from the
+// public snapshot, but unsupported residual content must still fail closed.
+func noteLinksSectionIsFullyAccounted(section string) bool {
+	fragments, err := nethtml.ParseFragment(
+		strings.NewReader(section),
+		&nethtml.Node{Type: nethtml.ElementNode, Data: "div", DataAtom: atom.Div},
+	)
+	if err != nil {
+		return false
+	}
+
+	recognized := 0
+	unaccounted := false
+	for _, fragment := range fragments {
+		scan := scanNoteLinkNode(fragment)
+		if !scan.valid {
+			return false
+		}
+		recognized += scan.recognized
+		unaccounted = unaccounted || scan.unaccounted
+	}
+	return recognized > 0 && !unaccounted
+}
+
+type noteLinkNodeScan struct {
+	valid       bool
+	recognized  int
+	unaccounted bool
+}
+
+var noteLinkContainerTags = map[string]struct{}{
+	"b":      {},
+	"br":     {},
+	"div":    {},
+	"em":     {},
+	"li":     {},
+	"ol":     {},
+	"p":      {},
+	"span":   {},
+	"strong": {},
+	"ul":     {},
+}
+
+var plainURLPattern = regexp.MustCompile(`(?i)(?:https?://|www\.)`)
+
+func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
+	if node == nil {
+		return noteLinkNodeScan{}
+	}
+	switch node.Type {
+	case nethtml.TextNode:
+		text := strings.TrimSpace(node.Data)
+		if text == "" {
+			return noteLinkNodeScan{valid: true}
+		}
+		return noteLinkNodeScan{
+			valid:       !plainURLPattern.MatchString(text),
+			unaccounted: true,
+		}
+	case nethtml.ElementNode:
+		name := strings.ToLower(node.Data)
+		if name == "a" || name == "bookmark" {
+			return noteLinkNodeScan{
+				valid:      strings.TrimSpace(noteLinkNodeAttribute(node, "href")) != "",
+				recognized: 1,
+			}
+		}
+		if _, ok := noteLinkContainerTags[name]; !ok {
+			return noteLinkNodeScan{}
+		}
+
+		scan := noteLinkNodeScan{valid: true}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			childScan := scanNoteLinkNode(child)
+			if !childScan.valid {
+				return noteLinkNodeScan{}
+			}
+			scan.recognized += childScan.recognized
+		}
+		// Text outside an explicit link is only a label when this container
+		// also contains a recognized link. A URL-like text node is never a
+		// label and remains an unparsed residual.
+		if scan.recognized == 0 && scan.unaccounted {
+			return noteLinkNodeScan{}
+		}
+		if scan.recognized > 0 {
+			scan.unaccounted = false
+		}
+		return scan
+	case nethtml.DocumentNode:
+		scan := noteLinkNodeScan{valid: true}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			childScan := scanNoteLinkNode(child)
+			if !childScan.valid {
+				return noteLinkNodeScan{}
+			}
+			scan.recognized += childScan.recognized
+			scan.unaccounted = scan.unaccounted || childScan.unaccounted
+		}
+		return scan
+	default:
+		return noteLinkNodeScan{valid: true}
+	}
+}
+
+func noteLinkNodeAttribute(node *nethtml.Node, name string) string {
+	for _, attr := range node.Attr {
+		if strings.EqualFold(attr.Key, name) {
+			return attr.Val
 		}
 	}
-	for _, match := range bookmarkPattern.FindAllStringSubmatch(section, -1) {
-		if strings.TrimSpace(firstAttribute(match[1], hrefPattern)) != "" {
-			return true
-		}
-	}
-	return false
+	return ""
 }
 
 func firstNonEmptySection(sections map[string]string, names ...string) string {
