@@ -283,16 +283,38 @@ type noteLinkNodeScan struct {
 }
 
 var noteLinkContainerTags = map[string]struct{}{
-	"b":      {},
-	"br":     {},
-	"div":    {},
-	"em":     {},
-	"li":     {},
-	"ol":     {},
-	"p":      {},
-	"span":   {},
-	"strong": {},
-	"ul":     {},
+	"b":          {},
+	"blockquote": {},
+	"br":         {},
+	"cite":       {},
+	"code":       {},
+	"del":        {},
+	"div":        {},
+	"em":         {},
+	"font":       {},
+	"i":          {},
+	"ins":        {},
+	"kbd":        {},
+	"label":      {},
+	"li":         {},
+	"mark":       {},
+	"ol":         {},
+	"p":          {},
+	"pre":        {},
+	"q":          {},
+	"s":          {},
+	"section":    {},
+	"small":      {},
+	"span":       {},
+	"strike":     {},
+	"strong":     {},
+	"sub":        {},
+	"sup":        {},
+	"time":       {},
+	"tt":         {},
+	"u":          {},
+	"ul":         {},
+	"var":        {},
 }
 
 var plainURLPattern = regexp.MustCompile(`(?i)(?:https?://|www\.)`)
@@ -332,6 +354,9 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 			}
 		}
 		if noteLinkNodeHasURLAttribute(node) {
+			return noteLinkNodeScan{}
+		}
+		if _, ok := noteLinkContainerTags[name]; !ok {
 			return noteLinkNodeScan{}
 		}
 
