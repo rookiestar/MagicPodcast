@@ -424,7 +424,8 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 				return noteLinkNodeScan{}
 			}
 			_, public := sanitizePublicMinutesURL(href)
-			if noteLinkNodeHasUnsupportedDescendant(node, !public) {
+			if (!public && plainURLPattern.MatchString(noteLinkNodeText(node))) ||
+				noteLinkNodeHasUnsupportedDescendant(node) {
 				return noteLinkNodeScan{}
 			}
 			return noteLinkNodeScan{
@@ -483,12 +484,9 @@ func isNoteLinkSeparatorText(text string) bool {
 	return text != ""
 }
 
-func noteLinkNodeHasUnsupportedDescendant(node *nethtml.Node, inspectTextURLs bool) bool {
+func noteLinkNodeHasUnsupportedDescendant(node *nethtml.Node) bool {
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
 		if child.Type == nethtml.TextNode {
-			if inspectTextURLs && plainURLPattern.MatchString(strings.TrimSpace(child.Data)) {
-				return true
-			}
 			continue
 		}
 		if child.Type != nethtml.ElementNode {
@@ -501,7 +499,7 @@ func noteLinkNodeHasUnsupportedDescendant(node *nethtml.Node, inspectTextURLs bo
 		if _, ok := noteLinkContainerTags[name]; !ok {
 			return true
 		}
-		if noteLinkNodeHasUnsupportedDescendant(child, inspectTextURLs) {
+		if noteLinkNodeHasUnsupportedDescendant(child) {
 			return true
 		}
 	}
@@ -531,7 +529,7 @@ func noteLinkNodeHasAdditionalURLAttribute(node *nethtml.Node) bool {
 
 func isNoteLinkURLAttribute(name string) bool {
 	name = strings.ToLower(strings.TrimSpace(name))
-	return name == "href" || name == "src" || name == "url" || name == "link" ||
+	return name == "href" || name == "src" || name == "url" || name == "link" || name == "cite" ||
 		strings.HasSuffix(name, "-href") || strings.HasSuffix(name, "_href") ||
 		strings.HasSuffix(name, "-url") || strings.HasSuffix(name, "_url")
 }

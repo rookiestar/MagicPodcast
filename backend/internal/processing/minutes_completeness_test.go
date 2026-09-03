@@ -64,7 +64,9 @@ func TestEvaluateReadableNoteDocumentRejectsResidualRelatedLinkContent(t *testin
 		{name: "unknown nested link element", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/docx/internal"><provider-link href="https://example.com/provider">外部</provider-link></a></li></ul>`},
 		{name: "unsupported URL-bearing element", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/docx/internal">内部</a></li><li><provider-link url="https://example.com/provider"/></li><li><img src="https://example.com/image"/></li><li><form action="https://example.com/form"/></li><li><object data="https://example.com/object"/></li></ul>`},
 		{name: "URL-bearing placeholder element", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><provider-link href="https://example.com/provider">暂无</provider-link></p>`},
+		{name: "URL-bearing citation on filtered link container", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><blockquote cite="https://example.com/citation"><a href="https://bytedance.larkoffice.com/docx/internal">内部</a></blockquote>`},
 		{name: "public URL label on filtered link", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/docx/internal">https://example.com/provider</a></li></ul>`},
+		{name: "split public URL label on filtered link", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://bytedance.larkoffice.com/docx/internal"><span>https</span><span>://example.com/provider</span></a></p>`},
 		{name: "text residual in sibling container", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a></li><li>documentation pending</li></ul>`},
 		{name: "text residual beside public link", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://example.com/guide">指南</a></li><li>documentation pending</li></ul>`},
 	} {
@@ -103,7 +105,7 @@ func TestEvaluateReadableNoteDocumentRejectsDuplicateRelatedLinkSections(t *test
 
 func TestEvaluateReadableNoteDocumentAllowsPublicURLLabel(t *testing.T) {
 	decision := evaluateReadableNoteDocument(
-		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://example.com/guide">https://example.com/guide</a></p>`,
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://example.com/guide"><span>https</span><span>://example.com/guide</span></a></p>`,
 		"",
 		false,
 		false,

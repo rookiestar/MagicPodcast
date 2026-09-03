@@ -507,7 +507,6 @@ func noteLinkNodeText(node *nethtml.Node) string {
 	visit = func(current *nethtml.Node) {
 		if current.Type == nethtml.TextNode {
 			builder.WriteString(current.Data)
-			builder.WriteByte(' ')
 			return
 		}
 		for child := current.FirstChild; child != nil; child = child.NextSibling {
