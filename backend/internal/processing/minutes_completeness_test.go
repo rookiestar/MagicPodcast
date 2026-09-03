@@ -43,6 +43,17 @@ func TestEvaluateReadableNoteDocumentAllowsFilteredLinksWithPlaceholders(t *test
 	require.Empty(t, decision.Code)
 }
 
+func TestEvaluateReadableNoteDocumentAllowsPlaceholderOnlyRelatedLinks(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p>暂无</p>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.Empty(t, decision.Code)
+}
+
 func TestEvaluateReadableNoteDocumentRejectsResidualRelatedLinkContent(t *testing.T) {
 	for _, test := range []struct {
 		name     string
@@ -52,6 +63,7 @@ func TestEvaluateReadableNoteDocumentRejectsResidualRelatedLinkContent(t *testin
 		{name: "unknown link element", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a><provider-link href="https://example.com/provider">外部</provider-link></li></ul>`},
 		{name: "unknown nested link element", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/docx/internal"><provider-link href="https://example.com/provider">外部</provider-link></a></li></ul>`},
 		{name: "unsupported URL-bearing element", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/docx/internal">内部</a></li><li><provider-link url="https://example.com/provider"/></li><li><img src="https://example.com/image"/></li><li><form action="https://example.com/form"/></li><li><object data="https://example.com/object"/></li></ul>`},
+		{name: "URL-bearing placeholder element", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><provider-link href="https://example.com/provider">暂无</provider-link></p>`},
 		{name: "public URL label on filtered link", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/docx/internal">https://example.com/provider</a></li></ul>`},
 		{name: "text residual in sibling container", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a></li><li>documentation pending</li></ul>`},
 		{name: "text residual beside public link", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://example.com/guide">指南</a></li><li>documentation pending</li></ul>`},

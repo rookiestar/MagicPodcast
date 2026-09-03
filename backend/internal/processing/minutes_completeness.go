@@ -171,10 +171,6 @@ func firstUnparsedTargetSection(document string) (string, bool) {
 			if noteLinksSectionIsFullyAccounted(raw) {
 				continue
 			}
-			visible := strings.TrimSpace(stripXMLTags(raw))
-			if visible != "" && isPlaceholderText(visible) {
-				continue
-			}
 			return check.name, true
 		} else if check.count > 0 {
 			continue
@@ -247,8 +243,11 @@ func noteLinksSectionIsFullyAccounted(section string) bool {
 		unaccounted = unaccounted || scan.unaccounted
 		hrefs = append(hrefs, scan.hrefs...)
 	}
-	if recognized == 0 && !unaccounted && strings.TrimSpace(stripXMLTags(section)) == "" {
-		return true
+	if recognized == 0 && !unaccounted {
+		visible := strings.TrimSpace(stripXMLTags(section))
+		if visible == "" || isPlaceholderText(visible) {
+			return true
+		}
 	}
 	if recognized == 0 || unaccounted {
 		return false
