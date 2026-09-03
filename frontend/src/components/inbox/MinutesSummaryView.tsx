@@ -16,6 +16,7 @@ import styles from "./InboxPage.module.css";
 interface MinutesSummaryViewProps {
   artifactSetId: number;
   content: string;
+  mode?: "minutes" | "visual";
   keywords?: string[];
   decisions?: string[];
   quotes?: MinutesQuote[];
@@ -26,6 +27,7 @@ interface MinutesSummaryViewProps {
 export default function MinutesSummaryView({
   artifactSetId,
   content,
+  mode = "minutes",
   keywords = [],
   decisions = [],
   quotes = [],
@@ -42,6 +44,7 @@ export default function MinutesSummaryView({
   const lightboxWasOpen = useRef(false);
   const titleId = useId();
   const summaryContent = stripRedundantSummaryHeading(content);
+  const isVisualMode = mode === "visual";
 
   useEffect(() => {
     if (whiteboardOpen) {
@@ -79,114 +82,149 @@ export default function MinutesSummaryView({
     ? getOptimizedImageUrl(whiteboardSrc, RICH_TEXT_IMAGE_WIDTH)
     : "";
 
-  return (
-    <div className={styles.minutesSummary}>
-      <header className={styles.minutesMasthead}>
-        <p className={styles.minutesAiNotice} role="note">
-          飞书妙记 · 内容由 AI 生成，可能不准确
-        </p>
-        {visibleKeywords.length > 0 && (
-          <div className={styles.minutesKeywords}>
-            <span aria-hidden="true">关键词</span>
-            <ul className={styles.minutesKeywordList} aria-label="关键词">
-              {visibleKeywords.map((keyword) => (
-                <li key={keyword}>{keyword}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </header>
-      <section
-        className={styles.minutesSection}
-        aria-labelledby={`${titleId}-summary`}
+  const whiteboardPreview = whiteboard ? (
+    <figure className={styles.minutesWhiteboard}>
+      <button
+        ref={previewButtonRef}
+        type="button"
+        className={styles.minutesWhiteboardButton}
+        onClick={() => setWhiteboardOpen(true)}
+        aria-haspopup="dialog"
+        aria-expanded={whiteboardOpen}
       >
-        <h2 id={`${titleId}-summary`} className={styles.minutesSummaryTitle}>
-          总结
-        </h2>
-        {whiteboard && (
-          <figure className={styles.minutesWhiteboard}>
-            <button
-              ref={previewButtonRef}
-              type="button"
-              className={styles.minutesWhiteboardButton}
-              onClick={() => setWhiteboardOpen(true)}
-              aria-haspopup="dialog"
-              aria-expanded={whiteboardOpen}
-            >
-              {/* Managed local artifact media; not a remote Next image. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={whiteboardPreviewSrc}
-                alt={whiteboard.alt || "飞书智能纪要画板"}
-                width={whiteboard.width || undefined}
-                height={whiteboard.height || undefined}
-              />
-              <span>放大查看画板</span>
-            </button>
-          </figure>
-        )}
-        <MarkdownViewer content={summaryContent} />
-      </section>
-      {visibleDecisions.length > 0 && (
+        {/* Managed local artifact media; not a remote Next image. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={whiteboardPreviewSrc}
+          alt={whiteboard.alt || "飞书智能纪要画板"}
+          width={whiteboard.width || undefined}
+          height={whiteboard.height || undefined}
+        />
+        <span>放大查看画板</span>
+      </button>
+    </figure>
+  ) : null;
+
+  return (
+    <div
+      className={`${styles.minutesSummary} ${
+        isVisualMode ? styles.minutesVisualSummary : ""
+      }`}
+    >
+      {isVisualMode ? (
         <section
           className={styles.minutesSection}
-          aria-labelledby={`${titleId}-decisions`}
+          aria-labelledby={`${titleId}-visual-summary`}
         >
           <h2
-            id={`${titleId}-decisions`}
+            id={`${titleId}-visual-summary`}
             className={styles.minutesSummaryTitle}
           >
-            关键决策
+            总结
           </h2>
-          <ol className={styles.minutesDecisionList}>
-            {visibleDecisions.map((decision) => (
-              <li key={decision}>{decision}</li>
-            ))}
-          </ol>
+          {whiteboardPreview}
         </section>
-      )}
-      {visibleQuotes.length > 0 && (
-        <section
-          className={styles.minutesSection}
-          aria-labelledby={`${titleId}-quotes`}
-        >
-          <h2 id={`${titleId}-quotes`} className={styles.minutesSummaryTitle}>
-            金句时刻
-          </h2>
-          <ul className={styles.minutesQuoteList}>
-            {visibleQuotes.map((item) => (
-              <li key={item.quote}>
-                <blockquote>
-                  <p>{item.quote}</p>
-                </blockquote>
-                {item.explanation?.trim() ? (
-                  <p className={styles.minutesQuoteExplanation}>
-                    {item.explanation}
-                  </p>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-      {visibleLinks.length > 0 && (
-        <footer
-          className={styles.minutesSection}
-          aria-labelledby={`${titleId}-links`}
-        >
-          <h2 id={`${titleId}-links`} className={styles.minutesSummaryTitle}>
-            相关链接
-          </h2>
-          <ul className={styles.minutesLinkList}>
-            {visibleLinks.map((link) => (
-              <li key={link.url}>
-                <a href={link.url} rel="noreferrer noopener" target="_blank">
-                  {safeMinutesLinkTitle(link.title, link.url)}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </footer>
+      ) : (
+        <>
+          <header className={styles.minutesMasthead}>
+            <p className={styles.minutesAiNotice} role="note">
+              飞书妙记 · 内容由 AI 生成，可能不准确
+            </p>
+            {visibleKeywords.length > 0 && (
+              <div className={styles.minutesKeywords}>
+                <span aria-hidden="true">关键词</span>
+                <ul className={styles.minutesKeywordList} aria-label="关键词">
+                  {visibleKeywords.map((keyword) => (
+                    <li key={keyword}>{keyword}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </header>
+          <section
+            className={styles.minutesSection}
+            aria-labelledby={`${titleId}-summary`}
+          >
+            <h2
+              id={`${titleId}-summary`}
+              className={styles.minutesSummaryTitle}
+            >
+              总结
+            </h2>
+            <MarkdownViewer content={summaryContent} />
+          </section>
+          {visibleDecisions.length > 0 && (
+            <section
+              className={styles.minutesSection}
+              aria-labelledby={`${titleId}-decisions`}
+            >
+              <h2
+                id={`${titleId}-decisions`}
+                className={styles.minutesSummaryTitle}
+              >
+                关键决策
+              </h2>
+              <ol className={styles.minutesDecisionList}>
+                {visibleDecisions.map((decision) => (
+                  <li key={decision}>{decision}</li>
+                ))}
+              </ol>
+            </section>
+          )}
+          {visibleQuotes.length > 0 && (
+            <section
+              className={styles.minutesSection}
+              aria-labelledby={`${titleId}-quotes`}
+            >
+              <h2
+                id={`${titleId}-quotes`}
+                className={styles.minutesSummaryTitle}
+              >
+                金句时刻
+              </h2>
+              <ul className={styles.minutesQuoteList}>
+                {visibleQuotes.map((item) => (
+                  <li key={item.quote}>
+                    <blockquote>
+                      <p>{item.quote}</p>
+                    </blockquote>
+                    {item.explanation?.trim() ? (
+                      <p className={styles.minutesQuoteExplanation}>
+                        {item.explanation}
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {visibleLinks.length > 0 && (
+            <footer
+              className={styles.minutesSection}
+              aria-labelledby={`${titleId}-links`}
+            >
+              <h2
+                id={`${titleId}-links`}
+                className={styles.minutesSummaryTitle}
+              >
+                相关链接
+              </h2>
+              <ul className={styles.minutesLinkList}>
+                {visibleLinks.map((link) => (
+                  <li key={link.url}>
+                    <a
+                      href={link.url}
+                      rel="noreferrer noopener"
+                      target="_blank"
+                    >
+                      {safeMinutesLinkTitle(link.title, link.url)}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </footer>
+          )}
+        </>
       )}
       {whiteboardOpen && whiteboard && (
         <div

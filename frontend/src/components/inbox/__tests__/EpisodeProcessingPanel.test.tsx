@@ -747,7 +747,7 @@ describe("EpisodeProcessingPanel", () => {
     expect(apiMocks.retry).not.toHaveBeenCalled();
   });
 
-  it("defaults native Minutes artifacts to summary and preserves the selected subtab", async () => {
+  it("defaults native Minutes artifacts to visual summary and preserves the selected subtab", async () => {
     const completedRun: ProcessingRun = {
       ...failedRun,
       id: 62,
@@ -784,6 +784,14 @@ describe("EpisodeProcessingPanel", () => {
       content: "# 妙记纪要",
       sha256: nativeArtifact.minutes_summary_sha256 ?? "",
       media_available: false,
+      whiteboard: {
+        media_id: "whiteboard",
+        media_type: "image/png",
+        width: 320,
+        height: 180,
+        sha256: "5".repeat(64),
+        alt: "飞书智能纪要画板",
+      },
     };
     const transcriptContent: ArtifactContent = {
       kind: "transcript",
@@ -818,19 +826,27 @@ describe("EpisodeProcessingPanel", () => {
     const { rerender } = render(<EpisodeProcessingPanel item={item} />);
 
     expect(await screen.findByText("正在读取纪要…")).toBeVisible();
+    expect(screen.queryByRole("tab", { name: "总结" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "纪要" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     expect(screen.queryByText("# 妙记纪要")).not.toBeInTheDocument();
     await act(async () => {
       resolveSummary(summaryContent);
     });
-    expect(await screen.findByText("# 妙记纪要")).toBeVisible();
-    const summaryTab = screen.getByRole("tab", { name: "纪要" });
+    expect(
+      await screen.findByRole("img", { name: "飞书智能纪要画板" }),
+    ).toBeVisible();
+    const summaryTab = screen.getByRole("tab", { name: "总结" });
+    const minutesTab = screen.getByRole("tab", { name: "纪要" });
     const transcriptTab = screen.getByRole("tab", { name: "逐字稿" });
     expect(summaryTab).toHaveAttribute("aria-selected", "true");
     expect(summaryTab).toHaveAttribute(
       "aria-controls",
       "processing-artifact-panel-summary",
     );
-    expect(screen.getByRole("tabpanel", { name: "纪要" })).toBeVisible();
+    expect(screen.getByRole("tabpanel", { name: "总结" })).toBeVisible();
     expect(apiMocks.getArtifactContent).toHaveBeenCalledWith(
       nativeArtifact.id,
       "minutes_summary",
@@ -838,6 +854,12 @@ describe("EpisodeProcessingPanel", () => {
 
     summaryTab.focus();
     fireEvent.keyDown(summaryTab, { key: "ArrowRight" });
+    expect(minutesTab).toHaveFocus();
+    expect(minutesTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("# 妙记纪要")).toBeVisible();
+
+    minutesTab.focus();
+    fireEvent.keyDown(minutesTab, { key: "ArrowRight" });
     expect(transcriptTab).toHaveFocus();
     expect(transcriptTab).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByText("# 妙记纪要")).not.toBeInTheDocument();
@@ -864,7 +886,9 @@ describe("EpisodeProcessingPanel", () => {
     fireEvent.keyDown(transcriptTab, { key: "Home" });
     expect(summaryTab).toHaveFocus();
     expect(summaryTab).toHaveAttribute("aria-selected", "true");
-    expect(await screen.findByText("# 妙记纪要")).toBeVisible();
+    expect(
+      await screen.findByRole("img", { name: "飞书智能纪要画板" }),
+    ).toBeVisible();
 
     fireEvent.click(screen.getByRole("tab", { name: "逐字稿" }));
     expect(screen.getByText("正文")).toBeVisible();
@@ -941,6 +965,10 @@ describe("EpisodeProcessingPanel", () => {
     );
 
     rerender(<EpisodeProcessingPanel item={nextItem} />);
+    expect(
+      await screen.findByRole("img", { name: "飞书智能纪要画板" }),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "纪要" }));
     expect(await screen.findByText("# 新集纪要")).toBeVisible();
     fireEvent.click(screen.getByRole("tab", { name: "逐字稿" }));
     expect(await screen.findByText("新集正文")).toBeVisible();
