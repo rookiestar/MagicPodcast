@@ -95,6 +95,52 @@ func TestParseNoteSectionsExtractsKnownBlocksAndIgnoresUnknown(t *testing.T) {
 	}, links)
 }
 
+func TestParseNoteSectionsExtractsSafeLinksWithHTMLAttributeSyntax(t *testing.T) {
+	_, _, links, _ := parseNoteSections(`
+<h1>相关链接</h1>
+<p><a href='https://example.com/single'>单引号</a></p>
+<p><a href=https://example.com/unquoted?x=1&amp;y=2>无引号</a></p>
+<p><bookmark name='安全书签' href=https://example.org/bookmark></bookmark></p>
+`)
+	require.Equal(t, []MinutesLink{
+		{Title: "单引号", URL: "https://example.com/single"},
+		{Title: "无引号", URL: "https://example.com/unquoted?x=1&y=2"},
+		{Title: "安全书签", URL: "https://example.org/bookmark"},
+	}, links)
+}
+
+func TestParseNoteSectionsIgnoresSimilarAttributeNames(t *testing.T) {
+	_, _, links, _ := parseNoteSections(`
+<h1>相关链接</h1>
+<p><a data-href='https://example.com/wrong' href='https://feishu.cn/docx/internal'>内部</a></p>
+<p><a title="junk href=https://example.com/wrong" href="https://example.com/right">真实链接</a></p>
+`)
+	require.Equal(t, []MinutesLink{{Title: "真实链接", URL: "https://example.com/right"}}, links)
+}
+
+func TestParseNoteSectionsIgnoresCommentedLinks(t *testing.T) {
+	_, _, links, _ := parseNoteSections(`
+<h1>相关链接</h1>
+<p><a href="https://example.com/live">Live</a><!-- <a href='https://example.com/old'>Old</a> --></p>
+<div data-template="<a href='https://example.com/phantom'>Phantom</a>"><a href="https://example.com/real">Real</a></div>
+`)
+	require.Equal(t, []MinutesLink{
+		{Title: "Live", URL: "https://example.com/live"},
+		{Title: "Real", URL: "https://example.com/real"},
+	}, links)
+}
+
+func TestParseNoteSectionsMergesRelatedLinkAliases(t *testing.T) {
+	_, _, links, _ := parseNoteSections(`
+<h1>相关链接</h1><p><a href="https://example.com/primary">主链接</a></p>
+<h1>相关外链</h1><p><a href="https://example.com/alternate">备用链接</a></p>
+`)
+	require.Equal(t, []MinutesLink{
+		{Title: "主链接", URL: "https://example.com/primary"},
+		{Title: "备用链接", URL: "https://example.com/alternate"},
+	}, links)
+}
+
 func TestPlaceholderOnlyDecisionsAreOmitted(t *testing.T) {
 	decisions, quotes, links, token := parseNoteSections(`
 <h1>关键决策</h1>

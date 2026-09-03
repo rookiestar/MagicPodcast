@@ -20,6 +20,167 @@ func TestEvaluateReadableNoteDocumentAllowsEmptyKnownSections(t *testing.T) {
 	require.Empty(t, decision.Code)
 }
 
+func TestEvaluateReadableNoteDocumentIgnoresFilteredInternalLinks(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a></li><li><a href="https://bytedance.larkoffice.com/docx/internal">文字记录</a></li></ul>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.False(t, decision.Wait)
+	require.Empty(t, decision.Code)
+}
+
+func TestEvaluateReadableNoteDocumentAllowsFilteredLinksWithPlaceholders(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a></li><li>暂无</li></ul>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.Empty(t, decision.Code)
+}
+
+func TestEvaluateReadableNoteDocumentAllowsFilteredLinkWithOwnURLLabel(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://bytedance.larkoffice.com/docx/internal">https://bytedance.larkoffice.com/docx/internal</a></p>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.Empty(t, decision.Code)
+}
+
+func TestEvaluateReadableNoteDocumentAllowsPlaceholderOnlyRelatedLinks(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p>暂无</p>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.Empty(t, decision.Code)
+}
+
+func TestEvaluateReadableNoteDocumentRejectsResidualRelatedLinkContent(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		document string
+	}{
+		{name: "plain URL residual", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a></li><li>https://example.com/unparsed</li></ul>`},
+		{name: "unknown link element", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a><provider-link href="https://example.com/provider">外部</provider-link></li></ul>`},
+		{name: "unknown nested link element", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/docx/internal"><provider-link href="https://example.com/provider">外部</provider-link></a></li></ul>`},
+		{name: "unsupported URL-bearing element", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/docx/internal">内部</a></li><li><provider-link url="https://example.com/provider"/></li><li><img src="https://example.com/image"/></li><li><form action="https://example.com/form"/></li><li><object data="https://example.com/object"/></li></ul>`},
+		{name: "URL-bearing placeholder element", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><provider-link href="https://example.com/provider">暂无</provider-link></p>`},
+		{name: "URL-bearing citation on filtered link container", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><blockquote cite="https://example.com/citation"><a href="https://bytedance.larkoffice.com/docx/internal">内部</a></blockquote>`},
+		{name: "invalid filtered-link URL", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="javascript:alert(1)">危险协议</a></li><li><a href="http://example.com/guide">非 HTTPS</a></li></ul>`},
+		{name: "public URL label on filtered link", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/docx/internal">https://example.com/provider</a></li></ul>`},
+		{name: "split public URL label on filtered link", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://bytedance.larkoffice.com/docx/internal"><span>https</span><span>://example.com/provider</span></a></p>`},
+		{name: "text residual in sibling container", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a></li><li>documentation pending</li></ul>`},
+		{name: "text residual beside public link", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://example.com/guide">指南</a></li><li>documentation pending</li></ul>`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			decision := evaluateReadableNoteDocument(test.document, "", false, false)
+			require.False(t, decision.Complete)
+			require.Equal(t, minutesEnrichmentSectionCode, decision.Code)
+			require.Equal(t, "note_section_unparsed:相关链接", decision.Diagnostic)
+		})
+	}
+}
+
+func TestEvaluateReadableNoteDocumentValidatesRelatedLinkAliases(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a></li></ul><h1>相关外链</h1><p>https://example.com/unparsed</p>`,
+		"",
+		false,
+		false,
+	)
+	require.False(t, decision.Complete)
+	require.Equal(t, minutesEnrichmentSectionCode, decision.Code)
+	require.Equal(t, "note_section_unparsed:相关外链", decision.Diagnostic)
+}
+
+func TestEvaluateReadableNoteDocumentRejectsDuplicateRelatedLinkSections(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://bytedance.larkoffice.com/docx/internal">内部</a></p><h1>相关链接</h1><p><a href="https://example.com/guide">指南</a></p>`,
+		"",
+		false,
+		false,
+	)
+	require.False(t, decision.Complete)
+	require.Equal(t, minutesEnrichmentSectionCode, decision.Code)
+	require.Equal(t, "note_section_unparsed:相关链接", decision.Diagnostic)
+}
+
+func TestEvaluateReadableNoteDocumentAllowsPublicURLLabel(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://example.com/guide"><span>https</span><span>://example.com/guide</span></a></p>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.Empty(t, decision.Code)
+}
+
+func TestEvaluateReadableNoteDocumentAllowsSelfClosingBookmarkLinks(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><bookmark name="A > B" href="https://example.com/guide"/><bookmark name="参考" href="https://example.com/reference"/></p>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.Empty(t, decision.Code)
+}
+
+func TestEvaluateReadableNoteDocumentAllowsSelfClosingPublicLink(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://example.com/guide"/></p>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.Empty(t, decision.Code)
+}
+
+func TestEvaluateReadableNoteDocumentIgnoresCommentedRelatedLinkHeading(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<!-- <h1>相关链接</h1><p>旧区块</p> --><h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://example.com/guide">指南</a></p>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.Empty(t, decision.Code)
+}
+
+func TestEvaluateReadableNoteDocumentAllowsFormattingAroundPublicLink(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><u><a href="https://example.com/guide">指南</a></u></p>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.Empty(t, decision.Code)
+}
+
+func TestEvaluateReadableNoteDocumentAllowsPunctuationBetweenPublicLinks(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://example.com/a">A</a>、<a href="https://example.com/b">B</a></p>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.Empty(t, decision.Code)
+}
+
 func TestEvaluateReadableNoteDocumentAllowsEmptyDocument(t *testing.T) {
 	decision := evaluateReadableNoteDocument("   ", "", false, false)
 	require.True(t, decision.Complete)
