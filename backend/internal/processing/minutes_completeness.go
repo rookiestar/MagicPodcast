@@ -268,8 +268,6 @@ func noteLinksSectionIsFullyAccounted(section string) bool {
 	return true
 }
 
-var selfClosingBookmarkPattern = regexp.MustCompile(`(?is)<bookmark\b([^>]*)/\s*>`)
-
 var htmlCommentPattern = regexp.MustCompile(`(?is)<!--.*?-->`)
 
 func stripHTMLComments(value string) string {
@@ -277,7 +275,80 @@ func stripHTMLComments(value string) string {
 }
 
 func normalizeSelfClosingBookmarks(section string) string {
-	return selfClosingBookmarkPattern.ReplaceAllString(section, `<bookmark$1></bookmark>`)
+	var normalized strings.Builder
+	for index := 0; index < len(section); {
+		if section[index] != '<' {
+			normalized.WriteByte(section[index])
+			index++
+			continue
+		}
+		if strings.HasPrefix(section[index:], "<!--") {
+			end := strings.Index(section[index+4:], "-->")
+			if end < 0 {
+				normalized.WriteString(section[index:])
+				break
+			}
+			end += index + 7
+			normalized.WriteString(section[index:end])
+			index = end
+			continue
+		}
+		end, ok := findHTMLTagEnd(section, index+1)
+		if !ok {
+			normalized.WriteString(section[index:])
+			break
+		}
+		tag := section[index : end+1]
+		if isSelfClosingBookmarkTag(tag) {
+			inner := strings.TrimSpace(tag[len("<bookmark") : len(tag)-1])
+			inner = strings.TrimSpace(strings.TrimSuffix(inner, "/"))
+			normalized.WriteString("<bookmark")
+			if inner != "" {
+				normalized.WriteByte(' ')
+			}
+			normalized.WriteString(inner)
+			normalized.WriteString("></bookmark>")
+		} else {
+			normalized.WriteString(tag)
+		}
+		index = end + 1
+	}
+	return normalized.String()
+}
+
+func isSelfClosingBookmarkTag(tag string) bool {
+	if len(tag) < len("<bookmark>") || !strings.EqualFold(tag[:len("<bookmark")], "<bookmark") {
+		return false
+	}
+	if len(tag) > len("<bookmark>") {
+		next := tag[len("<bookmark")]
+		if next != '/' && next != '>' && next != ' ' && next != '\t' && next != '\n' && next != '\r' && next != '\f' {
+			return false
+		}
+	}
+	inner := strings.TrimSpace(tag[len("<bookmark") : len(tag)-1])
+	return strings.HasSuffix(inner, "/")
+}
+
+func findHTMLTagEnd(value string, start int) (int, bool) {
+	var quote byte
+	for index := start; index < len(value); index++ {
+		character := value[index]
+		if quote != 0 {
+			if character == quote {
+				quote = 0
+			}
+			continue
+		}
+		if character == '\'' || character == '"' {
+			quote = character
+			continue
+		}
+		if character == '>' {
+			return index, true
+		}
+	}
+	return 0, false
 }
 
 type noteLinkNodeScan struct {
@@ -411,6 +482,9 @@ func noteLinkNodeHasUnsupportedDescendant(node *nethtml.Node, inspectTextURLs bo
 		}
 		name := strings.ToLower(child.Data)
 		if name == "a" || name == "bookmark" || noteLinkNodeHasURLAttribute(child) {
+			return true
+		}
+		if _, ok := noteLinkContainerTags[name]; !ok {
 			return true
 		}
 		if noteLinkNodeHasUnsupportedDescendant(child, inspectTextURLs) {

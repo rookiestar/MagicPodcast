@@ -114,7 +114,7 @@ func TestEvaluateReadableNoteDocumentAllowsPublicURLLabel(t *testing.T) {
 
 func TestEvaluateReadableNoteDocumentAllowsSelfClosingBookmarkLinks(t *testing.T) {
 	decision := evaluateReadableNoteDocument(
-		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><bookmark name="指南" href="https://example.com/guide"/><bookmark name="参考" href="https://example.com/reference"/></p>`,
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><bookmark name="A > B" href="https://example.com/guide"/><bookmark name="参考" href="https://example.com/reference"/></p>`,
 		"",
 		false,
 		false,
