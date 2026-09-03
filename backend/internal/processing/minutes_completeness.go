@@ -318,7 +318,7 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 		name := strings.ToLower(node.Data)
 		if name == "a" || name == "bookmark" {
 			href := strings.TrimSpace(noteLinkNodeAttribute(node, "href"))
-			if href == "" {
+			if href == "" || noteLinkNodeHasAdditionalURLAttribute(node) {
 				return noteLinkNodeScan{}
 			}
 			_, public := sanitizePublicMinutesURL(href)
@@ -331,7 +331,7 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 				hrefs:      []string{href},
 			}
 		}
-		if _, ok := noteLinkContainerTags[name]; !ok && strings.TrimSpace(noteLinkNodeAttribute(node, "href")) != "" {
+		if noteLinkNodeHasURLAttribute(node) {
 			return noteLinkNodeScan{}
 		}
 
@@ -380,7 +380,7 @@ func noteLinkNodeHasUnsupportedDescendant(node *nethtml.Node, inspectTextURLs bo
 			continue
 		}
 		name := strings.ToLower(child.Data)
-		if name == "a" || name == "bookmark" || strings.TrimSpace(noteLinkNodeAttribute(child, "href")) != "" {
+		if name == "a" || name == "bookmark" || noteLinkNodeHasURLAttribute(child) {
 			return true
 		}
 		if noteLinkNodeHasUnsupportedDescendant(child, inspectTextURLs) {
@@ -388,6 +388,34 @@ func noteLinkNodeHasUnsupportedDescendant(node *nethtml.Node, inspectTextURLs bo
 		}
 	}
 	return false
+}
+
+func noteLinkNodeHasURLAttribute(node *nethtml.Node) bool {
+	for _, attribute := range node.Attr {
+		if isNoteLinkURLAttribute(attribute.Key) && strings.TrimSpace(attribute.Val) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func noteLinkNodeHasAdditionalURLAttribute(node *nethtml.Node) bool {
+	for _, attribute := range node.Attr {
+		if strings.EqualFold(attribute.Key, "href") {
+			continue
+		}
+		if isNoteLinkURLAttribute(attribute.Key) && strings.TrimSpace(attribute.Val) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func isNoteLinkURLAttribute(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	return name == "href" || name == "src" || name == "url" || name == "link" ||
+		strings.HasSuffix(name, "-href") || strings.HasSuffix(name, "_href") ||
+		strings.HasSuffix(name, "-url") || strings.HasSuffix(name, "_url")
 }
 
 func noteLinkNodeAttribute(node *nethtml.Node, name string) string {
