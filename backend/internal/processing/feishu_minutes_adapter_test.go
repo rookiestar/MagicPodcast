@@ -649,6 +649,12 @@ func TestFeishuMinutesAdapterCapturesReadOnlyNoteEnrichmentAfterCoreComplete(t *
 	require.Equal(t, completed.MinutesSummary, replayed.MinutesSummary)
 	require.Equal(t, completed.MinutesEnrichment.Chapters, replayed.MinutesEnrichment.Chapters)
 	require.Equal(t, completed.MinutesEnrichment.Keywords, replayed.MinutesEnrichment.Keywords)
+	require.Equal(t, completed.MinutesEnrichment.Decisions, replayed.MinutesEnrichment.Decisions)
+	require.Contains(t, replayed.RawArtifacts, "note-detail.json")
+	require.Contains(t, replayed.RawArtifacts, "note-document.json")
+	require.Equal(t, "1.0.0", replayed.SkillVersions["lark-note"])
+	require.Equal(t, "1.0.0", replayed.SkillVersions["lark-docs"])
+	require.Equal(t, "1.0.0", replayed.SkillVersions["lark-whiteboard"])
 	require.Len(t, runner.calls, 4)
 }
 

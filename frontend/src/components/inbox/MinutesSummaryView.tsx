@@ -61,11 +61,18 @@ export default function MinutesSummaryView({
       const onKeyDown = (event: KeyboardEvent) => {
         if (event.key === "Escape") {
           event.preventDefault();
+          event.stopPropagation();
           setWhiteboardOpen(false);
+          return;
+        }
+        if (event.key === "Tab") {
+          event.preventDefault();
+          event.stopPropagation();
+          closeButtonRef.current?.focus();
         }
       };
-      window.addEventListener("keydown", onKeyDown);
-      return () => window.removeEventListener("keydown", onKeyDown);
+      window.addEventListener("keydown", onKeyDown, true);
+      return () => window.removeEventListener("keydown", onKeyDown, true);
     }
     if (lightboxWasOpen.current) {
       previewButtonRef.current?.focus();
@@ -201,6 +208,17 @@ export default function MinutesSummaryView({
           role="dialog"
           aria-modal="true"
           aria-label="画板预览"
+          onKeyDown={(event) => {
+            if (event.key === "Escape" || event.key === "Tab") {
+              event.preventDefault();
+              event.stopPropagation();
+              if (event.key === "Escape") {
+                setWhiteboardOpen(false);
+              } else {
+                closeButtonRef.current?.focus();
+              }
+            }
+          }}
         >
           <div className={styles.minutesLightboxCard}>
             {/* eslint-disable-next-line @next/next/no-img-element */}

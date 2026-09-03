@@ -476,9 +476,6 @@ func (a *FeishuMinutesAdapter) readMinute(
 	checkpoint.Phase = feishuPhaseTranscriptStored
 	checkpoint.TranscriptRelativePath = filepath.ToSlash(transcriptRelative)
 	checkpoint.DetailRelativePath = filepath.ToSlash(detailRelative)
-	if err := persistFeishuCheckpoint(ctx, request, checkpoint); err != nil {
-		return progressWithCheckpoint(checkpoint), err
-	}
 	progress, completeErr := completedFeishuProgress(
 		checkpoint,
 		request.PipelineVersion,
@@ -486,10 +483,7 @@ func (a *FeishuMinutesAdapter) readMinute(
 		transcript,
 		output,
 	)
-	if completeErr != nil {
-		return progress, completeErr
-	}
-	if request.PipelineVersion == NativeMinutesPipelineVersion {
+	if completeErr == nil && request.PipelineVersion == NativeMinutesPipelineVersion {
 		progress = a.enhanceCompletedProgress(
 			ctx,
 			request,
@@ -498,6 +492,12 @@ func (a *FeishuMinutesAdapter) readMinute(
 			output,
 			progress,
 		)
+	}
+	if err := persistFeishuCheckpoint(ctx, request, checkpoint); err != nil {
+		return progressWithCheckpoint(checkpoint), err
+	}
+	if completeErr != nil {
+		return progress, completeErr
 	}
 	return progress, nil
 }
@@ -903,7 +903,7 @@ func (a *FeishuMinutesAdapter) restoreStoredEnrichment(
 		}
 	}
 	progress.MinutesEnrichment = enrichment.Public()
-	return progress
+	return a.restoreStoredRawEnrichment(ctx, checkpoint, progress)
 }
 
 func (a *FeishuMinutesAdapter) captureNoteEnrichment(
@@ -1049,10 +1049,9 @@ func (a *FeishuMinutesAdapter) persistLocalEnrichment(
 		return
 	}
 	encoded, err := encodeMinutesEnrichment(progress.MinutesEnrichment)
-	if err != nil || len(encoded) == 0 {
-		return
+	if err == nil && len(encoded) > 0 {
+		_ = os.WriteFile(filepath.Join(runDirectory, minutesEnrichmentFileName), encoded, 0o600)
 	}
-	_ = os.WriteFile(filepath.Join(runDirectory, minutesEnrichmentFileName), encoded, 0o600)
 	if len(progress.WhiteboardPreview) > 0 {
 		_ = os.WriteFile(
 			filepath.Join(runDirectory, "whiteboard-preview"),
@@ -1060,7 +1059,42 @@ func (a *FeishuMinutesAdapter) persistLocalEnrichment(
 			0o600,
 		)
 	}
+	for _, name := range []string{"note-detail.json", "note-document.json"} {
+		if body := progress.RawArtifacts[name]; len(body) > 0 {
+			_ = os.WriteFile(filepath.Join(runDirectory, name), body, 0o600)
+		}
+	}
 	_ = checkpoint
+}
+
+func (a *FeishuMinutesAdapter) restoreStoredRawEnrichment(
+	ctx context.Context,
+	checkpoint feishuCheckpoint,
+	progress TranscriptionProgress,
+) TranscriptionProgress {
+	progress.RawArtifacts = cloneByteMap(progress.RawArtifacts)
+	if progress.SkillVersions == nil {
+		progress.SkillVersions = map[string]string{}
+	}
+	for _, name := range []string{"note-detail.json", "note-document.json"} {
+		relative := siblingRelativePath(checkpoint.DetailRelativePath, name)
+		if relative == "" {
+			continue
+		}
+		raw, err := a.readStoredFile(ctx, relative, maxLarkCLIOutputBytes)
+		if err != nil {
+			continue
+		}
+		progress.RawArtifacts[name] = raw
+	}
+	if _, ok := progress.RawArtifacts["note-detail.json"]; ok {
+		progress.SkillVersions["lark-note"] = "1.0.0"
+		progress.SkillVersions["lark-docs"] = "1.0.0"
+	}
+	if progress.MinutesEnrichment.Whiteboard != nil || len(progress.WhiteboardPreview) > 0 {
+		progress.SkillVersions["lark-whiteboard"] = "1.0.0"
+	}
+	return progress
 }
 
 func (a *FeishuMinutesAdapter) readStoredBinaryFile(
@@ -1149,28 +1183,25 @@ func parseDocsFetchContent(output []byte) (string, bool) {
 	return content, true
 }
 
-func enrichmentRelativePath(detailRelative string) string {
+func siblingRelativePath(detailRelative, name string) string {
 	detailRelative = strings.TrimSpace(detailRelative)
-	if detailRelative == "" {
+	name = strings.TrimSpace(name)
+	if detailRelative == "" || name == "" {
 		return ""
 	}
 	dir := filepath.ToSlash(filepath.Dir(filepath.FromSlash(detailRelative)))
 	if dir == "." || dir == "" {
-		return minutesEnrichmentFileName
+		return name
 	}
-	return dir + "/" + minutesEnrichmentFileName
+	return dir + "/" + name
+}
+
+func enrichmentRelativePath(detailRelative string) string {
+	return siblingRelativePath(detailRelative, minutesEnrichmentFileName)
 }
 
 func whiteboardRelativePath(detailRelative string) string {
-	detailRelative = strings.TrimSpace(detailRelative)
-	if detailRelative == "" {
-		return ""
-	}
-	dir := filepath.ToSlash(filepath.Dir(filepath.FromSlash(detailRelative)))
-	if dir == "." || dir == "" {
-		return "whiteboard-preview"
-	}
-	return dir + "/whiteboard-preview"
+	return siblingRelativePath(detailRelative, "whiteboard-preview")
 }
 
 func cloneByteMap(input map[string][]byte) map[string][]byte {

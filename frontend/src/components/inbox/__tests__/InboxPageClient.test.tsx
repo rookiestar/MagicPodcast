@@ -1687,7 +1687,22 @@ describe("InboxPageClient", () => {
       name: "画板预览",
     });
     expect(within(lightbox).getByRole("button", { name: "关闭" })).toHaveFocus();
-    fireEvent.click(within(lightbox).getByRole("button", { name: "关闭" }));
+    fireEvent.keyDown(lightbox, { key: "Tab" });
+    expect(within(lightbox).getByRole("button", { name: "关闭" })).toHaveFocus();
+    fireEvent.keyDown(lightbox, { key: "Escape" });
+    await waitFor(() =>
+      expect(
+        within(dialog).queryByRole("dialog", { name: "画板预览" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      within(dialog).getByRole("heading", { name: "可处理单集" }),
+    ).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: /放大查看画板/ }));
+    const lightboxAgain = await within(dialog).findByRole("dialog", {
+      name: "画板预览",
+    });
+    fireEvent.click(within(lightboxAgain).getByRole("button", { name: "关闭" }));
     await waitFor(() =>
       expect(
         within(dialog).queryByRole("dialog", { name: "画板预览" }),
