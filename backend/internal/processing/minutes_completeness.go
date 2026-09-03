@@ -7,7 +7,8 @@ import (
 )
 
 const (
-	minutesEnrichmentWaitDuration = 30 * time.Minute
+	minutesEnrichmentWaitDuration        = 30 * time.Minute
+	minutesEnrichmentExpiredProbeTimeout = 5 * time.Second
 
 	minutesEnrichmentTimeoutCode        = "minutes_enrichment_timeout"
 	minutesEnrichmentTemplateCode       = "minutes_template_unrecognized"

@@ -899,7 +899,16 @@ func (a *FeishuMinutesAdapter) waitForMinutesEnrichment(
 	expired := enrichmentWaitExpired(deadline, now)
 
 	if detail == nil {
-		fetched, raw, wait, fetchErr := a.fetchMinuteDetailForEnrichment(ctx, request, checkpoint)
+		fetchCtx := ctx
+		var cancelFetch context.CancelFunc
+		if expired {
+			fetchCtx, cancelFetch = context.WithTimeout(
+				ctx,
+				minutesEnrichmentExpiredProbeTimeout,
+			)
+			defer cancelFetch()
+		}
+		fetched, raw, wait, fetchErr := a.fetchMinuteDetailForEnrichment(fetchCtx, request, checkpoint)
 		if fetchErr != nil {
 			if minutesErrorIsWaitable(fetchErr) {
 				if expired {
