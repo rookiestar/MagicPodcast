@@ -20,6 +20,18 @@ func TestEvaluateReadableNoteDocumentAllowsEmptyKnownSections(t *testing.T) {
 	require.Empty(t, decision.Code)
 }
 
+func TestEvaluateReadableNoteDocumentIgnoresFilteredInternalLinks(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a></li><li><a href="https://bytedance.larkoffice.com/docx/internal">文字记录</a></li></ul>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.False(t, decision.Wait)
+	require.Empty(t, decision.Code)
+}
+
 func TestEvaluateReadableNoteDocumentAllowsEmptyDocument(t *testing.T) {
 	decision := evaluateReadableNoteDocument("   ", "", false, false)
 	require.True(t, decision.Complete)

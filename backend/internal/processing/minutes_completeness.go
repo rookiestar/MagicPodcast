@@ -162,7 +162,8 @@ func firstUnparsedTargetSection(document string) (string, bool) {
 		if strings.TrimSpace(raw) == "" {
 			continue
 		}
-		if check.count > 0 {
+		if check.count > 0 ||
+			(check.name == "相关链接" && hasRecognizedNoteLink(raw)) {
 			continue
 		}
 		visible := strings.TrimSpace(stripXMLTags(raw))
@@ -172,6 +173,24 @@ func firstUnparsedTargetSection(document string) (string, bool) {
 		return check.name, true
 	}
 	return "", false
+}
+
+// hasRecognizedNoteLink distinguishes a link block whose links were all
+// filtered for safety from a block whose non-empty content was not parsed at
+// all. Internal Feishu links are intentionally omitted from the public
+// snapshot, but they must not make otherwise valid enrichment fail closed.
+func hasRecognizedNoteLink(section string) bool {
+	for _, match := range anchorPattern.FindAllStringSubmatch(section, -1) {
+		if strings.TrimSpace(firstAttribute(match[1], hrefPattern)) != "" {
+			return true
+		}
+	}
+	for _, match := range bookmarkPattern.FindAllStringSubmatch(section, -1) {
+		if strings.TrimSpace(firstAttribute(match[1], hrefPattern)) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func firstNonEmptySection(sections map[string]string, names ...string) string {
