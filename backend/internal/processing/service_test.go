@@ -648,6 +648,8 @@ func TestServiceRetryPreservesCompletedFeishuEnrichmentForNonResyncFailures(t *t
 	}{
 		{name: "artifact record failure", errorCode: "artifact_record_failed"},
 		{name: "runtime failure", errorCode: "runtime_unavailable"},
+		{name: "expired login after completion", errorCode: "lark_auth_expired"},
+		{name: "permission failure after completion", errorCode: "lark_permission_denied"},
 		{name: "completed external cancellation", errorCode: cancellationExternalResultUnknown},
 	}
 
@@ -732,6 +734,83 @@ func TestServiceRetryPreservesCompletedFeishuEnrichmentForNonResyncFailures(t *t
 			require.Equal(t, strings.Repeat("b", 64), copiedState.EnrichmentSHA256)
 			require.Equal(t, strings.Repeat("c", 64), copiedState.WhiteboardSHA256)
 			require.Equal(t, strings.Repeat("d", 64), copiedState.EnrichmentRawSHA256["note-detail.json"])
+		})
+	}
+}
+
+func TestServiceRetryResetsEnrichmentWindowAfterCredentialRecovery(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		errorCode string
+	}{
+		{name: "expired login", errorCode: "lark_auth_expired"},
+		{name: "permission denied", errorCode: "lark_permission_denied"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			db := openProcessingTestDB(t)
+			now := time.Date(2026, 8, 29, 13, 0, 0, 0, time.UTC)
+			service, resolver := newProcessingServiceWithResolver(
+				db,
+				WithClock(func() time.Time { return now }),
+			)
+			digest := strings.Repeat("a", 64)
+			resolver.Set(ProcessingInput{
+				AudioDigest:     digest,
+				PipelineVersion: NativeMinutesPipelineVersion,
+			})
+			episode := createProcessingEpisode(t, db, true, "native-minutes-credential-recovery")
+			source := startProcessingRun(t, service, episode.ID)
+			state, err := encodeFeishuCheckpoint(feishuCheckpoint{
+				Version:                feishuCheckpointVersion,
+				Phase:                  feishuPhaseMinutesEnrichment,
+				AudioDigest:            digest,
+				FileToken:              "boxcn_credential_recovery",
+				MinuteToken:            "obcn_credential_recovery",
+				MinuteURL:              "https://example.feishu.cn/minutes/obcn_credential_recovery",
+				TranscriptRelativePath: "run-1/minutes-transcript.txt",
+				DetailRelativePath:     "run-1/minutes-detail.json",
+				CoreReadyAt:            formatCheckpointTime(now.Add(-time.Hour)),
+				EnrichmentDeadlineAt:   formatCheckpointTime(now.Add(-time.Minute)),
+			})
+			require.NoError(t, err)
+			stateHash := sha256.Sum256(state)
+			require.NoError(t, db.Create(&models.ProcessingCheckpoint{
+				RunID:          source.ID,
+				Step:           StepTranscription,
+				Adapter:        feishuMinutesAdapterName,
+				AdapterVersion: feishuMinutesAdapterVersion,
+				Status:         ExternalProgressWaiting,
+				StateJSON:      string(state),
+				StateHash:      hex.EncodeToString(stateHash[:]),
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			}).Error)
+			require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+				Where("id = ?", source.ID).
+				Updates(map[string]any{
+					"status":          models.ProcessingRunStatusFailed,
+					"error_code":      testCase.errorCode,
+					"error_message":   testCase.name,
+					"error_retryable": false,
+					"finished_at":     now,
+					"updated_at":      now,
+				}).Error)
+
+			retry, err := service.RetryProcessingRun(context.Background(), source.ID)
+			require.NoError(t, err)
+			var copied models.ProcessingCheckpoint
+			require.NoError(t, db.Where(
+				"run_id = ? AND step = ?",
+				retry.Run.ID,
+				StepTranscription,
+			).First(&copied).Error)
+			copiedState, decodeErr := decodeFeishuCheckpoint(json.RawMessage(copied.StateJSON))
+			require.NoError(t, decodeErr)
+			require.Equal(t, feishuPhaseMinutesEnrichment, copiedState.Phase)
+			require.Empty(t, copiedState.CoreReadyAt)
+			require.Empty(t, copiedState.EnrichmentDeadlineAt)
+			require.Equal(t, "obcn_credential_recovery", copiedState.MinuteToken)
+			require.Equal(t, ExternalProgressWaiting, copied.Status)
 		})
 	}
 }

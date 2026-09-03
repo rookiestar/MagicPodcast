@@ -1154,6 +1154,24 @@ func shouldRestartTranscriptionOnRetry(run models.EpisodeProcessingRun) bool {
 	}
 }
 
+func shouldResetFeishuEnrichmentOnRetry(
+	run models.EpisodeProcessingRun,
+	checkpoint models.ProcessingCheckpoint,
+) (bool, error) {
+	if isMinutesEnrichmentResyncError(run.ErrorCode) {
+		return true, nil
+	}
+	if !isMinutesEnrichmentCredentialError(run.ErrorCode) ||
+		checkpoint.Adapter != feishuMinutesAdapterName {
+		return false, nil
+	}
+	state, err := decodeFeishuCheckpoint(json.RawMessage(checkpoint.StateJSON))
+	if err != nil {
+		return false, err
+	}
+	return state.Phase == feishuPhaseMinutesEnrichment, nil
+}
+
 func unresolvedExternalResultCodes() []string {
 	return []string{
 		"lark_result_unknown",
@@ -1329,7 +1347,14 @@ func (s *Service) RetryProcessingRun(
 			return fmt.Errorf("create processing retry: %w", err)
 		}
 		if checkpointErr == nil && !restartTranscription {
-			if isMinutesEnrichmentResyncError(source.ErrorCode) {
+			resetEnrichment, resetErr := shouldResetFeishuEnrichmentOnRetry(
+				source,
+				checkpoint,
+			)
+			if resetErr != nil {
+				return ErrRetryUnsafe
+			}
+			if resetEnrichment {
 				reset, resetErr := resetCopiedFeishuCheckpoint(checkpoint, now)
 				if resetErr != nil {
 					return ErrRetryUnsafe

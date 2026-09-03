@@ -7,7 +7,8 @@ import (
 )
 
 const (
-	minutesEnrichmentWaitDuration = 30 * time.Minute
+	minutesEnrichmentWaitDuration        = 30 * time.Minute
+	minutesEnrichmentExpiredProbeTimeout = 5 * time.Second
 
 	minutesEnrichmentTimeoutCode        = "minutes_enrichment_timeout"
 	minutesEnrichmentTemplateCode       = "minutes_template_unrecognized"
@@ -36,6 +37,15 @@ func isMinutesEnrichmentResyncError(code string) bool {
 		minutesEnrichmentNoteUnreadableCode,
 		minutesEnrichmentSnapshotWriteCode,
 		minutesEnrichmentSnapshotStoredCode:
+		return true
+	default:
+		return false
+	}
+}
+
+func isMinutesEnrichmentCredentialError(code string) bool {
+	switch strings.TrimSpace(code) {
+	case "lark_auth_expired", "lark_permission_denied":
 		return true
 	default:
 		return false

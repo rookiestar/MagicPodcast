@@ -468,6 +468,10 @@ func TestProcessingMinutesCompletenessHTTPContract(t *testing.T) {
 			{err: pendingNote},
 			{output: minuteDetail, beforeReturn: writeHTTPTranscript},
 			{err: pendingNote},
+			// An expired window performs one final read so credential failures
+			// remain actionable; waitable results still time out and the retry
+			// then reads the Minute again.
+			{err: pendingNote},
 			{output: retryDetail, beforeReturn: writeHTTPTranscript},
 			{output: []byte(`{"note_doc_token":"docx_http_retry"}`)},
 			{output: []byte(`{"data":{"document":{"content":"<h1>总结</h1><h1>关键决策</h1><ul><li>继续推进</li></ul>"}}}`)},
