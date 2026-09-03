@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	nethtml "golang.org/x/net/html"
 )
 
 const (
@@ -35,8 +37,6 @@ var (
 	blockquotePattern         = regexp.MustCompile(`(?is)<blockquote\b[^>]*>(.*?)</blockquote>`)
 	listItemPattern           = regexp.MustCompile(`(?is)<li\b[^>]*>(.*?)</li>`)
 	paragraphPattern          = regexp.MustCompile(`(?is)<p\b[^>]*>(.*?)</p>`)
-	hrefPattern               = regexp.MustCompile(`(?i)(?:^|[\t\n\f\r ])href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>\x60]+))`)
-	namePattern               = regexp.MustCompile(`(?i)(?:^|[\t\n\f\r ])(?:name|title)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>\x60]+))`)
 	tagPattern                = regexp.MustCompile(`(?s)<[^>]+>`)
 	mediaIDPattern            = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
 	feishuIdentityPattern     = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:(?:obcn|wbcn|boxcn|doxcn)[a-z0-9_-]{4,}|docx_[a-z0-9_-]{4,})`)
@@ -461,18 +461,18 @@ func extractNoteLinks(section string) []MinutesLink {
 	}
 	links := make([]MinutesLink, 0)
 	for _, match := range anchorPattern.FindAllStringSubmatch(section, -1) {
-		href := firstAttribute(match[1], hrefPattern)
+		href := firstAttribute(match[1], "href")
 		title := strings.TrimSpace(stripXMLTags(match[2]))
 		if title == "" {
-			title = firstAttribute(match[1], namePattern)
+			title = firstAttribute(match[1], "name", "title")
 		}
 		if link, ok := publicMinutesLink(title, href); ok {
 			links = append(links, link)
 		}
 	}
 	for _, match := range bookmarkPattern.FindAllStringSubmatch(section, -1) {
-		href := firstAttribute(match[1], hrefPattern)
-		title := firstAttribute(match[1], namePattern)
+		href := firstAttribute(match[1], "href")
+		title := firstAttribute(match[1], "name", "title")
 		if link, ok := publicMinutesLink(title, href); ok {
 			links = append(links, link)
 		}
@@ -892,17 +892,24 @@ func normalizeNoteHeading(value string) string {
 	}))
 }
 
-func firstAttribute(attributes string, pattern *regexp.Regexp) string {
-	match := pattern.FindStringSubmatch(attributes)
-	if len(match) < 2 {
+func firstAttribute(attributes string, names ...string) string {
+	tokenizer := nethtml.NewTokenizer(strings.NewReader("<span" + attributes + "></span>"))
+	for {
+		if tokenizer.Next() != nethtml.StartTagToken {
+			if tokenizer.Err() != nil {
+				return ""
+			}
+			continue
+		}
+		for _, attribute := range tokenizer.Token().Attr {
+			for _, name := range names {
+				if strings.EqualFold(attribute.Key, name) {
+					return strings.TrimSpace(attribute.Val)
+				}
+			}
+		}
 		return ""
 	}
-	for _, value := range match[1:] {
-		if value = strings.TrimSpace(value); value != "" {
-			return html.UnescapeString(value)
-		}
-	}
-	return ""
 }
 
 func extractJSONString(values ...string) string {
