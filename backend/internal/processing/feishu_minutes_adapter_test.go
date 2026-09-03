@@ -880,12 +880,14 @@ func TestFeishuMinutesAdapterPreservesCredentialErrorsDuringEnrichmentRefresh(t 
 			require.NoError(t, err)
 			request, _ := feishuTestRequest(digest)
 			checkpoint, err := encodeFeishuCheckpoint(feishuCheckpoint{
-				Version:     feishuCheckpointVersion,
-				Phase:       feishuPhaseMinutesEnrichment,
-				AudioDigest: digest,
-				FileToken:   "boxcn_refresh_123",
-				MinuteToken: "obcn_refresh_123",
-				MinuteURL:   "https://example.feishu.cn/minutes/obcn_refresh_123",
+				Version:              feishuCheckpointVersion,
+				Phase:                feishuPhaseMinutesEnrichment,
+				AudioDigest:          digest,
+				FileToken:            "boxcn_refresh_123",
+				MinuteToken:          "obcn_refresh_123",
+				MinuteURL:            "https://example.feishu.cn/minutes/obcn_refresh_123",
+				CoreReadyAt:          formatCheckpointTime(time.Now().UTC().Add(-time.Hour)),
+				EnrichmentDeadlineAt: formatCheckpointTime(time.Now().UTC().Add(-time.Minute)),
 			})
 			require.NoError(t, err)
 

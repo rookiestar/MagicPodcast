@@ -897,9 +897,6 @@ func (a *FeishuMinutesAdapter) waitForMinutesEnrichment(
 		)
 	}
 	expired := enrichmentWaitExpired(deadline, now)
-	if expired && detail == nil {
-		return a.failEnrichmentWait(ctx, request, checkpoint, minutesEnrichmentTimeoutDecision())
-	}
 
 	if detail == nil {
 		fetched, raw, wait, fetchErr := a.fetchMinuteDetailForEnrichment(ctx, request, checkpoint)
@@ -935,6 +932,9 @@ func (a *FeishuMinutesAdapter) waitForMinutesEnrichment(
 				return a.failEnrichmentWait(ctx, request, checkpoint, minutesEnrichmentTimeoutDecision())
 			}
 			return a.failEnrichmentWait(ctx, request, checkpoint, decision)
+		}
+		if expired {
+			return a.failEnrichmentWait(ctx, request, checkpoint, minutesEnrichmentTimeoutDecision())
 		}
 		if wait {
 			if expired {
