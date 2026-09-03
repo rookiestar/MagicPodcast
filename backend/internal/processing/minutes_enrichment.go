@@ -35,8 +35,8 @@ var (
 	blockquotePattern         = regexp.MustCompile(`(?is)<blockquote\b[^>]*>(.*?)</blockquote>`)
 	listItemPattern           = regexp.MustCompile(`(?is)<li\b[^>]*>(.*?)</li>`)
 	paragraphPattern          = regexp.MustCompile(`(?is)<p\b[^>]*>(.*?)</p>`)
-	hrefPattern               = regexp.MustCompile(`(?i)\bhref="([^"]+)"`)
-	namePattern               = regexp.MustCompile(`(?i)\b(?:name|title)="([^"]+)"`)
+	hrefPattern               = regexp.MustCompile(`(?i)\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>\x60]+))`)
+	namePattern               = regexp.MustCompile(`(?i)\b(?:name|title)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>\x60]+))`)
 	tagPattern                = regexp.MustCompile(`(?s)<[^>]+>`)
 	mediaIDPattern            = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
 	feishuIdentityPattern     = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:(?:obcn|wbcn|boxcn|doxcn)[a-z0-9_-]{4,}|docx_[a-z0-9_-]{4,})`)
@@ -897,7 +897,12 @@ func firstAttribute(attributes string, pattern *regexp.Regexp) string {
 	if len(match) < 2 {
 		return ""
 	}
-	return html.UnescapeString(strings.TrimSpace(match[1]))
+	for _, value := range match[1:] {
+		if value = strings.TrimSpace(value); value != "" {
+			return html.UnescapeString(value)
+		}
+	}
+	return ""
 }
 
 func extractJSONString(values ...string) string {
