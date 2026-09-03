@@ -190,6 +190,7 @@ func firstUnparsedTargetSection(document string) (string, bool) {
 // parsed at all. Internal Feishu links are intentionally omitted from the
 // public snapshot, but unsupported residual content must still fail closed.
 func noteLinksSectionIsFullyAccounted(section string) bool {
+	section = normalizeSelfClosingBookmarks(section)
 	fragments, err := nethtml.ParseFragment(
 		strings.NewReader(section),
 		&nethtml.Node{Type: nethtml.ElementNode, Data: "div", DataAtom: atom.Div},
@@ -230,6 +231,12 @@ func noteLinksSectionIsFullyAccounted(section string) bool {
 		}
 	}
 	return true
+}
+
+var selfClosingBookmarkPattern = regexp.MustCompile(`(?is)<bookmark\b([^>]*)/\s*>`)
+
+func normalizeSelfClosingBookmarks(section string) string {
+	return selfClosingBookmarkPattern.ReplaceAllString(section, `<bookmark$1></bookmark>`)
 }
 
 type noteLinkNodeScan struct {
