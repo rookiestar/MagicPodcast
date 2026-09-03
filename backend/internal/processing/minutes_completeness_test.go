@@ -88,6 +88,17 @@ func TestEvaluateReadableNoteDocumentAllowsSelfClosingBookmarkLinks(t *testing.T
 	require.Empty(t, decision.Code)
 }
 
+func TestEvaluateReadableNoteDocumentAllowsFormattingAroundPublicLink(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><u><a href="https://example.com/guide">指南</a></u></p>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.Empty(t, decision.Code)
+}
+
 func TestEvaluateReadableNoteDocumentAllowsEmptyDocument(t *testing.T) {
 	decision := evaluateReadableNoteDocument("   ", "", false, false)
 	require.True(t, decision.Complete)

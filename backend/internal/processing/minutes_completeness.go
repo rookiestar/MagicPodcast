@@ -292,7 +292,7 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 				hrefs:      []string{href},
 			}
 		}
-		if _, ok := noteLinkContainerTags[name]; !ok {
+		if _, ok := noteLinkContainerTags[name]; !ok && strings.TrimSpace(noteLinkNodeAttribute(node, "href")) != "" {
 			return noteLinkNodeScan{}
 		}
 
