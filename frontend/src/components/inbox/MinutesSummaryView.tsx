@@ -2,6 +2,10 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import MarkdownViewer from "@/components/workflows/MarkdownViewer";
+import {
+  getOptimizedImageUrl,
+  RICH_TEXT_IMAGE_WIDTH,
+} from "@/lib/imageOptimization";
 import type {
   MinutesChapter,
   MinutesLink,
@@ -86,6 +90,12 @@ export default function MinutesSummaryView({
         whiteboard.media_id,
       )}`
     : "";
+  const whiteboardPreviewSrc = whiteboard
+    ? getOptimizedImageUrl(whiteboardSrc, RICH_TEXT_IMAGE_WIDTH)
+    : "";
+  const whiteboardLightboxSrc = whiteboard
+    ? getOptimizedImageUrl(whiteboardSrc, 1920)
+    : "";
 
   return (
     <div className={styles.minutesSummary}>
@@ -105,7 +115,7 @@ export default function MinutesSummaryView({
             {/* Managed local artifact media; not a remote Next image. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={whiteboardSrc}
+              src={whiteboardPreviewSrc}
               alt={whiteboard.alt || "飞书智能纪要画板"}
               width={whiteboard.width || undefined}
               height={whiteboard.height || undefined}
@@ -163,7 +173,7 @@ export default function MinutesSummaryView({
       )}
       {visibleQuotes.length > 0 && (
         <section className={styles.minutesSection} aria-labelledby={`${titleId}-quotes`}>
-          <h3 id={`${titleId}-quotes`}>金句</h3>
+          <h3 id={`${titleId}-quotes`}>金句时刻</h3>
           <ul className={styles.minutesQuoteList}>
             {visibleQuotes.map((item) => (
               <li key={item.quote}>
@@ -208,22 +218,11 @@ export default function MinutesSummaryView({
           role="dialog"
           aria-modal="true"
           aria-label="画板预览"
-          onKeyDown={(event) => {
-            if (event.key === "Escape" || event.key === "Tab") {
-              event.preventDefault();
-              event.stopPropagation();
-              if (event.key === "Escape") {
-                setWhiteboardOpen(false);
-              } else {
-                closeButtonRef.current?.focus();
-              }
-            }
-          }}
         >
           <div className={styles.minutesLightboxCard}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={whiteboardSrc}
+              src={whiteboardLightboxSrc}
               alt={whiteboard.alt || "飞书智能纪要画板"}
             />
             <button
@@ -260,6 +259,7 @@ export function isSafeMinutesLink(raw: string) {
     }
     const host = parsed.hostname.toLowerCase();
     if (
+      isLocalMinutesHost(host) ||
       /(^|\.)(feishu\.cn|feishu\.com|larksuite\.com|larksuite\.cn|larkoffice\.com|larkoffice\.cn)$/.test(
         host,
       )
@@ -268,11 +268,44 @@ export function isSafeMinutesLink(raw: string) {
     }
     const haystack = `${parsed.pathname}?${parsed.search}#${parsed.hash}`.toLowerCase();
     if (
-      /(minute_token|note_id|file_token|whiteboard_token|doc_token|token=)/.test(
+      /(minute_token|note_id|file_token|whiteboard_token|doc_token|token=|(?:^|[^a-z0-9])(?:(?:obcn|wbcn|boxcn|doxcn)[a-z0-9_-]{4,}|docx_[a-z0-9_-]{4,}))/.test(
         haystack,
       )
     ) {
       return false;
+    }
+    let decoded = haystack;
+    for (let pass = 0; pass < 8; pass += 1) {
+      let next: string;
+      try {
+        next = decodeURIComponent(decoded);
+      } catch {
+        return false;
+      }
+      if (next === decoded) break;
+      decoded = next.toLowerCase();
+    }
+    if (
+      /(?:^|[^a-z0-9])(?:(?:obcn|wbcn|boxcn|doxcn)[a-z0-9_-]{4,}|docx_[a-z0-9_-]{4,})/.test(decoded) ||
+      /(?:^|[^a-z])(?:javascript|data|file):/.test(decoded)
+    ) {
+      return false;
+    }
+    for (const nested of decoded.matchAll(/https?:\/\/[^\s<>"']+/g)) {
+      try {
+        const nestedURL = new URL(nested[0]);
+        const nestedHost = nestedURL.hostname.toLowerCase();
+        if (
+          isLocalMinutesHost(nestedHost) ||
+          /(^|\.)(feishu\.cn|feishu\.com|larksuite\.com|larksuite\.cn|larkoffice\.com|larkoffice\.cn)$/.test(
+            nestedHost,
+          )
+        ) {
+          return false;
+        }
+      } catch {
+        return false;
+      }
     }
     if (/\/(minutes|docx|wiki|drive|whiteboard|notes)\//.test(parsed.pathname)) {
       return false;
@@ -281,4 +314,31 @@ export function isSafeMinutesLink(raw: string) {
   } catch {
     return false;
   }
+}
+
+function isLocalMinutesHost(hostname: string) {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    host.endsWith(".home.arpa") ||
+    host === "::1" ||
+    host === "::"
+  ) {
+    return true;
+  }
+  const octets = host.split(".").map(Number);
+  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part))) {
+    return /^(?:fc|fd|fe[89ab])/i.test(host);
+  }
+  return (
+    octets[0] === 0 ||
+    octets[0] === 10 ||
+    octets[0] === 127 ||
+    (octets[0] === 169 && octets[1] === 254) ||
+    (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+    (octets[0] === 192 && octets[1] === 168)
+  );
 }

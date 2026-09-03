@@ -18,10 +18,12 @@ import (
 )
 
 const (
-	feishuMinutesAdapterName    = "feishu-minutes-cli"
-	feishuMinutesAdapterVersion = "feishu-minutes-cli-v1"
-	feishuCheckpointVersion     = 1
-	maxTranscriptBytes          = 128 << 20
+	feishuMinutesAdapterName            = "feishu-minutes-cli"
+	feishuMinutesAdapterVersion         = "feishu-minutes-cli-v1"
+	feishuCheckpointVersion             = 1
+	maxTranscriptBytes                  = 128 << 20
+	maxEnrichmentPendingAttempts        = 3
+	minutesEnrichmentDiagnosticFileName = "minutes-enrichment-diagnostics.txt"
 
 	feishuPhaseDriveReady       = "drive_upload_ready"
 	feishuPhaseDriveIntent      = "drive_upload_intent"
@@ -46,14 +48,15 @@ type FeishuMinutesAdapter struct {
 }
 
 type feishuCheckpoint struct {
-	Version                int    `json:"version"`
-	Phase                  string `json:"phase"`
-	AudioDigest            string `json:"audio_digest"`
-	FileToken              string `json:"file_token,omitempty"`
-	MinuteToken            string `json:"minute_token,omitempty"`
-	MinuteURL              string `json:"minute_url,omitempty"`
-	TranscriptRelativePath string `json:"transcript_relative_path,omitempty"`
-	DetailRelativePath     string `json:"detail_relative_path,omitempty"`
+	Version                   int    `json:"version"`
+	Phase                     string `json:"phase"`
+	AudioDigest               string `json:"audio_digest"`
+	FileToken                 string `json:"file_token,omitempty"`
+	MinuteToken               string `json:"minute_token,omitempty"`
+	MinuteURL                 string `json:"minute_url,omitempty"`
+	TranscriptRelativePath    string `json:"transcript_relative_path,omitempty"`
+	DetailRelativePath        string `json:"detail_relative_path,omitempty"`
+	EnrichmentPendingAttempts int    `json:"enrichment_pending_attempts,omitempty"`
 }
 
 func NewFeishuMinutesAdapter(
@@ -473,7 +476,6 @@ func (a *FeishuMinutesAdapter) readMinute(
 			false,
 		)
 	}
-	checkpoint.Phase = feishuPhaseTranscriptStored
 	checkpoint.TranscriptRelativePath = filepath.ToSlash(transcriptRelative)
 	checkpoint.DetailRelativePath = filepath.ToSlash(detailRelative)
 	progress, completeErr := completedFeishuProgress(
@@ -484,18 +486,31 @@ func (a *FeishuMinutesAdapter) readMinute(
 		output,
 	)
 	if completeErr == nil && request.PipelineVersion == NativeMinutesPipelineVersion {
-		progress = a.enhanceCompletedProgress(
+		var enrichmentPending bool
+		progress, enrichmentPending = a.enhanceCompletedProgress(
 			ctx,
-			request,
-			checkpoint,
+			request.RunID,
 			detail,
-			output,
 			progress,
 		)
+		if enrichmentPending {
+			checkpoint.EnrichmentPendingAttempts++
+			if checkpoint.EnrichmentPendingAttempts < maxEnrichmentPendingAttempts {
+				a.persistLocalEnrichment(request.RunID, progress)
+				if err := persistFeishuCheckpoint(ctx, request, checkpoint); err != nil {
+					return progressWithCheckpoint(checkpoint), err
+				}
+				return progressWithCheckpoint(checkpoint), nil
+			}
+			progress = addMinutesEnrichmentDiagnostic(progress, "note_not_ready")
+		}
+		a.persistLocalEnrichment(request.RunID, progress)
 	}
+	checkpoint.Phase = feishuPhaseTranscriptStored
 	if err := persistFeishuCheckpoint(ctx, request, checkpoint); err != nil {
 		return progressWithCheckpoint(checkpoint), err
 	}
+	progress.Checkpoint, _ = encodeFeishuCheckpoint(checkpoint)
 	if completeErr != nil {
 		return progress, completeErr
 	}
@@ -820,34 +835,27 @@ func completedFeishuProgress(
 
 func (a *FeishuMinutesAdapter) enhanceCompletedProgress(
 	ctx context.Context,
-	request TranscriptionRequest,
-	checkpoint feishuCheckpoint,
+	runID uint,
 	detail minuteDetail,
-	detailJSON []byte,
 	progress TranscriptionProgress,
-) TranscriptionProgress {
+) (TranscriptionProgress, bool) {
 	enrichment := MinutesEnrichment{
 		Chapters: append([]MinutesChapter(nil), detail.Chapters...),
 		Keywords: append([]string(nil), detail.Keywords...),
 	}
-	if request.PipelineVersion != NativeMinutesPipelineVersion {
-		return progress
-	}
 	if strings.TrimSpace(detail.NoteID) != "" && larkTokenPattern.MatchString(detail.NoteID) {
-		progress = a.captureNoteEnrichment(
+		progress, pending := a.captureNoteEnrichment(
 			ctx,
-			request.RunID,
+			runID,
 			detail.NoteID,
 			enrichment,
 			progress,
 		)
-		enrichment = progress.MinutesEnrichment
+		return progress, pending
 	} else {
 		progress.MinutesEnrichment = enrichment.Public()
 	}
-	a.persistLocalEnrichment(request.RunID, checkpoint, progress)
-	_ = detailJSON
-	return progress
+	return progress, false
 }
 
 func (a *FeishuMinutesAdapter) restoreStoredEnrichment(
@@ -912,11 +920,11 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 	noteID string,
 	enrichment MinutesEnrichment,
 	progress TranscriptionProgress,
-) TranscriptionProgress {
+) (TranscriptionProgress, bool) {
 	runDirectory, err := a.runDirectory(runID)
 	if err != nil {
 		progress.MinutesEnrichment = enrichment.Public()
-		return progress
+		return addMinutesEnrichmentDiagnostic(progress, "managed_directory_unavailable"), false
 	}
 	noteOutput, noteErr := a.runner.Run(
 		ctx,
@@ -932,14 +940,17 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 	)
 	if noteErr != nil {
 		progress.MinutesEnrichment = enrichment.Public()
-		return progress
+		if mapped, _ := classifyLarkCommandError(noteErr); errors.Is(mapped, errLarkMinutesPending) {
+			return progress, true
+		}
+		return addMinutesEnrichmentDiagnostic(progress, "note_detail_unavailable"), false
 	}
 	progress.RawArtifacts = cloneByteMap(progress.RawArtifacts)
 	progress.RawArtifacts["note-detail.json"] = append([]byte(nil), noteOutput...)
 	noteDocToken, ok := parseNoteDocToken(noteOutput)
 	if !ok {
 		progress.MinutesEnrichment = enrichment.Public()
-		return progress
+		return progress, true
 	}
 	docOutput, docErr := a.runner.Run(
 		ctx,
@@ -951,7 +962,7 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 		"--doc-format",
 		"xml",
 		"--detail",
-		"full",
+		"simple",
 		"--as",
 		"user",
 		"--format",
@@ -959,18 +970,26 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 	)
 	if docErr != nil {
 		progress.MinutesEnrichment = enrichment.Public()
-		return progress
+		if mapped, _ := classifyLarkCommandError(docErr); errors.Is(mapped, errLarkMinutesPending) {
+			return progress, true
+		}
+		return addMinutesEnrichmentDiagnostic(progress, "note_document_unavailable"), false
 	}
 	progress.RawArtifacts["note-document.json"] = append([]byte(nil), docOutput...)
 	content, ok := parseDocsFetchContent(docOutput)
 	if !ok {
 		progress.MinutesEnrichment = enrichment.Public()
-		return progress
+		return progress, true
 	}
 	decisions, quotes, links, whiteboardToken := parseNoteSections(content)
 	enrichment.Decisions = decisions
 	enrichment.Quotes = quotes
 	enrichment.Links = links
+	if !hasKnownTopLevelNoteSection(content) {
+		progress = addMinutesEnrichmentDiagnostic(progress, "note_sections_unrecognized")
+	} else if hasUnknownTopLevelNoteSection(content) {
+		progress = addMinutesEnrichmentDiagnostic(progress, "note_sections_ignored")
+	}
 	if whiteboardToken != "" {
 		if preview, captureErr := a.captureWhiteboardPreview(
 			ctx,
@@ -986,6 +1005,8 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 				SHA256:    digestBytes(preview.Bytes),
 				Alt:       minutesWhiteboardAlt,
 			}
+		} else {
+			progress = addMinutesEnrichmentDiagnostic(progress, "whiteboard_unavailable")
 		}
 	}
 	if progress.SkillVersions == nil {
@@ -997,7 +1018,7 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 		progress.SkillVersions["lark-whiteboard"] = "1.0.0"
 	}
 	progress.MinutesEnrichment = enrichment.Public()
-	return progress
+	return progress, false
 }
 
 func (a *FeishuMinutesAdapter) captureWhiteboardPreview(
@@ -1041,7 +1062,6 @@ func (a *FeishuMinutesAdapter) captureWhiteboardPreview(
 
 func (a *FeishuMinutesAdapter) persistLocalEnrichment(
 	runID uint,
-	checkpoint feishuCheckpoint,
 	progress TranscriptionProgress,
 ) {
 	runDirectory, err := a.runDirectory(runID)
@@ -1059,12 +1079,15 @@ func (a *FeishuMinutesAdapter) persistLocalEnrichment(
 			0o600,
 		)
 	}
-	for _, name := range []string{"note-detail.json", "note-document.json"} {
+	for _, name := range []string{
+		"note-detail.json",
+		"note-document.json",
+		minutesEnrichmentDiagnosticFileName,
+	} {
 		if body := progress.RawArtifacts[name]; len(body) > 0 {
 			_ = os.WriteFile(filepath.Join(runDirectory, name), body, 0o600)
 		}
 	}
-	_ = checkpoint
 }
 
 func (a *FeishuMinutesAdapter) restoreStoredRawEnrichment(
@@ -1076,7 +1099,11 @@ func (a *FeishuMinutesAdapter) restoreStoredRawEnrichment(
 	if progress.SkillVersions == nil {
 		progress.SkillVersions = map[string]string{}
 	}
-	for _, name := range []string{"note-detail.json", "note-document.json"} {
+	for _, name := range []string{
+		"note-detail.json",
+		"note-document.json",
+		minutesEnrichmentDiagnosticFileName,
+	} {
 		relative := siblingRelativePath(checkpoint.DetailRelativePath, name)
 		if relative == "" {
 			continue
@@ -1094,6 +1121,28 @@ func (a *FeishuMinutesAdapter) restoreStoredRawEnrichment(
 	if progress.MinutesEnrichment.Whiteboard != nil || len(progress.WhiteboardPreview) > 0 {
 		progress.SkillVersions["lark-whiteboard"] = "1.0.0"
 	}
+	return progress
+}
+
+func addMinutesEnrichmentDiagnostic(
+	progress TranscriptionProgress,
+	code string,
+) TranscriptionProgress {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return progress
+	}
+	progress.RawArtifacts = cloneByteMap(progress.RawArtifacts)
+	codes := strings.Fields(string(progress.RawArtifacts[minutesEnrichmentDiagnosticFileName]))
+	for _, existing := range codes {
+		if existing == code {
+			return progress
+		}
+	}
+	codes = append(codes, code)
+	progress.RawArtifacts[minutesEnrichmentDiagnosticFileName] = []byte(
+		strings.Join(codes, "\n") + "\n",
+	)
 	return progress
 }
 
@@ -1246,7 +1295,9 @@ func restrictedIdentityRef(identity string) string {
 
 func encodeFeishuCheckpoint(checkpoint feishuCheckpoint) (json.RawMessage, error) {
 	if checkpoint.Version != feishuCheckpointVersion ||
-		!sha256Pattern.MatchString(checkpoint.AudioDigest) {
+		!sha256Pattern.MatchString(checkpoint.AudioDigest) ||
+		checkpoint.EnrichmentPendingAttempts < 0 ||
+		checkpoint.EnrichmentPendingAttempts > maxEnrichmentPendingAttempts {
 		return nil, fmt.Errorf("invalid Feishu checkpoint")
 	}
 	return json.Marshal(checkpoint)
@@ -1266,7 +1317,9 @@ func decodeFeishuCheckpoint(state json.RawMessage) (feishuCheckpoint, error) {
 		return feishuCheckpoint{}, fmt.Errorf("trailing Feishu checkpoint data")
 	}
 	if checkpoint.Version != feishuCheckpointVersion ||
-		!sha256Pattern.MatchString(checkpoint.AudioDigest) {
+		!sha256Pattern.MatchString(checkpoint.AudioDigest) ||
+		checkpoint.EnrichmentPendingAttempts < 0 ||
+		checkpoint.EnrichmentPendingAttempts > maxEnrichmentPendingAttempts {
 		return feishuCheckpoint{}, fmt.Errorf("invalid Feishu checkpoint")
 	}
 	return checkpoint, nil

@@ -22,21 +22,26 @@ const (
 	minutesEnrichmentFileName      = "minutes-enrichment.json"
 	minutesWhiteboardMediaID       = "whiteboard"
 	maxWhiteboardPreviewBytes      = 20 << 20
+	maxWhiteboardPreviewDimension  = 8192
+	maxWhiteboardPreviewPixels     = 32 << 20
 	minutesWhiteboardAlt           = "飞书智能纪要画板"
 )
 
 var (
-	headingSplitPattern    = regexp.MustCompile(`(?is)<h([1-6])\b[^>]*>(.*?)</h[1-6]>`)
-	whiteboardTokenPattern = regexp.MustCompile(`(?is)<whiteboard\b[^>]*\b(?:token|whiteboard-token|whiteboard_token)="([^"]+)"`)
-	anchorPattern          = regexp.MustCompile(`(?is)<a\b([^>]*)>(.*?)</a>`)
-	bookmarkPattern        = regexp.MustCompile(`(?is)<bookmark\b([^>]*)>`)
-	blockquotePattern      = regexp.MustCompile(`(?is)<blockquote\b[^>]*>(.*?)</blockquote>`)
-	listItemPattern        = regexp.MustCompile(`(?is)<li\b[^>]*>(.*?)</li>`)
-	paragraphPattern       = regexp.MustCompile(`(?is)<p\b[^>]*>(.*?)</p>`)
-	hrefPattern            = regexp.MustCompile(`(?i)\bhref="([^"]+)"`)
-	namePattern            = regexp.MustCompile(`(?i)\b(?:name|title)="([^"]+)"`)
-	tagPattern             = regexp.MustCompile(`(?s)<[^>]+>`)
-	mediaIDPattern         = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
+	headingSplitPattern       = regexp.MustCompile(`(?is)<h([1-6])\b[^>]*>(.*?)</h[1-6]>`)
+	whiteboardTokenPattern    = regexp.MustCompile(`(?is)<whiteboard\b[^>]*\b(?:token|whiteboard-token|whiteboard_token)="([^"]+)"`)
+	anchorPattern             = regexp.MustCompile(`(?is)<a\b([^>]*)>(.*?)</a>`)
+	bookmarkPattern           = regexp.MustCompile(`(?is)<bookmark\b([^>]*)>`)
+	blockquotePattern         = regexp.MustCompile(`(?is)<blockquote\b[^>]*>(.*?)</blockquote>`)
+	listItemPattern           = regexp.MustCompile(`(?is)<li\b[^>]*>(.*?)</li>`)
+	paragraphPattern          = regexp.MustCompile(`(?is)<p\b[^>]*>(.*?)</p>`)
+	hrefPattern               = regexp.MustCompile(`(?i)\bhref="([^"]+)"`)
+	namePattern               = regexp.MustCompile(`(?i)\b(?:name|title)="([^"]+)"`)
+	tagPattern                = regexp.MustCompile(`(?s)<[^>]+>`)
+	mediaIDPattern            = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
+	feishuIdentityPattern     = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:(?:obcn|wbcn|boxcn|doxcn)[a-z0-9_-]{4,}|docx_[a-z0-9_-]{4,})`)
+	feishuURLHostPattern      = regexp.MustCompile(`(?i)(?:https?:)?//(?:[^/?#@\s]+@)?(?:[a-z0-9-]+\.)*(?:feishu\.cn|feishu\.com|larksuite\.com|larksuite\.cn|larkoffice\.com|larkoffice\.cn)(?::[0-9]+)?(?:[/?#\s]|$)`)
+	nestedUnsafeSchemePattern = regexp.MustCompile(`(?i)(?:^|[^a-z])(?:javascript|data|file):`)
 )
 
 var feishuLinkHosts = []string{
@@ -280,6 +285,39 @@ func splitNoteSections(document string) map[string]string {
 	return sections
 }
 
+func hasKnownTopLevelNoteSection(document string) bool {
+	for _, loc := range headingSplitPattern.FindAllStringSubmatchIndex(document, -1) {
+		if len(loc) < 6 || document[loc[2]:loc[3]] != "1" {
+			continue
+		}
+		if knownNoteSection(normalizeNoteHeading(stripXMLTags(document[loc[4]:loc[5]]))) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasUnknownTopLevelNoteSection(document string) bool {
+	for _, loc := range headingSplitPattern.FindAllStringSubmatchIndex(document, -1) {
+		if len(loc) < 6 || document[loc[2]:loc[3]] != "1" {
+			continue
+		}
+		if !knownNoteSection(normalizeNoteHeading(stripXMLTags(document[loc[4]:loc[5]]))) {
+			return true
+		}
+	}
+	return false
+}
+
+func knownNoteSection(title string) bool {
+	switch title {
+	case "总结", "智能章节", "关键决策", "金句时刻", "金句", "相关链接", "相关外链":
+		return true
+	default:
+		return false
+	}
+}
+
 func extractNoteDecisions(section string) []string {
 	if strings.TrimSpace(section) == "" {
 		return nil
@@ -297,11 +335,9 @@ func extractNoteQuotes(section string) []MinutesQuote {
 	}
 	quotes := make([]MinutesQuote, 0)
 	matches := blockquotePattern.FindAllStringSubmatchIndex(section, -1)
-	searchFrom := 0
 	for _, loc := range matches {
 		quote := strings.TrimSpace(stripXMLTags(section[loc[2]:loc[3]]))
 		if isPlaceholderText(quote) {
-			searchFrom = loc[1]
 			continue
 		}
 		explanation := ""
@@ -319,12 +355,13 @@ func extractNoteQuotes(section string) []MinutesQuote {
 			explanation = paragraphs[0]
 		}
 		quotes = append(quotes, MinutesQuote{Quote: quote, Explanation: explanation})
-		searchFrom = loc[1]
 	}
 	if len(quotes) > 0 {
 		return normalizeMinutesQuotes(quotes)
 	}
-	_ = searchFrom
+	if paragraphQuotes := extractParagraphQuotes(section); len(paragraphQuotes) > 0 {
+		return paragraphQuotes
+	}
 	for _, item := range collectXMLListItems(section) {
 		quote, explanation := splitQuoteAndExplanation(item)
 		if isPlaceholderText(quote) {
@@ -333,6 +370,46 @@ func extractNoteQuotes(section string) []MinutesQuote {
 		quotes = append(quotes, MinutesQuote{Quote: quote, Explanation: explanation})
 	}
 	return normalizeMinutesQuotes(quotes)
+}
+
+func extractParagraphQuotes(section string) []MinutesQuote {
+	paragraphs := collectXMLParagraphs(section)
+	quotes := make([]MinutesQuote, 0, len(paragraphs)/2)
+	for index := 0; index < len(paragraphs); index++ {
+		quote := strings.TrimSpace(paragraphs[index])
+		if !looksLikeQuotedText(quote) || isPlaceholderText(quote) {
+			continue
+		}
+		explanation := ""
+		if index+1 < len(paragraphs) {
+			if parsed, ok := quoteExplanation(paragraphs[index+1]); ok {
+				explanation = parsed
+				index++
+			}
+		}
+		quotes = append(quotes, MinutesQuote{Quote: quote, Explanation: explanation})
+	}
+	return normalizeMinutesQuotes(quotes)
+}
+
+func looksLikeQuotedText(value string) bool {
+	value = strings.TrimSpace(value)
+	for _, pair := range [][2]string{{"「", "」"}, {"『", "』"}, {"“", "”"}} {
+		if strings.HasPrefix(value, pair[0]) && strings.HasSuffix(value, pair[1]) {
+			return true
+		}
+	}
+	return false
+}
+
+func quoteExplanation(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	for _, prefix := range []string{"——", "—", "--"} {
+		if strings.HasPrefix(value, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(value, prefix)), true
+		}
+	}
+	return "", false
 }
 
 func extractNoteLinks(section string) []MinutesLink {
@@ -392,6 +469,9 @@ func sniffManagedImage(content []byte) (ManagedImage, error) {
 	if err != nil || config.Width <= 0 || config.Height <= 0 {
 		return ManagedImage{}, fmt.Errorf("whiteboard preview is not a valid image")
 	}
+	if !validManagedImageDimensions(config.Width, config.Height) {
+		return ManagedImage{}, fmt.Errorf("whiteboard preview dimensions exceed the safety limit")
+	}
 	switch format {
 	case "png":
 		if mediaType != "image/png" {
@@ -416,6 +496,13 @@ func sniffManagedImage(content []byte) (ManagedImage, error) {
 	}, nil
 }
 
+func validManagedImageDimensions(width, height int) bool {
+	return width > 0 && height > 0 &&
+		width <= maxWhiteboardPreviewDimension &&
+		height <= maxWhiteboardPreviewDimension &&
+		int64(width)*int64(height) <= maxWhiteboardPreviewPixels
+}
+
 func publicMinutesLink(title, rawURL string) (MinutesLink, bool) {
 	safeURL, ok := sanitizePublicMinutesURL(rawURL)
 	if !ok {
@@ -431,6 +518,9 @@ func publicMinutesLink(title, rawURL string) (MinutesLink, bool) {
 func sanitizePublicMinutesURL(raw string) (string, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
+		return "", false
+	}
+	if err := validateSafeHTTPURL(raw); err != nil || containsUnsafeMinutesURLData(raw) {
 		return "", false
 	}
 	parsed, err := url.Parse(raw)
@@ -464,8 +554,27 @@ func sanitizePublicMinutesURL(raw string) (string, bool) {
 			return "", false
 		}
 	}
+	parsed.RawQuery = query.Encode()
 	parsed.Fragment = ""
+	parsed.RawFragment = ""
 	return parsed.String(), true
+}
+
+func containsUnsafeMinutesURLData(raw string) bool {
+	decoded := raw
+	for range imaMaxURLDecodePasses + 1 {
+		if feishuIdentityPattern.MatchString(decoded) ||
+			feishuURLHostPattern.MatchString(decoded) ||
+			nestedUnsafeSchemePattern.MatchString(decoded) {
+			return true
+		}
+		next, err := url.QueryUnescape(decoded)
+		if err != nil || next == decoded {
+			return false
+		}
+		decoded = next
+	}
+	return true
 }
 
 func validMinutesWhiteboard(meta MinutesWhiteboard) bool {
