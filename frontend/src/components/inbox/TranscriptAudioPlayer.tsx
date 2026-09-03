@@ -13,7 +13,7 @@ import {
   IconPlayerPlay,
   IconRefresh,
 } from "@tabler/icons-react";
-import type { TranscriptSegment } from "@/types/processing";
+import type { MinutesChapter, TranscriptSegment } from "@/types/processing";
 import styles from "./InboxPage.module.css";
 
 interface TranscriptAudioPlayerProps {
@@ -23,13 +23,13 @@ interface TranscriptAudioPlayerProps {
   playbackRate: TranscriptPlaybackRate;
   onPlaybackRateChange: (rate: TranscriptPlaybackRate) => void;
   initialSeekMs?: number | null;
+  chapters?: MinutesChapter[];
 }
 
 type MediaState = "loading" | "ready" | "waiting" | "error" | "unavailable";
 
 export const TRANSCRIPT_PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2] as const;
-export type TranscriptPlaybackRate =
-  (typeof TRANSCRIPT_PLAYBACK_RATES)[number];
+export type TranscriptPlaybackRate = (typeof TRANSCRIPT_PLAYBACK_RATES)[number];
 export const DEFAULT_TRANSCRIPT_PLAYBACK_RATE: TranscriptPlaybackRate = 1;
 
 const transcriptScrollKeys = new Set([
@@ -75,6 +75,10 @@ function formatPlaybackTime(seconds: number, unknown = false) {
   )}`;
 }
 
+function formatChapterTime(startMs: number) {
+  return formatPlaybackTime(Math.max(startMs, 0) / 1000);
+}
+
 function currentSegmentAt(
   segments: TranscriptSegment[],
   currentTimeSeconds: number,
@@ -99,7 +103,8 @@ function isOutsideViewport(container: HTMLElement, target: HTMLElement) {
   const containerRect = container.getBoundingClientRect();
   const targetRect = target.getBoundingClientRect();
   return (
-    targetRect.top < containerRect.top || targetRect.bottom > containerRect.bottom
+    targetRect.top < containerRect.top ||
+    targetRect.bottom > containerRect.bottom
   );
 }
 
@@ -110,10 +115,11 @@ export default function TranscriptAudioPlayer({
   playbackRate,
   onPlaybackRateChange,
   initialSeekMs,
+  chapters = [],
 }: TranscriptAudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const segmentRefs = useRef(new Map<number, HTMLButtonElement>());
+  const segmentRefs = useRef(new Map<number, HTMLElement>());
   const followEnabledRef = useRef(true);
   const programmaticScrollRef = useRef(false);
   const programmaticScrollFrame = useRef<number | null>(null);
@@ -174,16 +180,45 @@ export default function TranscriptAudioPlayer({
   );
 
   const seekTo = useCallback(
-    (seconds: number) => {
+    (seconds: number, play = false) => {
       const bounded =
-        duration > 0 ? Math.min(Math.max(seconds, 0), duration) : Math.max(seconds, 0);
+        duration > 0
+          ? Math.min(Math.max(seconds, 0), duration)
+          : Math.max(seconds, 0);
       const audio = audioRef.current;
       if (audio) {
         audio.currentTime = bounded;
       }
       updatePosition(bounded, true);
+      if (
+        play &&
+        audio &&
+        mediaAvailable &&
+        mediaState !== "error" &&
+        mediaState !== "unavailable" &&
+        typeof audio.play === "function"
+      ) {
+        void audio.play().catch(() => {
+          setIsPlaying(false);
+          setMediaState("error");
+        });
+      }
     },
-    [duration, updatePosition],
+    [duration, mediaAvailable, mediaState, updatePosition],
+  );
+
+  const visibleChapters = chapters.filter(
+    (chapter) => chapter.title.trim() || chapter.summary?.trim(),
+  );
+
+  const handleChapterSelect = useCallback(
+    (startMs: number) => {
+      seekTo(
+        Math.max(startMs, 0) / 1000,
+        mediaAvailable && mediaState !== "error",
+      );
+    },
+    [mediaAvailable, mediaState, seekTo],
   );
 
   useEffect(() => {
@@ -197,7 +232,13 @@ export default function TranscriptAudioPlayer({
     setCurrentTime(initialSeconds);
     setCurrentSegmentIndex(currentSegmentAt(segments, initialSeconds));
     setFollowEnabled(true);
-  }, [artifactSetId, initialSeekMs, mediaAvailable, segments, setFollowEnabled]);
+  }, [
+    artifactSetId,
+    initialSeekMs,
+    mediaAvailable,
+    segments,
+    setFollowEnabled,
+  ]);
 
   useEffect(() => {
     if (typeof initialSeekMs !== "number" || !Number.isFinite(initialSeekMs)) {
@@ -223,7 +264,8 @@ export default function TranscriptAudioPlayer({
 
   const handlePlayPause = useCallback(async () => {
     const audio = audioRef.current;
-    if (!audio || mediaState === "error" || mediaState === "unavailable") return;
+    if (!audio || mediaState === "error" || mediaState === "unavailable")
+      return;
     if (!audio.paused) {
       audio.pause();
       return;
@@ -374,7 +416,9 @@ export default function TranscriptAudioPlayer({
             max={duration > 0 ? duration : 0}
             step="0.1"
             value={duration > 0 ? Math.min(currentTime, duration) : 0}
-            disabled={!mediaAvailable || duration <= 0 || mediaState === "error"}
+            disabled={
+              !mediaAvailable || duration <= 0 || mediaState === "error"
+            }
             aria-label="音频进度"
             aria-valuetext={`${formatPlaybackTime(
               currentTime,
@@ -432,6 +476,33 @@ export default function TranscriptAudioPlayer({
           </span>
         )}
       </div>
+
+      {visibleChapters.length > 0 && (
+        <details className={styles.transcriptChapters}>
+          <summary>智能章节 · {visibleChapters.length}</summary>
+          <ol className={styles.minutesChapterList}>
+            {visibleChapters.map((chapter) => (
+              <li key={`${chapter.order}-${chapter.start_ms}`}>
+                <button
+                  type="button"
+                  className={styles.minutesChapter}
+                  onClick={() => handleChapterSelect(chapter.start_ms)}
+                >
+                  <span className={styles.minutesChapterTime}>
+                    {formatChapterTime(chapter.start_ms)}
+                  </span>
+                  <span className={styles.minutesChapterBody}>
+                    <strong>{chapter.title || "未命名章节"}</strong>
+                    {chapter.summary?.trim() ? (
+                      <span>{chapter.summary}</span>
+                    ) : null}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
 
       <div
         ref={transcriptRef}
@@ -494,6 +565,13 @@ export default function TranscriptAudioPlayer({
                   </button>
                 ) : (
                   <article
+                    ref={(node) => {
+                      if (node) {
+                        segmentRefs.current.set(segment.order, node);
+                      } else {
+                        segmentRefs.current.delete(segment.order);
+                      }
+                    }}
                     className={styles.transcriptSegment}
                     aria-current={isCurrent ? "true" : undefined}
                   >

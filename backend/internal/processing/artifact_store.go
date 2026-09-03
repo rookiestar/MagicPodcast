@@ -505,7 +505,26 @@ func (s *DiskArtifactStore) ReadText(
 	}
 	result.Segments = timeline.Segments
 	result.TimelineSHA256 = artifact.TranscriptTimelineSHA256
+	if err := attachTranscriptChapters(&result, root, manifest); err != nil {
+		return ArtifactContent{}, err
+	}
 	return result, nil
+}
+
+func attachTranscriptChapters(
+	result *ArtifactContent,
+	root string,
+	manifest artifactManifest,
+) error {
+	if result == nil {
+		return fmt.Errorf("%w: transcript enrichment target is missing", ErrInvalidArtifact)
+	}
+	enrichment, err := readPublishedMinutesEnrichment(root, manifest)
+	if err != nil {
+		return err
+	}
+	result.Chapters = enrichment.Public().Chapters
+	return nil
 }
 
 func attachMinutesEnrichment(
@@ -516,25 +535,40 @@ func attachMinutesEnrichment(
 	if result == nil {
 		return fmt.Errorf("%w: minutes enrichment target is missing", ErrInvalidArtifact)
 	}
-	if hash := manifestFileHash(manifest, minutesEnrichmentFileName); hash != "" {
-		if !sha256Pattern.MatchString(hash) {
-			return fmt.Errorf("%w: minutes enrichment digest is invalid", ErrInvalidArtifact)
-		}
-		raw, err := readRegularFile(filepath.Join(root, minutesEnrichmentFileName), maxArtifactTextBytes)
-		if err != nil || digestBytes(raw) != hash {
-			return fmt.Errorf("%w: minutes enrichment failed integrity validation", ErrInvalidArtifact)
-		}
-		enrichment, decodeErr := decodeMinutesEnrichment(raw)
-		if decodeErr != nil {
-			return fmt.Errorf("%w: minutes enrichment is invalid", ErrInvalidArtifact)
-		}
-		applyMinutesEnrichment(result, enrichment)
-		return nil
+	enrichment, err := readPublishedMinutesEnrichment(root, manifest)
+	if err != nil {
+		return err
 	}
-	if restored, ok := restoreChaptersFromRawDetail(root, manifest); ok {
-		applyMinutesEnrichment(result, restored)
-	}
+	applyMinutesEnrichment(result, enrichment)
 	return nil
+}
+
+func readPublishedMinutesEnrichment(
+	root string,
+	manifest artifactManifest,
+) (MinutesEnrichment, error) {
+	hash := manifestFileHash(manifest, minutesEnrichmentFileName)
+	if hash == "" {
+		if restored, ok := restoreChaptersFromRawDetail(root, manifest); ok {
+			return restored, nil
+		}
+		return MinutesEnrichment{}, nil
+	}
+	if !sha256Pattern.MatchString(hash) {
+		return MinutesEnrichment{}, fmt.Errorf("%w: minutes enrichment digest is invalid", ErrInvalidArtifact)
+	}
+	raw, err := readRegularFile(
+		filepath.Join(root, minutesEnrichmentFileName),
+		maxArtifactTextBytes,
+	)
+	if err != nil || digestBytes(raw) != hash {
+		return MinutesEnrichment{}, fmt.Errorf("%w: minutes enrichment failed integrity validation", ErrInvalidArtifact)
+	}
+	enrichment, err := decodeMinutesEnrichment(raw)
+	if err != nil {
+		return MinutesEnrichment{}, fmt.Errorf("%w: minutes enrichment is invalid", ErrInvalidArtifact)
+	}
+	return enrichment, nil
 }
 
 func applyMinutesEnrichment(result *ArtifactContent, enrichment MinutesEnrichment) {

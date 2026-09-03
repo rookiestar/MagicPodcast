@@ -31,6 +31,30 @@ func TestParseMinutesChaptersAndKeywordsPreserveOrder(t *testing.T) {
 	require.Equal(t, []string{"产品", "AI"}, keywords)
 }
 
+func TestParseMinutesMetadataRejectsNonEmptyFormatDrift(t *testing.T) {
+	_, err := parseMinutesChaptersStrict(json.RawMessage(`{"items":[]}`))
+	require.Error(t, err)
+	_, err = parseMinutesChaptersStrict(json.RawMessage(`[{"unknown":"value"}]`))
+	require.Error(t, err)
+	_, err = parseMinutesChaptersStrict(json.RawMessage(`[{"title":"章节","start_time":{"bad":true}}]`))
+	require.Error(t, err)
+
+	_, err = parseMinutesKeywordsStrict(json.RawMessage(`{"items":[]}`))
+	require.Error(t, err)
+	_, err = parseMinutesKeywordsStrict(json.RawMessage(`[{"unknown":"value"}]`))
+	require.Error(t, err)
+}
+
+func TestPublicMinutesLinkReplacesSensitiveTitle(t *testing.T) {
+	link, ok := publicMinutesLink(
+		"minute_token=obcn_secret_123",
+		"https://example.com/guide",
+	)
+	require.True(t, ok)
+	require.Equal(t, "https://example.com/guide", link.Title)
+	require.NotContains(t, link.Title, "obcn_secret_123")
+}
+
 func TestParseNoteSectionsExtractsKnownBlocksAndIgnoresUnknown(t *testing.T) {
 	document := `
 <title>智能纪要</title>

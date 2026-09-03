@@ -10,11 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  IconDownload,
-  IconPlayerStop,
-  IconRefresh,
-} from "@tabler/icons-react";
+import { IconDownload, IconPlayerStop, IconRefresh } from "@tabler/icons-react";
 import MarkdownViewer from "@/components/workflows/MarkdownViewer";
 import { getProcessingErrorDetails, processingApi } from "@/lib/api/processing";
 import type { ConsumptionItem } from "@/types/consumption";
@@ -74,9 +70,20 @@ const statusLabels: Record<ProcessingRun["status"], string> = {
 const stepLabels: Record<string, string> = {
   audio_prepare: "准备与校验音频",
   transcription: "飞书妙记转写",
+  minutes_enrichment: "等待飞书智能纪要",
   episode_notes: "Codex 生成单集纪要",
   artifact_publish: "发布本地产物",
 };
+
+const minutesResyncErrorCodes = new Set([
+  "minutes_enrichment_timeout",
+  "minutes_template_unrecognized",
+  "minutes_section_unparsed",
+  "minutes_whiteboard_unavailable",
+  "minutes_note_unreadable",
+  "minutes_enrichment_snapshot_write_failed",
+  "stored_enrichment_unavailable",
+]);
 
 const deliveryStatusLabels: Record<KnowledgeDelivery["status"], string> = {
   pending: "包已生成 / 待人工导入",
@@ -206,7 +213,7 @@ const EpisodeProcessingPanel = forwardRef<
     useState<ArtifactTab>("summary");
   const [transcriptPlaybackRate, setTranscriptPlaybackRate] =
     useState<TranscriptPlaybackRate>(DEFAULT_TRANSCRIPT_PLAYBACK_RATE);
-  const [chapterSeekMs, setChapterSeekMs] = useState<number | null>(null);
+
   const [audioAsset, setAudioAsset] = useState<EpisodeAudioAsset | null>(null);
   const [isReadingArtifact, setIsReadingArtifact] = useState(false);
   const [scheduleStatus, setScheduleStatus] =
@@ -318,7 +325,6 @@ const EpisodeProcessingPanel = forwardRef<
     setArtifactContents(emptyArtifactContents);
     setActiveArtifactTab("summary");
     setTranscriptPlaybackRate(DEFAULT_TRANSCRIPT_PLAYBACK_RATE);
-    setChapterSeekMs(null);
     artifactReadSequence.current += 1;
     setIsLoading(true);
     setError(null);
@@ -695,6 +701,11 @@ const EpisodeProcessingPanel = forwardRef<
     transcriptAvailable,
   ]);
 
+  const isMinutesResyncFailure = Boolean(
+    run?.status === "failed" &&
+    minutesResyncErrorCodes.has(run.error_code ?? ""),
+  );
+
   const retryProcessing = useCallback(async () => {
     if (isMutating || !run) return;
     setIsMutating(true);
@@ -730,11 +741,13 @@ const EpisodeProcessingPanel = forwardRef<
       return {
         kind: "active",
         label:
-          run?.status === "waiting_external"
-            ? "等待妙记"
-            : audioPreparing
-              ? "准备音频"
-              : "转写中",
+          run?.current_step === "minutes_enrichment"
+            ? "等待智能纪要"
+            : run?.status === "waiting_external"
+              ? "等待妙记"
+              : audioPreparing
+                ? "准备音频"
+                : "转写中",
         detail: "转写在后台继续，当前正文不受影响",
         primaryLabel: "转写中",
         primaryDisabled: true,
@@ -745,7 +758,12 @@ const EpisodeProcessingPanel = forwardRef<
     if (run?.status === "failed" || run?.status === "cancelled") {
       return {
         kind: "failed",
-        label: run.status === "cancelled" ? "已取消" : "转写失败",
+        label:
+          run.status === "cancelled"
+            ? "已取消"
+            : isMinutesResyncFailure
+              ? "智能纪要同步失败"
+              : "转写失败",
         detail:
           detail?.action_suggestion ||
           run.error_message ||
@@ -753,7 +771,9 @@ const EpisodeProcessingPanel = forwardRef<
         primaryLabel: canReprocessLegacy
           ? "重新转写"
           : canRetry
-            ? "重试转写"
+            ? minutesResyncErrorCodes.has(run.error_code ?? "")
+              ? "重新同步"
+              : "重试转写"
             : "查看详情",
         primaryDisabled: isMutating,
         action: canReprocessLegacy
@@ -798,6 +818,7 @@ const EpisodeProcessingPanel = forwardRef<
     isLoading,
     isMutating,
     item.queue_state,
+    isMinutesResyncFailure,
     run,
     showTranscriptTab,
   ]);
@@ -853,52 +874,62 @@ const EpisodeProcessingPanel = forwardRef<
             : "idle";
   const processingStateTitle = isMutating
     ? run?.status === "failed" || run?.status === "cancelled"
-      ? "正在重试转写"
+      ? isMinutesResyncFailure
+        ? "正在重新同步智能纪要"
+        : "正在重试转写"
       : "正在发起转写"
     : isLoading
       ? "正在读取转写内容"
       : error && !run && !audioAsset
         ? "转写信息暂时不可用"
-        : run?.status === "waiting_external"
-          ? "飞书妙记转写中"
-          : audioPreparing
-            ? "正在准备音频"
-            : isActive(run)
-              ? "转写进行中"
-              : run?.status === "failed"
-                ? "转写失败"
-                : run?.status === "cancelled"
-                  ? "转写已取消"
-                  : run?.status === "completed"
-                    ? "转写已完成"
-                    : audioAsset?.status === "failed"
-                      ? "音频准备失败"
-                      : audioAsset?.status === "ready"
-                        ? "音频已就绪"
-                        : "暂无转写记录";
+        : run?.current_step === "minutes_enrichment"
+          ? "等待飞书智能纪要"
+          : run?.status === "waiting_external"
+            ? "飞书妙记转写中"
+            : audioPreparing
+              ? "正在准备音频"
+              : isActive(run)
+                ? "转写进行中"
+                : run?.status === "failed"
+                  ? isMinutesResyncFailure
+                    ? "智能纪要同步失败"
+                    : "转写失败"
+                  : run?.status === "cancelled"
+                    ? "转写已取消"
+                    : run?.status === "completed"
+                      ? "转写已完成"
+                      : audioAsset?.status === "failed"
+                        ? "音频准备失败"
+                        : audioAsset?.status === "ready"
+                          ? "音频已就绪"
+                          : "暂无转写记录";
   const processingStateDescription = isMutating
-    ? "正在创建飞书妙记任务…"
+    ? isMinutesResyncFailure
+      ? "正在续取同一条妙记，不会重新上传音频或创建妙记。"
+      : "正在创建飞书妙记任务…"
     : isLoading
       ? "正在同步最近一次运行。"
       : error && !run && !audioAsset
         ? "请重试读取，Show Notes 与笔记不受影响。"
-        : run?.status === "waiting_external"
-          ? "飞书妙记正在生成纪要与逐字稿。"
-          : audioPreparing
-            ? "音频就绪后会自动提交飞书妙记。"
-            : isActive(run)
-              ? "任务在后台继续，可随时返回查看。"
-              : run?.status === "failed" || run?.status === "cancelled"
-                ? detail?.action_suggestion ||
-                  run.error_message ||
-                  "可从页面顶部重新发起。"
-                : run?.status === "completed"
-                  ? "暂未发现可阅读的转写产物。"
-                  : audioAsset?.status === "failed"
-                    ? audioAsset.error_message || "请检查音频来源后重试。"
-                    : audioAsset?.status === "ready"
-                      ? "正在等待创建转写任务。"
-                      : "开始转写后，纪要与逐字稿会显示在这里。";
+        : run?.current_step === "minutes_enrichment"
+          ? "核心转写已就绪，正在只读等待飞书智能纪要完整。"
+          : run?.status === "waiting_external"
+            ? "飞书妙记正在生成纪要与逐字稿。"
+            : audioPreparing
+              ? "音频就绪后会自动提交飞书妙记。"
+              : isActive(run)
+                ? "任务在后台继续，可随时返回查看。"
+                : run?.status === "failed" || run?.status === "cancelled"
+                  ? detail?.action_suggestion ||
+                    run.error_message ||
+                    "可从页面顶部重新发起。"
+                  : run?.status === "completed"
+                    ? "暂未发现可阅读的转写产物。"
+                    : audioAsset?.status === "failed"
+                      ? audioAsset.error_message || "请检查音频来源后重试。"
+                      : audioAsset?.status === "ready"
+                        ? "正在等待创建转写任务。"
+                        : "开始转写后，纪要与逐字稿会显示在这里。";
 
   const artifactPanelContent = (
     <>
@@ -964,7 +995,7 @@ const EpisodeProcessingPanel = forwardRef<
             selectedArtifactContent.content.kind === "transcript" &&
             selectedArtifactContent.content.segments?.length
               ? styles.processingTranscriptDocument
-              : ""
+              : styles.processingMinutesDocument
           }`}
           data-copilot-source={
             selectedArtifactContent.content.kind === "transcript"
@@ -1037,9 +1068,17 @@ const EpisodeProcessingPanel = forwardRef<
                       onClick={() => void requestAudioRecovery()}
                     >
                       {transcriptRecovery.status === "failed" ? (
-                        <IconRefresh size={17} stroke={1.8} aria-hidden="true" />
+                        <IconRefresh
+                          size={17}
+                          stroke={1.8}
+                          aria-hidden="true"
+                        />
                       ) : (
-                        <IconDownload size={17} stroke={1.8} aria-hidden="true" />
+                        <IconDownload
+                          size={17}
+                          stroke={1.8}
+                          aria-hidden="true"
+                        />
                       )}
                       {isRecoveringAudio
                         ? "正在提交…"
@@ -1062,22 +1101,17 @@ const EpisodeProcessingPanel = forwardRef<
               mediaAvailable={selectedArtifactContent.content.media_available}
               playbackRate={transcriptPlaybackRate}
               onPlaybackRateChange={setTranscriptPlaybackRate}
-              initialSeekMs={chapterSeekMs}
+              chapters={selectedArtifactContent.content.chapters}
             />
           ) : selectedArtifactContent.content.kind === "minutes_summary" ? (
             <MinutesSummaryView
               artifactSetId={selectedArtifactContent.artifactSetId}
               content={selectedArtifactContent.content.content}
-              chapters={selectedArtifactContent.content.chapters}
               keywords={selectedArtifactContent.content.keywords}
               decisions={selectedArtifactContent.content.decisions}
               quotes={selectedArtifactContent.content.quotes}
               links={selectedArtifactContent.content.links}
               whiteboard={selectedArtifactContent.content.whiteboard}
-              onChapterSelect={(startMs) => {
-                setChapterSeekMs(startMs);
-                setActiveArtifactTab("transcript");
-              }}
             />
           ) : (
             <MarkdownViewer content={selectedArtifactContent.content.content} />
@@ -1116,7 +1150,11 @@ const EpisodeProcessingPanel = forwardRef<
           <span className={styles.processingStateDot} aria-hidden="true" />
           <span>
             <strong>{processingStateTitle}</strong>
-            <small>当前仍可阅读上一成功版本。</small>
+            <small>
+              {run.current_step === "minutes_enrichment"
+                ? "正在等待飞书智能纪要完整后发布，当前仍可阅读上一成功版本。"
+                : "当前仍可阅读上一成功版本。"}
+            </small>
           </span>
           <button
             type="button"
@@ -1129,6 +1167,40 @@ const EpisodeProcessingPanel = forwardRef<
           </button>
         </div>
       )}
+
+      {currentArtifact &&
+        (run?.status === "failed" || run?.status === "cancelled") && (
+          <div className={styles.processingRunNotice} role="status">
+            <span className={styles.processingStateDot} aria-hidden="true" />
+            <span>
+              <strong>
+                {isMutating && isMinutesResyncFailure
+                  ? "正在重新同步智能纪要"
+                  : run.status === "cancelled"
+                    ? "转写已取消"
+                    : isMinutesResyncFailure
+                      ? "智能纪要同步失败"
+                      : "转写失败"}
+              </strong>
+              <small>
+                {isMutating && isMinutesResyncFailure
+                  ? "正在续取同一条妙记，不会重新上传音频或创建妙记。"
+                  : detail?.action_suggestion || "上一成功版本仍可阅读。"}
+              </small>
+            </span>
+            {canRetry && minutesResyncErrorCodes.has(run.error_code ?? "") && (
+              <button
+                type="button"
+                className={styles.secondaryCommand}
+                disabled={isMutating}
+                onClick={() => void retryProcessing()}
+              >
+                <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
+                {isMutating ? "正在同步…" : "重新同步"}
+              </button>
+            )}
+          </div>
+        )}
 
       {!currentArtifact && (
         <div

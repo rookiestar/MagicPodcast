@@ -190,57 +190,100 @@ func decodeMinutesEnrichment(raw []byte) (MinutesEnrichment, error) {
 }
 
 func parseMinutesChapters(raw json.RawMessage) []MinutesChapter {
+	chapters, _ := parseMinutesChaptersStrict(raw)
+	return chapters
+}
+
+func parseMinutesChaptersStrict(raw json.RawMessage) ([]MinutesChapter, error) {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
-		return nil
+		return nil, nil
 	}
-	var objects []map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &objects); err != nil {
-		return nil
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, fmt.Errorf("chapters must be an array: %w", err)
 	}
-	chapters := make([]MinutesChapter, 0, len(objects))
-	for _, object := range objects {
-		title := firstJSONString(object, "title", "topic", "name", "heading")
-		summary := firstJSONString(object, "summary", "abstract", "description", "content")
-		startMS, startOK := firstJSONMilliseconds(object, "start_ms", "start_time", "startTime", "start")
+	chapters := make([]MinutesChapter, 0, len(items))
+	for index, item := range items {
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(item, &object); err != nil || object == nil {
+			return nil, fmt.Errorf("chapter %d must be an object", index+1)
+		}
+		title, titlePresent, err := firstJSONStringStrict(object, "title", "topic", "name", "heading")
+		if err != nil {
+			return nil, fmt.Errorf("chapter %d title is invalid: %w", index+1, err)
+		}
+		summary, summaryPresent, err := firstJSONStringStrict(object, "summary", "abstract", "description", "content")
+		if err != nil {
+			return nil, fmt.Errorf("chapter %d summary is invalid: %w", index+1, err)
+		}
+		startMS, startPresent, startOK := firstJSONMillisecondsStrict(
+			object,
+			"start_ms", "start_time", "startTime", "start",
+		)
+		if startPresent && (!startOK || startMS < 0) {
+			return nil, fmt.Errorf("chapter %d start time is invalid", index+1)
+		}
 		if strings.TrimSpace(title) == "" && strings.TrimSpace(summary) == "" && !startOK {
-			continue
+			if titlePresent || summaryPresent {
+				continue
+			}
+			return nil, fmt.Errorf("chapter %d has no recognized content", index+1)
 		}
 		chapter := MinutesChapter{
 			StartMS: startMS,
 			Title:   strings.TrimSpace(title),
 			Summary: strings.TrimSpace(summary),
 		}
-		if endMS, ok := firstJSONMilliseconds(object, "end_ms", "end_time", "endTime", "end"); ok && endMS >= chapter.StartMS {
+		if endMS, endPresent, endOK := firstJSONMillisecondsStrict(
+			object,
+			"end_ms", "end_time", "endTime", "end",
+		); endPresent {
+			if !endOK || endMS < chapter.StartMS {
+				return nil, fmt.Errorf("chapter %d end time is invalid", index+1)
+			}
 			chapter.EndMS = endMS
 		}
 		chapters = append(chapters, chapter)
 	}
-	return normalizeMinutesChapters(chapters)
+	return normalizeMinutesChapters(chapters), nil
 }
 
 func parseMinutesKeywords(raw json.RawMessage) []string {
+	keywords, _ := parseMinutesKeywordsStrict(raw)
+	return keywords
+}
+
+func parseMinutesKeywordsStrict(raw json.RawMessage) ([]string, error) {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
-		return nil
+		return nil, nil
 	}
 	var items []json.RawMessage
 	if err := json.Unmarshal(raw, &items); err != nil {
-		return nil
+		return nil, fmt.Errorf("keywords must be an array: %w", err)
 	}
 	keywords := make([]string, 0, len(items))
-	for _, item := range items {
+	for index, item := range items {
 		var asString string
 		if err := json.Unmarshal(item, &asString); err == nil {
 			keywords = append(keywords, asString)
 			continue
 		}
 		var object map[string]json.RawMessage
-		if err := json.Unmarshal(item, &object); err == nil {
-			keywords = append(keywords, firstJSONString(object, "keyword", "name", "text", "title", "value"))
+		if err := json.Unmarshal(item, &object); err != nil || object == nil {
+			return nil, fmt.Errorf("keyword %d must be text or an object", index+1)
 		}
+		value, present, err := firstJSONStringStrict(
+			object,
+			"keyword", "name", "text", "title", "value",
+		)
+		if err != nil || !present {
+			return nil, fmt.Errorf("keyword %d has invalid content", index+1)
+		}
+		keywords = append(keywords, value)
 	}
-	return uniqueNonEmptyStrings(keywords)
+	return uniqueNonEmptyStrings(keywords), nil
 }
 
 func parseNoteSections(document string) (decisions []string, quotes []MinutesQuote, links []MinutesLink, whiteboardToken string) {
@@ -509,10 +552,23 @@ func publicMinutesLink(title, rawURL string) (MinutesLink, bool) {
 		return MinutesLink{}, false
 	}
 	title = strings.TrimSpace(title)
-	if title == "" {
+	if title == "" || containsSensitiveMinutesText(title) {
 		title = safeURL
 	}
 	return MinutesLink{Title: title, URL: safeURL}, true
+}
+
+func containsSensitiveMinutesText(value string) bool {
+	if containsUnsafeMinutesURLData(value) {
+		return true
+	}
+	lower := strings.ToLower(value)
+	for _, key := range minutesLinkSecretKeys {
+		if strings.Contains(lower, key) {
+			return true
+		}
+	}
+	return false
 }
 
 func sanitizePublicMinutesURL(raw string) (string, bool) {
@@ -697,6 +753,27 @@ func firstJSONString(object map[string]json.RawMessage, keys ...string) string {
 	return ""
 }
 
+func firstJSONStringStrict(
+	object map[string]json.RawMessage,
+	keys ...string,
+) (string, bool, error) {
+	for _, key := range keys {
+		raw, ok := object[key]
+		if !ok {
+			continue
+		}
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return "", true, nil
+		}
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return "", true, err
+		}
+		return strings.TrimSpace(value), true, nil
+	}
+	return "", false, nil
+}
+
 func firstJSONMilliseconds(object map[string]json.RawMessage, keys ...string) (int64, bool) {
 	for _, key := range keys {
 		raw, ok := object[key]
@@ -708,6 +785,21 @@ func firstJSONMilliseconds(object map[string]json.RawMessage, keys ...string) (i
 		}
 	}
 	return 0, false
+}
+
+func firstJSONMillisecondsStrict(
+	object map[string]json.RawMessage,
+	keys ...string,
+) (int64, bool, bool) {
+	for _, key := range keys {
+		raw, ok := object[key]
+		if !ok {
+			continue
+		}
+		milliseconds, valid := jsonTimeToMilliseconds(raw)
+		return milliseconds, true, valid
+	}
+	return 0, false, false
 }
 
 func jsonTimeToMilliseconds(raw json.RawMessage) (int64, bool) {

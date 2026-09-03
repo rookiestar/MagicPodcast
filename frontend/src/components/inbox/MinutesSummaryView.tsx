@@ -7,56 +7,41 @@ import {
   RICH_TEXT_IMAGE_WIDTH,
 } from "@/lib/imageOptimization";
 import type {
-  MinutesChapter,
   MinutesLink,
   MinutesQuote,
   MinutesWhiteboard,
 } from "@/types/processing";
 import styles from "./InboxPage.module.css";
 
-const COLLAPSED_CHAPTER_COUNT = 6;
-
 interface MinutesSummaryViewProps {
   artifactSetId: number;
   content: string;
-  chapters?: MinutesChapter[];
   keywords?: string[];
   decisions?: string[];
   quotes?: MinutesQuote[];
   links?: MinutesLink[];
   whiteboard?: MinutesWhiteboard;
-  onChapterSelect?: (startMs: number) => void;
 }
 
 export default function MinutesSummaryView({
   artifactSetId,
   content,
-  chapters = [],
   keywords = [],
   decisions = [],
   quotes = [],
   links = [],
   whiteboard,
-  onChapterSelect,
 }: MinutesSummaryViewProps) {
-  const visibleChapters = chapters.filter(
-    (chapter) => chapter.title.trim() || chapter.summary?.trim(),
-  );
   const visibleKeywords = keywords.map((item) => item.trim()).filter(Boolean);
   const visibleDecisions = decisions.map((item) => item.trim()).filter(Boolean);
   const visibleQuotes = quotes.filter((item) => item.quote.trim());
   const visibleLinks = links.filter((item) => isSafeMinutesLink(item.url));
-  const [chaptersExpanded, setChaptersExpanded] = useState(false);
   const [whiteboardOpen, setWhiteboardOpen] = useState(false);
   const previewButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const lightboxWasOpen = useRef(false);
   const titleId = useId();
-  const collapsed =
-    !chaptersExpanded && visibleChapters.length > COLLAPSED_CHAPTER_COUNT;
-  const shownChapters = collapsed
-    ? visibleChapters.slice(0, COLLAPSED_CHAPTER_COUNT)
-    : visibleChapters;
+  const summaryContent = stripRedundantSummaryHeading(content);
 
   useEffect(() => {
     if (whiteboardOpen) {
@@ -93,87 +78,81 @@ export default function MinutesSummaryView({
   const whiteboardPreviewSrc = whiteboard
     ? getOptimizedImageUrl(whiteboardSrc, RICH_TEXT_IMAGE_WIDTH)
     : "";
-  const whiteboardLightboxSrc = whiteboard
-    ? getOptimizedImageUrl(whiteboardSrc, 1920)
-    : "";
 
   return (
     <div className={styles.minutesSummary}>
-      <p className={styles.minutesAiNotice} role="note">
-        内容由飞书 AI 生成，可能不准确。
-      </p>
-      {whiteboard && (
-        <figure className={styles.minutesWhiteboard}>
-          <button
-            ref={previewButtonRef}
-            type="button"
-            className={styles.minutesWhiteboardButton}
-            onClick={() => setWhiteboardOpen(true)}
-            aria-haspopup="dialog"
-            aria-expanded={whiteboardOpen}
-          >
-            {/* Managed local artifact media; not a remote Next image. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={whiteboardPreviewSrc}
-              alt={whiteboard.alt || "飞书智能纪要画板"}
-              width={whiteboard.width || undefined}
-              height={whiteboard.height || undefined}
-            />
-            <span>放大查看画板</span>
-          </button>
-        </figure>
-      )}
-      <MarkdownViewer content={content} />
-      {shownChapters.length > 0 && (
-        <section className={styles.minutesSection} aria-labelledby={`${titleId}-chapters`}>
-          <h3 id={`${titleId}-chapters`}>智能章节</h3>
-          <ol className={styles.minutesChapterList}>
-            {shownChapters.map((chapter) => (
-              <li key={`${chapter.order}-${chapter.start_ms}`}>
-                <button
-                  type="button"
-                  className={styles.minutesChapter}
-                  onClick={() => onChapterSelect?.(chapter.start_ms)}
-                >
-                  <span className={styles.minutesChapterTime}>
-                    {formatChapterTime(chapter.start_ms)}
-                  </span>
-                  <span className={styles.minutesChapterBody}>
-                    <strong>{chapter.title || "未命名章节"}</strong>
-                    {chapter.summary?.trim() ? <span>{chapter.summary}</span> : null}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ol>
-          {visibleChapters.length > COLLAPSED_CHAPTER_COUNT && (
+      <header className={styles.minutesMasthead}>
+        <p className={styles.minutesAiNotice} role="note">
+          飞书妙记 · 内容由 AI 生成，可能不准确
+        </p>
+        {visibleKeywords.length > 0 && (
+          <div className={styles.minutesKeywords}>
+            <span aria-hidden="true">关键词</span>
+            <ul className={styles.minutesKeywordList} aria-label="关键词">
+              {visibleKeywords.map((keyword) => (
+                <li key={keyword}>{keyword}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </header>
+      <section
+        className={styles.minutesSection}
+        aria-labelledby={`${titleId}-summary`}
+      >
+        <h2 id={`${titleId}-summary`} className={styles.minutesSummaryTitle}>
+          总结
+        </h2>
+        {whiteboard && (
+          <figure className={styles.minutesWhiteboard}>
             <button
+              ref={previewButtonRef}
               type="button"
-              className={styles.minutesExpand}
-              aria-expanded={chaptersExpanded}
-              onClick={() => setChaptersExpanded((current) => !current)}
+              className={styles.minutesWhiteboardButton}
+              onClick={() => setWhiteboardOpen(true)}
+              aria-haspopup="dialog"
+              aria-expanded={whiteboardOpen}
             >
-              {chaptersExpanded
-                ? "收起章节"
-                : `展开全部 ${visibleChapters.length} 个章节`}
+              {/* Managed local artifact media; not a remote Next image. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={whiteboardPreviewSrc}
+                alt={whiteboard.alt || "飞书智能纪要画板"}
+                width={whiteboard.width || undefined}
+                height={whiteboard.height || undefined}
+              />
+              <span>放大查看画板</span>
             </button>
-          )}
-        </section>
-      )}
+          </figure>
+        )}
+        <MarkdownViewer content={summaryContent} />
+      </section>
       {visibleDecisions.length > 0 && (
-        <section className={styles.minutesSection} aria-labelledby={`${titleId}-decisions`}>
-          <h3 id={`${titleId}-decisions`}>关键决策</h3>
-          <ul className={styles.minutesDecisionList}>
+        <section
+          className={styles.minutesSection}
+          aria-labelledby={`${titleId}-decisions`}
+        >
+          <h2
+            id={`${titleId}-decisions`}
+            className={styles.minutesSummaryTitle}
+          >
+            关键决策
+          </h2>
+          <ol className={styles.minutesDecisionList}>
             {visibleDecisions.map((decision) => (
               <li key={decision}>{decision}</li>
             ))}
-          </ul>
+          </ol>
         </section>
       )}
       {visibleQuotes.length > 0 && (
-        <section className={styles.minutesSection} aria-labelledby={`${titleId}-quotes`}>
-          <h3 id={`${titleId}-quotes`}>金句时刻</h3>
+        <section
+          className={styles.minutesSection}
+          aria-labelledby={`${titleId}-quotes`}
+        >
+          <h2 id={`${titleId}-quotes`} className={styles.minutesSummaryTitle}>
+            金句时刻
+          </h2>
           <ul className={styles.minutesQuoteList}>
             {visibleQuotes.map((item) => (
               <li key={item.quote}>
@@ -181,36 +160,33 @@ export default function MinutesSummaryView({
                   <p>{item.quote}</p>
                 </blockquote>
                 {item.explanation?.trim() ? (
-                  <p className={styles.minutesQuoteExplanation}>{item.explanation}</p>
+                  <p className={styles.minutesQuoteExplanation}>
+                    {item.explanation}
+                  </p>
                 ) : null}
               </li>
             ))}
           </ul>
         </section>
       )}
-      {visibleKeywords.length > 0 && (
-        <section className={styles.minutesSection} aria-labelledby={`${titleId}-keywords`}>
-          <h3 id={`${titleId}-keywords`}>关键词</h3>
-          <ul className={styles.minutesKeywordList} aria-label="关键词">
-            {visibleKeywords.map((keyword) => (
-              <li key={keyword}>{keyword}</li>
-            ))}
-          </ul>
-        </section>
-      )}
       {visibleLinks.length > 0 && (
-        <section className={styles.minutesSection} aria-labelledby={`${titleId}-links`}>
-          <h3 id={`${titleId}-links`}>相关链接</h3>
+        <footer
+          className={styles.minutesSection}
+          aria-labelledby={`${titleId}-links`}
+        >
+          <h2 id={`${titleId}-links`} className={styles.minutesSummaryTitle}>
+            相关链接
+          </h2>
           <ul className={styles.minutesLinkList}>
             {visibleLinks.map((link) => (
               <li key={link.url}>
                 <a href={link.url} rel="noreferrer noopener" target="_blank">
-                  {link.title.trim() || link.url}
+                  {safeMinutesLinkTitle(link.title, link.url)}
                 </a>
               </li>
             ))}
           </ul>
-        </section>
+        </footer>
       )}
       {whiteboardOpen && whiteboard && (
         <div
@@ -220,11 +196,13 @@ export default function MinutesSummaryView({
           aria-label="画板预览"
         >
           <div className={styles.minutesLightboxCard}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={whiteboardLightboxSrc}
-              alt={whiteboard.alt || "飞书智能纪要画板"}
-            />
+            <div className={styles.minutesLightboxScroll}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={whiteboardSrc}
+                alt={whiteboard.alt || "飞书智能纪要画板"}
+              />
+            </div>
             <button
               ref={closeButtonRef}
               type="button"
@@ -240,15 +218,11 @@ export default function MinutesSummaryView({
   );
 }
 
-export function formatChapterTime(startMs: number) {
-  const totalSeconds = Math.max(0, Math.floor(startMs / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  }
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+export function stripRedundantSummaryHeading(content: string) {
+  return content.replace(
+    /^\s*#\s*(纪要|总结|飞书智能纪要|妙记原生纪要)\s*\n+/,
+    "",
+  );
 }
 
 export function isSafeMinutesLink(raw: string) {
@@ -266,7 +240,8 @@ export function isSafeMinutesLink(raw: string) {
     ) {
       return false;
     }
-    const haystack = `${parsed.pathname}?${parsed.search}#${parsed.hash}`.toLowerCase();
+    const haystack =
+      `${parsed.pathname}?${parsed.search}#${parsed.hash}`.toLowerCase();
     if (
       /(minute_token|note_id|file_token|whiteboard_token|doc_token|token=|(?:^|[^a-z0-9])(?:(?:obcn|wbcn|boxcn|doxcn)[a-z0-9_-]{4,}|docx_[a-z0-9_-]{4,}))/.test(
         haystack,
@@ -281,7 +256,9 @@ export function isSafeMinutesLink(raw: string) {
       decoded = next.toLowerCase();
     }
     if (
-      /(?:^|[^a-z0-9])(?:(?:obcn|wbcn|boxcn|doxcn)[a-z0-9_-]{4,}|docx_[a-z0-9_-]{4,})/.test(decoded) ||
+      /(?:^|[^a-z0-9])(?:(?:obcn|wbcn|boxcn|doxcn)[a-z0-9_-]{4,}|docx_[a-z0-9_-]{4,})/.test(
+        decoded,
+      ) ||
       /(?:^|[^a-z])(?:javascript|data|file):/.test(decoded)
     ) {
       return false;
@@ -302,13 +279,34 @@ export function isSafeMinutesLink(raw: string) {
         return false;
       }
     }
-    if (/\/(minutes|docx|wiki|drive|whiteboard|notes)\//.test(parsed.pathname)) {
+    if (
+      /\/(minutes|docx|wiki|drive|whiteboard|notes)\//.test(parsed.pathname)
+    ) {
       return false;
     }
     return true;
   } catch {
     return false;
   }
+}
+
+export function safeMinutesLinkTitle(title: string, safeURL: string) {
+  const candidate = title.trim();
+  if (!candidate) return safeURL;
+  let decoded = candidate;
+  for (let pass = 0; pass < 8; pass += 1) {
+    const next = decodeMinutesURLLayer(decoded);
+    if (next === decoded) break;
+    decoded = next;
+  }
+  if (
+    /(minute_token|note_id|file_token|whiteboard_token|doc_token|(?:^|[^a-z0-9])(?:(?:obcn|wbcn|boxcn|doxcn)[a-z0-9_-]{4,}|docx_[a-z0-9_-]{4,})|\/(?:tmp|private\/var)\/|(?:^|[\s/:.])(localhost|127\.0\.0\.1|::1)(?:[\s/:.]|$)|(?:^|\.)((?:feishu|larksuite|larkoffice)\.(?:cn|com)))/i.test(
+      decoded,
+    )
+  ) {
+    return safeURL;
+  }
+  return candidate;
 }
 
 function decodeMinutesURLLayer(value: string) {

@@ -14,7 +14,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
+
+	"magicpodcast/internal/models"
 )
 
 const (
@@ -25,16 +28,19 @@ const (
 	maxEnrichmentPendingAttempts        = 3
 	minutesEnrichmentDiagnosticFileName = "minutes-enrichment-diagnostics.txt"
 
-	feishuPhaseDriveReady       = "drive_upload_ready"
-	feishuPhaseDriveIntent      = "drive_upload_intent"
-	feishuPhaseDriveUploaded    = "drive_uploaded"
-	feishuPhaseMinutesReady     = "minutes_upload_ready"
-	feishuPhaseMinutesIntent    = "minutes_upload_intent"
-	feishuPhaseMinutesCreated   = "minutes_created"
-	feishuPhaseTranscriptStored = "transcript_stored"
+	feishuPhaseDriveReady        = "drive_upload_ready"
+	feishuPhaseDriveIntent       = "drive_upload_intent"
+	feishuPhaseDriveUploaded     = "drive_uploaded"
+	feishuPhaseMinutesReady      = "minutes_upload_ready"
+	feishuPhaseMinutesIntent     = "minutes_upload_intent"
+	feishuPhaseMinutesCreated    = "minutes_created"
+	feishuPhaseMinutesEnrichment = "minutes_enrichment_waiting"
+	feishuPhaseTranscriptStored  = "transcript_stored"
 )
 
 var larkTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{4,512}$`)
+
+var errWhiteboardPreviewInvalid = errors.New("whiteboard preview validation failed")
 
 type ReadyAudioLookup func(
 	context.Context,
@@ -45,18 +51,26 @@ type FeishuMinutesAdapter struct {
 	runner     larkCommandRunner
 	workRoot   string
 	readyAudio ReadyAudioLookup
+	now        func() time.Time
 }
 
 type feishuCheckpoint struct {
-	Version                   int    `json:"version"`
-	Phase                     string `json:"phase"`
-	AudioDigest               string `json:"audio_digest"`
-	FileToken                 string `json:"file_token,omitempty"`
-	MinuteToken               string `json:"minute_token,omitempty"`
-	MinuteURL                 string `json:"minute_url,omitempty"`
-	TranscriptRelativePath    string `json:"transcript_relative_path,omitempty"`
-	DetailRelativePath        string `json:"detail_relative_path,omitempty"`
-	EnrichmentPendingAttempts int    `json:"enrichment_pending_attempts,omitempty"`
+	Version                   int               `json:"version"`
+	Phase                     string            `json:"phase"`
+	AudioDigest               string            `json:"audio_digest"`
+	FileToken                 string            `json:"file_token,omitempty"`
+	MinuteToken               string            `json:"minute_token,omitempty"`
+	MinuteURL                 string            `json:"minute_url,omitempty"`
+	TranscriptRelativePath    string            `json:"transcript_relative_path,omitempty"`
+	DetailRelativePath        string            `json:"detail_relative_path,omitempty"`
+	EnrichmentPendingAttempts int               `json:"enrichment_pending_attempts,omitempty"`
+	CoreReadyAt               string            `json:"core_ready_at,omitempty"`
+	EnrichmentDeadlineAt      string            `json:"enrichment_deadline_at,omitempty"`
+	EnrichmentRelativePath    string            `json:"enrichment_relative_path,omitempty"`
+	EnrichmentSHA256          string            `json:"enrichment_sha256,omitempty"`
+	WhiteboardRelativePath    string            `json:"whiteboard_relative_path,omitempty"`
+	WhiteboardSHA256          string            `json:"whiteboard_sha256,omitempty"`
+	EnrichmentRawSHA256       map[string]string `json:"enrichment_raw_sha256,omitempty"`
 }
 
 func NewFeishuMinutesAdapter(
@@ -156,6 +170,8 @@ func (a *FeishuMinutesAdapter) Resume(
 		)
 	case feishuPhaseMinutesCreated:
 		return a.readMinute(ctx, request, checkpoint)
+	case feishuPhaseMinutesEnrichment:
+		return a.waitForMinutesEnrichment(ctx, request, checkpoint, nil, nil)
 	case feishuPhaseTranscriptStored:
 		return a.readStoredResult(ctx, request.PipelineVersion, checkpoint)
 	default:
@@ -194,6 +210,7 @@ func (a *FeishuMinutesAdapter) CancellationDisposition(
 		feishuPhaseMinutesReady,
 		feishuPhaseMinutesIntent,
 		feishuPhaseMinutesCreated,
+		feishuPhaseMinutesEnrichment,
 		feishuPhaseTranscriptStored:
 		return TranscriptionCancellationDisposition{
 			RemoteMayContinue: true,
@@ -404,6 +421,10 @@ func (a *FeishuMinutesAdapter) readMinute(
 	}
 	detail, found, err := parseMinuteDetail(output, checkpoint.MinuteToken)
 	if err != nil {
+		var adapterErr *AdapterError
+		if errors.As(err, &adapterErr) {
+			return progressWithCheckpoint(checkpoint), err
+		}
 		return progressWithCheckpoint(checkpoint), NewAdapterError(
 			"lark_protocol_error",
 			"Feishu Minutes detail output is invalid",
@@ -485,36 +506,28 @@ func (a *FeishuMinutesAdapter) readMinute(
 		transcript,
 		output,
 	)
-	if completeErr == nil && request.PipelineVersion == NativeMinutesPipelineVersion {
-		var enrichmentPending bool
-		progress, enrichmentPending = a.enhanceCompletedProgress(
-			ctx,
-			request.RunID,
-			detail,
-			progress,
-		)
-		if enrichmentPending {
-			checkpoint.EnrichmentPendingAttempts++
-			if checkpoint.EnrichmentPendingAttempts < maxEnrichmentPendingAttempts {
-				a.persistLocalEnrichment(request.RunID, progress)
-				if err := persistFeishuCheckpoint(ctx, request, checkpoint); err != nil {
-					return progressWithCheckpoint(checkpoint), err
-				}
-				return progressWithCheckpoint(checkpoint), nil
-			}
-			progress = addMinutesEnrichmentDiagnostic(progress, "note_not_ready")
+	if completeErr != nil {
+		checkpoint.Phase = feishuPhaseTranscriptStored
+		if persistErr := persistFeishuCheckpoint(ctx, request, checkpoint); persistErr != nil {
+			return progressWithCheckpoint(checkpoint), persistErr
 		}
-		a.persistLocalEnrichment(request.RunID, progress)
+		progress.Checkpoint, _ = encodeFeishuCheckpoint(checkpoint)
+		return progress, completeErr
 	}
-	checkpoint.Phase = feishuPhaseTranscriptStored
+	if request.PipelineVersion != NativeMinutesPipelineVersion {
+		checkpoint.Phase = feishuPhaseTranscriptStored
+		if err := persistFeishuCheckpoint(ctx, request, checkpoint); err != nil {
+			return progressWithCheckpoint(checkpoint), err
+		}
+		progress.Checkpoint, _ = encodeFeishuCheckpoint(checkpoint)
+		return progress, nil
+	}
+	checkpoint = a.ensureEnrichmentWindow(checkpoint)
+	checkpoint.Phase = feishuPhaseMinutesEnrichment
 	if err := persistFeishuCheckpoint(ctx, request, checkpoint); err != nil {
 		return progressWithCheckpoint(checkpoint), err
 	}
-	progress.Checkpoint, _ = encodeFeishuCheckpoint(checkpoint)
-	if completeErr != nil {
-		return progress, completeErr
-	}
-	return progress, nil
+	return a.waitForMinutesEnrichment(ctx, request, checkpoint, &detail, output)
 }
 
 func (a *FeishuMinutesAdapter) readStoredResult(
@@ -577,12 +590,15 @@ func (a *FeishuMinutesAdapter) readStoredResult(
 		return progress, err
 	}
 	if pipelineVersion == NativeMinutesPipelineVersion {
-		progress = a.restoreStoredEnrichment(
+		progress, err = a.restoreStoredEnrichment(
 			ctx,
 			checkpoint,
 			parsedDetail,
 			progress,
 		)
+		if err != nil {
+			return progressWithCheckpoint(checkpoint), err
+		}
 	}
 	return progress, nil
 }
@@ -833,29 +849,395 @@ func completedFeishuProgress(
 	}, nil
 }
 
-func (a *FeishuMinutesAdapter) enhanceCompletedProgress(
-	ctx context.Context,
-	runID uint,
-	detail minuteDetail,
-	progress TranscriptionProgress,
-) (TranscriptionProgress, bool) {
-	enrichment := MinutesEnrichment{
-		Chapters: append([]MinutesChapter(nil), detail.Chapters...),
-		Keywords: append([]string(nil), detail.Keywords...),
+func (a *FeishuMinutesAdapter) nowUTC() time.Time {
+	if a != nil && a.now != nil {
+		return a.now().UTC()
 	}
-	if strings.TrimSpace(detail.NoteID) != "" && larkTokenPattern.MatchString(detail.NoteID) {
-		progress, pending := a.captureNoteEnrichment(
+	return time.Now().UTC()
+}
+
+func (a *FeishuMinutesAdapter) ensureEnrichmentWindow(checkpoint feishuCheckpoint) feishuCheckpoint {
+	now := a.nowUTC()
+	coreReady, err := parseCheckpointTime(checkpoint.CoreReadyAt)
+	if err != nil || coreReady.IsZero() {
+		coreReady = now
+		checkpoint.CoreReadyAt = formatCheckpointTime(coreReady)
+	}
+	deadline, err := parseCheckpointTime(checkpoint.EnrichmentDeadlineAt)
+	if err != nil || deadline.IsZero() {
+		checkpoint.EnrichmentDeadlineAt = formatCheckpointTime(
+			minutesEnrichmentDeadline(coreReady, now),
+		)
+	}
+	return checkpoint
+}
+
+func enrichmentWaitingProgress(checkpoint feishuCheckpoint) TranscriptionProgress {
+	progress := progressWithCheckpoint(checkpoint)
+	progress.CurrentStep = StepMinutesEnrichment
+	return progress
+}
+
+func (a *FeishuMinutesAdapter) waitForMinutesEnrichment(
+	ctx context.Context,
+	request TranscriptionRequest,
+	checkpoint feishuCheckpoint,
+	detail *minuteDetail,
+	detailRaw []byte,
+) (TranscriptionProgress, error) {
+	checkpoint = a.ensureEnrichmentWindow(checkpoint)
+	checkpoint.Phase = feishuPhaseMinutesEnrichment
+	now := a.nowUTC()
+	deadline, deadlineErr := parseCheckpointTime(checkpoint.EnrichmentDeadlineAt)
+	if deadlineErr != nil {
+		return enrichmentWaitingProgress(checkpoint), NewAdapterError(
+			"invalid_external_checkpoint",
+			"Feishu processing checkpoint is invalid",
+			false,
+		)
+	}
+	expired := enrichmentWaitExpired(deadline, now)
+	if expired && detail == nil {
+		return a.failEnrichmentWait(ctx, request, checkpoint, minutesEnrichmentTimeoutDecision())
+	}
+
+	if detail == nil {
+		fetched, raw, wait, fetchErr := a.fetchMinuteDetailForEnrichment(ctx, request, checkpoint)
+		if fetchErr != nil {
+			if expired {
+				return a.failEnrichmentWait(ctx, request, checkpoint, minutesEnrichmentTimeoutDecision())
+			}
+			if minutesErrorIsWaitable(fetchErr) {
+				if err := persistFeishuCheckpoint(ctx, request, checkpoint); err != nil {
+					return enrichmentWaitingProgress(checkpoint), err
+				}
+				return enrichmentWaitingProgress(checkpoint), nil
+			}
+			decision := minutesEnrichmentDecision{
+				Code:       minutesEnrichmentNoteUnreadableCode,
+				Message:    minutesEnrichmentNoteUnreadableMsg,
+				Diagnostic: "note_detail_unavailable",
+			}
+			var adapterErr *AdapterError
+			if errors.As(fetchErr, &adapterErr) && !adapterErr.CanRetry {
+				switch adapterErr.ErrorCode {
+				case minutesEnrichmentSectionCode, "invalid_external_checkpoint":
+					decision.Code = adapterErr.ErrorCode
+					decision.Message = adapterErr.SafeMessage
+				}
+			}
+			return a.failEnrichmentWait(ctx, request, checkpoint, decision)
+		}
+		if wait {
+			if expired {
+				return a.failEnrichmentWait(ctx, request, checkpoint, minutesEnrichmentTimeoutDecision())
+			}
+			if err := persistFeishuCheckpoint(ctx, request, checkpoint); err != nil {
+				return enrichmentWaitingProgress(checkpoint), err
+			}
+			return enrichmentWaitingProgress(checkpoint), nil
+		}
+		detail = &fetched
+		detailRaw = raw
+		checkpoint, fetchErr = a.persistRefreshedCoreSnapshot(
 			ctx,
-			runID,
-			detail.NoteID,
-			enrichment,
+			request.RunID,
+			checkpoint,
+			fetched,
+			raw,
+		)
+		if fetchErr != nil {
+			return enrichmentWaitingProgress(checkpoint), NewAdapterError(
+				minutesEnrichmentSnapshotWriteCode,
+				"Feishu core snapshot could not be stored",
+				true,
+			)
+		}
+	}
+
+	progress, completeErr := a.completedProgressFromStoredCore(
+		ctx,
+		request.PipelineVersion,
+		checkpoint,
+		*detail,
+		detailRaw,
+	)
+	if completeErr != nil {
+		return progress, completeErr
+	}
+	progress, decision := a.captureNoteEnrichment(
+		ctx,
+		request.RunID,
+		*detail,
+		progress,
+	)
+	if decision.Complete {
+		var persistErr error
+		checkpoint, persistErr = a.persistCompletedEnrichment(
+			request.RunID,
+			checkpoint,
 			progress,
 		)
-		return progress, pending
-	} else {
-		progress.MinutesEnrichment = enrichment.Public()
+		if persistErr != nil {
+			return enrichmentWaitingProgress(checkpoint), NewAdapterError(
+				minutesEnrichmentSnapshotWriteCode,
+				"Feishu intelligent minutes snapshot could not be stored",
+				true,
+			)
+		}
+		return a.finishCompletedEnrichment(ctx, request, checkpoint, progress)
 	}
-	return progress, false
+	if decision.Wait && !expired {
+		if err := persistFeishuCheckpoint(ctx, request, checkpoint); err != nil {
+			return enrichmentWaitingProgress(checkpoint), err
+		}
+		waiting := enrichmentWaitingProgress(checkpoint)
+		waiting.RawArtifacts = progress.RawArtifacts
+		return waiting, nil
+	}
+	if decision.Wait && expired {
+		decision = minutesEnrichmentTimeoutDecision()
+	}
+	return a.failEnrichmentWait(ctx, request, checkpoint, decision)
+}
+
+func (a *FeishuMinutesAdapter) persistRefreshedCoreSnapshot(
+	ctx context.Context,
+	runID uint,
+	checkpoint feishuCheckpoint,
+	detail minuteDetail,
+	detailRaw []byte,
+) (feishuCheckpoint, error) {
+	runDirectory, err := a.runDirectory(runID)
+	if err != nil {
+		return checkpoint, err
+	}
+	var transcript []byte
+	if detail.TranscriptFilePresent && strings.TrimSpace(detail.TranscriptFile) != "" {
+		_, transcript, err = readManagedTranscript(runDirectory, detail.TranscriptFile)
+	}
+	if err != nil || len(bytes.TrimSpace(transcript)) == 0 {
+		transcript, err = a.readStoredFile(
+			ctx,
+			checkpoint.TranscriptRelativePath,
+			maxTranscriptBytes,
+		)
+	}
+	if err != nil || len(bytes.TrimSpace(transcript)) == 0 {
+		return checkpoint, ErrInvalidArtifact
+	}
+	if len(bytes.TrimSpace(detailRaw)) == 0 {
+		return checkpoint, ErrInvalidArtifact
+	}
+	if _, err := writeArtifactFile(
+		runDirectory,
+		"minutes-transcript.txt",
+		transcript,
+	); err != nil {
+		return checkpoint, err
+	}
+	if _, err := writeReadableArtifactFile(
+		runDirectory,
+		"minutes-detail.json",
+		detailRaw,
+	); err != nil {
+		return checkpoint, err
+	}
+	transcriptRelative, err := filepath.Rel(
+		a.workRoot,
+		filepath.Join(runDirectory, "minutes-transcript.txt"),
+	)
+	if err != nil || pathEscapesRoot(transcriptRelative) {
+		return checkpoint, ErrInvalidArtifact
+	}
+	detailRelative, err := filepath.Rel(
+		a.workRoot,
+		filepath.Join(runDirectory, "minutes-detail.json"),
+	)
+	if err != nil || pathEscapesRoot(detailRelative) {
+		return checkpoint, ErrInvalidArtifact
+	}
+	checkpoint.TranscriptRelativePath = filepath.ToSlash(transcriptRelative)
+	checkpoint.DetailRelativePath = filepath.ToSlash(detailRelative)
+	return checkpoint, nil
+}
+
+func (a *FeishuMinutesAdapter) fetchMinuteDetailForEnrichment(
+	ctx context.Context,
+	request TranscriptionRequest,
+	checkpoint feishuCheckpoint,
+) (minuteDetail, []byte, bool, error) {
+	if !larkTokenPattern.MatchString(checkpoint.MinuteToken) {
+		return minuteDetail{}, nil, false, NewAdapterError(
+			"invalid_external_checkpoint",
+			"Feishu Minutes identity is invalid",
+			false,
+		)
+	}
+	runDirectory, err := a.runDirectory(request.RunID)
+	if err != nil {
+		return minuteDetail{}, nil, false, err
+	}
+	detailDirectory := filepath.Join(runDirectory, "detail")
+	if err := os.MkdirAll(detailDirectory, 0o700); err != nil {
+		return minuteDetail{}, nil, false, NewAdapterError(
+			"artifact_write_failed",
+			"Feishu transcript directory could not be created",
+			true,
+		)
+	}
+	output, commandErr := a.runner.Run(
+		ctx,
+		runDirectory,
+		"minutes",
+		"+detail",
+		"--minute-tokens",
+		checkpoint.MinuteToken,
+		"--summary",
+		"--chapter",
+		"--keyword",
+		"--transcript",
+		"--overwrite",
+		"--output-dir",
+		"./detail",
+		"--as",
+		"user",
+		"--format",
+		"json",
+	)
+	if commandErr != nil {
+		var larkErr *larkCommandError
+		if errors.As(commandErr, &larkErr) {
+			if parsed, found, parseErr := parseMinuteDetail(
+				larkErr.stdout,
+				checkpoint.MinuteToken,
+			); parseErr == nil && found && parsed.Pending &&
+				strings.TrimSpace(parsed.TranscriptFile) == "" {
+				return minuteDetail{}, nil, true, nil
+			}
+		}
+		mapped, _ := classifyLarkCommandError(commandErr)
+		if errors.Is(mapped, errLarkMinutesPending) {
+			return minuteDetail{}, nil, true, nil
+		}
+		return minuteDetail{}, nil, false, mapped
+	}
+	parsed, found, err := parseMinuteDetail(output, checkpoint.MinuteToken)
+	if err != nil {
+		var adapterErr *AdapterError
+		if errors.As(err, &adapterErr) {
+			return minuteDetail{}, nil, false, err
+		}
+		return minuteDetail{}, nil, false, NewAdapterError(
+			"lark_protocol_error",
+			"Feishu Minutes detail output is invalid",
+			false,
+		)
+	}
+	if !found || parsed.Pending {
+		return minuteDetail{}, nil, true, nil
+	}
+	return parsed, output, false, nil
+}
+
+func (a *FeishuMinutesAdapter) completedProgressFromStoredCore(
+	ctx context.Context,
+	pipelineVersion string,
+	checkpoint feishuCheckpoint,
+	detail minuteDetail,
+	detailRaw []byte,
+) (TranscriptionProgress, error) {
+	transcript, err := a.readStoredFile(
+		ctx,
+		checkpoint.TranscriptRelativePath,
+		maxTranscriptBytes,
+	)
+	if err != nil || len(bytes.TrimSpace(transcript)) == 0 {
+		return TranscriptionProgress{}, NewAdapterError(
+			"stored_transcript_unavailable",
+			"stored Feishu transcript is unavailable",
+			false,
+		)
+	}
+	if len(bytes.TrimSpace(detailRaw)) == 0 {
+		detailRaw, err = a.readStoredFile(
+			ctx,
+			checkpoint.DetailRelativePath,
+			maxLarkCLIOutputBytes,
+		)
+		if err != nil {
+			return TranscriptionProgress{}, NewAdapterError(
+				"stored_transcript_unavailable",
+				"stored Feishu detail output is unavailable",
+				false,
+			)
+		}
+	}
+	summary := detail.Summary
+	if strings.TrimSpace(summary) == "" {
+		storedDetail, found, parseErr := parseMinuteDetail(detailRaw, checkpoint.MinuteToken)
+		if parseErr == nil && found {
+			summary = storedDetail.Summary
+		}
+	}
+	return completedFeishuProgress(
+		checkpoint,
+		pipelineVersion,
+		summary,
+		transcript,
+		detailRaw,
+	)
+}
+
+func (a *FeishuMinutesAdapter) finishCompletedEnrichment(
+	ctx context.Context,
+	request TranscriptionRequest,
+	checkpoint feishuCheckpoint,
+	progress TranscriptionProgress,
+) (TranscriptionProgress, error) {
+	checkpoint.Phase = feishuPhaseTranscriptStored
+	if err := persistFeishuCheckpoint(ctx, request, checkpoint); err != nil {
+		return enrichmentWaitingProgress(checkpoint), err
+	}
+	progress.Status = ExternalProgressCompleted
+	progress.CurrentStep = ""
+	progress.Checkpoint, _ = encodeFeishuCheckpoint(checkpoint)
+	return progress, nil
+}
+
+func (a *FeishuMinutesAdapter) failEnrichmentWait(
+	ctx context.Context,
+	request TranscriptionRequest,
+	checkpoint feishuCheckpoint,
+	decision minutesEnrichmentDecision,
+) (TranscriptionProgress, error) {
+	waiting := enrichmentWaitingProgress(checkpoint)
+	if decision.Diagnostic != "" {
+		waiting = addMinutesEnrichmentDiagnostic(waiting, decision.Diagnostic)
+		if err := a.persistEnrichmentDiagnostics(request.RunID, waiting); err != nil {
+			return waiting, NewAdapterError(
+				minutesEnrichmentSnapshotWriteCode,
+				"Feishu intelligent minutes diagnostics could not be stored",
+				true,
+			)
+		}
+	}
+	if err := persistFeishuCheckpoint(ctx, request, checkpoint); err != nil {
+		return waiting, err
+	}
+	code := strings.TrimSpace(decision.Code)
+	if code == "" {
+		code = minutesEnrichmentNoteUnreadableCode
+	}
+	message := strings.TrimSpace(decision.Message)
+	if message == "" {
+		message = minutesEnrichmentNoteUnreadableMsg
+	}
+	return waiting, NewAdapterError(
+		code,
+		message,
+		decision.Retryable,
+	)
 }
 
 func (a *FeishuMinutesAdapter) restoreStoredEnrichment(
@@ -863,13 +1245,16 @@ func (a *FeishuMinutesAdapter) restoreStoredEnrichment(
 	checkpoint feishuCheckpoint,
 	detail minuteDetail,
 	progress TranscriptionProgress,
-) TranscriptionProgress {
+) (TranscriptionProgress, error) {
 	if err := ctx.Err(); err != nil {
 		progress.MinutesEnrichment = MinutesEnrichment{
 			Chapters: append([]MinutesChapter(nil), detail.Chapters...),
 			Keywords: append([]string(nil), detail.Keywords...),
 		}.Public()
-		return progress
+		return progress, err
+	}
+	if checkpoint.EnrichmentRelativePath != "" {
+		return a.restoreCompletedEnrichmentSnapshot(ctx, checkpoint, progress)
 	}
 	enrichment := MinutesEnrichment{
 		Chapters: append([]MinutesChapter(nil), detail.Chapters...),
@@ -911,20 +1296,33 @@ func (a *FeishuMinutesAdapter) restoreStoredEnrichment(
 		}
 	}
 	progress.MinutesEnrichment = enrichment.Public()
-	return a.restoreStoredRawEnrichment(ctx, checkpoint, progress)
+	return a.restoreStoredRawEnrichment(ctx, checkpoint, progress), nil
 }
 
 func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 	ctx context.Context,
 	runID uint,
-	noteID string,
-	enrichment MinutesEnrichment,
+	detail minuteDetail,
 	progress TranscriptionProgress,
-) (TranscriptionProgress, bool) {
+) (TranscriptionProgress, minutesEnrichmentDecision) {
+	enrichment := MinutesEnrichment{
+		Chapters: append([]MinutesChapter(nil), detail.Chapters...),
+		Keywords: append([]string(nil), detail.Keywords...),
+	}
+	noteID := strings.TrimSpace(detail.NoteID)
+	if noteID == "" || !larkTokenPattern.MatchString(noteID) {
+		progress.MinutesEnrichment = enrichment.Public()
+		return progress, minutesEnrichmentDecision{Wait: true, Diagnostic: "note_id_pending"}
+	}
 	runDirectory, err := a.runDirectory(runID)
 	if err != nil {
 		progress.MinutesEnrichment = enrichment.Public()
-		return addMinutesEnrichmentDiagnostic(progress, "managed_directory_unavailable"), false
+		progress = addMinutesEnrichmentDiagnostic(progress, "managed_directory_unavailable")
+		return progress, minutesEnrichmentDecision{
+			Code:       minutesEnrichmentNoteUnreadableCode,
+			Message:    minutesEnrichmentNoteUnreadableMsg,
+			Diagnostic: "managed_directory_unavailable",
+		}
 	}
 	noteOutput, noteErr := a.runner.Run(
 		ctx,
@@ -940,17 +1338,36 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 	)
 	if noteErr != nil {
 		progress.MinutesEnrichment = enrichment.Public()
-		if mapped, _ := classifyLarkCommandError(noteErr); errors.Is(mapped, errLarkMinutesPending) {
-			return progress, true
+		if minutesErrorIsWaitable(noteErr) {
+			return progress, minutesEnrichmentDecision{Wait: true, Diagnostic: "note_detail_pending"}
 		}
-		return addMinutesEnrichmentDiagnostic(progress, "note_detail_unavailable"), false
+		mapped, _ := classifyLarkCommandError(noteErr)
+		diagnostic := "note_detail_unavailable"
+		decision := minutesEnrichmentDecision{
+			Code:       minutesEnrichmentNoteUnreadableCode,
+			Message:    minutesEnrichmentNoteUnreadableMsg,
+			Diagnostic: diagnostic,
+		}
+		var adapterErr *AdapterError
+		if errors.As(mapped, &adapterErr) {
+			switch adapterErr.ErrorCode {
+			case "lark_permission_denied", "lark_auth_expired":
+				diagnostic = "note_permission_unavailable"
+				decision.Code = adapterErr.ErrorCode
+				decision.Message = adapterErr.SafeMessage
+				decision.Retryable = adapterErr.CanRetry
+			}
+		}
+		progress = addMinutesEnrichmentDiagnostic(progress, diagnostic)
+		decision.Diagnostic = diagnostic
+		return progress, decision
 	}
 	progress.RawArtifacts = cloneByteMap(progress.RawArtifacts)
 	progress.RawArtifacts["note-detail.json"] = append([]byte(nil), noteOutput...)
 	noteDocToken, ok := parseNoteDocToken(noteOutput)
 	if !ok {
 		progress.MinutesEnrichment = enrichment.Public()
-		return progress, true
+		return progress, minutesEnrichmentDecision{Wait: true, Diagnostic: "note_doc_pending"}
 	}
 	docOutput, docErr := a.runner.Run(
 		ctx,
@@ -970,32 +1387,35 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 	)
 	if docErr != nil {
 		progress.MinutesEnrichment = enrichment.Public()
-		if mapped, _ := classifyLarkCommandError(docErr); errors.Is(mapped, errLarkMinutesPending) {
-			return progress, true
+		if minutesErrorIsWaitable(docErr) {
+			return progress, minutesEnrichmentDecision{Wait: true, Diagnostic: "note_document_pending"}
 		}
-		return addMinutesEnrichmentDiagnostic(progress, "note_document_unavailable"), false
+		progress = addMinutesEnrichmentDiagnostic(progress, "note_document_unavailable")
+		return progress, minutesEnrichmentDecision{
+			Code:       minutesEnrichmentNoteUnreadableCode,
+			Message:    minutesEnrichmentNoteUnreadableMsg,
+			Diagnostic: "note_document_unavailable",
+		}
 	}
 	progress.RawArtifacts["note-document.json"] = append([]byte(nil), docOutput...)
 	content, ok := parseDocsFetchContent(docOutput)
 	if !ok {
 		progress.MinutesEnrichment = enrichment.Public()
-		return progress, true
+		return progress, minutesEnrichmentDecision{Wait: true, Diagnostic: "note_document_pending"}
 	}
 	decisions, quotes, links, whiteboardToken := parseNoteSections(content)
 	enrichment.Decisions = decisions
 	enrichment.Quotes = quotes
 	enrichment.Links = links
-	if !hasKnownTopLevelNoteSection(content) {
-		progress = addMinutesEnrichmentDiagnostic(progress, "note_sections_unrecognized")
-	} else if hasUnknownTopLevelNoteSection(content) {
-		progress = addMinutesEnrichmentDiagnostic(progress, "note_sections_ignored")
-	}
+	whiteboardCaptured := false
+	whiteboardWaitable := false
 	if whiteboardToken != "" {
-		if preview, captureErr := a.captureWhiteboardPreview(
+		preview, captureErr := a.captureWhiteboardPreview(
 			ctx,
 			runDirectory,
 			whiteboardToken,
-		); captureErr == nil {
+		)
+		if captureErr == nil {
 			progress.WhiteboardPreview = preview.Bytes
 			enrichment.Whiteboard = &MinutesWhiteboard{
 				MediaID:   minutesWhiteboardMediaID,
@@ -1005,9 +1425,21 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 				SHA256:    digestBytes(preview.Bytes),
 				Alt:       minutesWhiteboardAlt,
 			}
+			whiteboardCaptured = true
 		} else {
+			whiteboardWaitable = !errors.Is(captureErr, errWhiteboardPreviewInvalid) &&
+				minutesErrorIsWaitable(captureErr)
 			progress = addMinutesEnrichmentDiagnostic(progress, "whiteboard_unavailable")
 		}
+	}
+	decision := evaluateReadableNoteDocument(
+		content,
+		whiteboardToken,
+		whiteboardCaptured,
+		whiteboardWaitable,
+	)
+	if decision.Diagnostic != "" {
+		progress = addMinutesEnrichmentDiagnostic(progress, decision.Diagnostic)
 	}
 	if progress.SkillVersions == nil {
 		progress.SkillVersions = map[string]string{}
@@ -1018,7 +1450,7 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 		progress.SkillVersions["lark-whiteboard"] = "1.0.0"
 	}
 	progress.MinutesEnrichment = enrichment.Public()
-	return progress, false
+	return progress, decision
 }
 
 func (a *FeishuMinutesAdapter) captureWhiteboardPreview(
@@ -1050,44 +1482,232 @@ func (a *FeishuMinutesAdapter) captureWhiteboardPreview(
 	if err != nil {
 		matches, matchErr := filepath.Glob(filepath.Join(runDirectory, outputName+".*"))
 		if matchErr != nil || len(matches) == 0 {
-			return ManagedImage{}, err
+			return ManagedImage{}, fmt.Errorf("%w: %v", errWhiteboardPreviewInvalid, err)
 		}
 		content, err = readBoundedRegularFile(matches[0], maxWhiteboardPreviewBytes)
 		if err != nil {
-			return ManagedImage{}, err
+			return ManagedImage{}, fmt.Errorf("%w: %v", errWhiteboardPreviewInvalid, err)
 		}
 	}
-	return sniffManagedImage(content)
+	preview, err := sniffManagedImage(content)
+	if err != nil {
+		return ManagedImage{}, fmt.Errorf("%w: %v", errWhiteboardPreviewInvalid, err)
+	}
+	return preview, nil
 }
 
-func (a *FeishuMinutesAdapter) persistLocalEnrichment(
+func (a *FeishuMinutesAdapter) persistCompletedEnrichment(
 	runID uint,
+	checkpoint feishuCheckpoint,
 	progress TranscriptionProgress,
-) {
+) (feishuCheckpoint, error) {
 	runDirectory, err := a.runDirectory(runID)
 	if err != nil {
-		return
+		return checkpoint, err
 	}
-	encoded, err := encodeMinutesEnrichment(progress.MinutesEnrichment)
-	if err == nil && len(encoded) > 0 {
-		_ = os.WriteFile(filepath.Join(runDirectory, minutesEnrichmentFileName), encoded, 0o600)
+	encoded, err := json.MarshalIndent(progress.MinutesEnrichment.Public(), "", "  ")
+	if err != nil {
+		return checkpoint, fmt.Errorf("encode completed minutes enrichment: %w", err)
 	}
-	if len(progress.WhiteboardPreview) > 0 {
-		_ = os.WriteFile(
-			filepath.Join(runDirectory, "whiteboard-preview"),
-			progress.WhiteboardPreview,
-			0o600,
+	encoded = append(encoded, '\n')
+	enrichmentHash, err := writeReadableArtifactFile(
+		runDirectory,
+		minutesEnrichmentFileName,
+		encoded,
+	)
+	if err != nil {
+		return checkpoint, err
+	}
+	enrichmentRelative, err := filepath.Rel(
+		a.workRoot,
+		filepath.Join(runDirectory, minutesEnrichmentFileName),
+	)
+	if err != nil || pathEscapesRoot(enrichmentRelative) {
+		return checkpoint, ErrInvalidArtifact
+	}
+	checkpoint.EnrichmentRelativePath = filepath.ToSlash(enrichmentRelative)
+	checkpoint.EnrichmentSHA256 = enrichmentHash
+	checkpoint.WhiteboardRelativePath = ""
+	checkpoint.WhiteboardSHA256 = ""
+
+	whiteboard := progress.MinutesEnrichment.Public().Whiteboard
+	if whiteboard != nil {
+		preview, sniffErr := sniffManagedImage(progress.WhiteboardPreview)
+		if sniffErr != nil ||
+			digestBytes(preview.Bytes) != whiteboard.SHA256 ||
+			preview.MediaType != whiteboard.MediaType {
+			return checkpoint, ErrInvalidArtifact
+		}
+		whiteboardHash, writeErr := writeArtifactFile(
+			runDirectory,
+			"whiteboard-preview",
+			preview.Bytes,
 		)
+		if writeErr != nil {
+			return checkpoint, writeErr
+		}
+		whiteboardRelative, relativeErr := filepath.Rel(
+			a.workRoot,
+			filepath.Join(runDirectory, "whiteboard-preview"),
+		)
+		if relativeErr != nil || pathEscapesRoot(whiteboardRelative) {
+			return checkpoint, ErrInvalidArtifact
+		}
+		checkpoint.WhiteboardRelativePath = filepath.ToSlash(whiteboardRelative)
+		checkpoint.WhiteboardSHA256 = whiteboardHash
+	} else if len(progress.WhiteboardPreview) > 0 {
+		return checkpoint, ErrInvalidArtifact
 	}
+
+	checkpoint.EnrichmentRawSHA256 = make(map[string]string, 3)
 	for _, name := range []string{
 		"note-detail.json",
 		"note-document.json",
 		minutesEnrichmentDiagnosticFileName,
 	} {
-		if body := progress.RawArtifacts[name]; len(body) > 0 {
-			_ = os.WriteFile(filepath.Join(runDirectory, name), body, 0o600)
+		body := progress.RawArtifacts[name]
+		if len(body) == 0 {
+			if name == "note-detail.json" || name == "note-document.json" {
+				return checkpoint, fmt.Errorf("completed minutes enrichment is missing %s", name)
+			}
+			continue
 		}
+		hash, writeErr := writeArtifactFile(runDirectory, name, body)
+		if writeErr != nil {
+			return checkpoint, writeErr
+		}
+		checkpoint.EnrichmentRawSHA256[name] = hash
 	}
+	return checkpoint, nil
+}
+
+func (a *FeishuMinutesAdapter) persistEnrichmentDiagnostics(
+	runID uint,
+	progress TranscriptionProgress,
+) error {
+	body := progress.RawArtifacts[minutesEnrichmentDiagnosticFileName]
+	if len(body) == 0 {
+		return nil
+	}
+	runDirectory, err := a.runDirectory(runID)
+	if err != nil {
+		return err
+	}
+	_, err = writeReadableArtifactFile(
+		runDirectory,
+		minutesEnrichmentDiagnosticFileName,
+		body,
+	)
+	return err
+}
+
+func (a *FeishuMinutesAdapter) restoreCompletedEnrichmentSnapshot(
+	ctx context.Context,
+	checkpoint feishuCheckpoint,
+	progress TranscriptionProgress,
+) (TranscriptionProgress, error) {
+	if !sha256Pattern.MatchString(checkpoint.EnrichmentSHA256) {
+		return progress, NewAdapterError(
+			minutesEnrichmentSnapshotStoredCode,
+			"stored Feishu intelligent minutes are unavailable",
+			true,
+		)
+	}
+	raw, err := a.readStoredFile(
+		ctx,
+		checkpoint.EnrichmentRelativePath,
+		maxArtifactTextBytes,
+	)
+	if err != nil || digestBytes(raw) != checkpoint.EnrichmentSHA256 {
+		return progress, NewAdapterError(
+			minutesEnrichmentSnapshotStoredCode,
+			"stored Feishu intelligent minutes are unavailable",
+			true,
+		)
+	}
+	enrichment, err := decodeMinutesEnrichment(raw)
+	if err != nil {
+		return progress, NewAdapterError(
+			minutesEnrichmentSnapshotStoredCode,
+			"stored Feishu intelligent minutes are unavailable",
+			true,
+		)
+	}
+	progress.MinutesEnrichment = enrichment.Public()
+	if enrichment.Whiteboard != nil {
+		if !sha256Pattern.MatchString(checkpoint.WhiteboardSHA256) ||
+			checkpoint.WhiteboardSHA256 != enrichment.Whiteboard.SHA256 {
+			return progress, NewAdapterError(
+				minutesEnrichmentSnapshotStoredCode,
+				"stored Feishu intelligent minutes are unavailable",
+				true,
+			)
+		}
+		preview, readErr := a.readStoredBinaryFile(
+			ctx,
+			checkpoint.WhiteboardRelativePath,
+			maxWhiteboardPreviewBytes,
+		)
+		if readErr != nil || digestBytes(preview) != checkpoint.WhiteboardSHA256 {
+			return progress, NewAdapterError(
+				minutesEnrichmentSnapshotStoredCode,
+				"stored Feishu intelligent minutes are unavailable",
+				true,
+			)
+		}
+		sniffed, sniffErr := sniffManagedImage(preview)
+		if sniffErr != nil || sniffed.MediaType != enrichment.Whiteboard.MediaType {
+			return progress, NewAdapterError(
+				minutesEnrichmentSnapshotStoredCode,
+				"stored Feishu intelligent minutes are unavailable",
+				true,
+			)
+		}
+		progress.WhiteboardPreview = sniffed.Bytes
+	} else if checkpoint.WhiteboardRelativePath != "" || checkpoint.WhiteboardSHA256 != "" {
+		return progress, NewAdapterError(
+			minutesEnrichmentSnapshotStoredCode,
+			"stored Feishu intelligent minutes are unavailable",
+			true,
+		)
+	}
+
+	progress.RawArtifacts = cloneByteMap(progress.RawArtifacts)
+	for name, expectedHash := range checkpoint.EnrichmentRawSHA256 {
+		relative := siblingRelativePath(checkpoint.EnrichmentRelativePath, name)
+		stored, readErr := a.readStoredFile(ctx, relative, maxLarkCLIOutputBytes)
+		if readErr != nil || digestBytes(stored) != expectedHash {
+			return progress, NewAdapterError(
+				minutesEnrichmentSnapshotStoredCode,
+				"stored Feishu intelligent minutes are unavailable",
+				true,
+			)
+		}
+		progress.RawArtifacts[name] = stored
+	}
+	if _, ok := progress.RawArtifacts["note-detail.json"]; !ok {
+		return progress, NewAdapterError(
+			minutesEnrichmentSnapshotStoredCode,
+			"stored Feishu intelligent minutes are unavailable",
+			true,
+		)
+	}
+	if _, ok := progress.RawArtifacts["note-document.json"]; !ok {
+		return progress, NewAdapterError(
+			minutesEnrichmentSnapshotStoredCode,
+			"stored Feishu intelligent minutes are unavailable",
+			true,
+		)
+	}
+	if progress.SkillVersions == nil {
+		progress.SkillVersions = map[string]string{}
+	}
+	progress.SkillVersions["lark-note"] = "1.0.0"
+	progress.SkillVersions["lark-docs"] = "1.0.0"
+	if enrichment.Whiteboard != nil {
+		progress.SkillVersions["lark-whiteboard"] = "1.0.0"
+	}
+	return progress, nil
 }
 
 func (a *FeishuMinutesAdapter) restoreStoredRawEnrichment(
@@ -1294,10 +1914,7 @@ func restrictedIdentityRef(identity string) string {
 }
 
 func encodeFeishuCheckpoint(checkpoint feishuCheckpoint) (json.RawMessage, error) {
-	if checkpoint.Version != feishuCheckpointVersion ||
-		!sha256Pattern.MatchString(checkpoint.AudioDigest) ||
-		checkpoint.EnrichmentPendingAttempts < 0 ||
-		checkpoint.EnrichmentPendingAttempts > maxEnrichmentPendingAttempts {
+	if !validFeishuCheckpoint(checkpoint) {
 		return nil, fmt.Errorf("invalid Feishu checkpoint")
 	}
 	return json.Marshal(checkpoint)
@@ -1316,12 +1933,96 @@ func decodeFeishuCheckpoint(state json.RawMessage) (feishuCheckpoint, error) {
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return feishuCheckpoint{}, fmt.Errorf("trailing Feishu checkpoint data")
 	}
+	if !validFeishuCheckpoint(checkpoint) {
+		return feishuCheckpoint{}, fmt.Errorf("invalid Feishu checkpoint")
+	}
+	return checkpoint, nil
+}
+
+func validFeishuCheckpoint(checkpoint feishuCheckpoint) bool {
 	if checkpoint.Version != feishuCheckpointVersion ||
 		!sha256Pattern.MatchString(checkpoint.AudioDigest) ||
 		checkpoint.EnrichmentPendingAttempts < 0 ||
 		checkpoint.EnrichmentPendingAttempts > maxEnrichmentPendingAttempts {
-		return feishuCheckpoint{}, fmt.Errorf("invalid Feishu checkpoint")
+		return false
 	}
+	if _, err := parseCheckpointTime(checkpoint.CoreReadyAt); err != nil {
+		return false
+	}
+	if _, err := parseCheckpointTime(checkpoint.EnrichmentDeadlineAt); err != nil {
+		return false
+	}
+	if (checkpoint.EnrichmentRelativePath == "") != (checkpoint.EnrichmentSHA256 == "") ||
+		(checkpoint.WhiteboardRelativePath == "") != (checkpoint.WhiteboardSHA256 == "") {
+		return false
+	}
+	for _, pair := range [][2]string{
+		{checkpoint.EnrichmentRelativePath, checkpoint.EnrichmentSHA256},
+		{checkpoint.WhiteboardRelativePath, checkpoint.WhiteboardSHA256},
+	} {
+		if pair[0] == "" {
+			continue
+		}
+		if filepath.IsAbs(pair[0]) || pathEscapesRoot(filepath.Clean(filepath.FromSlash(pair[0]))) ||
+			!sha256Pattern.MatchString(pair[1]) {
+			return false
+		}
+	}
+	for name, hash := range checkpoint.EnrichmentRawSHA256 {
+		if (name != "note-detail.json" &&
+			name != "note-document.json" &&
+			name != minutesEnrichmentDiagnosticFileName) ||
+			!sha256Pattern.MatchString(hash) {
+			return false
+		}
+	}
+	if checkpoint.Phase == feishuPhaseTranscriptStored &&
+		checkpoint.CoreReadyAt != "" &&
+		(checkpoint.EnrichmentRelativePath == "" ||
+			checkpoint.EnrichmentRawSHA256["note-detail.json"] == "" ||
+			checkpoint.EnrichmentRawSHA256["note-document.json"] == "") {
+		return false
+	}
+	return true
+}
+
+func resetCopiedFeishuCheckpoint(
+	checkpoint models.ProcessingCheckpoint,
+	now time.Time,
+) (models.ProcessingCheckpoint, error) {
+	if checkpoint.Adapter != feishuMinutesAdapterName {
+		return checkpoint, nil
+	}
+	state, err := decodeFeishuCheckpoint(json.RawMessage(checkpoint.StateJSON))
+	if err != nil {
+		return checkpoint, err
+	}
+	if strings.TrimSpace(state.MinuteToken) == "" ||
+		strings.TrimSpace(state.TranscriptRelativePath) == "" ||
+		strings.TrimSpace(state.DetailRelativePath) == "" {
+		return checkpoint, nil
+	}
+	if state.Phase == feishuPhaseTranscriptStored && state.CoreReadyAt == "" {
+		return checkpoint, nil
+	}
+	state.Phase = feishuPhaseMinutesEnrichment
+	state.CoreReadyAt = ""
+	state.EnrichmentDeadlineAt = ""
+	state.EnrichmentPendingAttempts = 0
+	state.EnrichmentRelativePath = ""
+	state.EnrichmentSHA256 = ""
+	state.WhiteboardRelativePath = ""
+	state.WhiteboardSHA256 = ""
+	state.EnrichmentRawSHA256 = nil
+	encoded, err := encodeFeishuCheckpoint(state)
+	if err != nil {
+		return checkpoint, err
+	}
+	sum := sha256.Sum256(encoded)
+	checkpoint.StateJSON = string(encoded)
+	checkpoint.StateHash = hex.EncodeToString(sum[:])
+	checkpoint.Status = ExternalProgressWaiting
+	checkpoint.UpdatedAt = now.UTC()
 	return checkpoint, nil
 }
 
@@ -1441,12 +2142,28 @@ func parseMinuteDetail(
 	}
 	for _, entry := range entries {
 		if entry.MinuteToken == expectedToken {
+			chapters, err := parseMinutesChaptersStrict(entry.Artifacts.Chapters)
+			if err != nil {
+				return minuteDetail{}, false, NewAdapterError(
+					minutesEnrichmentSectionCode,
+					"Feishu Minutes chapters could not be parsed",
+					false,
+				)
+			}
+			keywords, err := parseMinutesKeywordsStrict(entry.Artifacts.Keywords)
+			if err != nil {
+				return minuteDetail{}, false, NewAdapterError(
+					minutesEnrichmentSectionCode,
+					"Feishu Minutes keywords could not be parsed",
+					false,
+				)
+			}
 			detail := minuteDetail{
 				MinuteToken: entry.MinuteToken,
 				NoteID:      strings.TrimSpace(entry.NoteID),
 				Pending:     minuteDetailEntryPending(entry.Error),
-				Chapters:    parseMinutesChapters(entry.Artifacts.Chapters),
-				Keywords:    parseMinutesKeywords(entry.Artifacts.Keywords),
+				Chapters:    chapters,
+				Keywords:    keywords,
 			}
 			if entry.Artifacts.Summary != nil {
 				detail.Summary = *entry.Artifacts.Summary

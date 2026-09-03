@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -77,35 +78,18 @@ func TestFeishuMinutesAdapterExecutesRecoverableOneWriteStages(t *testing.T) {
 		"--as", "user", "--format", "json",
 	}, runner.calls[1].args)
 
-	completed, err := adapter.Resume(
+	waiting, err := adapter.Resume(
 		context.Background(),
 		request,
 		minutesProgress.Checkpoint,
 	)
 	require.NoError(t, err)
-	require.Equal(t, ExternalProgressCompleted, completed.Status)
-	require.Contains(t, completed.MinutesSummary, "原生妙记纪要")
-	require.Contains(t, completed.Transcript, "张三 00:00:00.195")
-	require.Equal(t, []TranscriptSegment{
-		{Order: 1, Speaker: "张三", StartMS: 195, Text: "第一段"},
-		{Order: 2, Speaker: "李四", StartMS: 62340, Text: "第二段"},
-	}, completed.Segments)
-	require.Contains(t, completed.RawArtifacts, "minutes-detail.json")
-	require.Contains(t, completed.RawArtifacts, "minutes-transcript.txt")
-	require.Equal(t, "feishu-minutes", completed.SourceRefs["transcription"])
-	require.Regexp(
-		t,
-		`^sha256:[0-9a-f]{64}$`,
-		completed.SourceRefs["feishu_drive_ref"],
-	)
-	require.Regexp(
-		t,
-		`^sha256:[0-9a-f]{64}$`,
-		completed.SourceRefs["feishu_minute_ref"],
-	)
-	require.NotContains(t, completed.SourceRefs, "minute_token")
-	require.NotContains(t, completed.SourceRefs["feishu_drive_ref"], "file-token")
-	require.NotContains(t, completed.SourceRefs["feishu_minute_ref"], "minute-token")
+	require.Equal(t, ExternalProgressWaiting, waiting.Status)
+	require.Equal(t, StepMinutesEnrichment, waiting.CurrentStep)
+	waitingCheckpoint := mustDecodeFeishuCheckpoint(t, waiting.Checkpoint)
+	require.Equal(t, feishuPhaseMinutesEnrichment, waitingCheckpoint.Phase)
+	require.NotEmpty(t, waitingCheckpoint.CoreReadyAt)
+	require.NotEmpty(t, waitingCheckpoint.EnrichmentDeadlineAt)
 	require.Len(t, runner.calls, 3)
 	require.Equal(t, []string{
 		"minutes", "+detail", "--minute-tokens", "obcn_minute_123",
@@ -126,19 +110,23 @@ func TestFeishuMinutesAdapterExecutesRecoverableOneWriteStages(t *testing.T) {
 		feishuPhaseMinutesReady,
 		feishuPhaseMinutesIntent,
 		feishuPhaseMinutesCreated,
-		feishuPhaseTranscriptStored,
+		feishuPhaseMinutesEnrichment,
+		feishuPhaseMinutesEnrichment,
 	}, phases)
-
+	runner.steps = append(runner.steps, scriptedLarkStep{
+		output: []byte(`{"minutes":[{"minute_token":"obcn_minute_123","artifacts":{"summary":"## 核心观点\n\n原生妙记纪要","chapters":[],"keywords":[],"transcript_file":"detail/transcript.txt"}}]}`),
+	})
 	replayed, err := adapter.Resume(
 		context.Background(),
 		request,
-		completed.Checkpoint,
+		waiting.Checkpoint,
 	)
 	require.NoError(t, err)
-	require.Equal(t, completed.MinutesSummary, replayed.MinutesSummary)
-	require.Equal(t, completed.Transcript, replayed.Transcript)
-	require.Equal(t, completed.Segments, replayed.Segments)
-	require.Len(t, runner.calls, 3)
+	require.Equal(t, ExternalProgressWaiting, replayed.Status)
+	require.Equal(t, feishuPhaseMinutesEnrichment, mustDecodeFeishuCheckpoint(t, replayed.Checkpoint).Phase)
+	require.Equal(t, waitingCheckpoint.EnrichmentDeadlineAt, mustDecodeFeishuCheckpoint(t, replayed.Checkpoint).EnrichmentDeadlineAt)
+	require.Len(t, runner.calls, 4)
+	assertNoFeishuWriteCommands(t, runner.calls[2:])
 }
 
 func TestFeishuMinutesAdapterPreservesLegacyCompletionWithoutV2Artifacts(t *testing.T) {
@@ -245,11 +233,11 @@ func TestFeishuMinutesAdapterWaitsForMissingAndTemporarilyEmptySummary(t *testin
 	require.NoError(t, err)
 	require.Equal(t, ExternalProgressWaiting, waiting.Status)
 
-	completed, err := adapter.Resume(context.Background(), request, checkpoint)
+	coreReady, err := adapter.Resume(context.Background(), request, checkpoint)
 	require.NoError(t, err)
-	require.Equal(t, ExternalProgressCompleted, completed.Status)
-	require.Contains(t, completed.MinutesSummary, "完整纪要")
-	require.Len(t, completed.Segments, 2)
+	require.Equal(t, ExternalProgressWaiting, coreReady.Status)
+	require.Equal(t, StepMinutesEnrichment, coreReady.CurrentStep)
+	require.Equal(t, feishuPhaseMinutesEnrichment, mustDecodeFeishuCheckpoint(t, coreReady.Checkpoint).Phase)
 }
 
 func TestFeishuMinutesAdapterRejectsTranscriptFormatDrift(t *testing.T) {
@@ -656,23 +644,39 @@ func TestFeishuMinutesAdapterCapturesReadOnlyNoteEnrichmentAfterCoreComplete(t *
 	require.Equal(t, "1.0.0", replayed.SkillVersions["lark-docs"])
 	require.Equal(t, "1.0.0", replayed.SkillVersions["lark-whiteboard"])
 	require.Len(t, runner.calls, 4)
+
+	completedCheckpoint := mustDecodeFeishuCheckpoint(t, completed.Checkpoint)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(workRoot, filepath.FromSlash(completedCheckpoint.EnrichmentRelativePath)),
+		[]byte("damaged snapshot"),
+		0o600,
+	))
+	damaged, err := adapter.Resume(context.Background(), request, completed.Checkpoint)
+	require.Error(t, err)
+	var adapterErr *AdapterError
+	require.ErrorAs(t, err, &adapterErr)
+	require.Equal(t, minutesEnrichmentSnapshotStoredCode, adapterErr.ErrorCode)
+	require.NotEqual(t, ExternalProgressCompleted, damaged.Status)
 }
 
-func TestFeishuMinutesAdapterKeepsCoreCompleteWhenEnhancementFails(t *testing.T) {
+func TestFeishuMinutesAdapterDoesNotCompleteUntilSourceNoteIsComplete(t *testing.T) {
 	cases := []struct {
-		name       string
-		steps      []scriptedLarkStep
-		diagnostic string
+		name           string
+		steps          []scriptedLarkStep
+		wantStatus     string
+		wantError      string
+		wantDiagnostic string
 	}{
 		{
-			name: "missing note_id still publishes chapters",
+			name: "missing note_id waits",
 			steps: []scriptedLarkStep{{
 				output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","artifacts":{"summary":"完整纪要","chapters":[{"start_time":0,"title":"开场","summary":"背景"}],"keywords":["主题"],"transcript_file":"detail/transcript.txt"}}]}`),
 				beforeReturn: writeCoreTranscript,
 			}},
+			wantStatus: ExternalProgressWaiting,
 		},
 		{
-			name: "empty note document",
+			name: "empty note document completes",
 			steps: []scriptedLarkStep{
 				{
 					output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","note_id":"note_empty_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
@@ -681,10 +685,10 @@ func TestFeishuMinutesAdapterKeepsCoreCompleteWhenEnhancementFails(t *testing.T)
 				{output: []byte(`{"note_doc_token":"docx_empty_123"}`)},
 				{output: []byte(`{"data":{"document":{"content":"<h1>总结</h1><p></p>"}}}`)},
 			},
+			wantStatus: ExternalProgressCompleted,
 		},
 		{
-			name:       "no permission",
-			diagnostic: "note_detail_unavailable",
+			name: "no permission fails",
 			steps: []scriptedLarkStep{
 				{
 					output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","note_id":"note_denied_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
@@ -696,10 +700,27 @@ func TestFeishuMinutesAdapterKeepsCoreCompleteWhenEnhancementFails(t *testing.T)
 					cause:    errors.New("exit status 1"),
 				}},
 			},
+			wantError:      "lark_permission_denied",
+			wantDiagnostic: "note_permission_unavailable",
 		},
 		{
-			name:       "command failure",
-			diagnostic: "note_detail_unavailable",
+			name: "expired login fails",
+			steps: []scriptedLarkStep{
+				{
+					output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","note_id":"note_expired_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
+					beforeReturn: writeCoreTranscript,
+				},
+				{err: &larkCommandError{
+					exitCode: 1,
+					stderr:   []byte(`{"ok":false,"error":{"type":"auth_expired","message":"login expired"}}`),
+					cause:    errors.New("exit status 1"),
+				}},
+			},
+			wantError:      "lark_auth_expired",
+			wantDiagnostic: "note_permission_unavailable",
+		},
+		{
+			name: "command failure waits",
 			steps: []scriptedLarkStep{
 				{
 					output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","note_id":"note_fail_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
@@ -707,22 +728,23 @@ func TestFeishuMinutesAdapterKeepsCoreCompleteWhenEnhancementFails(t *testing.T)
 				},
 				{err: errors.New("network down")},
 			},
+			wantStatus: ExternalProgressWaiting,
 		},
 		{
-			name:       "format drift",
-			diagnostic: "note_sections_unrecognized",
+			name: "format drift fails",
 			steps: []scriptedLarkStep{
 				{
 					output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","note_id":"note_drift_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
 					beforeReturn: writeCoreTranscript,
 				},
 				{output: []byte(`{"note_doc_token":"docx_drift_123"}`)},
-				{output: []byte(`{"data":{"document":{"content":"<weird><unknown-block token=\"abc\"/></weird>"}}}`)},
+				{output: []byte(`{"data":{"document":{"content":"<h1>未知模板</h1><p>不能当作成功</p>"}}}`)},
 			},
+			wantError:      minutesEnrichmentTemplateCode,
+			wantDiagnostic: "note_sections_unrecognized",
 		},
 		{
-			name:       "whiteboard export failure",
-			diagnostic: "whiteboard_unavailable",
+			name: "whiteboard export failure waits",
 			steps: []scriptedLarkStep{
 				{
 					output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","note_id":"note_board_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
@@ -732,6 +754,21 @@ func TestFeishuMinutesAdapterKeepsCoreCompleteWhenEnhancementFails(t *testing.T)
 				{output: []byte(`{"data":{"document":{"content":"<h1>总结</h1><whiteboard token=\"wbcn_board_fail\"/><h1>关键决策</h1><ul><li>继续推进</li></ul>"}}}`)},
 				{err: errors.New("export failed")},
 			},
+			wantStatus: ExternalProgressWaiting,
+		},
+		{
+			name: "whiteboard invalid image fails",
+			steps: []scriptedLarkStep{
+				{
+					output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","note_id":"note_board_invalid_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
+					beforeReturn: writeCoreTranscript,
+				},
+				{output: []byte(`{"note_doc_token":"docx_board_invalid_123"}`)},
+				{output: []byte(`{"data":{"document":{"content":"<h1>总结</h1><whiteboard token=\"wbcn_board_invalid\"/><h1>关键决策</h1><ul><li>继续推进</li></ul>"}}}`)},
+				{output: nil},
+			},
+			wantError:      minutesEnrichmentWhiteboardCode,
+			wantDiagnostic: "whiteboard_unavailable",
 		},
 	}
 	for _, testCase := range cases {
@@ -757,32 +794,38 @@ func TestFeishuMinutesAdapterKeepsCoreCompleteWhenEnhancementFails(t *testing.T)
 				MinuteURL:   "https://example.feishu.cn/minutes/obcn_core_123",
 			})
 			require.NoError(t, err)
-			completed, err := adapter.Resume(context.Background(), request, checkpoint)
-			require.NoError(t, err)
-			require.Equal(t, ExternalProgressCompleted, completed.Status)
-			require.Contains(t, completed.MinutesSummary, "完整纪要")
-			require.NotEmpty(t, completed.Transcript)
-			require.NotEmpty(t, completed.Segments)
+			progress, err := adapter.Resume(context.Background(), request, checkpoint)
+			if testCase.wantError != "" {
+				require.Error(t, err)
+				var adapterErr *AdapterError
+				require.True(t, errors.As(err, &adapterErr))
+				require.Equal(t, testCase.wantError, adapterErr.ErrorCode)
+				require.NotContains(t, adapterErr.SafeMessage, "note_")
+				require.NotContains(t, adapterErr.SafeMessage, "docx_")
+				require.NotContains(t, adapterErr.SafeMessage, "wbcn_")
+				require.Equal(t, ExternalProgressWaiting, progress.Status)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, testCase.wantStatus, progress.Status)
+			}
 			assertNoFeishuWriteCommands(t, runner.calls)
-			require.NotContains(t, string(mustJSON(t, completed.MinutesEnrichment)), "note_")
-			require.NotContains(t, string(mustJSON(t, completed.MinutesEnrichment)), "docx_")
-			require.NotContains(t, string(mustJSON(t, completed.MinutesEnrichment)), "wbcn_")
-			if testCase.diagnostic != "" {
+			require.NotContains(t, string(mustJSON(t, progress.MinutesEnrichment)), "note_")
+			require.NotContains(t, string(mustJSON(t, progress.MinutesEnrichment)), "docx_")
+			require.NotContains(t, string(mustJSON(t, progress.MinutesEnrichment)), "wbcn_")
+			if testCase.wantStatus == ExternalProgressCompleted {
+				require.Contains(t, progress.MinutesSummary, "完整纪要")
+				require.NotEmpty(t, progress.Transcript)
+				require.Empty(t, progress.MinutesEnrichment.Decisions)
+			}
+			if testCase.wantStatus == ExternalProgressWaiting {
+				require.Equal(t, StepMinutesEnrichment, progress.CurrentStep)
+				require.Equal(t, feishuPhaseMinutesEnrichment, mustDecodeFeishuCheckpoint(t, progress.Checkpoint).Phase)
+			}
+			if testCase.wantDiagnostic != "" {
 				require.Contains(
 					t,
-					string(completed.RawArtifacts[minutesEnrichmentDiagnosticFileName]),
-					testCase.diagnostic,
-				)
-				replayed, replayErr := adapter.Resume(
-					context.Background(),
-					request,
-					completed.Checkpoint,
-				)
-				require.NoError(t, replayErr)
-				require.Contains(
-					t,
-					string(replayed.RawArtifacts[minutesEnrichmentDiagnosticFileName]),
-					testCase.diagnostic,
+					string(progress.RawArtifacts[minutesEnrichmentDiagnosticFileName]),
+					testCase.wantDiagnostic,
 				)
 			}
 		})
@@ -828,32 +871,34 @@ func TestFeishuMinutesAdapterRetriesPendingNoteBeforePublishingCoreOnly(t *testi
 	require.NoError(t, err)
 	require.Equal(t, ExternalProgressWaiting, waiting.Status)
 	waitingCheckpoint := mustDecodeFeishuCheckpoint(t, waiting.Checkpoint)
-	require.Equal(t, feishuPhaseMinutesCreated, waitingCheckpoint.Phase)
-	require.Equal(t, 1, waitingCheckpoint.EnrichmentPendingAttempts)
+	require.Equal(t, feishuPhaseMinutesEnrichment, waitingCheckpoint.Phase)
+	require.NotEmpty(t, waitingCheckpoint.EnrichmentDeadlineAt)
 
 	completed, err := adapter.Resume(context.Background(), request, waiting.Checkpoint)
 	require.NoError(t, err)
 	require.Equal(t, ExternalProgressCompleted, completed.Status)
 	require.Equal(t, []string{"继续推进"}, completed.MinutesEnrichment.Decisions)
 	require.NotContains(t, completed.RawArtifacts, minutesEnrichmentDiagnosticFileName)
+	require.Equal(t, waitingCheckpoint.EnrichmentDeadlineAt, mustDecodeFeishuCheckpoint(t, completed.Checkpoint).EnrichmentDeadlineAt)
+	assertNoFeishuWriteCommands(t, runner.calls)
 }
 
-func TestFeishuMinutesAdapterBoundsPendingNoteAndPublishesCore(t *testing.T) {
+func TestFeishuMinutesAdapterTimesOutEnrichmentWaitWithoutPublishing(t *testing.T) {
 	workRoot := t.TempDir()
 	digest := strings.Repeat("4", 64)
 	minuteDetail := []byte(`{"minutes":[{"minute_token":"obcn_timeout_123","note_id":"note_timeout_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`)
-	steps := make([]scriptedLarkStep, 0, maxEnrichmentPendingAttempts*2)
-	for range maxEnrichmentPendingAttempts {
-		steps = append(steps,
-			scriptedLarkStep{output: minuteDetail, beforeReturn: writeCoreTranscript},
-			scriptedLarkStep{err: &larkCommandError{
-				exitCode: 1,
-				stderr:   []byte(`{"ok":false,"error":{"type":"not_ready","message":"note still processing"}}`),
-				cause:    errors.New("exit status 1"),
-			}},
-		)
+	pendingNote := &larkCommandError{
+		exitCode: 1,
+		stderr:   []byte(`{"ok":false,"error":{"type":"not_ready","message":"note still processing"}}`),
+		cause:    errors.New("exit status 1"),
 	}
-	runner := &scriptedLarkRunner{steps: steps}
+	runner := &scriptedLarkRunner{steps: []scriptedLarkStep{
+		{output: minuteDetail, beforeReturn: writeCoreTranscript},
+		{err: pendingNote},
+		{output: minuteDetail, beforeReturn: writeCoreTranscript},
+		{err: pendingNote},
+	}}
+	now := time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC)
 	adapter, err := newFeishuMinutesAdapterWithRunner(
 		runner,
 		workRoot,
@@ -862,6 +907,7 @@ func TestFeishuMinutesAdapterBoundsPendingNoteAndPublishesCore(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
+	adapter.now = func() time.Time { return now }
 	request, _ := feishuTestRequest(digest)
 	checkpoint, err := encodeFeishuCheckpoint(feishuCheckpoint{
 		Version:     feishuCheckpointVersion,
@@ -873,17 +919,28 @@ func TestFeishuMinutesAdapterBoundsPendingNoteAndPublishesCore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	progress := TranscriptionProgress{Checkpoint: checkpoint}
-	for attempt := 0; attempt < maxEnrichmentPendingAttempts; attempt++ {
-		progress, err = adapter.Resume(context.Background(), request, progress.Checkpoint)
-		require.NoError(t, err)
-	}
-	require.Equal(t, ExternalProgressCompleted, progress.Status)
-	require.Contains(
-		t,
-		string(progress.RawArtifacts[minutesEnrichmentDiagnosticFileName]),
-		"note_not_ready",
-	)
+	waiting, err := adapter.Resume(context.Background(), request, checkpoint)
+	require.NoError(t, err)
+	require.Equal(t, ExternalProgressWaiting, waiting.Status)
+	deadline := mustDecodeFeishuCheckpoint(t, waiting.Checkpoint).EnrichmentDeadlineAt
+
+	now = now.Add(29 * time.Minute)
+	stillWaiting, err := adapter.Resume(context.Background(), request, waiting.Checkpoint)
+	require.NoError(t, err)
+	require.Equal(t, ExternalProgressWaiting, stillWaiting.Status)
+	require.Equal(t, deadline, mustDecodeFeishuCheckpoint(t, stillWaiting.Checkpoint).EnrichmentDeadlineAt)
+
+	now = now.Add(2 * time.Minute)
+	timedOut, err := adapter.Resume(context.Background(), request, stillWaiting.Checkpoint)
+	require.Error(t, err)
+	var adapterErr *AdapterError
+	require.True(t, errors.As(err, &adapterErr))
+	require.Equal(t, minutesEnrichmentTimeoutCode, adapterErr.ErrorCode)
+	require.Equal(t, ExternalProgressWaiting, timedOut.Status)
+	require.Equal(t, feishuPhaseMinutesEnrichment, mustDecodeFeishuCheckpoint(t, timedOut.Checkpoint).Phase)
+	require.Equal(t, deadline, mustDecodeFeishuCheckpoint(t, timedOut.Checkpoint).EnrichmentDeadlineAt)
+	require.NotContains(t, adapterErr.SafeMessage, "note_timeout_123")
+	assertNoFeishuWriteCommands(t, runner.calls)
 }
 
 func writeCoreTranscript(cwd string) {

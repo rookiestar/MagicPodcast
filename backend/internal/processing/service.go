@@ -701,6 +701,11 @@ func processingActionSuggestion(
 		return "请等待飞书转写完成或检查妙记产物后重试。"
 	case externalWaitTimeoutCode:
 		return "请检查飞书妙记是否已生成完整纪要与逐字稿，确认后重试转写。"
+	}
+	if isMinutesEnrichmentResyncError(run.ErrorCode) {
+		return "可重新同步同一条妙记，不会重复上传音频或新建妙记。"
+	}
+	switch run.ErrorCode {
 	case artifactPublicReadLimitExceededCode:
 		return "生成产物超过公开读取上限；请缩短音频或确认妙记内容后重新转写。"
 	case artifactTextInvalidCode:
@@ -1324,6 +1329,13 @@ func (s *Service) RetryProcessingRun(
 			return fmt.Errorf("create processing retry: %w", err)
 		}
 		if checkpointErr == nil && !restartTranscription {
+			if isMinutesEnrichmentResyncError(source.ErrorCode) {
+				reset, resetErr := resetCopiedFeishuCheckpoint(checkpoint, now)
+				if resetErr != nil {
+					return ErrRetryUnsafe
+				}
+				checkpoint = reset
+			}
 			checkpoint.ID = 0
 			checkpoint.RunID = retry.ID
 			checkpoint.Run = models.EpisodeProcessingRun{}

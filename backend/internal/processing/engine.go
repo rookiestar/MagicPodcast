@@ -309,7 +309,7 @@ func (e *Engine) Advance(
 				"",
 			)
 		}
-		return e.persistExternalWait(runCtx, run.ID, progress.Checkpoint)
+		return e.persistExternalWait(runCtx, run.ID, progress.Checkpoint, progress.CurrentStep)
 	case ExternalProgressUnknown:
 		return e.handleStepError(
 			runCtx,
@@ -929,9 +929,14 @@ func (e *Engine) persistExternalWait(
 	ctx context.Context,
 	runID uint,
 	checkpoint json.RawMessage,
+	currentStep string,
 ) (models.EpisodeProcessingRun, error) {
 	durableCtx := context.WithoutCancel(ctx)
 	now := e.service.now().UTC()
+	step := strings.TrimSpace(currentStep)
+	if step == "" {
+		step = StepTranscription
+	}
 	err := e.service.db.WithContext(durableCtx).Transaction(func(tx *gorm.DB) error {
 		if err := e.upsertCheckpoint(
 			tx,
@@ -948,7 +953,7 @@ func (e *Engine) persistExternalWait(
 			Where("id = ? AND status = ?", runID, models.ProcessingRunStatusRunning).
 			Updates(map[string]any{
 				"status":       models.ProcessingRunStatusWaitingExternal,
-				"current_step": StepTranscription,
+				"current_step": step,
 				"updated_at":   now,
 			})
 		if update.Error != nil {
