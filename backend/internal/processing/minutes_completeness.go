@@ -148,25 +148,23 @@ func evaluateReadableNoteDocument(
 
 func firstUnparsedTargetSection(document string) (string, bool) {
 	sections := splitNoteSections(document)
+	quoteSection := firstNonEmptySection(sections, "金句时刻", "金句")
 	checks := []struct {
 		name  string
 		count int
+		raw   string
 	}{
-		{"关键决策", len(extractNoteDecisions(sections["关键决策"]))},
-		{"金句时刻", len(extractNoteQuotes(firstNonEmptySection(sections, "金句时刻", "金句")))},
-		{"相关链接", len(extractNoteLinks(firstNonEmptySection(sections, "相关链接", "相关外链")))},
-	}
-	rawByName := map[string]string{
-		"关键决策": sections["关键决策"],
-		"金句时刻": firstNonEmptySection(sections, "金句时刻", "金句"),
-		"相关链接": firstNonEmptySection(sections, "相关链接", "相关外链"),
+		{"关键决策", len(extractNoteDecisions(sections["关键决策"])), sections["关键决策"]},
+		{"金句时刻", len(extractNoteQuotes(quoteSection)), quoteSection},
+		{"相关链接", len(extractNoteLinks(sections["相关链接"])), sections["相关链接"]},
+		{"相关外链", len(extractNoteLinks(sections["相关外链"])), sections["相关外链"]},
 	}
 	for _, check := range checks {
-		raw := rawByName[check.name]
+		raw := check.raw
 		if strings.TrimSpace(raw) == "" {
 			continue
 		}
-		if check.name == "相关链接" {
+		if check.name == "相关链接" || check.name == "相关外链" {
 			if noteLinksSectionIsFullyAccounted(raw) {
 				continue
 			}
