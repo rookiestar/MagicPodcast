@@ -272,7 +272,11 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 		name := strings.ToLower(node.Data)
 		if name == "a" || name == "bookmark" {
 			href := strings.TrimSpace(noteLinkNodeAttribute(node, "href"))
-			if href == "" || noteLinkNodeHasUnsupportedDescendant(node) {
+			if href == "" {
+				return noteLinkNodeScan{}
+			}
+			_, public := sanitizePublicMinutesURL(href)
+			if noteLinkNodeHasUnsupportedDescendant(node, !public) {
 				return noteLinkNodeScan{}
 			}
 			return noteLinkNodeScan{
@@ -318,10 +322,10 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 	}
 }
 
-func noteLinkNodeHasUnsupportedDescendant(node *nethtml.Node) bool {
+func noteLinkNodeHasUnsupportedDescendant(node *nethtml.Node, inspectTextURLs bool) bool {
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
 		if child.Type == nethtml.TextNode {
-			if plainURLPattern.MatchString(strings.TrimSpace(child.Data)) {
+			if inspectTextURLs && plainURLPattern.MatchString(strings.TrimSpace(child.Data)) {
 				return true
 			}
 			continue
@@ -333,7 +337,7 @@ func noteLinkNodeHasUnsupportedDescendant(node *nethtml.Node) bool {
 		if name == "a" || name == "bookmark" || strings.TrimSpace(noteLinkNodeAttribute(child, "href")) != "" {
 			return true
 		}
-		if noteLinkNodeHasUnsupportedDescendant(child) {
+		if noteLinkNodeHasUnsupportedDescendant(child, inspectTextURLs) {
 			return true
 		}
 	}
