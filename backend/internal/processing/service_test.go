@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -636,6 +637,101 @@ func TestServiceRetryNativeMinutesCheckpointPolicy(t *testing.T) {
 				require.Equal(t, state, retryCheckpoints[0].StateJSON)
 				require.Equal(t, ExternalProgressCompleted, retryCheckpoints[0].Status)
 			}
+		})
+	}
+}
+
+func TestServiceRetryPreservesCompletedFeishuEnrichmentForNonResyncFailures(t *testing.T) {
+	testCases := []struct {
+		name      string
+		errorCode string
+	}{
+		{name: "artifact record failure", errorCode: "artifact_record_failed"},
+		{name: "runtime failure", errorCode: "runtime_unavailable"},
+		{name: "completed external cancellation", errorCode: cancellationExternalResultUnknown},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			db := openProcessingTestDB(t)
+			now := time.Date(2026, 8, 29, 13, 0, 0, 0, time.UTC)
+			service, resolver := newProcessingServiceWithResolver(
+				db,
+				WithClock(func() time.Time { return now }),
+			)
+			digest := strings.Repeat("a", 64)
+			resolver.Set(ProcessingInput{
+				AudioDigest:     digest,
+				PipelineVersion: NativeMinutesPipelineVersion,
+			})
+			episode := createProcessingEpisode(t, db, true, "native-minutes-complete-snapshot")
+			source := startProcessingRun(t, service, episode.ID)
+			state, err := encodeFeishuCheckpoint(feishuCheckpoint{
+				Version:                feishuCheckpointVersion,
+				Phase:                  feishuPhaseTranscriptStored,
+				AudioDigest:            digest,
+				FileToken:              "boxcn_complete_snapshot",
+				MinuteToken:            "obcn_complete_snapshot",
+				MinuteURL:              "https://example.feishu.cn/minutes/obcn_complete_snapshot",
+				TranscriptRelativePath: "run-1/minutes-transcript.txt",
+				DetailRelativePath:     "run-1/minutes-detail.json",
+				CoreReadyAt:            formatCheckpointTime(now.Add(-time.Hour)),
+				EnrichmentDeadlineAt:   formatCheckpointTime(now.Add(-30 * time.Minute)),
+				EnrichmentRelativePath: "run-1/minutes-enrichment.json",
+				EnrichmentSHA256:       strings.Repeat("b", 64),
+				WhiteboardRelativePath: "run-1/whiteboard-preview",
+				WhiteboardSHA256:       strings.Repeat("c", 64),
+				EnrichmentRawSHA256: map[string]string{
+					"note-detail.json":   strings.Repeat("d", 64),
+					"note-document.json": strings.Repeat("e", 64),
+				},
+			})
+			require.NoError(t, err)
+			stateHash := sha256.Sum256(state)
+			require.NoError(t, db.Create(&models.ProcessingCheckpoint{
+				RunID:          source.ID,
+				Step:           StepTranscription,
+				Adapter:        feishuMinutesAdapterName,
+				AdapterVersion: feishuMinutesAdapterVersion,
+				Status:         ExternalProgressCompleted,
+				StateJSON:      string(state),
+				StateHash:      hex.EncodeToString(stateHash[:]),
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			}).Error)
+			require.NoError(t, db.Model(&models.EpisodeProcessingRun{}).
+				Where("id = ?", source.ID).
+				Updates(map[string]any{
+					"status": func() string {
+						if testCase.errorCode == cancellationExternalResultUnknown {
+							return models.ProcessingRunStatusCancelled
+						}
+						return models.ProcessingRunStatusFailed
+					}(),
+					"error_code":      testCase.errorCode,
+					"error_message":   testCase.name,
+					"error_retryable": testCase.errorCode != cancellationExternalResultUnknown,
+					"finished_at":     now,
+					"updated_at":      now,
+				}).Error)
+
+			retry, err := service.RetryProcessingRun(context.Background(), source.ID)
+			require.NoError(t, err)
+			var copied models.ProcessingCheckpoint
+			require.NoError(t, db.Where(
+				"run_id = ? AND step = ?",
+				retry.Run.ID,
+				StepTranscription,
+			).First(&copied).Error)
+			require.Equal(t, string(state), copied.StateJSON)
+			require.Equal(t, hex.EncodeToString(stateHash[:]), copied.StateHash)
+			require.Equal(t, ExternalProgressCompleted, copied.Status)
+			copiedState, decodeErr := decodeFeishuCheckpoint(json.RawMessage(copied.StateJSON))
+			require.NoError(t, decodeErr)
+			require.Equal(t, feishuPhaseTranscriptStored, copiedState.Phase)
+			require.Equal(t, strings.Repeat("b", 64), copiedState.EnrichmentSHA256)
+			require.Equal(t, strings.Repeat("c", 64), copiedState.WhiteboardSHA256)
+			require.Equal(t, strings.Repeat("d", 64), copiedState.EnrichmentRawSHA256["note-detail.json"])
 		})
 	}
 }

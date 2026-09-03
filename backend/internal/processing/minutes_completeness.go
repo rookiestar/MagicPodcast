@@ -24,6 +24,24 @@ const (
 	minutesEnrichmentNoteUnreadableMsg = "Feishu intelligent minutes could not be read"
 )
 
+// isMinutesEnrichmentResyncError identifies failures for which an explicit
+// retry should discard the enrichment snapshot and read the mutable Feishu
+// Minute again. Other failures must keep a completed local snapshot intact.
+func isMinutesEnrichmentResyncError(code string) bool {
+	switch strings.TrimSpace(code) {
+	case minutesEnrichmentTimeoutCode,
+		minutesEnrichmentTemplateCode,
+		minutesEnrichmentSectionCode,
+		minutesEnrichmentWhiteboardCode,
+		minutesEnrichmentNoteUnreadableCode,
+		minutesEnrichmentSnapshotWriteCode,
+		minutesEnrichmentSnapshotStoredCode:
+		return true
+	default:
+		return false
+	}
+}
+
 type minutesEnrichmentDecision struct {
 	Complete   bool
 	Wait       bool
