@@ -700,7 +700,23 @@ func TestFeishuMinutesAdapterDoesNotCompleteUntilSourceNoteIsComplete(t *testing
 					cause:    errors.New("exit status 1"),
 				}},
 			},
-			wantError:      minutesEnrichmentNoteUnreadableCode,
+			wantError:      "lark_permission_denied",
+			wantDiagnostic: "note_permission_unavailable",
+		},
+		{
+			name: "expired login fails",
+			steps: []scriptedLarkStep{
+				{
+					output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","note_id":"note_expired_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
+					beforeReturn: writeCoreTranscript,
+				},
+				{err: &larkCommandError{
+					exitCode: 1,
+					stderr:   []byte(`{"ok":false,"error":{"type":"auth_expired","message":"login expired"}}`),
+					cause:    errors.New("exit status 1"),
+				}},
+			},
+			wantError:      "lark_auth_expired",
 			wantDiagnostic: "note_permission_unavailable",
 		},
 		{
@@ -739,6 +755,20 @@ func TestFeishuMinutesAdapterDoesNotCompleteUntilSourceNoteIsComplete(t *testing
 				{err: errors.New("export failed")},
 			},
 			wantStatus: ExternalProgressWaiting,
+		},
+		{
+			name: "whiteboard invalid image fails",
+			steps: []scriptedLarkStep{
+				{
+					output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","note_id":"note_board_invalid_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
+					beforeReturn: writeCoreTranscript,
+				},
+				{output: []byte(`{"note_doc_token":"docx_board_invalid_123"}`)},
+				{output: []byte(`{"data":{"document":{"content":"<h1>总结</h1><whiteboard token=\"wbcn_board_invalid\"/><h1>关键决策</h1><ul><li>继续推进</li></ul>"}}}`)},
+				{output: nil},
+			},
+			wantError:      minutesEnrichmentWhiteboardCode,
+			wantDiagnostic: "whiteboard_unavailable",
 		},
 	}
 	for _, testCase := range cases {

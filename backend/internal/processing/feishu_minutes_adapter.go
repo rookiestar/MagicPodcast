@@ -40,6 +40,8 @@ const (
 
 var larkTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{4,512}$`)
 
+var errWhiteboardPreviewInvalid = errors.New("whiteboard preview validation failed")
+
 type ReadyAudioLookup func(
 	context.Context,
 	uint,
@@ -1341,19 +1343,24 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 		}
 		mapped, _ := classifyLarkCommandError(noteErr)
 		diagnostic := "note_detail_unavailable"
+		decision := minutesEnrichmentDecision{
+			Code:       minutesEnrichmentNoteUnreadableCode,
+			Message:    minutesEnrichmentNoteUnreadableMsg,
+			Diagnostic: diagnostic,
+		}
 		var adapterErr *AdapterError
 		if errors.As(mapped, &adapterErr) {
 			switch adapterErr.ErrorCode {
 			case "lark_permission_denied", "lark_auth_expired":
 				diagnostic = "note_permission_unavailable"
+				decision.Code = adapterErr.ErrorCode
+				decision.Message = adapterErr.SafeMessage
+				decision.Retryable = adapterErr.CanRetry
 			}
 		}
 		progress = addMinutesEnrichmentDiagnostic(progress, diagnostic)
-		return progress, minutesEnrichmentDecision{
-			Code:       minutesEnrichmentNoteUnreadableCode,
-			Message:    minutesEnrichmentNoteUnreadableMsg,
-			Diagnostic: diagnostic,
-		}
+		decision.Diagnostic = diagnostic
+		return progress, decision
 	}
 	progress.RawArtifacts = cloneByteMap(progress.RawArtifacts)
 	progress.RawArtifacts["note-detail.json"] = append([]byte(nil), noteOutput...)
@@ -1420,7 +1427,8 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 			}
 			whiteboardCaptured = true
 		} else {
-			whiteboardWaitable = minutesErrorIsWaitable(captureErr)
+			whiteboardWaitable = !errors.Is(captureErr, errWhiteboardPreviewInvalid) &&
+				minutesErrorIsWaitable(captureErr)
 			progress = addMinutesEnrichmentDiagnostic(progress, "whiteboard_unavailable")
 		}
 	}
@@ -1474,14 +1482,18 @@ func (a *FeishuMinutesAdapter) captureWhiteboardPreview(
 	if err != nil {
 		matches, matchErr := filepath.Glob(filepath.Join(runDirectory, outputName+".*"))
 		if matchErr != nil || len(matches) == 0 {
-			return ManagedImage{}, err
+			return ManagedImage{}, fmt.Errorf("%w: %v", errWhiteboardPreviewInvalid, err)
 		}
 		content, err = readBoundedRegularFile(matches[0], maxWhiteboardPreviewBytes)
 		if err != nil {
-			return ManagedImage{}, err
+			return ManagedImage{}, fmt.Errorf("%w: %v", errWhiteboardPreviewInvalid, err)
 		}
 	}
-	return sniffManagedImage(content)
+	preview, err := sniffManagedImage(content)
+	if err != nil {
+		return ManagedImage{}, fmt.Errorf("%w: %v", errWhiteboardPreviewInvalid, err)
+	}
+	return preview, nil
 }
 
 func (a *FeishuMinutesAdapter) persistCompletedEnrichment(
