@@ -147,6 +147,9 @@ func evaluateReadableNoteDocument(
 }
 
 func firstUnparsedTargetSection(document string) (string, bool) {
+	if name, duplicate := duplicateRelatedLinkSection(document); duplicate {
+		return name, true
+	}
 	sections := splitNoteSections(document)
 	quoteSection := firstNonEmptySection(sections, "金句时刻", "金句")
 	checks := []struct {
@@ -181,6 +184,24 @@ func firstUnparsedTargetSection(document string) (string, bool) {
 			continue
 		}
 		return check.name, true
+	}
+	return "", false
+}
+
+func duplicateRelatedLinkSection(document string) (string, bool) {
+	counts := make(map[string]int)
+	for _, loc := range headingSplitPattern.FindAllStringSubmatchIndex(document, -1) {
+		if len(loc) < 6 {
+			continue
+		}
+		name := normalizeNoteHeading(stripXMLTags(document[loc[4]:loc[5]]))
+		if name != "相关链接" && name != "相关外链" {
+			continue
+		}
+		counts[name]++
+		if counts[name] > 1 {
+			return name, true
+		}
 	}
 	return "", false
 }

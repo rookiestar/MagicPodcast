@@ -77,6 +77,18 @@ func TestEvaluateReadableNoteDocumentValidatesRelatedLinkAliases(t *testing.T) {
 	require.Equal(t, "note_section_unparsed:相关外链", decision.Diagnostic)
 }
 
+func TestEvaluateReadableNoteDocumentRejectsDuplicateRelatedLinkSections(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://bytedance.larkoffice.com/docx/internal">内部</a></p><h1>相关链接</h1><p><a href="https://example.com/guide">指南</a></p>`,
+		"",
+		false,
+		false,
+	)
+	require.False(t, decision.Complete)
+	require.Equal(t, minutesEnrichmentSectionCode, decision.Code)
+	require.Equal(t, "note_section_unparsed:相关链接", decision.Diagnostic)
+}
+
 func TestEvaluateReadableNoteDocumentAllowsPublicURLLabel(t *testing.T) {
 	decision := evaluateReadableNoteDocument(
 		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://example.com/guide">https://example.com/guide</a></p>`,
