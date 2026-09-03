@@ -424,7 +424,8 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 				return noteLinkNodeScan{}
 			}
 			_, public := sanitizePublicMinutesURL(href)
-			if (!public && plainURLPattern.MatchString(noteLinkNodeText(node))) ||
+			visible := strings.TrimSpace(noteLinkNodeText(node))
+			if (!public && plainURLPattern.MatchString(visible) && visible != href) ||
 				noteLinkNodeHasUnsupportedDescendant(node) {
 				return noteLinkNodeScan{}
 			}
