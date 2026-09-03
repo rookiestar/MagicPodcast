@@ -196,6 +196,51 @@ func (s *DiskArtifactStore) Publish(
 		files = append(files, artifactFile{Path: "episode-notes.md", SHA256: notesHash})
 	}
 
+	if request.NativeMinutes {
+		enrichment := request.MinutesEnrichment.Public()
+		if enrichment.Whiteboard != nil {
+			preview, sniffErr := sniffManagedImage(request.WhiteboardPreview)
+			if sniffErr != nil ||
+				!validMinutesWhiteboard(*enrichment.Whiteboard) ||
+				preview.MediaType != enrichment.Whiteboard.MediaType ||
+				digestBytes(preview.Bytes) != enrichment.Whiteboard.SHA256 {
+				enrichment.Whiteboard = nil
+			} else {
+				if err := os.Mkdir(filepath.Join(stagingPath, "media"), 0o700); err != nil {
+					return ArtifactPublishResult{}, fmt.Errorf("create artifact media directory: %w", err)
+				}
+				mediaPath := filepath.Join("media", enrichment.Whiteboard.MediaID)
+				mediaHash, writeErr := writeArtifactFile(stagingPath, mediaPath, preview.Bytes)
+				if writeErr != nil {
+					return ArtifactPublishResult{}, writeErr
+				}
+				if mediaHash != enrichment.Whiteboard.SHA256 {
+					return ArtifactPublishResult{}, fmt.Errorf("%w: whiteboard digest mismatch", ErrInvalidArtifact)
+				}
+				files = append(files, artifactFile{
+					Path: filepath.ToSlash(mediaPath), SHA256: mediaHash,
+				})
+			}
+		}
+		enrichmentBytes, encodeErr := encodeMinutesEnrichment(enrichment)
+		if encodeErr != nil {
+			return ArtifactPublishResult{}, fmt.Errorf("encode minutes enrichment: %w", encodeErr)
+		}
+		if len(enrichmentBytes) > 0 {
+			enrichmentHash, writeErr := writeReadableArtifactFile(
+				stagingPath,
+				minutesEnrichmentFileName,
+				enrichmentBytes,
+			)
+			if writeErr != nil {
+				return ArtifactPublishResult{}, writeErr
+			}
+			files = append(files, artifactFile{
+				Path: minutesEnrichmentFileName, SHA256: enrichmentHash,
+			})
+		}
+	}
+
 	rawRoot := filepath.Join(stagingPath, "raw")
 	if err := os.Mkdir(rawRoot, 0o700); err != nil {
 		return ArtifactPublishResult{}, fmt.Errorf("create raw artifact directory: %w", err)
@@ -429,6 +474,10 @@ func (s *DiskArtifactStore) ReadText(
 		return ArtifactContent{}, fmt.Errorf("%w: artifact content failed integrity validation", ErrInvalidArtifact)
 	}
 	result := ArtifactContent{Kind: kind, Content: string(content), SHA256: expectedHash}
+	if kind == "minutes_summary" {
+		attachMinutesEnrichment(&result, root, manifest)
+		return result, nil
+	}
 	if kind != "transcript" || artifact.TranscriptTimelineSHA256 == "" {
 		return result, nil
 	}
@@ -455,6 +504,157 @@ func (s *DiskArtifactStore) ReadText(
 	result.Segments = timeline.Segments
 	result.TimelineSHA256 = artifact.TranscriptTimelineSHA256
 	return result, nil
+}
+
+func attachMinutesEnrichment(
+	result *ArtifactContent,
+	root string,
+	manifest artifactManifest,
+) {
+	if result == nil {
+		return
+	}
+	if hash := manifestFileHash(manifest, minutesEnrichmentFileName); sha256Pattern.MatchString(hash) {
+		raw, err := readRegularFile(filepath.Join(root, minutesEnrichmentFileName), maxArtifactTextBytes)
+		if err == nil && digestBytes(raw) == hash {
+			if enrichment, decodeErr := decodeMinutesEnrichment(raw); decodeErr == nil {
+				applyMinutesEnrichment(result, enrichment)
+				return
+			}
+		}
+	}
+	if restored, ok := restoreChaptersFromRawDetail(root, manifest); ok {
+		applyMinutesEnrichment(result, restored)
+	}
+}
+
+func applyMinutesEnrichment(result *ArtifactContent, enrichment MinutesEnrichment) {
+	if result == nil {
+		return
+	}
+	normalized := enrichment.Public()
+	result.Chapters = normalized.Chapters
+	result.Keywords = normalized.Keywords
+	result.Decisions = normalized.Decisions
+	result.Quotes = normalized.Quotes
+	result.Links = normalized.Links
+	result.Whiteboard = normalized.Whiteboard
+}
+
+func restoreChaptersFromRawDetail(
+	root string,
+	manifest artifactManifest,
+) (MinutesEnrichment, bool) {
+	hash := manifestFileHash(manifest, "raw/minutes-detail.json")
+	if !sha256Pattern.MatchString(hash) {
+		return MinutesEnrichment{}, false
+	}
+	raw, err := readRegularFile(filepath.Join(root, "raw", "minutes-detail.json"), maxArtifactTextBytes)
+	if err != nil || digestBytes(raw) != hash {
+		return MinutesEnrichment{}, false
+	}
+	detail, found := parseAnyMinuteDetail(raw)
+	if !found {
+		return MinutesEnrichment{}, false
+	}
+	restored := MinutesEnrichment{
+		Chapters: detail.Chapters,
+		Keywords: detail.Keywords,
+	}.Public()
+	if restored.Empty() {
+		return MinutesEnrichment{}, false
+	}
+	return restored, true
+}
+
+func parseAnyMinuteDetail(raw []byte) (minuteDetail, bool) {
+	var decoded minuteDetailOutput
+	if err := strictJSONDecode(raw, &decoded); err != nil {
+		return minuteDetail{}, false
+	}
+	entries := decoded.Minutes
+	if len(entries) == 0 {
+		entries = decoded.Data.Minutes
+	}
+	if len(entries) == 0 {
+		entries = decoded.Result.Minutes
+	}
+	if len(entries) == 0 {
+		return minuteDetail{}, false
+	}
+	entry := entries[0]
+	return minuteDetail{
+		MinuteToken: entry.MinuteToken,
+		NoteID:      strings.TrimSpace(entry.NoteID),
+		Chapters:    parseMinutesChapters(entry.Artifacts.Chapters),
+		Keywords:    parseMinutesKeywords(entry.Artifacts.Keywords),
+	}, true
+}
+
+func (s *DiskArtifactStore) ReadMedia(
+	ctx context.Context,
+	artifact models.EpisodeArtifactSet,
+	mediaID string,
+) (ArtifactMedia, error) {
+	if err := ctx.Err(); err != nil {
+		return ArtifactMedia{}, err
+	}
+	if !mediaIDPattern.MatchString(mediaID) {
+		return ArtifactMedia{}, fmt.Errorf("%w: media identity is invalid", ErrInvalidArtifact)
+	}
+	content, err := s.ReadText(ctx, artifact, "minutes_summary")
+	if err != nil {
+		return ArtifactMedia{}, err
+	}
+	if content.Whiteboard == nil || content.Whiteboard.MediaID != mediaID {
+		return ArtifactMedia{}, fmt.Errorf("%w: media identity is unknown", ErrInvalidArtifact)
+	}
+	root := filepath.Clean(artifact.RootPath)
+	relativeName := filepath.Join("media", mediaID)
+	if pathEscapesRoot(relativeName) {
+		return ArtifactMedia{}, fmt.Errorf("%w: media path escaped root", ErrInvalidArtifact)
+	}
+	fullPath := filepath.Join(root, relativeName)
+	info, err := os.Lstat(fullPath)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return ArtifactMedia{}, fmt.Errorf("%w: media file is unavailable", ErrInvalidArtifact)
+	}
+	if info.Size() < 0 || info.Size() > maxWhiteboardPreviewBytes {
+		return ArtifactMedia{}, fmt.Errorf("%w: media file exceeds the read limit", ErrInvalidArtifact)
+	}
+	canonical, err := filepath.EvalSymlinks(fullPath)
+	if err != nil || filepath.Clean(canonical) != filepath.Clean(fullPath) {
+		return ArtifactMedia{}, fmt.Errorf("%w: media file is not canonical", ErrInvalidArtifact)
+	}
+	body, err := readRegularFile(fullPath, maxWhiteboardPreviewBytes)
+	if err != nil {
+		return ArtifactMedia{}, err
+	}
+	sniffed, err := sniffManagedImage(body)
+	if err != nil ||
+		sniffed.MediaType != content.Whiteboard.MediaType ||
+		digestBytes(sniffed.Bytes) != content.Whiteboard.SHA256 {
+		return ArtifactMedia{}, fmt.Errorf("%w: media file failed integrity validation", ErrInvalidArtifact)
+	}
+	manifestBytes, err := readRegularFile(filepath.Join(root, artifact.ManifestPath), maxArtifactTextBytes)
+	if err != nil {
+		return ArtifactMedia{}, err
+	}
+	var manifest artifactManifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		return ArtifactMedia{}, fmt.Errorf("%w: manifest identity mismatch", ErrInvalidArtifact)
+	}
+	if manifestFileHash(manifest, filepath.ToSlash(relativeName)) != content.Whiteboard.SHA256 {
+		return ArtifactMedia{}, fmt.Errorf("%w: media digest mismatch", ErrInvalidArtifact)
+	}
+	return ArtifactMedia{
+		MediaID:   mediaID,
+		MediaType: sniffed.MediaType,
+		SHA256:    content.Whiteboard.SHA256,
+		Width:     sniffed.Width,
+		Height:    sniffed.Height,
+		Body:      sniffed.Bytes,
+	}, nil
 }
 
 func manifestFileHash(manifest artifactManifest, name string) string {

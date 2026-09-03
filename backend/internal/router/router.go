@@ -100,6 +100,7 @@ func SetupRouter(options ...Option) *gin.Engine {
 		gzip.DefaultCompression,
 		gzip.WithExcludedPathsRegexs([]string{
 			`^/api/v1/artifact-sets/[1-9][0-9]*/audio$`,
+			`^/api/v1/artifact-sets/[1-9][0-9]*/media/[^/]+$`,
 		}),
 	)) // Gzip 压缩；受管媒体保持原始字节与 Range 语义
 	r.Use(middleware.CORS()) // CORS 跨域支持
@@ -201,6 +202,7 @@ func SetupRouter(options ...Option) *gin.Engine {
 		v1.GET("/processing-runs/:id", processingHandler.Get)
 		v1.POST("/processing-runs/:id/cancel", processingHandler.Cancel)
 		v1.POST("/processing-runs/:id/retry", processingHandler.Retry)
+		v1.GET("/artifact-sets/:id/media/:mediaId", processingHandler.GetArtifactMedia)
 		v1.GET("/artifact-sets/:id/:kind", processingHandler.GetArtifactContent)
 		v1.POST("/artifact-sets/:id/audio/recovery", processingHandler.RecoverArtifactAudio)
 		v1.HEAD("/artifact-sets/:id/audio", processingHandler.GetArtifactAudio)

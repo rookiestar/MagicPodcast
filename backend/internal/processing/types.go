@@ -88,14 +88,16 @@ type TranscriptionRequest struct {
 }
 
 type TranscriptionProgress struct {
-	Status         string
-	Checkpoint     json.RawMessage
-	MinutesSummary string
-	Transcript     string
-	Segments       []TranscriptSegment
-	RawArtifacts   map[string][]byte
-	SourceRefs     map[string]string
-	SkillVersions  map[string]string
+	Status            string
+	Checkpoint        json.RawMessage
+	MinutesSummary    string
+	Transcript        string
+	Segments          []TranscriptSegment
+	MinutesEnrichment MinutesEnrichment
+	WhiteboardPreview []byte
+	RawArtifacts      map[string][]byte
+	SourceRefs        map[string]string
+	SkillVersions     map[string]string
 }
 
 type TranscriptSegment struct {
@@ -160,6 +162,8 @@ type ArtifactPublishRequest struct {
 	MinutesSummary       string
 	Transcript           string
 	TranscriptSegments   []TranscriptSegment
+	MinutesEnrichment    MinutesEnrichment
+	WhiteboardPreview    []byte
 	EpisodeNotes         string
 	TranscriptionAdapter string
 	TranscriptionVersion string
@@ -196,6 +200,25 @@ type ArtifactContent struct {
 	TimelineSHA256 string                `json:"timeline_sha256,omitempty"`
 	MediaAvailable bool                  `json:"media_available"`
 	AudioRecovery  *AudioRecoverySummary `json:"audio_recovery,omitempty"`
+	Chapters       []MinutesChapter      `json:"chapters,omitempty"`
+	Keywords       []string              `json:"keywords,omitempty"`
+	Decisions      []string              `json:"decisions,omitempty"`
+	Quotes         []MinutesQuote        `json:"quotes,omitempty"`
+	Links          []MinutesLink         `json:"links,omitempty"`
+	Whiteboard     *MinutesWhiteboard    `json:"whiteboard,omitempty"`
+}
+
+type ArtifactMedia struct {
+	MediaID   string
+	MediaType string
+	SHA256    string
+	Width     int
+	Height    int
+	Body      []byte
+}
+
+type ArtifactMediaReader interface {
+	ReadMedia(context.Context, models.EpisodeArtifactSet, string) (ArtifactMedia, error)
 }
 
 // ArtifactReader exposes only normalized public documents from an already

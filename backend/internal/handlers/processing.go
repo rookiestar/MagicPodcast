@@ -312,6 +312,16 @@ func (h *ProcessingHandler) GetArtifactContent(c *gin.Context) {
 		h.GetArtifactAudio(c)
 		return
 	}
+	if c.Param("kind") == "media" {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "ARTIFACT_INVALID",
+				"message": "artifact media identity is required",
+			},
+		})
+		return
+	}
 	artifactSetID, ok := ParseUintParam(c, "id")
 	if !ok {
 		return
@@ -345,6 +355,46 @@ func (h *ProcessingHandler) GetArtifactContent(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": content})
+}
+
+func (h *ProcessingHandler) GetArtifactMedia(c *gin.Context) {
+	artifactSetID, ok := ParseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	media, err := h.service.GetArtifactMedia(
+		c.Request.Context(),
+		artifactSetID,
+		c.Param("mediaId"),
+	)
+	switch {
+	case errors.Is(err, processing.ErrArtifactNotFound):
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "ARTIFACT_NOT_FOUND",
+				"message": "artifact set not found",
+			},
+		})
+		return
+	case errors.Is(err, processing.ErrInvalidArtifact):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "ARTIFACT_INVALID",
+				"message": "artifact media failed integrity validation",
+			},
+		})
+		return
+	case err != nil:
+		middleware.InternalErrorResponseWithCode(c, "ARTIFACT_MEDIA_READ_FAILED", "Failed to read artifact media")
+		return
+	}
+	c.Header("Cache-Control", "private, no-store")
+	c.Header("Content-Type", media.MediaType)
+	c.Header("Cross-Origin-Resource-Policy", "same-origin")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Data(http.StatusOK, media.MediaType, media.Body)
 }
 
 func (h *ProcessingHandler) GetArtifactAudio(c *gin.Context) {

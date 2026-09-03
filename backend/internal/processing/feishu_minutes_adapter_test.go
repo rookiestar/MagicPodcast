@@ -1,9 +1,12 @@
 package processing
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -558,6 +561,262 @@ func TestFeishuMinutesAdapterRejectsTranscriptTraversal(t *testing.T) {
 	var adapterErr *AdapterError
 	require.ErrorAs(t, err, &adapterErr)
 	require.Equal(t, "lark_protocol_error", adapterErr.ErrorCode)
+}
+
+func TestFeishuMinutesAdapterCapturesReadOnlyNoteEnrichmentAfterCoreComplete(t *testing.T) {
+	workRoot := t.TempDir()
+	digest := strings.Repeat("1", 64)
+	var pngBuf []byte
+	pngBuf = mustTestPNG(t)
+	runner := &scriptedLarkRunner{steps: []scriptedLarkStep{
+		{
+			output: []byte(`{"minutes":[{"minute_token":"obcn_rich_123","note_id":"note_abc_123","artifacts":{"summary":"完整纪要","chapters":[{"start_time":1500,"end_time":9000,"title":"开场","summary":"介绍背景"}],"keywords":["AI","产品"],"transcript_file":"detail/transcript.txt"}}]}`),
+			beforeReturn: func(cwd string) {
+				require.NoError(t, os.MkdirAll(filepath.Join(cwd, "detail"), 0o700))
+				require.NoError(t, os.WriteFile(
+					filepath.Join(cwd, "detail", "transcript.txt"),
+					[]byte("张三 00:00:01.500\n开场\n"),
+					0o600,
+				))
+			},
+		},
+		{output: []byte(`{"note_doc_token":"docx_note_123"}`)},
+		{output: []byte(`{"data":{"document":{"content":"<h1>总结</h1><whiteboard token=\"wbcn_board_123\"/><h1>关键决策</h1><ul><li>采用方案 A</li></ul><h1>金句时刻</h1><blockquote>长期主义</blockquote><p>节奏说明</p><h1>相关链接</h1><p><a href=\"https://example.com/guide\">指南</a></p><p><a href=\"https://feishu.cn/minutes/secret\">内部</a></p>"}}}`)},
+		{
+			output: []byte(`{"ok":true}`),
+			beforeReturn: func(cwd string) {
+				require.NoError(t, os.WriteFile(filepath.Join(cwd, "whiteboard-preview"), pngBuf, 0o600))
+			},
+		},
+	}}
+	adapter, err := newFeishuMinutesAdapterWithRunner(
+		runner,
+		workRoot,
+		func(context.Context, uint) (string, string, error) {
+			return "", "", errors.New("unused")
+		},
+	)
+	require.NoError(t, err)
+	request, _ := feishuTestRequest(digest)
+	checkpoint, err := encodeFeishuCheckpoint(feishuCheckpoint{
+		Version:     feishuCheckpointVersion,
+		Phase:       feishuPhaseMinutesCreated,
+		AudioDigest: digest,
+		FileToken:   "boxcn_rich_123",
+		MinuteToken: "obcn_rich_123",
+		MinuteURL:   "https://example.feishu.cn/minutes/obcn_rich_123",
+	})
+	require.NoError(t, err)
+
+	completed, err := adapter.Resume(context.Background(), request, checkpoint)
+	require.NoError(t, err)
+	require.Equal(t, ExternalProgressCompleted, completed.Status)
+	require.Contains(t, completed.MinutesSummary, "完整纪要")
+	require.Len(t, completed.Segments, 1)
+	require.Equal(t, []MinutesChapter{{
+		Order: 1, StartMS: 1500, EndMS: 9000, Title: "开场", Summary: "介绍背景",
+	}}, completed.MinutesEnrichment.Chapters)
+	require.Equal(t, []string{"AI", "产品"}, completed.MinutesEnrichment.Keywords)
+	require.Equal(t, []string{"采用方案 A"}, completed.MinutesEnrichment.Decisions)
+	require.Equal(t, []MinutesQuote{{Quote: "长期主义", Explanation: "节奏说明"}}, completed.MinutesEnrichment.Quotes)
+	require.Equal(t, []MinutesLink{{Title: "指南", URL: "https://example.com/guide"}}, completed.MinutesEnrichment.Links)
+	require.NotNil(t, completed.MinutesEnrichment.Whiteboard)
+	require.Equal(t, minutesWhiteboardMediaID, completed.MinutesEnrichment.Whiteboard.MediaID)
+	require.Equal(t, "image/png", completed.MinutesEnrichment.Whiteboard.MediaType)
+	require.NotEmpty(t, completed.WhiteboardPreview)
+	require.Contains(t, completed.RawArtifacts, "note-detail.json")
+	require.Contains(t, completed.RawArtifacts, "note-document.json")
+	require.NotContains(t, string(mustJSON(t, completed.MinutesEnrichment)), "note_abc_123")
+	require.NotContains(t, string(mustJSON(t, completed.MinutesEnrichment)), "docx_note_123")
+	require.NotContains(t, string(mustJSON(t, completed.MinutesEnrichment)), "wbcn_board_123")
+	require.NotContains(t, string(mustJSON(t, completed.MinutesEnrichment)), "obcn_rich_123")
+	require.Len(t, runner.calls, 4)
+	require.Equal(t, []string{
+		"note", "+detail", "--note-id", "note_abc_123", "--as", "user", "--format", "json",
+	}, runner.calls[1].args)
+	require.Equal(t, []string{
+		"docs", "+fetch", "--doc", "docx_note_123", "--doc-format", "xml", "--detail", "full",
+		"--as", "user", "--format", "json",
+	}, runner.calls[2].args)
+	require.Equal(t, []string{
+		"whiteboard", "+query", "--whiteboard-token", "wbcn_board_123",
+		"--output_as", "image", "--output", "./whiteboard-preview", "--overwrite", "--as", "user",
+	}, runner.calls[3].args)
+	assertNoFeishuWriteCommands(t, runner.calls[1:])
+
+	replayed, err := adapter.Resume(context.Background(), request, completed.Checkpoint)
+	require.NoError(t, err)
+	require.Equal(t, completed.MinutesSummary, replayed.MinutesSummary)
+	require.Equal(t, completed.MinutesEnrichment.Chapters, replayed.MinutesEnrichment.Chapters)
+	require.Equal(t, completed.MinutesEnrichment.Keywords, replayed.MinutesEnrichment.Keywords)
+	require.Len(t, runner.calls, 4)
+}
+
+func TestFeishuMinutesAdapterKeepsCoreCompleteWhenEnhancementFails(t *testing.T) {
+	cases := []struct {
+		name  string
+		steps []scriptedLarkStep
+	}{
+		{
+			name: "missing note_id still publishes chapters",
+			steps: []scriptedLarkStep{{
+				output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","artifacts":{"summary":"完整纪要","chapters":[{"start_time":0,"title":"开场","summary":"背景"}],"keywords":["主题"],"transcript_file":"detail/transcript.txt"}}]}`),
+				beforeReturn: writeCoreTranscript,
+			}},
+		},
+		{
+			name: "empty note document",
+			steps: []scriptedLarkStep{
+				{
+					output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","note_id":"note_empty_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
+					beforeReturn: writeCoreTranscript,
+				},
+				{output: []byte(`{"note_doc_token":"docx_empty_123"}`)},
+				{output: []byte(`{"data":{"document":{"content":"<h1>总结</h1><p></p>"}}}`)},
+			},
+		},
+		{
+			name: "note waiting",
+			steps: []scriptedLarkStep{
+				{
+					output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","note_id":"note_wait_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
+					beforeReturn: writeCoreTranscript,
+				},
+				{err: &larkCommandError{
+					exitCode: 1,
+					stderr:   []byte(`{"ok":false,"error":{"type":"not_ready","message":"note still processing"}}`),
+					cause:    errors.New("exit status 1"),
+				}},
+			},
+		},
+		{
+			name: "no permission",
+			steps: []scriptedLarkStep{
+				{
+					output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","note_id":"note_denied_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
+					beforeReturn: writeCoreTranscript,
+				},
+				{err: &larkCommandError{
+					exitCode: 1,
+					stderr:   []byte(`{"ok":false,"error":{"type":"permission_denied","message":"no permission"}}`),
+					cause:    errors.New("exit status 1"),
+				}},
+			},
+		},
+		{
+			name: "command failure",
+			steps: []scriptedLarkStep{
+				{
+					output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","note_id":"note_fail_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
+					beforeReturn: writeCoreTranscript,
+				},
+				{err: errors.New("network down")},
+			},
+		},
+		{
+			name: "format drift",
+			steps: []scriptedLarkStep{
+				{
+					output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","note_id":"note_drift_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
+					beforeReturn: writeCoreTranscript,
+				},
+				{output: []byte(`{"note_doc_token":"docx_drift_123"}`)},
+				{output: []byte(`{"data":{"document":{"content":"<weird><unknown-block token=\"abc\"/></weird>"}}}`)},
+			},
+		},
+		{
+			name: "whiteboard export failure",
+			steps: []scriptedLarkStep{
+				{
+					output:       []byte(`{"minutes":[{"minute_token":"obcn_core_123","note_id":"note_board_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
+					beforeReturn: writeCoreTranscript,
+				},
+				{output: []byte(`{"note_doc_token":"docx_board_123"}`)},
+				{output: []byte(`{"data":{"document":{"content":"<h1>总结</h1><whiteboard token=\"wbcn_board_fail\"/><h1>关键决策</h1><ul><li>继续推进</li></ul>"}}}`)},
+				{err: errors.New("export failed")},
+			},
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			workRoot := t.TempDir()
+			digest := strings.Repeat("2", 64)
+			runner := &scriptedLarkRunner{steps: testCase.steps}
+			adapter, err := newFeishuMinutesAdapterWithRunner(
+				runner,
+				workRoot,
+				func(context.Context, uint) (string, string, error) {
+					return "", "", errors.New("unused")
+				},
+			)
+			require.NoError(t, err)
+			request, _ := feishuTestRequest(digest)
+			checkpoint, err := encodeFeishuCheckpoint(feishuCheckpoint{
+				Version:     feishuCheckpointVersion,
+				Phase:       feishuPhaseMinutesCreated,
+				AudioDigest: digest,
+				FileToken:   "boxcn_core_123",
+				MinuteToken: "obcn_core_123",
+				MinuteURL:   "https://example.feishu.cn/minutes/obcn_core_123",
+			})
+			require.NoError(t, err)
+			completed, err := adapter.Resume(context.Background(), request, checkpoint)
+			require.NoError(t, err)
+			require.Equal(t, ExternalProgressCompleted, completed.Status)
+			require.Contains(t, completed.MinutesSummary, "完整纪要")
+			require.NotEmpty(t, completed.Transcript)
+			require.NotEmpty(t, completed.Segments)
+			assertNoFeishuWriteCommands(t, runner.calls)
+			require.NotContains(t, string(mustJSON(t, completed.MinutesEnrichment)), "note_")
+			require.NotContains(t, string(mustJSON(t, completed.MinutesEnrichment)), "docx_")
+			require.NotContains(t, string(mustJSON(t, completed.MinutesEnrichment)), "wbcn_")
+		})
+	}
+}
+
+func writeCoreTranscript(cwd string) {
+	_ = os.MkdirAll(filepath.Join(cwd, "detail"), 0o700)
+	_ = os.WriteFile(
+		filepath.Join(cwd, "detail", "transcript.txt"),
+		[]byte("张三 00:00:01.500\n开场\n"),
+		0o600,
+	)
+}
+
+func assertNoFeishuWriteCommands(t *testing.T, calls []scriptedLarkCall) {
+	t.Helper()
+	for _, call := range calls {
+		if len(call.args) < 2 {
+			continue
+		}
+		resource, action := call.args[0], call.args[1]
+		if action == "+upload" || action == "+update" || action == "+create" ||
+			action == "+delete" || action == "+todo" || action == "+summary" ||
+			action == "+speaker-replace" || action == "+word-replace" ||
+			action == "+media-insert" {
+			t.Fatalf("unexpected Feishu write command: %v", call.args)
+		}
+		if resource == "drive" && action != "+detail" {
+			if action == "+upload" {
+				t.Fatalf("unexpected Drive write: %v", call.args)
+			}
+		}
+	}
+}
+
+func mustJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	require.NoError(t, err)
+	return encoded
+}
+
+func mustTestPNG(t *testing.T) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	require.NoError(t, png.Encode(&buffer, img))
+	return buffer.Bytes()
 }
 
 func feishuTestRequest(

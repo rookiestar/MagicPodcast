@@ -29,6 +29,7 @@ import type {
   ProcessingScheduleStatus,
 } from "@/types/processing";
 import styles from "./InboxPage.module.css";
+import MinutesSummaryView from "./MinutesSummaryView";
 import TranscriptAudioPlayer, {
   DEFAULT_TRANSCRIPT_PLAYBACK_RATE,
   type TranscriptPlaybackRate,
@@ -205,6 +206,7 @@ const EpisodeProcessingPanel = forwardRef<
     useState<ArtifactTab>("summary");
   const [transcriptPlaybackRate, setTranscriptPlaybackRate] =
     useState<TranscriptPlaybackRate>(DEFAULT_TRANSCRIPT_PLAYBACK_RATE);
+  const [chapterSeekMs, setChapterSeekMs] = useState<number | null>(null);
   const [audioAsset, setAudioAsset] = useState<EpisodeAudioAsset | null>(null);
   const [isReadingArtifact, setIsReadingArtifact] = useState(false);
   const [scheduleStatus, setScheduleStatus] =
@@ -316,6 +318,7 @@ const EpisodeProcessingPanel = forwardRef<
     setArtifactContents(emptyArtifactContents);
     setActiveArtifactTab("summary");
     setTranscriptPlaybackRate(DEFAULT_TRANSCRIPT_PLAYBACK_RATE);
+    setChapterSeekMs(null);
     artifactReadSequence.current += 1;
     setIsLoading(true);
     setError(null);
@@ -983,7 +986,7 @@ const EpisodeProcessingPanel = forwardRef<
                       : ""
                   }`
                 : selectedArtifactContent.content.kind === "minutes_summary"
-                  ? "纪要"
+                  ? "飞书智能纪要"
                   : "旧版纪要"}
             </span>
             {selectedArtifactContent.content.kind === "transcript" && (
@@ -1059,6 +1062,22 @@ const EpisodeProcessingPanel = forwardRef<
               mediaAvailable={selectedArtifactContent.content.media_available}
               playbackRate={transcriptPlaybackRate}
               onPlaybackRateChange={setTranscriptPlaybackRate}
+              initialSeekMs={chapterSeekMs}
+            />
+          ) : selectedArtifactContent.content.kind === "minutes_summary" ? (
+            <MinutesSummaryView
+              artifactSetId={selectedArtifactContent.artifactSetId}
+              content={selectedArtifactContent.content.content}
+              chapters={selectedArtifactContent.content.chapters}
+              keywords={selectedArtifactContent.content.keywords}
+              decisions={selectedArtifactContent.content.decisions}
+              quotes={selectedArtifactContent.content.quotes}
+              links={selectedArtifactContent.content.links}
+              whiteboard={selectedArtifactContent.content.whiteboard}
+              onChapterSelect={(startMs) => {
+                setChapterSeekMs(startMs);
+                setActiveArtifactTab("transcript");
+              }}
             />
           ) : (
             <MarkdownViewer content={selectedArtifactContent.content.content} />

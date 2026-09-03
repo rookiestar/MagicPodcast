@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -863,6 +865,315 @@ func TestProcessingArtifactHTTPContractForNativeAndLegacyArtifacts(t *testing.T)
 	)
 	require.Equal(t, http.StatusUnprocessableEntity, response.Code)
 	require.Contains(t, response.Body.String(), "ARTIFACT_INVALID")
+}
+
+func TestProcessingRichMinutesHTTPContract(t *testing.T) {
+	db, _, episode, _ := setupProcessingHandler(t)
+	now := time.Date(2026, 9, 3, 9, 0, 0, 0, time.UTC)
+	store, err := processing.NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	service := processing.NewService(db, processing.WithArtifactReader(store))
+	handler := handlers.NewProcessingHandler(service, nil)
+	router := gin.New()
+	router.GET("/api/v1/artifact-sets/:id/media/:mediaId", handler.GetArtifactMedia)
+	router.GET("/api/v1/artifact-sets/:id/:kind", handler.GetArtifactContent)
+
+	run := models.EpisodeProcessingRun{
+		EpisodeID:       episode.ID,
+		ProcessingKey:   strings.Repeat("3", 64),
+		AudioDigest:     strings.Repeat("4", 64),
+		PipelineVersion: processing.NativeMinutesPipelineVersion,
+		TriggerSource:   models.ProcessingTriggerManual,
+		Status:          models.ProcessingRunStatusCompleted,
+		CurrentStep:     processing.StepArtifactPublish,
+		AttemptCount:    1,
+		MaxAttempts:     3,
+		RetryDeadlineAt: now.Add(24 * time.Hour),
+		FinishedAt:      &now,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	require.NoError(t, db.Create(&run).Error)
+	var pngBuf bytes.Buffer
+	require.NoError(t, png.Encode(&pngBuf, image.NewRGBA(image.Rect(0, 0, 3, 2))))
+	preview := pngBuf.Bytes()
+	previewHash := fmt.Sprintf("%x", sha256.Sum256(preview))
+	published, err := store.Publish(context.Background(), processing.ArtifactPublishRequest{
+		RunID:              run.ID,
+		EpisodeID:          run.EpisodeID,
+		AudioDigest:        run.AudioDigest,
+		PipelineVersion:    run.PipelineVersion,
+		NativeMinutes:      true,
+		MinutesSummary:     "# 纪要\n\n原生总结\n",
+		Transcript:         "# 逐字稿\n\n说话人 00:00:01.000\n正文\n",
+		TranscriptSegments: []processing.TranscriptSegment{{Order: 1, Speaker: "说话人", StartMS: 1000, Text: "正文"}},
+		MinutesEnrichment: processing.MinutesEnrichment{
+			Chapters: []processing.MinutesChapter{{
+				StartMS: 1000, EndMS: 4000, Title: "开场", Summary: "介绍背景",
+			}},
+			Keywords:  []string{"AI"},
+			Decisions: []string{"采用方案 A"},
+			Quotes:    []processing.MinutesQuote{{Quote: "长期主义", Explanation: "节奏说明"}},
+			Links:     []processing.MinutesLink{{Title: "指南", URL: "https://example.com/guide"}},
+			Whiteboard: &processing.MinutesWhiteboard{
+				MediaID:   "whiteboard",
+				MediaType: "image/png",
+				Width:     3,
+				Height:    2,
+				SHA256:    previewHash,
+				Alt:       "飞书智能纪要画板",
+			},
+		},
+		WhiteboardPreview:    preview,
+		TranscriptionAdapter: "feishu-minutes",
+		TranscriptionVersion: "feishu-minutes-cli-v1",
+		RawArtifacts: map[string][]byte{
+			"minutes-detail.json": []byte(`{"minutes":[{"minute_token":"obcn_secret","note_id":"note_secret","artifacts":{"summary":"原生总结"}}]}`),
+		},
+		GeneratedAt: now,
+	})
+	require.NoError(t, err)
+	artifact := models.EpisodeArtifactSet{
+		RunID:                    run.ID,
+		EpisodeID:                run.EpisodeID,
+		PipelineVersion:          run.PipelineVersion,
+		RootPath:                 published.RootPath,
+		ManifestPath:             published.ManifestPath,
+		ManifestSHA256:           published.ManifestSHA256,
+		AudioSHA256:              published.AudioSHA256,
+		MinutesSummarySHA256:     published.MinutesSummarySHA256,
+		TranscriptSHA256:         published.TranscriptSHA256,
+		TranscriptTimelineSHA256: published.TranscriptTimelineSHA256,
+		IsCurrent:                true,
+		CreatedAt:                now,
+	}
+	require.NoError(t, db.Create(&artifact).Error)
+
+	assertNoLeak := func(body string) {
+		t.Helper()
+		for _, secret := range []string{
+			published.RootPath, "obcn_secret", "note_secret", "minute_token",
+			"note_id", "file_token", "/tmp/", "lark-cli",
+		} {
+			require.NotContains(t, body, secret)
+		}
+	}
+
+	response := processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/artifact-sets/%d/minutes_summary", artifact.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(t, response.Body.String(), `"kind":"minutes_summary"`)
+	require.Contains(t, response.Body.String(), "原生总结")
+	require.Contains(t, response.Body.String(), published.MinutesSummarySHA256)
+	require.Contains(t, response.Body.String(), `"title":"开场"`)
+	require.Contains(t, response.Body.String(), `"start_ms":1000`)
+	require.Contains(t, response.Body.String(), `"keywords":["AI"]`)
+	require.Contains(t, response.Body.String(), "采用方案 A")
+	require.Contains(t, response.Body.String(), "长期主义")
+	require.Contains(t, response.Body.String(), "节奏说明")
+	require.Contains(t, response.Body.String(), "https://example.com/guide")
+	require.Contains(t, response.Body.String(), `"media_id":"whiteboard"`)
+	assertNoLeak(response.Body.String())
+
+	media := processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/artifact-sets/%d/media/whiteboard", artifact.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, media.Code)
+	require.Equal(t, "image/png", media.Header().Get("Content-Type"))
+	require.Equal(t, preview, media.Body.Bytes())
+	require.Equal(t, "nosniff", media.Header().Get("X-Content-Type-Options"))
+	assertNoLeak(media.Body.String() + fmt.Sprint(media.Header()))
+
+	mediaPath := filepath.Join(published.RootPath, "media", "whiteboard")
+	require.NoError(t, os.WriteFile(mediaPath, []byte("not-an-image"), 0o600))
+	tampered := processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/artifact-sets/%d/media/whiteboard", artifact.ID),
+		"",
+	)
+	require.Equal(t, http.StatusUnprocessableEntity, tampered.Code)
+	assertNoLeak(tampered.Body.String())
+	require.NoError(t, os.WriteFile(mediaPath, preview, 0o600))
+
+	outside := filepath.Join(t.TempDir(), "escaped.png")
+	require.NoError(t, os.WriteFile(outside, preview, 0o600))
+	require.NoError(t, os.Remove(mediaPath))
+	require.NoError(t, os.Symlink(outside, mediaPath))
+	symlinked := processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/artifact-sets/%d/media/whiteboard", artifact.ID),
+		"",
+	)
+	require.Equal(t, http.StatusUnprocessableEntity, symlinked.Code)
+	assertNoLeak(symlinked.Body.String())
+	require.NotContains(t, symlinked.Body.String(), outside)
+	require.NoError(t, os.Remove(mediaPath))
+	require.NoError(t, os.WriteFile(mediaPath, preview, 0o600))
+
+	for _, invalid := range []string{
+		"unknown",
+		"..%2fminutes-summary.md",
+		"../raw/minutes-detail.json",
+		"minutes-summary.md",
+	} {
+		denied := processingRequest(
+			router,
+			http.MethodGet,
+			fmt.Sprintf("/api/v1/artifact-sets/%d/media/%s", artifact.ID, invalid),
+			"",
+		)
+		require.NotEqual(t, http.StatusOK, denied.Code, invalid)
+		assertNoLeak(denied.Body.String())
+	}
+
+	require.NoError(t, db.Model(&artifact).Update("is_current", false).Error)
+
+	coreOnlyRun := models.EpisodeProcessingRun{
+		EpisodeID:       episode.ID,
+		ProcessingKey:   strings.Repeat("5", 64),
+		AudioDigest:     strings.Repeat("6", 64),
+		PipelineVersion: processing.NativeMinutesPipelineVersion,
+		TriggerSource:   models.ProcessingTriggerManual,
+		Status:          models.ProcessingRunStatusCompleted,
+		CurrentStep:     processing.StepArtifactPublish,
+		AttemptCount:    1,
+		MaxAttempts:     3,
+		RetryDeadlineAt: now.Add(24 * time.Hour),
+		FinishedAt:      &now,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	require.NoError(t, db.Create(&coreOnlyRun).Error)
+	corePublished, err := store.Publish(context.Background(), processing.ArtifactPublishRequest{
+		RunID:                coreOnlyRun.ID,
+		EpisodeID:            coreOnlyRun.EpisodeID,
+		AudioDigest:          coreOnlyRun.AudioDigest,
+		PipelineVersion:      coreOnlyRun.PipelineVersion,
+		NativeMinutes:        true,
+		MinutesSummary:       "# 纪要\n\n仅核心总结\n",
+		Transcript:           "# 逐字稿\n\n说话人 00:00:02.000\n正文\n",
+		TranscriptSegments:   []processing.TranscriptSegment{{Order: 1, Speaker: "说话人", StartMS: 2000, Text: "正文"}},
+		TranscriptionAdapter: "feishu-minutes",
+		TranscriptionVersion: "feishu-minutes-cli-v1",
+		GeneratedAt:          now,
+	})
+	require.NoError(t, err)
+	coreArtifact := models.EpisodeArtifactSet{
+		RunID:                    coreOnlyRun.ID,
+		EpisodeID:                coreOnlyRun.EpisodeID,
+		PipelineVersion:          coreOnlyRun.PipelineVersion,
+		RootPath:                 corePublished.RootPath,
+		ManifestPath:             corePublished.ManifestPath,
+		ManifestSHA256:           corePublished.ManifestSHA256,
+		AudioSHA256:              corePublished.AudioSHA256,
+		MinutesSummarySHA256:     corePublished.MinutesSummarySHA256,
+		TranscriptSHA256:         corePublished.TranscriptSHA256,
+		TranscriptTimelineSHA256: corePublished.TranscriptTimelineSHA256,
+		IsCurrent:                true,
+		CreatedAt:                now,
+	}
+	require.NoError(t, db.Create(&coreArtifact).Error)
+	coreResponse := processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/artifact-sets/%d/minutes_summary", coreArtifact.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, coreResponse.Code)
+	require.Contains(t, coreResponse.Body.String(), "仅核心总结")
+	require.Contains(t, coreResponse.Body.String(), corePublished.MinutesSummarySHA256)
+	require.NotContains(t, coreResponse.Body.String(), `"chapters"`)
+	require.NotContains(t, coreResponse.Body.String(), `"whiteboard"`)
+	transcriptResponse := processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/artifact-sets/%d/transcript", coreArtifact.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, transcriptResponse.Code)
+	require.Contains(t, transcriptResponse.Body.String(), `"start_ms":2000`)
+
+	require.NoError(t, db.Model(&coreArtifact).Update("is_current", false).Error)
+
+	restoreRun := models.EpisodeProcessingRun{
+		EpisodeID:       episode.ID,
+		ProcessingKey:   strings.Repeat("7", 64),
+		AudioDigest:     strings.Repeat("8", 64),
+		PipelineVersion: processing.NativeMinutesPipelineVersion,
+		TriggerSource:   models.ProcessingTriggerManual,
+		Status:          models.ProcessingRunStatusCompleted,
+		CurrentStep:     processing.StepArtifactPublish,
+		AttemptCount:    1,
+		MaxAttempts:     3,
+		RetryDeadlineAt: now.Add(24 * time.Hour),
+		FinishedAt:      &now,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	require.NoError(t, db.Create(&restoreRun).Error)
+	restorePublished, err := store.Publish(context.Background(), processing.ArtifactPublishRequest{
+		RunID:                restoreRun.ID,
+		EpisodeID:            restoreRun.EpisodeID,
+		AudioDigest:          restoreRun.AudioDigest,
+		PipelineVersion:      restoreRun.PipelineVersion,
+		NativeMinutes:        true,
+		MinutesSummary:       "# 纪要\n\n可恢复总结\n",
+		Transcript:           "# 逐字稿\n\n说话人 00:00:03.000\n正文\n",
+		TranscriptSegments:   []processing.TranscriptSegment{{Order: 1, Speaker: "说话人", StartMS: 3000, Text: "正文"}},
+		TranscriptionAdapter: "feishu-minutes",
+		TranscriptionVersion: "feishu-minutes-cli-v1",
+		RawArtifacts: map[string][]byte{
+			"minutes-detail.json": []byte(`{"minutes":[{"minute_token":"obcn_restore","artifacts":{"summary":"可恢复总结","chapters":[{"start_time":3000,"title":"恢复章节","summary":"来自原始详情"}],"keywords":["恢复词"],"transcript_file":"detail/transcript.txt"}}]}`),
+		},
+		GeneratedAt: now,
+	})
+	require.NoError(t, err)
+	restoreArtifact := models.EpisodeArtifactSet{
+		RunID:                    restoreRun.ID,
+		EpisodeID:                restoreRun.EpisodeID,
+		PipelineVersion:          restoreRun.PipelineVersion,
+		RootPath:                 restorePublished.RootPath,
+		ManifestPath:             restorePublished.ManifestPath,
+		ManifestSHA256:           restorePublished.ManifestSHA256,
+		AudioSHA256:              restorePublished.AudioSHA256,
+		MinutesSummarySHA256:     restorePublished.MinutesSummarySHA256,
+		TranscriptSHA256:         restorePublished.TranscriptSHA256,
+		TranscriptTimelineSHA256: restorePublished.TranscriptTimelineSHA256,
+		IsCurrent:                true,
+		CreatedAt:                now,
+	}
+	require.NoError(t, db.Create(&restoreArtifact).Error)
+	restoreResponse := processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/artifact-sets/%d/minutes_summary", restoreArtifact.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, restoreResponse.Code)
+	require.Contains(t, restoreResponse.Body.String(), "可恢复总结")
+	require.Contains(t, restoreResponse.Body.String(), `"title":"恢复章节"`)
+	require.Contains(t, restoreResponse.Body.String(), `"keywords":["恢复词"]`)
+	require.NotContains(t, restoreResponse.Body.String(), `"decisions"`)
+	require.NotContains(t, restoreResponse.Body.String(), `"whiteboard"`)
+	require.NotContains(t, restoreResponse.Body.String(), "obcn_restore")
+	require.NotContains(t, restoreResponse.Body.String(), restorePublished.RootPath)
+
+	oversize := processingRequest(
+		router,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/artifact-sets/%d/media/whiteboard", coreArtifact.ID),
+		"",
+	)
+	require.Equal(t, http.StatusUnprocessableEntity, oversize.Code)
 }
 
 func setupProcessingHandler(

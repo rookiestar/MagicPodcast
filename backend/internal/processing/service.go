@@ -760,6 +760,28 @@ func (s *Service) GetArtifactContent(
 	return content, nil
 }
 
+func (s *Service) GetArtifactMedia(
+	ctx context.Context,
+	artifactSetID uint,
+	mediaID string,
+) (ArtifactMedia, error) {
+	if artifactSetID == 0 || !mediaIDPattern.MatchString(mediaID) {
+		return ArtifactMedia{}, ErrInvalidArtifact
+	}
+	reader, ok := s.artifactReader.(ArtifactMediaReader)
+	if !ok || s.artifactReader == nil {
+		return ArtifactMedia{}, ErrInvalidArtifact
+	}
+	var artifact models.EpisodeArtifactSet
+	if err := s.db.WithContext(ctx).First(&artifact, artifactSetID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ArtifactMedia{}, ErrArtifactNotFound
+		}
+		return ArtifactMedia{}, fmt.Errorf("read artifact set for media: %w", err)
+	}
+	return reader.ReadMedia(ctx, artifact, mediaID)
+}
+
 func (s *Service) RequestArtifactAudioRecovery(
 	ctx context.Context,
 	artifactSetID uint,

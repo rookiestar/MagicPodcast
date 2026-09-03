@@ -479,13 +479,27 @@ func (a *FeishuMinutesAdapter) readMinute(
 	if err := persistFeishuCheckpoint(ctx, request, checkpoint); err != nil {
 		return progressWithCheckpoint(checkpoint), err
 	}
-	return completedFeishuProgress(
+	progress, completeErr := completedFeishuProgress(
 		checkpoint,
 		request.PipelineVersion,
 		detail.Summary,
 		transcript,
 		output,
 	)
+	if completeErr != nil {
+		return progress, completeErr
+	}
+	if request.PipelineVersion == NativeMinutesPipelineVersion {
+		progress = a.enhanceCompletedProgress(
+			ctx,
+			request,
+			checkpoint,
+			detail,
+			output,
+			progress,
+		)
+	}
+	return progress, nil
 }
 
 func (a *FeishuMinutesAdapter) readStoredResult(
@@ -518,8 +532,11 @@ func (a *FeishuMinutesAdapter) readStoredResult(
 		)
 	}
 	summary := ""
+	var parsedDetail minuteDetail
 	if pipelineVersion == NativeMinutesPipelineVersion {
-		parsedDetail, found, parseErr := parseMinuteDetail(
+		var found bool
+		var parseErr error
+		parsedDetail, found, parseErr = parseMinuteDetail(
 			detail,
 			checkpoint.MinuteToken,
 		)
@@ -534,13 +551,25 @@ func (a *FeishuMinutesAdapter) readStoredResult(
 		}
 		summary = parsedDetail.Summary
 	}
-	return completedFeishuProgress(
+	progress, err := completedFeishuProgress(
 		checkpoint,
 		pipelineVersion,
 		summary,
 		transcript,
 		detail,
 	)
+	if err != nil {
+		return progress, err
+	}
+	if pipelineVersion == NativeMinutesPipelineVersion {
+		progress = a.restoreStoredEnrichment(
+			ctx,
+			checkpoint,
+			parsedDetail,
+			progress,
+		)
+	}
+	return progress, nil
 }
 
 func (a *FeishuMinutesAdapter) handleWriteFailure(
@@ -789,6 +818,396 @@ func completedFeishuProgress(
 	}, nil
 }
 
+func (a *FeishuMinutesAdapter) enhanceCompletedProgress(
+	ctx context.Context,
+	request TranscriptionRequest,
+	checkpoint feishuCheckpoint,
+	detail minuteDetail,
+	detailJSON []byte,
+	progress TranscriptionProgress,
+) TranscriptionProgress {
+	enrichment := MinutesEnrichment{
+		Chapters: append([]MinutesChapter(nil), detail.Chapters...),
+		Keywords: append([]string(nil), detail.Keywords...),
+	}
+	if request.PipelineVersion != NativeMinutesPipelineVersion {
+		return progress
+	}
+	if strings.TrimSpace(detail.NoteID) != "" && larkTokenPattern.MatchString(detail.NoteID) {
+		progress = a.captureNoteEnrichment(
+			ctx,
+			request.RunID,
+			detail.NoteID,
+			enrichment,
+			progress,
+		)
+		enrichment = progress.MinutesEnrichment
+	} else {
+		progress.MinutesEnrichment = enrichment.Public()
+	}
+	a.persistLocalEnrichment(request.RunID, checkpoint, progress)
+	_ = detailJSON
+	return progress
+}
+
+func (a *FeishuMinutesAdapter) restoreStoredEnrichment(
+	ctx context.Context,
+	checkpoint feishuCheckpoint,
+	detail minuteDetail,
+	progress TranscriptionProgress,
+) TranscriptionProgress {
+	if err := ctx.Err(); err != nil {
+		progress.MinutesEnrichment = MinutesEnrichment{
+			Chapters: append([]MinutesChapter(nil), detail.Chapters...),
+			Keywords: append([]string(nil), detail.Keywords...),
+		}.Public()
+		return progress
+	}
+	enrichment := MinutesEnrichment{
+		Chapters: append([]MinutesChapter(nil), detail.Chapters...),
+		Keywords: append([]string(nil), detail.Keywords...),
+	}
+	if relative := enrichmentRelativePath(checkpoint.DetailRelativePath); relative != "" {
+		if raw, err := a.readStoredFile(ctx, relative, maxArtifactTextBytes); err == nil {
+			if decoded, decodeErr := decodeMinutesEnrichment(raw); decodeErr == nil {
+				if len(decoded.Chapters) > 0 {
+					enrichment.Chapters = decoded.Chapters
+				}
+				if len(decoded.Keywords) > 0 {
+					enrichment.Keywords = decoded.Keywords
+				}
+				enrichment.Decisions = decoded.Decisions
+				enrichment.Quotes = decoded.Quotes
+				enrichment.Links = decoded.Links
+				enrichment.Whiteboard = decoded.Whiteboard
+			}
+		}
+	}
+	if enrichment.Whiteboard != nil {
+		if preview, err := a.readStoredBinaryFile(
+			ctx,
+			whiteboardRelativePath(checkpoint.DetailRelativePath),
+			maxWhiteboardPreviewBytes,
+		); err == nil {
+			if sniffed, sniffErr := sniffManagedImage(preview); sniffErr == nil &&
+				digestBytes(sniffed.Bytes) == enrichment.Whiteboard.SHA256 {
+				progress.WhiteboardPreview = sniffed.Bytes
+				enrichment.Whiteboard.MediaType = sniffed.MediaType
+				enrichment.Whiteboard.Width = sniffed.Width
+				enrichment.Whiteboard.Height = sniffed.Height
+			} else {
+				enrichment.Whiteboard = nil
+			}
+		} else {
+			enrichment.Whiteboard = nil
+		}
+	}
+	progress.MinutesEnrichment = enrichment.Public()
+	return progress
+}
+
+func (a *FeishuMinutesAdapter) captureNoteEnrichment(
+	ctx context.Context,
+	runID uint,
+	noteID string,
+	enrichment MinutesEnrichment,
+	progress TranscriptionProgress,
+) TranscriptionProgress {
+	runDirectory, err := a.runDirectory(runID)
+	if err != nil {
+		progress.MinutesEnrichment = enrichment.Public()
+		return progress
+	}
+	noteOutput, noteErr := a.runner.Run(
+		ctx,
+		runDirectory,
+		"note",
+		"+detail",
+		"--note-id",
+		noteID,
+		"--as",
+		"user",
+		"--format",
+		"json",
+	)
+	if noteErr != nil {
+		progress.MinutesEnrichment = enrichment.Public()
+		return progress
+	}
+	progress.RawArtifacts = cloneByteMap(progress.RawArtifacts)
+	progress.RawArtifacts["note-detail.json"] = append([]byte(nil), noteOutput...)
+	noteDocToken, ok := parseNoteDocToken(noteOutput)
+	if !ok {
+		progress.MinutesEnrichment = enrichment.Public()
+		return progress
+	}
+	docOutput, docErr := a.runner.Run(
+		ctx,
+		runDirectory,
+		"docs",
+		"+fetch",
+		"--doc",
+		noteDocToken,
+		"--doc-format",
+		"xml",
+		"--detail",
+		"full",
+		"--as",
+		"user",
+		"--format",
+		"json",
+	)
+	if docErr != nil {
+		progress.MinutesEnrichment = enrichment.Public()
+		return progress
+	}
+	progress.RawArtifacts["note-document.json"] = append([]byte(nil), docOutput...)
+	content, ok := parseDocsFetchContent(docOutput)
+	if !ok {
+		progress.MinutesEnrichment = enrichment.Public()
+		return progress
+	}
+	decisions, quotes, links, whiteboardToken := parseNoteSections(content)
+	enrichment.Decisions = decisions
+	enrichment.Quotes = quotes
+	enrichment.Links = links
+	if whiteboardToken != "" {
+		if preview, captureErr := a.captureWhiteboardPreview(
+			ctx,
+			runDirectory,
+			whiteboardToken,
+		); captureErr == nil {
+			progress.WhiteboardPreview = preview.Bytes
+			enrichment.Whiteboard = &MinutesWhiteboard{
+				MediaID:   minutesWhiteboardMediaID,
+				MediaType: preview.MediaType,
+				Width:     preview.Width,
+				Height:    preview.Height,
+				SHA256:    digestBytes(preview.Bytes),
+				Alt:       minutesWhiteboardAlt,
+			}
+		}
+	}
+	if progress.SkillVersions == nil {
+		progress.SkillVersions = map[string]string{}
+	}
+	progress.SkillVersions["lark-note"] = "1.0.0"
+	progress.SkillVersions["lark-docs"] = "1.0.0"
+	if enrichment.Whiteboard != nil {
+		progress.SkillVersions["lark-whiteboard"] = "1.0.0"
+	}
+	progress.MinutesEnrichment = enrichment.Public()
+	return progress
+}
+
+func (a *FeishuMinutesAdapter) captureWhiteboardPreview(
+	ctx context.Context,
+	runDirectory string,
+	whiteboardToken string,
+) (ManagedImage, error) {
+	outputName := "whiteboard-preview"
+	_, commandErr := a.runner.Run(
+		ctx,
+		runDirectory,
+		"whiteboard",
+		"+query",
+		"--whiteboard-token",
+		whiteboardToken,
+		"--output_as",
+		"image",
+		"--output",
+		"./"+outputName,
+		"--overwrite",
+		"--as",
+		"user",
+	)
+	if commandErr != nil {
+		return ManagedImage{}, commandErr
+	}
+	path := filepath.Join(runDirectory, outputName)
+	content, err := readBoundedRegularFile(path, maxWhiteboardPreviewBytes)
+	if err != nil {
+		matches, matchErr := filepath.Glob(filepath.Join(runDirectory, outputName+".*"))
+		if matchErr != nil || len(matches) == 0 {
+			return ManagedImage{}, err
+		}
+		content, err = readBoundedRegularFile(matches[0], maxWhiteboardPreviewBytes)
+		if err != nil {
+			return ManagedImage{}, err
+		}
+	}
+	return sniffManagedImage(content)
+}
+
+func (a *FeishuMinutesAdapter) persistLocalEnrichment(
+	runID uint,
+	checkpoint feishuCheckpoint,
+	progress TranscriptionProgress,
+) {
+	runDirectory, err := a.runDirectory(runID)
+	if err != nil {
+		return
+	}
+	encoded, err := encodeMinutesEnrichment(progress.MinutesEnrichment)
+	if err != nil || len(encoded) == 0 {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(runDirectory, minutesEnrichmentFileName), encoded, 0o600)
+	if len(progress.WhiteboardPreview) > 0 {
+		_ = os.WriteFile(
+			filepath.Join(runDirectory, "whiteboard-preview"),
+			progress.WhiteboardPreview,
+			0o600,
+		)
+	}
+	_ = checkpoint
+}
+
+func (a *FeishuMinutesAdapter) readStoredBinaryFile(
+	ctx context.Context,
+	relativePath string,
+	limit int64,
+) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if relativePath == "" || filepath.IsAbs(relativePath) {
+		return nil, ErrInvalidArtifact
+	}
+	cleanRelative := filepath.Clean(filepath.FromSlash(relativePath))
+	if pathEscapesRoot(cleanRelative) {
+		return nil, ErrInvalidArtifact
+	}
+	return readBoundedRegularFile(filepath.Join(a.workRoot, cleanRelative), limit)
+}
+
+func parseNoteDocToken(output []byte) (string, bool) {
+	var decoded struct {
+		NoteDocToken string `json:"note_doc_token"`
+		Data         struct {
+			NoteDocToken string `json:"note_doc_token"`
+			Note         struct {
+				NoteDocToken string `json:"note_doc_token"`
+			} `json:"note"`
+		} `json:"data"`
+		Result struct {
+			NoteDocToken string `json:"note_doc_token"`
+			Note         struct {
+				NoteDocToken string `json:"note_doc_token"`
+			} `json:"note"`
+		} `json:"result"`
+		Note struct {
+			NoteDocToken string `json:"note_doc_token"`
+		} `json:"note"`
+	}
+	if err := strictJSONDecode(output, &decoded); err != nil {
+		return "", false
+	}
+	token := extractJSONString(
+		decoded.NoteDocToken,
+		decoded.Data.NoteDocToken,
+		decoded.Data.Note.NoteDocToken,
+		decoded.Result.NoteDocToken,
+		decoded.Result.Note.NoteDocToken,
+		decoded.Note.NoteDocToken,
+	)
+	if !larkTokenPattern.MatchString(token) {
+		return "", false
+	}
+	return token, true
+}
+
+func parseDocsFetchContent(output []byte) (string, bool) {
+	var decoded struct {
+		Data struct {
+			Document struct {
+				Content string `json:"content"`
+			} `json:"document"`
+			Content string `json:"content"`
+		} `json:"data"`
+		Result struct {
+			Document struct {
+				Content string `json:"content"`
+			} `json:"document"`
+			Content string `json:"content"`
+		} `json:"result"`
+		Content string `json:"content"`
+	}
+	if err := strictJSONDecode(output, &decoded); err != nil {
+		return "", false
+	}
+	content := extractJSONString(
+		decoded.Data.Document.Content,
+		decoded.Data.Content,
+		decoded.Result.Document.Content,
+		decoded.Result.Content,
+		decoded.Content,
+	)
+	if strings.TrimSpace(content) == "" {
+		return "", false
+	}
+	return content, true
+}
+
+func enrichmentRelativePath(detailRelative string) string {
+	detailRelative = strings.TrimSpace(detailRelative)
+	if detailRelative == "" {
+		return ""
+	}
+	dir := filepath.ToSlash(filepath.Dir(filepath.FromSlash(detailRelative)))
+	if dir == "." || dir == "" {
+		return minutesEnrichmentFileName
+	}
+	return dir + "/" + minutesEnrichmentFileName
+}
+
+func whiteboardRelativePath(detailRelative string) string {
+	detailRelative = strings.TrimSpace(detailRelative)
+	if detailRelative == "" {
+		return ""
+	}
+	dir := filepath.ToSlash(filepath.Dir(filepath.FromSlash(detailRelative)))
+	if dir == "." || dir == "" {
+		return "whiteboard-preview"
+	}
+	return dir + "/whiteboard-preview"
+}
+
+func cloneByteMap(input map[string][]byte) map[string][]byte {
+	if len(input) == 0 {
+		return map[string][]byte{}
+	}
+	output := make(map[string][]byte, len(input)+2)
+	for key, value := range input {
+		output[key] = append([]byte(nil), value...)
+	}
+	return output
+}
+
+func readBoundedRegularFile(path string, limit int64) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, ErrInvalidArtifact
+	}
+	if info.Size() < 0 || info.Size() > limit {
+		return nil, ErrInvalidArtifact
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil || filepath.Clean(resolved) != filepath.Clean(path) {
+		return nil, ErrInvalidArtifact
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil || int64(len(content)) > limit {
+		return nil, ErrInvalidArtifact
+	}
+	return content, nil
+}
+
 func restrictedIdentityRef(identity string) string {
 	sum := sha256.Sum256([]byte(identity))
 	return "sha256:" + hex.EncodeToString(sum[:])
@@ -889,18 +1308,24 @@ func parseMinuteIdentity(output []byte) (string, string, error) {
 
 type minuteDetail struct {
 	MinuteToken           string
+	NoteID                string
 	Summary               string
 	SummaryPresent        bool
 	TranscriptFile        string
 	TranscriptFilePresent bool
+	Chapters              []MinutesChapter
+	Keywords              []string
 	Pending               bool
 }
 
 type minuteDetailEntry struct {
 	MinuteToken string `json:"minute_token"`
+	NoteID      string `json:"note_id"`
 	Artifacts   struct {
-		Summary        *string `json:"summary"`
-		TranscriptFile *string `json:"transcript_file"`
+		Summary        *string         `json:"summary"`
+		TranscriptFile *string         `json:"transcript_file"`
+		Chapters       json.RawMessage `json:"chapters"`
+		Keywords       json.RawMessage `json:"keywords"`
 	} `json:"artifacts"`
 	Error json.RawMessage `json:"error"`
 }
@@ -934,7 +1359,10 @@ func parseMinuteDetail(
 		if entry.MinuteToken == expectedToken {
 			detail := minuteDetail{
 				MinuteToken: entry.MinuteToken,
+				NoteID:      strings.TrimSpace(entry.NoteID),
 				Pending:     minuteDetailEntryPending(entry.Error),
+				Chapters:    parseMinutesChapters(entry.Artifacts.Chapters),
+				Keywords:    parseMinutesKeywords(entry.Artifacts.Keywords),
 			}
 			if entry.Artifacts.Summary != nil {
 				detail.Summary = *entry.Artifacts.Summary
