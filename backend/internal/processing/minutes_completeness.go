@@ -189,21 +189,36 @@ func firstUnparsedTargetSection(document string) (string, bool) {
 }
 
 func duplicateRelatedLinkSection(document string) (string, bool) {
+	parsed, err := nethtml.Parse(strings.NewReader(document))
+	if err != nil {
+		return "", false
+	}
 	counts := make(map[string]int)
-	for _, loc := range headingSplitPattern.FindAllStringSubmatchIndex(document, -1) {
-		if len(loc) < 6 {
-			continue
+	duplicate := ""
+	var visit func(*nethtml.Node)
+	visit = func(node *nethtml.Node) {
+		if node == nil || duplicate != "" {
+			return
 		}
-		name := normalizeNoteHeading(stripXMLTags(document[loc[4]:loc[5]]))
-		if name != "相关链接" && name != "相关外链" {
-			continue
+		if node.Type == nethtml.ElementNode {
+			name := strings.ToLower(node.Data)
+			if len(name) == 2 && name[0] == 'h' && name[1] >= '1' && name[1] <= '6' {
+				title := normalizeNoteHeading(noteLinkNodeText(node))
+				if title == "相关链接" || title == "相关外链" {
+					counts[title]++
+					if counts[title] > 1 {
+						duplicate = title
+						return
+					}
+				}
+			}
 		}
-		counts[name]++
-		if counts[name] > 1 {
-			return name, true
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			visit(child)
 		}
 	}
-	return "", false
+	visit(parsed)
+	return duplicate, duplicate != ""
 }
 
 // noteLinksSectionIsFullyAccounted distinguishes a link block whose links

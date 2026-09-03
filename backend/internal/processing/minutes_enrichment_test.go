@@ -122,8 +122,12 @@ func TestParseNoteSectionsIgnoresCommentedLinks(t *testing.T) {
 	_, _, links, _ := parseNoteSections(`
 <h1>相关链接</h1>
 <p><a href="https://example.com/live">Live</a><!-- <a href='https://example.com/old'>Old</a> --></p>
+<div data-template="<a href='https://example.com/phantom'>Phantom</a>"><a href="https://example.com/real">Real</a></div>
 `)
-	require.Equal(t, []MinutesLink{{Title: "Live", URL: "https://example.com/live"}}, links)
+	require.Equal(t, []MinutesLink{
+		{Title: "Live", URL: "https://example.com/live"},
+		{Title: "Real", URL: "https://example.com/real"},
+	}, links)
 }
 
 func TestPlaceholderOnlyDecisionsAreOmitted(t *testing.T) {

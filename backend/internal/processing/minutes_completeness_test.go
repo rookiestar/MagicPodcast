@@ -53,7 +53,6 @@ func TestEvaluateReadableNoteDocumentRejectsResidualRelatedLinkContent(t *testin
 		{name: "unknown nested link element", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/docx/internal"><provider-link href="https://example.com/provider">外部</provider-link></a></li></ul>`},
 		{name: "public URL label on filtered link", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/docx/internal">https://example.com/provider</a></li></ul>`},
 		{name: "text residual in sibling container", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a></li><li>documentation pending</li></ul>`},
-		{name: "self-closing public link", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://example.com/guide"/></p>`},
 		{name: "text residual beside public link", document: `<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://example.com/guide">指南</a></li><li>documentation pending</li></ul>`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -103,6 +102,28 @@ func TestEvaluateReadableNoteDocumentAllowsPublicURLLabel(t *testing.T) {
 func TestEvaluateReadableNoteDocumentAllowsSelfClosingBookmarkLinks(t *testing.T) {
 	decision := evaluateReadableNoteDocument(
 		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><bookmark name="指南" href="https://example.com/guide"/><bookmark name="参考" href="https://example.com/reference"/></p>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.Empty(t, decision.Code)
+}
+
+func TestEvaluateReadableNoteDocumentAllowsSelfClosingPublicLink(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://example.com/guide"/></p>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.Empty(t, decision.Code)
+}
+
+func TestEvaluateReadableNoteDocumentIgnoresCommentedRelatedLinkHeading(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://example.com/guide">指南</a></p><!-- <h1>相关链接</h1><p>旧区块</p> -->`,
 		"",
 		false,
 		false,

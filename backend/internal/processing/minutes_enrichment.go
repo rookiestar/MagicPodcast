@@ -17,6 +17,7 @@ import (
 	"unicode"
 
 	nethtml "golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 )
 
 const (
@@ -32,12 +33,9 @@ const (
 var (
 	headingSplitPattern       = regexp.MustCompile(`(?is)<h([1-6])\b[^>]*>(.*?)</h[1-6]>`)
 	whiteboardTokenPattern    = regexp.MustCompile(`(?is)<whiteboard\b[^>]*\b(?:token|whiteboard-token|whiteboard_token)="([^"]+)"`)
-	anchorPattern             = regexp.MustCompile(`(?is)<a\b([^>]*)>(.*?)</a>`)
-	bookmarkPattern           = regexp.MustCompile(`(?is)<bookmark\b([^>]*)>`)
 	blockquotePattern         = regexp.MustCompile(`(?is)<blockquote\b[^>]*>(.*?)</blockquote>`)
 	listItemPattern           = regexp.MustCompile(`(?is)<li\b[^>]*>(.*?)</li>`)
 	paragraphPattern          = regexp.MustCompile(`(?is)<p\b[^>]*>(.*?)</p>`)
-	commentPattern            = regexp.MustCompile(`(?is)<!--.*?-->`)
 	tagPattern                = regexp.MustCompile(`(?s)<[^>]+>`)
 	mediaIDPattern            = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
 	feishuIdentityPattern     = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:(?:obcn|wbcn|boxcn|doxcn)[a-z0-9_-]{4,}|docx_[a-z0-9_-]{4,})`)
@@ -460,26 +458,61 @@ func extractNoteLinks(section string) []MinutesLink {
 	if strings.TrimSpace(section) == "" {
 		return nil
 	}
-	section = commentPattern.ReplaceAllString(section, "")
+	section = normalizeSelfClosingBookmarks(section)
+	fragments, err := nethtml.ParseFragment(
+		strings.NewReader(section),
+		&nethtml.Node{Type: nethtml.ElementNode, Data: "div", DataAtom: atom.Div},
+	)
+	if err != nil {
+		return nil
+	}
 	links := make([]MinutesLink, 0)
-	for _, match := range anchorPattern.FindAllStringSubmatch(section, -1) {
-		href := firstAttribute(match[1], "href")
-		title := strings.TrimSpace(stripXMLTags(match[2]))
-		if title == "" {
-			title = firstAttribute(match[1], "name", "title")
+	var visit func(*nethtml.Node)
+	visit = func(node *nethtml.Node) {
+		if node.Type == nethtml.ElementNode {
+			name := strings.ToLower(node.Data)
+			if name == "a" || name == "bookmark" {
+				href := strings.TrimSpace(noteLinkNodeAttribute(node, "href"))
+				title := ""
+				if name == "a" {
+					title = noteLinkNodeText(node)
+				}
+				if title == "" {
+					title = noteLinkNodeAttribute(node, "name")
+				}
+				if title == "" {
+					title = noteLinkNodeAttribute(node, "title")
+				}
+				if link, ok := publicMinutesLink(title, href); ok {
+					links = append(links, link)
+				}
+			}
 		}
-		if link, ok := publicMinutesLink(title, href); ok {
-			links = append(links, link)
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			visit(child)
 		}
 	}
-	for _, match := range bookmarkPattern.FindAllStringSubmatch(section, -1) {
-		href := firstAttribute(match[1], "href")
-		title := firstAttribute(match[1], "name", "title")
-		if link, ok := publicMinutesLink(title, href); ok {
-			links = append(links, link)
-		}
+	for _, fragment := range fragments {
+		visit(fragment)
 	}
 	return normalizeMinutesLinks(links)
+}
+
+func noteLinkNodeText(node *nethtml.Node) string {
+	var builder strings.Builder
+	var visit func(*nethtml.Node)
+	visit = func(current *nethtml.Node) {
+		if current.Type == nethtml.TextNode {
+			builder.WriteString(current.Data)
+			builder.WriteByte(' ')
+			return
+		}
+		for child := current.FirstChild; child != nil; child = child.NextSibling {
+			visit(child)
+		}
+	}
+	visit(node)
+	return strings.Join(strings.Fields(builder.String()), " ")
 }
 
 func firstWhiteboardToken(content string) string {
@@ -892,26 +925,6 @@ func normalizeNoteHeading(value string) string {
 	return strings.TrimSpace(strings.TrimRightFunc(value, func(r rune) bool {
 		return r == ':' || r == '：' || unicode.IsSpace(r)
 	}))
-}
-
-func firstAttribute(attributes string, names ...string) string {
-	tokenizer := nethtml.NewTokenizer(strings.NewReader("<span" + attributes + "></span>"))
-	for {
-		if tokenizer.Next() != nethtml.StartTagToken {
-			if tokenizer.Err() != nil {
-				return ""
-			}
-			continue
-		}
-		for _, attribute := range tokenizer.Token().Attr {
-			for _, name := range names {
-				if strings.EqualFold(attribute.Key, name) {
-					return strings.TrimSpace(attribute.Val)
-				}
-			}
-		}
-		return ""
-	}
 }
 
 func extractJSONString(values ...string) string {
