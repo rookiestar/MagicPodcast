@@ -320,6 +320,12 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 
 func noteLinkNodeHasUnsupportedDescendant(node *nethtml.Node) bool {
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type == nethtml.TextNode {
+			if plainURLPattern.MatchString(strings.TrimSpace(child.Data)) {
+				return true
+			}
+			continue
+		}
 		if child.Type != nethtml.ElementNode {
 			continue
 		}
