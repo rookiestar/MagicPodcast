@@ -156,6 +156,17 @@ func TestEvaluateReadableNoteDocumentAllowsFormattingAroundPublicLink(t *testing
 	require.Empty(t, decision.Code)
 }
 
+func TestEvaluateReadableNoteDocumentAllowsPunctuationBetweenPublicLinks(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://example.com/a">A</a>、<a href="https://example.com/b">B</a></p>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.Empty(t, decision.Code)
+}
+
 func TestEvaluateReadableNoteDocumentAllowsEmptyDocument(t *testing.T) {
 	decision := evaluateReadableNoteDocument("   ", "", false, false)
 	require.True(t, decision.Complete)

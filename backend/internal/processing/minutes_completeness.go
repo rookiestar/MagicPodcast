@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	nethtml "golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
@@ -408,6 +409,9 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 		if isPlaceholderText(text) {
 			return noteLinkNodeScan{valid: true}
 		}
+		if isNoteLinkSeparatorText(text) {
+			return noteLinkNodeScan{valid: true}
+		}
 		return noteLinkNodeScan{
 			valid:       !plainURLPattern.MatchString(text),
 			unaccounted: true,
@@ -467,6 +471,16 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 	default:
 		return noteLinkNodeScan{valid: true}
 	}
+}
+
+func isNoteLinkSeparatorText(text string) bool {
+	for _, character := range text {
+		if unicode.IsSpace(character) || unicode.IsPunct(character) || unicode.IsSymbol(character) {
+			continue
+		}
+		return false
+	}
+	return text != ""
 }
 
 func noteLinkNodeHasUnsupportedDescendant(node *nethtml.Node, inspectTextURLs bool) bool {
