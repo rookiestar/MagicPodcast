@@ -124,7 +124,7 @@ func TestEvaluateReadableNoteDocumentAllowsSelfClosingPublicLink(t *testing.T) {
 
 func TestEvaluateReadableNoteDocumentIgnoresCommentedRelatedLinkHeading(t *testing.T) {
 	decision := evaluateReadableNoteDocument(
-		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://example.com/guide">指南</a></p><!-- <h1>相关链接</h1><p>旧区块</p> -->`,
+		`<!-- <h1>相关链接</h1><p>旧区块</p> --><h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://example.com/guide">指南</a></p>`,
 		"",
 		false,
 		false,

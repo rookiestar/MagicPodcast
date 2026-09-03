@@ -271,6 +271,12 @@ func noteLinksSectionIsFullyAccounted(section string) bool {
 
 var selfClosingBookmarkPattern = regexp.MustCompile(`(?is)<bookmark\b([^>]*)/\s*>`)
 
+var htmlCommentPattern = regexp.MustCompile(`(?is)<!--.*?-->`)
+
+func stripHTMLComments(value string) string {
+	return htmlCommentPattern.ReplaceAllString(value, "")
+}
+
 func normalizeSelfClosingBookmarks(section string) string {
 	return selfClosingBookmarkPattern.ReplaceAllString(section, `<bookmark$1></bookmark>`)
 }

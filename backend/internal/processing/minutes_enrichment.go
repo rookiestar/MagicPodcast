@@ -305,6 +305,7 @@ func parseNoteSections(document string) (decisions []string, quotes []MinutesQuo
 }
 
 func splitNoteSections(document string) map[string]string {
+	document = stripHTMLComments(document)
 	matches := headingSplitPattern.FindAllStringSubmatchIndex(document, -1)
 	sections := make(map[string]string)
 	for index, loc := range matches {
@@ -328,6 +329,7 @@ func splitNoteSections(document string) map[string]string {
 }
 
 func hasKnownTopLevelNoteSection(document string) bool {
+	document = stripHTMLComments(document)
 	for _, loc := range headingSplitPattern.FindAllStringSubmatchIndex(document, -1) {
 		if len(loc) < 6 || document[loc[2]:loc[3]] != "1" {
 			continue
@@ -340,6 +342,7 @@ func hasKnownTopLevelNoteSection(document string) bool {
 }
 
 func hasUnknownTopLevelNoteSection(document string) bool {
+	document = stripHTMLComments(document)
 	for _, loc := range headingSplitPattern.FindAllStringSubmatchIndex(document, -1) {
 		if len(loc) < 6 || document[loc[2]:loc[3]] != "1" {
 			continue
