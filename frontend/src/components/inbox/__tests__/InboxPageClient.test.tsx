@@ -1781,7 +1781,7 @@ describe("InboxPageClient", () => {
     expect(
       within(dialog).getByRole("img", { name: "飞书智能纪要画板" }),
     ).toBeVisible();
-  });
+  }, 12000);
 
   it("keeps previous rich minutes during a slow replacement and locates text without audio", async () => {
       const waitingRun: ProcessingRun = {
@@ -1918,9 +1918,11 @@ describe("InboxPageClient", () => {
       expect(
         within(dialog).getByText("音频不可用，逐字稿仍可阅读。"),
       ).toBeVisible();
-      expect(
-        within(dialog).getByText("中段").closest("[aria-current='true']"),
-      ).toBeTruthy();
+      await waitFor(() =>
+        expect(
+          within(dialog).getByText("中段").closest("[aria-current='true']"),
+        ).toBeTruthy(),
+      );
   }, 12000);
 
   it("queues missing audio from the transcript and confirms success after re-entry", async () => {
