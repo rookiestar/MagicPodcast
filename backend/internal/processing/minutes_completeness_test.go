@@ -32,6 +32,17 @@ func TestEvaluateReadableNoteDocumentIgnoresFilteredInternalLinks(t *testing.T) 
 	require.Empty(t, decision.Code)
 }
 
+func TestEvaluateReadableNoteDocumentAllowsFilteredLinksWithPlaceholders(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li><a href="https://bytedance.larkoffice.com/minutes/obcn_internal">妙记</a></li><li>暂无</li></ul>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.Empty(t, decision.Code)
+}
+
 func TestEvaluateReadableNoteDocumentRejectsResidualRelatedLinkContent(t *testing.T) {
 	for _, test := range []struct {
 		name     string

@@ -37,6 +37,7 @@ var (
 	blockquotePattern         = regexp.MustCompile(`(?is)<blockquote\b[^>]*>(.*?)</blockquote>`)
 	listItemPattern           = regexp.MustCompile(`(?is)<li\b[^>]*>(.*?)</li>`)
 	paragraphPattern          = regexp.MustCompile(`(?is)<p\b[^>]*>(.*?)</p>`)
+	commentPattern            = regexp.MustCompile(`(?is)<!--.*?-->`)
 	tagPattern                = regexp.MustCompile(`(?s)<[^>]+>`)
 	mediaIDPattern            = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
 	feishuIdentityPattern     = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:(?:obcn|wbcn|boxcn|doxcn)[a-z0-9_-]{4,}|docx_[a-z0-9_-]{4,})`)
@@ -459,6 +460,7 @@ func extractNoteLinks(section string) []MinutesLink {
 	if strings.TrimSpace(section) == "" {
 		return nil
 	}
+	section = commentPattern.ReplaceAllString(section, "")
 	links := make([]MinutesLink, 0)
 	for _, match := range anchorPattern.FindAllStringSubmatch(section, -1) {
 		href := firstAttribute(match[1], "href")

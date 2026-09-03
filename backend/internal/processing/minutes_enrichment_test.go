@@ -118,6 +118,14 @@ func TestParseNoteSectionsIgnoresSimilarAttributeNames(t *testing.T) {
 	require.Equal(t, []MinutesLink{{Title: "真实链接", URL: "https://example.com/right"}}, links)
 }
 
+func TestParseNoteSectionsIgnoresCommentedLinks(t *testing.T) {
+	_, _, links, _ := parseNoteSections(`
+<h1>相关链接</h1>
+<p><a href="https://example.com/live">Live</a><!-- <a href='https://example.com/old'>Old</a> --></p>
+`)
+	require.Equal(t, []MinutesLink{{Title: "Live", URL: "https://example.com/live"}}, links)
+}
+
 func TestPlaceholderOnlyDecisionsAreOmitted(t *testing.T) {
 	decisions, quotes, links, token := parseNoteSections(`
 <h1>关键决策</h1>

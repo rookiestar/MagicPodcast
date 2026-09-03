@@ -271,6 +271,9 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 		if text == "" {
 			return noteLinkNodeScan{valid: true}
 		}
+		if isPlaceholderText(text) {
+			return noteLinkNodeScan{valid: true}
+		}
 		return noteLinkNodeScan{
 			valid:       !plainURLPattern.MatchString(text),
 			unaccounted: true,
