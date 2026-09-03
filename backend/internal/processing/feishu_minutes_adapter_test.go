@@ -901,6 +901,71 @@ func TestFeishuMinutesAdapterPreservesCredentialErrorsDuringEnrichmentRefresh(t 
 	}
 }
 
+func TestFeishuMinutesAdapterPreservesCredentialErrorsAfterExpiredRefresh(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		failureAt string
+		errorType string
+		wantCode  string
+	}{
+		{name: "note login expired", failureAt: "note", errorType: "auth_expired", wantCode: "lark_auth_expired"},
+		{name: "document permission denied", failureAt: "document", errorType: "permission_denied", wantCode: "lark_permission_denied"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			workRoot := t.TempDir()
+			digest := strings.Repeat("5", 64)
+			minuteDetail := []byte(`{"minutes":[{"minute_token":"obcn_expired_refresh","note_id":"note_expired_refresh","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`)
+			credentialError := &larkCommandError{
+				exitCode: 1,
+				stderr: []byte(fmt.Sprintf(
+					`{"ok":false,"error":{"type":"%s","message":"credential failure"}}`,
+					testCase.errorType,
+				)),
+				cause: errors.New("exit status 1"),
+			}
+			steps := []scriptedLarkStep{
+				{output: minuteDetail, beforeReturn: writeCoreTranscript},
+			}
+			if testCase.failureAt == "note" {
+				steps = append(steps, scriptedLarkStep{err: credentialError})
+			} else {
+				steps = append(steps,
+					scriptedLarkStep{output: []byte(`{"note_doc_token":"docx_expired_refresh"}`)},
+					scriptedLarkStep{err: credentialError},
+				)
+			}
+			runner := &scriptedLarkRunner{steps: steps}
+			adapter, err := newFeishuMinutesAdapterWithRunner(
+				runner,
+				workRoot,
+				func(context.Context, uint) (string, string, error) {
+					return "", "", errors.New("unused")
+				},
+			)
+			require.NoError(t, err)
+			request, _ := feishuTestRequest(digest)
+			checkpoint, err := encodeFeishuCheckpoint(feishuCheckpoint{
+				Version:              feishuCheckpointVersion,
+				Phase:                feishuPhaseMinutesEnrichment,
+				AudioDigest:          digest,
+				FileToken:            "boxcn_expired_refresh",
+				MinuteToken:          "obcn_expired_refresh",
+				MinuteURL:            "https://example.feishu.cn/minutes/obcn_expired_refresh",
+				CoreReadyAt:          formatCheckpointTime(time.Now().UTC().Add(-time.Hour)),
+				EnrichmentDeadlineAt: formatCheckpointTime(time.Now().UTC().Add(-time.Minute)),
+			})
+			require.NoError(t, err)
+
+			progress, err := adapter.Resume(context.Background(), request, checkpoint)
+			var adapterErr *AdapterError
+			require.ErrorAs(t, err, &adapterErr)
+			require.Equal(t, testCase.wantCode, adapterErr.ErrorCode)
+			require.Equal(t, ExternalProgressWaiting, progress.Status)
+			require.Contains(t, string(progress.RawArtifacts[minutesEnrichmentDiagnosticFileName]), "note_permission_unavailable")
+		})
+	}
+}
+
 func TestFeishuMinutesAdapterRetriesPendingNoteBeforePublishingCoreOnly(t *testing.T) {
 	workRoot := t.TempDir()
 	digest := strings.Repeat("3", 64)

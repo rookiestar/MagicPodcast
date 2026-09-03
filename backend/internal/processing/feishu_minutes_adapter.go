@@ -933,9 +933,6 @@ func (a *FeishuMinutesAdapter) waitForMinutesEnrichment(
 			}
 			return a.failEnrichmentWait(ctx, request, checkpoint, decision)
 		}
-		if expired {
-			return a.failEnrichmentWait(ctx, request, checkpoint, minutesEnrichmentTimeoutDecision())
-		}
 		if wait {
 			if expired {
 				return a.failEnrichmentWait(ctx, request, checkpoint, minutesEnrichmentTimeoutDecision())
