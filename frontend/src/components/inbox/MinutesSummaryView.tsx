@@ -276,12 +276,7 @@ export function isSafeMinutesLink(raw: string) {
     }
     let decoded = haystack;
     for (let pass = 0; pass < 8; pass += 1) {
-      let next: string;
-      try {
-        next = decodeURIComponent(decoded);
-      } catch {
-        return false;
-      }
+      const next = decodeMinutesURLLayer(decoded);
       if (next === decoded) break;
       decoded = next.toLowerCase();
     }
@@ -314,6 +309,16 @@ export function isSafeMinutesLink(raw: string) {
   } catch {
     return false;
   }
+}
+
+function decodeMinutesURLLayer(value: string) {
+  return value.replace(/(?:%[0-9a-f]{2})+/gi, (encoded) => {
+    try {
+      return decodeURIComponent(encoded);
+    } catch {
+      return encoded;
+    }
+  });
 }
 
 function isLocalMinutesHost(hostname: string) {

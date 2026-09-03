@@ -1623,6 +1623,10 @@ describe("InboxPageClient", () => {
                     url: "https://example.com/guides/docx-format",
                   },
                   {
+                    title: "百分号链接",
+                    url: "https://example.com/report?completion=50%25",
+                  },
+                  {
                     title: "飞书内部",
                     url: "https://example.feishu.cn/minutes/obcn_secret",
                   },
@@ -1739,6 +1743,9 @@ describe("InboxPageClient", () => {
     expect(
       within(dialog).getByRole("link", { name: "DOCX 格式指南" }),
     ).toHaveAttribute("href", "https://example.com/guides/docx-format");
+    expect(
+      within(dialog).getByRole("link", { name: "百分号链接" }),
+    ).toHaveAttribute("href", "https://example.com/report?completion=50%25");
     expect(within(dialog).queryByText("飞书内部")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("本机地址")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("嵌套本机地址")).not.toBeInTheDocument();
