@@ -130,6 +130,17 @@ func TestParseNoteSectionsIgnoresCommentedLinks(t *testing.T) {
 	}, links)
 }
 
+func TestParseNoteSectionsMergesRelatedLinkAliases(t *testing.T) {
+	_, _, links, _ := parseNoteSections(`
+<h1>相关链接</h1><p><a href="https://example.com/primary">主链接</a></p>
+<h1>相关外链</h1><p><a href="https://example.com/alternate">备用链接</a></p>
+`)
+	require.Equal(t, []MinutesLink{
+		{Title: "主链接", URL: "https://example.com/primary"},
+		{Title: "备用链接", URL: "https://example.com/alternate"},
+	}, links)
+}
+
 func TestPlaceholderOnlyDecisionsAreOmitted(t *testing.T) {
 	decisions, quotes, links, token := parseNoteSections(`
 <h1>关键决策</h1>

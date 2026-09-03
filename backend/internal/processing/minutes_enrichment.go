@@ -297,10 +297,10 @@ func parseNoteSections(document string) (decisions []string, quotes []MinutesQuo
 	if len(quotes) == 0 {
 		quotes = extractNoteQuotes(sections["金句"])
 	}
-	links = extractNoteLinks(sections["相关链接"])
-	if len(links) == 0 {
-		links = extractNoteLinks(sections["相关外链"])
-	}
+	links = normalizeMinutesLinks(append(
+		extractNoteLinks(sections["相关链接"]),
+		extractNoteLinks(sections["相关外链"])...,
+	))
 	return decisions, quotes, links, whiteboardToken
 }
 
