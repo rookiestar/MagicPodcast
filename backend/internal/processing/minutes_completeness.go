@@ -400,6 +400,11 @@ var noteLinkContainerTags = map[string]struct{}{
 
 var plainURLPattern = regexp.MustCompile(`(?i)(?:https?://|www\.)`)
 
+var noteLinkLabelTexts = map[string]struct{}{
+	"妙记":   {},
+	"文字记录": {},
+}
+
 func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 	if node == nil {
 		return noteLinkNodeScan{}
@@ -411,6 +416,9 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 			return noteLinkNodeScan{valid: true}
 		}
 		if isPlaceholderText(text) {
+			return noteLinkNodeScan{valid: true}
+		}
+		if _, ok := noteLinkLabelTexts[normalizeNoteHeading(text)]; ok {
 			return noteLinkNodeScan{valid: true}
 		}
 		if isNoteLinkSeparatorText(text) {

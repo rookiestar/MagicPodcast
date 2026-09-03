@@ -43,6 +43,17 @@ func TestEvaluateReadableNoteDocumentAllowsFilteredLinksWithPlaceholders(t *test
 	require.Empty(t, decision.Code)
 }
 
+func TestEvaluateReadableNoteDocumentAllowsProviderRelatedLinkLabels(t *testing.T) {
+	decision := evaluateReadableNoteDocument(
+		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><ul><li>妙记：<a href="https://bytedance.larkoffice.com/minutes/obcn_internal">asset</a></li><li>文字记录<ul><li><a href="https://bytedance.larkoffice.com/docx/internal">asset 2026-09-03</a></li></ul></li></ul>`,
+		"",
+		false,
+		false,
+	)
+	require.True(t, decision.Complete)
+	require.Empty(t, decision.Code)
+}
+
 func TestEvaluateReadableNoteDocumentAllowsFilteredLinkWithOwnURLLabel(t *testing.T) {
 	decision := evaluateReadableNoteDocument(
 		`<h1>总结</h1><p>总结正文</p><h1>相关链接</h1><p><a href="https://bytedance.larkoffice.com/docx/internal">https://bytedance.larkoffice.com/docx/internal</a></p>`,
