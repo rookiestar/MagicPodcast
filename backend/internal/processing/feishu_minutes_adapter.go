@@ -897,18 +897,18 @@ func (a *FeishuMinutesAdapter) waitForMinutesEnrichment(
 		)
 	}
 	expired := enrichmentWaitExpired(deadline, now)
+	probeCtx := ctx
+	var cancelProbe context.CancelFunc
+	if expired {
+		probeCtx, cancelProbe = context.WithTimeout(
+			ctx,
+			minutesEnrichmentExpiredProbeTimeout,
+		)
+		defer cancelProbe()
+	}
 
 	if detail == nil {
-		fetchCtx := ctx
-		var cancelFetch context.CancelFunc
-		if expired {
-			fetchCtx, cancelFetch = context.WithTimeout(
-				ctx,
-				minutesEnrichmentExpiredProbeTimeout,
-			)
-			defer cancelFetch()
-		}
-		fetched, raw, wait, fetchErr := a.fetchMinuteDetailForEnrichment(fetchCtx, request, checkpoint)
+		fetched, raw, wait, fetchErr := a.fetchMinuteDetailForEnrichment(probeCtx, request, checkpoint)
 		if fetchErr != nil {
 			if minutesErrorIsWaitable(fetchErr) {
 				if expired {
@@ -980,7 +980,7 @@ func (a *FeishuMinutesAdapter) waitForMinutesEnrichment(
 		return progress, completeErr
 	}
 	progress, decision := a.captureNoteEnrichment(
-		ctx,
+		probeCtx,
 		request.RunID,
 		*detail,
 		progress,
