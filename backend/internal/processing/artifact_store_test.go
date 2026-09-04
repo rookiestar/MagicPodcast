@@ -130,6 +130,61 @@ func TestDiskArtifactStorePublishesAndReadsNativeMinutesSet(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidArtifact)
 }
 
+func TestDiskArtifactStorePublishesAndReadsOrderedVisualItems(t *testing.T) {
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	request := nativeArtifactTestRequest(131)
+	first := mustTestPNG(t)
+	second := mustTestPNG(t)
+	firstHash := digestBytes(first)
+	secondHash := digestBytes(second)
+	request.MinutesEnrichment = MinutesEnrichment{
+		VisualItems: []MinutesVisualItem{
+			{
+				Type: "image", MediaID: "image-1", MediaType: "image/png",
+				Width: 2, Height: 2, SHA256: firstHash, Alt: "第一张",
+			},
+			{
+				Type: "image", MediaID: "image-2", MediaType: "image/png",
+				Width: 2, Height: 2, SHA256: secondHash, Alt: "第二张",
+			},
+		},
+	}
+	request.VisualPreviews = []ManagedMinutesVisual{
+		{Item: request.MinutesEnrichment.VisualItems[0], Bytes: first},
+		{Item: request.MinutesEnrichment.VisualItems[1], Bytes: second},
+	}
+
+	published, err := store.Publish(context.Background(), request)
+	require.NoError(t, err)
+	artifact := models.EpisodeArtifactSet{
+		ID:                       1,
+		RunID:                    request.RunID,
+		EpisodeID:                request.EpisodeID,
+		PipelineVersion:          request.PipelineVersion,
+		RootPath:                 published.RootPath,
+		ManifestPath:             published.ManifestPath,
+		ManifestSHA256:           published.ManifestSHA256,
+		AudioSHA256:              published.AudioSHA256,
+		MinutesSummarySHA256:     published.MinutesSummarySHA256,
+		TranscriptSHA256:         published.TranscriptSHA256,
+		TranscriptTimelineSHA256: published.TranscriptTimelineSHA256,
+	}
+	content, err := store.ReadText(context.Background(), artifact, "minutes_summary")
+	require.NoError(t, err)
+	require.Equal(t, []string{"image-1", "image-2"}, []string{
+		content.VisualItems[0].MediaID,
+		content.VisualItems[1].MediaID,
+	})
+	require.NotContains(t, string(mustJSON(t, content)), "filecn_")
+	for _, visual := range content.VisualItems {
+		media, mediaErr := store.ReadMedia(context.Background(), artifact, visual.MediaID)
+		require.NoError(t, mediaErr)
+		require.Equal(t, visual.MediaID, media.MediaID)
+		require.Equal(t, visual.SHA256, media.SHA256)
+	}
+}
+
 func TestDiskArtifactStoreRejectsOversizedGeneratedTimelineBeforePublish(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewDiskArtifactStore(root)

@@ -122,6 +122,7 @@ export interface ArtifactContent {
   quotes?: MinutesQuote[];
   links?: MinutesLink[];
   whiteboard?: MinutesWhiteboard;
+  visual_items?: MinutesVisualItem[];
 }
 
 export interface MinutesChapter {
@@ -148,6 +149,17 @@ export interface MinutesWhiteboard {
   width?: number;
   height?: number;
   sha256: string;
+  alt: string;
+}
+
+export interface MinutesVisualItem {
+  type: "whiteboard" | "image";
+  media_id: string;
+  media_type: string;
+  width?: number;
+  height?: number;
+  sha256: string;
+  summary?: string;
   alt: string;
 }
 

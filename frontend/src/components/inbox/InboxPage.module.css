@@ -2731,6 +2731,12 @@ button.transcriptSegment:hover {
   margin: 0;
 }
 
+.minutesVisualList {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+}
+
 .minutesWhiteboardButton {
   display: grid;
   width: 100%;
@@ -2804,6 +2810,25 @@ button.transcriptSegment:hover {
   content: "↗";
   color: var(--orange-dark);
   font-family: var(--font-mono);
+}
+
+.minutesWhiteboard figcaption {
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-soft);
+  font: 500 var(--type-meta-size) / var(--type-meta-leading) var(--font-sans);
+  overflow-wrap: anywhere;
+}
+
+.minutesVisualLoadError {
+  display: grid;
+  min-height: 96px;
+  place-items: center;
+  padding: 16px;
+  border: 1px solid var(--rule);
+  background: rgba(243, 236, 221, 0.42);
+  color: var(--ink-soft);
+  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-sans);
 }
 
 .minutesSection {

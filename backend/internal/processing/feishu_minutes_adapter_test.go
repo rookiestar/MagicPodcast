@@ -660,6 +660,67 @@ func TestFeishuMinutesAdapterCapturesReadOnlyNoteEnrichmentAfterCoreComplete(t *
 	require.NotEqual(t, ExternalProgressCompleted, damaged.Status)
 }
 
+func TestFeishuMinutesAdapterCapturesOrderedReadOnlyImages(t *testing.T) {
+	workRoot := t.TempDir()
+	digest := strings.Repeat("2", 64)
+	first := mustTestPNG(t)
+	second := mustTestPNG(t)
+	runner := &scriptedLarkRunner{steps: []scriptedLarkStep{
+		{
+			output:       []byte(`{"minutes":[{"minute_token":"obcn_images_123","note_id":"note_images_123","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
+			beforeReturn: writeCoreTranscript,
+		},
+		{output: []byte(`{"note_doc_token":"docx_images_123"}`)},
+		{output: []byte(`{"data":{"document":{"content":"<h1>总结</h1><img token=\"filecn_image_1\" type=\"image/png\" width=\"2\" height=\"2\" alt=\"第一张\" summary=\"开场图\"/><p>中间内容</p><img token=\"filecn_image_2\" alt=\"第二张\"/></div>"}}}`)},
+		{output: []byte(`{"ok":true}`), beforeReturn: func(cwd string) {
+			require.NoError(t, os.WriteFile(filepath.Join(cwd, "image-1"), first, 0o600))
+		}},
+		{output: []byte(`{"ok":true}`), beforeReturn: func(cwd string) {
+			require.NoError(t, os.WriteFile(filepath.Join(cwd, "image-2"), second, 0o600))
+		}},
+	}}
+	adapter, err := newFeishuMinutesAdapterWithRunner(
+		runner,
+		workRoot,
+		func(context.Context, uint) (string, string, error) { return "", "", errors.New("unused") },
+	)
+	require.NoError(t, err)
+	request, _ := feishuTestRequest(digest)
+	checkpoint, err := encodeFeishuCheckpoint(feishuCheckpoint{
+		Version:     feishuCheckpointVersion,
+		Phase:       feishuPhaseMinutesCreated,
+		AudioDigest: digest,
+		FileToken:   "boxcn_images_123",
+		MinuteToken: "obcn_images_123",
+		MinuteURL:   "https://example.feishu.cn/minutes/obcn_images_123",
+	})
+	require.NoError(t, err)
+
+	completed, err := adapter.Resume(context.Background(), request, checkpoint)
+	require.NoError(t, err)
+	require.Equal(t, ExternalProgressCompleted, completed.Status)
+	require.Equal(t, []MinutesVisualItem{
+		{Type: "image", MediaID: "image-1", MediaType: "image/png", Width: 2, Height: 2, SHA256: digestBytes(first), Summary: "开场图", Alt: "第一张"},
+		{Type: "image", MediaID: "image-2", MediaType: "image/png", Width: 2, Height: 2, SHA256: digestBytes(second), Alt: "第二张"},
+	}, completed.MinutesEnrichment.VisualItems)
+	require.Len(t, completed.VisualPreviews, 2)
+	require.Nil(t, completed.MinutesEnrichment.Whiteboard)
+	require.NotContains(t, string(mustJSON(t, completed.MinutesEnrichment)), "filecn_image_")
+	require.Equal(t, []string{
+		"docs", "+media-download", "--token", "filecn_image_1", "--output", "./image-1", "--overwrite", "--as", "user",
+	}, runner.calls[3].args)
+	require.Equal(t, []string{
+		"docs", "+media-download", "--token", "filecn_image_2", "--output", "./image-2", "--overwrite", "--as", "user",
+	}, runner.calls[4].args)
+
+	replayed, err := adapter.Resume(context.Background(), request, completed.Checkpoint)
+	require.NoError(t, err)
+	require.Equal(t, completed.MinutesEnrichment.VisualItems, replayed.MinutesEnrichment.VisualItems)
+	require.Len(t, replayed.VisualPreviews, 2)
+	require.Len(t, runner.calls, 5)
+	assertNoFeishuWriteCommands(t, runner.calls[3:])
+}
+
 func TestFeishuMinutesAdapterDoesNotCompleteUntilSourceNoteIsComplete(t *testing.T) {
 	cases := []struct {
 		name           string

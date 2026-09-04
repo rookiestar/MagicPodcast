@@ -97,6 +97,7 @@ type TranscriptionProgress struct {
 	Segments          []TranscriptSegment
 	MinutesEnrichment MinutesEnrichment
 	WhiteboardPreview []byte
+	VisualPreviews    []ManagedMinutesVisual
 	RawArtifacts      map[string][]byte
 	SourceRefs        map[string]string
 	SkillVersions     map[string]string
@@ -166,6 +167,7 @@ type ArtifactPublishRequest struct {
 	TranscriptSegments   []TranscriptSegment
 	MinutesEnrichment    MinutesEnrichment
 	WhiteboardPreview    []byte
+	VisualPreviews       []ManagedMinutesVisual
 	EpisodeNotes         string
 	TranscriptionAdapter string
 	TranscriptionVersion string
@@ -208,6 +210,7 @@ type ArtifactContent struct {
 	Quotes         []MinutesQuote        `json:"quotes,omitempty"`
 	Links          []MinutesLink         `json:"links,omitempty"`
 	Whiteboard     *MinutesWhiteboard    `json:"whiteboard,omitempty"`
+	VisualItems    []MinutesVisualItem   `json:"visual_items,omitempty"`
 }
 
 type ArtifactMedia struct {
