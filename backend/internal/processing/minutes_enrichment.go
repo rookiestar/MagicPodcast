@@ -780,7 +780,9 @@ func parseMinutesVisualSource(node *nethtml.Node) (minutesVisualSource, error) {
 	if node == nil {
 		return minutesVisualSource{}, fmt.Errorf("Minutes visual node is missing")
 	}
-	token := firstNodeAttribute(node, "token", "file_token", "file-token", "image_token", "image-token")
+	// docs +fetch --detail simple emits image media tokens through src.
+	// The shared token validator below continues to reject URLs and paths.
+	token := firstNodeAttribute(node, "token", "file_token", "file-token", "image_token", "image-token", "src")
 	if !larkTokenPattern.MatchString(token) {
 		return minutesVisualSource{}, fmt.Errorf("Minutes visual media identity is invalid")
 	}

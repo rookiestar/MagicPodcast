@@ -182,6 +182,7 @@ func TestParseNoteVisualSourcesPreservesOrderAndMetadata(t *testing.T) {
 <h1>总结</h1>
 <img token="filecn_image_one" type="image/png" width="2" height="2" alt="第一张" summary="开场图"/>
 <div><image file_token='filecn_image_two' media-type='image/jpeg' aria-label='第二张'></image></div>
+<img name="第三张" caption="收尾图" mime="image/png" scale="1.000000" src="media_token_three"/>
 `)
 	require.NoError(t, err)
 	require.Equal(t, []minutesVisualSource{
@@ -196,6 +197,12 @@ func TestParseNoteVisualSourcesPreservesOrderAndMetadata(t *testing.T) {
 			HeightPresent: true,
 		},
 		{Token: "filecn_image_two", MediaType: "image/jpeg", Alt: "第二张"},
+		{
+			Token:     "media_token_three",
+			MediaType: "image/png",
+			Alt:       "第三张",
+			Summary:   "收尾图",
+		},
 	}, sources)
 }
 
