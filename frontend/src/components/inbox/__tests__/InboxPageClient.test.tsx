@@ -1700,11 +1700,17 @@ describe("InboxPageClient", () => {
     fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
 
     expect(await within(dialog).findByText("飞书智能纪要")).toBeVisible();
-    expect(
-      within(dialog).getByText("飞书妙记 · 内容由 AI 生成，可能不准确"),
-    ).toBeVisible();
+    const summaryTab = within(dialog).getByRole("tab", { name: "总结" });
+    const minutesTab = within(dialog).getByRole("tab", { name: "纪要" });
+    expect(summaryTab).toHaveAttribute("aria-selected", "true");
     expect(within(dialog).getByRole("heading", { name: "总结" })).toBeVisible();
-    expect(within(dialog).getByText("本集核心结论")).toBeVisible();
+    expect(
+      within(dialog).getByRole("img", { name: "飞书智能纪要画板" }),
+    ).toBeVisible();
+    expect(within(dialog).queryByText("本集核心结论")).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByText("飞书妙记 · 内容由 AI 生成，可能不准确"),
+    ).not.toBeInTheDocument();
     expect(
       within(dialog).queryByRole("heading", { name: "纪要" }),
     ).not.toBeInTheDocument();
@@ -1771,6 +1777,12 @@ describe("InboxPageClient", () => {
       within(dialog).getByRole("button", { name: /放大查看画板/ }),
     ).toHaveFocus();
 
+    fireEvent.click(minutesTab);
+    expect(minutesTab).toHaveAttribute("aria-selected", "true");
+    expect(
+      within(dialog).getByText("飞书妙记 · 内容由 AI 生成，可能不准确"),
+    ).toBeVisible();
+    expect(within(dialog).getByText("本集核心结论")).toBeVisible();
     expect(within(dialog).getByText("采用方案 A")).toBeVisible();
     expect(within(dialog).getByText("真正重要的是长期主义")).toBeVisible();
     expect(within(dialog).getByText("这句话强调节奏。")).toBeVisible();
@@ -1829,9 +1841,8 @@ describe("InboxPageClient", () => {
       within(dialog).getByRole("button", { name: "00:30 嘉宾：中段" }),
     ).toHaveAttribute("aria-current", "true");
 
-    fireEvent.click(within(dialog).getByRole("tab", { name: "纪要" }));
-    expect(await within(dialog).findByText("飞书智能纪要")).toBeVisible();
-    expect(within(dialog).getByText("真正重要的是长期主义")).toBeVisible();
+    fireEvent.click(summaryTab);
+    expect(summaryTab).toHaveAttribute("aria-selected", "true");
     expect(
       within(dialog).getByRole("img", { name: "飞书智能纪要画板" }),
     ).toBeVisible();
@@ -2075,6 +2086,12 @@ describe("InboxPageClient", () => {
     );
     const dialog = await screen.findByRole("dialog", { name: "可处理单集" });
     fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
+    expect(
+      within(dialog).queryByRole("tab", { name: "总结" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("tab", { name: "纪要" }),
+    ).toHaveAttribute("aria-selected", "true");
     expect(
       await within(dialog).findByRole("heading", { name: "总结" }),
     ).toBeVisible();

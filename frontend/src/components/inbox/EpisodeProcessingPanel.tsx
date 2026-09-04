@@ -31,10 +31,13 @@ import TranscriptAudioPlayer, {
   type TranscriptPlaybackRate,
 } from "./TranscriptAudioPlayer";
 
-type ArtifactTab = "summary" | "transcript";
+type ArtifactTab = "summary" | "minutes" | "transcript";
+
+type ArtifactContentSlot = "minutes" | "transcript";
 
 const artifactTabs: ReadonlyArray<{ id: ArtifactTab; label: string }> = [
-  { id: "summary", label: "纪要" },
+  { id: "summary", label: "总结" },
+  { id: "minutes", label: "纪要" },
   { id: "transcript", label: "逐字稿" },
 ];
 
@@ -43,11 +46,30 @@ interface LoadedArtifactContent {
   content: ArtifactContent;
 }
 
-const emptyArtifactContents: Record<ArtifactTab, LoadedArtifactContent | null> =
-  {
-    summary: null,
-    transcript: null,
-  };
+interface ArtifactContents {
+  minutes: LoadedArtifactContent | null;
+  transcript: LoadedArtifactContent | null;
+}
+
+const emptyArtifactContents: ArtifactContents = {
+  minutes: null,
+  transcript: null,
+};
+
+function artifactContentSlot(tab: ArtifactTab): ArtifactContentSlot {
+  return tab === "transcript" ? "transcript" : "minutes";
+}
+
+function artifactTabLabel(tab: ArtifactTab) {
+  switch (tab) {
+    case "summary":
+      return "总结";
+    case "minutes":
+      return "纪要";
+    default:
+      return "逐字稿";
+  }
+}
 
 const legacyProcessingPipelineVersion = "focus-processing-v1";
 const unresolvedExternalResultCodes = new Set([
@@ -206,9 +228,11 @@ const EpisodeProcessingPanel = forwardRef<
   const [isMutating, setIsMutating] = useState(false);
   const [isRecoveringAudio, setIsRecoveringAudio] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [artifactContents, setArtifactContents] = useState(
-    emptyArtifactContents,
-  );
+  const [artifactReadFailure, setArtifactReadFailure] = useState<
+    ArtifactContentKind | null
+  >(null);
+  const [artifactContents, setArtifactContents] =
+    useState<ArtifactContents>(emptyArtifactContents);
   const [activeArtifactTab, setActiveArtifactTab] =
     useState<ArtifactTab>("summary");
   const [transcriptPlaybackRate, setTranscriptPlaybackRate] =
@@ -224,12 +248,18 @@ const EpisodeProcessingPanel = forwardRef<
   const scheduleStatusInFlight = useRef(false);
   const loadingEpisodeIDs = useRef(new Set<number>());
   const artifactReadSequence = useRef(0);
+  const artifactReadInFlight = useRef<{
+    artifactSetId: number;
+    kind: ArtifactContentKind;
+  } | null>(null);
   const artifactTabRefs = useRef<Record<ArtifactTab, HTMLButtonElement | null>>(
     {
       summary: null,
+      minutes: null,
       transcript: null,
     },
   );
+  const artifactTabWasUserSelected = useRef(false);
   const activeEpisodeID = useRef(item.episode_id);
   activeEpisodeID.current = item.episode_id;
 
@@ -322,10 +352,13 @@ const EpisodeProcessingPanel = forwardRef<
     setDetail(null);
     setHasProcessingHistory(false);
     setAudioAsset(null);
+    setArtifactReadFailure(null);
     setArtifactContents(emptyArtifactContents);
     setActiveArtifactTab("summary");
+    artifactTabWasUserSelected.current = false;
     setTranscriptPlaybackRate(DEFAULT_TRANSCRIPT_PLAYBACK_RATE);
     artifactReadSequence.current += 1;
+    artifactReadInFlight.current = null;
     setIsLoading(true);
     setError(null);
     void loadLatest()
@@ -421,8 +454,15 @@ const EpisodeProcessingPanel = forwardRef<
 
   const readArtifact = useCallback(
     async (artifactSetId: number, kind: ArtifactContentKind) => {
+      if (
+        artifactReadInFlight.current?.artifactSetId === artifactSetId &&
+        artifactReadInFlight.current.kind === kind
+      ) {
+        return;
+      }
       const sequence = artifactReadSequence.current + 1;
       artifactReadSequence.current = sequence;
+      artifactReadInFlight.current = { artifactSetId, kind };
       setIsReadingArtifact(true);
       setError(null);
       try {
@@ -431,23 +471,32 @@ const EpisodeProcessingPanel = forwardRef<
           kind,
         );
         if (artifactReadSequence.current !== sequence) return;
-        const tab: ArtifactTab =
-          content.kind === "transcript" ? "transcript" : "summary";
+        setArtifactReadFailure(null);
+        const slot = artifactContentSlot(
+          content.kind === "transcript" ? "transcript" : "minutes",
+        );
         setArtifactContents((current) => ({
           ...current,
-          [tab]: {
+          [slot]: {
             artifactSetId,
             content,
           },
         }));
       } catch (readError) {
         if (artifactReadSequence.current !== sequence) return;
+        setArtifactReadFailure(kind);
         setError(
           `产物读取失败：${getProcessingErrorDetails(readError).message}`,
         );
       } finally {
         if (artifactReadSequence.current === sequence) {
           setIsReadingArtifact(false);
+        }
+        if (
+          artifactReadInFlight.current?.artifactSetId === artifactSetId &&
+          artifactReadInFlight.current.kind === kind
+        ) {
+          artifactReadInFlight.current = null;
         }
       }
     },
@@ -496,14 +545,28 @@ const EpisodeProcessingPanel = forwardRef<
       ? "episode_notes"
       : null;
   const transcriptAvailable = currentArtifact?.capabilities.transcript === true;
+  const minutesArtifactContent = artifactContents.minutes;
+  const minutesContentMatchesCurrent = Boolean(
+    currentArtifact &&
+      minutesArtifactContent?.artifactSetId === currentArtifact.id &&
+      minutesArtifactContent.content.kind === summaryKind,
+  );
+  const visualSummaryAvailable = Boolean(
+    minutesContentMatchesCurrent && minutesArtifactContent?.content.whiteboard,
+  );
+  const summaryContentSettled =
+    summaryKind !== "minutes_summary" ||
+    minutesContentMatchesCurrent ||
+    artifactReadFailure === summaryKind;
   const requestedArtifactKind: ArtifactContentKind | null = !currentArtifact
     ? null
-    : activeArtifactTab === "summary"
+    : activeArtifactTab === "summary" || activeArtifactTab === "minutes"
       ? summaryKind
       : transcriptAvailable
         ? "transcript"
         : null;
-  const selectedArtifactContent = artifactContents[activeArtifactTab];
+  const selectedArtifactContent =
+    artifactContents[artifactContentSlot(activeArtifactTab)];
   const artifactContentMatchesSelection =
     currentArtifact !== undefined &&
     requestedArtifactKind !== null &&
@@ -639,8 +702,15 @@ const EpisodeProcessingPanel = forwardRef<
     requestedArtifactKind,
   ]);
 
-  const isArtifactTabAvailable = (tab: ArtifactTab) =>
-    tab === "summary" ? Boolean(summaryKind) : transcriptAvailable;
+  const isArtifactTabAvailable = useCallback(
+    (tab: ArtifactTab) =>
+      tab === "summary"
+        ? visualSummaryAvailable
+        : tab === "minutes"
+          ? Boolean(summaryKind)
+          : transcriptAvailable,
+    [summaryKind, transcriptAvailable, visualSummaryAvailable],
+  );
 
   const handleArtifactTabKeyDown = (
     event: KeyboardEvent<HTMLButtonElement>,
@@ -665,6 +735,7 @@ const EpisodeProcessingPanel = forwardRef<
     }
     event.preventDefault();
     const nextTab = enabledTabs[nextIndex].id;
+    artifactTabWasUserSelected.current = true;
     setActiveArtifactTab(nextTab);
     artifactTabRefs.current[nextTab]?.focus();
   };
@@ -676,7 +747,7 @@ const EpisodeProcessingPanel = forwardRef<
     }
     if (!requestedArtifactKind) {
       const fallback: ArtifactTab | null = summaryKind
-        ? "summary"
+        ? "minutes"
         : transcriptAvailable
           ? "transcript"
           : null;
@@ -851,9 +922,44 @@ const EpisodeProcessingPanel = forwardRef<
     [headerState, onViewTranscript, retryProcessing, startProcessing],
   );
 
-  const availableArtifactTabs = artifactTabs.filter((tab) =>
-    isArtifactTabAvailable(tab.id),
+  const availableArtifactTabs = useMemo(
+    () => artifactTabs.filter((tab) => isArtifactTabAvailable(tab.id)),
+    [isArtifactTabAvailable],
   );
+  const defaultArtifactTab: ArtifactTab | null = summaryKind
+    ? "minutes"
+    : transcriptAvailable
+      ? "transcript"
+      : null;
+  const renderedArtifactTab = availableArtifactTabs.some(
+    (tab) => tab.id === activeArtifactTab,
+  )
+    ? activeArtifactTab
+    : defaultArtifactTab;
+
+  useEffect(() => {
+    if (!currentArtifact || !summaryContentSettled || !renderedArtifactTab) {
+      return;
+    }
+    if (
+      visualSummaryAvailable &&
+      !artifactTabWasUserSelected.current &&
+      activeArtifactTab === "minutes"
+    ) {
+      setActiveArtifactTab("summary");
+      return;
+    }
+    if (renderedArtifactTab !== activeArtifactTab) {
+      setActiveArtifactTab(renderedArtifactTab);
+    }
+  }, [
+    activeArtifactTab,
+    currentArtifact,
+    renderedArtifactTab,
+    summaryContentSettled,
+    visualSummaryAvailable,
+  ]);
+
   const showRunDetails = Boolean(
     run ||
     audioAsset ||
@@ -954,7 +1060,7 @@ const EpisodeProcessingPanel = forwardRef<
         isReadingArtifact &&
         selectedArtifactContent && (
           <div className={styles.processingHint} role="status">
-            正在读取{activeArtifactTab === "summary" ? "纪要" : "逐字稿"}
+            正在读取{artifactTabLabel(renderedArtifactTab ?? activeArtifactTab)}
             ，暂时显示上一成功内容…
           </div>
         )}
@@ -964,9 +1070,9 @@ const EpisodeProcessingPanel = forwardRef<
           <span>
             {isLoading && !currentArtifact
               ? "正在读取转写状态…"
-              : `正在读取${
-                  activeArtifactTab === "summary" ? "纪要" : "逐字稿"
-                }…`}
+              : `正在读取${artifactTabLabel(
+                  renderedArtifactTab ?? activeArtifactTab,
+                )}…`}
           </span>
           <div aria-hidden="true">
             <i />
@@ -985,7 +1091,7 @@ const EpisodeProcessingPanel = forwardRef<
             role="status"
           >
             暂时无法读取
-            {activeArtifactTab === "summary" ? "纪要" : "逐字稿"}，请重试。
+            {artifactTabLabel(renderedArtifactTab ?? activeArtifactTab)}，请重试。
           </div>
         )}
 
@@ -1112,6 +1218,7 @@ const EpisodeProcessingPanel = forwardRef<
               quotes={selectedArtifactContent.content.quotes}
               links={selectedArtifactContent.content.links}
               whiteboard={selectedArtifactContent.content.whiteboard}
+              mode={renderedArtifactTab === "summary" ? "visual" : "minutes"}
             />
           ) : (
             <MarkdownViewer content={selectedArtifactContent.content.content} />
@@ -1134,7 +1241,7 @@ const EpisodeProcessingPanel = forwardRef<
             aria-label={
               canRetryArtifactRead
                 ? `重试读取${
-                    activeArtifactTab === "summary" ? "纪要" : "逐字稿"
+                    artifactTabLabel(renderedArtifactTab ?? activeArtifactTab)
                   }`
                 : "重试读取加工状态"
             }
@@ -1237,7 +1344,7 @@ const EpisodeProcessingPanel = forwardRef<
             aria-label="转写产物"
           >
             {availableArtifactTabs.map((tab) => {
-              const selected = activeArtifactTab === tab.id;
+              const selected = renderedArtifactTab === tab.id;
               return (
                 <button
                   key={tab.id}
@@ -1250,7 +1357,10 @@ const EpisodeProcessingPanel = forwardRef<
                   aria-selected={selected}
                   aria-controls={`processing-artifact-panel-${tab.id}`}
                   tabIndex={selected ? 0 : -1}
-                  onClick={() => setActiveArtifactTab(tab.id)}
+                  onClick={() => {
+                    artifactTabWasUserSelected.current = true;
+                    setActiveArtifactTab(tab.id);
+                  }}
                   onKeyDown={(event) => handleArtifactTabKeyDown(event, tab.id)}
                 >
                   {tab.label}
@@ -1266,11 +1376,11 @@ const EpisodeProcessingPanel = forwardRef<
               className={styles.processingArtifactPanel}
               role="tabpanel"
               aria-labelledby={`processing-artifact-tab-${tab.id}`}
-              aria-busy={activeArtifactTab === tab.id && showArtifactSkeleton}
+              aria-busy={renderedArtifactTab === tab.id && showArtifactSkeleton}
               tabIndex={0}
-              hidden={activeArtifactTab !== tab.id}
+              hidden={renderedArtifactTab !== tab.id}
             >
-              {activeArtifactTab === tab.id && artifactPanelContent}
+              {renderedArtifactTab === tab.id && artifactPanelContent}
             </div>
           ))}
         </div>

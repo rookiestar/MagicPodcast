@@ -2682,6 +2682,14 @@ button.transcriptSegment:hover {
   overflow-x: hidden;
 }
 
+.minutesVisualSummary {
+  min-height: 100%;
+}
+
+.minutesVisualSummary .minutesSection {
+  padding-top: 4px;
+}
+
 .minutesMasthead {
   display: grid;
   gap: 14px;
