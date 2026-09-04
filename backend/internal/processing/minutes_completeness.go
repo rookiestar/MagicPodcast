@@ -20,6 +20,7 @@ const (
 	minutesEnrichmentTemplateCode       = "minutes_template_unrecognized"
 	minutesEnrichmentSectionCode        = "minutes_section_unparsed"
 	minutesEnrichmentWhiteboardCode     = "minutes_whiteboard_unavailable"
+	minutesEnrichmentImageCode          = "minutes_image_unavailable"
 	minutesEnrichmentNoteUnreadableCode = "minutes_note_unreadable"
 	minutesEnrichmentSnapshotWriteCode  = "minutes_enrichment_snapshot_write_failed"
 	minutesEnrichmentSnapshotStoredCode = "stored_enrichment_unavailable"
@@ -28,6 +29,7 @@ const (
 	minutesEnrichmentTemplateMessage   = "Feishu intelligent minutes template is unrecognized"
 	minutesEnrichmentSectionMessage    = "Feishu intelligent minutes section could not be parsed"
 	minutesEnrichmentWhiteboardMessage = "Feishu intelligent minutes whiteboard could not be captured"
+	minutesEnrichmentImageMessage      = "Feishu intelligent minutes image could not be captured"
 	minutesEnrichmentNoteUnreadableMsg = "Feishu intelligent minutes could not be read"
 )
 
@@ -40,6 +42,7 @@ func isMinutesEnrichmentResyncError(code string) bool {
 		minutesEnrichmentTemplateCode,
 		minutesEnrichmentSectionCode,
 		minutesEnrichmentWhiteboardCode,
+		minutesEnrichmentImageCode,
 		minutesEnrichmentNoteUnreadableCode,
 		minutesEnrichmentSnapshotWriteCode,
 		minutesEnrichmentSnapshotStoredCode:
@@ -109,6 +112,26 @@ func evaluateReadableNoteDocument(
 	whiteboardCaptured bool,
 	whiteboardWaitable bool,
 ) minutesEnrichmentDecision {
+	return evaluateReadableNoteDocumentWithVisuals(
+		document,
+		whiteboardToken,
+		whiteboardCaptured,
+		whiteboardWaitable,
+		0,
+		0,
+		false,
+	)
+}
+
+func evaluateReadableNoteDocumentWithVisuals(
+	document string,
+	whiteboardToken string,
+	whiteboardCaptured bool,
+	whiteboardWaitable bool,
+	imageCount int,
+	imageCaptured int,
+	imageWaitable bool,
+) minutesEnrichmentDecision {
 	hasKnown := hasKnownTopLevelNoteSection(document)
 	hasUnknown := hasUnknownTopLevelNoteSection(document)
 	if !hasKnown {
@@ -139,6 +162,19 @@ func evaluateReadableNoteDocument(
 			Code:       minutesEnrichmentWhiteboardCode,
 			Message:    minutesEnrichmentWhiteboardMessage,
 			Diagnostic: "whiteboard_unavailable",
+		}
+	}
+	if imageCount > imageCaptured {
+		if imageWaitable {
+			return minutesEnrichmentDecision{
+				Wait:       true,
+				Diagnostic: "image_pending",
+			}
+		}
+		return minutesEnrichmentDecision{
+			Code:       minutesEnrichmentImageCode,
+			Message:    minutesEnrichmentImageMessage,
+			Diagnostic: "image_unavailable",
 		}
 	}
 	decision := minutesEnrichmentDecision{Complete: true}
@@ -430,6 +466,12 @@ func scanNoteLinkNode(node *nethtml.Node) noteLinkNodeScan {
 		}
 	case nethtml.ElementNode:
 		name := strings.ToLower(node.Data)
+		if name == "img" || name == "image" {
+			if _, err := parseMinutesVisualSource(node); err != nil {
+				return noteLinkNodeScan{}
+			}
+			return noteLinkNodeScan{valid: true, recognized: 1}
+		}
 		if name == "a" || name == "bookmark" {
 			href := strings.TrimSpace(noteLinkNodeAttribute(node, "href"))
 			if href == "" || noteLinkNodeHasAdditionalURLAttribute(node) {

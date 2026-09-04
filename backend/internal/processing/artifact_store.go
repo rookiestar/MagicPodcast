@@ -197,29 +197,66 @@ func (s *DiskArtifactStore) Publish(
 	}
 
 	if request.NativeMinutes {
+		if err := validateMinutesEnrichment(request.MinutesEnrichment); err != nil {
+			return ArtifactPublishResult{}, fmt.Errorf("%w: %v", ErrInvalidArtifact, err)
+		}
 		enrichment := request.MinutesEnrichment.Public()
-		if enrichment.Whiteboard != nil {
-			preview, sniffErr := sniffManagedImage(request.WhiteboardPreview)
-			if sniffErr != nil ||
-				!validMinutesWhiteboard(*enrichment.Whiteboard) ||
-				preview.MediaType != enrichment.Whiteboard.MediaType ||
-				digestBytes(preview.Bytes) != enrichment.Whiteboard.SHA256 {
-				enrichment.Whiteboard = nil
-			} else {
-				if err := os.Mkdir(filepath.Join(stagingPath, "media"), 0o700); err != nil {
-					return ArtifactPublishResult{}, fmt.Errorf("create artifact media directory: %w", err)
+		visuals := append([]ManagedMinutesVisual(nil), request.VisualPreviews...)
+		if len(visuals) == 0 && enrichment.Whiteboard != nil && len(request.WhiteboardPreview) > 0 {
+			visuals = []ManagedMinutesVisual{{
+				Item:  minutesVisualItemFromWhiteboard(*enrichment.Whiteboard),
+				Bytes: append([]byte(nil), request.WhiteboardPreview...),
+			}}
+		}
+		if len(visuals) != len(enrichment.VisualItems) {
+			return ArtifactPublishResult{}, fmt.Errorf("%w: visual media and metadata are incomplete", ErrInvalidArtifact)
+		}
+		if len(request.WhiteboardPreview) > 0 {
+			if enrichment.Whiteboard == nil || digestBytes(request.WhiteboardPreview) != enrichment.Whiteboard.SHA256 {
+				return ArtifactPublishResult{}, fmt.Errorf("%w: whiteboard preview is inconsistent", ErrInvalidArtifact)
+			}
+		}
+		if len(visuals) > 0 {
+			if err := os.Mkdir(filepath.Join(stagingPath, "media"), 0o700); err != nil {
+				return ArtifactPublishResult{}, fmt.Errorf("create artifact media directory: %w", err)
+			}
+		}
+		for index, item := range enrichment.VisualItems {
+			preview := visuals[index]
+			if preview.Item.MediaID != item.MediaID || preview.Item.Type != item.Type || len(preview.Bytes) == 0 {
+				return ArtifactPublishResult{}, fmt.Errorf("%w: visual media identity is inconsistent", ErrInvalidArtifact)
+			}
+			sniffed, sniffErr := sniffManagedImage(preview.Bytes)
+			if sniffErr != nil || sniffed.MediaType != item.MediaType ||
+				digestBytes(sniffed.Bytes) != item.SHA256 ||
+				(item.Width > 0 && sniffed.Width != item.Width) ||
+				(item.Height > 0 && sniffed.Height != item.Height) {
+				return ArtifactPublishResult{}, fmt.Errorf("%w: visual media failed integrity validation", ErrInvalidArtifact)
+			}
+			item.Width = sniffed.Width
+			item.Height = sniffed.Height
+			enrichment.VisualItems[index] = item
+			mediaPath := filepath.Join("media", item.MediaID)
+			mediaHash, writeErr := writeArtifactFile(stagingPath, mediaPath, sniffed.Bytes)
+			if writeErr != nil {
+				return ArtifactPublishResult{}, writeErr
+			}
+			if mediaHash != item.SHA256 {
+				return ArtifactPublishResult{}, fmt.Errorf("%w: visual media digest mismatch", ErrInvalidArtifact)
+			}
+			files = append(files, artifactFile{
+				Path: filepath.ToSlash(mediaPath), SHA256: mediaHash,
+			})
+			if item.Type == "whiteboard" {
+				whiteboard := MinutesWhiteboard{
+					MediaID:   item.MediaID,
+					MediaType: item.MediaType,
+					Width:     item.Width,
+					Height:    item.Height,
+					SHA256:    item.SHA256,
+					Alt:       item.Alt,
 				}
-				mediaPath := filepath.Join("media", enrichment.Whiteboard.MediaID)
-				mediaHash, writeErr := writeArtifactFile(stagingPath, mediaPath, preview.Bytes)
-				if writeErr != nil {
-					return ArtifactPublishResult{}, writeErr
-				}
-				if mediaHash != enrichment.Whiteboard.SHA256 {
-					return ArtifactPublishResult{}, fmt.Errorf("%w: whiteboard digest mismatch", ErrInvalidArtifact)
-				}
-				files = append(files, artifactFile{
-					Path: filepath.ToSlash(mediaPath), SHA256: mediaHash,
-				})
+				enrichment.Whiteboard = &whiteboard
 			}
 		}
 		enrichmentBytes, encodeErr := encodeMinutesEnrichment(enrichment)
@@ -582,6 +619,7 @@ func applyMinutesEnrichment(result *ArtifactContent, enrichment MinutesEnrichmen
 	result.Quotes = normalized.Quotes
 	result.Links = normalized.Links
 	result.Whiteboard = normalized.Whiteboard
+	result.VisualItems = normalized.VisualItems
 }
 
 func restoreChaptersFromRawDetail(
@@ -649,7 +687,8 @@ func (s *DiskArtifactStore) ReadMedia(
 	if err != nil {
 		return ArtifactMedia{}, err
 	}
-	if content.Whiteboard == nil || content.Whiteboard.MediaID != mediaID {
+	visual := findMinutesVisualItem(content, mediaID)
+	if visual == nil {
 		return ArtifactMedia{}, fmt.Errorf("%w: media identity is unknown", ErrInvalidArtifact)
 	}
 	root := filepath.Clean(artifact.RootPath)
@@ -675,8 +714,10 @@ func (s *DiskArtifactStore) ReadMedia(
 	}
 	sniffed, err := sniffManagedImage(body)
 	if err != nil ||
-		sniffed.MediaType != content.Whiteboard.MediaType ||
-		digestBytes(sniffed.Bytes) != content.Whiteboard.SHA256 {
+		sniffed.MediaType != visual.MediaType ||
+		digestBytes(sniffed.Bytes) != visual.SHA256 ||
+		(sniffed.Width != visual.Width && visual.Width > 0) ||
+		(sniffed.Height != visual.Height && visual.Height > 0) {
 		return ArtifactMedia{}, fmt.Errorf("%w: media file failed integrity validation", ErrInvalidArtifact)
 	}
 	manifestBytes, err := readRegularFile(filepath.Join(root, artifact.ManifestPath), maxArtifactTextBytes)
@@ -687,17 +728,31 @@ func (s *DiskArtifactStore) ReadMedia(
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		return ArtifactMedia{}, fmt.Errorf("%w: manifest identity mismatch", ErrInvalidArtifact)
 	}
-	if manifestFileHash(manifest, filepath.ToSlash(relativeName)) != content.Whiteboard.SHA256 {
+	if manifestFileHash(manifest, filepath.ToSlash(relativeName)) != visual.SHA256 {
 		return ArtifactMedia{}, fmt.Errorf("%w: media digest mismatch", ErrInvalidArtifact)
 	}
 	return ArtifactMedia{
 		MediaID:   mediaID,
 		MediaType: sniffed.MediaType,
-		SHA256:    content.Whiteboard.SHA256,
+		SHA256:    visual.SHA256,
 		Width:     sniffed.Width,
 		Height:    sniffed.Height,
 		Body:      sniffed.Bytes,
 	}, nil
+}
+
+func findMinutesVisualItem(content ArtifactContent, mediaID string) *MinutesVisualItem {
+	for index := range content.VisualItems {
+		if content.VisualItems[index].MediaID == mediaID {
+			item := content.VisualItems[index]
+			return &item
+		}
+	}
+	if content.Whiteboard != nil && content.Whiteboard.MediaID == mediaID {
+		item := minutesVisualItemFromWhiteboard(*content.Whiteboard)
+		return &item
+	}
+	return nil
 }
 
 func manifestFileHash(manifest artifactManifest, name string) string {

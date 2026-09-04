@@ -177,6 +177,39 @@ func TestParseNoteSectionsExtractsProviderParagraphQuotes(t *testing.T) {
 	}, quotes)
 }
 
+func TestParseNoteVisualSourcesPreservesOrderAndMetadata(t *testing.T) {
+	sources, err := parseNoteVisualSources(`
+<h1>总结</h1>
+<img token="filecn_image_one" type="image/png" width="2" height="2" alt="第一张" summary="开场图"/>
+<div><image file_token='filecn_image_two' media-type='image/jpeg' aria-label='第二张'></image></div>
+`)
+	require.NoError(t, err)
+	require.Equal(t, []minutesVisualSource{
+		{
+			Token:         "filecn_image_one",
+			MediaType:     "image/png",
+			Alt:           "第一张",
+			Summary:       "开场图",
+			Width:         2,
+			Height:        2,
+			WidthPresent:  true,
+			HeightPresent: true,
+		},
+		{Token: "filecn_image_two", MediaType: "image/jpeg", Alt: "第二张"},
+	}, sources)
+}
+
+func TestParseNoteVisualSourcesRejectsUnmanagedImages(t *testing.T) {
+	for _, document := range []string{
+		`<h1>总结</h1><img src="https://example.com/image.png"/>`,
+		`<h1>总结</h1><img token="filecn_image_bad" type="image/svg+xml"/>`,
+		`<h1>总结</h1><img token="filecn_image_bad" width="0"/>`,
+	} {
+		_, err := parseNoteVisualSources(document)
+		require.Error(t, err, document)
+	}
+}
+
 func TestNoteSectionDiagnosticsDistinguishKnownAndUnknownTopLevelSections(t *testing.T) {
 	require.True(t, hasKnownTopLevelNoteSection(`<h1>总结</h1><p>正文</p>`))
 	require.False(t, hasUnknownTopLevelNoteSection(`<h1>总结</h1><h2>子标题</h2>`))

@@ -41,6 +41,7 @@ const (
 var larkTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{4,512}$`)
 
 var errWhiteboardPreviewInvalid = errors.New("whiteboard preview validation failed")
+var errMinutesImageInvalid = errors.New("minutes image validation failed")
 
 type ReadyAudioLookup func(
 	context.Context,
@@ -70,6 +71,8 @@ type feishuCheckpoint struct {
 	EnrichmentSHA256          string            `json:"enrichment_sha256,omitempty"`
 	WhiteboardRelativePath    string            `json:"whiteboard_relative_path,omitempty"`
 	WhiteboardSHA256          string            `json:"whiteboard_sha256,omitempty"`
+	VisualRelativePaths       []string          `json:"visual_relative_paths,omitempty"`
+	VisualSHA256              []string          `json:"visual_sha256,omitempty"`
 	EnrichmentRawSHA256       map[string]string `json:"enrichment_raw_sha256,omitempty"`
 }
 
@@ -1290,27 +1293,138 @@ func (a *FeishuMinutesAdapter) restoreStoredEnrichment(
 			}
 		}
 	}
-	if enrichment.Whiteboard != nil {
-		if preview, err := a.readStoredBinaryFile(
-			ctx,
-			whiteboardRelativePath(checkpoint.DetailRelativePath),
-			maxWhiteboardPreviewBytes,
-		); err == nil {
-			if sniffed, sniffErr := sniffManagedImage(preview); sniffErr == nil &&
-				digestBytes(sniffed.Bytes) == enrichment.Whiteboard.SHA256 {
-				progress.WhiteboardPreview = sniffed.Bytes
-				enrichment.Whiteboard.MediaType = sniffed.MediaType
-				enrichment.Whiteboard.Width = sniffed.Width
-				enrichment.Whiteboard.Height = sniffed.Height
-			} else {
-				enrichment.Whiteboard = nil
+	visuals, visualPreviews := a.restoreStoredVisuals(
+		ctx,
+		checkpoint,
+		enrichment,
+	)
+	enrichment.VisualItems = visuals
+	progress.VisualPreviews = visualPreviews
+	for _, visual := range visualPreviews {
+		if visual.Item.Type == "whiteboard" {
+			enrichment.Whiteboard = &MinutesWhiteboard{
+				MediaID:   visual.Item.MediaID,
+				MediaType: visual.Item.MediaType,
+				Width:     visual.Item.Width,
+				Height:    visual.Item.Height,
+				SHA256:    visual.Item.SHA256,
+				Alt:       visual.Item.Alt,
 			}
-		} else {
-			enrichment.Whiteboard = nil
+			progress.WhiteboardPreview = append([]byte(nil), visual.Bytes...)
+			break
 		}
+	}
+	if len(visualPreviews) != len(visuals) {
+		enrichment.Whiteboard = nil
+		enrichment.VisualItems = nil
+		progress.VisualPreviews = nil
+		progress.WhiteboardPreview = nil
 	}
 	progress.MinutesEnrichment = enrichment.Public()
 	return a.restoreStoredRawEnrichment(ctx, checkpoint, progress), nil
+}
+
+func (a *FeishuMinutesAdapter) restoreStoredVisuals(
+	ctx context.Context,
+	checkpoint feishuCheckpoint,
+	enrichment MinutesEnrichment,
+) ([]MinutesVisualItem, []ManagedMinutesVisual) {
+	items := enrichment.Public().VisualItems
+	if len(items) == 0 {
+		return nil, nil
+	}
+	paths := checkpoint.VisualRelativePaths
+	sha256s := checkpoint.VisualSHA256
+	if len(paths) == 0 && len(items) == 1 && items[0].Type == "whiteboard" {
+		paths = []string{whiteboardRelativePath(checkpoint.DetailRelativePath)}
+		sha256s = []string{items[0].SHA256}
+	}
+	if len(paths) != len(items) || len(sha256s) != len(items) {
+		return nil, nil
+	}
+	resolvedItems := make([]MinutesVisualItem, 0, len(items))
+	previews := make([]ManagedMinutesVisual, 0, len(items))
+	for index, item := range items {
+		if sha256s[index] != item.SHA256 {
+			return nil, nil
+		}
+		body, err := a.readStoredBinaryFile(ctx, paths[index], maxWhiteboardPreviewBytes)
+		if err != nil {
+			return nil, nil
+		}
+		sniffed, sniffErr := sniffManagedImage(body)
+		if sniffErr != nil || sniffed.MediaType != item.MediaType ||
+			(item.Width > 0 && sniffed.Width != item.Width) ||
+			(item.Height > 0 && sniffed.Height != item.Height) ||
+			digestBytes(sniffed.Bytes) != item.SHA256 {
+			return nil, nil
+		}
+		item.Width = sniffed.Width
+		item.Height = sniffed.Height
+		resolvedItems = append(resolvedItems, item)
+		previews = append(previews, ManagedMinutesVisual{Item: item, Bytes: sniffed.Bytes})
+	}
+	return resolvedItems, previews
+}
+
+func (a *FeishuMinutesAdapter) restoreCheckpointVisuals(
+	ctx context.Context,
+	checkpoint feishuCheckpoint,
+	enrichment MinutesEnrichment,
+) ([]ManagedMinutesVisual, error) {
+	items := enrichment.Public().VisualItems
+	paths := append([]string(nil), checkpoint.VisualRelativePaths...)
+	hashes := append([]string(nil), checkpoint.VisualSHA256...)
+	if len(paths) == 0 && len(items) == 1 && items[0].Type == "whiteboard" {
+		paths = []string{checkpoint.WhiteboardRelativePath}
+		hashes = []string{checkpoint.WhiteboardSHA256}
+	}
+	if len(items) == 0 {
+		if checkpoint.WhiteboardRelativePath != "" || checkpoint.WhiteboardSHA256 != "" ||
+			len(paths) > 0 || len(hashes) > 0 {
+			return nil, ErrInvalidArtifact
+		}
+		return nil, nil
+	}
+	if len(paths) != len(items) || len(hashes) != len(items) {
+		return nil, ErrInvalidArtifact
+	}
+	previews := make([]ManagedMinutesVisual, 0, len(items))
+	for index, item := range items {
+		if !sha256Pattern.MatchString(hashes[index]) || hashes[index] != item.SHA256 {
+			return nil, ErrInvalidArtifact
+		}
+		body, err := a.readStoredBinaryFile(ctx, paths[index], maxWhiteboardPreviewBytes)
+		if err != nil {
+			return nil, err
+		}
+		sniffed, sniffErr := sniffManagedImage(body)
+		if sniffErr != nil || sniffed.MediaType != item.MediaType ||
+			digestBytes(sniffed.Bytes) != item.SHA256 {
+			return nil, ErrInvalidArtifact
+		}
+		if item.Width > 0 && item.Width != sniffed.Width {
+			return nil, ErrInvalidArtifact
+		}
+		if item.Height > 0 && item.Height != sniffed.Height {
+			return nil, ErrInvalidArtifact
+		}
+		item.Width = sniffed.Width
+		item.Height = sniffed.Height
+		previews = append(previews, ManagedMinutesVisual{Item: item, Bytes: sniffed.Bytes})
+	}
+	for _, visual := range previews {
+		if visual.Item.Type == "whiteboard" {
+			if checkpoint.WhiteboardRelativePath != "" && checkpoint.WhiteboardRelativePath != paths[0] {
+				return nil, ErrInvalidArtifact
+			}
+			if checkpoint.WhiteboardSHA256 != "" && checkpoint.WhiteboardSHA256 != visual.Item.SHA256 {
+				return nil, ErrInvalidArtifact
+			}
+			break
+		}
+	}
+	return previews, nil
 }
 
 func (a *FeishuMinutesAdapter) captureNoteEnrichment(
@@ -1430,11 +1544,30 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 		return progress, minutesEnrichmentDecision{Wait: true, Diagnostic: "note_document_pending"}
 	}
 	decisions, quotes, links, whiteboardToken := parseNoteSections(content)
+	visualSources, visualParseErr := parseNoteVisualSources(content)
+	if visualParseErr != nil {
+		progress = addMinutesEnrichmentDiagnostic(progress, "image_unavailable")
+		if progress.SkillVersions == nil {
+			progress.SkillVersions = map[string]string{}
+		}
+		progress.SkillVersions["lark-note"] = "1.0.0"
+		progress.SkillVersions["lark-docs"] = "1.0.0"
+		progress.MinutesEnrichment = enrichment.Public()
+		return progress, minutesEnrichmentDecision{
+			Code:       minutesEnrichmentImageCode,
+			Message:    minutesEnrichmentImageMessage,
+			Diagnostic: "image_unavailable",
+		}
+	}
 	enrichment.Decisions = decisions
 	enrichment.Quotes = quotes
 	enrichment.Links = links
 	whiteboardCaptured := false
 	whiteboardWaitable := false
+	imageCaptured := 0
+	imageWaitable := false
+	imagePermanentFailure := false
+	visualPreviews := make([]ManagedMinutesVisual, 0, len(visualSources)+1)
 	if whiteboardToken != "" {
 		preview, captureErr := a.captureWhiteboardPreview(
 			ctx,
@@ -1451,6 +1584,10 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 				SHA256:    digestBytes(preview.Bytes),
 				Alt:       minutesWhiteboardAlt,
 			}
+			visualPreviews = append(visualPreviews, ManagedMinutesVisual{
+				Item:  minutesVisualItemFromWhiteboard(*enrichment.Whiteboard),
+				Bytes: append([]byte(nil), preview.Bytes...),
+			})
 			whiteboardCaptured = true
 		} else {
 			whiteboardWaitable = !errors.Is(captureErr, errWhiteboardPreviewInvalid) &&
@@ -1458,11 +1595,65 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 			progress = addMinutesEnrichmentDiagnostic(progress, "whiteboard_unavailable")
 		}
 	}
-	decision := evaluateReadableNoteDocument(
+	for index, source := range visualSources {
+		preview, captureErr := a.captureMinutesImagePreview(
+			ctx,
+			runDirectory,
+			source.Token,
+			index+1,
+		)
+		if captureErr != nil {
+			waitable := !errors.Is(captureErr, errMinutesImageInvalid) &&
+				minutesErrorIsWaitable(captureErr)
+			imageWaitable = imageWaitable || waitable
+			imagePermanentFailure = imagePermanentFailure || !waitable
+			progress = addMinutesEnrichmentDiagnostic(progress, "image_unavailable")
+			continue
+		}
+		if source.MediaType != "" && source.MediaType != preview.MediaType {
+			imagePermanentFailure = true
+			progress = addMinutesEnrichmentDiagnostic(progress, "image_unavailable")
+			continue
+		}
+		if source.WidthPresent && source.Width != preview.Width {
+			imagePermanentFailure = true
+			progress = addMinutesEnrichmentDiagnostic(progress, "image_unavailable")
+			continue
+		}
+		if source.HeightPresent && source.Height != preview.Height {
+			imagePermanentFailure = true
+			progress = addMinutesEnrichmentDiagnostic(progress, "image_unavailable")
+			continue
+		}
+		item := MinutesVisualItem{
+			Type:      "image",
+			MediaID:   fmt.Sprintf("%s%d", minutesImageMediaPrefix, index+1),
+			MediaType: preview.MediaType,
+			Width:     preview.Width,
+			Height:    preview.Height,
+			SHA256:    digestBytes(preview.Bytes),
+			Summary:   sanitizeMinutesVisualText(source.Summary, ""),
+			Alt:       sanitizeMinutesVisualText(source.Alt, minutesImageAlt),
+		}
+		visualPreviews = append(visualPreviews, ManagedMinutesVisual{
+			Item:  item,
+			Bytes: append([]byte(nil), preview.Bytes...),
+		})
+		imageCaptured++
+	}
+	progress.VisualPreviews = visualPreviews
+	enrichment.VisualItems = make([]MinutesVisualItem, 0, len(visualPreviews))
+	for _, visual := range visualPreviews {
+		enrichment.VisualItems = append(enrichment.VisualItems, visual.Item)
+	}
+	decision := evaluateReadableNoteDocumentWithVisuals(
 		content,
 		whiteboardToken,
 		whiteboardCaptured,
 		whiteboardWaitable,
+		len(visualSources),
+		imageCaptured,
+		imageWaitable && !imagePermanentFailure,
 	)
 	if decision.Diagnostic != "" {
 		progress = addMinutesEnrichmentDiagnostic(progress, decision.Diagnostic)
@@ -1522,6 +1713,51 @@ func (a *FeishuMinutesAdapter) captureWhiteboardPreview(
 	return preview, nil
 }
 
+func (a *FeishuMinutesAdapter) captureMinutesImagePreview(
+	ctx context.Context,
+	runDirectory string,
+	mediaToken string,
+	index int,
+) (ManagedImage, error) {
+	if !larkTokenPattern.MatchString(strings.TrimSpace(mediaToken)) || index <= 0 {
+		return ManagedImage{}, fmt.Errorf("%w: media identity is invalid", errMinutesImageInvalid)
+	}
+	outputName := fmt.Sprintf("%s%d", minutesImageMediaPrefix, index)
+	_, commandErr := a.runner.Run(
+		ctx,
+		runDirectory,
+		"docs",
+		"+media-download",
+		"--token",
+		mediaToken,
+		"--output",
+		"./"+outputName,
+		"--overwrite",
+		"--as",
+		"user",
+	)
+	if commandErr != nil {
+		return ManagedImage{}, commandErr
+	}
+	path := filepath.Join(runDirectory, outputName)
+	content, err := readBoundedRegularFile(path, maxWhiteboardPreviewBytes)
+	if err != nil {
+		matches, matchErr := filepath.Glob(filepath.Join(runDirectory, outputName+".*"))
+		if matchErr != nil || len(matches) != 1 {
+			return ManagedImage{}, fmt.Errorf("%w: downloaded media file is unavailable", errMinutesImageInvalid)
+		}
+		content, err = readBoundedRegularFile(matches[0], maxWhiteboardPreviewBytes)
+		if err != nil {
+			return ManagedImage{}, fmt.Errorf("%w: downloaded media file is unavailable", errMinutesImageInvalid)
+		}
+	}
+	preview, err := sniffManagedImage(content)
+	if err != nil {
+		return ManagedImage{}, fmt.Errorf("%w: %v", errMinutesImageInvalid, err)
+	}
+	return preview, nil
+}
+
 func (a *FeishuMinutesAdapter) persistCompletedEnrichment(
 	runID uint,
 	checkpoint feishuCheckpoint,
@@ -1530,6 +1766,9 @@ func (a *FeishuMinutesAdapter) persistCompletedEnrichment(
 	runDirectory, err := a.runDirectory(runID)
 	if err != nil {
 		return checkpoint, err
+	}
+	if err := validateMinutesEnrichment(progress.MinutesEnrichment); err != nil {
+		return checkpoint, fmt.Errorf("%w: %v", ErrInvalidArtifact, err)
 	}
 	encoded, err := json.MarshalIndent(progress.MinutesEnrichment.Public(), "", "  ")
 	if err != nil {
@@ -1556,33 +1795,58 @@ func (a *FeishuMinutesAdapter) persistCompletedEnrichment(
 	checkpoint.WhiteboardRelativePath = ""
 	checkpoint.WhiteboardSHA256 = ""
 
-	whiteboard := progress.MinutesEnrichment.Public().Whiteboard
-	if whiteboard != nil {
-		preview, sniffErr := sniffManagedImage(progress.WhiteboardPreview)
-		if sniffErr != nil ||
-			digestBytes(preview.Bytes) != whiteboard.SHA256 ||
-			preview.MediaType != whiteboard.MediaType {
-			return checkpoint, ErrInvalidArtifact
+	enrichment := progress.MinutesEnrichment.Public()
+	if len(progress.WhiteboardPreview) > 0 && enrichment.Whiteboard == nil {
+		return checkpoint, fmt.Errorf("%w: whiteboard preview is inconsistent", ErrInvalidArtifact)
+	}
+	visuals := enrichment.VisualItems
+	previews := append([]ManagedMinutesVisual(nil), progress.VisualPreviews...)
+	if len(previews) == 0 && enrichment.Whiteboard != nil && len(progress.WhiteboardPreview) > 0 {
+		previews = []ManagedMinutesVisual{{
+			Item:  minutesVisualItemFromWhiteboard(*enrichment.Whiteboard),
+			Bytes: append([]byte(nil), progress.WhiteboardPreview...),
+		}}
+	}
+	if len(previews) != len(visuals) {
+		return checkpoint, fmt.Errorf("%w: visual media and metadata are incomplete", ErrInvalidArtifact)
+	}
+	checkpoint.VisualRelativePaths = make([]string, 0, len(visuals))
+	checkpoint.VisualSHA256 = make([]string, 0, len(visuals))
+	for index, item := range visuals {
+		preview := previews[index]
+		if preview.Item.MediaID != item.MediaID ||
+			preview.Item.Type != item.Type ||
+			len(preview.Bytes) == 0 {
+			return checkpoint, fmt.Errorf("%w: visual media identity is inconsistent", ErrInvalidArtifact)
 		}
-		whiteboardHash, writeErr := writeArtifactFile(
-			runDirectory,
-			"whiteboard-preview",
-			preview.Bytes,
-		)
-		if writeErr != nil {
+		sniffed, sniffErr := sniffManagedImage(preview.Bytes)
+		if sniffErr != nil ||
+			sniffed.MediaType != item.MediaType ||
+			sniffed.Width != item.Width ||
+			sniffed.Height != item.Height ||
+			digestBytes(sniffed.Bytes) != item.SHA256 {
+			return checkpoint, fmt.Errorf("%w: visual media failed integrity validation", ErrInvalidArtifact)
+		}
+		name := item.MediaID
+		if item.Type == "whiteboard" {
+			name = "whiteboard-preview"
+		}
+		if _, writeErr := writeArtifactFile(runDirectory, name, sniffed.Bytes); writeErr != nil {
 			return checkpoint, writeErr
 		}
-		whiteboardRelative, relativeErr := filepath.Rel(
+		relative, relativeErr := filepath.Rel(
 			a.workRoot,
-			filepath.Join(runDirectory, "whiteboard-preview"),
+			filepath.Join(runDirectory, name),
 		)
-		if relativeErr != nil || pathEscapesRoot(whiteboardRelative) {
+		if relativeErr != nil || pathEscapesRoot(relative) {
 			return checkpoint, ErrInvalidArtifact
 		}
-		checkpoint.WhiteboardRelativePath = filepath.ToSlash(whiteboardRelative)
-		checkpoint.WhiteboardSHA256 = whiteboardHash
-	} else if len(progress.WhiteboardPreview) > 0 {
-		return checkpoint, ErrInvalidArtifact
+		checkpoint.VisualRelativePaths = append(checkpoint.VisualRelativePaths, filepath.ToSlash(relative))
+		checkpoint.VisualSHA256 = append(checkpoint.VisualSHA256, item.SHA256)
+		if item.Type == "whiteboard" {
+			checkpoint.WhiteboardRelativePath = filepath.ToSlash(relative)
+			checkpoint.WhiteboardSHA256 = item.SHA256
+		}
 	}
 
 	checkpoint.EnrichmentRawSHA256 = make(map[string]string, 3)
@@ -1659,44 +1923,32 @@ func (a *FeishuMinutesAdapter) restoreCompletedEnrichmentSnapshot(
 			true,
 		)
 	}
-	progress.MinutesEnrichment = enrichment.Public()
-	if enrichment.Whiteboard != nil {
-		if !sha256Pattern.MatchString(checkpoint.WhiteboardSHA256) ||
-			checkpoint.WhiteboardSHA256 != enrichment.Whiteboard.SHA256 {
-			return progress, NewAdapterError(
-				minutesEnrichmentSnapshotStoredCode,
-				"stored Feishu intelligent minutes are unavailable",
-				true,
-			)
-		}
-		preview, readErr := a.readStoredBinaryFile(
-			ctx,
-			checkpoint.WhiteboardRelativePath,
-			maxWhiteboardPreviewBytes,
-		)
-		if readErr != nil || digestBytes(preview) != checkpoint.WhiteboardSHA256 {
-			return progress, NewAdapterError(
-				minutesEnrichmentSnapshotStoredCode,
-				"stored Feishu intelligent minutes are unavailable",
-				true,
-			)
-		}
-		sniffed, sniffErr := sniffManagedImage(preview)
-		if sniffErr != nil || sniffed.MediaType != enrichment.Whiteboard.MediaType {
-			return progress, NewAdapterError(
-				minutesEnrichmentSnapshotStoredCode,
-				"stored Feishu intelligent minutes are unavailable",
-				true,
-			)
-		}
-		progress.WhiteboardPreview = sniffed.Bytes
-	} else if checkpoint.WhiteboardRelativePath != "" || checkpoint.WhiteboardSHA256 != "" {
+	visuals, visualErr := a.restoreCheckpointVisuals(ctx, checkpoint, enrichment)
+	if visualErr != nil {
 		return progress, NewAdapterError(
 			minutesEnrichmentSnapshotStoredCode,
 			"stored Feishu intelligent minutes are unavailable",
 			true,
 		)
 	}
+	enrichment.VisualItems = make([]MinutesVisualItem, 0, len(visuals))
+	progress.VisualPreviews = visuals
+	for _, visual := range visuals {
+		enrichment.VisualItems = append(enrichment.VisualItems, visual.Item)
+		if visual.Item.Type == "whiteboard" {
+			whiteboard := MinutesWhiteboard{
+				MediaID:   visual.Item.MediaID,
+				MediaType: visual.Item.MediaType,
+				Width:     visual.Item.Width,
+				Height:    visual.Item.Height,
+				SHA256:    visual.Item.SHA256,
+				Alt:       visual.Item.Alt,
+			}
+			enrichment.Whiteboard = &whiteboard
+			progress.WhiteboardPreview = append([]byte(nil), visual.Bytes...)
+		}
+	}
+	progress.MinutesEnrichment = enrichment.Public()
 
 	progress.RawArtifacts = cloneByteMap(progress.RawArtifacts)
 	for name, expectedHash := range checkpoint.EnrichmentRawSHA256 {
@@ -1730,7 +1982,7 @@ func (a *FeishuMinutesAdapter) restoreCompletedEnrichmentSnapshot(
 	}
 	progress.SkillVersions["lark-note"] = "1.0.0"
 	progress.SkillVersions["lark-docs"] = "1.0.0"
-	if enrichment.Whiteboard != nil {
+	if len(enrichment.VisualItems) > 0 {
 		progress.SkillVersions["lark-whiteboard"] = "1.0.0"
 	}
 	return progress, nil
@@ -1994,6 +2246,16 @@ func validFeishuCheckpoint(checkpoint feishuCheckpoint) bool {
 			return false
 		}
 	}
+	if len(checkpoint.VisualRelativePaths) != len(checkpoint.VisualSHA256) {
+		return false
+	}
+	for index, relative := range checkpoint.VisualRelativePaths {
+		if relative == "" || filepath.IsAbs(relative) ||
+			pathEscapesRoot(filepath.Clean(filepath.FromSlash(relative))) ||
+			!sha256Pattern.MatchString(checkpoint.VisualSHA256[index]) {
+			return false
+		}
+	}
 	for name, hash := range checkpoint.EnrichmentRawSHA256 {
 		if (name != "note-detail.json" &&
 			name != "note-document.json" &&
@@ -2039,6 +2301,8 @@ func resetCopiedFeishuCheckpoint(
 	state.EnrichmentSHA256 = ""
 	state.WhiteboardRelativePath = ""
 	state.WhiteboardSHA256 = ""
+	state.VisualRelativePaths = nil
+	state.VisualSHA256 = nil
 	state.EnrichmentRawSHA256 = nil
 	encoded, err := encodeFeishuCheckpoint(state)
 	if err != nil {

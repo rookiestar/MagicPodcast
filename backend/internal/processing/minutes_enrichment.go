@@ -24,23 +24,26 @@ const (
 	minutesEnrichmentSchemaVersion = "1.0.0"
 	minutesEnrichmentFileName      = "minutes-enrichment.json"
 	minutesWhiteboardMediaID       = "whiteboard"
+	minutesImageMediaPrefix        = "image-"
 	maxWhiteboardPreviewBytes      = 20 << 20
 	maxWhiteboardPreviewDimension  = 8192
 	maxWhiteboardPreviewPixels     = 32 << 20
 	minutesWhiteboardAlt           = "飞书智能纪要画板"
+	minutesImageAlt                = "飞书智能纪要图片"
 )
 
 var (
-	headingSplitPattern       = regexp.MustCompile(`(?is)<h([1-6])\b[^>]*>(.*?)</h[1-6]>`)
-	whiteboardTokenPattern    = regexp.MustCompile(`(?is)<whiteboard\b[^>]*\b(?:token|whiteboard-token|whiteboard_token)="([^"]+)"`)
-	blockquotePattern         = regexp.MustCompile(`(?is)<blockquote\b[^>]*>(.*?)</blockquote>`)
-	listItemPattern           = regexp.MustCompile(`(?is)<li\b[^>]*>(.*?)</li>`)
-	paragraphPattern          = regexp.MustCompile(`(?is)<p\b[^>]*>(.*?)</p>`)
-	tagPattern                = regexp.MustCompile(`(?s)<[^>]+>`)
-	mediaIDPattern            = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
-	feishuIdentityPattern     = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:(?:obcn|wbcn|boxcn|doxcn)[a-z0-9_-]{4,}|docx_[a-z0-9_-]{4,})`)
-	feishuURLHostPattern      = regexp.MustCompile(`(?i)(?:https?:)?//(?:[^/?#@\s]+@)?(?:[a-z0-9-]+\.)*(?:feishu\.cn|feishu\.com|larksuite\.com|larksuite\.cn|larkoffice\.com|larkoffice\.cn)(?::[0-9]+)?(?:[/?#\s]|$)`)
-	nestedUnsafeSchemePattern = regexp.MustCompile(`(?i)(?:^|[^a-z])(?:javascript|data|file):`)
+	headingSplitPattern        = regexp.MustCompile(`(?is)<h([1-6])\b[^>]*>(.*?)</h[1-6]>`)
+	whiteboardTokenPattern     = regexp.MustCompile(`(?is)<whiteboard\b[^>]*\b(?:token|whiteboard-token|whiteboard_token)="([^"]+)"`)
+	blockquotePattern          = regexp.MustCompile(`(?is)<blockquote\b[^>]*>(.*?)</blockquote>`)
+	listItemPattern            = regexp.MustCompile(`(?is)<li\b[^>]*>(.*?)</li>`)
+	paragraphPattern           = regexp.MustCompile(`(?is)<p\b[^>]*>(.*?)</p>`)
+	tagPattern                 = regexp.MustCompile(`(?s)<[^>]+>`)
+	mediaIDPattern             = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
+	feishuIdentityPattern      = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:(?:obcn|wbcn|boxcn|doxcn)[a-z0-9_-]{4,}|docx_[a-z0-9_-]{4,})`)
+	feishuURLHostPattern       = regexp.MustCompile(`(?i)(?:https?:)?//(?:[^/?#@\s]+@)?(?:[a-z0-9-]+\.)*(?:feishu\.cn|feishu\.com|larksuite\.com|larksuite\.cn|larkoffice\.com|larkoffice\.cn)(?::[0-9]+)?(?:[/?#\s]|$)`)
+	nestedUnsafeSchemePattern  = regexp.MustCompile(`(?i)(?:^|[^a-z])(?:javascript|data|file):`)
+	windowsAbsolutePathPattern = regexp.MustCompile(`(?i)^[a-z]:[\\/]`)
 )
 
 var feishuLinkHosts = []string{
@@ -107,14 +110,36 @@ type MinutesWhiteboard struct {
 	Alt       string `json:"alt"`
 }
 
+// MinutesVisualItem is the public, local identity of one visual item in a
+// native Minutes artifact. MediaID is generated locally and never contains a
+// Feishu token or a filesystem path.
+type MinutesVisualItem struct {
+	Type      string `json:"type"`
+	MediaID   string `json:"media_id"`
+	MediaType string `json:"media_type"`
+	Width     int    `json:"width,omitempty"`
+	Height    int    `json:"height,omitempty"`
+	SHA256    string `json:"sha256"`
+	Summary   string `json:"summary,omitempty"`
+	Alt       string `json:"alt"`
+}
+
+// ManagedMinutesVisual carries bytes only inside the processing pipeline. It
+// is deliberately not serialised into the public enrichment document.
+type ManagedMinutesVisual struct {
+	Item  MinutesVisualItem
+	Bytes []byte
+}
+
 type MinutesEnrichment struct {
-	SchemaVersion string             `json:"schema_version"`
-	Chapters      []MinutesChapter   `json:"chapters,omitempty"`
-	Keywords      []string           `json:"keywords,omitempty"`
-	Decisions     []string           `json:"decisions,omitempty"`
-	Quotes        []MinutesQuote     `json:"quotes,omitempty"`
-	Links         []MinutesLink      `json:"links,omitempty"`
-	Whiteboard    *MinutesWhiteboard `json:"whiteboard,omitempty"`
+	SchemaVersion string              `json:"schema_version"`
+	Chapters      []MinutesChapter    `json:"chapters,omitempty"`
+	Keywords      []string            `json:"keywords,omitempty"`
+	Decisions     []string            `json:"decisions,omitempty"`
+	Quotes        []MinutesQuote      `json:"quotes,omitempty"`
+	Links         []MinutesLink       `json:"links,omitempty"`
+	Whiteboard    *MinutesWhiteboard  `json:"whiteboard,omitempty"`
+	VisualItems   []MinutesVisualItem `json:"visual_items,omitempty"`
 }
 
 type ManagedImage struct {
@@ -130,7 +155,8 @@ func (e MinutesEnrichment) Empty() bool {
 		len(e.Decisions) == 0 &&
 		len(e.Quotes) == 0 &&
 		len(e.Links) == 0 &&
-		e.Whiteboard == nil
+		e.Whiteboard == nil &&
+		len(e.VisualItems) == 0
 }
 
 func (e MinutesEnrichment) Public() MinutesEnrichment {
@@ -141,6 +167,7 @@ func (e MinutesEnrichment) Public() MinutesEnrichment {
 		Decisions:     append([]string(nil), e.Decisions...),
 		Quotes:        append([]MinutesQuote(nil), e.Quotes...),
 		Links:         append([]MinutesLink(nil), e.Links...),
+		VisualItems:   append([]MinutesVisualItem(nil), e.VisualItems...),
 	}
 	if e.Whiteboard != nil {
 		copied := *e.Whiteboard
@@ -159,7 +186,121 @@ func (e MinutesEnrichment) normalized() MinutesEnrichment {
 	if e.Whiteboard != nil && !validMinutesWhiteboard(*e.Whiteboard) {
 		e.Whiteboard = nil
 	}
+	items := normalizeMinutesVisualItems(e.VisualItems)
+	if e.Whiteboard == nil {
+		for _, item := range items {
+			if item.Type != "whiteboard" {
+				continue
+			}
+			e.Whiteboard = &MinutesWhiteboard{
+				MediaID:   item.MediaID,
+				MediaType: item.MediaType,
+				Width:     item.Width,
+				Height:    item.Height,
+				SHA256:    item.SHA256,
+				Alt:       item.Alt,
+			}
+			break
+		}
+	}
+	if e.Whiteboard != nil {
+		filtered := make([]MinutesVisualItem, 0, len(items)+1)
+		for _, item := range items {
+			if item.Type == "whiteboard" || item.MediaID == e.Whiteboard.MediaID {
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		items = append([]MinutesVisualItem{minutesVisualItemFromWhiteboard(*e.Whiteboard)}, filtered...)
+	}
+	e.VisualItems = items
 	return e
+}
+
+func minutesVisualItemFromWhiteboard(whiteboard MinutesWhiteboard) MinutesVisualItem {
+	return MinutesVisualItem{
+		Type:      "whiteboard",
+		MediaID:   whiteboard.MediaID,
+		MediaType: whiteboard.MediaType,
+		Width:     whiteboard.Width,
+		Height:    whiteboard.Height,
+		SHA256:    whiteboard.SHA256,
+		Alt:       sanitizeMinutesVisualText(whiteboard.Alt, minutesWhiteboardAlt),
+	}
+}
+
+func normalizeMinutesVisualItems(items []MinutesVisualItem) []MinutesVisualItem {
+	normalized := make([]MinutesVisualItem, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		if !validMinutesVisualItem(item) {
+			continue
+		}
+		if _, exists := seen[item.MediaID]; exists {
+			continue
+		}
+		item.Type = strings.ToLower(strings.TrimSpace(item.Type))
+		item.MediaID = strings.TrimSpace(item.MediaID)
+		item.MediaType = strings.ToLower(strings.TrimSpace(item.MediaType))
+		item.Alt = sanitizeMinutesVisualText(item.Alt, minutesImageAlt)
+		item.Summary = sanitizeMinutesVisualText(item.Summary, "")
+		seen[item.MediaID] = struct{}{}
+		normalized = append(normalized, item)
+	}
+	return normalized
+}
+
+func validMinutesVisualItem(item MinutesVisualItem) bool {
+	if item.Type != "image" && item.Type != "whiteboard" {
+		return false
+	}
+	if !mediaIDPattern.MatchString(item.MediaID) ||
+		!sha256Pattern.MatchString(item.SHA256) ||
+		!validMinutesMediaType(item.MediaType) ||
+		strings.TrimSpace(item.Alt) == "" ||
+		!validPublicMinutesVisualText(item.Alt) ||
+		(item.Summary != "" && !validPublicMinutesVisualText(item.Summary)) ||
+		item.Width < 0 || item.Height < 0 {
+		return false
+	}
+	if item.Type == "image" && (item.Width == 0 || item.Height == 0) {
+		return false
+	}
+	return true
+}
+
+func validMinutesMediaType(mediaType string) bool {
+	switch strings.ToLower(strings.TrimSpace(mediaType)) {
+	case "image/png", "image/jpeg", "image/gif":
+		return true
+	default:
+		return false
+	}
+}
+
+func validPublicMinutesVisualText(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" &&
+		!containsSensitiveMinutesText(value) &&
+		!strings.Contains(value, "\x00") &&
+		!strings.HasPrefix(value, "/") &&
+		!windowsAbsolutePathPattern.MatchString(value) &&
+		!strings.Contains(strings.ToLower(value), "/tmp/") &&
+		!strings.Contains(strings.ToLower(value), "/private/var/")
+}
+
+func sanitizeMinutesVisualText(value, fallback string) string {
+	value = strings.TrimSpace(html.UnescapeString(stripXMLTags(value)))
+	value = strings.Join(strings.Fields(value), " ")
+	if !validPublicMinutesVisualText(value) {
+		return fallback
+	}
+	const maxVisualTextRunes = 240
+	runes := []rune(value)
+	if len(runes) > maxVisualTextRunes {
+		value = string(runes[:maxVisualTextRunes])
+	}
+	return value
 }
 
 func encodeMinutesEnrichment(enrichment MinutesEnrichment) ([]byte, error) {
@@ -185,7 +326,46 @@ func decodeMinutesEnrichment(raw []byte) (MinutesEnrichment, error) {
 	if decoded.SchemaVersion != "" && decoded.SchemaVersion != minutesEnrichmentSchemaVersion {
 		return MinutesEnrichment{}, fmt.Errorf("unsupported minutes enrichment schema")
 	}
+	if err := validateMinutesEnrichment(decoded); err != nil {
+		return MinutesEnrichment{}, err
+	}
 	return decoded.normalized(), nil
+}
+
+func validateMinutesEnrichment(enrichment MinutesEnrichment) error {
+	if enrichment.Whiteboard != nil && !validMinutesWhiteboard(*enrichment.Whiteboard) {
+		return fmt.Errorf("minutes enrichment whiteboard is invalid")
+	}
+	seen := make(map[string]struct{}, len(enrichment.VisualItems))
+	for _, item := range enrichment.VisualItems {
+		if !validMinutesVisualItem(item) {
+			return fmt.Errorf("minutes enrichment visual item is invalid")
+		}
+		if _, exists := seen[item.MediaID]; exists {
+			return fmt.Errorf("minutes enrichment visual item identity is duplicated")
+		}
+		seen[item.MediaID] = struct{}{}
+	}
+	if enrichment.Whiteboard == nil {
+		return nil
+	}
+	for _, item := range enrichment.VisualItems {
+		if item.MediaID == enrichment.Whiteboard.MediaID && item.Type != "whiteboard" {
+			return fmt.Errorf("minutes enrichment visual identity conflicts with whiteboard")
+		}
+		if item.Type != "whiteboard" {
+			continue
+		}
+		if item.MediaID != enrichment.Whiteboard.MediaID ||
+			item.MediaType != enrichment.Whiteboard.MediaType ||
+			item.Width != enrichment.Whiteboard.Width ||
+			item.Height != enrichment.Whiteboard.Height ||
+			item.SHA256 != enrichment.Whiteboard.SHA256 {
+			return fmt.Errorf("minutes enrichment whiteboard identity is inconsistent")
+		}
+		return nil
+	}
+	return nil
 }
 
 func parseMinutesChapters(raw json.RawMessage) []MinutesChapter {
@@ -519,14 +699,139 @@ func noteLinkNodeText(node *nethtml.Node) string {
 
 func firstWhiteboardToken(content string) string {
 	match := whiteboardTokenPattern.FindStringSubmatch(content)
-	if len(match) < 2 {
+	if len(match) >= 2 {
+		token := strings.TrimSpace(match[1])
+		if larkTokenPattern.MatchString(token) {
+			return token
+		}
+	}
+	parsed, err := nethtml.Parse(strings.NewReader(stripHTMLComments(content)))
+	if err != nil {
 		return ""
 	}
-	token := strings.TrimSpace(match[1])
-	if !larkTokenPattern.MatchString(token) {
-		return ""
+	var token string
+	var visit func(*nethtml.Node)
+	visit = func(node *nethtml.Node) {
+		if node == nil || token != "" {
+			return
+		}
+		if node.Type == nethtml.ElementNode && strings.EqualFold(node.Data, "whiteboard") {
+			candidate := firstNodeAttribute(node, "token", "whiteboard-token", "whiteboard_token")
+			if larkTokenPattern.MatchString(candidate) {
+				token = candidate
+				return
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			visit(child)
+		}
 	}
+	visit(parsed)
 	return token
+}
+
+type minutesVisualSource struct {
+	Token         string
+	MediaType     string
+	Alt           string
+	Summary       string
+	Width         int
+	Height        int
+	WidthPresent  bool
+	HeightPresent bool
+}
+
+func parseNoteVisualSources(document string) ([]minutesVisualSource, error) {
+	document = stripHTMLComments(document)
+	parsed, err := nethtml.Parse(strings.NewReader(document))
+	if err != nil {
+		return nil, fmt.Errorf("parse Minutes visual content: %w", err)
+	}
+	sources := make([]minutesVisualSource, 0)
+	var visit func(*nethtml.Node) error
+	visit = func(node *nethtml.Node) error {
+		if node == nil {
+			return nil
+		}
+		if node.Type == nethtml.ElementNode {
+			name := strings.ToLower(strings.TrimSpace(node.Data))
+			if name == "img" || name == "image" {
+				source, sourceErr := parseMinutesVisualSource(node)
+				if sourceErr != nil {
+					return sourceErr
+				}
+				sources = append(sources, source)
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			if err := visit(child); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := visit(parsed); err != nil {
+		return nil, err
+	}
+	return sources, nil
+}
+
+func parseMinutesVisualSource(node *nethtml.Node) (minutesVisualSource, error) {
+	if node == nil {
+		return minutesVisualSource{}, fmt.Errorf("Minutes visual node is missing")
+	}
+	token := firstNodeAttribute(node, "token", "file_token", "file-token", "image_token", "image-token")
+	if !larkTokenPattern.MatchString(token) {
+		return minutesVisualSource{}, fmt.Errorf("Minutes visual media identity is invalid")
+	}
+	source := minutesVisualSource{
+		Token:     token,
+		MediaType: normalizeMinutesMediaType(firstNodeAttribute(node, "media_type", "media-type", "mime", "mime_type", "type")),
+		Alt:       firstNodeAttribute(node, "alt", "aria-label", "title", "name"),
+		Summary:   firstNodeAttribute(node, "summary", "caption", "description"),
+	}
+	if source.MediaType != "" && !validMinutesMediaType(source.MediaType) {
+		return minutesVisualSource{}, fmt.Errorf("Minutes visual media type is unsupported")
+	}
+	if rawWidth := firstNodeAttribute(node, "width", "natural-width", "natural_width"); rawWidth != "" {
+		width, parseErr := strconv.Atoi(strings.TrimSpace(rawWidth))
+		if parseErr != nil || !validManagedImageDimension(width) {
+			return minutesVisualSource{}, fmt.Errorf("Minutes visual width is invalid")
+		}
+		source.Width = width
+		source.WidthPresent = true
+	}
+	if rawHeight := firstNodeAttribute(node, "height", "natural-height", "natural_height"); rawHeight != "" {
+		height, parseErr := strconv.Atoi(strings.TrimSpace(rawHeight))
+		if parseErr != nil || !validManagedImageDimension(height) {
+			return minutesVisualSource{}, fmt.Errorf("Minutes visual height is invalid")
+		}
+		source.Height = height
+		source.HeightPresent = true
+	}
+	return source, nil
+}
+
+func firstNodeAttribute(node *nethtml.Node, names ...string) string {
+	if node == nil {
+		return ""
+	}
+	for _, name := range names {
+		for _, attribute := range node.Attr {
+			if strings.EqualFold(attribute.Key, name) {
+				return strings.TrimSpace(html.UnescapeString(attribute.Val))
+			}
+		}
+	}
+	return ""
+}
+
+func normalizeMinutesMediaType(value string) string {
+	return strings.ToLower(strings.TrimSpace(strings.SplitN(value, ";", 2)[0]))
+}
+
+func validManagedImageDimension(value int) bool {
+	return value > 0 && value <= maxWhiteboardPreviewDimension
 }
 
 func sniffManagedImage(content []byte) (ManagedImage, error) {
@@ -673,8 +978,9 @@ func containsUnsafeMinutesURLData(raw string) bool {
 func validMinutesWhiteboard(meta MinutesWhiteboard) bool {
 	return mediaIDPattern.MatchString(meta.MediaID) &&
 		sha256Pattern.MatchString(meta.SHA256) &&
-		(meta.MediaType == "image/png" || meta.MediaType == "image/jpeg" || meta.MediaType == "image/gif") &&
+		validMinutesMediaType(meta.MediaType) &&
 		strings.TrimSpace(meta.Alt) != "" &&
+		validPublicMinutesVisualText(meta.Alt) &&
 		meta.Width >= 0 &&
 		meta.Height >= 0
 }

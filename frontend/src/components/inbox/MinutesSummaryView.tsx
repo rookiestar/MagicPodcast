@@ -9,6 +9,7 @@ import {
 import type {
   MinutesLink,
   MinutesQuote,
+  MinutesVisualItem,
   MinutesWhiteboard,
 } from "@/types/processing";
 import styles from "./InboxPage.module.css";
@@ -22,6 +23,7 @@ interface MinutesSummaryViewProps {
   quotes?: MinutesQuote[];
   links?: MinutesLink[];
   whiteboard?: MinutesWhiteboard;
+  visualItems?: MinutesVisualItem[];
 }
 
 export default function MinutesSummaryView({
@@ -33,28 +35,45 @@ export default function MinutesSummaryView({
   quotes = [],
   links = [],
   whiteboard,
+  visualItems = [],
 }: MinutesSummaryViewProps) {
   const visibleKeywords = keywords.map((item) => item.trim()).filter(Boolean);
   const visibleDecisions = decisions.map((item) => item.trim()).filter(Boolean);
   const visibleQuotes = quotes.filter((item) => item.quote.trim());
   const visibleLinks = links.filter((item) => isSafeMinutesLink(item.url));
-  const [whiteboardOpen, setWhiteboardOpen] = useState(false);
-  const previewButtonRef = useRef<HTMLButtonElement>(null);
+  const visibleVisualItems = normalizeMinutesVisualItems(
+    visualItems,
+    whiteboard,
+  );
+  const [openMediaId, setOpenMediaId] = useState<string | null>(null);
+  const [failedMediaIds, setFailedMediaIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const previewButtonRefs = useRef<Record<string, HTMLButtonElement | null>>(
+    {},
+  );
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const lightboxWasOpen = useRef(false);
+  const lightboxTriggerId = useRef<string | null>(null);
   const titleId = useId();
   const summaryContent = stripRedundantSummaryHeading(content);
   const isVisualMode = mode === "visual";
+  const visualIdentity = visibleVisualItems
+    .map((item) => item.media_id)
+    .join(",");
 
   useEffect(() => {
-    if (whiteboardOpen) {
-      lightboxWasOpen.current = true;
+    setFailedMediaIds(new Set());
+  }, [artifactSetId, visualIdentity]);
+
+  useEffect(() => {
+    if (openMediaId) {
+      lightboxTriggerId.current = openMediaId;
       closeButtonRef.current?.focus();
       const onKeyDown = (event: KeyboardEvent) => {
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
-          setWhiteboardOpen(false);
+          setOpenMediaId(null);
           return;
         }
         if (event.key === "Tab") {
@@ -66,44 +85,73 @@ export default function MinutesSummaryView({
       window.addEventListener("keydown", onKeyDown, true);
       return () => window.removeEventListener("keydown", onKeyDown, true);
     }
-    if (lightboxWasOpen.current) {
-      previewButtonRef.current?.focus();
-      lightboxWasOpen.current = false;
+    if (lightboxTriggerId.current) {
+      previewButtonRefs.current[lightboxTriggerId.current]?.focus();
+      lightboxTriggerId.current = null;
     }
     return undefined;
-  }, [whiteboardOpen]);
+  }, [openMediaId]);
 
-  const whiteboardSrc = whiteboard
-    ? `/api/v1/artifact-sets/${artifactSetId}/media/${encodeURIComponent(
-        whiteboard.media_id,
-      )}`
-    : "";
-  const whiteboardPreviewSrc = whiteboard
-    ? getOptimizedImageUrl(whiteboardSrc, RICH_TEXT_IMAGE_WIDTH)
-    : "";
+  useEffect(() => {
+    if (!isVisualMode && openMediaId) {
+      setOpenMediaId(null);
+    }
+  }, [isVisualMode, openMediaId]);
 
-  const whiteboardPreview = whiteboard ? (
-    <figure className={styles.minutesWhiteboard}>
-      <button
-        ref={previewButtonRef}
-        type="button"
-        className={styles.minutesWhiteboardButton}
-        onClick={() => setWhiteboardOpen(true)}
-        aria-haspopup="dialog"
-        aria-expanded={whiteboardOpen}
-      >
-        {/* Managed local artifact media; not a remote Next image. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={whiteboardPreviewSrc}
-          alt={whiteboard.alt || "飞书智能纪要画板"}
-          width={whiteboard.width || undefined}
-          height={whiteboard.height || undefined}
-        />
-        <span>放大查看画板</span>
-      </button>
-    </figure>
-  ) : null;
+  const handleVisualError = (mediaId: string) => {
+    setFailedMediaIds((current) => {
+      if (current.has(mediaId)) return current;
+      const next = new Set(current);
+      next.add(mediaId);
+      return next;
+    });
+  };
+
+  const visualPreviews = visibleVisualItems.map((item) => {
+    const src = managedMediaURL(artifactSetId, item.media_id);
+    const previewSrc = getOptimizedImageUrl(src, RICH_TEXT_IMAGE_WIDTH);
+    const isWhiteboard = item.type === "whiteboard";
+    const alt =
+      item.alt || (isWhiteboard ? "飞书智能纪要画板" : "飞书智能纪要图片");
+    if (failedMediaIds.has(item.media_id)) {
+      return (
+        <figure className={styles.minutesWhiteboard} key={item.media_id}>
+          <div className={styles.minutesVisualLoadError} role="status">
+            {isWhiteboard ? "画板暂时无法加载" : "图片暂时无法加载"}
+          </div>
+        </figure>
+      );
+    }
+    return (
+      <figure className={styles.minutesWhiteboard} key={item.media_id}>
+        <button
+          ref={(element) => {
+            previewButtonRefs.current[item.media_id] = element;
+          }}
+          type="button"
+          className={styles.minutesWhiteboardButton}
+          onClick={() => setOpenMediaId(item.media_id)}
+          aria-haspopup="dialog"
+          aria-expanded={openMediaId === item.media_id}
+          aria-label={
+            isWhiteboard ? `放大查看画板：${alt}` : `放大查看图片：${alt}`
+          }
+        >
+          {/* Managed local artifact media; not a remote Next image. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={previewSrc}
+            alt={alt}
+            width={item.width || undefined}
+            height={item.height || undefined}
+            onError={() => handleVisualError(item.media_id)}
+          />
+          <span>{isWhiteboard ? "放大查看画板" : "放大查看图片"}</span>
+        </button>
+        {item.summary ? <figcaption>{item.summary}</figcaption> : null}
+      </figure>
+    );
+  });
 
   return (
     <div
@@ -122,7 +170,9 @@ export default function MinutesSummaryView({
           >
             总结
           </h2>
-          {whiteboardPreview}
+          {visualPreviews.length > 0 ? (
+            <div className={styles.minutesVisualList}>{visualPreviews}</div>
+          ) : null}
         </section>
       ) : (
         <>
@@ -226,34 +276,88 @@ export default function MinutesSummaryView({
           )}
         </>
       )}
-      {whiteboardOpen && whiteboard && (
-        <div
-          className={styles.minutesLightbox}
-          role="dialog"
-          aria-modal="true"
-          aria-label="画板预览"
-        >
-          <div className={styles.minutesLightboxCard}>
-            <div className={styles.minutesLightboxScroll}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={whiteboardSrc}
-                alt={whiteboard.alt || "飞书智能纪要画板"}
-              />
+      {isVisualMode &&
+        openMediaId &&
+        visibleVisualItems.some((item) => item.media_id === openMediaId) && (
+          <div
+            className={styles.minutesLightbox}
+            role="dialog"
+            aria-modal="true"
+            aria-label={
+              visibleVisualItems.find((item) => item.media_id === openMediaId)
+                ?.type === "whiteboard"
+                ? "画板预览"
+                : "图片预览"
+            }
+          >
+            <div className={styles.minutesLightboxCard}>
+              <div className={styles.minutesLightboxScroll}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={managedMediaURL(artifactSetId, openMediaId)}
+                  alt={
+                    visibleVisualItems.find(
+                      (item) => item.media_id === openMediaId,
+                    )?.alt || "飞书智能纪要图片"
+                  }
+                  onError={() => {
+                    handleVisualError(openMediaId);
+                    setOpenMediaId(null);
+                  }}
+                />
+              </div>
+              <button
+                ref={closeButtonRef}
+                type="button"
+                className={styles.minutesLightboxClose}
+                onClick={() => setOpenMediaId(null)}
+              >
+                关闭
+              </button>
             </div>
-            <button
-              ref={closeButtonRef}
-              type="button"
-              className={styles.minutesLightboxClose}
-              onClick={() => setWhiteboardOpen(false)}
-            >
-              关闭
-            </button>
           </div>
-        </div>
-      )}
+        )}
     </div>
   );
+}
+
+function normalizeMinutesVisualItems(
+  items: MinutesVisualItem[],
+  whiteboard?: MinutesWhiteboard,
+) {
+  const normalized: MinutesVisualItem[] = [];
+  const seen = new Set<string>();
+  const add = (item: MinutesVisualItem) => {
+    if (
+      !item ||
+      (item.type !== "image" && item.type !== "whiteboard") ||
+      !isSafeManagedMediaId(item.media_id) ||
+      seen.has(item.media_id)
+    ) {
+      return;
+    }
+    seen.add(item.media_id);
+    normalized.push(item);
+  };
+  if (whiteboard) {
+    add({ ...whiteboard, type: "whiteboard" });
+  }
+  items.forEach(add);
+  const boardIndex = normalized.findIndex((item) => item.type === "whiteboard");
+  if (boardIndex > 0) {
+    const [board] = normalized.splice(boardIndex, 1);
+    normalized.unshift(board);
+  }
+  return normalized;
+}
+
+function isSafeManagedMediaId(mediaId: string) {
+  return /^[a-z][a-z0-9_-]{1,63}$/.test(mediaId);
+}
+
+function managedMediaURL(artifactSetId: number, mediaId: string) {
+  if (!isSafeManagedMediaId(mediaId)) return "";
+  return `/api/v1/artifact-sets/${artifactSetId}/media/${encodeURIComponent(mediaId)}`;
 }
 
 export function stripRedundantSummaryHeading(content: string) {

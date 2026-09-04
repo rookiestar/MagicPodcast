@@ -102,6 +102,7 @@ const minutesResyncErrorCodes = new Set([
   "minutes_template_unrecognized",
   "minutes_section_unparsed",
   "minutes_whiteboard_unavailable",
+  "minutes_image_unavailable",
   "minutes_note_unreadable",
   "minutes_enrichment_snapshot_write_failed",
   "stored_enrichment_unavailable",
@@ -552,7 +553,9 @@ const EpisodeProcessingPanel = forwardRef<
       minutesArtifactContent.content.kind === summaryKind,
   );
   const visualSummaryAvailable = Boolean(
-    minutesContentMatchesCurrent && minutesArtifactContent?.content.whiteboard,
+    minutesContentMatchesCurrent &&
+      ((minutesArtifactContent?.content.visual_items?.length ?? 0) > 0 ||
+        minutesArtifactContent?.content.whiteboard),
   );
   const summaryContentSettled =
     summaryKind !== "minutes_summary" ||
@@ -1218,6 +1221,7 @@ const EpisodeProcessingPanel = forwardRef<
               quotes={selectedArtifactContent.content.quotes}
               links={selectedArtifactContent.content.links}
               whiteboard={selectedArtifactContent.content.whiteboard}
+              visualItems={selectedArtifactContent.content.visual_items}
               mode={renderedArtifactTab === "summary" ? "visual" : "minutes"}
             />
           ) : (
