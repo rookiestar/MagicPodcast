@@ -671,7 +671,7 @@ func TestFeishuMinutesAdapterCapturesOrderedReadOnlyImages(t *testing.T) {
 			beforeReturn: writeCoreTranscript,
 		},
 		{output: []byte(`{"note_doc_token":"docx_images_123"}`)},
-		{output: []byte(`{"data":{"document":{"content":"<h1>总结</h1><img token=\"filecn_image_1\" type=\"image/png\" width=\"2\" height=\"2\" alt=\"第一张\" summary=\"开场图\"/><p>中间内容</p><img token=\"filecn_image_2\" alt=\"第二张\"/></div>"}}}`)},
+		{output: []byte(`{"data":{"document":{"content":"<h1>总结</h1><img name=\"第一张\" caption=\"开场图\" mime=\"image/png\" scale=\"1.000000\" src=\"filecn_image_1\"/><p>中间内容</p><img name=\"第二张\" mime=\"image/png\" scale=\"1.000000\" src=\"filecn_image_2\"/></div>"}}}`)},
 		{output: []byte(`{"ok":true}`), beforeReturn: func(cwd string) {
 			require.NoError(t, os.WriteFile(filepath.Join(cwd, "image-1"), first, 0o600))
 		}},
