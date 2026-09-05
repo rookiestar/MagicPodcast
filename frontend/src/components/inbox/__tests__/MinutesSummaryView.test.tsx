@@ -329,6 +329,35 @@ describe("MinutesSummaryView", () => {
     expect(document.documentElement.style.overflow).toBe("auto");
   });
 
+  it("traps Tab after the focused zoom control becomes disabled", () => {
+    render(
+      <MinutesSummaryView
+        artifactSetId={7}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /放大查看画板：飞书智能纪要画板/ }),
+    );
+    const lightbox = screen.getByRole("dialog", { name: "画板预览" });
+    fireEvent.click(within(lightbox).getByRole("button", { name: "放大" }));
+    const fitButton = within(lightbox).getByRole("button", {
+      name: "适配全屏",
+    });
+    fitButton.focus();
+    fireEvent.click(fitButton);
+    expect(fitButton).toBeDisabled();
+
+    const tabDefaultAllowed = fireEvent.keyDown(document.body, { key: "Tab" });
+    expect(tabDefaultAllowed).toBe(false);
+    expect(
+      within(lightbox).getByRole("button", { name: "放大" }),
+    ).toHaveFocus();
+  });
+
   it("constrains a wide image to its rendered contain bounds", () => {
     render(
       <MinutesSummaryView

@@ -192,7 +192,7 @@ export default function MinutesSummaryView({
       }
       if (event.key !== "Tab") return;
       const dialog = lightboxRef.current;
-      if (!dialog || !dialog.contains(event.target as Node)) return;
+      if (!dialog) return;
       const focusable = Array.from(
         dialog.querySelectorAll<HTMLElement>(
           'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
@@ -207,7 +207,9 @@ export default function MinutesSummaryView({
       const direction = event.shiftKey ? -1 : 1;
       const nextIndex =
         currentIndex < 0
-          ? 0
+          ? event.shiftKey
+            ? focusable.length - 1
+            : 0
           : (currentIndex + direction + focusable.length) % focusable.length;
       focusable[nextIndex].focus();
     };
