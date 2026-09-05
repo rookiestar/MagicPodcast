@@ -9,16 +9,25 @@ const cssRoot = postcss.parse(
 );
 
 describe("InboxPage overlay styles", () => {
-  it("keeps the mobile minutes viewer inside device safe areas", () => {
-    let lightboxPadding = "";
+  it("keeps the minutes viewer inside device safe areas at every width", () => {
+    let baseLightboxPadding = "";
+    let mobileLightboxPadding = "";
     let cardWidth = "";
     let cardHeight = "";
+    cssRoot.walkRules((rule) => {
+      if (rule.parent !== cssRoot || !rule.selectors.includes(".minutesLightbox")) {
+        return;
+      }
+      rule.walkDecls("padding", (declaration) => {
+        baseLightboxPadding = declaration.value;
+      });
+    });
     cssRoot.walkAtRules("media", (mediaRule) => {
       if (!mediaRule.params.includes("max-width: 430px")) return;
       mediaRule.walkRules((rule) => {
         rule.walkDecls((declaration) => {
           if (rule.selectors.includes(".minutesLightbox") && declaration.prop === "padding") {
-            lightboxPadding = declaration.value;
+            mobileLightboxPadding = declaration.value;
           }
           if (rule.selectors.includes(".minutesLightboxCard")) {
             if (declaration.prop === "width") cardWidth = declaration.value;
@@ -28,10 +37,12 @@ describe("InboxPage overlay styles", () => {
       });
     });
 
-    expect(lightboxPadding).toContain("env(safe-area-inset-top");
-    expect(lightboxPadding).toContain("env(safe-area-inset-right");
-    expect(lightboxPadding).toContain("env(safe-area-inset-bottom");
-    expect(lightboxPadding).toContain("env(safe-area-inset-left");
+    for (const lightboxPadding of [baseLightboxPadding, mobileLightboxPadding]) {
+      expect(lightboxPadding).toContain("env(safe-area-inset-top");
+      expect(lightboxPadding).toContain("env(safe-area-inset-right");
+      expect(lightboxPadding).toContain("env(safe-area-inset-bottom");
+      expect(lightboxPadding).toContain("env(safe-area-inset-left");
+    }
     expect(cardWidth).toBe("100%");
     expect(cardHeight).toBe("100%");
   });

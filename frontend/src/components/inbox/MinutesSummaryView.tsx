@@ -790,6 +790,15 @@ function MinutesLightbox({
       panRef.current = nextPan;
       setZoom(nextZoom);
       setPan(nextPan);
+      if (nextZoom >= MAX_LIGHTBOX_ZOOM) {
+        gestureRef.current = {
+          kind: "pinch",
+          startDistance: nextDistance,
+          startZoom: MAX_LIGHTBOX_ZOOM,
+          startMidpoint: midpoint,
+          origin: { ...nextPan },
+        };
+      }
       return;
     }
     if (
