@@ -28,6 +28,7 @@ import styles from "./InboxPage.module.css";
 const MIN_LIGHTBOX_ZOOM = 1;
 const MAX_LIGHTBOX_ZOOM = 4;
 const LIGHTBOX_ZOOM_STEP = 0.25;
+const LIGHTBOX_WHEEL_DELTA_PER_STEP = 100;
 
 interface LightboxPan {
   x: number;
@@ -554,6 +555,7 @@ function MinutesLightbox({
   const panRef = useRef(pan);
   const pointersRef = useRef(new Map<number, LightboxPointer>());
   const gestureRef = useRef<LightboxGesture | null>(null);
+  const wheelDeltaRef = useRef(0);
   const wheelHandlerRef = useRef<(event: WheelEvent) => void>(() => undefined);
 
   useEffect(() => {
@@ -619,26 +621,37 @@ function MinutesLightbox({
     setPan(nextPan);
   };
 
-  const resetZoom = () => updateZoom(MIN_LIGHTBOX_ZOOM);
+  const updateZoomFromCenter = (next: number) => {
+    wheelDeltaRef.current = 0;
+    updateZoom(next, { x: 0, y: 0 });
+  };
+
+  const resetZoom = () => {
+    wheelDeltaRef.current = 0;
+    updateZoom(MIN_LIGHTBOX_ZOOM);
+  };
 
   const handleWheel = (event: WheelEvent) => {
     event.preventDefault();
     const viewport = viewportRef.current;
     if (!viewport) return;
-    const rect = viewport.getBoundingClientRect();
-    const clientX = Number.isFinite(event.clientX)
-      ? event.clientX
-      : rect.left + rect.width / 2;
-    const clientY = Number.isFinite(event.clientY)
-      ? event.clientY
-      : rect.top + rect.height / 2;
-    const anchor = {
-      x: clientX - (rect.left + rect.width / 2),
-      y: clientY - (rect.top + rect.height / 2),
-    };
+    const delta = normalizeWheelDelta(event, viewport.clientHeight);
+    wheelDeltaRef.current += delta;
+    const stepCount = Math.trunc(
+      Math.abs(wheelDeltaRef.current) / LIGHTBOX_WHEEL_DELTA_PER_STEP,
+    );
+    if (stepCount === 0) return;
+    const deltaDirection = Math.sign(wheelDeltaRef.current);
+    wheelDeltaRef.current -=
+      deltaDirection * stepCount * LIGHTBOX_WHEEL_DELTA_PER_STEP;
+    const anchor = lightboxAnchorForClientPoint(viewport, {
+      x: event.clientX,
+      y: event.clientY,
+    });
     updateZoom(
       zoomRef.current +
-        (event.deltaY < 0 ? LIGHTBOX_ZOOM_STEP : -LIGHTBOX_ZOOM_STEP),
+        (deltaDirection < 0 ? LIGHTBOX_ZOOM_STEP : -LIGHTBOX_ZOOM_STEP) *
+          stepCount,
       anchor,
     );
   };
@@ -665,10 +678,10 @@ function MinutesLightbox({
   const handleDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key === "+" || event.key === "=") {
       event.preventDefault();
-      updateZoom(zoomRef.current + LIGHTBOX_ZOOM_STEP);
+      updateZoomFromCenter(zoomRef.current + LIGHTBOX_ZOOM_STEP);
     } else if (event.key === "-") {
       event.preventDefault();
-      updateZoom(zoomRef.current - LIGHTBOX_ZOOM_STEP);
+      updateZoomFromCenter(zoomRef.current - LIGHTBOX_ZOOM_STEP);
     } else if (event.key === "0") {
       event.preventDefault();
       resetZoom();
@@ -694,6 +707,7 @@ function MinutesLightbox({
     }
     if (pointersRef.current.size === 2) {
       const [first, second] = Array.from(pointersRef.current.values());
+      wheelDeltaRef.current = 0;
       gestureRef.current = {
         kind: "pinch",
         startDistance: distanceBetween(first, second),
@@ -714,7 +728,16 @@ function MinutesLightbox({
       if (gesture?.kind !== "pinch") return;
       const nextDistance = distanceBetween(pointers[0], pointers[1]);
       if (gesture.startDistance === 0) return;
-      updateZoom(gesture.startZoom * (nextDistance / gesture.startDistance));
+      const viewport = viewportRef.current;
+      updateZoom(
+        gesture.startZoom * (nextDistance / gesture.startDistance),
+        viewport
+          ? lightboxAnchorForClientPoint(
+              viewport,
+              midpointBetween(pointers[0], pointers[1]),
+            )
+          : undefined,
+      );
       return;
     }
     if (
@@ -777,7 +800,9 @@ function MinutesLightbox({
             <button
               type="button"
               className={styles.minutesLightboxControl}
-              onClick={() => updateZoom(zoomRef.current - LIGHTBOX_ZOOM_STEP)}
+              onClick={() =>
+                updateZoomFromCenter(zoomRef.current - LIGHTBOX_ZOOM_STEP)
+              }
               disabled={zoom <= MIN_LIGHTBOX_ZOOM}
               aria-label="缩小"
               title="缩小"
@@ -795,7 +820,9 @@ function MinutesLightbox({
             <button
               type="button"
               className={styles.minutesLightboxControl}
-              onClick={() => updateZoom(zoomRef.current + LIGHTBOX_ZOOM_STEP)}
+              onClick={() =>
+                updateZoomFromCenter(zoomRef.current + LIGHTBOX_ZOOM_STEP)
+              }
               disabled={zoom >= MAX_LIGHTBOX_ZOOM}
               aria-label="放大"
               title="放大"
@@ -856,6 +883,43 @@ function MinutesLightbox({
 
 function distanceBetween(first: LightboxPointer, second: LightboxPointer) {
   return Math.hypot(second.x - first.x, second.y - first.y);
+}
+
+function midpointBetween(
+  first: LightboxPointer,
+  second: LightboxPointer,
+): LightboxPointer {
+  return {
+    x: (first.x + second.x) / 2,
+    y: (first.y + second.y) / 2,
+  };
+}
+
+function lightboxAnchorForClientPoint(
+  viewport: HTMLDivElement,
+  point: LightboxPointer,
+): LightboxPan {
+  const rect = viewport.getBoundingClientRect();
+  const clientX = Number.isFinite(point.x)
+    ? point.x
+    : rect.left + rect.width / 2;
+  const clientY = Number.isFinite(point.y)
+    ? point.y
+    : rect.top + rect.height / 2;
+  return {
+    x: clientX - (rect.left + rect.width / 2),
+    y: clientY - (rect.top + rect.height / 2),
+  };
+}
+
+function normalizeWheelDelta(event: WheelEvent, viewportHeight: number) {
+  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+    return event.deltaY * 16;
+  }
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+    return event.deltaY * Math.max(1, viewportHeight);
+  }
+  return event.deltaY;
 }
 
 function getContainedImageSize(
