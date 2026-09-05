@@ -380,6 +380,39 @@ describe("MinutesSummaryView", () => {
     ).toBe("translate3d(100px, 0px, 0)");
   });
 
+  it("resets zoom when the displayed artifact changes", () => {
+    const { rerender } = render(
+      <MinutesSummaryView
+        artifactSetId={7}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /放大查看画板：飞书智能纪要画板/ }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "放大" }));
+    expect(screen.getByText("125%")).toBeVisible();
+
+    rerender(
+      <MinutesSummaryView
+        artifactSetId={8}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    const lightbox = screen.getByRole("dialog", { name: "画板预览" });
+    expect(within(lightbox).getByText("100%")).toBeVisible();
+    expect(within(lightbox).getByRole("img")).toHaveAttribute(
+      "src",
+      "/api/v1/artifact-sets/8/media/whiteboard",
+    );
+  });
+
   it("keeps other visuals available when one thumbnail fails", () => {
     render(
       <MinutesSummaryView

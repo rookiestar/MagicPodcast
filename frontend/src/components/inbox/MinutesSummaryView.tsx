@@ -15,6 +15,7 @@ import {
   getOptimizedImageUrl,
   RICH_TEXT_IMAGE_WIDTH,
 } from "@/lib/imageOptimization";
+import { acquireDocumentScrollLock } from "@/lib/documentScrollLock";
 import type {
   MinutesInlineImage,
   MinutesLink,
@@ -174,12 +175,10 @@ export default function MinutesSummaryView({
 
     lightboxTriggerId.current = openMediaId;
     closeButtonRef.current?.focus();
-    const previousBodyOverflow = document.body.style.overflow;
-    const previousDocumentOverflow = document.documentElement.style.overflow;
-    const previousBodyTouchAction = document.body.style.touchAction;
-    document.documentElement.style.overflow = "hidden";
-    document.body.style.overflow = "hidden";
-    document.body.style.touchAction = "none";
+    const releaseScrollLock = acquireDocumentScrollLock({
+      lockDocumentElement: true,
+      disableTouchAction: true,
+    });
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -212,9 +211,7 @@ export default function MinutesSummaryView({
     window.addEventListener("keydown", onKeyDown, true);
     return () => {
       window.removeEventListener("keydown", onKeyDown, true);
-      document.documentElement.style.overflow = previousDocumentOverflow;
-      document.body.style.overflow = previousBodyOverflow;
-      document.body.style.touchAction = previousBodyTouchAction;
+      releaseScrollLock();
     };
   }, [isOpenMediaVisible, openMediaId]);
   const handleVisualError = (mediaId: string) => {
@@ -500,6 +497,7 @@ export default function MinutesSummaryView({
         ? (() => {
             const lightbox = (
               <MinutesLightbox
+                key={managedMediaURL(artifactSetId, openMedia.media_id)}
                 alt={
                   openMedia.alt ||
                   (openMedia.type === "whiteboard"
