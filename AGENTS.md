@@ -4,6 +4,20 @@
 
 本文件仅保存长期稳定的操作方式与安全边界。依赖版本、commit、端口、当前 Issue、一次性统计等易变事实，必须从当前清单、配置、源码、测试、运行结果或跟踪系统核实。
 
+## Agent skills
+
+### Issue tracker
+
+本仓库使用 GitHub Issues 管理 Issue 与 Spec，统一使用 `gh` CLI。见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+本仓库使用五个默认 triage 标签：`needs-triage`、`needs-info`、`ready-for-agent`、`ready-for-human`、`wontfix`。见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+本仓库采用 single-context 领域文档布局。见 `docs/agents/domain.md`。
+
 ## 1. Project Overview
 
 MagicPodcast 是面向个人长期积累与复用的播客知识库，后端为 Go 服务，前端为 Next.js / React 应用，数据主要存储于 SQLite。
