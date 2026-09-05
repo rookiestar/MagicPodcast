@@ -606,6 +606,75 @@ describe("MinutesSummaryView", () => {
     ).toBe("translate3d(80px, 40px, 0)");
   });
 
+  it("rebases an active pinch after reaching full-screen fit", () => {
+    render(
+      <MinutesSummaryView
+        artifactSetId={7}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /放大查看画板：飞书智能纪要画板/ }),
+    );
+    const lightbox = screen.getByRole("dialog", { name: "画板预览" });
+    const viewport = lightbox.querySelector("[data-zoomed]")!;
+    const lightboxImage = within(lightbox).getByRole("img", {
+      name: "飞书智能纪要画板",
+    });
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 600 },
+      getBoundingClientRect: {
+        configurable: true,
+        value: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+      },
+    });
+    Object.defineProperties(lightboxImage, {
+      offsetWidth: { configurable: true, value: 800 },
+      offsetHeight: { configurable: true, value: 600 },
+    });
+
+    fireEvent.click(within(lightbox).getByRole("button", { name: "放大" }));
+    fireEvent.pointerDown(viewport, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 300,
+      clientY: 300,
+    });
+    fireEvent.pointerDown(viewport, {
+      pointerId: 2,
+      pointerType: "touch",
+      clientX: 500,
+      clientY: 300,
+    });
+    fireEvent.pointerMove(viewport, {
+      pointerId: 2,
+      pointerType: "touch",
+      clientX: 400,
+      clientY: 300,
+    });
+    expect(within(lightbox).getByText("100%")).toBeVisible();
+    expect(
+      lightbox.querySelector<HTMLElement>('[style*="translate3d"]')?.style
+        .transform,
+    ).toBe("translate3d(0px, 0px, 0)");
+
+    fireEvent.pointerMove(viewport, {
+      pointerId: 2,
+      pointerType: "touch",
+      clientX: 450,
+      clientY: 300,
+    });
+    expect(within(lightbox).getByText("150%")).toBeVisible();
+    expect(
+      lightbox.querySelector<HTMLElement>('[style*="translate3d"]')?.style
+        .transform,
+    ).toBe("translate3d(50px, 0px, 0)");
+  });
+
   it("accumulates precision wheel deltas before applying a zoom step", () => {
     render(
       <MinutesSummaryView

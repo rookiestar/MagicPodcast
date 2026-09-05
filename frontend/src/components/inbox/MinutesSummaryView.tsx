@@ -734,20 +734,39 @@ function MinutesLightbox({
     if (pointers.length >= 2) {
       if (gesture?.kind !== "pinch") return;
       const nextDistance = distanceBetween(pointers[0], pointers[1]);
-      if (gesture.startDistance === 0) return;
       const viewport = viewportRef.current;
       if (!viewport) return;
+      if (gesture.startDistance === 0) {
+        gestureRef.current = {
+          kind: "pinch",
+          startDistance: nextDistance,
+          startZoom: zoomRef.current,
+          startMidpoint: lightboxAnchorForClientPoint(
+            viewport,
+            midpointBetween(pointers[0], pointers[1]),
+          ),
+          origin: { ...panRef.current },
+        };
+        return;
+      }
       const nextZoom = clampLightboxZoom(
         gesture.startZoom * (nextDistance / gesture.startDistance),
       );
-      if (nextZoom <= MIN_LIGHTBOX_ZOOM) {
-        updateZoom(MIN_LIGHTBOX_ZOOM);
-        return;
-      }
       const midpoint = lightboxAnchorForClientPoint(
         viewport,
         midpointBetween(pointers[0], pointers[1]),
       );
+      if (nextZoom <= MIN_LIGHTBOX_ZOOM) {
+        updateZoom(MIN_LIGHTBOX_ZOOM);
+        gestureRef.current = {
+          kind: "pinch",
+          startDistance: nextDistance,
+          startZoom: MIN_LIGHTBOX_ZOOM,
+          startMidpoint: midpoint,
+          origin: { x: 0, y: 0 },
+        };
+        return;
+      }
       const ratio = nextZoom / gesture.startZoom;
       const nextPan = constrainPan(
         {
