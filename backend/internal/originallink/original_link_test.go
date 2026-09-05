@@ -200,6 +200,35 @@ func TestResolveWavPubFeedIdentityIgnoresSchemeCaseAndTrailingDot(t *testing.T) 
 	}
 }
 
+func TestResolveWavPubProxyFeedWithWordPressPageGUID(t *testing.T) {
+	decision := Resolve(Input{
+		Feed: FeedIdentity{FeedURL: "https://proxy.wavpub.com/pie.xml"},
+		GUID: "https://hosting.wavpub.cn/pie/?p=822",
+	})
+	if decision.Source != SourceWavPubGUID || decision.URL != "https://hosting.wavpub.cn/pie/?p=822" {
+		t.Fatalf("Resolve() = %+v, want the verified WavPub proxy GUID", decision)
+	}
+}
+
+func TestResolveWavPubProxyFeedRequiresExactVerifiedEndpoint(t *testing.T) {
+	for _, feedURL := range []string{
+		"http://proxy.wavpub.com/pie.xml",
+		"https://proxy.wavpub.com/pie.xml/",
+		"https://proxy.wavpub.com/pie.xml?source=other",
+		"https://proxy.wavpub.com/other.xml",
+		"https://proxy.wavpub.com:8443/pie.xml",
+		"https://proxy.wavpub.com.evil.example/pie.xml",
+	} {
+		decision := Resolve(Input{
+			Feed: FeedIdentity{FeedURL: feedURL},
+			GUID: "https://hosting.wavpub.cn/pie/?p=822",
+		})
+		if decision.Source != SourceNone || decision.URL != "" {
+			t.Fatalf("Resolve(feed %q) = %+v, want no proxy GUID fallback", feedURL, decision)
+		}
+	}
+}
+
 func TestResolveUnusableRSSLinkDoesNotClearExistingLink(t *testing.T) {
 	for _, link := range []string{
 		"javascript:alert(1)",
