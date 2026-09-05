@@ -224,6 +224,46 @@ describe("EpisodeCard", () => {
     openSpy.mockRestore();
   });
 
+  it("expresses the shared original-link tri-state contract", () => {
+    const missing = render(
+      <TestEpisodeCard episode={makeEpisode({ link: "" })} />,
+    );
+    expect(screen.getByText("原节目链接暂缺")).toHaveAttribute(
+      "data-original-access",
+      "missing",
+    );
+    expect(
+      screen.queryByRole("link", { name: "单集标题" }),
+    ).not.toBeInTheDocument();
+    missing.unmount();
+
+    const rejected = render(
+      <TestEpisodeCard episode={makeEpisode({ link: "https://" })} />,
+    );
+    expect(screen.getByText("原节目链接不可安全打开")).toHaveAttribute(
+      "data-original-access",
+      "rejected",
+    );
+    expect(
+      screen.queryByRole("link", { name: "单集标题" }),
+    ).not.toBeInTheDocument();
+    rejected.unmount();
+
+    render(
+      <TestEpisodeCard
+        episode={makeEpisode({
+          link: "https://hosting.wavpub.cn/pie/ep229/",
+        })}
+      />,
+    );
+    expect(screen.queryByText("原节目链接暂缺")).not.toBeInTheDocument();
+    expect(screen.queryByText("原节目链接不可安全打开")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "单集标题" })).toHaveAttribute(
+      "href",
+      "https://hosting.wavpub.cn/pie/ep229/",
+    );
+  });
+
   it("offers Xiaoyuzhou recovery after opening the original episode page", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {

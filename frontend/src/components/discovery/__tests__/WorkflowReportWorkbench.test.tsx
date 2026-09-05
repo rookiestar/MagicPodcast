@@ -1032,6 +1032,42 @@ describe("WorkflowReportWorkbench", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /危险链接单集/ }));
     expect(screen.queryByText("打开原单集")).not.toBeInTheDocument();
+    expect(screen.getByText("原节目链接不可安全打开")).toHaveAttribute(
+      "data-original-access",
+      "rejected",
+    );
+  });
+
+  it("expresses the shared original-link tri-state contract for missing links", () => {
+    render(
+      <WorkflowReportWorkbench
+        todayReports={[
+          makeReport({
+            id: 8,
+            workflow_name: "缺链日报",
+            episodes: [
+              {
+                episode_id: 80,
+                order: 1,
+                podcast_id: 1,
+                podcast_title: "P",
+                episode_title: "缺链单集",
+                link: "   ",
+                context: "ctx",
+                decision_state: "pending",
+              },
+            ],
+          }),
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /缺链单集/ }));
+    expect(screen.queryByText("打开原单集")).not.toBeInTheDocument();
+    expect(screen.getByText("原节目链接暂缺")).toHaveAttribute(
+      "data-original-access",
+      "missing",
+    );
   });
 
   it("offers Xiaoyuzhou recovery after opening the original episode", () => {

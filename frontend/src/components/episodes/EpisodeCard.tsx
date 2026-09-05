@@ -17,7 +17,10 @@ import {
   shouldShowEpisodeTitleLink,
   type EpisodeImagePriority,
 } from "@/lib/episodeDisplay";
-import { planSafeOriginalEpisodeOpen } from "@/lib/originalEpisodeOpen";
+import {
+  originalEpisodeAccessText,
+  planOriginalEpisodeAccess,
+} from "@/lib/originalEpisodeOpen";
 import type { EpisodeShowNotesStore } from "@/lib/episodeShowNotesStore";
 import { formatDate } from "@/lib/timeUtils";
 import type { Episode } from "@/types";
@@ -42,12 +45,14 @@ function EpisodeCard({
   const durationLabel = formatEpisodeDuration(episode.duration);
   const fileSizeLabel = formatEpisodeFileSize(episode.enclosure_length);
   const episodeNumberLabel = formatEpisodeNumber(episode.episode_no);
-  const originalPlan = planSafeOriginalEpisodeOpen(episode.link);
-  const showTitleLink = shouldShowEpisodeTitleLink(originalPlan?.openUrl);
+  const originalAccess = planOriginalEpisodeAccess(episode.link);
+  const originalOpenUrl =
+    originalAccess.state === "openable" ? originalAccess.openUrl : null;
+  const showTitleLink = shouldShowEpisodeTitleLink(originalOpenUrl);
   const showPlayButton = shouldShowEpisodePlayButton(episode.medium_url);
   const videoAction = planEpisodeVideoAction(
     episode.video_availability,
-    originalPlan?.openUrl,
+    originalOpenUrl,
   );
   const showNotes = shouldShowEpisodeShowNotes(
     episode.show_notes,
@@ -59,8 +64,8 @@ function EpisodeCard({
     showNotesStore,
   );
   const handleOriginalOpen = () => {
-    if (originalPlan) {
-      originalRecovery.activate(episode.id, originalPlan);
+    if (originalAccess.state === "openable") {
+      originalRecovery.activate(episode.id, originalAccess.plan);
     }
   };
 
@@ -97,9 +102,9 @@ function EpisodeCard({
           <div className="flex-1 min-w-0">
             {/* Title with Play Button */}
             <div className="podcast-episode-card-heading">
-              {showTitleLink && originalPlan ? (
+              {showTitleLink && originalOpenUrl ? (
                 <a
-                  href={originalPlan.openUrl}
+                  href={originalOpenUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="podcast-episode-title line-clamp-2"
@@ -168,6 +173,17 @@ function EpisodeCard({
                   <span>{fileSizeLabel}</span>
                 </>
               )}
+              {originalAccess.state !== "openable" && (
+                <>
+                  <span aria-hidden="true">/</span>
+                  <span
+                    className="podcast-episode-original-state"
+                    data-original-access={originalAccess.state}
+                  >
+                    {originalEpisodeAccessText(originalAccess)}
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -176,7 +192,7 @@ function EpisodeCard({
         {showNotes && (
           <EpisodeShowNotes
             summary={episode.show_notes}
-            link={originalPlan?.openUrl ?? ""}
+            link={originalOpenUrl ?? ""}
             isExpanded={showNotesState.isExpanded}
             status={showNotesState.status}
             document={showNotesState.document}

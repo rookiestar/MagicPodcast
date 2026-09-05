@@ -8,10 +8,13 @@ import (
 var (
 	seasonEpisodePattern = regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9])s\s*([0-9]{1,3})\s*e\s*([0-9]{1,4})(?:$|[^0-9])`)
 	hashPattern          = regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9])#\s*([0-9]{1,4})(?:$|[^0-9])`)
-	episodeMarkerPattern = regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9])(?:episode|ep|e|vol(?:ume)?[ ._-]*)\s*([0-9]{1,4})(?:$|[^0-9])`)
-	episodePrefixPattern = regexp.MustCompile(`^\s*([0-9]{1,4})(?:$|[\s.。、:：)\]】_︳|｜/／\-–—])`)
-	storedMarkerPattern  = regexp.MustCompile(`(?i)^(?:#\s*|episode[ ._-]*|ep[ ._-]*|e[ ._-]*|vol(?:ume)?[ ._-]*)[0-9]{1,4}$`)
-	seasonEpisodeValue   = regexp.MustCompile(`(?i)^s[0-9]{1,3}e[0-9]{1,4}$`)
+	// 第N期 accepts optional spaces and needs both markers so years, durations,
+	// and other bare numbers in a title are never read as an episode number.
+	chineseEpisodePattern = regexp.MustCompile(`第\s*([0-9]{1,4})\s*期`)
+	episodeMarkerPattern  = regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9])(?:episode|ep|e|vol(?:ume)?[ ._-]*)\s*([0-9]{1,4})(?:$|[^0-9])`)
+	episodePrefixPattern  = regexp.MustCompile(`^\s*([0-9]{1,4})(?:$|[\s.。、:：)\]】_︳|｜/／\-–—])`)
+	storedMarkerPattern   = regexp.MustCompile(`(?i)^(?:#\s*|episode[ ._-]*|ep[ ._-]*|e[ ._-]*|vol(?:ume)?[ ._-]*)[0-9]{1,4}$`)
+	seasonEpisodeValue    = regexp.MustCompile(`(?i)^s[0-9]{1,3}e[0-9]{1,4}$`)
 )
 
 // FromTitle extracts a high-confidence episode label from a title.
@@ -25,6 +28,9 @@ func FromTitle(title string) string {
 
 	if matches := seasonEpisodePattern.FindStringSubmatch(title); len(matches) == 3 {
 		return "S" + canonicalDigits(matches[1]) + "E" + canonicalDigits(matches[2])
+	}
+	if matches := chineseEpisodePattern.FindStringSubmatch(title); len(matches) == 2 {
+		return canonicalDigits(matches[1])
 	}
 	if matches := hashPattern.FindStringSubmatch(title); len(matches) == 2 {
 		return canonicalDigits(matches[1])

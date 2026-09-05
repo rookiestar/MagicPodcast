@@ -34,12 +34,10 @@ export function getSafeOriginalUrl(value: string | undefined | null) {
   return "";
 }
 
-function planOriginalEpisodeOpen(openUrl: string): OriginalEpisodeOpenPlan {
-  const parsed = parseHttpUrl(openUrl);
-  if (!parsed) {
-    return { recovery: false, openUrl };
-  }
-
+function planOriginalEpisodeOpen(
+  openUrl: string,
+  parsed: URL,
+): OriginalEpisodeOpenPlan {
   const host = parsed.hostname.replace(/\.$/, "").toLowerCase();
   if (!XIAOYUZHOU_EPISODE_HOSTS.has(host)) {
     return { recovery: false, openUrl };
@@ -68,21 +66,68 @@ export function planSafeOriginalEpisodeOpen(
   if (!openUrl) {
     return null;
   }
-  return planOriginalEpisodeOpen(openUrl);
+  const parsed = parseAbsoluteHttpUrl(openUrl);
+  if (!parsed) {
+    return null;
+  }
+  return planOriginalEpisodeOpen(openUrl, parsed);
+}
+
+export const ORIGINAL_EPISODE_MISSING_TEXT = "原节目链接暂缺";
+export const ORIGINAL_EPISODE_REJECTED_TEXT = "原节目链接不可安全打开";
+
+export type OriginalEpisodeAccess =
+  | { state: "openable"; openUrl: string; plan: OriginalEpisodeOpenPlan }
+  | { state: "missing" }
+  | { state: "rejected" };
+
+export function originalEpisodeAccessText(access: OriginalEpisodeAccess) {
+  if (access.state === "missing") {
+    return ORIGINAL_EPISODE_MISSING_TEXT;
+  }
+  if (access.state === "rejected") {
+    return ORIGINAL_EPISODE_REJECTED_TEXT;
+  }
+  return "";
+}
+
+/**
+ * The single tri-state open planner shared by every user entry (Inbox,
+ * podcast detail, Discovery, reports). Empty or blank values mean the source
+ * data has no link (暂缺); a non-empty value that fails real URL parsing, is
+ * not an absolute http(s) address with a host, or carries a dangerous scheme
+ * is rejected (不可安全打开). Only the openable state may navigate.
+ */
+export function planOriginalEpisodeAccess(
+  value: string | undefined | null,
+): OriginalEpisodeAccess {
+  const candidate = value?.trim() ?? "";
+  if (!candidate) {
+    return { state: "missing" };
+  }
+  const parsed = parseAbsoluteHttpUrl(candidate);
+  if (!parsed) {
+    return { state: "rejected" };
+  }
+  const plan = planOriginalEpisodeOpen(candidate, parsed);
+  return { state: "openable", openUrl: plan.openUrl, plan };
+}
+
+function parseAbsoluteHttpUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+    if (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      parsed.hostname !== ""
+    ) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export function openOriginalEpisodeTab(url: string) {
   window.open(url, "_blank", "noopener,noreferrer");
-}
-
-function parseHttpUrl(value: string) {
-  try {
-    const parsed = new URL(value);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return null;
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
 }

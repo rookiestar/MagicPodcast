@@ -39,7 +39,10 @@ import {
   workflowOptionMatchesKeyword,
   type WorkflowFilterOption,
 } from "@/lib/homepageReportWorkflowFilter";
-import { planSafeOriginalEpisodeOpen } from "@/lib/originalEpisodeOpen";
+import {
+  originalEpisodeAccessText,
+  planOriginalEpisodeAccess,
+} from "@/lib/originalEpisodeOpen";
 import type {
   DiscoveryConsumptionResponse,
   HomepageReport,
@@ -666,7 +669,7 @@ export default function WorkflowReportWorkbench({
                     ? `已在 ${queueLabels[queue]}`
                     : "收集到 Inbox";
               const showNotesPreview = episodeShowNotesPreview(episode);
-              const originalPlan = planSafeOriginalEpisodeOpen(episode.link);
+              const originalAccess = planOriginalEpisodeAccess(episode.link);
 
               return (
                 <article
@@ -740,21 +743,28 @@ export default function WorkflowReportWorkbench({
                           {showNotesPreview}
                         </p>
                       )}
-                      {originalPlan && (
+                      {originalAccess.state === "openable" ? (
                         <a
-                          href={originalPlan.openUrl}
+                          href={originalAccess.openUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="workflow-report-episode-link"
                           onClick={() =>
                             originalRecovery.activate(
                               episode.episode_id,
-                              originalPlan,
+                              originalAccess.plan,
                             )
                           }
                         >
                           打开原单集
                         </a>
+                      ) : (
+                        <span
+                          className="workflow-report-episode-link-state"
+                          data-original-access={originalAccess.state}
+                        >
+                          {originalEpisodeAccessText(originalAccess)}
+                        </span>
                       )}
                       {originalRecovery.plan &&
                         originalRecovery.activeKey === episode.episode_id && (

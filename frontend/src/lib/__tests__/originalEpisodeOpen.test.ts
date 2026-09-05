@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   getSafeOriginalUrl,
+  ORIGINAL_EPISODE_MISSING_TEXT,
+  ORIGINAL_EPISODE_REJECTED_TEXT,
+  originalEpisodeAccessText,
+  planOriginalEpisodeAccess,
   planSafeOriginalEpisodeOpen,
 } from "../originalEpisodeOpen";
 
@@ -90,3 +94,76 @@ describe("getSafeOriginalUrl", () => {
     expect(getSafeOriginalUrl("data:text/html,<p>x</p>")).toBe("");
   });
 });
+
+describe("planOriginalEpisodeAccess", () => {
+  it("opens legal absolute HTTPS and HTTP addresses with a host", () => {
+    const httpsAccess = planOriginalEpisodeAccess(
+      "https://hosting.wavpub.cn/pie/ep229/",
+    );
+    expect(httpsAccess.state).toBe("openable");
+    assertOpenable(httpsAccess, "https://hosting.wavpub.cn/pie/ep229/");
+
+    const httpAccess = planOriginalEpisodeAccess("http://example.com/episode");
+    expect(httpAccess.state).toBe("openable");
+    assertOpenable(httpAccess, "http://example.com/episode");
+  });
+
+  it("treats empty, undefined, and blank values as missing", () => {
+    expect(planOriginalEpisodeAccess("")).toEqual({ state: "missing" });
+    expect(planOriginalEpisodeAccess(null)).toEqual({ state: "missing" });
+    expect(planOriginalEpisodeAccess(undefined)).toEqual({ state: "missing" });
+    expect(planOriginalEpisodeAccess("   ")).toEqual({ state: "missing" });
+    expect(originalEpisodeAccessText({ state: "missing" })).toBe(
+      ORIGINAL_EPISODE_MISSING_TEXT,
+    );
+  });
+
+  it("rejects incomplete schemes, dangerous protocols, and parse failures", () => {
+    for (const value of [
+      "https://",
+      "http://",
+      "javascript:alert(1)",
+      "data:text/html,<script>alert(1)</script>",
+      "mailto:hello@example.com",
+      "tel:+8612345678901",
+      "not a url",
+      "/episode/relative",
+      "//protocol-relative.example.com/episode",
+    ]) {
+      const access = planOriginalEpisodeAccess(value);
+      expect(access.state, value).toBe("rejected");
+      expect(
+        originalEpisodeAccessText(access as { state: "rejected" }),
+        value,
+      ).toBe(ORIGINAL_EPISODE_REJECTED_TEXT);
+    }
+  });
+
+  it("never exposes an openable navigation for rejected or missing values", () => {
+    for (const value of [
+      "",
+      "   ",
+      "https://",
+      "javascript:alert(1)",
+      "data:text/html,<p>x</p>",
+    ]) {
+      const access = planOriginalEpisodeAccess(value);
+      if (access.state !== "openable") {
+        expect("openUrl" in access && Boolean(access.openUrl)).toBe(false);
+      } else {
+        expect.fail(`value ${value} must not be openable`);
+      }
+    }
+  });
+});
+
+function assertOpenable(
+  access: ReturnType<typeof planOriginalEpisodeAccess>,
+  openUrl: string,
+) {
+  if (access.state !== "openable") {
+    throw new Error(`expected openable access, got ${access.state}`);
+  }
+  expect(access.openUrl).toBe(openUrl);
+  expect(access.plan.openUrl).toBe(openUrl);
+}

@@ -27,7 +27,11 @@ import DiscoveryMetadataEditor from "@/components/discovery/DiscoveryMetadataEdi
 import PlainImage from "@/components/ui/PlainImage";
 import { useOriginalEpisodeRecovery } from "@/hooks/useOriginalEpisodeRecovery";
 import { formatEpisodeNumber } from "@/lib/episodeDisplay";
-import { planSafeOriginalEpisodeOpen } from "@/lib/originalEpisodeOpen";
+import {
+  ORIGINAL_EPISODE_MISSING_TEXT,
+  originalEpisodeAccessText,
+  planOriginalEpisodeAccess,
+} from "@/lib/originalEpisodeOpen";
 import type {
   DiscoveryConsumptionResponse,
   DiscoveryCandidate,
@@ -405,8 +409,8 @@ export default function DiscoveryDesk({
         (candidate) => candidate.episode_id === selected.episode_id,
       )
     : -1;
-  const selectedOriginalPlan = selected
-    ? planSafeOriginalEpisodeOpen(selected.original_url)
+  const selectedOriginalAccess = selected
+    ? planOriginalEpisodeAccess(selected.original_url)
     : null;
 
   useEffect(() => {
@@ -1001,6 +1005,16 @@ export default function DiscoveryDesk({
                     selected.duration,
                   )}
                 </small>
+                {selectedOriginalAccess?.state !== "openable" && (
+                  <span
+                    className="discovery-original-link-state"
+                    data-original-access={selectedOriginalAccess?.state}
+                  >
+                    {selectedOriginalAccess
+                      ? originalEpisodeAccessText(selectedOriginalAccess)
+                      : ORIGINAL_EPISODE_MISSING_TEXT}
+                  </span>
+                )}
               </div>
               <div className="discovery-preview-heading-tools">
                 <strong className="discovery-current-count">
@@ -1011,10 +1025,11 @@ export default function DiscoveryDesk({
                   className="discovery-quick-actions"
                   aria-label="单集快捷操作"
                 >
-                  {selectedOriginalPlan ? (
+                  {selectedOriginalAccess?.state === "openable" &&
+                  selected ? (
                     <a
                       className="discovery-action-button"
-                      href={selectedOriginalPlan.openUrl}
+                      href={selectedOriginalAccess.openUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       aria-label="打开节目页面"
@@ -1023,7 +1038,7 @@ export default function DiscoveryDesk({
                       onClick={() =>
                         originalRecovery.activate(
                           selected.episode_id,
-                          selectedOriginalPlan,
+                          selectedOriginalAccess.plan,
                         )
                       }
                     >
@@ -1033,9 +1048,22 @@ export default function DiscoveryDesk({
                     <button
                       type="button"
                       className="discovery-action-button"
-                      aria-label="节目链接暂缺"
-                      data-tooltip="节目链接暂缺"
-                      title="节目链接暂缺"
+                      aria-label={
+                        selectedOriginalAccess
+                          ? originalEpisodeAccessText(selectedOriginalAccess)
+                          : ORIGINAL_EPISODE_MISSING_TEXT
+                      }
+                      data-tooltip={
+                        selectedOriginalAccess
+                          ? originalEpisodeAccessText(selectedOriginalAccess)
+                          : ORIGINAL_EPISODE_MISSING_TEXT
+                      }
+                      title={
+                        selectedOriginalAccess
+                          ? originalEpisodeAccessText(selectedOriginalAccess)
+                          : ORIGINAL_EPISODE_MISSING_TEXT
+                      }
+                      data-original-access={selectedOriginalAccess?.state}
                       disabled
                     >
                       <IconExternalLink aria-hidden="true" stroke={1.8} />

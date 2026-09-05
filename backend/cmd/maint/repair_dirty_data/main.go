@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"magicpodcast/internal/feed"
+	"magicpodcast/internal/originallink"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mmcdole/gofeed"
@@ -546,7 +547,7 @@ func planPodcastRepairs(cfg config, fetcher *feed.Fetcher, podcast podcastCandid
 		}
 
 		result.Matched++
-		repair := buildEpisodeRepair(candidate, item, matchBy, cfg.includeMedia)
+		repair := buildEpisodeRepair(candidate, item, matchBy, podcast.FeedURL, cfg.includeMedia)
 		if len(repair.Fields) > 0 {
 			result.Repairs++
 			repairs = append(repairs, repair)
@@ -648,7 +649,7 @@ func (idx itemIndex) match(candidate episodeCandidate) (*feedItem, string) {
 	return nil, ""
 }
 
-func buildEpisodeRepair(candidate episodeCandidate, item *feedItem, matchBy string, includeMedia bool) episodeRepair {
+func buildEpisodeRepair(candidate episodeCandidate, item *feedItem, matchBy, feedURL string, includeMedia bool) episodeRepair {
 	repair := episodeRepair{
 		EpisodeID: candidate.ID,
 		PodcastID: candidate.PodcastID,
@@ -676,8 +677,15 @@ func buildEpisodeRepair(candidate episodeCandidate, item *feedItem, matchBy stri
 		}
 	}
 
-	if includeMedia && candidate.EmptyLink && validHTTPURL(item.Link) {
-		repair.Fields = append(repair.Fields, fieldUpdate{Field: "link", Value: item.Link})
+	if includeMedia && candidate.EmptyLink {
+		decision := originallink.Resolve(originallink.Input{
+			Feed:         originallink.FeedIdentity{FeedURL: feedURL},
+			RSSLink:      item.Link,
+			ExistingLink: candidate.Link,
+		})
+		if decision.URL != "" {
+			repair.Fields = append(repair.Fields, fieldUpdate{Field: "link", Value: decision.URL})
+		}
 	}
 
 	if includeMedia && candidate.EmptyImage && validHTTPURL(item.ImageURL) {
