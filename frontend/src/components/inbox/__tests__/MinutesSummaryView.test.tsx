@@ -603,7 +603,7 @@ describe("MinutesSummaryView", () => {
     expect(
       lightbox.querySelector<HTMLElement>('[style*="translate3d"]')?.style
         .transform,
-    ).toBe("translate3d(-20px, 40px, 0)");
+    ).toBe("translate3d(80px, 40px, 0)");
   });
 
   it("accumulates precision wheel deltas before applying a zoom step", () => {

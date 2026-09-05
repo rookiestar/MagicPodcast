@@ -57,6 +57,8 @@ type LightboxGesture =
       kind: "pinch";
       startDistance: number;
       startZoom: number;
+      startMidpoint: LightboxPan;
+      origin: LightboxPan;
     };
 
 interface MinutesSummaryViewProps {
@@ -593,10 +595,7 @@ function MinutesLightbox({
 
   const updateZoom = (next: number, anchor?: LightboxPan) => {
     const current = zoomRef.current;
-    const clamped = Math.min(
-      MAX_LIGHTBOX_ZOOM,
-      Math.max(MIN_LIGHTBOX_ZOOM, Number(next.toFixed(2))),
-    );
+    const clamped = clampLightboxZoom(next);
     if (clamped === current && !anchor) return;
     if (clamped <= MIN_LIGHTBOX_ZOOM) {
       zoomRef.current = MIN_LIGHTBOX_ZOOM;
@@ -707,11 +706,19 @@ function MinutesLightbox({
     }
     if (pointersRef.current.size === 2) {
       const [first, second] = Array.from(pointersRef.current.values());
+      const viewport = viewportRef.current;
       wheelDeltaRef.current = 0;
       gestureRef.current = {
         kind: "pinch",
         startDistance: distanceBetween(first, second),
         startZoom: zoomRef.current,
+        startMidpoint: viewport
+          ? lightboxAnchorForClientPoint(
+              viewport,
+              midpointBetween(first, second),
+            )
+          : { x: 0, y: 0 },
+        origin: { ...panRef.current },
       };
     }
   };
@@ -729,15 +736,34 @@ function MinutesLightbox({
       const nextDistance = distanceBetween(pointers[0], pointers[1]);
       if (gesture.startDistance === 0) return;
       const viewport = viewportRef.current;
-      updateZoom(
+      if (!viewport) return;
+      const nextZoom = clampLightboxZoom(
         gesture.startZoom * (nextDistance / gesture.startDistance),
-        viewport
-          ? lightboxAnchorForClientPoint(
-              viewport,
-              midpointBetween(pointers[0], pointers[1]),
-            )
-          : undefined,
       );
+      if (nextZoom <= MIN_LIGHTBOX_ZOOM) {
+        updateZoom(MIN_LIGHTBOX_ZOOM);
+        return;
+      }
+      const midpoint = lightboxAnchorForClientPoint(
+        viewport,
+        midpointBetween(pointers[0], pointers[1]),
+      );
+      const ratio = nextZoom / gesture.startZoom;
+      const nextPan = constrainPan(
+        {
+          x:
+            midpoint.x -
+            (gesture.startMidpoint.x - gesture.origin.x) * ratio,
+          y:
+            midpoint.y -
+            (gesture.startMidpoint.y - gesture.origin.y) * ratio,
+        },
+        nextZoom,
+      );
+      zoomRef.current = nextZoom;
+      panRef.current = nextPan;
+      setZoom(nextZoom);
+      setPan(nextPan);
       return;
     }
     if (
@@ -920,6 +946,13 @@ function normalizeWheelDelta(event: WheelEvent, viewportHeight: number) {
     return event.deltaY * Math.max(1, viewportHeight);
   }
   return event.deltaY;
+}
+
+function clampLightboxZoom(value: number) {
+  return Math.min(
+    MAX_LIGHTBOX_ZOOM,
+    Math.max(MIN_LIGHTBOX_ZOOM, Number(value.toFixed(2))),
+  );
 }
 
 function getContainedImageSize(
