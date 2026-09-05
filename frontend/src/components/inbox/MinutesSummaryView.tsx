@@ -687,6 +687,26 @@ function MinutesLightbox({
     }
   };
 
+  const beginPinchGesture = (
+    first: LightboxPointer,
+    second: LightboxPointer,
+  ) => {
+    const viewport = viewportRef.current;
+    wheelDeltaRef.current = 0;
+    gestureRef.current = {
+      kind: "pinch",
+      startDistance: distanceBetween(first, second),
+      startZoom: zoomRef.current,
+      startMidpoint: viewport
+        ? lightboxAnchorForClientPoint(
+            viewport,
+            midpointBetween(first, second),
+          )
+        : { x: 0, y: 0 },
+      origin: { ...panRef.current },
+    };
+  };
+
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -706,20 +726,7 @@ function MinutesLightbox({
     }
     if (pointersRef.current.size === 2) {
       const [first, second] = Array.from(pointersRef.current.values());
-      const viewport = viewportRef.current;
-      wheelDeltaRef.current = 0;
-      gestureRef.current = {
-        kind: "pinch",
-        startDistance: distanceBetween(first, second),
-        startZoom: zoomRef.current,
-        startMidpoint: viewport
-          ? lightboxAnchorForClientPoint(
-              viewport,
-              midpointBetween(first, second),
-            )
-          : { x: 0, y: 0 },
-        origin: { ...panRef.current },
-      };
+      beginPinchGesture(first, second);
     }
   };
 
@@ -810,6 +817,11 @@ function MinutesLightbox({
     pointersRef.current.delete(event.pointerId);
     if (pointersRef.current.size === 0) {
       gestureRef.current = null;
+      return;
+    }
+    if (pointersRef.current.size >= 2) {
+      const [first, second] = Array.from(pointersRef.current.values());
+      beginPinchGesture(first, second);
       return;
     }
     if (pointersRef.current.size === 1) {
