@@ -40,8 +40,8 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
-  frontend:
-    name: Frontend checks
+  frontend-tests:
+    name: Frontend tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -93,3 +93,20 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+
+  frontend:
+    name: Frontend checks
+    needs:
+      - frontend-tests
+      - frontend-build
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require frontend tests and build
+        env:
+          FRONTEND_TESTS_RESULT: ${{ needs.frontend-tests.result }}
+          FRONTEND_BUILD_RESULT: ${{ needs.frontend-build.result }}
+        run: |
+          test "$FRONTEND_TESTS_RESULT" = "success"
+          test "$FRONTEND_BUILD_RESULT" = "success"
