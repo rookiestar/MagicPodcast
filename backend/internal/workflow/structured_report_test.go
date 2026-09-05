@@ -22,7 +22,7 @@ func TestBuildStructuredEpisodes_UsesRealEpisodeIDsAndOrder(t *testing.T) {
 			PodcastTitle:    "节目甲",
 			PodcastCoverURL: "https://example.com/a.jpg",
 			Episodes: []EpisodeDetail{
-				{EpisodeID: 101, Title: "第一集", ShowNotes: "推荐理由 A", PublishedDate: published, Duration: 1200},
+				{EpisodeID: 101, Title: "第一集", ShowNotes: "推荐理由 A", PublishedDate: published, Duration: 1200, Link: "javascript:alert(1)"},
 				{EpisodeID: 0, Title: "应被丢弃", ShowNotes: "no id"},
 				{EpisodeID: 102, Title: "第二集", ShowNotes: "推荐理由 B", PublishedDate: published.Add(time.Hour), Duration: 600, ImageURL: "https://example.com/ep.jpg"},
 			},
@@ -35,18 +35,14 @@ func TestBuildStructuredEpisodes_UsesRealEpisodeIDsAndOrder(t *testing.T) {
 	assert.Equal(t, uint(101), structured[0].EpisodeID)
 	assert.Equal(t, "节目甲", structured[0].PodcastTitle)
 	assert.Equal(t, "https://example.com/a.jpg", structured[0].PodcastCoverURL)
+	assert.Equal(t, "javascript:alert(1)", structured[0].Link,
+		"report snapshots must preserve rejected non-empty values for tri-state presentation")
 	// Show Notes become Context only — never Recommendation (#93).
 	assert.Contains(t, structured[0].Context, "推荐理由 A")
 	assert.Empty(t, structured[0].Recommendation)
 	assert.Equal(t, 2, structured[1].Order)
 	assert.Equal(t, uint(102), structured[1].EpisodeID)
 	assert.Equal(t, "https://example.com/ep.jpg", structured[1].ImageURL)
-}
-
-func TestSanitizeHomepageEpisodeLink(t *testing.T) {
-	assert.Equal(t, "https://ok.example/x", sanitizeHomepageEpisodeLink("https://ok.example/x"))
-	assert.Equal(t, "", sanitizeHomepageEpisodeLink("javascript:alert(1)"))
-	assert.Equal(t, "", sanitizeHomepageEpisodeLink("data:text/html,x"))
 }
 
 func TestGenerateForJob_PersistsStructuredHomepageSnapshot(t *testing.T) {

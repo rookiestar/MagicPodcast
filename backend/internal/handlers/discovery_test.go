@@ -295,6 +295,7 @@ func TestDiscoveryHandler_ListHomepageReports_ReturnsTodayAndDecisions(t *testin
 				PodcastID:    podcast.ID,
 				PodcastTitle: podcast.Title,
 				EpisodeTitle: episode.Title,
+				Link:         "javascript:alert(1)",
 				Context:      "节目上下文",
 			},
 		},
@@ -326,6 +327,8 @@ func TestDiscoveryHandler_ListHomepageReports_ReturnsTodayAndDecisions(t *testin
 	assert.Contains(t, body.Data.Today[0].Content, "完整正文")
 	require.Len(t, body.Data.Today[0].Episodes, 1)
 	assert.Equal(t, episode.ID, body.Data.Today[0].Episodes[0].EpisodeID)
+	assert.Equal(t, "javascript:alert(1)", body.Data.Today[0].Episodes[0].Link,
+		"API must preserve rejected non-empty values for the shared frontend planner")
 	assert.Equal(t, models.TriageStateShortlisted, body.Data.Today[0].Episodes[0].DecisionState)
 	assert.Empty(t, body.Data.History)
 }

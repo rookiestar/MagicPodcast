@@ -368,9 +368,11 @@ func (s *HomepageReportService) toHomepageReportFiltered(
 			Duration:        item.Duration,
 			PublishedDate:   item.PublishedDate,
 			ImageURL:        item.ImageURL,
-			Link:            sanitizeHomepageLink(item.Link),
-			Recommendation:  recommendation,
-			Context:         contextText,
+			// Preserve rejected non-empty candidates for the shared frontend
+			// planner; this API value is data, never a server-approved action.
+			Link:           item.Link,
+			Recommendation: recommendation,
+			Context:        contextText,
 			// Do not re-export legacy excerpt as recommendation; omit unless empty context needs alias.
 			Excerpt:       "",
 			DecisionState: models.TriageStatePending,
@@ -452,23 +454,6 @@ func truncateHomepageReportTheme(theme string) string {
 		return string(runes)
 	}
 	return string(runes[:maxHomepageReportThemeRunes]) + "…"
-}
-
-func sanitizeHomepageLink(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	lower := strings.ToLower(raw)
-	if strings.HasPrefix(lower, "javascript:") ||
-		strings.HasPrefix(lower, "data:") ||
-		strings.HasPrefix(lower, "vbscript:") {
-		return ""
-	}
-	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
-		return raw
-	}
-	return ""
 }
 
 // AttachDecisions fills triage state for all episodes across reports.

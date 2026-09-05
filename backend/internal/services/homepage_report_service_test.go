@@ -160,7 +160,7 @@ func TestHomepageReportService_ExcludesMissingAndDeletedEpisodes(t *testing.T) {
 	assert.Empty(t, today[0].Episodes[0].Recommendation)
 }
 
-func TestHomepageReportService_DangerousLinksStripped(t *testing.T) {
+func TestHomepageReportService_PreservesRejectedLinksForSharedPlanner(t *testing.T) {
 	loc := time.UTC
 	db := openHomepageReportTestDB(t, "homepage_links")
 	svc := NewHomepageReportServiceWithLocation(db, loc)
@@ -180,7 +180,7 @@ func TestHomepageReportService_DangerousLinksStripped(t *testing.T) {
 	today, err := svc.ListToday()
 	require.NoError(t, err)
 	require.Len(t, today, 1)
-	assert.Empty(t, today[0].Episodes[0].Link)
+	assert.Equal(t, "javascript:alert(1)", today[0].Episodes[0].Link)
 }
 
 func TestHomepageReportService_HistoryKeepsPublishSnapshotAndMetadataOnly(t *testing.T) {
@@ -320,11 +320,4 @@ func TestHomepageReportService_ThemeUsesReportSummaryThenEpisodeFallback(t *test
 	require.Len(t, today, 2)
 	assert.Equal(t, "AI 组织变革进入落地期", today[0].Theme)
 	assert.Equal(t, "首条精选主题", today[1].Theme)
-}
-
-func TestSanitizeHomepageLink(t *testing.T) {
-	assert.Equal(t, "https://example.com/e", sanitizeHomepageLink("https://example.com/e"))
-	assert.Equal(t, "", sanitizeHomepageLink("javascript:alert(1)"))
-	assert.Equal(t, "", sanitizeHomepageLink("data:text/html,x"))
-	assert.Equal(t, "", sanitizeHomepageLink("/relative"))
 }

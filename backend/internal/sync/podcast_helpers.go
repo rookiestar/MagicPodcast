@@ -435,8 +435,8 @@ func parseITunesDuration(duration string) int {
 }
 
 // convertGofeedItemToEpisode 将gofeed.Item转换为Episode模型
-// Link 不在这里取值：原节目链接统一由 sync.resolveOriginalEpisodeLink
-// 经 originallink 解析入口决定，避免各同步路径各自直取 RSS 字段。
+// Link 不在这里取值：原节目链接由同步写入路径统一调用
+// originallink.Resolve 决定，避免不同步模式各自直取 RSS 字段。
 func (s *Service) convertGofeedItemToEpisode(podcast *models.Podcast, item *gofeed.Item) *models.Episode {
 	episode := &models.Episode{
 		PodcastID: podcast.ID,

@@ -508,7 +508,9 @@ func (rg *ReportGenerator) buildStructuredEpisodes(data []EpisodeReportData) mod
 				Duration:        ep.Duration,
 				PublishedDate:   published,
 				ImageURL:        imageURL,
-				Link:            sanitizeHomepageEpisodeLink(ep.Link),
+				// Keep the raw source value so the shared frontend planner can
+				// distinguish missing links from rejected non-empty candidates.
+				Link: ep.Link,
 				// No per-episode report rationale is produced today; leave empty so UI degrades explicitly.
 				Recommendation: "",
 				Context:        contextForReportEpisode(ep.ShowNotes),
@@ -534,25 +536,6 @@ func contextForReportEpisode(showNotes string) string {
 	}
 	runes := []rune(text)
 	return string(runes[:maxReportEpisodeContextRunes]) + "…"
-}
-
-// sanitizeHomepageEpisodeLink keeps only safe http(s) episode links for homepage actions.
-func sanitizeHomepageEpisodeLink(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	lower := strings.ToLower(raw)
-	if strings.HasPrefix(lower, "javascript:") ||
-		strings.HasPrefix(lower, "data:") ||
-		strings.HasPrefix(lower, "vbscript:") {
-		return ""
-	}
-	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
-		return raw
-	}
-	// Relative paths and other schemes are not homepage-safe clickable links.
-	return ""
 }
 
 // generateMarkdown 生成Markdown内容

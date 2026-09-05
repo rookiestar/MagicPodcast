@@ -229,11 +229,16 @@ func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(ctx context.Context, 
 
 		// 原节目链接统一由解析入口决定：标准 link 优先，Feed 缺失时保留
 		// 已有非空值，空值不清除旧链接，增量与全量共用同一规则。
-		originalLinkDecision := resolveOriginalEpisodeLink(podcast, item, existing.Link)
+		originalLinkDecision := originallink.Resolve(originallink.Input{
+			Feed:         originallink.FeedIdentity{FeedURL: podcast.FeedURL},
+			RSSLink:      item.Link,
+			GUID:         item.GUID,
+			ExistingLink: existing.Link,
+		})
 		episode.Link = originalLinkDecision.URL
 		if originalLinkDecision.Source == originallink.SourceWavPubGUID ||
 			originalLinkDecision.Source == originallink.SourceExisting {
-			logger.Infof("   🔗 原节目链接解析: %s - %s", item.Title, originalLinkDecision.String())
+			logger.Debugf("   🔗 原节目链接解析: %s - %s", item.Title, originalLinkDecision.String())
 		}
 
 		if !exists {
