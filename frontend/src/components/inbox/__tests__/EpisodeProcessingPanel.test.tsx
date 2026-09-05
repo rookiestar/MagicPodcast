@@ -975,6 +975,68 @@ describe("EpisodeProcessingPanel", () => {
     expect(screen.getByRole("combobox", { name: "播放倍速" })).toHaveValue("1");
   });
 
+  it("does not expose body-only images as a summary tab", async () => {
+    const completedRun: ProcessingRun = {
+      ...failedRun,
+      id: 64,
+      pipeline_version: "focus-processing-v2",
+      status: "completed",
+      current_step: "",
+      error_code: undefined,
+      error_message: undefined,
+      error_retryable: false,
+    };
+    const nativeArtifact: EpisodeArtifactSet = {
+      ...artifact,
+      id: 43,
+      run_id: completedRun.id,
+      pipeline_version: completedRun.pipeline_version,
+      minutes_summary_sha256: "e".repeat(64),
+      notes_sha256: "",
+      transcript_timeline_sha256: "f".repeat(64),
+      capabilities: {
+        minutes_summary: true,
+        transcript: true,
+        structured_timeline: true,
+        matching_audio: true,
+        legacy_episode_notes: false,
+      },
+    };
+    apiMocks.listEpisodeRuns.mockResolvedValue([completedRun]);
+    apiMocks.getRun.mockResolvedValue({
+      run: completedRun,
+      current_artifact: nativeArtifact,
+      deliveries: [],
+    });
+    apiMocks.getArtifactContent.mockResolvedValue({
+      kind: "minutes_summary",
+      content: "# 纪要\n\n正文",
+      sha256: nativeArtifact.minutes_summary_sha256 ?? "",
+      media_available: false,
+      visual_items: [
+        {
+          type: "image",
+          media_id: "image-1",
+          media_type: "image/png",
+          width: 640,
+          height: 480,
+          sha256: "a".repeat(64),
+          alt: "正文图片",
+        },
+      ],
+      inline_images: [{ media_id: "image-1", anchor_text: "正文" }],
+    } satisfies ArtifactContent);
+
+    render(<EpisodeProcessingPanel item={item} />);
+
+    expect(await screen.findByText(/正文/)).toBeVisible();
+    expect(screen.queryByRole("tab", { name: "总结" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "纪要" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
   it("keeps the previous artifact when a replacement read is slow or fails", async () => {
     vi.useFakeTimers();
     try {

@@ -1568,6 +1568,7 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 	imageWaitable := false
 	imagePermanentFailure := false
 	visualPreviews := make([]ManagedMinutesVisual, 0, len(visualSources)+1)
+	inlineImages := make([]MinutesInlineImage, 0, len(visualSources))
 	if whiteboardToken != "" {
 		preview, captureErr := a.captureWhiteboardPreview(
 			ctx,
@@ -1639,6 +1640,13 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 			Item:  item,
 			Bytes: append([]byte(nil), preview.Bytes...),
 		})
+		inlineImages = append(inlineImages, MinutesInlineImage{
+			MediaID:          item.MediaID,
+			Section:          source.Section,
+			SectionStart:     source.SectionStart,
+			AnchorText:       source.AnchorText,
+			AnchorOccurrence: source.AnchorOccurrence,
+		})
 		imageCaptured++
 	}
 	progress.VisualPreviews = visualPreviews
@@ -1646,6 +1654,7 @@ func (a *FeishuMinutesAdapter) captureNoteEnrichment(
 	for _, visual := range visualPreviews {
 		enrichment.VisualItems = append(enrichment.VisualItems, visual.Item)
 	}
+	enrichment.InlineImages = inlineImages
 	decision := evaluateReadableNoteDocumentWithVisuals(
 		content,
 		whiteboardToken,

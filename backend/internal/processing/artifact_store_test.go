@@ -149,6 +149,10 @@ func TestDiskArtifactStorePublishesAndReadsOrderedVisualItems(t *testing.T) {
 				Width: 2, Height: 2, SHA256: secondHash, Alt: "第二张",
 			},
 		},
+		InlineImages: []MinutesInlineImage{
+			{MediaID: "image-1", Section: "summary", SectionStart: true},
+			{MediaID: "image-2", Section: "decisions", AnchorText: "第二段", AnchorOccurrence: 1},
+		},
 	}
 	request.VisualPreviews = []ManagedMinutesVisual{
 		{Item: request.MinutesEnrichment.VisualItems[0], Bytes: first},
@@ -176,6 +180,7 @@ func TestDiskArtifactStorePublishesAndReadsOrderedVisualItems(t *testing.T) {
 		content.VisualItems[0].MediaID,
 		content.VisualItems[1].MediaID,
 	})
+	require.Equal(t, request.MinutesEnrichment.InlineImages, content.InlineImages)
 	require.NotContains(t, string(mustJSON(t, content)), "filecn_")
 	for _, visual := range content.VisualItems {
 		media, mediaErr := store.ReadMedia(context.Background(), artifact, visual.MediaID)

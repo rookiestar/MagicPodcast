@@ -2820,6 +2820,72 @@ button.transcriptSegment:hover {
   overflow-wrap: anywhere;
 }
 
+.minutesInlineImage {
+  display: block;
+  max-width: 100%;
+  margin: 12px 0;
+}
+
+.minutesInlineImageButton {
+  display: grid;
+  width: min(100%, 750px);
+  min-width: 0;
+  gap: 0;
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: rgba(243, 236, 221, 0.42);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.minutesInlineImageButton:hover {
+  border-color: rgba(215, 104, 29, 0.52);
+  background: rgba(243, 236, 221, 0.7);
+}
+
+.minutesInlineImageButton:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 3px;
+}
+
+.minutesInlineImageButton img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+  object-position: left center;
+  background: var(--paper-deep);
+}
+
+.minutesInlineImageButton > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px 8px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-soft);
+  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-sans);
+}
+
+.minutesInlineImageButton > span::after {
+  content: "↗";
+  color: var(--orange-dark);
+  font-family: var(--font-mono);
+}
+
+.minutesInlineImageCaption {
+  display: block;
+  max-width: 750px;
+  padding: 6px 10px 0;
+  color: var(--ink-soft);
+  font: 500 var(--type-meta-size) / var(--type-meta-leading) var(--font-sans);
+  overflow-wrap: anywhere;
+}
+
 .minutesVisualLoadError {
   display: grid;
   min-height: 96px;

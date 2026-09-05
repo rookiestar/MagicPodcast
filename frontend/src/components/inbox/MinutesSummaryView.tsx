@@ -7,6 +7,7 @@ import {
   RICH_TEXT_IMAGE_WIDTH,
 } from "@/lib/imageOptimization";
 import type {
+  MinutesInlineImage,
   MinutesLink,
   MinutesQuote,
   MinutesVisualItem,
@@ -24,6 +25,7 @@ interface MinutesSummaryViewProps {
   links?: MinutesLink[];
   whiteboard?: MinutesWhiteboard;
   visualItems?: MinutesVisualItem[];
+  inlineImages?: MinutesInlineImage[];
 }
 
 export default function MinutesSummaryView({
@@ -36,14 +38,23 @@ export default function MinutesSummaryView({
   links = [],
   whiteboard,
   visualItems = [],
+  inlineImages = [],
 }: MinutesSummaryViewProps) {
   const visibleKeywords = keywords.map((item) => item.trim()).filter(Boolean);
   const visibleDecisions = decisions.map((item) => item.trim()).filter(Boolean);
   const visibleQuotes = quotes.filter((item) => item.quote.trim());
   const visibleLinks = links.filter((item) => isSafeMinutesLink(item.url));
-  const visibleVisualItems = normalizeMinutesVisualItems(
+  const managedVisualItems = normalizeMinutesVisualItems(
     visualItems,
     whiteboard,
+  );
+  const isVisualMode = mode === "visual";
+  const visibleVisualItems = managedVisualItems.filter(
+    (item) => item.type === "whiteboard",
+  );
+  const visibleInlineImages = normalizeMinutesInlineImages(
+    inlineImages,
+    managedVisualItems,
   );
   const [openMediaId, setOpenMediaId] = useState<string | null>(null);
   const [failedMediaIds, setFailedMediaIds] = useState<Set<string>>(
@@ -56,14 +67,58 @@ export default function MinutesSummaryView({
   const lightboxTriggerId = useRef<string | null>(null);
   const titleId = useId();
   const summaryContent = stripRedundantSummaryHeading(content);
-  const isVisualMode = mode === "visual";
+  const summaryInlineImages = visibleInlineImages.filter(
+    (image) =>
+      !image.appendAtEnd &&
+      (image.section === undefined || image.section === "summary"),
+  );
+  const decisionImagePlacement = placeMinutesInlineImages(
+    visibleDecisions,
+    visibleInlineImages.filter((image) => image.section === "decisions"),
+  );
+  const quoteImagePlacement = placeMinutesInlineImages(
+    visibleQuotes.map((item) =>
+      [item.quote, item.explanation?.trim()].filter(Boolean).join(" "),
+    ),
+    visibleInlineImages.filter((image) => image.section === "quotes"),
+  );
+  const linkImagePlacement = placeMinutesInlineImages(
+    visibleLinks.map((item) => `${item.title} ${item.url}`),
+    visibleInlineImages.filter((image) => image.section === "links"),
+  );
+  const trailingInlineImages = visibleInlineImages.filter(
+    (image) =>
+      image.appendAtEnd ||
+      image.section === "body" ||
+      image.section === "chapters",
+  );
+  const minutesContent = injectMinutesInlineImages(
+    summaryContent,
+    summaryInlineImages,
+    artifactSetId,
+  );
   const visualIdentity = visibleVisualItems
     .map((item) => item.media_id)
+    .concat(visibleInlineImages.map((image) => image.item.media_id))
     .join(",");
 
   useEffect(() => {
     setFailedMediaIds(new Set());
   }, [artifactSetId, visualIdentity]);
+
+  useEffect(() => {
+    if (!openMediaId) return;
+    const openItem = managedVisualItems.find(
+      (item) => item.media_id === openMediaId,
+    );
+    if (
+      !openItem ||
+      (isVisualMode && openItem.type !== "whiteboard") ||
+      (!isVisualMode && openItem.type !== "image")
+    ) {
+      setOpenMediaId(null);
+    }
+  }, [isVisualMode, managedVisualItems, openMediaId]);
 
   useEffect(() => {
     if (openMediaId) {
@@ -92,12 +147,6 @@ export default function MinutesSummaryView({
     return undefined;
   }, [openMediaId]);
 
-  useEffect(() => {
-    if (!isVisualMode && openMediaId) {
-      setOpenMediaId(null);
-    }
-  }, [isVisualMode, openMediaId]);
-
   const handleVisualError = (mediaId: string) => {
     setFailedMediaIds((current) => {
       if (current.has(mediaId)) return current;
@@ -106,6 +155,64 @@ export default function MinutesSummaryView({
       return next;
     });
   };
+
+  const inlineVisualsByMediaID = new Map(
+    visibleInlineImages.map((image) => [image.item.media_id, image.item]),
+  );
+  const renderInlineImageItem = (item: MinutesVisualItem, alt = "") => {
+    const src = managedMediaURL(artifactSetId, item.media_id);
+    if (failedMediaIds.has(item.media_id)) {
+      return (
+        <span
+          className={styles.minutesInlineImage}
+          key={item.media_id}
+          role="status"
+        >
+          图片暂时无法加载
+        </span>
+      );
+    }
+    return (
+      <span className={styles.minutesInlineImage} key={item.media_id}>
+        <button
+          ref={(element) => {
+            previewButtonRefs.current[item.media_id] = element;
+          }}
+          type="button"
+          className={styles.minutesInlineImageButton}
+          onClick={() => setOpenMediaId(item.media_id)}
+          aria-haspopup="dialog"
+          aria-expanded={openMediaId === item.media_id}
+          aria-label={`放大查看图片：${item.alt || alt || "飞书智能纪要图片"}`}
+        >
+          {/* Managed local artifact media; not a remote Next image. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={getOptimizedImageUrl(src, RICH_TEXT_IMAGE_WIDTH)}
+            alt={item.alt || alt || "飞书智能纪要图片"}
+            width={item.width || undefined}
+            height={item.height || undefined}
+            loading="lazy"
+            decoding="async"
+            onError={() => handleVisualError(item.media_id)}
+          />
+          <span>放大查看图片</span>
+        </button>
+        {item.summary ? (
+          <span className={styles.minutesInlineImageCaption}>
+            {item.summary}
+          </span>
+        ) : null}
+      </span>
+    );
+  };
+  const renderInlineImage = ({ src, alt }: { src: string; alt: string }) => {
+    const mediaID = managedMediaIDFromURL(src);
+    const item = mediaID ? inlineVisualsByMediaID.get(mediaID) : undefined;
+    return item ? renderInlineImageItem(item, alt) : undefined;
+  };
+  const renderInlineImages = (images: VisibleMinutesInlineImage[]) =>
+    images.map((image) => renderInlineImageItem(image.item));
 
   const visualPreviews = visibleVisualItems.map((item) => {
     const src = managedMediaURL(artifactSetId, item.media_id);
@@ -201,9 +308,13 @@ export default function MinutesSummaryView({
             >
               总结
             </h2>
-            <MarkdownViewer content={summaryContent} />
+            <MarkdownViewer
+              content={minutesContent}
+              renderImage={isVisualMode ? undefined : renderInlineImage}
+            />
           </section>
-          {visibleDecisions.length > 0 && (
+          {(visibleDecisions.length > 0 ||
+            hasMinutesImagePlacement(decisionImagePlacement)) && (
             <section
               className={styles.minutesSection}
               aria-labelledby={`${titleId}-decisions`}
@@ -214,14 +325,24 @@ export default function MinutesSummaryView({
               >
                 关键决策
               </h2>
-              <ol className={styles.minutesDecisionList}>
-                {visibleDecisions.map((decision) => (
-                  <li key={decision}>{decision}</li>
-                ))}
-              </ol>
+              {renderInlineImages(decisionImagePlacement.before)}
+              {visibleDecisions.length > 0 ? (
+                <ol className={styles.minutesDecisionList}>
+                  {visibleDecisions.map((decision, index) => (
+                    <li key={decision}>
+                      {decision}
+                      {renderInlineImages(
+                        decisionImagePlacement.after.get(index) ?? [],
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              ) : null}
+              {renderInlineImages(decisionImagePlacement.trailing)}
             </section>
           )}
-          {visibleQuotes.length > 0 && (
+          {(visibleQuotes.length > 0 ||
+            hasMinutesImagePlacement(quoteImagePlacement)) && (
             <section
               className={styles.minutesSection}
               aria-labelledby={`${titleId}-quotes`}
@@ -232,23 +353,31 @@ export default function MinutesSummaryView({
               >
                 金句时刻
               </h2>
-              <ul className={styles.minutesQuoteList}>
-                {visibleQuotes.map((item) => (
-                  <li key={item.quote}>
-                    <blockquote>
-                      <p>{item.quote}</p>
-                    </blockquote>
-                    {item.explanation?.trim() ? (
-                      <p className={styles.minutesQuoteExplanation}>
-                        {item.explanation}
-                      </p>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
+              {renderInlineImages(quoteImagePlacement.before)}
+              {visibleQuotes.length > 0 ? (
+                <ul className={styles.minutesQuoteList}>
+                  {visibleQuotes.map((item, index) => (
+                    <li key={item.quote}>
+                      <blockquote>
+                        <p>{item.quote}</p>
+                      </blockquote>
+                      {item.explanation?.trim() ? (
+                        <p className={styles.minutesQuoteExplanation}>
+                          {item.explanation}
+                        </p>
+                      ) : null}
+                      {renderInlineImages(
+                        quoteImagePlacement.after.get(index) ?? [],
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {renderInlineImages(quoteImagePlacement.trailing)}
             </section>
           )}
-          {visibleLinks.length > 0 && (
+          {(visibleLinks.length > 0 ||
+            hasMinutesImagePlacement(linkImagePlacement)) && (
             <footer
               className={styles.minutesSection}
               aria-labelledby={`${titleId}-links`}
@@ -259,32 +388,46 @@ export default function MinutesSummaryView({
               >
                 相关链接
               </h2>
-              <ul className={styles.minutesLinkList}>
-                {visibleLinks.map((link) => (
-                  <li key={link.url}>
-                    <a
-                      href={link.url}
-                      rel="noreferrer noopener"
-                      target="_blank"
-                    >
-                      {safeMinutesLinkTitle(link.title, link.url)}
-                    </a>
-                  </li>
-                ))}
-              </ul>
+              {renderInlineImages(linkImagePlacement.before)}
+              {visibleLinks.length > 0 ? (
+                <ul className={styles.minutesLinkList}>
+                  {visibleLinks.map((link, index) => (
+                    <li key={link.url}>
+                      <a
+                        href={link.url}
+                        rel="noreferrer noopener"
+                        target="_blank"
+                      >
+                        {safeMinutesLinkTitle(link.title, link.url)}
+                      </a>
+                      {renderInlineImages(
+                        linkImagePlacement.after.get(index) ?? [],
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {renderInlineImages(linkImagePlacement.trailing)}
             </footer>
           )}
+          {trailingInlineImages.length > 0 ? (
+            <section
+              className={styles.minutesSection}
+              aria-label="纪要正文图片"
+            >
+              {renderInlineImages(trailingInlineImages)}
+            </section>
+          ) : null}
         </>
       )}
-      {isVisualMode &&
-        openMediaId &&
-        visibleVisualItems.some((item) => item.media_id === openMediaId) && (
+      {openMediaId &&
+        managedVisualItems.some((item) => item.media_id === openMediaId) && (
           <div
             className={styles.minutesLightbox}
             role="dialog"
             aria-modal="true"
             aria-label={
-              visibleVisualItems.find((item) => item.media_id === openMediaId)
+              managedVisualItems.find((item) => item.media_id === openMediaId)
                 ?.type === "whiteboard"
                 ? "画板预览"
                 : "图片预览"
@@ -296,7 +439,7 @@ export default function MinutesSummaryView({
                 <img
                   src={managedMediaURL(artifactSetId, openMediaId)}
                   alt={
-                    visibleVisualItems.find(
+                    managedVisualItems.find(
                       (item) => item.media_id === openMediaId,
                     )?.alt || "飞书智能纪要图片"
                   }
@@ -351,6 +494,218 @@ function normalizeMinutesVisualItems(
   return normalized;
 }
 
+interface VisibleMinutesInlineImage {
+  item: MinutesVisualItem;
+  section?: NonNullable<MinutesInlineImage["section"]>;
+  sectionStart: boolean;
+  anchorText: string;
+  anchorOccurrence: number;
+  appendAtEnd: boolean;
+}
+
+function normalizeMinutesInlineImages(
+  images: MinutesInlineImage[],
+  visualItems: MinutesVisualItem[],
+): VisibleMinutesInlineImage[] {
+  const visualByMediaID = new Map(
+    visualItems
+      .filter((item) => item.type === "image")
+      .map((item) => [item.media_id, item]),
+  );
+  if (images.length === 0) {
+    return visualItems
+      .filter((item) => item.type === "image")
+      .map((item) => ({
+        item,
+        sectionStart: false,
+        anchorText: "",
+        anchorOccurrence: 0,
+        appendAtEnd: true,
+      }));
+  }
+  const normalized: VisibleMinutesInlineImage[] = [];
+  const seen = new Set<string>();
+  for (const image of images) {
+    const mediaID = image.media_id;
+    if (!isSafeManagedMediaId(mediaID) || seen.has(mediaID)) {
+      continue;
+    }
+    const item = visualByMediaID.get(mediaID);
+    if (!item) continue;
+    const section = isMinutesInlineSection(image.section)
+      ? image.section
+      : undefined;
+    const sectionStart = image.section_start === true && section !== undefined;
+    seen.add(mediaID);
+    normalized.push({
+      item,
+      section,
+      sectionStart,
+      anchorText: sectionStart ? "" : (image.anchor_text?.trim() ?? ""),
+      anchorOccurrence:
+        !sectionStart &&
+        Number.isInteger(image.anchor_occurrence) &&
+        (image.anchor_occurrence ?? 0) > 0
+          ? image.anchor_occurrence!
+          : 0,
+      appendAtEnd: false,
+    });
+  }
+  return normalized;
+}
+
+interface MinutesInlineImagePlacement {
+  before: VisibleMinutesInlineImage[];
+  after: Map<number, VisibleMinutesInlineImage[]>;
+  trailing: VisibleMinutesInlineImage[];
+}
+
+function placeMinutesInlineImages(
+  texts: string[],
+  images: VisibleMinutesInlineImage[],
+): MinutesInlineImagePlacement {
+  const placement: MinutesInlineImagePlacement = {
+    before: [],
+    after: new Map(),
+    trailing: [],
+  };
+  const normalizedTexts = texts.map(normalizeMarkdownText);
+  let searchFrom = 0;
+  let previousAnchor = "";
+  let previousIndex = -1;
+  for (const image of images) {
+    if (image.sectionStart) {
+      placement.before.push(image);
+      continue;
+    }
+    if (image.appendAtEnd) {
+      placement.trailing.push(image);
+      continue;
+    }
+    const anchor = normalizeMarkdownText(image.anchorText);
+    if (!anchor) {
+      placement.trailing.push(image);
+      continue;
+    }
+    let index = findMinutesAnchorIndex(
+      normalizedTexts,
+      anchor,
+      image.anchorOccurrence,
+      searchFrom,
+    );
+    if (
+      index < 0 &&
+      image.anchorOccurrence === 0 &&
+      anchor === previousAnchor
+    ) {
+      index = previousIndex;
+    }
+    if (index < 0) {
+      placement.trailing.push(image);
+      continue;
+    }
+    const atIndex = placement.after.get(index) ?? [];
+    atIndex.push(image);
+    placement.after.set(index, atIndex);
+    searchFrom = Math.max(searchFrom, index + 1);
+    previousAnchor = anchor;
+    previousIndex = index;
+  }
+  return placement;
+}
+
+function hasMinutesImagePlacement(placement: MinutesInlineImagePlacement) {
+  return (
+    placement.before.length > 0 ||
+    placement.after.size > 0 ||
+    placement.trailing.length > 0
+  );
+}
+
+function injectMinutesInlineImages(
+  content: string,
+  images: VisibleMinutesInlineImage[],
+  artifactSetId: number,
+) {
+  if (images.length === 0) return content;
+  const lines = content.split("\n");
+  const placement = placeMinutesInlineImages(lines, images);
+  const output = placement.before.map((image) =>
+    minutesInlineImageMarkdown(image, artifactSetId),
+  );
+  for (let index = 0; index < lines.length; index += 1) {
+    output.push(lines[index]);
+    const indent = lines[index]?.match(/^\s*/)?.[0] ?? "";
+    for (const image of placement.after.get(index) ?? []) {
+      output.push(
+        `${indent}${minutesInlineImageMarkdown(image, artifactSetId)}`,
+      );
+    }
+  }
+  for (const image of placement.trailing) {
+    output.push(minutesInlineImageMarkdown(image, artifactSetId));
+  }
+  return output.join("\n");
+}
+
+function minutesInlineImageMarkdown(
+  image: VisibleMinutesInlineImage,
+  artifactSetId: number,
+) {
+  return `![${escapeMarkdownImageAlt(
+    image.item.alt || "飞书智能纪要图片",
+  )}](${managedMediaURL(artifactSetId, image.item.media_id)})`;
+}
+
+function findMinutesAnchorIndex(
+  texts: string[],
+  anchor: string,
+  occurrence: number,
+  start: number,
+) {
+  let seen = 0;
+  for (let index = 0; index < texts.length; index += 1) {
+    if (!texts[index].includes(anchor)) continue;
+    seen += countTextOccurrences(texts[index], anchor);
+    if (occurrence > 0 ? seen >= occurrence : index >= Math.max(0, start)) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function countTextOccurrences(value: string, search: string) {
+  if (!value || !search) return 0;
+  return value.split(search).length - 1;
+}
+
+function isMinutesInlineSection(
+  value: MinutesInlineImage["section"],
+): value is NonNullable<MinutesInlineImage["section"]> {
+  return (
+    value === "body" ||
+    value === "summary" ||
+    value === "chapters" ||
+    value === "decisions" ||
+    value === "quotes" ||
+    value === "links"
+  );
+}
+
+function normalizeMarkdownText(value: string) {
+  return value
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/[`*_~>#]/g, "")
+    .replace(/^\s*(?:[-*+]|\d+\.)\s+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function escapeMarkdownImageAlt(value: string) {
+  return value.replace(/[\\\[\]]/g, "\\$&").replace(/\n/g, " ");
+}
+
 function isSafeManagedMediaId(mediaId: string) {
   return /^[a-z][a-z0-9_-]{1,63}$/.test(mediaId);
 }
@@ -358,6 +713,10 @@ function isSafeManagedMediaId(mediaId: string) {
 function managedMediaURL(artifactSetId: number, mediaId: string) {
   if (!isSafeManagedMediaId(mediaId)) return "";
   return `/api/v1/artifact-sets/${artifactSetId}/media/${encodeURIComponent(mediaId)}`;
+}
+
+function managedMediaIDFromURL(src: string) {
+  return src.match(/\/media\/([a-z][a-z0-9_-]{1,63})$/)?.[1] ?? "";
 }
 
 export function stripRedundantSummaryHeading(content: string) {

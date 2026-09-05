@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import PlainImage from "@/components/ui/PlainImage";
 import {
+  getSafeImageSource,
   isSafeInlineImageData,
   sanitizeContentUrl,
 } from "@/lib/imageSourcePolicy";
@@ -22,12 +23,17 @@ interface MarkdownViewerProps {
   content: string;
   className?: string;
   density?: RichTextDensity;
+  renderImage?: (image: {
+    src: string;
+    alt: string;
+  }) => React.ReactNode | undefined;
 }
 
 export default function MarkdownViewer({
   content,
   className = "",
   density = "reading",
+  renderImage,
 }: MarkdownViewerProps) {
   // 预处理：提取所有二维码的base64数据并替换为占位符
   const { qrCodesList, cleanedContent } = useMemo(() => {
@@ -86,6 +92,16 @@ export default function MarkdownViewer({
             }
             // 其他图片正常渲染
             const imageSrc = typeof src === "string" ? src : "";
+            if (!getSafeImageSource(imageSrc)) {
+              return null;
+            }
+            const customImage = renderImage?.({
+              src: imageSrc,
+              alt: alt || "",
+            });
+            if (customImage !== undefined) {
+              return customImage;
+            }
             const safeImageSrc = getOptimizedImageUrl(
               imageSrc,
               RICH_TEXT_IMAGE_WIDTH,

@@ -620,6 +620,7 @@ func applyMinutesEnrichment(result *ArtifactContent, enrichment MinutesEnrichmen
 	result.Links = normalized.Links
 	result.Whiteboard = normalized.Whiteboard
 	result.VisualItems = normalized.VisualItems
+	result.InlineImages = normalized.InlineImages
 }
 
 func restoreChaptersFromRawDetail(

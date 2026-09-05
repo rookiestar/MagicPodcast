@@ -123,6 +123,7 @@ export interface ArtifactContent {
   links?: MinutesLink[];
   whiteboard?: MinutesWhiteboard;
   visual_items?: MinutesVisualItem[];
+  inline_images?: MinutesInlineImage[];
 }
 
 export interface MinutesChapter {
@@ -163,10 +164,19 @@ export interface MinutesVisualItem {
   alt: string;
 }
 
+export interface MinutesInlineImage {
+  media_id: string;
+  section?: "body" | "summary" | "chapters" | "decisions" | "quotes" | "links";
+  section_start?: boolean;
+  anchor_text?: string;
+  anchor_occurrence?: number;
+}
+
 export type ArtifactContentKind =
   "minutes_summary" | "transcript" | "episode_notes";
 
-export type AudioRecoveryStatus = "queued" | "downloading" | "completed" | "failed";
+export type AudioRecoveryStatus =
+  "queued" | "downloading" | "completed" | "failed";
 
 export interface AudioRecoverySummary {
   recoverable: boolean;
