@@ -216,6 +216,26 @@ func TestApplySkipsIdentityDriftAfterScan(t *testing.T) {
 	}
 }
 
+func TestLoadBackfillPlanSupportsWavPubProxyFeed(t *testing.T) {
+	db, _ := openBackfillTestDB(t)
+	_, err := db.Exec(`
+		INSERT INTO podcasts(id, title, feed_url) VALUES
+			(1, '后互联网时代的乱弹', 'https://proxy.wavpub.com/pie.xml');
+		INSERT INTO episodes(id, podcast_id, title, guid, link) VALUES
+			(11, 1, '第229期 永远的钟鼓楼', 'https://hosting.wavpub.cn/pie/?p=822', '');`)
+	require.NoError(t, err)
+
+	plan, skipped, audit, err := loadBackfillPlan(db)
+	require.NoError(t, err)
+	require.Len(t, plan, 1)
+	require.Empty(t, skipped)
+	require.Equal(t, 1, audit.EpisodesScanned)
+	require.Equal(t, 1, audit.PlannedWrites)
+	require.Equal(t, int64(11), plan[0].EpisodeID)
+	require.Equal(t, "https://hosting.wavpub.cn/pie/?p=822", plan[0].PlannedLink)
+	require.Equal(t, originallink.SourceWavPubGUID, plan[0].Source)
+}
+
 func TestParseFlagsRequiresConfirmationForApply(t *testing.T) {
 	_, err := parseFlags([]string{"--apply"})
 	require.Error(t, err)

@@ -265,7 +265,7 @@ func TestSyncPodcastEpisodesWavPubPageGuidFallback(t *testing.T) {
 	podcast := &models.Podcast{
 		XYZID:        "wavpub-guid-fallback",
 		Title:        "后互联网时代的乱弹",
-		FeedURL:      "https://hosting.wavpub.cn/pie/feed/",
+		FeedURL:      "https://proxy.wavpub.com/pie.xml",
 		DataSource:   "rss",
 		IsSubscribed: true,
 	}
@@ -284,7 +284,7 @@ func TestSyncPodcastEpisodesWavPubPageGuidFallback(t *testing.T) {
     </item>
     <item>
       <title>第229期 永远的钟鼓楼</title>
-      <guid isPermaLink="false">https://hosting.wavpub.cn/pie/ep229/</guid>
+      <guid isPermaLink="false">https://hosting.wavpub.cn/pie/?p=822</guid>
       <pubDate>Fri, 21 Aug 2026 16:38:26 +0000</pubDate>
     </item>
   </channel>
@@ -302,12 +302,12 @@ func TestSyncPodcastEpisodesWavPubPageGuidFallback(t *testing.T) {
 	discovery := services.NewDiscoveryService(db)
 
 	var ep229 models.Episode
-	require.NoError(t, db.Where("guid = ?", "https://hosting.wavpub.cn/pie/ep229/").First(&ep229).Error)
+	require.NoError(t, db.Where("guid = ?", "https://hosting.wavpub.cn/pie/?p=822").First(&ep229).Error)
 	require.Equal(t, "229", ep229.EpisodeNo,
 		"the chinese 第N期 marker must feed the stored episode label")
 	candidate, err := discovery.GetCandidate(ep229.ID)
 	require.NoError(t, err)
-	require.Equal(t, "https://hosting.wavpub.cn/pie/ep229/", candidate.OriginalURL,
+	require.Equal(t, "https://hosting.wavpub.cn/pie/?p=822", candidate.OriginalURL,
 		"the WavPub page GUID must be restored as the original link")
 	require.Equal(t, "229", candidate.EpisodeNo,
 		"display and identity must consume the same episode label resolution")

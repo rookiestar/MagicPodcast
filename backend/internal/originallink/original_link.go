@@ -29,6 +29,11 @@ const (
 // page GUIDs and real episode pages.
 const WavPubHost = "hosting.wavpub.cn"
 
+const (
+	wavPubProxyHost     = "proxy.wavpub.com"
+	wavPubProxyFeedPath = "/pie.xml"
+)
+
 // FeedIdentity identifies the feed the RSS item belongs to. The subscription
 // feed URL is the evidence for source-specific rules, so feed content cannot
 // borrow another host's fallback by declaring it inside the feed itself.
@@ -106,10 +111,24 @@ func usableWebURL(value string) bool {
 	return parsed.Hostname() != ""
 }
 
-// isWavPubFeed reports whether the subscription feed itself is hosted on the
-// verified WavPub hosting host.
+// isWavPubFeed reports whether the subscription feed is one of the verified
+// WavPub endpoints. The proxy endpoint is intentionally matched by its exact
+// HTTPS path because it serves more than one possible feed identity.
 func isWavPubFeed(feed FeedIdentity) bool {
-	return exactHost(feed.FeedURL) == WavPubHost
+	if exactHost(feed.FeedURL) == WavPubHost {
+		return true
+	}
+
+	parsed, err := url.Parse(strings.TrimSpace(feed.FeedURL))
+	if err != nil || parsed.User != nil || parsed.Port() != "" {
+		return false
+	}
+	return strings.EqualFold(parsed.Scheme, "https") &&
+		normalizeHost(parsed.Hostname()) == wavPubProxyHost &&
+		parsed.EscapedPath() == wavPubProxyFeedPath &&
+		parsed.RawQuery == "" &&
+		!parsed.ForceQuery &&
+		parsed.Fragment == ""
 }
 
 // isWavPubGUID accepts only an absolute HTTPS URL on the exact WavPub host
