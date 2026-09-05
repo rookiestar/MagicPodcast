@@ -30,6 +30,7 @@ import {
   getConsumptionErrorDetails,
 } from "@/lib/api/consumption";
 import { getErrorMessage } from "@/lib/errorMessage";
+import { acquireDocumentScrollLock } from "@/lib/documentScrollLock";
 import {
   openOriginalEpisodeTab,
   planSafeOriginalEpisodeOpen,
@@ -469,11 +470,7 @@ export default function ConsumptionDetailPanel({
 
   useEffect(() => {
     closeButtonRef.current?.focus();
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
+    return acquireDocumentScrollLock();
   }, []);
 
   useEffect(() => {

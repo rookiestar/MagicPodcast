@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import MinutesSummaryView from "../MinutesSummaryView";
 import type { MinutesInlineImage, MinutesVisualItem } from "@/types/processing";
 
@@ -41,6 +41,12 @@ function expectBefore(first: Element, second: Element) {
 }
 
 describe("MinutesSummaryView", () => {
+  afterEach(() => {
+    document.body.style.overflow = "";
+    document.body.style.touchAction = "";
+    document.documentElement.style.overflow = "";
+  });
+
   it("renders only the whiteboard in visual mode", () => {
     render(
       <MinutesSummaryView
@@ -223,6 +229,693 @@ describe("MinutesSummaryView", () => {
 
     expect(screen.getByRole("img", { name: "普通图片" })).toBeVisible();
     expect(screen.queryByRole("img", { name: "飞书智能纪要画板" })).toBeNull();
+  });
+
+  it("starts at full-screen fit, locks the page, and supports zoom reset", () => {
+    document.body.style.overflow = "scroll";
+    document.documentElement.style.overflow = "auto";
+    render(
+      <MinutesSummaryView
+        artifactSetId={7}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /放大查看画板：飞书智能纪要画板/ }),
+    );
+    const lightbox = screen.getByRole("dialog", { name: "画板预览" });
+    expect(lightbox.parentElement).toBe(document.body);
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.documentElement.style.overflow).toBe("hidden");
+    expect(screen.getByText("100%")).toBeVisible();
+    expect(screen.getByRole("button", { name: "适配全屏" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "放大" }));
+    expect(screen.getByText("125%")).toBeVisible();
+    expect(screen.getByRole("button", { name: "适配全屏" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "适配全屏" }));
+    expect(screen.getByText("100%")).toBeVisible();
+    expect(screen.getByRole("button", { name: "适配全屏" })).toBeDisabled();
+
+    const wheelDefaultAllowed = fireEvent.wheel(
+      lightbox.querySelector("[data-zoomed]")!,
+      {
+        deltaY: -100,
+        clientX: 320,
+        clientY: 180,
+      },
+    );
+    expect(wheelDefaultAllowed).toBe(false);
+    expect(screen.getByText("125%")).toBeVisible();
+
+    const viewport = lightbox.querySelector("[data-zoomed]")!;
+    const lightboxImage = within(lightbox).getByRole("img", {
+      name: "飞书智能纪要画板",
+    });
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 600 },
+    });
+    Object.defineProperties(lightboxImage, {
+      offsetWidth: { configurable: true, value: 800 },
+      offsetHeight: { configurable: true, value: 600 },
+    });
+    fireEvent.pointerDown(viewport, {
+      pointerId: 1,
+      pointerType: "mouse",
+      button: 0,
+      clientX: 100,
+      clientY: 100,
+    });
+    fireEvent.pointerMove(viewport, {
+      pointerId: 1,
+      pointerType: "mouse",
+      clientX: 140,
+      clientY: 120,
+    });
+    fireEvent.pointerUp(viewport, { pointerId: 1, pointerType: "mouse" });
+    const imageFrame = lightbox.querySelector<HTMLElement>(
+      '[style*="translate3d"]',
+    );
+    expect(imageFrame?.style.transform).toBe("translate3d(40px, 20px, 0)");
+
+    fireEvent.pointerDown(viewport, {
+      pointerId: 2,
+      pointerType: "touch",
+      clientX: 100,
+      clientY: 100,
+    });
+    fireEvent.pointerDown(viewport, {
+      pointerId: 3,
+      pointerType: "touch",
+      clientX: 200,
+      clientY: 100,
+    });
+    fireEvent.pointerMove(viewport, {
+      pointerId: 3,
+      pointerType: "touch",
+      clientX: 300,
+      clientY: 100,
+    });
+    expect(screen.getByText("250%")).toBeVisible();
+    fireEvent.pointerUp(viewport, { pointerId: 2, pointerType: "touch" });
+    fireEvent.pointerUp(viewport, { pointerId: 3, pointerType: "touch" });
+
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(document.body.style.overflow).toBe("scroll");
+    expect(document.documentElement.style.overflow).toBe("auto");
+  });
+
+  it("traps Tab after the focused zoom control becomes disabled", () => {
+    render(
+      <MinutesSummaryView
+        artifactSetId={7}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /放大查看画板：飞书智能纪要画板/ }),
+    );
+    const lightbox = screen.getByRole("dialog", { name: "画板预览" });
+    fireEvent.click(within(lightbox).getByRole("button", { name: "放大" }));
+    const fitButton = within(lightbox).getByRole("button", {
+      name: "适配全屏",
+    });
+    fitButton.focus();
+    fireEvent.click(fitButton);
+    expect(fitButton).toBeDisabled();
+
+    const tabDefaultAllowed = fireEvent.keyDown(document.body, { key: "Tab" });
+    expect(tabDefaultAllowed).toBe(false);
+    expect(
+      within(lightbox).getByRole("button", { name: "放大" }),
+    ).toHaveFocus();
+  });
+
+  it("constrains a wide image to its rendered contain bounds", () => {
+    render(
+      <MinutesSummaryView
+        artifactSetId={7}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /放大查看画板：飞书智能纪要画板/ }),
+    );
+    const lightbox = screen.getByRole("dialog", { name: "画板预览" });
+    const viewport = lightbox.querySelector("[data-zoomed]")!;
+    const lightboxImage = within(lightbox).getByRole("img", {
+      name: "飞书智能纪要画板",
+    });
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 600 },
+    });
+    Object.defineProperties(lightboxImage, {
+      offsetWidth: { configurable: true, value: 800 },
+      offsetHeight: { configurable: true, value: 600 },
+      naturalWidth: { configurable: true, value: 2400 },
+      naturalHeight: { configurable: true, value: 600 },
+    });
+
+    fireEvent.click(within(lightbox).getByRole("button", { name: "放大" }));
+    fireEvent.pointerDown(viewport, {
+      pointerId: 1,
+      pointerType: "mouse",
+      button: 0,
+      clientX: 100,
+      clientY: 100,
+    });
+    fireEvent.pointerMove(viewport, {
+      pointerId: 1,
+      pointerType: "mouse",
+      clientX: 1400,
+      clientY: 1000,
+    });
+    fireEvent.pointerUp(viewport, { pointerId: 1, pointerType: "mouse" });
+
+    expect(
+      lightbox.querySelector<HTMLElement>('[style*="translate3d"]')?.style
+        .transform,
+    ).toBe("translate3d(100px, 0px, 0)");
+  });
+
+  it("resets zoom when the displayed artifact changes", () => {
+    const { rerender } = render(
+      <MinutesSummaryView
+        artifactSetId={7}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /放大查看画板：飞书智能纪要画板/ }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "放大" }));
+    expect(screen.getByText("125%")).toBeVisible();
+
+    rerender(
+      <MinutesSummaryView
+        artifactSetId={8}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    const lightbox = screen.getByRole("dialog", { name: "画板预览" });
+    expect(within(lightbox).getByText("100%")).toBeVisible();
+    expect(within(lightbox).getByRole("img")).toHaveAttribute(
+      "src",
+      "/api/v1/artifact-sets/8/media/whiteboard",
+    );
+    expect(within(lightbox).getByRole("button", { name: "关闭" })).toHaveFocus();
+  });
+
+  it("keeps the cursor anchor stable when wheel zooming after a pan", () => {
+    render(
+      <MinutesSummaryView
+        artifactSetId={7}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /放大查看画板：飞书智能纪要画板/ }),
+    );
+    const lightbox = screen.getByRole("dialog", { name: "画板预览" });
+    const viewport = lightbox.querySelector("[data-zoomed]")!;
+    const lightboxImage = within(lightbox).getByRole("img", {
+      name: "飞书智能纪要画板",
+    });
+    const wheelEvent = new WheelEvent("wheel", {
+      deltaY: -100,
+    });
+    Object.defineProperties(wheelEvent, {
+      clientX: { configurable: true, value: 500 },
+      clientY: { configurable: true, value: 350 },
+    });
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 600 },
+      getBoundingClientRect: {
+        configurable: true,
+        value: () => ({
+          left: 0,
+          top: 0,
+          width: 800,
+          height: 600,
+        }),
+      },
+    });
+    Object.defineProperties(lightboxImage, {
+      offsetWidth: { configurable: true, value: 800 },
+      offsetHeight: { configurable: true, value: 600 },
+    });
+
+    fireEvent.click(within(lightbox).getByRole("button", { name: "放大" }));
+    fireEvent.pointerDown(viewport, {
+      pointerId: 1,
+      pointerType: "mouse",
+      button: 0,
+      clientX: 100,
+      clientY: 100,
+    });
+    fireEvent.pointerMove(viewport, {
+      pointerId: 1,
+      pointerType: "mouse",
+      clientX: 140,
+      clientY: 120,
+    });
+    fireEvent.pointerUp(viewport, { pointerId: 1, pointerType: "mouse" });
+
+    fireEvent(viewport, wheelEvent);
+
+    expect(within(lightbox).getByText("150%")).toBeVisible();
+    expect(
+      lightbox.querySelector<HTMLElement>('[style*="translate3d"]')?.style
+        .transform,
+    ).toBe("translate3d(28px, 14px, 0)");
+  });
+
+  it("keeps the viewport center stable for toolbar zoom after a pan", () => {
+    render(
+      <MinutesSummaryView
+        artifactSetId={7}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /放大查看画板：飞书智能纪要画板/ }),
+    );
+    const lightbox = screen.getByRole("dialog", { name: "画板预览" });
+    const viewport = lightbox.querySelector("[data-zoomed]")!;
+    const lightboxImage = within(lightbox).getByRole("img", {
+      name: "飞书智能纪要画板",
+    });
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 600 },
+    });
+    Object.defineProperties(lightboxImage, {
+      offsetWidth: { configurable: true, value: 800 },
+      offsetHeight: { configurable: true, value: 600 },
+    });
+
+    fireEvent.click(within(lightbox).getByRole("button", { name: "放大" }));
+    fireEvent.pointerDown(viewport, {
+      pointerId: 1,
+      pointerType: "mouse",
+      button: 0,
+      clientX: 100,
+      clientY: 100,
+    });
+    fireEvent.pointerMove(viewport, {
+      pointerId: 1,
+      pointerType: "mouse",
+      clientX: 140,
+      clientY: 120,
+    });
+    fireEvent.pointerUp(viewport, { pointerId: 1, pointerType: "mouse" });
+
+    fireEvent.click(within(lightbox).getByRole("button", { name: "放大" }));
+
+    expect(within(lightbox).getByText("150%")).toBeVisible();
+    expect(
+      lightbox.querySelector<HTMLElement>('[style*="translate3d"]')?.style
+        .transform,
+    ).toBe("translate3d(48px, 24px, 0)");
+  });
+
+  it("keeps the live pinch midpoint stable", () => {
+    render(
+      <MinutesSummaryView
+        artifactSetId={7}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /放大查看画板：飞书智能纪要画板/ }),
+    );
+    const lightbox = screen.getByRole("dialog", { name: "画板预览" });
+    const viewport = lightbox.querySelector("[data-zoomed]")!;
+    const lightboxImage = within(lightbox).getByRole("img", {
+      name: "飞书智能纪要画板",
+    });
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 600 },
+      getBoundingClientRect: {
+        configurable: true,
+        value: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+      },
+    });
+    Object.defineProperties(lightboxImage, {
+      offsetWidth: { configurable: true, value: 800 },
+      offsetHeight: { configurable: true, value: 600 },
+    });
+
+    fireEvent.click(within(lightbox).getByRole("button", { name: "放大" }));
+    fireEvent.pointerDown(viewport, {
+      pointerId: 1,
+      pointerType: "mouse",
+      button: 0,
+      clientX: 100,
+      clientY: 100,
+    });
+    fireEvent.pointerMove(viewport, {
+      pointerId: 1,
+      pointerType: "mouse",
+      clientX: 140,
+      clientY: 120,
+    });
+    fireEvent.pointerUp(viewport, { pointerId: 1, pointerType: "mouse" });
+    fireEvent.pointerDown(viewport, {
+      pointerId: 2,
+      pointerType: "touch",
+      clientX: 400,
+      clientY: 300,
+    });
+    fireEvent.pointerDown(viewport, {
+      pointerId: 3,
+      pointerType: "touch",
+      clientX: 500,
+      clientY: 300,
+    });
+    fireEvent.pointerMove(viewport, {
+      pointerId: 3,
+      pointerType: "touch",
+      clientX: 600,
+      clientY: 300,
+    });
+
+    expect(within(lightbox).getByText("250%")).toBeVisible();
+    expect(
+      lightbox.querySelector<HTMLElement>('[style*="translate3d"]')?.style
+        .transform,
+    ).toBe("translate3d(80px, 40px, 0)");
+  });
+
+  it("rebases an active pinch after reaching full-screen fit", () => {
+    render(
+      <MinutesSummaryView
+        artifactSetId={7}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /放大查看画板：飞书智能纪要画板/ }),
+    );
+    const lightbox = screen.getByRole("dialog", { name: "画板预览" });
+    const viewport = lightbox.querySelector("[data-zoomed]")!;
+    const lightboxImage = within(lightbox).getByRole("img", {
+      name: "飞书智能纪要画板",
+    });
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 600 },
+      getBoundingClientRect: {
+        configurable: true,
+        value: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+      },
+    });
+    Object.defineProperties(lightboxImage, {
+      offsetWidth: { configurable: true, value: 800 },
+      offsetHeight: { configurable: true, value: 600 },
+    });
+
+    fireEvent.click(within(lightbox).getByRole("button", { name: "放大" }));
+    fireEvent.pointerDown(viewport, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 300,
+      clientY: 300,
+    });
+    fireEvent.pointerDown(viewport, {
+      pointerId: 2,
+      pointerType: "touch",
+      clientX: 500,
+      clientY: 300,
+    });
+    fireEvent.pointerMove(viewport, {
+      pointerId: 2,
+      pointerType: "touch",
+      clientX: 400,
+      clientY: 300,
+    });
+    expect(within(lightbox).getByText("100%")).toBeVisible();
+    expect(
+      lightbox.querySelector<HTMLElement>('[style*="translate3d"]')?.style
+        .transform,
+    ).toBe("translate3d(0px, 0px, 0)");
+
+    fireEvent.pointerMove(viewport, {
+      pointerId: 2,
+      pointerType: "touch",
+      clientX: 450,
+      clientY: 300,
+    });
+    expect(within(lightbox).getByText("150%")).toBeVisible();
+    expect(
+      lightbox.querySelector<HTMLElement>('[style*="translate3d"]')?.style
+        .transform,
+    ).toBe("translate3d(50px, 0px, 0)");
+  });
+
+  it("rebases an active pinch after reaching maximum zoom", () => {
+    render(
+      <MinutesSummaryView
+        artifactSetId={7}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /放大查看画板：飞书智能纪要画板/ }),
+    );
+    const lightbox = screen.getByRole("dialog", { name: "画板预览" });
+    const viewport = lightbox.querySelector("[data-zoomed]")!;
+    const lightboxImage = within(lightbox).getByRole("img", {
+      name: "飞书智能纪要画板",
+    });
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 600 },
+      getBoundingClientRect: {
+        configurable: true,
+        value: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+      },
+    });
+    Object.defineProperties(lightboxImage, {
+      offsetWidth: { configurable: true, value: 800 },
+      offsetHeight: { configurable: true, value: 600 },
+    });
+
+    fireEvent.pointerDown(viewport, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 150,
+      clientY: 300,
+    });
+    fireEvent.pointerDown(viewport, {
+      pointerId: 2,
+      pointerType: "touch",
+      clientX: 250,
+      clientY: 300,
+    });
+    fireEvent.pointerMove(viewport, {
+      pointerId: 2,
+      pointerType: "touch",
+      clientX: 650,
+      clientY: 300,
+    });
+    expect(within(lightbox).getByText("400%")).toBeVisible();
+
+    fireEvent.pointerMove(viewport, {
+      pointerId: 2,
+      pointerType: "touch",
+      clientX: 625,
+      clientY: 300,
+    });
+    expect(within(lightbox).getByText("380%")).toBeVisible();
+  });
+
+  it("rebases pinch geometry when a third contact replaces a finger", () => {
+    render(
+      <MinutesSummaryView
+        artifactSetId={7}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /放大查看画板：飞书智能纪要画板/ }),
+    );
+    const lightbox = screen.getByRole("dialog", { name: "画板预览" });
+    const viewport = lightbox.querySelector("[data-zoomed]")!;
+    const lightboxImage = within(lightbox).getByRole("img", {
+      name: "飞书智能纪要画板",
+    });
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 600 },
+      getBoundingClientRect: {
+        configurable: true,
+        value: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+      },
+    });
+    Object.defineProperties(lightboxImage, {
+      offsetWidth: { configurable: true, value: 800 },
+      offsetHeight: { configurable: true, value: 600 },
+    });
+
+    fireEvent.pointerDown(viewport, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 300,
+      clientY: 300,
+    });
+    fireEvent.pointerDown(viewport, {
+      pointerId: 2,
+      pointerType: "touch",
+      clientX: 500,
+      clientY: 300,
+    });
+    fireEvent.pointerDown(viewport, {
+      pointerId: 3,
+      pointerType: "touch",
+      clientX: 800,
+      clientY: 300,
+    });
+    fireEvent.pointerUp(viewport, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 300,
+      clientY: 300,
+    });
+    fireEvent.pointerMove(viewport, {
+      pointerId: 3,
+      pointerType: "touch",
+      clientX: 850,
+      clientY: 300,
+    });
+
+    expect(within(lightbox).getByText("117%")).toBeVisible();
+    expect(
+      lightbox.querySelector<HTMLElement>('[style*="translate3d"]')?.style
+        .transform,
+    ).toBe("translate3d(-17.5px, 0px, 0)");
+  });
+
+  it("accumulates precision wheel deltas before applying a zoom step", () => {
+    render(
+      <MinutesSummaryView
+        artifactSetId={7}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /放大查看画板：飞书智能纪要画板/ }),
+    );
+    const lightbox = screen.getByRole("dialog", { name: "画板预览" });
+    const viewport = lightbox.querySelector("[data-zoomed]")!;
+    for (let index = 0; index < 10; index += 1) {
+      fireEvent.wheel(viewport, { deltaY: -5 });
+    }
+    expect(within(lightbox).getByText("100%")).toBeVisible();
+
+    for (let index = 0; index < 10; index += 1) {
+      fireEvent.wheel(viewport, { deltaY: -5 });
+    }
+    expect(within(lightbox).getByText("125%")).toBeVisible();
+  });
+
+  it("re-constrains pan when the viewport shrinks", () => {
+    render(
+      <MinutesSummaryView
+        artifactSetId={7}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /放大查看画板：飞书智能纪要画板/ }),
+    );
+    const lightbox = screen.getByRole("dialog", { name: "画板预览" });
+    const viewport = lightbox.querySelector("[data-zoomed]")!;
+    const lightboxImage = within(lightbox).getByRole("img", {
+      name: "飞书智能纪要画板",
+    });
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 600 },
+    });
+    Object.defineProperties(lightboxImage, {
+      offsetWidth: { configurable: true, value: 800 },
+      offsetHeight: { configurable: true, value: 600 },
+    });
+
+    fireEvent.click(within(lightbox).getByRole("button", { name: "放大" }));
+    fireEvent.pointerDown(viewport, {
+      pointerId: 1,
+      pointerType: "mouse",
+      button: 0,
+      clientX: 100,
+      clientY: 100,
+    });
+    fireEvent.pointerMove(viewport, {
+      pointerId: 1,
+      pointerType: "mouse",
+      clientX: 1400,
+      clientY: 1000,
+    });
+    fireEvent.pointerUp(viewport, { pointerId: 1, pointerType: "mouse" });
+
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 400 },
+      clientHeight: { configurable: true, value: 300 },
+    });
+    Object.defineProperties(lightboxImage, {
+      offsetWidth: { configurable: true, value: 400 },
+      offsetHeight: { configurable: true, value: 300 },
+    });
+    fireEvent(window, new Event("resize"));
+
+    expect(
+      lightbox.querySelector<HTMLElement>('[style*="translate3d"]')?.style
+        .transform,
+    ).toBe("translate3d(50px, 37.5px, 0)");
   });
 
   it("keeps other visuals available when one thumbnail fails", () => {
