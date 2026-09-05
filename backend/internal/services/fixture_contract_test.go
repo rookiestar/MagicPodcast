@@ -75,7 +75,8 @@ func TestJourneyFixtureCoversDiscoveryConsumptionAndReportContracts(t *testing.T
 	require.Empty(t, reports.History[0].Content)
 	require.Equal(t, uint(6002), reports.Today[0].ID)
 	require.Equal(t, uint(6001), reports.Today[1].ID)
-	require.Empty(t, reports.Today[1].Episodes[1].Link, "dangerous report link must be stripped")
+	require.Equal(t, "javascript:alert('blocked')", reports.Today[1].Episodes[1].Link,
+		"report API must preserve rejected non-empty values for the shared frontend planner")
 
 	var canonicalDecisions []models.EpisodeTriageDecision
 	require.NoError(t, db.Where("episode_id IN ?", []uint{2002, 2015}).
