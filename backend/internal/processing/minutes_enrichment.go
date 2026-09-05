@@ -30,20 +30,27 @@ const (
 	maxWhiteboardPreviewPixels     = 32 << 20
 	minutesWhiteboardAlt           = "飞书智能纪要画板"
 	minutesImageAlt                = "飞书智能纪要图片"
+	minutesInlineSectionBody       = "body"
+	minutesInlineSectionSummary    = "summary"
+	minutesInlineSectionChapters   = "chapters"
+	minutesInlineSectionDecisions  = "decisions"
+	minutesInlineSectionQuotes     = "quotes"
+	minutesInlineSectionLinks      = "links"
 )
 
 var (
-	headingSplitPattern        = regexp.MustCompile(`(?is)<h([1-6])\b[^>]*>(.*?)</h[1-6]>`)
-	whiteboardTokenPattern     = regexp.MustCompile(`(?is)<whiteboard\b[^>]*\b(?:token|whiteboard-token|whiteboard_token)="([^"]+)"`)
-	blockquotePattern          = regexp.MustCompile(`(?is)<blockquote\b[^>]*>(.*?)</blockquote>`)
-	listItemPattern            = regexp.MustCompile(`(?is)<li\b[^>]*>(.*?)</li>`)
-	paragraphPattern           = regexp.MustCompile(`(?is)<p\b[^>]*>(.*?)</p>`)
-	tagPattern                 = regexp.MustCompile(`(?s)<[^>]+>`)
-	mediaIDPattern             = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
-	feishuIdentityPattern      = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:(?:obcn|wbcn|boxcn|doxcn)[a-z0-9_-]{4,}|docx_[a-z0-9_-]{4,})`)
-	feishuURLHostPattern       = regexp.MustCompile(`(?i)(?:https?:)?//(?:[^/?#@\s]+@)?(?:[a-z0-9-]+\.)*(?:feishu\.cn|feishu\.com|larksuite\.com|larksuite\.cn|larkoffice\.com|larkoffice\.cn)(?::[0-9]+)?(?:[/?#\s]|$)`)
-	nestedUnsafeSchemePattern  = regexp.MustCompile(`(?i)(?:^|[^a-z])(?:javascript|data|file):`)
-	windowsAbsolutePathPattern = regexp.MustCompile(`(?i)^[a-z]:[\\/]`)
+	headingSplitPattern           = regexp.MustCompile(`(?is)<h([1-6])\b[^>]*>(.*?)</h[1-6]>`)
+	whiteboardTokenPattern        = regexp.MustCompile(`(?is)<whiteboard\b[^>]*\b(?:token|whiteboard-token|whiteboard_token)="([^"]+)"`)
+	blockquotePattern             = regexp.MustCompile(`(?is)<blockquote\b[^>]*>(.*?)</blockquote>`)
+	listItemPattern               = regexp.MustCompile(`(?is)<li\b[^>]*>(.*?)</li>`)
+	paragraphPattern              = regexp.MustCompile(`(?is)<p\b[^>]*>(.*?)</p>`)
+	tagPattern                    = regexp.MustCompile(`(?s)<[^>]+>`)
+	mediaIDPattern                = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
+	feishuIdentityPattern         = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:(?:obcn|wbcn|boxcn|doxcn)[a-z0-9_-]{4,}|docx_[a-z0-9_-]{4,})`)
+	feishuURLHostPattern          = regexp.MustCompile(`(?i)(?:https?:)?//(?:[^/?#@\s]+@)?(?:[a-z0-9-]+\.)*(?:feishu\.cn|feishu\.com|larksuite\.com|larksuite\.cn|larkoffice\.com|larkoffice\.cn)(?::[0-9]+)?(?:[/?#\s]|$)`)
+	nestedUnsafeSchemePattern     = regexp.MustCompile(`(?i)(?:^|[^a-z])(?:javascript|data|file):`)
+	windowsAbsolutePathPattern    = regexp.MustCompile(`(?i)^[a-z]:[\\/]`)
+	minutesSensitiveAnchorPattern = regexp.MustCompile(`(?i)(?:minute_token|note_id|file_token|whiteboard_token|doc_token)\s*[:=]`)
 )
 
 var feishuLinkHosts = []string{
@@ -124,6 +131,17 @@ type MinutesVisualItem struct {
 	Alt       string `json:"alt"`
 }
 
+// MinutesInlineImage identifies a body image and the nearby text block after
+// which the UI should render it. The media metadata remains in VisualItems so
+// this placement record only carries the position relationship.
+type MinutesInlineImage struct {
+	MediaID          string `json:"media_id"`
+	Section          string `json:"section,omitempty"`
+	SectionStart     bool   `json:"section_start,omitempty"`
+	AnchorText       string `json:"anchor_text,omitempty"`
+	AnchorOccurrence int    `json:"anchor_occurrence,omitempty"`
+}
+
 // ManagedMinutesVisual carries bytes only inside the processing pipeline. It
 // is deliberately not serialised into the public enrichment document.
 type ManagedMinutesVisual struct {
@@ -132,14 +150,15 @@ type ManagedMinutesVisual struct {
 }
 
 type MinutesEnrichment struct {
-	SchemaVersion string              `json:"schema_version"`
-	Chapters      []MinutesChapter    `json:"chapters,omitempty"`
-	Keywords      []string            `json:"keywords,omitempty"`
-	Decisions     []string            `json:"decisions,omitempty"`
-	Quotes        []MinutesQuote      `json:"quotes,omitempty"`
-	Links         []MinutesLink       `json:"links,omitempty"`
-	Whiteboard    *MinutesWhiteboard  `json:"whiteboard,omitempty"`
-	VisualItems   []MinutesVisualItem `json:"visual_items,omitempty"`
+	SchemaVersion string               `json:"schema_version"`
+	Chapters      []MinutesChapter     `json:"chapters,omitempty"`
+	Keywords      []string             `json:"keywords,omitempty"`
+	Decisions     []string             `json:"decisions,omitempty"`
+	Quotes        []MinutesQuote       `json:"quotes,omitempty"`
+	Links         []MinutesLink        `json:"links,omitempty"`
+	Whiteboard    *MinutesWhiteboard   `json:"whiteboard,omitempty"`
+	VisualItems   []MinutesVisualItem  `json:"visual_items,omitempty"`
+	InlineImages  []MinutesInlineImage `json:"inline_images,omitempty"`
 }
 
 type ManagedImage struct {
@@ -156,7 +175,8 @@ func (e MinutesEnrichment) Empty() bool {
 		len(e.Quotes) == 0 &&
 		len(e.Links) == 0 &&
 		e.Whiteboard == nil &&
-		len(e.VisualItems) == 0
+		len(e.VisualItems) == 0 &&
+		len(e.InlineImages) == 0
 }
 
 func (e MinutesEnrichment) Public() MinutesEnrichment {
@@ -168,6 +188,7 @@ func (e MinutesEnrichment) Public() MinutesEnrichment {
 		Quotes:        append([]MinutesQuote(nil), e.Quotes...),
 		Links:         append([]MinutesLink(nil), e.Links...),
 		VisualItems:   append([]MinutesVisualItem(nil), e.VisualItems...),
+		InlineImages:  append([]MinutesInlineImage(nil), e.InlineImages...),
 	}
 	if e.Whiteboard != nil {
 		copied := *e.Whiteboard
@@ -214,6 +235,7 @@ func (e MinutesEnrichment) normalized() MinutesEnrichment {
 		items = append([]MinutesVisualItem{minutesVisualItemFromWhiteboard(*e.Whiteboard)}, filtered...)
 	}
 	e.VisualItems = items
+	e.InlineImages = normalizeMinutesInlineImages(e.InlineImages, e.VisualItems)
 	return e
 }
 
@@ -250,6 +272,67 @@ func normalizeMinutesVisualItems(items []MinutesVisualItem) []MinutesVisualItem 
 	return normalized
 }
 
+func normalizeMinutesInlineImages(
+	images []MinutesInlineImage,
+	visualItems []MinutesVisualItem,
+) []MinutesInlineImage {
+	imageIDs := make(map[string]struct{}, len(visualItems))
+	for _, item := range visualItems {
+		if item.Type == "image" {
+			imageIDs[item.MediaID] = struct{}{}
+		}
+	}
+	normalized := make([]MinutesInlineImage, 0, len(images))
+	seen := make(map[string]struct{}, len(images))
+	for _, image := range images {
+		mediaID := strings.TrimSpace(image.MediaID)
+		if _, ok := imageIDs[mediaID]; !ok {
+			continue
+		}
+		if _, ok := seen[mediaID]; ok {
+			continue
+		}
+		seen[mediaID] = struct{}{}
+		section := normalizeMinutesInlineSection(image.Section)
+		anchorText := normalizeMinutesAnchorText(image.AnchorText)
+		sectionStart := image.SectionStart && section != ""
+		anchorOccurrence := image.AnchorOccurrence
+		if sectionStart {
+			anchorText = ""
+			anchorOccurrence = 0
+		} else if anchorText == "" || anchorOccurrence < 0 {
+			anchorOccurrence = 0
+		}
+		normalized = append(normalized, MinutesInlineImage{
+			MediaID:          mediaID,
+			Section:          section,
+			SectionStart:     sectionStart,
+			AnchorText:       anchorText,
+			AnchorOccurrence: anchorOccurrence,
+		})
+	}
+	return normalized
+}
+
+func normalizeMinutesInlineSection(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case minutesInlineSectionBody:
+		return minutesInlineSectionBody
+	case minutesInlineSectionSummary:
+		return minutesInlineSectionSummary
+	case minutesInlineSectionChapters:
+		return minutesInlineSectionChapters
+	case minutesInlineSectionDecisions:
+		return minutesInlineSectionDecisions
+	case minutesInlineSectionQuotes:
+		return minutesInlineSectionQuotes
+	case minutesInlineSectionLinks:
+		return minutesInlineSectionLinks
+	default:
+		return ""
+	}
+}
+
 func validMinutesVisualItem(item MinutesVisualItem) bool {
 	if item.Type != "image" && item.Type != "whiteboard" {
 		return false
@@ -279,28 +362,40 @@ func validMinutesMediaType(mediaType string) bool {
 }
 
 func validPublicMinutesVisualText(value string) bool {
-	value = strings.TrimSpace(value)
-	return value != "" &&
-		!containsSensitiveMinutesText(value) &&
-		!strings.Contains(value, "\x00") &&
-		!strings.HasPrefix(value, "/") &&
-		!windowsAbsolutePathPattern.MatchString(value) &&
-		!strings.Contains(strings.ToLower(value), "/tmp/") &&
-		!strings.Contains(strings.ToLower(value), "/private/var/")
+	return validPublicMinutesText(value) && !containsSensitiveMinutesText(value)
 }
 
 func sanitizeMinutesVisualText(value, fallback string) string {
+	return normalizeMinutesPublicText(value, fallback, validPublicMinutesVisualText)
+}
+
+func normalizeMinutesPublicText(
+	value string,
+	fallback string,
+	valid func(string) bool,
+) string {
 	value = strings.TrimSpace(html.UnescapeString(stripXMLTags(value)))
 	value = strings.Join(strings.Fields(value), " ")
-	if !validPublicMinutesVisualText(value) {
+	if !valid(value) {
 		return fallback
 	}
-	const maxVisualTextRunes = 240
+	const maxPublicTextRunes = 240
 	runes := []rune(value)
-	if len(runes) > maxVisualTextRunes {
-		value = string(runes[:maxVisualTextRunes])
+	if len(runes) > maxPublicTextRunes {
+		value = string(runes[:maxPublicTextRunes])
 	}
 	return value
+}
+
+func validPublicMinutesText(value string) bool {
+	value = strings.TrimSpace(value)
+	lower := strings.ToLower(value)
+	return value != "" &&
+		!strings.Contains(value, "\x00") &&
+		!strings.HasPrefix(value, "/") &&
+		!windowsAbsolutePathPattern.MatchString(value) &&
+		!strings.Contains(lower, "/tmp/") &&
+		!strings.Contains(lower, "/private/var/")
 }
 
 func encodeMinutesEnrichment(enrichment MinutesEnrichment) ([]byte, error) {
@@ -346,6 +441,30 @@ func validateMinutesEnrichment(enrichment MinutesEnrichment) error {
 		}
 		seen[item.MediaID] = struct{}{}
 	}
+	inlineSeen := make(map[string]struct{}, len(enrichment.InlineImages))
+	for _, image := range enrichment.InlineImages {
+		if !mediaIDPattern.MatchString(image.MediaID) {
+			return fmt.Errorf("minutes enrichment inline image identity is invalid")
+		}
+		if _, exists := inlineSeen[image.MediaID]; exists {
+			return fmt.Errorf("minutes enrichment inline image identity is duplicated")
+		}
+		inlineSeen[image.MediaID] = struct{}{}
+		item, exists := lookupMinutesVisualItem(enrichment.VisualItems, image.MediaID)
+		if !exists || item.Type != "image" {
+			return fmt.Errorf("minutes enrichment inline image has no image visual")
+		}
+		if image.AnchorText != "" && !validPublicMinutesAnchorText(image.AnchorText) {
+			return fmt.Errorf("minutes enrichment inline image anchor is invalid")
+		}
+		if image.Section != "" && normalizeMinutesInlineSection(image.Section) == "" {
+			return fmt.Errorf("minutes enrichment inline image section is invalid")
+		}
+		if image.AnchorOccurrence < 0 ||
+			(image.SectionStart && (image.Section == "" || image.AnchorText != "" || image.AnchorOccurrence != 0)) {
+			return fmt.Errorf("minutes enrichment inline image placement is invalid")
+		}
+	}
 	if enrichment.Whiteboard == nil {
 		return nil
 	}
@@ -366,6 +485,15 @@ func validateMinutesEnrichment(enrichment MinutesEnrichment) error {
 		return nil
 	}
 	return nil
+}
+
+func lookupMinutesVisualItem(items []MinutesVisualItem, mediaID string) (MinutesVisualItem, bool) {
+	for _, item := range items {
+		if item.MediaID == mediaID {
+			return item, true
+		}
+	}
+	return MinutesVisualItem{}, false
 }
 
 func parseMinutesChapters(raw json.RawMessage) []MinutesChapter {
@@ -731,14 +859,18 @@ func firstWhiteboardToken(content string) string {
 }
 
 type minutesVisualSource struct {
-	Token         string
-	MediaType     string
-	Alt           string
-	Summary       string
-	Width         int
-	Height        int
-	WidthPresent  bool
-	HeightPresent bool
+	Token            string
+	MediaType        string
+	Alt              string
+	Summary          string
+	Section          string
+	SectionStart     bool
+	AnchorText       string
+	AnchorOccurrence int
+	Width            int
+	Height           int
+	WidthPresent     bool
+	HeightPresent    bool
 }
 
 func parseNoteVisualSources(document string) ([]minutesVisualSource, error) {
@@ -748,32 +880,105 @@ func parseNoteVisualSources(document string) ([]minutesVisualSource, error) {
 		return nil, fmt.Errorf("parse Minutes visual content: %w", err)
 	}
 	sources := make([]minutesVisualSource, 0)
-	var visit func(*nethtml.Node) error
-	visit = func(node *nethtml.Node) error {
+	currentSection := minutesInlineSectionBody
+	currentHeading := ""
+	sectionText := make(map[string]string)
+	var visit func(*nethtml.Node, bool) error
+	visit = func(node *nethtml.Node, omitText bool) error {
 		if node == nil {
 			return nil
 		}
 		if node.Type == nethtml.ElementNode {
 			name := strings.ToLower(strings.TrimSpace(node.Data))
+			if isMinutesHeadingElement(name) {
+				heading := normalizeNoteHeading(noteLinkNodeText(node))
+				if section := minutesInlineSectionForHeading(heading); section != "" {
+					currentHeading = heading
+					currentSection = section
+					omitText = true
+				} else if name == "h1" {
+					currentHeading = heading
+					currentSection = minutesInlineSectionBody
+					omitText = true
+				}
+			}
 			if name == "img" || name == "image" {
 				source, sourceErr := parseMinutesVisualSource(node)
 				if sourceErr != nil {
 					return sourceErr
 				}
+				source.Section = currentSection
+				source.SectionStart = strings.TrimSpace(sectionText[currentSection]) == ""
+				if !source.SectionStart {
+					source.AnchorText = textBeforeMinutesVisual(node)
+					if normalizeNoteHeading(source.AnchorText) == currentHeading {
+						source.AnchorText = ""
+					}
+					source.AnchorOccurrence = countMinutesAnchorOccurrences(
+						sectionText[currentSection],
+						source.AnchorText,
+					)
+				}
 				sources = append(sources, source)
 			}
+		} else if node.Type == nethtml.TextNode && !omitText {
+			sectionText[currentSection] = appendMinutesSectionText(
+				sectionText[currentSection],
+				node.Data,
+			)
 		}
 		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			if err := visit(child); err != nil {
+			if err := visit(child, omitText); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	if err := visit(parsed); err != nil {
+	if err := visit(parsed, false); err != nil {
 		return nil, err
 	}
 	return sources, nil
+}
+
+func minutesInlineSectionForHeading(value string) string {
+	switch normalizeNoteHeading(value) {
+	case "总结":
+		return minutesInlineSectionSummary
+	case "智能章节":
+		return minutesInlineSectionChapters
+	case "关键决策":
+		return minutesInlineSectionDecisions
+	case "金句时刻", "金句":
+		return minutesInlineSectionQuotes
+	case "相关链接", "相关外链":
+		return minutesInlineSectionLinks
+	default:
+		return ""
+	}
+}
+
+func isMinutesHeadingElement(name string) bool {
+	return len(name) == 2 && name[0] == 'h' && name[1] >= '1' && name[1] <= '6'
+}
+
+func appendMinutesSectionText(current, value string) string {
+	value = strings.Join(strings.Fields(html.UnescapeString(value)), " ")
+	if value == "" {
+		return current
+	}
+	if current == "" {
+		return value
+	}
+	return current + " " + value
+}
+
+func countMinutesAnchorOccurrences(sectionText, anchorText string) int {
+	sectionText = strings.Join(strings.Fields(sectionText), " ")
+	anchorText = strings.Join(strings.Fields(anchorText), " ")
+	if sectionText == "" || anchorText == "" {
+		return 0
+	}
+	return strings.Count(sectionText, anchorText)
 }
 
 func parseMinutesVisualSource(node *nethtml.Node) (minutesVisualSource, error) {
@@ -812,6 +1017,111 @@ func parseMinutesVisualSource(node *nethtml.Node) (minutesVisualSource, error) {
 		source.HeightPresent = true
 	}
 	return source, nil
+}
+
+func textBeforeMinutesVisual(node *nethtml.Node) string {
+	for current := node; current != nil; current = current.Parent {
+		for sibling := current.PrevSibling; sibling != nil; sibling = sibling.PrevSibling {
+			if text := lastMinutesTextBlock(sibling); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func lastMinutesTextBlock(node *nethtml.Node) string {
+	if node == nil {
+		return ""
+	}
+	if node.Type == nethtml.TextNode {
+		return normalizeMinutesAnchorText(node.Data)
+	}
+	if node.Type != nethtml.ElementNode {
+		for child := node.LastChild; child != nil; child = child.PrevSibling {
+			if text := lastMinutesTextBlock(child); text != "" {
+				return text
+			}
+		}
+		return ""
+	}
+	name := strings.ToLower(strings.TrimSpace(node.Data))
+	if name == "img" || name == "image" || name == "whiteboard" {
+		return ""
+	}
+	if isMinutesTextBlock(name) {
+		for child := node.LastChild; child != nil; child = child.PrevSibling {
+			if child.Type != nethtml.ElementNode ||
+				!isMinutesTextBlockContainer(strings.ToLower(strings.TrimSpace(child.Data))) {
+				continue
+			}
+			if text := lastMinutesTextBlock(child); text != "" {
+				return text
+			}
+		}
+		return normalizeMinutesAnchorText(minutesTextWithoutMedia(node))
+	}
+	for child := node.LastChild; child != nil; child = child.PrevSibling {
+		if text := lastMinutesTextBlock(child); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func isMinutesTextBlockContainer(name string) bool {
+	if isMinutesTextBlock(name) {
+		return true
+	}
+	switch name {
+	case "ul", "ol", "div", "grid", "column", "table", "tbody", "tr":
+		return true
+	default:
+		return false
+	}
+}
+
+func isMinutesTextBlock(name string) bool {
+	if isMinutesHeadingElement(name) {
+		return true
+	}
+	switch name {
+	case "p", "li", "blockquote", "pre", "td", "th":
+		return true
+	default:
+		return false
+	}
+}
+
+func minutesTextWithoutMedia(node *nethtml.Node) string {
+	if node == nil {
+		return ""
+	}
+	if node.Type == nethtml.TextNode {
+		return node.Data
+	}
+	if node.Type != nethtml.ElementNode {
+		return ""
+	}
+	name := strings.ToLower(strings.TrimSpace(node.Data))
+	if name == "img" || name == "image" || name == "whiteboard" {
+		return ""
+	}
+	var builder strings.Builder
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		builder.WriteString(minutesTextWithoutMedia(child))
+	}
+	return builder.String()
+}
+
+func normalizeMinutesAnchorText(value string) string {
+	return normalizeMinutesPublicText(value, "", validPublicMinutesAnchorText)
+}
+
+func validPublicMinutesAnchorText(value string) bool {
+	return validPublicMinutesText(value) &&
+		!minutesSensitiveAnchorPattern.MatchString(value) &&
+		!containsUnsafeMinutesURLData(value)
 }
 
 func firstNodeAttribute(node *nethtml.Node, names ...string) string {

@@ -191,18 +191,55 @@ func TestParseNoteVisualSourcesPreservesOrderAndMetadata(t *testing.T) {
 			MediaType:     "image/png",
 			Alt:           "第一张",
 			Summary:       "开场图",
+			Section:       "summary",
+			SectionStart:  true,
 			Width:         2,
 			Height:        2,
 			WidthPresent:  true,
 			HeightPresent: true,
 		},
-		{Token: "filecn_image_two", MediaType: "image/jpeg", Alt: "第二张"},
+		{Token: "filecn_image_two", MediaType: "image/jpeg", Alt: "第二张", Section: "summary", SectionStart: true},
 		{
-			Token:     "media_token_three",
-			MediaType: "image/png",
-			Alt:       "第三张",
-			Summary:   "收尾图",
+			Token:        "media_token_three",
+			MediaType:    "image/png",
+			Alt:          "第三张",
+			Summary:      "收尾图",
+			Section:      "summary",
+			SectionStart: true,
 		},
+	}, sources)
+}
+
+func TestParseNoteVisualSourcesTracksNearestTextBlock(t *testing.T) {
+	sources, err := parseNoteVisualSources(`
+<h1>总结</h1>
+<ul><li><b>阶段一</b><ul><li>基础设施成熟</li><li>应用开始涌现</li></ul><img src="image_one"/></li></ul>
+<p>阶段二的正文</p><img src="image_two"/>
+<grid><column><p>左侧框架说明</p></column><column><img src="image_three"/></column></grid>
+`)
+	require.NoError(t, err)
+	require.Equal(t, []minutesVisualSource{
+		{Token: "image_one", Section: "summary", AnchorText: "应用开始涌现", AnchorOccurrence: 1},
+		{Token: "image_two", Section: "summary", AnchorText: "阶段二的正文", AnchorOccurrence: 1},
+		{Token: "image_three", Section: "summary", AnchorText: "左侧框架说明", AnchorOccurrence: 1},
+	}, sources)
+}
+
+func TestParseNoteVisualSourcesPreservesRepeatedAnchorAndSectionPlacement(t *testing.T) {
+	sources, err := parseNoteVisualSources(`
+<h1>总结</h1>
+<p>重复段落</p><img src="image_one"/><img src="image_two"/>
+<p>重复段落</p><img src="image_three"/>
+<h2>关键决策</h2>
+<img src="image_four"/><p>采用方案 A</p><img src="image_five"/>
+`)
+	require.NoError(t, err)
+	require.Equal(t, []minutesVisualSource{
+		{Token: "image_one", Section: "summary", AnchorText: "重复段落", AnchorOccurrence: 1},
+		{Token: "image_two", Section: "summary", AnchorText: "重复段落", AnchorOccurrence: 1},
+		{Token: "image_three", Section: "summary", AnchorText: "重复段落", AnchorOccurrence: 2},
+		{Token: "image_four", Section: "decisions", SectionStart: true},
+		{Token: "image_five", Section: "decisions", AnchorText: "采用方案 A", AnchorOccurrence: 1},
 	}, sources)
 }
 
@@ -215,6 +252,15 @@ func TestParseNoteVisualSourcesRejectsUnmanagedImages(t *testing.T) {
 		_, err := parseNoteVisualSources(document)
 		require.Error(t, err, document)
 	}
+}
+
+func TestMinutesPublicTextNormalizationSharesBaseWithoutMergingPolicies(t *testing.T) {
+	require.Equal(t, "正文 图片", normalizeMinutesAnchorText(" <b>正文</b>   图片 "))
+	require.Equal(t, "正文 图片", sanitizeMinutesVisualText(" <b>正文</b>   图片 ", "fallback"))
+	require.Equal(t, "token成为通用度量衡", normalizeMinutesAnchorText("token成为通用度量衡"))
+	require.Equal(t, "fallback", sanitizeMinutesVisualText("token成为通用度量衡", "fallback"))
+	require.Empty(t, normalizeMinutesAnchorText("/tmp/secret"))
+	require.Equal(t, "fallback", sanitizeMinutesVisualText("/tmp/secret", "fallback"))
 }
 
 func TestNoteSectionDiagnosticsDistinguishKnownAndUnknownTopLevelSections(t *testing.T) {
@@ -257,6 +303,61 @@ func TestEncodeMinutesEnrichmentOmitsEmptyDocument(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "开场", decoded.Chapters[0].Title)
 	require.Equal(t, []string{"AI"}, decoded.Keywords)
+}
+
+func TestMinutesInlineImagesValidateAgainstImageVisuals(t *testing.T) {
+	item := MinutesVisualItem{
+		Type:      "image",
+		MediaID:   "image-1",
+		MediaType: "image/png",
+		Width:     2,
+		Height:    2,
+		SHA256:    strings.Repeat("a", 64),
+		Alt:       "正文图片",
+	}
+	enrichment := MinutesEnrichment{
+		VisualItems: []MinutesVisualItem{item},
+		InlineImages: []MinutesInlineImage{{
+			MediaID:          "image-1",
+			Section:          "summary",
+			AnchorText:       "token成为通用度量衡",
+			AnchorOccurrence: 2,
+		}},
+	}
+	encoded, err := encodeMinutesEnrichment(enrichment)
+	require.NoError(t, err)
+	decoded, err := decodeMinutesEnrichment(encoded)
+	require.NoError(t, err)
+	require.Equal(t, enrichment.InlineImages, decoded.InlineImages)
+
+	invalidAnchor := enrichment
+	invalidAnchor.InlineImages = []MinutesInlineImage{{
+		MediaID:    "image-1",
+		AnchorText: "/tmp/secret",
+	}}
+	invalidAnchorJSON, err := json.Marshal(invalidAnchor)
+	require.NoError(t, err)
+	_, err = decodeMinutesEnrichment(invalidAnchorJSON)
+	require.Error(t, err)
+
+	invalidPlacement := enrichment
+	invalidPlacement.InlineImages = []MinutesInlineImage{{
+		MediaID:      "image-1",
+		Section:      "summary",
+		SectionStart: true,
+		AnchorText:   "不应同时存在",
+	}}
+	invalidPlacementJSON, err := json.Marshal(invalidPlacement)
+	require.NoError(t, err)
+	_, err = decodeMinutesEnrichment(invalidPlacementJSON)
+	require.Error(t, err)
+
+	invalidMedia := enrichment
+	invalidMedia.InlineImages = []MinutesInlineImage{{MediaID: "whiteboard"}}
+	invalidMediaJSON, err := json.Marshal(invalidMedia)
+	require.NoError(t, err)
+	_, err = decodeMinutesEnrichment(invalidMediaJSON)
+	require.Error(t, err)
 }
 
 func TestSanitizePublicMinutesURLRejectsFeishuAndSecrets(t *testing.T) {

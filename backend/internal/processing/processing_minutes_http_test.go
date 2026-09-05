@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -154,6 +156,7 @@ func newMinutesHTTPHarness(t *testing.T, steps []scriptedMinutesStep) *minutesHT
 	router.GET("/api/v1/processing-runs/:id", handler.Get)
 	router.POST("/api/v1/processing-runs/:id/retry", handler.Retry)
 	router.GET("/api/v1/artifact-sets/:id/:kind", handler.GetArtifactContent)
+	router.GET("/api/v1/artifact-sets/:id/media/:mediaId", handler.GetArtifactMedia)
 
 	podcast := models.Podcast{
 		Title: "Minutes HTTP", FeedURL: "https://example.com/minutes-http.xml",
@@ -291,6 +294,13 @@ func writeHTTPTranscript(cwd string) {
 		[]byte("张三 00:00:01.500\n开场\n"),
 		0o600,
 	)
+}
+
+func writeHTTPPNG(t *testing.T, cwd, name string) {
+	t.Helper()
+	var buffer bytes.Buffer
+	require.NoError(t, png.Encode(&buffer, image.NewRGBA(image.Rect(0, 0, 2, 2))))
+	require.NoError(t, os.WriteFile(filepath.Join(cwd, name), buffer.Bytes(), 0o600))
 }
 
 func assertNoMinutesWriteCommands(t *testing.T, calls []scriptedMinutesCall) {
@@ -618,6 +628,63 @@ func TestProcessingMinutesCompletenessHTTPContract(t *testing.T) {
 		require.Equal(t, []string{"继续推进"}, replayed.MinutesEnrichment.Decisions)
 		require.Equal(t, callsBeforeReplay, len(h.runner.calls), "completed replay must stay local")
 	})
+}
+
+func TestProcessingMinutesInlineImagesHTTPContract(t *testing.T) {
+	h := newMinutesHTTPHarness(t, []scriptedMinutesStep{
+		{
+			output:       []byte(`{"minutes":[{"minute_token":"obcn_http_inline","note_id":"note_http_inline","artifacts":{"summary":"完整纪要","transcript_file":"detail/transcript.txt"}}]}`),
+			beforeReturn: writeHTTPTranscript,
+		},
+		{output: []byte(`{"note_doc_token":"docx_http_inline"}`)},
+		{output: []byte(`{"data":{"document":{"content":"<h1>总结</h1><whiteboard token=\"wbcn_http_inline\"></whiteboard><p>第一段</p><img name=\"第一张\" caption=\"图一\" mime=\"image/png\" src=\"filecn_http_image_1\"/><p>第二段</p><img name=\"第二张\" mime=\"image/png\" src=\"filecn_http_image_2\"/></div>"}}}`)},
+		{output: []byte(`{"ok":true}`), beforeReturn: func(cwd string) { writeHTTPPNG(t, cwd, "whiteboard-preview") }},
+		{output: []byte(`{"ok":true}`), beforeReturn: func(cwd string) { writeHTTPPNG(t, cwd, "image-1") }},
+		{output: []byte(`{"ok":true}`), beforeReturn: func(cwd string) { writeHTTPPNG(t, cwd, "image-2") }},
+	})
+	run := h.start(models.ProcessingTriggerManual)
+	h.seedCoreReady(run, "obcn_http_inline")
+
+	completed, err := h.engine.Advance(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusCompleted, completed.Status)
+	completedBody := h.getRun(completed.ID)
+	var envelope struct {
+		Data processing.RunDetail `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(completedBody.Body.Bytes(), &envelope))
+	require.NotNil(t, envelope.Data.Artifact)
+
+	summary := h.request(
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/artifact-sets/%d/minutes_summary", envelope.Data.Artifact.ID),
+		"",
+	)
+	require.Equal(t, http.StatusOK, summary.Code)
+	var summaryEnvelope struct {
+		Data processing.ArtifactContent `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(summary.Body.Bytes(), &summaryEnvelope))
+	require.Equal(t, []string{"whiteboard", "image-1", "image-2"}, []string{
+		summaryEnvelope.Data.VisualItems[0].MediaID,
+		summaryEnvelope.Data.VisualItems[1].MediaID,
+		summaryEnvelope.Data.VisualItems[2].MediaID,
+	})
+	require.Equal(t, []processing.MinutesInlineImage{
+		{MediaID: "image-1", Section: "summary", AnchorText: "第一段", AnchorOccurrence: 1},
+		{MediaID: "image-2", Section: "summary", AnchorText: "第二段", AnchorOccurrence: 1},
+	}, summaryEnvelope.Data.InlineImages)
+	h.assertNoLeak(summary.Body.String())
+
+	for _, mediaID := range []string{"whiteboard", "image-1", "image-2"} {
+		media := h.request(
+			http.MethodGet,
+			fmt.Sprintf("/api/v1/artifact-sets/%d/media/%s", envelope.Data.Artifact.ID, mediaID),
+			"",
+		)
+		require.Equal(t, http.StatusOK, media.Code)
+		require.Equal(t, "image/png", media.Header().Get("Content-Type"))
+	}
 }
 
 func ptrTimeHTTP(value time.Time) *time.Time {

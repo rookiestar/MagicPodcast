@@ -211,6 +211,7 @@ type ArtifactContent struct {
 	Links          []MinutesLink         `json:"links,omitempty"`
 	Whiteboard     *MinutesWhiteboard    `json:"whiteboard,omitempty"`
 	VisualItems    []MinutesVisualItem   `json:"visual_items,omitempty"`
+	InlineImages   []MinutesInlineImage  `json:"inline_images,omitempty"`
 }
 
 type ArtifactMedia struct {

@@ -554,8 +554,10 @@ const EpisodeProcessingPanel = forwardRef<
   );
   const visualSummaryAvailable = Boolean(
     minutesContentMatchesCurrent &&
-      ((minutesArtifactContent?.content.visual_items?.length ?? 0) > 0 ||
-        minutesArtifactContent?.content.whiteboard),
+      (minutesArtifactContent?.content.whiteboard ||
+        minutesArtifactContent?.content.visual_items?.some(
+          (item) => item.type === "whiteboard",
+        )),
   );
   const summaryContentSettled =
     summaryKind !== "minutes_summary" ||
@@ -1222,6 +1224,7 @@ const EpisodeProcessingPanel = forwardRef<
               links={selectedArtifactContent.content.links}
               whiteboard={selectedArtifactContent.content.whiteboard}
               visualItems={selectedArtifactContent.content.visual_items}
+              inlineImages={selectedArtifactContent.content.inline_images}
               mode={renderedArtifactTab === "summary" ? "visual" : "minutes"}
             />
           ) : (

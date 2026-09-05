@@ -703,6 +703,10 @@ func TestFeishuMinutesAdapterCapturesOrderedReadOnlyImages(t *testing.T) {
 		{Type: "image", MediaID: "image-1", MediaType: "image/png", Width: 2, Height: 2, SHA256: digestBytes(first), Summary: "开场图", Alt: "第一张"},
 		{Type: "image", MediaID: "image-2", MediaType: "image/png", Width: 2, Height: 2, SHA256: digestBytes(second), Alt: "第二张"},
 	}, completed.MinutesEnrichment.VisualItems)
+	require.Equal(t, []MinutesInlineImage{
+		{MediaID: "image-1", Section: "summary", SectionStart: true},
+		{MediaID: "image-2", Section: "summary", AnchorText: "中间内容", AnchorOccurrence: 1},
+	}, completed.MinutesEnrichment.InlineImages)
 	require.Len(t, completed.VisualPreviews, 2)
 	require.Nil(t, completed.MinutesEnrichment.Whiteboard)
 	require.NotContains(t, string(mustJSON(t, completed.MinutesEnrichment)), "filecn_image_")
