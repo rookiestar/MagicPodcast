@@ -33,7 +33,8 @@ import { getErrorMessage } from "@/lib/errorMessage";
 import { acquireDocumentScrollLock } from "@/lib/documentScrollLock";
 import {
   openOriginalEpisodeTab,
-  planSafeOriginalEpisodeOpen,
+  originalEpisodeAccessText,
+  planOriginalEpisodeAccess,
 } from "@/lib/originalEpisodeOpen";
 import { createEpisodeShowNotesStore } from "@/lib/episodeShowNotesStore";
 import type { Tag } from "@/types";
@@ -434,8 +435,8 @@ export default function ConsumptionDetailPanel({
   const [moveTarget, setMoveTarget] = useState<ConsumptionQueue>(
     item.queue_state === "focus" ? "someday" : "focus",
   );
-  const originalPlan = useMemo(
-    () => planSafeOriginalEpisodeOpen(item.original_url),
+  const originalAccess = useMemo(
+    () => planOriginalEpisodeAccess(item.original_url),
     [item.original_url],
   );
   const originalRecovery = useOriginalEpisodeRecovery();
@@ -558,13 +559,14 @@ export default function ConsumptionDetailPanel({
   };
 
   const openOriginal = async () => {
-    if (!originalPlan || externalState === "saving") return;
+    if (originalAccess.state !== "openable" || externalState === "saving")
+      return;
     setExternalState("saving");
     setDetailError(null);
 
     const saveIntent = consumptionApi.markInProgress(item.episode_id);
-    openOriginalEpisodeTab(originalPlan.openUrl);
-    originalRecovery.activate(item.episode_id, originalPlan);
+    openOriginalEpisodeTab(originalAccess.openUrl);
+    originalRecovery.activate(item.episode_id, originalAccess.plan);
 
     try {
       const updated = await saveIntent;
@@ -803,7 +805,7 @@ export default function ConsumptionDetailPanel({
                 >
                   {processingHeader.primaryLabel}
                 </button>
-                {originalPlan ? (
+                {originalAccess.state === "openable" ? (
                   <button
                     type="button"
                     className={styles.originalLink}
@@ -818,8 +820,11 @@ export default function ConsumptionDetailPanel({
                     />
                   </button>
                 ) : (
-                  <span className={styles.unsafeOriginal}>
-                    原节目链接不可安全打开
+                  <span
+                    className={styles.unsafeOriginal}
+                    data-original-access={originalAccess.state}
+                  >
+                    {originalEpisodeAccessText(originalAccess)}
                   </span>
                 )}
                 <details className={styles.secondaryActions}>

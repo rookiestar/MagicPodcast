@@ -783,6 +783,32 @@ describe("DiscoveryDesk", () => {
     expect(shortlist.querySelector("svg")).toBeInTheDocument();
   });
 
+  it("expresses the shared original-link tri-state contract for rejected links", () => {
+    render(
+      <DiscoveryDesk
+        candidates={candidates.map((candidate) =>
+          candidate.episode_id === 12
+            ? { ...candidate, original_url: "javascript:alert(1)" }
+            : candidate,
+        )}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "预读 缺少 Show Notes 的边界项" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "原节目链接不可安全打开" }),
+    ).toBeDisabled();
+    expect(screen.getByText("原节目链接不可安全打开")).toHaveAttribute(
+      "data-original-access",
+      "rejected",
+    );
+    expect(
+      screen.queryByRole("link", { name: "打开节目页面" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("keeps the list in place while switching the selected candidate", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
@@ -796,7 +822,13 @@ describe("DiscoveryDesk", () => {
     expect(
       screen.getByRole("dialog", { name: "缺少 Show Notes 的边界项" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "节目链接暂缺" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "原节目链接暂缺" }),
+    ).toBeDisabled();
+    expect(screen.getByText("原节目链接暂缺")).toHaveAttribute(
+      "data-original-access",
+      "missing",
+    );
     expect(screen.getByTestId("discovery-candidate-list")).toBe(list);
   });
 
@@ -1188,7 +1220,9 @@ describe("DiscoveryDesk", () => {
     expect(
       screen.getByRole("button", { name: "预读 缺少 Show Notes 的边界项" }),
     ).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("button", { name: "节目链接暂缺" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "原节目链接暂缺" }),
+    ).toBeDisabled();
     expect(screen.queryByText("节目原文")).not.toBeInTheDocument();
     expect(
       within(screen.getByRole("dialog")).getByRole("button", {

@@ -2528,6 +2528,13 @@
     gap: 8px;
   }
 
+  .discovery-original-link-state {
+    display: block;
+    margin-top: 4px;
+    color: #6a6359;
+    font: 600 11px/1.3 var(--font-mono);
+  }
+
   .discovery-quick-actions {
     display: grid;
     grid-template-columns: repeat(3, 44px);
@@ -3274,6 +3281,13 @@
     color: #c4552a;
     font: 600 12px/1.4 var(--font-mono);
     text-decoration: underline;
+  }
+
+  .workflow-report-episode-link-state {
+    display: inline-block;
+    margin-top: 8px;
+    color: #6a6359;
+    font: 600 12px/1.4 var(--font-mono);
   }
 
   .workflow-report-error,

@@ -389,6 +389,44 @@ describe("ConsumptionDetailPanel", () => {
     expect(onMove).not.toHaveBeenCalled();
   });
 
+  it("opens the original URL only from the openable state", async () => {
+    renderDetail();
+
+    fireEvent.click(screen.getByRole("button", { name: "原节目" }));
+
+    expect(window.open).toHaveBeenCalledWith(
+      "https://example.com/episode/201",
+      "_blank",
+      "noopener,noreferrer",
+    );
+  });
+
+  it("shows the shared missing copy when the original link is empty", () => {
+    renderDetail({ item: { ...item, original_url: "" } });
+
+    expect(screen.getByText("原节目链接暂缺")).toHaveAttribute(
+      "data-original-access",
+      "missing",
+    );
+    expect(
+      screen.queryByRole("button", { name: "原节目" }),
+    ).not.toBeInTheDocument();
+    expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it("shows the shared rejected copy for dangerous original links", () => {
+    renderDetail({ item: { ...item, original_url: "javascript:alert(1)" } });
+
+    expect(screen.getByText("原节目链接不可安全打开")).toHaveAttribute(
+      "data-original-access",
+      "rejected",
+    );
+    expect(
+      screen.queryByRole("button", { name: "原节目" }),
+    ).not.toBeInTheDocument();
+    expect(window.open).not.toHaveBeenCalled();
+  });
+
   it("keeps Xiaoyuzhou recovery available without changing the queue", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
