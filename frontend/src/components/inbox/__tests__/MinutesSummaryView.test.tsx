@@ -411,6 +411,134 @@ describe("MinutesSummaryView", () => {
       "src",
       "/api/v1/artifact-sets/8/media/whiteboard",
     );
+    expect(within(lightbox).getByRole("button", { name: "关闭" })).toHaveFocus();
+  });
+
+  it("keeps the cursor anchor stable when wheel zooming after a pan", () => {
+    render(
+      <MinutesSummaryView
+        artifactSetId={7}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /放大查看画板：飞书智能纪要画板/ }),
+    );
+    const lightbox = screen.getByRole("dialog", { name: "画板预览" });
+    const viewport = lightbox.querySelector("[data-zoomed]")!;
+    const lightboxImage = within(lightbox).getByRole("img", {
+      name: "飞书智能纪要画板",
+    });
+    const wheelEvent = new WheelEvent("wheel", {
+      deltaY: -100,
+    });
+    Object.defineProperties(wheelEvent, {
+      clientX: { configurable: true, value: 500 },
+      clientY: { configurable: true, value: 350 },
+    });
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 600 },
+      getBoundingClientRect: {
+        configurable: true,
+        value: () => ({
+          left: 0,
+          top: 0,
+          width: 800,
+          height: 600,
+        }),
+      },
+    });
+    Object.defineProperties(lightboxImage, {
+      offsetWidth: { configurable: true, value: 800 },
+      offsetHeight: { configurable: true, value: 600 },
+    });
+
+    fireEvent.click(within(lightbox).getByRole("button", { name: "放大" }));
+    fireEvent.pointerDown(viewport, {
+      pointerId: 1,
+      pointerType: "mouse",
+      button: 0,
+      clientX: 100,
+      clientY: 100,
+    });
+    fireEvent.pointerMove(viewport, {
+      pointerId: 1,
+      pointerType: "mouse",
+      clientX: 140,
+      clientY: 120,
+    });
+    fireEvent.pointerUp(viewport, { pointerId: 1, pointerType: "mouse" });
+
+    fireEvent(viewport, wheelEvent);
+
+    expect(within(lightbox).getByText("150%")).toBeVisible();
+    expect(
+      lightbox.querySelector<HTMLElement>('[style*="translate3d"]')?.style
+        .transform,
+    ).toBe("translate3d(28px, 14px, 0)");
+  });
+
+  it("re-constrains pan when the viewport shrinks", () => {
+    render(
+      <MinutesSummaryView
+        artifactSetId={7}
+        content="# 纪要"
+        mode="visual"
+        visualItems={visuals}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /放大查看画板：飞书智能纪要画板/ }),
+    );
+    const lightbox = screen.getByRole("dialog", { name: "画板预览" });
+    const viewport = lightbox.querySelector("[data-zoomed]")!;
+    const lightboxImage = within(lightbox).getByRole("img", {
+      name: "飞书智能纪要画板",
+    });
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 600 },
+    });
+    Object.defineProperties(lightboxImage, {
+      offsetWidth: { configurable: true, value: 800 },
+      offsetHeight: { configurable: true, value: 600 },
+    });
+
+    fireEvent.click(within(lightbox).getByRole("button", { name: "放大" }));
+    fireEvent.pointerDown(viewport, {
+      pointerId: 1,
+      pointerType: "mouse",
+      button: 0,
+      clientX: 100,
+      clientY: 100,
+    });
+    fireEvent.pointerMove(viewport, {
+      pointerId: 1,
+      pointerType: "mouse",
+      clientX: 1400,
+      clientY: 1000,
+    });
+    fireEvent.pointerUp(viewport, { pointerId: 1, pointerType: "mouse" });
+
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 400 },
+      clientHeight: { configurable: true, value: 300 },
+    });
+    Object.defineProperties(lightboxImage, {
+      offsetWidth: { configurable: true, value: 400 },
+      offsetHeight: { configurable: true, value: 300 },
+    });
+    fireEvent(window, new Event("resize"));
+
+    expect(
+      lightbox.querySelector<HTMLElement>('[style*="translate3d"]')?.style
+        .transform,
+    ).toBe("translate3d(50px, 37.5px, 0)");
   });
 
   it("keeps other visuals available when one thumbnail fails", () => {

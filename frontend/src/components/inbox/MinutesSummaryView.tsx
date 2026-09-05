@@ -213,7 +213,7 @@ export default function MinutesSummaryView({
       window.removeEventListener("keydown", onKeyDown, true);
       releaseScrollLock();
     };
-  }, [isOpenMediaVisible, openMediaId]);
+  }, [artifactSetId, isOpenMediaVisible, openMediaId]);
   const handleVisualError = (mediaId: string) => {
     setFailedMediaIds((current) => {
       if (current.has(mediaId)) return current;
@@ -608,8 +608,8 @@ function MinutesLightbox({
     if (anchor) {
       const ratio = clamped / current;
       nextPan = {
-        x: nextPan.x - anchor.x * (ratio - 1),
-        y: nextPan.y - anchor.y * (ratio - 1),
+        x: anchor.x - (anchor.x - nextPan.x) * ratio,
+        y: anchor.y - (anchor.y - nextPan.y) * ratio,
       };
     }
     nextPan = constrainPan(nextPan, clamped);
@@ -653,6 +653,13 @@ function MinutesLightbox({
     const onWheel = (event: WheelEvent) => wheelHandlerRef.current(event);
     viewport.addEventListener("wheel", onWheel, { passive: false });
     return () => viewport.removeEventListener("wheel", onWheel);
+  }, []);
+
+  useEffect(() => {
+    const onResize = () =>
+      updatePan(constrainPan(panRef.current, zoomRef.current));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, []);
 
   const handleDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
