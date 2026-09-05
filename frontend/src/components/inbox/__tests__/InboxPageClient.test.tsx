@@ -1415,10 +1415,9 @@ describe("InboxPageClient", () => {
         name: "妙记原生纪要",
       }),
     ).toBeVisible();
-    expect(within(dialog).getByRole("tab", { name: "纪要" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(
+      within(dialog).getByRole("tab", { name: "纪要" }),
+    ).toHaveAttribute("aria-selected", "true");
     expect(apiMocks.getArtifactContent).toHaveBeenCalledWith(
       nativeArtifact.id,
       "minutes_summary",
@@ -1700,6 +1699,14 @@ describe("InboxPageClient", () => {
     fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
 
     expect(await within(dialog).findByText("飞书智能纪要")).toBeVisible();
+    const boardViewport = screen.getByRole("region", {
+      name: "消费队列横向总览",
+    });
+    const detailScroll = within(dialog).getByRole("tablist", {
+      name: "单集详情内容",
+    }).parentElement as HTMLElement;
+    boardViewport.scrollLeft = 137;
+    detailScroll.scrollTop = 164;
     const summaryTab = within(dialog).getByRole("tab", { name: "总结" });
     const minutesTab = within(dialog).getByRole("tab", { name: "纪要" });
     expect(summaryTab).toHaveAttribute("aria-selected", "true");
@@ -1734,7 +1741,7 @@ describe("InboxPageClient", () => {
     fireEvent.click(
       within(dialog).getByRole("button", { name: /放大查看画板/ }),
     );
-    const lightbox = await within(dialog).findByRole("dialog", {
+    const lightbox = await screen.findByRole("dialog", {
       name: "画板预览",
     });
     expect(
@@ -1746,14 +1753,16 @@ describe("InboxPageClient", () => {
     expect(
       within(lightbox).getByRole("button", { name: "关闭" }),
     ).toHaveFocus();
+    expect(boardViewport.scrollLeft).toBe(137);
+    expect(detailScroll.scrollTop).toBe(164);
     fireEvent.keyDown(lightbox, { key: "Tab" });
     expect(
-      within(lightbox).getByRole("button", { name: "关闭" }),
+      within(lightbox).getByRole("button", { name: "放大" }),
     ).toHaveFocus();
     fireEvent.keyDown(lightbox, { key: "Escape" });
     await waitFor(() =>
       expect(
-        within(dialog).queryByRole("dialog", { name: "画板预览" }),
+        screen.queryByRole("dialog", { name: "画板预览" }),
       ).not.toBeInTheDocument(),
     );
     expect(
@@ -1762,17 +1771,78 @@ describe("InboxPageClient", () => {
     fireEvent.click(
       within(dialog).getByRole("button", { name: /放大查看画板/ }),
     );
-    const lightboxAgain = await within(dialog).findByRole("dialog", {
+    const lightboxAgain = await screen.findByRole("dialog", {
       name: "画板预览",
     });
+    expect(document.documentElement.style.overflow).toBe("hidden");
+    expect(
+      within(lightboxAgain).getByRole("status", {
+        name: "当前缩放 100%",
+      }),
+    ).toBeVisible();
+    fireEvent.click(
+      within(lightboxAgain).getByRole("button", { name: "放大" }),
+    );
+    expect(
+      within(lightboxAgain).getByRole("status", {
+        name: "当前缩放 125%",
+      }),
+    ).toBeVisible();
+    const lightboxViewport = lightboxAgain.querySelector("[data-zoomed]")!;
+    const lightboxImage = within(lightboxAgain).getByRole("img", {
+      name: "飞书智能纪要画板",
+    });
+    Object.defineProperties(lightboxViewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 600 },
+    });
+    Object.defineProperties(lightboxImage, {
+      offsetWidth: { configurable: true, value: 800 },
+      offsetHeight: { configurable: true, value: 600 },
+    });
+    fireEvent.pointerDown(lightboxViewport, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 100,
+      clientY: 100,
+    });
+    fireEvent.pointerMove(lightboxViewport, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 1400,
+      clientY: 1000,
+    });
+    fireEvent.pointerUp(lightboxViewport, {
+      pointerId: 1,
+      pointerType: "touch",
+    });
+    expect(
+      lightboxAgain.querySelector<HTMLElement>('[style*="translate3d"]')?.style
+        .transform,
+    ).toBe("translate3d(100px, 75px, 0)");
+    fireEvent.click(
+      within(lightboxAgain).getByRole("button", { name: "适配全屏" }),
+    );
+    expect(
+      within(lightboxAgain).getByRole("status", {
+        name: "当前缩放 100%",
+      }),
+    ).toBeVisible();
+    expect(
+      lightboxAgain.querySelector<HTMLElement>('[style*="translate3d"]')?.style
+        .transform,
+    ).toBe("translate3d(0px, 0px, 0)");
     fireEvent.click(
       within(lightboxAgain).getByRole("button", { name: "关闭" }),
     );
     await waitFor(() =>
       expect(
-        within(dialog).queryByRole("dialog", { name: "画板预览" }),
+        screen.queryByRole("dialog", { name: "画板预览" }),
       ).not.toBeInTheDocument(),
     );
+    expect(document.documentElement.style.overflow).toBe("");
+    expect(boardViewport.scrollLeft).toBe(137);
+    expect(detailScroll.scrollTop).toBe(164);
     expect(
       within(dialog).getByRole("button", { name: /放大查看画板/ }),
     ).toHaveFocus();
@@ -2089,9 +2159,10 @@ describe("InboxPageClient", () => {
     expect(
       within(dialog).queryByRole("tab", { name: "总结" }),
     ).not.toBeInTheDocument();
-    expect(
-      within(dialog).getByRole("tab", { name: "纪要" }),
-    ).toHaveAttribute("aria-selected", "true");
+    expect(within(dialog).getByRole("tab", { name: "纪要" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     expect(
       await within(dialog).findByRole("heading", { name: "总结" }),
     ).toBeVisible();

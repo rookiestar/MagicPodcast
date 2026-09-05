@@ -1,6 +1,15 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from "react";
+import { createPortal } from "react-dom";
 import MarkdownViewer from "@/components/workflows/MarkdownViewer";
 import {
   getOptimizedImageUrl,
@@ -14,6 +23,39 @@ import type {
   MinutesWhiteboard,
 } from "@/types/processing";
 import styles from "./InboxPage.module.css";
+
+const MIN_LIGHTBOX_ZOOM = 1;
+const MAX_LIGHTBOX_ZOOM = 4;
+const LIGHTBOX_ZOOM_STEP = 0.25;
+
+interface LightboxPan {
+  x: number;
+  y: number;
+}
+
+interface LightboxPointer {
+  x: number;
+  y: number;
+}
+
+interface LightboxSize {
+  width: number;
+  height: number;
+}
+
+type LightboxGesture =
+  | {
+      kind: "pan";
+      pointerId: number;
+      startX: number;
+      startY: number;
+      origin: LightboxPan;
+    }
+  | {
+      kind: "pinch";
+      startDistance: number;
+      startZoom: number;
+    };
 
 interface MinutesSummaryViewProps {
   artifactSetId: number;
@@ -63,9 +105,11 @@ export default function MinutesSummaryView({
   const previewButtonRefs = useRef<Record<string, HTMLButtonElement | null>>(
     {},
   );
+  const lightboxRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const lightboxTriggerId = useRef<string | null>(null);
   const titleId = useId();
+  const lightboxId = `${titleId}-lightbox`;
   const summaryContent = stripRedundantSummaryHeading(content);
   const summaryInlineImages = visibleInlineImages.filter(
     (image) =>
@@ -101,52 +145,78 @@ export default function MinutesSummaryView({
     .map((item) => item.media_id)
     .concat(visibleInlineImages.map((image) => image.item.media_id))
     .join(",");
+  const isOpenMediaVisible = openMediaId
+    ? managedVisualItems.some(
+        (item) =>
+          item.media_id === openMediaId &&
+          (isVisualMode ? item.type === "whiteboard" : item.type === "image"),
+      )
+    : false;
 
   useEffect(() => {
     setFailedMediaIds(new Set());
   }, [artifactSetId, visualIdentity]);
 
   useEffect(() => {
-    if (!openMediaId) return;
-    const openItem = managedVisualItems.find(
-      (item) => item.media_id === openMediaId,
-    );
-    if (
-      !openItem ||
-      (isVisualMode && openItem.type !== "whiteboard") ||
-      (!isVisualMode && openItem.type !== "image")
-    ) {
+    if (openMediaId && !isOpenMediaVisible) {
       setOpenMediaId(null);
     }
-  }, [isVisualMode, managedVisualItems, openMediaId]);
+  }, [isOpenMediaVisible, openMediaId]);
 
   useEffect(() => {
-    if (openMediaId) {
-      lightboxTriggerId.current = openMediaId;
-      closeButtonRef.current?.focus();
-      const onKeyDown = (event: KeyboardEvent) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          event.stopPropagation();
-          setOpenMediaId(null);
-          return;
-        }
-        if (event.key === "Tab") {
-          event.preventDefault();
-          event.stopPropagation();
-          closeButtonRef.current?.focus();
-        }
-      };
-      window.addEventListener("keydown", onKeyDown, true);
-      return () => window.removeEventListener("keydown", onKeyDown, true);
+    if (!openMediaId || !isOpenMediaVisible) {
+      if (lightboxTriggerId.current) {
+        previewButtonRefs.current[lightboxTriggerId.current]?.focus();
+        lightboxTriggerId.current = null;
+      }
+      return undefined;
     }
-    if (lightboxTriggerId.current) {
-      previewButtonRefs.current[lightboxTriggerId.current]?.focus();
-      lightboxTriggerId.current = null;
-    }
-    return undefined;
-  }, [openMediaId]);
 
+    lightboxTriggerId.current = openMediaId;
+    closeButtonRef.current?.focus();
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousDocumentOverflow = document.documentElement.style.overflow;
+    const previousBodyTouchAction = document.body.style.touchAction;
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpenMediaId(null);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const dialog = lightboxRef.current;
+      if (!dialog || !dialog.contains(event.target as Node)) return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.getAttribute("aria-hidden") !== "true");
+      if (focusable.length === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const currentIndex = focusable.indexOf(
+        document.activeElement as HTMLElement,
+      );
+      const direction = event.shiftKey ? -1 : 1;
+      const nextIndex =
+        currentIndex < 0
+          ? 0
+          : (currentIndex + direction + focusable.length) % focusable.length;
+      focusable[nextIndex].focus();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      document.documentElement.style.overflow = previousDocumentOverflow;
+      document.body.style.overflow = previousBodyOverflow;
+      document.body.style.touchAction = previousBodyTouchAction;
+    };
+  }, [isOpenMediaVisible, openMediaId]);
   const handleVisualError = (mediaId: string) => {
     setFailedMediaIds((current) => {
       if (current.has(mediaId)) return current;
@@ -183,6 +253,7 @@ export default function MinutesSummaryView({
           onClick={() => setOpenMediaId(item.media_id)}
           aria-haspopup="dialog"
           aria-expanded={openMediaId === item.media_id}
+          aria-controls={openMediaId === item.media_id ? lightboxId : undefined}
           aria-label={`放大查看图片：${item.alt || alt || "飞书智能纪要图片"}`}
         >
           {/* Managed local artifact media; not a remote Next image. */}
@@ -240,6 +311,7 @@ export default function MinutesSummaryView({
           onClick={() => setOpenMediaId(item.media_id)}
           aria-haspopup="dialog"
           aria-expanded={openMediaId === item.media_id}
+          aria-controls={openMediaId === item.media_id ? lightboxId : undefined}
           aria-label={
             isWhiteboard ? `放大查看画板：${alt}` : `放大查看图片：${alt}`
           }
@@ -259,6 +331,10 @@ export default function MinutesSummaryView({
       </figure>
     );
   });
+
+  const openMedia = openMediaId && isOpenMediaVisible
+    ? managedVisualItems.find((item) => item.media_id === openMediaId)
+    : undefined;
 
   return (
     <div
@@ -420,48 +496,385 @@ export default function MinutesSummaryView({
           ) : null}
         </>
       )}
-      {openMediaId &&
-        managedVisualItems.some((item) => item.media_id === openMediaId) && (
-          <div
-            className={styles.minutesLightbox}
-            role="dialog"
-            aria-modal="true"
-            aria-label={
-              managedVisualItems.find((item) => item.media_id === openMediaId)
-                ?.type === "whiteboard"
-                ? "画板预览"
-                : "图片预览"
-            }
-          >
-            <div className={styles.minutesLightboxCard}>
-              <div className={styles.minutesLightboxScroll}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={managedMediaURL(artifactSetId, openMediaId)}
-                  alt={
-                    managedVisualItems.find(
-                      (item) => item.media_id === openMediaId,
-                    )?.alt || "飞书智能纪要图片"
-                  }
-                  onError={() => {
-                    handleVisualError(openMediaId);
-                    setOpenMediaId(null);
-                  }}
-                />
-              </div>
-              <button
-                ref={closeButtonRef}
-                type="button"
-                className={styles.minutesLightboxClose}
-                onClick={() => setOpenMediaId(null)}
-              >
-                关闭
-              </button>
-            </div>
-          </div>
-        )}
+      {openMedia
+        ? (() => {
+            const lightbox = (
+              <MinutesLightbox
+                alt={
+                  openMedia.alt ||
+                  (openMedia.type === "whiteboard"
+                    ? "飞书智能纪要画板"
+                    : "飞书智能纪要图片")
+                }
+                closeButtonRef={closeButtonRef}
+                dialogRef={lightboxRef}
+                id={lightboxId}
+                isWhiteboard={openMedia.type === "whiteboard"}
+                onClose={() => setOpenMediaId(null)}
+                onError={() => {
+                  handleVisualError(openMedia.media_id);
+                  setOpenMediaId(null);
+                }}
+                src={managedMediaURL(artifactSetId, openMedia.media_id)}
+              />
+            );
+            return typeof document === "undefined"
+              ? lightbox
+              : createPortal(lightbox, document.body);
+          })()
+        : null}
     </div>
   );
+}
+
+interface MinutesLightboxProps {
+  alt: string;
+  closeButtonRef: RefObject<HTMLButtonElement>;
+  dialogRef: RefObject<HTMLDivElement>;
+  id: string;
+  isWhiteboard: boolean;
+  onClose: () => void;
+  onError: () => void;
+  src: string;
+}
+
+function MinutesLightbox({
+  alt,
+  closeButtonRef,
+  dialogRef,
+  id,
+  isWhiteboard,
+  onClose,
+  onError,
+  src,
+}: MinutesLightboxProps) {
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
+  const [zoom, setZoom] = useState(MIN_LIGHTBOX_ZOOM);
+  const [pan, setPan] = useState<LightboxPan>({ x: 0, y: 0 });
+  const zoomRef = useRef(zoom);
+  const panRef = useRef(pan);
+  const pointersRef = useRef(new Map<number, LightboxPointer>());
+  const gestureRef = useRef<LightboxGesture | null>(null);
+  const wheelHandlerRef = useRef<(event: WheelEvent) => void>(() => undefined);
+
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+
+  useEffect(() => {
+    panRef.current = pan;
+  }, [pan]);
+
+  const updatePan = (next: LightboxPan) => {
+    panRef.current = next;
+    setPan(next);
+  };
+
+  const constrainPan = (next: LightboxPan, nextZoom: number) => {
+    if (nextZoom <= MIN_LIGHTBOX_ZOOM) return { x: 0, y: 0 };
+    const viewport = viewportRef.current;
+    const image = imageRef.current;
+    if (!viewport || !image) return next;
+    const containedImage = getContainedImageSize(image, viewport);
+    const maxX = Math.max(
+      0,
+      (containedImage.width * nextZoom - viewport.clientWidth) / 2,
+    );
+    const maxY = Math.max(
+      0,
+      (containedImage.height * nextZoom - viewport.clientHeight) / 2,
+    );
+    return {
+      x: Math.min(maxX, Math.max(-maxX, next.x)),
+      y: Math.min(maxY, Math.max(-maxY, next.y)),
+    };
+  };
+
+  const updateZoom = (next: number, anchor?: LightboxPan) => {
+    const current = zoomRef.current;
+    const clamped = Math.min(
+      MAX_LIGHTBOX_ZOOM,
+      Math.max(MIN_LIGHTBOX_ZOOM, Number(next.toFixed(2))),
+    );
+    if (clamped === current && !anchor) return;
+    if (clamped <= MIN_LIGHTBOX_ZOOM) {
+      zoomRef.current = MIN_LIGHTBOX_ZOOM;
+      panRef.current = { x: 0, y: 0 };
+      setZoom(MIN_LIGHTBOX_ZOOM);
+      setPan({ x: 0, y: 0 });
+      return;
+    }
+
+    let nextPan = panRef.current;
+    if (anchor) {
+      const ratio = clamped / current;
+      nextPan = {
+        x: nextPan.x - anchor.x * (ratio - 1),
+        y: nextPan.y - anchor.y * (ratio - 1),
+      };
+    }
+    nextPan = constrainPan(nextPan, clamped);
+    zoomRef.current = clamped;
+    panRef.current = nextPan;
+    setZoom(clamped);
+    setPan(nextPan);
+  };
+
+  const resetZoom = () => updateZoom(MIN_LIGHTBOX_ZOOM);
+
+  const handleWheel = (event: WheelEvent) => {
+    event.preventDefault();
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const rect = viewport.getBoundingClientRect();
+    const clientX = Number.isFinite(event.clientX)
+      ? event.clientX
+      : rect.left + rect.width / 2;
+    const clientY = Number.isFinite(event.clientY)
+      ? event.clientY
+      : rect.top + rect.height / 2;
+    const anchor = {
+      x: clientX - (rect.left + rect.width / 2),
+      y: clientY - (rect.top + rect.height / 2),
+    };
+    updateZoom(
+      zoomRef.current +
+        (event.deltaY < 0 ? LIGHTBOX_ZOOM_STEP : -LIGHTBOX_ZOOM_STEP),
+      anchor,
+    );
+  };
+
+  useEffect(() => {
+    wheelHandlerRef.current = handleWheel;
+  });
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return undefined;
+    const onWheel = (event: WheelEvent) => wheelHandlerRef.current(event);
+    viewport.addEventListener("wheel", onWheel, { passive: false });
+    return () => viewport.removeEventListener("wheel", onWheel);
+  }, []);
+
+  const handleDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "+" || event.key === "=") {
+      event.preventDefault();
+      updateZoom(zoomRef.current + LIGHTBOX_ZOOM_STEP);
+    } else if (event.key === "-") {
+      event.preventDefault();
+      updateZoom(zoomRef.current - LIGHTBOX_ZOOM_STEP);
+    } else if (event.key === "0") {
+      event.preventDefault();
+      resetZoom();
+    }
+  };
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    pointersRef.current.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+    if (pointersRef.current.size === 1) {
+      gestureRef.current = {
+        kind: "pan",
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        origin: panRef.current,
+      };
+      return;
+    }
+    if (pointersRef.current.size === 2) {
+      const [first, second] = Array.from(pointersRef.current.values());
+      gestureRef.current = {
+        kind: "pinch",
+        startDistance: distanceBetween(first, second),
+        startZoom: zoomRef.current,
+      };
+    }
+  };
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!pointersRef.current.has(event.pointerId)) return;
+    pointersRef.current.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+    const pointers = Array.from(pointersRef.current.values());
+    const gesture = gestureRef.current;
+    if (pointers.length >= 2) {
+      if (gesture?.kind !== "pinch") return;
+      const nextDistance = distanceBetween(pointers[0], pointers[1]);
+      if (gesture.startDistance === 0) return;
+      updateZoom(gesture.startZoom * (nextDistance / gesture.startDistance));
+      return;
+    }
+    if (
+      gesture?.kind !== "pan" ||
+      gesture.pointerId !== event.pointerId ||
+      zoomRef.current <= MIN_LIGHTBOX_ZOOM
+    ) {
+      return;
+    }
+    updatePan(
+      constrainPan(
+        {
+          x: gesture.origin.x + event.clientX - gesture.startX,
+          y: gesture.origin.y + event.clientY - gesture.startY,
+        },
+        zoomRef.current,
+      ),
+    );
+  };
+
+  const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    pointersRef.current.delete(event.pointerId);
+    if (pointersRef.current.size === 0) {
+      gestureRef.current = null;
+      return;
+    }
+    if (pointersRef.current.size === 1) {
+      const [pointerId, point] = Array.from(pointersRef.current.entries())[0];
+      gestureRef.current = {
+        kind: "pan",
+        pointerId,
+        startX: point.x,
+        startY: point.y,
+        origin: panRef.current,
+      };
+    }
+  };
+
+  const zoomLabel = `${Math.round(zoom * 100)}%`;
+
+  return (
+    <div
+      ref={dialogRef}
+      id={id}
+      className={styles.minutesLightbox}
+      role="dialog"
+      aria-modal="true"
+      aria-label={isWhiteboard ? "画板预览" : "图片预览"}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      onKeyDown={handleDialogKeyDown}
+    >
+      <div className={styles.minutesLightboxCard}>
+        <div className={styles.minutesLightboxToolbar}>
+          <div className={styles.minutesLightboxControls}>
+            <button
+              type="button"
+              className={styles.minutesLightboxControl}
+              onClick={() => updateZoom(zoomRef.current - LIGHTBOX_ZOOM_STEP)}
+              disabled={zoom <= MIN_LIGHTBOX_ZOOM}
+              aria-label="缩小"
+              title="缩小"
+            >
+              −
+            </button>
+            <span
+              className={styles.minutesLightboxZoom}
+              role="status"
+              aria-live="polite"
+              aria-label={`当前缩放 ${zoomLabel}`}
+            >
+              {zoomLabel}
+            </span>
+            <button
+              type="button"
+              className={styles.minutesLightboxControl}
+              onClick={() => updateZoom(zoomRef.current + LIGHTBOX_ZOOM_STEP)}
+              disabled={zoom >= MAX_LIGHTBOX_ZOOM}
+              aria-label="放大"
+              title="放大"
+            >
+              +
+            </button>
+            <button
+              type="button"
+              className={styles.minutesLightboxFit}
+              onClick={resetZoom}
+              disabled={zoom <= MIN_LIGHTBOX_ZOOM && pan.x === 0 && pan.y === 0}
+            >
+              适配全屏
+            </button>
+          </div>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            className={styles.minutesLightboxClose}
+            onClick={onClose}
+          >
+            关闭
+          </button>
+        </div>
+        <div
+          ref={viewportRef}
+          className={styles.minutesLightboxViewport}
+          data-zoomed={zoom > MIN_LIGHTBOX_ZOOM ? "true" : "false"}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+        >
+          <div
+            className={styles.minutesLightboxImageFrame}
+            style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0)` }}
+          >
+            {/* Managed local artifact media; not a remote Next image. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              ref={imageRef}
+              src={src}
+              alt={alt}
+              draggable={false}
+              className={styles.minutesLightboxImage}
+              style={{ transform: `scale(${zoom})` }}
+              onLoad={() =>
+                updatePan(constrainPan(panRef.current, zoomRef.current))
+              }
+              onError={onError}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function distanceBetween(first: LightboxPointer, second: LightboxPointer) {
+  return Math.hypot(second.x - first.x, second.y - first.y);
+}
+
+function getContainedImageSize(
+  image: HTMLImageElement,
+  viewport: HTMLDivElement,
+): LightboxSize {
+  const boxWidth = image.offsetWidth || viewport.clientWidth;
+  const boxHeight = image.offsetHeight || viewport.clientHeight;
+  if (
+    boxWidth <= 0 ||
+    boxHeight <= 0 ||
+    image.naturalWidth <= 0 ||
+    image.naturalHeight <= 0
+  ) {
+    return { width: boxWidth, height: boxHeight };
+  }
+  const scale = Math.min(
+    boxWidth / image.naturalWidth,
+    boxHeight / image.naturalHeight,
+  );
+  return {
+    width: image.naturalWidth * scale,
+    height: image.naturalHeight * scale,
+  };
 }
 
 function normalizeMinutesVisualItems(
