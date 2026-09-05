@@ -371,6 +371,111 @@ function dragEvent({
   };
 }
 
+function mockNativeMinutesProcessing() {
+  const completedRun: ProcessingRun = {
+    id: 81,
+    episode_id: inboxItem.episode_id,
+    pipeline_version: "focus-processing-v2",
+    trigger_source: "manual",
+    status: "completed",
+    current_step: "",
+    attempt_count: 1,
+    max_attempts: 3,
+    error_retryable: false,
+    created_at: "2026-08-29T08:00:00Z",
+    updated_at: "2026-08-29T08:05:00Z",
+  };
+  const nativeArtifact: EpisodeArtifactSet = {
+    id: 82,
+    run_id: completedRun.id,
+    episode_id: inboxItem.episode_id,
+    pipeline_version: completedRun.pipeline_version,
+    manifest_path: "manifest.json",
+    manifest_sha256: "1".repeat(64),
+    minutes_summary_sha256: "2".repeat(64),
+    transcript_sha256: "3".repeat(64),
+    transcript_timeline_sha256: "4".repeat(64),
+    notes_sha256: "",
+    capabilities: {
+      minutes_summary: true,
+      transcript: true,
+      structured_timeline: true,
+      matching_audio: true,
+      legacy_episode_notes: false,
+    },
+    is_current: true,
+    created_at: "2026-08-29T08:05:00Z",
+  };
+  apiMocks.listEpisodeRuns.mockResolvedValue([completedRun]);
+  apiMocks.getProcessingRun.mockResolvedValue({
+    run: completedRun,
+    current_artifact: nativeArtifact,
+    deliveries: [],
+  } satisfies ProcessingRunDetail);
+  apiMocks.getArtifactContent.mockImplementation(
+    (_artifactSetId: number, kind: string) =>
+      Promise.resolve(
+        kind === "minutes_summary"
+          ? {
+              kind,
+              content: "# 妙记原生纪要",
+              sha256: nativeArtifact.minutes_summary_sha256,
+              media_available: false,
+            }
+          : {
+              kind,
+              content: "# 妙记结构化逐字稿",
+              sha256: nativeArtifact.transcript_sha256,
+              timeline_sha256: nativeArtifact.transcript_timeline_sha256,
+              segments: [
+                {
+                  order: 1,
+                  speaker: "主持人",
+                  start_ms: 0,
+                  text: "开场",
+                },
+                {
+                  order: 2,
+                  speaker: "嘉宾",
+                  start_ms: 30_000,
+                  text: "中段",
+                },
+                {
+                  order: 3,
+                  speaker: "主持人",
+                  start_ms: 60_000,
+                  text: "尾段",
+                },
+              ],
+              media_available: true,
+            },
+      ),
+  );
+  return nativeArtifact;
+}
+
+async function openNativeMinutesDetail() {
+  render(<InboxPageClient />);
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "打开 可处理单集 明细",
+    }),
+  );
+  const dialog = await screen.findByRole("dialog", {
+    name: "可处理单集",
+  });
+  fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
+  return dialog;
+}
+
+async function openNativeTranscript() {
+  const dialog = await openNativeMinutesDetail();
+  await within(dialog).findByRole("heading", { name: "妙记原生纪要" });
+  fireEvent.click(within(dialog).getByRole("tab", { name: "逐字稿" }));
+  await within(dialog).findByText("开场");
+  return dialog;
+}
+
 describe("InboxPageClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1318,97 +1423,9 @@ describe("InboxPageClient", () => {
     selectionSpy.mockRestore();
   });
 
-  it("reads native Minutes, synchronizes managed audio, and preserves transcript selection", async () => {
-    const completedRun: ProcessingRun = {
-      id: 81,
-      episode_id: inboxItem.episode_id,
-      pipeline_version: "focus-processing-v2",
-      trigger_source: "manual",
-      status: "completed",
-      current_step: "",
-      attempt_count: 1,
-      max_attempts: 3,
-      error_retryable: false,
-      created_at: "2026-08-29T08:00:00Z",
-      updated_at: "2026-08-29T08:05:00Z",
-    };
-    const nativeArtifact: EpisodeArtifactSet = {
-      id: 82,
-      run_id: completedRun.id,
-      episode_id: inboxItem.episode_id,
-      pipeline_version: completedRun.pipeline_version,
-      manifest_path: "manifest.json",
-      manifest_sha256: "1".repeat(64),
-      minutes_summary_sha256: "2".repeat(64),
-      transcript_sha256: "3".repeat(64),
-      transcript_timeline_sha256: "4".repeat(64),
-      notes_sha256: "",
-      capabilities: {
-        minutes_summary: true,
-        transcript: true,
-        structured_timeline: true,
-        matching_audio: true,
-        legacy_episode_notes: false,
-      },
-      is_current: true,
-      created_at: "2026-08-29T08:05:00Z",
-    };
-    apiMocks.listEpisodeRuns.mockResolvedValue([completedRun]);
-    apiMocks.getProcessingRun.mockResolvedValue({
-      run: completedRun,
-      current_artifact: nativeArtifact,
-      deliveries: [],
-    } satisfies ProcessingRunDetail);
-    apiMocks.getArtifactContent.mockImplementation(
-      (_artifactSetId: number, kind: string) =>
-        Promise.resolve(
-          kind === "minutes_summary"
-            ? {
-                kind,
-                content: "# 妙记原生纪要",
-                sha256: nativeArtifact.minutes_summary_sha256,
-                media_available: false,
-              }
-            : {
-                kind,
-                content: "# 妙记结构化逐字稿",
-                sha256: nativeArtifact.transcript_sha256,
-                timeline_sha256: nativeArtifact.transcript_timeline_sha256,
-                segments: [
-                  {
-                    order: 1,
-                    speaker: "主持人",
-                    start_ms: 0,
-                    text: "开场",
-                  },
-                  {
-                    order: 2,
-                    speaker: "嘉宾",
-                    start_ms: 30_000,
-                    text: "中段",
-                  },
-                  {
-                    order: 3,
-                    speaker: "主持人",
-                    start_ms: 60_000,
-                    text: "尾段",
-                  },
-                ],
-                media_available: true,
-              },
-        ),
-    );
-
-    render(<InboxPageClient />);
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "打开 可处理单集 明细",
-      }),
-    );
-    const dialog = await screen.findByRole("dialog", {
-      name: "可处理单集",
-    });
-    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
+  it("reads native Minutes from the current processing artifact", async () => {
+    const nativeArtifact = mockNativeMinutesProcessing();
+    const dialog = await openNativeMinutesDetail();
 
     expect(
       await within(dialog).findByRole("heading", {
@@ -1422,9 +1439,13 @@ describe("InboxPageClient", () => {
       nativeArtifact.id,
       "minutes_summary",
     );
+  });
 
-    fireEvent.click(within(dialog).getByRole("tab", { name: "逐字稿" }));
-    expect(await within(dialog).findByText("开场")).toBeVisible();
+  it("synchronizes managed audio with the structured transcript", async () => {
+    mockNativeMinutesProcessing();
+    const dialog = await openNativeTranscript();
+
+    expect(within(dialog).getByText("开场")).toBeVisible();
     expect(within(dialog).getByText("中段")).toBeVisible();
     expect(within(dialog).getByText("尾段")).toBeVisible();
     expect(within(dialog).getByText("逐字稿 · 3 段")).toBeVisible();
@@ -1521,6 +1542,11 @@ describe("InboxPageClient", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "重试" }));
     expect(load).toHaveBeenCalledTimes(1);
     expect(audio).toHaveAttribute("src", mediaSource);
+  });
+
+  it("preserves transcript selection and the active transcript tab", async () => {
+    mockNativeMinutesProcessing();
+    const dialog = await openNativeTranscript();
 
     const transcriptSource = within(dialog).getByText("开场");
     const range = document.createRange();
