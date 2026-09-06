@@ -1,6 +1,13 @@
 /** @type {import('next').NextConfig} */
 const imageOptimizerPath = '/_next/image.webp'
 const nextDistDir = process.env.MAGICPODCAST_NEXT_DIST_DIR || '.next'
+const releaseID = process.env.MAGICPODCAST_RELEASE_ID || ''
+const configuredAssetPrefix = process.env.MAGICPODCAST_ASSET_PREFIX
+const deploymentAssetPrefix =
+  configuredAssetPrefix ??
+  (process.env.MAGICPODCAST_SERVER_MODE === 'release' && releaseID
+    ? `/__magicpodcast/releases/${releaseID}`
+    : '')
 
 const nextConfig = {
   reactStrictMode: true,
@@ -9,6 +16,9 @@ const nextConfig = {
   },
   // 发布流程把新构建放在独立目录，验证通过后才切换为 .next。
   distDir: nextDistDir,
+  // Each release gets a unique static URL namespace so long-lived proxy and
+  // browser caches cannot reuse a chunk from a previous release.
+  assetPrefix: deploymentAssetPrefix,
   // 生产构建时移除 console 语句（保留 console.error 和 console.warn）
   compiler: {
     removeConsole: {

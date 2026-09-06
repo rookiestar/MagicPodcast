@@ -135,11 +135,13 @@ tunnel_state() {
 }
 
 load_release_metadata() {
-  local release_id frontend_build_id
+  local release_id frontend_build_id asset_prefix
   release_id="$(manifest_value release_id)"
   frontend_build_id="$(manifest_value frontend_build_id)"
+  asset_prefix="$(manifest_value asset_prefix)"
   [ -n "$release_id" ] && export MAGICPODCAST_RELEASE_ID="$release_id"
   [ -n "$frontend_build_id" ] && export MAGICPODCAST_FRONTEND_BUILD_ID="$frontend_build_id"
+  export MAGICPODCAST_ASSET_PREFIX="$asset_prefix"
 }
 
 restart_verified_pair() {
