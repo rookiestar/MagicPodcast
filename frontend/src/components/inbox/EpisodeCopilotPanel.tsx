@@ -30,6 +30,8 @@ interface EpisodeCopilotPanelProps {
   showHeading?: boolean;
   selectedProfileID?: EpisodeCopilotProfileID | null;
   onSelectedProfileIDChange?: (profileID: EpisodeCopilotProfileID) => void;
+  rejectedProfileIDs?: ReadonlySet<EpisodeCopilotProfileID>;
+  onRejectedProfileID?: (profileID: EpisodeCopilotProfileID) => void;
 }
 
 interface CapturedSelection {
@@ -105,6 +107,8 @@ export default function EpisodeCopilotPanel({
   showHeading = true,
   selectedProfileID: controlledProfileID,
   onSelectedProfileIDChange,
+  rejectedProfileIDs: controlledRejectedProfileIDs,
+  onRejectedProfileID,
 }: EpisodeCopilotPanelProps) {
   const [scope, setScope] = useState<EpisodeCopilotContextScope | null>(null);
   const [scopeError, setScopeError] = useState<string | null>(null);
@@ -122,7 +126,7 @@ export default function EpisodeCopilotPanel({
   // Codes that change what retrying means, e.g. profile_unavailable must not
   // re-send the same known-impossible request.
   const [failureCode, setFailureCode] = useState<string | null>(null);
-  const [rejectedProfileIDs, setRejectedProfileIDs] = useState<
+  const [localRejectedProfileIDs, setLocalRejectedProfileIDs] = useState<
     ReadonlySet<EpisodeCopilotProfileID>
   >(new Set());
   const [isSlow, setIsSlow] = useState(false);
@@ -134,6 +138,8 @@ export default function EpisodeCopilotPanel({
   const activeRequest = useRef<AbortController | null>(null);
   const retryRequest = useRef<EpisodeCopilotQuestion | null>(null);
   const selectedProfileID = controlledProfileID ?? localSelectedProfileID;
+  const rejectedProfileIDs =
+    controlledRejectedProfileIDs ?? localRejectedProfileIDs;
 
   const selectProfile = (profileID: EpisodeCopilotProfileID) => {
     setLocalSelectedProfileID(profileID);
@@ -169,7 +175,6 @@ export default function EpisodeCopilotPanel({
     setAnswer("");
     setRequestError(null);
     setFailureCode(null);
-    setRejectedProfileIDs(new Set());
     setMetrics(null);
     setIsSlow(false);
     retryRequest.current = null;
@@ -253,10 +258,14 @@ export default function EpisodeCopilotPanel({
       setStatusMessage("");
       setFailureCode(event.code ?? null);
       if (event.code === "profile_unavailable") {
-        setRejectedProfileIDs((current) => {
-          const rejectedProfileID = event.profile_id ?? requestProfileID;
-          return addRejectedProfileID(current, rejectedProfileID);
-        });
+        const rejectedProfileID = event.profile_id ?? requestProfileID;
+        if (onRejectedProfileID) {
+          onRejectedProfileID(rejectedProfileID);
+        } else {
+          setLocalRejectedProfileIDs((current) =>
+            addRejectedProfileID(current, rejectedProfileID),
+          );
+        }
       }
       setRequestError(event.message || "助手回答失败，请重试");
       return;
@@ -327,9 +336,13 @@ export default function EpisodeCopilotPanel({
         const code = (error as { code?: string } | null)?.code ?? null;
         setFailureCode(code);
         if (code === "profile_unavailable") {
-          setRejectedProfileIDs((current) =>
-            addRejectedProfileID(current, request.profile_id),
-          );
+          if (onRejectedProfileID) {
+            onRejectedProfileID(request.profile_id);
+          } else {
+            setLocalRejectedProfileIDs((current) =>
+              addRejectedProfileID(current, request.profile_id),
+            );
+          }
         }
         setRequestError(
           `${getErrorMessage(error)}；问题、选区和已有答案已保留。`,
