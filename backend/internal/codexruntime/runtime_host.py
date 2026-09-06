@@ -15,12 +15,14 @@ import os
 import re
 import signal
 import sys
+import time
+import urllib.parse
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 EXPECTED_SDK_VERSION = "0.147.0"
 EXPECTED_RUNTIME_VERSION = "0.147.0"
 MAX_COMMAND_BYTES = 8 << 20
@@ -94,6 +96,263 @@ DISABLED_RUNTIME_FEATURES = (
     "unified_exec",
     "view_image",
 )
+
+# Structured progress bounds. They mirror the module-side protocol limits so
+# sanitized host output never trips the parent's fail-closed validation.
+MAX_PROGRESS_FRAMES = 256
+MAX_PROGRESS_TEXT_RUNES = 200
+MAX_PROGRESS_METADATA_ENTRIES = 8
+MAX_PROGRESS_METADATA_RUNES = 200
+MAX_ACTIVITY_UPDATES = 16
+REASONING_UPDATE_EVERY = 4
+MAX_CANDIDATE_DOMAINS = 8
+ITEM_CATEGORIES = {
+    "webSearch": "web_search",
+    "reasoning": "reasoning",
+    "plan": "plan",
+    "agentMessage": "agent_message",
+}
+
+
+class ActivityTracker:
+    """Maps stable SDK notifications to sanitized neutral activity frames.
+
+    Activities are identified by provider-neutral IDs and a continuous
+    ordinal. Display text is bounded plain text with managed paths redacted;
+    candidate sources only ever expose public domains. Raw prompts, reasoning
+    content, provider payloads, and identities never reach progress frames.
+    """
+
+    def __init__(self, emitter: Emitter, request: Request) -> None:
+        self.emitter = emitter
+        self.redact_paths = [
+            path
+            for path in (
+                request.working_directory,
+                os.environ.get("MAGICPODCAST_CODEX_RUNTIME_HOME", ""),
+            )
+            if path
+        ]
+        self.counter = 0
+        self.frames = 0
+        self.activities: dict[str, dict[str, Any]] = {}
+
+    def sanitize_display_text(self, value: Any, limit: int) -> str:
+        if not isinstance(value, str):
+            return ""
+        text = value.replace("\x00", " ")
+        for path in self.redact_paths:
+            if path in text:
+                text = text.replace(path, "[已脱敏路径]")
+        text = " ".join(text.split())
+        text = "".join(
+            character for character in text if character.isprintable()
+        )
+        if len(text) > limit:
+            text = text[: limit - 1] + "…"
+        return text
+
+    def sanitize_metadata(
+        self,
+        metadata: dict[str, Any] | None,
+    ) -> dict[str, str] | None:
+        if not metadata:
+            return None
+        sanitized: dict[str, str] = {}
+        for key, value in metadata.items():
+            clean_key = self.sanitize_display_text(key, 64)
+            clean_value = self.sanitize_display_text(
+                value,
+                MAX_PROGRESS_METADATA_RUNES,
+            )
+            if clean_key and clean_value:
+                sanitized[clean_key] = clean_value
+            if len(sanitized) >= MAX_PROGRESS_METADATA_ENTRIES:
+                break
+        return sanitized or None
+
+    def register(self, key: str, category: str) -> dict[str, Any] | None:
+        record = self.activities.get(key)
+        if record is not None:
+            return record
+        self.counter += 1
+        record = {
+            "id": f"a{self.counter}",
+            "ordinal": self.counter,
+            "category": category,
+            "state": "",
+            "updates": 0,
+            "deltas": 0,
+            "text": "",
+            "started_at": time.monotonic(),
+        }
+        self.activities[key] = record
+        return record
+
+    def elapsed_ms(self, record: dict[str, Any]) -> int:
+        return max(
+            0,
+            int((time.monotonic() - record["started_at"]) * 1000),
+        )
+
+    def emit(
+        self,
+        record: dict[str, Any],
+        state: str,
+        display_text: str,
+        metadata: dict[str, str] | None = None,
+    ) -> None:
+        if self.frames >= MAX_PROGRESS_FRAMES:
+            return
+        progress: dict[str, Any] = {
+            "activity_id": record["id"],
+            "ordinal": record["ordinal"],
+            "category": record["category"],
+            "state": state,
+        }
+        clean_text = self.sanitize_display_text(
+            display_text,
+            MAX_PROGRESS_TEXT_RUNES,
+        )
+        if clean_text:
+            progress["display_text"] = clean_text
+        clean_metadata = self.sanitize_metadata(metadata)
+        if clean_metadata:
+            progress["metadata"] = clean_metadata
+        elapsed = self.elapsed_ms(record)
+        if elapsed > 0 and state != "started":
+            progress["elapsed_ms"] = elapsed
+        self.frames += 1
+        self.emitter.emit("progress", progress=progress)
+
+    def ensure_started(
+        self,
+        key: str,
+        category: str,
+        display_text: str = "",
+    ) -> dict[str, Any] | None:
+        record = self.register(key, category)
+        if record is None or record["state"]:
+            return record
+        record["state"] = "started"
+        self.emit(record, "started", display_text)
+        return record
+
+    def turn_started(self) -> None:
+        self.ensure_started("turn", "turn", "执行已开始")
+
+    @staticmethod
+    def item_key(item: Any) -> str:
+        root = getattr(item, "root", item)
+        item_id = str(getattr(root, "id", "") or "")
+        if not item_id:
+            item_id = str(getattr(root, "type", "") or "item")
+        return f"item:{item_id}"
+
+    @staticmethod
+    def item_category(item: Any) -> str:
+        root = getattr(item, "root", item)
+        item_type = value_of(getattr(root, "type", ""))
+        return ITEM_CATEGORIES.get(item_type, "item")
+
+    def item_started(self, item: Any) -> None:
+        key = self.item_key(item)
+        display = ""
+        if self.item_category(item) == "web_search":
+            root = getattr(item, "root", item)
+            display = self.sanitize_display_text(
+                getattr(root, "query", ""),
+                MAX_PROGRESS_TEXT_RUNES,
+            )
+        self.ensure_started(key, self.item_category(item), display)
+
+    def reasoning_delta(self, payload: Any) -> None:
+        delta = getattr(payload, "delta", None)
+        if not isinstance(delta, str) or not delta:
+            return
+        key = "item:" + value_of(getattr(payload, "item_id", ""))
+        record = self.ensure_started(key, "reasoning")
+        if record is None or record["state"] != "started":
+            return
+        record["text"] = (record["text"] + delta)[
+            -MAX_PROGRESS_TEXT_RUNES:
+        ]
+        record["deltas"] += 1
+        if (
+            record["deltas"] % REASONING_UPDATE_EVERY == 0
+            and record["updates"] < MAX_ACTIVITY_UPDATES
+        ):
+            record["updates"] += 1
+            self.emit(record, "updated", record["text"])
+
+    def plan_delta(self, payload: Any) -> None:
+        delta = getattr(payload, "delta", None)
+        if not isinstance(delta, str) or not delta:
+            return
+        key = "item:" + value_of(getattr(payload, "item_id", ""))
+        record = self.ensure_started(key, "plan")
+        if record is None or record["state"] != "started":
+            return
+        record["text"] = (record["text"] + delta)[
+            -MAX_PROGRESS_TEXT_RUNES:
+        ]
+        record["deltas"] += 1
+        if (
+            record["deltas"] % REASONING_UPDATE_EVERY == 0
+            and record["updates"] < MAX_ACTIVITY_UPDATES
+        ):
+            record["updates"] += 1
+            self.emit(record, "updated", record["text"])
+
+    @staticmethod
+    def web_search_metadata(item: Any) -> dict[str, str] | None:
+        root = getattr(item, "root", item)
+        results = getattr(root, "results", None)
+        if not isinstance(results, list):
+            return None
+        domains: list[str] = []
+        for entry in results:
+            if not isinstance(entry, dict):
+                continue
+            url = entry.get("url") or entry.get("href") or ""
+            domain = sanitize_domain(url) if isinstance(url, str) else ""
+            if domain and domain not in domains:
+                domains.append(domain)
+            if len(domains) >= MAX_CANDIDATE_DOMAINS:
+                break
+        metadata: dict[str, str] = {
+            "candidate_count": str(len(results)),
+        }
+        if domains:
+            metadata["candidate_domains"] = " ".join(domains)
+        return metadata
+
+    def item_completed(self, item: Any) -> None:
+        key = self.item_key(item)
+        record = self.activities.get(key)
+        if record is None or record["state"] != "started":
+            return
+        root = getattr(item, "root", item)
+        display = record["text"]
+        metadata: dict[str, str] | None = None
+        if record["category"] == "web_search":
+            display = self.sanitize_display_text(
+                getattr(root, "query", "") or record["text"],
+                MAX_PROGRESS_TEXT_RUNES,
+            )
+            metadata = self.web_search_metadata(item)
+        elif record["category"] == "reasoning":
+            summary = getattr(root, "summary", None)
+            if isinstance(summary, list):
+                display = " ".join(
+                    part for part in summary if isinstance(part, str)
+                )
+        elif record["category"] == "plan":
+            plan_text = getattr(root, "text", None)
+            if isinstance(plan_text, str) and plan_text:
+                display = plan_text
+        record["state"] = "completed"
+        self.emit(record, "completed", display, metadata)
 
 
 class HostFailure(Exception):
@@ -499,6 +758,28 @@ def value_of(value: Any) -> str:
     return str(getattr(value, "value", value))
 
 
+def sanitize_domain(url: str) -> str:
+    """Return the bare public hostname of an http(s) URL, or "".
+
+    Credentials, ports, paths, query strings, and fragments are never part of
+    the result, so candidate activities can only expose public domains.
+    """
+    try:
+        parts = urllib.parse.urlsplit(url)
+        hostname = parts.hostname
+    except ValueError:
+        return ""
+    if parts.scheme not in {"http", "https"}:
+        return ""
+    if not hostname or hostname == "localhost":
+        return ""
+    if "@" in (parts.netloc or ""):
+        return ""
+    if "." not in hostname:
+        return ""
+    return hostname
+
+
 def turn_model_overrides(
     model_profile: ModelProfile | None,
     reasoning_effort: Any,
@@ -673,6 +954,7 @@ async def consume_turn(
 ) -> Outcome:
     streamed_parts: list[str] = []
     completed_items: list[Any] = []
+    tracker = ActivityTracker(emitter, request)
     async for notification in turn_handle.stream():
         if not sdk_started.is_set():
             sdk_started.set()
@@ -680,15 +962,28 @@ async def consume_turn(
         enforce_tool_policy(notification, request)
         method = getattr(notification, "method", "")
         payload = getattr(notification, "payload", None)
-        if method == "item/agentMessage/delta":
+        # Stable SDK notifications map onto sanitized neutral progress
+        # frames; unknown notifications are never forwarded.
+        if method == "turn/started":
+            tracker.turn_started()
+        elif method == "item/started":
+            item = getattr(payload, "item", None)
+            if item is not None:
+                tracker.item_started(item)
+        elif method == "item/agentMessage/delta":
             delta = getattr(payload, "delta", None)
             if isinstance(delta, str) and delta:
                 streamed_parts.append(delta)
                 emitter.emit("output_delta", text=delta)
-        if method == "item/completed":
+        elif method == "item/reasoning/summaryTextDelta":
+            tracker.reasoning_delta(payload)
+        elif method == "item/plan/delta":
+            tracker.plan_delta(payload)
+        elif method == "item/completed":
             item = getattr(payload, "item", None)
             if item is not None:
                 completed_items.append(item)
+                tracker.item_completed(item)
         if method == "turn/completed":
             turn = getattr(payload, "turn", None)
             if turn is None:

@@ -82,16 +82,18 @@ const (
 )
 
 type StreamEvent struct {
-	Type                EventType `json:"type"`
-	Stage               string    `json:"stage,omitempty"`
-	Message             string    `json:"message,omitempty"`
-	Code                string    `json:"code,omitempty"`
-	Retryable           bool      `json:"retryable,omitempty"`
-	TranscriptUsed      bool      `json:"transcript_used"`
-	PrivateNoteIncluded bool      `json:"private_note_included"`
-	ProfileID           string    `json:"profile_id,omitempty"`
-	FirstContentMS      int64     `json:"first_content_ms,omitempty"`
-	TotalMS             int64     `json:"total_ms,omitempty"`
+	Type                EventType     `json:"type"`
+	Stage               string        `json:"stage,omitempty"`
+	Message             string        `json:"message,omitempty"`
+	Code                string        `json:"code,omitempty"`
+	Retryable           bool          `json:"retryable,omitempty"`
+	TranscriptUsed      bool          `json:"transcript_used"`
+	PrivateNoteIncluded bool          `json:"private_note_included"`
+	ProfileID           string        `json:"profile_id,omitempty"`
+	FirstContentMS      int64         `json:"first_content_ms,omitempty"`
+	TotalMS             int64         `json:"total_ms,omitempty"`
+	Activity            *Activity     `json:"activity,omitempty"`
+	StageTimings        *StageTimings `json:"stage_timings,omitempty"`
 }
 
 var _ Module = (*Service)(nil)

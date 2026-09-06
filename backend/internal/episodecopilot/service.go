@@ -190,9 +190,10 @@ func (s *Service) run(
 	if privateNoteIncluded {
 		contextMessage += "；本次包含私有备注"
 	}
-	if !emit(ctx, events, withEvent(baseEvent, EventTypeContext, "context", contextMessage)) {
+	if !emit(ctx, events, withEvent(baseEvent, EventTypeContext, StageReadContext, contextMessage)) {
 		return
 	}
+	activities := &questionActivities{}
 
 	workDir, err := os.MkdirTemp(s.workRoot, "episode-copilot-")
 	if err != nil {
@@ -205,14 +206,56 @@ func (s *Service) run(
 		return
 	}
 
-	if !emit(
+	// The startup stage is announced deterministically before the runtime is
+	// contacted; only a real runtime started event marks it ready.
+	if !activities.announce(
 		ctx,
 		events,
-		withEvent(baseEvent, EventTypeStatus, "search", "正在核对公开资料…"),
+		baseEvent,
+		s.now().UTC(),
+		StageResearchRuntime,
+		"started",
+		"正在启动公开资料检索 Runtime…",
 	) {
 		return
 	}
-	research, err := s.research(ctx, request, episodeContext, workDir)
+	researchReadyAt := time.Time{}
+	research, err := s.research(
+		ctx,
+		request,
+		episodeContext,
+		workDir,
+		func(event codexruntime.Event) bool {
+			switch event.Type {
+			case codexruntime.EventStarted:
+				if researchReadyAt.IsZero() {
+					researchReadyAt = s.now().UTC()
+					return activities.announce(
+						ctx,
+						events,
+						baseEvent,
+						researchReadyAt,
+						StageResearchRuntime,
+						"completed",
+						"公开资料检索 Runtime 已就绪",
+					)
+				}
+				return true
+			case codexruntime.EventProgress:
+				return activities.forward(
+					ctx,
+					events,
+					baseEvent,
+					StagePublicResearch,
+					activityIDPrefixResearch,
+					event,
+				)
+			default:
+				return true
+			}
+		},
+	)
+	researchDoneAt := s.now().UTC()
 	if err != nil {
 		if ctx.Err() != nil {
 			return
@@ -236,12 +279,75 @@ func (s *Service) run(
 			research.Limitations,
 			"公开资料检索失败，本次仅依据单集内部内容回答。",
 		)
+		// The degradation is a visible fact before the answer runtime starts;
+		// it never silently upgrades the evidence scope.
+		if !activities.announce(
+			ctx,
+			events,
+			baseEvent,
+			s.now().UTC(),
+			StageSourceValidation,
+			"failed",
+			"公开资料检索失败，将仅依据单集内部内容回答。",
+		) {
+			return
+		}
+	} else {
+		if !activities.announce(
+			ctx,
+			events,
+			baseEvent,
+			s.now().UTC(),
+			StageSourceValidation,
+			"started",
+			"正在校验公开来源…",
+		) {
+			return
+		}
+		research.Resources = validatePublicResources(
+			research.Resources,
+			s.now().UTC(),
+		)
+		verified := len(research.Resources)
+		conflicts := len(research.Conflicts)
+		var sourceMessage string
+		sourceState := "completed"
+		switch {
+		case verified > 0 && conflicts > 0:
+			sourceMessage = fmt.Sprintf(
+				"已验证 %d 个公开来源；已发现来源冲突，正在整理答案。",
+				verified,
+			)
+		case verified > 0:
+			sourceMessage = fmt.Sprintf("已验证 %d 个公开来源。", verified)
+		case conflicts > 0:
+			sourceState = "failed"
+			sourceMessage = "公开来源存在冲突且未找到可核验来源，将仅依据单集内部内容回答。"
+		default:
+			sourceMessage = "未找到可核验的公开来源，将仅依据单集内部内容回答。"
+		}
+		if !activities.announce(
+			ctx,
+			events,
+			baseEvent,
+			s.now().UTC(),
+			StageSourceValidation,
+			sourceState,
+			sourceMessage,
+		) {
+			return
+		}
 	}
+	sourceValidationDoneAt := s.now().UTC()
 
-	if !emit(
+	if !activities.announce(
 		ctx,
 		events,
-		withEvent(baseEvent, EventTypeStatus, "answer", "正在组织回答…"),
+		baseEvent,
+		s.now().UTC(),
+		StageAnswerRuntime,
+		"started",
+		"正在启动回答 Runtime…",
 	) {
 		return
 	}
@@ -279,6 +385,8 @@ func (s *Service) run(
 			citationGate.Write(outputFilter.Write(delta)),
 		)
 	}
+	answerReadyAt := time.Time{}
+	answerStart := s.now().UTC()
 	final, deltas, err := s.execute(
 		ctx,
 		codexruntime.ExecutionRequest{
@@ -295,7 +403,37 @@ func (s *Service) run(
 			},
 		},
 		writeModelDelta,
+		func(event codexruntime.Event) bool {
+			switch event.Type {
+			case codexruntime.EventStarted:
+				if answerReadyAt.IsZero() {
+					answerReadyAt = s.now().UTC()
+					return activities.announce(
+						ctx,
+						events,
+						baseEvent,
+						answerReadyAt,
+						StageAnswerRuntime,
+						"completed",
+						"回答 Runtime 已就绪",
+					)
+				}
+				return true
+			case codexruntime.EventProgress:
+				return activities.forward(
+					ctx,
+					events,
+					baseEvent,
+					StageComposeAnswer,
+					activityIDPrefixAnswer,
+					event,
+				)
+			default:
+				return true
+			}
+		},
 	)
+	answerDoneAt := s.now().UTC()
 	if err != nil {
 		if ctx.Err() == nil {
 			code, message, retryable := classifyRuntimeError(err)
@@ -320,6 +458,17 @@ func (s *Service) run(
 		}
 	}
 	if !emitAnswerDelta(citationGate.Write(outputFilter.Flush())) {
+		return
+	}
+	if !activities.announce(
+		ctx,
+		events,
+		baseEvent,
+		s.now().UTC(),
+		StageCitationValidation,
+		"started",
+		"正在核验引用…",
+	) {
 		return
 	}
 	gatedTail, sourcesValid := citationGate.Flush()
@@ -351,11 +500,41 @@ func (s *Service) run(
 	if !emitAnswerDelta(buildSourceAppendix(request, episodeContext, research)) {
 		return
 	}
+	if !activities.announce(
+		ctx,
+		events,
+		baseEvent,
+		s.now().UTC(),
+		StageCitationValidation,
+		"completed",
+		"引用核验完成",
+	) {
+		return
+	}
 	completedAt := s.now().UTC()
 	complete := withEvent(baseEvent, EventTypeComplete, "complete", "回答完成")
 	complete.FirstContentMS = maxMilliseconds(firstContentAt.Sub(startedAt))
 	complete.TotalMS = maxMilliseconds(completedAt.Sub(startedAt))
+	complete.StageTimings = &StageTimings{
+		ResearchRuntimeReadyMS: durationBetween(startedAt, researchReadyAt),
+		PublicResearchMS:       durationBetween(researchReadyAt, researchDoneAt),
+		SourceValidationMS: durationBetween(
+			researchDoneAt,
+			sourceValidationDoneAt,
+		),
+		AnswerRuntimeReadyMS: durationBetween(answerStart, answerReadyAt),
+		CitationValidationMS: durationBetween(answerDoneAt, completedAt),
+	}
 	_ = emit(ctx, events, complete)
+}
+
+// durationBetween reports a positive stage duration, or zero when either
+// endpoint was never observed (for example a degraded research phase).
+func durationBetween(from time.Time, to time.Time) int64 {
+	if from.IsZero() || to.IsZero() {
+		return 0
+	}
+	return maxMilliseconds(to.Sub(from))
 }
 
 func (s *Service) research(
@@ -363,6 +542,7 @@ func (s *Service) research(
 	request QuestionRequest,
 	episodeContext EpisodeContext,
 	workDir string,
+	onEvent func(codexruntime.Event) bool,
 ) (researchResult, error) {
 	snapshot, _, err := s.execute(
 		ctx,
@@ -379,6 +559,7 @@ func (s *Service) research(
 			},
 		},
 		nil,
+		onEvent,
 	)
 	if err != nil {
 		return researchResult{}, err
@@ -387,7 +568,6 @@ func (s *Service) research(
 	if err := json.Unmarshal(snapshot.Result, &result); err != nil {
 		return researchResult{}, fmt.Errorf("decode public research result: %w", err)
 	}
-	result.Resources = validatePublicResources(result.Resources, s.now().UTC())
 	result.Conflicts = boundedStrings(result.Conflicts, maxPublicResources)
 	result.Limitations = boundedStrings(result.Limitations, maxPublicResources)
 	return result, nil
@@ -397,6 +577,7 @@ func (s *Service) execute(
 	ctx context.Context,
 	request codexruntime.ExecutionRequest,
 	onDelta func(string) bool,
+	onEvent func(codexruntime.Event) bool,
 ) (codexruntime.ExecutionSnapshot, int, error) {
 	snapshot, err := s.runtime.CreateExecution(ctx, request)
 	if err != nil {
@@ -417,6 +598,10 @@ func (s *Service) execute(
 	}
 	deltas := 0
 	for event := range stream {
+		if onEvent != nil && !onEvent(event) {
+			cancel()
+			return codexruntime.ExecutionSnapshot{}, deltas, ctx.Err()
+		}
 		if event.Type == codexruntime.EventOutputDelta && event.Text != "" {
 			deltas++
 			if onDelta != nil && !onDelta(event.Text) {

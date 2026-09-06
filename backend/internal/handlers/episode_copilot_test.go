@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"magicpodcast/internal/episodecopilot"
 	"magicpodcast/internal/handlers"
@@ -249,6 +250,68 @@ func TestEpisodeCopilotHandlerRejectsOversizedBodyBeforeRuntime(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, response.Code)
 	require.Contains(t, response.Body.String(), "INVALID_COPILOT_REQUEST")
 	require.Zero(t, module.askCalls)
+}
+
+func TestEpisodeCopilotHandlerStreamsActivityAndStageTimingsOverSSE(
+	t *testing.T,
+) {
+	module := &fakeEpisodeCopilotModule{
+		events: []episodecopilot.StreamEvent{
+			{
+				Type:  episodecopilot.EventTypeStatus,
+				Stage: episodecopilot.StagePublicResearch,
+				Activity: &episodecopilot.Activity{
+					ID:         "research:a1",
+					Ordinal:    3,
+					Stage:      episodecopilot.StagePublicResearch,
+					Category:   "web_search",
+					State:      "completed",
+					Text:       "公开资料主题",
+					ObservedAt: time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC),
+					ElapsedMS:  1500,
+					Metadata: map[string]string{
+						"candidate_domains": "authority.example.com",
+					},
+				},
+			},
+			{
+				Type:    episodecopilot.EventTypeComplete,
+				Message: "回答完成",
+				StageTimings: &episodecopilot.StageTimings{
+					ResearchRuntimeReadyMS: 800,
+					PublicResearchMS:       1500,
+					SourceValidationMS:     40,
+					AnswerRuntimeReadyMS:   900,
+					CitationValidationMS:   60,
+				},
+			},
+		},
+	}
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := handlers.NewEpisodeCopilotHandler(module)
+	router.POST("/api/v1/episodes/:id/copilot/questions", handler.Ask)
+
+	response := performEpisodeCopilotRequest(
+		router,
+		http.MethodPost,
+		"/api/v1/episodes/71/copilot/questions",
+		`{"question":"这次执行做了什么？"}`,
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	body := response.Body.String()
+	require.Contains(t, body, `"activity":{"id":"research:a1"`)
+	require.Contains(t, body, `"ordinal":3`)
+	require.Contains(t, body, `"stage":"public_research"`)
+	require.Contains(t, body, `"category":"web_search"`)
+	require.Contains(t, body, `"state":"completed"`)
+	require.Contains(t, body, `"candidate_domains":"authority.example.com"`)
+	require.Contains(t, body, `"stage_timings":{`)
+	require.Contains(t, body, `"research_runtime_ready_ms":800`)
+	require.Contains(t, body, `"public_research_ms":1500`)
+	require.Contains(t, body, `"source_validation_ms":40`)
+	require.Contains(t, body, `"answer_runtime_ready_ms":900`)
+	require.Contains(t, body, `"citation_validation_ms":60`)
 }
 
 func performEpisodeCopilotRequest(
