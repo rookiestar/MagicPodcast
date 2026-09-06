@@ -826,7 +826,10 @@ describe("EpisodeProcessingPanel", () => {
     const { rerender } = render(<EpisodeProcessingPanel item={item} />);
 
     expect(await screen.findByText("正在读取纪要…")).toBeVisible();
-    expect(screen.queryByRole("tab", { name: "总结" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "总结" })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
     expect(screen.getByRole("tab", { name: "纪要" })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -1345,6 +1348,48 @@ describe("EpisodeProcessingPanel", () => {
     expect(screen.getByRole("button", { name: "取消" })).toBeEnabled();
     expect(apiMocks.start).toHaveBeenCalledWith(item.episode_id);
     expect(apiMocks.getRun).toHaveBeenCalledWith(pendingRun.id);
+  });
+
+  it("keeps all expected product entries visible while audio is preparing without a run yet", async () => {
+    apiMocks.start.mockResolvedValue({
+      reused_active: false,
+      reused_successful: false,
+      preparing_audio: true,
+      audio_asset: {
+        id: 52,
+        episode_id: item.episode_id,
+        status: "queued",
+        size_bytes: 0,
+        duration_seconds: 0,
+        queued_at: "2026-08-24T09:00:00Z",
+        created_at: "2026-08-24T09:00:00Z",
+        updated_at: "2026-08-24T09:00:00Z",
+      },
+    });
+    const { panelRef } = renderWithPrimaryAction();
+
+    expect(await screen.findByText("暂无转写记录")).toBeVisible();
+    activatePrimary(panelRef);
+
+    expect(await screen.findByRole("tab", { name: "总结" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "纪要" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "逐字稿" })).toBeVisible();
+    expect(screen.getByText("正在准备音频")).toBeVisible();
+    expect(
+      screen.getByText("总结，生成中", {
+        selector: '[id^="processing-artifact-tab-state-"]',
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByText("纪要，生成中", {
+        selector: '[id^="processing-artifact-tab-state-"]',
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByText("逐字稿，生成中", {
+        selector: '[id^="processing-artifact-tab-state-"]',
+      }),
+    ).toBeVisible();
   });
 
   it("queues recoverable missing audio once and keeps the transcript readable", async () => {

@@ -160,10 +160,10 @@ describe("EpisodeProcessingPanel visual tab user flow", () => {
 
       try {
         const summaryTab = await screen.findByRole("tab", { name: "总结" });
-        expect(summaryTab).toHaveAttribute("aria-selected", "true");
         expect(
           await screen.findByRole("img", { name: "总结画板" }),
         ).toBeVisible();
+        expect(summaryTab).toHaveAttribute("aria-selected", "true");
         expect(
           screen.queryByRole("img", { name: "正文插图" }),
         ).not.toBeInTheDocument();
@@ -193,4 +193,49 @@ describe("EpisodeProcessingPanel visual tab user flow", () => {
       }
     },
   );
+
+  it("keeps a read failure attached to its own product after another product succeeds", async () => {
+    const nativeArtifact: EpisodeArtifactSet = {
+      ...artifact,
+      capabilities: {
+        ...artifact.capabilities,
+        minutes_summary: true,
+        transcript: true,
+        legacy_episode_notes: false,
+      },
+    };
+    const transcriptContent: ArtifactContent = {
+      kind: "transcript",
+      content: "# 逐字稿",
+      sha256: nativeArtifact.transcript_sha256,
+      media_available: false,
+      segments: [
+        { order: 1, speaker: "主持人", start_ms: 0, text: "逐字稿正文" },
+      ],
+    };
+    apiMocks.getRun.mockResolvedValue({
+      run,
+      current_artifact: nativeArtifact,
+      deliveries: [],
+    });
+    apiMocks.getArtifactContent.mockImplementation(
+      (_artifactSetId: number, kind: string) =>
+        kind === "minutes_summary"
+          ? Promise.reject(new Error("纪要暂时打不开"))
+          : Promise.resolve(transcriptContent),
+    );
+
+    render(<EpisodeProcessingPanel item={item} />);
+
+    expect(
+      await screen.findByText("暂时无法读取纪要，请重试。"),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "逐字稿" }));
+    expect(await screen.findByText("逐字稿正文")).toBeVisible();
+    expect(
+      screen.getByText("纪要，读取失败", {
+        selector: '[id^="processing-artifact-tab-state-"]',
+      }),
+    ).toBeVisible();
+  });
 });
