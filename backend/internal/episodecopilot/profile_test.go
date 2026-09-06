@@ -145,13 +145,16 @@ func TestServiceScopeExposesAllThreeTiersAndDefault(t *testing.T) {
 
 	require.Equal(t, "gpt-5.6-sol", byID["quick"].Model)
 	require.Equal(t, "medium", byID["quick"].Effort)
-	require.Equal(t, "fast", byID["quick"].ServiceTier)
+	require.Equal(t, "priority", byID["quick"].ServiceTier)
+	require.Equal(t, "Fast", byID["quick"].ServiceTierName)
 	require.Equal(t, "gpt-5.6-luna", byID["balanced"].Model)
 	require.Equal(t, "max", byID["balanced"].Effort)
-	require.Equal(t, "fast", byID["balanced"].ServiceTier)
+	require.Equal(t, "priority", byID["balanced"].ServiceTier)
+	require.Equal(t, "Fast", byID["balanced"].ServiceTierName)
 	require.Equal(t, "gpt-5.6-sol", byID["deep"].Model)
 	require.Equal(t, "xhigh", byID["deep"].Effort)
 	require.Empty(t, byID["deep"].ServiceTier)
+	require.Equal(t, "Standard", byID["deep"].ServiceTierName)
 }
 
 func TestServiceAppliesQuickAndDeepProfilesToBothExecutions(

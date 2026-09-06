@@ -66,6 +66,7 @@ type profileEvidence struct {
 	Model                string                          `json:"model"`
 	Effort               string                          `json:"effort"`
 	ServiceTier          string                          `json:"service_tier"`
+	ServiceTierName      string                          `json:"service_tier_name"`
 	Status               codexruntime.ExecutionStatus    `json:"status"`
 	ErrorCode            string                          `json:"error_code,omitempty"`
 	CreateMilliseconds   int64                           `json:"create_ms"`
@@ -419,7 +420,31 @@ func runProfileSmoke(input profileSmokeInput) error {
 		},
 	)
 	if err != nil {
+		// A rejected profile is evidence too: record the stable failure so
+		// the tier's unsupported state is observable and auditable.
 		_ = host.Close(context.Background())
+		hostname, _ := os.Hostname()
+		diagnostics := host.Diagnostics()
+		record := profileEvidence{
+			SchemaVersion:      1,
+			ObservedAt:         time.Now().UTC(),
+			Host:               hostname,
+			SDKVersion:         "0.147.0",
+			Profile:            string(profile.ID),
+			Model:              profile.Model,
+			Effort:             profile.Effort,
+			ServiceTier:        profile.ServiceTier,
+			ServiceTierName:    profile.ServiceTierName,
+			Status:             codexruntime.StatusFailed,
+			ErrorCode:          codexruntime.ErrorCode(err),
+			CreateMilliseconds: time.Since(started).Milliseconds(),
+			Diagnostics:        diagnostics,
+			OrphanFree: diagnostics.ActiveExecutions == 0 &&
+				diagnostics.LiveProcessGroups == 0,
+		}
+		if writeErr := writeEvidence(input.EvidencePath, record); writeErr != nil {
+			return writeErr
+		}
 		return fmt.Errorf("create profile smoke execution: %w", err)
 	}
 	createdAt := time.Now()
@@ -456,6 +481,7 @@ func runProfileSmoke(input profileSmokeInput) error {
 		Model:                profile.Model,
 		Effort:               profile.Effort,
 		ServiceTier:          profile.ServiceTier,
+		ServiceTierName:      profile.ServiceTierName,
 		Status:               final.Status,
 		ErrorCode:            final.ErrorCode,
 		CreateMilliseconds:   evidence.CreateMilliseconds,

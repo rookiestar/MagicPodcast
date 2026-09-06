@@ -18,22 +18,25 @@ import (
 func TestResolveModelProfileMapsAllThreeTiersExactly(t *testing.T) {
 	expected := map[ModelProfileID]ModelProfile{
 		DefaultModelProfileID: {
-			ID:          DefaultModelProfileID,
-			Model:       "gpt-5.6-luna",
-			Effort:      "max",
-			ServiceTier: "fast",
+			ID:              DefaultModelProfileID,
+			Model:           "gpt-5.6-luna",
+			Effort:          "max",
+			ServiceTier:     "priority",
+			ServiceTierName: "Fast",
 		},
 		ModelProfileID("quick"): {
-			ID:          ModelProfileID("quick"),
-			Model:       "gpt-5.6-sol",
-			Effort:      "medium",
-			ServiceTier: "fast",
+			ID:              ModelProfileID("quick"),
+			Model:           "gpt-5.6-sol",
+			Effort:          "medium",
+			ServiceTier:     "priority",
+			ServiceTierName: "Fast",
 		},
 		ModelProfileID("deep"): {
-			ID:          ModelProfileID("deep"),
-			Model:       "gpt-5.6-sol",
-			Effort:      "xhigh",
-			ServiceTier: "",
+			ID:              ModelProfileID("deep"),
+			Model:           "gpt-5.6-sol",
+			Effort:          "xhigh",
+			ServiceTier:     "",
+			ServiceTierName: "Standard",
 		},
 	}
 	require.Len(t, expected, 3)
@@ -63,11 +66,13 @@ func TestResolveModelProfileMapsAllThreeTiersExactly(t *testing.T) {
 	require.Equal(t, "xhigh", deep.Effort)
 	require.Empty(t, deep.ServiceTier)
 
-	// Fast tiers stay explicit for quick and balanced.
+	// Fast tiers stay explicit for quick and balanced, under the account
+	// catalog's wire ID for the Fast speed tier.
 	for _, id := range []ModelProfileID{"quick", "balanced"} {
 		fast, ok := ResolveModelProfile(id)
 		require.True(t, ok)
-		require.Equal(t, "fast", fast.ServiceTier)
+		require.Equal(t, "priority", fast.ServiceTier)
+		require.Equal(t, "Fast", fast.ServiceTierName)
 	}
 
 	// Every catalog entry exposes a safe token set for the wire profile.
@@ -173,7 +178,7 @@ func TestPythonSDKHostCarriesQuickAndDeepProfilesToSDK(t *testing.T) {
 	quickObserved := observedTurnParameters(t, quickDir)
 	require.Equal(t, "gpt-5.6-sol", quickObserved.Model)
 	require.Equal(t, "medium", quickObserved.Effort)
-	require.Equal(t, "fast", quickObserved.ServiceTier)
+	require.Equal(t, "priority", quickObserved.ServiceTier)
 
 	deepDir := newExecutionDir(t, workRoot, "python-deep-")
 	deep, err := host.CreateExecution(
@@ -204,7 +209,7 @@ func TestPythonSDKHostReportsProfileUnavailableStably(t *testing.T) {
 	// The fake account only supports sol at medium with a fast tier, so the
 	// deep profile (sol/xhigh/standard) must fail before the turn starts.
 	host, workRoot := newFakeSDKHostForProfiles(t, map[string]string{
-		"FAKE_CODEX_MODEL_CATALOG": `[{"model":"gpt-5.6-sol","efforts":["medium"],"tiers":["fast"]}]`,
+		"FAKE_CODEX_MODEL_CATALOG": `[{"model":"gpt-5.6-sol","efforts":["medium"],"tiers":["priority"]}]`,
 	})
 	deepDir := newExecutionDir(t, workRoot, "python-unsupported-")
 
@@ -282,7 +287,7 @@ func TestPythonSDKHostCarriesResolvedBalancedProfileToSDK(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &observed))
 	require.Equal(t, "gpt-5.6-luna", observed.Model)
 	require.Equal(t, "max", observed.Effort)
-	require.Equal(t, "fast", observed.ServiceTier)
+	require.Equal(t, "priority", observed.ServiceTier)
 }
 
 func TestPythonSDKHostKeepsDefaultTurnParametersWithoutProfile(t *testing.T) {

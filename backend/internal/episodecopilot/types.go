@@ -35,11 +35,12 @@ type QuestionRequest struct {
 // ProfileDescriptor exposes the technical meaning of one runtime profile. The
 // mapping itself stays inside the runtime module; callers only render it.
 type ProfileDescriptor struct {
-	ID          string `json:"id"`
-	Model       string `json:"model"`
-	Effort      string `json:"effort"`
-	ServiceTier string `json:"service_tier,omitempty"`
-	Default     bool   `json:"is_default"`
+	ID              string `json:"id"`
+	Model           string `json:"model"`
+	Effort          string `json:"effort"`
+	ServiceTier     string `json:"service_tier,omitempty"`
+	ServiceTierName string `json:"service_tier_name"`
+	Default         bool   `json:"is_default"`
 }
 
 type ContextScope struct {
