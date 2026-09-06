@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      EXPECTED_RUNNER_NAME: mac-mini-production
-      REQUIRED_LABEL: magicpodcast-production
+      HEARTBEAT_WORKFLOW: production-runner-heartbeat.yml
+      HEARTBEAT_MAX_AGE_MINUTES: 75
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check runner status
@@ -27,39 +27,31 @@ jobs:
         run: |
           set -euo pipefail
 
-          runner="$({
-            gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runners?per_page=100" \
-              --jq '.runners[]'
-          } | jq -s --arg runner_name "$EXPECTED_RUNNER_NAME" \
-            '[.[] | select(.name == $runner_name)] | first // empty')"
+          runs="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/${HEARTBEAT_WORKFLOW}/runs?per_page=50")"
+          latest_success_epoch="$(jq -r \
+            '[.workflow_runs[] | select(.conclusion == "success") |
+              (.updated_at | fromdateiso8601)] | max // 0' <<<"$runs")"
+          now_epoch="$(date -u +%s)"
 
-          if [ -z "$runner" ] || [ "$runner" = "null" ]; then
-            echo "::error title=Production runner missing::Runner $EXPECTED_RUNNER_NAME was not found."
+          if [ "$latest_success_epoch" -eq 0 ]; then
+            echo "::error title=Production runner heartbeat missing::No successful production runner heartbeat was found."
             exit 1
           fi
 
-          runner_status="$(jq -r '.status' <<<"$runner")"
-          runner_busy="$(jq -r '.busy' <<<"$runner")"
-          has_required_label="$(jq -r --arg required_label "$REQUIRED_LABEL" \
-            'any(.labels[].name; . == $required_label)' <<<"$runner")"
+          heartbeat_age_minutes="$(( (now_epoch - latest_success_epoch) / 60 ))"
 
           {
             echo "### Production runner health"
             echo
-            echo "- Name: \`$EXPECTED_RUNNER_NAME\`"
-            echo "- Status: \`$runner_status\`"
-            echo "- Busy: \`$runner_busy\`"
-            echo "- Required label present: \`$has_required_label\`"
+            echo "- Heartbeat workflow: \`$HEARTBEAT_WORKFLOW\`"
+            echo "- Last successful heartbeat age: \`${heartbeat_age_minutes}m\`"
+            echo "- Maximum allowed age: \`${HEARTBEAT_MAX_AGE_MINUTES}m\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [ "$has_required_label" != true ]; then
-            echo "::error title=Production runner label missing::Runner $EXPECTED_RUNNER_NAME lacks label $REQUIRED_LABEL."
+          if [ "$heartbeat_age_minutes" -gt "$HEARTBEAT_MAX_AGE_MINUTES" ]; then
+            echo "::error title=Production runner heartbeat stale::The last successful heartbeat is ${heartbeat_age_minutes} minutes old."
             exit 1
           fi
 
-          if [ "$runner_status" != online ]; then
-            echo "::error title=Production runner offline::Runner $EXPECTED_RUNNER_NAME is $runner_status."
-            exit 1
-          fi
-
-          echo "Production runner is online; busy=$runner_busy is healthy."
+          echo "Production runner heartbeat is fresh (${heartbeat_age_minutes} minutes old)."

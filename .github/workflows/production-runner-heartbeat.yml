@@ -1,0 +1,17 @@
+name: Production runner heartbeat
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  heartbeat:
+    name: Heartbeat on production runner
+    runs-on: [self-hosted, macos, magicpodcast-production]
+    timeout-minutes: 5
+    steps:
+      - name: Report runner heartbeat
+        run: echo "Production runner heartbeat completed."
