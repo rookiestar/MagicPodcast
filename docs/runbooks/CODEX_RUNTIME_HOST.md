@@ -15,7 +15,7 @@ Processing / Assistant
 ```
 
 - Go 与 Python 只通过版本化 `stdio` JSONL 通信，不使用 WebSocket；当前执行帧协议版本为 2。
-- 助手执行在执行帧上显式携带受控档位目录解析出的模型、推理强度与速度；目录唯一存在于 Go Runtime 模块（`backend/internal/codexruntime/profile.go`），当前固定 `quick = gpt-5.6-sol / medium / fast`、`balanced = gpt-5.6-luna / max / fast`（默认）、`deep = gpt-5.6-sol / xhigh / Standard`，Python Host 通过固定 SDK 逐次设置这些参数，不读取 Mac mini 全局 Codex 配置。执行前 Host 用当前账号模型目录校验模型、推理强度与显式请求的 Fast tier，任一项不支持即返回稳定的 `profile_unavailable` 错误；不做任何近似匹配或换档回退。协议版本或档位不兼容时两侧都必须明确失败。
+- 助手执行在执行帧上显式携带受控档位目录解析出的模型、推理强度与速度；目录唯一存在于 Go Runtime 模块（`backend/internal/codexruntime/profile.go`），当前固定 `quick = gpt-5.6-sol / medium / Fast`、`balanced = gpt-5.6-luna / max / Fast`（默认）、`deep = gpt-5.6-sol / xhigh / Standard`。Fast 的账号目录 wire ID 当前为 `priority`；Standard 不请求额外 tier，并要求账号目录默认 tier 为空或 `default`，避免继承 Fast。Python Host 通过固定 SDK 逐次设置这些参数，不读取 Mac mini 全局 Codex 配置。执行前 Host 用当前账号模型目录校验模型、推理强度与速度，任一项不支持即返回稳定的 `profile_unavailable` 错误；不做任何近似匹配或换档回退。协议版本或档位不兼容时两侧都必须明确失败。
 - 直接 `codex app-server` 命令是实验性能力，不作为生产边界。
 - Python 必须显式使用 `CodexConfig(experimental_api=False)`。
 - 每个执行有独立 identity、受管工作目录、事件流、取消句柄和进程组。

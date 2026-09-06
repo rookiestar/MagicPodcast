@@ -38,6 +38,7 @@ import {
 } from "@/lib/originalEpisodeOpen";
 import { createEpisodeShowNotesStore } from "@/lib/episodeShowNotesStore";
 import type { Tag } from "@/types";
+import type { EpisodeCopilotProfileID } from "@/types/episodeCopilot";
 import {
   CONSUMPTION_QUEUES,
   type ConsumptionItem,
@@ -66,6 +67,12 @@ interface ConsumptionDetailPanelProps {
     target: ConsumptionQueue,
   ) => Promise<ConsumptionItem | undefined>;
   onCopilotWorkspaceChange?: (isOpen: boolean) => void;
+  selectedCopilotProfileID?: EpisodeCopilotProfileID | null;
+  onSelectedCopilotProfileIDChange?: (
+    profileID: EpisodeCopilotProfileID,
+  ) => void;
+  rejectedCopilotProfileIDs?: ReadonlySet<EpisodeCopilotProfileID>;
+  onRejectedCopilotProfileID?: (profileID: EpisodeCopilotProfileID) => void;
 }
 
 const DETAIL_TABS = [
@@ -401,6 +408,10 @@ export default function ConsumptionDetailPanel({
   onItemChange,
   onMove,
   onCopilotWorkspaceChange,
+  selectedCopilotProfileID,
+  onSelectedCopilotProfileIDChange,
+  rejectedCopilotProfileIDs,
+  onRejectedCopilotProfileID,
 }: ConsumptionDetailPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const detailScrollRef = useRef<HTMLDivElement>(null);
@@ -1054,7 +1065,14 @@ export default function ConsumptionDetailPanel({
               </button>
             </header>
             <div className={styles.copilotWorkspaceScroll}>
-              <EpisodeCopilotPanel item={item} showHeading={false} />
+              <EpisodeCopilotPanel
+                item={item}
+                showHeading={false}
+                selectedProfileID={selectedCopilotProfileID}
+                onSelectedProfileIDChange={onSelectedCopilotProfileIDChange}
+                rejectedProfileIDs={rejectedCopilotProfileIDs}
+                onRejectedProfileID={onRejectedCopilotProfileID}
+              />
             </div>
           </aside>
         </div>

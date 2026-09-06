@@ -40,6 +40,7 @@ import {
   type ConsumptionQueue,
   type ConsumptionSummary,
 } from "@/types/consumption";
+import type { EpisodeCopilotProfileID } from "@/types/episodeCopilot";
 import ConsumptionDetailPanel from "./ConsumptionDetailPanel";
 import ConsumptionQueueColumn from "./ConsumptionQueueColumn";
 import FocusLimitDialog from "./FocusLimitDialog";
@@ -348,6 +349,24 @@ export default function InboxPageClient() {
     () => new Set(),
   );
   const [detailItem, setDetailItem] = useState<ConsumptionItem | null>(null);
+  // The choice belongs to this page session, not to a detail panel instance;
+  // closing one episode and opening another must not silently reset it.
+  const [selectedCopilotProfileID, setSelectedCopilotProfileID] =
+    useState<EpisodeCopilotProfileID | null>(null);
+  // A confirmed unavailable tier stays blocked for this Inbox page session;
+  // the state naturally resets when the page is refreshed.
+  const [rejectedCopilotProfileIDs, setRejectedCopilotProfileIDs] = useState<
+    ReadonlySet<EpisodeCopilotProfileID>
+  >(() => new Set());
+  const rememberRejectedCopilotProfile = useCallback(
+    (profileID: EpisodeCopilotProfileID) => {
+      setRejectedCopilotProfileIDs((current) => {
+        if (current.has(profileID)) return current;
+        return new Set([...current, profileID]);
+      });
+    },
+    [],
+  );
   const [focusPrompt, setFocusPrompt] = useState<FocusPrompt | null>(null);
   const [failedAction, setFailedAction] = useState<FailedAction | null>(null);
   const [completionUndos, setCompletionUndos] = useState<
@@ -1370,6 +1389,10 @@ export default function InboxPageClient() {
           onItemChange={reconcileItem}
           onMove={requestMove}
           onCopilotWorkspaceChange={handleCopilotWorkspaceChange}
+          selectedCopilotProfileID={selectedCopilotProfileID}
+          onSelectedCopilotProfileIDChange={setSelectedCopilotProfileID}
+          rejectedCopilotProfileIDs={rejectedCopilotProfileIDs}
+          onRejectedCopilotProfileID={rememberRejectedCopilotProfile}
         />
       )}
 

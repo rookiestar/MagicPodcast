@@ -18,6 +18,7 @@ import type { ConsumptionItem } from "@/types/consumption";
 import type {
   EpisodeCopilotContextScope,
   EpisodeCopilotProfile,
+  EpisodeCopilotProfileID,
   EpisodeCopilotQuestion,
   EpisodeCopilotSelectionSource,
   EpisodeCopilotStreamEvent,
@@ -27,6 +28,10 @@ import styles from "./InboxPage.module.css";
 interface EpisodeCopilotPanelProps {
   item: ConsumptionItem;
   showHeading?: boolean;
+  selectedProfileID?: EpisodeCopilotProfileID | null;
+  onSelectedProfileIDChange?: (profileID: EpisodeCopilotProfileID) => void;
+  rejectedProfileIDs?: ReadonlySet<EpisodeCopilotProfileID>;
+  onRejectedProfileID?: (profileID: EpisodeCopilotProfileID) => void;
 }
 
 interface CapturedSelection {
@@ -44,27 +49,22 @@ type RequestPhase =
 
 const slowResponseThresholdMS = 2500;
 const maxSelectionCharacters = 12_000;
-// Product default for responses that predate the profile contract, so a
-// short-lived front/back version mismatch cannot break asking a question.
-const fallbackProfileID = "balanced";
 // Product presentation order: speed first, default in the middle, depth last.
-const profileDisplayOrder = ["quick", "balanced", "deep"] as const;
+const profilePresentation: ReadonlyArray<{
+  id: EpisodeCopilotProfileID;
+  name: string;
+}> = [
+  { id: "quick", name: "快速" },
+  { id: "balanced", name: "均衡" },
+  { id: "deep", name: "深度" },
+];
 
 function selectionLabel(source: EpisodeCopilotSelectionSource) {
   return source === "transcript" ? "逐字稿" : "Show Notes";
 }
 
 function profileDisplayName(id: string) {
-  switch (id) {
-    case "quick":
-      return "快速";
-    case "balanced":
-      return "均衡";
-    case "deep":
-      return "深度";
-    default:
-      return id;
-  }
+  return profilePresentation.find((profile) => profile.id === id)?.name ?? id;
 }
 
 function profileTechnicalLabel(profile: EpisodeCopilotProfile) {
@@ -79,16 +79,16 @@ function profileConsumesMoreCredits(profile: EpisodeCopilotProfile) {
   return profile.service_tier_name === "Fast";
 }
 
-function resolveProfileID(scope: EpisodeCopilotContextScope) {
-  return scope.default_profile_id || fallbackProfileID;
+function addRejectedProfileID(
+  current: ReadonlySet<EpisodeCopilotProfileID>,
+  profileID: EpisodeCopilotProfileID,
+) {
+  if (current.has(profileID)) return current;
+  return new Set([...current, profileID]);
 }
 
-// A scope from a backend that predates the profile contract carries neither
-// field. The request then omits profile_id entirely so an old handler with
-// unknown-field rejection still accepts it; a current backend applies its
-// own balanced default.
-function advertisesProfileContract(scope: EpisodeCopilotContextScope) {
-  return Boolean(scope.default_profile_id || scope.profiles?.length);
+function resolveProfileID(scope: EpisodeCopilotContextScope) {
+  return scope.default_profile_id;
 }
 
 function orderedProfiles(
@@ -97,14 +97,18 @@ function orderedProfiles(
   const byID = new Map(
     (scope.profiles ?? []).map((profile) => [profile.id, profile]),
   );
-  return profileDisplayOrder
-    .map((id) => byID.get(id))
+  return profilePresentation
+    .map(({ id }) => byID.get(id))
     .filter((profile): profile is EpisodeCopilotProfile => profile != null);
 }
 
 export default function EpisodeCopilotPanel({
   item,
   showHeading = true,
+  selectedProfileID: controlledProfileID,
+  onSelectedProfileIDChange,
+  rejectedProfileIDs: controlledRejectedProfileIDs,
+  onRejectedProfileID,
 }: EpisodeCopilotPanelProps) {
   const [scope, setScope] = useState<EpisodeCopilotContextScope | null>(null);
   const [scopeError, setScopeError] = useState<string | null>(null);
@@ -113,9 +117,8 @@ export default function EpisodeCopilotPanel({
   const [selection, setSelection] = useState<CapturedSelection | null>(null);
   const [includePrivateNote, setIncludePrivateNote] = useState(false);
   // null keeps the scope's balanced default; a page refresh resets to null.
-  const [selectedProfileID, setSelectedProfileID] = useState<string | null>(
-    null,
-  );
+  const [localSelectedProfileID, setLocalSelectedProfileID] =
+    useState<EpisodeCopilotProfileID | null>(null);
   const [phase, setPhase] = useState<RequestPhase>("idle");
   const [statusMessage, setStatusMessage] = useState("");
   const [answer, setAnswer] = useState("");
@@ -123,6 +126,9 @@ export default function EpisodeCopilotPanel({
   // Codes that change what retrying means, e.g. profile_unavailable must not
   // re-send the same known-impossible request.
   const [failureCode, setFailureCode] = useState<string | null>(null);
+  const [localRejectedProfileIDs, setLocalRejectedProfileIDs] = useState<
+    ReadonlySet<EpisodeCopilotProfileID>
+  >(new Set());
   const [isSlow, setIsSlow] = useState(false);
   const [metrics, setMetrics] = useState<{
     firstContentMS: number;
@@ -131,6 +137,14 @@ export default function EpisodeCopilotPanel({
   } | null>(null);
   const activeRequest = useRef<AbortController | null>(null);
   const retryRequest = useRef<EpisodeCopilotQuestion | null>(null);
+  const selectedProfileID = controlledProfileID ?? localSelectedProfileID;
+  const rejectedProfileIDs =
+    controlledRejectedProfileIDs ?? localRejectedProfileIDs;
+
+  const selectProfile = (profileID: EpisodeCopilotProfileID) => {
+    setLocalSelectedProfileID(profileID);
+    onSelectedProfileIDChange?.(profileID);
+  };
 
   const loadScope = useCallback(async () => {
     setIsLoadingScope(true);
@@ -156,7 +170,6 @@ export default function EpisodeCopilotPanel({
     setQuestion("");
     setSelection(null);
     setIncludePrivateNote(false);
-    setSelectedProfileID(null);
     setPhase("idle");
     setStatusMessage("");
     setAnswer("");
@@ -221,6 +234,7 @@ export default function EpisodeCopilotPanel({
   const handleEvent = (
     event: EpisodeCopilotStreamEvent,
     replaceAnswer: { current: boolean },
+    requestProfileID: EpisodeCopilotProfileID,
   ) => {
     if (event.type === "context" || event.type === "status") {
       setStatusMessage(event.message || "正在处理…");
@@ -243,6 +257,16 @@ export default function EpisodeCopilotPanel({
       setIsSlow(false);
       setStatusMessage("");
       setFailureCode(event.code ?? null);
+      if (event.code === "profile_unavailable") {
+        const rejectedProfileID = event.profile_id ?? requestProfileID;
+        if (onRejectedProfileID) {
+          onRejectedProfileID(rejectedProfileID);
+        } else {
+          setLocalRejectedProfileIDs((current) =>
+            addRejectedProfileID(current, rejectedProfileID),
+          );
+        }
+      }
       setRequestError(event.message || "助手回答失败，请重试");
       return;
     }
@@ -265,6 +289,11 @@ export default function EpisodeCopilotPanel({
     const normalizedQuestion =
       requestToRetry?.question ?? question.trim();
     if (!normalizedQuestion || !scope || activeRequest.current) return;
+    const requestProfileID =
+      requestToRetry?.profile_id ??
+      selectedProfileID ??
+      resolveProfileID(scope);
+    if (rejectedProfileIDs.has(requestProfileID)) return;
     const controller = new AbortController();
     activeRequest.current = controller;
     const request: EpisodeCopilotQuestion = requestToRetry ?? {
@@ -273,10 +302,11 @@ export default function EpisodeCopilotPanel({
       selection_source: selection?.source ?? "",
       include_private_note:
         includePrivateNote && scope.private_note_available,
-      ...(advertisesProfileContract(scope)
-        ? { profile_id: selectedProfileID ?? resolveProfileID(scope) }
-        : {}),
+      profile_id: requestProfileID,
     };
+    if (requestToRetry) {
+      selectProfile(request.profile_id);
+    }
     if (!requestToRetry) {
       retryRequest.current = request;
       setIncludePrivateNote(false);
@@ -292,7 +322,7 @@ export default function EpisodeCopilotPanel({
       await episodeCopilotApi.ask(
         item.episode_id,
         request,
-        (event) => handleEvent(event, replaceAnswer),
+        (event) => handleEvent(event, replaceAnswer, request.profile_id),
         controller.signal,
       );
     } catch (error) {
@@ -303,9 +333,17 @@ export default function EpisodeCopilotPanel({
         setPhase("failed");
         setIsSlow(false);
         setStatusMessage("");
-        setFailureCode(
-          (error as { code?: string } | null)?.code ?? null,
-        );
+        const code = (error as { code?: string } | null)?.code ?? null;
+        setFailureCode(code);
+        if (code === "profile_unavailable") {
+          if (onRejectedProfileID) {
+            onRejectedProfileID(request.profile_id);
+          } else {
+            setLocalRejectedProfileIDs((current) =>
+              addRejectedProfileID(current, request.profile_id),
+            );
+          }
+        }
         setRequestError(
           `${getErrorMessage(error)}；问题、选区和已有答案已保留。`,
         );
@@ -318,8 +356,16 @@ export default function EpisodeCopilotPanel({
   };
 
   const isActive = phase === "waiting" || phase === "streaming";
+  const effectiveSelectedProfileID =
+    selectedProfileID ?? (scope ? resolveProfileID(scope) : null);
+  const isRejectedProfileSelected =
+    effectiveSelectedProfileID !== null &&
+    rejectedProfileIDs.has(effectiveSelectedProfileID);
   const canAsk =
-    Boolean(scope) && question.trim().length > 0 && !isActive;
+    Boolean(scope) &&
+    question.trim().length > 0 &&
+    !isActive &&
+    !isRejectedProfileSelected;
   // Retrying an unsupported profile would repeat the identical impossible
   // request; the user switches tiers and asks a new question instead.
   const showRetry =
@@ -393,7 +439,7 @@ export default function EpisodeCopilotPanel({
                       name={`copilot-profile-${item.episode_id}`}
                       value={profile.id}
                       checked={selectedID === profile.id}
-                      onChange={() => setSelectedProfileID(profile.id)}
+                      onChange={() => selectProfile(profile.id)}
                     />
                     <span className={styles.copilotProfileName}>
                       {profileDisplayName(profile.id)}
@@ -414,6 +460,11 @@ export default function EpisodeCopilotPanel({
               })}
             </fieldset>
           ) : null}
+          {isRejectedProfileSelected && effectiveSelectedProfileID && (
+            <p className={styles.copilotDegraded} role="status">
+              当前选择的{profileDisplayName(effectiveSelectedProfileID)}档位已确认不可用；请切换其他档位后再提问。
+            </p>
+          )}
           {!scope.transcript_available && (
             <p className={styles.copilotDegraded}>
               当前无成功逐字稿，将明确降级为 Show Notes。

@@ -118,9 +118,12 @@ def _fake_model_catalog():
     """Model catalog shaped like the SDK's ModelListResponse.
 
     FAKE_CODEX_MODEL_CATALOG overrides the default with a JSON list of
-    {"model": ..., "efforts": [...], "tiers": [...]} entries so tests can
-    simulate accounts that lack a requested profile.
+    {"model": ..., "efforts": [...], "tiers": [...], "default_tier": ...}
+    entries so tests can simulate accounts that lack a requested profile or
+    would make Standard inherit Fast.
     """
+    if os.environ.get("FAKE_CODEX_MODEL_CATALOG_INVALID") == "1":
+        return SimpleNamespace(data={"invalid": "model catalog shape"})
     encoded = os.environ.get("FAKE_CODEX_MODEL_CATALOG")
     if encoded:
         entries = json.loads(encoded)
@@ -150,6 +153,7 @@ def _fake_model_catalog():
                 service_tiers=[
                     SimpleNamespace(id=tier) for tier in entry["tiers"]
                 ],
+                default_service_tier=entry.get("default_tier"),
             )
         )
     return SimpleNamespace(data=data)

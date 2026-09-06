@@ -174,11 +174,12 @@ func TestEpisodeCopilotHandlerExposesProfileMeaningInContext(t *testing.T) {
 			DefaultProfileID: "balanced",
 			Profiles: []episodecopilot.ProfileDescriptor{
 				{
-					ID:          "balanced",
-					Model:       "gpt-5.6-luna",
-					Effort:      "max",
-					ServiceTier: "fast",
-					Default:     true,
+					ID:              "balanced",
+					Model:           "gpt-5.6-luna",
+					Effort:          "max",
+					ServiceTier:     "priority",
+					ServiceTierName: "Fast",
+					Default:         true,
 				},
 			},
 		},
@@ -199,7 +200,8 @@ func TestEpisodeCopilotHandlerExposesProfileMeaningInContext(t *testing.T) {
 	require.Contains(t, body, `"default_profile_id":"balanced"`)
 	require.Contains(t, body, `"model":"gpt-5.6-luna"`)
 	require.Contains(t, body, `"effort":"max"`)
-	require.Contains(t, body, `"service_tier":"fast"`)
+	require.Contains(t, body, `"service_tier":"priority"`)
+	require.Contains(t, body, `"service_tier_name":"Fast"`)
 	require.Contains(t, body, `"is_default":true`)
 }
 

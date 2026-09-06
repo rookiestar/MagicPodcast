@@ -6,11 +6,12 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { StrictMode } from "react";
+import { StrictMode, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import EpisodeCopilotPanel from "../EpisodeCopilotPanel";
 import { episodeCopilotApi } from "@/lib/api/episodeCopilot";
 import type { ConsumptionItem } from "@/types/consumption";
+import type { EpisodeCopilotProfileID } from "@/types/episodeCopilot";
 
 const copilotMocks = vi.hoisted(() => ({
   getContext: vi.fn(),
@@ -43,6 +44,21 @@ const item: ConsumptionItem = {
   tags: [],
   queue_state: "focus",
 };
+
+function ControlledCopilotSession({ item }: { item: ConsumptionItem }) {
+  const [rejectedProfileIDs, setRejectedProfileIDs] = useState<
+    ReadonlySet<EpisodeCopilotProfileID>
+  >(() => new Set());
+  return (
+    <EpisodeCopilotPanel
+      item={item}
+      rejectedProfileIDs={rejectedProfileIDs}
+      onRejectedProfileID={(profileID) =>
+        setRejectedProfileIDs((current) => new Set([...current, profileID]))
+      }
+    />
+  );
+}
 
 describe("EpisodeCopilotPanel", () => {
   beforeEach(() => {
@@ -313,7 +329,7 @@ describe("EpisodeCopilotPanel", () => {
           message: "回答完成",
           transcript_used: false,
           private_note_included: false,
-          profile_id: request.profile_id ?? "",
+          profile_id: request.profile_id,
           first_content_ms: 70,
           total_ms: 210,
         });
@@ -344,9 +360,14 @@ describe("EpisodeCopilotPanel", () => {
     expect(
       screen.queryByRole("button", { name: "重试" }),
     ).not.toBeInTheDocument();
+    const askButton = screen.getByRole("button", { name: "提问" });
+    expect(askButton).toBeDisabled();
+    fireEvent.click(askButton);
+    expect(episodeCopilotApi.ask).toHaveBeenCalledTimes(1);
 
     // User switches to deep and asks again: a new request carrying deep.
     fireEvent.click(within(group).getByRole("radio", { name: /深度/ }));
+    expect(askButton).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "提问" }));
     await waitFor(() =>
       expect(episodeCopilotApi.ask).toHaveBeenCalledTimes(2),
@@ -354,33 +375,145 @@ describe("EpisodeCopilotPanel", () => {
     expect(profileSequence[1]).toBe("deep");
   });
 
-  it("omits profile_id when the scope predates the profile contract", async () => {
-    vi.mocked(episodeCopilotApi.getContext).mockResolvedValue({
-      episode_id: 201,
-      show_notes_available: true,
-      transcript_available: false,
-      private_note_available: false,
-      profiles: [],
-      default_profile_id: "",
-    });
+  it("keeps every unsupported tier blocked until the page session ends", async () => {
+    vi.mocked(episodeCopilotApi.ask).mockImplementation(
+      async (_episodeId, request, onEvent) => {
+        onEvent({
+          type: "error",
+          message: `${request.profile_id} 不可用`,
+          code: "profile_unavailable",
+          retryable: false,
+          transcript_used: false,
+          private_note_included: false,
+          profile_id: request.profile_id,
+        });
+        const failure = new Error(`${request.profile_id} 不可用`) as Error & {
+          code?: string;
+        };
+        failure.code = "profile_unavailable";
+        throw failure;
+      },
+    );
 
-    render(
-      <>
-        <div>单集正文仍然可读</div>
-        <EpisodeCopilotPanel item={item} />
-      </>,
+    render(<EpisodeCopilotPanel item={item} />);
+    const group = await screen.findByTestId("copilot-profiles");
+    const question = screen.getByRole("textbox", {
+      name: "向单集助手提问",
+    });
+    fireEvent.change(question, { target: { value: "验证多个不可用档位" } });
+
+    fireEvent.click(within(group).getByRole("radio", { name: /快速/ }));
+    fireEvent.click(screen.getByRole("button", { name: "提问" }));
+    await screen.findByRole("alert");
+    expect(screen.getByRole("button", { name: "提问" })).toBeDisabled();
+
+    fireEvent.click(within(group).getByRole("radio", { name: /深度/ }));
+    expect(screen.getByRole("button", { name: "提问" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "提问" }));
+    await waitFor(() =>
+      expect(episodeCopilotApi.ask).toHaveBeenCalledTimes(2),
     );
-    await screen.findByText(
-      "当前无成功逐字稿，将明确降级为 Show Notes。",
+    expect(screen.getByRole("button", { name: "提问" })).toBeDisabled();
+
+    fireEvent.click(within(group).getByRole("radio", { name: /快速/ }));
+    expect(screen.getByRole("button", { name: "提问" })).toBeDisabled();
+    fireEvent.click(within(group).getByRole("radio", { name: /均衡/ }));
+    expect(screen.getByRole("button", { name: "提问" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "提问" }));
+    await waitFor(() =>
+      expect(episodeCopilotApi.ask).toHaveBeenCalledTimes(3),
     );
+  });
+
+  it("keeps rejected tiers blocked when the controlled panel changes episodes", async () => {
+    vi.mocked(episodeCopilotApi.getContext).mockImplementation(
+      async (episodeId) => ({
+        episode_id: episodeId,
+        show_notes_available: true,
+        transcript_available: false,
+        private_note_available: false,
+        profiles: [
+          {
+            id: "quick",
+            model: "gpt-5.6-sol",
+            effort: "medium",
+            service_tier: "priority",
+            service_tier_name: "Fast",
+            is_default: false,
+          },
+          {
+            id: "balanced",
+            model: "gpt-5.6-luna",
+            effort: "max",
+            service_tier: "priority",
+            service_tier_name: "Fast",
+            is_default: true,
+          },
+          {
+            id: "deep",
+            model: "gpt-5.6-sol",
+            effort: "xhigh",
+            service_tier: "",
+            service_tier_name: "Standard",
+            is_default: false,
+          },
+        ],
+        default_profile_id: "balanced",
+      }),
+    );
+    vi.mocked(episodeCopilotApi.ask).mockImplementationOnce(
+      async (_episodeId, request, onEvent) => {
+        onEvent({
+          type: "error",
+          message: "快速档位不可用",
+          code: "profile_unavailable",
+          retryable: false,
+          transcript_used: false,
+          private_note_included: false,
+          profile_id: request.profile_id,
+        });
+        const failure = new Error("快速档位不可用") as Error & {
+          code?: string;
+        };
+        failure.code = "profile_unavailable";
+        throw failure;
+      },
+    );
+
+    const view = render(<ControlledCopilotSession item={item} />);
+    const group = await screen.findByTestId("copilot-profiles");
+    fireEvent.click(within(group).getByRole("radio", { name: /快速/ }));
     fireEvent.change(screen.getByRole("textbox", { name: "向单集助手提问" }), {
-      target: { value: "旧后端也要能提问" },
+      target: { value: "先验证当前单集" },
     });
     fireEvent.click(screen.getByRole("button", { name: "提问" }));
+    await screen.findByRole("alert");
 
-    await waitFor(() => expect(episodeCopilotApi.ask).toHaveBeenCalled());
-    const request = vi.mocked(episodeCopilotApi.ask).mock.calls[0]?.[1];
-    expect(request).not.toHaveProperty("profile_id");
+    const nextItem = { ...item, episode_id: 202 };
+    view.rerender(<ControlledCopilotSession item={nextItem} />);
+    await waitFor(() =>
+      expect(episodeCopilotApi.getContext).toHaveBeenCalledWith(202),
+    );
+    expect(
+      await screen.findByText(
+        "当前选择的快速档位已确认不可用；请切换其他档位后再提问。",
+      ),
+    ).toBeInTheDocument();
+    const nextQuestion = screen.getByRole("textbox", {
+      name: "向单集助手提问",
+    });
+    fireEvent.change(nextQuestion, { target: { value: "切换后仍验证" } });
+    const askButton = screen.getByRole("button", { name: "提问" });
+    expect(askButton).toBeDisabled();
+    fireEvent.click(askButton);
+    expect(episodeCopilotApi.ask).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(
+      within(screen.getByTestId("copilot-profiles")).getByRole("radio", {
+        name: /深度/,
+      }),
+    );
+    expect(askButton).toBeEnabled();
   });
 
   it("keeps the question, selection, and partial answer after failure, then retries", async () => {
@@ -441,6 +574,8 @@ describe("EpisodeCopilotPanel", () => {
     const question = screen.getByRole("textbox", {
       name: "向单集助手提问",
     });
+    const group = screen.getByTestId("copilot-profiles");
+    fireEvent.click(within(group).getByRole("radio", { name: /快速/ }));
     fireEvent.change(question, { target: { value: "失败时保留什么？" } });
     fireEvent.click(
       screen.getByRole("checkbox", { name: /本次包含我的私有备注/ }),
@@ -460,6 +595,8 @@ describe("EpisodeCopilotPanel", () => {
       screen.getByRole("checkbox", { name: /本次包含我的私有备注/ }),
     ).not.toBeChecked();
 
+    fireEvent.click(within(group).getByRole("radio", { name: /深度/ }));
+    expect(within(group).getByRole("radio", { name: /深度/ })).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(
       await screen.findByText("重试后的完整回答。"),
@@ -471,11 +608,103 @@ describe("EpisodeCopilotPanel", () => {
       201,
       expect.objectContaining({
         include_private_note: true,
-        profile_id: "balanced",
+        profile_id: "quick",
       }),
       expect.any(Function),
       expect.any(AbortSignal),
     );
+    expect(within(group).getByRole("radio", { name: /快速/ })).toBeChecked();
+  });
+
+  it("keeps the selected tier when navigating to another episode", async () => {
+    vi.mocked(episodeCopilotApi.getContext).mockImplementation(
+      async (episodeId) => ({
+        episode_id: episodeId,
+        show_notes_available: true,
+        transcript_available: false,
+        private_note_available: false,
+        profiles: [
+          {
+            id: "quick",
+            model: "gpt-5.6-sol",
+            effort: "medium",
+            service_tier: "priority",
+            service_tier_name: "Fast",
+            is_default: false,
+          },
+          {
+            id: "balanced",
+            model: "gpt-5.6-luna",
+            effort: "max",
+            service_tier: "priority",
+            service_tier_name: "Fast",
+            is_default: true,
+          },
+          {
+            id: "deep",
+            model: "gpt-5.6-sol",
+            effort: "xhigh",
+            service_tier: "",
+            service_tier_name: "Standard",
+            is_default: false,
+          },
+        ],
+        default_profile_id: "balanced",
+      }),
+    );
+    const { rerender } = render(<EpisodeCopilotPanel item={item} />);
+    const group = await screen.findByTestId("copilot-profiles");
+    fireEvent.click(within(group).getByRole("radio", { name: /深度/ }));
+
+    rerender(
+      <EpisodeCopilotPanel item={{ ...item, episode_id: 202 }} />,
+    );
+
+    await waitFor(() =>
+      expect(episodeCopilotApi.getContext).toHaveBeenCalledWith(202),
+    );
+    const nextGroup = await screen.findByTestId("copilot-profiles");
+    expect(
+      within(nextGroup).getByRole("radio", { name: /深度/ }),
+    ).toBeChecked();
+  });
+
+  it("keeps a page-session tier when the detail panel remounts", async () => {
+    let pageProfileID: EpisodeCopilotProfileID | null = null;
+    const onProfileChange = (profileID: EpisodeCopilotProfileID) => {
+      pageProfileID = profileID;
+    };
+    const view = render(
+      <EpisodeCopilotPanel
+        item={item}
+        selectedProfileID={pageProfileID}
+        onSelectedProfileIDChange={onProfileChange}
+      />,
+    );
+    const group = await screen.findByTestId("copilot-profiles");
+    fireEvent.click(within(group).getByRole("radio", { name: /深度/ }));
+    expect(pageProfileID).toBe("deep");
+
+    view.rerender(
+      <EpisodeCopilotPanel
+        item={item}
+        selectedProfileID={pageProfileID}
+        onSelectedProfileIDChange={onProfileChange}
+      />,
+    );
+    view.unmount();
+    render(
+      <EpisodeCopilotPanel
+        item={{ ...item, episode_id: 202 }}
+        selectedProfileID={pageProfileID}
+        onSelectedProfileIDChange={onProfileChange}
+      />,
+    );
+
+    const remountedGroup = await screen.findByTestId("copilot-profiles");
+    expect(
+      within(remountedGroup).getByRole("radio", { name: /深度/ }),
+    ).toBeChecked();
   });
 
   it("keeps reading usable during a slow answer and supports cancellation", async () => {

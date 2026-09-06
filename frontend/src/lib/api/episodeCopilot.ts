@@ -30,6 +30,18 @@ function errorMessage(error: unknown) {
   return "单集助手暂时无法回答，请稍后重试";
 }
 
+function errorCode(error: unknown) {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+  ) {
+    return error.code;
+  }
+  return undefined;
+}
+
 export const episodeCopilotApi = {
   getContext: async (
     episodeId: number,
@@ -120,7 +132,11 @@ export const episodeCopilotApi = {
       if (timedOut) {
         throw new Error("回答超时，问题和选区已保留，可重试");
       }
-      throw new Error(errorMessage(error));
+      const failure = new Error(errorMessage(error)) as Error & {
+        code?: string;
+      };
+      failure.code = errorCode(error);
+      throw failure;
     } finally {
       window.clearTimeout(timeout);
       signal.removeEventListener("abort", abortFromCaller);

@@ -60,7 +60,7 @@ type profileEvidence struct {
 	SchemaVersion        int                             `json:"schema_version"`
 	ObservedAt           time.Time                       `json:"observed_at"`
 	Host                 string                          `json:"host"`
-	SDKVersion           string                          `json:"sdk_version"`
+	SDKVersion           string                          `json:"sdk_version,omitempty"`
 	RuntimeVersion       string                          `json:"runtime_version,omitempty"`
 	Profile              string                          `json:"profile"`
 	Model                string                          `json:"model"`
@@ -429,7 +429,6 @@ func runProfileSmoke(input profileSmokeInput) error {
 			SchemaVersion:      1,
 			ObservedAt:         time.Now().UTC(),
 			Host:               hostname,
-			SDKVersion:         "0.147.0",
 			Profile:            string(profile.ID),
 			Model:              profile.Model,
 			Effort:             profile.Effort,

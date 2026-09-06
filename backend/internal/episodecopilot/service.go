@@ -217,17 +217,18 @@ func (s *Service) run(
 		if ctx.Err() != nil {
 			return
 		}
+		code, message, retryable := classifyRuntimeError(err)
 		// A profile the account cannot serve must abort the question with a
 		// stable error; silently answering with degraded research or a
 		// different profile is never allowed.
-		if codexruntime.ErrorCode(err) == codexruntime.ErrorProfileUnavailable {
+		if code == codexruntime.ErrorProfileUnavailable {
 			emitFailure(
 				ctx,
 				events,
 				baseEvent,
-				codexruntime.ErrorProfileUnavailable,
-				"当前账号或 Runtime 不支持所选档位，请更换档位后重新提问。",
-				false,
+				code,
+				message,
+				retryable,
 			)
 			return
 		}

@@ -234,27 +234,73 @@ func TestPythonSDKHostReportsProfileUnavailableStably(t *testing.T) {
 	require.NotEmpty(t, runtimeErr.SafeMessage)
 }
 
-func TestPythonSDKHostCarriesResolvedBalancedProfileToSDK(t *testing.T) {
-	python, err := exec.LookPath("python3")
-	if err != nil {
-		t.Skip("python3 is not available")
-	}
-	_, currentFile, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	packageDir := filepath.Dir(currentFile)
-	script := filepath.Join(packageDir, "runtime_host.py")
-	fakeSDK := filepath.Join(packageDir, "testdata", "fake_sdk")
-	workRoot := t.TempDir()
-	environment, _ := fakeSDKEnvironment(t, fakeSDK, nil)
-	host, err := NewProcessHost(ProcessHostConfig{
-		Command:          []string{python, script},
-		WorkRoot:         workRoot,
-		testEnvironment:  environment,
-		StartupTimeout:   3 * time.Second,
-		TerminateTimeout: 500 * time.Millisecond,
-		KillTimeout:      500 * time.Millisecond,
+func TestPythonSDKHostTreatsInvalidModelCatalogAsRetryableRuntimeFailure(
+	t *testing.T,
+) {
+	host, workRoot := newFakeSDKHostForProfiles(t, map[string]string{
+		"FAKE_CODEX_MODEL_CATALOG_INVALID": "1",
 	})
-	require.NoError(t, err)
+
+	_, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindAssistant,
+			WorkingDirectory: newExecutionDir(t, workRoot, "python-invalid-catalog-"),
+			Prompt:           "Retry when the account catalog cannot be verified.",
+			ModelProfile:     ModelProfileID("deep"),
+		},
+	)
+	require.Error(t, err)
+	require.Equal(t, ErrorRuntimeUnavailable, ErrorCode(err))
+
+	var runtimeErr *RuntimeError
+	require.True(t, errors.As(err, &runtimeErr))
+	require.True(t, runtimeErr.Retryable)
+	require.NotEmpty(t, runtimeErr.SafeMessage)
+	require.NoError(t, closeHost(t, host))
+}
+
+func TestPythonSDKHostPrefersRuntimeVersionFailureOverProfileFailure(
+	t *testing.T,
+) {
+	host, workRoot := newFakeSDKHostForProfiles(t, map[string]string{
+		"FAKE_CODEX_RUNTIME_VERSION": "0.148.0",
+		"FAKE_CODEX_MODEL_CATALOG":   `[{"model":"gpt-5.6-sol","efforts":["medium"],"tiers":["priority"]}]`,
+	})
+
+	_, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindAssistant,
+			WorkingDirectory: newExecutionDir(t, workRoot, "python-version-first-"),
+			Prompt:           "Do not hide an incompatible runtime version.",
+			ModelProfile:     ModelProfileID("deep"),
+		},
+	)
+	require.Error(t, err)
+	require.Equal(t, ErrorRuntimeUnavailable, ErrorCode(err))
+}
+
+func TestPythonSDKHostRejectsFastDefaultForStandardProfile(t *testing.T) {
+	host, workRoot := newFakeSDKHostForProfiles(t, map[string]string{
+		"FAKE_CODEX_MODEL_CATALOG": `[{"model":"gpt-5.6-sol","efforts":["xhigh"],"tiers":["priority"],"default_tier":"priority"}]`,
+	})
+
+	_, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindAssistant,
+			WorkingDirectory: newExecutionDir(t, workRoot, "python-standard-"),
+			Prompt:           "Standard must not inherit Fast.",
+			ModelProfile:     ModelProfileID("deep"),
+		},
+	)
+	require.Error(t, err)
+	require.Equal(t, ErrorProfileUnavailable, ErrorCode(err))
+}
+
+func TestPythonSDKHostCarriesResolvedBalancedProfileToSDK(t *testing.T) {
+	host, workRoot := newFakeSDKHostForProfiles(t, nil)
 
 	assistantDir := newExecutionDir(t, workRoot, "python-balanced-")
 	execution, err := host.CreateExecution(
@@ -277,40 +323,14 @@ func TestPythonSDKHostCarriesResolvedBalancedProfileToSDK(t *testing.T) {
 	// The fake SDK records the per-turn parameters it received, so the
 	// contract is observed through the process boundary instead of private
 	// call ordering.
-	raw, err := os.ReadFile(filepath.Join(assistantDir, "fake-turn-params.json"))
-	require.NoError(t, err)
-	var observed struct {
-		Model       string `json:"model"`
-		Effort      string `json:"effort"`
-		ServiceTier string `json:"service_tier"`
-	}
-	require.NoError(t, json.Unmarshal(raw, &observed))
+	observed := observedTurnParameters(t, assistantDir)
 	require.Equal(t, "gpt-5.6-luna", observed.Model)
 	require.Equal(t, "max", observed.Effort)
 	require.Equal(t, "priority", observed.ServiceTier)
 }
 
 func TestPythonSDKHostKeepsDefaultTurnParametersWithoutProfile(t *testing.T) {
-	python, err := exec.LookPath("python3")
-	if err != nil {
-		t.Skip("python3 is not available")
-	}
-	_, currentFile, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	packageDir := filepath.Dir(currentFile)
-	script := filepath.Join(packageDir, "runtime_host.py")
-	fakeSDK := filepath.Join(packageDir, "testdata", "fake_sdk")
-	workRoot := t.TempDir()
-	environment, _ := fakeSDKEnvironment(t, fakeSDK, nil)
-	host, err := NewProcessHost(ProcessHostConfig{
-		Command:          []string{python, script},
-		WorkRoot:         workRoot,
-		testEnvironment:  environment,
-		StartupTimeout:   3 * time.Second,
-		TerminateTimeout: 500 * time.Millisecond,
-		KillTimeout:      500 * time.Millisecond,
-	})
-	require.NoError(t, err)
+	host, workRoot := newFakeSDKHostForProfiles(t, nil)
 
 	notesDir := newExecutionDir(t, workRoot, "python-default-")
 	execution, err := host.CreateExecution(
@@ -346,10 +366,12 @@ func TestPythonHostRejectsIncompatibleProtocolFrames(t *testing.T) {
 	}
 	_, currentFile, _, ok := runtime.Caller(0)
 	require.True(t, ok)
+	packageDir := filepath.Dir(currentFile)
 	script := filepath.Join(
-		filepath.Dir(currentFile),
+		packageDir,
 		"runtime_host.py",
 	)
+	fakeSDK := filepath.Join(packageDir, "testdata", "fake_sdk")
 
 	frames := map[string]string{
 		"legacy protocol version": `{"protocol_version":1,"type":"execute","execution_id":"legacy","kind":"assistant","working_directory":"/tmp","prompt":"p","sandbox":"read_only","allowed_tools":[]}`,
@@ -364,11 +386,20 @@ func TestPythonHostRejectsIncompatibleProtocolFrames(t *testing.T) {
 				15*time.Second,
 			)
 			defer cancel()
+			workDir := t.TempDir()
+			encodedWorkDir, err := json.Marshal(workDir)
+			require.NoError(t, err)
+			frame = strings.Replace(frame, `"/tmp"`, string(encodedWorkDir), 1)
+			environment, _ := fakeSDKEnvironment(t, fakeSDK, nil)
+			environment[runtimeHomeEnvironment] = t.TempDir()
 			command := exec.CommandContext(ctx, python, script)
 			command.Stdin = strings.NewReader(frame + "\n")
-			command.Env = append(os.Environ(), "CODEX_HOME="+t.TempDir())
-			err := command.Run()
+			command.Env = environmentMap(environment)
+			output, err := command.CombinedOutput()
 			require.Error(t, err, "incompatible frame must fail the host")
+			require.Contains(t, string(output), ErrorProtocol)
+			_, statErr := os.Stat(filepath.Join(workDir, "fake-turn-params.json"))
+			require.Error(t, statErr, "invalid frame must not reach the SDK turn")
 		})
 	}
 }
