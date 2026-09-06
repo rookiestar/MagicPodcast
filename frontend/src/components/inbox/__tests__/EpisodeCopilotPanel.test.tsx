@@ -282,7 +282,7 @@ describe("EpisodeCopilotPanel", () => {
     ).toBeChecked();
   });
 
-  it("retries with the original profile and treats a changed tier as a new request", async () => {
+  it("hides retry after an unsupported profile and treats a changed tier as a new request", async () => {
     const profileSequence: Array<string | undefined> = [];
     vi.mocked(episodeCopilotApi.ask)
       .mockImplementationOnce(async (_episodeId, request, onEvent) => {
@@ -296,7 +296,12 @@ describe("EpisodeCopilotPanel", () => {
           private_note_included: false,
           profile_id: "quick",
         });
-        throw new Error("当前账号或 Runtime 不支持所选档位，请更换档位后重新提问。");
+        // Mirror the API client: the thrown error carries the SSE error code.
+        const failure = new Error(
+          "当前账号或 Runtime 不支持所选档位，请更换档位后重新提问。",
+        ) as Error & { code?: string };
+        failure.code = "profile_unavailable";
+        throw failure;
       })
       .mockImplementation(async (_episodeId, request, onEvent) => {
         profileSequence.push(request.profile_id);
@@ -331,22 +336,19 @@ describe("EpisodeCopilotPanel", () => {
     expect(screen.getByRole("textbox", { name: "向单集助手提问" })).toHaveValue(
       "先快速，再换深度",
     );
+    // Retrying the identical unsupported request is impossible by design:
+    // the action is hidden while the work and the tier switch stay usable.
+    expect(
+      screen.queryByRole("button", { name: "重试" }),
+    ).not.toBeInTheDocument();
 
-    // User switches to deep after the failure, then retries: the retry must
-    // reuse the original quick profile.
+    // User switches to deep and asks again: a new request carrying deep.
     fireEvent.click(within(group).getByRole("radio", { name: /深度/ }));
-    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    fireEvent.click(screen.getByRole("button", { name: "提问" }));
     await waitFor(() =>
       expect(episodeCopilotApi.ask).toHaveBeenCalledTimes(2),
     );
-    expect(profileSequence[1]).toBe("quick");
-
-    // Asking again is a new request that carries the newly selected tier.
-    fireEvent.click(screen.getByRole("button", { name: "提问" }));
-    await waitFor(() =>
-      expect(episodeCopilotApi.ask).toHaveBeenCalledTimes(3),
-    );
-    expect(profileSequence[2]).toBe("deep");
+    expect(profileSequence[1]).toBe("deep");
   });
 
   it("omits profile_id when the scope predates the profile contract", async () => {
@@ -464,7 +466,10 @@ describe("EpisodeCopilotPanel", () => {
     expect(episodeCopilotApi.ask).toHaveBeenNthCalledWith(
       2,
       201,
-      expect.objectContaining({ include_private_note: true }),
+      expect.objectContaining({
+        include_private_note: true,
+        profile_id: "balanced",
+      }),
       expect.any(Function),
       expect.any(AbortSignal),
     );

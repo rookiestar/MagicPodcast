@@ -116,6 +116,9 @@ export default function EpisodeCopilotPanel({
   const [statusMessage, setStatusMessage] = useState("");
   const [answer, setAnswer] = useState("");
   const [requestError, setRequestError] = useState<string | null>(null);
+  // Codes that change what retrying means, e.g. profile_unavailable must not
+  // re-send the same known-impossible request.
+  const [failureCode, setFailureCode] = useState<string | null>(null);
   const [isSlow, setIsSlow] = useState(false);
   const [metrics, setMetrics] = useState<{
     firstContentMS: number;
@@ -154,6 +157,7 @@ export default function EpisodeCopilotPanel({
     setStatusMessage("");
     setAnswer("");
     setRequestError(null);
+    setFailureCode(null);
     setMetrics(null);
     setIsSlow(false);
     retryRequest.current = null;
@@ -234,6 +238,7 @@ export default function EpisodeCopilotPanel({
       setPhase("failed");
       setIsSlow(false);
       setStatusMessage("");
+      setFailureCode(event.code ?? null);
       setRequestError(event.message || "助手回答失败，请重试");
       return;
     }
@@ -277,6 +282,7 @@ export default function EpisodeCopilotPanel({
     setPhase("waiting");
     setStatusMessage("正在核对当前单集与公开资料…");
     setRequestError(null);
+    setFailureCode(null);
     setMetrics(null);
     try {
       await episodeCopilotApi.ask(
@@ -293,6 +299,9 @@ export default function EpisodeCopilotPanel({
         setPhase("failed");
         setIsSlow(false);
         setStatusMessage("");
+        setFailureCode(
+          (error as { code?: string } | null)?.code ?? null,
+        );
         setRequestError(
           `${getErrorMessage(error)}；问题、选区和已有答案已保留。`,
         );
@@ -307,6 +316,11 @@ export default function EpisodeCopilotPanel({
   const isActive = phase === "waiting" || phase === "streaming";
   const canAsk =
     Boolean(scope) && question.trim().length > 0 && !isActive;
+  // Retrying an unsupported profile would repeat the identical impossible
+  // request; the user switches tiers and asks a new question instead.
+  const showRetry =
+    (phase === "failed" && failureCode !== "profile_unavailable") ||
+    phase === "cancelled";
 
   return (
     <section
@@ -474,7 +488,7 @@ export default function EpisodeCopilotPanel({
                 取消
               </button>
             )}
-            {(phase === "failed" || phase === "cancelled") && (
+            {showRetry && (
               <button
                 type="button"
                 className={styles.secondaryCommand}
