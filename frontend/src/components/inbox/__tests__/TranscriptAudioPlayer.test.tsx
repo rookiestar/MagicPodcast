@@ -788,5 +788,20 @@ describe("TranscriptAudioPlayer", () => {
     expect(
       screen.queryByRole("menu", { name: "选择播放倍速" }),
     ).not.toBeInTheDocument();
+
+    // The shared menu closes after Tab moves focus beyond its trigger/menu.
+    trigger.focus();
+    await user.keyboard("{Enter}");
+    const tabMenu = screen.getByRole("menu", { name: "选择播放倍速" });
+    const tabOptions = within(tabMenu).getAllByRole("menuitemradio");
+    expect(tabOptions[3]).toHaveFocus();
+    await user.tab();
+    expect(tabOptions[4]).toHaveFocus();
+    expect(tabMenu).toBeInTheDocument();
+    await user.tab();
+    expect(
+      screen.queryByRole("menu", { name: "选择播放倍速" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "同步逐字稿" })).toHaveFocus();
   });
 });

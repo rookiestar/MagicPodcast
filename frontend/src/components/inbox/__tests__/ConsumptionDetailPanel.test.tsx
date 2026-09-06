@@ -766,8 +766,11 @@ describe("ConsumptionDetailPanel", () => {
         />,
       );
 
-      const trigger = queueTrigger("Focus");
+      const trigger = screen.getByRole("button", {
+        name: "当前队列 Focus，正在保存队列",
+      });
       expect(trigger).toHaveAttribute("aria-disabled", "true");
+      expect(trigger).toHaveTextContent("Focus · 保存中…");
       fireEvent.click(trigger);
       expect(
         screen.queryByRole("menu", { name: "切换至" }),
@@ -829,6 +832,35 @@ describe("ConsumptionDetailPanel", () => {
       expect(
         screen.queryByRole("menu", { name: "切换至" }),
       ).not.toBeInTheDocument();
+
+      // Tab dismisses the popup once focus leaves its trigger/menu pair.
+      trigger.focus();
+      await user.keyboard("{Enter}");
+      const tabMenu = screen.getByRole("menu", { name: "切换至" });
+      const tabTargets = within(tabMenu).getAllByRole("menuitem");
+      expect(tabTargets[0]).toHaveFocus();
+      for (const target of tabTargets.slice(1)) {
+        await user.tab();
+        expect(target).toHaveFocus();
+        expect(tabMenu).toBeInTheDocument();
+      }
+      await user.tab();
+      expect(
+        screen.queryByRole("menu", { name: "切换至" }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Show Notes" })).toHaveFocus();
+
+      // Shift+Tab can return to the trigger, then closes on leaving the pair.
+      trigger.focus();
+      await user.keyboard("{Enter}");
+      await user.tab({ shift: true });
+      expect(trigger).toHaveFocus();
+      expect(screen.getByRole("menu", { name: "切换至" })).toBeInTheDocument();
+      await user.tab({ shift: true });
+      expect(
+        screen.queryByRole("menu", { name: "切换至" }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "原节目" })).toHaveFocus();
     });
   });
 

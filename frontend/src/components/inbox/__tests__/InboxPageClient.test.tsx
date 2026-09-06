@@ -1016,6 +1016,72 @@ describe("InboxPageClient", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps a detail queue failure and retry reachable inside the dialog", async () => {
+    let resolveRetry!: (item: ConsumptionItem) => void;
+    apiMocks.setQueue
+      .mockRejectedValueOnce(new Error("保存失败"))
+      .mockReturnValueOnce(
+        new Promise<ConsumptionItem>((resolve) => {
+          resolveRetry = resolve;
+        }),
+      );
+    render(<InboxPageClient />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "打开 可处理单集 明细" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "可处理单集",
+    });
+    fireEvent.click(
+      within(dialog).getByRole("button", {
+        name: "当前队列 Inbox，打开切换菜单",
+      }),
+    );
+    fireEvent.click(
+      within(dialog).getByRole("menuitem", { name: "Someday" }),
+    );
+
+    const failure = await within(dialog).findByRole("alert");
+    expect(failure).toHaveTextContent("移动失败，已恢复原队列：保存失败");
+    expect(screen.getAllByText(/移动失败，已恢复原队列/)).toHaveLength(1);
+
+    fireEvent.click(
+      within(failure).getByRole("button", {
+        name: "重试移动 可处理单集",
+      }),
+    );
+    await waitFor(() => expect(apiMocks.setQueue).toHaveBeenCalledTimes(2));
+    expect(apiMocks.setQueue).toHaveBeenLastCalledWith(101, "someday", {
+      acknowledgeFocusLimit: false,
+    });
+    const savingTrigger = within(dialog).getByRole("button", {
+      name: "当前队列 Inbox，正在保存队列",
+    });
+    expect(savingTrigger).toHaveTextContent("Inbox · 保存中…");
+    expect(savingTrigger).toHaveFocus();
+    expect(
+      within(dialog).getByRole("status", { name: "队列保存状态" }),
+    ).toHaveTextContent("正在保存队列");
+    expect(
+      within(dialog).queryByRole("button", {
+        name: "当前队列 Someday，打开切换菜单",
+      }),
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveRetry({ ...inboxItem, queue_state: "someday" });
+    });
+    await waitFor(() =>
+      expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument(),
+    );
+    expect(
+      within(dialog).getByRole("button", {
+        name: "当前队列 Someday，打开切换菜单",
+      }),
+    ).toBeVisible();
+  });
+
   it("requires explicit confirmation before adding an eighth Focus item", async () => {
     apiMocks.getSummary.mockResolvedValue({
       ...emptySummary,
