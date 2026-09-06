@@ -67,6 +67,10 @@ type StageTimings struct {
 // identities, only neutral stage-prefixed activity IDs.
 type questionActivities struct {
 	ordinal uint64
+	// lastMessage is the newest deterministic stage text so forwarded
+	// runtime activities keep the existing user-visible status message
+	// until the frontend consumes structured activities.
+	lastMessage string
 }
 
 // forward converts one runtime progress event into a status-carried
@@ -83,6 +87,14 @@ func (q *questionActivities) forward(
 	if progress == nil {
 		return true
 	}
+	// The answer execution is the only one authorized to see private
+	// notes, so model-authored display text (reasoning summaries, plan
+	// text) is never forwarded from it: a summary could echo prompt
+	// content. Only the lifecycle and timing stay visible.
+	text := progress.DisplayText
+	if stage == StageComposeAnswer {
+		text = ""
+	}
 	q.ordinal++
 	activity := &Activity{
 		ID:         prefix + ":" + progress.ActivityID,
@@ -90,7 +102,7 @@ func (q *questionActivities) forward(
 		Stage:      stage,
 		Category:   string(progress.Category),
 		State:      string(progress.State),
-		Text:       truncateRunes(progress.DisplayText, maxActivityTextRunes),
+		Text:       truncateRunes(text, maxActivityTextRunes),
 		ObservedAt: event.ObservedAt,
 		ElapsedMS:  progress.ElapsedMS,
 		Metadata:   boundActivityMetadata(progress.Metadata),
@@ -98,6 +110,7 @@ func (q *questionActivities) forward(
 	streamEvent := base
 	streamEvent.Type = EventTypeStatus
 	streamEvent.Stage = stage
+	streamEvent.Message = q.lastMessage
 	streamEvent.Activity = activity
 	return emit(ctx, events, streamEvent)
 }
@@ -128,6 +141,7 @@ func (q *questionActivities) announce(
 	streamEvent.Stage = stage
 	streamEvent.Activity = activity
 	streamEvent.Message = text
+	q.lastMessage = text
 	return emit(ctx, events, streamEvent)
 }
 

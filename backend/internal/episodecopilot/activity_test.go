@@ -20,6 +20,7 @@ type observedEvent struct {
 	id       string
 	category string
 	text     string
+	message  string
 	ordinal  uint64
 }
 
@@ -45,7 +46,7 @@ func observe(stream <-chan StreamEvent) (
 			entry := observedEvent{
 				typeName: string(event.Type),
 				stage:    event.Stage,
-				text:     event.Message,
+				message:  event.Message,
 			}
 			if event.Activity != nil {
 				entry.state = event.Activity.State
@@ -178,6 +179,20 @@ func TestServiceStreamsDeterministicStagesAndForwardedActivities(
 	for index, entry := range statusEntries {
 		require.Equal(t, uint64(index+1), entry.ordinal, "entry %d", index)
 	}
+
+	// Forwarded activities keep the deterministic stage message instead of
+	// resetting the user-visible status to a generic placeholder.
+	for _, entry := range statusEntries {
+		require.NotEmpty(t, entry.message, "entry %s", entry.id)
+	}
+
+	// The answer execution never forwards model-authored display text,
+	// because its prompt is the only one authorized to contain private
+	// notes; only the lifecycle stays visible.
+	composeEntry := statusEntries[8]
+	require.Equal(t, StageComposeAnswer, composeEntry.stage)
+	require.Equal(t, "answer:a2", composeEntry.id)
+	require.Empty(t, composeEntry.text)
 
 	// The verified-source count comes from server validation only.
 	require.Contains(t, statusEntries[5].text, "已验证 1 个公开来源")
