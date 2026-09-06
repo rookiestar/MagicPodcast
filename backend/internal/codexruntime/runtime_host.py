@@ -424,6 +424,16 @@ def validate_profile_support(
             }
             if model_profile.service_tier not in supported_tiers:
                 break
+        else:
+            default_service_tier = getattr(
+                model,
+                "default_service_tier",
+                None,
+            )
+            if default_service_tier is not None and value_of(
+                default_service_tier
+            ) not in {"", "default"}:
+                break
         return
     raise HostFailure(
         "profile_unavailable",
@@ -747,6 +757,7 @@ async def run_sdk(
                 experimental_api=False,
             )
             async with openai_codex.AsyncCodex(config) as client:
+                verified_runtime_version = runtime_version(client.metadata)
                 account_response = await client.account(refresh_token=False)
                 ensure_authenticated(account_response)
                 if request.model_profile is not None:
@@ -755,7 +766,6 @@ async def run_sdk(
                         request.model_profile,
                         model_catalog,
                     )
-                verified_runtime_version = runtime_version(client.metadata)
                 thread = await client.thread_start(
                     approval_mode=openai_codex.ApprovalMode.deny_all,
                     cwd=request.working_directory,
@@ -923,7 +933,8 @@ async def serve() -> int:
 def main() -> int:
     try:
         return asyncio.run(serve())
-    except HostFailure:
+    except HostFailure as exc:
+        sys.stderr.write(exc.code + "\n")
         return 2
     except Exception:
         return 2

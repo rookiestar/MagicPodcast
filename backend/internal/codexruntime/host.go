@@ -670,11 +670,7 @@ func resolveProtocolProfile(id ModelProfileID) (*protocolModelProfile, error) {
 		return nil, nil
 	}
 	profile, exists := ResolveModelProfile(id)
-	if !exists ||
-		!safeProtocolToken(string(id)) ||
-		!safeProtocolToken(profile.Model) ||
-		!safeProtocolToken(profile.Effort) ||
-		(profile.ServiceTier != "" && !safeProtocolToken(profile.ServiceTier)) {
+	if !exists {
 		return nil, newRuntimeError(
 			ErrorInvalidRequest,
 			"runtime model profile is not allowed",
@@ -687,18 +683,6 @@ func resolveProtocolProfile(id ModelProfileID) (*protocolModelProfile, error) {
 		Effort:      profile.Effort,
 		ServiceTier: profile.ServiceTier,
 	}, nil
-}
-
-func safeProtocolToken(value string) bool {
-	if value == "" {
-		return false
-	}
-	for _, character := range value {
-		if character <= ' ' || character >= '\x7f' {
-			return false
-		}
-	}
-	return true
 }
 
 func (h *ProcessHost) validateExecutionRequest(

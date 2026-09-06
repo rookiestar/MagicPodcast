@@ -18,6 +18,7 @@ import type { ConsumptionItem } from "@/types/consumption";
 import type {
   EpisodeCopilotContextScope,
   EpisodeCopilotProfile,
+  EpisodeCopilotProfileID,
   EpisodeCopilotQuestion,
   EpisodeCopilotSelectionSource,
   EpisodeCopilotStreamEvent,
@@ -27,6 +28,8 @@ import styles from "./InboxPage.module.css";
 interface EpisodeCopilotPanelProps {
   item: ConsumptionItem;
   showHeading?: boolean;
+  selectedProfileID?: EpisodeCopilotProfileID | null;
+  onSelectedProfileIDChange?: (profileID: EpisodeCopilotProfileID) => void;
 }
 
 interface CapturedSelection {
@@ -44,27 +47,22 @@ type RequestPhase =
 
 const slowResponseThresholdMS = 2500;
 const maxSelectionCharacters = 12_000;
-// Product default for responses that predate the profile contract, so a
-// short-lived front/back version mismatch cannot break asking a question.
-const fallbackProfileID = "balanced";
 // Product presentation order: speed first, default in the middle, depth last.
-const profileDisplayOrder = ["quick", "balanced", "deep"] as const;
+const profilePresentation: ReadonlyArray<{
+  id: EpisodeCopilotProfileID;
+  name: string;
+}> = [
+  { id: "quick", name: "快速" },
+  { id: "balanced", name: "均衡" },
+  { id: "deep", name: "深度" },
+];
 
 function selectionLabel(source: EpisodeCopilotSelectionSource) {
   return source === "transcript" ? "逐字稿" : "Show Notes";
 }
 
 function profileDisplayName(id: string) {
-  switch (id) {
-    case "quick":
-      return "快速";
-    case "balanced":
-      return "均衡";
-    case "deep":
-      return "深度";
-    default:
-      return id;
-  }
+  return profilePresentation.find((profile) => profile.id === id)?.name ?? id;
 }
 
 function profileTechnicalLabel(profile: EpisodeCopilotProfile) {
@@ -80,15 +78,7 @@ function profileConsumesMoreCredits(profile: EpisodeCopilotProfile) {
 }
 
 function resolveProfileID(scope: EpisodeCopilotContextScope) {
-  return scope.default_profile_id || fallbackProfileID;
-}
-
-// A scope from a backend that predates the profile contract carries neither
-// field. The request then omits profile_id entirely so an old handler with
-// unknown-field rejection still accepts it; a current backend applies its
-// own balanced default.
-function advertisesProfileContract(scope: EpisodeCopilotContextScope) {
-  return Boolean(scope.default_profile_id || scope.profiles?.length);
+  return scope.default_profile_id;
 }
 
 function orderedProfiles(
@@ -97,14 +87,16 @@ function orderedProfiles(
   const byID = new Map(
     (scope.profiles ?? []).map((profile) => [profile.id, profile]),
   );
-  return profileDisplayOrder
-    .map((id) => byID.get(id))
+  return profilePresentation
+    .map(({ id }) => byID.get(id))
     .filter((profile): profile is EpisodeCopilotProfile => profile != null);
 }
 
 export default function EpisodeCopilotPanel({
   item,
   showHeading = true,
+  selectedProfileID: controlledProfileID,
+  onSelectedProfileIDChange,
 }: EpisodeCopilotPanelProps) {
   const [scope, setScope] = useState<EpisodeCopilotContextScope | null>(null);
   const [scopeError, setScopeError] = useState<string | null>(null);
@@ -113,9 +105,8 @@ export default function EpisodeCopilotPanel({
   const [selection, setSelection] = useState<CapturedSelection | null>(null);
   const [includePrivateNote, setIncludePrivateNote] = useState(false);
   // null keeps the scope's balanced default; a page refresh resets to null.
-  const [selectedProfileID, setSelectedProfileID] = useState<string | null>(
-    null,
-  );
+  const [localSelectedProfileID, setLocalSelectedProfileID] =
+    useState<EpisodeCopilotProfileID | null>(null);
   const [phase, setPhase] = useState<RequestPhase>("idle");
   const [statusMessage, setStatusMessage] = useState("");
   const [answer, setAnswer] = useState("");
@@ -131,6 +122,12 @@ export default function EpisodeCopilotPanel({
   } | null>(null);
   const activeRequest = useRef<AbortController | null>(null);
   const retryRequest = useRef<EpisodeCopilotQuestion | null>(null);
+  const selectedProfileID = controlledProfileID ?? localSelectedProfileID;
+
+  const selectProfile = (profileID: EpisodeCopilotProfileID) => {
+    setLocalSelectedProfileID(profileID);
+    onSelectedProfileIDChange?.(profileID);
+  };
 
   const loadScope = useCallback(async () => {
     setIsLoadingScope(true);
@@ -156,7 +153,6 @@ export default function EpisodeCopilotPanel({
     setQuestion("");
     setSelection(null);
     setIncludePrivateNote(false);
-    setSelectedProfileID(null);
     setPhase("idle");
     setStatusMessage("");
     setAnswer("");
@@ -273,10 +269,11 @@ export default function EpisodeCopilotPanel({
       selection_source: selection?.source ?? "",
       include_private_note:
         includePrivateNote && scope.private_note_available,
-      ...(advertisesProfileContract(scope)
-        ? { profile_id: selectedProfileID ?? resolveProfileID(scope) }
-        : {}),
+      profile_id: selectedProfileID ?? resolveProfileID(scope),
     };
+    if (requestToRetry) {
+      selectProfile(request.profile_id);
+    }
     if (!requestToRetry) {
       retryRequest.current = request;
       setIncludePrivateNote(false);
@@ -393,7 +390,7 @@ export default function EpisodeCopilotPanel({
                       name={`copilot-profile-${item.episode_id}`}
                       value={profile.id}
                       checked={selectedID === profile.id}
-                      onChange={() => setSelectedProfileID(profile.id)}
+                      onChange={() => selectProfile(profile.id)}
                     />
                     <span className={styles.copilotProfileName}>
                       {profileDisplayName(profile.id)}
