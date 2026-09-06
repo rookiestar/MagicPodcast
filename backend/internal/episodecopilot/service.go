@@ -123,11 +123,12 @@ func profileDescriptors() []ProfileDescriptor {
 	descriptors := make([]ProfileDescriptor, 0, len(profiles))
 	for _, profile := range profiles {
 		descriptors = append(descriptors, ProfileDescriptor{
-			ID:          string(profile.ID),
-			Model:       profile.Model,
-			Effort:      profile.Effort,
-			ServiceTier: profile.ServiceTier,
-			Default:     profile.ID == codexruntime.DefaultModelProfileID,
+			ID:              string(profile.ID),
+			Model:           profile.Model,
+			Effort:          profile.Effort,
+			ServiceTier:     profile.ServiceTier,
+			ServiceTierName: profile.ServiceTierName,
+			Default:         profile.ID == codexruntime.DefaultModelProfileID,
 		})
 	}
 	return descriptors

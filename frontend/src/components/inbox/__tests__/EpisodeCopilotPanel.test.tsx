@@ -60,14 +60,16 @@ describe("EpisodeCopilotPanel", () => {
           id: "quick",
           model: "gpt-5.6-sol",
           effort: "medium",
-          service_tier: "fast",
+          service_tier: "priority",
+          service_tier_name: "Fast",
           is_default: false,
         },
         {
           id: "balanced",
           model: "gpt-5.6-luna",
           effort: "max",
-          service_tier: "fast",
+          service_tier: "priority",
+          service_tier_name: "Fast",
           is_default: true,
         },
         {
@@ -75,6 +77,7 @@ describe("EpisodeCopilotPanel", () => {
           model: "gpt-5.6-sol",
           effort: "xhigh",
           service_tier: "",
+          service_tier_name: "Standard",
           is_default: false,
         },
       ],
@@ -188,16 +191,16 @@ describe("EpisodeCopilotPanel", () => {
     expect(within(group).getByText("均衡")).toBeInTheDocument();
     expect(within(group).getByText("深度")).toBeInTheDocument();
     expect(
-      within(group).getByText(/gpt-5\.6-sol · medium · fast/),
+      within(group).getByText(/gpt-5\.6-sol · medium · Fast/),
     ).toBeInTheDocument();
     expect(
-      within(group).getByText(/gpt-5\.6-luna · max · fast/),
+      within(group).getByText(/gpt-5\.6-luna · max · Fast/),
     ).toBeInTheDocument();
     expect(
-      within(group).getByText(/gpt-5\.6-sol · xhigh · standard/),
+      within(group).getByText(/gpt-5\.6-sol · xhigh · Standard/),
     ).toBeInTheDocument();
     expect(
-      within(group).getAllByText(/Fast 消耗更多 credits/),
+      within(group).getAllByText(/消耗更多 credits/),
     ).toHaveLength(2);
     expect(within(group).getByText("默认")).toBeInTheDocument();
   });

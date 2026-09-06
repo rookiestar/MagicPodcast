@@ -5,6 +5,8 @@ export interface EpisodeCopilotProfile {
   model: string;
   effort: string;
   service_tier?: string;
+  /** Stable human speed tier name, e.g. Fast or Standard. */
+  service_tier_name: string;
   is_default: boolean;
 }
 

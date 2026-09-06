@@ -68,11 +68,15 @@ function profileDisplayName(id: string) {
 }
 
 function profileTechnicalLabel(profile: EpisodeCopilotProfile) {
-  return [
-    profile.model,
-    profile.effort,
-    profile.service_tier || "standard",
-  ].join(" · ");
+  const speed =
+    profile.service_tier_name ||
+    profile.service_tier ||
+    "standard";
+  return [profile.model, profile.effort, speed].join(" · ");
+}
+
+function profileConsumesMoreCredits(profile: EpisodeCopilotProfile) {
+  return profile.service_tier_name === "Fast";
 }
 
 function resolveProfileID(scope: EpisodeCopilotContextScope) {
@@ -401,8 +405,8 @@ export default function EpisodeCopilotPanel({
                     </span>
                     <span className={styles.copilotProfileMeta}>
                       {profileTechnicalLabel(profile)}
-                      {profile.service_tier === "fast"
-                        ? " · Fast 消耗更多 credits"
+                      {profileConsumesMoreCredits(profile)
+                        ? " · 消耗更多 credits"
                         : ""}
                     </span>
                   </label>

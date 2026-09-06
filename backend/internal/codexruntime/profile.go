@@ -15,35 +15,42 @@ const DefaultModelProfileID = ModelProfileID("balanced")
 // ModelProfile is the trusted technical configuration a stable profile ID
 // resolves to. An empty ServiceTier means the standard tier: the Fast tier is
 // only ever expressed by explicitly requesting it, never by downgrading.
+// ServiceTier is the account catalog's wire ID for the tier (currently
+// "priority"); ServiceTierName is its stable human name ("Fast").
 type ModelProfile struct {
-	ID          ModelProfileID
-	Model       string
-	Effort      string
-	ServiceTier string
+	ID              ModelProfileID
+	Model           string
+	Effort          string
+	ServiceTier     string
+	ServiceTierName string
 }
 
 // modelProfiles is the single technical profile catalog. Entries are fixed at
 // build time so a page can never inject arbitrary models, reasoning efforts,
-// or service tiers.
+// or service tiers. The verified 0.147.0 account catalog exposes the Fast
+// speed tier under the wire ID "priority" with the display name "Fast"
+// ("1.5x speed, increased usage"); Standard is the absent tier.
 var modelProfiles = map[ModelProfileID]ModelProfile{
 	ModelProfileID("quick"): {
-		ID:          ModelProfileID("quick"),
-		Model:       "gpt-5.6-sol",
-		Effort:      "medium",
-		ServiceTier: "fast",
+		ID:              ModelProfileID("quick"),
+		Model:           "gpt-5.6-sol",
+		Effort:          "medium",
+		ServiceTier:     "priority",
+		ServiceTierName: "Fast",
 	},
 	DefaultModelProfileID: {
-		ID:          DefaultModelProfileID,
-		Model:       "gpt-5.6-luna",
-		Effort:      "max",
-		ServiceTier: "fast",
+		ID:              DefaultModelProfileID,
+		Model:           "gpt-5.6-luna",
+		Effort:          "max",
+		ServiceTier:     "priority",
+		ServiceTierName: "Fast",
 	},
 	ModelProfileID("deep"): {
-		ID:     ModelProfileID("deep"),
-		Model:  "gpt-5.6-sol",
-		Effort: "xhigh",
-		// Standard tier: the Fast tier is deliberately not requested.
-		ServiceTier: "",
+		ID:              ModelProfileID("deep"),
+		Model:           "gpt-5.6-sol",
+		Effort:          "xhigh",
+		ServiceTier:     "",
+		ServiceTierName: "Standard",
 	},
 }
 

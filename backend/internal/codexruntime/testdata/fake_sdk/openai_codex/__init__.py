@@ -129,12 +129,12 @@ def _fake_model_catalog():
             {
                 "model": "gpt-5.6-luna",
                 "efforts": ["medium", "max"],
-                "tiers": ["fast"],
+                "tiers": ["priority"],
             },
             {
                 "model": "gpt-5.6-sol",
                 "efforts": ["medium", "xhigh"],
-                "tiers": ["fast"],
+                "tiers": ["priority"],
             },
         ]
     data = []
