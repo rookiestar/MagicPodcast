@@ -2021,6 +2021,7 @@
 
 .transcriptMediaStatus {
   grid-column: 2 / -1;
+  min-height: 1lh;
   color: var(--ink-soft);
   font: 400 var(--type-secondary-size) / var(--type-secondary-leading)
     var(--font-sans);

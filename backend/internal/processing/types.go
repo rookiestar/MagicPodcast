@@ -207,7 +207,7 @@ type ArtifactContent struct {
 	// matching the artifact's immutable digest so the idle player can show a
 	// progress range before any audio body is requested. It is omitted when no
 	// matching playable audio (or no recorded duration) exists.
-	AudioDurationSeconds *float64              `json:"audio_duration_seconds,omitempty"`
+	AudioDurationSeconds *int                  `json:"audio_duration_seconds,omitempty"`
 	AudioRecovery        *AudioRecoverySummary `json:"audio_recovery,omitempty"`
 	Chapters             []MinutesChapter      `json:"chapters,omitempty"`
 	Keywords             []string              `json:"keywords,omitempty"`
