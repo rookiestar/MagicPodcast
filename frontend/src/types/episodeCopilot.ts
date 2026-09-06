@@ -1,7 +1,8 @@
 export type EpisodeCopilotSelectionSource = "show_notes" | "transcript";
+export type EpisodeCopilotProfileID = "quick" | "balanced" | "deep";
 
 export interface EpisodeCopilotProfile {
-  id: string;
+  id: EpisodeCopilotProfileID;
   model: string;
   effort: string;
   service_tier?: string;
@@ -16,7 +17,7 @@ export interface EpisodeCopilotContextScope {
   transcript_available: boolean;
   private_note_available: boolean;
   profiles: EpisodeCopilotProfile[];
-  default_profile_id: string;
+  default_profile_id: EpisodeCopilotProfileID;
 }
 
 export interface EpisodeCopilotQuestion {
@@ -24,8 +25,7 @@ export interface EpisodeCopilotQuestion {
   selection: string;
   selection_source: EpisodeCopilotSelectionSource | "";
   include_private_note: boolean;
-  /** Stable profile ID; omitted for backends that predate the contract. */
-  profile_id?: string;
+  profile_id: EpisodeCopilotProfileID;
 }
 
 export type EpisodeCopilotEventType =
@@ -43,7 +43,7 @@ export interface EpisodeCopilotStreamEvent {
   retryable?: boolean;
   transcript_used: boolean;
   private_note_included: boolean;
-  profile_id?: string;
+  profile_id?: EpisodeCopilotProfileID;
   first_content_ms?: number;
   total_ms?: number;
 }

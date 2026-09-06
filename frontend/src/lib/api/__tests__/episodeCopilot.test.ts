@@ -3,6 +3,7 @@ import {
   episodeCopilotApi,
   EpisodeCopilotCancellationError,
 } from "../episodeCopilot";
+import type { EpisodeCopilotQuestion } from "@/types/episodeCopilot";
 
 const question = {
   question: "为什么需要收窄权限？",
@@ -10,7 +11,7 @@ const question = {
   selection_source: "show_notes" as const,
   include_private_note: false,
   profile_id: "balanced",
-};
+} satisfies EpisodeCopilotQuestion;
 
 function streamFromChunks(chunks: string[]) {
   const encoder = new TextEncoder();
@@ -108,6 +109,35 @@ describe("episodeCopilotApi.ask", () => {
         new AbortController().signal,
       ),
     ).rejects.toThrow("本地 Runtime 未启用");
+  });
+
+  it("preserves a terminal profile error code for retry decisions", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          streamFromChunks([
+            'data: {"type":"error","message":"所选档位不可用",',
+            '"code":"profile_unavailable","retryable":false,',
+            '"transcript_used":false,"private_note_included":false,',
+            '"profile_id":"quick"}\n\n',
+          ]),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    await expect(
+      episodeCopilotApi.ask(
+        201,
+        { ...question, profile_id: "quick" },
+        vi.fn(),
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({
+      message: "所选档位不可用",
+      code: "profile_unavailable",
+    });
   });
 
   it("maps caller aborts to an explicit cancellation", async () => {
