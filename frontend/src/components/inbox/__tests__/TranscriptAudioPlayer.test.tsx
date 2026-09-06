@@ -538,6 +538,61 @@ describe("TranscriptAudioPlayer", () => {
     second.unmount();
   });
 
+  it("detaches the old audio node before a keyed artifact replacement", () => {
+    const view = renderPlayer({ audioDurationSeconds: 120 });
+    const firstAudio = view.container.querySelector("audio")!;
+    const firstMedia = controlAudio(firstAudio);
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    });
+    expect(firstAudio).toHaveAttribute("src");
+    const loadsBeforeReplacement = firstMedia.load.mock.calls.length;
+
+    act(() => {
+      view.rerender(
+        <StatefulTranscriptAudioPlayer
+          artifactSetId={83}
+          audioDurationSeconds={90}
+        />,
+      );
+    });
+
+    const nextAudio = view.container.querySelector("audio")!;
+    expect(nextAudio).not.toBe(firstAudio);
+    expect(firstAudio).not.toHaveAttribute("src");
+    expect(firstMedia.pause).toHaveBeenCalled();
+    expect(firstMedia.load).toHaveBeenCalledTimes(loadsBeforeReplacement + 1);
+    expect(nextAudio).not.toHaveAttribute("src");
+    view.unmount();
+  });
+
+  it("does not clamp a pre-load segment seek to the server duration hint", () => {
+    const laterSegments: TranscriptSegment[] = [
+      segments[0],
+      { ...segments[1], start_ms: 90_000 },
+    ];
+    const { container } = renderPlayer({
+      segments: laterSegments,
+      audioDurationSeconds: 30,
+    });
+    const audio = container.querySelector("audio")!;
+    const media = controlAudio(audio, 120);
+    const laterSegment = screen.getByRole("button", {
+      name: "01:30 嘉宾：中段内容",
+    });
+
+    fireEvent.click(laterSegment);
+    expect(audio.currentTime).toBe(0);
+    expect(laterSegment).toHaveAttribute("aria-current", "true");
+    expect(media.load).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    fireEvent.loadedMetadata(audio);
+    expect(audio.currentTime).toBe(90);
+    expect(laterSegment).toHaveAttribute("aria-current", "true");
+  });
+
   it("keeps the bounded preparation until media is playable even when play fires early", () => {
     const { container } = renderPlayer({ audioDurationSeconds: 120 });
     const audio = container.querySelector("audio")!;

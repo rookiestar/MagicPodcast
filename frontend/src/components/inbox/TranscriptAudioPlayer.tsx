@@ -128,6 +128,20 @@ function normalizedAudioDuration(value: number | undefined) {
     : 0;
 }
 
+function boundedPlaybackPosition(seconds: number, duration: number | null) {
+  const position = Number.isFinite(seconds) ? Math.max(seconds, 0) : 0;
+  return duration !== null && duration > 0
+    ? Math.min(position, duration)
+    : position;
+}
+
+function detachAudioElement(audio: HTMLAudioElement | null) {
+  if (!audio?.hasAttribute("src")) return;
+  audio.pause();
+  audio.removeAttribute("src");
+  audio.load();
+}
+
 export default function TranscriptAudioPlayer({
   artifactSetId,
   segments,
@@ -149,6 +163,7 @@ export default function TranscriptAudioPlayer({
   const programmaticScrollRef = useRef(false);
   const programmaticScrollFrame = useRef<number | null>(null);
   const currentTimeRef = useRef(0);
+  const actualDurationRef = useRef<number | null>(null);
   // The pending position to apply once the armed audio source exposes
   // metadata, so a pre-play seek or chapter choice survives lazy loading.
   const pendingSeekRef = useRef<number | null>(null);
@@ -186,12 +201,22 @@ export default function TranscriptAudioPlayer({
   // Detaches the audio source so the browser aborts an in-flight media
   // request; `load()` is required for the removal to take effect.
   const detachAudioSource = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio || !audio.src) return;
-    audio.pause();
-    audio.removeAttribute("src");
-    audio.load();
+    detachAudioElement(audioRef.current);
   }, []);
+
+  const setAudioElementRef = useCallback(
+    (node: HTMLAudioElement | null) => {
+      const previous = lastAudioRef.current;
+      if (previous && previous !== node) {
+        preparePhaseRef.current = "stopped";
+        clearPrepareTimeout();
+        detachAudioElement(previous);
+      }
+      audioRef.current = node;
+      lastAudioRef.current = node;
+    },
+    [clearPrepareTimeout],
+  );
 
   const revealSegmentIfNeeded = useCallback(
     (segmentIndex: number) => {
@@ -240,20 +265,23 @@ export default function TranscriptAudioPlayer({
   // arming the audio source or triggering any download.
   const seekTo = useCallback(
     (seconds: number) => {
-      const bounded =
-        duration > 0
-          ? Math.min(Math.max(seconds, 0), duration)
-          : Math.max(seconds, 0);
+      const bounded = boundedPlaybackPosition(
+        seconds,
+        actualDurationRef.current,
+      );
       const audio = audioRef.current;
-      if (audio) {
+      const preparingWithoutMetadata =
+        preparePhaseRef.current === "active" &&
+        actualDurationRef.current === null;
+      if (audio?.hasAttribute("src") && !preparingWithoutMetadata) {
         audio.currentTime = bounded;
       }
       if (preparePhaseRef.current === "active") {
-        pendingSeekRef.current = bounded;
+        pendingSeekRef.current = preparingWithoutMetadata ? bounded : null;
       }
       updatePosition(bounded, true);
     },
-    [duration, updatePosition],
+    [updatePosition],
   );
 
   const handlePrepareTimeout = useCallback(() => {
@@ -274,10 +302,10 @@ export default function TranscriptAudioPlayer({
     (fromSeconds: number) => {
       const audio = audioRef.current;
       if (!audio || !mediaAvailable) return;
-      const bounded =
-        duration > 0
-          ? Math.min(Math.max(fromSeconds, 0), duration)
-          : Math.max(fromSeconds, 0);
+      const bounded = boundedPlaybackPosition(
+        fromSeconds,
+        actualDurationRef.current,
+      );
       clearPrepareTimeout();
       preparePhaseRef.current = "active";
       pendingSeekRef.current = bounded;
@@ -303,7 +331,6 @@ export default function TranscriptAudioPlayer({
     [
       artifactSetId,
       clearPrepareTimeout,
-      duration,
       finishPreparation,
       handlePrepareTimeout,
       mediaAvailable,
@@ -371,6 +398,7 @@ export default function TranscriptAudioPlayer({
     clearPrepareTimeout();
     preparePhaseRef.current = "inactive";
     pendingSeekRef.current = null;
+    actualDurationRef.current = null;
     detachAudioSource();
     setMediaState(mediaAvailable ? "idle" : "unavailable");
     setPrepareTimedOut(false);
@@ -424,11 +452,8 @@ export default function TranscriptAudioPlayer({
         prepareTimeoutRef.current = null;
       }
       preparePhaseRef.current = "stopped";
-      const audio = lastAudioRef.current;
-      if (audio && audio.src) {
-        audio.pause();
-        audio.removeAttribute("src");
-      }
+      detachAudioElement(lastAudioRef.current);
+      lastAudioRef.current = null;
     },
     [],
   );
@@ -542,25 +567,25 @@ export default function TranscriptAudioPlayer({
           // first play intent arms the source in prepareAndPlay.
           <audio
             key={artifactSetId}
-            ref={(node) => {
-              audioRef.current = node;
-              if (node) {
-                lastAudioRef.current = node;
-              }
-            }}
+            ref={setAudioElementRef}
             className={styles.audioElement}
             aria-hidden="true"
             onLoadedMetadata={(event) => {
               applyPlaybackRate(event.currentTarget, playbackRate);
               const nextDuration = event.currentTarget.duration;
               if (Number.isFinite(nextDuration) && nextDuration > 0) {
+                actualDurationRef.current = nextDuration;
                 setDuration(nextDuration);
               }
               const pending = pendingSeekRef.current;
               if (pending !== null) {
                 pendingSeekRef.current = null;
-                event.currentTarget.currentTime = pending;
-                updatePosition(pending);
+                const bounded = boundedPlaybackPosition(
+                  pending,
+                  actualDurationRef.current,
+                );
+                event.currentTarget.currentTime = bounded;
+                updatePosition(bounded);
               } else {
                 updatePosition(event.currentTarget.currentTime);
               }
@@ -570,6 +595,7 @@ export default function TranscriptAudioPlayer({
                 Number.isFinite(event.currentTarget.duration) &&
                 event.currentTarget.duration > 0
               ) {
+                actualDurationRef.current = event.currentTarget.duration;
                 setDuration(event.currentTarget.duration);
               }
             }}
