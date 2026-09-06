@@ -26,11 +26,24 @@ type ModelProfile struct {
 // build time so a page can never inject arbitrary models, reasoning efforts,
 // or service tiers.
 var modelProfiles = map[ModelProfileID]ModelProfile{
+	ModelProfileID("quick"): {
+		ID:          ModelProfileID("quick"),
+		Model:       "gpt-5.6-sol",
+		Effort:      "medium",
+		ServiceTier: "fast",
+	},
 	DefaultModelProfileID: {
 		ID:          DefaultModelProfileID,
 		Model:       "gpt-5.6-luna",
 		Effort:      "max",
 		ServiceTier: "fast",
+	},
+	ModelProfileID("deep"): {
+		ID:     ModelProfileID("deep"),
+		Model:  "gpt-5.6-sol",
+		Effort: "xhigh",
+		// Standard tier: the Fast tier is deliberately not requested.
+		ServiceTier: "",
 	},
 }
 

@@ -93,6 +93,10 @@ class AsyncCodex:
             account=SimpleNamespace(type="fake") if authenticated else None,
         )
 
+    async def models(self, *, include_hidden=False):
+        assert include_hidden is False
+        return _fake_model_catalog()
+
     async def thread_start(
         self,
         *,
@@ -108,6 +112,47 @@ class AsyncCodex:
         assert ephemeral is True
         assert sandbox in {Sandbox.read_only, Sandbox.workspace_write}
         return FakeThread(cwd, sandbox, self.config)
+
+
+def _fake_model_catalog():
+    """Model catalog shaped like the SDK's ModelListResponse.
+
+    FAKE_CODEX_MODEL_CATALOG overrides the default with a JSON list of
+    {"model": ..., "efforts": [...], "tiers": [...]} entries so tests can
+    simulate accounts that lack a requested profile.
+    """
+    encoded = os.environ.get("FAKE_CODEX_MODEL_CATALOG")
+    if encoded:
+        entries = json.loads(encoded)
+    else:
+        entries = [
+            {
+                "model": "gpt-5.6-luna",
+                "efforts": ["medium", "max"],
+                "tiers": ["fast"],
+            },
+            {
+                "model": "gpt-5.6-sol",
+                "efforts": ["medium", "xhigh"],
+                "tiers": ["fast"],
+            },
+        ]
+    data = []
+    for entry in entries:
+        data.append(
+            SimpleNamespace(
+                model=entry["model"],
+                id=entry.get("id", entry["model"]),
+                supported_reasoning_efforts=[
+                    SimpleNamespace(reasoning_effort=effort)
+                    for effort in entry["efforts"]
+                ],
+                service_tiers=[
+                    SimpleNamespace(id=tier) for tier in entry["tiers"]
+                ],
+            )
+        )
+    return SimpleNamespace(data=data)
 
 
 class FakeThread:
