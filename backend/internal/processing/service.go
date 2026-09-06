@@ -749,7 +749,7 @@ func (s *Service) GetArtifactContent(
 		matchingAudio, hasAudio := s.matchingManagedAudio(ctx, artifact)
 		content.MediaAvailable = hasAudio
 		if hasAudio && matchingAudio.DurationSeconds > 0 {
-			durationSeconds := float64(matchingAudio.DurationSeconds)
+			durationSeconds := matchingAudio.DurationSeconds
 			content.AudioDurationSeconds = &durationSeconds
 		}
 		if s.audioRecovery != nil {
@@ -878,7 +878,7 @@ func (s *Service) hydrateArtifactCapabilities(
 	if !sha256Pattern.MatchString(artifact.AudioSHA256) {
 		return nil
 	}
-	artifact.Capabilities.MatchingAudio = s.hasMatchingManagedAudio(ctx, *artifact)
+	_, artifact.Capabilities.MatchingAudio = s.matchingManagedAudio(ctx, *artifact)
 	return nil
 }
 
@@ -899,14 +899,6 @@ func (s *Service) matchingManagedAudio(
 		return ReadyAudio{}, false
 	}
 	return audio, true
-}
-
-func (s *Service) hasMatchingManagedAudio(
-	ctx context.Context,
-	artifact models.EpisodeArtifactSet,
-) bool {
-	_, ok := s.matchingManagedAudio(ctx, artifact)
-	return ok
 }
 
 func isBrowserPlayableMediaType(mediaType string) bool {

@@ -1468,6 +1468,7 @@ describe("InboxPageClient", () => {
     const play = vi.fn(async () => {
       paused = false;
       fireEvent.play(audio);
+      fireEvent.playing(audio);
     });
     const pause = vi.fn(() => {
       paused = true;
@@ -1533,7 +1534,7 @@ describe("InboxPageClient", () => {
     audio.currentTime = 61;
     fireEvent.timeUpdate(audio);
     expect(scrollIntoView).not.toHaveBeenCalled();
-    fireEvent.play(audio);
+    fireEvent.playing(audio);
     expect(scrollIntoView).toHaveBeenCalledWith({
       block: "nearest",
       behavior: "auto",
