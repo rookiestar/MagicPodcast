@@ -10,11 +10,10 @@ import {
 } from "react";
 import {
   IconArrowLeft,
-  IconArrowRight,
   IconBookmarkPlus,
   IconCheck,
   IconCircleCheck,
-  IconDots,
+  IconChevronDown,
   IconEdit,
   IconExternalLink,
   IconRefresh,
@@ -56,6 +55,7 @@ import EpisodeProcessingPanel, {
   type EpisodeProcessingPanelHandle,
 } from "./EpisodeProcessingPanel";
 import styles from "./InboxPage.module.css";
+import { useMenuPopover } from "./useMenuPopover";
 
 interface ConsumptionDetailPanelProps {
   item: ConsumptionItem;
@@ -91,7 +91,7 @@ type ShowNotesLoadState =
 const INITIAL_PROCESSING_HEADER: EpisodeProcessingHeaderState = {
   kind: "loading",
   label: "正在读取",
-  detail: "Show Notes 可继续阅读",
+  detail: "",
   primaryLabel: "读取转写状态",
   primaryDisabled: true,
   action: null,
@@ -401,6 +401,129 @@ function EpisodeMetadata({
   );
 }
 
+// Replaces the former three-dot menu: the current action queue or status is
+// the trigger's own label, and one click on a popup target runs the existing
+// queue write. Done remains a separate completion state rather than a fourth
+// action queue.
+function QueueSwitchMenu({
+  item,
+  disabled,
+  onMove,
+}: {
+  item: ConsumptionItem;
+  disabled: boolean;
+  onMove: (
+    target: ConsumptionQueue,
+  ) => Promise<ConsumptionItem | undefined>;
+}) {
+  const {
+    open,
+    menuId,
+    triggerRef,
+    menuRef,
+    closeMenu,
+    toggleMenu,
+    handleMenuKeyDown,
+  } = useMenuPopover();
+  const [displayQueue, setDisplayQueue] = useState(item.queue_state);
+  const [pendingTarget, setPendingTarget] =
+    useState<ConsumptionQueue | null>(null);
+  const busy = disabled || pendingTarget !== null;
+
+  useEffect(() => {
+    if (pendingTarget === null) setDisplayQueue(item.queue_state);
+  }, [item.queue_state, pendingTarget]);
+
+  const currentQueue = displayQueue;
+  const isDone = currentQueue === "done";
+  const isActionQueue = currentQueue !== null && !isDone;
+  const currentLabel = currentQueue
+    ? QUEUE_PRESENTATION[currentQueue].label
+    : "未收集";
+  const triggerContext = isActionQueue ? "当前队列" : "当前状态";
+  // From Done, every action queue is a reprocess target that keeps the
+  // completion record. Inside the action queues, Done is a separate command.
+  const targetQueues = CONSUMPTION_QUEUES.filter(
+    (queue) => queue !== currentQueue && queue !== "done",
+  );
+
+  const move = async (target: ConsumptionQueue) => {
+    if (busy) return;
+    setPendingTarget(target);
+    const updated = await onMove(target);
+    if (updated) {
+      setDisplayQueue(updated.queue_state);
+    }
+    closeMenu();
+    setPendingTarget(null);
+  };
+
+  return (
+    <div className={styles.queueMenu}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={styles.queueMenuTrigger}
+        aria-label={`${triggerContext} ${currentLabel}，打开切换菜单`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        aria-disabled={busy}
+        onClick={() => {
+          if (!busy) toggleMenu();
+        }}
+      >
+        {currentLabel}
+        <IconChevronDown size={15} stroke={1.8} aria-hidden="true" />
+      </button>
+      {open && (
+        <div
+          ref={menuRef}
+          id={menuId}
+          className={styles.queueMenuPopup}
+          role="menu"
+          aria-label="切换至"
+          onKeyDown={handleMenuKeyDown}
+        >
+          <span className={styles.queueMenuTitle} aria-hidden="true">
+            切换至
+          </span>
+          {targetQueues.map((queue) => (
+            <button
+              key={queue}
+              type="button"
+              role="menuitem"
+              disabled={busy}
+              onClick={() => void move(queue)}
+            >
+              {QUEUE_PRESENTATION[queue].label}
+            </button>
+          ))}
+          {!isDone && (
+            <>
+              <div className={styles.queueMenuSeparator} role="separator" />
+              <button
+                type="button"
+                role="menuitem"
+                disabled={busy}
+                onClick={() => void move("done")}
+              >
+                <IconCircleCheck size={17} stroke={1.8} aria-hidden="true" />
+                标记完成
+              </button>
+            </>
+          )}
+          {busy && (
+            <span className={styles.commandStatus} role="status">
+              正在保存队列…
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ConsumptionDetailPanel({
   item,
   isQueueBusy,
@@ -429,7 +552,6 @@ export default function ConsumptionDetailPanel({
     transcript: null,
     notes: null,
   });
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -443,9 +565,6 @@ export default function ConsumptionDetailPanel({
   const [externalState, setExternalState] = useState<
     "idle" | "saving" | "failed"
   >("idle");
-  const [moveTarget, setMoveTarget] = useState<ConsumptionQueue>(
-    item.queue_state === "focus" ? "someday" : "focus",
-  );
   const originalAccess = useMemo(
     () => planOriginalEpisodeAccess(item.original_url),
     [item.original_url],
@@ -510,7 +629,6 @@ export default function ConsumptionDetailPanel({
 
   useEffect(() => {
     let active = true;
-    setIsRefreshing(true);
     setDetailError(null);
     void consumptionApi
       .getItem(item.episode_id)
@@ -525,9 +643,6 @@ export default function ConsumptionDetailPanel({
             }`,
           );
         }
-      })
-      .finally(() => {
-        if (active) setIsRefreshing(false);
       });
     return () => {
       active = false;
@@ -602,17 +717,9 @@ export default function ConsumptionDetailPanel({
   const moveItem = async (target: ConsumptionQueue) => {
     const updated = await onMove(item, target);
     if (updated) onItemChange(updated);
+    return updated;
   };
 
-  const currentQueue = item.queue_state
-    ? QUEUE_PRESENTATION[item.queue_state].label
-    : "未收集";
-  const queueOptions = CONSUMPTION_QUEUES.filter(
-    (queue) => queue !== item.queue_state,
-  );
-  const effectiveMoveTarget = queueOptions.includes(moveTarget)
-    ? moveTarget
-    : queueOptions[0];
   const showNotesState =
     loadedShowNotes.episodeId === item.episode_id
       ? loadedShowNotes
@@ -808,14 +915,23 @@ export default function ConsumptionDetailPanel({
                     ) : null}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  className={styles.primaryCommand}
-                  disabled={processingHeader.primaryDisabled}
-                  onClick={() => processingPanelRef.current?.activatePrimary()}
-                >
-                  {processingHeader.primaryLabel}
-                </button>
+                {/* Already reading the transcript: the duplicate “查看转写”
+                    entry would only repeat where the user just went. */}
+                {!(
+                  processingHeader.action === "view" &&
+                  activeTab === "transcript"
+                ) && (
+                  <button
+                    type="button"
+                    className={styles.primaryCommand}
+                    disabled={processingHeader.primaryDisabled}
+                    onClick={() =>
+                      processingPanelRef.current?.activatePrimary()
+                    }
+                  >
+                    {processingHeader.primaryLabel}
+                  </button>
+                )}
                 {originalAccess.state === "openable" ? (
                   <button
                     type="button"
@@ -838,79 +954,11 @@ export default function ConsumptionDetailPanel({
                     {originalEpisodeAccessText(originalAccess)}
                   </span>
                 )}
-                <details className={styles.secondaryActions}>
-                  <summary aria-label="更多操作" title="更多操作">
-                    <IconDots size={20} stroke={1.8} aria-hidden="true" />
-                  </summary>
-                  <div className={styles.secondaryActionsMenu}>
-                    <span className={styles.secondaryContext}>
-                      {currentQueue} ·{" "}
-                      {item.queue_state === "done"
-                        ? "已手动完成"
-                        : item.in_progress_at
-                          ? "进行中"
-                          : "尚未开始"}
-                    </span>
-                    {item.queue_state !== "done" && (
-                      <button
-                        type="button"
-                        className={styles.secondaryCommand}
-                        disabled={isQueueBusy}
-                        onClick={() => void moveItem("done")}
-                      >
-                        <IconCircleCheck
-                          size={19}
-                          stroke={1.8}
-                          aria-hidden="true"
-                        />
-                        标记完成
-                      </button>
-                    )}
-                    <div className={styles.detailMove}>
-                      <select
-                        aria-label="选择目标队列"
-                        value={effectiveMoveTarget}
-                        disabled={isQueueBusy}
-                        onChange={(event) =>
-                          setMoveTarget(event.target.value as ConsumptionQueue)
-                        }
-                      >
-                        {queueOptions.map((queue) => (
-                          <option key={queue} value={queue}>
-                            {QUEUE_PRESENTATION[queue].label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        className={styles.iconButton}
-                        disabled={isQueueBusy}
-                        onClick={() => void moveItem(effectiveMoveTarget)}
-                        aria-label={`移动到 ${
-                          QUEUE_PRESENTATION[effectiveMoveTarget].label
-                        }`}
-                        title="移动"
-                      >
-                        <IconArrowRight
-                          size={18}
-                          stroke={1.8}
-                          aria-hidden="true"
-                        />
-                      </button>
-                    </div>
-                    {(isQueueBusy ||
-                      externalState === "saving" ||
-                      isRefreshing) && (
-                      <span className={styles.commandStatus} role="status">
-                        {isQueueBusy
-                          ? "正在保存队列…"
-                          : externalState === "saving"
-                            ? "正在记录进行中…"
-                            : "正在同步最新状态…"}
-                      </span>
-                    )}
-                  </div>
-                </details>
+                <QueueSwitchMenu
+                  item={item}
+                  disabled={isQueueBusy}
+                  onMove={moveItem}
+                />
               </div>
             </section>
 

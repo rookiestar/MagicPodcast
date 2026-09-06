@@ -737,6 +737,33 @@ describe("EpisodeProcessingPanel", () => {
     expect(apiMocks.retry).not.toHaveBeenCalled();
   });
 
+  it("keeps a failed header compact while preserving the reason in details", async () => {
+    apiMocks.listEpisodeRuns.mockResolvedValue([failedRun]);
+    apiMocks.getRun.mockResolvedValue(detail());
+    const onHeaderStateChange = vi.fn();
+
+    render(
+      <EpisodeProcessingPanel
+        item={item}
+        onHeaderStateChange={onHeaderStateChange}
+      />,
+    );
+
+    expect(await screen.findByText("# 旧版纪要")).toBeVisible();
+    await waitFor(() =>
+      expect(onHeaderStateChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          kind: "failed",
+          label: "转写失败",
+          detail: "",
+        }),
+      ),
+    );
+    expect(
+      screen.getAllByText("恢复 Runtime 后从检查点重试。")[0],
+    ).toBeVisible();
+  });
+
   it("defaults native Minutes artifacts to visual summary and preserves the selected subtab", async () => {
     const completedRun: ProcessingRun = {
       ...failedRun,
@@ -874,10 +901,16 @@ describe("EpisodeProcessingPanel", () => {
     expect(screen.getByText("00:00 / 02:00")).toBeVisible();
     expect(screen.getByRole("button", { name: "播放音频" })).toBeEnabled();
     expect(screen.getByRole("slider", { name: "音频进度" })).toBeEnabled();
-    const playbackRate = screen.getByRole("combobox", { name: "播放倍速" });
-    expect(playbackRate).toHaveValue("1");
-    fireEvent.change(playbackRate, { target: { value: "1.5" } });
-    expect(playbackRate).toHaveValue("1.5");
+    expect(
+      screen.getByRole("button", { name: "播放倍速，当前 1×" }),
+    ).toHaveTextContent("1×");
+    fireEvent.click(
+      screen.getByRole("button", { name: "播放倍速，当前 1×" }),
+    );
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "1.5×" }));
+    expect(
+      screen.queryByRole("menu", { name: "选择播放倍速" }),
+    ).not.toBeInTheDocument();
     expect(transcriptAudio!.playbackRate).toBe(1.5);
 
     fireEvent.keyDown(transcriptTab, { key: "Home" });
@@ -890,7 +923,9 @@ describe("EpisodeProcessingPanel", () => {
     fireEvent.click(screen.getByRole("tab", { name: "逐字稿" }));
     expect(screen.getByText("正文")).toBeVisible();
     expect(apiMocks.getArtifactContent).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole("combobox", { name: "播放倍速" })).toHaveValue("1.5");
+    expect(
+      screen.getByRole("button", { name: "播放倍速，当前 1.5×" }),
+    ).toHaveTextContent("1.5×");
     expect(document.querySelector("audio")?.playbackRate).toBe(1.5);
 
     rerender(<EpisodeProcessingPanel item={item} />);
@@ -969,7 +1004,9 @@ describe("EpisodeProcessingPanel", () => {
     expect(await screen.findByText("# 新集纪要")).toBeVisible();
     fireEvent.click(screen.getByRole("tab", { name: "逐字稿" }));
     expect(await screen.findByText("新集正文")).toBeVisible();
-    expect(screen.getByRole("combobox", { name: "播放倍速" })).toHaveValue("1");
+    expect(
+      screen.getByRole("button", { name: "播放倍速，当前 1×" }),
+    ).toHaveTextContent("1×");
   });
 
   it("does not expose body-only images as a summary tab", async () => {

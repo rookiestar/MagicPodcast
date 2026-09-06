@@ -352,7 +352,8 @@
 .primaryCommand:focus-visible,
 .secondaryCommand:focus-visible,
 .originalLink:focus-visible,
-.secondaryActions summary:focus-visible,
+.queueMenuTrigger:focus-visible,
+.queueMenuPopup button:focus-visible,
 .detailTabs button:focus-visible,
 .processingArtifactTabs button:focus-visible,
 .confirmPrimary:focus-visible,
@@ -360,7 +361,6 @@
 .moveMenuPopover button:focus-visible,
 .tagChip button:focus-visible,
 .tagPicker select:focus-visible,
-.detailMove select:focus-visible,
 .notesTextarea:focus-visible {
   outline: 2px solid var(--orange);
   outline-offset: 2px;
@@ -1056,7 +1056,9 @@
 
 .detailTitleBlock h2 {
   width: 100%;
-  margin: 8px 0 0;
+  /* Extra air between the meta line and the title keeps the heading level
+     clear (issue #297). */
+  margin: 20px 0 0;
   font-family: var(--font-display);
   font-size: clamp(24px, 2.15vw, 30px);
   font-weight: var(--font-display-weight);
@@ -1108,8 +1110,7 @@
 .detailCommandBar {
   position: relative;
   z-index: 4;
-  display: grid;
-  grid-template-columns: minmax(170px, 1fr) auto auto 44px;
+  display: flex;
   align-items: center;
   gap: 10px;
   padding-top: 14px;
@@ -1118,6 +1119,7 @@
 
 .processingHeadline {
   display: flex;
+  flex: 1 1 auto;
   min-width: 0;
   align-items: center;
   gap: 10px;
@@ -1170,6 +1172,7 @@
 .primaryCommand,
 .secondaryCommand {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   min-height: 44px;
@@ -1207,15 +1210,88 @@
   cursor: not-allowed;
 }
 
-.detailMove {
-  display: flex;
-  min-width: 0;
+.queueMenu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.queueMenuTrigger {
+  display: inline-flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  min-height: 44px;
+  gap: 4px;
+  padding: 0 11px;
+  color: #fff;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.queueMenuTrigger:hover:not(:disabled),
+.queueMenuTrigger[aria-expanded="true"] {
+  border-color: var(--orange-dark);
+  background: var(--orange-dark);
+}
+
+.queueMenuPopup {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 7px);
+  right: 0;
+  display: grid;
+  width: 180px;
+  padding: 4px 0 6px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 0 8px 20px rgba(23, 21, 18, 0.16);
+}
+
+.queueMenuTitle {
+  margin: 0 12px 6px;
+  padding-bottom: 7px;
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--rule);
+  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
+  letter-spacing: 0.08em;
+}
+
+.queueMenuPopup button[role="menuitem"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  color: var(--ink);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.queueMenuPopup button[role="menuitem"]:hover:not(:disabled) {
+  color: var(--orange-dark);
+  background: rgba(215, 104, 29, 0.07);
+}
+
+.queueMenuPopup button[role="menuitem"]:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.queueMenuSeparator {
+  height: 1px;
+  margin: 5px 12px;
+  background: var(--rule);
 }
 
 .originalLink {
   display: inline-flex;
+  flex: 0 0 auto;
   min-height: 44px;
   align-items: center;
   justify-content: center;
@@ -1240,56 +1316,6 @@
   cursor: not-allowed;
 }
 
-.secondaryActions {
-  position: relative;
-}
-
-.secondaryActions summary {
-  display: inline-flex;
-  width: 44px;
-  min-width: 44px;
-  min-height: 44px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  color: var(--ink);
-  border: 1px solid rgba(23, 21, 18, 0.28);
-  cursor: pointer;
-  font: 600 var(--type-label-size) / var(--type-label-leading) var(--font-sans);
-  list-style: none;
-}
-
-.secondaryActions summary::-webkit-details-marker {
-  display: none;
-}
-
-.secondaryActions[open] summary,
-.secondaryActions summary:hover {
-  color: var(--orange-dark);
-  border-color: var(--orange);
-}
-
-.secondaryActionsMenu {
-  position: absolute;
-  z-index: 8;
-  top: calc(100% + 7px);
-  right: 0;
-  display: grid;
-  width: 290px;
-  gap: 9px;
-  padding: 12px;
-  border: 1px solid var(--ink);
-  background: var(--paper);
-  box-shadow: 7px 8px 0 rgba(23, 21, 18, 0.16);
-}
-
-.secondaryContext {
-  color: var(--ink-soft);
-  font: 400 var(--type-secondary-size) / var(--type-secondary-leading)
-    var(--font-sans);
-}
-
-.detailMove select,
 .tagPicker select {
   min-height: 44px;
   min-width: 0;
@@ -1301,18 +1327,19 @@
   font-size: 12px;
 }
 
-.detailMove select:disabled,
 .tagPicker select:disabled {
   opacity: 0.48;
 }
 
 .commandStatus {
+  margin: 4px 12px 2px;
   color: var(--orange-dark);
   font-size: 10px;
 }
 
 .unsafeOriginal {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   min-height: 44px;
   padding: 0 12px;
@@ -1957,7 +1984,8 @@
 .transcriptPlayButton:focus-visible,
 .transcriptRetryButton:focus-visible,
 .transcriptProgress input:focus-visible,
-.transcriptPlaybackRate select:focus-visible,
+.transcriptRateButton:focus-visible,
+.transcriptRateMenu button:focus-visible,
 .transcriptSegment:focus-visible,
 .transcriptSegments:focus-visible {
   outline: 2px solid var(--orange);
@@ -1989,24 +2017,73 @@
 }
 
 .transcriptPlaybackRate {
+  position: relative;
   display: inline-flex;
   min-height: 36px;
   align-items: center;
 }
 
-.transcriptPlaybackRate select {
+/* A bare text button: no border, no underline, no native dropdown chrome —
+   the rate reads as part of the player row (issue #297). */
+.transcriptRateButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 36px;
-  min-width: 76px;
-  padding: 0 25px 0 9px;
+  padding: 0 2px;
   color: var(--ink);
-  border: 1px solid rgba(23, 21, 18, 0.3);
-  border-radius: 0;
-  background: #fffaf0;
-  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
+  border: 0;
+  background: transparent;
   cursor: pointer;
+  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
 }
 
-.transcriptPlaybackRate select:disabled {
+.transcriptRateButton:hover:not(:disabled) {
+  color: var(--orange-dark);
+}
+
+.transcriptRateButton:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.transcriptRateMenu {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 6px);
+  right: 0;
+  display: grid;
+  min-width: 96px;
+  padding: 4px 0;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 0 8px 20px rgba(23, 21, 18, 0.16);
+}
+
+.transcriptRateMenu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 12px;
+  color: var(--ink);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
+  text-align: left;
+}
+
+.transcriptRateMenu button:hover:not(:disabled) {
+  background: rgba(215, 104, 29, 0.07);
+}
+
+.transcriptRateMenu button[aria-checked="true"] {
+  color: var(--orange-dark);
+}
+
+.transcriptRateMenu button:disabled {
   opacity: 0.48;
   cursor: not-allowed;
 }
@@ -3493,16 +3570,17 @@ button.transcriptSegment:hover {
 
   .detailFacts {
     width: 100%;
+    justify-content: flex-end;
     margin-left: 0;
   }
 
   .detailCommandBar {
-    grid-template-columns: minmax(0, 1fr) auto 44px;
+    flex-wrap: wrap;
     padding-top: 12px;
   }
 
   .processingHeadline {
-    grid-column: 1 / -1;
+    flex: 1 1 100%;
   }
 
   .processingHeadline small {
@@ -3510,45 +3588,12 @@ button.transcriptSegment:hover {
   }
 
   .detailCommandBar > .primaryCommand {
-    width: 100%;
+    flex: 1 1 100%;
   }
 
   .originalLink {
     min-width: 82px;
-  }
-
-  .secondaryActions {
-    grid-column: auto;
-  }
-
-  .secondaryActions[open] {
-    display: grid;
-    grid-column: 1 / -1;
-    justify-items: end;
-  }
-
-  .secondaryActions summary {
-    width: 44px;
-  }
-
-  .secondaryActionsMenu {
-    position: static;
-    width: 100%;
-    justify-self: stretch;
-    margin-top: 7px;
-    box-shadow: none;
-  }
-
-  .secondaryActionsMenu .secondaryCommand {
-    width: 100%;
-  }
-
-  .detailMove {
-    flex: 1 1 100%;
-  }
-
-  .detailMove select {
-    flex: 1 1 auto;
+    margin-left: auto;
   }
 
   .detailNotice {
@@ -3667,6 +3712,11 @@ button.transcriptSegment:hover {
   .transcriptPlaybackRate {
     grid-column: 1;
     justify-self: start;
+  }
+
+  .transcriptRateMenu {
+    right: auto;
+    left: 0;
   }
 
   .transcriptRetryButton,
