@@ -22,6 +22,14 @@ func TestBuildEpisodeRepairUsesSharedOriginalLinkResolver(t *testing.T) {
 			feedURL: "https://example.com/feed.xml",
 			item:    &feedItem{Link: "https://"},
 		},
+		{
+			name:    "verified Libsyn content page",
+			feedURL: "https://investlikethebest.libsyn.com/rss",
+			item: &feedItem{
+				Content: `<p>episode page <a href="https://colossus.com/episode/ai-market-jitters/">here</a></p>`,
+			},
+			want: "https://colossus.com/episode/ai-market-jitters/",
+		},
 	}
 
 	for _, tt := range tests {

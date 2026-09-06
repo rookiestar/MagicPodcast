@@ -233,10 +233,12 @@ func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(ctx context.Context, 
 			Feed:         originallink.FeedIdentity{FeedURL: podcast.FeedURL},
 			RSSLink:      item.Link,
 			GUID:         item.GUID,
+			Content:      item.Content + "\n" + item.Description,
 			ExistingLink: existing.Link,
 		})
 		episode.Link = originalLinkDecision.URL
 		if originalLinkDecision.Source == originallink.SourceWavPubGUID ||
+			originalLinkDecision.Source == originallink.SourceLibsynContent ||
 			originalLinkDecision.Source == originallink.SourceExisting {
 			logger.Debugf("   🔗 原节目链接解析: %s - %s", item.Title, originalLinkDecision.String())
 		}
