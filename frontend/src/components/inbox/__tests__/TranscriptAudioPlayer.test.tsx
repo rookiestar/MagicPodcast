@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TranscriptAudioPlayer, {
@@ -123,6 +124,21 @@ function queryMediaStatus() {
   return document.querySelector(`[role="status"]`);
 }
 
+function rateButton() {
+  return screen.getByRole("button", { name: /^播放倍速，当前 / });
+}
+
+function openRateMenu() {
+  fireEvent.click(rateButton());
+  return screen.getByRole("menu", { name: "选择播放倍速" });
+}
+
+function chooseRate(label: string) {
+  fireEvent.click(
+    within(openRateMenu()).getByRole("menuitemradio", { name: label }),
+  );
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -142,7 +158,8 @@ describe("TranscriptAudioPlayer", () => {
     const playButton = screen.getByRole("button", { name: "播放音频" });
     expect(playButton).toBeEnabled();
     expect(screen.getByRole("slider", { name: "音频进度" })).toBeEnabled();
-    expect(screen.getByRole("combobox", { name: "播放倍速" })).toBeEnabled();
+    expect(rateButton()).toBeEnabled();
+    expect(rateButton()).toHaveTextContent("1×");
 
     const media = controlAudio(audio!);
     fireEvent.click(playButton);
@@ -169,13 +186,7 @@ describe("TranscriptAudioPlayer", () => {
     const { container } = renderPlayer({ audioDurationSeconds: 120 });
     const audio = container.querySelector("audio")!;
     const media = controlAudio(audio);
-    const playbackRate = screen.getByRole("combobox", { name: "播放倍速" });
-    expect(playbackRate).toHaveValue("1");
-    expect(
-      Array.from(playbackRate.querySelectorAll("option")).map(
-        (option) => option.value,
-      ),
-    ).toEqual(["0.75", "1", "1.25", "1.5", "2"]);
+    expect(rateButton()).toHaveTextContent("1×");
 
     fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
     fireEvent.loadedMetadata(audio);
@@ -200,8 +211,13 @@ describe("TranscriptAudioPlayer", () => {
     expect(second).toHaveAttribute("aria-current", "true");
     expect(screen.getByText("正在播放")).toBeVisible();
 
-    fireEvent.change(playbackRate, { target: { value: "1.5" } });
-    expect(playbackRate).toHaveValue("1.5");
+    // Switching rate mid-playback applies immediately without interrupting
+    // playback or moving the position.
+    chooseRate("1.5×");
+    expect(
+      screen.queryByRole("menu", { name: "选择播放倍速" }),
+    ).not.toBeInTheDocument();
+    expect(rateButton()).toHaveTextContent("1.5×");
     expect(audio.playbackRate).toBe(1.5);
     expect(audio.currentTime).toBe(31);
     expect(second).toHaveAttribute("aria-current", "true");
@@ -371,10 +387,7 @@ describe("TranscriptAudioPlayer", () => {
     expect(third).toHaveAttribute("aria-current", "true");
     fireEvent.scroll(transcript);
 
-    fireEvent.change(
-      screen.getByRole("combobox", { name: "播放倍速" }),
-      { target: { value: "1.5" } },
-    );
+    chooseRate("1.5×");
     fireEvent.canPlay(audio);
     media.completePlay();
     expect(screen.queryByText("正在准备播放")).not.toBeInTheDocument();
@@ -508,7 +521,7 @@ describe("TranscriptAudioPlayer", () => {
     expect(screen.getByText("音频加载失败，逐字稿仍可阅读。")).toBeVisible();
     expect(screen.getByText("中段内容")).toBeVisible();
     expect(screen.getByRole("button", { name: "播放音频" })).toBeDisabled();
-    expect(screen.getByRole("combobox", { name: "播放倍速" })).toBeDisabled();
+    expect(rateButton()).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(screen.getByText("正在准备播放")).toBeVisible();
@@ -705,5 +718,75 @@ describe("TranscriptAudioPlayer", () => {
     expect(screen.getByRole("slider", { name: "音频进度" })).toBeEnabled();
     media.completePlay();
     expect(screen.getByRole("button", { name: "暂停音频" })).toBeVisible();
+  });
+
+  it("exposes the five presets as a compact checked menu with full keyboard support", async () => {
+    const user = userEvent.setup();
+    renderPlayer({ audioDurationSeconds: 120 });
+    const trigger = rateButton();
+    expect(trigger).toHaveTextContent("1×");
+    expect(trigger).toHaveAccessibleName("播放倍速，当前 1×");
+    expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    trigger.focus();
+    await user.keyboard("{Enter}");
+    const menu = screen.getByRole("menu", { name: "选择播放倍速" });
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const options = within(menu).getAllByRole("menuitemradio");
+    expect(options.map((option) => option.textContent)).toEqual([
+      "0.75×",
+      "1×",
+      "1.25×",
+      "1.5×",
+      "2×",
+    ]);
+    // The checked preset is marked for assistive tech and highlighted in the
+    // menu, not just colored.
+    expect(options[1]).toHaveAttribute("aria-checked", "true");
+    expect(options[1]).toHaveFocus();
+
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(options[2]).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "End" });
+    expect(options[4]).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "Home" });
+    expect(options[0]).toHaveFocus();
+    fireEvent.keyDown(options[0], { key: "ArrowUp" });
+    expect(options[4]).toHaveFocus();
+
+    // Escape closes and returns focus to the rate button.
+    fireEvent.keyDown(options[4], { key: "Escape" });
+    expect(
+      screen.queryByRole("menu", { name: "选择播放倍速" }),
+    ).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+
+    // Space opens and selects through the native button contract.
+    await user.keyboard(" ");
+    const spaceMenu = screen.getByRole("menu", { name: "选择播放倍速" });
+    fireEvent.keyDown(spaceMenu, { key: "ArrowDown" });
+    await user.keyboard(" ");
+    expect(rateButton()).toHaveTextContent("1.25×");
+    expect(
+      screen.queryByRole("menu", { name: "选择播放倍速" }),
+    ).not.toBeInTheDocument();
+
+    // Enter also activates a focused preset.
+    await user.keyboard("{Enter}");
+    const enterMenu = screen.getByRole("menu", { name: "选择播放倍速" });
+    fireEvent.keyDown(enterMenu, { key: "ArrowDown" });
+    await user.keyboard("{Enter}");
+    expect(rateButton()).toHaveTextContent("1.5×");
+
+    // A press outside the menu also closes it.
+    fireEvent.click(trigger);
+    expect(
+      screen.getByRole("menu", { name: "选择播放倍速" }),
+    ).toBeInTheDocument();
+    fireEvent.pointerDown(document.body);
+    expect(
+      screen.queryByRole("menu", { name: "选择播放倍速" }),
+    ).not.toBeInTheDocument();
   });
 });

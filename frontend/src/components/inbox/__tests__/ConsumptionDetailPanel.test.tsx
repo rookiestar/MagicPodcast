@@ -6,6 +6,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ConsumptionDetailPanel from "../ConsumptionDetailPanel";
 import type { ConsumptionItem } from "@/types/consumption";
@@ -228,9 +229,12 @@ describe("ConsumptionDetailPanel", () => {
     expect(screen.getByRole("button", { name: "单集助手" })).toHaveTextContent(
       "AI",
     );
-    expect(
-      container.querySelector('summary[aria-label="更多操作"]'),
-    ).not.toHaveTextContent("更多操作");
+    const queueTrigger = screen.getByRole("button", {
+      name: "当前队列 Focus，打开切换菜单",
+    });
+    expect(queueTrigger).toHaveAttribute("aria-haspopup", "menu");
+    expect(queueTrigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("更多操作")).not.toBeInTheDocument();
     expect(
       container.querySelector('[data-copilot-source="show_notes"]'),
     ).toHaveAttribute("data-copilot-episode-id", "201");
@@ -541,13 +545,18 @@ describe("ConsumptionDetailPanel", () => {
     );
   });
 
-  it("only enters Done after the explicit Done action", async () => {
+  it("only enters Done after the explicit Done command in the queue menu", async () => {
     const onMove = vi
       .fn<OnMove>()
       .mockResolvedValue({ ...item, queue_state: "done" });
     renderDetail({ onMove });
 
-    fireEvent.click(screen.getByRole("button", { name: "标记完成" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "当前队列 Focus，打开切换菜单",
+      }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "标记完成" }));
 
     await waitFor(() => expect(onMove).toHaveBeenCalledWith(item, "done"));
     expect(apiMocks.markInProgress).not.toHaveBeenCalled();
@@ -592,6 +601,235 @@ describe("ConsumptionDetailPanel", () => {
     expect(
       screen.getByRole("combobox", { name: "选择已有标签" }),
     ).toBeVisible();
+  });
+
+  describe("Focus Detail queue switcher", () => {
+    const doneItem: ConsumptionItem = { ...item, queue_state: "done" };
+
+    function queueTrigger(queueLabel: string) {
+      const context =
+        queueLabel === "Done" || queueLabel === "未收集"
+          ? "当前状态"
+          : "当前队列";
+      return screen.getByRole("button", {
+        name: `${context} ${queueLabel}，打开切换菜单`,
+      });
+    }
+
+    function openQueueMenu(queueLabel: string) {
+      fireEvent.click(queueTrigger(queueLabel));
+      return screen.getByRole("menu", { name: "切换至" });
+    }
+
+    function menuTargets(menu: HTMLElement) {
+      return Array.from(
+        menu.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).map((entry) => entry.textContent);
+    }
+
+    it("shows Done inline and reprocesses into an action queue with a single click", async () => {
+      const onMove = vi
+        .fn<OnMove>()
+        .mockResolvedValue({ ...doneItem, queue_state: "focus" });
+      const onItemChange = vi.fn<OnItemChange>();
+      renderDetail({ item: doneItem, onMove, onItemChange });
+
+      expect(queueTrigger("Done")).toHaveAttribute("aria-haspopup", "menu");
+      const menu = openQueueMenu("Done");
+      expect(queueTrigger("Done")).toHaveAttribute("aria-expanded", "true");
+      expect(menuTargets(menu)).toEqual(["Inbox", "Focus", "Someday"]);
+      expect(
+        within(menu).queryByRole("menuitem", { name: "标记完成" }),
+      ).not.toBeInTheDocument();
+
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Focus" }));
+      expect(onMove).toHaveBeenCalledTimes(1);
+      expect(onMove).toHaveBeenCalledWith(doneItem, "focus");
+      await waitFor(() =>
+        expect(onItemChange).toHaveBeenCalledWith(
+          expect.objectContaining({ queue_state: "focus" }),
+        ),
+      );
+      expect(
+        screen.queryByRole("menu", { name: "切换至" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("keeps an unassigned item safe without changing its available commands", async () => {
+      const unassignedItem: ConsumptionItem = { ...item, queue_state: null };
+      const onMove = vi
+        .fn<OnMove>()
+        .mockResolvedValue({ ...unassignedItem, queue_state: "focus" });
+      renderDetail({ item: unassignedItem, onMove });
+
+      expect(queueTrigger("未收集")).toHaveTextContent("未收集");
+      const menu = openQueueMenu("未收集");
+      expect(menuTargets(menu)).toEqual([
+        "Inbox",
+        "Focus",
+        "Someday",
+        "标记完成",
+      ]);
+      expect(menu.querySelector('[role="separator"]')).not.toBeNull();
+
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Focus" }));
+      await waitFor(() =>
+        expect(onMove).toHaveBeenCalledWith(unassignedItem, "focus"),
+      );
+    });
+
+    it("lists the other action queues and keeps 标记完成 as a separated command", async () => {
+      const onMove = vi.fn<OnMove>().mockResolvedValue(item);
+      renderDetail({ item: { ...item, queue_state: "inbox" }, onMove });
+
+      const menu = openQueueMenu("Inbox");
+      expect(menuTargets(menu)).toEqual(["Focus", "Someday", "标记完成"]);
+      expect(menu.querySelector('[role="separator"]')).not.toBeNull();
+      expect(
+        within(menu).queryByRole("menuitem", { name: "Inbox" }),
+      ).not.toBeInTheDocument();
+
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Someday" }));
+      await waitFor(() =>
+        expect(onMove).toHaveBeenCalledWith(
+          expect.objectContaining({ queue_state: "inbox" }),
+          "someday",
+        ),
+      );
+      expect(
+        screen.queryByRole("menu", { name: "切换至" }),
+      ).not.toBeInTheDocument();
+      expect(onMove).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the confirmed queue visible after a failed move so it can be retried", async () => {
+      const onMove = vi.fn<OnMove>().mockResolvedValue(undefined);
+      renderDetail({ onMove });
+
+      const menu = openQueueMenu("Focus");
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Someday" }));
+      await waitFor(() => expect(onMove).toHaveBeenCalledTimes(1));
+
+      expect(queueTrigger("Focus")).toBeVisible();
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("menu", { name: "切换至" }),
+        ).not.toBeInTheDocument(),
+      );
+      const retryMenu = openQueueMenu("Focus");
+      expect(
+        within(retryMenu).getByRole("menuitem", { name: "Someday" }),
+      ).toBeEnabled();
+    });
+
+    it("keeps pending feedback visible and closes only after success", async () => {
+      let resolveMove!: (item: ConsumptionItem) => void;
+      const onMove = vi.fn<OnMove>().mockReturnValue(
+        new Promise<ConsumptionItem>((resolve) => {
+          resolveMove = resolve;
+        }),
+      );
+      renderDetail({ onMove });
+
+      const menu = openQueueMenu("Focus");
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Someday" }));
+
+      expect(screen.getByRole("menu", { name: "切换至" })).toBeVisible();
+      expect(within(menu).getByRole("status")).toHaveTextContent(
+        "正在保存队列…",
+      );
+      for (const target of menuTargets(menu)) {
+        expect(
+          within(menu).getByRole("menuitem", { name: target ?? "" }),
+        ).toBeDisabled();
+      }
+      expect(queueTrigger("Focus")).toHaveAttribute("aria-disabled", "true");
+
+      await act(async () => {
+        resolveMove({ ...item, queue_state: "someday" });
+      });
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("menu", { name: "切换至" }),
+        ).not.toBeInTheDocument(),
+      );
+    });
+
+    it("blocks duplicate submissions while a queue save is in flight", () => {
+      render(
+        <ConsumptionDetailPanel
+          item={item}
+          isQueueBusy
+          onClose={vi.fn()}
+          onItemChange={vi.fn()}
+          onMove={vi.fn<OnMove>().mockResolvedValue(item)}
+        />,
+      );
+
+      const trigger = queueTrigger("Focus");
+      expect(trigger).toHaveAttribute("aria-disabled", "true");
+      fireEvent.click(trigger);
+      expect(
+        screen.queryByRole("menu", { name: "切换至" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("opens, traverses, activates with Enter and Space, and restores focus", async () => {
+      const user = userEvent.setup();
+      const onMove = vi.fn<OnMove>().mockResolvedValue(item);
+      renderDetail({ onMove });
+
+      const trigger = queueTrigger("Focus");
+      trigger.focus();
+      await user.keyboard("{Enter}");
+      const menu = screen.getByRole("menu", { name: "切换至" });
+      const targets = within(menu).getAllByRole("menuitem");
+      expect(targets[0]).toHaveFocus();
+
+      fireEvent.keyDown(menu, { key: "ArrowDown" });
+      expect(targets[1]).toHaveFocus();
+      fireEvent.keyDown(menu, { key: "End" });
+      expect(targets[2]).toHaveFocus();
+      fireEvent.keyDown(menu, { key: "Home" });
+      expect(targets[0]).toHaveFocus();
+      fireEvent.keyDown(menu, { key: "ArrowUp" });
+      expect(targets[2]).toHaveFocus();
+
+      await user.keyboard("{Enter}");
+      await waitFor(() => expect(onMove).toHaveBeenCalledTimes(1));
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("menu", { name: "切换至" }),
+        ).not.toBeInTheDocument(),
+      );
+
+      trigger.focus();
+      await user.keyboard(" ");
+      const spaceMenu = screen.getByRole("menu", { name: "切换至" });
+      expect(within(spaceMenu).getAllByRole("menuitem")[0]).toHaveFocus();
+      await user.keyboard(" ");
+      await waitFor(() => expect(onMove).toHaveBeenCalledTimes(2));
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("menu", { name: "切换至" }),
+        ).not.toBeInTheDocument(),
+      );
+
+      // Escape closes and restores focus to the trigger.
+      const reopened = openQueueMenu("Focus");
+      fireEvent.keyDown(reopened, { key: "Escape" });
+      expect(
+        screen.queryByRole("menu", { name: "切换至" }),
+      ).not.toBeInTheDocument();
+      expect(trigger).toHaveFocus();
+
+      // A press outside the menu also closes it.
+      openQueueMenu("Focus");
+      fireEvent.pointerDown(document.body);
+      expect(
+        screen.queryByRole("menu", { name: "切换至" }),
+      ).not.toBeInTheDocument();
+    });
   });
 
   describe("transcript artifact switcher flow", () => {
@@ -1051,6 +1289,37 @@ describe("ConsumptionDetailPanel", () => {
       expect(summaryTab).toHaveAttribute("tabindex", "0");
       expect(minutesTab).toHaveAttribute("tabindex", "-1");
       expect(transcriptTab).toHaveAttribute("tabindex", "-1");
+    });
+
+    it("reports 转写就绪 without duplicated copy and drops 查看转写 on the transcript tab", async () => {
+      mockTranscriptFlow();
+      renderDetail();
+
+      const headline = await screen.findByRole("status", {
+        name: "转写状态：转写就绪",
+      });
+      expect(headline).not.toHaveTextContent("已完成");
+      expect(headline).not.toHaveTextContent("已有可阅读的转写产物");
+      expect(screen.getByRole("button", { name: "查看转写" })).toBeVisible();
+
+      // Reading the transcript replaces the duplicate entry point instead of
+      // repeating it.
+      const dialog = await openTranscriptArea();
+      expect(
+        screen.queryByRole("button", { name: "查看转写" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("status", { name: "转写状态：转写就绪" }),
+      ).toBeVisible();
+
+      const subTablist = await within(dialog).findByRole("tablist", {
+        name: "转写产物",
+      });
+      fireEvent.click(within(subTablist).getByRole("tab", { name: "逐字稿" }));
+      expect(await within(dialog).findByText("逐字稿正文")).toBeVisible();
+      expect(
+        screen.queryByRole("button", { name: "查看转写" }),
+      ).not.toBeInTheDocument();
     });
   });
 });

@@ -896,7 +896,7 @@ const EpisodeProcessingPanel = forwardRef<
       return {
         kind: "loading",
         label: "正在读取",
-        detail: "Show Notes 可继续阅读",
+        detail: "",
         primaryLabel: "读取转写状态",
         primaryDisabled: true,
         action: null,
@@ -914,7 +914,7 @@ const EpisodeProcessingPanel = forwardRef<
               : audioPreparing
                 ? "准备音频"
                 : "转写中",
-        detail: "转写在后台继续，当前正文不受影响",
+        detail: "",
         primaryLabel: "转写中",
         primaryDisabled: true,
         action: null,
@@ -930,10 +930,7 @@ const EpisodeProcessingPanel = forwardRef<
             : isMinutesResyncFailure
               ? "智能纪要同步失败"
               : "转写失败",
-        detail:
-          detail?.action_suggestion ||
-          run.error_message ||
-          "可查看原因后安全重试",
+        detail: "",
         primaryLabel: canReprocessLegacy
           ? "重新转写"
           : canRetry
@@ -953,10 +950,12 @@ const EpisodeProcessingPanel = forwardRef<
     if (currentArtifact) {
       return {
         kind: "completed",
-        label: "已完成",
+        // The green dot plus “转写就绪” is the whole completed story; the
+        // readable-product sentence repeated the same fact.
+        label: "转写就绪",
         detail: canReprocessLegacy
           ? "当前为旧版产物，可升级为妙记纪要与同步逐字稿"
-          : "已有可阅读的转写产物",
+          : "",
         primaryLabel: canReprocessLegacy ? "重新转写" : "查看转写",
         primaryDisabled: isMutating,
         action: canReprocessLegacy ? "reprocess" : "view",
@@ -980,7 +979,6 @@ const EpisodeProcessingPanel = forwardRef<
     canRetry,
     canStart,
     currentArtifact,
-    detail?.action_suggestion,
     isLoading,
     isMutating,
     item.queue_state,

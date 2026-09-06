@@ -5,16 +5,17 @@ import {
   useEffect,
   useRef,
   useState,
-  type ChangeEvent,
   type KeyboardEvent,
 } from "react";
 import {
+  IconCheck,
   IconPlayerPause,
   IconPlayerPlay,
   IconRefresh,
 } from "@tabler/icons-react";
 import type { MinutesChapter, TranscriptSegment } from "@/types/processing";
 import styles from "./InboxPage.module.css";
+import { useMenuPopover } from "./useMenuPopover";
 
 interface TranscriptAudioPlayerProps {
   artifactSetId: number;
@@ -56,12 +57,8 @@ const transcriptScrollKeys = new Set([
   " ",
 ]);
 
-function parseTranscriptPlaybackRate(value: string): TranscriptPlaybackRate {
-  const candidate = Number(value);
-  for (const rate of TRANSCRIPT_PLAYBACK_RATES) {
-    if (rate === candidate) return rate;
-  }
-  return DEFAULT_TRANSCRIPT_PLAYBACK_RATE;
+function formatPlaybackRateLabel(rate: TranscriptPlaybackRate) {
+  return `${rate}×`;
 }
 
 function applyPlaybackRate(
@@ -483,14 +480,27 @@ export default function TranscriptAudioPlayer({
     prepareAndPlay(currentTimeRef.current);
   }, [prepareAndPlay]);
 
-  const handlePlaybackRateChange = useCallback(
-    (event: ChangeEvent<HTMLSelectElement>) => {
-      const nextRate = parseTranscriptPlaybackRate(event.currentTarget.value);
+  const {
+    open: rateMenuOpen,
+    menuId: rateMenuId,
+    triggerRef: rateMenuTriggerRef,
+    menuRef: rateMenuMenuRef,
+    closeMenu: closeRateMenu,
+    toggleMenu: toggleRateMenu,
+    handleMenuKeyDown: handleRateMenuKeyDown,
+  } = useMenuPopover();
+
+  // Rates apply to the live media element immediately, so an ongoing playback
+  // keeps its position and state; the panel-level rate state survives sub-tab
+  // switches and resets when another episode opens.
+  const handleRateSelect = useCallback(
+    (nextRate: TranscriptPlaybackRate) => {
       const audio = audioRef.current;
       if (audio) applyPlaybackRate(audio, nextRate);
       onPlaybackRateChange(nextRate);
+      closeRateMenu();
     },
-    [onPlaybackRateChange],
+    [closeRateMenu, onPlaybackRateChange],
   );
 
   const handleSliderKeyDown = useCallback(
@@ -675,21 +685,52 @@ export default function TranscriptAudioPlayer({
           {formatPlaybackTime(duration, duration <= 0)}
         </span>
 
-        <label className={styles.transcriptPlaybackRate}>
-          <span className={styles.srOnly}>播放倍速</span>
-          <select
-            value={playbackRate}
-            aria-label="播放倍速"
+        <div className={styles.transcriptPlaybackRate}>
+          <button
+            ref={rateMenuTriggerRef}
+            type="button"
+            className={styles.transcriptRateButton}
+            aria-label={`播放倍速，当前 ${formatPlaybackRateLabel(
+              playbackRate,
+            )}`}
+            aria-haspopup="menu"
+            aria-expanded={rateMenuOpen}
+            aria-controls={rateMenuOpen ? rateMenuId : undefined}
             disabled={!mediaAvailable || mediaState === "error"}
-            onChange={handlePlaybackRateChange}
+            onClick={toggleRateMenu}
           >
-            {TRANSCRIPT_PLAYBACK_RATES.map((rate) => (
-              <option key={rate} value={rate}>
-                {rate}×
-              </option>
-            ))}
-          </select>
-        </label>
+            {formatPlaybackRateLabel(playbackRate)}
+          </button>
+          {rateMenuOpen && (
+            <div
+              ref={rateMenuMenuRef}
+              id={rateMenuId}
+              className={styles.transcriptRateMenu}
+              role="menu"
+              aria-label="选择播放倍速"
+              onKeyDown={handleRateMenuKeyDown}
+            >
+              {TRANSCRIPT_PLAYBACK_RATES.map((rate) => {
+                const selected = rate === playbackRate;
+                return (
+                  <button
+                    key={rate}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={selected}
+                    disabled={!mediaAvailable || mediaState === "error"}
+                    onClick={() => handleRateSelect(rate)}
+                  >
+                    {formatPlaybackRateLabel(rate)}
+                    {selected && (
+                      <IconCheck size={14} stroke={2} aria-hidden="true" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         {mediaState === "error" && (
           <button
