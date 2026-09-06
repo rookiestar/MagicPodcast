@@ -360,6 +360,56 @@ describe("EpisodeCopilotPanel", () => {
     expect(profileSequence[1]).toBe("deep");
   });
 
+  it("keeps every unsupported tier blocked until the page session ends", async () => {
+    vi.mocked(episodeCopilotApi.ask).mockImplementation(
+      async (_episodeId, request, onEvent) => {
+        onEvent({
+          type: "error",
+          message: `${request.profile_id} 不可用`,
+          code: "profile_unavailable",
+          retryable: false,
+          transcript_used: false,
+          private_note_included: false,
+          profile_id: request.profile_id,
+        });
+        const failure = new Error(`${request.profile_id} 不可用`) as Error & {
+          code?: string;
+        };
+        failure.code = "profile_unavailable";
+        throw failure;
+      },
+    );
+
+    render(<EpisodeCopilotPanel item={item} />);
+    const group = await screen.findByTestId("copilot-profiles");
+    const question = screen.getByRole("textbox", {
+      name: "向单集助手提问",
+    });
+    fireEvent.change(question, { target: { value: "验证多个不可用档位" } });
+
+    fireEvent.click(within(group).getByRole("radio", { name: /快速/ }));
+    fireEvent.click(screen.getByRole("button", { name: "提问" }));
+    await screen.findByRole("alert");
+    expect(screen.getByRole("button", { name: "提问" })).toBeDisabled();
+
+    fireEvent.click(within(group).getByRole("radio", { name: /深度/ }));
+    expect(screen.getByRole("button", { name: "提问" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "提问" }));
+    await waitFor(() =>
+      expect(episodeCopilotApi.ask).toHaveBeenCalledTimes(2),
+    );
+    expect(screen.getByRole("button", { name: "提问" })).toBeDisabled();
+
+    fireEvent.click(within(group).getByRole("radio", { name: /快速/ }));
+    expect(screen.getByRole("button", { name: "提问" })).toBeDisabled();
+    fireEvent.click(within(group).getByRole("radio", { name: /均衡/ }));
+    expect(screen.getByRole("button", { name: "提问" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "提问" }));
+    await waitFor(() =>
+      expect(episodeCopilotApi.ask).toHaveBeenCalledTimes(3),
+    );
+  });
+
   it("keeps the question, selection, and partial answer after failure, then retries", async () => {
     vi.mocked(episodeCopilotApi.ask)
       .mockImplementationOnce(async (_episodeId, _request, onEvent) => {

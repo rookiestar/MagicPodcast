@@ -77,6 +77,14 @@ function profileConsumesMoreCredits(profile: EpisodeCopilotProfile) {
   return profile.service_tier_name === "Fast";
 }
 
+function addRejectedProfileID(
+  current: ReadonlySet<EpisodeCopilotProfileID>,
+  profileID: EpisodeCopilotProfileID,
+) {
+  if (current.has(profileID)) return current;
+  return new Set([...current, profileID]);
+}
+
 function resolveProfileID(scope: EpisodeCopilotContextScope) {
   return scope.default_profile_id;
 }
@@ -114,8 +122,9 @@ export default function EpisodeCopilotPanel({
   // Codes that change what retrying means, e.g. profile_unavailable must not
   // re-send the same known-impossible request.
   const [failureCode, setFailureCode] = useState<string | null>(null);
-  const [rejectedProfileID, setRejectedProfileID] =
-    useState<EpisodeCopilotProfileID | null>(null);
+  const [rejectedProfileIDs, setRejectedProfileIDs] = useState<
+    ReadonlySet<EpisodeCopilotProfileID>
+  >(new Set());
   const [isSlow, setIsSlow] = useState(false);
   const [metrics, setMetrics] = useState<{
     firstContentMS: number;
@@ -160,7 +169,7 @@ export default function EpisodeCopilotPanel({
     setAnswer("");
     setRequestError(null);
     setFailureCode(null);
-    setRejectedProfileID(null);
+    setRejectedProfileIDs(new Set());
     setMetrics(null);
     setIsSlow(false);
     retryRequest.current = null;
@@ -244,7 +253,10 @@ export default function EpisodeCopilotPanel({
       setStatusMessage("");
       setFailureCode(event.code ?? null);
       if (event.code === "profile_unavailable") {
-        setRejectedProfileID(event.profile_id ?? requestProfileID);
+        setRejectedProfileIDs((current) => {
+          const rejectedProfileID = event.profile_id ?? requestProfileID;
+          return addRejectedProfileID(current, rejectedProfileID);
+        });
       }
       setRequestError(event.message || "助手回答失败，请重试");
       return;
@@ -272,7 +284,7 @@ export default function EpisodeCopilotPanel({
       requestToRetry?.profile_id ??
       selectedProfileID ??
       resolveProfileID(scope);
-    if (rejectedProfileID === requestProfileID) return;
+    if (rejectedProfileIDs.has(requestProfileID)) return;
     const controller = new AbortController();
     activeRequest.current = controller;
     const request: EpisodeCopilotQuestion = requestToRetry ?? {
@@ -315,7 +327,9 @@ export default function EpisodeCopilotPanel({
         const code = (error as { code?: string } | null)?.code ?? null;
         setFailureCode(code);
         if (code === "profile_unavailable") {
-          setRejectedProfileID(request.profile_id);
+          setRejectedProfileIDs((current) =>
+            addRejectedProfileID(current, request.profile_id),
+          );
         }
         setRequestError(
           `${getErrorMessage(error)}；问题、选区和已有答案已保留。`,
@@ -333,7 +347,7 @@ export default function EpisodeCopilotPanel({
     selectedProfileID ?? (scope ? resolveProfileID(scope) : null);
   const isRejectedProfileSelected =
     effectiveSelectedProfileID !== null &&
-    effectiveSelectedProfileID === rejectedProfileID;
+    rejectedProfileIDs.has(effectiveSelectedProfileID);
   const canAsk =
     Boolean(scope) &&
     question.trim().length > 0 &&
