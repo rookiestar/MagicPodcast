@@ -439,7 +439,7 @@ describe("TranscriptAudioPlayer", () => {
     expect(screen.getByText("02:30 / 03:00")).toBeVisible();
   });
 
-  it("stops the first preparation after 15 seconds and retries with one new request", () => {
+  it("stops the first preparation after 30 seconds and retries with one new request", () => {
     vi.useFakeTimers();
     const { container } = renderPlayer({ audioDurationSeconds: 120 });
     const audio = container.querySelector("audio")!;
@@ -448,6 +448,13 @@ describe("TranscriptAudioPlayer", () => {
     fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
     expect(screen.getByText("正在准备播放")).toBeVisible();
     expect(media.play).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      vi.advanceTimersByTime(15_000);
+    });
+    expect(screen.getByText("正在准备播放")).toBeVisible();
+    expect(audio).toHaveAttribute("src", "/api/v1/artifact-sets/82/audio");
+    expect(media.pause).not.toHaveBeenCalled();
 
     act(() => {
       vi.advanceTimersByTime(15_000);
