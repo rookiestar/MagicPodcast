@@ -345,9 +345,14 @@ describe("EpisodeCopilotPanel", () => {
     expect(
       screen.queryByRole("button", { name: "重试" }),
     ).not.toBeInTheDocument();
+    const askButton = screen.getByRole("button", { name: "提问" });
+    expect(askButton).toBeDisabled();
+    fireEvent.click(askButton);
+    expect(episodeCopilotApi.ask).toHaveBeenCalledTimes(1);
 
     // User switches to deep and asks again: a new request carrying deep.
     fireEvent.click(within(group).getByRole("radio", { name: /深度/ }));
+    expect(askButton).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "提问" }));
     await waitFor(() =>
       expect(episodeCopilotApi.ask).toHaveBeenCalledTimes(2),

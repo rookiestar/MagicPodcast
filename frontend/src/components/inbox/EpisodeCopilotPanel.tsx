@@ -114,6 +114,8 @@ export default function EpisodeCopilotPanel({
   // Codes that change what retrying means, e.g. profile_unavailable must not
   // re-send the same known-impossible request.
   const [failureCode, setFailureCode] = useState<string | null>(null);
+  const [rejectedProfileID, setRejectedProfileID] =
+    useState<EpisodeCopilotProfileID | null>(null);
   const [isSlow, setIsSlow] = useState(false);
   const [metrics, setMetrics] = useState<{
     firstContentMS: number;
@@ -158,6 +160,7 @@ export default function EpisodeCopilotPanel({
     setAnswer("");
     setRequestError(null);
     setFailureCode(null);
+    setRejectedProfileID(null);
     setMetrics(null);
     setIsSlow(false);
     retryRequest.current = null;
@@ -217,6 +220,7 @@ export default function EpisodeCopilotPanel({
   const handleEvent = (
     event: EpisodeCopilotStreamEvent,
     replaceAnswer: { current: boolean },
+    requestProfileID: EpisodeCopilotProfileID,
   ) => {
     if (event.type === "context" || event.type === "status") {
       setStatusMessage(event.message || "正在处理…");
@@ -239,6 +243,9 @@ export default function EpisodeCopilotPanel({
       setIsSlow(false);
       setStatusMessage("");
       setFailureCode(event.code ?? null);
+      if (event.code === "profile_unavailable") {
+        setRejectedProfileID(event.profile_id ?? requestProfileID);
+      }
       setRequestError(event.message || "助手回答失败，请重试");
       return;
     }
@@ -261,6 +268,11 @@ export default function EpisodeCopilotPanel({
     const normalizedQuestion =
       requestToRetry?.question ?? question.trim();
     if (!normalizedQuestion || !scope || activeRequest.current) return;
+    const requestProfileID =
+      requestToRetry?.profile_id ??
+      selectedProfileID ??
+      resolveProfileID(scope);
+    if (rejectedProfileID === requestProfileID) return;
     const controller = new AbortController();
     activeRequest.current = controller;
     const request: EpisodeCopilotQuestion = requestToRetry ?? {
@@ -269,7 +281,7 @@ export default function EpisodeCopilotPanel({
       selection_source: selection?.source ?? "",
       include_private_note:
         includePrivateNote && scope.private_note_available,
-      profile_id: selectedProfileID ?? resolveProfileID(scope),
+      profile_id: requestProfileID,
     };
     if (requestToRetry) {
       selectProfile(request.profile_id);
@@ -289,7 +301,7 @@ export default function EpisodeCopilotPanel({
       await episodeCopilotApi.ask(
         item.episode_id,
         request,
-        (event) => handleEvent(event, replaceAnswer),
+        (event) => handleEvent(event, replaceAnswer, request.profile_id),
         controller.signal,
       );
     } catch (error) {
@@ -300,9 +312,11 @@ export default function EpisodeCopilotPanel({
         setPhase("failed");
         setIsSlow(false);
         setStatusMessage("");
-        setFailureCode(
-          (error as { code?: string } | null)?.code ?? null,
-        );
+        const code = (error as { code?: string } | null)?.code ?? null;
+        setFailureCode(code);
+        if (code === "profile_unavailable") {
+          setRejectedProfileID(request.profile_id);
+        }
         setRequestError(
           `${getErrorMessage(error)}；问题、选区和已有答案已保留。`,
         );
@@ -315,8 +329,16 @@ export default function EpisodeCopilotPanel({
   };
 
   const isActive = phase === "waiting" || phase === "streaming";
+  const effectiveSelectedProfileID =
+    selectedProfileID ?? (scope ? resolveProfileID(scope) : null);
+  const isRejectedProfileSelected =
+    effectiveSelectedProfileID !== null &&
+    effectiveSelectedProfileID === rejectedProfileID;
   const canAsk =
-    Boolean(scope) && question.trim().length > 0 && !isActive;
+    Boolean(scope) &&
+    question.trim().length > 0 &&
+    !isActive &&
+    !isRejectedProfileSelected;
   // Retrying an unsupported profile would repeat the identical impossible
   // request; the user switches tiers and asks a new question instead.
   const showRetry =
