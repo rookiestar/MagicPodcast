@@ -234,6 +234,32 @@ func TestPythonSDKHostReportsProfileUnavailableStably(t *testing.T) {
 	require.NotEmpty(t, runtimeErr.SafeMessage)
 }
 
+func TestPythonSDKHostTreatsInvalidModelCatalogAsRetryableRuntimeFailure(
+	t *testing.T,
+) {
+	host, workRoot := newFakeSDKHostForProfiles(t, map[string]string{
+		"FAKE_CODEX_MODEL_CATALOG_INVALID": "1",
+	})
+
+	_, err := host.CreateExecution(
+		context.Background(),
+		ExecutionRequest{
+			Kind:             ExecutionKindAssistant,
+			WorkingDirectory: newExecutionDir(t, workRoot, "python-invalid-catalog-"),
+			Prompt:           "Retry when the account catalog cannot be verified.",
+			ModelProfile:     ModelProfileID("deep"),
+		},
+	)
+	require.Error(t, err)
+	require.Equal(t, ErrorRuntimeUnavailable, ErrorCode(err))
+
+	var runtimeErr *RuntimeError
+	require.True(t, errors.As(err, &runtimeErr))
+	require.True(t, runtimeErr.Retryable)
+	require.NotEmpty(t, runtimeErr.SafeMessage)
+	require.NoError(t, closeHost(t, host))
+}
+
 func TestPythonSDKHostPrefersRuntimeVersionFailureOverProfileFailure(
 	t *testing.T,
 ) {

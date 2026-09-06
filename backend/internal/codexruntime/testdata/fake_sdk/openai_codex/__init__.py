@@ -122,6 +122,8 @@ def _fake_model_catalog():
     entries so tests can simulate accounts that lack a requested profile or
     would make Standard inherit Fast.
     """
+    if os.environ.get("FAKE_CODEX_MODEL_CATALOG_INVALID") == "1":
+        return SimpleNamespace(data={"invalid": "model catalog shape"})
     encoded = os.environ.get("FAKE_CODEX_MODEL_CATALOG")
     if encoded:
         entries = json.loads(encoded)

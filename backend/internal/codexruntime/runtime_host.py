@@ -401,7 +401,7 @@ def validate_profile_support(
     models = getattr(model_catalog, "data", None)
     if not isinstance(models, list):
         raise HostFailure(
-            "profile_unavailable",
+            "runtime_unavailable",
             "runtime model profile support could not be verified",
         )
     for model in models:
