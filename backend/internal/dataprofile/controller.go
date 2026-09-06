@@ -69,10 +69,11 @@ type Controller struct {
 	Timeout     time.Duration
 	Command     []string
 
-	writeStateHook   func(RuntimeState) error
-	writeLatestHook  func(Snapshot) error
-	retentionHook    func(*snapshotRetention) error
-	afterPublishHook func()
+	writeStateHook     func(RuntimeState) error
+	writeLatestHook    func(Snapshot) error
+	retentionHook      func(*snapshotRetention) error
+	afterPublishHook   func()
+	prepareBackendHook func(context.Context, string) ([]string, error)
 }
 
 func DefaultProfileHome() (string, error) {
@@ -473,6 +474,9 @@ func (c Controller) prepareBackend(ctx context.Context, instanceID string) ([]st
 		}
 		command[0] = executable
 		return command, nil
+	}
+	if c.prepareBackendHook != nil {
+		return c.prepareBackendHook(ctx, instanceID)
 	}
 	root, err := ensureRoot(c.ProfileHome)
 	if err != nil {

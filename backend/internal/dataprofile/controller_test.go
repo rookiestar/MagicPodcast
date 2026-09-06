@@ -37,6 +37,7 @@ func TestProfileStopHelperProcess(t *testing.T) {
 }
 
 func TestControllerFixtureEndToEndUsesRealBackend(t *testing.T) {
+	t.Parallel()
 	projectDir, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	require.NoError(t, err)
 	port, err := FreeLoopbackPort()
@@ -88,6 +89,7 @@ func TestControllerFixtureEndToEndUsesRealBackend(t *testing.T) {
 }
 
 func TestDataProfileWrapperExitLeavesManagedBackendReady(t *testing.T) {
+	t.Parallel()
 	projectDir, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	require.NoError(t, err)
 	port, err := FreeLoopbackPort()
@@ -193,12 +195,12 @@ func TestControllerStateCommitFailureRestoresRunningFixture(t *testing.T) {
 	require.NoError(t, err)
 	port, err := FreeLoopbackPort()
 	require.NoError(t, err)
-	controller := Controller{
+	controller := withSharedTestBackend(t, Controller{
 		ProjectDir:  projectDir,
 		ProfileHome: home,
 		Port:        port,
 		Timeout:     30 * time.Second,
-	}
+	})
 	t.Cleanup(func() {
 		if state, readErr := controller.readState(); readErr == nil {
 			_ = controller.stop(state)
@@ -246,12 +248,12 @@ func TestSnapshotStartFailureRestoresRunningFixture(t *testing.T) {
 	require.NoError(t, err)
 	port, err := FreeLoopbackPort()
 	require.NoError(t, err)
-	controller := Controller{
+	controller := withSharedTestBackend(t, Controller{
 		ProjectDir:  projectDir,
 		ProfileHome: home,
 		Port:        port,
 		Timeout:     30 * time.Second,
-	}
+	})
 	t.Cleanup(func() {
 		if state, readErr := controller.readState(); readErr == nil {
 			_ = controller.stop(state)
@@ -284,12 +286,12 @@ func TestControllerPortConflictDoesNotPublishProfileState(t *testing.T) {
 	require.NoError(t, err)
 	defer listener.Close()
 	port := listener.Addr().(*net.TCPAddr).Port
-	controller := Controller{
+	controller := withSharedTestBackend(t, Controller{
 		ProjectDir:  projectDir,
 		ProfileHome: t.TempDir(),
 		Port:        port,
 		Timeout:     10 * time.Second,
-	}
+	})
 
 	_, err = controller.UseFixture(context.Background())
 	require.Error(t, err)
@@ -437,6 +439,7 @@ func TestManagedCommandRequiresExactExecutablePrefix(t *testing.T) {
 }
 
 func TestControllerStopWaitsForForcedProcessExit(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	fixture, err := EnsureFixture(home)
 	require.NoError(t, err)
@@ -541,12 +544,12 @@ func TestControllerReplacesPriorSchemaProfileState(t *testing.T) {
 	require.NoError(t, err)
 	port, err := FreeLoopbackPort()
 	require.NoError(t, err)
-	controller := Controller{
+	controller := withSharedTestBackend(t, Controller{
 		ProjectDir:  projectDir,
 		ProfileHome: home,
 		Port:        port,
 		Timeout:     30 * time.Second,
-	}
+	})
 	t.Cleanup(func() {
 		if state, readErr := controller.readState(); readErr == nil {
 			_ = controller.stop(state)
