@@ -9,6 +9,9 @@ var (
 	ErrEpisodeNotFound    = errors.New("episode not found")
 	ErrInvalidQuestion    = errors.New("invalid episode copilot question")
 	ErrContextUnavailable = errors.New("episode copilot context is unavailable")
+	// ErrUnsupportedProfile is returned before any runtime execution when a
+	// question carries a profile ID the runtime catalog does not define.
+	ErrUnsupportedProfile = errors.New("unsupported episode copilot profile")
 )
 
 type SelectionSource string
@@ -24,13 +27,28 @@ type QuestionRequest struct {
 	Selection          string
 	SelectionSource    SelectionSource
 	IncludePrivateNote bool
+	// ProfileID is the stable runtime profile ID for this question. Empty
+	// means the runtime default profile.
+	ProfileID string
+}
+
+// ProfileDescriptor exposes the technical meaning of one runtime profile. The
+// mapping itself stays inside the runtime module; callers only render it.
+type ProfileDescriptor struct {
+	ID          string `json:"id"`
+	Model       string `json:"model"`
+	Effort      string `json:"effort"`
+	ServiceTier string `json:"service_tier,omitempty"`
+	Default     bool   `json:"is_default"`
 }
 
 type ContextScope struct {
-	EpisodeID            uint `json:"episode_id"`
-	ShowNotesAvailable   bool `json:"show_notes_available"`
-	TranscriptAvailable  bool `json:"transcript_available"`
-	PrivateNoteAvailable bool `json:"private_note_available"`
+	EpisodeID            uint                `json:"episode_id"`
+	ShowNotesAvailable   bool                `json:"show_notes_available"`
+	TranscriptAvailable  bool                `json:"transcript_available"`
+	PrivateNoteAvailable bool                `json:"private_note_available"`
+	Profiles             []ProfileDescriptor `json:"profiles"`
+	DefaultProfileID     string              `json:"default_profile_id"`
 }
 
 type EpisodeContext struct {
@@ -70,6 +88,7 @@ type StreamEvent struct {
 	Retryable           bool      `json:"retryable,omitempty"`
 	TranscriptUsed      bool      `json:"transcript_used"`
 	PrivateNoteIncluded bool      `json:"private_note_included"`
+	ProfileID           string    `json:"profile_id,omitempty"`
 	FirstContentMS      int64     `json:"first_content_ms,omitempty"`
 	TotalMS             int64     `json:"total_ms,omitempty"`
 }

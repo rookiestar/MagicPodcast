@@ -104,6 +104,105 @@ func TestEpisodeCopilotHandlerRejectsUnknownFieldsBeforeRuntime(t *testing.T) {
 	require.Zero(t, module.askCalls)
 }
 
+func TestEpisodeCopilotHandlerPassesProfileIDThrough(t *testing.T) {
+	module := &fakeEpisodeCopilotModule{
+		events: []episodecopilot.StreamEvent{
+			{
+				Type:      episodecopilot.EventTypeComplete,
+				Message:   "回答完成",
+				ProfileID: "balanced",
+			},
+		},
+	}
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := handlers.NewEpisodeCopilotHandler(module)
+	router.POST("/api/v1/episodes/:id/copilot/questions", handler.Ask)
+
+	response := performEpisodeCopilotRequest(
+		router,
+		http.MethodPost,
+		"/api/v1/episodes/71/copilot/questions",
+		`{"question":"这次用哪个档位？","profile_id":"balanced"}`,
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(
+		t,
+		response.Body.String(),
+		`"profile_id":"balanced"`,
+	)
+	require.Equal(t, "balanced", module.request.ProfileID)
+
+	legacy := performEpisodeCopilotRequest(
+		router,
+		http.MethodPost,
+		"/api/v1/episodes/71/copilot/questions",
+		`{"question":"旧页面没有档位字段"}`,
+	)
+	require.Equal(t, http.StatusOK, legacy.Code)
+	require.Empty(t, module.request.ProfileID)
+}
+
+func TestEpisodeCopilotHandlerRejectsUnsupportedProfileStably(t *testing.T) {
+	module := &fakeEpisodeCopilotModule{
+		err: episodecopilot.ErrUnsupportedProfile,
+	}
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := handlers.NewEpisodeCopilotHandler(module)
+	router.POST("/api/v1/episodes/:id/copilot/questions", handler.Ask)
+
+	response := performEpisodeCopilotRequest(
+		router,
+		http.MethodPost,
+		"/api/v1/episodes/71/copilot/questions",
+		`{"question":"不要静默换模型","profile_id":"turbo"}`,
+	)
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	require.Contains(
+		t,
+		response.Body.String(),
+		"UNSUPPORTED_COPILOT_PROFILE",
+	)
+	require.Equal(t, 1, module.askCalls)
+}
+
+func TestEpisodeCopilotHandlerExposesProfileMeaningInContext(t *testing.T) {
+	module := &fakeEpisodeCopilotModule{
+		scope: episodecopilot.ContextScope{
+			EpisodeID:        71,
+			DefaultProfileID: "balanced",
+			Profiles: []episodecopilot.ProfileDescriptor{
+				{
+					ID:          "balanced",
+					Model:       "gpt-5.6-luna",
+					Effort:      "max",
+					ServiceTier: "fast",
+					Default:     true,
+				},
+			},
+		},
+	}
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := handlers.NewEpisodeCopilotHandler(module)
+	router.GET("/api/v1/episodes/:id/copilot/context", handler.Context)
+
+	response := performEpisodeCopilotRequest(
+		router,
+		http.MethodGet,
+		"/api/v1/episodes/71/copilot/context",
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	body := response.Body.String()
+	require.Contains(t, body, `"default_profile_id":"balanced"`)
+	require.Contains(t, body, `"model":"gpt-5.6-luna"`)
+	require.Contains(t, body, `"effort":"max"`)
+	require.Contains(t, body, `"service_tier":"fast"`)
+	require.Contains(t, body, `"is_default":true`)
+}
+
 func TestEpisodeCopilotHandlerAcceptsMaximumMultibyteSelection(t *testing.T) {
 	module := &fakeEpisodeCopilotModule{}
 	gin.SetMode(gin.TestMode)

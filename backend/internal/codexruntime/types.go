@@ -6,7 +6,11 @@ import (
 	"time"
 )
 
-const ProtocolVersion = 1
+// ProtocolVersion is the stdio JSONL contract between the Go parent and the
+// Python host. Version 2 carries the resolved model profile on execute
+// frames; hosts and parents of different versions must fail explicitly
+// instead of guessing model configuration.
+const ProtocolVersion = 2
 
 type ExecutionID string
 
@@ -50,6 +54,9 @@ type ExecutionRequest struct {
 	OutputSchema         json.RawMessage
 	RequiredCapabilities []string
 	ToolRestriction      *ToolRestriction
+	// ModelProfile optionally pins a trusted model configuration by stable
+	// catalog ID. Empty keeps the runtime default configuration.
+	ModelProfile ModelProfileID
 }
 
 type ExecutionStatus string

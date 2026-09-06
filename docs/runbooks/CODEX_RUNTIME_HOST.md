@@ -14,7 +14,8 @@ Processing / Assistant
   -> bundled Codex CLI Runtime 0.147.0
 ```
 
-- Go 与 Python 只通过版本化 `stdio` JSONL 通信，不使用 WebSocket。
+- Go 与 Python 只通过版本化 `stdio` JSONL 通信，不使用 WebSocket；当前执行帧协议版本为 2。
+- 助手执行在执行帧上显式携带受控档位目录解析出的模型、推理强度与速度；目录唯一存在于 Go Runtime 模块（`backend/internal/codexruntime/profile.go`），Python Host 通过固定 SDK 逐次设置这些参数，不读取 Mac mini 全局 Codex 配置。协议版本或档位不兼容时两侧都必须明确失败。
 - 直接 `codex app-server` 命令是实验性能力，不作为生产边界。
 - Python 必须显式使用 `CodexConfig(experimental_api=False)`。
 - 每个执行有独立 identity、受管工作目录、事件流、取消句柄和进程组。

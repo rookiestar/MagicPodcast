@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import signal
+from enum import Enum
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,6 +18,24 @@ class ApprovalMode:
 class Sandbox:
     read_only = "read-only"
     workspace_write = "workspace-write"
+
+
+class ReasoningEffort(str, Enum):
+    none = "none"
+    minimal = "minimal"
+    low = "low"
+    medium = "medium"
+    high = "high"
+    xhigh = "xhigh"
+
+    @classmethod
+    def _missing_(cls, value):
+        if not isinstance(value, str) or not value:
+            return None
+        member = str.__new__(cls, value)
+        member._name_ = value
+        member._value_ = value
+        return member
 
 
 class CodexConfig:
@@ -124,20 +143,69 @@ class FakeThread:
         cwd,
         output_schema,
         sandbox,
+        model=None,
+        effort=None,
+        service_tier=None,
     ):
         assert approval_mode == ApprovalMode.deny_all
         assert cwd == self.cwd
         assert sandbox == self.sandbox
-        return FakeTurn(prompt, output_schema, self.cwd, self.config)
+        if model is not None:
+            assert isinstance(model, str) and model
+        if effort is not None:
+            assert isinstance(effort, ReasoningEffort)
+        if service_tier is not None:
+            assert isinstance(service_tier, str) and service_tier
+        return FakeTurn(
+            prompt,
+            output_schema,
+            cwd,
+            self.config,
+            model,
+            effort,
+            service_tier,
+        )
 
 
 class FakeTurn:
-    def __init__(self, prompt, output_schema, cwd, config):
+    def __init__(
+        self,
+        prompt,
+        output_schema,
+        cwd,
+        config,
+        model=None,
+        effort=None,
+        service_tier=None,
+    ):
         self.prompt = prompt
         self.output_schema = output_schema
         self.cwd = cwd
         self.config = config
+        self.model = model
+        self.effort = effort
+        self.service_tier = service_tier
         self.interrupted = asyncio.Event()
+        self.record_turn_parameters()
+
+    def record_turn_parameters(self):
+        """Persist the per-turn parameters where tests can observe them."""
+        payload = {
+            "model": self.model,
+            "effort": (
+                str(getattr(self.effort, "value", self.effort))
+                if self.effort is not None
+                else None
+            ),
+            "service_tier": self.service_tier,
+        }
+        try:
+            Path(self.cwd, "fake-turn-params.json").write_text(
+                json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
 
     async def interrupt(self):
         self.interrupted.set()

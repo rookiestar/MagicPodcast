@@ -151,16 +151,26 @@ type managedExecution struct {
 	cancelErr   error
 }
 
+// protocolModelProfile is the resolved catalog configuration carried on the
+// wire so the host never has to guess model parameters from a kind alone.
+type protocolModelProfile struct {
+	ProfileID   ModelProfileID `json:"profile_id"`
+	Model       string         `json:"model"`
+	Effort      string         `json:"effort"`
+	ServiceTier string         `json:"service_tier"`
+}
+
 type executeFrame struct {
-	ProtocolVersion  int              `json:"protocol_version"`
-	Type             string           `json:"type"`
-	ExecutionID      ExecutionID      `json:"execution_id"`
-	Kind             ExecutionKind    `json:"kind"`
-	WorkingDirectory string           `json:"working_directory"`
-	Prompt           string           `json:"prompt"`
-	OutputSchema     json.RawMessage  `json:"output_schema,omitempty"`
-	Sandbox          SandboxMode      `json:"sandbox"`
-	AllowedTools     []ToolCapability `json:"allowed_tools"`
+	ProtocolVersion  int                   `json:"protocol_version"`
+	Type             string                `json:"type"`
+	ExecutionID      ExecutionID           `json:"execution_id"`
+	Kind             ExecutionKind         `json:"kind"`
+	WorkingDirectory string                `json:"working_directory"`
+	Prompt           string                `json:"prompt"`
+	OutputSchema     json.RawMessage       `json:"output_schema,omitempty"`
+	Sandbox          SandboxMode           `json:"sandbox"`
+	AllowedTools     []ToolCapability      `json:"allowed_tools"`
+	ModelProfile     *protocolModelProfile `json:"model_profile,omitempty"`
 }
 
 type cancelFrame struct {
@@ -194,6 +204,10 @@ func (h *ProcessHost) CreateExecution(
 	if err := h.preflightCapabilities(request.RequiredCapabilities); err != nil {
 		return ExecutionSnapshot{}, err
 	}
+	modelProfile, err := resolveProtocolProfile(request.ModelProfile)
+	if err != nil {
+		return ExecutionSnapshot{}, err
+	}
 
 	executionID, err := newExecutionID()
 	if err != nil {
@@ -213,6 +227,7 @@ func (h *ProcessHost) CreateExecution(
 		OutputSchema:     cloneRawMessage(request.OutputSchema),
 		Sandbox:          profile.Sandbox,
 		AllowedTools:     append([]ToolCapability{}, profile.AllowedTools...),
+		ModelProfile:     modelProfile,
 	}
 	encodedFrame, err := json.Marshal(frame)
 	if err != nil || len(encodedFrame)+1 > h.config.MaxFrameBytes {
@@ -645,6 +660,45 @@ func (h *ProcessHost) Diagnostics() ProcessDiagnostics {
 		}
 	}
 	return diagnostics
+}
+
+// resolveProtocolProfile resolves a requested profile ID against the single
+// catalog. An empty ID keeps the runtime default configuration; an unknown ID
+// is rejected instead of being substituted with any other profile.
+func resolveProtocolProfile(id ModelProfileID) (*protocolModelProfile, error) {
+	if id == "" {
+		return nil, nil
+	}
+	profile, exists := ResolveModelProfile(id)
+	if !exists ||
+		!safeProtocolToken(string(id)) ||
+		!safeProtocolToken(profile.Model) ||
+		!safeProtocolToken(profile.Effort) ||
+		(profile.ServiceTier != "" && !safeProtocolToken(profile.ServiceTier)) {
+		return nil, newRuntimeError(
+			ErrorInvalidRequest,
+			"runtime model profile is not allowed",
+			false,
+		)
+	}
+	return &protocolModelProfile{
+		ProfileID:   id,
+		Model:       profile.Model,
+		Effort:      profile.Effort,
+		ServiceTier: profile.ServiceTier,
+	}, nil
+}
+
+func safeProtocolToken(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if character <= ' ' || character >= '\x7f' {
+			return false
+		}
+	}
+	return true
 }
 
 func (h *ProcessHost) validateExecutionRequest(

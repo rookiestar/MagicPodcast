@@ -2176,6 +2176,35 @@ button.transcriptSegment:hover {
   background: rgba(74, 103, 81, 0.1);
 }
 
+.copilotProfile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.copilotProfile strong {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 0 9px;
+  color: #284a33;
+  border: 1px solid rgba(63, 104, 75, 0.46);
+  background: rgba(74, 103, 81, 0.1);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.copilotProfile span {
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
 .copilotDegraded {
   margin: 0 0 14px;
   padding: 9px 11px;
