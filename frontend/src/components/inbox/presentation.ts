@@ -23,7 +23,7 @@ export const QUEUE_PRESENTATION: Record<ConsumptionQueue, QueuePresentation> = {
     empty: "没有留待以后处理的单集。",
   },
   done: {
-    label: "最近完成",
+    label: "Done",
     policy: "走过的，皆有痕迹",
     empty: "最近 7 天还没有完成的单集。",
   },

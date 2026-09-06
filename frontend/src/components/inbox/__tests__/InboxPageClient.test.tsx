@@ -262,7 +262,7 @@ function queueSection(name: ConsumptionQueue) {
             ? "Focus"
             : name === "someday"
               ? "Someday"
-              : "最近完成",
+              : "Done",
     })
     .closest("section") as HTMLElement;
 }
@@ -781,9 +781,7 @@ describe("InboxPageClient", () => {
       "true",
     );
     expect(screen.getByRole("heading", { name: "Focus" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "最近完成" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Done" })).toBeInTheDocument();
     expect(
       await screen.findByText("Someday 加载失败，不影响其他队列。"),
     ).toBeInTheDocument();
@@ -809,7 +807,7 @@ describe("InboxPageClient", () => {
       await within(queueSection("inbox")).findByText("可处理单集"),
     ).toBeInTheDocument();
     expect(
-      within(queueSection("done")).getByText("正在加载 最近完成…"),
+      within(queueSection("done")).getByText("正在加载 Done…"),
     ).toBeInTheDocument();
     expect(
       within(queueSection("done")).queryByText("最近 7 天还没有完成的单集。"),
@@ -818,7 +816,7 @@ describe("InboxPageClient", () => {
     rejectDone(new Error("最近完成暂不可用"));
     expect(
       await within(queueSection("done")).findByText(
-        "最近完成 加载失败，不影响其他队列。",
+        "Done 加载失败，不影响其他队列。",
       ),
     ).toBeInTheDocument();
     expect(
