@@ -888,6 +888,8 @@ test("direct release acquires and releases maintenance around success and manual
   });
   assert.equal(deploy.code, 0, deploy.stderr);
   assert.equal(existsSync(fixture.lockDir), false);
+  const deployed = await readFile(path.join(fixture.releaseRoot, "current.env"), "utf8");
+  assert.match(deployed, /^asset_prefix=\/__magicpodcast\/releases\/[^\n]+$/m);
 
   const rolledBack = await run("/bin/bash", [releaseScript, "--rollback"], {
     env: fixture.env,
@@ -896,6 +898,7 @@ test("direct release acquires and releases maintenance around success and manual
   assert.equal(existsSync(fixture.lockDir), false);
   const current = await readFile(path.join(fixture.releaseRoot, "current.env"), "utf8");
   assert.match(current, /^release_id=old-release$/m);
+  assert.match(current, /^asset_prefix=$/m);
   const calls = await readFile(fixture.callsFile, "utf8");
   assert.match(calls, /^stop$/m);
   assert.match(calls, /^start=/m);

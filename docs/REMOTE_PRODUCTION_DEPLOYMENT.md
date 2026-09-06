@@ -111,6 +111,8 @@ build_mode=release
 data_profile=production
 ```
 
+生产前端构建会将静态资源放在 `/__magicpodcast/releases/<release-id>/_next/static/` 命名空间下，并由 Nginx 对该版本化路径做长期缓存。这样即使 Turbopack 复用 chunk 文件名，浏览器和代理也不会复用旧发布的 bundle；发布验证会检查 HTML 中的静态资源引用都带有当前 release ID。Mac mini 的实际 Nginx 配置位于 `/opt/homebrew/etc/nginx/servers/magicpodcast.conf`，修改后必须先执行 `nginx -t` 再 reload。
+
 发布脚本不会执行数据库迁移，也不会把 fixture/snapshot 自动切成 production 以外的 Profile。迁移仍按 [迁移指南](migration/MIGRATION_GUIDE.md) 单独审批和执行。
 
 若 CI 刚完成但 GitHub API 尚未返回成功记录，预检会在 60 秒内每 5 秒重查一次；超过时限仍未成功才会终止，不会进入生产 Runner。

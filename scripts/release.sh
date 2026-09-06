@@ -24,6 +24,7 @@ CURL_BIN="${MAGICPODCAST_CURL_BIN:-curl}"
 TEST_MODE="${MAGICPODCAST_RELEASE_TEST_MODE:-false}"
 IMAGE_OPTIMIZER_PATH="/_next/image.webp"
 IMAGE_OPTIMIZER_VERIFIER="$PROJECT_DIR/scripts/verify-image-optimizer-build.mjs"
+ASSET_PREFIX_VERIFIER="$PROJECT_DIR/scripts/verify-release-asset-prefix.mjs"
 
 for bin_dir in /opt/homebrew/bin /usr/local/bin; do
   if [ -d "$bin_dir" ]; then
@@ -106,6 +107,7 @@ write_manifest() {
   local backend_sha="$4"
   local commit="$5"
   local schema_version="${6:-unknown}"
+  local asset_prefix="${7:-}"
   umask 077
   cat > "$file" <<EOF
 release_id=$release_id
@@ -113,6 +115,7 @@ frontend_build_id=$frontend_build_id
 backend_sha256=$backend_sha
 commit=$commit
 schema_version=$schema_version
+asset_prefix=$asset_prefix
 created_at=$(now)
 EOF
 }
@@ -124,6 +127,7 @@ write_pointer() {
   local backend_sha="$4"
   local artifact_dir="$5"
   local schema_version="${6:-unknown}"
+  local asset_prefix="${7:-}"
   umask 077
   cat > "$file" <<EOF
 release_id=$release_id
@@ -131,6 +135,7 @@ frontend_build_id=$frontend_build_id
 backend_sha256=$backend_sha
 artifact_dir=$artifact_dir
 schema_version=$schema_version
+asset_prefix=$asset_prefix
 updated_at=$(now)
 EOF
 }
@@ -260,7 +265,7 @@ build_release() {
   local stage="$RELEASE_ROOT/$release_id"
   local frontend_dist_name=".next-release-$release_id"
   local frontend_dist="$FRONTEND_DIR/$frontend_dist_name"
-  local frontend_build_id backend_sha commit schema_version worktree_clean
+  local frontend_build_id backend_sha commit schema_version worktree_clean asset_prefix
 
   worktree_clean=false
   if git -C "$PROJECT_DIR" diff --quiet --ignore-submodules -- &&
@@ -297,6 +302,8 @@ build_release() {
   rm -rf "$frontend_dist"
   if ! (cd "$FRONTEND_DIR" && \
     MAGICPODCAST_NEXT_DIST_DIR="$frontend_dist_name" \
+    MAGICPODCAST_RELEASE_ID="$release_id" \
+    MAGICPODCAST_SERVER_MODE=release \
     NEXT_PUBLIC_IMAGE_OPTIMIZER_PATH="$IMAGE_OPTIMIZER_PATH" \
     "$NPM_BIN" run build > "$stage/frontend-build.log" 2>&1); then
     log ERROR "frontend build failed release=$release_id"
@@ -321,6 +328,17 @@ build_release() {
   fi
 
   frontend_build_id="$(tr -d '\r\n' < "$frontend_dist/BUILD_ID")"
+  asset_prefix="/__magicpodcast/releases/$release_id"
+  if ! "$NODE_BIN" \
+    "$ASSET_PREFIX_VERIFIER" \
+    "$frontend_dist" \
+    "$asset_prefix" >> "$stage/frontend-build.log" 2>&1; then
+    log ERROR "frontend asset prefix verification failed release=$release_id"
+    restore_frontend_tsconfig "$stage" || true
+    rm -rf "$frontend_dist"
+    error "前端静态资源版本校验失败；当前运行版本未停止"
+    return 1
+  fi
   backend_sha="$(hash_file "$stage/backend.api")"
   commit="$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || printf 'nogit')"
   schema_version="$(database_schema_version || printf 'unknown')"
@@ -331,7 +349,7 @@ build_release() {
     return 1
   fi
   mv "$frontend_dist" "$stage/frontend.next"
-  write_manifest "$stage/manifest.env" "$release_id" "$frontend_build_id" "$backend_sha" "$commit" "$schema_version"
+  write_manifest "$stage/manifest.env" "$release_id" "$frontend_build_id" "$backend_sha" "$commit" "$schema_version" "$asset_prefix"
   printf 'worktree_clean=%s\n' "$worktree_clean" >> "$stage/manifest.env"
   log INFO "build verified release=$release_id frontend_build_id=$frontend_build_id"
   printf '%s\n' "$stage"
@@ -347,6 +365,11 @@ verify_stage() {
   [ -d "$stage/frontend.next" ] || return 1
   [ -f "$stage/frontend.next/BUILD_ID" ] || return 1
   "$NODE_BIN" "$IMAGE_OPTIMIZER_VERIFIER" "$stage/frontend.next" "$IMAGE_OPTIMIZER_PATH" >/dev/null || return 1
+  "$NODE_BIN" \
+    "$ASSET_PREFIX_VERIFIER" \
+    "$stage/frontend.next" \
+    "/__magicpodcast/releases/$(manifest_value release_id "$stage/manifest.env")" \
+    >/dev/null || return 1
   [ "$release_id" = "$(basename "$stage")" ] || return 1
   [ "$frontend_build_id" = "$(tr -d '\r\n' < "$stage/frontend.next/BUILD_ID")" ] || return 1
   [ "$backend_sha" = "$(hash_file "$stage/backend.api")" ] || return 1
@@ -367,9 +390,12 @@ stop_services() {
 start_services() {
   local release_id="$1"
   local frontend_build_id="$2"
+  local asset_prefix
+  asset_prefix="$(manifest_value asset_prefix "$CURRENT_FILE")"
   log INFO "start requested release=$release_id"
   if ! MAGICPODCAST_RELEASE_ID="$release_id" \
     MAGICPODCAST_FRONTEND_BUILD_ID="$frontend_build_id" \
+    MAGICPODCAST_ASSET_PREFIX="$asset_prefix" \
     "$START_SCRIPT" --prod --no-build >> "$RELEASE_LOG" 2>&1; then
     log ERROR "start failed release=$release_id"
     return 1
@@ -381,6 +407,7 @@ PREVIOUS_ID=""
 PREVIOUS_FRONTEND_ID=""
 PREVIOUS_BACKEND_SHA=""
 PREVIOUS_SCHEMA_VERSION=""
+PREVIOUS_ASSET_PREFIX=""
 OLD_BACKEND_MOVED=false
 OLD_FRONTEND_MOVED=false
 NEW_BACKEND_INSTALLED=false
@@ -393,10 +420,13 @@ capture_previous_artifacts() {
   local frontend_id="$2"
   local backend_sha="$3"
   local schema_version="$4"
+  local current_asset_prefix
+  current_asset_prefix="$(manifest_value asset_prefix "$CURRENT_FILE")"
   PREVIOUS_ID="$current_id"
   PREVIOUS_FRONTEND_ID="$frontend_id"
   PREVIOUS_BACKEND_SHA="$backend_sha"
   PREVIOUS_SCHEMA_VERSION="$schema_version"
+  PREVIOUS_ASSET_PREFIX="$current_asset_prefix"
   PREVIOUS_DIR="$RELEASE_ROOT/${current_id}-previous-$(date -u '+%Y%m%dT%H%M%SZ')-$$"
   mkdir -p "$PREVIOUS_DIR"
 
@@ -410,8 +440,8 @@ capture_previous_artifacts() {
     return 1
   fi
   OLD_FRONTEND_MOVED=true
-  write_manifest "$PREVIOUS_DIR/manifest.env" "$current_id" "$frontend_id" "$backend_sha" "previous" "$schema_version"
-  write_pointer "$PREVIOUS_FILE" "$current_id" "$frontend_id" "$backend_sha" "$PREVIOUS_DIR" "$schema_version"
+  write_manifest "$PREVIOUS_DIR/manifest.env" "$current_id" "$frontend_id" "$backend_sha" "previous" "$schema_version" "$current_asset_prefix"
+  write_pointer "$PREVIOUS_FILE" "$current_id" "$frontend_id" "$backend_sha" "$PREVIOUS_DIR" "$schema_version" "$current_asset_prefix"
 }
 
 install_stage() {
@@ -449,7 +479,7 @@ restore_previous() {
     mv "$PREVIOUS_DIR/frontend.next" "$FRONTEND_DIR/.next" || return 1
   fi
 
-  write_pointer "$CURRENT_FILE" "$PREVIOUS_ID" "$PREVIOUS_FRONTEND_ID" "$PREVIOUS_BACKEND_SHA" "$PREVIOUS_DIR" "$PREVIOUS_SCHEMA_VERSION"
+  write_pointer "$CURRENT_FILE" "$PREVIOUS_ID" "$PREVIOUS_FRONTEND_ID" "$PREVIOUS_BACKEND_SHA" "$PREVIOUS_DIR" "$PREVIOUS_SCHEMA_VERSION" "$PREVIOUS_ASSET_PREFIX"
   log WARN "rollback artifacts restored release=$PREVIOUS_ID failed_dir=$failed_dir"
   if ! start_services "$PREVIOUS_ID" "$PREVIOUS_FRONTEND_ID"; then
     log ERROR "rollback start failed release=$PREVIOUS_ID"
@@ -466,10 +496,12 @@ deploy_release() {
   local stage="$1"
   local services_already_stopped="${2:-false}"
   local release_id frontend_id backend_sha schema_version current_id current_frontend_id current_backend_sha current_schema_version
+  local asset_prefix
 
   release_id="$(manifest_value release_id "$stage/manifest.env")"
   frontend_id="$(manifest_value frontend_build_id "$stage/manifest.env")"
   backend_sha="$(manifest_value backend_sha256 "$stage/manifest.env")"
+  asset_prefix="$(manifest_value asset_prefix "$stage/manifest.env")"
   schema_version="${MAGICPODCAST_RELEASE_SCHEMA_VERSION_OVERRIDE:-$(manifest_value schema_version "$stage/manifest.env")}"
   [[ "$schema_version" =~ ^[0-9]+$ ]] || return 1
   ACTIVE_RELEASE_ID="$release_id"
@@ -532,7 +564,7 @@ deploy_release() {
     return 1
   fi
 
-  write_pointer "$CURRENT_FILE" "$release_id" "$frontend_id" "$backend_sha" "$RELEASE_ROOT/$release_id" "$schema_version"
+  write_pointer "$CURRENT_FILE" "$release_id" "$frontend_id" "$backend_sha" "$RELEASE_ROOT/$release_id" "$schema_version" "$asset_prefix"
   log INFO "switch installed release=$release_id"
   if ! start_services "$release_id" "$frontend_id" || ! verify_health "$release_id" "$frontend_id"; then
     error "新版本启动或健康验证失败，开始自动回退"
@@ -545,7 +577,7 @@ deploy_release() {
 }
 
 rollback_command() {
-  local previous_id previous_frontend_id previous_backend_sha previous_dir previous_schema_version current_schema_version
+  local previous_id previous_frontend_id previous_backend_sha previous_dir previous_schema_version current_schema_version previous_asset_prefix
   previous_id="$(manifest_value release_id "$PREVIOUS_FILE")"
   previous_frontend_id="$(manifest_value frontend_build_id "$PREVIOUS_FILE")"
   previous_backend_sha="$(manifest_value backend_sha256 "$PREVIOUS_FILE")"
@@ -555,8 +587,12 @@ rollback_command() {
     return 1
   }
   previous_schema_version="$(manifest_value schema_version "$PREVIOUS_FILE")"
+  previous_asset_prefix="$(manifest_value asset_prefix "$PREVIOUS_FILE")"
   if [ -z "$previous_schema_version" ] && [ -f "$previous_dir/manifest.env" ]; then
     previous_schema_version="$(manifest_value schema_version "$previous_dir/manifest.env")"
+  fi
+  if [ -z "$previous_asset_prefix" ] && [ -f "$previous_dir/manifest.env" ]; then
+    previous_asset_prefix="$(manifest_value asset_prefix "$previous_dir/manifest.env")"
   fi
   current_schema_version="$(database_schema_version || printf 'unknown')"
   if ! [[ "$previous_schema_version" =~ ^[0-9]+$ ]] || ! [[ "$current_schema_version" =~ ^[0-9]+$ ]]; then
@@ -598,7 +634,7 @@ rollback_command() {
   fi
   mv "$previous_dir/backend.api" "$BACKEND_DIR/api" || return 1
   mv "$previous_dir/frontend.next" "$FRONTEND_DIR/.next" || return 1
-  write_pointer "$CURRENT_FILE" "$previous_id" "$previous_frontend_id" "$previous_backend_sha" "$previous_dir" "$previous_schema_version"
+  write_pointer "$CURRENT_FILE" "$previous_id" "$previous_frontend_id" "$previous_backend_sha" "$previous_dir" "$previous_schema_version" "$previous_asset_prefix"
   if ! start_services "$previous_id" "$previous_frontend_id" || ! verify_health "$previous_id" "$previous_frontend_id"; then
     error "回退后的健康检查失败"
     log ERROR "manual rollback verification failed release=$previous_id"
