@@ -353,6 +353,20 @@ export default function InboxPageClient() {
   // closing one episode and opening another must not silently reset it.
   const [selectedCopilotProfileID, setSelectedCopilotProfileID] =
     useState<EpisodeCopilotProfileID | null>(null);
+  // A confirmed unavailable tier stays blocked for this Inbox page session;
+  // the state naturally resets when the page is refreshed.
+  const [rejectedCopilotProfileIDs, setRejectedCopilotProfileIDs] = useState<
+    ReadonlySet<EpisodeCopilotProfileID>
+  >(() => new Set());
+  const rememberRejectedCopilotProfile = useCallback(
+    (profileID: EpisodeCopilotProfileID) => {
+      setRejectedCopilotProfileIDs((current) => {
+        if (current.has(profileID)) return current;
+        return new Set([...current, profileID]);
+      });
+    },
+    [],
+  );
   const [focusPrompt, setFocusPrompt] = useState<FocusPrompt | null>(null);
   const [failedAction, setFailedAction] = useState<FailedAction | null>(null);
   const [completionUndos, setCompletionUndos] = useState<
@@ -1377,6 +1391,8 @@ export default function InboxPageClient() {
           onCopilotWorkspaceChange={handleCopilotWorkspaceChange}
           selectedCopilotProfileID={selectedCopilotProfileID}
           onSelectedCopilotProfileIDChange={setSelectedCopilotProfileID}
+          rejectedCopilotProfileIDs={rejectedCopilotProfileIDs}
+          onRejectedCopilotProfileID={rememberRejectedCopilotProfile}
         />
       )}
 
