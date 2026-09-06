@@ -237,7 +237,7 @@ describe("TranscriptAudioPlayer", () => {
     expect(media.load).toHaveBeenCalledTimes(1);
   });
 
-  it("pauses follow after manual scrolling and resumes it on play or seek", () => {
+  it("keeps follow paused through buffering and resumes it on play or seek", () => {
     const { container } = renderPlayer({ audioDurationSeconds: 120 });
     const audio = container.querySelector("audio")!;
     const media = controlAudio(audio);
@@ -270,11 +270,18 @@ describe("TranscriptAudioPlayer", () => {
     expect(third).toHaveAttribute("aria-current", "true");
     expect(scrollIntoView).not.toHaveBeenCalled();
 
+    fireEvent.waiting(audio);
     fireEvent.playing(audio);
+    expect(screen.getByText("自动跟随已暂停")).toBeVisible();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "暂停音频" }));
+    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
     expect(scrollIntoView).toHaveBeenCalledWith({
       block: "nearest",
       behavior: "auto",
     });
+    media.completePlay();
 
     fireEvent.scroll(transcript);
     scrollIntoView.mockClear();
@@ -362,6 +369,7 @@ describe("TranscriptAudioPlayer", () => {
     expect(media.load).toHaveBeenCalledTimes(1);
     expect(audio.currentTime).toBe(60);
     expect(third).toHaveAttribute("aria-current", "true");
+    fireEvent.scroll(transcript);
 
     fireEvent.change(
       screen.getByRole("combobox", { name: "播放倍速" }),
@@ -374,6 +382,7 @@ describe("TranscriptAudioPlayer", () => {
     expect(audio.currentTime).toBe(60);
     expect(audio.playbackRate).toBe(1.5);
     expect(media.load).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("自动跟随已暂停")).toBeVisible();
   });
 
   it("treats the server duration as a display hint until media metadata arrives", () => {

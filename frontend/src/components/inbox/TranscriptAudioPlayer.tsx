@@ -164,6 +164,9 @@ export default function TranscriptAudioPlayer({
   const programmaticScrollFrame = useRef<number | null>(null);
   const currentTimeRef = useRef(0);
   const actualDurationRef = useRef<number | null>(null);
+  // An explicit first-play intent may resume transcript following once media
+  // truly starts. A later manual scroll clears the intent before `playing`.
+  const pendingFollowResumeRef = useRef(false);
   // The pending position to apply once the armed audio source exposes
   // metadata, so a pre-play seek or chapter choice survives lazy loading.
   const pendingSeekRef = useRef<number | null>(null);
@@ -279,6 +282,7 @@ export default function TranscriptAudioPlayer({
       if (preparePhaseRef.current === "active") {
         pendingSeekRef.current = preparingWithoutMetadata ? bounded : null;
       }
+      pendingFollowResumeRef.current = false;
       updatePosition(bounded, true);
     },
     [updatePosition],
@@ -290,6 +294,7 @@ export default function TranscriptAudioPlayer({
     preparePhaseRef.current = "stopped";
     detachAudioSource();
     pendingSeekRef.current = null;
+    pendingFollowResumeRef.current = false;
     setIsPlaying(false);
     setPrepareTimedOut(true);
     setMediaState("error");
@@ -309,6 +314,7 @@ export default function TranscriptAudioPlayer({
       clearPrepareTimeout();
       preparePhaseRef.current = "active";
       pendingSeekRef.current = bounded;
+      pendingFollowResumeRef.current = true;
       setPrepareTimedOut(false);
       setIsPlaying(false);
       setMediaState("preparing");
@@ -323,6 +329,7 @@ export default function TranscriptAudioPlayer({
         // timeout state; only an active preparation reports a failure.
         if (preparePhaseRef.current !== "active") return;
         finishPreparation();
+        pendingFollowResumeRef.current = false;
         setIsPlaying(false);
         setPrepareTimedOut(false);
         setMediaState("error");
@@ -397,6 +404,7 @@ export default function TranscriptAudioPlayer({
     preparePhaseRef.current = "inactive";
     pendingSeekRef.current = null;
     actualDurationRef.current = null;
+    pendingFollowResumeRef.current = false;
     detachAudioSource();
     setMediaState(mediaAvailable ? "idle" : "unavailable");
     setPrepareTimedOut(false);
@@ -519,6 +527,7 @@ export default function TranscriptAudioPlayer({
 
   const pauseFollowing = useCallback(() => {
     if (!programmaticScrollRef.current) {
+      pendingFollowResumeRef.current = false;
       setFollowEnabled(false);
     }
   }, [setFollowEnabled]);
@@ -594,17 +603,19 @@ export default function TranscriptAudioPlayer({
             onError={() => {
               if (preparePhaseRef.current === "stopped") return;
               finishPreparation();
+              pendingFollowResumeRef.current = false;
               setIsPlaying(false);
               setPrepareTimedOut(false);
               setMediaState("error");
             }}
             onPlaying={(event) => {
               if (preparePhaseRef.current === "stopped") return;
+              const resumeFollow = pendingFollowResumeRef.current;
+              pendingFollowResumeRef.current = false;
               finishPreparation();
               setIsPlaying(true);
               setMediaState("ready");
-              setFollowEnabled(true);
-              updatePosition(event.currentTarget.currentTime, true);
+              updatePosition(event.currentTarget.currentTime, resumeFollow);
             }}
             onPause={() => {
               if (preparePhaseRef.current === "stopped") return;

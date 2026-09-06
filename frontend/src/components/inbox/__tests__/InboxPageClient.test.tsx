@@ -1534,11 +1534,18 @@ describe("InboxPageClient", () => {
     audio.currentTime = 61;
     fireEvent.timeUpdate(audio);
     expect(scrollIntoView).not.toHaveBeenCalled();
+    fireEvent.waiting(audio);
     fireEvent.playing(audio);
+    expect(within(dialog).getByText("自动跟随已暂停")).toBeVisible();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "暂停音频" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "播放音频" }));
     expect(scrollIntoView).toHaveBeenCalledWith({
       block: "nearest",
       behavior: "auto",
     });
+    expect(play).toHaveBeenCalledTimes(2);
 
     const mediaSource = audio.getAttribute("src");
     fireEvent.error(audio);
