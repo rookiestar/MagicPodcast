@@ -23,6 +23,14 @@ import type {
   EpisodeCopilotSelectionSource,
   EpisodeCopilotStreamEvent,
 } from "@/types/episodeCopilot";
+import EpisodeCopilotActivityCard from "./EpisodeCopilotActivityCard";
+import {
+  applyAnswerDelta,
+  applyStreamEvent,
+  cancelRun,
+  createRunState,
+  type CopilotRunState,
+} from "./episodeCopilotRun";
 import styles from "./InboxPage.module.css";
 
 interface EpisodeCopilotPanelProps {
@@ -135,6 +143,10 @@ export default function EpisodeCopilotPanel({
     totalMS: number;
     profileID: string;
   } | null>(null);
+  // One activity-card run per question; created on submit before any
+  // backend event so the request is immediately visible.
+  const [run, setRun] = useState<CopilotRunState | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const activeRequest = useRef<AbortController | null>(null);
   const retryRequest = useRef<EpisodeCopilotQuestion | null>(null);
   const selectedProfileID = controlledProfileID ?? localSelectedProfileID;
@@ -177,6 +189,7 @@ export default function EpisodeCopilotPanel({
     setFailureCode(null);
     setMetrics(null);
     setIsSlow(false);
+    setRun(null);
     retryRequest.current = null;
     void loadScope();
     return () => activeRequest.current?.abort();
@@ -238,12 +251,18 @@ export default function EpisodeCopilotPanel({
   ) => {
     if (event.type === "context" || event.type === "status") {
       setStatusMessage(event.message || "正在处理…");
+      setRun((current) =>
+        current ? applyStreamEvent(current, event, Date.now()) : current,
+      );
       return;
     }
     if (event.type === "answer_delta") {
       setPhase("streaming");
       setIsSlow(false);
       setStatusMessage("正在继续生成回答与来源…");
+      setRun((current) =>
+        current ? applyAnswerDelta(current, Date.now()) : current,
+      );
       if (replaceAnswer.current) {
         replaceAnswer.current = false;
         setAnswer(event.message || "");
@@ -257,6 +276,9 @@ export default function EpisodeCopilotPanel({
       setIsSlow(false);
       setStatusMessage("");
       setFailureCode(event.code ?? null);
+      setRun((current) =>
+        current ? applyStreamEvent(current, event, Date.now()) : current,
+      );
       if (event.code === "profile_unavailable") {
         const rejectedProfileID = event.profile_id ?? requestProfileID;
         if (onRejectedProfileID) {
@@ -274,6 +296,9 @@ export default function EpisodeCopilotPanel({
       setPhase("completed");
       setStatusMessage("回答完成");
       setSelection(null);
+      setRun((current) =>
+        current ? applyStreamEvent(current, event, Date.now()) : current,
+      );
       setMetrics({
         firstContentMS: event.first_content_ms ?? 0,
         totalMS: event.total_ms ?? 0,
@@ -318,6 +343,10 @@ export default function EpisodeCopilotPanel({
     setRequestError(null);
     setFailureCode(null);
     setMetrics(null);
+    // The activity card exists before the first backend event so the user
+    // never wonders whether the click registered.
+    setRun(createRunState(Date.now()));
+    setNowTick(Date.now());
     try {
       await episodeCopilotApi.ask(
         item.episode_id,
@@ -329,12 +358,31 @@ export default function EpisodeCopilotPanel({
       if (isEpisodeCopilotCancellation(error)) {
         setPhase("cancelled");
         setStatusMessage("已取消；问题、选区和已有答案已保留。");
+        setRun((current) =>
+          current ? cancelRun(current, Date.now()) : current,
+        );
       } else {
         setPhase("failed");
         setIsSlow(false);
         setStatusMessage("");
         const code = (error as { code?: string } | null)?.code ?? null;
         setFailureCode(code);
+        setRun((current) =>
+          current
+            ? applyStreamEvent(
+                current,
+                {
+                  type: "error",
+                  message: getErrorMessage(error),
+                  code,
+                  retryable: true,
+                  transcript_used: false,
+                  private_note_included: false,
+                },
+                Date.now(),
+              )
+            : current,
+        );
         if (code === "profile_unavailable") {
           if (onRejectedProfileID) {
             onRejectedProfileID(request.profile_id);
@@ -356,6 +404,17 @@ export default function EpisodeCopilotPanel({
   };
 
   const isActive = phase === "waiting" || phase === "streaming";
+
+  // Elapsed clocks tick once per second while a run is active so wait and
+  // stage times stay honest without waiting for new events.
+  const runIsActive = run !== null && run.finish === null && isActive;
+  useEffect(() => {
+    if (!runIsActive) return;
+    setNowTick(Date.now());
+    const ticker = window.setInterval(() => setNowTick(Date.now()), 1000);
+    return () => window.clearInterval(ticker);
+  }, [runIsActive]);
+
   const effectiveSelectedProfileID =
     selectedProfileID ?? (scope ? resolveProfileID(scope) : null);
   const isRejectedProfileSelected =
@@ -558,9 +617,8 @@ export default function EpisodeCopilotPanel({
             )}
             {(statusMessage || isSlow) && (
               <span className={styles.copilotStatus} role="status">
-                {isSlow
-                  ? "响应较慢；单集仍可阅读，可随时取消。"
-                  : statusMessage}
+                {statusMessage ||
+                  "响应较慢；单集仍可阅读，可随时取消。"}
               </span>
             )}
           </div>
@@ -571,8 +629,19 @@ export default function EpisodeCopilotPanel({
             </div>
           )}
 
+          {run && (
+            <EpisodeCopilotActivityCard
+              run={run}
+              now={nowTick}
+              isSlow={isSlow}
+              profileName={profileDisplayName(
+                effectiveSelectedProfileID ?? "",
+              )}
+            />
+          )}
+
           {answer && (
-            <div className={styles.copilotAnswer} aria-live="polite">
+            <div className={styles.copilotAnswer}>
               <MarkdownViewer content={answer} density="reading" />
               {metrics && (
                 <span className={styles.copilotMetrics}>
