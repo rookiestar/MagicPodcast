@@ -197,21 +197,26 @@ type ArtifactStore interface {
 }
 
 type ArtifactContent struct {
-	Kind           string                `json:"kind"`
-	Content        string                `json:"content"`
-	SHA256         string                `json:"sha256"`
-	Segments       []TranscriptSegment   `json:"segments,omitempty"`
-	TimelineSHA256 string                `json:"timeline_sha256,omitempty"`
-	MediaAvailable bool                  `json:"media_available"`
-	AudioRecovery  *AudioRecoverySummary `json:"audio_recovery,omitempty"`
-	Chapters       []MinutesChapter      `json:"chapters,omitempty"`
-	Keywords       []string              `json:"keywords,omitempty"`
-	Decisions      []string              `json:"decisions,omitempty"`
-	Quotes         []MinutesQuote        `json:"quotes,omitempty"`
-	Links          []MinutesLink         `json:"links,omitempty"`
-	Whiteboard     *MinutesWhiteboard    `json:"whiteboard,omitempty"`
-	VisualItems    []MinutesVisualItem   `json:"visual_items,omitempty"`
-	InlineImages   []MinutesInlineImage  `json:"inline_images,omitempty"`
+	Kind           string              `json:"kind"`
+	Content        string              `json:"content"`
+	SHA256         string              `json:"sha256"`
+	Segments       []TranscriptSegment `json:"segments,omitempty"`
+	TimelineSHA256 string              `json:"timeline_sha256,omitempty"`
+	MediaAvailable bool                `json:"media_available"`
+	// AudioDurationSeconds reports the duration of the managed audio record
+	// matching the artifact's immutable digest so the idle player can show a
+	// progress range before any audio body is requested. It is omitted when no
+	// matching playable audio (or no recorded duration) exists.
+	AudioDurationSeconds *float64              `json:"audio_duration_seconds,omitempty"`
+	AudioRecovery        *AudioRecoverySummary `json:"audio_recovery,omitempty"`
+	Chapters             []MinutesChapter      `json:"chapters,omitempty"`
+	Keywords             []string              `json:"keywords,omitempty"`
+	Decisions            []string              `json:"decisions,omitempty"`
+	Quotes               []MinutesQuote        `json:"quotes,omitempty"`
+	Links                []MinutesLink         `json:"links,omitempty"`
+	Whiteboard           *MinutesWhiteboard    `json:"whiteboard,omitempty"`
+	VisualItems          []MinutesVisualItem   `json:"visual_items,omitempty"`
+	InlineImages         []MinutesInlineImage  `json:"inline_images,omitempty"`
 }
 
 type ArtifactMedia struct {

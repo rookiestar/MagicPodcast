@@ -136,16 +136,6 @@ function transcriptContent(
   };
 }
 
-function prepareTranscriptAudio(audio: HTMLAudioElement, duration = 120) {
-  Object.defineProperties(audio, {
-    duration: { configurable: true, value: duration },
-    currentTime: { configurable: true, writable: true, value: 0 },
-    defaultPlaybackRate: { configurable: true, writable: true, value: 1 },
-    playbackRate: { configurable: true, writable: true, value: 1 },
-  });
-  fireEvent.loadedMetadata(audio);
-}
-
 async function openProcessingDiagnostics() {
   await act(async () => {
     await Promise.resolve();
@@ -807,6 +797,7 @@ describe("EpisodeProcessingPanel", () => {
         },
       ],
       media_available: true,
+      audio_duration_seconds: 120,
     };
     let resolveSummary: (content: ArtifactContent) => void = () => undefined;
     let resolveTranscript: (content: ArtifactContent) => void = () => undefined;
@@ -879,7 +870,10 @@ describe("EpisodeProcessingPanel", () => {
 
     const transcriptAudio = document.querySelector("audio");
     expect(transcriptAudio).not.toBeNull();
-    prepareTranscriptAudio(transcriptAudio!);
+    expect(transcriptAudio).not.toHaveAttribute("src");
+    expect(screen.getByText("00:00 / 02:00")).toBeVisible();
+    expect(screen.getByRole("button", { name: "播放音频" })).toBeEnabled();
+    expect(screen.getByRole("slider", { name: "音频进度" })).toBeEnabled();
     const playbackRate = screen.getByRole("combobox", { name: "播放倍速" });
     expect(playbackRate).toHaveValue("1");
     fireEvent.change(playbackRate, { target: { value: "1.5" } });

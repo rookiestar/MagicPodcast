@@ -115,6 +115,8 @@ export interface ArtifactContent {
   segments?: TranscriptSegment[];
   timeline_sha256?: string;
   media_available: boolean;
+  /** Duration of the managed audio matching the artifact digest; omitted when unknown. */
+  audio_duration_seconds?: number;
   audio_recovery?: AudioRecoverySummary;
   chapters?: MinutesChapter[];
   keywords?: string[];

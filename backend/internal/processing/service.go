@@ -746,7 +746,12 @@ func (s *Service) GetArtifactContent(
 		return ArtifactContent{}, err
 	}
 	if kind == "transcript" {
-		content.MediaAvailable = s.hasMatchingManagedAudio(ctx, artifact)
+		matchingAudio, hasAudio := s.matchingManagedAudio(ctx, artifact)
+		content.MediaAvailable = hasAudio
+		if hasAudio && matchingAudio.DurationSeconds > 0 {
+			durationSeconds := float64(matchingAudio.DurationSeconds)
+			content.AudioDurationSeconds = &durationSeconds
+		}
 		if s.audioRecovery != nil {
 			recovery, recoveryErr := s.audioRecovery.Summary(ctx, artifact)
 			if recoveryErr != nil {
@@ -877,20 +882,31 @@ func (s *Service) hydrateArtifactCapabilities(
 	return nil
 }
 
-func (s *Service) hasMatchingManagedAudio(
+func (s *Service) matchingManagedAudio(
 	ctx context.Context,
 	artifact models.EpisodeArtifactSet,
-) bool {
+) (ReadyAudio, bool) {
 	if s.audioPreparer == nil ||
 		!sha256Pattern.MatchString(artifact.AudioSHA256) {
-		return false
+		return ReadyAudio{}, false
 	}
 	audio, err := s.audioPreparer.ResolveReadyAudioByDigest(
 		ctx,
 		artifact.EpisodeID,
 		artifact.AudioSHA256,
 	)
-	return err == nil && isBrowserPlayableMediaType(audio.MediaType)
+	if err != nil || !isBrowserPlayableMediaType(audio.MediaType) {
+		return ReadyAudio{}, false
+	}
+	return audio, true
+}
+
+func (s *Service) hasMatchingManagedAudio(
+	ctx context.Context,
+	artifact models.EpisodeArtifactSet,
+) bool {
+	_, ok := s.matchingManagedAudio(ctx, artifact)
+	return ok
 }
 
 func isBrowserPlayableMediaType(mediaType string) bool {

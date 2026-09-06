@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import TranscriptAudioPlayer, {
   DEFAULT_TRANSCRIPT_PLAYBACK_RATE,
   type TranscriptPlaybackRate,
@@ -13,8 +13,50 @@ const segments: TranscriptSegment[] = [
   { order: 3, speaker: "主持人", start_ms: 60_000, text: "尾段内容" },
 ];
 
-function prepareAudio(audio: HTMLAudioElement, duration = 120) {
+interface ControlledAudio {
+  play: ReturnType<typeof vi.fn>;
+  pause: ReturnType<typeof vi.fn>;
+  load: ReturnType<typeof vi.fn>;
+  completePlay: () => void;
+}
+
+// Installs controllable media mocks. Play stays pending until completePlay(),
+// which mirrors a browser that only starts playback once data is ready.
+function controlAudio(
+  audio: HTMLAudioElement,
+  duration = 120,
+): ControlledAudio {
   let paused = true;
+  const playResolvers: Array<() => void> = [];
+  const play = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        playResolvers.push(() => {
+          paused = false;
+          fireEvent.play(audio);
+          resolve();
+        });
+      }),
+  );
+  const pause = vi.fn(() => {
+    paused = true;
+    fireEvent.pause(audio);
+  });
+  const load = vi.fn();
+  // happy-dom fires synthetic `canplay` the moment `src` is assigned; a real
+  // browser only reports it after media data arrives, so media readiness is
+  // driven by explicit events in these tests.
+  Object.defineProperty(audio, "src", {
+    configurable: true,
+    get: () => audio.getAttribute("src") ?? "",
+    set: (value: string) => {
+      if (value === "") {
+        audio.removeAttribute("src");
+      } else {
+        audio.setAttribute("src", value);
+      }
+    },
+  });
   Object.defineProperties(audio, {
     duration: { configurable: true, value: duration },
     currentTime: { configurable: true, writable: true, value: 0 },
@@ -29,29 +71,23 @@ function prepareAudio(audio: HTMLAudioElement, duration = 120) {
       value: DEFAULT_TRANSCRIPT_PLAYBACK_RATE,
     },
     paused: { configurable: true, get: () => paused },
-  });
-  const play = vi.fn(async () => {
-    paused = false;
-    fireEvent.play(audio);
-  });
-  const pause = vi.fn(() => {
-    paused = true;
-    fireEvent.pause(audio);
-  });
-  const load = vi.fn();
-  Object.defineProperties(audio, {
     play: { configurable: true, value: play },
     pause: { configurable: true, value: pause },
     load: { configurable: true, value: load },
   });
-  fireEvent.loadedMetadata(audio);
-  return { play, pause, load };
+  return {
+    play,
+    pause,
+    load,
+    completePlay: () => playResolvers.shift()?.(),
+  };
 }
 
 interface TestPlayerProps {
   artifactSetId?: number;
   segments?: TranscriptSegment[];
   mediaAvailable?: boolean;
+  audioDurationSeconds?: number;
   chapters?: MinutesChapter[];
 }
 
@@ -59,6 +95,7 @@ function StatefulTranscriptAudioPlayer({
   artifactSetId = 82,
   segments: playerSegments = segments,
   mediaAvailable = true,
+  audioDurationSeconds,
   chapters,
 }: TestPlayerProps) {
   const [playbackRate, setPlaybackRate] = useState<TranscriptPlaybackRate>(
@@ -69,6 +106,7 @@ function StatefulTranscriptAudioPlayer({
       artifactSetId={artifactSetId}
       segments={playerSegments}
       mediaAvailable={mediaAvailable}
+      audioDurationSeconds={audioDurationSeconds}
       playbackRate={playbackRate}
       onPlaybackRateChange={setPlaybackRate}
       chapters={chapters}
@@ -80,13 +118,54 @@ function renderPlayer(props: TestPlayerProps = {}) {
   return render(<StatefulTranscriptAudioPlayer {...props} />);
 }
 
+function queryMediaStatus() {
+  return document.querySelector(`[role="status"]`);
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("TranscriptAudioPlayer", () => {
-  it("syncs public media events, slider keys, and segment clicks", async () => {
-    const { container } = renderPlayer();
+  it("keeps the first visit readable and requests audio only after play", () => {
+    const { container } = renderPlayer({ audioDurationSeconds: 120 });
     const audio = container.querySelector("audio");
     expect(audio).not.toBeNull();
+    expect(audio).not.toHaveAttribute("src");
+    expect(screen.getByText("中段内容")).toBeVisible();
+    expect(screen.getByText("00:00 / 02:00")).toBeVisible();
+    expect(screen.queryByText("正在加载音频…")).not.toBeInTheDocument();
+
+    const playButton = screen.getByRole("button", { name: "播放音频" });
+    expect(playButton).toBeEnabled();
+    expect(screen.getByRole("slider", { name: "音频进度" })).toBeEnabled();
+    expect(screen.getByRole("combobox", { name: "播放倍速" })).toBeEnabled();
+
+    const media = controlAudio(audio!);
+    fireEvent.click(playButton);
+    expect(screen.getByText("正在准备播放")).toBeVisible();
+    expect(queryMediaStatus()).toHaveAttribute("role", "status");
     expect(audio).toHaveAttribute("src", "/api/v1/artifact-sets/82/audio");
-    const media = prepareAudio(audio!);
+    expect(media.load).toHaveBeenCalledTimes(1);
+    expect(media.play).toHaveBeenCalledTimes(1);
+
+    fireEvent.loadedMetadata(audio);
+    fireEvent.canPlay(audio);
+    media.completePlay();
+    expect(
+      screen.queryByText("正在准备播放"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "暂停音频" })).toBeVisible();
+    expect(media.load).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("button", { name: "00:00 主持人：开场内容" }),
+    ).toHaveAttribute("aria-current", "true");
+  });
+
+  it("syncs public media events, slider keys, and segment clicks after playback starts", () => {
+    const { container } = renderPlayer({ audioDurationSeconds: 120 });
+    const audio = container.querySelector("audio")!;
+    const media = controlAudio(audio);
     const playbackRate = screen.getByRole("combobox", { name: "播放倍速" });
     expect(playbackRate).toHaveValue("1");
     expect(
@@ -94,7 +173,12 @@ describe("TranscriptAudioPlayer", () => {
         (option) => option.value,
       ),
     ).toEqual(["0.75", "1", "1.25", "1.5", "2"]);
-    expect(audio!.playbackRate).toBe(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    fireEvent.loadedMetadata(audio);
+    fireEvent.canPlay(audio);
+    media.completePlay();
+    expect(audio.playbackRate).toBe(1);
 
     const first = screen.getByRole("button", {
       name: "00:00 主持人：开场内容",
@@ -106,62 +190,58 @@ describe("TranscriptAudioPlayer", () => {
       name: "01:00 主持人：尾段内容",
     });
     expect(first).toHaveAttribute("aria-current", "true");
-    expect(screen.getByText("当前段落")).toBeVisible();
+    expect(screen.getByText("正在播放")).toBeVisible();
 
-    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(media.play).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "暂停音频" })).toBeVisible();
-
-    audio!.currentTime = 31;
-    fireEvent.timeUpdate(audio!);
+    audio.currentTime = 31;
+    fireEvent.timeUpdate(audio);
     expect(second).toHaveAttribute("aria-current", "true");
     expect(screen.getByText("正在播放")).toBeVisible();
 
     fireEvent.change(playbackRate, { target: { value: "1.5" } });
     expect(playbackRate).toHaveValue("1.5");
-    expect(audio!.playbackRate).toBe(1.5);
-    expect(audio!.currentTime).toBe(31);
+    expect(audio.playbackRate).toBe(1.5);
+    expect(audio.currentTime).toBe(31);
     expect(second).toHaveAttribute("aria-current", "true");
 
     const slider = screen.getByRole("slider", { name: "音频进度" });
     fireEvent.change(slider, { target: { value: "61" } });
-    expect(audio!.currentTime).toBe(61);
+    expect(audio.currentTime).toBe(61);
     expect(third).toHaveAttribute("aria-current", "true");
 
     slider.focus();
     fireEvent.keyDown(slider, { key: "Home" });
     expect(slider).toHaveFocus();
-    expect(audio!.currentTime).toBe(0);
+    expect(audio.currentTime).toBe(0);
     expect(first).toHaveAttribute("aria-current", "true");
     fireEvent.keyDown(slider, { key: "ArrowRight" });
-    expect(audio!.currentTime).toBe(5);
+    expect(audio.currentTime).toBe(5);
     fireEvent.keyDown(slider, { key: "End" });
-    expect(audio!.currentTime).toBe(120);
+    expect(audio.currentTime).toBe(120);
     expect(third).toHaveAttribute("aria-current", "true");
 
     second.focus();
     fireEvent.click(second);
     expect(second).toHaveFocus();
-    expect(audio!.currentTime).toBe(30);
+    expect(audio.currentTime).toBe(30);
     expect(second).toHaveAttribute("aria-current", "true");
 
     fireEvent.click(screen.getByRole("button", { name: "暂停音频" }));
     expect(media.pause).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(audio!.playbackRate).toBe(1.5);
+    media.completePlay();
+    expect(audio.playbackRate).toBe(1.5);
     expect(screen.getByRole("button", { name: "暂停音频" })).toBeVisible();
+    expect(media.load).toHaveBeenCalledTimes(1);
   });
 
-  it("pauses follow after manual scrolling and resumes it on play or seek", async () => {
-    const { container } = renderPlayer();
+  it("pauses follow after manual scrolling and resumes it on play or seek", () => {
+    const { container } = renderPlayer({ audioDurationSeconds: 120 });
     const audio = container.querySelector("audio")!;
-    prepareAudio(audio);
+    const media = controlAudio(audio);
+    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    fireEvent.loadedMetadata(audio);
+    fireEvent.canPlay(audio);
+    media.completePlay();
     const transcript = screen.getByRole("region", { name: "同步逐字稿" });
     const third = screen.getByRole("button", {
       name: "01:00 主持人：尾段内容",
@@ -201,59 +281,137 @@ describe("TranscriptAudioPlayer", () => {
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps transcript text readable while media is slow, failed, or unavailable", () => {
-    const { container, rerender } = renderPlayer();
-    expect(screen.getByText("正在加载音频…")).toBeVisible();
-    expect(screen.getByText("中段内容")).toBeVisible();
-    expect(screen.getByRole("combobox", { name: "播放倍速" })).toBeDisabled();
-
+  it("keeps position, chapters, and navigation available while the first preparation is slow", () => {
+    const { container } = renderPlayer({
+      audioDurationSeconds: 120,
+      chapters: [
+        { order: 1, start_ms: 0, title: "开场章节", summary: "介绍" },
+        { order: 2, start_ms: 30_000, title: "中段章节", summary: "讨论" },
+      ],
+    });
     const audio = container.querySelector("audio")!;
-    const { load } = prepareAudio(audio);
-    const source = audio.getAttribute("src");
-    fireEvent.error(audio);
-    expect(screen.getByText("音频加载失败，逐字稿仍可阅读。")).toBeVisible();
-    expect(screen.getByText("尾段内容")).toBeVisible();
-    expect(screen.getByRole("combobox", { name: "播放倍速" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "重试" }));
-    expect(load).toHaveBeenCalledTimes(1);
-    expect(audio).toHaveAttribute("src", source);
-    expect(screen.getByText("正在加载音频…")).toBeVisible();
-    expect(screen.getByRole("combobox", { name: "播放倍速" })).toBeDisabled();
+    const media = controlAudio(audio);
+    const second = screen.getByRole("button", {
+      name: "00:30 嘉宾：中段内容",
+    });
+    const third = screen.getByRole("button", {
+      name: "01:00 主持人：尾段内容",
+    });
 
-    rerender(
-      <StatefulTranscriptAudioPlayer
-        artifactSetId={83}
-        mediaAvailable={false}
-      />,
+    // Pre-play navigation only records the pending position.
+    fireEvent.click(second);
+    expect(media.load).not.toHaveBeenCalled();
+    expect(screen.getByText("00:30 / 02:00")).toBeVisible();
+    expect(second).toHaveAttribute("aria-current", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    expect(screen.getByText("正在准备播放")).toBeVisible();
+    fireEvent.loadedMetadata(audio);
+    expect(audio.currentTime).toBe(30);
+    expect(screen.getByText("中段内容")).toBeVisible();
+
+    // Repeated intents merge into the single in-flight request, but the
+    // pending position and the chapter navigation stay live.
+    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    fireEvent.click(third);
+    expect(media.load).toHaveBeenCalledTimes(1);
+    expect(audio.currentTime).toBe(60);
+    expect(third).toHaveAttribute("aria-current", "true");
+
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "播放倍速" }),
+      { target: { value: "1.5" } },
     );
-    expect(screen.queryByRole("slider")).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "播放音频" })).toBeDisabled();
-    expect(screen.getByRole("combobox", { name: "播放倍速" })).toBeDisabled();
-    expect(
-      screen.queryByRole("button", { name: /主持人：开场内容/ }),
-    ).toBeNull();
-    expect(screen.getByText("开场内容")).toBeVisible();
-    expect(screen.getByText("音频不可用，逐字稿仍可阅读。")).toBeVisible();
+    fireEvent.canPlay(audio);
+    media.completePlay();
+    expect(screen.queryByText("正在准备播放")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "暂停音频" })).toBeVisible();
+    expect(audio.currentTime).toBe(60);
+    expect(audio.playbackRate).toBe(1.5);
+    expect(media.load).toHaveBeenCalledTimes(1);
   });
 
-  it("chooses the last segment whose start is not later than playback", () => {
-    const equalStartSegments: TranscriptSegment[] = [
-      segments[0],
-      { ...segments[1], order: 2 },
-      { ...segments[2], order: 3, start_ms: 30_000 },
-    ];
-    const { container } = renderPlayer({ segments: equalStartSegments });
+  it("stops the first preparation after 15 seconds and retries with one new request", () => {
+    vi.useFakeTimers();
+    const { container } = renderPlayer({ audioDurationSeconds: 120 });
     const audio = container.querySelector("audio")!;
-    prepareAudio(audio);
-    audio.currentTime = 30;
+    const media = controlAudio(audio);
+
+    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    expect(screen.getByText("正在准备播放")).toBeVisible();
+    expect(media.play).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      vi.advanceTimersByTime(15_000);
+    });
+    expect(screen.getByText("音频准备超时，请重试。")).toBeVisible();
+    expect(screen.getByText("中段内容")).toBeVisible();
+    expect(audio).not.toHaveAttribute("src");
+    expect(media.pause).toHaveBeenCalled();
+    expect(media.load).toHaveBeenCalledTimes(2);
+    expect(media.play).toHaveBeenCalledTimes(1);
+
+    // The stopped request must not resume or retry on its own.
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(media.load).toHaveBeenCalledTimes(2);
+    expect(media.play).toHaveBeenCalledTimes(1);
+    expect(queryMediaStatus()?.textContent).toBe("音频准备超时，请重试。");
+
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(screen.getByText("正在准备播放")).toBeVisible();
+    expect(
+      screen.queryByText("音频准备超时，请重试。"),
+    ).not.toBeInTheDocument();
+    expect(audio).toHaveAttribute("src", "/api/v1/artifact-sets/82/audio");
+    expect(media.load).toHaveBeenCalledTimes(3);
+
+    fireEvent.loadedMetadata(audio);
+    fireEvent.canPlay(audio);
+    media.completePlay();
+    expect(screen.getByRole("button", { name: "暂停音频" })).toBeVisible();
+    expect(media.load).toHaveBeenCalledTimes(3);
+  });
+
+  it("reports media failure without replacing the transcript and retries with the pending position", () => {
+    const { container } = renderPlayer({ audioDurationSeconds: 120 });
+    const audio = container.querySelector("audio")!;
+    const media = controlAudio(audio);
+
+    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    fireEvent.loadedMetadata(audio);
+    fireEvent.canPlay(audio);
+    media.completePlay();
+    audio.currentTime = 31;
     fireEvent.timeUpdate(audio);
     expect(
-      screen.getByRole("button", { name: "00:30 主持人：尾段内容" }),
+      screen.getByRole("button", { name: "00:30 嘉宾：中段内容" }),
     ).toHaveAttribute("aria-current", "true");
+
+    fireEvent.error(audio);
+    expect(screen.getByText("音频加载失败，逐字稿仍可阅读。")).toBeVisible();
+    expect(screen.getByText("中段内容")).toBeVisible();
+    expect(screen.getByRole("button", { name: "播放音频" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "播放倍速" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(screen.getByText("正在准备播放")).toBeVisible();
+    expect(media.load).toHaveBeenCalledTimes(2);
+    expect(media.play).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("尾段内容")).toBeVisible();
+
+    fireEvent.loadedMetadata(audio);
+    expect(audio.currentTime).toBe(31);
+    fireEvent.canPlay(audio);
+    media.completePlay();
+    expect(screen.getByRole("button", { name: "暂停音频" })).toBeVisible();
+    expect(media.load).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps chapters collapsed until opened and seeks plus plays on click", async () => {
+  it("starts from a chosen chapter with lazy loading and keeps chapters seekable while playing", () => {
     const { container } = renderPlayer({
+      audioDurationSeconds: 120,
       chapters: [
         { order: 1, start_ms: 0, title: "开场章节", summary: "介绍" },
         { order: 2, start_ms: 30_000, title: "中段章节", summary: "讨论" },
@@ -265,16 +423,49 @@ describe("TranscriptAudioPlayer", () => {
     fireEvent.click(chapterNav);
     expect(chapterDetails).toHaveAttribute("open");
     expect(screen.getByText("中段章节")).toBeVisible();
+
     const audio = container.querySelector("audio")!;
-    const media = prepareAudio(audio);
+    const media = controlAudio(audio);
     fireEvent.click(screen.getByRole("button", { name: /00:30\s+中段章节/ }));
+    expect(media.load).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("正在准备播放")).toBeVisible();
+    fireEvent.loadedMetadata(audio);
     expect(audio.currentTime).toBe(30);
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(media.play).toHaveBeenCalled();
+    fireEvent.canPlay(audio);
+    media.completePlay();
     expect(
       screen.getByRole("button", { name: "00:30 嘉宾：中段内容" }),
+    ).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("button", { name: "暂停音频" })).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "暂停音频" }));
+    fireEvent.click(screen.getByRole("button", { name: /00:30\s+中段章节/ }));
+    expect(audio.currentTime).toBe(30);
+    media.completePlay();
+    expect(screen.getByRole("button", { name: "暂停音频" })).toBeVisible();
+    expect(media.load).toHaveBeenCalledTimes(1);
+  });
+
+  it("chooses the last segment whose start is not later than playback", () => {
+    const equalStartSegments: TranscriptSegment[] = [
+      segments[0],
+      { ...segments[1], order: 2 },
+      { ...segments[2], order: 3, start_ms: 30_000 },
+    ];
+    const { container } = renderPlayer({
+      segments: equalStartSegments,
+      audioDurationSeconds: 120,
+    });
+    const audio = container.querySelector("audio")!;
+    const media = controlAudio(audio);
+    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    fireEvent.loadedMetadata(audio);
+    fireEvent.canPlay(audio);
+    media.completePlay();
+    audio.currentTime = 30;
+    fireEvent.timeUpdate(audio);
+    expect(
+      screen.getByRole("button", { name: "00:30 主持人：尾段内容" }),
     ).toHaveAttribute("aria-current", "true");
   });
 
@@ -310,5 +501,165 @@ describe("TranscriptAudioPlayer", () => {
       block: "nearest",
       behavior: "auto",
     });
+  });
+
+  it("cancels the pending preparation on unmount and when switching episodes", () => {
+    vi.useFakeTimers();
+    const first = renderPlayer({ audioDurationSeconds: 120 });
+    const audio = first.container.querySelector("audio")!;
+    const media = controlAudio(audio);
+    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    expect(screen.getByText("正在准备播放")).toBeVisible();
+
+    // Leaving the transcript or closing the detail unmounts the player.
+    first.unmount();
+    expect(audio).not.toHaveAttribute("src");
+    expect(media.pause).toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+
+    // Switching episodes remounts a fresh idle player without a source.
+    const second = renderPlayer({ artifactSetId: 83, audioDurationSeconds: 90 });
+    const nextAudio = second.container.querySelector("audio")!;
+    expect(nextAudio).not.toHaveAttribute("src");
+    expect(screen.getByText("00:00 / 01:30")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    expect(nextAudio).toHaveAttribute(
+      "src",
+      "/api/v1/artifact-sets/83/audio",
+    );
+    expect(media.play).toHaveBeenCalledTimes(1);
+    act(() => {
+      vi.advanceTimersByTime(15_000);
+    });
+    // The old request stays cancelled; only the new one times out on its own.
+    expect(media.play).toHaveBeenCalledTimes(1);
+    second.unmount();
+  });
+
+  it("detaches the old audio node before a keyed artifact replacement", () => {
+    const view = renderPlayer({ audioDurationSeconds: 120 });
+    const firstAudio = view.container.querySelector("audio")!;
+    const firstMedia = controlAudio(firstAudio);
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    });
+    expect(firstAudio).toHaveAttribute("src");
+    const loadsBeforeReplacement = firstMedia.load.mock.calls.length;
+
+    act(() => {
+      view.rerender(
+        <StatefulTranscriptAudioPlayer
+          artifactSetId={83}
+          audioDurationSeconds={90}
+        />,
+      );
+    });
+
+    const nextAudio = view.container.querySelector("audio")!;
+    expect(nextAudio).not.toBe(firstAudio);
+    expect(firstAudio).not.toHaveAttribute("src");
+    expect(firstMedia.pause).toHaveBeenCalled();
+    expect(firstMedia.load).toHaveBeenCalledTimes(loadsBeforeReplacement + 1);
+    expect(nextAudio).not.toHaveAttribute("src");
+    view.unmount();
+  });
+
+  it("does not clamp a pre-load segment seek to the server duration hint", () => {
+    const laterSegments: TranscriptSegment[] = [
+      segments[0],
+      { ...segments[1], start_ms: 90_000 },
+    ];
+    const { container } = renderPlayer({
+      segments: laterSegments,
+      audioDurationSeconds: 30,
+    });
+    const audio = container.querySelector("audio")!;
+    const media = controlAudio(audio, 120);
+    const laterSegment = screen.getByRole("button", {
+      name: "01:30 嘉宾：中段内容",
+    });
+
+    fireEvent.click(laterSegment);
+    expect(audio.currentTime).toBe(0);
+    expect(laterSegment).toHaveAttribute("aria-current", "true");
+    expect(media.load).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    fireEvent.loadedMetadata(audio);
+    expect(audio.currentTime).toBe(90);
+    expect(laterSegment).toHaveAttribute("aria-current", "true");
+  });
+
+  it("keeps the bounded preparation until media is playable even when play fires early", () => {
+    const { container } = renderPlayer({ audioDurationSeconds: 120 });
+    const audio = container.querySelector("audio")!;
+    const media = controlAudio(audio);
+
+    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    expect(screen.getByText("正在准备播放")).toBeVisible();
+
+    // Real browsers raise `play` as soon as playback is intended, before any
+    // media data arrives; buffering reports stay inside the preparation.
+    fireEvent.play(audio);
+    expect(screen.getByRole("button", { name: "暂停音频" })).toBeVisible();
+    expect(screen.getByText("正在准备播放")).toBeVisible();
+    fireEvent.waiting(audio);
+    fireEvent.stalled(audio);
+    expect(screen.queryByText("音频缓冲中…")).not.toBeInTheDocument();
+
+    fireEvent.loadedMetadata(audio);
+    fireEvent.canPlay(audio);
+    expect(screen.queryByText("正在准备播放")).not.toBeInTheDocument();
+    media.completePlay();
+    expect(screen.getByRole("button", { name: "暂停音频" })).toBeVisible();
+    expect(media.load).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns to the idle player when the user cancels the first preparation", () => {
+    const { container } = renderPlayer({ audioDurationSeconds: 120 });
+    const audio = container.querySelector("audio")!;
+    const media = controlAudio(audio);
+
+    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    expect(screen.getByText("正在准备播放")).toBeVisible();
+
+    // The browser confirms the play intent, so the control shows pause.
+    fireEvent.play(audio);
+    fireEvent.click(screen.getByRole("button", { name: "暂停音频" }));
+    expect(screen.getByRole("button", { name: "播放音频" })).toBeEnabled();
+    expect(
+      screen.queryByText("正在准备播放"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("音频加载失败，逐字稿仍可阅读。")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
+    expect(audio).not.toHaveAttribute("src");
+    expect(media.pause).toHaveBeenCalled();
+    expect(screen.getByText("00:00 / 02:00")).toBeVisible();
+
+    // Playing again starts one new request from the idle player: one arm,
+    // one abort of the cancelled request, one re-arm.
+    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    expect(screen.getByText("正在准备播放")).toBeVisible();
+    expect(media.load).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps the player usable when the response predates audio durations", () => {
+    const { container } = renderPlayer();
+    const audio = container.querySelector("audio")!;
+    expect(screen.getByText("00:00 / --:--")).toBeVisible();
+    expect(screen.getByRole("slider", { name: "音频进度" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "播放音频" })).toBeEnabled();
+
+    const media = controlAudio(audio);
+    fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
+    expect(screen.getByText("正在准备播放")).toBeVisible();
+    fireEvent.loadedMetadata(audio);
+    expect(screen.getByText("00:00 / 02:00")).toBeVisible();
+    expect(screen.getByRole("slider", { name: "音频进度" })).toBeEnabled();
+    media.completePlay();
+    expect(screen.getByRole("button", { name: "暂停音频" })).toBeVisible();
   });
 });

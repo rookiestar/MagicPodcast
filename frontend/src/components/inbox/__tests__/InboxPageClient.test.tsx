@@ -448,6 +448,7 @@ function mockNativeMinutesProcessing() {
                 },
               ],
               media_available: true,
+              audio_duration_seconds: 90,
             },
       ),
   );
@@ -1451,9 +1452,13 @@ describe("InboxPageClient", () => {
     expect(
       within(dialog).queryByRole("button", { name: "恢复音频" }),
     ).not.toBeInTheDocument();
-    expect(within(dialog).getByText("正在加载音频…")).toBeVisible();
+    // The transcript opens with an idle player: no audio source is mounted
+    // and the progress range comes from the server-provided duration.
+    expect(within(dialog).queryByText("正在加载音频…")).not.toBeInTheDocument();
+    expect(within(dialog).getByText("00:00 / 01:30")).toBeVisible();
 
     const audio = dialog.querySelector("audio")!;
+    expect(audio).not.toHaveAttribute("src");
     let paused = true;
     Object.defineProperties(audio, {
       duration: { configurable: true, value: 90 },
@@ -1474,9 +1479,12 @@ describe("InboxPageClient", () => {
       pause: { configurable: true, value: pause },
       load: { configurable: true, value: load },
     });
-    fireEvent.loadedMetadata(audio);
+    expect(load).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "播放音频" }));
+    expect(load).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+    fireEvent.loadedMetadata(audio);
+    fireEvent.canPlay(audio);
 
     audio.currentTime = 31;
     fireEvent.timeUpdate(audio);
@@ -1538,7 +1546,7 @@ describe("InboxPageClient", () => {
     ).toBeVisible();
     expect(within(dialog).getByText("中段")).toBeVisible();
     fireEvent.click(within(dialog).getByRole("button", { name: "重试" }));
-    expect(load).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledTimes(2);
     expect(audio).toHaveAttribute("src", mediaSource);
   });
 
@@ -1925,10 +1933,12 @@ describe("InboxPageClient", () => {
       paused: { configurable: true, value: true },
       play: { configurable: true, value: play },
     });
-    fireEvent.loadedMetadata(audio);
     fireEvent.click(
       within(dialog).getByRole("button", { name: /00:30\s+章节 2/ }),
     );
+    // The chapter click arms the lazy audio source; metadata arrival applies
+    // the chapter position before playback starts.
+    fireEvent.loadedMetadata(audio);
     expect(audio.currentTime).toBe(30);
     expect(play).toHaveBeenCalled();
     expect(
