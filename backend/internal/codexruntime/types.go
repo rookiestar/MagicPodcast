@@ -7,10 +7,11 @@ import (
 )
 
 // ProtocolVersion is the stdio JSONL contract between the Go parent and the
-// Python host. Version 2 carries the resolved model profile on execute
-// frames; hosts and parents of different versions must fail explicitly
-// instead of guessing model configuration.
-const ProtocolVersion = 2
+// Python host. Version 2 carried the resolved model profile on execute
+// frames. Version 3 adds structured provider-neutral progress frames; hosts
+// and parents of different versions must fail explicitly instead of guessing
+// model configuration or silently dropping activity payloads.
+const ProtocolVersion = 3
 
 type ExecutionID string
 
@@ -88,11 +89,52 @@ const (
 	EventTerminal            EventType = "terminal"
 )
 
+// ProgressCategory is the provider-neutral class of one runtime activity.
+// Values are part of the protocol contract; hosts must not invent others.
+type ProgressCategory string
+
+const (
+	CategoryWebSearch   ProgressCategory = "web_search"
+	CategoryReasoning   ProgressCategory = "reasoning"
+	CategoryPlan        ProgressCategory = "plan"
+	CategoryAgentMsg    ProgressCategory = "agent_message"
+	CategoryTurn        ProgressCategory = "turn"
+	CategoryGenericItem ProgressCategory = "item"
+)
+
+// ProgressState is the lifecycle state of one activity. An activity moves
+// from started through zero or more updates into completed or failed, and is
+// closed afterwards.
+type ProgressState string
+
+const (
+	ProgressStarted   ProgressState = "started"
+	ProgressUpdated   ProgressState = "updated"
+	ProgressCompleted ProgressState = "completed"
+	ProgressFailed    ProgressState = "failed"
+)
+
+// Progress is the sanitized, provider-neutral activity payload carried by
+// EventProgress events. Display text is bounded plain text; metadata is a
+// bounded set of public string facts (for example candidate domains). Raw
+// prompts, reasoning content, private notes, managed paths, credentials, and
+// provider payloads never reach this structure.
+type Progress struct {
+	ActivityID  string            `json:"activity_id"`
+	Ordinal     uint64            `json:"ordinal"`
+	Category    ProgressCategory  `json:"category"`
+	State       ProgressState     `json:"state"`
+	DisplayText string            `json:"display_text,omitempty"`
+	ElapsedMS   int64             `json:"elapsed_ms,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+}
+
 type Event struct {
 	ExecutionID ExecutionID `json:"execution_id"`
 	Sequence    uint64      `json:"sequence"`
 	Type        EventType   `json:"type"`
 	Text        string      `json:"text,omitempty"`
+	Progress    *Progress   `json:"progress,omitempty"`
 	ObservedAt  time.Time   `json:"observed_at"`
 }
 

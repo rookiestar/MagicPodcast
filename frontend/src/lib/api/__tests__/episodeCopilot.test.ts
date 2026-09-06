@@ -81,6 +81,73 @@ describe("episodeCopilotApi.ask", () => {
     expect(JSON.parse(String(request.body))).toEqual(question);
   });
 
+  it("forwards structured activities and stage timings to the caller", async () => {
+    const onEvent = vi.fn();
+    const activity = {
+      id: "research:a1",
+      ordinal: 3,
+      stage: "public_research",
+      category: "web_search",
+      state: "completed",
+      text: "公开资料主题",
+      observed_at: "2026-09-06T12:00:00Z",
+      elapsed_ms: 1500,
+      metadata: { candidate_domains: "authority.example.com" },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          streamFromChunks([
+            'data: {"type":"status","stage":"public_research",',
+            `"activity":${JSON.stringify(activity)},`,
+            '"transcript_used":false,"private_note_included":false}\n\n',
+            'data: {"type":"complete","message":"回答完成",',
+            '"transcript_used":false,"private_note_included":false,',
+            '"first_content_ms":120,"total_ms":420,',
+            '"stage_timings":{"research_runtime_ready_ms":800,',
+            '"public_research_ms":1500,"source_validation_ms":40,',
+            '"answer_runtime_ready_ms":900,"citation_validation_ms":60}}\n\n',
+          ]),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    await episodeCopilotApi.ask(
+      201,
+      question,
+      onEvent,
+      new AbortController().signal,
+    );
+
+    expect(onEvent).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        type: "status",
+        activity: expect.objectContaining({
+          id: "research:a1",
+          stage: "public_research",
+          category: "web_search",
+          state: "completed",
+        }),
+      }),
+    );
+    expect(onEvent).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        type: "complete",
+        stage_timings: {
+          research_runtime_ready_ms: 800,
+          public_research_ms: 1500,
+          source_validation_ms: 40,
+          answer_runtime_ready_ms: 900,
+          citation_validation_ms: 60,
+        },
+      }),
+    );
+  });
+
   it("surfaces a stable API error message", async () => {
     vi.stubGlobal(
       "fetch",

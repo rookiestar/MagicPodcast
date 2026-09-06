@@ -1259,6 +1259,103 @@ func helperRuntimeMain() {
 		base.Text = "skipped sequence"
 		base.RuntimeVersion = ""
 		write(base)
+	case "progress_ok":
+		base.Sequence = 1
+		base.Type = "ready"
+		base.RuntimeVersion = "helper-runtime-1"
+		write(base)
+		base.Sequence++
+		base.Type = "progress"
+		base.Progress = &Progress{
+			ActivityID:  "a1",
+			Ordinal:     1,
+			Category:    CategoryWebSearch,
+			State:       ProgressStarted,
+			DisplayText: "contract topic",
+			Metadata: map[string]string{
+				"candidate_domains": "a.example.com",
+			},
+		}
+		write(base)
+		base.Sequence++
+		base.Progress.State = ProgressUpdated
+		base.Progress.ElapsedMS = 120
+		write(base)
+		base.Sequence++
+		base.Progress.State = ProgressCompleted
+		base.Progress.ElapsedMS = 240
+		base.Progress.Metadata = map[string]string{
+			"candidate_domains": "a.example.com b.example.org",
+			"candidate_count":   "2",
+		}
+		write(base)
+		base.Sequence++
+		base.Progress = &Progress{
+			ActivityID:  "a2",
+			Ordinal:     2,
+			Category:    CategoryReasoning,
+			State:       ProgressStarted,
+			DisplayText: "bounded summary",
+		}
+		write(base)
+		base.Sequence++
+		base.Type = "output_delta"
+		base.Progress = nil
+		base.Text = `{"episode_notes":"# Helper notes"}`
+		write(base)
+		base.Sequence++
+		base.Type = "terminal"
+		base.Text = ""
+		base.Status = StatusCompleted
+		base.Result = json.RawMessage(`{"episode_notes":"# Helper notes"}`)
+		write(base)
+	case "progress_violation_flow":
+		base.Sequence = 1
+		base.Type = "ready"
+		base.RuntimeVersion = "helper-runtime-1"
+		write(base)
+		violation := request.Prompt
+		writeProgress := func(progress *Progress) {
+			base.Sequence++
+			base.Type = "progress"
+			base.Text = ""
+			base.Status = ""
+			base.Result = nil
+			base.Progress = progress
+			write(base)
+		}
+		switch violation {
+		case "duplicate_start":
+			writeProgress(progressViolation(""))
+			writeProgress(progressViolation(""))
+		case "update_after_closed":
+			closed := progressViolation("")
+			closed.State = ProgressCompleted
+			writeProgress(closed)
+			writeProgress(progressViolation("update_unknown_activity"))
+		case "progress_after_terminal":
+			writeProgress(progressViolation(""))
+			base.Sequence++
+			base.Type = "terminal"
+			base.Progress = nil
+			base.Status = StatusCompleted
+			base.Result = json.RawMessage(
+				`{"episode_notes":"# Helper notes"}`,
+			)
+			write(base)
+			writeProgress(progressViolation(""))
+		case "progress_carries_text":
+			progress := progressViolation("")
+			base.Sequence++
+			base.Type = "progress"
+			base.Text = "legacy text on a progress frame"
+			base.Status = ""
+			base.Result = nil
+			base.Progress = progress
+			write(base)
+		default:
+			writeProgress(progressViolation(violation))
+		}
 	case "malformed":
 		_, _ = fmt.Fprintln(os.Stdout, "{not-json")
 	case "no_terminal":
@@ -1349,6 +1446,73 @@ func helperRuntimeMain() {
 
 func signalIgnoreTermination() {
 	signalIgnore(syscall.SIGTERM)
+}
+
+// progressViolation builds one invalid progress payload per scenario name so
+// the module's fail-closed validation can be exercised end to end.
+func progressViolation(scenario string) *Progress {
+	oversized := strings.Repeat("长", maxProgressTextRunes+1)
+	basic := func() *Progress {
+		return &Progress{
+			ActivityID:  "a1",
+			Ordinal:     1,
+			Category:    CategoryWebSearch,
+			State:       ProgressStarted,
+			DisplayText: "topic",
+		}
+	}
+	switch scenario {
+	case "update_unknown_activity":
+		progress := basic()
+		progress.State = ProgressUpdated
+		return progress
+	case "complete_unknown_activity":
+		progress := basic()
+		progress.State = ProgressCompleted
+		return progress
+	case "duplicate_start":
+		return basic()
+	case "ordinal_gap":
+		progress := basic()
+		progress.Ordinal = 2
+		return progress
+	case "invalid_state":
+		progress := basic()
+		progress.State = ProgressState("running")
+		return progress
+	case "invalid_category":
+		progress := basic()
+		progress.Category = ProgressCategory("shell")
+		return progress
+	case "oversized_text":
+		progress := basic()
+		progress.DisplayText = oversized
+		return progress
+	case "too_many_metadata":
+		progress := basic()
+		progress.Metadata = make(map[string]string, maxProgressMetadata+1)
+		for index := 0; index <= maxProgressMetadata; index++ {
+			key := fmt.Sprintf("key-%02d", index)
+			progress.Metadata[key] = "value"
+		}
+		return progress
+	case "oversized_metadata_value":
+		progress := basic()
+		progress.Metadata = map[string]string{
+			"candidate_domains": strings.Repeat("v", maxMetadataValueRunes+1),
+		}
+		return progress
+	case "empty_activity_id":
+		progress := basic()
+		progress.ActivityID = ""
+		return progress
+	case "zero_ordinal":
+		progress := basic()
+		progress.Ordinal = 0
+		return progress
+	default:
+		return basic()
+	}
 }
 
 func fakeSDKEnvironment(

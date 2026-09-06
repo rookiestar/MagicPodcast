@@ -252,6 +252,16 @@ class FakeTurn:
             )
             await asyncio.Event().wait()
 
+        if "PROGRESS_FLOW" in self.prompt:
+            for note in progress_flow_notifications(self):
+                yield note
+            if "BLOCK_UNTIL_CANCEL" in self.prompt:
+                await self.interrupted.wait()
+                yield terminal_notification("interrupted", "")
+                return
+            yield terminal_notification("completed", "Progress answer.")
+            return
+
         if "FORCED_TOOL_EVENT" in self.prompt:
             yield notification(
                 "item/started",
@@ -315,6 +325,134 @@ class FakeTurn:
             delta=encoded[midpoint:],
         )
         yield terminal_notification("completed", encoded)
+
+
+def progress_flow_notifications(self):
+    """Exercise every sanitized activity mapping the host must support."""
+    from types import SimpleNamespace
+
+    managed_secret = os.path.join(self.cwd, "managed-notes.txt")
+    yield notification("turn/started", turn=SimpleNamespace(id="t1"))
+    yield notification(
+        "item/started",
+        item=SimpleNamespace(
+            root=SimpleNamespace(
+                type="webSearch",
+                id="ws-1",
+                query=(
+                    "episode contract  \n long topic "
+                    + "x" * 400
+                    + " secret="
+                    + managed_secret
+                ),
+                results=None,
+            )
+        ),
+    )
+    yield notification(
+        "item/completed",
+        item=SimpleNamespace(
+            root=SimpleNamespace(
+                type="webSearch",
+                id="ws-1",
+                query="episode contract",
+                results=[
+                    {
+                        "url": "https://Authority.example.com/a/path?q=1",
+                        "title": "A",
+                    },
+                    {"url": "https://user:leak@bad.example.com/x"},
+                    {"url": "file:///etc/hosts"},
+                    {"title": "no url"},
+                    "not-an-object",
+                ],
+            )
+        ),
+    )
+    yield notification(
+        "item/started",
+        item=SimpleNamespace(
+            root=SimpleNamespace(type="reasoning", id="r-1")
+        ),
+    )
+    for index in range(6):
+        yield notification(
+            "item/reasoning/summaryTextDelta",
+            item_id="r-1",
+            summary_index=0,
+            delta=f"summary part {index}; ",
+        )
+    yield notification(
+        "item/reasoning/textDelta",
+        item_id="r-1",
+        delta="RAW CHAIN OF THOUGHT MUST NOT LEAK",
+    )
+    yield notification(
+        "item/completed",
+        item=SimpleNamespace(
+            root=SimpleNamespace(
+                type="reasoning",
+                id="r-1",
+                summary=["Final visible summary."],
+                content=["PRIVATE MODEL THOUGHTS"],
+            )
+        ),
+    )
+    yield notification(
+        "item/plan/delta",
+        item_id="p-1",
+        delta="先核对来源，再回答。",
+    )
+    yield notification(
+        "item/completed",
+        item=SimpleNamespace(
+            root=SimpleNamespace(
+                type="plan",
+                id="p-1",
+                text="先核对来源，再回答。",
+            )
+        ),
+    )
+    # Unknown notifications must be ignored without breaking the stream.
+    yield notification(
+        "item/mcpToolCall/progress",
+        item_id="x-1",
+        progress="should never reach progress frames",
+    )
+    yield notification(
+        "turn/diff/updated",
+        diff="should never reach progress frames",
+    )
+    yield notification(
+        "item/started",
+        item=SimpleNamespace(
+            root=SimpleNamespace(
+                type="agentMessage", id="m-1", phase="final_answer"
+            )
+        ),
+    )
+    midpoint = len("Final answer text.") // 2
+    yield notification(
+        "item/agentMessage/delta",
+        item_id="m-1",
+        delta="Final answer text."[:midpoint],
+    )
+    yield notification(
+        "item/agentMessage/delta",
+        item_id="m-1",
+        delta="Final answer text."[:midpoint],
+    )
+    yield notification(
+        "item/completed",
+        item=SimpleNamespace(
+            root=SimpleNamespace(
+                type="agentMessage",
+                id="m-1",
+                phase="final_answer",
+                text="Final answer text.",
+            )
+        ),
+    )
 
 
 def structured_result(output_schema):

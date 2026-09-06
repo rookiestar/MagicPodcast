@@ -567,6 +567,8 @@ type fakeExecution struct {
 	block     bool
 	status    codexruntime.ExecutionStatus
 	errorCode string
+	progress  []codexruntime.Progress
+	createErr error
 }
 
 type fakeRuntime struct {
@@ -605,6 +607,10 @@ func (f *fakeRuntime) CreateExecution(
 	next := f.queue[0]
 	f.queue = f.queue[1:]
 	f.nextID++
+	if next.createErr != nil {
+		err := next.createErr
+		return codexruntime.ExecutionSnapshot{}, err
+	}
 	id := codexruntime.ExecutionID(
 		"episode-copilot-" + time.Unix(int64(f.nextID), 0).UTC().Format("150405"),
 	)
@@ -618,21 +624,37 @@ func (f *fakeRuntime) CreateExecution(
 		CreatedAt:      now,
 		StartedAt:      &now,
 	}
-	events := make(chan codexruntime.Event, len(next.deltas)+2)
+	events := make(
+		chan codexruntime.Event,
+		len(next.deltas)+len(next.progress)+2,
+	)
 	events <- codexruntime.Event{
 		ExecutionID: id,
 		Sequence:    1,
 		Type:        codexruntime.EventStarted,
 		ObservedAt:  now,
 	}
-	for index, delta := range next.deltas {
+	sequence := uint64(2)
+	for index := range next.progress {
+		progress := next.progress[index]
 		events <- codexruntime.Event{
 			ExecutionID: id,
-			Sequence:    uint64(index + 2),
+			Sequence:    sequence,
+			Type:        codexruntime.EventProgress,
+			Progress:    &progress,
+			ObservedAt:  now,
+		}
+		sequence++
+	}
+	for _, delta := range next.deltas {
+		events <- codexruntime.Event{
+			ExecutionID: id,
+			Sequence:    sequence,
 			Type:        codexruntime.EventOutputDelta,
 			Text:        delta,
 			ObservedAt:  now,
 		}
+		sequence++
 	}
 	if !next.block {
 		completedAt := now
@@ -650,7 +672,7 @@ func (f *fakeRuntime) CreateExecution(
 		snapshot.CompletedAt = &completedAt
 		events <- codexruntime.Event{
 			ExecutionID: id,
-			Sequence:    uint64(len(next.deltas) + 2),
+			Sequence:    sequence,
 			Type:        codexruntime.EventTerminal,
 			ObservedAt:  now,
 		}

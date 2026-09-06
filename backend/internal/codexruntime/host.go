@@ -131,6 +131,7 @@ type managedExecution struct {
 	cancelSupervisorOnce sync.Once
 
 	lastSequence    uint64
+	activities      *executionActivities
 	startedClosed   bool
 	terminalClosed  bool
 	nativeAckClosed bool
@@ -191,6 +192,104 @@ type runtimeFrame struct {
 	ErrorCode          string             `json:"error_code,omitempty"`
 	SafeMessage        string             `json:"safe_message,omitempty"`
 	CancellationMethod CancellationMethod `json:"cancellation_method,omitempty"`
+	Progress           *Progress          `json:"progress,omitempty"`
+}
+
+// progressBounds are the protocol limits for one structured activity frame.
+// The host enforces them when producing progress; the module enforces them
+// again at the trust boundary so an oversized or malformed payload is a
+// protocol failure instead of a silent truncation.
+const (
+	maxActivityIDBytes    = 128
+	maxProgressTextRunes  = 200
+	maxProgressMetadata   = 8
+	maxMetadataKeyRunes   = 64
+	maxMetadataValueRunes = 200
+)
+
+// executionActivities tracks per-activity lifecycle state for one execution
+// so conflicting, reordered, or post-terminal activity frames fail closed.
+type executionActivities struct {
+	states   map[string]ProgressState
+	ordinals map[string]uint64
+	maxSeen  uint64
+}
+
+func newExecutionActivities() *executionActivities {
+	return &executionActivities{
+		states:   make(map[string]ProgressState),
+		ordinals: make(map[string]uint64),
+	}
+}
+
+// accept validates one progress payload against the protocol contract and
+// the execution's activity history.
+func (a *executionActivities) accept(progress *Progress) bool {
+	if progress == nil ||
+		progress.ActivityID == "" ||
+		len(progress.ActivityID) > maxActivityIDBytes ||
+		progress.Ordinal < 1 ||
+		progress.ElapsedMS < 0 ||
+		len([]rune(progress.DisplayText)) > maxProgressTextRunes ||
+		len(progress.Metadata) > maxProgressMetadata {
+		return false
+	}
+	for key, value := range progress.Metadata {
+		if key == "" ||
+			len([]rune(key)) > maxMetadataKeyRunes ||
+			len([]rune(value)) > maxMetadataValueRunes {
+			return false
+		}
+	}
+	switch progress.Category {
+	case CategoryWebSearch, CategoryReasoning, CategoryPlan,
+		CategoryAgentMsg, CategoryTurn, CategoryGenericItem:
+	default:
+		return false
+	}
+	switch progress.State {
+	case ProgressStarted:
+		if _, exists := a.states[progress.ActivityID]; exists {
+			return false
+		}
+		// Started activities claim the next continuous ordinal; updates and
+		// completions must carry the ordinal recorded at start.
+		if progress.Ordinal != a.maxSeen+1 {
+			return false
+		}
+		a.maxSeen = progress.Ordinal
+		a.states[progress.ActivityID] = ProgressStarted
+		a.ordinals[progress.ActivityID] = progress.Ordinal
+	case ProgressUpdated:
+		if a.states[progress.ActivityID] != ProgressStarted {
+			return false
+		}
+		if a.ordinals[progress.ActivityID] != progress.Ordinal {
+			return false
+		}
+	case ProgressCompleted, ProgressFailed:
+		if a.states[progress.ActivityID] != ProgressStarted {
+			return false
+		}
+		if a.ordinals[progress.ActivityID] != progress.Ordinal {
+			return false
+		}
+		a.states[progress.ActivityID] = progress.State
+	default:
+		return false
+	}
+	return true
+}
+
+func progressEventBytes(progress *Progress) int {
+	if progress == nil {
+		return 0
+	}
+	size := len(progress.ActivityID) + len(progress.DisplayText) + 96
+	for key, value := range progress.Metadata {
+		size += len(key) + len(value) + 8
+	}
+	return size
 }
 
 func (h *ProcessHost) CreateExecution(
@@ -303,6 +402,7 @@ func (h *ProcessHost) CreateExecution(
 			Status:    StatusStarting,
 			CreatedAt: now,
 		},
+		activities:  newExecutionActivities(),
 		notify:      make(chan struct{}),
 		command:     command,
 		stdin:       stdinWriter,
@@ -971,17 +1071,26 @@ func (h *ProcessHost) acceptFrame(
 		}
 	case "progress":
 		if execution.snapshot.Status != StatusRunning ||
-			!h.appendEventLocked(execution, Event{
-				ExecutionID: execution.snapshot.ID,
-				Sequence:    frame.Sequence,
-				Type:        EventProgress,
-				Text:        frame.Text,
-				ObservedAt:  now,
-			}) {
+			frame.Text != "" ||
+			!execution.activities.accept(frame.Progress) {
 			h.failExecutionLocked(
 				execution,
 				ErrorProtocol,
 				"runtime progress event is invalid",
+			)
+			return false
+		}
+		if !h.appendEventLocked(execution, Event{
+			ExecutionID: execution.snapshot.ID,
+			Sequence:    frame.Sequence,
+			Type:        EventProgress,
+			Progress:    frame.Progress,
+			ObservedAt:  now,
+		}) {
+			h.failExecutionLocked(
+				execution,
+				ErrorProtocol,
+				"runtime event stream exceeded configured limits",
 			)
 			return false
 		}
@@ -1107,7 +1216,7 @@ func (h *ProcessHost) appendEventLocked(
 	execution *managedExecution,
 	event Event,
 ) bool {
-	eventBytes := len(event.Text) + 64
+	eventBytes := len(event.Text) + progressEventBytes(event.Progress) + 64
 	if len(execution.events)+1 > h.config.MaxEvents ||
 		execution.bytes+eventBytes > h.config.MaxEventBytes {
 		return false
