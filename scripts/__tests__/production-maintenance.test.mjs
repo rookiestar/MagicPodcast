@@ -887,6 +887,11 @@ test("direct release acquires and releases maintenance around success and manual
     env: fixture.env,
   });
   assert.equal(deploy.code, 0, deploy.stderr);
+  assert.match(deploy.stderr, /release_timing phase=backend_build duration_seconds=\d+/);
+  assert.match(deploy.stderr, /release_timing phase=frontend_build duration_seconds=\d+/);
+  assert.match(deploy.stderr, /release_timing phase=stage_verification duration_seconds=\d+/);
+  assert.match(deploy.stderr, /release_timing phase=switch_and_health duration_seconds=\d+/);
+  assert.match(deploy.stderr, /release_timing phase=total duration_seconds=\d+/);
   assert.equal(existsSync(fixture.lockDir), false);
   const deployed = await readFile(path.join(fixture.releaseRoot, "current.env"), "utf8");
   assert.match(deployed, /^asset_prefix=\/__magicpodcast\/releases\/[^\n]+$/m);
@@ -1148,6 +1153,10 @@ async function createManagedDeployFixture(t) {
 
 test("managed production workflow keeps the shared maintenance lock through release health verification", async (t) => {
   const fixture = await createManagedDeployFixture(t);
+  const ciWorkflow = await readFile(
+    path.join(projectRoot, ".github", "workflows", "ci.yml"),
+    "utf8",
+  );
   const workflow = await readFile(
     path.join(projectRoot, ".github", "workflows", "production-deploy.yml"),
     "utf8",
@@ -1158,6 +1167,12 @@ test("managed production workflow keeps the shared maintenance lock through rele
   );
   assert.match(workflow, /production-deploy\.sh" deploy "\$DEPLOY_SHA"/);
   assert.match(workflow, /MAGICPODCAST_PRODUCTION_DIR/);
+  assert.match(workflow, /CI_WAIT_TIMEOUT_SECONDS: 180/);
+  assert.match(workflow, /CI_POLL_INTERVAL_SECONDS: 5/);
+  assert.match(workflow, /CI completed without success/);
+  assert.match(ciWorkflow, /shard: \[1, 2\]/);
+  assert.match(ciWorkflow, /npm run test:run -- --shard=\$\{\{ matrix\.shard \}\}\/2/);
+  assert.match(ciWorkflow, /name: Frontend checks/);
   assert.match(rollbackWorkflow, /production-deploy\.sh" rollback/);
   assert.doesNotMatch(workflow, /migrate-db|--apply/);
   assert.doesNotMatch(rollbackWorkflow, /migrate-db|--apply/);

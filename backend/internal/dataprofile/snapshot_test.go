@@ -278,12 +278,12 @@ func TestControllerSwitchesFixtureSnapshotFixtureAndPreservesBaseline(t *testing
 	require.NoError(t, err)
 	port, err := FreeLoopbackPort()
 	require.NoError(t, err)
-	controller := Controller{
+	controller := withSharedTestBackend(t, Controller{
 		ProjectDir:  projectDir,
 		ProfileHome: home,
 		Port:        port,
 		Timeout:     30 * time.Second,
-	}
+	})
 	t.Cleanup(func() {
 		if state, readErr := controller.readState(); readErr == nil {
 			_ = controller.stop(state)
@@ -354,6 +354,7 @@ func TestControllerSwitchesFixtureSnapshotFixtureAndPreservesBaseline(t *testing
 }
 
 func TestDataProfileWrapperRefreshesAndSwitchesFixtureSnapshotFixture(t *testing.T) {
+	t.Parallel()
 	projectDir, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	require.NoError(t, err)
 	home := t.TempDir()
@@ -398,7 +399,7 @@ func TestDataProfileWrapperRefreshesAndSwitchesFixtureSnapshotFixture(t *testing
 	require.Contains(t, fixtureOutput, "ready=true")
 	require.Contains(t, getPodcastListBody(t, port), "Fixture：深度科技")
 
-	refreshOutput := runDataProfileWrapper(
+	refreshOutput := runDataProfileCLI(
 		t, projectDir, home, cliDir, port,
 		"--transfer-dir", transferDir,
 		"--confirm-refresh", RefreshConfirmation,
@@ -406,7 +407,7 @@ func TestDataProfileWrapperRefreshesAndSwitchesFixtureSnapshotFixture(t *testing
 	)
 	require.Contains(t, refreshOutput, "profile=not-switched")
 	require.Contains(t, refreshOutput, "snapshot_id=snapshot-command-journey")
-	statusAfterRefresh := runDataProfileWrapper(
+	statusAfterRefresh := runDataProfileCLI(
 		t, projectDir, home, cliDir, port,
 		"status",
 	)
@@ -418,7 +419,7 @@ func TestDataProfileWrapperRefreshesAndSwitchesFixtureSnapshotFixture(t *testing
 	require.NoError(t, err)
 	baselineHash, err := SHA256File(snapshot.DatabasePath)
 	require.NoError(t, err)
-	snapshotOutput := runDataProfileWrapper(
+	snapshotOutput := runDataProfileCLI(
 		t, projectDir, home, cliDir, port,
 		"use", "snapshot", "latest",
 	)
@@ -435,7 +436,7 @@ func TestDataProfileWrapperRefreshesAndSwitchesFixtureSnapshotFixture(t *testing
 	require.Contains(t, string(readyBody), `"data_profile":"snapshot"`)
 	require.Contains(t, string(readyBody), `"snapshot_id":"snapshot-command-journey"`)
 
-	finalOutput := runDataProfileWrapper(
+	finalOutput := runDataProfileCLI(
 		t, projectDir, home, cliDir, port,
 		"use", "fixture",
 	)
@@ -474,6 +475,29 @@ func runDataProfileWrapper(
 	return string(output)
 }
 
+func runDataProfileCLI(
+	t *testing.T,
+	projectDir string,
+	home string,
+	cliDir string,
+	port int,
+	args ...string,
+) string {
+	t.Helper()
+	commandArgs := []string{
+		"--project-dir", projectDir,
+		"--home", home,
+		"--port", portString(port),
+		"--timeout", "30s",
+	}
+	commandArgs = append(commandArgs, args...)
+	command := exec.Command(filepath.Join(cliDir, "data-profile"), commandArgs...)
+	command.Dir = projectDir
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, string(output))
+	return string(output)
+}
+
 func getPodcastListBody(t *testing.T, port int) string {
 	t.Helper()
 	response, err := http.Get("http://127.0.0.1:" + portString(port) + "/api/v1/podcasts?page=1&page_size=10")
@@ -491,12 +515,12 @@ func TestSnapshotFailureDoesNotReplaceRunningFixture(t *testing.T) {
 	home := t.TempDir()
 	port, err := FreeLoopbackPort()
 	require.NoError(t, err)
-	controller := Controller{
+	controller := withSharedTestBackend(t, Controller{
 		ProjectDir:  projectDir,
 		ProfileHome: home,
 		Port:        port,
 		Timeout:     30 * time.Second,
-	}
+	})
 	t.Cleanup(func() {
 		if state, readErr := controller.readState(); readErr == nil {
 			_ = controller.stop(state)

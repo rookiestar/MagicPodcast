@@ -59,6 +59,14 @@ log() {
   printf '%s [%s] %s\n' "$(now)" "$level" "$*" >> "$RELEASE_LOG"
 }
 
+record_timing() {
+  local phase="$1"
+  local started_seconds="$2"
+  local duration_seconds=$((SECONDS - started_seconds))
+  log INFO "release_timing phase=$phase duration_seconds=$duration_seconds"
+  printf 'release_timing phase=%s duration_seconds=%s\n' "$phase" "$duration_seconds" >&2
+}
+
 info() { printf '%b%s%b\n' "$GREEN" "$*" "$NC"; }
 warn() { printf '%b%s%b\n' "$YELLOW" "$*" "$NC" >&2; }
 error() { printf '%b%s%b\n' "$RED" "$*" "$NC" >&2; }
@@ -266,6 +274,7 @@ build_release() {
   local frontend_dist_name=".next-release-$release_id"
   local frontend_dist="$FRONTEND_DIR/$frontend_dist_name"
   local frontend_build_id backend_sha commit schema_version worktree_clean asset_prefix
+  local phase_started_seconds
 
   worktree_clean=false
   if git -C "$PROJECT_DIR" diff --quiet --ignore-submodules -- &&
@@ -277,6 +286,7 @@ build_release() {
   mkdir -p "$stage"
   log INFO "build started release=$release_id"
 
+  phase_started_seconds=$SECONDS
   if ! (cd "$BACKEND_DIR" && "$GO_BIN" build -o "$stage/backend.api" ./cmd/api > "$stage/backend-build.log" 2>&1); then
     log ERROR "backend build failed release=$release_id"
     error "后端构建失败；当前运行版本未停止"
@@ -287,6 +297,7 @@ build_release() {
     error "后端构建未生成可执行产物；当前运行版本未停止"
     return 1
   fi
+  record_timing backend_build "$phase_started_seconds"
 
   if ! cp "$FRONTEND_DIR/tsconfig.json" "$stage/tsconfig.before-build"; then
     log ERROR "frontend tsconfig backup failed release=$release_id"
@@ -300,6 +311,7 @@ build_release() {
     return 1
   fi
   rm -rf "$frontend_dist"
+  phase_started_seconds=$SECONDS
   if ! (cd "$FRONTEND_DIR" && \
     MAGICPODCAST_NEXT_DIST_DIR="$frontend_dist_name" \
     MAGICPODCAST_RELEASE_ID="$release_id" \
@@ -312,6 +324,8 @@ build_release() {
     error "前端构建失败；当前运行版本未停止"
     return 1
   fi
+  record_timing frontend_build "$phase_started_seconds"
+  phase_started_seconds=$SECONDS
   if ! "$NODE_BIN" "$IMAGE_OPTIMIZER_VERIFIER" "$frontend_dist" "$IMAGE_OPTIMIZER_PATH" >> "$stage/frontend-build.log" 2>&1; then
     log ERROR "frontend image optimizer path verification failed release=$release_id"
     restore_frontend_tsconfig "$stage" || true
@@ -339,6 +353,7 @@ build_release() {
     error "前端静态资源版本校验失败；当前运行版本未停止"
     return 1
   fi
+  record_timing frontend_artifact_verification "$phase_started_seconds"
   backend_sha="$(hash_file "$stage/backend.api")"
   commit="$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || printf 'nogit')"
   schema_version="$(database_schema_version || printf 'unknown')"
@@ -647,6 +662,7 @@ rollback_command() {
 MODE="deploy"
 DRY_RUN=false
 ACTIVATE_STAGE=""
+RELEASE_STARTED_SECONDS=$SECONDS
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --prod|--production) MODE="deploy" ;;
@@ -716,11 +732,14 @@ if [ "$MODE" = activate ]; then
     "$RELEASE_ROOT"/*) ;;
     *) error "prepared stage must be inside release root"; exit 1 ;;
   esac
+  phase_started_seconds=$SECONDS
   if ! verify_stage "$ACTIVATE_STAGE" ||
     [ "$(manifest_value worktree_clean "$ACTIVATE_STAGE/manifest.env")" != true ]; then
     error "prepared release verification failed"
     exit 1
   fi
+  record_timing stage_verification "$phase_started_seconds"
+  phase_started_seconds=$SECONDS
   deploy_release "$ACTIVATE_STAGE" true || exit 1
   activation_release_id="$(manifest_value release_id "$ACTIVATE_STAGE/manifest.env")"
   activation_frontend_id="$(manifest_value frontend_build_id "$ACTIVATE_STAGE/manifest.env")"
@@ -728,21 +747,29 @@ if [ "$MODE" = activate ]; then
     error "prepared release readiness verification failed"
     exit 1
   }
+  record_timing switch_and_health "$phase_started_seconds"
+  record_timing total "$RELEASE_STARTED_SECONDS"
   exit 0
 fi
 
 RELEASE_ID="$(date -u '+%Y%m%dT%H%M%SZ')-$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || printf 'nogit')-$$"
 STAGE="$(build_release "$RELEASE_ID")" || exit $?
+phase_started_seconds=$SECONDS
 if ! verify_stage "$STAGE"; then
   log ERROR "staged release verification failed release=$RELEASE_ID"
   error "新版本最低验证失败；当前运行版本未停止"
   exit 1
 fi
+record_timing stage_verification "$phase_started_seconds"
 
 if [ "$MODE" = prepare ]; then
+  record_timing total "$RELEASE_STARTED_SECONDS"
   info "构建验证完成，未切换: release=$RELEASE_ID"
   printf 'prepared_stage=%s\n' "$STAGE"
   exit 0
 fi
 
+phase_started_seconds=$SECONDS
 deploy_release "$STAGE"
+record_timing switch_and_health "$phase_started_seconds"
+record_timing total "$RELEASE_STARTED_SECONDS"

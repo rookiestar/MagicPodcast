@@ -39,6 +39,8 @@ jobs:
           DEPLOY_SHA: ${{ inputs.commit_sha || github.sha }}
           REQUESTED_SHA: ${{ inputs.commit_sha }}
           GH_TOKEN: ${{ github.token }}
+          CI_WAIT_TIMEOUT_SECONDS: 180
+          CI_POLL_INTERVAL_SECONDS: 5
         run: |
           set -euo pipefail
           [ "$GITHUB_REF" = "refs/heads/main" ] || {
@@ -65,7 +67,8 @@ jobs:
 
           ci_run_id=""
           ci_state="not found"
-          for attempt in $(seq 1 13); do
+          ci_wait_attempts=$((CI_WAIT_TIMEOUT_SECONDS / CI_POLL_INTERVAL_SECONDS + 1))
+          for attempt in $(seq 1 "$ci_wait_attempts"); do
             ci_runs="$(
               gh run list --workflow ci.yml --commit "$DEPLOY_SHA" --limit 20 \
                 --json databaseId,status,conclusion,headSha
@@ -86,12 +89,18 @@ jobs:
                   end' \
                 <<<"$ci_runs"
             )"
-            if [ "$attempt" -eq 13 ]; then
-              echo "No successful CI run was found after 60 seconds (latest state: $ci_state)." >&2
+            case "$ci_state" in
+              completed/*)
+                echo "CI completed without success (state: $ci_state)." >&2
+                exit 1
+                ;;
+            esac
+            if [ "$attempt" -eq "$ci_wait_attempts" ]; then
+              echo "No successful CI run was found after ${CI_WAIT_TIMEOUT_SECONDS} seconds (latest state: $ci_state)." >&2
               exit 1
             fi
-            echo "CI is not visible as successful yet (state: $ci_state); retrying in 5 seconds."
-            sleep 5
+            echo "CI is not visible as successful yet (state: $ci_state); retrying in ${CI_POLL_INTERVAL_SECONDS} seconds."
+            sleep "$CI_POLL_INTERVAL_SECONDS"
           done
 
           echo "deploy_sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"

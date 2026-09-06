@@ -277,12 +277,12 @@ func TestExportAndRefreshSanitizesAndDoesNotSwitchActiveProfile(t *testing.T) {
 
 	port, err := FreeLoopbackPort()
 	require.NoError(t, err)
-	controller := Controller{
+	controller := withSharedTestBackend(t, Controller{
 		ProjectDir:  projectDir,
 		ProfileHome: home,
 		Port:        port,
 		Timeout:     30 * time.Second,
-	}
+	})
 	t.Cleanup(func() {
 		if state, readErr := controller.readState(); readErr == nil {
 			_ = controller.stop(state)
@@ -414,12 +414,12 @@ func TestRefreshFailuresKeepActiveAPIAvailableAndLatestUnchanged(t *testing.T) {
 	require.NoError(t, err)
 	port, err := FreeLoopbackPort()
 	require.NoError(t, err)
-	controller := Controller{
+	controller := withSharedTestBackend(t, Controller{
 		ProjectDir:  projectDir,
 		ProfileHome: home,
 		Port:        port,
 		Timeout:     30 * time.Second,
-	}
+	})
 	require.NoError(t, controller.writeLatest(previous))
 	active, err := controller.UseSnapshot(context.Background(), previous.ID)
 	require.NoError(t, err)

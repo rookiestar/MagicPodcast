@@ -115,7 +115,7 @@ data_profile=production
 
 发布脚本不会执行数据库迁移，也不会把 fixture/snapshot 自动切成 production 以外的 Profile。迁移仍按 [迁移指南](migration/MIGRATION_GUIDE.md) 单独审批和执行。
 
-若 CI 刚完成但 GitHub API 尚未返回成功记录，预检会在 60 秒内每 5 秒重查一次；超过时限仍未成功才会终止，不会进入生产 Runner。
+若目标 SHA 的 CI 仍在排队或执行，预检会在 180 秒内每 5 秒重查一次；CI 已失败时立即终止，超过时限仍未成功也不会进入生产 Runner。发布日志会输出后端构建、前端构建、产物校验、切换与健康检查的分段耗时，供后续缓存优化使用。
 
 ## 回退
 
