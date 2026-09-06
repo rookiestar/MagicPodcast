@@ -164,6 +164,9 @@ export default function TranscriptAudioPlayer({
   const programmaticScrollFrame = useRef<number | null>(null);
   const currentTimeRef = useRef(0);
   const actualDurationRef = useRef<number | null>(null);
+  // An explicit first-play intent may resume transcript following once media
+  // truly starts. A later manual scroll clears the intent before `playing`.
+  const pendingFollowResumeRef = useRef(false);
   // The pending position to apply once the armed audio source exposes
   // metadata, so a pre-play seek or chapter choice survives lazy loading.
   const pendingSeekRef = useRef<number | null>(null);
@@ -279,6 +282,7 @@ export default function TranscriptAudioPlayer({
       if (preparePhaseRef.current === "active") {
         pendingSeekRef.current = preparingWithoutMetadata ? bounded : null;
       }
+      pendingFollowResumeRef.current = false;
       updatePosition(bounded, true);
     },
     [updatePosition],
@@ -290,6 +294,7 @@ export default function TranscriptAudioPlayer({
     preparePhaseRef.current = "stopped";
     detachAudioSource();
     pendingSeekRef.current = null;
+    pendingFollowResumeRef.current = false;
     setIsPlaying(false);
     setPrepareTimedOut(true);
     setMediaState("error");
@@ -309,6 +314,7 @@ export default function TranscriptAudioPlayer({
       clearPrepareTimeout();
       preparePhaseRef.current = "active";
       pendingSeekRef.current = bounded;
+      pendingFollowResumeRef.current = true;
       setPrepareTimedOut(false);
       setIsPlaying(false);
       setMediaState("preparing");
@@ -323,6 +329,7 @@ export default function TranscriptAudioPlayer({
         // timeout state; only an active preparation reports a failure.
         if (preparePhaseRef.current !== "active") return;
         finishPreparation();
+        pendingFollowResumeRef.current = false;
         setIsPlaying(false);
         setPrepareTimedOut(false);
         setMediaState("error");
@@ -359,9 +366,8 @@ export default function TranscriptAudioPlayer({
         return;
       }
       const target = fromSeconds ?? currentTimeRef.current;
-      setFollowEnabled(true);
       if (mediaState === "idle") {
-        updatePosition(target, true);
+        updatePosition(target);
         prepareAndPlay(target);
         return;
       }
@@ -376,7 +382,6 @@ export default function TranscriptAudioPlayer({
       mediaState,
       prepareAndPlay,
       seekTo,
-      setFollowEnabled,
       updatePosition,
     ],
   );
@@ -399,6 +404,7 @@ export default function TranscriptAudioPlayer({
     preparePhaseRef.current = "inactive";
     pendingSeekRef.current = null;
     actualDurationRef.current = null;
+    pendingFollowResumeRef.current = false;
     detachAudioSource();
     setMediaState(mediaAvailable ? "idle" : "unavailable");
     setPrepareTimedOut(false);
@@ -458,29 +464,10 @@ export default function TranscriptAudioPlayer({
     [],
   );
 
-  // Ends a bounded preparation by user choice: the in-flight request is
-  // aborted and the player returns to the idle, play-enabled state without a
-  // failure message.
-  const cancelPreparation = useCallback(() => {
-    if (preparePhaseRef.current !== "active") return;
-    preparePhaseRef.current = "stopped";
-    clearPrepareTimeout();
-    detachAudioSource();
-    pendingSeekRef.current = null;
-    setIsPlaying(false);
-    setMediaState("idle");
-  }, [clearPrepareTimeout, detachAudioSource]);
-
   const handlePlayPause = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
     if (mediaState === "preparing") {
-      // Before the browser confirms playback, a repeat click is a duplicate
-      // play intent and merges into the in-flight request. Once the pause
-      // control is showing, the click cancels the bounded wait instead.
-      if (isPlaying) {
-        cancelPreparation();
-      }
       return;
     }
     if (!audio.paused) {
@@ -488,7 +475,7 @@ export default function TranscriptAudioPlayer({
       return;
     }
     startPlayback(null);
-  }, [cancelPreparation, isPlaying, mediaState, startPlayback]);
+  }, [mediaState, startPlayback]);
 
   const handleRetry = useCallback(() => {
     // One new request that keeps the transcript, chosen rate, and pending
@@ -540,6 +527,7 @@ export default function TranscriptAudioPlayer({
 
   const pauseFollowing = useCallback(() => {
     if (!programmaticScrollRef.current) {
+      pendingFollowResumeRef.current = false;
       setFollowEnabled(false);
     }
   }, [setFollowEnabled]);
@@ -600,6 +588,7 @@ export default function TranscriptAudioPlayer({
               }
             }}
             onCanPlay={() => {
+              if (preparePhaseRef.current === "stopped") return;
               finishPreparation();
               setMediaState("ready");
             }}
@@ -614,25 +603,24 @@ export default function TranscriptAudioPlayer({
             onError={() => {
               if (preparePhaseRef.current === "stopped") return;
               finishPreparation();
+              pendingFollowResumeRef.current = false;
               setIsPlaying(false);
               setPrepareTimedOut(false);
               setMediaState("error");
             }}
-            onPlay={(event) => {
-              if (preparePhaseRef.current === "active") {
-                // Browsers raise `play` as soon as playback is intended, even
-                // before media data arrives. The bounded preparation window
-                // stays in charge until the media is actually playable.
-                setIsPlaying(true);
-                return;
-              }
+            onPlaying={(event) => {
+              if (preparePhaseRef.current === "stopped") return;
+              const resumeFollow = pendingFollowResumeRef.current;
+              pendingFollowResumeRef.current = false;
               finishPreparation();
               setIsPlaying(true);
               setMediaState("ready");
-              setFollowEnabled(true);
-              updatePosition(event.currentTarget.currentTime, true);
+              updatePosition(event.currentTarget.currentTime, resumeFollow);
             }}
-            onPause={() => setIsPlaying(false)}
+            onPause={() => {
+              if (preparePhaseRef.current === "stopped") return;
+              setIsPlaying(false);
+            }}
             onEnded={(event) => {
               setIsPlaying(false);
               updatePosition(event.currentTarget.currentTime);
@@ -648,7 +636,11 @@ export default function TranscriptAudioPlayer({
           type="button"
           className={styles.transcriptPlayButton}
           aria-label={isPlaying ? "暂停音频" : "播放音频"}
-          disabled={!mediaAvailable || mediaState === "error"}
+          disabled={
+            !mediaAvailable ||
+            mediaState === "preparing" ||
+            mediaState === "error"
+          }
           onClick={handlePlayPause}
         >
           {isPlaying ? (
@@ -710,11 +702,9 @@ export default function TranscriptAudioPlayer({
           </button>
         )}
 
-        {mediaStatus && (
-          <span className={styles.transcriptMediaStatus} role="status">
-            {mediaStatus}
-          </span>
-        )}
+        <span className={styles.transcriptMediaStatus} role="status">
+          {mediaStatus}
+        </span>
       </div>
 
       {visibleChapters.length > 0 && (
