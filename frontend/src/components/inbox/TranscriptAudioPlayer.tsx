@@ -40,7 +40,7 @@ type MediaState =
 
 type PreparationPhase = "inactive" | "active" | "stopped";
 
-const PREPARE_TIMEOUT_MS = 15_000;
+const PREPARE_TIMEOUT_MS = 30_000;
 
 export const TRANSCRIPT_PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2] as const;
 export type TranscriptPlaybackRate = (typeof TRANSCRIPT_PLAYBACK_RATES)[number];
