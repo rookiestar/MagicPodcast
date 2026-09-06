@@ -1,7 +1,19 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ConsumptionDetailPanel from "../ConsumptionDetailPanel";
 import type { ConsumptionItem } from "@/types/consumption";
+import type {
+  ArtifactContent,
+  EpisodeArtifactSet,
+  ProcessingRun,
+} from "@/types/processing";
 
 const apiMocks = vi.hoisted(() => ({
   getItem: vi.fn(),
@@ -580,5 +592,465 @@ describe("ConsumptionDetailPanel", () => {
     expect(
       screen.getByRole("combobox", { name: "选择已有标签" }),
     ).toBeVisible();
+  });
+
+  describe("transcript artifact switcher flow", () => {
+    const focusRun: ProcessingRun = {
+      id: 301,
+      episode_id: item.episode_id,
+      pipeline_version: "focus-processing-v2",
+      trigger_source: "manual",
+      status: "completed",
+      current_step: "",
+      attempt_count: 1,
+      max_attempts: 3,
+      error_retryable: false,
+      created_at: "2026-09-05T10:00:00Z",
+      updated_at: "2026-09-05T10:05:00Z",
+    };
+
+    const nativeArtifact: EpisodeArtifactSet = {
+      id: 301,
+      run_id: focusRun.id,
+      episode_id: item.episode_id,
+      pipeline_version: focusRun.pipeline_version,
+      manifest_path: "manifest.json",
+      manifest_sha256: "a".repeat(64),
+      minutes_summary_sha256: "b".repeat(64),
+      transcript_sha256: "c".repeat(64),
+      notes_sha256: "",
+      capabilities: {
+        minutes_summary: true,
+        transcript: true,
+        structured_timeline: true,
+        matching_audio: true,
+        legacy_episode_notes: false,
+      },
+      is_current: true,
+      created_at: "2026-09-05T10:05:00Z",
+    };
+
+    const visualMinutesContent: ArtifactContent = {
+      kind: "minutes_summary",
+      content: "# 纪要\n\n正文锚点",
+      sha256: nativeArtifact.minutes_summary_sha256 ?? "",
+      media_available: false,
+      whiteboard: {
+        media_id: "whiteboard",
+        media_type: "image/png",
+        width: 320,
+        height: 180,
+        sha256: "d".repeat(64),
+        alt: "总结画板",
+      },
+      visual_items: [
+        {
+          type: "whiteboard",
+          media_id: "whiteboard",
+          media_type: "image/png",
+          width: 320,
+          height: 180,
+          sha256: "d".repeat(64),
+          alt: "总结画板",
+        },
+        {
+          type: "image",
+          media_id: "image-1",
+          media_type: "image/png",
+          width: 240,
+          height: 135,
+          sha256: "e".repeat(64),
+          alt: "正文插图",
+        },
+      ],
+      inline_images: [
+        {
+          media_id: "image-1",
+          section: "body",
+          anchor_text: "正文锚点",
+          anchor_occurrence: 1,
+        },
+      ],
+    };
+
+    const plainMinutesContent: ArtifactContent = {
+      kind: "minutes_summary",
+      content: "# 纪要\n\n正文锚点",
+      sha256: nativeArtifact.minutes_summary_sha256 ?? "",
+      media_available: false,
+      visual_items: [
+        {
+          type: "image",
+          media_id: "image-1",
+          media_type: "image/png",
+          width: 240,
+          height: 135,
+          sha256: "e".repeat(64),
+          alt: "正文插图",
+        },
+      ],
+      inline_images: [
+        { media_id: "image-1", anchor_text: "正文锚点", anchor_occurrence: 1 },
+      ],
+    };
+
+    const transcriptContent: ArtifactContent = {
+      kind: "transcript",
+      content: "# 妙记逐字稿",
+      sha256: nativeArtifact.transcript_sha256,
+      media_available: true,
+      segments: [
+        { order: 1, speaker: "主持人", start_ms: 0, text: "逐字稿正文" },
+      ],
+    };
+
+    function mockTranscriptFlow(
+      currentArtifact: EpisodeArtifactSet = nativeArtifact,
+      run: ProcessingRun = focusRun,
+      minutes: ArtifactContent = visualMinutesContent,
+    ) {
+      apiMocks.listEpisodeRuns.mockResolvedValue([run]);
+      apiMocks.getRun.mockResolvedValue({
+        run,
+        current_artifact: currentArtifact,
+        deliveries: [],
+      });
+      apiMocks.getArtifactContent.mockImplementation(
+        (_artifactSetId: number, kind: string) =>
+          Promise.resolve(kind === "transcript" ? transcriptContent : minutes),
+      );
+    }
+
+    async function openTranscriptArea() {
+      const dialog = screen.getByRole("dialog", { name: item.episode_title });
+      fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
+      return dialog;
+    }
+
+    it.each([1280, 390])(
+      "keeps the switcher subordinate to the main tabs with stable content ownership at %ipx",
+      async (viewportWidth) => {
+        const previousWidth = window.innerWidth;
+        Object.defineProperty(window, "innerWidth", {
+          configurable: true,
+          value: viewportWidth,
+        });
+        window.dispatchEvent(new Event("resize"));
+        mockTranscriptFlow();
+        const view = render(
+          <ConsumptionDetailPanel
+            item={item}
+            isQueueBusy={false}
+            onClose={vi.fn()}
+            onItemChange={vi.fn()}
+            onMove={vi.fn()}
+          />,
+        );
+
+        try {
+          const dialog = await openTranscriptArea();
+
+          const mainTablist = within(dialog).getByRole("tablist", {
+            name: "单集详情内容",
+          });
+          const subTablist = within(dialog).getByRole("tablist", {
+            name: "转写产物",
+          });
+          expect(within(mainTablist).getByRole("tab", { name: "转写" })).toBeVisible();
+          expect(await within(dialog).findByText("飞书智能纪要")).toBeVisible();
+          expect(within(dialog).getByText("当前版本")).toBeVisible();
+
+          const subTabs = within(subTablist).getAllByRole("tab");
+          expect(subTabs.map((tab) => tab.textContent)).toEqual([
+            "总结",
+            "纪要",
+            "逐字稿",
+          ]);
+          const summaryTab = subTabs[0];
+          await waitFor(() =>
+            expect(summaryTab).toHaveAttribute("aria-selected", "true"),
+          );
+          expect(
+            await within(dialog).findByRole("img", { name: "总结画板" }),
+          ).toBeVisible();
+          expect(
+            within(dialog).queryByRole("img", { name: "正文插图" }),
+          ).not.toBeInTheDocument();
+
+          fireEvent.click(within(dialog).getByRole("tab", { name: "纪要" }));
+          expect(
+            await within(dialog).findByRole("img", { name: "正文插图" }),
+          ).toBeVisible();
+          expect(within(dialog).getByText("正文锚点")).toBeVisible();
+          expect(
+            within(dialog).queryByRole("img", { name: "总结画板" }),
+          ).not.toBeInTheDocument();
+
+          fireEvent.click(within(dialog).getByRole("tab", { name: "逐字稿" }));
+          expect(
+            await within(dialog).findByText("逐字稿 · 1 段"),
+          ).toBeVisible();
+          expect(within(dialog).getByText("逐字稿正文")).toBeVisible();
+          expect(
+            within(dialog).queryByText(/暂时显示上一成功内容/),
+          ).not.toBeInTheDocument();
+        } finally {
+          view.unmount();
+          Object.defineProperty(window, "innerWidth", {
+            configurable: true,
+            value: previousWidth,
+          });
+          window.dispatchEvent(new Event("resize"));
+        }
+      },
+    );
+
+    it("marks updating products, keeps the previous version readable, and never auto-switches after user selection", async () => {
+      const updatingRun: ProcessingRun = {
+        ...focusRun,
+        id: 311,
+        status: "waiting_external",
+        current_step: "transcription",
+      };
+      const nextRun: ProcessingRun = { ...focusRun, id: 312 };
+      const nextArtifact: EpisodeArtifactSet = {
+        ...nativeArtifact,
+        id: 312,
+        run_id: nextRun.id,
+        created_at: "2026-09-05T11:05:00Z",
+      };
+      const nextMinutes: ArtifactContent = {
+        ...visualMinutesContent,
+        content: "# 新版纪要\n\n新版正文锚点",
+      };
+      const nextTranscript: ArtifactContent = {
+        ...transcriptContent,
+        segments: [
+          { order: 1, speaker: "主持人", start_ms: 0, text: "新版逐字稿正文" },
+        ],
+      };
+      apiMocks.listEpisodeRuns.mockResolvedValue([updatingRun]);
+      apiMocks.getRun
+        .mockResolvedValueOnce({
+          run: updatingRun,
+          current_artifact: nativeArtifact,
+          deliveries: [],
+        })
+        .mockResolvedValue({
+          run: nextRun,
+          current_artifact: nextArtifact,
+          deliveries: [],
+        });
+      apiMocks.getArtifactContent.mockImplementation(
+        (_artifactSetId: number, kind: string) => {
+          const isNew = _artifactSetId === nextArtifact.id;
+          return Promise.resolve(
+            kind === "transcript"
+              ? isNew
+                ? nextTranscript
+                : transcriptContent
+              : isNew
+                ? nextMinutes
+                : visualMinutesContent,
+          );
+        },
+      );
+      renderDetail();
+      const dialog = await openTranscriptArea();
+
+      fireEvent.click(await within(dialog).findByRole("tab", { name: "纪要" }));
+      const minutesTab = within(dialog).getByRole("tab", { name: "纪要" });
+      expect(await within(dialog).findByText("正文锚点")).toBeVisible();
+      expect(
+        within(dialog).getByText("正在生成新版纪要，当前展示上一成功版本。"),
+      ).toBeVisible();
+      expect(minutesTab.querySelector('[data-state="working"]')).not.toBeNull();
+      expect(
+        within(dialog).getByText("纪要，正在生成新版，当前展示上一成功版本"),
+      ).toBeVisible();
+
+      fireEvent.click(within(dialog).getByRole("tab", { name: "逐字稿" }));
+      expect(await within(dialog).findByText("逐字稿正文")).toBeVisible();
+
+      expect(
+        await within(dialog).findByText("新版逐字稿正文", undefined, {
+          timeout: 6000,
+        }),
+      ).toBeVisible();
+      expect(
+        within(dialog).getByRole("tab", { name: "逐字稿" }),
+      ).toHaveAttribute("aria-selected", "true");
+      expect(
+        within(dialog).queryByText("正在生成新版纪要，当前展示上一成功版本。"),
+      ).not.toBeInTheDocument();
+      expect(within(dialog).getByText("纪要，已可用")).toBeVisible();
+      expect(
+        within(dialog).getByRole("status", { name: "转写产物状态" }),
+      ).toHaveTextContent("逐字稿，已可用");
+    });
+
+    it("keeps expected products visible with stable processing states on a first run", async () => {
+      const queuedRun: ProcessingRun = {
+        ...focusRun,
+        id: 321,
+        status: "queued",
+        current_step: "transcription",
+      };
+      apiMocks.getRun.mockResolvedValue({ run: queuedRun, deliveries: [] });
+      apiMocks.startProcessing.mockResolvedValue({
+        run: queuedRun,
+        reused_active: false,
+        reused_successful: false,
+        preparing_audio: false,
+      });
+      renderDetail();
+
+      fireEvent.click(
+        await screen.findByRole("button", { name: "开始转写" }),
+      );
+      const dialog = await openTranscriptArea();
+      const subTablist = await within(dialog).findByRole("tablist", {
+        name: "转写产物",
+      });
+      const subTabs = within(subTablist).getAllByRole("tab");
+      expect(subTabs.map((tab) => tab.textContent)).toEqual([
+        "总结",
+        "纪要",
+        "逐字稿",
+      ]);
+      for (const tab of subTabs) {
+        expect(tab.querySelector('[data-state="working"]')).not.toBeNull();
+      }
+      expect(
+        within(dialog).getByText("总结，生成中"),
+      ).toBeVisible();
+      expect(
+        within(dialog).queryByText("正在读取纪要…"),
+      ).not.toBeInTheDocument();
+
+      for (const tab of subTabs) {
+        fireEvent.click(tab);
+        expect(within(dialog).getByText("转写进行中")).toBeVisible();
+      }
+    });
+
+    it("isolates a read failure to its own view and keeps the existing retry", async () => {
+      let transcriptReads = 0;
+      mockTranscriptFlow();
+      apiMocks.getArtifactContent.mockImplementation(
+        (_artifactSetId: number, kind: string) => {
+          if (kind === "transcript") {
+            transcriptReads += 1;
+            return transcriptReads === 1
+              ? Promise.reject(new Error("逐字稿暂时打不开"))
+              : Promise.resolve(transcriptContent);
+          }
+          return Promise.resolve(visualMinutesContent);
+        },
+      );
+      renderDetail();
+      const dialog = await openTranscriptArea();
+
+      fireEvent.click(await within(dialog).findByRole("tab", { name: "纪要" }));
+      expect(await within(dialog).findByText("正文锚点")).toBeVisible();
+      fireEvent.click(within(dialog).getByRole("tab", { name: "逐字稿" }));
+      expect(
+        await within(dialog).findByText("暂时无法读取逐字稿，请重试。"),
+      ).toBeVisible();
+      expect(
+        within(dialog).getByRole("button", { name: "重试读取逐字稿" }),
+      ).toBeEnabled();
+      expect(
+        within(dialog).getByText("逐字稿，读取失败", {
+          selector: '[id^="processing-artifact-tab-state-"]',
+        }),
+      ).toBeVisible();
+      expect(
+        within(dialog).getByRole("status", { name: "转写产物状态" }),
+      ).toHaveTextContent("逐字稿，读取失败");
+
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: "重试读取逐字稿" }),
+      );
+      expect(await within(dialog).findByText("逐字稿正文")).toBeVisible();
+      expect(
+        within(dialog).queryByText("暂时无法读取逐字稿，请重试。"),
+      ).not.toBeInTheDocument();
+
+      fireEvent.click(within(dialog).getByRole("tab", { name: "纪要" }));
+      expect(await within(dialog).findByText("正文锚点")).toBeVisible();
+    });
+
+    it("keeps the summary entry during slow reads and hides it only after confirming no managed visuals", async () => {
+      mockTranscriptFlow();
+      let resolveMinutes!: (content: ArtifactContent) => void;
+      apiMocks.getArtifactContent.mockImplementation(
+        (_artifactSetId: number, kind: string) =>
+          kind === "transcript"
+            ? Promise.resolve(transcriptContent)
+            : new Promise<ArtifactContent>((resolve) => {
+                resolveMinutes = resolve;
+              }),
+      );
+      renderDetail();
+      const dialog = await openTranscriptArea();
+
+      const summaryTab = await within(dialog).findByRole("tab", {
+        name: "总结",
+      });
+      expect(within(dialog).getByText("正在读取纪要…")).toBeVisible();
+      fireEvent.click(summaryTab);
+      expect(
+        within(dialog).getByRole("tabpanel", { name: "总结" }),
+      ).toBeVisible();
+
+      await act(async () => {
+        resolveMinutes(plainMinutesContent);
+      });
+      expect(
+        await within(dialog).findByText(
+          "本版本没有受管画板或图片，视觉总结不存在，已切换到纪要。",
+        ),
+      ).toBeVisible();
+      expect(
+        within(dialog).queryByRole("tab", { name: "总结" }),
+      ).not.toBeInTheDocument();
+      expect(
+        within(dialog).getByRole("tab", { name: "纪要" }),
+      ).toHaveAttribute("aria-selected", "true");
+      expect(
+        await within(dialog).findByRole("img", { name: "正文插图" }),
+      ).toBeVisible();
+    });
+
+    it("keeps every visible state reachable by keyboard", async () => {
+      mockTranscriptFlow();
+      renderDetail();
+      const dialog = await openTranscriptArea();
+
+      const summaryTab = await within(dialog).findByRole("tab", {
+        name: "总结",
+      });
+      await within(dialog).findByRole("img", { name: "总结画板" });
+      const minutesTab = within(dialog).getByRole("tab", { name: "纪要" });
+      const transcriptTab = within(dialog).getByRole("tab", {
+        name: "逐字稿",
+      });
+
+      summaryTab.focus();
+      fireEvent.keyDown(summaryTab, { key: "ArrowRight" });
+      expect(minutesTab).toHaveFocus();
+      expect(minutesTab).toHaveAttribute("aria-selected", "true");
+      fireEvent.keyDown(minutesTab, { key: "ArrowLeft" });
+      expect(summaryTab).toHaveFocus();
+      fireEvent.keyDown(summaryTab, { key: "End" });
+      expect(transcriptTab).toHaveFocus();
+      expect(transcriptTab).toHaveAttribute("aria-selected", "true");
+      fireEvent.keyDown(transcriptTab, { key: "Home" });
+      expect(summaryTab).toHaveFocus();
+      expect(summaryTab).toHaveAttribute("tabindex", "0");
+      expect(minutesTab).toHaveAttribute("tabindex", "-1");
+      expect(transcriptTab).toHaveAttribute("tabindex", "-1");
+    });
   });
 });

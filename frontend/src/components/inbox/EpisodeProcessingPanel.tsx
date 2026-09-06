@@ -33,6 +33,8 @@ import TranscriptAudioPlayer, {
 
 type ArtifactTab = "summary" | "minutes" | "transcript";
 
+type ArtifactTabState = "ready" | "updating" | "pending" | "failed";
+
 type ArtifactContentSlot = "minutes" | "transcript";
 
 const artifactTabs: ReadonlyArray<{ id: ArtifactTab; label: string }> = [
@@ -229,13 +231,16 @@ const EpisodeProcessingPanel = forwardRef<
   const [isMutating, setIsMutating] = useState(false);
   const [isRecoveringAudio, setIsRecoveringAudio] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [artifactReadFailure, setArtifactReadFailure] = useState<
-    ArtifactContentKind | null
-  >(null);
+  const [artifactReadFailures, setArtifactReadFailures] = useState<
+    Set<ArtifactContentKind>
+  >(() => new Set());
   const [artifactContents, setArtifactContents] =
     useState<ArtifactContents>(emptyArtifactContents);
   const [activeArtifactTab, setActiveArtifactTab] =
-    useState<ArtifactTab>("summary");
+    useState<ArtifactTab>("minutes");
+  const [summaryAbsentNotice, setSummaryAbsentNotice] = useState(false);
+  const [artifactStateAnnouncement, setArtifactStateAnnouncement] =
+    useState("");
   const [transcriptPlaybackRate, setTranscriptPlaybackRate] =
     useState<TranscriptPlaybackRate>(DEFAULT_TRANSCRIPT_PLAYBACK_RATE);
 
@@ -261,6 +266,8 @@ const EpisodeProcessingPanel = forwardRef<
     },
   );
   const artifactTabWasUserSelected = useRef(false);
+  const announcedArtifactState = useRef("");
+  const trackedArtifactID = useRef<number | null>(null);
   const activeEpisodeID = useRef(item.episode_id);
   activeEpisodeID.current = item.episode_id;
 
@@ -353,9 +360,12 @@ const EpisodeProcessingPanel = forwardRef<
     setDetail(null);
     setHasProcessingHistory(false);
     setAudioAsset(null);
-    setArtifactReadFailure(null);
+    setArtifactReadFailures(new Set());
     setArtifactContents(emptyArtifactContents);
-    setActiveArtifactTab("summary");
+    setActiveArtifactTab("minutes");
+    setSummaryAbsentNotice(false);
+    setArtifactStateAnnouncement("");
+    announcedArtifactState.current = "";
     artifactTabWasUserSelected.current = false;
     setTranscriptPlaybackRate(DEFAULT_TRANSCRIPT_PLAYBACK_RATE);
     artifactReadSequence.current += 1;
@@ -472,7 +482,12 @@ const EpisodeProcessingPanel = forwardRef<
           kind,
         );
         if (artifactReadSequence.current !== sequence) return;
-        setArtifactReadFailure(null);
+        setArtifactReadFailures((current) => {
+          if (!current.has(kind)) return current;
+          const next = new Set(current);
+          next.delete(kind);
+          return next;
+        });
         const slot = artifactContentSlot(
           content.kind === "transcript" ? "transcript" : "minutes",
         );
@@ -485,7 +500,11 @@ const EpisodeProcessingPanel = forwardRef<
         }));
       } catch (readError) {
         if (artifactReadSequence.current !== sequence) return;
-        setArtifactReadFailure(kind);
+        setArtifactReadFailures((current) => {
+          const next = new Set(current);
+          next.add(kind);
+          return next;
+        });
         setError(
           `产物读取失败：${getProcessingErrorDetails(readError).message}`,
         );
@@ -506,6 +525,16 @@ const EpisodeProcessingPanel = forwardRef<
 
   const run = detail?.run;
   const currentArtifact = detail?.current_artifact;
+
+  useEffect(() => {
+    const artifactID = currentArtifact?.id ?? null;
+    if (trackedArtifactID.current === artifactID) return;
+    trackedArtifactID.current = artifactID;
+    setArtifactReadFailures(new Set());
+    setArtifactStateAnnouncement("");
+    announcedArtifactState.current = "";
+  }, [currentArtifact?.id]);
+
   const requestAudioRecovery = useCallback(async () => {
     if (isRecoveringAudio || !currentArtifact) return;
     setIsRecoveringAudio(true);
@@ -546,30 +575,57 @@ const EpisodeProcessingPanel = forwardRef<
       ? "episode_notes"
       : null;
   const transcriptAvailable = currentArtifact?.capabilities.transcript === true;
+  const audioPreparing =
+    run?.current_step === "audio_prepare" ||
+    audioAsset?.status === "queued" ||
+    audioAsset?.status === "downloading";
+  const runActive = isActive(run);
+  const runTerminalUnsuccessful =
+    run?.status === "failed" || run?.status === "cancelled";
+  const processingUnderway = runActive || audioPreparing;
   const minutesArtifactContent = artifactContents.minutes;
+  const transcriptArtifactContent = artifactContents.transcript;
   const minutesContentMatchesCurrent = Boolean(
     currentArtifact &&
       minutesArtifactContent?.artifactSetId === currentArtifact.id &&
       minutesArtifactContent.content.kind === summaryKind,
   );
-  const visualSummaryAvailable = Boolean(
-    minutesContentMatchesCurrent &&
-      (minutesArtifactContent?.content.whiteboard ||
-        minutesArtifactContent?.content.visual_items?.some(
-          (item) => item.type === "whiteboard",
-        )),
+  const transcriptContentMatchesCurrent = Boolean(
+    currentArtifact &&
+      transcriptArtifactContent?.artifactSetId === currentArtifact.id &&
+      transcriptArtifactContent.content.kind === "transcript",
   );
-  const summaryContentSettled =
-    summaryKind !== "minutes_summary" ||
-    minutesContentMatchesCurrent ||
-    artifactReadFailure === summaryKind;
+  const minutesVisualAvailable = Boolean(
+    minutesArtifactContent?.content.whiteboard ||
+      minutesArtifactContent?.content.visual_items?.some(
+        (visualItem) => visualItem.type === "whiteboard",
+      ),
+  );
+  const visualSummaryAvailable =
+    minutesContentMatchesCurrent && minutesVisualAvailable;
+  const nativeOutputsExpected = Boolean(
+    (run && run.pipeline_version !== legacyProcessingPipelineVersion) ||
+      (!run && audioPreparing),
+  );
+  const summaryExpected = Boolean(
+    (currentArtifact && summaryKind === "minutes_summary") ||
+      nativeOutputsExpected,
+  );
+  const summaryAbsent =
+    minutesContentMatchesCurrent &&
+    summaryKind === "minutes_summary" &&
+    !minutesVisualAvailable;
   const requestedArtifactKind: ArtifactContentKind | null = !currentArtifact
     ? null
-    : activeArtifactTab === "summary" || activeArtifactTab === "minutes"
-      ? summaryKind
-      : transcriptAvailable
-        ? "transcript"
-        : null;
+    : activeArtifactTab === "summary"
+      ? summaryKind === "minutes_summary"
+        ? "minutes_summary"
+        : null
+      : activeArtifactTab === "minutes"
+        ? summaryKind
+        : transcriptAvailable
+          ? "transcript"
+          : null;
   const selectedArtifactContent =
     artifactContents[artifactContentSlot(activeArtifactTab)];
   const artifactContentMatchesSelection =
@@ -596,10 +652,12 @@ const EpisodeProcessingPanel = forwardRef<
       run.status === "failed" ||
       run.status === "cancelled") &&
     !externalResultUnknown;
-  const audioPreparing =
-    run?.current_step === "audio_prepare" ||
-    audioAsset?.status === "queued" ||
-    audioAsset?.status === "downloading";
+  const summaryVisible = summaryExpected && !summaryAbsent;
+  const coreProductAwaitingVersion =
+    processingUnderway || (runTerminalUnsuccessful && !currentArtifact);
+  const minutesVisible = Boolean(summaryKind) || coreProductAwaitingVersion;
+  const transcriptVisible =
+    transcriptAvailable || coreProductAwaitingVersion;
   const canRetry =
     item.queue_state === "focus" &&
     (run?.status === "failed" || run?.status === "cancelled") &&
@@ -707,22 +765,74 @@ const EpisodeProcessingPanel = forwardRef<
     requestedArtifactKind,
   ]);
 
-  const isArtifactTabAvailable = useCallback(
+  const isArtifactTabVisible = useCallback(
     (tab: ArtifactTab) =>
       tab === "summary"
-        ? visualSummaryAvailable
+        ? summaryVisible
         : tab === "minutes"
-          ? Boolean(summaryKind)
-          : transcriptAvailable,
-    [summaryKind, transcriptAvailable, visualSummaryAvailable],
+          ? minutesVisible
+          : transcriptVisible,
+    [minutesVisible, summaryVisible, transcriptVisible],
   );
+
+  const artifactTabState = (tab: ArtifactTab): ArtifactTabState => {
+    if (tab === "transcript") {
+      if (artifactReadFailures.has("transcript")) return "failed";
+      if (transcriptContentMatchesCurrent) {
+        return runActive ? "updating" : "ready";
+      }
+      if (runActive && transcriptAvailable) return "updating";
+    } else if (tab === "summary") {
+      if (artifactReadFailures.has("minutes_summary")) return "failed";
+      if (visualSummaryAvailable) return runActive ? "updating" : "ready";
+      if (
+        runActive &&
+        currentArtifact?.capabilities.minutes_summary === true
+      ) {
+        return "updating";
+      }
+    } else if (
+      summaryKind !== null &&
+      artifactReadFailures.has(summaryKind)
+    ) {
+      return "failed";
+    } else if (minutesContentMatchesCurrent) {
+      return runActive ? "updating" : "ready";
+    } else if (runActive && summaryKind !== null) {
+      return "updating";
+    }
+    if (currentArtifact && isReadingArtifact) return "pending";
+    if (runTerminalUnsuccessful) return "failed";
+    if (processingUnderway) return "pending";
+    return "ready";
+  };
+
+  const artifactTabStateDescription = (tab: ArtifactTab) => {
+    switch (artifactTabState(tab)) {
+      case "updating":
+        return "正在生成新版，当前展示上一成功版本";
+      case "pending":
+        return currentArtifact && isReadingArtifact ? "正在读取" : "生成中";
+      case "failed":
+        if (
+          tab === "transcript"
+            ? artifactReadFailures.has("transcript")
+            : artifactReadFailures.has("minutes_summary")
+        ) {
+          return "读取失败";
+        }
+        return run?.status === "cancelled" ? "已取消" : "生成失败";
+      default:
+        return "已可用";
+    }
+  };
 
   const handleArtifactTabKeyDown = (
     event: KeyboardEvent<HTMLButtonElement>,
     currentTab: ArtifactTab,
   ) => {
     const enabledTabs = artifactTabs.filter((tab) =>
-      isArtifactTabAvailable(tab.id),
+      isArtifactTabVisible(tab.id),
     );
     if (enabledTabs.length === 0) return;
     const currentIndex = enabledTabs.findIndex((tab) => tab.id === currentTab);
@@ -746,26 +856,8 @@ const EpisodeProcessingPanel = forwardRef<
   };
 
   useEffect(() => {
-    if (!currentArtifact) {
-      setArtifactContents(emptyArtifactContents);
-      return;
-    }
-    if (!requestedArtifactKind) {
-      const fallback: ArtifactTab | null = summaryKind
-        ? "minutes"
-        : transcriptAvailable
-          ? "transcript"
-          : null;
-      if (fallback && fallback !== activeArtifactTab) {
-        setActiveArtifactTab(fallback);
-      } else {
-        setArtifactContents(emptyArtifactContents);
-      }
-      return;
-    }
-    if (artifactContentMatchesSelection) {
-      return;
-    }
+    if (!currentArtifact || !requestedArtifactKind) return;
+    if (artifactContentMatchesSelection) return;
     void readArtifact(currentArtifact.id, requestedArtifactKind);
   }, [
     activeArtifactTab,
@@ -773,8 +865,6 @@ const EpisodeProcessingPanel = forwardRef<
     currentArtifact,
     readArtifact,
     requestedArtifactKind,
-    summaryKind,
-    transcriptAvailable,
   ]);
 
   const isMinutesResyncFailure = Boolean(
@@ -927,43 +1017,82 @@ const EpisodeProcessingPanel = forwardRef<
     [headerState, onViewTranscript, retryProcessing, startProcessing],
   );
 
-  const availableArtifactTabs = useMemo(
-    () => artifactTabs.filter((tab) => isArtifactTabAvailable(tab.id)),
-    [isArtifactTabAvailable],
+  const visibleArtifactTabs = useMemo(
+    () => artifactTabs.filter((tab) => isArtifactTabVisible(tab.id)),
+    [isArtifactTabVisible],
   );
-  const defaultArtifactTab: ArtifactTab | null = summaryKind
+  const defaultArtifactTab: ArtifactTab | null = minutesVisible
     ? "minutes"
-    : transcriptAvailable
+    : transcriptVisible
       ? "transcript"
-      : null;
-  const renderedArtifactTab = availableArtifactTabs.some(
+      : summaryVisible
+        ? "summary"
+        : null;
+  const renderedArtifactTab = visibleArtifactTabs.some(
     (tab) => tab.id === activeArtifactTab,
   )
     ? activeArtifactTab
     : defaultArtifactTab;
 
   useEffect(() => {
-    if (!currentArtifact || !summaryContentSettled || !renderedArtifactTab) {
+    if (!renderedArtifactTab) return;
+    if (renderedArtifactTab !== activeArtifactTab) {
+      if (
+        artifactTabWasUserSelected.current &&
+        activeArtifactTab === "summary"
+      ) {
+        setSummaryAbsentNotice(true);
+      }
+      setActiveArtifactTab(renderedArtifactTab);
       return;
     }
+    if (!visualSummaryAvailable) return;
+    setSummaryAbsentNotice(false);
     if (
-      visualSummaryAvailable &&
       !artifactTabWasUserSelected.current &&
       activeArtifactTab === "minutes"
     ) {
       setActiveArtifactTab("summary");
+    }
+  }, [activeArtifactTab, renderedArtifactTab, visualSummaryAvailable]);
+
+  const renderedArtifactStateKey = renderedArtifactTab
+    ? `${renderedArtifactTab}:${artifactTabStateDescription(renderedArtifactTab)}`
+    : "";
+  useEffect(() => {
+    if (!renderedArtifactStateKey) return;
+    const previous = announcedArtifactState.current;
+    if (previous === renderedArtifactStateKey) return;
+    announcedArtifactState.current = renderedArtifactStateKey;
+    if (!previous) return;
+    const [previousTab, previousDescription] = previous.split(":");
+    const [nextTab, nextDescription] = renderedArtifactStateKey.split(":");
+    if (previousTab !== nextTab) return;
+    if (nextDescription === "已可用") {
+      if (previousDescription === "正在生成新版，当前展示上一成功版本") {
+        setArtifactStateAnnouncement(
+          `${artifactTabLabel(previousTab as ArtifactTab)}，新版已就绪`,
+        );
+      } else if (
+        previousDescription === "生成中" ||
+        previousDescription === "正在读取"
+      ) {
+        setArtifactStateAnnouncement(
+          `${artifactTabLabel(previousTab as ArtifactTab)}，已可用`,
+        );
+      }
       return;
     }
-    if (renderedArtifactTab !== activeArtifactTab) {
-      setActiveArtifactTab(renderedArtifactTab);
+    if (
+      nextDescription === "读取失败" ||
+      nextDescription === "生成失败" ||
+      nextDescription === "已取消"
+    ) {
+      setArtifactStateAnnouncement(
+        `${artifactTabLabel(previousTab as ArtifactTab)}，${nextDescription}`,
+      );
     }
-  }, [
-    activeArtifactTab,
-    currentArtifact,
-    renderedArtifactTab,
-    summaryContentSettled,
-    visualSummaryAvailable,
-  ]);
+  }, [renderedArtifactStateKey]);
 
   const showRunDetails = Boolean(
     run ||
@@ -993,20 +1122,20 @@ const EpisodeProcessingPanel = forwardRef<
       ? "正在读取转写内容"
       : error && !run && !audioAsset
         ? "转写信息暂时不可用"
-        : run?.current_step === "minutes_enrichment"
-          ? "等待飞书智能纪要"
-          : run?.status === "waiting_external"
-            ? "飞书妙记转写中"
-            : audioPreparing
-              ? "正在准备音频"
-              : isActive(run)
-                ? "转写进行中"
-                : run?.status === "failed"
-                  ? isMinutesResyncFailure
-                    ? "智能纪要同步失败"
-                    : "转写失败"
-                  : run?.status === "cancelled"
-                    ? "转写已取消"
+        : run?.status === "failed"
+          ? isMinutesResyncFailure
+            ? "智能纪要同步失败"
+            : "转写失败"
+          : run?.status === "cancelled"
+            ? "转写已取消"
+            : run?.current_step === "minutes_enrichment"
+              ? "等待飞书智能纪要"
+              : run?.status === "waiting_external"
+                ? "飞书妙记转写中"
+                : audioPreparing
+                  ? "正在准备音频"
+                  : isActive(run)
+                    ? "转写进行中"
                     : run?.status === "completed"
                       ? "转写已完成"
                       : audioAsset?.status === "failed"
@@ -1022,18 +1151,18 @@ const EpisodeProcessingPanel = forwardRef<
       ? "正在同步最近一次运行。"
       : error && !run && !audioAsset
         ? "请重试读取，Show Notes 与笔记不受影响。"
-        : run?.current_step === "minutes_enrichment"
-          ? "核心转写已就绪，正在只读等待飞书智能纪要完整。"
-          : run?.status === "waiting_external"
-            ? "飞书妙记正在生成纪要与逐字稿。"
-            : audioPreparing
-              ? "音频就绪后会自动提交飞书妙记。"
-              : isActive(run)
-                ? "任务在后台继续，可随时返回查看。"
-                : run?.status === "failed" || run?.status === "cancelled"
-                  ? detail?.action_suggestion ||
-                    run.error_message ||
-                    "可从页面顶部重新发起。"
+        : run?.status === "failed" || run?.status === "cancelled"
+          ? detail?.action_suggestion ||
+            run.error_message ||
+            "可从页面顶部重新发起。"
+          : run?.current_step === "minutes_enrichment"
+            ? "核心转写已就绪，正在只读等待飞书智能纪要完整。"
+            : run?.status === "waiting_external"
+              ? "飞书妙记正在生成纪要与逐字稿。"
+              : audioPreparing
+                ? "音频就绪后会自动提交飞书妙记。"
+                : isActive(run)
+                  ? "任务在后台继续，可随时返回查看。"
                   : run?.status === "completed"
                     ? "暂未发现可阅读的转写产物。"
                     : audioAsset?.status === "failed"
@@ -1042,31 +1171,83 @@ const EpisodeProcessingPanel = forwardRef<
                         ? "正在等待创建转写任务。"
                         : "开始转写后，纪要与逐字稿会显示在这里。";
 
+  const processingStateCard = (
+    <div
+      className={styles.processingStateCard}
+      data-state={processingStateKind}
+      role={isLoading || isActive(run) || isMutating ? "status" : undefined}
+    >
+      <span className={styles.processingStateDot} aria-hidden="true" />
+      <div className={styles.processingStateCopy}>
+        <strong>{processingStateTitle}</strong>
+        <p>{processingStateDescription}</p>
+      </div>
+      {run && isActive(run) && (
+        <button
+          type="button"
+          className={styles.secondaryCommand}
+          disabled={isMutating}
+          onClick={() => void mutateRun(() => processingApi.cancel(run.id))}
+        >
+          <IconPlayerStop size={18} stroke={1.8} aria-hidden="true" />
+          取消
+        </button>
+      )}
+    </div>
+  );
+
+  const artifactWaitingCopy = (tab: ArtifactTab) => {
+    const label = artifactTabLabel(tab);
+    if (runTerminalUnsuccessful) {
+      return run?.status === "cancelled"
+        ? `转写已取消，${label}未生成。`
+        : `${label}未能随本次转写生成${canRetry ? "，可从页面顶部重试" : ""}。`;
+    }
+    return `正在生成新版${label}，尚无可读内容。`;
+  };
+
   const artifactPanelContent = (
     <>
-      {currentArtifact && (
-        <div className={styles.processingArtifactMeta}>
-          <span>
-            {run?.id === currentArtifact.run_id ? "当前版本" : "上一成功版本"}
-          </span>
-          <time dateTime={currentArtifact.created_at}>
-            更新于 {formatUpdatedAt(currentArtifact.created_at)}
-          </time>
-          {currentArtifact.capabilities.legacy_episode_notes && (
-            <span className={styles.processingHint}>
-              这是旧版纪要；重新转写后可获得妙记纪要和同步逐字稿。
-            </span>
-          )}
-        </div>
-      )}
+      {currentArtifact &&
+        summaryAbsentNotice &&
+        renderedArtifactTab === "minutes" && (
+          <div className={styles.processingHint} role="status">
+            本版本没有受管画板或图片，视觉总结不存在，已切换到纪要。
+          </div>
+        )}
+
+      {!currentArtifact && processingStateCard}
 
       {currentArtifact &&
-        !artifactContentMatchesSelection &&
-        isReadingArtifact &&
-        selectedArtifactContent && (
+        selectedArtifactContent &&
+        (runActive ||
+          (!artifactContentMatchesSelection && isReadingArtifact)) && (
           <div className={styles.processingHint} role="status">
-            正在读取{artifactTabLabel(renderedArtifactTab ?? activeArtifactTab)}
-            ，暂时显示上一成功内容…
+            {runActive
+              ? `正在生成新版${artifactTabLabel(
+                  renderedArtifactTab ?? activeArtifactTab,
+                )}，当前展示上一成功版本。`
+              : `正在读取${artifactTabLabel(
+                  renderedArtifactTab ?? activeArtifactTab,
+                )}，暂时显示上一成功内容…`}
+          </div>
+        )}
+
+      {currentArtifact &&
+        renderedArtifactTab &&
+        !selectedArtifactContent &&
+        !showArtifactSkeleton &&
+        !artifactReadFailed &&
+        artifactTabState(renderedArtifactTab) !== "ready" && (
+          <div
+            className={`${styles.processingEmpty} ${
+              artifactTabState(renderedArtifactTab) === "failed"
+                ? styles.processingEmptyFailure
+                : ""
+            }`}
+            role="status"
+          >
+            {artifactWaitingCopy(renderedArtifactTab)}
           </div>
         )}
 
@@ -1119,26 +1300,22 @@ const EpisodeProcessingPanel = forwardRef<
               : undefined
           }
         >
-          <div className={styles.metadataLabelRow}>
-            <span>
-              {selectedArtifactContent.content.kind === "transcript"
-                ? `逐字稿${
-                    selectedArtifactContent.content.segments?.length
-                      ? ` · ${selectedArtifactContent.content.segments.length} 段`
-                      : ""
-                  }`
-                : selectedArtifactContent.content.kind === "minutes_summary"
-                  ? "飞书智能纪要"
-                  : "旧版纪要"}
-            </span>
-            {selectedArtifactContent.content.kind === "transcript" && (
+          {selectedArtifactContent.content.kind === "transcript" && (
+            <div className={styles.metadataLabelRow}>
+              <span>
+                {`逐字稿${
+                  selectedArtifactContent.content.segments?.length
+                    ? ` · ${selectedArtifactContent.content.segments.length} 段`
+                    : ""
+                }`}
+              </span>
               <span>
                 {selectedArtifactContent.content.media_available
                   ? "音频可用"
                   : "音频不可用"}
               </span>
-            )}
-          </div>
+            </div>
+          )}
           {selectedArtifactContent.content.kind === "transcript" &&
             transcriptRecovery &&
             !transcriptMediaAvailable &&
@@ -1316,67 +1493,96 @@ const EpisodeProcessingPanel = forwardRef<
           </div>
         )}
 
-      {!currentArtifact && (
-        <div
-          className={styles.processingStateCard}
-          data-state={processingStateKind}
-          role={isLoading || isActive(run) || isMutating ? "status" : undefined}
-        >
-          <span className={styles.processingStateDot} aria-hidden="true" />
-          <div className={styles.processingStateCopy}>
-            <strong>{processingStateTitle}</strong>
-            <p>{processingStateDescription}</p>
-          </div>
-          {isActive(run) && (
-            <button
-              type="button"
-              className={styles.secondaryCommand}
-              disabled={isMutating}
-              onClick={() =>
-                void mutateRun(() => processingApi.cancel(run!.id))
-              }
-            >
-              <IconPlayerStop size={18} stroke={1.8} aria-hidden="true" />
-              取消
-            </button>
-          )}
-        </div>
+      {!currentArtifact && visibleArtifactTabs.length === 0 && (
+        <>{processingStateCard}</>
       )}
 
-      {currentArtifact && (
+      {(currentArtifact || visibleArtifactTabs.length > 0) && (
         <div className={styles.processingSummary}>
-          <div
-            className={styles.processingArtifactTabs}
-            role="tablist"
-            aria-label="转写产物"
-          >
-            {availableArtifactTabs.map((tab) => {
-              const selected = renderedArtifactTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  ref={(node) => {
-                    artifactTabRefs.current[tab.id] = node;
-                  }}
-                  id={`processing-artifact-tab-${tab.id}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={selected}
-                  aria-controls={`processing-artifact-panel-${tab.id}`}
-                  tabIndex={selected ? 0 : -1}
-                  onClick={() => {
-                    artifactTabWasUserSelected.current = true;
-                    setActiveArtifactTab(tab.id);
-                  }}
-                  onKeyDown={(event) => handleArtifactTabKeyDown(event, tab.id)}
-                >
-                  {tab.label}
-                </button>
-              );
-            })}
+          <div className={styles.processingArtifactHeader}>
+            {currentArtifact && (
+              <div className={styles.processingArtifactMeta}>
+                {summaryKind && (
+                  <span>
+                    {summaryKind === "minutes_summary"
+                      ? "飞书智能纪要"
+                      : "旧版纪要"}
+                  </span>
+                )}
+                <span>
+                  {run?.id === currentArtifact.run_id
+                    ? "当前版本"
+                    : "上一成功版本"}
+                </span>
+                <time dateTime={currentArtifact.created_at}>
+                  更新于 {formatUpdatedAt(currentArtifact.created_at)}
+                </time>
+                {currentArtifact.capabilities.legacy_episode_notes && (
+                  <span className={styles.processingHint}>
+                    这是旧版纪要；重新转写后可获得妙记纪要和同步逐字稿。
+                  </span>
+                )}
+              </div>
+            )}
+            {visibleArtifactTabs.length > 0 && (
+              <div
+                className={styles.processingArtifactTabs}
+                role="tablist"
+                aria-label="转写产物"
+              >
+                {visibleArtifactTabs.map((tab) => {
+                  const selected = renderedArtifactTab === tab.id;
+                  const state = artifactTabState(tab.id);
+                  return (
+                    <button
+                      key={tab.id}
+                      ref={(node) => {
+                        artifactTabRefs.current[tab.id] = node;
+                      }}
+                      id={`processing-artifact-tab-${tab.id}`}
+                      type="button"
+                      role="tab"
+                      aria-selected={selected}
+                      aria-controls={`processing-artifact-panel-${tab.id}`}
+                      aria-describedby={`processing-artifact-tab-state-${tab.id}`}
+                      tabIndex={selected ? 0 : -1}
+                      onClick={() => {
+                        artifactTabWasUserSelected.current = true;
+                        setActiveArtifactTab(tab.id);
+                      }}
+                      onKeyDown={(event) =>
+                        handleArtifactTabKeyDown(event, tab.id)
+                      }
+                    >
+                      {state !== "ready" && (
+                        <span
+                          className={styles.processingArtifactTabDot}
+                          data-state={
+                            state === "failed" ? "failed" : "working"
+                          }
+                          aria-hidden="true"
+                        />
+                      )}
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          {availableArtifactTabs.map((tab) => (
+          <div className="sr-only">
+            {visibleArtifactTabs.map((tab) => (
+              <span key={tab.id} id={`processing-artifact-tab-state-${tab.id}`}>
+                {`${tab.label}，${artifactTabStateDescription(tab.id)}`}
+              </span>
+            ))}
+          </div>
+          <span className="sr-only" role="status" aria-label="转写产物状态">
+            {artifactStateAnnouncement}
+          </span>
+
+          {visibleArtifactTabs.map((tab) => (
             <div
               key={tab.id}
               id={`processing-artifact-panel-${tab.id}`}
