@@ -86,6 +86,10 @@ Smoke 必须证明：
 
 证据只保存主机、版本、状态、时延、事件计数、取消方式和清理结果，不保存提示词、输出正文、账号、路径或凭据。当前证据见 [`CODEX_RUNTIME_SMOKE_2026-08-24.json`](../research/evidence/CODEX_RUNTIME_SMOKE_2026-08-24.json)。
 
+### 5.1 档位 Smoke
+
+`codex-runtime-smoke --profile quick|balanced|deep` 在同一固定边界内执行一次档位固定的最小只读请求，记录解析后的模型、推理强度、服务 tier（wire ID 与展示名）、SDK/Runtime 版本、终态、流式健全性、耗时与孤儿进程检查；账号不支持所选档位时记录稳定的 `profile_unavailable` 终态，不做任何替换。2026-09-06 三档真实账号 Smoke 证据：[quick](../research/evidence/CODEX_RUNTIME_PROFILE_SMOKE_2026-09-06-quick.json)、[balanced](../research/evidence/CODEX_RUNTIME_PROFILE_SMOKE_2026-09-06-balanced.json)、[deep](../research/evidence/CODEX_RUNTIME_PROFILE_SMOKE_2026-09-06-deep.json)（sol/luna 模型、medium/max/xhigh 推理强度与 Fast tier（账号目录 wire ID `priority`）全部 `completed`）。
+
 ## 6. 飞书原生产物真实 Smoke
 
 `backend/cmd/processing-real-smoke` 运行 #206 的真实 Adapter 链：读取同一妙记的 Summary、Transcript 和结构化时间轴，再原子发布本地产物；不调用 Codex Runtime。它必须从与待验收提交一致的 Git worktree 构建；最终证据的 `build.vcs_revision` 必须等于该提交，`build.vcs_modified` 必须为 `false`。

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-09-06T02:17:41.020675Z",
+  "host": "GJX4P60JWP",
+  "sdk_version": "0.147.0",
+  "runtime_version": "sdk/0.147.0;runtime/0.147.0 (Mac OS 26.6.2; arm64) unknown (codex_python_sdk; 0.147.0)",
+  "profile": "balanced",
+  "model": "gpt-5.6-luna",
+  "effort": "max",
+  "service_tier": "priority",
+  "service_tier_name": "Fast",
+  "status": "completed",
+  "create_ms": 1896,
+  "complete_ms": 7178,
+  "event_count": 10,
+  "output_delta_count": 8,
+  "sequence_valid": true,
+  "diagnostics": {
+    "tracked_executions": 1,
+    "active_executions": 0,
+    "live_process_groups": 0
+  },
+  "orphan_free": true
+}
