@@ -14,9 +14,10 @@ const menuItemsSelector =
 
 // Shared behavior for compact paper menus: a trigger button opens a list of
 // menu items that supports roving arrow-key focus, Home/End, Enter/Space
-// activation, Escape and outside-press dismissal, and focus restoration to
-// the trigger after closing. Escape is handled in the document capture phase
-// so an open menu never also closes the surrounding detail dialog.
+// activation, dismissal on Escape/outside press/focus departure, and trigger
+// focus restoration for explicit closes. Escape is handled in the document
+// capture phase so an open menu never also closes the surrounding detail
+// dialog.
 export function useMenuPopover() {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -57,8 +58,20 @@ export function useMenuPopover() {
       event.stopPropagation();
       closeMenu();
     };
+    const closeOnFocusOutside = (event: FocusEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        (menuRef.current?.contains(target) ||
+          triggerRef.current?.contains(target))
+      ) {
+        return;
+      }
+      setOpen(false);
+    };
     document.addEventListener("pointerdown", closeOnOutsidePointerDown, true);
     document.addEventListener("keydown", closeOnEscape, true);
+    document.addEventListener("focusin", closeOnFocusOutside, true);
     return () => {
       document.removeEventListener(
         "pointerdown",
@@ -66,6 +79,7 @@ export function useMenuPopover() {
         true,
       );
       document.removeEventListener("keydown", closeOnEscape, true);
+      document.removeEventListener("focusin", closeOnFocusOutside, true);
     };
   }, [closeMenu, open]);
 

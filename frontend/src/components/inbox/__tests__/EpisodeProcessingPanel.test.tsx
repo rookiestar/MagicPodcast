@@ -764,6 +764,39 @@ describe("EpisodeProcessingPanel", () => {
     ).toBeVisible();
   });
 
+  it("keeps a completed legacy header compact while retaining its upgrade action", async () => {
+    const completedLegacyRun: ProcessingRun = {
+      ...failedRun,
+      status: "completed",
+      current_step: "",
+      error_code: undefined,
+      error_message: undefined,
+      error_retryable: false,
+    };
+    apiMocks.listEpisodeRuns.mockResolvedValue([completedLegacyRun]);
+    apiMocks.getRun.mockResolvedValue(detail(completedLegacyRun));
+    const onHeaderStateChange = vi.fn();
+
+    render(
+      <EpisodeProcessingPanel
+        item={item}
+        onHeaderStateChange={onHeaderStateChange}
+      />,
+    );
+
+    expect(await screen.findByText("# 旧版纪要")).toBeVisible();
+    await waitFor(() =>
+      expect(onHeaderStateChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          kind: "completed",
+          label: "转写就绪",
+          detail: "",
+          primaryLabel: "重新转写",
+        }),
+      ),
+    );
+  });
+
   it("defaults native Minutes artifacts to visual summary and preserves the selected subtab", async () => {
     const completedRun: ProcessingRun = {
       ...failedRun,

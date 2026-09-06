@@ -78,6 +78,14 @@ interface FailedAction {
   isQueueOrderConflict?: boolean;
 }
 
+function failedActionMessage(action: FailedAction) {
+  if (action.isQueueOrderConflict) return action.message;
+  if (action.placement && action.item.queue_state === action.target) {
+    return `《${action.item.episode_title}》调整失败，已恢复原顺序：${action.message}`;
+  }
+  return `《${action.item.episode_title}》移动失败，已恢复原队列：${action.message}`;
+}
+
 interface ActiveQueueDrag {
   item: ConsumptionItem;
   source: ConsumptionQueue;
@@ -864,6 +872,22 @@ export default function InboxPageClient() {
     [performPlacement],
   );
 
+  const retryFailedAction = useCallback(
+    (action: FailedAction) => {
+      setFailedAction(null);
+      if (action.placement) {
+        retryPlacement(action);
+        return;
+      }
+      void performMove(
+        action.item,
+        action.target,
+        action.acknowledgeFocusLimit,
+      );
+    },
+    [performMove, retryPlacement],
+  );
+
   const confirmFocusPlacement = useCallback(
     async (prompt: FocusPrompt) => {
       if (!prompt.placement) {
@@ -1196,6 +1220,10 @@ export default function InboxPageClient() {
   const focusLimit = summary?.focus_limit ?? 7;
   const focusCount = summary?.counts.focus ?? queues.focus.items.length;
   const isFocusOverLimit = summary?.focus_over_limit ?? focusCount > focusLimit;
+  const detailFailedAction =
+    detailItem && failedAction?.item.episode_id === detailItem.episode_id
+      ? failedAction
+      : null;
   const board = (
     <div className={styles.board}>
       {CONSUMPTION_QUEUES.map((queue) => (
@@ -1290,34 +1318,15 @@ export default function InboxPageClient() {
           </div>
         )}
 
-        {failedAction && (
+        {failedAction && failedAction !== detailFailedAction && (
           <div className={styles.actionError} role="alert">
             <IconAlertTriangle size={18} stroke={1.8} aria-hidden="true" />
-            <span>
-              {failedAction.isQueueOrderConflict
-                ? failedAction.message
-                : failedAction.placement &&
-                    failedAction.item.queue_state === failedAction.target
-                  ? `《${failedAction.item.episode_title}》调整失败，已恢复原顺序：${failedAction.message}`
-                  : `《${failedAction.item.episode_title}》移动失败，已恢复原队列：${failedAction.message}`}
-            </span>
+            <span>{failedActionMessage(failedAction)}</span>
             {!failedAction.isQueueOrderConflict && (
               <button
                 type="button"
                 className={styles.iconButton}
-                onClick={() => {
-                  const action = failedAction;
-                  setFailedAction(null);
-                  if (action.placement) {
-                    retryPlacement(action);
-                    return;
-                  }
-                  void performMove(
-                    action.item,
-                    action.target,
-                    action.acknowledgeFocusLimit,
-                  );
-                }}
+                onClick={() => retryFailedAction(failedAction)}
                 aria-label={`重试移动 ${failedAction.item.episode_title}`}
                 title="重试移动"
               >
@@ -1385,9 +1394,19 @@ export default function InboxPageClient() {
         <ConsumptionDetailPanel
           item={detailItem}
           isQueueBusy={busyEpisodes.has(detailItem.episode_id)}
+          queueMoveFailure={
+            detailFailedAction
+              ? failedActionMessage(detailFailedAction)
+              : undefined
+          }
           onClose={closeDetail}
           onItemChange={reconcileItem}
           onMove={requestMove}
+          onRetryQueueMove={
+            detailFailedAction && !detailFailedAction.isQueueOrderConflict
+              ? () => retryFailedAction(detailFailedAction)
+              : undefined
+          }
           onCopilotWorkspaceChange={handleCopilotWorkspaceChange}
           selectedCopilotProfileID={selectedCopilotProfileID}
           onSelectedCopilotProfileIDChange={setSelectedCopilotProfileID}

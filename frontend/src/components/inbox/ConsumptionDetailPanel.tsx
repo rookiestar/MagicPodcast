@@ -60,12 +60,14 @@ import { useMenuPopover } from "./useMenuPopover";
 interface ConsumptionDetailPanelProps {
   item: ConsumptionItem;
   isQueueBusy: boolean;
+  queueMoveFailure?: string;
   onClose: () => void;
   onItemChange: (item: ConsumptionItem) => void;
   onMove: (
     item: ConsumptionItem,
     target: ConsumptionQueue,
   ) => Promise<ConsumptionItem | undefined>;
+  onRetryQueueMove?: () => void;
   onCopilotWorkspaceChange?: (isOpen: boolean) => void;
   selectedCopilotProfileID?: EpisodeCopilotProfileID | null;
   onSelectedCopilotProfileIDChange?: (
@@ -431,8 +433,8 @@ function QueueSwitchMenu({
   const busy = disabled || pendingTarget !== null;
 
   useEffect(() => {
-    if (pendingTarget === null) setDisplayQueue(item.queue_state);
-  }, [item.queue_state, pendingTarget]);
+    if (!busy) setDisplayQueue(item.queue_state);
+  }, [busy, item.queue_state]);
 
   const currentQueue = displayQueue;
   const isDone = currentQueue === "done";
@@ -441,6 +443,7 @@ function QueueSwitchMenu({
     ? QUEUE_PRESENTATION[currentQueue].label
     : "未收集";
   const triggerContext = isActionQueue ? "当前队列" : "当前状态";
+  const showInlineBusy = busy && !open;
   // From Done, every action queue is a reprocess target that keeps the
   // completion record. Inside the action queues, Done is a separate command.
   const targetQueues = CONSUMPTION_QUEUES.filter(
@@ -463,8 +466,13 @@ function QueueSwitchMenu({
       <button
         ref={triggerRef}
         type="button"
+        data-queue-switch-trigger
         className={styles.queueMenuTrigger}
-        aria-label={`${triggerContext} ${currentLabel}，打开切换菜单`}
+        aria-label={
+          showInlineBusy
+            ? `${triggerContext} ${currentLabel}，正在保存队列`
+            : `${triggerContext} ${currentLabel}，打开切换菜单`
+        }
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
@@ -473,9 +481,20 @@ function QueueSwitchMenu({
           if (!busy) toggleMenu();
         }}
       >
-        {currentLabel}
-        <IconChevronDown size={15} stroke={1.8} aria-hidden="true" />
+        {showInlineBusy ? `${currentLabel} · 保存中…` : currentLabel}
+        {!showInlineBusy && (
+          <IconChevronDown size={15} stroke={1.8} aria-hidden="true" />
+        )}
       </button>
+      {showInlineBusy && (
+        <span
+          className={styles.srOnly}
+          role="status"
+          aria-label="队列保存状态"
+        >
+          正在保存队列
+        </span>
+      )}
       {open && (
         <div
           ref={menuRef}
@@ -527,9 +546,11 @@ function QueueSwitchMenu({
 export default function ConsumptionDetailPanel({
   item,
   isQueueBusy,
+  queueMoveFailure,
   onClose,
   onItemChange,
   onMove,
+  onRetryQueueMove,
   onCopilotWorkspaceChange,
   selectedCopilotProfileID,
   onSelectedCopilotProfileIDChange,
@@ -718,6 +739,13 @@ export default function ConsumptionDetailPanel({
     const updated = await onMove(item, target);
     if (updated) onItemChange(updated);
     return updated;
+  };
+
+  const retryQueueMove = () => {
+    panelRef.current
+      ?.querySelector<HTMLButtonElement>("[data-queue-switch-trigger]")
+      ?.focus({ preventScroll: true });
+    onRetryQueueMove?.();
   };
 
   const showNotesState =
@@ -961,6 +989,23 @@ export default function ConsumptionDetailPanel({
                 />
               </div>
             </section>
+
+            {queueMoveFailure && (
+              <div className={styles.detailNotice} role="alert">
+                <span>{queueMoveFailure}</span>
+                {onRetryQueueMove && (
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    onClick={retryQueueMove}
+                    aria-label={`重试移动 ${item.episode_title}`}
+                    title="重试移动"
+                  >
+                    <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+            )}
 
             {(detailError || externalState === "failed") && (
               <div className={styles.detailNotice} role="alert">

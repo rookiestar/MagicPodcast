@@ -953,9 +953,7 @@ const EpisodeProcessingPanel = forwardRef<
         // The green dot plus “转写就绪” is the whole completed story; the
         // readable-product sentence repeated the same fact.
         label: "转写就绪",
-        detail: canReprocessLegacy
-          ? "当前为旧版产物，可升级为妙记纪要与同步逐字稿"
-          : "",
+        detail: "",
         primaryLabel: canReprocessLegacy ? "重新转写" : "查看转写",
         primaryDisabled: isMutating,
         action: canReprocessLegacy ? "reprocess" : "view",
