@@ -34,6 +34,7 @@ type episodeCopilotQuestionBody struct {
 	Selection          string                         `json:"selection"`
 	SelectionSource    episodecopilot.SelectionSource `json:"selection_source"`
 	IncludePrivateNote bool                           `json:"include_private_note"`
+	ProfileID          string                         `json:"profile_id"`
 }
 
 func (h *EpisodeCopilotHandler) Context(c *gin.Context) {
@@ -86,6 +87,7 @@ func (h *EpisodeCopilotHandler) Ask(c *gin.Context) {
 			Selection:          body.Selection,
 			SelectionSource:    body.SelectionSource,
 			IncludePrivateNote: body.IncludePrivateNote,
+			ProfileID:          body.ProfileID,
 		},
 	)
 	if err != nil {
@@ -172,6 +174,14 @@ func writeEpisodeCopilotError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, episodecopilot.ErrInvalidQuestion):
 		writeInvalidEpisodeCopilotRequest(c)
+	case errors.Is(err, episodecopilot.ErrUnsupportedProfile):
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "UNSUPPORTED_COPILOT_PROFILE",
+				"message": "the requested episode copilot profile is not available",
+			},
+		})
 	case errors.Is(err, episodecopilot.ErrEpisodeNotFound):
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,

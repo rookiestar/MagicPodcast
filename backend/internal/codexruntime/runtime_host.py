@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 EXPECTED_SDK_VERSION = "0.147.0"
 EXPECTED_RUNTIME_VERSION = "0.147.0"
 MAX_COMMAND_BYTES = 8 << 20
@@ -34,7 +34,9 @@ ALLOWED_COMMAND_KEYS = {
     "output_schema",
     "sandbox",
     "allowed_tools",
+    "model_profile",
 }
+MODEL_PROFILE_KEYS = {"profile_id", "model", "effort", "service_tier"}
 SAFE_ITEM_TYPES = {
     "agentMessage",
     "contextCompaction",
@@ -102,6 +104,14 @@ class HostFailure(Exception):
 
 
 @dataclass(frozen=True)
+class ModelProfile:
+    profile_id: str
+    model: str
+    effort: str
+    service_tier: str
+
+
+@dataclass(frozen=True)
 class Request:
     execution_id: str
     kind: str
@@ -110,6 +120,7 @@ class Request:
     output_schema: dict[str, Any] | None
     sandbox: str
     allowed_tools: frozenset[str]
+    model_profile: ModelProfile | None = None
 
 
 @dataclass(frozen=True)
@@ -194,6 +205,43 @@ async def read_command(reader: asyncio.StreamReader) -> dict[str, Any] | None:
     return value
 
 
+def safe_profile_token(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(value)
+        and not any(
+            character <= " " or character >= "\x7f" for character in value
+        )
+    )
+
+
+def validate_model_profile(value: Any) -> ModelProfile:
+    if not isinstance(value, dict) or set(value) != MODEL_PROFILE_KEYS:
+        raise HostFailure(
+            "runtime_protocol_error",
+            "runtime model profile is invalid",
+        )
+    profile_id = value["profile_id"]
+    model = value["model"]
+    effort = value["effort"]
+    service_tier = value["service_tier"]
+    if not (
+        safe_profile_token(profile_id)
+        and safe_profile_token(model)
+        and safe_profile_token(effort)
+    ) or (service_tier != "" and not safe_profile_token(service_tier)):
+        raise HostFailure(
+            "runtime_protocol_error",
+            "runtime model profile is invalid",
+        )
+    return ModelProfile(
+        profile_id=profile_id,
+        model=model,
+        effort=effort,
+        service_tier=service_tier,
+    )
+
+
 def validate_execute(command: dict[str, Any]) -> Request:
     if set(command) - ALLOWED_COMMAND_KEYS:
         raise HostFailure(
@@ -210,6 +258,9 @@ def validate_execute(command: dict[str, Any]) -> Request:
             "runtime_protocol_error",
             "runtime first command must create an execution",
         )
+    model_profile = command.get("model_profile")
+    if model_profile is not None:
+        model_profile = validate_model_profile(model_profile)
     execution_id = command.get("execution_id")
     kind = command.get("kind")
     working_directory = command.get("working_directory")
@@ -285,6 +336,7 @@ def validate_execute(command: dict[str, Any]) -> Request:
         output_schema=output_schema,
         sandbox=sandbox,
         allowed_tools=frozenset(allowed_tools),
+        model_profile=model_profile,
     )
 
 
@@ -392,6 +444,24 @@ def codex_config_overrides(request: Request) -> tuple[str, ...]:
 
 def value_of(value: Any) -> str:
     return str(getattr(value, "value", value))
+
+
+def turn_model_overrides(
+    model_profile: ModelProfile | None,
+    reasoning_effort: Any,
+) -> dict[str, Any]:
+    """Build per-turn model overrides for the fixed SDK.
+
+    The standard tier is expressed by not setting a service tier at all; the
+    Fast tier is only ever requested explicitly.
+    """
+    if model_profile is None:
+        return {}
+    return {
+        "model": model_profile.model,
+        "effort": reasoning_effort(model_profile.effort),
+        "service_tier": model_profile.service_tier or None,
+    }
 
 
 def runtime_version(metadata: Any) -> str:
@@ -592,6 +662,7 @@ async def run_sdk(
 ) -> Outcome:
     try:
         import openai_codex
+        from openai_codex.types import ReasoningEffort
     except ImportError as exc:
         raise HostFailure(
             "runtime_unavailable",
@@ -649,6 +720,10 @@ async def run_sdk(
                     cwd=request.working_directory,
                     output_schema=request.output_schema,
                     sandbox=sandbox,
+                    **turn_model_overrides(
+                        request.model_profile,
+                        ReasoningEffort,
+                    ),
                 )
                 sdk_started = asyncio.Event()
                 host_ready = asyncio.Event()

@@ -106,7 +106,31 @@ func (s *Service) ContextScope(
 	if episodeID == 0 {
 		return ContextScope{}, ErrInvalidQuestion
 	}
-	return s.loader.Describe(ctx, episodeID)
+	scope, err := s.loader.Describe(ctx, episodeID)
+	if err != nil {
+		return ContextScope{}, err
+	}
+	scope.Profiles = profileDescriptors()
+	scope.DefaultProfileID = string(codexruntime.DefaultModelProfileID)
+	return scope, nil
+}
+
+// profileDescriptors renders the runtime catalog for the context response.
+// The ID-to-configuration mapping itself is never copied out of the runtime
+// module.
+func profileDescriptors() []ProfileDescriptor {
+	profiles := codexruntime.ModelProfiles()
+	descriptors := make([]ProfileDescriptor, 0, len(profiles))
+	for _, profile := range profiles {
+		descriptors = append(descriptors, ProfileDescriptor{
+			ID:          string(profile.ID),
+			Model:       profile.Model,
+			Effort:      profile.Effort,
+			ServiceTier: profile.ServiceTier,
+			Default:     profile.ID == codexruntime.DefaultModelProfileID,
+		})
+	}
+	return descriptors
 }
 
 func (s *Service) Ask(
@@ -154,6 +178,7 @@ func (s *Service) run(
 	baseEvent := StreamEvent{
 		TranscriptUsed:      transcriptUsed,
 		PrivateNoteIncluded: privateNoteIncluded,
+		ProfileID:           request.ProfileID,
 	}
 	contextMessage := "将使用当前单集的 Show Notes"
 	if transcriptUsed {
@@ -248,6 +273,7 @@ func (s *Service) run(
 				episodeContext,
 				research,
 			),
+			ModelProfile: codexruntime.ModelProfileID(request.ProfileID),
 			ToolRestriction: &codexruntime.ToolRestriction{
 				Allowed: []codexruntime.ToolCapability{},
 			},
@@ -329,6 +355,7 @@ func (s *Service) research(
 			WorkingDirectory: workDir,
 			Prompt:           buildResearchPrompt(request, episodeContext),
 			OutputSchema:     publicResearchSchema,
+			ModelProfile:     codexruntime.ModelProfileID(request.ProfileID),
 			ToolRestriction: &codexruntime.ToolRestriction{
 				Allowed: []codexruntime.ToolCapability{
 					codexruntime.ToolWebSearch,
@@ -568,11 +595,20 @@ func normalizeQuestionRequest(
 ) (QuestionRequest, error) {
 	request.Question = strings.TrimSpace(request.Question)
 	request.Selection = strings.TrimSpace(request.Selection)
+	request.ProfileID = strings.TrimSpace(request.ProfileID)
+	if request.ProfileID == "" {
+		request.ProfileID = string(codexruntime.DefaultModelProfileID)
+	}
 	if request.EpisodeID == 0 ||
 		request.Question == "" ||
 		utf8.RuneCountInString(request.Question) > maxQuestionRunes ||
 		utf8.RuneCountInString(request.Selection) > maxSelectionRunes {
 		return QuestionRequest{}, ErrInvalidQuestion
+	}
+	if _, exists := codexruntime.ResolveModelProfile(
+		codexruntime.ModelProfileID(request.ProfileID),
+	); !exists {
+		return QuestionRequest{}, ErrUnsupportedProfile
 	}
 	if request.Selection == "" {
 		request.SelectionSource = ""

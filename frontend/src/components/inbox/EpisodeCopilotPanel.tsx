@@ -17,6 +17,7 @@ import { getErrorMessage } from "@/lib/errorMessage";
 import type { ConsumptionItem } from "@/types/consumption";
 import type {
   EpisodeCopilotContextScope,
+  EpisodeCopilotProfile,
   EpisodeCopilotQuestion,
   EpisodeCopilotSelectionSource,
   EpisodeCopilotStreamEvent,
@@ -43,9 +44,43 @@ type RequestPhase =
 
 const slowResponseThresholdMS = 2500;
 const maxSelectionCharacters = 12_000;
+// Product default for responses that predate the profile contract, so a
+// short-lived front/back version mismatch cannot break asking a question.
+const fallbackProfileID = "balanced";
 
 function selectionLabel(source: EpisodeCopilotSelectionSource) {
   return source === "transcript" ? "逐字稿" : "Show Notes";
+}
+
+function profileDisplayName(id: string) {
+  return id === "balanced" ? "均衡模式" : id;
+}
+
+function profileTechnicalLabel(profile: EpisodeCopilotProfile) {
+  return [
+    profile.model,
+    profile.effort,
+    profile.service_tier || "standard",
+  ].join(" · ");
+}
+
+function resolveProfileID(scope: EpisodeCopilotContextScope) {
+  return scope.default_profile_id || fallbackProfileID;
+}
+
+// A scope from a backend that predates the profile contract carries neither
+// field. The request then omits profile_id entirely so an old handler with
+// unknown-field rejection still accepts it; a current backend applies its
+// own balanced default.
+function advertisesProfileContract(scope: EpisodeCopilotContextScope) {
+  return Boolean(scope.default_profile_id || scope.profiles?.length);
+}
+
+function resolveProfile(scope: EpisodeCopilotContextScope) {
+  const profileID = resolveProfileID(scope);
+  return (
+    scope.profiles?.find((profile) => profile.id === profileID) ?? null
+  );
 }
 
 export default function EpisodeCopilotPanel({
@@ -66,6 +101,7 @@ export default function EpisodeCopilotPanel({
   const [metrics, setMetrics] = useState<{
     firstContentMS: number;
     totalMS: number;
+    profileID: string;
   } | null>(null);
   const activeRequest = useRef<AbortController | null>(null);
   const retryRequest = useRef<EpisodeCopilotQuestion | null>(null);
@@ -188,6 +224,7 @@ export default function EpisodeCopilotPanel({
       setMetrics({
         firstContentMS: event.first_content_ms ?? 0,
         totalMS: event.total_ms ?? 0,
+        profileID: event.profile_id ?? "",
       });
     }
   };
@@ -201,14 +238,16 @@ export default function EpisodeCopilotPanel({
     if (!normalizedQuestion || !scope || activeRequest.current) return;
     const controller = new AbortController();
     activeRequest.current = controller;
-    const request: EpisodeCopilotQuestion =
-      requestToRetry ?? {
-        question: normalizedQuestion,
-        selection: selection?.text ?? "",
-        selection_source: selection?.source ?? "",
-        include_private_note:
-          includePrivateNote && scope.private_note_available,
-      };
+    const request: EpisodeCopilotQuestion = requestToRetry ?? {
+      question: normalizedQuestion,
+      selection: selection?.text ?? "",
+      selection_source: selection?.source ?? "",
+      include_private_note:
+        includePrivateNote && scope.private_note_available,
+      ...(advertisesProfileContract(scope)
+        ? { profile_id: resolveProfileID(scope) }
+        : {}),
+    };
     if (!requestToRetry) {
       retryRequest.current = request;
       setIncludePrivateNote(false);
@@ -248,6 +287,9 @@ export default function EpisodeCopilotPanel({
   const isActive = phase === "waiting" || phase === "streaming";
   const canAsk =
     Boolean(scope) && question.trim().length > 0 && !isActive;
+  const activeProfile = scope
+    ? resolveProfile(scope)
+    : null;
 
   return (
     <section
@@ -296,6 +338,17 @@ export default function EpisodeCopilotPanel({
               {scope.private_note_available ? "私有备注可选" : "无私有备注"}
             </span>
           </div>
+          {activeProfile && (
+            <p className={styles.copilotProfile} data-testid="copilot-profile">
+              <strong>{profileDisplayName(activeProfile.id)}</strong>
+              <span>
+                {profileTechnicalLabel(activeProfile)}
+                {activeProfile.service_tier === "fast"
+                  ? " · Fast 消耗更多 credits"
+                  : ""}
+              </span>
+            </p>
+          )}
           {!scope.transcript_available && (
             <p className={styles.copilotDegraded}>
               当前无成功逐字稿，将明确降级为 Show Notes。
@@ -408,6 +461,8 @@ export default function EpisodeCopilotPanel({
               {metrics && (
                 <span className={styles.copilotMetrics}>
                   首字 {metrics.firstContentMS}ms · 完成 {metrics.totalMS}ms
+                  {metrics.profileID &&
+                    ` · ${profileDisplayName(metrics.profileID)}`}
                 </span>
               )}
             </div>

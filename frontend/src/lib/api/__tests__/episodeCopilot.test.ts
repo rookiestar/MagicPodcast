@@ -9,6 +9,7 @@ const question = {
   selection: "按次收窄",
   selection_source: "show_notes" as const,
   include_private_note: false,
+  profile_id: "balanced",
 };
 
 function streamFromChunks(chunks: string[]) {

@@ -54,6 +54,16 @@ describe("EpisodeCopilotPanel", () => {
       show_notes_available: true,
       transcript_available: false,
       private_note_available: true,
+      profiles: [
+        {
+          id: "balanced",
+          model: "gpt-5.6-luna",
+          effort: "max",
+          service_tier: "fast",
+          is_default: true,
+        },
+      ],
+      default_profile_id: "balanced",
     });
     vi.mocked(episodeCopilotApi.ask).mockImplementation(
       async (_episodeId, _request, onEvent) => {
@@ -128,6 +138,7 @@ describe("EpisodeCopilotPanel", () => {
           selection: "Runtime permissions are reduced per turn.",
           selection_source: "show_notes",
           include_private_note: true,
+          profile_id: "balanced",
         },
         expect.any(Function),
         expect.any(AbortSignal),
@@ -138,6 +149,94 @@ describe("EpisodeCopilotPanel", () => {
     expect(
       screen.getByRole("checkbox", { name: /本次包含我的私有备注/ }),
     ).not.toBeChecked();
+  });
+
+  it("shows the balanced profile meaning and the tier used for the answer", async () => {
+    vi.mocked(episodeCopilotApi.ask).mockImplementation(
+      async (_episodeId, _request, onEvent) => {
+        onEvent({
+          type: "status",
+          message: "正在核对公开资料…",
+          transcript_used: false,
+          private_note_included: false,
+          profile_id: "balanced",
+        });
+        onEvent({
+          type: "answer_delta",
+          message: "## 回答\n\n均衡档回答。",
+          transcript_used: false,
+          private_note_included: false,
+          profile_id: "balanced",
+        });
+        onEvent({
+          type: "complete",
+          message: "回答完成",
+          transcript_used: false,
+          private_note_included: false,
+          profile_id: "balanced",
+          first_content_ms: 90,
+          total_ms: 260,
+        });
+      },
+    );
+
+    render(
+      <>
+        <div>单集正文仍然可读</div>
+        <EpisodeCopilotPanel item={item} />
+      </>,
+    );
+
+    expect(await screen.findByTestId("copilot-profile")).toHaveTextContent(
+      "均衡模式",
+    );
+    expect(screen.getByTestId("copilot-profile")).toHaveTextContent(
+      "gpt-5.6-luna · max · fast · Fast 消耗更多 credits",
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "向单集助手提问" }), {
+      target: { value: "这次用了什么配置？" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "提问" }));
+
+    expect(await screen.findByText("均衡档回答。")).toBeInTheDocument();
+    expect(
+      screen.getByText("首字 90ms · 完成 260ms · 均衡模式"),
+    ).toBeInTheDocument();
+    expect(episodeCopilotApi.ask).toHaveBeenCalledWith(
+      201,
+      expect.objectContaining({ profile_id: "balanced" }),
+      expect.any(Function),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("omits profile_id when the scope predates the profile contract", async () => {
+    vi.mocked(episodeCopilotApi.getContext).mockResolvedValue({
+      episode_id: 201,
+      show_notes_available: true,
+      transcript_available: false,
+      private_note_available: false,
+      profiles: [],
+      default_profile_id: "",
+    });
+
+    render(
+      <>
+        <div>单集正文仍然可读</div>
+        <EpisodeCopilotPanel item={item} />
+      </>,
+    );
+    await screen.findByText(
+      "当前无成功逐字稿，将明确降级为 Show Notes。",
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "向单集助手提问" }), {
+      target: { value: "旧后端也要能提问" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "提问" }));
+
+    await waitFor(() => expect(episodeCopilotApi.ask).toHaveBeenCalled());
+    const request = vi.mocked(episodeCopilotApi.ask).mock.calls[0]?.[1];
+    expect(request).not.toHaveProperty("profile_id");
   });
 
   it("keeps the question, selection, and partial answer after failure, then retries", async () => {
