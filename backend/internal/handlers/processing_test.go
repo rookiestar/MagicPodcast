@@ -687,6 +687,19 @@ func TestProcessingArtifactHTTPContractForNativeAndLegacyArtifacts(t *testing.T)
 			transcriptResponse.Body.String(),
 			fmt.Sprintf(`"media_available":%s`, want),
 		)
+		if expected {
+			require.Contains(
+				t,
+				transcriptResponse.Body.String(),
+				`"audio_duration_seconds":60`,
+			)
+		} else {
+			require.NotContains(
+				t,
+				transcriptResponse.Body.String(),
+				"audio_duration_seconds",
+			)
+		}
 	}
 
 	noAudioHandler := handlers.NewProcessingHandler(

@@ -1387,6 +1387,9 @@ const EpisodeProcessingPanel = forwardRef<
               artifactSetId={selectedArtifactContent.artifactSetId}
               segments={selectedArtifactContent.content.segments}
               mediaAvailable={selectedArtifactContent.content.media_available}
+              audioDurationSeconds={
+                selectedArtifactContent.content.audio_duration_seconds
+              }
               playbackRate={transcriptPlaybackRate}
               onPlaybackRateChange={setTranscriptPlaybackRate}
               chapters={selectedArtifactContent.content.chapters}
