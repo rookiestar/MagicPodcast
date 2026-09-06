@@ -4,7 +4,6 @@ import asyncio
 import json
 import os
 import signal
-from enum import Enum
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,24 +17,6 @@ class ApprovalMode:
 class Sandbox:
     read_only = "read-only"
     workspace_write = "workspace-write"
-
-
-class ReasoningEffort(str, Enum):
-    none = "none"
-    minimal = "minimal"
-    low = "low"
-    medium = "medium"
-    high = "high"
-    xhigh = "xhigh"
-
-    @classmethod
-    def _missing_(cls, value):
-        if not isinstance(value, str) or not value:
-            return None
-        member = str.__new__(cls, value)
-        member._name_ = value
-        member._value_ = value
-        return member
 
 
 class CodexConfig:
@@ -147,6 +128,8 @@ class FakeThread:
         effort=None,
         service_tier=None,
     ):
+        from .types import ReasoningEffort
+
         assert approval_mode == ApprovalMode.deny_all
         assert cwd == self.cwd
         assert sandbox == self.sandbox

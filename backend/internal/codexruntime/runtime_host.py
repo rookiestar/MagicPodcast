@@ -448,7 +448,7 @@ def value_of(value: Any) -> str:
 
 def turn_model_overrides(
     model_profile: ModelProfile | None,
-    sdk: Any,
+    reasoning_effort: Any,
 ) -> dict[str, Any]:
     """Build per-turn model overrides for the fixed SDK.
 
@@ -459,7 +459,7 @@ def turn_model_overrides(
         return {}
     return {
         "model": model_profile.model,
-        "effort": sdk.ReasoningEffort(model_profile.effort),
+        "effort": reasoning_effort(model_profile.effort),
         "service_tier": model_profile.service_tier or None,
     }
 
@@ -662,6 +662,7 @@ async def run_sdk(
 ) -> Outcome:
     try:
         import openai_codex
+        from openai_codex.types import ReasoningEffort
     except ImportError as exc:
         raise HostFailure(
             "runtime_unavailable",
@@ -721,7 +722,7 @@ async def run_sdk(
                     sandbox=sandbox,
                     **turn_model_overrides(
                         request.model_profile,
-                        openai_codex,
+                        ReasoningEffort,
                     ),
                 )
                 sdk_started = asyncio.Event()

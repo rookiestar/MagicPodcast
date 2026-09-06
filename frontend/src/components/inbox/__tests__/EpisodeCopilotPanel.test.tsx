@@ -210,6 +210,35 @@ describe("EpisodeCopilotPanel", () => {
     );
   });
 
+  it("omits profile_id when the scope predates the profile contract", async () => {
+    vi.mocked(episodeCopilotApi.getContext).mockResolvedValue({
+      episode_id: 201,
+      show_notes_available: true,
+      transcript_available: false,
+      private_note_available: false,
+      profiles: [],
+      default_profile_id: "",
+    });
+
+    render(
+      <>
+        <div>单集正文仍然可读</div>
+        <EpisodeCopilotPanel item={item} />
+      </>,
+    );
+    await screen.findByText(
+      "当前无成功逐字稿，将明确降级为 Show Notes。",
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "向单集助手提问" }), {
+      target: { value: "旧后端也要能提问" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "提问" }));
+
+    await waitFor(() => expect(episodeCopilotApi.ask).toHaveBeenCalled());
+    const request = vi.mocked(episodeCopilotApi.ask).mock.calls[0]?.[1];
+    expect(request).not.toHaveProperty("profile_id");
+  });
+
   it("keeps the question, selection, and partial answer after failure, then retries", async () => {
     vi.mocked(episodeCopilotApi.ask)
       .mockImplementationOnce(async (_episodeId, _request, onEvent) => {

@@ -68,6 +68,14 @@ function resolveProfileID(scope: EpisodeCopilotContextScope) {
   return scope.default_profile_id || fallbackProfileID;
 }
 
+// A scope from a backend that predates the profile contract carries neither
+// field. The request then omits profile_id entirely so an old handler with
+// unknown-field rejection still accepts it; a current backend applies its
+// own balanced default.
+function advertisesProfileContract(scope: EpisodeCopilotContextScope) {
+  return Boolean(scope.default_profile_id || scope.profiles?.length);
+}
+
 function resolveProfile(scope: EpisodeCopilotContextScope) {
   const profileID = resolveProfileID(scope);
   return (
@@ -230,15 +238,16 @@ export default function EpisodeCopilotPanel({
     if (!normalizedQuestion || !scope || activeRequest.current) return;
     const controller = new AbortController();
     activeRequest.current = controller;
-    const request: EpisodeCopilotQuestion =
-      requestToRetry ?? {
-        question: normalizedQuestion,
-        selection: selection?.text ?? "",
-        selection_source: selection?.source ?? "",
-        include_private_note:
-          includePrivateNote && scope.private_note_available,
-        profile_id: resolveProfileID(scope),
-      };
+    const request: EpisodeCopilotQuestion = requestToRetry ?? {
+      question: normalizedQuestion,
+      selection: selection?.text ?? "",
+      selection_source: selection?.source ?? "",
+      include_private_note:
+        includePrivateNote && scope.private_note_available,
+      ...(advertisesProfileContract(scope)
+        ? { profile_id: resolveProfileID(scope) }
+        : {}),
+    };
     if (!requestToRetry) {
       retryRequest.current = request;
       setIncludePrivateNote(false);

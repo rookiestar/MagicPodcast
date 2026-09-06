@@ -22,7 +22,8 @@ export interface EpisodeCopilotQuestion {
   selection: string;
   selection_source: EpisodeCopilotSelectionSource | "";
   include_private_note: boolean;
-  profile_id: string;
+  /** Stable profile ID; omitted for backends that predate the contract. */
+  profile_id?: string;
 }
 
 export type EpisodeCopilotEventType =
