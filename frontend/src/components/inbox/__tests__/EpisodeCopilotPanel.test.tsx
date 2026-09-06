@@ -494,6 +494,11 @@ describe("EpisodeCopilotPanel", () => {
     await waitFor(() =>
       expect(episodeCopilotApi.getContext).toHaveBeenCalledWith(202),
     );
+    expect(
+      await screen.findByText(
+        "当前选择的快速档位已确认不可用；请切换其他档位后再提问。",
+      ),
+    ).toBeInTheDocument();
     const nextQuestion = screen.getByRole("textbox", {
       name: "向单集助手提问",
     });
@@ -503,7 +508,11 @@ describe("EpisodeCopilotPanel", () => {
     fireEvent.click(askButton);
     expect(episodeCopilotApi.ask).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(within(screen.getByTestId("copilot-profiles")).getByRole("radio", { name: /深度/ }));
+    fireEvent.click(
+      within(screen.getByTestId("copilot-profiles")).getByRole("radio", {
+        name: /深度/,
+      }),
+    );
     expect(askButton).toBeEnabled();
   });
 
