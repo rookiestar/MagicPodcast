@@ -562,10 +562,11 @@ func (f *fakeContextLoader) Load(
 }
 
 type fakeExecution struct {
-	deltas []string
-	result json.RawMessage
-	block  bool
-	status codexruntime.ExecutionStatus
+	deltas    []string
+	result    json.RawMessage
+	block     bool
+	status    codexruntime.ExecutionStatus
+	errorCode string
 }
 
 type fakeRuntime struct {
@@ -638,6 +639,12 @@ func (f *fakeRuntime) CreateExecution(
 		snapshot.Status = next.status
 		if snapshot.Status == "" {
 			snapshot.Status = codexruntime.StatusCompleted
+		}
+		if snapshot.Status != codexruntime.StatusCompleted {
+			snapshot.ErrorCode = next.errorCode
+			if snapshot.ErrorCode == "" {
+				snapshot.ErrorCode = codexruntime.ErrorExecutionFailed
+			}
 		}
 		snapshot.Result = append(json.RawMessage(nil), next.result...)
 		snapshot.CompletedAt = &completedAt

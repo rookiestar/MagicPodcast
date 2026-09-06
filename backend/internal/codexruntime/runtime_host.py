@@ -388,6 +388,49 @@ def source_auth_file() -> Path:
     return auth_file
 
 
+def validate_profile_support(
+    model_profile: ModelProfile,
+    model_catalog: Any,
+) -> None:
+    """Fail closed when the account catalog lacks the requested profile.
+
+    The model, the reasoning effort, and an explicitly requested Fast tier
+    must all be supported by the current account. There is no nearest-match
+    substitution: any unsupported combination is a stable profile error.
+    """
+    models = getattr(model_catalog, "data", None)
+    if not isinstance(models, list):
+        raise HostFailure(
+            "profile_unavailable",
+            "runtime model profile support could not be verified",
+        )
+    for model in models:
+        if value_of(getattr(model, "model", "")) != model_profile.model and (
+            value_of(getattr(model, "id", "")) != model_profile.model
+        ):
+            continue
+        supported_efforts = {
+            value_of(getattr(option, "reasoning_effort", ""))
+            for option in (
+                getattr(model, "supported_reasoning_efforts", None) or []
+            )
+        }
+        if model_profile.effort not in supported_efforts:
+            break
+        if model_profile.service_tier != "":
+            supported_tiers = {
+                value_of(getattr(tier, "id", ""))
+                for tier in (getattr(model, "service_tiers", None) or [])
+            }
+            if model_profile.service_tier not in supported_tiers:
+                break
+        return
+    raise HostFailure(
+        "profile_unavailable",
+        "runtime model profile is unavailable on the current account",
+    )
+
+
 def safe_runtime_environment(isolated_home: Path) -> dict[str, str]:
     allowed = {
         "LANG",
@@ -706,6 +749,12 @@ async def run_sdk(
             async with openai_codex.AsyncCodex(config) as client:
                 account_response = await client.account(refresh_token=False)
                 ensure_authenticated(account_response)
+                if request.model_profile is not None:
+                    model_catalog = await client.models()
+                    validate_profile_support(
+                        request.model_profile,
+                        model_catalog,
+                    )
                 verified_runtime_version = runtime_version(client.metadata)
                 thread = await client.thread_start(
                     approval_mode=openai_codex.ApprovalMode.deny_all,

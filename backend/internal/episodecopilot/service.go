@@ -216,6 +216,20 @@ func (s *Service) run(
 		if ctx.Err() != nil {
 			return
 		}
+		// A profile the account cannot serve must abort the question with a
+		// stable error; silently answering with degraded research or a
+		// different profile is never allowed.
+		if codexruntime.ErrorCode(err) == codexruntime.ErrorProfileUnavailable {
+			emitFailure(
+				ctx,
+				events,
+				baseEvent,
+				codexruntime.ErrorProfileUnavailable,
+				"当前账号或 Runtime 不支持所选档位，请更换档位后重新提问。",
+				false,
+			)
+			return
+		}
 		research.Limitations = append(
 			research.Limitations,
 			"公开资料检索失败，本次仅依据单集内部内容回答。",
@@ -418,6 +432,14 @@ func (s *Service) execute(
 		return codexruntime.ExecutionSnapshot{}, deltas, err
 	}
 	if final.Status != codexruntime.StatusCompleted {
+		if final.ErrorCode == codexruntime.ErrorProfileUnavailable {
+			return codexruntime.ExecutionSnapshot{}, deltas,
+				&codexruntime.RuntimeError{
+					Code:        codexruntime.ErrorProfileUnavailable,
+					SafeMessage: "runtime model profile is unavailable",
+					Retryable:   false,
+				}
+		}
 		return codexruntime.ExecutionSnapshot{}, deltas, fmt.Errorf(
 			"runtime execution ended with status %s",
 			final.Status,
@@ -762,7 +784,16 @@ func assistantText(result json.RawMessage) (string, error) {
 func classifyRuntimeError(err error) (string, string, bool) {
 	var runtimeErr *codexruntime.RuntimeError
 	if errors.As(err, &runtimeErr) {
-		return runtimeErr.Code, "本地 Codex Runtime 暂时无法完成回答", runtimeErr.Retryable
+		switch runtimeErr.Code {
+		case codexruntime.ErrorProfileUnavailable:
+			return runtimeErr.Code,
+				"当前账号或 Runtime 不支持所选档位，请更换档位后重新提问。",
+				false
+		default:
+			return runtimeErr.Code,
+				"本地 Codex Runtime 暂时无法完成回答",
+				runtimeErr.Retryable
+		}
 	}
 	if errors.Is(err, context.Canceled) {
 		return "cancelled", "回答已取消", false

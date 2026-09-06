@@ -47,13 +47,24 @@ const maxSelectionCharacters = 12_000;
 // Product default for responses that predate the profile contract, so a
 // short-lived front/back version mismatch cannot break asking a question.
 const fallbackProfileID = "balanced";
+// Product presentation order: speed first, default in the middle, depth last.
+const profileDisplayOrder = ["quick", "balanced", "deep"] as const;
 
 function selectionLabel(source: EpisodeCopilotSelectionSource) {
   return source === "transcript" ? "逐字稿" : "Show Notes";
 }
 
 function profileDisplayName(id: string) {
-  return id === "balanced" ? "均衡模式" : id;
+  switch (id) {
+    case "quick":
+      return "快速";
+    case "balanced":
+      return "均衡";
+    case "deep":
+      return "深度";
+    default:
+      return id;
+  }
 }
 
 function profileTechnicalLabel(profile: EpisodeCopilotProfile) {
@@ -76,11 +87,15 @@ function advertisesProfileContract(scope: EpisodeCopilotContextScope) {
   return Boolean(scope.default_profile_id || scope.profiles?.length);
 }
 
-function resolveProfile(scope: EpisodeCopilotContextScope) {
-  const profileID = resolveProfileID(scope);
-  return (
-    scope.profiles?.find((profile) => profile.id === profileID) ?? null
+function orderedProfiles(
+  scope: EpisodeCopilotContextScope,
+): EpisodeCopilotProfile[] {
+  const byID = new Map(
+    (scope.profiles ?? []).map((profile) => [profile.id, profile]),
   );
+  return profileDisplayOrder
+    .map((id) => byID.get(id))
+    .filter((profile): profile is EpisodeCopilotProfile => profile != null);
 }
 
 export default function EpisodeCopilotPanel({
@@ -93,6 +108,10 @@ export default function EpisodeCopilotPanel({
   const [question, setQuestion] = useState("");
   const [selection, setSelection] = useState<CapturedSelection | null>(null);
   const [includePrivateNote, setIncludePrivateNote] = useState(false);
+  // null keeps the scope's balanced default; a page refresh resets to null.
+  const [selectedProfileID, setSelectedProfileID] = useState<string | null>(
+    null,
+  );
   const [phase, setPhase] = useState<RequestPhase>("idle");
   const [statusMessage, setStatusMessage] = useState("");
   const [answer, setAnswer] = useState("");
@@ -130,6 +149,7 @@ export default function EpisodeCopilotPanel({
     setQuestion("");
     setSelection(null);
     setIncludePrivateNote(false);
+    setSelectedProfileID(null);
     setPhase("idle");
     setStatusMessage("");
     setAnswer("");
@@ -245,7 +265,7 @@ export default function EpisodeCopilotPanel({
       include_private_note:
         includePrivateNote && scope.private_note_available,
       ...(advertisesProfileContract(scope)
-        ? { profile_id: resolveProfileID(scope) }
+        ? { profile_id: selectedProfileID ?? resolveProfileID(scope) }
         : {}),
     };
     if (!requestToRetry) {
@@ -287,9 +307,6 @@ export default function EpisodeCopilotPanel({
   const isActive = phase === "waiting" || phase === "streaming";
   const canAsk =
     Boolean(scope) && question.trim().length > 0 && !isActive;
-  const activeProfile = scope
-    ? resolveProfile(scope)
-    : null;
 
   return (
     <section
@@ -338,17 +355,47 @@ export default function EpisodeCopilotPanel({
               {scope.private_note_available ? "私有备注可选" : "无私有备注"}
             </span>
           </div>
-          {activeProfile && (
-            <p className={styles.copilotProfile} data-testid="copilot-profile">
-              <strong>{profileDisplayName(activeProfile.id)}</strong>
-              <span>
-                {profileTechnicalLabel(activeProfile)}
-                {activeProfile.service_tier === "fast"
-                  ? " · Fast 消耗更多 credits"
-                  : ""}
-              </span>
-            </p>
-          )}
+          {scope.profiles?.length ? (
+            <fieldset
+              className={styles.copilotProfiles}
+              disabled={isActive}
+              data-testid="copilot-profiles"
+            >
+              <legend>回答档位</legend>
+              {orderedProfiles(scope).map((profile) => {
+                const selectedID =
+                  selectedProfileID ?? resolveProfileID(scope);
+                return (
+                  <label
+                    key={profile.id}
+                    className={styles.copilotProfileOption}
+                  >
+                    <input
+                      type="radio"
+                      name={`copilot-profile-${item.episode_id}`}
+                      value={profile.id}
+                      checked={selectedID === profile.id}
+                      onChange={() => setSelectedProfileID(profile.id)}
+                    />
+                    <span className={styles.copilotProfileName}>
+                      {profileDisplayName(profile.id)}
+                      {profile.is_default ? (
+                        <small className={styles.copilotProfileDefault}>
+                          默认
+                        </small>
+                      ) : null}
+                    </span>
+                    <span className={styles.copilotProfileMeta}>
+                      {profileTechnicalLabel(profile)}
+                      {profile.service_tier === "fast"
+                        ? " · Fast 消耗更多 credits"
+                        : ""}
+                    </span>
+                  </label>
+                );
+              })}
+            </fieldset>
+          ) : null}
           {!scope.transcript_available && (
             <p className={styles.copilotDegraded}>
               当前无成功逐字稿，将明确降级为 Show Notes。

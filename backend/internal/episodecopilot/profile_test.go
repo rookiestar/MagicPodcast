@@ -121,7 +121,7 @@ func TestServiceRejectsUnsupportedProfileBeforeRuntime(t *testing.T) {
 	require.Empty(t, runtime.Requests())
 }
 
-func TestServiceScopeExposesBalancedMeaningAndDefault(t *testing.T) {
+func TestServiceScopeExposesAllThreeTiersAndDefault(t *testing.T) {
 	loader := balancedScopeLoader()
 	runtime := newFakeRuntime()
 	service, err := NewService(loader, runtime, t.TempDir())
@@ -130,13 +130,108 @@ func TestServiceScopeExposesBalancedMeaningAndDefault(t *testing.T) {
 	scope, err := service.ContextScope(context.Background(), 91)
 	require.NoError(t, err)
 	require.Equal(t, "balanced", scope.DefaultProfileID)
-	require.Len(t, scope.Profiles, 1)
-	profile := scope.Profiles[0]
-	require.Equal(t, "balanced", profile.ID)
-	require.Equal(t, "gpt-5.6-luna", profile.Model)
-	require.Equal(t, "max", profile.Effort)
-	require.Equal(t, "fast", profile.ServiceTier)
-	require.True(t, profile.Default)
+	require.Len(t, scope.Profiles, 3)
+
+	byID := make(map[string]ProfileDescriptor, len(scope.Profiles))
+	for _, profile := range scope.Profiles {
+		byID[profile.ID] = profile
+		require.Equal(
+			t,
+			profile.ID == "balanced",
+			profile.Default,
+			"only balanced is the default",
+		)
+	}
+
+	require.Equal(t, "gpt-5.6-sol", byID["quick"].Model)
+	require.Equal(t, "medium", byID["quick"].Effort)
+	require.Equal(t, "fast", byID["quick"].ServiceTier)
+	require.Equal(t, "gpt-5.6-luna", byID["balanced"].Model)
+	require.Equal(t, "max", byID["balanced"].Effort)
+	require.Equal(t, "fast", byID["balanced"].ServiceTier)
+	require.Equal(t, "gpt-5.6-sol", byID["deep"].Model)
+	require.Equal(t, "xhigh", byID["deep"].Effort)
+	require.Empty(t, byID["deep"].ServiceTier)
+}
+
+func TestServiceAppliesQuickAndDeepProfilesToBothExecutions(
+	t *testing.T,
+) {
+	for _, profileID := range []string{"quick", "deep"} {
+		loader := balancedScopeLoader()
+		runtime := newFakeRuntime(
+			fakeExecution{result: json.RawMessage(`{
+				"resources":[],
+				"conflicts":[],
+				"limitations":[]
+			}`)},
+			fakeExecution{
+				deltas: []string{"按单集内容 [Show Notes L1-L1] 回答。"},
+				result: json.RawMessage(`{"text":"按单集内容 [Show Notes L1-L1] 回答。"}`),
+			},
+		)
+		service, err := NewService(loader, runtime, t.TempDir())
+		require.NoError(t, err)
+
+		events, err := service.Ask(context.Background(), QuestionRequest{
+			EpisodeID: 91,
+			Question:  "三档映射验证。",
+			ProfileID: profileID,
+		})
+		require.NoError(t, err)
+		for range events {
+		}
+
+		requests := runtime.Requests()
+		require.Len(t, requests, 2, "profile %s", profileID)
+		for _, request := range requests {
+			require.Equal(
+				t,
+				codexruntime.ModelProfileID(profileID),
+				request.ModelProfile,
+			)
+		}
+	}
+}
+
+func TestServiceAbortsWhenProfileUnavailableOnResearchPhase(
+	t *testing.T,
+) {
+	loader := balancedScopeLoader()
+	runtime := newFakeRuntime(
+		fakeExecution{
+			status:    codexruntime.StatusFailed,
+			errorCode: codexruntime.ErrorProfileUnavailable,
+		},
+		fakeExecution{
+			deltas: []string{"不应发生的回答。"},
+		},
+	)
+	service, err := NewService(loader, runtime, t.TempDir())
+	require.NoError(t, err)
+
+	events, err := service.Ask(context.Background(), QuestionRequest{
+		EpisodeID: 91,
+		Question:  "不支持时绝不能换模型继续。",
+		ProfileID: "deep",
+	})
+	require.NoError(t, err)
+
+	var sawFailure bool
+	for event := range events {
+		if event.Type == EventTypeError {
+			sawFailure = true
+			require.Equal(t, "profile_unavailable", event.Code)
+			require.False(t, event.Retryable)
+			require.Equal(t, "deep", event.ProfileID)
+			require.Contains(t, event.Message, "不支持所选档位")
+		}
+		if event.Type == EventTypeComplete {
+			t.Fatal("question must not complete on an unsupported profile")
+		}
+	}
+	require.True(t, sawFailure)
+	require.Len(t, runtime.Requests(), 1, "answer phase must not run")
 }
 
 func TestServiceKeepsProfileWhenPublicResearchFails(t *testing.T) {

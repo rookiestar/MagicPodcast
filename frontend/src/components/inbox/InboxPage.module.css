@@ -2206,33 +2206,63 @@ button.transcriptSegment:hover {
   background: rgba(74, 103, 81, 0.1);
 }
 
-.copilotProfile {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
+.copilotProfiles {
+  display: grid;
+  gap: 7px;
   margin: 0 0 12px;
-  padding: 0;
+  padding: 9px 10px 10px;
+  border: 1px solid rgba(23, 21, 18, 0.2);
+  background: rgba(255, 250, 240, 0.82);
 }
 
-.copilotProfile strong {
-  display: inline-flex;
-  min-height: 28px;
-  align-items: center;
-  padding: 0 9px;
-  color: #284a33;
-  border: 1px solid rgba(63, 104, 75, 0.46);
-  background: rgba(74, 103, 81, 0.1);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-.copilotProfile span {
+.copilotProfiles legend {
+  padding: 0 5px;
   color: var(--ink-soft);
   font-family: var(--font-mono);
   font-size: 9px;
-  letter-spacing: 0.04em;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+}
+
+.copilotProfileOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.copilotProfiles:disabled .copilotProfileOption {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.copilotProfileOption input[type="radio"] {
+  flex: 0 0 auto;
+  accent-color: #4a6751;
+}
+
+.copilotProfileName {
+  flex: 0 0 auto;
+  color: #284a33;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.copilotProfileDefault {
+  margin-left: 5px;
+  padding: 1px 5px;
+  color: #284a33;
+  border: 1px solid rgba(63, 104, 75, 0.46);
+  background: rgba(74, 103, 81, 0.1);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.copilotProfileMeta {
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.03em;
 }
 
 .copilotDegraded {

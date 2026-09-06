@@ -10,6 +10,10 @@ const (
 	ErrorCapabilityDenied   = "capability_denied"
 	ErrorProtocol           = "runtime_protocol_error"
 	ErrorHostClosed         = "runtime_host_closed"
+	// ErrorProfileUnavailable is reported when the current account or fixed
+	// runtime does not support a requested model profile. It must surface to
+	// the user; the runtime never substitutes another profile.
+	ErrorProfileUnavailable = "profile_unavailable"
 )
 
 type RuntimeError struct {
