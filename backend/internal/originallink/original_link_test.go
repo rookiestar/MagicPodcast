@@ -259,3 +259,64 @@ func TestResolveWavPubFallbackWinsOverExistingLink(t *testing.T) {
 		t.Fatalf("Resolve() = %+v, want the WavPub page GUID", decision)
 	}
 }
+
+func TestResolveLibsynEpisodePageFromMarkedContent(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name:    "current Colossus page",
+			content: `<p>For the full show notes, check out the episode page <a href="https://colossus.com/episode/ai-market-jitters/">here</a>.</p>`,
+			want:    "https://colossus.com/episode/ai-market-jitters/",
+		},
+		{
+			name:    "legacy Colossus page is canonicalized",
+			content: `<p>For the full show notes, check out the episode page<a href="https://www.joincolossus.com/episodes/85503387/senra-passion-pain?tab=transcript"> here</a>.</p>`,
+			want:    "https://colossus.com/episode/senra-passion-pain/",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			decision := Resolve(Input{
+				Feed:    FeedIdentity{FeedURL: "https://investlikethebest.libsyn.com/rss"},
+				Content: tc.content,
+			})
+			if decision.Source != SourceLibsynContent || decision.URL != tc.want {
+				t.Fatalf("Resolve() = %+v, want libsyn_content %q", decision, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveLibsynContentRequiresTheVerifiedFeedAndUniqueEpisodePage(t *testing.T) {
+	content := `<p>For the full show notes, check out the episode page <a href="https://colossus.com/episode/ai-market-jitters/">here</a>.</p>`
+	decision := Resolve(Input{
+		Feed:    FeedIdentity{FeedURL: "https://other.libsyn.com/rss"},
+		Content: content,
+	})
+	if decision.Source != SourceNone || decision.URL != "" {
+		t.Fatalf("Resolve() = %+v, want no Libsyn fallback for an unverified feed", decision)
+	}
+
+	decision = Resolve(Input{
+		Feed:    FeedIdentity{FeedURL: "https://investlikethebest.libsyn.com/rss"},
+		Content: `<p>episode page <a href="https://colossus.com/episode/ai-market-jitters/">one</a></p><p>episode page <a href="https://colossus.com/episode/other/">two</a></p>`,
+	})
+	if decision.Source != SourceNone || decision.URL != "" {
+		t.Fatalf("Resolve() = %+v, want ambiguous content to be rejected", decision)
+	}
+}
+
+func TestResolvePrefersStandardRSSLinkOverLibsynContent(t *testing.T) {
+	decision := Resolve(Input{
+		Feed:    FeedIdentity{FeedURL: "https://investlikethebest.libsyn.com/rss"},
+		RSSLink: "https://colossus.com/episode/standard/",
+		Content: `<p>episode page <a href="https://colossus.com/episode/content/">here</a></p>`,
+	})
+	if decision.Source != SourceRSSLink || decision.URL != "https://colossus.com/episode/standard/" {
+		t.Fatalf("Resolve() = %+v, want standard RSS link", decision)
+	}
+}

@@ -681,6 +681,7 @@ func buildEpisodeRepair(candidate episodeCandidate, item *feedItem, matchBy, fee
 		decision := originallink.Resolve(originallink.Input{
 			Feed:         originallink.FeedIdentity{FeedURL: feedURL},
 			RSSLink:      item.Link,
+			Content:      item.Content + "\n" + item.ShowNotes,
 			ExistingLink: candidate.Link,
 		})
 		if decision.URL != "" {
