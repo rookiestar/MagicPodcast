@@ -168,6 +168,60 @@ func TestSyncPodcastEpisodeItemsDoesNotInventLinksFromGUIDBeforeSourceRules(t *t
 		"a URL-shaped GUID must not become the original link without a verified source rule")
 }
 
+func TestSyncPodcastEpisodeItemsResolvesVerifiedLibsynContentPage(t *testing.T) {
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, service.Close()) })
+
+	podcast := &models.Podcast{
+		XYZID:        "libsyn-content-page",
+		Title:        "Invest Like the Best",
+		FeedURL:      "https://investlikethebest.libsyn.com/rss",
+		DataSource:   "rss",
+		IsSubscribed: true,
+	}
+	require.NoError(t, db.Create(podcast).Error)
+
+	items := parseRSSFixture(t, `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Invest Like the Best</title>
+    <link>https://colossus.com/</link>
+    <item>
+      <title>Gavin Baker - AI Market Jitters - [Invest Like the Best, EP.485]</title>
+      <guid>libsyn-ai-market-jitters</guid>
+      <content:encoded><![CDATA[<p>For the full show notes, check out the episode page <a href="https://colossus.com/episode/ai-market-jitters/">here</a>.</p>]]></content:encoded>
+      <pubDate>Tue, 04 Aug 2026 08:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>David Senra - Passion &amp; Pain - [Invest Like the Best, Forever Episode]</title>
+      <guid>libsyn-senra-forever</guid>
+      <content:encoded><![CDATA[<p>For the full show notes, check out the episode page<a href="https://www.joincolossus.com/episodes/85503387/senra-passion-pain"> here</a>.</p>]]></content:encoded>
+      <pubDate>Fri, 31 Mar 2023 08:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>`)
+
+	result, err := service.syncPodcastEpisodeItems(podcast, items, EpisodeSyncConfig{
+		Mode:                  SyncModeFull,
+		MaxEpisodesPerPodcast: 1000,
+		UpdateExisting:        true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, result.Created)
+	require.Equal(t, 0, result.Errors)
+
+	links := map[string]string{}
+	var episodes []models.Episode
+	require.NoError(t, db.Where("podcast_id = ?", podcast.ID).Find(&episodes).Error)
+	for _, episode := range episodes {
+		links[episode.GUID] = episode.Link
+	}
+	require.Equal(t, "https://colossus.com/episode/ai-market-jitters/", links["libsyn-ai-market-jitters"])
+	require.Equal(t, "https://colossus.com/episode/senra-passion-pain/", links["libsyn-senra-forever"])
+}
+
 // TestSyncPodcastEpisodesOriginalURLThroughDiscoveryAPI locks the highest
 // backend seam: a deterministic RSS fixture really syncs into a temp SQLite
 // and the discovery API reads original_url back through retention and update.
@@ -413,7 +467,7 @@ func TestSyncPodcastEpisodesWavPubFallbackRejectsNonPageGUIDs(t *testing.T) {
 }
 
 // TestSyncPodcastEpisodeItemsKeepsMissingLinksForUnverifiedSources proves the
-// ART19/MeldingCloud/荔枝/Libsyn-style sources stay 暂缺 without inventing URLs
+// ART19/MeldingCloud/荔枝 and unverified Libsyn-style sources stay 暂缺 without inventing URLs
 // and that existing links survive their empty feed values.
 func TestSyncPodcastEpisodeItemsKeepsMissingLinksForUnverifiedSources(t *testing.T) {
 	feedURLs := []string{

@@ -3,8 +3,7 @@
 // restorable through the shared strict originallink resolution entry.
 //
 // The tool never decides link rules itself: every planned value comes from
-// originallink.Resolve (currently only the verified WavPub page GUID rule can
-// restore a missing link). It never overwrites a non-empty stored link.
+// originallink.Resolve. It never overwrites a non-empty stored link.
 //
 // Default mode is a read-only dry run that prints every planned write and
 // every skip with an explicit reason. Only `--apply --confirm <确认串>` writes,
@@ -221,6 +220,7 @@ func loadBackfillPlan(db *sql.DB) ([]plannedWrite, []skippedRecord, auditSummary
 			COALESCE(e.title, ''),
 			e.podcast_id,
 			COALESCE(e.link, ''),
+			COALESCE(e.content, '') || char(10) || COALESCE(e.show_notes, ''),
 			p.id,
 			COALESCE(p.feed_url, '')
 		FROM episodes e
@@ -242,10 +242,11 @@ func loadBackfillPlan(db *sql.DB) ([]plannedWrite, []skippedRecord, auditSummary
 			title           string
 			podcastID       int64
 			link            string
+			content         string
 			joinedPodcastID sql.NullInt64
 			feedURL         sql.NullString
 		)
-		if err := rows.Scan(&id, &guid, &title, &podcastID, &link, &joinedPodcastID, &feedURL); err != nil {
+		if err := rows.Scan(&id, &guid, &title, &podcastID, &link, &content, &joinedPodcastID, &feedURL); err != nil {
 			return nil, nil, auditSummary{}, err
 		}
 		audit.EpisodesScanned++
@@ -270,6 +271,7 @@ func loadBackfillPlan(db *sql.DB) ([]plannedWrite, []skippedRecord, auditSummary
 		decision := originallink.Resolve(originallink.Input{
 			Feed:         originallink.FeedIdentity{FeedURL: feedURL.String},
 			GUID:         guid,
+			Content:      content,
 			ExistingLink: link,
 		})
 		if decision.URL == "" {

@@ -37,6 +37,8 @@ func openBackfillTestDB(t *testing.T) (*sql.DB, string) {
 			title TEXT NOT NULL DEFAULT '',
 			guid TEXT NOT NULL DEFAULT '',
 			link TEXT NOT NULL DEFAULT '',
+			show_notes TEXT,
+			content TEXT,
 			updated_at DATETIME,
 			deleted_at DATETIME
 		);`)
@@ -234,6 +236,27 @@ func TestLoadBackfillPlanSupportsWavPubProxyFeed(t *testing.T) {
 	require.Equal(t, int64(11), plan[0].EpisodeID)
 	require.Equal(t, "https://hosting.wavpub.cn/pie/?p=822", plan[0].PlannedLink)
 	require.Equal(t, originallink.SourceWavPubGUID, plan[0].Source)
+}
+
+func TestLoadBackfillPlanResolvesVerifiedLibsynContentPage(t *testing.T) {
+	db, _ := openBackfillTestDB(t)
+	_, err := db.Exec(`
+		INSERT INTO podcasts(id, title, feed_url) VALUES
+			(3, 'Invest Like the Best', 'https://investlikethebest.libsyn.com/rss');
+		INSERT INTO episodes(id, podcast_id, title, guid, link, content) VALUES
+			(17, 3, 'David Senra - Passion & Pain - Forever Episode', 'libsyn-senra-forever', '',
+			 '<p>For the full show notes, check out the episode page<a href="https://www.joincolossus.com/episodes/85503387/senra-passion-pain"> here</a>.</p>');`)
+	require.NoError(t, err)
+
+	plan, skipped, audit, err := loadBackfillPlan(db)
+	require.NoError(t, err)
+	require.Empty(t, skipped)
+	require.Equal(t, 1, audit.EpisodesScanned)
+	require.Equal(t, 1, audit.PlannedWrites)
+	require.Len(t, plan, 1)
+	require.Equal(t, int64(17), plan[0].EpisodeID)
+	require.Equal(t, "https://colossus.com/episode/senra-passion-pain/", plan[0].PlannedLink)
+	require.Equal(t, originallink.SourceLibsynContent, plan[0].Source)
 }
 
 func TestParseFlagsRequiresConfirmationForApply(t *testing.T) {
