@@ -53,6 +53,30 @@ type executionEvidence struct {
 	CancellationMethod codexruntime.CancellationMethod `json:"cancellation_method,omitempty"`
 }
 
+// profileEvidence is the sanitized record of one profile-pinned read-only
+// execution: identity, versions, resolved tier, terminal state, timings, and
+// stream sanity. Prompts and output text are never recorded.
+type profileEvidence struct {
+	SchemaVersion        int                             `json:"schema_version"`
+	ObservedAt           time.Time                       `json:"observed_at"`
+	Host                 string                          `json:"host"`
+	SDKVersion           string                          `json:"sdk_version"`
+	RuntimeVersion       string                          `json:"runtime_version,omitempty"`
+	Profile              string                          `json:"profile"`
+	Model                string                          `json:"model"`
+	Effort               string                          `json:"effort"`
+	ServiceTier          string                          `json:"service_tier"`
+	Status               codexruntime.ExecutionStatus    `json:"status"`
+	ErrorCode            string                          `json:"error_code,omitempty"`
+	CreateMilliseconds   int64                           `json:"create_ms"`
+	CompleteMilliseconds int64                           `json:"complete_ms"`
+	EventCount           int                             `json:"event_count"`
+	OutputDeltaCount     int                             `json:"output_delta_count"`
+	SequenceValid        bool                            `json:"sequence_valid"`
+	Diagnostics          codexruntime.ProcessDiagnostics `json:"diagnostics"`
+	OrphanFree           bool                            `json:"orphan_free"`
+}
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "codex runtime smoke failed:", err)
@@ -78,6 +102,11 @@ func run() error {
 		"absolute path for sanitized JSON evidence",
 	)
 	timeout := flag.Duration("timeout", 3*time.Minute, "overall smoke timeout")
+	profile := flag.String(
+		"profile",
+		"",
+		"optional stable profile ID (quick|balanced|deep): run one minimal read-only execution pinned to that tier instead of the two-execution runtime smoke",
+	)
 	flag.Parse()
 
 	if !filepath.IsAbs(*python) ||
@@ -85,6 +114,16 @@ func run() error {
 		!filepath.IsAbs(*workRoot) ||
 		!filepath.IsAbs(*evidencePath) {
 		return errors.New("all path flags must be absolute")
+	}
+	if strings.TrimSpace(*profile) != "" {
+		return runProfileSmoke(profileSmokeInput{
+			Python:       *python,
+			HostScript:   *hostScript,
+			WorkRoot:     *workRoot,
+			EvidencePath: *evidencePath,
+			Timeout:      *timeout,
+			ProfileID:    strings.TrimSpace(*profile),
+		})
 	}
 	if err := os.MkdirAll(*workRoot, 0o700); err != nil {
 		return fmt.Errorf("create managed work root: %w", err)
@@ -311,7 +350,7 @@ func collectEventEvidence(
 	return evidence
 }
 
-func writeEvidence(path string, evidence smokeEvidence) error {
+func writeEvidence(path string, evidence any) error {
 	payload, err := json.MarshalIndent(evidence, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode smoke evidence: %w", err)
@@ -322,5 +361,142 @@ func writeEvidence(path string, evidence smokeEvidence) error {
 	if err := os.WriteFile(path, append(payload, '\n'), 0o600); err != nil {
 		return fmt.Errorf("write smoke evidence: %w", err)
 	}
+	return nil
+}
+
+type profileSmokeInput struct {
+	Python       string
+	HostScript   string
+	WorkRoot     string
+	EvidencePath string
+	Timeout      time.Duration
+	ProfileID    string
+}
+
+// runProfileSmoke executes one minimal read-only turn pinned to the requested
+// tier and records sanitized evidence. The profile ID is resolved against the
+// single runtime catalog; the account check in the host decides support. No
+// substitution, retry, or fallback happens on failure.
+func runProfileSmoke(input profileSmokeInput) error {
+	profile, ok := codexruntime.ResolveModelProfile(
+		codexruntime.ModelProfileID(input.ProfileID),
+	)
+	if !ok {
+		return fmt.Errorf(
+			"profile %q is not in the runtime catalog",
+			input.ProfileID,
+		)
+	}
+	if err := os.MkdirAll(input.WorkRoot, 0o700); err != nil {
+		return fmt.Errorf("create managed work root: %w", err)
+	}
+	workDir, err := os.MkdirTemp(input.WorkRoot, "profile-")
+	if err != nil {
+		return fmt.Errorf("create profile work directory: %w", err)
+	}
+	defer os.RemoveAll(workDir)
+
+	host, err := codexruntime.NewProcessHost(codexruntime.ProcessHostConfig{
+		Command:  []string{input.Python, input.HostScript},
+		WorkRoot: input.WorkRoot,
+	})
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), input.Timeout)
+	defer cancel()
+
+	started := time.Now()
+	snapshot, err := host.CreateExecution(
+		ctx,
+		codexruntime.ExecutionRequest{
+			Kind:             codexruntime.ExecutionKindSmoke,
+			WorkingDirectory: workDir,
+			Prompt: "Return the exact JSON message profile-smoke-ok. " +
+				"Do not call tools or inspect files.",
+			OutputSchema: smokeOutputSchema,
+			ModelProfile: profile.ID,
+		},
+	)
+	if err != nil {
+		_ = host.Close(context.Background())
+		return fmt.Errorf("create profile smoke execution: %w", err)
+	}
+	createdAt := time.Now()
+	events, err := host.SubscribeExecution(ctx, snapshot.ID)
+	if err != nil {
+		_ = host.Close(context.Background())
+		return err
+	}
+	evidence := collectEventEvidence(started, createdAt, events)
+	final, err := host.GetExecution(ctx, snapshot.ID)
+	if err != nil {
+		_ = host.Close(context.Background())
+		return err
+	}
+	evidence.Status = final.Status
+	evidence.CompleteMillis = time.Since(started).Milliseconds()
+
+	closeCtx, closeCancel := context.WithTimeout(
+		context.Background(),
+		15*time.Second,
+	)
+	closeErr := host.Close(closeCtx)
+	closeCancel()
+
+	hostname, _ := os.Hostname()
+	diagnostics := host.Diagnostics()
+	record := profileEvidence{
+		SchemaVersion:        1,
+		ObservedAt:           time.Now().UTC(),
+		Host:                 hostname,
+		SDKVersion:           "0.147.0",
+		RuntimeVersion:       final.RuntimeVersion,
+		Profile:              string(profile.ID),
+		Model:                profile.Model,
+		Effort:               profile.Effort,
+		ServiceTier:          profile.ServiceTier,
+		Status:               final.Status,
+		ErrorCode:            final.ErrorCode,
+		CreateMilliseconds:   evidence.CreateMilliseconds,
+		CompleteMilliseconds: evidence.CompleteMillis,
+		EventCount:           evidence.EventCount,
+		OutputDeltaCount:     evidence.OutputDeltaCount,
+		SequenceValid:        evidence.SequenceValid,
+		Diagnostics:          diagnostics,
+		OrphanFree: diagnostics.ActiveExecutions == 0 &&
+			diagnostics.LiveProcessGroups == 0,
+	}
+	if writeErr := writeEvidence(input.EvidencePath, record); writeErr != nil {
+		return writeErr
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close runtime host: %w", closeErr)
+	}
+	if final.Status != codexruntime.StatusCompleted {
+		return fmt.Errorf(
+			"profile smoke ended as %s: %s (%s)",
+			final.Status,
+			final.ErrorCode,
+			final.SafeMessage,
+		)
+	}
+	if evidence.OutputDeltaCount == 0 || !evidence.SequenceValid {
+		return errors.New(
+			"profile smoke did not produce a valid stream",
+		)
+	}
+	if !record.OrphanFree {
+		return errors.New("runtime orphan check failed")
+	}
+	fmt.Printf(
+		"profile smoke passed: profile=%s model=%s effort=%s tier=%q status=%s complete_ms=%d\n",
+		record.Profile,
+		record.Model,
+		record.Effort,
+		record.ServiceTier,
+		record.Status,
+		record.CompleteMilliseconds,
+	)
 	return nil
 }
