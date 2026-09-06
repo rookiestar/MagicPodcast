@@ -1,0 +1,65 @@
+name: Production runner health
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+
+concurrency:
+  group: magicpodcast-production-runner-health
+  cancel-in-progress: true
+
+jobs:
+  runner-health:
+    name: Check production runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      EXPECTED_RUNNER_NAME: mac-mini-production
+      REQUIRED_LABEL: magicpodcast-production
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check runner status
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          runner="$({
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runners?per_page=100" \
+              --jq '.runners[]'
+          } | jq -s --arg runner_name "$EXPECTED_RUNNER_NAME" \
+            '[.[] | select(.name == $runner_name)] | first // empty')"
+
+          if [ -z "$runner" ] || [ "$runner" = "null" ]; then
+            echo "::error title=Production runner missing::Runner $EXPECTED_RUNNER_NAME was not found."
+            exit 1
+          fi
+
+          runner_status="$(jq -r '.status' <<<"$runner")"
+          runner_busy="$(jq -r '.busy' <<<"$runner")"
+          has_required_label="$(jq -r --arg required_label "$REQUIRED_LABEL" \
+            'any(.labels[].name; . == $required_label)' <<<"$runner")"
+
+          {
+            echo "### Production runner health"
+            echo
+            echo "- Name: \`$EXPECTED_RUNNER_NAME\`"
+            echo "- Status: \`$runner_status\`"
+            echo "- Busy: \`$runner_busy\`"
+            echo "- Required label present: \`$has_required_label\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$has_required_label" != true ]; then
+            echo "::error title=Production runner label missing::Runner $EXPECTED_RUNNER_NAME lacks label $REQUIRED_LABEL."
+            exit 1
+          fi
+
+          if [ "$runner_status" != online ]; then
+            echo "::error title=Production runner offline::Runner $EXPECTED_RUNNER_NAME is $runner_status."
+            exit 1
+          fi
+
+          echo "Production runner is online; busy=$runner_busy is healthy."
