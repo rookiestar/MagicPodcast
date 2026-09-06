@@ -460,6 +460,11 @@ export default function EpisodeCopilotPanel({
               })}
             </fieldset>
           ) : null}
+          {isRejectedProfileSelected && effectiveSelectedProfileID && (
+            <p className={styles.copilotDegraded} role="status">
+              当前选择的{profileDisplayName(effectiveSelectedProfileID)}档位已确认不可用；请切换其他档位后再提问。
+            </p>
+          )}
           {!scope.transcript_available && (
             <p className={styles.copilotDegraded}>
               当前无成功逐字稿，将明确降级为 Show Notes。
