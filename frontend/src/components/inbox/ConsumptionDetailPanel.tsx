@@ -566,6 +566,7 @@ export default function ConsumptionDetailPanel({
     detailScrollTop: number;
     focusedElement: HTMLElement | null;
   } | null>(null);
+  const detailTabScrollTopRef = useRef<Partial<Record<DetailTab, number>>>({});
   const processingPanelRef = useRef<EpisodeProcessingPanelHandle>(null);
   const showNotesRequestSequence = useRef(0);
   const tabRefs = useRef<Record<DetailTab, HTMLButtonElement | null>>({
@@ -637,6 +638,7 @@ export default function ConsumptionDetailPanel({
   useEffect(() => {
     setIsCopilotOpen(false);
     copilotRestoreRef.current = null;
+    detailTabScrollTopRef.current = {};
     setActiveTab("show-notes");
     setProcessingHeader(INITIAL_PROCESSING_HEADER);
   }, [item.episode_id]);
@@ -754,11 +756,20 @@ export default function ConsumptionDetailPanel({
       : ({ episodeId: item.episode_id, status: "loading" } as const);
 
   const selectTab = useCallback((tab: DetailTab, shouldFocus = false) => {
-    setActiveTab(tab);
-    if (shouldFocus) {
-      window.requestAnimationFrame(() => tabRefs.current[tab]?.focus());
+    const currentScrollTop = detailScrollRef.current?.scrollTop;
+    if (currentScrollTop !== undefined) {
+      detailTabScrollTopRef.current[activeTab] = currentScrollTop;
     }
-  }, []);
+    setActiveTab(tab);
+    window.requestAnimationFrame(() => {
+      const detailScroll = detailScrollRef.current;
+      const savedScrollTop = detailTabScrollTopRef.current[tab];
+      if (detailScroll && savedScrollTop !== undefined) {
+        detailScroll.scrollTop = savedScrollTop;
+      }
+      if (shouldFocus) tabRefs.current[tab]?.focus();
+    });
+  }, [activeTab]);
   const visibleDetailTabs = useMemo(
     () =>
       DETAIL_TABS.filter(

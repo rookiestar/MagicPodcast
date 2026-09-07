@@ -1624,6 +1624,27 @@ describe("InboxPageClient", () => {
     expect(audio).toHaveAttribute("src", mediaSource);
   });
 
+  it("preserves each detail tab's scroll position when switching tabs", async () => {
+    mockNativeMinutesProcessing();
+    const dialog = await openNativeTranscript();
+    const detailScroll = within(dialog).getByRole("tablist", {
+      name: "单集详情内容",
+    }).parentElement as HTMLElement;
+    const transcriptTab = within(dialog).getByRole("tab", { name: "转写" });
+    const showNotesTab = within(dialog).getByRole("tab", {
+      name: "Show Notes",
+    });
+
+    detailScroll.scrollTop = 512;
+    fireEvent.click(showNotesTab);
+    // A long transcript can be clamped when its panel is hidden. Simulate
+    // that browser behavior before returning to the transcript.
+    detailScroll.scrollTop = 0;
+    fireEvent.click(transcriptTab);
+
+    await waitFor(() => expect(detailScroll.scrollTop).toBe(512));
+  });
+
   it("preserves transcript selection and the active transcript tab", async () => {
     mockNativeMinutesProcessing();
     const dialog = await openNativeTranscript();
