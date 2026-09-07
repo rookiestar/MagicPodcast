@@ -924,8 +924,10 @@ describe("EpisodeProcessingPanel", () => {
     expect(await screen.findByText("正文")).toBeVisible();
     expect(screen.getByLabelText("逐字稿音频播放器")).toBeVisible();
     expect(screen.getByRole("region", { name: "同步逐字稿" })).toBeVisible();
-    expect(screen.getByText("逐字稿 · 1 段")).toBeVisible();
-    expect(screen.getByText("音频可用")).toBeVisible();
+    // Normal completion stays quiet: no segment census, no availability
+    // caption repeating what the working player already expresses.
+    expect(screen.queryByText(/逐字稿 · \d+ 段/)).not.toBeInTheDocument();
+    expect(screen.queryByText("音频可用")).not.toBeInTheDocument();
     expect(screen.getByRole("tabpanel", { name: "逐字稿" })).toBeVisible();
 
     const transcriptAudio = document.querySelector("audio");

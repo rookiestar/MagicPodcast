@@ -3,12 +3,14 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
 } from "react";
 import {
   IconCheck,
+  IconChevronDown,
   IconPlayerPause,
   IconPlayerPlay,
   IconRefresh,
@@ -56,6 +58,21 @@ const transcriptScrollKeys = new Set([
   "PageUp",
   " ",
 ]);
+
+// Speaker colors only aid scanning; the speaker name stays the authoritative
+// identity. Tones map to the first-appearance order of the normalized speaker
+// labels in the current transcript and cycle once the palette runs out.
+const SPEAKER_TONE_COUNT = 4;
+
+function buildSpeakerTones(segments: TranscriptSegment[]) {
+  const tones = new Map<string, number>();
+  for (const segment of segments) {
+    if (!tones.has(segment.speaker)) {
+      tones.set(segment.speaker, tones.size % SPEAKER_TONE_COUNT);
+    }
+  }
+  return tones;
+}
 
 function formatPlaybackRateLabel(rate: TranscriptPlaybackRate) {
   return `${rate}×`;
@@ -110,13 +127,43 @@ function currentSegmentAt(
   return match;
 }
 
-function isOutsideViewport(container: HTMLElement, target: HTMLElement) {
+function revealScrollDelta(
+  container: HTMLElement,
+  target: HTMLElement,
+  stickyBlocker: HTMLElement | null,
+) {
   const containerRect = container.getBoundingClientRect();
   const targetRect = target.getBoundingClientRect();
-  return (
-    targetRect.top < containerRect.top ||
+  // The sticky player can sit below another sticky control (the mobile detail
+  // tabs), so its actual bottom edge—not the scroll owner's top—is the first
+  // visible pixel for transcript content.
+  let visibleTop = containerRect.top;
+  if (stickyBlocker) {
+    const blockerRect = stickyBlocker.getBoundingClientRect();
+    if (
+      blockerRect.bottom > containerRect.top &&
+      blockerRect.top < containerRect.bottom
+    ) {
+      visibleTop = Math.max(visibleTop, blockerRect.bottom);
+    }
+  }
+  // A long paragraph that already spans the full readable viewport is visible
+  // enough. Chasing its top and bottom on consecutive time updates would make
+  // the page oscillate while the same segment remains current.
+  if (
+    targetRect.top < visibleTop &&
     targetRect.bottom > containerRect.bottom
-  );
+  ) {
+    return 0;
+  }
+  const revealPadding = 8;
+  if (targetRect.top < visibleTop) {
+    return targetRect.top - visibleTop - revealPadding;
+  }
+  if (targetRect.bottom > containerRect.bottom) {
+    return targetRect.bottom - containerRect.bottom + revealPadding;
+  }
+  return 0;
 }
 
 function normalizedAudioDuration(value: number | undefined) {
@@ -139,6 +186,23 @@ function detachAudioElement(audio: HTMLAudioElement | null) {
   audio.load();
 }
 
+// The transcript renders without an internal scroller: Focus Detail's content
+// area is the single scroll owner. Resolve it from the DOM so auto-follow and
+// the manual-scroll pause bind to the container that actually scrolls; the
+// transcript element stays the fallback when no scrollable ancestor exists.
+function findTranscriptScrollOwner(
+  start: HTMLElement | null,
+): HTMLElement | null {
+  let node = start?.parentElement ?? null;
+  while (node) {
+    const overflowY =
+      node.style.overflowY || window.getComputedStyle(node).overflowY;
+    if (overflowY === "auto" || overflowY === "scroll") return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
 export default function TranscriptAudioPlayer({
   artifactSetId,
   segments,
@@ -154,6 +218,7 @@ export default function TranscriptAudioPlayer({
   // mounted element so the unmount cleanup can still detach an in-flight
   // audio source.
   const lastAudioRef = useRef<HTMLAudioElement | null>(null);
+  const playerRef = useRef<HTMLDivElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const segmentRefs = useRef(new Map<number, HTMLElement>());
   const followEnabledRef = useRef(true);
@@ -221,18 +286,22 @@ export default function TranscriptAudioPlayer({
   const revealSegmentIfNeeded = useCallback(
     (segmentIndex: number) => {
       if (!followEnabledRef.current || segmentIndex < 0) return;
-      const container = transcriptRef.current;
       const target = segmentRefs.current.get(segments[segmentIndex].order);
-      if (
-        !container ||
-        !target ||
-        typeof target.scrollIntoView !== "function" ||
-        !isOutsideViewport(container, target)
-      ) {
-        return;
-      }
+      const owner = findTranscriptScrollOwner(transcriptRef.current);
+      const container = owner ?? transcriptRef.current;
+      if (!container || !target) return;
+      const scrollDelta = revealScrollDelta(
+        container,
+        target,
+        playerRef.current,
+      );
+      if (scrollDelta === 0) return;
       programmaticScrollRef.current = true;
-      target.scrollIntoView({ block: "nearest", behavior: "auto" });
+      if (owner) {
+        owner.scrollTop += scrollDelta;
+      } else if (typeof target.scrollIntoView === "function") {
+        target.scrollIntoView({ block: "nearest", behavior: "auto" });
+      }
       if (programmaticScrollFrame.current !== null) {
         window.cancelAnimationFrame(programmaticScrollFrame.current);
       }
@@ -382,6 +451,8 @@ export default function TranscriptAudioPlayer({
       updatePosition,
     ],
   );
+
+  const speakerTones = useMemo(() => buildSpeakerTones(segments), [segments]);
 
   const visibleChapters = chapters.filter(
     (chapter) => chapter.title.trim() || chapter.summary?.trim(),
@@ -542,6 +613,19 @@ export default function TranscriptAudioPlayer({
     }
   }, [setFollowEnabled]);
 
+  // Scrolling happens on the Focus Detail content area now, so the
+  // manual-scroll pause contract follows it there. Gestures over the
+  // transcript itself still pause through the region handlers below.
+  useEffect(() => {
+    const owner = findTranscriptScrollOwner(transcriptRef.current);
+    if (!owner) return;
+    const handleOwnerScroll = () => pauseFollowing();
+    owner.addEventListener("scroll", handleOwnerScroll, { passive: true });
+    return () => {
+      owner.removeEventListener("scroll", handleOwnerScroll);
+    };
+  }, [pauseFollowing]);
+
   const mediaStatus =
     mediaState === "preparing"
       ? "正在准备播放"
@@ -559,7 +643,11 @@ export default function TranscriptAudioPlayer({
 
   return (
     <div className={styles.transcriptExperience}>
-      <div className={styles.transcriptPlayer} aria-label="逐字稿音频播放器">
+      <div
+        ref={playerRef}
+        className={styles.transcriptPlayer}
+        aria-label="逐字稿音频播放器"
+      >
         {mediaAvailable && (
           // No `src` here: the managed audio body is requested only when the
           // first play intent arms the source in prepareAndPlay.
@@ -699,7 +787,9 @@ export default function TranscriptAudioPlayer({
             disabled={!mediaAvailable || mediaState === "error"}
             onClick={toggleRateMenu}
           >
+            <span className={styles.transcriptRateLabel}>倍速</span>
             {formatPlaybackRateLabel(playbackRate)}
+            <IconChevronDown size={13} stroke={2} aria-hidden="true" />
           </button>
           {rateMenuOpen && (
             <div
@@ -743,14 +833,16 @@ export default function TranscriptAudioPlayer({
           </button>
         )}
 
-        <span className={styles.transcriptMediaStatus} role="status">
-          {mediaStatus}
-        </span>
+        {mediaStatus ? (
+          <span className={styles.transcriptMediaStatus} role="status">
+            {mediaStatus}
+          </span>
+        ) : null}
       </div>
 
       {visibleChapters.length > 0 && (
         <details className={styles.transcriptChapters}>
-          <summary>智能章节 · {visibleChapters.length}</summary>
+          <summary>章节 {visibleChapters.length}</summary>
           <ol className={styles.minutesChapterList}>
             {visibleChapters.map((chapter) => (
               <li key={`${chapter.order}-${chapter.start_ms}`}>
@@ -783,7 +875,6 @@ export default function TranscriptAudioPlayer({
         tabIndex={0}
         onWheel={pauseFollowing}
         onTouchMove={pauseFollowing}
-        onScroll={pauseFollowing}
         onKeyDown={(event) => {
           if (
             event.target === event.currentTarget &&
@@ -828,6 +919,7 @@ export default function TranscriptAudioPlayer({
                     }}
                     type="button"
                     className={styles.transcriptSegment}
+                    data-speaker-tone={speakerTones.get(segment.speaker)}
                     aria-label={`${timestamp} ${segment.speaker}：${segment.text}`}
                     aria-current={isCurrent ? "true" : undefined}
                     onClick={() => seekTo(segment.start_ms / 1000)}
@@ -844,6 +936,7 @@ export default function TranscriptAudioPlayer({
                       }
                     }}
                     className={styles.transcriptSegment}
+                    data-speaker-tone={speakerTones.get(segment.speaker)}
                     aria-current={isCurrent ? "true" : undefined}
                   >
                     {content}

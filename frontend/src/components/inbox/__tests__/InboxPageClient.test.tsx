@@ -1513,8 +1513,12 @@ describe("InboxPageClient", () => {
     expect(within(dialog).getByText("开场")).toBeVisible();
     expect(within(dialog).getByText("中段")).toBeVisible();
     expect(within(dialog).getByText("尾段")).toBeVisible();
-    expect(within(dialog).getByText("逐字稿 · 3 段")).toBeVisible();
-    expect(within(dialog).getByText("音频可用")).toBeVisible();
+    // Normal completion stays quiet: no segment census or availability
+    // caption; the readable body and the idle player carry the meaning.
+    expect(
+      within(dialog).queryByText(/逐字稿 · \d+ 段/),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("音频可用")).not.toBeInTheDocument();
     expect(
       within(dialog).queryByRole("button", { name: "恢复音频" }),
     ).not.toBeInTheDocument();
@@ -1577,13 +1581,16 @@ describe("InboxPageClient", () => {
     expect(middleSegment).toHaveFocus();
     expect(audio.currentTime).toBe(30);
 
-    const transcriptRegion = within(dialog).getByRole("region", {
-      name: "同步逐字稿",
-    });
+    // The Focus Detail content area is the transcript's scroll owner; manual
+    // scrolling there is what pauses auto-follow.
+    const detailScrollOwner = within(dialog).getByRole("tablist", {
+      name: "单集详情内容",
+    }).parentElement as HTMLElement;
+    detailScrollOwner.style.overflowY = "auto";
     const tailSegment = within(dialog).getByRole("button", {
       name: "01:00 主持人：尾段",
     });
-    Object.defineProperty(transcriptRegion, "getBoundingClientRect", {
+    Object.defineProperty(detailScrollOwner, "getBoundingClientRect", {
       configurable: true,
       value: () => ({ top: 0, bottom: 100 }),
     });
@@ -1591,26 +1598,19 @@ describe("InboxPageClient", () => {
       configurable: true,
       value: () => ({ top: 130, bottom: 170 }),
     });
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(tailSegment, "scrollIntoView", {
-      configurable: true,
-      value: scrollIntoView,
-    });
-    fireEvent.scroll(transcriptRegion);
+    detailScrollOwner.scrollTop = 0;
+    fireEvent.scroll(detailScrollOwner);
     audio.currentTime = 61;
     fireEvent.timeUpdate(audio);
-    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(detailScrollOwner.scrollTop).toBe(0);
     fireEvent.waiting(audio);
     fireEvent.playing(audio);
     expect(within(dialog).getByText("自动跟随已暂停")).toBeVisible();
-    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(detailScrollOwner.scrollTop).toBe(0);
 
     fireEvent.click(within(dialog).getByRole("button", { name: "暂停音频" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "播放音频" }));
-    expect(scrollIntoView).toHaveBeenCalledWith({
-      block: "nearest",
-      behavior: "auto",
-    });
+    expect(detailScrollOwner.scrollTop).toBeGreaterThan(0);
     expect(play).toHaveBeenCalledTimes(2);
 
     const mediaSource = audio.getAttribute("src");
@@ -1622,6 +1622,27 @@ describe("InboxPageClient", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "重试" }));
     expect(load).toHaveBeenCalledTimes(2);
     expect(audio).toHaveAttribute("src", mediaSource);
+  });
+
+  it("preserves each detail tab's scroll position when switching tabs", async () => {
+    mockNativeMinutesProcessing();
+    const dialog = await openNativeTranscript();
+    const detailScroll = within(dialog).getByRole("tablist", {
+      name: "单集详情内容",
+    }).parentElement as HTMLElement;
+    const transcriptTab = within(dialog).getByRole("tab", { name: "转写" });
+    const showNotesTab = within(dialog).getByRole("tab", {
+      name: "Show Notes",
+    });
+
+    detailScroll.scrollTop = 512;
+    fireEvent.click(showNotesTab);
+    // A long transcript can be clamped when its panel is hidden. Simulate
+    // that browser behavior before returning to the transcript.
+    detailScroll.scrollTop = 0;
+    fireEvent.click(transcriptTab);
+
+    await waitFor(() => expect(detailScroll.scrollTop).toBe(512));
   });
 
   it("preserves transcript selection and the active transcript tab", async () => {
@@ -1990,15 +2011,18 @@ describe("InboxPageClient", () => {
     ).not.toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole("tab", { name: "逐字稿" }));
-    const chapterNav = await within(dialog).findByText("智能章节 · 8");
+    const chapterNav = await within(dialog).findByText("章节 8", {
+      selector: "summary",
+    });
     expect(chapterNav).toBeVisible();
     const chapterDetails = chapterNav.closest("details");
     expect(chapterDetails).not.toBeNull();
     expect(chapterDetails).not.toHaveAttribute("open");
     fireEvent.click(chapterNav);
     expect(chapterDetails).toHaveAttribute("open");
-    expect(within(dialog).getByText("章节 1")).toBeVisible();
-    expect(within(dialog).getByText("章节 8")).toBeVisible();
+    const chapterList = within(chapterDetails!).getByRole("list");
+    expect(within(chapterList).getByText("章节 1")).toBeVisible();
+    expect(within(chapterList).getByText("章节 8")).toBeVisible();
     const audio = dialog.querySelector("audio")!;
     const play = vi.fn().mockResolvedValue(undefined);
     Object.defineProperties(audio, {
@@ -2178,7 +2202,7 @@ describe("InboxPageClient", () => {
     ).toBeVisible();
     expect(within(dialog).queryByText("正文")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("tab", { name: "逐字稿" }));
-    fireEvent.click(await within(dialog).findByText("智能章节 · 1"));
+    fireEvent.click(await within(dialog).findByText("章节 1"));
     fireEvent.click(
       within(dialog).getByRole("button", { name: /00:45\s+中段章节/ }),
     );
@@ -2534,8 +2558,11 @@ describe("InboxPageClient", () => {
     await waitFor(() =>
       expect(apiMocks.recoverAudio).toHaveBeenCalledWith(nativeArtifact.id),
     );
-    expect(await within(dialog).findByText("音频可用")).toBeVisible();
-    expect(dialog.querySelector("audio")).not.toBeNull();
+    // The verified read flips media availability; the armed player replaces
+    // the old availability caption.
+    await waitFor(() =>
+      expect(dialog.querySelector("audio")).not.toBeNull(),
+    );
     expect(
       within(dialog).queryByRole("button", { name: "恢复音频" }),
     ).not.toBeInTheDocument();
@@ -2559,7 +2586,9 @@ describe("InboxPageClient", () => {
     fireEvent.click(
       await within(reopened).findByRole("tab", { name: "逐字稿" }),
     );
-    expect(await within(reopened).findByText("音频可用")).toBeVisible();
+    await waitFor(() =>
+      expect(reopened.querySelector("audio")).not.toBeNull(),
+    );
     expect(
       within(reopened).queryByRole("button", { name: "恢复音频" }),
     ).not.toBeInTheDocument();

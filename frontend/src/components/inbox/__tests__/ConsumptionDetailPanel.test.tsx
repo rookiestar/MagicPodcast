@@ -120,6 +120,12 @@ type OnMove = (
   target: ConsumptionItem["queue_state"],
 ) => Promise<ConsumptionItem | undefined>;
 
+function expectBefore(first: Element, second: Element) {
+  expect(
+    first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).not.toBe(0);
+}
+
 function renderDetail(
   overrides: Partial<{
     item: ConsumptionItem;
@@ -1057,13 +1063,34 @@ describe("ConsumptionDetailPanel", () => {
           ).not.toBeInTheDocument();
 
           fireEvent.click(within(dialog).getByRole("tab", { name: "逐字稿" }));
+          // Normal completion is quiet: the tab names the product, the armed
+          // player expresses audio availability, and the body leads.
           expect(
-            await within(dialog).findByText("逐字稿 · 1 段"),
+            await within(dialog).findByText("逐字稿正文"),
           ).toBeVisible();
-          expect(within(dialog).getByText("逐字稿正文")).toBeVisible();
+          expect(
+            within(dialog).queryByText(/逐字稿 · \d+ 段/),
+          ).not.toBeInTheDocument();
+          expect(
+            within(dialog).queryByText("音频可用"),
+          ).not.toBeInTheDocument();
+          expect(
+            within(dialog).getByRole("button", { name: "播放音频" }),
+          ).toBeEnabled();
           expect(
             within(dialog).queryByText(/暂时显示上一成功内容/),
           ).not.toBeInTheDocument();
+
+          // Run details sit in the collapsed tail footer, after the artifact.
+          const diagnostics = within(dialog)
+            .getByText("运行详情")
+            .closest("details");
+          expect(diagnostics).not.toBeNull();
+          expect(diagnostics).not.toHaveAttribute("open");
+          expectBefore(within(dialog).getByText("逐字稿正文"), diagnostics!);
+          fireEvent.click(within(dialog).getByText("运行详情"));
+          expect(diagnostics).toHaveAttribute("open");
+          expect(within(diagnostics!).getByText("状态")).toBeVisible();
         } finally {
           view.unmount();
           Object.defineProperty(window, "innerWidth", {
@@ -1352,6 +1379,109 @@ describe("ConsumptionDetailPanel", () => {
       expect(
         screen.queryByRole("button", { name: "查看转写" }),
       ).not.toBeInTheDocument();
+    });
+
+    it("keeps the compact chapter entry keyboard-expandable and positions text without audio", async () => {
+      mockTranscriptFlow();
+      const chapterTranscript: ArtifactContent = {
+        ...transcriptContent,
+        media_available: false,
+        chapters: [
+          { order: 1, start_ms: 0, title: "开场章节", summary: "引入话题" },
+          {
+            order: 2,
+            start_ms: 30_000,
+            title: "中段章节",
+            summary: "深入讨论",
+          },
+        ],
+        segments: [
+          { order: 1, speaker: "主持人", start_ms: 0, text: "开场正文" },
+          { order: 2, speaker: "嘉宾", start_ms: 30_000, text: "中段正文" },
+          { order: 3, speaker: "主持人", start_ms: 60_000, text: "尾段正文" },
+        ],
+      };
+      apiMocks.getArtifactContent.mockImplementation(
+        (_artifactSetId: number, kind: string) =>
+          Promise.resolve(
+            kind === "transcript" ? chapterTranscript : visualMinutesContent,
+          ),
+      );
+      renderDetail();
+      const dialog = await openTranscriptArea();
+      fireEvent.click(within(dialog).getByRole("tab", { name: "逐字稿" }));
+
+      // The entry reads as “章节 N”, stays collapsed by default, and speaker
+      // names stay visible as the authoritative identity.
+      const chapterNav = await within(dialog).findByText("章节 2", {
+        selector: "summary",
+      });
+      const chapterDetails = chapterNav.closest("details");
+      expect(chapterDetails).not.toBeNull();
+      expect(chapterDetails).not.toHaveAttribute("open");
+      expect(within(dialog).getByText("嘉宾")).toBeVisible();
+      expect(within(dialog).getAllByText("主持人").length).toBeGreaterThan(1);
+
+      chapterNav.focus();
+      expect(chapterNav).toHaveFocus();
+      fireEvent.click(chapterNav);
+      expect(chapterDetails).toHaveAttribute("open");
+
+      // Selecting a chapter still positions the text when audio is missing,
+      // and the unavailable-audio state explains why the player is idle.
+      fireEvent.click(
+        within(chapterDetails!).getByRole("button", {
+          name: /00:30\s+中段章节/,
+        }),
+      );
+      expect(
+        within(dialog).getByText("中段正文").closest("[aria-current='true']"),
+      ).toBeTruthy();
+      expect(
+        within(dialog).getByText("音频不可用，逐字稿仍可阅读。"),
+      ).toBeVisible();
+      expect(within(dialog).getByText("尾段正文")).toBeVisible();
+    });
+
+    it("keeps failure guidance next to the artifact while run details stay in the tail footer", async () => {
+      const failedRun: ProcessingRun = {
+        ...focusRun,
+        id: 331,
+        status: "failed",
+        current_step: "transcription",
+        error_code: "TRANSCRIPTION_FAILED",
+        error_message: "飞书妙记转写失败",
+      };
+      apiMocks.listEpisodeRuns.mockResolvedValue([failedRun]);
+      apiMocks.getRun.mockResolvedValue({
+        run: failedRun,
+        current_artifact: nativeArtifact,
+        deliveries: [],
+        action_suggestion: "可从页面顶部重试。",
+      });
+      apiMocks.getArtifactContent.mockImplementation(
+        (_artifactSetId: number, kind: string) =>
+          Promise.resolve(
+            kind === "transcript" ? transcriptContent : visualMinutesContent,
+          ),
+      );
+      renderDetail();
+      const dialog = await openTranscriptArea();
+
+      // The failure reason sits with the still-readable previous version and
+      // is never displaced into the collapsed diagnostics footer.
+      const failureNotice = within(dialog)
+        .getAllByText("可从页面顶部重试。")
+        .find((node) => !node.closest("details"))!;
+      fireEvent.click(within(dialog).getByRole("tab", { name: "纪要" }));
+      const bodyAnchor = await within(dialog).findByText("正文锚点");
+      expectBefore(failureNotice, bodyAnchor);
+      const diagnostics = within(dialog)
+        .getByText("运行详情")
+        .closest("details");
+      expect(diagnostics).not.toBeNull();
+      expectBefore(bodyAnchor, diagnostics!);
+      expect(diagnostics).not.toHaveAttribute("open");
     });
   });
 });
