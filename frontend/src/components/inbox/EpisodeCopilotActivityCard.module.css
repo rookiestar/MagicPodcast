@@ -1,27 +1,16 @@
-/* Runtime activity card: same paper language as the copilot section —
-   grid paper tint, square corners, 1px ink rules, mono micro labels, and a
-   restrained orange edge. Status is carried by icon + word + structure, so
-   color is only ever a secondary channel. */
+/* Runtime activity card: quiet paper surface inside the conversation —
+   1px ink rule, mono micro labels, and a restrained orange accent. Status is
+   carried by icon + word + structure, so color is only ever a secondary
+   channel. The chat-first copilot shell (#306) takes visual precedence over
+   the earlier grid-and-square description; the activity contract is
+   unchanged. */
 
 .card {
   position: relative;
   margin-top: 14px;
   padding: 11px 13px 13px 17px;
   border: 1px solid rgba(23, 21, 18, 0.22);
-  background:
-    linear-gradient(90deg, rgba(215, 104, 29, 0.05) 1px, transparent 1px),
-    linear-gradient(rgba(215, 104, 29, 0.04) 1px, transparent 1px),
-    rgba(255, 250, 240, 0.88);
-  background-size: 24px 24px;
-  box-shadow: 4px 4px 0 rgba(215, 104, 29, 0.08);
-}
-
-.card::before {
-  position: absolute;
-  width: 3px;
-  background: var(--orange);
-  content: "";
-  inset: 0 auto 0 0;
+  background: rgba(255, 250, 240, 0.88);
 }
 
 .cardHeader {
