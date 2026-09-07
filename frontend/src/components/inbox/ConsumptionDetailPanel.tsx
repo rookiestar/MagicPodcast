@@ -760,15 +760,17 @@ export default function ConsumptionDetailPanel({
     if (currentScrollTop !== undefined) {
       detailTabScrollTopRef.current[activeTab] = currentScrollTop;
     }
+    const savedScrollTop = detailTabScrollTopRef.current[tab];
     setActiveTab(tab);
-    window.requestAnimationFrame(() => {
-      const detailScroll = detailScrollRef.current;
-      const savedScrollTop = detailTabScrollTopRef.current[tab];
-      if (detailScroll && savedScrollTop !== undefined) {
-        detailScroll.scrollTop = savedScrollTop;
-      }
-      if (shouldFocus) tabRefs.current[tab]?.focus();
-    });
+    if (savedScrollTop !== undefined || shouldFocus) {
+      window.requestAnimationFrame(() => {
+        const detailScroll = detailScrollRef.current;
+        if (detailScroll && savedScrollTop !== undefined) {
+          detailScroll.scrollTop = savedScrollTop;
+        }
+        if (shouldFocus) tabRefs.current[tab]?.focus();
+      });
+    }
   }, [activeTab]);
   const visibleDetailTabs = useMemo(
     () =>
