@@ -85,8 +85,10 @@ describe("EpisodeCopilotPanel API integration", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<EpisodeCopilotPanel item={item} />);
-    const group = await screen.findByTestId("copilot-profiles");
-    fireEvent.click(within(group).getByRole("radio", { name: /快速/ }));
+    const trigger = await screen.findByTestId("copilot-profiles");
+    fireEvent.click(trigger);
+    const menu = await screen.findByRole("menu", { name: "选择回答档位" });
+    fireEvent.click(within(menu).getByRole("menuitemradio", { name: /快速/ }));
     fireEvent.change(screen.getByRole("textbox", { name: "向单集助手提问" }), {
       target: { value: "检查不可用档位" },
     });
@@ -104,7 +106,13 @@ describe("EpisodeCopilotPanel API integration", () => {
     fireEvent.click(askButton);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(within(group).getByRole("radio", { name: /深度/ }));
+    fireEvent.click(trigger);
+    const reopenedMenu = await screen.findByRole("menu", {
+      name: "选择回答档位",
+    });
+    fireEvent.click(
+      within(reopenedMenu).getByRole("menuitemradio", { name: /深度/ }),
+    );
     expect(askButton).toBeEnabled();
   });
 });

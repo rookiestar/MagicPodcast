@@ -1143,7 +1143,6 @@ export default function ConsumptionDetailPanel({
           >
             <header className={styles.copilotWorkspaceHeader}>
               <div>
-                <span className={styles.detailKicker}>EPISODE COPILOT</span>
                 <h2 id="episode-copilot-workspace-title">单集助手</h2>
                 <p>{item.episode_title}</p>
               </div>
@@ -1160,7 +1159,6 @@ export default function ConsumptionDetailPanel({
             <div className={styles.copilotWorkspaceScroll}>
               <EpisodeCopilotPanel
                 item={item}
-                showHeading={false}
                 selectedProfileID={selectedCopilotProfileID}
                 onSelectedProfileIDChange={onSelectedCopilotProfileIDChange}
                 rejectedProfileIDs={rejectedCopilotProfileIDs}
