@@ -1279,12 +1279,7 @@ const EpisodeProcessingPanel = forwardRef<
 
       {currentArtifact && selectedArtifactContent && (
         <div
-          className={`${styles.processingDocument} ${
-            selectedArtifactContent.content.kind === "transcript" &&
-            selectedArtifactContent.content.segments?.length
-              ? styles.processingTranscriptDocument
-              : styles.processingMinutesDocument
-          }`}
+          className={styles.processingDocument}
           data-copilot-source={
             selectedArtifactContent.content.kind === "transcript"
               ? "transcript"
@@ -1296,22 +1291,8 @@ const EpisodeProcessingPanel = forwardRef<
               : undefined
           }
         >
-          {selectedArtifactContent.content.kind === "transcript" && (
-            <div className={styles.metadataLabelRow}>
-              <span>
-                {`逐字稿${
-                  selectedArtifactContent.content.segments?.length
-                    ? ` · ${selectedArtifactContent.content.segments.length} 段`
-                    : ""
-                }`}
-              </span>
-              <span>
-                {selectedArtifactContent.content.media_available
-                  ? "音频可用"
-                  : "音频不可用"}
-              </span>
-            </div>
-          )}
+          {/* Normal completion stays quiet: the tab carries the product
+              identity and the working player carries audio availability. */}
           {selectedArtifactContent.content.kind === "transcript" &&
             transcriptRecovery &&
             !transcriptMediaAvailable &&

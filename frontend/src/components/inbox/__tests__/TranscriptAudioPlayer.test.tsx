@@ -117,7 +117,17 @@ function StatefulTranscriptAudioPlayer({
 }
 
 function renderPlayer(props: TestPlayerProps = {}) {
-  return render(<StatefulTranscriptAudioPlayer {...props} />);
+  // The transcript has no internal scroller; mirroring Focus Detail, the
+  // player renders inside the scroll owner that actually scrolls.
+  return render(
+    <div style={{ overflowY: "auto" }} data-testid="scroll-owner">
+      <StatefulTranscriptAudioPlayer {...props} />
+    </div>,
+  );
+}
+
+function scrollOwner() {
+  return screen.getByTestId("scroll-owner");
 }
 
 function queryMediaStatus() {
@@ -152,8 +162,7 @@ describe("TranscriptAudioPlayer", () => {
     expect(screen.getByText("中段内容")).toBeVisible();
     expect(screen.getByText("00:00 / 02:00")).toBeVisible();
     expect(screen.queryByText("正在加载音频…")).not.toBeInTheDocument();
-    const mediaStatus = screen.getByRole("status");
-    expect(mediaStatus).toBeEmptyDOMElement();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
 
     const playButton = screen.getByRole("button", { name: "播放音频" });
     expect(playButton).toBeEnabled();
@@ -164,7 +173,7 @@ describe("TranscriptAudioPlayer", () => {
     const media = controlAudio(audio!);
     fireEvent.click(playButton);
     expect(screen.getByText("正在准备播放")).toBeVisible();
-    expect(screen.getByRole("status")).toBe(mediaStatus);
+    expect(screen.getByRole("status")).toHaveTextContent("正在准备播放");
     expect(audio).toHaveAttribute("src", "/api/v1/artifact-sets/82/audio");
     expect(media.load).toHaveBeenCalledTimes(1);
     expect(media.play).toHaveBeenCalledTimes(1);
@@ -175,6 +184,7 @@ describe("TranscriptAudioPlayer", () => {
     expect(
       screen.queryByText("正在准备播放"),
     ).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "暂停音频" })).toBeVisible();
     expect(media.load).toHaveBeenCalledTimes(1);
     expect(
@@ -261,11 +271,11 @@ describe("TranscriptAudioPlayer", () => {
     fireEvent.loadedMetadata(audio);
     fireEvent.canPlay(audio);
     media.completePlay();
-    const transcript = screen.getByRole("region", { name: "同步逐字稿" });
+    const owner = scrollOwner();
     const third = screen.getByRole("button", {
       name: "01:00 主持人：尾段内容",
     });
-    Object.defineProperty(transcript, "getBoundingClientRect", {
+    Object.defineProperty(owner, "getBoundingClientRect", {
       configurable: true,
       value: () => ({ top: 0, bottom: 100 }),
     });
@@ -273,38 +283,87 @@ describe("TranscriptAudioPlayer", () => {
       configurable: true,
       value: () => ({ top: 130, bottom: 170 }),
     });
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(third, "scrollIntoView", {
-      configurable: true,
-      value: scrollIntoView,
-    });
+    owner.scrollTop = 0;
 
-    fireEvent.scroll(transcript);
+    // Manual scrolling on the outer owner pauses the follow, exactly like the
+    // in-player wheel and touch gestures do.
+    fireEvent.scroll(owner);
     expect(screen.getByText("自动跟随已暂停")).toBeVisible();
     audio.currentTime = 61;
     fireEvent.timeUpdate(audio);
     expect(third).toHaveAttribute("aria-current", "true");
-    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(owner.scrollTop).toBe(0);
 
     fireEvent.waiting(audio);
     fireEvent.playing(audio);
     expect(screen.getByText("自动跟随已暂停")).toBeVisible();
-    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(owner.scrollTop).toBe(0);
 
     fireEvent.click(screen.getByRole("button", { name: "暂停音频" }));
     fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
-    expect(scrollIntoView).toHaveBeenCalledWith({
-      block: "nearest",
-      behavior: "auto",
-    });
+    expect(owner.scrollTop).toBeGreaterThan(0);
     media.completePlay();
 
-    fireEvent.scroll(transcript);
-    scrollIntoView.mockClear();
+    fireEvent.scroll(owner);
+    const scrollTopBeforeSeek = owner.scrollTop;
     fireEvent.change(screen.getByRole("slider", { name: "音频进度" }), {
       target: { value: "62" },
     });
-    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(owner.scrollTop).toBeGreaterThan(scrollTopBeforeSeek);
+  });
+
+  it("reveals a segment hidden below the mobile sticky player", () => {
+    renderPlayer({ audioDurationSeconds: 120 });
+    const owner = scrollOwner();
+    const player = screen.getByLabelText("逐字稿音频播放器");
+    const second = screen.getByRole("button", {
+      name: "00:30 嘉宾：中段内容",
+    });
+    owner.scrollTop = 200;
+    Object.defineProperty(owner, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ top: 0, bottom: 300 }),
+    });
+    Object.defineProperty(player, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ top: 51, bottom: 170 }),
+    });
+    Object.defineProperty(second, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ top: 80, bottom: 130 }),
+    });
+
+    fireEvent.click(second);
+
+    expect(second).toHaveAttribute("aria-current", "true");
+    expect(owner.scrollTop).toBe(102);
+  });
+
+  it("keeps a long current segment stable when it spans the readable viewport", () => {
+    renderPlayer({ audioDurationSeconds: 120 });
+    const owner = scrollOwner();
+    const player = screen.getByLabelText("逐字稿音频播放器");
+    const second = screen.getByRole("button", {
+      name: "00:30 嘉宾：中段内容",
+    });
+    owner.scrollTop = 200;
+    Object.defineProperty(owner, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ top: 0, bottom: 300 }),
+    });
+    Object.defineProperty(player, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ top: 51, bottom: 170 }),
+    });
+    Object.defineProperty(second, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ top: 80, bottom: 400 }),
+    });
+
+    fireEvent.click(second);
+
+    expect(second).toHaveAttribute("aria-current", "true");
+    expect(owner.scrollTop).toBe(200);
   });
 
   it("keeps the playback position and transcript stable while buffering", () => {
@@ -356,8 +415,8 @@ describe("TranscriptAudioPlayer", () => {
     expect(screen.getByText("00:30 / 02:00")).toBeVisible();
     expect(second).toHaveAttribute("aria-current", "true");
 
-    const transcript = screen.getByRole("region", { name: "同步逐字稿" });
-    Object.defineProperty(transcript, "getBoundingClientRect", {
+    const owner = scrollOwner();
+    Object.defineProperty(owner, "getBoundingClientRect", {
       configurable: true,
       value: () => ({ top: 0, bottom: 100 }),
     });
@@ -370,7 +429,7 @@ describe("TranscriptAudioPlayer", () => {
       configurable: true,
       value: scrollIntoView,
     });
-    fireEvent.scroll(transcript);
+    fireEvent.scroll(owner);
     fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
     expect(screen.getByText("正在准备播放")).toBeVisible();
     expect(scrollIntoView).not.toHaveBeenCalled();
@@ -385,7 +444,7 @@ describe("TranscriptAudioPlayer", () => {
     expect(media.load).toHaveBeenCalledTimes(1);
     expect(audio.currentTime).toBe(60);
     expect(third).toHaveAttribute("aria-current", "true");
-    fireEvent.scroll(transcript);
+    fireEvent.scroll(owner);
 
     chooseRate("1.5×");
     fireEvent.canPlay(audio);
@@ -545,7 +604,7 @@ describe("TranscriptAudioPlayer", () => {
         { order: 2, start_ms: 30_000, title: "中段章节", summary: "讨论" },
       ],
     });
-    const chapterNav = screen.getByText("智能章节 · 2");
+    const chapterNav = screen.getByText("章节 2");
     const chapterDetails = chapterNav.closest("details");
     expect(chapterDetails).not.toHaveAttribute("open");
     fireEvent.click(chapterNav);
@@ -605,9 +664,9 @@ describe("TranscriptAudioPlayer", () => {
         { order: 2, start_ms: 30_000, title: "中段章节", summary: "讨论" },
       ],
     });
-    const transcript = screen.getByRole("region", { name: "同步逐字稿" });
+    const owner = scrollOwner();
     const target = screen.getByText("中段内容").closest("article")!;
-    Object.defineProperty(transcript, "getBoundingClientRect", {
+    Object.defineProperty(owner, "getBoundingClientRect", {
       configurable: true,
       value: () => ({ top: 0, bottom: 100 }),
     });
@@ -615,20 +674,13 @@ describe("TranscriptAudioPlayer", () => {
       configurable: true,
       value: () => ({ top: 130, bottom: 170 }),
     });
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(target, "scrollIntoView", {
-      configurable: true,
-      value: scrollIntoView,
-    });
+    owner.scrollTop = 0;
 
-    fireEvent.click(screen.getByText("智能章节 · 2"));
+    fireEvent.click(screen.getByText("章节 2"));
     fireEvent.click(screen.getByRole("button", { name: /00:30\s+中段章节/ }));
 
     expect(target).toHaveAttribute("aria-current", "true");
-    expect(scrollIntoView).toHaveBeenCalledWith({
-      block: "nearest",
-      behavior: "auto",
-    });
+    expect(owner.scrollTop).toBeGreaterThan(0);
   });
 
   it("cancels the previous audio node on keyed replacement and unmount", async () => {

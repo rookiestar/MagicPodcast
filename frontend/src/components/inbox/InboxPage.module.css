@@ -1422,7 +1422,7 @@
 
 .processingSummary {
   display: grid;
-  overflow: hidden;
+  min-width: 0;
   border: 1px solid var(--rule);
   background: rgba(255, 250, 240, 0.66);
 }
@@ -1523,7 +1523,11 @@
     var(--font-sans);
 }
 
+/* Run details live in a low-presence footer at the tail of the transcript
+   view, detached from the readable artifact; failures still surface next to
+   the content above it. */
 .processingDiagnostics {
+  margin-top: 14px;
   border-top: 1px solid var(--rule);
   background: transparent;
 }
@@ -1534,9 +1538,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 2px;
+  padding: 10px 2px;
+  color: var(--ink-soft);
   cursor: pointer;
-  font: 600 var(--type-label-size) / var(--type-label-leading) var(--font-sans);
+  font: 500 var(--type-secondary-size) / var(--type-secondary-leading)
+    var(--font-sans);
   list-style: none;
 }
 
@@ -1841,38 +1847,17 @@
   font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
 }
 
+/* The Focus Detail content area owns scrolling; artifact documents grow with
+   their content instead of keeping an internal scroller. */
 .processingDocument {
-  max-height: 480px;
-  overflow: auto;
   padding: 2px 0 0;
   border: 0;
   background: transparent;
 }
 
-.processingMinutesDocument {
-  max-height: none;
-  overflow: visible;
-}
-
 .processingDocument :global(.rich-text) {
   width: 100%;
   max-width: none;
-}
-
-.metadataLabelRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-  color: var(--ink-soft);
-  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
-  letter-spacing: 0.04em;
-}
-
-.processingTranscriptDocument {
-  max-height: none;
-  overflow: visible;
 }
 
 .audioRecovery {
@@ -1925,20 +1910,28 @@
   white-space: nowrap;
 }
 
+/* Block layout keeps the sticky player's containing block as tall as the
+   whole reading surface, so it stays reachable for the entire transcript. */
 .transcriptExperience {
-  display: grid;
-  gap: 12px;
+  display: block;
 }
 
+/* A lightweight sticky toolbar: warm paper ground and thin rules instead of a
+   hard full frame. The play key keeps the strongest hierarchy, the progress
+   axis takes the remaining width, and time/rate stay compact. */
 .transcriptPlayer {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: grid;
-  grid-template-columns: 38px minmax(120px, 1fr) auto auto;
+  grid-template-columns: 44px minmax(0, 1fr) auto auto;
+  grid-template-areas: "play progress time rate";
   align-items: center;
-  gap: 9px 12px;
-  padding: 10px;
+  gap: 8px 12px;
+  padding: 8px 10px;
   color: var(--ink);
-  border: 1px solid var(--ink);
-  background: rgba(243, 236, 221, 0.68);
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-card);
 }
 
 .audioElement {
@@ -1964,8 +1957,9 @@
 }
 
 .transcriptPlayButton {
-  width: 38px;
-  height: 38px;
+  grid-area: play;
+  width: 44px;
+  height: 44px;
   padding: 0;
 }
 
@@ -1986,7 +1980,9 @@
 }
 
 .transcriptProgress {
+  grid-area: progress;
   display: flex;
+  min-height: 44px;
   min-width: 0;
   align-items: center;
 }
@@ -2002,37 +1998,47 @@
 }
 
 .transcriptTime {
+  grid-area: time;
   min-width: 94px;
   color: var(--ink-soft);
   font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
+  font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
 }
 
 .transcriptPlaybackRate {
+  grid-area: rate;
   position: relative;
   display: inline-flex;
-  min-height: 36px;
+  min-height: 44px;
   align-items: center;
 }
 
-/* A bare text button: no border, no underline, no native dropdown chrome —
-   the rate reads as part of the player row (issue #297). */
+/* A clearly clickable trigger: the label names the control, the current value
+   reads without opening the menu, and the chevron marks the expansion. */
 .transcriptRateButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 36px;
-  padding: 0 2px;
+  gap: 4px;
+  min-height: 44px;
+  padding: 0 9px;
   color: var(--ink);
-  border: 0;
-  background: transparent;
+  border: 1px solid var(--rule);
+  background: var(--paper);
   cursor: pointer;
-  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
+  font: 600 var(--type-label-size) / var(--type-label-leading) var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+.transcriptRateButton .transcriptRateLabel {
+  font-family: var(--font-sans);
 }
 
 .transcriptRateButton:hover:not(:disabled) {
   color: var(--orange-dark);
+  border-color: var(--ink-soft);
 }
 
 .transcriptRateButton:disabled {
@@ -2058,13 +2064,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  min-height: 36px;
+  min-height: 44px;
   padding: 0 12px;
   color: var(--ink);
   border: 0;
   background: transparent;
   cursor: pointer;
-  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
+  font: 600 var(--type-label-size) / var(--type-label-leading) var(--font-mono);
   text-align: left;
 }
 
@@ -2084,6 +2090,7 @@
 .transcriptRetryButton {
   grid-column: 2;
   justify-self: start;
+  min-height: 44px;
   gap: 5px;
   padding: 0 10px;
   font: 600 var(--type-label-size) / var(--type-label-leading) var(--font-sans);
@@ -2091,28 +2098,29 @@
 
 .transcriptMediaStatus {
   grid-column: 2 / -1;
-  min-height: 1lh;
   color: var(--ink-soft);
   font: 400 var(--type-secondary-size) / var(--type-secondary-leading)
     var(--font-sans);
 }
 
+/* Compact chapter entry: navigation stays available between the player and
+   the body without competing with the transcript for hierarchy. */
 .transcriptChapters {
   min-width: 0;
-  margin: 2px 0 14px;
-  border-block: 1px solid var(--rule);
-  background: rgba(255, 250, 240, 0.42);
+  margin: 12px 0 0;
+  border-bottom: 1px solid var(--rule);
 }
 
 .transcriptChapters summary {
   display: flex;
+  min-height: 44px;
   align-items: center;
   gap: 9px;
   cursor: pointer;
   list-style: none;
-  padding: 12px 2px;
-  color: var(--ink);
-  font: 650 var(--type-label-size) / var(--type-label-leading) var(--font-sans);
+  padding: 10px 2px;
+  color: var(--ink-soft);
+  font: 600 var(--type-label-size) / var(--type-label-leading) var(--font-sans);
 }
 
 .transcriptChapters summary::before {
@@ -2129,6 +2137,7 @@
 }
 
 .transcriptChapters[open] summary {
+  color: var(--ink);
   border-bottom: 1px solid var(--rule);
 }
 
@@ -2140,11 +2149,11 @@
   padding: 0;
 }
 
+/* The reading surface grows with the transcript; the Focus Detail content
+   area is the only scroll owner, so no fixed height or inner scrollbar. */
 .transcriptSegments {
-  max-height: 420px;
-  overflow: auto;
-  overscroll-behavior: contain;
-  border-block: 1px solid var(--ink);
+  margin-top: 12px;
+  min-width: 0;
   background: rgba(255, 250, 240, 0.78);
 }
 
@@ -2160,31 +2169,47 @@
   border-top: 1px solid var(--rule);
 }
 
+/* Uniform left-aligned reading blocks. Speaker tints are quiet, near-paper
+   washes ordered by first appearance; the name on every block remains the
+   authoritative identity. Hover, tint, and the current-playing treatment
+   stay on separate strength levels. */
 .transcriptSegment {
   display: grid;
   width: 100%;
   gap: 7px;
-  padding: 13px 14px 14px;
+  padding: 14px 16px 15px;
   color: var(--ink);
   border: 0;
   border-left: 4px solid transparent;
   border-radius: 0;
-  background: transparent;
+  background: #ece4d2;
   font: inherit;
   text-align: left;
+}
+
+.transcriptSegment[data-speaker-tone="1"] {
+  background: #e3e8dc;
+}
+
+.transcriptSegment[data-speaker-tone="2"] {
+  background: #dfe6ea;
+}
+
+.transcriptSegment[data-speaker-tone="3"] {
+  background: #e7e2eb;
 }
 
 button.transcriptSegment {
   cursor: pointer;
 }
 
-button.transcriptSegment:hover {
-  background: rgba(215, 104, 29, 0.06);
+button.transcriptSegment:hover:not([aria-current="true"]) {
+  box-shadow: inset 0 0 0 1px rgba(23, 21, 18, 0.28);
 }
 
 .transcriptSegment[aria-current="true"] {
   border-left-color: var(--orange-dark);
-  background: rgba(215, 104, 29, 0.11);
+  background: rgba(215, 104, 29, 0.13);
 }
 
 .transcriptSegmentHeader {
@@ -2215,7 +2240,8 @@ button.transcriptSegment:hover {
 
 .transcriptSegmentText {
   white-space: pre-wrap;
-  font: 400 var(--type-body-size) / var(--type-body-leading) var(--font-sans);
+  font: 400 var(--type-reading-size) / var(--type-reading-leading)
+    var(--font-sans);
 }
 
 .copilotSection {
@@ -4012,8 +4038,19 @@ button.transcriptSegment:hover {
     overflow-wrap: anywhere;
   }
 
+  /* Two-row player: the progress axis owns a full line; play, time, and rate
+     keep reachable sizes below it. The offset keeps the pinned player clear
+     of the sticky detail tabs (z-index 3). */
   .transcriptPlayer {
-    grid-template-columns: 76px minmax(0, 1fr);
+    top: 51px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "progress progress progress"
+      "play time rate";
+  }
+
+  .transcriptRateLabel {
+    display: none;
   }
 
   .audioRecovery {
@@ -4026,19 +4063,9 @@ button.transcriptSegment:hover {
   }
 
   .transcriptTime {
-    grid-column: 2;
-    min-width: 0;
-    text-align: right;
-  }
-
-  .transcriptPlaybackRate {
-    grid-column: 1;
     justify-self: start;
-  }
-
-  .transcriptRateMenu {
-    right: auto;
-    left: 0;
+    min-width: 0;
+    text-align: left;
   }
 
   .transcriptRetryButton,
@@ -4046,12 +4073,12 @@ button.transcriptSegment:hover {
     grid-column: 1 / -1;
   }
 
-  .transcriptSegments {
-    max-height: min(52vh, 420px);
+  .transcriptSegment {
+    padding-inline: 12px;
   }
 
-  .transcriptSegment {
-    padding-inline: 11px;
+  .processingDiagnostics > summary {
+    min-height: 44px;
   }
 
   .confirmDialog {
@@ -4109,7 +4136,8 @@ button.transcriptSegment:hover {
   .card,
   .copilotAnswer,
   .detailPanel,
-  .queueLoading span {
+  .queueLoading span,
+  .transcriptChapters summary::before {
     animation: none;
     transition: none;
   }
