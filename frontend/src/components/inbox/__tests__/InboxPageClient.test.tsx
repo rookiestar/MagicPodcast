@@ -1241,7 +1241,7 @@ describe("InboxPageClient", () => {
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 
-  it("keeps the full action-workbench flow usable through the new detail tabs", async () => {
+  it("keeps the full action-workbench flow usable through the fixed detail tabs", async () => {
     render(<InboxPageClient />);
     const trigger = await screen.findByRole("button", {
       name: "打开 可处理单集 明细",
@@ -1252,11 +1252,12 @@ describe("InboxPageClient", () => {
       name: "可处理单集",
     });
     const tabs = within(dialog).getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Show Notes", "笔记"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      "Show Notes",
+      "转写",
+      "笔记",
+    ]);
     expect(within(dialog).getByText("正文")).toBeVisible();
-    expect(
-      within(dialog).queryByRole("tab", { name: "转写" }),
-    ).not.toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole("tab", { name: "笔记" }));
     expect(within(dialog).queryByText("备注与标签")).not.toBeInTheDocument();
@@ -1583,9 +1584,9 @@ describe("InboxPageClient", () => {
 
     // The Focus Detail content area is the transcript's scroll owner; manual
     // scrolling there is what pauses auto-follow.
-    const detailScrollOwner = within(dialog).getByRole("tablist", {
-      name: "单集详情内容",
-    }).parentElement as HTMLElement;
+    const detailScrollOwner = dialog.querySelector(
+      "[data-detail-scroll]",
+    ) as HTMLElement;
     detailScrollOwner.style.overflowY = "auto";
     const tailSegment = within(dialog).getByRole("button", {
       name: "01:00 主持人：尾段",
@@ -1627,9 +1628,9 @@ describe("InboxPageClient", () => {
   it("preserves each detail tab's scroll position when switching tabs", async () => {
     mockNativeMinutesProcessing();
     const dialog = await openNativeTranscript();
-    const detailScroll = within(dialog).getByRole("tablist", {
-      name: "单集详情内容",
-    }).parentElement as HTMLElement;
+    const detailScroll = dialog.querySelector(
+      "[data-detail-scroll]",
+    ) as HTMLElement;
     const transcriptTab = within(dialog).getByRole("tab", { name: "转写" });
     const showNotesTab = within(dialog).getByRole("tab", {
       name: "Show Notes",
@@ -2161,7 +2162,9 @@ describe("InboxPageClient", () => {
       await screen.findByRole("button", { name: "打开 可处理单集 明细" }),
     );
     const dialog = await screen.findByRole("dialog", { name: "可处理单集" });
-    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
+    fireEvent.click(
+      await within(dialog).findByRole("tab", { name: "转写，等待智能纪要" }),
+    );
     expect(await within(dialog).findByText("上一成功纪要")).toBeVisible();
     expect(
       within(dialog).getAllByText("等待飞书智能纪要").length,
@@ -2335,7 +2338,9 @@ describe("InboxPageClient", () => {
       await screen.findByRole("button", { name: "打开 可处理单集 明细" }),
     );
     const dialog = await screen.findByRole("dialog", { name: "可处理单集" });
-    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
+    fireEvent.click(
+      await within(dialog).findByRole("tab", { name: "转写，等待智能纪要" }),
+    );
     expect(
       (await within(dialog).findAllByText("等待飞书智能纪要")).length,
     ).toBeGreaterThan(0);
@@ -2417,7 +2422,11 @@ describe("InboxPageClient", () => {
       await screen.findByRole("button", { name: "打开 可处理单集 明细" }),
     );
     const dialog = await screen.findByRole("dialog", { name: "可处理单集" });
-    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
+    fireEvent.click(
+      await within(dialog).findByRole("tab", {
+        name: "转写，智能纪要同步失败",
+      }),
+    );
     expect(await within(dialog).findByText("上一成功纪要")).toBeVisible();
     expect(
       within(dialog).getAllByText("智能纪要同步失败").length,
@@ -2781,7 +2790,9 @@ describe("InboxPageClient", () => {
     const dialog = await screen.findByRole("dialog", {
       name: "可处理单集",
     });
-    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
+    fireEvent.click(
+      await within(dialog).findByRole("tab", { name: "转写，转写失败" }),
+    );
 
     const actions = await within(dialog).findAllByRole("button", {
       name: "重新转写",
@@ -2875,7 +2886,9 @@ describe("InboxPageClient", () => {
     const dialog = await screen.findByRole("dialog", {
       name: "可处理单集",
     });
-    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
+    fireEvent.click(
+      await within(dialog).findByRole("tab", { name: "转写，已取消" }),
+    );
 
     expect(
       await within(dialog).findAllByText(
@@ -2959,11 +2972,10 @@ describe("InboxPageClient", () => {
     const dialog = await screen.findByRole("dialog", {
       name: "可处理单集",
     });
-    fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
+    fireEvent.click(
+      await within(dialog).findByRole("tab", { name: "转写，转写失败" }),
+    );
 
-    expect(
-      await within(dialog).findByRole("status", { name: "转写状态：转写失败" }),
-    ).toBeVisible();
     expect(
       within(dialog).queryByText("智能纪要同步失败"),
     ).not.toBeInTheDocument();

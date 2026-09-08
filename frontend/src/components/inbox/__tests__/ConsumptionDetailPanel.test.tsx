@@ -262,7 +262,7 @@ describe("ConsumptionDetailPanel", () => {
     renderDetail();
 
     expect(screen.getByRole("heading", { name: item.episode_title })).toBeVisible();
-    expect(screen.getByRole("status", { name: "转写状态：正在读取" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "转写" })).toBeVisible();
     expect(screen.getByText("正在读取 Show Notes…")).toBeVisible();
 
     await act(async () => {
@@ -291,11 +291,15 @@ describe("ConsumptionDetailPanel", () => {
     expect(apiMocks.getShowNotes).toHaveBeenCalledTimes(2);
   });
 
-  it("hides the unstarted transcript and navigates only visible tabs", async () => {
+  it("keeps the fixed transcript entry and navigates all three tabs", async () => {
     renderDetail();
 
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Show Notes", "笔记"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      "Show Notes",
+      "转写",
+      "笔记",
+    ]);
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel", { name: "Show Notes" })).toBeVisible();
     expect(screen.queryByText("YOUR CONTEXT")).not.toBeInTheDocument();
@@ -304,12 +308,21 @@ describe("ConsumptionDetailPanel", () => {
     fireEvent.keyDown(tabs[0], { key: "ArrowRight" });
     await waitFor(() => expect(tabs[1]).toHaveFocus());
     expect(tabs[1]).toHaveAttribute("aria-selected", "true");
+    // The unstarted state keeps its body command without auto-starting.
+    expect(
+      screen.getByText("把这期节目，变成可回看的文字"),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "开始转写" })).toBeVisible();
+
+    fireEvent.keyDown(tabs[1], { key: "ArrowRight" });
+    await waitFor(() => expect(tabs[2]).toHaveFocus());
+    expect(tabs[2]).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByText("备注与标签")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "备注" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "标签" })).toBeVisible();
   });
 
-  it("exposes the current transcription action in the compact header", async () => {
+  it("starts transcription from the transcript body and marks the fixed tab", async () => {
     apiMocks.startProcessing.mockResolvedValue({
       reused_active: false,
       reused_successful: false,
@@ -327,29 +340,43 @@ describe("ConsumptionDetailPanel", () => {
     });
     renderDetail();
 
-    const start = await screen.findByRole("button", { name: "开始转写" });
-    fireEvent.click(start);
+    fireEvent.click(await screen.findByRole("tab", { name: "转写" }));
+    fireEvent.click(await screen.findByRole("button", { name: "开始转写" }));
 
     await waitFor(() =>
       expect(apiMocks.startProcessing).toHaveBeenCalledWith(item.episode_id),
     );
-    expect(await screen.findByRole("tab", { name: "转写" })).toBeVisible();
-    expect(
-      await screen.findByRole("status", { name: "转写状态：准备音频" }),
-    ).toBeVisible();
+    expect(await screen.findByRole("tab", { name: "转写，准备音频" })).toBeVisible();
+    expect(screen.getByText("你可以继续阅读 Show Notes。")).toBeVisible();
     expect(screen.getByRole("button", { name: "原节目" })).toBeVisible();
     expect(
       screen.queryByRole("link", { name: "原节目" }),
     ).not.toBeInTheDocument();
   });
 
-  it("keeps the idle transcription status concise", async () => {
+  it("keeps the unstarted transcript body outcome-focused", async () => {
     renderDetail();
 
+    fireEvent.click(await screen.findByRole("tab", { name: "转写" }));
     expect(
-      await screen.findByRole("status", { name: "转写状态：未转写" }),
+      await screen.findByText("把这期节目，变成可回看的文字"),
     ).toBeVisible();
+    expect(screen.getByText("生成总结、纪要与逐字稿")).toBeVisible();
+    expect(screen.getByRole("button", { name: "开始转写" })).toBeEnabled();
     expect(screen.queryByText("可开始飞书妙记转写")).not.toBeInTheDocument();
+  });
+
+  it("explains the Focus requirement instead of offering a start command", async () => {
+    renderDetail({ item: { ...item, queue_state: "someday" } });
+
+    fireEvent.click(await screen.findByRole("tab", { name: "转写" }));
+    expect(
+      await screen.findByText("加入 Focus 后可开始转写"),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "开始转写" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "原节目" })).toBeVisible();
   });
 
   it("keeps identity, tabs, and Show Notes visible while regional requests are slow", async () => {
@@ -363,10 +390,9 @@ describe("ConsumptionDetailPanel", () => {
 
     expect(screen.getByRole("heading", { name: "站外消费测试" })).toBeVisible();
     expect(screen.getByRole("tablist", { name: "单集详情内容" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "转写" })).toBeEnabled();
+    expect(screen.getByText("正在读取 Show Notes…")).toBeVisible();
     expect(await screen.findByRole("link", { name: "安全链接" })).toBeVisible();
-    expect(
-      screen.getByRole("status", { name: "转写状态：正在读取" }),
-    ).toBeVisible();
   });
 
   it("keeps other content usable when detail, processing, and metadata regions fail", async () => {
@@ -389,6 +415,41 @@ describe("ConsumptionDetailPanel", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Show Notes" }));
     expect(screen.getByRole("link", { name: "安全链接" })).toBeVisible();
   });
+
+  it.each([1280, 390])(
+    "renders exactly one episode-action group beside the fixed tab row at %ipx",
+    (viewportWidth) => {
+      const previousWidth = window.innerWidth;
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: viewportWidth,
+      });
+      window.dispatchEvent(new Event("resize"));
+
+      try {
+        renderDetail();
+
+        // Desktop merges the actions into the nav row; mobile moves them into
+        // the hero meta area. Either way there is exactly one focusable copy.
+        expect(screen.getAllByRole("button", { name: "原节目" })).toHaveLength(
+          1,
+        );
+        expect(
+          screen.getAllByRole("button", {
+            name: "当前队列 Focus，打开切换菜单",
+          }),
+        ).toHaveLength(1);
+        expect(screen.getAllByRole("tab", { name: "转写" })).toHaveLength(1);
+        expect(screen.getAllByRole("tab")).toHaveLength(3);
+      } finally {
+        Object.defineProperty(window, "innerWidth", {
+          configurable: true,
+          value: previousWidth,
+        });
+        window.dispatchEvent(new Event("resize"));
+      }
+    },
+  );
 
   it("opens the original URL even when saving in-progress fails and never auto-completes", async () => {
     apiMocks.markInProgress.mockRejectedValue(new Error("离线"));
@@ -854,7 +915,9 @@ describe("ConsumptionDetailPanel", () => {
       expect(
         screen.queryByRole("menu", { name: "切换至" }),
       ).not.toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: "Show Notes" })).toHaveFocus();
+      // The merged nav row reads tabs-first, actions-second, so tabbing past
+      // the menu lands in the active Show Notes panel.
+      expect(screen.getByRole("link", { name: "安全链接" })).toHaveFocus();
 
       // Shift+Tab can return to the trigger, then closes on leaving the pair.
       trigger.focus();
@@ -1202,10 +1265,17 @@ describe("ConsumptionDetailPanel", () => {
       });
       renderDetail();
 
-      fireEvent.click(
-        await screen.findByRole("button", { name: "开始转写" }),
-      );
+      // Opening the transcript tab never starts processing by itself.
       const dialog = await openTranscriptArea();
+      expect(
+        await within(dialog).findByText("把这期节目，变成可回看的文字"),
+      ).toBeVisible();
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: "开始转写" }),
+      );
+      await waitFor(() =>
+        expect(apiMocks.startProcessing).toHaveBeenCalledWith(item.episode_id),
+      );
       const subTablist = await within(dialog).findByRole("tablist", {
         name: "转写产物",
       });
@@ -1350,26 +1420,22 @@ describe("ConsumptionDetailPanel", () => {
       expect(transcriptTab).toHaveAttribute("tabindex", "-1");
     });
 
-    it("reports 转写就绪 without duplicated copy and drops 查看转写 on the transcript tab", async () => {
+    it("keeps completed products quiet: plain tab, no 查看转写, direct reading", async () => {
       mockTranscriptFlow();
       renderDetail();
-
-      const headline = await screen.findByRole("status", {
-        name: "转写状态：转写就绪",
-      });
-      expect(headline).not.toHaveTextContent("已完成");
-      expect(headline).not.toHaveTextContent("已有可阅读的转写产物");
-      expect(screen.getByRole("button", { name: "查看转写" })).toBeVisible();
-
-      // Reading the transcript replaces the duplicate entry point instead of
-      // repeating it.
       const dialog = await openTranscriptArea();
+
+      // Completed work keeps the tab plain — no success badge, no duplicated
+      // “查看转写” entry — and the products read directly.
+      expect(within(dialog).getByRole("tab", { name: "转写" })).toBeVisible();
       expect(
         screen.queryByRole("button", { name: "查看转写" }),
       ).not.toBeInTheDocument();
       expect(
-        screen.getByRole("status", { name: "转写状态：转写就绪" }),
+        await within(dialog).findByText("飞书智能纪要"),
       ).toBeVisible();
+      // Opening an already-completed episode never announces completion.
+      expect(screen.queryByText("转写已完成")).not.toBeInTheDocument();
 
       const subTablist = await within(dialog).findByRole("tablist", {
         name: "转写产物",
@@ -1468,6 +1534,12 @@ describe("ConsumptionDetailPanel", () => {
       renderDetail();
       const dialog = await openTranscriptArea();
 
+      // The fixed tab carries a restrained failure marker with an accessible
+      // status name — never a success badge.
+      expect(
+        within(dialog).getByRole("tab", { name: "转写，转写失败" }),
+      ).toBeVisible();
+
       // The failure reason sits with the still-readable previous version and
       // is never displaced into the collapsed diagnostics footer.
       const failureNotice = within(dialog)
@@ -1482,6 +1554,71 @@ describe("ConsumptionDetailPanel", () => {
       expect(diagnostics).not.toBeNull();
       expectBefore(bodyAnchor, diagnostics!);
       expect(diagnostics).not.toHaveAttribute("open");
+    });
+
+    it("announces 转写已完成 once for an observed active-to-completed run", async () => {
+      vi.useFakeTimers();
+      try {
+        const activeRun: ProcessingRun = {
+          ...focusRun,
+          id: 351,
+          status: "waiting_external",
+          current_step: "transcription",
+        };
+        apiMocks.listEpisodeRuns.mockResolvedValue([activeRun]);
+        apiMocks.getRun
+          .mockResolvedValueOnce({
+            run: activeRun,
+            current_artifact: nativeArtifact,
+            deliveries: [],
+          })
+          .mockResolvedValue({
+            run: focusRun,
+            current_artifact: nativeArtifact,
+            deliveries: [],
+          });
+        renderDetail();
+
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+
+        const dialog = screen.getByRole("dialog", { name: item.episode_title });
+        expect(
+          within(dialog).getByRole("tab", { name: "转写，等待妙记" }),
+        ).toBeVisible();
+        expect(screen.queryByText("转写已完成")).not.toBeInTheDocument();
+
+        // The background handoff completes; the reading tab never moves.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(4000);
+        });
+        expect(within(dialog).getAllByText("转写已完成")).toHaveLength(1);
+        expect(
+          within(dialog).getByRole("tab", { name: "Show Notes" }),
+        ).toHaveAttribute("aria-selected", "true");
+        expect(
+          within(dialog).getByRole("tab", { name: "转写" }),
+        ).toBeVisible();
+
+        // Later polls and tab switches never repeat the announcement.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(12000);
+        });
+        fireEvent.click(within(dialog).getByRole("tab", { name: "笔记" }));
+        fireEvent.click(within(dialog).getByRole("tab", { name: "转写" }));
+        expect(within(dialog).getAllByText("转写已完成")).toHaveLength(1);
+
+        fireEvent.click(
+          screen.getByRole("button", { name: "关闭转写完成提示" }),
+        );
+        expect(screen.queryByText("转写已完成")).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

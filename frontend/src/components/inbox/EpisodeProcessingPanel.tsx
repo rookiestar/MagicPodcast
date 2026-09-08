@@ -1,11 +1,9 @@
 "use client";
 
 import {
-  forwardRef,
   type KeyboardEvent,
   useCallback,
   useEffect,
-  useImperativeHandle,
   useMemo,
   useRef,
   useState,
@@ -198,35 +196,24 @@ function audioRecoveryDetail(recovery: AudioRecoverySummary) {
   }
 }
 
+// The transcript entry itself is fixed (#314): the outer tab only needs the
+// phase for its restrained marker and the accessible status name, while the
+// readable copy and every start/retry action live in this panel body.
 export interface EpisodeProcessingHeaderState {
   kind: "loading" | "idle" | "active" | "completed" | "failed";
   label: string;
-  detail: string;
-  primaryLabel: string;
-  primaryDisabled: boolean;
-  action: "start" | "reprocess" | "view" | "retry" | "details" | null;
-  showTranscriptTab: boolean;
-}
-
-export interface EpisodeProcessingPanelHandle {
-  activatePrimary: () => void;
 }
 
 interface EpisodeProcessingPanelProps {
   item: ConsumptionItem;
   onHeaderStateChange?: (state: EpisodeProcessingHeaderState) => void;
-  onViewTranscript?: () => void;
 }
 
-const EpisodeProcessingPanel = forwardRef<
-  EpisodeProcessingPanelHandle,
-  EpisodeProcessingPanelProps
->(function EpisodeProcessingPanel(
-  { item, onHeaderStateChange, onViewTranscript },
-  ref,
-) {
+function EpisodeProcessingPanel({
+  item,
+  onHeaderStateChange,
+}: EpisodeProcessingPanelProps) {
   const [detail, setDetail] = useState<ProcessingRunDetail | null>(null);
-  const [hasProcessingHistory, setHasProcessingHistory] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isMutating, setIsMutating] = useState(false);
   const [isRecoveringAudio, setIsRecoveringAudio] = useState(false);
@@ -309,13 +296,11 @@ const EpisodeProcessingPanel = forwardRef<
           const latestAudio = await processingApi.getLatestAudio(episodeID);
           if (isCurrentEpisode()) {
             setAudioAsset(latestAudio);
-            setHasProcessingHistory(true);
           }
         } catch (audioError) {
           if (getProcessingErrorDetails(audioError).status === 404) {
             if (isCurrentEpisode()) {
               setAudioAsset(null);
-              setHasProcessingHistory(false);
             }
           } else {
             throw audioError;
@@ -323,7 +308,6 @@ const EpisodeProcessingPanel = forwardRef<
         }
         return;
       }
-      setHasProcessingHistory(true);
       const nextDetail = await processingApi.getRun(runs[0].id);
       if (!isCurrentEpisode()) return;
       setDetail(nextDetail);
@@ -347,7 +331,6 @@ const EpisodeProcessingPanel = forwardRef<
       }
     } catch (loadError) {
       if (isCurrentEpisode()) {
-        setHasProcessingHistory(true);
         throw loadError;
       }
     } finally {
@@ -358,7 +341,6 @@ const EpisodeProcessingPanel = forwardRef<
   useEffect(() => {
     let active = true;
     setDetail(null);
-    setHasProcessingHistory(false);
     setAudioAsset(null);
     setArtifactReadFailures(new Set());
     setArtifactContents(emptyArtifactContents);
@@ -441,7 +423,6 @@ const EpisodeProcessingPanel = forwardRef<
 
   const startProcessing = useCallback(async () => {
     if (isMutating) return;
-    setHasProcessingHistory(true);
     setIsMutating(true);
     setError(null);
     try {
@@ -688,11 +669,6 @@ const EpisodeProcessingPanel = forwardRef<
               : audioAsset?.status === "failed"
                 ? "音频准备失败"
                 : "尚未加工";
-  const showTranscriptTab =
-    hasProcessingHistory ||
-    Boolean(run) ||
-    Boolean(audioAsset) ||
-    Boolean(currentArtifact);
   const showArtifactSkeleton =
     !selectedArtifactContent &&
     ((isLoading && !currentArtifact) ||
@@ -893,15 +869,7 @@ const EpisodeProcessingPanel = forwardRef<
 
   const headerState = useMemo<EpisodeProcessingHeaderState>(() => {
     if (isLoading && !run && !audioAsset) {
-      return {
-        kind: "loading",
-        label: "正在读取",
-        detail: "",
-        primaryLabel: "读取转写状态",
-        primaryDisabled: true,
-        action: null,
-        showTranscriptTab,
-      };
+      return { kind: "loading", label: "正在读取" };
     }
     if (audioPreparing || isActive(run)) {
       return {
@@ -914,11 +882,6 @@ const EpisodeProcessingPanel = forwardRef<
               : audioPreparing
                 ? "准备音频"
                 : "转写中",
-        detail: "",
-        primaryLabel: "转写中",
-        primaryDisabled: true,
-        action: null,
-        showTranscriptTab,
       };
     }
     if (run?.status === "failed" || run?.status === "cancelled") {
@@ -930,88 +893,24 @@ const EpisodeProcessingPanel = forwardRef<
             : isMinutesResyncFailure
               ? "智能纪要同步失败"
               : "转写失败",
-        detail: "",
-        primaryLabel: canReprocessLegacy
-          ? "重新转写"
-          : canRetry
-            ? minutesResyncErrorCodes.has(run.error_code ?? "")
-              ? "重新同步"
-              : "重试转写"
-            : "查看详情",
-        primaryDisabled: isMutating,
-        action: canReprocessLegacy
-          ? "reprocess"
-          : canRetry
-            ? "retry"
-            : "details",
-        showTranscriptTab,
       };
     }
     if (currentArtifact) {
-      return {
-        kind: "completed",
-        // The green dot plus “转写就绪” is the whole completed story; the
-        // readable-product sentence repeated the same fact.
-        label: "转写就绪",
-        detail: "",
-        primaryLabel: canReprocessLegacy ? "重新转写" : "查看转写",
-        primaryDisabled: isMutating,
-        action: canReprocessLegacy ? "reprocess" : "view",
-        showTranscriptTab,
-      };
+      return { kind: "completed", label: "转写就绪" };
     }
-    return {
-      kind: "idle",
-      label: "未转写",
-      detail: item.queue_state === "focus" ? "" : "加入 Focus 后可开始转写",
-      primaryLabel:
-        item.queue_state === "focus" ? "开始转写" : "加入 Focus 后转写",
-      primaryDisabled: !canStart || isMutating,
-      action: canStart ? "start" : null,
-      showTranscriptTab,
-    };
+    return { kind: "idle", label: "未转写" };
   }, [
     audioAsset,
     audioPreparing,
-    canReprocessLegacy,
-    canRetry,
-    canStart,
     currentArtifact,
     isLoading,
-    isMutating,
-    item.queue_state,
     isMinutesResyncFailure,
     run,
-    showTranscriptTab,
   ]);
 
   useEffect(() => {
     onHeaderStateChange?.(headerState);
   }, [headerState, onHeaderStateChange]);
-
-  useImperativeHandle(
-    ref,
-    () => ({
-      activatePrimary: () => {
-        if (headerState.primaryDisabled) return;
-        if (
-          headerState.action === "start" ||
-          headerState.action === "reprocess"
-        ) {
-          void startProcessing();
-          return;
-        }
-        if (headerState.action === "retry") {
-          void retryProcessing();
-          return;
-        }
-        if (headerState.action === "view" || headerState.action === "details") {
-          onViewTranscript?.();
-        }
-      },
-    }),
-    [headerState, onViewTranscript, retryProcessing, startProcessing],
-  );
 
   const visibleArtifactTabs = useMemo(
     () => artifactTabs.filter((tab) => isArtifactTabVisible(tab.id)),
@@ -1138,7 +1037,9 @@ const EpisodeProcessingPanel = forwardRef<
                         ? "音频准备失败"
                         : audioAsset?.status === "ready"
                           ? "音频已就绪"
-                          : "暂无转写记录";
+                          : canStart
+                            ? "把这期节目，变成可回看的文字"
+                            : "加入 Focus 后可开始转写";
   const processingStateDescription = isMutating
     ? isMinutesResyncFailure
       ? "正在续取同一条妙记，不会重新上传音频或创建妙记。"
@@ -1148,9 +1049,7 @@ const EpisodeProcessingPanel = forwardRef<
       : error && !run && !audioAsset
         ? "请重试读取，Show Notes 与笔记不受影响。"
         : run?.status === "failed" || run?.status === "cancelled"
-          ? detail?.action_suggestion ||
-            run.error_message ||
-            "可从页面顶部重新发起。"
+          ? detail?.action_suggestion || run.error_message || "可重新发起转写。"
           : run?.current_step === "minutes_enrichment"
             ? "核心转写已就绪，正在只读等待飞书智能纪要完整。"
             : run?.status === "waiting_external"
@@ -1165,7 +1064,24 @@ const EpisodeProcessingPanel = forwardRef<
                       ? audioAsset.error_message || "请检查音频来源后重试。"
                       : audioAsset?.status === "ready"
                         ? "正在等待创建转写任务。"
-                        : "开始转写后，纪要与逐字稿会显示在这里。";
+                        : canStart
+                          ? "生成总结、纪要与逐字稿"
+                          : "开始转写后，纪要与逐字稿会显示在这里。";
+
+  // The start command lives in the body (#314) and stays quiet while the
+  // processing status itself is unreadable or still loading.
+  const canStartFromCard =
+    canStart && !isLoading && !(error && !run && !audioAsset);
+  const cardRetryCommand = canReprocessLegacy
+    ? { label: "重新转写", run: () => startProcessing() }
+    : canRetry
+      ? {
+          label: minutesResyncErrorCodes.has(run?.error_code ?? "")
+            ? "重新同步"
+            : "重试转写",
+          run: () => retryProcessing(),
+        }
+      : null;
 
   const processingStateCard = (
     <div
@@ -1177,7 +1093,33 @@ const EpisodeProcessingPanel = forwardRef<
       <div className={styles.processingStateCopy}>
         <strong>{processingStateTitle}</strong>
         <p>{processingStateDescription}</p>
+        {(audioPreparing || isActive(run)) && (
+          <p className={styles.processingStateHint}>
+            你可以继续阅读 Show Notes。
+          </p>
+        )}
       </div>
+      {!currentArtifact && canStartFromCard && (
+        <button
+          type="button"
+          className={styles.primaryCommand}
+          disabled={isMutating}
+          onClick={() => void startProcessing()}
+        >
+          开始转写
+        </button>
+      )}
+      {!currentArtifact && cardRetryCommand && (
+        <button
+          type="button"
+          className={styles.primaryCommand}
+          disabled={isMutating}
+          onClick={() => void cardRetryCommand.run()}
+        >
+          <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
+          {cardRetryCommand.label}
+        </button>
+      )}
       {run && isActive(run) && (
         <button
           type="button"
@@ -1197,7 +1139,7 @@ const EpisodeProcessingPanel = forwardRef<
     if (runTerminalUnsuccessful) {
       return run?.status === "cancelled"
         ? `转写已取消，${label}未生成。`
-        : `${label}未能随本次转写生成${canRetry ? "，可从页面顶部重试" : ""}。`;
+        : `${label}未能随本次转写生成${canRetry ? "，可在上方重试" : ""}。`;
     }
     return `正在生成新版${label}，尚无可读内容。`;
   };
@@ -1470,6 +1412,28 @@ const EpisodeProcessingPanel = forwardRef<
                 {isMutating ? "正在同步…" : "重新同步"}
               </button>
             )}
+            {canRetry && !minutesResyncErrorCodes.has(run.error_code ?? "") && (
+              <button
+                type="button"
+                className={styles.secondaryCommand}
+                disabled={isMutating}
+                onClick={() => void retryProcessing()}
+              >
+                <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
+                {isMutating ? "正在重试…" : "重试转写"}
+              </button>
+            )}
+            {canReprocessLegacy && (
+              <button
+                type="button"
+                className={styles.secondaryCommand}
+                disabled={isMutating}
+                onClick={() => void startProcessing()}
+              >
+                <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
+                {isMutating ? "正在发起…" : "重新转写"}
+              </button>
+            )}
           </div>
         )}
 
@@ -1621,6 +1585,23 @@ const EpisodeProcessingPanel = forwardRef<
               )}
             </dl>
 
+            {/* Completed runs keep their low-frequency maintenance command in
+                the run details; the reading flow stays quiet (#314). Without a
+                stored artifact the state card already carries the command. */}
+            {run?.status === "completed" && canReprocessLegacy && currentArtifact && (
+              <div className={styles.processingMaintenance}>
+                <button
+                  type="button"
+                  className={styles.secondaryCommand}
+                  disabled={isMutating}
+                  onClick={() => void startProcessing()}
+                >
+                  <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
+                  {isMutating ? "正在发起…" : "重新转写"}
+                </button>
+              </div>
+            )}
+
             {scheduleError && (
               <div className={styles.processingHint} role="status">
                 {scheduleError}
@@ -1727,6 +1708,6 @@ const EpisodeProcessingPanel = forwardRef<
       )}
     </section>
   );
-});
+}
 
 export default EpisodeProcessingPanel;
