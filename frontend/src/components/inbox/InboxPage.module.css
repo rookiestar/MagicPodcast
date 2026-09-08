@@ -1102,66 +1102,25 @@
   font-weight: 600;
 }
 
-.detailCommandBar {
-  position: relative;
-  z-index: 4;
+.detailHeroActions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding-top: 14px;
-  border-top: 1px solid var(--rule);
-}
-
-.processingHeadline {
-  display: flex;
-  flex: 1 1 auto;
-  min-width: 0;
-  align-items: center;
+  justify-content: flex-end;
   gap: 10px;
 }
 
-.processingHeadline > span:last-child {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
-
-.processingHeadline strong {
-  font: 400 var(--type-secondary-size) / var(--type-secondary-leading)
-    var(--font-sans);
-}
-
-.processingHeadline small {
-  overflow: hidden;
-  color: var(--ink-soft);
-  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.processingDot {
-  width: 9px;
-  height: 9px;
-  flex: 0 0 auto;
-  border: 1px solid var(--ink);
-  border-radius: 50%;
-  background: var(--paper);
-}
-
-.processingHeadline[data-state="active"] .processingDot,
-.processingHeadline[data-state="loading"] .processingDot {
-  border-color: var(--orange-dark);
-  background: var(--orange);
-}
-
-.processingHeadline[data-state="completed"] .processingDot {
-  border-color: #315f3d;
-  background: #5d8a68;
-}
-
-.processingHeadline[data-state="failed"] .processingDot {
-  border-color: #75251d;
-  background: #b44839;
+.completionNotice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 15px 30px 0;
+  padding: 9px 9px 9px 12px;
+  border: 1px solid var(--rule);
+  background: rgba(255, 250, 240, 0.72);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .primaryCommand,
@@ -1210,6 +1169,9 @@
   flex: 0 0 auto;
 }
 
+/* The queue trigger reads as a secondary control next to the episode
+   actions: light stroke on paper, so the primary black command stays in the
+   transcript body (#314). */
 .queueMenuTrigger {
   display: inline-flex;
   align-items: center;
@@ -1217,9 +1179,9 @@
   min-height: 44px;
   gap: 4px;
   padding: 0 11px;
-  color: #fff;
-  border: 1px solid var(--ink);
-  background: var(--ink);
+  color: var(--ink);
+  border: 1px solid rgba(23, 21, 18, 0.34);
+  background: var(--paper);
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
@@ -1227,8 +1189,8 @@
 
 .queueMenuTrigger:hover:not(:disabled),
 .queueMenuTrigger[aria-expanded="true"] {
-  border-color: var(--orange-dark);
-  background: var(--orange-dark);
+  color: var(--orange-dark);
+  border-color: var(--orange);
 }
 
 .queueMenuPopup {
@@ -1362,18 +1324,38 @@
   margin: 0;
 }
 
-.detailTabs {
+.detailNavBar {
   position: relative;
   z-index: 3;
   display: flex;
-  min-width: 0;
-  padding: 0 30px;
+  align-items: center;
   border-bottom: 1px solid var(--ink);
   background: var(--paper);
 }
 
+.detailTabs {
+  display: flex;
+  min-width: 0;
+  padding: 0 30px;
+}
+
+/* The fixed content tabs and the secondary episode actions share one row;
+   whitespace alone separates the two groups (#314). */
+.detailNavActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  padding-right: 30px;
+}
+
 .detailTabs button {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-height: 50px;
   padding: 0 18px;
   color: var(--ink-soft);
@@ -1491,6 +1473,16 @@
   margin: 0;
   color: var(--ink-soft);
   font: 400 var(--type-secondary-size) / 1.6 var(--font-sans);
+}
+
+.processingStateCopy .processingStateHint {
+  color: var(--orange-dark);
+  font: 600 var(--type-meta-size) / var(--type-meta-leading) var(--font-sans);
+}
+
+.processingMaintenance {
+  display: flex;
+  justify-content: flex-start;
 }
 
 .processingRunNotice {
@@ -3911,44 +3903,37 @@ button.transcriptSegment:hover:not([aria-current="true"]) {
     margin-left: 0;
   }
 
-  .detailCommandBar {
-    flex-wrap: wrap;
-    padding-top: 12px;
-  }
-
-  .processingHeadline {
-    flex: 1 1 100%;
-  }
-
-  .processingHeadline small {
-    white-space: normal;
-  }
-
-  .detailCommandBar > .primaryCommand {
-    flex: 1 1 100%;
+  .detailHeroActions {
+    gap: 8px;
   }
 
   .originalLink {
     min-width: 82px;
-    margin-left: auto;
   }
 
-  .detailNotice {
+  .detailNotice,
+  .completionNotice {
     margin: 12px 14px 0;
   }
 
-  .detailTabs {
+  /* The tabs own their row on mobile; the episode actions live in the hero
+     meta area, so the pinned player only has to clear this bar (#314). */
+  .detailNavBar {
     position: sticky;
     top: 0;
-    padding: 0 8px;
     background: rgba(243, 236, 221, 0.97);
     backdrop-filter: blur(8px);
+  }
+
+  .detailTabs {
+    padding: 0 8px;
   }
 
   .detailTabs button {
     min-width: 0;
     flex: 1 1 0;
     padding-inline: 8px;
+    white-space: nowrap;
   }
 
   .processingSection,
@@ -3980,7 +3965,8 @@ button.transcriptSegment:hover:not([aria-current="true"]) {
     margin-top: 6px;
   }
 
-  .processingStateCard > .secondaryCommand {
+  .processingStateCard > .secondaryCommand,
+  .processingStateCard > .primaryCommand {
     width: fit-content;
     grid-column: 2;
   }
@@ -4040,7 +4026,7 @@ button.transcriptSegment:hover:not([aria-current="true"]) {
 
   /* Two-row player: the progress axis owns a full line; play, time, and rate
      keep reachable sizes below it. The offset keeps the pinned player clear
-     of the sticky detail tabs (z-index 3). */
+     of the sticky detail nav bar (z-index 3). */
   .transcriptPlayer {
     top: 51px;
     grid-template-columns: auto minmax(0, 1fr) auto;

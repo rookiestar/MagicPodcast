@@ -52,7 +52,6 @@ import {
 import EpisodeCopilotPanel from "./EpisodeCopilotPanel";
 import EpisodeProcessingPanel, {
   type EpisodeProcessingHeaderState,
-  type EpisodeProcessingPanelHandle,
 } from "./EpisodeProcessingPanel";
 import styles from "./InboxPage.module.css";
 import { useMenuPopover } from "./useMenuPopover";
@@ -93,11 +92,6 @@ type ShowNotesLoadState =
 const INITIAL_PROCESSING_HEADER: EpisodeProcessingHeaderState = {
   kind: "loading",
   label: "正在读取",
-  detail: "",
-  primaryLabel: "读取转写状态",
-  primaryDisabled: true,
-  action: null,
-  showTranscriptTab: false,
 };
 
 function EpisodeMetadata({
@@ -567,7 +561,6 @@ export default function ConsumptionDetailPanel({
     focusedElement: HTMLElement | null;
   } | null>(null);
   const detailTabScrollTopRef = useRef<Partial<Record<DetailTab, number>>>({});
-  const processingPanelRef = useRef<EpisodeProcessingPanelHandle>(null);
   const showNotesRequestSequence = useRef(0);
   const tabRefs = useRef<Record<DetailTab, HTMLButtonElement | null>>({
     "show-notes": null,
@@ -578,6 +571,11 @@ export default function ConsumptionDetailPanel({
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<DetailTab>("show-notes");
+  // One-shot “转写已完成” notice: fires only when this detail session observed
+  // the run go from in-progress to completed — never on first load, polling,
+  // or tab switches (#314).
+  const [completionNotice, setCompletionNotice] = useState(false);
+  const processingTurnedActiveRef = useRef(false);
   const [loadedShowNotes, setLoadedShowNotes] = useState<ShowNotesLoadState>({
     episodeId: item.episode_id,
     status: "loading",
@@ -641,6 +639,8 @@ export default function ConsumptionDetailPanel({
     detailTabScrollTopRef.current = {};
     setActiveTab("show-notes");
     setProcessingHeader(INITIAL_PROCESSING_HEADER);
+    setCompletionNotice(false);
+    processingTurnedActiveRef.current = false;
   }, [item.episode_id]);
 
   useEffect(() => {
@@ -750,6 +750,33 @@ export default function ConsumptionDetailPanel({
     onRetryQueueMove?.();
   };
 
+  // One shared control: it sits in the merged nav row on desktop and inside
+  // the hero meta area on mobile, so only one focusable copy ever exists
+  // (#314).
+  const originalEpisodeControl =
+    originalAccess.state === "openable" ? (
+      <button
+        type="button"
+        className={styles.originalLink}
+        disabled={externalState === "saving"}
+        onClick={() => void openOriginal()}
+      >
+        原节目
+        <IconExternalLink size={16} stroke={1.8} aria-hidden="true" />
+      </button>
+    ) : (
+      <span
+        className={styles.unsafeOriginal}
+        data-original-access={originalAccess.state}
+      >
+        {originalEpisodeAccessText(originalAccess)}
+      </span>
+    );
+
+  const queueSwitchMenu = (
+    <QueueSwitchMenu item={item} disabled={isQueueBusy} onMove={moveItem} />
+  );
+
   const showNotesState =
     loadedShowNotes.episodeId === item.episode_id
       ? loadedShowNotes
@@ -772,19 +799,20 @@ export default function ConsumptionDetailPanel({
       });
     }
   }, [activeTab]);
-  const visibleDetailTabs = useMemo(
-    () =>
-      DETAIL_TABS.filter(
-        (tab) => tab.id !== "transcript" || processingHeader.showTranscriptTab,
-      ),
-    [processingHeader.showTranscriptTab],
-  );
 
+  // The transcript entry is fixed, so completion is announced once per session
+  // instead of steering the active tab.
   useEffect(() => {
-    if (activeTab === "transcript" && !processingHeader.showTranscriptTab) {
-      selectTab("show-notes", true);
+    if (processingHeader.kind === "active") {
+      processingTurnedActiveRef.current = true;
+    } else if (
+      processingHeader.kind === "completed" &&
+      processingTurnedActiveRef.current
+    ) {
+      processingTurnedActiveRef.current = false;
+      setCompletionNotice(true);
     }
-  }, [activeTab, processingHeader.showTranscriptTab, selectTab]);
+  }, [processingHeader.kind]);
 
   const openCopilot = useCallback(() => {
     if (isCopilotOpen) return;
@@ -829,26 +857,24 @@ export default function ConsumptionDetailPanel({
     event: KeyboardEvent<HTMLButtonElement>,
     currentTab: DetailTab,
   ) => {
-    const currentIndex = visibleDetailTabs.findIndex(
+    const currentIndex = DETAIL_TABS.findIndex(
       (candidate) => candidate.id === currentTab,
     );
     if (currentIndex < 0) return;
     let nextIndex = currentIndex;
     if (event.key === "ArrowRight") {
-      nextIndex = (currentIndex + 1) % visibleDetailTabs.length;
+      nextIndex = (currentIndex + 1) % DETAIL_TABS.length;
     } else if (event.key === "ArrowLeft") {
-      nextIndex =
-        (currentIndex - 1 + visibleDetailTabs.length) %
-        visibleDetailTabs.length;
+      nextIndex = (currentIndex - 1 + DETAIL_TABS.length) % DETAIL_TABS.length;
     } else if (event.key === "Home") {
       nextIndex = 0;
     } else if (event.key === "End") {
-      nextIndex = visibleDetailTabs.length - 1;
+      nextIndex = DETAIL_TABS.length - 1;
     } else {
       return;
     }
     event.preventDefault();
-    selectTab(visibleDetailTabs[nextIndex].id, true);
+    selectTab(DETAIL_TABS[nextIndex].id, true);
   };
 
   return (
@@ -916,6 +942,7 @@ export default function ConsumptionDetailPanel({
           <div
             ref={detailScrollRef}
             className={styles.detailScroll}
+            data-detail-scroll=""
             hidden={isCopilotOpen && isMobileViewport}
           >
             <section className={styles.detailHero}>
@@ -941,66 +968,12 @@ export default function ConsumptionDetailPanel({
                 <h2 id="consumption-detail-title">{item.episode_title}</h2>
               </div>
 
-              <div className={styles.detailCommandBar}>
-                <div
-                  className={styles.processingHeadline}
-                  data-state={processingHeader.kind}
-                  role="status"
-                  aria-label={`转写状态：${processingHeader.label}`}
-                >
-                  <span className={styles.processingDot} aria-hidden="true" />
-                  <span>
-                    <strong>{processingHeader.label}</strong>
-                    {processingHeader.detail.trim() ? (
-                      <small>{processingHeader.detail}</small>
-                    ) : null}
-                  </span>
+              {isMobileViewport && (
+                <div className={styles.detailHeroActions}>
+                  {originalEpisodeControl}
+                  {queueSwitchMenu}
                 </div>
-                {/* Already reading the transcript: the duplicate “查看转写”
-                    entry would only repeat where the user just went. */}
-                {!(
-                  processingHeader.action === "view" &&
-                  activeTab === "transcript"
-                ) && (
-                  <button
-                    type="button"
-                    className={styles.primaryCommand}
-                    disabled={processingHeader.primaryDisabled}
-                    onClick={() =>
-                      processingPanelRef.current?.activatePrimary()
-                    }
-                  >
-                    {processingHeader.primaryLabel}
-                  </button>
-                )}
-                {originalAccess.state === "openable" ? (
-                  <button
-                    type="button"
-                    className={styles.originalLink}
-                    disabled={externalState === "saving"}
-                    onClick={() => void openOriginal()}
-                  >
-                    原节目
-                    <IconExternalLink
-                      size={16}
-                      stroke={1.8}
-                      aria-hidden="true"
-                    />
-                  </button>
-                ) : (
-                  <span
-                    className={styles.unsafeOriginal}
-                    data-original-access={originalAccess.state}
-                  >
-                    {originalEpisodeAccessText(originalAccess)}
-                  </span>
-                )}
-                <QueueSwitchMenu
-                  item={item}
-                  disabled={isQueueBusy}
-                  onMove={moveItem}
-                />
-              </div>
+              )}
             </section>
 
             {queueMoveFailure && (
@@ -1054,29 +1027,75 @@ export default function ConsumptionDetailPanel({
                 </div>
               )}
 
-            <div
-              className={styles.detailTabs}
-              role="tablist"
-              aria-label="单集详情内容"
-            >
-              {visibleDetailTabs.map((tab) => (
+            {completionNotice && (
+              <div className={styles.completionNotice} role="status">
+                <span>转写已完成</span>
                 <button
-                  key={tab.id}
-                  ref={(node) => {
-                    tabRefs.current[tab.id] = node;
-                  }}
-                  id={`detail-tab-${tab.id}`}
                   type="button"
-                  role="tab"
-                  aria-selected={activeTab === tab.id}
-                  aria-controls={`detail-panel-${tab.id}`}
-                  tabIndex={activeTab === tab.id ? 0 : -1}
-                  onClick={() => selectTab(tab.id)}
-                  onKeyDown={(event) => handleTabKeyDown(event, tab.id)}
+                  className={styles.iconButton}
+                  onClick={() => setCompletionNotice(false)}
+                  aria-label="关闭转写完成提示"
+                  title="关闭提示"
                 >
-                  {tab.label}
+                  <IconX size={18} stroke={1.8} aria-hidden="true" />
                 </button>
-              ))}
+              </div>
+            )}
+
+            <div className={styles.detailNavBar}>
+              <div
+                className={styles.detailTabs}
+                role="tablist"
+                aria-label="单集详情内容"
+              >
+                {DETAIL_TABS.map((tab) => {
+                  const transcriptActive =
+                    tab.id === "transcript" &&
+                    processingHeader.kind === "active";
+                  const transcriptFailed =
+                    tab.id === "transcript" &&
+                    processingHeader.kind === "failed";
+                  const transcriptMarked =
+                    transcriptActive || transcriptFailed;
+                  return (
+                    <button
+                      key={tab.id}
+                      ref={(node) => {
+                        tabRefs.current[tab.id] = node;
+                      }}
+                      id={`detail-tab-${tab.id}`}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeTab === tab.id}
+                      aria-controls={`detail-panel-${tab.id}`}
+                      aria-label={
+                        transcriptMarked
+                          ? `转写，${processingHeader.label}`
+                          : undefined
+                      }
+                      tabIndex={activeTab === tab.id ? 0 : -1}
+                      onClick={() => selectTab(tab.id)}
+                      onKeyDown={(event) => handleTabKeyDown(event, tab.id)}
+                    >
+                      {transcriptMarked && (
+                        <span
+                          className={styles.processingArtifactTabDot}
+                          data-state={transcriptFailed ? "failed" : "working"}
+                          aria-hidden="true"
+                        />
+                      )}
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {!isMobileViewport && (
+                <div className={styles.detailNavActions}>
+                  {originalEpisodeControl}
+                  {queueSwitchMenu}
+                </div>
+              )}
             </div>
 
             <section
@@ -1129,10 +1148,8 @@ export default function ConsumptionDetailPanel({
               hidden={activeTab !== "transcript"}
             >
               <EpisodeProcessingPanel
-                ref={processingPanelRef}
                 item={item}
                 onHeaderStateChange={setProcessingHeader}
-                onViewTranscript={() => selectTab("transcript", true)}
               />
             </div>
 
