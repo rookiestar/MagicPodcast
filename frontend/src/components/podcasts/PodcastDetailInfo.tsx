@@ -1,30 +1,19 @@
 "use client";
 
+import { IconExternalLink, IconFlame, IconPlayerPlay } from "@tabler/icons-react";
 import {
-  IconChevronDown,
-  IconChevronUp,
-  IconExternalLink,
-  IconFlame,
-  IconPlayerPlay,
-} from "@tabler/icons-react";
-import { useState } from "react";
-import RichText from "@/components/RichText";
-import {
+  formatPodcastDetailMetaLine,
   formatPodcastLatestEpisodeDurationLabel,
-  formatPodcastNewestEpisodeDate,
-  getPodcastDescriptionHtml,
   getPodcastDetailInfoCoverUrl,
   shouldShowPodcastLatestEpisodePlayButton,
   shouldShowPodcastPopularityBadge,
   shouldShowPodcastWebsiteLink,
 } from "@/lib/podcastDetailDisplay";
 import type { Podcast, Tag } from "@/types";
+import { PodcastDescription } from "./PodcastDescription";
 import PodcastCover from "./PodcastCover";
 import PodcastNotesEditor from "./PodcastNotesEditor";
-import {
-  DesktopPodcastTagControls,
-  MobilePodcastTagControls,
-} from "./PodcastTagControls";
+import { PodcastTagPicker } from "./PodcastTagPicker";
 
 interface PodcastDetailInfoProps {
   podcast: Podcast;
@@ -40,6 +29,118 @@ interface PodcastDetailInfoProps {
   onTagsChange: (tags: Tag[]) => void;
 }
 
+function PodcastDetailPlayback({ podcast }: { podcast: Podcast }) {
+  const durationLabel = formatPodcastLatestEpisodeDurationLabel(
+    podcast.newest_enclosure_duration,
+  );
+  const showLatestEpisodePlayButton = shouldShowPodcastLatestEpisodePlayButton(
+    podcast.newest_enclosure_url,
+  );
+
+  if (!showLatestEpisodePlayButton) {
+    return null;
+  }
+
+  return (
+    <div className="podcast-reading-playback">
+      {showLatestEpisodePlayButton && (
+        <button
+          type="button"
+          onClick={() => window.open(podcast.newest_enclosure_url, "_blank")}
+          className="podcast-reading-primary-action"
+        >
+          <IconPlayerPlay aria-hidden="true" stroke={1.8} />
+          播放最新一集
+        </button>
+      )}
+      {showLatestEpisodePlayButton && durationLabel && (
+        <span className="podcast-reading-duration">{durationLabel}</span>
+      )}
+    </div>
+  );
+}
+
+function PodcastDetailSourceLinks({ podcast }: { podcast: Podcast }) {
+  const showWebsiteLink = shouldShowPodcastWebsiteLink(podcast.link);
+  const showPopularityBadge = shouldShowPodcastPopularityBadge(
+    podcast.popularity_score,
+  );
+
+  if (!showWebsiteLink && !showPopularityBadge) {
+    return null;
+  }
+
+  return (
+    <div className="podcast-reading-links">
+      {showWebsiteLink && (
+        <a
+          href={podcast.link}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="podcast-reading-source-link"
+        >
+          节目官网
+          <IconExternalLink aria-hidden="true" stroke={1.7} />
+        </a>
+      )}
+      {showPopularityBadge && (
+        <span className="podcast-reading-popularity">
+          <IconFlame aria-hidden="true" stroke={1.7} />
+          热度 {podcast.popularity_score}/10
+        </span>
+      )}
+    </div>
+  );
+}
+
+function PodcastDetailManagement({
+  tags,
+  notes,
+  isEditingNotes,
+  isSavingNotes,
+  isUpdatingTags,
+  textareaRows,
+  readOnlyClassName,
+  onNotesChange,
+  onEditNotes,
+  onSaveNotes,
+  onCancelNotesEdit,
+  onTagsChange,
+}: Omit<PodcastDetailInfoProps, "podcast"> & {
+  textareaRows: number;
+  readOnlyClassName: string;
+}) {
+  return (
+    <>
+      <div className="podcast-tag-controls text-sm">
+        <span className="podcast-management-label">标签</span>
+        <div className="mt-2">
+          <PodcastTagPicker
+            tags={tags}
+            isUpdatingTags={isUpdatingTags}
+            onTagsChange={onTagsChange}
+          />
+        </div>
+      </div>
+      <PodcastNotesEditor
+        notes={notes}
+        isEditingNotes={isEditingNotes}
+        isSavingNotes={isSavingNotes}
+        textareaRows={textareaRows}
+        editButtonClassName="podcast-management-link"
+        saveButtonClassName="podcast-management-primary"
+        cancelButtonClassName="podcast-management-secondary"
+        readOnlyClassName={readOnlyClassName}
+        emptyClassName="podcast-notes-empty"
+        onNotesChange={onNotesChange}
+        onEditNotes={onEditNotes}
+        onSaveNotes={onSaveNotes}
+        onCancelNotesEdit={onCancelNotesEdit}
+      />
+    </>
+  );
+}
+
 export function MobilePodcastDetailInfo({
   podcast,
   tags,
@@ -53,15 +154,7 @@ export function MobilePodcastDetailInfo({
   onCancelNotesEdit,
   onTagsChange,
 }: PodcastDetailInfoProps) {
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const coverUrl = getPodcastDetailInfoCoverUrl(podcast);
-  const showLatestEpisodePlayButton =
-    shouldShowPodcastLatestEpisodePlayButton(podcast.newest_enclosure_url);
-  const showWebsiteLink = shouldShowPodcastWebsiteLink(podcast.link);
-  const showPopularityBadge = shouldShowPodcastPopularityBadge(
-    podcast.popularity_score,
-  );
-  const descriptionHtml = getPodcastDescriptionHtml(podcast.description);
 
   return (
     <article
@@ -78,98 +171,41 @@ export function MobilePodcastDetailInfo({
           />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="podcast-reading-kicker">个人播客库 · 节目档案</p>
           <h1>{podcast.title}</h1>
-          <p className="podcast-reading-mobile-meta">
-            {podcast.author} · {podcast.episode_count || 0} 集
+          <p className="podcast-reading-meta">
+            {formatPodcastDetailMetaLine(
+              podcast.author,
+              podcast.episode_count,
+              podcast.newest_episode_date,
+            )}
           </p>
         </div>
       </header>
 
-      <div className="podcast-reading-mobile-actions">
-        {showLatestEpisodePlayButton && (
-          <button
-            type="button"
-            onClick={() =>
-              window.open(podcast.newest_enclosure_url, "_blank")
-            }
-            className="podcast-reading-primary-action"
-          >
-            <IconPlayerPlay aria-hidden="true" stroke={1.8} />
-            播放最新一集
-          </button>
-        )}
-        <button
-          type="button"
-          aria-expanded={detailsOpen}
-          onClick={() => setDetailsOpen((open) => !open)}
-          className="podcast-reading-secondary-action"
-        >
-          {detailsOpen ? (
-            <IconChevronUp aria-hidden="true" stroke={1.8} />
-          ) : (
-            <IconChevronDown aria-hidden="true" stroke={1.8} />
-          )}
-          {detailsOpen ? "收起详细信息" : "展开详细信息"}
-        </button>
+      <PodcastDetailPlayback podcast={podcast} />
+      <PodcastDetailSourceLinks podcast={podcast} />
+      <PodcastDescription description={podcast.description} />
+
+      <div
+        className="podcast-reading-mobile-management"
+        role="region"
+        aria-label="节目管理"
+      >
+        <PodcastDetailManagement
+          tags={tags}
+          notes={notes}
+          isEditingNotes={isEditingNotes}
+          isSavingNotes={isSavingNotes}
+          isUpdatingTags={isUpdatingTags}
+          textareaRows={3}
+          readOnlyClassName="podcast-notes-readonly"
+          onNotesChange={onNotesChange}
+          onEditNotes={onEditNotes}
+          onSaveNotes={onSaveNotes}
+          onCancelNotesEdit={onCancelNotesEdit}
+          onTagsChange={onTagsChange}
+        />
       </div>
-
-      <details open={detailsOpen}>
-        <summary className="hidden" />
-        <div
-          className="podcast-reading-mobile-management"
-          role="region"
-          aria-label="节目管理"
-        >
-          {showWebsiteLink && (
-            <a
-              href={podcast.link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="podcast-reading-source-link"
-            >
-              节目官网
-              <IconExternalLink aria-hidden="true" stroke={1.7} />
-            </a>
-          )}
-
-          {showPopularityBadge && (
-            <div className="podcast-reading-popularity">
-              <IconFlame aria-hidden="true" stroke={1.7} />
-              热度 {podcast.popularity_score}/10
-            </div>
-          )}
-
-          <section className="podcast-reading-description">
-            <h2>节目简介</h2>
-            <div className="line-clamp-3">
-              <RichText html={descriptionHtml} />
-            </div>
-          </section>
-
-          <MobilePodcastTagControls
-            tags={tags}
-            isUpdatingTags={isUpdatingTags}
-            onTagsChange={onTagsChange}
-          />
-
-          <PodcastNotesEditor
-            notes={notes}
-            isEditingNotes={isEditingNotes}
-            isSavingNotes={isSavingNotes}
-            textareaRows={3}
-            editButtonClassName="podcast-management-link"
-            saveButtonClassName="podcast-management-primary"
-            cancelButtonClassName="podcast-management-secondary"
-            readOnlyClassName="podcast-notes-readonly line-clamp-2"
-            emptyClassName="podcast-notes-empty"
-            onNotesChange={onNotesChange}
-            onEditNotes={onEditNotes}
-            onSaveNotes={onSaveNotes}
-            onCancelNotesEdit={onCancelNotesEdit}
-          />
-        </div>
-      </details>
     </article>
   );
 }
@@ -188,16 +224,6 @@ export function DesktopPodcastDetailInfo({
   onTagsChange,
 }: PodcastDetailInfoProps) {
   const coverUrl = getPodcastDetailInfoCoverUrl(podcast);
-  const durationLabel = formatPodcastLatestEpisodeDurationLabel(
-    podcast.newest_enclosure_duration,
-  );
-  const showLatestEpisodePlayButton =
-    shouldShowPodcastLatestEpisodePlayButton(podcast.newest_enclosure_url);
-  const showWebsiteLink = shouldShowPodcastWebsiteLink(podcast.link);
-  const showPopularityBadge = shouldShowPodcastPopularityBadge(
-    podcast.popularity_score,
-  );
-  const descriptionHtml = getPodcastDescriptionHtml(podcast.description);
 
   return (
     <article
@@ -215,65 +241,20 @@ export function DesktopPodcastDetailInfo({
             />
           </figure>
           <div className="podcast-reading-heading-copy">
-            <p className="podcast-reading-kicker">个人播客库 · 节目档案</p>
             <h1>{podcast.title}</h1>
-            <dl className="podcast-reading-metadata">
-              <div>
-                <dt>主播</dt>
-                <dd>{podcast.author}</dd>
-              </div>
-              <div>
-                <dt>单集</dt>
-                <dd>{podcast.episode_count || 0}</dd>
-              </div>
-              <div>
-                <dt>最近更新</dt>
-                <dd>
-                  {formatPodcastNewestEpisodeDate(podcast.newest_episode_date)}
-                </dd>
-              </div>
-            </dl>
+            <p className="podcast-reading-meta">
+              {formatPodcastDetailMetaLine(
+                podcast.author,
+                podcast.episode_count,
+                podcast.newest_episode_date,
+              )}
+            </p>
+            <PodcastDetailPlayback podcast={podcast} />
           </div>
         </header>
 
-        <section className="podcast-reading-description">
-          <h2>节目简介</h2>
-          <RichText html={descriptionHtml} />
-        </section>
-
-        <div className="podcast-reading-links">
-          {showLatestEpisodePlayButton && (
-            <button
-              type="button"
-              onClick={() =>
-                window.open(podcast.newest_enclosure_url, "_blank")
-              }
-              className="podcast-reading-primary-action"
-              title="播放最新一集"
-            >
-              <IconPlayerPlay aria-hidden="true" stroke={1.8} />
-              播放最新一集
-              {durationLabel && <small>{durationLabel}</small>}
-            </button>
-          )}
-          {showWebsiteLink && (
-            <a
-              href={podcast.link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="podcast-reading-source-link"
-            >
-              节目官网
-              <IconExternalLink aria-hidden="true" stroke={1.7} />
-            </a>
-          )}
-          {showPopularityBadge && (
-            <span className="podcast-reading-popularity">
-              <IconFlame aria-hidden="true" stroke={1.7} />
-              热度 {podcast.popularity_score}/10
-            </span>
-          )}
-        </div>
+        <PodcastDetailSourceLinks podcast={podcast} />
+        <PodcastDescription description={podcast.description} />
       </section>
 
       <aside
@@ -284,25 +265,19 @@ export function DesktopPodcastDetailInfo({
         <div className="podcast-reading-management-heading">
           <h2>标签与备注</h2>
         </div>
-        <DesktopPodcastTagControls
+        <PodcastDetailManagement
           tags={tags}
-          isUpdatingTags={isUpdatingTags}
-          onTagsChange={onTagsChange}
-        />
-        <PodcastNotesEditor
           notes={notes}
           isEditingNotes={isEditingNotes}
           isSavingNotes={isSavingNotes}
+          isUpdatingTags={isUpdatingTags}
           textareaRows={4}
-          editButtonClassName="podcast-management-link"
-          saveButtonClassName="podcast-management-primary"
-          cancelButtonClassName="podcast-management-secondary"
           readOnlyClassName="podcast-notes-readonly"
-          emptyClassName="podcast-notes-empty"
           onNotesChange={onNotesChange}
           onEditNotes={onEditNotes}
           onSaveNotes={onSaveNotes}
           onCancelNotesEdit={onCancelNotesEdit}
+          onTagsChange={onTagsChange}
         />
       </aside>
     </article>

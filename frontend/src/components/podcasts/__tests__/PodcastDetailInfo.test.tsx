@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Podcast, Tag } from "@/types";
 import {
@@ -6,14 +6,28 @@ import {
   MobilePodcastDetailInfo,
 } from "../PodcastDetailInfo";
 
-vi.mock("@/components/RichText", () => ({
-  default: ({ html }: { html: string }) => <div>{html}</div>,
+const tagMocks = vi.hoisted(() => ({
+  availableTags: [
+    { id: 1, name: "科技", color: "#2563eb" },
+    { id: 2, name: "AI", color: "#16a34a" },
+  ] as Tag[],
+  ensureAvailableTags: vi.fn(),
+  create: vi.fn(),
 }));
 
-vi.mock("@/components/tags/TagInput", () => ({
-  default: ({ disabled }: { disabled?: boolean }) => (
-    <input aria-label="标签输入" disabled={disabled} />
-  ),
+vi.mock("@/hooks/useAvailableTags", () => ({
+  useAvailableTags: () => ({
+    availableTags: tagMocks.availableTags,
+    loading: false,
+    ensureAvailableTags: tagMocks.ensureAvailableTags,
+    appendAvailableTag: vi.fn(),
+  }),
+}));
+
+vi.mock("@/lib/api", () => ({
+  tagApi: {
+    create: (...args: unknown[]) => tagMocks.create(...args),
+  },
 }));
 
 vi.mock("../PodcastCover", () => ({
@@ -44,7 +58,7 @@ const podcast: Podcast = {
   author: "作者",
   cover_url: "",
   episode_count: 12,
-  newest_episode_date: "2026-01-01T00:00:00Z",
+  newest_episode_date: new Date(2026, 7, 29, 13, 36, 45).toISOString(),
   created_at: "2026-01-01T00:00:00Z",
   is_subscribed: true,
   is_dead: false,
@@ -72,21 +86,86 @@ const baseProps = {
 };
 
 describe("PodcastDetailInfo", () => {
-  it("toggles mobile detail expansion without querying the document by id", () => {
-    const { container } = render(<MobilePodcastDetailInfo {...baseProps} />);
+  it("renders compact title metadata to the minute without the archive kicker", () => {
+    render(<DesktopPodcastDetailInfo {...baseProps} />);
 
-    const toggle = screen.getByRole("button", { name: "展开详细信息" });
-    const details = container.querySelector("details");
-
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(details).not.toHaveAttribute("open");
-
-    fireEvent.click(toggle);
-
+    expect(screen.queryByText("个人播客库 · 节目档案")).not.toBeInTheDocument();
+    expect(screen.queryByText("主播")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "收起详细信息" }),
-    ).toHaveAttribute("aria-expanded", "true");
-    expect(details).toHaveAttribute("open");
+      screen.getByText("作者 · 12 集 · 更新于 2026/08/29 13:36"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "测试播客" })).toBeInTheDocument();
+  });
+
+  it("keeps invalid dates honest and hides misleading playback", () => {
+    render(
+      <DesktopPodcastDetailInfo
+        {...baseProps}
+        podcast={{
+          ...podcast,
+          newest_episode_date: "not-a-date",
+          newest_enclosure_url: "",
+          newest_enclosure_duration: 0,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("作者 · 12 集 · 更新于 未知")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "播放最新一集" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/分.*秒/)).not.toBeInTheDocument();
+  });
+
+  it("places playback under the title with duration outside the button", () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const { container } = render(
+      <DesktopPodcastDetailInfo
+        {...baseProps}
+        podcast={{
+          ...podcast,
+          newest_enclosure_url: "https://example.com/latest.mp3",
+          newest_enclosure_duration: 125,
+        }}
+      />,
+    );
+
+    const heading = container.querySelector(".podcast-reading-heading");
+    const play = screen.getByRole("button", { name: "播放最新一集" });
+    expect(heading).toContainElement(play);
+    expect(play).not.toHaveTextContent("2分5秒");
+    expect(screen.getByText("2分5秒")).toBeInTheDocument();
+    fireEvent.click(play);
+    expect(open).toHaveBeenCalledWith(
+      "https://example.com/latest.mp3",
+      "_blank",
+    );
+    open.mockRestore();
+  });
+
+  it("clamps long descriptions and leaves short copy uncollapsed", () => {
+    const { rerender } = render(<DesktopPodcastDetailInfo {...baseProps} />);
+    expect(screen.getByText("简介内容")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "查看全文" }),
+    ).not.toBeInTheDocument();
+
+    const longDescription = "很长的节目简介。".repeat(30);
+    rerender(
+      <DesktopPodcastDetailInfo
+        {...baseProps}
+        podcast={{ ...podcast, description: longDescription }}
+      />,
+    );
+
+    const toggle = screen.getByRole("button", { name: "查看全文" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "收起" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByText(longDescription)).toBeInTheDocument();
   });
 
   it("disables note controls while notes are being saved", () => {
@@ -104,6 +183,42 @@ describe("PodcastDetailInfo", () => {
     expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
   });
 
+  it("offers a direct empty-notes entry and keeps existing notes editable", () => {
+    const onEditNotes = vi.fn();
+    const { rerender } = render(
+      <DesktopPodcastDetailInfo {...baseProps} onEditNotes={onEditNotes} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "＋ 添加备注" }));
+    expect(onEditNotes).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("暂无备注")).not.toBeInTheDocument();
+
+    rerender(
+      <DesktopPodcastDetailInfo
+        {...baseProps}
+        notes="已有备注"
+        onEditNotes={onEditNotes}
+      />,
+    );
+    expect(screen.getByText("已有备注")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "编辑" })).toBeInTheDocument();
+  });
+
+  it("opens the tag panel from the compact add control", () => {
+    const onTagsChange = vi.fn();
+    render(
+      <DesktopPodcastDetailInfo {...baseProps} onTagsChange={onTagsChange} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "＋ 添加标签" }));
+    expect(screen.getByRole("dialog", { name: "添加标签" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: /AI/ }));
+    expect(onTagsChange).toHaveBeenCalledWith([
+      tag,
+      { id: 2, name: "AI", color: "#16a34a" },
+    ]);
+  });
+
   it("presents the desktop detail as a reading surface with adjacent management", () => {
     render(<DesktopPodcastDetailInfo {...baseProps} />);
 
@@ -114,7 +229,6 @@ describe("PodcastDetailInfo", () => {
       screen.getByRole("region", { name: "标签与备注" }),
     ).toBeInTheDocument();
     expect(screen.getByText("标签与备注")).toBeInTheDocument();
-    expect(screen.queryByText("个人管理")).not.toBeInTheDocument();
   });
 
   it("keeps the desktop cover in a fixed heading square independent of description length", () => {
@@ -130,7 +244,6 @@ describe("PodcastDetailInfo", () => {
     expect(heading).not.toBeNull();
     expect(cover).not.toBeNull();
     expect(heading).toContainElement(screen.getByRole("heading", { level: 1 }));
-    expect(heading).toContainElement(screen.getByText("主播"));
     expect(description).not.toContainElement(cover as HTMLElement);
     expect(renderedCover).toHaveAttribute("data-sizes", "96px");
     expect(container.querySelector(".podcast-reading-hero")?.children).toHaveLength(
@@ -171,10 +284,8 @@ describe("PodcastDetailInfo", () => {
     );
 
     expect(screen.getByRole("heading", { name: "测试播客" })).toBeInTheDocument();
-    expect(screen.getByText("作者")).toBeInTheDocument();
-    expect(screen.getByText("12")).toBeInTheDocument();
-    expect(screen.getByText("最近更新")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /播放最新一集/ })).toBeInTheDocument();
+    expect(screen.getByText(/作者 · 12 集 · 更新于/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "播放最新一集" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /节目官网/ })).toHaveAttribute(
       "href",
       "https://example.com",
@@ -195,7 +306,7 @@ describe("PodcastDetailInfo", () => {
     ).not.toBeNull();
   });
 
-  it("keeps the mobile cover in the existing fixed header slot", () => {
+  it("keeps the mobile cover in the existing fixed header slot and stacks management", () => {
     const { container } = render(<MobilePodcastDetailInfo {...baseProps} />);
 
     const mobileCover = container.querySelector(".podcast-reading-mobile-cover");
@@ -206,5 +317,16 @@ describe("PodcastDetailInfo", () => {
       "data-sizes",
       "96px",
     );
+    expect(
+      screen.getByRole("region", { name: "节目管理" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "展开详细信息" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole("article", { name: "测试播客" })).getByText(
+        "作者 · 12 集 · 更新于 2026/08/29 13:36",
+      ),
+    ).toBeInTheDocument();
   });
 });

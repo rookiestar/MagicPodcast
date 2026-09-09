@@ -410,14 +410,21 @@ describe("EpisodeCard", () => {
     expect(screen.getByAltText("单集标题")).toHaveAttribute("loading", "lazy");
   });
 
-  it("loads full show notes when keyboard focus enters the card", async () => {
+  it("loads full show notes only after an explicit expand action", async () => {
     render(<TestEpisodeCard episode={makeEpisode()} />);
+    const card = screen.getByRole("link", { name: "单集标题" }).closest(
+      ".podcast-episode-card",
+    )!;
 
     expect(screen.getByText("旧简介")).toBeVisible();
     expect(getShowNotesMock).not.toHaveBeenCalled();
     expect(screen.queryByTestId("rich-text")).not.toBeInTheDocument();
 
+    fireEvent.mouseEnter(card);
     fireEvent.focus(screen.getByRole("link", { name: "单集标题" }));
+    expect(getShowNotesMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "展开简介" }));
 
     expect(await screen.findByRole("region", { name: "完整 Show Notes" })).toBeVisible();
     expect(screen.getByTestId("rich-text")).toHaveTextContent("完整正文 1");
@@ -431,7 +438,7 @@ describe("EpisodeCard", () => {
       />,
     );
 
-    fireEvent.focus(screen.getByRole("link", { name: "单集标题" }));
+    fireEvent.click(screen.getByRole("button", { name: "展开简介" }));
 
     expect(
       await screen.findByRole("region", { name: "完整 Show Notes" }),
@@ -449,7 +456,7 @@ describe("EpisodeCard", () => {
       ".podcast-episode-card",
     )!;
 
-    fireEvent.mouseEnter(card);
+    fireEvent.click(screen.getByRole("button", { name: "展开简介" }));
     expect(screen.getByText("旧简介")).toBeVisible();
     expect(screen.getByRole("status")).toHaveTextContent(
       "正在读取完整 Show Notes",
@@ -465,8 +472,10 @@ describe("EpisodeCard", () => {
     expect(await screen.findByText("<h2>慢请求完成</h2>")).toBeVisible();
 
     fireEvent.mouseLeave(card);
+    expect(screen.getByText("<h2>慢请求完成</h2>")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "收起" }));
     expect(screen.getByText("旧简介")).toBeVisible();
-    fireEvent.mouseEnter(card);
+    fireEvent.click(screen.getByRole("button", { name: "展开简介" }));
     expect(await screen.findByText("<h2>慢请求完成</h2>")).toBeVisible();
     expect(getShowNotesMock).toHaveBeenCalledTimes(1);
   });
@@ -483,7 +492,7 @@ describe("EpisodeCard", () => {
       });
     render(<TestEpisodeCard episode={makeEpisode()} />);
 
-    fireEvent.focus(screen.getByRole("link", { name: "单集标题" }));
+    fireEvent.click(screen.getByRole("button", { name: "展开简介" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "预览仍可查看",
     );
@@ -498,13 +507,12 @@ describe("EpisodeCard", () => {
     expect(getShowNotesMock).toHaveBeenCalledTimes(2);
   });
 
-  it("does not collapse a focused card when the pointer leaves", async () => {
+  it("does not collapse an expanded card when the pointer leaves", async () => {
     render(<TestEpisodeCard episode={makeEpisode()} />);
     const title = screen.getByRole("link", { name: "单集标题" });
     const card = title.closest(".podcast-episode-card")!;
 
-    fireEvent.mouseEnter(card);
-    fireEvent.focus(title);
+    fireEvent.click(screen.getByRole("button", { name: "展开简介" }));
     expect(await screen.findByRole("region", { name: "完整 Show Notes" })).toBeVisible();
     fireEvent.mouseLeave(card);
 
@@ -527,12 +535,12 @@ describe("EpisodeCard", () => {
     const { rerender } = render(
       <TestEpisodeCard episode={makeEpisode({ id: 1, title: "单集 A" })} />,
     );
-    fireEvent.focus(screen.getByRole("link", { name: "单集 A" }));
+    fireEvent.click(screen.getByRole("button", { name: "展开简介" }));
 
     rerender(
       <TestEpisodeCard episode={makeEpisode({ id: 2, title: "单集 B" })} />,
     );
-    fireEvent.focus(screen.getByRole("link", { name: "单集 B" }));
+    fireEvent.click(screen.getByRole("button", { name: "展开简介" }));
     expect(await screen.findByText("<h2>单集 B 全文</h2>")).toBeVisible();
 
     resolveFirst({
@@ -547,7 +555,7 @@ describe("EpisodeCard", () => {
     expect(screen.getByText("<h2>单集 B 全文</h2>")).toBeVisible();
   });
 
-  it("does not request full show notes in a mobile viewport", () => {
+  it("does not request full show notes from hover in a mobile viewport", async () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn((query: string) => ({
@@ -571,6 +579,10 @@ describe("EpisodeCard", () => {
     expect(screen.getByText("旧简介")).toBeVisible();
     expect(screen.getByRole("link", { name: /查看详情/ })).toBeVisible();
     expect(getShowNotesMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "展开简介" }));
+    expect(await screen.findByRole("region", { name: "完整 Show Notes" })).toBeVisible();
+    expect(getShowNotesMock).toHaveBeenCalledTimes(1);
   });
 
   it("rerenders when memoized episode display fields change", () => {

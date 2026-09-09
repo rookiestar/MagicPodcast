@@ -119,7 +119,7 @@ describe("typography contract", () => {
     });
   });
 
-  it("keeps episode Show Notes on semantic roles with bounded internal scrolling", () => {
+  it("keeps episode Show Notes on semantic roles without an inner scroll window", () => {
     expect(getDeclarations(".podcast-episode-show-notes")).toMatchObject({
       "font-size": "var(--type-secondary-size)",
       "line-height": "var(--type-secondary-leading)",
@@ -140,11 +140,23 @@ describe("typography contract", () => {
       font:
         "600 var(--type-label-size)/var(--type-label-leading) var(--font-mono)",
     });
-    expect(getDeclarations(".podcast-episode-show-notes-reader")).toMatchObject({
-      "max-height": "min(24rem, 44vh)",
-      "overflow-y": "auto",
-      "overscroll-behavior": "contain",
+    expect(
+      getDeclarationsForSelector(".podcast-episode-show-notes-preview"),
+    ).toMatchObject({
+      "font-size": "var(--type-secondary-size)",
+      "line-height": "var(--type-secondary-leading)",
     });
+    expect(
+      getDeclarationsForSelector(".podcast-episode-show-notes-content p"),
+    ).toMatchObject({
+      "font-size": "var(--type-secondary-size)",
+      "line-height": "var(--type-secondary-leading)",
+    });
+    const reader = getDeclarations(".podcast-episode-show-notes-reader");
+    expect(reader["max-height"]).toBeUndefined();
+    expect(reader["overflow-y"]).toBeUndefined();
+    expect(globalsCss).toContain("transition: height 200ms ease");
+    expect(globalsCss).toContain("@media (prefers-reduced-motion: reduce)");
   });
 
   it("reserves sub-11px text for decorative kickers and markers", () => {

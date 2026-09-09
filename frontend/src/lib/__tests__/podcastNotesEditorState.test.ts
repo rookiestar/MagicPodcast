@@ -4,13 +4,21 @@ import {
   getPodcastNotesReadOnlyText,
   getPodcastNotesSaveButtonLabel,
   hasPodcastNotes,
+  shouldShowPodcastNotesAddButton,
   shouldShowPodcastNotesEditButton,
 } from "../podcastNotesEditorState";
 
 describe("podcastNotesEditorState", () => {
-  it("shows the edit button only outside editing mode", () => {
-    expect(shouldShowPodcastNotesEditButton(false)).toBe(true);
-    expect(shouldShowPodcastNotesEditButton(true)).toBe(false);
+  it("shows the edit button only for existing notes outside editing mode", () => {
+    expect(shouldShowPodcastNotesEditButton(false, true)).toBe(true);
+    expect(shouldShowPodcastNotesEditButton(true, true)).toBe(false);
+    expect(shouldShowPodcastNotesEditButton(false, false)).toBe(false);
+  });
+
+  it("shows the add entry only when notes are empty", () => {
+    expect(shouldShowPodcastNotesAddButton(false, false)).toBe(true);
+    expect(shouldShowPodcastNotesAddButton(true, false)).toBe(false);
+    expect(shouldShowPodcastNotesAddButton(false, true)).toBe(false);
   });
 
   it("disables notes controls while saving", () => {

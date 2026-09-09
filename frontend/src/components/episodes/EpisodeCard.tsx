@@ -1,7 +1,7 @@
 "use client";
 
 import { IconPlayerPlay } from "@tabler/icons-react";
-import { memo, type FocusEvent } from "react";
+import { memo } from "react";
 import { OriginalEpisodeRecovery } from "@/components/common/OriginalEpisodeRecovery";
 import { EpisodeShowNotes } from "@/components/episodes/EpisodeShowNotes";
 import { EpisodeThumbnail } from "@/components/episodes/EpisodeThumbnail";
@@ -69,24 +69,8 @@ function EpisodeCard({
     }
   };
 
-  const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
-    const nextFocusedElement = event.relatedTarget as Node | null;
-    if (
-      !nextFocusedElement ||
-      !event.currentTarget.contains(nextFocusedElement)
-    ) {
-      showNotesState.leaveFocus();
-    }
-  };
-
   return (
-    <div
-      className="podcast-episode-card"
-      onMouseEnter={showNotesState.enterHover}
-      onMouseLeave={showNotesState.leaveHover}
-      onFocus={showNotesState.enterFocus}
-      onBlur={handleBlur}
-    >
+    <div className="podcast-episode-card">
       {/* Content */}
       <div className="podcast-episode-card-inner">
         {/* Title with Thumbnail */}
@@ -196,6 +180,7 @@ function EpisodeCard({
             isExpanded={showNotesState.isExpanded}
             status={showNotesState.status}
             document={showNotesState.document}
+            onToggle={showNotesState.toggle}
             onRetry={() => void showNotesState.retry()}
             onOriginalOpen={handleOriginalOpen}
           />
