@@ -3,6 +3,7 @@ import {
   getPodcastNotesReadOnlyText,
   getPodcastNotesSaveButtonLabel,
   hasPodcastNotes,
+  shouldShowPodcastNotesAddButton,
   shouldShowPodcastNotesEditButton,
 } from "@/lib/podcastNotesEditorState";
 
@@ -37,11 +38,18 @@ export default function PodcastNotesEditor({
   onSaveNotes,
   onCancelNotesEdit,
 }: PodcastNotesEditorProps) {
-  const showEditButton = shouldShowPodcastNotesEditButton(isEditingNotes);
+  const hasNotes = hasPodcastNotes(notes);
+  const showEditButton = shouldShowPodcastNotesEditButton(
+    isEditingNotes,
+    hasNotes,
+  );
+  const showAddButton = shouldShowPodcastNotesAddButton(
+    isEditingNotes,
+    hasNotes,
+  );
   const controlsDisabled = arePodcastNotesControlsDisabled(isSavingNotes);
   const saveButtonLabel = getPodcastNotesSaveButtonLabel(isSavingNotes);
   const readOnlyText = getPodcastNotesReadOnlyText(notes);
-  const hasNotes = hasPodcastNotes(notes);
 
   return (
     <div>
@@ -86,14 +94,16 @@ export default function PodcastNotesEditor({
             </button>
           </div>
         </div>
+      ) : showAddButton ? (
+        <button
+          type="button"
+          className={`podcast-notes-add ${emptyClassName}`}
+          onClick={onEditNotes}
+        >
+          ＋ 添加备注
+        </button>
       ) : (
-        <p className={readOnlyClassName}>
-          {hasNotes ? (
-            readOnlyText
-          ) : (
-            <span className={emptyClassName}>{readOnlyText}</span>
-          )}
-        </p>
+        <p className={readOnlyClassName}>{readOnlyText}</p>
       )}
     </div>
   );

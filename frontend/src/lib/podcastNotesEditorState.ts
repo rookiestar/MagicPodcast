@@ -1,5 +1,15 @@
-export function shouldShowPodcastNotesEditButton(isEditingNotes: boolean) {
-  return !isEditingNotes;
+export function shouldShowPodcastNotesEditButton(
+  isEditingNotes: boolean,
+  hasNotes = true,
+) {
+  return !isEditingNotes && hasNotes;
+}
+
+export function shouldShowPodcastNotesAddButton(
+  isEditingNotes: boolean,
+  hasNotes: boolean,
+) {
+  return !isEditingNotes && !hasNotes;
 }
 
 export function arePodcastNotesControlsDisabled(isSavingNotes: boolean) {
