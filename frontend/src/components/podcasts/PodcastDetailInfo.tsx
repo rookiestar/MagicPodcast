@@ -204,33 +204,37 @@ export function DesktopPodcastDetailInfo({
       className="podcast-reading-hero hidden md:grid"
       aria-label={podcast.title}
     >
-      <figure className="podcast-reading-cover">
-        <PodcastCover
-          coverUrl={coverUrl}
-          title={podcast.title}
-          priority="low"
-          sizes="(max-width: 1200px) 240px, 300px"
-        />
-      </figure>
-
       <section className="podcast-reading-copy">
-        <p className="podcast-reading-kicker">个人播客库 · 节目档案</p>
-        <h1>{podcast.title}</h1>
-
-        <dl className="podcast-reading-metadata">
-          <div>
-            <dt>主播</dt>
-            <dd>{podcast.author}</dd>
+        <header className="podcast-reading-heading">
+          <figure className="podcast-reading-cover">
+            <PodcastCover
+              coverUrl={coverUrl}
+              title={podcast.title}
+              priority="low"
+              sizes="96px"
+            />
+          </figure>
+          <div className="podcast-reading-heading-copy">
+            <p className="podcast-reading-kicker">个人播客库 · 节目档案</p>
+            <h1>{podcast.title}</h1>
+            <dl className="podcast-reading-metadata">
+              <div>
+                <dt>主播</dt>
+                <dd>{podcast.author}</dd>
+              </div>
+              <div>
+                <dt>单集</dt>
+                <dd>{podcast.episode_count || 0}</dd>
+              </div>
+              <div>
+                <dt>最近更新</dt>
+                <dd>
+                  {formatPodcastNewestEpisodeDate(podcast.newest_episode_date)}
+                </dd>
+              </div>
+            </dl>
           </div>
-          <div>
-            <dt>单集</dt>
-            <dd>{podcast.episode_count || 0}</dd>
-          </div>
-          <div>
-            <dt>最近更新</dt>
-            <dd>{formatPodcastNewestEpisodeDate(podcast.newest_episode_date)}</dd>
-          </div>
-        </dl>
+        </header>
 
         <section className="podcast-reading-description">
           <h2>节目简介</h2>
