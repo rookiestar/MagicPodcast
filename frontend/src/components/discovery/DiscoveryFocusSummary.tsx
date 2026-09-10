@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import Link from "next/link";
 import { IconPlus, IconTargetArrow, IconX } from "@tabler/icons-react";
 import useSWR from "swr";
 import {
@@ -73,7 +74,6 @@ export default function DiscoveryFocusSummary({
   const focusCount = summary?.counts.focus ?? focus?.items.length ?? 0;
   const focusLimit = summary?.focus_limit ?? 7;
   const focusItems = focus?.items ?? [];
-  const visibleFocusItems = focusItems.slice(0, 3);
 
   const refreshQueues = async (item: ConsumptionItem) => {
     await Promise.all([
@@ -133,17 +133,18 @@ export default function DiscoveryFocusSummary({
           </span>
         </div>
         <div className="discovery-focus-items">
-          {visibleFocusItems.length > 0 ? (
-            visibleFocusItems.map((item) => (
-              <span key={item.episode_id} title={item.episode_title}>
+          {focusItems.length > 0 ? (
+            focusItems.map((item) => (
+              <Link
+                key={item.episode_id}
+                href={`/inbox?queue=focus&episode=${item.episode_id}&detail=1`}
+                title={item.episode_title}
+              >
                 {item.episode_title}
-              </span>
+              </Link>
             ))
           ) : (
             <span>{summaryLoading ? "正在读取…" : "尚未投入内容"}</span>
-          )}
-          {focusItems.length > visibleFocusItems.length && (
-            <span>另有 {focusItems.length - visibleFocusItems.length} 项</span>
           )}
         </div>
         <button

@@ -482,6 +482,10 @@ export default function InboxPageClient() {
     locatedEpisodeRef.current = locateTarget.episodeId;
     card.scrollIntoView({ behavior: "auto", block: "center", inline: "center" });
     trigger.focus({ preventScroll: true });
+    if (new URLSearchParams(window.location.search).get("detail") === "1") {
+      detailTriggerRef.current = trigger;
+      setDetailItem(item);
+    }
     setAnnouncement(
       `已定位《${item.episode_title}》到 ${locateTarget.queue} 队列。`,
     );

@@ -3957,7 +3957,7 @@
     overflow: hidden;
   }
 
-  .discovery-focus-items > span {
+  .discovery-focus-items > :is(span, a) {
     min-width: 0;
     max-width: 260px;
     overflow: hidden;
@@ -4335,7 +4335,7 @@
       display: none;
     }
 
-    .discovery-focus-items > span {
+    .discovery-focus-items > :is(span, a) {
       min-width: 150px;
     }
 
@@ -7450,7 +7450,7 @@ textarea.editorial-field {
   overflow: visible;
 }
 
-.discovery-focus-rail .discovery-focus-items > span {
+.discovery-focus-rail .discovery-focus-items > :is(span, a) {
   max-width: none;
   padding: 9px 4px 9px 10px;
   border-top: 1px solid #cfc3af;
@@ -7981,4 +7981,14 @@ textarea.editorial-field {
   .discovery-preview-overlay .discovery-preview {
     animation: none;
   }
+}
+
+.discovery-focus-items > a:hover {
+  color: #c4552a;
+  text-decoration: underline;
+}
+
+.discovery-focus-items > a:focus-visible {
+  outline: 2px solid #c4552a;
+  outline-offset: -2px;
 }
