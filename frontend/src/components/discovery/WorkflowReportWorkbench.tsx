@@ -43,6 +43,8 @@ import {
   originalEpisodeAccessText,
   planOriginalEpisodeAccess,
 } from "@/lib/originalEpisodeOpen";
+import ReportStatsLine from "@/components/reports/ReportStatsLine";
+import { stripReportSystemMetadata } from "@/lib/reportStats";
 import type {
   DiscoveryConsumptionResponse,
   HomepageReport,
@@ -533,8 +535,8 @@ export default function WorkflowReportWorkbench({
   const hasEpisodes = activeReport.episodes.length > 0;
   const reportTitle = reportDisplayTitle(activeReport);
   const reportMeta = reportCompletionLine(activeReport, timezone);
-  const previewBodyMarkdown = stripLeadingMarkdownH1(
-    activeReport.content || "",
+  const previewBodyMarkdown = stripReportSystemMetadata(
+    stripLeadingMarkdownH1(activeReport.content || ""),
   );
 
   return (
@@ -654,6 +656,7 @@ export default function WorkflowReportWorkbench({
             {reportTitle}
           </h3>
           <p className="workflow-report-heading-meta type-meta">{reportMeta}</p>
+          <ReportStatsLine stats={activeReport.report_stats} />
         </div>
 
         {hasEpisodes && (

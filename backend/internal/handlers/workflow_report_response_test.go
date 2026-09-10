@@ -116,6 +116,7 @@ func TestWorkflowReportResponseIncludesPublicReportFields(t *testing.T) {
 		"llm_model_used":      report.LLMModelUsed,
 		"llm_tokens_used":     report.LLMTokensUsed,
 		"llm_error":           report.LLMError,
+		"report_stats":        report.BuildReportStats(),
 	}
 
 	if len(response) != len(expected) {

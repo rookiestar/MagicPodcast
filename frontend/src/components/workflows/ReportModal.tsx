@@ -7,6 +7,8 @@ import { workflowApi } from '@/lib/api'
 import { requestTypedConfirmation } from '@/lib/confirmation'
 import { toast } from '@/lib/toast'
 import MarkdownViewer from './MarkdownViewer'
+import ReportStatsLine from '@/components/reports/ReportStatsLine'
+import { stripReportSystemMetadata, type ReportStats } from '@/lib/reportStats'
 
 interface ReportModalProps {
   isOpen: boolean
@@ -26,20 +28,12 @@ interface Report {
   generated_at: string
   format: string
   file_size: number
-  // LLM相关字段
   llm_summary?: string
   llm_model_used?: string
   llm_tokens_used?: number
   llm_error?: string
+  report_stats?: ReportStats
 }
-
-// 格式化token数量
-const formatTokenCount = (tokens: number): string => {
-  if (tokens === 0) return "0";
-  if (tokens < 1000) return tokens.toString();
-  if (tokens < 1000000) return `${(tokens / 1000).toFixed(1)}K`;
-  return `${(tokens / 1000000).toFixed(1)}M`;
-};
 
 export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: ReportModalProps) {
   const [report, setReport] = useState<Report | null>(null)
@@ -105,14 +99,19 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
         {/* Header */}
         <div className="report-modal-header flex items-center justify-between border-b border-slate-200 dark:border-slate-700">
           <div className="report-modal-heading">
-            <span className="editorial-modal-kicker">工作流报告</span>
-            <h2 id="report-modal-title" className="text-xl font-semibold text-slate-900 dark:text-slate-50">
-              执行报告
-            </h2>
+            <div className="report-modal-title-row">
+              <span className="editorial-modal-kicker">工作流报告</span>
+              <h2 id="report-modal-title" className="text-xl font-semibold text-slate-900 dark:text-slate-50">
+                执行报告
+              </h2>
+            </div>
             {report && (
-              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                {report.summary} • {new Date(report.generated_at).toLocaleString('zh-CN')}
-              </p>
+              <>
+                <p className="report-modal-generated-at">
+                  {new Date(report.generated_at).toLocaleString('zh-CN')}
+                </p>
+                <ReportStatsLine stats={report.report_stats} />
+              </>
             )}
           </div>
           <button
@@ -156,16 +155,23 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
             </div>
           ) : report ? (
             <>
-              {/* LLM错误提示 */}
-              {report.llm_error && (
+              {report.llm_error &&
+                report.report_stats?.ai_status !== "disabled" &&
+                report.report_stats?.ai_status !== "not_needed" && (
                 <div className="mb-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
                   <div className="flex items-start gap-3">
                     <IconAlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" aria-hidden="true" stroke={1.8} />
                     <div className="flex-1">
-                      <h4 className="text-amber-800 dark:text-amber-200 font-semibold mb-1">AI摘要生成失败</h4>
+                      <h4 className="text-amber-800 dark:text-amber-200 font-semibold mb-1">
+                        {report.report_stats?.ai_status === "incomplete"
+                          ? "AI摘要不完整"
+                          : report.report_stats?.ai_status === "generated"
+                            ? "重新生成失败，已保留原摘要"
+                            : "AI摘要未生成"}
+                      </h4>
                       <p className="text-sm text-amber-700 dark:text-amber-300 font-mono">{report.llm_error}</p>
                       <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        报告内容已生成，但AI智能摘要未能成功生成。这可能是由于LLM服务不可用或配置错误导致。
+                        单集详情仍可阅读。
                       </p>
                       <button
                         onClick={regenerateLLMSummary}
@@ -192,7 +198,7 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
                   </div>
                 </div>
               )}
-              <MarkdownViewer content={report.content} />
+              <MarkdownViewer content={stripReportSystemMetadata(report.content)} />
             </>
           ) : null}
         </div>
@@ -201,22 +207,7 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
         <div className="report-modal-footer flex items-center justify-between p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
           {report && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600 dark:text-slate-400">
-              <div className="flex items-center gap-1">
-                <span className="font-medium">{report.podcasts_count}</span> 个节目 •
-                <span className="font-medium">{report.episodes_count}</span> 个单集 •
-                <span className="font-medium">{(report.file_size / 1024).toFixed(1)} KB</span>
-              </div>
-              {/* LLM统计信息 */}
-              {report.llm_tokens_used && report.llm_model_used && (
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-                  <span className="text-purple-800 dark:text-purple-300">AI: {formatTokenCount(report.llm_tokens_used)} ({report.llm_model_used})</span>
-                </div>
-              )}
-              {report.llm_error && (
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-red-100 dark:bg-red-900/20 rounded-lg">
-                  <span className="text-red-800 dark:text-red-300">AI摘要失败</span>
-                </div>
-              )}
+              <span className="font-medium">{(report.file_size / 1024).toFixed(1)} KB</span>
             </div>
           )}
           <div className="flex gap-2">

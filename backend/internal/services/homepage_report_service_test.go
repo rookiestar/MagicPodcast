@@ -321,3 +321,49 @@ func TestHomepageReportService_ThemeUsesReportSummaryThenEpisodeFallback(t *test
 	assert.Equal(t, "AI 组织变革进入落地期", today[0].Theme)
 	assert.Equal(t, "首条精选主题", today[1].Theme)
 }
+
+func TestHomepageReportService_IncludesGenerationScopedReportStats(t *testing.T) {
+	loc := time.UTC
+	db := openHomepageReportTestDB(t, "homepage_report_stats")
+	svc := NewHomepageReportServiceWithLocation(db, loc)
+	svc.now = func() time.Time { return time.Date(2026, 8, 10, 12, 0, 0, 0, loc) }
+	now := time.Date(2026, 8, 10, 10, 0, 0, 0, loc)
+	episode := seedLiveEpisode(t, db, "stats-ep")
+
+	generated := seedPublishedReport(t, db, "统计日报", "daily", true, models.JobStatusCompleted, now, models.ReportEpisodeList{
+		{EpisodeID: episode.ID, Order: 1, EpisodeTitle: episode.Title, PodcastTitle: "P"},
+	})
+	require.NoError(t, db.Model(&generated).Updates(map[string]any{
+		"podcasts_count":  3,
+		"matched_count":   3,
+		"episodes_count":  3,
+		"llm_summary":     "可读摘要",
+		"llm_model_used":  "deepseek-v4-flash",
+		"llm_tokens_used": 7245,
+		"llm_error":       "",
+	}).Error)
+
+	unknown := seedPublishedReport(t, db, "未知日报", "daily", true, models.JobStatusCompleted, now.Add(-time.Hour), models.ReportEpisodeList{
+		{EpisodeID: episode.ID, Order: 1, EpisodeTitle: episode.Title, PodcastTitle: "P"},
+	})
+	require.NoError(t, db.Model(&unknown).Updates(map[string]any{
+		"podcasts_count":  2,
+		"matched_count":   2,
+		"episodes_count":  2,
+		"llm_summary":     "",
+		"llm_model_used":  "",
+		"llm_tokens_used": 0,
+		"llm_error":       "",
+	}).Error)
+
+	today, err := svc.ListToday()
+	require.NoError(t, err)
+	require.Len(t, today, 2)
+	assert.Equal(t, "generated", today[0].ReportStats.AIStatus)
+	assert.Equal(t, "3 个节目 · 3 集 · AI 已生成 · deepseek-v4-flash · 7.2K Token", today[0].ReportStats.Line)
+	assert.Equal(t, 3, today[0].ReportStats.PodcastsCount)
+	assert.Equal(t, 3, today[0].ReportStats.EpisodesCount)
+	assert.Equal(t, "unknown", today[1].ReportStats.AIStatus)
+	assert.Nil(t, today[1].ReportStats.Tokens)
+	assert.Contains(t, today[1].ReportStats.Line, "Token 未知")
+}

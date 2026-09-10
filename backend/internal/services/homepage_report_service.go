@@ -59,6 +59,8 @@ type HomepageReport struct {
 	GeneratedAt  time.Time               `json:"generated_at"`
 	EpisodeCount int                     `json:"episode_count"`
 	Episodes     []HomepageReportEpisode `json:"episodes"`
+	// ReportStats is the compact title-line payload shared with the report modal.
+	ReportStats models.ReportStats `json:"report_stats"`
 	// MetadataOnly marks history summary rows without full Markdown body (#95).
 	MetadataOnly bool `json:"metadata_only,omitempty"`
 }
@@ -409,6 +411,7 @@ func (s *HomepageReportService) toHomepageReportFiltered(
 		GeneratedAt:  report.GeneratedAt,
 		EpisodeCount: len(episodes),
 		Episodes:     episodes,
+		ReportStats:  report.BuildReportStats(),
 		MetadataOnly: metadataOnly,
 	}
 }

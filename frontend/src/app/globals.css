@@ -3373,6 +3373,14 @@
     color: #5d574f;
   }
 
+  .report-stats-line {
+    margin: 8px 0 0;
+    color: #5d574f;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    word-break: break-word;
+  }
+
   .workflow-report-episodes {
     display: grid;
     gap: 0;
@@ -6088,18 +6096,30 @@ textarea.editorial-field {
 .report-modal-heading {
   min-width: 0;
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }
 
-.report-modal-heading p {
+.report-modal-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
   min-width: 0;
+}
+
+.report-modal-heading p,
+.report-modal .report-stats-line {
+  min-width: 0;
+  max-width: 100%;
   margin: 0;
-  overflow: hidden;
+  overflow: visible;
   color: #756c62;
   font: 600 var(--type-meta-size)/1.4 var(--font-mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-overflow: unset;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .workflow-form-modal > div > .flex-1,
@@ -6166,8 +6186,12 @@ textarea.editorial-field {
     font-size: 19px;
   }
 
-  .report-modal-heading p {
+  .report-modal-heading .report-modal-generated-at {
     display: none;
+  }
+
+  .report-modal-heading .report-stats-line {
+    display: block;
   }
 }
 

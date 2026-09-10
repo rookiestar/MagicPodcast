@@ -219,9 +219,13 @@ func (c *Client) GenerateSummary(ctx context.Context, systemPrompt, userPrompt s
 	}
 
 	var lastErr error
+	var lastResult *SummaryResult
 	for attempt := 0; attempt <= c.config.MaxRetries; attempt++ {
 		if attempt > 0 {
 			if err := ctx.Err(); err != nil {
+				if lastResult != nil {
+					return lastResult, fmt.Errorf("HTTP请求失败: %w", err)
+				}
 				return nil, fmt.Errorf("HTTP请求失败: %w", err)
 			}
 			logger.Infof("LLM请求重试 %d/%d", attempt, c.config.MaxRetries)
@@ -231,16 +235,25 @@ func (c *Client) GenerateSummary(ctx context.Context, systemPrompt, userPrompt s
 		}
 
 		result, retryable, err := c.doChatCompletion(ctx, url, authHeader, reqBody)
+		if result != nil {
+			lastResult = result
+		}
 		if err == nil {
 			return result, nil
 		}
 		lastErr = err
 		if !retryable || attempt == c.config.MaxRetries {
 			if retryable && attempt > 0 {
-				return nil, fmt.Errorf("%v（重试%d次后）", err, c.config.MaxRetries)
+				lastErr = fmt.Errorf("%w（重试%d次后）", err, c.config.MaxRetries)
 			}
-			return nil, err
+			if lastResult != nil {
+				return lastResult, lastErr
+			}
+			return nil, lastErr
 		}
+	}
+	if lastResult != nil {
+		return lastResult, lastErr
 	}
 	return nil, lastErr
 }
@@ -278,14 +291,22 @@ func (c *Client) doChatCompletion(ctx context.Context, url, authHeader string, r
 		return nil, false, fmt.Errorf("LLM API未返回任何结果")
 	}
 
+	choice := chatResp.Choices[0]
+	formatted, incomplete, retryable, evalErr := evaluateCompletion(choice.Message.Content, choice.FinishReason)
 	c.updateStats(chatResp.Usage.TotalTokens)
-	return &SummaryResult{
-		Summary:      formatSummary(chatResp.Choices[0].Message.Content),
+	result := &SummaryResult{
+		Summary:      formatted,
 		ModelUsed:    chatResp.Model,
 		TokensUsed:   chatResp.Usage.TotalTokens,
 		PromptTokens: chatResp.Usage.PromptTokens,
 		TotalTokens:  chatResp.Usage.TotalTokens,
-	}, false, nil
+		FinishReason: strings.TrimSpace(choice.FinishReason),
+		Incomplete:   incomplete,
+	}
+	if evalErr != nil {
+		return result, retryable, evalErr
+	}
+	return result, false, nil
 }
 
 // ValidateAPIKey sends a tiny request to verify that the configured provider,
@@ -337,6 +358,8 @@ type SummaryResult struct {
 	TokensUsed   int
 	PromptTokens int
 	TotalTokens  int
+	FinishReason string
+	Incomplete   bool
 }
 
 // updateStats 更新使用统计
