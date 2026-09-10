@@ -164,6 +164,13 @@ describe("TranscriptAudioPlayer", () => {
     expect(screen.queryByText("正在加载音频…")).not.toBeInTheDocument();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
 
+    expect(
+      screen.getByRole("button", { name: "00:00 主持人：开场内容" }),
+    ).toHaveAttribute("data-fragment-order", "1");
+    expect(
+      screen.getByRole("button", { name: "00:30 嘉宾：中段内容" }),
+    ).toHaveAttribute("data-fragment-order", "2");
+
     const playButton = screen.getByRole("button", { name: "播放音频" });
     expect(playButton).toBeEnabled();
     expect(screen.getByRole("slider", { name: "音频进度" })).toBeEnabled();

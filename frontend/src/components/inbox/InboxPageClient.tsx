@@ -1163,6 +1163,18 @@ export default function InboxPageClient() {
     setDetailItem(item);
   };
 
+  const openSourceEpisode = useCallback(
+    async (episodeId: number) => {
+      if (detailItem?.episode_id === episodeId) return;
+      const queued = CONSUMPTION_QUEUES.flatMap(
+        (queue) => queues[queue].items,
+      ).find((candidate) => candidate.episode_id === episodeId);
+      const item = queued ?? (await consumptionApi.getItem(episodeId));
+      setDetailItem(item);
+    },
+    [detailItem, queues],
+  );
+
   const restoreCopilotListSnapshot = useCallback(() => {
     const snapshot = copilotListSnapshotRef.current;
     copilotListSnapshotRef.current = null;
@@ -1416,6 +1428,7 @@ export default function InboxPageClient() {
           onSelectedCopilotProfileIDChange={setSelectedCopilotProfileID}
           rejectedCopilotProfileIDs={rejectedCopilotProfileIDs}
           onRejectedCopilotProfileID={rememberRejectedCopilotProfile}
+          onOpenSourceEpisode={openSourceEpisode}
         />
       )}
 

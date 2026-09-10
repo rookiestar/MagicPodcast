@@ -3,6 +3,7 @@ import type {
   EpisodeCopilotContextScope,
   EpisodeCopilotQuestion,
   EpisodeCopilotStreamEvent,
+  EpisodePeoplePayload,
 } from "@/types/episodeCopilot";
 import { apiBaseUrl } from "../apiBaseUrl";
 import {
@@ -43,6 +44,56 @@ function errorCode(error: unknown) {
 }
 
 export const episodeCopilotApi = {
+  preparePeople: async (episodeId: number, signal?: AbortSignal): Promise<EpisodePeoplePayload> => {
+    const response = await api.post<ApiResponse<EpisodePeoplePayload>>(
+      `/api/v1/episodes/${episodeId}/people/prepare`, {},
+      { ...inlineApiErrorConfig, timeout: 180_000, signal },
+    );
+    return handleResponse(response);
+  },
+  getPeople: async (episodeId: number): Promise<EpisodePeoplePayload> => {
+    const response = await api.get<ApiResponse<EpisodePeoplePayload>>(
+      `/api/v1/episodes/${episodeId}/people`,
+      inlineApiErrorConfig,
+    );
+    return handleResponse(response);
+  },
+
+  correctName: async (
+    episodeId: number,
+    personId: number,
+    body: {
+      display_name: string;
+      aliases?: string[];
+      identity_note?: string;
+    },
+  ): Promise<EpisodePeoplePayload> => {
+    const response = await api.post<ApiResponse<EpisodePeoplePayload>>(
+      `/api/v1/episodes/${episodeId}/people/${personId}/corrections`,
+      body,
+      inlineApiErrorConfig,
+    );
+    return handleResponse(response);
+  },
+
+  correctAttribution: async (
+    episodeId: number,
+    body: {
+      source_kind: string;
+      source_version?: string;
+      fragment_order: number;
+      assigned_person_id: number | null;
+      status: string;
+    },
+  ): Promise<EpisodePeoplePayload> => {
+    const response = await api.post<ApiResponse<EpisodePeoplePayload>>(
+      `/api/v1/episodes/${episodeId}/attributions/corrections`,
+      body,
+      inlineApiErrorConfig,
+    );
+    return handleResponse(response);
+  },
+
   getContext: async (
     episodeId: number,
   ): Promise<EpisodeCopilotContextScope> => {

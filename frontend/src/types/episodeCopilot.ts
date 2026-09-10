@@ -11,6 +11,21 @@ export interface EpisodeCopilotProfile {
   is_default: boolean;
 }
 
+export type EpisodePersonStatus = "confirmed" | "pending";
+export type EpisodePersonRole = "host" | "guest" | "unknown";
+
+export interface EpisodePersonCandidate {
+  id: number;
+  display_name: string;
+  aliases: string[];
+  identity_note: string;
+  role: EpisodePersonRole;
+  status: EpisodePersonStatus;
+  status_reason: string;
+  evidence_kind?: string;
+  evidence_locator?: string;
+}
+
 export interface EpisodeCopilotContextScope {
   episode_id: number;
   show_notes_available: boolean;
@@ -18,6 +33,9 @@ export interface EpisodeCopilotContextScope {
   private_note_available: boolean;
   profiles: EpisodeCopilotProfile[];
   default_profile_id: EpisodeCopilotProfileID;
+  people?: EpisodePersonCandidate[];
+  index_ready?: boolean;
+  index_status?: string;
 }
 
 export interface EpisodeCopilotQuestion {
@@ -26,6 +44,7 @@ export interface EpisodeCopilotQuestion {
   selection_source: EpisodeCopilotSelectionSource | "";
   include_private_note: boolean;
   profile_id: EpisodeCopilotProfileID;
+  target_person_id?: number;
 }
 
 export type EpisodeCopilotEventType =
@@ -41,6 +60,7 @@ export type EpisodeCopilotEventType =
  */
 export type EpisodeCopilotStage =
   | "read_context"
+  | "library_search"
   | "research_runtime"
   | "public_research"
   | "source_validation"
@@ -88,6 +108,30 @@ export interface EpisodeCopilotStageTimings {
   source_validation_ms?: number;
   answer_runtime_ready_ms?: number;
   citation_validation_ms?: number;
+}
+
+export interface EpisodeAttributionView {
+  id: number;
+  person_id?: number | null;
+  display_name?: string;
+  source_kind: string;
+  source_version: string;
+  fragment_order: number;
+  speaker_label: string;
+  start_ms: number;
+  text: string;
+  status: string;
+  evidence_kind?: string;
+  evidence_locator?: string;
+  user_confirmed?: boolean;
+}
+
+export interface EpisodePeoplePayload {
+  episode_id: number;
+  source_version: string;
+  index_ready: boolean;
+  people: EpisodePersonCandidate[];
+  attributions: EpisodeAttributionView[];
 }
 
 export interface EpisodeCopilotStreamEvent {

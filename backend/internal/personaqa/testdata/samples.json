@@ -1,0 +1,427 @@
+{
+  "privacy": "synthetic-only",
+  "real_transcribed_episodes": {
+    "requested": "10-20",
+    "available": 0,
+    "status": "missing",
+    "reason": "This isolated worktree has no authorized readable private transcripts. Committed fixtures stay synthetic and must not be treated as a measured production quality score."
+  },
+  "podcasts": [
+    {
+      "id": "pod-tech",
+      "title": "技术漫谈",
+      "author": "技术漫谈制作组"
+    },
+    {
+      "id": "pod-media",
+      "title": "媒体观察",
+      "author": "观察工作室"
+    },
+    {
+      "id": "pod-product",
+      "title": "产品夜话",
+      "author": "王芳"
+    },
+    {
+      "id": "pod-startup",
+      "title": "创业圆桌",
+      "author": "圆桌编辑部"
+    }
+  ],
+  "people": [
+    {
+      "id": "person-zhangsan-tech",
+      "display_name": "张三",
+      "aliases": [
+        "老张"
+      ],
+      "identity_note": "《技术漫谈》主播，前云厂商架构师"
+    },
+    {
+      "id": "person-liming",
+      "display_name": "李明",
+      "aliases": [
+        "小李"
+      ],
+      "identity_note": "独立工程顾问，常做客技术节目"
+    },
+    {
+      "id": "person-zhangsan-media",
+      "display_name": "张三",
+      "aliases": [],
+      "identity_note": "媒体观察特约记者，与技术漫谈主播同名不同人"
+    },
+    {
+      "id": "person-zhaoliu",
+      "display_name": "赵六",
+      "aliases": [
+        "六哥"
+      ],
+      "identity_note": "《媒体观察》主播"
+    },
+    {
+      "id": "person-wangfang",
+      "display_name": "王芳",
+      "aliases": [
+        "芳芳"
+      ],
+      "identity_note": "产品经理，可在不同节目分别担任主播或嘉宾"
+    },
+    {
+      "id": "person-anonymous-engineer",
+      "display_name": "匿名工程师",
+      "aliases": [],
+      "identity_note": "不愿具名的从业者，说话人标签为 Speaker 1"
+    }
+  ],
+  "episodes": [
+    {
+      "id": "ep-tech-overtime",
+      "podcast_id": "pod-tech",
+      "title": "工程师该不该把加班当文化",
+      "published_date": "2025-03-12",
+      "show_notes": "本期主播张三（前云厂商架构师，听众也叫他老张）和嘉宾李明（工程顾问，常被叫作小李）讨论加班。片中提到王总上周在内部会说“不加班就没有产出”，王总并未到场。",
+      "private_notes": "这是用户私有备注：不要索引，也不要拿去网页搜索。",
+      "transcript_segments": [
+        {
+          "id": "ep-tech-overtime:seg-1",
+          "order": 1,
+          "speaker_label": "张三",
+          "start_ms": 8000,
+          "text": "大家好，我是张三，今天请到李明一起聊加班。",
+          "attribution_person_id": "person-zhangsan-tech",
+          "attribution_status": "confirmed",
+          "attribution_basis": "self_intro"
+        },
+        {
+          "id": "ep-tech-overtime:seg-2",
+          "order": 2,
+          "speaker_label": "李明",
+          "start_ms": 18000,
+          "text": "我是李明，大家叫我小李也行。",
+          "attribution_person_id": "person-liming",
+          "attribution_status": "confirmed",
+          "attribution_basis": "self_intro"
+        },
+        {
+          "id": "ep-tech-overtime:seg-3",
+          "order": 3,
+          "speaker_label": "张三",
+          "start_ms": 42000,
+          "text": "我不赞成无限制加班，长期靠加班堆产出会把团队拖垮。",
+          "attribution_person_id": "person-zhangsan-tech",
+          "attribution_status": "confirmed",
+          "attribution_basis": "speaker_label_and_self_intro"
+        },
+        {
+          "id": "ep-tech-overtime:seg-4",
+          "order": 4,
+          "speaker_label": "李明",
+          "start_ms": 61000,
+          "text": "我觉得阶段性冲刺可以接受，但那只是发布前几天，不是每周都加班。",
+          "attribution_person_id": "person-liming",
+          "attribution_status": "confirmed",
+          "attribution_basis": "speaker_label_and_self_intro"
+        },
+        {
+          "id": "ep-tech-overtime:seg-5",
+          "order": 5,
+          "speaker_label": "张三",
+          "start_ms": 78000,
+          "text": "李明刚才说阶段性冲刺可以接受，我复述一下他的意思：发布窗口允许短冲刺。这是他的观点，不是我的立场。",
+          "attribution_person_id": "person-zhangsan-tech",
+          "attribution_status": "confirmed",
+          "attribution_basis": "speaker_label",
+          "paraphrase_of_person_id": "person-liming"
+        },
+        {
+          "id": "ep-tech-overtime:seg-6",
+          "order": 6,
+          "speaker_label": "张三",
+          "start_ms": 99000,
+          "text": "难道加班就是唯一出路吗？当然不是。我反对把加班当成文化。",
+          "attribution_person_id": "person-zhangsan-tech",
+          "attribution_status": "confirmed",
+          "attribution_basis": "speaker_label",
+          "rhetorical": true
+        },
+        {
+          "id": "ep-tech-overtime:seg-7",
+          "order": 7,
+          "speaker_label": "Speaker 2",
+          "start_ms": 120000,
+          "text": "有人觉得不加班就没有产出，这段说话人标签无法可靠对应到本集嘉宾。",
+          "attribution_person_id": "",
+          "attribution_status": "pending",
+          "attribution_basis": "unmatched_label"
+        }
+      ],
+      "appearances": [
+        {
+          "person_id": "person-zhangsan-tech",
+          "role": "host",
+          "status": "confirmed",
+          "evidence": "show_notes_host_line+self_intro:seg-1"
+        },
+        {
+          "person_id": "person-liming",
+          "role": "guest",
+          "status": "confirmed",
+          "evidence": "show_notes_guest_line+self_intro:seg-2"
+        }
+      ],
+      "mentioned_only": [
+        {
+          "name": "王总",
+          "reason": "仅在 Show Notes 与转述中被提到，未到场、无自我介绍、无可靠发言归属"
+        }
+      ]
+    },
+    {
+      "id": "ep-tech-overtime-2024",
+      "podcast_id": "pod-tech",
+      "title": "交付压力下的节奏",
+      "published_date": "2024-04-02",
+      "show_notes": "主播张三回顾去年交付。嘉宾未到场。",
+      "transcript_segments": [
+        {
+          "id": "ep-tech-overtime-2024:seg-1",
+          "order": 1,
+          "speaker_label": "张三",
+          "start_ms": 12000,
+          "text": "大家好，我是张三。现阶段加班很难避免，项目窗口太紧。",
+          "attribution_person_id": "person-zhangsan-tech",
+          "attribution_status": "confirmed",
+          "attribution_basis": "self_intro"
+        }
+      ],
+      "appearances": [
+        {
+          "person_id": "person-zhangsan-tech",
+          "role": "host",
+          "status": "confirmed",
+          "evidence": "show_notes_host_line+self_intro"
+        }
+      ],
+      "mentioned_only": []
+    },
+    {
+      "id": "ep-media-zhangsan",
+      "podcast_id": "pod-media",
+      "title": "同名记者看加班报道",
+      "published_date": "2025-05-08",
+      "show_notes": "主播赵六邀请特约记者张三（媒体观察记者，不是技术漫谈那位架构师）讨论加班报道。",
+      "transcript_segments": [
+        {
+          "id": "ep-media-zhangsan:seg-1",
+          "order": 1,
+          "speaker_label": "赵六",
+          "start_ms": 5000,
+          "text": "我是赵六，也叫六哥。今天请来媒体观察的张三记者。",
+          "attribution_person_id": "person-zhaoliu",
+          "attribution_status": "confirmed",
+          "attribution_basis": "self_intro"
+        },
+        {
+          "id": "ep-media-zhangsan:seg-2",
+          "order": 2,
+          "speaker_label": "张三",
+          "start_ms": 21000,
+          "text": "我是媒体观察的张三。我认为加班报道首先要核对当事人原话，不能把评论当本人主张。",
+          "attribution_person_id": "person-zhangsan-media",
+          "attribution_status": "confirmed",
+          "attribution_basis": "self_intro_identity"
+        }
+      ],
+      "appearances": [
+        {
+          "person_id": "person-zhaoliu",
+          "role": "host",
+          "status": "confirmed",
+          "evidence": "show_notes_host_line+self_intro"
+        },
+        {
+          "person_id": "person-zhangsan-media",
+          "role": "guest",
+          "status": "confirmed",
+          "evidence": "show_notes_identity_disambiguation+self_intro"
+        }
+      ],
+      "mentioned_only": []
+    },
+    {
+      "id": "ep-product-host",
+      "podcast_id": "pod-product",
+      "title": "产品夜话：需求冻结",
+      "published_date": "2025-02-01",
+      "show_notes": "主播王芳（星河科技产品负责人，听众也叫她芳芳）讲解需求冻结。",
+      "transcript_segments": [
+        {
+          "id": "ep-product-host:seg-1",
+          "order": 1,
+          "speaker_label": "王芳",
+          "start_ms": 4000,
+          "text": "我是王芳。需求冻结之后不要再塞进范围外功能。",
+          "attribution_person_id": "person-wangfang",
+          "attribution_status": "confirmed",
+          "attribution_basis": "self_intro"
+        }
+      ],
+      "appearances": [
+        {
+          "person_id": "person-wangfang",
+          "role": "host",
+          "status": "confirmed",
+          "evidence": "show_notes_host_line"
+        }
+      ],
+      "mentioned_only": []
+    },
+    {
+      "id": "ep-startup-guest",
+      "podcast_id": "pod-startup",
+      "title": "创业圆桌：从产品经理到嘉宾",
+      "published_date": "2025-06-20",
+      "show_notes": "嘉宾王芳（星河科技产品负责人，听众也叫她芳芳）分享跨团队协作，本期她不是主播。",
+      "transcript_segments": [
+        {
+          "id": "ep-startup-guest:seg-1",
+          "order": 1,
+          "speaker_label": "王芳",
+          "start_ms": 15000,
+          "text": "我是王芳，今天以嘉宾身份来。跨团队协作要先写清接口，而不是靠加班救场。",
+          "attribution_person_id": "person-wangfang",
+          "attribution_status": "confirmed",
+          "attribution_basis": "self_intro"
+        }
+      ],
+      "appearances": [
+        {
+          "person_id": "person-wangfang",
+          "role": "guest",
+          "status": "confirmed",
+          "evidence": "show_notes_guest_line+self_intro"
+        }
+      ],
+      "mentioned_only": []
+    },
+    {
+      "id": "ep-anonymous",
+      "podcast_id": "pod-tech",
+      "title": "不愿具名的降本实践",
+      "published_date": "2025-07-03",
+      "show_notes": "本期嘉宾是一位匿名工程师，未公布真名。",
+      "transcript_segments": [
+        {
+          "id": "ep-anonymous:seg-1",
+          "order": 1,
+          "speaker_label": "Speaker 1",
+          "start_ms": 9000,
+          "text": "我们内部其实用了三套降本方案，具体公司我不能说。",
+          "attribution_person_id": "person-anonymous-engineer",
+          "attribution_status": "pending",
+          "attribution_basis": "anonymous_speaker_label"
+        },
+        {
+          "id": "ep-anonymous:seg-2",
+          "order": 2,
+          "speaker_label": "张三",
+          "start_ms": 28000,
+          "text": "我是张三。嘉宾选择匿名，所以我不会把他的方案算成我的观点。",
+          "attribution_person_id": "person-zhangsan-tech",
+          "attribution_status": "confirmed",
+          "attribution_basis": "self_intro"
+        }
+      ],
+      "appearances": [
+        {
+          "person_id": "person-zhangsan-tech",
+          "role": "host",
+          "status": "confirmed",
+          "evidence": "self_intro"
+        },
+        {
+          "person_id": "person-anonymous-engineer",
+          "role": "guest",
+          "status": "pending",
+          "evidence": "show_notes_anonymous_guest_only"
+        }
+      ],
+      "mentioned_only": []
+    },
+    {
+      "id": "ep-mixed-label",
+      "podcast_id": "pod-tech",
+      "title": "混标签访谈",
+      "published_date": "2025-08-11",
+      "show_notes": "主播张三，嘉宾李明。转写把两人混进同一说话人标签“嘉宾”。",
+      "transcript_segments": [
+        {
+          "id": "ep-mixed-label:seg-1",
+          "order": 1,
+          "speaker_label": "嘉宾",
+          "start_ms": 11000,
+          "text": "我不赞成无限制加班。",
+          "attribution_person_id": "",
+          "attribution_status": "pending",
+          "attribution_basis": "mixed_speaker_label",
+          "true_speaker_if_corrected": "person-zhangsan-tech"
+        },
+        {
+          "id": "ep-mixed-label:seg-2",
+          "order": 2,
+          "speaker_label": "嘉宾",
+          "start_ms": 24000,
+          "text": "阶段性冲刺可以接受。",
+          "attribution_person_id": "",
+          "attribution_status": "pending",
+          "attribution_basis": "mixed_speaker_label",
+          "true_speaker_if_corrected": "person-liming"
+        }
+      ],
+      "appearances": [
+        {
+          "person_id": "person-zhangsan-tech",
+          "role": "host",
+          "status": "confirmed",
+          "evidence": "show_notes"
+        },
+        {
+          "person_id": "person-liming",
+          "role": "guest",
+          "status": "confirmed",
+          "evidence": "show_notes"
+        }
+      ],
+      "mentioned_only": []
+    },
+    {
+      "id": "ep-no-topic",
+      "podcast_id": "pod-media",
+      "title": "媒体观察：只谈报道伦理",
+      "published_date": "2025-09-01",
+      "show_notes": "主播赵六只谈报道伦理，不涉及量子计算。",
+      "transcript_segments": [
+        {
+          "id": "ep-no-topic:seg-1",
+          "order": 1,
+          "speaker_label": "赵六",
+          "start_ms": 6000,
+          "text": "我是赵六。报道伦理的底线是核对原话，而不是用摘要代替原文。",
+          "attribution_person_id": "person-zhaoliu",
+          "attribution_status": "confirmed",
+          "attribution_basis": "self_intro"
+        }
+      ],
+      "appearances": [
+        {
+          "person_id": "person-zhaoliu",
+          "role": "host",
+          "status": "confirmed",
+          "evidence": "self_intro"
+        }
+      ],
+      "mentioned_only": []
+    }
+  ]
+}

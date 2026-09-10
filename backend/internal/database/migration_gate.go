@@ -562,7 +562,7 @@ var (
 	ddlRenameTable   = regexp.MustCompile(`(?i)^ALTER\s+TABLE\s+[^A-Za-z0-9_]*([A-Za-z0-9_]+)[^A-Za-z0-9_]+RENAME\s+TO\s+[^A-Za-z0-9_]*([A-Za-z0-9_]+)`)
 	ddlCreateIndex   = regexp.MustCompile(`(?i)^CREATE\s+(?:UNIQUE\s+)?INDEX(?:\s+IF\s+NOT\s+EXISTS)?\s+[^A-Za-z0-9_]*([A-Za-z0-9_]+)[^A-Za-z0-9_]+ON\s+[^A-Za-z0-9_]*([A-Za-z0-9_]+)`)
 	ddlDropIndex     = regexp.MustCompile(`(?i)^DROP\s+INDEX(?:\s+IF\s+EXISTS)?\s+[^A-Za-z0-9_]*([A-Za-z0-9_]+)`)
-	ddlCreateTrigger = regexp.MustCompile(`(?i)^CREATE\s+TRIGGER(?:\s+IF\s+NOT\s+EXISTS)?\s+[^A-Za-z0-9_]*([A-Za-z0-9_]+)`)
+	ddlCreateTrigger = regexp.MustCompile(`(?is)^CREATE\s+TRIGGER(?:\s+IF\s+NOT\s+EXISTS)?\s+[^A-Za-z0-9_]*([A-Za-z0-9_]+).*?\bON\s+[^A-Za-z0-9_]*([A-Za-z0-9_]+)`)
 	ddlDropTrigger   = regexp.MustCompile(`(?i)^DROP\s+TRIGGER(?:\s+IF\s+EXISTS)?\s+[^A-Za-z0-9_]*([A-Za-z0-9_]+)`)
 	ddlUnknownSchema = regexp.MustCompile(`(?i)^(?:CREATE|ALTER|DROP|REINDEX|VACUUM|PRAGMA|ANALYZE|ATTACH|DETACH)\b`)
 )
@@ -595,8 +595,8 @@ func classifyMigrationDDL(sqlText string) (DDLChange, bool) {
 	if matches := ddlDropIndex.FindStringSubmatch(normalized); len(matches) == 2 {
 		return DDLChange{Operation: SchemaChangeDropIndex, Object: matches[1]}, true
 	}
-	if matches := ddlCreateTrigger.FindStringSubmatch(normalized); len(matches) == 2 {
-		return DDLChange{Operation: SchemaChangeCreateTrigger, Object: matches[1]}, true
+	if matches := ddlCreateTrigger.FindStringSubmatch(normalized); len(matches) == 3 {
+		return DDLChange{Operation: SchemaChangeCreateTrigger, Table: matches[2], Object: matches[1]}, true
 	}
 	if matches := ddlDropTrigger.FindStringSubmatch(normalized); len(matches) == 2 {
 		return DDLChange{Operation: SchemaChangeDropTrigger, Object: matches[1]}, true

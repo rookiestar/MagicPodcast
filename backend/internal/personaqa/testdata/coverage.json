@@ -1,0 +1,130 @@
+{
+  "required_cases": [
+    {
+      "key": "same-name",
+      "status": "present",
+      "sample_ids": ["ep-tech-overtime", "ep-media-zhangsan"],
+      "person_ids": ["person-zhangsan-tech", "person-zhangsan-media"],
+      "question_ids": ["q-same-name-not-merged", "q-same-name-tech-not-media"]
+    },
+    {
+      "key": "nickname",
+      "status": "present",
+      "sample_ids": ["ep-tech-overtime"],
+      "person_ids": ["person-liming"],
+      "question_ids": ["q-nickname-liming"]
+    },
+    {
+      "key": "cross-episode-role-change",
+      "status": "present",
+      "sample_ids": ["ep-product-host", "ep-startup-guest"],
+      "person_ids": ["person-wangfang"],
+      "question_ids": ["q-role-host", "q-role-guest"]
+    },
+    {
+      "key": "anonymous-speaker",
+      "status": "present",
+      "sample_ids": ["ep-anonymous"],
+      "person_ids": ["person-anonymous-engineer"],
+      "question_ids": ["q-pending-anonymous-not-views"]
+    },
+    {
+      "key": "mixed-labels",
+      "status": "present",
+      "sample_ids": ["ep-mixed-label"],
+      "person_ids": ["person-zhangsan-tech", "person-liming"],
+      "question_ids": ["q-mixed-label-not-forced"]
+    },
+    {
+      "key": "host-paraphrase",
+      "status": "present",
+      "sample_ids": ["ep-tech-overtime"],
+      "person_ids": ["person-liming", "person-zhangsan-tech"],
+      "question_ids": ["q-host-paraphrase-not-guest"]
+    },
+    {
+      "key": "negation-rhetorical",
+      "status": "present",
+      "sample_ids": ["ep-tech-overtime"],
+      "person_ids": ["person-zhangsan-tech"],
+      "question_ids": ["q-negation-rhetorical"]
+    },
+    {
+      "key": "chinese-paraphrase",
+      "status": "present",
+      "sample_ids": ["ep-tech-overtime"],
+      "person_ids": ["person-zhangsan-tech"],
+      "question_ids": ["q-direct-overtime-paraphrase", "q-direct-overtime-output"]
+    },
+    {
+      "key": "no-answer",
+      "status": "present",
+      "sample_ids": ["ep-no-topic"],
+      "person_ids": ["person-zhaoliu"],
+      "question_ids": ["q-no-answer-quantum"]
+    },
+    {
+      "key": "view-change-conflict",
+      "status": "present",
+      "sample_ids": ["ep-tech-overtime", "ep-tech-overtime-2024"],
+      "person_ids": ["person-zhangsan-tech"],
+      "question_ids": ["q-conflict-overtime-history"]
+    },
+    {
+      "key": "mentioned-only-not-participant",
+      "status": "present",
+      "sample_ids": ["ep-tech-overtime"],
+      "person_ids": [],
+      "question_ids": ["q-mentioned-only-wang"]
+    },
+    {
+      "key": "unfiltered-unattributed-search",
+      "status": "present",
+      "sample_ids": ["ep-tech-overtime"],
+      "person_ids": [],
+      "question_ids": ["q-unfiltered-pending-searchable"]
+    },
+    {
+      "key": "marked-inference",
+      "status": "present",
+      "sample_ids": ["ep-tech-overtime"],
+      "person_ids": ["person-zhangsan-tech"],
+      "question_ids": ["q-inference-only-if-marked"]
+    },
+    {
+      "key": "real-transcribed-episodes-10-20",
+      "status": "missing",
+      "sample_ids": [],
+      "person_ids": [],
+      "question_ids": [],
+      "reason": "No authorized readable real transcripts available in this worktree. Synthetic samples exist for contract tests; they do not substitute a production quality score."
+    }
+  ],
+  "question_categories": {
+    "direct_evidence": [
+      "q-direct-overtime-paraphrase",
+      "q-direct-overtime-output",
+      "q-nickname-liming",
+      "q-host-paraphrase-not-guest",
+      "q-negation-rhetorical",
+      "q-same-name-not-merged",
+      "q-same-name-tech-not-media",
+      "q-role-host",
+      "q-role-guest",
+      "q-inference-only-if-marked",
+      "q-unfiltered-pending-searchable"
+    ],
+    "conflict": ["q-conflict-overtime-history"],
+    "no_answer": [
+      "q-pending-anonymous-not-views",
+      "q-mixed-label-not-forced",
+      "q-no-answer-quantum",
+      "q-mentioned-only-wang"
+    ]
+  },
+  "fixed_eval_gates": [
+    "must_not_merge_distinct_people",
+    "must_not_cite_pending_or_stale_fragments_as_person_views",
+    "must_not_emit_unmarked_inference"
+  ]
+}

@@ -13,6 +13,7 @@ import (
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/notifier"
+	"magicpodcast/internal/personidentity"
 	"magicpodcast/internal/processing"
 	"magicpodcast/internal/repository"
 	"magicpodcast/internal/scheduler"
@@ -35,6 +36,7 @@ type routerDependencies struct {
 	processingCanceler  processing.RunCanceler
 	processingScheduler processing.ScheduleStatusProvider
 	episodeCopilot      episodecopilot.Module
+	personIdentity      personidentity.Module
 }
 
 type Option func(*routerDependencies)
@@ -56,6 +58,12 @@ func WithProcessingModule(
 func WithEpisodeCopilotModule(module episodecopilot.Module) Option {
 	return func(dependencies *routerDependencies) {
 		dependencies.episodeCopilot = module
+	}
+}
+
+func WithPersonIdentityModule(module personidentity.Module) Option {
+	return func(dependencies *routerDependencies) {
+		dependencies.personIdentity = module
 	}
 }
 
@@ -216,6 +224,12 @@ func SetupRouter(options ...Option) *gin.Engine {
 			copilotOperation,
 			episodeCopilotHandler.Ask,
 		)
+
+		personHandler := handlers.NewPersonHandler(dependencies.personIdentity)
+		v1.GET("/episodes/:id/people", personHandler.List)
+		v1.POST("/episodes/:id/people/prepare", personHandler.Prepare)
+		v1.POST("/episodes/:id/people/:personId/corrections", personHandler.CorrectName)
+		v1.POST("/episodes/:id/attributions/corrections", personHandler.CorrectAttribution)
 
 		// Podcast 路由
 		podcastHandler := handlers.NewPodcastHandler()

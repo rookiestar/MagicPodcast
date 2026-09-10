@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"magicpodcast/internal/logger"
 	"magicpodcast/internal/models"
 	"magicpodcast/internal/utils"
 
@@ -24,6 +25,7 @@ type Engine struct {
 	runtime       RuntimeAdapter
 	artifactStore ArtifactStore
 	bridges       []BridgeBinding
+	indexer       TranscriptLibraryIndexer
 
 	activeMu sync.Mutex
 	active   map[uint]context.CancelFunc
@@ -41,6 +43,7 @@ func NewEngine(
 	runtime RuntimeAdapter,
 	artifactStore ArtifactStore,
 	bridges []BridgeBinding,
+	indexers ...TranscriptLibraryIndexer,
 ) (*Engine, error) {
 	if service == nil || service.db == nil {
 		return nil, fmt.Errorf("processing service is required")
@@ -73,14 +76,18 @@ func NewEngine(
 		}
 		seenBridges[identity] = struct{}{}
 	}
-	return &Engine{
+	engine := &Engine{
 		service:       service,
 		transcriber:   transcriber,
 		runtime:       runtime,
 		artifactStore: artifactStore,
 		bridges:       append([]BridgeBinding(nil), bridges...),
 		active:        make(map[uint]context.CancelFunc),
-	}, nil
+	}
+	if len(indexers) > 0 {
+		engine.indexer = indexers[0]
+	}
+	return engine, nil
 }
 
 func validAdapterIdentityPart(value string) bool {
@@ -518,6 +525,12 @@ func (e *Engine) Advance(
 			return run, err
 		}
 	}
+	e.syncLibraryIndex(
+		context.WithoutCancel(runCtx),
+		run.EpisodeID,
+		artifact,
+		progress.Segments,
+	)
 	if len(e.bridges) == 0 {
 		return run, nil
 	}
@@ -538,6 +551,36 @@ func (e *Engine) Advance(
 		}
 	}
 	return run, nil
+}
+
+func (e *Engine) syncLibraryIndex(
+	ctx context.Context,
+	episodeID uint,
+	artifact models.EpisodeArtifactSet,
+	segments []TranscriptSegment,
+) {
+	if e.indexer == nil {
+		return
+	}
+	if len(segments) == 0 {
+		if err := e.indexer.RemoveIndexedEpisode(ctx, episodeID); err != nil {
+			logger.Warnf("Remove persona index for episode %d failed: %v", episodeID, err)
+		}
+		return
+	}
+	showNotes := ""
+	if episode, err := e.loadKnowledgePackageEpisode(ctx, episodeID); err == nil {
+		showNotes = episode.ShowNotes
+	}
+	if err := e.indexer.IndexPublishedTranscript(
+		ctx,
+		episodeID,
+		fmt.Sprintf("artifact-%d", artifact.ID),
+		showNotes,
+		segments,
+	); err != nil {
+		logger.Warnf("Prepare persona index for episode %d failed: %v", episodeID, err)
+	}
 }
 
 func (e *Engine) loadKnowledgePackageEpisode(

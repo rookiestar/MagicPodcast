@@ -13,12 +13,12 @@ import (
 	"strings"
 )
 
-const SanitizerVersion = "v9"
+const SanitizerVersion = "v10"
 
-// episodes.video_availability is a reviewed public tri-state. Snapshot export
-// preserves it; no HLS URL, credential, or private note is stored in the field.
-const sanitizerSchemaFingerprint = "ab0316ab2ac4c6d4f3ec31ce9a7c5fa27c3f2fe0603c7050ae5428fdb41f084e"
-const sanitizerSchemaObjectsFingerprint = "403203ff8bd57de8270f23d428fdc03e7c73f56112722822b333c3335caf7923"
+// Persona tables contain manual identity corrections and copies of transcripts.
+// Database-only snapshots remove them together with the processing artifact graph.
+const sanitizerSchemaFingerprint = "94739cd5dbcd1602efb6c9ad820b6467016294e3ee5d1272273dc6cb9dc25b38"
+const sanitizerSchemaObjectsFingerprint = "59bbeb786682e45835afc6da674e40613db5d0d7b3cbd65b4a063ed51a393669"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 
@@ -88,6 +88,13 @@ func SanitizeSnapshot(db *sql.DB) error {
 		// are not part of a database-only snapshot. Removing the whole graph is
 		// safer and more truthful than retaining broken artifact, scheduling, or
 		// external-delivery state.
+		"DELETE FROM content_search_fragments",
+		"DELETE FROM content_search_coverage",
+		"DELETE FROM person_user_confirmations",
+		"DELETE FROM speech_attributions",
+		"DELETE FROM episode_appearances",
+		"DELETE FROM person_aliases",
+		"DELETE FROM people",
 		"DELETE FROM episode_audio_assets",
 		"DELETE FROM knowledge_deliveries",
 		"DELETE FROM processing_checkpoints",
@@ -174,6 +181,13 @@ func VerifySanitizedSnapshot(db *sql.DB) error {
 		{"SELECT COUNT(*) FROM processing_checkpoints", "processing provider checkpoints"},
 		{"SELECT COUNT(*) FROM processing_schedule_items", "processing schedule candidate history"},
 		{"SELECT COUNT(*) FROM episode_artifact_audio_recoveries", "audio recovery state"},
+		{"SELECT COUNT(*) FROM content_search_fragments", "persona content_search_fragments"},
+		{"SELECT COUNT(*) FROM content_search_coverage", "persona content_search_coverage"},
+		{"SELECT COUNT(*) FROM person_user_confirmations", "persona person_user_confirmations"},
+		{"SELECT COUNT(*) FROM speech_attributions", "persona speech_attributions"},
+		{"SELECT COUNT(*) FROM episode_appearances", "persona episode_appearances"},
+		{"SELECT COUNT(*) FROM person_aliases", "persona person_aliases"},
+		{"SELECT COUNT(*) FROM people", "persona people"},
 		{"SELECT COUNT(*) FROM episode_artifact_sets", "local processing artifact paths"},
 		{"SELECT COUNT(*) FROM episode_processing_runs", "processing run metadata"},
 		{"SELECT COUNT(*) FROM processing_schedule_runs", "processing schedule trigger history"},

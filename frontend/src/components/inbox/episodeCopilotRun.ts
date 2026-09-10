@@ -16,6 +16,7 @@ export const stageOrder: ReadonlyArray<{
   label: string;
 }> = [
   { id: "read_context", label: "读取单集上下文" },
+  { id: "library_search", label: "检索库内发言" },
   { id: "research_runtime", label: "检索 Runtime" },
   { id: "public_research", label: "核对公开资料" },
   { id: "source_validation", label: "校验公开来源" },
@@ -29,7 +30,8 @@ export type StageStatus =
   | "running"
   | "done"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "skipped";
 
 export interface StageProgress {
   id: EpisodeCopilotStage;
@@ -84,10 +86,10 @@ export interface CopilotRunState {
 // never grow the list without bound.
 const maxActivities = 120;
 
-export function createRunState(startedAt: number): CopilotRunState {
+export function createRunState(startedAt: number, persona = false): CopilotRunState {
   return {
     startedAt,
-    stages: stageOrder.map((stage) => ({
+    stages: stageOrder.filter((stage) => persona || stage.id !== "library_search").map((stage) => ({
       id: stage.id,
       label: stage.label,
       status: "pending",
@@ -204,7 +206,12 @@ function withFinish(
     if (finish.outcome !== "completed" || stage.status !== "pending") {
       return stage;
     }
-    // A completed question implies every stage finished its work.
+    // Persona questions may finish without invoking public research.
+    if (state.stages.some((entry) => entry.id === "library_search") &&
+        (stage.id === "research_runtime" || stage.id === "public_research")) {
+      return { ...stage, status: "skipped" as const };
+    }
+    // Preserve the existing ordinary-question stage contract.
     return { ...stage, status: "done" as const, endedAt: stage.endedAt ?? now };
   });
   return { ...state, stages, finish };

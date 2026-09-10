@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 26
+const CurrentSchemaVersion = 28
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -218,6 +218,45 @@ func migrationRegistry() []Migration {
 				},
 			},
 		},
+		{
+			Version:     27,
+			Name:        "person-identity-and-speech-attribution",
+			Description: "Persist people, aliases, per-episode appearances, correctable speech attribution, and user confirmations without rewriting original transcripts (#326).",
+			Apply:       applyPersonIdentityMigration,
+			Contract: MigrationContract{
+				SchemaChanges: []SchemaChangeRule{
+					{Operation: SchemaChangeCreateTable, Table: models.Person{}.TableName()},
+					{Operation: SchemaChangeCreateIndex, Table: models.Person{}.TableName(), Object: "idx_people_stable_key"},
+					{Operation: SchemaChangeCreateTable, Table: models.PersonAlias{}.TableName()},
+					{Operation: SchemaChangeCreateIndex, Table: models.PersonAlias{}.TableName(), Object: "idx_person_aliases_person_alias"},
+					{Operation: SchemaChangeCreateIndex, Table: models.PersonAlias{}.TableName(), Object: "idx_person_aliases_alias"},
+					{Operation: SchemaChangeCreateTable, Table: models.EpisodeAppearance{}.TableName()},
+					{Operation: SchemaChangeCreateIndex, Table: models.EpisodeAppearance{}.TableName(), Object: "idx_episode_appearances_episode_person"},
+					{Operation: SchemaChangeCreateIndex, Table: models.EpisodeAppearance{}.TableName(), Object: "idx_episode_appearances_episode"},
+					{Operation: SchemaChangeCreateTable, Table: models.SpeechAttribution{}.TableName()},
+					{Operation: SchemaChangeCreateIndex, Table: models.SpeechAttribution{}.TableName(), Object: "idx_speech_attributions_source_fragment"},
+					{Operation: SchemaChangeCreateIndex, Table: models.SpeechAttribution{}.TableName(), Object: "idx_speech_attributions_person_status"},
+					{Operation: SchemaChangeCreateTable, Table: models.PersonUserConfirmation{}.TableName()},
+					{Operation: SchemaChangeCreateIndex, Table: models.PersonUserConfirmation{}.TableName(), Object: "idx_person_user_confirmations_subject"},
+				},
+			},
+		},
+		{
+			Version:     28,
+			Name:        "content-search-fragments",
+			Description: "Persist a Copilot-independent in-library fragment index over transcripts and Show Notes, with current-version coverage (#327).",
+			Apply:       applyContentSearchMigration,
+			Contract: MigrationContract{
+				SchemaChanges: []SchemaChangeRule{
+					{Operation: SchemaChangeCreateTable, Table: models.ContentSearchFragment{}.TableName()},
+					{Operation: SchemaChangeCreateIndex, Table: models.ContentSearchFragment{}.TableName(), Object: "idx_content_search_fragments_identity"},
+					{Operation: SchemaChangeCreateIndex, Table: models.ContentSearchFragment{}.TableName(), Object: "idx_content_search_fragments_query"},
+					{Operation: SchemaChangeCreateTable, Table: models.ContentSearchCoverage{}.TableName()},
+					{Operation: SchemaChangeCreateIndex, Table: models.ContentSearchCoverage{}.TableName(), Object: "idx_content_search_coverage_source"},
+					{Operation: SchemaChangeCreateTrigger, Table: "episodes", Object: "invalidate_persona_on_show_notes"},
+				},
+			},
+		},
 	}
 }
 
@@ -234,7 +273,7 @@ var baselineRequiredTables = []string{
 	"episodes_tags",
 }
 
-var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions", "episode_processing_runs", "processing_checkpoints", "episode_artifact_sets", "knowledge_deliveries", "episode_audio_assets", "processing_schedule_runs", "processing_schedule_items", models.EpisodeArtifactAudioRecovery{}.TableName())
+var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions", "episode_processing_runs", "processing_checkpoints", "episode_artifact_sets", "knowledge_deliveries", "episode_audio_assets", "processing_schedule_runs", "processing_schedule_items", models.EpisodeArtifactAudioRecovery{}.TableName(), models.Person{}.TableName(), models.PersonAlias{}.TableName(), models.EpisodeAppearance{}.TableName(), models.SpeechAttribution{}.TableName(), models.PersonUserConfirmation{}.TableName(), models.ContentSearchFragment{}.TableName(), models.ContentSearchCoverage{}.TableName())
 
 func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
 	if db == nil {
@@ -919,6 +958,47 @@ func applyEpisodeArtifactAudioRecoveryMigration(db *gorm.DB) error {
 	} {
 		if err := db.Exec(statement).Error; err != nil {
 			return fmt.Errorf("apply episode artifact audio recovery invariant: %w", err)
+		}
+	}
+	return nil
+}
+
+func applyPersonIdentityMigration(db *gorm.DB) error {
+	statements := []string{
+		models.PeopleCreateTableSQL,
+		models.PeopleStableKeyIndexSQL,
+		models.PersonAliasesCreateTableSQL,
+		models.PersonAliasesUniqueIndexSQL,
+		models.PersonAliasesLookupIndexSQL,
+		models.EpisodeAppearancesCreateTableSQL,
+		models.EpisodeAppearancesUniqueIndexSQL,
+		models.EpisodeAppearancesEpisodeIndexSQL,
+		models.SpeechAttributionsCreateTableSQL,
+		models.SpeechAttributionsUniqueIndexSQL,
+		models.SpeechAttributionsPersonIndexSQL,
+		models.PersonUserConfirmationsCreateTableSQL,
+		models.PersonUserConfirmationsUniqueIndexSQL,
+	}
+	for _, statement := range statements {
+		if err := db.Exec(statement).Error; err != nil {
+			return fmt.Errorf("apply person identity schema: %w", err)
+		}
+	}
+	return nil
+}
+
+func applyContentSearchMigration(db *gorm.DB) error {
+	statements := []string{
+		models.ContentSearchFragmentsCreateTableSQL,
+		models.ContentSearchFragmentsUniqueIndexSQL,
+		models.ContentSearchFragmentsQueryIndexSQL,
+		models.ContentSearchCoverageCreateTableSQL,
+		models.ContentSearchCoverageUniqueIndexSQL,
+		models.ContentSearchShowNotesInvalidationSQL,
+	}
+	for _, statement := range statements {
+		if err := db.Exec(statement).Error; err != nil {
+			return fmt.Errorf("apply content search schema: %w", err)
 		}
 	}
 	return nil

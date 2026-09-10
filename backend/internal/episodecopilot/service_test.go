@@ -572,16 +572,17 @@ type fakeExecution struct {
 }
 
 type fakeRuntime struct {
-	mu           sync.Mutex
-	queue        []fakeExecution
-	requests     []codexruntime.ExecutionRequest
-	snapshots    map[codexruntime.ExecutionID]codexruntime.ExecutionSnapshot
-	events       map[codexruntime.ExecutionID]chan codexruntime.Event
-	cancelled    []codexruntime.ExecutionID
-	nextID       int
-	createErr    error
-	getErr       error
-	subscribeErr error
+	coverageAnswer *bool
+	mu             sync.Mutex
+	queue          []fakeExecution
+	requests       []codexruntime.ExecutionRequest
+	snapshots      map[codexruntime.ExecutionID]codexruntime.ExecutionSnapshot
+	events         map[codexruntime.ExecutionID]chan codexruntime.Event
+	cancelled      []codexruntime.ExecutionID
+	nextID         int
+	createErr      error
+	getErr         error
+	subscribeErr   error
 }
 
 func newFakeRuntime(queue ...fakeExecution) *fakeRuntime {
@@ -600,6 +601,14 @@ func (f *fakeRuntime) CreateExecution(
 	defer f.mu.Unlock()
 	if f.createErr != nil {
 		return codexruntime.ExecutionSnapshot{}, f.createErr
+	}
+	if strings.Contains(string(request.OutputSchema), `"sufficient"`) {
+		answer := true
+		if f.coverageAnswer != nil {
+			answer = *f.coverageAnswer
+		}
+		raw, _ := json.Marshal(map[string]any{"sufficient": answer, "gaps": []string{}})
+		f.queue = append([]fakeExecution{{result: raw}}, f.queue...)
 	}
 	if len(f.queue) == 0 {
 		return codexruntime.ExecutionSnapshot{}, errors.New("unexpected execution")

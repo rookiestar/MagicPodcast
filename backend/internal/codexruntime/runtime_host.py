@@ -744,11 +744,14 @@ def codex_config_overrides(request: Request) -> tuple[str, ...]:
         if "web_search" in request.allowed_tools
         else "disabled"
     )
+    # The pinned SDK routes web tools through the code-mode host. Enable that
+    # bridge only for a web-enabled request; shell, files, apps, MCP and plugins
+    # remain disabled by the execution policy and feature overrides below.
     return (
         'cli_auth_credentials_store="file"',
         f'web_search="{web_search}"',
         *(
-            f"features.{feature}=false"
+            f"features.{feature}={'true' if feature == 'code_mode_host' and web_search == 'live' else 'false'}"
             for feature in DISABLED_RUNTIME_FEATURES
         ),
     )

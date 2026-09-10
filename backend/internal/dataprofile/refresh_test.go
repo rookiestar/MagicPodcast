@@ -1564,3 +1564,30 @@ func TestCommandTransferDoesNotExposeAdapterOutputAndCleansFailedStaging(t *test
 	_, statErr := os.Stat(strings.TrimSpace(string(recorded)))
 	require.ErrorIs(t, statErr, os.ErrNotExist)
 }
+
+func TestSnapshotRemovesPersonaPrivateFactsAndDerivedText(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "persona.db")
+	require.NoError(t, buildFixtureDatabase(path))
+	db, err := openSQLDatabase(path, false)
+	require.NoError(t, err)
+	defer db.Close()
+	statements := []string{
+		`INSERT INTO people(id,stable_key,display_name,identity_note,created_at,updated_at) VALUES(9001,'private-person','Private name','private identity',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
+		`INSERT INTO person_aliases(person_id,alias,created_at) VALUES(9001,'private alias',CURRENT_TIMESTAMP)`,
+		`INSERT INTO episode_appearances(person_id,episode_id,role,status,created_at,updated_at) SELECT 9001,id,'guest','confirmed',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP FROM episodes LIMIT 1`,
+		`INSERT INTO speech_attributions(episode_id,person_id,source_kind,source_version,fragment_order,text,status,created_at,updated_at) SELECT id,9001,'transcript','private-v1',1,'private transcript','confirmed',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP FROM episodes LIMIT 1`,
+		`INSERT INTO person_user_confirmations(episode_id,kind,person_id,source_text,created_at,updated_at) SELECT id,'person_name',9001,'private correction',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP FROM episodes LIMIT 1`,
+		`INSERT INTO content_search_fragments(episode_id,source_kind,source_version,fragment_order,text,published_at,created_at,updated_at) SELECT id,'transcript','private-v1',1,'private transcript',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP FROM episodes LIMIT 1`,
+		`INSERT INTO content_search_coverage(episode_id,source_kind,source_version,updated_at) SELECT id,'transcript','private-v1',CURRENT_TIMESTAMP FROM episodes LIMIT 1`,
+	}
+	for _, statement := range statements {
+		_, err := db.Exec(statement)
+		require.NoError(t, err)
+	}
+	require.NoError(t, SanitizeSnapshot(db))
+	for _, table := range []string{"people", "person_aliases", "episode_appearances", "speech_attributions", "person_user_confirmations", "content_search_fragments", "content_search_coverage"} {
+		var count int
+		require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM "+table).Scan(&count))
+		require.Zero(t, count, table)
+	}
+}
