@@ -754,6 +754,12 @@ describe("InboxPageClient", () => {
     ).toHaveAttribute("href", "/inbox/history");
   });
 
+  it("opens detail directly when requested by a queue link", async () => {
+    window.history.replaceState({}, "", "/inbox?queue=inbox&episode=101&detail=1");
+    render(<InboxPageClient />);
+    expect(await screen.findByRole("dialog")).toBeVisible();
+  });
+
   it("locates and focuses an action-queue item linked from history", async () => {
     window.history.replaceState({}, "", "/inbox?queue=inbox&episode=101");
     render(<InboxPageClient />);

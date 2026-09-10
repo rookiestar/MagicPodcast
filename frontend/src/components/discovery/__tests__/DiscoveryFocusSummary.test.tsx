@@ -52,7 +52,7 @@ describe("DiscoveryFocusSummary", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     apiMocks.getSummary.mockResolvedValue({
-      counts: { inbox: 1, focus: 1, someday: 0, done: 0 },
+      counts: { inbox: 1, focus: 7, someday: 0, done: 0 },
       focus_limit: 7,
       focus_over_limit: false,
     });
@@ -60,20 +60,24 @@ describe("DiscoveryFocusSummary", () => {
       queue_state: queue,
       items:
         queue === "focus"
-          ? [
-              {
+          ? Array.from({ length: 7 }, (_, index) => ({
                 ...inboxItem,
-                episode_id: 7,
-                episode_title: "当前 Focus",
+                episode_id: index + 7,
+                episode_title:
+                  index === 0 ? "当前 Focus" : `Focus 条目 ${index + 1}`,
                 queue_state: "focus",
-              },
-            ]
+              }))
           : [inboxItem],
     }));
     apiMocks.setQueue.mockResolvedValue({ ...inboxItem, queue_state: "focus" });
   });
 
   it("shows a Focus summary and only adds an existing Inbox item", async () => {
+    apiMocks.getSummary.mockResolvedValue({
+      counts: { inbox: 1, focus: 1, someday: 0, done: 0 },
+      focus_limit: 7,
+      focus_over_limit: false,
+    });
     const onQueueChange = vi.fn();
     renderSummary(onQueueChange);
 
@@ -98,6 +102,15 @@ describe("DiscoveryFocusSummary", () => {
     expect(onQueueChange).toHaveBeenCalledWith(
       expect.objectContaining({ episode_id: 11, queue_state: "focus" }),
     );
+  });
+
+  it("renders every Focus item as a detail link with a full-title tooltip", async () => {
+    renderSummary();
+
+    const links = await screen.findAllByRole("link");
+    expect(links).toHaveLength(7);
+    expect(links[6]).toHaveAttribute("href", "/inbox?queue=focus&episode=13&detail=1");
+    expect(links[6]).toHaveAttribute("title", "Focus 条目 7");
   });
 
   it("requires explicit confirmation before exceeding the Focus soft limit", async () => {
