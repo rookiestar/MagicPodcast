@@ -35,6 +35,7 @@ type episodeCopilotQuestionBody struct {
 	SelectionSource    episodecopilot.SelectionSource `json:"selection_source"`
 	IncludePrivateNote bool                           `json:"include_private_note"`
 	ProfileID          string                         `json:"profile_id"`
+	TargetPersonID     uint                           `json:"target_person_id"`
 }
 
 func (h *EpisodeCopilotHandler) Context(c *gin.Context) {
@@ -88,6 +89,7 @@ func (h *EpisodeCopilotHandler) Ask(c *gin.Context) {
 			SelectionSource:    body.SelectionSource,
 			IncludePrivateNote: body.IncludePrivateNote,
 			ProfileID:          body.ProfileID,
+			TargetPersonID:     body.TargetPersonID,
 		},
 	)
 	if err != nil {
@@ -174,6 +176,16 @@ func writeEpisodeCopilotError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, episodecopilot.ErrInvalidQuestion):
 		writeInvalidEpisodeCopilotRequest(c)
+	case errors.Is(err, episodecopilot.ErrTargetPersonInvalid),
+		errors.Is(err, episodecopilot.ErrPersonPending),
+		errors.Is(err, episodecopilot.ErrTranscriptRequired):
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INVALID_COPILOT_TARGET",
+				"message": err.Error(),
+			},
+		})
 	case errors.Is(err, episodecopilot.ErrUnsupportedProfile):
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,

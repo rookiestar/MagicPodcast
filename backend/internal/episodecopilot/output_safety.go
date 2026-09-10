@@ -48,6 +48,9 @@ var (
 	externalCitationPattern = regexp.MustCompile(
 		`\[E([1-9][0-9]*)\]`,
 	)
+	libraryCitationPattern = regexp.MustCompile(
+		`\[库内 S([1-9][0-9]*)\]`,
+	)
 	cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
 )
 
@@ -78,6 +81,8 @@ type answerCitationGate struct {
 	showNotesLines  int
 	transcriptLines int
 	externalSources int
+	librarySources  int
+	persona         bool
 	privateNote     bool
 }
 
@@ -139,6 +144,9 @@ func (g *answerCitationGate) Flush() (string, bool) {
 		return "", false
 	}
 	if !g.hasEvidence {
+		if g.persona {
+			return "无法判断：没有可核对的本人观点依据，不能模拟其立场。", true
+		}
 		return noEvidenceAnswerMessage, true
 	}
 	if !g.open {
@@ -173,6 +181,12 @@ func (g *answerCitationGate) hasValidCitation(value string) bool {
 	) {
 		index, err := strconv.Atoi(match[1])
 		if err == nil && index <= g.externalSources {
+			return true
+		}
+	}
+	for _, match := range libraryCitationPattern.FindAllStringSubmatch(value, -1) {
+		index, err := strconv.Atoi(match[1])
+		if err == nil && index <= g.librarySources {
 			return true
 		}
 	}

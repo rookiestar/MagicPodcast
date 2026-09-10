@@ -263,6 +263,74 @@ func TestEngineNativeMinutesPipelineSkipsRuntimeAndPublishesCompleteArtifacts(t 
 	require.Empty(t, delivered.EpisodeNotesSHA256)
 }
 
+func TestEngineInvokesLibraryIndexerOnNativePublish(t *testing.T) {
+	db := openProcessingTestDB(t)
+	now := time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC)
+	service, resolver := newProcessingServiceWithResolver(
+		db,
+		WithClock(func() time.Time { return now }),
+	)
+	resolver.Set(ProcessingInput{
+		AudioDigest:     strings.Repeat("a", 64),
+		PipelineVersion: NativeMinutesPipelineVersion,
+	})
+	episode := createProcessingEpisode(t, db, true, "library-indexer")
+	run := startProcessingRun(t, service, episode.ID)
+	store, err := NewDiskArtifactStore(t.TempDir())
+	require.NoError(t, err)
+	indexer := &recordingLibraryIndexer{}
+	transcriber := &fakeTranscriber{beginProgress: []TranscriptionProgress{{
+		Status:         ExternalProgressCompleted,
+		Checkpoint:     json.RawMessage(`{"minute_ref":"library-indexer"}`),
+		MinutesSummary: "# 纪要\n\n加班\n",
+		Transcript:     "# 逐字稿\n\n张三 00:00:00.100\n我不赞成无限制加班。\n",
+		Segments: []TranscriptSegment{{
+			Order: 1, Speaker: "张三", StartMS: 100, Text: "我不赞成无限制加班。",
+		}},
+		RawArtifacts:  map[string][]byte{"minutes-detail.json": []byte(`{"ok":true}`)},
+		SourceRefs:    map[string]string{"transcription": "feishu-minutes"},
+		SkillVersions: map[string]string{"lark-minutes": "1.0.0"},
+	}}}
+	engine, err := NewEngine(
+		service,
+		transcriber,
+		&fakeRuntime{err: errors.New("must not execute")},
+		store,
+		nil,
+		indexer,
+	)
+	require.NoError(t, err)
+	completed, err := engine.Advance(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ProcessingRunStatusCompleted, completed.Status)
+	require.Equal(t, episode.ID, indexer.episodeID)
+	require.Equal(t, "我不赞成无限制加班。", indexer.segments[0].Text)
+	require.True(t, strings.HasPrefix(indexer.version, "artifact-"))
+}
+
+type recordingLibraryIndexer struct {
+	episodeID uint
+	version   string
+	segments  []TranscriptSegment
+}
+
+func (r *recordingLibraryIndexer) IndexPublishedTranscript(
+	_ context.Context,
+	episodeID uint,
+	sourceVersion string,
+	_ string,
+	segments []TranscriptSegment,
+) error {
+	r.episodeID = episodeID
+	r.version = sourceVersion
+	r.segments = append([]TranscriptSegment(nil), segments...)
+	return nil
+}
+
+func (r *recordingLibraryIndexer) RemoveIndexedEpisode(context.Context, uint) error {
+	return nil
+}
+
 func TestEnginePreservesStoredMinutesCheckpointWhenTimelineValidationFails(t *testing.T) {
 	db := openProcessingTestDB(t)
 	now := time.Date(2026, 8, 29, 13, 30, 0, 0, time.UTC)

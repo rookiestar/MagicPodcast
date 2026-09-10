@@ -74,6 +74,7 @@ interface ConsumptionDetailPanelProps {
   ) => void;
   rejectedCopilotProfileIDs?: ReadonlySet<EpisodeCopilotProfileID>;
   onRejectedCopilotProfileID?: (profileID: EpisodeCopilotProfileID) => void;
+  onOpenSourceEpisode?: (episodeId: number) => void | Promise<void>;
 }
 
 const DETAIL_TABS = [
@@ -550,6 +551,7 @@ export default function ConsumptionDetailPanel({
   onSelectedCopilotProfileIDChange,
   rejectedCopilotProfileIDs,
   onRejectedCopilotProfileID,
+  onOpenSourceEpisode,
 }: ConsumptionDetailPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const detailScrollRef = useRef<HTMLDivElement>(null);
@@ -1193,6 +1195,7 @@ export default function ConsumptionDetailPanel({
                 onSelectedProfileIDChange={onSelectedCopilotProfileIDChange}
                 rejectedProfileIDs={rejectedCopilotProfileIDs}
                 onRejectedProfileID={onRejectedCopilotProfileID}
+                onOpenSourceEpisode={onOpenSourceEpisode}
               />
             </div>
           </aside>

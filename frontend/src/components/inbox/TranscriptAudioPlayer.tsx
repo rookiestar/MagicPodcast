@@ -919,6 +919,7 @@ export default function TranscriptAudioPlayer({
                     }}
                     type="button"
                     className={styles.transcriptSegment}
+                    data-fragment-order={segment.order}
                     data-speaker-tone={speakerTones.get(segment.speaker)}
                     aria-label={`${timestamp} ${segment.speaker}：${segment.text}`}
                     aria-current={isCurrent ? "true" : undefined}
@@ -936,6 +937,7 @@ export default function TranscriptAudioPlayer({
                       }
                     }}
                     className={styles.transcriptSegment}
+                    data-fragment-order={segment.order}
                     data-speaker-tone={speakerTones.get(segment.speaker)}
                     aria-current={isCurrent ? "true" : undefined}
                   >

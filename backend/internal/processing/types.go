@@ -286,3 +286,18 @@ type BridgeBinding struct {
 	Destination string
 	Adapter     KnowledgeBridge
 }
+
+// TranscriptLibraryIndexer updates person identity and in-library search when
+// a published transcript becomes current or is removed. Implementations must
+// not import processing internals; the engine only supplies episode identity
+// and the published timeline.
+type TranscriptLibraryIndexer interface {
+	IndexPublishedTranscript(
+		ctx context.Context,
+		episodeID uint,
+		sourceVersion string,
+		showNotes string,
+		segments []TranscriptSegment,
+	) error
+	RemoveIndexedEpisode(ctx context.Context, episodeID uint) error
+}

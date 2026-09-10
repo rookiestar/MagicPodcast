@@ -911,6 +911,22 @@ func TestApplyMigrationsCreatesAudioRecoverySchemaAndIndexes(t *testing.T) {
 	require.Equal(t, 1, unique)
 }
 
+func TestApplyMigrationsCreatesPersonIdentitySchemaAndIndexes(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:26]))
+	require.Equal(t, 26, mustSchemaStatus(t, db).CurrentVersion)
+	require.False(t, db.Migrator().HasTable(&models.Person{}))
+
+	require.NoError(t, ApplyMigrations(db))
+	require.Equal(t, CurrentSchemaVersion, mustSchemaStatus(t, db).CurrentVersion)
+	require.True(t, db.Migrator().HasTable(&models.Person{}))
+	require.True(t, db.Migrator().HasTable(&models.PersonAlias{}))
+	require.True(t, db.Migrator().HasTable(&models.EpisodeAppearance{}))
+	require.True(t, db.Migrator().HasTable(&models.SpeechAttribution{}))
+	require.True(t, db.Migrator().HasTable(&models.PersonUserConfirmation{}))
+	require.NoError(t, RequireSchemaReady(db))
+}
+
 func mustSchemaStatus(t *testing.T, db *gorm.DB) SchemaStatus {
 	t.Helper()
 	status, err := InspectSchema(db)

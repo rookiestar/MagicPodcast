@@ -144,6 +144,26 @@ func TestEpisodeCopilotHandlerPassesProfileIDThrough(t *testing.T) {
 	require.Empty(t, module.request.ProfileID)
 }
 
+func TestEpisodeCopilotHandlerPassesStructuredTargetPersonID(t *testing.T) {
+	module := &fakeEpisodeCopilotModule{
+		events: []episodecopilot.StreamEvent{
+			{Type: episodecopilot.EventTypeComplete, Message: "回答完成"},
+		},
+	}
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := handlers.NewEpisodeCopilotHandler(module)
+	router.POST("/api/v1/episodes/:id/copilot/questions", handler.Ask)
+	response := performEpisodeCopilotRequest(
+		router,
+		http.MethodPost,
+		"/api/v1/episodes/71/copilot/questions",
+		`{"question":"加班怎么看？","target_person_id":9}`,
+	)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Equal(t, uint(9), module.request.TargetPersonID)
+}
+
 func TestEpisodeCopilotHandlerRejectsUnsupportedProfileStably(t *testing.T) {
 	module := &fakeEpisodeCopilotModule{
 		err: episodecopilot.ErrUnsupportedProfile,

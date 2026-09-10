@@ -14,10 +14,12 @@ import (
 	"github.com/joho/godotenv"
 	"magicpodcast/internal/codexruntime"
 	"magicpodcast/internal/config"
+	"magicpodcast/internal/contentsearch"
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/episodecopilot"
 	"magicpodcast/internal/feed"
 	"magicpodcast/internal/logger"
+	"magicpodcast/internal/personidentity"
 	"magicpodcast/internal/processing"
 	"magicpodcast/internal/router"
 	"magicpodcast/internal/runtimeprofile"
@@ -196,12 +198,22 @@ func main() {
 		if err != nil {
 			logger.Fatalf("Failed to initialize processing knowledge bridges: %v", err)
 		}
+		librarySearch, err := contentsearch.NewService(db)
+		if err != nil {
+			logger.Fatalf("Failed to initialize content search: %v", err)
+		}
+		personIdentity, err := personidentity.NewService(db, personidentity.NewRuntimeSuggester(runtimeHost, cfg.Processing.Runtime.WorkRoot), librarySearch)
+		if err != nil {
+			logger.Fatalf("Failed to initialize person identity: %v", err)
+		}
+		personIdentity.WithArtifactReader(artifactStore)
 		engine, err := processing.NewEngine(
 			processingService,
 			minutesAdapter,
 			runtimeAdapter,
 			artifactStore,
 			bridges,
+			personIdentity,
 		)
 		if err != nil {
 			logger.Fatalf("Failed to initialize processing engine: %v", err)
@@ -246,6 +258,7 @@ func main() {
 			copilotContextLoader,
 			runtimeHost,
 			cfg.Processing.Runtime.WorkRoot,
+			episodecopilot.WithLibrary(personIdentity, librarySearch),
 		)
 		if err != nil {
 			logger.Fatalf("Failed to initialize episode Copilot: %v", err)
@@ -258,6 +271,7 @@ func main() {
 				processingScheduler,
 			),
 			router.WithEpisodeCopilotModule(episodeCopilot),
+			router.WithPersonIdentityModule(personIdentity),
 		)
 	}
 	r := router.SetupRouter(routerOptions...)

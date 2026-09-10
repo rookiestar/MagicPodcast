@@ -81,6 +81,30 @@ describe("episodeCopilotApi.ask", () => {
     expect(JSON.parse(String(request.body))).toEqual(question);
   });
 
+  it("sends a structured target person id instead of a parsed @ string", async () => {
+    const onEvent = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        streamFromChunks([
+          'data: {"type":"complete","message":"回答完成","transcript_used":false,"private_note_included":false}\n\n',
+        ]),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const withPerson = { ...question, target_person_id: 9 };
+    await episodeCopilotApi.ask(
+      201,
+      withPerson,
+      onEvent,
+      new AbortController().signal,
+    );
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(request.body))).toEqual(withPerson);
+    expect(JSON.parse(String(request.body)).target_person_id).toBe(9);
+    expect(String(request.body)).not.toContain("@张三");
+  });
+
   it("forwards structured activities and stage timings to the caller", async () => {
     const onEvent = vi.fn();
     const activity = {

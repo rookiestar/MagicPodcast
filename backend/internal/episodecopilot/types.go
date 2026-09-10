@@ -11,7 +11,10 @@ var (
 	ErrContextUnavailable = errors.New("episode copilot context is unavailable")
 	// ErrUnsupportedProfile is returned before any runtime execution when a
 	// question carries a profile ID the runtime catalog does not define.
-	ErrUnsupportedProfile = errors.New("unsupported episode copilot profile")
+	ErrUnsupportedProfile  = errors.New("unsupported episode copilot profile")
+	ErrTargetPersonInvalid = errors.New("target person is not a confirmed participant of this episode")
+	ErrPersonPending       = errors.New("target person identity is still pending confirmation")
+	ErrTranscriptRequired  = errors.New("persona questions require a current transcript")
 )
 
 type SelectionSource string
@@ -30,6 +33,9 @@ type QuestionRequest struct {
 	// ProfileID is the stable runtime profile ID for this question. Empty
 	// means the runtime default profile.
 	ProfileID string
+	// TargetPersonID is a structured episode participant id. Zero keeps the
+	// ordinary current-episode question path. A free-text @ name is ignored.
+	TargetPersonID uint
 }
 
 // ProfileDescriptor exposes the technical meaning of one runtime profile. The
@@ -43,6 +49,18 @@ type ProfileDescriptor struct {
 	Default         bool   `json:"is_default"`
 }
 
+type PersonCandidate struct {
+	ID              uint     `json:"id"`
+	DisplayName     string   `json:"display_name"`
+	Aliases         []string `json:"aliases"`
+	IdentityNote    string   `json:"identity_note"`
+	Role            string   `json:"role"`
+	Status          string   `json:"status"`
+	StatusReason    string   `json:"status_reason"`
+	EvidenceKind    string   `json:"evidence_kind"`
+	EvidenceLocator string   `json:"evidence_locator"`
+}
+
 type ContextScope struct {
 	EpisodeID            uint                `json:"episode_id"`
 	ShowNotesAvailable   bool                `json:"show_notes_available"`
@@ -50,6 +68,9 @@ type ContextScope struct {
 	PrivateNoteAvailable bool                `json:"private_note_available"`
 	Profiles             []ProfileDescriptor `json:"profiles"`
 	DefaultProfileID     string              `json:"default_profile_id"`
+	People               []PersonCandidate   `json:"people,omitempty"`
+	IndexReady           bool                `json:"index_ready"`
+	IndexStatus          string              `json:"index_status,omitempty"`
 }
 
 type EpisodeContext struct {

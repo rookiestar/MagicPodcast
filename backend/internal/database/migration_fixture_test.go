@@ -51,6 +51,8 @@ func TestSchema24FixtureIsHistoricalSanitizedAndComplete(t *testing.T) {
 	require.Equal(t, []string{
 		"25:native-minutes-artifact-integrity",
 		"26:episode-artifact-audio-recovery",
+		"27:person-identity-and-speech-attribution",
+		"28:content-search-fragments",
 	}, migrationNames(status.Pending))
 
 	for table, want := range map[string]int64{
@@ -136,7 +138,7 @@ func TestProductionMigrationRunnerPreservesSchema24ProtectedDataAndIsIdempotent(
 
 	reports, err := newProductionMigrationRunner().run(db)
 	require.NoError(t, err)
-	require.Len(t, reports, 2)
+	require.Len(t, reports, 4)
 	require.Equal(t, 25, reports[0].Version)
 	require.Empty(t, reports[0].Violations)
 	require.Equal(t, []DDLChange{
@@ -146,6 +148,10 @@ func TestProductionMigrationRunnerPreservesSchema24ProtectedDataAndIsIdempotent(
 	}, reports[0].DDL)
 	require.Equal(t, 26, reports[1].Version)
 	require.Empty(t, reports[1].Violations)
+	require.Equal(t, 27, reports[2].Version)
+	require.Empty(t, reports[2].Violations)
+	require.Equal(t, 28, reports[3].Version)
+	require.Empty(t, reports[3].Violations)
 
 	after, err := captureMigrationDatabaseSnapshot(db)
 	require.NoError(t, err)
@@ -316,10 +322,12 @@ func TestProductionMigrationPreflightBuildsBoundSanitizedReportWithoutWritingSou
 	require.Equal(t, CurrentSchemaVersion, report.TargetSchemaVersion)
 	require.True(t, report.Result.ApplyEligible)
 	require.Equal(t, "passed", report.Result.Status)
-	require.Len(t, report.PendingMigrations, 2)
+	require.Len(t, report.PendingMigrations, 4)
 	require.Equal(t, "native-minutes-artifact-integrity", report.PendingMigrations[0].Name)
 	require.Equal(t, "episode-artifact-audio-recovery", report.PendingMigrations[1].Name)
-	require.Len(t, report.Executions, 2)
+	require.Equal(t, "person-identity-and-speech-attribution", report.PendingMigrations[2].Name)
+	require.Equal(t, "content-search-fragments", report.PendingMigrations[3].Name)
+	require.Len(t, report.Executions, 4)
 	require.Contains(t, report.ForeignKeyDependencies, ForeignKeyEdge{Parent: "episodes", Child: "episode_triage_decisions"})
 	require.Contains(t, report.ProtectedTables, "episode_triage_decisions")
 	require.Equal(t, int64(13), migrationSummaryByTable(t, report.ProtectedBefore, "episode_triage_decisions").Rows)
@@ -869,4 +877,12 @@ func assertMigrationDatabaseHealthy(t *testing.T, db *gorm.DB) {
 	var issues []foreignKeyIssue
 	require.NoError(t, db.Raw("PRAGMA foreign_key_check").Scan(&issues).Error)
 	require.Empty(t, issues)
+}
+
+func TestPersonaInvalidationTriggerCannotTargetUndeclaredTable(t *testing.T) {
+	change, ok := classifyMigrationDDL(models.ContentSearchShowNotesInvalidationSQL)
+	require.True(t, ok)
+	require.Equal(t, "episodes", change.Table)
+	require.Empty(t, validateMigrationDDL([]DDLChange{change}, []SchemaChangeRule{{Operation: SchemaChangeCreateTrigger, Table: "episodes", Object: "invalidate_persona_on_show_notes"}}))
+	require.NotEmpty(t, validateMigrationDDL([]DDLChange{change}, []SchemaChangeRule{{Operation: SchemaChangeCreateTrigger, Table: "podcasts", Object: "invalidate_persona_on_show_notes"}}))
 }

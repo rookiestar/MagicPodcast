@@ -54,6 +54,9 @@ class CodexConfig:
             'web_search="live"',
         }.intersection(self.config_overrides):
             raise AssertionError("web search mode is not explicit")
+        bridge = "true" if 'web_search="live"' in self.config_overrides else "false"
+        if f"features.code_mode_host={bridge}" not in self.config_overrides:
+            raise AssertionError("web bridge must match the allowed web capability")
         isolated_home = Path(self.env["CODEX_HOME"])
         source_home = Path(os.environ["CODEX_HOME"])
         if isolated_home == source_home:

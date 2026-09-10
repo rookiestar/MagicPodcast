@@ -13,6 +13,8 @@ import (
 	"unicode/utf8"
 
 	"magicpodcast/internal/codexruntime"
+	"magicpodcast/internal/contentsearch"
+	"magicpodcast/internal/personidentity"
 )
 
 const (
@@ -63,6 +65,8 @@ type Service struct {
 	runtime  codexruntime.Runtime
 	workRoot string
 	now      func() time.Time
+	people   personidentity.Module
+	search   contentsearch.Module
 }
 
 func NewService(
@@ -112,6 +116,9 @@ func (s *Service) ContextScope(
 	}
 	scope.Profiles = profileDescriptors()
 	scope.DefaultProfileID = string(codexruntime.DefaultModelProfileID)
+	if err := s.attachPeople(ctx, &scope); err != nil {
+		return ContextScope{}, err
+	}
 	return scope, nil
 }
 
@@ -159,6 +166,9 @@ func (s *Service) Ask(
 	if err := validateSelection(normalized, episodeContext); err != nil {
 		return nil, err
 	}
+	if _, err := s.resolveTargetPerson(ctx, normalized, episodeContext); err != nil {
+		return nil, err
+	}
 
 	events := make(chan StreamEvent, 16)
 	go s.run(ctx, normalized, episodeContext, events)
@@ -190,10 +200,57 @@ func (s *Service) run(
 	if privateNoteIncluded {
 		contextMessage += "；本次包含私有备注"
 	}
+	if request.TargetPersonID != 0 {
+		contextMessage += "；本次为人物模拟回答"
+	}
 	if !emit(ctx, events, withEvent(baseEvent, EventTypeContext, StageReadContext, contextMessage)) {
 		return
 	}
 	activities := &questionActivities{}
+	var (
+		personaPerson      personidentity.PersonView
+		library            contentsearch.Result
+		librarySufficient  bool
+		librarySearchError error
+	)
+	if request.TargetPersonID != 0 {
+		personaPerson, _ = s.resolveTargetPerson(ctx, request, episodeContext)
+		if !activities.announce(
+			ctx,
+			events,
+			baseEvent,
+			s.now().UTC(),
+			StageLibrarySearch,
+			"started",
+			"正在检索该人物在个人播客库中的可靠发言…",
+		) {
+			return
+		}
+		library, librarySufficient, librarySearchError = s.searchLibrary(ctx, request, personaPerson)
+		if librarySearchError != nil {
+			library.Coverage.Complete = false
+			library.Coverage.Reason = contentsearch.CoverageIndexNotReady
+		}
+		libraryMessage := "未命中已确认发言。"
+		libraryState := "completed"
+		if !library.Coverage.Complete {
+			libraryState = "updated"
+			libraryMessage = "人物发言索引尚未准备完成，不会把它显示为无资料。"
+		} else if len(library.Hits) > 0 {
+			libraryMessage = fmt.Sprintf("已检索到 %d 条已确认发言。", len(library.Hits))
+		}
+		if !activities.announce(
+			ctx,
+			events,
+			baseEvent,
+			s.now().UTC(),
+			StageLibrarySearch,
+			libraryState,
+			libraryMessage,
+		) {
+			return
+		}
+	}
 
 	workDir, err := os.MkdirTemp(s.workRoot, "episode-copilot-")
 	if err != nil {
@@ -206,55 +263,77 @@ func (s *Service) run(
 		return
 	}
 
-	// The startup stage is announced deterministically before the runtime is
-	// contacted; only a real runtime started event marks it ready.
-	if !activities.announce(
-		ctx,
-		events,
-		baseEvent,
-		s.now().UTC(),
-		StageResearchRuntime,
-		"started",
-		"正在启动公开资料检索 Runtime…",
-	) {
-		return
+	if request.TargetPersonID != 0 && librarySufficient {
+		sufficient, err := s.assessLibrary(ctx, request, personaPerson, library, workDir)
+		if err != nil {
+			code, message, retryable := classifyRuntimeError(err)
+			emitFailure(ctx, events, baseEvent, code, message, retryable)
+			return
+		}
+		librarySufficient = sufficient
 	}
+	skipResearch := request.TargetPersonID != 0 && librarySufficient && librarySearchError == nil
+	research := researchResult{}
 	researchReadyAt := time.Time{}
-	research, err := s.research(
-		ctx,
-		request,
-		episodeContext,
-		workDir,
-		func(event codexruntime.Event) bool {
-			switch event.Type {
-			case codexruntime.EventStarted:
-				if researchReadyAt.IsZero() {
-					researchReadyAt = s.now().UTC()
-					return activities.announce(
+	if skipResearch {
+		research.Limitations = append(
+			research.Limitations,
+			"库内证据已覆盖问题，未额外搜索网页。",
+		)
+	} else if request.TargetPersonID != 0 && librarySearchError != nil {
+		research.Limitations = append(
+			research.Limitations,
+			"库内检索失败，已有可靠证据仍可使用，不能把失败当成无资料。",
+		)
+	}
+	if !skipResearch {
+		if !activities.announce(
+			ctx,
+			events,
+			baseEvent,
+			s.now().UTC(),
+			StageResearchRuntime,
+			"started",
+			"正在启动公开资料检索 Runtime…",
+		) {
+			return
+		}
+		research, err = s.research(
+			ctx,
+			request,
+			episodeContext,
+			workDir,
+			func(event codexruntime.Event) bool {
+				switch event.Type {
+				case codexruntime.EventStarted:
+					if researchReadyAt.IsZero() {
+						researchReadyAt = s.now().UTC()
+						return activities.announce(
+							ctx,
+							events,
+							baseEvent,
+							researchReadyAt,
+							StageResearchRuntime,
+							"completed",
+							"公开资料检索 Runtime 已就绪",
+						)
+					}
+					return true
+				case codexruntime.EventProgress:
+					return activities.forward(
 						ctx,
 						events,
 						baseEvent,
-						researchReadyAt,
-						StageResearchRuntime,
-						"completed",
-						"公开资料检索 Runtime 已就绪",
+						StagePublicResearch,
+						activityIDPrefixResearch,
+						event,
 					)
+				default:
+					return true
 				}
-				return true
-			case codexruntime.EventProgress:
-				return activities.forward(
-					ctx,
-					events,
-					baseEvent,
-					StagePublicResearch,
-					activityIDPrefixResearch,
-					event,
-				)
-			default:
-				return true
-			}
-		},
-	)
+			},
+		)
+	}
 	researchDoneAt := s.now().UTC()
 	if err != nil {
 		if ctx.Err() != nil {
@@ -289,6 +368,18 @@ func (s *Service) run(
 			StageSourceValidation,
 			"failed",
 			"公开资料检索失败，将仅依据单集内部内容回答。",
+		) {
+			return
+		}
+	} else if skipResearch {
+		if !activities.announce(
+			ctx,
+			events,
+			baseEvent,
+			s.now().UTC(),
+			StageSourceValidation,
+			"completed",
+			"库内证据已覆盖问题，未搜索网页。",
 		) {
 			return
 		}
@@ -360,10 +451,14 @@ func (s *Service) run(
 		if !wroteAnswer {
 			firstContentAt = s.now().UTC()
 			wroteAnswer = true
+			prefix := "## 回答\n\n"
+			if request.TargetPersonID != 0 {
+				prefix += personaDisclaimer + "\n\n"
+			}
 			if !emit(
 				ctx,
 				events,
-				withEvent(baseEvent, EventTypeAnswerDelta, "answer", "## 回答\n\n"),
+				withEvent(baseEvent, EventTypeAnswerDelta, "answer", prefix),
 			) {
 				return false
 			}
@@ -380,6 +475,15 @@ func (s *Service) run(
 		episodeContext,
 		research,
 	)
+	if request.TargetPersonID != 0 {
+		citationGate.persona = true
+		citationGate.librarySources = len(library.Hits)
+		citationGate.showNotesLines = 0
+		citationGate.transcriptLines = 0
+		citationGate.selectedSource = ""
+		citationGate.privateNote = false
+		citationGate.hasEvidence = len(library.Hits) > 0 || len(research.Resources) > 0
+	}
 	writeModelDelta := func(delta string) bool {
 		return emitAnswerDelta(
 			citationGate.Write(outputFilter.Write(delta)),
@@ -392,10 +496,13 @@ func (s *Service) run(
 		codexruntime.ExecutionRequest{
 			Kind:             codexruntime.ExecutionKindAssistant,
 			WorkingDirectory: workDir,
-			Prompt: buildAnswerPrompt(
+			Prompt: buildQuestionAnswerPrompt(
 				request,
 				episodeContext,
+				personaPerson,
+				library,
 				research,
+				librarySufficient,
 			),
 			ModelProfile: codexruntime.ModelProfileID(request.ProfileID),
 			ToolRestriction: &codexruntime.ToolRestriction{
@@ -497,7 +604,16 @@ func (s *Service) run(
 		)
 		return
 	}
-	if !emitAnswerDelta(buildSourceAppendix(request, episodeContext, research)) {
+	appendix := buildSourceAppendix(request, episodeContext, research)
+	if request.TargetPersonID != 0 {
+		appendix = buildPersonaSourceAppendix(
+			library,
+			research,
+			librarySufficient,
+			librarySearchError != nil,
+		)
+	}
+	if !emitAnswerDelta(appendix) {
 		return
 	}
 	if !activities.announce(
@@ -537,6 +653,41 @@ func durationBetween(from time.Time, to time.Time) int64 {
 	return maxMilliseconds(to.Sub(from))
 }
 
+func (s *Service) researchPrompt(
+	request QuestionRequest,
+	episodeContext EpisodeContext,
+) string {
+	if request.TargetPersonID == 0 || s.people == nil {
+		return buildResearchPrompt(request, episodeContext)
+	}
+	person, err := s.resolveTargetPerson(context.Background(), request, episodeContext)
+	if err != nil {
+		return buildResearchPrompt(request, episodeContext)
+	}
+	return buildPersonaResearchPrompt(request, episodeContext, person)
+}
+
+func buildQuestionAnswerPrompt(
+	request QuestionRequest,
+	episodeContext EpisodeContext,
+	person personidentity.PersonView,
+	library contentsearch.Result,
+	research researchResult,
+	librarySufficient bool,
+) string {
+	if request.TargetPersonID != 0 && person.ID != 0 {
+		return buildPersonaAnswerPrompt(
+			request,
+			episodeContext,
+			person,
+			library,
+			research,
+			librarySufficient,
+		)
+	}
+	return buildAnswerPrompt(request, episodeContext, research)
+}
+
 func (s *Service) research(
 	ctx context.Context,
 	request QuestionRequest,
@@ -544,13 +695,18 @@ func (s *Service) research(
 	workDir string,
 	onEvent func(codexruntime.Event) bool,
 ) (researchResult, error) {
+	if request.TargetPersonID != 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 90*time.Second)
+		defer cancel()
+	}
 	snapshot, _, err := s.execute(
 		ctx,
 		codexruntime.ExecutionRequest{
 			Kind:             codexruntime.ExecutionKindAssistant,
 			WorkingDirectory: workDir,
-			Prompt:           buildResearchPrompt(request, episodeContext),
-			OutputSchema:     publicResearchSchema,
+			Prompt:           s.researchPrompt(request, episodeContext),
+			OutputSchema:     researchSchemaFor(request.TargetPersonID != 0),
 			ModelProfile:     codexruntime.ModelProfileID(request.ProfileID),
 			ToolRestriction: &codexruntime.ToolRestriction{
 				Allowed: []codexruntime.ToolCapability{
@@ -567,6 +723,19 @@ func (s *Service) research(
 	var result researchResult
 	if err := json.Unmarshal(snapshot.Result, &result); err != nil {
 		return researchResult{}, fmt.Errorf("decode public research result: %w", err)
+	}
+	if request.TargetPersonID != 0 {
+		qualified := make([]researchResource, 0, len(result.Resources))
+		for _, r := range result.Resources {
+			if !r.OriginalRead || strings.TrimSpace(r.Quote) == "" || strings.TrimSpace(r.Author) == "" || strings.TrimSpace(r.IdentityEvidence) == "" {
+				continue
+			}
+			qualified = append(qualified, r)
+		}
+		if len(qualified) < len(result.Resources) {
+			result.Limitations = append(result.Limitations, "部分网页未取得可核对原文或人物身份依据，未计入该人物观点。")
+		}
+		result.Resources = qualified
 	}
 	result.Conflicts = boundedStrings(result.Conflicts, maxPublicResources)
 	result.Limitations = boundedStrings(result.Limitations, maxPublicResources)
@@ -636,10 +805,15 @@ func (s *Service) execute(
 }
 
 type researchResource struct {
-	Title      string `json:"title"`
-	URL        string `json:"url"`
-	Relevance  string `json:"relevance"`
-	AccessedAt time.Time
+	Author           string `json:"author,omitempty"`
+	PublishedAt      string `json:"published_at,omitempty"`
+	IdentityEvidence string `json:"identity_evidence,omitempty"`
+	Quote            string `json:"quote,omitempty"`
+	OriginalRead     bool   `json:"original_read,omitempty"`
+	Title            string `json:"title"`
+	URL              string `json:"url"`
+	Relevance        string `json:"relevance"`
+	AccessedAt       time.Time
 }
 
 type researchResult struct {
@@ -935,10 +1109,15 @@ func validatePublicResources(
 		}
 		seen[normalizedURL] = struct{}{}
 		output = append(output, researchResource{
-			Title:      truncateRunes(title, 500),
-			URL:        normalizedURL,
-			Relevance:  truncateRunes(cleanAppendixText(candidate.Relevance), 1_000),
-			AccessedAt: accessedAt,
+			Author:           truncateRunes(cleanAppendixText(candidate.Author), 200),
+			PublishedAt:      truncateRunes(cleanAppendixText(candidate.PublishedAt), 100),
+			IdentityEvidence: truncateRunes(cleanAppendixText(candidate.IdentityEvidence), 1000),
+			Quote:            truncateRunes(cleanAppendixText(candidate.Quote), 4000),
+			OriginalRead:     candidate.OriginalRead,
+			Title:            truncateRunes(title, 500),
+			URL:              normalizedURL,
+			Relevance:        truncateRunes(cleanAppendixText(candidate.Relevance), 1_000),
+			AccessedAt:       accessedAt,
 		})
 	}
 	return output

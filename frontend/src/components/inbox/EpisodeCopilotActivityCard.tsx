@@ -35,6 +35,7 @@ interface EpisodeCopilotActivityCardProps {
 
 const stageStatusLabels: Record<StageStatus, string> = {
   pending: "待执行",
+  skipped: "未执行",
   running: "进行中",
   done: "完成",
   failed: "失败",

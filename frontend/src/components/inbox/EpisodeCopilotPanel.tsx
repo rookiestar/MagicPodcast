@@ -32,6 +32,9 @@ import type {
   EpisodeCopilotQuestion,
   EpisodeCopilotSelectionSource,
   EpisodeCopilotStreamEvent,
+  EpisodeAttributionView,
+  EpisodePersonCandidate,
+  EpisodePeoplePayload,
 } from "@/types/episodeCopilot";
 import EpisodeCopilotActivityCard from "./EpisodeCopilotActivityCard";
 import {
@@ -48,6 +51,14 @@ import {
   profileDisplayName,
 } from "./EpisodeCopilotMenus";
 import { useMenuPopover } from "./useMenuPopover";
+import {
+  filterPeople,
+  jumpToLibrarySource,
+  mentionDraft,
+  parseLibrarySources,
+  replaceMention,
+  roleLabel,
+} from "./episodeCopilotMention";
 import styles from "./InboxPage.module.css";
 
 interface EpisodeCopilotPanelProps {
@@ -56,6 +67,7 @@ interface EpisodeCopilotPanelProps {
   onSelectedProfileIDChange?: (profileID: EpisodeCopilotProfileID) => void;
   rejectedProfileIDs?: ReadonlySet<EpisodeCopilotProfileID>;
   onRejectedProfileID?: (profileID: EpisodeCopilotProfileID) => void;
+  onOpenSourceEpisode?: (episodeId: number) => void | Promise<void>;
 }
 
 interface CapturedSelection {
@@ -115,6 +127,7 @@ export default function EpisodeCopilotPanel({
   onSelectedProfileIDChange,
   rejectedProfileIDs: controlledRejectedProfileIDs,
   onRejectedProfileID,
+  onOpenSourceEpisode,
 }: EpisodeCopilotPanelProps) {
   const [scope, setScope] = useState<EpisodeCopilotContextScope | null>(null);
   const [scopeError, setScopeError] = useState<string | null>(null);
@@ -149,6 +162,19 @@ export default function EpisodeCopilotPanel({
   const [submissionAnnouncement, setSubmissionAnnouncement] = useState("");
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
+  );
+  const [targetPerson, setTargetPerson] =
+    useState<EpisodePersonCandidate | null>(null);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [personName, setPersonName] = useState("");
+  const [peopleBusy, setPeopleBusy] = useState(false);
+  const [peopleError, setPeopleError] = useState("");
+  const peopleRequest = useRef<AbortController | null>(null);
+  const peopleGeneration = useRef(0);
+  const [attributions, setAttributions] = useState<EpisodeAttributionView[]>(
+    [],
   );
   const profileMenu = useMenuPopover();
   const contextMenu = useMenuPopover();
@@ -204,12 +230,21 @@ export default function EpisodeCopilotPanel({
     setRun(null);
     setSubmissionAnnouncement("");
     setCopyState("idle");
+    peopleGeneration.current += 1;
+    peopleRequest.current?.abort();
+    setPeopleBusy(false);
+    setPeopleError("");
+    setPersonName("");
+    setTargetPerson(null);
+    setMentionOpen(false);
+    setCorrectionOpen(false);
+    setAttributions([]);
     dismissProfileMenu();
     dismissContextMenu();
     retryRequest.current = null;
     terminalStreamErrorHandled.current = false;
     void loadScope();
-    return () => activeRequest.current?.abort();
+    return () => { activeRequest.current?.abort(); peopleRequest.current?.abort(); peopleGeneration.current += 1; };
   }, [dismissContextMenu, dismissProfileMenu, loadScope]);
 
   useEffect(() => {
@@ -375,6 +410,7 @@ export default function EpisodeCopilotPanel({
       include_private_note:
         includePrivateNote && scope.private_note_available,
       profile_id: requestProfileID,
+      ...(targetPerson ? { target_person_id: targetPerson.id } : {}),
     };
     if (requestToRetry) {
       selectProfile(request.profile_id);
@@ -389,13 +425,19 @@ export default function EpisodeCopilotPanel({
     const replaceAnswer = { current: preserveAnswer };
     if (!preserveAnswer) setAnswer("");
     setPhase("waiting");
-    setStatusMessage("正在核对当前单集与公开资料…");
+    setStatusMessage(
+      targetPerson
+        ? scope.index_ready === false
+          ? "正在准备人物发言索引，不会把它显示为无资料…"
+          : "正在检索该人物的库内发言…"
+        : "正在核对当前单集与公开资料…",
+    );
     setRequestError(null);
     setRequestCanRetry(false);
     setMetrics(null);
     // The activity card exists before the first backend event so the user
     // never wonders whether the click registered.
-    setRun(createRunState(Date.now()));
+    setRun(createRunState(Date.now(), Boolean(request.target_person_id)));
     setNowTick(Date.now());
     stickToBottom.current = true;
     try {
@@ -494,18 +536,81 @@ export default function EpisodeCopilotPanel({
   const isRejectedProfileSelected =
     effectiveSelectedProfileID !== null &&
     rejectedProfileIDs.has(effectiveSelectedProfileID);
+  const pendingTarget =
+    targetPerson !== null && targetPerson.status !== "confirmed";
   const canAsk =
     Boolean(scope) &&
     question.trim().length > 0 &&
     !isActive &&
-    !isRejectedProfileSelected;
+    !isRejectedProfileSelected &&
+    !pendingTarget;
+
+  const people = scope?.people ?? [];
+  const activeMention = mentionDraft(
+    question,
+    question.length,
+  );
+  const mentionCandidates = mentionOpen
+    ? filterPeople(people, activeMention?.query ?? "")
+    : [];
 
   const handleComposerKeyDown = (event: ReactKeyboardEvent) => {
+    const composing =
+      event.nativeEvent.isComposing || event.key === "Process" || event.keyCode === 229;
+    if (composing) return;
+    if (mentionOpen && mentionCandidates.length && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      event.preventDefault();
+      setMentionIndex((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + mentionCandidates.length) % mentionCandidates.length);
+      return;
+    }
+    if (event.key === "Escape") {
+      setMentionOpen(false);
+      return;
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
+      if (mentionOpen && mentionCandidates[mentionIndex % mentionCandidates.length]) {
+        selectPerson(mentionCandidates[mentionIndex % mentionCandidates.length]);
+        return;
+      }
       if (canAsk) void ask(false);
     }
   };
+
+  const selectPerson = (person: EpisodePersonCandidate) => {
+    const draft = mentionDraft(question, question.length);
+    if (draft) {
+      setQuestion(replaceMention(question, draft, question.length));
+    }
+    setTargetPerson(person);
+    setPersonName(person.display_name);
+    setMentionOpen(false);
+    if (person.status !== "confirmed") {
+      setCorrectionOpen(true);
+      void loadAttributions();
+    }
+  };
+
+  const runPeopleAction = async (action: (signal: AbortSignal) => Promise<EpisodePeoplePayload>) => {
+    const generation = ++peopleGeneration.current;
+    peopleRequest.current?.abort();
+    const controller = new AbortController();
+    peopleRequest.current = controller;
+    setPeopleBusy(true);
+    setPeopleError("");
+    try {
+      const payload = await action(controller.signal);
+      if (generation !== peopleGeneration.current || controller.signal.aborted) return;
+      setAttributions(payload.attributions);
+      setScope((previous) => previous ? { ...previous, people: payload.people, index_ready: payload.index_ready } : previous);
+      setTargetPerson((previous) => previous ? payload.people.find((person) => person.id === previous.id) ?? null : null);
+    } catch {
+      if (generation === peopleGeneration.current && !controller.signal.aborted) setPeopleError("人物资料处理失败，请重试。已有问题和选择已保留。");
+    } finally {
+      if (generation === peopleGeneration.current) setPeopleBusy(false);
+    }
+  };
+  const loadAttributions = () => runPeopleAction(() => episodeCopilotApi.getPeople(item.episode_id));
   const showRetry =
     (phase === "failed" && requestCanRetry) || phase === "cancelled";
   const answerComplete = phase === "completed";
@@ -621,6 +726,29 @@ export default function EpisodeCopilotPanel({
             {answer && (
               <div className={styles.copilotAnswer}>
                 <MarkdownViewer content={answer} density="reading" />
+                {parseLibrarySources(answer).length > 0 ? (
+                  <div className={styles.copilotSourceLinks}>
+                    {parseLibrarySources(answer).map((source) => (
+                      <button
+                        key={`${source.episodeId}-${source.fragmentOrder}`}
+                        type="button"
+                        className={styles.copilotSourceLink}
+                        onClick={() =>
+                          void (async () => {
+                            if (source.sourceVersion) {
+                              const current = await episodeCopilotApi.getPeople(source.episodeId);
+                              if (current.source_version !== source.sourceVersion) throw new Error("source changed");
+                            }
+                            await jumpToLibrarySource(source, { openEpisode: onOpenSourceEpisode });
+                          })().catch(() => setPeopleError("来源已更新或暂时无法定位，请重新提问核对。"))
+                        }
+                      >
+                        打开来源 · {source.title || `单集 ${source.episodeId}`} · {source.date} · 片段{" "}
+                        {source.fragmentOrder}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 {answerComplete && (
                   <div className={styles.copilotAnswerActions}>
                     <button
@@ -693,20 +821,146 @@ export default function EpisodeCopilotPanel({
             )}
 
             <div className={styles.copilotComposer}>
+              {targetPerson ? (
+                <div className={styles.copilotPersonChip} data-testid="copilot-person-chip">
+                  <span>
+                    {targetPerson.display_name}
+                    {targetPerson.aliases[0] ? ` / ${targetPerson.aliases[0]}` : ""}
+                    · {roleLabel(targetPerson.role)}
+                    {targetPerson.status === "pending" ? " · 待确认" : ""}
+                  </span>
+                  <span className={styles.copilotPersonChipActions}>
+                    <button
+                      type="button"
+                      className={styles.copilotCorrectionToggle}
+                      aria-label="纠正发言归属"
+                      aria-pressed={correctionOpen}
+                      onClick={() => {
+                        const next = !correctionOpen;
+                        setCorrectionOpen(next);
+                        if (next) void loadAttributions();
+                      }}
+                    >
+                      纠正
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.iconButton}
+                      aria-label="清除人物选择"
+                      onClick={() => {
+                        setTargetPerson(null);
+                        setCorrectionOpen(false);
+                      }}
+                    >
+                      <IconX size={15} stroke={1.8} aria-hidden="true" />
+                    </button>
+                  </span>
+                </div>
+              ) : null}
+              {pendingTarget ? (
+                <p className={styles.copilotNotice} role="status">
+                  待确认人物不能提交模拟回答，可先纠正发言归属。普通问答仍可用。
+                </p>
+              ) : null}
+              {correctionOpen && targetPerson ? (
+                <div className={styles.copilotCorrection} data-testid="copilot-correction">
+                  <p>纠正 {targetPerson.display_name} 的片段归属（不会改写原始逐字稿）。</p>
+                  <label>
+                    姓名或称呼
+                    <input aria-label="纠正人物姓名" value={personName} onChange={(event) => setPersonName(event.target.value)} />
+                  </label>
+                  <p>{targetPerson.evidence_locator?.includes(":") ? targetPerson.evidence_locator.replace(/^[^:]+:\d+:/, "") : "请核对本集介绍与原文后确认。"}</p>
+                  <button type="button" disabled={peopleBusy || !personName.trim()} onClick={() => void runPeopleAction(() => episodeCopilotApi.correctName(item.episode_id, targetPerson.id, { display_name: personName.trim() }))}>
+                    确认姓名与本集身份
+                  </button>
+                  {attributions.length === 0 ? <p>没有待纠正的片段。</p> : (
+                    <div style={{ maxHeight: "18rem", overflowY: "auto" }}>
+                      {attributions.map((attribution) => (
+                        <div key={attribution.id}>
+                          <p>片段 {attribution.fragment_order} · {attribution.display_name || attribution.speaker_label} · {attribution.status === "confirmed" ? "已确认" : "待确认"}</p>
+                          <p>{attribution.text}</p>
+                          <button type="button" disabled={peopleBusy || targetPerson.status !== "confirmed"} onClick={() => void runPeopleAction(() => episodeCopilotApi.correctAttribution(item.episode_id, {
+                            source_kind: attribution.source_kind, source_version: attribution.source_version, fragment_order: attribution.fragment_order,
+                            assigned_person_id: targetPerson.id, status: "confirmed",
+                          }))}>
+                            将片段 {attribution.fragment_order} 归给 {targetPerson.display_name}
+                          </button>
+                          {attribution.status === "confirmed" ? <button type="button" disabled={peopleBusy} onClick={() => void runPeopleAction(() => episodeCopilotApi.correctAttribution(item.episode_id, {
+                            source_kind: attribution.source_kind, source_version: attribution.source_version, fragment_order: attribution.fragment_order,
+                            assigned_person_id: null, status: "pending",
+                          }))}>撤销片段 {attribution.fragment_order} 的确认</button> : null}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+              {scope.index_ready === false ? (
+                <p className={styles.copilotNotice} role="status">
+                  人物发言索引正在准备，不会把它显示为无资料。
+                </p>
+              ) : null}
+              {scope.transcript_available ? (
+                <button type="button" className={styles.copilotCorrectionToggle} disabled={peopleBusy} onClick={() => void runPeopleAction((signal) => episodeCopilotApi.preparePeople(item.episode_id, signal))}>
+                  {peopleBusy ? "正在处理人物资料…" : scope.index_ready ? "重新识别本集人物" : "识别本集人物"}
+                </button>
+              ) : null}
+              {peopleBusy ? <button type="button" onClick={() => { peopleRequest.current?.abort(); setPeopleBusy(false); }}>取消人物处理</button> : null}
+              {peopleError ? <p role="alert">{peopleError}</p> : null}
               <textarea
                 className={styles.copilotComposerInput}
                 aria-label="向单集助手提问"
+                aria-controls={mentionOpen ? "copilot-people-list" : undefined}
+                aria-activedescendant={mentionOpen && mentionCandidates.length ? `copilot-person-option-${mentionCandidates[mentionIndex % mentionCandidates.length].id}` : undefined}
                 value={question}
-                onChange={(event) => setQuestion(event.target.value)}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setQuestion(value);
+                  const draft = mentionDraft(
+                    value,
+                    event.target.selectionStart ?? value.length,
+                  );
+                  setMentionOpen(Boolean(draft) && !targetPerson);
+                  setMentionIndex(0);
+                }}
                 onKeyDown={handleComposerKeyDown}
                 placeholder={
-                  selection
-                    ? "解释、核对或寻找与这段内容相关的公开资源…"
-                    : "围绕当前单集提问，或先在 Show Notes / 逐字稿中划词…"
+                  targetPerson
+                    ? `向${targetPerson.display_name}提问，回答会标明 AI 模拟…`
+                    : selection
+                      ? "解释、核对或寻找与这段内容相关的公开资源…"
+                    : "输入 @ 选择本集主播或嘉宾，或围绕当前单集提问…"
                 }
                 rows={2}
                 maxLength={2000}
               />
+              {mentionOpen && mentionCandidates.length > 0 ? (
+                <ul
+                  className={styles.copilotMentionList}
+                  role="listbox"
+                  aria-label="选择本集人物"
+                  id="copilot-people-list"
+                >
+                  {mentionCandidates.map((person,index) => (
+                    <li key={person.id}>
+                      <button
+                        type="button"
+                        role="option"
+                        id={`copilot-person-option-${person.id}`}
+                        aria-selected={index === mentionIndex % mentionCandidates.length}
+                        aria-label={`选择${person.display_name}`}
+                        onClick={() => selectPerson(person)}
+                      >
+                        <strong>{person.display_name}</strong>
+                        {person.aliases.length ? `（${person.aliases.join("、")}）` : ""}
+                        · {roleLabel(person.role)}
+                        {person.identity_note ? ` · ${person.identity_note}` : ""}
+                        {person.status === "pending" ? " · 待确认" : ""}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               <div className={styles.copilotComposerControls}>
                 <button
                   ref={contextMenu.triggerRef}

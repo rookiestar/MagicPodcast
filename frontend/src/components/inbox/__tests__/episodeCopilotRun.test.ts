@@ -36,10 +36,10 @@ function runtimeActivity(
 }
 
 describe("episodeCopilotRun state machine", () => {
-  it("starts with seven fixed pending stages", () => {
+  it("starts with fixed pending stages", () => {
     const state = createRunState(1000);
     expect(state.stages.map((stage) => stage.id)).toEqual(
-      stageOrder.map((stage) => stage.id),
+      stageOrder.filter((stage) => stage.id !== "library_search").map((stage) => stage.id),
     );
     expect(state.stages.every((stage) => stage.status === "pending")).toBe(
       true,
@@ -215,4 +215,9 @@ describe("episodeCopilotRun state machine", () => {
     ).toBe("cancelled");
     expect(cancelled.announcement).toBe("已取消");
   });
+});
+
+it("does not claim unused web stages ran for a persona answer", () => {
+ const result=applyStreamEvent(createRunState(1000,true),{type:"complete",transcript_used:true,private_note_included:false},1100);
+ expect(result.stages.filter((stage)=>["research_runtime","public_research"].includes(stage.id)).map((stage)=>stage.status)).toEqual(["skipped","skipped"]);
 });
