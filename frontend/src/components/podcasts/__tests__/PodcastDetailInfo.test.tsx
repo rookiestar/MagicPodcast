@@ -117,30 +117,12 @@ describe("PodcastDetailInfo", () => {
     expect(screen.queryByText(/分.*秒/)).not.toBeInTheDocument();
   });
 
-  it("places playback under the title with duration outside the button", () => {
-    const open = vi.spyOn(window, "open").mockImplementation(() => null);
-    const { container } = render(
-      <DesktopPodcastDetailInfo
-        {...baseProps}
-        podcast={{
-          ...podcast,
-          newest_enclosure_url: "https://example.com/latest.mp3",
-          newest_enclosure_duration: 125,
-        }}
-      />,
-    );
-
-    const heading = container.querySelector(".podcast-reading-heading");
-    const play = screen.getByRole("button", { name: "播放最新一集" });
-    expect(heading).toContainElement(play);
-    expect(play).not.toHaveTextContent("2分5秒");
-    expect(screen.getByText("2分5秒")).toBeInTheDocument();
-    fireEvent.click(play);
-    expect(open).toHaveBeenCalledWith(
-      "https://example.com/latest.mp3",
-      "_blank",
-    );
-    open.mockRestore();
+  it("removes the header playback and management heading while keeping metadata", () => {
+    render(<DesktopPodcastDetailInfo {...baseProps} podcast={{...podcast, newest_enclosure_url:"https://example.com/latest.mp3", newest_enclosure_duration:125}} />);
+    expect(screen.queryByRole("button", { name:"播放最新一集" })).not.toBeInTheDocument();
+    expect(screen.queryByText("2分5秒")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name:"标签与备注" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name:"标签与备注" })).toBeInTheDocument();
   });
 
   it("clamps long descriptions and leaves short copy uncollapsed", () => {
@@ -228,7 +210,7 @@ describe("PodcastDetailInfo", () => {
     expect(
       screen.getByRole("region", { name: "标签与备注" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("标签与备注")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", {name: "标签与备注"})).not.toBeInTheDocument();
   });
 
   it("keeps the desktop cover in a fixed heading square independent of description length", () => {
@@ -285,7 +267,7 @@ describe("PodcastDetailInfo", () => {
 
     expect(screen.getByRole("heading", { name: "测试播客" })).toBeInTheDocument();
     expect(screen.getByText(/作者 · 12 集 · 更新于/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "播放最新一集" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "播放最新一集" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /节目官网/ })).toHaveAttribute(
       "href",
       "https://example.com",

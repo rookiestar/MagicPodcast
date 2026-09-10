@@ -127,7 +127,7 @@ function cardFor(title: string) {
 }
 
 function expandButton(title: string) {
-  return within(cardFor(title)).getByRole("button", { name: "展开简介" });
+  return within(cardFor(title)).getByRole("button", { name: "阅读简介" });
 }
 
 describe("podcast detail Show Notes user flow", () => {
@@ -155,16 +155,16 @@ describe("podcast detail Show Notes user flow", () => {
       screen.getAllByText("作者 · 2 集 · 更新于 2026/08/31 09:05").length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getAllByRole("button", { name: "播放最新一集" }).length,
-    ).toBeGreaterThan(0);
-    expect(screen.getAllByText("60分0秒").length).toBeGreaterThan(0);
+      screen.queryByRole("button", { name: "播放最新一集" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("60分0秒")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "＋ 添加标签" }).length).toBeGreaterThan(
       0,
     );
     expect(screen.getAllByRole("button", { name: "＋ 添加备注" }).length).toBeGreaterThan(
       0,
     );
-    expect(screen.getByText("单集 A 的三行轻量预览")).toBeVisible();
+    expect(screen.getAllByText("单集 A 的三行轻量预览")[0]).toBeVisible();
     expect(screen.getByText("单集 B 的三行轻量预览")).toBeVisible();
     expect(apiMocks.getShowNotes).not.toHaveBeenCalled();
   });
@@ -187,9 +187,10 @@ describe("podcast detail Show Notes user flow", () => {
 
     fireEvent.mouseLeave(cardFor("单集 A"));
     expect(screen.getByRole("heading", { name: "完整 A" })).toBeVisible();
-    expect(within(cardFor("单集 A")).getByRole("button", { name: "收起" })).toBeVisible();
+    expect(within(cardFor("单集 A")).getByRole("button", { name: "关闭简介" })).toBeVisible();
 
-    fireEvent.click(within(cardFor("单集 A")).getByRole("button", { name: "收起" }));
+    fireEvent.click(within(cardFor("单集 A")).getByRole("button", { name: "关闭简介" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.queryByRole("heading", { name: "完整 A" })).not.toBeInTheDocument();
     fireEvent.click(expandButton("单集 A"));
     expect(await screen.findByRole("heading", { name: "完整 A" })).toBeVisible();
@@ -204,10 +205,11 @@ describe("podcast detail Show Notes user flow", () => {
     fireEvent.click(toggle);
     expect(await screen.findByRole("heading", { name: "完整 A" })).toBeVisible();
     const collapse = within(cardFor("单集 A")).getByRole("button", {
-      name: "收起",
+      name: "关闭简介",
     });
     fireEvent.keyDown(collapse, { key: " " });
     fireEvent.click(collapse);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.queryByRole("heading", { name: "完整 A" })).not.toBeInTheDocument();
   });
 
@@ -230,7 +232,7 @@ describe("podcast detail Show Notes user flow", () => {
       name: "完整 Show Notes",
     });
     expect(within(reader).getByText(/长文段落 80/)).toBeVisible();
-    expect(reader).toHaveClass("podcast-episode-show-notes-reader");
+    expect(reader).toHaveClass("podcast-notes-dialog-content");
     expect(cardFor("单集 A")).toContainElement(reader);
   });
 
@@ -250,7 +252,7 @@ describe("podcast detail Show Notes user flow", () => {
     render(<PodcastDetailContent {...baseProps} />);
 
     fireEvent.click(expandButton("单集 A"));
-    expect(screen.getByText("单集 A 的三行轻量预览")).toBeVisible();
+    expect(screen.getAllByText("单集 A 的三行轻量预览")[0]).toBeVisible();
     expect(await screen.findByRole("status")).toHaveTextContent("正在读取完整");
 
     await act(async () => rejectFirst(new Error("offline")));
@@ -282,7 +284,8 @@ describe("podcast detail Show Notes user flow", () => {
 
     fireEvent.click(expandButton("单集 A"));
     await waitFor(() => expect(resolvers.has(1)).toBe(true));
-    fireEvent.click(within(cardFor("单集 A")).getByRole("button", { name: "收起" }));
+    fireEvent.click(within(cardFor("单集 A")).getByRole("button", { name: "关闭简介" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     fireEvent.click(expandButton("单集 B"));
     await waitFor(() => expect(resolvers.has(2)).toBe(true));
 
@@ -310,7 +313,7 @@ describe("podcast detail Show Notes user flow", () => {
     });
     expect(screen.queryByRole("heading", { name: "迟到单集 A" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "当前单集 B" })).toBeVisible();
-    expect(within(cardFor("单集 A")).getByRole("button", { name: "展开简介" })).toBeVisible();
+    expect(within(cardFor("单集 A")).getByRole("button", { name: "阅读简介" })).toBeVisible();
   });
 
   it("lets the 390px path expand the selected episode without prefetching others", async () => {

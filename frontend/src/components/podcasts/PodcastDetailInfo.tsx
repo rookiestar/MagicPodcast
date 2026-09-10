@@ -1,11 +1,9 @@
 "use client";
 
-import { IconExternalLink, IconFlame, IconPlayerPlay } from "@tabler/icons-react";
+import { IconExternalLink, IconFlame } from "@tabler/icons-react";
 import {
   formatPodcastDetailMetaLine,
-  formatPodcastLatestEpisodeDurationLabel,
   getPodcastDetailInfoCoverUrl,
-  shouldShowPodcastLatestEpisodePlayButton,
   shouldShowPodcastPopularityBadge,
   shouldShowPodcastWebsiteLink,
 } from "@/lib/podcastDetailDisplay";
@@ -27,37 +25,6 @@ interface PodcastDetailInfoProps {
   onSaveNotes: () => void;
   onCancelNotesEdit: () => void;
   onTagsChange: (tags: Tag[]) => void;
-}
-
-function PodcastDetailPlayback({ podcast }: { podcast: Podcast }) {
-  const durationLabel = formatPodcastLatestEpisodeDurationLabel(
-    podcast.newest_enclosure_duration,
-  );
-  const showLatestEpisodePlayButton = shouldShowPodcastLatestEpisodePlayButton(
-    podcast.newest_enclosure_url,
-  );
-
-  if (!showLatestEpisodePlayButton) {
-    return null;
-  }
-
-  return (
-    <div className="podcast-reading-playback">
-      {showLatestEpisodePlayButton && (
-        <button
-          type="button"
-          onClick={() => window.open(podcast.newest_enclosure_url, "_blank")}
-          className="podcast-reading-primary-action"
-        >
-          <IconPlayerPlay aria-hidden="true" stroke={1.8} />
-          播放最新一集
-        </button>
-      )}
-      {showLatestEpisodePlayButton && durationLabel && (
-        <span className="podcast-reading-duration">{durationLabel}</span>
-      )}
-    </div>
-  );
 }
 
 function PodcastDetailSourceLinks({ podcast }: { podcast: Podcast }) {
@@ -182,7 +149,6 @@ export function MobilePodcastDetailInfo({
         </div>
       </header>
 
-      <PodcastDetailPlayback podcast={podcast} />
       <PodcastDetailSourceLinks podcast={podcast} />
       <PodcastDescription description={podcast.description} />
 
@@ -249,7 +215,6 @@ export function DesktopPodcastDetailInfo({
                 podcast.newest_episode_date,
               )}
             </p>
-            <PodcastDetailPlayback podcast={podcast} />
           </div>
         </header>
 
@@ -262,9 +227,6 @@ export function DesktopPodcastDetailInfo({
         role="region"
         aria-label="标签与备注"
       >
-        <div className="podcast-reading-management-heading">
-          <h2>标签与备注</h2>
-        </div>
         <PodcastDetailManagement
           tags={tags}
           notes={notes}

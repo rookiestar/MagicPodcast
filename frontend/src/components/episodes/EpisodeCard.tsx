@@ -175,6 +175,7 @@ function EpisodeCard({
         {/* Show Notes */}
         {showNotes && (
           <EpisodeShowNotes
+            title={episode.title}
             summary={episode.show_notes}
             link={originalOpenUrl ?? ""}
             isExpanded={showNotesState.isExpanded}

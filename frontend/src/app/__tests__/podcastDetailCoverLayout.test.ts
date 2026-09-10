@@ -44,7 +44,7 @@ describe("podcast detail cover layout", () => {
       "minmax(0, 1fr) minmax(280px, 330px)",
     );
     expect(heading.display).toBe("flex");
-    expect(heading["align-items"]).toBe("flex-start");
+    expect(heading["align-items"]).toBe("center");
     expect(cover.width).toBe("96px");
     expect(cover.height).toBe("96px");
     expect(cover.flex).toBe("0 0 96px");

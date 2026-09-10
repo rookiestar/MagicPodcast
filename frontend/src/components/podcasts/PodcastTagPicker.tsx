@@ -188,11 +188,13 @@ export function PodcastTagPicker({
             <input
               ref={searchRef}
               type="search"
+              role="combobox"
               className="podcast-tag-panel-search"
               value={query}
               disabled={isUpdatingTags}
               placeholder="搜索标签"
               aria-autocomplete="list"
+              aria-haspopup="listbox"
               aria-controls={listId}
               aria-expanded="true"
               onChange={(event) => setQuery(event.target.value)}
