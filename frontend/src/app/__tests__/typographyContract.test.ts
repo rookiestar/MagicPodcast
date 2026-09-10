@@ -155,7 +155,7 @@ describe("typography contract", () => {
     const reader = getDeclarations(".podcast-episode-show-notes-reader");
     expect(reader["max-height"]).toBeUndefined();
     expect(reader["overflow-y"]).toBeUndefined();
-    expect(globalsCss).toContain("transition: height 200ms ease");
+    expect(globalsCss).toContain("350ms");
     expect(globalsCss).toContain("@media (prefers-reduced-motion: reduce)");
   });
 
