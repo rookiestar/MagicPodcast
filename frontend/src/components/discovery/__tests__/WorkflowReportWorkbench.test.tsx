@@ -11,6 +11,7 @@ import WorkflowReportWorkbench, {
   HistoryDrawer,
 } from "@/components/discovery/WorkflowReportWorkbench";
 import type { HomepageReport } from "@/types/discovery";
+import { reportStatsSamples } from "@/lib/reportStatsSamples";
 
 const fetchDetailMock = vi.hoisted(() => vi.fn());
 
@@ -1914,4 +1915,39 @@ describe("WorkflowReportWorkbench", () => {
       ).not.toBeInTheDocument();
     });
   });
+
+  it.each(reportStatsSamples)(
+    "shows a fixed compact stats line for $name",
+    (sample) => {
+      render(
+        <WorkflowReportWorkbench
+          timezone="Asia/Shanghai"
+          todayReports={[
+            makeReport({
+              id: 331,
+              workflow_name: "精选报告样本",
+              content: sample.content,
+              report_stats: sample.stats,
+            }),
+          ]}
+        />,
+      );
+
+      const stats = screen.getByTestId("report-stats-line");
+      expect(stats).toHaveTextContent(sample.stats.line);
+      expect(stats.textContent).not.toMatch(/(?:^|[^\d])0 Token/);
+      const heading = screen.getByRole("heading", {
+        name: "精选报告样本",
+        level: 3,
+      });
+      expect(heading.compareDocumentPosition(stats) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+      const markdown = screen.getByTestId("markdown-body").textContent || "";
+      expect(markdown).not.toContain("🕐 执行");
+      expect(markdown).not.toContain("📡 Feed覆盖");
+      if (sample.content.includes("用户普通引用块")) {
+        expect(markdown).toContain("用户普通引用块");
+      }
+    },
+  );
 });

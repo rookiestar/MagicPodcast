@@ -160,27 +160,17 @@ func (rg *ReportGenerator) GenerateForJob(ctx context.Context, job *models.Job) 
 
 	coverage := rg.feedCoverage(job)
 
-	// 4. 生成Markdown内容（暂时传入0和空字符串，后续生成LLM摘要后更新）
-	markdown := rg.generateMarkdown(job, reportData, timeRangeStart, timeRangeEnd, string(timeRangeMode), workflow.Name, 0, "", coverage)
-
-	// 5. 生成LLM摘要（如果启用）
-	var llmSummary string
-	var llmError string
-	var llmModelUsed string
-	var llmTokensUsed int
-
+	// 4. 生成LLM摘要（如果启用）。抓取完成与摘要完成独立：摘要失败不改变 Job 完成语义。
 	logger.Debugf("[ReportGenerator] LLMEnabled=%v, SummarizerNil=%v, MatchedEpisodes=%d",
 		workflow.RulesConfig.LLMEnabled, rg.summarizer == nil, len(reportData))
 
-	// 优化：如果没有匹配的单集，跳过LLM摘要生成，不设置任何LLM字段
+	draft := &models.Report{}
 	if len(reportData) == 0 {
-		logger.Infof("⏭️  [JobID=%d] 没有匹配的单集，跳过LLM摘要生成（不显示AI相关内容）", job.ID)
-		// 不设置任何LLM字段，让前端完全不显示AI相关信息
-	} else if workflow.RulesConfig.LLMEnabled && rg.summarizer != nil {
+		logger.Infof("⏭️  [JobID=%d] 没有匹配的单集，跳过LLM摘要生成", job.ID)
+	} else if !workflow.RulesConfig.LLMEnabled || rg.summarizer == nil {
+		draft.LLMError = models.LLMErrorDisabled
+	} else {
 		logger.Infof("🤖 开始生成LLM摘要 [JobID=%d]", job.ID)
-		logger.Debugf("  - Summarizer type: %T", rg.summarizer)
-
-		// 准备选项
 		options := llm.SummaryOptions{
 			Model:       workflow.RulesConfig.LLMModel,
 			Temperature: workflow.RulesConfig.LLMTemperature,
@@ -188,43 +178,34 @@ func (rg *ReportGenerator) GenerateForJob(ctx context.Context, job *models.Job) 
 			MaxEpisodes: workflow.RulesConfig.LLMMaxEpisodes,
 		}
 		if options.Temperature == 0 {
-			options.Temperature = 0.7 // 默认值
+			options.Temperature = 0.7
 		}
 		if options.MaxTokens == 0 {
-			options.MaxTokens = 1000 // 默认值
+			options.MaxTokens = 1000
 		}
 		if options.MaxEpisodes == 0 {
-			options.MaxEpisodes = 20 // 默认值
+			options.MaxEpisodes = 20
 		}
 
-		// 转换数据格式
 		llmReportData := ConvertToLLMReportData(reportData)
-		logger.Debugf("  - Converted %d podcasts to LLM report format", len(llmReportData))
-
-		// 调用摘要生成器（只传入user prompt，system prompt从config获取）
-		logger.Debugf("  - Calling summarizer.GenerateForReport...")
 		result, err := rg.summarizer.GenerateForReport(
 			ctx,
 			llmReportData,
 			workflow.Name,
-			workflow.RulesConfig.LLMUserPrompt, // 只传入user prompt
+			workflow.RulesConfig.LLMUserPrompt,
 			options,
 		)
+		ApplyLLMOutcome(draft, result, err, false)
 		if err != nil {
 			logger.Warnf("LLM摘要生成失败 [JobID=%d]: %v", job.ID, err)
-			llmError = err.Error()
-			// 不中断流程，继续生成基础报告
 		} else {
-			llmSummary = result.Summary
-			llmModelUsed = result.ModelUsed
-			llmTokensUsed = result.TokensUsed
-			logger.Infof("✅ LLM摘要生成成功 [JobID=%d, Tokens=%d]", job.ID, llmTokensUsed)
-
-			// 重新生成包含token统计的Markdown（在LLM摘要生成前先生成完整内容）
-			markdown = rg.generateMarkdown(job, reportData, timeRangeStart, timeRangeEnd, string(timeRangeMode), workflow.Name, llmTokensUsed, llmModelUsed, coverage)
-			// 将LLM摘要插入到Markdown开头
-			markdown = rg.insertLLMSummary(markdown, llmSummary)
+			logger.Infof("✅ LLM摘要生成成功 [JobID=%d, Tokens=%d]", job.ID, draft.LLMTokensUsed)
 		}
+	}
+
+	markdown := rg.generateMarkdown(job, reportData, timeRangeStart, timeRangeEnd, string(timeRangeMode), workflow.Name, draft.LLMTokensUsed, draft.LLMModelUsed, coverage)
+	if strings.TrimSpace(draft.LLMSummary) != "" {
+		markdown = ReplaceOrInsertLLMSummary(markdown, draft.LLMSummary)
 	}
 
 	// 6. 使用事务创建Report记录并更新Job（确保原子性）
@@ -255,10 +236,10 @@ func (rg *ReportGenerator) GenerateForJob(ctx context.Context, job *models.Job) 
 		WorkflowName:       workflow.Name,
 		StructuredEpisodes: structured,
 		// LLM相关字段
-		LLMSummary:    llmSummary,
-		LLMModelUsed:  llmModelUsed,
-		LLMTokensUsed: llmTokensUsed,
-		LLMError:      llmError,
+		LLMSummary:    draft.LLMSummary,
+		LLMModelUsed:  draft.LLMModelUsed,
+		LLMTokensUsed: draft.LLMTokensUsed,
+		LLMError:      draft.LLMError,
 	}
 
 	// 使用事务确保Report创建和Job更新的原子性。Report.JobID is unique: if a
@@ -709,27 +690,21 @@ func formatTokenCount(tokens int) string {
 	}
 }
 
-// insertLLMSummary 将LLM摘要插入到标题之后、元数据卡片之前
 func (rg *ReportGenerator) insertLLMSummary(markdown, llmSummary string) string {
-	// markdown格式：
-	// # 标题 - 时间\n\n
-	// > 元数据卡片\n\n
-	// ---\n\n
-	// ## 单集详情\n\n
-	//
-	// 我们需要在标题和元数据卡片之间插入AI摘要
+	return insertLLMSummaryAfterTitle(markdown, llmSummary)
+}
 
+func insertLLMSummaryAfterTitle(markdown, llmSummary string) string {
 	lines := strings.Split(markdown, "\n")
 	var result strings.Builder
 	inserted := false
 
 	for i, line := range lines {
-		// 第一行是标题（# 标题 - 时间）
 		if i == 0 {
 			result.WriteString(line)
 			result.WriteString("\n\n")
-			// 在标题之后插入AI摘要
-			result.WriteString("## 🤖 AI智能摘要\n\n")
+			result.WriteString(aiSummaryHeading)
+			result.WriteString("\n\n")
 			result.WriteString(llmSummary)
 			result.WriteString("\n\n---\n\n")
 			inserted = true
@@ -740,9 +715,9 @@ func (rg *ReportGenerator) insertLLMSummary(markdown, llmSummary string) string 
 	}
 
 	if !inserted {
-		// 如果没有找到标题，fallback到原来的逻辑（追加到开头）
 		var builder strings.Builder
-		builder.WriteString("## 🤖 AI智能摘要\n\n")
+		builder.WriteString(aiSummaryHeading)
+		builder.WriteString("\n\n")
 		builder.WriteString(llmSummary)
 		builder.WriteString("\n\n---\n\n")
 		builder.WriteString(markdown)

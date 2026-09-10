@@ -89,6 +89,9 @@ func (s *Summarizer) GenerateForReport(ctx context.Context, data []EpisodeReport
 	}
 	result, err := s.client.GenerateSummary(ctx, systemPrompt, userPrompt, options)
 	if err != nil {
+		if result != nil {
+			return result, fmt.Errorf("LLM摘要生成失败: %w", err)
+		}
 		return nil, fmt.Errorf("LLM摘要生成失败: %w", err)
 	}
 

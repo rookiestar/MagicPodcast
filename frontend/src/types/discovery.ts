@@ -109,6 +109,7 @@ export interface HomepageReport {
   generated_at: string;
   episode_count: number;
   episodes: HomepageReportEpisode[];
+  report_stats?: import("@/lib/reportStats").ReportStats;
   /** History list rows omit full Markdown (#95). */
   metadata_only?: boolean;
 }

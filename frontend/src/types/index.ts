@@ -208,6 +208,7 @@ export interface Report {
   llm_model_used?: string; // 使用的模型名称
   llm_tokens_used?: number; // 使用的token数量
   llm_error?: string; // LLM错误信息（如果生成失败）
+  report_stats?: import("@/lib/reportStats").ReportStats;
 }
 
 export interface Workflow {

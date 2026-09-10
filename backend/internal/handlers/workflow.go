@@ -807,7 +807,7 @@ func (h *WorkflowHandler) RegenerateLLMSummary(c *gin.Context) {
 		Model:       workflowConfig.RulesConfig.LLMModel,
 	}
 
-	result, err := h.summarizer.GenerateForReport(
+	result, genErr := h.summarizer.GenerateForReport(
 		c.Request.Context(),
 		workflow.ConvertToLLMReportData(reportData),
 		workflowConfig.Name,
@@ -815,38 +815,22 @@ func (h *WorkflowHandler) RegenerateLLMSummary(c *gin.Context) {
 		options,
 	)
 
-	if err != nil {
-		logger.Errorf("Failed to regenerate LLM summary [JobID=%s]: %v", jobID, err)
+	workflow.ApplyLLMOutcome(&report, result, genErr, true)
 
-		// 更新报告的错误信息
-		report.LLMError = err.Error()
-		if err := db.Save(&report).Error; err != nil {
-			logger.Errorf("Failed to update report error: %v", err)
-		}
-
-		middleware.InternalErrorResponseWithCode(c, "LLM_ERROR", fmt.Sprintf("LLM摘要生成失败: %v", err))
-		return
-	}
-
-	// 6. 更新报告的LLM相关字段
-	report.LLMSummary = result.Summary
-	report.LLMModelUsed = result.ModelUsed
-	report.LLMTokensUsed = result.TokensUsed
-	report.LLMError = ""
-
-	// 重新插入LLM摘要到markdown
-	newContent := insertLLMSummary(report.Content, result.Summary)
-	report.Content = newContent
-
-	if err := db.Save(&report).Error; err != nil {
-		logger.Errorf("Failed to update report: %v", err)
+	if saveErr := db.Save(&report).Error; saveErr != nil {
+		logger.Errorf("Failed to update report: %v", saveErr)
 		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to update report")
 		return
 	}
 
-	logger.Infof("✅ LLM摘要重新生成成功 [JobID=%s, Tokens=%d]", jobID, result.TokensUsed)
+	if genErr != nil {
+		logger.Errorf("Failed to regenerate LLM summary [JobID=%s]: %v", jobID, genErr)
+		middleware.InternalErrorResponseWithCode(c, "LLM_ERROR", fmt.Sprintf("LLM摘要生成失败: %v", genErr))
+		return
+	}
 
-	// 7. 返回更新后的报告
+	logger.Infof("✅ LLM摘要重新生成成功 [JobID=%s, Tokens=%d]", jobID, report.LLMTokensUsed)
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "LLM摘要重新生成成功",

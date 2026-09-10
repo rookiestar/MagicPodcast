@@ -388,6 +388,7 @@ func workflowReportResponse(report *models.Report) gin.H {
 		"llm_model_used":      report.LLMModelUsed,
 		"llm_tokens_used":     report.LLMTokensUsed,
 		"llm_error":           report.LLMError,
+		"report_stats":        report.BuildReportStats(),
 	}
 }
 
@@ -537,51 +538,5 @@ func (h *WorkflowHandler) buildSortOrderClause(sortBy string) string {
 
 // insertLLMSummary 将LLM摘要插入到标题之后、元数据卡片之前
 func insertLLMSummary(markdown, llmSummary string) string {
-	lines := make([]string, 0)
-
-	for i, line := range splitLines(markdown) {
-		if i == 0 {
-			// 第一行是标题，在标题后插入AI摘要
-			lines = append(lines, line)
-			lines = append(lines, "")
-			lines = append(lines, "## 🤖 AI智能摘要")
-			lines = append(lines, "")
-			lines = append(lines, llmSummary)
-			lines = append(lines, "")
-			lines = append(lines, "---")
-			lines = append(lines, "")
-		} else {
-			lines = append(lines, line)
-		}
-	}
-
-	return joinLines(lines)
-}
-
-// splitLines 辅助函数：分割行
-func splitLines(s string) []string {
-	lines := make([]string, 0)
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			lines = append(lines, s[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		lines = append(lines, s[start:])
-	}
-	return lines
-}
-
-// joinLines 辅助函数：连接行
-func joinLines(lines []string) string {
-	result := ""
-	for i, line := range lines {
-		if i > 0 {
-			result += "\n"
-		}
-		result += line
-	}
-	return result
+	return workflow.ReplaceOrInsertLLMSummary(markdown, llmSummary)
 }
