@@ -20,3 +20,33 @@ it("forwards question fields intact and streams events before the answer is comp
   expect(new TextDecoder().decode((await reader.read()).value)).toContain('"complete"');
   expect((await reader.read()).done).toBe(true);
 });
+
+it("rejects an oversized declared body before proxying", async () => {
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  const request = {
+    headers: new Headers({ "content-length": String((256 << 10) + 1) }),
+    body: null,
+    signal: new AbortController().signal,
+  } as unknown as Request;
+  const response = await POST(request, { params: Promise.resolve({ id: "66314" }) });
+  expect(response.status).toBe(413);
+  expect(await response.json()).toEqual({ success: false, error: { code: "REQUEST_BODY_TOO_LARGE", message: "问题内容过长，请缩短后重试。" } });
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it("rejects an oversized streamed body without proxying it", async () => {
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  const chunk = new Uint8Array(200 << 10);
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(chunk);
+      controller.enqueue(chunk);
+      controller.close();
+    },
+  });
+  const response = await POST(new Request("http://localhost/api", { method: "POST", body, duplex: "half" } as RequestInit), { params: Promise.resolve({ id: "66314" }) });
+  expect(response.status).toBe(413);
+  expect(fetchMock).not.toHaveBeenCalled();
+});
