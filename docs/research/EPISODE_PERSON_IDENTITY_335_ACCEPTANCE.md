@@ -1,12 +1,11 @@
 # #335 人物识别修复验收记录
 
-状态：代码实现、相关必需检查和最终Runtime/浏览器隔离验收完成。未commit/push/merge、关票或操作生产，不能称专项已整体交付。
+状态：PR #340 已合并（`f8ea534`）；本次记录包含合并后审查修复。代码、相关必需检查和最终Runtime/浏览器隔离验收已完成；生产迁移/回填/部署及关票仍未执行。
 
 ## 版本与范围
 
 - 父合同：GitHub #335；依赖 #336 → #337 → #338 → #339。过程与失败记录见 [实施记录](EPISODE_PERSON_IDENTITY_335_IMPLEMENTATION.md)。
-- 隔离工作树 `issue-335-identity-repair`，分支 `codex/issue-335-identity-repair`；基线 `6aaeed3574fadaba3b08fa96ed193476442d5fee`。
-- 未提交代码的52个backend/frontend变更文件汇总SHA-256：`a42b28eec0ed5f4f40cd04dc4ed72394eb9208c6aa80c4a1c56744b64d5902ea`。逐文件清单 `/tmp/persona335-evidence/closeout-final-fingerprint.json`；这不是commit SHA。
+- 原专项隔离工作树 `issue-335-identity-repair` 已通过 PR #340 合入；当前 follow-up 只包含合并后审查发现的维护命令备份绑定和同集同名 ID 稳定性修复。
 - Schema29；识别版本 `identity-evidence-v3`。沿用现有Runtime的balanced：`gpt-5.6-luna / max / priority`，身份阶段禁用所有工具，不含私有备注。
 - 每集先识别身份，再对建议归属作1–3组并行复核，最多4次调用，共用原150秒总deadline。小集减少调用，不截断输入、不增设网关或后台平台。失败、取消或复核缺项不发布部分结果。
 - 新调用预算与体验影响已说明；在当前Goal明确授权的识别修复内实施。生产、Git写入和代理委派仍各自遵守授权边界。
@@ -31,7 +30,7 @@
 | #337-5 索引/取消/并发原子性 | `TestIndexFailureRollsBackIdentityPublicationAndCorrections`、晚到准备/索引测试、复核遗漏与取消不发布测试 |
 | #337-6 来源变更/删除与一般检索 | 元数据失效、最后artifact删除测试；混合片段和排除人物的原文仍可一般检索且无人物归属 |
 | #337-7 纠正HTTP与跨集隔离 | `TestAppearanceCorrectionHTTPValidatesAndSeparatesRoleFromIdentity`、`TestConflictingNameCorrectionDoesNotRenameOtherEpisodes` |
-| #337-8 只读预览/限定重建/失败报告 | CLI `TestPreviewDoesNotWriteAndApplyRequiresExplicitScope`；独立副本真实CLI执行，未选集不修改 |
+| #337-8 只读预览/限定重建/失败报告 | CLI `TestPreviewDoesNotWriteAndApplyRequiresExplicitScope`、`TestApplyRejectsHealthyBackupFromAnotherDatabase`、`TestLogicalFingerprintMatchesAnExactDatabaseCopy`；独立副本真实CLI执行，未选集不修改 |
 | #337-9 新迁移与只读启动 | 仅新增29，未改27/28；影子升级/恢复、迁移声明与必需表检查测试，全后端通过 |
 | #338-1 正确名单/无技术标记 | 实际@列表截图与API；默认角色名称、真实待确认状态分开 |
 | #338-2 姓名/角色/片段证据与原文 | `EpisodePersonEvidence`、源片段跳转测试与真实页面 |
@@ -40,7 +39,7 @@
 | #338-5 选择失效/迟到响应 | 面板测试与真实排除后保留问题，要求重选或明确普通问答 |
 | #338-6 四态与取消 | 初次/旧资料待准备、慢请求保留输入、取消与失败重试；HTTP断连取消红绿回归、代理45秒测试 |
 | #338-7 桌面/移动/键盘/IME | 实际桌面与390×844、Chromium composition+Enter不提交；不声称覆盖操作系统候选窗 |
-| #338-8 原问答/档位/备注/来源 | 全前端948测试、lint/build/type-check；真实普通与人物回答、来源跳转 |
+| #338-8 原问答/档位/备注/来源 | 全前端951测试、lint/build/type-check；真实普通与人物回答、来源跳转 |
 | #339-1 最终链无预填标准答案 | 原始资料→Runtime→持久化→实际页面；v17-prepare.log、v17-answer.log、v17-source-visible.log |
 | #339-2 名单/角色/锚点/首中尾与冲突 | 九集逐人检查、固定62段文本层审查；其余1765段不计入准确率 |
 | #339-3 指标与分母 | 见下方独立姓名/角色/归属指标，自动归属数量不作正确数 |
@@ -81,7 +80,7 @@
 
 - 最终后端全量test/vet：`/tmp/persona335-role-closeout-go.log`、`/tmp/persona335-role-closeout-vet.log`，退出0。
 - 四个相关包personidentity/contentsearch/handlers/episodecopilot的race通过：`/tmp/persona335-namesake-upgrade-green.log`；不称全部后端race覆盖。随后仅追加普通圆桌讨论不默认嘉宾的提示，已通过全后端检查。
-- 前端136文件948测试、全量lint/build/type-check通过：`/tmp/persona335-closeout-ui-tests.log`、`/tmp/persona335-closeout-ui-lint.log`、`/tmp/persona335-closeout-ui-build.log`、`/tmp/persona335-closeout-final-type.log`。随后仅恢复Next自动改写的生成配置，type-check再次通过。
+- 前端136文件951项测试、全量lint/build/type-check通过：`/tmp/persona335-followup-ui-tests.log`、`/tmp/persona335-closeout-ui-lint.log`、`/tmp/persona335-closeout-ui-build.log`、`/tmp/persona335-closeout-final-type.log`；follow-up 另新增3项后端回归测试。随后仅恢复Next自动改写的生成配置，type-check再次通过。
 - 实际姓名改名并恢复、同ID且无测试别名：`/tmp/persona335-browser-name-correction.log`。角色/排除/撤销、问题保留、移动面板与原文跳转已实际验证。
 - Chromium原生组合输入Enter未提交：`/tmp/persona335-native-ime-result.log`；不是操作系统输入法全覆盖。
 - 实际普通回答约117秒；人物回答约17.77秒并显示“基于公开表达的AI模拟，非本人回复”、带原文来源。记录 `/tmp/persona335-normal-answer.log`、`/tmp/persona335-playwright-answer.log`、`/tmp/persona335-answer-source-result.log`。最终v17问答见下条，历史耗时不作当前性能承诺。

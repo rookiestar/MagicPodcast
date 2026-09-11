@@ -886,6 +886,15 @@ func findExistingPerson(tx *gorm.DB, episodeID uint, candidate extractedCandidat
 		if len(anchored) == 1 {
 			return anchored[0], true
 		}
+		localBindingMatches := make([]models.Person, 0)
+		for _, person := range local {
+			if matchingLocalSpeechBinding(tx, person, candidate, episodeID) {
+				localBindingMatches = append(localBindingMatches, person)
+			}
+		}
+		if len(localBindingMatches) == 1 {
+			return localBindingMatches[0], true
+		}
 		return models.Person{}, false
 	}
 	if len(compatible) == 1 {
@@ -933,6 +942,51 @@ func matchingIdentityAnchor(tx *gorm.DB, person models.Person, candidate extract
 		}
 	}
 	return false
+}
+
+// A same-episode namesake without a cross-episode identity anchor can still be
+// stable when the model preserved a distinct, source-backed speaker binding.
+// Match the exact speaker, evidence fragment, and quote; ambiguous matches stay
+// split so a repeated preparation cannot silently choose one namesake.
+func matchingLocalSpeechBinding(tx *gorm.DB, person models.Person, candidate extractedCandidate, episodeID uint) bool {
+	if person.DisplayName != candidate.DisplayName || candidate.Status != StatusConfirmed {
+		return false
+	}
+	var incoming identityProposal
+	if json.Unmarshal([]byte(candidate.EvidenceLocator), &incoming) != nil {
+		return false
+	}
+	keys := map[string]bool{}
+	for _, binding := range incoming.SpeechBindings {
+		if binding.Evidence.Source != SourceTranscript || strings.TrimSpace(binding.SpeakerLabel) == "" || binding.Evidence.Fragment <= 0 || strings.TrimSpace(binding.Evidence.Quote) == "" {
+			continue
+		}
+		keys[localSpeechBindingKey(binding.SpeakerLabel, binding.Evidence.Fragment, binding.Evidence.Quote)] = true
+	}
+	if len(keys) == 0 {
+		return false
+	}
+	var appearances []models.EpisodeAppearance
+	if err := tx.Where("episode_id = ? AND person_id = ?", episodeID, person.ID).Find(&appearances).Error; err != nil {
+		return false
+	}
+	for _, appearance := range appearances {
+		var previous identityProposal
+		if json.Unmarshal([]byte(appearance.EvidenceLocator), &previous) != nil {
+			continue
+		}
+		for _, binding := range previous.SpeechBindings {
+			key := localSpeechBindingKey(binding.SpeakerLabel, binding.Evidence.Fragment, binding.Evidence.Quote)
+			if keys[key] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func localSpeechBindingKey(speaker string, fragment int, quote string) string {
+	return fmt.Sprintf("%s|%d|%s", strings.TrimSpace(speaker), fragment, normalizeIdentityEvidence(quote))
 }
 
 func identityConflicts(existing, incoming string) bool {

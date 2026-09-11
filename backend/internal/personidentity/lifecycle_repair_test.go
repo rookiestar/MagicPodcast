@@ -693,3 +693,47 @@ func TestSameEpisodeNamesKeepDistinctSourceBackedIdentities(t *testing.T) {
 	require.Empty(t, restored.ExcludedPeople)
 	require.Equal(t, id, *restored.Attributions[0].PersonID)
 }
+
+func TestSameEpisodeUnanchoredNamesakesKeepLocalIDs(t *testing.T) {
+	db := openPersonIdentityDB(t)
+	pod := models.Podcast{XYZID: "same-callname-episode", Title: "访谈", FeedURL: "https://example.test/same-callname-episode"}
+	require.NoError(t, db.Create(&pod).Error)
+	ep := models.Episode{PodcastID: pod.ID, GUID: "same-callname-episode", Title: "两位同名称呼"}
+	require.NoError(t, db.Create(&ep).Error)
+	makeCandidate := func(speaker string, order int) SuggestedCandidate {
+		proof, err := json.Marshal(map[string]any{
+			"name":      "王老师",
+			"name_type": "episode_callname",
+			"speech_bindings": []any{map[string]any{
+				"speaker_label":   speaker,
+				"evidence":        map[string]any{"source": SourceTranscript, "fragment": order, "quote": "我是王老师。"},
+				"basis":           "self_introduction",
+				"orders":          []int{order},
+				"scope":           "listed_fragments",
+				"excluded_orders": []int{},
+			}},
+		})
+		require.NoError(t, err)
+		return SuggestedCandidate{DisplayName: "王老师", Role: RoleGuest, Status: StatusConfirmed, EvidenceKind: "verified_runtime", EvidenceLocator: string(proof), SpeechOrders: []int{order}}
+	}
+	service, err := NewService(db, stubSuggester{candidates: []SuggestedCandidate{makeCandidate("A", 1), makeCandidate("B", 2)}})
+	require.NoError(t, err)
+	src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "fixture-same-callname", Segments: []Segment{{Order: 1, SpeakerLabel: "A", Text: "我是王老师。"}, {Order: 2, SpeakerLabel: "B", Text: "我是王老师。"}}}
+	first, err := service.Prepare(context.Background(), src)
+	require.NoError(t, err)
+	require.Len(t, first.People, 2)
+	firstIDs := []uint{*first.Attributions[0].PersonID, *first.Attributions[1].PersonID}
+	again, err := service.Prepare(context.Background(), src)
+	require.NoError(t, err)
+	require.Equal(t, firstIDs[0], *again.Attributions[0].PersonID)
+	require.Equal(t, firstIDs[1], *again.Attributions[1].PersonID)
+	excluded := true
+	_, err = service.CorrectAppearance(context.Background(), ep.ID, AppearanceCorrection{PersonID: firstIDs[0], Excluded: &excluded})
+	require.NoError(t, err)
+	rebuilt, err := service.Prepare(context.Background(), src)
+	require.NoError(t, err)
+	require.Len(t, rebuilt.People, 1)
+	require.Equal(t, firstIDs[1], rebuilt.People[0].ID)
+	require.Len(t, rebuilt.ExcludedPeople, 1)
+	require.Equal(t, firstIDs[0], rebuilt.ExcludedPeople[0].ID)
+}

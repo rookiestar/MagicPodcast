@@ -125,6 +125,10 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	}
 	sqlDB, _ := db.DB()
 	preview, err := personidentity.PreviewRebuild(ctx, db, ids)
+	var targetFingerprint string
+	if err == nil && o.apply {
+		targetFingerprint, err = logicalDatabaseFingerprint(ctx, db)
+	}
 	closeErr := sqlDB.Close()
 	if err != nil {
 		return err
@@ -160,12 +164,24 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	backupSQL, _ := backup.DB()
 	var integrity string
 	err = backup.Raw("PRAGMA quick_check").Scan(&integrity).Error
-	_ = backupSQL.Close()
 	if err != nil {
+		_ = backupSQL.Close()
 		return err
 	}
 	if integrity != "ok" {
+		_ = backupSQL.Close()
 		return fmt.Errorf("backup integrity check failed")
+	}
+	backupFingerprint, err := logicalDatabaseFingerprint(ctx, backup)
+	backupCloseErr := backupSQL.Close()
+	if err != nil {
+		return err
+	}
+	if backupCloseErr != nil {
+		return backupCloseErr
+	}
+	if backupFingerprint != targetFingerprint {
+		return fmt.Errorf("backup does not match target database state")
 	}
 	db, err = openDB(o.db, true)
 	if err != nil {
@@ -173,6 +189,13 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	}
 	sqlDB, _ = db.DB()
 	defer sqlDB.Close()
+	currentTargetFingerprint, err := logicalDatabaseFingerprint(ctx, db)
+	if err != nil {
+		return err
+	}
+	if currentTargetFingerprint != targetFingerprint {
+		return fmt.Errorf("target database changed after preview")
+	}
 	if err := database.RequireSchemaReady(db); err != nil {
 		return err
 	}
