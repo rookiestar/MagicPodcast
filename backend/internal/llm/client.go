@@ -358,8 +358,8 @@ func (c *Client) normalizeModel(model string) string {
 		return model
 	}
 
-	if model == "" || strings.HasPrefix(model, "glm-") {
-		return "deepseek-v4-flash"
+	if model == "" || strings.HasPrefix(model, "glm-") || model == "deepseek-v4-flash" {
+		return "deepseek-flash"
 	}
 
 	return model

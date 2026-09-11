@@ -33,7 +33,7 @@ func (s *reportSummarizerStub) GenerateForReport(ctx context.Context, data []llm
 	if s.result != nil || s.err != nil {
 		return s.result, s.err
 	}
-	return &llm.SummaryResult{Summary: "可读摘要", ModelUsed: "deepseek-v4-flash", TokensUsed: 12}, nil
+	return &llm.SummaryResult{Summary: "可读摘要", ModelUsed: "deepseek-flash", TokensUsed: 12}, nil
 }
 
 func setupReportAPI(t *testing.T, summarizer workflow.SummarizerInterface) (*gorm.DB, *gin.Engine) {
@@ -122,19 +122,19 @@ func TestGenerateThenReadReportStats(t *testing.T) {
 		{
 			name:       "success",
 			enabled:    true,
-			summarizer: &reportSummarizerStub{result: &llm.SummaryResult{Summary: "可读摘要", ModelUsed: "deepseek-v4-flash", TokensUsed: 12}},
+			summarizer: &reportSummarizerStub{result: &llm.SummaryResult{Summary: "可读摘要", ModelUsed: "deepseek-flash", TokensUsed: 12}},
 			status:     models.AIStatusGenerated,
-			lineHas:    "AI 已生成 · deepseek-v4-flash · 12 Token",
+			lineHas:    "AI 已生成 · deepseek-flash · 12 Token",
 		},
 		{
 			name:    "empty with tokens",
 			enabled: true,
 			summarizer: &reportSummarizerStub{
 				err:    llm.ErrEmptyCompletion,
-				result: &llm.SummaryResult{ModelUsed: "deepseek-v4-flash", TokensUsed: 7245},
+				result: &llm.SummaryResult{ModelUsed: "deepseek-flash", TokensUsed: 7245},
 			},
 			status:  models.AIStatusNotGenerated,
-			lineHas: "AI 未生成 · deepseek-v4-flash · 7.2K Token",
+			lineHas: "AI 未生成 · deepseek-flash · 7.2K Token",
 		},
 		{
 			name:    "truncated",
@@ -142,7 +142,7 @@ func TestGenerateThenReadReportStats(t *testing.T) {
 			summarizer: &reportSummarizerStub{
 				err: llm.ErrIncompleteCompletion,
 				result: &llm.SummaryResult{
-					Summary: "半份", ModelUsed: "deepseek-v4-flash", TokensUsed: 120,
+					Summary: "半份", ModelUsed: "deepseek-flash", TokensUsed: 120,
 					Incomplete: true, FinishReason: "length",
 				},
 			},
@@ -214,7 +214,7 @@ func TestReadHistoricalReportUnknownDoesNotForgeZeroTokens(t *testing.T) {
 }
 
 func TestRegenerateLLMSummarySuccessAndFailure(t *testing.T) {
-	stub := &reportSummarizerStub{result: &llm.SummaryResult{Summary: "第二版摘要", ModelUsed: "deepseek-v4-flash", TokensUsed: 20}}
+	stub := &reportSummarizerStub{result: &llm.SummaryResult{Summary: "第二版摘要", ModelUsed: "deepseek-flash", TokensUsed: 20}}
 	db, router := setupReportAPI(t, stub)
 	job := seedReportJob(t, db, true)
 	require.NoError(t, db.Create(&models.Report{
@@ -225,7 +225,7 @@ func TestRegenerateLLMSummarySuccessAndFailure(t *testing.T) {
 		MatchedCount:  1,
 		GeneratedAt:   time.Now(),
 		LLMSummary:    "原有效摘要",
-		LLMModelUsed:  "deepseek-v4-flash",
+		LLMModelUsed:  "deepseek-flash",
 		LLMTokensUsed: 12,
 	}).Error)
 
@@ -263,7 +263,7 @@ func TestRegenerateLLMSummaryIncompleteDoesNotOverwriteValidSummary(t *testing.T
 		err: llm.ErrIncompleteCompletion,
 		result: &llm.SummaryResult{
 			Summary:      "半份结论",
-			ModelUsed:    "deepseek-v4-flash",
+			ModelUsed:    "deepseek-flash",
 			TokensUsed:   80,
 			FinishReason: "length",
 			Incomplete:   true,
@@ -280,7 +280,7 @@ func TestRegenerateLLMSummaryIncompleteDoesNotOverwriteValidSummary(t *testing.T
 		MatchedCount:  1,
 		GeneratedAt:   time.Now(),
 		LLMSummary:    original,
-		LLMModelUsed:  "deepseek-v4-flash",
+		LLMModelUsed:  "deepseek-flash",
 		LLMTokensUsed: 12,
 	}).Error)
 

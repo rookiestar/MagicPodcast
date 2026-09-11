@@ -172,7 +172,7 @@ llm:
   # API Base URL
   base_url: "https://api.deepseek.com"
   # 默认模型
-  default_model: "deepseek-v4-flash"
+  default_model: "deepseek-flash"
   # 请求超时（秒）
   timeout: 60
   # 最大重试次数

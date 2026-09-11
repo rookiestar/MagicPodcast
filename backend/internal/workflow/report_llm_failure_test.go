@@ -35,7 +35,7 @@ func (s *stubSummarizer) GenerateForReport(ctx context.Context, data []llm.Episo
 	if s.result != nil || s.err != nil {
 		return s.result, s.err
 	}
-	return &llm.SummaryResult{Summary: "ok", ModelUsed: "deepseek-v4-flash", TokensUsed: 12}, nil
+	return &llm.SummaryResult{Summary: "ok", ModelUsed: "deepseek-flash", TokensUsed: 12}, nil
 }
 
 func TestFinalizeJobLLMFailureKeepsCompletedZeroErrorCount(t *testing.T) {
@@ -181,7 +181,7 @@ func TestGenerateForJobLLMOutcomes(t *testing.T) {
 		{
 			name:       "success",
 			enabled:    true,
-			summarizer: &stubSummarizer{result: &llm.SummaryResult{Summary: "可读摘要", ModelUsed: "deepseek-v4-flash", TokensUsed: 12}},
+			summarizer: &stubSummarizer{result: &llm.SummaryResult{Summary: "可读摘要", ModelUsed: "deepseek-flash", TokensUsed: 12}},
 			status:     models.AIStatusGenerated,
 			summary:    "可读摘要",
 		},
@@ -190,7 +190,7 @@ func TestGenerateForJobLLMOutcomes(t *testing.T) {
 			enabled: true,
 			summarizer: &stubSummarizer{
 				err:    llm.ErrEmptyCompletion,
-				result: &llm.SummaryResult{Summary: "", ModelUsed: "deepseek-v4-flash", TokensUsed: 7245},
+				result: &llm.SummaryResult{Summary: "", ModelUsed: "deepseek-flash", TokensUsed: 7245},
 			},
 			status:   models.AIStatusNotGenerated,
 			hasError: true,
@@ -201,7 +201,7 @@ func TestGenerateForJobLLMOutcomes(t *testing.T) {
 			summarizer: &stubSummarizer{
 				err: llm.ErrIncompleteCompletion,
 				result: &llm.SummaryResult{
-					Summary: "半份结论", ModelUsed: "deepseek-v4-flash", TokensUsed: 120,
+					Summary: "半份结论", ModelUsed: "deepseek-flash", TokensUsed: 120,
 					FinishReason: "length", Incomplete: true,
 				},
 			},

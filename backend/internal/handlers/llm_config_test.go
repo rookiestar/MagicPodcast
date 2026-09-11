@@ -35,14 +35,14 @@ func TestLLMGetModelsIncludesDeepSeekFlash(t *testing.T) {
 
 	found := false
 	for _, model := range body.Data.Available {
-		if model.ID == "deepseek-v4-flash" {
+		if model.ID == "deepseek-flash" {
 			found = true
-			require.Equal(t, "DeepSeek V4 Flash", model.Name)
+			require.Equal(t, "DeepSeek Flash", model.Name)
 			require.True(t, model.Available)
 			break
 		}
 	}
-	require.True(t, found, "deepseek-v4-flash should be listed")
+	require.True(t, found, "deepseek-flash should be listed")
 }
 
 func TestLLMValidateKeyRejectsShortKey(t *testing.T) {
@@ -56,7 +56,7 @@ func TestLLMValidateKeyRejectsShortKey(t *testing.T) {
 	req := httptest.NewRequest(
 		http.MethodPost,
 		"/validate-key",
-		strings.NewReader(`{"api_key":"short","model":"deepseek-v4-flash"}`),
+		strings.NewReader(`{"api_key":"short","model":"deepseek-flash"}`),
 	)
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, req)

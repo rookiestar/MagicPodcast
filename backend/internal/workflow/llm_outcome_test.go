@@ -23,7 +23,7 @@ func TestReplaceOrInsertLLMSummaryDoesNotDuplicate(t *testing.T) {
 func TestApplyLLMOutcomeKeepsValidSummaryOnFailure(t *testing.T) {
 	report := &models.Report{
 		LLMSummary:    "原有效摘要",
-		LLMModelUsed:  "deepseek-v4-flash",
+		LLMModelUsed:  "deepseek-flash",
 		LLMTokensUsed: 12,
 		Content:       ReplaceOrInsertLLMSummary("# 标题\n\n正文\n", "原有效摘要"),
 	}
@@ -38,13 +38,13 @@ func TestApplyLLMOutcomeKeepsValidSummaryAcrossIncompleteRegenerates(t *testing.
 	original := "原有效摘要"
 	report := &models.Report{
 		LLMSummary:    original,
-		LLMModelUsed:  "deepseek-v4-flash",
+		LLMModelUsed:  "deepseek-flash",
 		LLMTokensUsed: 12,
 		Content:       ReplaceOrInsertLLMSummary("# 标题\n\n正文\n", original),
 	}
 	truncated := &llm.SummaryResult{
 		Summary:      "半份结论",
-		ModelUsed:    "deepseek-v4-flash",
+		ModelUsed:    "deepseek-flash",
 		TokensUsed:   80,
 		FinishReason: "length",
 		Incomplete:   true,
@@ -69,7 +69,7 @@ func TestApplyLLMOutcomeKeepsValidSummaryAcrossIncompleteRegenerates(t *testing.
 func TestApplyLLMOutcomeRecordsIncomplete(t *testing.T) {
 	report := &models.Report{Content: "# 标题\n\n正文\n"}
 	ApplyLLMOutcome(report, &llm.SummaryResult{
-		Summary: "半份", ModelUsed: "deepseek-v4-flash", TokensUsed: 9,
+		Summary: "半份", ModelUsed: "deepseek-flash", TokensUsed: 9,
 		FinishReason: "length", Incomplete: true,
 	}, llm.ErrIncompleteCompletion, true)
 	require.Equal(t, models.AIStatusIncomplete, report.DeriveAIStatus())
