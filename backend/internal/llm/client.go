@@ -46,6 +46,14 @@ type ChatCompletionRequest struct {
 	Temperature float64   `json:"temperature,omitempty"`
 	MaxTokens   int       `json:"max_tokens,omitempty"`
 	Stream      bool      `json:"stream,omitempty"`
+	Thinking    *Thinking `json:"thinking,omitempty"`
+}
+
+// Thinking controls DeepSeek's optional chain-of-thought mode. It is omitted
+// for normal requests so other OpenAI-compatible providers keep their current
+// payload shape.
+type Thinking struct {
+	Type string `json:"type"`
 }
 
 // Message 消息格式
@@ -201,6 +209,9 @@ func (c *Client) GenerateSummary(ctx context.Context, systemPrompt, userPrompt s
 		MaxTokens:   options.MaxTokens,
 		Stream:      false,
 	}
+	if options.DisableThinking && c.config.Provider == config.LLMProviderDeepSeek {
+		req.Thinking = &Thinking{Type: "disabled"}
+	}
 
 	// 序列化请求
 	reqBody, err := json.Marshal(req)
@@ -349,6 +360,9 @@ type SummaryOptions struct {
 	Temperature float64
 	MaxTokens   int
 	MaxEpisodes int // 单次摘要最大单集数
+	// DisableThinking is honored by the DeepSeek provider for compact recovery
+	// calls where a visible final answer is required within a small budget.
+	DisableThinking bool
 }
 
 // SummaryResult 摘要结果
