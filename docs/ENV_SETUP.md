@@ -46,6 +46,7 @@ backend/.env
 | `MAGICPODCAST_LLM_PROVIDER` | LLM 提供商 |
 | `MAGICPODCAST_LLM_BASE_URL` | LLM API 地址 |
 | `MAGICPODCAST_LLM_DEFAULT_MODEL` | 默认模型 |
+| `MAGICPODCAST_LLM_MAX_TOKENS_PER_REQUEST` | LLM 单次请求生成预算上限；工作流留空时使用 |
 | `MAGICPODCAST_SMTP_HOST` | SMTP 服务器 |
 | `MAGICPODCAST_SMTP_PORT` | SMTP 端口 |
 | `MAGICPODCAST_SMTP_USERNAME` | SMTP 用户名 |
@@ -72,6 +73,8 @@ backend/.env
 | `MAGICPODCAST_PROCESSING_SCHEDULE_CRON` | Focus 定时加工 cron；启用时必填 |
 | `MAGICPODCAST_PROCESSING_SCHEDULE_TIMEZONE` | Focus 定时加工 IANA 时区；启用时必填 |
 | `MAGICPODCAST_PROCESSING_SCHEDULE_BATCH_SIZE` | 单次定时选择的最大单集数；启用时至少为 1 |
+
+`llm.max_tokens_per_request` 是 LLM 单次生成预算的全局默认值和上限，默认 15000。工作流的 `llm_max_tokens` 留空时使用该值，也可以设置不超过该值的单独覆盖；修改配置后需重启后端。
 
 生产模式下，`./scripts/start.sh --prod` 会默认设置：
 

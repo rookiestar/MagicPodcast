@@ -162,7 +162,7 @@ export interface RulesConfig {
   llm_max_episodes?: number; // 单次摘要最大单集数（默认20）
   llm_model?: string; // 模型名称（可选，覆盖默认配置）
   llm_temperature?: number; // 温度参数（0.0-1.0，默认0.7）
-  llm_max_tokens?: number; // 最大生成token数（默认1000）
+  llm_max_tokens?: number; // 最大生成token数；留空使用服务端LLM配置
   llm_user_prompt?: string; // 用户提示词模板（可选，留空使用默认）
 }
 

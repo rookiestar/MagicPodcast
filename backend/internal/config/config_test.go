@@ -27,6 +27,7 @@ func TestLoadAppliesRuntimeEnvOverrides(t *testing.T) {
 	t.Setenv("MAGICPODCAST_DATABASE_DEBUG", "false")
 	t.Setenv("MAGICPODCAST_DATABASE_PATH", "/tmp/magicpodcast-test.db")
 	t.Setenv("MAGICPODCAST_DATABASE_BUSY_TIMEOUT_MS", "2500")
+	t.Setenv("MAGICPODCAST_LLM_MAX_TOKENS_PER_REQUEST", "12000")
 
 	writeTestConfig(t, configPath, `
 server:
@@ -63,6 +64,26 @@ xyz_api:
 	if loaded.Database.Debug {
 		t.Fatal("Database.Debug = true, want false")
 	}
+	if loaded.LLM.MaxTokensPerRequest != 12000 {
+		t.Fatalf("LLM.MaxTokensPerRequest = %d, want 12000", loaded.LLM.MaxTokensPerRequest)
+	}
+}
+
+func TestLoadDefaultsLLMMaxTokensPerRequest(t *testing.T) {
+	t.Cleanup(func() {
+		cfg = nil
+		viper.Reset()
+	})
+	viper.Reset()
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	writeTestConfig(t, configPath, minimalBaseConfigYAML+`
+llm:
+  enabled: true
+`)
+	loaded, err := Load(configPath)
+	require.NoError(t, err)
+	require.Equal(t, DefaultLLMMaxTokensPerRequest, loaded.LLM.MaxTokensPerRequest)
 }
 
 func TestLoadAppliesProcessingEnvOverrides(t *testing.T) {

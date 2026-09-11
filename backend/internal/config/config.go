@@ -126,6 +126,9 @@ const (
 	LLMProviderAnthropic   LLMProvider = "anthropic"
 	LLMProviderZhipuAI     LLMProvider = "zhipuai"
 	LLMProviderDeepSeek    LLMProvider = "deepseek"
+
+	MinLLMMaxTokensPerRequest     = 100
+	DefaultLLMMaxTokensPerRequest = 15000
 )
 
 // LLMConfig LLM配置
@@ -140,9 +143,9 @@ type LLMConfig struct {
 	RetryInterval       int         `mapstructure:"retry_interval"`
 	MaxConcurrent       int         `mapstructure:"max_concurrent"`
 	RateLimitPerMinute  int         `mapstructure:"rate_limit_per_minute"`
-	MaxTokensPerRequest int         `mapstructure:"max_tokens_per_request"`
-	PromptsDir          string      `mapstructure:"prompts_dir"`   // Prompt模板目录
-	SystemPrompt        string      `mapstructure:"system_prompt"` // 全局System Prompt
+	MaxTokensPerRequest int         `mapstructure:"max_tokens_per_request"` // 全局LLM生成预算，工作流可在此范围内覆盖
+	PromptsDir          string      `mapstructure:"prompts_dir"`            // Prompt模板目录
+	SystemPrompt        string      `mapstructure:"system_prompt"`          // 全局System Prompt
 }
 
 // SearchWeights 搜索字段权重
@@ -224,7 +227,9 @@ func Load(configPath string) (*Config, error) {
 	// （MAGICPODCAST_FEED_USER_AGENT）。绑定到具体叶子键后生效。
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.SetDefault("discovery.timezone", "Asia/Shanghai")
+	viper.SetDefault("llm.max_tokens_per_request", DefaultLLMMaxTokensPerRequest)
 	_ = viper.BindEnv("discovery.timezone")
+	_ = viper.BindEnv("llm.max_tokens_per_request")
 	bindFeedEnvKeys()
 	bindProcessingEnvKeys()
 
@@ -501,6 +506,9 @@ func (c *Config) applyEnvOverrides() {
 	if model := viper.GetString("llm_default_model"); model != "" {
 		c.LLM.DefaultModel = model
 	}
+	if maxTokens := viper.GetInt("llm.max_tokens_per_request"); maxTokens != 0 {
+		c.LLM.MaxTokensPerRequest = maxTokens
+	}
 
 	// Email SMTP配置
 	if host := viper.GetString("smtp_host"); host != "" {
@@ -566,6 +574,9 @@ func (c *Config) Validate() error {
 	// 验证 XYZ API URL
 	if c.XYZAPI.URL == "" {
 		return fmt.Errorf("xyz_api url cannot be empty")
+	}
+	if c.LLM.Enabled && c.LLM.MaxTokensPerRequest < MinLLMMaxTokensPerRequest {
+		return fmt.Errorf("llm max_tokens_per_request must be at least %d", MinLLMMaxTokensPerRequest)
 	}
 
 	if strings.TrimSpace(c.Discovery.Timezone) == "" {

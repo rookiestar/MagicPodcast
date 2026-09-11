@@ -76,7 +76,7 @@ type RulesConfig struct {
 	LLMMaxEpisodes int     `json:"llm_max_episodes,omitempty"` // 单次摘要最大单集数，默认20
 	LLMModel       string  `json:"llm_model,omitempty"`        // 模型名称（可选，覆盖默认配置）
 	LLMTemperature float64 `json:"llm_temperature,omitempty"`  // 温度参数（0.0-1.0，默认0.7）
-	LLMMaxTokens   int     `json:"llm_max_tokens,omitempty"`   // 最大生成token数（默认1000）
+	LLMMaxTokens   int     `json:"llm_max_tokens,omitempty"`   // 最大生成token数；留空使用全局LLM配置
 	LLMUserPrompt  string  `json:"llm_user_prompt,omitempty"`  // 用户提示词模板（可选，留空使用默认）
 }
 

@@ -63,6 +63,58 @@ func TestDeepSeekProviderNormalizesLegacyGLMModel(t *testing.T) {
 	require.Equal(t, "deepseek-v4-flash", result.ModelUsed)
 }
 
+func TestGenerateSummaryUsesConfiguredMaxTokensWhenUnset(t *testing.T) {
+	var requestedMaxTokens int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req ChatCompletionRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		requestedMaxTokens = req.MaxTokens
+		w.Header().Set("Content-Type", "application/json")
+		_, err := w.Write(successChatCompletionBody("deepseek-v4-flash", "OK"))
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+
+	client := NewClient(&config.LLMConfig{
+		Enabled:             true,
+		Provider:            config.LLMProviderDeepSeek,
+		APIKey:              "test-key",
+		BaseURL:             server.URL,
+		DefaultModel:        "deepseek-v4-flash",
+		MaxTokensPerRequest: 1234,
+		Timeout:             5,
+		RateLimitPerMinute:  60,
+	})
+
+	result, err := client.GenerateSummary(context.Background(), "", "test", SummaryOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "OK", result.Summary)
+	require.Equal(t, 1234, requestedMaxTokens)
+}
+
+func TestGenerateSummaryRejectsMaxTokensAboveConfiguredLimit(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+	}))
+	defer server.Close()
+
+	client := NewClient(&config.LLMConfig{
+		Enabled:             true,
+		Provider:            config.LLMProviderDeepSeek,
+		APIKey:              "test-key",
+		BaseURL:             server.URL,
+		DefaultModel:        "deepseek-v4-flash",
+		MaxTokensPerRequest: 1234,
+		Timeout:             5,
+		RateLimitPerMinute:  60,
+	})
+
+	_, err := client.GenerateSummary(context.Background(), "", "test", SummaryOptions{MaxTokens: 1235})
+	require.EqualError(t, err, "llm max_tokens 1235 exceeds configured limit 1234")
+	require.Zero(t, requests)
+}
+
 func successChatCompletionBody(model, content string) []byte {
 	payload, _ := json.Marshal(ChatCompletionResponse{
 		ID:      "test",

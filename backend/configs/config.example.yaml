@@ -183,8 +183,8 @@ llm:
   max_concurrent: 3
   # 速率限制（每分钟请求数）
   rate_limit_per_minute: 30
-  # 单次请求token限制
-  max_tokens_per_request: 2000
+  # 单次请求生成预算上限；工作流可留空使用此值，或设置不超过此值的覆盖值
+  max_tokens_per_request: 15000
   # Prompt模板目录
   prompts_dir: "./configs/prompts"
   # 全局System Prompt（所有工作流共享）
