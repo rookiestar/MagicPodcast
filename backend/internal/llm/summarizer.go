@@ -3,7 +3,9 @@ package llm
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"text/template"
 	"time"
 )
@@ -11,6 +13,12 @@ import (
 const (
 	defaultMaxSummaryEpisodes = 20
 	fallbackSystemPrompt      = "你是播客内容分析专家。请基于提供的数据进行分析，不编造信息，保持客观中立。"
+	// A truncated response with no final body can happen when a thinking model
+	// consumes the whole output budget. One compact retry is enough to recover
+	// a readable summary without increasing the workflow's configured budget.
+	compactRetryMaxTokens      = 1200
+	compactRetryShowNotesRunes = 600
+	compactRetryInstruction    = "\n\n【摘要恢复要求】\n请直接输出最终中文摘要，不要输出思考过程；控制在 800 字以内；即使信息不足也要输出可读结论。"
 )
 
 // EpisodeDetail 单集详情（用于LLM摘要）
@@ -77,8 +85,9 @@ func (s *Summarizer) GenerateForReport(ctx context.Context, data []EpisodeReport
 		systemPrompt = fallbackSystemPrompt
 	}
 
+	promptTemplate := userPrompt
 	templateData := buildSummaryTemplateData(workflowName, totalEpisodes, data)
-	userPrompt, err := s.renderReportUserPrompt(userPrompt, templateData)
+	renderedPrompt, err := s.renderReportUserPrompt(promptTemplate, templateData)
 	if err != nil {
 		return nil, err
 	}
@@ -87,15 +96,126 @@ func (s *Summarizer) GenerateForReport(ctx context.Context, data []EpisodeReport
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	result, err := s.client.GenerateSummary(ctx, systemPrompt, userPrompt, options)
-	if err != nil {
-		if result != nil {
-			return result, fmt.Errorf("LLM摘要生成失败: %w", err)
-		}
-		return nil, fmt.Errorf("LLM摘要生成失败: %w", err)
+	result, err := s.client.GenerateSummary(ctx, systemPrompt, renderedPrompt, options)
+	if !isEmptyTruncatedCompletion(result, err) {
+		return wrapSummaryResult(result, err)
 	}
 
-	return result, nil
+	// The normal client retry policy intentionally does not retry truncation
+	// with the same prompt. A compact, explicit final-answer prompt is a
+	// different request and addresses the observed empty-body failure mode.
+	compactData := compactReportData(data)
+	compactTemplateData := buildSummaryTemplateData(workflowName, countEpisodes(compactData), compactData)
+	compactPrompt, promptErr := s.renderReportUserPrompt(promptTemplate, compactTemplateData)
+	if promptErr != nil {
+		return result, fmt.Errorf("LLM摘要生成失败: %w；精简重试提示渲染失败: %v", err, promptErr)
+	}
+	compactPrompt += compactRetryInstruction
+	compactOptions := options
+	compactOptions.MaxTokens = boundedCompactRetryMaxTokens(options.MaxTokens)
+	compactOptions.DisableThinking = true
+	if model := strings.TrimSpace(result.ModelUsed); model != "" {
+		// Reuse the provider's canonical model name when the configured alias
+		// was rewritten in the first response (for example, v4-flash -> flash).
+		compactOptions.Model = model
+	}
+
+	compactResult, compactErr := s.client.GenerateSummary(ctx, systemPrompt, compactPrompt, compactOptions)
+	if compactErr == nil && compactResult != nil && strings.TrimSpace(compactResult.Summary) != "" {
+		return mergeSummaryUsage(result, compactResult), nil
+	}
+	if compactResult != nil && strings.TrimSpace(compactResult.Summary) != "" {
+		return mergeSummaryUsage(result, compactResult), fmt.Errorf("LLM摘要生成失败: %w", compactErr)
+	}
+	if compactResult != nil {
+		addSummaryUsage(result, compactResult)
+	}
+
+	baseErr := err
+	if baseErr == nil {
+		baseErr = ErrIncompleteCompletion
+	}
+	if compactErr != nil {
+		return result, fmt.Errorf("LLM摘要生成失败: %w；精简重试失败: %v", baseErr, compactErr)
+	}
+	return result, fmt.Errorf("LLM摘要生成失败: %w；精简重试返回空摘要", baseErr)
+}
+
+// mergeSummaryUsage keeps the report's Token count aligned with the actual
+// cost when a bounded recovery call was made. The retry result remains the
+// source of the final body and finish reason.
+func mergeSummaryUsage(initial, retry *SummaryResult) *SummaryResult {
+	if retry == nil {
+		return initial
+	}
+	if initial == nil {
+		return retry
+	}
+	retry.TokensUsed += initial.TokensUsed
+	retry.PromptTokens += initial.PromptTokens
+	retry.TotalTokens += initial.TotalTokens
+	if retry.ModelUsed == "" {
+		retry.ModelUsed = initial.ModelUsed
+	}
+	return retry
+}
+
+func addSummaryUsage(target, additional *SummaryResult) {
+	if target == nil || additional == nil {
+		return
+	}
+	target.TokensUsed += additional.TokensUsed
+	target.PromptTokens += additional.PromptTokens
+	target.TotalTokens += additional.TotalTokens
+}
+
+func wrapSummaryResult(result *SummaryResult, err error) (*SummaryResult, error) {
+	if err == nil {
+		return result, nil
+	}
+	if result != nil {
+		return result, fmt.Errorf("LLM摘要生成失败: %w", err)
+	}
+	return nil, fmt.Errorf("LLM摘要生成失败: %w", err)
+}
+
+func isEmptyTruncatedCompletion(result *SummaryResult, err error) bool {
+	if result == nil || strings.TrimSpace(result.Summary) != "" {
+		return false
+	}
+	return result.Incomplete || errors.Is(err, ErrIncompleteCompletion)
+}
+
+func boundedCompactRetryMaxTokens(original int) int {
+	if original > 0 && original < compactRetryMaxTokens {
+		return original
+	}
+	return compactRetryMaxTokens
+}
+
+func compactReportData(data []EpisodeReportData) []EpisodeReportData {
+	compact := make([]EpisodeReportData, len(data))
+	for i, podcast := range data {
+		compact[i] = podcast
+		compact[i].Episodes = make([]EpisodeDetail, len(podcast.Episodes))
+		for j, episode := range podcast.Episodes {
+			compact[i].Episodes[j] = episode
+			compact[i].Episodes[j].ShowNotes = compactShowNotes(episode.ShowNotes)
+		}
+	}
+	return compact
+}
+
+func compactShowNotes(showNotes string) string {
+	text := strings.TrimSpace(showNotes)
+	if text == "" {
+		return ""
+	}
+	runes := []rune(text)
+	if len(runes) <= compactRetryShowNotesRunes {
+		return text
+	}
+	return string(runes[:compactRetryShowNotesRunes]) + "…"
 }
 
 func countEpisodes(data []EpisodeReportData) int {
