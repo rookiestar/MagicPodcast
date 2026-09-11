@@ -2,6 +2,7 @@ package contentsearch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -16,6 +17,53 @@ import (
 type Service struct {
 	db *gorm.DB
 }
+
+// WithTransaction joins index publication to the caller's fact transaction.
+// It retains the same indexing behavior and never commits the outer transaction.
+func (s *Service) WithTransaction(tx *gorm.DB) Module { return &Service{db: tx} }
+
+// Search consumes identity facts; old index copies are not identity authority.
+// Text remains searchable when an attribution is revoked; only identity queries
+// and returned person labels require agreement with current attribution facts.
+// An explicit name confirmation plus matching fragment confirmation remains
+// usable when the automatic preparation has not yet been upgraded.
+const reliableAttributionSQL = `
+content_search_fragments.attribution_status = 'confirmed'
+AND (NOT EXISTS (SELECT 1 FROM speech_attributions a WHERE a.episode_id = content_search_fragments.episode_id)
+ OR EXISTS (SELECT 1 FROM speech_attributions a
+ WHERE a.episode_id = content_search_fragments.episode_id
+ AND a.source_kind = content_search_fragments.source_kind
+ AND a.source_version = content_search_fragments.source_version
+ AND a.fragment_order = content_search_fragments.fragment_order
+ AND a.person_id IS content_search_fragments.person_id
+ AND a.status = content_search_fragments.attribution_status
+ AND a.text = content_search_fragments.text))
+AND NOT EXISTS (SELECT 1 FROM person_appearance_overrides po WHERE po.episode_id = content_search_fragments.episode_id AND po.person_id = content_search_fragments.person_id AND po.excluded = 1)
+AND EXISTS (SELECT 1 FROM episode_appearances ap
+ WHERE ap.episode_id = content_search_fragments.episode_id
+ AND ap.person_id = content_search_fragments.person_id
+ AND ap.source_version = content_search_fragments.source_version AND ap.status = 'confirmed')
+AND (
+ EXISTS (SELECT 1 FROM person_preparations pp
+ WHERE pp.episode_id = content_search_fragments.episode_id
+ AND pp.source_version = content_search_fragments.source_version
+ AND pp.algorithm_version = ?)
+ OR (
+ EXISTS (SELECT 1 FROM person_user_confirmations n
+ WHERE n.episode_id = content_search_fragments.episode_id AND n.kind = 'person_name'
+ AND n.person_id = content_search_fragments.person_id)
+ AND EXISTS (SELECT 1 FROM person_user_confirmations c
+ JOIN speech_attributions a ON a.episode_id = c.episode_id
+ AND a.source_kind = c.source_kind AND a.source_version = c.source_version
+ AND a.fragment_order = c.fragment_order
+ WHERE c.episode_id = content_search_fragments.episode_id AND c.kind = 'fragment_attribution'
+ AND c.assigned_person_id = content_search_fragments.person_id
+ AND c.source_kind = content_search_fragments.source_kind
+ AND c.source_version = content_search_fragments.source_version
+ AND c.fragment_order = content_search_fragments.fragment_order
+ AND c.source_text = content_search_fragments.text AND c.speaker_label = a.speaker_label
+ AND c.status = 'confirmed')
+ ))`
 
 func NewService(db *gorm.DB) (*Service, error) {
 	if db == nil {
@@ -61,7 +109,7 @@ func (s *Service) Search(ctx context.Context, request Request) (Result, error) {
 		limit = maxLimit
 	}
 
-	coverage, err := s.coverageFor(ctx, scopeIDs, request.Filter.SourceKind)
+	coverage, err := s.coverageFor(ctx, scopeIDs, request.Filter.SourceKind, request.Filter.PersonID != nil)
 	if err != nil {
 		return Result{}, err
 	}
@@ -69,17 +117,21 @@ func (s *Service) Search(ctx context.Context, request Request) (Result, error) {
 	query := s.db.WithContext(ctx).Model(&models.ContentSearchFragment{}).
 		Where("current = ? AND episode_id IN ?", true, scopeIDs).
 		Where("EXISTS (SELECT 1 FROM episodes e JOIN podcasts p ON p.id = e.podcast_id WHERE e.id = content_search_fragments.episode_id AND e.deleted_at IS NULL AND p.deleted_at IS NULL)").
-		Where("source_kind != ? OR NOT EXISTS (SELECT 1 FROM episode_artifact_sets a WHERE a.episode_id = content_search_fragments.episode_id) OR EXISTS (SELECT 1 FROM episode_artifact_sets a WHERE a.episode_id = content_search_fragments.episode_id AND a.is_current = 1 AND 'artifact-' || a.id = content_search_fragments.source_version)", SourceTranscript).
+		Where("source_kind != ? OR (content_search_fragments.source_version NOT LIKE 'artifact-%' AND NOT EXISTS (SELECT 1 FROM episode_artifact_sets a WHERE a.episode_id = content_search_fragments.episode_id)) OR EXISTS (SELECT 1 FROM episode_artifact_sets a WHERE a.episode_id = content_search_fragments.episode_id AND a.is_current = 1 AND 'artifact-' || a.id = content_search_fragments.source_version)", SourceTranscript).
 		Where("source_kind != ? OR text = (SELECT show_notes FROM episodes e WHERE e.id = content_search_fragments.episode_id)", SourceShowNotes).
-		Where("source_kind != ? OR NOT EXISTS (SELECT 1 FROM speech_attributions a WHERE a.episode_id = content_search_fragments.episode_id) OR EXISTS (SELECT 1 FROM speech_attributions a WHERE a.episode_id = content_search_fragments.episode_id AND a.source_kind = content_search_fragments.source_kind AND a.source_version = content_search_fragments.source_version AND a.fragment_order = content_search_fragments.fragment_order AND a.person_id IS content_search_fragments.person_id AND a.status = content_search_fragments.attribution_status AND a.text = content_search_fragments.text)", SourceTranscript)
+		Where("source_kind != ? OR NOT EXISTS (SELECT 1 FROM speech_attributions a WHERE a.episode_id = content_search_fragments.episode_id) OR EXISTS (SELECT 1 FROM speech_attributions a WHERE a.episode_id = content_search_fragments.episode_id AND a.source_kind = content_search_fragments.source_kind AND a.source_version = content_search_fragments.source_version AND a.fragment_order = content_search_fragments.fragment_order AND a.text = content_search_fragments.text)", SourceTranscript)
 	if request.Filter.PersonID != nil {
 		query = query.Where("person_id = ? AND attribution_status = ?", *request.Filter.PersonID, "confirmed")
+		query = query.Where(reliableAttributionSQL, models.CurrentIdentityAlgorithm)
 	}
 	if strings.TrimSpace(request.Filter.SourceKind) != "" {
 		query = query.Where("source_kind = ?", request.Filter.SourceKind)
 	}
-	var rows []models.ContentSearchFragment
-	if err := query.Find(&rows).Error; err != nil {
+	var rows []struct {
+		models.ContentSearchFragment
+		ReliableAttribution bool
+	}
+	if err := query.Select("content_search_fragments.*, ("+reliableAttributionSQL+") AS reliable_attribution", models.CurrentIdentityAlgorithm).Find(&rows).Error; err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrSearchFailed, err)
 	}
 
@@ -89,7 +141,12 @@ func (s *Service) Search(ctx context.Context, request Request) (Result, error) {
 		score int
 	}
 	rankedHits := make([]ranked, 0, len(rows))
-	for _, row := range rows {
+	for _, candidate := range rows {
+		row := candidate.ContentSearchFragment
+		if !candidate.ReliableAttribution && row.PersonID != nil {
+			row.PersonID = nil
+			row.AttributionStatus = "pending"
+		}
 		score := overlapScore(queryTokens, strings.Fields(row.Tokens))
 		if score <= 0 && !strings.Contains(row.Text, strings.TrimSpace(request.Query)) {
 			continue
@@ -182,6 +239,17 @@ func (s *Service) ReplaceEpisode(ctx context.Context, document EpisodeDocument) 
 		publishedAt = now
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if expected := document.AttributionVersion; expected != nil {
+			var state models.PersonPreparation
+			err := tx.First(&state, "episode_id = ?", document.EpisodeID).Error
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			if state.Revision != expected.Revision || state.PublishedRevision != expected.PublishedRevision {
+				return ErrStaleDocument
+			}
+		}
+
 		if err := tx.Model(&models.ContentSearchFragment{}).
 			Where("episode_id = ? AND source_kind = ?", document.EpisodeID, document.SourceKind).
 			Updates(map[string]any{"current": false, "updated_at": now}).Error; err != nil {
@@ -220,6 +288,7 @@ func (s *Service) ReplaceEpisode(ctx context.Context, document EpisodeDocument) 
 		}
 		if document.SourceKind == SourceTranscript {
 			showNotesDoc := EpisodeDocument{
+				ShowNotes:        document.ShowNotes,
 				EpisodeID:        document.EpisodeID,
 				PublishedAt:      publishedAt,
 				SourceKind:       SourceShowNotes,
@@ -319,19 +388,19 @@ func (s *Service) RemoveEpisode(ctx context.Context, episodeID uint) error {
 	})
 }
 
-func (s *Service) coverageFor(ctx context.Context, episodeIDs []uint, sourceKind string) (Coverage, error) {
+func (s *Service) coverageFor(ctx context.Context, episodeIDs []uint, sourceKind string, personFiltered bool) (Coverage, error) {
 	query := s.db.WithContext(ctx).Model(&models.ContentSearchCoverage{}).
 		Where("episode_id IN ?", episodeIDs)
-	if strings.TrimSpace(sourceKind) != "" {
-		query = query.Where("source_kind = ?", sourceKind)
-	} else {
-		query = query.Where("source_kind = ?", SourceTranscript)
+	sourceKinds := []string{sourceKind}
+	if strings.TrimSpace(sourceKind) == "" {
+		sourceKinds = []string{SourceTranscript, SourceShowNotes}
 	}
+	query = query.Where("source_kind IN ?", sourceKinds)
 	var rows []models.ContentSearchCoverage
 	if err := query.Find(&rows).Error; err != nil {
 		return Coverage{}, fmt.Errorf("%w: %v", ErrSearchFailed, err)
 	}
-	byEpisode := map[uint]models.ContentSearchCoverage{}
+	byEpisode := map[string]models.ContentSearchCoverage{}
 	for _, row := range rows {
 		var active int64
 		if err := s.db.WithContext(ctx).Model(&models.Episode{}).Where("id = ?", row.EpisodeID).Count(&active).Error; err != nil {
@@ -345,7 +414,7 @@ func (s *Service) coverageFor(ctx context.Context, episodeIDs []uint, sourceKind
 			if err := s.db.WithContext(ctx).Select("id", "is_current").Where("episode_id = ?", row.EpisodeID).Find(&artifacts).Error; err != nil {
 				return Coverage{}, err
 			}
-			if len(artifacts) > 0 {
+			if len(artifacts) > 0 || strings.HasPrefix(row.SourceVersion, "artifact-") {
 				valid := false
 				for _, a := range artifacts {
 					if a.IsCurrent && fmt.Sprintf("artifact-%d", a.ID) == row.SourceVersion {
@@ -355,17 +424,27 @@ func (s *Service) coverageFor(ctx context.Context, episodeIDs []uint, sourceKind
 				row.Complete = row.Complete && valid
 			}
 		}
-		byEpisode[row.EpisodeID] = row
+		if personFiltered {
+			var prepared int64
+			if err := s.db.WithContext(ctx).Model(&models.PersonPreparation{}).Where("episode_id = ? AND source_version = ? AND algorithm_version = ?", row.EpisodeID, row.SourceVersion, models.CurrentIdentityAlgorithm).Count(&prepared).Error; err != nil {
+				return Coverage{}, err
+			}
+			row.Complete = row.Complete && prepared > 0
+		}
+		byEpisode[fmt.Sprintf("%d:%s", row.EpisodeID, row.SourceKind)] = row
 	}
 	missing := make([]uint, 0)
 	complete := true
 	reason := CoverageComplete
 	for _, episodeID := range episodeIDs {
-		row, ok := byEpisode[episodeID]
-		if !ok || !row.Complete {
-			complete = false
-			missing = append(missing, episodeID)
-			reason = CoverageIndexNotReady
+		for _, kind := range sourceKinds {
+			row, ok := byEpisode[fmt.Sprintf("%d:%s", episodeID, kind)]
+			if !ok || !row.Complete {
+				complete = false
+				missing = append(missing, episodeID)
+				reason = CoverageIndexNotReady
+				break
+			}
 		}
 	}
 	return Coverage{

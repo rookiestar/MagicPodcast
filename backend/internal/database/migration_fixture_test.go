@@ -53,6 +53,7 @@ func TestSchema24FixtureIsHistoricalSanitizedAndComplete(t *testing.T) {
 		"26:episode-artifact-audio-recovery",
 		"27:person-identity-and-speech-attribution",
 		"28:content-search-fragments",
+		"29:person-preparation-evidence-version",
 	}, migrationNames(status.Pending))
 
 	for table, want := range map[string]int64{
@@ -138,7 +139,7 @@ func TestProductionMigrationRunnerPreservesSchema24ProtectedDataAndIsIdempotent(
 
 	reports, err := newProductionMigrationRunner().run(db)
 	require.NoError(t, err)
-	require.Len(t, reports, 4)
+	require.Len(t, reports, CurrentSchemaVersion-24)
 	require.Equal(t, 25, reports[0].Version)
 	require.Empty(t, reports[0].Violations)
 	require.Equal(t, []DDLChange{
@@ -152,6 +153,8 @@ func TestProductionMigrationRunnerPreservesSchema24ProtectedDataAndIsIdempotent(
 	require.Empty(t, reports[2].Violations)
 	require.Equal(t, 28, reports[3].Version)
 	require.Empty(t, reports[3].Violations)
+	require.Equal(t, 29, reports[4].Version)
+	require.Empty(t, reports[4].Violations)
 
 	after, err := captureMigrationDatabaseSnapshot(db)
 	require.NoError(t, err)
@@ -322,12 +325,12 @@ func TestProductionMigrationPreflightBuildsBoundSanitizedReportWithoutWritingSou
 	require.Equal(t, CurrentSchemaVersion, report.TargetSchemaVersion)
 	require.True(t, report.Result.ApplyEligible)
 	require.Equal(t, "passed", report.Result.Status)
-	require.Len(t, report.PendingMigrations, 4)
+	require.Len(t, report.PendingMigrations, CurrentSchemaVersion-24)
 	require.Equal(t, "native-minutes-artifact-integrity", report.PendingMigrations[0].Name)
 	require.Equal(t, "episode-artifact-audio-recovery", report.PendingMigrations[1].Name)
 	require.Equal(t, "person-identity-and-speech-attribution", report.PendingMigrations[2].Name)
 	require.Equal(t, "content-search-fragments", report.PendingMigrations[3].Name)
-	require.Len(t, report.Executions, 4)
+	require.Len(t, report.Executions, CurrentSchemaVersion-24)
 	require.Contains(t, report.ForeignKeyDependencies, ForeignKeyEdge{Parent: "episodes", Child: "episode_triage_decisions"})
 	require.Contains(t, report.ProtectedTables, "episode_triage_decisions")
 	require.Equal(t, int64(13), migrationSummaryByTable(t, report.ProtectedBefore, "episode_triage_decisions").Rows)
@@ -577,12 +580,24 @@ func TestDestructiveDrillRemainsRedAtCurrentSchema(t *testing.T) {
 	dangerous := dangerousEpisodeRebuildMigration()
 	dangerous.Version = CurrentSchemaVersion + 1
 	dangerous.Name = "test-current-schema-episode-parent-rebuild"
+	// Deliberately remove the referencing trigger in this unsafe shadow-only
+	// fixture so the rebuild reaches the data-loss gate instead of stopping
+	// at SQLite's earlier schema-reference error. The loss assertion remains.
+	originalApply := dangerous.Apply
+	dangerous.Apply = func(db *gorm.DB) error {
+		if err := db.Exec("DROP TRIGGER invalidate_person_preparation_on_podcast_metadata").Error; err != nil {
+			return err
+		}
+		return originalApply(db)
+	}
+	dangerous.Contract.SchemaChanges = append(dangerous.Contract.SchemaChanges, SchemaChangeRule{Operation: SchemaChangeDropTrigger, Table: "podcasts", Object: "invalidate_person_preparation_on_podcast_metadata"})
 	report, err := newMigrationRunner([]Migration{dangerous}).preflight(source, MigrationPreflightOptions{
 		BackupPath: backup, TargetCommit: targetCommit,
 	})
 	require.Error(t, err)
 	require.False(t, report.Result.ApplyEligible)
 	require.Equal(t, CurrentSchemaVersion, report.SourceSchemaVersion)
+	require.NotEmpty(t, report.Executions, "preflight failed before gate audit: %v", err)
 	require.Contains(t, report.Executions[0].Violations, MigrationViolation{
 		Code: "protected_data_decreased", Table: "episode_triage_decisions", Operation: DataChangeDelete,
 		Detail: "table episode_triage_decisions protected rows decreased 13->0",
@@ -885,4 +900,24 @@ func TestPersonaInvalidationTriggerCannotTargetUndeclaredTable(t *testing.T) {
 	require.Equal(t, "episodes", change.Table)
 	require.Empty(t, validateMigrationDDL([]DDLChange{change}, []SchemaChangeRule{{Operation: SchemaChangeCreateTrigger, Table: "episodes", Object: "invalidate_persona_on_show_notes"}}))
 	require.NotEmpty(t, validateMigrationDDL([]DDLChange{change}, []SchemaChangeRule{{Operation: SchemaChangeCreateTrigger, Table: "podcasts", Object: "invalidate_persona_on_show_notes"}}))
+}
+
+func TestDroppedTriggerContractUsesActualOwningTable(t *testing.T) {
+	before := migrationDatabaseSnapshot{Schema: map[string]migrationSchemaObject{
+		"trigger:old_identity": {Type: "trigger", Name: "old_identity", Table: "episodes"},
+	}}
+	changes := resolveDroppedObjectTables(before, []DDLChange{{Operation: SchemaChangeDropTrigger, Object: "old_identity"}})
+	require.Equal(t, "episodes", changes[0].Table)
+	require.Empty(t, validateMigrationDDL(changes, []SchemaChangeRule{{Operation: SchemaChangeDropTrigger, Table: "episodes", Object: "old_identity"}}))
+	require.NotEmpty(t, validateMigrationDDL(changes, []SchemaChangeRule{{Operation: SchemaChangeDropTrigger, Table: "podcasts", Object: "old_identity"}}))
+}
+
+func TestSchemaReadinessRejectsMissingPersonAppearanceOverrides(t *testing.T) {
+	db := openSchema24MigrationFixture(t)
+	require.NoError(t, ApplyMigrations(db))
+	require.NoError(t, db.Exec("DROP TABLE person_appearance_overrides").Error)
+	status, err := InspectSchema(db)
+	require.NoError(t, err)
+	require.Contains(t, status.RequiredTablesMissing, models.PersonAppearanceOverride{}.TableName())
+	require.ErrorIs(t, RequireSchemaReady(db), ErrSchemaNotReady)
 }

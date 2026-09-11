@@ -855,6 +855,15 @@ export default function ConsumptionDetailPanel({
     copilotRestoreRef.current = null;
   }, [isCopilotOpen]);
 
+  const openCopilotSource = useCallback(async (episodeId: number) => {
+    if (isMobileViewport) {
+      copilotRestoreRef.current = null;
+      closeCopilot();
+    }
+    await onOpenSourceEpisode?.(episodeId);
+    if (episodeId === item.episode_id) setActiveTab("transcript");
+  }, [isMobileViewport, closeCopilot, onOpenSourceEpisode, item.episode_id]);
+
   const handleTabKeyDown = (
     event: KeyboardEvent<HTMLButtonElement>,
     currentTab: DetailTab,
@@ -1195,7 +1204,7 @@ export default function ConsumptionDetailPanel({
                 onSelectedProfileIDChange={onSelectedCopilotProfileIDChange}
                 rejectedProfileIDs={rejectedCopilotProfileIDs}
                 onRejectedProfileID={onRejectedCopilotProfileID}
-                onOpenSourceEpisode={onOpenSourceEpisode}
+                onOpenSourceEpisode={openCopilotSource}
               />
             </div>
           </aside>

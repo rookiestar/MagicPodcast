@@ -9,6 +9,8 @@ import (
 )
 
 type extractedCandidate struct {
+	key             string
+	SourceNames     []string
 	DisplayName     string
 	Aliases         []string
 	IdentityNote    string
@@ -23,6 +25,7 @@ type extractedCandidate struct {
 type extractedFragment struct {
 	Segment
 	PersonName      string
+	PersonKey       string
 	Status          string
 	EvidenceKind    string
 	EvidenceLocator string
@@ -468,32 +471,4 @@ func identityTokens(note string) map[string]struct{} {
 	}
 	flush()
 	return tokens
-}
-
-func identityCompatible(existingNote, incomingNote string) bool {
-	if strings.TrimSpace(existingNote) == "" || strings.TrimSpace(incomingNote) == "" {
-		return true
-	}
-	if strings.Contains(existingNote, incomingNote) || strings.Contains(incomingNote, existingNote) {
-		return true
-	}
-	left := identityTokens(existingNote)
-	right := identityTokens(incomingNote)
-	if len(left) == 0 || len(right) == 0 {
-		return true
-	}
-	overlap := 0
-	for token := range left {
-		if _, ok := right[token]; ok {
-			overlap++
-		}
-	}
-	if overlap == 0 {
-		return false
-	}
-	smaller := len(left)
-	if len(right) < smaller {
-		smaller = len(right)
-	}
-	return overlap*2 >= smaller
 }

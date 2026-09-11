@@ -24,7 +24,10 @@ import (
 func TestPersonHandlerListsAndCorrectsAttributionWithoutRewritingSource(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := openIsolatedPersonDB(t)
-	service, err := personidentity.NewService(db, nil)
+	service, err := personidentity.NewService(db, fixedIdentityFixture{
+		{DisplayName: "张三", Role: "host", EvidenceKind: "verified_runtime"},
+		{DisplayName: "李明", Role: "guest", EvidenceKind: "verified_runtime"},
+	})
 	require.NoError(t, err)
 
 	podcast := models.Podcast{
@@ -100,6 +103,13 @@ func TestPersonHandlerListsAndCorrectsAttributionWithoutRewritingSource(t *testi
 	require.True(t, corrected.Data.Attributions[0].UserConfirmed)
 }
 
+// Controlled identity decisions for HTTP behavior tests, never model quality.
+type fixedIdentityFixture []personidentity.SuggestedCandidate
+
+func (f fixedIdentityFixture) Suggest(context.Context, personidentity.EpisodeSources) ([]personidentity.SuggestedCandidate, error) {
+	return f, nil
+}
+
 func openIsolatedPersonDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	dsn := fmt.Sprintf("file:person_http_%d?mode=memory&cache=shared&_foreign_keys=on", time.Now().UnixNano())
@@ -111,4 +121,89 @@ func openIsolatedPersonDB(t *testing.T) *gorm.DB {
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	require.NoError(t, database.ApplyMigrations(db))
 	return db
+}
+
+func TestAppearanceCorrectionHTTPValidatesAndSeparatesRoleFromIdentity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := openIsolatedPersonDB(t)
+	pod := models.Podcast{XYZID: "appearance-http", Title: "访谈", FeedURL: "https://example.test/appearance-http"}
+	require.NoError(t, db.Create(&pod).Error)
+	ep := models.Episode{PodcastID: pod.ID, GUID: "appearance-http", Title: "访谈"}
+	require.NoError(t, db.Create(&ep).Error)
+	service, err := personidentity.NewService(db, fixedIdentityFixture{{DisplayName: "林言", Role: "unknown", Status: "pending", EvidenceKind: "verified_runtime"}})
+	require.NoError(t, err)
+	initial, err := service.Prepare(context.Background(), personidentity.EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", Segments: []personidentity.Segment{{Order: 1, Text: "投资观点。"}}})
+	require.NoError(t, err)
+	require.Len(t, initial.People, 1)
+	router := gin.New()
+	handler := handlers.NewPersonHandler(service)
+	router.POST("/episodes/:id/people/:personId/appearance-corrections", handler.CorrectAppearance)
+	url := fmt.Sprintf("/episodes/%d/people/%d/appearance-corrections", ep.ID, initial.People[0].ID)
+	for _, body := range []string{`{}`, `{"role":"producer"}`, `{"excluded":"yes"}`, `{"role":"host","unexpected":true}`} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, url, bytes.NewBufferString(body)))
+		require.Equal(t, http.StatusBadRequest, recorder.Code, body)
+	}
+	for _, body := range []string{`{"role":"host"}`, `{"excluded":true}`, `{"excluded":false}`} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, url, bytes.NewBufferString(body)))
+		require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	final, err := service.ListEpisodePeople(context.Background(), ep.ID)
+	require.NoError(t, err)
+	require.Equal(t, "host", final.People[0].Role)
+	require.Equal(t, "pending", final.People[0].Status, "correcting role must not confirm identity")
+	require.Zero(t, final.People[0].ConfirmedSpeech)
+}
+
+type cancellablePersonPreparation struct {
+	personidentity.Module
+	started   chan struct{}
+	cancelled chan struct{}
+	release   chan struct{}
+}
+
+func (p *cancellablePersonPreparation) PrepareCurrent(ctx context.Context, _ uint) (personidentity.EpisodePeople, error) {
+	close(p.started)
+	select {
+	case <-ctx.Done():
+		close(p.cancelled)
+		return personidentity.EpisodePeople{}, ctx.Err()
+	case <-p.release:
+		return personidentity.EpisodePeople{}, context.Canceled
+	}
+}
+
+func TestPersonPreparationObservesHTTPClientCancellationWithPOSTBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	preparer := &cancellablePersonPreparation{started: make(chan struct{}), cancelled: make(chan struct{}), release: make(chan struct{})}
+	engine := gin.New()
+	engine.POST("/episodes/:id/people/prepare", handlers.NewPersonHandler(preparer).Prepare)
+	server := httptest.NewServer(engine)
+	t.Cleanup(server.Close)
+	t.Cleanup(func() { close(preparer.release) })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/episodes/1/people/prepare", bytes.NewBufferString("{}"))
+	require.NoError(t, err)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		response, _ := server.Client().Do(request)
+		if response != nil {
+			_ = response.Body.Close()
+		}
+	}()
+	select {
+	case <-preparer.started:
+	case <-time.After(time.Second):
+		t.Fatal("preparation did not start")
+	}
+	cancel()
+	select {
+	case <-preparer.cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("HTTP client cancellation did not reach preparation")
+	}
+	<-done
 }

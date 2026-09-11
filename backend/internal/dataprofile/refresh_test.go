@@ -1579,13 +1579,15 @@ func TestSnapshotRemovesPersonaPrivateFactsAndDerivedText(t *testing.T) {
 		`INSERT INTO person_user_confirmations(episode_id,kind,person_id,source_text,created_at,updated_at) SELECT id,'person_name',9001,'private correction',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP FROM episodes LIMIT 1`,
 		`INSERT INTO content_search_fragments(episode_id,source_kind,source_version,fragment_order,text,published_at,created_at,updated_at) SELECT id,'transcript','private-v1',1,'private transcript',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP FROM episodes LIMIT 1`,
 		`INSERT INTO content_search_coverage(episode_id,source_kind,source_version,updated_at) SELECT id,'transcript','private-v1',CURRENT_TIMESTAMP FROM episodes LIMIT 1`,
+		`INSERT INTO person_appearance_overrides(episode_id,person_id,role,excluded,updated_at) SELECT id,9001,'host',1,CURRENT_TIMESTAMP FROM episodes LIMIT 1`,
+		`INSERT INTO person_preparations(episode_id,metadata_digest,updated_at) SELECT id,'private-derived-identity',CURRENT_TIMESTAMP FROM episodes LIMIT 1`,
 	}
 	for _, statement := range statements {
 		_, err := db.Exec(statement)
 		require.NoError(t, err)
 	}
 	require.NoError(t, SanitizeSnapshot(db))
-	for _, table := range []string{"people", "person_aliases", "episode_appearances", "speech_attributions", "person_user_confirmations", "content_search_fragments", "content_search_coverage"} {
+	for _, table := range []string{"people", "person_aliases", "episode_appearances", "speech_attributions", "person_user_confirmations", "content_search_fragments", "content_search_coverage", "person_preparations", "person_appearance_overrides"} {
 		var count int
 		require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM "+table).Scan(&count))
 		require.Zero(t, count, table)

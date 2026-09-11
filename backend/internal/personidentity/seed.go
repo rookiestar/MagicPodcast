@@ -2,6 +2,7 @@ package personidentity
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -63,11 +64,37 @@ func SeedBaseline(ctx context.Context, db *gorm.DB, service *Service) (SeededLib
 				Text:         segment.Text,
 			})
 		}
-		if _, err := service.Prepare(ctx, EpisodeSources{
+		// Synthetic QA fixtures supply declared decisions, never a production
+		// fallback that infers identity without Runtime.
+		preparer := service
+		if service.suggester == nil {
+			var suggested baselineCandidates
+			for _, appearance := range episode.Appearances {
+				for _, person := range baseline.Samples.People {
+					if person.ID != appearance.PersonID {
+						continue
+					}
+					item := SuggestedCandidate{DisplayName: person.DisplayName, Aliases: person.Aliases, IdentityNote: person.IdentityNote, Role: appearance.Role, Status: appearance.Status, EvidenceKind: "verified_runtime", EvidenceLocator: appearance.Evidence}
+					// Baseline fixture person IDs explicitly label cross-episode identity.
+					proof, _ := json.Marshal(identityProposal{NameType: "canonical", IdentityAnchor: identityAnchor{Kind: "distinctive_affiliation", Key: "synthetic:" + person.ID}})
+					item.EvidenceLocator = string(proof)
+					for _, fragment := range episode.TranscriptSegments {
+						if fragment.AttributionPersonID == person.ID && fragment.AttributionStatus == StatusConfirmed {
+							item.SpeechOrders = append(item.SpeechOrders, fragment.Order)
+						}
+					}
+					suggested = append(suggested, item)
+				}
+			}
+			copy := *service
+			copy.suggester = suggested
+			preparer = &copy
+		}
+		if _, err := preparer.Prepare(ctx, EpisodeSources{
 			EpisodeID:     row.ID,
 			ShowNotes:     episode.ShowNotes,
 			SourceKind:    SourceTranscript,
-			SourceVersion: "artifact-" + episode.ID,
+			SourceVersion: "fixture-" + episode.ID,
 			Segments:      segments,
 		}); err != nil {
 			return SeededLibrary{}, err
@@ -91,4 +118,10 @@ func SeedBaseline(ctx context.Context, db *gorm.DB, service *Service) (SeededLib
 		}
 	}
 	return SeededLibrary{EpisodeIDs: episodeIDs, PeopleIDs: peopleIDs}, nil
+}
+
+type baselineCandidates []SuggestedCandidate
+
+func (c baselineCandidates) Suggest(context.Context, EpisodeSources) ([]SuggestedCandidate, error) {
+	return c, nil
 }

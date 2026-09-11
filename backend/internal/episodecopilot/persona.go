@@ -38,19 +38,28 @@ func (s *Service) attachPeople(ctx context.Context, scope *ContextScope) error {
 		return err
 	}
 	scope.People = make([]PersonCandidate, 0, len(listed.People))
-	for _, person := range listed.People {
-		scope.People = append(scope.People, PersonCandidate{
-			ID:              person.ID,
-			DisplayName:     person.DisplayName,
-			Aliases:         person.Aliases,
-			IdentityNote:    person.IdentityNote,
-			Role:            person.Role,
-			Status:          person.Status,
-			StatusReason:    person.StatusReason,
-			EvidenceKind:    person.EvidenceKind,
-			EvidenceLocator: person.EvidenceLocator,
-		})
+	convertPerson := func(person personidentity.PersonView) PersonCandidate {
+		return PersonCandidate{
+			RoleUserConfirmed: person.RoleUserConfirmed,
+			ID:                person.ID,
+			DisplayName:       person.DisplayName,
+			Aliases:           person.Aliases,
+			IdentityNote:      person.IdentityNote,
+			Role:              person.Role,
+			Status:            person.Status,
+			StatusReason:      person.StatusReason,
+			EvidenceKind:      person.EvidenceKind,
+			EvidenceLocator:   person.EvidenceLocator,
+		}
 	}
+	for _, person := range listed.People {
+		scope.People = append(scope.People, convertPerson(person))
+	}
+	scope.ExcludedPeople = make([]PersonCandidate, 0, len(listed.ExcludedPeople))
+	for _, person := range listed.ExcludedPeople {
+		scope.ExcludedPeople = append(scope.ExcludedPeople, convertPerson(person))
+	}
+	scope.PreparationState = listed.PreparationState
 	scope.IndexReady = listed.IndexReady
 	if !listed.IndexReady {
 		scope.IndexStatus = contentsearch.CoverageIndexNotReady

@@ -6,7 +6,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
+	"magicpodcast/internal/contentsearch"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/personidentity"
 
@@ -47,7 +49,16 @@ func (h *PersonHandler) Prepare(c *gin.Context) {
 		writePersonUnavailable(c)
 		return
 	}
-	result, err := preparer.PrepareCurrent(c.Request.Context(), id)
+	// Consume the bounded request body before long-running work. Otherwise
+	// net/http cannot detect a disconnected HTTP/1 client while the unread POST
+	// body prevents its background connection read, so Context never cancels.
+	if _, err := io.Copy(io.Discard, http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)); err != nil {
+		writeInvalidPersonRequest(c)
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 150*time.Second)
+	defer cancel()
+	result, err := preparer.PrepareCurrent(ctx, id)
 	if err != nil {
 		writePersonError(c, err)
 		return
@@ -170,6 +181,10 @@ func writePersonUnavailable(c *gin.Context) {
 
 func writePersonError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, personidentity.ErrSourcesChanged), errors.Is(err, contentsearch.ErrStaleDocument):
+		c.JSON(http.StatusConflict, gin.H{"success": false, "error": gin.H{"code": "PERSON_SOURCE_CHANGED", "message": "人物资料来源已更新，请重新识别。"}})
+	case errors.Is(err, personidentity.ErrIdentityUnavailable):
+		writePersonUnavailable(c)
 	case errors.Is(err, personidentity.ErrInvalidCorrection), errors.Is(err, personidentity.ErrTranscriptRequired):
 		writeInvalidPersonRequest(c)
 	case errors.Is(err, personidentity.ErrEpisodeNotFound):
@@ -196,4 +211,35 @@ func writePersonError(c *gin.Context, err error) {
 			"person identity request failed",
 		)
 	}
+}
+
+func (h *PersonHandler) CorrectAppearance(c *gin.Context) {
+	episodeID, ok := ParseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	personID, ok := ParseUintParam(c, "personId")
+	if !ok {
+		return
+	}
+	corrector, ok := h.module.(interface {
+		CorrectAppearance(context.Context, uint, personidentity.AppearanceCorrection) (personidentity.EpisodePeople, error)
+	})
+	if !ok {
+		writePersonUnavailable(c)
+		return
+	}
+	var body struct {
+		Role     *string `json:"role"`
+		Excluded *bool   `json:"excluded"`
+	}
+	if !decodeStrictJSON(c, &body) {
+		return
+	}
+	result, err := corrector.CorrectAppearance(c.Request.Context(), episodeID, personidentity.AppearanceCorrection{PersonID: personID, Role: body.Role, Excluded: body.Excluded})
+	if err != nil {
+		writePersonError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
 }

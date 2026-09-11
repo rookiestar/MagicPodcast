@@ -47,7 +47,7 @@ export function replaceMention(
 export function roleLabel(role: string) {
   if (role === "host") return "主播";
   if (role === "guest") return "嘉宾";
-  return "未知角色";
+  return "角色待确认";
 }
 
 export function parseLibrarySources(answer: string) {
@@ -74,14 +74,9 @@ export async function jumpToLibrarySource(
   } = {},
 ) {
   const host = options.host ?? document;
-  const alreadyOpen = Boolean(
-    host.querySelector(
-      `[data-copilot-source="transcript"][data-copilot-episode-id="${source.episodeId}"]`,
-    ),
-  );
-  if (!alreadyOpen && options.openEpisode) {
-    await options.openEpisode(source.episodeId);
-  }
+  // The source may already exist in a hidden mobile detail pane. Let its
+  // owner reveal it even for the same episode before locating the fragment.
+  if (options.openEpisode) await options.openEpisode(source.episodeId);
   host.getElementById("detail-tab-transcript")?.click();
   host.getElementById("processing-artifact-tab-transcript")?.click();
   const locate = () => host.querySelector<HTMLElement>(
@@ -89,7 +84,7 @@ export async function jumpToLibrarySource(
   );
   for (let attempt = 0; attempt < 40; attempt += 1) {
     const target = locate();
-    if (target) { target.scrollIntoView({ block: "center" }); return; }
+    if (target) { target.scrollIntoView({ block: "center" }); target.tabIndex = -1; target.focus({ preventScroll: true }); return; }
     await new Promise((resolve) => window.setTimeout(resolve, 100));
     host.getElementById("detail-tab-transcript")?.click();
     host.getElementById("processing-artifact-tab-transcript")?.click();

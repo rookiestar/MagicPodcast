@@ -15,6 +15,7 @@ export type EpisodePersonStatus = "confirmed" | "pending";
 export type EpisodePersonRole = "host" | "guest" | "unknown";
 
 export interface EpisodePersonCandidate {
+ role_user_confirmed?: boolean;
   id: number;
   display_name: string;
   aliases: string[];
@@ -27,6 +28,8 @@ export interface EpisodePersonCandidate {
 }
 
 export interface EpisodeCopilotContextScope {
+ preparation_state?: "required" | "outdated" | "ready" | "no_transcript";
+ excluded_people?: EpisodePersonCandidate[];
   episode_id: number;
   show_notes_available: boolean;
   transcript_available: boolean;
@@ -127,6 +130,8 @@ export interface EpisodeAttributionView {
 }
 
 export interface EpisodePeoplePayload {
+ preparation_state?: EpisodeCopilotContextScope["preparation_state"];
+ excluded_people?: EpisodePersonCandidate[];
   episode_id: number;
   source_version: string;
   index_ready: boolean;
