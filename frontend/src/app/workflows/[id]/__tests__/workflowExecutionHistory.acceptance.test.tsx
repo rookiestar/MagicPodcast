@@ -288,7 +288,7 @@ describe("工作流执行历史可见等待验收 (#34)", () => {
               status: "completed",
               error_count: 0,
               llm_tokens_used: 8900,
-              llm_model_used: "deepseek-v4-flash",
+              llm_model_used: "deepseek-flash",
             }),
           ],
         ],
@@ -310,7 +310,7 @@ describe("工作流执行历史可见等待验收 (#34)", () => {
     expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
     expect(screen.getAllByText("0").length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "仅重试失败 Feed" })).not.toBeInTheDocument();
-    expect(screen.getByText(/AI: 8.9K \(deepseek-v4-flash\)/)).toBeInTheDocument();
+    expect(screen.getByText(/AI: 8.9K \(deepseek-flash\)/)).toBeInTheDocument();
   });
 
   it("意图预取后进入：缓存命中时点击到首条可见 P95 ≤300ms，且无 router 导航", async () => {

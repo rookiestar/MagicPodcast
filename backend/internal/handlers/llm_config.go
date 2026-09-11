@@ -75,7 +75,7 @@ func (h *LLMConfigHandler) ValidateKey(c *gin.Context) {
 
 	model := req.Model
 	if model == "" {
-		model = "deepseek-v4-flash"
+		model = "deepseek-flash"
 	}
 
 	if h.llmClient == nil {
@@ -119,8 +119,8 @@ func (h *LLMConfigHandler) ValidateKey(c *gin.Context) {
 func (h *LLMConfigHandler) GetModels(c *gin.Context) {
 	models := []ModelInfo{
 		{
-			ID:          "deepseek-v4-flash",
-			Name:        "DeepSeek V4 Flash",
+			ID:          "deepseek-flash",
+			Name:        "DeepSeek Flash",
 			Available:   true,
 			Description: "DeepSeek 快速模型，适合工作流摘要生成",
 		},

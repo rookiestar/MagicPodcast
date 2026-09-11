@@ -1839,7 +1839,7 @@ export default function WorkflowFormModal({
                           />
                           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                             覆盖默认模型（如
-                            deepseek-v4-flash），留空使用系统默认
+                            deepseek-flash），留空使用系统默认
                           </p>
                         </div>
 

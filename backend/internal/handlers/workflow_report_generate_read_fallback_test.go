@@ -33,7 +33,7 @@ func TestGenerateThenReadReportRecoversEmptyTruncatedSummary(t *testing.T) {
 		Provider:           config.LLMProviderDeepSeek,
 		APIKey:             "test-key",
 		BaseURL:            server.URL,
-		DefaultModel:       "deepseek-v4-flash",
+		DefaultModel:       "deepseek-flash",
 		Timeout:            5,
 		MaxRetries:         0,
 		RateLimitPerMinute: 60,

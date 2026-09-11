@@ -20,7 +20,7 @@ func newSummarizerHTTPTestClient(t *testing.T, serverURL string) *Client {
 		Provider:           config.LLMProviderDeepSeek,
 		APIKey:             "test-key",
 		BaseURL:            serverURL,
-		DefaultModel:       "deepseek-v4-flash",
+		DefaultModel:       "deepseek-flash",
 		Timeout:            5,
 		MaxRetries:         0,
 		RateLimitPerMinute: 60,

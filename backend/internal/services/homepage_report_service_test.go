@@ -338,7 +338,7 @@ func TestHomepageReportService_IncludesGenerationScopedReportStats(t *testing.T)
 		"matched_count":   3,
 		"episodes_count":  3,
 		"llm_summary":     "可读摘要",
-		"llm_model_used":  "deepseek-v4-flash",
+		"llm_model_used":  "deepseek-flash",
 		"llm_tokens_used": 7245,
 		"llm_error":       "",
 	}).Error)
@@ -360,7 +360,7 @@ func TestHomepageReportService_IncludesGenerationScopedReportStats(t *testing.T)
 	require.NoError(t, err)
 	require.Len(t, today, 2)
 	assert.Equal(t, "generated", today[0].ReportStats.AIStatus)
-	assert.Equal(t, "3 个节目 · 3 集 · AI 已生成 · deepseek-v4-flash · 7.2K Token", today[0].ReportStats.Line)
+	assert.Equal(t, "3 个节目 · 3 集 · AI 已生成 · deepseek-flash · 7.2K Token", today[0].ReportStats.Line)
 	assert.Equal(t, 3, today[0].ReportStats.PodcastsCount)
 	assert.Equal(t, 3, today[0].ReportStats.EpisodesCount)
 	assert.Equal(t, "unknown", today[1].ReportStats.AIStatus)

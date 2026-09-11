@@ -29,7 +29,7 @@ func TestDeepSeekProviderNormalizesLegacyGLMModel(t *testing.T) {
 			"id": "test",
 			"object": "chat.completion",
 			"created": 1,
-			"model": "deepseek-v4-flash",
+			"model": "deepseek-flash",
 			"choices": [{
 				"index": 0,
 				"message": {"role": "assistant", "content": "OK"},
@@ -46,7 +46,7 @@ func TestDeepSeekProviderNormalizesLegacyGLMModel(t *testing.T) {
 		Provider:           config.LLMProviderDeepSeek,
 		APIKey:             "test-key",
 		BaseURL:            server.URL,
-		DefaultModel:       "deepseek-v4-flash",
+		DefaultModel:       "deepseek-flash",
 		Timeout:            5,
 		RateLimitPerMinute: 60,
 	})
@@ -59,8 +59,14 @@ func TestDeepSeekProviderNormalizesLegacyGLMModel(t *testing.T) {
 	)
 
 	require.NoError(t, err)
-	require.Equal(t, "deepseek-v4-flash", requestedModel)
-	require.Equal(t, "deepseek-v4-flash", result.ModelUsed)
+	require.Equal(t, "deepseek-flash", requestedModel)
+	require.Equal(t, "deepseek-flash", result.ModelUsed)
+}
+
+func TestDeepSeekProviderNormalizesLegacyDeepSeekFlashModel(t *testing.T) {
+	client := NewClient(&config.LLMConfig{Provider: config.LLMProviderDeepSeek})
+
+	require.Equal(t, "deepseek-flash", client.normalizeModel("deepseek-v4-flash"))
 }
 
 func TestGenerateSummaryUsesConfiguredMaxTokensWhenUnset(t *testing.T) {
@@ -70,7 +76,7 @@ func TestGenerateSummaryUsesConfiguredMaxTokensWhenUnset(t *testing.T) {
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
 		requestedMaxTokens = req.MaxTokens
 		w.Header().Set("Content-Type", "application/json")
-		_, err := w.Write(successChatCompletionBody("deepseek-v4-flash", "OK"))
+		_, err := w.Write(successChatCompletionBody("deepseek-flash", "OK"))
 		require.NoError(t, err)
 	}))
 	defer server.Close()
@@ -80,7 +86,7 @@ func TestGenerateSummaryUsesConfiguredMaxTokensWhenUnset(t *testing.T) {
 		Provider:            config.LLMProviderDeepSeek,
 		APIKey:              "test-key",
 		BaseURL:             server.URL,
-		DefaultModel:        "deepseek-v4-flash",
+		DefaultModel:        "deepseek-flash",
 		MaxTokensPerRequest: 1234,
 		Timeout:             5,
 		RateLimitPerMinute:  60,
@@ -104,7 +110,7 @@ func TestGenerateSummaryRejectsMaxTokensAboveConfiguredLimit(t *testing.T) {
 		Provider:            config.LLMProviderDeepSeek,
 		APIKey:              "test-key",
 		BaseURL:             server.URL,
-		DefaultModel:        "deepseek-v4-flash",
+		DefaultModel:        "deepseek-flash",
 		MaxTokensPerRequest: 1234,
 		Timeout:             5,
 		RateLimitPerMinute:  60,
@@ -151,7 +157,7 @@ func TestGenerateSummaryRetriesAfterBodyReadTimeout(t *testing.T) {
 			time.Sleep(250 * time.Millisecond)
 			return
 		}
-		_, err = w.Write(successChatCompletionBody("deepseek-v4-flash", "OK"))
+		_, err = w.Write(successChatCompletionBody("deepseek-flash", "OK"))
 		require.NoError(t, err)
 	}))
 	defer server.Close()
@@ -161,7 +167,7 @@ func TestGenerateSummaryRetriesAfterBodyReadTimeout(t *testing.T) {
 		Provider:           config.LLMProviderDeepSeek,
 		APIKey:             "test-key",
 		BaseURL:            server.URL,
-		DefaultModel:       "deepseek-v4-flash",
+		DefaultModel:       "deepseek-flash",
 		Timeout:            1,
 		MaxRetries:         1,
 		RetryInterval:      1,
@@ -195,7 +201,7 @@ func TestGenerateSummaryDoesNotRetryHTTP4xx(t *testing.T) {
 		Provider:           config.LLMProviderDeepSeek,
 		APIKey:             "test-key",
 		BaseURL:            server.URL,
-		DefaultModel:       "deepseek-v4-flash",
+		DefaultModel:       "deepseek-flash",
 		Timeout:            5,
 		MaxRetries:         2,
 		RetryInterval:      1,
@@ -223,7 +229,7 @@ func TestGenerateSummaryDoesNotRetryHTTP5xx(t *testing.T) {
 		Provider:           config.LLMProviderDeepSeek,
 		APIKey:             "test-key",
 		BaseURL:            server.URL,
-		DefaultModel:       "deepseek-v4-flash",
+		DefaultModel:       "deepseek-flash",
 		Timeout:            5,
 		MaxRetries:         2,
 		RetryInterval:      1,
@@ -259,7 +265,7 @@ func testLLMClient(t *testing.T, serverURL string, maxRetries int) *Client {
 		Provider:           config.LLMProviderDeepSeek,
 		APIKey:             "test-key",
 		BaseURL:            serverURL,
-		DefaultModel:       "deepseek-v4-flash",
+		DefaultModel:       "deepseek-flash",
 		Timeout:            5,
 		MaxRetries:         maxRetries,
 		RetryInterval:      1,
@@ -270,7 +276,7 @@ func testLLMClient(t *testing.T, serverURL string, maxRetries int) *Client {
 func TestGenerateSummarySucceedsOnStopWithNonEmptyBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, err := w.Write(chatCompletionBody("deepseek-v4-flash", "本周有三档教育节目值得听。", "stop", 42))
+		_, err := w.Write(chatCompletionBody("deepseek-flash", "本周有三档教育节目值得听。", "stop", 42))
 		require.NoError(t, err)
 	}))
 	defer server.Close()
@@ -304,7 +310,7 @@ func TestGenerateSummaryRetriesEmptyAndWhitespaceBodies(t *testing.T) {
 				if n > 1 {
 					content = "有效摘要"
 				}
-				_, err := w.Write(chatCompletionBody("deepseek-v4-flash", content, "stop", 88))
+				_, err := w.Write(chatCompletionBody("deepseek-flash", content, "stop", 88))
 				require.NoError(t, err)
 			}))
 			defer server.Close()
@@ -324,7 +330,7 @@ func TestGenerateSummaryEmptyBodyDoesNotExceedMaxRetries(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		_, err := w.Write(chatCompletionBody("deepseek-v4-flash", "", "stop", 7245))
+		_, err := w.Write(chatCompletionBody("deepseek-flash", "", "stop", 7245))
 		require.NoError(t, err)
 	}))
 	defer server.Close()
@@ -345,7 +351,7 @@ func TestGenerateSummaryTruncationIsIncompleteAndNotRetried(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		_, err := w.Write(chatCompletionBody("deepseek-v4-flash", "只写了一半", "length", 120))
+		_, err := w.Write(chatCompletionBody("deepseek-flash", "只写了一半", "length", 120))
 		require.NoError(t, err)
 	}))
 	defer server.Close()
@@ -366,7 +372,7 @@ func TestGenerateSummaryMissingFinishReasonIsNotSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		_, err := w.Write(chatCompletionBody("deepseek-v4-flash", "看起来像摘要", "", 50))
+		_, err := w.Write(chatCompletionBody("deepseek-flash", "看起来像摘要", "", 50))
 		require.NoError(t, err)
 	}))
 	defer server.Close()
@@ -394,7 +400,7 @@ func TestGenerateSummaryRetriesTransportFailureWithinBudget(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, err := w.Write(chatCompletionBody("deepseek-v4-flash", "恢复后的摘要", "stop", 10))
+		_, err := w.Write(chatCompletionBody("deepseek-flash", "恢复后的摘要", "stop", 10))
 		require.NoError(t, err)
 	}))
 	defer server.Close()
@@ -420,7 +426,7 @@ func TestGenerateSummaryDoesNotRetryWhenDisabled(t *testing.T) {
 		Provider:           config.LLMProviderDeepSeek,
 		APIKey:             "test-key",
 		BaseURL:            server.URL,
-		DefaultModel:       "deepseek-v4-flash",
+		DefaultModel:       "deepseek-flash",
 		Timeout:            5,
 		MaxRetries:         2,
 		RateLimitPerMinute: 60,
