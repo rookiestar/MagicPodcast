@@ -47,6 +47,9 @@ func openPersonIdentityDB(t *testing.T) *gorm.DB {
 func seedBaselineLibrary(t *testing.T, suggester CandidateSuggester) seededLibrary {
 	t.Helper()
 	db := openPersonIdentityDB(t)
+	if suggester == nil {
+		suggester = testSourceSuggester{}
+	}
 	service, err := NewService(db, suggester)
 	require.NoError(t, err)
 
@@ -163,7 +166,7 @@ func TestCorrectAttributionPersistsAndDoesNotRewriteTranscript(t *testing.T) {
 		EpisodeID:     episodeID,
 		ShowNotes:     "主播张三，嘉宾李明。转写把两人混进同一说话人标签“嘉宾”。",
 		SourceKind:    SourceTranscript,
-		SourceVersion: "artifact-ep-mixed-label-v2",
+		SourceVersion: "fixture-ep-mixed-label-v2",
 		Segments: []Segment{
 			{Order: 1, SpeakerLabel: "嘉宾", StartMS: 11000, Text: "我不赞成无限制加班。"},
 			{Order: 2, SpeakerLabel: "嘉宾", StartMS: 24000, Text: "阶段性冲刺可以接受。"},
@@ -179,11 +182,11 @@ func TestCorrectAttributionPersistsAndDoesNotRewriteTranscript(t *testing.T) {
 	require.NoError(t, err)
 	var stale, current int
 	for _, fact := range facts {
-		if fact.SourceVersion == "artifact-ep-mixed-label" {
+		if fact.SourceVersion == "fixture-ep-mixed-label" {
 			require.False(t, fact.Current)
 			stale++
 		}
-		if fact.SourceVersion == "artifact-ep-mixed-label-v2" {
+		if fact.SourceVersion == "fixture-ep-mixed-label-v2" {
 			require.True(t, fact.Current)
 			current++
 		}
@@ -196,7 +199,7 @@ func TestPublishedTranscriptIndexesPeopleAndSearch(t *testing.T) {
 	db := openPersonIdentityDB(t)
 	search, err := contentsearch.NewService(db)
 	require.NoError(t, err)
-	service, err := NewService(db, nil, search)
+	service, err := NewService(db, testSourceSuggester{}, search)
 	require.NoError(t, err)
 	podcast := models.Podcast{
 		XYZID: "publish-index", Title: "技术漫谈", FeedURL: "https://example.test/publish-index.xml",
@@ -267,13 +270,80 @@ func TestPublishedTranscriptIndexesPeopleAndSearch(t *testing.T) {
 	require.NotEmpty(t, hits.Hits)
 	require.Equal(t, "2025-03-12", hits.Hits[0].PublishedAt)
 	require.Contains(t, hits.Hits[0].Text, "不赞成无限制加班")
+
+	t.Run("selected rebuild reports failures and retries without widening scope", func(t *testing.T) {
+		service.WithArtifactReader(store)
+		missing := models.Episode{PodcastID: podcast.ID, Title: "无转写", GUID: "missing-rebuild"}
+		untouched := models.Episode{PodcastID: podcast.ID, Title: "未选中", GUID: "untouched-rebuild"}
+		require.NoError(t, db.Create(&missing).Error)
+		require.NoError(t, db.Create(&untouched).Error)
+		preview, err := PreviewRebuild(context.Background(), db, []uint{episode.ID, missing.ID})
+		require.NoError(t, err)
+		require.Len(t, preview, 2)
+		require.Equal(t, artifact.ID, preview[0].ArtifactID)
+		require.False(t, preview[0].NeedsPreparation)
+		var results []RebuildResult
+		report := func(result RebuildResult) error { results = append(results, result); return nil }
+		err = service.RebuildSelected(context.Background(), []uint{missing.ID, episode.ID}, report)
+		require.ErrorContains(t, err, "1 episodes failed")
+		require.Len(t, results, 2)
+		for _, result := range results {
+			require.Equal(t, result.EpisodeID == episode.ID, result.Success)
+			if result.Success {
+				require.Equal(t, []string{"张三"}, result.After)
+			} else {
+				require.NotEmpty(t, result.Error)
+			}
+		}
+		results = nil
+		require.NoError(t, service.RebuildSelected(context.Background(), []uint{episode.ID}, report))
+		require.Len(t, results, 1)
+		after, err := service.ListEpisodePeople(context.Background(), episode.ID)
+		require.NoError(t, err)
+		require.Equal(t, listed.People[0].ID, after.People[0].ID)
+		var count int64
+		require.NoError(t, db.Model(&models.PersonPreparation{}).Where("episode_id = ?", untouched.ID).Count(&count).Error)
+		require.Zero(t, count)
+		require.Error(t, service.RebuildSelected(context.Background(), nil, report))
+		require.Error(t, service.RebuildSelected(context.Background(), []uint{episode.ID, episode.ID}, report))
+	})
+	t.Run("deleting the last artifact invalidates manual and automatic speech", func(t *testing.T) {
+		id := listed.People[0].ID
+		_, err := service.CorrectName(context.Background(), episode.ID, NameCorrection{PersonID: id, DisplayName: "张三"})
+		require.NoError(t, err)
+		_, err = service.CorrectAttribution(context.Background(), episode.ID, AttributionCorrection{SourceVersion: fmt.Sprintf("artifact-%d", artifact.ID), FragmentOrder: 1, AssignedPersonID: &id, Status: StatusConfirmed})
+		require.NoError(t, err)
+		service.suggester = decisionSuggester(func(context.Context, EpisodeSources) ([]SuggestedCandidate, error) {
+			if err := db.Delete(&artifact).Error; err != nil {
+				return nil, err
+			}
+			return []SuggestedCandidate{{DisplayName: "过期人物", Role: RoleHost, EvidenceKind: "verified_runtime", SpeechOrders: []int{1}}}, nil
+		})
+		_, err = service.PrepareCurrent(context.Background(), episode.ID)
+		require.ErrorIs(t, err, ErrSourcesChanged)
+		after, err := service.ListEpisodePeople(context.Background(), episode.ID)
+		require.NoError(t, err)
+		require.Empty(t, after.People)
+		require.False(t, after.IndexReady)
+		speech, err := service.ReliableSpeech(context.Background(), episode.ID, id)
+		require.NoError(t, err)
+		require.Empty(t, speech)
+		result, err := search.Search(context.Background(), contentsearch.Request{Query: "加班", Scope: contentsearch.Scope{EpisodeIDs: []uint{episode.ID}}, Filter: contentsearch.Filter{SourceKind: SourceTranscript}})
+		require.NoError(t, err)
+		require.Empty(t, result.Hits)
+		require.False(t, result.Coverage.Complete)
+		var count int64
+		require.NoError(t, db.Model(&models.PersonUserConfirmation{}).Where("episode_id = ?", episode.ID).Count(&count).Error)
+		require.EqualValues(t, 2, count, "confirmation history is retained, not applied to a missing source")
+	})
+
 }
 
 func TestCorrectAttributionUpdatesSearchWithoutAsk(t *testing.T) {
 	db := openPersonIdentityDB(t)
 	search, err := contentsearch.NewService(db)
 	require.NoError(t, err)
-	service, err := NewService(db, nil, search)
+	service, err := NewService(db, testSourceSuggester{}, search)
 	require.NoError(t, err)
 	podcast := models.Podcast{
 		XYZID: "search-correct", Title: "技术漫谈", FeedURL: "https://example.test/search-correct.xml",
@@ -397,7 +467,7 @@ func (s stubSuggester) Suggest(context.Context, EpisodeSources) ([]SuggestedCand
 
 func TestSameNameWithoutIdentityDoesNotMergeAcrossEpisodes(t *testing.T) {
 	db := openPersonIdentityDB(t)
-	service, err := NewService(db, nil)
+	service, err := NewService(db, testSourceSuggester{})
 	require.NoError(t, err)
 	pod := models.Podcast{Title: "同名核对", XYZID: "same-name", FeedURL: "https://example.test/same"}
 	require.NoError(t, db.Create(&pod).Error)
@@ -441,6 +511,12 @@ func TestCorrectionReplacementAndVersionIsolation(t *testing.T) {
 	got, err = lib.service.Prepare(ctx, sources)
 	require.NoError(t, err)
 	require.Equal(t, StatusPending, got.Attributions[6].Status)
+	_, err = lib.service.CorrectAttribution(ctx, ep, AttributionCorrection{FragmentOrder: 7, Status: StatusRejected})
+	require.NoError(t, err)
+	got, err = lib.service.Prepare(ctx, sources)
+	require.NoError(t, err)
+	require.Equal(t, StatusRejected, got.Attributions[6].Status)
+	require.Nil(t, got.Attributions[6].PersonID)
 	sources.SourceVersion = "v-new"
 	got, err = lib.service.Prepare(ctx, sources)
 	require.NoError(t, err)
@@ -450,7 +526,8 @@ func TestCorrectionReplacementAndVersionIsolation(t *testing.T) {
 
 func TestRuntimeSuggestionsRequireLocatedOriginalIdentity(t *testing.T) {
 	sources := EpisodeSources{ShowNotes: "本集嘉宾：欧阳明月", Segments: []Segment{{Order: 1, SpeakerLabel: "Speaker 1", Text: "我是欧阳明月。"}}}
-	items, err := decodeIdentitySuggestions([]byte(`{"people":[{"name":"欧阳明月","source":"transcript","fragment":1,"quote":"我是欧阳明月。","role":"guest","speech_orders":[1,99]},{"name":"李四","source":"transcript","fragment":1,"quote":"我是李四。","speech_orders":[1]}]}`), sources)
+	raw := `{"people":[{"name":"欧阳明月","kind":"participant","status":"confirmed","role":"guest","presence_basis":"self_introduction","name_evidence":{"source":"show_notes","fragment":0,"quote":"本集嘉宾：欧阳明月"},"presence_evidence":{"source":"transcript","fragment":1,"quote":"我是欧阳明月。"},"role_evidence":{"source":"show_notes","fragment":0,"quote":"本集嘉宾：欧阳明月"},"speech_bindings":[{"speaker_label":"Speaker 1","basis":"self_introduction","evidence":{"source":"transcript","fragment":1,"quote":"我是欧阳明月。"},"orders":[1,99]}]},{"name":"李四","kind":"participant","status":"confirmed","name_evidence":{"source":"transcript","fragment":1,"quote":"我是李四。"}}]}`
+	items, err := decodeIdentitySuggestions([]byte(raw), sources)
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 	require.Equal(t, "欧阳明月", items[0].DisplayName)
@@ -461,7 +538,7 @@ func TestShowNotesChangeInvalidatesPeopleAndIndex(t *testing.T) {
 	db := openPersonIdentityDB(t)
 	search, err := contentsearch.NewService(db)
 	require.NoError(t, err)
-	service, err := NewService(db, nil, search)
+	service, err := NewService(db, testSourceSuggester{}, search)
 	require.NoError(t, err)
 	seed, err := SeedBaseline(context.Background(), db, service)
 	require.NoError(t, err)
@@ -478,6 +555,13 @@ func TestShowNotesChangeInvalidatesPeopleAndIndex(t *testing.T) {
 	}
 	result, err := search.Search(context.Background(), contentsearch.Request{Query: "加班", Scope: contentsearch.Scope{EpisodeIDs: []uint{id}}})
 	require.NoError(t, err)
-	require.Empty(t, result.Hits)
+	require.NotEmpty(t, result.Hits, "valid original transcript remains generally searchable")
+	for _, hit := range result.Hits {
+		require.Nil(t, hit.PersonID)
+	}
 	require.False(t, result.Coverage.Complete)
+	personal, err := search.Search(context.Background(), contentsearch.Request{Query: "加班", Scope: contentsearch.Scope{EpisodeIDs: []uint{id}}, Filter: contentsearch.Filter{PersonID: &before.People[0].ID}})
+	require.NoError(t, err)
+	require.Empty(t, personal.Hits)
+	require.False(t, personal.Coverage.Complete)
 }

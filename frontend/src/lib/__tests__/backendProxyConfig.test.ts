@@ -34,9 +34,11 @@ describe("frontend backend proxy", () => {
 
     const configModule = await import("../../../next.config.js");
     const config = (configModule.default ?? configModule) as unknown as {
-      rewrites: () => Promise<Rewrite[]>;
+      rewrites: () => Promise<{ afterFiles: Rewrite[]; fallback: Rewrite[] }>;
     };
-    const rewrites = await config.rewrites();
+    const routes = await config.rewrites();
+    expect(routes.fallback).toEqual([{source: "/api/v1/:path*", destination: "http://127.0.0.1:18080/api/v1/:path*"}]);
+    const rewrites = [...routes.afterFiles, ...routes.fallback];
 
     expect(rewrites).toEqual(
       expect.arrayContaining([

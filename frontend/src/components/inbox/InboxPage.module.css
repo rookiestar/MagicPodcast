@@ -2657,6 +2657,10 @@ button.transcriptSegment:hover:not([aria-current="true"]) {
 }
 
 .copilotCorrection {
+  max-height: min(45dvh, 32rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
   display: grid;
   gap: 8px;
   margin: 8px 0;
@@ -4219,9 +4223,13 @@ button.transcriptSegment:hover:not([aria-current="true"]) {
   }
 }
 
-.copilotCorrection input {
+.copilotCorrection input,
+.copilotCorrection select {
   width: 100%; min-height: 36px; margin-top: 4px; padding: 6px 8px;
   border: 1px solid var(--rule); border-radius: 8px; background: var(--paper); color: var(--ink);
 }
 .copilotCorrection p { overflow-wrap: anywhere; }
 .copilotCorrection button { margin: 3px; }
+
+.copilotCorrection blockquote { margin: 8px 0; padding-left: 12px; border-left: 2px solid var(--rule); overflow-wrap: anywhere; }
+.copilotCorrection summary { cursor: pointer; }

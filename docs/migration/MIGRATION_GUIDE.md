@@ -6,7 +6,7 @@
 
 ## 当前版本化迁移
 
-当前 schema 版本为 `28`（与源码 `backend/internal/database/migrate.go` 中 `CurrentSchemaVersion` 一致），版本记录保存在 `schema_migrations`。迁移注册表位于同一文件，每个版本包含名称、说明和事务内的执行函数。当前版本链为：
+当前 schema 版本为 `29`（与源码 `backend/internal/database/migrate.go` 中 `CurrentSchemaVersion` 一致），版本记录保存在 `schema_migrations`。迁移注册表位于同一文件，每个版本包含名称、说明和事务内的执行函数。当前版本链为：
 
 1. `1 baseline-current-model`：空数据库创建当前模型表和索引；已有且完整的数据库只记录 baseline。
 2. `2 feed-access-observability`：记录 Feed HTTP 状态、错误类别、耗时、缓存和出口等观测字段。
@@ -36,6 +36,7 @@
 26. `26 episode-artifact-audio-recovery`：为不可变产物集新增独立、可重启恢复的受管音频任务状态；恢复只从受保护飞书 Drive 检查点取源，校验通过后原子恢复本地音频，不改变加工和交付状态（#234）。生产 apply 需单独授权。
 27. `27 person-identity-and-speech-attribution`：新增人物、别名、单集出场关系、可纠正发言归属与人工确认记录；不改写原始逐字稿，生产 apply 与存量回填需单独授权（#326）。
 28. `28 content-search-fragments`：新增独立于 Copilot 的库内片段索引与覆盖状态，仅索引逐字稿与 Show Notes；生产 apply 需单独授权（#327）。
+29. `29 person-preparation-evidence-version`：新增人物准备版本与独立本集人工角色/排除决定；节目及单集身份元数据变化使自动身份待复核。保留原始转写和已有人工记录，旧自动结果在重新准备前不作为可靠人物依据。生产迁移及指定清单重建分别授权（#335）。
 
 运行约束（非独立版本号）：
 
@@ -141,3 +142,16 @@ go run ./cmd/add_indexes ./data/magicpodcast.db
 
 - [PODCASTINDEX_DEDUP.md](PODCASTINDEX_DEDUP.md)：当前 PodcastIndex 去重视图入口和验证方式。
 - [PRODUCTION_MIGRATION_SAFETY_DRILL.md](PRODUCTION_MIGRATION_SAFETY_DRILL.md)：#219 的 `ready-for-human` 生产迁移门禁演练、授权停点与证据模板。
+
+
+## Schema 29 人物资料修复
+
+迁移仅建立新表与失效规则，不调用模型、不清空人物或转写、不自动重建旧资料。
+先按本指南完成备份、影子迁移和恢复验证；代码与 Schema 29 配套启用后，旧自动资料须重新准备。
+定向预览/重建入口见 [后端命令说明](../../backend/cmd/README.md#人物资料定向重建335)。
+人工姓名、片段确认保留，角色/排除独立保存；片段确认只有来源版本、片段内容和说话人均匹配时应用。
+重建失败或取消不发布部分事实；人物事实与共享索引同事务写入。原始未归属内容仍可用于一般检索。
+
+回退须使用发布前验证过的数据库/产物备份与配套代码，不能只回退代码而保留不匹配 schema。
+不得因回退重新开放已知错误自动人物；必要时保持人物待准备，并保留普通阅读和单集问答。
+本说明不代表已获生产写入授权或生产旧数据已修复。

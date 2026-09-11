@@ -21,6 +21,7 @@
 | `migrate` | 在已验证备份副本执行影子迁移，或消费通过的 Migration Report 应用版本化迁移 | `--preflight` 生成 Migration Report；`--apply` 由根脚本在共享维护窗口内调用，必须提供确认字符串、原备份和未漂移报告 |
 | `maint/init_db` | 只初始化完全空白的 SQLite | 发现任何既有业务 schema 即拒绝；已有库只能走生产迁移 Runner |
 | `maint/backfill_original_links` | 历史单集原节目缺链回填：默认 dry-run 零写入；`--apply --confirm` 才写入指定库，且只写当前为空、严格解析命中的记录，绝不覆盖已有非空链接 | 复用 `internal/originallink` 统一解析入口。本地验证先对 Fixture/Snapshot 或临时库执行 dry-run；生产回填需单独授权、验证过的备份和停写窗口 |
+| `maint/rebuild_episode_people` | 默认只读预览已有的人物候选和人工确认；指定单集清单调用同一人物准备流程重建 | `--db` 必填；写入须显式 `--apply --episodes --confirm`、备份和 Runtime/产物路径。先在隔离副本验证，生产需另行授权及停写；不自动迁移 |
 | `maint/*` | 多数是历史数据修复、导入、检查或外部数据处理脚本，部分带本机文件路径，部分会删除或覆盖数据 | 已单独列入人审清单；保留源码，后续按真实维护需求决定保留、合并、归档或删除 |
 | `snapshot-export` | 从生产 SQLite 创建一致、脱敏的只读传输包 | 生产读取和 Mac mini 操作需单独明确授权 |
 
@@ -42,3 +43,32 @@
 4. 服务重启、health/ready 和代表性查询由维护窗口执行；异常时用 `rollback` 恢复时间戳回滚副本。
 
 该命令不会改写 MagicPodcast 主业务库，不会自动挑选替代 Feed，也不会让生产服务继承代理配置；代理只在命令显式传入 `--proxy` 时用于本次 staging/验证。
+
+
+## 人物资料定向重建（#335）
+
+从 `backend/` 执行只读预览：
+
+```sh
+go run ./cmd/maint/rebuild_episode_people --db /absolute/path/copy.db
+```
+
+可加 `--episodes 66314` 限定预览。默认仅盘点已有候选或人工确认的单集，不准备全库。
+JSON 报告包含候选姓名、当前产物、各类人工确认数量及是否需重新准备；不输出转写正文。
+
+仅在已授权写入、验证备份及停止并发写入后，对**明确目标库**执行：
+
+```sh
+go run ./cmd/maint/rebuild_episode_people \
+  --db /absolute/path/copy.db --episodes 66314 \
+  --apply --confirm REBUILD_SELECTED_EPISODE_PEOPLE \
+  --backup /absolute/path/verified-backup.db \
+  --artifacts /absolute/path/artifacts \
+  --runtime-work-root /absolute/path/isolated-runtime \
+  --python /absolute/path/sdk-python \
+  --runtime-host /absolute/path/runtime_host.py
+```
+
+命令校验备份为另一文件且 SQLite 完整性正常；备份对应本次目标数据及恢复演练仍按现有发布/备份流程验证，完整性检查不等于恢复验证。
+写入前要求当前 schema，不执行迁移。每集使用现有 PrepareCurrent、原始成功转写、公开资料与 Runtime，按既有 150 秒预算顺序执行；逐集输出前后名单、成功/失败，任何失败使命令非零退出，已成功单集不会被标为失败。
+失败后可只选失败 ID 重试；取消后停止后续单集。人工决定按人物合同保留。本命令不重转写，不部署，不操作共享本地 Profile。

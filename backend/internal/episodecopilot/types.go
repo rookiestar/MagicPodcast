@@ -50,18 +50,21 @@ type ProfileDescriptor struct {
 }
 
 type PersonCandidate struct {
-	ID              uint     `json:"id"`
-	DisplayName     string   `json:"display_name"`
-	Aliases         []string `json:"aliases"`
-	IdentityNote    string   `json:"identity_note"`
-	Role            string   `json:"role"`
-	Status          string   `json:"status"`
-	StatusReason    string   `json:"status_reason"`
-	EvidenceKind    string   `json:"evidence_kind"`
-	EvidenceLocator string   `json:"evidence_locator"`
+	RoleUserConfirmed bool     `json:"role_user_confirmed"`
+	ID                uint     `json:"id"`
+	DisplayName       string   `json:"display_name"`
+	Aliases           []string `json:"aliases"`
+	IdentityNote      string   `json:"identity_note"`
+	Role              string   `json:"role"`
+	Status            string   `json:"status"`
+	StatusReason      string   `json:"status_reason"`
+	EvidenceKind      string   `json:"evidence_kind"`
+	EvidenceLocator   string   `json:"evidence_locator"`
 }
 
 type ContextScope struct {
+	PreparationState     string              `json:"preparation_state"`
+	ExcludedPeople       []PersonCandidate   `json:"excluded_people"`
 	EpisodeID            uint                `json:"episode_id"`
 	ShowNotesAvailable   bool                `json:"show_notes_available"`
 	TranscriptAvailable  bool                `json:"transcript_available"`

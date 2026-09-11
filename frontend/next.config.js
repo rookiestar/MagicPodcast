@@ -70,16 +70,12 @@ module.exports = {
   // API 代理配置 - 兼顾本地开发和域名访问
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL || 'http://127.0.0.1:8080'
-    return [
+    return { afterFiles: [
       {
         // Next 16 的内置处理器仍固定在 /_next/image；本地直连时显式补齐
         // 与生产 Nginx 相同的友好路径转发。
         source: '/_next/image.webp',
         destination: '/_next/image',
-      },
-      {
-        source: '/api/v1/:path*',
-        destination: `${backendUrl}/api/v1/:path*`,
       },
       {
         source: '/images/:path*',
@@ -93,6 +89,9 @@ module.exports = {
         source: '/ready',
         destination: `${backendUrl}/ready`,
       },
-    ]
+    ], fallback: [
+      // Run specific App Router API handlers before the generic backend proxy.
+      { source: '/api/v1/:path*', destination: `${backendUrl}/api/v1/:path*` },
+    ] }
   },
 }
