@@ -135,7 +135,7 @@ export default function WorkflowFormModal({
   const [llmMaxEpisodes, setLlmMaxEpisodes] = useState(20);
   const [llmModel, setLlmModel] = useState("");
   const [llmTemperature, setLlmTemperature] = useState(0.7);
-  const [llmMaxTokens, setLlmMaxTokens] = useState(1000);
+  const [llmMaxTokens, setLlmMaxTokens] = useState<number | undefined>();
   const [llmUserPrompt, setLlmUserPrompt] = useState(""); // User Prompt配置
 
   // 重置表单
@@ -167,7 +167,7 @@ export default function WorkflowFormModal({
     setLlmMaxEpisodes(20);
     setLlmModel("");
     setLlmTemperature(0.7);
-    setLlmMaxTokens(1000);
+    setLlmMaxTokens(undefined);
     setStep(1);
   }, []);
 
@@ -374,7 +374,7 @@ export default function WorkflowFormModal({
           setLlmMaxEpisodes(workflow.rules_config.llm_max_episodes || 20);
           setLlmModel(workflow.rules_config.llm_model || "");
           setLlmTemperature(workflow.rules_config.llm_temperature ?? 0.7);
-          setLlmMaxTokens(workflow.rules_config.llm_max_tokens || 1000);
+          setLlmMaxTokens(workflow.rules_config.llm_max_tokens || undefined);
           setLlmUserPrompt(workflow.rules_config.llm_user_prompt || "");
         }
 
@@ -761,7 +761,7 @@ export default function WorkflowFormModal({
     setLlmMaxEpisodes(20);
     setLlmModel("");
     setLlmTemperature(0.7);
-    setLlmMaxTokens(1000);
+    setLlmMaxTokens(undefined);
     onClose();
   };
 
@@ -1792,16 +1792,18 @@ export default function WorkflowFormModal({
                           inputMode="numeric"
                           pattern="[0-9]*"
                           min={100}
-                          max={4000}
-                          value={llmMaxTokens || ""}
-                          onChange={(e) =>
-                            setLlmMaxTokens(parseInt(e.target.value) || 1000)
-                          }
-                          placeholder="1000"
+                          value={llmMaxTokens ?? ""}
+                          onChange={(e) => {
+                            const value = e.target.value.trim();
+                            setLlmMaxTokens(
+                              value === "" ? undefined : parseInt(value, 10),
+                            );
+                          }}
+                          placeholder="留空使用服务端默认"
                           className="w-full px-4 py-2 text-base border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
                         />
                         <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                          控制摘要的最大长度（100-4000）
+                          控制摘要的最大生成Token数；留空使用服务端配置
                         </p>
                       </div>
                     </div>

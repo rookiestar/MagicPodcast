@@ -180,9 +180,6 @@ func (rg *ReportGenerator) GenerateForJob(ctx context.Context, job *models.Job) 
 		if options.Temperature == 0 {
 			options.Temperature = 0.7
 		}
-		if options.MaxTokens == 0 {
-			options.MaxTokens = 1000
-		}
 		if options.MaxEpisodes == 0 {
 			options.MaxEpisodes = 20
 		}

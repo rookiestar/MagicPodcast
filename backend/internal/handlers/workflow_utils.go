@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	appconfig "magicpodcast/internal/config"
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/feed"
 	"magicpodcast/internal/handlers/dto"
@@ -494,21 +495,27 @@ func validateScopeConfig(scopeType models.WorkflowScopeType, config models.Scope
 }
 
 // validateRulesConfig 验证规则配置（包括LLM参数）
-func validateRulesConfig(config models.RulesConfig) error {
+func validateRulesConfig(rules models.RulesConfig) error {
 	// 如果启用LLM，验证相关参数
-	if config.LLMEnabled {
+	if rules.LLMEnabled {
 		// 验证temperature范围
-		if config.LLMTemperature < 0 || config.LLMTemperature > 1.0 {
+		if rules.LLMTemperature < 0 || rules.LLMTemperature > 1.0 {
 			return fmt.Errorf("llm_temperature必须在0.0-1.0之间")
 		}
 
-		// 验证max_tokens
-		if config.LLMMaxTokens < 100 || config.LLMMaxTokens > 4000 {
-			return fmt.Errorf("llm_max_tokens必须在100-4000之间")
+		// 0 means use the startup-configured global budget.
+		if rules.LLMMaxTokens != 0 {
+			maxTokens := appconfig.DefaultLLMMaxTokensPerRequest
+			if loaded := appconfig.Get(); loaded != nil && loaded.LLM.MaxTokensPerRequest > 0 {
+				maxTokens = loaded.LLM.MaxTokensPerRequest
+			}
+			if rules.LLMMaxTokens < appconfig.MinLLMMaxTokensPerRequest || rules.LLMMaxTokens > maxTokens {
+				return fmt.Errorf("llm_max_tokens必须在%d-%d之间", appconfig.MinLLMMaxTokensPerRequest, maxTokens)
+			}
 		}
 
 		// 验证max_episodes
-		if config.LLMMaxEpisodes < 1 || config.LLMMaxEpisodes > 100 {
+		if rules.LLMMaxEpisodes < 1 || rules.LLMMaxEpisodes > 100 {
 			return fmt.Errorf("llm_max_episodes必须在1-100之间")
 		}
 	}

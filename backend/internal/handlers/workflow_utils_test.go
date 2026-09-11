@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"magicpodcast/internal/cache"
+	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/feed"
 	"magicpodcast/internal/models"
@@ -39,6 +40,27 @@ func TestBatchRemainingMsForFinishedAndActiveJobs(t *testing.T) {
 	// Roughly 8 minutes left of the 10-minute window; allow clock skew.
 	require.Greater(t, *activeRem, int64((7 * time.Minute).Milliseconds()))
 	require.Less(t, *activeRem, int64((9 * time.Minute).Milliseconds()))
+}
+
+func TestValidateRulesConfigAcceptsMaxLLMGenerationBudget(t *testing.T) {
+	config.SetTestConfig(nil)
+	for _, maxTokens := range []int{0, config.MinLLMMaxTokensPerRequest, 4000, config.DefaultLLMMaxTokensPerRequest} {
+		err := validateRulesConfig(models.RulesConfig{
+			LLMEnabled:     true,
+			LLMMaxTokens:   maxTokens,
+			LLMMaxEpisodes: 1,
+		})
+		require.NoErrorf(t, err, "max_tokens=%d should be accepted", maxTokens)
+	}
+
+	config.SetTestConfig(&config.Config{LLM: config.LLMConfig{MaxTokensPerRequest: 8000}})
+	t.Cleanup(func() { config.SetTestConfig(nil) })
+	err := validateRulesConfig(models.RulesConfig{
+		LLMEnabled:     true,
+		LLMMaxTokens:   8001,
+		LLMMaxEpisodes: 1,
+	})
+	require.EqualError(t, err, "llm_max_tokens必须在100-8000之间")
 }
 
 func TestWorkflowHomepagePublishConfigIsAutomaticAndCronDerived(t *testing.T) {

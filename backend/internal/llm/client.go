@@ -177,6 +177,17 @@ func (c *Client) GenerateSummary(ctx context.Context, systemPrompt, userPrompt s
 		return nil, fmt.Errorf("LLM API Key未配置")
 	}
 
+	maxTokens := options.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = c.defaultMaxTokens()
+	}
+	if maxTokens < 0 {
+		return nil, fmt.Errorf("llm max_tokens cannot be negative")
+	}
+	if limit := c.configuredMaxTokens(); limit > 0 && maxTokens > limit {
+		return nil, fmt.Errorf("llm max_tokens %d exceeds configured limit %d", maxTokens, limit)
+	}
+
 	// 速率限制
 	if !c.rateLimiter.allow("global") {
 		return nil, fmt.Errorf("达到速率限制，请稍后重试")
@@ -206,7 +217,7 @@ func (c *Client) GenerateSummary(ctx context.Context, systemPrompt, userPrompt s
 		Model:       model,
 		Messages:    messages,
 		Temperature: options.Temperature,
-		MaxTokens:   options.MaxTokens,
+		MaxTokens:   maxTokens,
 		Stream:      false,
 	}
 	if options.DisableThinking && c.config.Provider == config.LLMProviderDeepSeek {
@@ -352,6 +363,20 @@ func (c *Client) normalizeModel(model string) string {
 	}
 
 	return model
+}
+
+func (c *Client) configuredMaxTokens() int {
+	if c == nil || c.config == nil || c.config.MaxTokensPerRequest <= 0 {
+		return 0
+	}
+	return c.config.MaxTokensPerRequest
+}
+
+func (c *Client) defaultMaxTokens() int {
+	if limit := c.configuredMaxTokens(); limit > 0 {
+		return limit
+	}
+	return config.DefaultLLMMaxTokensPerRequest
 }
 
 // SummaryOptions 摘要选项
