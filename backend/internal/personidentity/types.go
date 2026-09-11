@@ -14,6 +14,8 @@ var (
 	ErrInvalidCorrection     = errors.New("invalid person correction")
 	ErrNotEpisodeParticipant = errors.New("person is not an episode participant")
 	ErrTranscriptRequired    = errors.New("episode transcript is required")
+	ErrIdentityUnavailable   = errors.New("person identity runtime is unavailable")
+	ErrSourcesChanged        = errors.New("person identity sources changed during preparation")
 	ErrConfirmationProtected = errors.New("user confirmation cannot be overwritten by extraction")
 )
 
@@ -38,27 +40,33 @@ type Segment struct {
 }
 
 type EpisodeSources struct {
-	EpisodeID     uint
-	ShowNotes     string
-	SourceKind    string
-	SourceVersion string
-	Segments      []Segment
-	OriginalBytes []byte
+	PodcastTitle         string
+	PodcastAuthor        string
+	PodcastDescription   string
+	EpisodeTitle         string
+	EpisodePublishedDate string
+	EpisodeID            uint
+	ShowNotes            string
+	SourceKind           string
+	SourceVersion        string
+	Segments             []Segment
+	OriginalBytes        []byte
 }
 
 type PersonView struct {
-	ID              uint     `json:"id"`
-	StableKey       string   `json:"stable_key"`
-	DisplayName     string   `json:"display_name"`
-	Aliases         []string `json:"aliases"`
-	IdentityNote    string   `json:"identity_note"`
-	Role            string   `json:"role"`
-	Status          string   `json:"status"`
-	StatusReason    string   `json:"status_reason"`
-	EvidenceKind    string   `json:"evidence_kind"`
-	EvidenceLocator string   `json:"evidence_locator"`
-	ConfirmedSpeech int      `json:"confirmed_speech_count"`
-	PendingSpeech   int      `json:"pending_speech_count"`
+	RoleUserConfirmed bool     `json:"role_user_confirmed"`
+	ID                uint     `json:"id"`
+	StableKey         string   `json:"stable_key"`
+	DisplayName       string   `json:"display_name"`
+	Aliases           []string `json:"aliases"`
+	IdentityNote      string   `json:"identity_note"`
+	Role              string   `json:"role"`
+	Status            string   `json:"status"`
+	StatusReason      string   `json:"status_reason"`
+	EvidenceKind      string   `json:"evidence_kind"`
+	EvidenceLocator   string   `json:"evidence_locator"`
+	ConfirmedSpeech   int      `json:"confirmed_speech_count"`
+	PendingSpeech     int      `json:"pending_speech_count"`
 }
 
 type AttributionView struct {
@@ -78,12 +86,16 @@ type AttributionView struct {
 }
 
 type EpisodePeople struct {
-	EpisodeID     uint              `json:"episode_id"`
-	SourceVersion string            `json:"source_version"`
-	IndexReady    bool              `json:"index_ready"`
-	PublishedAt   time.Time         `json:"published_at,omitempty"`
-	People        []PersonView      `json:"people"`
-	Attributions  []AttributionView `json:"attributions"`
+	PreparationState    string `json:"preparation_state"`
+	preparationRevision uint
+	publishedRevision   uint
+	EpisodeID           uint              `json:"episode_id"`
+	SourceVersion       string            `json:"source_version"`
+	IndexReady          bool              `json:"index_ready"`
+	PublishedAt         time.Time         `json:"published_at,omitempty"`
+	ExcludedPeople      []PersonView      `json:"excluded_people"`
+	People              []PersonView      `json:"people"`
+	Attributions        []AttributionView `json:"attributions"`
 }
 
 type NameCorrection struct {
@@ -129,6 +141,9 @@ type CandidateSuggester interface {
 }
 
 type SuggestedCandidate struct {
+	// SourceNames are episode-local transcript spellings, not global aliases.
+	SourceNames     []string
+	Status          string
 	SpeechOrders    []int
 	DisplayName     string
 	Aliases         []string

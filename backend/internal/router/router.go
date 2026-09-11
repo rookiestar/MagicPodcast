@@ -229,6 +229,7 @@ func SetupRouter(options ...Option) *gin.Engine {
 		v1.GET("/episodes/:id/people", personHandler.List)
 		v1.POST("/episodes/:id/people/prepare", personHandler.Prepare)
 		v1.POST("/episodes/:id/people/:personId/corrections", personHandler.CorrectName)
+		v1.POST("/episodes/:id/people/:personId/appearance-corrections", personHandler.CorrectAppearance)
 		v1.POST("/episodes/:id/attributions/corrections", personHandler.CorrectAttribution)
 
 		// Podcast 路由

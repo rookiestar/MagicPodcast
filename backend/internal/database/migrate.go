@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 28
+const CurrentSchemaVersion = 29
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -257,6 +257,21 @@ func migrationRegistry() []Migration {
 				},
 			},
 		},
+		{
+			Version:     29,
+			Name:        "person-preparation-evidence-version",
+			Description: "Track current identity evidence separately from source versions; legacy automatic identities require preparation.",
+			Apply:       applyPersonPreparationMigration,
+			Contract: MigrationContract{
+				SchemaChanges: []SchemaChangeRule{
+					{Operation: SchemaChangeCreateTable, Table: models.PersonPreparation{}.TableName()},
+					{Operation: SchemaChangeCreateTable, Table: models.PersonAppearanceOverride{}.TableName()},
+					{Operation: SchemaChangeDropTrigger, Table: "episodes", Object: "invalidate_persona_on_show_notes"},
+					{Operation: SchemaChangeCreateTrigger, Table: "episodes", Object: "invalidate_person_preparation_on_episode_metadata"},
+					{Operation: SchemaChangeCreateTrigger, Table: "podcasts", Object: "invalidate_person_preparation_on_podcast_metadata"},
+				},
+			},
+		},
 	}
 }
 
@@ -273,7 +288,7 @@ var baselineRequiredTables = []string{
 	"episodes_tags",
 }
 
-var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions", "episode_processing_runs", "processing_checkpoints", "episode_artifact_sets", "knowledge_deliveries", "episode_audio_assets", "processing_schedule_runs", "processing_schedule_items", models.EpisodeArtifactAudioRecovery{}.TableName(), models.Person{}.TableName(), models.PersonAlias{}.TableName(), models.EpisodeAppearance{}.TableName(), models.SpeechAttribution{}.TableName(), models.PersonUserConfirmation{}.TableName(), models.ContentSearchFragment{}.TableName(), models.ContentSearchCoverage{}.TableName())
+var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions", "episode_processing_runs", "processing_checkpoints", "episode_artifact_sets", "knowledge_deliveries", "episode_audio_assets", "processing_schedule_runs", "processing_schedule_items", models.EpisodeArtifactAudioRecovery{}.TableName(), models.Person{}.TableName(), models.PersonAlias{}.TableName(), models.EpisodeAppearance{}.TableName(), models.SpeechAttribution{}.TableName(), models.PersonUserConfirmation{}.TableName(), models.ContentSearchFragment{}.TableName(), models.ContentSearchCoverage{}.TableName(), models.PersonPreparation{}.TableName(), models.PersonAppearanceOverride{}.TableName())
 
 func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
 	if db == nil {
@@ -1133,5 +1148,14 @@ func CreateIndexes(db *gorm.DB) error {
 	}
 
 	logger.Info("✅ Custom indexes created successfully")
+	return nil
+}
+
+func applyPersonPreparationMigration(db *gorm.DB) error {
+	for _, statement := range []string{models.PersonPreparationsCreateSQL, models.PersonAppearanceOverridesCreateSQL, "DROP TRIGGER invalidate_persona_on_show_notes", models.PersonPreparationEpisodeInvalidationSQL, models.PersonPreparationPodcastInvalidationSQL} {
+		if err := db.Exec(statement).Error; err != nil {
+			return err
+		}
+	}
 	return nil
 }

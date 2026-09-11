@@ -53,7 +53,12 @@ describe("episodeCopilotMention", () => {
     const clickTranscript = vi.spyOn(transcriptTab, "click");
     const clickArtifact = vi.spyOn(artifactTab, "click");
 
-    await jumpToLibrarySource({ episodeId: 81, fragmentOrder: 3 });
+    root.hidden = true;
+    const reveal = vi.fn(async () => { root.hidden = false; });
+    await jumpToLibrarySource({ episodeId: 81, fragmentOrder: 3 }, { openEpisode: reveal });
+    expect(reveal).toHaveBeenCalledWith(81);
+    expect(root.hidden).toBe(false);
+    expect(document.activeElement).toBe(fragment);
 
     expect(clickTranscript).toHaveBeenCalled();
     expect(clickArtifact).toHaveBeenCalled();
@@ -92,4 +97,16 @@ describe("episodeCopilotMention", () => {
 
 afterEach(() => {
   document.body.replaceChildren();
+});
+
+it("keeps both conflicting automatic role sources available for correction", async () => {
+  const { personEvidence } = await import("../EpisodePersonEvidence");
+  const rows = personEvidence(JSON.stringify({ role_conflicts: [
+    { role: "host", evidence: { source: "show_notes", fragment: 0, quote: "本集主播林言" } },
+    { role: "guest", evidence: { source: "transcript", fragment: 3, quote: "请嘉宾林言回答" } },
+  ] }));
+  expect(rows).toEqual([
+    { label: "角色依据有分歧（主播）", source: "Show Notes", quote: "本集主播林言" },
+    { label: "角色依据有分歧（嘉宾）", source: "逐字稿", quote: "请嘉宾林言回答", fragment: 3 },
+  ]);
 });

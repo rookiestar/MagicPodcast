@@ -20,7 +20,10 @@ const copilotMocks = vi.hoisted(() => ({
   getContext: vi.fn(),
   ask: vi.fn(),
   getPeople: vi.fn(),
+  correctName: vi.fn(),
   correctAttribution: vi.fn(),
+ correctAppearance: vi.fn(),
+ preparePeople: vi.fn(),
   isCancellation: vi.fn(),
   writeText: vi.fn(),
 }));
@@ -30,7 +33,10 @@ vi.mock("@/lib/api/episodeCopilot", () => ({
     getContext: copilotMocks.getContext,
     ask: copilotMocks.ask,
     getPeople: copilotMocks.getPeople,
+    correctName: copilotMocks.correctName,
     correctAttribution: copilotMocks.correctAttribution,
+ correctAppearance: copilotMocks.correctAppearance,
+ preparePeople: copilotMocks.preparePeople,
   },
   isEpisodeCopilotCancellation: copilotMocks.isCancellation,
 }));
@@ -970,6 +976,23 @@ describe("EpisodeCopilotPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it("distinguishes namesakes by accessible identity descriptions and sends the selected ID", async () => {
+    const people = [
+      { id: 41, display_name: "陈晨", aliases: [], identity_note: "建筑师", role: "guest" as const, status: "confirmed" as const, status_reason: "" },
+      { id: 42, display_name: "陈晨", aliases: [], identity_note: "急诊医生", role: "guest" as const, status: "confirmed" as const, status_reason: "" },
+    ];
+    copilotMocks.getContext.mockResolvedValue({ ...scopeForEpisode(201), people, index_ready: true });
+    copilotMocks.getPeople.mockResolvedValue({ episode_id: 201, source_version: "v1", index_ready: true, people, attributions: [] });
+    render(<EpisodeCopilotPanel item={item} />);
+    const composer = await screen.findByRole("textbox", { name: "向单集助手提问" });
+    fireEvent.change(composer, { target: { value: "@陈" } });
+    expect(await screen.findByRole("option", { name: "选择陈晨", description: "嘉宾 · 建筑师" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: "选择陈晨", description: "嘉宾 · 急诊医生" }));
+    fireEvent.change(composer, { target: { value: "你如何安排工作顺序？" } });
+    fireEvent.click(screen.getByRole("button", { name: "提问" }));
+    await waitFor(() => expect(copilotMocks.ask).toHaveBeenCalledWith(201, expect.objectContaining({ target_person_id: 42 }), expect.any(Function), expect.any(AbortSignal)));
+  });
+
   it("selects one @ person, sends a structured id, and blocks pending 模拟回答", async () => {
     const zhang = {
       id: 9,
@@ -1045,6 +1068,116 @@ describe("EpisodeCopilotPanel", () => {
     expect(screen.getByRole("button", { name: "提问" })).toBeDisabled();
     fireEvent.keyDown(composer, { key: "Enter" });
     expect(episodeCopilotApi.ask).toHaveBeenCalledTimes(1);
+  });
+
+  it("corrects role and supports reversible exclusion without silently changing the question target", async () => {
+    const person = { id: 9, display_name: "张小珺", aliases: [], identity_note: "", role: "unknown" as const, status: "confirmed" as const, status_reason: "",
+      evidence_locator: JSON.stringify({ name_evidence: { source: "podcast_author", quote: "张小珺", fragment: 0 }, source_names: [{ name: "小俊", evidence: { source: "transcript", fragment: 1, quote: "我是小俊。" } }] }),
+    };
+    const payload = { episode_id: 201, source_version: "v1", index_ready: true, preparation_state: "ready" as const, people: [person], excluded_people: [], attributions: [] };
+    copilotMocks.getContext.mockResolvedValue({ ...scopeForEpisode(201), ...payload });
+    copilotMocks.getPeople.mockResolvedValue(payload);
+    render(<EpisodeCopilotPanel item={item} />);
+    const composer = await screen.findByRole("textbox", { name: "向单集助手提问" });
+    fireEvent.change(composer, { target: { value: "@张" } });
+    fireEvent.click(await screen.findByRole("option", { name: "选择张小珺" }));
+    expect(screen.getByTestId("copilot-person-chip")).toHaveTextContent("角色待确认");
+    fireEvent.change(composer, { target: { value: "怎么看产业变化？" } });
+    fireEvent.click(screen.getByRole("button", { name: "纠正发言归属" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "保存本集角色" })).toBeEnabled());
+    fireEvent.click(screen.getByText("查看姓名、角色与原文依据"));
+    expect(screen.getByText("转写称呼：小俊")).toBeInTheDocument();
+    expect(screen.getByText("我是小俊。")).toBeInTheDocument();
+    expect(screen.queryByText(/name_evidence/)).not.toBeInTheDocument();
+    const host = { ...person, role: "host" as const, role_user_confirmed: true };
+    copilotMocks.correctAppearance.mockResolvedValueOnce({ ...payload, people: [host] });
+    fireEvent.change(screen.getByRole("combobox", { name: "纠正本集角色" }), { target: { value: "host" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存本集角色" }));
+    await waitFor(() => expect(screen.getByTestId("copilot-person-chip")).toHaveTextContent("主播"));
+    expect(copilotMocks.correctAppearance).toHaveBeenCalledWith(201, 9, { role: "host" }, expect.any(AbortSignal));
+    copilotMocks.correctAppearance.mockResolvedValueOnce({ ...payload, people: [], excluded_people: [host] });
+    fireEvent.click(screen.getByRole("button", { name: "不是本集人物" }));
+    expect(await screen.findByText(/原选人物已失效/)).toBeInTheDocument();
+    expect(composer).toHaveValue("怎么看产业变化？");
+    expect(screen.getByRole("button", { name: "提问" })).toBeDisabled();
+    fireEvent.keyDown(composer, { key: "Enter" });
+    expect(copilotMocks.ask).not.toHaveBeenCalled();
+    copilotMocks.correctAppearance.mockResolvedValueOnce({ ...payload, people: [host] });
+    fireEvent.click(screen.getByText("已排除人物（1）"));
+    fireEvent.click(screen.getByRole("button", { name: "撤销排除 张小珺" }));
+    await waitFor(() => expect(screen.queryByText("已排除人物（1）")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "提问" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "改为普通问答" }));
+    expect(screen.getByRole("button", { name: "提问" })).toBeEnabled();
+  });
+
+  it("rebinds the selected person when a shared identity correction returns a new ID", async () => {
+    const original = {
+      id: 9,
+      display_name: "王芳",
+      aliases: [],
+      identity_note: "产品负责人",
+      role: "guest" as const,
+      status: "confirmed" as const,
+      status_reason: "",
+    };
+    const replacement = { ...original, id: 12, display_name: "王芳芳" };
+    const initialPayload = {
+      episode_id: 201,
+      source_version: "v1",
+      index_ready: true,
+      preparation_state: "ready" as const,
+      people: [original],
+      excluded_people: [],
+      attributions: [],
+    };
+    copilotMocks.getContext.mockResolvedValue({ ...scopeForEpisode(201), ...initialPayload, transcript_available: true });
+    copilotMocks.getPeople.mockResolvedValue(initialPayload);
+    copilotMocks.correctName.mockResolvedValue({ ...initialPayload, people: [replacement] });
+    render(<EpisodeCopilotPanel item={item} />);
+    const composer = await screen.findByRole("textbox", { name: "向单集助手提问" });
+    fireEvent.change(composer, { target: { value: "@王" } });
+    fireEvent.click(await screen.findByRole("option", { name: "选择王芳" }));
+    fireEvent.click(screen.getByRole("button", { name: "纠正发言归属" }));
+    const nameInput = await screen.findByRole("textbox", { name: "纠正人物姓名" });
+    fireEvent.change(nameInput, { target: { value: "王芳芳" } });
+    fireEvent.click(screen.getByRole("button", { name: "确认姓名与本集身份" }));
+    await waitFor(() => expect(screen.getByTestId("copilot-person-chip")).toHaveTextContent("王芳芳"));
+    expect(screen.queryByText(/原选人物已失效/)).not.toBeInTheDocument();
+    fireEvent.change(composer, { target: { value: "你的产品观点是什么？" } });
+    fireEvent.click(screen.getByRole("button", { name: "提问" }));
+    await waitFor(() => expect(copilotMocks.ask).toHaveBeenCalledWith(201, expect.objectContaining({ target_person_id: 12 }), expect.any(Function), expect.any(AbortSignal)));
+  });
+
+  it("preserves preparation drafts and ignores cancelled or cross-episode results", async () => {
+    const person = { id: 9, display_name: "曾鸣", aliases: [], identity_note: "", role: "guest" as const, status: "confirmed" as const, status_reason: "" };
+    const fresh = { episode_id: 201, source_version: "v1", index_ready: true, preparation_state: "ready" as const, people: [person], attributions: [] };
+    let resolveLate!: (value: typeof fresh) => void;
+    copilotMocks.getContext.mockResolvedValue({ ...scopeForEpisode(201), transcript_available: true, index_ready: false, preparation_state: "outdated", people: [] });
+    copilotMocks.preparePeople.mockReturnValueOnce(new Promise<typeof fresh>((resolve) => { resolveLate = resolve; }));
+    const view = render(<EpisodeCopilotPanel item={item} />);
+    const composer = await screen.findByRole("textbox", { name: "向单集助手提问" });
+    expect(screen.getByText(/人物资料需要重新识别/)).toBeInTheDocument();
+    fireEvent.change(composer, { target: { value: "保留这个问题" } });
+    fireEvent.click(screen.getByRole("button", { name: "识别本集人物" }));
+    expect(composer).toHaveValue("保留这个问题");
+    const signal = copilotMocks.preparePeople.mock.calls[0][1] as AbortSignal;
+    fireEvent.click(screen.getByRole("button", { name: "取消人物处理" }));
+    expect(signal.aborted).toBe(true);
+    await act(async () => resolveLate(fresh));
+    expect(screen.getByText(/人物资料需要重新识别/)).toBeInTheDocument();
+    copilotMocks.preparePeople.mockRejectedValueOnce(new Error("offline"));
+    fireEvent.click(screen.getByRole("button", { name: "识别本集人物" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("人物资料处理失败");
+    expect(composer).toHaveValue("保留这个问题");
+    copilotMocks.preparePeople.mockReturnValueOnce(new Promise<typeof fresh>((resolve) => { resolveLate = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "识别本集人物" }));
+    copilotMocks.getContext.mockResolvedValue({ ...scopeForEpisode(202), people: [], index_ready: false, preparation_state: "required" });
+    view.rerender(<EpisodeCopilotPanel item={{ ...item, episode_id: 202 }} />);
+    await screen.findByText(/人物资料尚未准备/);
+    await act(async () => resolveLate(fresh));
+    fireEvent.change(screen.getByRole("textbox", { name: "向单集助手提问" }), { target: { value: "@" } });
+    expect(screen.queryByRole("option", { name: "选择曾鸣" })).not.toBeInTheDocument();
   });
 
   it("does not submit while IME is composing", async () => {

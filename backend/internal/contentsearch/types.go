@@ -8,6 +8,7 @@ import (
 
 var (
 	ErrInvalidRequest = errors.New("invalid content search request")
+	ErrStaleDocument  = errors.New("content search document is superseded")
 	ErrSearchFailed   = errors.New("content search failed")
 )
 
@@ -77,15 +78,23 @@ type FragmentInput struct {
 	AttributionStatus string
 }
 
+// AttributionVersion identifies the facts read for an identity-aware index
+// replacement. PublishedRevision also changes when an in-flight request commits.
+type AttributionVersion struct {
+	Revision          uint
+	PublishedRevision uint
+}
+
 type EpisodeDocument struct {
-	EpisodeID        uint
-	PublishedAt      time.Time
-	ShowNotes        string
-	SourceKind       string
-	SourceVersion    string
-	Fragments        []FragmentInput
-	Complete         bool
-	IncompleteReason string
+	AttributionVersion *AttributionVersion
+	EpisodeID          uint
+	PublishedAt        time.Time
+	ShowNotes          string
+	SourceKind         string
+	SourceVersion      string
+	Fragments          []FragmentInput
+	Complete           bool
+	IncompleteReason   string
 }
 
 type Module interface {

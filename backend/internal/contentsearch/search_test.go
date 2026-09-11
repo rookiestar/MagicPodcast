@@ -95,7 +95,7 @@ func TestSearchDistinguishesMissCoverageTruncationAndFailure(t *testing.T) {
 	library := indexBaseline(t, db, service)
 
 	miss, err := service.Search(context.Background(), Request{
-		Query: "量子计算商业化",
+		Query: "航天推进器",
 		Scope: Scope{EpisodeIDs: []uint{library.episodes["ep-no-topic"]}},
 		Limit: 8,
 	})
@@ -145,6 +145,10 @@ func TestSearchExcludesStaleVersionsAfterReplaceDeleteAndCorrection(t *testing.T
 	episodeID := library.episodes["ep-mixed-label"]
 	zhang := library.people["person-zhangsan-tech"]
 
+	// The indexing caller publishes authoritative attribution/source facts;
+	// replacing an index alone must not manufacture a new identity decision.
+	require.NoError(t, db.Model(&models.PersonPreparation{}).Where("episode_id = ?", episodeID).Update("source_version", "v2").Error)
+	require.NoError(t, db.Model(&models.EpisodeAppearance{}).Where("episode_id = ? AND person_id = ?", episodeID, zhang).Update("source_version", "v2").Error)
 	require.NoError(t, service.ReplaceEpisode(context.Background(), EpisodeDocument{
 		EpisodeID:     episodeID,
 		PublishedAt:   time.Date(2025, 8, 11, 0, 0, 0, 0, time.UTC),
@@ -261,6 +265,10 @@ func indexBaseline(t *testing.T, db *gorm.DB, service *Service) indexedLibrary {
 		require.NoError(t, db.Create(&row).Error)
 		episodes[episode.ID] = row.ID
 		all = append(all, row.ID)
+		require.NoError(t, db.Create(&models.PersonPreparation{EpisodeID: row.ID, Revision: 1, PublishedRevision: 1, SourceVersion: "fixture-" + episode.ID, AlgorithmVersion: models.CurrentIdentityAlgorithm, MetadataDigest: "declared-synthetic-fixture", UpdatedAt: time.Now().UTC()}).Error)
+		for _, appearance := range episode.Appearances {
+			require.NoError(t, db.Create(&models.EpisodeAppearance{EpisodeID: row.ID, PersonID: people[appearance.PersonID], SourceVersion: "fixture-" + episode.ID, Role: appearance.Role, Status: appearance.Status, EvidenceKind: "synthetic-fixture"}).Error)
+		}
 		fragments := make([]FragmentInput, 0, len(episode.TranscriptSegments))
 		for _, segment := range episode.TranscriptSegments {
 			item := FragmentInput{Order: segment.Order, StartMS: segment.StartMS, Text: segment.Text, AttributionStatus: segment.AttributionStatus}
@@ -275,7 +283,7 @@ func indexBaseline(t *testing.T, db *gorm.DB, service *Service) indexedLibrary {
 			PublishedAt:   published,
 			ShowNotes:     episode.ShowNotes,
 			SourceKind:    SourceTranscript,
-			SourceVersion: "artifact-" + episode.ID,
+			SourceVersion: "fixture-" + episode.ID,
 			Fragments:     fragments,
 			Complete:      true,
 		}))

@@ -439,6 +439,24 @@ func seedPublishedTranscript(
 		CreatedAt:                now,
 	}
 	require.NoError(t, db.Create(&artifact).Error)
+	// This launch harness tests HTTP/UI behavior with a declared synthetic
+	// corpus. Re-publishing it must use explicit fixture decisions, not a
+	// production regex fallback when no identity Runtime is configured.
+	var decisions fixedIdentityFixture
+	for _, p := range listed.People {
+		item := personidentity.SuggestedCandidate{DisplayName: p.DisplayName, Aliases: p.Aliases, IdentityNote: p.IdentityNote, Role: p.Role, Status: p.Status, EvidenceKind: "verified_runtime", EvidenceLocator: p.EvidenceLocator}
+		for _, f := range listed.Attributions {
+			if f.PersonID != nil && *f.PersonID == p.ID && f.Status == "confirmed" {
+				item.SpeechOrders = append(item.SpeechOrders, f.FragmentOrder)
+			}
+		}
+		decisions = append(decisions, item)
+	}
+	index, err := contentsearch.NewService(db)
+	require.NoError(t, err)
+	configured, err := personidentity.NewService(db, decisions, index)
+	require.NoError(t, err)
+	*people = *configured
 	people.WithArtifactReader(store)
 	_, err = people.PrepareCurrent(context.Background(), episodeID)
 	require.NoError(t, err)

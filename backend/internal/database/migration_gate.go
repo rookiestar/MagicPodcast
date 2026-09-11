@@ -118,7 +118,7 @@ func (runner productionMigrationRunner) runWithValidation(db *gorm.DB, validateB
 			}
 			report := MigrationExecutionReport{
 				Version: migration.Version, Name: migration.Name, Contract: migration.Contract,
-				DDL: capture.Changes(), TableChanges: migrationTableChanges(before, after),
+				DDL: resolveDroppedObjectTables(before, capture.Changes()), TableChanges: migrationTableChanges(before, after),
 			}
 			report.ProtectedTables = migrationProtectedTables(before, report.DDL)
 			report.Violations = validateMigrationContract(before, after, report.DDL, migration.Contract)
@@ -244,6 +244,30 @@ func validateMigrationContract(before, after migrationDatabaseSnapshot, ddl []DD
 		return violations[i].Table < violations[j].Table
 	})
 	return violations
+}
+
+// DROP INDEX/TRIGGER contains no table name. Resolve it from the actual
+// pre-migration schema, never from the requested allowance.
+func resolveDroppedObjectTables(before migrationDatabaseSnapshot, changes []DDLChange) []DDLChange {
+	resolved := append([]DDLChange(nil), changes...)
+	for i, change := range resolved {
+		if change.Table != "" {
+			continue
+		}
+		kind := ""
+		switch change.Operation {
+		case SchemaChangeDropTrigger:
+			kind = "trigger"
+		case SchemaChangeDropIndex:
+			kind = "index"
+		default:
+			continue
+		}
+		if object, ok := before.Schema[kind+":"+change.Object]; ok {
+			resolved[i].Table = object.Table
+		}
+	}
+	return resolved
 }
 
 func validateMigrationDDL(observed []DDLChange, allowed []SchemaChangeRule) []MigrationViolation {

@@ -35,12 +35,14 @@ func TestPersonaRealCorpus(t *testing.T) {
 	require.NotEmpty(t, output)
 	require.NoError(t, os.MkdirAll(output, 0700))
 	var sources []struct {
-		EpisodeID     uint   `json:"episode_id"`
-		Title         string `json:"title"`
-		ShowNotes     string `json:"show_notes"`
-		PodcastTitle  string `json:"podcast_title"`
-		PublishedDate string `json:"published_date"`
-		Timeline      struct {
+		EpisodeID          uint   `json:"episode_id"`
+		Title              string `json:"title"`
+		ShowNotes          string `json:"show_notes"`
+		PodcastTitle       string `json:"podcast_title"`
+		PodcastAuthor      string `json:"podcast_author"`
+		PodcastDescription string `json:"podcast_description"`
+		PublishedDate      string `json:"published_date"`
+		Timeline           struct {
 			Segments []processing.TranscriptSegment `json:"segments"`
 		} `json:"timeline"`
 	}
@@ -66,7 +68,7 @@ func TestPersonaRealCorpus(t *testing.T) {
 	require.NoError(t, err)
 	for _, source := range sources {
 		t.Run(fmt.Sprint(source.EpisodeID), func(t *testing.T) {
-			pod := models.Podcast{XYZID: fmt.Sprint(source.EpisodeID), Title: source.PodcastTitle, FeedURL: fmt.Sprintf("https://example.test/%d", source.EpisodeID)}
+			pod := models.Podcast{XYZID: fmt.Sprint(source.EpisodeID), Title: source.PodcastTitle, Author: source.PodcastAuthor, Description: source.PodcastDescription, FeedURL: fmt.Sprintf("https://example.test/%d", source.EpisodeID)}
 			require.NoError(t, db.Create(&pod).Error)
 			published, _ := time.Parse("2006-01-02", source.PublishedDate[:10])
 			ep := models.Episode{PodcastID: pod.ID, Title: source.Title, GUID: fmt.Sprint(source.EpisodeID), ShowNotes: source.ShowNotes, PublishedDate: published}
@@ -230,7 +232,9 @@ func TestPersonaPublicWebCapability(t *testing.T) {
 	db := openLaunchDB(t)
 	search, err := contentsearch.NewService(db)
 	require.NoError(t, err)
-	people, err := personidentity.NewService(db, nil, search)
+	people, err := personidentity.NewService(db, fixedIdentityFixture{
+		{DisplayName: "Paul Graham", Role: "guest", IdentityNote: "Y Combinator联合创始人、文章作者", EvidenceKind: "verified_runtime"},
+	}, search)
 	require.NoError(t, err)
 	podcast := models.Podcast{XYZID: "public-web-check", Title: "公开搜索隔离测试", FeedURL: "https://example.test/web-check"}
 	require.NoError(t, db.Create(&podcast).Error)

@@ -51,10 +51,17 @@ export const episodeCopilotApi = {
     );
     return handleResponse(response);
   },
-  getPeople: async (episodeId: number): Promise<EpisodePeoplePayload> => {
+  getPeople: async (episodeId: number, signal?: AbortSignal): Promise<EpisodePeoplePayload> => {
     const response = await api.get<ApiResponse<EpisodePeoplePayload>>(
       `/api/v1/episodes/${episodeId}/people`,
-      inlineApiErrorConfig,
+      { ...inlineApiErrorConfig, signal },
+    );
+    return handleResponse(response);
+  },
+
+  correctAppearance: async (episodeId: number, personId: number, body: { role?: string; excluded?: boolean }, signal?: AbortSignal): Promise<EpisodePeoplePayload> => {
+    const response = await api.post<ApiResponse<EpisodePeoplePayload>>(
+      `/api/v1/episodes/${episodeId}/people/${personId}/appearance-corrections`, body, { ...inlineApiErrorConfig, signal },
     );
     return handleResponse(response);
   },

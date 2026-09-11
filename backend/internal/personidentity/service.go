@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"magicpodcast/internal/contentsearch"
 	"magicpodcast/internal/models"
@@ -47,72 +49,162 @@ func (s *Service) Prepare(ctx context.Context, sources EpisodeSources) (EpisodeP
 	if err := s.requireEpisode(ctx, sources.EpisodeID); err != nil {
 		return EpisodePeople{}, err
 	}
-	candidates, fragments := extractFromSources(sources)
+	if s.suggester == nil {
+		return EpisodePeople{}, ErrIdentityUnavailable
+	}
+	var revision uint
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var err error
+		revision, err = reservePreparation(tx, sources.EpisodeID)
+		return err
+	}); err != nil {
+		return EpisodePeople{}, err
+	}
+	metadata, err := readPreparationMetadata(s.db.WithContext(ctx), sources.EpisodeID)
+	if err != nil {
+		return EpisodePeople{}, err
+	}
+	sources.PodcastTitle = metadata.PodcastTitle
+	sources.PodcastAuthor = metadata.PodcastAuthor
+	sources.PodcastDescription = metadata.PodcastDescription
+	sources.EpisodeTitle = metadata.EpisodeTitle
+	sources.EpisodePublishedDate = ""
+	if !metadata.PublishedAt.IsZero() {
+		sources.EpisodePublishedDate = metadata.PublishedAt.Format(time.RFC3339)
+	}
+	sources.ShowNotes = metadata.ShowNotes
+
+	var candidates []extractedCandidate
+	fragments := make([]extractedFragment, 0, len(sources.Segments))
+	for _, segment := range sources.Segments {
+		fragments = append(fragments, extractedFragment{Segment: segment, Status: StatusPending, EvidenceKind: "unmatched_label", EvidenceLocator: fragmentLocator(segment)})
+	}
 	if s.suggester != nil {
 		suggested, err := s.suggester.Suggest(ctx, sources)
 		if err != nil {
 			return EpisodePeople{}, err
 		}
-		candidates = mergeSuggestedCandidates(candidates, suggested)
-		fragments = bindFragments(sources.Segments, candidates)
 		assignments := map[int][]string{}
-		for _, item := range suggested {
-			if item.EvidenceKind == "verified_runtime" {
+		for index, item := range suggested {
+			converted := mergeSuggestedCandidates(nil, []SuggestedCandidate{item})
+			if len(converted) == 0 {
+				continue
+			}
+			candidate := converted[0]
+			candidate.key = fmt.Sprintf("candidate:%d", index)
+			candidates = append(candidates, candidate)
+			if item.EvidenceKind == "verified_runtime" && item.Status != StatusPending && !item.MentionedOnly {
 				for _, order := range item.SpeechOrders {
-					assignments[order] = append(assignments[order], item.DisplayName)
+					assignments[order] = append(assignments[order], candidate.key)
 				}
 			}
 		}
 		for i := range fragments {
-			if names := assignments[fragments[i].Order]; len(names) == 1 {
-				fragments[i].PersonName = names[0]
+			if keys := assignments[fragments[i].Order]; len(keys) == 1 {
+				fragments[i].PersonKey = keys[0]
 				fragments[i].Status = StatusConfirmed
 				fragments[i].EvidenceKind = "verified_runtime"
 			}
 		}
 	}
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		confirmations, err := loadConfirmations(tx, sources.EpisodeID)
 		if err != nil {
 			return err
 		}
-		peopleByName := map[string]models.Person{}
+		var previousPreparation models.PersonPreparation
+		if err := tx.First(&previousPreparation, "episode_id = ?", sources.EpisodeID).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		retainRoles := previousPreparation.AlgorithmVersion == models.CurrentIdentityAlgorithm &&
+			previousPreparation.SourceVersion == sources.SourceVersion && previousPreparation.MetadataDigest == metadata.digest()
+		peopleByKey := map[string]models.Person{}
+		claimedPeople := map[uint]bool{}
 		for _, candidate := range candidates {
 			if candidate.MentionedOnly {
 				continue
 			}
-			person, err := upsertPerson(tx, sources.EpisodeID, candidate)
+			person, err := upsertPerson(tx, sources.EpisodeID, candidate, claimedPeople)
 			if err != nil {
 				return err
 			}
-			peopleByName[candidate.DisplayName] = person
-			for _, alias := range candidate.Aliases {
-				peopleByName[alias] = person
-			}
-			if err := upsertAppearance(tx, sources.EpisodeID, sources.SourceVersion, person, candidate, confirmations); err != nil {
+			peopleByKey[candidate.key] = person
+			claimedPeople[person.ID] = true
+			if err := upsertAppearance(tx, sources.EpisodeID, sources, person, candidate, confirmations, retainRoles); err != nil {
 				return err
 			}
 		}
-		if err := replaceAttributions(tx, sources, fragments, peopleByName, confirmations); err != nil {
+		retained := make([]uint, 0, len(peopleByKey)+len(confirmations))
+		overrides, err := loadAppearanceOverrides(tx, sources.EpisodeID)
+		if err != nil {
 			return err
 		}
-		return nil
+		for id := range overrides {
+			retained = append(retained, id)
+			present := false
+			for _, person := range peopleByKey {
+				if person.ID == id {
+					present = true
+					break
+				}
+			}
+			if !present && confirmationForPerson(confirmations, id) == nil {
+				// A preserved role or exclusion is not a fresh identity confirmation.
+				if err := tx.Model(&models.EpisodeAppearance{}).Where("episode_id = ? AND person_id = ?", sources.EpisodeID, id).Updates(map[string]any{"status": StatusPending, "status_reason": "本次未确认出场身份", "source_version": sources.SourceVersion}).Error; err != nil {
+					return err
+				}
+			}
+		}
+
+		for _, person := range peopleByKey {
+			retained = append(retained, person.ID)
+		}
+		for _, confirmation := range confirmations {
+			if confirmation.Kind == models.PersonConfirmationKindName && confirmation.PersonID != nil {
+				retained = append(retained, *confirmation.PersonID)
+			}
+			if confirmation.Kind == models.PersonConfirmationKindAttribution && confirmation.AssignedPersonID != nil {
+				for _, fragment := range fragments {
+					if confirmationForFragmentOrder([]models.PersonUserConfirmation{confirmation}, sources.SourceKind, sources.SourceVersion, fragment.Order, fragment.Text, fragment.SpeakerLabel) != nil {
+						retained = append(retained, *confirmation.AssignedPersonID)
+					}
+				}
+			}
+		}
+		retired := tx.Where("episode_id = ? AND source_version = ?", sources.EpisodeID, sources.SourceVersion)
+		if len(retained) > 0 {
+			retired = retired.Where("person_id NOT IN ?", retained)
+		}
+		if err := retired.Delete(&models.EpisodeAppearance{}).Error; err != nil {
+			return err
+		}
+		if err := replaceAttributions(tx, sources, fragments, peopleByKey, confirmations); err != nil {
+			return err
+		}
+		if err := publishPreparation(tx, sources.EpisodeID, sources.SourceVersion, metadata, revision); err != nil {
+			return err
+		}
+		return s.reindexSearchTransaction(ctx, tx, sources.EpisodeID)
 	})
 	if err != nil {
 		return EpisodePeople{}, err
 	}
-	listed, err := s.ListEpisodePeople(ctx, sources.EpisodeID)
-	if err != nil {
-		return EpisodePeople{}, err
-	}
-	if err := s.reindexSearch(ctx, sources.EpisodeID, listed); err != nil {
-		return EpisodePeople{}, err
-	}
-	listed.IndexReady = len(listed.Attributions) > 0
-	return listed, nil
+	return s.ListEpisodePeople(ctx, sources.EpisodeID)
 }
 
 func (s *Service) ListEpisodePeople(ctx context.Context, episodeID uint) (EpisodePeople, error) {
+	var result EpisodePeople
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		reader := *s
+		reader.db = tx
+		var err error
+		result, err = reader.listEpisodePeople(ctx, episodeID)
+		return err
+	})
+	return result, err
+}
+
+func (s *Service) listEpisodePeople(ctx context.Context, episodeID uint) (EpisodePeople, error) {
 	if err := s.requireEpisode(ctx, episodeID); err != nil {
 		return EpisodePeople{}, err
 	}
@@ -121,6 +213,14 @@ func (s *Service) ListEpisodePeople(ctx context.Context, episodeID uint) (Episod
 		return EpisodePeople{}, fmt.Errorf("load episode: %w", err)
 	}
 	currentVersion := currentAttributionVersion(s.db.WithContext(ctx), episodeID, SourceTranscript)
+	var state models.PersonPreparation
+	if err := s.db.WithContext(ctx).First(&state, "episode_id = ?", episodeID).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return EpisodePeople{}, err
+	}
+	prepared, prepErr := s.preparationCurrent(ctx, episodeID, currentVersion)
+	if prepErr != nil {
+		return EpisodePeople{}, prepErr
+	}
 	var appearances []models.EpisodeAppearance
 	if err := s.db.WithContext(ctx).
 		Where("episode_id = ? AND source_version = ?", episodeID, currentVersion).
@@ -140,8 +240,16 @@ func (s *Service) ListEpisodePeople(ctx context.Context, episodeID uint) (Episod
 	if err != nil {
 		return EpisodePeople{}, err
 	}
+	overrides, err := loadAppearanceOverrides(s.db.WithContext(ctx), episodeID)
+	if err != nil {
+		return EpisodePeople{}, err
+	}
+	excludedPeople := make([]PersonView, 0)
 	people := make([]PersonView, 0, len(appearances))
 	for _, appearance := range appearances {
+		if !prepared && confirmationForPerson(confirmations, appearance.PersonID) == nil && !overrides[appearance.PersonID].Excluded {
+			continue
+		}
 		person, err := s.loadPerson(ctx, appearance.PersonID)
 		if err != nil {
 			return EpisodePeople{}, err
@@ -158,12 +266,28 @@ func (s *Service) ListEpisodePeople(ctx context.Context, episodeID uint) (Episod
 			EvidenceKind:    appearance.EvidenceKind,
 			EvidenceLocator: appearance.EvidenceLocator,
 		}
+		override := overrides[appearance.PersonID]
+		if !prepared {
+			view.Role = RoleUnknown
+		}
+		if override.Role != nil {
+			view.Role = *override.Role
+			view.RoleUserConfirmed = true
+		}
+		if override.Excluded {
+			excludedPeople = append(excludedPeople, view)
+			continue
+		}
 		for _, attribution := range attributions {
 			if attribution.PersonID != nil && *attribution.PersonID == person.ID {
-				if attribution.Status == StatusConfirmed {
+				status := attribution.Status
+				if !prepared && confirmationForFragment(confirmations, attribution) == nil {
+					status = StatusPending
+				}
+				if status == StatusConfirmed {
 					view.ConfirmedSpeech++
 				}
-				if attribution.Status == StatusPending {
+				if status == StatusPending {
 					view.PendingSpeech++
 				}
 			}
@@ -186,7 +310,15 @@ func (s *Service) ListEpisodePeople(ctx context.Context, episodeID uint) (Episod
 			EvidenceLocator: attribution.EvidenceLocator,
 			UserConfirmed:   confirmationForFragment(confirmations, attribution) != nil,
 		}
-		if attribution.PersonID != nil {
+		if !prepared && !view.UserConfirmed {
+			view.PersonID = nil
+			view.Status = StatusPending
+		}
+		if view.PersonID != nil && overrides[*view.PersonID].Excluded {
+			view.PersonID = nil
+			view.Status = StatusRejected
+		}
+		if view.PersonID != nil {
 			person, err := s.loadPerson(ctx, *attribution.PersonID)
 			if err == nil {
 				view.DisplayName = person.DisplayName
@@ -194,7 +326,7 @@ func (s *Service) ListEpisodePeople(ctx context.Context, episodeID uint) (Episod
 		}
 		attributionViews = append(attributionViews, view)
 	}
-	indexReady := len(attributions) > 0
+	indexReady := prepared && len(attributions) > 0
 	if s.search != nil {
 		var indexed int64
 		if err := s.db.WithContext(ctx).Model(&models.ContentSearchCoverage{}).Where("episode_id = ? AND source_kind = ? AND source_version = ? AND complete = ?", episodeID, SourceTranscript, currentVersion, true).Count(&indexed).Error; err != nil {
@@ -202,13 +334,25 @@ func (s *Service) ListEpisodePeople(ctx context.Context, episodeID uint) (Episod
 		}
 		indexReady = indexReady && indexed > 0
 	}
+	preparationState := "required"
+	if currentVersion == "" {
+		preparationState = "no_transcript"
+	} else if prepared {
+		preparationState = "ready"
+	} else if len(appearances) > 0 || state.Revision > 0 {
+		preparationState = "outdated"
+	}
 	return EpisodePeople{
-		EpisodeID:     episodeID,
-		SourceVersion: currentVersion,
-		IndexReady:    indexReady,
-		PublishedAt:   episode.PublishedDate,
-		People:        people,
-		Attributions:  attributionViews,
+		PreparationState:    preparationState,
+		preparationRevision: state.Revision,
+		publishedRevision:   state.PublishedRevision,
+		EpisodeID:           episodeID,
+		SourceVersion:       currentVersion,
+		IndexReady:          indexReady,
+		PublishedAt:         episode.PublishedDate,
+		People:              people,
+		ExcludedPeople:      excludedPeople,
+		Attributions:        attributionViews,
 	}, nil
 }
 
@@ -238,7 +382,23 @@ func (s *Service) CorrectName(ctx context.Context, episodeID uint, correction Na
 			}
 			return err
 		}
-		oldName := person.DisplayName
+		if strings.TrimSpace(correction.DisplayName) != person.DisplayName ||
+			(correction.IdentityNote != "" && strings.TrimSpace(correction.IdentityNote) != person.IdentityNote) || correction.Aliases != nil {
+			isolated, err := isolateEpisodePerson(tx, episodeID, person)
+			if err != nil {
+				return err
+			}
+			person = isolated
+			appearance.PersonID = person.ID
+		}
+		sourceName := person.DisplayName
+		var prior models.PersonUserConfirmation
+		if err := tx.Where("episode_id = ? AND person_id = ? AND kind = ?", episodeID, person.ID, models.PersonConfirmationKindName).First(&prior).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if prior.SourceText != "" {
+			sourceName = prior.SourceText
+		}
 		person.DisplayName = strings.TrimSpace(correction.DisplayName)
 		if correction.IdentityNote != "" {
 			person.IdentityNote = strings.TrimSpace(correction.IdentityNote)
@@ -251,7 +411,7 @@ func (s *Service) CorrectName(ctx context.Context, episodeID uint, correction Na
 			if err := tx.Where("person_id = ?", person.ID).Delete(&models.PersonAlias{}).Error; err != nil {
 				return err
 			}
-			for _, alias := range uniqueStrings(append(correction.Aliases, oldName)) {
+			for _, alias := range uniqueStrings(correction.Aliases) {
 				if err := tx.Create(&models.PersonAlias{
 					PersonID:  person.ID,
 					Alias:     alias,
@@ -261,30 +421,66 @@ func (s *Service) CorrectName(ctx context.Context, episodeID uint, correction Na
 				}
 			}
 		}
-		if correction.Aliases == nil && oldName != person.DisplayName {
-			if err := ensureAliases(tx, person.ID, []string{oldName}); err != nil {
-				return err
-			}
-		}
 		appearance.Status = StatusConfirmed
 		appearance.StatusReason = "user confirmed name"
 		appearance.UpdatedAt = nowUTC()
 		if err := tx.Save(&appearance).Error; err != nil {
 			return err
 		}
-		return upsertConfirmation(tx, models.PersonUserConfirmation{
+		if err := upsertConfirmation(tx, models.PersonUserConfirmation{
 			EpisodeID:    episodeID,
 			Kind:         models.PersonConfirmationKindName,
+			SourceText:   sourceName,
 			PersonID:     &person.ID,
 			DisplayName:  person.DisplayName,
 			IdentityNote: person.IdentityNote,
-			Role:         appearance.Role,
-		})
+		}); err != nil {
+			return err
+		}
+		return s.reindexSearchTransaction(ctx, tx, episodeID)
 	})
 	if err != nil {
 		return EpisodePeople{}, err
 	}
 	return s.ListEpisodePeople(ctx, episodeID)
+}
+
+// A user correction is episode-scoped. Shared identities must be separated
+// before a conflicting name/description/alias change, so other episodes and
+// their manual facts retain the original person. Unshared IDs remain stable.
+func isolateEpisodePerson(tx *gorm.DB, episodeID uint, original models.Person) (models.Person, error) {
+	var otherAppearances int64
+	if err := tx.Model(&models.EpisodeAppearance{}).Where("person_id = ? AND episode_id <> ?", original.ID, episodeID).Count(&otherAppearances).Error; err != nil {
+		return models.Person{}, err
+	}
+	if otherAppearances == 0 {
+		return original, nil
+	}
+	copy := original
+	copy.ID = 0
+	copy.StableKey = newStableKey()
+	copy.CreatedAt = nowUTC()
+	copy.UpdatedAt = copy.CreatedAt
+	if err := tx.Create(&copy).Error; err != nil {
+		return models.Person{}, err
+	}
+	if err := ensureAliases(tx, copy.ID, personAliases(tx, original.ID)); err != nil {
+		return models.Person{}, err
+	}
+	for _, update := range []struct {
+		model  any
+		column string
+	}{
+		{&models.SpeechAttribution{}, "person_id"},
+		{&models.PersonUserConfirmation{}, "person_id"},
+		{&models.PersonUserConfirmation{}, "assigned_person_id"},
+		{&models.PersonAppearanceOverride{}, "person_id"},
+	} {
+		if err := tx.Model(update.model).Where("episode_id = ? AND "+update.column+" = ?", episodeID, original.ID).Update(update.column, copy.ID).Error; err != nil {
+			return models.Person{}, err
+		}
+	}
+	return copy, nil
 }
 
 func (s *Service) CorrectAttribution(ctx context.Context, episodeID uint, correction AttributionCorrection) (EpisodePeople, error) {
@@ -358,7 +554,7 @@ func (s *Service) CorrectAttribution(ctx context.Context, episodeID uint, correc
 		if err := tx.Save(&row).Error; err != nil {
 			return err
 		}
-		return upsertConfirmation(tx, models.PersonUserConfirmation{
+		if err := upsertConfirmation(tx, models.PersonUserConfirmation{
 			EpisodeID:        episodeID,
 			Kind:             models.PersonConfirmationKindAttribution,
 			FragmentOrder:    correction.FragmentOrder,
@@ -369,20 +565,15 @@ func (s *Service) CorrectAttribution(ctx context.Context, episodeID uint, correc
 			SourceVersion:    row.SourceVersion,
 			SourceText:       row.Text,
 			Status:           status,
-		})
+		}); err != nil {
+			return err
+		}
+		return s.reindexSearchTransaction(ctx, tx, episodeID)
 	})
 	if err != nil {
 		return EpisodePeople{}, err
 	}
-	listed, err := s.ListEpisodePeople(ctx, episodeID)
-	if err != nil {
-		return EpisodePeople{}, err
-	}
-	if err := s.reindexSearch(ctx, episodeID, listed); err != nil {
-		return EpisodePeople{}, err
-	}
-	listed.IndexReady = len(listed.Attributions) > 0
-	return listed, nil
+	return s.ListEpisodePeople(ctx, episodeID)
 }
 
 func (s *Service) IndexPublishedTranscript(
@@ -409,6 +600,28 @@ func (s *Service) RemoveIndexedEpisode(ctx context.Context, episodeID uint) erro
 	return s.search.RemoveEpisode(ctx, episodeID)
 }
 
+// Identity facts and their search copies share SQLite, so publish them in one
+// transaction rather than acknowledging facts whose index failed to update.
+func (s *Service) reindexSearchTransaction(ctx context.Context, tx *gorm.DB, episodeID uint) error {
+	if s.search == nil {
+		return nil
+	}
+	binder, ok := s.search.(interface {
+		WithTransaction(*gorm.DB) contentsearch.Module
+	})
+	if !ok {
+		return fmt.Errorf("identity indexing requires a transactional content search module")
+	}
+	writer := *s
+	writer.db = tx
+	writer.search = binder.WithTransaction(tx)
+	listed, err := writer.listEpisodePeople(ctx, episodeID)
+	if err != nil {
+		return err
+	}
+	return writer.reindexSearch(ctx, episodeID, listed)
+}
+
 func (s *Service) reindexSearch(ctx context.Context, episodeID uint, listed EpisodePeople) error {
 	if s.search == nil || listed.SourceVersion == "" {
 		return nil
@@ -433,13 +646,14 @@ func (s *Service) reindexSearch(ctx context.Context, episodeID uint, listed Epis
 		})
 	}
 	return s.search.ReplaceEpisode(ctx, contentsearch.EpisodeDocument{
-		EpisodeID:     episodeID,
-		PublishedAt:   episode.PublishedDate,
-		ShowNotes:     episode.ShowNotes,
-		SourceKind:    SourceTranscript,
-		SourceVersion: listed.SourceVersion,
-		Fragments:     fragments,
-		Complete:      true,
+		AttributionVersion: &contentsearch.AttributionVersion{Revision: listed.preparationRevision, PublishedRevision: listed.publishedRevision},
+		EpisodeID:          episodeID,
+		PublishedAt:        episode.PublishedDate,
+		ShowNotes:          episode.ShowNotes,
+		SourceKind:         SourceTranscript,
+		SourceVersion:      listed.SourceVersion,
+		Fragments:          fragments,
+		Complete:           true,
 	})
 }
 
@@ -461,6 +675,18 @@ func (s *Service) CurrentFacts(ctx context.Context, episodeID uint) ([]Attributi
 	if err := s.requireEpisode(ctx, episodeID); err != nil {
 		return nil, err
 	}
+	listed, err := s.ListEpisodePeople(ctx, episodeID)
+	if err != nil {
+		return nil, err
+	}
+	knownPeople := map[uint]bool{}
+	for _, person := range listed.People {
+		knownPeople[person.ID] = person.Status == StatusConfirmed
+	}
+	effectiveAttributions := map[uint]AttributionView{}
+	for _, attribution := range listed.Attributions {
+		effectiveAttributions[attribution.ID] = attribution
+	}
 	var rows []models.SpeechAttribution
 	if err := s.db.WithContext(ctx).
 		Where("episode_id = ?", episodeID).
@@ -474,6 +700,12 @@ func (s *Service) CurrentFacts(ctx context.Context, episodeID uint) ([]Attributi
 	}
 	facts := make([]AttributionFact, 0, len(rows))
 	for _, row := range rows {
+		if row.SourceKind == SourceTranscript && current[row.SourceKind] == row.SourceVersion {
+			effective, ok := effectiveAttributions[row.ID]
+			if row.Status == StatusConfirmed && (!ok || effective.Status != StatusConfirmed || row.PersonID == nil || !knownPeople[*row.PersonID]) {
+				row.Status = StatusPending
+			}
+		}
 		facts = append(facts, AttributionFact{
 			EpisodeID:     row.EpisodeID,
 			PersonID:      row.PersonID,
@@ -520,9 +752,38 @@ func (s *Service) loadPerson(ctx context.Context, id uint) (models.Person, error
 	return person, nil
 }
 
-func upsertPerson(tx *gorm.DB, episodeID uint, candidate extractedCandidate) (models.Person, error) {
-	if person, ok := findExistingPerson(tx, episodeID, candidate); ok {
+func upsertPerson(tx *gorm.DB, episodeID uint, candidate extractedCandidate, claimed map[uint]bool) (models.Person, error) {
+	// A source misspelling may be shared by two distinct canonical participants.
+	// Never reuse the identity already assigned to another proposal in this run.
+	if person, ok := findExistingPerson(tx, episodeID, candidate); ok && !claimed[person.ID] {
 		changed := false
+		if person.DisplayName != candidate.DisplayName && candidate.Status == StatusConfirmed {
+			sourceMatched := false
+			for _, spelling := range candidate.SourceNames {
+				if spelling == person.DisplayName {
+					sourceMatched = true
+				}
+			}
+			var manual int64
+			if err := tx.Model(&models.PersonUserConfirmation{}).Where("episode_id = ? AND kind = ? AND person_id = ?", episodeID, models.PersonConfirmationKindName, person.ID).Count(&manual).Error; err != nil {
+				return models.Person{}, err
+			}
+			if sourceMatched && manual == 0 {
+				originalID := person.ID
+				isolated, err := isolateEpisodePerson(tx, episodeID, person)
+				if err != nil {
+					return models.Person{}, err
+				}
+				person = isolated
+				if person.ID != originalID {
+					if err := tx.Model(&models.EpisodeAppearance{}).Where("episode_id = ? AND person_id = ?", episodeID, originalID).Update("person_id", person.ID).Error; err != nil {
+						return models.Person{}, err
+					}
+				}
+				person.DisplayName = candidate.DisplayName
+				changed = true
+			}
+		}
 		if person.IdentityNote == "" && candidate.IdentityNote != "" {
 			person.IdentityNote = candidate.IdentityNote
 			changed = true
@@ -568,11 +829,25 @@ func findExistingPerson(tx *gorm.DB, episodeID uint, candidate extractedCandidat
 	`, names).Scan(&aliased).Error; err == nil {
 		people = append(people, aliased...)
 	}
+	if len(candidate.SourceNames) > 0 && candidate.Status == StatusConfirmed {
+		var localSpellings []models.Person
+		if err := tx.Table("people").Select("people.*").Joins("JOIN episode_appearances a ON a.person_id = people.id").Where("a.episode_id = ? AND people.display_name IN ?", episodeID, candidate.SourceNames).Find(&localSpellings).Error; err == nil {
+			people = append(people, localSpellings...)
+		}
+	}
+	// A corrected source spelling remains an episode-local lookup, never an
+	// implicit global alias. Explicit user aliases still use person_aliases.
+	var locallyCorrected []models.Person
+	lookupNames := append(append([]string{}, names...), candidate.SourceNames...)
+	if err := tx.Table("people").Select("people.*").Joins("JOIN person_user_confirmations c ON c.person_id = people.id").Where("c.episode_id = ? AND c.kind = ? AND c.source_text IN ?", episodeID, models.PersonConfirmationKindName, lookupNames).Find(&locallyCorrected).Error; err == nil {
+		people = append(people, locallyCorrected...)
+	}
 	seen := map[uint]models.Person{}
 	for _, person := range people {
 		seen[person.ID] = person
 	}
 	compatible := make([]models.Person, 0)
+	local := make([]models.Person, 0)
 	for _, person := range seen {
 		if identityConflicts(person.IdentityNote, candidate.IdentityNote) {
 			continue
@@ -581,15 +856,83 @@ func findExistingPerson(tx *gorm.DB, episodeID uint, candidate extractedCandidat
 		if err := tx.Model(&models.EpisodeAppearance{}).Where("episode_id = ? AND person_id = ?", episodeID, person.ID).Count(&appearances).Error; err != nil {
 			continue
 		}
-		if appearances > 0 || (strings.TrimSpace(person.IdentityNote) != "" && strings.TrimSpace(candidate.IdentityNote) != "" && identityCompatible(person.IdentityNote, candidate.IdentityNote)) {
+		if appearances > 0 {
+			local = append(local, person)
+		} else if matchingIdentityAnchor(tx, person, candidate, 0) {
 			compatible = append(compatible, person)
 		}
+	}
+	// Prefer the exact existing canonical name over another person's matching
+	// transcript spelling, keeping a repeated preparation stable after separation.
+	exact := make([]models.Person, 0)
+	for _, person := range local {
+		if person.DisplayName == candidate.DisplayName {
+			exact = append(exact, person)
+		}
+	}
+	if len(exact) == 1 {
+		return exact[0], true
+	}
+	if len(local) == 1 {
+		return local[0], true
+	}
+	if len(local) > 1 {
+		anchored := make([]models.Person, 0)
+		for _, person := range local {
+			if matchingIdentityAnchor(tx, person, candidate, episodeID) {
+				anchored = append(anchored, person)
+			}
+		}
+		if len(anchored) == 1 {
+			return anchored[0], true
+		}
+		return models.Person{}, false
 	}
 	if len(compatible) == 1 {
 		return compatible[0], true
 	}
 
 	return models.Person{}, false
+}
+
+// Descriptions and transcript spellings are not cross-episode identity keys.
+// Match only canonical names with an independently evidenced distinctive anchor
+// on both currently prepared appearances. Ambiguous multiple matches stay split.
+func matchingIdentityAnchor(tx *gorm.DB, person models.Person, candidate extractedCandidate, localEpisodeID uint) bool {
+	if person.DisplayName != candidate.DisplayName || candidate.Status != StatusConfirmed {
+		return false
+	}
+	var incoming identityProposal
+	if json.Unmarshal([]byte(candidate.EvidenceLocator), &incoming) != nil || incoming.NameType != "canonical" || incoming.IdentityAnchor.Key == "" {
+		return false
+	}
+	var appearances []models.EpisodeAppearance
+	query := tx.Where("episode_appearances.person_id = ? AND episode_appearances.status = ?", person.ID, StatusConfirmed)
+	if localEpisodeID != 0 {
+		// Match an independently re-verified local identity across preparation
+		// upgrades so its manual exclusion survives. This does not reuse speech
+		// confirmations or provide cross-episode identity evidence.
+		query = query.Where("episode_appearances.episode_id = ?", localEpisodeID)
+	} else {
+		query = query.Joins("JOIN person_preparations pp ON pp.episode_id = episode_appearances.episode_id AND pp.source_version = episode_appearances.source_version AND pp.algorithm_version = ?", models.CurrentIdentityAlgorithm).
+			Where("NOT EXISTS (SELECT 1 FROM person_appearance_overrides po WHERE po.episode_id = episode_appearances.episode_id AND po.person_id = episode_appearances.person_id AND po.excluded = 1)")
+	}
+	if err := query.Find(&appearances).Error; err != nil {
+		return false
+	}
+	for _, appearance := range appearances {
+		if localEpisodeID == 0 && currentAttributionVersion(tx, appearance.EpisodeID, SourceTranscript) != appearance.SourceVersion {
+			continue
+		}
+		var previous identityProposal
+		if json.Unmarshal([]byte(appearance.EvidenceLocator), &previous) != nil {
+			continue
+		}
+		if previous.NameType == "canonical" && previous.IdentityAnchor.Key == incoming.IdentityAnchor.Key && previous.IdentityAnchor.Kind == incoming.IdentityAnchor.Kind {
+			return true
+		}
+	}
+	return false
 }
 
 func identityConflicts(existing, incoming string) bool {
@@ -629,12 +972,14 @@ func utf8Count(value string) int {
 func upsertAppearance(
 	tx *gorm.DB,
 	episodeID uint,
-	sourceVersion string,
+	sources EpisodeSources,
 	person models.Person,
 	candidate extractedCandidate,
 	confirmations []models.PersonUserConfirmation,
+	retainRoles bool,
 ) error {
 	now := nowUTC()
+	sourceVersion := sources.SourceVersion
 	appearance := models.EpisodeAppearance{
 		SourceVersion:   sourceVersion,
 		PersonID:        person.ID,
@@ -647,10 +992,19 @@ func upsertAppearance(
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
-	if confirmation := confirmationForPerson(confirmations, person.ID); confirmation != nil {
-		if confirmation.Role != "" {
-			appearance.Role = confirmation.Role
+	if retainRoles {
+		var previous models.EpisodeAppearance
+		err := tx.Where("episode_id = ? AND person_id = ? AND source_version = ?", episodeID, person.ID, sourceVersion).First(&previous).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
 		}
+		if err == nil {
+			if err := retainCurrentRoleEvidence(&appearance, previous, sources); err != nil {
+				return err
+			}
+		}
+	}
+	if confirmation := confirmationForPerson(confirmations, person.ID); confirmation != nil {
 		appearance.Status = StatusConfirmed
 		appearance.StatusReason = "user confirmed"
 		appearance.EvidenceKind = "user_confirmation"
@@ -663,20 +1017,94 @@ func upsertAppearance(
 	}).Create(&appearance).Error
 }
 
+// Only unchanged, current preparations reach here. Missing evidence cannot
+// displace a supported role; contradictory automatic roles remain unresolved
+// until sources change or an independent user override supplies the decision.
+func retainCurrentRoleEvidence(current *models.EpisodeAppearance, previous models.EpisodeAppearance, sources EpisodeSources) error {
+	var oldProof, newProof identityProposal
+	if json.Unmarshal([]byte(previous.EvidenceLocator), &oldProof) != nil || json.Unmarshal([]byte(current.EvidenceLocator), &newProof) != nil {
+		return nil
+	}
+	if len(oldProof.RoleConflicts) > 0 {
+		for _, conflict := range oldProof.RoleConflicts {
+			if !roleEvidenceStillPresent(conflict.Evidence, sources) {
+				return nil
+			}
+		}
+		newProof.RoleConflicts = oldProof.RoleConflicts
+	} else if (previous.Role == RoleHost || previous.Role == RoleGuest) && roleEvidenceStillPresent(oldProof.RoleEvidence, sources) {
+		if current.Role == RoleUnknown || current.Role == "" {
+			current.Role = previous.Role
+			newProof.Role = previous.Role
+			newProof.RoleEvidence = oldProof.RoleEvidence
+		} else if current.Role != previous.Role && newProof.RoleEvidence.Quote != "" {
+			newProof.RoleConflicts = []roleConflict{{Role: previous.Role, Evidence: oldProof.RoleEvidence}, {Role: current.Role, Evidence: newProof.RoleEvidence}}
+		} else {
+			return nil
+		}
+	} else {
+		return nil
+	}
+	if len(newProof.RoleConflicts) > 0 {
+		current.Role = RoleUnknown
+		newProof.Role = RoleUnknown
+		newProof.RoleEvidence = identityEvidence{}
+		current.StatusReason = "本集自动角色依据存在分歧，请核对角色"
+	}
+	raw, err := json.Marshal(newProof)
+	if err != nil {
+		return err
+	}
+	current.EvidenceLocator = string(raw)
+	return nil
+}
+
+func roleEvidenceStillPresent(evidence identityEvidence, sources EpisodeSources) bool {
+	quote := normalizeIdentityEvidence(evidence.Quote)
+	if quote == "" {
+		return false
+	}
+	switch evidence.Source {
+	case SourceShowNotes:
+		return evidence.Fragment == 0 && strings.Contains(normalizeIdentityEvidence(sources.ShowNotes), quote)
+	case SourceTranscript:
+		for _, fragment := range sources.Segments {
+			if fragment.Order == evidence.Fragment {
+				return strings.Contains(normalizeIdentityEvidence(fragment.Text), quote)
+			}
+		}
+	}
+	return false
+}
+
 func replaceAttributions(
 	tx *gorm.DB,
 	sources EpisodeSources,
 	fragments []extractedFragment,
-	peopleByName map[string]models.Person,
+	peopleByKey map[string]models.Person,
 	confirmations []models.PersonUserConfirmation,
 ) error {
+	// Replace only the current input's derived rows; confirmation history remains
+	// independent and is reapplied only when the full source identity matches.
+	orders := make([]int, 0, len(fragments))
+	for _, fragment := range fragments {
+		orders = append(orders, fragment.Order)
+	}
+	stale := tx.Where("episode_id = ? AND source_kind = ? AND source_version = ?", sources.EpisodeID, sources.SourceKind, sources.SourceVersion)
+	if len(orders) > 0 {
+		stale = stale.Where("fragment_order NOT IN ?", orders)
+	}
+	if err := stale.Delete(&models.SpeechAttribution{}).Error; err != nil {
+		return err
+	}
+
 	now := nowUTC()
 	for _, fragment := range fragments {
 		var personID *uint
 		var appearanceID *uint
 		status := fragment.Status
-		if fragment.PersonName != "" {
-			if person, ok := peopleByName[fragment.PersonName]; ok {
+		if fragment.PersonKey != "" {
+			if person, ok := peopleByKey[fragment.PersonKey]; ok {
 				personID = &person.ID
 				var appearance models.EpisodeAppearance
 				if err := tx.Where("episode_id = ? AND person_id = ?", sources.EpisodeID, person.ID).
@@ -687,15 +1115,14 @@ func replaceAttributions(
 		}
 		if confirmation := confirmationForFragmentOrder(confirmations, sources.SourceKind, sources.SourceVersion, fragment.Order, fragment.Text, fragment.SpeakerLabel); confirmation != nil {
 			personID = confirmation.AssignedPersonID
+			status = confirmation.Status
 			if confirmation.AssignedPersonID != nil {
-				status = confirmation.Status
 				var appearance models.EpisodeAppearance
 				if err := tx.Where("episode_id = ? AND person_id = ?", sources.EpisodeID, *confirmation.AssignedPersonID).
 					First(&appearance).Error; err == nil {
 					appearanceID = &appearance.ID
 				}
 			} else {
-				status = StatusPending
 				appearanceID = nil
 			}
 		}
@@ -765,7 +1192,7 @@ func upsertConfirmation(tx *gorm.DB, row models.PersonUserConfirmation) error {
 		zero := uint(0)
 		row.PersonID = &zero
 	}
-	return tx.Clauses(clause.OnConflict{
+	if err := tx.Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "episode_id"},
 			{Name: "kind"},
@@ -776,7 +1203,11 @@ func upsertConfirmation(tx *gorm.DB, row models.PersonUserConfirmation) error {
 		DoUpdates: clause.AssignmentColumns([]string{
 			"assigned_person_id", "display_name", "identity_note", "role", "speaker_label", "source_version", "source_text", "status", "updated_at",
 		}),
-	}).Create(&row).Error
+	}).Create(&row).Error; err != nil {
+		return err
+	}
+	_, err := reservePreparation(tx, row.EpisodeID)
+	return err
 }
 
 func confirmationForPerson(rows []models.PersonUserConfirmation, personID uint) *models.PersonUserConfirmation {
@@ -832,6 +1263,9 @@ func currentAttributionVersion(db *gorm.DB, episodeID uint, sourceKind string) s
 		Order("id DESC").
 		Limit(1).
 		Scan(&version).Error
+	if sourceKind == SourceTranscript && strings.HasPrefix(version, "artifact-") {
+		return "unavailable"
+	}
 	return version
 }
 
@@ -866,10 +1300,11 @@ func mergeSuggestedCandidates(candidates []extractedCandidate, suggested []Sugge
 		}
 		if !found {
 			status := StatusPending
-			if item.EvidenceKind == "verified_runtime" {
+			if item.EvidenceKind == "verified_runtime" && item.Status != StatusPending {
 				status = StatusConfirmed
 			}
 			candidates = append(candidates, extractedCandidate{
+				SourceNames:     item.SourceNames,
 				DisplayName:     item.DisplayName,
 				Aliases:         item.Aliases,
 				IdentityNote:    item.IdentityNote,
