@@ -76,6 +76,10 @@ interface CapturedSelection {
   source: EpisodeCopilotSelectionSource;
 }
 
+interface PeopleActionOptions {
+  replacementDisplayName?: string;
+}
+
 type RequestPhase =
   | "idle"
   | "waiting"
@@ -601,7 +605,10 @@ export default function EpisodeCopilotPanel({
     }
   };
 
-  const runPeopleAction = async (action: (signal: AbortSignal) => Promise<EpisodePeoplePayload>) => {
+  const runPeopleAction = async (
+    action: (signal: AbortSignal) => Promise<EpisodePeoplePayload>,
+    options: PeopleActionOptions = {},
+  ) => {
     const generation = ++peopleGeneration.current;
     peopleRequest.current?.abort();
     const controller = new AbortController();
@@ -615,7 +622,14 @@ export default function EpisodeCopilotPanel({
       setScope((previous) => previous ? { ...previous, people: payload.people, excluded_people: payload.excluded_people, preparation_state: payload.preparation_state, index_ready: payload.index_ready } : previous);
       const selected = targetPersonRef.current;
       if (selected) {
-        const current = payload.people.find((person) => person.id === selected.id);
+        const currentByID = payload.people.find((person) => person.id === selected.id);
+        const replacements = options.replacementDisplayName
+          ? payload.people.filter((person) => {
+              if (person.display_name !== options.replacementDisplayName) return false;
+              return !selected.identity_note || person.identity_note === selected.identity_note;
+            })
+          : [];
+        const current = currentByID ?? (replacements.length === 1 ? replacements[0] : null);
         setTargetPerson(current ?? null);
         if (current) { setPersonName(current.display_name); setPersonRole(current.role); }
         else { setPersonSelectionInvalid(true); setCorrectionOpen(false); }
@@ -889,7 +903,13 @@ export default function EpisodeCopilotPanel({
                   <EpisodePersonEvidence name={targetPerson.display_name} locator={targetPerson.evidence_locator} onLocate={(fragmentOrder) => {
                     void jumpToLibrarySource({ episodeId: item.episode_id, fragmentOrder }, { openEpisode: onOpenSourceEpisode }).catch(() => setPeopleError("暂时无法定位该原文，请在逐字稿中核对。"));
                   }} />
-                  <button type="button" disabled={peopleBusy || !personName.trim()} onClick={() => void runPeopleAction(() => episodeCopilotApi.correctName(item.episode_id, targetPerson.id, { display_name: personName.trim() }))}>
+                  <button type="button" disabled={peopleBusy || !personName.trim()} onClick={() => {
+                    const replacementDisplayName = personName.trim();
+                    void runPeopleAction(
+                      () => episodeCopilotApi.correctName(item.episode_id, targetPerson.id, { display_name: replacementDisplayName }),
+                      { replacementDisplayName },
+                    );
+                  }}>
                     确认姓名与本集身份
                   </button>
                   <label>本集角色

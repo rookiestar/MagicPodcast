@@ -20,6 +20,7 @@ const copilotMocks = vi.hoisted(() => ({
   getContext: vi.fn(),
   ask: vi.fn(),
   getPeople: vi.fn(),
+  correctName: vi.fn(),
   correctAttribution: vi.fn(),
  correctAppearance: vi.fn(),
  preparePeople: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock("@/lib/api/episodeCopilot", () => ({
     getContext: copilotMocks.getContext,
     ask: copilotMocks.ask,
     getPeople: copilotMocks.getPeople,
+    correctName: copilotMocks.correctName,
     correctAttribution: copilotMocks.correctAttribution,
  correctAppearance: copilotMocks.correctAppearance,
  preparePeople: copilotMocks.preparePeople,
@@ -1107,6 +1109,44 @@ describe("EpisodeCopilotPanel", () => {
     expect(screen.getByRole("button", { name: "提问" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "改为普通问答" }));
     expect(screen.getByRole("button", { name: "提问" })).toBeEnabled();
+  });
+
+  it("rebinds the selected person when a shared identity correction returns a new ID", async () => {
+    const original = {
+      id: 9,
+      display_name: "王芳",
+      aliases: [],
+      identity_note: "产品负责人",
+      role: "guest" as const,
+      status: "confirmed" as const,
+      status_reason: "",
+    };
+    const replacement = { ...original, id: 12, display_name: "王芳芳" };
+    const initialPayload = {
+      episode_id: 201,
+      source_version: "v1",
+      index_ready: true,
+      preparation_state: "ready" as const,
+      people: [original],
+      excluded_people: [],
+      attributions: [],
+    };
+    copilotMocks.getContext.mockResolvedValue({ ...scopeForEpisode(201), ...initialPayload, transcript_available: true });
+    copilotMocks.getPeople.mockResolvedValue(initialPayload);
+    copilotMocks.correctName.mockResolvedValue({ ...initialPayload, people: [replacement] });
+    render(<EpisodeCopilotPanel item={item} />);
+    const composer = await screen.findByRole("textbox", { name: "向单集助手提问" });
+    fireEvent.change(composer, { target: { value: "@王" } });
+    fireEvent.click(await screen.findByRole("option", { name: "选择王芳" }));
+    fireEvent.click(screen.getByRole("button", { name: "纠正发言归属" }));
+    const nameInput = await screen.findByRole("textbox", { name: "纠正人物姓名" });
+    fireEvent.change(nameInput, { target: { value: "王芳芳" } });
+    fireEvent.click(screen.getByRole("button", { name: "确认姓名与本集身份" }));
+    await waitFor(() => expect(screen.getByTestId("copilot-person-chip")).toHaveTextContent("王芳芳"));
+    expect(screen.queryByText(/原选人物已失效/)).not.toBeInTheDocument();
+    fireEvent.change(composer, { target: { value: "你的产品观点是什么？" } });
+    fireEvent.click(screen.getByRole("button", { name: "提问" }));
+    await waitFor(() => expect(copilotMocks.ask).toHaveBeenCalledWith(201, expect.objectContaining({ target_person_id: 12 }), expect.any(Function), expect.any(AbortSignal)));
   });
 
   it("preserves preparation drafts and ignores cancelled or cross-episode results", async () => {
