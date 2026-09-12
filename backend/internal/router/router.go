@@ -4,6 +4,7 @@ import (
 	"os"
 	"time"
 
+	"magicpodcast/internal/collection"
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/episodecopilot"
@@ -180,6 +181,13 @@ func SetupRouter(options ...Option) *gin.Engine {
 		v1.GET("/discovery/candidates/:episodeID", discoveryHandler.GetCandidate)
 		v1.GET("/discovery/reports", discoveryHandler.ListHomepageReports)
 		v1.GET("/discovery/reports/:id", discoveryHandler.GetHomepageReport)
+
+		// 播客清单：外部发现资料的导入与浏览；不写个人库，收录入口由后续票交付。
+		collectionHandler := handlers.NewCollectionHandler(collection.NewService(discoveryDB))
+		v1.GET("/collections", collectionHandler.List)
+		v1.POST("/collections/preview", middleware.RequestBodyLimit(middleware.DefaultUploadRequestLimitBytes), collectionHandler.Preview)
+		v1.POST("/collections", collectionHandler.ConfirmImport)
+		v1.GET("/collections/:id", collectionHandler.Get)
 		v1.GET("/consumption/summary", discoveryHandler.GetQueueSummary)
 		v1.GET("/consumption/queues/:queue", discoveryHandler.ListQueue)
 		v1.GET("/consumption/completions", discoveryHandler.ListCompletionHistory)

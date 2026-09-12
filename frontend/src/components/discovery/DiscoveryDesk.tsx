@@ -22,6 +22,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import EpisodeLink from "@/components/episodes/EpisodeLink";
 import { closeTo, positiveID, singleParam, updateQuery, useLocationHref } from "@/lib/navigation";
 import { OriginalEpisodeRecovery } from "@/components/common/OriginalEpisodeRecovery";
@@ -692,6 +693,15 @@ export default function DiscoveryDesk({
           <h1 className="editorial-section-title">Discovery</h1>
           <span className="discovery-source-label">最近更新 · 14 天</span>
         </div>
+        <Link
+          href="/collections"
+          prefetch={false}
+          className="discovery-collections-entry"
+          aria-label="打开播客清单"
+        >
+          <span>播客清单</span>
+          <small>外部单集清单 · 按集收录</small>
+        </Link>
         <div className="discovery-status-filters" aria-label="最近更新筛选">
           {(
             [

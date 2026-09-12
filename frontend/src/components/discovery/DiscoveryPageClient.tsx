@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import useSWR from "swr";
+import Link from "next/link";
 import { useLocationHref } from "@/lib/navigation";
 import DiscoveryDesk from "@/components/discovery/DiscoveryDesk";
 import DiscoveryFocusSummary from "@/components/discovery/DiscoveryFocusSummary";
@@ -133,6 +134,15 @@ function DiscoveryPageSkeleton({
           <h1 className="editorial-section-title">Discovery</h1>
           <span className="discovery-source-label">最近更新 · 14 天</span>
         </div>
+        <Link
+          href="/collections"
+          prefetch={false}
+          className="discovery-collections-entry"
+          aria-label="打开播客清单"
+        >
+          <span>播客清单</span>
+          <small>外部单集清单 · 按集收录</small>
+        </Link>
         <div className="discovery-status-filters" aria-hidden="true">
           {["全部", "未读", "未收集"].map((label) => (
             <span key={label}>
