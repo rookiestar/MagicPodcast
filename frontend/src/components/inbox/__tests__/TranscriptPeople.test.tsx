@@ -7,9 +7,13 @@ import {
   within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { renderToString } from "react-dom/server";
 import TranscriptAudioPlayer from "../TranscriptAudioPlayer";
 import { episodeCopilotApi } from "@/lib/api/episodeCopilot";
-import type { EpisodePeoplePayload } from "@/types/episodeCopilot";
+import type {
+  EpisodePeoplePayload,
+  EpisodePersonCandidate,
+} from "@/types/episodeCopilot";
 
 vi.mock("@/lib/api/episodeCopilot", () => ({
   episodeCopilotApi: {
@@ -459,4 +463,99 @@ it("does not mistake the existing latest draft for a new result when reviewing h
   expect(screen.queryByText("已核对：草稿已保存，等待你确认")).not.toBeInTheDocument();
   expect(screen.getByRole("combobox", { name: "选择识别记录" })).toHaveValue("2");
   expect(episodeCopilotApi.preparePeople).toHaveBeenCalledTimes(1);
+});
+
+describe("局部匹配的管理入口与初始服务端渲染", () => {
+  const person = (id: number, display_name: string): EpisodePersonCandidate => ({
+    id,
+    display_name,
+    aliases: [],
+    identity_note: "",
+    role: "host",
+    status: "confirmed",
+    status_reason: "",
+  });
+  const attribution = (id: number, person_id: number, display_name: string, order: number) => ({
+    id,
+    person_id,
+    display_name,
+    source_kind: "manual",
+    source_version: "artifact-8",
+    fragment_order: order,
+    speaker_label: "Speaker 1",
+    start_ms: segments[order - 1].start_ms,
+    text: segments[order - 1].text,
+    status: "confirmed",
+    user_confirmed: true,
+  });
+  const partial: EpisodePeoplePayload = {
+    ...empty,
+    revision: 2,
+    index_ready: true,
+    people: [person(9, "林老师")],
+    attributions: [attribution(2, 9, "林老师", 2)],
+  };
+  const split: EpisodePeoplePayload = {
+    ...empty,
+    revision: 2,
+    index_ready: true,
+    people: [person(9, "林老师"), person(10, "王老师")],
+    attributions: [attribution(1, 9, "林老师", 1), attribution(2, 10, "王老师", 2)],
+  };
+
+  it("renders the player server-side while people management is closed", () => {
+    const html = renderToString(<Player />);
+    expect(html).toContain("人物与发言");
+    expect(html).not.toContain("人物与发言核对");
+    expect(html).not.toContain("dialog");
+  });
+
+  it("opens the applied fragment when editing a partially matched speaker row", async () => {
+    vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue(partial);
+    render(<Player />);
+    fireEvent.click(await screen.findByRole("button", { name: "管理" }));
+    expect(screen.getByText("局部已应用")).toBeInTheDocument();
+    expect(screen.getByText("2 段发言 · 已应用 1 段，其余 1 段待确认")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "修改「林老师」" }));
+    const dialog = screen.getByRole("dialog", { name: "编辑发言人物" });
+    expect(within(dialog).getByText("Speaker 1 · 片段 2")).toBeInTheDocument();
+    expect(within(dialog).getByRole("textbox", { name: "姓名或称呼" })).toHaveValue("林老师");
+    expect(within(dialog).getByRole("radio", { name: "仅此段" })).toBeChecked();
+    const unmatch = within(dialog).getByRole("button", { name: "解除匹配" });
+    expect(unmatch).toBeEnabled();
+    vi.mocked(episodeCopilotApi.manualPerson).mockResolvedValue({ ...empty, revision: 3 });
+    fireEvent.click(unmatch);
+    await waitFor(() =>
+      expect(episodeCopilotApi.manualPerson).toHaveBeenCalledWith(
+        7,
+        expect.objectContaining({
+          fragment_order: 2,
+          scope: "fragment",
+          clear: true,
+        }),
+      ),
+    );
+    await screen.findByRole("button", { name: "填写姓名" });
+    expect(screen.queryByRole("dialog", { name: "编辑发言人物" })).not.toBeInTheDocument();
+  });
+
+  it("edits the chosen person when one speaker maps to several applied people", async () => {
+    vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue(split);
+    render(<Player />);
+    fireEvent.click(await screen.findByRole("button", { name: "管理" }));
+    expect(screen.getByText("Speaker 1 → 林老师、王老师")).toBeInTheDocument();
+    expect(screen.getByText("2 段发言 · 可修改或解除匹配")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "修改「王老师」" }));
+    let dialog = screen.getByRole("dialog", { name: "编辑发言人物" });
+    expect(within(dialog).getByText("Speaker 1 · 片段 2")).toBeInTheDocument();
+    expect(within(dialog).getByRole("textbox", { name: "姓名或称呼" })).toHaveValue("王老师");
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "编辑发言人物" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "人物与发言核对" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "修改「林老师」" }));
+    dialog = screen.getByRole("dialog", { name: "编辑发言人物" });
+    expect(within(dialog).getByText("Speaker 1 · 片段 1")).toBeInTheDocument();
+    expect(within(dialog).getByRole("textbox", { name: "姓名或称呼" })).toHaveValue("林老师");
+    expect(within(dialog).getByRole("button", { name: "解除匹配" })).toBeEnabled();
+  });
 });

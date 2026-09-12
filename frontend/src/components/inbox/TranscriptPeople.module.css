@@ -263,7 +263,7 @@
 .panel header > button { border: 0; background: transparent; padding: 8px; }
 .panelBody { padding: 0 30px 24px; overscroll-behavior: contain; }
 .overview { display: flex; flex-wrap: wrap; gap: 20px; padding: 18px 0; font-size: 12px; border-bottom: 1px solid #d9d2c6; margin-bottom: 18px; }
-.unmatched { display: flex; align-items: center; gap: 14px; padding: 20px 0; }
+.unmatched { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 20px 0; }
 .unmatched > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .unmatched p { font-size: 12px; }
 .avatar { flex: 0 0 40px; height: 40px; display: grid; place-items: center; border: 1px solid #d9d2c6; border-radius: 50%; font-size: 12px; }
