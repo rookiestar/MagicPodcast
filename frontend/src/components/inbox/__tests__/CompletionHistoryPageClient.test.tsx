@@ -25,13 +25,6 @@ vi.mock("@/components/layout/PageLayout", () => ({
   ),
 }));
 
-vi.mock("@/components/ui/PlainImage", () => ({
-  default: (props: React.ImgHTMLAttributes<HTMLImageElement>) => (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img {...props} alt={props.alt ?? ""} />
-  ),
-}));
-
 vi.mock("@/lib/imageOptimization", () => ({
   getOptimizedImageUrl: vi.fn(() => ""),
 }));
@@ -79,8 +72,17 @@ function payload(
   };
 }
 
-function historyCard(title: string) {
+function historyRow(title: string) {
   return screen.getByRole("heading", { name: title }).closest("article") as HTMLElement;
+}
+
+function openReprocessMenu(rowTitle: string) {
+  fireEvent.click(
+    within(historyRow(rowTitle)).getByRole("button", {
+      name: `《${rowTitle}》的更多操作`,
+    }),
+  );
+  return screen.getByRole("menu", { name: `重新处理《${rowTitle}》` });
 }
 
 describe("CompletionHistoryPageClient", () => {
@@ -100,12 +102,12 @@ describe("CompletionHistoryPageClient", () => {
       payload([historyItem(12, "done", query || "全部历史")], { search_query: query }));
     render(<CompletionHistoryPageClient />);
     await screen.findByRole("heading", { name: "Codex" });
-    const input = screen.getByPlaceholderText("输入单集标题或节目名称");
+    const input = screen.getByPlaceholderText("搜索单集或节目…");
     expect(input).toHaveValue("Codex");
     fireEvent.change(input, { target: { value: "尚未提交" } });
     expect(window.location.search).toBe("?q=Codex");
     expect(apiMocks.listCompletionHistory).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "搜索全部历史" }));
+    fireEvent.click(screen.getByRole("button", { name: "搜索" }));
     await screen.findByRole("heading", { name: "尚未提交" });
     expect(new URLSearchParams(window.location.search).get("q")).toBe("尚未提交");
     act(() => { navigate("/inbox/history?q=Codex"); });
@@ -131,11 +133,14 @@ describe("CompletionHistoryPageClient", () => {
     expect(await screen.findByText("还没有完成记录")).toBeInTheDocument();
   });
 
-  it("shows total, current status, locate links, and defaults reprocessing to Inbox", async () => {
-    const inbox = historyItem(1, "inbox", "行动中的历史");
-    const dismissed = historyItem(2, "dismissed", "不感兴趣的历史");
+  it("shows the compact total and separates status expressions per state", async () => {
     apiMocks.listCompletionHistory.mockResolvedValue(
-      payload([inbox, dismissed], {
+      payload([
+        historyItem(1, "inbox", "行动中的历史"),
+        historyItem(2, "done", "已完成的历史"),
+        historyItem(3, "dismissed", "不感兴趣的历史"),
+        historyItem(4, "unassigned", "未安排的历史"),
+      ], {
         total_count: 57,
         match_count: 57,
       }),
@@ -143,33 +148,91 @@ describe("CompletionHistoryPageClient", () => {
 
     render(<CompletionHistoryPageClient />);
 
-    expect(await screen.findByText("行动中的历史")).toBeInTheDocument();
-    expect(screen.getByText("57")).toBeInTheDocument();
-    const locate = within(historyCard("行动中的历史")).getByRole("link", {
-      name: /定位到 Inbox/,
-    });
-    expect(locate).toHaveAttribute("href", "/inbox?queue=inbox&episode=1");
+    expect(await screen.findByText("57 个单集")).toBeInTheDocument();
+    // 默认视图不重复展示总数。
+    expect(screen.queryByText(/按最近完成时间排列 ·/)).toBeNull();
 
-    const dismissedCard = historyCard("不感兴趣的历史");
+    const inboxLocate = within(historyRow("行动中的历史")).getByRole("link", {
+      name: "已在 Inbox",
+    });
+    expect(inboxLocate).toHaveAttribute("href", "/inbox?queue=inbox&episode=1");
+
+    const doneRow = historyRow("已完成的历史");
+    expect(within(doneRow).queryByText(/当前 Done/)).toBeNull();
     expect(
-      within(dismissedCard).getByText("曾完成 · 当前不感兴趣"),
+      within(doneRow).getByRole("button", { name: "《已完成的历史》的更多操作" }),
+    ).toHaveAttribute("aria-haspopup", "menu");
+
+    expect(
+      within(historyRow("不感兴趣的历史")).getByText("当前不感兴趣"),
     ).toBeInTheDocument();
-    expect(within(dismissedCard).getByLabelText("重新处理到")).toHaveValue(
-      "inbox",
-    );
-    fireEvent.click(
-      within(dismissedCard).getByRole("button", { name: "重新处理" }),
-    );
+    expect(
+      within(historyRow("未安排的历史")).getByText("当前未安排"),
+    ).toBeInTheDocument();
+  });
+
+  it("reprocesses from the menu into Inbox and keeps the completion record", async () => {
+    const dismissed = historyItem(2, "dismissed", "不感兴趣的历史");
+    apiMocks.listCompletionHistory.mockResolvedValue(payload([dismissed]));
+
+    render(<CompletionHistoryPageClient />);
+    await screen.findByText("不感兴趣的历史");
+
+    openReprocessMenu("不感兴趣的历史");
+    fireEvent.click(screen.getByRole("menuitem", { name: "加入 Inbox" }));
 
     await waitFor(() =>
       expect(apiMocks.setQueue).toHaveBeenCalledWith(2, "inbox", {
         acknowledgeFocusLimit: false,
       }),
     );
+    const row = historyRow("不感兴趣的历史");
     expect(
-      await within(dismissedCard).findByText("曾完成 · 当前 Inbox"),
+      await within(row).findByRole("link", { name: "已在 Inbox" }),
+    ).toHaveAttribute("href", "/inbox?queue=inbox&episode=2");
+    expect(within(row).getByText(/最近完成于/)).toBeInTheDocument();
+    expect(within(row).getByRole("link", { name: "已在 Inbox" })).toHaveFocus();
+
+    // 队列记录不再提供重新处理菜单，只保留定位。
+    expect(
+      within(row).queryByRole("button", { name: /的更多操作/ }),
+    ).toBeNull();
+  });
+
+  it("blocks duplicate submissions while a reprocess is saving", async () => {
+    let resolveQueue!: (value: { queue_state: ConsumptionQueue }) => void;
+    apiMocks.setQueue.mockImplementation(
+      () =>
+        new Promise<{ queue_state: ConsumptionQueue }>((resolve) => {
+          resolveQueue = resolve;
+        }),
+    );
+    apiMocks.listCompletionHistory.mockResolvedValue(
+      payload([historyItem(9, "done", "保存中的历史")]),
+    );
+
+    render(<CompletionHistoryPageClient />);
+    await screen.findByText("保存中的历史");
+
+    openReprocessMenu("保存中的历史");
+    fireEvent.click(screen.getByRole("menuitem", { name: "加入 Someday" }));
+    await waitFor(() => expect(apiMocks.setQueue).toHaveBeenCalledTimes(1));
+
+    const trigger = within(historyRow("保存中的历史")).getByRole("button", {
+      name: "正在保存《保存中的历史》的队列调整",
+    });
+    expect(trigger).toHaveAttribute("aria-disabled", "true");
+    // 保存中触发按钮不打开菜单，也不会重复提交。
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(apiMocks.setQueue).toHaveBeenCalledTimes(1);
+
+    resolveQueue({ queue_state: "someday" });
+    expect(
+      await within(historyRow("保存中的历史")).findByRole("link", {
+        name: "已在 Someday",
+      }),
     ).toBeInTheDocument();
-    expect(within(dismissedCard).getByText(/最近完成于/)).toBeInTheDocument();
   });
 
   it("keeps current records when a new server-side search fails", async () => {
@@ -184,7 +247,7 @@ describe("CompletionHistoryPageClient", () => {
     fireEvent.change(screen.getByLabelText("搜索单集或节目"), {
       target: { value: "目标节目" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "搜索全部历史" }));
+    fireEvent.click(screen.getByRole("button", { name: "搜索" }));
 
     expect(
       await screen.findByText(/更新失败，当前记录仍可用/),
@@ -245,11 +308,8 @@ describe("CompletionHistoryPageClient", () => {
 
     render(<CompletionHistoryPageClient />);
     await screen.findByText("需要确认 Focus");
-    const card = historyCard("需要确认 Focus");
-    fireEvent.change(within(card).getByLabelText("重新处理到"), {
-      target: { value: "focus" },
-    });
-    fireEvent.click(within(card).getByRole("button", { name: "重新处理" }));
+    openReprocessMenu("需要确认 Focus");
+    fireEvent.click(screen.getByRole("menuitem", { name: "加入 Focus" }));
 
     expect(
       await screen.findByRole("dialog", { name: "Focus 已有明确承诺" }),
@@ -263,7 +323,9 @@ describe("CompletionHistoryPageClient", () => {
       }),
     );
     expect(
-      await within(card).findByText("曾完成 · 当前 Focus"),
+      await within(historyRow("需要确认 Focus")).findByRole("link", {
+        name: "已在 Focus",
+      }),
     ).toBeInTheDocument();
   });
 
@@ -275,11 +337,8 @@ describe("CompletionHistoryPageClient", () => {
 
     render(<CompletionHistoryPageClient />);
     await screen.findByText("键盘取消 Focus");
-    const card = historyCard("键盘取消 Focus");
-    fireEvent.change(within(card).getByLabelText("重新处理到"), {
-      target: { value: "focus" },
-    });
-    fireEvent.click(within(card).getByRole("button", { name: "重新处理" }));
+    openReprocessMenu("键盘取消 Focus");
+    fireEvent.click(screen.getByRole("menuitem", { name: "加入 Focus" }));
 
     const dialog = await screen.findByRole("dialog", {
       name: "Focus 已有明确承诺",
@@ -287,5 +346,40 @@ describe("CompletionHistoryPageClient", () => {
     fireEvent.keyDown(dialog.parentElement as HTMLElement, { key: "Escape" });
 
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    expect(within(historyRow("键盘取消 Focus")).getByRole("button", { name: /更多操作/ })).toHaveFocus();
   });
+  it("restores menu focus on Escape and leaves focus outside on dismissal", async () => {
+    apiMocks.listCompletionHistory.mockResolvedValue(payload([historyItem(10, "done", "键盘菜单")]));
+    render(<CompletionHistoryPageClient />);
+    await screen.findByText("键盘菜单");
+    const menu = openReprocessMenu("键盘菜单");
+    expect(screen.getByRole("menuitem", { name: "加入 Inbox" })).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "End" });
+    expect(screen.getByRole("menuitem", { name: "加入 Someday" })).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(screen.getByRole("menuitem", { name: "加入 Inbox" })).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByRole("button", { name: /键盘菜单.*更多操作/ })).toHaveFocus();
+    openReprocessMenu("键盘菜单");
+    fireEvent.pointerDown(screen.getByRole("searchbox"));
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("keeps the record and allows retry after a queue failure", async () => {
+    apiMocks.listCompletionHistory.mockResolvedValue(payload([historyItem(11, "done", "重试记录")]));
+    apiMocks.setQueue.mockRejectedValueOnce(new Error("保存失败"))
+      .mockResolvedValueOnce({ queue_state: "someday" });
+    render(<CompletionHistoryPageClient />);
+    await screen.findByText("重试记录");
+    openReprocessMenu("重试记录");
+    fireEvent.click(screen.getByRole("menuitem", { name: "加入 Someday" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("保存失败");
+    expect(within(historyRow("重试记录")).queryByRole("link", { name: "已在 Someday" })).toBeNull();
+    expect(screen.getByRole("button", { name: /重试记录.*更多操作/ })).toHaveFocus();
+    openReprocessMenu("重试记录");
+    fireEvent.click(screen.getByRole("menuitem", { name: "加入 Someday" }));
+    expect(await screen.findByRole("link", { name: "已在 Someday" })).toHaveFocus();
+  });
+
 });
