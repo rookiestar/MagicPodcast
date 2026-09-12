@@ -9,19 +9,88 @@ import (
 	"time"
 
 	"magicpodcast/internal/collection"
+	"magicpodcast/internal/services"
 
 	"github.com/gin-gonic/gin"
 )
 
-// CollectionHandler 播客单集清单的读取与导入入口。
-// 第 1 票只提供导入预览/确认与浏览；收录、刷新、删除由后续票交付。
+// CollectionHandler 播客单集清单的读取、导入与按集收录入口。
+// 刷新与删除由第 4 票交付；真实收录入口在 #377/#378 联合验收前不对外开放。
 type CollectionHandler struct {
-	service *collection.Service
+	service          *collection.Service
+	adoptionService  *services.CollectionAdoptionService
+	adoptionGateOpen bool
 }
 
 // NewCollectionHandler 创建清单处理器。
 func NewCollectionHandler(service *collection.Service) *CollectionHandler {
 	return &CollectionHandler{service: service}
+}
+
+// NewCollectionHandlerWithAdoption 创建带收录能力的清单处理器。
+// gateOpen 由装配方按交付顺序控制（第 2、3 票联合验收通过前保持关闭），
+// 不是长期 feature flag；关闭时收录 API 返回 404 语义的“未开放”。
+func NewCollectionHandlerWithAdoption(
+	service *collection.Service,
+	adoptionService *services.CollectionAdoptionService,
+	gateOpen bool,
+) *CollectionHandler {
+	return &CollectionHandler{
+		service:          service,
+		adoptionService:  adoptionService,
+		adoptionGateOpen: gateOpen,
+	}
+}
+
+// AdoptItem POST /api/v1/collections/:id/items/:itemID/adopt
+// 收录这一集并加入 Inbox；已有个人状态不被覆盖，身份冲突明确阻止。
+func (h *CollectionHandler) AdoptItem(c *gin.Context) {
+	if !h.adoptionGateOpen {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "ADOPTION_NOT_AVAILABLE", "message": "收录入口尚未开放"},
+		})
+		return
+	}
+	collectionID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || collectionID == 0 {
+		badRequest(c, "INVALID_ID", "清单 ID 必须是正整数")
+		return
+	}
+	itemID, err := strconv.ParseUint(c.Param("itemID"), 10, 64)
+	if err != nil || itemID == 0 {
+		badRequest(c, "INVALID_ITEM_ID", "条目 ID 必须是正整数")
+		return
+	}
+
+	result, err := h.adoptionService.AdoptCollectionItem(uint(collectionID), uint(itemID))
+	if err != nil {
+		switch {
+		case errors.Is(err, collection.ErrCollectionNotFound), errors.Is(err, services.ErrAdoptionItemNotFound):
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"error":   gin.H{"code": "ITEM_NOT_FOUND", "message": "清单或条目不存在"},
+			})
+		case errors.Is(err, services.ErrAdoptionEpisodeDeleted):
+			c.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"error": gin.H{"code": "EPISODE_DELETED", "message":
+				"这一集曾从个人库删除，收录不会自动恢复；如需重新收录请先在个人库中恢复该单集。"},
+			})
+		case errors.Is(err, services.ErrAdoptionCrossPodcast),
+			errors.Is(err, services.ErrAdoptionAmbiguous),
+			errors.Is(err, services.ErrAdoptionIdentityInvalid):
+			c.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"error": gin.H{"code": "IDENTITY_CONFLICT", "message":
+				"无法可靠确认这一集对应的已有单集，已停止收录；请在个人库中核对后再明确选择。"},
+			})
+		default:
+			internalError(c, "DATABASE_ERROR", "收录失败，未保存任何更改")
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
 }
 
 // Preview POST /api/v1/collections/preview

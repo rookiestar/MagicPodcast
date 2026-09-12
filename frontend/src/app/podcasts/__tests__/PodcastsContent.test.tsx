@@ -126,7 +126,7 @@ describe("podcast list page navigation", () => {
     render(<PodcastsContent />);
 
     expect(
-      screen.getByRole("heading", { name: "我的订阅" }),
+      screen.getByRole("heading", { name: "我的播客" }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "返回首页" }),

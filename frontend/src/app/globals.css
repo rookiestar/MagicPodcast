@@ -8590,3 +8590,38 @@ textarea.editorial-field {
     max-width: none;
   }
 }
+
+/* Podcast list: subscription filter (我的播客, #377). */
+.podcast-subscription-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid #171717;
+  background: rgba(247, 241, 229, 0.9);
+}
+
+.podcast-subscription-filter button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  color: #171717;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.podcast-subscription-filter button.is-active {
+  background: #171717;
+  color: #f7f1e5;
+}
+
+.podcast-subscription-filter button:hover:not(.is-active) {
+  color: #c4552a;
+}
+
+.podcast-subscription-filter button:focus-visible {
+  outline: 2px solid #c4552a;
+  outline-offset: 2px;
+}

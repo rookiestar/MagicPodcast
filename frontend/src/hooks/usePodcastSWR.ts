@@ -47,6 +47,7 @@ interface UsePodcastListParams {
   tag_id?: number[];
   search?: string;
   view?: "summary" | "full";
+  subscription?: "all" | "subscribed" | "unsubscribed";
   initialPage?: PodcastListPage<Podcast>;
 }
 

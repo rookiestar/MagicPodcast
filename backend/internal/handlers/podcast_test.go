@@ -468,3 +468,114 @@ func TestPodcastHandler_UpdateCustomCover(t *testing.T) {
 		}
 	})
 }
+
+// TestPodcastHandler_ListSupportsSubscriptionFilterAndExternalCount 验证
+// “我的播客”关注筛选与源站总数字段（#377）。
+func TestPodcastHandler_ListSupportsSubscriptionFilterAndExternalCount(t *testing.T) {
+	db := setupPodcastTestDB(t)
+	defer cleanupPodcastTestDB()
+
+	router := setupPodcastTestRouter(db)
+	handler := handlers.NewPodcastHandler()
+	router.GET("/api/v1/podcasts", handler.List)
+
+	cache.GetCache().Clear()
+	// 共享内存库跨测试存活：先清空节目表，保证计数断言只针对本用例数据。
+	if err := db.Exec("DELETE FROM podcasts_tags").Error; err != nil {
+		t.Fatalf("clear podcasts_tags: %v", err)
+	}
+	if err := db.Exec("DELETE FROM podcasts").Error; err != nil {
+		t.Fatalf("clear podcasts: %v", err)
+	}
+	// is_subscribed=false 受 GORM default:true 零值覆盖影响，必须以 map 显式落库。
+	subscribed := models.Podcast{Title: "已关注节目", XYZID: "sub-pid", FeedURL: "https://example.com/sub.xml", IsSubscribed: true, EpisodeCount: 20}
+	if err := db.Create(&subscribed).Error; err != nil {
+		t.Fatalf("create subscribed: %v", err)
+	}
+	unsubscribedValues := map[string]any{
+		"xyz_id": "unsub-pid", "title": "清单收录节目",
+		"feed_url": "https://example.com/unsub.xml", "is_subscribed": false,
+		"episode_count": 1, "external_episode_count": 200,
+		"feed_url_valid": false,
+	}
+	if err := db.Model(&models.Podcast{}).Create(unsubscribedValues).Error; err != nil {
+		t.Fatalf("create unsubscribed: %v", err)
+	}
+	feedlessValues := map[string]any{
+		"xyz_id": "feedless-pid", "title": "无 Feed 节目",
+		"feed_url": nil, "is_subscribed": false,
+		"episode_count": 2, "feed_url_valid": false,
+	}
+	if err := db.Model(&models.Podcast{}).Create(feedlessValues).Error; err != nil {
+		t.Fatalf("create feedless: %v", err)
+	}
+
+	fetchTitles := func(url string) []string {
+		cache.GetCache().Clear()
+		req, _ := http.NewRequest("GET", url, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("Expected 200 for %s, got %d", url, w.Code)
+		}
+		var response struct {
+			Data []struct {
+				Title                string `json:"title"`
+				IsSubscribed         bool   `json:"is_subscribed"`
+				ExternalEpisodeCount int    `json:"external_episode_count"`
+				FeedURL              string `json:"feed_url"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		titles := make([]string, 0, len(response.Data))
+		for _, item := range response.Data {
+			titles = append(titles, item.Title)
+		}
+		return titles
+	}
+
+	allTitles := fetchTitles("/api/v1/podcasts?subscription=all")
+	if len(allTitles) != 3 {
+		t.Fatalf("expected 3 podcasts, got %v", allTitles)
+	}
+	subscribedTitles := fetchTitles("/api/v1/podcasts?subscription=subscribed")
+	if len(subscribedTitles) != 1 || subscribedTitles[0] != "已关注节目" {
+		t.Fatalf("subscribed filter mismatch: %v", subscribedTitles)
+	}
+	unsubscribedTitles := fetchTitles("/api/v1/podcasts?subscription=unsubscribed")
+	if len(unsubscribedTitles) != 2 {
+		t.Fatalf("unsubscribed filter mismatch: %v", unsubscribedTitles)
+	}
+
+	// summary 视图带 external_episode_count；无 Feed 节目的 feed_url 输出为空。
+	req, _ := http.NewRequest("GET", "/api/v1/podcasts?view=summary&subscription=unsubscribed", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	var summary struct {
+		Data []struct {
+			Title                string `json:"title"`
+			ExternalEpisodeCount int    `json:"external_episode_count"`
+			FeedURL              string `json:"feed_url"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &summary); err != nil {
+		t.Fatalf("unmarshal summary: %v", err)
+	}
+	if len(summary.Data) != 2 {
+		t.Fatalf("expected 2 unsubscribed summaries, got %d", len(summary.Data))
+	}
+	for _, item := range summary.Data {
+		if item.Title == "清单收录节目" && item.ExternalEpisodeCount != 200 {
+			t.Fatalf("external_episode_count mismatch: %+v", item)
+		}
+	}
+
+	invalid := httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/api/v1/podcasts?subscription=bogus", nil)
+	router.ServeHTTP(invalid, req)
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid subscription, got %d", invalid.Code)
+	}
+}

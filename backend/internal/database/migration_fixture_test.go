@@ -56,6 +56,7 @@ func TestSchema24FixtureIsHistoricalSanitizedAndComplete(t *testing.T) {
 		"29:person-preparation-evidence-version",
 		"30:person-review-drafts",
 		"31:episode-collections",
+		"32:episode-collection-adoption-identity",
 	}, migrationNames(status.Pending))
 
 	for table, want := range map[string]int64{

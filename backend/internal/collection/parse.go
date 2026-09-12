@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"magicpodcast/internal/models"
 )
 
 // 解析失败分类：调用方据此区分来源受限、格式不支持、结构缺失与真正空清单。
@@ -20,7 +22,7 @@ var (
 )
 
 // PlatformXiaoyuzhoufm 当前唯一支持的清单来源平台。
-const PlatformXiaoyuzhoufm = "xiaoyuzhoufm"
+const PlatformXiaoyuzhoufm = models.SourcePlatformXiaoyuzhoufm
 
 // PayTypeFree 小宇宙免费单集标记；其他取值（如 PAY_EPISODE_PODCAST）代表付费受限。
 const PayTypeFree = "FREE"
@@ -32,28 +34,33 @@ type imagePayload struct {
 
 // podcastRefPayload 条目内嵌的节目标识与元数据。
 type podcastRefPayload struct {
-	PID    string        `json:"pid"`
-	Title  string        `json:"title"`
-	Author string        `json:"author"`
-	Image  *imagePayload `json:"image"`
+	PID          string        `json:"pid"`
+	Title        string        `json:"title"`
+	Author       string        `json:"author"`
+	Image        *imagePayload `json:"image"`
+	EpisodeCount json.Number   `json:"episodeCount"`
 }
 
 // itemDraft 是解析输出的一条清单条目快照，不携带任何个人库状态。
 type ItemDraft struct {
-	ExternalEpisodeID string
-	ExternalPodcastID string
-	PodcastTitle      string
-	PodcastAuthor     string
-	PodcastCoverURL   string
-	EpisodeTitle      string
-	Recommendation    string
-	Shownotes         string
-	Duration          int
-	PublishedAt       *time.Time
-	ImageURL          string
-	EpisodeURL        string
-	PayType           string
-	IsPrivateMedia    bool
+	ExternalEpisodeID   string
+	ExternalPodcastID   string
+	PodcastTitle        string
+	PodcastAuthor       string
+	PodcastCoverURL     string
+	EpisodeTitle        string
+	Recommendation      string
+	Shownotes           string
+	Duration            int
+	PublishedAt         *time.Time
+	ImageURL            string
+	EpisodeURL          string
+	PayType             string
+	IsPrivateMedia      bool
+	AudioURL            string
+	AudioMimeType       string
+	AudioSize           int64
+	PodcastEpisodeCount int
 }
 
 // Draft 是一份清单的确定性解析结果。
@@ -92,6 +99,17 @@ type authorRefPayload struct {
 	Nickname string `json:"nickname"`
 }
 
+type enclosurePayload struct {
+	URL  string `json:"url"`
+	Type string `json:"type"`
+}
+
+type mediaPayload struct {
+	ID       string      `json:"id"`
+	Size     json.Number `json:"size"`
+	MIMEType string      `json:"mimeType"`
+}
+
 type itemPayload struct {
 	Type      string             `json:"type"`
 	EID       string             `json:"eid"`
@@ -100,6 +118,8 @@ type itemPayload struct {
 	Shownotes string             `json:"shownotes"`
 	Image     *imagePayload      `json:"image"`
 	Podcast   *podcastRefPayload `json:"podcast"`
+	Enclosure *enclosurePayload  `json:"enclosure"`
+	Media     *mediaPayload      `json:"media"`
 
 	IsPrivateMedia bool   `json:"isPrivateMedia"`
 	PubDate        string `json:"pubDate"`
@@ -182,14 +202,18 @@ func ParsePageHTML(html string, expectedExternalID string) (*Draft, error) {
 			PodcastCoverURL:   optionalString(item.Podcast.Image),
 			EpisodeTitle:      strings.TrimSpace(item.Title),
 			// 推荐语缺失时保留空值，不生成替代文案。
-			Recommendation: strings.TrimSpace(item.Recommendation),
-			Shownotes:      item.Shownotes,
-			Duration:       normalizedDuration(item.Duration),
-			PublishedAt:    parseOptionalTime(item.PubDate),
-			ImageURL:       optionalString(item.Image),
-			EpisodeURL:     EpisodeURLForEID(item.EID),
-			PayType:        strings.TrimSpace(item.PayType),
-			IsPrivateMedia: item.IsPrivateMedia,
+			Recommendation:      strings.TrimSpace(item.Recommendation),
+			Shownotes:           item.Shownotes,
+			Duration:            normalizedDuration(item.Duration),
+			PublishedAt:         parseOptionalTime(item.PubDate),
+			ImageURL:            optionalString(item.Image),
+			EpisodeURL:          EpisodeURLForEID(item.EID),
+			PayType:             strings.TrimSpace(item.PayType),
+			IsPrivateMedia:      item.IsPrivateMedia,
+			AudioURL:            audioURL(item),
+			AudioMimeType:       audioMIME(item),
+			AudioSize:           audioSize(item),
+			PodcastEpisodeCount: podcastEpisodeCount(item.Podcast),
 		})
 	}
 	if len(draft.Items) == 0 {
@@ -208,6 +232,51 @@ func optionalString(image *imagePayload) string {
 		return ""
 	}
 	return strings.TrimSpace(image.PicURL)
+}
+
+func podcastEpisodeCount(podcast *podcastRefPayload) int {
+	if podcast == nil || podcast.EpisodeCount == "" {
+		return 0
+	}
+	parsed, err := podcast.EpisodeCount.Int64()
+	if err != nil || parsed < 0 || parsed > int64(maxInt) {
+		return 0
+	}
+	return int(parsed)
+}
+
+const maxInt = int(^uint(0) >> 1)
+
+// audioURL 仅在公开免费单集上保留音频地址快照；私密或付费留空。
+func audioURL(item itemPayload) string {
+	if item.IsPrivateMedia || (strings.TrimSpace(item.PayType) != "" && strings.TrimSpace(item.PayType) != PayTypeFree) {
+		return ""
+	}
+	if item.Enclosure == nil {
+		return ""
+	}
+	return strings.TrimSpace(item.Enclosure.URL)
+}
+
+func audioMIME(item itemPayload) string {
+	if item.Enclosure != nil && strings.TrimSpace(item.Enclosure.Type) != "" {
+		return strings.TrimSpace(item.Enclosure.Type)
+	}
+	if item.Media != nil {
+		return strings.TrimSpace(item.Media.MIMEType)
+	}
+	return ""
+}
+
+func audioSize(item itemPayload) int64 {
+	if item.Media == nil || item.Media.Size == "" {
+		return 0
+	}
+	parsed, err := item.Media.Size.Int64()
+	if err != nil || parsed < 0 {
+		return 0
+	}
+	return parsed
 }
 
 func normalizedDuration(duration *int) int {

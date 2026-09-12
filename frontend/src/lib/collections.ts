@@ -1,6 +1,7 @@
 import { apiClient } from "@/lib/fetcher";
 import type {
   CollectionAdoptedFilter,
+  CollectionAdoptResult,
   CollectionApiError,
   CollectionDetail,
   CollectionImportResult,
@@ -49,6 +50,23 @@ export async function confirmCollectionImport(
     return response.data.data;
   }
   throw Object.assign(new Error(response.data.error?.message || "导入失败"), {
+    code: response.data.error?.code,
+  });
+}
+
+export async function adoptCollectionItem(
+  collectionID: number,
+  itemID: number,
+): Promise<CollectionAdoptResult> {
+  const response = await apiClient.post<{
+    success: boolean;
+    data?: CollectionAdoptResult;
+    error?: CollectionApiError;
+  }>(`${COLLECTIONS_PATH}/${collectionID}/items/${itemID}/adopt`);
+  if (response.data.success && response.data.data) {
+    return response.data.data;
+  }
+  throw Object.assign(new Error(response.data.error?.message || "收录失败"), {
     code: response.data.error?.code,
   });
 }

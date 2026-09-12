@@ -4,8 +4,9 @@ import type { ReactElement } from "react";
 import { SWRConfig } from "swr";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { detailMock } = vi.hoisted(() => ({
+const { detailMock, adoptMock } = vi.hoisted(() => ({
   detailMock: vi.fn(),
+  adoptMock: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -25,6 +26,7 @@ vi.mock("@/lib/collections", async (importOriginal) => {
   return {
     ...actual,
     fetchCollectionDetail: detailMock,
+    adoptCollectionItem: adoptMock,
   };
 });
 
@@ -98,8 +100,13 @@ function renderDetail(ui: ReactElement) {
 }
 
 describe("CollectionDetailContent", () => {
+  let callCount = 0;
+  beforeEach(() => {
+    callCount = 0;
+  });
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.resetAllMocks();
     detailMock.mockResolvedValue(makeDetail());
   });
 
@@ -176,6 +183,86 @@ describe("CollectionDetailContent", () => {
       "href",
       "/collections",
     );
+  });
+
+  it("adopts an un-collected entry into Inbox and refreshes real states", async () => {
+    const user = userEvent.setup();
+    adoptMock.mockResolvedValue({
+      item_id: 1,
+      episode_id: 501,
+      queue_state: "inbox",
+      dismissed_at: null,
+      episode_created: true,
+      podcast_created: true,
+      podcast_id: 60,
+      podcast_title: "投资实战派",
+      podcast_subscribed: false,
+      collection_only: true,
+      audio_available: true,
+      inbox_written: true,
+    });
+    // 收录后重新读取的详情：该条目已关联本地单集并进入 Inbox。
+    detailMock.mockImplementation(() =>
+      Promise.resolve(
+        callCount++ === 0
+          ? makeDetail()
+          : makeDetail({
+              adopted_count: 2,
+              items: [
+                makeItem({
+                  adopted_episode_id: 501,
+                  adopted_episode_title: "E185 芯片规律 × AI浪潮",
+                  adopted_episode_queue: "inbox",
+                }),
+                makeItem({
+                  id: 2,
+                  position: 1,
+                  external_episode_id: "e2",
+                  episode_title: "No.24 芯片江湖之中国半导体劫起",
+                  recommendation: "",
+                  shownotes: "",
+                  adopted_episode_id: 77,
+                  adopted_episode_title: "No.24",
+                  adopted_episode_queue: "inbox",
+                }),
+              ],
+            }),
+      ),
+    );
+    renderDetail(<CollectionDetailContent collectionID={1} />);
+    await screen.findByText("E185 芯片规律 × AI浪潮");
+
+    const adoptButton = screen.getByRole("button", { name: "加入 Inbox" });
+    expect(
+      screen.getAllByRole("button", { name: "加入 Inbox" }).length,
+    ).toBe(1);
+    await user.click(adoptButton);
+
+    await waitFor(() => {
+      expect(adoptMock).toHaveBeenCalledWith(1, 1);
+      // 收录状态来自服务端回读：按钮消失，条目显示已在 Inbox。
+      expect(screen.queryByRole("button", { name: "加入 Inbox" })).not.toBeInTheDocument();
+      expect(screen.getAllByText("已在 Inbox").length).toBe(2);
+    });
+  });
+
+  it("shows a distinct error when adoption is rejected", async () => {
+    const user = userEvent.setup();
+    adoptMock.mockRejectedValue(
+      Object.assign(new Error("曾删除"), {
+        code: "EPISODE_DELETED",
+        response: { data: { error: { code: "EPISODE_DELETED", message: "这一集曾从个人库删除" } } },
+      }),
+    );
+    renderDetail(<CollectionDetailContent collectionID={1} />);
+    await screen.findByText("E185 芯片规律 × AI浪潮");
+
+    await user.click(screen.getByRole("button", { name: "加入 Inbox" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/曾从个人库删除/);
+    // 失败不伪造状态：条目仍是未收录且可重试。
+    const rejectedItems = screen.getAllByTestId("collection-item");
+    expect(within(rejectedItems[0]).getByText("未收录")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "加入 Inbox" })).toBeEnabled();
   });
 
   it("renders an invalid address notice for id 0", async () => {

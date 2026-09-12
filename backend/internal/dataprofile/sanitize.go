@@ -22,8 +22,12 @@ const SanitizerVersion = "v12"
 // recommendations, Show Notes, source URLs) with a nullable numeric episode_id
 // FK; no credentials or user identity. URL-bearing text columns are registered
 // in richTextColumns so snapshots keep the same URL normalization as episodes.
-const sanitizerSchemaFingerprint = "444ae3c8892ebf6eab7493ec98ccb652b5bb9bdbd26ac31abbcb7872a7b4b210"
-const sanitizerSchemaObjectsFingerprint = "1147e9b2b8cc7456746875235cb03c7c10f3aabb420c5dda6a71aa2e6d232ea2"
+// Schema 32 (#377) added episode_external_refs / episode_collection_adoptions
+// (public identity keys and adoption provenance only), episodes.collection_only
+// and podcasts.external_episode_count (plain flags/counters), and public audio
+// snapshot columns on episode_collection_items — reviewed in the same class.
+const sanitizerSchemaFingerprint = "39524adc2b9ae1fc8c9cee88a562b829b3b885f4f13aaecbbc43e180c1a075aa"
+const sanitizerSchemaObjectsFingerprint = "28b65b769a0500658f1da316c535eb2cc79e980698370a69af19c3378b0b47e0"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 

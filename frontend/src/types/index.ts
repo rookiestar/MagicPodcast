@@ -14,6 +14,7 @@ export interface Podcast {
   added_date?: string;
   is_subscribed: boolean;
   is_dead: boolean;
+  external_episode_count?: number; // 源站总集数快照，0/缺省=未知
   my_rate?: number;
   notes?: string;
   data_source?: string;

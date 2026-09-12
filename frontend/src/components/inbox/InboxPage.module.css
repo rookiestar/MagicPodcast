@@ -4236,3 +4236,19 @@ button.transcriptSegment:hover:not([aria-current="true"]) {
 
 .transcriptTextButton { display:block; width:100%; border:0; padding:0; text-align:left; color:inherit; font:inherit; background:transparent; cursor:pointer; }
 .transcriptTextButton:focus-visible { outline:2px solid var(--primary-color,#5369c9); outline-offset:4px; }
+
+/* 清单来源行（#377）：来自清单《…》的返回入口。 */
+.detailCollectionSource {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #756c62;
+}
+
+.detailCollectionSource a {
+  color: #c4552a;
+  text-decoration: none;
+}
+
+.detailCollectionSource a:hover {
+  text-decoration: underline;
+}

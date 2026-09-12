@@ -980,6 +980,16 @@ export default function ConsumptionDetailPanel({
           <div>
             <span className={styles.detailKicker}>FOCUS DETAIL</span>
             <p>{item.podcast_title}</p>
+            {item.collection_sources?.[0] && (
+              <p className={styles.detailCollectionSource}>
+                来自清单{" "}
+                <a
+                  href={`/collections?search=${encodeURIComponent(item.collection_sources[0].collection_title)}`}
+                >
+                  《{item.collection_sources[0].collection_title}》
+                </a>
+              </p>
+            )}
           </div>
           <div className={styles.detailHeaderActions}>
             <button

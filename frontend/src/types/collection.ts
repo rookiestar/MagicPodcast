@@ -47,6 +47,21 @@ export interface CollectionSummary {
   last_refreshed_at: string | null;
 }
 
+export interface CollectionAdoptResult {
+  item_id: number;
+  episode_id: number;
+  queue_state: string | null;
+  dismissed_at: string | null;
+  episode_created: boolean;
+  podcast_created: boolean;
+  podcast_id: number;
+  podcast_title: string;
+  podcast_subscribed: boolean;
+  collection_only: boolean;
+  audio_available: boolean;
+  inbox_written: boolean;
+}
+
 export interface CollectionItemDetail {
   id: number;
   position: number;
@@ -64,6 +79,7 @@ export interface CollectionItemDetail {
   episode_url: string;
   pay_type: string;
   is_private_media: boolean;
+  audio_available?: boolean;
   adopted_episode_id: number | null;
   adopted_episode_title: string;
   adopted_episode_queue: string | null;

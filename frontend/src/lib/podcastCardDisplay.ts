@@ -34,7 +34,21 @@ export function getPodcastCardRelativeTime(podcast: Podcast) {
 }
 
 export function getPodcastCardEpisodeCountText(podcast: Podcast) {
-  return `${podcast.episode_count || 0} 集`;
+  const localCount = podcast.episode_count || 0;
+  // 未关注节目：明确区分本地已收录数量与源站总数，不暗示已同步整档。
+  if (!podcast.is_subscribed) {
+    const localText = `未关注 · 已收录 ${localCount} 集`;
+    const externalCount = podcast.external_episode_count || 0;
+    if (externalCount > 0 && externalCount !== localCount) {
+      return `${localText} · 源站 ${externalCount} 集`;
+    }
+    return localText;
+  }
+  const externalCount = podcast.external_episode_count || 0;
+  if (externalCount > 0 && externalCount !== localCount) {
+    return `${localCount} 集 · 源站 ${externalCount} 集`;
+  }
+  return `${localCount} 集`;
 }
 
 export function isPodcastRecentlyUpdated(

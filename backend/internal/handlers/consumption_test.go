@@ -31,6 +31,10 @@ func setupConsumptionHandler(t *testing.T) (*gorm.DB, *gin.Engine, models.Podcas
 		&models.EpisodeCompletion{},
 		&models.EpisodeTriageDecision{},
 		&models.ConsumptionQueueOrder{},
+		&models.EpisodeCollection{},
+		&models.EpisodeCollectionItem{},
+		&models.EpisodeExternalRef{},
+		&models.EpisodeCollectionAdoption{},
 	))
 	require.NoError(t, db.Create(&[]models.ConsumptionQueueOrder{
 		{QueueState: models.QueueStateInbox, Revision: 1},

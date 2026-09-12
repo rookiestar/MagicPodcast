@@ -9,6 +9,7 @@ import RichText from "@/components/RichText";
 import { positiveID } from "@/lib/navigation";
 import {
   ADOPTED_FILTERS,
+  adoptCollectionItem,
   collectionErrorMessage,
   fetchCollectionDetail,
   filterItemsByAdoptedState,
@@ -47,8 +48,10 @@ export default function CollectionDetailContent({
   collectionID,
 }: CollectionDetailContentProps) {
   const [filter, setFilter] = useState<CollectionAdoptedFilter>("all");
+  const [adoptingItemID, setAdoptingItemID] = useState<number | null>(null);
+  const [adoptError, setAdoptError] = useState<{ itemID: number; message: string } | null>(null);
 
-  const { data, error, isLoading } = useSWR(
+  const { data, error, isLoading, mutate } = useSWR(
     collectionID > 0 ? `/api/v1/collections/${collectionID}` : null,
     () => fetchCollectionDetail(collectionID),
     {
@@ -62,6 +65,28 @@ export default function CollectionDetailContent({
     () => filterItemsByAdoptedState(items, filter),
     [items, filter],
   );
+
+  const adopt = async (item: CollectionItemDetail) => {
+    if (adoptingItemID !== null) return;
+    setAdoptingItemID(item.id);
+    setAdoptError(null);
+    try {
+      // 收录后以服务端返回的真实状态刷新详情，不本地伪造队列状态。
+      await adoptCollectionItem(collectionID, item.id);
+      await mutate();
+    } catch (caught) {
+      const code = (caught as { code?: string }).code;
+      setAdoptError({
+        itemID: item.id,
+        message:
+          code === "EPISODE_DELETED"
+            ? "这一集曾从个人库删除，收录不会自动恢复。"
+            : collectionErrorMessage(caught, "收录失败，可稍后重试。"),
+      });
+    } finally {
+      setAdoptingItemID(null);
+    }
+  };
 
   if (collectionID === 0) {
     return (
@@ -201,7 +226,22 @@ export default function CollectionDetailContent({
                     <RichText html={item.shownotes} className="collection-item-shownotes-body" />
                   </details>
                 )}
+                {adoptError?.itemID === item.id && (
+                  <p className="collection-form-error" role="alert">
+                    {adoptError.message}
+                  </p>
+                )}
                 <div className="collection-item-actions">
+                  {!item.adopted_episode_id && (
+                    <button
+                      type="button"
+                      className="collection-btn-primary"
+                      disabled={adoptingItemID !== null}
+                      onClick={() => void adopt(item)}
+                    >
+                      {adoptingItemID === item.id ? "正在收录…" : "加入 Inbox"}
+                    </button>
+                  )}
                   <a
                     href={item.episode_url}
                     target="_blank"

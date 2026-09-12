@@ -54,6 +54,10 @@ type Episode struct {
 	GUID      string     `gorm:"size:255;uniqueIndex" json:"guid"` // RSS item GUID，用于去重（唯一索引）
 	FetchedAt *time.Time `json:"fetched_at"`                       // 抓取时间
 
+	// CollectionOnly 标记仅由清单收录创建、尚未被普通同步实际识别的单集。
+	// 这类单集不进入工作流最近更新和报告候选；普通同步真正匹配同一集后清除。
+	CollectionOnly bool `gorm:"not null;default:false" json:"collection_only"`
+
 	// 用户自定义
 	MyRate int    `gorm:"default:0" json:"my_rate"` // 个人评分 (0-5)
 	Notes  string `gorm:"type:text" json:"notes"`   // 个人备注
