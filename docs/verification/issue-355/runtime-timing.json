@@ -1,0 +1,71 @@
+[
+  {
+    "type": "first_ui_feedback",
+    "ms": 2.8000001907348633
+  },
+  {
+    "type": "stage",
+    "stage": "read",
+    "ms": 22,
+    "server_ms": 0,
+    "request": "ad603241651e0537d15bbbd5b098fc47",
+    "source": ""
+  },
+  {
+    "type": "stage",
+    "stage": "identify",
+    "ms": 22,
+    "server_ms": 3,
+    "request": "ad603241651e0537d15bbbd5b098fc47",
+    "source": "artifact-1"
+  },
+  {
+    "type": "heartbeat",
+    "ms": 10019.700000047684,
+    "server_ms": 10002,
+    "request": "ad603241651e0537d15bbbd5b098fc47",
+    "source": "artifact-1"
+  },
+  {
+    "type": "heartbeat",
+    "ms": 20017.900000095367,
+    "server_ms": 20000,
+    "request": "ad603241651e0537d15bbbd5b098fc47",
+    "source": "artifact-1"
+  },
+  {
+    "type": "stage",
+    "stage": "review",
+    "ms": 22001.800000190735,
+    "server_ms": 21984,
+    "request": "ad603241651e0537d15bbbd5b098fc47",
+    "source": "artifact-1"
+  },
+  {
+    "type": "heartbeat",
+    "ms": 30019.800000190735,
+    "server_ms": 30001,
+    "request": "ad603241651e0537d15bbbd5b098fc47",
+    "source": "artifact-1"
+  },
+  {
+    "type": "stage",
+    "stage": "save",
+    "ms": 33619,
+    "server_ms": 33601,
+    "request": "ad603241651e0537d15bbbd5b098fc47",
+    "source": "artifact-1"
+  },
+  {
+    "type": "complete",
+    "ms": 33622,
+    "server_ms": 33604,
+    "request": "ad603241651e0537d15bbbd5b098fc47",
+    "source": "artifact-1",
+    "draft": 4
+  },
+  {
+    "type": "persisted_draft_visible",
+    "ms": 33627.10000014305
+  }
+]
