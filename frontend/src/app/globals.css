@@ -8625,3 +8625,34 @@ textarea.editorial-field {
   outline: 2px solid #c4552a;
   outline-offset: 2px;
 }
+
+/* Refresh diff summary (#379). */
+.collection-refresh-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid #171717;
+  background: rgba(247, 241, 229, 0.9);
+  font: 600 13px/1.6 var(--font-mono);
+}
+
+.collection-mobile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 0;
+}
+
+.collection-mobile-actions > * {
+  flex: 1 1 40%;
+}
+
+/* 工具栏操作区（桌面）与正文操作区（移动）按断点互斥，避免窄屏溢出。 */
+.collection-toolbar-actions { display: none; }
+
+@media (min-width: 768px) {
+  .collection-toolbar-actions { display: flex; }
+  .collection-mobile-actions { display: none; }
+}

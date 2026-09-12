@@ -22,8 +22,11 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&models.Podcast{},
 		&models.Episode{},
 		&models.EpisodeTriageDecision{},
+		&models.ConsumptionQueueOrder{},
 		&models.EpisodeCollection{},
 		&models.EpisodeCollectionItem{},
+		&models.EpisodeExternalRef{},
+		&models.EpisodeCollectionAdoption{},
 	))
 	return db
 }

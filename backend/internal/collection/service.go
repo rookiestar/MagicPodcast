@@ -20,6 +20,7 @@ var (
 	ErrPreviewNotFound    = errors.New("collection preview not found")
 	ErrPreviewExpired     = errors.New("collection preview expired")
 	ErrCollectionNotFound = errors.New("collection not found")
+	ErrRefreshConflict    = errors.New("collection was changed by another refresh")
 )
 
 const (
@@ -93,6 +94,7 @@ type Service struct {
 	fetch     fetchFunc
 	parse     func(html string, expectedExternalID string) (*Draft, error)
 	previews  *previewStore
+	refreshes *refreshStore
 	now       func() time.Time
 }
 
@@ -105,6 +107,7 @@ func NewService(db *gorm.DB) *Service {
 		fetch:     newProductionFetcher(),
 		parse:     ParsePageHTML,
 		previews:  newPreviewStore(now),
+		refreshes: newRefreshStore(now),
 		now:       now,
 	}
 }
@@ -206,6 +209,67 @@ func previewResultFromDraft(draft *Draft, previewID string) *PreviewResult {
 		ReadCount:   len(draft.Items),
 		Items:       items,
 	}
+}
+
+// refreshEntry 是绑定到特定清单修订的待应用刷新版本。
+type refreshEntry struct {
+	previewEntry
+	collectionID   uint
+	baseRevision   int
+	baseLastRefreshedAt time.Time
+}
+
+// refreshStore 保存待应用的刷新版本；确认时校验修订号防止多页互覆。
+type refreshStore struct {
+	mu      sync.Mutex
+	entries map[string]refreshEntry
+	now     func() time.Time
+}
+
+func newRefreshStore(now func() time.Time) *refreshStore {
+	return &refreshStore{
+		entries: make(map[string]refreshEntry),
+		now:     now,
+	}
+}
+
+func (s *refreshStore) put(collectionID uint, baseRevision int, draft *Draft) (string, error) {
+	tokenBytes := make([]byte, 16)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return "", fmt.Errorf("generate refresh token: %w", err)
+	}
+	token := hex.EncodeToString(tokenBytes)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for token, entry := range s.entries {
+		if s.now().After(entry.expiresAt) {
+			delete(s.entries, token)
+		}
+	}
+	s.entries[token] = refreshEntry{
+		previewEntry:        previewEntry{draft: draft, expiresAt: s.now().Add(previewTTL)},
+		collectionID:        collectionID,
+		baseRevision:        baseRevision,
+		baseLastRefreshedAt: s.now(),
+	}
+	return token, nil
+}
+
+func (s *refreshStore) take(token string, collectionID uint, expectedRevision int) (*Draft, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, exists := s.entries[token]
+	if !exists {
+		return nil, ErrPreviewNotFound
+	}
+	delete(s.entries, token)
+	if s.now().After(entry.expiresAt) {
+		return nil, ErrPreviewExpired
+	}
+	if entry.collectionID != collectionID || entry.baseRevision != expectedRevision {
+		return nil, ErrRefreshConflict
+	}
+	return entry.draft, nil
 }
 
 // ImportResult 描述确认导入的结果；重复导入返回已有清单身份，不新建副本。

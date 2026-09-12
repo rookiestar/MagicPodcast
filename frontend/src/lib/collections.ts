@@ -71,6 +71,83 @@ export async function adoptCollectionItem(
   });
 }
 
+export interface RefreshChangeSummary {
+  added_count: number;
+  removed_count: number;
+  reordered_count: number;
+  recommendation_changed_count: number;
+  unchanged_count: number;
+}
+
+export interface RefreshRemovedItem {
+  position: number;
+  external_episode_id: string;
+  episode_title: string;
+  podcast_title: string;
+  adopted: boolean;
+}
+
+export interface CollectionRefreshPreview {
+  preview_id: string;
+  collection_id: number;
+  base_revision: number;
+  read_count: number;
+  changes: RefreshChangeSummary;
+  removed: RefreshRemovedItem[];
+}
+
+export interface CollectionApplyRefreshResult {
+  applied: boolean;
+  no_changes: boolean;
+  revision: number;
+  item_count: number;
+  adopted_kept_count: number;
+  removed_adopted_count: number;
+}
+
+export async function refreshCollectionPreview(
+  collectionID: number,
+): Promise<CollectionRefreshPreview> {
+  const response = await apiClient.post<{
+    success: boolean;
+    data?: CollectionRefreshPreview;
+    error?: CollectionApiError;
+  }>(`${COLLECTIONS_PATH}/${collectionID}/refresh-preview`);
+  if (response.data.success && response.data.data) {
+    return response.data.data;
+  }
+  throw Object.assign(new Error(response.data.error?.message || "刷新失败"), {
+    code: response.data.error?.code,
+  });
+}
+
+export async function applyCollectionRefresh(
+  collectionID: number,
+  previewID: string,
+  baseRevision: number,
+): Promise<CollectionApplyRefreshResult> {
+  const response = await apiClient.post<{
+    success: boolean;
+    data?: CollectionApplyRefreshResult;
+    error?: CollectionApiError;
+  }>(`${COLLECTIONS_PATH}/${collectionID}/apply-refresh`, {
+    preview_id: previewID,
+    base_revision: baseRevision,
+  });
+  if (response.data.success && response.data.data) {
+    return response.data.data;
+  }
+  throw Object.assign(new Error(response.data.error?.message || "应用刷新失败"), {
+    code: response.data.error?.code,
+  });
+}
+
+export async function deleteCollection(
+  collectionID: number,
+): Promise<void> {
+  await apiClient.delete(`${COLLECTIONS_PATH}/${collectionID}`);
+}
+
 export async function fetchCollectionSummaries(
   search: string,
 ): Promise<CollectionSummary[]> {

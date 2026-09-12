@@ -988,6 +988,14 @@ export default function ConsumptionDetailPanel({
                 >
                   《{item.collection_sources[0].collection_title}》
                 </a>
+                {" "}
+                <a
+                  href={item.collection_sources[0].collection_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  打开源站
+                </a>
               </p>
             )}
           </div>

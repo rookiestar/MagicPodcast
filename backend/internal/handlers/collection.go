@@ -74,16 +74,14 @@ func (h *CollectionHandler) AdoptItem(c *gin.Context) {
 		case errors.Is(err, services.ErrAdoptionEpisodeDeleted):
 			c.JSON(http.StatusConflict, gin.H{
 				"success": false,
-				"error": gin.H{"code": "EPISODE_DELETED", "message":
-				"这一集曾从个人库删除，收录不会自动恢复；如需重新收录请先在个人库中恢复该单集。"},
+				"error":   gin.H{"code": "EPISODE_DELETED", "message": "这一集曾从个人库删除，收录不会自动恢复；如需重新收录请先在个人库中恢复该单集。"},
 			})
 		case errors.Is(err, services.ErrAdoptionCrossPodcast),
 			errors.Is(err, services.ErrAdoptionAmbiguous),
 			errors.Is(err, services.ErrAdoptionIdentityInvalid):
 			c.JSON(http.StatusConflict, gin.H{
 				"success": false,
-				"error": gin.H{"code": "IDENTITY_CONFLICT", "message":
-				"无法可靠确认这一集对应的已有单集，已停止收录；请在个人库中核对后再明确选择。"},
+				"error":   gin.H{"code": "IDENTITY_CONFLICT", "message": "无法可靠确认这一集对应的已有单集，已停止收录；请在个人库中核对后再明确选择。"},
 			})
 		default:
 			internalError(c, "DATABASE_ERROR", "收录失败，未保存任何更改")
@@ -218,6 +216,94 @@ func mapCollectionError(err error) (code string, status int, message string) {
 	default:
 		return "INTERNAL_ERROR", http.StatusInternalServerError, "处理清单请求失败"
 	}
+}
+
+// RefreshPreview POST /api/v1/collections/:id/refresh-preview
+// 重新读取源清单并生成差异预览；本地清单在确认前保持不变。
+func (h *CollectionHandler) RefreshPreview(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		badRequest(c, "INVALID_ID", "清单 ID 必须是正整数")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+	result, err := h.service.RefreshPreview(ctx, uint(id))
+	if err != nil {
+		respondCollectionError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+}
+
+// ApplyRefresh POST /api/v1/collections/:id/apply-refresh
+// body: {"preview_id": "...", "base_revision": N}；应用实际看过的差异版本。
+func (h *CollectionHandler) ApplyRefresh(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		badRequest(c, "INVALID_ID", "清单 ID 必须是正整数")
+		return
+	}
+	var request struct {
+		PreviewID    string `json:"preview_id"`
+		BaseRevision *int   `json:"base_revision"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil || strings.TrimSpace(request.PreviewID) == "" {
+		badRequest(c, "INVALID_BODY", "请求体必须包含 preview_id")
+		return
+	}
+	baseRevision := 0
+	if request.BaseRevision != nil {
+		baseRevision = *request.BaseRevision
+	}
+
+	result, err := h.service.ApplyRefresh(uint(id), request.PreviewID, baseRevision)
+	if err != nil {
+		switch {
+		case errors.Is(err, collection.ErrCollectionNotFound):
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"error":   gin.H{"code": "COLLECTION_NOT_FOUND", "message": "清单不存在或已被删除"},
+			})
+		case errors.Is(err, collection.ErrRefreshConflict):
+			c.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"error":   gin.H{"code": "REVISION_CONFLICT", "message": "清单已被其他页面更新，请重新刷新后再应用"},
+			})
+		case errors.Is(err, collection.ErrPreviewNotFound), errors.Is(err, collection.ErrPreviewExpired):
+			c.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"error":   gin.H{"code": "PREVIEW_EXPIRED", "message": "刷新预览已过期，请重新刷新"},
+			})
+		default:
+			respondCollectionError(c, err)
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+}
+
+// Delete DELETE /api/v1/collections/:id
+// 删除清单及未采纳资料；已收录单集、队列、笔记与采纳来源摘要保留。
+func (h *CollectionHandler) Delete(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		badRequest(c, "INVALID_ID", "清单 ID 必须是正整数")
+		return
+	}
+	result, err := h.service.DeleteCollection(uint(id))
+	if err != nil {
+		if errors.Is(err, collection.ErrCollectionNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"error":   gin.H{"code": "COLLECTION_NOT_FOUND", "message": "清单不存在或已被删除"},
+			})
+			return
+		}
+		internalError(c, "DATABASE_ERROR", "删除清单失败")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
 }
 
 func badRequest(c *gin.Context, code, message string) {

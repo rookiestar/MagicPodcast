@@ -2,15 +2,19 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { IconArrowLeft } from "@tabler/icons-react";
 import PageLayout from "@/components/layout/PageLayout";
 import RichText from "@/components/RichText";
+import RefreshCollectionModal from "@/components/collections/RefreshCollectionModal";
 import { positiveID } from "@/lib/navigation";
+import { requestTypedConfirmation } from "@/lib/confirmation";
 import {
   ADOPTED_FILTERS,
   adoptCollectionItem,
   collectionErrorMessage,
+  deleteCollection,
   fetchCollectionDetail,
   filterItemsByAdoptedState,
   formatCollectionDate,
@@ -50,6 +54,10 @@ export default function CollectionDetailContent({
   const [filter, setFilter] = useState<CollectionAdoptedFilter>("all");
   const [adoptingItemID, setAdoptingItemID] = useState<number | null>(null);
   const [adoptError, setAdoptError] = useState<{ itemID: number; message: string } | null>(null);
+  const [isRefreshOpen, setRefreshOpen] = useState(false);
+  const [refreshNotice, setRefreshNotice] = useState("");
+  const [isDeleting, setDeleting] = useState(false);
+  const router = useRouter();
 
   const { data, error, isLoading, mutate } = useSWR(
     collectionID > 0 ? `/api/v1/collections/${collectionID}` : null,
@@ -59,6 +67,24 @@ export default function CollectionDetailContent({
       shouldRetryOnError: false,
     },
   );
+
+  const confirmDelete = () => {
+    const ack = requestTypedConfirmation({
+      action: "删除清单",
+      impact: "只删除清单及其未收录条目；已收录单集、队列、笔记与来源记录全部保留。",
+      phrase: "删除清单",
+    });
+    if (!ack || isDeleting) return;
+    setDeleting(true);
+    void deleteCollection(collectionID)
+      .then(() => {
+        router.push("/collections");
+      })
+      .catch(() => {
+        setDeleting(false);
+        setRefreshNotice("删除失败，清单保持原样，可稍后重试。");
+      });
+  };
 
   const items = useMemo(() => data?.items ?? [], [data]);
   const visibleItems = useMemo(
@@ -143,6 +169,21 @@ export default function CollectionDetailContent({
               <IconArrowLeft aria-hidden="true" stroke={1.8} />
               <span>返回列表</span>
             </Link>
+            <button
+              type="button"
+              className="collection-btn-secondary"
+              onClick={() => setRefreshOpen(true)}
+            >
+              刷新清单
+            </button>
+            <button
+              type="button"
+              className="collection-btn-secondary"
+              disabled={isDeleting}
+              onClick={confirmDelete}
+            >
+              {isDeleting ? "正在删除…" : "删除清单"}
+            </button>
             <a
               href={data.source_url}
               target="_blank"
@@ -159,6 +200,57 @@ export default function CollectionDetailContent({
       {data.description && (
         <p className="collection-detail-description">{data.description}</p>
       )}
+
+      {/* 移动端操作区：工具栏右侧按钮在窄屏隐藏，这里保证可达。 */}
+      <div className="collection-mobile-actions">
+        <Link href="/collections" className="collection-btn-secondary">
+          <IconArrowLeft aria-hidden="true" stroke={1.8} />
+          <span>返回列表</span>
+        </Link>
+        <button
+          type="button"
+          className="collection-btn-secondary"
+          onClick={() => setRefreshOpen(true)}
+        >
+          刷新清单
+        </button>
+        <button
+          type="button"
+          className="collection-btn-secondary"
+          disabled={isDeleting}
+          onClick={confirmDelete}
+        >
+          {isDeleting ? "正在删除…" : "删除清单"}
+        </button>
+        <a
+          href={data.source_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="collection-btn-secondary"
+        >
+          小宇宙链接
+        </a>
+      </div>
+
+      {refreshNotice && (
+        <p className="collection-form-error" role="alert">
+          {refreshNotice}
+        </p>
+      )}
+
+      <RefreshCollectionModal
+        isOpen={isRefreshOpen}
+        collectionID={collectionID}
+        onClose={() => setRefreshOpen(false)}
+        onApplied={(result) => {
+          setRefreshNotice(
+            result.no_changes
+              ? "没有变化，已记录本次检查时间。"
+              : `已应用刷新，当前 ${result.item_count} 条，已收录关联保留 ${result.adopted_kept_count} 条。`,
+          );
+          void mutate();
+        }}
+      />
 
       <div className="collection-toolbar">
         <div className="collection-status-filters" role="group" aria-label="收录状态筛选">
