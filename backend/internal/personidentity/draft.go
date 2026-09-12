@@ -293,6 +293,17 @@ func (s *Service) applyMatches(ctx context.Context, tx *gorm.DB, src EpisodeSour
 	}
 	claimed := map[uint]bool{}
 	grouped := map[string]uint{}
+	// A review can apply only part of a draft. Retain identities from earlier
+	// applications so a later group shares its candidate's corrected identity,
+	// while distinct candidates cannot reuse it through name-only lookup.
+	for _, match := range matches {
+		if match.Relation != nil && match.PersonID != 0 {
+			claimed[match.PersonID] = true
+			if match.Choice != "" && match.Choice != "manual" {
+				grouped["relation:"+match.Choice+":"+strings.TrimSpace(match.DisplayName)] = match.PersonID
+			}
+		}
+	}
 	for matchIndex, match := range matches {
 		if !match.Selected {
 			continue

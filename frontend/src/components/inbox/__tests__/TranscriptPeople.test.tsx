@@ -731,6 +731,22 @@ describe("局部匹配的管理入口与初始服务端渲染", () => {
 });
 
 describe("多证据 Speaker 核对", () => {
+  it.each(["rename", "manual"])("does not label a %s decision as direct evidence", async (kind) => {
+    const payload = withRelation();
+    payload.draft!.matches[0].relation!.state = "direct";
+    payload.draft!.matches[0].relation!.candidates[0].level = "direct";
+    vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue(payload);
+    render(<Player />);
+    fireEvent.click(await screen.findByRole("button", { name: "继续核对" }));
+    fireEvent.click(screen.getByRole("button", { name: "更换人物" }));
+    if (kind === "manual") fireEvent.change(screen.getByRole("combobox", { name: "Speaker 1 人物" }), { target: { value: "manual" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Speaker 1 姓名" }), { target: { value: "另一位" } });
+    const region = screen.getByRole("region", { name: "核对 Speaker 1" });
+    expect(within(region).getByText(/人工选择 · 待确认/)).toBeVisible();
+    expect(within(region).queryByText(/直接证据/)).not.toBeInTheDocument();
+    expect(within(region).getByText("查看原始建议依据")).toBeVisible();
+    expect(episodeCopilotApi.reviewPeople).not.toHaveBeenCalled();
+  });
   function withRelation(conflict = false): EpisodePeoplePayload {
     const candidate = {id: "person:0", display_name: "小林", role: "host", status: "confirmed", identity_note: "主持人", level: "inferred", reason: "名单与持续主持关系一致", evidence_locator: "{}", evidence: [{source: "transcript", fragment: 1, quote: segments[0].text}], counter_evidence: []};
     return {...proposal, draft: {...proposal.draft!, matches: [{...proposal.draft!.matches[0], key: "speaker:Speaker 1", selected: false, choice: conflict ? "" : candidate.id, display_name: conflict ? "Speaker 1" : "小林", relation: {version: 1, state: conflict ? "conflict" : "inferred", reason: "请核对对应关系", candidates: conflict ? [candidate, {...candidate,id:"person:1", display_name:"小周"}] : [candidate]}}]}};

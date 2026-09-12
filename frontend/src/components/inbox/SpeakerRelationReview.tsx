@@ -24,6 +24,8 @@ export default function SpeakerRelationReview({ match, candidates, group, disabl
   const relation = match.relation!;
   const evidenceCandidates = relation.candidates;
   const hasChoice = !!match.choice && !!match.display_name.trim();
+  const chosenSuggestion = evidenceCandidates.find(candidate => candidate.id === match.choice);
+  const manualChoice = hasChoice && (!chosenSuggestion || chosenSuggestion.display_name !== match.display_name.trim());
   const changed = group.some(segment => match.orders.includes(segment.order) && currentName(segment) !== segment.speaker && currentName(segment) !== match.display_name);
   return <section className={styles.match} aria-label={`核对 ${match.speaker_label}`}>
     <div className={styles.matchHeader}>
@@ -36,7 +38,7 @@ export default function SpeakerRelationReview({ match, candidates, group, disabl
       <button type="button" className={styles.editAction} disabled={disabled} aria-expanded={editing}
         onClick={() => setEditing(!editing)}>{editing ? "收起编辑" : hasChoice ? "更换人物" : "选择人物"}</button>
     </div>
-    <p>{match.orders.length} 段{match.orders.length === group.length ? " · 全部发言" : " · 人工调整范围"} · {match.applied ? (adjusted ? "当前归属已调整" : "已应用") : hasChoice && relation.state === "conflict" ? "候选已选择 · 待确认" : states[relation.state] || "待确认"}</p>
+    <p>{match.orders.length} 段{match.orders.length === group.length ? " · 全部发言" : " · 人工调整范围"} · {match.applied ? (adjusted ? "当前归属已调整" : "已应用") : manualChoice ? "人工选择 · 待确认" : hasChoice && relation.state === "conflict" ? "候选已选择 · 待确认" : states[relation.state] || "待确认"}</p>
     {editing && <div className={styles.fields}>
       <label>人物
         <select aria-label={`${match.speaker_label} 人物`} value={match.choice || ""} disabled={disabled}
@@ -61,7 +63,7 @@ export default function SpeakerRelationReview({ match, candidates, group, disabl
       </>}
     </div>}
     <details>
-      <summary>查看依据</summary>
+      <summary>{manualChoice ? "查看原始建议依据" : "查看依据"}</summary>
       {relation.reason && <p>{relation.reason}</p>}
       {evidenceCandidates.map(candidate => <div key={candidate.id}>
         <strong>{candidate.display_name}</strong>

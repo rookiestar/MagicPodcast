@@ -209,3 +209,58 @@ func TestDirectRelationNeedsLocatedIdentityNotJustExistingWords(t *testing.T) {
 	require.Equal(t, "invalid_evidence", got.Matches[0].Relation.State)
 	require.False(t, got.Matches[0].Selected)
 }
+
+func TestSpeakerRelationSeparateApplicationsKeepRenamedIdentity(t *testing.T) {
+	s, src := reviewFixture(t)
+	first := decodeRelations(t, relationPayload(), relationSource()).Matches[0]
+	first.SpeakerLabel, first.Orders = "Speaker 1", []int{1, 3, 4}
+	second := first
+	second.Key, second.SpeakerLabel, second.Orders = "speaker:Speaker 2", "Speaker 2", []int{2}
+	s.suggester = relationSuggester{Suggestions{Matches: []ReviewMatch{first, second}}}
+	draft, err := s.Prepare(context.Background(), src)
+	require.NoError(t, err)
+	req := draftRequest(draft)
+	for i := range req.Matches {
+		req.Matches[i].DisplayName = "林老师"
+	}
+	req.Matches[0].Selected = true
+	applied, err := s.Review(context.Background(), src.EpisodeID, req, true)
+	require.NoError(t, err)
+	personID := applied.Draft.Matches[0].PersonID
+	req = draftRequest(applied)
+	req.Matches[1].Selected = true
+	applied, err = s.Review(context.Background(), src.EpisodeID, req, true)
+	require.NoError(t, err)
+	require.Equal(t, personID, applied.Draft.Matches[1].PersonID)
+	facts, err := s.ReliableSpeech(context.Background(), src.EpisodeID, personID)
+	require.NoError(t, err)
+	require.Len(t, facts, 4)
+}
+
+func TestSpeakerRelationSeparateApplicationsKeepNamesakesDistinct(t *testing.T) {
+	s, src := reviewFixture(t)
+	first := decodeRelations(t, relationPayload(), relationSource()).Matches[0]
+	first.SpeakerLabel, first.Orders = "Speaker 1", []int{1, 3, 4}
+	second := first
+	second.Key, second.SpeakerLabel, second.Orders = "speaker:Speaker 2", "Speaker 2", []int{2}
+	other := first.Relation.Candidates[0]
+	other.ID = "person:other"
+	second.Relation = &SpeakerRelation{Version: 1, State: "inferred", Candidates: []RelationCandidate{other}}
+	second.Choice = other.ID
+	s.suggester = relationSuggester{Suggestions{Matches: []ReviewMatch{first, second}}}
+	draft, err := s.Prepare(context.Background(), src)
+	require.NoError(t, err)
+	req := draftRequest(draft)
+	req.Matches[0].Selected = true
+	applied, err := s.Review(context.Background(), src.EpisodeID, req, true)
+	require.NoError(t, err)
+	firstID := applied.Draft.Matches[0].PersonID
+	req = draftRequest(applied)
+	req.Matches[1].Selected = true
+	applied, err = s.Review(context.Background(), src.EpisodeID, req, true)
+	require.NoError(t, err)
+	require.NotEqual(t, firstID, applied.Draft.Matches[1].PersonID)
+	facts, err := s.ReliableSpeech(context.Background(), src.EpisodeID, firstID)
+	require.NoError(t, err)
+	require.Len(t, facts, 3)
+}
