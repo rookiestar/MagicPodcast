@@ -226,6 +226,7 @@ export function useTranscriptPeople(
       setError(newDraft || cancelled ? "" : "识别未完成或连接中断，已保存结果保留，可重试。");
       setSaved(newDraft ? "已核对：草稿已保存，等待你确认" : cancelled
         ? "已请求取消；未发现新的已保存草稿。已有结果保留。" : "");
+      await loadHistory();
     } catch {
       if (generation.current === version) {
         setNeedsReadback(true);

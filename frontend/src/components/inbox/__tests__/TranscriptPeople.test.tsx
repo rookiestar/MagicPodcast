@@ -430,3 +430,17 @@ it("retains expanded evidence when locating the transcript and reopening review"
   fireEvent.click(screen.getByRole("button", { name: "继续核对" }));
   expect(screen.getByText("核对匹配范围 · 主持人 · 2 段").closest("details")).toHaveAttribute("open");
 });
+
+it("refreshes history after recovering a newly persisted draft", async () => {
+  const recovered = { ...proposal, revision: 2, draft: { ...proposal.draft!, id: 2, revision: 2 } };
+  vi.mocked(episodeCopilotApi.getPeople).mockResolvedValueOnce(proposal).mockResolvedValue(recovered);
+  vi.mocked(episodeCopilotApi.peopleDrafts).mockResolvedValueOnce([proposal.draft!]).mockResolvedValue([recovered.draft, proposal.draft!]);
+  vi.mocked(episodeCopilotApi.preparePeople).mockRejectedValueOnce(new Error("lost completion"));
+  render(<Player />);
+  fireEvent.click(await screen.findByRole("button", { name: "继续核对" }));
+  fireEvent.click(screen.getByRole("button", { name: "重新识别" }));
+  await screen.findByText("已核对：草稿已保存，等待你确认");
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "选择识别记录" })).toHaveValue("2"));
+  expect(screen.getByRole("option", { name: "记录 1" })).toBeInTheDocument();
+  expect(episodeCopilotApi.preparePeople).toHaveBeenCalledTimes(1);
+});
