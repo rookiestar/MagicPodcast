@@ -238,3 +238,100 @@ func TestRefreshPreview_FailureKeepsLastGoodCollection(t *testing.T) {
 	assert.Equal(t, 1, detail.Revision)
 	assert.False(t, detail.LastRefreshedAt == nil || detail.LastRefreshedAt.After(time.Now().Add(time.Minute)))
 }
+
+func TestReviewImportPersistsAudioForAdoption(t *testing.T) {
+	s := newStubService(t, stubFetcher(func(string) (int, string) { return http.StatusOK, loadSampleHTML(t) }, nil))
+	id, itemID := seedAdoptedFirstItem(t, s)
+	draft, err := ParsePageHTML(loadSampleHTML(t), sampleCollectionID)
+	require.NoError(t, err)
+	require.NotEmpty(t, draft.Items[0].AudioURL, "fixture must carry a public audio source")
+	adopted, err := serviceAdopt(t, s, id, itemID)
+	require.NoError(t, err)
+	var e models.Episode
+	require.NoError(t, s.db.First(&e, adopted.EpisodeID).Error)
+	assert.Equal(t, draft.Items[0].AudioURL, e.MediumURL)
+	assert.Equal(t, draft.Items[0].AudioMimeType, e.EnclosureType)
+	assert.Equal(t, draft.Items[0].AudioSize, e.EnclosureLength)
+}
+
+func TestReviewRefreshKeepsItemAddressAndUpdatesMetadata(t *testing.T) {
+	s := newStubService(t, stubFetcher(func(string) (int, string) { return http.StatusOK, loadSampleHTML(t) }, nil))
+	id, itemID := seedAdoptedFirstItem(t, s)
+	draft, err := ParsePageHTML(loadSampleHTML(t), sampleCollectionID)
+	require.NoError(t, err)
+	draft.Title = "新主题"
+	draft.Items[0].Recommendation = "新推荐语"
+	s.fetch = stubFetcher(func(string) (int, string) { return http.StatusOK, nextDataHTMLFromDraft(t, draft) }, nil)
+	p, err := s.RefreshPreview(context.Background(), id)
+	require.NoError(t, err)
+	_, err = s.ApplyRefresh(id, p.PreviewID, p.BaseRev)
+	require.NoError(t, err)
+	d, err := s.GetCollection(id)
+	require.NoError(t, err)
+	assert.Equal(t, itemID, d.Items[0].ID, "刷新不能让仍在清单内的条目地址失效")
+	draft.Title = "只有标题变化"
+	p, err = s.RefreshPreview(context.Background(), id)
+	require.NoError(t, err)
+	_, err = s.ApplyRefresh(id, p.PreviewID, p.BaseRev)
+	require.NoError(t, err)
+	d, err = s.GetCollection(id)
+	require.NoError(t, err)
+	assert.Equal(t, draft.Title, d.Title)
+}
+
+func TestReviewReadbackUsesSharedLibraryAndIgnoresDeletedEpisode(t *testing.T) {
+	s := newStubService(t, stubFetcher(func(string) (int, string) { return http.StatusOK, loadSampleHTML(t) }, nil))
+	id, itemID := seedAdoptedFirstItem(t, s)
+	adopted, err := serviceAdopt(t, s, id, itemID)
+	require.NoError(t, err)
+	other := models.EpisodeCollection{SourcePlatform: PlatformXiaoyuzhoufm, ExternalID: "other", Title: "Other", SourceURL: "https://www.xiaoyuzhoufm.com/collection/episode/bbbbbbbbbbbbbbbbbbbbbbbb", Revision: 1}
+	require.NoError(t, s.db.Create(&other).Error)
+	var original models.EpisodeCollectionItem
+	require.NoError(t, s.db.First(&original, itemID).Error)
+	original.BaseModel = models.BaseModel{}
+	original.CollectionID = other.ID
+	original.EpisodeID = nil
+	require.NoError(t, s.db.Create(&original).Error)
+	detail, err := s.GetCollection(other.ID)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), detail.AdoptedCount)
+	require.NotNil(t, detail.Items[0].AdoptedEpisodeID)
+	assert.Equal(t, adopted.EpisodeID, *detail.Items[0].AdoptedEpisodeID)
+	draft, err := ParsePageHTML(loadSampleHTML(t), sampleCollectionID)
+	require.NoError(t, err)
+	draft.ExternalID = other.ExternalID
+	draft.Items = nil
+	s.fetch = stubFetcher(func(string) (int, string) { return http.StatusOK, nextDataHTMLFromDraft(t, draft) }, nil)
+	preview, err := s.RefreshPreview(context.Background(), other.ID)
+	require.NoError(t, err)
+	require.Len(t, preview.Removed, 1)
+	assert.True(t, preview.Removed[0].Adopted)
+	require.NoError(t, s.db.Delete(&models.Episode{}, adopted.EpisodeID).Error)
+	for _, cid := range []uint{id, other.ID} {
+		detail, err = s.GetCollection(cid)
+		require.NoError(t, err)
+		assert.Zero(t, detail.AdoptedCount)
+		assert.Nil(t, detail.Items[0].AdoptedEpisodeID)
+	}
+}
+
+func TestReviewRefreshEmptySourceRetainsPersonalEpisode(t *testing.T) {
+	s := newStubService(t, stubFetcher(func(string) (int, string) { return http.StatusOK, loadSampleHTML(t) }, nil))
+	id, itemID := seedAdoptedFirstItem(t, s)
+	adopted, err := serviceAdopt(t, s, id, itemID)
+	require.NoError(t, err)
+	draft, err := ParsePageHTML(loadSampleHTML(t), sampleCollectionID)
+	require.NoError(t, err)
+	draft.Items = nil
+	s.fetch = stubFetcher(func(string) (int, string) { return http.StatusOK, nextDataHTMLFromDraft(t, draft) }, nil)
+	preview, err := s.RefreshPreview(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, 8, preview.Changes.RemovedCount)
+	_, err = s.ApplyRefresh(id, preview.PreviewID, preview.BaseRev)
+	require.NoError(t, err)
+	detail, err := s.GetCollection(id)
+	require.NoError(t, err)
+	assert.Empty(t, detail.Items)
+	var episode models.Episode
+	require.NoError(t, s.db.First(&episode, adopted.EpisodeID).Error)
+}

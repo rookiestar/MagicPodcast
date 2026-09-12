@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { IconX } from "@tabler/icons-react";
 import {
   collectionErrorMessage,
+  collectionErrorCode,
   confirmCollectionImport,
   previewCollection,
 } from "@/lib/collections";
@@ -35,7 +36,10 @@ export default function ImportCollectionModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previous =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     dialogRef.current?.querySelector<HTMLInputElement>("input")?.focus();
     return () => previous?.focus();
   }, [isOpen]);
@@ -51,6 +55,7 @@ export default function ImportCollectionModal({
   };
 
   const close = () => {
+    if (importing) return;
     if (previewing) {
       abortRef.current?.abort();
       setPreviewing(false);
@@ -67,7 +72,7 @@ export default function ImportCollectionModal({
     setError("");
     setPreview(null);
     try {
-      const result = await previewCollection(url.trim());
+      const result = await previewCollection(url.trim(), controller.signal);
       if (controller.signal.aborted) return;
       setPreview(result);
     } catch (caught) {
@@ -86,9 +91,12 @@ export default function ImportCollectionModal({
       const result = await confirmCollectionImport(preview.preview_id);
       reset();
       onClose();
-      onImported({ duplicate: result.duplicate, collectionID: result.collection_id });
+      onImported({
+        duplicate: result.duplicate,
+        collectionID: result.collection_id,
+      });
     } catch (caught) {
-      const code = (caught as { code?: string }).code;
+      const code = collectionErrorCode(caught);
       if (code === "PREVIEW_EXPIRED" || code === "PREVIEW_NOT_FOUND") {
         setError("预览已过期，请重新预览后再导入。");
         setPreview(null);
@@ -101,6 +109,7 @@ export default function ImportCollectionModal({
   };
 
   const changeURL = () => {
+    if (importing) return;
     setPreview(null);
     setError("");
   };
@@ -150,6 +159,7 @@ export default function ImportCollectionModal({
             onClick={close}
             className="editorial-modal-close"
             aria-label="关闭"
+            disabled={importing}
           >
             <IconX aria-hidden="true" stroke={1.8} />
           </button>
@@ -162,7 +172,10 @@ export default function ImportCollectionModal({
         <div className="editorial-modal-body overflow-y-auto">
           {!preview ? (
             <div className="flex flex-col gap-3">
-              <label className="collection-form-label" htmlFor="collection-url-input">
+              <label
+                className="collection-form-label"
+                htmlFor="collection-url-input"
+              >
                 小宇宙单集清单链接
               </label>
               <input
@@ -182,7 +195,11 @@ export default function ImportCollectionModal({
                 }}
               />
               {previewing && (
-                <p className="collection-form-hint" role="status" aria-live="polite">
+                <p
+                  className="collection-form-hint"
+                  role="status"
+                  aria-live="polite"
+                >
                   正在读取清单，可稍候点击关闭取消…
                 </p>
               )}
@@ -196,16 +213,25 @@ export default function ImportCollectionModal({
                 <h3 className="collection-preview-title">{preview.title}</h3>
                 <p className="collection-form-hint">
                   作者：{preview.author || "未提供"}
-                  {preview.total_known ? ` · 共 ${preview.read_count} 集` : ` · 已读取 ${preview.read_count} 集`}
+                  {preview.total_known
+                    ? ` · 共 ${preview.read_count} 集`
+                    : ` · 已读取 ${preview.read_count} 集`}
                 </p>
                 {preview.description && (
-                  <p className="collection-preview-description">{preview.description}</p>
+                  <p className="collection-preview-description">
+                    {preview.description}
+                  </p>
                 )}
               </div>
               <ol className="collection-preview-items">
                 {preview.items.map((item) => (
-                  <li key={item.external_episode_id} className="collection-preview-item">
-                    <span className="collection-preview-index">{item.position + 1}</span>
+                  <li
+                    key={item.external_episode_id}
+                    className="collection-preview-item"
+                  >
+                    <span className="collection-preview-index">
+                      {item.position + 1}
+                    </span>
                     <span className="collection-preview-copy">
                       <strong>{item.episode_title}</strong>
                       <small>
@@ -232,7 +258,12 @@ export default function ImportCollectionModal({
         <div className="editorial-modal-footer">
           {preview ? (
             <>
-              <button type="button" className="collection-btn-secondary" onClick={changeURL}>
+              <button
+                type="button"
+                className="collection-btn-secondary"
+                onClick={changeURL}
+                disabled={importing}
+              >
                 修改链接
               </button>
               <button
@@ -246,7 +277,11 @@ export default function ImportCollectionModal({
             </>
           ) : (
             <>
-              <button type="button" className="collection-btn-secondary" onClick={close}>
+              <button
+                type="button"
+                className="collection-btn-secondary"
+                onClick={close}
+              >
                 取消
               </button>
               <button

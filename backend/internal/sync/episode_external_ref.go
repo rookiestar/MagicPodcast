@@ -2,6 +2,7 @@ package sync
 
 import (
 	"errors"
+	"net/url"
 	"strings"
 
 	"magicpodcast/internal/models"
@@ -18,19 +19,20 @@ func xiaoyuzhouEpisodePathSegment(rawURL string) string {
 	if rawURL == "" {
 		return ""
 	}
-	parsed := strings.TrimSpace(rawURL)
-	marker := "/episode/"
-	index := strings.Index(parsed, marker)
-	if index < 0 {
+
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.User != nil || parsed.Port() != "" {
 		return ""
 	}
-	rest := parsed[index+len(marker):]
-	if end := strings.IndexAny(rest, "?#/"); end >= 0 {
-		rest = rest[:end]
-	}
-	if !isXiaoyuzhouEpisodeID(rest) {
+	host := strings.ToLower(parsed.Hostname())
+	if host != "www.xiaoyuzhoufm.com" && host != "xiaoyuzhoufm.com" && host != "web.xiaoyuzhoufm.com" {
 		return ""
 	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) != 2 || parts[0] != "episode" || !isXiaoyuzhouEpisodeID(parts[1]) {
+		return ""
+	}
+	rest := parts[1]
 	return rest
 }
 
@@ -62,6 +64,9 @@ func (s *Service) findExistingEpisodeByExternalRef(podcast *models.Podcast, item
 			break
 		}
 	}
+	if externalID == "" && isXiaoyuzhouEpisodeID(strings.TrimSpace(item.GUID)) {
+		externalID = strings.TrimSpace(item.GUID)
+	}
 	if externalID == "" {
 		return nil, nil
 	}
@@ -74,7 +79,7 @@ func (s *Service) findExistingEpisodeByExternalRef(podcast *models.Podcast, item
 	for _, ref := range refs {
 		var episode models.Episode
 		if err := s.db.Unscoped().First(&episode, ref.EpisodeID).Error; err != nil {
-			continue
+			return nil, err
 		}
 		if episode.PodcastID != podcast.ID {
 			// 映射归属其他节目：不跨节目合并，交由调用方按冲突处理。

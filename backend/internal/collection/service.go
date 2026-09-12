@@ -214,8 +214,8 @@ func previewResultFromDraft(draft *Draft, previewID string) *PreviewResult {
 // refreshEntry 是绑定到特定清单修订的待应用刷新版本。
 type refreshEntry struct {
 	previewEntry
-	collectionID   uint
-	baseRevision   int
+	collectionID        uint
+	baseRevision        int
 	baseLastRefreshedAt time.Time
 }
 
@@ -317,25 +317,7 @@ func (s *Service) ConfirmImport(previewID string) (*ImportResult, error) {
 			return err
 		}
 		for index, item := range draft.Items {
-			record := models.EpisodeCollectionItem{
-				CollectionID:        collection.ID,
-				Position:            index,
-				ExternalEpisodeID:   item.ExternalEpisodeID,
-				ExternalPodcastID:   item.ExternalPodcastID,
-				PodcastTitle:        item.PodcastTitle,
-				PodcastAuthor:       item.PodcastAuthor,
-				PodcastCoverURL:     item.PodcastCoverURL,
-				PodcastEpisodeCount: item.PodcastEpisodeCount,
-				EpisodeTitle:        item.EpisodeTitle,
-				Recommendation:      item.Recommendation,
-				Shownotes:           item.Shownotes,
-				Duration:            item.Duration,
-				PublishedAt:         item.PublishedAt,
-				ImageURL:            item.ImageURL,
-				EpisodeURL:          item.EpisodeURL,
-				PayType:             item.PayType,
-				IsPrivateMedia:      item.IsPrivateMedia,
-			}
+			record := itemRecord(collection.ID, index, item)
 			if err := tx.Create(&record).Error; err != nil {
 				return err
 			}
@@ -351,6 +333,7 @@ func (s *Service) ConfirmImport(previewID string) (*ImportResult, error) {
 
 // CollectionSummary 清单列表条目：主题、来源、作者与真实收录计数。
 type CollectionSummary struct {
+	Covers          []string   `json:"covers"`
 	ID              uint       `json:"id"`
 	Title           string     `json:"title"`
 	Description     string     `json:"description"`
@@ -370,7 +353,7 @@ func (s *Service) ListCollections(search string) ([]CollectionSummary, error) {
 	var collections []models.EpisodeCollection
 	query := s.db.Order("created_at DESC, id DESC")
 	if trimmed := strings.TrimSpace(search); trimmed != "" {
-		query = query.Where("title LIKE ?", "%"+escapeLike(trimmed)+"%")
+		query = query.Where("title LIKE ? ESCAPE '\\'", "%"+escapeLike(trimmed)+"%")
 	}
 	if err := query.Find(&collections).Error; err != nil {
 		return nil, err
@@ -382,7 +365,17 @@ func (s *Service) ListCollections(search string) ([]CollectionSummary, error) {
 		if err != nil {
 			return nil, err
 		}
-		summaries = append(summaries, CollectionSummary{
+		var coverItems []models.EpisodeCollectionItem
+		if err := s.db.Select("image_url", "podcast_cover_url").Where("collection_id = ?", collection.ID).Order("position ASC, id ASC").Limit(4).Find(&coverItems).Error; err != nil {
+			return nil, err
+		}
+		covers := make([]string, 0, len(coverItems))
+		for _, item := range coverItems {
+			if cover := firstNonEmpty(item.ImageURL, item.PodcastCoverURL); cover != "" {
+				covers = append(covers, cover)
+			}
+		}
+		summaries = append(summaries, CollectionSummary{Covers: covers,
 			ID:              collection.ID,
 			Title:           collection.Title,
 			Description:     collection.Description,
@@ -402,25 +395,27 @@ func (s *Service) ListCollections(search string) ([]CollectionSummary, error) {
 
 // CollectionItemDetail 清单详情条目，含真实收录状态。
 type CollectionItemDetail struct {
-	ID                  uint       `json:"id"`
-	Position            int        `json:"position"`
-	ExternalEpisodeID   string     `json:"external_episode_id"`
-	ExternalPodcastID   string     `json:"external_podcast_id"`
-	PodcastTitle        string     `json:"podcast_title"`
-	PodcastAuthor       string     `json:"podcast_author"`
-	PodcastCoverURL     string     `json:"podcast_cover_url"`
-	EpisodeTitle        string     `json:"episode_title"`
-	Recommendation      string     `json:"recommendation"`
-	Shownotes           string     `json:"shownotes"`
-	Duration            int        `json:"duration"`
-	PublishedAt         *time.Time `json:"published_at"`
-	ImageURL            string     `json:"image_url"`
-	EpisodeURL          string     `json:"episode_url"`
-	PayType             string     `json:"pay_type"`
-	IsPrivateMedia      bool       `json:"is_private_media"`
-	AdoptedEpisodeID    *uint      `json:"adopted_episode_id"`
-	AdoptedEpisodeTitle string     `json:"adopted_episode_title"`
-	AdoptedEpisodeQueue *string    `json:"adopted_episode_queue"`
+	AudioAvailable            bool       `json:"audio_available"`
+	AdoptedEpisodeDismissedAt *time.Time `json:"adopted_episode_dismissed_at"`
+	ID                        uint       `json:"id"`
+	Position                  int        `json:"position"`
+	ExternalEpisodeID         string     `json:"external_episode_id"`
+	ExternalPodcastID         string     `json:"external_podcast_id"`
+	PodcastTitle              string     `json:"podcast_title"`
+	PodcastAuthor             string     `json:"podcast_author"`
+	PodcastCoverURL           string     `json:"podcast_cover_url"`
+	EpisodeTitle              string     `json:"episode_title"`
+	Recommendation            string     `json:"recommendation"`
+	Shownotes                 string     `json:"shownotes"`
+	Duration                  int        `json:"duration"`
+	PublishedAt               *time.Time `json:"published_at"`
+	ImageURL                  string     `json:"image_url"`
+	EpisodeURL                string     `json:"episode_url"`
+	PayType                   string     `json:"pay_type"`
+	IsPrivateMedia            bool       `json:"is_private_media"`
+	AdoptedEpisodeID          *uint      `json:"adopted_episode_id"`
+	AdoptedEpisodeTitle       string     `json:"adopted_episode_title"`
+	AdoptedEpisodeQueue       *string    `json:"adopted_episode_queue"`
 }
 
 // CollectionDetail 清单详情：原始顺序、推荐语、Show Notes 与真实收录状态。
@@ -458,9 +453,15 @@ func (s *Service) GetCollection(id uint) (*CollectionDetail, error) {
 		return nil, err
 	}
 
-	itemCount, adoptedCount, err := s.collectionCounts(s.db, collection.ID)
-	if err != nil {
+	if err := resolveItemEpisodes(s.db, items); err != nil {
 		return nil, err
+	}
+	itemCount := int64(len(items))
+	var adoptedCount int64
+	for _, item := range items {
+		if item.EpisodeID != nil {
+			adoptedCount++
+		}
 	}
 
 	detail := &CollectionDetail{
@@ -493,6 +494,7 @@ func (s *Service) GetCollection(id uint) (*CollectionDetail, error) {
 	for _, item := range items {
 		itemDetail := CollectionItemDetail{
 			ID:                item.ID,
+			AudioAvailable:    item.AudioURL != "",
 			Position:          item.Position,
 			ExternalEpisodeID: item.ExternalEpisodeID,
 			ExternalPodcastID: item.ExternalPodcastID,
@@ -511,9 +513,11 @@ func (s *Service) GetCollection(id uint) (*CollectionDetail, error) {
 			AdoptedEpisodeID:  item.EpisodeID,
 		}
 		if item.EpisodeID != nil {
-			itemDetail.AdoptedEpisodeTitle = titleByEpisode[*item.EpisodeID]
+			itemDetail.AdoptedEpisodeTitle = titleByEpisode[*item.EpisodeID].Title
+			itemDetail.AudioAvailable = titleByEpisode[*item.EpisodeID].MediumURL != ""
 			if queue, exists := queueByEpisode[*item.EpisodeID]; exists {
-				itemDetail.AdoptedEpisodeQueue = &queue
+				itemDetail.AdoptedEpisodeQueue = queue.QueueState
+				itemDetail.AdoptedEpisodeDismissedAt = queue.DismissedAt
 			}
 		}
 		detail.Items = append(detail.Items, itemDetail)
@@ -528,17 +532,25 @@ func (s *Service) collectionCounts(db *gorm.DB, collectionID uint) (int64, int64
 		Count(&itemCount).Error; err != nil {
 		return 0, 0, err
 	}
-	if err := db.Model(&models.EpisodeCollectionItem{}).
-		Where("collection_id = ? AND episode_id IS NOT NULL", collectionID).
-		Count(&adoptedCount).Error; err != nil {
+	var items []models.EpisodeCollectionItem
+	if err := db.Where("collection_id = ?", collectionID).Find(&items).Error; err != nil {
 		return 0, 0, err
 	}
+	if err := resolveItemEpisodes(db, items); err != nil {
+		return 0, 0, err
+	}
+	for _, item := range items {
+		if item.EpisodeID != nil {
+			adoptedCount++
+		}
+	}
+
 	return itemCount, adoptedCount, nil
 }
 
-func (s *Service) adoptedEpisodeFacts(db *gorm.DB, episodeIDs []uint) (map[uint]string, map[uint]string, error) {
-	queueByEpisode := make(map[uint]string, len(episodeIDs))
-	titleByEpisode := make(map[uint]string, len(episodeIDs))
+func (s *Service) adoptedEpisodeFacts(db *gorm.DB, episodeIDs []uint) (map[uint]models.EpisodeTriageDecision, map[uint]models.Episode, error) {
+	queueByEpisode := make(map[uint]models.EpisodeTriageDecision, len(episodeIDs))
+	titleByEpisode := make(map[uint]models.Episode, len(episodeIDs))
 	if len(episodeIDs) == 0 {
 		return queueByEpisode, titleByEpisode, nil
 	}
@@ -547,16 +559,14 @@ func (s *Service) adoptedEpisodeFacts(db *gorm.DB, episodeIDs []uint) (map[uint]
 		return nil, nil, err
 	}
 	for _, decision := range decisions {
-		if decision.QueueState != nil {
-			queueByEpisode[decision.EpisodeID] = *decision.QueueState
-		}
+		queueByEpisode[decision.EpisodeID] = decision
 	}
 	var episodes []models.Episode
-	if err := db.Select("id", "title").Where("id IN ?", episodeIDs).Find(&episodes).Error; err != nil {
+	if err := db.Select("id", "title", "medium_url").Where("id IN ?", episodeIDs).Find(&episodes).Error; err != nil {
 		return nil, nil, err
 	}
 	for _, episode := range episodes {
-		titleByEpisode[episode.ID] = episode.Title
+		titleByEpisode[episode.ID] = episode
 	}
 	return queueByEpisode, titleByEpisode, nil
 }
@@ -564,4 +574,80 @@ func (s *Service) adoptedEpisodeFacts(db *gorm.DB, episodeIDs []uint) (map[uint]
 func escapeLike(value string) string {
 	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 	return replacer.Replace(value)
+}
+
+// itemRecord is shared by import and refresh so neither path drops source metadata.
+func itemRecord(collectionID uint, position int, item ItemDraft) models.EpisodeCollectionItem {
+	return models.EpisodeCollectionItem{
+		CollectionID: collectionID, Position: position, ExternalEpisodeID: item.ExternalEpisodeID,
+		ExternalPodcastID: item.ExternalPodcastID, PodcastTitle: item.PodcastTitle, PodcastAuthor: item.PodcastAuthor,
+		PodcastCoverURL: item.PodcastCoverURL, PodcastEpisodeCount: item.PodcastEpisodeCount,
+		EpisodeTitle: item.EpisodeTitle, Recommendation: item.Recommendation, Shownotes: item.Shownotes,
+		Duration: item.Duration, PublishedAt: item.PublishedAt, ImageURL: item.ImageURL, EpisodeURL: item.EpisodeURL,
+		PayType: item.PayType, IsPrivateMedia: item.IsPrivateMedia, AudioURL: item.AudioURL,
+		AudioMimeType: item.AudioMimeType, AudioSize: item.AudioSize,
+	}
+}
+
+// Discovery readback resolves the personal library rather than treating an item FK
+// as a second adoption ledger. This covers a second collection and soft deletion.
+func resolveItemEpisodes(db *gorm.DB, items []models.EpisodeCollectionItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	var ids []uint
+	var eids, links []string
+	for _, item := range items {
+		eids = append(eids, item.ExternalEpisodeID)
+		links = append(links, item.EpisodeURL)
+		if item.EpisodeID != nil {
+			ids = append(ids, *item.EpisodeID)
+		}
+	}
+	var refs []models.EpisodeExternalRef
+	if err := db.Where("source_platform = ? AND external_episode_id IN ?", PlatformXiaoyuzhoufm, eids).Find(&refs).Error; err != nil {
+		return err
+	}
+	refIDs := map[string][]uint{}
+	for _, ref := range refs {
+		ids = append(ids, ref.EpisodeID)
+		refIDs[ref.ExternalEpisodeID] = append(refIDs[ref.ExternalEpisodeID], ref.EpisodeID)
+	}
+	var episodes []struct {
+		ID    uint
+		Link  string
+		GUID  string
+		XYZID string
+	}
+	if err := db.Model(&models.Episode{}).Select("episodes.id, episodes.link, episodes.guid, podcasts.xyz_id").
+		Joins("JOIN podcasts ON podcasts.id = episodes.podcast_id AND podcasts.deleted_at IS NULL").
+		Where("episodes.id IN ? OR episodes.link IN ? OR episodes.guid IN ?", ids, links, eids).Find(&episodes).Error; err != nil {
+		return err
+	}
+	for i := range items {
+		item := &items[i]
+		candidates := map[uint]bool{}
+		for _, ep := range episodes {
+			if item.ExternalPodcastID != "" && ep.XYZID != item.ExternalPodcastID {
+				continue
+			}
+			matched := (item.EpisodeID != nil && ep.ID == *item.EpisodeID) || (item.EpisodeURL != "" && ep.Link == item.EpisodeURL) || (item.ExternalPodcastID != "" && ep.GUID == item.ExternalEpisodeID)
+			for _, id := range refIDs[item.ExternalEpisodeID] {
+				if id == ep.ID {
+					matched = true
+				}
+			}
+			if matched {
+				candidates[ep.ID] = true
+			}
+		}
+		item.EpisodeID = nil
+		if len(candidates) == 1 {
+			for id := range candidates {
+				id := id
+				item.EpisodeID = &id
+			}
+		}
+	}
+	return nil
 }

@@ -48,6 +48,7 @@ export interface ConsumptionItem {
 
 export interface ConsumptionCollectionSource {
   source_platform: string;
+  collection_id?:number;
   collection_title: string;
   collection_url: string;
   adopted_at: string;

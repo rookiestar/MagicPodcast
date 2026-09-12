@@ -174,3 +174,29 @@ func TestSyncUnrecognizedRSSItemCreatesNormalEpisode(t *testing.T) {
 	require.NoError(t, db.First(&adoptedAfter, adopted.ID).Error)
 	assert.False(t, adoptedAfter.CollectionOnly)
 }
+
+func TestReviewSyncRawExternalGUIDReusesAdoptedEpisode(t *testing.T) {
+	db := setupTestDB(t)
+	s, err := NewService(db, "")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+	p := models.Podcast{Title: "known", XYZID: "643cdf1ad3d94ec2ad39ae94", FeedURL: "https://example.com/feed"}
+	require.NoError(t, db.Create(&p).Error)
+	adopted := createCollectionAdoptedEpisode(t, db, p.ID)
+	item := refTestItem("https://example.com/show/185")
+	item.GUID = refTestEID
+	result, err := s.syncPodcastEpisodeItems(&p, []*gofeed.Item{item}, EpisodeSyncConfig{Mode: SyncModeFull, UpdateExisting: true})
+	require.NoError(t, err)
+	assert.Zero(t, result.Created)
+	var count int64
+	require.NoError(t, db.Model(&models.Episode{}).Count(&count).Error)
+	assert.Equal(t, int64(1), count)
+	var got models.Episode
+	require.NoError(t, db.First(&got, adopted.ID).Error)
+	assert.False(t, got.CollectionOnly)
+}
+
+func TestReviewExternalIdentityRejectsUnrelatedHost(t *testing.T) {
+	assert.Empty(t, xiaoyuzhouEpisodePathSegment("https://example.com/episode/"+refTestEID))
+	assert.Empty(t, xiaoyuzhouEpisodePathSegment("https://example.com/?next=https://www.xiaoyuzhoufm.com/episode/"+refTestEID))
+}

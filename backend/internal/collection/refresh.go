@@ -3,6 +3,7 @@ package collection
 import (
 	"context"
 	"errors"
+	"reflect"
 
 	"magicpodcast/internal/models"
 
@@ -11,16 +12,18 @@ import (
 
 // RefreshChangeSummary 刷新差异预览：新增、移出、重排与推荐语变化。
 type RefreshChangeSummary struct {
-	AddedCount            int `json:"added_count"`
-	RemovedCount          int `json:"removed_count"`
-	ReorderedCount        int `json:"reordered_count"`
-	RecommendationChanged int `json:"recommendation_changed_count"`
-	UnchangedCount        int `json:"unchanged_count"`
+	AddedCount            int  `json:"added_count"`
+	RemovedCount          int  `json:"removed_count"`
+	ReorderedCount        int  `json:"reordered_count"`
+	RecommendationChanged int  `json:"recommendation_changed_count"`
+	UnchangedCount        int  `json:"unchanged_count"`
+	MetadataChanged       int  `json:"metadata_changed_count"`
+	CollectionChanged     bool `json:"collection_changed"`
 }
 
 // HasChanges 报告是否存在任何实际变化；无变化时确认只记录检查时间。
 func (s RefreshChangeSummary) HasChanges() bool {
-	return s.AddedCount > 0 || s.RemovedCount > 0 || s.ReorderedCount > 0 || s.RecommendationChanged > 0
+	return s.AddedCount > 0 || s.RemovedCount > 0 || s.ReorderedCount > 0 || s.RecommendationChanged > 0 || s.MetadataChanged > 0 || s.CollectionChanged
 }
 
 // RefreshPreviewResult 刷新预览：确认应用的是用户实际看过的这份差异。
@@ -63,7 +66,7 @@ func (s *Service) RefreshPreview(ctx context.Context, collectionID uint) (*Refre
 		return nil, err
 	}
 	draft, err := s.parse(string(body), collection.ExternalID)
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrEmptyCollection) {
 		return nil, err
 	}
 	draft.SourceURL = collection.SourceURL
@@ -72,18 +75,17 @@ func (s *Service) RefreshPreview(ctx context.Context, collectionID uint) (*Refre
 	if err := s.db.Where("collection_id = ?", collection.ID).Order("position ASC, id ASC").Find(&stored).Error; err != nil {
 		return nil, err
 	}
-	storedByEID := make(map[string]models.EpisodeCollectionItem, len(stored))
-	for _, item := range stored {
-		storedByEID[item.ExternalEpisodeID] = item
+	if err := resolveItemEpisodes(s.db, stored); err != nil {
+		return nil, err
 	}
 	newByEID := make(map[string]ItemDraft, len(draft.Items))
 	for _, item := range draft.Items {
 		newByEID[item.ExternalEpisodeID] = item
 	}
 
-	changes := RefreshChangeSummary{}
-	added := make([]PreviewItemBrief, 0)
-	kept := make([]PreviewItemBrief, 0, len(draft.Items))
+	changes := computeChanges(stored, draft)
+	changes.CollectionChanged = collectionMetadataChanged(&collection, draft)
+	items := make([]PreviewItemBrief, 0, len(draft.Items))
 	for index, item := range draft.Items {
 		brief := PreviewItemBrief{
 			Position:          index,
@@ -98,29 +100,13 @@ func (s *Service) RefreshPreview(ctx context.Context, collectionID uint) (*Refre
 			PayType:           item.PayType,
 			IsPrivateMedia:    item.IsPrivateMedia,
 		}
-		previous, exists := storedByEID[item.ExternalEpisodeID]
-		if !exists {
-			changes.AddedCount++
-			added = append(added, brief)
-			continue
-		}
-		if previous.Position != index {
-			changes.ReorderedCount++
-		}
-		if previous.Recommendation != item.Recommendation {
-			changes.RecommendationChanged++
-		}
-		if previous.Position == index && previous.Recommendation == item.Recommendation {
-			changes.UnchangedCount++
-		}
-		kept = append(kept, brief)
+		items = append(items, brief)
 	}
 	removed := make([]RemovedItemBrief, 0)
 	for _, item := range stored {
 		if _, exists := newByEID[item.ExternalEpisodeID]; exists {
 			continue
 		}
-		changes.RemovedCount++
 		removed = append(removed, RemovedItemBrief{
 			Position:          item.Position,
 			ExternalEpisodeID: item.ExternalEpisodeID,
@@ -134,7 +120,6 @@ func (s *Service) RefreshPreview(ctx context.Context, collectionID uint) (*Refre
 	if err != nil {
 		return nil, err
 	}
-	items := append(added, kept...)
 	return &RefreshPreviewResult{
 		PreviewID:  token,
 		Collection: collection.ID,
@@ -186,8 +171,12 @@ func (s *Service) ApplyRefresh(collectionID uint, previewID string, expectedRevi
 		if err := tx.Where("collection_id = ?", collection.ID).Find(&stored).Error; err != nil {
 			return err
 		}
+		resolved := append([]models.EpisodeCollectionItem(nil), stored...)
+		if err := resolveItemEpisodes(tx, resolved); err != nil {
+			return err
+		}
 		adoptedByEID := make(map[string]uint, len(stored))
-		for _, item := range stored {
+		for _, item := range resolved {
 			if item.EpisodeID != nil {
 				adoptedByEID[item.ExternalEpisodeID] = *item.EpisodeID
 			}
@@ -195,6 +184,7 @@ func (s *Service) ApplyRefresh(collectionID uint, previewID string, expectedRevi
 
 		// 差异为空：只记录检查结果，不递增修订。
 		changes := computeChanges(stored, draft)
+		changes.CollectionChanged = collectionMetadataChanged(&collection, draft)
 		if !changes.HasChanges() {
 			now := s.now().UTC()
 			if err := tx.Model(&models.EpisodeCollection{}).Where("id = ?", collection.ID).
@@ -209,42 +199,34 @@ func (s *Service) ApplyRefresh(collectionID uint, previewID string, expectedRevi
 			return nil
 		}
 
-		// 原子替换条目：已收录单集的关联随同 eid 保留；被移出条目的关联随
-		// 条目删除解除，本地单集、队列与采纳摘要不受影响。
-		if err := tx.Where("collection_id = ?", collection.ID).
-			Unscoped().Delete(&models.EpisodeCollectionItem{}).Error; err != nil {
-			return err
+		// Update surviving identities in place: copied item URLs and in-flight adoption
+		// requests must not break just because another item moved or changed.
+		previousByEID := make(map[string]models.EpisodeCollectionItem, len(stored))
+		for _, old := range stored {
+			previousByEID[old.ExternalEpisodeID] = old
 		}
 		adoptedKept := 0
 		for index, item := range draft.Items {
-			record := models.EpisodeCollectionItem{
-				CollectionID:        collection.ID,
-				Position:            index,
-				ExternalEpisodeID:   item.ExternalEpisodeID,
-				ExternalPodcastID:   item.ExternalPodcastID,
-				PodcastTitle:        item.PodcastTitle,
-				PodcastAuthor:       item.PodcastAuthor,
-				PodcastCoverURL:     item.PodcastCoverURL,
-				PodcastEpisodeCount: item.PodcastEpisodeCount,
-				EpisodeTitle:        item.EpisodeTitle,
-				Recommendation:      item.Recommendation,
-				Shownotes:           item.Shownotes,
-				Duration:            item.Duration,
-				PublishedAt:         item.PublishedAt,
-				ImageURL:            item.ImageURL,
-				EpisodeURL:          item.EpisodeURL,
-				PayType:             item.PayType,
-				IsPrivateMedia:      item.IsPrivateMedia,
-				AudioURL:            item.AudioURL,
-				AudioMimeType:       item.AudioMimeType,
-				AudioSize:           item.AudioSize,
+			record := itemRecord(collection.ID, index, item)
+			if old, exists := previousByEID[item.ExternalEpisodeID]; exists {
+				if old.ExternalPodcastID != item.ExternalPodcastID {
+					return ErrIncompleteSource
+				}
+				record.BaseModel = old.BaseModel
+				record.EpisodeID = old.EpisodeID
+				if _, adopted := adoptedByEID[item.ExternalEpisodeID]; adopted {
+					adoptedKept++
+				}
+				if err := tx.Save(&record).Error; err != nil {
+					return err
+				}
+				delete(previousByEID, item.ExternalEpisodeID)
+			} else if err := tx.Create(&record).Error; err != nil {
+				return err
 			}
-			if episodeID, adopted := adoptedByEID[item.ExternalEpisodeID]; adopted {
-				id := episodeID
-				record.EpisodeID = &id
-				adoptedKept++
-			}
-			if err := tx.Create(&record).Error; err != nil {
+		}
+		for _, old := range previousByEID {
+			if err := tx.Unscoped().Delete(&old).Error; err != nil {
 				return err
 			}
 		}
@@ -307,11 +289,14 @@ func computeChanges(stored []models.EpisodeCollectionItem, draft *Draft) Refresh
 		}
 		if previous.Position != index {
 			changes.ReorderedCount++
-		} else if previous.Recommendation == item.Recommendation {
+		} else if previous.Recommendation == item.Recommendation && !itemMetadataChanged(previous, item) {
 			changes.UnchangedCount++
 		}
 		if previous.Recommendation != item.Recommendation {
 			changes.RecommendationChanged++
+		}
+		if itemMetadataChanged(previous, item) {
+			changes.MetadataChanged++
 		}
 	}
 	for _, item := range stored {
@@ -355,6 +340,9 @@ func (s *Service) DeleteCollection(collectionID uint) (*DeleteCollectionResult, 
 		if err := tx.Where("collection_id = ?", collection.ID).Find(&items).Error; err != nil {
 			return err
 		}
+		if err := resolveItemEpisodes(tx, items); err != nil {
+			return err
+		}
 		adoptedDetached := 0
 		for _, item := range items {
 			if item.EpisodeID != nil {
@@ -380,4 +368,17 @@ func (s *Service) DeleteCollection(collectionID uint) (*DeleteCollectionResult, 
 		return nil, err
 	}
 	return result, nil
+}
+
+func collectionMetadataChanged(old *models.EpisodeCollection, draft *Draft) bool {
+	return old.Title != draft.Title || old.Author != draft.Author || old.Description != draft.Description || old.TotalKnown != draft.TotalKnown
+}
+
+func itemMetadataChanged(old models.EpisodeCollectionItem, item ItemDraft) bool {
+	expected := itemRecord(old.CollectionID, old.Position, item)
+	expected.BaseModel = old.BaseModel
+	expected.EpisodeID = old.EpisodeID
+	expected.Collection = old.Collection
+	expected.Recommendation = old.Recommendation
+	return !reflect.DeepEqual(old, expected)
 }

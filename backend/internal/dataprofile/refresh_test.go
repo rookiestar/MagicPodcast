@@ -1594,3 +1594,19 @@ func TestSnapshotRemovesPersonaPrivateFactsAndDerivedText(t *testing.T) {
 		require.Zero(t, count, table)
 	}
 }
+
+func TestCollectionAudioSnapshotRedactsURLSecrets(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "collection.db")
+	require.NoError(t, buildFixtureDatabase(path))
+	db, err := openSQLDatabase(path, false)
+	require.NoError(t, err)
+	defer db.Close()
+	_, err = db.Exec(`INSERT INTO episode_collections(id,source_platform,external_id,title,source_url) VALUES(9001,'xiaoyuzhoufm','test','Test','https://www.xiaoyuzhoufm.com/collection/episode/test')`)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO episode_collection_items(collection_id,position,external_episode_id,episode_title,podcast_title,audio_url) VALUES(9001,0,'test','Test','Podcast','https://user:secret@audio.xyzcdn.net/test.mp3?token=secret#private')`)
+	require.NoError(t, err)
+	require.NoError(t, SanitizeSnapshot(db))
+	var audio string
+	require.NoError(t, db.QueryRow(`SELECT audio_url FROM episode_collection_items WHERE collection_id=9001`).Scan(&audio))
+	require.Equal(t, "https://audio.xyzcdn.net/test.mp3", audio)
+}

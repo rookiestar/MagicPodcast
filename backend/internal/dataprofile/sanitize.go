@@ -241,6 +241,8 @@ var richTextColumns = []richTextColumn{
 	{table: "episode_collection_items", column: "recommendation"},
 	{table: "episode_collection_items", column: "shownotes"},
 	{table: "episode_collection_items", column: "episode_url"},
+	{table: "episode_collection_items", column: "audio_url"},
+	{table: "episode_collection_adoptions", column: "collection_url"},
 	{table: "episode_collection_items", column: "image_url"},
 	{table: "episode_collection_items", column: "podcast_cover_url"},
 }

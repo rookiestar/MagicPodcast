@@ -5,6 +5,7 @@ import { IconX } from "@tabler/icons-react";
 import {
   applyCollectionRefresh,
   collectionErrorMessage,
+  collectionErrorCode,
   refreshCollectionPreview,
   type CollectionApplyRefreshResult,
   type CollectionRefreshPreview,
@@ -31,11 +32,16 @@ export default function RefreshCollectionModal({
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const abortRef = useRef<AbortController | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!isOpen) return;
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previous =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     dialogRef.current?.querySelector<HTMLElement>("button")?.focus();
     return () => previous?.focus();
   }, [isOpen]);
@@ -43,28 +49,33 @@ export default function RefreshCollectionModal({
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
     setError("");
     setPreview(null);
-    refreshCollectionPreview(collectionID)
+    refreshCollectionPreview(collectionID, controller.signal)
       .then((result) => {
         if (!cancelled) setPreview(result);
       })
       .catch((caught) => {
-        if (!cancelled) setError(collectionErrorMessage(caught, "刷新失败，可稍后重试。"));
+        if (!cancelled)
+          setError(collectionErrorMessage(caught, "刷新失败，可稍后重试。"));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [isOpen, collectionID]);
+  }, [isOpen, collectionID, attempt]);
 
   if (!isOpen) return null;
 
   const close = () => {
-    if (loading || applying) return;
+    if (applying) return;
+    abortRef.current?.abort();
     onClose();
   };
 
@@ -81,7 +92,7 @@ export default function RefreshCollectionModal({
       onClose();
       onApplied(result);
     } catch (caught) {
-      const code = (caught as { code?: string }).code;
+      const code = collectionErrorCode(caught);
       if (code === "PREVIEW_EXPIRED") {
         setError("刷新预览已过期，请重新刷新。");
         setPreview(null);
@@ -97,10 +108,10 @@ export default function RefreshCollectionModal({
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Escape" && !loading && !applying) {
+    if (event.key === "Escape" && !applying) {
       event.preventDefault();
       event.stopPropagation();
-      onClose();
+      close();
       return;
     }
     if (event.key === "Tab") {
@@ -141,7 +152,7 @@ export default function RefreshCollectionModal({
             onClick={close}
             className="editorial-modal-close"
             aria-label="关闭"
-            disabled={loading}
+            disabled={applying}
           >
             <IconX aria-hidden="true" stroke={1.8} />
           </button>
@@ -153,7 +164,11 @@ export default function RefreshCollectionModal({
 
         <div className="editorial-modal-body overflow-y-auto">
           {loading && (
-            <p className="collection-form-hint" role="status" aria-live="polite">
+            <p
+              className="collection-form-hint"
+              role="status"
+              aria-live="polite"
+            >
               正在读取源清单的最新内容…
             </p>
           )}
@@ -162,23 +177,72 @@ export default function RefreshCollectionModal({
               {error}
             </p>
           )}
+          {error && !loading && !preview && (
+            <button
+              type="button"
+              className="collection-btn-secondary"
+              onClick={() => setAttempt((value) => value + 1)}
+            >
+              重新刷新
+            </button>
+          )}
           {preview && (
             <div className="flex flex-col gap-3">
               {preview.changes.added_count === 0 &&
               preview.changes.removed_count === 0 &&
               preview.changes.reordered_count === 0 &&
-              preview.changes.recommendation_changed_count === 0 ? (
-                <p role="status">
-                  没有变化，已记录本次检查时间。
-                </p>
+              preview.changes.recommendation_changed_count === 0 &&
+              !preview.changes.metadata_changed_count &&
+              !preview.changes.collection_changed ? (
+                <p role="status">没有变化，确认后记录本次检查时间。</p>
               ) : (
                 <>
                   <ul className="collection-refresh-summary">
                     <li>新增 {preview.changes.added_count} 条</li>
                     <li>移出 {preview.changes.removed_count} 条</li>
                     <li>顺序调整 {preview.changes.reordered_count} 条</li>
-                    <li>推荐语变化 {preview.changes.recommendation_changed_count} 条</li>
+                    <li>
+                      推荐语变化 {preview.changes.recommendation_changed_count}{" "}
+                      条
+                    </li>
+                    {!!preview.changes.metadata_changed_count && (
+                      <li>
+                        单集信息变化 {preview.changes.metadata_changed_count} 条
+                      </li>
+                    )}
+                    {preview.changes.collection_changed && (
+                      <li>
+                        清单信息更新：{preview.title} · 作者：
+                        {preview.author || "未提供"}
+                      </li>
+                    )}
                   </ul>
+                  {!!preview.items?.length && (
+                    <ol
+                      className="collection-preview-items"
+                      aria-label="刷新后的清单顺序和推荐语"
+                    >
+                      {preview.items.map((item) => (
+                        <li
+                          key={item.external_episode_id}
+                          className="collection-preview-item"
+                        >
+                          <span className="collection-preview-index">
+                            {item.position + 1}
+                          </span>
+                          <span className="collection-preview-copy">
+                            <strong>{item.episode_title}</strong>
+                            <small>
+                              {item.podcast_title}
+                              {item.recommendation
+                                ? ` · ${item.recommendation}`
+                                : ""}
+                            </small>
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
                   {preview.removed.length > 0 && (
                     <div>
                       <p className="collection-form-hint">
@@ -206,7 +270,8 @@ export default function RefreshCollectionModal({
                     </div>
                   )}
                   <p className="collection-form-hint">
-                    将应用你正在预览的这份差异；新增条目保持未收录，不会自动进入 Inbox。
+                    将应用你正在预览的这份差异；新增条目保持未收录，不会自动进入
+                    Inbox。
                   </p>
                 </>
               )}
@@ -215,7 +280,12 @@ export default function RefreshCollectionModal({
         </div>
 
         <div className="editorial-modal-footer">
-          <button type="button" className="collection-btn-secondary" onClick={close}>
+          <button
+            type="button"
+            className="collection-btn-secondary"
+            onClick={close}
+            disabled={applying}
+          >
             取消
           </button>
           <button

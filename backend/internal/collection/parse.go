@@ -93,6 +93,9 @@ type collectionPayload struct {
 	Target      []json.RawMessage `json:"target"`
 	Author      *authorRefPayload `json:"author"`
 	CreatedAt   string            `json:"createdAt"`
+	HasMore     bool              `json:"hasMore"`
+	TotalCount  *int              `json:"totalCount"`
+	LoadMoreKey json.RawMessage   `json:"loadMoreKey"`
 }
 
 type authorRefPayload struct {
@@ -164,6 +167,11 @@ func ParsePageHTML(html string, expectedExternalID string) (*Draft, error) {
 		return nil, fmt.Errorf("%w: collection target missing", ErrIncompleteSource)
 	}
 
+	cursor := strings.TrimSpace(string(payload.LoadMoreKey))
+	if payload.HasMore || (payload.TotalCount != nil && *payload.TotalCount != len(payload.Target)) || (cursor != "" && cursor != "null" && cursor != `""` && cursor != `{}`) {
+		return nil, fmt.Errorf("%w: remaining page or total mismatch", ErrIncompleteSource)
+	}
+
 	draft := &Draft{
 		Platform:        PlatformXiaoyuzhoufm,
 		ExternalID:      payload.ID,
@@ -217,7 +225,7 @@ func ParsePageHTML(html string, expectedExternalID string) (*Draft, error) {
 		})
 	}
 	if len(draft.Items) == 0 {
-		return nil, ErrEmptyCollection
+		return draft, ErrEmptyCollection
 	}
 	return draft, nil
 }

@@ -8656,3 +8656,30 @@ textarea.editorial-field {
   .collection-toolbar-actions { display: flex; }
   .collection-mobile-actions { display: none; }
 }
+
+/* Collection source covers reuse the existing image pipeline. */
+.collection-card-covers { flex:0 0 180px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px;align-self:start; }
+.collection-item-cover { width:64px;height:64px;flex:0 0 64px; }
+.collection-item-heading { align-items:flex-start; }
+@media(max-width:767px){.collection-card-covers{flex:auto;width:100%;grid-template-columns:repeat(4,minmax(0,1fr))}.collection-item-cover{width:48px;height:48px;flex-basis:48px}}
+
+/* Keep the new entry above filters instead of squeezing the filters off screen. */
+@media (max-width: 900px) {
+  .discovery-sidebar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .discovery-collections-entry {
+    margin: 0;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 44px;
+  }
+
+  .discovery-sidebar .discovery-status-filters {
+    flex: 0 0 auto;
+  }
+}

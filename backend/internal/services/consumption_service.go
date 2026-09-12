@@ -71,6 +71,7 @@ type ConsumptionItem struct {
 
 // ConsumptionCollectionSource 单集被采纳时保留的精简清单来源摘要。
 type ConsumptionCollectionSource struct {
+	CollectionID    *uint     `json:"collection_id,omitempty"`
 	SourcePlatform  string    `json:"source_platform"`
 	CollectionTitle string    `json:"collection_title"`
 	CollectionURL   string    `json:"collection_url"`
@@ -262,7 +263,15 @@ func (s *ConsumptionService) collectionSources(episodeID uint) ([]ConsumptionCol
 	}
 	sources := make([]ConsumptionCollectionSource, 0, len(rows))
 	for _, row := range rows {
-		sources = append(sources, ConsumptionCollectionSource{
+		var col models.EpisodeCollection
+		var id *uint
+		err := s.db.Select("id").Where("source_platform = ? AND external_id = ?", row.SourcePlatform, row.CollectionExternalID).First(&col).Error
+		if err == nil {
+			id = &col.ID
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+		sources = append(sources, ConsumptionCollectionSource{CollectionID: id,
 			SourcePlatform:  row.SourcePlatform,
 			CollectionTitle: row.CollectionTitle,
 			CollectionURL:   row.CollectionURL,

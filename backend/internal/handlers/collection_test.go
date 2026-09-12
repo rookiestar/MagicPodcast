@@ -52,6 +52,7 @@ func newCollectionTestEnv(t *testing.T, fetcher collection.SourceFetcher) (*gin.
 		&models.EpisodeTriageDecision{},
 		&models.EpisodeCollection{},
 		&models.EpisodeCollectionItem{},
+		&models.EpisodeExternalRef{},
 	))
 
 	gin.SetMode(gin.TestMode)

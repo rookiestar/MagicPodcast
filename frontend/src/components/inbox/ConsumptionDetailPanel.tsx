@@ -983,11 +983,7 @@ export default function ConsumptionDetailPanel({
             {item.collection_sources?.[0] && (
               <p className={styles.detailCollectionSource}>
                 来自清单{" "}
-                <a
-                  href={`/collections?search=${encodeURIComponent(item.collection_sources[0].collection_title)}`}
-                >
-                  《{item.collection_sources[0].collection_title}》
-                </a>
+                {item.collection_sources[0].collection_id ? <a href={`/collections/${item.collection_sources[0].collection_id}`}>《{item.collection_sources[0].collection_title}》</a> : <span>《{item.collection_sources[0].collection_title}》（本地清单已删除）</span>}
                 {" "}
                 <a
                   href={item.collection_sources[0].collection_url}

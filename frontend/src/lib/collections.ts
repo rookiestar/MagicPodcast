@@ -1,3 +1,4 @@
+import { mutate } from "swr";
 import { apiClient } from "@/lib/fetcher";
 import type {
   CollectionAdoptedFilter,
@@ -17,19 +18,46 @@ export function collectionErrorMessage(
   fallback: string,
 ): string {
   if (error && typeof error === "object" && "response" in error) {
-    const payload = (error as { response?: { data?: { error?: CollectionApiError } } })
-      .response?.data?.error;
+    const payload = (
+      error as { response?: { data?: { error?: CollectionApiError } } }
+    ).response?.data?.error;
     if (payload?.message) return payload.message;
   }
+  if (error instanceof Error && error.message) return error.message;
   return fallback;
 }
 
-export async function previewCollection(url: string): Promise<CollectionPreview> {
+export function collectionErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const candidate = error as {
+    code?: string;
+    response?: { data?: { error?: CollectionApiError } };
+  };
+  return candidate.response?.data?.error?.code ?? candidate.code;
+}
+
+function invalidateCollectionViews() {
+  // A saved mutation stays successful even when a subsequent cache read fails.
+  void mutate((key: unknown) => {
+    const path = Array.isArray(key) ? key[0] : key;
+    return (
+      typeof path === "string" &&
+      (path.startsWith(COLLECTIONS_PATH) ||
+        path.startsWith("/api/v1/podcasts") ||
+        path.startsWith("/api/v1/consumption"))
+    );
+  }).catch(() => undefined);
+}
+
+export async function previewCollection(
+  url: string,
+  signal?: AbortSignal,
+): Promise<CollectionPreview> {
   const response = await apiClient.post<{
     success: boolean;
     data?: CollectionPreview;
     error?: CollectionApiError;
-  }>(`${COLLECTIONS_PATH}/preview`, { url });
+  }>(`${COLLECTIONS_PATH}/preview`, { url }, { signal });
   if (response.data.success && response.data.data) {
     return response.data.data;
   }
@@ -47,6 +75,7 @@ export async function confirmCollectionImport(
     error?: CollectionApiError;
   }>(COLLECTIONS_PATH, { preview_id: previewID });
   if (response.data.success && response.data.data) {
+    invalidateCollectionViews();
     return response.data.data;
   }
   throw Object.assign(new Error(response.data.error?.message || "导入失败"), {
@@ -64,6 +93,7 @@ export async function adoptCollectionItem(
     error?: CollectionApiError;
   }>(`${COLLECTIONS_PATH}/${collectionID}/items/${itemID}/adopt`);
   if (response.data.success && response.data.data) {
+    invalidateCollectionViews();
     return response.data.data;
   }
   throw Object.assign(new Error(response.data.error?.message || "收录失败"), {
@@ -77,6 +107,8 @@ export interface RefreshChangeSummary {
   reordered_count: number;
   recommendation_changed_count: number;
   unchanged_count: number;
+  metadata_changed_count?: number;
+  collection_changed?: boolean;
 }
 
 export interface RefreshRemovedItem {
@@ -94,6 +126,9 @@ export interface CollectionRefreshPreview {
   read_count: number;
   changes: RefreshChangeSummary;
   removed: RefreshRemovedItem[];
+  title?: string;
+  author?: string;
+  items?: import("@/types/collection").CollectionPreviewItem[];
 }
 
 export interface CollectionApplyRefreshResult {
@@ -107,12 +142,15 @@ export interface CollectionApplyRefreshResult {
 
 export async function refreshCollectionPreview(
   collectionID: number,
+  signal?: AbortSignal,
 ): Promise<CollectionRefreshPreview> {
   const response = await apiClient.post<{
     success: boolean;
     data?: CollectionRefreshPreview;
     error?: CollectionApiError;
-  }>(`${COLLECTIONS_PATH}/${collectionID}/refresh-preview`);
+  }>(`${COLLECTIONS_PATH}/${collectionID}/refresh-preview`, undefined, {
+    signal,
+  });
   if (response.data.success && response.data.data) {
     return response.data.data;
   }
@@ -135,17 +173,20 @@ export async function applyCollectionRefresh(
     base_revision: baseRevision,
   });
   if (response.data.success && response.data.data) {
+    invalidateCollectionViews();
     return response.data.data;
   }
-  throw Object.assign(new Error(response.data.error?.message || "应用刷新失败"), {
-    code: response.data.error?.code,
-  });
+  throw Object.assign(
+    new Error(response.data.error?.message || "应用刷新失败"),
+    {
+      code: response.data.error?.code,
+    },
+  );
 }
 
-export async function deleteCollection(
-  collectionID: number,
-): Promise<void> {
+export async function deleteCollection(collectionID: number): Promise<void> {
   await apiClient.delete(`${COLLECTIONS_PATH}/${collectionID}`);
+  invalidateCollectionViews();
 }
 
 export async function fetchCollectionSummaries(

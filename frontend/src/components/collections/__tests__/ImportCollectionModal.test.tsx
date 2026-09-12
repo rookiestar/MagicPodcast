@@ -68,7 +68,7 @@ function makePreview(overrides: Partial<CollectionPreview> = {}): CollectionPrev
 function axiosLikeError(code: string, message: string) {
   // collectionErrorMessage 读取 axios 错误的 response.data.error.message。
   return Object.assign(new Error(message), {
-    code,
+    code: "ERR_BAD_REQUEST",
     response: { data: { error: { code, message } } },
   });
 }

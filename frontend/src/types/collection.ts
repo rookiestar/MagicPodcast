@@ -33,6 +33,7 @@ export interface CollectionImportResult {
 }
 
 export interface CollectionSummary {
+  covers?: string[];
   id: number;
   title: string;
   description: string;
@@ -83,6 +84,7 @@ export interface CollectionItemDetail {
   adopted_episode_id: number | null;
   adopted_episode_title: string;
   adopted_episode_queue: string | null;
+  adopted_episode_dismissed_at?: string | null;
 }
 
 export interface CollectionDetail {

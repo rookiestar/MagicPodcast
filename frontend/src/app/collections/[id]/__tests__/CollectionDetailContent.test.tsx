@@ -18,7 +18,11 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/contexts/SearchContext", () => ({
-  useSearch: () => ({ openSearch: vi.fn(), closeSearch: vi.fn(), isSearchOpen: false }),
+  useSearch: () => ({
+    openSearch: vi.fn(),
+    closeSearch: vi.fn(),
+    isSearchOpen: false,
+  }),
 }));
 
 vi.mock("@/lib/collections", async (importOriginal) => {
@@ -36,7 +40,9 @@ import type {
   CollectionItemDetail,
 } from "@/types/collection";
 
-function makeItem(overrides: Partial<CollectionItemDetail> = {}): CollectionItemDetail {
+function makeItem(
+  overrides: Partial<CollectionItemDetail> = {},
+): CollectionItemDetail {
   return {
     id: 1,
     position: 0,
@@ -61,7 +67,9 @@ function makeItem(overrides: Partial<CollectionItemDetail> = {}): CollectionItem
   };
 }
 
-function makeDetail(overrides: Partial<CollectionDetail> = {}): CollectionDetail {
+function makeDetail(
+  overrides: Partial<CollectionDetail> = {},
+): CollectionDetail {
   const items = overrides.items ?? [
     makeItem(),
     makeItem({
@@ -83,7 +91,8 @@ function makeDetail(overrides: Partial<CollectionDetail> = {}): CollectionDetail
     author: "小宇宙领航员",
     platform: "xiaoyuzhoufm",
     external_id: "6a20323b78a52c96d821a769",
-    source_url: "https://www.xiaoyuzhoufm.com/collection/episode/6a20323b78a52c96d821a769",
+    source_url:
+      "https://www.xiaoyuzhoufm.com/collection/episode/6a20323b78a52c96d821a769",
     total_known: false,
     revision: 1,
     item_count: 2,
@@ -96,7 +105,9 @@ function makeDetail(overrides: Partial<CollectionDetail> = {}): CollectionDetail
 }
 
 function renderDetail(ui: ReactElement) {
-  return render(<SWRConfig value={{ provider: () => new Map() }}>{ui}</SWRConfig>);
+  return render(
+    <SWRConfig value={{ provider: () => new Map() }}>{ui}</SWRConfig>,
+  );
 }
 
 describe("CollectionDetailContent", () => {
@@ -124,16 +135,17 @@ describe("CollectionDetailContent", () => {
     expect(items[1]).toHaveTextContent("No.24 芯片江湖之中国半导体劫起");
 
     // 推荐语分区展示；缺失推荐语不编造。
-    expect(screen.getByText("存储芯片为何五年内持续短缺？")).toBeInTheDocument();
+    expect(
+      screen.getByText("存储芯片为何五年内持续短缺？"),
+    ).toBeInTheDocument();
     expect(within2(items[1]).queryByText("清单推荐语")).not.toBeInTheDocument();
 
     // 收录状态来自真实队列：未收录 vs 已在 Inbox。
     expect(within2(items[0]).getByText("未收录")).toBeInTheDocument();
     expect(within2(items[1]).getByText("已在 Inbox")).toBeInTheDocument();
-    expect(within2(items[1]).getByRole("link", { name: "查看收录单集" })).toHaveAttribute(
-      "href",
-      "/episodes/77",
-    );
+    expect(
+      within2(items[1]).getByRole("link", { name: "查看收录单集" }),
+    ).toHaveAttribute("href", "/episodes/77");
   });
 
   it("filters entries by adopted state and keeps original numbering", async () => {
@@ -233,15 +245,17 @@ describe("CollectionDetailContent", () => {
     await screen.findByText("E185 芯片规律 × AI浪潮");
 
     const adoptButton = screen.getByRole("button", { name: "加入 Inbox" });
-    expect(
-      screen.getAllByRole("button", { name: "加入 Inbox" }).length,
-    ).toBe(1);
+    expect(screen.getAllByRole("button", { name: "加入 Inbox" }).length).toBe(
+      1,
+    );
     await user.click(adoptButton);
 
     await waitFor(() => {
       expect(adoptMock).toHaveBeenCalledWith(1, 1);
       // 收录状态来自服务端回读：按钮消失，条目显示已在 Inbox。
-      expect(screen.queryByRole("button", { name: "加入 Inbox" })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "加入 Inbox" }),
+      ).not.toBeInTheDocument();
       expect(screen.getAllByText("已在 Inbox").length).toBe(2);
     });
   });
@@ -251,14 +265,20 @@ describe("CollectionDetailContent", () => {
     adoptMock.mockRejectedValue(
       Object.assign(new Error("曾删除"), {
         code: "EPISODE_DELETED",
-        response: { data: { error: { code: "EPISODE_DELETED", message: "这一集曾从个人库删除" } } },
+        response: {
+          data: {
+            error: { code: "EPISODE_DELETED", message: "这一集曾从个人库删除" },
+          },
+        },
       }),
     );
     renderDetail(<CollectionDetailContent collectionID={1} />);
     await screen.findByText("E185 芯片规律 × AI浪潮");
 
     await user.click(screen.getByRole("button", { name: "加入 Inbox" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/曾从个人库删除/);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /曾从个人库删除/,
+    );
     // 失败不伪造状态：条目仍是未收录且可重试。
     const rejectedItems = screen.getAllByTestId("collection-item");
     expect(within(rejectedItems[0]).getByText("未收录")).toBeInTheDocument();
@@ -276,3 +296,26 @@ describe("CollectionDetailContent", () => {
 function within2(element: HTMLElement) {
   return within(element);
 }
+
+it("keeps a successful adoption visible when follow-up readback fails", async () => {
+  detailMock
+    .mockReset()
+    .mockResolvedValueOnce(makeDetail())
+    .mockRejectedValue(new Error("offline"));
+  adoptMock.mockResolvedValue({
+    episode_id: 99,
+    queue_state: "inbox",
+    dismissed_at: null,
+  });
+  renderDetail(<CollectionDetailContent collectionID={1} />);
+  await userEvent.click(
+    await screen.findByRole("button", { name: "加入 Inbox" }),
+  );
+  await waitFor(() =>
+    expect(screen.getAllByText("已在 Inbox")).toHaveLength(2),
+  );
+  expect(
+    screen.getAllByRole("heading", { name: "穿透半导体迷雾" }).length,
+  ).toBeGreaterThan(0);
+  expect(await screen.findByText(/最新清单暂时无法读取/)).toBeInTheDocument();
+});

@@ -189,3 +189,14 @@ func cloneMap(source map[string]any) map[string]any {
 	}
 	return clone
 }
+
+func TestReviewParserRejectsExplicitIncompletePage(t *testing.T) {
+	for _, extra := range []map[string]any{{"hasMore": true}, {"totalCount": 2}, {"loadMoreKey": "next"}} {
+		p := map[string]any{"id": sampleCollectionID, "title": "partial", "targetType": "EPISODE", "target": []map[string]any{{"eid": sampleEIDs[0], "pid": "p1", "title": "ep", "podcast": map[string]any{"title": "podcast"}}}}
+		for k, v := range extra {
+			p[k] = v
+		}
+		_, err := ParsePageHTML(nextDataHTML(t, p), sampleCollectionID)
+		require.ErrorIs(t, err, ErrIncompleteSource)
+	}
+}

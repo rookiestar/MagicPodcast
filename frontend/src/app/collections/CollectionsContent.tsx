@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { IconPlus } from "@tabler/icons-react";
 import PageLayout from "@/components/layout/PageLayout";
+import PodcastCover from "@/components/podcasts/PodcastCover";
 import ImportCollectionModal from "@/components/collections/ImportCollectionModal";
 import {
   COLLECTIONS_PATH,
@@ -22,8 +23,15 @@ const collectionListFetcher = ([, search]: readonly [string, string]) =>
  * 仅展示外部发现资料，不改变个人播客库。
  */
 export default function CollectionsContent() {
-  const [searchDraft, setSearchDraft] = useState("");
-  const [search, setSearch] = useState("");
+  const params = useSearchParams();
+  const query = params.toString();
+  const [searchDraft, setSearchDraft] = useState(params.get("search") ?? "");
+  const [search, setSearch] = useState(params.get("search") ?? "");
+  useEffect(() => {
+    const value = new URLSearchParams(query).get("search") ?? "";
+    setSearch(value);
+    setSearchDraft(value);
+  }, [query]);
   const [isImportOpen, setImportOpen] = useState(false);
   const router = useRouter();
 
@@ -43,6 +51,12 @@ export default function CollectionsContent() {
   const applySearch = (value: string) => {
     setSearchDraft(value);
     setSearch(value.trim());
+    const next = new URLSearchParams(params.toString());
+    if (value.trim()) next.set("search", value.trim());
+    else next.delete("search");
+    router.replace(`/collections${next.size ? `?${next}` : ""}`, {
+      scroll: false,
+    });
   };
 
   return (
@@ -51,8 +65,7 @@ export default function CollectionsContent() {
       className="collection-page"
       toolbar={{
         title: "播客清单",
-        description: "浏览已导入的小宇宙单集清单，逐集决定是否收录。",
-        mobileDescription: "浏览已导入的单集清单",
+
         rightContent: (
           <button
             type="button"
@@ -89,6 +102,15 @@ export default function CollectionsContent() {
         </div>
       </div>
 
+      {error && collections.length > 0 && (
+        <p className="collection-form-error" role="alert">
+          清单暂时无法刷新，保留上次内容。
+          <button type="button" onClick={() => void mutate()}>
+            重新尝试
+          </button>
+        </p>
+      )}
+      {isLoading && !data && <p role="status">正在读取清单…</p>}
       {failed ? (
         <div className="collection-empty" role="alert">
           <h3>清单暂时无法读取</h3>
@@ -107,7 +129,9 @@ export default function CollectionsContent() {
           ) : (
             <>
               <h3>还没有导入任何清单</h3>
-              <p>粘贴一份小宇宙单集清单链接，预览后保存，就可以在这里浏览专题与逐集推荐语。</p>
+              <p>
+                粘贴一份小宇宙单集清单链接，预览后保存，就可以在这里浏览专题与逐集推荐语。
+              </p>
               <button type="button" onClick={() => setImportOpen(true)}>
                 导入清单
               </button>
@@ -118,12 +142,30 @@ export default function CollectionsContent() {
         <ul className="collection-card-list" aria-busy={isLoading}>
           {collections.map((collection) => (
             <li key={collection.id} className="collection-card">
+              {!!collection.covers?.length && (
+                <div className="collection-card-covers">
+                  {collection.covers.map((cover, index) => (
+                    <PodcastCover
+                      key={`${cover}-${index}`}
+                      coverUrl={cover}
+                      title={`${collection.title}单集封面`}
+                      index={index}
+                      sizes="96px"
+                    />
+                  ))}
+                </div>
+              )}
               <div className="collection-card-main">
-                <Link href={`/collections/${collection.id}`} className="collection-card-title">
+                <Link
+                  href={`/collections/${collection.id}`}
+                  className="collection-card-title"
+                >
                   {collection.title}
                 </Link>
                 {collection.description && (
-                  <p className="collection-card-description">{collection.description}</p>
+                  <p className="collection-card-description">
+                    {collection.description}
+                  </p>
                 )}
                 <p className="collection-card-meta">
                   作者：{collection.author || "未提供"}
@@ -134,7 +176,10 @@ export default function CollectionsContent() {
                   <span aria-hidden="true"> · </span>
                   已收录 {collection.adopted_count} 集
                   <span aria-hidden="true"> · </span>
-                  来源：{collection.platform === "xiaoyuzhoufm" ? "小宇宙" : collection.platform}
+                  来源：
+                  {collection.platform === "xiaoyuzhoufm"
+                    ? "小宇宙"
+                    : collection.platform}
                 </p>
               </div>
               <div className="collection-card-actions">

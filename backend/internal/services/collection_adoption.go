@@ -127,7 +127,7 @@ func (s *CollectionAdoptionService) AdoptCollectionItem(collectionID, itemID uin
 			PodcastTitle:      podcast.Title,
 			PodcastSubscribed: podcast.IsSubscribed,
 			CollectionOnly:    episodeState.CollectionOnly,
-			AudioAvailable:    item.AudioURL != "",
+			AudioAvailable:    episode.MediumURL != "",
 			InboxWritten:      inboxWritten,
 		}
 		// 回读真实队列状态，避免把“已在 Focus/Done”误报成本次写入 Inbox。
@@ -143,9 +143,7 @@ func (s *CollectionAdoptionService) AdoptCollectionItem(collectionID, itemID uin
 	}
 	// 收录改变节目/单集汇总：失效播客列表与相关详情缓存，避免列表回读陈旧数据。
 	cache.InvalidatePodcastList()
-	if result.PodcastCreated {
-		cache.InvalidatePodcastDetail(result.PodcastID)
-	}
+	cache.InvalidatePodcastDetail(result.PodcastID)
 	return result, nil
 }
 
@@ -187,14 +185,35 @@ func (s *CollectionAdoptionService) resolveOrReuseEpisode(
 		}
 	}
 
+	if item.ExternalPodcastID == "" {
+		return nil, false, false, ErrAdoptionIdentityInvalid
+	}
+	var byGUID []models.Episode
+	if err := tx.Unscoped().Model(&models.Episode{}).Select("episodes.*").
+		Joins("JOIN podcasts ON podcasts.id = episodes.podcast_id AND podcasts.deleted_at IS NULL").
+		Where("podcasts.xyz_id = ? AND episodes.guid IN ?", item.ExternalPodcastID, []string{item.ExternalEpisodeID, externalGUID(models.SourcePlatformXiaoyuzhoufm, item.ExternalEpisodeID)}).
+		Find(&byGUID).Error; err != nil {
+		return nil, false, false, err
+	}
+	for _, existing := range byGUID {
+		if existing.DeletedAt.Valid {
+			softDeleted = true
+		} else {
+			candidates[existing.ID] = struct{}{}
+		}
+	}
+
 	if len(candidates) > 1 {
 		return nil, false, false, fmt.Errorf("%w: %d candidate episodes", ErrAdoptionAmbiguous, len(candidates))
 	}
 	if len(candidates) == 1 {
 		for episodeID := range candidates {
 			var episode models.Episode
-			if err := tx.First(&episode, episodeID).Error; err != nil {
+			if err := tx.Unscoped().First(&episode, episodeID).Error; err != nil {
 				return nil, false, false, err
+			}
+			if episode.DeletedAt.Valid {
+				return nil, false, false, ErrAdoptionEpisodeDeleted
 			}
 			// 跨节目冲突：已有单集所属节目与清单条目指向的节目不一致时，
 			// 停止该条采纳并明确提示，不扩展成全库合并工具。
@@ -251,19 +270,22 @@ func (s *CollectionAdoptionService) resolveOrReuseEpisode(
 	if err := tx.Create(episode).Error; err != nil {
 		return nil, false, false, err
 	}
-	if podcastCreated {
-		// 新节目归属：单集计数与最新单集时间由本次收录如实写入。
-		updates := map[string]any{
-			"episode_count": 1,
-			"added_date":    now,
-		}
-		if item.PublishedAt != nil {
-			updates["newest_episode_date"] = *item.PublishedAt
-		}
-		if err := tx.Model(&models.Podcast{}).Where("id = ?", podcast.ID).Updates(updates).Error; err != nil {
-			return nil, false, false, err
-		}
+
+	var count int64
+	if err := tx.Model(&models.Episode{}).Where("podcast_id = ?", podcast.ID).Count(&count).Error; err != nil {
+		return nil, false, false, err
 	}
+	updates := map[string]any{"episode_count": count}
+	if podcastCreated {
+		updates["added_date"] = now
+	}
+	if item.PublishedAt != nil && item.PublishedAt.After(podcast.NewestEpisodeDate) {
+		updates["newest_episode_date"] = *item.PublishedAt
+	}
+	if err := tx.Model(&models.Podcast{}).Where("id = ?", podcast.ID).Updates(updates).Error; err != nil {
+		return nil, false, false, err
+	}
+
 	return episode, true, podcastCreated, nil
 }
 

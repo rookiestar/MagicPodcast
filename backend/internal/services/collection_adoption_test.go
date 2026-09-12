@@ -369,3 +369,36 @@ func TestAdopt_MultipleFeedlessPodcastsPersistWithoutFabricatedFeeds(t *testing.
 	conflict := models.Podcast{Title: "重复 Feed 2", XYZID: "dup-pid-2", FeedURL: "https://example.com/feed.xml"}
 	require.Error(t, db.Create(&conflict).Error, "非空 Feed 唯一约束保持")
 }
+
+func TestReviewAdoptionMaintainsPodcastCount(t *testing.T) {
+	s, db, c := setupAdoptionService(t)
+	var first models.EpisodeCollectionItem
+	require.NoError(t, db.First(&first).Error)
+	a, err := s.AdoptCollectionItem(c.ID, first.ID)
+	require.NoError(t, err)
+	second := first
+	second.BaseModel = models.BaseModel{}
+	second.EpisodeID = nil
+	second.ExternalEpisodeID = "bbbbbbbbbbbbbbbbbbbbbbbb"
+	second.EpisodeURL = "https://www.xiaoyuzhoufm.com/episode/" + second.ExternalEpisodeID
+	require.NoError(t, db.Create(&second).Error)
+	_, err = s.AdoptCollectionItem(c.ID, second.ID)
+	require.NoError(t, err)
+	var p models.Podcast
+	require.NoError(t, db.First(&p, a.PodcastID).Error)
+	assert.Equal(t, 2, p.EpisodeCount)
+}
+
+func TestReviewAdoptionReusesExistingRSSGUID(t *testing.T) {
+	s, db, c := setupAdoptionService(t)
+	p := models.Podcast{Title: "known", XYZID: adoptionSamplePID, FeedURL: "https://example.com/feed"}
+	require.NoError(t, db.Create(&p).Error)
+	e := models.Episode{PodcastID: p.ID, GUID: adoptionSampleEID, Link: "https://example.com/show/185", Title: "existing"}
+	require.NoError(t, db.Create(&e).Error)
+	var item models.EpisodeCollectionItem
+	require.NoError(t, db.First(&item).Error)
+	a, err := s.AdoptCollectionItem(c.ID, item.ID)
+	require.NoError(t, err)
+	assert.Equal(t, e.ID, a.EpisodeID)
+	assert.False(t, a.EpisodeCreated)
+}
