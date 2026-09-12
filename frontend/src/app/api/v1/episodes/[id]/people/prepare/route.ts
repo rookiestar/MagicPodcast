@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   if (!/^[1-9]\d*$/.test(id)) return Response.json({ success: false }, { status: 400 });
-  const headers = new Headers({ "Content-Type": "application/json" });
+  const headers = new Headers({ "Content-Type": "application/json", Accept: request.headers.get("accept") ?? "application/json" });
   for (const name of ["authorization", "cookie"]) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
@@ -20,7 +20,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     });
     return new Response(response.body, {
       status: response.status,
-      headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json", "Cache-Control": "no-store" },
+      headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json", "Cache-Control": "no-store, no-transform", "X-Accel-Buffering": "no" },
     });
   } catch {
     return Response.json({ success: false, error: { code: request.signal.aborted ? "PERSON_PREPARATION_CANCELLED" : "PERSON_PREPARATION_UNAVAILABLE", message: request.signal.aborted ? "人物识别已取消。" : "人物服务暂时不可用，请重试。" } }, { status: request.signal.aborted ? 499 : 502 });

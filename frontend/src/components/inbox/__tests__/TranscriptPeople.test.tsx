@@ -301,3 +301,119 @@ it("keeps a running request alive when closing and reopening the modal", async (
   await act(async () => complete(proposal));
   expect(screen.getByRole("button", { name: "编辑匹配 小林" })).toBeVisible();
 });
+
+describe("人物识别进度与恢复", () => {
+  it("shows real phases, keeps the same request when hidden and cancels before readback", async () => {
+    let report!: NonNullable<Parameters<typeof episodeCopilotApi.preparePeople>[2]>;
+    let resolve!: (value: EpisodePeoplePayload) => void;
+    let signal!: AbortSignal;
+    vi.mocked(episodeCopilotApi.preparePeople).mockImplementation((_id, s, callback) => {
+      report = callback!; signal = s!;
+      return new Promise(done => { resolve = done; });
+    });
+    render(<Player />);
+    fireEvent.click(await screen.findByRole("button", { name: "识别人物" }));
+    expect(episodeCopilotApi.preparePeople).not.toHaveBeenCalled();
+    const start = screen.getByRole("button", { name: "开始识别" });
+    fireEvent.click(start); fireEvent.click(start);
+    expect(episodeCopilotApi.preparePeople).toHaveBeenCalledTimes(1);
+    act(() => report({ type: "stage", episode_id: 7, request_id: "a", source_version: "artifact-8", stage: "identify" }));
+    expect(screen.getByText("正在识别出场人物")).toBeInTheDocument();
+    act(() => report({ type: "heartbeat", episode_id: 7, request_id: "a", source_version: "artifact-8" }));
+    expect(screen.getByText("正在识别出场人物")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "关闭人物核对" }));
+    expect(signal.aborted).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "查看进度" }));
+    expect(screen.getByText("正在识别出场人物")).toBeInTheDocument();
+    vi.mocked(episodeCopilotApi.getPeople).mockResolvedValueOnce(empty);
+    fireEvent.click(screen.getByRole("button", { name: "取消识别" }));
+    expect(signal.aborted).toBe(true);
+    await screen.findByText(/已请求取消/);
+    await act(async () => resolve(proposal));
+    expect(screen.queryByRole("button", { name: "编辑匹配 小林" })).not.toBeInTheDocument();
+    expect(episodeCopilotApi.preparePeople).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers a committed draft after losing completion without applying or rerunning", async () => {
+    render(<Player />);
+    fireEvent.click(await screen.findByRole("button", { name: "识别人物" }));
+    vi.mocked(episodeCopilotApi.preparePeople).mockRejectedValueOnce(new Error("disconnected"));
+    vi.mocked(episodeCopilotApi.getPeople).mockResolvedValueOnce(proposal);
+    fireEvent.click(screen.getByRole("button", { name: "开始识别" }));
+    await screen.findByText("已核对：草稿已保存，等待你确认");
+    expect(screen.getAllByRole("button", { name: "Speaker 1" })).toHaveLength(2);
+    expect(episodeCopilotApi.reviewPeople).not.toHaveBeenCalled();
+    expect(episodeCopilotApi.preparePeople).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks retry until uncertain persistence is read back successfully", async () => {
+    render(<Player />);
+    fireEvent.click(await screen.findByRole("button", { name: "识别人物" }));
+    vi.mocked(episodeCopilotApi.preparePeople).mockRejectedValueOnce(new Error("disconnected"));
+    vi.mocked(episodeCopilotApi.getPeople).mockRejectedValueOnce(new Error("offline"));
+    fireEvent.click(screen.getByRole("button", { name: "开始识别" }));
+    await screen.findByText(/结果状态尚未确认/);
+    expect(screen.getByRole("button", { name: "开始识别" })).toBeDisabled();
+    vi.mocked(episodeCopilotApi.getPeople).mockResolvedValueOnce(empty);
+    fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "开始识别" })).toBeEnabled());
+    expect(episodeCopilotApi.preparePeople).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels on leaving an episode and ignores its late completion", async () => {
+    let resolve!: (value: EpisodePeoplePayload) => void;
+    let signal!: AbortSignal;
+    vi.mocked(episodeCopilotApi.preparePeople).mockImplementation((_id, s) => {
+      signal = s!; return new Promise(done => { resolve = done; });
+    });
+    const view = render(<Player />);
+    fireEvent.click(await screen.findByRole("button", { name: "识别人物" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始识别" }));
+    vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue({ ...empty, episode_id: 9, source_version: "artifact-10" });
+    view.rerender(<TranscriptAudioPlayer episodeId={9} artifactSetId={10} segments={segments} mediaAvailable={false} playbackRate={1} onPlaybackRateChange={() => {}} />);
+    expect(signal.aborted).toBe(true);
+    await act(async () => resolve(proposal));
+    fireEvent.click(await screen.findByRole("button", { name: "识别人物" }));
+    expect(screen.queryByRole("button", { name: "编辑匹配 小林" })).not.toBeInTheDocument();
+  });
+});
+
+it("cannot apply or edit a current server draft while displaying another source version", async () => {
+  vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue({ ...proposal,
+    source_version: "artifact-99", draft: { ...proposal.draft!, source_version: "artifact-99" } });
+  render(<Player />);
+  fireEvent.click(await screen.findByRole("button", { name: "继续核对" }));
+  expect(screen.getByRole("button", { name: "确认并应用" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "编辑匹配 小林" })).toBeDisabled();
+  expect(screen.getByText(/来源已变化/)).toBeInTheDocument();
+  expect(screen.getByText("本次将更新 0 段发言")).toBeInTheDocument();
+  expect(episodeCopilotApi.reviewPeople).not.toHaveBeenCalled();
+});
+
+it("keeps manual entry available when identification saves an empty draft", async () => {
+  vi.mocked(episodeCopilotApi.preparePeople).mockResolvedValue({ ...proposal, draft: { ...proposal.draft!, matches: [] } });
+  render(<Player />);
+  fireEvent.click(await screen.findByRole("button", { name: "识别人物" }));
+  expect(episodeCopilotApi.preparePeople).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "开始识别" }));
+  await screen.findByText("没有识别出可核对的人物，可直接编辑逐字稿中的 Speaker。");
+  expect(screen.getByRole("button", { name: "填写姓名" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "确认并应用" })).toBeDisabled();
+});
+
+it("submits only the selected fragments and preserves edits after a revision conflict", async () => {
+  vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue(proposal);
+  vi.mocked(episodeCopilotApi.reviewPeople).mockRejectedValue(new Error("人物资料已更新，请重新核对"));
+  render(<Player />);
+  fireEvent.click(await screen.findByRole("button", { name: "继续核对" }));
+  fireEvent.click(screen.getByText("核对匹配范围 · 主持人 · 2 段"));
+  fireEvent.click(screen.getByRole("checkbox", { name: "应该保持休息。" }));
+  expect(screen.getByText("本次将更新 1 段发言")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "确认并应用" }));
+  await screen.findByText("人物资料已更新，请重新核对");
+  expect(episodeCopilotApi.reviewPeople).toHaveBeenCalledWith(7, expect.objectContaining({ matches: [expect.objectContaining({ orders: [1] })] }), true);
+  fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
+  await screen.findByText("草稿尚未保存，请先保存或放弃修改。");
+  expect(screen.getByText("本次将更新 1 段发言")).toBeInTheDocument();
+  expect(episodeCopilotApi.getPeople).toHaveBeenCalledTimes(1);
+});

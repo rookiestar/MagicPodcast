@@ -76,6 +76,7 @@
 .panelBody {
   padding: 14px;
   overflow: auto;
+  overscroll-behavior: contain;
   flex: 1;
   min-height: 0;
 }
@@ -278,7 +279,9 @@
 .evidencePreview span { color: #71685e; font-size: 12px; }
 .panel footer { padding: 18px 30px; gap: 10px; background: #fbf7ee; flex-shrink: 0; }
 .panel footer button { min-height: 40px; padding: 9px 16px; border-radius: 4px; }
-.footerSummary { flex: 1; min-width: 170px; }
+.footerSummary { flex: 1 0 100%; min-width: 0; }
+.panel footer .reidentify { margin-right: auto; border-color: transparent; background: transparent; color: #a54813; padding-left: 0; }
+.panel .progressFooter { text-align: center; justify-content: center; }
 .footerSummary small { display: block; color: #71685e; margin-top: 4px; }
 .panel .exception { color: #71685e; }
 .editorBackdrop { background: rgb(33 29 24 / 36%); }
@@ -297,3 +300,18 @@
   .footerSummary { flex-basis: 100%; }
   .panel input:not([type=checkbox]), .panel select, .editor input:not([type=radio]), .editor select { font-size: 16px; }
 }
+.progress { padding: 24px 4px; }
+.progressHeading { display: flex; align-items: center; gap: 18px; }
+.progressHeading strong { font-size: 20px; }
+.progressHeading p { font-size: 12px; }
+.spinner { width: 38px; height: 38px; flex-shrink: 0; border: 4px solid #e1c6aa; border-top-color: #a54813; border-radius: 50%; animation: people-spin 1s linear infinite; }
+.progress ol { list-style: none; padding: 20px 0; margin: 0; }
+.progress li { display: flex; gap: 18px; position: relative; padding: 16px 0; align-items: flex-start; min-height: 76px; }
+.progress li:not(:last-child)::after { content: ""; position: absolute; left: 12px; top: 44px; bottom: -12px; width: 1px; background: #d9d2c6; }
+.stepDot { width: 26px; height: 26px; flex-shrink: 0; border: 1px solid #aaa192; border-radius: 50%; display: grid; place-items: center; }
+.progress li[data-state=done] .stepDot { background: #a54813; border-color: #a54813; color: white; }
+.progress li[data-state=active] .stepDot { border: 3px solid #a54813; }
+.progress small { display: block; color: #71685e; font-size: 12px; margin-top: 6px; }
+.progress > button { display: block; margin: 20px auto 0; min-width: 140px; min-height: 40px; }
+@keyframes people-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }

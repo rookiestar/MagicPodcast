@@ -45,6 +45,17 @@ function errorCode(error: unknown) {
   return undefined;
 }
 
+export type PersonPreparationEvent = {
+  type: "stage" | "heartbeat" | "complete" | "error";
+  episode_id: number;
+  request_id: string;
+  source_version?: string;
+  stage?: "read" | "identify" | "review" | "save";
+  elapsed_ms?: number;
+  message?: string;
+  data?: EpisodePeoplePayload;
+};
+
 export const episodeCopilotApi = {
  reviewPeople: async (episodeId: number, body: {draft_id: number; revision: number; source_version: string; matches: PersonReviewMatch[]}, apply: boolean): Promise<EpisodePeoplePayload> =>
   handleResponse(await api.post<ApiResponse<EpisodePeoplePayload>>(`/api/v1/episodes/${episodeId}/people/${apply ? "apply" : "draft"}`, body, inlineApiErrorConfig)),
@@ -53,12 +64,57 @@ export const episodeCopilotApi = {
  manualPerson: async (episodeId: number, body: {revision: number; source_version: string; fragment_order: number; scope: string; person_id: number; display_name: string; clear: boolean}): Promise<EpisodePeoplePayload> =>
   handleResponse(await api.post<ApiResponse<EpisodePeoplePayload>>(`/api/v1/episodes/${episodeId}/people/manual`, body, inlineApiErrorConfig)),
 
-  preparePeople: async (episodeId: number, signal?: AbortSignal): Promise<EpisodePeoplePayload> => {
-    const response = await api.post<ApiResponse<EpisodePeoplePayload>>(
-      `/api/v1/episodes/${episodeId}/people/prepare`, {},
-      { ...inlineApiErrorConfig, timeout: 180_000, signal },
-    );
-    return handleResponse(response);
+  preparePeople: async (episodeId: number, signal?: AbortSignal, onProgress?: (event: PersonPreparationEvent) => void): Promise<EpisodePeoplePayload> => {
+    if (signal?.aborted) throw new DOMException("aborted", "AbortError");
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) controller.abort();
+    const timer = setTimeout(abort, 180_000);
+    let result: EpisodePeoplePayload | undefined;
+    let failure: string | undefined;
+    let requestID: string | undefined;
+    let sourceVersion: string | undefined;
+    let terminal = false;
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/v1/episodes/${episodeId}/people/prepare`, {
+        method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        body: "{}", signal: controller.signal,
+      });
+      if (!response.ok) throw new Error("识别服务暂时不可用，请核对已保存结果。");
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("识别响应为空，请核对已保存结果。");
+      try {
+        await readSSEStream({ reader, decoder: new TextDecoder(), state: createSSEReadState(), startedAt: Date.now(),
+          options: normalizeSSEOptions({ endpoint: "", requireCompletion: true, completeOnTypeComplete: false,
+            isComplete: () => terminal,
+            incompleteMessage: "识别连接中断，请核对已保存结果。" }),
+          onProgress: (_type, _message, _current, _total, data) => {
+            const event = data as PersonPreparationEvent;
+            if (controller.signal.aborted || event.episode_id !== episodeId || !event.request_id) return;
+            if (requestID && event.request_id !== requestID) return;
+            if (sourceVersion && event.source_version && event.source_version !== sourceVersion) return;
+            requestID = event.request_id;
+            if (event.source_version) sourceVersion = event.source_version;
+            if (event.type === "complete") {
+              if (!event.data || event.data.episode_id !== episodeId ||
+                  event.data.source_version !== sourceVersion || !event.data.draft ||
+                  event.data.draft.source_version !== sourceVersion) return;
+              result = event.data;
+              terminal = true;
+            }
+            if (event.type === "error") { failure = event.message || "识别未完成"; terminal = true; }
+            onProgress?.(event);
+          },
+        });
+      } finally { await reader.cancel().catch(() => {}); }
+      if (failure) throw new Error(failure);
+      if (!result) throw new Error("尚未收到草稿保存确认，请重新读取。");
+      return result;
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+    }
   },
   getPeople: async (episodeId: number, signal?: AbortSignal): Promise<EpisodePeoplePayload> => {
     const response = await api.get<ApiResponse<EpisodePeoplePayload>>(

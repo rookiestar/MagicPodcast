@@ -9,7 +9,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { IconPencil, IconUsers, IconX } from "@tabler/icons-react";
-import { episodeCopilotApi } from "@/lib/api/episodeCopilot";
+import { episodeCopilotApi, type PersonPreparationEvent } from "@/lib/api/episodeCopilot";
 import type {
   EpisodePeoplePayload,
   PersonReviewDraft,
@@ -18,6 +18,31 @@ import type {
 import type { TranscriptSegment } from "@/types/processing";
 import EpisodePersonEvidence, { personEvidence } from "./EpisodePersonEvidence";
 import styles from "./TranscriptPeople.module.css";
+
+const preparationStages = [
+  ["read", "读取逐字稿与节目资料"], ["identify", "识别出场人物"],
+  ["review", "核对发言归属"], ["save", "保存待确认草稿"],
+] as const;
+
+function PreparationStatus({ stage, started }: { stage: string; started: number }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const tick = () => setElapsed(Math.floor((performance.now() - started) / 1000));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [started]);
+  const index = preparationStages.findIndex(([key]) => key === stage);
+  return <section className={styles.progress} aria-label="人物识别进度">
+    <div className={styles.progressHeading}><span className={styles.spinner} aria-hidden="true" />
+      <div><strong role="status">{index < 0 ? "正在连接识别服务" : `正在${preparationStages[index][1]}`}</strong>
+        <p aria-live="off">已用时 {String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}</p></div></div>
+    <ol>{preparationStages.map(([key, title], i) => <li key={key} data-state={i < index ? "done" : i === index ? "active" : "waiting"}>
+      <span className={styles.stepDot} aria-hidden="true">{i < index ? "✓" : ""}</span>
+      <div>{title}<small>{i < index ? "已完成" : i === index ? "正在处理" : "等待进行"}</small></div>
+    </li>)}</ol>
+  </section>;
+}
 
 function trapTab(event: KeyboardEvent<HTMLElement>) {
   if (event.key !== "Tab") return;
@@ -49,6 +74,8 @@ export function useTranscriptPeople(
   const [open, setOpen] = useState(false);
   const [editingMatch, setEditingMatch] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
+  const [progress, setProgress] = useState<{ stage: string; started: number } | null>(null);
+  const [needsReadback, setNeedsReadback] = useState(false);
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState("");
@@ -61,8 +88,11 @@ export function useTranscriptPeople(
   const pending = draft?.matches.some((m) => !m.applied) ?? false;
   const panelElement = useRef<HTMLElement>(null);
   const editorElement = useRef<HTMLElement>(null);
+  const panelBodyElement = useRef<HTMLDivElement>(null);
+  const panelScroll = useRef(0);
   const request = useRef<AbortController | null>(null);
   const generation = useRef(0);
+  const operation = useRef(false);
   useEffect(() => {
     if (!open) return;
     const previous =
@@ -70,6 +100,7 @@ export function useTranscriptPeople(
         ? document.activeElement
         : null;
     panelElement.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    if (panelBodyElement.current) panelBodyElement.current.scrollTop = panelScroll.current;
     return () => previous?.focus();
   }, [open]);
   const editing = editor !== null;
@@ -82,9 +113,10 @@ export function useTranscriptPeople(
     editorElement.current
       ?.querySelector<HTMLInputElement>('input[type="text"],input:not([type])')
       ?.focus();
+    const panel = panelElement.current;
     return () => queueMicrotask(() => {
       if (previous?.isConnected) previous.focus();
-      else panelElement.current?.querySelector<HTMLButtonElement>("button")?.focus();
+      else panel?.querySelector<HTMLButtonElement>("button")?.focus();
     });
   }, [editing]);
   const sourceVersion = `artifact-${artifactSetId}`;
@@ -97,9 +129,14 @@ export function useTranscriptPeople(
     if (!episodeId) return;
     const controller = new AbortController();
     const requestGeneration = generation;
+    const initialGeneration = generation.current;
+    operation.current = false;
     setBusy("");
+    setProgress(null);
+    setNeedsReadback(false);
     setSaved("");
     setEditingMatch(null);
+    panelScroll.current = 0;
     setHistory([]);
     setPeople(null);
     setDraft(null);
@@ -110,10 +147,10 @@ export function useTranscriptPeople(
     episodeCopilotApi
       .getPeople(episodeId, controller.signal)
       .then((value) => {
-        if (!controller.signal.aborted) accept(value);
+        if (!controller.signal.aborted && generation.current === initialGeneration) accept(value);
       })
       .catch(() => {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted && generation.current === initialGeneration)
           setError("人物资料读取失败，可重试；逐字稿仍可阅读。");
       });
     return () => {
@@ -123,6 +160,7 @@ export function useTranscriptPeople(
     };
   }, [episodeId, artifactSetId, accept]);
   const current = people?.source_version === sourceVersion;
+  const draftOutdated = !!draft && (draft.outdated || draft.source_version !== sourceVersion || !current);
   const applied = current
     ? (people?.attributions ?? []).filter(
         (a) => a.status === "confirmed" && a.user_confirmed && a.person_id,
@@ -140,6 +178,8 @@ export function useTranscriptPeople(
     action: () => Promise<EpisodePeoplePayload>,
     appliedChange = false,
   ) => {
+    if (operation.current) return false;
+    operation.current = true;
     const version = ++generation.current;
     setBusy(label);
     setError("");
@@ -157,30 +197,82 @@ export function useTranscriptPeople(
         );
       return false;
     } finally {
-      if (generation.current === version) setBusy("");
+      if (generation.current === version) { setBusy(""); operation.current = false; }
     }
   };
   const loadHistory = async () => {
     if (!episodeId) return;
+    const version = generation.current;
     try {
-      const version = generation.current;
       const result = await episodeCopilotApi.peopleDrafts(episodeId);
       if (generation.current === version) setHistory(result);
     } catch {
-      setError("草稿读取失败，请重试。");
+      if (generation.current === version) setError("草稿读取失败，请重试。");
     }
   };
-  const prepare = async () => {
-    if (!episodeId || dirty) return;
-    request.current = new AbortController();
+  const reconcile = async (version: number, cancelled: boolean, previousDraft = draft) => {
+    if (!episodeId) return;
+    operation.current = true;
+    setBusy("正在核对已保存结果…");
+    setProgress(null);
+    const controller = new AbortController();
+    request.current = controller;
+    try {
+      const value = await episodeCopilotApi.getPeople(episodeId, controller.signal);
+      if (generation.current !== version) return;
+      accept(value);
+      setNeedsReadback(false);
+      const newDraft = value.draft && (value.draft.id !== previousDraft?.id || value.draft.revision !== previousDraft?.revision);
+      setError(newDraft || cancelled ? "" : "识别未完成或连接中断，已保存结果保留，可重试。");
+      setSaved(newDraft ? "已核对：草稿已保存，等待你确认" : cancelled
+        ? "已请求取消；未发现新的已保存草稿。已有结果保留。" : "");
+    } catch {
+      if (generation.current === version) {
+        setNeedsReadback(true);
+        setError("结果状态尚未确认，请重新读取后再决定是否重试。");
+      }
+    } finally { if (generation.current === version) { setBusy(""); operation.current = false; } }
+  };
+  const prepare = async (started: number) => {
+    if (!episodeId || dirty || operation.current || needsReadback) return;
+    operation.current = true;
+    const controller = new AbortController();
+    request.current = controller;
+    const version = ++generation.current;
+    let streamID: string | undefined;
     setOpen(true);
-    await run("正在识别人物…", () =>
-      episodeCopilotApi.preparePeople(episodeId, request.current!.signal),
-    );
-    await loadHistory();
+    setBusy("正在识别人物…");
+    setError("");
+    setSaved("");
+    panelScroll.current = 0;
+    if (panelBodyElement.current) panelBodyElement.current.scrollTop = 0;
+    setProgress({stage: "", started});
+    try {
+      const value = await episodeCopilotApi.preparePeople(episodeId, controller.signal, (event: PersonPreparationEvent) => {
+        if (generation.current !== version || controller.signal.aborted) return;
+        if (streamID && streamID !== event.request_id) return;
+        streamID = event.request_id;
+        if (event.source_version && event.source_version !== sourceVersion) return;
+        if (event.type === "stage" && event.stage) setProgress((p) => p ? {...p, stage:event.stage!} : null);
+      });
+      if (generation.current !== version || controller.signal.aborted) return;
+      if (value.source_version !== sourceVersion) throw new Error("逐字稿来源已变化");
+      accept(value);
+      setSaved("草稿已保存，等待你确认");
+      await loadHistory();
+    } catch {
+      if (generation.current === version) await reconcile(version, controller.signal.aborted);
+    } finally {
+      if (generation.current === version) { setBusy(""); setProgress(null); operation.current = false; }
+    }
+  };
+  const cancelPreparation = () => {
+    if (!progress) return;
+    request.current?.abort();
+    void reconcile(++generation.current, true);
   };
   const review = async (apply: boolean) => {
-    if (!episodeId || !draft) return;
+    if (!episodeId || !draft || draftOutdated) return;
     const selected = draft.matches.filter((m) => m.selected);
     if (apply && selected.length === 0) return;
     const success = await run(
@@ -215,6 +307,7 @@ export function useTranscriptPeople(
     setSaved("");
   };
   const editSpeaker = (segment: TranscriptSegment) => {
+    if (busy || !current) return;
     if (dirty) {
       setError("草稿尚未保存，请先保存或放弃本次修改。");
       return;
@@ -280,10 +373,13 @@ export function useTranscriptPeople(
     !applied.some((a) => a.speaker_label === speaker) &&
     !draft?.matches.some((m) => m.speaker_label === speaker && m.orders.length > 0),
   );
-  const selectedCount = new Set(draft?.matches.filter((m) => m.selected && !m.applied)
+  const selectedCount = draftOutdated ? 0 : new Set(draft?.matches.filter((m) => m.selected && !m.applied)
     .flatMap((m) => m.orders) ?? []).size;
-  const reload = () =>
-    episodeId && run("正在读取…", () => episodeCopilotApi.getPeople(episodeId));
+  const reload = () => {
+    if (operation.current) return;
+    if (dirty) { setError("草稿尚未保存，请先保存或放弃修改。"); return; }
+    void reconcile(++generation.current, false);
+  };
   return {
     open,
     nameFor,
@@ -355,7 +451,7 @@ export function useTranscriptPeople(
           ref={panelElement}
           className={styles.panel}
           role="dialog"
-          aria-modal="true"
+          aria-modal={!editing}
           aria-label="人物与发言核对"
           onKeyDown={(e) => {
             if (e.key === "Escape") {
@@ -376,7 +472,7 @@ export function useTranscriptPeople(
               <IconX size={18} />
             </button>
           </header>
-          <div className={styles.panelBody}>
+          <div className={styles.panelBody} ref={panelBodyElement} onScroll={(event) => { panelScroll.current = event.currentTarget.scrollTop; }}>
             {error && (
               <p role="alert" className={styles.error}>
                 {error}
@@ -385,34 +481,18 @@ export function useTranscriptPeople(
                 </button>
               </p>
             )}
+            {progress && <PreparationStatus stage={progress.stage} started={progress.started} />}
+            <div hidden={!!progress}>
             <div className={styles.overview}>
               <span>{speakers.length} 位说话人</span>
               <span>{unmatched.length ? `${unmatched.length} 位待确认姓名` : "核对姓名与发言范围"}</span>
             </div>
             {!draft && !busy && <p>识别人物并核对发言，或手动填写姓名。确认后才会更新逐字稿。</p>}
-            <div className={styles.actions}>
-              <button
-                type="button"
-                disabled={!!busy || dirty}
-                onClick={() => void prepare()}
-              >
-                {draft ? "重新识别" : "开始识别"}
-              </button>
-              {busy === "正在识别人物…" && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    request.current?.abort();
-                    generation.current++;
-                    setBusy("");
-                    setSaved("已取消，已保存结果保留");
-                  }}
-                >
-                  取消识别
-                </button>
-              )}
-            </div>
-            <p role="status">{busy || (dirty ? "修改尚未保存" : saved)}</p>
+            {!draft && <div className={styles.actions}>
+              <button type="button" disabled={!!busy || dirty || needsReadback}
+                onClick={(event) => void prepare(event.timeStamp)}>开始识别</button>
+            </div>}
+            <p role="status">{progress ? "" : busy || (dirty ? "修改尚未保存" : saved)}</p>
             {history.length > 1 && (
               <label>
                 识别记录
@@ -436,7 +516,7 @@ export function useTranscriptPeople(
                 </select>
               </label>
             )}
-            {draft?.outdated && (
+            {draftOutdated && (
               <p className={styles.error}>
                 来源已变化，此记录仅供核对。请重新识别当前逐字稿。
               </p>
@@ -482,7 +562,7 @@ export function useTranscriptPeople(
                       type="checkbox"
                       checked={match.selected}
                       disabled={
-                        !!busy || draft.outdated || !match.orders.length
+                        !!busy || draftOutdated || !match.orders.length
                       }
                       onChange={(e) =>
                         editMatch(match.key, { selected: e.target.checked })
@@ -493,7 +573,7 @@ export function useTranscriptPeople(
                     {match.display_name}
                   </label>
                   <button type="button" className={styles.editAction}
-                    aria-label={`编辑匹配 ${match.display_name}`} disabled={!!busy || draft.outdated}
+                    aria-label={`编辑匹配 ${match.display_name}`} disabled={!!busy || draftOutdated}
                     aria-expanded={editingMatch === match.key}
                     onClick={() => setEditingMatch(editingMatch === match.key ? null : match.key)}>
                     {editingMatch === match.key ? "收起编辑" : "编辑"}
@@ -523,7 +603,7 @@ export function useTranscriptPeople(
                       <input
                         aria-label={`姓名 ${match.key}`}
                         value={match.display_name}
-                        disabled={!!busy || draft.outdated}
+                        disabled={!!busy || draftOutdated}
                         onChange={(e) =>
                           editMatch(match.key, { display_name: e.target.value })
                         }
@@ -533,7 +613,7 @@ export function useTranscriptPeople(
                       角色
                       <select
                         value={match.role}
-                        disabled={!!busy || draft.outdated}
+                        disabled={!!busy || draftOutdated}
                         onChange={(e) =>
                           editMatch(match.key, {
                             role: e.target.value,
@@ -568,7 +648,7 @@ export function useTranscriptPeople(
                           <input
                             type="checkbox"
                             checked={match.orders.includes(seg.order)}
-                            disabled={!!busy || draft.outdated}
+                            disabled={!!busy || draftOutdated}
                             onChange={(e) =>
                               editMatch(match.key, {
                                 orders: e.target.checked
@@ -627,13 +707,19 @@ export function useTranscriptPeople(
                 已应用人物：{names.join("、")}。双击逐字稿姓名可修改或解除匹配。
               </p>
             )}
+            </div>
           </div>
-          {draft && (
+          {progress ? <footer className={styles.progressFooter}>
+            <span className={styles.footerSummary}>完成后由你确认，才会更新逐字稿。<small>收起弹层可继续阅读，已有结果保留。</small></span>
+            <button type="button" onClick={cancelPreparation}>取消识别</button>
+          </footer> : draft && (
             <footer>
               <span className={styles.footerSummary}>本次将更新 {selectedCount} 段发言<small>{dirty ? "修改尚未保存" : "草稿已保存"}</small></span>
+              <button type="button" className={styles.reidentify} disabled={!!busy || dirty || needsReadback}
+                onClick={(event) => void prepare(event.timeStamp)}><span aria-hidden="true">↻ </span>重新识别</button>
               <button
                 type="button"
-                disabled={!dirty || !!busy || draft.outdated}
+                disabled={!dirty || !!busy || draftOutdated}
                 onClick={() => void review(false)}
               >
                 保存草稿
@@ -643,7 +729,7 @@ export function useTranscriptPeople(
                 className={styles.primary}
                 disabled={
                   !!busy ||
-                  draft.outdated ||
+                  draftOutdated ||
                   selectedCount === 0
                 }
                 onClick={() => void review(true)}

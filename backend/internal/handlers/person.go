@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"magicpodcast/internal/contentsearch"
@@ -58,6 +59,10 @@ func (h *PersonHandler) Prepare(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 150*time.Second)
 	defer cancel()
+	if strings.Contains(c.GetHeader("Accept"), "text/event-stream") {
+		streamPersonPreparation(c, ctx, id, preparer.PrepareCurrent)
+		return
+	}
 	result, err := preparer.PrepareCurrent(ctx, id)
 	if err != nil {
 		writePersonError(c, err)

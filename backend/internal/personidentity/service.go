@@ -80,6 +80,7 @@ func (s *Service) Prepare(ctx context.Context, sources EpisodeSources) (EpisodeP
 		fragments = append(fragments, extractedFragment{Segment: segment, Status: StatusPending, EvidenceKind: "unmatched_label", EvidenceLocator: fragmentLocator(segment)})
 	}
 	if s.suggester != nil {
+		reportPreparation(ctx, "identify", sources.SourceVersion)
 		suggested, err := s.suggester.Suggest(ctx, sources)
 		if err != nil {
 			return EpisodePeople{}, err
@@ -107,6 +108,7 @@ func (s *Service) Prepare(ctx context.Context, sources EpisodeSources) (EpisodeP
 			}
 		}
 	}
+	reportPreparation(ctx, "save", sources.SourceVersion)
 	return s.saveSuggestion(ctx, sources, metadata, revision, candidates, fragments)
 }
 
@@ -1344,6 +1346,7 @@ func (s *Service) currentSources(ctx context.Context, episodeID uint) (EpisodeSo
 }
 
 func (s *Service) PrepareCurrent(ctx context.Context, episodeID uint) (EpisodePeople, error) {
+	reportPreparation(ctx, "read", "")
 	sources, err := s.currentSources(ctx, episodeID)
 	if err != nil {
 		return EpisodePeople{}, err

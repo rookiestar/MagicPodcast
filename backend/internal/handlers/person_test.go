@@ -175,6 +175,12 @@ func (p *cancellablePersonPreparation) PrepareCurrent(ctx context.Context, _ uin
 }
 
 func TestPersonPreparationObservesHTTPClientCancellationWithPOSTBody(t *testing.T) {
+	for _, accept := range []string{"application/json", "text/event-stream"} {
+		t.Run(accept, func(t *testing.T) { checkPersonPreparationCancellation(t, accept) })
+	}
+}
+
+func checkPersonPreparationCancellation(t *testing.T, accept string) {
 	gin.SetMode(gin.TestMode)
 	preparer := &cancellablePersonPreparation{started: make(chan struct{}), cancelled: make(chan struct{}), release: make(chan struct{})}
 	engine := gin.New()
@@ -186,6 +192,7 @@ func TestPersonPreparationObservesHTTPClientCancellationWithPOSTBody(t *testing.
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/episodes/1/people/prepare", bytes.NewBufferString("{}"))
 	require.NoError(t, err)
+	request.Header.Set("Accept", accept)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
