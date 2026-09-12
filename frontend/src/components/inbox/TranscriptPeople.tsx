@@ -443,8 +443,8 @@ export function useTranscriptPeople(
       </div>
     ) : null,
     panel:
-      open && episodeId ? createPortal(
-        <div className={styles.backdrop} onMouseDown={(e) => {
+      episodeId ? createPortal(
+        <div className={styles.backdrop} style={open ? undefined : { display: "none" }} onMouseDown={(e) => {
           if (e.target === e.currentTarget) close();
         }} onClick={(e) => e.stopPropagation()}>
         <section

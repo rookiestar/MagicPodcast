@@ -417,3 +417,16 @@ it("submits only the selected fragments and preserves edits after a revision con
   expect(screen.getByText("本次将更新 1 段发言")).toBeInTheDocument();
   expect(episodeCopilotApi.getPeople).toHaveBeenCalledTimes(1);
 });
+
+it("retains expanded evidence when locating the transcript and reopening review", async () => {
+  vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue(proposal);
+  render(<Player />);
+  fireEvent.click(await screen.findByRole("button", { name: "继续核对" }));
+  const summary = screen.getByText("核对匹配范围 · 主持人 · 2 段");
+  fireEvent.click(summary);
+  expect(summary.closest("details")).toHaveAttribute("open");
+  fireEvent.click(screen.getAllByRole("button", { name: "定位 / 试听" })[0]);
+  expect(screen.queryByRole("dialog", { name: "人物与发言核对" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "继续核对" }));
+  expect(screen.getByText("核对匹配范围 · 主持人 · 2 段").closest("details")).toHaveAttribute("open");
+});
