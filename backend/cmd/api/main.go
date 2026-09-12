@@ -105,6 +105,11 @@ func main() {
 	if err := database.RequireSchemaReady(db); err != nil {
 		logger.Fatalf("Database schema is not ready: %v", err)
 	}
+	if cfg.LLM.Enabled {
+		if err := validatePersistedWorkflowLLMConfigs(db, cfg.LLM); err != nil {
+			logger.Fatalf("Workflow LLM configuration is invalid: %v", err)
+		}
+	}
 
 	// 设置路由
 	logger.Info("🔧 Setting up routes...")
