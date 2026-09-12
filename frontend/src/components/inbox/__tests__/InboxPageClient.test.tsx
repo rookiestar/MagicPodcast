@@ -1855,6 +1855,12 @@ describe("InboxPageClient", () => {
     fireEvent.click(await within(dialog).findByRole("tab", { name: "转写" }));
 
     expect(await within(dialog).findByText("飞书智能纪要")).toBeVisible();
+    // The metadata label appears as soon as the artifact is known; wait for
+    // the default-tab effect before asserting its selected state.
+    const summaryTab = within(dialog).getByRole("tab", { name: "总结" });
+    await waitFor(() =>
+      expect(summaryTab).toHaveAttribute("aria-selected", "true"),
+    );
     const boardViewport = screen.getByRole("region", {
       name: "消费队列横向总览",
     });
@@ -1863,7 +1869,6 @@ describe("InboxPageClient", () => {
     }).parentElement as HTMLElement;
     boardViewport.scrollLeft = 137;
     detailScroll.scrollTop = 164;
-    const summaryTab = within(dialog).getByRole("tab", { name: "总结" });
     const minutesTab = within(dialog).getByRole("tab", { name: "纪要" });
     expect(summaryTab).toHaveAttribute("aria-selected", "true");
     expect(within(dialog).getByRole("heading", { name: "总结" })).toBeVisible();
