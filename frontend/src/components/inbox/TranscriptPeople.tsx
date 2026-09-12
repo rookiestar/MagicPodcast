@@ -79,6 +79,12 @@ export function useTranscriptPeople(
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState("");
+  // SSR 不能渲染 Portal；延迟到客户端挂载后再建立，且之后保持挂载，
+  // 使关闭弹层仍只隐藏而不丢失审阅滚动与 details 展开状态。
+  const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setPortalHost(document.body);
+  }, []);
   const [editor, setEditor] = useState<{
     order: number;
     name: string;
@@ -444,7 +450,7 @@ export function useTranscriptPeople(
       </div>
     ) : null,
     panel:
-      episodeId ? createPortal(
+      episodeId && portalHost ? createPortal(
         <div className={styles.backdrop} style={open ? undefined : { display: "none" }} onMouseDown={(e) => {
           if (e.target === e.currentTarget) close();
         }} onClick={(e) => e.stopPropagation()}>
@@ -524,13 +530,34 @@ export function useTranscriptPeople(
             )}
             {speakers.filter((speaker) => !draft?.matches.some((m) => m.speaker_label === speaker && m.orders.length)).map((speaker, i) => {
               const group = segments.filter((s) => s.speaker === speaker);
-              const assignedNames = [...new Set(applied.filter((a) => a.speaker_label === speaker).map((a) => a.display_name))];
+              const assigned = applied.filter((a) => a.speaker_label === speaker);
+              const assignedNames = [...new Set(assigned.map((a) => a.display_name))];
+              const appliedCount = new Set(assigned.map((a) => a.fragment_order)).size;
+              const allApplied = group.length > 0 && appliedCount === group.length;
+              // 每个已应用人物各给一个入口，定位到该人物实际已应用的片段；
+              // 混合多人归属时不能任取首段，否则会打开错误的人物。
+              const editTargets: typeof applied = [];
+              const seenPersons = new Set<number>();
+              for (const a of assigned) {
+                if (!a.person_id || seenPersons.has(a.person_id)) continue;
+                if (!segments.some((s) => s.order === a.fragment_order)) continue;
+                seenPersons.add(a.person_id);
+                editTargets.push(a);
+              }
               return <section className={styles.unmatched} key={speaker}>
                 <span className={styles.avatar}>{String(i + 1).padStart(2, "0")}</span>
-                <div><strong>{speaker}{assignedNames.length ? ` → ${assignedNames.join("、")}` : ""}</strong> <span className={styles.badge}>{assignedNames.length ? "已应用" : "姓名待确认"}</span>
-                  <p>{group.length} 段发言 · {assignedNames.length ? "可修改或解除匹配" : "尚无可靠姓名匹配"}</p></div>
-                <button type="button" disabled={!!busy || dirty || !current}
-                  onClick={() => editSpeaker(group[0])}>{assignedNames.length ? "修改匹配" : "填写姓名"}</button>
+                <div><strong>{speaker}{assignedNames.length ? ` → ${assignedNames.join("、")}` : ""}</strong> <span className={styles.badge}>{allApplied ? "已应用" : assignedNames.length ? "局部已应用" : "姓名待确认"}</span>
+                  <p>{group.length} 段发言 · {assignedNames.length ? (allApplied ? "可修改或解除匹配" : `已应用 ${appliedCount} 段，其余 ${group.length - appliedCount} 段待确认`) : "尚无可靠姓名匹配"}</p></div>
+                {editTargets.length ? editTargets.map((a) => (
+                  <button type="button" key={a.id} disabled={!!busy || dirty || !current}
+                    onClick={() => {
+                      const target = segments.find((s) => s.order === a.fragment_order);
+                      if (target) editSpeaker(target);
+                    }}>修改「{a.display_name}」</button>
+                )) : (
+                  <button type="button" disabled={!!busy || dirty || !current}
+                    onClick={() => editSpeaker(group[0])}>填写姓名</button>
+                )}
               </section>;
             })}
             {draft?.matches.map((match) => {
@@ -752,10 +779,10 @@ export function useTranscriptPeople(
             </footer>
           )}
         </section>
-        </div>, document.body
+        </div>, portalHost
       ) : null,
     editor:
-      editor && anchor
+      editor && anchor && portalHost
         ? createPortal(
             <div
               className={styles.editorBackdrop}
@@ -868,7 +895,7 @@ export function useTranscriptPeople(
                 </div>
               </section>
             </div>,
-            document.body,
+            portalHost,
           )
         : null,
   };
