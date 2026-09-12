@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 	"unicode"
@@ -208,13 +209,25 @@ func (s *Service) run(
 	}
 	activities := &questionActivities{}
 	var (
+		personaSnapshots   = map[uint]personidentity.EpisodePeople{}
 		personaPerson      personidentity.PersonView
 		library            contentsearch.Result
 		librarySufficient  bool
 		librarySearchError error
 	)
 	if request.TargetPersonID != 0 {
-		personaPerson, _ = s.resolveTargetPerson(ctx, request, episodeContext)
+		resolved, targetErr := s.resolveTargetPerson(ctx, request, episodeContext)
+		if targetErr != nil {
+			emitFailure(ctx, events, baseEvent, "person_attribution_changed", "人物归属已更新，请重新选择人物。", true)
+			return
+		}
+		personaPerson = resolved
+		current, snapshotErr := s.people.ListEpisodePeople(ctx, request.EpisodeID)
+		if snapshotErr != nil {
+			emitFailure(ctx, events, baseEvent, "person_attribution_changed", "人物发言暂时无法核对，请重试。", true)
+			return
+		}
+		personaSnapshots[request.EpisodeID] = current
 		if !activities.announce(
 			ctx,
 			events,
@@ -227,6 +240,17 @@ func (s *Service) run(
 			return
 		}
 		library, librarySufficient, librarySearchError = s.searchLibrary(ctx, request, personaPerson)
+		for _, hit := range library.Hits {
+			if _, exists := personaSnapshots[hit.EpisodeID]; exists {
+				continue
+			}
+			current, err := s.people.ListEpisodePeople(ctx, hit.EpisodeID)
+			if err != nil {
+				emitFailure(ctx, events, baseEvent, "person_attribution_changed", "人物发言暂时无法核对，请重试。", true)
+				return
+			}
+			personaSnapshots[hit.EpisodeID] = current
+		}
 		if librarySearchError != nil {
 			library.Coverage.Complete = false
 			library.Coverage.Reason = contentsearch.CoverageIndexNotReady
@@ -589,6 +613,16 @@ func (s *Service) run(
 			true,
 		)
 		return
+	}
+
+	// Draft revisions are bookkeeping, not changes to the evidence used by an answer.
+	// Compare effective views for every episode actually cited by the library search.
+	for episodeID, prior := range personaSnapshots {
+		current, err := s.people.ListEpisodePeople(ctx, episodeID)
+		if err != nil || current.SourceVersion != prior.SourceVersion || !reflect.DeepEqual(current.People, prior.People) || !reflect.DeepEqual(current.Attributions, prior.Attributions) {
+			emitFailure(ctx, events, baseEvent, "person_attribution_changed", "发言归属已更新，请重新提问。", true)
+			return
+		}
 	}
 	if !emitAnswerDelta(gatedTail) {
 		return

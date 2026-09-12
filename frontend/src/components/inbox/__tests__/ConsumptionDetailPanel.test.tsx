@@ -80,6 +80,7 @@ vi.mock("@/lib/api/processing", () => ({
 
 vi.mock("@/lib/api/episodeCopilot", () => ({
   episodeCopilotApi: {
+ getPeople: vi.fn().mockResolvedValue({episode_id:201,source_version:"",people:[],attributions:[],index_ready:false}),
     getContext: apiMocks.getCopilotContext,
     ask: apiMocks.askCopilot,
   },

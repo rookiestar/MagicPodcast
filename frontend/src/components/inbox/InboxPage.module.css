@@ -4233,3 +4233,8 @@ button.transcriptSegment:hover:not([aria-current="true"]) {
 
 .copilotCorrection blockquote { margin: 8px 0; padding-left: 12px; border-left: 2px solid var(--rule); overflow-wrap: anywhere; }
 .copilotCorrection summary { cursor: pointer; }
+
+.transcriptPeopleLayout { display:grid; grid-template-columns:minmax(0,1fr) minmax(300px,380px); gap:18px; align-items:start; }
+.transcriptTextButton { display:block; width:100%; border:0; padding:0; text-align:left; color:inherit; font:inherit; background:transparent; cursor:pointer; }
+.transcriptTextButton:focus-visible { outline:2px solid var(--primary-color,#5369c9); outline-offset:4px; }
+@media (max-width:1000px) { .transcriptPeopleLayout { display:block; } }

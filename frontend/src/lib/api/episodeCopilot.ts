@@ -4,6 +4,8 @@ import type {
   EpisodeCopilotQuestion,
   EpisodeCopilotStreamEvent,
   EpisodePeoplePayload,
+ PersonReviewDraft,
+ PersonReviewMatch,
 } from "@/types/episodeCopilot";
 import { apiBaseUrl } from "../apiBaseUrl";
 import {
@@ -44,6 +46,13 @@ function errorCode(error: unknown) {
 }
 
 export const episodeCopilotApi = {
+ reviewPeople: async (episodeId: number, body: {draft_id: number; revision: number; source_version: string; matches: PersonReviewMatch[]}, apply: boolean): Promise<EpisodePeoplePayload> =>
+  handleResponse(await api.post<ApiResponse<EpisodePeoplePayload>>(`/api/v1/episodes/${episodeId}/people/${apply ? "apply" : "draft"}`, body, inlineApiErrorConfig)),
+ peopleDrafts: async (episodeId: number): Promise<PersonReviewDraft[]> =>
+  handleResponse(await api.get<ApiResponse<PersonReviewDraft[]>>(`/api/v1/episodes/${episodeId}/people/drafts`, inlineApiErrorConfig)),
+ manualPerson: async (episodeId: number, body: {revision: number; source_version: string; fragment_order: number; scope: string; person_id: number; display_name: string; clear: boolean}): Promise<EpisodePeoplePayload> =>
+  handleResponse(await api.post<ApiResponse<EpisodePeoplePayload>>(`/api/v1/episodes/${episodeId}/people/manual`, body, inlineApiErrorConfig)),
+
   preparePeople: async (episodeId: number, signal?: AbortSignal): Promise<EpisodePeoplePayload> => {
     const response = await api.post<ApiResponse<EpisodePeoplePayload>>(
       `/api/v1/episodes/${episodeId}/people/prepare`, {},

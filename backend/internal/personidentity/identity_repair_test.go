@@ -65,7 +65,7 @@ func TestPrepareWithoutRuntimeDoesNotInferPeople(t *testing.T) {
 	require.NoError(t, db.Create(&ep).Error)
 	service, err := NewService(db, nil)
 	require.NoError(t, err)
-	_, err = service.Prepare(context.Background(), EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", ShowNotes: "嘉宾是战略学家陈明。"})
+	_, err = prepareReviewed(service, context.Background(), EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", ShowNotes: "嘉宾是战略学家陈明。"})
 	require.ErrorIs(t, err, ErrIdentityUnavailable)
 	listed, err := service.ListEpisodePeople(context.Background(), ep.ID)
 	require.NoError(t, err)
@@ -113,7 +113,7 @@ func TestPrepareDoesNotPromoteUnreviewedPhrases(t *testing.T) {
 	for i, text := range []string{"我是这个观点。", "我是因为纯粹我自己。", "我是敢用的。", "我是觉得绝对要有希望的。", "我是觉得。", "我是比较乐观的。"} {
 		segments = append(segments, Segment{Order: i + 1, SpeakerLabel: "Speaker 2", Text: text})
 	}
-	got, err := service.Prepare(context.Background(), EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", ShowNotes: ep.ShowNotes, Segments: segments})
+	got, err := prepareReviewed(service, context.Background(), EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", ShowNotes: ep.ShowNotes, Segments: segments})
 	require.NoError(t, err)
 	require.Equal(t, []string{"陈明"}, names(got.People))
 }
@@ -126,7 +126,7 @@ func TestPrepareKeepsSemanticHostRole(t *testing.T) {
 	require.NoError(t, db.Create(&ep).Error)
 	service, err := NewService(db, stubSuggester{candidates: []SuggestedCandidate{{DisplayName: "小林", Role: RoleHost, IdentityNote: "访谈主持人", EvidenceKind: "verified_runtime", SpeechOrders: []int{1}}}})
 	require.NoError(t, err)
-	got, err := service.Prepare(context.Background(), EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", Segments: []Segment{{Order: 1, SpeakerLabel: "Speaker 1", Text: "我是小林。今天由我来主持访谈。"}}})
+	got, err := prepareReviewed(service, context.Background(), EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", Segments: []Segment{{Order: 1, SpeakerLabel: "Speaker 1", Text: "我是小林。今天由我来主持访谈。"}}})
 	require.NoError(t, err)
 	require.Equal(t, RoleHost, mustPersonByName(t, got, "小林").Role)
 }
@@ -142,7 +142,7 @@ func TestPrepareSuppliesPublicPodcastContext(t *testing.T) {
 		received = fmt.Sprintf("%+v", src)
 	}})
 	require.NoError(t, err)
-	_, err = service.Prepare(context.Background(), EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", Segments: []Segment{{Order: 1, SpeakerLabel: "Speaker 1", Text: "我是小云。"}}})
+	_, err = prepareReviewed(service, context.Background(), EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", Segments: []Segment{{Order: 1, SpeakerLabel: "Speaker 1", Text: "我是小云。"}}})
 	require.NoError(t, err)
 	for _, value := range []string{pod.Title, pod.Author, pod.Description, ep.Title, ep.PublishedDate.Format(time.RFC3339)} {
 		require.Contains(t, received, value)

@@ -80,7 +80,7 @@ func TestRuntimeSpeechReviewPublishesOnlyReviewedSingleSpeakerFragments(t *testi
 			require.NoError(t, err)
 			service, err := NewService(db, NewRuntimeSuggester(runtime, t.TempDir()), search)
 			require.NoError(t, err)
-			got, err := service.Prepare(context.Background(), EpisodeSources{EpisodeID: ep.ID, SourceVersion: "review-fixture", Segments: []Segment{{Order: 1, SpeakerLabel: "A", Text: "我是林言。"}, {Order: 2, SpeakerLabel: "A", Text: "准备公开吗？同意，你接着说。我继续整理。"}, {Order: 3, SpeakerLabel: "A", Text: "我还会继续研究。"}}})
+			got, err := prepareReviewed(service, context.Background(), EpisodeSources{EpisodeID: ep.ID, SourceVersion: "review-fixture", Segments: []Segment{{Order: 1, SpeakerLabel: "A", Text: "我是林言。"}, {Order: 2, SpeakerLabel: "A", Text: "准备公开吗？同意，你接着说。我继续整理。"}, {Order: 3, SpeakerLabel: "A", Text: "我还会继续研究。"}}})
 			if omit {
 				require.Error(t, err)
 				var count int64
@@ -170,7 +170,7 @@ func TestCancellationDuringSpeechReviewCancelsRuntimeAndDoesNotPublish(t *testin
 	defer cancel()
 	finished := make(chan error, 1)
 	go func() {
-		_, err := service.Prepare(ctx, EpisodeSources{EpisodeID: ep.ID, SourceVersion: "cancel-review", Segments: []Segment{{Order: 1, SpeakerLabel: "A", Text: "我是林言。"}}})
+		_, err := prepareReviewed(service, ctx, EpisodeSources{EpisodeID: ep.ID, SourceVersion: "cancel-review", Segments: []Segment{{Order: 1, SpeakerLabel: "A", Text: "我是林言。"}}})
 		finished <- err
 	}()
 	select {

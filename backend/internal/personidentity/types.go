@@ -86,7 +86,9 @@ type AttributionView struct {
 }
 
 type EpisodePeople struct {
-	PreparationState    string `json:"preparation_state"`
+	Revision            uint         `json:"revision"`
+	Draft               *ReviewDraft `json:"draft,omitempty"`
+	PreparationState    string       `json:"preparation_state"`
 	preparationRevision uint
 	publishedRevision   uint
 	EpisodeID           uint              `json:"episode_id"`

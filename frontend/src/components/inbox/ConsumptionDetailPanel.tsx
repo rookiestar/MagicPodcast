@@ -1205,6 +1205,7 @@ export default function ConsumptionDetailPanel({
                 rejectedProfileIDs={rejectedCopilotProfileIDs}
                 onRejectedProfileID={onRejectedCopilotProfileID}
                 onOpenSourceEpisode={openCopilotSource}
+                onManagePeople={() => setActiveTab("transcript")}
               />
             </div>
           </aside>

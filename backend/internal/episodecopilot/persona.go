@@ -53,7 +53,9 @@ func (s *Service) attachPeople(ctx context.Context, scope *ContextScope) error {
 		}
 	}
 	for _, person := range listed.People {
-		scope.People = append(scope.People, convertPerson(person))
+		if person.Status == personidentity.StatusConfirmed && person.ConfirmedSpeech > 0 {
+			scope.People = append(scope.People, convertPerson(person))
+		}
 	}
 	scope.ExcludedPeople = make([]PersonCandidate, 0, len(listed.ExcludedPeople))
 	for _, person := range listed.ExcludedPeople {
@@ -89,7 +91,7 @@ func (s *Service) resolveTargetPerson(
 		if person.ID != request.TargetPersonID {
 			continue
 		}
-		if person.Status != personidentity.StatusConfirmed {
+		if person.Status != personidentity.StatusConfirmed || person.ConfirmedSpeech == 0 {
 			return personidentity.PersonView{}, ErrPersonPending
 		}
 		return person, nil

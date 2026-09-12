@@ -75,7 +75,7 @@ func TestPersonaRealCorpus(t *testing.T) {
 			ep.ID = source.EpisodeID
 			require.NoError(t, db.Create(&ep).Error)
 			start := time.Now()
-			listed, err := people.Prepare(context.Background(), personidentity.EpisodeSources{EpisodeID: ep.ID, SourceVersion: fmt.Sprintf("real-eval-%d", ep.ID), ShowNotes: ep.ShowNotes, Segments: personidentity.SegmentsFromTranscript(source.Timeline.Segments)})
+			listed, err := prepareReviewed(people, context.Background(), personidentity.EpisodeSources{EpisodeID: ep.ID, SourceVersion: fmt.Sprintf("real-eval-%d", ep.ID), ShowNotes: ep.ShowNotes, Segments: personidentity.SegmentsFromTranscript(source.Timeline.Segments)})
 			require.NoError(t, err)
 			report := struct {
 				Seconds float64                      `json:"seconds"`
@@ -240,7 +240,7 @@ func TestPersonaPublicWebCapability(t *testing.T) {
 	require.NoError(t, db.Create(&podcast).Error)
 	episode := models.Episode{PodcastID: podcast.ID, Title: "公开原文问答能力测试（合成单集）", GUID: "public-web-check", ShowNotes: "嘉宾PaulGraham（Y Combinator联合创始人、文章作者）"}
 	require.NoError(t, db.Create(&episode).Error)
-	listed, err := people.Prepare(context.Background(), personidentity.EpisodeSources{EpisodeID: episode.ID, SourceVersion: "web-check-v1", ShowNotes: episode.ShowNotes, Segments: []personidentity.Segment{{Order: 1, SpeakerLabel: "Speaker 1", Text: "这是一条隔离验证记录，没有人物观点。"}}})
+	listed, err := prepareReviewed(people, context.Background(), personidentity.EpisodeSources{EpisodeID: episode.ID, SourceVersion: "web-check-v1", ShowNotes: episode.ShowNotes, Segments: []personidentity.Segment{{Order: 1, SpeakerLabel: "Speaker 1", Text: "这是一条隔离验证记录，没有人物观点。"}}})
 	require.NoError(t, err)
 	require.Len(t, listed.People, 1)
 	id := listed.People[0].ID

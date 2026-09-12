@@ -88,7 +88,11 @@ func TestPersonaIsolatedLaunchAskTwice(t *testing.T) {
 	t.Cleanup(server.Close)
 	if os.Getenv("PERSONA_HOLD") == "1" {
 		server.Close()
-		listener, listenErr := net.Listen("tcp", "127.0.0.1:18124")
+		address := os.Getenv("PERSONA_LISTEN")
+		if address == "" {
+			address = "127.0.0.1:18124"
+		}
+		listener, listenErr := net.Listen("tcp", address)
 		require.NoError(t, listenErr)
 		held := httptest.NewUnstartedServer(engine)
 		held.Listener = listener
@@ -158,6 +162,23 @@ func TestPersonaIsolatedLaunchAskTwice(t *testing.T) {
 		require.NoError(t, db.Where(models.ConsumptionQueueOrder{QueueState: focus}).
 			Assign(models.ConsumptionQueueOrder{Revision: 1, UpdatedAt: now}).
 			FirstOrCreate(&models.ConsumptionQueueOrder{}).Error)
+
+		// Browser acceptance may use the live answer Runtime over the isolated,
+		// declared corpus. The deterministic HTTP assertions above remain separate.
+		if os.Getenv("PERSONA_RUNTIME_E2E") == "1" {
+			python := filepath.Join(os.Getenv("HOME"), ".codex", "venv-openai-codex-0.147.0", "bin", "python")
+			workRoot := t.TempDir()
+			host, err := codexruntime.NewProcessHost(codexruntime.ProcessHostConfig{
+				Command:  []string{python, filepath.Join(filepath.Dir(sourceFile), "..", "codexruntime", "runtime_host.py")},
+				WorkRoot: workRoot, Profiles: codexruntime.DefaultProfiles(),
+				Environment: map[string]string{"PATH": filepath.Dir(python) + string(os.PathListSeparator) + os.Getenv("PATH")},
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = host.Close(context.Background()) })
+			live, err := episodecopilot.NewService(&baselineCopilotLoader{db: db, people: people}, host, workRoot, episodecopilot.WithLibrary(people, search))
+			require.NoError(t, err)
+			*copilot = *live
+		}
 		t.Logf(
 			"PERSONA_SERVER %s episode=%d person=%d pending=%d artifact=%d",
 			server.URL, episodeID, zhangID, pendingEpisode.ID, artifactID,
@@ -458,7 +479,9 @@ func seedPublishedTranscript(
 	require.NoError(t, err)
 	*people = *configured
 	people.WithArtifactReader(store)
-	_, err = people.PrepareCurrent(context.Background(), episodeID)
+	prepared, err := people.PrepareCurrent(context.Background(), episodeID)
+	require.NoError(t, err)
+	_, err = people.Review(context.Background(), episodeID, personidentity.ReviewRequest{DraftID: prepared.Draft.ID, Revision: prepared.Revision, SourceVersion: prepared.Draft.SourceVersion, Matches: prepared.Draft.Matches}, true)
 	require.NoError(t, err)
 	return store, artifact.ID
 }

@@ -107,89 +107,7 @@ func (s *Service) Prepare(ctx context.Context, sources EpisodeSources) (EpisodeP
 			}
 		}
 	}
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		confirmations, err := loadConfirmations(tx, sources.EpisodeID)
-		if err != nil {
-			return err
-		}
-		var previousPreparation models.PersonPreparation
-		if err := tx.First(&previousPreparation, "episode_id = ?", sources.EpisodeID).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		retainRoles := previousPreparation.AlgorithmVersion == models.CurrentIdentityAlgorithm &&
-			previousPreparation.SourceVersion == sources.SourceVersion && previousPreparation.MetadataDigest == metadata.digest()
-		peopleByKey := map[string]models.Person{}
-		claimedPeople := map[uint]bool{}
-		for _, candidate := range candidates {
-			if candidate.MentionedOnly {
-				continue
-			}
-			person, err := upsertPerson(tx, sources.EpisodeID, candidate, claimedPeople)
-			if err != nil {
-				return err
-			}
-			peopleByKey[candidate.key] = person
-			claimedPeople[person.ID] = true
-			if err := upsertAppearance(tx, sources.EpisodeID, sources, person, candidate, confirmations, retainRoles); err != nil {
-				return err
-			}
-		}
-		retained := make([]uint, 0, len(peopleByKey)+len(confirmations))
-		overrides, err := loadAppearanceOverrides(tx, sources.EpisodeID)
-		if err != nil {
-			return err
-		}
-		for id := range overrides {
-			retained = append(retained, id)
-			present := false
-			for _, person := range peopleByKey {
-				if person.ID == id {
-					present = true
-					break
-				}
-			}
-			if !present && confirmationForPerson(confirmations, id) == nil {
-				// A preserved role or exclusion is not a fresh identity confirmation.
-				if err := tx.Model(&models.EpisodeAppearance{}).Where("episode_id = ? AND person_id = ?", sources.EpisodeID, id).Updates(map[string]any{"status": StatusPending, "status_reason": "本次未确认出场身份", "source_version": sources.SourceVersion}).Error; err != nil {
-					return err
-				}
-			}
-		}
-
-		for _, person := range peopleByKey {
-			retained = append(retained, person.ID)
-		}
-		for _, confirmation := range confirmations {
-			if confirmation.Kind == models.PersonConfirmationKindName && confirmation.PersonID != nil {
-				retained = append(retained, *confirmation.PersonID)
-			}
-			if confirmation.Kind == models.PersonConfirmationKindAttribution && confirmation.AssignedPersonID != nil {
-				for _, fragment := range fragments {
-					if confirmationForFragmentOrder([]models.PersonUserConfirmation{confirmation}, sources.SourceKind, sources.SourceVersion, fragment.Order, fragment.Text, fragment.SpeakerLabel) != nil {
-						retained = append(retained, *confirmation.AssignedPersonID)
-					}
-				}
-			}
-		}
-		retired := tx.Where("episode_id = ? AND source_version = ?", sources.EpisodeID, sources.SourceVersion)
-		if len(retained) > 0 {
-			retired = retired.Where("person_id NOT IN ?", retained)
-		}
-		if err := retired.Delete(&models.EpisodeAppearance{}).Error; err != nil {
-			return err
-		}
-		if err := replaceAttributions(tx, sources, fragments, peopleByKey, confirmations); err != nil {
-			return err
-		}
-		if err := publishPreparation(tx, sources.EpisodeID, sources.SourceVersion, metadata, revision); err != nil {
-			return err
-		}
-		return s.reindexSearchTransaction(ctx, tx, sources.EpisodeID)
-	})
-	if err != nil {
-		return EpisodePeople{}, err
-	}
-	return s.ListEpisodePeople(ctx, sources.EpisodeID)
+	return s.saveSuggestion(ctx, sources, metadata, revision, candidates, fragments)
 }
 
 func (s *Service) ListEpisodePeople(ctx context.Context, episodeID uint) (EpisodePeople, error) {
@@ -247,7 +165,7 @@ func (s *Service) listEpisodePeople(ctx context.Context, episodeID uint) (Episod
 	excludedPeople := make([]PersonView, 0)
 	people := make([]PersonView, 0, len(appearances))
 	for _, appearance := range appearances {
-		if !prepared && confirmationForPerson(confirmations, appearance.PersonID) == nil && !overrides[appearance.PersonID].Excluded {
+		if confirmationForPerson(confirmations, appearance.PersonID) == nil && (!prepared || appearance.Status != StatusPending) && !overrides[appearance.PersonID].Excluded {
 			continue
 		}
 		person, err := s.loadPerson(ctx, appearance.PersonID)
@@ -266,6 +184,9 @@ func (s *Service) listEpisodePeople(ctx context.Context, episodeID uint) (Episod
 			EvidenceKind:    appearance.EvidenceKind,
 			EvidenceLocator: appearance.EvidenceLocator,
 		}
+		if confirmationForPerson(confirmations, appearance.PersonID) == nil {
+			view.Status = StatusPending
+		}
 		override := overrides[appearance.PersonID]
 		if !prepared {
 			view.Role = RoleUnknown
@@ -281,7 +202,7 @@ func (s *Service) listEpisodePeople(ctx context.Context, episodeID uint) (Episod
 		for _, attribution := range attributions {
 			if attribution.PersonID != nil && *attribution.PersonID == person.ID {
 				status := attribution.Status
-				if !prepared && confirmationForFragment(confirmations, attribution) == nil {
+				if confirmationForFragment(confirmations, attribution) == nil {
 					status = StatusPending
 				}
 				if status == StatusConfirmed {
@@ -310,7 +231,7 @@ func (s *Service) listEpisodePeople(ctx context.Context, episodeID uint) (Episod
 			EvidenceLocator: attribution.EvidenceLocator,
 			UserConfirmed:   confirmationForFragment(confirmations, attribution) != nil,
 		}
-		if !prepared && !view.UserConfirmed {
+		if !view.UserConfirmed {
 			view.PersonID = nil
 			view.Status = StatusPending
 		}
@@ -342,7 +263,12 @@ func (s *Service) listEpisodePeople(ctx context.Context, episodeID uint) (Episod
 	} else if len(appearances) > 0 || state.Revision > 0 {
 		preparationState = "outdated"
 	}
+	draft, err := s.latestDraft(ctx, episodeID)
+	if err != nil {
+		return EpisodePeople{}, err
+	}
 	return EpisodePeople{
+		Draft: draft, Revision: state.Revision,
 		PreparationState:    preparationState,
 		preparationRevision: state.Revision,
 		publishedRevision:   state.PublishedRevision,
@@ -583,14 +509,14 @@ func (s *Service) IndexPublishedTranscript(
 	showNotes string,
 	segments []processing.TranscriptSegment,
 ) error {
-	_, err := s.Prepare(ctx, EpisodeSources{
-		EpisodeID:     episodeID,
-		ShowNotes:     showNotes,
-		SourceKind:    SourceTranscript,
-		SourceVersion: sourceVersion,
-		Segments:      SegmentsFromTranscript(segments),
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		src := EpisodeSources{EpisodeID: episodeID, SourceKind: SourceTranscript, SourceVersion: sourceVersion, Segments: SegmentsFromTranscript(segments)}
+		if err := s.applyMatches(ctx, tx, src, nil); err != nil {
+			return err
+		}
+		return s.reindexSearchTransaction(ctx, tx, episodeID)
 	})
-	return err
 }
 
 func (s *Service) RemoveIndexedEpisode(ctx context.Context, episodeID uint) error {
@@ -1317,6 +1243,9 @@ func currentAttributionVersion(db *gorm.DB, episodeID uint, sourceKind string) s
 		Order("id DESC").
 		Limit(1).
 		Scan(&version).Error
+	if version == "" && sourceKind == SourceTranscript {
+		_ = db.Model(&models.PersonDraft{}).Where("episode_id = ?", episodeID).Order("id DESC").Limit(1).Pluck("source_version", &version).Error
+	}
 	if sourceKind == SourceTranscript && strings.HasPrefix(version, "artifact-") {
 		return "unavailable"
 	}
@@ -1389,27 +1318,35 @@ func (s *Service) WithArtifactReader(reader processing.ArtifactReader) *Service 
 	return s
 }
 
-func (s *Service) PrepareCurrent(ctx context.Context, episodeID uint) (EpisodePeople, error) {
+func (s *Service) currentSources(ctx context.Context, episodeID uint) (EpisodeSources, error) {
 	if s.reader == nil {
-		return EpisodePeople{}, ErrTranscriptRequired
+		return EpisodeSources{}, ErrTranscriptRequired
 	}
 	if err := s.requireEpisode(ctx, episodeID); err != nil {
-		return EpisodePeople{}, err
+		return EpisodeSources{}, err
 	}
 	var artifact models.EpisodeArtifactSet
 	if err := s.db.WithContext(ctx).Where("episode_id = ? AND is_current = ?", episodeID, true).First(&artifact).Error; err != nil {
-		return EpisodePeople{}, ErrTranscriptRequired
+		return EpisodeSources{}, ErrTranscriptRequired
 	}
 	content, err := s.reader.ReadText(ctx, artifact, "transcript")
 	if err != nil {
-		return EpisodePeople{}, err
+		return EpisodeSources{}, err
 	}
 	if len(content.Segments) == 0 {
-		return EpisodePeople{}, ErrTranscriptRequired
+		return EpisodeSources{}, ErrTranscriptRequired
 	}
 	var episode models.Episode
 	if err := s.db.WithContext(ctx).First(&episode, episodeID).Error; err != nil {
+		return EpisodeSources{}, err
+	}
+	return EpisodeSources{EpisodeID: episodeID, SourceVersion: fmt.Sprintf("artifact-%d", artifact.ID), SourceKind: SourceTranscript, ShowNotes: episode.ShowNotes, Segments: SegmentsFromTranscript(content.Segments)}, nil
+}
+
+func (s *Service) PrepareCurrent(ctx context.Context, episodeID uint) (EpisodePeople, error) {
+	sources, err := s.currentSources(ctx, episodeID)
+	if err != nil {
 		return EpisodePeople{}, err
 	}
-	return s.Prepare(ctx, EpisodeSources{EpisodeID: episodeID, SourceVersion: fmt.Sprintf("artifact-%d", artifact.ID), SourceKind: SourceTranscript, ShowNotes: episode.ShowNotes, Segments: SegmentsFromTranscript(content.Segments)})
+	return s.Prepare(ctx, sources)
 }
