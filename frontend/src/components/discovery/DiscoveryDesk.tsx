@@ -22,6 +22,8 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import dynamic from "next/dynamic";
+import EpisodeLink from "@/components/episodes/EpisodeLink";
+import { closeTo, positiveID, singleParam, updateQuery, useLocationHref } from "@/lib/navigation";
 import { OriginalEpisodeRecovery } from "@/components/common/OriginalEpisodeRecovery";
 import DiscoveryMetadataEditor from "@/components/discovery/DiscoveryMetadataEditor";
 import PlainImage from "@/components/ui/PlainImage";
@@ -48,6 +50,7 @@ const RichText = dynamic(() => import("@/components/RichText"), {
 
 interface DiscoveryDeskProps {
   candidates: DiscoveryCandidate[];
+  initialHref?: string;
   reportContent?: ReactNode;
   focusContent?: ReactNode;
   noticeContent?: ReactNode;
@@ -217,6 +220,7 @@ function CandidateCover({
 
 export default function DiscoveryDesk({
   candidates,
+  initialHref = "",
   reportContent,
   focusContent,
   noticeContent,
@@ -225,12 +229,22 @@ export default function DiscoveryDesk({
   onLoadCandidateDetails,
 }: DiscoveryDeskProps) {
   const [displayCandidates, setDisplayCandidates] = useState(candidates);
-  const [activeFilter, setActiveFilter] = useState<RecentFilter>("all");
+  const href = useLocationHref() || initialHref;
+  const params = useMemo(() => new URL(href || "/discovery", "http://navigation.local").searchParams, [href]);
+  const filter = singleParam(params, "filter");
+  const activeFilter: RecentFilter = filter === "unread" || filter === "uncollected" ? filter : "all";
+  const setActiveFilter = (value: RecentFilter) => updateQuery({ filter: value === "all" ? null : value });
+  useEffect(() => {
+    if (params.has("filter") && !["all", "unread", "uncollected"].includes(filter ?? "")) updateQuery({ filter: null }, true);
+  }, [params, filter]);
   const [recentPagination, dispatchRecentPagination] = useReducer(
     recentPaginationReducer,
     { page: 0, pageSize: DEFAULT_RECENT_PAGE_SIZE },
   );
-  const [selectedID, setSelectedID] = useState<number | null>(null);
+  const selectedID = positiveID(singleParam(params, "episode"));
+  const setSelectedID = (id: number | null) => updateQuery({ episode: id === null ? null : String(id) });
+  const [outsideCandidate, setOutsideCandidate] = useState<DiscoveryCandidate | null>(null);
+  const [outsideError, setOutsideError] = useState("");
   const [savingEpisodeID, setSavingEpisodeID] = useState<number | null>(null);
   const [decisionError, setDecisionError] = useState("");
   const [detailErrorEpisodeID, setDetailErrorEpisodeID] = useState<
@@ -238,6 +252,7 @@ export default function DiscoveryDesk({
   >(null);
   const [detailRetryVersion, setDetailRetryVersion] = useState(0);
   const [isMetadataEditorOpen, setIsMetadataEditorOpen] = useState(false);
+  const [metadataDirty, setMetadataDirty] = useState(false);
   const originalRecovery = useOriginalEpisodeRecovery();
   const candidateButtonRefs = useRef(new Map<number, HTMLButtonElement>());
   const candidateActionRefs = useRef(new Map<number, HTMLButtonElement>());
@@ -252,16 +267,6 @@ export default function DiscoveryDesk({
     episodeID: number;
     control: "candidate" | "action";
   } | null>(null);
-
-  useEffect(() => {
-    const restoredID = window.history.state?.magicpodcastDiscoveryEpisodeID;
-    if (
-      typeof restoredID === "number" &&
-      candidates.some((candidate) => candidate.episode_id === restoredID)
-    ) {
-      setSelectedID(restoredID);
-    }
-  }, [candidates]);
 
   useEffect(() => {
     setDisplayCandidates((currentCandidates) => {
@@ -281,12 +286,6 @@ export default function DiscoveryDesk({
         };
       });
     });
-    setSelectedID((currentID) =>
-      currentID !== null &&
-      candidates.some((candidate) => candidate.episode_id === currentID)
-        ? currentID
-        : null,
-    );
   }, [candidates]);
 
   const filterCounts = useMemo(
@@ -364,6 +363,11 @@ export default function DiscoveryDesk({
   }, []);
 
   const { page: recentPage, pageSize: recentPageSize } = recentPagination;
+  useEffect(() => {
+    if (selectedID === null) return;
+    const index = visibleCandidates.findIndex((candidate) => candidate.episode_id === selectedID);
+    if (index >= 0) dispatchRecentPagination({ type: "set-page", page: Math.floor(index / recentPageSize) });
+  }, [selectedID, visibleCandidates, recentPageSize]);
   const recentPageCount = Math.max(
     1,
     Math.ceil(visibleCandidates.length / recentPageSize),
@@ -401,8 +405,8 @@ export default function DiscoveryDesk({
         ? undefined
         : displayCandidates.find(
             (candidate) => candidate.episode_id === selectedID,
-          ),
-    [displayCandidates, selectedID],
+          ) ?? (outsideCandidate?.episode_id === selectedID ? outsideCandidate : undefined),
+    [displayCandidates, selectedID, outsideCandidate],
   );
   const selectedIndex = selected
     ? displayCandidates.findIndex(
@@ -413,16 +417,18 @@ export default function DiscoveryDesk({
     ? planOriginalEpisodeAccess(selected.original_url)
     : null;
 
+  const selectedInList = displayCandidates.some((candidate) => candidate.episode_id === selectedID);
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const nextState = { ...window.history.state };
-    if (!selected) {
-      delete nextState.magicpodcastDiscoveryEpisodeID;
-    } else {
-      nextState.magicpodcastDiscoveryEpisodeID = selected.episode_id;
-    }
-    window.history.replaceState(nextState, "");
-  }, [selected]);
+    setOutsideError("");
+    if (!selectedID || selectedInList || !onLoadCandidateDetails) return;
+    let active = true;
+    onLoadCandidateDetails(selectedID).then((candidate) => {
+      if (active) setOutsideCandidate(candidate);
+    }).catch((error: { response?: { status?: number } }) => {
+      if (active) setOutsideError(error.response?.status === 404 ? "单集不存在或已不在发现范围。" : "单集读取失败，请重试。");
+    });
+    return () => { active = false; };
+  }, [selectedID, selectedInList, onLoadCandidateDetails, detailRetryVersion]);
 
   useEffect(() => {
     if (showNotesPaneRef.current) {
@@ -488,8 +494,10 @@ export default function DiscoveryDesk({
 
   const closePreview = useCallback(() => {
     const episodeID = selectedEpisodeID;
+    const parent = new URL(window.location.href);
+    parent.searchParams.delete("episode");
+    if (!closeTo(parent.pathname + parent.search + parent.hash)) return;
     setIsMetadataEditorOpen(false);
-    setSelectedID(null);
     requestAnimationFrame(() => {
       if (episodeID !== undefined) {
         candidateButtonRefs.current.get(episodeID)?.focus();
@@ -508,7 +516,7 @@ export default function DiscoveryDesk({
       if (event.key === "Escape") {
         event.preventDefault();
         if (isMetadataEditorOpen) {
-          setIsMetadataEditorOpen(false);
+          if (!metadataDirty || window.confirm("有未保存的修改，确定放弃？")) setIsMetadataEditorOpen(false);
         } else {
           closePreview();
         }
@@ -535,7 +543,7 @@ export default function DiscoveryDesk({
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [closePreview, isMetadataEditorOpen, selectedEpisodeID]);
+  }, [closePreview, isMetadataEditorOpen, metadataDirty, selectedEpisodeID]);
 
   const updateDecision = async (
     candidate: DiscoveryCandidate,
@@ -593,7 +601,7 @@ export default function DiscoveryDesk({
 
   const selectCandidateAt = (index: number) => {
     const candidate = displayCandidates[index];
-    if (!candidate) return;
+    if (!candidate || !setSelectedID(candidate.episode_id)) return;
     const visibleIndex = visibleCandidates.findIndex(
       (item) => item.episode_id === candidate.episode_id,
     );
@@ -603,7 +611,6 @@ export default function DiscoveryDesk({
         page: Math.floor(visibleIndex / recentPageSize),
       });
     }
-    setSelectedID(candidate.episode_id);
     if (!candidate.read_at && onRead) {
       const previousReadAt = candidate.read_at;
       const optimisticReadAt = new Date().toISOString();
@@ -643,7 +650,7 @@ export default function DiscoveryDesk({
   };
 
   const closeMetadataEditor = () => {
-    if (!isMetadataEditorOpen) return;
+    if (!isMetadataEditorOpen || (metadataDirty && !window.confirm("有未保存的修改，确定放弃？"))) return;
     setIsMetadataEditorOpen(false);
   };
 
@@ -678,6 +685,8 @@ export default function DiscoveryDesk({
 
   return (
     <main className="discovery-desk discovery-unified-layout">
+      {params.has("episode") && !selectedID && <p role="alert">单集地址无效，无法定位。</p>}
+      {outsideError && <p role="alert">{outsideError}<button onClick={() => setDetailRetryVersion((value) => value + 1)}>重试定位</button></p>}
       <aside className="discovery-sidebar" aria-label="Discovery 导航与筛选">
         <div className="discovery-workbench-copy editorial-title-group">
           <h1 className="editorial-section-title">Discovery</h1>
@@ -1188,6 +1197,7 @@ export default function DiscoveryDesk({
               }`}
             >
               <div className="discovery-preview-primary">
+                <div className="px-4 py-3"><EpisodeLink episodeID={selected.episode_id} source="discovery" href={`/episodes/${selected.episode_id}?from=discovery`}>打开单集工作台</EpisodeLink></div>
                 {originalRecovery.plan &&
                   originalRecovery.activeKey === selected.episode_id && (
                     <OriginalEpisodeRecovery
@@ -1251,6 +1261,7 @@ export default function DiscoveryDesk({
                   episodeId={selected.episode_id}
                   podcastId={selected.podcast_id}
                   onClose={closeMetadataEditor}
+                  onDirtyChange={setMetadataDirty}
                 />
               ) : null}
             </div>

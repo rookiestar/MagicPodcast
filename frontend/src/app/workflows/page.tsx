@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
+import { closeTo, navigate, positiveID, singleParam, updateQuery, useLocationHref } from "@/lib/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { workflowApi } from "@/lib/api";
@@ -30,10 +31,30 @@ const WorkflowFormModal = dynamic(
 );
 
 export default function WorkflowsPage() {
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  const href = useLocationHref();
+  const query = useMemo(()=>new URL(href || "/", "http://navigation.local").searchParams,[href]);
+  const dialog = singleParam(query,"dialog");
+  const routeEditingId = dialog === "edit" ? positiveID(/^\/workflows\/([^/?#]+)/.exec(href)?.[1]) : null;
+  const showCreateModal = dialog === "create" || dialog === "edit";
+  const modalReturn = useRef("/workflows");
+  const setShowCreateModal = (open:boolean) => {
+    if (open) { modalReturn.current=window.location.pathname+window.location.search; updateQuery({dialog:"create"}); }
+    else {
+      if(dialog === "create"){const parent=new URLSearchParams(window.location.search);parent.delete("dialog");closeTo(`/workflows${parent.size?`?${parent}`:""}`);}
+      else closeTo(modalReturn.current);
+    }
+  };
+  const [editError,setEditError]=useState("");
+  const [editRetry,setEditRetry]=useState(0);
+  useEffect(()=>{
+    const patch:Record<string,string|null>={};
+    if(query.has("sort_by")&&!["updated","execution"].includes(singleParam(query,"sort_by")??""))patch.sort_by=null;
+    if(query.has("dialog")&&!["create","edit"].includes(singleParam(query,"dialog")??""))patch.dialog=null;
+    if(Object.keys(patch).length)updateQuery(patch,true);
+  },[query]);
   const [editingWorkflow, setEditingWorkflow] = useState<Workflow | null>(null);
   const [triggeringId, setTriggeringId] = useState<number | null>(null);
-  const [sortBy, setSortBy] = useState<WorkflowSortByType>("updated");
+  const sortBy: WorkflowSortByType = singleParam(query,"sort_by") === "execution" ? "execution" : "updated";
 
   // 使用 SWR 获取工作流列表
   const { workflows, isLoading, isError, mutate } = useWorkflows({
@@ -43,35 +64,13 @@ export default function WorkflowsPage() {
   const error = isError ? "加载失败" : null;
 
   useEffect(() => {
-    // 从URL加载排序参数
-    const params = new URLSearchParams(window.location.search);
-    const sortFromUrl =
-      (params.get("sort_by") as WorkflowSortByType) || "updated";
-    setSortBy(sortFromUrl);
-  }, []);
-
-  // 监听 URL 参数变化（用于浏览器前进/后退）
-  useEffect(() => {
-    const handlePopState = () => {
-      const params = new URLSearchParams(window.location.search);
-      const sortFromUrl =
-        (params.get("sort_by") as WorkflowSortByType) || "updated";
-      setSortBy(sortFromUrl);
-    };
-
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
-
-  const handleSortChange = (newSortBy: WorkflowSortByType) => {
-    // 更新 URL 参数
-    const url = new URL(window.location.href);
-    url.searchParams.set("sort_by", newSortBy);
-    window.history.replaceState({}, "", url.toString());
-
-    // 更新状态（SWR 会自动重新获取数据）
-    setSortBy(newSortBy);
-  };
+    if (!routeEditingId) { setEditingWorkflow(null); setEditError(""); return; }
+    let active=true;
+    setEditError("");
+    workflowApi.get(routeEditingId).then((workflow)=>{if(active)setEditingWorkflow(workflow);}).catch(()=>{if(active)setEditError("工作流读取失败，请重试。");});
+    return ()=>{active=false;};
+  },[routeEditingId,editRetry]);
+  const handleSortChange = (newSortBy:WorkflowSortByType) => updateQuery({sort_by:newSortBy});
 
   const handleToggle = async (id: number, e: React.MouseEvent) => {
     e.preventDefault();
@@ -109,21 +108,10 @@ export default function WorkflowsPage() {
     }
   };
 
-  const handleEdit = async (id: number, e: React.MouseEvent) => {
+  const handleEdit = async (id:number,e:React.MouseEvent) => {
     e.preventDefault();
-    try {
-      const latestWorkflow = await workflowApi.get(id);
-      setEditingWorkflow(latestWorkflow);
-      setShowCreateModal(true);
-    } catch (err) {
-      console.error("[Edit] Failed to fetch workflow from API:", err);
-      // Fallback to local state
-      const workflow = workflows.find((w) => w.id === id);
-      if (workflow) {
-        setEditingWorkflow(workflow);
-        setShowCreateModal(true);
-      }
-    }
+    modalReturn.current=window.location.pathname+window.location.search;
+    navigate(`/workflows/${id}?dialog=edit`);
   };
 
   const handleDelete = async (id: number) => {
@@ -302,7 +290,7 @@ export default function WorkflowsPage() {
 
                   {/* 查看详情链接 */}
                   <Link
-                    href={`/workflows/${workflow.id}${window.location.search}`}
+                    href={`/workflows/${workflow.id}${sortBy === "updated" ? "" : `?sort_by=${sortBy}`}`}
                     prefetch={false}
                     className="block text-center text-sm text-blue-600 py-2 border-t border-slate-200 hover:text-blue-700 transition-colors"
                   >
@@ -313,7 +301,7 @@ export default function WorkflowsPage() {
                 {/* Desktop: Full Card */}
                 <div className="workflow-card-desktop hidden md:block">
                   <PrefetchLink
-                    href={`/workflows/${workflow.id}${window.location.search}`}
+                    href={`/workflows/${workflow.id}${sortBy === "updated" ? "" : `?sort_by=${sortBy}`}`}
                     prefetchId={workflow.id}
                     prefetchType="workflow"
                     className="workflow-card-body block"
@@ -469,9 +457,12 @@ export default function WorkflowsPage() {
       </div>
 
       {/* Create/Edit Workflow Modal */}
+      {dialog === "edit" && !routeEditingId && <p role="alert">编辑地址缺少有效的工作流编号。</p>}
+      {showCreateModal && routeEditingId && editingWorkflow?.id !== routeEditingId && <div role={editError ? "alert" : "status"}>{editError || "正在读取工作流…"}{editError && <button onClick={()=>setEditRetry(value=>value+1)}>重试读取工作流</button>}<button onClick={()=>setShowCreateModal(false)}>返回列表</button></div>}
       <WorkflowFormModal
-        isOpen={showCreateModal}
-        workflow={editingWorkflow}
+        key={routeEditingId ?? "create"}
+        isOpen={showCreateModal && (dialog === "create" || (routeEditingId !== null && editingWorkflow?.id === routeEditingId))}
+        workflow={routeEditingId ? editingWorkflow : null}
         onClose={() => {
           setShowCreateModal(false);
           setEditingWorkflow(null);

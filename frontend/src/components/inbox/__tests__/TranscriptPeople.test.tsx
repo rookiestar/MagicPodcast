@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToString } from "react-dom/server";
+import { parseEpisodeRoute, useLocationHref } from "@/lib/navigation";
 import TranscriptAudioPlayer from "../TranscriptAudioPlayer";
 import { episodeCopilotApi } from "@/lib/api/episodeCopilot";
 import type {
@@ -104,6 +105,21 @@ function Player({ mediaAvailable = false }: { mediaAvailable?: boolean } = {}) {
   );
 }
 
+function RoutedPlayer() {
+  const href = useLocationHref();
+  return (
+    <TranscriptAudioPlayer
+      episodeId={7}
+      artifactSetId={8}
+      segments={segments}
+      mediaAvailable={false}
+      playbackRate={1}
+      onPlaybackRateChange={() => {}}
+      routeState={parseEpisodeRoute(href)}
+    />
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue(empty);
@@ -111,6 +127,37 @@ beforeEach(() => {
   vi.mocked(episodeCopilotApi.preparePeople).mockResolvedValue(proposal);
 });
 describe("逐字稿人物确认", () => {
+  it("opens and locates a person from URL through reads only", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/episodes/7?tab=transcript&artifact=transcript&panel=people&person=9",
+    );
+    vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue(applied);
+    render(<RoutedPlayer />);
+    expect(
+      await screen.findByRole("dialog", { name: "人物与发言核对" }),
+    ).toBeVisible();
+    await waitFor(() =>
+      expect(document.querySelector('[data-person-id="9"]')).toHaveAttribute(
+        "aria-current",
+        "true",
+      ),
+    );
+    expect(episodeCopilotApi.preparePeople).not.toHaveBeenCalled();
+    expect(episodeCopilotApi.reviewPeople).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "关闭人物核对" }));
+    await waitFor(() =>
+      expect(new URLSearchParams(window.location.search).has("panel")).toBe(
+        false,
+      ),
+    );
+    expect(new URLSearchParams(window.location.search).has("person")).toBe(
+      false,
+    );
+    window.history.replaceState({}, "", "/inbox");
+  });
+
   it("keeps suggestions separate, saves edits and applies only on explicit confirmation", async () => {
     const change = vi.fn();
     window.addEventListener("episode-people-changed", change);

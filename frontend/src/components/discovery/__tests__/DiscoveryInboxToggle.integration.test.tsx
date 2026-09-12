@@ -141,7 +141,7 @@ describe("Discovery Inbox toggle integration", () => {
     apiDeleteMock.mockReset();
     apiPostMock.mockReset();
     revalidateConsumptionSummaryMock.mockReset();
-    window.history.replaceState({}, "");
+    window.history.replaceState({}, "", "/discovery");
   });
 
   it("round-trips one episode through all three entry points and filters", async () => {

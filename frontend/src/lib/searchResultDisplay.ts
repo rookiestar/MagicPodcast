@@ -175,6 +175,6 @@ export function buildPodcastSearchResultHref(podcastId: number) {
   return `/podcasts/${podcastId}`;
 }
 
-export function buildEpisodeSearchResultHref(podcastId: number, episodeId: number) {
-  return `/podcasts/${podcastId}?episode_id=${episodeId}`;
+export function buildEpisodeSearchResultHref(episodeId: number) {
+  return `/episodes/${episodeId}?from=search`;
 }

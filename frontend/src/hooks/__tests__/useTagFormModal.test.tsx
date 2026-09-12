@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_TAG_COLOR } from "@/lib/tagFormState";
+import { navigate } from "@/lib/navigation";
 import { useTagFormModal } from "../useTagFormModal";
 
 function renderTagFormModal(overrides = {}) {
@@ -16,6 +17,21 @@ function renderTagFormModal(overrides = {}) {
 }
 
 describe("useTagFormModal", () => {
+  afterEach(() => { vi.unstubAllGlobals(); window.history.replaceState({}, "", "/"); });
+  it("keeps unsaved fields and URL when leaving is rejected", () => {
+    window.history.replaceState({}, "", "/tags?dialog=create");
+    vi.stubGlobal("confirm", vi.fn(() => false));
+    const onClose = vi.fn();
+    const { result } = renderTagFormModal({ onClose });
+    act(() => result.current.setName("未保存标签"));
+    act(() => result.current.close());
+    expect(onClose).not.toHaveBeenCalled();
+    expect(result.current.name).toBe("未保存标签");
+    expect(navigate("/tags")).toBe(false);
+    expect(window.location.search).toBe("?dialog=create");
+    vi.unstubAllGlobals();
+  });
+
   it("initializes values when opened", () => {
     const { result } = renderTagFormModal({
       initialData: { name: "科技", color: "#2563eb" },

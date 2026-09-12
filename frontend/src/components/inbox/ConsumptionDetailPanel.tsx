@@ -49,6 +49,12 @@ import {
   formatPublishedDate,
   QUEUE_PRESENTATION,
 } from "./presentation";
+import {
+  type EpisodeRoute,
+  episodeIDFromHref,
+  updateQuery,
+  useUnsavedNavigation,
+} from "@/lib/navigation";
 import EpisodeCopilotPanel from "./EpisodeCopilotPanel";
 import EpisodeProcessingPanel, {
   type EpisodeProcessingHeaderState,
@@ -57,6 +63,9 @@ import styles from "./InboxPage.module.css";
 import { useMenuPopover } from "./useMenuPopover";
 
 interface ConsumptionDetailPanelProps {
+  readFailure?: string;
+  onRetryRead?: () => void;
+  routeState?: EpisodeRoute;
   item: ConsumptionItem;
   isQueueBusy: boolean;
   queueMoveFailure?: string;
@@ -104,6 +113,10 @@ function EpisodeMetadata({
 }) {
   const [notes, setNotes] = useState(item.notes ?? "");
   const [savedNotes, setSavedNotes] = useState(item.notes ?? "");
+  useUnsavedNavigation(
+    notes !== savedNotes,
+    (href) => episodeIDFromHref(href) === item.episode_id,
+  );
   const [tags, setTags] = useState<Tag[]>(item.tags ?? []);
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [selectedTagId, setSelectedTagId] = useState("");
@@ -409,9 +422,7 @@ function QueueSwitchMenu({
 }: {
   item: ConsumptionItem;
   disabled: boolean;
-  onMove: (
-    target: ConsumptionQueue,
-  ) => Promise<ConsumptionItem | undefined>;
+  onMove: (target: ConsumptionQueue) => Promise<ConsumptionItem | undefined>;
 }) {
   const {
     open,
@@ -423,8 +434,9 @@ function QueueSwitchMenu({
     handleMenuKeyDown,
   } = useMenuPopover();
   const [displayQueue, setDisplayQueue] = useState(item.queue_state);
-  const [pendingTarget, setPendingTarget] =
-    useState<ConsumptionQueue | null>(null);
+  const [pendingTarget, setPendingTarget] = useState<ConsumptionQueue | null>(
+    null,
+  );
   const busy = disabled || pendingTarget !== null;
 
   useEffect(() => {
@@ -552,6 +564,9 @@ export default function ConsumptionDetailPanel({
   rejectedCopilotProfileIDs,
   onRejectedCopilotProfileID,
   onOpenSourceEpisode,
+  routeState,
+  readFailure,
+  onRetryRead,
 }: ConsumptionDetailPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const detailScrollRef = useRef<HTMLDivElement>(null);
@@ -570,9 +585,37 @@ export default function ConsumptionDetailPanel({
     notes: null,
   });
   const [isMobileViewport, setIsMobileViewport] = useState(false);
-  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+  const [localCopilotOpen, setLocalCopilotOpen] = useState(false);
+  const isCopilotOpen = routeState?.assistant ?? localCopilotOpen;
+  const setIsCopilotOpen = useCallback((open: boolean) => {
+    if (routeState) updateQuery({ assistant: open ? "1" : null });
+    else setLocalCopilotOpen(open);
+  }, [routeState]);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<DetailTab>("show-notes");
+  const [localTab, setLocalTab] = useState<DetailTab>("show-notes");
+  const activeTab = routeState?.tab ?? localTab;
+  const setActiveTab = useCallback(
+    (tab: DetailTab) => {
+      if (!routeState) {
+        setLocalTab(tab);
+        return;
+      }
+      updateQuery({
+        tab: tab === "show-notes" ? null : tab,
+        ...(tab !== "transcript"
+          ? {
+              artifact: null,
+              panel: null,
+              person: null,
+              source: null,
+              fragment: null,
+              t: null,
+            }
+          : {}),
+      });
+    },
+    [routeState],
+  );
   // One-shot “转写已完成” notice: fires only when this detail session observed
   // the run go from in-progress to completed — never on first load, polling,
   // or tab switches (#314).
@@ -636,10 +679,10 @@ export default function ConsumptionDetailPanel({
   }, []);
 
   useEffect(() => {
-    setIsCopilotOpen(false);
+    setLocalCopilotOpen(false);
     copilotRestoreRef.current = null;
     detailTabScrollTopRef.current = {};
-    setActiveTab("show-notes");
+    setLocalTab("show-notes");
     setProcessingHeader(INITIAL_PROCESSING_HEADER);
     setCompletionNotice(false);
     processingTurnedActiveRef.current = false;
@@ -653,6 +696,7 @@ export default function ConsumptionDetailPanel({
   }, [loadShowNotes]);
 
   useEffect(() => {
+    if (routeState) return;
     let active = true;
     setDetailError(null);
     void consumptionApi
@@ -680,6 +724,8 @@ export default function ConsumptionDetailPanel({
       event.preventDefault();
       if (isCopilotOpen) {
         closeCopilot();
+      } else if (routeState?.peopleOpen) {
+        updateQuery({ panel: null, person: null });
       } else {
         onClose();
       }
@@ -784,23 +830,26 @@ export default function ConsumptionDetailPanel({
       ? loadedShowNotes
       : ({ episodeId: item.episode_id, status: "loading" } as const);
 
-  const selectTab = useCallback((tab: DetailTab, shouldFocus = false) => {
-    const currentScrollTop = detailScrollRef.current?.scrollTop;
-    if (currentScrollTop !== undefined) {
-      detailTabScrollTopRef.current[activeTab] = currentScrollTop;
-    }
-    const savedScrollTop = detailTabScrollTopRef.current[tab];
-    setActiveTab(tab);
-    if (savedScrollTop !== undefined || shouldFocus) {
-      window.requestAnimationFrame(() => {
-        const detailScroll = detailScrollRef.current;
-        if (detailScroll && savedScrollTop !== undefined) {
-          detailScroll.scrollTop = savedScrollTop;
-        }
-        if (shouldFocus) tabRefs.current[tab]?.focus();
-      });
-    }
-  }, [activeTab]);
+  const selectTab = useCallback(
+    (tab: DetailTab, shouldFocus = false) => {
+      const currentScrollTop = detailScrollRef.current?.scrollTop;
+      if (currentScrollTop !== undefined) {
+        detailTabScrollTopRef.current[activeTab] = currentScrollTop;
+      }
+      const savedScrollTop = detailTabScrollTopRef.current[tab];
+      setActiveTab(tab);
+      if (savedScrollTop !== undefined || shouldFocus) {
+        window.requestAnimationFrame(() => {
+          const detailScroll = detailScrollRef.current;
+          if (detailScroll && savedScrollTop !== undefined) {
+            detailScroll.scrollTop = savedScrollTop;
+          }
+          if (shouldFocus) tabRefs.current[tab]?.focus();
+        });
+      }
+    },
+    [activeTab, setActiveTab],
+  );
 
   // The transcript entry is fixed, so completion is announced once per session
   // instead of steering the active tab.
@@ -816,6 +865,10 @@ export default function ConsumptionDetailPanel({
     }
   }, [processingHeader.kind]);
 
+  useEffect(() => {
+    if (routeState?.assistant) copilotReturnRef.current?.focus();
+  }, [routeState?.assistant]);
+
   const openCopilot = useCallback(() => {
     if (isCopilotOpen) return;
     copilotRestoreRef.current = {
@@ -828,13 +881,13 @@ export default function ConsumptionDetailPanel({
     };
     onCopilotWorkspaceChange?.(true);
     setIsCopilotOpen(true);
-  }, [isCopilotOpen, onCopilotWorkspaceChange]);
+  }, [isCopilotOpen, onCopilotWorkspaceChange, setIsCopilotOpen]);
 
   const closeCopilot = useCallback(() => {
     if (!isCopilotOpen) return;
     setIsCopilotOpen(false);
     onCopilotWorkspaceChange?.(false);
-  }, [isCopilotOpen, onCopilotWorkspaceChange]);
+  }, [isCopilotOpen, onCopilotWorkspaceChange, setIsCopilotOpen]);
 
   useEffect(() => {
     const snapshot = copilotRestoreRef.current;
@@ -855,14 +908,23 @@ export default function ConsumptionDetailPanel({
     copilotRestoreRef.current = null;
   }, [isCopilotOpen]);
 
-  const openCopilotSource = useCallback(async (episodeId: number) => {
-    if (isMobileViewport) {
-      copilotRestoreRef.current = null;
-      closeCopilot();
-    }
-    await onOpenSourceEpisode?.(episodeId);
-    if (episodeId === item.episode_id) setActiveTab("transcript");
-  }, [isMobileViewport, closeCopilot, onOpenSourceEpisode, item.episode_id]);
+  const openCopilotSource = useCallback(
+    async (episodeId: number) => {
+      if (isMobileViewport) {
+        copilotRestoreRef.current = null;
+        closeCopilot();
+      }
+      await onOpenSourceEpisode?.(episodeId);
+      if (episodeId === item.episode_id) setActiveTab("transcript");
+    },
+    [
+      isMobileViewport,
+      closeCopilot,
+      onOpenSourceEpisode,
+      item.episode_id,
+      setActiveTab,
+    ],
+  );
 
   const handleTabKeyDown = (
     event: KeyboardEvent<HTMLButtonElement>,
@@ -1004,13 +1066,16 @@ export default function ConsumptionDetailPanel({
               </div>
             )}
 
-            {(detailError || externalState === "failed") && (
+            {(detailError || readFailure || externalState === "failed") && (
               <div className={styles.detailNotice} role="alert">
                 <span>
                   {externalState === "failed"
                     ? "原节目已打开，但进行中记录未保存。队列没有改变。"
-                    : detailError}
+                    : detailError || readFailure}
                 </span>
+                {readFailure && onRetryRead && (
+                  <button onClick={onRetryRead}>重试读取单集</button>
+                )}
                 {externalState === "failed" && (
                   <button
                     type="button"
@@ -1159,6 +1224,13 @@ export default function ConsumptionDetailPanel({
               hidden={activeTab !== "transcript"}
             >
               <EpisodeProcessingPanel
+                routeState={routeState}
+                routeArtifact={routeState?.artifact}
+                onRouteArtifactChange={
+                  routeState?.tab === "transcript"
+                    ? (artifact, replace) => updateQuery({ tab: "transcript", artifact, ...(artifact !== "transcript" ? { source: null, fragment: null, t: null, panel: null, person: null } : {}) }, replace)
+                    : undefined
+                }
                 item={item}
                 onHeaderStateChange={setProcessingHeader}
               />
@@ -1200,12 +1272,13 @@ export default function ConsumptionDetailPanel({
             <div className={styles.copilotWorkspaceScroll}>
               <EpisodeCopilotPanel
                 item={item}
+                routeState={routeState}
                 selectedProfileID={selectedCopilotProfileID}
                 onSelectedProfileIDChange={onSelectedCopilotProfileIDChange}
                 rejectedProfileIDs={rejectedCopilotProfileIDs}
                 onRejectedProfileID={onRejectedCopilotProfileID}
                 onOpenSourceEpisode={openCopilotSource}
-                onManagePeople={() => setActiveTab("transcript")}
+                onManagePeople={() => routeState ? updateQuery({ tab: "transcript", artifact: "transcript", panel: "people", source: null, fragment: null, t: null }) : setActiveTab("transcript")}
               />
             </div>
           </aside>

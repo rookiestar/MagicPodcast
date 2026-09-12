@@ -338,7 +338,7 @@ func (h *DiscoveryHandler) GetConsumptionItem(c *gin.Context) {
 	if errors.Is(err, services.ErrConsumptionEpisodeNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
-			"error":   gin.H{"code": "EPISODE_NOT_FOUND", "message": "episode consumption state not found"},
+			"error":   gin.H{"code": "EPISODE_NOT_FOUND", "message": "episode not found"},
 		})
 		return
 	}

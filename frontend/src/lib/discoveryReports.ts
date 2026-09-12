@@ -33,6 +33,16 @@ export async function fetchHomepageReportDetail(
   return response.data.data;
 }
 
+/** Resolve the public job identity before reading the publishable homepage projection. */
+export async function fetchHomepageReportByJob(jobID: number): Promise<HomepageReport> {
+  const response = await apiClient.get<{ success: boolean; data: { id: number; job_id: number } }>(`/api/v1/jobs/${jobID}/report`);
+  const saved = response.data.data;
+  if (!response.data.success || saved.job_id !== jobID) throw new Error("报告执行归属不匹配");
+  const report = await fetchHomepageReportDetail(saved.id);
+  if (report.job_id !== jobID) throw new Error("报告执行归属不匹配");
+  return report;
+}
+
 export function reportTypeLabel(reportType: string): string {
   switch (reportType) {
     case "daily":

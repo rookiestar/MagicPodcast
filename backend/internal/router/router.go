@@ -212,6 +212,7 @@ func SetupRouter(options ...Option) *gin.Engine {
 		v1.POST("/processing-runs/:id/retry", processingHandler.Retry)
 		v1.GET("/artifact-sets/:id/media/:mediaId", processingHandler.GetArtifactMedia)
 		v1.GET("/artifact-sets/:id/:kind", processingHandler.GetArtifactContent)
+		v1.GET("/episodes/:id/artifact-sets/:artifactID", processingHandler.GetEpisodeArtifact)
 		v1.POST("/artifact-sets/:id/audio/recovery", processingHandler.RecoverArtifactAudio)
 		v1.HEAD("/artifact-sets/:id/audio", processingHandler.GetArtifactAudio)
 

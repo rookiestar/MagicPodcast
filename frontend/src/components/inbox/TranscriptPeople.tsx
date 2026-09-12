@@ -16,6 +16,7 @@ import type {
   PersonReviewMatch,
 } from "@/types/episodeCopilot";
 import type { TranscriptSegment } from "@/types/processing";
+import { type EpisodeRoute, parseEpisodeRoute, updateQuery, useUnsavedNavigation } from "@/lib/navigation";
 import EpisodePersonEvidence, { personEvidence } from "./EpisodePersonEvidence";
 import styles from "./TranscriptPeople.module.css";
 
@@ -67,11 +68,26 @@ export function useTranscriptPeople(
   artifactSetId: number,
   segments: TranscriptSegment[],
   locate: (order: number) => void,
+  routeState?: EpisodeRoute,
+  readOnly = false,
 ) {
   const [people, setPeople] = useState<EpisodePeoplePayload | null>(null);
   const [draft, setDraft] = useState<PersonReviewDraft | null>(null);
   const [history, setHistory] = useState<PersonReviewDraft[]>([]);
-  const [open, setOpen] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = routeState?.peopleOpen ?? localOpen;
+  const setOpen = (value: boolean) => {
+    if (routeState) {
+      updateQuery({
+        tab: "transcript",
+        artifact: "transcript",
+        panel: value ? "people" : null,
+        ...(value ? {} : { person: null }),
+      });
+    } else {
+      setLocalOpen(value);
+    }
+  };
   const [editingMatch, setEditingMatch] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
   const [progress, setProgress] = useState<{ stage: string; started: number } | null>(null);
@@ -91,6 +107,10 @@ export function useTranscriptPeople(
     personId: number;
     scope: string;
   } | null>(null);
+  useUnsavedNavigation(dirty || editor !== null, (href) => {
+    const target = parseEpisodeRoute(href);
+    return target.id === episodeId && target.tab === "transcript" && target.peopleOpen && (!target.sourceID || target.sourceID === artifactSetId);
+  });
   const pending = draft?.matches.some((m) => !m.applied) ?? false;
   const panelElement = useRef<HTMLElement>(null);
   const editorElement = useRef<HTMLElement>(null);
@@ -146,7 +166,7 @@ export function useTranscriptPeople(
     setHistory([]);
     setPeople(null);
     setDraft(null);
-    setOpen(false);
+    setLocalOpen(false);
     setEditor(null);
     setDirty(false);
     setError("");
@@ -241,7 +261,7 @@ export function useTranscriptPeople(
     } finally { if (generation.current === version) { setBusy(""); operation.current = false; } }
   };
   const prepare = async (started: number) => {
-    if (!episodeId || dirty || operation.current || needsReadback) return;
+    if (!episodeId || dirty || operation.current || needsReadback || readOnly) return;
     operation.current = true;
     const controller = new AbortController();
     request.current = controller;
@@ -279,7 +299,7 @@ export function useTranscriptPeople(
     void reconcile(++generation.current, true);
   };
   const review = async (apply: boolean) => {
-    if (!episodeId || !draft || draftOutdated) return;
+    if (!episodeId || !draft || draftOutdated || readOnly) return;
     const selected = draft.matches.filter((m) => m.selected);
     if (apply && selected.length === 0) return;
     const success = await run(
@@ -314,7 +334,7 @@ export function useTranscriptPeople(
     setSaved("");
   };
   const editSpeaker = (segment: TranscriptSegment) => {
-    if (busy || !current) return;
+    if (busy || !current || readOnly) return;
     if (dirty) {
       setError("草稿尚未保存，请先保存或放弃本次修改。");
       return;
@@ -387,11 +407,25 @@ export function useTranscriptPeople(
     if (dirty) { setError("草稿尚未保存，请先保存或放弃修改。"); return; }
     void reconcile(++generation.current, false);
   };
+  const routePerson = routeState?.person
+    ? people?.people.find((person) => person.id === routeState.person)
+    : undefined;
+  useEffect(() => {
+    if (open && !readOnly) void loadHistory();
+    // Opening from a URL performs reads only, never prepare().
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, episodeId, readOnly]);
+  useEffect(() => {
+    if (!open || !people || !routeState?.person) return;
+    const element = panelElement.current?.querySelector<HTMLElement>(`[data-person-id="${routeState.person}"]`);
+    element?.scrollIntoView({ block: "nearest" });
+    element?.focus({ preventScroll: true });
+  }, [open, people, routeState?.person]);
   return {
     open,
     nameFor,
     speakerLabel: (segment: TranscriptSegment) =>
-      episodeId ? (
+      episodeId && !readOnly ? (
         <span className={styles.label}>
           <button
             type="button"
@@ -414,7 +448,7 @@ export function useTranscriptPeople(
       ) : (
         <span>{segment.speaker}</span>
       ),
-    toolbar: episodeId ? (
+    toolbar: episodeId && !readOnly ? (
       <div className={styles.toolbar}>
         <span className={styles.heading}>
           <IconUsers size={17} />
@@ -434,7 +468,7 @@ export function useTranscriptPeople(
           type="button"
           onClick={() => {
             setOpen(true);
-            void loadHistory();
+            if (!routeState) void loadHistory();
           }}
         >
           {busy ? "查看进度" : dirty ? "继续编辑" : pending ? "继续核对" : names.length || draft ? "管理" : "识别人物"}
@@ -480,6 +514,15 @@ export function useTranscriptPeople(
             </button>
           </header>
           <div className={styles.panelBody} ref={panelBodyElement} onScroll={(event) => { panelScroll.current = event.currentTarget.scrollTop; }}>
+            {routeState?.person && people && (
+              routePerson ? (
+                <p data-person-id={routePerson.id} tabIndex={-1} aria-current="true">
+                  当前人物：{routePerson.display_name}
+                </p>
+              ) : (
+                <p role="alert">指定人物不在本集可见人物中，请重新选择。</p>
+              )
+            )}
             {error && (
               <p role="alert" className={styles.error}>
                 {error}
@@ -496,7 +539,7 @@ export function useTranscriptPeople(
             </div>
             {!draft && !busy && <p>识别人物并核对发言，或手动填写姓名。确认后才会更新逐字稿。</p>}
             {!draft && <div className={styles.actions}>
-              <button type="button" disabled={!!busy || dirty || needsReadback}
+              <button type="button" disabled={!!busy || dirty || needsReadback || readOnly}
                 onClick={(event) => void prepare(event.timeStamp)}>开始识别</button>
             </div>}
             <p role="status">{progress ? "" : busy || (dirty ? "修改尚未保存" : saved)}</p>
@@ -506,7 +549,7 @@ export function useTranscriptPeople(
                 <select
                   aria-label="选择识别记录"
                   value={draft?.id ?? ""}
-                  disabled={dirty || !!busy}
+                  disabled={dirty || !!busy || readOnly}
                   onChange={(e) =>
                     setDraft(
                       history.find((d) => d.id === Number(e.target.value)) ??
@@ -549,13 +592,13 @@ export function useTranscriptPeople(
                 <div><strong>{speaker}{assignedNames.length ? ` → ${assignedNames.join("、")}` : ""}</strong> <span className={styles.badge}>{allApplied ? "已应用" : assignedNames.length ? "局部已应用" : "姓名待确认"}</span>
                   <p>{group.length} 段发言 · {assignedNames.length ? (allApplied ? "可修改或解除匹配" : `已应用 ${appliedCount} 段，其余 ${group.length - appliedCount} 段待确认`) : "尚无可靠姓名匹配"}</p></div>
                 {editTargets.length ? editTargets.map((a) => (
-                  <button type="button" key={a.id} disabled={!!busy || dirty || !current}
+                  <button type="button" key={a.id} disabled={!!busy || dirty || !current || readOnly}
                     onClick={() => {
                       const target = segments.find((s) => s.order === a.fragment_order);
                       if (target) editSpeaker(target);
                     }}>修改「{a.display_name}」</button>
                 )) : (
-                  <button type="button" disabled={!!busy || dirty || !current}
+                  <button type="button" disabled={!!busy || dirty || !current || readOnly}
                     onClick={() => editSpeaker(group[0])}>填写姓名</button>
                 )}
               </section>;
@@ -590,7 +633,7 @@ export function useTranscriptPeople(
                       type="checkbox"
                       checked={match.selected}
                       disabled={
-                        !!busy || draftOutdated || !match.orders.length
+                        !!busy || draftOutdated || !match.orders.length || readOnly
                       }
                       onChange={(e) =>
                         editMatch(match.key, { selected: e.target.checked })
@@ -601,7 +644,7 @@ export function useTranscriptPeople(
                     {match.display_name}
                   </label>
                   <button type="button" className={styles.editAction}
-                    aria-label={`编辑匹配 ${match.display_name}`} disabled={!!busy || draftOutdated}
+                    aria-label={`编辑匹配 ${match.display_name}`} disabled={!!busy || draftOutdated || readOnly}
                     aria-expanded={editingMatch === match.key}
                     onClick={() => setEditingMatch(editingMatch === match.key ? null : match.key)}>
                     {editingMatch === match.key ? "收起编辑" : "编辑"}
@@ -631,7 +674,7 @@ export function useTranscriptPeople(
                       <input
                         aria-label={`姓名 ${match.key}`}
                         value={match.display_name}
-                        disabled={!!busy || draftOutdated}
+                        disabled={!!busy || draftOutdated || readOnly}
                         onChange={(e) =>
                           editMatch(match.key, { display_name: e.target.value })
                         }
@@ -641,7 +684,7 @@ export function useTranscriptPeople(
                       角色
                       <select
                         value={match.role}
-                        disabled={!!busy || draftOutdated}
+                        disabled={!!busy || draftOutdated || readOnly}
                         onChange={(e) =>
                           editMatch(match.key, {
                             role: e.target.value,
@@ -676,7 +719,7 @@ export function useTranscriptPeople(
                           <input
                             type="checkbox"
                             checked={match.orders.includes(seg.order)}
-                            disabled={!!busy || draftOutdated}
+                            disabled={!!busy || draftOutdated || readOnly}
                             onChange={(e) =>
                               editMatch(match.key, {
                                 orders: e.target.checked
@@ -710,7 +753,7 @@ export function useTranscriptPeople(
                     {person.display_name}{" "}
                     <button
                       type="button"
-                      disabled={!!busy || dirty}
+                      disabled={!!busy || dirty || readOnly}
                       onClick={() =>
                         void run(
                           "正在恢复参与…",
@@ -743,11 +786,11 @@ export function useTranscriptPeople(
           </footer> : draft && (
             <footer>
               <span className={styles.footerSummary}>本次将更新 {selectedCount} 段发言<small>{dirty ? "修改尚未保存" : "草稿已保存"}</small></span>
-              <button type="button" className={styles.reidentify} disabled={!!busy || dirty || needsReadback}
+              <button type="button" className={styles.reidentify} disabled={!!busy || dirty || needsReadback || readOnly}
                 onClick={(event) => void prepare(event.timeStamp)}><span aria-hidden="true">↻ </span>重新识别</button>
               <button
                 type="button"
-                disabled={!dirty || !!busy || draftOutdated}
+                disabled={!dirty || !!busy || draftOutdated || readOnly}
                 onClick={() => void review(false)}
               >
                 保存草稿
@@ -757,6 +800,7 @@ export function useTranscriptPeople(
                 className={styles.primary}
                 disabled={
                   !!busy ||
+                  readOnly ||
                   draftOutdated ||
                   selectedCount === 0
                 }

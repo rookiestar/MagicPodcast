@@ -8,6 +8,8 @@ import {
   type FormEvent,
 } from "react";
 import Link from "next/link";
+import EpisodeLink from "@/components/episodes/EpisodeLink";
+import { singleParam, updateQuery, useLocationHref } from "@/lib/navigation";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -85,7 +87,10 @@ function appendUniqueHistoryItems(
 export default function CompletionHistoryPageClient() {
   const [items, setItems] = useState<CompletionHistoryItem[]>([]);
   const [draftQuery, setDraftQuery] = useState("");
-  const [activeQuery, setActiveQuery] = useState("");
+  const href = useLocationHref();
+  const queryParams = new URL(href || "/", "http://navigation.local").searchParams;
+  const activeQuery = (singleParam(queryParams, "q") ?? "").trim();
+  const locationReady = Boolean(href);
   const [totalCount, setTotalCount] = useState<number | null>(null);
   const [matchCount, setMatchCount] = useState<number | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -126,6 +131,9 @@ export default function CompletionHistoryPageClient() {
     } else {
       setIsInitialLoading(true);
     }
+    setIsLoadingMore(false);
+    setHasMore(false);
+    setNextCursor(null);
     setInitialError(null);
     setRefreshError(null);
     setPageError(null);
@@ -137,7 +145,7 @@ export default function CompletionHistoryPageClient() {
       setMatchCount(payload.match_count);
       setHasMore(payload.has_more);
       setNextCursor(payload.next_cursor ?? null);
-      setActiveQuery(payload.search_query);
+
     } catch (error) {
       if (version !== requestVersion.current) return;
       const message = getConsumptionErrorDetails(error).message;
@@ -155,8 +163,20 @@ export default function CompletionHistoryPageClient() {
   }, []);
 
   useEffect(() => {
-    void loadFirstPage("");
-  }, [loadFirstPage]);
+    if (!href) return;
+    const params = new URL(href, "http://navigation.local").searchParams;
+    if (params.has("q") && (params.getAll("q").length !== 1 || params.get("q") !== activeQuery || !activeQuery)) {
+      updateQuery({ q: activeQuery || null }, true);
+    }
+  }, [href, activeQuery]);
+
+  useEffect(() => {
+    if (!locationReady) return;
+    setDraftQuery(activeQuery);
+    void loadFirstPage(activeQuery);
+    const version = requestVersion;
+    return () => { version.current++; };
+  }, [activeQuery, locationReady, loadFirstPage]);
 
   const loadNextPage = useCallback(async () => {
     if (!hasMore || !nextCursor || isLoadingMore) return;
@@ -186,13 +206,16 @@ export default function CompletionHistoryPageClient() {
 
   const handleSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    void loadFirstPage(draftQuery);
+    const query = draftQuery.trim();
+    if (query === activeQuery) void loadFirstPage(query);
+    else updateQuery({ q: query || null });
   };
 
   const clearSearch = () => {
     setDraftQuery("");
     searchInputRef.current?.focus();
-    void loadFirstPage("");
+    if (activeQuery) updateQuery({ q: null });
+    else void loadFirstPage("");
   };
 
   const performReprocess = useCallback(
@@ -338,7 +361,7 @@ export default function CompletionHistoryPageClient() {
           <div className={styles.inlineError} role="alert">
             <IconAlertTriangle size={18} stroke={1.8} aria-hidden="true" />
             <span>更新失败，当前记录仍可用：{refreshError}</span>
-            <button type="button" onClick={() => void loadFirstPage(draftQuery)}>
+            <button type="button" onClick={() => void loadFirstPage(activeQuery)}>
               重试
             </button>
           </div>
@@ -442,7 +465,7 @@ export default function CompletionHistoryPageClient() {
                           {item.podcast_title}
                           {item.episode_no ? ` · ${item.episode_no}` : ""}
                         </p>
-                        <h2>{item.episode_title}</h2>
+                        <h2><EpisodeLink episodeID={item.episode_id} source="history" href={`/episodes/${item.episode_id}?from=history`}>{item.episode_title}</EpisodeLink></h2>
                       </div>
                     </div>
                     <div className={styles.cardFacts}>

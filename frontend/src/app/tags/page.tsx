@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback, useRef, Suspense } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { closeTo, positiveID, singleParam, updateQuery, useLocationHref } from "@/lib/navigation";
 import { tagApi, podcastApi } from "@/lib/api";
 import { usePodcast, usePodcastTags } from "@/hooks/usePodcastSWR";
 import { useTags } from "@/hooks/useTagSWR";
@@ -26,9 +26,9 @@ type SortMode = "popularity" | "alphabetical";
 
 interface TagsPageContentProps {
   showCreateModal: boolean;
-  setShowCreateModal: React.Dispatch<React.SetStateAction<boolean>>;
+  setShowCreateModal: (open: boolean) => void;
   editModalTag: Tag | null;
-  setEditModalTag: React.Dispatch<React.SetStateAction<Tag | null>>;
+  setEditModalTag: (tag: Tag | null) => void;
   selectedTags: Set<number>;
   setSelectedTags: React.Dispatch<React.SetStateAction<Set<number>>>;
   isSelectMode: boolean;
@@ -55,9 +55,10 @@ function TagsPageContent({
     pinyinLoadPromise.then(() => setPinyinReady(true));
   }, []);
 
-  const searchParams = useSearchParams();
-  const podcastIdParam = searchParams.get("podcast_id");
-  const podcastId = podcastIdParam ? parseInt(podcastIdParam, 10) : null;
+  const href = useLocationHref();
+  const searchParams = new URL(href || "/tags", "http://navigation.local").searchParams;
+  const podcastId = positiveID(singleParam(searchParams, "podcast_id"));
+  const invalidPodcast = searchParams.has("podcast_id") && !podcastId;
 
   // 使用 SWR 获取标签列表
   const { tags, isLoading, isError, mutate } = useTags();
@@ -119,7 +120,6 @@ function TagsPageContent({
         name: data.name,
         color: data.color,
       });
-      setEditModalTag(null);
       mutate();
     } catch (err) {
       throw err;
@@ -233,6 +233,7 @@ function TagsPageContent({
 
   return (
     <div className="tag-content">
+      {invalidPodcast && <p role="alert">节目地址无效，无法定位。</p>}
 
       {/* Podcast Preview */}
       {podcastId && (
@@ -373,8 +374,8 @@ function TagsPageContent({
       <TagFormModal
         isOpen={showCreateModal || editModalTag !== null}
         onClose={() => {
-          setShowCreateModal(false);
-          setEditModalTag(null);
+          if (editModalTag) setEditModalTag(null);
+          else setShowCreateModal(false);
         }}
         onSubmit={editModalTag ? handleUpdateTag : handleCreateTag}
         initialData={editModalTag ? { name: editModalTag.name, color: editModalTag.color } : undefined}
@@ -490,11 +491,41 @@ function TagCard({
 // Wrapper component with Suspense boundary
 export default function TagsPage() {
   // UI 状态管理
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [editModalTag, setEditModalTag] = useState<Tag | null>(null);
+  const href = useLocationHref();
+  const query = useMemo(() => new URL(href || "/tags", "http://navigation.local").searchParams, [href]);
+  const dialog = singleParam(query, "dialog");
+  const showCreateModal = dialog === "create";
+  const requestedTag = dialog === "edit" ? positiveID(singleParam(query, "tag")) : null;
+  const [loadedTag, setLoadedTag] = useState<Tag | null>(null);
+  const editModalTag = loadedTag?.id === requestedTag ? loadedTag : null;
+  const [editError, setEditError] = useState("");
+  const [editRetry, setEditRetry] = useState(0);
+  const closeForm = () => {
+    const parent = new URL(window.location.href);
+    parent.searchParams.delete("dialog"); parent.searchParams.delete("tag");
+    closeTo(parent.pathname + parent.search + parent.hash);
+  };
+  const setShowCreateModal = (open: boolean) => open ? updateQuery({ dialog: "create", tag: null }) : closeForm();
+  const setEditModalTag = (tag: Tag | null) => tag ? updateQuery({ dialog: "edit", tag: String(tag.id) }) : closeForm();
+  useEffect(() => {
+    setEditError("");
+    if (!requestedTag) return;
+    let active = true;
+    tagApi.get(requestedTag).then((tag) => { if(active) setLoadedTag(tag); }).catch((error: {response?:{status?:number}}) => {
+      if(active) setEditError(error.response?.status === 404 ? "标签不存在。" : "标签读取失败，请重试。");
+    });
+    return () => { active = false; };
+  }, [requestedTag, editRetry]);
+  useEffect(() => {
+    const patch: Record<string, null> = {};
+    if (query.has("dialog") && !["create", "edit"].includes(dialog ?? "")) patch.dialog = null;
+    if (query.has("sort_by") && !["popularity", "alphabetical"].includes(singleParam(query,"sort_by") ?? "")) patch.sort_by = null;
+    if (Object.keys(patch).length) updateQuery(patch, true);
+  }, [query, dialog]);
   const [selectedTags, setSelectedTags] = useState<Set<number>>(new Set());
   const [isSelectMode, setIsSelectMode] = useState(false);
-  const [sortMode, setSortMode] = useState<SortMode>("popularity");
+  const sortMode: SortMode = singleParam(query, "sort_by") === "alphabetical" ? "alphabetical" : "popularity";
+  const setSortMode = (sort: SortMode) => updateQuery({sort_by: sort});
 
   // 使用 SWR 获取标签列表（用于工具栏显示数量）
   const { tags, isLoading: tagsLoading, mutate } = useTags();
@@ -610,6 +641,9 @@ export default function TagsPage() {
         className: "editorial-page-toolbar",
       }}
     >
+      {dialog === "edit" && !requestedTag && <p role="alert">标签地址无效，无法定位。</p>}
+      {editError && <p role="alert">{editError}<button onClick={() => setEditRetry((value) => value + 1)}>重试读取标签</button></p>}
+      {requestedTag && !editModalTag && !editError && <p role="status">正在读取标签…</p>}
       <Suspense
         fallback={
           <div className="editorial-state">

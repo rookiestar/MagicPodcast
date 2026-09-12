@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { StrictMode, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { parseEpisodeRoute } from "@/lib/navigation";
 import EpisodeCopilotPanel from "../EpisodeCopilotPanel";
 import { episodeCopilotApi } from "@/lib/api/episodeCopilot";
 import type { ConsumptionItem } from "@/types/consumption";
@@ -184,6 +185,23 @@ describe("EpisodeCopilotPanel", () => {
         });
       },
     );
+  });
+
+  it("restores a valid profile and person without asking automatically", async () => {
+    window.history.replaceState({},"","/episodes/201?assistant=1&profile=deep&target_person=9");
+    copilotMocks.getContext.mockResolvedValue({...scopeBase, people:[{id:9,display_name:"林老师",aliases:[],identity_note:"",role:"host",status:"confirmed",status_reason:""}]});
+    render(<EpisodeCopilotPanel item={item} routeState={parseEpisodeRoute(window.location.pathname+window.location.search)} />);
+    expect(await screen.findByTestId("copilot-person-chip")).toHaveTextContent("林老师");
+    expect(screen.getByTestId("copilot-profiles")).toHaveTextContent("深度");
+    expect(copilotMocks.ask).not.toHaveBeenCalled();
+  });
+  it("blocks an invalid URL person instead of submitting a fallback identity", async () => {
+    window.history.replaceState({},"","/episodes/201?assistant=1&target_person=999");
+    render(<EpisodeCopilotPanel item={item} routeState={parseEpisodeRoute(window.location.pathname+window.location.search)} />);
+    expect(await screen.findByText(/原选人物已失效/)).toBeVisible();
+    fireEvent.change(screen.getByRole("textbox",{name:"向单集助手提问"}),{target:{value:"这集怎么看？"}});
+    fireEvent.keyDown(screen.getByRole("textbox",{name:"向单集助手提问"}),{key:"Enter"});
+    expect(copilotMocks.ask).not.toHaveBeenCalled();
   });
 
   it("welcomes with quick questions and submits one exactly once as an ordinary question", async () => {

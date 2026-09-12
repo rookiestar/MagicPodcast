@@ -1,5 +1,6 @@
 "use client";
 
+import EpisodeLink from "./EpisodeLink";
 import { IconPlayerPlay } from "@tabler/icons-react";
 import { memo } from "react";
 import { OriginalEpisodeRecovery } from "@/components/common/OriginalEpisodeRecovery";
@@ -172,6 +173,7 @@ function EpisodeCard({
           </div>
         </div>
 
+        <EpisodeLink episodeID={episode.id} source="podcast" href={`/episodes/${episode.id}?from=podcast`}>打开单集工作台 →</EpisodeLink>
         {/* Show Notes */}
         {showNotes && (
           <EpisodeShowNotes

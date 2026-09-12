@@ -38,7 +38,14 @@ async function loadInitialCandidates(): Promise<
   }
 }
 
-export default async function DiscoveryPage() {
+export default async function DiscoveryPage({ searchParams }: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+} = {}) {
+  const params = await searchParams ?? {};
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    for (const item of Array.isArray(value) ? value : value === undefined ? [] : [value]) query.append(key, item);
+  }
   const initialCandidates = await loadInitialCandidates();
-  return <DiscoveryPageClient initialCandidates={initialCandidates} />;
+  return <DiscoveryPageClient initialCandidates={initialCandidates} initialHref={`/discovery${query.size ? `?${query}` : ""}`} />;
 }

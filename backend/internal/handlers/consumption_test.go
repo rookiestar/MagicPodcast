@@ -543,3 +543,35 @@ func completionHandlerHistoryItemIDs(items []services.CompletionHistoryItem) []u
 	}
 	return result
 }
+
+func TestConsumptionHandler_GetUnassignedEpisodeDoesNotCreateState(t *testing.T) {
+	db, router, podcast := setupConsumptionHandler(t)
+	episode := createConsumptionHandlerEpisode(t, db, podcast.ID, "未入队单集", time.Now().UTC())
+	var before []models.ConsumptionQueueOrder
+	require.NoError(t, db.Order("queue_state").Find(&before).Error)
+	for range 2 {
+		response := performJSONRequest(t, router, http.MethodGet,
+			fmt.Sprintf("/api/v1/consumption/episodes/%d", episode.ID), "")
+		require.Equal(t, http.StatusOK, response.Code)
+		var body struct {
+			Data services.ConsumptionItem `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+		require.Equal(t, episode.ID, body.Data.EpisodeID)
+		require.Equal(t, podcast.Title, body.Data.PodcastTitle)
+		require.Nil(t, body.Data.QueueState)
+		require.Equal(t, episode.ShowNotes, body.Data.ShowNotes)
+	}
+	var decisions, completions int64
+	require.NoError(t, db.Model(&models.EpisodeTriageDecision{}).Count(&decisions).Error)
+	require.NoError(t, db.Model(&models.EpisodeCompletion{}).Count(&completions).Error)
+	require.Zero(t, decisions)
+	require.Zero(t, completions)
+	var after []models.ConsumptionQueueOrder
+	require.NoError(t, db.Order("queue_state").Find(&after).Error)
+	require.Equal(t, before, after)
+	require.NoError(t, db.Delete(&episode).Error)
+	response := performJSONRequest(t, router, http.MethodGet,
+		fmt.Sprintf("/api/v1/consumption/episodes/%d", episode.ID), "")
+	require.Equal(t, http.StatusNotFound, response.Code)
+}

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { positiveID, singleParam, useUnsavedNavigation } from "@/lib/navigation";
 import { IconX } from "@tabler/icons-react";
 import PodcastNotesEditor from "@/components/podcasts/PodcastNotesEditor";
 import { DesktopPodcastTagControls } from "@/components/podcasts/PodcastTagControls";
@@ -13,6 +14,7 @@ interface DiscoveryMetadataEditorProps {
   episodeId: number;
   podcastId: number;
   onClose: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 const targetLabels: Record<DiscoveryMetadataTarget, string> = {
@@ -24,6 +26,7 @@ export default function DiscoveryMetadataEditor({
   episodeId,
   podcastId,
   onClose,
+  onDirtyChange,
 }: DiscoveryMetadataEditorProps) {
   const [target, setTarget] =
     useState<DiscoveryMetadataTarget>("episode");
@@ -32,6 +35,14 @@ export default function DiscoveryMetadataEditor({
     episodeId,
     podcastId,
   });
+  useUnsavedNavigation(metadata.notesDirty, (href) => {
+    const url = new URL(href, "http://navigation.local");
+    return url.pathname === "/discovery" && positiveID(singleParam(url.searchParams, "episode")) === episodeId;
+  });
+  useEffect(() => {
+    onDirtyChange?.(metadata.notesDirty);
+    return () => onDirtyChange?.(false);
+  }, [metadata.notesDirty, onDirtyChange]);
   const isBusy = metadata.isSavingNotes || metadata.isUpdatingTags;
 
   return (
@@ -55,7 +66,7 @@ export default function DiscoveryMetadataEditor({
               aria-selected={target === item}
               aria-controls="discovery-metadata-content"
               disabled={isBusy}
-              onClick={() => setTarget(item)}
+              onClick={() => { if (item === target || !metadata.notesDirty || window.confirm("有未保存的修改，确定放弃？")) setTarget(item); }}
             >
               {targetLabels[item]}
             </button>

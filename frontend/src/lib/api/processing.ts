@@ -1,6 +1,7 @@
 import { api, handleResponse, inlineApiErrorConfig } from "./client";
 import type { ApiResponse } from "@/types";
 import type {
+  EpisodeArtifactSet,
   ArtifactContentKind,
   ArtifactContent,
   AudioRecoveryEnqueueResult,
@@ -41,6 +42,10 @@ export function getProcessingErrorDetails(
 }
 
 export const processingApi = {
+  getEpisodeArtifact: async (episodeId: number, artifactId: number): Promise<EpisodeArtifactSet> => {
+    const response = await api.get<ApiResponse<EpisodeArtifactSet>>(`/api/v1/episodes/${episodeId}/artifact-sets/${artifactId}`, inlineApiErrorConfig);
+    return handleResponse(response);
+  },
   listEpisodeRuns: async (episodeId: number): Promise<ProcessingRun[]> => {
     const response = await api.get<ApiResponse<ProcessingRun[]>>(
       `/api/v1/episodes/${episodeId}/processing-runs`,

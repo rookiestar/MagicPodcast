@@ -122,9 +122,16 @@ interface ApiController {
   batchGetCalls: number;
   calls: string[];
   jobsGate?: Promise<void>;
+  jobDetails?: Record<number, ReturnType<typeof makeJob>>;
 }
 
 function installApi(controller: ApiController) {
+  vi.spyOn(workflowApi,"getJob").mockImplementation(async (id)=>{
+    controller.calls.push(`/api/v1/jobs/${id}`);
+    const job=controller.jobDetails?.[id];
+    if(!job)throw {response:{status:404}};
+    return job as Awaited<ReturnType<typeof workflowApi.getJob>>;
+  });
   return vi.spyOn(apiClient, "get").mockImplementation(async (url: string) => {
     const path = String(url);
     controller.calls.push(path);
@@ -237,6 +244,24 @@ afterEach(() => {
 });
 
 describe("工作流执行历史可见等待验收 (#34)", () => {
+  it("restores a specific execution outside the requested list page", async () => {
+    const controller:ApiController={workflowDelayMs:0,jobsDelayMs:0,jobsFail:false,jobsByPage:new Map([[2,[]]]),totalPages:3,batchGetCalls:0,calls:[],jobDetails:{901:makeJob(901,{executions:[]})}};
+    window.history.replaceState({},"",`/workflows/${WORKFLOW_ID}?tab=jobs&page=2&job=901`);
+    installApi(controller);installBatchGet(controller);renderDetail();
+    await waitFor(()=>expect(screen.getByText("详细执行记录")).toBeVisible());
+    expect(controller.calls).toContain("/api/v1/jobs/901");
+    expect(screen.getByRole("button",{name:"查看执行记录详情"})).toHaveAttribute("aria-expanded","true");
+    expect(window.location.search).toContain("page=2&job=901");
+  });
+  it("rejects an execution that belongs to another workflow", async () => {
+    const controller:ApiController={workflowDelayMs:0,jobsDelayMs:0,jobsFail:false,jobsByPage:new Map([[1,[]]]),totalPages:1,batchGetCalls:0,calls:[],jobDetails:{902:makeJob(902,{workflow_id:999,executions:[]})}};
+    window.history.replaceState({},"",`/workflows/${WORKFLOW_ID}/reports/902`);
+    installApi(controller);installBatchGet(controller);renderDetail();
+    expect(await screen.findByText("该执行不属于当前工作流。")).toBeVisible();
+    expect(screen.queryByText("详细执行记录")).not.toBeInTheDocument();
+    expect(controller.calls).not.toContain("/api/v1/jobs/902/report");
+  });
+
   it("冷态：点击执行历史后首条记录可见，且首屏最多一次摘要请求、无 router 导航", async () => {
     const controller: ApiController = {
       workflowDelayMs: 0,

@@ -755,6 +755,27 @@ describe("InboxPageClient", () => {
     ).toHaveAttribute("href", "/inbox/history");
   });
 
+  it("closes a routed people layer before the episode on Escape", async () => {
+    window.history.replaceState({}, "", "/episodes/101?tab=transcript&artifact=transcript&panel=people");
+    render(<InboxPageClient />);
+    const dialog=await screen.findByRole("dialog");
+    fireEvent.keyDown(dialog,{key:"Escape"});
+    expect(dialog).toBeVisible();
+    expect(window.location.pathname).toBe("/episodes/101");
+    expect(new URLSearchParams(window.location.search).has("panel")).toBe(false);
+  });
+
+  it("keeps the address in sync with detail, tabs and close", async () => {
+    render(<InboxPageClient />);
+    fireEvent.click(await screen.findByRole("button", { name: "打开 可处理单集 明细" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(window.location.pathname).toBe("/episodes/101");
+    fireEvent.click(within(dialog).getByRole("tab", { name: "笔记" }));
+    expect(new URLSearchParams(window.location.search).get("tab")).toBe("notes");
+    fireEvent.click(within(dialog).getByRole("tab", { name: "Show Notes" }));
+    expect(new URLSearchParams(window.location.search).has("tab")).toBe(false);
+  });
+
   it("opens detail directly when requested by a queue link", async () => {
     window.history.replaceState({}, "", "/inbox?queue=inbox&episode=101&detail=1");
     render(<InboxPageClient />);

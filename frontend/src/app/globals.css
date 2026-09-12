@@ -1448,6 +1448,19 @@
 
   .search-workbench-query {
     margin: 18px 18px 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .search-workbench-query > button {
+    min-width: 56px;
+    min-height: 44px;
+    padding: 8px;
+    border: 1px solid #171717;
+    color: #f7f1e5;
+    background: #171717;
+    font-weight: 600;
   }
 
   .search-workbench-input {

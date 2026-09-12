@@ -19,12 +19,15 @@ import {
   IconHistory,
   IconX,
 } from "@tabler/icons-react";
+import { closeTo, positiveID, singleParam, updateQuery, useLocationHref } from "@/lib/navigation";
+import EpisodeLink from "@/components/episodes/EpisodeLink";
 import { OriginalEpisodeRecovery } from "@/components/common/OriginalEpisodeRecovery";
 import MarkdownViewer from "@/components/workflows/MarkdownViewer";
 import PlainImage from "@/components/ui/PlainImage";
 import { useOriginalEpisodeRecovery } from "@/hooks/useOriginalEpisodeRecovery";
 import {
   fetchHomepageReportDetail,
+  fetchHomepageReportByJob,
   formatReportDay,
   formatReportDate,
   formatReportTime,
@@ -56,6 +59,7 @@ import type {
 
 export interface WorkflowReportWorkbenchProps {
   todayReports: HomepageReport[];
+  initialHref?: string;
   historyReports?: HomepageReport[];
   timezone?: string;
   onDecision?: (
@@ -152,6 +156,7 @@ function EpisodeCover({
 
 export default function WorkflowReportWorkbench({
   todayReports,
+  initialHref = "",
   historyReports = [],
   timezone,
   onDecision,
@@ -161,11 +166,12 @@ export default function WorkflowReportWorkbench({
   loading = false,
   onRetry,
 }: WorkflowReportWorkbenchProps) {
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [indexBeforeHistory, setIndexBeforeHistory] = useState(0);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [historySelection, setHistorySelection] =
-    useState<HomepageReport | null>(null);
+  const href = useLocationHref() || initialHref;
+  const query = useMemo(() => new URL(href || "/discovery", "http://navigation.local").searchParams, [href]);
+  const requestedJob = positiveID(singleParam(query, "report"));
+  const historyOpen = singleParam(query, "report_history") === "1";
+  const [requestedDetails, setRequestedDetails] = useState<Record<number, HomepageReport>>({});
+  const [reportRetry, setReportRetry] = useState(0);
   const [historyDayDetails, setHistoryDayDetails] = useState<
     Record<number, HomepageReport>
   >({});
@@ -173,15 +179,23 @@ export default function WorkflowReportWorkbench({
   const [latestHistoryLoadError, setLatestHistoryLoadError] = useState("");
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyLoadError, setHistoryLoadError] = useState("");
-  const [workflowFilterIds, setWorkflowFilterIds] = useState<Set<number>>(
-    () => new Set(),
-  );
+  const workflowFilterIds = useMemo(() => new Set(query.getAll("workflow").map(positiveID).filter((id): id is number => id !== null)), [query]);
+  const setWorkflowFilterIds = (ids: Set<number>) => updateQuery({ workflow: [...ids].sort((a,b) => a-b).map(String) });
+  useEffect(() => {
+    const patch: Record<string, string[] | string | null> = {};
+    const sorted = [...workflowFilterIds].sort((a,b) => a-b).map(String);
+    if (JSON.stringify(query.getAll("workflow")) !== JSON.stringify(sorted)) patch.workflow = sorted;
+    if (query.has("report_history") && singleParam(query, "report_history") !== "1") patch.report_history = null;
+    if (Object.keys(patch).length) updateQuery(patch, true);
+  }, [query, workflowFilterIds]);
   const [workflowFilterOpen, setWorkflowFilterOpen] = useState(false);
   const [workflowFilterKeyword, setWorkflowFilterKeyword] = useState("");
   const [expandedEpisodeIDs, setExpandedEpisodeIDs] = useState<Set<number>>(
     () => new Set(),
   );
-  const [mobileReportExpanded, setMobileReportExpanded] = useState(false);
+  const [mobileReportExpanded, setMobileReportExpanded] = useState<boolean | null>(null);
+  const reportExpanded = mobileReportExpanded ?? query.has("report");
+  useEffect(() => setMobileReportExpanded(null), [requestedJob]);
   const [savingEpisodeID, setSavingEpisodeID] = useState<number | null>(null);
   const originalRecovery = useOriginalEpisodeRecovery();
   const [decisionError, setDecisionError] = useState("");
@@ -193,32 +207,15 @@ export default function WorkflowReportWorkbench({
   >({});
   const previewRef = useRef<HTMLDivElement>(null);
   const previewID = useId();
+  const defaultReportBeforeHistory = useRef<number | null>(null);
   const historyTriggerRef = useRef<HTMLButtonElement>(null);
-  const historyDetailRequestRef = useRef(0);
 
   const hasToday = todayReports.length > 0;
   const workflowFilterOptions = useMemo(
     () => buildWorkflowFilterOptions(historyReports),
     [historyReports],
   );
-  // Data refresh: drop selections whose workflow left the loaded window,
-  // keep the ones still present (#144). Derived during render so a refresh
-  // never flashes the filtered-empty state before pruning lands; the prune
-  // is also committed back to source state so a removed selection cannot
-  // resurrect if a later refresh brings the workflow back into the window.
-  const effectiveWorkflowFilterIds = useMemo(() => {
-    if (workflowFilterIds.size === 0) return workflowFilterIds;
-    const available = new Set(
-      workflowFilterOptions.map((option) => option.workflowId),
-    );
-    const next = new Set(
-      [...workflowFilterIds].filter((workflowId) => available.has(workflowId)),
-    );
-    return next.size === workflowFilterIds.size ? workflowFilterIds : next;
-  }, [workflowFilterIds, workflowFilterOptions]);
-  if (effectiveWorkflowFilterIds.size !== workflowFilterIds.size) {
-    setWorkflowFilterIds(new Set(effectiveWorkflowFilterIds));
-  }
+  const effectiveWorkflowFilterIds = workflowFilterIds;
   const filteredHistoryReports = useMemo(
     () =>
       filterReportsByWorkflowSelection(
@@ -243,18 +240,33 @@ export default function WorkflowReportWorkbench({
         (report) => historyDayDetails[report.id] ?? report,
       );
 
-  const carouselReports = historySelection
-    ? [historySelection]
-    : defaultReports;
-  const safeIndex = Math.min(
-    Math.max(activeIndex, 0),
-    Math.max(carouselReports.length - 1, 0),
-  );
-  const activeReport = carouselReports[safeIndex] ?? null;
-  const canSwitch = !historySelection && defaultReports.length > 1;
+  const knownReport = [...todayReports, ...historyReports].find((report) => report.job_id === requestedJob);
+  const requestedReport = requestedJob ? requestedDetails[requestedJob] ?? knownReport : undefined;
+  const activeIndex = requestedJob ? defaultReports.findIndex((report) => report.job_id === requestedJob) : 0;
+  const historySelection = requestedJob && activeIndex < 0 ? requestedReport ?? null : null;
+  const safeIndex = Math.max(activeIndex, 0);
+  const activeReport = query.has("report") ? requestedReport ?? null : defaultReports[safeIndex] ?? null;
+  const canSwitch = !historySelection && activeIndex >= 0 && defaultReports.length > 1;
+  useEffect(() => {
+    setHistoryLoadError("");
+    if (!requestedJob || requestedDetails[requestedJob] || (requestedReport && !requestedReport.metadata_only && requestedReport.content)) {
+      setHistoryLoading(false);
+      return;
+    }
+    let active = true;
+    setHistoryLoading(true);
+    const request = knownReport ? fetchHomepageReportDetail(knownReport.id) : fetchHomepageReportByJob(requestedJob);
+    request.then((report) => {
+      if (report.job_id !== requestedJob) throw new Error("报告执行归属不匹配");
+      if (active) setRequestedDetails((current) => ({ ...current, [requestedJob]: report }));
+    }).catch((error: {response?:{status?:number}}) => {
+      if (active) setHistoryLoadError(error.response?.status === 404 ? "报告不存在或尚未发布。" : "报告读取失败，请重试。");
+    }).finally(() => { if (active) setHistoryLoading(false); });
+    return () => { active = false; };
+  }, [requestedJob, requestedReport, requestedDetails, knownReport, reportRetry]);
 
   useEffect(() => {
-    if (hasToday || historySelection || !activeReport) {
+    if (requestedJob || hasToday || historySelection || !activeReport) {
       setLatestHistoryLoading(false);
       setLatestHistoryLoadError("");
       return;
@@ -289,14 +301,7 @@ export default function WorkflowReportWorkbench({
     return () => {
       cancelled = true;
     };
-  }, [activeReport, hasToday, historySelection]);
-
-  useEffect(() => {
-    if (historySelection) return;
-    setActiveIndex((current) =>
-      Math.min(current, Math.max(defaultReports.length - 1, 0)),
-    );
-  }, [defaultReports.length, historySelection]);
+  }, [activeReport, hasToday, historySelection, requestedJob]);
 
   useEffect(() => {
     setExpandedEpisodeIDs(new Set());
@@ -333,7 +338,7 @@ export default function WorkflowReportWorkbench({
     if (!canSwitch) return;
     const next = Math.min(Math.max(index, 0), defaultReports.length - 1);
     if (next === safeIndex) return;
-    setActiveIndex(next);
+    updateQuery({ report: String(defaultReports[next].job_id) });
   };
 
   const goPrev = () => selectReport(safeIndex - 1);
@@ -415,12 +420,14 @@ export default function WorkflowReportWorkbench({
   };
 
   const openHistory = () => {
-    setIndexBeforeHistory(safeIndex);
-    setHistoryOpen(true);
+    if (!historySelection) defaultReportBeforeHistory.current = activeReport?.job_id ?? null;
+    updateQuery({ report_history: "1" });
   };
 
   const closeHistory = useCallback(() => {
-    setHistoryOpen(false);
+    const parent = new URL(window.location.href);
+    parent.searchParams.delete("report_history");
+    closeTo(parent.pathname + parent.search + parent.hash);
     // Filter lifecycle on close (#144): keep selections for the page visit,
     // but collapse the panel and drop the transient keyword.
     setWorkflowFilterOpen(false);
@@ -435,66 +442,38 @@ export default function WorkflowReportWorkbench({
     workflowId: number,
     checked: boolean,
   ) => {
-    setWorkflowFilterIds((current) => {
-      const next = new Set(current);
-      if (checked) next.add(workflowId);
-      else next.delete(workflowId);
-      return next;
-    });
+    const next = new Set(workflowFilterIds);
+    if (checked) next.add(workflowId); else next.delete(workflowId);
+    setWorkflowFilterIds(next);
   };
 
   const clearWorkflowFilterSelection = () => {
     setWorkflowFilterIds(new Set());
   };
 
-  const pickHistoryReport = async (report: HomepageReport) => {
-    const requestId = ++historyDetailRequestRef.current;
-    const previousSelection = historySelection;
-    const previousIndex = historySelection ? safeIndex : indexBeforeHistory;
-    setHistoryLoadError("");
-    // Apply metadata immediately so the title block and pager hide before
-    // the on-demand body arrives (#150).
-    setHistorySelection(report);
-    setActiveIndex(0);
-    // Picking a report closes the drawer through the same cleanup path as the
-    // close button / Escape (#144): collapse the filter panel and drop the
-    // transient keyword while keeping the selection.
-    closeHistory();
-    if (!report.metadata_only && report.content) {
-      setHistoryLoading(false);
-      return;
-    }
-    // Metadata-only history: fetch full body on demand (#95).
-    setHistoryLoading(true);
-    try {
-      const full = await fetchHomepageReportDetail(report.id);
-      if (requestId !== historyDetailRequestRef.current) return;
-      setHistorySelection(full);
-    } catch {
-      if (requestId !== historyDetailRequestRef.current) return;
-      setHistoryLoadError("往期报告加载失败，可重试选择。");
-      setHistorySelection(previousSelection);
-      setActiveIndex(previousIndex);
-    } finally {
-      if (requestId === historyDetailRequestRef.current) {
-        setHistoryLoading(false);
-      }
-    }
+  const pickHistoryReport = (report: HomepageReport) => {
+    if (!report.metadata_only && report.content) setRequestedDetails((current) => ({...current, [report.job_id]: report}));
+    updateQuery({ report: String(report.job_id), report_history: null });
+    setWorkflowFilterOpen(false);
+    setWorkflowFilterKeyword("");
+    requestAnimationFrame(() => historyTriggerRef.current?.focus());
   };
+  const clearHistorySelection = () => updateQuery({ report: defaultReportBeforeHistory.current ? String(defaultReportBeforeHistory.current) : null });
 
-  const clearHistorySelection = () => {
-    historyDetailRequestRef.current += 1;
-    setHistoryLoading(false);
-    setHistorySelection(null);
-    setHistoryLoadError("");
-    setActiveIndex(
-      Math.min(indexBeforeHistory, Math.max(defaultReports.length - 1, 0)),
-    );
-  };
+  const historyFilter = {
+            options: workflowFilterOptions,
+            selectedIds: effectiveWorkflowFilterIds,
+            keyword: workflowFilterKeyword,
+            open: workflowFilterOpen,
+            onToggleOpen: () => setWorkflowFilterOpen((open) => !open),
+            onKeywordChange: setWorkflowFilterKeyword,
+            onToggleSelection: toggleWorkflowFilterSelection,
+            onClearSelection: clearWorkflowFilterSelection,
+          };
 
   const hasAvailableReport = defaultReports.length > 0;
 
-  if (loading && !hasAvailableReport && !failed) {
+  if (loading && !hasAvailableReport && !failed && !query.has("report")) {
     return (
       <section
         className="workflow-report-workbench is-loading"
@@ -506,7 +485,7 @@ export default function WorkflowReportWorkbench({
     );
   }
 
-  if (failed && !hasAvailableReport) {
+  if (failed && !hasAvailableReport && !query.has("report")) {
     return (
       <section
         className="workflow-report-workbench is-error"
@@ -529,7 +508,8 @@ export default function WorkflowReportWorkbench({
   }
 
   if (!activeReport) {
-    return null;
+    if (!query.has("report")) return historyOpen ? <HistoryDrawer reports={filteredHistoryReports} timezone={timezone} onClose={closeHistory} onSelect={pickHistoryReport} filter={historyFilter} /> : null;
+    return <section aria-label="精选报告"><p role={historyLoadError || !requestedJob ? "alert" : "status"}>{!requestedJob ? "报告地址无效，无法定位。" : historyLoadError || "正在读取指定报告…"}</p>{requestedJob && <button onClick={() => setReportRetry((value) => value + 1)}>重试读取报告</button>}<button onClick={clearHistorySelection}>查看默认报告</button>{historyOpen && <HistoryDrawer reports={filteredHistoryReports} timezone={timezone} onClose={closeHistory} onSelect={pickHistoryReport} filter={historyFilter} />}</section>;
   }
 
   const hasEpisodes = activeReport.episodes.length > 0;
@@ -542,7 +522,7 @@ export default function WorkflowReportWorkbench({
   return (
     <section
       className="workflow-report-workbench"
-      data-mobile-expanded={mobileReportExpanded}
+      data-mobile-expanded={reportExpanded}
       aria-label="精选报告"
       tabIndex={canSwitch && !historyOpen ? 0 : undefined}
       onKeyDown={handleWorkbenchKeyDown}
@@ -557,15 +537,15 @@ export default function WorkflowReportWorkbench({
             type="button"
             className="workflow-report-mobile-toggle"
             aria-controls={previewID}
-            aria-expanded={mobileReportExpanded}
-            onClick={() => setMobileReportExpanded((expanded) => !expanded)}
+            aria-expanded={reportExpanded}
+            onClick={() => setMobileReportExpanded(!reportExpanded)}
           >
             <IconChevronDown
               size={18}
               aria-hidden
-              className={mobileReportExpanded ? "is-open" : ""}
+              className={reportExpanded ? "is-open" : ""}
             />
-            {mobileReportExpanded ? "收起报告" : "展开报告"}
+            {reportExpanded ? "收起报告" : "展开报告"}
           </button>
           {historySelection && (
             <button
@@ -631,7 +611,7 @@ export default function WorkflowReportWorkbench({
       )}
       {historyLoadError && (
         <div className="workflow-report-inline-error" role="alert">
-          {historyLoadError}
+          {historyLoadError}<button onClick={() => setReportRetry((value) => value + 1)}>重试读取报告</button>
         </div>
       )}
       {latestHistoryLoadError && (
@@ -735,6 +715,7 @@ export default function WorkflowReportWorkbench({
                       )}
                     </button>
                   </div>
+                  <EpisodeLink episodeID={episode.episode_id} source={`report-${activeReport.job_id}`} href={`/episodes/${episode.episode_id}?from=discovery`}>打开单集工作台</EpisodeLink>
                   {expanded && (
                     <div
                       id={`report-ep-detail-${activeReport.id}-${episode.episode_id}`}
@@ -807,16 +788,7 @@ export default function WorkflowReportWorkbench({
           onSelect={(report) => {
             void pickHistoryReport(report);
           }}
-          filter={{
-            options: workflowFilterOptions,
-            selectedIds: effectiveWorkflowFilterIds,
-            keyword: workflowFilterKeyword,
-            open: workflowFilterOpen,
-            onToggleOpen: () => setWorkflowFilterOpen((open) => !open),
-            onKeywordChange: setWorkflowFilterKeyword,
-            onToggleSelection: toggleWorkflowFilterSelection,
-            onClearSelection: clearWorkflowFilterSelection,
-          }}
+          filter={historyFilter}
         />
       )}
     </section>
@@ -869,7 +841,7 @@ export function HistoryDrawer({
   const currentReportRef = useRef<HTMLButtonElement>(null);
 
   const hasFilterSelection = filterSelectedIds.size > 0;
-  const showFilterEntry = filterOptions.length >= 2;
+  const showFilterEntry = filterOptions.length >= 2 || hasFilterSelection;
   const visibleFilterOptions = useMemo(
     () =>
       filterOptions.filter((option) =>

@@ -1,11 +1,12 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { StrictMode, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TranscriptAudioPlayer, {
   DEFAULT_TRANSCRIPT_PLAYBACK_RATE,
   type TranscriptPlaybackRate,
 } from "../TranscriptAudioPlayer";
+import { type EpisodeRoute, parseEpisodeRoute } from "@/lib/navigation";
 import type { MinutesChapter, TranscriptSegment } from "@/types/processing";
 
 const segments: TranscriptSegment[] = [
@@ -86,6 +87,7 @@ function controlAudio(
 }
 
 interface TestPlayerProps {
+  routeState?: EpisodeRoute;
   artifactSetId?: number;
   segments?: TranscriptSegment[];
   mediaAvailable?: boolean;
@@ -99,6 +101,7 @@ function StatefulTranscriptAudioPlayer({
   mediaAvailable = true,
   audioDurationSeconds,
   chapters,
+  routeState,
 }: TestPlayerProps) {
   const [playbackRate, setPlaybackRate] = useState<TranscriptPlaybackRate>(
     DEFAULT_TRANSCRIPT_PLAYBACK_RATE,
@@ -112,6 +115,7 @@ function StatefulTranscriptAudioPlayer({
       playbackRate={playbackRate}
       onPlaybackRateChange={setPlaybackRate}
       chapters={chapters}
+      routeState={routeState}
     />
   );
 }
@@ -154,6 +158,28 @@ afterEach(() => {
 });
 
 describe("TranscriptAudioPlayer", () => {
+  it("locates a version-bound fragment without loading or playing audio", () => {
+    const { container } = render(<StrictMode><StatefulTranscriptAudioPlayer audioDurationSeconds={120} routeState={parseEpisodeRoute("/episodes/7?source=artifact-82&fragment=2")} /></StrictMode>);
+    expect(screen.getByText("00:30 / 02:00")).toBeVisible();
+    expect(container.querySelector("audio")).not.toHaveAttribute("src");
+  });
+  it("does not substitute a different segment when the reference is missing", () => {
+    renderPlayer({routeState:parseEpisodeRoute("/episodes/7?source=artifact-82&fragment=999")});
+    expect(screen.getByRole("alert")).toHaveTextContent("该版本没有请求的片段");
+    expect(screen.getByText("开场内容")).toBeVisible();
+  });
+  it("restores a valid audio time without arming the source", () => {
+    const {container}=renderPlayer({audioDurationSeconds:120,routeState:parseEpisodeRoute("/episodes/7?t=15")});
+    expect(screen.getByText("00:15 / 02:00")).toBeVisible();
+    expect(container.querySelector("audio")).not.toHaveAttribute("src");
+  });
+
+  it("rejects audio times outside the known duration", () => {
+    const {container}=renderPlayer({audioDurationSeconds:120,routeState:parseEpisodeRoute("/episodes/7?t=121")});
+    expect(screen.getByRole("alert")).toHaveTextContent("音频时刻无效");
+    expect(container.querySelector("audio")).not.toHaveAttribute("src");
+  });
+
   it("keeps the first visit readable and requests audio only after play", () => {
     const { container } = renderPlayer({ audioDurationSeconds: 120 });
     const audio = container.querySelector("audio");

@@ -1,5 +1,6 @@
 "use client";
 
+import EpisodeLink from "@/components/episodes/EpisodeLink";
 import { SearchHighlightedText } from "@/components/search/SearchHighlightedText";
 import {
   buildEpisodeSearchResultHref,
@@ -20,10 +21,10 @@ export function SearchEpisodeResultCard({
   const snippetToShow = getEpisodeSearchSnippet(episode);
 
   return (
-    <a
-      href={buildEpisodeSearchResultHref(episode.podcast_id, episode.id)}
-      target="_blank"
-      rel="noopener noreferrer"
+    <EpisodeLink
+      episodeID={episode.id}
+      source="search"
+      href={buildEpisodeSearchResultHref(episode.id)}
       className="search-episode-result"
     >
       <h3
@@ -40,6 +41,6 @@ export function SearchEpisodeResultCard({
           <SearchHighlightedText text={snippetToShow} keyword={query} />
         </p>
       ) : null}
-    </a>
+    </EpisodeLink>
   );
 }

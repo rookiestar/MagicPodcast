@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { singleParam, useUnsavedNavigation } from "@/lib/navigation";
 import { IconX } from "@tabler/icons-react";
 import { workflowApi, podcastApi, tagApi } from "@/lib/api";
 import type {
@@ -138,6 +139,28 @@ export default function WorkflowFormModal({
   const [llmMaxTokens, setLlmMaxTokens] = useState<number | undefined>();
   const [llmUserPrompt, setLlmUserPrompt] = useState(""); // User Prompt配置
 
+  const [initializing, setInitializing] = useState(true);
+  const [baseline, setBaseline] = useState<string | null>(null);
+  const discardedOrSaved = useRef(false);
+  const formPath = useRef("");
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const values = JSON.stringify([name,description,schedule,customCron,scopeType,candidatePodcastIds,customUrls,newCustomUrl,timeRange,minDuration,maxResults,keywords,excludeWords,llmEnabled,llmMaxEpisodes,llmModel,llmTemperature,llmMaxTokens,llmUserPrompt]);
+  const dirty = isOpen && !initializing && baseline !== null && values !== baseline;
+  useUnsavedNavigation(dirty, (href) => {
+    if (discardedOrSaved.current) return true;
+    const target = new URL(href,"http://navigation.local");
+    return target.pathname === formPath.current && singleParam(target.searchParams,"dialog") === (workflow ? "edit" : "create");
+  });
+  useEffect(() => {
+    if (isOpen && !initializing && baseline === null) setBaseline(values);
+  }, [isOpen,initializing,baseline,values]);
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeRef.current?.focus();
+    return () => previous?.focus();
+  }, [isOpen]);
+
   // 重置表单
   const resetForm = useCallback(() => {
     setName("");
@@ -168,6 +191,7 @@ export default function WorkflowFormModal({
     setLlmModel("");
     setLlmTemperature(0.7);
     setLlmMaxTokens(undefined);
+    setLlmUserPrompt("");
     setStep(1);
   }, []);
 
@@ -332,6 +356,9 @@ export default function WorkflowFormModal({
   // 初始化表单数据（编辑模式）
   useEffect(() => {
     if (isOpen) {
+      formPath.current=window.location.pathname;
+      discardedOrSaved.current=false;
+      setBaseline(null);
       if (workflow) {
         // 编辑模式：填充现有数据
         setName(workflow.name);
@@ -382,7 +409,8 @@ export default function WorkflowFormModal({
         // 创建模式：重置为默认值
         resetForm();
       }
-    }
+      setInitializing(false);
+    } else { setInitializing(true); setBaseline(null); }
   }, [isOpen, resetForm, workflow]);
 
   useEffect(() => {
@@ -720,6 +748,7 @@ export default function WorkflowFormModal({
         await workflowApi.create(data);
       }
 
+      discardedOrSaved.current=true;
       onSuccess();
       handleClose();
     } catch (err) {
@@ -733,6 +762,8 @@ export default function WorkflowFormModal({
 
   // 关闭Modal
   const handleClose = () => {
+    if (dirty && !discardedOrSaved.current && !window.confirm("有未保存的修改，确定离开并放弃修改？")) return;
+    discardedOrSaved.current=true;
     setStep(1);
     setName("");
     setDescription("");
@@ -762,6 +793,7 @@ export default function WorkflowFormModal({
     setLlmModel("");
     setLlmTemperature(0.7);
     setLlmMaxTokens(undefined);
+    setLlmUserPrompt("");
     onClose();
   };
 
@@ -798,6 +830,15 @@ export default function WorkflowFormModal({
       <div
         className="bg-white dark:bg-slate-800 rounded-none sm:rounded-lg shadow-2xl w-full max-w-3xl min-h-[100dvh] sm:min-h-0 sm:max-h-[85vh] overflow-hidden flex flex-col"
         role="dialog"
+        onKeyDown={(event)=>{
+          if(event.key === "Escape") { event.preventDefault(); event.stopPropagation(); handleClose(); }
+          if(event.key === "Tab") {
+            const controls=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href]')).filter(e=>e.getClientRects().length);
+            const first=controls[0],last=controls.at(-1);
+            if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}
+            else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
+          }
+        }}
         aria-modal="true"
         aria-labelledby="workflow-form-modal-title"
       >
@@ -815,6 +856,7 @@ export default function WorkflowFormModal({
               <small>第 {step} / 4 步</small>
             </div>
             <button
+              ref={closeRef}
               onClick={handleClose}
               className="editorial-modal-close"
               aria-label="关闭"

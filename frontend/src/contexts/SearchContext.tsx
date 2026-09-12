@@ -1,6 +1,9 @@
 "use client";
 
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useRef, ReactNode } from "react";
+
+import { usePathname } from "next/navigation";
+import { closeTo, navigate } from "@/lib/navigation";
 
 interface SearchContextType {
   isSearchOpen: boolean;
@@ -11,10 +14,15 @@ interface SearchContextType {
 const SearchContext = createContext<SearchContextType | undefined>(undefined);
 
 export function SearchProvider({ children }: { children: ReactNode }) {
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-
-  const openSearch = () => setIsSearchOpen(true);
-  const closeSearch = () => setIsSearchOpen(false);
+  const pathname = usePathname();
+  const isSearchOpen = pathname === "/search";
+  const returnHref = useRef("/discovery");
+  const openSearch = () => {
+    if (isSearchOpen) return;
+    returnHref.current = window.location.pathname + window.location.search + window.location.hash;
+    navigate("/search");
+  };
+  const closeSearch = () => closeTo(returnHref.current);
 
   return (
     <SearchContext.Provider value={{ isSearchOpen, openSearch, closeSearch }}>

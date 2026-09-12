@@ -67,7 +67,7 @@ vi.mock("@/hooks/useImportSyncOperations", () => ({
   }),
 }));
 
-import ImportPage from "../page";
+import ImportPage from "../ImportPageClient";
 
 describe("import page editorial chrome (#53)", () => {
   it("does not repeat the global home navigation in the page toolbar", () => {

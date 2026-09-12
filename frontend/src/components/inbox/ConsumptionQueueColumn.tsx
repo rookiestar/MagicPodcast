@@ -263,6 +263,7 @@ function ConsumptionCard({
         type="button"
         className={styles.cardMain}
         onClick={(event) => onOpen(item, event.currentTarget)}
+        id={`episode-entry-inbox-${item.episode_id}`}
         aria-label={`打开 ${item.episode_title} 明细`}
       >
         <span className={styles.coverFrame} aria-hidden="true">

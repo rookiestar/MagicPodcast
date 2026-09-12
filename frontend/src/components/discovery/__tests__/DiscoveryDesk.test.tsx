@@ -10,6 +10,7 @@ import type { ReactElement } from "react";
 import { renderToString } from "react-dom/server";
 import { SWRConfig } from "swr";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { navigate } from "@/lib/navigation";
 import DiscoveryDesk from "../DiscoveryDesk";
 import { availableTagCache } from "@/lib/tagAvailabilityCache";
 import type { Tag } from "@/types";
@@ -223,7 +224,7 @@ describe("DiscoveryDesk", () => {
       configurable: true,
       value: undefined,
     });
-    window.history.replaceState(null, "");
+    window.history.replaceState(null, "", "/discovery");
     vi.clearAllMocks();
     availableTagCache.clear();
     apiMocks.episodeGetTags.mockImplementation(async (id: number) =>
@@ -248,6 +249,38 @@ describe("DiscoveryDesk", () => {
         color: "#746b60",
       }),
     );
+  });
+
+  it("keeps unsaved preview notes when closing the editor is rejected", async () => {
+    window.history.replaceState({}, "", "/discovery?episode=11");
+    vi.stubGlobal("confirm", vi.fn(() => false));
+    render(<DiscoveryDesk candidates={candidates} />);
+    fireEvent.click(screen.getByRole("button", { name: "编辑标签与备注" }));
+    const editor = await screen.findByRole("complementary", { name: "标签与备注编辑" });
+    await waitFor(() => expect(within(editor).queryByText("正在加载标签与备注…")).not.toBeInTheDocument());
+    const edit = within(editor).queryByRole("button", { name: "编辑" }) ?? within(editor).getByRole("button", { name: "＋ 添加备注" });
+    fireEvent.click(edit);
+    const textarea = editor.querySelector("textarea")!;
+    fireEvent.change(textarea, { target: { value: "未保存预读备注" } });
+    fireEvent.click(within(editor).getByRole("button", { name: "收起编辑" }));
+    expect(textarea).toHaveValue("未保存预读备注");
+    expect(editor).toBeInTheDocument();
+    expect(window.location.search).toBe("?episode=11");
+    vi.unstubAllGlobals();
+  });
+
+  it("restores a URL preview outside the supplied list without marking it read", async () => {
+    window.history.replaceState({}, "", "/discovery?filter=unread&episode=12");
+    const read = vi.fn();
+    const load = vi.fn().mockResolvedValue(candidates[1]);
+    render(<DiscoveryDesk candidates={[candidates[0]]} onRead={read} onLoadCandidateDetails={load} />);
+    await screen.findByRole("dialog");
+    expect(load).toHaveBeenCalledWith(12);
+    expect(screen.getByRole("dialog")).toHaveTextContent(candidates[1].episode_title);
+    expect(read).not.toHaveBeenCalled();
+    act(() => { navigate("/discovery?episode=11"); });
+    expect(screen.getByRole("dialog")).toHaveTextContent(candidates[0].episode_title);
+    expect(read).not.toHaveBeenCalled();
   });
 
   it("leads with recent podcast content without duplicating global navigation", () => {
@@ -1214,7 +1247,7 @@ describe("DiscoveryDesk", () => {
   });
 
   it("restores the current candidate after refresh and keeps the source-link state", () => {
-    window.history.replaceState({ magicpodcastDiscoveryEpisodeID: 12 }, "");
+    window.history.replaceState({}, "", "/discovery?episode=12");
     const { unmount } = render(<DiscoveryDesk candidates={candidates} />);
 
     expect(
@@ -1237,8 +1270,15 @@ describe("DiscoveryDesk", () => {
     ).toHaveAttribute("aria-expanded", "true");
   });
 
+  it("renders the URL-selected preview in the server-provided initial view", () => {
+    const markup = renderToString(<DiscoveryDesk candidates={candidates} initialHref="/discovery?filter=unread&episode=12" />);
+    expect(markup).toContain('role="dialog"');
+    expect(markup).toContain('aria-expanded="true"');
+    expect(markup).toContain("缺少 Show Notes 的边界项");
+  });
+
   it("keeps server markup independent of browser history before restoring a preview", () => {
-    window.history.replaceState({ magicpodcastDiscoveryEpisodeID: 12 }, "");
+    window.history.replaceState({}, "", "/discovery?episode=12");
 
     const markup = renderToString(<DiscoveryDesk candidates={candidates} />);
 

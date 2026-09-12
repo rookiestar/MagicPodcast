@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import useSWR from "swr";
+import { useLocationHref } from "@/lib/navigation";
 import DiscoveryDesk from "@/components/discovery/DiscoveryDesk";
 import DiscoveryFocusSummary from "@/components/discovery/DiscoveryFocusSummary";
 import WorkflowReportWorkbench from "@/components/discovery/WorkflowReportWorkbench";
@@ -37,6 +38,7 @@ import type { ConsumptionItem } from "@/types/consumption";
 
 interface DiscoveryPageClientProps {
   initialCandidates?: DiscoveryCandidate[];
+  initialHref?: string;
 }
 
 const SKELETON_ROWS = [0, 1, 2, 3, 4];
@@ -190,7 +192,11 @@ function DiscoveryPageSkeleton({
 
 export default function DiscoveryPageClient({
   initialCandidates,
+  initialHref = "",
 }: DiscoveryPageClientProps) {
+  const href = useLocationHref() || initialHref;
+  const locationQuery = new URL(href || "/", "http://navigation.local").searchParams;
+  const hasReportLocation = locationQuery.has("report") || locationQuery.has("report_history");
   const [cachedCandidates, setCachedCandidates] = useState<
     DiscoveryCandidate[] | undefined
   >();
@@ -447,14 +453,16 @@ export default function DiscoveryPageClient({
   const todayReports = reportsData?.today ?? [];
   const historyReports = reportsData?.history ?? [];
   const reportsFailed = Boolean(reportsError && !reportsValidating);
-  const reportsLoading = !reportsData && reportsValidating;
+  const reportsLoading = !reportsData && !reportsError;
   const showReportWorkbench =
+    hasReportLocation ||
     reportsLoading ||
     reportsFailed ||
     todayReports.length > 0 ||
     historyReports.length > 0;
   const reportContent = showReportWorkbench ? (
     <WorkflowReportWorkbench
+      initialHref={initialHref}
       todayReports={todayReports}
       historyReports={historyReports}
       timezone={reportsData?.timezone}
@@ -497,6 +505,7 @@ export default function DiscoveryPageClient({
         />
       ) : (
         <DiscoveryDesk
+          initialHref={initialHref}
           candidates={displayCandidates}
           reportContent={reportContent}
           focusContent={focusContent}

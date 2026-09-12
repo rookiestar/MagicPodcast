@@ -1339,3 +1339,30 @@ func (c *recordingRunCanceler) RunIDs() []uint {
 	defer c.mu.Unlock()
 	return append([]uint(nil), c.runIDs...)
 }
+
+func TestProcessingHandlerEpisodeArtifactReferenceIsScopedAndReadOnly(t *testing.T) {
+	db, router, episode, _ := setupProcessingHandler(t)
+	handler := handlers.NewProcessingHandler(processing.NewService(db), nil)
+	router.GET("/api/v1/episodes/:id/artifact-sets/:artifactID", handler.GetEpisodeArtifact)
+	run := models.EpisodeProcessingRun{EpisodeID: episode.ID, ProcessingKey: "url-351-reference", PipelineVersion: "fixture", TriggerSource: models.ProcessingTriggerManual, Status: models.ProcessingRunStatusCompleted}
+	require.NoError(t, db.Create(&run).Error)
+	artifact := models.EpisodeArtifactSet{EpisodeID: episode.ID, RunID: run.ID, PipelineVersion: "fixture", RootPath: "/private/not-public", ManifestPath: "manifest.json", TranscriptSHA256: strings.Repeat("b", 64), IsCurrent: false}
+	require.NoError(t, db.Create(&artifact).Error)
+	var before models.EpisodeArtifactSet
+	require.NoError(t, db.First(&before, artifact.ID).Error)
+	for _, target := range []struct {
+		id     uint
+		status int
+	}{{episode.ID, http.StatusOK}, {episode.ID + 999, http.StatusNotFound}} {
+		response := processingRequest(router, http.MethodGet, fmt.Sprintf("/api/v1/episodes/%d/artifact-sets/%d", target.id, artifact.ID), "")
+		require.Equal(t, target.status, response.Code)
+		require.NotContains(t, response.Body.String(), "/private/not-public")
+		if target.status == http.StatusOK {
+			require.Contains(t, response.Body.String(), `"is_current":false`)
+			require.Contains(t, response.Body.String(), `"transcript":true`)
+		}
+	}
+	var after models.EpisodeArtifactSet
+	require.NoError(t, db.First(&after, artifact.ID).Error)
+	require.Equal(t, before, after)
+}

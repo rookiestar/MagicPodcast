@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ReportModal from "@/components/workflows/ReportModal";
 import { reportStatsSamples } from "@/lib/reportStatsSamples";
@@ -77,4 +77,24 @@ describe("ReportModal stats line", () => {
       });
     },
   );
+});
+
+
+it("restores keyboard focus after retry removes the focused button", async () => {
+  getMock.mockReset();
+  getMock.mockRejectedValueOnce({ response: { status: 503 } });
+  getMock.mockResolvedValue({ data: { data: {
+    id: 1, job_id: 9, title: "报告", content: "恢复的正文", summary: "",
+    episodes_count: 1, podcasts_count: 1, generated_at: "2026-09-12T08:00:00Z",
+    format: "markdown", file_size: 10,
+  } } });
+  const close = vi.fn();
+  render(<ReportModal isOpen onClose={close} jobId={9} jobStatus="completed" />);
+  const retry = await screen.findByRole("button", { name: "重试" });
+  retry.focus();
+  fireEvent.click(retry);
+  await screen.findByText("恢复的正文");
+  await waitFor(() => expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(true));
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  expect(close).toHaveBeenCalledTimes(1);
 });
