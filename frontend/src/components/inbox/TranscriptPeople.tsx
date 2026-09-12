@@ -596,7 +596,9 @@ export function useTranscriptPeople(
                     onClick={() => {
                       const target = segments.find((s) => s.order === a.fragment_order);
                       if (target) editSpeaker(target);
-                    }}>修改「{a.display_name}」</button>
+                    }}>修改「{a.display_name}」{editTargets.some((other) =>
+                      other.person_id !== a.person_id && other.display_name === a.display_name,
+                    ) ? `（片段 ${a.fragment_order}）` : ""}</button>
                 )) : (
                   <button type="button" disabled={!!busy || dirty || !current || readOnly}
                     onClick={() => editSpeaker(group[0])}>填写姓名</button>
