@@ -148,6 +148,46 @@ type LLMConfig struct {
 	SystemPrompt        string      `mapstructure:"system_prompt"`          // 全局System Prompt
 }
 
+// WorkflowLLMConfig is the persisted LLM portion of a workflow configuration.
+// It is intentionally small so startup validation does not depend on the
+// complete workflow model or any runtime-only fields.
+type WorkflowLLMConfig struct {
+	WorkflowID   uint
+	WorkflowName string
+	LLMEnabled   bool
+	LLMMaxTokens int
+}
+
+// ValidateLLMMaxTokens validates one workflow override against the startup
+// configured global generation budget. Zero means inherit the global budget.
+func ValidateLLMMaxTokens(maxTokens, globalMaxTokens int) error {
+	if maxTokens == 0 {
+		return nil
+	}
+	if maxTokens < MinLLMMaxTokensPerRequest || maxTokens > globalMaxTokens {
+		return fmt.Errorf("llm_max_tokens必须在%d-%d之间", MinLLMMaxTokensPerRequest, globalMaxTokens)
+	}
+	return nil
+}
+
+// ValidateWorkflowLLMConfigs rejects persisted workflow overrides that cannot
+// be honored by the configured LLM client. This closes the gap for workflows
+// created before the global budget became an explicit upper bound.
+func ValidateWorkflowLLMConfigs(globalMaxTokens int, workflows []WorkflowLLMConfig) error {
+	if globalMaxTokens < MinLLMMaxTokensPerRequest {
+		return fmt.Errorf("llm max_tokens_per_request must be at least %d", MinLLMMaxTokensPerRequest)
+	}
+	for _, workflow := range workflows {
+		if !workflow.LLMEnabled {
+			continue
+		}
+		if err := ValidateLLMMaxTokens(workflow.LLMMaxTokens, globalMaxTokens); err != nil {
+			return fmt.Errorf("workflow %d (%q): %w", workflow.WorkflowID, workflow.WorkflowName, err)
+		}
+	}
+	return nil
+}
+
 // SearchWeights 搜索字段权重
 type SearchWeights struct {
 	PodcastTitle   float64 `mapstructure:"podcast_title"`

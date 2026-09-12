@@ -509,8 +509,8 @@ func validateRulesConfig(rules models.RulesConfig) error {
 			if loaded := appconfig.Get(); loaded != nil && loaded.LLM.MaxTokensPerRequest > 0 {
 				maxTokens = loaded.LLM.MaxTokensPerRequest
 			}
-			if rules.LLMMaxTokens < appconfig.MinLLMMaxTokensPerRequest || rules.LLMMaxTokens > maxTokens {
-				return fmt.Errorf("llm_max_tokens必须在%d-%d之间", appconfig.MinLLMMaxTokensPerRequest, maxTokens)
+			if err := appconfig.ValidateLLMMaxTokens(rules.LLMMaxTokens, maxTokens); err != nil {
+				return err
 			}
 		}
 

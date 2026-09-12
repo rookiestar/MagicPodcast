@@ -86,6 +86,32 @@ llm:
 	require.Equal(t, DefaultLLMMaxTokensPerRequest, loaded.LLM.MaxTokensPerRequest)
 }
 
+func TestValidateLLMMaxTokensAllowsInheritedBudget(t *testing.T) {
+	require.NoError(t, ValidateLLMMaxTokens(0, 2000))
+	require.NoError(t, ValidateLLMMaxTokens(2000, 2000))
+	require.ErrorContains(t, ValidateLLMMaxTokens(4000, 2000), "llm_max_tokens必须在100-2000之间")
+}
+
+func TestValidateWorkflowLLMConfigsRejectsPersistedBudgetAboveGlobal(t *testing.T) {
+	err := ValidateWorkflowLLMConfigs(2000, []WorkflowLLMConfig{
+		{
+			WorkflowID:   42,
+			WorkflowName: "教育每周四精选",
+			LLMEnabled:   true,
+			LLMMaxTokens: 4000,
+		},
+	})
+
+	require.EqualError(t, err, "workflow 42 (\"教育每周四精选\"): llm_max_tokens必须在100-2000之间")
+}
+
+func TestValidateWorkflowLLMConfigsAllowsInheritedAndDisabledBudgets(t *testing.T) {
+	require.NoError(t, ValidateWorkflowLLMConfigs(2000, []WorkflowLLMConfig{
+		{WorkflowID: 1, WorkflowName: "继承全局", LLMEnabled: true, LLMMaxTokens: 0},
+		{WorkflowID: 2, WorkflowName: "未启用摘要", LLMEnabled: false, LLMMaxTokens: 4000},
+	}))
+}
+
 func TestLoadAppliesProcessingEnvOverrides(t *testing.T) {
 	t.Cleanup(func() {
 		cfg = nil
