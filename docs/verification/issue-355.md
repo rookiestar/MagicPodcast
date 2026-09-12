@@ -1,6 +1,6 @@
 # #355 人物弹层与 SSE 验收
 
-日期：2026-09-12。范围：[Spec #355](https://github.com/rookiestar/MagicPodcast/issues/355)，依赖顺序 #356 → #357 → #358。实现为 `d7b3ca4`、`55df85f`、`3a61467`，基于 `730dc72`；本记录及图片不改变产品实现。
+日期：2026-09-12。范围：[Spec #355](https://github.com/rookiestar/MagicPodcast/issues/355)，依赖顺序 #356 → #357 → #358。实现为 `d7b3ca4`、`55df85f`、`3a61467`、`a360f42`，基于 `730dc72`；本记录及图片不改变产品实现。
 
 设计依据：[已确认原型](https://github.com/rookiestar/MagicPodcast/blob/261538b87a736fbb6b3e1082f13382978bb787e1/docs/research/transcript-people-modal-sse/prototype.png)。管理改为居中弹层；重新识别、保存、明确应用位于固定底部；进度期间仅展示真实阶段，已应用内容仍留在逐字稿。没有新增 schema、持久任务平台或扩大人物识别标准。
 
@@ -45,7 +45,7 @@
 - `BACKEND_URL=http://127.0.0.1:18355 MAGICPODCAST_NEXT_DIST_DIR=.next-issue355-final npm --prefix frontend run build`：通过；上述最终视觉与时序来自对应构建后的 `next start`。
 - `git diff --check`：通过。构建自动生成的类型配置和 Agent 入口未纳入提交。
 
-最终审查发现定位原文后重开弹层会丢失原生 details 的展开状态，已由 `3a61467` 修复：收起只隐藏弹层，保留原生审阅状态。真实浏览器复验“展开证据→定位片段→重开”通过，[复验截图](issue-355/reopened-evidence.png)；类型检查、Lint、57 项相关测试和 `.next-issue355-reviewed` 构建均通过。前述真实 SSE 时序对应 `55df85f` 的传输实现，该补丁未修改请求、解析或持久化流程。
+最终审查发现定位原文后重开弹层会丢失原生 details 的展开状态，已由 `3a61467` 修复：收起只隐藏弹层，保留原生审阅状态。真实浏览器复验“展开证据→定位片段→重开”通过，[复验截图](issue-355/reopened-evidence.png)；类型检查、Lint、57 项相关测试和 `.next-issue355-reviewed` 构建均通过。另由 `a360f42` 补齐成功读回后刷新识别历史，避免新草稿未进入历史选择框；人物核对 16 项、类型检查和 Lint 通过。前述真实 SSE 时序对应 `55df85f` 的传输实现，该补丁未修改请求、解析或持久化流程。
 
 本地 HTTP/播放器的故障测试与浏览器故障注入是异常场景证据；不以它们代替上面的真实 Runtime、持久草稿和实际人物问答。CI/合并结果由对应 PR 的当前状态确认。
 
