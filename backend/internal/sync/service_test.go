@@ -71,8 +71,9 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		_ = sqlDB.Close()
 	})
 
-	// 自动迁移
-	err = db.AutoMigrate(&models.Podcast{}, &models.Episode{}, &models.PodcastAlternativeFeed{})
+	// 自动迁移（含清单外部身份映射，供同步去重复用）
+	err = db.AutoMigrate(&models.Podcast{}, &models.Episode{}, &models.PodcastAlternativeFeed{},
+		&models.EpisodeExternalRef{}, &models.EpisodeTriageDecision{})
 	assert.NoError(t, err)
 
 	return db

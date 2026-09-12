@@ -182,10 +182,10 @@ func SetupRouter(options ...Option) *gin.Engine {
 		v1.GET("/discovery/reports", discoveryHandler.ListHomepageReports)
 		v1.GET("/discovery/reports/:id", discoveryHandler.GetHomepageReport)
 
-		// 播客清单：外部发现资料的导入与浏览；按集收录随 #377 交付。
-		// 交付顺序控制：第 2、3 票联合验收通过前，收录 API 以关闭态装配
-		//（返回 404 语义），合并不依赖长期 feature flag。
-		collectionAdoptionGateOpen := false
+		// 播客清单：外部发现资料的导入、浏览与按集收录。
+		// 第 2、3 票联合验收已于 2026-09-13 通过（采纳→RSS 同 ID 回读、
+		// 最近更新/日报隔离证据齐全），收录入口自此开放。
+		collectionAdoptionGateOpen := true
 		collectionHandler := handlers.NewCollectionHandlerWithAdoption(
 			collection.NewService(discoveryDB),
 			services.NewCollectionAdoptionService(discoveryDB),

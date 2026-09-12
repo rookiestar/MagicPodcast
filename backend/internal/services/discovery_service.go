@@ -126,6 +126,8 @@ func (s *DiscoveryService) listRecentCandidateEpisodes(
 	err := query.
 		Joins("JOIN podcasts ON podcasts.id = episodes.podcast_id").
 		Where("podcasts.is_subscribed = ?", true).
+		// 清单独有、尚未被普通同步实际识别的单集不具备候选资格（#378）。
+		Where("episodes.collection_only = ?", false).
 		Where(recencyExpression+" >= julianday(?)", cutoff).
 		Order(recencyExpression + " DESC").
 		Order("episodes.id DESC").
