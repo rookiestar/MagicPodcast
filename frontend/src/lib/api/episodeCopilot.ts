@@ -50,7 +50,7 @@ export type PersonPreparationEvent = {
   episode_id: number;
   request_id: string;
   source_version?: string;
-  stage?: "read" | "identify" | "review" | "save";
+  stage?: "read" | "identify" | "save";
   elapsed_ms?: number;
   message?: string;
   data?: EpisodePeoplePayload;

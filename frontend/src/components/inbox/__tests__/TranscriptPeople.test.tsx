@@ -369,13 +369,15 @@ describe("人物识别进度与恢复", () => {
     fireEvent.click(start); fireEvent.click(start);
     expect(episodeCopilotApi.preparePeople).toHaveBeenCalledTimes(1);
     act(() => report({ type: "stage", episode_id: 7, request_id: "a", source_version: "artifact-8", stage: "identify" }));
-    expect(screen.getByText("正在识别出场人物")).toBeInTheDocument();
+    expect(screen.getByText("正在识别人物与 Speaker 对应")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "人物识别进度" })).getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.queryByText("核对发言归属")).not.toBeInTheDocument();
     act(() => report({ type: "heartbeat", episode_id: 7, request_id: "a", source_version: "artifact-8" }));
-    expect(screen.getByText("正在识别出场人物")).toBeInTheDocument();
+    expect(screen.getByText("正在识别人物与 Speaker 对应")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "关闭人物核对" }));
     expect(signal.aborted).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "查看进度" }));
-    expect(screen.getByText("正在识别出场人物")).toBeInTheDocument();
+    expect(screen.getByText("正在识别人物与 Speaker 对应")).toBeInTheDocument();
     vi.mocked(episodeCopilotApi.getPeople).mockResolvedValueOnce(empty);
     fireEvent.click(screen.getByRole("button", { name: "取消识别" }));
     expect(signal.aborted).toBe(true);

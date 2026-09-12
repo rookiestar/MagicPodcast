@@ -21,8 +21,8 @@ import EpisodePersonEvidence, { personEvidence } from "./EpisodePersonEvidence";
 import styles from "./TranscriptPeople.module.css";
 
 const preparationStages = [
-  ["read", "读取逐字稿与节目资料"], ["identify", "识别出场人物"],
-  ["review", "核对发言归属"], ["save", "保存待确认草稿"],
+  ["read", "读取逐字稿与节目资料"], ["identify", "识别人物与 Speaker 对应"],
+  ["save", "保存待确认草稿"],
 ] as const;
 
 function PreparationStatus({ stage, started }: { stage: string; started: number }) {
@@ -734,13 +734,14 @@ export function useTranscriptPeople(
                           />
                           {seg.text}
                         </label>
+                        <small>当前：{nameFor(seg)} → {match.orders.includes(seg.order) ? match.display_name : "保持原状"}</small>
                         <button type="button" onClick={() => locateFromPanel(seg.order)}>
                           定位 / 试听
                         </button>
                       </div>
                     ))}
                   </details>
-                  {group.length > match.orders.length && <p className={styles.exception}>另有 {group.length - match.orders.length} 段未纳入此匹配，暂不应用。</p>}
+                  {group.length > match.orders.length && <p className={styles.exception}>另有 {group.length - match.orders.length} 段未选入本次应用；可在匹配范围中手动调整。</p>}
                 </section>
               );
             })}
@@ -787,7 +788,7 @@ export function useTranscriptPeople(
             <button type="button" onClick={cancelPreparation}>取消识别</button>
           </footer> : draft && (
             <footer>
-              <span className={styles.footerSummary}>本次将更新 {selectedCount} 段发言<small>{dirty ? "修改尚未保存" : "草稿已保存"}</small></span>
+              <span className={styles.footerSummary}>本次将更新 {selectedCount} 段发言<small>{dirty ? "修改尚未保存" : "草稿已保存"} · 确认将覆盖所选片段的现有归属，未选片段保持原状。</small></span>
               <button type="button" className={styles.reidentify} disabled={!!busy || dirty || needsReadback || readOnly}
                 onClick={(event) => void prepare(event.timeStamp)}><span aria-hidden="true">↻ </span>重新识别</button>
               <button

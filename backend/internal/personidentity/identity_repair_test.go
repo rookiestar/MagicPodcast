@@ -26,21 +26,11 @@ func TestEvidenceKeepsCanonicalNameAndRejectsWrongSpeakerAnchor(t *testing.T) {
 	require.Contains(t, items[0].SourceNames, "小云")
 	require.NotContains(t, items[0].Aliases, "小云")
 	require.Equal(t, []int{1}, items[0].SpeechOrders)
-	// Stable labels are expanded only after the model explicitly reviewed
-	// their scope; a listed-fragments decision must never expand implicitly.
-	sources.Segments = append(sources.Segments, Segment{Order: 3, SpeakerLabel: "Speaker 1", Text: "接下来我们聊市场。"})
-	payload.People[0].SpeechBindings[0].Scope = "stable_speaker"
-	stable, err := json.Marshal(payload)
-	require.NoError(t, err)
-	items, err = decodeIdentitySuggestions(stable, sources)
+	// Identity establishes the source Speaker, not a model-selected subset.
+	sources.Segments = append(sources.Segments, Segment{Order: 3, SpeakerLabel: "Speaker 1", Text: "接下来我们聊市场。对。"})
+	items, err = decodeIdentitySuggestions(raw, sources)
 	require.NoError(t, err)
 	require.Equal(t, []int{1, 3}, items[0].SpeechOrders)
-	payload.People[0].SpeechBindings[0].ExcludedOrders = []int{3}
-	exceptions, err := json.Marshal(payload)
-	require.NoError(t, err)
-	items, err = decodeIdentitySuggestions(exceptions, sources)
-	require.NoError(t, err)
-	require.Equal(t, []int{1}, items[0].SpeechOrders)
 
 	payload.People[0].SpeechBindings[0].SpeakerLabel = "Speaker 2"
 	wrongAnchor, err := json.Marshal(payload)
@@ -231,7 +221,7 @@ func TestShortFormWithinLocatedIntroductionSupportsLaterAddressedResponse(t *tes
 	require.Equal(t, StatusPending, items[0].Status, "an absent short form cannot be invented")
 }
 
-func TestFirstPersonIdentityReferenceBindsOnlyNamedSourceAndKeepsExcludedFragments(t *testing.T) {
+func TestFirstPersonIdentityReferenceExpandsGroupDespiteLegacyExclusions(t *testing.T) {
 	sources := EpisodeSources{ShowNotes: "本集林言主持，与Ada Chen对谈。", Segments: []Segment{
 		{Order: 1, SpeakerLabel: "A", Text: "我把自己的资料整理成林言专用资料库，分享给我的团队。"},
 		{Order: 2, SpeakerLabel: "A", Text: "我的团队可以继续使用这些资料。"},
@@ -241,7 +231,7 @@ func TestFirstPersonIdentityReferenceBindsOnlyNamedSourceAndKeepsExcludedFragmen
 	items, err := decodeIdentitySuggestions(raw, sources)
 	require.NoError(t, err)
 	require.Len(t, items, 1)
-	require.Equal(t, []int{1, 2}, items[0].SpeechOrders)
+	require.Equal(t, []int{1, 2, 3}, items[0].SpeechOrders)
 	var payload struct {
 		People []identityProposal `json:"people"`
 	}
