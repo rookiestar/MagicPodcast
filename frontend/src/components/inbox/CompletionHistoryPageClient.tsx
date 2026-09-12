@@ -3,10 +3,12 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type FormEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import EpisodeLink from "@/components/episodes/EpisodeLink";
 import { singleParam, updateQuery, useLocationHref } from "@/lib/navigation";
@@ -14,52 +16,46 @@ import {
   IconAlertTriangle,
   IconArrowLeft,
   IconArrowRight,
+  IconBookmarkPlus,
   IconCircleCheck,
   IconClock,
-  IconHistory,
-  IconInbox,
+  IconDots,
   IconRefresh,
   IconSearch,
   IconTargetArrow,
   IconX,
 } from "@tabler/icons-react";
 import PageLayout from "@/components/layout/PageLayout";
-import PlainImage from "@/components/ui/PlainImage";
-import { consumptionApi, getConsumptionErrorDetails, requiresFocusConfirmation } from "@/lib/api/consumption";
-import { getOptimizedImageUrl } from "@/lib/imageOptimization";
+import {
+  consumptionApi,
+  getConsumptionErrorDetails,
+  requiresFocusConfirmation,
+} from "@/lib/api/consumption";
 import type {
   CompletionHistoryItem,
   CompletionHistoryStatus,
   ConsumptionQueue,
 } from "@/types/consumption";
-import { formatCompletedDate } from "./presentation";
+import { formatCompletedDate, QUEUE_PRESENTATION } from "./presentation";
+import { useMenuPopover } from "./useMenuPopover";
 import styles from "./CompletionHistoryPage.module.css";
 
 const ACTION_QUEUES: ConsumptionQueue[] = ["inbox", "focus", "someday"];
 
-const STATUS_COPY: Record<
-  CompletionHistoryStatus,
-  { label: string; short: string }
-> = {
-  inbox: { label: "曾完成 · 当前 Inbox", short: "Inbox" },
-  focus: { label: "曾完成 · 当前 Focus", short: "Focus" },
-  someday: { label: "曾完成 · 当前 Someday", short: "Someday" },
-  done: { label: "当前 Done", short: "Done" },
-  dismissed: { label: "曾完成 · 当前不感兴趣", short: "不感兴趣" },
-  unassigned: { label: "曾完成 · 当前未安排", short: "未安排" },
-};
+const REPROCESS_TARGETS: {
+  queue: ConsumptionQueue;
+  label: string;
+}[] = [
+  { queue: "inbox", label: "加入 Inbox" },
+  { queue: "focus", label: "加入 Focus" },
+  { queue: "someday", label: "加入 Someday" },
+];
 
-interface FocusPrompt {
-  item: CompletionHistoryItem;
-  currentCount: number;
-  limit: number;
-}
-
-function statusIcon(status: CompletionHistoryStatus) {
-  const props = { size: 15, stroke: 1.8, "aria-hidden": true } as const;
-  switch (status) {
+function queueIcon(queue: ConsumptionQueue) {
+  const props = { size: 16, stroke: 1.8, "aria-hidden": true } as const;
+  switch (queue) {
     case "inbox":
-      return <IconInbox {...props} />;
+      return <IconBookmarkPlus {...props} />;
     case "focus":
       return <IconTargetArrow {...props} />;
     case "someday":
@@ -67,6 +63,31 @@ function statusIcon(status: CompletionHistoryStatus) {
     default:
       return <IconCircleCheck {...props} />;
   }
+}
+
+function statusHint(status: CompletionHistoryStatus) {
+  if (status === "dismissed") return "当前不感兴趣";
+  if (status === "unassigned") return "当前未安排";
+  return "";
+}
+
+function locateLabel(status: CompletionHistoryStatus) {
+  switch (status) {
+    case "inbox":
+      return "已在 Inbox";
+    case "focus":
+      return "已在 Focus";
+    case "someday":
+      return "已在 Someday";
+    default:
+      return "";
+  }
+}
+
+interface FocusPrompt {
+  item: CompletionHistoryItem;
+  currentCount: number;
+  limit: number;
 }
 
 function appendUniqueHistoryItems(
@@ -82,6 +103,127 @@ function appendUniqueHistoryItems(
       return true;
     }),
   ];
+}
+
+/** 次要操作菜单：选择目标即触发重新处理；portal 挂到 body，避免被列表裁切。 */
+function ReprocessMenu({
+  item,
+  busy,
+  onSelect,
+}: {
+  item: CompletionHistoryItem;
+  busy: boolean;
+  onSelect: (item: CompletionHistoryItem, target: ConsumptionQueue) => void;
+}) {
+  const {
+    open,
+    menuId,
+    triggerRef,
+    menuRef,
+    closeMenu,
+    toggleMenu,
+    handleMenuKeyDown,
+  } = useMenuPopover();
+  // 首帧以离屏位置挂载 portal，保证 useMenuPopover 的聚焦 effect 能拿到 menuRef；
+  // useLayoutEffect 会在 paint 前把菜单移到触发器旁，用户看不到离屏帧。
+  const [position, setPosition] = useState<{ top: number; right: number }>(
+    () => ({ top: -9999, right: 8 }),
+  );
+
+  const updatePosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const menuHeight = menuRef.current?.getBoundingClientRect().height ?? 0;
+    const viewportMargin = 8;
+    const triggerGap = 5;
+    const belowTop = rect.bottom + triggerGap;
+    const fitsBelow =
+      menuHeight === 0 ||
+      belowTop + menuHeight <= window.innerHeight - viewportMargin;
+    setPosition({
+      top: fitsBelow
+        ? belowTop
+        : Math.max(viewportMargin, rect.top - menuHeight - triggerGap),
+      right: Math.max(viewportMargin, window.innerWidth - rect.right),
+    });
+  }, [menuRef, triggerRef]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updatePosition();
+    const onViewportChange = () => updatePosition();
+    window.addEventListener("resize", onViewportChange);
+    window.addEventListener("scroll", onViewportChange, true);
+    return () => {
+      window.removeEventListener("resize", onViewportChange);
+      window.removeEventListener("scroll", onViewportChange, true);
+    };
+  }, [open, updatePosition]);
+
+  const select = (target: ConsumptionQueue) => {
+    closeMenu();
+    onSelect(item, target);
+  };
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={styles.moreButton}
+        aria-label={
+          busy
+            ? `正在保存《${item.episode_title}》的队列调整`
+            : `《${item.episode_title}》的更多操作`
+        }
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        aria-disabled={busy}
+        onClick={() => {
+          if (!busy) toggleMenu();
+        }}
+      >
+        <IconDots size={19} stroke={1.9} aria-hidden="true" />
+      </button>
+      {open && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={menuRef}
+              id={menuId}
+              className={styles.rowMenuPopover}
+              style={position}
+              role="menu"
+              aria-label={`重新处理《${item.episode_title}》`}
+              onKeyDown={handleMenuKeyDown}
+            >
+              <span className={styles.rowMenuTitle} aria-hidden="true">
+                重新处理到
+              </span>
+              {REPROCESS_TARGETS.map(({ queue, label }) => (
+                <button
+                  key={queue}
+                  type="button"
+                  role="menuitem"
+                  aria-disabled={busy}
+                  onClick={() => select(queue)}
+                >
+                  {queueIcon(queue)}
+                  {label}
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
+      {busy && (
+        <span className={styles.srOnly} role="status">
+          正在保存队列调整…
+        </span>
+      )}
+    </>
+  );
 }
 
 export default function CompletionHistoryPageClient() {
@@ -106,21 +248,32 @@ export default function CompletionHistoryPageClient() {
   const [busyEpisodes, setBusyEpisodes] = useState<Set<number>>(
     () => new Set(),
   );
-  const [selectedTargets, setSelectedTargets] = useState<
-    Record<number, ConsumptionQueue>
-  >({});
   const [focusPrompt, setFocusPrompt] = useState<FocusPrompt | null>(null);
   const itemsRef = useRef(items);
   const requestVersion = useRef(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const focusCancelRef = useRef<HTMLButtonElement>(null);
+  const actionCells = useRef(new Map<number, HTMLDivElement>());
+  const restoreActionFocus = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    const episodeID = restoreActionFocus.current;
+    if (episodeID === null) return;
+    restoreActionFocus.current = null;
+    actionCells.current.get(episodeID)?.querySelector<HTMLAnchorElement>("a")?.focus({ preventScroll: true });
+  }, [items]);
 
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
 
   useEffect(() => {
-    if (focusPrompt) focusCancelRef.current?.focus();
+    if (!focusPrompt) return;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    focusCancelRef.current?.focus();
+    return () => {
+      if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+    };
   }, [focusPrompt]);
 
   const loadFirstPage = useCallback(async (query: string) => {
@@ -231,6 +384,9 @@ export default function CompletionHistoryPageClient() {
         const updated = await consumptionApi.setQueue(item.episode_id, target, {
           acknowledgeFocusLimit,
         });
+        if (actionCells.current.get(item.episode_id)?.contains(document.activeElement)) {
+          restoreActionFocus.current = item.episode_id;
+        }
         setItems((current) =>
           current.map((candidate) =>
             candidate.episode_id === item.episode_id
@@ -241,7 +397,9 @@ export default function CompletionHistoryPageClient() {
               : candidate,
           ),
         );
-        setAnnouncement(`《${item.episode_title}》已移至 ${STATUS_COPY[target].short}。`);
+        setAnnouncement(
+          `《${item.episode_title}》已移至 ${QUEUE_PRESENTATION[target].label}。`,
+        );
       } catch (error) {
         const details = getConsumptionErrorDetails(error);
         if (target === "focus" && requiresFocusConfirmation(error)) {
@@ -279,46 +437,32 @@ export default function CompletionHistoryPageClient() {
       className={styles.layout}
     >
       <main className={styles.page}>
-        <nav className={styles.contextNav} aria-label="完成历史路径">
-          <Link href="/inbox" prefetch={false}>
-            <IconArrowLeft size={17} stroke={1.9} aria-hidden="true" />
-            返回 Inbox
-          </Link>
-          <span aria-hidden="true">/</span>
-          <span>完成历史</span>
-        </nav>
-
-        <header className={styles.hero}>
-          <div className={styles.heroMark} aria-hidden="true">
-            <IconHistory size={25} stroke={1.55} />
-          </div>
-          <div className={styles.heroCopy}>
-            <span className={styles.kicker}>COMPLETION HISTORY</span>
+        <header className={styles.pageHeader}>
+          <nav className={styles.contextNav} aria-label="完成历史路径">
+            <Link href="/inbox" prefetch={false}>
+              <IconArrowLeft size={16} stroke={1.9} aria-hidden="true" />
+              返回 Inbox
+            </Link>
+          </nav>
+          <div className={styles.titleRow}>
             <h1>完成历史</h1>
-            <p>
-              完成意味着一件事已退出当前注意力；重新处理不会抹去这段事实。
-            </p>
-          </div>
-          <div className={styles.tally} aria-live="polite">
-            <span>全部完成</span>
-            <strong>{totalCount ?? "—"}</strong>
-            <small>个唯一单集</small>
+            <span className={styles.totalCount} aria-live="polite">
+              {totalCount === null ? "…" : totalCount} 个单集
+            </span>
           </div>
         </header>
 
         <form className={styles.searchBar} role="search" onSubmit={handleSearch}>
-          <label htmlFor="completion-history-search">
-            搜索单集或节目
-          </label>
           <div className={styles.searchControl}>
-            <IconSearch size={19} stroke={1.8} aria-hidden="true" />
+            <IconSearch size={17} stroke={1.8} aria-hidden="true" />
             <input
               ref={searchInputRef}
               id="completion-history-search"
               type="search"
               value={draftQuery}
               onChange={(event) => setDraftQuery(event.target.value)}
-              placeholder="输入单集标题或节目名称"
+              placeholder="搜索单集或节目…"
+              aria-label="搜索单集或节目"
               autoComplete="off"
             />
             {(draftQuery || activeQuery) && (
@@ -328,7 +472,7 @@ export default function CompletionHistoryPageClient() {
                 onClick={clearSearch}
                 aria-label="清除完成历史搜索"
               >
-                <IconX size={18} stroke={1.8} aria-hidden="true" />
+                <IconX size={17} stroke={1.8} aria-hidden="true" />
               </button>
             )}
           </div>
@@ -337,17 +481,17 @@ export default function CompletionHistoryPageClient() {
             className={styles.searchButton}
             disabled={isRefreshing}
           >
-            搜索全部历史
+            搜索
           </button>
         </form>
 
         <div className={styles.resultBar}>
           <p aria-live="polite">
             {activeQuery
-              ? `“${activeQuery}”找到 ${matchCount ?? 0} 条`
+              ? `“${activeQuery}”找到 ${matchCount ?? 0} 个单集`
               : matchCount === null
                 ? "正在读取完成事实"
-                : `按最近完成时间排列 · ${matchCount} 条`}
+                : "按最近完成时间排列"}
           </p>
           {isRefreshing && (
             <span role="status">
@@ -378,14 +522,10 @@ export default function CompletionHistoryPageClient() {
         )}
 
         {showInitialLoading && (
-          <section className={styles.loadingGrid} aria-label="正在加载完成历史">
-            <p role="status">正在加载完成历史…</p>
-            {Array.from({ length: 6 }, (_, index) => (
-              <div key={index} className={styles.loadingCard} aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </div>
+          <section className={styles.loadingList} aria-label="正在加载完成历史">
+            <p className={styles.srOnly} role="status">正在加载完成历史…</p>
+            {Array.from({ length: 8 }, (_, index) => (
+              <div key={index} className={styles.loadingRow} aria-hidden="true" />
             ))}
           </section>
         )}
@@ -420,121 +560,63 @@ export default function CompletionHistoryPageClient() {
         )}
 
         {items.length > 0 && (
-          <section className={styles.historyGrid} aria-label="完成历史记录">
-            {items.map((item, index) => {
-              const status = STATUS_COPY[item.current_status];
-              const target = selectedTargets[item.episode_id] ?? "inbox";
+          <section className={styles.historyList} aria-label="完成历史记录">
+            {items.map((item) => {
               const isActionQueue = ACTION_QUEUES.includes(
                 item.current_status as ConsumptionQueue,
               );
-              const coverSource = getOptimizedImageUrl(
-                item.image_url || item.podcast_cover_url,
-                128,
-              );
+              const hint = statusHint(item.current_status);
               return (
                 <article
                   key={item.episode_id}
-                  className={styles.historyCard}
-                  style={{ "--history-index": index } as React.CSSProperties}
+                  className={styles.historyRow}
                   data-episode-id={item.episode_id}
                 >
-                  <div className={styles.cardNumber} aria-hidden="true">
-                    {String(index + 1).padStart(2, "0")}
-                  </div>
-                  <div className={styles.cardBody}>
-                    <div className={styles.cardIdentity}>
-                      <span className={styles.coverFrame} aria-hidden="true">
-                        {coverSource ? (
-                          <PlainImage
-                            src={coverSource}
-                            alt=""
-                            width={64}
-                            height={64}
-                            loading="lazy"
-                            decoding="async"
-                            className={styles.cover}
-                          />
-                        ) : (
-                          <span className={styles.coverFallback}>
-                            {item.podcast_title.trim().slice(0, 1) || "M"}
-                          </span>
-                        )}
-                      </span>
-                      <div>
-                        <p className={styles.podcastLine}>
-                          {item.podcast_title}
-                          {item.episode_no ? ` · ${item.episode_no}` : ""}
-                        </p>
-                        <h2><EpisodeLink episodeID={item.episode_id} source="history" href={`/episodes/${item.episode_id}?from=history`}>{item.episode_title}</EpisodeLink></h2>
-                      </div>
-                    </div>
-                    <div className={styles.cardFacts}>
-                      <span>
-                        <IconCircleCheck
-                          size={15}
+                  <p className={styles.podcastCell}>{item.podcast_title}</p>
+                  <h2 className={styles.titleCell}>
+                    <EpisodeLink
+                      episodeID={item.episode_id}
+                      source="history"
+                      href={`/episodes/${item.episode_id}?from=history`}
+                      data-editorial-display-text="true"
+                    >
+                      {item.episode_title}
+                    </EpisodeLink>
+                  </h2>
+                  <span className={styles.dateCell}>
+                    <IconCircleCheck size={14} stroke={1.8} aria-hidden="true" />
+                    <span className={styles.srOnly}>最近完成于 </span>
+                    {formatCompletedDate(item.completed_at)}
+                  </span>
+                  <div className={styles.actionCell} ref={(node) => {
+                    if (node) actionCells.current.set(item.episode_id, node);
+                    else actionCells.current.delete(item.episode_id);
+                  }}>
+                    {isActionQueue ? (
+                      <Link
+                        className={styles.locateLink}
+                        href={`/inbox?queue=${item.current_status}&episode=${item.episode_id}`}
+                        prefetch={false}
+                      >
+                        {locateLabel(item.current_status)}
+                        <IconArrowRight
+                          size={14}
                           stroke={1.8}
                           aria-hidden="true"
                         />
-                        最近完成于 {formatCompletedDate(item.completed_at)}
-                      </span>
-                      <span
-                        className={`${styles.statusBadge} ${
-                          styles[`status_${item.current_status}`]
-                        }`}
-                      >
-                        {statusIcon(item.current_status)}
-                        {status.label}
-                      </span>
-                    </div>
-                  </div>
-                  <div className={styles.cardAction}>
-                    {isActionQueue ? (
-                      <>
-                        <p>这条内容已在当前行动工作台中。</p>
-                        <Link
-                          href={`/inbox?queue=${item.current_status}&episode=${item.episode_id}`}
-                          prefetch={false}
-                        >
-                          定位到 {status.short}
-                          <IconArrowRight
-                            size={16}
-                            stroke={1.8}
-                            aria-hidden="true"
-                          />
-                        </Link>
-                      </>
+                      </Link>
                     ) : (
                       <>
-                        <label htmlFor={`history-target-${item.episode_id}`}>
-                          重新处理到
-                        </label>
-                        <div className={styles.reprocessControl}>
-                          <select
-                            id={`history-target-${item.episode_id}`}
-                            value={target}
-                            disabled={busyEpisodes.has(item.episode_id)}
-                            onChange={(event) =>
-                              setSelectedTargets((current) => ({
-                                ...current,
-                                [item.episode_id]: event.target
-                                  .value as ConsumptionQueue,
-                              }))
-                            }
-                          >
-                            <option value="inbox">Inbox</option>
-                            <option value="focus">Focus</option>
-                            <option value="someday">Someday</option>
-                          </select>
-                          <button
-                            type="button"
-                            disabled={busyEpisodes.has(item.episode_id)}
-                            onClick={() => void performReprocess(item, target)}
-                          >
-                            {busyEpisodes.has(item.episode_id)
-                              ? "正在保存…"
-                              : "重新处理"}
-                          </button>
-                        </div>
+                        {hint && (
+                          <span className={styles.statusHint}>{hint}</span>
+                        )}
+                        <ReprocessMenu
+                          item={item}
+                          busy={busyEpisodes.has(item.episode_id)}
+                          onSelect={(menuItem, queue) =>
+                            void performReprocess(menuItem, queue)
+                          }
+                        />
                       </>
                     )}
                   </div>
@@ -594,7 +676,6 @@ export default function CompletionHistoryPageClient() {
             <span className={styles.dialogMark} aria-hidden="true">
               <IconTargetArrow size={22} stroke={1.8} />
             </span>
-            <span className={styles.kicker}>FOCUS LIMIT</span>
             <h2 id="completion-history-focus-title">Focus 已有明确承诺</h2>
             <p id="completion-history-focus-description">
               当前已有 {focusPrompt.currentCount} 项，建议上限为{" "}
