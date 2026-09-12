@@ -42,12 +42,9 @@ type identityProposal struct {
 		Evidence identityEvidence `json:"evidence"`
 	} `json:"source_names"`
 	SpeechBindings []struct {
-		SpeakerLabel   string           `json:"speaker_label"`
-		Evidence       identityEvidence `json:"evidence"`
-		Basis          string           `json:"basis"`
-		Orders         []int            `json:"orders"`
-		Scope          string           `json:"scope"`
-		ExcludedOrders []int            `json:"excluded_orders"`
+		SpeakerLabel string           `json:"speaker_label"`
+		Evidence     identityEvidence `json:"evidence"`
+		Basis        string           `json:"basis"`
 	} `json:"speech_bindings"`
 }
 
@@ -241,29 +238,17 @@ func decodeIdentitySuggestions(raw json.RawMessage, sources EpisodeSources) ([]S
 						continue
 					}
 				}
-				bindingOrders := binding.Orders
-				excluded := map[int]bool{}
-				for _, order := range binding.ExcludedOrders {
-					excluded[order] = true
-				}
-				if binding.Scope == "stable_speaker" {
-					bindingOrders = make([]int, 0)
-					for order, seg := range segments {
-						if seg.SpeakerLabel == binding.SpeakerLabel {
-							bindingOrders = append(bindingOrders, order)
-						}
-					}
-					sort.Ints(bindingOrders)
-				}
-				for _, order := range bindingOrders {
-					seg, ok := segments[order]
-					if ok && seg.SpeakerLabel == binding.SpeakerLabel && !seen[order] && !excluded[order] {
+				// The source Speaker is the grouping authority. The model only
+				// establishes its identity; confirmation publishes the group.
+				for order, seg := range segments {
+					if seg.SpeakerLabel == binding.SpeakerLabel && !seen[order] {
 						orders = append(orders, order)
 						seen[order] = true
 					}
 				}
 			}
 		}
+		sort.Ints(orders)
 		anchor := p.IdentityAnchor
 		if p.NameType != "canonical" || p.Status != StatusConfirmed ||
 			(anchor.Kind != "distinctive_affiliation" && anchor.Kind != "public_profile") ||
