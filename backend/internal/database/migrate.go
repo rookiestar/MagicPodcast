@@ -1122,6 +1122,14 @@ func AutoMigrate(db *gorm.DB) error {
 
 func autoMigrateModels(db *gorm.DB) error {
 	for _, model := range models.AllModels {
+		// Collection tables are versioned in migrations 31 and 32. Keeping
+		// them out of the baseline path preserves the explicit DDL, including
+		// the foreign-key actions that GORM cannot infer from scalar IDs.
+		switch model.(type) {
+		case models.EpisodeCollection, models.EpisodeCollectionItem,
+			models.EpisodeExternalRef, models.EpisodeCollectionAdoption:
+			continue
+		}
 		if err := db.AutoMigrate(model); err != nil {
 			return fmt.Errorf("failed to create %T: %w", model, err)
 		}

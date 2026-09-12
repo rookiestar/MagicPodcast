@@ -27,6 +27,9 @@ const (
 	// previewTTL 预览在服务端短期保存；过期后要求重新读取，确认保存的始终
 	// 是用户实际看过的那一份。
 	previewTTL = 30 * time.Minute
+	// previewStoreCapacity bounds retained source snapshots per process. A
+	// newer preview evicts the oldest outstanding one after expiry cleanup.
+	previewStoreCapacity = 32
 )
 
 // previewEntry 是服务端绑定的待提交清单版本。
@@ -40,13 +43,27 @@ type previewEntry struct {
 type previewStore struct {
 	mu      sync.Mutex
 	entries map[string]previewEntry
+	timers  map[string]*time.Timer
 	now     func() time.Time
+	ttl     time.Duration
 }
 
 func newPreviewStore(now func() time.Time) *previewStore {
+	return newPreviewStoreWithTTL(now, previewTTL)
+}
+
+func newPreviewStoreWithTTL(now func() time.Time, ttl time.Duration) *previewStore {
+	if now == nil {
+		now = time.Now
+	}
+	if ttl <= 0 {
+		ttl = previewTTL
+	}
 	return &previewStore{
 		entries: make(map[string]previewEntry),
+		timers:  make(map[string]*time.Timer),
 		now:     now,
+		ttl:     ttl,
 	}
 }
 
@@ -58,8 +75,16 @@ func (s *previewStore) put(draft *Draft) (string, error) {
 	token := hex.EncodeToString(tokenBytes)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.evictExpiredLocked()
-	s.entries[token] = previewEntry{draft: draft, expiresAt: s.now().Add(previewTTL)}
+	now := s.now()
+	s.evictExpiredLocked(now)
+	for len(s.entries) >= previewStoreCapacity {
+		s.evictOldestLocked()
+	}
+	expiresAt := now.Add(s.ttl)
+	s.entries[token] = previewEntry{draft: draft, expiresAt: expiresAt}
+	s.timers[token] = time.AfterFunc(s.ttl, func() {
+		s.expire(token)
+	})
 	return token, nil
 }
 
@@ -72,18 +97,69 @@ func (s *previewStore) take(token string) (*Draft, error) {
 		return nil, ErrPreviewNotFound
 	}
 	delete(s.entries, token)
-	if s.now().After(entry.expiresAt) {
+	s.stopTimerLocked(token)
+	if !s.now().Before(entry.expiresAt) {
 		return nil, ErrPreviewExpired
 	}
 	return entry.draft, nil
 }
 
-func (s *previewStore) evictExpiredLocked() {
-	now := s.now()
+func (s *previewStore) evictExpiredLocked(now time.Time) {
 	for token, entry := range s.entries {
-		if now.After(entry.expiresAt) {
+		if !now.Before(entry.expiresAt) {
 			delete(s.entries, token)
+			s.stopTimerLocked(token)
 		}
+	}
+}
+
+func (s *previewStore) evictOldestLocked() {
+	var oldestToken string
+	var oldestExpiry time.Time
+	for token, entry := range s.entries {
+		if oldestToken == "" || entry.expiresAt.Before(oldestExpiry) {
+			oldestToken = token
+			oldestExpiry = entry.expiresAt
+		}
+	}
+	if oldestToken != "" {
+		delete(s.entries, oldestToken)
+		s.stopTimerLocked(oldestToken)
+	}
+}
+
+func (s *previewStore) stopTimerLocked(token string) {
+	if timer, exists := s.timers[token]; exists {
+		timer.Stop()
+		delete(s.timers, token)
+	}
+}
+
+func (s *previewStore) expire(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, exists := s.entries[token]
+	if !exists {
+		delete(s.timers, token)
+		return
+	}
+	now := s.now()
+	if now.Before(entry.expiresAt) {
+		s.timers[token] = time.AfterFunc(entry.expiresAt.Sub(now), func() {
+			s.expire(token)
+		})
+		return
+	}
+	delete(s.entries, token)
+	delete(s.timers, token)
+}
+
+func (s *previewStore) stopTimers() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for token, timer := range s.timers {
+		timer.Stop()
+		delete(s.timers, token)
 	}
 }
 
@@ -223,13 +299,27 @@ type refreshEntry struct {
 type refreshStore struct {
 	mu      sync.Mutex
 	entries map[string]refreshEntry
+	timers  map[string]*time.Timer
 	now     func() time.Time
+	ttl     time.Duration
 }
 
 func newRefreshStore(now func() time.Time) *refreshStore {
+	return newRefreshStoreWithTTL(now, previewTTL)
+}
+
+func newRefreshStoreWithTTL(now func() time.Time, ttl time.Duration) *refreshStore {
+	if now == nil {
+		now = time.Now
+	}
+	if ttl <= 0 {
+		ttl = previewTTL
+	}
 	return &refreshStore{
 		entries: make(map[string]refreshEntry),
+		timers:  make(map[string]*time.Timer),
 		now:     now,
+		ttl:     ttl,
 	}
 }
 
@@ -241,17 +331,26 @@ func (s *refreshStore) put(collectionID uint, baseRevision int, draft *Draft) (s
 	token := hex.EncodeToString(tokenBytes)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := s.now()
 	for token, entry := range s.entries {
-		if s.now().After(entry.expiresAt) {
+		if !now.Before(entry.expiresAt) {
 			delete(s.entries, token)
+			s.stopTimerLocked(token)
 		}
 	}
+	for len(s.entries) >= previewStoreCapacity {
+		s.evictOldestLocked()
+	}
+	expiresAt := now.Add(s.ttl)
 	s.entries[token] = refreshEntry{
-		previewEntry:        previewEntry{draft: draft, expiresAt: s.now().Add(previewTTL)},
+		previewEntry:        previewEntry{draft: draft, expiresAt: expiresAt},
 		collectionID:        collectionID,
 		baseRevision:        baseRevision,
-		baseLastRefreshedAt: s.now(),
+		baseLastRefreshedAt: now,
 	}
+	s.timers[token] = time.AfterFunc(s.ttl, func() {
+		s.expire(token)
+	})
 	return token, nil
 }
 
@@ -263,13 +362,64 @@ func (s *refreshStore) take(token string, collectionID uint, expectedRevision in
 		return nil, ErrPreviewNotFound
 	}
 	delete(s.entries, token)
-	if s.now().After(entry.expiresAt) {
+	s.stopTimerLocked(token)
+	if !s.now().Before(entry.expiresAt) {
 		return nil, ErrPreviewExpired
 	}
 	if entry.collectionID != collectionID || entry.baseRevision != expectedRevision {
 		return nil, ErrRefreshConflict
 	}
 	return entry.draft, nil
+}
+
+func (s *refreshStore) evictOldestLocked() {
+	var oldestToken string
+	var oldestExpiry time.Time
+	for token, entry := range s.entries {
+		if oldestToken == "" || entry.expiresAt.Before(oldestExpiry) {
+			oldestToken = token
+			oldestExpiry = entry.expiresAt
+		}
+	}
+	if oldestToken != "" {
+		delete(s.entries, oldestToken)
+		s.stopTimerLocked(oldestToken)
+	}
+}
+
+func (s *refreshStore) stopTimerLocked(token string) {
+	if timer, exists := s.timers[token]; exists {
+		timer.Stop()
+		delete(s.timers, token)
+	}
+}
+
+func (s *refreshStore) expire(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, exists := s.entries[token]
+	if !exists {
+		delete(s.timers, token)
+		return
+	}
+	now := s.now()
+	if now.Before(entry.expiresAt) {
+		s.timers[token] = time.AfterFunc(entry.expiresAt.Sub(now), func() {
+			s.expire(token)
+		})
+		return
+	}
+	delete(s.entries, token)
+	delete(s.timers, token)
+}
+
+func (s *refreshStore) stopTimers() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for token, timer := range s.timers {
+		timer.Stop()
+		delete(s.timers, token)
+	}
 }
 
 // ImportResult 描述确认导入的结果；重复导入返回已有清单身份，不新建副本。

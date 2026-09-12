@@ -1,12 +1,38 @@
 package database
 
 import (
+	"strings"
 	"testing"
 
 	"magicpodcast/internal/models"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestFreshMigrationCreatesVersionedCollectionForeignKeys(t *testing.T) {
+	db := openMigrationTestDB(t, defaultSQLiteBusyTimeoutMS)
+	require.NoError(t, applyMigrationSet(db, migrationRegistry()[:1]))
+	require.False(t, db.Migrator().HasTable(&models.EpisodeCollection{}))
+	require.False(t, db.Migrator().HasTable(&models.EpisodeCollectionItem{}))
+
+	require.NoError(t, ApplyMigrations(db))
+
+	type foreignKeyRow struct {
+		Table    string
+		From     string
+		OnDelete string
+	}
+	var foreignKeys []foreignKeyRow
+	require.NoError(t, db.Raw("PRAGMA foreign_key_list(episode_collection_items)").Scan(&foreignKeys).Error)
+	found := false
+	for _, foreignKey := range foreignKeys {
+		if foreignKey.Table == "episodes" && foreignKey.From == "episode_id" {
+			found = true
+			require.Equal(t, "SET NULL", strings.ToUpper(foreignKey.OnDelete))
+		}
+	}
+	require.True(t, found, "fresh migration must create the episode_id foreign key")
+}
 
 // 隔离迁移演练：历史 schema-24 fixture 一路升级到当前版本，
 // 清单表出现、既有业务数据不变；普通启动仍只做只读校验。
