@@ -21,7 +21,13 @@ export default function SearchSidebar({ isOpen, onClose, standalone = false }: S
   const committedQuery = (singleParam(params, "q") ?? "").trim();
   const rawType = singleParam(params, "type");
   const searchType: SearchType = rawType === "podcasts" || rawType === "episodes" ? rawType : "all";
-  const setSearchType = (value: SearchType) => updateQuery({ type: value === "all" ? null : value });
+  // Search opened as an overlay should keep one history entry while the user
+  // refines the query/type, so closing it returns directly to its source page.
+  // The standalone search page keeps normal back-navigation between queries.
+  const updateSearchQuery = (values: Record<string, string | null>) =>
+    updateQuery(values, !standalone);
+  const setSearchType = (value: SearchType) =>
+    updateSearchQuery({ type: value === "all" ? null : value });
   useEffect(() => {
     if (!isOpen || !href) return;
     const patch: Record<string, string | null> = {};
@@ -50,7 +56,7 @@ export default function SearchSidebar({ isOpen, onClose, standalone = false }: S
     clearHistory,
   } = useSearchSidebar({ isOpen, type: searchType });
   useEffect(() => { if (isOpen) setQuery(committedQuery); }, [committedQuery, isOpen, setQuery]);
-  const submitQuery = () => updateQuery({ q: query.trim() || null });
+  const submitQuery = () => updateSearchQuery({ q: query.trim() || null });
 
   // 自动聚焦
   useEffect(() => {
@@ -116,7 +122,7 @@ export default function SearchSidebar({ isOpen, onClose, standalone = false }: S
 
   const handleHistoryClick = (historyQuery: string) => {
     selectHistory(historyQuery);
-    updateQuery({ q: historyQuery.trim() || null });
+    updateSearchQuery({ q: historyQuery.trim() || null });
   };
 
   const handleClearHistory = () => {

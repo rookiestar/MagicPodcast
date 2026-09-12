@@ -151,6 +151,20 @@ describe("SearchSidebar", () => {
     expect(screen.getByRole("button", { name: "节目 (11)" })).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("replaces query refinements while the search overlay is open", () => {
+    const pushState = vi.spyOn(window.history, "pushState");
+    mockSearchSidebarState();
+    window.history.replaceState({}, "", "/discovery");
+    window.history.pushState({}, "", "/search");
+    pushState.mockClear();
+
+    render(<SearchSidebar isOpen onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "节目 (11)" }));
+
+    expect(window.location.search).toBe("?type=podcasts");
+    expect(pushState).not.toHaveBeenCalled();
+  });
+
   it("renders podcast results as one readable list", () => {
     mockSearchSidebarState();
 

@@ -1,9 +1,10 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   episodeIDFromHref,
   rememberEpisodeOrigin,
   attachEpisodeOrigin,
+  closeTo,
   readEpisodeOrigin,
   episodeOriginIsPrevious,
   navigate,
@@ -100,6 +101,38 @@ describe("resource navigation", () => {
     });
     expect(window.location.pathname).toBe("/episodes/4");
     expect(window.location.search).toBe("?tab=notes");
+  });
+
+  it("preserves an unknown browser destination when a dirty page rejects Back", async () => {
+    window.history.replaceState({}, "", "/discovery");
+    window.history.pushState({}, "", "/episodes/4?tab=notes");
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirm);
+    renderHook(() =>
+      useUnsavedNavigation(true, (href) => episodeIDFromHref(href) === 4),
+    );
+
+    act(() => {
+      window.history.back();
+    });
+    await waitFor(() => expect(window.location.pathname).toBe("/episodes/4"));
+
+    confirm.mockReturnValue(true);
+    act(() => {
+      window.history.back();
+    });
+    await waitFor(() => expect(window.location.pathname).toBe("/discovery"));
+  });
+
+  it("closes through replaced search refinements without reopening them", () => {
+    window.history.replaceState({}, "", "/discovery");
+    navigate("/search");
+    updateQuery({ q: "first" }, true);
+    updateQuery({ type: "episodes" }, true);
+    const back = vi.spyOn(window.history, "back");
+
+    expect(closeTo("/discovery")).toBe(true);
+    expect(back).toHaveBeenCalledTimes(1);
   });
 
   it("does not change URL when leaving an unsaved editor is rejected", () => {

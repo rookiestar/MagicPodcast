@@ -60,7 +60,14 @@ function guardPopState(event: PopStateEvent) {
       restoring = true;
       window.history.go(distance);
     } else {
-      window.history.replaceState(historyData(current), "", current.href);
+      // The popped entry may come from an ordinary browser/Next navigation
+      // and therefore have no navigation index. Do not overwrite it: append
+      // a restored copy of the dirty entry so the user's destination remains
+      // in history while the guarded page stays visible.
+      const restored = { ...current, index: current.index + 1 };
+      current = restored;
+      window.history.pushState(historyData(restored), "", restored.href);
+      window.dispatchEvent(new Event(CHANGE));
     }
     return;
   }
