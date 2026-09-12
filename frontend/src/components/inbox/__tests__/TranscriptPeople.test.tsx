@@ -444,3 +444,19 @@ it("refreshes history after recovering a newly persisted draft", async () => {
   expect(screen.getByRole("option", { name: "记录 1" })).toBeInTheDocument();
   expect(episodeCopilotApi.preparePeople).toHaveBeenCalledTimes(1);
 });
+
+it("does not mistake the existing latest draft for a new result when reviewing history", async () => {
+  const latest = { ...proposal, revision: 2, draft: { ...proposal.draft!, id: 2, revision: 2 } };
+  vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue(latest);
+  vi.mocked(episodeCopilotApi.peopleDrafts).mockResolvedValue([latest.draft, proposal.draft!]);
+  vi.mocked(episodeCopilotApi.preparePeople).mockRejectedValueOnce(new Error("recognition failed before saving"));
+  render(<Player />);
+  fireEvent.click(await screen.findByRole("button", { name: "继续核对" }));
+  fireEvent.change(await screen.findByRole("combobox", { name: "选择识别记录" }), { target: { value: "1" } });
+  expect(screen.getByRole("combobox", { name: "选择识别记录" })).toHaveValue("1");
+  fireEvent.click(screen.getByRole("button", { name: "重新识别" }));
+  await screen.findByText("识别未完成或连接中断，已保存结果保留，可重试。");
+  expect(screen.queryByText("已核对：草稿已保存，等待你确认")).not.toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: "选择识别记录" })).toHaveValue("2");
+  expect(episodeCopilotApi.preparePeople).toHaveBeenCalledTimes(1);
+});

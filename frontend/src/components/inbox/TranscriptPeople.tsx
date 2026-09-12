@@ -210,7 +210,7 @@ export function useTranscriptPeople(
       if (generation.current === version) setError("草稿读取失败，请重试。");
     }
   };
-  const reconcile = async (version: number, cancelled: boolean, previousDraft = draft) => {
+  const reconcile = async (version: number, cancelled: boolean, previousDraft = people?.draft) => {
     if (!episodeId) return;
     operation.current = true;
     setBusy("正在核对已保存结果…");
