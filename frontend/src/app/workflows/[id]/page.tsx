@@ -1,7 +1,8 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+import { closeTo, navigate, positiveID, singleParam, updateQuery, useLocationHref } from "@/lib/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { podcastApi } from "@/lib/api";
@@ -36,18 +37,6 @@ function parseTab(value: string | null | undefined): TabType {
   return "overview";
 }
 
-/** Sync tab into the shareable URL without App Router / RSC navigation. */
-function replaceTabInUrl(tab: TabType) {
-  if (typeof window === "undefined") return;
-  const url = new URL(window.location.href);
-  url.searchParams.set("tab", tab);
-  const next = `${url.pathname}?${url.searchParams.toString()}`;
-  const current = `${window.location.pathname}${window.location.search}`;
-  if (next !== current) {
-    window.history.replaceState(window.history.state, "", next);
-  }
-}
-
 // 动态导入大型模态框组件，减少首屏 bundle 大小
 const WorkflowFormModal = dynamic(
   () => import("@/components/workflows/WorkflowFormModal"),
@@ -65,18 +54,31 @@ const OVERVIEW_SCOPE_PODCAST_LIMIT = 12;
 function WorkflowDetailContent() {
   const params = useParams();
   const searchParams = useSearchParams();
-  const id = parseInt(params.id as string);
+  const id = positiveID(String(params.id)) ?? 0;
+  const href = useLocationHref();
+  const query = useMemo(()=>new URL(href || "/", "http://navigation.local").searchParams,[href]);
+  const reportSegment = /^\/workflows\/[^/]+\/reports\/([^/?#]+)/.exec(href)?.[1];
+  const reportModalJobId = positiveID(reportSegment);
+  const reportReturn = useRef(`/workflows/${id}?tab=jobs`);
+  const setReportModalJobId = (jobId: number | null) => {
+    if (jobId === null) { closeTo(reportReturn.current); return; }
+    reportReturn.current = window.location.pathname + window.location.search;
+    navigate(`/workflows/${id}/reports/${jobId}`);
+  };
 
   // 使用 SWR 获取工作流数据
   const { workflow, isLoading: workflowLoading, isError: workflowError, mutate: mutateWorkflow } = useWorkflow(id);
 
-  // 从URL读取tab状态，如果没有则默认为overview
-  const tabFromUrl = parseTab(searchParams.get("tab"));
-  const [activeTab, setActiveTabState] = useState<TabType>(tabFromUrl);
-
+  const activeTab = reportSegment || query.has("job") || query.has("page") ? "jobs" : parseTab(singleParam(query,"tab"));
+  useEffect(()=>{
+    const patch:Record<string,string|null>={};
+    if(query.has("tab") && !["overview","jobs","config"].includes(singleParam(query,"tab")??""))patch.tab=null;
+    if(query.has("page")&&!positiveID(singleParam(query,"page")))patch.page=null;
+    if(query.has("dialog")&&singleParam(query,"dialog")!=="edit")patch.dialog=null;
+    if(Object.keys(patch).length)updateQuery(patch,true);
+  },[query]);
   const setActiveTab = useCallback((tab: TabType) => {
-    setActiveTabState(tab);
-    replaceTabInUrl(tab);
+    updateQuery({ tab, ...(tab !== "jobs" ? { page:null,job:null } : {}) });
   }, []);
 
   // 键盘导航：在 tab 之间用方向键/Home/End 移动焦点（roving tabindex）。
@@ -104,7 +106,8 @@ function WorkflowDetailContent() {
   }, [id]);
 
   // Job分页状态
-  const [jobsPage, setJobsPage] = useState(1);
+  const jobsPage = positiveID(singleParam(query,"page")) ?? 1;
+  const setJobsPage = (page: number) => updateQuery({tab:"jobs",page:page === 1 ? null : String(page),job:null});
 
   // 执行历史只在进入对应标签时加载，避免详情首屏被历史数据拖慢
   const {
@@ -126,7 +129,13 @@ function WorkflowDetailContent() {
   const sortBy = searchParams.get("sort_by");
   const backLink = sortBy ? `/workflows?sort_by=${sortBy}` : "/workflows";
 
-  const [showEditModal, setShowEditModal] = useState(false);
+  const showEditModal = singleParam(query,"dialog") === "edit";
+  const setShowEditModal = (open: boolean) => {
+    if (open) return updateQuery({ dialog: "edit" });
+    const parent = new URL(window.location.href);
+    parent.searchParams.delete("dialog");
+    return closeTo(parent.pathname + parent.search + parent.hash);
+  };
 
   // 使用自定义 Hooks
   const { handleToggle, handleTrigger, handleDelete } = useWorkflowActions({
@@ -135,10 +144,13 @@ function WorkflowDetailContent() {
     onSuccess: () => mutateWorkflow(),
   });
 
-  const { selectedJobId, jobDetails, loadingJobId, fetchJobDetail } = useJobExpansion();
-
-  // 报告弹窗状态
-  const [reportModalJobId, setReportModalJobId] = useState<number | null>(null);
+  const requestedJobId = id ? reportModalJobId ?? positiveID(singleParam(query,"job")) : null;
+  const selectJob = useCallback((jobId: number | null) => { updateQuery({tab:"jobs",job:jobId ? String(jobId) : null}); }, []);
+  const { selectedJobId, jobDetails, loadingJobId, fetchJobDetail, error:jobReadError, retryRead } = useJobExpansion(id, requestedJobId, selectJob);
+  const selectedJobCandidate = requestedJobId ? jobDetails[requestedJobId] : undefined;
+  const selectedJob = selectedJobCandidate?.workflow_id === id ? selectedJobCandidate : undefined;
+  const visibleJobs = selectedJob && !jobs.some((job)=>job.id===selectedJob.id) ? [selectedJob,...jobs] : jobs;
+  const invalidJobAddress = Boolean((reportSegment && !reportModalJobId) || (query.has("job") && !positiveID(singleParam(query,"job"))));
 
   // 移动端更多菜单状态
   const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -278,16 +290,6 @@ function WorkflowDetailContent() {
 
     return () => clearInterval(interval);
   }, [activeTab, jobs, mutateJobs]);
-
-  // 浏览器前进/后退时恢复 tab（URL 由 replaceState 维护，不经 App Router）
-  useEffect(() => {
-    const onPopState = () => {
-      const tab = parseTab(new URLSearchParams(window.location.search).get("tab"));
-      setActiveTabState(tab);
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
 
   // Jobs 分页切换
   const handleJobsPageChange = (newPage: number) => {
@@ -909,16 +911,18 @@ function WorkflowDetailContent() {
             </div>
           )}
 
+          {(jobReadError || invalidJobAddress) && <div role="alert">{invalidJobAddress ? "执行地址无效。" : jobReadError}{!invalidJobAddress && <button onClick={retryRead}>重试读取执行</button>}</div>}
+          {requestedJobId && loadingJobId === requestedJobId && !visibleJobs.some((job)=>job.id===requestedJobId) && <p role="status">正在定位执行记录…</p>}
           {activeTab === "jobs" && (
             <div>
               <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-50 mb-4">
                 执行历史
               </h2>
-              {jobsLoading && jobs.length === 0 ? (
+              {jobsLoading && visibleJobs.length === 0 ? (
                 <div className="text-center py-8 text-slate-500 dark:text-slate-400">
                   正在加载执行历史...
                 </div>
-              ) : jobsError && jobs.length === 0 ? (
+              ) : jobsError && visibleJobs.length === 0 ? (
                 <div
                   className="text-center py-8"
                   data-testid="jobs-load-error"
@@ -934,13 +938,13 @@ function WorkflowDetailContent() {
                     重试
                   </button>
                 </div>
-              ) : jobs.length === 0 ? (
+              ) : visibleJobs.length === 0 ? (
                 <div className="text-center py-8 text-slate-500 dark:text-slate-400">
                   暂无执行记录
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {jobs.map((job) => (
+                  {visibleJobs.map((job) => (
                     <div
                       key={job.id}
                       className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden"
@@ -1512,12 +1516,14 @@ function WorkflowDetailContent() {
       )}
 
       {/* Report Modal */}
-      {reportModalJobId !== null && (
+      {reportModalJobId !== null && selectedJob && !["completed","partial"].includes(selectedJob.status) && <div role="status">该执行尚无可读报告。<JobStatusBadge status={selectedJob.status} /><button onClick={retryRead}>刷新执行状态</button><button onClick={()=>setReportModalJobId(null)}>返回执行历史</button></div>}
+      {reportModalJobId !== null && selectedJob?.workflow_id === id && ["completed","partial"].includes(selectedJob.status) && !jobReadError && (
+
         <ReportModal
           isOpen={reportModalJobId !== null}
           onClose={() => setReportModalJobId(null)}
           jobId={reportModalJobId}
-          jobStatus={jobDetails[reportModalJobId]?.status || "pending"}
+          jobStatus={selectedJob.status}
         />
       )}
     </PageLayout>

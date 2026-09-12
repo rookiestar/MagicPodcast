@@ -209,18 +209,24 @@ func (s *ConsumptionService) StatesForEpisodes(
 }
 
 func (s *ConsumptionService) GetItem(episodeID uint) (*ConsumptionItem, error) {
-	var state models.EpisodeTriageDecision
-	err := s.db.
-		Preload("Episode.Podcast").
-		Preload("Episode.Tags").
-		Where("episode_id = ?", episodeID).
-		First(&state).Error
+	// A detail address identifies an episode, including episodes that have never
+	// entered an action queue. Reading it must not create a triage decision.
+	var episode models.Episode
+	err := s.db.Preload("Podcast").Preload("Tags").First(&episode, episodeID).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrConsumptionEpisodeNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
+	var state models.EpisodeTriageDecision
+	err = s.db.Where("episode_id = ?", episodeID).First(&state).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	state.EpisodeID = episodeID
+	state.Episode = episode
+
 	completedAt, err := completionTimeForEpisode(s.db, episodeID)
 	if err != nil {
 		return nil, err

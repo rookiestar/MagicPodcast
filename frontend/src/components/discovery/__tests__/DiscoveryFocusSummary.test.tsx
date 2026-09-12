@@ -109,7 +109,7 @@ describe("DiscoveryFocusSummary", () => {
 
     const links = await screen.findAllByRole("link");
     expect(links).toHaveLength(7);
-    expect(links[6]).toHaveAttribute("href", "/inbox?queue=focus&episode=13&detail=1");
+    expect(links[6]).toHaveAttribute("href", "/episodes/13?from=discovery");
     expect(links[6]).toHaveAttribute("title", "Focus 条目 7");
   });
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import Link from "next/link";
+import EpisodeLink from "@/components/episodes/EpisodeLink";
 import { IconPlus, IconTargetArrow, IconX } from "@tabler/icons-react";
 import useSWR from "swr";
 import {
@@ -135,13 +135,15 @@ export default function DiscoveryFocusSummary({
         <div className="discovery-focus-items">
           {focusItems.length > 0 ? (
             focusItems.map((item) => (
-              <Link
+              <EpisodeLink
                 key={item.episode_id}
-                href={`/inbox?queue=focus&episode=${item.episode_id}&detail=1`}
+                episodeID={item.episode_id}
+                source="focus"
+                href={`/episodes/${item.episode_id}?from=discovery`}
                 title={item.episode_title}
               >
                 {item.episode_title}
-              </Link>
+              </EpisodeLink>
             ))
           ) : (
             <span>{summaryLoading ? "正在读取…" : "尚未投入内容"}</span>

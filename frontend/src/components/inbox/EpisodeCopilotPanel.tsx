@@ -48,6 +48,7 @@ import {
   orderedProfiles,
   profileDisplayName,
 } from "./EpisodeCopilotMenus";
+import { type EpisodeRoute, episodeHref, navigate, updateQuery, useUnsavedNavigation, episodeIDFromHref } from "@/lib/navigation";
 import { useMenuPopover } from "./useMenuPopover";
 import {
   filterPeople,
@@ -61,6 +62,7 @@ import styles from "./InboxPage.module.css";
 
 interface EpisodeCopilotPanelProps {
   item: ConsumptionItem;
+  routeState?: EpisodeRoute;
   selectedProfileID?: EpisodeCopilotProfileID | null;
   onSelectedProfileIDChange?: (profileID: EpisodeCopilotProfileID) => void;
   rejectedProfileIDs?: ReadonlySet<EpisodeCopilotProfileID>;
@@ -122,6 +124,7 @@ function welcomeContextMessage(scope: EpisodeCopilotContextScope) {
 
 export default function EpisodeCopilotPanel({
   item,
+  routeState,
   selectedProfileID: controlledProfileID,
   onSelectedProfileIDChange,
   rejectedProfileIDs: controlledRejectedProfileIDs,
@@ -180,29 +183,47 @@ export default function EpisodeCopilotPanel({
   const copyTimer = useRef<number | null>(null);
   const conversationRef = useRef<HTMLDivElement | null>(null);
   const stickToBottom = useRef(true);
-  const selectedProfileID = controlledProfileID ?? localSelectedProfileID;
+  const requestedProfile = routeState?.profile;
+  const routeProfile = requestedProfile === "quick" || requestedProfile === "balanced" || requestedProfile === "deep" ? requestedProfile : null;
+  const selectedProfileID = routeProfile ?? controlledProfileID ?? localSelectedProfileID;
+  const invalidRouteProfile = Boolean(requestedProfile && scope && !(scope.profiles ?? []).some((profile) => profile.id === requestedProfile));
+  const scopeGeneration = useRef(0);
+  useUnsavedNavigation(question.trim().length > 0, (href) => episodeIDFromHref(href) === item.episode_id);
+  const hasRoute = routeState !== undefined;
+  const routeTarget = routeState?.targetPerson;
+  const routeTargetInvalid = routeState?.targetInvalid;
+  useEffect(() => {
+    if (!hasRoute || !scope || scope.episode_id !== item.episode_id) return;
+    const candidate = routeTarget ? scope.people?.find((person) => person.id === routeTarget && person.status === "confirmed") : null;
+    setTargetPerson(candidate ?? null);
+    setPersonSelectionInvalid(Boolean(routeTargetInvalid || (routeTarget && !candidate)));
+  }, [routeTarget, routeTargetInvalid, scope, item.episode_id, hasRoute]);
   const rejectedProfileIDs =
     controlledRejectedProfileIDs ?? localRejectedProfileIDs;
 
   const selectProfile = (profileID: EpisodeCopilotProfileID) => {
     setLocalSelectedProfileID(profileID);
     onSelectedProfileIDChange?.(profileID);
+    if (routeState) updateQuery({ profile: profileID });
   };
 
   const loadScope = useCallback(async () => {
+    const generation = ++scopeGeneration.current;
     setIsLoadingScope(true);
     setScopeError(null);
     try {
       const nextScope = await episodeCopilotApi.getContext(item.episode_id);
+      if (scopeGeneration.current !== generation) return;
       setScope(nextScope);
       if (!nextScope.private_note_available) setIncludePrivateNote(false);
     } catch (error) {
+      if (scopeGeneration.current !== generation) return;
       setScope(null);
       setScopeError(
         `助手上下文暂时不可用，单集阅读不受影响：${getErrorMessage(error)}`,
       );
     } finally {
-      setIsLoadingScope(false);
+      if (scopeGeneration.current === generation) setIsLoadingScope(false);
     }
   }, [item.episode_id]);
 
@@ -253,7 +274,8 @@ export default function EpisodeCopilotPanel({
     retryRequest.current = null;
     terminalStreamErrorHandled.current = false;
     void loadScope();
-    return () => { activeRequest.current?.abort();  };
+    const scopeRequest = scopeGeneration;
+    return () => { scopeRequest.current++; activeRequest.current?.abort(); };
   }, [dismissContextMenu, dismissProfileMenu, loadScope]);
 
   useEffect(() => {
@@ -401,7 +423,7 @@ export default function EpisodeCopilotPanel({
   ) => {
     const normalizedQuestion =
       requestToRetry?.question ?? explicitQuestion ?? question.trim();
-    if (!normalizedQuestion || !scope || activeRequest.current || personSelectionInvalid || (targetPerson && targetPerson.status !== "confirmed")) return;
+    if (!normalizedQuestion || !scope || scope.episode_id !== item.episode_id || invalidRouteProfile || activeRequest.current || personSelectionInvalid || (targetPerson && targetPerson.status !== "confirmed")) return;
     if (requestToRetry?.target_person_id && !scope.people?.some((person) => person.id === requestToRetry.target_person_id && person.status === "confirmed")) return;
     const requestProfileID =
       requestToRetry?.profile_id ??
@@ -553,7 +575,7 @@ export default function EpisodeCopilotPanel({
     question.trim().length > 0 &&
     !isActive &&
     !isRejectedProfileSelected &&
-    !pendingTarget && !personSelectionInvalid;
+    !pendingTarget && !personSelectionInvalid && !invalidRouteProfile;
 
   const people = scope?.people ?? [];
   const activeMention = mentionDraft(
@@ -573,7 +595,9 @@ export default function EpisodeCopilotPanel({
       setMentionIndex((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + mentionCandidates.length) % mentionCandidates.length);
       return;
     }
-    if (event.key === "Escape") {
+    if (event.key === "Escape" && mentionOpen) {
+      event.preventDefault();
+      event.stopPropagation();
       setMentionOpen(false);
       return;
     }
@@ -593,6 +617,7 @@ export default function EpisodeCopilotPanel({
       setQuestion(replaceMention(question, draft, question.length));
     }
     setTargetPerson(person);
+    if (routeState) updateQuery({ target_person: String(person.id) });
  setPersonSelectionInvalid(false);
     setMentionOpen(false);
 
@@ -722,6 +747,11 @@ export default function EpisodeCopilotPanel({
                         className={styles.copilotSourceLink}
                         onClick={() =>
                           void (async () => {
+                            if (routeState) {
+                              if (!source.sourceVersion) throw new Error("source version missing");
+                              navigate(episodeHref(source.episodeId, { tab: "transcript", artifact: "transcript", source: source.sourceVersion, fragment: String(source.fragmentOrder) }));
+                              return;
+                            }
                             if (source.sourceVersion) {
                               const current = await episodeCopilotApi.getPeople(source.episodeId);
                               if (current.source_version !== source.sourceVersion) throw new Error("source changed");
@@ -774,6 +804,7 @@ export default function EpisodeCopilotPanel({
           </div>
 
           <div className={styles.copilotComposerShell}>
+            {invalidRouteProfile && <p role="alert">链接指定的回答档位不可用，请重新选择。</p>}
             {isRejectedProfileSelected && effectiveSelectedProfileID && (
               <p className={styles.copilotNotice} role="status">
                 当前选择的{profileDisplayName(effectiveSelectedProfileID)}档位已确认不可用；请切换其他档位后再提问。
@@ -824,6 +855,7 @@ export default function EpisodeCopilotPanel({
                       onClick={() => {
                         setTargetPerson(null);
                         setPersonSelectionInvalid(false);
+                        if (routeState) updateQuery({ target_person: null });
                       }}
                     >
                       <IconX size={15} stroke={1.8} aria-hidden="true" />
@@ -842,7 +874,7 @@ export default function EpisodeCopilotPanel({
                 </p>
               ) : null}
               {scope.transcript_available && <button type="button" className={styles.copilotCorrectionToggle} onClick={onManagePeople}>到逐字稿确认人物</button>}
-              {personSelectionInvalid ? <p role="alert">原选人物已失效，问题已保留。请重新选择人物，或<button type="button" onClick={() => setPersonSelectionInvalid(false)}>改为普通问答</button>。</p> : null}
+              {personSelectionInvalid ? <p role="alert">原选人物已失效，问题已保留。请重新选择人物，或<button type="button" onClick={() => { setPersonSelectionInvalid(false); if (routeState) updateQuery({ target_person: null }); }}>改为普通问答</button>。</p> : null}
               <textarea
                 className={styles.copilotComposerInput}
                 aria-label="向单集助手提问"

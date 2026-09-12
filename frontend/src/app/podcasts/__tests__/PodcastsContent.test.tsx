@@ -77,7 +77,7 @@ vi.mock("@/components/podcasts/PodcastTagFilter", () => ({
 }));
 
 vi.mock("@/lib/podcastListState", () => ({
-  PODCAST_SORT_OPTIONS: [],
+  PODCAST_SORT_OPTIONS: [{value:"recent_update",label:"最近更新"},{value:"title",label:"名称"}],
   getDefaultPodcastTagCount: () => 5,
   getPodcastListDescription: () => "共 0 个节目",
   getPodcastListErrorMessage: () => "",

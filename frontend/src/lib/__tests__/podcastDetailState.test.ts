@@ -11,7 +11,9 @@ import {
 describe("podcastDetailState", () => {
   it("parses only valid detail page podcast ids", () => {
     expect(parsePodcastDetailId("42")).toBe(42);
-    expect(parsePodcastDetailId(["7", "8"])).toBe(7);
+    expect(parsePodcastDetailId(["7", "8"])).toBeNull();
+    expect(parsePodcastDetailId("1e3")).toBeNull();
+    expect(parsePodcastDetailId("9007199254740993")).toBeNull();
     expect(parsePodcastDetailId("0")).toBeNull();
     expect(parsePodcastDetailId("-1")).toBeNull();
     expect(parsePodcastDetailId("abc")).toBeNull();

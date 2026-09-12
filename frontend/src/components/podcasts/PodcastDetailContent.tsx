@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { Episode, Podcast, Tag } from "@/types";
 import EpisodeListSection from "@/components/episodes/EpisodeListSection";
 import {
@@ -76,6 +77,7 @@ export default function PodcastDetailContent({
 
   return (
     <>
+      <Link href={`/tags?podcast_id=${podcast.id}`} className="podcast-management-link">管理本节目标签 →</Link>
       <MobilePodcastDetailInfo
         podcast={podcast}
         tags={tags}

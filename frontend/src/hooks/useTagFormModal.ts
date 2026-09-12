@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useUnsavedNavigation } from "@/lib/navigation";
 import {
   DEFAULT_TAG_COLOR,
   getTagFormInitialValues,
@@ -28,7 +29,28 @@ export function useTagFormModal({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const initialName = initialData?.name;
+  const initialColor = initialData?.color;
+  const baseline = useRef({ name: "", color: DEFAULT_TAG_COLOR });
+  const dirty = isOpen && (name !== baseline.current.name || color !== baseline.current.color);
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  const formLocation = useRef("");
+  useEffect(() => {
+    if (isOpen) {
+      const url = new URL(window.location.href);
+      formLocation.current = url.pathname + ":" + url.searchParams.get("dialog") + ":" + url.searchParams.get("tag");
+    }
+  }, [isOpen, initialName, initialColor]);
+  useUnsavedNavigation(dirty, (href) => {
+    if (!dirtyRef.current) return true;
+    const url = new URL(href, "http://navigation.local");
+    return url.pathname + ":" + url.searchParams.get("dialog") + ":" + url.searchParams.get("tag") === formLocation.current;
+  });
+
   const resetForm = useCallback(() => {
+    baseline.current = { name: "", color: DEFAULT_TAG_COLOR };
+    dirtyRef.current = false;
     setName("");
     setColor(DEFAULT_TAG_COLOR);
     setError("");
@@ -39,13 +61,15 @@ export function useTagFormModal({
       return;
     }
 
-    const values = getTagFormInitialValues(initialData);
+    const values = getTagFormInitialValues(initialName === undefined ? undefined : { name: initialName, color: initialColor ?? DEFAULT_TAG_COLOR });
+    baseline.current = values;
     setName(values.name);
     setColor(values.color);
     setError("");
-  }, [initialData, isOpen]);
+  }, [initialName, initialColor, isOpen]);
 
   const close = useCallback(() => {
+    if (dirtyRef.current && !window.confirm("有未保存的修改，确定放弃？")) return;
     resetForm();
     onClose();
   }, [onClose, resetForm]);
@@ -62,13 +86,14 @@ export function useTagFormModal({
 
     try {
       await onSubmit(getTagFormPayload(name, color));
-      close();
+      resetForm();
+      onClose();
     } catch (err) {
       setError(getTagFormSubmitError(err));
     } finally {
       setLoading(false);
     }
-  }, [close, color, name, onSubmit]);
+  }, [color, name, onSubmit, onClose, resetForm]);
 
   const handleKeyboardSubmit = useCallback(
     (key: string, metaKey: boolean) => {

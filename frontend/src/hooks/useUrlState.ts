@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useMemo, useCallback, useRef } from "react";
+import { singleParam, updateQuery, useLocationHref } from "@/lib/navigation";
 
 /**
  * URL 状态同步 Hook
@@ -21,6 +22,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 interface UseUrlStateOptions<T> {
   /** 是否为数组类型（如多个同名参数） */
   isArray?: boolean;
+  initialHref?: string;
   /** 值转换函数：从 URL 字符串转换为目标类型 */
   parse?: (value: string) => T;
   /** 值转换函数：从目标类型转换为 URL 字符串 */
@@ -32,130 +34,36 @@ interface UseUrlStateOptions<T> {
 export function useUrlState<T>(
   key: string,
   defaultValue: T,
-  options: UseUrlStateOptions<T> = {}
+  options: UseUrlStateOptions<T> = {},
 ): [T, (value: T | ((prev: T) => T)) => void] {
-  const {
-    isArray = false,
-    parse,
-    serialize,
-    replace = true,
-  } = options;
-
-  // 内部解析函数
-  const parseValue = useCallback((str: string | null): T => {
-    if (str === null) return defaultValue;
-
-    if (parse) {
-      return parse(str);
-    }
-
-    // 默认类型推断
-    if (typeof defaultValue === "number") {
-      return (parseInt(str, 10) || defaultValue) as T;
-    }
-    if (typeof defaultValue === "boolean") {
-      return (str === "true") as T;
-    }
-
-    return str as T;
-  }, [defaultValue, parse]);
-
-  // 从 URL 读取初始值
-  const getInitialValue = useCallback((): T => {
-    if (typeof window === "undefined") return defaultValue;
-
-    const params = new URLSearchParams(window.location.search);
-
-    if (isArray) {
-      const values = params.getAll(key);
-      if (values.length === 0) return defaultValue;
-      return values.map((v) => parseValue(v)) as T;
-    }
-
-    const value = params.get(key);
-    return parseValue(value);
-  }, [key, defaultValue, isArray, parseValue]);
-
-  const [state, setStateInternal] = useState<T>(getInitialValue);
-  const stateRef = useRef(state);
-
-  // 跟踪是否是内部更新（避免 popstate 循环）
-  const isInternalUpdate = useRef(false);
-
-  useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
-
-  // 更新 URL
-  const updateUrl = useCallback((newValue: T) => {
-    const url = new URL(window.location.href);
-
-    // 移除现有参数
-    url.searchParams.delete(key);
-
-    // 添加新参数
-    if (isArray && Array.isArray(newValue)) {
-      if (newValue.length > 0) {
-        newValue.forEach((item) => {
-          const strValue = serialize ? serialize(item) : String(item);
-          url.searchParams.append(key, strValue);
-        });
-      }
-    } else if (newValue !== null && newValue !== undefined && newValue !== "") {
-      const strValue = serialize ? serialize(newValue) : String(newValue);
-      url.searchParams.set(key, strValue);
-    }
-
-    // 更新浏览器历史
-    if (replace) {
-      window.history.replaceState({}, "", url.toString());
-    } else {
-      window.history.pushState({}, "", url.toString());
-    }
-  }, [key, isArray, serialize, replace]);
-
-  // 包装 setState，同步更新 URL
-  const setState = useCallback((value: T | ((prev: T) => T)) => {
-    isInternalUpdate.current = true;
-    const newValue =
-      typeof value === "function"
-        ? (value as (prev: T) => T)(stateRef.current)
-        : value;
-    stateRef.current = newValue;
-    setStateInternal(newValue);
-    updateUrl(newValue);
-    // 延迟重置，确保 popstate 不会立即触发
-    setTimeout(() => {
-      isInternalUpdate.current = false;
-    }, 0);
-  }, [updateUrl]);
-
-  // 监听浏览器前进/后退
-  useEffect(() => {
-    const handlePopState = () => {
-      if (isInternalUpdate.current) return;
-
-      const params = new URLSearchParams(window.location.search);
-
-      if (isArray) {
-        const values = params.getAll(key);
-        const nextValue =
-          values.length > 0
-            ? (values.map((v) => parseValue(v)) as T)
-            : defaultValue;
-        stateRef.current = nextValue;
-        setStateInternal(nextValue);
-      } else {
-        const value = params.get(key);
-        const nextValue = parseValue(value);
-        stateRef.current = nextValue;
-        setStateInternal(nextValue);
-      }
+  const href = useLocationHref() || options.initialHref || "";
+  const config = useRef({ defaultValue, options });
+  config.current = { defaultValue, options };
+  const read = useCallback((params: URLSearchParams): T => {
+    const { defaultValue: fallback, options: settings } = config.current;
+    const parse = (value: string): unknown => {
+      if (settings.parse) return settings.parse(value);
+      if (typeof fallback === "number") return Number(value) || fallback;
+      if (typeof fallback === "boolean") return value === "true";
+      return value;
     };
-
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [key, defaultValue, isArray, parseValue]);
-
+    if (settings.isArray) {
+      const values = params.getAll(key);
+      return values.length ? values.map(parse) as T : fallback;
+    }
+    const value = singleParam(params, key);
+    return value === null ? fallback : parse(value) as T;
+  }, [key]);
+  const state = useMemo(() => read(new URL(href || "/", "http://navigation.local").searchParams), [href, read]);
+  const setState = useCallback((value: T | ((previous: T) => T)) => {
+    const { options: settings } = config.current;
+    const previous = read(new URLSearchParams(window.location.search));
+    const next = typeof value === "function" ? (value as (previous: T) => T)(previous) : value;
+    const serialize = (item: T) => settings.serialize ? settings.serialize(item) : String(item);
+    const encoded = settings.isArray && Array.isArray(next)
+      ? next.map(serialize)
+      : next === null || next === undefined || next === "" ? null : serialize(next);
+    updateQuery({ [key]: encoded }, settings.replace ?? true);
+  }, [key, read]);
   return [state, setState];
 }

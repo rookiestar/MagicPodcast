@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useEpisodeReturnRestoration } from "@/lib/navigation";
 import AppNavbar from "./AppNavbar";
 import MobileBottomNav from "./MobileBottomNav";
 import PageToolbar, { PageToolbarProps } from "./PageToolbar";
@@ -56,6 +57,7 @@ export default function PageLayout({
   rootClassName = "",
   maxWidth = true,
 }: PageLayoutProps) {
+  useEpisodeReturnRestoration();
   const { isSearchOpen, openSearch, closeSearch } = useSearch();
 
   // 默认搜索行为：打开全局搜索侧边栏

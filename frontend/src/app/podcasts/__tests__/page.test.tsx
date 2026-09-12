@@ -42,6 +42,13 @@ afterEach(() => {
 });
 
 describe("podcasts server prefetch", () => {
+  it("prefetches the URL-selected sort and canonical multi-tag scope", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({success:true,data:[],pagination:{page:1,page_size:10,total:0,total_pages:0}}),{status:200}));
+    vi.stubGlobal("fetch", fetchMock);
+    await PodcastsPage({searchParams:Promise.resolve({sort_by:"title",tag_id:["3002","3001","3001"]})});
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8080/api/v1/podcasts?page=1&page_size=10&sort_by=title&view=summary&tag_id=3001&tag_id=3002",expect.anything());
+  });
+
   it("passes the first 10 podcasts to the client component", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(

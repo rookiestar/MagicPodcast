@@ -11,12 +11,14 @@ import {
 import { IconDownload, IconPlayerStop, IconRefresh } from "@tabler/icons-react";
 import MarkdownViewer from "@/components/workflows/MarkdownViewer";
 import { getProcessingErrorDetails, processingApi } from "@/lib/api/processing";
+import { type EpisodeRoute, updateQuery } from "@/lib/navigation";
 import type { ConsumptionItem } from "@/types/consumption";
 import type {
   ArtifactContent,
   ArtifactContentKind,
   AudioRecoverySummary,
   EpisodeAudioAsset,
+  EpisodeArtifactSet,
   KnowledgeDelivery,
   ProcessingRun,
   ProcessingRunDetail,
@@ -205,6 +207,9 @@ export interface EpisodeProcessingHeaderState {
 }
 
 interface EpisodeProcessingPanelProps {
+  routeState?: EpisodeRoute;
+  routeArtifact?: ArtifactTab;
+  onRouteArtifactChange?: (tab: ArtifactTab, replace?: boolean) => void;
   item: ConsumptionItem;
   onHeaderStateChange?: (state: EpisodeProcessingHeaderState) => void;
 }
@@ -212,19 +217,46 @@ interface EpisodeProcessingPanelProps {
 function EpisodeProcessingPanel({
   item,
   onHeaderStateChange,
+  routeArtifact,
+  routeState,
+  onRouteArtifactChange,
 }: EpisodeProcessingPanelProps) {
   const [detail, setDetail] = useState<ProcessingRunDetail | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [latestLoading, setIsLoading] = useState(true);
+  const [sourceVersion, setSourceVersion] = useState<{ key: string; artifact?: EpisodeArtifactSet; error?: string } | null>(null);
+  const [sourceRetry, setSourceRetry] = useState(0);
+  const referenceKey = `${item.episode_id}:${routeState?.sourceID}`;
+  const knownCurrent = detail?.current_artifact;
+  const knownSource = knownCurrent?.id === routeState?.sourceID && knownCurrent?.episode_id === item.episode_id ? knownCurrent : undefined;
+  const resolvedSource = sourceVersion?.key === referenceKey ? sourceVersion : knownSource ? {key:referenceKey,artifact:knownSource} : null;
+  const isLoading = routeState?.hasReference ? !resolvedSource : latestLoading;
+  useEffect(() => {
+    if (!routeState?.hasReference || !routeState.sourceID || routeState.referenceInvalid) return;
+    if (knownSource) { setSourceVersion({key:referenceKey,artifact:knownSource}); return; }
+    let active = true;
+    setSourceVersion(null);
+    processingApi.getEpisodeArtifact(item.episode_id, routeState.sourceID).then((artifact) => {
+      if (active) setSourceVersion({ key: referenceKey, artifact });
+    }).catch((error: unknown) => {
+      if (active) setSourceVersion({ key: referenceKey, error: getProcessingErrorDetails(error).status === 404 ? "原引用不可定位：此单集没有该版本。" : "引用版本读取失败，请重试。" });
+    });
+    return () => { active = false; };
+  }, [item.episode_id, routeState?.hasReference, routeState?.sourceID, routeState?.referenceInvalid, referenceKey, sourceRetry, knownSource]);
   const [isMutating, setIsMutating] = useState(false);
   const [isRecoveringAudio, setIsRecoveringAudio] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [artifactReadFailures, setArtifactReadFailures] = useState<
     Set<ArtifactContentKind>
   >(() => new Set());
-  const [artifactContents, setArtifactContents] =
-    useState<ArtifactContents>(emptyArtifactContents);
-  const [activeArtifactTab, setActiveArtifactTab] =
+  const [artifactContents, setArtifactContents] = useState<ArtifactContents>(
+    emptyArtifactContents,
+  );
+  const [localArtifactTab, setLocalArtifactTab] =
     useState<ArtifactTab>("minutes");
+  const activeArtifactTab = routeArtifact ?? localArtifactTab;
+  const setActiveArtifactTab = (tab: ArtifactTab) => {
+    setLocalArtifactTab(tab);
+  };
   const [summaryAbsentNotice, setSummaryAbsentNotice] = useState(false);
   const [artifactStateAnnouncement, setArtifactStateAnnouncement] =
     useState("");
@@ -505,12 +537,16 @@ function EpisodeProcessingPanel({
   );
 
   const run = detail?.run;
-  const currentArtifact = detail?.current_artifact;
+  const currentArtifact = routeState?.hasReference ? resolvedSource?.artifact : detail?.current_artifact;
+  const historicalSource = Boolean(routeState?.hasReference && currentArtifact && (!currentArtifact.is_current || (detail?.current_artifact && detail.current_artifact.id !== currentArtifact.id)));
 
   useEffect(() => {
     const artifactID = currentArtifact?.id ?? null;
     if (trackedArtifactID.current === artifactID) return;
     trackedArtifactID.current = artifactID;
+    artifactReadSequence.current += 1;
+    artifactReadInFlight.current = null;
+    setIsReadingArtifact(false);
     setArtifactReadFailures(new Set());
     setArtifactStateAnnouncement("");
     announcedArtifactState.current = "";
@@ -828,6 +864,7 @@ function EpisodeProcessingPanel({
     const nextTab = enabledTabs[nextIndex].id;
     artifactTabWasUserSelected.current = true;
     setActiveArtifactTab(nextTab);
+    onRouteArtifactChange?.(nextTab);
     artifactTabRefs.current[nextTab]?.focus();
   };
 
@@ -923,14 +960,14 @@ function EpisodeProcessingPanel({
       : summaryVisible
         ? "summary"
         : null;
-  const renderedArtifactTab = visibleArtifactTabs.some(
-    (tab) => tab.id === activeArtifactTab,
-  )
-    ? activeArtifactTab
-    : defaultArtifactTab;
+  const renderedArtifactTab =
+    routeArtifact ??
+    (visibleArtifactTabs.some((tab) => tab.id === activeArtifactTab)
+      ? activeArtifactTab
+      : defaultArtifactTab);
 
   useEffect(() => {
-    if (!renderedArtifactTab) return;
+    if (routeArtifact || !renderedArtifactTab) return;
     if (renderedArtifactTab !== activeArtifactTab) {
       if (
         artifactTabWasUserSelected.current &&
@@ -949,7 +986,38 @@ function EpisodeProcessingPanel({
     ) {
       setActiveArtifactTab("summary");
     }
-  }, [activeArtifactTab, renderedArtifactTab, visualSummaryAvailable]);
+  }, [
+    activeArtifactTab,
+    renderedArtifactTab,
+    visualSummaryAvailable,
+    routeArtifact,
+  ]);
+
+  useEffect(() => {
+    if (!isLoading && !routeArtifact && renderedArtifactTab && onRouteArtifactChange) {
+      // Wait for the first minutes read before canonicalizing an unspecified
+      // artifact. A visual summary starts from the minutes tab, then the
+      // default-tab effect promotes it to summary; writing `minutes` here
+      // first would pin the route and prevent that promotion.
+      if (
+        renderedArtifactTab === "minutes" &&
+        summaryKind === "minutes_summary" &&
+        (!minutesContentMatchesCurrent ||
+          (visualSummaryAvailable && !artifactTabWasUserSelected.current))
+      ) {
+        return;
+      }
+      onRouteArtifactChange(renderedArtifactTab, true);
+    }
+  }, [
+    isLoading,
+    routeArtifact,
+    renderedArtifactTab,
+    onRouteArtifactChange,
+    summaryKind,
+    minutesContentMatchesCurrent,
+    visualSummaryAvailable,
+  ]);
 
   const renderedArtifactStateKey = renderedArtifactTab
     ? `${renderedArtifactTab}:${artifactTabStateDescription(renderedArtifactTab)}`
@@ -1219,7 +1287,7 @@ function EpisodeProcessingPanel({
           </div>
         )}
 
-      {currentArtifact && selectedArtifactContent && (
+      {currentArtifact && selectedArtifactContent && (!routeState?.hasReference || artifactContentMatchesSelection) && (
         <div
           className={styles.processingDocument}
           data-copilot-source={
@@ -1305,6 +1373,8 @@ function EpisodeProcessingPanel({
             <TranscriptAudioPlayer
               episodeId={item.episode_id}
               artifactSetId={selectedArtifactContent.artifactSetId}
+              routeState={routeState}
+              readOnlyPeople={historicalSource}
               segments={selectedArtifactContent.content.segments}
               mediaAvailable={selectedArtifactContent.content.media_available}
               audioDurationSeconds={
@@ -1335,8 +1405,19 @@ function EpisodeProcessingPanel({
     </>
   );
 
+  const referenceMissingTranscript = Boolean(currentArtifact && !currentArtifact.capabilities.transcript);
+  if (routeState?.hasReference && (routeState.referenceInvalid || resolvedSource?.error || !currentArtifact || referenceMissingTranscript)) {
+    return <section className={styles.processingSection} aria-label="转写内容">
+      <p role={routeState.referenceInvalid || resolvedSource?.error || referenceMissingTranscript ? "alert" : "status"}>{routeState.referenceInvalid ? "原引用不可定位：来源版本或片段参数无效。" : referenceMissingTranscript ? "原引用不可定位：该版本没有逐字稿。" : resolvedSource?.error ?? "正在读取引用版本…"}</p>
+      {resolvedSource?.error && <button onClick={() => setSourceRetry((value) => value + 1)}>重试读取引用</button>}
+      <button onClick={() => updateQuery({ source: null, fragment: null, t: null })}>打开当前版本</button>
+    </section>;
+  }
+
   return (
     <section className={styles.processingSection} aria-label="转写内容">
+      {historicalSource && <p role="status">正在查看引用的历史转写；人物管理只适用于当前版本。<button onClick={() => updateQuery({ source: null, fragment: null, t: null })}>打开当前版本</button></p>}
+      {routeState?.peopleOpen && !transcriptAvailable && !isLoading && <p role="status">当前没有可供人物核对的逐字稿；打开链接不会自动转写。</p>}
       {error && (
         <div className={styles.inlineError} role="alert">
           <span>{error}</span>
@@ -1347,9 +1428,9 @@ function EpisodeProcessingPanel({
             onClick={() => void retryCurrentRead()}
             aria-label={
               canRetryArtifactRead
-                ? `重试读取${
-                    artifactTabLabel(renderedArtifactTab ?? activeArtifactTab)
-                  }`
+                ? `重试读取${artifactTabLabel(
+                    renderedArtifactTab ?? activeArtifactTab,
+                  )}`
                 : "重试读取加工状态"
             }
             title="重试"
@@ -1442,6 +1523,11 @@ function EpisodeProcessingPanel({
         <>{processingStateCard}</>
       )}
 
+      {routeArtifact &&
+        !isLoading &&
+        !visibleArtifactTabs.some((tab) => tab.id === routeArtifact) && (
+          <p role="status">请求的{artifactTabLabel(routeArtifact)}尚不可用。</p>
+        )}
       {(currentArtifact || visibleArtifactTabs.length > 0) && (
         <div className={styles.processingSummary}>
           <div className={styles.processingArtifactHeader}>
@@ -1455,7 +1541,7 @@ function EpisodeProcessingPanel({
                   </span>
                 )}
                 <span>
-                  {run?.id === currentArtifact.run_id
+                  {historicalSource ? "引用的历史版本" : run?.id === currentArtifact.run_id
                     ? "当前版本"
                     : "上一成功版本"}
                 </span>
@@ -1494,6 +1580,7 @@ function EpisodeProcessingPanel({
                       onClick={() => {
                         artifactTabWasUserSelected.current = true;
                         setActiveArtifactTab(tab.id);
+                        onRouteArtifactChange?.(tab.id);
                       }}
                       onKeyDown={(event) =>
                         handleArtifactTabKeyDown(event, tab.id)

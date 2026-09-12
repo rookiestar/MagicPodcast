@@ -6,6 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { parseEpisodeRoute } from "@/lib/navigation";
 import EpisodeProcessingPanel from "../EpisodeProcessingPanel";
 import type { ConsumptionItem } from "@/types/consumption";
 import type {
@@ -21,6 +22,7 @@ const apiMocks = vi.hoisted(() => ({
   getLatestAudio: vi.fn(),
   getScheduleStatus: vi.fn(),
   getRun: vi.fn(),
+  getEpisodeArtifact: vi.fn(),
   start: vi.fn(),
   cancel: vi.fn(),
   retry: vi.fn(),
@@ -180,6 +182,22 @@ describe("EpisodeProcessingPanel", () => {
           media_available: false,
         }),
     );
+  });
+
+  it("reads a scoped historical version instead of substituting the current artifact", async () => {
+    apiMocks.getEpisodeArtifact.mockResolvedValue({...artifact,id:91,is_current:false});
+    render(<EpisodeProcessingPanel item={item} routeState={parseEpisodeRoute("/episodes/201?tab=transcript&artifact=transcript&source=artifact-91")} routeArtifact="transcript" />);
+    expect(await screen.findByText("# 规范逐字稿")).toBeVisible();
+    expect(apiMocks.getEpisodeArtifact).toHaveBeenCalledWith(201,91);
+    expect(apiMocks.getArtifactContent).toHaveBeenCalledWith(91,"transcript");
+    expect(screen.getByText(/正在查看引用的历史转写/)).toBeVisible();
+    expect(apiMocks.start).not.toHaveBeenCalled();
+  });
+  it("keeps an unavailable version reference without falling back", async () => {
+    apiMocks.getEpisodeArtifact.mockRejectedValue({response:{status:404}});
+    render(<EpisodeProcessingPanel item={item} routeState={parseEpisodeRoute("/episodes/201?source=artifact-91")} routeArtifact="transcript" />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("原引用不可定位");
+    expect(apiMocks.getArtifactContent).not.toHaveBeenCalled();
   });
 
   it("keeps a stable first-visit state while processing status is slow", async () => {

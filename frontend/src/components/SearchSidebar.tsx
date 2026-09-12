@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { singleParam, updateQuery, useLocationHref, useEpisodeReturnRestoration } from "@/lib/navigation";
+import type { SearchType } from "@/lib/searchSidebarState";
 import { SearchSidebarContent } from "@/components/search/SearchSidebarContent";
 import { SearchSidebarHeader } from "@/components/search/SearchSidebarHeader";
 import { useSearchSidebar } from "@/hooks/useSearchSidebar";
@@ -9,9 +11,30 @@ import { getSearchSidebarPanelState } from "@/lib/searchSidebarState";
 interface SearchSidebarProps {
   isOpen: boolean;
   onClose: () => void;
+  standalone?: boolean;
 }
 
-export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
+export default function SearchSidebar({ isOpen, onClose, standalone = false }: SearchSidebarProps) {
+  useEpisodeReturnRestoration();
+  const href = useLocationHref();
+  const params = useMemo(() => new URL(href || "/search", "http://navigation.local").searchParams, [href]);
+  const committedQuery = (singleParam(params, "q") ?? "").trim();
+  const rawType = singleParam(params, "type");
+  const searchType: SearchType = rawType === "podcasts" || rawType === "episodes" ? rawType : "all";
+  // Search opened as an overlay should keep one history entry while the user
+  // refines the query/type, so closing it returns directly to its source page.
+  // The standalone search page keeps normal back-navigation between queries.
+  const updateSearchQuery = (values: Record<string, string | null>) =>
+    updateQuery(values, !standalone);
+  const setSearchType = (value: SearchType) =>
+    updateSearchQuery({ type: value === "all" ? null : value });
+  useEffect(() => {
+    if (!isOpen || !href) return;
+    const patch: Record<string, string | null> = {};
+    if (params.has("q") && (params.getAll("q").length !== 1 || params.get("q") !== committedQuery || !committedQuery)) patch.q = committedQuery || null;
+    if (params.has("type") && !["all", "podcasts", "episodes"].includes(rawType ?? "")) patch.type = null;
+    if (Object.keys(patch).length) updateQuery(patch, true);
+  }, [isOpen, href, params, committedQuery, rawType]);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -21,8 +44,6 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
   const {
     query,
     setQuery,
-    searchType,
-    setSearchType,
     allResults,
     results,
     loading,
@@ -33,7 +54,9 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
     showHistory,
     selectHistory,
     clearHistory,
-  } = useSearchSidebar({ isOpen });
+  } = useSearchSidebar({ isOpen, type: searchType });
+  useEffect(() => { if (isOpen) setQuery(committedQuery); }, [committedQuery, isOpen, setQuery]);
+  const submitQuery = () => updateSearchQuery({ q: query.trim() || null });
 
   // 自动聚焦
   useEffect(() => {
@@ -99,6 +122,7 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
 
   const handleHistoryClick = (historyQuery: string) => {
     selectHistory(historyQuery);
+    updateSearchQuery({ q: historyQuery.trim() || null });
   };
 
   const handleClearHistory = () => {
@@ -118,24 +142,25 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
   return (
     <>
       {/* 遮罩层 */}
-      <div
+      {!standalone && <div
         className={`search-workbench-backdrop fixed inset-0 z-40 ${
           isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
         onClick={handleClose}
         aria-hidden="true"
-      />
+      />}
 
       {/* 侧边栏 */}
       <div
         ref={sidebarRef}
-        role="dialog"
-        aria-modal="true"
+        role={standalone ? "main" : "dialog"}
+        aria-modal={standalone ? undefined : true}
         aria-labelledby="search-workbench-title"
+        style={standalone ? { width: "100%", maxWidth: "none" } : undefined}
         tabIndex={-1}
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
-        className={`search-workbench fixed right-0 top-0 z-50 flex h-full w-full flex-col ${
+        className={`search-workbench fixed right-0 top-0 z-[60] flex h-full w-full flex-col ${
           isOpen
             ? "translate-x-0 opacity-100"
             : "translate-x-full opacity-0"
@@ -150,6 +175,7 @@ export default function SearchSidebar({ isOpen, onClose }: SearchSidebarProps) {
           onQueryChange={setQuery}
           onSearchTypeChange={setSearchType}
           onClose={handleClose}
+          onSubmit={submitQuery}
         />
 
         <SearchSidebarContent

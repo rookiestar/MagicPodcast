@@ -116,6 +116,7 @@ export function useDiscoveryMetadataEditing({
     isError: Boolean(error),
     isLoaded: Boolean(data),
     isEditingNotes,
+    notesDirty: isEditingNotes && notes !== (data?.notes ?? ""),
     setIsEditingNotes,
     isSavingNotes,
     isUpdatingTags,

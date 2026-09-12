@@ -24,6 +24,18 @@ import {
   IconCircleCheck,
   IconRefresh,
 } from "@tabler/icons-react";
+import {
+  closeTo,
+  rememberEpisodeOrigin,
+  attachEpisodeOrigin,
+  episodeHref,
+  navigate,
+  normalizeEpisodeQuery,
+  parseEpisodeRoute,
+  positiveID,
+  singleParam,
+  useLocationHref,
+} from "@/lib/navigation";
 import PageLayout from "@/components/layout/PageLayout";
 import {
   consumptionApi,
@@ -350,6 +362,13 @@ function adjustSummary(
 }
 
 export default function InboxPageClient() {
+  const href = useLocationHref();
+  const route = parseEpisodeRoute(href);
+  useEffect(() => { if (href.startsWith("/episodes/")) normalizeEpisodeQuery(); }, [href]);
+  const returnHref = useRef("/inbox");
+  const [routeError, setRouteError] = useState<string | null>(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeRetry, setRouteRetry] = useState(0);
   const [queues, setQueues] = useState<QueueViewStateMap>(makeInitialQueues);
   const [summary, setSummary] = useState<ConsumptionSummary | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
@@ -387,8 +406,9 @@ export default function InboxPageClient() {
   const [announcement, setAnnouncement] = useState("");
   const [dragEnabled, setDragEnabled] = useState(false);
   const [activeDrag, setActiveDrag] = useState<ActiveQueueDrag | null>(null);
-  const [dragPreview, setDragPreview] =
-    useState<QueuePlacementPreview | null>(null);
+  const [dragPreview, setDragPreview] = useState<QueuePlacementPreview | null>(
+    null,
+  );
   const [locateTarget, setLocateTarget] = useState<InboxLocateTarget | null>(
     null,
   );
@@ -447,16 +467,56 @@ export default function InboxPageClient() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const queue = params.get("queue");
-    const episodeId = Number(params.get("episode"));
-    if (
-      (queue === "inbox" || queue === "focus" || queue === "someday") &&
-      Number.isInteger(episodeId) &&
-      episodeId > 0
-    ) {
-      setLocateTarget({ queue, episodeId });
+    const id = positiveID(singleParam(params, "episode"));
+    if (id && singleParam(params, "detail") === "1") {
+      navigate(episodeHref(id, { from: "inbox" }), { replace: true });
+      return;
     }
+    const queue = singleParam(params, "queue");
+    if (id && (queue === "inbox" || queue === "focus" || queue === "someday"))
+      setLocateTarget({ queue, episodeId: id });
   }, []);
+
+  useEffect(() => {
+    if (!href) return;
+    setRouteError(null);
+    if (!route.id) {
+      setDetailItem(null);
+      setRouteLoading(false);
+      if (detailItem)
+        window.requestAnimationFrame(() => {
+          const trigger = detailTriggerRef.current;
+          if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+          else boardViewportRef.current?.focus({ preventScroll: true });
+        });
+      return;
+    }
+    let active = true;
+    setRouteLoading(true);
+    void consumptionApi
+      .getItem(route.id)
+      .then((item) => {
+        if (active) {
+          setDetailItem(item);
+          setRouteLoading(false);
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setRouteLoading(false);
+          setRouteError(
+            getConsumptionErrorDetails(error).status === 404
+              ? "该单集不存在。"
+              : "单集读取失败，请重试。",
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+    // A query navigation must not reload the object or discard its editor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.id, routeRetry]);
 
   useEffect(() => {
     if (!locateTarget || locatedEpisodeRef.current === locateTarget.episodeId) {
@@ -480,7 +540,11 @@ export default function InboxPageClient() {
     );
     if (!card || !trigger) return;
     locatedEpisodeRef.current = locateTarget.episodeId;
-    card.scrollIntoView({ behavior: "auto", block: "center", inline: "center" });
+    card.scrollIntoView({
+      behavior: "auto",
+      block: "center",
+      inline: "center",
+    });
     trigger.focus({ preventScroll: true });
     if (new URLSearchParams(window.location.search).get("detail") === "1") {
       detailTriggerRef.current = trigger;
@@ -730,7 +794,12 @@ export default function InboxPageClient() {
         !acknowledgeFocusLimit &&
         focusCount >= focusLimit
       ) {
-        setFocusPrompt({ item, currentCount: focusCount, limit: focusLimit, placement });
+        setFocusPrompt({
+          item,
+          currentCount: focusCount,
+          limit: focusLimit,
+          placement,
+        });
         return;
       }
 
@@ -738,7 +807,12 @@ export default function InboxPageClient() {
       setBusyEpisodes(new Set(busyEpisodesRef.current));
       setFailedAction(null);
 
-      const optimistic = previewQueuePlacement(rollback, item, source, placement);
+      const optimistic = previewQueuePlacement(
+        rollback,
+        item,
+        source,
+        placement,
+      );
       queuesRef.current = optimistic;
       setQueues(optimistic);
       const optimisticItem = optimistic[target].items.find(
@@ -793,9 +867,9 @@ export default function InboxPageClient() {
         const restored = cloneQueues(rollback);
         queuesRef.current = restored;
         setQueues(restored);
-        const restoredItem = (source ? restored[source] : restored[target]).items.find(
-          (candidate) => candidate.episode_id === item.episode_id,
-        );
+        const restoredItem = (
+          source ? restored[source] : restored[target]
+        ).items.find((candidate) => candidate.episode_id === item.episode_id);
         if (restoredItem) {
           setDetailItem((previous) =>
             previous?.episode_id === item.episode_id ? restoredItem : previous,
@@ -912,10 +986,10 @@ export default function InboxPageClient() {
           queueRequestVersion.current[queue] += 1;
         }
         const payloads = await Promise.all(
-          queueStates.map(async (queue) => [
-            queue,
-            await consumptionApi.listQueue(queue),
-          ] as const),
+          queueStates.map(
+            async (queue) =>
+              [queue, await consumptionApi.listQueue(queue)] as const,
+          ),
         );
         const snapshots: Partial<
           Record<
@@ -1035,9 +1109,7 @@ export default function InboxPageClient() {
             loadSummary(),
           ]);
         } else if (isCompletionUndoExpired(error)) {
-          setCompletionUndoError(
-            "15 秒撤销窗口已结束；可从最近完成重新处理。",
-          );
+          setCompletionUndoError("15 秒撤销窗口已结束；可从最近完成重新处理。");
         } else {
           setCompletionUndoError(
             `撤销失败：${getConsumptionErrorDetails(error).message}`,
@@ -1062,7 +1134,7 @@ export default function InboxPageClient() {
       if (activeData?.kind !== "item" || !overData) return null;
 
       const overEpisodeId =
-        overData.kind === "item" ? overData.episodeId ?? null : null;
+        overData.kind === "item" ? (overData.episodeId ?? null) : null;
       const translated = event.active.rect.current.translated;
       const initial = event.active.rect.current.initial;
       const activeCenter = translated
@@ -1159,20 +1231,22 @@ export default function InboxPageClient() {
   }, []);
 
   const openDetail = (item: ConsumptionItem, trigger: HTMLButtonElement) => {
+    if (!route.id) {
+      returnHref.current = window.location.pathname + window.location.search;
+      rememberEpisodeOrigin(item.episode_id, trigger.id);
+    }
+    if (!navigate(episodeHref(item.episode_id, { from: "inbox" }))) return;
+    attachEpisodeOrigin(item.episode_id);
     detailTriggerRef.current = trigger;
     setDetailItem(item);
   };
 
   const openSourceEpisode = useCallback(
-    async (episodeId: number) => {
-      if (detailItem?.episode_id === episodeId) return;
-      const queued = CONSUMPTION_QUEUES.flatMap(
-        (queue) => queues[queue].items,
-      ).find((candidate) => candidate.episode_id === episodeId);
-      const item = queued ?? (await consumptionApi.getItem(episodeId));
-      setDetailItem(item);
+    (episodeId: number) => {
+      if (detailItem?.episode_id !== episodeId)
+        navigate(episodeHref(episodeId, { from: "inbox", tab: "transcript" }));
     },
-    [detailItem, queues],
+    [detailItem?.episode_id],
   );
 
   const restoreCopilotListSnapshot = useCallback(() => {
@@ -1212,6 +1286,7 @@ export default function InboxPageClient() {
   );
 
   const closeDetail = () => {
+    if (!closeTo(returnHref.current)) return;
     const episodeId = detailItem?.episode_id;
     const originalTrigger = detailTriggerRef.current;
     restoreCopilotListSnapshot();
@@ -1406,9 +1481,31 @@ export default function InboxPageClient() {
         </p>
       </main>
 
-      {detailItem && (
+      {route.id && routeError && detailItem?.episode_id !== route.id && (
+        <div role="alert" className={styles.detailBackdrop}>
+          <div className={styles.detailPanel}>
+            <p>{routeError}</p>
+            <button onClick={() => setRouteRetry((value) => value + 1)}>
+              重试
+            </button>
+            <button onClick={closeDetail}>返回列表</button>
+          </div>
+        </div>
+      )}
+      {route.id &&
+        routeLoading &&
+        detailItem?.episode_id !== route.id &&
+        !routeError && (
+          <div role="status" className={styles.detailBackdrop}>
+            正在读取单集…
+          </div>
+        )}
+      {detailItem && detailItem.episode_id === route.id && (
         <ConsumptionDetailPanel
           item={detailItem}
+          routeState={route}
+          readFailure={routeError ?? undefined}
+          onRetryRead={() => setRouteRetry((value) => value + 1)}
           isQueueBusy={busyEpisodes.has(detailItem.episode_id)}
           queueMoveFailure={
             detailFailedAction

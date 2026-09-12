@@ -184,8 +184,8 @@ describe("searchResultDisplay", () => {
 
   it("builds search result links", () => {
     expect(buildPodcastSearchResultHref(1)).toBe("/podcasts/1");
-    expect(buildEpisodeSearchResultHref(1, 7)).toBe(
-      "/podcasts/1?episode_id=7",
+    expect(buildEpisodeSearchResultHref(7)).toBe(
+      "/episodes/7?from=search",
     );
   });
 });

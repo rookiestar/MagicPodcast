@@ -24,20 +24,31 @@ interface UseSearchSidebarOptions {
   debounceMs?: number;
   minQueryLength?: number;
   pageSize?: number;
+  type?: SearchType;
 }
 
 export function useSearchSidebar({
   isOpen,
+  type,
   debounceMs = DEFAULT_DEBOUNCE_MS,
   minQueryLength = DEFAULT_MIN_QUERY_LENGTH,
   pageSize = DEFAULT_SEARCH_PAGE_SIZE,
 }: UseSearchSidebarOptions) {
-  const [query, setQuery] = useState("");
-  const [searchType, setSearchType] = useState<SearchType>("all");
+  const [query, setQueryState] = useState("");
+  const [localType, setSearchType] = useState<SearchType>("all");
+  const searchType = type ?? localType;
   const [allResults, setAllResults] = useState<SearchResultsData>(
     createEmptySearchData,
   );
   const [loading, setLoading] = useState(false);
+  const queryRef = useRef(query);
+  queryRef.current = query;
+  const setQuery = useCallback((value: string) => {
+    if (queryRef.current === value) return;
+    queryRef.current = value;
+    setQueryState(value);
+    setLoading(value.trim().length >= minQueryLength);
+  }, [minQueryLength]);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const activeRequestIdRef = useRef(0);
@@ -72,7 +83,7 @@ export function useSearchSidebar({
     }
 
     setSearchHistory(getSearchHistory());
-  }, [isOpen]);
+  }, [isOpen, setQuery]);
 
   const performSearch = useCallback(
     async (
@@ -151,7 +162,7 @@ export function useSearchSidebar({
 
   const selectHistory = useCallback((historyQuery: string) => {
     setQuery(historyQuery);
-  }, []);
+  }, [setQuery]);
 
   const clearHistory = useCallback(() => {
     clearSearchHistory();

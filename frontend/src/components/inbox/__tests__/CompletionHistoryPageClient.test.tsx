@@ -1,5 +1,6 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { navigate } from "@/lib/navigation";
 import CompletionHistoryPageClient from "../CompletionHistoryPageClient";
 import type {
   CompletionHistoryItem,
@@ -85,11 +86,32 @@ function historyCard(title: string) {
 describe("CompletionHistoryPageClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState({}, "", "/inbox/history");
     apiMocks.setQueue.mockImplementation(
       async (_episodeId: number, queue: ConsumptionQueue) => ({
         queue_state: queue,
       }),
     );
+  });
+
+  it("restores committed URL searches and never queries unsubmitted text", async () => {
+    window.history.replaceState({}, "", "/inbox/history?q=Codex");
+    apiMocks.listCompletionHistory.mockImplementation(async ({ query }: { query: string }) =>
+      payload([historyItem(12, "done", query || "全部历史")], { search_query: query }));
+    render(<CompletionHistoryPageClient />);
+    await screen.findByRole("heading", { name: "Codex" });
+    const input = screen.getByPlaceholderText("输入单集标题或节目名称");
+    expect(input).toHaveValue("Codex");
+    fireEvent.change(input, { target: { value: "尚未提交" } });
+    expect(window.location.search).toBe("?q=Codex");
+    expect(apiMocks.listCompletionHistory).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "搜索全部历史" }));
+    await screen.findByRole("heading", { name: "尚未提交" });
+    expect(new URLSearchParams(window.location.search).get("q")).toBe("尚未提交");
+    act(() => { navigate("/inbox/history?q=Codex"); });
+    await screen.findByRole("heading", { name: "Codex" });
+    expect(input).toHaveValue("Codex");
+    expect(apiMocks.setQueue).not.toHaveBeenCalled();
   });
 
   it("does not expose a false empty state before the first request completes", async () => {

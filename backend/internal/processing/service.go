@@ -1672,3 +1672,19 @@ func isUniqueConstraintError(err error) bool {
 	return strings.Contains(message, "unique constraint") ||
 		strings.Contains(message, "is not unique")
 }
+
+// GetEpisodeArtifact resolves an immutable version only within its owning episode.
+func (s *Service) GetEpisodeArtifact(ctx context.Context, episodeID, artifactID uint) (models.EpisodeArtifactSet, error) {
+	var artifact models.EpisodeArtifactSet
+	err := s.db.WithContext(ctx).Where("id = ? AND episode_id = ?", artifactID, episodeID).First(&artifact).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return artifact, ErrArtifactNotFound
+	}
+	if err != nil {
+		return artifact, err
+	}
+	if err := s.hydrateArtifactCapabilities(ctx, &artifact); err != nil {
+		return artifact, err
+	}
+	return artifact, nil
+}

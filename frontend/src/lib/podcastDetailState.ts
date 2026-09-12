@@ -1,14 +1,9 @@
+import { positiveID } from "@/lib/navigationParams";
 import { getEffectiveCoverUrl } from "@/lib/imageProxy";
 import type { Podcast } from "@/types";
 
 export function parsePodcastDetailId(value: string | string[] | undefined) {
-  const rawValue = Array.isArray(value) ? value[0] : value;
-  if (!rawValue) {
-    return null;
-  }
-
-  const id = Number(rawValue);
-  return Number.isInteger(id) && id > 0 ? id : null;
+  return Array.isArray(value) ? (value.length === 1 ? positiveID(value[0]) : null) : positiveID(value);
 }
 
 export function getPodcastDetailErrorMessage(podcastError: boolean) {

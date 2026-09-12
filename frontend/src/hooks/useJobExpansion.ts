@@ -1,49 +1,30 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { workflowApi } from "@/lib/api";
 import type { Job } from "@/types";
 
-interface UseJobExpansionReturn {
-  selectedJobId: number | null;
-  jobDetails: Record<number, Job>;
-  loadingJobId: number | null;
-  fetchJobDetail: (jobId: number) => Promise<void>;
-  getJobDetail: (jobId: number) => Job | undefined;
-}
-
-export function useJobExpansion(): UseJobExpansionReturn {
-  const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
+/** Job identity is independent of the loaded history page. */
+export function useJobExpansion(workflowId?: number, controlledId?: number | null, onSelect?: (id: number | null) => void) {
+  const [localId, setLocalId] = useState<number | null>(null);
+  const selectedJobId = controlledId === undefined ? localId : controlledId;
   const [jobDetails, setJobDetails] = useState<Record<number, Job>>({});
   const [loadingJobId, setLoadingJobId] = useState<number | null>(null);
-
-  const fetchJobDetail = useCallback(async (jobId: number) => {
-    // 如果已经缓存，直接切换展开状态
-    if (jobDetails[jobId]) {
-      setSelectedJobId(selectedJobId === jobId ? null : jobId);
-      return;
-    }
-
-    // 加载详情
-    setLoadingJobId(jobId);
-    try {
-      const detail = await workflowApi.getJob(jobId);
-      setJobDetails((prev) => ({ ...prev, [jobId]: detail }));
-      setSelectedJobId(selectedJobId === jobId ? null : jobId);
-    } catch (error) {
-      console.error("Failed to fetch job detail:", error);
-    } finally {
-      setLoadingJobId(null);
-    }
-  }, [jobDetails, selectedJobId]);
-
-  const getJobDetail = useCallback((jobId: number) => {
-    return jobDetails[jobId];
-  }, [jobDetails]);
-
-  return {
-    selectedJobId,
-    jobDetails,
-    loadingJobId,
-    fetchJobDetail,
-    getJobDetail,
-  };
+  const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    if (!selectedJobId) { setLoadingJobId(null); setError(null); return; }
+    if (jobDetails[selectedJobId] && (workflowId === undefined || jobDetails[selectedJobId].workflow_id === workflowId)) { setError(null); setLoadingJobId(null); return; }
+    let active = true;
+    setLoadingJobId(selectedJobId); setError(null);
+    workflowApi.getJob(selectedJobId).then((job) => {
+      if (!active) return;
+      if (workflowId !== undefined && job.workflow_id !== workflowId) { setError("该执行不属于当前工作流。"); return; }
+      setJobDetails((previous) => ({...previous,[job.id]:job}));
+    }).catch((error: {response?:{status?:number}}) => { if (active) setError(error.response?.status === 404 ? "执行记录不存在。" : "执行记录读取失败，请重试。"); }).finally(() => { if (active) setLoadingJobId(null); });
+    return () => { active=false; };
+  }, [selectedJobId, workflowId, jobDetails, retry]);
+  const fetchJobDetail = useCallback(async (id: number) => {
+    const next = selectedJobId === id ? null : id;
+    if (onSelect) onSelect(next); else setLocalId(next);
+  }, [selectedJobId, onSelect]);
+  return {selectedJobId,jobDetails,loadingJobId,fetchJobDetail,error,retryRead:()=>{if(selectedJobId)setJobDetails((previous)=>{const next={...previous};delete next[selectedJobId];return next;});setRetry((value)=>value+1);},getJobDetail:(id:number)=>jobDetails[id]};
 }

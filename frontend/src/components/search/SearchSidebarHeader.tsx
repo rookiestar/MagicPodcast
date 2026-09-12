@@ -17,6 +17,7 @@ interface SearchSidebarHeaderProps {
   onQueryChange: (query: string) => void;
   onSearchTypeChange: (searchType: SearchType) => void;
   onClose: () => void;
+  onSubmit?: () => void;
 }
 
 export function SearchSidebarHeader({
@@ -28,6 +29,7 @@ export function SearchSidebarHeader({
   onQueryChange,
   onSearchTypeChange,
   onClose,
+  onSubmit,
 }: SearchSidebarHeaderProps) {
   const searchResultCounts = { podcastCount, episodeCount };
 
@@ -48,7 +50,7 @@ export function SearchSidebarHeader({
         </button>
       </div>
 
-      <div className="search-workbench-query">
+      <form className="search-workbench-query" onSubmit={(event) => {event.preventDefault(); onSubmit?.();}}>
         <div className="search-workbench-input">
           <IconSearch aria-hidden="true" stroke={1.8} />
           <input
@@ -60,7 +62,8 @@ export function SearchSidebarHeader({
             aria-label="搜索节目和单集"
           />
         </div>
-      </div>
+        <button type="submit" aria-label="提交搜索">搜索</button>
+      </form>
 
       <div className="search-workbench-tabs" aria-label="搜索范围">
         {getSearchTypeOptionConfigs().map((option) => (

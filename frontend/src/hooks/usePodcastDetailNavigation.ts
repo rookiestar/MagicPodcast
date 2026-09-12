@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { positiveID } from "@/lib/navigationParams";
 import type { Episode } from "@/types";
 
 const HIGHLIGHT_CLASSES = ["ring-2", "ring-blue-500", "ring-offset-2"];
@@ -66,10 +67,7 @@ export function buildPodcastListBackUrl({
 }
 
 export function parseTargetEpisodeId(value: string | null) {
-  if (!value) return null;
-
-  const id = Number(value);
-  return Number.isInteger(id) && id > 0 ? id : null;
+  return positiveID(value);
 }
 
 function scrollEpisodeIntoView(element: HTMLElement) {

@@ -13,6 +13,7 @@ import WorkflowReportWorkbench, {
 import type { HomepageReport } from "@/types/discovery";
 import { reportStatsSamples } from "@/lib/reportStatsSamples";
 
+const fetchByJobMock = vi.hoisted(() => vi.fn());
 const fetchDetailMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/components/workflows/MarkdownViewer", () => ({
@@ -27,6 +28,7 @@ vi.mock("@/lib/discoveryReports", async () => {
   );
   return {
     ...actual,
+    fetchHomepageReportByJob: (...args: unknown[]) => fetchByJobMock(...args),
     fetchHomepageReportDetail: (...args: unknown[]) => fetchDetailMock(...args),
   };
 });
@@ -62,11 +64,31 @@ function makeReport(
 
 describe("WorkflowReportWorkbench", () => {
   beforeEach(() => {
+    window.history.replaceState({}, "", "/discovery");
     fetchDetailMock.mockReset();
+    fetchByJobMock.mockReset();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("loads a job-addressed report outside the metadata window", async () => {
+    window.history.replaceState({}, "", "/discovery?report=5003");
+    fetchByJobMock.mockResolvedValue(makeReport({ id: 6003, job_id: 5003, workflow_name: "窗口外报告" }));
+    render(<WorkflowReportWorkbench todayReports={[]} historyReports={[]} />);
+    await screen.findByRole("heading", { name: "窗口外报告", level: 3 });
+    expect(fetchByJobMock).toHaveBeenCalledWith(5003);
+    expect(window.location.search).toBe("?report=5003");
+  });
+
+  it("does not substitute a default report when the requested job is missing", async () => {
+    window.history.replaceState({}, "", "/discovery?report=999");
+    fetchByJobMock.mockRejectedValue({ response: { status: 404 } });
+    render(<WorkflowReportWorkbench todayReports={[makeReport({id:1,workflow_name:"默认报告"})]} />);
+    await screen.findByText("报告不存在或尚未发布。");
+    expect(screen.queryByRole("heading", { name: "默认报告" })).not.toBeInTheDocument();
+    expect(window.location.search).toBe("?report=999");
   });
 
   it("renders the editorial heading and a single report without switch controls", () => {
@@ -773,7 +795,7 @@ describe("WorkflowReportWorkbench", () => {
     );
   });
 
-  it("restores the previous report if a pending history body fails", async () => {
+  it("retains the requested report identity if its body fails", async () => {
     fetchDetailMock.mockRejectedValue(new Error("load failed"));
 
     render(
@@ -809,18 +831,18 @@ describe("WorkflowReportWorkbench", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("往期报告加载失败，可重试选择。")).toBeInTheDocument();
+      expect(screen.getByText("报告读取失败，请重试。")).toBeInTheDocument();
     });
     expect(
-      screen.getByRole("heading", { name: "今日乙", level: 3 }),
+      screen.getByRole("heading", { name: "上周周报", level: 3 }),
     ).toBeInTheDocument();
-    expect(screen.getByText("2 / 2")).toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get("report")).toBe("9");
     fireEvent.click(screen.getByRole("button", { name: /往期/ }));
     expect(
       within(screen.getByRole("dialog", { name: "往期报告" })).queryByText(
         "当前查看",
       ),
-    ).not.toBeInTheDocument();
+    ).toBeInTheDocument();
   });
 
   it("does not revive a pending history pick after returning to today", async () => {
@@ -1736,7 +1758,7 @@ describe("WorkflowReportWorkbench", () => {
       expect(onClearSelection).toHaveBeenCalledTimes(1);
     });
 
-    it("resets the whole filter after a page refresh (remount)", () => {
+    it("restores URL filters after remount but clears the transient keyword", () => {
       const { unmount } = renderWorkbench(baseHistory());
       const drawer = openDrawer();
       expandFilter(drawer);
@@ -1751,11 +1773,11 @@ describe("WorkflowReportWorkbench", () => {
       unmount();
 
       renderWorkbench(baseHistory());
-      const reopened = openDrawer();
-      expect(within(reopened).queryByText("已选 1")).not.toBeInTheDocument();
+      const reopened = screen.getByRole("dialog", { name: "往期报告" });
+      expect(within(reopened).getByText("已选 1")).toBeInTheDocument();
       expect(
-        within(reopened).getAllByRole("button", { name: /投资周报/ }),
-      ).toHaveLength(1);
+        within(reopened).queryAllByRole("button", { name: /投资周报/ }),
+      ).toHaveLength(0);
       expect(
         within(reopened).getByRole("button", { name: /筛选工作流/ }),
       ).toHaveAttribute("aria-expanded", "false");
@@ -1765,122 +1787,17 @@ describe("WorkflowReportWorkbench", () => {
       ).toHaveValue("");
     });
 
-    it("prunes stale selections on data refresh while keeping valid ones", () => {
-      const { rerender } = renderWorkbench(baseHistory());
-      const drawer = openDrawer();
-      expandFilter(drawer);
-      fireEvent.click(
-        within(drawer).getByRole("checkbox", { name: /科技日报/ }),
-      );
-      fireEvent.click(
-        within(drawer).getByRole("checkbox", { name: /投资周报/ }),
-      );
-
-      // Refresh drops 投资周报 and introduces 环保周报.
-      rerender(
-        <WorkflowReportWorkbench
-          timezone="Asia/Shanghai"
-          todayReports={[makeReport({ id: 1, workflow_name: "今日" })]}
-          historyReports={historyMetadata([
-            {
-              id: 101,
-              workflow_id: 10,
-              workflow_name: "科技日报",
-              completed_at: "2026-08-12T01:00:00Z",
-            },
-            {
-              id: 104,
-              workflow_id: 30,
-              workflow_name: "环保周报",
-              completed_at: "2026-08-11T01:00:00Z",
-            },
-          ])}
-        />,
-      );
-      const refreshed = screen.getByRole("dialog", { name: "往期报告" });
-      expect(within(refreshed).getByText("已选 1")).toBeInTheDocument();
-      expect(
-        within(refreshed).getAllByRole("button", { name: /科技日报/ }),
-      ).toHaveLength(1);
-      expect(
-        within(refreshed).queryByRole("button", { name: /环保周报/ }),
-      ).not.toBeInTheDocument();
-
-      // Refresh removes the last selected workflow too: filter resets to none.
-      rerender(
-        <WorkflowReportWorkbench
-          timezone="Asia/Shanghai"
-          todayReports={[makeReport({ id: 1, workflow_name: "今日" })]}
-          historyReports={historyMetadata([
-            {
-              id: 104,
-              workflow_id: 30,
-              workflow_name: "环保周报",
-              completed_at: "2026-08-11T01:00:00Z",
-            },
-          ])}
-        />,
-      );
-      // One workflow left → entry hidden, full list restored.
-      const reset = screen.getByRole("dialog", { name: "往期报告" });
-      expect(
-        within(reset).queryByRole("button", { name: /筛选工作流/ }),
-      ).not.toBeInTheDocument();
-      expect(
-        within(reset).getAllByRole("button", { name: /环保周报/ }),
-      ).toHaveLength(1);
-    });
-
-    it("does not resurrect a selection pruned by an earlier refresh", () => {
-      const { rerender } = renderWorkbench(baseHistory());
-      const drawer = openDrawer();
-      expandFilter(drawer);
-      fireEvent.click(
-        within(drawer).getByRole("checkbox", { name: /投资周报/ }),
-      );
-
-      // Refresh drops 投资周报: the selection is pruned and committed to
-      // source state, not just hidden for this render.
-      rerender(
-        <WorkflowReportWorkbench
-          timezone="Asia/Shanghai"
-          todayReports={[makeReport({ id: 1, workflow_name: "今日" })]}
-          historyReports={historyMetadata([
-            {
-              id: 101,
-              workflow_id: 10,
-              workflow_name: "科技日报",
-              completed_at: "2026-08-12T01:00:00Z",
-            },
-          ])}
-        />,
-      );
-      const pruned = screen.getByRole("dialog", { name: "往期报告" });
-      expect(within(pruned).queryByText(/已选/)).not.toBeInTheDocument();
-
-      // A later refresh brings 投资周报 back: the removed selection stays
-      // removed and the full list renders unfiltered.
-      rerender(
-        <WorkflowReportWorkbench
-          timezone="Asia/Shanghai"
-          todayReports={[makeReport({ id: 1, workflow_name: "今日" })]}
-          historyReports={baseHistory()}
-        />,
-      );
-      const restored = screen.getByRole("dialog", { name: "往期报告" });
-      expect(within(restored).queryByText(/已选/)).not.toBeInTheDocument();
-      // Unfiltered: both 科技日报 reports and the restored 投资周报 render.
-      expect(
-        within(restored).getAllByRole("button", { name: /科技日报/ }),
-      ).toHaveLength(2);
-      expect(
-        within(restored).getAllByRole("button", { name: /投资周报/ }),
-      ).toHaveLength(1);
-      // The panel stayed expanded across rerenders; the restored workflow's
-      // checkbox is unchecked.
-      expect(
-        within(restored).getByRole("checkbox", { name: /投资周报/ }),
-      ).not.toBeChecked();
+    it("retains URL workflow filters when the loaded window temporarily omits them", () => {
+      window.history.replaceState({}, "", "/discovery?report_history=1&workflow=20");
+      const { rerender } = renderWorkbench([]);
+      let drawer = screen.getByRole("dialog", { name: "往期报告" });
+      expect(within(drawer).getByText("已选 1")).toBeInTheDocument();
+      expect(within(drawer).getByText("没有符合所选工作流的报告。")).toBeInTheDocument();
+      expect(new URLSearchParams(window.location.search).get("workflow")).toBe("20");
+      rerender(<WorkflowReportWorkbench timezone="Asia/Shanghai" todayReports={[makeReport({ id: 1, workflow_name: "今日" })]} historyReports={baseHistory()} />);
+      drawer = screen.getByRole("dialog", { name: "往期报告" });
+      expect(within(drawer).getAllByRole("button", { name: /投资周报/ })).toHaveLength(1);
+      expect(within(drawer).queryByRole("button", { name: /科技日报/ })).not.toBeInTheDocument();
     });
 
     it("loads the filtered report body on demand without prefetching others", async () => {

@@ -5,6 +5,7 @@ import { IconFileImport } from "@tabler/icons-react";
 import Link from "next/link";
 import { useTags } from "@/hooks/useTagSWR";
 import { usePodcastListInfinite } from "@/hooks/usePodcastSWR";
+import { positiveID, singleParam, updateQuery, useLocationHref } from "@/lib/navigation";
 import { useUrlState } from "@/hooks/useUrlState";
 import PageLayout from "@/components/layout/PageLayout";
 import PodcastListResults from "@/components/podcasts/PodcastListResults";
@@ -21,7 +22,6 @@ import {
   getPodcastListDescription,
   getPodcastListErrorMessage,
   getPodcastTagsWithPodcasts,
-  getValidPodcastTagIds,
   getVisiblePodcastTags,
   hasMorePodcastTags,
   normalizePodcastTagIds,
@@ -41,9 +41,11 @@ import {
 
 interface PodcastsContentProps {
   initialPage?: PodcastListPage<Podcast>;
+  initialHref?: string;
+  initialScope?: string;
 }
 
-export default function PodcastsContent({ initialPage }: PodcastsContentProps) {
+export default function PodcastsContent({ initialPage, initialHref, initialScope = "recent_update:" }: PodcastsContentProps) {
   const [showAllTags, setShowAllTags] = useState(false);
   const pendingScrollRestoreRef = useRef<PodcastListScrollSnapshot | null>(
     null,
@@ -57,17 +59,29 @@ export default function PodcastsContent({ initialPage }: PodcastsContentProps) {
         typeof window === "undefined" ? undefined : window.innerWidth,
       );
 
-  const [sortBy, setSortBy] = useUrlState<PodcastSortBy>(
+  const [requestedSort, setSortBy] = useUrlState<PodcastSortBy>(
     "sort_by",
     "recent_update",
+    { replace: false, initialHref },
   );
+  const sortBy = PODCAST_SORT_OPTIONS.find((option) => option.value === requestedSort)?.value ?? "recent_update";
   const [selectedTagIdValues, setSelectedTagIdValues] = useUrlState<
     Array<number | string>
-  >("tag_id", [], { isArray: true });
+  >("tag_id", [], { isArray: true, replace: false, initialHref });
+  const href = useLocationHref() || initialHref || "";
   const selectedTagIds = useMemo(
-    () => normalizePodcastTagIds(selectedTagIdValues),
+    () => normalizePodcastTagIds(selectedTagIdValues.filter((value) => positiveID(String(value)) !== null)).sort((a, b) => a - b),
     [selectedTagIdValues],
   );
+  useEffect(() => {
+    if (!href) return;
+    const params = new URL(href, "http://navigation.local").searchParams;
+    const patch: Record<string, string[] | null> = {};
+    if (params.has("sort_by") && !PODCAST_SORT_OPTIONS.some((option) => option.value === singleParam(params, "sort_by"))) patch.sort_by = null;
+    const tags = [...new Set(params.getAll("tag_id").map(positiveID).filter((id): id is number => id !== null))].sort((a,b)=>a-b).map(String);
+    if (JSON.stringify(params.getAll("tag_id")) !== JSON.stringify(tags)) patch.tag_id = tags;
+    if (Object.keys(patch).length) updateQuery(patch, true);
+  }, [href]);
   const listStateKey = useMemo(
     () => getPodcastListStateKey({ sortBy, selectedTagIds }),
     [sortBy, selectedTagIds],
@@ -92,7 +106,7 @@ export default function PodcastsContent({ initialPage }: PodcastsContentProps) {
     sort_by: sortBy,
     tag_id: selectedTagIds.length > 0 ? selectedTagIds : undefined,
     initialPage:
-      sortBy === "recent_update" && selectedTagIds.length === 0
+      `${sortBy}:${selectedTagIds.join(",")}` === initialScope
         ? initialPage
         : undefined,
   });
@@ -126,17 +140,6 @@ export default function PodcastsContent({ initialPage }: PodcastsContentProps) {
       pendingScrollRestoreRef.current = null;
     }
   }, [podcasts.length, hasMore, isLoadingMore, loadMore]);
-
-  useEffect(() => {
-    if (tags.length === 0 || selectedTagIds.length === 0) {
-      return;
-    }
-
-    const validTagIds = getValidPodcastTagIds(selectedTagIds, tags);
-    if (validTagIds.length !== selectedTagIds.length) {
-      setSelectedTagIdValues(validTagIds);
-    }
-  }, [tags, selectedTagIds, setSelectedTagIdValues]);
 
   const handleTagToggle = useCallback(
     (tagId: number | null) => {

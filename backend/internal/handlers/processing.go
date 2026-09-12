@@ -580,3 +580,24 @@ func writeAudioRecoveryError(c *gin.Context, err error) {
 		},
 	})
 }
+
+func (h *ProcessingHandler) GetEpisodeArtifact(c *gin.Context) {
+	episodeID, ok := ParseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	artifactID, ok := ParseUintParam(c, "artifactID")
+	if !ok {
+		return
+	}
+	artifact, err := h.service.GetEpisodeArtifact(c.Request.Context(), episodeID, artifactID)
+	if errors.Is(err, processing.ErrArtifactNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": gin.H{"code": "ARTIFACT_NOT_FOUND", "message": "artifact version not found for this episode"}})
+		return
+	}
+	if err != nil {
+		middleware.InternalErrorResponseWithCode(c, "ARTIFACT_READ_FAILED", "Failed to read artifact version")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": artifact})
+}

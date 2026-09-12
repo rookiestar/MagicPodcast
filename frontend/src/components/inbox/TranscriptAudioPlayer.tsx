@@ -15,12 +15,15 @@ import {
   IconPlayerPlay,
   IconRefresh,
 } from "@tabler/icons-react";
+import { type EpisodeRoute, episodeHref, updateQuery } from "@/lib/navigation";
 import type { MinutesChapter, TranscriptSegment } from "@/types/processing";
 import { useTranscriptPeople } from "./TranscriptPeople";
 import styles from "./InboxPage.module.css";
 import { useMenuPopover } from "./useMenuPopover";
 
 interface TranscriptAudioPlayerProps {
+  routeState?: EpisodeRoute;
+  readOnlyPeople?: boolean;
  episodeId?: number;
   artifactSetId: number;
   segments: TranscriptSegment[];
@@ -214,6 +217,8 @@ export default function TranscriptAudioPlayer({
   playbackRate,
   onPlaybackRateChange,
   initialSeekMs,
+  routeState,
+  readOnlyPeople,
   chapters = [],
 }: TranscriptAudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -224,6 +229,7 @@ export default function TranscriptAudioPlayer({
   const playerRef = useRef<HTMLDivElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const segmentRefs = useRef(new Map<number, HTMLElement>());
+  const locatedReference = useRef("");
   const followEnabledRef = useRef(true);
   const programmaticScrollRef = useRef(false);
   const programmaticScrollFrame = useRef<number | null>(null);
@@ -494,6 +500,7 @@ export default function TranscriptAudioPlayer({
       typeof initialSeekMs === "number" && Number.isFinite(initialSeekMs)
         ? Math.max(initialSeekMs, 0) / 1000
         : 0;
+    locatedReference.current = "";
     currentTimeRef.current = initialSeconds;
     setCurrentTime(initialSeconds);
     setCurrentSegmentIndex(currentSegmentAt(segments, initialSeconds));
@@ -644,13 +651,29 @@ export default function TranscriptAudioPlayer({
               ? "自动跟随已暂停"
               : "";
 
- const people = useTranscriptPeople(episodeId, artifactSetId, segments, order => {
-  const segment = segments.find(s => s.order === order);
-  if (segment) { segmentRefs.current.get(order)?.scrollIntoView({block:"center"}); seekTo(segment.start_ms / 1000); }
- });
+  const requestedSegment = routeState?.fragment ? segments.find((segment) => segment.order === routeState.fragment) : undefined;
+  const missingFragment = Boolean(routeState?.fragment && !requestedSegment);
+  const invalidTime = Boolean(routeState?.timeInvalid || (routeState?.time !== null && routeState?.time !== undefined && (duration <= 0 || routeState.time > duration)));
+  const seekKey = `${artifactSetId}:${routeState?.fragment ?? ""}:${routeState?.time ?? ""}`;
+  useEffect(() => {
+    if (!routeState || missingFragment || invalidTime || locatedReference.current === seekKey) return;
+    locatedReference.current = seekKey;
+    if (requestedSegment) {
+      seekTo(requestedSegment.start_ms / 1000);
+      segmentRefs.current.get(requestedSegment.order)?.scrollIntoView({ block: "center" });
+    } else if (routeState.time !== null) seekTo(routeState.time);
+  }, [routeState, requestedSegment, missingFragment, invalidTime, seekKey, seekTo]);
+  const locate = (order: number) => {
+    if (routeState) updateQuery({ tab: "transcript", artifact: "transcript", source: `artifact-${artifactSetId}`, fragment: String(order), t: null });
+    const segment = segments.find((s) => s.order === order);
+    if (segment) { segmentRefs.current.get(order)?.scrollIntoView({ block: "center" }); seekTo(segment.start_ms / 1000); }
+  };
+  const people = useTranscriptPeople(episodeId, artifactSetId, segments, locate, routeState, readOnlyPeople);
 
   return (
     <div className={styles.transcriptExperience}>
+      {missingFragment && <p role="alert">原引用不可定位：该版本没有请求的片段。<button onClick={() => updateQuery({ source: null, fragment: null, t: null })}>打开当前版本</button></p>}
+      {invalidTime && <p role="alert">请求的音频时刻无效或当前无法确认音频时长。</p>}
       <div
         ref={playerRef}
         className={styles.transcriptPlayer}
@@ -773,6 +796,8 @@ export default function TranscriptAudioPlayer({
             )} / ${formatPlaybackTime(duration, duration <= 0)}`}
             onChange={(event) => seekTo(Number(event.currentTarget.value))}
             onKeyDown={handleSliderKeyDown}
+            onPointerUp={() => { if (routeState) updateQuery({ source: `artifact-${artifactSetId}`, fragment: null, t: String(Math.round(currentTimeRef.current * 1000) / 1000) }); }}
+            onKeyUp={(event) => { if (routeState && ["ArrowLeft", "ArrowRight", "Home", "End", "ArrowUp", "ArrowDown"].includes(event.key)) updateQuery({ source: `artifact-${artifactSetId}`, fragment: null, t: String(Math.round(currentTimeRef.current * 1000) / 1000) }); }}
           />
         </label>
 
@@ -905,7 +930,7 @@ export default function TranscriptAudioPlayer({
                   data-speaker-tone={speakerTones.get(segment.speaker)} aria-current={isCurrent ? "true" : undefined}>
                   <span className={styles.transcriptSegmentHeader}>
                     {people.speakerLabel(segment)}
-                    <time dateTime={`PT${segment.start_ms / 1000}S`}>{timestamp}</time>
+                    {routeState && episodeId ? <a href={episodeHref(episodeId, {tab:"transcript", artifact:"transcript", source:`artifact-${artifactSetId}`, fragment:String(segment.order)})} aria-label={`定位片段 ${segment.order}`} onClick={(event) => { if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); locate(segment.order); } }}><time dateTime={`PT${segment.start_ms / 1000}S`}>{timestamp}</time></a> : <time dateTime={`PT${segment.start_ms / 1000}S`}>{timestamp}</time>}
                     {isCurrent && <span className={styles.transcriptCurrentMarker}>{isPlaying ? "正在播放" : "当前段落"}</span>}
                   </span>
                   {mediaAvailable ? <button type="button" className={styles.transcriptTextButton}
@@ -913,7 +938,7 @@ export default function TranscriptAudioPlayer({
                     data-fragment-order={segment.order}
                     aria-label={`${timestamp} ${people.nameFor(segment)}：${segment.text}`}
                     aria-current={isCurrent ? "true" : undefined}
-                    onClick={() => seekTo(segment.start_ms / 1000)}>
+                    onClick={() => locate(segment.order)}>
                     <span className={styles.transcriptSegmentText}>{segment.text}</span>
                   </button> : <span className={styles.transcriptSegmentText}>{segment.text}</span>}
                 </article>

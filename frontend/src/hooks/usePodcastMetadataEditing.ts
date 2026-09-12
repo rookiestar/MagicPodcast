@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useUnsavedNavigation } from "@/lib/navigation";
 import { podcastApi } from "@/lib/api";
 import { getErrorMessage } from "@/lib/errorMessage";
 import {
@@ -41,11 +42,13 @@ export function usePodcastMetadataEditing({
   const runTagsUpdate = useExclusiveAsyncAction({ isBlocked: false });
   const runNotesSave = useExclusiveAsyncAction({ isBlocked: false });
 
+  useUnsavedNavigation(isEditingNotes && notes !== swrNotes, (href) => new URL(href, "http://navigation.local").pathname === `/podcasts/${podcastId}`);
+
   useEffect(() => {
-    if (shouldSyncPodcastNotes(swrNotes)) {
+    if (!isEditingNotes && shouldSyncPodcastNotes(swrNotes)) {
       setNotes(swrNotes);
     }
-  }, [swrNotes]);
+  }, [swrNotes, isEditingNotes]);
 
   const handleTagsChange = async (newTags: Tag[]) => {
     await runTagsUpdate(async () => {

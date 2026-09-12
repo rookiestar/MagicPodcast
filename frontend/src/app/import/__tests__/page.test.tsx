@@ -7,9 +7,10 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import ImportPage from "../page";
+import ImportPage from "../ImportPageClient";
 import { syncApi } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { navigate } from "@/lib/navigation";
 
 vi.mock("@/components/layout/PageLayout", () => ({
   default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -71,6 +72,7 @@ function deferred<T = void>() {
 describe("ImportPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState({}, "", "/import");
     Object.defineProperty(window, "confirm", {
       configurable: true,
       writable: true,
@@ -85,6 +87,25 @@ describe("ImportPage", () => {
     });
     installLocalStorageMock();
     localStorage.clear();
+  });
+
+  it("restores URL tabs without starting import or sync", async () => {
+    window.history.replaceState({}, "", "/import?tab=sync");
+    render(<ImportPage />);
+    expect(screen.getByRole("tab", { name: "同步元数据" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("tab", { name: "导入 OPML" }));
+    expect(window.location.search).toBe("?tab=import");
+    act(() => { navigate("/import?tab=sync"); });
+    expect(screen.getByRole("tab", { name: "同步元数据" })).toHaveAttribute("aria-selected", "true");
+    expect(importOPMLSSE).not.toHaveBeenCalled();
+    expect(syncPodcastsMetadataSSE).not.toHaveBeenCalled();
+  });
+
+  it("normalizes repeated tabs without dropping unrelated parameters", async () => {
+    window.history.replaceState({}, "", "/import?tab=sync&tab=import&keep=1");
+    render(<ImportPage />);
+    await waitFor(() => expect(window.location.search).toBe("?keep=1"));
+    expect(screen.getByRole("tab", { name: "导入 OPML" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("restores saved logs and derives stats from them", async () => {
@@ -126,7 +147,8 @@ describe("ImportPage", () => {
     });
   });
 
-  it("restores the saved log operation so the title matches the log content", async () => {
+  it("restores log labels without overriding the URL-selected operation", async () => {
+    window.history.replaceState({}, "", "/import?tab=import");
     localStorage.setItem("syncLogMode", "sync");
     localStorage.setItem(
       "syncLogs",
@@ -147,7 +169,7 @@ describe("ImportPage", () => {
         screen.getByRole("heading", { name: "同步日志" }),
       ).toBeInTheDocument();
     });
-    expect(screen.getByRole("tab", { name: "同步元数据" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "导入 OPML" })).toHaveAttribute(
       "aria-selected",
       "true",
     );

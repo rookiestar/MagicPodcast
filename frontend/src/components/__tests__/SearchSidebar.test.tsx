@@ -74,6 +74,20 @@ function mockSearchSidebarState(overrides = {}) {
 describe("SearchSidebar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState({}, "", "/search");
+  });
+
+  it("restores a direct query and commits only on submit", () => {
+    window.history.replaceState({}, "", "/search?q=cast&type=episodes");
+    const setQuery = vi.fn();
+    mockSearchSidebarState({ setQuery });
+    render(<SearchSidebar isOpen standalone onClose={vi.fn()} />);
+    expect(screen.getByRole("main", { name: "全站搜索" })).toBeInTheDocument();
+    expect(setQuery).toHaveBeenCalledWith("cast");
+    fireEvent.change(screen.getByRole("textbox", { name: "搜索节目和单集" }), { target: { value: "draft" } });
+    expect(new URLSearchParams(window.location.search).get("q")).toBe("cast");
+    expect(setQuery).toHaveBeenCalledWith("draft");
+    expect(screen.getByRole("button", { name: "单集 (11)" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("keeps podcast and episode expansion independent", () => {
@@ -133,7 +147,22 @@ describe("SearchSidebar", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "节目 (11)" }));
 
-    expect(setSearchType).toHaveBeenCalledWith("podcasts");
+    expect(window.location.search).toBe("?type=podcasts");
+    expect(screen.getByRole("button", { name: "节目 (11)" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("replaces query refinements while the search overlay is open", () => {
+    const pushState = vi.spyOn(window.history, "pushState");
+    mockSearchSidebarState();
+    window.history.replaceState({}, "", "/discovery");
+    window.history.pushState({}, "", "/search");
+    pushState.mockClear();
+
+    render(<SearchSidebar isOpen onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "节目 (11)" }));
+
+    expect(window.location.search).toBe("?type=podcasts");
+    expect(pushState).not.toHaveBeenCalled();
   });
 
   it("renders podcast results as one readable list", () => {

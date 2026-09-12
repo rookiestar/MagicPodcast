@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { IconAlertTriangle, IconDownload, IconRefresh, IconX } from '@tabler/icons-react'
 import { api } from '@/lib/api/client'
 import { workflowApi } from '@/lib/api'
@@ -36,31 +36,49 @@ interface Report {
 }
 
 export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: ReportModalProps) {
+  const requestSequence = useRef(0)
+  const closeRef = useRef<HTMLButtonElement>(null)
   const [report, setReport] = useState<Report | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)
 
   const fetchReport = useCallback(async () => {
+    const sequence=++requestSequence.current
     try {
       setLoading(true)
       setError(null)
       const response = await api.get<{ success: boolean; data: Report }>(`/api/v1/jobs/${jobId}/report`)
-      setReport(response.data.data)
+      if(requestSequence.current===sequence) setReport(response.data.data)
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+      if(requestSequence.current!==sequence) return
+      const status=(err as {response?:{status?:number}})?.response?.status
+      const errorMsg = status===404 ? "该执行的报告不存在。" : "报告读取失败，请重试。"
       setError(errorMsg)
       console.error('Failed to fetch report:', err)
     } finally {
-      setLoading(false)
+      if(requestSequence.current===sequence) setLoading(false)
     }
   }, [jobId])
 
   useEffect(() => {
-    if (isOpen && jobId) {
-      fetchReport()
-    }
+    if (isOpen && jobId) { setReport(null); void fetchReport() }
+    const sequence=requestSequence
+    return ()=>{sequence.current++}
   }, [fetchReport, isOpen, jobId])
+  useEffect(()=>{
+    if(!isOpen)return
+    const previous=document.activeElement instanceof HTMLElement ? document.activeElement : null
+    closeRef.current?.focus()
+    return ()=>previous?.focus()
+  },[isOpen])
+
+  // Retrying removes its focused button; restore keyboard access after loading.
+  useEffect(() => {
+    if (isOpen && !loading && document.activeElement === document.body) {
+      closeRef.current?.focus()
+    }
+  }, [isOpen, loading])
 
   const regenerateLLMSummary = async () => {
     if (!report || regenerating) return
@@ -89,10 +107,19 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
   if (!isOpen) return null
 
   return (
-    <div className="report-modal wf-editorial fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/50">
+    <div className="report-modal wf-editorial fixed inset-0 z-[60] flex items-center justify-center p-0 sm:p-4 bg-black/50">
       <div
         className="bg-white dark:bg-slate-800 rounded-none sm:rounded-lg shadow-xl w-full sm:max-w-4xl self-stretch sm:self-auto max-h-[calc(100dvh-1rem)] sm:max-h-[90vh] overflow-hidden flex flex-col m-0 sm:m-2"
         role="dialog"
+        onKeyDown={(event)=>{
+          if(event.key==="Escape"){event.preventDefault();event.stopPropagation();onClose()}
+          if(event.key==="Tab"){
+            const controls=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]),a[href]')).filter(e=>e.getClientRects().length)
+            const first=controls[0],last=controls.at(-1)
+            if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus()}
+            else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus()}
+          }
+        }}
         aria-modal="true"
         aria-labelledby="report-modal-title"
       >
@@ -115,7 +142,7 @@ export default function ReportModal({ isOpen, onClose, jobId, jobStatus }: Repor
             )}
           </div>
           <button
-            onClick={onClose}
+            ref={closeRef} onClick={onClose}
             className="editorial-modal-close"
             aria-label="关闭"
           >

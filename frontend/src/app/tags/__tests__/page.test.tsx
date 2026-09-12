@@ -1,7 +1,8 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Tag } from "@/types";
 
+const getTagMock = vi.hoisted(() => vi.fn());
 const mockTagState = vi.hoisted(() => ({ tags: [] as Tag[] }));
 
 // PageLayout passthrough: applies rootClassName / className / toolbar.className
@@ -35,7 +36,7 @@ vi.mock("@/hooks/usePodcastSWR", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
-  tagApi: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
+  tagApi: { get: getTagMock, create: vi.fn(), update: vi.fn(), delete: vi.fn() },
   podcastApi: { addTag: vi.fn(), removeTag: vi.fn() },
 }));
 
@@ -57,6 +58,8 @@ import TagsPage from "../page";
 
 beforeEach(() => {
   mockTagState.tags = [];
+  getTagMock.mockReset();
+  window.history.replaceState({}, "", "/tags");
 });
 
 async function settleAsyncEffects() {
@@ -66,6 +69,16 @@ async function settleAsyncEffects() {
 }
 
 describe("tags page editorial chrome (#53)", () => {
+  it("restores an edit target outside the currently loaded tag list", async () => {
+    window.history.replaceState({}, "", "/tags?dialog=edit&tag=3001&sort_by=alphabetical");
+    getTagMock.mockResolvedValue({ id: 3001, name: "地址中的标签", color: "#2563eb" });
+    render(<TagsPage />);
+    expect(await screen.findByDisplayValue("地址中的标签")).toBeInTheDocument();
+    expect(getTagMock).toHaveBeenCalledWith(3001);
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(window.location.search).toBe("?sort_by=alphabetical");
+  });
+
   it("adopts the editorial shell, toolbar and section classes", async () => {
     const { container } = render(<TagsPage />);
     await settleAsyncEffects();

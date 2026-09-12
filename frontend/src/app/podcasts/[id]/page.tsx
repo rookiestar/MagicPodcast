@@ -1,5 +1,6 @@
 "use client";
 
+import { positiveID, singleParam } from "@/lib/navigation";
 import { useParams, useSearchParams } from "next/navigation";
 import {
   buildPodcastListBackUrl,
@@ -33,7 +34,7 @@ export default function PodcastDetailPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const podcastId = parsePodcastDetailId(params.id);
-  const targetEpisodeId = searchParams.get("episode_id");
+  const targetEpisodeId = singleParam(searchParams, "episode_id");
   const sortBy = searchParams.get("sort_by") || "";
   const tagIds = searchParams.get("tag_ids") || searchParams.getAll("tag_id");
   const backUrl = buildPodcastListBackUrl({ sortBy, tagIds });
@@ -79,7 +80,7 @@ export default function PodcastDetailPage() {
     mutateNotes,
   });
 
-  const error = getPodcastDetailErrorMessage(podcastError);
+  const error = !podcastId ? "节目地址无效。" : getPodcastDetailErrorMessage(podcastError);
   const canAutoLoadMoreEpisodes = canAutoLoadMorePodcastEpisodes({
     episodeCount: episodes.length,
     episodesLoading,
@@ -118,6 +119,7 @@ export default function PodcastDetailPage() {
       }}
     >
       <div className="podcast-detail-content py-6">
+        {searchParams.has("episode_id") && !positiveID(targetEpisodeId) && <p role="alert">单集卡片地址无效，无法定位。</p>}
         <PodcastDetailContent
           error={error}
           podcast={podcast}

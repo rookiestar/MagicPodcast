@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { IconX } from "@tabler/icons-react";
 import { useTagFormModal } from "@/hooks/useTagFormModal";
 import {
@@ -37,21 +38,37 @@ export default function TagFormModal({
     handleKeyboardSubmit,
   } = useTagFormModal({ isOpen, initialData, onClose, onSubmit });
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.querySelector<HTMLInputElement>("input")?.focus();
+    return () => previous?.focus();
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const title = getTagFormTitle(mode);
   const buttonText = getTagFormSubmitLabel(mode, loading);
 
   return (
-    <div className="editorial-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="editorial-modal-backdrop fixed inset-0 z-[60] flex items-center justify-center p-4">
       <div
         className="editorial-modal shadow-2xl w-full max-w-lg overflow-hidden flex flex-col"
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="tag-form-modal-title"
-        onKeyDown={(event) =>
-          handleKeyboardSubmit(event.key, event.metaKey)
-        }
+        onKeyDown={(event) => {
+          if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); return; }
+          if (event.key === "Tab") {
+            const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), [tabindex="0"]')).filter((element) => element.getClientRects().length);
+            const first = controls[0], last = controls.at(-1);
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+          }
+          handleKeyboardSubmit(event.key, event.metaKey);
+        }}
       >
         {/* Header */}
         <div className="editorial-modal-header">
