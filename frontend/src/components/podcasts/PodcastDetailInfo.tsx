@@ -7,6 +7,7 @@ import {
   shouldShowPodcastPopularityBadge,
   shouldShowPodcastWebsiteLink,
 } from "@/lib/podcastDetailDisplay";
+import { getPodcastCardEpisodeCountText } from "@/lib/podcastCardDisplay";
 import type { Podcast, Tag } from "@/types";
 import { PodcastDescription } from "./PodcastDescription";
 import PodcastCover from "./PodcastCover";
@@ -144,6 +145,7 @@ export function MobilePodcastDetailInfo({
               podcast.author,
               podcast.episode_count,
               podcast.newest_episode_date,
+                getPodcastCardEpisodeCountText(podcast),
             )}
           </p>
         </div>
@@ -213,6 +215,7 @@ export function DesktopPodcastDetailInfo({
                 podcast.author,
                 podcast.episode_count,
                 podcast.newest_episode_date,
+                getPodcastCardEpisodeCountText(podcast),
               )}
             </p>
           </div>

@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 30
+const CurrentSchemaVersion = 32
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -289,6 +289,39 @@ func migrationRegistry() []Migration {
 				{Operation: SchemaChangeCreateIndex, Table: "person_drafts", Object: "idx_person_drafts_episode"},
 			}},
 		},
+		{
+			Version:     31,
+			Name:        "episode-collections",
+			Description: "Persist imported external episode collections and ordered item snapshots, separate from the personal library (#376).",
+			Apply:       applyEpisodeCollectionsMigration,
+			Contract: MigrationContract{SchemaChanges: []SchemaChangeRule{
+				{Operation: SchemaChangeCreateTable, Table: models.EpisodeCollection{}.TableName()},
+				{Operation: SchemaChangeCreateIndex, Table: models.EpisodeCollection{}.TableName(), Object: "idx_episode_collections_source_external"},
+				{Operation: SchemaChangeCreateIndex, Table: models.EpisodeCollection{}.TableName(), Object: "idx_episode_collections_deleted_at"},
+				{Operation: SchemaChangeCreateTable, Table: models.EpisodeCollectionItem{}.TableName()},
+				{Operation: SchemaChangeCreateIndex, Table: models.EpisodeCollectionItem{}.TableName(), Object: "idx_episode_collection_items_collection_eid"},
+				{Operation: SchemaChangeCreateIndex, Table: models.EpisodeCollectionItem{}.TableName(), Object: "idx_episode_collection_items_episode"},
+				{Operation: SchemaChangeCreateIndex, Table: models.EpisodeCollectionItem{}.TableName(), Object: "idx_episode_collection_items_external_podcast_id"},
+				{Operation: SchemaChangeCreateIndex, Table: models.EpisodeCollectionItem{}.TableName(), Object: "idx_episode_collection_items_deleted_at"},
+			}},
+		},
+		{
+			Version:     32,
+			Name:        "episode-collection-adoption-identity",
+			Description: "Persist atomic episode adoption facts: external identity mapping, adoption source summaries, and the collection-only workflow flag (#377).",
+			Apply:       applyEpisodeCollectionAdoptionIdentityMigration,
+			Contract: MigrationContract{SchemaChanges: []SchemaChangeRule{
+				{Operation: SchemaChangeAddColumn, Table: "episodes", Object: "collection_only"},
+				{Operation: SchemaChangeAddColumn, Table: "podcasts", Object: "external_episode_count"},
+				{Operation: SchemaChangeCreateTable, Table: models.EpisodeExternalRef{}.TableName()},
+				{Operation: SchemaChangeCreateIndex, Table: models.EpisodeExternalRef{}.TableName(), Object: "idx_episode_external_refs_identity"},
+				{Operation: SchemaChangeCreateIndex, Table: models.EpisodeExternalRef{}.TableName(), Object: "idx_episode_external_refs_episode"},
+				{Operation: SchemaChangeCreateIndex, Table: models.EpisodeExternalRef{}.TableName(), Object: "idx_episode_external_refs_deleted_at"},
+				{Operation: SchemaChangeCreateTable, Table: models.EpisodeCollectionAdoption{}.TableName()},
+				{Operation: SchemaChangeCreateIndex, Table: models.EpisodeCollectionAdoption{}.TableName(), Object: "idx_episode_collection_adoptions_episode_collection"},
+				{Operation: SchemaChangeCreateIndex, Table: models.EpisodeCollectionAdoption{}.TableName(), Object: "idx_episode_collection_adoptions_deleted_at"},
+			}},
+		},
 	}
 }
 
@@ -305,7 +338,7 @@ var baselineRequiredTables = []string{
 	"episodes_tags",
 }
 
-var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions", "episode_processing_runs", "processing_checkpoints", "episode_artifact_sets", "knowledge_deliveries", "episode_audio_assets", "processing_schedule_runs", "processing_schedule_items", models.EpisodeArtifactAudioRecovery{}.TableName(), models.Person{}.TableName(), models.PersonAlias{}.TableName(), models.EpisodeAppearance{}.TableName(), models.SpeechAttribution{}.TableName(), models.PersonUserConfirmation{}.TableName(), models.ContentSearchFragment{}.TableName(), models.ContentSearchCoverage{}.TableName(), models.PersonPreparation{}.TableName(), models.PersonAppearanceOverride{}.TableName(), models.PersonDraft{}.TableName())
+var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions", "episode_processing_runs", "processing_checkpoints", "episode_artifact_sets", "knowledge_deliveries", "episode_audio_assets", "processing_schedule_runs", "processing_schedule_items", models.EpisodeArtifactAudioRecovery{}.TableName(), models.Person{}.TableName(), models.PersonAlias{}.TableName(), models.EpisodeAppearance{}.TableName(), models.SpeechAttribution{}.TableName(), models.PersonUserConfirmation{}.TableName(), models.ContentSearchFragment{}.TableName(), models.ContentSearchCoverage{}.TableName(), models.PersonPreparation{}.TableName(), models.PersonAppearanceOverride{}.TableName(), models.PersonDraft{}.TableName(), models.EpisodeCollection{}.TableName(), models.EpisodeCollectionItem{}.TableName(), models.EpisodeExternalRef{}.TableName(), models.EpisodeCollectionAdoption{}.TableName())
 
 func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
 	if db == nil {
@@ -1089,6 +1122,14 @@ func AutoMigrate(db *gorm.DB) error {
 
 func autoMigrateModels(db *gorm.DB) error {
 	for _, model := range models.AllModels {
+		// Collection tables are versioned in migrations 31 and 32. Keeping
+		// them out of the baseline path preserves the explicit DDL, including
+		// the foreign-key actions that GORM cannot infer from scalar IDs.
+		switch model.(type) {
+		case models.EpisodeCollection, models.EpisodeCollectionItem,
+			models.EpisodeExternalRef, models.EpisodeCollectionAdoption:
+			continue
+		}
 		if err := db.AutoMigrate(model); err != nil {
 			return fmt.Errorf("failed to create %T: %w", model, err)
 		}
@@ -1172,6 +1213,63 @@ func applyPersonPreparationMigration(db *gorm.DB) error {
 	for _, statement := range []string{models.PersonPreparationsCreateSQL, models.PersonAppearanceOverridesCreateSQL, "DROP TRIGGER invalidate_persona_on_show_notes", models.PersonPreparationEpisodeInvalidationSQL, models.PersonPreparationPodcastInvalidationSQL} {
 		if err := db.Exec(statement).Error; err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func applyEpisodeCollectionsMigration(db *gorm.DB) error {
+	statements := []string{
+		models.EpisodeCollectionsCreateSQL,
+		models.EpisodeCollectionsSourceExternalUniqueIndexSQL,
+		models.EpisodeCollectionsDeletedAtIndexSQL,
+		models.EpisodeCollectionItemsCreateSQL,
+		models.EpisodeCollectionItemsCollectionEidUniqueIndexSQL,
+		models.EpisodeCollectionItemsEpisodeIndexSQL,
+		models.EpisodeCollectionItemsPodcastIndexSQL,
+		models.EpisodeCollectionItemsDeletedAtIndexSQL,
+	}
+	for _, statement := range statements {
+		if err := db.Exec(statement).Error; err != nil {
+			return fmt.Errorf("apply episode collection schema: %w", err)
+		}
+	}
+	return nil
+}
+
+func applyEpisodeCollectionAdoptionIdentityMigration(db *gorm.DB) error {
+	columns := []struct {
+		table string
+		name  string
+		ddl   string
+	}{
+		{"episodes", "collection_only", "NUMERIC NOT NULL DEFAULT false"},
+		{"podcasts", "external_episode_count", "NUMERIC NOT NULL DEFAULT 0"},
+	}
+	for _, column := range columns {
+		if !db.Migrator().HasTable(column.table) {
+			continue
+		}
+		if db.Migrator().HasColumn(column.table, column.name) {
+			continue
+		}
+		if err := db.Exec("ALTER TABLE " + column.table + " ADD COLUMN " + column.name + " " + column.ddl).Error; err != nil {
+			return fmt.Errorf("add %s.%s: %w", column.table, column.name, err)
+		}
+	}
+
+	statements := []string{
+		models.EpisodeExternalRefsCreateSQL,
+		models.EpisodeExternalRefsUniqueIndexSQL,
+		models.EpisodeExternalRefsEpisodeIndexSQL,
+		models.EpisodeExternalRefsDeletedAtIndexSQL,
+		models.EpisodeCollectionAdoptionsCreateSQL,
+		models.EpisodeCollectionAdoptionsUniqueIndexSQL,
+		models.EpisodeCollectionAdoptionsDeletedAtIndexSQL,
+	}
+	for _, statement := range statements {
+		if err := db.Exec(statement).Error; err != nil {
+			return fmt.Errorf("apply episode adoption identity schema: %w", err)
 		}
 	}
 	return nil

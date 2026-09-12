@@ -1110,7 +1110,8 @@ export default function WorkflowFormModal({
                         指定节目
                       </div>
                       <div className="text-sm text-slate-600 dark:text-slate-400 mb-2">
-                        从订阅中选择特定节目
+                        从订阅中选择特定节目；工作流将按整档范围同步所选节目的全部单集，
+                        清单收录但未关注的节目需先关注才会出现在这里。
                       </div>
                       {scopeType === "specific_podcasts" && (
                         <div className="space-y-3">

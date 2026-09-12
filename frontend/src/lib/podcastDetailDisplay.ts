@@ -28,6 +28,7 @@ export function formatPodcastDetailMetaLine(
   author?: string | null,
   episodeCount?: number | null,
   newestEpisodeDate?: string | null,
+  episodeCountLabel?: string,
 ) {
   const parts: string[] = [];
   const host = author?.trim();
@@ -36,7 +37,7 @@ export function formatPodcastDetailMetaLine(
     parts.push(host);
   }
 
-  parts.push(`${episodeCount || 0} 集`);
+  parts.push(episodeCountLabel ?? `${episodeCount || 0} 集`);
   parts.push(`更新于 ${formatPodcastNewestEpisodeDate(newestEpisodeDate)}`);
   return parts.join(" · ");
 }

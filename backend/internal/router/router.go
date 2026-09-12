@@ -4,6 +4,7 @@ import (
 	"os"
 	"time"
 
+	"magicpodcast/internal/collection"
 	"magicpodcast/internal/config"
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/episodecopilot"
@@ -180,6 +181,24 @@ func SetupRouter(options ...Option) *gin.Engine {
 		v1.GET("/discovery/candidates/:episodeID", discoveryHandler.GetCandidate)
 		v1.GET("/discovery/reports", discoveryHandler.ListHomepageReports)
 		v1.GET("/discovery/reports/:id", discoveryHandler.GetHomepageReport)
+
+		// 播客清单：外部发现资料的导入、浏览与按集收录。
+		// 第 2、3 票联合验收已于 2026-09-13 通过（采纳→RSS 同 ID 回读、
+		// 最近更新/日报隔离证据齐全），收录入口自此开放。
+		collectionAdoptionGateOpen := true
+		collectionHandler := handlers.NewCollectionHandlerWithAdoption(
+			collection.NewService(discoveryDB),
+			services.NewCollectionAdoptionService(discoveryDB),
+			collectionAdoptionGateOpen,
+		)
+		v1.GET("/collections", collectionHandler.List)
+		v1.POST("/collections/preview", middleware.RequestBodyLimit(middleware.DefaultUploadRequestLimitBytes), collectionHandler.Preview)
+		v1.POST("/collections", collectionHandler.ConfirmImport)
+		v1.GET("/collections/:id", collectionHandler.Get)
+		v1.POST("/collections/:id/refresh-preview", collectionHandler.RefreshPreview)
+		v1.POST("/collections/:id/apply-refresh", collectionHandler.ApplyRefresh)
+		v1.DELETE("/collections/:id", collectionHandler.Delete)
+		v1.POST("/collections/:id/items/:itemID/adopt", collectionHandler.AdoptItem)
 		v1.GET("/consumption/summary", discoveryHandler.GetQueueSummary)
 		v1.GET("/consumption/queues/:queue", discoveryHandler.ListQueue)
 		v1.GET("/consumption/completions", discoveryHandler.ListCompletionHistory)

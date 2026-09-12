@@ -980,6 +980,20 @@ export default function ConsumptionDetailPanel({
           <div>
             <span className={styles.detailKicker}>FOCUS DETAIL</span>
             <p>{item.podcast_title}</p>
+            {item.collection_sources?.[0] && (
+              <p className={styles.detailCollectionSource}>
+                来自清单{" "}
+                {item.collection_sources[0].collection_id ? <a href={`/collections/${item.collection_sources[0].collection_id}`}>《{item.collection_sources[0].collection_title}》</a> : <span>《{item.collection_sources[0].collection_title}》（本地清单已删除）</span>}
+                {" "}
+                <a
+                  href={item.collection_sources[0].collection_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  打开源站
+                </a>
+              </p>
+            )}
           </div>
           <div className={styles.detailHeaderActions}>
             <button

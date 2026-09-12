@@ -17,8 +17,17 @@ const SanitizerVersion = "v12"
 
 // Persona tables contain manual identity corrections and copies of transcripts.
 // Database-only snapshots remove them together with the processing artifact graph.
-const sanitizerSchemaFingerprint = "3971b92281917d9d7d882a4310e4ee2568ac05e3199997935a5243655fcbcfa7"
-const sanitizerSchemaObjectsFingerprint = "ec74d0a64b308c193e12a16db42c5927a3330413c96e1a884ccb1bf373ec4c20"
+// Schema 31 (#376) added episode_collections / episode_collection_items: the
+// reviewed classification is public source-derived discovery metadata (titles,
+// recommendations, Show Notes, source URLs) with a nullable numeric episode_id
+// FK; no credentials or user identity. URL-bearing text columns are registered
+// in richTextColumns so snapshots keep the same URL normalization as episodes.
+// Schema 32 (#377) added episode_external_refs / episode_collection_adoptions
+// (public identity keys and adoption provenance only), episodes.collection_only
+// and podcasts.external_episode_count (plain flags/counters), and public audio
+// snapshot columns on episode_collection_items — reviewed in the same class.
+const sanitizerSchemaFingerprint = "39524adc2b9ae1fc8c9cee88a562b829b3b885f4f13aaecbbc43e180c1a075aa"
+const sanitizerSchemaObjectsFingerprint = "916b212c1d28b9105dfc83b4c334b9257e39e8d33e40ab007becee45a4c86575"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 
@@ -226,6 +235,16 @@ var richTextColumns = []richTextColumn{
 	{table: "reports", column: "summary"},
 	{table: "reports", column: "llm_summary"},
 	{table: "reports", column: "structured_episodes"},
+	// 清单快照列：公开来源的富文本与链接，按既有 URL 规范化处理。
+	{table: "episode_collections", column: "description"},
+	{table: "episode_collections", column: "source_url"},
+	{table: "episode_collection_items", column: "recommendation"},
+	{table: "episode_collection_items", column: "shownotes"},
+	{table: "episode_collection_items", column: "episode_url"},
+	{table: "episode_collection_items", column: "audio_url"},
+	{table: "episode_collection_adoptions", column: "collection_url"},
+	{table: "episode_collection_items", column: "image_url"},
+	{table: "episode_collection_items", column: "podcast_cover_url"},
 }
 
 func sanitizeEpisodeGUIDs(transaction *sql.Tx) error {

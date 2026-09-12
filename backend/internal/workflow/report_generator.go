@@ -339,6 +339,8 @@ func (rg *ReportGenerator) collectMatchedEpisodes(job *models.Job, timeRangeStar
 	// 批量查询所有相关的 episodes（优化 N+1 查询）
 	var allEpisodes []models.Episode
 	query := rg.db.Where("podcast_id IN ?", podcastIDs)
+	// 清单独有、尚未被普通同步实际识别的单集不进入日报候选（#378）。
+	query = query.Where("episodes.collection_only = ?", false)
 	query = query.Where(`
 		COALESCE(updated_date, published_date) >= ? AND
 		COALESCE(updated_date, published_date) <= ?

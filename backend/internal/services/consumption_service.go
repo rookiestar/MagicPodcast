@@ -43,29 +43,39 @@ type QueueSummary struct {
 }
 
 type ConsumptionItem struct {
-	EpisodeID       uint            `json:"episode_id"`
-	PodcastID       uint            `json:"podcast_id"`
-	PodcastTitle    string          `json:"podcast_title"`
-	PodcastAuthor   string          `json:"podcast_author"`
-	PodcastCoverURL string          `json:"podcast_cover_url"`
-	EpisodeTitle    string          `json:"episode_title"`
-	EpisodeNo       string          `json:"episode_no"`
-	Duration        int             `json:"duration"`
-	PublishedDate   time.Time       `json:"published_date"`
-	ShowNotes       string          `json:"show_notes"`
-	OriginalURL     string          `json:"original_url"`
-	ImageURL        string          `json:"image_url"`
-	Notes           string          `json:"notes"`
-	Tags            []models.Tag    `json:"tags"`
-	QueueState      *string         `json:"queue_state"`
-	DismissedAt     *time.Time      `json:"dismissed_at,omitempty"`
-	QueueUpdatedAt  *time.Time      `json:"queue_updated_at,omitempty"`
-	CompletedAt     *time.Time      `json:"completed_at,omitempty"`
-	InProgressAt    *time.Time      `json:"in_progress_at,omitempty"`
-	ReadAt          *time.Time      `json:"read_at,omitempty"`
-	ActivityAt      *time.Time      `json:"activity_at,omitempty"`
-	Attention       string          `json:"attention,omitempty"`
-	CompletionUndo  *CompletionUndo `json:"completion_undo,omitempty"`
+	EpisodeID         uint                          `json:"episode_id"`
+	PodcastID         uint                          `json:"podcast_id"`
+	PodcastTitle      string                        `json:"podcast_title"`
+	PodcastAuthor     string                        `json:"podcast_author"`
+	PodcastCoverURL   string                        `json:"podcast_cover_url"`
+	EpisodeTitle      string                        `json:"episode_title"`
+	EpisodeNo         string                        `json:"episode_no"`
+	Duration          int                           `json:"duration"`
+	PublishedDate     time.Time                     `json:"published_date"`
+	ShowNotes         string                        `json:"show_notes"`
+	OriginalURL       string                        `json:"original_url"`
+	ImageURL          string                        `json:"image_url"`
+	Notes             string                        `json:"notes"`
+	Tags              []models.Tag                  `json:"tags"`
+	QueueState        *string                       `json:"queue_state"`
+	DismissedAt       *time.Time                    `json:"dismissed_at,omitempty"`
+	QueueUpdatedAt    *time.Time                    `json:"queue_updated_at,omitempty"`
+	CompletedAt       *time.Time                    `json:"completed_at,omitempty"`
+	InProgressAt      *time.Time                    `json:"in_progress_at,omitempty"`
+	ReadAt            *time.Time                    `json:"read_at,omitempty"`
+	ActivityAt        *time.Time                    `json:"activity_at,omitempty"`
+	Attention         string                        `json:"attention,omitempty"`
+	CompletionUndo    *CompletionUndo               `json:"completion_undo,omitempty"`
+	CollectionSources []ConsumptionCollectionSource `json:"collection_sources,omitempty"`
+}
+
+// ConsumptionCollectionSource 单集被采纳时保留的精简清单来源摘要。
+type ConsumptionCollectionSource struct {
+	CollectionID    *uint     `json:"collection_id,omitempty"`
+	SourcePlatform  string    `json:"source_platform"`
+	CollectionTitle string    `json:"collection_title"`
+	CollectionURL   string    `json:"collection_url"`
+	AdoptedAt       time.Time `json:"adopted_at"`
 }
 
 type ConsumptionService struct {
@@ -232,7 +242,43 @@ func (s *ConsumptionService) GetItem(episodeID uint) (*ConsumptionItem, error) {
 		return nil, err
 	}
 	item := buildConsumptionItem(state, completedAt, s.now().UTC())
+	sources, err := s.collectionSources(episodeID)
+	if err != nil {
+		return nil, err
+	}
+	item.CollectionSources = sources
 	return &item, nil
+}
+
+// collectionSources 读取精简采纳来源摘要；删除清单后仍保留可解释来源。
+func (s *ConsumptionService) collectionSources(episodeID uint) ([]ConsumptionCollectionSource, error) {
+	var rows []models.EpisodeCollectionAdoption
+	if err := s.db.Where("episode_id = ?", episodeID).
+		Order("adopted_at ASC, id ASC").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	sources := make([]ConsumptionCollectionSource, 0, len(rows))
+	for _, row := range rows {
+		var col models.EpisodeCollection
+		var id *uint
+		err := s.db.Select("id").Where("source_platform = ? AND external_id = ?", row.SourcePlatform, row.CollectionExternalID).First(&col).Error
+		if err == nil {
+			id = &col.ID
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+		sources = append(sources, ConsumptionCollectionSource{CollectionID: id,
+			SourcePlatform:  row.SourcePlatform,
+			CollectionTitle: row.CollectionTitle,
+			CollectionURL:   row.CollectionURL,
+			AdoptedAt:       row.AdoptedAt,
+		})
+	}
+	return sources, nil
 }
 
 func (s *ConsumptionService) ensureState(

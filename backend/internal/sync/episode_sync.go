@@ -209,6 +209,34 @@ func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(ctx context.Context, 
 				}
 			}
 		}
+		matchedByExternalRef := false
+		if !exists {
+			// 清单先收录、后续 RSS 提供同一集：创建前复用外部身份映射，
+			// 保证笔记、队列和加工产物仍属于同一本地单集（#378）。
+			refExisting, refErr := s.findExistingEpisodeByExternalRef(podcast, item)
+			if errors.Is(refErr, errExternalRefPodcastMismatch) {
+				// 映射归属其他节目：保持既有跨节目拒绝行为，不误合并。
+				logger.Infof("   ❌ 跳过episode: %s - 外部身份映射归属其他播客", item.Title)
+				result.Errors++
+				if firstWriteErr == nil {
+					firstWriteErr = fmt.Errorf("外部身份 %q 已属于播客 %d", item.Link, refExisting.PodcastID)
+				}
+				continue
+			}
+			if refErr != nil {
+				logger.Infof("   ❌ 查询外部身份映射失败: %s - %v", item.Title, refErr)
+				result.Errors++
+				if firstWriteErr == nil {
+					firstWriteErr = fmt.Errorf("查询外部身份映射失败: %w", refErr)
+				}
+				continue
+			}
+			if refExisting != nil {
+				existing = *refExisting
+				exists = true
+				matchedByExternalRef = true
+			}
+		}
 
 		if exists && existing.PodcastID != podcast.ID {
 			logger.Infof("   ❌ 跳过episode: %s - GUID已属于其他播客", item.Title)
@@ -225,6 +253,18 @@ func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(ctx context.Context, 
 			logger.Infof("   ⏭️ 跳过已软删除episode: %s", item.Title)
 			result.Skipped++
 			continue
+		}
+
+		if exists && existing.CollectionOnly {
+			// 普通同步实际识别同一集后转换工作流候选资格；单纯身份核对
+			// 不转换。这里只清标识，不刷新同步时间（新增/实质更新规则不变）。
+			if err := s.db.Model(&models.Episode{}).Where("id = ?", existing.ID).
+				Update("collection_only", false).Error; err != nil {
+				logger.Infof("   ⚠️ 转换collection_only失败: %s - %v", item.Title, err)
+			} else {
+				existing.CollectionOnly = false
+				logger.Infof("   🔁 清单收录单集经同步识别: %s", item.Title)
+			}
 		}
 
 		// 原节目链接统一由解析入口决定：标准 link 优先，Feed 缺失时保留
@@ -263,10 +303,11 @@ func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(ctx context.Context, 
 			continue
 		}
 
-		if matchedByIdentity {
+		if matchedByIdentity || matchedByExternalRef {
 			// A source-specific GUID may change when the same episode is read from
 			// another platform. Keep the first record intact, including its GUID,
-			// primary-source fields, and user-owned fields.
+			// primary-source fields, and user-owned fields. The external-ref match
+			// keeps the collection-created record and its user-owned state intact.
 			logger.Infof("   🔄 跳过跨源重复episode: %s", item.Title)
 			result.Skipped++
 			videoCandidates = enqueueVideoProbe(videoCandidates, existing, false, false)

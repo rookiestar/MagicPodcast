@@ -25,23 +25,24 @@ func NewPodcastHandler() *PodcastHandler {
 
 // PodcastResponse Podcast 响应结构
 type PodcastResponse struct {
-	ID                uint      `json:"id"`
-	XYZID             string    `json:"xyz_id"`
-	Title             string    `json:"title"`
-	Description       string    `json:"description"`
-	Author            string    `json:"author"`
-	CoverURL          string    `json:"cover_url"`
-	CustomCoverURL    string    `json:"custom_cover_url,omitempty"` // 自定义封面URL（优先使用）
-	FeedURL           string    `json:"feed_url,omitempty"`
-	EpisodeCount      int       `json:"episode_count"`
-	NewestEpisodeDate time.Time `json:"newest_episode_date"`
-	CreatedAt         time.Time `json:"created_at"`
-	AddedDate         time.Time `json:"added_date,omitempty"`
-	IsSubscribed      bool      `json:"is_subscribed"`
-	IsDead            bool      `json:"is_dead"`
-	MyRate            int       `json:"my_rate,omitempty"`
-	Notes             string    `json:"notes,omitempty"`
-	DataSource        string    `json:"data_source,omitempty"`
+	ID                   uint      `json:"id"`
+	XYZID                string    `json:"xyz_id"`
+	Title                string    `json:"title"`
+	Description          string    `json:"description"`
+	Author               string    `json:"author"`
+	CoverURL             string    `json:"cover_url"`
+	CustomCoverURL       string    `json:"custom_cover_url,omitempty"` // 自定义封面URL（优先使用）
+	FeedURL              string    `json:"feed_url,omitempty"`
+	EpisodeCount         int       `json:"episode_count"`
+	NewestEpisodeDate    time.Time `json:"newest_episode_date"`
+	CreatedAt            time.Time `json:"created_at"`
+	AddedDate            time.Time `json:"added_date,omitempty"`
+	IsSubscribed         bool      `json:"is_subscribed"`
+	ExternalEpisodeCount int       `json:"external_episode_count"`
+	IsDead               bool      `json:"is_dead"`
+	MyRate               int       `json:"my_rate,omitempty"`
+	Notes                string    `json:"notes,omitempty"`
+	DataSource           string    `json:"data_source,omitempty"`
 
 	// 🆕 PodcastIndex 新增字段（可选，使用 omitempty 保持向后兼容）
 	Link                    string     `json:"link,omitempty"`                      // 播客网站链接
@@ -57,18 +58,19 @@ type PodcastResponse struct {
 }
 
 type PodcastSummaryResponse struct {
-	ID                uint          `json:"id"`
-	Title             string        `json:"title"`
-	Description       string        `json:"description"`
-	Author            string        `json:"author"`
-	CoverURL          string        `json:"cover_url"`
-	CustomCoverURL    string        `json:"custom_cover_url,omitempty"`
-	EpisodeCount      int           `json:"episode_count"`
-	NewestEpisodeDate time.Time     `json:"newest_episode_date"`
-	AddedDate         time.Time     `json:"added_date,omitempty"`
-	IsSubscribed      bool          `json:"is_subscribed"`
-	IsDead            bool          `json:"is_dead"`
-	Tags              []TagResponse `json:"tags,omitempty"`
+	ID                   uint          `json:"id"`
+	Title                string        `json:"title"`
+	Description          string        `json:"description"`
+	Author               string        `json:"author"`
+	CoverURL             string        `json:"cover_url"`
+	CustomCoverURL       string        `json:"custom_cover_url,omitempty"`
+	EpisodeCount         int           `json:"episode_count"`
+	NewestEpisodeDate    time.Time     `json:"newest_episode_date"`
+	AddedDate            time.Time     `json:"added_date,omitempty"`
+	IsSubscribed         bool          `json:"is_subscribed"`
+	IsDead               bool          `json:"is_dead"`
+	ExternalEpisodeCount int           `json:"external_episode_count"`
+	Tags                 []TagResponse `json:"tags,omitempty"`
 }
 
 const podcastSummaryView = "summary"
@@ -87,6 +89,7 @@ var podcastSummarySelectColumns = []string{
 	"added_date",
 	"is_subscribed",
 	"is_dead",
+	"external_episode_count",
 }
 
 // List 获取播客节目列表
@@ -119,11 +122,20 @@ func (h *PodcastHandler) List(c *gin.Context) {
 	// 解析标签ID（使用辅助函数）
 	tagIDs := ParseUintSliceQueryParam(c, "tag_id")
 
+	// 关注状态筛选：all(默认)/subscribed/unsubscribed；清单收录的未关注节目可被单独查看。
+	subscriptionFilter := c.DefaultQuery("subscription", "all")
+	switch subscriptionFilter {
+	case "all", "subscribed", "unsubscribed":
+	default:
+		middleware.BadRequestResponse(c, "INVALID_SUBSCRIPTION", "subscription must be all, subscribed, or unsubscribed")
+		return
+	}
+
 	// 尝试从缓存获取（仅对无搜索关键词的请求缓存）
 	memCache := cache.GetCache()
 	cacheKey := ""
 	if searchKeyword == "" {
-		cacheKey = cache.NewKeyBuilder().PodcastList(page, pageSize, sortBy, tagIDs, "", view)
+		cacheKey = cache.NewKeyBuilder().PodcastList(page, pageSize, sortBy, tagIDs, "", view) + ":" + subscriptionFilter
 		if cached, ok := memCache.Get(cacheKey); ok {
 			cache.RecordHit()
 			cachedResp := copyGinH(cached.(gin.H))
@@ -153,6 +165,13 @@ func (h *PodcastHandler) List(c *gin.Context) {
 
 		// GROUP BY 确保结果不重复
 		query = query.Group("podcasts.id")
+	}
+
+	switch subscriptionFilter {
+	case "subscribed":
+		query = query.Where("podcasts.is_subscribed = ?", true)
+	case "unsubscribed":
+		query = query.Where("podcasts.is_subscribed = ?", false)
 	}
 
 	// 搜索功能
@@ -343,18 +362,19 @@ func (h *PodcastHandler) modelToSummaryResponse(podcast *models.Podcast) Podcast
 	}
 
 	return PodcastSummaryResponse{
-		ID:                podcast.ID,
-		Title:             podcast.Title,
-		Description:       truncatePodcastDescription(podcast.Description),
-		Author:            podcast.Author,
-		CoverURL:          podcast.CoverURL,
-		CustomCoverURL:    podcast.CustomCoverURL,
-		EpisodeCount:      podcast.EpisodeCount,
-		NewestEpisodeDate: podcast.NewestEpisodeDate,
-		AddedDate:         podcast.AddedDate,
-		IsSubscribed:      podcast.IsSubscribed,
-		IsDead:            podcast.IsDead,
-		Tags:              tags,
+		ID:                   podcast.ID,
+		Title:                podcast.Title,
+		Description:          truncatePodcastDescription(podcast.Description),
+		Author:               podcast.Author,
+		CoverURL:             podcast.CoverURL,
+		CustomCoverURL:       podcast.CustomCoverURL,
+		EpisodeCount:         podcast.EpisodeCount,
+		NewestEpisodeDate:    podcast.NewestEpisodeDate,
+		ExternalEpisodeCount: podcast.ExternalEpisodeCount,
+		AddedDate:            podcast.AddedDate,
+		IsSubscribed:         podcast.IsSubscribed,
+		IsDead:               podcast.IsDead,
+		Tags:                 tags,
 	}
 }
 
@@ -371,23 +391,24 @@ func (h *PodcastHandler) modelToResponse(podcast *models.Podcast) PodcastRespons
 	}
 
 	return PodcastResponse{
-		ID:                podcast.ID,
-		XYZID:             podcast.XYZID,
-		Title:             podcast.Title,
-		Description:       podcast.Description,
-		Author:            podcast.Author,
-		CoverURL:          podcast.CoverURL,
-		CustomCoverURL:    podcast.CustomCoverURL,
-		FeedURL:           podcast.FeedURL,
-		EpisodeCount:      podcast.EpisodeCount,
-		NewestEpisodeDate: podcast.NewestEpisodeDate,
-		CreatedAt:         podcast.CreatedAt,
-		AddedDate:         podcast.AddedDate,
-		IsSubscribed:      podcast.IsSubscribed,
-		IsDead:            podcast.IsDead,
-		MyRate:            podcast.MyRate,
-		Notes:             podcast.Notes,
-		DataSource:        podcast.DataSource,
+		ID:                   podcast.ID,
+		XYZID:                podcast.XYZID,
+		Title:                podcast.Title,
+		Description:          podcast.Description,
+		Author:               podcast.Author,
+		CoverURL:             podcast.CoverURL,
+		CustomCoverURL:       podcast.CustomCoverURL,
+		FeedURL:              podcast.FeedURL,
+		EpisodeCount:         podcast.EpisodeCount,
+		NewestEpisodeDate:    podcast.NewestEpisodeDate,
+		ExternalEpisodeCount: podcast.ExternalEpisodeCount,
+		CreatedAt:            podcast.CreatedAt,
+		AddedDate:            podcast.AddedDate,
+		IsSubscribed:         podcast.IsSubscribed,
+		IsDead:               podcast.IsDead,
+		MyRate:               podcast.MyRate,
+		Notes:                podcast.Notes,
+		DataSource:           podcast.DataSource,
 
 		// 🆕 PodcastIndex 新增字段
 		Link:                    podcast.Link,

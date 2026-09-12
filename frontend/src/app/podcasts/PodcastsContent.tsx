@@ -64,6 +64,13 @@ export default function PodcastsContent({ initialPage, initialHref, initialScope
     "recent_update",
     { replace: false, initialHref },
   );
+  const [subscription = "all", setSubscription] = useUrlState<
+    "all" | "subscribed" | "unsubscribed"
+  >("subscription", "all", { replace: false, initialHref });
+  const subscriptionFilter =
+    subscription === "subscribed" || subscription === "unsubscribed"
+      ? subscription
+      : "all";
   const sortBy = PODCAST_SORT_OPTIONS.find((option) => option.value === requestedSort)?.value ?? "recent_update";
   const [selectedTagIdValues, setSelectedTagIdValues] = useUrlState<
     Array<number | string>
@@ -104,8 +111,10 @@ export default function PodcastsContent({ initialPage, initialHref, initialScope
     enabled: true,
     page_size: pageSize,
     sort_by: sortBy,
+    subscription: subscriptionFilter,
     tag_id: selectedTagIds.length > 0 ? selectedTagIds : undefined,
     initialPage:
+      subscriptionFilter === "all" &&
       `${sortBy}:${selectedTagIds.join(",")}` === initialScope
         ? initialPage
         : undefined,
@@ -180,11 +189,34 @@ export default function PodcastsContent({ initialPage, initialHref, initialScope
       className="podcast-library-page"
       onSearchClick={openSearch}
       toolbar={{
-        title: "我的订阅",
+        title: "我的播客",
         description: listDescription,
         mobileDescription: listDescription,
         rightContent: (
           <div className="podcast-toolbar-actions">
+            <div
+              className="podcast-subscription-filter"
+              role="group"
+              aria-label="关注状态筛选"
+            >
+              {(
+                [
+                  ["all", "全部"],
+                  ["subscribed", "已关注"],
+                  ["unsubscribed", "未关注"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={subscriptionFilter === value ? "is-active" : ""}
+                  aria-pressed={subscriptionFilter === value}
+                  onClick={() => setSubscription(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <PodcastListSortControls
               sortBy={sortBy}
               options={PODCAST_SORT_OPTIONS}

@@ -43,6 +43,15 @@ export interface ConsumptionItem {
   activity_at?: string;
   attention?: ConsumptionAttention;
   completion_undo?: CompletionUndo;
+  collection_sources?: ConsumptionCollectionSource[];
+}
+
+export interface ConsumptionCollectionSource {
+  source_platform: string;
+  collection_id?:number;
+  collection_title: string;
+  collection_url: string;
+  adopted_at: string;
 }
 
 export interface ConsumptionSummary {

@@ -12,6 +12,12 @@ var AllModels = []interface{}{
 	Podcast{},
 	PodcastAlternativeFeed{},
 	Episode{},
+	// EpisodeCollectionItem 通过可空外键引用 Episode；清单数据独立于个人库。
+	EpisodeCollection{},
+	EpisodeCollectionItem{},
+	// EpisodeExternalRef/EpisodeCollectionAdoption 依赖 Episode；由版本化迁移创建。
+	EpisodeExternalRef{},
+	EpisodeCollectionAdoption{},
 	EpisodeCompletion{},
 	EpisodeTriageDecision{},
 	ConsumptionQueueOrder{},

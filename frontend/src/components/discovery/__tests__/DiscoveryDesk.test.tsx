@@ -1314,4 +1314,24 @@ describe("DiscoveryDesk", () => {
     fireEvent.touchEnd(preview, { changedTouches: [{ clientX: 180 }] });
     expect(screen.getByText("2 / 2")).toBeInTheDocument();
   });
+
+  it("shows the episode collections entry above the recent filters", () => {
+    window.history.replaceState({}, "", "/discovery");
+    render(<DiscoveryDesk candidates={candidates} />);
+
+    const entry = screen.getByRole("link", { name: "打开播客清单" });
+    expect(entry).toHaveAttribute("href", "/collections");
+    expect(entry).toHaveTextContent("播客清单");
+
+    // 入口位于 Discovery 标题组之后、最近更新筛选之前。
+    const sidebar = entry.closest("[aria-label='Discovery 导航与筛选']");
+    expect(sidebar).not.toBeNull();
+    const order = Array.from(sidebar?.children ?? []).map((node) => node.textContent ?? "");
+    expect(order.findIndex((text) => text.includes("最近更新 · 14 天"))).toBeLessThan(
+      order.findIndex((text) => text.includes("播客清单")),
+    );
+    expect(order.findIndex((text) => text.includes("播客清单"))).toBeLessThan(
+      order.findIndex((text) => text.includes("全部")),
+    );
+  });
 });

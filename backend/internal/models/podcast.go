@@ -32,14 +32,17 @@ type Podcast struct {
 	AddedDate         time.Time `json:"added_date"`                     // 添加日期
 	EpisodeCount      int       `gorm:"default:0" json:"episode_count"` // 单集总数
 	NewestEpisodeDate time.Time `json:"newest_episode_date"`            // 最新单集发布日期
+	// ExternalEpisodeCount 是源站报告的总集数快照（如小宇宙节目页），仅作展示，
+	// 0 表示未知；与本地 EpisodeCount 分开呈现，不表示已同步整档。
+	ExternalEpisodeCount int `gorm:"default:0" json:"external_episode_count"`
 
 	// 状态标识
 	IsSubscribed bool `gorm:"default:true" json:"is_subscribed"` // 是否已订阅
 	IsDead       bool `gorm:"default:false" json:"is_dead"`      // RSS 源是否失效
 
 	// 用户自定义
-	MyRate         int    `gorm:"default:0" json:"my_rate"`           // 个人评分 (0-5)
-	Notes          string `gorm:"type:text" json:"notes"`             // 个人备注
+	MyRate         int    `gorm:"default:0" json:"my_rate"`         // 个人评分 (0-5)
+	Notes          string `gorm:"type:text" json:"notes"`           // 个人备注
 	CustomCoverURL string `gorm:"size:512" json:"custom_cover_url"` // 自定义封面URL（优先使用，不会被同步覆盖）
 
 	// 同步相关
