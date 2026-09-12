@@ -27,7 +27,7 @@ const SanitizerVersion = "v12"
 // and podcasts.external_episode_count (plain flags/counters), and public audio
 // snapshot columns on episode_collection_items — reviewed in the same class.
 const sanitizerSchemaFingerprint = "39524adc2b9ae1fc8c9cee88a562b829b3b885f4f13aaecbbc43e180c1a075aa"
-const sanitizerSchemaObjectsFingerprint = "28b65b769a0500658f1da316c535eb2cc79e980698370a69af19c3378b0b47e0"
+const sanitizerSchemaObjectsFingerprint = "916b212c1d28b9105dfc83b4c334b9257e39e8d33e40ab007becee45a4c86575"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 
