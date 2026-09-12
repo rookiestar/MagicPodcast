@@ -20,7 +20,7 @@ func TestServicePersonaAskUsesLibraryFirstAndKeepsNoAtPath(t *testing.T) {
 			EpisodeID:     81,
 			SourceVersion: "v1",
 			IndexReady:    true,
-			People: []personidentity.PersonView{{
+			People: []personidentity.PersonView{{ConfirmedSpeech: 1,
 				ID: 9, DisplayName: "张三", Role: personidentity.RoleHost,
 				Status: personidentity.StatusConfirmed, IdentityNote: "技术漫谈主播",
 			}},
@@ -92,7 +92,7 @@ func TestServicePersonaOffTopicNameHitStillSearchesWeb(t *testing.T) {
 			EpisodeID:     83,
 			SourceVersion: "v1",
 			IndexReady:    true,
-			People: []personidentity.PersonView{{
+			People: []personidentity.PersonView{{ConfirmedSpeech: 1,
 				ID: 5, DisplayName: "赵六", Aliases: []string{"六哥"},
 				Status: personidentity.StatusConfirmed, Role: personidentity.RoleHost,
 			}},
@@ -139,7 +139,7 @@ func TestServiceRejectsPendingAndForeignTargetsAndKeepsNoAtBehavior(t *testing.T
 		listed: personidentity.EpisodePeople{
 			EpisodeID:  82,
 			IndexReady: true,
-			People: []personidentity.PersonView{{
+			People: []personidentity.PersonView{{ConfirmedSpeech: 1,
 				ID: 4, DisplayName: "匿名工程师", Status: personidentity.StatusPending,
 			}},
 		},
@@ -182,7 +182,7 @@ func TestServicePersonaGapCallsBoundedWebSearchWithoutPrivateNotes(t *testing.T)
 	people := &fakePeopleModule{
 		listed: personidentity.EpisodePeople{
 			EpisodeID: 83, IndexReady: true, SourceVersion: "v1",
-			People: []personidentity.PersonView{{
+			People: []personidentity.PersonView{{ConfirmedSpeech: 1,
 				ID: 5, DisplayName: "赵六", Status: personidentity.StatusConfirmed,
 				Role: personidentity.RoleHost, IdentityNote: "媒体观察主播",
 			}},
@@ -260,13 +260,19 @@ func (f *fakePeopleModule) AccessibleEpisodeIDs(context.Context) ([]uint, error)
 }
 
 type fakeSearchModule struct {
-	result contentsearch.Result
-	err    error
-	last   contentsearch.Request
+	result   contentsearch.Result
+	err      error
+	last     contentsearch.Request
+	onSearch func()
 }
 
 func (f *fakeSearchModule) Search(_ context.Context, request contentsearch.Request) (contentsearch.Result, error) {
 	f.last = request
+	if f.onSearch != nil {
+		onSearch := f.onSearch
+		f.onSearch = nil
+		onSearch()
+	}
 	if f.err != nil {
 		return contentsearch.Result{}, f.err
 	}
@@ -278,7 +284,7 @@ func (f *fakeSearchModule) ReplaceEpisode(context.Context, contentsearch.Episode
 func (f *fakeSearchModule) RemoveEpisode(context.Context, uint) error { return nil }
 
 func TestPersonaTopicOverlapDoesNotOverrideCoverageAssessment(t *testing.T) {
-	p := personidentity.PersonView{ID: 9, DisplayName: "张三", Status: "confirmed"}
+	p := personidentity.PersonView{ConfirmedSpeech: 1, ID: 9, DisplayName: "张三", Status: "confirmed"}
 	people := &fakePeopleModule{listed: personidentity.EpisodePeople{EpisodeID: 81, People: []personidentity.PersonView{p}}, ids: []uint{81}}
 	search := &fakeSearchModule{result: contentsearch.Result{Hits: []contentsearch.Hit{{EpisodeID: 81, PersonID: uintPtr(9), Text: "反对无限制加班。", AttributionStatus: "confirmed", SourceKind: "transcript", SourceVersion: "v1", FragmentOrder: 1}}, Coverage: contentsearch.Coverage{Complete: true}}}
 	rt := newFakeRuntime(fakeExecution{result: json.RawMessage(`{"resources":[],"conflicts":[],"limitations":[]}`)}, fakeExecution{deltas: []string{"我反对无限制加班 [库内 S1]；期权方面无法判断。"}})
@@ -296,4 +302,106 @@ func TestPersonaTopicOverlapDoesNotOverrideCoverageAssessment(t *testing.T) {
 	require.Contains(t, string(requests[0].OutputSchema), "sufficient")
 	require.Equal(t, []codexruntime.ToolCapability{codexruntime.ToolWebSearch}, requests[1].ToolRestriction.Allowed)
 	require.Contains(t, string(requests[1].OutputSchema), "original_read")
+}
+
+// Exercise changes after the question has captured its effective attribution view.
+type changingPeopleRuntime struct {
+	codexruntime.Runtime
+	change func()
+}
+
+func (r *changingPeopleRuntime) CreateExecution(ctx context.Context, request codexruntime.ExecutionRequest) (codexruntime.ExecutionSnapshot, error) {
+	if r.change != nil {
+		change := r.change
+		r.change = nil
+		change()
+	}
+	return r.Runtime.CreateExecution(ctx, request)
+}
+func TestPersonaAnswerRejectsChangedFactsButNotSavedDrafts(t *testing.T) {
+	for _, changeFacts := range []bool{false, true} {
+		name := "draft_only"
+		if changeFacts {
+			name = "applied_facts"
+		}
+		t.Run(name, func(t *testing.T) {
+			people := &fakePeopleModule{listed: personidentity.EpisodePeople{EpisodeID: 81, SourceVersion: "v1", People: []personidentity.PersonView{{ID: 9, DisplayName: "张三", Status: personidentity.StatusConfirmed, ConfirmedSpeech: 1}}}, ids: []uint{81}}
+			search := &fakeSearchModule{result: contentsearch.Result{Hits: []contentsearch.Hit{{EpisodeID: 81, SourceKind: "transcript", SourceVersion: "v1", FragmentOrder: 1, Text: "我不赞成无限制加班。", AttributionStatus: "confirmed", PersonID: uintPtr(9)}}, Coverage: contentsearch.Coverage{Complete: true, Reason: contentsearch.CoverageComplete}}}
+			runtime := &changingPeopleRuntime{Runtime: newFakeRuntime(fakeExecution{deltas: []string{"我不赞成无限制加班 [库内 S1]。"}, result: json.RawMessage(`{"text":"不赞成无限制加班"}`)}), change: func() {
+				people.listed.Revision++
+				if changeFacts {
+					people.listed.People = append([]personidentity.PersonView(nil), people.listed.People...)
+					people.listed.People[0].DisplayName = "已纠正姓名"
+				}
+			}}
+			service, err := NewService(&fakeContextLoader{context: EpisodeContext{EpisodeID: 81, Transcript: "我不赞成无限制加班。"}}, runtime, t.TempDir(), WithLibrary(people, search))
+			require.NoError(t, err)
+			events, err := service.Ask(context.Background(), QuestionRequest{EpisodeID: 81, TargetPersonID: 9, Question: "对加班怎么看？"})
+			require.NoError(t, err)
+			completed, changed := false, false
+			for event := range events {
+				if event.Type == EventTypeComplete {
+					completed = true
+				}
+				if event.Type == EventTypeError {
+					require.Equal(t, "person_attribution_changed", event.Code)
+					changed = true
+				}
+			}
+			require.Equal(t, changeFacts, changed)
+			require.Equal(t, !changeFacts, completed)
+		})
+	}
+}
+
+func TestPersonaAnswerRejectsAttributionChangedDuringLibrarySearch(t *testing.T) {
+	people := &fakePeopleModule{
+		listed: personidentity.EpisodePeople{
+			EpisodeID:     81,
+			SourceVersion: "v1",
+			People: []personidentity.PersonView{{
+				ID: 9, DisplayName: "张三", Status: personidentity.StatusConfirmed, ConfirmedSpeech: 1,
+			}},
+		},
+		ids: []uint{81},
+	}
+	search := &fakeSearchModule{
+		result: contentsearch.Result{
+			Hits: []contentsearch.Hit{{
+				EpisodeID: 81, SourceKind: contentsearch.SourceTranscript, SourceVersion: "v1", FragmentOrder: 1,
+				Text: "一条未覆盖问题的旧发言", AttributionStatus: personidentity.StatusConfirmed, PersonID: uintPtr(9),
+			}},
+			Coverage: contentsearch.Coverage{Complete: true, Reason: contentsearch.CoverageComplete},
+		},
+	}
+	search.onSearch = func() {
+		people.listed.People = append([]personidentity.PersonView(nil), people.listed.People...)
+		people.listed.People[0].DisplayName = "已纠正姓名"
+	}
+	runtime := newFakeRuntime(
+		fakeExecution{result: json.RawMessage(`{"resources":[],"conflicts":[],"limitations":[]}`)},
+		fakeExecution{deltas: []string{"回答 [库内 S1]"}, result: json.RawMessage(`{"text":"回答"}`)},
+	)
+	service, err := NewService(
+		&fakeContextLoader{context: EpisodeContext{EpisodeID: 81, Transcript: "一条发言。"}},
+		runtime,
+		t.TempDir(),
+		WithLibrary(people, search),
+	)
+	require.NoError(t, err)
+	stream, err := service.Ask(context.Background(), QuestionRequest{EpisodeID: 81, TargetPersonID: 9, Question: "加班怎么看？"})
+	require.NoError(t, err)
+	changed := false
+	completed := false
+	for event := range stream {
+		if event.Type == EventTypeError {
+			require.Equal(t, "person_attribution_changed", event.Code)
+			changed = true
+		}
+		if event.Type == EventTypeComplete {
+			completed = true
+		}
+	}
+	require.True(t, changed)
+	require.False(t, completed)
 }

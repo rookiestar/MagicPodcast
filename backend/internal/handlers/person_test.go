@@ -39,7 +39,7 @@ func TestPersonHandlerListsAndCorrectsAttributionWithoutRewritingSource(t *testi
 		PublishedDate: time.Date(2025, 8, 11, 0, 0, 0, 0, time.UTC),
 	}
 	require.NoError(t, db.Create(&episode).Error)
-	_, err = service.Prepare(context.Background(), personidentity.EpisodeSources{
+	_, err = prepareReviewed(service, context.Background(), personidentity.EpisodeSources{
 		EpisodeID:     episode.ID,
 		ShowNotes:     episode.ShowNotes,
 		SourceKind:    personidentity.SourceTranscript,
@@ -132,7 +132,7 @@ func TestAppearanceCorrectionHTTPValidatesAndSeparatesRoleFromIdentity(t *testin
 	require.NoError(t, db.Create(&ep).Error)
 	service, err := personidentity.NewService(db, fixedIdentityFixture{{DisplayName: "林言", Role: "unknown", Status: "pending", EvidenceKind: "verified_runtime"}})
 	require.NoError(t, err)
-	initial, err := service.Prepare(context.Background(), personidentity.EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", Segments: []personidentity.Segment{{Order: 1, Text: "投资观点。"}}})
+	initial, err := prepareReviewed(service, context.Background(), personidentity.EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", Segments: []personidentity.Segment{{Order: 1, Text: "投资观点。"}}})
 	require.NoError(t, err)
 	require.Len(t, initial.People, 1)
 	router := gin.New()
@@ -152,7 +152,7 @@ func TestAppearanceCorrectionHTTPValidatesAndSeparatesRoleFromIdentity(t *testin
 	final, err := service.ListEpisodePeople(context.Background(), ep.ID)
 	require.NoError(t, err)
 	require.Equal(t, "host", final.People[0].Role)
-	require.Equal(t, "pending", final.People[0].Status, "correcting role must not confirm identity")
+	require.Equal(t, initial.People[0].Status, final.People[0].Status, "correcting role must not change identity approval")
 	require.Zero(t, final.People[0].ConfirmedSpeech)
 }
 
@@ -206,4 +206,15 @@ func TestPersonPreparationObservesHTTPClientCancellationWithPOSTBody(t *testing.
 		t.Fatal("HTTP client cancellation did not reach preparation")
 	}
 	<-done
+}
+
+func prepareReviewed(s *personidentity.Service, ctx context.Context, src personidentity.EpisodeSources) (personidentity.EpisodePeople, error) {
+	p, err := s.Prepare(ctx, src)
+	if err != nil || p.Draft == nil {
+		return p, err
+	}
+	for i := range p.Draft.Matches {
+		p.Draft.Matches[i].Selected = true
+	}
+	return s.Review(ctx, src.EpisodeID, personidentity.ReviewRequest{DraftID: p.Draft.ID, Revision: p.Revision, SourceVersion: p.Draft.SourceVersion, Matches: p.Draft.Matches}, true)
 }

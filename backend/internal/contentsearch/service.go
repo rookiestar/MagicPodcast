@@ -44,11 +44,6 @@ AND EXISTS (SELECT 1 FROM episode_appearances ap
  AND ap.person_id = content_search_fragments.person_id
  AND ap.source_version = content_search_fragments.source_version AND ap.status = 'confirmed')
 AND (
- EXISTS (SELECT 1 FROM person_preparations pp
- WHERE pp.episode_id = content_search_fragments.episode_id
- AND pp.source_version = content_search_fragments.source_version
- AND pp.algorithm_version = ?)
- OR (
  EXISTS (SELECT 1 FROM person_user_confirmations n
  WHERE n.episode_id = content_search_fragments.episode_id AND n.kind = 'person_name'
  AND n.person_id = content_search_fragments.person_id)
@@ -63,7 +58,7 @@ AND (
  AND c.fragment_order = content_search_fragments.fragment_order
  AND c.source_text = content_search_fragments.text AND c.speaker_label = a.speaker_label
  AND c.status = 'confirmed')
- ))`
+ )`
 
 func NewService(db *gorm.DB) (*Service, error) {
 	if db == nil {
@@ -122,7 +117,7 @@ func (s *Service) Search(ctx context.Context, request Request) (Result, error) {
 		Where("source_kind != ? OR NOT EXISTS (SELECT 1 FROM speech_attributions a WHERE a.episode_id = content_search_fragments.episode_id) OR EXISTS (SELECT 1 FROM speech_attributions a WHERE a.episode_id = content_search_fragments.episode_id AND a.source_kind = content_search_fragments.source_kind AND a.source_version = content_search_fragments.source_version AND a.fragment_order = content_search_fragments.fragment_order AND a.text = content_search_fragments.text)", SourceTranscript)
 	if request.Filter.PersonID != nil {
 		query = query.Where("person_id = ? AND attribution_status = ?", *request.Filter.PersonID, "confirmed")
-		query = query.Where(reliableAttributionSQL, models.CurrentIdentityAlgorithm)
+		query = query.Where(reliableAttributionSQL)
 	}
 	if strings.TrimSpace(request.Filter.SourceKind) != "" {
 		query = query.Where("source_kind = ?", request.Filter.SourceKind)
@@ -131,7 +126,7 @@ func (s *Service) Search(ctx context.Context, request Request) (Result, error) {
 		models.ContentSearchFragment
 		ReliableAttribution bool
 	}
-	if err := query.Select("content_search_fragments.*, ("+reliableAttributionSQL+") AS reliable_attribution", models.CurrentIdentityAlgorithm).Find(&rows).Error; err != nil {
+	if err := query.Select("content_search_fragments.*, (" + reliableAttributionSQL + ") AS reliable_attribution").Find(&rows).Error; err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrSearchFailed, err)
 	}
 

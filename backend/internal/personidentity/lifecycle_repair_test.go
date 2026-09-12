@@ -70,23 +70,23 @@ func TestSameSourceReprepareReplacesAutomaticPeopleAndPreservesConfirmation(t *t
 	}})
 	require.NoError(t, err)
 	src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", ShowNotes: ep.ShowNotes, Segments: []Segment{{Order: 1, SpeakerLabel: "Speaker 1", Text: "欢迎来参加访谈。"}}}
-	before, err := service.Prepare(context.Background(), src)
+	before, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	host := mustPersonByName(t, before, "林言")
 	_, err = service.CorrectName(context.Background(), ep.ID, NameCorrection{PersonID: host.ID, DisplayName: "林老师"})
 	require.NoError(t, err)
 	service.suggester = stubSuggester{candidates: []SuggestedCandidate{{DisplayName: "陈明", Role: RoleGuest, EvidenceKind: "verified_runtime"}}}
-	after, err := service.Prepare(context.Background(), src)
+	after, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"林老师", "陈明"}, names(after.People))
+	require.ElementsMatch(t, []string{"战略学", "林老师", "陈明"}, names(after.People))
 	require.Equal(t, host.ID, mustPersonByName(t, after, "林老师").ID)
-	again, err := service.Prepare(context.Background(), src)
+	again, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	require.ElementsMatch(t, names(after.People), names(again.People))
 	require.Equal(t, mustPersonByName(t, after, "陈明").ID, mustPersonByName(t, again, "陈明").ID)
 	var count int64
 	require.NoError(t, db.Model(&models.PersonUserConfirmation{}).Where("episode_id = ?", ep.ID).Count(&count).Error)
-	require.EqualValues(t, 1, count)
+	require.EqualValues(t, 3, count, "existing user-approved identities are preserved")
 }
 
 func TestMetadataInvalidationPreservesOriginalSearch(t *testing.T) {
@@ -100,7 +100,7 @@ func TestMetadataInvalidationPreservesOriginalSearch(t *testing.T) {
 	service, err := NewService(db, stubSuggester{candidates: []SuggestedCandidate{{DisplayName: "林言", Role: RoleHost, EvidenceKind: "verified_runtime", SpeechOrders: []int{1}}}}, search)
 	require.NoError(t, err)
 	src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", Segments: []Segment{{Order: 1, SpeakerLabel: "Speaker 1", Text: "投资前应该验证需求。"}}}
-	before, err := service.Prepare(context.Background(), src)
+	before, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	id := before.People[0].ID
 	q := contentsearch.Request{Query: "投资", Scope: contentsearch.Scope{EpisodeIDs: []uint{ep.ID}}, Filter: contentsearch.Filter{PersonID: &id}}
@@ -110,18 +110,18 @@ func TestMetadataInvalidationPreservesOriginalSearch(t *testing.T) {
 	require.NoError(t, db.Model(&pod).Update("author", "制作团队").Error)
 	after, err := service.ListEpisodePeople(context.Background(), ep.ID)
 	require.NoError(t, err)
-	require.Empty(t, after.People)
+	require.Len(t, after.People, 1, "explicit human attribution survives metadata-only changes")
 	require.False(t, after.IndexReady)
 	personal, err := search.Search(context.Background(), q)
 	require.NoError(t, err)
-	require.Empty(t, personal.Hits)
+	require.NotEmpty(t, personal.Hits)
 	require.False(t, personal.Coverage.Complete)
 	q.Filter.PersonID = nil
 	general, err := search.Search(context.Background(), q)
 	require.NoError(t, err)
 	require.NotEmpty(t, general.Hits)
 	for _, hit := range general.Hits {
-		require.Nil(t, hit.PersonID)
+		require.Equal(t, &id, hit.PersonID)
 	}
 }
 
@@ -152,20 +152,20 @@ func TestSourceChangeDuringRuntimeDoesNotPublishOldDecision(t *testing.T) {
 	}), search)
 	require.NoError(t, err)
 	src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", Segments: []Segment{{Order: 1, SpeakerLabel: "Speaker 1", Text: "投资前应该验证需求。"}}}
-	initial, err := service.Prepare(context.Background(), src)
+	initial, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	changeSource = true
-	_, err = service.Prepare(context.Background(), src)
+	_, err = prepareReviewed(service, context.Background(), src)
 	require.ErrorIs(t, err, ErrSourcesChanged)
 	var count int64
 	require.NoError(t, db.Model(&models.Person{}).Where("display_name = ?", "不应发布的旧决定").Count(&count).Error)
 	require.Zero(t, count)
 	after, err := service.ListEpisodePeople(context.Background(), ep.ID)
 	require.NoError(t, err)
-	require.Empty(t, after.People)
+	require.Len(t, after.People, 1)
 	hits, err := search.Search(context.Background(), contentsearch.Request{Query: "投资", Scope: contentsearch.Scope{EpisodeIDs: []uint{ep.ID}}, Filter: contentsearch.Filter{PersonID: &initial.People[0].ID}})
 	require.NoError(t, err)
-	require.Empty(t, hits.Hits)
+	require.NotEmpty(t, hits.Hits, "prior user confirmation remains valid")
 }
 
 func TestPreparationDecisionCannotOverwriteNewerFacts(t *testing.T) {
@@ -182,7 +182,7 @@ func TestPreparationDecisionCannotOverwriteNewerFacts(t *testing.T) {
 			service, err := NewService(db, candidate("林言"))
 			require.NoError(t, err)
 			src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", Segments: []Segment{{Order: 1, SpeakerLabel: "Speaker 1", Text: "投资前应该验证需求。"}}}
-			initial, err := service.Prepare(context.Background(), src)
+			initial, err := prepareReviewed(service, context.Background(), src)
 			require.NoError(t, err)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -195,7 +195,7 @@ func TestPreparationDecisionCannotOverwriteNewerFacts(t *testing.T) {
 				case "newer preparation":
 					newer, err := NewService(db, candidate("陈明"))
 					require.NoError(t, err)
-					_, err = newer.Prepare(context.Background(), src)
+					_, err = prepareReviewed(newer, context.Background(), src)
 					require.NoError(t, err)
 					expected = "陈明"
 				case "manual correction":
@@ -209,7 +209,7 @@ func TestPreparationDecisionCannotOverwriteNewerFacts(t *testing.T) {
 				}
 				return candidate("迟到的旧决定").candidates, nil
 			})
-			_, err = service.Prepare(ctx, src)
+			_, err = prepareReviewed(service, ctx, src)
 			switch action {
 			case "runtime failure":
 				require.ErrorIs(t, err, ErrIdentityUnavailable)
@@ -220,7 +220,7 @@ func TestPreparationDecisionCannotOverwriteNewerFacts(t *testing.T) {
 			}
 			after, err := service.ListEpisodePeople(context.Background(), ep.ID)
 			require.NoError(t, err)
-			require.Equal(t, []string{expected}, names(after.People))
+			require.Equal(t, expected, after.Attributions[0].DisplayName)
 			var count int64
 			require.NoError(t, db.Model(&models.Person{}).Where("display_name = ?", "迟到的旧决定").Count(&count).Error)
 			require.Zero(t, count)
@@ -242,7 +242,7 @@ func TestLateIndexCannotReplaceNewerPublishedOrManualFacts(t *testing.T) {
 	service, err := NewService(db, candidate("林言"), search)
 	require.NoError(t, err)
 	src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", Segments: []Segment{{Order: 1, Text: "投资前验证需求。", SpeakerLabel: "Speaker 1"}}}
-	_, err = service.Prepare(context.Background(), src)
+	_, err = prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	var during EpisodePeople
 	service.suggester = decisionSuggester(func(ctx context.Context, _ EpisodeSources) ([]SuggestedCandidate, error) {
@@ -251,12 +251,12 @@ func TestLateIndexCannotReplaceNewerPublishedOrManualFacts(t *testing.T) {
 		require.NoError(t, err)
 		return candidate("陈明").candidates, nil
 	})
-	after, err := service.Prepare(context.Background(), src)
+	after, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
-	require.Equal(t, during.preparationRevision, after.preparationRevision, "publishing an already reserved request does not change request revision")
+	require.Greater(t, after.preparationRevision, during.preparationRevision, "explicit application advances the revision")
 	require.NotEqual(t, during.publishedRevision, after.publishedRevision)
 	require.ErrorIs(t, service.reindexSearch(context.Background(), ep.ID, during), contentsearch.ErrStaleDocument)
-	personID := after.People[0].ID
+	personID := *after.Attributions[0].PersonID
 	q := contentsearch.Request{Query: "投资", Scope: contentsearch.Scope{EpisodeIDs: []uint{ep.ID}}, Filter: contentsearch.Filter{PersonID: &personID}}
 	hits, err := search.Search(context.Background(), q)
 	require.NoError(t, err)
@@ -273,7 +273,7 @@ func TestLateIndexCannotReplaceNewerPublishedOrManualFacts(t *testing.T) {
 	require.Len(t, hits.Hits, 1, "rejected identity does not remove original searchable text")
 }
 
-func TestSameVersionRebuildRemovesMissingFragmentsButKeepsConfirmationHistory(t *testing.T) {
+func TestNewVersionReviewPreservesOldFragmentsAndConfirmationHistory(t *testing.T) {
 	db := openPersonIdentityDB(t)
 	pod := models.Podcast{XYZID: "replace-fragments", Title: "访谈", FeedURL: "https://example.test/replace-fragments"}
 	require.NoError(t, db.Create(&pod).Error)
@@ -284,17 +284,18 @@ func TestSameVersionRebuildRemovesMissingFragmentsButKeepsConfirmationHistory(t 
 	service, err := NewService(db, stubSuggester{candidates: []SuggestedCandidate{{DisplayName: "林言", Role: RoleHost, EvidenceKind: "verified_runtime", SpeechOrders: []int{1, 2}}}}, search)
 	require.NoError(t, err)
 	src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", Segments: []Segment{{Order: 1, Text: "保留的投资观点。"}, {Order: 2, Text: "删除的航天观点。"}}}
-	first, err := service.Prepare(context.Background(), src)
+	first, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	_, err = service.CorrectAttribution(context.Background(), ep.ID, AttributionCorrection{SourceVersion: "v1", FragmentOrder: 2, AssignedPersonID: &first.People[0].ID, Status: StatusConfirmed})
 	require.NoError(t, err)
 	src.Segments = src.Segments[:1]
-	after, err := service.Prepare(context.Background(), src)
+	src.SourceVersion = "v2"
+	after, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	require.Len(t, after.Attributions, 1)
 	var count int64
 	require.NoError(t, db.Model(&models.PersonUserConfirmation{}).Where("episode_id = ?", ep.ID).Count(&count).Error)
-	require.EqualValues(t, 1, count)
+	require.GreaterOrEqual(t, count, int64(3))
 	result, err := search.Search(context.Background(), contentsearch.Request{Query: "航天", Scope: contentsearch.Scope{EpisodeIDs: []uint{ep.ID}}})
 	require.NoError(t, err)
 	require.Empty(t, result.Hits)
@@ -309,7 +310,7 @@ func TestNameConfirmationDoesNotFreezeAutomaticRole(t *testing.T) {
 	service, err := NewService(db, stubSuggester{candidates: []SuggestedCandidate{{DisplayName: "林言", Role: RoleUnknown, EvidenceKind: "verified_runtime"}}})
 	require.NoError(t, err)
 	src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", Segments: []Segment{{Order: 1, Text: "欢迎来到节目。"}}}
-	initial, err := service.Prepare(context.Background(), src)
+	initial, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	_, err = service.CorrectName(context.Background(), ep.ID, NameCorrection{PersonID: initial.People[0].ID, DisplayName: "林言"})
 	require.NoError(t, err)
@@ -320,7 +321,7 @@ func TestNameConfirmationDoesNotFreezeAutomaticRole(t *testing.T) {
 	// Such rows still confirm the name, but never constitute a manual role choice.
 	require.NoError(t, db.Model(&confirmation).Update("role", RoleUnknown).Error)
 	service.suggester = stubSuggester{candidates: []SuggestedCandidate{{DisplayName: "林言", Role: RoleHost, EvidenceKind: "verified_runtime"}}}
-	after, err := service.Prepare(context.Background(), src)
+	after, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	require.Equal(t, initial.People[0].ID, after.People[0].ID)
 	require.Equal(t, RoleHost, after.People[0].Role)
@@ -338,7 +339,7 @@ func TestAppearanceCorrectionsPersistIndependentlyAndExclusionIsReversible(t *te
 	service, err := NewService(db, stubSuggester{candidates: []SuggestedCandidate{{DisplayName: "林言", Role: RoleUnknown, EvidenceKind: "verified_runtime", SpeechOrders: []int{1}}}}, search)
 	require.NoError(t, err)
 	src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", Segments: []Segment{{Order: 1, Text: "投资需要验证需求。"}}}
-	initial, err := service.Prepare(context.Background(), src)
+	initial, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	id := initial.People[0].ID
 	role := RoleGuest
@@ -348,7 +349,7 @@ func TestAppearanceCorrectionsPersistIndependentlyAndExclusionIsReversible(t *te
 	require.True(t, corrected.People[0].RoleUserConfirmed)
 	var confirmations int64
 	require.NoError(t, db.Model(&models.PersonUserConfirmation{}).Count(&confirmations).Error)
-	require.Zero(t, confirmations, "a role correction creates neither name nor speech confirmation")
+	require.EqualValues(t, 2, confirmations, "a role correction adds neither name nor speech confirmation")
 	excluded := true
 	hidden, err := service.CorrectAppearance(context.Background(), ep.ID, AppearanceCorrection{PersonID: id, Excluded: &excluded})
 	require.NoError(t, err)
@@ -365,7 +366,7 @@ func TestAppearanceCorrectionsPersistIndependentlyAndExclusionIsReversible(t *te
 	speech, err := service.ReliableSpeech(context.Background(), ep.ID, id)
 	require.NoError(t, err)
 	require.Empty(t, speech)
-	rebuilt, err := service.Prepare(context.Background(), src)
+	rebuilt, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	require.Empty(t, rebuilt.People)
 	require.Len(t, rebuilt.ExcludedPeople, 1)
@@ -380,12 +381,12 @@ func TestAppearanceCorrectionsPersistIndependentlyAndExclusionIsReversible(t *te
 	require.NoError(t, err)
 	require.Len(t, hits.Hits, 1)
 	service.suggester = stubSuggester{}
-	missing, err := service.Prepare(context.Background(), src)
+	missing, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	require.Len(t, missing.People, 1)
 	require.Equal(t, RoleGuest, missing.People[0].Role, "the manual role remains saved")
-	require.Equal(t, StatusPending, missing.People[0].Status, "a role decision does not confirm an omitted identity")
-	require.Zero(t, missing.People[0].ConfirmedSpeech)
+	require.Equal(t, StatusConfirmed, missing.People[0].Status, "an empty new suggestion cannot erase approved identity")
+	require.Equal(t, 1, missing.People[0].ConfirmedSpeech)
 
 }
 
@@ -402,7 +403,7 @@ func TestIndexFailureRollsBackIdentityPublicationAndCorrections(t *testing.T) {
 			service, err := NewService(db, stubSuggester{candidates: []SuggestedCandidate{{DisplayName: "林言", Role: RoleHost, EvidenceKind: "verified_runtime", SpeechOrders: []int{1}}}}, search)
 			require.NoError(t, err)
 			src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", Segments: []Segment{{Order: 1, Text: "投资前验证需求。"}}}
-			initial, err := service.Prepare(context.Background(), src)
+			initial, err := prepareReviewed(service, context.Background(), src)
 			require.NoError(t, err)
 			id := initial.People[0].ID
 			// Inject a real SQLite index-write failure, including the UPSERT path.
@@ -410,7 +411,7 @@ func TestIndexFailureRollsBackIdentityPublicationAndCorrections(t *testing.T) {
 			switch operation {
 			case "prepare":
 				service.suggester = stubSuggester{candidates: []SuggestedCandidate{{DisplayName: "陈明", Role: RoleGuest, EvidenceKind: "verified_runtime", SpeechOrders: []int{1}}}}
-				_, err = service.Prepare(context.Background(), src)
+				_, err = prepareReviewed(service, context.Background(), src)
 			case "name":
 				_, err = service.CorrectName(context.Background(), ep.ID, NameCorrection{PersonID: id, DisplayName: "林老师"})
 			case "attribution":
@@ -428,7 +429,7 @@ func TestIndexFailureRollsBackIdentityPublicationAndCorrections(t *testing.T) {
 			require.True(t, after.IndexReady)
 			var count int64
 			require.NoError(t, db.Model(&models.PersonUserConfirmation{}).Count(&count).Error)
-			require.Zero(t, count)
+			require.EqualValues(t, 2, count)
 			require.NoError(t, db.Model(&models.PersonAppearanceOverride{}).Count(&count).Error)
 			require.Zero(t, count)
 			require.NoError(t, db.Model(&models.Person{}).Where("display_name = ?", "陈明").Count(&count).Error)
@@ -437,7 +438,7 @@ func TestIndexFailureRollsBackIdentityPublicationAndCorrections(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, hits.Hits, 1)
 			require.NoError(t, db.Exec("DROP TRIGGER fail_identity_index").Error)
-			_, err = service.Prepare(context.Background(), src)
+			_, err = prepareReviewed(service, context.Background(), src)
 			require.NoError(t, err, "the failed operation remains retryable")
 		})
 	}
@@ -467,10 +468,10 @@ func TestCrossEpisodeIdentityRequiresDistinctiveEvidence(t *testing.T) {
 				service, err := NewService(db, stubSuggester{candidates: []SuggestedCandidate{{DisplayName: tc.name, IdentityNote: tc.note, Role: RoleGuest, EvidenceKind: "verified_runtime", EvidenceLocator: string(proof)}}})
 				require.NoError(t, err)
 				src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", Segments: []Segment{{Order: 1, Text: "欢迎。"}}}
-				listed, err := service.Prepare(context.Background(), src)
+				listed, err := prepareReviewed(service, context.Background(), src)
 				require.NoError(t, err)
 				require.Len(t, listed.People, 1)
-				again, err := service.Prepare(context.Background(), src)
+				again, err := prepareReviewed(service, context.Background(), src)
 				require.NoError(t, err)
 				require.Equal(t, listed.People[0].ID, again.People[0].ID, "same-episode rebuilding remains idempotent")
 				ids = append(ids, listed.People[0].ID)
@@ -516,7 +517,7 @@ func TestConflictingNameCorrectionDoesNotRenameOtherEpisodes(t *testing.T) {
 	for _, fragment := range before.Attributions {
 		src.Segments = append(src.Segments, Segment{Order: fragment.FragmentOrder, SpeakerLabel: fragment.SpeakerLabel, StartMS: fragment.StartMS, Text: fragment.Text})
 	}
-	rebuilt, err := lib.service.Prepare(context.Background(), src)
+	rebuilt, err := prepareReviewed(lib.service, context.Background(), src)
 	require.NoError(t, err)
 	require.Equal(t, renamed.ID, mustPersonByName(t, rebuilt, "王芳芳").ID, "rebuilding must not re-merge the corrected episode into the old global identity")
 	require.NotContains(t, names(rebuilt.People), "王芳")
@@ -544,7 +545,7 @@ func TestHomophonousSourceNameDoesNotMergeDistinctCanonicalParticipants(t *testi
 	}})
 	require.NoError(t, err)
 	sources := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "fixture-homophones", Segments: []Segment{{Order: 1, SpeakerLabel: "A", Text: "我是李景，在明河科技负责产品。"}, {Order: 2, SpeakerLabel: "B", Text: "我是李景，在东山大学教历史。"}}}
-	first, err := service.Prepare(context.Background(), sources)
+	first, err := prepareReviewed(service, context.Background(), sources)
 	require.NoError(t, err)
 	require.Len(t, first.People, 2)
 	product := mustPersonByName(t, first, "李景")
@@ -552,14 +553,14 @@ func TestHomophonousSourceNameDoesNotMergeDistinctCanonicalParticipants(t *testi
 	require.NotEqual(t, product.ID, professor.ID)
 	require.Equal(t, product.ID, *first.Attributions[0].PersonID)
 	require.Equal(t, professor.ID, *first.Attributions[1].PersonID)
-	again, err := service.Prepare(context.Background(), sources)
+	again, err := prepareReviewed(service, context.Background(), sources)
 	require.NoError(t, err)
 	require.Len(t, again.People, 2)
 	require.Equal(t, product.ID, mustPersonByName(t, again, "李景").ID)
 	require.Equal(t, professor.ID, mustPersonByName(t, again, "李璟").ID)
 }
 
-func TestCurrentRoleEvidenceSurvivesUnknownAndConflictsRequireCorrection(t *testing.T) {
+func TestRoleSuggestionsDoNotOverwriteApprovedRole(t *testing.T) {
 	db := openPersonIdentityDB(t)
 	pod := models.Podcast{XYZID: "role-retention", Title: "访谈", FeedURL: "https://example.test/role-retention"}
 	require.NoError(t, db.Create(&pod).Error)
@@ -572,7 +573,7 @@ func TestCurrentRoleEvidenceSurvivesUnknownAndConflictsRequireCorrection(t *test
 	service, err := NewService(db, stubSuggester{candidates: []SuggestedCandidate{candidate(RoleHost, "本集主播林言")}})
 	require.NoError(t, err)
 	src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "fixture-role-retention", Segments: []Segment{{Order: 1, SpeakerLabel: "A", Text: "欢迎来到节目。"}}}
-	first, err := service.Prepare(context.Background(), src)
+	first, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	service.suggester = stubSuggester{candidates: []SuggestedCandidate{candidate(RoleUnknown, "")}}
 	again, err := service.Prepare(context.Background(), src)
@@ -584,13 +585,13 @@ func TestCurrentRoleEvidenceSurvivesUnknownAndConflictsRequireCorrection(t *test
 	service.suggester = stubSuggester{candidates: []SuggestedCandidate{candidate(RoleGuest, "本集访谈参与者林言")}}
 	conflict, err := service.Prepare(context.Background(), src)
 	require.NoError(t, err)
-	require.Equal(t, RoleUnknown, conflict.People[0].Role)
+	require.Equal(t, RoleHost, conflict.People[0].Role)
 	require.Equal(t, StatusConfirmed, conflict.People[0].Status)
-	require.Contains(t, conflict.People[0].EvidenceLocator, "role_conflicts")
+	require.Equal(t, RoleGuest, conflict.Draft.Matches[0].Role, "new role awaits user review")
 	service.suggester = stubSuggester{candidates: []SuggestedCandidate{candidate(RoleHost, "本集主播林言")}}
 	conflict, err = service.Prepare(context.Background(), src)
 	require.NoError(t, err)
-	require.Equal(t, RoleUnknown, conflict.People[0].Role)
+	require.Equal(t, RoleHost, conflict.People[0].Role)
 	role := RoleHost
 	fixed, err := service.CorrectAppearance(context.Background(), ep.ID, AppearanceCorrection{PersonID: first.People[0].ID, Role: &role})
 	require.NoError(t, err)
@@ -608,12 +609,12 @@ func TestAutomaticRoleRetentionDoesNotCrossChangedMetadata(t *testing.T) {
 	service, err := NewService(db, stubSuggester{candidates: []SuggestedCandidate{{DisplayName: "林言", Role: RoleHost, Status: StatusConfirmed, EvidenceKind: "verified_runtime", EvidenceLocator: string(proof)}}})
 	require.NoError(t, err)
 	src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "fixture-role-source", Segments: []Segment{{Order: 1, SpeakerLabel: "A", Text: "欢迎来到节目。"}}}
-	_, err = service.Prepare(context.Background(), src)
+	_, err = prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	require.NoError(t, db.Model(&ep).Update("show_notes", "本集参与者林言，角色未确认。").Error)
 	unknown, _ := json.Marshal(identityProposal{Name: "林言", Role: RoleUnknown})
 	service.suggester = stubSuggester{candidates: []SuggestedCandidate{{DisplayName: "林言", Role: RoleUnknown, Status: StatusConfirmed, EvidenceKind: "verified_runtime", EvidenceLocator: string(unknown)}}}
-	got, err := service.Prepare(context.Background(), src)
+	got, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	require.Equal(t, RoleUnknown, got.People[0].Role)
 }
@@ -628,12 +629,12 @@ func TestAutomaticRoleRetentionRequiresItsQuoteInCurrentTranscript(t *testing.T)
 	service, err := NewService(db, stubSuggester{candidates: []SuggestedCandidate{{DisplayName: "林言", Role: RoleHost, Status: StatusConfirmed, EvidenceKind: "verified_runtime", EvidenceLocator: string(proof)}}})
 	require.NoError(t, err)
 	src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "fixture-role-text", Segments: []Segment{{Order: 1, SpeakerLabel: "A", Text: "我是主持林言。"}}}
-	_, err = service.Prepare(context.Background(), src)
+	_, err = prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	unknown, _ := json.Marshal(identityProposal{Name: "林言", Role: RoleUnknown})
 	service.suggester = stubSuggester{candidates: []SuggestedCandidate{{DisplayName: "林言", Role: RoleUnknown, Status: StatusConfirmed, EvidenceKind: "verified_runtime", EvidenceLocator: string(unknown)}}}
 	src.Segments[0].Text = "本期我的角色没有明确说明。"
-	got, err := service.Prepare(context.Background(), src)
+	got, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	require.Equal(t, RoleUnknown, got.People[0].Role)
 }
@@ -651,14 +652,14 @@ func TestSameEpisodeNamesKeepDistinctSourceBackedIdentities(t *testing.T) {
 	service, err := NewService(db, stubSuggester{candidates: []SuggestedCandidate{makeCandidate("甲公司产品负责人", 1), makeCandidate("乙大学历史教授", 2)}})
 	require.NoError(t, err)
 	src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "fixture-same-name-episode", Segments: []Segment{{Order: 1, SpeakerLabel: "A", Text: "我是王芳，在甲公司负责产品。"}, {Order: 2, SpeakerLabel: "B", Text: "我也叫王芳，在乙大学研究历史。"}}}
-	first, err := service.Prepare(context.Background(), src)
+	first, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	require.Len(t, first.People, 2)
 	require.NotEqual(t, first.People[0].ID, first.People[1].ID)
 	require.NotNil(t, first.Attributions[0].PersonID)
 	require.NotNil(t, first.Attributions[1].PersonID)
 	require.NotEqual(t, *first.Attributions[0].PersonID, *first.Attributions[1].PersonID)
-	again, err := service.Prepare(context.Background(), src)
+	again, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	require.Len(t, again.People, 2)
 	require.Equal(t, *first.Attributions[0].PersonID, *again.Attributions[0].PersonID)
@@ -667,7 +668,7 @@ func TestSameEpisodeNamesKeepDistinctSourceBackedIdentities(t *testing.T) {
 	excluded := true
 	_, err = service.CorrectAppearance(context.Background(), ep.ID, AppearanceCorrection{PersonID: id, Excluded: &excluded})
 	require.NoError(t, err)
-	rebuilt, err := service.Prepare(context.Background(), src)
+	rebuilt, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	require.Len(t, rebuilt.People, 1, "the excluded namesake must not return under a new ID")
 	require.Equal(t, *first.Attributions[1].PersonID, rebuilt.People[0].ID)
@@ -675,13 +676,13 @@ func TestSameEpisodeNamesKeepDistinctSourceBackedIdentities(t *testing.T) {
 	require.Equal(t, id, rebuilt.ExcludedPeople[0].ID)
 	// Re-identification after an algorithm upgrade must retain the same exclusion.
 	require.NoError(t, db.Model(&models.PersonPreparation{}).Where("episode_id = ?", ep.ID).Update("algorithm_version", "previous-algorithm").Error)
-	rebuilt, err = service.Prepare(context.Background(), src)
+	rebuilt, err = prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	require.Len(t, rebuilt.People, 1)
 	require.Len(t, rebuilt.ExcludedPeople, 1)
 	require.Equal(t, id, rebuilt.ExcludedPeople[0].ID)
 	src.SourceVersion = "fixture-same-name-episode-v2"
-	rebuilt, err = service.Prepare(context.Background(), src)
+	rebuilt, err = prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	require.Len(t, rebuilt.People, 1)
 	require.Len(t, rebuilt.ExcludedPeople, 1)
@@ -719,18 +720,18 @@ func TestSameEpisodeUnanchoredNamesakesKeepLocalIDs(t *testing.T) {
 	service, err := NewService(db, stubSuggester{candidates: []SuggestedCandidate{makeCandidate("A", 1), makeCandidate("B", 2)}})
 	require.NoError(t, err)
 	src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "fixture-same-callname", Segments: []Segment{{Order: 1, SpeakerLabel: "A", Text: "我是王老师。"}, {Order: 2, SpeakerLabel: "B", Text: "我是王老师。"}}}
-	first, err := service.Prepare(context.Background(), src)
+	first, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	require.Len(t, first.People, 2)
 	firstIDs := []uint{*first.Attributions[0].PersonID, *first.Attributions[1].PersonID}
-	again, err := service.Prepare(context.Background(), src)
+	again, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	require.Equal(t, firstIDs[0], *again.Attributions[0].PersonID)
 	require.Equal(t, firstIDs[1], *again.Attributions[1].PersonID)
 	excluded := true
 	_, err = service.CorrectAppearance(context.Background(), ep.ID, AppearanceCorrection{PersonID: firstIDs[0], Excluded: &excluded})
 	require.NoError(t, err)
-	rebuilt, err := service.Prepare(context.Background(), src)
+	rebuilt, err := prepareReviewed(service, context.Background(), src)
 	require.NoError(t, err)
 	require.Len(t, rebuilt.People, 1)
 	require.Equal(t, firstIDs[1], rebuilt.People[0].ID)

@@ -74,7 +74,7 @@ func TestSchema28NineLegacyCandidatesUpgradeWithoutClearingFacts(t *testing.T) {
 	require.Zero(t, before.People[0].ConfirmedSpeech)
 	src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", Segments: []Segment{{Order: 1, SpeakerLabel: "Speaker 1", Text: text}}}
 	for i := 0; i < 2; i++ {
-		after, err := service.Prepare(context.Background(), src)
+		after, err := prepareReviewed(service, context.Background(), src)
 		require.NoError(t, err)
 		require.ElementsMatch(t, []string{"张小珺", "曾鸣"}, names(after.People))
 		require.Equal(t, hostID, mustPersonByName(t, after, "张小珺").ID)
@@ -83,6 +83,6 @@ func TestSchema28NineLegacyCandidatesUpgradeWithoutClearingFacts(t *testing.T) {
 		require.Equal(t, text, after.Attributions[0].Text)
 	}
 	require.NoError(t, db.Model(&models.PersonUserConfirmation{}).Count(&count).Error)
-	require.EqualValues(t, 1, count)
+	require.EqualValues(t, 3, count, "only the explicitly reviewed names and speech are confirmed")
 	require.NoError(t, database.ApplyMigrations(db))
 }

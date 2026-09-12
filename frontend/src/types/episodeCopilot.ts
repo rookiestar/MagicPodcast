@@ -130,6 +130,8 @@ export interface EpisodeAttributionView {
 }
 
 export interface EpisodePeoplePayload {
+  revision?: number;
+  draft?: PersonReviewDraft;
  preparation_state?: EpisodeCopilotContextScope["preparation_state"];
  excluded_people?: EpisodePersonCandidate[];
   episode_id: number;
@@ -152,4 +154,16 @@ export interface EpisodeCopilotStreamEvent {
   total_ms?: number;
   activity?: EpisodeCopilotActivity;
   stage_timings?: EpisodeCopilotStageTimings;
+}
+
+export interface PersonReviewMatch {
+ applied?: boolean;
+ role_edited?: boolean;
+ key: string; person_id?: number; display_name: string; role: string;
+ speaker_label: string; orders: number[]; selected: boolean;
+ evidence_locator?: string; uncertain: boolean;
+}
+export interface PersonReviewDraft {
+ id: number; revision: number; source_version: string;
+ matches: PersonReviewMatch[]; outdated: boolean;
 }

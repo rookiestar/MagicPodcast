@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func TestSearchPublicEntryHonorsPersonFilterScopeAndParaphrase(t *testing.T) {
@@ -149,6 +150,11 @@ func TestSearchExcludesStaleVersionsAfterReplaceDeleteAndCorrection(t *testing.T
 	// replacing an index alone must not manufacture a new identity decision.
 	require.NoError(t, db.Model(&models.PersonPreparation{}).Where("episode_id = ?", episodeID).Update("source_version", "v2").Error)
 	require.NoError(t, db.Model(&models.EpisodeAppearance{}).Where("episode_id = ? AND person_id = ?", episodeID, zhang).Update("source_version", "v2").Error)
+
+	require.NoError(t, db.Create(&models.SpeechAttribution{EpisodeID: episodeID, SourceKind: SourceTranscript, SourceVersion: "v2", FragmentOrder: 1, Text: "我不赞成无限制加班。", PersonID: &zhang, Status: "confirmed"}).Error)
+	require.NoError(t, db.Clauses(clause.OnConflict{DoNothing: true}).Create(&models.PersonUserConfirmation{EpisodeID: episodeID, Kind: models.PersonConfirmationKindName, PersonID: &zhang}).Error)
+	zero := uint(0)
+	require.NoError(t, db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&models.PersonUserConfirmation{EpisodeID: episodeID, Kind: models.PersonConfirmationKindAttribution, PersonID: &zero, AssignedPersonID: &zhang, SourceKind: SourceTranscript, SourceVersion: "v2", FragmentOrder: 1, SourceText: "我不赞成无限制加班。", Status: "confirmed"}).Error)
 	require.NoError(t, service.ReplaceEpisode(context.Background(), EpisodeDocument{
 		EpisodeID:     episodeID,
 		PublishedAt:   time.Date(2025, 8, 11, 0, 0, 0, 0, time.UTC),
@@ -277,6 +283,12 @@ func indexBaseline(t *testing.T, db *gorm.DB, service *Service) indexedLibrary {
 				item.PersonID = &id
 			}
 			fragments = append(fragments, item)
+			require.NoError(t, db.Create(&models.SpeechAttribution{EpisodeID: row.ID, SourceKind: SourceTranscript, SourceVersion: "fixture-" + episode.ID, FragmentOrder: segment.Order, SpeakerLabel: segment.SpeakerLabel, Text: segment.Text, Status: segment.AttributionStatus, PersonID: item.PersonID}).Error)
+			if item.PersonID != nil && segment.AttributionStatus == "confirmed" {
+				require.NoError(t, db.Clauses(clause.OnConflict{DoNothing: true}).Create(&models.PersonUserConfirmation{EpisodeID: row.ID, Kind: models.PersonConfirmationKindName, PersonID: item.PersonID}).Error)
+				zero := uint(0)
+				require.NoError(t, db.Create(&models.PersonUserConfirmation{EpisodeID: row.ID, Kind: models.PersonConfirmationKindAttribution, PersonID: &zero, AssignedPersonID: item.PersonID, SourceKind: SourceTranscript, SourceVersion: "fixture-" + episode.ID, FragmentOrder: segment.Order, SpeakerLabel: segment.SpeakerLabel, SourceText: segment.Text, Status: "confirmed"}).Error)
+			}
 		}
 		require.NoError(t, service.ReplaceEpisode(context.Background(), EpisodeDocument{
 			EpisodeID:     row.ID,

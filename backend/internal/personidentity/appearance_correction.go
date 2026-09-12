@@ -25,6 +25,21 @@ func loadAppearanceOverrides(db *gorm.DB, episodeID uint) (map[uint]models.Perso
 	return result, nil
 }
 
+func upsertAppearanceOverride(tx *gorm.DB, episodeID, personID uint, role *string, excluded *bool) error {
+	row := models.PersonAppearanceOverride{EpisodeID: episodeID, PersonID: personID}
+	if err := tx.First(&row, "episode_id = ? AND person_id = ?", episodeID, personID).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	if role != nil {
+		row.Role = role
+	}
+	if excluded != nil {
+		row.Excluded = *excluded
+	}
+	row.UpdatedAt = nowUTC()
+	return tx.Save(&row).Error
+}
+
 func (s *Service) CorrectAppearance(ctx context.Context, episodeID uint, correction AppearanceCorrection) (EpisodePeople, error) {
 	if correction.PersonID == 0 || (correction.Role == nil && correction.Excluded == nil) {
 		return EpisodePeople{}, ErrInvalidCorrection
@@ -40,18 +55,7 @@ func (s *Service) CorrectAppearance(ctx context.Context, episodeID uint, correct
 			}
 			return err
 		}
-		row := models.PersonAppearanceOverride{EpisodeID: episodeID, PersonID: correction.PersonID}
-		if err := tx.First(&row, "episode_id = ? AND person_id = ?", episodeID, correction.PersonID).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		if correction.Role != nil {
-			row.Role = correction.Role
-		}
-		if correction.Excluded != nil {
-			row.Excluded = *correction.Excluded
-		}
-		row.UpdatedAt = nowUTC()
-		if err := tx.Save(&row).Error; err != nil {
+		if err := upsertAppearanceOverride(tx, episodeID, correction.PersonID, correction.Role, correction.Excluded); err != nil {
 			return err
 		}
 		if _, err := reservePreparation(tx, episodeID); err != nil {

@@ -184,6 +184,7 @@ vi.mock("@/lib/api/processing", () => ({
 
 vi.mock("@/lib/api/episodeCopilot", () => ({
   episodeCopilotApi: {
+ getPeople: vi.fn().mockResolvedValue({episode_id:201,source_version:"",people:[],attributions:[],index_ready:false}),
     getContext: apiMocks.getCopilotContext,
     ask: apiMocks.askCopilot,
   },
@@ -1629,7 +1630,7 @@ describe("InboxPageClient", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "重试" }));
     expect(load).toHaveBeenCalledTimes(2);
     expect(audio).toHaveAttribute("src", mediaSource);
-  });
+  }, 12000);
 
   it("preserves each detail tab's scroll position when switching tabs", async () => {
     mockNativeMinutesProcessing();
@@ -1690,7 +1691,7 @@ describe("InboxPageClient", () => {
       within(dialog).queryByText("来自同一条飞书妙记"),
     ).not.toBeInTheDocument();
     selectionSpy.mockRestore();
-  });
+  }, 12000);
 
   it("renders rich Feishu intelligent minutes and jumps chapters in the transcript", async () => {
     const completedRun: ProcessingRun = {

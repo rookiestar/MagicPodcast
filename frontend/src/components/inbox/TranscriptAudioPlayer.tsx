@@ -16,10 +16,12 @@ import {
   IconRefresh,
 } from "@tabler/icons-react";
 import type { MinutesChapter, TranscriptSegment } from "@/types/processing";
+import { useTranscriptPeople } from "./TranscriptPeople";
 import styles from "./InboxPage.module.css";
 import { useMenuPopover } from "./useMenuPopover";
 
 interface TranscriptAudioPlayerProps {
+ episodeId?: number;
   artifactSetId: number;
   segments: TranscriptSegment[];
   mediaAvailable: boolean;
@@ -204,6 +206,7 @@ function findTranscriptScrollOwner(
 }
 
 export default function TranscriptAudioPlayer({
+ episodeId,
   artifactSetId,
   segments,
   mediaAvailable,
@@ -641,6 +644,11 @@ export default function TranscriptAudioPlayer({
               ? "自动跟随已暂停"
               : "";
 
+ const people = useTranscriptPeople(episodeId, artifactSetId, segments, order => {
+  const segment = segments.find(s => s.order === order);
+  if (segment) { segmentRefs.current.get(order)?.scrollIntoView({block:"center"}); seekTo(segment.start_ms / 1000); }
+ });
+
   return (
     <div className={styles.transcriptExperience}>
       <div
@@ -867,6 +875,8 @@ export default function TranscriptAudioPlayer({
         </details>
       )}
 
+      {people.toolbar}
+      <div className={people.open ? styles.transcriptPeopleLayout : undefined}>
       <div
         ref={transcriptRef}
         className={styles.transcriptSegments}
@@ -888,67 +898,33 @@ export default function TranscriptAudioPlayer({
           {segments.map((segment, index) => {
             const isCurrent = currentSegmentIndex === index;
             const timestamp = formatPlaybackTime(segment.start_ms / 1000);
-            const content = (
-              <>
-                <span className={styles.transcriptSegmentHeader}>
-                  <span>{segment.speaker}</span>
-                  <time dateTime={`PT${segment.start_ms / 1000}S`}>
-                    {timestamp}
-                  </time>
-                  {isCurrent && (
-                    <span className={styles.transcriptCurrentMarker}>
-                      {isPlaying ? "正在播放" : "当前段落"}
-                    </span>
-                  )}
-                </span>
-                <span className={styles.transcriptSegmentText}>
-                  {segment.text}
-                </span>
-              </>
-            );
             return (
               <li key={`${segment.order}-${segment.start_ms}`}>
-                {mediaAvailable ? (
-                  <button
-                    ref={(node) => {
-                      if (node) {
-                        segmentRefs.current.set(segment.order, node);
-                      } else {
-                        segmentRefs.current.delete(segment.order);
-                      }
-                    }}
-                    type="button"
-                    className={styles.transcriptSegment}
+                <article ref={node => {if(!mediaAvailable) {if(node) segmentRefs.current.set(segment.order,node); else segmentRefs.current.delete(segment.order);}}}
+                  className={styles.transcriptSegment} data-fragment-order={segment.order}
+                  data-speaker-tone={speakerTones.get(segment.speaker)} aria-current={isCurrent ? "true" : undefined}>
+                  <span className={styles.transcriptSegmentHeader}>
+                    {people.speakerLabel(segment)}
+                    <time dateTime={`PT${segment.start_ms / 1000}S`}>{timestamp}</time>
+                    {isCurrent && <span className={styles.transcriptCurrentMarker}>{isPlaying ? "正在播放" : "当前段落"}</span>}
+                  </span>
+                  {mediaAvailable ? <button type="button" className={styles.transcriptTextButton}
+                    ref={node => {if(node) segmentRefs.current.set(segment.order,node); else segmentRefs.current.delete(segment.order);}}
                     data-fragment-order={segment.order}
-                    data-speaker-tone={speakerTones.get(segment.speaker)}
-                    aria-label={`${timestamp} ${segment.speaker}：${segment.text}`}
+                    aria-label={`${timestamp} ${people.nameFor(segment)}：${segment.text}`}
                     aria-current={isCurrent ? "true" : undefined}
-                    onClick={() => seekTo(segment.start_ms / 1000)}
-                  >
-                    {content}
-                  </button>
-                ) : (
-                  <article
-                    ref={(node) => {
-                      if (node) {
-                        segmentRefs.current.set(segment.order, node);
-                      } else {
-                        segmentRefs.current.delete(segment.order);
-                      }
-                    }}
-                    className={styles.transcriptSegment}
-                    data-fragment-order={segment.order}
-                    data-speaker-tone={speakerTones.get(segment.speaker)}
-                    aria-current={isCurrent ? "true" : undefined}
-                  >
-                    {content}
-                  </article>
-                )}
+                    onClick={() => seekTo(segment.start_ms / 1000)}>
+                    <span className={styles.transcriptSegmentText}>{segment.text}</span>
+                  </button> : <span className={styles.transcriptSegmentText}>{segment.text}</span>}
+                </article>
               </li>
             );
           })}
         </ol>
       </div>
+      {people.panel}
+      </div>
+      {people.editor}
     </div>
   );
 }

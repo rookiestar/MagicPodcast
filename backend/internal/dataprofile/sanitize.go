@@ -13,12 +13,12 @@ import (
 	"strings"
 )
 
-const SanitizerVersion = "v11"
+const SanitizerVersion = "v12"
 
 // Persona tables contain manual identity corrections and copies of transcripts.
 // Database-only snapshots remove them together with the processing artifact graph.
-const sanitizerSchemaFingerprint = "1d505a4b1d8bda564fd7ac72f16142b48a249ddcc6631299319687ed2a72d9d1"
-const sanitizerSchemaObjectsFingerprint = "e70e6a250f36648005389e3af4a9c00f4c4a92a8ca9c4a54e34b2493f3950821"
+const sanitizerSchemaFingerprint = "3971b92281917d9d7d882a4310e4ee2568ac05e3199997935a5243655fcbcfa7"
+const sanitizerSchemaObjectsFingerprint = "ec74d0a64b308c193e12a16db42c5927a3330413c96e1a884ccb1bf373ec4c20"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 
@@ -88,6 +88,7 @@ func SanitizeSnapshot(db *sql.DB) error {
 		// are not part of a database-only snapshot. Removing the whole graph is
 		// safer and more truthful than retaining broken artifact, scheduling, or
 		// external-delivery state.
+		"DELETE FROM person_drafts", // Contains source text, evidence, edits and applied-request names.
 		"DELETE FROM person_preparations",
 		"DELETE FROM person_appearance_overrides",
 		"DELETE FROM content_search_fragments",
@@ -183,6 +184,7 @@ func VerifySanitizedSnapshot(db *sql.DB) error {
 		{"SELECT COUNT(*) FROM processing_checkpoints", "processing provider checkpoints"},
 		{"SELECT COUNT(*) FROM processing_schedule_items", "processing schedule candidate history"},
 		{"SELECT COUNT(*) FROM episode_artifact_audio_recoveries", "audio recovery state"},
+		{"SELECT COUNT(*) FROM person_drafts", "person review drafts and applied requests"},
 		{"SELECT COUNT(*) FROM person_preparations", "persona preparation decisions"},
 		{"SELECT COUNT(*) FROM person_appearance_overrides", "persona appearance corrections"},
 		{"SELECT COUNT(*) FROM content_search_fragments", "persona content_search_fragments"},

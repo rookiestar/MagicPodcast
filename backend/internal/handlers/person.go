@@ -164,7 +164,7 @@ func writeInvalidPersonRequest(c *gin.Context) {
 		"success": false,
 		"error": gin.H{
 			"code":    "INVALID_PERSON_REQUEST",
-			"message": "request must contain a valid person or attribution correction",
+			"message": "请检查姓名、角色和匹配范围；同一片段不能同时归属多人。",
 		},
 	})
 }
@@ -182,7 +182,7 @@ func writePersonUnavailable(c *gin.Context) {
 func writePersonError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, personidentity.ErrSourcesChanged), errors.Is(err, contentsearch.ErrStaleDocument):
-		c.JSON(http.StatusConflict, gin.H{"success": false, "error": gin.H{"code": "PERSON_SOURCE_CHANGED", "message": "人物资料来源已更新，请重新识别。"}})
+		c.JSON(http.StatusConflict, gin.H{"success": false, "error": gin.H{"code": "PERSON_SOURCE_CHANGED", "message": "人物资料或逐字稿已更新，请重新读取后核对。"}})
 	case errors.Is(err, personidentity.ErrIdentityUnavailable):
 		writePersonUnavailable(c)
 	case errors.Is(err, personidentity.ErrInvalidCorrection), errors.Is(err, personidentity.ErrTranscriptRequired):
@@ -237,6 +237,74 @@ func (h *PersonHandler) CorrectAppearance(c *gin.Context) {
 		return
 	}
 	result, err := corrector.CorrectAppearance(c.Request.Context(), episodeID, personidentity.AppearanceCorrection{PersonID: personID, Role: body.Role, Excluded: body.Excluded})
+	if err != nil {
+		writePersonError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+}
+
+func (h *PersonHandler) Review(c *gin.Context)      { h.review(c, false) }
+func (h *PersonHandler) ApplyReview(c *gin.Context) { h.review(c, true) }
+func (h *PersonHandler) review(c *gin.Context, apply bool) {
+	id, ok := ParseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	reviewer, ok := h.module.(interface {
+		Review(context.Context, uint, personidentity.ReviewRequest, bool) (personidentity.EpisodePeople, error)
+	})
+	if !ok {
+		writePersonUnavailable(c)
+		return
+	}
+	var body personidentity.ReviewRequest
+	if !decodeStrictJSON(c, &body) {
+		return
+	}
+	result, err := reviewer.Review(c.Request.Context(), id, body, apply)
+	if err != nil {
+		writePersonError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+}
+func (h *PersonHandler) Manual(c *gin.Context) {
+	id, ok := ParseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	reviewer, ok := h.module.(interface {
+		ApplyManual(context.Context, uint, personidentity.ManualMatch) (personidentity.EpisodePeople, error)
+	})
+	if !ok {
+		writePersonUnavailable(c)
+		return
+	}
+	var body personidentity.ManualMatch
+	if !decodeStrictJSON(c, &body) {
+		return
+	}
+	result, err := reviewer.ApplyManual(c.Request.Context(), id, body)
+	if err != nil {
+		writePersonError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+}
+func (h *PersonHandler) ReviewHistory(c *gin.Context) {
+	id, ok := ParseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	reviewer, ok := h.module.(interface {
+		ReviewHistory(context.Context, uint) ([]personidentity.ReviewDraft, error)
+	})
+	if !ok {
+		writePersonUnavailable(c)
+		return
+	}
+	result, err := reviewer.ReviewHistory(c.Request.Context(), id)
 	if err != nil {
 		writePersonError(c, err)
 		return

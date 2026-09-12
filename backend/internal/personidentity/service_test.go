@@ -47,14 +47,14 @@ func openPersonIdentityDB(t *testing.T) *gorm.DB {
 func seedBaselineLibrary(t *testing.T, suggester CandidateSuggester) seededLibrary {
 	t.Helper()
 	db := openPersonIdentityDB(t)
-	if suggester == nil {
-		suggester = testSourceSuggester{}
-	}
 	service, err := NewService(db, suggester)
 	require.NoError(t, err)
 
 	seeded, err := SeedBaseline(context.Background(), db, service)
 	require.NoError(t, err)
+	if service.suggester == nil {
+		service.suggester = testSourceSuggester{}
+	}
 	return seededLibrary{
 		db:         db,
 		service:    service,
@@ -162,7 +162,7 @@ func TestCorrectAttributionPersistsAndDoesNotRewriteTranscript(t *testing.T) {
 	require.Len(t, reliable, 1)
 	require.Contains(t, reliable[0].Text, "不赞成无限制加班")
 
-	_, err = lib.service.Prepare(context.Background(), EpisodeSources{
+	_, err = prepareReviewed(lib.service, context.Background(), EpisodeSources{
 		EpisodeID:     episodeID,
 		ShowNotes:     "主播张三，嘉宾李明。转写把两人混进同一说话人标签“嘉宾”。",
 		SourceKind:    SourceTranscript,
@@ -259,6 +259,9 @@ func TestPublishedTranscriptIndexesPeopleAndSearch(t *testing.T) {
 	))
 	listed, err := service.ListEpisodePeople(context.Background(), episode.ID)
 	require.NoError(t, err)
+	require.Empty(t, listed.People, "publishing a transcript must not recognise or approve people")
+	listed, err = prepareReviewed(service, context.Background(), EpisodeSources{EpisodeID: episode.ID, SourceVersion: fmt.Sprintf("artifact-%d", artifact.ID), Segments: SegmentsFromTranscript(segments)})
+	require.NoError(t, err)
 	require.Equal(t, "张三", listed.People[0].DisplayName)
 	hits, err := search.Search(context.Background(), contentsearch.Request{
 		Query:  "加班",
@@ -354,7 +357,7 @@ func TestCorrectAttributionUpdatesSearchWithoutAsk(t *testing.T) {
 		GUID: "search-correct-ep", PublishedDate: time.Date(2025, 8, 11, 0, 0, 0, 0, time.UTC),
 	}
 	require.NoError(t, db.Create(&episode).Error)
-	_, err = service.Prepare(context.Background(), EpisodeSources{
+	_, err = prepareReviewed(service, context.Background(), EpisodeSources{
 		EpisodeID:     episode.ID,
 		ShowNotes:     episode.ShowNotes,
 		SourceKind:    SourceTranscript,
@@ -476,10 +479,10 @@ func TestSameNameWithoutIdentityDoesNotMergeAcrossEpisodes(t *testing.T) {
 		ep := models.Episode{PodcastID: pod.ID, Title: guid, GUID: guid}
 		require.NoError(t, db.Create(&ep).Error)
 		src := EpisodeSources{EpisodeID: ep.ID, SourceVersion: "v1", ShowNotes: "嘉宾：张三", Segments: []Segment{{Order: 1, SpeakerLabel: "张三", Text: "我是张三。"}}}
-		first, err := service.Prepare(context.Background(), src)
+		first, err := prepareReviewed(service, context.Background(), src)
 		require.NoError(t, err)
 		require.Len(t, first.People, 1)
-		again, err := service.Prepare(context.Background(), src)
+		again, err := prepareReviewed(service, context.Background(), src)
 		require.NoError(t, err)
 		require.Len(t, again.People, 1)
 		require.Equal(t, first.People[0].ID, again.People[0].ID)
@@ -503,22 +506,22 @@ func TestCorrectionReplacementAndVersionIsolation(t *testing.T) {
 	for _, f := range before.Attributions {
 		sources.Segments = append(sources.Segments, Segment{Order: f.FragmentOrder, SpeakerLabel: f.SpeakerLabel, StartMS: f.StartMS, Text: f.Text})
 	}
-	got, err := lib.service.Prepare(ctx, sources)
+	got, err := prepareReviewed(lib.service, ctx, sources)
 	require.NoError(t, err)
 	require.Equal(t, b, *got.Attributions[6].PersonID)
 	_, err = lib.service.CorrectAttribution(ctx, ep, AttributionCorrection{FragmentOrder: 7, AssignedPersonID: &b, Status: StatusPending})
 	require.NoError(t, err)
-	got, err = lib.service.Prepare(ctx, sources)
+	got, err = prepareReviewed(lib.service, ctx, sources)
 	require.NoError(t, err)
 	require.Equal(t, StatusPending, got.Attributions[6].Status)
 	_, err = lib.service.CorrectAttribution(ctx, ep, AttributionCorrection{FragmentOrder: 7, Status: StatusRejected})
 	require.NoError(t, err)
-	got, err = lib.service.Prepare(ctx, sources)
+	got, err = prepareReviewed(lib.service, ctx, sources)
 	require.NoError(t, err)
 	require.Equal(t, StatusRejected, got.Attributions[6].Status)
 	require.Nil(t, got.Attributions[6].PersonID)
 	sources.SourceVersion = "v-new"
-	got, err = lib.service.Prepare(ctx, sources)
+	got, err = prepareReviewed(lib.service, ctx, sources)
 	require.NoError(t, err)
 	require.Equal(t, StatusPending, got.Attributions[6].Status)
 	require.Nil(t, got.Attributions[6].PersonID)
@@ -534,7 +537,7 @@ func TestRuntimeSuggestionsRequireLocatedOriginalIdentity(t *testing.T) {
 	require.Equal(t, []int{1}, items[0].SpeechOrders)
 }
 
-func TestShowNotesChangeInvalidatesPeopleAndIndex(t *testing.T) {
+func TestShowNotesChangePreservesApprovedSpeechAndInvalidatesCoverage(t *testing.T) {
 	db := openPersonIdentityDB(t)
 	search, err := contentsearch.NewService(db)
 	require.NoError(t, err)
@@ -550,18 +553,20 @@ func TestShowNotesChangeInvalidatesPeopleAndIndex(t *testing.T) {
 	after, err := service.ListEpisodePeople(context.Background(), id)
 	require.NoError(t, err)
 	require.False(t, after.IndexReady)
-	for _, p := range after.People {
-		require.Equal(t, StatusPending, p.Status)
+	for i, p := range after.People {
+		require.Equal(t, before.People[i].Status, p.Status, "metadata does not undo an explicit human confirmation")
 	}
 	result, err := search.Search(context.Background(), contentsearch.Request{Query: "加班", Scope: contentsearch.Scope{EpisodeIDs: []uint{id}}})
 	require.NoError(t, err)
 	require.NotEmpty(t, result.Hits, "valid original transcript remains generally searchable")
 	for _, hit := range result.Hits {
-		require.Nil(t, hit.PersonID)
+		if hit.AttributionStatus == StatusConfirmed {
+			require.NotNil(t, hit.PersonID)
+		}
 	}
 	require.False(t, result.Coverage.Complete)
 	personal, err := search.Search(context.Background(), contentsearch.Request{Query: "加班", Scope: contentsearch.Scope{EpisodeIDs: []uint{id}}, Filter: contentsearch.Filter{PersonID: &before.People[0].ID}})
 	require.NoError(t, err)
-	require.Empty(t, personal.Hits)
+	require.NotEmpty(t, personal.Hits)
 	require.False(t, personal.Coverage.Complete)
 }

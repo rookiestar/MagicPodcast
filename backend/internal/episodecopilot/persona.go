@@ -53,7 +53,9 @@ func (s *Service) attachPeople(ctx context.Context, scope *ContextScope) error {
 		}
 	}
 	for _, person := range listed.People {
-		scope.People = append(scope.People, convertPerson(person))
+		if person.Status == personidentity.StatusConfirmed && person.ConfirmedSpeech > 0 {
+			scope.People = append(scope.People, convertPerson(person))
+		}
 	}
 	scope.ExcludedPeople = make([]PersonCandidate, 0, len(listed.ExcludedPeople))
 	for _, person := range listed.ExcludedPeople {
@@ -89,7 +91,7 @@ func (s *Service) resolveTargetPerson(
 		if person.ID != request.TargetPersonID {
 			continue
 		}
-		if person.Status != personidentity.StatusConfirmed {
+		if person.Status != personidentity.StatusConfirmed || person.ConfirmedSpeech == 0 {
 			return personidentity.PersonView{}, ErrPersonPending
 		}
 		return person, nil
@@ -101,6 +103,7 @@ func (s *Service) searchLibrary(
 	ctx context.Context,
 	request QuestionRequest,
 	person personidentity.PersonView,
+	snapshots map[uint]personidentity.EpisodePeople,
 ) (contentsearch.Result, bool, error) {
 	if s.search == nil {
 		return contentsearch.Result{}, false, nil
@@ -109,6 +112,24 @@ func (s *Service) searchLibrary(
 	query := request.Question
 	if request.Selection != "" {
 		query += "\n" + request.Selection
+	}
+	ids, err := s.people.AccessibleEpisodeIDs(ctx)
+	if err != nil {
+		return contentsearch.Result{}, false, err
+	}
+	// Capture effective attribution views before either search query. Search
+	// results must be compared with the facts that were current when they were
+	// read, otherwise a correction between search and snapshotting can make a
+	// stale hit look valid.
+	for _, episodeID := range ids {
+		if _, exists := snapshots[episodeID]; exists {
+			continue
+		}
+		current, err := s.people.ListEpisodePeople(ctx, episodeID)
+		if err != nil {
+			return contentsearch.Result{}, false, err
+		}
+		snapshots[episodeID] = current
 	}
 	limit := 8
 	result, err := s.search.Search(ctx, contentsearch.Request{
@@ -123,10 +144,6 @@ func (s *Service) searchLibrary(
 	if err != nil {
 		return contentsearch.Result{}, false, err
 	}
-	ids, err := s.people.AccessibleEpisodeIDs(ctx)
-	if err != nil {
-		return result, false, err
-	}
 	broader, err := s.search.Search(ctx, contentsearch.Request{
 		Query:  query,
 		Scope:  contentsearch.Scope{EpisodeIDs: ids},
@@ -138,6 +155,15 @@ func (s *Service) searchLibrary(
 	}
 	result.Coverage = broader.Coverage
 	result.Hits = uniqueHits(append(result.Hits, broader.Hits...))
+	relevant := map[uint]struct{}{request.EpisodeID: {}}
+	for _, hit := range result.Hits {
+		relevant[hit.EpisodeID] = struct{}{}
+	}
+	for episodeID := range snapshots {
+		if _, ok := relevant[episodeID]; !ok {
+			delete(snapshots, episodeID)
+		}
+	}
 	return result, libraryCovers(query, person, result.Hits), nil
 }
 

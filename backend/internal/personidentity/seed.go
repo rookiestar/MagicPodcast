@@ -90,15 +90,39 @@ func SeedBaseline(ctx context.Context, db *gorm.DB, service *Service) (SeededLib
 			copy.suggester = suggested
 			preparer = &copy
 		}
-		if _, err := preparer.Prepare(ctx, EpisodeSources{
+		prepared, err := preparer.Prepare(ctx, EpisodeSources{
 			EpisodeID:     row.ID,
 			ShowNotes:     episode.ShowNotes,
 			SourceKind:    SourceTranscript,
 			SourceVersion: "fixture-" + episode.ID,
 			Segments:      segments,
-		}); err != nil {
+		})
+		if err != nil {
 			return SeededLibrary{}, err
 		}
+		if prepared.Draft != nil {
+			for i := range prepared.Draft.Matches {
+				prepared.Draft.Matches[i].Selected = prepared.Draft.Matches[i].SuggestedStatus == StatusConfirmed
+			}
+
+			_, err = preparer.Review(ctx, row.ID, ReviewRequest{DraftID: prepared.Draft.ID, Revision: prepared.Revision, SourceVersion: prepared.Draft.SourceVersion, Matches: prepared.Draft.Matches}, true)
+			if err != nil {
+				return SeededLibrary{}, err
+			}
+			for _, m := range prepared.Draft.Matches {
+				if m.SuggestedStatus != StatusPending {
+					continue
+				}
+				person := models.Person{StableKey: newStableKey(), DisplayName: m.DisplayName, IdentityNote: m.IdentityNote, CreatedAt: nowUTC(), UpdatedAt: nowUTC()}
+				if err := db.Create(&person).Error; err != nil {
+					return SeededLibrary{}, err
+				}
+				if err := db.Create(&models.EpisodeAppearance{EpisodeID: row.ID, PersonID: person.ID, SourceVersion: prepared.Draft.SourceVersion, Role: m.Role, Status: StatusPending, CreatedAt: nowUTC(), UpdatedAt: nowUTC()}).Error; err != nil {
+					return SeededLibrary{}, err
+				}
+			}
+		}
+
 	}
 	peopleIDs := map[string]uint{}
 	var people []models.Person

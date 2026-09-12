@@ -77,7 +77,7 @@ func reservePreparation(tx *gorm.DB, episodeID uint) (uint, error) {
 	return state.Revision, nil
 }
 
-func publishPreparation(tx *gorm.DB, episodeID uint, sourceVersion string, metadata preparationMetadata, revision uint) error {
+func validatePreparationSource(tx *gorm.DB, episodeID uint, sourceVersion string, metadata preparationMetadata) error {
 	currentMetadata, err := readPreparationMetadata(tx, episodeID)
 	if err != nil {
 		return err
@@ -100,6 +100,13 @@ func publishPreparation(tx *gorm.DB, episodeID uint, sourceVersion string, metad
 			return ErrSourcesChanged
 		}
 	} else {
+		return err
+	}
+	return nil
+}
+
+func publishPreparation(tx *gorm.DB, episodeID uint, sourceVersion string, metadata preparationMetadata, revision uint) error {
+	if err := validatePreparationSource(tx, episodeID, sourceVersion, metadata); err != nil {
 		return err
 	}
 	result := tx.Model(&models.PersonPreparation{}).Where("episode_id = ? AND revision = ?", episodeID, revision).Updates(map[string]any{

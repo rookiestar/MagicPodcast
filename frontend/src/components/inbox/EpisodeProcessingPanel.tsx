@@ -1303,6 +1303,7 @@ function EpisodeProcessingPanel({
           {selectedArtifactContent.content.kind === "transcript" &&
           selectedArtifactContent.content.segments?.length ? (
             <TranscriptAudioPlayer
+              episodeId={item.episode_id}
               artifactSetId={selectedArtifactContent.artifactSetId}
               segments={selectedArtifactContent.content.segments}
               mediaAvailable={selectedArtifactContent.content.media_available}

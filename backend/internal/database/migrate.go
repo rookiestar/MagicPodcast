@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 29
+const CurrentSchemaVersion = 30
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -272,6 +272,23 @@ func migrationRegistry() []Migration {
 				},
 			},
 		},
+		{
+			Version:     30,
+			Name:        "person-review-drafts",
+			Description: "Persist user review drafts separately from applied speech attribution (#346).",
+			Apply: func(db *gorm.DB) error {
+				for _, sql := range []string{models.PersonDraftCreateSQL, models.PersonDraftIndexSQL} {
+					if err := db.Exec(sql).Error; err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+			Contract: MigrationContract{SchemaChanges: []SchemaChangeRule{
+				{Operation: SchemaChangeCreateTable, Table: "person_drafts"},
+				{Operation: SchemaChangeCreateIndex, Table: "person_drafts", Object: "idx_person_drafts_episode"},
+			}},
+		},
 	}
 }
 
@@ -288,7 +305,7 @@ var baselineRequiredTables = []string{
 	"episodes_tags",
 }
 
-var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions", "episode_processing_runs", "processing_checkpoints", "episode_artifact_sets", "knowledge_deliveries", "episode_audio_assets", "processing_schedule_runs", "processing_schedule_items", models.EpisodeArtifactAudioRecovery{}.TableName(), models.Person{}.TableName(), models.PersonAlias{}.TableName(), models.EpisodeAppearance{}.TableName(), models.SpeechAttribution{}.TableName(), models.PersonUserConfirmation{}.TableName(), models.ContentSearchFragment{}.TableName(), models.ContentSearchCoverage{}.TableName(), models.PersonPreparation{}.TableName(), models.PersonAppearanceOverride{}.TableName())
+var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions", "episode_processing_runs", "processing_checkpoints", "episode_artifact_sets", "knowledge_deliveries", "episode_audio_assets", "processing_schedule_runs", "processing_schedule_items", models.EpisodeArtifactAudioRecovery{}.TableName(), models.Person{}.TableName(), models.PersonAlias{}.TableName(), models.EpisodeAppearance{}.TableName(), models.SpeechAttribution{}.TableName(), models.PersonUserConfirmation{}.TableName(), models.ContentSearchFragment{}.TableName(), models.ContentSearchCoverage{}.TableName(), models.PersonPreparation{}.TableName(), models.PersonAppearanceOverride{}.TableName(), models.PersonDraft{}.TableName())
 
 func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
 	if db == nil {
