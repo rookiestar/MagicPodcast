@@ -431,6 +431,82 @@ describe("人物识别进度与恢复", () => {
   });
 });
 
+describe("识别中底栏的按需说明", () => {
+  it("does not retain a hidden tooltip Escape guard after preparation finishes", async () => {
+    let finish!: (value: EpisodePeoplePayload) => void;
+    vi.mocked(episodeCopilotApi.preparePeople).mockImplementation(
+      () => new Promise((resolve) => { finish = resolve; }),
+    );
+    render(<Player />);
+    fireEvent.click(await screen.findByRole("button", { name: "识别人物" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始识别" }));
+    fireEvent.click(screen.getByRole("button", { name: "可收起，识别继续" }));
+    await act(async () => { finish(proposal); });
+    const dialog = screen.getByRole("dialog", { name: "人物与发言核对" });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(dialog).not.toBeVisible();
+  });
+  it("keeps the top confirmation notice and reveals footer details via hover, tap and keyboard", async () => {
+    vi.mocked(episodeCopilotApi.preparePeople).mockImplementation(
+      () => new Promise(() => {}),
+    );
+    render(<Player />);
+    fireEvent.click(await screen.findByRole("button", { name: "识别人物" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始识别" }));
+    const dialog = screen.getByRole("dialog", { name: "人物与发言核对" });
+    expect(
+      within(dialog).getByText("核对姓名与具体发言，确认后才会生效。"),
+    ).toBeVisible();
+    expect(
+      screen.queryByText(/完成后由你确认/),
+    ).not.toBeInTheDocument();
+    const hint = within(dialog).getByRole("button", {
+      name: "可收起，识别继续",
+    });
+    const detail = within(dialog).getByText(
+      "已有结果保留，新结果经你确认后生效。",
+    );
+    expect(detail).not.toBeVisible();
+    expect(hint).toHaveAttribute("aria-expanded", "false");
+    const zone = hint.closest("span")!;
+    fireEvent.pointerEnter(zone, { pointerType: "touch" });
+    expect(detail).not.toBeVisible();
+    fireEvent.pointerEnter(zone, { pointerType: "mouse" });
+    expect(detail).toBeVisible();
+    expect(hint).toHaveAttribute("aria-expanded", "true");
+    fireEvent.pointerLeave(zone, { pointerType: "mouse" });
+    expect(detail).not.toBeVisible();
+    fireEvent.click(hint);
+    expect(detail).toBeVisible();
+    fireEvent.click(hint);
+    expect(detail).not.toBeVisible();
+    // A held touch must stay open after focus, independent of gesture duration.
+    fireEvent.pointerDown(hint, { pointerType: "touch" });
+    fireEvent.focus(hint);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 1000);
+    fireEvent.click(hint);
+    clock.mockRestore();
+    expect(detail).toBeVisible();
+    fireEvent.pointerDown(hint, { pointerType: "touch" });
+    fireEvent.click(hint);
+    expect(detail).not.toBeVisible();
+    fireEvent.blur(hint);
+    fireEvent.focus(hint);
+    expect(detail).toBeVisible();
+    // Keyboard activation immediately after focus must not be swallowed.
+    fireEvent.click(hint, { detail: 0 });
+    expect(detail).not.toBeVisible();
+    fireEvent.click(hint, { detail: 0 });
+    expect(detail).toBeVisible();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(detail).not.toBeVisible();
+    expect(dialog).toBeVisible();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(dialog).not.toBeVisible();
+  });
+});
+
 it("cannot apply or edit a current server draft while displaying another source version", async () => {
   vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue({ ...proposal,
     source_version: "artifact-99", draft: { ...proposal.draft!, source_version: "artifact-99" } });

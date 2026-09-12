@@ -281,7 +281,66 @@
 .panel footer button { min-height: 40px; padding: 9px 16px; border-radius: 4px; }
 .footerSummary { flex: 1 0 100%; min-width: 0; }
 .panel footer .reidentify { margin-right: auto; border-color: transparent; background: transparent; color: #a54813; padding-left: 0; }
-.panel .progressFooter { text-align: center; justify-content: center; }
+/* 识别中底栏：左侧低强调提示，右侧无边框取消，单行左右布局；说明按需展开。 */
+.panel .progressFooter {
+  position: relative;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: center;
+  min-height: 60px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.panel .footerHintWrap {
+  position: relative;
+  display: inline-flex;
+  margin-left: -10px;
+}
+.panel .footerHint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #71685e;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.panel .footerHint:hover { background: #f3e7d6; }
+.panel .footerHint svg { flex-shrink: 0; }
+.panel .footerCancel {
+  min-height: 44px;
+  padding: 0 12px;
+  margin-right: -12px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #a54813;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.panel .footerCancel:hover { background: #f3e7d6; }
+.panel .footerCancel:active { background: #eddfc9; }
+.panel .footerDetail {
+  position: absolute;
+  left: 10px;
+  bottom: calc(100% - 12px);
+  z-index: 6;
+  width: max-content;
+  max-width: min(460px, calc(100vw - 52px));
+  padding: 8px 12px;
+  border: 1px solid #d9d2c6;
+  border-radius: 6px;
+  background: #fbf7ee;
+  box-shadow: 0 10px 30px rgb(33 29 24 / 12%);
+  color: #71685e;
+  font-size: 12px;
+  line-height: 1.6;
+}
 .footerSummary small { display: block; color: #71685e; margin-top: 4px; }
 .panel .exception { color: #71685e; }
 .editorBackdrop { background: rgb(33 29 24 / 36%); }
@@ -298,6 +357,7 @@
   .avatar { display: none; }
   .fields { grid-template-columns: minmax(0, 1fr) 100px; }
   .footerSummary { flex-basis: 100%; }
+  .footerHint .hintExtra { display: none; }
   .panel input:not([type=checkbox]), .panel select, .editor input:not([type=radio]), .editor select { font-size: 16px; }
 }
 .progress { padding: 24px 4px; }
