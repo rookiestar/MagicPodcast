@@ -3,12 +3,13 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   type KeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { IconPencil, IconUsers, IconX } from "@tabler/icons-react";
+import { IconInfoCircle, IconPencil, IconUsers, IconX } from "@tabler/icons-react";
 import { episodeCopilotApi, type PersonPreparationEvent } from "@/lib/api/episodeCopilot";
 import type {
   EpisodePeoplePayload,
@@ -91,6 +92,9 @@ export function useTranscriptPeople(
   const [editingMatch, setEditingMatch] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
   const [progress, setProgress] = useState<{ stage: string; started: number } | null>(null);
+  const [hintOpen, setHintOpen] = useState(false);
+  const hintOpenAtPointerDown = useRef<boolean | null>(null);
+  const prepareDetailId = useId();
   const [needsReadback, setNeedsReadback] = useState(false);
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -273,6 +277,7 @@ export function useTranscriptPeople(
     setSaved("");
     panelScroll.current = 0;
     if (panelBodyElement.current) panelBodyElement.current.scrollTop = 0;
+    setHintOpen(false);
     setProgress({stage: "", started});
     try {
       const value = await episodeCopilotApi.preparePeople(episodeId, controller.signal, (event: PersonPreparationEvent) => {
@@ -290,7 +295,7 @@ export function useTranscriptPeople(
     } catch {
       if (generation.current === version) await reconcile(version, controller.signal.aborted);
     } finally {
-      if (generation.current === version) { setBusy(""); setProgress(null); operation.current = false; }
+      if (generation.current === version) { setBusy(""); setProgress(null); setHintOpen(false); operation.current = false; }
     }
   };
   const cancelPreparation = () => {
@@ -390,7 +395,7 @@ export function useTranscriptPeople(
   const names = [
     ...new Set(applied.map((a) => a.display_name).filter(Boolean)),
   ];
-  const close = () => setOpen(false);
+  const close = () => { setHintOpen(false); setOpen(false); };
   const locateFromPanel = (order: number) => {
     close();
     locate(order);
@@ -495,11 +500,12 @@ export function useTranscriptPeople(
           aria-modal={!editing}
           aria-label="人物与发言核对"
           onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              e.stopPropagation();
-              close();
-            }
             e.stopPropagation();
+            if (e.key === "Escape") {
+              // 补充说明打开时 Escape 只收说明，避免误关主弹层。
+              if (hintOpen) setHintOpen(false);
+              else close();
+            }
             trapTab(e);
           }}
         >
@@ -784,8 +790,31 @@ export function useTranscriptPeople(
             </div>
           </div>
           {progress ? <footer className={styles.progressFooter}>
-            <span className={styles.footerSummary}>完成后由你确认，才会更新逐字稿。<small>收起弹层可继续阅读，已有结果保留。</small></span>
-            <button type="button" onClick={cancelPreparation}>取消识别</button>
+            <span className={styles.footerHintWrap}
+              onPointerEnter={(e) => { if (e.pointerType === "mouse") setHintOpen(true); }}
+              onPointerLeave={(e) => { if (e.pointerType === "mouse") setHintOpen(false); }}
+            >
+              <button type="button" className={styles.footerHint} aria-expanded={hintOpen}
+                aria-label="可收起，识别继续"
+                aria-describedby={prepareDetailId}
+                onPointerDown={() => { hintOpenAtPointerDown.current = hintOpen; }}
+                onPointerCancel={() => { hintOpenAtPointerDown.current = null; }}
+                onClick={() => {
+                  const wasOpen = hintOpenAtPointerDown.current;
+                  hintOpenAtPointerDown.current = null;
+                  setHintOpen((value) => !(wasOpen ?? value));
+                }}
+                onFocus={() => setHintOpen(true)}
+                onBlur={() => { hintOpenAtPointerDown.current = null; setHintOpen(false); }}
+              >
+                <IconInfoCircle size={15} aria-hidden="true" />
+                <span>可收起<span className={styles.hintExtra}>，识别继续</span></span>
+              </button>
+              <span id={prepareDetailId} role="tooltip" className={styles.footerDetail} hidden={!hintOpen}>
+                已有结果保留，新结果经你确认后生效。
+              </span>
+            </span>
+            <button type="button" className={styles.footerCancel} onClick={cancelPreparation}>取消识别</button>
           </footer> : draft && (
             <footer>
               <span className={styles.footerSummary}>本次将更新 {selectedCount} 段发言<small>{dirty ? "修改尚未保存" : "草稿已保存"} · 确认将覆盖所选片段的现有归属，未选片段保持原状。</small></span>
