@@ -28,7 +28,7 @@ type stagedIdentityFixture struct {
 	fail    bool
 }
 
-func (f stagedIdentityFixture) Suggest(ctx context.Context, _ personidentity.EpisodeSources) ([]personidentity.SuggestedCandidate, error) {
+func (f stagedIdentityFixture) suggestCandidates(ctx context.Context, _ personidentity.EpisodeSources) ([]personidentity.SuggestedCandidate, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -149,4 +149,9 @@ func TestPersonPreparationStreamsBeforePersistenceAndReturnsSavedDraft(t *testin
 			require.Empty(t, persisted.People, "preparation must not confer approved persona eligibility")
 		})
 	}
+}
+
+func (f stagedIdentityFixture) Suggest(ctx context.Context, src personidentity.EpisodeSources) (personidentity.Suggestions, error) {
+	c, err := f.suggestCandidates(ctx, src)
+	return personidentity.Suggestions{Candidates: c}, err
 }

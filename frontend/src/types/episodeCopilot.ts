@@ -156,7 +156,18 @@ export interface EpisodeCopilotStreamEvent {
   stage_timings?: EpisodeCopilotStageTimings;
 }
 
+export interface SpeakerRelationEvidence { source: string; fragment: number; quote: string }
+export interface SpeakerRelationCandidate {
+ id: string; display_name: string; role: string; status: string; identity_note: string;
+ level: string; reason: string; evidence: SpeakerRelationEvidence[]; counter_evidence: SpeakerRelationEvidence[];
+ evidence_locator: string;
+}
+export interface SpeakerRelation {
+ version: number; state: string; reason: string; candidates: SpeakerRelationCandidate[];
+}
 export interface PersonReviewMatch {
+ relation?: SpeakerRelation;
+ choice?: string;
  applied?: boolean;
  role_edited?: boolean;
  key: string; person_id?: number; display_name: string; role: string;

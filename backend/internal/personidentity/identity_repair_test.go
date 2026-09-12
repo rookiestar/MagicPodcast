@@ -142,7 +142,7 @@ func TestPrepareSuppliesPublicPodcastContext(t *testing.T) {
 
 type captureSourcesSuggester struct{ capture func(EpisodeSources) }
 
-func (s captureSourcesSuggester) Suggest(_ context.Context, src EpisodeSources) ([]SuggestedCandidate, error) {
+func (s captureSourcesSuggester) suggestCandidates(_ context.Context, src EpisodeSources) ([]SuggestedCandidate, error) {
 	s.capture(src)
 	return nil, nil
 }
@@ -151,7 +151,7 @@ func (s captureSourcesSuggester) Suggest(_ context.Context, src EpisodeSources) 
 // This adapter is not Runtime quality evidence and is never wired in production.
 type testSourceSuggester struct{}
 
-func (testSourceSuggester) Suggest(_ context.Context, src EpisodeSources) ([]SuggestedCandidate, error) {
+func (testSourceSuggester) suggestCandidates(_ context.Context, src EpisodeSources) ([]SuggestedCandidate, error) {
 	candidates, fragments := extractFromSources(src)
 	out := []SuggestedCandidate{}
 	for _, c := range candidates {
@@ -259,4 +259,14 @@ func TestNamedResponseSurvivesOverSpecificFirstPersonBasis(t *testing.T) {
 	got, err = decodeIdentitySuggestions(raw, sources)
 	require.NoError(t, err)
 	require.Empty(t, got[0].SpeechOrders)
+}
+
+func (s captureSourcesSuggester) Suggest(ctx context.Context, src EpisodeSources) (Suggestions, error) {
+	c, err := s.suggestCandidates(ctx, src)
+	return Suggestions{Candidates: c}, err
+}
+
+func (s testSourceSuggester) Suggest(ctx context.Context, src EpisodeSources) (Suggestions, error) {
+	c, err := s.suggestCandidates(ctx, src)
+	return Suggestions{Candidates: c}, err
 }

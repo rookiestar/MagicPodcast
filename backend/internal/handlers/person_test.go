@@ -106,7 +106,7 @@ func TestPersonHandlerListsAndCorrectsAttributionWithoutRewritingSource(t *testi
 // Controlled identity decisions for HTTP behavior tests, never model quality.
 type fixedIdentityFixture []personidentity.SuggestedCandidate
 
-func (f fixedIdentityFixture) Suggest(context.Context, personidentity.EpisodeSources) ([]personidentity.SuggestedCandidate, error) {
+func (f fixedIdentityFixture) suggestCandidates(context.Context, personidentity.EpisodeSources) ([]personidentity.SuggestedCandidate, error) {
 	return f, nil
 }
 
@@ -224,4 +224,9 @@ func prepareReviewed(s *personidentity.Service, ctx context.Context, src personi
 		p.Draft.Matches[i].Selected = true
 	}
 	return s.Review(ctx, src.EpisodeID, personidentity.ReviewRequest{DraftID: p.Draft.ID, Revision: p.Revision, SourceVersion: p.Draft.SourceVersion, Matches: p.Draft.Matches}, true)
+}
+
+func (f fixedIdentityFixture) Suggest(ctx context.Context, src personidentity.EpisodeSources) (personidentity.Suggestions, error) {
+	c, err := f.suggestCandidates(ctx, src)
+	return personidentity.Suggestions{Candidates: c}, err
 }

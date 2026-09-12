@@ -464,7 +464,7 @@ type stubSuggester struct {
 	candidates []SuggestedCandidate
 }
 
-func (s stubSuggester) Suggest(context.Context, EpisodeSources) ([]SuggestedCandidate, error) {
+func (s stubSuggester) suggestCandidates(context.Context, EpisodeSources) ([]SuggestedCandidate, error) {
 	return s.candidates, nil
 }
 
@@ -569,4 +569,9 @@ func TestShowNotesChangePreservesApprovedSpeechAndInvalidatesCoverage(t *testing
 	require.NoError(t, err)
 	require.NotEmpty(t, personal.Hits)
 	require.False(t, personal.Coverage.Complete)
+}
+
+func (s stubSuggester) Suggest(ctx context.Context, src EpisodeSources) (Suggestions, error) {
+	c, err := s.suggestCandidates(ctx, src)
+	return Suggestions{Candidates: c}, err
 }

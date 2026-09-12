@@ -20,7 +20,7 @@ type speakerGroupRuntime struct {
 }
 
 func (r *speakerGroupRuntime) CreateExecution(_ context.Context, request codexruntime.ExecutionRequest) (codexruntime.ExecutionSnapshot, error) {
-	raw := json.RawMessage(`{"people":[{"name":"林言","kind":"participant","status":"confirmed","role":"host","presence_basis":"self_introduction","name_evidence":{"source":"show_notes","fragment":0,"quote":"主播林言"},"presence_evidence":{"source":"transcript","fragment":1,"quote":"我是林言。"},"role_evidence":{"source":"show_notes","fragment":0,"quote":"主播林言"},"speech_bindings":[{"speaker_label":"A","basis":"self_introduction","evidence":{"source":"transcript","fragment":1,"quote":"我是林言。"},"scope":"stable_speaker","orders":[],"excluded_orders":[]}]}]}`)
+	raw := json.RawMessage(`{"people": [{"name": "林言", "kind": "participant", "status": "confirmed", "role": "host", "presence_basis": "self_introduction", "name_evidence": {"source": "show_notes", "fragment": 0, "quote": "主播林言"}, "presence_evidence": {"source": "transcript", "fragment": 1, "quote": "我是林言。"}, "role_evidence": {"source": "show_notes", "fragment": 0, "quote": "主播林言"}, "speech_bindings": [{"speaker_label": "A", "basis": "self_introduction", "evidence": {"source": "transcript", "fragment": 1, "quote": "我是林言。"}, "scope": "stable_speaker", "orders": [], "excluded_orders": []}]}], "speakers": [{"speaker_label": "A", "reason": "明确自我介绍", "candidates": [{"person_index": 0, "level": "direct", "basis": "self_introduction", "reason": "明确自我介绍", "evidence": [{"source": "transcript", "fragment": 1, "quote": "我是林言。"}], "counter_evidence": []}]}, {"speaker_label": "B", "reason": "没有姓名依据", "candidates": []}]}`)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.requests = append(r.requests, request)
@@ -65,7 +65,7 @@ func TestSpeakerGroupsUseOneIdentityCallAndPublishOnlyAfterConfirmation(t *testi
 	require.NoError(t, err)
 	require.Empty(t, draft.People)
 	require.Empty(t, draft.Attributions)
-	require.Len(t, draft.Draft.Matches, 1)
+	require.Len(t, draft.Draft.Matches, 2)
 	require.Len(t, draft.Draft.Matches[0].Orders, 250)
 	require.Contains(t, draft.Draft.Matches[0].Orders, 2)
 	require.NotContains(t, draft.Draft.Matches[0].Orders, 3)
