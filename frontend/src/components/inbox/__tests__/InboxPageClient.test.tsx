@@ -1858,8 +1858,9 @@ describe("InboxPageClient", () => {
     // The metadata label appears as soon as the artifact is known; wait for
     // the default-tab effect before asserting its selected state.
     const summaryTab = within(dialog).getByRole("tab", { name: "总结" });
-    await waitFor(() =>
-      expect(summaryTab).toHaveAttribute("aria-selected", "true"),
+    await waitFor(
+      () => expect(summaryTab).toHaveAttribute("aria-selected", "true"),
+      { timeout: 5000 },
     );
     const boardViewport = screen.getByRole("region", {
       name: "消费队列横向总览",

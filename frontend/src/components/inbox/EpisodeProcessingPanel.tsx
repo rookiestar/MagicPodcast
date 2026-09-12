@@ -995,9 +995,29 @@ function EpisodeProcessingPanel({
 
   useEffect(() => {
     if (!isLoading && !routeArtifact && renderedArtifactTab && onRouteArtifactChange) {
+      // Wait for the first minutes read before canonicalizing an unspecified
+      // artifact. A visual summary starts from the minutes tab, then the
+      // default-tab effect promotes it to summary; writing `minutes` here
+      // first would pin the route and prevent that promotion.
+      if (
+        renderedArtifactTab === "minutes" &&
+        summaryKind === "minutes_summary" &&
+        (!minutesContentMatchesCurrent ||
+          (visualSummaryAvailable && !artifactTabWasUserSelected.current))
+      ) {
+        return;
+      }
       onRouteArtifactChange(renderedArtifactTab, true);
     }
-  }, [isLoading, routeArtifact, renderedArtifactTab, onRouteArtifactChange]);
+  }, [
+    isLoading,
+    routeArtifact,
+    renderedArtifactTab,
+    onRouteArtifactChange,
+    summaryKind,
+    minutesContentMatchesCurrent,
+    visualSummaryAvailable,
+  ]);
 
   const renderedArtifactStateKey = renderedArtifactTab
     ? `${renderedArtifactTab}:${artifactTabStateDescription(renderedArtifactTab)}`
