@@ -16,14 +16,14 @@ import type {
   PersonReviewMatch,
 } from "@/types/episodeCopilot";
 import type { TranscriptSegment } from "@/types/processing";
-import EpisodePersonEvidence from "./EpisodePersonEvidence";
+import EpisodePersonEvidence, { personEvidence } from "./EpisodePersonEvidence";
 import styles from "./TranscriptPeople.module.css";
 
 function trapTab(event: KeyboardEvent<HTMLElement>) {
   if (event.key !== "Tab") return;
   const controls = Array.from(
     event.currentTarget.querySelectorAll<HTMLElement>(
-      'button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]',
+      'button:not(:disabled), input:not(:disabled), select:not(:disabled), summary, a[href], [tabindex="0"]',
     ),
   ).filter((el) => el.getClientRects().length > 0);
   const first = controls[0],
@@ -47,6 +47,7 @@ export function useTranscriptPeople(
   const [draft, setDraft] = useState<PersonReviewDraft | null>(null);
   const [history, setHistory] = useState<PersonReviewDraft[]>([]);
   const [open, setOpen] = useState(false);
+  const [editingMatch, setEditingMatch] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -81,7 +82,10 @@ export function useTranscriptPeople(
     editorElement.current
       ?.querySelector<HTMLInputElement>('input[type="text"],input:not([type])')
       ?.focus();
-    return () => previous?.focus();
+    return () => queueMicrotask(() => {
+      if (previous?.isConnected) previous.focus();
+      else panelElement.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    });
   }, [editing]);
   const sourceVersion = `artifact-${artifactSetId}`;
   const accept = useCallback((value: EpisodePeoplePayload) => {
@@ -93,6 +97,9 @@ export function useTranscriptPeople(
     if (!episodeId) return;
     const controller = new AbortController();
     const requestGeneration = generation;
+    setBusy("");
+    setSaved("");
+    setEditingMatch(null);
     setHistory([]);
     setPeople(null);
     setDraft(null);
@@ -263,13 +270,18 @@ export function useTranscriptPeople(
   const names = [
     ...new Set(applied.map((a) => a.display_name).filter(Boolean)),
   ];
-  const close = () => {
-    if (dirty) {
-      setError("草稿尚未保存，请先保存，或放弃本次修改。");
-      return;
-    }
-    setOpen(false);
+  const close = () => setOpen(false);
+  const locateFromPanel = (order: number) => {
+    close();
+    locate(order);
   };
+  const speakers = [...new Set(segments.map((s) => s.speaker))];
+  const unmatched = speakers.filter((speaker) =>
+    !applied.some((a) => a.speaker_label === speaker) &&
+    !draft?.matches.some((m) => m.speaker_label === speaker && m.orders.length > 0),
+  );
+  const selectedCount = new Set(draft?.matches.filter((m) => m.selected && !m.applied)
+    .flatMap((m) => m.orders) ?? []).size;
   const reload = () =>
     episodeId && run("正在读取…", () => episodeCopilotApi.getPeople(episodeId));
   return {
@@ -317,13 +329,12 @@ export function useTranscriptPeople(
         )}
         <button
           type="button"
-          disabled={!!busy}
           onClick={() => {
             setOpen(true);
             void loadHistory();
           }}
         >
-          {pending ? "继续核对" : names.length || draft ? "管理" : "识别人物"}
+          {busy ? "查看进度" : dirty ? "继续编辑" : pending ? "继续核对" : names.length || draft ? "管理" : "识别人物"}
         </button>
         {error && !open && !editor && (
           <span role="alert">
@@ -336,24 +347,28 @@ export function useTranscriptPeople(
       </div>
     ) : null,
     panel:
-      open && episodeId ? (
-        <aside
+      open && episodeId ? createPortal(
+        <div className={styles.backdrop} onMouseDown={(e) => {
+          if (e.target === e.currentTarget) close();
+        }} onClick={(e) => e.stopPropagation()}>
+        <section
           ref={panelElement}
           className={styles.panel}
+          role="dialog"
+          aria-modal="true"
           aria-label="人物与发言核对"
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               e.stopPropagation();
               close();
             }
-            if (window.innerWidth <= 1000) {
-              e.stopPropagation();
-              trapTab(e);
-            }
+            e.stopPropagation();
+            trapTab(e);
           }}
         >
           <header>
             <div>
+              <span className={styles.eyebrow}>逐字稿 · 人物管理</span>
               <h3>人物与发言</h3>
               <p>核对姓名与具体发言，确认后才会生效。</p>
             </div>
@@ -370,6 +385,11 @@ export function useTranscriptPeople(
                 </button>
               </p>
             )}
+            <div className={styles.overview}>
+              <span>{speakers.length} 位说话人</span>
+              <span>{unmatched.length ? `${unmatched.length} 位待确认姓名` : "核对姓名与发言范围"}</span>
+            </div>
+            {!draft && !busy && <p>识别人物并核对发言，或手动填写姓名。确认后才会更新逐字稿。</p>}
             <div className={styles.actions}>
               <button
                 type="button"
@@ -421,6 +441,17 @@ export function useTranscriptPeople(
                 来源已变化，此记录仅供核对。请重新识别当前逐字稿。
               </p>
             )}
+            {speakers.filter((speaker) => !draft?.matches.some((m) => m.speaker_label === speaker && m.orders.length)).map((speaker, i) => {
+              const group = segments.filter((s) => s.speaker === speaker);
+              const assignedNames = [...new Set(applied.filter((a) => a.speaker_label === speaker).map((a) => a.display_name))];
+              return <section className={styles.unmatched} key={speaker}>
+                <span className={styles.avatar}>{String(i + 1).padStart(2, "0")}</span>
+                <div><strong>{speaker}{assignedNames.length ? ` → ${assignedNames.join("、")}` : ""}</strong> <span className={styles.badge}>{assignedNames.length ? "已应用" : "姓名待确认"}</span>
+                  <p>{group.length} 段发言 · {assignedNames.length ? "可修改或解除匹配" : "尚无可靠姓名匹配"}</p></div>
+                <button type="button" disabled={!!busy || dirty || !current}
+                  onClick={() => editSpeaker(group[0])}>{assignedNames.length ? "修改匹配" : "填写姓名"}</button>
+              </section>;
+            })}
             {draft?.matches.map((match) => {
               const group = segments.filter(
                 (s) => s.speaker === match.speaker_label,
@@ -445,6 +476,7 @@ export function useTranscriptPeople(
                 );
               return (
                 <section className={styles.match} key={match.key}>
+                  <div className={styles.matchHeader}>
                   <label className={styles.matchTitle}>
                     <input
                       type="checkbox"
@@ -460,6 +492,13 @@ export function useTranscriptPeople(
                     <span>→</span>
                     {match.display_name}
                   </label>
+                  <button type="button" className={styles.editAction}
+                    aria-label={`编辑匹配 ${match.display_name}`} disabled={!!busy || draft.outdated}
+                    aria-expanded={editingMatch === match.key}
+                    onClick={() => setEditingMatch(editingMatch === match.key ? null : match.key)}>
+                    {editingMatch === match.key ? "收起编辑" : "编辑"}
+                  </button>
+                  </div>
                   <p>
                     {match.applied
                       ? adjusted
@@ -468,7 +507,7 @@ export function useTranscriptPeople(
                       : match.uncertain
                         ? "存在不确定项，请核对"
                         : "识别建议，尚需确认"}{" "}
-                    · {match.orders.length} 段
+                    · {match.role === "host" ? "主持人" : match.role === "guest" ? "嘉宾" : "角色待确认"} · {match.orders.length} 段
                     {group.length === match.orders.length && group.length > 0
                       ? "（该 Speaker 全部发言）"
                       : "（局部或未匹配）"}
@@ -478,7 +517,7 @@ export function useTranscriptPeople(
                       当前：{before.join("、")} → 建议：{match.display_name}
                     </p>
                   )}
-                  <div className={styles.fields}>
+                  {editingMatch === match.key && <div className={styles.fields}>
                     <label>
                       姓名
                       <input
@@ -507,14 +546,19 @@ export function useTranscriptPeople(
                         <option value="guest">嘉宾</option>
                       </select>
                     </label>
-                  </div>
+                  </div>}
+                  {personEvidence(match.evidence_locator).filter((e) => e.label === "发言归属依据").slice(0, 1).map((e) =>
+                    <div className={styles.evidencePreview} key={e.quote}>
+                      <blockquote>“{e.quote}”</blockquote>
+                      <span>发言归属依据 · {e.fragment ? `片段 ${e.fragment}` : e.source}</span>
+                    </div>)}
                   <EpisodePersonEvidence
                     name={match.display_name}
                     locator={match.evidence_locator}
-                    onLocate={locate}
+                    onLocate={locateFromPanel}
                   />
                   <details>
-                    <summary>核对匹配范围 · {match.orders.length} 段</summary>
+                    <summary>核对匹配范围 · {match.role === "host" ? "主持人" : match.role === "guest" ? "嘉宾" : "角色待确认"} · {match.orders.length} 段</summary>
                     {group.length === 0 && (
                       <p>尚无可靠发言绑定，可在逐字稿手动编辑 Speaker。</p>
                     )}
@@ -537,12 +581,13 @@ export function useTranscriptPeople(
                           />
                           {seg.text}
                         </label>
-                        <button type="button" onClick={() => locate(seg.order)}>
+                        <button type="button" onClick={() => locateFromPanel(seg.order)}>
                           定位 / 试听
                         </button>
                       </div>
                     ))}
                   </details>
+                  {group.length > match.orders.length && <p className={styles.exception}>另有 {group.length - match.orders.length} 段未纳入此匹配，暂不应用。</p>}
                 </section>
               );
             })}
@@ -585,7 +630,7 @@ export function useTranscriptPeople(
           </div>
           {draft && (
             <footer>
-              <span>{dirty ? "未保存" : "草稿已保存"}</span>
+              <span className={styles.footerSummary}>本次将更新 {selectedCount} 段发言<small>{dirty ? "修改尚未保存" : "草稿已保存"}</small></span>
               <button
                 type="button"
                 disabled={!dirty || !!busy || draft.outdated}
@@ -599,7 +644,7 @@ export function useTranscriptPeople(
                 disabled={
                   !!busy ||
                   draft.outdated ||
-                  !draft.matches.some((m) => m.selected)
+                  selectedCount === 0
                 }
                 onClick={() => void review(true)}
               >
@@ -619,7 +664,8 @@ export function useTranscriptPeople(
               )}
             </footer>
           )}
-        </aside>
+        </section>
+        </div>, document.body
       ) : null,
     editor:
       editor && anchor

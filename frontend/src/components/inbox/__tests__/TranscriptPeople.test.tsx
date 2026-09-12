@@ -113,6 +113,7 @@ describe("逐字稿人物确认", () => {
     render(<Player />);
     fireEvent.click(await screen.findByRole("button", { name: "识别人物" }));
     fireEvent.click(screen.getByRole("button", { name: "开始识别" }));
+    fireEvent.click(await screen.findByRole("button", { name: "编辑匹配 小林" }));
     const name = await screen.findByRole("textbox", { name: "姓名 host" });
     expect(screen.getAllByRole("button", { name: "Speaker 1" })).toHaveLength(
       2,
@@ -122,7 +123,9 @@ describe("逐字稿人物确认", () => {
     fireEvent.doubleClick(screen.getAllByRole("button", { name: "Speaker 1" })[0]);
     expect(screen.queryByRole("dialog", { name: "编辑发言人物" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "关闭人物核对" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("尚未保存");
+    expect(screen.queryByRole("dialog", { name: "人物与发言核对" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "继续编辑" }));
+    expect(screen.getByRole("textbox", { name: "姓名 host" })).toHaveValue("林老师");
     vi.mocked(episodeCopilotApi.reviewPeople).mockResolvedValueOnce({
       ...proposal,
       revision: 2,
@@ -270,4 +273,31 @@ describe("逐字稿人物确认", () => {
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     play.mockRestore();
   });
+});
+
+it("lists an unknown speaker in a modal and supports manual naming without recognition", async () => {
+  render(<Player />);
+  fireEvent.click(await screen.findByRole("button", { name: "识别人物" }));
+  const dialog = screen.getByRole("dialog", { name: "人物与发言核对" });
+  expect(dialog).toHaveAttribute("aria-modal", "true");
+  expect(within(dialog).getByText("姓名待确认")).toBeVisible();
+  expect(episodeCopilotApi.preparePeople).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "填写姓名" }));
+  expect(screen.getByRole("dialog", { name: "编辑发言人物" })).toBeVisible();
+  fireEvent.keyDown(screen.getByRole("dialog", { name: "编辑发言人物" }), { key: "Escape" });
+  expect(dialog).toBeVisible();
+});
+it("keeps a running request alive when closing and reopening the modal", async () => {
+  let complete!: (p: EpisodePeoplePayload) => void;
+  vi.mocked(episodeCopilotApi.preparePeople).mockImplementation(() => new Promise(resolve => { complete = resolve; }));
+  render(<Player />);
+  fireEvent.click(await screen.findByRole("button", { name: "识别人物" }));
+  fireEvent.click(screen.getByRole("button", { name: "开始识别" }));
+  const signal = vi.mocked(episodeCopilotApi.preparePeople).mock.calls[0][1];
+  fireEvent.keyDown(screen.getByRole("dialog", { name: "人物与发言核对" }), { key: "Escape" });
+  expect(signal?.aborted).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "查看进度" }));
+  expect(episodeCopilotApi.preparePeople).toHaveBeenCalledTimes(1);
+  await act(async () => complete(proposal));
+  expect(screen.getByRole("button", { name: "编辑匹配 小林" })).toBeVisible();
 });
