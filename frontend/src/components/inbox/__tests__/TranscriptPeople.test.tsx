@@ -558,4 +558,49 @@ describe("局部匹配的管理入口与初始服务端渲染", () => {
     expect(within(dialog).getByRole("textbox", { name: "姓名或称呼" })).toHaveValue("林老师");
     expect(within(dialog).getByRole("button", { name: "解除匹配" })).toBeEnabled();
   });
+  it.each([false, true])("distinguishes namesake identities in management with empty draft=%s", async (withDraft) => {
+    const namesakes = {
+      ...split,
+      people: [person(9, "林老师"), person(10, "林老师")],
+      attributions: [attribution(1, 9, "林老师", 1), attribution(2, 10, "林老师", 2)],
+      ...(withDraft ? { draft: { ...proposal.draft!, matches: [] } } : {}),
+    };
+    vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue(namesakes);
+    render(<Player />);
+    fireEvent.click(await screen.findByRole("button", { name: /^(管理|继续核对)$/ }));
+    expect(screen.getByRole("button", { name: "修改「林老师」（片段 1）" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "修改「林老师」（片段 2）" }));
+    const editor = screen.getByRole("dialog", { name: "编辑发言人物" });
+    expect(within(editor).getByRole("combobox", { name: "选择本集人物" })).toHaveValue("10");
+    expect(within(editor).getByText("Speaker 1 · 片段 2")).toBeVisible();
+    expect(within(editor).getByRole("radio", { name: "仅此段" })).toBeChecked();
+    vi.mocked(episodeCopilotApi.manualPerson).mockResolvedValue({ ...empty, revision: 3 });
+    fireEvent.click(within(editor).getByRole("button", { name: "解除匹配" }));
+    await waitFor(() => expect(episodeCopilotApi.manualPerson).toHaveBeenCalledWith(7,
+      expect.objectContaining({ person_id: 10, fragment_order: 2, scope: "fragment", clear: true })));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "编辑发言人物" })).not.toBeInTheDocument());
+  });
+
+  it("hydrates initial transcript markup and retains the client review portal on reopen", async () => {
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(<Player />);
+    document.body.appendChild(container);
+    const onRecoverableError = vi.fn();
+    vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue(proposal);
+    render(<Player />, { container, hydrate: true, onRecoverableError });
+    fireEvent.click(await screen.findByRole("button", { name: "继续核对" }));
+    const dialog = screen.getByRole("dialog", { name: "人物与发言核对" });
+    const summary = within(dialog).getByText("核对匹配范围 · 主持人 · 2 段");
+    fireEvent.click(summary);
+    const details = summary.closest("details")!;
+    expect(details.open).toBe(true);
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(dialog.isConnected).toBe(true);
+    expect(dialog).not.toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "继续核对" }));
+    expect(screen.getByRole("dialog", { name: "人物与发言核对" })).toBe(dialog);
+    expect(details.open).toBe(true);
+    expect(onRecoverableError).not.toHaveBeenCalled();
+  });
+
 });
