@@ -876,7 +876,7 @@ export default function TranscriptAudioPlayer({
       )}
 
       {people.toolbar}
-      <div className={people.open ? styles.transcriptPeopleLayout : undefined}>
+      <div>
       <div
         ref={transcriptRef}
         className={styles.transcriptSegments}

@@ -1,0 +1,24 @@
+[
+  {
+    "viewport": {
+      "width": 1133,
+      "height": 1354
+    },
+    "before": 649.78125,
+    "after": 649.78125
+  },
+  {
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "before": 852.40625,
+    "after": 852.40625
+  },
+  {
+    "width": 372,
+    "scrollWidth": 372,
+    "footerBottom": 831,
+    "viewport": 844
+  }
+]

@@ -272,3 +272,58 @@ describe("episodeCopilotApi.ask", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe("episodeCopilotApi.preparePeople", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const people = { episode_id: 7, source_version: "artifact-8", revision: 1,
+    people: [], attributions: [], index_ready: false,
+    draft: { id: 1, revision: 1, source_version: "artifact-8", matches: [], outdated: false } };
+  const event = (type: string, extra = {}) => ({ type, episode_id: 7, request_id: "run-1", source_version: "artifact-8", ...extra });
+  const line = (value: unknown) => `data:${JSON.stringify(value)}\n\n`;
+  function respond(events: unknown[]) {
+    const text = events.map(line).join("");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(streamFromChunks([text.slice(0, 31), text.slice(31)]))));
+  }
+  it("delivers a phase while the result is still pending, and returns the persisted draft", async () => {
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(new ReadableStream({ start(c) { stream = c; } }))));
+    const observed = vi.fn();
+    let settled = false;
+    const request = episodeCopilotApi.preparePeople(7, undefined, observed).then(value => { settled = true; return value; });
+    stream.enqueue(new TextEncoder().encode(line(event("stage", { stage: "identify" }))));
+    await vi.waitFor(() => expect(observed).toHaveBeenCalledWith(expect.objectContaining({ stage: "identify" })));
+    expect(settled).toBe(false);
+    stream.enqueue(new TextEncoder().encode(line(event("complete", { data: people }))));
+    stream.close();
+    await expect(request).resolves.toEqual(people);
+  });
+  it("ignores foreign episode, request and source terminal events", async () => {
+    respond([event("stage", { stage: "identify" }),
+      event("complete", { episode_id: 9, data: people }),
+      event("complete", { request_id: "older-run", data: people }),
+      event("complete", { source_version: "artifact-6", data: people }),
+      event("complete", { data: people })]);
+    const observed = vi.fn();
+    await expect(episodeCopilotApi.preparePeople(7, undefined, observed)).resolves.toEqual(people);
+    expect(observed).toHaveBeenCalledTimes(2);
+  });
+  it.each([
+    [event("stage", { stage: "save" })],
+    [event("complete", { data: { ...people, draft: undefined } })],
+    [event("complete", { data: { ...people, source_version: "old" } })],
+  ])("requires a matching persisted draft, including after a save-stage disconnect", async (...events) => {
+    respond(events);
+    await expect(episodeCopilotApi.preparePeople(7)).rejects.toThrow();
+  });
+  it("reports failure without returning a draft or retrying POST", async () => {
+    respond([event("stage", { stage: "save" }), event("error", { message: "保存失败" })]);
+    await expect(episodeCopilotApi.preparePeople(7)).rejects.toThrow("保存失败");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("does not start an already cancelled request", async () => {
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController(); controller.abort();
+    await expect(episodeCopilotApi.preparePeople(7, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

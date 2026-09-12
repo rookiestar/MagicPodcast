@@ -163,10 +163,10 @@ function processSSELine({
     return { done: false };
   }
 
-  if (!trimmedLine.startsWith("data: ")) return { done: false };
+  if (!trimmedLine.startsWith("data:")) return { done: false };
 
   return processDataLine({
-    dataContent: trimmedLine.slice(6).trim(),
+    dataContent: trimmedLine.slice(5).trim(),
     state,
     options,
     onProgress,

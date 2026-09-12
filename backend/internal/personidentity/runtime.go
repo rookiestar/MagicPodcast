@@ -73,6 +73,7 @@ name_evidence 给出规范姓名的逐字来源，presence_evidence 给出本集
 	if err != nil {
 		return nil, err
 	}
+	reportPreparation(ctx, "review", sources.SourceVersion)
 	return s.reviewSpeech(ctx, dir, sources, candidates)
 }
 
