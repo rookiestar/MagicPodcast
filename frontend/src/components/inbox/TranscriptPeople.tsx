@@ -176,7 +176,7 @@ export function useTranscriptPeople(
     if (!episodeId || !draft) return;
     const selected = draft.matches.filter((m) => m.selected);
     if (apply && selected.length === 0) return;
-    await run(
+    const success = await run(
       apply ? "正在应用…" : "正在保存…",
       () =>
         episodeCopilotApi.reviewPeople(
@@ -191,6 +191,7 @@ export function useTranscriptPeople(
         ),
       apply,
     );
+    if (success) await loadHistory();
   };
   const editMatch = (key: string, patch: Partial<PersonReviewMatch>) => {
     setDraft((d) =>
@@ -207,6 +208,10 @@ export function useTranscriptPeople(
     setSaved("");
   };
   const editSpeaker = (segment: TranscriptSegment) => {
+    if (dirty) {
+      setError("草稿尚未保存，请先保存或放弃本次修改。");
+      return;
+    }
     const assigned = applied.find((a) => a.fragment_order === segment.order);
     const ids = new Set(
       applied
@@ -229,6 +234,10 @@ export function useTranscriptPeople(
   };
   const saveManual = async (clear = false) => {
     if (!episodeId || !editor) return;
+    if (dirty) {
+      setError("草稿尚未保存，请先保存或放弃本次修改。");
+      return;
+    }
     const success = await run(
       clear ? "正在解除匹配…" : "正在应用…",
       () =>

@@ -260,13 +260,19 @@ func (f *fakePeopleModule) AccessibleEpisodeIDs(context.Context) ([]uint, error)
 }
 
 type fakeSearchModule struct {
-	result contentsearch.Result
-	err    error
-	last   contentsearch.Request
+	result   contentsearch.Result
+	err      error
+	last     contentsearch.Request
+	onSearch func()
 }
 
 func (f *fakeSearchModule) Search(_ context.Context, request contentsearch.Request) (contentsearch.Result, error) {
 	f.last = request
+	if f.onSearch != nil {
+		onSearch := f.onSearch
+		f.onSearch = nil
+		onSearch()
+	}
 	if f.err != nil {
 		return contentsearch.Result{}, f.err
 	}
@@ -346,4 +352,56 @@ func TestPersonaAnswerRejectsChangedFactsButNotSavedDrafts(t *testing.T) {
 			require.Equal(t, !changeFacts, completed)
 		})
 	}
+}
+
+func TestPersonaAnswerRejectsAttributionChangedDuringLibrarySearch(t *testing.T) {
+	people := &fakePeopleModule{
+		listed: personidentity.EpisodePeople{
+			EpisodeID:     81,
+			SourceVersion: "v1",
+			People: []personidentity.PersonView{{
+				ID: 9, DisplayName: "张三", Status: personidentity.StatusConfirmed, ConfirmedSpeech: 1,
+			}},
+		},
+		ids: []uint{81},
+	}
+	search := &fakeSearchModule{
+		result: contentsearch.Result{
+			Hits: []contentsearch.Hit{{
+				EpisodeID: 81, SourceKind: contentsearch.SourceTranscript, SourceVersion: "v1", FragmentOrder: 1,
+				Text: "一条未覆盖问题的旧发言", AttributionStatus: personidentity.StatusConfirmed, PersonID: uintPtr(9),
+			}},
+			Coverage: contentsearch.Coverage{Complete: true, Reason: contentsearch.CoverageComplete},
+		},
+	}
+	search.onSearch = func() {
+		people.listed.People = append([]personidentity.PersonView(nil), people.listed.People...)
+		people.listed.People[0].DisplayName = "已纠正姓名"
+	}
+	runtime := newFakeRuntime(
+		fakeExecution{result: json.RawMessage(`{"resources":[],"conflicts":[],"limitations":[]}`)},
+		fakeExecution{deltas: []string{"回答 [库内 S1]"}, result: json.RawMessage(`{"text":"回答"}`)},
+	)
+	service, err := NewService(
+		&fakeContextLoader{context: EpisodeContext{EpisodeID: 81, Transcript: "一条发言。"}},
+		runtime,
+		t.TempDir(),
+		WithLibrary(people, search),
+	)
+	require.NoError(t, err)
+	stream, err := service.Ask(context.Background(), QuestionRequest{EpisodeID: 81, TargetPersonID: 9, Question: "加班怎么看？"})
+	require.NoError(t, err)
+	changed := false
+	completed := false
+	for event := range stream {
+		if event.Type == EventTypeError {
+			require.Equal(t, "person_attribution_changed", event.Code)
+			changed = true
+		}
+		if event.Type == EventTypeComplete {
+			completed = true
+		}
+	}
+	require.True(t, changed)
+	require.False(t, completed)
 }

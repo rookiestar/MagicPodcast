@@ -239,18 +239,7 @@ func (s *Service) run(
 		) {
 			return
 		}
-		library, librarySufficient, librarySearchError = s.searchLibrary(ctx, request, personaPerson)
-		for _, hit := range library.Hits {
-			if _, exists := personaSnapshots[hit.EpisodeID]; exists {
-				continue
-			}
-			current, err := s.people.ListEpisodePeople(ctx, hit.EpisodeID)
-			if err != nil {
-				emitFailure(ctx, events, baseEvent, "person_attribution_changed", "人物发言暂时无法核对，请重试。", true)
-				return
-			}
-			personaSnapshots[hit.EpisodeID] = current
-		}
+		library, librarySufficient, librarySearchError = s.searchLibrary(ctx, request, personaPerson, personaSnapshots)
 		if librarySearchError != nil {
 			library.Coverage.Complete = false
 			library.Coverage.Reason = contentsearch.CoverageIndexNotReady

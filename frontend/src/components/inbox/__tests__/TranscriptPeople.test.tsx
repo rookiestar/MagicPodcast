@@ -119,6 +119,8 @@ describe("逐字稿人物确认", () => {
     );
     expect(change).not.toHaveBeenCalled();
     fireEvent.change(name, { target: { value: "林老师" } });
+    fireEvent.doubleClick(screen.getAllByRole("button", { name: "Speaker 1" })[0]);
+    expect(screen.queryByRole("dialog", { name: "编辑发言人物" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "关闭人物核对" }));
     expect(screen.getByRole("alert")).toHaveTextContent("尚未保存");
     vi.mocked(episodeCopilotApi.reviewPeople).mockResolvedValueOnce({

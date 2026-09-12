@@ -340,7 +340,7 @@ func (s *Service) applyMatches(ctx context.Context, tx *gorm.DB, src EpisodeSour
 			return err
 		}
 		if match.RoleEdited {
-			if err := tx.Model(&models.PersonAppearanceOverride{}).Where("episode_id = ? AND person_id = ?", src.EpisodeID, person.ID).Updates(map[string]any{"role": match.Role, "updated_at": nowUTC()}).Error; err != nil {
+			if err := upsertAppearanceOverride(tx, src.EpisodeID, person.ID, &match.Role, nil); err != nil {
 				return err
 			}
 		}

@@ -85,6 +85,29 @@ func TestReviewDraftPersistsWithoutPublishingThenAppliesSelectedMatches(t *testi
 	require.Len(t, history, 2)
 }
 
+func TestReviewRoleEditPersistsAsAppearanceOverride(t *testing.T) {
+	s, src := reviewFixture(t)
+	ctx := context.Background()
+	p, err := s.Prepare(ctx, src)
+	require.NoError(t, err)
+	req := draftRequest(p)
+	req.Matches[0].Role = RoleGuest
+	req.Matches[0].RoleEdited = true
+	applied, err := s.Review(ctx, src.EpisodeID, req, true)
+	require.NoError(t, err)
+	require.Equal(t, RoleGuest, applied.People[0].Role)
+
+	var override models.PersonAppearanceOverride
+	require.NoError(t, s.db.Where("episode_id = ? AND person_id = ?", src.EpisodeID, applied.People[0].ID).First(&override).Error)
+	require.NotNil(t, override.Role)
+	require.Equal(t, RoleGuest, *override.Role)
+
+	s.suggester = stubSuggester{candidates: []SuggestedCandidate{{DisplayName: "小林", Role: RoleHost, Status: StatusConfirmed, EvidenceKind: "verified_runtime", SpeechOrders: []int{1, 3}}, {DisplayName: "小周", Role: RoleGuest, Status: StatusConfirmed, EvidenceKind: "verified_runtime", SpeechOrders: []int{2}}}}
+	refreshed, err := s.Prepare(ctx, src)
+	require.NoError(t, err)
+	require.Equal(t, RoleGuest, refreshed.People[0].Role)
+}
+
 func TestReviewRejectsStaleConcurrentConflictingAndChangedSources(t *testing.T) {
 	s, src := reviewFixture(t)
 	ctx := context.Background()
