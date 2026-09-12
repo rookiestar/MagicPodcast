@@ -146,6 +146,11 @@ func SeedBaseline(ctx context.Context, db *gorm.DB, service *Service) (SeededLib
 
 type baselineCandidates []SuggestedCandidate
 
-func (c baselineCandidates) Suggest(context.Context, EpisodeSources) ([]SuggestedCandidate, error) {
+func (c baselineCandidates) suggestCandidates(context.Context, EpisodeSources) ([]SuggestedCandidate, error) {
 	return c, nil
+}
+
+func (c baselineCandidates) Suggest(ctx context.Context, src EpisodeSources) (Suggestions, error) {
+	c, err := c.suggestCandidates(ctx, src)
+	return Suggestions{Candidates: c}, err
 }

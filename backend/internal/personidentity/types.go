@@ -139,7 +139,7 @@ type Module interface {
 }
 
 type CandidateSuggester interface {
-	Suggest(context.Context, EpisodeSources) ([]SuggestedCandidate, error)
+	Suggest(context.Context, EpisodeSources) (Suggestions, error)
 }
 
 type SuggestedCandidate struct {
@@ -171,4 +171,10 @@ func SegmentsFromTranscript(segments []processing.TranscriptSegment) []Segment {
 
 func nowUTC() time.Time {
 	return time.Now().UTC()
+}
+
+// Suggestions keeps review-only relations distinct from published attribution.
+type Suggestions struct {
+	Candidates []SuggestedCandidate
+	Matches    []ReviewMatch
 }

@@ -127,7 +127,7 @@ func TestMetadataInvalidationPreservesOriginalSearch(t *testing.T) {
 
 type decisionSuggester func(context.Context, EpisodeSources) ([]SuggestedCandidate, error)
 
-func (f decisionSuggester) Suggest(ctx context.Context, src EpisodeSources) ([]SuggestedCandidate, error) {
+func (f decisionSuggester) suggestCandidates(ctx context.Context, src EpisodeSources) ([]SuggestedCandidate, error) {
 	return f(ctx, src)
 }
 
@@ -737,4 +737,9 @@ func TestSameEpisodeUnanchoredNamesakesKeepLocalIDs(t *testing.T) {
 	require.Equal(t, firstIDs[1], rebuilt.People[0].ID)
 	require.Len(t, rebuilt.ExcludedPeople, 1)
 	require.Equal(t, firstIDs[0], rebuilt.ExcludedPeople[0].ID)
+}
+
+func (f decisionSuggester) Suggest(ctx context.Context, src EpisodeSources) (Suggestions, error) {
+	c, err := f.suggestCandidates(ctx, src)
+	return Suggestions{Candidates: c}, err
 }

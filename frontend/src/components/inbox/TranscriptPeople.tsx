@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useMemo,
   useEffect,
   useId,
   useRef,
@@ -19,6 +20,7 @@ import type {
 import type { TranscriptSegment } from "@/types/processing";
 import { type EpisodeRoute, parseEpisodeRoute, updateQuery, useUnsavedNavigation } from "@/lib/navigation";
 import EpisodePersonEvidence, { personEvidence } from "./EpisodePersonEvidence";
+import SpeakerRelationReview from "./SpeakerRelationReview";
 import styles from "./TranscriptPeople.module.css";
 
 const preparationStages = [
@@ -324,6 +326,13 @@ export function useTranscriptPeople(
     );
     if (success) await loadHistory();
   };
+  const relationCandidates = useMemo(() => {
+    const choices = new Map<string, import("@/types/episodeCopilot").SpeakerRelationCandidate>();
+    for (const match of draft?.matches ?? []) {
+      for (const candidate of match.relation?.candidates ?? []) choices.set(candidate.id, candidate);
+    }
+    return [...choices.values()];
+  }, [draft]);
   const editMatch = (key: string, patch: Partial<PersonReviewMatch>) => {
     setDraft((d) =>
       d
@@ -403,7 +412,7 @@ export function useTranscriptPeople(
   const speakers = [...new Set(segments.map((s) => s.speaker))];
   const unmatched = speakers.filter((speaker) =>
     !applied.some((a) => a.speaker_label === speaker) &&
-    !draft?.matches.some((m) => m.speaker_label === speaker && m.orders.length > 0),
+    !draft?.matches.some((m) => m.speaker_label === speaker && (m.relation ? !!m.choice : m.orders.length > 0)),
   );
   const selectedCount = draftOutdated ? 0 : new Set(draft?.matches.filter((m) => m.selected && !m.applied)
     .flatMap((m) => m.orders) ?? []).size;
@@ -577,7 +586,7 @@ export function useTranscriptPeople(
                 来源已变化，此记录仅供核对。请重新识别当前逐字稿。
               </p>
             )}
-            {speakers.filter((speaker) => !draft?.matches.some((m) => m.speaker_label === speaker && m.orders.length)).map((speaker, i) => {
+            {speakers.filter((speaker) => !draft?.matches.some((m) => m.speaker_label === speaker && (m.relation || m.orders.length))).map((speaker, i) => {
               const group = segments.filter((s) => s.speaker === speaker);
               const assigned = applied.filter((a) => a.speaker_label === speaker);
               const assignedNames = [...new Set(assigned.map((a) => a.display_name))];
@@ -612,6 +621,14 @@ export function useTranscriptPeople(
               </section>;
             })}
             {draft?.matches.map((match) => {
+              if (match.relation?.state === "unbound") return null;
+              if (match.relation) return <SpeakerRelationReview key={match.key}
+                match={match} candidates={relationCandidates}
+                adjusted={!!match.applied && match.orders.some(order => applied.find(a => a.fragment_order === order)?.person_id !== match.person_id)}
+                group={segments.filter(segment => segment.speaker === match.speaker_label)}
+                disabled={!!busy || draftOutdated || readOnly}
+                currentName={nameFor} onLocate={locateFromPanel}
+                onChange={patch => editMatch(match.key, patch)} />;
               const group = segments.filter(
                 (s) => s.speaker === match.speaker_label,
               );

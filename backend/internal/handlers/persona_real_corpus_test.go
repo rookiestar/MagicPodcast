@@ -147,7 +147,7 @@ func (r corpusCaptureRuntime) GetExecution(ctx context.Context, id codexruntime.
 // repeating eight model calls. This is not reported as fresh identity inference.
 type corpusIdentityReplay struct{ dir string }
 
-func (r corpusIdentityReplay) Suggest(_ context.Context, source personidentity.EpisodeSources) ([]personidentity.SuggestedCandidate, error) {
+func (r corpusIdentityReplay) suggestCandidates(_ context.Context, source personidentity.EpisodeSources) ([]personidentity.SuggestedCandidate, error) {
 	raw, err := os.ReadFile(filepath.Join(r.dir, fmt.Sprintf("real-%d.json", source.EpisodeID)))
 	if err != nil {
 		return nil, err
@@ -258,4 +258,9 @@ func TestPersonaPublicWebCapability(t *testing.T) {
 	require.Contains(t, answer, "[E1]")
 	require.Contains(t, answer, "paulgraham.com/makersschedule")
 	require.Contains(t, answer, episodecopilotDisclaimer())
+}
+
+func (r corpusIdentityReplay) Suggest(ctx context.Context, src personidentity.EpisodeSources) (personidentity.Suggestions, error) {
+	c, err := r.suggestCandidates(ctx, src)
+	return personidentity.Suggestions{Candidates: c}, err
 }

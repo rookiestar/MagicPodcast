@@ -194,43 +194,59 @@ func TestManualSpeakerEditsAreScopedAndWorkWithoutRecognition(t *testing.T) {
 	require.Empty(t, speech)
 }
 func TestReviewSurvivesDatabaseCloseAndReopen(t *testing.T) {
-	s, src := reviewFixture(t)
-	ctx := context.Background()
-	p, err := s.Prepare(ctx, src)
-	require.NoError(t, err)
-	req := draftRequest(p)
-	req.Matches[0].DisplayName = "已保存的草稿名"
-	_, err = s.Review(ctx, src.EpisodeID, req, false)
-	require.NoError(t, err)
-	path := filepath.Join(t.TempDir(), "review.sqlite")
-	require.NoError(t, s.db.Exec("VACUUM INTO ?", path).Error)
-	reopen := func() (*Service, func()) {
-		db, err := gorm.Open(sqlite.Open(path+"?_foreign_keys=on"), &gorm.Config{})
-		require.NoError(t, err)
-		sqlDB, err := db.DB()
-		require.NoError(t, err)
-		sqlDB.SetMaxOpenConns(1)
-		search, err := contentsearch.NewService(db)
-		require.NoError(t, err)
-		reader, err := NewService(db, nil, search)
-		require.NoError(t, err)
-		return reader, func() { require.NoError(t, sqlDB.Close()) }
+	for _, relations := range []bool{false, true} {
+		t.Run(fmt.Sprint("relations=", relations), func(t *testing.T) {
+			s, src := reviewFixture(t)
+			if relations {
+				proposed := decodeRelations(t, relationPayload(), relationSource()).Matches[:1]
+				proposed[0].SpeakerLabel = src.Segments[0].SpeakerLabel
+				proposed[0].Orders = []int{1, 3, 4}
+				proposed[0].Selected = true
+				s.suggester = relationSuggester{Suggestions{Matches: proposed}}
+			}
+			ctx := context.Background()
+			p, err := s.Prepare(ctx, src)
+			require.NoError(t, err)
+			req := draftRequest(p)
+			req.Matches[0].DisplayName = "已保存的草稿名"
+			_, err = s.Review(ctx, src.EpisodeID, req, false)
+			require.NoError(t, err)
+			path := filepath.Join(t.TempDir(), "review.sqlite")
+			require.NoError(t, s.db.Exec("VACUUM INTO ?", path).Error)
+			reopen := func() (*Service, func()) {
+				db, err := gorm.Open(sqlite.Open(path+"?_foreign_keys=on"), &gorm.Config{})
+				require.NoError(t, err)
+				sqlDB, err := db.DB()
+				require.NoError(t, err)
+				sqlDB.SetMaxOpenConns(1)
+				search, err := contentsearch.NewService(db)
+				require.NoError(t, err)
+				reader, err := NewService(db, nil, search)
+				require.NoError(t, err)
+				return reader, func() { require.NoError(t, sqlDB.Close()) }
+			}
+			first, closeFirst := reopen()
+			p, err = first.ListEpisodePeople(ctx, src.EpisodeID)
+			require.NoError(t, err)
+			require.Equal(t, "已保存的草稿名", p.Draft.Matches[0].DisplayName)
+			if relations {
+				require.Equal(t, "inferred", p.Draft.Matches[0].Relation.State)
+				require.Equal(t, "person:0", p.Draft.Matches[0].Choice)
+			}
+			require.Empty(t, p.People)
+			p, err = first.Review(ctx, src.EpisodeID, draftRequest(p), true)
+			require.NoError(t, err)
+			closeFirst()
+			second, closeSecond := reopen()
+			defer closeSecond()
+			restored, err := second.ListEpisodePeople(ctx, src.EpisodeID)
+			require.NoError(t, err)
+			require.Equal(t, p.People, restored.People)
+			require.Equal(t, p.Attributions, restored.Attributions)
+			require.NotNil(t, restored.Draft)
+
+		})
 	}
-	first, closeFirst := reopen()
-	p, err = first.ListEpisodePeople(ctx, src.EpisodeID)
-	require.NoError(t, err)
-	require.Equal(t, "已保存的草稿名", p.Draft.Matches[0].DisplayName)
-	require.Empty(t, p.People)
-	p, err = first.Review(ctx, src.EpisodeID, draftRequest(p), true)
-	require.NoError(t, err)
-	closeFirst()
-	second, closeSecond := reopen()
-	defer closeSecond()
-	restored, err := second.ListEpisodePeople(ctx, src.EpisodeID)
-	require.NoError(t, err)
-	require.Equal(t, p.People, restored.People)
-	require.Equal(t, p.Attributions, restored.Attributions)
-	require.NotNil(t, restored.Draft)
 }
 
 func TestReviewExplicitRenameDoesNotResolveBackThroughOldAliases(t *testing.T) {

@@ -729,3 +729,70 @@ describe("局部匹配的管理入口与初始服务端渲染", () => {
   });
 
 });
+
+describe("多证据 Speaker 核对", () => {
+  it.each(["rename", "manual"])("does not label a %s decision as direct evidence", async (kind) => {
+    const payload = withRelation();
+    payload.draft!.matches[0].relation!.state = "direct";
+    payload.draft!.matches[0].relation!.candidates[0].level = "direct";
+    vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue(payload);
+    render(<Player />);
+    fireEvent.click(await screen.findByRole("button", { name: "继续核对" }));
+    fireEvent.click(screen.getByRole("button", { name: "更换人物" }));
+    if (kind === "manual") fireEvent.change(screen.getByRole("combobox", { name: "Speaker 1 人物" }), { target: { value: "manual" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Speaker 1 姓名" }), { target: { value: "另一位" } });
+    const region = screen.getByRole("region", { name: "核对 Speaker 1" });
+    expect(within(region).getByText(/人工选择 · 待确认/)).toBeVisible();
+    expect(within(region).queryByText(/直接证据/)).not.toBeInTheDocument();
+    expect(within(region).getByText("查看原始建议依据")).toBeVisible();
+    expect(episodeCopilotApi.reviewPeople).not.toHaveBeenCalled();
+  });
+  function withRelation(conflict = false): EpisodePeoplePayload {
+    const candidate = {id: "person:0", display_name: "小林", role: "host", status: "confirmed", identity_note: "主持人", level: "inferred", reason: "名单与持续主持关系一致", evidence_locator: "{}", evidence: [{source: "transcript", fragment: 1, quote: segments[0].text}], counter_evidence: []};
+    return {...proposal, draft: {...proposal.draft!, matches: [{...proposal.draft!.matches[0], key: "speaker:Speaker 1", selected: false, choice: conflict ? "" : candidate.id, display_name: conflict ? "Speaker 1" : "小林", relation: {version: 1, state: conflict ? "conflict" : "inferred", reason: "请核对对应关系", candidates: conflict ? [candidate, {...candidate,id:"person:1", display_name:"小周"}] : [candidate]}}]}};
+  }
+  it("keeps an inferred whole group visible and unchecked until explicitly selected", async () => {
+    const payload = withRelation();
+    vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue(payload);
+    vi.mocked(episodeCopilotApi.reviewPeople).mockResolvedValue(payload);
+    render(<Player />);
+    fireEvent.click(await screen.findByRole("button",{name:"继续核对"}));
+    const group = screen.getByRole("region",{name:"核对 Speaker 1"});
+    expect(within(group).getByText(/2 段 · 全部发言/)).toBeVisible();
+    expect(screen.queryByRole("button",{name:"填写姓名"})).not.toBeInTheDocument();
+    const checkbox = screen.getByRole("checkbox",{name:"应用 Speaker 1"});
+    expect(checkbox).not.toBeChecked();
+    expect(screen.getByRole("button",{name:"确认并应用"})).toBeDisabled();
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByRole("button",{name:"确认并应用"}));
+    await waitFor(()=>expect(episodeCopilotApi.reviewPeople).toHaveBeenCalled());
+    const [,request,apply]=vi.mocked(episodeCopilotApi.reviewPeople).mock.calls[0];
+    expect(apply).toBe(true);expect(request.matches[0]).toMatchObject({choice:"person:0",orders:[1,2],selected:true});
+    expect(request.matches[0].relation).toEqual(payload.draft!.matches[0].relation);
+  });
+  it("requires choosing a conflict candidate and retains the immutable proposal when saving",async()=>{
+    const payload=withRelation(true);
+    vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue(payload);
+    vi.mocked(episodeCopilotApi.reviewPeople).mockResolvedValue(payload);
+    render(<Player />);fireEvent.click(await screen.findByRole("button",{name:"继续核对"}));
+    expect(screen.getByRole("checkbox",{name:"应用 Speaker 1"})).toBeDisabled();
+    fireEvent.click(screen.getByRole("button",{name:"选择人物"}));
+    fireEvent.change(screen.getByRole("combobox",{name:"Speaker 1 人物"}),{target:{value:"person:1"}});
+    expect(screen.getByRole("checkbox",{name:"应用 Speaker 1"})).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button",{name:"保存草稿"}));
+    await waitFor(()=>expect(episodeCopilotApi.reviewPeople).toHaveBeenCalled());
+    const [,request,apply]=vi.mocked(episodeCopilotApi.reviewPeople).mock.calls[0];
+    expect(apply).toBe(false);expect(request.matches[0]).toMatchObject({choice:"person:1",display_name:"小周",selected:false});
+    expect(request.matches[0].relation).toEqual(payload.draft!.matches[0].relation);
+  });
+  it("keeps supporting evidence collapsed and locates the cited transcript",async()=>{
+    vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue(withRelation());
+    render(<Player />);fireEvent.click(await screen.findByRole("button",{name:"继续核对"}));
+    const region=screen.getByRole("region",{name:"核对 Speaker 1"});
+    const summary=within(region).getByText("查看依据");
+    expect(summary.closest("details")).not.toHaveAttribute("open");
+    fireEvent.click(summary);
+    fireEvent.click(within(region).getByRole("button",{name:"查看原文片段 1"}));
+    await waitFor(()=>expect(screen.queryByRole("dialog",{name:"人物与发言核对"})).not.toBeInTheDocument());
+  });
+});

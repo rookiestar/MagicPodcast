@@ -75,6 +75,7 @@ func (s *Service) Prepare(ctx context.Context, sources EpisodeSources) (EpisodeP
 	sources.ShowNotes = metadata.ShowNotes
 
 	var candidates []extractedCandidate
+	var reviewMatches []ReviewMatch
 	fragments := make([]extractedFragment, 0, len(sources.Segments))
 	for _, segment := range sources.Segments {
 		fragments = append(fragments, extractedFragment{Segment: segment, Status: StatusPending, EvidenceKind: "unmatched_label", EvidenceLocator: fragmentLocator(segment)})
@@ -86,7 +87,8 @@ func (s *Service) Prepare(ctx context.Context, sources EpisodeSources) (EpisodeP
 			return EpisodePeople{}, err
 		}
 		assignments := map[int][]string{}
-		for index, item := range suggested {
+		reviewMatches = suggested.Matches
+		for index, item := range suggested.Candidates {
 			converted := mergeSuggestedCandidates(nil, []SuggestedCandidate{item})
 			if len(converted) == 0 {
 				continue
@@ -109,7 +111,7 @@ func (s *Service) Prepare(ctx context.Context, sources EpisodeSources) (EpisodeP
 		}
 	}
 	reportPreparation(ctx, "save", sources.SourceVersion)
-	return s.saveSuggestion(ctx, sources, metadata, revision, candidates, fragments)
+	return s.saveSuggestion(ctx, sources, metadata, revision, candidates, fragments, reviewMatches)
 }
 
 func (s *Service) ListEpisodePeople(ctx context.Context, episodeID uint) (EpisodePeople, error) {

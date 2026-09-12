@@ -13,22 +13,24 @@ import (
 )
 
 type ReviewMatch struct {
-	RoleEdited      bool     `json:"role_edited"`
-	SuggestedStatus string   `json:"suggested_status,omitempty"`
-	SourceNames     []string `json:"source_names,omitempty"`
-	Applied         bool     `json:"applied"`
-	OriginalName    string   `json:"original_name,omitempty"`
-	IdentityNote    string   `json:"identity_note,omitempty"`
-	Aliases         []string `json:"aliases,omitempty"`
-	Key             string   `json:"key"`
-	PersonID        uint     `json:"person_id,omitempty"`
-	DisplayName     string   `json:"display_name"`
-	Role            string   `json:"role"`
-	SpeakerLabel    string   `json:"speaker_label"`
-	Orders          []int    `json:"orders"`
-	Selected        bool     `json:"selected"`
-	EvidenceLocator string   `json:"evidence_locator,omitempty"`
-	Uncertain       bool     `json:"uncertain"`
+	Relation        *SpeakerRelation `json:"relation,omitempty"`
+	Choice          string           `json:"choice,omitempty"`
+	RoleEdited      bool             `json:"role_edited"`
+	SuggestedStatus string           `json:"suggested_status,omitempty"`
+	SourceNames     []string         `json:"source_names,omitempty"`
+	Applied         bool             `json:"applied"`
+	OriginalName    string           `json:"original_name,omitempty"`
+	IdentityNote    string           `json:"identity_note,omitempty"`
+	Aliases         []string         `json:"aliases,omitempty"`
+	Key             string           `json:"key"`
+	PersonID        uint             `json:"person_id,omitempty"`
+	DisplayName     string           `json:"display_name"`
+	Role            string           `json:"role"`
+	SpeakerLabel    string           `json:"speaker_label"`
+	Orders          []int            `json:"orders"`
+	Selected        bool             `json:"selected"`
+	EvidenceLocator string           `json:"evidence_locator,omitempty"`
+	Uncertain       bool             `json:"uncertain"`
 }
 type ReviewDraft struct {
 	ID            uint          `json:"id"`
@@ -94,7 +96,7 @@ func (s *Service) ReviewHistory(ctx context.Context, episodeID uint) ([]ReviewDr
 	}
 	return out, nil
 }
-func (s *Service) saveSuggestion(ctx context.Context, src EpisodeSources, metadata preparationMetadata, revision uint, candidates []extractedCandidate, fragments []extractedFragment) (EpisodePeople, error) {
+func (s *Service) saveSuggestion(ctx context.Context, src EpisodeSources, metadata preparationMetadata, revision uint, candidates []extractedCandidate, fragments []extractedFragment, proposed []ReviewMatch) (EpisodePeople, error) {
 	matches := make([]ReviewMatch, 0)
 	for _, candidate := range candidates {
 		bySpeaker := map[string][]int{}
@@ -111,6 +113,9 @@ func (s *Service) saveSuggestion(ctx context.Context, src EpisodeSources, metada
 			matches = append(matches, ReviewMatch{Key: fmt.Sprintf("%s:%s", candidate.key, speaker), DisplayName: candidate.DisplayName, OriginalName: candidate.DisplayName, SuggestedStatus: candidate.Status, SourceNames: candidate.SourceNames, IdentityNote: candidate.IdentityNote, Aliases: candidate.Aliases, Role: candidate.Role,
 				SpeakerLabel: speaker, Orders: orders, Selected: len(orders) > 0, Uncertain: len(orders) == 0 || candidate.Status != StatusConfirmed, EvidenceLocator: candidate.EvidenceLocator})
 		}
+	}
+	if proposed != nil {
+		matches = proposed
 	}
 	raw, err := json.Marshal(matches)
 	if err != nil {
@@ -185,6 +190,9 @@ func (s *Service) Review(ctx context.Context, episodeID uint, request ReviewRequ
 		if err := json.Unmarshal([]byte(row.Matches), &stored); err != nil {
 			return err
 		}
+		if err := resolveSpeakerChoices(request.Matches, stored); err != nil {
+			return err
+		}
 		if err := validateReview(request.Matches, stored, src); err != nil {
 			return err
 		}
@@ -246,7 +254,12 @@ func validateReview(matches, stored []ReviewMatch, src EpisodeSources) error {
 	keys, selectedOrders := map[string]bool{}, map[int]bool{}
 	for _, item := range matches {
 		original, ok := originals[item.Key]
-		if !ok || keys[item.Key] || item.EvidenceLocator != original.EvidenceLocator || item.OriginalName != original.OriginalName || item.IdentityNote != original.IdentityNote || item.SuggestedStatus != original.SuggestedStatus || strings.Join(item.SourceNames, "\n") != strings.Join(original.SourceNames, "\n") || strings.Join(item.Aliases, "\n") != strings.Join(original.Aliases, "\n") {
+		if !ok || keys[item.Key] {
+			return ErrInvalidCorrection
+		}
+		// New relation identity fields were derived from the immutable candidate
+		// above. Historical drafts retain their original field equality contract.
+		if item.Relation == nil && (item.EvidenceLocator != original.EvidenceLocator || item.OriginalName != original.OriginalName || item.IdentityNote != original.IdentityNote || item.SuggestedStatus != original.SuggestedStatus || strings.Join(item.SourceNames, "\n") != strings.Join(original.SourceNames, "\n") || strings.Join(item.Aliases, "\n") != strings.Join(original.Aliases, "\n")) {
 			return ErrInvalidCorrection
 		}
 		keys[item.Key] = true
@@ -280,11 +293,25 @@ func (s *Service) applyMatches(ctx context.Context, tx *gorm.DB, src EpisodeSour
 	}
 	claimed := map[uint]bool{}
 	grouped := map[string]uint{}
+	// A review can apply only part of a draft. Retain identities from earlier
+	// applications so a later group shares its candidate's corrected identity,
+	// while distinct candidates cannot reuse it through name-only lookup.
+	for _, match := range matches {
+		if match.Relation != nil && match.PersonID != 0 {
+			claimed[match.PersonID] = true
+			if match.Choice != "" && match.Choice != "manual" {
+				grouped["relation:"+match.Choice+":"+strings.TrimSpace(match.DisplayName)] = match.PersonID
+			}
+		}
+	}
 	for matchIndex, match := range matches {
 		if !match.Selected {
 			continue
 		}
 		groupKey := ""
+		if match.Relation != nil && match.Choice != "" && match.Choice != "manual" {
+			groupKey = "relation:" + match.Choice + ":" + strings.TrimSpace(match.DisplayName)
+		}
 		parts := strings.SplitN(match.Key, ":", 3)
 		if len(parts) == 3 && parts[0] == "candidate" {
 			groupKey = parts[0] + ":" + parts[1] + ":" + strings.TrimSpace(match.DisplayName)
