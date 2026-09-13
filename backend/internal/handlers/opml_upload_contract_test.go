@@ -31,11 +31,11 @@ func newUploadContractRouter(t *testing.T, streaming bool) (*gin.Engine, *gorm.D
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	require.NoError(t, db.AutoMigrate(&models.Podcast{}))
+	require.NoError(t, db.AutoMigrate(&models.Podcast{}, &models.ImportTask{}))
 	service, err := syncsvc.NewService(db, "")
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, service.Close()) })
-	handler := &SyncHandler{syncService: service}
+	handler := &SyncHandler{syncService: service, db: db}
 	router := gin.New()
 	if streaming {
 		router.POST("/import", handler.ImportOPMLSSE)

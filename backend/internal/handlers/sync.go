@@ -189,16 +189,14 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 	})
 }
 
-// startImportTask 创建可恢复的任务记录并包装进度报告器。任务持久化是
-// 不断增强能力：记录创建失败（如旧 schema）时退化为无任务导入，不阻断
-// 导入本身。
+// startImportTask creates the required recovery record; nil prevents import writes.
 func (h *SyncHandler) startImportTask(fileName string, total int, reporter sync.ProgressReporter) (*models.ImportTask, sync.ProgressReporter) {
 	if h.db == nil {
 		return nil, reporter
 	}
 	task, err := sync.CreateImportTask(h.db, fileName, total)
 	if err != nil {
-		logger.Warnf("创建导入任务失败，本次导入不提供任务恢复: %v", err)
+		logger.Warnf("创建导入任务失败，拒绝执行导入: %v", err)
 		return nil, reporter
 	}
 	return task, sync.NewTaskProgressReporter(reporter, h.db, task.ID)
@@ -206,11 +204,22 @@ func (h *SyncHandler) startImportTask(fileName string, total int, reporter sync.
 
 // runImport 执行导入并保存任务终态；终态与逐条结果先落库再返回响应。
 func (h *SyncHandler) runImport(outlines []opml.Outline, reporter sync.ProgressReporter, decisions map[string]string, task *models.ImportTask) (*sync.SyncResult, error) {
+	if task == nil {
+		return nil, fmt.Errorf("导入任务未能保存，未执行导入")
+	}
+	if err := sync.InitializeImportResults(reporter, outlines); err != nil {
+		sync.ActiveImportTasks.Delete(task.ID)
+		return nil, fmt.Errorf("保存导入范围失败: %w", err)
+	}
 	result, runErr := h.syncService.ImportOPMLOutlines(outlines, reporter, sync.DefaultImportConfig, decisions)
 	if task != nil {
 		if finErr := sync.FinalizeImportTask(h.db, task, result, runErr); finErr != nil {
 			logger.Errorf("保存导入任务终态失败: task=%d err=%v", task.ID, finErr)
+			return result, finErr
 		}
+	}
+	if runErr == nil {
+		sync.PublishImportSummary(reporter)
 	}
 	return result, runErr
 }

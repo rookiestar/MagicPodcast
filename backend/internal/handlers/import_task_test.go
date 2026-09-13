@@ -45,8 +45,8 @@ func TestSSEProgressReporterCloseReleasesResourcesAfterWriteFailure(t *testing.T
 
 	select {
 	case <-reporter.stopKeepalive:
-		t.Fatal("写出失败本身不应释放资源，应留给 Close")
 	default:
+		t.Fatal("写出失败必须立即释放保活资源，不能等待整个导入结束")
 	}
 
 	reporter.Close()
@@ -57,6 +57,17 @@ func TestSSEProgressReporterCloseReleasesResourcesAfterWriteFailure(t *testing.T
 	}
 
 	assert.NotPanics(t, func() { reporter.Close() }, "重复 Close 不得 panic 或重复关闭 channel")
+}
+
+func TestImportRejectsMissingTaskStorageBeforeSubscriptionWrites(t *testing.T) {
+	router, db := newImportTaskRouter(t)
+	require.NoError(t, db.Migrator().DropTable(&models.ImportTask{}))
+	response := postOPMLFile(t, router, []byte(`<opml version="2.0"><body><outline title="test" xmlUrl="http://127.0.0.1:9/rss"/></body></opml>`))
+	require.Equal(t, http.StatusInternalServerError, response.Code)
+	require.Contains(t, response.Header().Get("Content-Type"), "application/json")
+	var count int64
+	require.NoError(t, db.Model(&models.Podcast{}).Count(&count).Error)
+	require.Zero(t, count)
 }
 
 // newImportTaskRouter 构建带隔离库与任务表的导入路由。

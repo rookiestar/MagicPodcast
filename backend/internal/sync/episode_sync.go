@@ -167,7 +167,7 @@ func incrementalEpisodeBaseline(podcast *models.Podcast, config EpisodeSyncConfi
 	if podcast.LastEpisodeSyncAt != nil {
 		return *podcast.LastEpisodeSyncAt
 	}
-	return time.Now().AddDate(0, 0, -7)
+	return FullSyncEpoch
 }
 
 // syncPodcastEpisodeItemsWithContext 同步单集并在全部所选条目成功提交后推进
@@ -180,6 +180,10 @@ func (s *Service) syncPodcastEpisodeItemsWithContext(ctx context.Context, podcas
 	}
 
 	syncStartedAt := time.Now()
+	if err := ctx.Err(); err != nil {
+		result.Incomplete = true
+		return result, err
+	}
 	windowSize := config.MaxEpisodesPerPodcast
 	if windowSize <= 0 {
 		windowSize = len(items)
@@ -268,6 +272,9 @@ func (s *Service) syncEpisodeWindow(ctx context.Context, podcast *models.Podcast
 	videoCandidates := make([]videoProbeCandidate, 0)
 
 	for index, episode := range episodes {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		item := items[index]
 		existing, exists := existingByGUID[episode.GUID]
 		matchedByIdentity := false
@@ -426,6 +433,9 @@ func (s *Service) syncEpisodeWindow(ctx context.Context, podcast *models.Podcast
 	}
 
 	s.probeEpisodeVideoAvailability(ctx, videoCandidates)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	if firstWriteErr != nil {
 		return firstWriteErr

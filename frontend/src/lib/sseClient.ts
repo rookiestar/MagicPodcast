@@ -117,8 +117,6 @@ export async function sseRequest(
       signal: controller.signal,
     });
 
-    clearTimeout(timeoutId);
-
     const elapsedTime = Date.now() - startedAt;
     debugLog(
       `${logPrefix} 收到响应，状态: ${response.status}，耗时: ${elapsedTime}ms`,
@@ -152,7 +150,7 @@ export async function sseRequest(
   } catch (error: any) {
     clearTimeout(timeoutId);
 
-    if (error.name === "AbortError") {
+    if (responseTimedOut || error.name === "AbortError") {
       throw new Error(
         responseTimedOut ? options.timeoutMessage : "请求超时被取消",
       );
@@ -160,6 +158,8 @@ export async function sseRequest(
 
     console.error(`${logPrefix} 请求失败:`, error);
     throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

@@ -34,6 +34,23 @@ function streamThatErrorsAfterFirstMessage() {
 describe("sseRequest", () => {
   const originalFetch = globalThis.fetch;
 
+  it("times out a stalled body after the first event", async () => {
+    vi.useFakeTimers();
+    globalThis.fetch = vi.fn().mockImplementation(async (_url, init) => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: {"type":"task","task_id":7}\n\n'));
+        init.signal.addEventListener("abort", () => controller.error(new DOMException("Aborted", "AbortError")));
+      },
+    })));
+    const onProgress = vi.fn();
+    const promise = sseRequest({endpoint:"/api/test", timeout:1000, timeoutMessage:"读取超时", requireCompletion:true}, onProgress);
+    const assertion = expect(promise).rejects.toThrow("读取超时");
+    await vi.advanceTimersByTimeAsync(1000);
+    await assertion;
+    expect(onProgress).toHaveBeenCalledWith("task", "", undefined, undefined, expect.objectContaining({task_id:7}));
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   beforeEach(() => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});

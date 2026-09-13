@@ -118,6 +118,7 @@ func (s *Service) ImportOPMLOutlines(outlines []opml.Outline, reporter ProgressR
 
 	var mu sync.Mutex
 	processedCount := 0
+	var persistErr error
 	startTime := time.Now()
 
 	concurrency := config.Concurrency
@@ -148,9 +149,15 @@ func (s *Service) ImportOPMLOutlines(outlines []opml.Outline, reporter ProgressR
 	for res := range resultChan {
 		mu.Lock()
 		processedCount++
-		reporter.ReportProgress(processedCount, len(outlines),
-			fmt.Sprintf("正在处理: %s", res.Title))
 		result.Entries = append(result.Entries, *res)
+		if recorder, ok := reporter.(interface {
+			RecordImportResult(ImportEntryResult, int) error
+		}); ok {
+			if err := recorder.RecordImportResult(*res, processedCount); err != nil && persistErr == nil {
+				persistErr = err
+			}
+		}
+		reporter.ReportProgress(processedCount, len(outlines), fmt.Sprintf("正在处理: %s", res.Title))
 		switch res.Outcome {
 		case ImportOutcomeNew, ImportOutcomeUpdated, ImportOutcomeMerged:
 			result.SuccessPodcasts++
@@ -194,7 +201,7 @@ func (s *Service) ImportOPMLOutlines(outlines []opml.Outline, reporter ProgressR
 		UnchangedPodcasts: result.UnchangedPodcasts, Duration: duration,
 	})
 
-	return result, nil
+	return result, persistErr
 }
 
 // dedupeImportOutlines 按 URL 归并文件内重复条目，保留首个并统计重复数。
@@ -256,6 +263,16 @@ func (s *Service) processImportOutline(outline *opml.Outline, decisions map[stri
 		res.Detail = err.Error()
 		return res
 	}
+	// Other workers may have committed the same stable identity during fetching.
+	s.importWriteMu.Lock()
+	defer s.importWriteMu.Unlock()
+	resolved = s.resolveImportIdentity(outline.XMLURL)
+	if (resolved.kind == identityDeleted || resolved.kind == identityByXyzID) && decision != ImportDecisionConfirm {
+		res.Outcome = ImportOutcomeConflict
+		res.PodcastID = resolved.podcastID()
+		res.Detail = "本地身份已变化，请重新预览并确认"
+		return res
+	}
 	if stub {
 		// 待同步同样执行确认过的身份绑定（转关注但保留待同步状态）。
 		if resolved.podcast != nil && decision == ImportDecisionConfirm {
@@ -274,7 +291,7 @@ func (s *Service) processImportOutline(outline *opml.Outline, decisions map[stri
 
 	// 抓取成功后核对稳定身份冲突：换地址的节目在证据不足时不得自动合并。
 	if candidates := s.findIdentityConflictCandidates(podcast, resolved.podcastID()); len(candidates) > 0 {
-		if len(candidates) > 1 {
+		if len(candidates) > 1 || resolved.podcast != nil {
 			res.Outcome = ImportOutcomeConflict
 			res.Detail = fmt.Sprintf("稳定身份匹配到 %d 条本地记录（多候选），已跳过；请在库中核对后处理", len(candidates))
 			return res
@@ -285,11 +302,18 @@ func (s *Service) processImportOutline(outline *opml.Outline, decisions map[stri
 			res.PodcastID = candidate.PodcastID
 			res.Detail = fmt.Sprintf("稳定身份与已有节目「%s」一致（证据：%s）但地址不同，需确认后合并",
 				candidate.Title, candidate.Evidence)
+			if candidate.Deleted {
+				res.Detail += "；该记录已删除，确认将恢复关注"
+			}
 			return res
 		}
 		// 确认合并：复用本地记录与其单集/标签/备注，更新订阅地址。
+		candidateKind := identityByFeedURL
+		if candidate.Deleted {
+			candidateKind = identityDeleted
+		}
 		if _, err := s.saveImportPodcast(podcast, resolvedPodcastIdentity{
-			kind:    identityByFeedURL,
+			kind:    candidateKind,
 			podcast: s.reloadPodcast(candidate.PodcastID),
 		}); err != nil {
 			res.Outcome = ImportOutcomeFailed
@@ -605,6 +629,27 @@ func (s *Service) updatePodcastMetadataOnline(podcast *models.Podcast, reporter 
 
 	// 提取4个关键字段
 	updated := s.convertGofeedToModel(gofeed, podcast.DataSource, podcast.FeedURL)
+	if updated.Title != "" {
+		podcast.Title = updated.Title
+	}
+	if updated.Description != "" {
+		podcast.Description = updated.Description
+	}
+	if updated.Author != "" {
+		podcast.Author = updated.Author
+	}
+	if updated.CoverURL != "" {
+		podcast.CoverURL = updated.CoverURL
+	}
+	if updated.Link != "" {
+		podcast.Link = updated.Link
+	}
+	if updated.ITunesID != "" {
+		podcast.ITunesID = updated.ITunesID
+	}
+	if updated.PodcastGUID != "" {
+		podcast.PodcastGUID = updated.PodcastGUID
+	}
 
 	// 只更新这4个字段，保留其他字段
 	podcast.EpisodeCount = updated.EpisodeCount

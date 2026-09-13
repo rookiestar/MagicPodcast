@@ -33,11 +33,11 @@ func TestOPMLUploadRetainsUnavailableSubscription(t *testing.T) {
 			require.NoError(t, err)
 			sqlDB.SetMaxOpenConns(1)
 			defer sqlDB.Close()
-			require.NoError(t, db.AutoMigrate(&models.Podcast{}))
+			require.NoError(t, db.AutoMigrate(&models.Podcast{}, &models.ImportTask{}))
 			service, err := syncsvc.NewService(db, "")
 			require.NoError(t, err)
 			defer service.Close()
-			handler := &SyncHandler{syncService: service}
+			handler := &SyncHandler{syncService: service, db: db}
 			router := gin.New()
 			if streaming {
 				router.POST("/import", handler.ImportOPMLSSE)

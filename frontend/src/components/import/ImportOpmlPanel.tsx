@@ -7,6 +7,7 @@ import {
   type ImportPreview,
   type ImportPreviewEntry,
   type ImportTask,
+  type ImportEntryResult,
 } from "@/lib/api/importTasks";
 
 interface ImportOpmlPanelProps {
@@ -18,11 +19,12 @@ interface ImportOpmlPanelProps {
   previewError: string | null;
   confirmedUrls: Record<string, boolean>;
   lastTask: ImportTask | null;
+  taskEntries?: ImportEntryResult[];
   onFileChange: ChangeEventHandler<HTMLInputElement>;
   onImport: () => void;
   onToggleConfirmed: (entry: ImportPreviewEntry) => void;
   onConfirmAllPending: () => void;
-  onRetry: () => void;
+  onRetry: (entry?: ImportEntryResult) => void;
 }
 
 const KIND_LABELS: Record<ImportPreviewEntry["kind"], string> = {
@@ -79,7 +81,7 @@ function TaskBanner({
         {task.pending_count} · 冲突 {task.conflict_count} · 失败{" "}
         {task.failed_count}
       </p>
-      {task.status === "completed" && retryable > 0 && (
+      {(task.status === "completed" || task.status === "interrupted") && retryable > 0 && (
         <button
           type="button"
           onClick={onRetry}
@@ -102,6 +104,7 @@ export default function ImportOpmlPanel({
   previewError,
   confirmedUrls,
   lastTask,
+  taskEntries = [],
   onFileChange,
   onImport,
   onToggleConfirmed,
@@ -116,7 +119,26 @@ export default function ImportOpmlPanel({
     <>
       {lastTask && (
         <div className="mb-4">
-          <TaskBanner task={lastTask} onRetry={onRetry} disabled={disabled} />
+          <TaskBanner task={lastTask} onRetry={() => onRetry()} disabled={disabled} />
+          {lastTask.status === "interrupted" && taskEntries.some(entry => entry.outcome === "unprocessed") && (
+            <button type="button" disabled={disabled} onClick={() => onRetry()}>继续未完成条目</button>
+          )}
+          {taskEntries.length > 0 && (
+            <details className="mt-3">
+              <summary>逐项结果（{taskEntries.length} 条）</summary>
+              <ul className="max-h-80 overflow-y-auto text-sm">
+                {taskEntries.map(entry => (
+                  <li key={entry.feed_url} className="my-2 break-words">
+                    <p>{entry.title} · {({new: "新增", updated: "更新", unchanged: "未变化", pending: "待同步", conflict: "待核对", merged: "已关联", failed: "失败", deleted: "已删除，未恢复", unprocessed: "尚无完成记录", skipped: "跳过"} as Record<string, string>)[entry.outcome] || entry.outcome}</p>
+                    <p>{entry.feed_url}</p><p>{entry.detail}</p>
+                    {entry.outcome === "conflict" && !!entry.podcast_id && lastTask.status !== "running" && (
+                      <button type="button" disabled={disabled} onClick={() => onRetry(entry)}>核对并确认关联</button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
       )}
 

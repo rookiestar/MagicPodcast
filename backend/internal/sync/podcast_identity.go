@@ -105,6 +105,7 @@ type identityConflictCandidate struct {
 	Evidence    string `json:"evidence"`
 	Subscribed  bool   `json:"subscribed"`
 	FeedMissing bool   `json:"feed_missing"`
+	Deleted     bool   `json:"deleted"`
 }
 
 // findIdentityConflictCandidates 返回与抓取身份相同的本地记录（排除
@@ -134,12 +135,13 @@ func (s *Service) findIdentityConflictCandidates(fetched *models.Podcast, exclud
 			Evidence:    evidence,
 			Subscribed:  podcast.IsSubscribed,
 			FeedMissing: podcast.FeedURL == "",
+			Deleted:     podcast.DeletedAt.Valid,
 		})
 	}
 
 	if guid := normalizeIdentity(fetched.PodcastGUID); guid != "" {
 		var matches []models.Podcast
-		if err := s.db.Where("podcast_guid = ? AND id <> ?", guid, excludeID).Find(&matches).Error; err == nil {
+		if err := s.db.Unscoped().Where("podcast_guid = ? AND id <> ?", guid, excludeID).Find(&matches).Error; err == nil {
 			for _, match := range matches {
 				appendCandidate(match, "podcast_guid")
 			}
@@ -147,7 +149,7 @@ func (s *Service) findIdentityConflictCandidates(fetched *models.Podcast, exclud
 	}
 	if itunesID := parseITunesID(fetched.ITunesID); itunesID > 0 {
 		var matches []models.Podcast
-		if err := s.db.Where("i_tunes_id = ? AND id <> ?", strconv.Itoa(itunesID), excludeID).Find(&matches).Error; err == nil {
+		if err := s.db.Unscoped().Where("i_tunes_id = ? AND id <> ?", strconv.Itoa(itunesID), excludeID).Find(&matches).Error; err == nil {
 			for _, match := range matches {
 				appendCandidate(match, "itunes_id")
 			}

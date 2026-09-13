@@ -57,6 +57,7 @@ func (s *Service) saveImportPodcast(podcast *models.Podcast, resolved resolvedPo
 		return err == nil, err
 	}
 
+	pending := isImportStub(podcast)
 	podcast.ID = existing.ID
 	podcast.XYZID = existing.XYZID
 	podcast.Notes = existing.Notes
@@ -64,6 +65,30 @@ func (s *Service) saveImportPodcast(podcast *models.Podcast, resolved resolvedPo
 	podcast.CreatedAt = existing.CreatedAt
 	podcast.AddedDate = existing.AddedDate
 	podcast.CustomCoverURL = existing.CustomCoverURL
+	// Missing source fields do not erase known metadata or personal preferences.
+	if podcast.Title == "" {
+		podcast.Title = existing.Title
+	}
+	if podcast.Description == "" {
+		podcast.Description = existing.Description
+	}
+	if podcast.Author == "" {
+		podcast.Author = existing.Author
+	}
+	if podcast.CoverURL == "" {
+		podcast.CoverURL = existing.CoverURL
+	}
+	if podcast.Link == "" {
+		podcast.Link = existing.Link
+	}
+	if podcast.ITunesID == "" {
+		podcast.ITunesID = existing.ITunesID
+	}
+	if podcast.PodcastGUID == "" {
+		podcast.PodcastGUID = existing.PodcastGUID
+	}
+	podcast.Priority = existing.Priority
+	podcast.UpdateFrequency = existing.UpdateFrequency
 
 	feedChanged := feed.CanonicalizeURL(existing.FeedURL) != feed.CanonicalizeURL(podcast.FeedURL)
 	identityChanged := parseITunesID(existing.ITunesID) != parseITunesID(podcast.ITunesID) ||
@@ -71,19 +96,13 @@ func (s *Service) saveImportPodcast(podcast *models.Podcast, resolved resolvedPo
 
 	// 已删除记录的显式恢复：不静默——只有调用方传入了确认后的 identityDeleted
 	// 才会走到这里；恢复本身算一次变化。
-	if resolved.kind == identityDeleted && existing.DeletedAt.Valid {
-		if err := s.db.Unscoped().Model(&models.Podcast{}).Where("id = ?", existing.ID).
-			Update("deleted_at", nil).Error; err != nil {
-			return false, err
-		}
-		existing.DeletedAt.Valid = false
-	}
+	restore := resolved.kind == identityDeleted && existing.DeletedAt.Valid
 
 	// 订阅地址与已解析记录不一致：只有在用户确认的身份绑定/换址合并路径
 	// 才可能发生（预览与确认都基于该地址），确认后允许更新 feed_url。
 	bindChanged := feedChanged
 
-	if isImportStub(podcast) {
+	if pending {
 		// Re-import confirms the subscription; keep all previously fetched content
 		// while recording that this attempt still needs a successful RSS fetch.
 		updates := map[string]interface{}{
@@ -93,17 +112,29 @@ func (s *Service) saveImportPodcast(podcast *models.Podcast, resolved resolvedPo
 		if bindChanged {
 			updates["feed_url"] = podcast.FeedURL
 		}
-		changed := !existing.IsSubscribed || existing.FeedURLValid || bindChanged
-		err := s.db.Model(&models.Podcast{}).Where("id = ?", existing.ID).Updates(updates).Error
+		if restore {
+			updates["deleted_at"] = nil
+		}
+		changed := !existing.IsSubscribed || existing.FeedURLValid || bindChanged || restore
+		err := s.db.Unscoped().Model(&models.Podcast{}).Where("id = ?", existing.ID).Updates(updates).Error
+		if err == nil {
+			cache.InvalidatePodcastDetail(existing.ID)
+			if bindChanged {
+				s.InvalidateAlternativeCache(existing.ID)
+			}
+		}
 		return changed, err
 	}
 
-	changed := podcastImportHasChanges(existing, podcast) || identityChanged || bindChanged
+	changed := podcastImportHasChanges(existing, podcast) || identityChanged || bindChanged || restore
 	updates := podcastImportUpdates(podcast)
+	if restore {
+		updates["deleted_at"] = nil
+	}
 	if bindChanged {
 		updates["feed_url"] = podcast.FeedURL
 	}
-	if err := s.db.Model(&models.Podcast{}).Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
+	if err := s.db.Unscoped().Model(&models.Podcast{}).Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
 		return changed, err
 	}
 	if feedChanged || identityChanged {
@@ -370,6 +401,7 @@ func (s *Service) convertGofeedToModel(feed *gofeed.Feed, dataSource string, fee
 	podcast := &models.Podcast{
 		Title:        feed.Title,
 		Description:  feed.Description,
+		Link:         feed.Link,
 		FeedURL:      feedURL, // 使用传入的feedURL
 		ITunesID:     extractITunesID(feed),
 		PodcastGUID:  extractPodcastGUID(feed),

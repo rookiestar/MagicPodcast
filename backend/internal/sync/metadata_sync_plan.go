@@ -20,6 +20,10 @@ type episodeSyncPlan struct {
 
 func detectPodcastMetadataUpdate(current *models.Podcast, updated *models.Podcast) podcastMetadataUpdateCheck {
 	check := podcastMetadataUpdateCheck{}
+	if updated.Link != "" && updated.Link != current.Link {
+		check.hasUpdate = true
+		check.reasons = append(check.reasons, "website changed")
+	}
 
 	if updated.Title != "" && updated.Title != current.Title {
 		check.hasUpdate = true

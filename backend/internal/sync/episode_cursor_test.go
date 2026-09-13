@@ -107,7 +107,7 @@ func TestReImportDoesNotAdvanceEpisodeCursor(t *testing.T) {
 	// 重导同一节目：资料写入路径不得推进单集游标。
 	result, err := service.ImportOPMLFromPodcastIndexOnly(writeTestOPML(t, server.URL+"/feed.xml"), &recordingReporter{})
 	require.NoError(t, err)
-	require.Equal(t, 1, result.SuccessPodcasts)
+	require.Equal(t, 1, result.UnchangedPodcasts)
 	require.NoError(t, db.First(&synced, podcast.ID).Error)
 	require.NotNil(t, synced.LastEpisodeSyncAt)
 	assert.True(t, cursor.Equal(*synced.LastEpisodeSyncAt), "重导不得推进单集同步游标")
