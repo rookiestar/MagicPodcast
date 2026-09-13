@@ -5,8 +5,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"magicpodcast/internal/feed"
 	"magicpodcast/internal/models"
 
 	"github.com/stretchr/testify/assert"
@@ -233,4 +236,58 @@ func TestAdditiveIndexFailurePreservesExistingContent(t *testing.T) {
 	require.NoError(t, db.First(&got, existing.ID).Error)
 	require.Equal(t, 100, got.EpisodeCount)
 	require.Equal(t, "保留", got.Notes)
+}
+
+func TestPodcastIndexMatchUsesImportRetryPolicy(t *testing.T) {
+	var requests int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
+		if atomic.AddInt32(&requests, 1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(testFeedXML))
+	}))
+	t.Cleanup(server.Close)
+
+	db := setupTestDB(t)
+	url := server.URL + "/feed.xml"
+	index := createAlternativeIndexFixture(t, []alternativeIndexRow{{id: 1, title: "Show", feedURL: url, status: 200}})
+	service, err := NewService(db, index)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, service.Close()) })
+	sleeper := &feed.FakeSleeper{}
+	service.applyRetryPolicy(feed.RetryPolicy{
+		Budget: 1, Base: 2 * time.Second, Max: 8 * time.Second,
+		Sleeper: sleeper, Rand: func() float64 { return 0 },
+	})
+
+	result, err := service.ImportOPMLWithProgressAndConfig(writeTestOPML(t, url), NewSilentProgressReporter(nil), ImportConfig{Concurrency: 1})
+	require.NoError(t, err)
+	require.Equal(t, 1, result.SuccessPodcasts)
+	require.Zero(t, result.StubPodcasts)
+	require.Equal(t, int32(2), atomic.LoadInt32(&requests))
+	require.Len(t, sleeper.Delays(), 1)
+}
+
+func TestEmptyValidFeedCountsAsSuccessfulImport(t *testing.T) {
+	emptyFeed := []byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>Empty feed</title></channel></rss>`)
+	server := newImportTestServer(t, http.StatusOK, emptyFeed)
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, service.Close()) })
+
+	result, err := service.ImportOPMLWithProgressAndConfig(writeTestOPML(t, server.URL+"/feed.xml"), NewSilentProgressReporter(nil), ImportConfig{Concurrency: 1})
+	require.NoError(t, err)
+	require.Equal(t, 1, result.SuccessPodcasts)
+	require.Zero(t, result.StubPodcasts)
+
+	var podcast models.Podcast
+	require.NoError(t, db.First(&podcast).Error)
+	require.Equal(t, "Empty feed", podcast.Title)
+	require.True(t, podcast.FeedURLValid)
 }

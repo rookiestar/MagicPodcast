@@ -13,6 +13,8 @@ import (
 	"magicpodcast/internal/models"
 	"magicpodcast/internal/opml"
 	"magicpodcast/internal/podcastindex"
+
+	"github.com/mmcdole/gofeed"
 )
 
 // ImportOPML 导入OPML文件（使用默认配置）
@@ -329,8 +331,6 @@ func (s *Service) syncPodcastFromFeed(feedURL string) (*models.Podcast, error) {
 // feed.RetryPolicy 提供：单一可重试分类、Retry-After 与有界 full-jitter 退避；每次
 // 重试都经 Fetcher/Coordinator，断路、按域并发、去重与 fallback 语义不被旁路。
 func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL string, reporter ProgressReporter) (*models.Podcast, error) {
-	var lastErr error
-
 	title := ""
 	if outline != nil {
 		title = outline.GetTitle()
@@ -392,11 +392,28 @@ func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL st
 		logger.Infof("%s ⚠️  PodcastIndex 未初始化，直接在线抓取", logPrefix)
 	}
 
-	// 对RSS feed抓取进行有限重试（预算、分类、Retry-After 与 full-jitter 退避均来自
-	// feed.RetryPolicy，不在此另建旁路规则）。
+	feedData, err := s.fetchFeedWithRetry(feedURL, title, reporter)
+	if err != nil {
+		return nil, err
+	}
+	podcast := s.convertGofeedToModel(feedData, "rss", feedURL)
+	// A successful feed with no episodes or artwork is still a valid import.
+	podcast.FeedURLValid = true
+	return podcast, nil
+}
+
+// fetchFeedWithRetry is the single import retry path. It is shared by
+// PodcastIndex matches and direct RSS imports so both paths honor the same
+// classification, Retry-After, admission, and bounded backoff policy.
+func (s *Service) fetchFeedWithRetry(feedURL, title string, reporter ProgressReporter) (*gofeed.Feed, error) {
 	policy := s.retryPolicy
+	logPrefix := ""
+	if title != "" {
+		logPrefix = fmt.Sprintf("[%s]", title)
+	}
 	logger.Infof("%s 🌐 开始在线抓取 RSS feed (最多重试 %d 次)", logPrefix, policy.Budget)
 
+	var lastErr error
 	for attempt := 0; attempt <= policy.Budget; attempt++ {
 		if attempt > 0 {
 			delay, _ := policy.NextDelay(lastErr, attempt-1)
@@ -425,18 +442,14 @@ func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL st
 		}
 		if err == nil {
 			logger.Infof("%s ✅ 抓取成功: %s", logPrefix, feedData.Title)
-			// 成功
 			if attempt > 0 && title != "" {
 				reporter.ReportSuccess(fmt.Sprintf("%s - 重试成功", title))
 			}
-			return s.convertGofeedToModel(feedData, "rss", feedURL), nil
+			return feedData, nil
 		}
 
 		lastErr = err
 		logger.Infof("%s ❌ 抓取失败 (第 %d 次尝试): %v", logPrefix, attempt+1, err)
-
-		// 不可重试的错误（403/401/404/402/parse/重定向策略）立即返回，不消耗重试预算，
-		// 也不会把已断路上游再次打向访问拒绝源。
 		if !policy.ShouldRetry(err) {
 			logger.Infof("%s ⛔ 不可重试的错误，停止重试: %v", logPrefix, err)
 			return nil, err
@@ -541,7 +554,7 @@ func (s *Service) updatePodcastMetadataOnline(podcast *models.Podcast, reporter 
 	logger.Infof("   🌐 抓取元数据: %s", podcast.FeedURL)
 
 	// 在线抓取RSS feed
-	gofeed, err := s.feedFetcher.FetchFeed(podcast.FeedURL)
+	gofeed, err := s.fetchFeedWithRetry(podcast.FeedURL, podcast.Title, reporter)
 	if err != nil {
 		return nil, fmt.Errorf("抓取feed失败: %w", err)
 	}
