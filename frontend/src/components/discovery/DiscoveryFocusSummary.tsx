@@ -1,6 +1,8 @@
 "use client";
 
 import { useId, useState } from "react";
+import Link from "next/link";
+import { createPortal } from "react-dom";
 import EpisodeLink from "@/components/episodes/EpisodeLink";
 import { IconPlus, IconTargetArrow, IconX } from "@tabler/icons-react";
 import useSWR from "swr";
@@ -123,7 +125,7 @@ export default function DiscoveryFocusSummary({
         aria-label="Focus 快捷摘要"
         aria-busy={summaryLoading}
       >
-        <div className="discovery-focus-heading">
+        <Link href="/inbox?queue=focus" className="discovery-focus-heading" aria-label="打开 Inbox Focus 队列">
           <IconTargetArrow aria-hidden="true" stroke={1.8} />
           <span>
             <strong data-editorial-display-text="true">Focus</strong>
@@ -131,7 +133,7 @@ export default function DiscoveryFocusSummary({
               {focusCount} / {focusLimit}
             </small>
           </span>
-        </div>
+        </Link>
         <div className="discovery-focus-items">
           {focusItems.length > 0 ? (
             focusItems.map((item) => (
@@ -168,7 +170,7 @@ export default function DiscoveryFocusSummary({
         )}
       </section>
 
-      {selectorOpen && (
+      {selectorOpen && createPortal(
         <div className="discovery-focus-selector-overlay">
           <button
             type="button"
@@ -265,7 +267,8 @@ export default function DiscoveryFocusSummary({
               </div>
             )}
           </section>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

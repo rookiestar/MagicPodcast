@@ -697,10 +697,9 @@ export default function DiscoveryDesk({
           href="/collections"
           prefetch={false}
           className="discovery-collections-entry"
-          aria-label="打开播客清单"
+          aria-label="Curated Lists"
         >
-          <span>播客清单</span>
-          <small>外部单集清单 · 按集收录</small>
+          <span>Curated Lists</span>
         </Link>
         <div className="discovery-status-filters" aria-label="最近更新筛选">
           {(
