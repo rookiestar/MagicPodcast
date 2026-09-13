@@ -156,7 +156,7 @@ export default function SearchSidebar({ isOpen, onClose, standalone = false }: S
         role={standalone ? "main" : "dialog"}
         aria-modal={standalone ? undefined : true}
         aria-labelledby="search-workbench-title"
-        style={standalone ? { width: "100%", maxWidth: "none" } : undefined}
+        style={standalone ? { width: "100%", maxWidth: "var(--page-max-width)", left: 0, marginInline: "auto" } : undefined}
         tabIndex={-1}
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}

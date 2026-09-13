@@ -36,9 +36,9 @@
 }
 
 .page {
-  width: min(100%, 1260px);
+  width: min(100%, var(--page-max-width));
   margin: 0 auto;
-  padding: 26px 28px 64px;
+  padding: 26px var(--page-gutter) 64px;
 }
 
 /* 页头：轻量返回 + 标准标题 + 灰色总数 */
