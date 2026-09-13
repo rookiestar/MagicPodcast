@@ -715,7 +715,7 @@ export default function WorkflowReportWorkbench({
                       )}
                     </button>
                   </div>
-                  <EpisodeLink episodeID={episode.episode_id} source={`report-${activeReport.job_id}`} href={`/episodes/${episode.episode_id}?from=discovery`}>打开单集工作台</EpisodeLink>
+                  <EpisodeLink className="workflow-report-episode-entry" episodeID={episode.episode_id} source={`report-${activeReport.job_id}`} href={`/episodes/${episode.episode_id}?from=discovery`}>打开单集工作台</EpisodeLink>
                   {expanded && (
                     <div
                       id={`report-ep-detail-${activeReport.id}-${episode.episode_id}`}

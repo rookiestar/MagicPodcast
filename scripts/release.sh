@@ -5,6 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/production-maintenance.sh"
+source "$SCRIPT_DIR/sqlite-readonly.sh"
 PROJECT_DIR="${MAGICPODCAST_PROJECT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
 BACKEND_DIR="$PROJECT_DIR/backend"
@@ -22,6 +23,41 @@ NPM_BIN="${MAGICPODCAST_NPM_BIN:-npm}"
 NODE_BIN="${MAGICPODCAST_NODE_BIN:-node}"
 CURL_BIN="${MAGICPODCAST_CURL_BIN:-curl}"
 TEST_MODE="${MAGICPODCAST_RELEASE_TEST_MODE:-false}"
+DIAGNOSTIC_PHASE=preflight
+DIAGNOSTIC_CAPTURED=false
+capture_diagnostic() {
+  local expected_release="${ACTIVE_RELEASE_ID:-${RELEASE_ID:-}}"
+  local expected_build="${ACTIVE_FRONTEND_ID:-}"
+  if [ "$1" = rollback ]; then
+    expected_release="${PREVIOUS_ID:-${current_id:-$(manifest_value release_id "$PREVIOUS_FILE")}}"
+    expected_build="${PREVIOUS_FRONTEND_ID:-${current_frontend_id:-$(manifest_value frontend_build_id "$PREVIOUS_FILE")}}"
+  fi
+  MAGICPODCAST_PROJECT_DIR="$PROJECT_DIR" \
+  MAGICPODCAST_RELEASE_ROOT="$RELEASE_ROOT" \
+  MAGICPODCAST_RELEASE_LOG="$RELEASE_LOG" \
+  MAGICPODCAST_DIAGNOSTIC_STAGE="${STAGE:-${ACTIVATE_STAGE:-}}" \
+  MAGICPODCAST_DIAGNOSTIC_RELEASE="$expected_release" \
+  MAGICPODCAST_DIAGNOSTIC_BUILD="$expected_build" \
+  MAGICPODCAST_DIAGNOSTICS_DIR="${MAGICPODCAST_DIAGNOSTICS_DIR:-$RELEASE_ROOT/diagnostics/$$}" \
+    "$NODE_BIN" "$SCRIPT_DIR/release-diagnostics.mjs" "$1" "$2" ||
+    printf 'diagnostic_capture=unavailable\n' >&2
+}
+recover_failed_release() {
+  capture_diagnostic "$DIAGNOSTIC_PHASE" failed
+  DIAGNOSTIC_CAPTURED=true
+  if [ "${services_already_stopped:-false}" = true ]; then
+    # Never start old artifacts against a committed new schema.
+    stop_services || true
+    capture_diagnostic rollback not_attempted
+    return 1
+  fi
+  if restore_previous; then
+    capture_diagnostic rollback success
+  else
+    capture_diagnostic rollback failed
+  fi
+  return 1
+}
 IMAGE_OPTIMIZER_PATH="/_next/image.webp"
 IMAGE_OPTIMIZER_VERIFIER="$PROJECT_DIR/scripts/verify-image-optimizer-build.mjs"
 ASSET_PREFIX_VERIFIER="$PROJECT_DIR/scripts/verify-release-asset-prefix.mjs"
@@ -91,7 +127,7 @@ database_schema_version() {
   command -v sqlite3 >/dev/null 2>&1 || return 1
 
   local version
-  version="$(sqlite3 "$DATABASE_PATH" "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;" 2>/dev/null)" || return 1
+  version="$(sqlite_readonly "$DATABASE_PATH" "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;" 2>/dev/null)" || return 1
   [[ "$version" =~ ^[0-9]+$ ]] || return 1
   printf '%s\n' "$version"
 }
@@ -242,7 +278,7 @@ verify_health() {
     return 0
   fi
 
-  health="$(curl --fail --silent --show-error http://127.0.0.1:8080/health 2>/dev/null)" || return 1
+  health="$("$CURL_BIN" --fail --silent --show-error http://127.0.0.1:8080/health 2>/dev/null)" || return 1
   printf '%s\n' "$health" | grep -Fq "\"status\":\"ok\"" || return 1
   printf '%s\n' "$health" | grep -Fq "\"release_id\":\"$release_id\"" || return 1
   printf '%s\n' "$health" | grep -Fq "\"frontend_build_id\":\"$frontend_build_id\"" || return 1
@@ -283,6 +319,9 @@ build_release() {
     worktree_clean=true
   fi
 
+  STAGE="$stage"
+  DIAGNOSTIC_PHASE=backend_build
+  trap 'if [ "$?" -ne 0 ]; then capture_diagnostic "$DIAGNOSTIC_PHASE" failed; fi' EXIT
   mkdir -p "$stage"
   log INFO "build started release=$release_id"
 
@@ -311,6 +350,7 @@ build_release() {
     return 1
   fi
   rm -rf "$frontend_dist"
+  DIAGNOSTIC_PHASE=frontend_build
   phase_started_seconds=$SECONDS
   if ! (cd "$FRONTEND_DIR" && \
     MAGICPODCAST_NEXT_DIST_DIR="$frontend_dist_name" \
@@ -325,6 +365,7 @@ build_release() {
     return 1
   fi
   record_timing frontend_build "$phase_started_seconds"
+  DIAGNOSTIC_PHASE=stage_verification
   phase_started_seconds=$SECONDS
   if ! "$NODE_BIN" "$IMAGE_OPTIMIZER_VERIFIER" "$frontend_dist" "$IMAGE_OPTIMIZER_PATH" >> "$stage/frontend-build.log" 2>&1; then
     log ERROR "frontend image optimizer path verification failed release=$release_id"
@@ -521,6 +562,7 @@ deploy_release() {
   [[ "$schema_version" =~ ^[0-9]+$ ]] || return 1
   ACTIVE_RELEASE_ID="$release_id"
   ACTIVE_FRONTEND_ID="$frontend_id"
+  DIAGNOSTIC_PHASE=switch
 
   if [ "$services_already_stopped" = true ]; then
     wait_for_ports_gone || return 1
@@ -549,25 +591,42 @@ deploy_release() {
 
   if [ "$services_already_stopped" != true ] && ! stop_services; then
     log WARN "stop incomplete; attempting to keep previous release available"
-    start_services "$current_id" "$current_frontend_id" || true
+    capture_diagnostic switch failed
+    DIAGNOSTIC_CAPTURED=true
+    if start_services "$current_id" "$current_frontend_id" && verify_health "$current_id" "$current_frontend_id"; then
+      capture_diagnostic rollback success
+    else
+      capture_diagnostic rollback failed
+    fi
     return 1
   fi
   if ! capture_previous_artifacts "$current_id" "$current_frontend_id" "$current_backend_sha" "$current_schema_version"; then
     error "无法保存上一版本，未切换新版本"
     log ERROR "failed to retain previous artifacts"
+    capture_diagnostic switch failed
+    DIAGNOSTIC_CAPTURED=true
     if [ "$OLD_BACKEND_MOVED" = true ] && [ ! -f "$BACKEND_DIR/api" ]; then
       mv "$PREVIOUS_DIR/backend.api" "$BACKEND_DIR/api" || true
     fi
     if [ "$OLD_FRONTEND_MOVED" = true ] && [ ! -d "$FRONTEND_DIR/.next" ]; then
       mv "$PREVIOUS_DIR/frontend.next" "$FRONTEND_DIR/.next" || true
     fi
-    start_services "$current_id" "$current_frontend_id" || true
+    if [ "$services_already_stopped" != true ]; then
+      if start_services "$current_id" "$current_frontend_id" && verify_health "$current_id" "$current_frontend_id"; then
+        capture_diagnostic rollback success
+      else
+        capture_diagnostic rollback failed
+      fi
+    else
+      capture_diagnostic rollback not_attempted
+    fi
     return 1
   fi
+  DIAGNOSTIC_PHASE=switch
   if ! install_stage "$stage" "$services_already_stopped"; then
     error "新版本切换失败，开始自动回退"
     log ERROR "install failed release=$release_id"
-    restore_previous || return 1
+    recover_failed_release
     return 1
   fi
 
@@ -575,16 +634,22 @@ deploy_release() {
     [ "$(tr -d '\r\n' < "$FRONTEND_DIR/.next/BUILD_ID")" != "$frontend_id" ]; then
     error "已安装产物与目标 stage 不一致，开始自动回退"
     log ERROR "installed artifact verification failed release=$release_id"
-    restore_previous || return 1
+    recover_failed_release
     return 1
   fi
 
   write_pointer "$CURRENT_FILE" "$release_id" "$frontend_id" "$backend_sha" "$RELEASE_ROOT/$release_id" "$schema_version" "$asset_prefix"
   log INFO "switch installed release=$release_id"
-  if ! start_services "$release_id" "$frontend_id" || ! verify_health "$release_id" "$frontend_id"; then
-    error "新版本启动或健康验证失败，开始自动回退"
-    log ERROR "post-switch verification failed release=$release_id"
-    restore_previous || return 1
+  DIAGNOSTIC_PHASE=start
+  if ! start_services "$release_id" "$frontend_id"; then
+    log ERROR "post-switch start failed release=$release_id"
+    recover_failed_release
+    return 1
+  fi
+  DIAGNOSTIC_PHASE=health
+  if ! verify_health "$release_id" "$frontend_id"; then
+    log ERROR "post-switch health verification failed release=$release_id"
+    recover_failed_release
     return 1
   fi
   log INFO "switch completed release=$release_id"
@@ -692,6 +757,9 @@ fi
 
 finish_maintenance() {
   local status=$?
+  if [ "$status" -ne 0 ] && [ "$DIAGNOSTIC_CAPTURED" != true ]; then
+    capture_diagnostic "$DIAGNOSTIC_PHASE" failed
+  fi
   if [ "$status" -ne 0 ] && [ "$MODE" = activate ] &&
     [ "$MAGICPODCAST_MAINTENANCE_OWNERSHIP" = owned ] &&
     [ "${maintenance_operation:-}" = recovery ]; then
@@ -717,6 +785,7 @@ fi
 
 mkdir -p "$RELEASE_ROOT"
 if [ "$MODE" = rollback ]; then
+  DIAGNOSTIC_PHASE=rollback
   rollback_command
   exit $?
 fi
@@ -743,6 +812,7 @@ if [ "$MODE" = activate ]; then
   deploy_release "$ACTIVATE_STAGE" true || exit 1
   activation_release_id="$(manifest_value release_id "$ACTIVATE_STAGE/manifest.env")"
   activation_frontend_id="$(manifest_value frontend_build_id "$ACTIVATE_STAGE/manifest.env")"
+  DIAGNOSTIC_PHASE=readiness
   verify_schema_ready "$activation_release_id" "$activation_frontend_id" "$MAGICPODCAST_RELEASE_SCHEMA_VERSION_OVERRIDE" || {
     error "prepared release readiness verification failed"
     exit 1
@@ -753,7 +823,9 @@ if [ "$MODE" = activate ]; then
 fi
 
 RELEASE_ID="$(date -u '+%Y%m%dT%H%M%SZ')-$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || printf 'nogit')-$$"
-STAGE="$(build_release "$RELEASE_ID")" || exit $?
+DIAGNOSTIC_PHASE=backend_build
+STAGE="$(build_release "$RELEASE_ID")" || { DIAGNOSTIC_CAPTURED=true; exit 1; }
+DIAGNOSTIC_PHASE=stage_verification
 phase_started_seconds=$SECONDS
 if ! verify_stage "$STAGE"; then
   log ERROR "staged release verification failed release=$RELEASE_ID"

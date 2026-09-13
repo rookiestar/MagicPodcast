@@ -217,6 +217,15 @@ verify_production_health() {
   printf '%s\n' "$health"
 }
 
+capture_diagnostic() {
+  MAGICPODCAST_RELEASE_ROOT="$RELEASE_ROOT" \
+  MAGICPODCAST_PROJECT_DIR="$PROJECT_DIR" \
+  MAGICPODCAST_DIAGNOSTICS_DIR="${MAGICPODCAST_DIAGNOSTICS_DIR:-$RELEASE_ROOT/diagnostics/managed-$$}" \
+  DEPLOY_SHA="$TARGET_SHA" \
+    node "$SCRIPT_DIR/release-diagnostics.mjs" "$1" "$2" ||
+    printf 'diagnostic_capture=unavailable\n' >&2
+}
+
 ORIGINAL_SOURCE_SHA=""
 SOURCE_SWITCHED=false
 RELEASE_SUCCEEDED=false
@@ -226,10 +235,14 @@ finish() {
   local status=$?
   if [ "$ACTION" = deploy ] && [ "$SOURCE_SWITCHED" = true ] && [ "$OPERATION_SUCCEEDED" = false ]; then
     if [ "$RELEASE_SUCCEEDED" = true ]; then
+      capture_diagnostic health failed
       printf 'post-release verification failed; attempting paired artifact rollback\n' >&2
       if ! run_rollback; then
+        capture_diagnostic rollback failed
         printf 'paired artifact rollback failed; inspect production before retrying\n' >&2
         status=1
+      else
+        capture_diagnostic rollback success
       fi
     fi
     printf 'deployment failed; restoring production checkout to %s\n' "$ORIGINAL_SOURCE_SHA" >&2

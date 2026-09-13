@@ -85,6 +85,9 @@ describe("DiscoveryFocusSummary", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "从 Inbox 添加到 Focus" }),
     );
+    expect(
+      screen.queryByText("仅显示已收集、尚未投入的条目。"),
+    ).not.toBeInTheDocument();
     const add = await screen.findByRole("button", {
       name: "将 值得投入的单集 添加到 Focus",
     });
@@ -107,10 +110,12 @@ describe("DiscoveryFocusSummary", () => {
   it("renders every Focus item as a detail link with a full-title tooltip", async () => {
     renderSummary();
 
-    const links = await screen.findAllByRole("link");
-    expect(links).toHaveLength(7);
-    expect(links[6]).toHaveAttribute("href", "/episodes/13?from=discovery");
-    expect(links[6]).toHaveAttribute("title", "Focus 条目 7");
+    await screen.findByText("Focus 条目 7");
+    const links = screen.getAllByRole("link");
+    expect(links[0]).toHaveAttribute("href", "/inbox?queue=focus");
+    expect(links).toHaveLength(8);
+    expect(links[7]).toHaveAttribute("href", "/episodes/13?from=discovery");
+    expect(links[7]).toHaveAttribute("title", "Focus 条目 7");
   });
 
   it("requires explicit confirmation before exceeding the Focus soft limit", async () => {

@@ -4,6 +4,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$PROJECT_DIR/scripts/sqlite-readonly.sh"
 BACKEND_DIR="$PROJECT_DIR/backend"
 CONFIG_PATH="${CONFIG_PATH:-$BACKEND_DIR/configs/config.yaml}"
 DB_PATH="${DB_PATH:-$BACKEND_DIR/data/magicpodcast.db}"
@@ -318,7 +319,7 @@ load_verified_migration_release
 production_maintenance_mark_critical
 "$GO_BIN" run ./cmd/migrate --apply
 
-expected_schema="$($SQLITE_BIN -readonly "$DB_PATH" "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;")"
+expected_schema="$(sqlite_readonly "$DB_PATH" "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;")"
 [[ "$expected_schema" =~ ^[0-9]+$ ]] || {
   echo "迁移后 schema 无法读取" >&2
   exit 1
@@ -337,8 +338,8 @@ verify_started_migration_service "$expected_schema" || {
   exit 1
 }
 
-queue_projection="$($SQLITE_BIN -readonly "$DB_PATH" "SELECT queue_state || '=' || COUNT(*) FROM episode_triage_decisions WHERE queue_state IN ('inbox','focus','someday','done') GROUP BY queue_state ORDER BY queue_state;")"
-processing_projection="$($SQLITE_BIN -readonly "$DB_PATH" "SELECT status || '=' || COUNT(*) FROM episode_processing_runs GROUP BY status ORDER BY status;")"
+queue_projection="$(sqlite_readonly "$DB_PATH" "SELECT queue_state || '=' || COUNT(*) FROM episode_triage_decisions WHERE queue_state IN ('inbox','focus','someday','done') GROUP BY queue_state ORDER BY queue_state;")"
+processing_projection="$(sqlite_readonly "$DB_PATH" "SELECT status || '=' || COUNT(*) FROM episode_processing_runs GROUP BY status ORDER BY status;")"
 printf 'migration_post_start_schema=%s\n' "$expected_schema"
 printf 'migration_post_start_release=%s\n' "$expected_release_id"
 printf 'migration_post_start_frontend_build=%s\n' "$expected_frontend_build_id"

@@ -18,7 +18,9 @@ import {
   navigate,
   normalizeEpisodeQuery,
   parseEpisodeRoute,
+  positiveID,
   singleParam,
+  updateQuery,
   useLocationHref,
 } from "@/lib/navigation";
 import type { ConsumptionItem, ConsumptionQueue } from "@/types/consumption";
@@ -30,8 +32,25 @@ export default function EpisodeDetailPage() {
   const router = useRouter();
   const href = useLocationHref();
   const route = parseEpisodeRoute(href);
+  const episodeParams = new URL(
+    href || "/episodes",
+    "http://navigation.local",
+  ).searchParams;
+  const markReadRequested = singleParam(episodeParams, "mark_read") === "1";
   useEffect(() => attachEpisodeOrigin(route.id), [route.id]);
   useEffect(() => { if (href.startsWith("/episodes/")) normalizeEpisodeQuery(); }, [href]);
+  useEffect(() => {
+    if (!route.id || !markReadRequested) return;
+    let active = true;
+    void consumptionApi.markRead(route.id)
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) updateQuery({ mark_read: null }, true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [markReadRequested, route.id]);
   const [item, setItem] = useState<ConsumptionItem | null>(null);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
@@ -73,10 +92,27 @@ export default function EpisodeDetailPage() {
       new URLSearchParams(window.location.search),
       "from",
     );
+    const returnPage = positiveID(
+      singleParam(new URLSearchParams(window.location.search), "return_page"),
+    );
+    const returnFilter = singleParam(
+      new URLSearchParams(window.location.search),
+      "return_filter",
+    );
+    const discoveryParams = new URLSearchParams();
+    if (returnFilter === "unread" || returnFilter === "uncollected") {
+      discoveryParams.set("filter", returnFilter);
+    }
+    if (returnPage && returnPage > 1) {
+      discoveryParams.set("page", String(returnPage));
+    }
+    const discoveryTarget = `/discovery${
+      discoveryParams.size ? `?${discoveryParams.toString()}` : ""
+    }`;
     const origin = readEpisodeOrigin(route.id);
     const target = origin?.href ?? (
       from === "discovery"
-        ? "/discovery"
+        ? discoveryTarget
         : from === "history"
           ? "/inbox/history"
           : from === "podcast"

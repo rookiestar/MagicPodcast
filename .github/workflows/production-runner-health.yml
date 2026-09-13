@@ -7,6 +7,7 @@ on:
 
 permissions:
   actions: read
+  contents: read
 
 concurrency:
   group: magicpodcast-production-runner-health
@@ -17,41 +18,12 @@ jobs:
     name: Check production runner
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    env:
-      HEARTBEAT_WORKFLOW: production-runner-heartbeat.yml
-      HEARTBEAT_MAX_AGE_MINUTES: 75
-      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Check runner status
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          runs="$(gh api \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/${HEARTBEAT_WORKFLOW}/runs?per_page=50")"
-          latest_success_epoch="$(jq -r \
-            '[.workflow_runs[] | select(.conclusion == "success") |
-              (.updated_at | fromdateiso8601)] | max // 0' <<<"$runs")"
-          now_epoch="$(date -u +%s)"
-
-          if [ "$latest_success_epoch" -eq 0 ]; then
-            echo "::error title=Production runner heartbeat missing::No successful production runner heartbeat was found."
-            exit 1
-          fi
-
-          heartbeat_age_minutes="$(( (now_epoch - latest_success_epoch) / 60 ))"
-
-          {
-            echo "### Production runner health"
-            echo
-            echo "- Heartbeat workflow: \`$HEARTBEAT_WORKFLOW\`"
-            echo "- Last successful heartbeat age: \`${heartbeat_age_minutes}m\`"
-            echo "- Maximum allowed age: \`${HEARTBEAT_MAX_AGE_MINUTES}m\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          if [ "$heartbeat_age_minutes" -gt "$HEARTBEAT_MAX_AGE_MINUTES" ]; then
-            echo "::error title=Production runner heartbeat stale::The last successful heartbeat is ${heartbeat_age_minutes} minutes old."
-            exit 1
-          fi
-
-          echo "Production runner heartbeat is fresh (${heartbeat_age_minutes} minutes old)."
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Check runner evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/production-runner-health.mjs

@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DiscoveryPageClient from "../DiscoveryPageClient";
+import { navigate } from "@/lib/navigation";
 import type {
   DiscoveryCandidate,
   HomepageReportsData,
@@ -153,11 +154,9 @@ describe("Discovery Inbox toggle integration", () => {
 
     const report = screen.getByRole("region", { name: "精选报告" });
     const recent = screen.getByRole("region", { name: "工作流最近更新" });
-    fireEvent.click(
-      within(recent).getByRole("button", {
-        name: "预读 跨区域同步单集",
-      }),
-    );
+    act(() => {
+      navigate("/discovery?episode=173");
+    });
     const preview = screen.getByRole("dialog", {
       name: "跨区域同步单集",
     });
@@ -212,8 +211,8 @@ describe("Discovery Inbox toggle integration", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /未收集/ }));
     expect(
-      within(recent).queryByRole("button", {
-        name: "预读 跨区域同步单集",
+      within(recent).queryByRole("link", {
+        name: "打开单集工作台：跨区域同步单集",
       }),
     ).not.toBeInTheDocument();
 
@@ -222,8 +221,8 @@ describe("Discovery Inbox toggle integration", () => {
     );
     await waitFor(() => {
       expect(
-        within(recent).getByRole("button", {
-          name: "预读 跨区域同步单集",
+        within(recent).getByRole("link", {
+          name: "打开单集工作台：跨区域同步单集",
         }),
       ).toBeInTheDocument();
     });
@@ -371,11 +370,9 @@ describe("Discovery Inbox toggle integration", () => {
         within(recent).getByRole("button", { name: "从 Inbox 移除" }),
       ).toBeEnabled();
     });
-    fireEvent.click(
-      within(recent).getByRole("button", {
-        name: "预读 跨区域同步单集",
-      }),
-    );
+    act(() => {
+      navigate("/discovery?episode=173");
+    });
     const preview = screen.getByRole("dialog", {
       name: "跨区域同步单集",
     });

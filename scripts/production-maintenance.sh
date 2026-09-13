@@ -61,7 +61,13 @@ production_maintenance_process_start() {
 
 production_maintenance_path_epoch() {
   local dir="$1"
-  stat -f '%m' "$dir" 2>/dev/null || stat -c '%Y' "$dir" 2>/dev/null
+  local mac_epoch
+  mac_epoch="$(stat -f '%m' "$dir" 2>/dev/null || true)"
+  if [[ "$mac_epoch" =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "$mac_epoch"
+    return 0
+  fi
+  stat -c '%Y' "$dir" 2>/dev/null
 }
 
 production_maintenance_owner_alive() {

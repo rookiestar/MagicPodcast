@@ -45,7 +45,23 @@ jobs:
 
       - name: Roll back paired release
         env:
+          MAGICPODCAST_DIAGNOSTICS_DIR: ${{ vars.MAGICPODCAST_PRODUCTION_DIR }}/.magicpodcast-releases/diagnostics/actions-${{ github.run_id }}-${{ github.run_attempt }}
           MAGICPODCAST_PRODUCTION_DIR: ${{ vars.MAGICPODCAST_PRODUCTION_DIR }}
         run: |
           set -euo pipefail
           "$GITHUB_WORKSPACE/scripts/production-deploy.sh" rollback
+
+      - name: Preserve release diagnostics
+        id: diagnostics
+        continue-on-error: true
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ vars.MAGICPODCAST_PRODUCTION_DIR }}/.magicpodcast-releases/diagnostics/actions-${{ github.run_id }}-${{ github.run_attempt }}/*.json
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Report diagnostics upload failure separately
+        if: ${{ always() && steps.diagnostics.outcome == 'failure' }}
+        run: echo 'Diagnostics upload failed; release outcome is unchanged. Inspect the preserved local evidence.' >> "$GITHUB_STEP_SUMMARY"
