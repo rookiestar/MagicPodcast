@@ -234,13 +234,20 @@ export default function DiscoveryDesk({
   const params = useMemo(() => new URL(href || "/discovery", "http://navigation.local").searchParams, [href]);
   const filter = singleParam(params, "filter");
   const activeFilter: RecentFilter = filter === "unread" || filter === "uncollected" ? filter : "all";
-  const setActiveFilter = (value: RecentFilter) => updateQuery({ filter: value === "all" ? null : value });
+  const rawPage = singleParam(params, "page");
+  const pageParam = positiveID(rawPage);
+  const requestedRecentPage = pageParam === null ? 0 : pageParam - 1;
+  const setActiveFilter = (value: RecentFilter) =>
+    updateQuery({
+      filter: value === "all" ? null : value,
+      page: null,
+    });
   useEffect(() => {
     if (params.has("filter") && !["all", "unread", "uncollected"].includes(filter ?? "")) updateQuery({ filter: null }, true);
   }, [params, filter]);
   const [recentPagination, dispatchRecentPagination] = useReducer(
     recentPaginationReducer,
-    { page: 0, pageSize: DEFAULT_RECENT_PAGE_SIZE },
+    { page: requestedRecentPage, pageSize: DEFAULT_RECENT_PAGE_SIZE },
   );
   const selectedID = positiveID(singleParam(params, "episode"));
   const setSelectedID = (id: number | null) => updateQuery({ episode: id === null ? null : String(id) });
@@ -263,6 +270,7 @@ export default function DiscoveryDesk({
   const touchStartX = useRef<number | null>(null);
   const visibleCandidatesRef = useRef<DiscoveryCandidate[]>([]);
   const selectedIDRef = useRef<number | null>(null);
+  const recentPageParamRef = useRef(requestedRecentPage);
   const recentPageSizeRef = useRef(DEFAULT_RECENT_PAGE_SIZE);
   const pendingResizeFocusRef = useRef<{
     episodeID: number;
@@ -365,6 +373,14 @@ export default function DiscoveryDesk({
 
   const { page: recentPage, pageSize: recentPageSize } = recentPagination;
   useEffect(() => {
+    if (recentPageParamRef.current === requestedRecentPage) return;
+    recentPageParamRef.current = requestedRecentPage;
+    dispatchRecentPagination({
+      type: "set-page",
+      page: requestedRecentPage,
+    });
+  }, [requestedRecentPage]);
+  useEffect(() => {
     if (selectedID === null) return;
     const index = visibleCandidates.findIndex((candidate) => candidate.episode_id === selectedID);
     if (index >= 0) dispatchRecentPagination({ type: "set-page", page: Math.floor(index / recentPageSize) });
@@ -382,6 +398,20 @@ export default function DiscoveryDesk({
     recentPageStart,
     recentPageStart + recentPageSize,
   );
+
+  useEffect(() => {
+    if (visibleCandidates.length === 0) return;
+    const normalizedPage = safeRecentPage > 0 ? String(safeRecentPage + 1) : null;
+    const currentPage = pageParam === null ? (rawPage === null ? null : "invalid") : String(pageParam);
+    if (currentPage === normalizedPage) return;
+    updateQuery({ page: normalizedPage }, true);
+  }, [pageParam, rawPage, safeRecentPage, visibleCandidates.length]);
+
+  const setRecentPage = (page: number) => {
+    const nextPage = Math.min(Math.max(page, 0), recentPageCount - 1);
+    dispatchRecentPagination({ type: "set-page", page: nextPage });
+    updateQuery({ page: nextPage > 0 ? String(nextPage + 1) : null });
+  };
 
   useEffect(() => {
     const pendingFocus = pendingResizeFocusRef.current;
@@ -686,6 +716,16 @@ export default function DiscoveryDesk({
       : selected?.queue_state
         ? `已在 ${queueLabels[selected.queue_state]}`
         : "收集到 Inbox";
+  const candidateWorkbenchHref = (episodeID: number) => {
+    const query = new URLSearchParams({ from: "discovery", mark_read: "1" });
+    if (safeRecentPage > 0) {
+      query.set("return_page", String(safeRecentPage + 1));
+    }
+    if (activeFilter !== "all") {
+      query.set("return_filter", activeFilter);
+    }
+    return `/episodes/${episodeID}?${query.toString()}`;
+  };
 
   return (
     <main className="discovery-desk discovery-unified-layout">
@@ -833,12 +873,11 @@ export default function DiscoveryDesk({
                           }}
                           episodeID={candidate.episode_id}
                           source="discovery"
-                          href={`/episodes/${candidate.episode_id}?from=discovery`}
+                          href={candidateWorkbenchHref(candidate.episode_id)}
                           id={`episode-entry-discovery-card-${candidate.episode_id}`}
                           className="discovery-candidate"
                           aria-label={`打开单集工作台：${candidate.episode_title}`}
                           title="打开单集工作台"
-                          onClick={() => markCandidateRead(candidate)}
                         >
                           <span className="discovery-index">
                             <span>
@@ -953,12 +992,7 @@ export default function DiscoveryDesk({
                 aria-label="上一页"
                 title="上一页"
                 disabled={safeRecentPage <= 0}
-                onClick={() =>
-                  dispatchRecentPagination({
-                    type: "set-page",
-                    page: Math.max(0, recentPage - 1),
-                  })
-                }
+                onClick={() => setRecentPage(safeRecentPage - 1)}
               >
                 <IconChevronLeft aria-hidden="true" />
               </button>
@@ -977,12 +1011,7 @@ export default function DiscoveryDesk({
                 aria-label="下一页"
                 title="下一页"
                 disabled={safeRecentPage >= recentPageCount - 1}
-                onClick={() =>
-                  dispatchRecentPagination({
-                    type: "set-page",
-                    page: Math.min(recentPageCount - 1, recentPage + 1),
-                  })
-                }
+                onClick={() => setRecentPage(safeRecentPage + 1)}
               >
                 <IconChevronRight aria-hidden="true" />
               </button>

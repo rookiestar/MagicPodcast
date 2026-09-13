@@ -1,14 +1,14 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import EpisodeDetailPage from "../EpisodeDetailPage";
 import { navigate } from "@/lib/navigation";
 import type { ConsumptionItem } from "@/types/consumption";
 
-const mocks = vi.hoisted(() => ({ getItem: vi.fn(), replace: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getItem: vi.fn(), markRead: vi.fn(), replace: vi.fn() }));
 vi.mock("next/navigation", () => ({ usePathname: () => window.location.pathname, useRouter: () => ({ replace: mocks.replace }) }));
 vi.mock("@/components/layout/PageLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => children }));
 vi.mock("@/lib/api/consumption", () => ({
-  consumptionApi: { getItem: mocks.getItem },
+  consumptionApi: { getItem: mocks.getItem, markRead: mocks.markRead },
   getConsumptionErrorDetails: (error: { status?: number }) => error,
   requiresFocusConfirmation: () => false,
 }));
@@ -16,7 +16,7 @@ vi.mock("../ConsumptionDetailPanel", () => ({ default: ({ item, routeState }: { 
 vi.mock("../FocusLimitDialog", () => ({ default: () => null }));
 
 function item(id: number) { return { episode_id: id, episode_title: `单集 ${id}`, queue_state: null }; }
-beforeEach(() => { mocks.getItem.mockReset(); window.history.replaceState({}, "", "/episodes/42?tab=notes"); });
+beforeEach(() => { mocks.getItem.mockReset(); mocks.markRead.mockReset(); window.history.replaceState({}, "", "/episodes/42?tab=notes"); });
 
 describe("independent episode page", () => {
   it("reads an unassigned episode directly by ID and restores the requested tab", async () => {
@@ -24,6 +24,22 @@ describe("independent episode page", () => {
     render(<EpisodeDetailPage />);
     expect(await screen.findByRole("region", { name: "单集内容" })).toHaveTextContent("单集 42 · notes");
     expect(mocks.getItem).toHaveBeenCalledWith(42);
+    expect(mocks.markRead).not.toHaveBeenCalled();
+  });
+
+  it("marks a workbench link as read and removes the one-shot flag", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/episodes/42?from=discovery&mark_read=1&return_page=2",
+    );
+    mocks.getItem.mockResolvedValue(item(42));
+    mocks.markRead.mockResolvedValue({ ...item(42), read_at: "2026-09-13T11:00:00Z" });
+
+    render(<EpisodeDetailPage />);
+    await screen.findByRole("region", { name: "单集内容" });
+    await waitFor(() => expect(mocks.markRead).toHaveBeenCalledWith(42));
+    expect(window.location.search).toBe("?from=discovery&return_page=2");
   });
   it("never fetches a guessed ID for an invalid resource address", async () => {
     window.history.replaceState({}, "", "/episodes/42bad");

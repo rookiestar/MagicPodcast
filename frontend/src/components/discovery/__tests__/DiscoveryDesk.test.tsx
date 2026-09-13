@@ -337,22 +337,6 @@ describe("DiscoveryDesk", () => {
     ).toBeInTheDocument();
   });
 
-  it("marks a direct workbench link as read", () => {
-    const onRead = vi.fn().mockResolvedValue({
-      episode_id: 11,
-      queue_state: null,
-      read_at: "2026-07-29T08:10:00Z",
-    });
-    render(<DiscoveryDesk candidates={candidates} onRead={onRead} />);
-
-    const link = screen.getByRole("link", {
-      name: "打开单集工作台：模型能力如何转向真实应用",
-    });
-    fireEvent.click(link);
-
-    expect(onRead).toHaveBeenCalledWith(11);
-  });
-
   it("uses Discovery as the section title and explains the rolling window", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
@@ -601,8 +585,25 @@ describe("DiscoveryDesk", () => {
     const candidate = screen.getByRole("link", {
       name: "打开单集工作台：模型能力如何转向真实应用",
     });
-    expect(candidate).toHaveAttribute("href", "/episodes/11?from=discovery");
+    expect(candidate).toHaveAttribute(
+      "href",
+      "/episodes/11?from=discovery&mark_read=1",
+    );
     expect(candidate).toHaveAttribute("title", "打开单集工作台");
+  });
+
+  it("keeps the recent-update page in the workbench return URL", () => {
+    const pagedCandidates = makePagedCandidates(6);
+    render(<DiscoveryDesk candidates={pagedCandidates} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    expect(window.location.search).toBe("?page=2");
+    expect(
+      screen.getByRole("link", { name: "打开单集工作台：分页单集 5" }),
+    ).toHaveAttribute(
+      "href",
+      "/episodes/104?from=discovery&mark_read=1&return_page=2",
+    );
   });
 
   it("defers pre-read and metadata until the episode card is opened", async () => {

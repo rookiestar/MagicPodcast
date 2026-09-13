@@ -84,6 +84,9 @@ describe("default page", () => {
       screen.getByRole("link", { name: "打开单集工作台：默认首页最近更新" }),
     ).toBeInTheDocument();
     expect(
+      screen.getByRole("link", { name: "打开单集工作台：默认首页最近更新" }),
+    ).toHaveAttribute("href", "/episodes/1?from=discovery&mark_read=1");
+    expect(
       screen.getByRole("region", { name: "Focus 快捷摘要" }),
     ).toBeInTheDocument();
     expect(
