@@ -36,9 +36,14 @@ export const syncApi = {
     file: File,
     onProgress: SyncProgressCallback,
     confirmationText: string,
+    decisions?: Record<string, string>,
   ): Promise<void> => {
     const formData = new FormData();
     formData.append("opml_file", file);
+    // 用户对需确认条目（清单关联/已删除恢复/换址合并）的显式决定。
+    if (decisions && Object.keys(decisions).length > 0) {
+      formData.append("decisions", JSON.stringify(decisions));
+    }
 
     return sseFormDataRequest(
       "/api/v1/sync/import-sse",
@@ -53,9 +58,9 @@ export const syncApi = {
         logPrefix: "[Import]",
         emptyMessage: "未收到任何导入消息",
         abortMessage: "导入被取消",
-        timeoutMessage: "导入超时（10分钟），可能是网络较慢或文件太大",
+        timeoutMessage: "导入超时（10分钟），任务仍在后台执行，可稍后刷新查看结果",
         requireCompletion: true,
-        incompleteMessage: "导入连接提前结束，未收到完成确认",
+        incompleteMessage: "导入连接提前结束，任务仍在后台执行，可稍后刷新查看结果",
         isComplete: isSummaryComplete,
       },
     );
