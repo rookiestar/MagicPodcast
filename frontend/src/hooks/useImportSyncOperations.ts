@@ -117,7 +117,7 @@ export function useImportSyncOperations({
     await runExclusiveOperation(async () => {
       const confirmationText = requestTypedConfirmation({
         action: "同步全部订阅播客",
-        impact: "会刷新全部订阅播客的元数据并发起网络请求，可能耗时较长。",
+        impact: "会刷新全部订阅播客的资料，并按各节目同步范围写入单集（可能新增或更新单集内容），可能耗时较长。",
         phrase: "SYNC ALL",
       });
       if (!confirmationText) return;

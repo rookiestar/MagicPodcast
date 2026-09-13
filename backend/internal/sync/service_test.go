@@ -679,7 +679,8 @@ func TestMetadataSyncDoesNotEmitPerPodcastFetchNoise(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NotContains(t, progressMessages, "正在抓取: Fetch Noise Test")
-	assert.Contains(t, progressMessages, "[1/1] 成功同步: Fetch Noise Test (单集: +1, ~0)")
+	// #398 R6：源站标题随资料检查更新，成功消息使用更新后的标题。
+	assert.Contains(t, progressMessages, "[1/1] 成功同步: Test Feed (单集: +1, ~0)")
 }
 
 func TestSyncPodcastEpisodeItemsPreloadsExistingEpisodesAndPreservesUserFields(t *testing.T) {

@@ -86,10 +86,12 @@ func TestPlanEpisodeSync(t *testing.T) {
 		assert.Equal(t, SyncModeFull, plan.mode)
 	})
 
-	t.Run("skips when metadata and episode counts are unchanged", func(t *testing.T) {
+	t.Run("still syncs when counts match to catch show-notes revisions", func(t *testing.T) {
+		// #398 R7：数量相等不能证明旧单集内容相同，仍需检查实质修订。
 		plan := planEpisodeSync("Podcast", false, 10, 10)
 
-		assert.False(t, plan.shouldSync)
+		assert.True(t, plan.shouldSync)
+		assert.Equal(t, SyncModeFull, plan.mode)
 	})
 }
 
