@@ -81,8 +81,11 @@ describe("default page", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("今日初筛工作区")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "预读 默认首页最近更新" }),
+      screen.getByRole("link", { name: "打开单集工作台：默认首页最近更新" }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "打开单集工作台：默认首页最近更新" }),
+    ).toHaveAttribute("href", "/episodes/1?from=discovery&mark_read=1");
     expect(
       screen.getByRole("region", { name: "Focus 快捷摘要" }),
     ).toBeInTheDocument();
