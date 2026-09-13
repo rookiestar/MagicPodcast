@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { chmod, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -824,7 +824,14 @@ async function createReleaseFixture(t, { failFirstStart = false } = {}) {
       "",
     ].join("\n"),
   );
-  await writeExecutable(path.join(binDir, "node"), "#!/bin/bash\nexit 0\n");
+  await writeExecutable(path.join(binDir, "node"), `#!/bin/bash
+case "$1" in
+  */release-diagnostics.mjs) exec '${process.execPath}' "$@" ;;
+  *) exit 0 ;;
+esac
+`);
+  await writeExecutable(path.join(binDir, "diagnostic-curl"), "#!/bin/bash\nexit 1\n");
+  await writeExecutable(path.join(binDir, "lsof"), "#!/bin/bash\nexit 1\n");
   await writeExecutable(
     path.join(binDir, "sqlite3"),
     "#!/bin/bash\nprintf '1\\n'\n",
@@ -870,6 +877,7 @@ async function createReleaseFixture(t, { failFirstStart = false } = {}) {
       MAGICPODCAST_RELEASE_LOG: path.join(root, "release.log"),
       MAGICPODCAST_RELEASE_DATABASE_PATH: path.join(root, "database.db"),
       MAGICPODCAST_RELEASE_TEST_MODE: "true",
+      MAGICPODCAST_CURL_BIN: path.join(binDir, "diagnostic-curl"),
       MAGICPODCAST_GO_BIN: path.join(binDir, "go"),
       MAGICPODCAST_NPM_BIN: path.join(binDir, "npm"),
       MAGICPODCAST_NODE_BIN: path.join(binDir, "node"),
@@ -1204,4 +1212,115 @@ test("managed production workflow keeps the shared maintenance lock through rele
     "utf8",
   );
   assert.match(sourceState, new RegExp("current_source_sha=" + fixture.targetSha));
+});
+
+
+test("failed start preserves diagnostic facts before a successful rollback", async (t) => {
+  const fixture = await createReleaseFixture(t, { failFirstStart: true });
+  const startScript = fixture.env.MAGICPODCAST_START_SCRIPT;
+  const logs = path.join(fixture.root, 'logs');
+  await mkdir(logs);
+  const start = (await readFile(startScript, 'utf8')).replace('then exit 1; fi', `then printf 'EADDRINUSE secret-body\\n' > '${logs}/backend.log'; exit 1; fi`);
+  await writeExecutable(startScript, start + `\n: > '${logs}/backend.log'\n`);
+  await writeExecutable(fixture.env.MAGICPODCAST_CURL_BIN, `#!/bin/bash
+release=$(awk -F= '$1 == "release_id" {print $2}' '${fixture.releaseRoot}/current.env')
+build=$(awk -F= '$1 == "frontend_build_id" {print $2}' '${fixture.releaseRoot}/current.env')
+printf '{"status":"ok","release_id":"%s","frontend_build_id":"%s"}' "$release" "$build"
+`);
+  const result = await run("/bin/bash", [releaseScript, "--prod"], { env: fixture.env });
+  assert.notEqual(result.code, 0);
+  const dirs = await readdir(path.join(fixture.releaseRoot, "diagnostics"));
+  const directory = path.join(fixture.releaseRoot, "diagnostics", dirs[0]);
+  const reports = await Promise.all((await readdir(directory)).map(async (name) => JSON.parse(await readFile(path.join(directory, name), "utf8"))));
+  assert.ok(reports.some(r => r.phase === "start" && r.outcome === "failed" && r.logs.backend.error_classes.includes('address_in_use')));
+  assert.equal(await readFile(path.join(logs, 'backend.log'), 'utf8'), '');
+  assert.equal(JSON.stringify(reports).includes('secret-body'), false);
+  assert.ok(reports.some(r => r.phase === "rollback" && r.outcome === "success" && r.health.release_matches && r.health.frontend_matches));
+  assert.equal(existsSync(fixture.lockDir), false);
+});
+
+test("diagnostic failure never prevents paired rollback", async (t) => {
+  const fixture = await createReleaseFixture(t, { failFirstStart: true });
+  const impossible = path.join(fixture.root, 'not-a-directory');
+  await writeFile(impossible, 'occupied');
+  const result = await run('/bin/bash', [releaseScript, '--prod'], {
+    env: { ...fixture.env, MAGICPODCAST_DIAGNOSTICS_DIR: impossible },
+  });
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /diagnostic_capture=unavailable/);
+  assert.match(await readFile(fixture.callsFile, 'utf8'), /start=old-release/);
+  assert.equal(existsSync(fixture.lockDir), false);
+});
+
+test("build failure is diagnosed without stopping the existing release", async (t) => {
+  const fixture = await createReleaseFixture(t);
+  await writeExecutable(fixture.env.MAGICPODCAST_GO_BIN, '#!/bin/bash\necho "permission denied SECRET_NOT_FOR_UPLOAD" >&2\nexit 7\n');
+  const result = await run('/bin/bash', [releaseScript, '--prod'], { env: fixture.env });
+  assert.notEqual(result.code, 0);
+  assert.equal(existsSync(fixture.callsFile), false);
+  const dirs = await readdir(path.join(fixture.releaseRoot, 'diagnostics'));
+  const directory = path.join(fixture.releaseRoot, 'diagnostics', dirs[0]);
+  const reports = await Promise.all((await readdir(directory)).map(async name => JSON.parse(await readFile(path.join(directory, name), 'utf8'))));
+  assert.ok(reports.some(r => r.phase === 'backend_build' && r.outcome === 'failed'));
+  assert.equal(JSON.stringify(reports).includes('SECRET_NOT_FOR_UPLOAD'), false);
+  assert.equal(existsSync(fixture.lockDir), false);
+});
+
+test("prepared activation failure never restarts old artifacts after schema commit", async (t) => {
+  const fixture = await createReleaseFixture(t, { failFirstStart: true });
+  const prepared = await run('/bin/bash', [releaseScript, '--prepare'], { env: fixture.env });
+  assert.equal(prepared.code, 0, prepared.stderr);
+  const stage = prepared.stdout.match(/^prepared_stage=(.+)$/m)[1];
+  // A clean prepared candidate is required by the real activation entry point.
+  const manifest = path.join(stage, 'manifest.env');
+  await writeFile(manifest, (await readFile(manifest, 'utf8')).replace('worktree_clean=false', 'worktree_clean=true'));
+  const result = await run('/bin/bash', [releaseScript, '--activate-prepared', stage], {
+    env: { ...fixture.env, MAGICPODCAST_RELEASE_MAINTENANCE_OPERATION: 'recovery', MAGICPODCAST_RELEASE_SCHEMA_VERSION_OVERRIDE: '2' },
+  });
+  assert.notEqual(result.code, 0);
+  assert.equal((await readFile(path.join(fixture.lockDir, 'state'), 'utf8')).trim(), 'recovery_required');
+  assert.doesNotMatch(await readFile(fixture.callsFile, 'utf8'), /start=old-release/);
+});
+
+test("switch failure restores the paired artifacts and records its own phase", async (t) => {
+  const fixture = await createReleaseFixture(t);
+  const stop = fixture.env.MAGICPODCAST_STOP_SCRIPT;
+  await writeExecutable(stop, (await readFile(stop, 'utf8')) + `\nrm -f '${fixture.releaseRoot}'/*/backend.api\n`);
+  const result = await run('/bin/bash', [releaseScript, '--prod'], { env: fixture.env });
+  assert.notEqual(result.code, 0);
+  assert.match(await readFile(fixture.callsFile, 'utf8'), /start=old-release/);
+  const dirs = await readdir(path.join(fixture.releaseRoot, 'diagnostics'));
+  const directory = path.join(fixture.releaseRoot, 'diagnostics', dirs[0]);
+  const reports = await Promise.all((await readdir(directory)).map(async name => JSON.parse(await readFile(path.join(directory, name), 'utf8'))));
+  assert.ok(reports.some(r => r.phase === 'switch' && r.outcome === 'failed'));
+  assert.ok(reports.some(r => r.phase === 'rollback' && r.outcome === 'success'));
+});
+
+test("health mismatch and failed rollback have separate diagnostic results", async (t) => {
+  const fixture = await createReleaseFixture(t), health = path.join(fixture.root, 'health');
+  await writeFile(health, 'release_id=wrong\nfrontend_build_id=wrong\nbuild_mode=release\ndata_profile=production\n');
+  const result = await run('/bin/bash', [releaseScript, '--prod'], {
+    env: { ...fixture.env, MAGICPODCAST_RELEASE_TEST_HEALTH_FILE: health },
+  });
+  assert.notEqual(result.code, 0);
+  const dirs = await readdir(path.join(fixture.releaseRoot, 'diagnostics'));
+  const directory = path.join(fixture.releaseRoot, 'diagnostics', dirs[0]);
+  const reports = await Promise.all((await readdir(directory)).map(async name => JSON.parse(await readFile(path.join(directory, name), 'utf8'))));
+  assert.ok(reports.some(r => r.phase === 'health' && r.outcome === 'failed'));
+  assert.ok(reports.some(r => r.phase === 'rollback' && r.outcome === 'failed'));
+});
+
+test("an early recovery is not successful merely because start returned zero", async t => {
+  const fixture = await createReleaseFixture(t), health = path.join(fixture.root, 'health');
+  await writeFile(health, 'release_id=unexpected\n');
+  await writeExecutable(fixture.env.MAGICPODCAST_STOP_SCRIPT, '#!/bin/bash\nexit 1\n');
+  const result = await run('/bin/bash', [releaseScript, '--prod'], {
+    env: { ...fixture.env, MAGICPODCAST_RELEASE_TEST_HEALTH_FILE: health },
+  });
+  assert.notEqual(result.code, 0);
+  const dirs = await readdir(path.join(fixture.releaseRoot, 'diagnostics'));
+  const directory = path.join(fixture.releaseRoot, 'diagnostics', dirs[0]);
+  const reports = await Promise.all((await readdir(directory)).map(async name => JSON.parse(await readFile(path.join(directory, name), 'utf8'))));
+  assert.ok(reports.some(r => r.phase === 'rollback' && r.outcome === 'failed'));
+  assert.equal(reports.some(r => r.phase === 'rollback' && r.outcome === 'success'), false);
 });

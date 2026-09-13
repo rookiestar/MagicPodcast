@@ -4,6 +4,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$PROJECT_DIR/scripts/sqlite-readonly.sh"
 INPUT_PATH="${1:-$PROJECT_DIR/backend/data/magicpodcast.db}"
 DB_PATH="$INPUT_PATH"
 TEMP_DB=""
@@ -36,7 +37,7 @@ if [[ "$INPUT_PATH" == *.gz ]]; then
 fi
 
 sqlite() {
-  sqlite3 -readonly "$DB_PATH" "$1"
+  sqlite_readonly "$DB_PATH" "$1"
 }
 
 integrity="$(sqlite "PRAGMA integrity_check;")"
