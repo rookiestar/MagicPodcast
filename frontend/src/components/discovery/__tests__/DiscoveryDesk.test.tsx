@@ -1319,18 +1319,18 @@ describe("DiscoveryDesk", () => {
     window.history.replaceState({}, "", "/discovery");
     render(<DiscoveryDesk candidates={candidates} />);
 
-    const entry = screen.getByRole("link", { name: "打开播客清单" });
+    const entry = screen.getByRole("link", { name: "Curated Lists" });
     expect(entry).toHaveAttribute("href", "/collections");
-    expect(entry).toHaveTextContent("播客清单");
+    expect(entry).toHaveTextContent("Curated Lists");
 
     // 入口位于 Discovery 标题组之后、最近更新筛选之前。
     const sidebar = entry.closest("[aria-label='Discovery 导航与筛选']");
     expect(sidebar).not.toBeNull();
     const order = Array.from(sidebar?.children ?? []).map((node) => node.textContent ?? "");
     expect(order.findIndex((text) => text.includes("最近更新 · 14 天"))).toBeLessThan(
-      order.findIndex((text) => text.includes("播客清单")),
+      order.findIndex((text) => text.includes("Curated Lists")),
     );
-    expect(order.findIndex((text) => text.includes("播客清单"))).toBeLessThan(
+    expect(order.findIndex((text) => text.includes("Curated Lists"))).toBeLessThan(
       order.findIndex((text) => text.includes("全部")),
     );
   });

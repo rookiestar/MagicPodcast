@@ -4133,25 +4133,54 @@
   .discovery-focus-confirmation {
     position: absolute;
     inset: auto 12px 12px;
-    padding: 14px;
-    border: 1px solid #171717;
-    color: #f7f1e5;
-    background: #171717;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    padding: 6px 10px;
+    border: 1px solid #cfc3af;
+    color: #514a42;
+    background: #f7f1e5;
+    font: 400 13px/1.6 var(--font-sans);
+  }
+
+  .discovery-focus-confirmation p {
+    flex: 1 1 240px;
+    margin: 0;
+    font-size: 12px;
   }
 
   .discovery-focus-confirmation div {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
-    margin-top: 12px;
+    flex: 0 0 auto;
+    gap: 4px;
+    margin: 0 0 0 auto;
   }
 
   .discovery-focus-confirmation button {
-    min-height: 44px;
-    padding: 0 12px;
-    border: 1px solid #f7f1e5;
-    color: inherit;
+    min-height: 32px;
+    padding: 0 10px;
+    border: 1px solid transparent;
+    color: #746b60;
     background: transparent;
+    font: 500 12px/1.4 var(--font-sans);
+  }
+
+  .discovery-focus-confirmation button:last-child {
+    border-color: #cfc3af;
+    color: #a84a22;
+  }
+
+  .discovery-focus-confirmation button:hover {
+    color: #29251f;
+    background: #eee4d3;
+  }
+
+  .discovery-focus-confirmation button:focus-visible {
+    outline: 2px solid #1768d0;
+    outline-offset: 2px;
   }
 
   .discovery-page-skeleton {
@@ -8681,5 +8710,143 @@ textarea.editorial-field {
 
   .discovery-sidebar .discovery-status-filters {
     flex: 0 0 auto;
+  }
+}
+
+
+.workflow-report-episode-entry {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 32px;
+  margin: -4px 16px 10px 82px;
+  color: var(--text-secondary, #756c62);
+  font: 500 12px/1.4 var(--font-sans);
+  text-decoration: none;
+  gap: 6px;
+}
+.workflow-report-episode-entry::after { content: "↗"; }
+.workflow-report-episode-entry:hover { color: #c74b12; text-decoration: underline; }
+.workflow-report-episode-entry:focus-visible,
+.discovery-focus-heading:focus-visible { outline: 2px solid #1768d0; outline-offset: 3px; }
+.discovery-focus-heading:hover strong { text-decoration: underline; }
+
+.discovery-focus-rail .discovery-focus-add {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 5px;
+  border: 1px solid #c8bba8;
+  border-radius: 0;
+  background: transparent;
+  color: #a84a22;
+  align-self: center;
+}
+.discovery-focus-rail .discovery-focus-add svg { width: 16px; height: 16px; }
+.discovery-focus-rail .discovery-focus-add:hover {
+  border-color: #a84a22;
+  background: #f2e7d5;
+}
+
+/* Discovery rail: one editorial rhythm, separated by section rules. */
+@media (min-width: 901px) {
+  .discovery-sidebar .discovery-workbench-copy {
+    padding: 0 0 20px;
+    gap: 8px;
+    border-bottom: 1px solid #cfc3af;
+  }
+
+  .discovery-sidebar .discovery-collections-entry {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 48px;
+    margin: 0;
+    padding: 0 10px;
+    border: 0;
+    background: transparent;
+  }
+
+  .discovery-sidebar .discovery-collections-entry::after {
+    content: "→";
+    color: #746b60;
+    font: 400 16px/1 var(--font-sans);
+  }
+
+  .discovery-sidebar .discovery-collections-entry span,
+  .discovery-focus-rail .discovery-focus-heading strong {
+    color: #29251f;
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: var(--font-display-weight);
+    line-height: 1.25;
+  }
+
+  .discovery-sidebar .discovery-status-filters {
+    margin-top: 0;
+    padding: 12px 0;
+    border-top: 1px solid #cfc3af;
+    border-bottom: 1px solid #cfc3af;
+    gap: 4px;
+  }
+
+  .discovery-sidebar .discovery-status-filters button,
+  .discovery-sidebar .discovery-status-filters > span {
+    min-height: 36px;
+    padding: 0 10px;
+    border: 0;
+    border-left: 2px solid transparent;
+    font: 500 12px/1.4 var(--font-sans);
+  }
+
+  .discovery-sidebar .discovery-status-filters button strong,
+  .discovery-sidebar .discovery-status-filters > span strong {
+    font: 500 11px/1 var(--font-mono);
+  }
+
+  .discovery-sidebar .discovery-status-filters button.is-active {
+    border-left-color: #c4552a;
+    background: #eee4d3;
+    color: #29251f;
+  }
+
+  .discovery-focus-rail {
+    margin-top: 0;
+    padding-top: 18px;
+    border: 0;
+  }
+
+  .discovery-focus-rail .discovery-focus-summary {
+    grid-template-columns: minmax(0, 1fr) 28px;
+    gap: 14px 8px;
+    border: 0;
+    padding: 0 10px;
+  }
+
+  .discovery-focus-rail .discovery-focus-heading {
+    padding: 0;
+    gap: 8px;
+  }
+
+  .discovery-focus-rail .discovery-focus-heading > svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .discovery-focus-rail .discovery-focus-heading > span {
+    gap: 4px;
+  }
+
+  .discovery-focus-rail .discovery-focus-items > :is(span, a) {
+    padding: 10px 0;
+    border-top: 1px solid #ded4c3;
+    font: 400 12px/1.5 var(--font-sans);
+  }
+
+  .discovery-sidebar .discovery-collections-entry:hover,
+  .discovery-focus-rail .discovery-focus-items > a:hover {
+    background: #eee4d3;
+    color: #a84a22;
   }
 }
