@@ -15,11 +15,13 @@ import (
 	"magicpodcast/internal/sync"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // SyncHandler 同步处理器
 type SyncHandler struct {
 	syncService *sync.Service
+	db          *gorm.DB
 }
 
 // NewSyncHandler 创建同步处理器
@@ -38,6 +40,7 @@ func NewSyncHandler() (*SyncHandler, error) {
 
 	return &SyncHandler{
 		syncService: syncService,
+		db:          db,
 	}, nil
 }
 
@@ -155,28 +158,102 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 		return
 	}
 
-	result, err := h.syncService.ImportOPMLOutlines(outlines, sync.NewLogProgressReporter(), sync.DefaultImportConfig, decisions)
-	if err != nil {
-		logger.Infof("导入失败: %v", err)
-		middleware.InternalErrorResponseWithCode(c, "IMPORT_ERROR", fmt.Sprintf("导入失败: %v", err))
+	task, wrapped := h.startImportTask(file.Filename, len(outlines), sync.NewLogProgressReporter())
+	result, runErr := h.runImport(outlines, wrapped, decisions, task)
+	if runErr != nil {
+		logger.Infof("导入失败: %v", runErr)
+		middleware.InternalErrorResponseWithCode(c, "IMPORT_ERROR", fmt.Sprintf("导入失败: %v", runErr))
 		return
 	}
 
 	logger.Infof("导入成功: %d/%d", result.SuccessPodcasts, result.TotalPodcasts)
 
+	var taskID interface{}
+	if task != nil {
+		taskID = task.ID
+	}
 	c.JSON(200, gin.H{
-		"success":             true,
-		"message":             opmlResultMessage(result.TotalPodcasts, result.SuccessPodcasts, result.StubPodcasts, result.FailedPodcasts),
-		"total_podcasts":      result.TotalPodcasts,
-		"success_count":       result.SuccessPodcasts,
-		"failed_count":        result.FailedPodcasts,
-		"stub_podcasts":       result.StubPodcasts,
-		"skipped_podcasts":    result.SkippedPodcasts,
-		"merged_podcasts":     result.MergedPodcasts,
-		"conflict_podcasts":   result.ConflictPodcasts,
-		"unchanged_podcasts":  result.UnchangedPodcasts,
-		"entries":             result.Entries,
-		"errors":              result.Errors,
+		"success":            true,
+		"task_id":            taskID,
+		"message":            opmlResultMessage(result.TotalPodcasts, result.SuccessPodcasts, result.StubPodcasts, result.FailedPodcasts),
+		"total_podcasts":     result.TotalPodcasts,
+		"success_count":      result.SuccessPodcasts,
+		"failed_count":       result.FailedPodcasts,
+		"stub_podcasts":      result.StubPodcasts,
+		"skipped_podcasts":   result.SkippedPodcasts,
+		"merged_podcasts":    result.MergedPodcasts,
+		"conflict_podcasts":  result.ConflictPodcasts,
+		"unchanged_podcasts": result.UnchangedPodcasts,
+		"entries":            result.Entries,
+		"errors":             result.Errors,
+	})
+}
+
+// startImportTask 创建可恢复的任务记录并包装进度报告器。任务持久化是
+// 不断增强能力：记录创建失败（如旧 schema）时退化为无任务导入，不阻断
+// 导入本身。
+func (h *SyncHandler) startImportTask(fileName string, total int, reporter sync.ProgressReporter) (*models.ImportTask, sync.ProgressReporter) {
+	if h.db == nil {
+		return nil, reporter
+	}
+	task, err := sync.CreateImportTask(h.db, fileName, total)
+	if err != nil {
+		logger.Warnf("创建导入任务失败，本次导入不提供任务恢复: %v", err)
+		return nil, reporter
+	}
+	return task, sync.NewTaskProgressReporter(reporter, h.db, task.ID)
+}
+
+// runImport 执行导入并保存任务终态；终态与逐条结果先落库再返回响应。
+func (h *SyncHandler) runImport(outlines []opml.Outline, reporter sync.ProgressReporter, decisions map[string]string, task *models.ImportTask) (*sync.SyncResult, error) {
+	result, runErr := h.syncService.ImportOPMLOutlines(outlines, reporter, sync.DefaultImportConfig, decisions)
+	if task != nil {
+		if finErr := sync.FinalizeImportTask(h.db, task, result, runErr); finErr != nil {
+			logger.Errorf("保存导入任务终态失败: task=%d err=%v", task.ID, finErr)
+		}
+	}
+	return result, runErr
+}
+
+// GetImportTaskStatus 查询导入任务状态与逐条结果。
+// GET /api/v1/sync/import/tasks/:id
+func (h *SyncHandler) GetImportTaskStatus(c *gin.Context) {
+	taskID, ok := ParseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	if h.db == nil {
+		middleware.NotFoundResponse(c, "IMPORT_TASK_NOT_FOUND", "导入任务不存在")
+		return
+	}
+	task, entries, err := sync.GetImportTask(h.db, taskID)
+	if err != nil {
+		middleware.NotFoundResponse(c, "IMPORT_TASK_NOT_FOUND", "导入任务不存在")
+		return
+	}
+	c.JSON(200, gin.H{
+		"success": true,
+		"task":    task,
+		"entries": entries,
+	})
+}
+
+// GetLatestImportTask 返回最近一次导入任务，用于页面刷新/断线后恢复。
+// GET /api/v1/sync/import/tasks/latest
+func (h *SyncHandler) GetLatestImportTask(c *gin.Context) {
+	if h.db == nil {
+		c.JSON(200, gin.H{"success": true, "task": nil, "entries": []gin.H{}})
+		return
+	}
+	task, entries, err := sync.GetLatestImportTask(h.db)
+	if err != nil {
+		c.JSON(200, gin.H{"success": true, "task": nil, "entries": []gin.H{}})
+		return
+	}
+	c.JSON(200, gin.H{
+		"success": true,
+		"task":    task,
+		"entries": entries,
 	})
 }
 

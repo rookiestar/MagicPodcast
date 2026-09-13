@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 33
+const CurrentSchemaVersion = 34
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -329,6 +329,21 @@ func migrationRegistry() []Migration {
 			Apply:       applyPodcastEpisodeSyncCursorMigration,
 			Contract: MigrationContract{SchemaChanges: []SchemaChangeRule{
 				{Operation: SchemaChangeAddColumn, Table: "podcasts", Object: "last_episode_sync_at"},
+			}},
+		},
+		{
+			Version:     34,
+			Name:        "import-task-state",
+			Description: "Persist recoverable OPML import task metadata and per-entry results (#398/#403).",
+			Apply: func(db *gorm.DB) error {
+				if err := db.AutoMigrate(&models.ImportTask{}); err != nil {
+					return fmt.Errorf("create import_tasks: %w", err)
+				}
+				return nil
+			},
+			Contract: MigrationContract{SchemaChanges: []SchemaChangeRule{
+				{Operation: SchemaChangeCreateTable, Table: models.ImportTask{}.TableName()},
+				{Operation: SchemaChangeCreateIndex, Table: models.ImportTask{}.TableName(), Object: "idx_import_tasks_deleted_at"},
 			}},
 		},
 	}

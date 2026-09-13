@@ -2,6 +2,7 @@ package sync
 
 import (
 	"fmt"
+	"magicpodcast/internal/cache"
 	"strconv"
 	"strings"
 	"time"
@@ -44,9 +45,15 @@ func (s *Service) saveImportPodcast(podcast *models.Podcast, resolved resolvedPo
 				}
 				return tx.Model(podcast).Update("feed_url_valid", false).Error
 			})
+			if err == nil {
+				cache.InvalidatePodcastDetail(podcast.ID)
+			}
 			return err == nil, err
 		}
 		err := s.db.Create(podcast).Error
+		if err == nil {
+			cache.InvalidatePodcastDetail(podcast.ID)
+		}
 		return err == nil, err
 	}
 
@@ -102,6 +109,9 @@ func (s *Service) saveImportPodcast(podcast *models.Podcast, resolved resolvedPo
 	if feedChanged || identityChanged {
 		s.InvalidateAlternativeCache(podcast.ID)
 	}
+	// 写入成功后定向失效该节目的详情/列表缓存：前端在刷新结果可用前
+	// 仍可继续使用有效旧内容，但不做全局清缓存（#398 R9）。
+	cache.InvalidatePodcastDetail(podcast.ID)
 	return changed, nil
 }
 

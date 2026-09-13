@@ -26,10 +26,14 @@ type SSEProgressMessage struct {
 
 // SSEProgressReporter SSE进度报告器
 type SSEProgressReporter struct {
-	mu            sync.Mutex // 保护并发写入
-	flusher       http.Flusher
-	writer        http.ResponseWriter
+	mu      sync.Mutex // 保护并发写入
+	flusher http.Flusher
+	writer  http.ResponseWriter
+	// closed 只表示写路径停止发送业务消息（写出失败或正常关闭）；
+	// released 表示 keepalive ticker/goroutine 已释放。两者分离后，
+	// 写出失败不会让 Close 提前返回而泄漏保活循环（#398 R13）。
 	closed        bool
+	released      bool
 	keepalive     *time.Ticker
 	stopKeepalive chan struct{}
 }
@@ -48,7 +52,7 @@ func NewSSEProgressReporter(c *gin.Context) *SSEProgressReporter {
 		stopKeepalive: make(chan struct{}),
 	}
 
-	// 启动keepalive goroutine，每15秒发送一次注释消息
+	// 启动keepalive goroutine，每10秒发送一次注释消息
 	reporter.startKeepalive()
 
 	return reporter
@@ -301,7 +305,8 @@ func (r *SSEProgressReporter) ReportDone() {
 	r.flusher.Flush()
 }
 
-func (r *SSEProgressReporter) Close() {
+// ReportTaskID 在流刚开始时发送任务标识，客户端据此恢复/查询同一任务。
+func (r *SSEProgressReporter) ReportTaskID(taskID uint) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -309,14 +314,40 @@ func (r *SSEProgressReporter) Close() {
 		return
 	}
 
-	r.closed = true
-
-	// 停止keepalive
-	if r.keepalive != nil {
-		r.keepalive.Stop()
-		close(r.stopKeepalive)
-		logger.Debugf("[SSE] 停止keepalive")
+	data, _ := json.Marshal(map[string]interface{}{
+		"type":    "task",
+		"task_id": taskID,
+		"message": fmt.Sprintf("导入任务 #%d 已开始，断开后可按任务查询", taskID),
+	})
+	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
+		logger.Warnf("[SSE] Write error in ReportTaskID: %v", err)
+		r.closed = true
+		return
 	}
+	r.flusher.Flush()
+}
+
+// Close 停止业务写路径并释放 keepalive 资源。无论此前是否已因写出失败
+// 置为 closed，ticker/goroutine 都必须被释放且只释放一次（#398 R13）。
+func (r *SSEProgressReporter) Close() {
+	r.mu.Lock()
+	r.closed = true
+	if r.released {
+		r.mu.Unlock()
+		return
+	}
+	r.released = true
+	keepalive := r.keepalive
+	stopKeepalive := r.stopKeepalive
+	r.mu.Unlock()
+
+	if keepalive != nil {
+		keepalive.Stop()
+	}
+	if stopKeepalive != nil {
+		close(stopKeepalive)
+	}
+	logger.Debugf("[SSE] 停止keepalive")
 }
 
 // ImportOPMLSSE 导入OPML文件（SSE流式响应）
@@ -373,7 +404,12 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 	defer reporter.Close()
 
 	logger.Infof("[SSE] 开始导入OPML（本地匹配 + 在线同步）: %s", file.Filename)
-	result, err := h.syncService.ImportOPMLOutlines(outlines, reporter, syncpkg.DefaultImportConfig, decisions)
+	// 任务记录先建立：流首条消息携带任务 ID，页面断开后可按任务恢复。
+	task, wrapped := h.startImportTask(file.Filename, len(outlines), reporter)
+	if task != nil {
+		reporter.ReportTaskID(task.ID)
+	}
+	result, err := h.runImport(outlines, wrapped, decisions, task)
 	if err != nil {
 		logger.Warnf("[SSE] 导入失败: %v", err)
 		reporter.ReportError("导入失败: " + err.Error())
@@ -396,7 +432,7 @@ func (h *SyncHandler) SyncPodcastsMetadataSSE(c *gin.Context) {
 		c,
 		confirmation.ConfirmationText,
 		"SYNC ALL",
-		"刷新全部订阅播客的元数据并发起网络请求，可能耗时较长",
+		"刷新全部订阅播客的资料，并按各节目同步范围写入单集（可能新增或更新单集内容），可能耗时较长",
 	) {
 		return
 	}
