@@ -5,6 +5,7 @@ import (
 
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/middleware"
+	"magicpodcast/internal/models"
 	"magicpodcast/internal/opml"
 	"magicpodcast/internal/sync"
 
@@ -46,6 +47,10 @@ func (h *SyncHandler) RetryImportTask(c *gin.Context) {
 		return
 	}
 
+	if task.Status == models.ImportTaskStatusRunning {
+		middleware.BadRequestResponse(c, "IMPORT_TASK_RUNNING", "原任务仍在执行，请等待结果")
+		return
+	}
 	outlines := make([]opml.Outline, 0, len(entries))
 	for _, entry := range entries {
 		_, retryable := retryableOutcomes[entry.Outcome]
@@ -53,7 +58,7 @@ func (h *SyncHandler) RetryImportTask(c *gin.Context) {
 		// 显式 confirm 决策的冲突条目参与重试，保证换址重导可收敛。
 		confirmedConflict := entry.Outcome == sync.ImportOutcomeConflict &&
 			decisions[entry.FeedURL] == sync.ImportDecisionConfirm
-		if retryable || confirmedConflict {
+		if retryable || confirmedConflict || (task.Status == models.ImportTaskStatusInterrupted && entry.Outcome == "unprocessed") {
 			outlines = append(outlines, opml.Outline{
 				Title:  entry.Title,
 				XMLURL: entry.FeedURL,

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import ImportOpmlPanel from "../ImportOpmlPanel";
 import SyncLogStats from "../SyncLogStats";
@@ -119,6 +119,16 @@ describe("ImportOpmlPanel task banner", () => {
 
     expect(screen.getByText(/上次导入任务 #7 · 已完成/)).toBeDefined();
     expect(screen.getByText(/仅重试失败\/待同步条目（1 条）/)).toBeDefined();
+  });
+
+  it("shows complete results and lets the user confirm a single identity conflict", () => {
+    const entry = {title:"换址节目", feed_url:"https://example.com/new", outcome:"conflict", podcast_id:42, detail:"稳定身份匹配"};
+    const onRetry = vi.fn();
+    render(<ImportOpmlPanel {...baseProps} lastTask={completedTask} taskEntries={[entry]} onRetry={onRetry} />);
+    fireEvent.click(screen.getByText("逐项结果（1 条）"));
+    expect(screen.getByText(entry.feed_url)).toBeDefined();
+    fireEvent.click(screen.getByRole("button", {name:"核对并确认关联"}));
+    expect(onRetry).toHaveBeenCalledWith(entry);
   });
 });
 

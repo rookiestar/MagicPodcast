@@ -87,7 +87,7 @@ func (r *SSEProgressReporter) sendKeepalive() {
 	// 使用注释格式：: comment\n\n
 	if _, err := fmt.Fprintf(r.writer, ": ping\n\n"); err != nil {
 		logger.Warnf("[SSE] Keepalive write error: %v", err)
-		r.closed = true
+		r.closeLocked()
 		return
 	}
 	r.flusher.Flush()
@@ -114,7 +114,7 @@ func (r *SSEProgressReporter) send(msgType string, message string) {
 	data, _ := json.Marshal(msg)
 	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
 		logger.Warnf("[SSE] Write error: %v", err)
-		r.closed = true
+		r.closeLocked()
 		return
 	}
 	r.flusher.Flush()
@@ -154,7 +154,7 @@ func (r *SSEProgressReporter) ReportProgress(current, total int, message string)
 	data, _ := json.Marshal(msg)
 	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
 		logger.Warnf("[SSE] Write error in ReportProgress: %v", err)
-		r.closed = true
+		r.closeLocked()
 		return
 	}
 	r.flusher.Flush()
@@ -212,7 +212,7 @@ func (r *SSEProgressReporter) sendWithType(msgType string, message string, reaso
 
 	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
 		logger.Warnf("[SSE] Write error in sendWithType: %v", err)
-		r.closed = true
+		r.closeLocked()
 		return
 	}
 	r.flusher.Flush()
@@ -246,6 +246,9 @@ func (r *SSEProgressReporter) ReportSummary(summary *syncpkg.SyncSummary) {
 		"failed_podcasts":    summary.FailedPodcasts,
 		"skipped_podcasts":   summary.SkippedPodcasts,
 		"stub_podcasts":      summary.StubPodcasts,
+		"merged_podcasts":    summary.MergedPodcasts,
+		"conflict_podcasts":  summary.ConflictPodcasts,
+		"unchanged_podcasts": summary.UnchangedPodcasts,
 		"no_update_podcasts": summary.NoUpdatePodcasts,
 		"total_episodes":     summary.TotalEpisodes,
 		"new_episodes":       summary.NewEpisodes,
@@ -257,7 +260,7 @@ func (r *SSEProgressReporter) ReportSummary(summary *syncpkg.SyncSummary) {
 	data, _ := json.Marshal(summaryMsg)
 	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
 		logger.Warnf("[SSE] Write error in ReportSummary: %v", err)
-		r.closed = true
+		r.closeLocked()
 		return
 	}
 	r.flusher.Flush()
@@ -283,7 +286,7 @@ func (r *SSEProgressReporter) ReportComplete(message string) {
 	data, _ := json.Marshal(msg)
 	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
 		logger.Warnf("[SSE] Write error in ReportComplete: %v", err)
-		r.closed = true
+		r.closeLocked()
 		return
 	}
 	r.flusher.Flush()
@@ -299,7 +302,7 @@ func (r *SSEProgressReporter) ReportDone() {
 
 	if _, err := fmt.Fprintf(r.writer, "data: [DONE]\n\n"); err != nil {
 		logger.Warnf("[SSE] Write error in ReportDone: %v", err)
-		r.closed = true
+		r.closeLocked()
 		return
 	}
 	r.flusher.Flush()
@@ -321,7 +324,7 @@ func (r *SSEProgressReporter) ReportTaskID(taskID uint) {
 	})
 	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
 		logger.Warnf("[SSE] Write error in ReportTaskID: %v", err)
-		r.closed = true
+		r.closeLocked()
 		return
 	}
 	r.flusher.Flush()
@@ -331,16 +334,18 @@ func (r *SSEProgressReporter) ReportTaskID(taskID uint) {
 // 置为 closed，ticker/goroutine 都必须被释放且只释放一次（#398 R13）。
 func (r *SSEProgressReporter) Close() {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.closeLocked()
+}
+
+func (r *SSEProgressReporter) closeLocked() {
 	r.closed = true
 	if r.released {
-		r.mu.Unlock()
 		return
 	}
 	r.released = true
 	keepalive := r.keepalive
 	stopKeepalive := r.stopKeepalive
-	r.mu.Unlock()
-
 	if keepalive != nil {
 		keepalive.Stop()
 	}
@@ -399,13 +404,19 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 		return
 	}
 
+	// Refuse writes if the recoverable task cannot be created, before SSE headers.
+	task, _ := h.startImportTask(file.Filename, len(outlines), syncpkg.NewLogProgressReporter())
+	if task == nil {
+		middleware.InternalErrorResponseWithCode(c, "IMPORT_TASK_ERROR", "导入任务未能保存，未执行导入")
+		return
+	}
 	// 创建SSE reporter
 	reporter := NewSSEProgressReporter(c)
 	defer reporter.Close()
 
 	logger.Infof("[SSE] 开始导入OPML（本地匹配 + 在线同步）: %s", file.Filename)
 	// 任务记录先建立：流首条消息携带任务 ID，页面断开后可按任务恢复。
-	task, wrapped := h.startImportTask(file.Filename, len(outlines), reporter)
+	wrapped := syncpkg.NewTaskProgressReporter(reporter, h.db, task.ID)
 	if task != nil {
 		reporter.ReportTaskID(task.ID)
 	}

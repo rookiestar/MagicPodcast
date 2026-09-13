@@ -7,6 +7,7 @@ import {
   type ImportPreview,
   type ImportPreviewEntry,
   type ImportTask,
+  type ImportEntryResult,
 } from "@/lib/api/importTasks";
 import { removeStorageValue, writeStorageValue } from "@/lib/browserStorage";
 import { STORAGE_KEYS } from "@/lib/config";
@@ -63,6 +64,8 @@ export function useImportSyncOperations({
 
   // 最近一次导入任务：页面刷新/断线后恢复查看，断连后轮询终态。
   const [lastTask, setLastTask] = useState<ImportTask | null>(null);
+  const [taskEntries, setTaskEntries] = useState<ImportEntryResult[]>([]);
+  const previewRequestRef = useRef(0);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollAttemptsRef = useRef(0);
 
@@ -89,17 +92,29 @@ export function useImportSyncOperations({
         pollAttemptsRef.current += 1;
         try {
           const payload = await importTasksApi.fetchImportTask(taskId);
+          setTaskEntries(payload.entries);
           if (payload.task && payload.task.status !== "running") {
             setLastTask(payload.task);
             if (payload.task.status === "completed") {
               addLog(
-                "success",
+                "summary",
                 `后台导入任务 #${payload.task.id} 已完成：成功 ${payload.task.success_count}，待同步 ${payload.task.pending_count}，冲突 ${payload.task.conflict_count}，失败 ${payload.task.failed_count}`,
+                undefined, undefined, {
+                  operation: "import",
+                  total_podcasts: payload.task.total,
+                  success_podcasts: payload.task.success_count,
+                  failed_podcasts: payload.task.failed_count,
+                  stub_podcasts: payload.task.pending_count,
+                  conflict_podcasts: payload.task.conflict_count,
+                  merged_podcasts: payload.task.merged_count,
+                  unchanged_podcasts: payload.task.unchanged_count,
+                  skipped_podcasts: payload.task.skipped_count,
+                },
               );
             } else if (payload.task.status === "interrupted") {
               addLog(
                 "error",
-                `后台导入任务 #${payload.task.id} 因服务重启中断，已完成 ${payload.task.processed}/${payload.task.total}，可重新导入补齐`,
+                `后台导入任务 #${payload.task.id} 因服务重启中断，已记录 ${payload.task.processed}/${payload.task.total} 条结果，请核对逐项结果后继续`,
               );
             } else {
               addLog(
@@ -128,6 +143,7 @@ export function useImportSyncOperations({
     try {
       const payload = await importTasksApi.fetchLatestImportTask();
       setLastTask(payload.task);
+      setTaskEntries(payload.entries);
       if (payload.task?.status === "running") {
         pollTaskUntilSettled(payload.task.id);
       }
@@ -144,13 +160,17 @@ export function useImportSyncOperations({
   }, [refreshLatestTask, stopTaskPolling]);
 
   const loadPreview = useCallback(async (selectedFile: File) => {
+    const requestId = ++previewRequestRef.current;
+    setPreview(null);
     setPreviewLoading(true);
     setPreviewError(null);
     try {
       const result = await importTasksApi.previewImportOPML(selectedFile);
+      if (requestId !== previewRequestRef.current) return;
       setPreview(result);
       setConfirmedUrls({});
     } catch (error: unknown) {
+      if (requestId !== previewRequestRef.current) return;
       setPreview(null);
       const message =
         error instanceof Error && error.message
@@ -158,7 +178,7 @@ export function useImportSyncOperations({
           : "预览失败，请检查文件后重试";
       setPreviewError(message);
     } finally {
-      setPreviewLoading(false);
+      if (requestId === previewRequestRef.current) setPreviewLoading(false);
     }
   }, []);
 
@@ -235,7 +255,7 @@ export function useImportSyncOperations({
 
       // 只有收到 SSE task 事件才说明任务已建立；此前的失败（如文件/参数
       // 非法）没有后台任务，不得宣称“仍在后台执行”。
-      let taskStarted = false;
+      let startedTaskId: number | null = null;
       try {
         const decisions: Record<string, string> = {};
         for (const [url, confirmed] of Object.entries(confirmedUrls)) {
@@ -251,7 +271,7 @@ export function useImportSyncOperations({
               file,
               (type, message, current, total, data) => {
                 if (type === "task" && data?.task_id) {
-                  taskStarted = true;
+                  startedTaskId = Number(data.task_id);
                 }
                 onProgress(type, message, current, total, data);
               },
@@ -268,10 +288,10 @@ export function useImportSyncOperations({
         buildImportErrorLogs(error).forEach((log) => {
           addLog(log.type, log.message);
         });
-        if (taskStarted) {
+        if (startedTaskId) {
           // 连接中断不代表任务失败：任务仍在后台执行，按预算轮询终态。
           toast.info("连接已中断，任务仍在后台执行，可稍后刷新查看结果");
-          void refreshLatestTask();
+          pollTaskUntilSettled(startedTaskId);
         }
       } finally {
         setImporting(false);
@@ -286,24 +306,30 @@ export function useImportSyncOperations({
     runExclusiveOperation,
     startLogSession,
     stopTaskPolling,
+    pollTaskUntilSettled,
   ]);
 
-  const handleRetry = useCallback(async () => {
-    if (!lastTask || lastTask.status !== "completed") return;
-    const retryable = lastTask.failed_count + lastTask.pending_count;
+  const handleRetry = useCallback(async (conflictEntry?: ImportEntryResult) => {
+    if (!lastTask || lastTask.status === "running") return;
+    const retryable = conflictEntry ? 1 : taskEntries.filter(entry =>
+      ["failed", "pending"].includes(entry.outcome) ||
+      (lastTask.status === "interrupted" && entry.outcome === "unprocessed")
+    ).length;
     if (retryable <= 0) {
       toast.info("没有失败或待同步的条目，无需重试");
       return;
     }
     const confirmationText = requestTypedConfirmation({
       action: `重试任务 #${lastTask.id} 中的失败/待同步条目`,
-      impact: `只会重新处理 ${retryable} 条失败/待同步条目，其他节目不变。`,
+      impact: conflictEntry ? `${conflictEntry.title}：${conflictEntry.detail}。确认后将复用已有节目并绑定本次地址，同时重试失败或待同步条目。` : `重新核对并处理 ${retryable} 条失败、待同步或未完成条目。`,
       phrase: "RETRY IMPORT",
     });
     if (!confirmationText) return;
 
+    await runExclusiveOperation(async () => {
+    setImporting(true);
     try {
-      const result = await importTasksApi.retryImportTask(lastTask.id);
+      const result = await importTasksApi.retryImportTask(lastTask.id, conflictEntry ? { [conflictEntry.feed_url]: "confirm" } : undefined);
       addLog(
         "info",
         `开始重试任务 #${lastTask.id} 中的 ${result.total_podcasts} 条条目`,
@@ -312,8 +338,14 @@ export function useImportSyncOperations({
         addLog("info", `重试任务编号 #${result.task_id}，可刷新页面查看结果`);
       }
       addLog(
-        "success",
+        "summary",
         `重试完成：成功 ${result.success_count}，待同步 ${result.stub_podcasts}，失败 ${result.failed_count}`,
+        undefined, undefined, {
+          operation: "import", total_podcasts: result.total_podcasts,
+          success_podcasts: result.success_count, failed_podcasts: result.failed_count,
+          stub_podcasts: result.stub_podcasts, conflict_podcasts: result.conflict_podcasts,
+          merged_podcasts: result.merged_podcasts, unchanged_podcasts: result.unchanged_podcasts,
+        },
       );
       (result.errors || []).forEach((message) => addLog("error", message));
       stopTaskPolling();
@@ -322,8 +354,12 @@ export function useImportSyncOperations({
       const message =
         error instanceof Error && error.message ? error.message : "重试失败";
       addLog("error", message);
+      await refreshLatestTask();
+    } finally {
+      setImporting(false);
     }
-  }, [addLog, lastTask, refreshLatestTask, stopTaskPolling]);
+    });
+  }, [addLog, lastTask, taskEntries, refreshLatestTask, stopTaskPolling, runExclusiveOperation]);
 
   const handleSync = useCallback(async () => {
     await runExclusiveOperation(async () => {
@@ -366,6 +402,7 @@ export function useImportSyncOperations({
     previewError,
     confirmedUrls,
     lastTask,
+    taskEntries,
     handleFileChange,
     handleImport,
     handleSync,

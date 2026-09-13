@@ -18,8 +18,12 @@ import (
 // 执行任何写入（#398 R4）。
 var ActiveImportTasks sync.Map
 
+var importTaskRegistrationMu sync.Mutex
+
 // CreateImportTask 建立任务记录并登记为活动任务。
 func CreateImportTask(db *gorm.DB, fileName string, total int) (*models.ImportTask, error) {
+	importTaskRegistrationMu.Lock()
+	defer importTaskRegistrationMu.Unlock()
 	task := &models.ImportTask{
 		Status:    models.ImportTaskStatusRunning,
 		FileName:  fileName,
@@ -39,7 +43,9 @@ func FinalizeImportTask(db *gorm.DB, task *models.ImportTask, result *SyncResult
 	if task == nil {
 		return nil
 	}
-	ActiveImportTasks.Delete(task.ID)
+	importTaskRegistrationMu.Lock()
+	defer importTaskRegistrationMu.Unlock()
+	defer ActiveImportTasks.Delete(task.ID)
 
 	task.Status = models.ImportTaskStatusCompleted
 	if runErr != nil {
@@ -105,6 +111,8 @@ func GetLatestImportTask(db *gorm.DB) (*models.ImportTask, []ImportEntryResult, 
 }
 
 func applyDerivedStatus(db *gorm.DB, task *models.ImportTask) {
+	importTaskRegistrationMu.Lock()
+	defer importTaskRegistrationMu.Unlock()
 	if task.Status != models.ImportTaskStatusRunning {
 		return
 	}
@@ -113,8 +121,10 @@ func applyDerivedStatus(db *gorm.DB, task *models.ImportTask) {
 	}
 	task.Status = models.ImportTaskStatusInterrupted
 	// 中断状态落库，避免每次读取重复推导。
-	_ = db.Model(&models.ImportTask{}).Where("id = ?", task.ID).
+	_ = db.Model(&models.ImportTask{}).Where("id = ? AND status = ?", task.ID, models.ImportTaskStatusRunning).
 		Update("status", models.ImportTaskStatusInterrupted).Error
+	// Finalization may have completed after the caller's initial read.
+	_ = db.First(task, task.ID).Error
 }
 
 func decodeImportEntries(raw string) []ImportEntryResult {
@@ -136,6 +146,69 @@ type taskProgressReporter struct {
 	taskID      uint
 	mu          sync.Mutex
 	lastPersist time.Time
+	entries     []ImportEntryResult
+	summary     *SyncSummary
+}
+
+// InitializeImportResults saves the submitted scope before any subscription writes.
+func InitializeImportResults(reporter ProgressReporter, outlines []opml.Outline) error {
+	r, ok := reporter.(*taskProgressReporter)
+	if !ok {
+		return nil
+	}
+	for _, outline := range dedupeImportOutlines(outlines) {
+		r.entries = append(r.entries, ImportEntryResult{Title: outline.GetTitle(), FeedURL: outline.XMLURL, Outcome: "unprocessed", Detail: "尚无已完成结果，重试前将重新核对本地记录"})
+	}
+	return r.persistEntries(0)
+}
+
+func (r *taskProgressReporter) persistEntries(processed int) error {
+	raw, err := json.Marshal(r.entries)
+	if err != nil {
+		return err
+	}
+	counts := map[string]interface{}{"result_json": string(raw), "processed": processed, "total": len(r.entries)}
+	for _, key := range []string{"success_count", "pending_count", "conflict_count", "merged_count", "unchanged_count", "skipped_count", "failed_count"} {
+		counts[key] = 0
+	}
+	increment := func(key string) { counts[key] = counts[key].(int) + 1 }
+	for _, entry := range r.entries {
+		switch entry.Outcome {
+		case ImportOutcomeNew, ImportOutcomeUpdated:
+			increment("success_count")
+		case ImportOutcomeMerged:
+			increment("success_count")
+			increment("merged_count")
+		case ImportOutcomePending:
+			increment("pending_count")
+		case ImportOutcomeConflict, ImportOutcomeDeleted:
+			increment("conflict_count")
+		case ImportOutcomeUnchanged:
+			increment("unchanged_count")
+		case ImportOutcomeSkipped:
+			increment("skipped_count")
+		case ImportOutcomeFailed:
+			increment("failed_count")
+		}
+	}
+	return r.db.Model(&models.ImportTask{}).Where("id = ?", r.taskID).Updates(counts).Error
+}
+
+func (r *taskProgressReporter) RecordImportResult(entry ImportEntryResult, processed int) error {
+	for i := range r.entries {
+		if r.entries[i].FeedURL == entry.FeedURL {
+			r.entries[i] = entry
+			break
+		}
+	}
+	return r.persistEntries(processed)
+}
+
+// PublishImportSummary is called only after successful terminal persistence.
+func PublishImportSummary(reporter ProgressReporter) {
+	if r, ok := reporter.(*taskProgressReporter); ok && r.summary != nil {
+		r.inner.ReportSummary(r.summary)
+	}
 }
 
 // NewTaskProgressReporter 用任务记录包装进度报告器。
@@ -180,7 +253,7 @@ func (r *taskProgressReporter) ReportSkip(reason SkipReason, message string) {
 }
 
 func (r *taskProgressReporter) ReportSummary(summary *SyncSummary) {
-	r.inner.ReportSummary(summary)
+	r.summary = summary
 }
 
 func (r *taskProgressReporter) Close() {
@@ -195,9 +268,17 @@ func (s *Service) RunImportTask(db *gorm.DB, fileName string, outlines []opml.Ou
 		return nil, nil, fmt.Errorf("创建导入任务失败: %w", err)
 	}
 	wrapped := NewTaskProgressReporter(reporter, db, task.ID)
+	if err := InitializeImportResults(wrapped, outlines); err != nil {
+		ActiveImportTasks.Delete(task.ID)
+		return task, nil, err
+	}
 	result, runErr := s.ImportOPMLOutlines(outlines, wrapped, config, decisions)
 	if finErr := FinalizeImportTask(db, task, result, runErr); finErr != nil {
 		logger.Errorf("保存导入任务终态失败: task=%d err=%v", task.ID, finErr)
+		return task, result, finErr
+	}
+	if runErr == nil {
+		PublishImportSummary(wrapped)
 	}
 	return task, result, runErr
 }

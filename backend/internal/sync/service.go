@@ -30,6 +30,7 @@ var DefaultImportConfig = ImportConfig{
 
 // Service 同步服务
 type Service struct {
+	importWriteMu     sync.Mutex // serialize identity checks and writes, not network fetches
 	db                *gorm.DB
 	opmlParser        *opml.Parser
 	feedFetcher       *feed.Fetcher

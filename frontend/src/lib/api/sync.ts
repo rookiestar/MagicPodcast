@@ -63,7 +63,7 @@ export const syncApi = {
         abortMessage: "导入被取消",
         timeoutMessage: "导入超时（10分钟）",
         requireCompletion: true,
-        incompleteMessage: "导入连接提前结束，任务仍在后台执行，可稍后刷新查看结果",
+        incompleteMessage: "导入连接提前结束，未收到完成确认；已建立的任务可按任务编号查询",
         isComplete: isSummaryComplete,
       },
     );

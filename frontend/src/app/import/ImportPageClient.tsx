@@ -51,6 +51,7 @@ function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
     previewError,
     confirmedUrls,
     lastTask,
+    taskEntries,
     handleFileChange,
     handleImport,
     handleSync,
@@ -93,6 +94,7 @@ function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
                 previewError={previewError}
                 confirmedUrls={confirmedUrls}
                 lastTask={lastTask}
+                taskEntries={taskEntries}
                 onFileChange={handleFileChange}
                 onImport={handleImport}
                 onToggleConfirmed={toggleConfirmed}
