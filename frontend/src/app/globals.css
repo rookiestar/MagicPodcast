@@ -4139,9 +4139,11 @@
     flex-wrap: wrap;
     gap: 6px 12px;
     padding: 6px 10px;
-    border: 1px solid #cfc3af;
-    color: #514a42;
-    background: #f7f1e5;
+    border: 1px solid #b7a890;
+    border-left: 3px solid #c4552a;
+    color: #40392f;
+    background: #eadcc4;
+    box-shadow: 0 2px 0 rgba(23, 23, 23, 0.1);
     font: 400 13px/1.6 var(--font-sans);
   }
 
@@ -4163,14 +4165,14 @@
     min-height: 32px;
     padding: 0 10px;
     border: 1px solid transparent;
-    color: #746b60;
+    color: #5f5549;
     background: transparent;
     font: 500 12px/1.4 var(--font-sans);
   }
 
   .discovery-focus-confirmation button:last-child {
     border-color: #cfc3af;
-    color: #a84a22;
+    color: #8f3518;
   }
 
   .discovery-focus-confirmation button:hover {

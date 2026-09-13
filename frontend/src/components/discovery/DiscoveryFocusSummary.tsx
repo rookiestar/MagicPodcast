@@ -187,7 +187,6 @@ export default function DiscoveryFocusSummary({
             <header>
               <div>
                 <h2 id={titleId}>从 Inbox 添加</h2>
-                <p>仅显示已收集、尚未投入的条目。</p>
               </div>
               <button
                 type="button"
