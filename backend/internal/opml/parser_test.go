@@ -63,6 +63,18 @@ func TestGetTitleFallbackTruncatesByRune(t *testing.T) {
 	assert.True(t, len([]rune(emojiTitle)) <= fallbackTitleMaxRunes+3)
 }
 
+func TestParseBytesEscapesUndeclaredNamedEntities(t *testing.T) {
+	// &nbsp; 等未在 DTD 声明的 HTML 实体必须转义为字面文本，
+	// 否则整个文件会被 XML 解析器拒绝（PR #407 review）。
+	outlines := parseOPMLBytes(t, wrapOPML(
+		`<outline title="A&nbsp;B &copy; 2024" text="x" type="rss" xmlUrl="https://example.com/f"/>`,
+	))
+	require.Len(t, outlines, 1)
+	assert.Equal(t, "A&nbsp;B &copy; 2024", outlines[0].Title)
+	// 转义后作为字面文本保留，与既有预处理行为一致。
+	assert.Equal(t, "A&nbsp;B &copy; 2024", outlines[0].GetTitle())
+}
+
 func TestParseBytesMalformedXMLReturnsParseError(t *testing.T) {
 	parser := NewParser()
 	_, err := parser.ParseBytes([]byte(`<?xml version="1.0"?><opml><body><outline`))

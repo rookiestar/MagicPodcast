@@ -109,18 +109,33 @@ func (p *Parser) ParseBytes(data []byte) ([]Outline, error) {
 }
 
 // ampersandOrEntity 匹配一个 & 及其可选的实体主体。Go 的 RE2 不支持负向
-// 前瞻，因此用 ReplaceAllStringFunc 判断：带完整实体形态（命名实体或
-// 十进制/十六进制数字实体）的原样保留，其余裸 & 转义。旧的五实体白名单
-// 会把 &#39; 改写成 &amp;#39;，破坏数字实体和中文（#398 R8）。
+// 前瞻，因此用 ReplaceAllStringFunc 判断：XML 预定义实体（amp/lt/gt/
+// quot/apos）与十进制/十六进制数字实体原样保留，其余命名实体（如
+// &nbsp;、&copy; 等未在 DTD 声明的 HTML 实体）与裸 & 转义为字面文本。
+// 旧的五实体白名单会把 &#39; 改写成 &amp;#39;，破坏数字实体和中文
+// （#398 R8）。
 var ampersandOrEntity = regexp.MustCompile(`&(?:#x?[0-9A-Fa-f]+;|[a-zA-Z][a-zA-Z0-9]*;)?`)
 
-// preprocessXML 预处理XML，仅转义确实非法的裸 &
+// predefinedXMLEntities 是 XML 1.0 无 DTD 时唯一定义的五个命名实体。
+var predefinedXMLEntities = map[string]struct{}{
+	"&amp;": {}, "&lt;": {}, "&gt;": {}, "&quot;": {}, "&apos;": {},
+}
+
+// preprocessXML 预处理XML：保留合法实体，仅转义确实非法的裸 & 和未声明
+// 的命名实体。
 func (p *Parser) preprocessXML(data []byte) []byte {
 	return []byte(ampersandOrEntity.ReplaceAllStringFunc(string(data), func(match string) string {
-		if strings.HasSuffix(match, ";") {
+		if !strings.HasSuffix(match, ";") {
+			return "&amp;"
+		}
+		if _, predefined := predefinedXMLEntities[match]; predefined {
 			return match
 		}
-		return "&amp;"
+		if strings.HasPrefix(match, "&#") {
+			return match
+		}
+		// 未声明的命名实体：转义 & 本身，让解析器把它当字面文本。
+		return "&amp;" + match[1:]
 	}))
 }
 

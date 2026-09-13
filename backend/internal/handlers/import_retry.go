@@ -48,7 +48,12 @@ func (h *SyncHandler) RetryImportTask(c *gin.Context) {
 
 	outlines := make([]opml.Outline, 0, len(entries))
 	for _, entry := range entries {
-		if _, retryable := retryableOutcomes[entry.Outcome]; retryable {
+		_, retryable := retryableOutcomes[entry.Outcome]
+		// 抓取后才发现的稳定身份冲突：预览时无法附带确认，重试请求携带
+		// 显式 confirm 决策的冲突条目参与重试，保证换址重导可收敛。
+		confirmedConflict := entry.Outcome == sync.ImportOutcomeConflict &&
+			decisions[entry.FeedURL] == sync.ImportDecisionConfirm
+		if retryable || confirmedConflict {
 			outlines = append(outlines, opml.Outline{
 				Title:  entry.Title,
 				XMLURL: entry.FeedURL,

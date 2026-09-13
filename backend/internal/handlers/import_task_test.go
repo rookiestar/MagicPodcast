@@ -198,3 +198,46 @@ func TestRetryImportTaskOnlyTouchesFailedAndPendingEntries(t *testing.T) {
 	require.NoError(t, db.Model(&models.ImportTask{}).Count(&retryCount).Error)
 	require.Equal(t, int64(2), retryCount, "重试生成新任务记录")
 }
+
+// TestRetryIncludesConfirmedConflictEntries 验证携带显式 confirm 决策时，
+// 抓取后才发现的冲突条目参与重试；无决策的冲突条目仍被排除（PR #407 review）。
+func TestRetryIncludesConfirmedConflictEntries(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>Retry Feed</title></channel></rss>`))
+	}))
+	defer upstream.Close()
+	router, db := newImportTaskRouter(t)
+
+	task, err := syncpkg.CreateImportTask(db, "conflict-retry.opml", 2)
+	require.NoError(t, err)
+	conflictURL := upstream.URL + "/moved.xml"
+	require.NoError(t, syncpkg.FinalizeImportTask(db, task, &syncpkg.SyncResult{
+		TotalPodcasts: 2,
+		Entries: []syncpkg.ImportEntryResult{
+			{Title: "Conflict Show", FeedURL: conflictURL, Outcome: syncpkg.ImportOutcomeConflict},
+			{Title: "Other Conflict", FeedURL: upstream.URL + "/other.xml", Outcome: syncpkg.ImportOutcomeConflict},
+		},
+	}, nil))
+
+	// decisions JSON: {"<conflictURL>":"confirm"}
+	decisionsValue := urlQueryEscapeRaw(`{"` + conflictURL + `":"confirm"}`)
+	req := httptest.NewRequest(http.MethodPost,
+		"/tasks/"+strconv.FormatUint(uint64(task.ID), 10)+"/retry",
+		strings.NewReader("confirmation_text=RETRY+IMPORT&decisions="+decisionsValue))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, req)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), `"total_podcasts":1`, "只有显式确认的冲突条目参与重试")
+}
+
+func urlQueryEscape(value string) string {
+	return strings.ReplaceAll(urlQueryEscapeRaw(value), "+", "%20")
+}
+
+func urlQueryEscapeRaw(value string) string {
+	// 少量字符集下的简单转义即可满足测试 URL 构造。
+	replacer := strings.NewReplacer("{", "%7B", "}", "%7D", `"`, "%22", ":", "%3A", "/", "%2F", "?", "%3F")
+	return replacer.Replace(value)
+}

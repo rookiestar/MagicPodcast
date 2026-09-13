@@ -233,6 +233,9 @@ export function useImportSyncOperations({
       resetLogScroll();
       startLogSession("import");
 
+      // 只有收到 SSE task 事件才说明任务已建立；此前的失败（如文件/参数
+      // 非法）没有后台任务，不得宣称“仍在后台执行”。
+      let taskStarted = false;
       try {
         const decisions: Record<string, string> = {};
         for (const [url, confirmed] of Object.entries(confirmedUrls)) {
@@ -246,7 +249,12 @@ export function useImportSyncOperations({
           run: (onProgress) =>
             syncApi.importOPMLSSE(
               file,
-              onProgress,
+              (type, message, current, total, data) => {
+                if (type === "task" && data?.task_id) {
+                  taskStarted = true;
+                }
+                onProgress(type, message, current, total, data);
+              },
               confirmationText,
               Object.keys(decisions).length > 0 ? decisions : undefined,
             ),
@@ -260,9 +268,11 @@ export function useImportSyncOperations({
         buildImportErrorLogs(error).forEach((log) => {
           addLog(log.type, log.message);
         });
-        // 连接中断不代表任务失败：任务仍在后台执行，按预算轮询终态。
-        toast.info("连接已中断，任务仍在后台执行，可稍后刷新查看结果");
-        void refreshLatestTask();
+        if (taskStarted) {
+          // 连接中断不代表任务失败：任务仍在后台执行，按预算轮询终态。
+          toast.info("连接已中断，任务仍在后台执行，可稍后刷新查看结果");
+          void refreshLatestTask();
+        }
       } finally {
         setImporting(false);
       }
