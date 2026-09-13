@@ -66,6 +66,15 @@ url_origin() {
   esac
 }
 
+is_auth_redirect() {
+  case "$1" in
+    */cdn-cgi/access/login|*/cdn-cgi/access/login\?*|*/cdn-cgi/access/login\#*) return 0 ;;
+    */oauth/authorize|*/oauth/authorize\?*|*/oauth/authorize\#*) return 0 ;;
+    */oauth2/authorize|*/oauth2/authorize\?*|*/oauth2/authorize\#*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 http_status() {
   local current="$1"
   local origin
@@ -87,6 +96,12 @@ http_status() {
       return
     fi
 
+    if is_auth_redirect "$redirect"; then
+      # Authentication pages are not application health, even when the
+      # identity provider uses the same origin.
+      printf '%s\n' "$code"
+      return
+    fi
     redirect_origin="$(url_origin "$redirect" 2>/dev/null || true)"
     if [ -z "$origin" ] || [ "$redirect_origin" != "$origin" ]; then
       # Do not follow external or authentication redirects. Returning the

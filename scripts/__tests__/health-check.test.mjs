@@ -46,7 +46,10 @@ function listen(server) {
   });
 }
 
-async function startServices(t, { externalRedirect = false } = {}) {
+async function startServices(
+  t,
+  { externalRedirect = false, sameOriginAuthRedirect = false } = {},
+) {
   const backend = http.createServer((_request, response) => {
     response.setHeader("content-type", "application/json");
     response.end(JSON.stringify({ status: "ok" }));
@@ -55,6 +58,12 @@ async function startServices(t, { externalRedirect = false } = {}) {
     if (request.url === "/" && externalRedirect) {
       response.statusCode = 302;
       response.setHeader("location", "https://auth.example/cdn-cgi/access/login");
+      response.end();
+      return;
+    }
+    if (request.url === "/" && sameOriginAuthRedirect) {
+      response.statusCode = 302;
+      response.setHeader("location", "/cdn-cgi/access/login");
       response.end();
       return;
     }
@@ -164,6 +173,15 @@ test("health check reads a stopped WAL database and follows only same-origin red
 test("health check does not follow an external authentication redirect", async (t) => {
   const db = await createWalDatabase(t);
   const services = await startServices(t, { externalRedirect: true });
+  const result = await runHealth(t, db, services);
+
+  assert.match(result.stdout, /前端端口存在，但首页返回 HTTP 302/);
+  assert.doesNotMatch(result.stdout, /前端首页正常: HTTP 200/);
+});
+
+test("health check does not treat a same-origin authentication page as the app", async (t) => {
+  const db = await createWalDatabase(t);
+  const services = await startServices(t, { sameOriginAuthRedirect: true });
   const result = await runHealth(t, db, services);
 
   assert.match(result.stdout, /前端端口存在，但首页返回 HTTP 302/);
