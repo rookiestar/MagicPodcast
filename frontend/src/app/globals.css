@@ -8619,6 +8619,10 @@ textarea.editorial-field {
     gap: 6px;
   }
 
+  .collection-item-state {
+    margin-left: 0;
+  }
+
   .collection-toolbar {
     flex-direction: column;
     align-items: stretch;
@@ -8699,6 +8703,9 @@ textarea.editorial-field {
 .collection-card-covers { flex:0 0 180px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px;align-self:start; }
 .collection-item-cover { width:28px;height:28px;flex:0 0 28px; }
 @media(max-width:767px){.collection-card-covers{flex:auto;width:100%;grid-template-columns:repeat(4,minmax(0,1fr))}.collection-item-cover{width:28px;height:28px;flex-basis:28px}}
+
+/* Keep the placeholder glyph proportional when a compact list cover is used. */
+.podcast-cover-placeholder-icon { width:min(48px,72%);height:min(48px,72%); }
 
 /* Keep the new entry above filters instead of squeezing the filters off screen. */
 @media (max-width: 900px) {
