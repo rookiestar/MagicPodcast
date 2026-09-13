@@ -374,9 +374,13 @@ describe("封面加载收敛验收 (#13/#14)", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(15_000);
     });
-    expect(
-      screen.getByRole("img", { name: "播客 1封面暂不可用" }),
-    ).toBeInTheDocument();
+    const placeholder = screen.getByRole("img", {
+      name: "播客 1封面暂不可用",
+    });
+    expect(placeholder).toBeInTheDocument();
+    expect(placeholder.querySelector("svg")).toHaveClass(
+      "podcast-cover-placeholder-icon",
+    );
   });
 
   it("图片反复失败后会在有限重试后显示稳定占位", async () => {

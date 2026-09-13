@@ -344,7 +344,7 @@ function PodcastCover({
           aria-label={`${title}封面暂不可用`}
         >
           <IconHeadphones
-            className="h-12 w-12 text-slate-400"
+            className="podcast-cover-placeholder-icon text-slate-400"
             aria-hidden="true"
             stroke={1.2}
           />
