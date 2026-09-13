@@ -480,6 +480,14 @@ export default function CollectionDetailContent({
                   </p>
                 )}
                 <div className="collection-item-actions">
+                  <a
+                    href={item.episode_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="collection-btn-secondary"
+                  >
+                    打开原单集
+                  </a>
                   {!item.adopted_episode_id && (
                     <button
                       type="button"
@@ -492,14 +500,6 @@ export default function CollectionDetailContent({
                         : "加入 Inbox"}
                     </button>
                   )}
-                  <a
-                    href={item.episode_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="collection-btn-secondary"
-                  >
-                    打开原单集
-                  </a>
                   {item.adopted_episode_id && (
                     <Link
                       href={`/episodes/${item.adopted_episode_id}`}

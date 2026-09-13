@@ -183,6 +183,15 @@ describe("CollectionDetailContent", () => {
       "https://www.xiaoyuzhoufm.com/episode/e1",
     );
     expect(sourceLinks[0]).toHaveAttribute("target", "_blank");
+
+    const actions = screen
+      .getAllByTestId("collection-item")[0]
+      .querySelector(".collection-item-actions");
+    expect(
+      Array.from(actions?.querySelectorAll("a,button") ?? []).map((node) =>
+        node.textContent?.trim(),
+      ),
+    ).toEqual(["打开原单集", "加入 Inbox"]);
   });
 
   it("shows a distinct failure state with a way back", async () => {

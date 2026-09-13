@@ -8465,21 +8465,27 @@ textarea.editorial-field {
 
 .collection-item-heading {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 10px;
 }
 
 .collection-item-title {
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
   font-family: var(--font-display);
   font-size: 17px;
   font-weight: var(--font-display-weight);
+  line-height: 1.35;
+  text-align: left;
   overflow-wrap: anywhere;
 }
 
 .collection-item-state {
   flex: none;
+  margin-left: auto;
+  align-self: flex-start;
   padding: 3px 8px;
   border: 1px solid #c7bbab;
   color: #756c62;
@@ -8659,9 +8665,8 @@ textarea.editorial-field {
 
 /* Collection source covers reuse the existing image pipeline. */
 .collection-card-covers { flex:0 0 180px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px;align-self:start; }
-.collection-item-cover { width:64px;height:64px;flex:0 0 64px; }
-.collection-item-heading { align-items:flex-start; }
-@media(max-width:767px){.collection-card-covers{flex:auto;width:100%;grid-template-columns:repeat(4,minmax(0,1fr))}.collection-item-cover{width:48px;height:48px;flex-basis:48px}}
+.collection-item-cover { width:28px;height:28px;flex:0 0 28px; }
+@media(max-width:767px){.collection-card-covers{flex:auto;width:100%;grid-template-columns:repeat(4,minmax(0,1fr))}.collection-item-cover{width:28px;height:28px;flex-basis:28px}}
 
 /* Keep the new entry above filters instead of squeezing the filters off screen. */
 @media (max-width: 900px) {
