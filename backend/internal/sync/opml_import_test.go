@@ -42,6 +42,13 @@ func newImportTestServer(t *testing.T, status int, body []byte) *httptest.Server
 	return server
 }
 
+// applyNoRetryPolicy 让导入路径在不可达/5xx 场景下只尝试一次。这些测试
+// 验证的是「失败 → 待同步」契约，不是重试预算本身（重试预算有专项测试）。
+func applyNoRetryPolicy(t *testing.T, service *Service) {
+	t.Helper()
+	service.applyRetryPolicy(feed.RetryPolicy{Budget: 0, Sleeper: &feed.FakeSleeper{}, Rand: func() float64 { return 0 }})
+}
+
 func TestImportOPMLFromPodcastIndexOnlyRetainsUnreachableSubscription(t *testing.T) {
 	server := newImportTestServer(t, http.StatusNotFound, nil)
 	db := setupTestDB(t)
@@ -71,6 +78,7 @@ func TestImportOPMLFromPodcastIndexOnlyDoesNotCountStubAsSuccess(t *testing.T) {
 	service, err := NewService(db, "")
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, service.Close()) })
+	applyNoRetryPolicy(t, service)
 
 	reporter := &recordingReporter{}
 	result, err := service.ImportOPMLFromPodcastIndexOnly(writeTestOPML(t, server.URL+"/feed.xml"), reporter)
@@ -120,6 +128,7 @@ func TestAdditiveImportRetainsSubscriptionsAndPersonalData(t *testing.T) {
 			service, err := NewService(db, "")
 			require.NoError(t, err)
 			defer service.Close()
+			applyNoRetryPolicy(t, service)
 			path := writeTestOPML(t, server.URL+"/feed.xml")
 			result, err := service.ImportOPMLFromPodcastIndexOnly(path, &recordingReporter{})
 			require.NoError(t, err)
@@ -220,6 +229,7 @@ func TestAdditiveIndexFailurePreservesExistingContent(t *testing.T) {
 	service, err := NewService(db, index)
 	require.NoError(t, err)
 	defer service.Close()
+	applyNoRetryPolicy(t, service)
 	existing := models.Podcast{XYZID: "keep", Title: "已有节目", FeedURL: url, EpisodeCount: 100, Notes: "保留"}
 	require.NoError(t, db.Create(&existing).Error)
 	result, err := service.ImportOPMLFromPodcastIndexOnly(writeTestOPML(t, url), &recordingReporter{})
@@ -290,4 +300,39 @@ func TestEmptyValidFeedCountsAsSuccessfulImport(t *testing.T) {
 	require.NoError(t, db.First(&podcast).Error)
 	require.Equal(t, "Empty feed", podcast.Title)
 	require.True(t, podcast.FeedURLValid)
+}
+
+// TestIndexMissUsesImportRetryPolicy 验证流式入口未命中索引时与命中路径
+// 使用相同的重试预算：503 后恢复只需要一次重试，不退化为单次抓取（R10）。
+func TestIndexMissUsesImportRetryPolicy(t *testing.T) {
+	var requests int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
+		if atomic.AddInt32(&requests, 1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(testFeedXML))
+	}))
+	t.Cleanup(server.Close)
+
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, service.Close()) })
+	sleeper := &feed.FakeSleeper{}
+	service.applyRetryPolicy(feed.RetryPolicy{
+		Budget: 1, Base: 2 * time.Second, Max: 8 * time.Second,
+		Sleeper: sleeper, Rand: func() float64 { return 0 },
+	})
+
+	result, err := service.ImportOPMLFromPodcastIndexOnly(writeTestOPML(t, server.URL+"/feed.xml"), &recordingReporter{})
+	require.NoError(t, err)
+	require.Equal(t, 1, result.SuccessPodcasts)
+	require.Zero(t, result.StubPodcasts)
+	require.Equal(t, int32(2), atomic.LoadInt32(&requests))
+	require.Len(t, sleeper.Delays(), 1)
 }

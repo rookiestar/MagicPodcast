@@ -3,6 +3,7 @@ package opml
 import (
 	"io"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/gilliek/go-opml/opml"
@@ -29,23 +30,29 @@ func (o *Outline) GetTitle() string {
 		return o.Title
 	}
 
-	// 如果 title 为空，使用 text 字段作为备用
-	// 并智能截取过长的文本
+	// 如果 title 为空，使用 text 字段作为备用，并按 rune 截取过长文本，
+	// 避免按字节截断切开中文/emoji 等多字节字符（#398 R8）。
 	text := strings.TrimSpace(o.Text)
-	if text != "" {
-		if len(text) > 100 {
-			// 尝试在换行符或句号处截断
-			if idx := strings.IndexAny(text, "\n。！？."); idx > 0 && idx < 100 {
-				return strings.TrimSpace(text[:idx])
-			}
-			// 如果没有合适的截断点，截取前100个字符
-			return text[:100] + "..."
-		}
+	if text == "" {
+		return "Unknown Podcast"
+	}
+	runes := []rune(text)
+	if len(runes) <= fallbackTitleMaxRunes {
 		return text
 	}
-
-	return "Unknown Podcast"
+	head := runes[:fallbackTitleMaxRunes]
+	// 优先在截断范围内的首个换行或句读处收尾，保持与原语义一致。
+	for i := 1; i < len(head); i++ {
+		switch head[i] {
+		case '\n', '。', '！', '？', '.':
+			return strings.TrimSpace(string(head[:i]))
+		}
+	}
+	return string(head) + "..."
 }
+
+// fallbackTitleMaxRunes 限制 text 兜底标题的最大 rune 数。
+const fallbackTitleMaxRunes = 100
 
 // GetDescription 获取播客描述（从 text 字段）
 func (o *Outline) GetDescription() string {
@@ -60,6 +67,15 @@ func NewParser() *Parser {
 	return &Parser{}
 }
 
+// ParseError 标记输入文件本身无法解析（空文件、畸形 XML、非 OPML 内容）。
+// 调用方据此把「文件非法」与「导入过程失败」区分开（#398 R11）。
+type ParseError struct {
+	Err error
+}
+
+func (e *ParseError) Error() string { return e.Err.Error() }
+func (e *ParseError) Unwrap() error { return e.Err }
+
 // ParseFile 从文件解析OPML
 func (p *Parser) ParseFile(filePath string) ([]Outline, error) {
 	// 读取文件内容
@@ -67,16 +83,7 @@ func (p *Parser) ParseFile(filePath string) ([]Outline, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// 预处理：修复常见的XML转义问题
-	data = p.preprocessXML(data)
-
-	doc, err := opml.NewOPML(data)
-	if err != nil {
-		return nil, err
-	}
-
-	return p.extractOutlines(*doc)
+	return p.ParseBytes(data)
 }
 
 // ParseReader 从io.Reader解析OPML
@@ -85,43 +92,36 @@ func (p *Parser) ParseReader(reader io.Reader) ([]Outline, error) {
 	if err != nil {
 		return nil, err
 	}
+	return p.ParseBytes(data)
+}
 
-	// 预处理：修复常见的XML转义问题
+// ParseBytes 解析OPML内容。解析失败一律包装为 *ParseError。
+func (p *Parser) ParseBytes(data []byte) ([]Outline, error) {
+	// 预处理：仅转义确实非法的裸 &
 	data = p.preprocessXML(data)
 
 	doc, err := opml.NewOPML(data)
 	if err != nil {
-		return nil, err
+		return nil, &ParseError{Err: err}
 	}
 
 	return p.extractOutlines(*doc)
 }
 
-// preprocessXML 预处理XML，修复常见的转义问题
+// ampersandOrEntity 匹配一个 & 及其可选的实体主体。Go 的 RE2 不支持负向
+// 前瞻，因此用 ReplaceAllStringFunc 判断：带完整实体形态（命名实体或
+// 十进制/十六进制数字实体）的原样保留，其余裸 & 转义。旧的五实体白名单
+// 会把 &#39; 改写成 &amp;#39;，破坏数字实体和中文（#398 R8）。
+var ampersandOrEntity = regexp.MustCompile(`&(?:#x?[0-9A-Fa-f]+;|[a-zA-Z][a-zA-Z0-9]*;)?`)
+
+// preprocessXML 预处理XML，仅转义确实非法的裸 &
 func (p *Parser) preprocessXML(data []byte) []byte {
-	content := string(data)
-
-	// 修复未转义的 & 字符（最常见的XML问题）
-	// 策略：先保护已转义的实体，然后替换剩余的&，最后恢复
-
-	// 1. 保护已正确转义的实体
-	content = strings.ReplaceAll(content, "&amp;", "\x00AMP;")
-	content = strings.ReplaceAll(content, "&lt;", "\x00LT;")
-	content = strings.ReplaceAll(content, "&gt;", "\x00GT;")
-	content = strings.ReplaceAll(content, "&quot;", "\x00QUOT;")
-	content = strings.ReplaceAll(content, "&apos;", "\x00APOS;")
-
-	// 2. 替换剩余未转义的 &
-	content = strings.ReplaceAll(content, "&", "&amp;")
-
-	// 3. 恢复已转义的实体
-	content = strings.ReplaceAll(content, "\x00AMP;", "&amp;")
-	content = strings.ReplaceAll(content, "\x00LT;", "&lt;")
-	content = strings.ReplaceAll(content, "\x00GT;", "&gt;")
-	content = strings.ReplaceAll(content, "\x00QUOT;", "&quot;")
-	content = strings.ReplaceAll(content, "\x00APOS;", "&apos;")
-
-	return []byte(content)
+	return []byte(ampersandOrEntity.ReplaceAllStringFunc(string(data), func(match string) string {
+		if strings.HasSuffix(match, ";") {
+			return match
+		}
+		return "&amp;"
+	}))
 }
 
 // extractOutlines 从OPML文档提取RSS URL列表

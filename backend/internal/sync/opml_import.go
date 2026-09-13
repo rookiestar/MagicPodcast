@@ -41,6 +41,9 @@ func (s *Service) ImportOPMLWithProgressAndConfig(filePath string, reporter Prog
 
 	logger.Infof("📋 解析到 %d 个 RSS feed", len(outlines))
 	reporter.ReportSuccess(fmt.Sprintf("解析到 %d 个RSS feed", len(outlines)))
+	if len(outlines) == 0 {
+		reporter.Report("文件中没有订阅条目（0 条），未新增节目")
+	}
 
 	// 准备并发处理
 	result := &SyncResult{
@@ -189,18 +192,25 @@ func (s *Service) ImportOPMLWithProgressAndConfig(filePath string, reporter Prog
 
 // ImportOPMLFromPodcastIndexOnly 从PodcastIndex导入并在线同步元数据
 func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter ProgressReporter) (*SyncResult, error) {
-	logger.Infof("开始导入OPML（本地匹配 + 在线同步）: %s", filePath)
-	reporter.Report("开始导入OPML（本地匹配 + 在线同步）")
-
-	// 1. 解析OPML文件
 	outlines, err := s.opmlParser.ParseFile(filePath)
 	if err != nil {
-		reporter.ReportError("解析OPML文件失败: " + err.Error())
 		return nil, fmt.Errorf("failed to parse OPML: %w", err)
 	}
+	return s.ImportOPMLOutlinesFromPodcastIndexOnly(outlines, reporter)
+}
+
+// ImportOPMLOutlinesFromPodcastIndexOnly 接受预解析的订阅条目。SSE 入口在
+// 发送响应头前完成解析，解析失败可以与普通入口返回同一 JSON 错误契约；
+// 业务规则与 ImportOPMLFromPodcastIndexOnly 完全一致（#398 R10/R11）。
+func (s *Service) ImportOPMLOutlinesFromPodcastIndexOnly(outlines []opml.Outline, reporter ProgressReporter) (*SyncResult, error) {
+	logger.Infof("开始导入OPML（本地匹配 + 在线同步）: %d 条订阅", len(outlines))
+	reporter.Report("开始导入OPML（本地匹配 + 在线同步）")
 
 	logger.Infof("📋 解析到 %d 个 RSS feed", len(outlines))
 	reporter.ReportSuccess(fmt.Sprintf("解析到 %d 个RSS feed", len(outlines)))
+	if len(outlines) == 0 {
+		reporter.Report("文件中没有订阅条目（0 条），未新增节目")
+	}
 
 	// 准备结果
 	result := &SyncResult{
@@ -579,12 +589,17 @@ func (s *Service) updatePodcastMetadataOnline(podcast *models.Podcast, reporter 
 	return podcast, nil
 }
 
-// fetchPodcastOnline 在线抓取完整播客信息
+// fetchPodcastOnline 在线抓取完整播客信息。与索引命中路径共用
+// fetchFeedWithRetry，保证两个导入入口在同一条件下使用相同重试预算
+// （#398 R10）。
 func (s *Service) fetchPodcastOnline(outline *opml.Outline, feedURL string, reporter ProgressReporter) (*models.Podcast, error) {
 	logger.Infof("   🌐 在线抓取完整播客信息: %s", feedURL)
 
-	// 在线抓取RSS feed
-	gofeed, err := s.feedFetcher.FetchFeed(feedURL)
+	title := ""
+	if outline != nil {
+		title = outline.GetTitle()
+	}
+	gofeed, err := s.fetchFeedWithRetry(feedURL, title, reporter)
 	if err != nil {
 		// 分类错误类型
 		classifiedErr := feed.ClassifyError(feedURL, err)

@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"magicpodcast/internal/logger"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
 	"magicpodcast/internal/middleware"
+	"magicpodcast/internal/opml"
 	syncpkg "magicpodcast/internal/sync"
 
 	"github.com/gin-gonic/gin"
@@ -339,71 +338,45 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 			middleware.RequestTooLargeResponse(c, middleware.DefaultUploadRequestLimitBytes)
 			return
 		}
-		c.SSEvent("", "error")
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   "OPML文件上传失败，请确保使用multipart/form-data格式",
-		})
+		middleware.BadRequestResponse(c, "INVALID_FILE", "OPML文件上传失败，请确保使用multipart/form-data格式")
 		return
 	}
-	if file.Size > middleware.DefaultUploadRequestLimitBytes {
-		middleware.RequestTooLargeResponse(c, middleware.DefaultUploadRequestLimitBytes)
+	// 校验失败在发送 SSE 响应头前返回与普通入口一致的 JSON 错误结构。
+	if validation := validateOPMLUpload(file); validation != nil {
+		validation.respond(c)
 		return
 	}
 
-	// 验证文件扩展名
-	ext := filepath.Ext(file.Filename)
-	if ext != ".opml" && ext != ".xml" {
-		c.SSEvent("", "error")
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   "OPML文件格式不正确，请上传.opml或.xml文件",
-		})
+	tempFilePath, cleanup, ok := saveOPMLUpload(c, file)
+	if !ok {
 		return
 	}
+	defer cleanup()
 
-	// 保存到临时文件
-	tempDir := filepath.Join(".", "data", "temp")
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
-		c.SSEvent("", "error")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   "创建临时目录失败",
-		})
+	// 解析在任何 SSE 响应头之前完成：解析失败与普通入口返回同一 JSON
+	// 错误结构，不留下半开的流（#398 R11）。
+	outlines, err := (opml.NewParser()).ParseFile(tempFilePath)
+	if err != nil {
+		logger.Warnf("[SSE] OPML解析失败: %v", err)
+		respondOPMLParseError(c, err)
 		return
 	}
-
-	tempFileName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), filepath.Base(file.Filename))
-	tempFilePath := filepath.Join(tempDir, tempFileName)
-
-	if err := c.SaveUploadedFile(file, tempFilePath); err != nil {
-		c.SSEvent("", "error")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   "保存文件失败",
-		})
-		return
-	}
-	defer func() {
-		if err := os.Remove(tempFilePath); err != nil {
-			logger.Infof("⚠️  清理临时OPML文件失败: %v", err)
-		}
-	}()
 
 	// 创建SSE reporter
 	reporter := NewSSEProgressReporter(c)
 	defer reporter.Close()
 
-	// 在goroutine中执行导入，避免阻塞
-	// 但由于SSE需要保持连接，我们在这里同步执行
 	logger.Infof("[SSE] 开始导入OPML（本地匹配 + 在线同步）: %s", file.Filename)
-	result, err := h.syncService.ImportOPMLFromPodcastIndexOnly(tempFilePath, reporter)
+	result, err := h.syncService.ImportOPMLOutlinesFromPodcastIndexOnly(outlines, reporter)
 	if err != nil {
 		logger.Warnf("[SSE] 导入失败: %v", err)
 		reporter.ReportError("导入失败: " + err.Error())
 		return
 	}
 
+	if result.TotalPodcasts == 0 {
+		reporter.Report(opmlResultMessage(0, 0, 0, 0))
+	}
 	logger.Infof("[SSE] 导入完成，summary 已发送: 成功=%d 失败=%d",
 		result.SuccessPodcasts, result.FailedPodcasts)
 }
