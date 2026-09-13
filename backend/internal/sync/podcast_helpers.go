@@ -30,6 +30,15 @@ func (s *Service) saveOrUpdatePodcast(podcast *models.Podcast) error {
 			podcast.XYZID = "temp_" + feedURLToID(podcast.FeedURL)
 		}
 		podcast.AddedDate = time.Now()
+		if isImportStub(podcast) {
+			// GORM's default:true otherwise changes the explicit false on insert.
+			return s.db.Transaction(func(tx *gorm.DB) error {
+				if err := tx.Create(podcast).Error; err != nil {
+					return err
+				}
+				return tx.Model(podcast).Update("feed_url_valid", false).Error
+			})
+		}
 		return s.db.Create(podcast).Error
 	} else if err != nil {
 		return err
@@ -44,7 +53,12 @@ func (s *Service) saveOrUpdatePodcast(podcast *models.Podcast) error {
 	podcast.CustomCoverURL = existing.CustomCoverURL
 
 	if isImportStub(podcast) {
-		return nil
+		// Re-import confirms the subscription; keep all previously fetched content
+		// while recording that this attempt still needs a successful RSS fetch.
+		return s.db.Model(&existing).Updates(map[string]interface{}{
+			"is_subscribed":  true,
+			"feed_url_valid": false,
+		}).Error
 	}
 
 	mainFeedChanged := feed.CanonicalizeURL(existing.FeedURL) != feed.CanonicalizeURL(podcast.FeedURL)

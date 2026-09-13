@@ -25,7 +25,8 @@ export default function ImportOpmlPanel({
         </h3>
         <p className="import-guidance-copy">
           读取小宇宙、Apple Podcasts 等应用导出的订阅列表。先匹配本地索引，未命中或需要刷新时会在线抓取
-          RSS。
+          RSS。只补充节目，保留已有关注和标签；文件夹分类不会转成标签。
+          RSS 暂不可用的有效链接会保留订阅并标记待同步。
         </p>
       </div>
 

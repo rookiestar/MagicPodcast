@@ -52,7 +52,7 @@ describe("syncLogState", () => {
     });
   });
 
-  it("counts import stub podcasts as skips in summary stats", () => {
+  it("keeps pending subscriptions separate from skipped imports", () => {
     const stats = computeSyncStats([
       {
         ...makeLog("summary"),
@@ -72,7 +72,8 @@ describe("syncLogState", () => {
       total: 5,
       success: 2,
       errors: 0,
-      skips: 3,
+      skips: 1,
+      pending: 2,
       fromSummary: true,
     });
   });

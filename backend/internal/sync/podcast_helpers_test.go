@@ -82,6 +82,6 @@ func TestSaveOrUpdatePodcastDoesNotOverwriteExistingWithStub(t *testing.T) {
 	require.NoError(t, db.First(&got, existing.ID).Error)
 	assert.Equal(t, "已有节目", got.Title)
 	assert.Equal(t, 8, got.EpisodeCount)
-	assert.True(t, got.FeedURLValid)
+	assert.False(t, got.FeedURLValid)
 	assert.Equal(t, "https://cdn.example/ok.jpg", got.CoverURL)
 }

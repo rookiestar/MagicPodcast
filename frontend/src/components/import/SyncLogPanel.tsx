@@ -26,6 +26,7 @@ function hasVisibleStats(stats: SyncStats) {
     stats.errors > 0 ||
     stats.success > 0 ||
     stats.skips > 0 ||
+    stats.pending > 0 ||
     stats.skipNoUpdate > 0
   );
 }

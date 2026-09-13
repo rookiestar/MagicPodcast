@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"magicpodcast/internal/logger"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -75,7 +76,15 @@ func (s *Service) ImportOPMLWithProgressAndConfig(filePath string, reporter Prog
 				logger.Infof("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ [Worker %d] %s", workerID, title)
 
 				// 同步播客
-				podcast, err := s.syncPodcastFromFeedWithRetry(&outline, outline.XMLURL, reporter)
+				var podcast *models.Podcast
+				err := validateImportFeedURL(outline.XMLURL)
+				if err == nil {
+					podcast, err = s.syncPodcastFromFeedWithRetry(&outline, outline.XMLURL, reporter)
+					if err != nil {
+						reporter.Report(fmt.Sprintf("%s - RSS暂不可用，保留订阅待同步", title))
+						podcast, err = pendingImportPodcast(&outline, outline.XMLURL), nil
+					}
+				}
 
 				resultChan <- importResult{
 					podcast: podcast,
@@ -141,6 +150,11 @@ func (s *Service) ImportOPMLWithProgressAndConfig(filePath string, reporter Prog
 				reporter.ReportError(fmt.Sprintf("保存失败: %s - %v", res.title, err))
 				return
 			}
+			if isImportStub(res.podcast) {
+				result.StubPodcasts++
+				reporter.Report(fmt.Sprintf("%s - 已保留订阅，待同步", res.title))
+				return
+			}
 			s.scheduleAlternativePrewarm(res.podcast)
 
 			result.SuccessPodcasts++
@@ -161,8 +175,12 @@ func (s *Service) ImportOPMLWithProgressAndConfig(filePath string, reporter Prog
 	logger.Infof("🚀 平均速度: %.2f 个/秒", float64(len(outlines))/duration.Seconds())
 	logger.Infof("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	reporter.ReportSuccess(fmt.Sprintf("导入完成！成功: %d, 失败: %d, 跳过: %d, 耗时: %v",
-		result.SuccessPodcasts, result.FailedPodcasts, skippedCount, duration))
+	result.SkippedPodcasts = skippedCount
+	reporter.ReportSummary(&SyncSummary{
+		Operation: "import", TotalPodcasts: result.TotalPodcasts,
+		SuccessPodcasts: result.SuccessPodcasts, FailedPodcasts: result.FailedPodcasts,
+		SkippedPodcasts: skippedCount, StubPodcasts: result.StubPodcasts, Duration: duration,
+	})
 
 	return result, nil
 }
@@ -270,7 +288,7 @@ func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter Progr
 				logger.Infof("[%d/%d] %s - 保存失败: %v", processedCount, len(outlines), res.title, err)
 			} else if res.stub {
 				stubCount++
-				reporter.ReportSkip(SkipReasonOther, fmt.Sprintf("%s - 临时错误，已创建待同步记录", res.title))
+				reporter.Report(fmt.Sprintf("%s - 已保留订阅，待同步", res.title))
 				logger.Infof("[%d/%d] %s - 已创建待同步记录", processedCount, len(outlines), res.title)
 			} else {
 				s.scheduleAlternativePrewarm(res.podcast)
@@ -288,6 +306,8 @@ func (s *Service) ImportOPMLFromPodcastIndexOnly(filePath string, reporter Progr
 		matchedCount, skipCount, stubCount, result.FailedPodcasts, duration)
 
 	result.SuccessPodcasts = matchedCount
+	result.StubPodcasts = stubCount
+	result.SkippedPodcasts = skipCount
 	reporter.ReportSummary(&SyncSummary{
 		Operation:       "import",
 		TotalPodcasts:   len(outlines),
@@ -362,7 +382,9 @@ func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL st
 		if piInfo != nil {
 			logger.Infof("%s   ✅ feed_url 匹配成功: %s (作者: %s)", logPrefix, piInfo.Title, piInfo.Author)
 			reporter.Report(fmt.Sprintf("%s - 从本地数据库快速获取（feed_url匹配）", title))
-			return s.createEnhancedPodcastFromOPML(piInfo, outline), nil
+			podcast := s.createEnhancedPodcastFromOPML(piInfo, outline)
+			// Index metadata alone cannot establish that the subscription was refreshed.
+			return s.updatePodcastMetadataOnline(podcast, reporter)
 		} else {
 			logger.Infof("%s   📭 feed_url 未找到，准备在线抓取", logPrefix)
 		}
@@ -431,6 +453,9 @@ func (s *Service) syncPodcastFromFeedWithRetry(outline *opml.Outline, feedURL st
 // syncPodcastFromPodcastIndexOnly 先本地匹配，再在线抓取。
 // 第三个返回值表示这是一条待同步空壳：调用方不得计入成功。
 func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL string, reporter ProgressReporter) (*models.Podcast, bool, error) {
+	if err := validateImportFeedURL(feedURL); err != nil {
+		return nil, false, err
+	}
 	title := ""
 	if outline != nil {
 		title = outline.GetTitle()
@@ -487,10 +512,8 @@ func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL
 		logger.Infof("%s   🌐 在线更新元数据字段", logPrefix)
 		updatedPodcast, updateErr := s.updatePodcastMetadataOnline(podcast, reporter)
 		if updateErr != nil {
-			logger.Infof("%s   ⚠️  在线更新失败: %v，使用本地数据库数据", logPrefix, updateErr)
-			reporter.Report(fmt.Sprintf("%s - 在线更新失败，使用本地数据", title))
-			// 即使在线更新失败，也返回本地数据
-			return podcast, false, nil
+			reporter.Report(fmt.Sprintf("%s - RSS暂不可用，保留订阅待同步", title))
+			return pendingImportPodcast(outline, feedURL), true, nil
 		}
 
 		logger.Infof("%s   ✅ 同步完成: %s", logPrefix, updatedPodcast.Title)
@@ -504,44 +527,8 @@ func (s *Service) syncPodcastFromPodcastIndexOnly(outline *opml.Outline, feedURL
 
 	podcast, fetchErr := s.fetchPodcastOnline(outline, feedURL, reporter)
 	if fetchErr != nil {
-		// 检查是否为永久性错误（402付费、SSL过期、403/404等）
-		// 对于永久性错误，直接跳过，不创建数据库记录
-		if shouldSkip, reasonStr, description := feed.GetSkipReasonFromError(fetchErr); shouldSkip {
-			logger.Infof("%s   ⏭️  永久性错误，跳过此feed: %s - %s", logPrefix, reasonStr, description)
-			return nil, false, fetchErr
-		}
-
-		// 对于临时性错误（网络故障、超时等），创建基础记录以便稍后重试
-		logger.Infof("%s   ⚠️  临时性错误，创建基础记录: %v", logPrefix, fetchErr)
-		reporter.Report(fmt.Sprintf("%s - 临时错误，将创建待同步记录", title))
-
-		// 创建基础播客对象
-		basePodcast := &models.Podcast{
-			Title:        title,
-			FeedURL:      feedURL,
-			IsSubscribed: true,
-			DataSource:   "rss",
-			AddedDate:    time.Now(),
-			FeedURLValid: false, // 标记为未验证，稍后可以通过同步功能重试
-		}
-
-		// 设置一些默认值
-		basePodcast.EpisodeCount = 0
-		basePodcast.Priority = 5
-		basePodcast.PopularityScore = 0
-		basePodcast.UpdateFrequency = 0
-
-		// 尝试从outline获取更多信息
-		if outline != nil {
-			if outline.Text != "" {
-				basePodcast.Title = outline.Text
-			}
-			if outline.HTMLURL != "" {
-				basePodcast.Link = outline.HTMLURL
-			}
-		}
-
-		return basePodcast, true, nil
+		reporter.Report(fmt.Sprintf("%s - RSS暂不可用，保留订阅待同步", title))
+		return pendingImportPodcast(outline, feedURL), true, nil
 	}
 
 	logger.Infof("%s   ✅ 在线抓取成功: %s", logPrefix, podcast.Title)
@@ -612,4 +599,21 @@ func (s *Service) fetchPodcastOnline(outline *opml.Outline, feedURL string, repo
 	logger.Infof("   ✅ 在线抓取完成: %s (episode_count=%d)", podcast.Title, podcast.EpisodeCount)
 
 	return podcast, nil
+}
+
+// OPML is user-supplied input: malformed/non-HTTP addresses are not subscriptions.
+// Network reachability is deliberately NOT a condition for retaining a subscription.
+func validateImportFeedURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
+		return fmt.Errorf("无效的RSS地址：需要完整的HTTP或HTTPS链接")
+	}
+	return nil
+}
+
+func pendingImportPodcast(outline *opml.Outline, feedURL string) *models.Podcast {
+	return &models.Podcast{
+		Title: outline.GetTitle(), Description: outline.GetDescription(), Link: outline.HTMLURL,
+		FeedURL: feedURL, IsSubscribed: true, FeedURLValid: false, DataSource: "rss", Priority: 5,
+	}
 }
