@@ -51,6 +51,7 @@ const RichText = dynamic(() => import("@/components/RichText"), {
 
 interface DiscoveryDeskProps {
   candidates: DiscoveryCandidate[];
+  candidatesLoading?: boolean;
   initialHref?: string;
   reportContent?: ReactNode;
   focusContent?: ReactNode;
@@ -221,6 +222,7 @@ function CandidateCover({
 
 export default function DiscoveryDesk({
   candidates,
+  candidatesLoading = false,
   initialHref = "",
   reportContent,
   focusContent,
@@ -230,6 +232,7 @@ export default function DiscoveryDesk({
   onLoadCandidateDetails,
 }: DiscoveryDeskProps) {
   const [displayCandidates, setDisplayCandidates] = useState(candidates);
+  const [appliedCandidates, setAppliedCandidates] = useState(candidates);
   const href = useLocationHref() || initialHref;
   const params = useMemo(() => new URL(href || "/discovery", "http://navigation.local").searchParams, [href]);
   const filter = singleParam(params, "filter");
@@ -278,6 +281,7 @@ export default function DiscoveryDesk({
   } | null>(null);
 
   useEffect(() => {
+    setAppliedCandidates(candidates);
     setDisplayCandidates((currentCandidates) => {
       const currentByEpisodeID = new Map(
         currentCandidates.map((candidate) => [candidate.episode_id, candidate]),
@@ -325,10 +329,13 @@ export default function DiscoveryDesk({
 
   useEffect(() => {
     const visualViewport = window.visualViewport;
+    let initialResize = true;
     const updatePageSize = () => {
       const width = visualViewport?.width ?? window.innerWidth;
       const height = visualViewport?.height ?? window.innerHeight;
       const nextPageSize = recentPageSizeForViewport(width, height);
+      const restoringPage = initialResize;
+      initialResize = false;
       if (nextPageSize === recentPageSizeRef.current) return;
 
       const focusedCandidateID = Array.from(
@@ -358,7 +365,9 @@ export default function DiscoveryDesk({
       dispatchRecentPagination({
         type: "resize",
         pageSize: nextPageSize,
-        preferredIndex: preferredIndex >= 0 ? preferredIndex : undefined,
+        preferredIndex: restoringPage
+          ? recentPageParamRef.current * nextPageSize
+          : preferredIndex >= 0 ? preferredIndex : undefined,
       });
     };
 
@@ -400,12 +409,12 @@ export default function DiscoveryDesk({
   );
 
   useEffect(() => {
-    if (visibleCandidates.length === 0) return;
+    if (candidatesLoading || appliedCandidates !== candidates || visibleCandidates.length === 0) return;
     const normalizedPage = safeRecentPage > 0 ? String(safeRecentPage + 1) : null;
     const currentPage = pageParam === null ? (rawPage === null ? null : "invalid") : String(pageParam);
     if (currentPage === normalizedPage) return;
     updateQuery({ page: normalizedPage }, true);
-  }, [pageParam, rawPage, safeRecentPage, visibleCandidates.length]);
+  }, [candidatesLoading, candidates, appliedCandidates, pageParam, rawPage, safeRecentPage, visibleCandidates.length]);
 
   const setRecentPage = (page: number) => {
     const nextPage = Math.min(Math.max(page, 0), recentPageCount - 1);
@@ -468,10 +477,10 @@ export default function DiscoveryDesk({
   }, [selected?.episode_id]);
 
   useEffect(() => {
-    if (recentPage !== safeRecentPage) {
+    if (!candidatesLoading && appliedCandidates === candidates && recentPage !== safeRecentPage) {
       dispatchRecentPagination({ type: "set-page", page: safeRecentPage });
     }
-  }, [activeFilter, recentPage, safeRecentPage]);
+  }, [activeFilter, candidatesLoading, candidates, appliedCandidates, recentPage, safeRecentPage]);
 
   const selectedEpisodeID = selected?.episode_id;
   const selectedMetadataOnly = Boolean(selected?.metadata_only);

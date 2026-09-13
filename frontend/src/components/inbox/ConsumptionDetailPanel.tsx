@@ -978,7 +978,7 @@ export default function ConsumptionDetailPanel({
           hidden={isCopilotOpen && isMobileViewport}
         >
           <div>
-            <span className={styles.detailKicker}>FOCUS DETAIL</span>
+            <span className={styles.detailKicker}>单集详情</span>
             <p>{item.podcast_title}</p>
             {item.collection_sources?.[0] && (
               <p className={styles.detailCollectionSource}>

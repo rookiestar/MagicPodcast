@@ -207,6 +207,8 @@ describe("ConsumptionDetailPanel", () => {
       />,
     );
 
+    expect(screen.getByText("单集详情")).toBeInTheDocument();
+    expect(screen.queryByText("FOCUS DETAIL")).not.toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "安全链接" })).toHaveAttribute(
       "href",
       "https://example.com/transcript",
