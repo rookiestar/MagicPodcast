@@ -178,3 +178,15 @@ MAGICPODCAST_RELEASE_SCHEMA_VERSION_OVERRIDE=<restored-schema> \
 - 批量导入、同步、清洗、重构前：手动备份一次。
 - 长期服务化部署前：把备份目录同步到另一个磁盘或云端。
 - 做大版本升级前：先备份，再跑 `verify-db.sh`，最后再迁移。
+
+## 查询一次备份的状态
+
+连接中断或压缩较慢时，先通过原目标文件查询，不重复执行备份：
+
+```bash
+./scripts/backup-db.sh --status /absolute/path/magicpodcast_YYYYMMDD_HHMMSS.db.gz
+```
+
+未压缩目标也可直接传 `.db`。查询不会新建备份、清理文件或切换数据 Profile。备份旁的 `.status` 记录复制、验证、压缩等阶段及进程身份；只有身份仍匹配时才报告 `running`。进程消失或身份不明为 `unknown`，明确失败为 `failed`。该文件不是新的备份有效性凭据：`completed` 还要求产物、SHA-256 sidecar 和完成元数据一致，因此完成状态查询会读取产物计算摘要。
+
+未完成、校验失败或元数据缺失不能当作成功。同秒已有目标会拒绝覆盖，先查询已有操作。压缩等级、保留天数和数量规则不变，新状态 sidecar 随所属备份清理。上述命令仅查询；真实备份、迁移及恢复仍需独立授权。

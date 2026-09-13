@@ -16,6 +16,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release-scripts:
+    name: Release script checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install SQLite and process inspection tools
+        run: sudo apt-get update && sudo apt-get install -y sqlite3 lsof python3
+      - name: Verify release scripts in isolation
+        run: bash scripts/check-release-scripts.sh
+
   backend:
     name: Backend tests
     runs-on: ubuntu-latest
@@ -102,14 +116,17 @@ jobs:
     needs:
       - frontend-tests
       - frontend-build
+      - release-scripts
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require frontend tests and build
+      - name: Require frontend and release script checks
         env:
+          RELEASE_SCRIPTS_RESULT: ${{ needs.release-scripts.result }}
           FRONTEND_TESTS_RESULT: ${{ needs.frontend-tests.result }}
           FRONTEND_BUILD_RESULT: ${{ needs.frontend-build.result }}
         run: |
+          test "$RELEASE_SCRIPTS_RESULT" = "success"
           test "$FRONTEND_TESTS_RESULT" = "success"
           test "$FRONTEND_BUILD_RESULT" = "success"

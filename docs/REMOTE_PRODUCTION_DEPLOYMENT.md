@@ -143,3 +143,24 @@ release.sh --rollback
 ## 尚需人工完成
 
 本仓库无法替代以下一次性外部配置：Runner 注册与开机自启、生产 Environment 审批人、main 分支保护、Runner 用户的 Git 只读凭据，以及 Mac mini 上现有服务与备份配置的复核。
+
+## 发布脚本回归与失败诊断
+
+`bash scripts/check-release-scripts.sh` 在临时资源中运行发布维护与可靠性测试，要求 Node、SQLite CLI、Git、lsof 和 Python 3。CI 在托管 Linux Runner 执行该入口；脚本失败同时阻断现有 Frontend checks 汇总，前后端原有检查不变。平台与测试结果均显式输出，本地或容器通过不替代真实 GitHub CI。
+
+发布失败时，在回退可能覆盖日志前，采集阶段、目标版本、健康字段匹配与已知错误类别。只输出白名单事实，不上传原始日志、环境、数据库、配置或业务正文。无法归类的日志明确标记 `unclassified`，不能据此断言根因已知。采集缺失、超时和截断单独记录；采集或上传失败不会阻止恢复，也不会把失败发布改为成功。
+
+Actions 的部署／回退任务先将诊断 JSON 写入生产目录的 `.magicpodcast-releases/diagnostics/actions-<run>-<attempt>`，再上传保留 7 天的远端产物；本地副本不位于 Runner 临时目录，上传失败或任务结束后仍可核查。本地证据沿用运维文件的人工保留管理，不由上传步骤删除。手动入口默认保存在 release root 的 `diagnostics` 子目录；可通过 `MAGICPODCAST_DIAGNOSTICS_DIR` 指定本次诊断目录。单次目录最多 16 份固定字段摘要，总量低于 2 MiB；每次采集的子进程总预算低于 10 秒。强制结束进程后不保证上传成功，须检查已有本地证据。普通发布回退与迁移后的恢复不同：已提交 schema 的激活失败只停服并保留恢复窗口，不启动旧 schema 的应用。
+
+## Runner 心跳证据
+
+健康工作流通过 `scripts/production-runner-health.mjs` 读取现有 Actions 只读数据。75 分钟是待核查阈值，不是离线证明：
+
+- `recent_execution`：同一生产 Runner 的心跳任务近期成功，仅证明当时执行过工作。
+- `queued`／`executing`：任务已创建、等待或执行中；持续超过阈值仍报告异常。
+- `scheduling_delay`：Runner API 直接显示在线，但没有近期心跳完成；单列调度证据，不报告离线。
+- `offline`：Runner API 直接显示离线。
+- `heartbeat_failed`：最新心跳明确失败。
+- `unknown`：API 不可用、权限不足且缺少新鲜执行证据、身份冲突或时间数据无效。
+
+查询 Runner API 不额外申请管理员权限；读不到时保留未知。所有分类都将应用健康标记为 `not_checked`，不得替代 `/health`、`/ready` 或生产验收。离线、失败、过期排队或未知返回非零退出码；可解释的短期排队、执行及调度证据在摘要中展示。原有 Actions 通知渠道不变，不自动重启服务或重发工作流。

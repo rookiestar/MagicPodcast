@@ -4,11 +4,49 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$PROJECT_DIR/scripts/sqlite-readonly.sh"
 DB_PATH="${DB_PATH:-$PROJECT_DIR/backend/data/magicpodcast.db}"
 BACKUP_DIR="${BACKUP_DIR:-$PROJECT_DIR/backend/data/backups}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
 COMPRESS="${COMPRESS:-true}"
 KEEP="${KEEP:-}"
+
+# Status is read-only and must run before any backup directory creation or cleanup.
+status_value() {
+  awk -F= -v key="$2" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$1"
+}
+if [ "${1:-}" = --status ]; then
+  [ "$#" -eq 2 ] || { echo 'Usage: backup-db.sh --status backup.db[.gz]' >&2; exit 2; }
+  requested="${2%.gz}"
+  status_file="$requested.status"
+  [ -f "$status_file" ] || { echo 'state=unknown'; echo 'reason=status_missing'; exit 1; }
+  phase="$(status_value "$status_file" phase)"
+  case "$phase" in copying|validating|compressing|verifying|completed|failed|interrupted) ;; *) echo 'state=unknown'; exit 1 ;; esac
+  printf 'phase=%s\n' "$phase"
+  printf 'started_at=%s\n' "$(status_value "$status_file" started_at)"
+  if [ "$phase" = completed ]; then
+    artifact="$requested"
+    [ "$(status_value "$status_file" compressed)" != true ] || artifact="$requested.gz"
+    if [ -f "$artifact" ] && [ -f "$artifact.sha256" ] && [ -f "$artifact.meta" ]; then
+      expected="$(status_value "$artifact.meta" sha256)"
+      sidecar="$(awk '{print $1; exit}' "$artifact.sha256")"
+      actual="$(shasum -a 256 "$artifact" | awk '{print $1}')"
+      if [[ "$expected" =~ ^[0-9a-f]{64}$ ]] && [ "$expected" = "$sidecar" ] && [ "$expected" = "$actual" ]; then
+        echo 'state=completed'; exit 0
+      fi
+    fi
+    echo 'state=unknown'; echo 'reason=artifact_verification_failed'; exit 1
+  fi
+  if [ "$phase" = failed ]; then echo 'state=failed'; exit 1; fi
+  owner="$(status_value "$status_file" owner_pid)"
+  identity="$(status_value "$status_file" owner_started)"
+  if [[ "$owner" =~ ^[0-9]+$ ]] && [ -n "$identity" ] &&
+    [ "$(ps -p "$owner" -o lstart= 2>/dev/null || true)" = "$identity" ] && [ "$phase" != interrupted ]; then
+    echo 'state=running'; exit 0
+  fi
+  echo 'state=unknown'; echo 'reason=owner_unavailable'; exit 1
+fi
+[ "$#" -eq 0 ] || { echo 'Usage: backup-db.sh [--status backup.db[.gz]]' >&2; exit 2; }
 
 if ! command -v sqlite3 >/dev/null 2>&1; then
   echo "sqlite3 is required but was not found." >&2
@@ -42,10 +80,40 @@ backup_file="$BACKUP_DIR/magicpodcast_${timestamp}.db"
 tmp_file="$backup_file.tmp"
 final_file="$backup_file"
 
-cleanup_tmp() {
-  rm -f "$tmp_file" "$backup_file-wal" "$backup_file-shm"
+started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+owner_started="$(ps -p $$ -o lstart=)"
+status_file="$backup_file.status"
+phase=copying
+interrupted=false
+record_status() {
+  phase="$1"
+  local pending="$status_file.tmp-$$"
+  (umask 077; printf 'phase=%s\nstarted_at=%s\nowner_pid=%s\nowner_started=%s\ncompressed=%s\n' \
+    "$phase" "$started_at" "$$" "$owner_started" "$COMPRESS" > "$pending")
+  mv "$pending" "$status_file"
+  printf 'backup_phase=%s\n' "$phase"
 }
+cleanup_tmp() {
+  local status=$?
+  trap - EXIT
+  if [ "$status" -ne 0 ]; then
+    if [ "$interrupted" = true ]; then record_status interrupted || true
+    else record_status failed || true; fi
+  fi
+  rm -f "$tmp_file" "$backup_file-wal" "$backup_file-shm"
+  exit "$status"
+}
+# Refuse an existing family instead of overwriting another operation in this second.
+if [ -e "$backup_file" ] || [ -e "$backup_file.gz" ] || [ -e "$status_file" ] || [ -e "$tmp_file" ]; then
+  echo 'Backup target already exists; inspect its status before retrying.' >&2
+  exit 1
+fi
+(umask 077; set -o noclobber; : > "$status_file") || { echo "Backup already claimed" >&2; exit 1; }
 trap cleanup_tmp EXIT
+trap 'interrupted=true; exit 129' HUP
+trap 'interrupted=true; exit 130' INT
+trap 'interrupted=true; exit 143' TERM
+record_status copying
 
 echo "Creating backup..."
 echo "  source: magicpodcast_sqlite"
@@ -54,20 +122,21 @@ echo "  target: $(basename "$backup_file")"
 sqlite3 "$DB_PATH" ".timeout 5000" ".backup '$tmp_file'"
 mv "$tmp_file" "$backup_file"
 
+record_status validating
 sqlite3 "$backup_file" "PRAGMA journal_mode=DELETE;" >/dev/null
 "$PROJECT_DIR/scripts/verify-db.sh" "$backup_file" >/dev/null
 rm -f "$backup_file-wal" "$backup_file-shm"
 
 uncompressed_size="$(wc -c < "$backup_file" | tr -d ' ')"
-schema_version="$(sqlite3 -readonly "$backup_file" "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;")"
+schema_version="$(sqlite_readonly "$backup_file" "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;")"
 code_commit="$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || printf 'unknown')"
 
 table_count() {
   local table="$1"
   local exists
-  exists="$(sqlite3 -readonly "$backup_file" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$table';")"
+  exists="$(sqlite_readonly "$backup_file" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$table';")"
   if [ "$exists" = "1" ]; then
-    sqlite3 -readonly "$backup_file" "SELECT COUNT(*) FROM $table;"
+    sqlite_readonly "$backup_file" "SELECT COUNT(*) FROM $table;"
   else
     printf '0\n'
   fi
@@ -89,7 +158,7 @@ queue_count() {
     printf '0\n'
     return
   fi
-  sqlite3 -readonly "$backup_file" "SELECT COUNT(*) FROM episode_triage_decisions WHERE queue_state='$state';"
+  sqlite_readonly "$backup_file" "SELECT COUNT(*) FROM episode_triage_decisions WHERE queue_state='$state';"
 }
 
 queue_inbox_count="$(queue_count inbox)"
@@ -98,12 +167,14 @@ queue_someday_count="$(queue_count someday)"
 queue_done_count="$(queue_count "done")"
 
 if [ "$COMPRESS" = "true" ]; then
+  record_status compressing
   echo "Compressing backup..."
   gzip -9 "$backup_file"
   final_file="$backup_file.gz"
   gzip -t "$final_file"
 fi
 
+record_status verifying
 compressed_size="$(wc -c < "$final_file" | tr -d ' ')"
 shasum -a 256 "$final_file" > "$final_file.sha256"
 
@@ -134,7 +205,7 @@ EOF
 
 remove_backup_family() {
   local backup="$1"
-  rm -f "$backup" "$backup.sha256" "$backup.meta" "$backup-wal" "$backup-shm"
+  rm -f "$backup" "$backup.sha256" "$backup.meta" "$backup-wal" "$backup-shm" "${backup%.gz}.status"
   if [[ "$backup" == *.gz ]]; then
     local raw_backup="${backup%.gz}"
     rm -f "$raw_backup" "$raw_backup.sha256" "$raw_backup.meta" "$raw_backup-wal" "$raw_backup-shm"
@@ -156,4 +227,5 @@ if [ -n "$KEEP" ]; then
   done
 fi
 
+record_status completed
 echo "Backup complete: $(basename "$final_file")"
