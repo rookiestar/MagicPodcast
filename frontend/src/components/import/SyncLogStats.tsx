@@ -54,7 +54,11 @@ export default function SyncLogStats({ stats }: { stats: SyncStats }) {
       )}
 
       <div
-        className={`grid grid-cols-2 gap-4 ${stats.pending > 0 ? "md:grid-cols-6" : "md:grid-cols-5"}`}
+        className={`grid grid-cols-2 gap-4 ${
+          stats.pending > 0 || stats.merged > 0 || stats.conflict > 0 || stats.unchanged > 0
+            ? "md:grid-cols-6"
+            : "md:grid-cols-5"
+        }`}
       >
         <StatCard value={stats.total} label="总计" />
         <StatCard
@@ -77,6 +81,27 @@ export default function SyncLogStats({ stats }: { stats: SyncStats }) {
             value={stats.pending}
             label="待同步"
             className="text-amber-600 dark:text-amber-400"
+          />
+        )}
+        {stats.merged > 0 && (
+          <StatCard
+            value={stats.merged}
+            label="确认关联"
+            className="text-blue-600 dark:text-blue-400"
+          />
+        )}
+        {stats.conflict > 0 && (
+          <StatCard
+            value={stats.conflict}
+            label="冲突跳过"
+            className="text-orange-600 dark:text-orange-400"
+          />
+        )}
+        {stats.unchanged > 0 && (
+          <StatCard
+            value={stats.unchanged}
+            label="未变化"
+            className="text-slate-600 dark:text-slate-400"
           />
         )}
         <StatCard

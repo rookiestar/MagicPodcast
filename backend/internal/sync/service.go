@@ -55,13 +55,18 @@ type Service struct {
 
 // SyncResult 同步结果
 type SyncResult struct {
-	TotalPodcasts   int      `json:"total_podcasts"`
-	SuccessPodcasts int      `json:"success_podcasts"`
-	FailedPodcasts  int      `json:"failed_podcasts"`
-	StubPodcasts    int      `json:"stub_podcasts"`
-	SkippedPodcasts int      `json:"skipped_podcasts"`
-	NewEpisodes     int      `json:"new_episodes"`
-	Errors          []string `json:"errors,omitempty"`
+	TotalPodcasts   int `json:"total_podcasts"`
+	SuccessPodcasts int `json:"success_podcasts"`
+	FailedPodcasts  int `json:"failed_podcasts"`
+	StubPodcasts    int `json:"stub_podcasts"`
+	SkippedPodcasts int `json:"skipped_podcasts"`
+	NewEpisodes     int `json:"new_episodes"`
+	// 导入专用统计：合并/冲突/未变化与逐条结果，用于结果对账（#398 R12）。
+	MergedPodcasts    int                 `json:"merged_podcasts,omitempty"`
+	ConflictPodcasts  int                 `json:"conflict_podcasts,omitempty"`
+	UnchangedPodcasts int                 `json:"unchanged_podcasts,omitempty"`
+	Entries           []ImportEntryResult `json:"entries,omitempty"`
+	Errors            []string            `json:"errors,omitempty"`
 }
 
 // EpisodeSyncMode Episode同步模式
@@ -106,14 +111,19 @@ func ParseEpisodeSyncMode(mode string) EpisodeSyncMode {
 
 // EpisodeSyncResult Episode同步结果
 type EpisodeSyncResult struct {
-	PodcastID    uint                `json:"podcast_id"`
-	PodcastTitle string              `json:"podcast_title"`
-	Created      int                 `json:"created"` // 新增数量
-	Updated      int                 `json:"updated"` // 更新数量
-	Skipped      int                 `json:"skipped"` // 跳过数量
-	Deleted      int                 `json:"deleted"` // 删除数量
-	Errors       int                 `json:"errors"`  // 错误数量
-	FeedAccess   *feed.AccessOutcome `json:"feed_access,omitempty"`
+	PodcastID    uint   `json:"podcast_id"`
+	PodcastTitle string `json:"podcast_title"`
+	Created      int    `json:"created"` // 新增数量
+	Updated      int    `json:"updated"` // 更新数量
+	Skipped      int    `json:"skipped"` // 跳过数量
+	Deleted      int    `json:"deleted"` // 删除数量
+	Errors       int    `json:"errors"`  // 错误数量
+	// Incomplete 表示本次没有覆盖所选范围内的全部条目（写入失败、取消或
+	// 分批上限截断）。此时单集同步游标不推进，不得把部分完成报为全部完成。
+	Incomplete bool `json:"incomplete,omitempty"`
+	// RemainingItems 是因单批上限截断后尚未处理的条目数。
+	RemainingItems int                 `json:"remaining_items,omitempty"`
+	FeedAccess     *feed.AccessOutcome `json:"feed_access,omitempty"`
 }
 
 // NewService 创建同步服务

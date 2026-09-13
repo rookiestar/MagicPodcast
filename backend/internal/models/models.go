@@ -32,4 +32,5 @@ var AllModels = []interface{}{
 	JobFeedAttempt{},
 	SchedulerRun{},
 	Report{},
+	ImportTask{},
 }

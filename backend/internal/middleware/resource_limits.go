@@ -10,9 +10,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// MaxOPMLFileBytes is the product-level limit on OPML file CONTENT. It is the
+// single number shared by the backend handlers and the frontend validator so
+// an 8 MiB file is accepted or rejected identically on both sides.
+const MaxOPMLFileBytes int64 = 8 * 1024 * 1024
+
+// DefaultUploadFramingOverheadBytes reserves explicit, bounded room for
+// multipart framing (boundaries and form headers) on top of the file-content
+// limit, so an exactly-8 MiB upload still fits inside the request limit.
+const DefaultUploadFramingOverheadBytes int64 = 64 * 1024
+
 // DefaultUploadRequestLimitBytes is the complete request limit for OPML
 // uploads, including multipart framing.
-const DefaultUploadRequestLimitBytes int64 = 8 * 1024 * 1024
+const DefaultUploadRequestLimitBytes int64 = MaxOPMLFileBytes + DefaultUploadFramingOverheadBytes
 
 // DefaultImageResponseLimitBytes bounds the amount of data that the image
 // proxy will retain and return for one request. Raised from 5 MiB to 20 MiB to

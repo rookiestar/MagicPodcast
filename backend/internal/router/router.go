@@ -321,9 +321,13 @@ func SetupRouter(options ...Option) *gin.Engine {
 		}
 		sync := v1.Group("/sync")
 		{
+			sync.POST("/import/preview", middleware.RequestBodyLimit(middleware.DefaultUploadRequestLimitBytes), syncHandler.PreviewOPMLImport)        // 导入预览（只读，不写库）
 			sync.POST("/import", middleware.RequestBodyLimit(middleware.DefaultUploadRequestLimitBytes), syncOperation, syncHandler.ImportOPML)        // 导入OPML文件
 			sync.POST("/import-sse", middleware.RequestBodyLimit(middleware.DefaultUploadRequestLimitBytes), syncOperation, syncHandler.ImportOPMLSSE) // 导入OPML文件（SSE流式）
 			sync.POST("/subscriptions", syncOperation, syncHandler.SyncSubscriptions)                                                                  // 同步所有订阅
+			sync.POST("/import/tasks/:id/retry", syncOperation, syncHandler.RetryImportTask)                                                           // 仅重试失败/待同步条目
+			sync.GET("/import/tasks/latest", syncHandler.GetLatestImportTask)                                                                          // 最近一次导入任务（页面恢复）
+			sync.GET("/import/tasks/:id", syncHandler.GetImportTaskStatus)                                                                             // 导入任务状态与逐条结果
 			sync.GET("/status", syncHandler.GetSyncStatus)                                                                                             // 获取同步状态
 			sync.POST("/podcasts/metadata-sse", syncOperation, syncHandler.SyncPodcastsMetadataSSE)                                                    // 同步所有播客元数据（SSE流式，已包含单集同步）
 			sync.POST("/episodes", syncOperation, syncHandler.SyncAllEpisodes)                                                                         // 同步所有podcast的episodes（SSE流式）

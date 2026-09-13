@@ -38,7 +38,9 @@ func TestSaveOrUpdatePodcastPreservesUserFieldsOnUpdate(t *testing.T) {
 		IsSubscribed: true,
 		DataSource:   "rss",
 	}
-	require.NoError(t, service.saveOrUpdatePodcast(incoming))
+	resolved := service.resolveImportIdentity(incoming.FeedURL)
+	_, saveErr := service.saveImportPodcast(incoming, resolved)
+	require.NoError(t, saveErr)
 
 	var got models.Podcast
 	require.NoError(t, db.First(&got, existing.ID).Error)
@@ -76,7 +78,9 @@ func TestSaveOrUpdatePodcastDoesNotOverwriteExistingWithStub(t *testing.T) {
 		FeedURLValid: false,
 		EpisodeCount: 0,
 	}
-	require.NoError(t, service.saveOrUpdatePodcast(stub))
+	resolved := service.resolveImportIdentity(stub.FeedURL)
+	_, saveErr := service.saveImportPodcast(stub, resolved)
+	require.NoError(t, saveErr)
 
 	var got models.Podcast
 	require.NoError(t, db.First(&got, existing.ID).Error)

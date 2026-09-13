@@ -1,9 +1,9 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
+	"strings"
 	"time"
 
 	"magicpodcast/internal/config"
@@ -11,14 +11,17 @@ import (
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/opml"
 	"magicpodcast/internal/sync"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // SyncHandler 同步处理器
 type SyncHandler struct {
 	syncService *sync.Service
+	db          *gorm.DB
 }
 
 // NewSyncHandler 创建同步处理器
@@ -37,6 +40,7 @@ func NewSyncHandler() (*SyncHandler, error) {
 
 	return &SyncHandler{
 		syncService: syncService,
+		db:          db,
 	}, nil
 }
 
@@ -50,6 +54,60 @@ type SyncStatusResponse struct {
 	LastSyncTime   *time.Time     `json:"last_sync_time"`
 	TotalPodcasts  int            `json:"total_podcasts"`
 	PodcastSources map[string]int `json:"podcast_sources"` // 数据来源统计
+}
+
+// parseImportDecisions 解析用户对需确认条目的显式决定（xmlUrl → confirm）。
+func parseImportDecisions(raw string) (map[string]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var decisions map[string]string
+	if err := json.Unmarshal([]byte(raw), &decisions); err != nil {
+		return nil, fmt.Errorf("decisions 字段必须是 JSON 对象")
+	}
+	return decisions, nil
+}
+
+// PreviewOPMLImport OPML 导入预览：只做差异核对，不抓取、不写库。
+// POST /api/v1/sync/import/preview
+func (h *SyncHandler) PreviewOPMLImport(c *gin.Context) {
+	file, err := c.FormFile("opml_file")
+	if err != nil {
+		if middleware.RequestBodyLimitExceeded(c) {
+			middleware.RequestTooLargeResponse(c, middleware.DefaultUploadRequestLimitBytes)
+			return
+		}
+		middleware.BadRequestResponse(c, "INVALID_FILE", "OPML文件上传失败，请确保使用multipart/form-data格式")
+		return
+	}
+	if validation := validateOPMLUpload(file); validation != nil {
+		validation.respond(c)
+		return
+	}
+
+	tempFilePath, cleanup, ok := saveOPMLUpload(c, file)
+	if !ok {
+		return
+	}
+	defer cleanup()
+
+	outlines, err := opml.NewParser().ParseFile(tempFilePath)
+	if err != nil {
+		respondOPMLParseError(c, err)
+		return
+	}
+
+	preview, err := h.syncService.PreviewImportOPML(outlines)
+	if err != nil {
+		middleware.InternalErrorResponseWithCode(c, "PREVIEW_ERROR", fmt.Sprintf("预览失败: %v", err))
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"success": true,
+		"message": opmlResultMessage(preview.Total, preview.NewCount, 0, 0),
+		"preview": preview,
+	})
 }
 
 // ImportOPML 导入OPML文件
@@ -74,72 +132,138 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 		middleware.BadRequestResponse(c, "INVALID_FILE", "OPML文件上传失败，请确保使用multipart/form-data格式")
 		return
 	}
-	if file.Size > middleware.DefaultUploadRequestLimitBytes {
-		middleware.RequestTooLargeResponse(c, middleware.DefaultUploadRequestLimitBytes)
+	if validation := validateOPMLUpload(file); validation != nil {
+		validation.respond(c)
 		return
 	}
 
-	// 验证文件扩展名
-	ext := filepath.Ext(file.Filename)
-	if ext != ".opml" && ext != ".xml" {
-		middleware.BadRequestResponse(c, "INVALID_FILE_FORMAT", "OPML文件格式不正确，请上传.opml或.xml文件")
+	decisions, err := parseImportDecisions(c.PostForm("decisions"))
+	if err != nil {
+		middleware.BadRequestResponse(c, "INVALID_DECISIONS", err.Error())
 		return
 	}
 
 	logger.Infof("收到OPML文件: %s (%d bytes)", file.Filename, file.Size)
 
-	// 保存到临时文件
-	tempDir := filepath.Join(".", "data", "temp")
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
-		logger.Infof("创建临时目录失败: %v", err)
-		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "创建临时目录失败")
+	tempFilePath, cleanup, ok := saveOPMLUpload(c, file)
+	if !ok {
 		return
 	}
+	defer cleanup()
 
-	// 生成唯一的临时文件名，避免冲突
-	tempFileName := fmt.Sprintf("%s_%d%s",
-		filepath.Base(file.Filename),
-		time.Now().UnixNano(),
-		filepath.Ext(file.Filename))
-	tempFilePath := filepath.Join(tempDir, tempFileName)
-
-	if err := c.SaveUploadedFile(file, tempFilePath); err != nil {
-		logger.Infof("保存文件失败: %v", err)
-		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "保存文件失败")
-		return
-	}
-
-	logger.Infof("文件已保存到: %s", tempFilePath)
-
-	// 确保清理临时文件
-	defer func() {
-		if err := os.Remove(tempFilePath); err != nil {
-			logger.Infof("⚠️  清理临时文件失败: %v", err)
-		} else {
-			logger.Infof("✅ 临时文件已清理: %s", tempFilePath)
-		}
-	}()
-
-	// 导入OPML
-	result, err := h.syncService.ImportOPML(tempFilePath)
+	// 解析在业务写入前完成，解析失败与流式入口共用同一错误契约。
+	outlines, err := opml.NewParser().ParseFile(tempFilePath)
 	if err != nil {
-		logger.Infof("导入失败: %v", err)
-		middleware.InternalErrorResponseWithCode(c, "IMPORT_ERROR", fmt.Sprintf("导入失败: %v", err))
+		respondOPMLParseError(c, err)
+		return
+	}
+
+	task, wrapped := h.startImportTask(file.Filename, len(outlines), sync.NewLogProgressReporter())
+	result, runErr := h.runImport(outlines, wrapped, decisions, task)
+	if runErr != nil {
+		logger.Infof("导入失败: %v", runErr)
+		middleware.InternalErrorResponseWithCode(c, "IMPORT_ERROR", fmt.Sprintf("导入失败: %v", runErr))
 		return
 	}
 
 	logger.Infof("导入成功: %d/%d", result.SuccessPodcasts, result.TotalPodcasts)
 
+	var taskID interface{}
+	if task != nil {
+		taskID = task.ID
+	}
 	c.JSON(200, gin.H{
-		"success":          true,
-		"message":          fmt.Sprintf("导入完成：成功 %d，待同步 %d，失败 %d", result.SuccessPodcasts, result.StubPodcasts, result.FailedPodcasts),
-		"total_podcasts":   result.TotalPodcasts,
-		"success_count":    result.SuccessPodcasts,
-		"failed_count":     result.FailedPodcasts,
-		"stub_podcasts":    result.StubPodcasts,
-		"skipped_podcasts": result.SkippedPodcasts,
-		"errors":           result.Errors,
+		"success":            true,
+		"task_id":            taskID,
+		"message":            opmlResultMessage(result.TotalPodcasts, result.SuccessPodcasts, result.StubPodcasts, result.FailedPodcasts),
+		"total_podcasts":     result.TotalPodcasts,
+		"success_count":      result.SuccessPodcasts,
+		"failed_count":       result.FailedPodcasts,
+		"stub_podcasts":      result.StubPodcasts,
+		"skipped_podcasts":   result.SkippedPodcasts,
+		"merged_podcasts":    result.MergedPodcasts,
+		"conflict_podcasts":  result.ConflictPodcasts,
+		"unchanged_podcasts": result.UnchangedPodcasts,
+		"entries":            result.Entries,
+		"errors":             result.Errors,
 	})
+}
+
+// startImportTask 创建可恢复的任务记录并包装进度报告器。任务持久化是
+// 不断增强能力：记录创建失败（如旧 schema）时退化为无任务导入，不阻断
+// 导入本身。
+func (h *SyncHandler) startImportTask(fileName string, total int, reporter sync.ProgressReporter) (*models.ImportTask, sync.ProgressReporter) {
+	if h.db == nil {
+		return nil, reporter
+	}
+	task, err := sync.CreateImportTask(h.db, fileName, total)
+	if err != nil {
+		logger.Warnf("创建导入任务失败，本次导入不提供任务恢复: %v", err)
+		return nil, reporter
+	}
+	return task, sync.NewTaskProgressReporter(reporter, h.db, task.ID)
+}
+
+// runImport 执行导入并保存任务终态；终态与逐条结果先落库再返回响应。
+func (h *SyncHandler) runImport(outlines []opml.Outline, reporter sync.ProgressReporter, decisions map[string]string, task *models.ImportTask) (*sync.SyncResult, error) {
+	result, runErr := h.syncService.ImportOPMLOutlines(outlines, reporter, sync.DefaultImportConfig, decisions)
+	if task != nil {
+		if finErr := sync.FinalizeImportTask(h.db, task, result, runErr); finErr != nil {
+			logger.Errorf("保存导入任务终态失败: task=%d err=%v", task.ID, finErr)
+		}
+	}
+	return result, runErr
+}
+
+// GetImportTaskStatus 查询导入任务状态与逐条结果。
+// GET /api/v1/sync/import/tasks/:id
+func (h *SyncHandler) GetImportTaskStatus(c *gin.Context) {
+	taskID, ok := ParseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	if h.db == nil {
+		middleware.NotFoundResponse(c, "IMPORT_TASK_NOT_FOUND", "导入任务不存在")
+		return
+	}
+	task, entries, err := sync.GetImportTask(h.db, taskID)
+	if err != nil {
+		middleware.NotFoundResponse(c, "IMPORT_TASK_NOT_FOUND", "导入任务不存在")
+		return
+	}
+	c.JSON(200, gin.H{
+		"success": true,
+		"task":    task,
+		"entries": entries,
+	})
+}
+
+// GetLatestImportTask 返回最近一次导入任务，用于页面刷新/断线后恢复。
+// GET /api/v1/sync/import/tasks/latest
+func (h *SyncHandler) GetLatestImportTask(c *gin.Context) {
+	if h.db == nil {
+		c.JSON(200, gin.H{"success": true, "task": nil, "entries": []gin.H{}})
+		return
+	}
+	task, entries, err := sync.GetLatestImportTask(h.db)
+	if err != nil {
+		c.JSON(200, gin.H{"success": true, "task": nil, "entries": []gin.H{}})
+		return
+	}
+	c.JSON(200, gin.H{
+		"success": true,
+		"task":    task,
+		"entries": entries,
+	})
+}
+
+// opmlResultMessage 生成两个导入入口共用的结果文案；空 OPML 明确显示
+// 0 条而不是宣称新增成功（#398 R11）。
+func opmlResultMessage(total, success, stub, failed int) string {
+	if total == 0 {
+		return "OPML文件中没有订阅条目（0 条），未新增节目"
+	}
+	return fmt.Sprintf("导入完成：成功 %d，待同步 %d，失败 %d", success, stub, failed)
 }
 
 // SyncSubscriptions 同步所有订阅（定时任务手动触发）

@@ -2,6 +2,7 @@ package sync
 
 import (
 	"fmt"
+	"magicpodcast/internal/cache"
 	"strconv"
 	"strings"
 	"time"
@@ -15,15 +16,21 @@ import (
 	"gorm.io/gorm"
 )
 
-// saveOrUpdatePodcast 保存或更新播客。更新走字段白名单，避免覆盖
-// CustomCoverURL、备注、评分、失效标记等用户字段。
-func (s *Service) saveOrUpdatePodcast(podcast *models.Podcast) error {
-	var existing models.Podcast
+// saveImportPodcast 保存或更新导入的播客，返回本次是否产生资料变化。
+// resolved 是写入前核对的身份：精确 URL 命中走更新；清单收录/已删除记录
+// 在用户确认后复用本地 ID 并（需要时）绑定订阅地址；无候选才新建。更新
+// 走字段白名单，避免覆盖 CustomCoverURL、备注、评分等用户字段（#401）。
+func (s *Service) saveImportPodcast(podcast *models.Podcast, resolved resolvedPodcastIdentity) (bool, error) {
+	var existing *models.Podcast
 
-	// 尝试通过feed_url查找现有播客
-	err := s.db.Where("feed_url = ?", podcast.FeedURL).First(&existing).Error
+	switch resolved.kind {
+	case identityByFeedURL, identityByXyzID, identityDeleted:
+		if resolved.podcast != nil {
+			existing = resolved.podcast
+		}
+	}
 
-	if err == gorm.ErrRecordNotFound {
+	if existing == nil {
 		// 新播客，检查xyz_id是否为空
 		if podcast.XYZID == "" {
 			// 如果xyz_id为空，生成一个临时的唯一ID
@@ -32,16 +39,22 @@ func (s *Service) saveOrUpdatePodcast(podcast *models.Podcast) error {
 		podcast.AddedDate = time.Now()
 		if isImportStub(podcast) {
 			// GORM's default:true otherwise changes the explicit false on insert.
-			return s.db.Transaction(func(tx *gorm.DB) error {
+			err := s.db.Transaction(func(tx *gorm.DB) error {
 				if err := tx.Create(podcast).Error; err != nil {
 					return err
 				}
 				return tx.Model(podcast).Update("feed_url_valid", false).Error
 			})
+			if err == nil {
+				cache.InvalidatePodcastDetail(podcast.ID)
+			}
+			return err == nil, err
 		}
-		return s.db.Create(podcast).Error
-	} else if err != nil {
-		return err
+		err := s.db.Create(podcast).Error
+		if err == nil {
+			cache.InvalidatePodcastDetail(podcast.ID)
+		}
+		return err == nil, err
 	}
 
 	podcast.ID = existing.ID
@@ -52,25 +65,86 @@ func (s *Service) saveOrUpdatePodcast(podcast *models.Podcast) error {
 	podcast.AddedDate = existing.AddedDate
 	podcast.CustomCoverURL = existing.CustomCoverURL
 
+	feedChanged := feed.CanonicalizeURL(existing.FeedURL) != feed.CanonicalizeURL(podcast.FeedURL)
+	identityChanged := parseITunesID(existing.ITunesID) != parseITunesID(podcast.ITunesID) ||
+		normalizeIdentity(existing.PodcastGUID) != normalizeIdentity(podcast.PodcastGUID)
+
+	// 已删除记录的显式恢复：不静默——只有调用方传入了确认后的 identityDeleted
+	// 才会走到这里；恢复本身算一次变化。
+	if resolved.kind == identityDeleted && existing.DeletedAt.Valid {
+		if err := s.db.Unscoped().Model(&models.Podcast{}).Where("id = ?", existing.ID).
+			Update("deleted_at", nil).Error; err != nil {
+			return false, err
+		}
+		existing.DeletedAt.Valid = false
+	}
+
+	// 订阅地址与已解析记录不一致：只有在用户确认的身份绑定/换址合并路径
+	// 才可能发生（预览与确认都基于该地址），确认后允许更新 feed_url。
+	bindChanged := feedChanged
+
 	if isImportStub(podcast) {
 		// Re-import confirms the subscription; keep all previously fetched content
 		// while recording that this attempt still needs a successful RSS fetch.
-		return s.db.Model(&existing).Updates(map[string]interface{}{
+		updates := map[string]interface{}{
 			"is_subscribed":  true,
 			"feed_url_valid": false,
-		}).Error
+		}
+		if bindChanged {
+			updates["feed_url"] = podcast.FeedURL
+		}
+		changed := !existing.IsSubscribed || existing.FeedURLValid || bindChanged
+		err := s.db.Model(&models.Podcast{}).Where("id = ?", existing.ID).Updates(updates).Error
+		return changed, err
 	}
 
-	mainFeedChanged := feed.CanonicalizeURL(existing.FeedURL) != feed.CanonicalizeURL(podcast.FeedURL)
-	identityChanged := parseITunesID(existing.ITunesID) != parseITunesID(podcast.ITunesID) ||
-		normalizeIdentity(existing.PodcastGUID) != normalizeIdentity(podcast.PodcastGUID)
-	if err := s.db.Model(&existing).Updates(podcastImportUpdates(podcast)).Error; err != nil {
-		return err
+	changed := podcastImportHasChanges(existing, podcast) || identityChanged || bindChanged
+	updates := podcastImportUpdates(podcast)
+	if bindChanged {
+		updates["feed_url"] = podcast.FeedURL
 	}
-	if mainFeedChanged || identityChanged {
+	if err := s.db.Model(&models.Podcast{}).Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
+		return changed, err
+	}
+	if feedChanged || identityChanged {
 		s.InvalidateAlternativeCache(podcast.ID)
 	}
-	return nil
+	// 写入成功后定向失效该节目的详情/列表缓存：前端在刷新结果可用前
+	// 仍可继续使用有效旧内容，但不做全局清缓存（#398 R9）。
+	cache.InvalidatePodcastDetail(podcast.ID)
+	return changed, nil
+}
+
+// podcastImportHasChanges 比较白名单字段，判断导入是否真的带来资料变化。
+// 用于区分「更新」与「未变化」，不从写入动作推断。
+func podcastImportHasChanges(existing *models.Podcast, incoming *models.Podcast) bool {
+	return existing.Title != incoming.Title ||
+		existing.Description != incoming.Description ||
+		existing.Author != incoming.Author ||
+		existing.CoverURL != incoming.CoverURL ||
+		existing.Link != incoming.Link ||
+		existing.NewestEnclosureURL != incoming.NewestEnclosureURL ||
+		existing.NewestEnclosureDuration != incoming.NewestEnclosureDuration ||
+		existing.EpisodeCount != incoming.EpisodeCount ||
+		!existing.NewestEpisodeDate.Equal(incoming.NewestEpisodeDate) ||
+		existing.DataSource != incoming.DataSource ||
+		existing.IsSubscribed != incoming.IsSubscribed ||
+		existing.FeedURLValid != incoming.FeedURLValid ||
+		existing.FetchErrorCount != incoming.FetchErrorCount ||
+		existing.PopularityScore != incoming.PopularityScore ||
+		existing.Priority != incoming.Priority ||
+		existing.UpdateFrequency != incoming.UpdateFrequency ||
+		parseITunesID(existing.ITunesID) != parseITunesID(incoming.ITunesID) ||
+		normalizeIdentity(existing.PodcastGUID) != normalizeIdentity(incoming.PodcastGUID) ||
+		!sameTimePtr(existing.LastUpdate, incoming.LastUpdate) ||
+		!sameTimePtr(existing.OldestEpisodeDate, incoming.OldestEpisodeDate)
+}
+
+func sameTimePtr(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
 }
 
 func isImportStub(podcast *models.Podcast) bool {

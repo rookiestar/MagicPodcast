@@ -34,6 +34,9 @@ export interface SyncStats {
   errors: number;
   skips: number;
   pending: number;
+  merged: number;
+  conflict: number;
+  unchanged: number;
   skipPaid: number;
   skipCert: number;
   skipNotFound: number;
@@ -83,6 +86,9 @@ export function createEmptySyncStats(): SyncStats {
     errors: 0,
     skips: 0,
     pending: 0,
+    merged: 0,
+    conflict: 0,
+    unchanged: 0,
     skipPaid: 0,
     skipCert: 0,
     skipNotFound: 0,
@@ -126,6 +132,9 @@ export function computeSyncStats(logs: LogEntry[]): SyncStats {
       stats.errors = numberOrZero(log.data.failed_podcasts);
       stats.skips = numberOrZero(log.data.skipped_podcasts);
       stats.pending = numberOrZero(log.data.stub_podcasts);
+      stats.merged = numberOrZero(log.data.merged_podcasts);
+      stats.conflict = numberOrZero(log.data.conflict_podcasts);
+      stats.unchanged = numberOrZero(log.data.unchanged_podcasts);
       stats.skipNoUpdate = numberOrZero(log.data.no_update_podcasts);
       stats.duration =
         typeof log.data.duration === "string" ? log.data.duration : "";

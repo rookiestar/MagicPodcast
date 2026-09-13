@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"magicpodcast/internal/logger"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
 	"magicpodcast/internal/middleware"
+	"magicpodcast/internal/opml"
 	syncpkg "magicpodcast/internal/sync"
 
 	"github.com/gin-gonic/gin"
@@ -27,10 +26,14 @@ type SSEProgressMessage struct {
 
 // SSEProgressReporter SSE进度报告器
 type SSEProgressReporter struct {
-	mu            sync.Mutex // 保护并发写入
-	flusher       http.Flusher
-	writer        http.ResponseWriter
+	mu      sync.Mutex // 保护并发写入
+	flusher http.Flusher
+	writer  http.ResponseWriter
+	// closed 只表示写路径停止发送业务消息（写出失败或正常关闭）；
+	// released 表示 keepalive ticker/goroutine 已释放。两者分离后，
+	// 写出失败不会让 Close 提前返回而泄漏保活循环（#398 R13）。
 	closed        bool
+	released      bool
 	keepalive     *time.Ticker
 	stopKeepalive chan struct{}
 }
@@ -49,7 +52,7 @@ func NewSSEProgressReporter(c *gin.Context) *SSEProgressReporter {
 		stopKeepalive: make(chan struct{}),
 	}
 
-	// 启动keepalive goroutine，每15秒发送一次注释消息
+	// 启动keepalive goroutine，每10秒发送一次注释消息
 	reporter.startKeepalive()
 
 	return reporter
@@ -302,7 +305,8 @@ func (r *SSEProgressReporter) ReportDone() {
 	r.flusher.Flush()
 }
 
-func (r *SSEProgressReporter) Close() {
+// ReportTaskID 在流刚开始时发送任务标识，客户端据此恢复/查询同一任务。
+func (r *SSEProgressReporter) ReportTaskID(taskID uint) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -310,14 +314,40 @@ func (r *SSEProgressReporter) Close() {
 		return
 	}
 
-	r.closed = true
-
-	// 停止keepalive
-	if r.keepalive != nil {
-		r.keepalive.Stop()
-		close(r.stopKeepalive)
-		logger.Debugf("[SSE] 停止keepalive")
+	data, _ := json.Marshal(map[string]interface{}{
+		"type":    "task",
+		"task_id": taskID,
+		"message": fmt.Sprintf("导入任务 #%d 已开始，断开后可按任务查询", taskID),
+	})
+	if _, err := fmt.Fprintf(r.writer, "data: %s\n\n", data); err != nil {
+		logger.Warnf("[SSE] Write error in ReportTaskID: %v", err)
+		r.closed = true
+		return
 	}
+	r.flusher.Flush()
+}
+
+// Close 停止业务写路径并释放 keepalive 资源。无论此前是否已因写出失败
+// 置为 closed，ticker/goroutine 都必须被释放且只释放一次（#398 R13）。
+func (r *SSEProgressReporter) Close() {
+	r.mu.Lock()
+	r.closed = true
+	if r.released {
+		r.mu.Unlock()
+		return
+	}
+	r.released = true
+	keepalive := r.keepalive
+	stopKeepalive := r.stopKeepalive
+	r.mu.Unlock()
+
+	if keepalive != nil {
+		keepalive.Stop()
+	}
+	if stopKeepalive != nil {
+		close(stopKeepalive)
+	}
+	logger.Debugf("[SSE] 停止keepalive")
 }
 
 // ImportOPMLSSE 导入OPML文件（SSE流式响应）
@@ -339,71 +369,56 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 			middleware.RequestTooLargeResponse(c, middleware.DefaultUploadRequestLimitBytes)
 			return
 		}
-		c.SSEvent("", "error")
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   "OPML文件上传失败，请确保使用multipart/form-data格式",
-		})
+		middleware.BadRequestResponse(c, "INVALID_FILE", "OPML文件上传失败，请确保使用multipart/form-data格式")
 		return
 	}
-	if file.Size > middleware.DefaultUploadRequestLimitBytes {
-		middleware.RequestTooLargeResponse(c, middleware.DefaultUploadRequestLimitBytes)
+	// 校验失败在发送 SSE 响应头前返回与普通入口一致的 JSON 错误结构。
+	if validation := validateOPMLUpload(file); validation != nil {
+		validation.respond(c)
 		return
 	}
 
-	// 验证文件扩展名
-	ext := filepath.Ext(file.Filename)
-	if ext != ".opml" && ext != ".xml" {
-		c.SSEvent("", "error")
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   "OPML文件格式不正确，请上传.opml或.xml文件",
-		})
+	tempFilePath, cleanup, ok := saveOPMLUpload(c, file)
+	if !ok {
+		return
+	}
+	defer cleanup()
+
+	decisions, err := parseImportDecisions(c.PostForm("decisions"))
+	if err != nil {
+		middleware.BadRequestResponse(c, "INVALID_DECISIONS", err.Error())
 		return
 	}
 
-	// 保存到临时文件
-	tempDir := filepath.Join(".", "data", "temp")
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
-		c.SSEvent("", "error")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   "创建临时目录失败",
-		})
+	// 解析在任何 SSE 响应头之前完成：解析失败与普通入口返回同一 JSON
+	// 错误结构，不留下半开的流（#398 R11）。
+	outlines, err := (opml.NewParser()).ParseFile(tempFilePath)
+	if err != nil {
+		logger.Warnf("[SSE] OPML解析失败: %v", err)
+		respondOPMLParseError(c, err)
 		return
 	}
-
-	tempFileName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), filepath.Base(file.Filename))
-	tempFilePath := filepath.Join(tempDir, tempFileName)
-
-	if err := c.SaveUploadedFile(file, tempFilePath); err != nil {
-		c.SSEvent("", "error")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   "保存文件失败",
-		})
-		return
-	}
-	defer func() {
-		if err := os.Remove(tempFilePath); err != nil {
-			logger.Infof("⚠️  清理临时OPML文件失败: %v", err)
-		}
-	}()
 
 	// 创建SSE reporter
 	reporter := NewSSEProgressReporter(c)
 	defer reporter.Close()
 
-	// 在goroutine中执行导入，避免阻塞
-	// 但由于SSE需要保持连接，我们在这里同步执行
 	logger.Infof("[SSE] 开始导入OPML（本地匹配 + 在线同步）: %s", file.Filename)
-	result, err := h.syncService.ImportOPMLFromPodcastIndexOnly(tempFilePath, reporter)
+	// 任务记录先建立：流首条消息携带任务 ID，页面断开后可按任务恢复。
+	task, wrapped := h.startImportTask(file.Filename, len(outlines), reporter)
+	if task != nil {
+		reporter.ReportTaskID(task.ID)
+	}
+	result, err := h.runImport(outlines, wrapped, decisions, task)
 	if err != nil {
 		logger.Warnf("[SSE] 导入失败: %v", err)
 		reporter.ReportError("导入失败: " + err.Error())
 		return
 	}
 
+	if result.TotalPodcasts == 0 {
+		reporter.Report(opmlResultMessage(0, 0, 0, 0))
+	}
 	logger.Infof("[SSE] 导入完成，summary 已发送: 成功=%d 失败=%d",
 		result.SuccessPodcasts, result.FailedPodcasts)
 }
@@ -417,7 +432,7 @@ func (h *SyncHandler) SyncPodcastsMetadataSSE(c *gin.Context) {
 		c,
 		confirmation.ConfirmationText,
 		"SYNC ALL",
-		"刷新全部订阅播客的元数据并发起网络请求，可能耗时较长",
+		"刷新全部订阅播客的资料，并按各节目同步范围写入单集（可能新增或更新单集内容），可能耗时较长",
 	) {
 		return
 	}

@@ -46,9 +46,17 @@ function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
     file,
     importing,
     syncing,
+    preview,
+    previewLoading,
+    previewError,
+    confirmedUrls,
+    lastTask,
     handleFileChange,
     handleImport,
     handleSync,
+    toggleConfirmed,
+    confirmAllPending,
+    handleRetry,
   } = useImportSyncOperations({
     addLog,
     resetLogScroll,
@@ -80,8 +88,16 @@ function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
                 file={file}
                 disabled={operationRunning}
                 importing={importing}
+                preview={preview}
+                previewLoading={previewLoading}
+                previewError={previewError}
+                confirmedUrls={confirmedUrls}
+                lastTask={lastTask}
                 onFileChange={handleFileChange}
                 onImport={handleImport}
+                onToggleConfirmed={toggleConfirmed}
+                onConfirmAllPending={confirmAllPending}
+                onRetry={handleRetry}
               />
             )}
 

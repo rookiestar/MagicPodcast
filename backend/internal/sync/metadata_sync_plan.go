@@ -21,6 +21,18 @@ type episodeSyncPlan struct {
 func detectPodcastMetadataUpdate(current *models.Podcast, updated *models.Podcast) podcastMetadataUpdateCheck {
 	check := podcastMetadataUpdateCheck{}
 
+	if updated.Title != "" && updated.Title != current.Title {
+		check.hasUpdate = true
+		check.reasons = append(check.reasons, fmt.Sprintf("title: %s -> %s", current.Title, updated.Title))
+	}
+	if updated.Description != "" && updated.Description != current.Description {
+		check.hasUpdate = true
+		check.reasons = append(check.reasons, "description changed")
+	}
+	if updated.Author != "" && updated.Author != current.Author {
+		check.hasUpdate = true
+		check.reasons = append(check.reasons, "author changed")
+	}
 	if updated.EpisodeCount != current.EpisodeCount {
 		check.hasUpdate = true
 		check.reasons = append(check.reasons, fmt.Sprintf("episode_count: %d -> %d", current.EpisodeCount, updated.EpisodeCount))
@@ -58,6 +70,8 @@ func detectPodcastMetadataUpdate(current *models.Podcast, updated *models.Podcas
 	return check
 }
 
+// podcastMetadataUpdates 是元数据检查的写入白名单。标题/作者/简介/网站
+// 属于源站管理字段，随检查更新；缺失字段不得清空已有可信信息（#398 R6）。
 func podcastMetadataUpdates(updated *models.Podcast) map[string]interface{} {
 	updates := map[string]interface{}{
 		"cover_url":                 updated.CoverURL,
@@ -69,6 +83,18 @@ func podcastMetadataUpdates(updated *models.Podcast) map[string]interface{} {
 		"fetch_error_count":         0,
 		"feed_url_valid":            true,
 	}
+	if updated.Title != "" {
+		updates["title"] = updated.Title
+	}
+	if updated.Description != "" {
+		updates["description"] = updated.Description
+	}
+	if updated.Author != "" {
+		updates["author"] = updated.Author
+	}
+	if updated.Link != "" {
+		updates["link"] = updated.Link
+	}
 	if updated.ITunesID != "" {
 		updates["i_tunes_id"] = updated.ITunesID
 	}
@@ -78,6 +104,10 @@ func podcastMetadataUpdates(updated *models.Podcast) map[string]interface{} {
 	return updates
 }
 
+// planEpisodeSync 决定元数据检查后是否执行单集同步。只要成功读取到 Feed
+// 内容就同步：集数、最新日期和封面不变不能证明旧单集内容相同，数量相等
+// 时同样可能存在 Show Notes/标题的实质修订（#398 R7）。实际写入仍由
+// episodeNeedsUpdate 控制，未变化的单集不会产生写放大。
 func planEpisodeSync(podcastTitle string, hasMetadataUpdate bool, existingEpisodeCount int64, feedEpisodeCount int64) episodeSyncPlan {
 	if existingEpisodeCount == 0 {
 		logger.Infof("   [%s] 无单集，使用全量同步", podcastTitle)
@@ -89,11 +119,7 @@ func planEpisodeSync(podcastTitle string, hasMetadataUpdate bool, existingEpisod
 		return episodeSyncPlan{mode: SyncModeFull, shouldSync: true}
 	}
 
-	if existingEpisodeCount != feedEpisodeCount {
-		logger.Infof("   [%s] 单集数量不匹配 (数据库:%d, feed:%d)，使用全量同步", podcastTitle, existingEpisodeCount, feedEpisodeCount)
-		return episodeSyncPlan{mode: SyncModeFull, shouldSync: true}
-	}
-
-	logger.Infof("   [%s] 元数据无更新且单集数量匹配(%d)，跳过单集同步", podcastTitle, existingEpisodeCount)
-	return episodeSyncPlan{shouldSync: false}
+	logger.Infof("   [%s] 元数据无更新，仍检查已有单集内容修订 (数据库:%d, feed:%d)",
+		podcastTitle, existingEpisodeCount, feedEpisodeCount)
+	return episodeSyncPlan{mode: SyncModeFull, shouldSync: true}
 }

@@ -26,8 +26,12 @@ const SanitizerVersion = "v12"
 // (public identity keys and adoption provenance only), episodes.collection_only
 // and podcasts.external_episode_count (plain flags/counters), and public audio
 // snapshot columns on episode_collection_items — reviewed in the same class.
-const sanitizerSchemaFingerprint = "39524adc2b9ae1fc8c9cee88a562b829b3b885f4f13aaecbbc43e180c1a075aa"
-const sanitizerSchemaObjectsFingerprint = "916b212c1d28b9105dfc83b4c334b9257e39e8d33e40ab007becee45a4c86575"
+// 迁移 v34（import_tasks，#398/#403）新增任务表后按当前 schema 重新计算的
+// sanitizer 契约指纹。
+const sanitizerSchemaFingerprint = "a41bd6c45aca334420a4ad2bc0edbdb65be09384555f7798ae8c7787e8848b8d"
+// 迁移 v34（import_tasks，#398/#403）新增任务表后按当前 schema 重新计算的
+// sanitizer schema-object 契约指纹。
+const sanitizerSchemaObjectsFingerprint = "9ff9dadda1d2bf103ef61a2bd4330810506442e551a88529484fccc938f7d8b5"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 
