@@ -92,7 +92,7 @@ MAGICPODCAST_PRODUCTION_DIR=/Users/rookiestar/VSCode/Projects/MagicPodcast
 
 ### 4. 加固 main
 
-建议在分支保护中要求 `CI / Backend tests` 和 `CI / Frontend checks`，禁止直接推送，并要求生产发布必须走 `production` Environment 审批。Self-hosted Runner 不应被 PR 工作流复用。
+必须在分支保护中要求 `CI / Backend tests` 和 `CI / Frontend checks`、要求分支与最新 `main` 保持同步（`required_status_checks.strict=true`），禁止直接推送，并要求生产发布必须走 `production` Environment 审批。合并前应重新读取该服务端配置；无法读取、关闭严格同步或缺少必需检查时不得合并。Self-hosted Runner 不应被 PR 工作流复用。
 
 ## 日常发布
 
