@@ -9,5 +9,7 @@ printf 'platform=%s node=%s sqlite=%s\n' "$(uname -s)" "$(node --version)" "$(sq
 for script in scripts/{production-*,release,start,stop,restart,service-supervisor,migrate-db,restore-db,backup-db,verify-db}.sh; do
   bash -n "$script"
 done
+bash -n scripts/health-check.sh
 bash -n scripts/sqlite-readonly.sh
 node --test scripts/__tests__/production-maintenance.test.mjs scripts/__tests__/release-reliability.test.mjs
+node --test --test-concurrency=1 scripts/__tests__/health-check.test.mjs
