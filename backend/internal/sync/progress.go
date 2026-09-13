@@ -131,6 +131,9 @@ func (r *LogProgressReporter) ReportSummary(summary *SyncSummary) {
 	if summary.NoUpdatePodcasts > 0 {
 		logger.Infof("  └─ 无更新: %d", summary.NoUpdatePodcasts)
 	}
+	if summary.StubPodcasts > 0 {
+		logger.Infof("  └─ 待同步: %d", summary.StubPodcasts)
+	}
 	if summary.TotalEpisodes > 0 || summary.NewEpisodes > 0 || summary.UpdatedEpisodes > 0 {
 		logger.Info("\n📝 单集统计:")
 		logger.Infof("  总处理: %d", summary.TotalEpisodes)

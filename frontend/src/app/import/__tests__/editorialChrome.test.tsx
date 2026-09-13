@@ -37,6 +37,7 @@ vi.mock("@/hooks/useSyncLogSession", () => ({
       errors: 0,
       skips: 0,
       skipNoUpdate: 0,
+      pending: 0,
     },
     filteredLogs: [],
     addLog: vi.fn(),

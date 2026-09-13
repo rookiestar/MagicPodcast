@@ -53,7 +53,9 @@ export default function SyncLogStats({ stats }: { stats: SyncStats }) {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+      <div
+        className={`grid grid-cols-2 gap-4 ${stats.pending > 0 ? "md:grid-cols-6" : "md:grid-cols-5"}`}
+      >
         <StatCard value={stats.total} label="总计" />
         <StatCard
           value={stats.success}
@@ -70,6 +72,13 @@ export default function SyncLogStats({ stats }: { stats: SyncStats }) {
           label="跳过"
           className="text-slate-600 dark:text-slate-400"
         />
+        {stats.pending > 0 && (
+          <StatCard
+            value={stats.pending}
+            label="待同步"
+            className="text-amber-600 dark:text-amber-400"
+          />
+        )}
         <StatCard
           value={stats.skipNoUpdate}
           label="无更新"

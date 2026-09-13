@@ -58,6 +58,8 @@ type SyncResult struct {
 	TotalPodcasts   int      `json:"total_podcasts"`
 	SuccessPodcasts int      `json:"success_podcasts"`
 	FailedPodcasts  int      `json:"failed_podcasts"`
+	StubPodcasts    int      `json:"stub_podcasts"`
+	SkippedPodcasts int      `json:"skipped_podcasts"`
 	NewEpisodes     int      `json:"new_episodes"`
 	Errors          []string `json:"errors,omitempty"`
 }

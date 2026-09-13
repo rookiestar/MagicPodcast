@@ -131,12 +131,14 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 	logger.Infof("导入成功: %d/%d", result.SuccessPodcasts, result.TotalPodcasts)
 
 	c.JSON(200, gin.H{
-		"success":        true,
-		"message":        fmt.Sprintf("成功导入 %d 个播客", result.SuccessPodcasts),
-		"total_podcasts": result.TotalPodcasts,
-		"success_count":  result.SuccessPodcasts,
-		"failed_count":   result.FailedPodcasts,
-		"errors":         result.Errors,
+		"success":          true,
+		"message":          fmt.Sprintf("导入完成：成功 %d，待同步 %d，失败 %d", result.SuccessPodcasts, result.StubPodcasts, result.FailedPodcasts),
+		"total_podcasts":   result.TotalPodcasts,
+		"success_count":    result.SuccessPodcasts,
+		"failed_count":     result.FailedPodcasts,
+		"stub_podcasts":    result.StubPodcasts,
+		"skipped_podcasts": result.SkippedPodcasts,
+		"errors":           result.Errors,
 	})
 }
 
