@@ -4165,14 +4165,14 @@
     min-height: 32px;
     padding: 0 10px;
     border: 1px solid transparent;
-    color: #746b60;
+    color: #5f5549;
     background: transparent;
     font: 500 12px/1.4 var(--font-sans);
   }
 
   .discovery-focus-confirmation button:last-child {
     border-color: #cfc3af;
-    color: #a84a22;
+    color: #8f3518;
   }
 
   .discovery-focus-confirmation button:hover {
