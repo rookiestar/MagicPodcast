@@ -7263,6 +7263,7 @@ textarea.editorial-field {
   text-align: left;
   background: transparent;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .discovery-candidate:hover {

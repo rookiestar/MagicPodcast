@@ -72,6 +72,12 @@ function render(ui: ReactElement) {
   );
 }
 
+function openPreview(episodeID: number) {
+  act(() => {
+    navigate(`/discovery?episode=${episodeID}`);
+  });
+}
+
 function setWindowViewport(width: number, height: number) {
   Object.defineProperty(window, "innerWidth", {
     configurable: true,
@@ -331,7 +337,7 @@ describe("DiscoveryDesk", () => {
     ).toBeInTheDocument();
   });
 
-  it("removes an opened episode from unread results while keeping its preview open", async () => {
+  it("marks a direct workbench link as read", () => {
     const onRead = vi.fn().mockResolvedValue({
       episode_id: 11,
       queue_state: null,
@@ -339,27 +345,12 @@ describe("DiscoveryDesk", () => {
     });
     render(<DiscoveryDesk candidates={candidates} onRead={onRead} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "未读 2" }));
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "预读 模型能力如何转向真实应用",
-      }),
-    );
+    const link = screen.getByRole("link", {
+      name: "打开单集工作台：模型能力如何转向真实应用",
+    });
+    fireEvent.click(link);
 
     expect(onRead).toHaveBeenCalledWith(11);
-    expect(
-      screen.queryByRole("button", {
-        name: "预读 模型能力如何转向真实应用",
-      }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole("dialog")).toHaveAccessibleName(
-      "模型能力如何转向真实应用",
-    );
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "未读 1" }),
-      ).toBeInTheDocument(),
-    );
   });
 
   it("uses Discovery as the section title and explains the rolling window", () => {
@@ -459,7 +450,7 @@ describe("DiscoveryDesk", () => {
 
       await waitFor(() =>
         expect(
-          screen.getAllByRole("button", { name: /^预读 分页单集/ }),
+          screen.getAllByRole("link", { name: /^打开单集工作台：分页单集/ }),
         ).toHaveLength(expectedCount),
       );
     },
@@ -479,13 +470,11 @@ describe("DiscoveryDesk", () => {
 
     await waitFor(() =>
       expect(
-        screen.getAllByRole("button", { name: /^预读 分页单集/ }),
+        screen.getAllByRole("link", { name: /^打开单集工作台：分页单集/ }),
       ).toHaveLength(5),
     );
     fireEvent.click(screen.getByRole("button", { name: "下一页" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "预读 分页单集 10" }),
-    );
+    openPreview(109);
 
     visualViewport.width = 700;
     visualViewport.height = 650;
@@ -496,7 +485,7 @@ describe("DiscoveryDesk", () => {
     await waitFor(() => {
       expect(screen.getByText("4 / 4")).toBeInTheDocument();
       expect(
-        screen.getByRole("button", { name: "预读 分页单集 10" }),
+        screen.getByRole("link", { name: "打开单集工作台：分页单集 10" }),
       ).toBeInTheDocument();
     });
 
@@ -505,7 +494,7 @@ describe("DiscoveryDesk", () => {
     );
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "预读 分页单集 10" }),
+        screen.getByRole("link", { name: "打开单集工作台：分页单集 10" }),
       ).toHaveFocus(),
     );
   });
@@ -516,13 +505,13 @@ describe("DiscoveryDesk", () => {
 
     await waitFor(() =>
       expect(
-        screen.getAllByRole("button", { name: /^预读 分页单集/ }),
+        screen.getAllByRole("link", { name: /^打开单集工作台：分页单集/ }),
       ).toHaveLength(5),
     );
     fireEvent.click(screen.getByRole("button", { name: "下一页" }));
     screen.getByRole("button", { name: "下一页" }).focus();
     expect(
-      screen.getByRole("button", { name: "预读 分页单集 6" }),
+      screen.getByRole("link", { name: "打开单集工作台：分页单集 6" }),
     ).toBeInTheDocument();
 
     setWindowViewport(1280, 699);
@@ -531,7 +520,7 @@ describe("DiscoveryDesk", () => {
     await waitFor(() => {
       expect(screen.getByText("2 / 4")).toBeInTheDocument();
       expect(
-        screen.getByRole("button", { name: "预读 分页单集 6" }),
+        screen.getByRole("link", { name: "打开单集工作台：分页单集 6" }),
       ).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "下一页" })).toHaveFocus();
     });
@@ -542,7 +531,7 @@ describe("DiscoveryDesk", () => {
     await waitFor(() => {
       expect(screen.getByText("1 / 2")).toBeInTheDocument();
       expect(
-        screen.getByRole("button", { name: "预读 分页单集 6" }),
+        screen.getByRole("link", { name: "打开单集工作台：分页单集 6" }),
       ).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "下一页" })).toHaveFocus();
     });
@@ -559,11 +548,11 @@ describe("DiscoveryDesk", () => {
 
     await waitFor(() =>
       expect(
-        screen.getAllByRole("button", { name: /^预读 分页单集/ }),
+        screen.getAllByRole("link", { name: /^打开单集工作台：分页单集/ }),
       ).toHaveLength(5),
     );
     const fifthCandidate = screen
-      .getByRole("button", { name: "预读 分页单集 5" })
+      .getByRole("link", { name: "打开单集工作台：分页单集 5" })
       .closest("article")!;
     within(fifthCandidate)
       .getByRole("button", { name: "收集到 Inbox" })
@@ -574,7 +563,7 @@ describe("DiscoveryDesk", () => {
 
     await waitFor(() => {
       const resizedCandidate = screen
-        .getByRole("button", { name: "预读 分页单集 5" })
+        .getByRole("link", { name: "打开单集工作台：分页单集 5" })
         .closest("article")!;
       expect(
         within(resizedCandidate).getByRole("button", {
@@ -605,21 +594,15 @@ describe("DiscoveryDesk", () => {
     );
   });
 
-  it("opens pre-read from the full card instead of a separate preview action", () => {
+  it("opens the episode workbench from the full recent-update card", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    const candidate = screen.getByRole("button", {
-      name: "预读 模型能力如何转向真实应用",
+    const candidate = screen.getByRole("link", {
+      name: "打开单集工作台：模型能力如何转向真实应用",
     });
-    fireEvent.click(candidate);
-    expect(screen.getByRole("dialog")).toHaveAccessibleName(
-      "模型能力如何转向真实应用",
-    );
-    expect(candidate).toHaveAttribute("aria-expanded", "true");
-    expect(
-      screen.queryByRole("button", { name: "预读 Show Notes" }),
-    ).not.toBeInTheDocument();
+    expect(candidate).toHaveAttribute("href", "/episodes/11?from=discovery");
+    expect(candidate).toHaveAttribute("title", "打开单集工作台");
   });
 
   it("defers pre-read and metadata until the episode card is opened", async () => {
@@ -629,11 +612,7 @@ describe("DiscoveryDesk", () => {
     expect(apiMocks.episodeGetTags).not.toHaveBeenCalled();
     expect(apiMocks.episodeGetNotes).not.toHaveBeenCalled();
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "预读 模型能力如何转向真实应用",
-      }),
-    );
+    openPreview(11);
     expect(
       screen.getByRole("button", { name: "编辑标签与备注" }),
     ).toHaveAttribute("aria-expanded", "false");
@@ -671,11 +650,7 @@ describe("DiscoveryDesk", () => {
     expect(screen.getByTestId("candidate-excerpt-11")).toHaveTextContent(
       "列表保留的轻量摘要",
     );
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "预读 模型能力如何转向真实应用",
-      }),
-    );
+    openPreview(11);
 
     expect(loadDetails).toHaveBeenCalledWith(11);
     expect(
@@ -705,11 +680,7 @@ describe("DiscoveryDesk", () => {
         onLoadCandidateDetails={loadDetails}
       />,
     );
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "预读 模型能力如何转向真实应用",
-      }),
-    );
+    openPreview(11);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Show Notes 暂时无法加载",
@@ -734,9 +705,7 @@ describe("DiscoveryDesk", () => {
     render(<DiscoveryDesk candidates={[numbered, unnumbered]} />);
 
     expect(screen.getByText("#11 · 52 分钟")).toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole("button", { name: "预读 缺少 Show Notes 的边界项" }),
-    );
+    openPreview(12);
     expect(screen.getAllByText("70 分钟")).toHaveLength(2);
     expect(
       Array.from(document.querySelectorAll(".discovery-candidate-details"))
@@ -749,11 +718,7 @@ describe("DiscoveryDesk", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
     expect(document.querySelector(".discovery-preview-identity")).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "预读 模型能力如何转向真实应用",
-      }),
-    );
+    openPreview(11);
     const headingTools = document.querySelector<HTMLElement>(
       ".discovery-preview-heading-tools",
     );
@@ -792,11 +757,7 @@ describe("DiscoveryDesk", () => {
   it("uses icon-only decision controls with accessible hover labels", () => {
     render(<DiscoveryDesk candidates={candidates} onDecision={vi.fn()} />);
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "预读 模型能力如何转向真实应用",
-      }),
-    );
+    openPreview(11);
     const toolbar = document.querySelector<HTMLElement>(
       ".discovery-quick-actions",
     );
@@ -827,9 +788,7 @@ describe("DiscoveryDesk", () => {
       />,
     );
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "预读 缺少 Show Notes 的边界项" }),
-    );
+    openPreview(12);
     expect(
       screen.getByRole("button", { name: "原节目链接不可安全打开" }),
     ).toBeDisabled();
@@ -846,11 +805,7 @@ describe("DiscoveryDesk", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
     const list = screen.getByTestId("discovery-candidate-list");
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "预读 模型能力如何转向真实应用",
-      }),
-    );
+    openPreview(11);
     fireEvent.click(screen.getByRole("button", { name: "下一项" }));
     expect(
       screen.getByRole("dialog", { name: "缺少 Show Notes 的边界项" }),
@@ -872,7 +827,7 @@ describe("DiscoveryDesk", () => {
       screen.getByRole("heading", { name: "Discovery" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "预读 模型能力如何转向真实应用" }),
+      screen.getByRole("link", { name: "打开单集工作台：模型能力如何转向真实应用" }),
     ).toBeInTheDocument();
     const expectedCandidateDate = new Intl.DateTimeFormat("zh-CN", {
       month: "2-digit",
@@ -924,9 +879,7 @@ describe("DiscoveryDesk", () => {
       listToggle.querySelector(".tabler-icon-bookmark-filled"),
     ).toBeInTheDocument();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "预读 模型能力如何转向真实应用" }),
-    );
+    openPreview(11);
     const previewToggle = within(screen.getByRole("dialog")).getByRole(
       "button",
       { name: "从 Inbox 移除" },
@@ -944,9 +897,7 @@ describe("DiscoveryDesk", () => {
     fireEvent.click(
       document.querySelector<HTMLButtonElement>(".discovery-preview-close")!,
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "预读 缺少 Show Notes 的边界项" }),
-    );
+    openPreview(12);
     fireEvent.click(screen.getByRole("button", { name: "不感兴趣" }));
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent("状态保存失败");
@@ -1020,11 +971,7 @@ describe("DiscoveryDesk", () => {
   it("uses source-backed Show Notes instead of AI pre-read tabs", async () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "预读 模型能力如何转向真实应用",
-      }),
-    );
+    openPreview(11);
     expect(await screen.findByText("第一条可核对内容")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "摘要" }),
@@ -1050,11 +997,7 @@ describe("DiscoveryDesk", () => {
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
     render(<DiscoveryDesk candidates={xyzCandidates} />);
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "预读 模型能力如何转向真实应用",
-      }),
-    );
+    openPreview(11);
     fireEvent.click(screen.getByRole("link", { name: "打开节目页面" }));
 
     expect(
@@ -1080,11 +1023,7 @@ describe("DiscoveryDesk", () => {
     ];
     render(<DiscoveryDesk candidates={xyzCandidates} />);
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "预读 模型能力如何转向真实应用",
-      }),
-    );
+    openPreview(11);
     fireEvent.click(screen.getByRole("link", { name: "打开节目页面" }));
     fireEvent.click(screen.getByRole("button", { name: "编辑标签与备注" }));
 
@@ -1111,9 +1050,7 @@ describe("DiscoveryDesk", () => {
       decision_updated_at: "2026-07-29T08:20:00Z",
     });
     render(<DiscoveryDesk candidates={candidates} onDecision={onDecision} />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "预读 缺少 Show Notes 的边界项" }),
-    );
+    openPreview(12);
 
     expect(
       screen.getByRole("region", { name: "Show Notes" }),
@@ -1128,11 +1065,7 @@ describe("DiscoveryDesk", () => {
   it("opens and closes metadata editing while preserving the reading surface", async () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "预读 模型能力如何转向真实应用",
-      }),
-    );
+    openPreview(11);
     fireEvent.click(screen.getByRole("button", { name: "编辑标签与备注" }));
     expect(
       screen.getAllByRole("button", { name: "收起编辑" })[0],
@@ -1150,11 +1083,7 @@ describe("DiscoveryDesk", () => {
   it("keeps editing open across episodes and loads Podcast metadata on demand", async () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "预读 模型能力如何转向真实应用",
-      }),
-    );
+    openPreview(11);
     fireEvent.click(screen.getByRole("button", { name: "编辑标签与备注" }));
     await screen.findByText("单集旧备注");
     fireEvent.click(screen.getByRole("button", { name: "下一项" }));
@@ -1178,11 +1107,7 @@ describe("DiscoveryDesk", () => {
   it("reuses existing tag and note editing behavior", async () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "预读 模型能力如何转向真实应用",
-      }),
-    );
+    openPreview(11);
     fireEvent.click(screen.getByRole("button", { name: "编辑标签与备注" }));
     await screen.findByText("单集旧备注");
 
@@ -1230,11 +1155,7 @@ describe("DiscoveryDesk", () => {
   it("moves through one mobile candidate at a time with explicit progress", () => {
     render(<DiscoveryDesk candidates={candidates} />);
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "预读 模型能力如何转向真实应用",
-      }),
-    );
+    openPreview(11);
     expect(screen.getByText("1 / 2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "上一项" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "下一项" }));
@@ -1251,8 +1172,8 @@ describe("DiscoveryDesk", () => {
     const { unmount } = render(<DiscoveryDesk candidates={candidates} />);
 
     expect(
-      screen.getByRole("button", { name: "预读 缺少 Show Notes 的边界项" }),
-    ).toHaveAttribute("aria-expanded", "true");
+      screen.getByRole("dialog", { name: "缺少 Show Notes 的边界项" }),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "原节目链接暂缺" }),
     ).toBeDisabled();
@@ -1266,14 +1187,13 @@ describe("DiscoveryDesk", () => {
     unmount();
     render(<DiscoveryDesk candidates={candidates} />);
     expect(
-      screen.getByRole("button", { name: "预读 缺少 Show Notes 的边界项" }),
-    ).toHaveAttribute("aria-expanded", "true");
+      screen.getByRole("dialog", { name: "缺少 Show Notes 的边界项" }),
+    ).toBeInTheDocument();
   });
 
   it("renders the URL-selected preview in the server-provided initial view", () => {
     const markup = renderToString(<DiscoveryDesk candidates={candidates} initialHref="/discovery?filter=unread&episode=12" />);
     expect(markup).toContain('role="dialog"');
-    expect(markup).toContain('aria-expanded="true"');
     expect(markup).toContain("缺少 Show Notes 的边界项");
   });
 
@@ -1288,11 +1208,7 @@ describe("DiscoveryDesk", () => {
 
   it("ignores edge swipes but supports a center swipe shortcut", () => {
     render(<DiscoveryDesk candidates={candidates} />);
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "预读 模型能力如何转向真实应用",
-      }),
-    );
+    openPreview(11);
     const preview = screen.getByTestId("discovery-mobile-card");
     vi.spyOn(preview, "getBoundingClientRect").mockReturnValue({
       bottom: 700,
