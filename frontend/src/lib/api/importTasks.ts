@@ -82,12 +82,12 @@ export const importTasksApi = {
   previewImportOPML: async (file: File): Promise<ImportPreview> => {
     const formData = new FormData();
     formData.append("opml_file", file);
-    const response = await api.post<{ data: { preview: ImportPreview } }>(
+    const response = await api.post<{ preview: ImportPreview }>(
       "/api/v1/sync/import/preview",
       formData,
       { headers: { "Content-Type": "multipart/form-data" } },
     );
-    return response.data.data.preview;
+    return response.data.preview;
   },
 
   fetchLatestImportTask: async (): Promise<ImportTaskPayload> => {
