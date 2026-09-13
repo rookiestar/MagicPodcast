@@ -36,10 +36,10 @@
 }
 
 .page {
-  width: min(100%, 1600px);
+  width: min(100%, var(--page-max-width));
   min-width: 0;
   margin: 0 auto;
-  padding: 38px 28px 26px;
+  padding: 38px var(--page-gutter) 26px;
 }
 
 .detailKicker {
@@ -3924,7 +3924,7 @@ button.transcriptSegment:hover:not([aria-current="true"]) {
 
 @media (max-width: 900px) {
   .page {
-    padding: 24px 14px 20px;
+    padding: 24px var(--page-gutter) 20px;
   }
 
   .board {
@@ -4041,7 +4041,7 @@ button.transcriptSegment:hover:not([aria-current="true"]) {
   }
 
   .copilotComposerShell {
-    padding-inline: 12px;
+    padding-inline: var(--page-gutter);
   }
 
   .copilotUserMessage p {
@@ -4154,7 +4154,7 @@ button.transcriptSegment:hover:not([aria-current="true"]) {
   }
 
   .transcriptSegment {
-    padding-inline: 12px;
+    padding-inline: var(--page-gutter);
   }
 
   .processingDiagnostics > summary {
@@ -4183,11 +4183,11 @@ button.transcriptSegment:hover:not([aria-current="true"]) {
 
 @media (max-width: 359px) {
   .page {
-    padding-inline: 12px;
+    padding-inline: var(--page-gutter);
   }
 
   .board {
-    grid-auto-columns: calc(100vw - 24px);
+    grid-auto-columns: calc(100vw - 28px);
   }
 
   .queueColumn {
