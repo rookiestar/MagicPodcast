@@ -39,6 +39,7 @@ vi.mock("@/components/layout/PageLayout", () => ({
 vi.mock("@/components/discovery/DiscoveryDesk", () => ({
   default: ({
     candidates,
+    candidatesLoading,
     reportContent,
     focusContent,
     noticeContent,
@@ -46,6 +47,7 @@ vi.mock("@/components/discovery/DiscoveryDesk", () => ({
     onRead,
   }: {
     candidates: DiscoveryCandidate[];
+    candidatesLoading?: boolean;
     reportContent?: ReactNode;
     focusContent?: ReactNode;
     noticeContent?: ReactNode;
@@ -55,7 +57,7 @@ vi.mock("@/components/discovery/DiscoveryDesk", () => ({
     ) => Promise<unknown>;
     onRead?: (episodeID: number) => Promise<unknown>;
   }) => (
-    <main aria-label="工作流最近更新">
+    <main aria-label="工作流最近更新" data-candidates-loading={String(Boolean(candidatesLoading))}>
       {reportContent}
       {noticeContent}
       {candidates.map((candidate) => (
@@ -239,6 +241,10 @@ describe("DiscoveryPageClient", () => {
     expect(screen.getByText("保留的最近更新")).toBeInTheDocument();
     expect(screen.getByText("正在后台更新最近内容…")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("main", { name: "工作流最近更新" })).toHaveAttribute(
+      "data-candidates-loading",
+      "true",
+    );
   });
 
   it("restores recent session content while a reload keeps retrying", async () => {

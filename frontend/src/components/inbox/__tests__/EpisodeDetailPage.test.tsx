@@ -12,7 +12,7 @@ vi.mock("@/lib/api/consumption", () => ({
   getConsumptionErrorDetails: (error: { status?: number }) => error,
   requiresFocusConfirmation: () => false,
 }));
-vi.mock("../ConsumptionDetailPanel", () => ({ default: ({ item, routeState }: { item: ConsumptionItem; routeState: { tab: string } }) => <section aria-label="单集内容">{item.episode_title} · {routeState.tab}</section> }));
+vi.mock("../ConsumptionDetailPanel", () => ({ default: ({ item, routeState, onClose }: { item: ConsumptionItem; routeState: { tab: string }; onClose: () => void }) => <section aria-label="单集内容">{item.episode_title} · {routeState.tab}<button onClick={onClose}>关闭单集明细</button></section> }));
 vi.mock("../FocusLimitDialog", () => ({ default: () => null }));
 
 function item(id: number) { return { episode_id: id, episode_title: `单集 ${id}`, queue_state: null }; }
@@ -41,6 +41,15 @@ describe("independent episode page", () => {
     await waitFor(() => expect(mocks.markRead).toHaveBeenCalledWith(42));
     expect(window.location.search).toBe("?from=discovery&return_page=2");
   });
+  it("closes a direct workbench URL back to its discovery page and filter", async () => {
+    window.history.replaceState({}, "", "/episodes/42?from=discovery&return_page=2&return_filter=unread");
+    mocks.getItem.mockResolvedValue(item(42));
+    render(<EpisodeDetailPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "关闭单集明细" }));
+    expect(window.location.pathname + window.location.search).toBe("/discovery?filter=unread&page=2");
+    expect(mocks.replace).toHaveBeenCalledWith("/discovery?filter=unread&page=2");
+  });
+
   it("never fetches a guessed ID for an invalid resource address", async () => {
     window.history.replaceState({}, "", "/episodes/42bad");
     render(<EpisodeDetailPage />);

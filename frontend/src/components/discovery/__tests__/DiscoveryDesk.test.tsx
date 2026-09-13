@@ -592,6 +592,28 @@ describe("DiscoveryDesk", () => {
     expect(candidate).toHaveAttribute("title", "打开单集工作台");
   });
 
+  it("restores page two at a tall viewport while initial candidates are incomplete", async () => {
+    setWindowViewport(1133, 1354);
+    window.history.replaceState({}, "", "/discovery?page=2");
+    const all = makePagedCandidates(20);
+    const view = render(<DiscoveryDesk candidates={all.slice(0, 5)} candidatesLoading />);
+    expect(window.location.search).toBe("?page=2");
+    view.rerender(<SWRConfig value={{ provider: () => new Map() }}><DiscoveryDesk candidates={all} candidatesLoading={false} /></SWRConfig>);
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("第 2 页"));
+    expect(screen.getByRole("link", { name: "打开单集工作台：分页单集 9" })).toBeInTheDocument();
+    expect(window.location.search).toBe("?page=2");
+  });
+
+  it("clamps the restored page only after the complete list arrives", async () => {
+    window.history.replaceState({}, "", "/discovery?page=3");
+    const all = makePagedCandidates(6);
+    const view = render(<DiscoveryDesk candidates={all.slice(0, 2)} candidatesLoading />);
+    expect(window.location.search).toBe("?page=3");
+    view.rerender(<SWRConfig value={{ provider: () => new Map() }}><DiscoveryDesk candidates={all} /></SWRConfig>);
+    await waitFor(() => expect(window.location.search).toBe("?page=2"));
+    expect(screen.getByRole("status")).toHaveTextContent("第 2 页");
+  });
+
   it("keeps the recent-update page in the workbench return URL", () => {
     const pagedCandidates = makePagedCandidates(6);
     render(<DiscoveryDesk candidates={pagedCandidates} />);

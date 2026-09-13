@@ -222,7 +222,7 @@ export default function DiscoveryPageClient({
     >
   >(new Map());
 
-  const { data, error, isValidating, mutate } = useSWR<DiscoveryCandidate[]>(
+  const { data, error, isLoading, isValidating, mutate } = useSWR<DiscoveryCandidate[]>(
     DISCOVERY_CANDIDATES_PATH,
     discoveryCandidatesFetcher,
     {
@@ -514,6 +514,11 @@ export default function DiscoveryPageClient({
         />
       ) : (
         <DiscoveryDesk
+          candidatesLoading={
+            isLoading ||
+            (initialCandidates !== undefined && isValidating) ||
+            Boolean(error)
+          }
           initialHref={initialHref}
           candidates={displayCandidates}
           reportContent={reportContent}
