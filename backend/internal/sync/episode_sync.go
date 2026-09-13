@@ -47,19 +47,16 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 		PodcastTitle: podcast.Title,
 	}
 
-	// 2. 确定同步模式和基准时间
+	// 2. 确定同步模式和基准时间。增量/智能模式只信任单集同步游标
+	// LastEpisodeSyncAt：导入和资料检查推进的 LastFetchedAt 不代表单集
+	// 进度，用它当游标会跳过尚未入库的旧单集（#399 R1）。
 	var lastFetchTime time.Time
 	useIncremental := false
 
 	switch config.Mode {
 	case SyncModeIncremental:
 		useIncremental = true
-		if podcast.LastFetchedAt != nil {
-			lastFetchTime = *podcast.LastFetchedAt
-		} else {
-			// 如果没有抓取过，使用7天前
-			lastFetchTime = time.Now().AddDate(0, 0, -7)
-		}
+		lastFetchTime = incrementalEpisodeBaseline(&podcast, config)
 
 	case SyncModeFull:
 		useIncremental = false
@@ -67,21 +64,16 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 		lastFetchTime = FullSyncEpoch
 
 	case SyncModeSmart:
-		// 智能模式：根据最后抓取时间自动选择
-		if podcast.LastFetchedAt != nil {
-			// 如果最后抓取时间在7天内，使用增量同步
-			daysSinceLastFetch := time.Since(*podcast.LastFetchedAt).Hours() / 24
-			if daysSinceLastFetch <= 7 {
+		// 智能模式：从未成功同步过单集时必须全量，即使导入刚推进过
+		// 资料检查时间；7 天内有单集同步进度才走增量。
+		if podcast.LastEpisodeSyncAt != nil {
+			daysSinceLastSync := time.Since(*podcast.LastEpisodeSyncAt).Hours() / 24
+			if daysSinceLastSync <= 7 {
 				useIncremental = true
-				lastFetchTime = *podcast.LastFetchedAt
-			} else {
-				// 超过7天，使用全量同步
-				useIncremental = false
-				lastFetchTime = FullSyncEpoch
+				lastFetchTime = *podcast.LastEpisodeSyncAt
 			}
-		} else {
-			// 从未抓取过，使用全量模式
-			useIncremental = false
+		}
+		if !useIncremental {
 			lastFetchTime = FullSyncEpoch
 		}
 	}
@@ -148,7 +140,7 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 
 	updateLastFetchedAt := result.FeedAccess == nil ||
 		(result.FeedAccess.SourceType != feed.AccessSourceLastGood && result.FeedAccess.SourceType != feed.AccessSourceLocalCache)
-	episodeResult, err := s.syncPodcastEpisodeItemsWithLastFetchedAt(ctx, &podcast, items, config, updateLastFetchedAt)
+	episodeResult, err := s.syncPodcastEpisodeItemsWithContext(ctx, &podcast, items, config, updateLastFetchedAt)
 	episodeResult.FeedAccess = result.FeedAccess
 	result = episodeResult
 	if err != nil {
@@ -162,20 +154,99 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 }
 
 func (s *Service) syncPodcastEpisodeItems(podcast *models.Podcast, items []*gofeed.Item, config EpisodeSyncConfig) (*EpisodeSyncResult, error) {
-	return s.syncPodcastEpisodeItemsWithLastFetchedAt(context.Background(), podcast, items, config, true)
+	return s.syncPodcastEpisodeItemsWithContext(context.Background(), podcast, items, config, true)
 }
 
-func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(ctx context.Context, podcast *models.Podcast, items []*gofeed.Item, config EpisodeSyncConfig, updateLastFetchedAt bool) (*EpisodeSyncResult, error) {
+// incrementalEpisodeBaseline 返回增量单集同步的时间基准。「自上次更新」
+// 使用单集同步游标；配置了最近 N 天范围时使用该窗口起点，保持两种范围
+// 语义彼此独立（#399）。
+func incrementalEpisodeBaseline(podcast *models.Podcast, config EpisodeSyncConfig) time.Time {
+	if config.TimeRangeDays != nil && *config.TimeRangeDays > 0 {
+		return time.Now().AddDate(0, 0, -*config.TimeRangeDays)
+	}
+	if podcast.LastEpisodeSyncAt != nil {
+		return *podcast.LastEpisodeSyncAt
+	}
+	return time.Now().AddDate(0, 0, -7)
+}
+
+// syncPodcastEpisodeItemsWithContext 同步单集并在全部所选条目成功提交后推进
+// 单集同步游标。单集写入失败、上下文取消或分批截断时游标保持不变，下一次
+// 同步重新覆盖未处理范围，保证重试不漏项、不越界（#399）。
+func (s *Service) syncPodcastEpisodeItemsWithContext(ctx context.Context, podcast *models.Podcast, items []*gofeed.Item, config EpisodeSyncConfig, updateLastFetchedAt bool) (*EpisodeSyncResult, error) {
 	result := &EpisodeSyncResult{
 		PodcastID:    podcast.ID,
 		PodcastTitle: podcast.Title,
 	}
 
-	if config.MaxEpisodesPerPodcast > 0 && len(items) > config.MaxEpisodesPerPodcast {
-		logger.Infof("   ⚠️  超过最大数量限制，只处理前 %d 个", config.MaxEpisodesPerPodcast)
-		items = items[:config.MaxEpisodesPerPodcast]
+	syncStartedAt := time.Now()
+	windowSize := config.MaxEpisodesPerPodcast
+	if windowSize <= 0 {
+		windowSize = len(items)
+		if windowSize == 0 {
+			windowSize = 1
+		}
 	}
 
+	var firstWriteErr error
+	// 逐窗口处理：只有当前窗口毫无新增/更新且无错误时才继续处理下一窗，
+	// 让超过单窗上限的历史尾部能在后续同步中补齐，而不是永远卡在头部。
+	// 空抓取结果（如合法空 RSS 或增量无新条目）同样视为覆盖完成并推进游标。
+	if len(items) == 0 {
+		if err := s.refreshPodcastEpisodeSyncFieldsWithCursor(podcast, result, updateLastFetchedAt, &syncStartedAt); err != nil {
+			result.Incomplete = true
+			return result, err
+		}
+		return result, nil
+	}
+	for offset := 0; offset < len(items); offset += windowSize {
+		end := offset + windowSize
+		truncated := end < len(items)
+		if end > len(items) {
+			end = len(items)
+		}
+		window := items[offset:end]
+
+		if ctx.Err() != nil {
+			result.Incomplete = true
+			return result, fmt.Errorf("单集同步被取消: %w", ctx.Err())
+		}
+
+		windowErr := s.syncEpisodeWindow(ctx, podcast, window, config, result)
+		if firstWriteErr == nil {
+			firstWriteErr = windowErr
+		}
+		if windowErr != nil {
+			result.Incomplete = true
+			break
+		}
+		if truncated && (result.Created > 0 || result.Updated > 0) {
+			// 本批仍有未处理条目且窗口产生了写入：游标不得越过未处理范围。
+			result.Incomplete = true
+			result.RemainingItems = len(items) - end
+			logger.Infof("   ⚠️  超过单次同步上限，本批处理 %d/%d 个，剩余 %d 个待下次同步",
+				end, len(items), result.RemainingItems)
+			break
+		}
+		if !truncated {
+			// 全部条目成功提交：以本次同步开始时间为游标推进点。
+			if err := s.refreshPodcastEpisodeSyncFieldsWithCursor(podcast, result, updateLastFetchedAt, &syncStartedAt); err != nil {
+				result.Incomplete = true
+				return result, err
+			}
+			return result, nil
+		}
+	}
+
+	if err := s.refreshPodcastEpisodeSyncFields(podcast, result); err != nil {
+		result.Incomplete = true
+		return result, err
+	}
+	return result, firstWriteErr
+}
+
+// syncEpisodeWindow 处理一个上限窗口内的单集写入，返回首个写入错误。
+func (s *Service) syncEpisodeWindow(ctx context.Context, podcast *models.Podcast, items []*gofeed.Item, config EpisodeSyncConfig, result *EpisodeSyncResult) error {
 	episodes := make([]*models.Episode, 0, len(items))
 	for _, item := range items {
 		episodes = append(episodes, s.convertGofeedItemToEpisode(podcast, item))
@@ -185,13 +256,13 @@ func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(ctx context.Context, 
 	if err != nil {
 		logger.Infof("   ❌ 查询已有episodes失败: %v", err)
 		result.Errors += len(episodes)
-		return result, fmt.Errorf("查询已有单集失败: %w", err)
+		return fmt.Errorf("查询已有单集失败: %w", err)
 	}
 	existingByIdentity, err := s.loadExistingEpisodesByIdentity(podcast.ID, episodes)
 	if err != nil {
 		logger.Infof("   ❌ 查询已有单集身份失败: %v", err)
 		result.Errors += len(episodes)
-		return result, fmt.Errorf("查询已有单集身份失败: %w", err)
+		return fmt.Errorf("查询已有单集身份失败: %w", err)
 	}
 	var firstWriteErr error
 	videoCandidates := make([]videoProbeCandidate, 0)
@@ -356,13 +427,10 @@ func (s *Service) syncPodcastEpisodeItemsWithLastFetchedAt(ctx context.Context, 
 
 	s.probeEpisodeVideoAvailability(ctx, videoCandidates)
 
-	if err := s.refreshPodcastEpisodeSyncFieldsWithLastFetchedAt(podcast, result, updateLastFetchedAt); err != nil {
-		return result, fmt.Errorf("刷新播客汇总字段失败: %w", err)
-	}
 	if firstWriteErr != nil {
-		return result, firstWriteErr
+		return firstWriteErr
 	}
-	return result, nil
+	return nil
 }
 
 func episodeNeedsUpdate(existing *models.Episode, next *models.Episode) bool {
@@ -492,14 +560,21 @@ func (s *Service) loadExistingEpisodesByIdentity(podcastID uint, episodes []*mod
 }
 
 func (s *Service) refreshPodcastEpisodeSyncFields(podcast *models.Podcast, result *EpisodeSyncResult) error {
-	return s.refreshPodcastEpisodeSyncFieldsWithLastFetchedAt(podcast, result, true)
+	return s.refreshPodcastEpisodeSyncFieldsWithCursor(podcast, result, false, nil)
 }
 
-func (s *Service) refreshPodcastEpisodeSyncFieldsWithLastFetchedAt(podcast *models.Podcast, result *EpisodeSyncResult, updateLastFetchedAt bool) error {
+// refreshPodcastEpisodeSyncFieldsWithCursor 重算播客单集汇总。仅当
+// cursor 非空（全部所选单集成功提交）时推进单集同步游标；资料检查时间
+// 只在完整成功的同步中一并刷新，失败与部分完成不伪装成已检查（#399）。
+func (s *Service) refreshPodcastEpisodeSyncFieldsWithCursor(podcast *models.Podcast, result *EpisodeSyncResult, updateLastFetchedAt bool, cursor *time.Time) error {
 	now := time.Now()
 	updates := map[string]interface{}{}
 	if updateLastFetchedAt {
 		updates["last_fetched_at"] = now
+	}
+	if cursor != nil {
+		updates["last_episode_sync_at"] = *cursor
+		podcast.LastEpisodeSyncAt = cursor
 	}
 
 	// 每次同步都从实际单集重新计算汇总，避免 feed 抓取时间或 RSS

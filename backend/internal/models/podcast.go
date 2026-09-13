@@ -46,10 +46,16 @@ type Podcast struct {
 	CustomCoverURL string `gorm:"size:512" json:"custom_cover_url"` // 自定义封面URL（优先使用，不会被同步覆盖）
 
 	// 同步相关
-	FeedURLValid    bool       `gorm:"default:true" json:"feed_url_valid"`       // RSS feed是否有效
-	LastFetchedAt   *time.Time `json:"last_fetched_at"`                          // 最后抓取时间
-	FetchErrorCount int        `gorm:"default:0" json:"fetch_error_count"`       // 抓取失败次数
-	DataSource      string     `gorm:"size:20;default:'rss'" json:"data_source"` // 数据来源: podcastindex, rss, scraped
+	FeedURLValid bool `gorm:"default:true" json:"feed_url_valid"` // RSS feed是否有效
+	// LastFetchedAt 是最近一次节目资料检查时间；它不代表单集同步进度，
+	// OPML 导入与元数据检查都会推进它，但智能/增量单集同步不使用它当游标。
+	LastFetchedAt *time.Time `json:"last_fetched_at"`
+	// LastEpisodeSyncAt 是唯一可信的单集同步游标：只有成功提交所选范围内
+	// 全部单集后才会推进。首次智能/增量同步以它是否存在判断，避免导入后
+	// 跳过尚未入库的历史单集（#399）。
+	LastEpisodeSyncAt *time.Time `json:"last_episode_sync_at"`
+	FetchErrorCount   int        `gorm:"default:0" json:"fetch_error_count"`       // 抓取失败次数
+	DataSource        string     `gorm:"size:20;default:'rss'" json:"data_source"` // 数据来源: podcastindex, rss, scraped
 
 	// 关联关系
 	Episodes []Episode `gorm:"foreignKey:PodcastID;constraint:OnDelete:CASCADE" json:"episodes,omitempty"`

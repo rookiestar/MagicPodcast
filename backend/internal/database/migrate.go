@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 32
+const CurrentSchemaVersion = 33
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -320,6 +320,15 @@ func migrationRegistry() []Migration {
 				{Operation: SchemaChangeCreateTable, Table: models.EpisodeCollectionAdoption{}.TableName()},
 				{Operation: SchemaChangeCreateIndex, Table: models.EpisodeCollectionAdoption{}.TableName(), Object: "idx_episode_collection_adoptions_episode_collection"},
 				{Operation: SchemaChangeCreateIndex, Table: models.EpisodeCollectionAdoption{}.TableName(), Object: "idx_episode_collection_adoptions_deleted_at"},
+			}},
+		},
+		{
+			Version:     33,
+			Name:        "podcast-episode-sync-cursor",
+			Description: "Separate the episode sync cursor from the metadata check time so OPML imports never advance episode progress (#398/#399).",
+			Apply:       applyPodcastEpisodeSyncCursorMigration,
+			Contract: MigrationContract{SchemaChanges: []SchemaChangeRule{
+				{Operation: SchemaChangeAddColumn, Table: "podcasts", Object: "last_episode_sync_at"},
 			}},
 		},
 	}
@@ -1270,6 +1279,19 @@ func applyEpisodeCollectionAdoptionIdentityMigration(db *gorm.DB) error {
 	for _, statement := range statements {
 		if err := db.Exec(statement).Error; err != nil {
 			return fmt.Errorf("apply episode adoption identity schema: %w", err)
+		}
+	}
+	return nil
+}
+
+// applyPodcastEpisodeSyncCursorMigration adds the dedicated episode sync
+// cursor. Existing rows start with NULL, so the first smart/incremental sync
+// after upgrade falls back to full mode and re-examines the feed instead of
+// trusting a metadata-check timestamp as episode progress.
+func applyPodcastEpisodeSyncCursorMigration(db *gorm.DB) error {
+	if db.Migrator().HasTable("podcasts") && !db.Migrator().HasColumn("podcasts", "last_episode_sync_at") {
+		if err := db.Exec("ALTER TABLE podcasts ADD COLUMN last_episode_sync_at DATETIME").Error; err != nil {
+			return fmt.Errorf("add podcasts.last_episode_sync_at: %w", err)
 		}
 	}
 	return nil

@@ -106,14 +106,19 @@ func ParseEpisodeSyncMode(mode string) EpisodeSyncMode {
 
 // EpisodeSyncResult Episode同步结果
 type EpisodeSyncResult struct {
-	PodcastID    uint                `json:"podcast_id"`
-	PodcastTitle string              `json:"podcast_title"`
-	Created      int                 `json:"created"` // 新增数量
-	Updated      int                 `json:"updated"` // 更新数量
-	Skipped      int                 `json:"skipped"` // 跳过数量
-	Deleted      int                 `json:"deleted"` // 删除数量
-	Errors       int                 `json:"errors"`  // 错误数量
-	FeedAccess   *feed.AccessOutcome `json:"feed_access,omitempty"`
+	PodcastID    uint   `json:"podcast_id"`
+	PodcastTitle string `json:"podcast_title"`
+	Created      int    `json:"created"` // 新增数量
+	Updated      int    `json:"updated"` // 更新数量
+	Skipped      int    `json:"skipped"` // 跳过数量
+	Deleted      int    `json:"deleted"` // 删除数量
+	Errors       int    `json:"errors"`  // 错误数量
+	// Incomplete 表示本次没有覆盖所选范围内的全部条目（写入失败、取消或
+	// 分批上限截断）。此时单集同步游标不推进，不得把部分完成报为全部完成。
+	Incomplete bool `json:"incomplete,omitempty"`
+	// RemainingItems 是因单批上限截断后尚未处理的条目数。
+	RemainingItems int                 `json:"remaining_items,omitempty"`
+	FeedAccess     *feed.AccessOutcome `json:"feed_access,omitempty"`
 }
 
 // NewService 创建同步服务
