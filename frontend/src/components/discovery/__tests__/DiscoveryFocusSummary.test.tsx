@@ -85,6 +85,9 @@ describe("DiscoveryFocusSummary", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "从 Inbox 添加到 Focus" }),
     );
+    expect(
+      screen.queryByText("仅显示已收集、尚未投入的条目。"),
+    ).not.toBeInTheDocument();
     const add = await screen.findByRole("button", {
       name: "将 值得投入的单集 添加到 Focus",
     });
