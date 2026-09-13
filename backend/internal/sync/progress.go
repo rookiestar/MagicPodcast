@@ -55,17 +55,21 @@ type ProgressReporter interface {
 
 // SyncSummary 同步汇总信息
 type SyncSummary struct {
-	Operation        string        `json:"operation,omitempty"`     // import 或 sync
-	TotalPodcasts    int           `json:"total_podcasts"`          // 总播客数
-	SuccessPodcasts  int           `json:"success_podcasts"`        // 成功同步的播客数
-	FailedPodcasts   int           `json:"failed_podcasts"`         // 失败的播客数
-	SkippedPodcasts  int           `json:"skipped_podcasts"`        // 跳过的播客数
-	StubPodcasts     int           `json:"stub_podcasts,omitempty"` // 导入时因临时错误创建的待同步记录
-	NoUpdatePodcasts int           `json:"no_update_podcasts"`      // 无更新的播客数
-	TotalEpisodes    int           `json:"total_episodes"`          // 同步的总单集数
-	NewEpisodes      int           `json:"new_episodes"`            // 新增的单集数
-	UpdatedEpisodes  int           `json:"updated_episodes"`        // 更新的单集数
-	Duration         time.Duration `json:"duration"`                // 总耗时
+	Operation        string `json:"operation,omitempty"`     // import 或 sync
+	TotalPodcasts    int    `json:"total_podcasts"`          // 总播客数
+	SuccessPodcasts  int    `json:"success_podcasts"`        // 成功同步的播客数
+	FailedPodcasts   int    `json:"failed_podcasts"`         // 失败的播客数
+	SkippedPodcasts  int    `json:"skipped_podcasts"`        // 跳过的播客数
+	StubPodcasts     int    `json:"stub_podcasts,omitempty"` // 导入时因临时错误创建的待同步记录
+	NoUpdatePodcasts int    `json:"no_update_podcasts"`      // 无更新的播客数
+	// 导入专用统计：确认合并、冲突跳过与无变化（#398 R12）。
+	MergedPodcasts    int           `json:"merged_podcasts,omitempty"`
+	ConflictPodcasts  int           `json:"conflict_podcasts,omitempty"`
+	UnchangedPodcasts int           `json:"unchanged_podcasts,omitempty"`
+	TotalEpisodes     int           `json:"total_episodes"`   // 同步的总单集数
+	NewEpisodes       int           `json:"new_episodes"`     // 新增的单集数
+	UpdatedEpisodes   int           `json:"updated_episodes"` // 更新的单集数
+	Duration          time.Duration `json:"duration"`         // 总耗时
 }
 
 // LogProgressReporter 使用log的进度报告器

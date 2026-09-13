@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"magicpodcast/internal/config"
@@ -9,6 +11,7 @@ import (
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/opml"
 	"magicpodcast/internal/sync"
 
 	"github.com/gin-gonic/gin"
@@ -50,6 +53,60 @@ type SyncStatusResponse struct {
 	PodcastSources map[string]int `json:"podcast_sources"` // 数据来源统计
 }
 
+// parseImportDecisions 解析用户对需确认条目的显式决定（xmlUrl → confirm）。
+func parseImportDecisions(raw string) (map[string]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var decisions map[string]string
+	if err := json.Unmarshal([]byte(raw), &decisions); err != nil {
+		return nil, fmt.Errorf("decisions 字段必须是 JSON 对象")
+	}
+	return decisions, nil
+}
+
+// PreviewOPMLImport OPML 导入预览：只做差异核对，不抓取、不写库。
+// POST /api/v1/sync/import/preview
+func (h *SyncHandler) PreviewOPMLImport(c *gin.Context) {
+	file, err := c.FormFile("opml_file")
+	if err != nil {
+		if middleware.RequestBodyLimitExceeded(c) {
+			middleware.RequestTooLargeResponse(c, middleware.DefaultUploadRequestLimitBytes)
+			return
+		}
+		middleware.BadRequestResponse(c, "INVALID_FILE", "OPML文件上传失败，请确保使用multipart/form-data格式")
+		return
+	}
+	if validation := validateOPMLUpload(file); validation != nil {
+		validation.respond(c)
+		return
+	}
+
+	tempFilePath, cleanup, ok := saveOPMLUpload(c, file)
+	if !ok {
+		return
+	}
+	defer cleanup()
+
+	outlines, err := opml.NewParser().ParseFile(tempFilePath)
+	if err != nil {
+		respondOPMLParseError(c, err)
+		return
+	}
+
+	preview, err := h.syncService.PreviewImportOPML(outlines)
+	if err != nil {
+		middleware.InternalErrorResponseWithCode(c, "PREVIEW_ERROR", fmt.Sprintf("预览失败: %v", err))
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"success": true,
+		"message": opmlResultMessage(preview.Total, preview.NewCount, 0, 0),
+		"preview": preview,
+	})
+}
+
 // ImportOPML 导入OPML文件
 // POST /api/v1/sync/import
 func (h *SyncHandler) ImportOPML(c *gin.Context) {
@@ -77,6 +134,12 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 		return
 	}
 
+	decisions, err := parseImportDecisions(c.PostForm("decisions"))
+	if err != nil {
+		middleware.BadRequestResponse(c, "INVALID_DECISIONS", err.Error())
+		return
+	}
+
 	logger.Infof("收到OPML文件: %s (%d bytes)", file.Filename, file.Size)
 
 	tempFilePath, cleanup, ok := saveOPMLUpload(c, file)
@@ -85,25 +148,35 @@ func (h *SyncHandler) ImportOPML(c *gin.Context) {
 	}
 	defer cleanup()
 
-	// 导入OPML
-	result, err := h.syncService.ImportOPML(tempFilePath)
+	// 解析在业务写入前完成，解析失败与流式入口共用同一错误契约。
+	outlines, err := opml.NewParser().ParseFile(tempFilePath)
+	if err != nil {
+		respondOPMLParseError(c, err)
+		return
+	}
+
+	result, err := h.syncService.ImportOPMLOutlines(outlines, sync.NewLogProgressReporter(), sync.DefaultImportConfig, decisions)
 	if err != nil {
 		logger.Infof("导入失败: %v", err)
-		respondOPMLParseError(c, err)
+		middleware.InternalErrorResponseWithCode(c, "IMPORT_ERROR", fmt.Sprintf("导入失败: %v", err))
 		return
 	}
 
 	logger.Infof("导入成功: %d/%d", result.SuccessPodcasts, result.TotalPodcasts)
 
 	c.JSON(200, gin.H{
-		"success":          true,
-		"message":          opmlResultMessage(result.TotalPodcasts, result.SuccessPodcasts, result.StubPodcasts, result.FailedPodcasts),
-		"total_podcasts":   result.TotalPodcasts,
-		"success_count":    result.SuccessPodcasts,
-		"failed_count":     result.FailedPodcasts,
-		"stub_podcasts":    result.StubPodcasts,
-		"skipped_podcasts": result.SkippedPodcasts,
-		"errors":           result.Errors,
+		"success":             true,
+		"message":             opmlResultMessage(result.TotalPodcasts, result.SuccessPodcasts, result.StubPodcasts, result.FailedPodcasts),
+		"total_podcasts":      result.TotalPodcasts,
+		"success_count":       result.SuccessPodcasts,
+		"failed_count":        result.FailedPodcasts,
+		"stub_podcasts":       result.StubPodcasts,
+		"skipped_podcasts":    result.SkippedPodcasts,
+		"merged_podcasts":     result.MergedPodcasts,
+		"conflict_podcasts":   result.ConflictPodcasts,
+		"unchanged_podcasts":  result.UnchangedPodcasts,
+		"entries":             result.Entries,
+		"errors":              result.Errors,
 	})
 }
 

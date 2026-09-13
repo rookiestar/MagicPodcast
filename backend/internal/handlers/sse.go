@@ -353,6 +353,12 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 	}
 	defer cleanup()
 
+	decisions, err := parseImportDecisions(c.PostForm("decisions"))
+	if err != nil {
+		middleware.BadRequestResponse(c, "INVALID_DECISIONS", err.Error())
+		return
+	}
+
 	// 解析在任何 SSE 响应头之前完成：解析失败与普通入口返回同一 JSON
 	// 错误结构，不留下半开的流（#398 R11）。
 	outlines, err := (opml.NewParser()).ParseFile(tempFilePath)
@@ -367,7 +373,7 @@ func (h *SyncHandler) ImportOPMLSSE(c *gin.Context) {
 	defer reporter.Close()
 
 	logger.Infof("[SSE] 开始导入OPML（本地匹配 + 在线同步）: %s", file.Filename)
-	result, err := h.syncService.ImportOPMLOutlinesFromPodcastIndexOnly(outlines, reporter)
+	result, err := h.syncService.ImportOPMLOutlines(outlines, reporter, syncpkg.DefaultImportConfig, decisions)
 	if err != nil {
 		logger.Warnf("[SSE] 导入失败: %v", err)
 		reporter.ReportError("导入失败: " + err.Error())

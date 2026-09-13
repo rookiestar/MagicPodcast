@@ -55,13 +55,18 @@ type Service struct {
 
 // SyncResult 同步结果
 type SyncResult struct {
-	TotalPodcasts   int      `json:"total_podcasts"`
-	SuccessPodcasts int      `json:"success_podcasts"`
-	FailedPodcasts  int      `json:"failed_podcasts"`
-	StubPodcasts    int      `json:"stub_podcasts"`
-	SkippedPodcasts int      `json:"skipped_podcasts"`
-	NewEpisodes     int      `json:"new_episodes"`
-	Errors          []string `json:"errors,omitempty"`
+	TotalPodcasts   int `json:"total_podcasts"`
+	SuccessPodcasts int `json:"success_podcasts"`
+	FailedPodcasts  int `json:"failed_podcasts"`
+	StubPodcasts    int `json:"stub_podcasts"`
+	SkippedPodcasts int `json:"skipped_podcasts"`
+	NewEpisodes     int `json:"new_episodes"`
+	// 导入专用统计：合并/冲突/未变化与逐条结果，用于结果对账（#398 R12）。
+	MergedPodcasts    int                 `json:"merged_podcasts,omitempty"`
+	ConflictPodcasts  int                 `json:"conflict_podcasts,omitempty"`
+	UnchangedPodcasts int                 `json:"unchanged_podcasts,omitempty"`
+	Entries           []ImportEntryResult `json:"entries,omitempty"`
+	Errors            []string            `json:"errors,omitempty"`
 }
 
 // EpisodeSyncMode Episode同步模式

@@ -321,6 +321,7 @@ func SetupRouter(options ...Option) *gin.Engine {
 		}
 		sync := v1.Group("/sync")
 		{
+			sync.POST("/import/preview", middleware.RequestBodyLimit(middleware.DefaultUploadRequestLimitBytes), syncHandler.PreviewOPMLImport)        // 导入预览（只读，不写库）
 			sync.POST("/import", middleware.RequestBodyLimit(middleware.DefaultUploadRequestLimitBytes), syncOperation, syncHandler.ImportOPML)        // 导入OPML文件
 			sync.POST("/import-sse", middleware.RequestBodyLimit(middleware.DefaultUploadRequestLimitBytes), syncOperation, syncHandler.ImportOPMLSSE) // 导入OPML文件（SSE流式）
 			sync.POST("/subscriptions", syncOperation, syncHandler.SyncSubscriptions)                                                                  // 同步所有订阅
