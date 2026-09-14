@@ -57,4 +57,4 @@ node scripts/performance-audit.mjs \
 3. 新性能数据写入 [../performance/](../performance/) 下的最新基线。
 4. 阶段性过程记录完成后移入 [../archive/](../archive/)。
 5. 不把旧公开域名、旧本地端口或单次历史截图当成当前事实。
-6. 任何可能改变搜索结果顺序、接口字段、加载态、空态、错误态、超时、缓存、陈旧数据或重试策略的优化，必须单独人审；需要跟踪时进入 [../HUMAN_REVIEW_QUEUE.md](../HUMAN_REVIEW_QUEUE.md)。
+6. 搜索结果顺序、接口字段及加载/缓存/重试语义须符合已确认范围；新增体验取舍或超出已有授权时先确认，已授权实现不重复人审。需要跟踪时进入 [../HUMAN_REVIEW_QUEUE.md](../HUMAN_REVIEW_QUEUE.md)，队列记录不代替授权。
