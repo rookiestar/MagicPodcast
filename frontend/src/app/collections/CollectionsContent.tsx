@@ -206,9 +206,8 @@ export default function CollectionsContent() {
       <ImportCollectionModal
         isOpen={isImportOpen}
         onClose={() => setImportOpen(false)}
-        onImported={({ duplicate, collectionID }) => {
-          // 新导入与重复导入都进入对应清单；重复导入打开已有清单，不建副本。
-          void duplicate;
+        onImported={({ collectionID }) => {
+          // 新导入进入对应清单；重复来源由弹窗先提示并明确打开已有清单。
           void mutate();
           router.push(`/collections/${collectionID}`);
         }}

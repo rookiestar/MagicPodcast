@@ -8357,6 +8357,15 @@ textarea.editorial-field {
   font-size: 13px;
 }
 
+.collection-duplicate-notice {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid #c4552a;
+  color: #9a3b17;
+  background: rgba(196, 85, 42, 0.08);
+  font-size: 13px;
+}
+
 .collection-preview-title {
   margin: 0;
   font-family: var(--font-display);
