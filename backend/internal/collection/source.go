@@ -126,6 +126,16 @@ func canonicalCollectionURL(externalID string) string {
 	return "https://" + collectionHost + "/collection/episode/" + externalID
 }
 
+// IdentityKey 返回清单的稳定来源身份。清单 ID 是 24 位十六进制，与专题 slug
+// 字符集有理论交集；带来源形态命名空间可避免两个无关来源在
+// (source_platform, external_id) 唯一约束下被合并为同一份清单。
+func (c *CollectionURL) IdentityKey() string {
+	if c.Kind == sourceCampaign {
+		return "campaign:" + c.ExternalID
+	}
+	return c.ExternalID
+}
+
 // canonicalCampaignURL 由专题 slug 构造规范化页面地址，作为清单的来源身份保存。
 func canonicalCampaignURL(slug string) string {
 	return "https://" + campaignHost + "/" + slug

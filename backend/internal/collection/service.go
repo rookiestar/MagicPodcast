@@ -258,6 +258,8 @@ func (s *Service) Preview(ctx context.Context, rawURL string) (*PreviewResult, e
 		return nil, err
 	}
 	draft.SourceURL = collectionURL.Raw
+	// 保存与去重使用带来源形态命名空间的身份；解析核对仍用来源原始 ID。
+	draft.ExternalID = collectionURL.IdentityKey()
 
 	var existing models.EpisodeCollection
 	existingErr := s.db.WithContext(ctx).Where("source_platform = ? AND external_id = ?", draft.Platform, draft.ExternalID).

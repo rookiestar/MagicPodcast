@@ -75,6 +75,19 @@ func TestParseCollectionURL_RejectsBeyondCampaignScope(t *testing.T) {
 	}
 }
 
+func TestCollectionURLIdentityKey_NamespacesCampaigns(t *testing.T) {
+	collection, err := ParseCollectionURL("https://www.xiaoyuzhoufm.com/collection/episode/" + sampleCollectionID)
+	require.NoError(t, err)
+	assert.Equal(t, sampleCollectionID, collection.IdentityKey())
+
+	// 专题 slug 字符集与 24 位十六进制清单 ID 有理论交集；身份必须可区分。
+	hexSlug := sampleCollectionID
+	campaign, err := ParseCollectionURL("https://collection.xiaoyuzhoufm.com/" + hexSlug)
+	require.NoError(t, err)
+	assert.Equal(t, "campaign:"+hexSlug, campaign.IdentityKey())
+	assert.NotEqual(t, collection.IdentityKey(), campaign.IdentityKey())
+}
+
 func TestCampaignAPIURLBuildsVerifiedAddress(t *testing.T) {
 	assert.Equal(t,
 		"https://api.xiaoyuzhoufm.com/v1/campaign/get?slug=wavesfilm2026",

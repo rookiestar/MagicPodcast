@@ -61,6 +61,7 @@ func (s *Service) RefreshPreview(ctx context.Context, collectionID uint) (*Refre
 		return nil, err
 	}
 	// 刷新沿用保存时的规范化来源地址；来源形态决定抓取目标与解析器。
+	// 解析核对用来源原始 ID；来源身份带形态命名空间，与导入保存时一致。
 	source, err := s.sourceURL(collection.SourceURL)
 	if err != nil {
 		return nil, err
@@ -70,10 +71,11 @@ func (s *Service) RefreshPreview(ctx context.Context, collectionID uint) (*Refre
 	if err != nil {
 		return nil, err
 	}
-	draft, err := s.parse(source.Kind, string(body), collection.ExternalID)
+	draft, err := s.parse(source.Kind, string(body), source.ExternalID)
 	if err != nil && !errors.Is(err, ErrEmptyCollection) {
 		return nil, err
 	}
+	draft.ExternalID = source.IdentityKey()
 	draft.SourceURL = collection.SourceURL
 
 	var stored []models.EpisodeCollectionItem
