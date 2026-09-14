@@ -15,6 +15,8 @@ export interface CollectionPreviewItem {
 }
 
 export interface CollectionPreview {
+  source_item_count?: number;
+  duplicate_item_count?: number;
   preview_id: string;
   platform: string;
   external_id: string;

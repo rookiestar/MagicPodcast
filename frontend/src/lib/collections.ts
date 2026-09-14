@@ -120,6 +120,8 @@ export interface RefreshRemovedItem {
 }
 
 export interface CollectionRefreshPreview {
+  source_item_count?: number;
+  duplicate_item_count?: number;
   preview_id: string;
   collection_id: number;
   base_revision: number;

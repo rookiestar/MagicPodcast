@@ -28,17 +28,19 @@ func (s RefreshChangeSummary) HasChanges() bool {
 
 // RefreshPreviewResult 刷新预览：确认应用的是用户实际看过的这份差异。
 type RefreshPreviewResult struct {
-	PreviewID  string               `json:"preview_id"`
-	Collection uint                 `json:"collection_id"`
-	BaseRev    int                  `json:"base_revision"`
-	SourceURL  string               `json:"source_url"`
-	Title      string               `json:"title"`
-	Author     string               `json:"author"`
-	TotalKnown bool                 `json:"total_known"`
-	ReadCount  int                  `json:"read_count"`
-	Changes    RefreshChangeSummary `json:"changes"`
-	Items      []PreviewItemBrief   `json:"items"`
-	Removed    []RemovedItemBrief   `json:"removed"`
+	SourceItemCount    int                  `json:"source_item_count"`
+	DuplicateItemCount int                  `json:"duplicate_item_count"`
+	PreviewID          string               `json:"preview_id"`
+	Collection         uint                 `json:"collection_id"`
+	BaseRev            int                  `json:"base_revision"`
+	SourceURL          string               `json:"source_url"`
+	Title              string               `json:"title"`
+	Author             string               `json:"author"`
+	TotalKnown         bool                 `json:"total_known"`
+	ReadCount          int                  `json:"read_count"`
+	Changes            RefreshChangeSummary `json:"changes"`
+	Items              []PreviewItemBrief   `json:"items"`
+	Removed            []RemovedItemBrief   `json:"removed"`
 }
 
 // RemovedItemBrief 源清单移出的条目摘要；已收录单集及其个人数据不受影响。
@@ -128,17 +130,19 @@ func (s *Service) RefreshPreview(ctx context.Context, collectionID uint) (*Refre
 		return nil, err
 	}
 	return &RefreshPreviewResult{
-		PreviewID:  token,
-		Collection: collection.ID,
-		BaseRev:    collection.Revision,
-		SourceURL:  collection.SourceURL,
-		Title:      draft.Title,
-		Author:     draft.Author,
-		TotalKnown: draft.TotalKnown,
-		ReadCount:  len(draft.Items),
-		Changes:    changes,
-		Items:      items,
-		Removed:    removed,
+		SourceItemCount:    draft.SourceItemCount,
+		DuplicateItemCount: draft.DuplicateItemCount,
+		PreviewID:          token,
+		Collection:         collection.ID,
+		BaseRev:            collection.Revision,
+		SourceURL:          collection.SourceURL,
+		Title:              draft.Title,
+		Author:             draft.Author,
+		TotalKnown:         draft.TotalKnown,
+		ReadCount:          len(draft.Items),
+		Changes:            changes,
+		Items:              items,
+		Removed:            removed,
 	}, nil
 }
 

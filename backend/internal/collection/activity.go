@@ -81,7 +81,6 @@ func ParseActivityJSON(body string, expectedCode string) (*Draft, error) {
 		TotalKnown: false,
 		Items:      make([]ItemDraft, 0),
 	}
-	seen := make(map[string]struct{})
 	hasEpisodeList := false
 	for moduleIndex, module := range payload.Modules {
 		if module.Type != activityListKind {
@@ -97,10 +96,6 @@ func ParseActivityJSON(body string, expectedCode string) (*Draft, error) {
 				return nil, fmt.Errorf("%w: activity item %d/%d missing podcast title",
 					ErrIncompleteSource, moduleIndex, index)
 			}
-			if _, exists := seen[episode.ID]; exists {
-				return nil, fmt.Errorf("%w: duplicate eid %q", ErrDuplicateItems, episode.ID)
-			}
-			seen[episode.ID] = struct{}{}
 
 			draft.Items = append(draft.Items, ItemDraft{
 				ExternalEpisodeID: episode.ID,
@@ -127,7 +122,7 @@ func ParseActivityJSON(body string, expectedCode string) (*Draft, error) {
 	if len(draft.Items) == 0 {
 		return draft, ErrEmptyCollection
 	}
-	return draft, nil
+	return mergeDraftItems(draft)
 }
 
 // activityAudioURL 仅在显式 FREE 且公开来源的单集上保留音频地址快照；

@@ -188,6 +188,11 @@ export default function RefreshCollectionModal({
           )}
           {preview && (
             <div className="flex flex-col gap-3">
+              {!!preview.duplicate_item_count && (
+                <p className="collection-form-hint" role="status">
+                  已读取 {preview.source_item_count} 个条目，合并 {preview.duplicate_item_count} 个重复条目，共 {preview.read_count} 集；不同推荐语已保留。
+                </p>
+              )}
               {preview.changes.added_count === 0 &&
               preview.changes.removed_count === 0 &&
               preview.changes.reordered_count === 0 &&

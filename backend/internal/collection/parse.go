@@ -18,7 +18,6 @@ var (
 	ErrIncompleteSource      = errors.New("collection page is missing required structure")
 	ErrUnsupportedTargetType = errors.New("only episode collections are supported")
 	ErrEmptyCollection       = errors.New("collection contains no episode entries")
-	ErrDuplicateItems        = errors.New("collection contains duplicate episode identities")
 )
 
 // PlatformXiaoyuzhoufm 当前唯一支持的清单来源平台。
@@ -65,15 +64,17 @@ type ItemDraft struct {
 
 // Draft 是一份清单的确定性解析结果。
 type Draft struct {
-	Platform        string
-	ExternalID      string
-	Title           string
-	Description     string
-	Author          string
-	SourceURL       string
-	SourceCreatedAt *time.Time
-	TotalKnown      bool // 当前源格式没有总数或分页标记，恒为 false；保留字段避免语义含混
-	Items           []ItemDraft
+	SourceItemCount    int
+	DuplicateItemCount int
+	Platform           string
+	ExternalID         string
+	Title              string
+	Description        string
+	Author             string
+	SourceURL          string
+	SourceCreatedAt    *time.Time
+	TotalKnown         bool // 当前源格式没有总数或分页标记，恒为 false；保留字段避免语义含混
+	Items              []ItemDraft
 }
 
 // nextData 只解码需要的字段；未识别字段忽略。
@@ -185,7 +186,6 @@ func ParsePageHTML(html string, expectedExternalID string) (*Draft, error) {
 		draft.Author = strings.TrimSpace(payload.Author.Nickname)
 	}
 
-	seen := make(map[string]struct{}, len(payload.Target))
 	for index, raw := range payload.Target {
 		var item itemPayload
 		if err := json.Unmarshal(raw, &item); err != nil {
@@ -197,10 +197,6 @@ func ParsePageHTML(html string, expectedExternalID string) (*Draft, error) {
 		if item.Podcast == nil || strings.TrimSpace(item.Podcast.Title) == "" {
 			return nil, fmt.Errorf("%w: target item %d missing podcast title", ErrIncompleteSource, index)
 		}
-		if _, exists := seen[item.EID]; exists {
-			return nil, fmt.Errorf("%w: duplicate eid %q", ErrDuplicateItems, item.EID)
-		}
-		seen[item.EID] = struct{}{}
 
 		entry := itemDraftFromPayload(item)
 		// 推荐语缺失时保留空值，不生成替代文案。
@@ -210,7 +206,7 @@ func ParsePageHTML(html string, expectedExternalID string) (*Draft, error) {
 	if len(draft.Items) == 0 {
 		return draft, ErrEmptyCollection
 	}
-	return draft, nil
+	return mergeDraftItems(draft)
 }
 
 // itemDraftFromPayload 把单集载荷映射为清单条目快照；两种来源形态共用同一映射。

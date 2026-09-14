@@ -29,6 +29,13 @@ const preview = {
 };
 beforeEach(() => vi.resetAllMocks());
 
+it("reports merged source entries even when the saved content has no changes", async () => {
+  previewMock.mockResolvedValue({...preview, source_item_count: 3, duplicate_item_count: 1, read_count: 2});
+  render(<RefreshCollectionModal isOpen collectionID={1} onClose={vi.fn()} onApplied={vi.fn()} />);
+  expect(await screen.findByText(/已读取 3 个条目，合并 1 个重复条目，共 2 集/)).toBeInTheDocument();
+  expect(screen.getByText(/没有变化/)).toBeInTheDocument();
+});
+
 it("aborts a pending read when dismissed", async () => {
   previewMock.mockImplementation(() => new Promise(() => {}));
   const onClose = vi.fn();
