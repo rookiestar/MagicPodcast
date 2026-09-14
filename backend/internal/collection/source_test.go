@@ -75,23 +75,80 @@ func TestParseCollectionURL_RejectsBeyondCampaignScope(t *testing.T) {
 	}
 }
 
-func TestCollectionURLIdentityKey_NamespacesCampaigns(t *testing.T) {
+func TestParseCollectionURL_AcceptsActivityPage(t *testing.T) {
+	parsed, err := ParseCollectionURL("https://h5.xiaoyuzhoufm.com/xyz-activity/forgenz?utm=x")
+	require.NoError(t, err)
+	assert.Equal(t, sourceActivity, parsed.Kind)
+	assert.Equal(t, "forgenz", parsed.ExternalID)
+	// 规范化地址剥离查询参数，作为清单来源身份保存。
+	assert.Equal(t, "https://h5.xiaoyuzhoufm.com/xyz-activity/forgenz", parsed.Raw)
+}
+
+func TestParseCollectionURL_RejectsBeyondActivityScope(t *testing.T) {
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{"根路径", "https://h5.xiaoyuzhoufm.com/"},
+		{"其他前缀", "https://h5.xiaoyuzhoufm.com/webview/forgenz"},
+		{"多级路径", "https://h5.xiaoyuzhoufm.com/xyz-activity/forgenz/episodes"},
+		{"空code", "https://h5.xiaoyuzhoufm.com/xyz-activity/"},
+		{"非slug字符", "https://h5.xiaoyuzhoufm.com/xyz-activity/海浪电影周"},
+		{"http降级", "http://h5.xiaoyuzhoufm.com/xyz-activity/forgenz"},
+		{"带端口", "https://h5.xiaoyuzhoufm.com:8443/xyz-activity/forgenz"},
+		{"接口主机伪装页面", "https://web-api.xiaoyuzhoufm.com/web/activity-page/get-by-code"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseCollectionURL(tc.url)
+			require.ErrorIs(t, err, ErrInvalidCollectionURL)
+		})
+	}
+}
+
+func TestCollectionURLIdentityKey_NamespacesSources(t *testing.T) {
 	collection, err := ParseCollectionURL("https://www.xiaoyuzhoufm.com/collection/episode/" + sampleCollectionID)
 	require.NoError(t, err)
 	assert.Equal(t, sampleCollectionID, collection.IdentityKey())
 
-	// 专题 slug 字符集与 24 位十六进制清单 ID 有理论交集；身份必须可区分。
+	// 专题 slug、活动 code 与 24 位十六进制清单 ID 的字符集有理论交集；
+	// 三种来源身份必须两两可区分。
 	hexSlug := sampleCollectionID
 	campaign, err := ParseCollectionURL("https://collection.xiaoyuzhoufm.com/" + hexSlug)
 	require.NoError(t, err)
 	assert.Equal(t, "campaign:"+hexSlug, campaign.IdentityKey())
+
+	activity, err := ParseCollectionURL("https://h5.xiaoyuzhoufm.com/xyz-activity/" + hexSlug)
+	require.NoError(t, err)
+	assert.Equal(t, "activity:"+hexSlug, activity.IdentityKey())
+
 	assert.NotEqual(t, collection.IdentityKey(), campaign.IdentityKey())
+	assert.NotEqual(t, collection.IdentityKey(), activity.IdentityKey())
+	assert.NotEqual(t, campaign.IdentityKey(), activity.IdentityKey())
 }
 
 func TestCampaignAPIURLBuildsVerifiedAddress(t *testing.T) {
 	assert.Equal(t,
 		"https://api.xiaoyuzhoufm.com/v1/campaign/get?slug=wavesfilm2026",
 		campaignAPIURL("wavesfilm2026"))
+}
+
+func TestActivityAPIURLBuildsVerifiedAddress(t *testing.T) {
+	assert.Equal(t,
+		"https://web-api.xiaoyuzhoufm.com/web/activity-page/get-by-code",
+		activityAPIURL())
+	parsed, err := url.Parse(activityAPIURL())
+	require.NoError(t, err)
+	assert.True(t, isActivityAPIURL(parsed))
+
+	other, err := url.Parse("https://evil.example.com/web/activity-page/get-by-code")
+	require.NoError(t, err)
+	assert.False(t, isActivityAPIURL(other))
+
+	plain, err := url.Parse("https://web-api.xiaoyuzhoufm.com/")
+	require.NoError(t, err)
+	assert.False(t, isActivityAPIURL(plain))
+	assert.False(t, isActivityAPIURL(nil))
 }
 
 func TestCampaignAPIHopAllowed_OnlySameSlugAPIAddress(t *testing.T) {

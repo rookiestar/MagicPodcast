@@ -26,6 +26,8 @@ const SAMPLE_URL =
 
 const CAMPAIGN_URL = "https://collection.xiaoyuzhoufm.com/wavesfilm2026";
 
+const ACTIVITY_URL = "https://h5.xiaoyuzhoufm.com/xyz-activity/forgenz";
+
 function makePreview(overrides: Partial<CollectionPreview> = {}): CollectionPreview {
   return {
     preview_id: "preview-token-1",
@@ -113,6 +115,30 @@ describe("ImportCollectionModal", () => {
     expect(screen.getByText(/存储芯片为何五年内持续短缺？/)).toBeInTheDocument();
     // 缺失推荐语的条目不编造替代文案。
     expect(screen.getByText(/No.24 芯片江湖之中国半导体劫起/)).toBeInTheDocument();
+  });
+
+  it("accepts an h5 activity page URL as a collection source", async () => {
+    const user = userEvent.setup();
+    previewMock.mockResolvedValue(
+      makePreview({
+        external_id: "activity:forgenz",
+        source_url: ACTIVITY_URL,
+        title: "00后的宇宙必听｜给正在长大的你",
+        author: "",
+      }),
+    );
+    renderModal();
+
+    // 弹窗提示明确活动页链接也受支持。
+    expect(screen.getByText(/h5\.xiaoyuzhoufm\.com\/xyz-activity\/…/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("小宇宙单集清单链接"), ACTIVITY_URL);
+    await user.click(screen.getByRole("button", { name: "预览" }));
+
+    expect(await screen.findByText(/00后的宇宙必听/)).toBeInTheDocument();
+    expect(previewMock).toHaveBeenCalledWith(
+      ACTIVITY_URL,
+      expect.anything(),
+    );
   });
 
   it("accepts a campaign topic page URL as a collection source", async () => {

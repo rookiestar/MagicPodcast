@@ -176,10 +176,14 @@ type Service struct {
 
 // parseSourceBody 按来源形态分发到对应的确定性解析器。
 func parseSourceBody(kind sourceKind, body string, expectedExternalID string) (*Draft, error) {
-	if kind == sourceCampaign {
+	switch kind {
+	case sourceCampaign:
 		return ParseCampaignJSON(body, expectedExternalID)
+	case sourceActivity:
+		return ParseActivityJSON(body, expectedExternalID)
+	default:
+		return ParsePageHTML(body, expectedExternalID)
 	}
-	return ParsePageHTML(body, expectedExternalID)
 }
 
 // NewService 创建清单服务；生产抓取器带完整安全边界。

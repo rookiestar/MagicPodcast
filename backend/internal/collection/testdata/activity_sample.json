@@ -1,0 +1,109 @@
+{
+ "data": {
+  "code": "forgenz",
+  "id": "6a745261fef6cefa99cad627",
+  "title": "00后的宇宙必听｜给正在长大的你",
+  "theme": {
+   "color": {
+    "bg": "#d3e6ea",
+    "content": "#008cb2",
+    "container": "#f2f9f9"
+   },
+   "borderRadius": 18,
+   "withEnterAnimation": true
+  },
+  "modules": [
+   {
+    "id": "13bdbef2-17c5-4123-93fc-f0047c07dd66",
+    "type": "IMAGE",
+    "image": {
+     "picUrl": null
+    },
+    "noPagePadding": true
+   },
+   {
+    "id": "a46dc765-d6b1-4c34-b55f-be113450b820",
+    "type": "EPISODE_VERTICAL_LIST",
+    "episodes": [
+     {
+      "id": "65e75676d15a20dbcab730ca",
+      "pid": "65cef9e3cace72dff8d98de3",
+      "title": "vol.02 我的前半生：如何获得底层自信",
+      "image": {
+       "picUrl": "https://image.xyzcdn.net/FtIoLXailG9gR94_iMvUCKgZ8Jlh.jpg"
+      },
+      "commentCount": 4836,
+      "podcastTitle": "天真不天真",
+      "duration": 2913,
+      "payType": "FREE",
+      "media": {
+       "size": 70478357,
+       "mimeType": "audio/mp4",
+       "source": {
+        "mode": "PUBLIC",
+        "url": "https://media.xyzcdn.net/lpCIChIJ5hA3picMxRxzj2dYlBvB.m4a"
+       }
+      },
+      "recommendation": "建立自信，找到不被动摇的内核"
+     },
+     {
+      "id": "6a0ae93ce1eb34a939a093d8",
+      "pid": "5e5de5cb418a84a0467beb90",
+      "title": "自我进化论｜No.80：人潮退去后，如何在孤独中长出新的自己？",
+      "image": {
+       "picUrl": "https://image.xyzcdn.net/FukZeHyG-F0POtf8trVanJ1sSTEQ"
+      },
+      "commentCount": 1563,
+      "podcastTitle": "自我进化论",
+      "duration": 3400,
+      "payType": "FREE",
+      "media": {
+       "size": 54987827,
+       "mimeType": "audio/mp4",
+       "source": {
+        "mode": "PUBLIC",
+        "url": "https://media.xyzcdn.net/5e5de5cb418a84a0467beb90/lsiwSRPyIv9Ilh3eNlp_oF3foR-Z.m4a"
+       }
+      },
+      "recommendation": "拥抱孤独，在独处里收获成长"
+     }
+    ]
+   },
+   {
+    "id": "1e235c48-9995-4470-8594-bfc57ffa4569",
+    "type": "IMAGE",
+    "image": {
+     "picUrl": null
+    },
+    "noPagePadding": true
+   },
+   {
+    "id": "dca97c3c-aa7e-45d3-8d2d-35e07dd850d9",
+    "type": "EPISODE_VERTICAL_LIST",
+    "episodes": [
+     {
+      "id": "695cdfd921cd486af739424c",
+      "pid": "63b794e9ff0f96d42f829859",
+      "title": "Vol.146 高效的人际交往求链接，内耗的人际交往求认可",
+      "image": {
+       "picUrl": "https://image.xyzcdn.net/Fjsjd8ahikrDjI4svjT5vcRa2cUZ.jpg"
+      },
+      "commentCount": 401,
+      "podcastTitle": "钱婧老师的会客厅",
+      "duration": 3159,
+      "payType": "FREE",
+      "media": {
+       "size": 51094827,
+       "mimeType": "audio/mp4",
+       "source": {
+        "mode": "PUBLIC",
+        "url": "https://media.xyzcdn.net/63b794e9ff0f96d42f829859/lr1LNk-sjx86IMY447WxpsHZw5Y0.m4a"
+       }
+      },
+      "recommendation": "拿捏社交，从好学生过渡为社会人"
+     }
+    ]
+   }
+  ]
+ }
+}
