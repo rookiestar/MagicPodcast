@@ -135,6 +135,19 @@ func TestCollectionHandler_ImportPreviewAndBrowse(t *testing.T) {
 	assert.False(t, duplicate)
 	require.NotZero(t, collectionID)
 
+	duplicatePreview := postJSON(t, router, "/api/v1/collections/preview", map[string]string{"url": url})
+	require.Equal(t, http.StatusOK, duplicatePreview.Code, duplicatePreview.Body.String())
+	var duplicatePreviewBody struct {
+		Data struct {
+			Duplicate            bool  `json:"duplicate"`
+			ExistingCollectionID *uint `json:"existing_collection_id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(duplicatePreview.Body.Bytes(), &duplicatePreviewBody))
+	assert.True(t, duplicatePreviewBody.Data.Duplicate)
+	require.NotNil(t, duplicatePreviewBody.Data.ExistingCollectionID)
+	assert.Equal(t, collectionID, *duplicatePreviewBody.Data.ExistingCollectionID)
+
 	// 重复导入：打开已有清单，不新建副本。
 	duplicateAgain, sameID := previewAndImport(t, router, url)
 	assert.True(t, duplicateAgain)

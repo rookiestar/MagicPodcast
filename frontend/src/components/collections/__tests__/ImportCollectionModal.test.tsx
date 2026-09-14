@@ -33,6 +33,8 @@ function makePreview(overrides: Partial<CollectionPreview> = {}): CollectionPrev
     source_url: SAMPLE_URL,
     total_known: false,
     read_count: 2,
+    duplicate: false,
+    existing_collection_id: null,
     items: [
       {
         position: 0,
@@ -76,7 +78,11 @@ function axiosLikeError(code: string, message: string) {
 function renderModal(onImported = vi.fn()) {
   const onClose = vi.fn();
   render(
-    <ImportCollectionModal isOpen onClose={onClose} onImported={onImported} />,
+    <ImportCollectionModal
+      isOpen
+      onClose={onClose}
+      onImported={onImported}
+    />,
   );
   return { onClose, onImported };
 }
@@ -120,6 +126,44 @@ describe("ImportCollectionModal", () => {
       expect(confirmMock).toHaveBeenCalledWith("preview-token-1");
       expect(onImported).toHaveBeenCalledWith({ duplicate: false, collectionID: 9 });
     });
+  });
+
+  it("warns on a duplicate source and does not confirm it again", async () => {
+    const user = userEvent.setup();
+    previewMock.mockResolvedValue(
+      makePreview({ duplicate: true, existing_collection_id: 9 }),
+    );
+    const { onClose, onImported } = renderModal();
+
+    await user.type(screen.getByLabelText("小宇宙单集清单链接"), SAMPLE_URL);
+    await user.click(screen.getByRole("button", { name: "预览" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "这份清单已经导入过",
+    );
+    expect(screen.queryByRole("button", { name: "导入清单" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "打开已有清单" }));
+
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(onImported).toHaveBeenCalledWith({ duplicate: true, collectionID: 9 });
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("keeps a confirmation race visible until the user opens the existing collection", async () => {
+    const user = userEvent.setup();
+    previewMock.mockResolvedValue(makePreview());
+    confirmMock.mockResolvedValue({ duplicate: true, collection_id: 9 });
+    const { onClose, onImported } = renderModal();
+    await user.type(screen.getByLabelText("小宇宙单集清单链接"), SAMPLE_URL);
+    await user.click(screen.getByRole("button", { name: "预览" }));
+    await user.click(await screen.findByRole("button", { name: "导入清单" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("这份清单已经导入过");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onImported).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "打开已有清单" }));
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+    expect(onImported).toHaveBeenCalledWith({ duplicate: true, collectionID: 9 });
   });
 
   it("surfaces an expired preview and asks for a fresh preview", async () => {

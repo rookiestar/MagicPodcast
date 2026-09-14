@@ -13,7 +13,7 @@ import type { CollectionPreview } from "@/types/collection";
 interface ImportCollectionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  /** 导入成功后回调；duplicate=true 表示已存在，应打开已有清单。 */
+  /** 新清单导入成功或用户主动打开已有清单时回调。 */
   onImported: (result: { duplicate: boolean; collectionID: number }) => void;
 }
 
@@ -84,11 +84,23 @@ export default function ImportCollectionModal({
   };
 
   const runConfirm = async () => {
-    if (!preview) return;
+    if (!preview || preview.duplicate) return;
     setImporting(true);
     setError("");
     try {
       const result = await confirmCollectionImport(preview.preview_id);
+      if (result.duplicate) {
+        setPreview((current) =>
+          current
+            ? {
+                ...current,
+                duplicate: true,
+                existing_collection_id: result.collection_id,
+              }
+            : current,
+        );
+        return;
+      }
       reset();
       onClose();
       onImported({
@@ -106,6 +118,14 @@ export default function ImportCollectionModal({
     } finally {
       setImporting(false);
     }
+  };
+
+  const openExistingCollection = () => {
+    const collectionID = preview?.existing_collection_id;
+    if (!preview?.duplicate || !collectionID) return;
+    reset();
+    onClose();
+    onImported({ duplicate: true, collectionID });
   };
 
   const changeURL = () => {
@@ -152,7 +172,13 @@ export default function ImportCollectionModal({
         <div className="editorial-modal-header">
           <div className="editorial-modal-heading">
             <span className="editorial-modal-kicker">播客清单</span>
-            <small>{preview ? "确认导入" : "粘贴链接"}</small>
+            <small>
+              {preview?.duplicate
+                ? "清单已存在"
+                : preview
+                  ? "确认导入"
+                  : "粘贴链接"}
+            </small>
           </div>
           <button
             type="button"
@@ -222,6 +248,11 @@ export default function ImportCollectionModal({
                     {preview.description}
                   </p>
                 )}
+                {preview.duplicate && (
+                  <p className="collection-duplicate-notice" role="alert">
+                    这份清单已经导入过，无需重复导入；原有清单内容保持不变。
+                  </p>
+                )}
               </div>
               <ol className="collection-preview-items">
                 {preview.items.map((item) => (
@@ -243,7 +274,9 @@ export default function ImportCollectionModal({
                 ))}
               </ol>
               <p className="collection-form-hint">
-                将保存你正在预览的这份清单内容；不勾选任何单集，导入后仍需逐集决定是否收录。
+                {preview.duplicate
+                  ? "你可以打开已有清单，或修改链接查看另一份清单。"
+                  : "将保存你正在预览的这份清单内容；不勾选任何单集，导入后仍需逐集决定是否收录。"}
               </p>
             </div>
           )}
@@ -266,14 +299,25 @@ export default function ImportCollectionModal({
               >
                 修改链接
               </button>
-              <button
-                type="button"
-                className="collection-btn-primary"
-                onClick={() => void runConfirm()}
-                disabled={importing}
-              >
-                {importing ? "正在导入…" : "导入清单"}
-              </button>
+              {preview.duplicate ? (
+                <button
+                  type="button"
+                  className="collection-btn-primary"
+                  onClick={openExistingCollection}
+                  disabled={!preview.existing_collection_id}
+                >
+                  打开已有清单
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="collection-btn-primary"
+                  onClick={() => void runConfirm()}
+                  disabled={importing}
+                >
+                  {importing ? "正在导入…" : "导入清单"}
+                </button>
+              )}
             </>
           ) : (
             <>

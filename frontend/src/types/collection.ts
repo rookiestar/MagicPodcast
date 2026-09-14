@@ -24,6 +24,8 @@ export interface CollectionPreview {
   source_url: string;
   total_known: boolean;
   read_count: number;
+  duplicate: boolean;
+  existing_collection_id: number | null;
   items: CollectionPreviewItem[];
 }
 

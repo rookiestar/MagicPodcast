@@ -205,16 +205,18 @@ func NewServiceWithFetcher(db *gorm.DB, fetcher SourceFetcher) *Service {
 
 // PreviewResult 返回给前端的预览内容；预览不含 Show Notes 正文，保持响应轻量。
 type PreviewResult struct {
-	PreviewID   string             `json:"preview_id"`
-	Platform    string             `json:"platform"`
-	ExternalID  string             `json:"external_id"`
-	Title       string             `json:"title"`
-	Description string             `json:"description"`
-	Author      string             `json:"author"`
-	SourceURL   string             `json:"source_url"`
-	TotalKnown  bool               `json:"total_known"`
-	ReadCount   int                `json:"read_count"`
-	Items       []PreviewItemBrief `json:"items"`
+	PreviewID            string             `json:"preview_id"`
+	Platform             string             `json:"platform"`
+	ExternalID           string             `json:"external_id"`
+	Title                string             `json:"title"`
+	Description          string             `json:"description"`
+	Author               string             `json:"author"`
+	SourceURL            string             `json:"source_url"`
+	TotalKnown           bool               `json:"total_known"`
+	ReadCount            int                `json:"read_count"`
+	Duplicate            bool               `json:"duplicate"`
+	ExistingCollectionID *uint              `json:"existing_collection_id"`
+	Items                []PreviewItemBrief `json:"items"`
 }
 
 // PreviewItemBrief 预览条目：标题、节目与原始推荐语足以确认导入对象。
@@ -249,11 +251,25 @@ func (s *Service) Preview(ctx context.Context, rawURL string) (*PreviewResult, e
 	}
 	draft.SourceURL = collectionURL.Raw
 
+	var existing models.EpisodeCollection
+	existingErr := s.db.WithContext(ctx).Where("source_platform = ? AND external_id = ?", draft.Platform, draft.ExternalID).
+		First(&existing).Error
+	if existingErr != nil && !errors.Is(existingErr, gorm.ErrRecordNotFound) {
+		return nil, existingErr
+	}
+	var existingCollectionID *uint
+	if existingErr == nil {
+		existingCollectionID = &existing.ID
+	}
+
 	token, err := s.previews.put(draft)
 	if err != nil {
 		return nil, err
 	}
-	return previewResultFromDraft(draft, token), nil
+	result := previewResultFromDraft(draft, token)
+	result.Duplicate = existingCollectionID != nil
+	result.ExistingCollectionID = existingCollectionID
+	return result, nil
 }
 
 func previewResultFromDraft(draft *Draft, previewID string) *PreviewResult {
@@ -283,6 +299,7 @@ func previewResultFromDraft(draft *Draft, previewID string) *PreviewResult {
 		SourceURL:   draft.SourceURL,
 		TotalKnown:  draft.TotalKnown,
 		ReadCount:   len(draft.Items),
+		Duplicate:   false,
 		Items:       items,
 	}
 }

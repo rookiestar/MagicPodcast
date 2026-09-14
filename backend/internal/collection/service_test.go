@@ -117,11 +117,16 @@ func TestConfirmImport_DuplicateSourceOpensExistingCollection(t *testing.T) {
 		return http.StatusOK, loadSampleHTML(t)
 	}, nil))
 
-	first, err := service.ConfirmImport(samplePreview(t, service).PreviewID)
+	firstPreview := samplePreview(t, service)
+	first, err := service.ConfirmImport(firstPreview.PreviewID)
 	require.NoError(t, err)
 
 	// 重新预览同一清单后再次导入：打开已有清单，不新建副本。
-	second, err := service.ConfirmImport(samplePreview(t, service).PreviewID)
+	secondPreview := samplePreview(t, service)
+	assert.True(t, secondPreview.Duplicate)
+	require.NotNil(t, secondPreview.ExistingCollectionID)
+	assert.Equal(t, first.CollectionID, *secondPreview.ExistingCollectionID)
+	second, err := service.ConfirmImport(secondPreview.PreviewID)
 	require.NoError(t, err)
 	assert.True(t, second.Duplicate)
 	assert.Equal(t, first.CollectionID, second.CollectionID)
@@ -164,11 +169,13 @@ func TestConfirmImport_SourceUniqueConstraintRace(t *testing.T) {
 	service := newStubService(t, stubFetcher(func(string) (int, string) {
 		return http.StatusOK, loadSampleHTML(t)
 	}, nil))
-	first, err := service.ConfirmImport(samplePreview(t, service).PreviewID)
+	firstPreview := samplePreview(t, service)
+	secondPreview := samplePreview(t, service)
+	first, err := service.ConfirmImport(firstPreview.PreviewID)
 	require.NoError(t, err)
 
-	// 绕过预览存储，手工触发同一平台+外部ID的写入路径。
-	result, err := service.ConfirmImport(samplePreview(t, service).PreviewID)
+	// 两次预览完成后另一窗口先确认，旧预览仍应被去重。
+	result, err := service.ConfirmImport(secondPreview.PreviewID)
 	require.NoError(t, err)
 	assert.Equal(t, first.CollectionID, result.CollectionID)
 }
