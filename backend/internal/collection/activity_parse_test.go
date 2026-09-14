@@ -78,8 +78,10 @@ func TestParseActivityJSON_RejectsUntrustedStructures(t *testing.T) {
 			`{"type":"EPISODE_VERTICAL_LIST","episodes":[` +
 			`{"id":"aaa","title":"一","podcastTitle":"播"},` +
 			`{"id":"aaa","title":"二","podcastTitle":"播"}]}]}}`
-		_, err := ParseActivityJSON(duplicated, sampleActivityCode)
-		require.ErrorIs(t, err, ErrDuplicateItems)
+		draft, err := ParseActivityJSON(duplicated, sampleActivityCode)
+		require.NoError(t, err)
+		require.Len(t, draft.Items, 1)
+		assert.Equal(t, 1, draft.DuplicateItemCount)
 	})
 	t.Run("条目缺节目标题", func(t *testing.T) {
 		missing := `{"data":{"code":"forgenz","title":"活动","modules":[` +

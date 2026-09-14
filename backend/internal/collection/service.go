@@ -217,6 +217,8 @@ func NewServiceWithFetcher(db *gorm.DB, fetcher SourceFetcher) *Service {
 
 // PreviewResult 返回给前端的预览内容；预览不含 Show Notes 正文，保持响应轻量。
 type PreviewResult struct {
+	SourceItemCount      int                `json:"source_item_count"`
+	DuplicateItemCount   int                `json:"duplicate_item_count"`
 	PreviewID            string             `json:"preview_id"`
 	Platform             string             `json:"platform"`
 	ExternalID           string             `json:"external_id"`
@@ -304,17 +306,19 @@ func previewResultFromDraft(draft *Draft, previewID string) *PreviewResult {
 		})
 	}
 	return &PreviewResult{
-		PreviewID:   previewID,
-		Platform:    draft.Platform,
-		ExternalID:  draft.ExternalID,
-		Title:       draft.Title,
-		Description: draft.Description,
-		Author:      draft.Author,
-		SourceURL:   draft.SourceURL,
-		TotalKnown:  draft.TotalKnown,
-		ReadCount:   len(draft.Items),
-		Duplicate:   false,
-		Items:       items,
+		SourceItemCount:    draft.SourceItemCount,
+		DuplicateItemCount: draft.DuplicateItemCount,
+		PreviewID:          previewID,
+		Platform:           draft.Platform,
+		ExternalID:         draft.ExternalID,
+		Title:              draft.Title,
+		Description:        draft.Description,
+		Author:             draft.Author,
+		SourceURL:          draft.SourceURL,
+		TotalKnown:         draft.TotalKnown,
+		ReadCount:          len(draft.Items),
+		Duplicate:          false,
+		Items:              items,
 	}
 }
 

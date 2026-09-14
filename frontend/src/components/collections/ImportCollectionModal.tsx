@@ -258,6 +258,11 @@ export default function ImportCollectionModal({
             <div className="flex flex-col gap-3">
               <div>
                 <h3 className="collection-preview-title">{preview.title}</h3>
+                {!!preview.duplicate_item_count && (
+                  <p className="collection-form-hint" role="status">
+                    已读取 {preview.source_item_count} 个条目，合并 {preview.duplicate_item_count} 个重复条目，共 {preview.read_count} 集；不同推荐语已保留。
+                  </p>
+                )}
                 <p className="collection-form-hint">
                   作者：{preview.author || "未提供"}
                   {preview.total_known

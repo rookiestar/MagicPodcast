@@ -201,9 +201,6 @@ func mapCollectionError(err error) (code string, status int, message string) {
 	case errors.Is(err, collection.ErrIncompleteSource):
 		return "SOURCE_PARSE_FAILED", http.StatusUnprocessableEntity,
 			"清单页面结构不完整，无法完整读取，未保存任何清单"
-	case errors.Is(err, collection.ErrDuplicateItems):
-		return "SOURCE_PARSE_FAILED", http.StatusUnprocessableEntity,
-			"清单内出现重复单集，结构不可信，未保存任何清单"
 	case errors.Is(err, collection.ErrEmptyCollection):
 		return "EMPTY_COLLECTION", http.StatusUnprocessableEntity,
 			"这份清单当前没有单集条目"

@@ -84,8 +84,10 @@ func TestParseCampaignJSON_RejectsUntrustedStructures(t *testing.T) {
 		duplicated := `{"data":{"slug":"wavesfilm2026","config":{"share":{"title":"专题"}},"components":[{"kind":"EPISODE_LIST","items":[` +
 			`{"kind":"EPISODE","episode":{"eid":"aaa","title":"一","podcast":{"pid":"p","title":"播"}}},` +
 			`{"kind":"EPISODE","episode":{"eid":"aaa","title":"二","podcast":{"pid":"p","title":"播"}}}]}]}}`
-		_, err := ParseCampaignJSON(duplicated, sampleCampaignSlug)
-		require.ErrorIs(t, err, ErrDuplicateItems)
+		draft, err := ParseCampaignJSON(duplicated, sampleCampaignSlug)
+		require.NoError(t, err)
+		require.Len(t, draft.Items, 1)
+		assert.Equal(t, 1, draft.DuplicateItemCount)
 	})
 	t.Run("已发布条目缺节目标题", func(t *testing.T) {
 		missing := `{"data":{"slug":"wavesfilm2026","config":{"share":{"title":"专题"}},"components":[{"kind":"EPISODE_LIST","items":[` +

@@ -123,14 +123,14 @@ func TestParsePageHTML_RejectsUnsupportedAndBrokenStructures(t *testing.T) {
 			p["title"] = ""
 			return p
 		}(), ErrIncompleteSource},
-		{"清单内重复单集", func() map[string]any {
+		{"重复单集节目身份冲突", func() map[string]any {
 			p := cloneMap(base)
 			p["target"] = []map[string]any{
-				{"eid": "bbbbbbbbbbbbbbbbbbbbbbbb", "title": "a", "podcast": map[string]any{"title": "p"}},
-				{"eid": "bbbbbbbbbbbbbbbbbbbbbbbb", "title": "b", "podcast": map[string]any{"title": "p"}},
+				{"eid": "bbbbbbbbbbbbbbbbbbbbbbbb", "title": "a", "podcast": map[string]any{"pid": "p1", "title": "p"}},
+				{"eid": "bbbbbbbbbbbbbbbbbbbbbbbb", "title": "b", "podcast": map[string]any{"pid": "p2", "title": "p"}},
 			}
 			return p
-		}(), ErrDuplicateItems},
+		}(), ErrIncompleteSource},
 		{"条目缺节目名", func() map[string]any {
 			p := cloneMap(base)
 			p["target"] = []map[string]any{{"eid": "bbbbbbbbbbbbbbbbbbbbbbbb", "title": "a"}}

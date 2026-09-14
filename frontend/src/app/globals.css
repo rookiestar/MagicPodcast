@@ -8422,6 +8422,7 @@ textarea.editorial-field {
 }
 
 .collection-preview-copy small {
+  white-space: pre-wrap;
   color: #756c62;
   font-size: 12px;
   overflow-wrap: anywhere;
@@ -8569,6 +8570,7 @@ textarea.editorial-field {
 }
 
 .collection-item-recommendation p {
+  white-space: pre-wrap;
   margin: 0;
   font-size: 13.5px;
 }

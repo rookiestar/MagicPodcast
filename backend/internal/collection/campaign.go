@@ -75,7 +75,6 @@ func ParseCampaignJSON(body string, expectedSlug string) (*Draft, error) {
 		TotalKnown:  false,
 		Items:       make([]ItemDraft, 0),
 	}
-	seen := make(map[string]struct{})
 	hasEpisodeList := false
 	for componentIndex, component := range payload.Components {
 		if component.Kind != campaignComponentKind {
@@ -100,10 +99,6 @@ func ParseCampaignJSON(body string, expectedSlug string) (*Draft, error) {
 				return nil, fmt.Errorf("%w: campaign item %d/%d missing podcast title",
 					ErrIncompleteSource, componentIndex, index)
 			}
-			if _, exists := seen[item.Episode.EID]; exists {
-				return nil, fmt.Errorf("%w: duplicate eid %q", ErrDuplicateItems, item.Episode.EID)
-			}
-			seen[item.Episode.EID] = struct{}{}
 
 			entry := itemDraftFromPayload(*item.Episode)
 			// 专题条目的推荐语来自编辑写在条目上的 quote；缺失时保留空值。
@@ -117,5 +112,5 @@ func ParseCampaignJSON(body string, expectedSlug string) (*Draft, error) {
 	if len(draft.Items) == 0 {
 		return draft, ErrEmptyCollection
 	}
-	return draft, nil
+	return mergeDraftItems(draft)
 }

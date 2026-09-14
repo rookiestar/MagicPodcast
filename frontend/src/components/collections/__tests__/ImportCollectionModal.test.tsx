@@ -94,6 +94,17 @@ function renderModal(onImported = vi.fn()) {
 }
 
 describe("ImportCollectionModal", () => {
+  it("shows source and merged counts and retains different recommendations", async () => {
+    const preview = makePreview({source_item_count: 3, duplicate_item_count: 1});
+    preview.items[0].recommendation = "第一条\n\n第二条";
+    previewMock.mockResolvedValue(preview);
+    renderModal();
+    await userEvent.type(screen.getByLabelText("小宇宙单集清单链接"), SAMPLE_URL);
+    await userEvent.click(screen.getByRole("button", {name: "预览"}));
+    expect(await screen.findByText(/已读取 3 个条目，合并 1 个重复条目，共 2 集/)).toBeInTheDocument();
+    expect(screen.getByText(/第一条/).textContent).toContain("第一条\n\n第二条");
+    expect(screen.getByRole("button", {name: "导入清单"})).toBeEnabled();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     // resetAllMocks 清除上一用例的 rejected 实现。
