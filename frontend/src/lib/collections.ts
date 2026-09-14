@@ -212,7 +212,10 @@ export async function fetchCollectionDetail(
   if (response.data.success && response.data.data) {
     return response.data.data;
   }
-  throw new Error(response.data.error?.message || "清单不存在");
+  throw Object.assign(
+    new Error(response.data.error?.message || "清单不存在"),
+    { code: response.data.error?.code },
+  );
 }
 
 export const ADOPTED_FILTERS: Array<{

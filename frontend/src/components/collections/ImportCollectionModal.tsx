@@ -6,6 +6,7 @@ import {
   collectionErrorMessage,
   collectionErrorCode,
   confirmCollectionImport,
+  fetchCollectionDetail,
   previewCollection,
 } from "@/lib/collections";
 import type { CollectionPreview } from "@/types/collection";
@@ -120,12 +121,32 @@ export default function ImportCollectionModal({
     }
   };
 
-  const openExistingCollection = () => {
+  const openExistingCollection = async () => {
     const collectionID = preview?.existing_collection_id;
     if (!preview?.duplicate || !collectionID) return;
-    reset();
-    onClose();
-    onImported({ duplicate: true, collectionID });
+    setImporting(true);
+    setError("");
+    try {
+      await fetchCollectionDetail(collectionID);
+      reset();
+      onClose();
+      onImported({ duplicate: true, collectionID });
+    } catch (caught) {
+      if (collectionErrorCode(caught) === "COLLECTION_NOT_FOUND") {
+        setPreview((current) =>
+          current
+            ? { ...current, duplicate: false, existing_collection_id: null }
+            : current,
+        );
+        setError("已有清单已删除，可以重新导入这份预览。");
+      } else {
+        setError(
+          collectionErrorMessage(caught, "暂时无法打开已有清单，请稍后重试。"),
+        );
+      }
+    } finally {
+      setImporting(false);
+    }
   };
 
   const changeURL = () => {
@@ -303,8 +324,8 @@ export default function ImportCollectionModal({
                 <button
                   type="button"
                   className="collection-btn-primary"
-                  onClick={openExistingCollection}
-                  disabled={!preview.existing_collection_id}
+                  onClick={() => void openExistingCollection()}
+                  disabled={importing || !preview.existing_collection_id}
                 >
                   打开已有清单
                 </button>

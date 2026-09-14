@@ -2,9 +2,10 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { previewMock, confirmMock } = vi.hoisted(() => ({
+const { previewMock, confirmMock, fetchDetailMock } = vi.hoisted(() => ({
   previewMock: vi.fn(),
   confirmMock: vi.fn(),
+  fetchDetailMock: vi.fn(),
 }));
 
 vi.mock("@/lib/collections", async (importOriginal) => {
@@ -13,6 +14,7 @@ vi.mock("@/lib/collections", async (importOriginal) => {
     ...actual,
     previewCollection: previewMock,
     confirmCollectionImport: confirmMock,
+    fetchCollectionDetail: fetchDetailMock,
   };
 });
 
@@ -142,11 +144,41 @@ describe("ImportCollectionModal", () => {
       "这份清单已经导入过",
     );
     expect(screen.queryByRole("button", { name: "导入清单" })).toBeNull();
+    fetchDetailMock.mockResolvedValue(makePreview());
     await user.click(screen.getByRole("button", { name: "打开已有清单" }));
 
     expect(confirmMock).not.toHaveBeenCalled();
+    expect(fetchDetailMock).toHaveBeenCalledWith(9);
     expect(onImported).toHaveBeenCalledWith({ duplicate: true, collectionID: 9 });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("keeps the preview and allows re-import when the duplicate was deleted", async () => {
+    const user = userEvent.setup();
+    previewMock.mockResolvedValue(
+      makePreview({ duplicate: true, existing_collection_id: 9 }),
+    );
+    fetchDetailMock.mockRejectedValue(
+      axiosLikeError("COLLECTION_NOT_FOUND", "清单不存在"),
+    );
+    confirmMock.mockResolvedValue({ duplicate: false, collection_id: 10 });
+    const { onClose, onImported } = renderModal();
+
+    await user.type(screen.getByLabelText("小宇宙单集清单链接"), SAMPLE_URL);
+    await user.click(screen.getByRole("button", { name: "预览" }));
+    await user.click(await screen.findByRole("button", { name: "打开已有清单" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "已有清单已删除，可以重新导入这份预览。",
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "导入清单" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "导入清单" }));
+    await waitFor(() => {
+      expect(confirmMock).toHaveBeenCalledWith("preview-token-1");
+      expect(onImported).toHaveBeenCalledWith({ duplicate: false, collectionID: 10 });
+    });
   });
 
   it("keeps a confirmation race visible until the user opens the existing collection", async () => {
