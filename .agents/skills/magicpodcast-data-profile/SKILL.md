@@ -1,6 +1,6 @@
 ---
 name: magicpodcast-data-profile
-description: Operate MagicPodcast local data profiles through the repository command. Use for checking the current Fixture or Snapshot, switching to an explicitly requested profile or Fixture scenario, diagnosing profile readiness, or carrying out a separately authorized Snapshot refresh.
+description: "查询或切换 MagicPodcast 本地 Fixture/Snapshot、排查就绪状态；刷新 Snapshot 需对应授权。"
 ---
 
 # MagicPodcast data profile
