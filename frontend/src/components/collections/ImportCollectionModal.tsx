@@ -251,7 +251,7 @@ export default function ImportCollectionModal({
                 </p>
               )}
               <p className="collection-form-hint">
-                导入清单只保存可浏览的清单资料，不会批量入库，也不会关注节目或自动开始加工。
+                支持单集清单链接（www.xiaoyuzhoufm.com/collection/episode/…）与专题链接（collection.xiaoyuzhoufm.com/…）。导入清单只保存可浏览的清单资料，不会批量入库，也不会关注节目或自动开始加工。
               </p>
             </div>
           ) : (

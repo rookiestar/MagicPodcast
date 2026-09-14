@@ -284,7 +284,7 @@ func TestReviewReadbackUsesSharedLibraryAndIgnoresDeletedEpisode(t *testing.T) {
 	id, itemID := seedAdoptedFirstItem(t, s)
 	adopted, err := serviceAdopt(t, s, id, itemID)
 	require.NoError(t, err)
-	other := models.EpisodeCollection{SourcePlatform: PlatformXiaoyuzhoufm, ExternalID: "other", Title: "Other", SourceURL: "https://www.xiaoyuzhoufm.com/collection/episode/bbbbbbbbbbbbbbbbbbbbbbbb", Revision: 1}
+	other := models.EpisodeCollection{SourcePlatform: PlatformXiaoyuzhoufm, ExternalID: "bbbbbbbbbbbbbbbbbbbbbbbb", Title: "Other", SourceURL: "https://www.xiaoyuzhoufm.com/collection/episode/bbbbbbbbbbbbbbbbbbbbbbbb", Revision: 1}
 	require.NoError(t, s.db.Create(&other).Error)
 	var original models.EpisodeCollectionItem
 	require.NoError(t, s.db.First(&original, itemID).Error)

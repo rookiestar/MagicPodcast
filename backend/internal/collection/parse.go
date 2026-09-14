@@ -202,32 +202,38 @@ func ParsePageHTML(html string, expectedExternalID string) (*Draft, error) {
 		}
 		seen[item.EID] = struct{}{}
 
-		draft.Items = append(draft.Items, ItemDraft{
-			ExternalEpisodeID: item.EID,
-			ExternalPodcastID: firstNonEmpty(item.PID, item.Podcast.PID),
-			PodcastTitle:      strings.TrimSpace(item.Podcast.Title),
-			PodcastAuthor:     strings.TrimSpace(item.Podcast.Author),
-			PodcastCoverURL:   optionalString(item.Podcast.Image),
-			EpisodeTitle:      strings.TrimSpace(item.Title),
-			// 推荐语缺失时保留空值，不生成替代文案。
-			Recommendation:      strings.TrimSpace(item.Recommendation),
-			Shownotes:           item.Shownotes,
-			Duration:            normalizedDuration(item.Duration),
-			PublishedAt:         parseOptionalTime(item.PubDate),
-			ImageURL:            optionalString(item.Image),
-			EpisodeURL:          EpisodeURLForEID(item.EID),
-			PayType:             strings.TrimSpace(item.PayType),
-			IsPrivateMedia:      item.IsPrivateMedia,
-			AudioURL:            audioURL(item),
-			AudioMimeType:       audioMIME(item),
-			AudioSize:           audioSize(item),
-			PodcastEpisodeCount: podcastEpisodeCount(item.Podcast),
-		})
+		entry := itemDraftFromPayload(item)
+		// 推荐语缺失时保留空值，不生成替代文案。
+		entry.Recommendation = strings.TrimSpace(item.Recommendation)
+		draft.Items = append(draft.Items, entry)
 	}
 	if len(draft.Items) == 0 {
 		return draft, ErrEmptyCollection
 	}
 	return draft, nil
+}
+
+// itemDraftFromPayload 把单集载荷映射为清单条目快照；两种来源形态共用同一映射。
+func itemDraftFromPayload(item itemPayload) ItemDraft {
+	return ItemDraft{
+		ExternalEpisodeID:   item.EID,
+		ExternalPodcastID:   firstNonEmpty(item.PID, item.Podcast.PID),
+		PodcastTitle:        strings.TrimSpace(item.Podcast.Title),
+		PodcastAuthor:       strings.TrimSpace(item.Podcast.Author),
+		PodcastCoverURL:     optionalString(item.Podcast.Image),
+		EpisodeTitle:        strings.TrimSpace(item.Title),
+		Shownotes:           item.Shownotes,
+		Duration:            normalizedDuration(item.Duration),
+		PublishedAt:         parseOptionalTime(item.PubDate),
+		ImageURL:            optionalString(item.Image),
+		EpisodeURL:          EpisodeURLForEID(item.EID),
+		PayType:             strings.TrimSpace(item.PayType),
+		IsPrivateMedia:      item.IsPrivateMedia,
+		AudioURL:            audioURL(item),
+		AudioMimeType:       audioMIME(item),
+		AudioSize:           audioSize(item),
+		PodcastEpisodeCount: podcastEpisodeCount(item.Podcast),
+	}
 }
 
 // EpisodeURLForEID 构造源平台单集链接；清单保存的条目链接由 ID 确定性生成。

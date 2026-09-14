@@ -24,6 +24,8 @@ import type { CollectionPreview } from "@/types/collection";
 const SAMPLE_URL =
   "https://www.xiaoyuzhoufm.com/collection/episode/6a20323b78a52c96d821a769";
 
+const CAMPAIGN_URL = "https://collection.xiaoyuzhoufm.com/wavesfilm2026";
+
 function makePreview(overrides: Partial<CollectionPreview> = {}): CollectionPreview {
   return {
     preview_id: "preview-token-1",
@@ -111,6 +113,34 @@ describe("ImportCollectionModal", () => {
     expect(screen.getByText(/存储芯片为何五年内持续短缺？/)).toBeInTheDocument();
     // 缺失推荐语的条目不编造替代文案。
     expect(screen.getByText(/No.24 芯片江湖之中国半导体劫起/)).toBeInTheDocument();
+  });
+
+  it("accepts a campaign topic page URL as a collection source", async () => {
+    const user = userEvent.setup();
+    previewMock.mockResolvedValue(
+      makePreview({
+        external_id: "wavesfilm2026",
+        source_url: CAMPAIGN_URL,
+        title: "海浪电影周 播客特别企划：世界在每个清晨重启",
+        author: "",
+      }),
+    );
+    renderModal();
+
+    // 弹窗提示明确两种链接格式都受支持。
+    expect(
+      screen.getByText(/collection\.xiaoyuzhoufm\.com\/…/),
+    ).toBeInTheDocument();
+    await user.type(screen.getByLabelText("小宇宙单集清单链接"), CAMPAIGN_URL);
+    await user.click(screen.getByRole("button", { name: "预览" }));
+
+    expect(await screen.findByText(/海浪电影周/)).toBeInTheDocument();
+    expect(previewMock).toHaveBeenCalledWith(
+      CAMPAIGN_URL,
+      expect.anything(),
+    );
+    // 专题没有公开作者时不编造。
+    expect(screen.getByText(/作者：未提供/)).toBeInTheDocument();
   });
 
   it("confirms the previewed version and reports the result", async () => {
