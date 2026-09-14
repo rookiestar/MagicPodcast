@@ -126,3 +126,21 @@ func TestDuplicateItemsDoNotMaskIncompleteSource(t *testing.T) {
 	_, err = ParsePageHTML(nextDataHTML(t, payload), sampleCollectionID)
 	require.ErrorIs(t, err, ErrIncompleteSource)
 }
+
+func TestDuplicateItemLaterPodcastIdentityAllowsAdoption(t *testing.T) {
+	first := ItemDraft{ExternalEpisodeID: "a", PodcastTitle: "节目", EpisodeTitle: "单集"}
+	later := first
+	later.ExternalPodcastID = "p"
+	body := nextDataHTMLFromDraft(t, &Draft{ExternalID: sampleCollectionID, Title: "清单", Items: []ItemDraft{first, later}})
+	s := newStubService(t, stubFetcher(func(string) (int, string) { return http.StatusOK, body }, nil))
+	preview := samplePreview(t, s)
+	saved, err := s.ConfirmImport(preview.PreviewID)
+	require.NoError(t, err)
+	detail, err := s.GetCollection(saved.CollectionID)
+	require.NoError(t, err)
+	require.Len(t, detail.Items, 1)
+	assert.Equal(t, "p", detail.Items[0].ExternalPodcastID)
+	adopted, err := serviceAdopt(t, s, saved.CollectionID, detail.Items[0].ID)
+	require.NoError(t, err)
+	assert.NotZero(t, adopted.EpisodeID)
+}

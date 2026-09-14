@@ -25,6 +25,9 @@ func mergeDraftItems(draft *Draft) (*Draft, error) {
 			podcastIDs[id] = pid
 		}
 		if position, exists := positions[id]; exists {
+			if strings.TrimSpace(items[position].ExternalPodcastID) == "" {
+				items[position].ExternalPodcastID = pid
+			}
 			// Any restricted occurrence must not become playable through merging.
 			if item.AudioURL == "" {
 				items[position].AudioURL = ""
