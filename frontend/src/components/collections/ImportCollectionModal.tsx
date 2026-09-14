@@ -223,7 +223,7 @@ export default function ImportCollectionModal({
                 className="collection-form-label"
                 htmlFor="collection-url-input"
               >
-                小宇宙单集清单链接
+                小宇宙清单链接
               </label>
               <input
                 id="collection-url-input"
@@ -231,7 +231,7 @@ export default function ImportCollectionModal({
                 inputMode="url"
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
-                placeholder="https://www.xiaoyuzhoufm.com/collection/episode/…"
+                placeholder="粘贴清单链接"
                 className="collection-form-input"
                 disabled={previewing}
                 onKeyDown={(event) => {
@@ -250,9 +250,6 @@ export default function ImportCollectionModal({
                   正在读取清单，可稍候点击关闭取消…
                 </p>
               )}
-              <p className="collection-form-hint">
-                支持单集清单链接（www.xiaoyuzhoufm.com/collection/episode/…）、专题链接（collection.xiaoyuzhoufm.com/…）与活动页链接（h5.xiaoyuzhoufm.com/xyz-activity/…）。导入清单只保存可浏览的清单资料，不会批量入库，也不会关注节目或自动开始加工。
-              </p>
             </div>
           ) : (
             <div className="flex flex-col gap-3">
