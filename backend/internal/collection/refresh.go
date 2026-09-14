@@ -60,12 +60,17 @@ func (s *Service) RefreshPreview(ctx context.Context, collectionID uint) (*Refre
 		}
 		return nil, err
 	}
+	// 刷新沿用保存时的规范化来源地址；来源形态决定抓取目标与解析器。
+	source, err := s.sourceURL(collection.SourceURL)
+	if err != nil {
+		return nil, err
+	}
 
 	body, err := s.fetch(ctx, collection.SourceURL)
 	if err != nil {
 		return nil, err
 	}
-	draft, err := s.parse(string(body), collection.ExternalID)
+	draft, err := s.parse(source.Kind, string(body), collection.ExternalID)
 	if err != nil && !errors.Is(err, ErrEmptyCollection) {
 		return nil, err
 	}

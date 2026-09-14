@@ -1,0 +1,591 @@
+{
+ "data": {
+  "id": "6a91372d9e50f4fb4a2c4efc",
+  "slug": "wavesfilm2026",
+  "config": {
+   "share": {
+    "title": "海浪电影周 播客特别企划：世界在每个清晨重启",
+    "desc": "海浪电影周携手多档特色播客，循着海岸光影展开多元对话，完成一场我们与影像世界的全新相逢。",
+    "image": {
+     "picUrl": "https://image.xyzcdn.net/FqcWHDRs4Ru7rJrpqICNv-hJyrVZ.jpg"
+    }
+   }
+  },
+  "components": [
+   {
+    "id": "b9039a1b-7f1b-4939-8cc4-95edcc8bad71",
+    "kind": "EPISODE_LIST",
+    "items": [
+     {
+      "kind": "EPISODE",
+      "quote": "感受人与光影的海边共鸣",
+      "quoteStyle": "NONE",
+      "hideDescriptionBeforePublished": false,
+      "description": "面朝大海才是看电影的神仙打开方式",
+      "involvedPodcasts": [],
+      "participants": [],
+      "episode": {
+       "type": "EPISODE",
+       "eid": "6a905ad0ef65145dfcc67d3c",
+       "pid": "665d2080109557d1486237b9",
+       "title": "Ep151 海浪电影周前瞻：当经典与新锐交织，当此岸与世界对话",
+       "shownotes": "<p>大家好，本期节目是<strong>2026海浪电影周</strong>「世界在每个清晨重启」特别节目，感谢海浪电影周的邀请。2026海浪电影周将于9月2号——9月8号，在秦皇岛·阿那亚黄金海岸举行。我在本期节目中对本届海浪电影周<strong>五大单元包含的40部中外佳作片单</strong>进行了简单的介绍，也",
+       "description": "大家好，本期节目是2026海浪电影周「世界在每个清晨重启」特别节目，感谢海浪电影周的邀请。2026海浪电影周将于9月2号——9月8号，在秦皇岛·阿那亚黄金海岸举行。我在本期节目中对本届海浪电影周五大单元包含的40部中外佳作片单进行了简单的介绍，也包含一些我个人的猜想和分析，当然，也有推荐，欢迎大家收听～\n本期主播/大纲",
+       "image": {
+        "picUrl": "https://image.xyzcdn.net/FiswkIveAxVV1ajoUfEwQz4hxJVk.png",
+        "width": 1440,
+        "height": 1440,
+        "format": "png",
+        "thumbnailUrl": "https://image.xyzcdn.net/FiswkIveAxVV1ajoUfEwQz4hxJVk.png@thumbnail",
+        "smallPicUrl": "https://image.xyzcdn.net/FiswkIveAxVV1ajoUfEwQz4hxJVk.png@small",
+        "middlePicUrl": "https://image.xyzcdn.net/FiswkIveAxVV1ajoUfEwQz4hxJVk.png@middle",
+        "largePicUrl": "https://image.xyzcdn.net/FiswkIveAxVV1ajoUfEwQz4hxJVk.png@large"
+       },
+       "enclosure": {
+        "url": "https://media.xyzcdn.net/665d2080109557d1486237b9/lm24suybi3O5kNAkLCg12VMTowcJ.m4a"
+       },
+       "isPrivateMedia": false,
+       "mediaKey": "665d2080109557d1486237b9/lm24suybi3O5kNAkLCg12VMTowcJ.m4a",
+       "media": {
+        "id": "665d2080109557d1486237b9/lm24suybi3O5kNAkLCg12VMTowcJ.m4a",
+        "size": 28659492,
+        "mimeType": "audio/mp4",
+        "source": {
+         "mode": "PUBLIC",
+         "url": "https://media.xyzcdn.net/665d2080109557d1486237b9/lm24suybi3O5kNAkLCg12VMTowcJ.m4a"
+        }
+       },
+       "clapCount": 111,
+       "commentCount": 12,
+       "playCount": 1428,
+       "favoriteCount": 5,
+       "pubDate": "2026-08-28T00:30:00.000Z",
+       "status": "NORMAL",
+       "duration": 1772,
+       "podcast": {
+        "type": "PODCAST",
+        "pid": "665d2080109557d1486237b9",
+        "title": "银河影评",
+        "author": "银河影音空间",
+        "brief": "包括但不限于院线电影、流媒体影视剧的深度影评",
+        "description": "戏剧与影视学研究生，刨根问底追根溯源，从底层逻辑拆解影视作品",
+        "subscriptionCount": 28395,
+        "image": {
+         "picUrl": "https://image.xyzcdn.net/Fs3aKI6BXIQLMZqdFyHXcTC2vDtq.png",
+         "width": 1439,
+         "height": 1439,
+         "format": "png",
+         "thumbnailUrl": "https://image.xyzcdn.net/Fs3aKI6BXIQLMZqdFyHXcTC2vDtq.png@thumbnail",
+         "smallPicUrl": "https://image.xyzcdn.net/Fs3aKI6BXIQLMZqdFyHXcTC2vDtq.png@small",
+         "middlePicUrl": "https://image.xyzcdn.net/Fs3aKI6BXIQLMZqdFyHXcTC2vDtq.png@middle",
+         "largePicUrl": "https://image.xyzcdn.net/Fs3aKI6BXIQLMZqdFyHXcTC2vDtq.png@large"
+        },
+        "color": {
+         "original": "#3C6CB4",
+         "light": "#356BBC",
+         "dark": "#356BBC"
+        },
+        "hasTopic": true,
+        "topicLabels": [
+         "ALL"
+        ],
+        "syncMode": "SELF_HOSTING",
+        "episodeCount": 157,
+        "latestEpisodePubDate": "2026-09-09T12:00:03.649Z",
+        "subscriptionStatus": "OFF",
+        "subscriptionPush": false,
+        "subscriptionPushPriority": "HIGH",
+        "subscriptionStar": false,
+        "status": "NORMAL",
+        "permissions": [
+         {
+          "name": "SHARE",
+          "status": "PERMITTED"
+         },
+         {
+          "name": "AI_SUMMARIZE_EPISODE",
+          "status": "DENIED"
+         }
+        ],
+        "payType": "PAY_EPISODE_PODCAST",
+        "payEpisodeCount": 16,
+        "podcasters": [
+         {
+          "type": "USER",
+          "uid": "62d2cea0edce67104a90de81",
+          "avatar": {
+           "picture": {
+            "picUrl": "https://image.xyzcdn.net/FlkTGo958l8_8tu5U4wMeqh0WdO4.jpg",
+            "largePicUrl": "https://image.xyzcdn.net/FlkTGo958l8_8tu5U4wMeqh0WdO4.jpg@large",
+            "middlePicUrl": "https://image.xyzcdn.net/FlkTGo958l8_8tu5U4wMeqh0WdO4.jpg@middle",
+            "smallPicUrl": "https://image.xyzcdn.net/FlkTGo958l8_8tu5U4wMeqh0WdO4.jpg@small",
+            "thumbnailUrl": "https://image.xyzcdn.net/FlkTGo958l8_8tu5U4wMeqh0WdO4.jpg@thumbnail",
+            "format": "jpeg",
+            "width": 716,
+            "height": 716
+           }
+          },
+          "nickname": "银河是我啊",
+          "isNicknameSet": true,
+          "bio": "喝酒吧，啥也别说了",
+          "gender": "MALE",
+          "isCancelled": false,
+          "readTrackInfo": {},
+          "ipLoc": "北京"
+         }
+        ],
+        "readTrackInfo": {},
+        "hasPopularEpisodes": true,
+        "contacts": [
+         {
+          "type": "weibo",
+          "name": "银河影音空间站",
+          "url": "https://weibo.com/n/银河影音空间站"
+         },
+         {
+          "type": "email",
+          "name": "754128646@qq.com",
+          "note": "商务合作"
+         },
+         {
+          "type": "custom",
+          "name": "小红书",
+          "url": "https://www.xiaohongshu.com/user/profile/62d14ef200000000020002db?xsec_token=YB4yJGyJSJjb2_IsDJppl6lyDJJKyMh-9jzizQiZOOUNk=&xsec_source=app_share&xhsshare=CopyLink&appuid=62d14ef200000000020002db&apptime=1738558690&share_id=bf98bc2bfd3f48ee87e2fe1e17c96cfb"
+         }
+        ],
+        "isCustomized": false,
+        "showZhuiguangIcon": true
+       },
+       "permissions": [
+        {
+         "name": "SHARE",
+         "status": "PERMITTED"
+        },
+        {
+         "name": "COMMENT",
+         "status": "DENIED"
+        },
+        {
+         "name": "VOICE_COMMENT",
+         "status": "DENIED"
+        },
+        {
+         "name": "COMMENT_PAGE",
+         "status": "DENIED"
+        },
+        {
+         "name": "CLAP",
+         "status": "DENIED"
+        },
+        {
+         "name": "PICK",
+         "status": "DENIED"
+        },
+        {
+         "name": "VOTE",
+         "status": "DENIED"
+        },
+        {
+         "name": "AI_SUMMARIZE",
+         "status": "DENIED"
+        }
+       ],
+       "payType": "FREE",
+       "wechatShare": {
+        "style": "LINK_CARD"
+       },
+       "readTrackInfo": {},
+       "labels": [],
+       "sponsors": [],
+       "isCustomized": false,
+       "ipLoc": "内蒙古",
+       "topicId": "67c441bebf52a16cd1fc4da1",
+       "transcript": {
+        "mediaId": "665d2080109557d1486237b9/lm24suybi3O5kNAkLCg12VMTowcJ.m4a"
+       },
+       "coPodcasts": []
+      }
+     },
+     {
+      "kind": "EPISODE",
+      "quote": "浪潮之下遇见影像的万千可能",
+      "quoteStyle": "NONE",
+      "hideDescriptionBeforePublished": false,
+      "description": "走进电影周不止看见好片更看见行业可能",
+      "involvedPodcasts": [
+       {
+        "type": "PODCAST",
+        "pid": "5fae090683c34e85dde3c7e8",
+        "title": "没折腰FM",
+        "author": "空山",
+        "brief": "独立影评，准确资讯，专业观察",
+        "description": "我们对同一部电影的理解如此大相径庭，因而试图说明彼此的理解可以变为一场生机勃勃的对话。\n\n精准使用汉语，区分“情绪”“观",
+        "subscriptionCount": 87798,
+        "image": {
+         "picUrl": "https://image.xyzcdn.net/FoO2S2T1DEAaXyW9h4bGGg3GEegN",
+         "width": 2000,
+         "height": 2000,
+         "format": "jpeg",
+         "thumbnailUrl": "https://image.xyzcdn.net/FoO2S2T1DEAaXyW9h4bGGg3GEegN@thumbnail",
+         "smallPicUrl": "https://image.xyzcdn.net/FoO2S2T1DEAaXyW9h4bGGg3GEegN@small",
+         "middlePicUrl": "https://image.xyzcdn.net/FoO2S2T1DEAaXyW9h4bGGg3GEegN@middle",
+         "largePicUrl": "https://image.xyzcdn.net/FoO2S2T1DEAaXyW9h4bGGg3GEegN@large"
+        },
+        "color": {
+         "original": "#3BCECE",
+         "light": "#00D1D2",
+         "dark": "#00D1D2"
+        },
+        "hasTopic": true,
+        "topicLabels": [
+         "ALL"
+        ],
+        "syncMode": "SELF_HOSTING",
+        "episodeCount": 142,
+        "latestEpisodePubDate": "2026-09-11T12:28:27.745Z",
+        "subscriptionStatus": "OFF",
+        "subscriptionPush": false,
+        "subscriptionPushPriority": "HIGH",
+        "subscriptionStar": false,
+        "status": "NORMAL",
+        "permissions": [
+         {
+          "name": "SHARE",
+          "status": "PERMITTED"
+         },
+         {
+          "name": "AI_SUMMARIZE_EPISODE",
+          "status": "DENIED"
+         }
+        ],
+        "payType": "FREE",
+        "payEpisodeCount": 0,
+        "podcasters": [
+         {
+          "type": "USER",
+          "uid": "5ee10d31f3aa3ace4c61437e",
+          "avatar": {
+           "picture": {
+            "picUrl": "https://image.xyzcdn.net/FoP2Z2s1RFRWfZjWUgDLCQE_XFKN.jpg",
+            "largePicUrl": "https://image.xyzcdn.net/FoP2Z2s1RFRWfZjWUgDLCQE_XFKN.jpg@large",
+            "middlePicUrl": "https://image.xyzcdn.net/FoP2Z2s1RFRWfZjWUgDLCQE_XFKN.jpg@middle",
+            "smallPicUrl": "https://image.xyzcdn.net/FoP2Z2s1RFRWfZjWUgDLCQE_XFKN.jpg@small",
+            "thumbnailUrl": "https://image.xyzcdn.net/FoP2Z2s1RFRWfZjWUgDLCQE_XFKN.jpg@thumbnail",
+            "format": "jpeg",
+            "width": 500,
+            "height": 500
+           }
+          },
+          "nickname": "空山daily",
+          "isNicknameSet": false,
+          "bio": "别不说话，否则思想也会沉默。",
+          "gender": "FEMALE",
+          "isCancelled": false,
+          "readTrackInfo": {},
+          "ipLoc": "山东"
+         }
+        ],
+        "readTrackInfo": {},
+        "hasPopularEpisodes": true,
+        "contacts": [
+         {
+          "type": "email",
+          "name": "meizheyao@outlook.com",
+          "note": "商务合作"
+         }
+        ],
+        "isCustomized": false,
+        "showZhuiguangIcon": true
+       }
+      ],
+      "estimatedRelease": "9月15日上线，敬请期待",
+      "participants": []
+     },
+     {
+      "kind": "EPISODE",
+      "quote": "聆听浪潮与影视旋律的浪漫共振",
+      "quoteStyle": "NONE",
+      "hideDescriptionBeforePublished": false,
+      "description": "潮声混着旋律承包我的海边氛围感",
+      "involvedPodcasts": [
+       {
+        "type": "PODCAST",
+        "pid": "5e5be2b3418a84a046127763",
+        "title": "Vibration 歪波音室",
+        "author": "Vibration 歪波音室",
+        "brief": "音乐太多，耳朵太少",
+        "description": "音乐太多，耳朵太少",
+        "subscriptionCount": 285988,
+        "image": {
+         "picUrl": "https://bts-image.xyzcdn.net/aHR0cHM6Ly9tZWRpYS1vbmUud2F2cHViLmNvbS9jb3ZlcnMvYWMzNDIzMzItYWNkYy00NWRmLWJiMzEtOTE2YTVlZDAxYTkxL2QyNjZkNzg5YzA2MjBmZjQucG5n.png",
+         "thumbnailUrl": "https://bts-image.xyzcdn.net/aHR0cHM6Ly9tZWRpYS1vbmUud2F2cHViLmNvbS9jb3ZlcnMvYWMzNDIzMzItYWNkYy00NWRmLWJiMzEtOTE2YTVlZDAxYTkxL2QyNjZkNzg5YzA2MjBmZjQucG5n.png@thumbnail",
+         "smallPicUrl": "https://bts-image.xyzcdn.net/aHR0cHM6Ly9tZWRpYS1vbmUud2F2cHViLmNvbS9jb3ZlcnMvYWMzNDIzMzItYWNkYy00NWRmLWJiMzEtOTE2YTVlZDAxYTkxL2QyNjZkNzg5YzA2MjBmZjQucG5n.png@small",
+         "middlePicUrl": "https://bts-image.xyzcdn.net/aHR0cHM6Ly9tZWRpYS1vbmUud2F2cHViLmNvbS9jb3ZlcnMvYWMzNDIzMzItYWNkYy00NWRmLWJiMzEtOTE2YTVlZDAxYTkxL2QyNjZkNzg5YzA2MjBmZjQucG5n.png@middle",
+         "largePicUrl": "https://bts-image.xyzcdn.net/aHR0cHM6Ly9tZWRpYS1vbmUud2F2cHViLmNvbS9jb3ZlcnMvYWMzNDIzMzItYWNkYy00NWRmLWJiMzEtOTE2YTVlZDAxYTkxL2QyNjZkNzg5YzA2MjBmZjQucG5n.png@large"
+        },
+        "color": {
+         "original": "#0D0D0D",
+         "light": "#ACACAC",
+         "dark": "#0B0B0B"
+        },
+        "hasTopic": true,
+        "topicLabels": [
+         "ALL"
+        ],
+        "syncMode": "RSS",
+        "episodeCount": 183,
+        "latestEpisodePubDate": "2026-09-13T21:30:00.000Z",
+        "subscriptionStatus": "OFF",
+        "subscriptionPush": false,
+        "subscriptionPushPriority": "HIGH",
+        "subscriptionStar": false,
+        "status": "NORMAL",
+        "permissions": [
+         {
+          "name": "SHARE",
+          "status": "PERMITTED"
+         },
+         {
+          "name": "AI_SUMMARIZE_EPISODE",
+          "status": "DENIED"
+         }
+        ],
+        "payType": "FREE",
+        "payEpisodeCount": 0,
+        "podcasters": [
+         {
+          "type": "USER",
+          "uid": "5e7c8a5aa2f2e503cec3b64b",
+          "avatar": {
+           "picture": {
+            "picUrl": "https://image.xyzcdn.net/FtqOUFIeqzEZXMB6yga6kwfSeoz3.jpg",
+            "largePicUrl": "https://image.xyzcdn.net/FtqOUFIeqzEZXMB6yga6kwfSeoz3.jpg@large",
+            "middlePicUrl": "https://image.xyzcdn.net/FtqOUFIeqzEZXMB6yga6kwfSeoz3.jpg@middle",
+            "smallPicUrl": "https://image.xyzcdn.net/FtqOUFIeqzEZXMB6yga6kwfSeoz3.jpg@small",
+            "thumbnailUrl": "https://image.xyzcdn.net/FtqOUFIeqzEZXMB6yga6kwfSeoz3.jpg@thumbnail",
+            "format": "jpeg",
+            "width": 3000,
+            "height": 3000
+           }
+          },
+          "nickname": "拾壹",
+          "isNicknameSet": false,
+          "bio": " ",
+          "gender": "MALE",
+          "isCancelled": false,
+          "readTrackInfo": {},
+          "ipLoc": "中国台湾"
+         }
+        ],
+        "readTrackInfo": {},
+        "hasPopularEpisodes": true,
+        "contacts": [
+         {
+          "type": "weibo",
+          "name": "拾壹-歪波音室",
+          "url": "https://weibo.com/n/拾壹-歪波音室"
+         },
+         {
+          "type": "wechat",
+          "name": "relic_ice",
+          "note": "添加微信"
+         },
+         {
+          "type": "email",
+          "name": "relic_ice@icloud.com",
+          "note": "听众反馈"
+         }
+        ],
+        "isCustomized": false,
+        "showZhuiguangIcon": false
+       }
+      ],
+      "estimatedRelease": "9月14日上线，敬请期待",
+      "participants": [],
+      "episode": {
+       "type": "EPISODE",
+       "eid": "6aa717c2bc0db5338980c34c",
+       "pid": "5e5be2b3418a84a046127763",
+       "title": "当音乐走进电影：一首歌，如何改变我们看见的东西",
+       "shownotes": "<figure class=\"wp-block-image size-large\"><img width=\"1024\" height=\"363\" src=\"https://media-one.wavpub.com/shownotes/ac342332-acdc-45df-bb31-916a5ed01a91/88b950",
+       "description": "我们每天其实都在和音乐一起生活。通勤、工作、散步、失眠，很多普通时刻，会因为一首歌留下更清楚的记忆。\n电影里的音乐也类似。它不只为画面增加情绪，有时还会改变我们理解一个角色、一段时间，甚至一个空间的方式。\n某些声音原本只是生活里很小的细节，进入电影之后，却可能变成人物的内心、年代的痕迹，或者很久以后仍然记得的一段感受。",
+       "image": {
+        "picUrl": "https://image.xyzcdn.net/5e5be2b3418a84a046127763/FoUARe-Wu2EmuGk2vGZumRpRbKjW.png",
+        "width": 1400,
+        "height": 1400,
+        "format": "png",
+        "thumbnailUrl": "https://image.xyzcdn.net/5e5be2b3418a84a046127763/FoUARe-Wu2EmuGk2vGZumRpRbKjW.png@thumbnail",
+        "smallPicUrl": "https://image.xyzcdn.net/5e5be2b3418a84a046127763/FoUARe-Wu2EmuGk2vGZumRpRbKjW.png@small",
+        "middlePicUrl": "https://image.xyzcdn.net/5e5be2b3418a84a046127763/FoUARe-Wu2EmuGk2vGZumRpRbKjW.png@middle",
+        "largePicUrl": "https://image.xyzcdn.net/5e5be2b3418a84a046127763/FoUARe-Wu2EmuGk2vGZumRpRbKjW.png@large"
+       },
+       "enclosure": {
+        "url": "https://tk.wavpub.com/WPTK_ar8CqFrFDihnv7DV.mp3"
+       },
+       "isPrivateMedia": false,
+       "mediaKey": "/WPTK_ar8CqFrFDihnv7DV.mp3",
+       "media": {
+        "id": "/WPTK_ar8CqFrFDihnv7DV.mp3",
+        "size": 93737315,
+        "mimeType": "audio/mpeg",
+        "source": {
+         "mode": "PUBLIC",
+         "url": "https://tk.wavpub.com/WPTK_ar8CqFrFDihnv7DV.mp3"
+        },
+        "backupSource": {
+         "mode": "PUBLIC",
+         "url": "https://media.xyzcdn.net/5e5be2b3418a84a046127763/lqJJwCyFCPREoAt5q1R7Wq0hm5GJ.mp3"
+        }
+       },
+       "clapCount": 8,
+       "commentCount": 13,
+       "playCount": 1525,
+       "favoriteCount": 20,
+       "pubDate": "2026-09-13T21:30:00.000Z",
+       "status": "NORMAL",
+       "duration": 3899,
+       "podcast": {
+        "type": "PODCAST",
+        "pid": "5e5be2b3418a84a046127763",
+        "title": "Vibration 歪波音室",
+        "author": "Vibration 歪波音室",
+        "brief": "音乐太多，耳朵太少",
+        "description": "音乐太多，耳朵太少",
+        "subscriptionCount": 285988,
+        "image": {
+         "picUrl": "https://bts-image.xyzcdn.net/aHR0cHM6Ly9tZWRpYS1vbmUud2F2cHViLmNvbS9jb3ZlcnMvYWMzNDIzMzItYWNkYy00NWRmLWJiMzEtOTE2YTVlZDAxYTkxL2QyNjZkNzg5YzA2MjBmZjQucG5n.png",
+         "thumbnailUrl": "https://bts-image.xyzcdn.net/aHR0cHM6Ly9tZWRpYS1vbmUud2F2cHViLmNvbS9jb3ZlcnMvYWMzNDIzMzItYWNkYy00NWRmLWJiMzEtOTE2YTVlZDAxYTkxL2QyNjZkNzg5YzA2MjBmZjQucG5n.png@thumbnail",
+         "smallPicUrl": "https://bts-image.xyzcdn.net/aHR0cHM6Ly9tZWRpYS1vbmUud2F2cHViLmNvbS9jb3ZlcnMvYWMzNDIzMzItYWNkYy00NWRmLWJiMzEtOTE2YTVlZDAxYTkxL2QyNjZkNzg5YzA2MjBmZjQucG5n.png@small",
+         "middlePicUrl": "https://bts-image.xyzcdn.net/aHR0cHM6Ly9tZWRpYS1vbmUud2F2cHViLmNvbS9jb3ZlcnMvYWMzNDIzMzItYWNkYy00NWRmLWJiMzEtOTE2YTVlZDAxYTkxL2QyNjZkNzg5YzA2MjBmZjQucG5n.png@middle",
+         "largePicUrl": "https://bts-image.xyzcdn.net/aHR0cHM6Ly9tZWRpYS1vbmUud2F2cHViLmNvbS9jb3ZlcnMvYWMzNDIzMzItYWNkYy00NWRmLWJiMzEtOTE2YTVlZDAxYTkxL2QyNjZkNzg5YzA2MjBmZjQucG5n.png@large"
+        },
+        "color": {
+         "original": "#0D0D0D",
+         "light": "#ACACAC",
+         "dark": "#0B0B0B"
+        },
+        "hasTopic": true,
+        "topicLabels": [
+         "ALL"
+        ],
+        "syncMode": "RSS",
+        "episodeCount": 183,
+        "latestEpisodePubDate": "2026-09-13T21:30:00.000Z",
+        "subscriptionStatus": "OFF",
+        "subscriptionPush": false,
+        "subscriptionPushPriority": "HIGH",
+        "subscriptionStar": false,
+        "status": "NORMAL",
+        "permissions": [
+         {
+          "name": "SHARE",
+          "status": "PERMITTED"
+         },
+         {
+          "name": "AI_SUMMARIZE_EPISODE",
+          "status": "DENIED"
+         }
+        ],
+        "payType": "FREE",
+        "payEpisodeCount": 0,
+        "podcasters": [
+         {
+          "type": "USER",
+          "uid": "5e7c8a5aa2f2e503cec3b64b",
+          "avatar": {
+           "picture": {
+            "picUrl": "https://image.xyzcdn.net/FtqOUFIeqzEZXMB6yga6kwfSeoz3.jpg",
+            "largePicUrl": "https://image.xyzcdn.net/FtqOUFIeqzEZXMB6yga6kwfSeoz3.jpg@large",
+            "middlePicUrl": "https://image.xyzcdn.net/FtqOUFIeqzEZXMB6yga6kwfSeoz3.jpg@middle",
+            "smallPicUrl": "https://image.xyzcdn.net/FtqOUFIeqzEZXMB6yga6kwfSeoz3.jpg@small",
+            "thumbnailUrl": "https://image.xyzcdn.net/FtqOUFIeqzEZXMB6yga6kwfSeoz3.jpg@thumbnail",
+            "format": "jpeg",
+            "width": 3000,
+            "height": 3000
+           }
+          },
+          "nickname": "拾壹",
+          "isNicknameSet": false,
+          "bio": " ",
+          "gender": "MALE",
+          "isCancelled": false,
+          "readTrackInfo": {},
+          "ipLoc": "中国台湾"
+         }
+        ],
+        "readTrackInfo": {},
+        "hasPopularEpisodes": true,
+        "contacts": [
+         {
+          "type": "weibo",
+          "name": "拾壹-歪波音室",
+          "url": "https://weibo.com/n/拾壹-歪波音室"
+         },
+         {
+          "type": "wechat",
+          "name": "relic_ice",
+          "note": "添加微信"
+         },
+         {
+          "type": "email",
+          "name": "relic_ice@icloud.com",
+          "note": "听众反馈"
+         }
+        ],
+        "isCustomized": false,
+        "showZhuiguangIcon": false
+       },
+       "permissions": [
+        {
+         "name": "SHARE",
+         "status": "PERMITTED"
+        },
+        {
+         "name": "COMMENT",
+         "status": "DENIED"
+        },
+        {
+         "name": "VOICE_COMMENT",
+         "status": "DENIED"
+        },
+        {
+         "name": "COMMENT_PAGE",
+         "status": "DENIED"
+        },
+        {
+         "name": "CLAP",
+         "status": "DENIED"
+        },
+        {
+         "name": "PICK",
+         "status": "DENIED"
+        },
+        {
+         "name": "VOTE",
+         "status": "DENIED"
+        },
+        {
+         "name": "AI_SUMMARIZE",
+         "status": "DENIED"
+        }
+       ],
+       "payType": "FREE",
+       "wechatShare": {
+        "style": "LINK_CARD"
+       },
+       "readTrackInfo": {},
+       "labels": [],
+       "sponsors": [],
+       "isCustomized": false,
+       "ipLoc": "中国台湾",
+       "transcript": {
+        "mediaId": "5e5be2b3418a84a046127763/lqJJwCyFCPREoAt5q1R7Wq0hm5GJ.mp3"
+       },
+       "coPodcasts": []
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

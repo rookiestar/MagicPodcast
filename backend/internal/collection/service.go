@@ -168,10 +168,18 @@ type Service struct {
 	db        *gorm.DB
 	sourceURL func(rawURL string) (*CollectionURL, error)
 	fetch     fetchFunc
-	parse     func(html string, expectedExternalID string) (*Draft, error)
+	parse     func(kind sourceKind, body string, expectedExternalID string) (*Draft, error)
 	previews  *previewStore
 	refreshes *refreshStore
 	now       func() time.Time
+}
+
+// parseSourceBody 按来源形态分发到对应的确定性解析器。
+func parseSourceBody(kind sourceKind, body string, expectedExternalID string) (*Draft, error) {
+	if kind == sourceCampaign {
+		return ParseCampaignJSON(body, expectedExternalID)
+	}
+	return ParsePageHTML(body, expectedExternalID)
 }
 
 // NewService 创建清单服务；生产抓取器带完整安全边界。
@@ -181,7 +189,7 @@ func NewService(db *gorm.DB) *Service {
 		db:        db,
 		sourceURL: ParseCollectionURL,
 		fetch:     newProductionFetcher(),
-		parse:     ParsePageHTML,
+		parse:     parseSourceBody,
 		previews:  newPreviewStore(now),
 		refreshes: newRefreshStore(now),
 		now:       now,
@@ -245,7 +253,7 @@ func (s *Service) Preview(ctx context.Context, rawURL string) (*PreviewResult, e
 	if err != nil {
 		return nil, err
 	}
-	draft, err := s.parse(string(body), collectionURL.ExternalID)
+	draft, err := s.parse(collectionURL.Kind, string(body), collectionURL.ExternalID)
 	if err != nil {
 		return nil, err
 	}

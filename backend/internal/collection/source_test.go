@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -42,6 +43,82 @@ func TestParseCollectionURL_RejectsAnythingBeyondNarrowScope(t *testing.T) {
 			require.ErrorIs(t, err, ErrInvalidCollectionURL)
 		})
 	}
+}
+
+func TestParseCollectionURL_AcceptsCampaignPage(t *testing.T) {
+	parsed, err := ParseCollectionURL("https://collection.xiaoyuzhoufm.com/wavesfilm2026?utm=x")
+	require.NoError(t, err)
+	assert.Equal(t, sourceCampaign, parsed.Kind)
+	assert.Equal(t, "wavesfilm2026", parsed.ExternalID)
+	// 规范化地址剥离查询参数，作为清单来源身份保存。
+	assert.Equal(t, "https://collection.xiaoyuzhoufm.com/wavesfilm2026", parsed.Raw)
+}
+
+func TestParseCollectionURL_RejectsBeyondCampaignScope(t *testing.T) {
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{"空路径", "https://collection.xiaoyuzhoufm.com/"},
+		{"多级路径", "https://collection.xiaoyuzhoufm.com/wavesfilm2026/episodes"},
+		{"路径穿越", "https://collection.xiaoyuzhoufm.com/../../api"},
+		{"非slug字符", "https://collection.xiaoyuzhoufm.com/海浪电影周"},
+		{"http降级", "http://collection.xiaoyuzhoufm.com/wavesfilm2026"},
+		{"带端口", "https://collection.xiaoyuzhoufm.com:8443/wavesfilm2026"},
+		{"接口主机伪装页面", "https://api.xiaoyuzhoufm.com/v1/campaign/get?slug=wavesfilm2026"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseCollectionURL(tc.url)
+			require.ErrorIs(t, err, ErrInvalidCollectionURL)
+		})
+	}
+}
+
+func TestCampaignAPIURLBuildsVerifiedAddress(t *testing.T) {
+	assert.Equal(t,
+		"https://api.xiaoyuzhoufm.com/v1/campaign/get?slug=wavesfilm2026",
+		campaignAPIURL("wavesfilm2026"))
+}
+
+func TestCampaignAPIHopAllowed_OnlySameSlugAPIAddress(t *testing.T) {
+	target, err := url.Parse("https://api.xiaoyuzhoufm.com/v1/campaign/get?slug=wavesfilm2026")
+	require.NoError(t, err)
+	assert.True(t, campaignAPIHopAllowed(target, "wavesfilm2026"))
+
+	cases := []struct {
+		name   string
+		target string
+		slug   string
+	}{
+		{"其他slug", "https://api.xiaoyuzhoufm.com/v1/campaign/get?slug=other", "wavesfilm2026"},
+		{"附加查询参数", "https://api.xiaoyuzhoufm.com/v1/campaign/get?slug=wavesfilm2026&x=1", "wavesfilm2026"},
+		{"其他路径", "https://api.xiaoyuzhoufm.com/v1/other?slug=wavesfilm2026", "wavesfilm2026"},
+		{"其他主机", "https://evil.example.com/v1/campaign/get?slug=wavesfilm2026", "wavesfilm2026"},
+		{"http降级", "http://api.xiaoyuzhoufm.com/v1/campaign/get?slug=wavesfilm2026", "wavesfilm2026"},
+		{"带端口", "https://api.xiaoyuzhoufm.com:8443/v1/campaign/get?slug=wavesfilm2026", "wavesfilm2026"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			parsed, err := url.Parse(tc.target)
+			require.NoError(t, err)
+			assert.False(t, campaignAPIHopAllowed(parsed, tc.slug))
+		})
+	}
+}
+
+func TestCampaignSourceFromAPIURL_RestoresSourceIdentity(t *testing.T) {
+	parsed, err := url.Parse(campaignAPIURL("wavesfilm2026"))
+	require.NoError(t, err)
+	source, err := campaignSourceFromAPIURL(parsed)
+	require.NoError(t, err)
+	assert.Equal(t, sourceCampaign, source.Kind)
+	assert.Equal(t, "wavesfilm2026", source.ExternalID)
+	assert.Equal(t, "https://collection.xiaoyuzhoufm.com/wavesfilm2026", source.Raw)
+
+	host, _ := url.Parse("https://evil.example.com/v1/campaign/get?slug=wavesfilm2026")
+	_, err = campaignSourceFromAPIURL(host)
+	require.ErrorIs(t, err, ErrInvalidCollectionURL)
 }
 
 // stubFetcher 返回可控来源响应的抓取函数，替代真实网络；状态映射与生产抓取器一致。
