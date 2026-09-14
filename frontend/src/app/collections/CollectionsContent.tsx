@@ -130,7 +130,7 @@ export default function CollectionsContent() {
             <>
               <h3>还没有导入任何清单</h3>
               <p>
-                粘贴一份小宇宙单集清单链接，预览后保存，就可以在这里浏览专题与逐集推荐语。
+                粘贴一份小宇宙清单链接，预览后保存，就可以在这里浏览专题与逐集推荐语。
               </p>
               <button type="button" onClick={() => setImportOpen(true)}>
                 导入清单
@@ -168,8 +168,6 @@ export default function CollectionsContent() {
                   </p>
                 )}
                 <p className="collection-card-meta">
-                  作者：{collection.author || "未提供"}
-                  <span aria-hidden="true"> · </span>
                   {collection.total_known
                     ? `共 ${collection.item_count} 集`
                     : `已读取 ${collection.item_count} 集`}

@@ -62,13 +62,14 @@ describe("CollectionsContent", () => {
     fetchSummariesMock.mockResolvedValue([makeSummary()]);
   });
 
-  it("renders saved collections with fixed copy and real counts", async () => {
+  it("renders saved collections without author metadata", async () => {
     renderCollections(<CollectionsContent />);
 
     expect(await screen.findAllByRole("link", { name: "穿透半导体迷雾" })).not.toHaveLength(0);
-    expect(screen.getByText(/作者：小宇宙领航员/)).toBeInTheDocument();
+    expect(screen.queryByText(/作者：小宇宙领航员/)).not.toBeInTheDocument();
     expect(screen.getByText(/已读取 8 集/)).toBeInTheDocument();
     expect(screen.getByText(/已收录 0 集/)).toBeInTheDocument();
+    expect(screen.getByText(/来源：小宇宙/)).toBeInTheDocument();
 
     const openLinks = screen.getAllByRole("link", { name: "打开清单" });
     expect(openLinks.length).toBeGreaterThan(0);
@@ -115,16 +116,14 @@ describe("CollectionsContent", () => {
     expect(emptyImport.length).toBeGreaterThan(0);
   });
 
-  it("opens the import modal with the scope notice", async () => {
+  it("opens the import modal with a concise link field", async () => {
     const user = userEvent.setup();
     renderCollections(<CollectionsContent />);
     await screen.findAllByRole("link", { name: "穿透半导体迷雾" });
 
     await user.click(screen.getAllByRole("button", { name: "导入清单" })[0]);
     expect(await screen.findByRole("dialog", { name: "导入清单" })).toBeInTheDocument();
-    expect(
-      screen.getByText(/不会批量入库，也不会关注节目或自动开始加工/),
-    ).toBeInTheDocument();
+    expect(screen.getByLabelText("小宇宙清单链接")).toBeInTheDocument();
     // 链接为空时主预览按钮不可用。
     expect(screen.getByRole("button", { name: "预览" })).toBeDisabled();
   });

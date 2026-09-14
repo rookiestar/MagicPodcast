@@ -99,7 +99,7 @@ describe("ImportCollectionModal", () => {
     preview.items[0].recommendation = "第一条\n\n第二条";
     previewMock.mockResolvedValue(preview);
     renderModal();
-    await userEvent.type(screen.getByLabelText("小宇宙单集清单链接"), SAMPLE_URL);
+    await userEvent.type(screen.getByLabelText("小宇宙清单链接"), SAMPLE_URL);
     await userEvent.click(screen.getByRole("button", {name: "预览"}));
     expect(await screen.findByText(/已读取 3 个条目，合并 1 个重复条目，共 2 集/)).toBeInTheDocument();
     expect(screen.getByText(/第一条/).textContent).toContain("第一条\n\n第二条");
@@ -116,7 +116,7 @@ describe("ImportCollectionModal", () => {
     previewMock.mockResolvedValue(makePreview());
     renderModal();
 
-    await user.type(screen.getByLabelText("小宇宙单集清单链接"), SAMPLE_URL);
+    await user.type(screen.getByLabelText("小宇宙清单链接"), SAMPLE_URL);
     await user.click(screen.getByRole("button", { name: "预览" }));
 
     expect(await screen.findByText("穿透半导体迷雾")).toBeInTheDocument();
@@ -140,9 +140,7 @@ describe("ImportCollectionModal", () => {
     );
     renderModal();
 
-    // 弹窗提示明确活动页链接也受支持。
-    expect(screen.getByText(/h5\.xiaoyuzhoufm\.com\/xyz-activity\/…/)).toBeInTheDocument();
-    await user.type(screen.getByLabelText("小宇宙单集清单链接"), ACTIVITY_URL);
+    await user.type(screen.getByLabelText("小宇宙清单链接"), ACTIVITY_URL);
     await user.click(screen.getByRole("button", { name: "预览" }));
 
     expect(await screen.findByText(/00后的宇宙必听/)).toBeInTheDocument();
@@ -164,11 +162,7 @@ describe("ImportCollectionModal", () => {
     );
     renderModal();
 
-    // 弹窗提示明确两种链接格式都受支持。
-    expect(
-      screen.getByText(/collection\.xiaoyuzhoufm\.com\/…/),
-    ).toBeInTheDocument();
-    await user.type(screen.getByLabelText("小宇宙单集清单链接"), CAMPAIGN_URL);
+    await user.type(screen.getByLabelText("小宇宙清单链接"), CAMPAIGN_URL);
     await user.click(screen.getByRole("button", { name: "预览" }));
 
     expect(await screen.findByText(/海浪电影周/)).toBeInTheDocument();
@@ -186,7 +180,7 @@ describe("ImportCollectionModal", () => {
     confirmMock.mockResolvedValue({ duplicate: false, collection_id: 9 });
     const { onImported } = renderModal();
 
-    await user.type(screen.getByLabelText("小宇宙单集清单链接"), SAMPLE_URL);
+    await user.type(screen.getByLabelText("小宇宙清单链接"), SAMPLE_URL);
     await user.click(screen.getByRole("button", { name: "预览" }));
     await screen.findByText("穿透半导体迷雾");
     await user.click(screen.getByRole("button", { name: "导入清单" }));
@@ -204,7 +198,7 @@ describe("ImportCollectionModal", () => {
     );
     const { onClose, onImported } = renderModal();
 
-    await user.type(screen.getByLabelText("小宇宙单集清单链接"), SAMPLE_URL);
+    await user.type(screen.getByLabelText("小宇宙清单链接"), SAMPLE_URL);
     await user.click(screen.getByRole("button", { name: "预览" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -231,7 +225,7 @@ describe("ImportCollectionModal", () => {
     confirmMock.mockResolvedValue({ duplicate: false, collection_id: 10 });
     const { onClose, onImported } = renderModal();
 
-    await user.type(screen.getByLabelText("小宇宙单集清单链接"), SAMPLE_URL);
+    await user.type(screen.getByLabelText("小宇宙清单链接"), SAMPLE_URL);
     await user.click(screen.getByRole("button", { name: "预览" }));
     await user.click(await screen.findByRole("button", { name: "打开已有清单" }));
 
@@ -253,7 +247,7 @@ describe("ImportCollectionModal", () => {
     previewMock.mockResolvedValue(makePreview());
     confirmMock.mockResolvedValue({ duplicate: true, collection_id: 9 });
     const { onClose, onImported } = renderModal();
-    await user.type(screen.getByLabelText("小宇宙单集清单链接"), SAMPLE_URL);
+    await user.type(screen.getByLabelText("小宇宙清单链接"), SAMPLE_URL);
     await user.click(screen.getByRole("button", { name: "预览" }));
     await user.click(await screen.findByRole("button", { name: "导入清单" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("这份清单已经导入过");
@@ -273,7 +267,7 @@ describe("ImportCollectionModal", () => {
     );
     renderModal();
 
-    await user.type(screen.getByLabelText("小宇宙单集清单链接"), SAMPLE_URL);
+    await user.type(screen.getByLabelText("小宇宙清单链接"), SAMPLE_URL);
     await user.click(screen.getByRole("button", { name: "预览" }));
     await screen.findByText("穿透半导体迷雾");
     await user.click(screen.getByRole("button", { name: "导入清单" }));
@@ -282,7 +276,7 @@ describe("ImportCollectionModal", () => {
       await screen.findByText("预览已过期，请重新预览后再导入。"),
     ).toBeInTheDocument();
     // 回到链接输入步骤，可重新预览。
-    expect(await screen.findByLabelText("小宇宙单集清单链接")).toBeInTheDocument();
+    expect(await screen.findByLabelText("小宇宙清单链接")).toBeInTheDocument();
   });
 
   it("shows a distinct failure message and keeps the modal usable", async () => {
@@ -292,7 +286,7 @@ describe("ImportCollectionModal", () => {
     );
     renderModal();
 
-    await user.type(screen.getByLabelText("小宇宙单集清单链接"), SAMPLE_URL);
+    await user.type(screen.getByLabelText("小宇宙清单链接"), SAMPLE_URL);
     await user.click(screen.getByRole("button", { name: "预览" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/来源拒绝了读取/);
@@ -304,12 +298,12 @@ describe("ImportCollectionModal", () => {
     previewMock.mockResolvedValue(makePreview());
     const { onClose } = renderModal();
 
-    await user.type(screen.getByLabelText("小宇宙单集清单链接"), SAMPLE_URL);
+    await user.type(screen.getByLabelText("小宇宙清单链接"), SAMPLE_URL);
     await user.click(screen.getByRole("button", { name: "预览" }));
     await screen.findByText("穿透半导体迷雾");
 
     await user.click(screen.getByRole("button", { name: "修改链接" }));
-    expect(screen.getByLabelText("小宇宙单集清单链接")).toBeInTheDocument();
+    expect(screen.getByLabelText("小宇宙清单链接")).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
     await waitFor(() => {
