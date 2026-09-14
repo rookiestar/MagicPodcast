@@ -185,7 +185,7 @@ func mapCollectionError(err error) (code string, status int, message string) {
 	switch {
 	case errors.Is(err, collection.ErrInvalidCollectionURL):
 		return "UNSUPPORTED_SOURCE", http.StatusUnprocessableEntity,
-			"仅支持小宇宙单集清单链接（www.xiaoyuzhoufm.com/collection/episode/…）或小宇宙专题链接（collection.xiaoyuzhoufm.com/…）"
+			"仅支持小宇宙单集清单链接（www.xiaoyuzhoufm.com/collection/episode/…）、专题链接（collection.xiaoyuzhoufm.com/…）或活动页链接（h5.xiaoyuzhoufm.com/xyz-activity/…）"
 	case errors.Is(err, collection.ErrSourceForbidden):
 		return "SOURCE_FORBIDDEN", http.StatusForbidden,
 			"来源拒绝了读取（可能需要登录或已限制访问），未保存任何清单"
