@@ -42,6 +42,7 @@ func TestParseActivityJSON_SampleFlattensEpisodeListsInPageOrder(t *testing.T) {
 	assert.NotEmpty(t, first.AudioURL, "公开免费单集保留音频地址快照")
 	assert.Equal(t, "audio/mp4", first.AudioMimeType)
 	assert.NotEmpty(t, first.ImageURL)
+	assert.Empty(t, first.PodcastCoverURL, "活动载荷没有节目封面，单集图片不冒充节目封面")
 	assert.Empty(t, first.Shownotes, "活动载荷没有 Show Notes，保留空值")
 	assert.Nil(t, first.PublishedAt, "活动载荷没有发布时间，不编造日期")
 	assert.Empty(t, first.PodcastAuthor, "活动载荷没有节目作者，保留空值")
@@ -102,15 +103,18 @@ func TestParseActivityJSON_AllListsEmptyIsEmptyCollection(t *testing.T) {
 	assert.Empty(t, draft.Items)
 }
 
-func TestParseActivityJSON_PaidOrPrivateMediaKeepsNoAudioSnapshot(t *testing.T) {
+func TestParseActivityJSON_PaidOrUnknownPayTypeKeepsNoAudioSnapshot(t *testing.T) {
 	paid := `{"data":{"code":"forgenz","title":"活动","modules":[{"type":"EPISODE_VERTICAL_LIST","episodes":[` +
 		`{"id":"aaa","title":"一","podcastTitle":"播","payType":"PAY_EPISODE_PODCAST",` +
 		`"media":{"source":{"mode":"PUBLIC","url":"https://media.example.com/a.m4a"}}},` +
 		`{"id":"bbb","title":"二","podcastTitle":"播","payType":"FREE",` +
-		`"media":{"source":{"mode":"LOGIN","url":"https://media.example.com/b.m4a"}}}]}]}}`
+		`"media":{"source":{"mode":"LOGIN","url":"https://media.example.com/b.m4a"}}},` +
+		`{"id":"ccc","title":"三","podcastTitle":"播",` +
+		`"media":{"source":{"mode":"PUBLIC","url":"https://media.example.com/c.m4a"}}}]}]}}`
 	draft, err := ParseActivityJSON(paid, sampleActivityCode)
 	require.NoError(t, err)
-	require.Len(t, draft.Items, 2)
+	require.Len(t, draft.Items, 3)
 	assert.Empty(t, draft.Items[0].AudioURL, "付费单集不留音频快照")
 	assert.Empty(t, draft.Items[1].AudioURL, "非公开来源不留音频快照")
+	assert.Empty(t, draft.Items[2].AudioURL, "付费状态未知（缺失）不留音频快照")
 }

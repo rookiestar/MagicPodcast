@@ -12,7 +12,7 @@
 ## 实现要点
 
 - `source.go`：来源主机白名单扩为三个；`h5.xiaoyuzhoufm.com/xyz-activity/{code}` 为第三种来源形态（code 与专题 slug 共用同一字符集规则）。生产抓取器按形态分发：活动抓取 POST 由 code 构造的固定接口地址（请求体仅含已校验 code）；活动接口是 POST 端点，任何重定向都直接拒绝；保留私网封禁、禁代理、3MB、20s 边界。
-- `activity.go`（新增）：`ParseActivityJSON` 确定性解析；响应 code 与请求不一致即拒绝；图片模块跳过、单集列表按页面顺序展平为一份有序清单；音频快照仅保留 payType=FREE 且 `media.source.mode=PUBLIC` 的条目；缺失字段（Show Notes/发布时间/节目作者）保留空值，不编造。
+- `activity.go`（新增）：`ParseActivityJSON` 确定性解析；响应 code 与请求不一致即拒绝；图片模块跳过、单集列表按页面顺序展平为一份有序清单；音频快照仅保留 payType 显式为 FREE 且 `media.source.mode=PUBLIC` 的条目（付费状态未知一律留空）；节目封面一律留空（活动载荷的条目图片是单集封面，不冒充节目封面）；缺失字段（Show Notes/发布时间/节目作者）保留空值，不编造。
 - 去重身份：`(source_platform, activity:<code>)` 命名空间化，与清单 ID、专题 slug 身份两两可区分；保存规范化活动页地址，刷新沿用并按形态分发。
 - 前端弹窗提示与后端 `UNSUPPORTED_SOURCE` 文案列出全部三种受支持格式。
 

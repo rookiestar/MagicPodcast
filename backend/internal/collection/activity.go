@@ -106,8 +106,9 @@ func ParseActivityJSON(body string, expectedCode string) (*Draft, error) {
 				ExternalEpisodeID: episode.ID,
 				ExternalPodcastID: strings.TrimSpace(episode.PID),
 				PodcastTitle:      strings.TrimSpace(episode.PodcastTitle),
-				PodcastCoverURL:   optionalString(episode.Image),
-				EpisodeTitle:      strings.TrimSpace(episode.Title),
+				// 活动载荷没有节目封面；条目图片是单集封面，不得冒充节目封面。
+				PodcastCoverURL: "",
+				EpisodeTitle:    strings.TrimSpace(episode.Title),
 				// 推荐语缺失时保留空值，不生成替代文案。
 				Recommendation: strings.TrimSpace(episode.Recommendation),
 				Duration:       normalizedDuration(episode.Duration),
@@ -129,9 +130,10 @@ func ParseActivityJSON(body string, expectedCode string) (*Draft, error) {
 	return draft, nil
 }
 
-// activityAudio 仅在公开免费单集上保留音频地址快照；私密或付费留空。
+// activityAudioURL 仅在显式 FREE 且公开来源的单集上保留音频地址快照；
+// 付费、私密与付费状态未知（缺失或空白）一律留空，fail closed。
 func activityAudioURL(episode activityEpisodePayload) string {
-	if strings.TrimSpace(episode.PayType) != "" && strings.TrimSpace(episode.PayType) != PayTypeFree {
+	if strings.TrimSpace(episode.PayType) != PayTypeFree {
 		return ""
 	}
 	if episode.Media == nil || episode.Media.Source == nil ||
