@@ -10,6 +10,7 @@ import (
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/workflow"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -131,11 +132,18 @@ func (h *PodcastHandler) List(c *gin.Context) {
 		return
 	}
 
+	// 覆盖筛选（#419）：exclude_covered=1 时在分页前排除被任一未删除工作流
+	// 纳入选源范围的节目，供新建向导「隐藏已加入其他工作流的节目」使用。
+	excludeCovered := c.Query("exclude_covered") == "1"
+
 	// 尝试从缓存获取（仅对无搜索关键词的请求缓存）
 	memCache := cache.GetCache()
 	cacheKey := ""
 	if searchKeyword == "" {
 		cacheKey = cache.NewKeyBuilder().PodcastList(page, pageSize, sortBy, tagIDs, "", view) + ":" + subscriptionFilter
+		if excludeCovered {
+			cacheKey += ":xc1"
+		}
 		if cached, ok := memCache.Get(cacheKey); ok {
 			cache.RecordHit()
 			cachedResp := copyGinH(cached.(gin.H))
@@ -172,6 +180,23 @@ func (h *PodcastHandler) List(c *gin.Context) {
 		query = query.Where("podcasts.is_subscribed = ?", true)
 	case "unsubscribed":
 		query = query.Where("podcasts.is_subscribed = ?", false)
+	}
+
+	// 覆盖筛选在分页前与搜索、标签共同作用于候选、总数与分页（#417 决策 13）。
+	// 查询失败按数据库错误返回，不得伪装为「全部未覆盖」。
+	if excludeCovered {
+		covered, err := workflow.CoveredPodcastIDs(db)
+		if err != nil {
+			middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to resolve workflow coverage")
+			return
+		}
+		if len(covered) > 0 {
+			coveredIDs := make([]uint, 0, len(covered))
+			for id := range covered {
+				coveredIDs = append(coveredIDs, id)
+			}
+			query = query.Where("podcasts.id NOT IN ?", coveredIDs)
+		}
 	}
 
 	// 搜索功能

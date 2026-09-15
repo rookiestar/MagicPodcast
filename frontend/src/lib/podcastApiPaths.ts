@@ -6,6 +6,8 @@ export interface PodcastListPathParams {
   search?: string;
   view?: "summary" | "full";
   subscription?: "all" | "subscribed" | "unsubscribed";
+  // 新建向导覆盖筛选（#419）："1" 表示分页前排除被其他工作流覆盖的节目。
+  exclude_covered?: "0" | "1";
 }
 
 const PODCASTS_BASE_PATH = "/api/v1/podcasts";
@@ -22,6 +24,9 @@ export function buildPodcastListPath(params: PodcastListPathParams = {}) {
   if (params.view) queryParams.set("view", params.view);
   if (params.subscription && params.subscription !== "all") {
     queryParams.set("subscription", params.subscription);
+  }
+  if (params.exclude_covered === "1") {
+    queryParams.set("exclude_covered", "1");
   }
   if (params.tag_id) {
     const tagIds = Array.isArray(params.tag_id) ? params.tag_id : [params.tag_id];

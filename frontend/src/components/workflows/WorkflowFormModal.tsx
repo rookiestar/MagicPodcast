@@ -117,6 +117,12 @@ export default function WorkflowFormModal({
   const [isLoadingTags, setIsLoadingTags] = useState(false);
   const hasRequestedTagsRef = useRef(false);
 
+  // 覆盖筛选（#419）：只在新建模式的「指定节目」范围提供，默认关闭。
+  // 开启后候选列表在分页前排除被其他工作流覆盖的节目；已选区不受影响。
+  const [hideCoveredPodcasts, setHideCoveredPodcasts] = useState(false);
+  const excludeCoveredParam: "0" | "1" =
+    !workflow && scopeType === "specific_podcasts" && hideCoveredPodcasts ? "1" : "0";
+
   // 同步 selectedTagIds ref（供 Intersection Observer 使用）
   // 注意：必须定义在 selectedTagIds state 之后
   const selectedTagIdsRef = useRef(selectedTagIds);
@@ -263,6 +269,7 @@ export default function WorkflowFormModal({
         page: 1,
         page_size: PODCAST_PAGE_SIZE,
         view: "summary",
+        exclude_covered: excludeCoveredParam,
       });
       const firstPagePodcasts = (response.data || []) as Podcast[];
       const loadedIds = new Set(firstPagePodcasts.map((podcast) => podcast.id));
@@ -301,7 +308,7 @@ export default function WorkflowFormModal({
     } finally {
       setIsLoadingPodcasts(false);
     }
-  }, [appendUniquePodcasts]);
+  }, [appendUniquePodcasts, excludeCoveredParam]);
 
   const loadNextPodcastPage = useCallback(async () => {
     if (
@@ -321,6 +328,7 @@ export default function WorkflowFormModal({
         page: nextPage,
         page_size: PODCAST_PAGE_SIZE,
         view: "summary",
+        exclude_covered: excludeCoveredParam,
       });
       const newPodcasts = (response.data || []) as Podcast[];
       setPodcasts((prev) => appendUniquePodcasts(prev, newPodcasts));
@@ -342,7 +350,7 @@ export default function WorkflowFormModal({
       setIsLoadingMorePodcasts(false);
       isLoadingMorePodcastsRef.current = false;
     }
-  }, [appendUniquePodcasts, isLoadingPodcasts]);
+  }, [appendUniquePodcasts, isLoadingPodcasts, excludeCoveredParam]);
 
   useEffect(() => {
     loadNextPodcastPageRef.current = loadNextPodcastPage;
@@ -466,6 +474,21 @@ export default function WorkflowFormModal({
       void loadPodcasts();
     }
   }, [isOpen, isLoadingPodcasts, loadPodcasts, podcasts.length, scopeType, step]);
+
+  // 切换覆盖筛选时重置分页并重新加载候选；已选区保持不变（#419 AC9）。
+  const excludeCoveredRef = useRef(excludeCoveredParam);
+  useEffect(() => {
+    const previous = excludeCoveredRef.current;
+    excludeCoveredRef.current = excludeCoveredParam;
+    if (
+      isOpen &&
+      step === 2 &&
+      scopeType === "specific_podcasts" &&
+      previous !== excludeCoveredParam
+    ) {
+      void loadPodcasts();
+    }
+  }, [excludeCoveredParam, isOpen, step, scopeType, loadPodcasts]);
 
   // 计算是否有更多内容需要显示
   const hasMoreContent = useMemo(() => {
@@ -845,6 +868,12 @@ export default function WorkflowFormModal({
   // 过滤播客列表（支持搜索和标签筛选） - 使用useMemo优化
   const filteredPodcasts = useMemo(() => {
     return podcasts.filter((p) => {
+      // 覆盖筛选开启时，已选节目只保留在已选区，不在候选中重复出现
+      // （#419 AC9：隐藏不是移除，关闭筛选后重新可见）。
+      if (excludeCoveredParam === "1" && candidatePodcastIds.includes(p.id)) {
+        return false;
+      }
+
       // 标签筛选（AND逻辑：必须包含所有选中的标签）
       if (selectedTagIds.length > 0) {
         const podcastTagIds = p.tags?.map((t) => t.id) || [];
@@ -866,7 +895,7 @@ export default function WorkflowFormModal({
 
       return titleMatch || authorMatch;
     });
-  }, [podcasts, selectedTagIds, podcastSearch]);
+  }, [podcasts, selectedTagIds, podcastSearch, excludeCoveredParam, candidatePodcastIds]);
 
   const selectedPodcastItems = candidatePodcastIds.map((id) => {
     const podcast = podcasts.find(
@@ -1373,6 +1402,20 @@ export default function WorkflowFormModal({
                               </button>
                             )}
                           </div>
+
+                          {/* 覆盖筛选：仅新建模式的指定节目范围提供（#419），默认关闭 */}
+                          {!workflow && (
+                            <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                              <input
+                                type="checkbox"
+                                checked={hideCoveredPodcasts}
+                                onChange={(e) => setHideCoveredPodcasts(e.target.checked)}
+                                aria-label="隐藏已加入其他工作流的节目"
+                                className="h-4 w-4 cursor-pointer"
+                              />
+                              隐藏已加入其他工作流的节目
+                            </label>
+                          )}
 
                           {/* 移动端底部操作栏 - 显示已选数量和批量操作 */}
                           <div className="workflow-mobile-selection-toolbar sm:hidden flex items-center justify-between gap-3">
