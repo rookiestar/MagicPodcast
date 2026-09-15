@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"magicpodcast/internal/opml"
 	"testing"
 
 	"magicpodcast/internal/models"
@@ -10,7 +11,7 @@ import (
 )
 
 // TestImportRecordsCreationFactsPerEntry 通过真实导入链路验证逐条新建事实
-//（#417/#418 AC1）：只有实际新建的记录（新建成功、新建待同步）带 created
+// （#417/#418 AC1）：只有实际新建的记录（新建成功、新建待同步）带 created
 // 标记；已有更新、确认合并与失败未落库不算新建。
 func TestImportRecordsCreationFactsPerEntry(t *testing.T) {
 	freshServer := newCursorFeedServer(t, identityFeedXML(""))
@@ -127,4 +128,63 @@ func TestRetryTaskPersistsParentLink(t *testing.T) {
 	idsFromChild, err := CollectImportBatchCreatedPodcastIDs(db, child.ID)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, ids, idsFromChild)
+}
+
+func TestDeepRetryChainKeepsRootCreationFacts(t *testing.T) {
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.ImportTask{}))
+	root := models.ImportTask{Status: "completed", ResultJSON: `[{"outcome":"new","podcast_id":7}]`}
+	require.NoError(t, db.Create(&root).Error)
+	last := root.ID
+	for i := 0; i < 40; i++ {
+		parent := last
+		child := models.ImportTask{Status: "completed", ParentTaskID: &parent}
+		require.NoError(t, db.Create(&child).Error)
+		last = child.ID
+	}
+	ids, err := CollectImportBatchCreatedPodcastIDs(db, last)
+	require.NoError(t, err)
+	require.Equal(t, []uint{7}, ids)
+	require.NoError(t, db.Model(&root).Update("parent_task_id", last).Error)
+	_, err = CollectImportBatchCreatedPodcastIDs(db, last)
+	require.Error(t, err)
+}
+
+func TestCreationSurvivesBeforeProgressDelivery(t *testing.T) {
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.ImportTask{}))
+	task, err := CreateImportTask(db, "crash.opml", 2)
+	require.NoError(t, err)
+	defer ActiveImportTasks.Delete(task.ID)
+	reporter := NewTaskProgressReporter(NewLogProgressReporter(), db, task.ID)
+	require.NoError(t, InitializeImportResults(reporter, []opml.Outline{{XMLURL: "https://a/feed"}, {XMLURL: "https://b/feed"}}))
+	service, err := NewService(db, "")
+	require.NoError(t, err)
+	defer service.Close()
+	p := models.Podcast{Title: "New", FeedURL: "https://a/feed", IsSubscribed: true}
+	_, err = service.saveImportPodcast(&p, resolvedPodcastIdentity{}, importCreationRecorder(reporter, p.FeedURL))
+	require.NoError(t, err)
+	// Another worker reports first; the first result never reached the collector.
+	require.NoError(t, reporter.(*taskProgressReporter).RecordImportResult(ImportEntryResult{FeedURL: "https://b/feed", Outcome: ImportOutcomeFailed}, 1))
+	ids, err := CollectImportBatchCreatedPodcastIDs(db, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, []uint{p.ID}, ids)
+}
+
+func TestCreationRollsBackWhenOriginCannotBeRecorded(t *testing.T) {
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.ImportTask{}))
+	task, err := CreateImportTask(db, "rollback.opml", 1)
+	require.NoError(t, err)
+	defer ActiveImportTasks.Delete(task.ID)
+	reporter := NewTaskProgressReporter(NewLogProgressReporter(), db, task.ID)
+	service, err := NewService(db, "")
+	require.NoError(t, err)
+	defer service.Close()
+	p := models.Podcast{Title: "New", FeedURL: "https://rollback/feed", IsSubscribed: true}
+	_, err = service.saveImportPodcast(&p, resolvedPodcastIdentity{}, importCreationRecorder(reporter, p.FeedURL))
+	require.Error(t, err)
+	var count int64
+	require.NoError(t, db.Model(&models.Podcast{}).Where("feed_url = ?", p.FeedURL).Count(&count).Error)
+	require.Zero(t, count, "failure to save origin must roll back the podcast too")
 }

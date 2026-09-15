@@ -20,7 +20,7 @@ import (
 // resolved 是写入前核对的身份：精确 URL 命中走更新；清单收录/已删除记录
 // 在用户确认后复用本地 ID 并（需要时）绑定订阅地址；无候选才新建。更新
 // 走字段白名单，避免覆盖 CustomCoverURL、备注、评分等用户字段（#401）。
-func (s *Service) saveImportPodcast(podcast *models.Podcast, resolved resolvedPodcastIdentity) (bool, error) {
+func (s *Service) saveImportPodcast(podcast *models.Podcast, resolved resolvedPodcastIdentity, recordCreated ...func(*gorm.DB, uint) error) (bool, error) {
 	var existing *models.Podcast
 
 	switch resolved.kind {
@@ -37,20 +37,25 @@ func (s *Service) saveImportPodcast(podcast *models.Podcast, resolved resolvedPo
 			podcast.XYZID = "temp_" + feedURLToID(podcast.FeedURL)
 		}
 		podcast.AddedDate = time.Now()
-		if isImportStub(podcast) {
-			// GORM's default:true otherwise changes the explicit false on insert.
-			err := s.db.Transaction(func(tx *gorm.DB) error {
-				if err := tx.Create(podcast).Error; err != nil {
+		pending := isImportStub(podcast)
+		err := s.db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Create(podcast).Error; err != nil {
+				return err
+			}
+			if pending {
+				if err := tx.Model(podcast).Update("feed_url_valid", false).Error; err != nil {
 					return err
 				}
-				return tx.Model(podcast).Update("feed_url_valid", false).Error
-			})
-			if err == nil {
-				cache.InvalidatePodcastDetail(podcast.ID)
 			}
-			return err == nil, err
-		}
-		err := s.db.Create(podcast).Error
+			for _, record := range recordCreated {
+				if record != nil {
+					if err := record(tx, podcast.ID); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		})
 		if err == nil {
 			cache.InvalidatePodcastDetail(podcast.ID)
 		}

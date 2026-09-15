@@ -79,8 +79,8 @@ func TestAppendPodcastsSetSemanticsPreservingConfig(t *testing.T) {
 
 	workflow := models.Workflow{
 		Name: "原工作流", Description: "原描述", Schedule: "30 7 * * 1",
-		ScopeType: models.ScopeTypeSpecificPodcasts,
-		ScopeConfig: models.ScopeConfig{PodcastIDs: []int{1, 2}},
+		ScopeType:   models.ScopeTypeSpecificPodcasts,
+		ScopeConfig: models.ScopeConfig{PodcastIDs: []int{1, 2}, CustomURLs: []string{"https://example.com/retained.xml"}},
 		RulesConfig: models.RulesConfig{TimeRange: 7, Keywords: "关键词", LLMEnabled: true, LLMMaxEpisodes: 5},
 	}
 	require.NoError(t, db.Create(&workflow).Error)
@@ -96,6 +96,7 @@ func TestAppendPodcastsSetSemanticsPreservingConfig(t *testing.T) {
 
 	var reloaded models.Workflow
 	require.NoError(t, db.First(&reloaded, workflow.ID).Error)
+	assert.Equal(t, []string{"https://example.com/retained.xml"}, reloaded.ScopeConfig.CustomURLs)
 	assert.Equal(t, "原工作流", reloaded.Name)
 	assert.Equal(t, "原描述", reloaded.Description)
 	assert.Equal(t, "30 7 * * 1", reloaded.Schedule)
