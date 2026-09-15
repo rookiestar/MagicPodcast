@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"magicpodcast/internal/logger"
+	"strconv"
 	"strings"
 
 	_ "modernc.org/sqlite"
@@ -228,10 +229,51 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
+// nullableInt 容忍 PodcastIndex 官方数据集中数字列出现的空文本：SQLite 动态
+// 类型允许 INTEGER 列存入空字符串，直接扫描会令整行读取失败（#420 实测
+// 样本）。空值、空文本与非数字文本一律保持「未知」，不默认为有效业务
+// 事实。
+type nullableInt struct {
+	Int64 int64
+	Valid bool
+}
+
+func (n *nullableInt) Scan(value any) error {
+	switch v := value.(type) {
+	case nil:
+		*n = nullableInt{}
+	case int64:
+		*n = nullableInt{Int64: v, Valid: true}
+	case float64:
+		*n = nullableInt{Int64: int64(v), Valid: true}
+	case []byte:
+		n.parseText(string(v))
+	case string:
+		n.parseText(v)
+	default:
+		return fmt.Errorf("podcastindex: unsupported numeric column type %T", value)
+	}
+	return nil
+}
+
+func (n *nullableInt) parseText(raw string) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		*n = nullableInt{}
+		return
+	}
+	parsed, err := strconv.ParseInt(trimmed, 10, 64)
+	if err != nil {
+		*n = nullableInt{}
+		return
+	}
+	*n = nullableInt{Int64: parsed, Valid: true}
+}
+
 func scanPodcastInfo(scanner rowScanner) (*PodcastInfo, error) {
 	var info PodcastInfo
 	var title, author, description, coverURL, feedURL, language, websiteURL, newestEnclosureURL, podcastGUID sql.NullString
-	var itunesID, newestDuration, lastUpdate, newestItem, oldestItem, popularity, priority, updateFrequency, episodeCount, dead, lastHTTPStatus sql.NullInt64
+	var itunesID, newestDuration, lastUpdate, newestItem, oldestItem, popularity, priority, updateFrequency, episodeCount, dead, lastHTTPStatus nullableInt
 
 	if err := scanner.Scan(
 		&info.ID,
