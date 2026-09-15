@@ -171,7 +171,7 @@ export default function NewPodcastsSection({ taskId }: NewPodcastsSectionProps) 
             </p>
           ) : (
             <>
-              <div className="mt-2 grid grid-cols-[2rem_minmax(0,1fr)_5rem_minmax(0,10rem)] items-center gap-2 border-b border-slate-200 pb-1.5 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
+              <div className="mt-2 grid grid-cols-[2rem_minmax(0,1fr)] items-center gap-2 border-b border-slate-200 pb-1.5 text-xs text-slate-500 sm:grid-cols-[2rem_minmax(0,1fr)_5rem_minmax(0,10rem)] dark:border-slate-700 dark:text-slate-400">
                 <input
                   type="checkbox"
                   checked={allFilteredSelected}
@@ -182,15 +182,15 @@ export default function NewPodcastsSection({ taskId }: NewPodcastsSectionProps) 
                   aria-label="选择全部匹配节目"
                   className="h-4 w-4 cursor-pointer"
                 />
-                <span>节目</span>
-                <span>资料状态</span>
-                <span>已加入的工作流</span>
+                <span className="whitespace-nowrap">节目</span>
+                <span className="hidden whitespace-nowrap sm:block">资料状态</span>
+                <span className="hidden whitespace-nowrap sm:block">已加入的工作流</span>
               </div>
               <ul className="mt-1">
                 {visible.map((podcast) => (
                   <li
                     key={podcast.id}
-                    className="grid grid-cols-[2rem_minmax(0,1fr)_5rem_minmax(0,10rem)] items-center gap-2 border-b border-slate-100 py-2 text-xs dark:border-slate-800"
+                    className="border-b border-slate-100 py-2 text-xs sm:grid sm:grid-cols-[2rem_minmax(0,1fr)_5rem_minmax(0,10rem)] sm:items-center sm:gap-2 dark:border-slate-800"
                   >
                     <input
                       type="checkbox"
@@ -199,13 +199,13 @@ export default function NewPodcastsSection({ taskId }: NewPodcastsSectionProps) 
                       aria-label={`选择「${podcast.title}」`}
                       className="h-4 w-4 cursor-pointer"
                     />
-                    <span className="min-w-0">
+                    <span className="mt-1 block min-w-0 sm:mt-0">
                       <span className="block truncate font-medium text-slate-800 dark:text-slate-100">
                         {podcast.title}
                       </span>
                       <span className="block truncate text-slate-400">{podcast.feed_url}</span>
                     </span>
-                    <span>
+                    <span className="mt-1 block sm:mt-0">
                       {podcast.ready ? (
                         <span className="text-slate-500 dark:text-slate-400">就绪</span>
                       ) : (
@@ -214,7 +214,7 @@ export default function NewPodcastsSection({ taskId }: NewPodcastsSectionProps) 
                         </span>
                       )}
                     </span>
-                    <span className="min-w-0 truncate text-slate-500 dark:text-slate-400">
+                    <span className="mt-1 block min-w-0 truncate text-slate-500 sm:mt-0 dark:text-slate-400">
                       {podcast.workflows.length > 0
                         ? podcast.workflows.map((workflow) => workflow.name).join("、")
                         : "—"}
