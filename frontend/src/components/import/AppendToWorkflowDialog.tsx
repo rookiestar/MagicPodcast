@@ -33,20 +33,24 @@ export default function AppendToWorkflowDialog({
   const [saveError, setSaveError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  const loadWorkflows = () => {
+  const loadWorkflows = async () => {
     setLoadError(null);
-    workflowApi
-      .list({ page: 1, page_size: 100 })
-      .then((response) => {
-        const targets = (response.workflows ?? []).filter(
-          (workflow) => workflow.scope_type === "specific_podcasts",
-        );
-        setWorkflows(targets);
-        setTargetId((current) => current ?? targets[0]?.id ?? null);
-      })
-      .catch(() => {
-        setLoadError("目标工作流读取失败，请重试");
-      });
+    try {
+      const all: Workflow[] = [];
+      let page = 1;
+      let pages = 1;
+      do {
+        const response = await workflowApi.list({ page, page_size: 100 });
+        all.push(...response.workflows);
+        pages = response.pagination.total_pages;
+        page++;
+      } while (page <= pages);
+      const targets = all.filter((workflow) => workflow.scope_type === "specific_podcasts");
+      setWorkflows(targets);
+      setTargetId((current) => targets.some((w) => w.id === current) ? current : targets[0]?.id ?? null);
+    } catch {
+      setLoadError("目标工作流读取失败，请重试");
+    }
   };
 
   useEffect(() => {
@@ -54,7 +58,9 @@ export default function AppendToWorkflowDialog({
   }, []);
 
   useEffect(() => {
+    const previous = document.activeElement;
     dialogRef.current?.focus();
+    return () => { if (previous instanceof HTMLElement) previous.focus(); };
   }, []);
 
   const selected = useMemo(
@@ -92,7 +98,7 @@ export default function AppendToWorkflowDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/50 p-0 sm:items-center sm:p-4"
+      className="workflow-form-modal wf-editorial fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/50 p-0 sm:items-center sm:p-4"
       onMouseDown={(event) => {
         if (event.currentTarget === event.target && !saving) onCancel();
       }}
@@ -104,14 +110,20 @@ export default function AppendToWorkflowDialog({
         aria-labelledby="append-to-workflow-title"
         tabIndex={-1}
         onKeyDown={(event) => {
-          if (event.key === "Escape" && !saving) onCancel();
+          if (event.key === "Escape" && !saving) { event.stopPropagation(); onCancel(); }
+          if (event.key === "Tab") {
+            const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex='0']"));
+            const first = controls[0], last = controls.at(-1);
+            if (event.shiftKey && (document.activeElement === first || document.activeElement === event.currentTarget)) { event.preventDefault(); last?.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+          }
         }}
         className="w-full max-w-lg overflow-hidden rounded-none bg-white shadow-2xl outline-none sm:rounded-lg dark:bg-slate-800"
       >
-        <div className="border-b border-slate-200 p-4 dark:border-slate-700">
+        <div className="workflow-modal-header border-b border-slate-200 p-4 dark:border-slate-700">
           <h2
             id="append-to-workflow-title"
-            className="text-base font-medium text-slate-900 dark:text-slate-100"
+            className="type-section-title text-slate-900 dark:text-slate-100"
           >
             添加到工作流
           </h2>

@@ -282,7 +282,7 @@ func (s *Service) processImportOutline(outline *opml.Outline, decisions map[stri
 		if resolved.podcast != nil && decision == ImportDecisionConfirm {
 			podcast = pendingImportPodcastFrom(outline, outline.XMLURL, resolved.podcast)
 		}
-		if _, err := s.saveImportPodcast(podcast, resolved); err != nil {
+		if _, err := s.saveImportPodcast(podcast, resolved, importCreationRecorder(reporter, outline.XMLURL)); err != nil {
 			res.Outcome = ImportOutcomeFailed
 			res.Detail = fmt.Sprintf("save failed - %v", err)
 			return res
@@ -333,7 +333,7 @@ func (s *Service) processImportOutline(outline *opml.Outline, decisions map[stri
 		return res
 	}
 
-	changed, err := s.saveImportPodcast(podcast, resolved)
+	changed, err := s.saveImportPodcast(podcast, resolved, importCreationRecorder(reporter, outline.XMLURL))
 	if err != nil {
 		res.Outcome = ImportOutcomeFailed
 		res.Detail = fmt.Sprintf("save failed - %v", err)

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import NewPodcastsSection from "../NewPodcastsSection";
 import type { ImportNewPodcast } from "@/lib/api/importTasks";
@@ -267,4 +267,30 @@ describe("NewPodcastsSection", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(appendPodcasts).not.toHaveBeenCalled();
   });
+  it("ignores an older batch response after switching tasks", async () => {
+    let resolveOld!: (value: Awaited<ReturnType<typeof importTasksModule.importTasksApi.fetchTaskNewPodcasts>>) => void;
+    fetchTaskNewPodcasts.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
+    fetchTaskNewPodcasts.mockResolvedValueOnce({success:true,task_id:8,total:1,podcasts:[podcast({id:8,title:"New batch"})]});
+    const view=render(<NewPodcastsSection taskId={7}/>);
+    view.rerender(<NewPodcastsSection taskId={8}/>);
+    await screen.findByText("New batch");
+    await act(async () => resolveOld({success:true,task_id:7,total:1,podcasts:[podcast({id:1,title:"Old batch"})]}));
+    expect(screen.queryByText("Old batch")).toBeNull();
+    expect(screen.getByText("New batch")).toBeDefined();
+  });
+
+  it("includes targets beyond the first workflow page and traps keyboard focus", async () => {
+    fetchTaskNewPodcasts.mockResolvedValue({success:true,task_id:7,total:1,podcasts:[podcast({id:1})]});
+    listWorkflows.mockResolvedValueOnce({...workflowListResponse,pagination:{page:1,page_size:100,total:101,total_pages:2}});
+    listWorkflows.mockResolvedValueOnce({...workflowListResponse,workflows:[{...workflowListResponse.workflows[0],id:99,name:"第二页目标"}],pagination:{page:2,page_size:100,total:101,total_pages:2}});
+    await renderSection();
+    fireEvent.click(await screen.findByLabelText("选择「节目1」"));
+    const trigger=screen.getByRole("button",{name:"添加到工作流"}); trigger.focus();fireEvent.click(trigger);
+    await screen.findByLabelText("选择工作流 第二页目标");
+    expect(listWorkflows).toHaveBeenCalledWith({page:2,page_size:100});
+    const save=screen.getByRole("button",{name:"添加 1 档"});save.focus();fireEvent.keyDown(save,{key:"Tab"});
+    expect(document.activeElement).toBe(screen.getByLabelText("选择工作流 科技周报"));
+    fireEvent.click(screen.getByRole("button",{name:"取消"}));expect(document.activeElement).toBe(trigger);
+  });
+
 });

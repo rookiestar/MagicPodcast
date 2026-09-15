@@ -148,7 +148,11 @@ func (h *PodcastHandler) List(c *gin.Context) {
 			cache.RecordHit()
 			cachedResp := copyGinH(cached.(gin.H))
 			cachedResp["cached"] = true
-			setPrivateCache(c, 60)
+			if excludeCovered {
+				c.Header("Cache-Control", "private, no-store")
+			} else {
+				setPrivateCache(c, 60)
+			}
 			c.JSON(200, cachedResp)
 			return
 		}
@@ -275,7 +279,11 @@ func (h *PodcastHandler) List(c *gin.Context) {
 		memCache.Set(cacheKey, resp)
 	}
 
-	setPrivateCache(c, 60)
+	if excludeCovered {
+		c.Header("Cache-Control", "private, no-store")
+	} else {
+		setPrivateCache(c, 60)
+	}
 
 	c.JSON(200, resp)
 }

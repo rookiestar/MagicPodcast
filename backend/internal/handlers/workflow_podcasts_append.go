@@ -124,9 +124,11 @@ func (h *WorkflowHandler) AppendPodcasts(c *gin.Context) {
 		merged := make([]int, 0, len(existing)+len(appended))
 		merged = append(merged, existing...)
 		merged = append(merged, appended...)
+		updatedScope := wf.ScopeConfig
+		updatedScope.PodcastIDs = merged
 		if err := tx.Model(&models.Workflow{}).Where("id = ?", wf.ID).
 			Updates(map[string]interface{}{
-				"scope_config": models.ScopeConfig{PodcastIDs: merged},
+				"scope_config": updatedScope,
 				"updated_at":   time.Now(),
 			}).Error; err != nil {
 			return err

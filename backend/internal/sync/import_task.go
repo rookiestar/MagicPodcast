@@ -178,18 +178,20 @@ func importEntryCreatedID(entry ImportEntryResult) (uint, bool) {
 func CollectImportBatchCreatedPodcastIDs(db *gorm.DB, taskID uint) ([]uint, error) {
 	// 上溯根任务：重试响应之后页面可能直接落在子任务上。
 	root := taskID
-	for depth := 0; depth < maxImportTaskChainDepth; depth++ {
+	ancestors := map[uint]struct{}{}
+	for {
+		if _, seen := ancestors[root]; seen {
+			return nil, fmt.Errorf("cyclic import task parent chain")
+		}
+		ancestors[root] = struct{}{}
 		var task models.ImportTask
 		if err := db.Select("id", "parent_task_id").First(&task, root).Error; err != nil {
-			break
+			return nil, err
 		}
 		if task.ParentTaskID == nil || *task.ParentTaskID == 0 {
 			break
 		}
 		root = *task.ParentTaskID
-		if root == taskID {
-			break
-		}
 	}
 
 	visited := map[uint]struct{}{root: {}}
@@ -202,7 +204,7 @@ func CollectImportBatchCreatedPodcastIDs(db *gorm.DB, taskID uint) ([]uint, erro
 		queue = queue[1:]
 		var task models.ImportTask
 		if err := db.First(&task, current).Error; err != nil {
-			continue
+			return nil, err
 		}
 		for _, entry := range decodeImportEntries(task.ResultJSON) {
 			id, created := importEntryCreatedID(entry)
@@ -231,10 +233,6 @@ func CollectImportBatchCreatedPodcastIDs(db *gorm.DB, taskID uint) ([]uint, erro
 	return ordered, nil
 }
 
-// maxImportTaskChainDepth 防御异常数据造成的父子环：链深超过上限即停止
-// 上溯，读取方仍能得到已收集到的结果。
-const maxImportTaskChainDepth = 32
-
 // taskProgressReporter 把导入进度持久化到任务记录：页面断线后仍可查询
 // 同一任务的已提交条目。持久化按时间节流，避免高频写放大。
 type taskProgressReporter struct {
@@ -260,35 +258,53 @@ func InitializeImportResults(reporter ProgressReporter, outlines []opml.Outline)
 }
 
 func (r *taskProgressReporter) persistEntries(processed int) error {
-	raw, err := json.Marshal(r.entries)
-	if err != nil {
-		return err
-	}
-	counts := map[string]interface{}{"result_json": string(raw), "processed": processed, "total": len(r.entries)}
-	for _, key := range []string{"success_count", "pending_count", "conflict_count", "merged_count", "unchanged_count", "skipped_count", "failed_count"} {
-		counts[key] = 0
-	}
-	increment := func(key string) { counts[key] = counts[key].(int) + 1 }
-	for _, entry := range r.entries {
-		switch entry.Outcome {
-		case ImportOutcomeNew, ImportOutcomeUpdated:
-			increment("success_count")
-		case ImportOutcomeMerged:
-			increment("success_count")
-			increment("merged_count")
-		case ImportOutcomePending:
-			increment("pending_count")
-		case ImportOutcomeConflict, ImportOutcomeDeleted:
-			increment("conflict_count")
-		case ImportOutcomeUnchanged:
-			increment("unchanged_count")
-		case ImportOutcomeSkipped:
-			increment("skipped_count")
-		case ImportOutcomeFailed:
-			increment("failed_count")
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var saved models.ImportTask
+		if err := tx.First(&saved, r.taskID).Error; err != nil {
+			return err
 		}
-	}
-	return r.db.Model(&models.ImportTask{}).Where("id = ?", r.taskID).Updates(counts).Error
+		for _, fact := range decodeImportEntries(saved.ResultJSON) {
+			if !fact.Created {
+				continue
+			}
+			for i := range r.entries {
+				if r.entries[i].FeedURL == fact.FeedURL {
+					r.entries[i].Created = true
+					r.entries[i].PodcastID = fact.PodcastID
+					break
+				}
+			}
+		}
+		raw, err := json.Marshal(r.entries)
+		if err != nil {
+			return err
+		}
+		counts := map[string]interface{}{"result_json": string(raw), "processed": processed, "total": len(r.entries)}
+		for _, key := range []string{"success_count", "pending_count", "conflict_count", "merged_count", "unchanged_count", "skipped_count", "failed_count"} {
+			counts[key] = 0
+		}
+		increment := func(key string) { counts[key] = counts[key].(int) + 1 }
+		for _, entry := range r.entries {
+			switch entry.Outcome {
+			case ImportOutcomeNew, ImportOutcomeUpdated:
+				increment("success_count")
+			case ImportOutcomeMerged:
+				increment("success_count")
+				increment("merged_count")
+			case ImportOutcomePending:
+				increment("pending_count")
+			case ImportOutcomeConflict, ImportOutcomeDeleted:
+				increment("conflict_count")
+			case ImportOutcomeUnchanged:
+				increment("unchanged_count")
+			case ImportOutcomeSkipped:
+				increment("skipped_count")
+			case ImportOutcomeFailed:
+				increment("failed_count")
+			}
+		}
+		return tx.Model(&models.ImportTask{}).Where("id = ?", r.taskID).Updates(counts).Error
+	})
 }
 
 func (r *taskProgressReporter) RecordImportResult(entry ImportEntryResult, processed int) error {
@@ -378,4 +394,32 @@ func (s *Service) RunImportTask(db *gorm.DB, fileName string, outlines []opml.Ou
 		PublishImportSummary(wrapped)
 	}
 	return task, result, runErr
+}
+
+// Persist the creation fact in the same transaction as the new podcast. A
+// process exit before the result channel is drained must not erase its origin.
+func importCreationRecorder(reporter ProgressReporter, feedURL string) func(*gorm.DB, uint) error {
+	r, ok := reporter.(*taskProgressReporter)
+	if !ok {
+		return nil
+	}
+	return func(tx *gorm.DB, id uint) error {
+		var task models.ImportTask
+		if err := tx.First(&task, r.taskID).Error; err != nil {
+			return err
+		}
+		entries := decodeImportEntries(task.ResultJSON)
+		for i := range entries {
+			if entries[i].FeedURL == feedURL {
+				entries[i].Created = true
+				entries[i].PodcastID = id
+				raw, err := json.Marshal(entries)
+				if err != nil {
+					return err
+				}
+				return tx.Model(&task).Update("result_json", string(raw)).Error
+			}
+		}
+		return fmt.Errorf("import entry missing from persisted task")
+	}
 }

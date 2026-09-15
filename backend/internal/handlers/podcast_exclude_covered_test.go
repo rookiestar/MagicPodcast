@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -142,4 +143,39 @@ func TestPodcastListExcludeCoveredAppliesBeforePagination(t *testing.T) {
 	titles, total = listPodcastTitles(t, router, "?exclude_covered=1&tag_id="+strconv.FormatUint(uint64(tag.ID), 10))
 	assert.Equal(t, []string{"泽塔"}, titles)
 	assert.Equal(t, int64(1), total)
+}
+
+func TestCoverageRefreshAfterAppendOverHTTP(t *testing.T) {
+	router, db := setupExcludeCoveredRouter(t)
+	p := seedCoveredPodcast(t, db, 1, "New", true)
+	wf := models.Workflow{Name: "Existing", Schedule: "0 6 * * *", ScopeType: models.ScopeTypeSpecificPodcasts, ScopeConfig: models.ScopeConfig{CustomURLs: []string{"https://keep/feed"}}}
+	require.NoError(t, db.Create(&wf).Error)
+	router.POST("/workflows/:id/podcasts/append", (&WorkflowHandler{}).AppendPodcasts)
+	server := httptest.NewServer(router)
+	defer server.Close()
+	client := server.Client()
+	readTotal := func() int {
+		response, err := client.Get(server.URL + "/api/v1/podcasts?exclude_covered=1&view=summary")
+		require.NoError(t, err)
+		defer response.Body.Close()
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		assert.Equal(t, "private, no-store", response.Header.Get("Cache-Control"))
+		var payload struct {
+			Pagination struct {
+				Total int `json:"total"`
+			} `json:"pagination"`
+		}
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&payload))
+		return payload.Pagination.Total
+	}
+	require.Equal(t, 1, readTotal())
+	require.Equal(t, 1, readTotal(), "cached server response must also forbid browser caching")
+	response, err := client.Post(server.URL+"/workflows/"+strconv.Itoa(int(wf.ID))+"/podcasts/append", "application/json", strings.NewReader(`{"podcast_ids":[1]}`))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	response.Body.Close()
+	require.Equal(t, 0, readTotal(), "append invalidates the coverage result")
+	require.NoError(t, db.First(&wf, wf.ID).Error)
+	assert.Equal(t, []int{int(p.ID)}, wf.ScopeConfig.PodcastIDs)
+	assert.Equal(t, []string{"https://keep/feed"}, wf.ScopeConfig.CustomURLs)
 }

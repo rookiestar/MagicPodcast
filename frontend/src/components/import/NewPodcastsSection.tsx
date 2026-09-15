@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ImportNewPodcast } from "@/lib/api/importTasks";
 import { importTasksApi } from "@/lib/api/importTasks";
 import { toast } from "@/lib/toast";
@@ -25,29 +25,37 @@ export default function NewPodcastsSection({ taskId }: NewPodcastsSectionProps) 
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
 
+  const requestVersion = useRef(Symbol());
   const load = () => {
+    const version = Symbol();
+    requestVersion.current = version;
     setLoading(true);
     setLoadError(null);
     importTasksApi
       .fetchTaskNewPodcasts(taskId)
       .then((payload) => {
+        if (version !== requestVersion.current) return;
         setPodcasts(payload.podcasts ?? []);
       })
       .catch(() => {
+        if (version !== requestVersion.current) return;
         setLoadError("本批新增节目读取失败");
       })
       .finally(() => {
+        if (version !== requestVersion.current) return;
         setLoading(false);
       });
   };
 
   useEffect(() => {
+    setDialogOpen(false);
     setPodcasts(null);
     setSelectedIds([]);
     setSearch("");
     setPendingOnly(false);
     setPage(1);
     load();
+    return () => { requestVersion.current = Symbol(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId]);
 
@@ -107,7 +115,7 @@ export default function NewPodcastsSection({ taskId }: NewPodcastsSectionProps) 
 
   if (loading && podcasts === null) {
     return (
-      <div className="mt-3 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700">
+      <div className="wf-editorial mt-3 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700">
         <p className="text-slate-500 dark:text-slate-400" role="status">
           正在读取本批新增节目...
         </p>
@@ -116,8 +124,8 @@ export default function NewPodcastsSection({ taskId }: NewPodcastsSectionProps) 
   }
 
   return (
-    <div className="mt-3 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700">
-      {loadError ? (
+    <div className="wf-editorial mt-3 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700">
+      {loadError && (
         <div>
           <p className="text-red-600 dark:text-red-400" role="alert">
             {loadError}
@@ -130,7 +138,8 @@ export default function NewPodcastsSection({ taskId }: NewPodcastsSectionProps) 
             重试
           </button>
         </div>
-      ) : (
+      )}
+      {(!loadError || podcasts !== null) && (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-medium text-slate-700 dark:text-slate-200">
