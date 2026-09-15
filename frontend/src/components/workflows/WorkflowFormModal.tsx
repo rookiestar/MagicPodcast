@@ -122,6 +122,11 @@ export default function WorkflowFormModal({
   const [hideCoveredPodcasts, setHideCoveredPodcasts] = useState(false);
   const excludeCoveredParam: "0" | "1" =
     !workflow && scopeType === "specific_podcasts" && hideCoveredPodcasts ? "1" : "0";
+  // 筛选开启时，服务端响应不含已选中的覆盖节目；这些节目通过 batchGet
+  // 回填进 podcasts 仅供已选区展示，需从候选中隐藏（记录回填集合）。
+  const [backfilledSelectedIds, setBackfilledSelectedIds] = useState<number[]>([]);
+  // 加载序号：快速切换筛选时丢弃过期响应，避免旧结果覆盖新结果。
+  const podcastLoadSeqRef = useRef(0);
 
   // 同步 selectedTagIds ref（供 Intersection Observer 使用）
   // 注意：必须定义在 selectedTagIds state 之后
@@ -211,6 +216,8 @@ export default function WorkflowFormModal({
     setCronError("");
     setScopeType("all_subscribed");
     setCandidatePodcastIds([]);
+    setHideCoveredPodcasts(false);
+    setBackfilledSelectedIds([]);
     setCustomUrls([]);
     setNewCustomUrl("");
     setPodcasts([]);
@@ -255,6 +262,7 @@ export default function WorkflowFormModal({
 
   // 加载播客列表首批数据，避免打开弹窗时一次性拉取全量节目
   const loadPodcasts = useCallback(async () => {
+    const requestSeq = ++podcastLoadSeqRef.current;
     try {
       setIsLoadingPodcasts(true);
       hasRequestedPodcastsRef.current = true;
@@ -271,6 +279,7 @@ export default function WorkflowFormModal({
         view: "summary",
         exclude_covered: excludeCoveredParam,
       });
+      if (requestSeq !== podcastLoadSeqRef.current) return;
       const firstPagePodcasts = (response.data || []) as Podcast[];
       const loadedIds = new Set(firstPagePodcasts.map((podcast) => podcast.id));
       const missingSelectedIds = candidatePodcastIdsRef.current.filter(
@@ -280,8 +289,10 @@ export default function WorkflowFormModal({
       let nextPodcasts = firstPagePodcasts;
       if (missingSelectedIds.length > 0) {
         const selectedPodcasts = await podcastApi.batchGet(missingSelectedIds);
+        if (requestSeq !== podcastLoadSeqRef.current) return;
         nextPodcasts = appendUniquePodcasts(firstPagePodcasts, selectedPodcasts);
       }
+      setBackfilledSelectedIds(missingSelectedIds);
 
       const hasMore = response.pagination
         ? response.pagination.page < response.pagination.total_pages
@@ -320,6 +331,7 @@ export default function WorkflowFormModal({
     }
 
     const nextPage = podcastPageRef.current + 1;
+    const requestSeq = ++podcastLoadSeqRef.current;
     try {
       setIsLoadingMorePodcasts(true);
       isLoadingMorePodcastsRef.current = true;
@@ -330,6 +342,7 @@ export default function WorkflowFormModal({
         view: "summary",
         exclude_covered: excludeCoveredParam,
       });
+      if (requestSeq !== podcastLoadSeqRef.current) return;
       const newPodcasts = (response.data || []) as Podcast[];
       setPodcasts((prev) => appendUniquePodcasts(prev, newPodcasts));
 
@@ -838,6 +851,8 @@ export default function WorkflowFormModal({
     setCronError("");
     setScopeType("all_subscribed");
     setCandidatePodcastIds([]);
+    setHideCoveredPodcasts(false);
+    setBackfilledSelectedIds([]);
     setCustomUrls([]);
     setNewCustomUrl("");
     setPodcasts([]);
@@ -868,9 +883,10 @@ export default function WorkflowFormModal({
   // 过滤播客列表（支持搜索和标签筛选） - 使用useMemo优化
   const filteredPodcasts = useMemo(() => {
     return podcasts.filter((p) => {
-      // 覆盖筛选开启时，已选节目只保留在已选区，不在候选中重复出现
+      // 覆盖筛选开启时，只有确实被覆盖而经 batchGet 回填的已选节目从候选
+      // 隐藏（服务端已确认未覆盖的已选节目保留在候选中）；已选区不受影响
       // （#419 AC9：隐藏不是移除，关闭筛选后重新可见）。
-      if (excludeCoveredParam === "1" && candidatePodcastIds.includes(p.id)) {
+      if (excludeCoveredParam === "1" && backfilledSelectedIds.includes(p.id)) {
         return false;
       }
 
@@ -895,7 +911,7 @@ export default function WorkflowFormModal({
 
       return titleMatch || authorMatch;
     });
-  }, [podcasts, selectedTagIds, podcastSearch, excludeCoveredParam, candidatePodcastIds]);
+  }, [podcasts, selectedTagIds, podcastSearch, excludeCoveredParam, backfilledSelectedIds]);
 
   const selectedPodcastItems = candidatePodcastIds.map((id) => {
     const podcast = podcasts.find(

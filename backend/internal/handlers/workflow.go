@@ -270,6 +270,8 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 		return
 	}
 	cache.InvalidateWorkflowList()
+	// 工作流范围变化影响节目覆盖筛选结果（#419），需同步失效列表缓存。
+	cache.InvalidatePodcastList()
 
 	// 如果工作流启用且配置了 schedule,注册到调度器
 	if workflow.IsEnabled && workflow.Schedule != "" {
@@ -404,6 +406,8 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 		return
 	}
 	cache.InvalidateWorkflowDetail(workflow.ID)
+	// 范围配置变化影响节目覆盖筛选结果（#419）。
+	cache.InvalidatePodcastList()
 
 	// 重新加载调度器以应用更新
 	if err := h.scheduler.Reload(); err != nil {
@@ -449,6 +453,8 @@ func (h *WorkflowHandler) Delete(c *gin.Context) {
 		return
 	}
 	cache.InvalidateWorkflowDetail(workflow.ID)
+	// 删除工作流释放覆盖关系，影响节目覆盖筛选结果（#419）。
+	cache.InvalidatePodcastList()
 
 	middleware.SuccessResponse(c, gin.H{"message": "Workflow deleted successfully"})
 }

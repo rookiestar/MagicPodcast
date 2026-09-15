@@ -159,6 +159,8 @@ func (h *WorkflowHandler) AppendPodcasts(c *gin.Context) {
 	if added > 0 {
 		cache.InvalidateWorkflowList()
 		cache.InvalidateWorkflowDetail(workflowID)
+		// 成员变化影响节目覆盖筛选结果（#419），需同步失效列表缓存。
+		cache.InvalidatePodcastList()
 	}
 
 	c.JSON(http.StatusOK, gin.H{
