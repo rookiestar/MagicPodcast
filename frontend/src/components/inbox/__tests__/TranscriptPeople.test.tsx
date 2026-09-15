@@ -228,6 +228,42 @@ describe("逐字稿人物确认", () => {
     await waitFor(() => expect(dialog).not.toBeVisible());
   });
 
+  it("closes a routed dirty review without triggering the discard guard", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/episodes/7?tab=transcript&artifact=transcript&panel=people",
+    );
+    const confirm = vi.fn(() => false);
+    const originalConfirm = window.confirm;
+    Object.defineProperty(window, "confirm", {
+      configurable: true,
+      value: confirm,
+    });
+    vi.mocked(episodeCopilotApi.getPeople).mockResolvedValue(proposal);
+    vi.mocked(episodeCopilotApi.reviewPeople).mockResolvedValue(applied);
+    render(<RoutedPlayer />);
+    const dialog = await screen.findByRole("dialog", {
+      name: "人物与发言核对",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "编辑匹配 小林" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "姓名 host" }), {
+      target: { value: "林老师" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "确认并应用" }));
+
+    await waitFor(() => expect(episodeCopilotApi.reviewPeople).toHaveBeenCalled());
+    await waitFor(() => expect(dialog).not.toBeVisible());
+    expect(confirm).not.toHaveBeenCalled();
+    expect(new URLSearchParams(window.location.search).has("panel")).toBe(false);
+    Object.defineProperty(window, "confirm", {
+      configurable: true,
+      value: originalConfirm,
+    });
+    window.history.replaceState({}, "", "/inbox");
+  });
+
   it("supports direct manual naming, cancellation and fragment scope without a prior recognition", async () => {
     render(<Player />);
     await waitFor(() => expect(episodeCopilotApi.getPeople).toHaveBeenCalled());
