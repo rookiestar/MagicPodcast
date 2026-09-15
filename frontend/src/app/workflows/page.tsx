@@ -1,4 +1,5 @@
 "use client";
+import { formatWorkflowSchedule } from "@/components/workflows/workflowFormConstants";
 
 import { useEffect, useState, useRef, useMemo } from "react";
 import { closeTo, navigate, positiveID, singleParam, updateQuery, useLocationHref } from "@/lib/navigation";
@@ -13,7 +14,7 @@ import WorkflowActionMenu from "@/components/workflows/WorkflowActionMenu";
 import EditorialSortControls from "@/components/layout/EditorialSortControls";
 import PageLayout from "@/components/layout/PageLayout";
 import PrefetchLink from "@/components/common/PrefetchLink";
-import { WorkflowStatusBadge } from "@/components/ui/StatusBadge";
+import { JobStatusBadge, WorkflowStatusBadge } from "@/components/ui/StatusBadge";
 import { formatDateTime } from "@/lib/timeUtils";
 import {
   IconCircleCheck,
@@ -159,11 +160,6 @@ export default function WorkflowsPage() {
     return label;
   };
 
-  const formatTimeRange = (timeRange?: number) => {
-    if (!timeRange || timeRange === 0) return "不限制";
-    return `最近${timeRange}天`;
-  };
-
   return (
     <PageLayout
       rootClassName="editorial-page-shell"
@@ -239,13 +235,14 @@ export default function WorkflowsPage() {
                       </div>
 
                       {/* 关键信息 */}
-                      {workflow.stats && (
-                        <div className="text-xs text-slate-600 space-y-1">
-                          <p>下次执行: {formatDateTime(workflow.stats.next_execution)}</p>
-                          <p>上次执行: {formatDateTime(workflow.stats.last_execution)}</p>
-                          <p>匹配单集: <span className="text-blue-600 font-medium">{workflow.stats.total_episodes.toFixed(1)}</span></p>
-                        </div>
-                      )}
+                      <div className="text-xs text-slate-600 space-y-1">
+                        <p>范围: {getScopeTypeLabel(workflow)}</p>
+                        <p>最近结果: {workflow.stats?.total_jobs
+                          ? `已执行 ${workflow.stats.total_jobs} 次 · 结果见详情`
+                          : "暂无执行"}</p>
+                        <p>定时: {formatWorkflowSchedule(workflow.schedule)}</p>
+                        <p>下次执行: {formatDateTime(workflow.stats?.next_execution)}</p>
+                      </div>
                     </div>
 
                     {/* 操作按钮 */}
@@ -336,16 +333,14 @@ export default function WorkflowsPage() {
                         </div>
 
                         <div className="workflow-card-meta">
-                          <span className="font-medium">时间范围</span>
-                          <span className="text-slate-500">
-                            {formatTimeRange(workflow.rules_config?.time_range)}
-                          </span>
+                          <span>最近结果</span>
+                          <span>{workflow.last_job ? <><JobStatusBadge status={workflow.last_job.status} /> · {workflow.last_job.episodes_matched} 集</> : workflow.stats?.total_jobs ? `已执行 ${workflow.stats.total_jobs} 次 · 结果见详情` : "暂无执行"}</span>
                         </div>
 
                         <div className="workflow-card-meta">
                           <span className="font-medium">定时</span>
                           <code className="px-1.5 py-0.5 bg-slate-100 rounded text-xs">
-                            {workflow.schedule}
+                            {formatWorkflowSchedule(workflow.schedule)}
                           </code>
                         </div>
 
@@ -359,25 +354,13 @@ export default function WorkflowsPage() {
                             </div>
 
                             <div className="workflow-card-meta">
-                              <span className="font-medium">匹配单集</span>
-                              <span className="text-blue-500">
-                                {workflow.stats.total_episodes.toFixed(1)}
-                              </span>
-                            </div>
-
-                            <div className="workflow-card-meta">
                               <span className="font-medium">下次执行</span>
                               <span className="text-slate-500">
                                 {formatDateTime(workflow.stats.next_execution)}
                               </span>
                             </div>
 
-                            <div className="workflow-card-meta">
-                              <span className="font-medium">执行次数</span>
-                              <span className="text-slate-500">
-                                {workflow.stats.total_jobs}
-                              </span>
-                            </div>
+
                           </>
                         )}
                       </div>

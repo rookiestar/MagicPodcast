@@ -438,7 +438,7 @@ describe("工作流执行历史可见等待验收 (#34)", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: /概览/ }));
     await waitFor(() =>
-      expect(screen.getByText(/配置详情/)).toBeInTheDocument(),
+      expect(screen.getByText(/运行概览/)).toBeInTheDocument(),
     );
 
     clickJobsTab();
@@ -670,4 +670,12 @@ describe("工作流执行历史可见等待验收 (#34)", () => {
     const renderedAt = performance.now();
     expect(renderedAt - responseAt).toBeLessThanOrEqual(100);
   });
+});
+
+it("终止失败显示无报告，等待和运行分别表达", async () => {
+ const controller:ApiController={workflowDelayMs:0,jobsDelayMs:0,jobsFail:false,jobsByPage:new Map([[1,[makeJob(1901,{status:"failed"}),makeJob(1902,{status:"pending"}),makeJob(1903,{status:"running"})]]]),totalPages:1,batchGetCalls:0,calls:[]};
+ installApi(controller);installBatchGet(controller);renderDetail();await waitForWorkflowReady();clickJobsTab();
+ expect(await screen.findByRole("button",{name:"无报告"})).toBeDisabled();
+ expect(screen.getByRole("button",{name:"等待执行"})).toBeDisabled();
+ expect(screen.getByRole("button",{name:"生成中"})).toBeDisabled();
 });

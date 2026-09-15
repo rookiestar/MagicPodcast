@@ -94,3 +94,16 @@ export function validateCronExpression(
 
   return { valid: true };
 }
+
+/** Only describe unambiguous daily/weekly times; preserve every other expression. */
+export function formatWorkflowSchedule(expression: string): string {
+  const fields = expression.trim().split(/\s+/);
+  if (fields.length === 5) fields.unshift("0");
+  const [second, minute, hour, day, month, weekday] = fields;
+  if (fields.length !== 6 || second !== "0" || day !== "*" || month !== "*" ||
+      !/^\d{1,2}$/.test(minute) || !/^\d{1,2}$/.test(hour) || Number(minute)>59 || Number(hour)>23) return expression;
+  const time = `${hour.padStart(2,"0")}:${minute.padStart(2,"0")}`;
+  if (weekday === "*") return `每天 ${time}`;
+  if (/^[0-7]$/.test(weekday)) return `每周${"日一二三四五六日"[Number(weekday)]} ${time}`;
+  return expression;
+}
