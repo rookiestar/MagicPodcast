@@ -212,6 +212,22 @@ describe("逐字稿人物确认", () => {
     expect(change).toHaveBeenCalledTimes(1);
     window.removeEventListener("episode-people-changed", change);
   });
+
+  it("closes the review modal after a successful apply", async () => {
+    vi.mocked(episodeCopilotApi.reviewPeople).mockResolvedValue(applied);
+    render(<Player />);
+    fireEvent.click(await screen.findByRole("button", { name: "识别人物" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始识别" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "人物与发言核对",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "确认并应用" }));
+
+    await waitFor(() => expect(episodeCopilotApi.reviewPeople).toHaveBeenCalled());
+    await waitFor(() => expect(dialog).not.toBeVisible());
+  });
+
   it("supports direct manual naming, cancellation and fragment scope without a prior recognition", async () => {
     render(<Player />);
     await waitFor(() => expect(episodeCopilotApi.getPeople).toHaveBeenCalled());

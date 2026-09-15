@@ -205,6 +205,10 @@ export function useTranscriptPeople(
     window.dispatchEvent(
       new CustomEvent("episode-people-changed", { detail: episodeId }),
     );
+  const close = () => {
+    setHintOpen(false);
+    setOpen(false);
+  };
   const run = async (
     label: string,
     action: () => Promise<EpisodePeoplePayload>,
@@ -324,7 +328,10 @@ export function useTranscriptPeople(
         ),
       apply,
     );
-    if (success) await loadHistory();
+    if (success) {
+      if (apply) close();
+      await loadHistory();
+    }
   };
   const relationCandidates = useMemo(() => {
     const choices = new Map<string, import("@/types/episodeCopilot").SpeakerRelationCandidate>();
@@ -404,7 +411,6 @@ export function useTranscriptPeople(
   const names = [
     ...new Set(applied.map((a) => a.display_name).filter(Boolean)),
   ];
-  const close = () => { setHintOpen(false); setOpen(false); };
   const locateFromPanel = (order: number) => {
     close();
     locate(order);
