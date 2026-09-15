@@ -37,6 +37,26 @@ func CreateImportTask(db *gorm.DB, fileName string, total int) (*models.ImportTa
 	return task, nil
 }
 
+// CreateChildImportTask 建立带父任务链的重试任务记录。持久化父子关系后，
+// 刷新、重试或断线恢复仍能找回同一批次的新建事实（#417/#418）。
+func CreateChildImportTask(db *gorm.DB, parentTaskID uint, fileName string, total int) (*models.ImportTask, error) {
+	importTaskRegistrationMu.Lock()
+	defer importTaskRegistrationMu.Unlock()
+	parent := parentTaskID
+	task := &models.ImportTask{
+		Status:       models.ImportTaskStatusRunning,
+		ParentTaskID: &parent,
+		FileName:     fileName,
+		Total:        total,
+		StartedAt:    time.Now(),
+	}
+	if err := db.Create(task).Error; err != nil {
+		return nil, err
+	}
+	ActiveImportTasks.Store(task.ID, struct{}{})
+	return task, nil
+}
+
 // FinalizeImportTask 先可靠保存终态与完整逐条结果，再由调用方发送最终
 // 通知；传输层错误不得覆盖已保存的业务结果。
 func FinalizeImportTask(db *gorm.DB, task *models.ImportTask, result *SyncResult, runErr error) error {
@@ -137,6 +157,83 @@ func decodeImportEntries(raw string) []ImportEntryResult {
 	}
 	return entries
 }
+
+// importEntryCreatedID 返回单条结果中本次新建的节目 ID。新建事实以实际
+// 创建为准：outcome=new 始终算数（旧任务缺少 created 字段时的确切证据）；
+// created=true 覆盖新建待同步空壳。更新、合并与恢复不算新建。
+func importEntryCreatedID(entry ImportEntryResult) (uint, bool) {
+	if entry.PodcastID == 0 {
+		return 0, false
+	}
+	if entry.Outcome == ImportOutcomeNew {
+		return entry.PodcastID, true
+	}
+	return entry.PodcastID, entry.Created
+}
+
+// CollectImportBatchCreatedPodcastIDs 汇总一次导入任务所在批次（本任务、
+// 其全部祖先与全部重试后代）实际新建的节目 ID，按发现顺序去重返回。页面
+// 刷新后可能停在重试任务上，因此先上溯到根任务再下探整条链。只使用持久
+// 化的创建事实，不按时间窗口回填旧任务（#417/#418）。
+func CollectImportBatchCreatedPodcastIDs(db *gorm.DB, taskID uint) ([]uint, error) {
+	// 上溯根任务：重试响应之后页面可能直接落在子任务上。
+	root := taskID
+	for depth := 0; depth < maxImportTaskChainDepth; depth++ {
+		var task models.ImportTask
+		if err := db.Select("id", "parent_task_id").First(&task, root).Error; err != nil {
+			break
+		}
+		if task.ParentTaskID == nil || *task.ParentTaskID == 0 {
+			break
+		}
+		root = *task.ParentTaskID
+		if root == taskID {
+			break
+		}
+	}
+
+	visited := map[uint]struct{}{root: {}}
+	queue := []uint{root}
+	seen := map[uint]struct{}{}
+	ordered := []uint{}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		var task models.ImportTask
+		if err := db.First(&task, current).Error; err != nil {
+			continue
+		}
+		for _, entry := range decodeImportEntries(task.ResultJSON) {
+			id, created := importEntryCreatedID(entry)
+			if !created {
+				continue
+			}
+			if _, dup := seen[id]; dup {
+				continue
+			}
+			seen[id] = struct{}{}
+			ordered = append(ordered, id)
+		}
+		var childIDs []uint
+		if err := db.Model(&models.ImportTask{}).Where("parent_task_id = ?", current).
+			Order("id ASC").Pluck("id", &childIDs).Error; err != nil {
+			return nil, err
+		}
+		for _, child := range childIDs {
+			if _, visitedBefore := visited[child]; visitedBefore {
+				continue
+			}
+			visited[child] = struct{}{}
+			queue = append(queue, child)
+		}
+	}
+	return ordered, nil
+}
+
+// maxImportTaskChainDepth 防御异常数据造成的父子环：链深超过上限即停止
+// 上溯，读取方仍能得到已收集到的结果。
+const maxImportTaskChainDepth = 32
 
 // taskProgressReporter 把导入进度持久化到任务记录：页面断线后仍可查询
 // 同一任务的已提交条目。持久化按时间节流，避免高频写放大。

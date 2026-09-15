@@ -16,7 +16,10 @@ const (
 type ImportTask struct {
 	BaseModel
 
-	Status         string `gorm:"size:20;not null;default:'running'" json:"status"`
+	Status string `gorm:"size:20;not null;default:'running'" json:"status"`
+	// ParentTaskID 指向本次重试所基于的原任务（#398 重试入口写入）。刷新/
+	// 恢复后据此找回同一批次的新建事实；普通导入任务为 nil。
+	ParentTaskID   *uint  `gorm:"index" json:"parent_task_id,omitempty"`
 	FileName       string `gorm:"size:255" json:"file_name"`
 	Total          int    `json:"total"`
 	Processed      int    `json:"processed"`

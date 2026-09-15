@@ -328,6 +328,7 @@ func SetupRouter(options ...Option) *gin.Engine {
 			sync.POST("/import/tasks/:id/retry", syncOperation, syncHandler.RetryImportTask)                                                           // 仅重试失败/待同步条目
 			sync.GET("/import/tasks/latest", syncHandler.GetLatestImportTask)                                                                          // 最近一次导入任务（页面恢复）
 			sync.GET("/import/tasks/:id", syncHandler.GetImportTaskStatus)                                                                             // 导入任务状态与逐条结果
+			sync.GET("/import/tasks/:id/new-podcasts", syncHandler.GetImportTaskNewPodcasts)                                                           // 本批实际新建节目（#418）
 			sync.GET("/status", syncHandler.GetSyncStatus)                                                                                             // 获取同步状态
 			sync.POST("/podcasts/metadata-sse", syncOperation, syncHandler.SyncPodcastsMetadataSSE)                                                    // 同步所有播客元数据（SSE流式，已包含单集同步）
 			sync.POST("/episodes", syncOperation, syncHandler.SyncAllEpisodes)                                                                         // 同步所有podcast的episodes（SSE流式）
@@ -375,14 +376,15 @@ func SetupRouter(options ...Option) *gin.Engine {
 		workflowHandler := handlers.NewWorkflowHandler(workflowExecutor, globalScheduler, summarizer)
 		workflows := v1.Group("/workflows")
 		{
-			workflows.GET("", workflowHandler.List)                                    // 获取工作流列表
-			workflows.POST("", workflowHandler.Create)                                 // 创建工作流
-			workflows.GET("/:id", workflowHandler.Get)                                 // 获取工作流详情
-			workflows.PUT("/:id", workflowHandler.Update)                              // 更新工作流
-			workflows.DELETE("/:id", workflowHandler.Delete)                           // 删除工作流
-			workflows.POST("/:id/toggle", workflowHandler.Toggle)                      // 启用/禁用工作流
-			workflows.GET("/:id/jobs", workflowHandler.ListJobs)                       // 获取工作流执行历史
-			workflows.POST("/:id/trigger", workflowOperation, workflowHandler.Trigger) // 手动触发工作流
+			workflows.GET("", workflowHandler.List)                                                   // 获取工作流列表
+			workflows.POST("", workflowHandler.Create)                                                // 创建工作流
+			workflows.GET("/:id", workflowHandler.Get)                                                // 获取工作流详情
+			workflows.PUT("/:id", workflowHandler.Update)                                             // 更新工作流
+			workflows.DELETE("/:id", workflowHandler.Delete)                                          // 删除工作流
+			workflows.POST("/:id/toggle", workflowHandler.Toggle)                                     // 启用/禁用工作流
+			workflows.GET("/:id/jobs", workflowHandler.ListJobs)                                      // 获取工作流执行历史
+			workflows.POST("/:id/podcasts/append", workflowOperation, workflowHandler.AppendPodcasts) // 追加指定节目成员（#418）
+			workflows.POST("/:id/trigger", workflowOperation, workflowHandler.Trigger)                // 手动触发工作流
 		}
 
 		// Job 路由

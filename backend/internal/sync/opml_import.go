@@ -31,6 +31,10 @@ type ImportEntryResult struct {
 	Outcome   string `json:"outcome"`
 	Detail    string `json:"detail,omitempty"`
 	PodcastID uint   `json:"podcast_id,omitempty"`
+	// Created 表示本次导入实际新建了该节目记录（#417/#418）。新建空壳
+	// （pending）同样成立；更新、确认合并与恢复旧记录不算新建。旧任务缺
+	// 少该字段时，仅 outcome=new 仍可作为确切的新建证据。
+	Created bool `json:"created,omitempty"`
 }
 
 // importEntryResult 是核心流程内部使用的条目结果别名。
@@ -285,6 +289,9 @@ func (s *Service) processImportOutline(outline *opml.Outline, decisions map[stri
 		}
 		res.Outcome = ImportOutcomePending
 		res.PodcastID = podcast.ID
+		// 本次保存前本地无同地址记录：这是一条新建的待同步空壳，而不是
+		// 已有节目刷新失败（#417/#418 新建事实）。
+		res.Created = resolved.podcast == nil
 		res.Detail = "RSS 暂不可访问，已保留订阅待同步"
 		return res
 	}
@@ -344,6 +351,7 @@ func (s *Service) processImportOutline(outline *opml.Outline, decisions map[stri
 		res.Detail = "已确认关联清单收录节目并绑定订阅地址，已收录单集保留原 ID"
 	case resolved.kind == identityNone:
 		res.Outcome = ImportOutcomeNew
+		res.Created = true
 	case changed:
 		res.Outcome = ImportOutcomeUpdated
 		res.Detail = "已更新已有节目资料"

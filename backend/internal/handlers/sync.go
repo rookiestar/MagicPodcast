@@ -202,6 +202,20 @@ func (h *SyncHandler) startImportTask(fileName string, total int, reporter sync.
 	return task, sync.NewTaskProgressReporter(reporter, h.db, task.ID)
 }
 
+// startChildImportTask 创建持久化父链的重试任务记录（#417/#418）；创建失败
+// 与普通入口一致地拒绝执行导入。
+func (h *SyncHandler) startChildImportTask(parentTaskID uint, fileName string, total int, reporter sync.ProgressReporter) (*models.ImportTask, sync.ProgressReporter) {
+	if h.db == nil {
+		return nil, reporter
+	}
+	task, err := sync.CreateChildImportTask(h.db, parentTaskID, fileName, total)
+	if err != nil {
+		logger.Warnf("创建重试导入任务失败，拒绝执行导入: %v", err)
+		return nil, reporter
+	}
+	return task, sync.NewTaskProgressReporter(reporter, h.db, task.ID)
+}
+
 // runImport 执行导入并保存任务终态；终态与逐条结果先落库再返回响应。
 func (h *SyncHandler) runImport(outlines []opml.Outline, reporter sync.ProgressReporter, decisions map[string]string, task *models.ImportTask) (*sync.SyncResult, error) {
 	if task == nil {

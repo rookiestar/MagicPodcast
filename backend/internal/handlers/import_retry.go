@@ -73,7 +73,8 @@ func (h *SyncHandler) RetryImportTask(c *gin.Context) {
 
 	logger.Infof("重试导入任务 #%d：共 %d 条失败/待同步条目", taskID, len(outlines))
 	reporter := sync.NewLogProgressReporter()
-	retryTask, wrapped := h.startImportTask(
+	retryTask, wrapped := h.startChildImportTask(
+		task.ID,
 		"重试任务#"+strconv.Itoa(int(task.ID))+"("+strconv.Itoa(len(outlines))+"条)",
 		len(outlines), reporter)
 	_ = retryTask
