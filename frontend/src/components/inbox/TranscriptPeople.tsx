@@ -79,7 +79,7 @@ export function useTranscriptPeople(
   const [history, setHistory] = useState<PersonReviewDraft[]>([]);
   const [localOpen, setLocalOpen] = useState(false);
   const open = routeState?.peopleOpen ?? localOpen;
-  const setOpen = (value: boolean) => {
+  const setOpen = useCallback((value: boolean) => {
     if (routeState) {
       updateQuery({
         tab: "transcript",
@@ -90,7 +90,7 @@ export function useTranscriptPeople(
     } else {
       setLocalOpen(value);
     }
-  };
+  }, [routeState]);
   const [editingMatch, setEditingMatch] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
   const [progress, setProgress] = useState<{ stage: string; started: number } | null>(null);
@@ -100,6 +100,7 @@ export function useTranscriptPeople(
   const [needsReadback, setNeedsReadback] = useState(false);
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [closeAfterApply, setCloseAfterApply] = useState(false);
   const [saved, setSaved] = useState("");
   // SSR 不能渲染 Portal；延迟到客户端挂载后再建立，且之后保持挂载，
   // 使关闭弹层仍只隐藏而不丢失审阅滚动与 details 展开状态。
@@ -175,6 +176,7 @@ export function useTranscriptPeople(
     setLocalOpen(false);
     setEditor(null);
     setDirty(false);
+    setCloseAfterApply(false);
     setError("");
     episodeCopilotApi
       .getPeople(episodeId, controller.signal)
@@ -205,6 +207,16 @@ export function useTranscriptPeople(
     window.dispatchEvent(
       new CustomEvent("episode-people-changed", { detail: episodeId }),
     );
+  const close = useCallback(() => {
+    setCloseAfterApply(false);
+    setHintOpen(false);
+    setOpen(false);
+  }, [setOpen]);
+  useEffect(() => {
+    if (!closeAfterApply || dirty) return;
+    setCloseAfterApply(false);
+    close();
+  }, [close, closeAfterApply, dirty]);
   const run = async (
     label: string,
     action: () => Promise<EpisodePeoplePayload>,
@@ -324,7 +336,10 @@ export function useTranscriptPeople(
         ),
       apply,
     );
-    if (success) await loadHistory();
+    if (success) {
+      if (apply) setCloseAfterApply(true);
+      await loadHistory();
+    }
   };
   const relationCandidates = useMemo(() => {
     const choices = new Map<string, import("@/types/episodeCopilot").SpeakerRelationCandidate>();
@@ -404,7 +419,6 @@ export function useTranscriptPeople(
   const names = [
     ...new Set(applied.map((a) => a.display_name).filter(Boolean)),
   ];
-  const close = () => { setHintOpen(false); setOpen(false); };
   const locateFromPanel = (order: number) => {
     close();
     locate(order);
