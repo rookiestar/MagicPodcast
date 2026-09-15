@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 34
+const CurrentSchemaVersion = 35
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -336,7 +336,7 @@ func migrationRegistry() []Migration {
 			Name:        "import-task-state",
 			Description: "Persist recoverable OPML import task metadata and per-entry results (#398/#403).",
 			Apply: func(db *gorm.DB) error {
-				if err := db.AutoMigrate(&models.ImportTask{}); err != nil {
+				if err := db.AutoMigrate(&importTaskSchemaV34{}); err != nil {
 					return fmt.Errorf("create import_tasks: %w", err)
 				}
 				return nil
@@ -344,6 +344,16 @@ func migrationRegistry() []Migration {
 			Contract: MigrationContract{SchemaChanges: []SchemaChangeRule{
 				{Operation: SchemaChangeCreateTable, Table: models.ImportTask{}.TableName()},
 				{Operation: SchemaChangeCreateIndex, Table: models.ImportTask{}.TableName(), Object: "idx_import_tasks_deleted_at"},
+			}},
+		},
+		{
+			Version:     35,
+			Name:        "import-task-retry-parent",
+			Description: "Persist the retry parent link of OPML import tasks so refreshed sessions can recover the same batch of newly created podcasts (#417/#418).",
+			Apply:       applyImportTaskRetryParentMigration,
+			Contract: MigrationContract{SchemaChanges: []SchemaChangeRule{
+				{Operation: SchemaChangeAddColumn, Table: models.ImportTask{}.TableName(), Object: "parent_task_id"},
+				{Operation: SchemaChangeCreateIndex, Table: models.ImportTask{}.TableName(), Object: "idx_import_tasks_parent_task_id"},
 			}},
 		},
 	}
@@ -1307,6 +1317,50 @@ func applyPodcastEpisodeSyncCursorMigration(db *gorm.DB) error {
 	if db.Migrator().HasTable("podcasts") && !db.Migrator().HasColumn("podcasts", "last_episode_sync_at") {
 		if err := db.Exec("ALTER TABLE podcasts ADD COLUMN last_episode_sync_at DATETIME").Error; err != nil {
 			return fmt.Errorf("add podcasts.last_episode_sync_at: %w", err)
+		}
+	}
+	return nil
+}
+
+// importTaskSchemaV34 是 schema 34 时点 import_tasks 的结构快照。后续模型
+// 字段必须由各自的版本化迁移添加，不允许泄漏进历史迁移的 AutoMigrate
+// （数据安全门禁按合同逐版本核对实际 DDL）。
+type importTaskSchemaV34 struct {
+	models.BaseModel
+
+	Status         string `gorm:"size:20;not null;default:'running'"`
+	FileName       string `gorm:"size:255"`
+	Total          int
+	Processed      int
+	SuccessCount   int
+	PendingCount   int
+	ConflictCount  int
+	MergedCount    int
+	UnchangedCount int
+	SkippedCount   int
+	FailedCount    int
+	ResultJSON     string `gorm:"type:text"`
+	ErrorMessage   string
+	StartedAt      time.Time
+	FinishedAt     *time.Time
+}
+
+func (importTaskSchemaV34) TableName() string { return "import_tasks" }
+
+// applyImportTaskRetryParentMigration 以守卫式 DDL 添加重试父链列与索引；
+// 全新安装由 baseline 直接创建当前模型，此处自然幂等（#417/#418）。
+func applyImportTaskRetryParentMigration(db *gorm.DB) error {
+	if !db.Migrator().HasTable("import_tasks") {
+		return nil
+	}
+	if !db.Migrator().HasColumn("import_tasks", "parent_task_id") {
+		if err := db.Exec("ALTER TABLE import_tasks ADD COLUMN parent_task_id INTEGER").Error; err != nil {
+			return fmt.Errorf("add import_tasks.parent_task_id: %w", err)
+		}
+	}
+	if !db.Migrator().HasIndex("import_tasks", "idx_import_tasks_parent_task_id") {
+		if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_import_tasks_parent_task_id ON import_tasks(parent_task_id)").Error; err != nil {
+			return fmt.Errorf("create idx_import_tasks_parent_task_id: %w", err)
 		}
 	}
 	return nil
