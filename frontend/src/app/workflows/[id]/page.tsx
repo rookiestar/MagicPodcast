@@ -1,4 +1,5 @@
 "use client";
+import { formatWorkflowSchedule } from "@/components/workflows/workflowFormConstants";
 
 import { Suspense, useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useParams, useSearchParams } from "next/navigation";
@@ -48,7 +49,7 @@ const ReportModal = dynamic(
   { ssr: false }
 );
 
-const OVERVIEW_SCOPE_PODCAST_LIMIT = 12;
+const OVERVIEW_SCOPE_PODCAST_LIMIT = 4;
 
 // 内部组件：使用 useSearchParams
 function WorkflowDetailContent() {
@@ -574,10 +575,68 @@ function WorkflowDetailContent() {
         >
           {activeTab === "overview" && (
             <div>
+              {workflow.last_job && (
+                <div className="mt-6">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-3">
+                    最近执行
+                  </h3>
+                  <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-3">
+                        <JobStatusBadge status={workflow.last_job.status} />
+                        <span className="text-sm text-slate-600 dark:text-slate-400">
+                          {new Date(
+                            workflow.last_job.created_at,
+                          ).toLocaleString("zh-CN")}
+                        </span>
+                      </div>
+                      {workflow.last_job.duration && (
+                        <span className="text-sm text-slate-600 dark:text-slate-400">
+                          耗时 {Math.floor(workflow.last_job.duration / 1000)}秒
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-sm">
+                      <div>
+                        <span className="text-slate-600 dark:text-slate-400">
+                          处理节目:
+                        </span>
+                        <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                          {workflow.last_job.podcasts_processed}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-600 dark:text-slate-400">
+                          发现单集:
+                        </span>
+                        <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                          {workflow.last_job.episodes_found}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-600 dark:text-slate-400">
+                          创建单集:
+                        </span>
+                        <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                          {workflow.last_job.episodes_created}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-600 dark:text-slate-400">
+                          匹配单集:
+                        </span>
+                        <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
+                          {workflow.last_job.episodes_matched}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
               {/* 配置详情 */}
               <div className="space-y-6">
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-                  配置详情
+                  运行概览
                 </h2>
 
                 {/* 调度配置 */}
@@ -596,7 +655,7 @@ function WorkflowDetailContent() {
                         d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
                       />
                     </svg>
-                    调度配置
+                    调度与范围
                   </h3>
                   <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-5">
                     <div className="grid md:grid-cols-3 gap-6">
@@ -605,7 +664,7 @@ function WorkflowDetailContent() {
                           定时规则
                         </p>
                         <code className="block px-3 py-2 bg-white dark:bg-slate-800 rounded-lg text-sm font-mono text-slate-900 dark:text-slate-50 border border-slate-200 dark:border-slate-700">
-                          {workflow.schedule}
+                          {formatWorkflowSchedule(workflow.schedule)}
                         </code>
                       </div>
                       <div>
@@ -732,92 +791,7 @@ function WorkflowDetailContent() {
                       )}
                     </div>
 
-                    {/* 筛选规则 */}
-                    <div>
-                      {workflow.rules_config?.time_range ||
-                      workflow.rules_config?.min_duration ||
-                      workflow.rules_config?.max_results ||
-                      workflow.rules_config?.keywords ||
-                      workflow.rules_config?.exclude_words ? (
-                        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-                          {workflow.rules_config?.time_range &&
-                            workflow.rules_config.time_range > 0 && (
-                              <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
-                                <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">
-                                  时间范围
-                                </p>
-                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
-                                  最近 {workflow.rules_config.time_range} 天
-                                </p>
-                              </div>
-                            )}
-                          {workflow.rules_config?.min_duration &&
-                            workflow.rules_config.min_duration > 0 && (
-                              <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
-                                <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">
-                                  最小时长
-                                </p>
-                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
-                                  {Math.floor(
-                                    workflow.rules_config.min_duration / 60,
-                                  )}{" "}
-                                  分钟
-                                </p>
-                              </div>
-                            )}
-                          {workflow.rules_config?.max_results &&
-                            workflow.rules_config.max_results > 0 && (
-                              <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
-                                <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">
-                                  最大结果数
-                                </p>
-                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
-                                  {workflow.rules_config.max_results} 个
-                                </p>
-                              </div>
-                            )}
-                          {workflow.rules_config?.keywords && (
-                            <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
-                              <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">
-                                关键词
-                              </p>
-                              <p className="text-base font-medium text-slate-900 dark:text-slate-50 break-all">
-                                {workflow.rules_config.keywords}
-                              </p>
-                            </div>
-                          )}
-                          {workflow.rules_config?.exclude_words && (
-                            <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
-                              <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">
-                                排除词
-                              </p>
-                              <p className="text-base font-medium text-slate-900 dark:text-slate-50 break-all">
-                                {workflow.rules_config.exclude_words}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="text-center py-8">
-                          <svg
-                            className="w-12 h-12 mx-auto text-slate-400 dark:text-slate-600 mb-3"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                            />
-                          </svg>
-                          <p className="text-sm text-slate-600 dark:text-slate-400">
-                            无特殊筛选规则
-                          </p>
-                        </div>
-                      )}
-                    </div>
+                    <button type="button" className="editorial-btn editorial-btn--ghost" onClick={() => setActiveTab("config")}>查看完整配置</button>
                   </div>
                 </div>
               </div>
@@ -843,71 +817,14 @@ function WorkflowDetailContent() {
                           : "0.0"}
                       </p>
                       <p className="text-sm text-slate-600 dark:text-slate-400">
-                        匹配单集/次
+                        平均匹配（集/次）
                       </p>
                     </div>
                   </div>
                 </div>
               )}
 
-              {workflow.last_job && (
-                <div className="mt-6">
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50 mb-3">
-                    最近执行
-                  </h3>
-                  <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <JobStatusBadge status={workflow.last_job.status} />
-                        <span className="text-sm text-slate-600 dark:text-slate-400">
-                          {new Date(
-                            workflow.last_job.created_at,
-                          ).toLocaleString("zh-CN")}
-                        </span>
-                      </div>
-                      {workflow.last_job.duration && (
-                        <span className="text-sm text-slate-600 dark:text-slate-400">
-                          耗时 {Math.floor(workflow.last_job.duration / 1000)}秒
-                        </span>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-sm">
-                      <div>
-                        <span className="text-slate-600 dark:text-slate-400">
-                          处理节目:
-                        </span>
-                        <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                          {workflow.last_job.podcasts_processed}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-slate-600 dark:text-slate-400">
-                          发现单集:
-                        </span>
-                        <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                          {workflow.last_job.episodes_found}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-slate-600 dark:text-slate-400">
-                          创建单集:
-                        </span>
-                        <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                          {workflow.last_job.episodes_created}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-slate-600 dark:text-slate-400">
-                          匹配单集:
-                        </span>
-                        <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                          {workflow.last_job.episodes_matched}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+
             </div>
           )}
 
@@ -1070,7 +987,7 @@ function WorkflowDetailContent() {
                                 <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                                 </svg>
-                                {job.status === "completed" || job.status === "partial" ? "报告" : "生成中"}
+                                {job.status === "completed" || job.status === "partial" ? "报告" : job.status === "running" || job.status === "finalizing" ? "生成中" : job.status === "pending" ? "等待执行" : job.status === "unknown" ? "状态待确认" : "无报告"}
                               </button>
                               {(job.can_compensate || job.status === "partial") && !job.compensated_by_job_id && (
                                 <button
@@ -1234,6 +1151,8 @@ function WorkflowDetailContent() {
                                       </div>
                                     </div>
 
+                                    <details className="workflow-diagnostics">
+                                      <summary>技术诊断</summary>
                                     {typeof jobDetails[job.id]?.batch_remaining_ms === "number" && (
                                       <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
                                         批次剩余时间: {Math.max(0, Math.round((jobDetails[job.id].batch_remaining_ms as number) / 1000))} 秒
@@ -1298,6 +1217,7 @@ function WorkflowDetailContent() {
                                       </div>
                                     )}
 
+                                    </details>
                                     {exec.error_message && (
                                       <div className="mt-2 text-xs text-red-600 bg-red-50 dark:bg-red-900/20 rounded p-2">
                                         错误: {exec.error_message}
@@ -1366,6 +1286,11 @@ function WorkflowDetailContent() {
                 配置预览
               </h2>
               <div className="space-y-4">
+                <section className="workflow-config-schedule">
+                  <h3>调度配置</h3>
+                  <p>{formatWorkflowSchedule(workflow.schedule)}</p>
+                  <code>{workflow.schedule}</code>
+                </section>
                 <div>
                   <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                     范围配置
@@ -1440,9 +1365,7 @@ function WorkflowDetailContent() {
                             最小时长：
                           </span>
                           <span className="ml-2 font-medium text-slate-900 dark:text-slate-50">
-                            {Math.floor(
-                              workflow.rules_config.min_duration / 60,
-                            )}{" "}
+                            {workflow.rules_config.min_duration / 60}{" "}
                             分钟
                           </span>
                         </div>

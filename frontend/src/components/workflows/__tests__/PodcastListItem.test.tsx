@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PodcastListItem } from "../PodcastListItem";
 import type { Podcast } from "@/types";
@@ -36,7 +36,20 @@ describe("PodcastListItem", () => {
       screen.getAllByRole("img", { name: "测试节目" }).map((image) =>
         image.getAttribute("sizes"),
       ),
-    ).toEqual(["48px", "40px"]);
+    ).toEqual(["40px"]);
     rectSpy.mockRestore();
   });
+});
+
+it("整行与图标点击只切换一次，已选项有独立移除语义", () => {
+  const add=vi.fn(),remove=vi.fn();
+  const podcast={id:7,title:"选择测试",author:"作者"} as Podcast;
+  const {rerender}=render(<PodcastListItem podcast={podcast} isSelected={false} onAdd={add} onRemove={remove} index={0}/>);
+  fireEvent.click(screen.getByText("选择测试"));
+  expect(add).toHaveBeenCalledExactlyOnceWith(7);
+  rerender(<PodcastListItem podcast={podcast} isSelected onAdd={add} onRemove={remove} index={0}/>);
+  const button=screen.getByRole("button",{name:"移除节目：选择测试"});
+  expect(button).toHaveAttribute("aria-pressed","true");
+  fireEvent.click(button.querySelector("svg")!);
+  expect(remove).toHaveBeenCalledExactlyOnceWith(7);
 });

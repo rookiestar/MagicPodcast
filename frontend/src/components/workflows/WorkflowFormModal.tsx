@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { singleParam, useUnsavedNavigation } from "@/lib/navigation";
-import { IconX } from "@tabler/icons-react";
+import { IconX, IconChevronsRight, IconPlaylistX } from "@tabler/icons-react";
 import { workflowApi, podcastApi, tagApi } from "@/lib/api";
 import type {
   WorkflowRequest,
@@ -127,6 +127,9 @@ export default function WorkflowFormModal({
   // Step 3: 规则配置
   const [timeRange, setTimeRange] = useState(0);
   const [minDuration, setMinDuration] = useState(0);
+  const [durationDraft, setDurationDraft] = useState<string | null>(null);
+  const [durationError, setDurationError] = useState("");
+  const durationSeconds = durationDraft === null ? minDuration : Math.round(Number(durationDraft) * 60);
   const [maxResults, setMaxResults] = useState(0);
   const [keywords, setKeywords] = useState("");
   const [excludeWords, setExcludeWords] = useState("");
@@ -144,7 +147,39 @@ export default function WorkflowFormModal({
   const discardedOrSaved = useRef(false);
   const formPath = useRef("");
   const closeRef = useRef<HTMLButtonElement>(null);
-  const values = JSON.stringify([name,description,schedule,customCron,scopeType,candidatePodcastIds,customUrls,newCustomUrl,timeRange,minDuration,maxResults,keywords,excludeWords,llmEnabled,llmMaxEpisodes,llmModel,llmTemperature,llmMaxTokens,llmUserPrompt]);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  // Follow the visual viewport when a mobile keyboard reduces usable space.
+  useEffect(() => {
+    if (!isOpen) return;
+    const viewport = window.visualViewport;
+    const update = () => {
+      modalRef.current?.style.setProperty("--workflow-viewport-height", `${viewport?.height ?? window.innerHeight}px`);
+      modalRef.current?.style.setProperty("--workflow-viewport-top", `${viewport?.offsetTop ?? 0}px`);
+      const content = contentRef.current;
+      const active = document.activeElement;
+      if (content && active instanceof HTMLElement && content.contains(active) && active.matches("input,textarea,select")) {
+        const field = active.getBoundingClientRect();
+        const bounds = content.getBoundingClientRect();
+        if (field.bottom > bounds.bottom) content.scrollTop += field.bottom - bounds.bottom + 12;
+        else if (field.top < bounds.top) content.scrollTop -= bounds.top - field.top + 12;
+      }
+    };
+    update();
+    viewport?.addEventListener("resize", update);
+    viewport?.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      viewport?.removeEventListener("resize", update);
+      viewport?.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isOpen]);
+  useEffect(() => { if (contentRef.current) contentRef.current.scrollTop = 0; }, [step]);
+  const values = JSON.stringify([name,description,schedule,customCron,scopeType,candidatePodcastIds,customUrls,newCustomUrl,timeRange,minDuration,durationDraft,maxResults,keywords,excludeWords,llmEnabled,llmMaxEpisodes,llmModel,llmTemperature,llmMaxTokens,llmUserPrompt]);
   const dirty = isOpen && !initializing && baseline !== null && values !== baseline;
   useUnsavedNavigation(dirty, (href) => {
     if (discardedOrSaved.current) return true;
@@ -183,6 +218,8 @@ export default function WorkflowFormModal({
     setIsTagFilterExpanded(false);
     setTimeRange(0);
     setMinDuration(0);
+    setDurationDraft(null);
+    setDurationError("");
     setMaxResults(0);
     setKeywords("");
     setExcludeWords("");
@@ -392,6 +429,7 @@ export default function WorkflowFormModal({
         if (workflow.rules_config) {
           setTimeRange(workflow.rules_config.time_range || 0);
           setMinDuration(workflow.rules_config.min_duration || 0);
+          setDurationDraft(null);
           setMaxResults(workflow.rules_config.max_results || 0);
           setKeywords(workflow.rules_config.keywords || "");
           setExcludeWords(workflow.rules_config.exclude_words || "");
@@ -648,6 +686,11 @@ export default function WorkflowFormModal({
         return false;
       }
     }
+    if ((step === 3 || step === 4) && (!Number.isSafeInteger(durationSeconds) || durationSeconds < 0 || (durationDraft !== null && Number(durationDraft) < 0))) {
+      setDurationError("请输入不小于0的有效分钟数");
+      return false;
+    }
+    setDurationError("");
     return true;
   };
 
@@ -702,7 +745,7 @@ export default function WorkflowFormModal({
 
       const rulesConfig: RulesConfig = {
         time_range: timeRange || undefined,
-        min_duration: minDuration || undefined,
+        min_duration: durationSeconds || undefined,
         max_results: maxResults || undefined,
         keywords: keywords.trim() || undefined,
         exclude_words: excludeWords.trim() || undefined,
@@ -785,6 +828,8 @@ export default function WorkflowFormModal({
     setIsTagFilterExpanded(false);
     setTimeRange(0);
     setMinDuration(0);
+    setDurationDraft(null);
+    setDurationError("");
     setMaxResults(0);
     setKeywords("");
     setExcludeWords("");
@@ -823,17 +868,44 @@ export default function WorkflowFormModal({
     });
   }, [podcasts, selectedTagIds, podcastSearch]);
 
+  const selectedPodcastItems = candidatePodcastIds.map((id) => {
+    const podcast = podcasts.find(
+      (p) => p.id === id,
+    );
+    if (!podcast) {
+      return (
+        <div
+          key={id}
+          className="workflow-selection-missing"
+        >
+          <span>节目 #{id}</span>
+          <button type="button" className="workflow-selection-action" aria-label={`移除节目：${id}`} data-tooltip={`移除节目：${id}`} onClick={() => handleRemoveFromCandidate(id)}><IconX size={18} aria-hidden="true" /></button>
+        </div>
+      );
+    }
+    return (
+      <PodcastListItem
+        key={podcast.id}
+        podcast={podcast}
+        isSelected={true}
+        onAdd={handleAddToCandidate}
+        onRemove={handleRemoveFromCandidate}
+        index={0}
+      />
+    );
+  });
+
   if (!isOpen) return null;
 
   return (
-    <div className="workflow-form-modal wf-editorial fixed inset-0 bg-black/50 z-[60] flex items-start sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+    <div ref={modalRef} className="workflow-form-modal wf-editorial fixed inset-0 bg-black/50 z-[60] flex items-start sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
       <div
-        className="bg-white dark:bg-slate-800 rounded-none sm:rounded-lg shadow-2xl w-full max-w-3xl min-h-[100dvh] sm:min-h-0 sm:max-h-[85vh] overflow-hidden flex flex-col"
+        className="bg-white dark:bg-slate-800 rounded-none sm:rounded-lg shadow-2xl w-full max-w-3xl min-h-0 sm:max-h-[85vh] overflow-hidden flex flex-col"
         role="dialog"
         onKeyDown={(event)=>{
           if(event.key === "Escape") { event.preventDefault(); event.stopPropagation(); handleClose(); }
           if(event.key === "Tab") {
-            const controls=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href]')).filter(e=>e.getClientRects().length);
+            const controls=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]),[tabindex="0"],summary,input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href]')).filter(e=>e.getClientRects().length);
             const first=controls[0],last=controls.at(-1);
             if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}
             else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
@@ -853,7 +925,7 @@ export default function WorkflowFormModal({
               >
                 {workflow ? "编辑工作流" : "创建工作流"}
               </h2>
-              <small>第 {step} / 4 步</small>
+              <small>{step} / 4 · {["基本信息", "节目范围", "抓取规则", "智能摘要"][step - 1]}</small>
             </div>
             <button
               ref={closeRef}
@@ -882,15 +954,16 @@ export default function WorkflowFormModal({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div ref={contentRef} className="workflow-modal-content flex-1 min-h-0 overflow-y-auto p-6">
           {step === 1 && (
-            <div className="space-y-6">
+            <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                   工作流名称 <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
+                  aria-label="工作流名称"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="例如: 每日科技播客抓取"
@@ -903,6 +976,7 @@ export default function WorkflowFormModal({
                   描述
                 </label>
                 <textarea
+                  aria-label="描述"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="简要描述这个工作流的用途..."
@@ -927,7 +1001,7 @@ export default function WorkflowFormModal({
                 </label>
                 <div className="space-y-3">
                   {/* 预设按钮区域 */}
-                  <div className="grid grid-cols-1 gap-2 transition-all duration-200">
+                  <div className="workflow-cron-presets grid grid-cols-1 gap-2">
                     {CRON_PRESETS.map((preset) => (
                       <button
                         key={preset.value}
@@ -1041,7 +1115,9 @@ export default function WorkflowFormModal({
                             setCronError("");
                           }}
                           className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
-                          title="清除自定义表达式"
+                          aria-label="清除自定义表达式"
+                            data-tooltip="清除自定义表达式"
+                            title="清除自定义表达式"
                         >
                           ✕
                         </button>
@@ -1071,7 +1147,7 @@ export default function WorkflowFormModal({
           )}
 
           {step === 2 && (
-            <div className="space-y-6">
+            <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
                   选择要处理的节目范围 <span className="text-red-500">*</span>
@@ -1095,20 +1171,20 @@ export default function WorkflowFormModal({
                     </div>
                   </label>
 
-                  <label className="flex items-start gap-3 p-4 sm:p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 active:bg-slate-100 dark:active:bg-slate-800 cursor-pointer transition-colors">
+                  <div className="workflow-scope-option flex items-start gap-3 p-3 border border-slate-200">
                     <input
                       type="radio"
                       name="scopeType"
+                      id="workflow-scope-specific_podcasts"
+                      aria-label="指定节目"
                       checked={scopeType === "specific_podcasts"}
                       onChange={() => {
                         setScopeType("specific_podcasts");
                       }}
                       className="mt-1 w-5 h-5 flex-shrink-0"
                     />
-                    <div className="flex-1">
-                      <div className="font-medium text-slate-900 dark:text-slate-50">
-                        指定节目
-                      </div>
+                    <div className="flex-1 min-w-0">
+                      <label htmlFor="workflow-scope-specific_podcasts" className="font-medium text-slate-900 dark:text-slate-50">指定节目</label>
                       <div className="text-sm text-slate-600 dark:text-slate-400 mb-2">
                         从订阅中选择特定节目；工作流将按整档范围同步所选节目的全部单集，
                         清单收录但未关注的节目需先关注才会出现在这里。
@@ -1128,9 +1204,12 @@ export default function WorkflowFormModal({
                             {/* 折叠状态的控制栏 */}
                             <div
                               className="flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-900 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                              onClick={() =>
-                                setIsTagFilterExpanded(!isTagFilterExpanded)
-                              }
+                              role="button"
+                              tabIndex={0}
+                              aria-label="按标签筛选"
+                              aria-expanded={isTagFilterExpanded}
+                              onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setIsTagFilterExpanded(!isTagFilterExpanded); } }}
+                              onClick={() => setIsTagFilterExpanded(!isTagFilterExpanded)}
                             >
                               <div className="flex items-center gap-2">
                                 <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -1278,12 +1357,15 @@ export default function WorkflowFormModal({
                               type="text"
                               value={podcastSearch}
                               onChange={(e) => setPodcastSearch(e.target.value)}
+                              aria-label="搜索节目名称或作者"
                               placeholder="搜索节目名称或作者..."
                               disabled={isLoadingPodcasts}
                               className="w-full px-3 py-2 pr-8 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-sm disabled:opacity-50"
                             />
                             {podcastSearch && !isLoadingPodcasts && (
                               <button
+                                aria-label="清除节目搜索"
+                                data-tooltip="清除节目搜索"
                                 onClick={() => setPodcastSearch("")}
                                 className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                               >
@@ -1292,41 +1374,33 @@ export default function WorkflowFormModal({
                             )}
                           </div>
 
-                          {/* 使用提示 - 仅桌面端显示 */}
-                          {filteredPodcasts.length > 0 &&
-                            !isLoadingPodcasts && (
-                              <div className="hidden sm:block text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/30 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
-                                 <strong>提示：</strong>
-                                点击列表项选择节目，或点击中间的“全部添加”按钮批量加入
-                              </div>
-                            )}
-
                           {/* 移动端底部操作栏 - 显示已选数量和批量操作 */}
-                          <div className="sm:hidden sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 p-3 flex items-center gap-3 -mx-6 -mb-6 mt-4 z-10">
+                          <div className="workflow-mobile-selection-toolbar sm:hidden flex items-center justify-between gap-3">
                             <span className="text-sm text-slate-600 dark:text-slate-400 flex-shrink-0">
                               已选 <span className="font-semibold text-green-600 dark:text-green-400">{candidatePodcastIds.length}</span>
                             </span>
                             <div className="flex-1 flex gap-2">
                               {filteredPodcasts.length > 0 && !isLoadingPodcasts && (
-                                <button
-                                  type="button"
-                                  onClick={handleAddAllFiltered}
-                                  className="flex-1 min-h-[44px] bg-blue-600 text-white rounded-lg text-sm font-medium"
-                                >
-                                  添加全部
+                                <button type="button" onClick={handleAddAllFiltered}
+                                  className="workflow-selection-action" aria-label={`添加当前显示的 ${Math.min(displayedCount, filteredPodcasts.length)} 个搜索结果`} data-tooltip={`添加当前显示的 ${Math.min(displayedCount, filteredPodcasts.length)} 个搜索结果`}>
+                                  <IconChevronsRight size={18} aria-hidden="true" />
                                 </button>
                               )}
                               {candidatePodcastIds.length > 0 && (
-                                <button
-                                  type="button"
-                                  onClick={() => setCandidatePodcastIds([])}
-                                  className="min-h-[44px] px-4 border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 rounded-lg text-sm font-medium"
-                                >
-                                  清空
+                                <button type="button" onClick={() => setCandidatePodcastIds([])}
+                                  className="workflow-selection-action" aria-label={`清空全部 ${candidatePodcastIds.length} 个已选节目`} data-tooltip={`清空全部 ${candidatePodcastIds.length} 个已选节目`}>
+                                  <IconPlaylistX size={18} aria-hidden="true" />
                                 </button>
                               )}
                             </div>
                           </div>
+
+                          {candidatePodcastIds.length > 0 && (
+                            <details className="workflow-mobile-selected sm:hidden">
+                              <summary>已选 {candidatePodcastIds.length}</summary>
+                              {selectedPodcastItems}
+                            </details>
+                          )}
 
                           {/* 三栏布局 - 移动端单列表，桌面端三栏 */}
                           <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 transition-all duration-200">
@@ -1338,7 +1412,7 @@ export default function WorkflowFormModal({
                                   {filteredPodcasts.length}
                                 </span>
                               </div>
-                              <div className="h-[50vh] sm:h-80 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg p-2 bg-white dark:bg-slate-800 transition-all duration-200 hover:border-slate-300 dark:hover:border-slate-600">
+                              <div className="workflow-candidate-list sm:h-80 sm:overflow-y-auto border border-slate-200 p-1">
                                 {isLoadingPodcasts ? (
                                   <div className="text-center text-slate-500 dark:text-slate-400 py-4 text-xs">
                                     正在加载首批节目...
@@ -1430,31 +1504,15 @@ export default function WorkflowFormModal({
                             <div className="hidden sm:flex col-span-2 flex-col justify-center gap-3">
                               {filteredPodcasts.length > 0 &&
                                 !isLoadingPodcasts && (
-                                  <button
-                                    onClick={handleAddAllFiltered}
-                                    className="group w-11 h-11 flex flex-col items-center justify-center text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 mx-auto border-2 border-blue-200 dark:border-blue-800 transition-all duration-200 hover:scale-105"
-                                    title="添加所有搜索结果"
-                                  >
-                                    <span className="text-base font-semibold group-hover:translate-x-0.5 transition-transform">
-                                      ≫
-                                    </span>
-                                    <span className="text-[11px] leading-tight mt-0.5">
-                                      全部添加
-                                    </span>
-                                  </button>
+                                  <button type="button" onClick={handleAddAllFiltered}
+                                  className="workflow-selection-action" aria-label={`添加当前显示的 ${Math.min(displayedCount, filteredPodcasts.length)} 个搜索结果`} data-tooltip={`添加当前显示的 ${Math.min(displayedCount, filteredPodcasts.length)} 个搜索结果`}>
+                                  <IconChevronsRight size={18} aria-hidden="true" />
+                                </button>
                                 )}
                               {candidatePodcastIds.length > 0 && (
-                                <button
-                                  onClick={() => setCandidatePodcastIds([])}
-                                  className="group w-11 h-11 flex flex-col items-center justify-center text-xs bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 mx-auto border-2 border-red-200 dark:border-red-800 transition-all duration-200 hover:scale-105"
-                                  title="清空备选列表"
-                                >
-                                  <span className="text-sm font-semibold group-hover:rotate-90 transition-transform">
-                                    ✕
-                                  </span>
-                                  <span className="text-[11px] leading-tight mt-0.5">
-                                    清空
-                                  </span>
+                                <button type="button" onClick={() => setCandidatePodcastIds([])}
+                                  className="workflow-selection-action" aria-label={`清空全部 ${candidatePodcastIds.length} 个已选节目`} data-tooltip={`清空全部 ${candidatePodcastIds.length} 个已选节目`}>
+                                  <IconPlaylistX size={18} aria-hidden="true" />
                                 </button>
                               )}
                             </div>
@@ -1467,7 +1525,7 @@ export default function WorkflowFormModal({
                                   {candidatePodcastIds.length}
                                 </span>
                               </div>
-                              <div className="h-80 overflow-y-auto border-2 border-green-200 dark:border-green-800 rounded-lg p-2 bg-green-50/50 dark:bg-green-900/10 transition-all duration-200 hover:border-green-300 dark:hover:border-green-700">
+                              <div className="workflow-selected-list h-80 overflow-y-auto border border-slate-200 p-1">
                                 {candidatePodcastIds.length === 0 ? (
                                   <div className="flex flex-col items-center justify-center h-full py-8 text-center">
                                     <div className="text-sm text-slate-500 dark:text-slate-400">
@@ -1475,31 +1533,7 @@ export default function WorkflowFormModal({
                                     </div>
                                   </div>
                                 ) : (
-                                  candidatePodcastIds.map((id) => {
-                                    const podcast = podcasts.find(
-                                      (p) => p.id === id,
-                                    );
-                                    if (!podcast) {
-                                      return (
-                                        <div
-                                          key={id}
-                                          className="p-2 text-xs text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-800 rounded border border-dashed border-slate-300 dark:border-slate-700"
-                                        >
-                                          节目 #{id} 正在加载...
-                                        </div>
-                                      );
-                                    }
-                                    return (
-                                      <PodcastListItem
-                                        key={podcast.id}
-                                        podcast={podcast}
-                                        isSelected={true}
-                                        onAdd={handleAddToCandidate}
-                                        onRemove={handleRemoveFromCandidate}
-                                        index={0}
-                                      />
-                                    );
-                                  })
+                                  selectedPodcastItems
                                 )}
                               </div>
                             </div>
@@ -1507,20 +1541,20 @@ export default function WorkflowFormModal({
                         </div>
                       )}
                     </div>
-                  </label>
+                  </div>
 
-                  <label className="flex items-start gap-3 p-4 sm:p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 active:bg-slate-100 dark:active:bg-slate-800 cursor-pointer transition-colors">
+                  <div className="workflow-scope-option flex items-start gap-3 p-3 border border-slate-200">
                     <input
                       type="radio"
                       name="scopeType"
+                      id="workflow-scope-custom_sources"
+                      aria-label="自定义RSS源"
                       checked={scopeType === "custom_sources"}
                       onChange={() => setScopeType("custom_sources")}
                       className="mt-1 w-5 h-5 flex-shrink-0"
                     />
-                    <div className="flex-1">
-                      <div className="font-medium text-slate-900 dark:text-slate-50">
-                        自定义RSS源
-                      </div>
+                    <div className="flex-1 min-w-0">
+                      <label htmlFor="workflow-scope-custom_sources" className="font-medium text-slate-900 dark:text-slate-50">自定义RSS源</label>
                       <div className="text-sm text-slate-600 dark:text-slate-400 mb-2">
                         添加自定义RSS源URL
                       </div>
@@ -1569,14 +1603,14 @@ export default function WorkflowFormModal({
                         </div>
                       )}
                     </div>
-                  </label>
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
           {step === 3 && (
-            <div className="space-y-6">
+            <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-4">
                   抓取规则配置 (可选)
@@ -1639,7 +1673,7 @@ export default function WorkflowFormModal({
 
                     {/* 最小时长 */}
                     <div>
-                      <label className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
+                      <label htmlFor="workflow-min-duration" className="block text-sm text-slate-600 dark:text-slate-400 mb-2">
                         最小时长 (分钟)
                       </label>
                       <div className="flex gap-2 mb-2">
@@ -1647,9 +1681,9 @@ export default function WorkflowFormModal({
                           <button
                             key={seconds}
                             type="button"
-                            onClick={() => setMinDuration(seconds)}
+                            onClick={() => { setMinDuration(seconds); setDurationDraft(null); setDurationError(""); }}
                             className={`px-3 py-1.5 rounded text-sm transition-colors ${
-                              minDuration === seconds
+                              durationSeconds === seconds
                                 ? "bg-blue-600 text-white"
                                 : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
                             }`}
@@ -1666,18 +1700,22 @@ export default function WorkflowFormModal({
                       </div>
                       <input
                         type="number"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
+                        inputMode="decimal"
+
                         min={0}
-                        value={minDuration || ""}
-                        onChange={(e) =>
-                          setMinDuration(parseInt(e.target.value) || 0)
-                        }
+                        id="workflow-min-duration"
+                        aria-label="最小时长（分钟）"
+                        aria-invalid={Boolean(durationError)}
+                        aria-describedby="workflow-duration-help"
+                        step="any"
+                        value={durationDraft ?? (minDuration ? minDuration / 60 : "")}
+                        onChange={(e) => { setDurationDraft(e.target.validity.badInput ? "invalid" : e.target.value); setDurationError(""); }}
                         placeholder="0"
                         className="w-full px-4 py-2 text-base border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
                       />
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        只抓取超过此时长的单集，0表示不限制（单位：秒）
+                      {durationError && <p role="alert" className="text-sm text-red-700">{durationError}</p>}
+                      <p id="workflow-duration-help" className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        只抓取超过此分钟数的单集，0表示不限制
                       </p>
                     </div>
                   </div>
@@ -1768,7 +1806,7 @@ export default function WorkflowFormModal({
           )}
 
           {step === 4 && (
-            <div className="space-y-6">
+            <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-4">
                    大模型智能摘要 (可选)
@@ -1975,7 +2013,7 @@ export default function WorkflowFormModal({
 
               <div className="mt-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
                 <p className="text-sm text-green-800 dark:text-green-200">
-                  ✓ 点击“保存”后将自动启用调度（根据设置的定时规则运行）
+                  提交后启用调度，按定时规则运行。
                 </p>
               </div>
             </div>
@@ -2006,7 +2044,7 @@ export default function WorkflowFormModal({
                 loading ? "" : "hover:bg-blue-700"
               }`}
             >
-              {loading ? "处理中..." : step === 4 ? "保存" : "下一步"}
+              {loading ? "处理中..." : step === 4 ? (workflow ? "保存并启用" : "创建并启用") : "下一步"}
             </button>
           </div>
         </div>
@@ -2035,7 +2073,7 @@ export default function WorkflowFormModal({
                 loading ? "" : "hover:bg-blue-700"
               }`}
             >
-              {loading ? "处理中..." : step === 4 ? "保存" : "下一步"}
+              {loading ? "处理中..." : step === 4 ? (workflow ? "保存并启用" : "创建并启用") : "下一步"}
             </button>
           </div>
         </div>

@@ -47,6 +47,7 @@ vi.mock("@/components/common/PrefetchLink", () => ({
   ),
 }));
 vi.mock("@/components/ui/StatusBadge", () => ({
+  JobStatusBadge: () => <span data-testid="job-status-badge" />,
   WorkflowStatusBadge: () => <span data-testid="status-badge" />,
 }));
 vi.mock("@/components/workflows/WorkflowActionMenu", () => ({
