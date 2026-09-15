@@ -24,16 +24,19 @@ const listPodcasts = vi.mocked(podcastApiModule.podcastApi.list);
 function podcast(id: number, title: string): Podcast {
   return {
     id,
+    xyz_id: `pod-${id}`,
     title,
     description: "",
     author: "作者",
+    cover_url: "",
     feed_url: `http://f/${id}.xml`,
     is_subscribed: true,
+    is_dead: false,
     episode_count: 1,
-    tags: [],
+    newest_episode_date: "",
     created_at: "",
     updated_at: "",
-    added_date: "",
+    tags: [],
   } as Podcast;
 }
 
