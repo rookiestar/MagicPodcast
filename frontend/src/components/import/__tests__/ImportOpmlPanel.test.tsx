@@ -5,6 +5,21 @@ import SyncLogStats from "../SyncLogStats";
 import { computeSyncStats } from "@/lib/syncLogState";
 import type { ImportPreview } from "@/lib/api/importTasks";
 
+// 面板内嵌的本批新增区块会随任务终态拉取数据；面板测试不覆盖该区块细节，
+// 统一以空清单应答（细节见 NewPodcastsSection.test.tsx）。
+vi.mock("@/lib/api/importTasks", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api/importTasks")>();
+  return {
+    ...actual,
+    importTasksApi: {
+      ...actual.importTasksApi,
+      fetchTaskNewPodcasts: vi
+        .fn()
+        .mockResolvedValue({ success: true, task_id: 7, total: 0, podcasts: [] }),
+    },
+  };
+});
+
 const baseProps = {
   file: null,
   disabled: false,

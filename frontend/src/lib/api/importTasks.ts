@@ -69,6 +69,32 @@ export interface ImportEntryResult {
   outcome: string;
   detail?: string;
   podcast_id?: number;
+  created?: boolean;
+}
+
+// 工作流覆盖归属的最小信息（与后端 workflow.WorkflowRef 对应）。
+export interface WorkflowRef {
+  id: number;
+  name: string;
+  scope_type: string;
+  is_enabled: boolean;
+}
+
+// 本批实际新建的节目条目；ready/is_subscribed 取节目当前记录。
+export interface ImportNewPodcast {
+  id: number;
+  title: string;
+  feed_url: string;
+  ready: boolean;
+  is_subscribed: boolean;
+  workflows: WorkflowRef[];
+}
+
+export interface ImportNewPodcastsPayload {
+  success: boolean;
+  task_id: number;
+  total: number;
+  podcasts: ImportNewPodcast[];
 }
 
 interface ImportTaskPayload {
@@ -100,6 +126,16 @@ export const importTasksApi = {
   fetchImportTask: async (taskId: number): Promise<ImportTaskPayload> => {
     const response = await api.get<ImportTaskPayload>(
       `/api/v1/sync/import/tasks/${taskId}`,
+    );
+    return response.data;
+  },
+
+  // 本批实际新建的节目（含重试链），附当前资料状态与工作流归属。
+  fetchTaskNewPodcasts: async (
+    taskId: number,
+  ): Promise<ImportNewPodcastsPayload> => {
+    const response = await api.get<ImportNewPodcastsPayload>(
+      `/api/v1/sync/import/tasks/${taskId}/new-podcasts`,
     );
     return response.data;
   },

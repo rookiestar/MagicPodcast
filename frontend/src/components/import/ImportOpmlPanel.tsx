@@ -9,6 +9,7 @@ import {
   type ImportTask,
   type ImportEntryResult,
 } from "@/lib/api/importTasks";
+import NewPodcastsSection from "./NewPodcastsSection";
 
 interface ImportOpmlPanelProps {
   file: File | null;
@@ -139,6 +140,7 @@ export default function ImportOpmlPanel({
               </ul>
             </details>
           )}
+          {lastTask.status !== "running" && <NewPodcastsSection taskId={lastTask.id} />}
         </div>
       )}
 

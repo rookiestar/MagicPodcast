@@ -73,6 +73,19 @@ export const workflowApi = {
     return handleResponse(response);
   },
 
+  // 把明确选中的节目集合追加到「指定节目」工作流；服务端在事务内做
+  // 集合追加，重复请求安全（#418）。返回实际新增数量与当前成员数。
+  appendPodcasts: async (
+    id: number,
+    podcastIds: number[],
+  ): Promise<WorkflowAppendResponse> => {
+    const response = await api.post<WorkflowAppendResponse>(
+      `/api/v1/workflows/${id}/podcasts/append`,
+      { podcast_ids: podcastIds },
+    );
+    return response.data;
+  },
+
   // 获取工作流的执行历史
   listJobs: async (
     id: number,
@@ -131,3 +144,13 @@ export const workflowApi = {
     return handleResponse(response);
   },
 };
+
+// 成员追加结果：实际新增数量以服务端成功结果为准（#418 AC13）。
+export interface WorkflowAppendResponse {
+  success: boolean;
+  workflow_id: number;
+  workflow_name: string;
+  added: number;
+  already_member: number;
+  podcast_count: number;
+}
