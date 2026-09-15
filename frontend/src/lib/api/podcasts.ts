@@ -18,6 +18,7 @@ interface PodcastFilters {
   sort_by?: string;
   search?: string;
   view?: "summary" | "full";
+  exclude_covered?: "0" | "1";
 }
 
 interface PodcastListResponse {
