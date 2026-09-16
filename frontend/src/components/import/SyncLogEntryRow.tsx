@@ -9,7 +9,6 @@ import {
 export default function SyncLogEntryRow({ log }: { log: LogEntry }) {
   return (
     <div
-      role={log.type === "error" ? "alert" : undefined}
       className={`rounded-md border px-3 py-2 text-xs ${getLogRowClass(log.type)}`}
     >
       <div className="flex flex-col gap-1 sm:flex-row sm:items-start">

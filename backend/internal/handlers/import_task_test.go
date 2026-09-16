@@ -153,6 +153,9 @@ func TestImportTaskPersistsAcrossDisconnects(t *testing.T) {
 	router.ServeHTTP(latestResponse, httptest.NewRequest(http.MethodGet, "/tasks/latest", nil))
 	require.Equal(t, http.StatusOK, latestResponse.Code)
 	require.Contains(t, latestResponse.Body.String(), models.ImportTaskStatusCompleted)
+	// 前端契约使用 snake_case 时间字段（任务归属与阶段判定依赖）。
+	require.Contains(t, latestResponse.Body.String(), `"started_at":`)
+	require.Contains(t, latestResponse.Body.String(), `"finished_at":`)
 }
 
 // TestInterruptedImportTaskIsExplicitlyReported 验证进程重启后 running 的
@@ -174,6 +177,25 @@ func TestInterruptedImportTaskIsExplicitlyReported(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &payload))
 	require.Equal(t, models.ImportTaskStatusInterrupted, payload.Task.Status)
+}
+
+// TestLatestImportTaskDistinguishesEmptyAndQueryFailure 验证 latest 端点
+// 区分“没有历史任务”（200 + task:null）与“读取失败”（500），前端据此
+// 提供可见的读取失败反馈而不是把失败当成无任务（#427 AC8）。
+func TestLatestImportTaskDistinguishesEmptyAndQueryFailure(t *testing.T) {
+	router, db := newImportTaskRouter(t)
+
+	emptyResponse := httptest.NewRecorder()
+	router.ServeHTTP(emptyResponse, httptest.NewRequest(http.MethodGet, "/tasks/latest", nil))
+	require.Equal(t, http.StatusOK, emptyResponse.Code)
+	require.Contains(t, emptyResponse.Body.String(), `"task":null`)
+
+	// 存储层损坏：读取失败必须可见，不得冒充“没有任务”。
+	require.NoError(t, db.Migrator().DropTable(&models.ImportTask{}))
+	failedResponse := httptest.NewRecorder()
+	router.ServeHTTP(failedResponse, httptest.NewRequest(http.MethodGet, "/tasks/latest", nil))
+	require.Equal(t, http.StatusInternalServerError, failedResponse.Code)
+	require.Contains(t, failedResponse.Body.String(), "IMPORT_TASK_QUERY_FAILED")
 }
 
 // TestRetryImportTaskOnlyTouchesFailedAndPendingEntries 验证仅重试失败/

@@ -240,7 +240,7 @@ export default function AppendToWorkflowDialog({
               type="button"
               onClick={onCancel}
               disabled={saving}
-              className="cursor-pointer rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+              className="min-h-[44px] cursor-pointer rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
             >
               取消
             </button>
@@ -248,7 +248,7 @@ export default function AppendToWorkflowDialog({
               type="button"
               onClick={handleSave}
               disabled={!target || candidates.length === 0 || saving}
-              className="editorial-btn editorial-btn--primary min-h-[40px] cursor-pointer px-4 py-1.5 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="editorial-btn editorial-btn--primary min-h-[44px] cursor-pointer px-4 py-1.5 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? "添加中..." : `添加 ${candidates.length} 档`}
             </button>

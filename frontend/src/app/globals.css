@@ -6464,7 +6464,7 @@ textarea.editorial-field {
 .import-page .import-eyebrow {
   margin-bottom: 8px;
   color: #e96321;
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.12em;
 }
@@ -6546,6 +6546,8 @@ textarea.editorial-field {
   display: inline-flex;
   align-items: center;
   gap: 9px;
+  /* 本页主动作字号：覆盖共享 .editorial-btn 的 12px（仅导入页范围）。 */
+  font-size: 0.875rem;
 }
 
 .import-page .import-primary-action .is-disabled {
@@ -6568,7 +6570,7 @@ textarea.editorial-field {
   background: transparent;
 }
 
-.import-page .sync-log-panel > :last-child {
+.import-page .sync-log-panel .import-log-content {
   min-height: 250px;
 }
 
@@ -6612,6 +6614,44 @@ textarea.editorial-field {
   .import-page .import-log-column {
     padding: 20px 16px;
   }
+}
+
+/* Stage-aware emphasis（#428）：阶段由 ImportPageClient 写在
+   [data-stage]，只调整信息优先级，不改变既有双栏/堆叠结构。
+   idle 突出文件/范围入口并压缩空日志；preview 给变化明细更多宽度；
+   running/done 维持默认配比。列比调整仅限桌面双栏宽度，窄屏仍由
+   上述 900px 断点收为单列，避免横向溢出。 */
+@media (min-width: 901px) {
+  .import-page .import-workspace[data-stage="idle"] {
+    grid-template-columns: minmax(320px, 1fr) minmax(280px, 0.62fr);
+  }
+
+  .import-page .import-workspace[data-stage="preview"],
+  .import-page .import-workspace[data-stage="done"] {
+    grid-template-columns: minmax(340px, 1.12fr) minmax(360px, 0.88fr);
+  }
+}
+
+.import-page .sync-log-panel[data-empty="true"] {
+  min-height: auto;
+}
+
+.import-page .sync-log-panel[data-empty="true"] .import-log-content {
+  min-height: 0;
+}
+
+.import-page .import-task-banner {
+  border-color: #c7bbab;
+  background: #f5eedf;
+  overflow-wrap: anywhere;
+}
+
+.import-page .import-task-banner > p:not(.text-red-700) {
+  color: #514a40;
+}
+
+.import-page .import-task-results {
+  overflow-wrap: anywhere;
 }
 
 /* ============================================================

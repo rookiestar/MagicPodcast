@@ -51,7 +51,7 @@ export default function SyncLogPanel({
   const hasStats = hasVisibleStats(stats);
 
   return (
-    <div className="sync-log-panel rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+    <div data-empty={!hasLogs} className="sync-log-panel rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -112,7 +112,7 @@ export default function SyncLogPanel({
         aria-label={`${title}内容`}
         aria-live={autoScroll ? "polite" : "off"}
         onScroll={onLogScroll}
-        className="max-h-96 space-y-2 overflow-y-auto pr-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+        className="import-log-content max-h-96 space-y-2 overflow-y-auto pr-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
       >
         {hasFilteredLogs ? (
           filteredLogs.map((log) => (

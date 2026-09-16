@@ -49,15 +49,21 @@ function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
     preview,
     previewLoading,
     previewError,
+    previewConsumed,
+    canSubmitImport,
     confirmedUrls,
     lastTask,
     taskEntries,
+    latestTaskError,
+    countRetryableEntries,
     handleFileChange,
     handleImport,
     handleSync,
     toggleConfirmed,
     confirmAllPending,
     handleRetry,
+    retryPreview,
+    refreshLatestTask,
   } = useImportSyncOperations({
     addLog,
     resetLogScroll,
@@ -66,10 +72,22 @@ function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
 
   const operationRunning = importing || syncing;
 
+  // 使用当前交互阶段，不比较浏览器与服务器的时钟。
+  const freshPreview =
+    activeTab === "import" &&
+    (previewLoading || !!previewError || (!!preview && !previewConsumed));
+  const stage = operationRunning
+    ? "running"
+    : freshPreview
+      ? "preview"
+      : (activeTab === "import" ? lastTask : logs.length > 0 && logMode === "sync")
+        ? "done"
+        : "idle";
+
 
   return (
     <main className="import-main">
-      <div className="import-workspace">
+      <div className="import-workspace" data-stage={stage}>
         <section className="import-operation-panel" aria-label="导入与同步设置">
           <ImportPageTabs
             activeTab={activeTab}
@@ -92,14 +110,21 @@ function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
                 preview={preview}
                 previewLoading={previewLoading}
                 previewError={previewError}
+                canSubmitImport={canSubmitImport}
                 confirmedUrls={confirmedUrls}
                 lastTask={lastTask}
                 taskEntries={taskEntries}
+                latestTaskError={latestTaskError}
                 onFileChange={handleFileChange}
                 onImport={handleImport}
                 onToggleConfirmed={toggleConfirmed}
                 onConfirmAllPending={confirmAllPending}
                 onRetry={handleRetry}
+                onRetryPreview={retryPreview}
+                onRetryLatestTask={() => {
+                  void refreshLatestTask();
+                }}
+                countRetryableEntries={countRetryableEntries}
               />
             )}
 

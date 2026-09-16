@@ -46,6 +46,20 @@ function useStoredOperationMarker(active: boolean, storageKey: string) {
 const TASK_POLL_INTERVAL_MS = 4000;
 const TASK_POLL_MAX_ATTEMPTS = 150;
 
+// 与后端 retryableOutcomes 同口径：failed/pending 条目可重试，中断任务
+// 的 unprocessed 条目继续处理；冲突条目仅在显式确认后参与，不计入这里。
+export function countRetryableEntries(
+  task: ImportTask,
+  entries: ImportEntryResult[],
+): number {
+  return entries.filter(
+    (entry) =>
+      entry.outcome === "failed" ||
+      entry.outcome === "pending" ||
+      (task.status === "interrupted" && entry.outcome === "unprocessed"),
+  ).length;
+}
+
 export function useImportSyncOperations({
   addLog,
   resetLogScroll,
@@ -65,18 +79,25 @@ export function useImportSyncOperations({
   // 最近一次导入任务：页面刷新/断线后恢复查看，断连后轮询终态。
   const [lastTask, setLastTask] = useState<ImportTask | null>(null);
   const [taskEntries, setTaskEntries] = useState<ImportEntryResult[]>([]);
+  // 最近任务读取失败与“没有历史任务”是两种状态：失败时保留最后已知结果。
+  const [latestTaskError, setLatestTaskError] = useState(false);
   const previewRequestRef = useRef(0);
+  const [previewConsumed, setPreviewConsumed] = useState(false);
+  const [backgroundTaskId, setBackgroundTaskId] = useState<number | null>(null);
+  // 作废已停止轮询或被新读取替代的在途响应，避免旧任务覆盖当前结果。
+  const taskRequestRef = useRef(0);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollAttemptsRef = useRef(0);
 
   const runExclusiveOperation = useExclusiveAsyncAction({
-    isBlocked: importing || syncing,
+    isBlocked: importing || syncing || backgroundTaskId !== null || lastTask?.status === "running",
   });
 
   useStoredOperationMarker(syncing, STORAGE_KEYS.SYNCING);
   useStoredOperationMarker(importing, STORAGE_KEYS.IMPORTING);
 
   const stopTaskPolling = useCallback(() => {
+    taskRequestRef.current += 1;
     if (pollTimerRef.current) {
       clearTimeout(pollTimerRef.current);
       pollTimerRef.current = null;
@@ -88,12 +109,17 @@ export function useImportSyncOperations({
   const pollTaskUntilSettled = useCallback(
     (taskId: number) => {
       stopTaskPolling();
+      const requestId = taskRequestRef.current;
       const tick = async () => {
         pollAttemptsRef.current += 1;
         try {
           const payload = await importTasksApi.fetchImportTask(taskId);
+          if (requestId !== taskRequestRef.current) return;
+          if (!payload.task) throw new Error("任务记录不可用");
+          setLatestTaskError(false);
           setTaskEntries(payload.entries);
           if (payload.task && payload.task.status !== "running") {
+            setBackgroundTaskId(null);
             setLastTask(payload.task);
             if (payload.task.status === "completed") {
               addLog(
@@ -128,10 +154,13 @@ export function useImportSyncOperations({
             setLastTask(payload.task);
           }
         } catch {
-          // 查询失败不中断轮询，按预算继续。
+          if (requestId !== taskRequestRef.current) return;
+          setLatestTaskError(true);
         }
         if (pollAttemptsRef.current < TASK_POLL_MAX_ATTEMPTS) {
           pollTimerRef.current = setTimeout(tick, TASK_POLL_INTERVAL_MS);
+        } else {
+          setLatestTaskError(true);
         }
       };
       pollTimerRef.current = setTimeout(tick, TASK_POLL_INTERVAL_MS);
@@ -140,8 +169,13 @@ export function useImportSyncOperations({
   );
 
   const refreshLatestTask = useCallback(async () => {
+    stopTaskPolling();
+    const requestId = taskRequestRef.current;
     try {
       const payload = await importTasksApi.fetchLatestImportTask();
+      if (requestId !== taskRequestRef.current) return null;
+      setLatestTaskError(false);
+      setBackgroundTaskId(null);
       setLastTask(payload.task);
       setTaskEntries(payload.entries);
       if (payload.task?.status === "running") {
@@ -149,9 +183,12 @@ export function useImportSyncOperations({
       }
       return payload.task;
     } catch {
+      if (requestId !== taskRequestRef.current) return null;
+      // 读取失败不是“没有任务”：保留最后已知结果，由界面提供重试读取。
+      setLatestTaskError(true);
       return null;
     }
-  }, [pollTaskUntilSettled]);
+  }, [pollTaskUntilSettled, stopTaskPolling]);
 
   // 页面挂载时恢复最近一次导入任务视图（刷新/断线不丢任务）。
   useEffect(() => {
@@ -162,6 +199,7 @@ export function useImportSyncOperations({
   const loadPreview = useCallback(async (selectedFile: File) => {
     const requestId = ++previewRequestRef.current;
     setPreview(null);
+    setPreviewConsumed(false);
     setPreviewLoading(true);
     setPreviewError(null);
     try {
@@ -182,9 +220,17 @@ export function useImportSyncOperations({
     }
   }, []);
 
+  // 预览失败后直接重试当前选中文件的预览，不需要重新选择文件。
+  const retryPreview = useCallback(() => {
+    if (!file) return;
+    void loadPreview(file);
+  }, [file, loadPreview]);
+
   const handleFileChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const selectedFile = event.target.files?.[0];
+      // 保留状态中的已选文件，同时让下一次选择同文件也触发 change。
+      event.target.value = "";
       if (!selectedFile) return;
 
       if (!isValidOpmlFile(selectedFile)) {
@@ -232,9 +278,20 @@ export function useImportSyncOperations({
     setConfirmedUrls(next);
   }, [preview]);
 
+  // 提交约束与按钮展示使用同一条件：必须存在当前文件的一次成功预览。
+  // 预览读取中或失败时不允许进入正式导入，避免提交与核对对象不一致。
+  const canSubmitImport = Boolean(
+    file && preview && !previewLoading && !previewError,
+  );
+
   const handleImport = useCallback(async () => {
     if (!file) {
       toast.warning("请先选择OPML文件");
+      return;
+    }
+    // 处理函数在按钮之外也检查同一状态：直接重复激活不能越过预览约束。
+    if (!preview || previewLoading || previewError) {
+      toast.warning("请先完成当前文件的预览核对，再开始导入");
       return;
     }
 
@@ -250,6 +307,7 @@ export function useImportSyncOperations({
       if (!confirmationText) return;
 
       setImporting(true);
+      stopTaskPolling();
       resetLogScroll();
       startLogSession("import");
 
@@ -272,6 +330,8 @@ export function useImportSyncOperations({
               (type, message, current, total, data) => {
                 if (type === "task" && data?.task_id) {
                   startedTaskId = Number(data.task_id);
+                  setBackgroundTaskId(startedTaskId);
+                  setPreviewConsumed(true);
                 }
                 onProgress(type, message, current, total, data);
               },
@@ -281,7 +341,8 @@ export function useImportSyncOperations({
         });
         // 导入完成后刷新最近任务视图（逐条结果与缓存刷新后的库状态）。
         stopTaskPolling();
-        void refreshLatestTask();
+        setPreviewConsumed(true);
+        await refreshLatestTask();
       } catch (error) {
         console.error("导入失败:", error);
 
@@ -301,6 +362,9 @@ export function useImportSyncOperations({
     addLog,
     confirmedUrls,
     file,
+    preview,
+    previewError,
+    previewLoading,
     refreshLatestTask,
     resetLogScroll,
     runExclusiveOperation,
@@ -311,10 +375,7 @@ export function useImportSyncOperations({
 
   const handleRetry = useCallback(async (conflictEntry?: ImportEntryResult) => {
     if (!lastTask || lastTask.status === "running") return;
-    const retryable = conflictEntry ? 1 : taskEntries.filter(entry =>
-      ["failed", "pending"].includes(entry.outcome) ||
-      (lastTask.status === "interrupted" && entry.outcome === "unprocessed")
-    ).length;
+    const retryable = conflictEntry ? 1 : countRetryableEntries(lastTask, taskEntries);
     if (retryable <= 0) {
       toast.info("没有失败或待同步的条目，无需重试");
       return;
@@ -364,9 +425,9 @@ export function useImportSyncOperations({
   const handleSync = useCallback(async () => {
     await runExclusiveOperation(async () => {
       const confirmationText = requestTypedConfirmation({
-        action: "同步全部订阅播客",
+        action: "同步已关注节目",
         impact:
-          "会刷新全部订阅播客的资料，并按各节目同步范围写入单集（可能新增或更新单集内容），可能耗时较长。",
+          "会检查全部已关注节目的 RSS，更新节目资料，并按各节目的同步范围新增或更新单集，可能耗时较长。",
         phrase: "SYNC ALL",
       });
       if (!confirmationText) return;
@@ -379,7 +440,7 @@ export function useImportSyncOperations({
         await runSseOperation({
           mode: "sync",
           addLog,
-          startMessage: "开始同步所有播客的元数据...",
+          startMessage: "开始同步已关注节目的元数据...",
           fallbackSuccessMessage: "同步已完成",
           run: (onProgress) =>
             syncApi.syncPodcastsMetadataSSE(onProgress, confirmationText),
@@ -395,19 +456,25 @@ export function useImportSyncOperations({
 
   return {
     file,
-    importing,
+    importing: importing || backgroundTaskId !== null || lastTask?.status === "running",
     syncing,
     preview,
     previewLoading,
     previewError,
+    previewConsumed,
+    canSubmitImport,
     confirmedUrls,
     lastTask,
     taskEntries,
+    latestTaskError,
+    countRetryableEntries,
     handleFileChange,
     handleImport,
     handleSync,
     toggleConfirmed,
     confirmAllPending,
     handleRetry,
+    retryPreview,
+    refreshLatestTask,
   };
 }

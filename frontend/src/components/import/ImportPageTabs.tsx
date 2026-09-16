@@ -2,7 +2,7 @@ export type ImportTab = "import" | "sync";
 
 const IMPORT_TABS: ReadonlyArray<{ key: ImportTab; label: string }> = [
   { key: "import", label: "导入 OPML" },
-  { key: "sync", label: "同步元数据" },
+  { key: "sync", label: "同步已关注节目" },
 ];
 
 interface ImportPageTabsProps {

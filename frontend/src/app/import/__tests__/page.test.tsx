@@ -9,6 +9,7 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ImportPage from "../ImportPageClient";
 import { syncApi } from "@/lib/api";
+import { importTasksApi, type ImportPreview } from "@/lib/api/importTasks";
 import { toast } from "@/lib/toast";
 import { navigate } from "@/lib/navigation";
 
@@ -23,6 +24,17 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
+vi.mock("@/lib/api/importTasks", () => ({
+  CONFIRMABLE_KINDS: new Set(["collection", "deleted"]),
+  importTasksApi: {
+    previewImportOPML: vi.fn(),
+    fetchLatestImportTask: vi.fn(),
+    fetchImportTask: vi.fn(),
+    fetchTaskNewPodcasts: vi.fn(),
+    retryImportTask: vi.fn(),
+  },
+}));
+
 vi.mock("@/lib/toast", () => ({
   toast: {
     warning: vi.fn(),
@@ -33,6 +45,24 @@ const memoryStorage = new Map<string, string>();
 const importOPMLSSE = vi.mocked(syncApi.importOPMLSSE);
 const syncPodcastsMetadataSSE = vi.mocked(syncApi.syncPodcastsMetadataSSE);
 const toastWarning = vi.mocked(toast.warning);
+const previewImportOPML = vi.mocked(importTasksApi.previewImportOPML);
+const fetchLatestImportTask = vi.mocked(importTasksApi.fetchLatestImportTask);
+const fetchTaskNewPodcasts = vi.mocked(importTasksApi.fetchTaskNewPodcasts);
+
+function successfulPreview(): ImportPreview {
+  return {
+    total: 1,
+    entries: [
+      { xml_url: "https://example.com/a.xml", title: "A", kind: "new" },
+    ],
+    new_count: 1,
+    existing_count: 0,
+    collection_count: 0,
+    deleted_count: 0,
+    invalid_count: 0,
+    duplicate_merged_count: 0,
+  };
+}
 
 function installLocalStorageMock() {
   memoryStorage.clear();
@@ -87,18 +117,52 @@ describe("ImportPage", () => {
     });
     installLocalStorageMock();
     localStorage.clear();
+    fetchLatestImportTask.mockResolvedValue({
+      success: true,
+      task: null,
+      entries: [],
+    });
+    fetchTaskNewPodcasts.mockResolvedValue({
+      success: true,
+      task_id: 0,
+      total: 0,
+      podcasts: [],
+    });
+    previewImportOPML.mockResolvedValue(successfulPreview());
   });
 
   it("restores URL tabs without starting import or sync", async () => {
     window.history.replaceState({}, "", "/import?tab=sync");
     render(<ImportPage />);
-    expect(screen.getByRole("tab", { name: "同步元数据" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "同步已关注节目" })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getByRole("tab", { name: "导入 OPML" }));
     expect(window.location.search).toBe("?tab=import");
     act(() => { navigate("/import?tab=sync"); });
-    expect(screen.getByRole("tab", { name: "同步元数据" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "同步已关注节目" })).toHaveAttribute("aria-selected", "true");
     expect(importOPMLSSE).not.toHaveBeenCalled();
     expect(syncPodcastsMetadataSSE).not.toHaveBeenCalled();
+  });
+
+  it("uses preview consumption rather than server time and keeps sync layout independent", async () => {
+    fetchLatestImportTask.mockResolvedValue({ success: true, entries: [], task: {
+      id: 9, status: "completed", file_name: "old.opml", total: 1, processed: 1,
+      success_count: 1, pending_count: 0, conflict_count: 0, merged_count: 0,
+      unchanged_count: 0, skipped_count: 0, failed_count: 0, error_message: "",
+      started_at: "2099-01-01T00:00:00Z", finished_at: "2099-01-01T00:01:00Z",
+    } });
+    const { container } = render(<ImportPage />);
+    await screen.findByText(/上次导入任务 #9/);
+    fireEvent.change(screen.getByLabelText("选择 OPML 文件"), {
+      target: { files: [new File(["<opml/>"], "new.opml")] },
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "开始导入" })).toBeEnabled());
+    expect(container.querySelector(".import-workspace")).toHaveAttribute("data-stage", "preview");
+    fireEvent.click(screen.getByRole("tab", { name: "同步已关注节目" }));
+    expect(container.querySelector(".import-workspace")).toHaveAttribute("data-stage", "idle");
+    fireEvent.click(screen.getByRole("tab", { name: "导入 OPML" }));
+    importOPMLSSE.mockResolvedValue(undefined);
+    fireEvent.click(screen.getByRole("button", { name: "开始导入" }));
+    await waitFor(() => expect(container.querySelector(".import-workspace")).toHaveAttribute("data-stage", "done"));
   });
 
   it("normalizes repeated tabs without dropping unrelated parameters", async () => {
@@ -184,7 +248,7 @@ describe("ImportPage", () => {
 
     render(<ImportPage />);
 
-    fireEvent.click(screen.getByRole("tab", { name: "同步元数据" }));
+    fireEvent.click(screen.getByRole("tab", { name: "同步已关注节目" }));
     const startButton = screen.getByRole("button", { name: "开始同步" });
 
     fireEvent.click(startButton);
@@ -204,7 +268,7 @@ describe("ImportPage", () => {
 
     render(<ImportPage />);
 
-    fireEvent.click(screen.getByRole("tab", { name: "同步元数据" }));
+    fireEvent.click(screen.getByRole("tab", { name: "同步已关注节目" }));
     fireEvent.click(screen.getByRole("button", { name: "开始同步" }));
 
     await waitFor(() => {
@@ -260,11 +324,81 @@ describe("ImportPage", () => {
     });
 
     fireEvent.change(fileInput, { target: { files: [file] } });
+    await waitFor(() => {
+      expect(screen.getByLabelText("导入预览")).toBeInTheDocument();
+    });
     fireEvent.click(screen.getByRole("button", { name: "开始导入" }));
 
     await waitFor(() => {
       expect(screen.getAllByText("导入完成")).toHaveLength(1);
     });
+  });
+
+  it("cannot start the import while the preview request is still pending (AC2)", async () => {
+    let resolvePreview: (value: ImportPreview) => void = () => {};
+    previewImportOPML.mockReturnValue(
+      new Promise<ImportPreview>((resolve) => {
+        resolvePreview = resolve;
+      }),
+    );
+
+    render(<ImportPage />);
+
+    const fileInput = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(["<opml/>"], "slow.opml", { type: "text/opml" })],
+      },
+    });
+
+    // 预览未完成：按钮不可用，直接调用处理函数也不能绕过（toast 拦截）。
+    await waitFor(() => {
+      expect(screen.getByText("正在核对本地库差异...")).toBeInTheDocument();
+    });
+    const startButton = screen.getByRole("button", { name: "开始导入" });
+    expect(startButton).toBeDisabled();
+    fireEvent.click(startButton);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(importOPMLSSE).not.toHaveBeenCalled();
+
+    resolvePreview(successfulPreview());
+    await waitFor(() => {
+      expect(startButton).toBeEnabled();
+    });
+  });
+
+  it("cannot start the import after a preview failure until retry succeeds (AC2/AC3)", async () => {
+    previewImportOPML
+      .mockRejectedValueOnce(new Error("预览服务暂时不可用"))
+      .mockResolvedValueOnce(successfulPreview());
+
+    render(<ImportPage />);
+
+    const fileInput = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(["<opml/>"], "fail.opml", { type: "text/opml" })],
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("预览服务暂时不可用")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "开始导入" })).toBeDisabled();
+    expect(importOPMLSSE).not.toHaveBeenCalled();
+
+    // 同一文件的直接重试入口恢复可导入状态。
+    fireEvent.click(screen.getByRole("button", { name: /重试预览「fail\.opml」/ }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("导入预览")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "开始导入" })).toBeEnabled();
   });
 
   it("shows sync errors even when the thrown value is not an Error", async () => {
@@ -276,7 +410,7 @@ describe("ImportPage", () => {
     try {
       render(<ImportPage />);
 
-      fireEvent.click(screen.getByRole("tab", { name: "同步元数据" }));
+      fireEvent.click(screen.getByRole("tab", { name: "同步已关注节目" }));
       fireEvent.click(screen.getByRole("button", { name: "开始同步" }));
 
       await waitFor(() => {
@@ -299,7 +433,7 @@ describe("ImportPage", () => {
     try {
       render(<ImportPage />);
 
-      fireEvent.click(screen.getByRole("tab", { name: "同步元数据" }));
+      fireEvent.click(screen.getByRole("tab", { name: "同步已关注节目" }));
       fireEvent.click(screen.getByRole("button", { name: "开始同步" }));
 
       await waitFor(() => {
@@ -322,7 +456,7 @@ describe("ImportPage", () => {
 
     render(<ImportPage />);
 
-    fireEvent.click(screen.getByRole("tab", { name: "同步元数据" }));
+    fireEvent.click(screen.getByRole("tab", { name: "同步已关注节目" }));
     fireEvent.click(screen.getByRole("button", { name: "开始同步" }));
 
     await act(async () => {
@@ -364,7 +498,7 @@ describe("ImportPage", () => {
 
     render(<ImportPage />);
 
-    fireEvent.click(screen.getByRole("tab", { name: "同步元数据" }));
+    fireEvent.click(screen.getByRole("tab", { name: "同步已关注节目" }));
     fireEvent.click(screen.getByRole("button", { name: "开始同步" }));
 
     await waitFor(() => {

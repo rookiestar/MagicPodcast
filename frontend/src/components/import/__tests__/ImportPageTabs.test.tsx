@@ -12,7 +12,7 @@ describe("ImportPageTabs", () => {
       />,
     );
 
-    const syncTab = screen.getByRole("tab", { name: "同步元数据" });
+    const syncTab = screen.getByRole("tab", { name: "同步已关注节目" });
     expect(syncTab).toBeDisabled();
     expect(syncTab).toHaveClass("cursor-not-allowed");
     expect(syncTab.className).not.toContain("hover:");
@@ -27,7 +27,7 @@ describe("ImportPageTabs", () => {
       />,
     );
 
-    const syncTab = screen.getByRole("tab", { name: "同步元数据" });
+    const syncTab = screen.getByRole("tab", { name: "同步已关注节目" });
     expect(syncTab).not.toBeDisabled();
     expect(syncTab.className).toContain("hover:");
   });
