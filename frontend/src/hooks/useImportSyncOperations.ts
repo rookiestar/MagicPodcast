@@ -393,26 +393,34 @@ export function useImportSyncOperations({
     setImporting(true);
     try {
       const result = await importTasksApi.retryImportTask(lastTask.id, conflictEntry ? { [conflictEntry.feed_url]: "confirm" } : undefined);
-      addLog(
-        "info",
-        `开始重试任务 #${lastTask.id} 中的 ${result.total_podcasts} 条条目`,
-      );
-      if (result.task_id) {
-        addLog("info", `重试任务编号 #${result.task_id}，可刷新页面查看结果`);
+      const retryTaskId = result.task_id ?? result.task?.id;
+      if (!retryTaskId) {
+        throw new Error("重试任务未返回任务编号");
       }
       addLog(
-        "summary",
-        `重试完成：成功 ${result.success_count}，待同步 ${result.stub_podcasts}，失败 ${result.failed_count}`,
-        undefined, undefined, {
-          operation: "import", total_podcasts: result.total_podcasts,
-          success_podcasts: result.success_count, failed_podcasts: result.failed_count,
-          stub_podcasts: result.stub_podcasts, conflict_podcasts: result.conflict_podcasts,
-          merged_podcasts: result.merged_podcasts, unchanged_podcasts: result.unchanged_podcasts,
-        },
+        "info",
+        `重试任务 #${retryTaskId} 已创建，正在后台处理 ${result.total_podcasts} 条条目`,
       );
-      (result.errors || []).forEach((message) => addLog("error", message));
-      stopTaskPolling();
-      await refreshLatestTask();
+      if (result.task) {
+        // The API returns the persisted running task before background work
+        // starts. Show its durable progress immediately and reuse the same
+        // polling path as refresh/reconnect instead of waiting for a long
+        // synchronous retry response.
+        stopTaskPolling();
+        setLatestTaskError(false);
+        setBackgroundTaskId(retryTaskId);
+        setLastTask(result.task);
+        setTaskEntries([]);
+        pollTaskUntilSettled(retryTaskId);
+      } else {
+        // Keep compatibility with an older backend that returns only the ID:
+        // fetch the persisted task before falling back to the normal poll.
+        setBackgroundTaskId(retryTaskId);
+        const restored = await refreshLatestTask();
+        if (!restored || restored.id !== retryTaskId) {
+          pollTaskUntilSettled(retryTaskId);
+        }
+      }
     } catch (error: unknown) {
       const message =
         error instanceof Error && error.message ? error.message : "重试失败";
@@ -422,7 +430,7 @@ export function useImportSyncOperations({
       setImporting(false);
     }
     });
-  }, [addLog, lastTask, taskEntries, refreshLatestTask, stopTaskPolling, runExclusiveOperation]);
+  }, [addLog, lastTask, taskEntries, refreshLatestTask, stopTaskPolling, pollTaskUntilSettled, runExclusiveOperation]);
 
   const handleSync = useCallback(async () => {
     await runExclusiveOperation(async () => {

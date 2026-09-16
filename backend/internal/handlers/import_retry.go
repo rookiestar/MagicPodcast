@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"errors"
+	"net/http"
 	"strconv"
 
 	"magicpodcast/internal/logger"
@@ -73,35 +75,40 @@ func (h *SyncHandler) RetryImportTask(c *gin.Context) {
 
 	logger.Infof("重试导入任务 #%d：共 %d 条失败/待同步条目", taskID, len(outlines))
 	reporter := sync.NewLogProgressReporter()
-	retryTask, wrapped := h.startChildImportTask(
+	retryTask, wrapped, err := h.startChildImportTask(
 		task.ID,
 		"重试任务#"+strconv.Itoa(int(task.ID))+"("+strconv.Itoa(len(outlines))+"条)",
 		len(outlines), reporter)
-	_ = retryTask
-	result, runErr := h.runImport(outlines, wrapped, decisions, retryTask)
-	if runErr != nil {
-		middleware.InternalErrorResponseWithCode(c, "IMPORT_ERROR", "重试失败: "+runErr.Error())
+	if err != nil {
+		if errors.Is(err, sync.ErrImportTaskAlreadyRunning) {
+			middleware.ConflictResponse(c, "IMPORT_TASK_RETRY_RUNNING", "该任务已有重试在后台执行，请等待当前任务完成")
+			return
+		}
+		middleware.InternalErrorResponseWithCode(c, "IMPORT_TASK_ERROR", "重试任务未能创建")
 		return
 	}
+	taskResponse := *retryTask
 
-	c.JSON(200, gin.H{
-		"success": true,
-		"task_id": func() interface{} {
-			if retryTask != nil {
-				return retryTask.ID
-			}
-			return nil
-		}(),
+	// Create the durable child first, then let the import continue after the
+	// HTTP response. The browser can immediately poll this task instead of
+	// waiting for every slow RSS attempt to finish in one request.
+	h.runImportInBackground(outlines, wrapped, decisions, retryTask)
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"success":            true,
+		"task_id":            retryTask.ID,
 		"parent_task_id":     task.ID,
-		"message":            opmlResultMessage(result.TotalPodcasts, result.SuccessPodcasts, result.StubPodcasts, result.FailedPodcasts),
-		"total_podcasts":     result.TotalPodcasts,
-		"success_count":      result.SuccessPodcasts,
-		"failed_count":       result.FailedPodcasts,
-		"stub_podcasts":      result.StubPodcasts,
-		"merged_podcasts":    result.MergedPodcasts,
-		"conflict_podcasts":  result.ConflictPodcasts,
-		"unchanged_podcasts": result.UnchangedPodcasts,
-		"entries":            result.Entries,
-		"errors":             result.Errors,
+		"status":             models.ImportTaskStatusRunning,
+		"message":            "重试任务 #" + strconv.Itoa(int(retryTask.ID)) + " 已创建，正在后台执行",
+		"total_podcasts":     len(outlines),
+		"success_count":      0,
+		"failed_count":       0,
+		"stub_podcasts":      0,
+		"merged_podcasts":    0,
+		"conflict_podcasts":  0,
+		"unchanged_podcasts": 0,
+		"entries":            []sync.ImportEntryResult{},
+		"errors":             []string{},
+		"task":               taskResponse,
 	})
 }

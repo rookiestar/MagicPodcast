@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"magicpodcast/internal/models"
 	syncpkg "magicpodcast/internal/sync"
@@ -223,9 +224,24 @@ func TestRetryImportTaskOnlyTouchesFailedAndPendingEntries(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, req)
-	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-	require.Contains(t, response.Body.String(), `"total_podcasts":1`, "只有 1 条待同步条目参与重试")
-	require.Contains(t, response.Body.String(), `"stub_podcasts":1`)
+	require.Equal(t, http.StatusAccepted, response.Code, response.Body.String())
+	var payload struct {
+		TaskID uint `json:"task_id"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &payload))
+	require.NotZero(t, payload.TaskID)
+	require.Eventually(t, func() bool {
+		var child models.ImportTask
+		if err := db.First(&child, payload.TaskID).Error; err != nil {
+			return false
+		}
+		return child.Status != models.ImportTaskStatusRunning
+	}, time.Second, 10*time.Millisecond)
+	var child models.ImportTask
+	require.NoError(t, db.First(&child, payload.TaskID).Error)
+	require.Equal(t, models.ImportTaskStatusCompleted, child.Status)
+	require.Equal(t, 1, child.Total, "只有 1 条待同步条目参与重试")
+	require.Equal(t, 1, child.PendingCount)
 
 	var retryCount int64
 	require.NoError(t, db.Model(&models.ImportTask{}).Count(&retryCount).Error)
@@ -261,8 +277,112 @@ func TestRetryIncludesConfirmedConflictEntries(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, req)
-	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-	require.Contains(t, response.Body.String(), `"total_podcasts":1`, "只有显式确认的冲突条目参与重试")
+	require.Equal(t, http.StatusAccepted, response.Code, response.Body.String())
+	var payload struct {
+		TaskID uint `json:"task_id"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &payload))
+	require.NotZero(t, payload.TaskID)
+	require.Eventually(t, func() bool {
+		var child models.ImportTask
+		if err := db.First(&child, payload.TaskID).Error; err != nil {
+			return false
+		}
+		return child.Status != models.ImportTaskStatusRunning
+	}, time.Second, 10*time.Millisecond)
+	var child models.ImportTask
+	require.NoError(t, db.First(&child, payload.TaskID).Error)
+	require.Equal(t, 1, child.Total, "只有显式确认的冲突条目参与重试")
+}
+
+// TestRetryImportTaskReturnsBeforeSlowFeedCompletes verifies that a slow RSS
+// request cannot hold the retry HTTP request open. The returned task is still
+// durable and is finalized after the background worker is released.
+func TestRetryImportTaskReturnsBeforeSlowFeedCompletes(t *testing.T) {
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started <- struct{}{}
+		<-release
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>Retry Feed</title></channel></rss>`))
+	}))
+	defer upstream.Close()
+	router, db := newImportTaskRouter(t)
+
+	task, err := syncpkg.CreateImportTask(db, "slow-retry.opml", 1)
+	require.NoError(t, err)
+	require.NoError(t, syncpkg.FinalizeImportTask(db, task, &syncpkg.SyncResult{
+		TotalPodcasts: 1,
+		Entries:       []syncpkg.ImportEntryResult{{Title: "Slow Show", FeedURL: upstream.URL + "/slow.xml", Outcome: syncpkg.ImportOutcomePending}},
+	}, nil))
+
+	request := httptest.NewRequest(http.MethodPost, "/tasks/"+strconv.FormatUint(uint64(task.ID), 10)+"/retry", strings.NewReader("confirmation_text=RETRY+IMPORT"))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	start := time.Now()
+	router.ServeHTTP(response, request)
+	require.Equal(t, http.StatusAccepted, response.Code, response.Body.String())
+	require.Less(t, time.Since(start), time.Second, "slow feed must not block the retry response")
+
+	var payload struct {
+		TaskID uint `json:"task_id"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &payload))
+	require.NotZero(t, payload.TaskID)
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("background retry did not reach the slow feed")
+	}
+	close(release)
+	require.Eventually(t, func() bool {
+		var child models.ImportTask
+		if err := db.First(&child, payload.TaskID).Error; err != nil {
+			return false
+		}
+		return child.Status != models.ImportTaskStatusRunning
+	}, time.Second, 10*time.Millisecond)
+}
+
+// TestRetryImportTaskRejectsConcurrentChild verifies that a second client
+// cannot enqueue the same retry while the first child is still running.
+func TestRetryImportTaskRejectsConcurrentChild(t *testing.T) {
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started <- struct{}{}
+		<-release
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer upstream.Close()
+	router, db := newImportTaskRouter(t)
+
+	task, err := syncpkg.CreateImportTask(db, "duplicate-retry.opml", 1)
+	require.NoError(t, err)
+	require.NoError(t, syncpkg.FinalizeImportTask(db, task, &syncpkg.SyncResult{
+		TotalPodcasts: 1,
+		Entries:       []syncpkg.ImportEntryResult{{Title: "Duplicate Show", FeedURL: upstream.URL + "/duplicate.xml", Outcome: syncpkg.ImportOutcomePending}},
+	}, nil))
+
+	makeRequest := func() *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/tasks/"+strconv.FormatUint(uint64(task.ID), 10)+"/retry", strings.NewReader("confirmation_text=RETRY+IMPORT"))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		return response
+	}
+	first := makeRequest()
+	require.Equal(t, http.StatusAccepted, first.Code, first.Body.String())
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("background retry did not reach the slow feed")
+	}
+	second := makeRequest()
+	require.Equal(t, http.StatusConflict, second.Code, second.Body.String())
+	require.Contains(t, second.Body.String(), "IMPORT_TASK_RETRY_RUNNING")
+	close(release)
 }
 
 func urlQueryEscape(value string) string {

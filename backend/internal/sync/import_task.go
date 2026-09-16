@@ -2,6 +2,7 @@ package sync
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -19,6 +20,11 @@ import (
 var ActiveImportTasks sync.Map
 
 var importTaskRegistrationMu sync.Mutex
+
+// ErrImportTaskAlreadyRunning indicates that a parent task already has a
+// running retry child. The check and child creation share the registration
+// lock so two clients cannot enqueue the same retry batch concurrently.
+var ErrImportTaskAlreadyRunning = errors.New("import task retry already running")
 
 // CreateImportTask 建立任务记录并登记为活动任务。
 func CreateImportTask(db *gorm.DB, fileName string, total int) (*models.ImportTask, error) {
@@ -42,6 +48,15 @@ func CreateImportTask(db *gorm.DB, fileName string, total int) (*models.ImportTa
 func CreateChildImportTask(db *gorm.DB, parentTaskID uint, fileName string, total int) (*models.ImportTask, error) {
 	importTaskRegistrationMu.Lock()
 	defer importTaskRegistrationMu.Unlock()
+	var runningChild models.ImportTask
+	err := db.Where("parent_task_id = ? AND status = ?", parentTaskID, models.ImportTaskStatusRunning).
+		Order("id DESC").First(&runningChild).Error
+	if err == nil {
+		return nil, ErrImportTaskAlreadyRunning
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
 	parent := parentTaskID
 	task := &models.ImportTask{
 		Status:       models.ImportTaskStatusRunning,

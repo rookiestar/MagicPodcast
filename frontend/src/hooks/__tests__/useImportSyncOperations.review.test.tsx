@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { syncApi } from "@/lib/api";
-import { importTasksApi } from "@/lib/api/importTasks";
+import { importTasksApi, RETRY_CONFIRMATION_TEXT } from "@/lib/api/importTasks";
 import { toast } from "@/lib/toast";
 import { countRetryableEntries, useImportSyncOperations } from "../useImportSyncOperations";
 import type { ImportTask } from "@/lib/api/importTasks";
@@ -102,6 +102,67 @@ it("restores the same task and derives summary statistics from persisted results
   expect(addLog).toHaveBeenCalledWith("summary", expect.any(String), undefined, undefined, expect.objectContaining({total_podcasts:3, success_podcasts:1, stub_podcasts:1, failed_podcasts:1}));
   unmount();
   expect(vi.getTimerCount()).toBe(0);
+});
+
+it("tracks an async retry child immediately instead of waiting for the HTTP result", async () => {
+  vi.useFakeTimers();
+  const interruptedTask: ImportTask = {
+    ...reviewTask,
+    id: 41,
+    status: "interrupted",
+    file_name: "interrupted.opml",
+    total: 1,
+    processed: 1,
+  };
+  const entry = { title: "Pending", feed_url: "https://example.com/pending", outcome: "pending" };
+  const runningChild: ImportTask = {
+    ...interruptedTask,
+    id: 42,
+    status: "running",
+    file_name: "重试任务#41(1条)",
+    processed: 0,
+    started_at: "2026-09-17T00:00:00Z",
+  };
+  const completedChild: ImportTask = {
+    ...runningChild,
+    status: "completed",
+    processed: 1,
+    pending_count: 1,
+    finished_at: "2026-09-17T00:00:01Z",
+  };
+  vi.spyOn(importTasksApi, "fetchLatestImportTask").mockResolvedValue({ success: true, task: interruptedTask, entries: [entry] });
+  const fetchTask = vi.spyOn(importTasksApi, "fetchImportTask").mockResolvedValue({ success: true, task: completedChild, entries: [entry] });
+  const retry = vi.spyOn(importTasksApi, "retryImportTask").mockResolvedValue({
+    success: true,
+    task_id: runningChild.id,
+    parent_task_id: interruptedTask.id,
+    status: "running",
+    task: runningChild,
+    message: "重试任务已创建",
+    total_podcasts: 1,
+    success_count: 0,
+    failed_count: 0,
+    stub_podcasts: 0,
+    entries: [],
+  });
+  const { hook, addLog } = setup();
+  await act(async () => { await Promise.resolve(); });
+
+  await act(async () => {
+    await hook.result.current.handleRetry(undefined, RETRY_CONFIRMATION_TEXT);
+  });
+
+  expect(retry).toHaveBeenCalledWith(interruptedTask.id, undefined);
+  expect(hook.result.current.lastTask?.id).toBe(runningChild.id);
+  expect(hook.result.current.lastTask?.status).toBe("running");
+  expect(hook.result.current.importing).toBe(true);
+  expect(addLog).toHaveBeenCalledWith("info", expect.stringContaining("后台处理"));
+
+  await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+  expect(fetchTask).toHaveBeenCalledWith(runningChild.id);
+  expect(hook.result.current.importing).toBe(false);
+  expect(addLog).toHaveBeenCalledWith("summary", expect.any(String), undefined, undefined, expect.objectContaining({ total_podcasts: 1 }));
+  hook.unmount();
 });
 
 it("does not start the import while the preview has not succeeded (#427 AC2)", async () => {
