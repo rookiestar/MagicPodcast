@@ -23,6 +23,8 @@ interface ImportOpmlPanelProps {
   lastTask: ImportTask | null;
   taskEntries?: ImportEntryResult[];
   latestTaskError: boolean;
+  hasNewPreview?: boolean;
+  liveProgress?: { current: number; total: number };
   onFileChange: ChangeEventHandler<HTMLInputElement>;
   onImport: () => void;
   onToggleConfirmed: (entry: ImportPreviewEntry) => void;
@@ -99,7 +101,7 @@ function formatTaskTime(value: string | null | undefined) {
   if (!value) return "";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
-  return parsed.toLocaleString();
+  return parsed.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 function TaskBanner({
@@ -132,17 +134,22 @@ function TaskBanner({
   return (
     <div
       role="status"
-      className="import-task-banner rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm dark:border-blue-800 dark:bg-blue-900/20"
+      className="import-task-banner"
     >
-      <p className="font-medium text-blue-800 dark:text-blue-200">
-        上次导入任务 #{task.id} · {statusLabel}
-        {task.status === "running" && `（${task.processed}/${task.total}）`}
+      <p className="import-task-title">
+        {task.status === "running" ? "正在导入" : `上次导入任务 #${task.id} · ${statusLabel}`}
       </p>
       <p className="mt-0.5 text-xs text-blue-700 dark:text-blue-300">
-        来源文件「{task.file_name}」
+        {task.status === "running" && `任务 #${task.id} · `}来源文件「{task.file_name}」
         {startedAt && ` · 开始于 ${startedAt}`}
       </p>
-      <p className="mt-1 text-xs text-blue-700 dark:text-blue-300">
+      {task.status === "running" && (
+        <div className="import-task-progress">
+          <progress aria-label="导入进度" max={Math.max(1, task.total)} value={Math.max(0, Math.min(task.processed, task.total))} />
+          <span>{task.processed} / {task.total} 条已处理</span>
+        </div>
+      )}
+      <p className="import-task-counts">
         新增/更新 {task.success_count} · 未变化 {task.unchanged_count} · 待同步{" "}
         {task.pending_count} · 冲突 {task.conflict_count} · 失败{" "}
         {task.failed_count}
@@ -199,7 +206,7 @@ function TaskResults({
   }, [taskEntries, outcomeFilter]);
 
   return (
-    <details className="import-task-results mt-3" data-testid="task-results">
+    <details className="import-task-results mt-3" data-testid="task-results" open>
       <summary className="cursor-pointer text-sm font-medium">
         逐项结果（{taskEntries.length} 条）
       </summary>
@@ -244,9 +251,9 @@ function TaskResults({
       >
         {visibleEntries.map((entry) => (
           <li key={entry.feed_url} className="my-2 break-words">
-            <p>
-              {entry.title} ·{" "}
-              {OUTCOME_LABELS[entry.outcome] ?? entry.outcome}
+            <p className="import-result-heading">
+              <span>{entry.title}</span>
+              <span className="import-result-status" data-outcome={entry.outcome}>{OUTCOME_LABELS[entry.outcome] ?? entry.outcome}</span>
             </p>
             <p className="break-all text-xs text-slate-500 dark:text-slate-400">
               {entry.feed_url}
@@ -292,6 +299,8 @@ export default function ImportOpmlPanel({
   lastTask,
   taskEntries = [],
   latestTaskError,
+  hasNewPreview = false,
+  liveProgress,
   onFileChange,
   onImport,
   onToggleConfirmed,
@@ -346,8 +355,18 @@ export default function ImportOpmlPanel({
         </div>
       )}
 
+      {importing && lastTask?.status !== "running" && (
+        <div className="import-task-banner" role="status">
+          <p className="import-task-title">正在导入{file ? `「${file.name}」` : ""}</p>
+          <div className="import-task-progress">
+            <progress aria-label="导入进度" max={liveProgress?.total ?? 1} value={liveProgress ? Math.max(0, Math.min(liveProgress.current, liveProgress.total)) : undefined} />
+            <span>{liveProgress ? `${liveProgress.current} / ${liveProgress.total} 条已处理` : "正在等待任务进度"}</span>
+          </div>
+        </div>
+      )}
       {lastTask && (
-        <div className="mb-4">
+        <details className="import-history mb-4" open={(!hasNewPreview && !importing) || lastTask.status === "running"}>
+          <summary hidden={(!hasNewPreview && !importing) || lastTask.status === "running"}>上次导入记录 · {lastTask.file_name}</summary>
           <TaskBanner
             task={lastTask}
             taskEntries={taskEntries}
@@ -365,13 +384,14 @@ export default function ImportOpmlPanel({
             />
           )}
           {lastTask.status !== "running" && <NewPodcastsSection taskId={lastTask.id} />}
-        </div>
+        </details>
       )}
 
+      {!importing && <div className="import-new-operation">
       <div className="import-guidance">
-        <p className="import-eyebrow">从其他应用迁移</p>
+
         <h3 className="text-base font-medium text-slate-900 dark:text-slate-100">
-          导入 OPML
+          {lastTask ? "导入另一份订阅" : "导入你的播客订阅"}
         </h3>
         <p className="import-guidance-copy">
           选择订阅文件，预览差异后导入。保留已有关注和标签，文件夹不转为标签；
@@ -600,6 +620,7 @@ export default function ImportOpmlPanel({
           </p>
         )}
       </div>
+      </div>}
     </>
   );
 }

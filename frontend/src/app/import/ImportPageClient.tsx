@@ -71,6 +71,9 @@ function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
   });
 
   const operationRunning = importing || syncing;
+  const liveProgress = importing && logMode === "import"
+    ? [...logs].reverse().find((log) => typeof log.current === "number" && typeof log.total === "number" && log.total > 0)
+    : undefined;
 
   // 使用当前交互阶段，不比较浏览器与服务器的时钟。
   const freshPreview =
@@ -115,6 +118,8 @@ function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
                 lastTask={lastTask}
                 taskEntries={taskEntries}
                 latestTaskError={latestTaskError}
+                hasNewPreview={Boolean(freshPreview)}
+                liveProgress={liveProgress?.current !== undefined && liveProgress.total !== undefined ? { current: liveProgress.current, total: liveProgress.total } : undefined}
                 onFileChange={handleFileChange}
                 onImport={handleImport}
                 onToggleConfirmed={toggleConfirmed}
@@ -139,6 +144,8 @@ function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
         </section>
 
         <aside className="import-log-column" aria-label="操作日志">
+          <details className="import-log-disclosure" open={syncing}>
+            <summary>详细日志<span>{logs.length > 0 ? `${logs.length} 条记录` : "暂无本次日志"}</span></summary>
           <SyncLogPanel
             title={logPanelMode === "import" ? "导入日志" : "同步日志"}
             logs={logs}
@@ -157,6 +164,7 @@ function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
             logContainerRef={logContainerRef}
             logEndRef={logEndRef}
           />
+          </details>
         </aside>
       </div>
     </main>
@@ -167,7 +175,7 @@ function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
 export default function ImportPageClient({ initialTab = "import" }: { initialTab?: ImportTab }) {
   return (
     <PageLayout
-      rootClassName="editorial-page-shell"
+      rootClassName="editorial-page-shell rhythm-page-shell"
       className="import-page"
       toolbar={{
         title: "导入/同步",

@@ -438,7 +438,7 @@ describe("工作流执行历史可见等待验收 (#34)", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: /概览/ }));
     await waitFor(() =>
-      expect(screen.getByText(/运行概览/)).toBeInTheDocument(),
+      expect(screen.getByText(/调度与范围/)).toBeInTheDocument(),
     );
 
     clickJobsTab();
