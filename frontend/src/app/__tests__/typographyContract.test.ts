@@ -162,7 +162,8 @@ describe("typography contract", () => {
   it("reserves sub-11px text for decorative kickers and markers", () => {
     const approvedTinySelectors = new Set([
       ".editorial-kicker",
-      ".import-page .import-eyebrow",
+      // .import-page .import-eyebrow 已随 #426 提升至 0.75rem（辅助文字档），
+      // 不再属于 sub-11px 装饰性小字。
       ".podcast-library-card-cover > .podcast-library-card-new",
       ".podcast-reading-kicker",
       ".search-workbench-kicker small",

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -262,6 +263,8 @@ func (h *SyncHandler) GetImportTaskStatus(c *gin.Context) {
 }
 
 // GetLatestImportTask 返回最近一次导入任务，用于页面刷新/断线后恢复。
+// “没有历史任务”（record not found）与“读取失败”是两种状态：前者返回
+// task:null，后者返回错误响应，前端据此区分空态与读取失败并保留已知结果。
 // GET /api/v1/sync/import/tasks/latest
 func (h *SyncHandler) GetLatestImportTask(c *gin.Context) {
 	if h.db == nil {
@@ -270,7 +273,11 @@ func (h *SyncHandler) GetLatestImportTask(c *gin.Context) {
 	}
 	task, entries, err := sync.GetLatestImportTask(h.db)
 	if err != nil {
-		c.JSON(200, gin.H{"success": true, "task": nil, "entries": []gin.H{}})
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(200, gin.H{"success": true, "task": nil, "entries": []gin.H{}})
+			return
+		}
+		middleware.InternalErrorResponseWithCode(c, "IMPORT_TASK_QUERY_FAILED", "最近导入任务读取失败，请重试")
 		return
 	}
 	c.JSON(200, gin.H{

@@ -33,8 +33,9 @@ type ImportTask struct {
 	// ResultJSON 保存完整逐条导入结果，不受日志截断影响。
 	ResultJSON   string `gorm:"type:text" json:"-"`
 	ErrorMessage string `json:"error_message"`
-	StartedAt    time.Time
-	FinishedAt   *time.Time
+	// 与前端 ImportTask 类型约定一致，用于任务归属展示。
+	StartedAt  time.Time  `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at"`
 }
 
 // TableName 指定表名。

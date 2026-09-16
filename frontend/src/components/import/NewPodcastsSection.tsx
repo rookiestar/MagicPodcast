@@ -133,7 +133,7 @@ export default function NewPodcastsSection({ taskId }: NewPodcastsSectionProps) 
           <button
             type="button"
             onClick={load}
-            className="mt-2 cursor-pointer rounded px-2 py-1 text-xs text-blue-600 hover:text-blue-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:text-blue-400"
+            className="mt-2 min-h-[44px] cursor-pointer rounded px-3 py-1 text-sm text-blue-600 hover:text-blue-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:text-blue-400"
           >
             重试
           </button>
@@ -209,10 +209,10 @@ export default function NewPodcastsSection({ taskId }: NewPodcastsSectionProps) 
                       className="h-4 w-4 cursor-pointer"
                     />
                     <span className="mt-1 block min-w-0 sm:mt-0">
-                      <span className="block truncate font-medium text-slate-800 dark:text-slate-100">
+                      <span className="block break-words font-medium text-slate-800 dark:text-slate-100">
                         {podcast.title}
                       </span>
-                      <span className="block truncate text-slate-400">{podcast.feed_url}</span>
+                      <span className="block break-all text-slate-400">{podcast.feed_url}</span>
                     </span>
                     <span className="mt-1 block sm:mt-0">
                       {podcast.ready ? (
@@ -223,7 +223,7 @@ export default function NewPodcastsSection({ taskId }: NewPodcastsSectionProps) 
                         </span>
                       )}
                     </span>
-                    <span className="mt-1 block min-w-0 truncate text-slate-500 sm:mt-0 dark:text-slate-400">
+                    <span className="mt-1 block min-w-0 break-words text-slate-500 sm:mt-0 dark:text-slate-400">
                       {podcast.workflows.length > 0
                         ? podcast.workflows.map((workflow) => workflow.name).join("、")
                         : "—"}
@@ -266,7 +266,7 @@ export default function NewPodcastsSection({ taskId }: NewPodcastsSectionProps) 
                   type="button"
                   onClick={() => setDialogOpen(true)}
                   disabled={selectedIds.length === 0}
-                  className="editorial-btn editorial-btn--primary min-h-[40px] cursor-pointer px-4 py-1.5 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="editorial-btn editorial-btn--primary min-h-[44px] cursor-pointer px-4 py-1.5 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   添加到工作流
                 </button>

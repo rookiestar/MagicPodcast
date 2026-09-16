@@ -16,10 +16,11 @@ export default function SyncMetadataPanel({
       <div className="import-guidance">
         <p className="import-eyebrow">更新个人播客库</p>
         <h3 className="text-base font-medium text-slate-900 dark:text-slate-100">
-          同步元数据
+          同步已关注节目
         </h3>
         <p className="import-guidance-copy">
-          从 RSS 更新单集数量、发布时间与节目描述。耗时取决于订阅数量和网络状况。
+          检查全部已关注节目的 RSS：更新节目资料（单集数量、发布时间与描述），
+          并按各节目的同步范围新增或更新单集。耗时取决于已关注节目数量和网络状况。
         </p>
       </div>
 
