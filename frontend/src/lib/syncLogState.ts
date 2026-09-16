@@ -312,7 +312,7 @@ export function restoreSyncLogSession({
 
   if (wasImporting) {
     mode = "import";
-    restoredLogs.push(createLogEntry("info", "页面已刷新，导入需要重新开始"));
+    restoredLogs.push(createLogEntry("info", "页面已刷新，正在恢复导入状态"));
   }
 
   return {

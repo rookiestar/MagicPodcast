@@ -2,7 +2,7 @@
 
 最后更新：2026-05-31
 
-MagicPodcast 可选接入本地 PodcastIndex SQLite 数据库。导入 OPML 时，后端会优先通过 `v_unique_podcasts` 视图查找同一个 RSS 源的最佳记录，再回填播客标题、作者、封面、单集数等元数据。
+MagicPodcast 可选接入本地 PodcastIndex SQLite 数据库。导入 OPML 时，后端按 Feed URL 直接查询带索引的 `podcasts` 原表，再回填播客标题、作者、封面、单集数等元数据；标题和稳定身份候选仍使用 `v_unique_podcasts` 或原表的既有查询语义。
 
 ## 当前入口
 

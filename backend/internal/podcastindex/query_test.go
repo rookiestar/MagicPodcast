@@ -83,7 +83,7 @@ func TestQueryUsesRawTableWhenUniqueViewIsAbsent(t *testing.T) {
 	}
 	defer query.Close()
 
-	info, err := query.FindByFeedURLContext(context.Background(), "https://primary.example/feed.xml")
+	info, err := query.FindByFeedURL("https://primary.example/feed.xml")
 	if err != nil || info == nil {
 		t.Fatalf("FindByFeedURL() info=%+v err=%v", info, err)
 	}
@@ -113,7 +113,7 @@ func TestFindByFeedURLUsesRawURLLookupEvenWhenUniqueViewExists(t *testing.T) {
 	}
 	defer query.Close()
 
-	info, err := query.FindByFeedURLContext(context.Background(), "https://primary.example/feed.xml")
+	info, err := query.FindByFeedURL("https://primary.example/feed.xml")
 	if err != nil || info == nil {
 		t.Fatalf("FindByFeedURL() info=%+v err=%v", info, err)
 	}
