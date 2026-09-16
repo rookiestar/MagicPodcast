@@ -105,13 +105,7 @@ func SetupRouter(options ...Option) *gin.Engine {
 	// 中间件
 	r.Use(gin.Recovery()) // 恢复 panic
 	r.Use(gin.Logger())   // 请求日志
-	r.Use(gzip.Gzip(
-		gzip.DefaultCompression,
-		gzip.WithExcludedPathsRegexs([]string{
-			`^/api/v1/artifact-sets/[1-9][0-9]*/audio$`,
-			`^/api/v1/artifact-sets/[1-9][0-9]*/media/[^/]+$`,
-		}),
-	)) // Gzip 压缩；受管媒体保持原始字节与 Range 语义
+	r.Use(responseCompression())
 	r.Use(middleware.CORS()) // CORS 跨域支持
 
 	// 单人服务的高成本操作采用进程内准入控制：不信任客户端身份头，
@@ -484,4 +478,18 @@ func SetupRouter(options ...Option) *gin.Engine {
 
 		return r
 	}
+}
+
+// responseCompression keeps the production compression policy shared with stream tests.
+func responseCompression() gin.HandlerFunc {
+	return gzip.Gzip(
+		gzip.DefaultCompression,
+		gzip.WithExcludedPathsRegexs([]string{
+			// gzip v0.0.6 does not flush its compression buffer on HTTP Flush.
+			// Import events must reach the client before the handler finishes.
+			`^/api/v1/sync/import-sse$`,
+			`^/api/v1/artifact-sets/[1-9][0-9]*/audio$`,
+			`^/api/v1/artifact-sets/[1-9][0-9]*/media/[^/]+$`,
+		}),
+	)
 }
