@@ -126,8 +126,9 @@ describe("CollectionDetailContent", () => {
 
     // 标题同时出现在工具栏与文档流中，等待任一出现即可。
     await screen.findAllByText("穿透半导体迷雾");
-    const metas = await screen.findAllByText(/作者：小宇宙领航员/);
-    expect(metas.length).toBeGreaterThan(0);
+    expect(screen.queryByText(/作者：小宇宙领航员/)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/已读取 2 集/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/已收录 1 集/).length).toBeGreaterThan(0);
 
     const items = screen.getAllByTestId("collection-item");
     expect(items).toHaveLength(2);
