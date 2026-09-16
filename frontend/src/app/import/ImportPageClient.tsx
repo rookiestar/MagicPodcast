@@ -16,6 +16,7 @@ import { useSyncLogSession } from "@/hooks/useSyncLogSession";
 
 function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
   const [retryConfirmation, setRetryConfirmation] = useState<{
+    taskId: number;
     entry?: ImportEntryResult;
     count: number;
   } | null>(null);
@@ -82,11 +83,14 @@ function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
     if (!lastTask) return;
     const count = entry ? 1 : countRetryableEntries(lastTask, taskEntries);
     if (count <= 0) return;
-    setRetryConfirmation({ entry, count });
+    setRetryConfirmation({ taskId: lastTask.id, entry, count });
   };
   const confirmRetry = async (confirmationText: string) => {
     const pending = retryConfirmation;
-    if (!pending) return;
+    if (!pending || !lastTask || lastTask.id !== pending.taskId) {
+      setRetryConfirmation(null);
+      return;
+    }
     setRetryConfirmation(null);
     await handleRetry(pending.entry, confirmationText);
   };
@@ -186,7 +190,7 @@ function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
           </details>
         </aside>
       </div>
-      {retryConfirmation && lastTask && (
+      {retryConfirmation && lastTask && lastTask.id === retryConfirmation.taskId && (
         <ImportRetryConfirmationDialog
           task={lastTask}
           retryableCount={retryConfirmation.count}

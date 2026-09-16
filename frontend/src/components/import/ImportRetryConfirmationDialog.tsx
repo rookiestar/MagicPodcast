@@ -85,6 +85,11 @@ export default function ImportRetryConfirmationDialog({
               ? `确认关联「${conflictEntry.title}」，并重试其余可处理条目。`
               : `将处理 ${retryableCount} 条未完成条目。`}
           </p>
+          {conflictEntry?.detail && (
+            <p className="break-words text-sm text-slate-500 dark:text-slate-400">
+              {conflictEntry.detail}
+            </p>
+          )}
           <div>
             <label htmlFor="import-retry-confirmation-input" className="block text-sm text-slate-700 dark:text-slate-200">
               输入确认文字 <code className="rounded bg-slate-100 px-1 py-0.5 text-xs dark:bg-slate-700">{confirmationText}</code>

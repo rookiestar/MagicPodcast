@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { ImportTask } from "@/lib/api/importTasks";
+import type { ImportEntryResult, ImportTask } from "@/lib/api/importTasks";
 import ImportRetryConfirmationDialog from "../ImportRetryConfirmationDialog";
 
 const task: ImportTask = {
@@ -59,5 +59,28 @@ describe("ImportRetryConfirmationDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows conflict evidence before confirming an association", () => {
+    const conflictEntry: ImportEntryResult = {
+      title: "新 Feed",
+      feed_url: "https://example.com/new.xml",
+      outcome: "conflict",
+      detail: "将关联本地节目「旧节目」（证据：PodcastIndex GUID）",
+      podcast_id: 7,
+    };
+    render(
+      <ImportRetryConfirmationDialog
+        task={task}
+        retryableCount={1}
+        conflictEntry={conflictEntry}
+        disabled={false}
+        confirmationText="RETRY IMPORT"
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(conflictEntry.detail)).toBeDefined();
   });
 });
