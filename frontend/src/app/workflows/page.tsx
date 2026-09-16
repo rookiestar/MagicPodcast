@@ -3,7 +3,6 @@ import { formatWorkflowSchedule } from "@/components/workflows/workflowFormConst
 
 import { useEffect, useState, useRef, useMemo } from "react";
 import { closeTo, navigate, positiveID, singleParam, updateQuery, useLocationHref } from "@/lib/navigation";
-import Link from "next/link";
 import dynamic from "next/dynamic";
 import { workflowApi } from "@/lib/api";
 import { showSuccess } from "@/lib/api/errorHandler";
@@ -14,16 +13,9 @@ import WorkflowActionMenu from "@/components/workflows/WorkflowActionMenu";
 import EditorialSortControls from "@/components/layout/EditorialSortControls";
 import PageLayout from "@/components/layout/PageLayout";
 import PrefetchLink from "@/components/common/PrefetchLink";
-import { JobStatusBadge, WorkflowStatusBadge } from "@/components/ui/StatusBadge";
+import { WorkflowStatusBadge } from "@/components/ui/StatusBadge";
 import { formatDateTime } from "@/lib/timeUtils";
-import {
-  IconCircleCheck,
-  IconEdit,
-  IconLoader2,
-  IconPlayerPause,
-  IconPlayerPlay,
-  IconTrash,
-} from "@tabler/icons-react";
+import { IconLoader2, IconPlayerPlay } from "@tabler/icons-react";
 
 // 动态导入 WorkflowFormModal，减少首屏 bundle 大小
 const WorkflowFormModal = dynamic(
@@ -73,8 +65,8 @@ export default function WorkflowsPage() {
   },[routeEditingId,editRetry]);
   const handleSortChange = (newSortBy:WorkflowSortByType) => updateQuery({sort_by:newSortBy});
 
-  const handleToggle = async (id: number, e: React.MouseEvent) => {
-    e.preventDefault();
+  const handleToggle = async (id: number, e?: React.MouseEvent) => {
+    e?.preventDefault();
     try {
       await workflowApi.toggle(id);
       await mutate();
@@ -109,8 +101,8 @@ export default function WorkflowsPage() {
     }
   };
 
-  const handleEdit = async (id:number,e:React.MouseEvent) => {
-    e.preventDefault();
+  const handleEdit = async (id:number,e?:React.MouseEvent) => {
+    e?.preventDefault();
     modalReturn.current=window.location.pathname+window.location.search;
     navigate(`/workflows/${id}?dialog=edit`);
   };
@@ -162,7 +154,7 @@ export default function WorkflowsPage() {
 
   return (
     <PageLayout
-      rootClassName="editorial-page-shell"
+      rootClassName="editorial-page-shell rhythm-page-shell"
       className="workflow-page wf-editorial"
       toolbar={{
         title: "工作流管理",
@@ -217,224 +209,46 @@ export default function WorkflowsPage() {
           </div>
         )}
 
-        {/* Workflows List */}
         {!error && !isLoading && workflows.length > 0 && (
-          <div className="workflow-list">
-            {workflows.map((workflow) => (
-              <div key={workflow.id} className="workflow-card">
-                {/* Mobile: Simplified Card */}
-                <div className="workflow-card-mobile md:hidden p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1 min-w-0">
-                      {/* 标题 + 状态 */}
-                      <div className="flex items-center gap-2 mb-2">
-                        <h3 className="text-base font-semibold text-slate-900 truncate">
-                          {workflow.name}
-                        </h3>
-                        <WorkflowStatusBadge isEnabled={workflow.is_enabled} compact />
-                      </div>
-
-                      {/* 关键信息 */}
-                      <div className="text-xs text-slate-600 space-y-1">
-                        <p>范围: {getScopeTypeLabel(workflow)}</p>
-                        <p>最近结果: {workflow.stats?.total_jobs
-                          ? `已执行 ${workflow.stats.total_jobs} 次 · 结果见详情`
-                          : "暂无执行"}</p>
-                        <p>定时: {formatWorkflowSchedule(workflow.schedule)}</p>
-                        <p>下次执行: {formatDateTime(workflow.stats?.next_execution)}</p>
-                      </div>
-                    </div>
-
-                    {/* 操作按钮 */}
-                    <div className="flex items-center gap-2 ml-3">
-                      {/* 执行 */}
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          handleTrigger(workflow.id, e);
-                        }}
-                        disabled={triggeringId === workflow.id}
-                        className={`p-2.5 border border-slate-200 rounded-lg transition-all flex-shrink-0 ${
-                          triggeringId === workflow.id
-                            ? "opacity-50 cursor-not-allowed bg-slate-100"
-                            : "text-blue-600 hover:bg-slate-50 hover:border-blue-300 active:scale-95"
-                        }`}
-                        style={{ minWidth: "44px", minHeight: "44px" }}
-                        title="执行"
-                      >
-                        {triggeringId === workflow.id ? (
-                          <IconLoader2 className="w-5 h-5 animate-spin" aria-hidden="true" />
-                        ) : (
-                          <IconPlayerPlay className="w-5 h-5" aria-hidden="true" />
-                        )}
-                      </button>
-
-                      {/* 更多菜单 */}
-                      <WorkflowActionMenu
-                        workflow={workflow}
-                        onToggle={(id) => {
-                          const e = new MouseEvent("click") as any;
-                          handleToggle(id, e);
-                        }}
-                        onEdit={(id) => {
-                          const e = new MouseEvent("click") as any;
-                          handleEdit(id, e);
-                        }}
-                        onDelete={handleDelete}
-                      />
-                    </div>
-                  </div>
-
-                  {/* 查看详情链接 */}
-                  <Link
-                    href={`/workflows/${workflow.id}${sortBy === "updated" ? "" : `?sort_by=${sortBy}`}`}
-                    prefetch={false}
-                    className="block text-center text-sm text-blue-600 py-2 border-t border-slate-200 hover:text-blue-700 transition-colors"
-                  >
-                    查看详情 →
-                  </Link>
-                </div>
-
-                {/* Desktop: Full Card */}
-                <div className="workflow-card-desktop hidden md:block">
-                  <PrefetchLink
-                    href={`/workflows/${workflow.id}${sortBy === "updated" ? "" : `?sort_by=${sortBy}`}`}
-                    prefetchId={workflow.id}
-                    prefetchType="workflow"
-                    className="workflow-card-body block"
-                  >
-                    <div className="workflow-card-main">
-                      <div className="workflow-card-heading">
-                        <span className="workflow-card-index" aria-hidden="true">
-                          {String(workflow.id).padStart(2, "0")}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <h3 className="text-lg font-semibold text-slate-900">
-                              {workflow.name}
-                            </h3>
-                            <WorkflowStatusBadge isEnabled={workflow.is_enabled} size="sm" />
-                          </div>
-
-                          {workflow.description && (
-                            <p className="workflow-card-description text-slate-600 text-sm">
-                              {workflow.description}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="workflow-card-metadata text-sm text-slate-600">
-                        <div className="workflow-card-meta">
-                          <span className="font-medium">范围</span>
-                          <span className="text-slate-500">
-                            {getScopeTypeLabel(workflow)}
-                          </span>
-                        </div>
-
-                        <div className="workflow-card-meta">
-                          <span>最近结果</span>
-                          <span>{workflow.last_job ? <><JobStatusBadge status={workflow.last_job.status} /> · {workflow.last_job.episodes_matched} 集</> : workflow.stats?.total_jobs ? `已执行 ${workflow.stats.total_jobs} 次 · 结果见详情` : "暂无执行"}</span>
-                        </div>
-
-                        <div className="workflow-card-meta">
-                          <span className="font-medium">定时</span>
-                          <code className="px-1.5 py-0.5 bg-slate-100 rounded text-xs">
-                            {formatWorkflowSchedule(workflow.schedule)}
-                          </code>
-                        </div>
-
-                        {workflow.stats && (
-                          <>
-                            <div className="workflow-card-meta">
-                              <span className="font-medium">上次执行</span>
-                              <span className="text-slate-500">
-                                {formatDateTime(workflow.stats.last_execution)}
-                              </span>
-                            </div>
-
-                            <div className="workflow-card-meta">
-                              <span className="font-medium">下次执行</span>
-                              <span className="text-slate-500">
-                                {formatDateTime(workflow.stats.next_execution)}
-                              </span>
-                            </div>
-
-
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="workflow-card-actions">
-                      <span className="workflow-card-detail-cue">查看详情</span>
-                      <div className="workflow-card-action-buttons">
-                        {/* 执行 */}
-                        <button
-                          onClick={(e) => handleTrigger(workflow.id, e)}
-                          disabled={triggeringId === workflow.id}
-                          className={`workflow-card-action ${
-                            triggeringId === workflow.id
-                              ? "opacity-50 cursor-not-allowed bg-slate-100"
-                              : "text-blue-600"
-                          }`}
-                          title="执行"
-                          aria-label={`执行工作流：${workflow.name}`}
+          <div className="workflow-rhythm-list">
+            {(["每日", "每周", "其他"] as const).map((group) => {
+              const members = workflows.filter((workflow) => {
+                const schedule = formatWorkflowSchedule(workflow.schedule);
+                return (schedule.startsWith("每天 ") ? "每日" : schedule.startsWith("每周") ? "每周" : "其他") === group;
+              });
+              if (!members.length) return null;
+              return (
+                <section className="workflow-rhythm-group" key={group} aria-label={`${group}工作流`}>
+                  <h2>{group}<span>{members.length} 个工作流</span></h2>
+                  <ul>
+                    {members.map((workflow) => (
+                      <li key={workflow.id} className="workflow-rhythm-row">
+                        <PrefetchLink
+                          href={`/workflows/${workflow.id}${sortBy === "updated" ? "" : `?sort_by=${sortBy}`}`}
+                          prefetchId={workflow.id}
+                          prefetchType="workflow"
+                          className="workflow-rhythm-name"
                         >
-                          {triggeringId === workflow.id ? (
-                            <IconLoader2 className="animate-spin" aria-hidden="true" />
-                          ) : (
-                            <IconPlayerPlay aria-hidden="true" />
-                          )}
-                        </button>
-
-                        {/* 启用/停用 */}
-                        <button
-                          onClick={(e) => handleToggle(workflow.id, e)}
-                          className={`workflow-card-action ${
-                            workflow.is_enabled
-                              ? "text-amber-600 dark:text-amber-400"
-                              : "text-green-600 dark:text-green-400"
-                          }`}
-                          title={workflow.is_enabled ? "停用" : "启用"}
-                          aria-label={`${workflow.is_enabled ? "停用" : "启用"}工作流：${workflow.name}`}
-                        >
-                          {workflow.is_enabled ? (
-                            <IconPlayerPause aria-hidden="true" />
-                          ) : (
-                            <IconCircleCheck aria-hidden="true" />
-                          )}
-                        </button>
-
-                        {/* 编辑 */}
-                        <button
-                          onClick={(e) => handleEdit(workflow.id, e)}
-                          className="workflow-card-action text-slate-800 dark:text-slate-200"
-                          title="编辑"
-                          aria-label={`编辑工作流：${workflow.name}`}
-                        >
-                          <IconEdit aria-hidden="true" />
-                        </button>
-
-                        {/* 删除 */}
-                        <button
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleDelete(workflow.id);
-                          }}
-                          className="workflow-card-action text-red-600 dark:text-red-400"
-                          title="删除"
-                          aria-label={`删除工作流：${workflow.name}`}
-                        >
-                          <IconTrash aria-hidden="true" />
-                        </button>
-                      </div>
-                    </div>
-                  </PrefetchLink>
-                </div>
-              </div>
-            ))}
+                          <h3>{workflow.name}</h3>
+                          <p>{getScopeTypeLabel(workflow)}{workflow.description && ` · ${workflow.description}`}</p>
+                        </PrefetchLink>
+                        <WorkflowStatusBadge isEnabled={workflow.is_enabled} size="sm" />
+                        <div className="workflow-rhythm-schedule">
+                          <span>{formatWorkflowSchedule(workflow.schedule)}</span>
+                          <small>下次执行 · {workflow.is_enabled ? formatDateTime(workflow.stats?.next_execution) : "已停用"}</small>
+                        </div>
+                        <div className="workflow-rhythm-actions">
+                          <button type="button" className="workflow-quiet-action" onClick={(e) => handleTrigger(workflow.id, e)} disabled={triggeringId === workflow.id} aria-label={`执行工作流：${workflow.name}`} title="执行工作流">
+                            {triggeringId === workflow.id ? <IconLoader2 size={18} className="animate-spin" aria-hidden="true" /> : <IconPlayerPlay size={18} aria-hidden="true" />}
+                          </button>
+                          <WorkflowActionMenu workflow={workflow} onToggle={handleToggle} onEdit={handleEdit} onDelete={handleDelete} />
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              );
+            })}
           </div>
         )}
       </div>

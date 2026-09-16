@@ -892,7 +892,7 @@ export default function WorkflowFormModal({
         <div className="workflow-modal-header border-b border-slate-200 dark:border-slate-700 shrink-0">
           <div className="workflow-modal-heading">
             <div className="workflow-modal-heading-copy">
-              <span className="editorial-modal-kicker">工作流</span>
+
               <h2
                 id="workflow-form-modal-title"
                 className="text-xl sm:text-2xl font-semibold text-slate-900 dark:text-slate-50"
@@ -928,7 +928,7 @@ export default function WorkflowFormModal({
         </div>
 
         {/* Content */}
-        <div ref={contentRef} className="workflow-modal-content flex-1 min-h-0 overflow-y-auto p-6">
+        <div ref={contentRef} data-step={step} className="workflow-modal-content flex-1 min-h-0 overflow-y-auto p-6">
           {step === 1 && (
             <div className="space-y-4">
               <div>
@@ -954,20 +954,12 @@ export default function WorkflowFormModal({
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="简要描述这个工作流的用途..."
-                  rows={3}
+                  rows={2}
                   className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
 
-              <div className="p-4 border border-slate-200 dark:border-slate-700 rounded-lg bg-amber-50/60 dark:bg-amber-950/20">
-                <div className="font-medium text-slate-900 dark:text-slate-50">
-                  报告自动发布到首页
-                </div>
-                <div className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-                  有可展示单集的报告会自动进入发现页；失败或空报告不展示。
-                  日报、周报或自定义周期由定时规则自动识别。
-                </div>
-              </div>
+              <p className="workflow-form-note">有可展示单集的报告会自动发布到首页；失败或空报告不展示。</p>
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
@@ -979,6 +971,7 @@ export default function WorkflowFormModal({
                     {CRON_PRESETS.map((preset) => (
                       <button
                         key={preset.value}
+                        aria-pressed={schedule === preset.value && !customCron.trim()}
                         type="button"
                         onClick={() => {
                           setSchedule(preset.value);
@@ -1001,9 +994,7 @@ export default function WorkflowFormModal({
                       >
                         <div className="flex-1">
                           <div className="font-medium">{preset.label}</div>
-                          <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                            {preset.value}
-                          </div>
+
                         </div>
                         {schedule === preset.value && !customCron && (
                           <span className="text-blue-500 text-xl">✓</span>
@@ -1012,37 +1003,14 @@ export default function WorkflowFormModal({
                     ))}
                   </div>
 
-                  {/* 分隔线 */}
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700"></div>
-                    <span className="text-xs text-slate-400 dark:text-slate-500">
-                      或
-                    </span>
-                    <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700"></div>
-                  </div>
-
+                  <details className="workflow-custom-schedule" open={Boolean(customCron || cronError)}>
+                    <summary>自定义定时规则</summary>
                   {/* 自定义输入区域 */}
                   <div className="relative">
-                    {/* 模式指示器 */}
-                    {(customCron.trim() ||
-                      (schedule && !customCron.trim())) && (
-                      <div
-                        className={`
-                        absolute -top-2.5 left-3 z-10 px-2 py-0.5 text-xs font-medium rounded-full border transition-all
-                        ${
-                          customCron.trim()
-                            ? "bg-purple-100 dark:bg-purple-900/30 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300"
-                            : "bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300"
-                        }
-                      `}
-                      >
-                        {customCron.trim() ? "自定义" : "预设"}
-                      </div>
-                    )}
-
                     <div className="relative">
                       <input
                         type="text"
+                        aria-label="自定义定时规则"
                         value={customCron}
                         onChange={(e) => {
                           setCustomCron(e.target.value);
@@ -1115,6 +1083,7 @@ export default function WorkflowFormModal({
                     支持5位格式（分 时 日 月 周）或6位格式（秒 分 时 日 月
                     周），系统会自动转换
                   </p>
+                  </details>
                 </div>
               </div>
             </div>
@@ -1160,8 +1129,7 @@ export default function WorkflowFormModal({
                     <div className="flex-1 min-w-0">
                       <label htmlFor="workflow-scope-specific_podcasts" className="font-medium text-slate-900 dark:text-slate-50">指定节目</label>
                       <div className="text-sm text-slate-600 dark:text-slate-400 mb-2">
-                        从订阅中选择特定节目；工作流将按整档范围同步所选节目的全部单集，
-                        清单收录但未关注的节目需先关注才会出现在这里。
+                        按整档同步所选节目的全部单集；此处仅列出已关注节目。
                       </div>
                       {scopeType === "specific_podcasts" && (
                         <div className="space-y-3">

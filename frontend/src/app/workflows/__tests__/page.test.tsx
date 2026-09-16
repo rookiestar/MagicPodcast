@@ -102,7 +102,7 @@ describe("workflows list editorial chrome (#53)", () => {
     window.history.replaceState({}, "", "/");
   });
 
-  it("renders workflow cards with the editorial card class", () => {
+  it("groups workflows by schedule and retains detail and execution actions", () => {
     workflowsValue = [
       {
         id: 1,
@@ -116,11 +116,10 @@ describe("workflows list editorial chrome (#53)", () => {
         stats: { total_jobs: 1, total_episodes: 2 },
       } as unknown as Workflow,
     ];
-    const { container } = render(<WorkflowsPage />);
-    expect(container.querySelector(".workflow-list")).toBeTruthy();
-    expect(container.querySelector(".workflow-card")).toBeTruthy();
-    expect(container.querySelector(".workflow-card-body")).toBeTruthy();
-    expect(container.querySelector(".workflow-card-metadata")).toBeTruthy();
-    expect(container.querySelector(".workflow-card-actions")).toBeTruthy();
+    render(<WorkflowsPage />);
+    expect(screen.getByRole("region", { name: "每日工作流" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /每日精选/ })).toHaveAttribute("href", "/workflows/1");
+    expect(screen.getByRole("button", { name: "执行工作流：每日精选" })).toBeInTheDocument();
+    expect(screen.getByTestId("action-menu")).toBeInTheDocument();
   });
 });

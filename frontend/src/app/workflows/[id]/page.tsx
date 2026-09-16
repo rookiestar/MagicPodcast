@@ -1,4 +1,5 @@
 "use client";
+import WorkflowActionMenu from "@/components/workflows/WorkflowActionMenu";
 import { formatWorkflowSchedule } from "@/components/workflows/workflowFormConstants";
 
 import { Suspense, useCallback, useEffect, useMemo, useState, useRef } from "react";
@@ -154,7 +155,6 @@ function WorkflowDetailContent() {
   const invalidJobAddress = Boolean((reportSegment && !reportModalJobId) || (query.has("job") && !positiveID(singleParam(query,"job"))));
 
   // 移动端更多菜单状态
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const scopePodcastIds = useMemo(() => {
     if (workflow?.scope_type !== "specific_podcasts") {
       return [];
@@ -171,20 +171,6 @@ function WorkflowDetailContent() {
     0,
     scopePodcastIds.length - overviewPodcastIds.length,
   );
-
-  // 点击外部关闭更多菜单
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        !(event.target instanceof Element) ||
-        !event.target.closest("[data-workflow-more-menu]")
-      ) {
-        setShowMoreMenu(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   // 概览页只拉前几个节目；离开概览后取消，避免与执行历史关键路径竞争
   useEffect(() => {
@@ -309,8 +295,8 @@ function WorkflowDetailContent() {
   if (workflowLoading) {
     return (
       <PageLayout
-        rootClassName="editorial-page-shell"
-        className="workflow-detail wf-editorial"
+        rootClassName="editorial-page-shell rhythm-page-shell"
+        className="workflow-detail wf-editorial workflow-rhythm-detail"
         toolbar={{
           breadcrumbs: [{ label: "返回列表", href: backLink }],
           title: "加载中...",
@@ -326,8 +312,8 @@ function WorkflowDetailContent() {
   if (workflowError || !workflow) {
     return (
       <PageLayout
-        rootClassName="editorial-page-shell"
-        className="workflow-detail wf-editorial"
+        rootClassName="editorial-page-shell rhythm-page-shell"
+        className="workflow-detail wf-editorial workflow-rhythm-detail"
         toolbar={{
           breadcrumbs: [{ label: "返回列表", href: backLink }],
           title: "工作流详情",
@@ -347,189 +333,22 @@ function WorkflowDetailContent() {
 
   return (
     <PageLayout
-      rootClassName="editorial-page-shell"
-      className="workflow-detail wf-editorial"
+      rootClassName="editorial-page-shell rhythm-page-shell"
+      className="workflow-detail wf-editorial workflow-rhythm-detail"
       toolbar={{
         breadcrumbs: [{ label: "返回列表", href: backLink }],
         title: (
           <div className="flex items-center gap-3">
-            <span>{`${workflow.id}: ${workflow.name}`}</span>
+            <span>{workflow.name}</span>
             <WorkflowStatusBadge isEnabled={workflow.is_enabled} />
           </div>
         ),
         description: workflow.description || undefined,
         rightContent: (
-          <>
-            {/* 移动端：更多操作下拉菜单 */}
-            <div className="sm:hidden relative" data-workflow-more-menu>
-              <button
-                onClick={() => setShowMoreMenu(!showMoreMenu)}
-                className="workflow-action-menu-trigger"
-                title="更多操作"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                </svg>
-              </button>
-              {showMoreMenu && (
-                <div className="absolute right-0 top-full mt-1 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 py-1 min-w-[140px] z-50">
-                  <button
-                    onClick={() => { handleTrigger(); setShowMoreMenu(false); }}
-                    className="w-full px-4 py-3 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-3"
-                  >
-                    <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                    执行
-                  </button>
-                  <button
-                    onClick={() => { handleToggle(); setShowMoreMenu(false); }}
-                    className="w-full px-4 py-3 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-3"
-                  >
-                    {workflow.is_enabled ? (
-                      <>
-                        <svg className="w-4 h-4 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        停用
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        启用
-                      </>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => { setShowEditModal(true); setShowMoreMenu(false); }}
-                    className="w-full px-4 py-3 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-3"
-                  >
-                    <svg className="w-4 h-4 text-slate-600 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2h2.828l8.586-8.586z" />
-                    </svg>
-                    编辑
-                  </button>
-                  <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
-                  <button
-                    onClick={() => { handleDelete(); setShowMoreMenu(false); }}
-                    className="w-full px-4 py-3 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-3"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                    删除
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* 桌面端：原有按钮组 */}
-            <div className="hidden sm:flex items-center gap-2">
-              <button
-                onClick={handleTrigger}
-                className="editorial-btn editorial-btn--solid"
-                title="执行"
-              >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2.5}
-                    d="M13 10V3L4 14h7v7l9-11h-7z"
-                  />
-                </svg>
-                <span>执行</span>
-              </button>
-              <button
-                onClick={handleToggle}
-                className="editorial-btn editorial-btn--ghost"
-                title={workflow.is_enabled ? "停用" : "启用"}
-              >
-                {workflow.is_enabled ? (
-                  <>
-                    <svg
-                      className="w-4 h-4 text-amber-600 dark:text-amber-400"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2.5}
-                        d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
-                    <span>停用</span>
-                  </>
-                ) : (
-                  <>
-                    <svg
-                      className="w-4 h-4 text-green-600 dark:text-green-400"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2.5}
-                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
-                    <span>启用</span>
-                  </>
-                )}
-              </button>
-              <button
-                onClick={() => setShowEditModal(true)}
-                className="editorial-btn editorial-btn--ghost"
-                title="编辑"
-              >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2.5}
-                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2h2.828l8.586-8.586z"
-                  />
-                </svg>
-                <span>编辑</span>
-              </button>
-              <button
-                onClick={handleDelete}
-                className="editorial-btn editorial-btn--danger"
-                title="删除"
-              >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2.5}
-                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                  />
-                </svg>
-                <span>删除</span>
-              </button>
-            </div>
-          </>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={handleTrigger} className="editorial-btn editorial-btn--primary">执行</button>
+            <WorkflowActionMenu workflow={workflow} onToggle={() => handleToggle()} onEdit={() => setShowEditModal(true)} onDelete={() => handleDelete()} />
+          </div>
         ),
         className: "editorial-page-toolbar",
       }}
@@ -634,10 +453,7 @@ function WorkflowDetailContent() {
                 </div>
               )}
               {/* 配置详情 */}
-              <div className="space-y-6">
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-                  运行概览
-                </h2>
+              <div className="workflow-overview-sections space-y-6">
 
                 {/* 调度配置 */}
                 <div>

@@ -66,7 +66,7 @@ export default function SyncLogPanel({
           </div>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             {!hasLogs
-              ? "等待开始"
+              ? isRunning ? "任务进行中，尚无本次实时日志" : "暂无本次日志"
               : filteredLogs.length === logs.length
                 ? `共 ${logs.length} 条记录`
                 : `显示 ${filteredLogs.length} / ${logs.length} 条记录`}
@@ -120,7 +120,7 @@ export default function SyncLogPanel({
           ))
         ) : (
           <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-400">
-            {hasLogs ? "当前筛选下没有日志" : "开始后这里会显示实时日志"}
+            {hasLogs ? "当前筛选下没有日志" : isRunning ? "任务进度与结果以上方任务记录为准" : "开始后这里会显示实时日志"}
           </div>
         )}
         <div ref={logEndRef} />

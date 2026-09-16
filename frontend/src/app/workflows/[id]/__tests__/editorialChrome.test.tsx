@@ -142,31 +142,22 @@ describe("workflow detail editorial chrome (#53)", () => {
     expect(jobs.getAttribute("aria-selected")).toBe("false");
   });
 
-  it("uses editorial button variants for the desktop action toolbar", () => {
+  it("keeps execution visible and secondary actions in the menu", () => {
     render(<WorkflowDetailPage />);
-    expect(document.querySelector(".editorial-btn--solid")).toBeTruthy();
-    expect(document.querySelector(".editorial-btn--ghost")).toBeTruthy();
-    expect(document.querySelector(".editorial-btn--danger")).toBeTruthy();
-    expect(
-      document.querySelector(".workflow-action-menu-trigger"),
-    ).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "执行" }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "删除" })).not.toBeInTheDocument();
+    const more = screen.getAllByRole("button", { name: /更多操作/ });
+    fireEvent.click(more[0]);
+    expect(screen.getByRole("button", { name: "删除" })).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("button", { name: "删除" }), { key: "Escape" });
+    expect(screen.queryByRole("button", { name: "删除" })).not.toBeInTheDocument();
+    expect(more[0]).toHaveFocus();
   });
 
-  it("opens edit modal from either duplicated toolbar action menu", () => {
+  it("opens edit modal from the shared action menu", () => {
     render(<WorkflowDetailPage />);
-
-    const moreButtons = screen.getAllByTitle("更多操作");
-    expect(moreButtons).toHaveLength(2);
-    fireEvent.click(moreButtons[0]);
-
-    const editButtons = screen
-      .getAllByRole("button", { name: "编辑" })
-      .filter((button) => button.className.includes("w-full"));
-    expect(editButtons).toHaveLength(2);
-
-    fireEvent.mouseDown(editButtons[0]);
-    fireEvent.click(editButtons[0]);
-
+    fireEvent.click(screen.getAllByRole("button", { name: /更多操作/ })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
     expect(screen.getByRole("dialog")).toHaveTextContent("编辑工作流弹窗");
   });
 

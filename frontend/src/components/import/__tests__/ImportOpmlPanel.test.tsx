@@ -331,13 +331,13 @@ describe("ImportOpmlPanel task banner", () => {
     expect(failedChip).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(failedChip);
     expect(failedChip).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("A · 失败")).toBeDefined();
-    expect(screen.queryByText("B · 待同步")).toBeNull();
-    expect(screen.queryByText("C · 新增")).toBeNull();
+    expect(screen.getByText("A")).toBeDefined();
+    expect(screen.queryByText("B")).toBeNull();
+    expect(screen.queryByText("C")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "全部（3）" }));
-    expect(screen.getByText("B · 待同步")).toBeDefined();
-    expect(screen.getByText("C · 新增")).toBeDefined();
+    expect(screen.getByText("B")).toBeDefined();
+    expect(screen.getByText("C")).toBeDefined();
   });
 });
 
@@ -407,4 +407,27 @@ it("breaks out merged, conflict, and unchanged counts from the summary", () => {
   expect(screen.getByText("冲突跳过").parentElement).toHaveTextContent("1");
   expect(screen.getByText("未变化").parentElement).toHaveTextContent("1");
   expect(screen.getByText("待同步").parentElement).toHaveTextContent("2");
+});
+
+describe("import task visual hierarchy", () => {
+  const runningTask: ImportTask = { id: 42, status: "running", file_name: "sample.opml", total: 10, processed: 3, success_count: 3, pending_count: 0, conflict_count: 0, merged_count: 0, unchanged_count: 0, skipped_count: 0, failed_count: 0, error_message: "", started_at: "2026-09-16T01:00:00Z" };
+
+  it("shows persisted progress while keeping a second upload out of the running task", () => {
+    renderPanel(true, { importing: true, lastTask: runningTask });
+    expect(screen.getByRole("progressbar", { name: "导入进度" })).toHaveAttribute("value", "3");
+    expect(screen.queryByRole("button", { name: "开始导入" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("选择 OPML 文件")).not.toBeInTheDocument();
+  });
+
+  it("opens the completed result even when the submitted file remains selected", async () => {
+    renderPanel(false, { file: new File(["opml"], "sample.opml"), lastTask: { ...runningTask, status: "completed" } });
+    expect(await screen.findByText(/上次导入任务 #42/)).toBeVisible();
+  });
+  it("shows live progress and collapses the previous task during a new import", () => {
+    render(<ImportOpmlPanel {...baseProps} importing disabled liveProgress={{ current: 2, total: 5 }} lastTask={{ ...runningTask, status: "completed" }} />);
+    expect(screen.getByRole("progressbar", { name: "导入进度" })).toHaveAttribute("value", "2");
+    expect(screen.getByText(/上次导入任务 #42/)).not.toBeVisible();
+    expect(screen.getByText(/上次导入记录/)).toBeVisible();
+  });
+
 });
