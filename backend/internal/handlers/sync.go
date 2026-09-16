@@ -205,16 +205,16 @@ func (h *SyncHandler) startImportTask(fileName string, total int, reporter sync.
 
 // startChildImportTask 创建持久化父链的重试任务记录（#417/#418）；创建失败
 // 与普通入口一致地拒绝执行导入。
-func (h *SyncHandler) startChildImportTask(parentTaskID uint, fileName string, total int, reporter sync.ProgressReporter) (*models.ImportTask, sync.ProgressReporter) {
+func (h *SyncHandler) startChildImportTask(parentTaskID uint, fileName string, total int, reporter sync.ProgressReporter) (*models.ImportTask, sync.ProgressReporter, error) {
 	if h.db == nil {
-		return nil, reporter
+		return nil, reporter, fmt.Errorf("导入任务存储不可用")
 	}
 	task, err := sync.CreateChildImportTask(h.db, parentTaskID, fileName, total)
 	if err != nil {
 		logger.Warnf("创建重试导入任务失败，拒绝执行导入: %v", err)
-		return nil, reporter
+		return nil, reporter, err
 	}
-	return task, sync.NewTaskProgressReporter(reporter, h.db, task.ID)
+	return task, sync.NewTaskProgressReporter(reporter, h.db, task.ID), nil
 }
 
 // runImport 执行导入并保存任务终态；终态与逐条结果先落库再返回响应。
@@ -223,7 +223,12 @@ func (h *SyncHandler) runImport(outlines []opml.Outline, reporter sync.ProgressR
 		return nil, fmt.Errorf("导入任务未能保存，未执行导入")
 	}
 	if err := sync.InitializeImportResults(reporter, outlines); err != nil {
-		sync.ActiveImportTasks.Delete(task.ID)
+		// Initialization happens before any subscription write. Persist the
+		// failed terminal state as well, otherwise a background task would look
+		// like a restart interruption on the next status read.
+		if finErr := sync.FinalizeImportTask(h.db, task, nil, err); finErr != nil {
+			logger.Errorf("保存导入初始化失败终态失败: task=%d err=%v", task.ID, finErr)
+		}
 		return nil, fmt.Errorf("保存导入范围失败: %w", err)
 	}
 	result, runErr := h.syncService.ImportOPMLOutlines(outlines, reporter, sync.DefaultImportConfig, decisions)
@@ -237,6 +242,30 @@ func (h *SyncHandler) runImport(outlines []opml.Outline, reporter sync.ProgressR
 		sync.PublishImportSummary(reporter)
 	}
 	return result, runErr
+}
+
+// runImportInBackground executes a persisted import task after the HTTP
+// request has returned. It deliberately does not use the request context:
+// losing the browser connection must not stop the durable import task.
+func (h *SyncHandler) runImportInBackground(outlines []opml.Outline, reporter sync.ProgressReporter, decisions map[string]string, task *models.ImportTask) {
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				runErr := fmt.Errorf("导入任务发生内部错误: %v", recovered)
+				var current models.ImportTask
+				alreadyFinalized := h.db != nil && h.db.First(&current, task.ID).Error == nil && current.Status != models.ImportTaskStatusRunning
+				if !alreadyFinalized {
+					if finErr := sync.FinalizeImportTask(h.db, task, nil, runErr); finErr != nil {
+						logger.Errorf("保存导入 panic 终态失败: task=%d err=%v", task.ID, finErr)
+					}
+				}
+				logger.Errorf("后台导入任务 panic: task=%d err=%v", task.ID, runErr)
+			}
+		}()
+		if _, err := h.runImport(outlines, reporter, decisions, task); err != nil {
+			logger.Warnf("后台导入任务失败: task=%d err=%v", task.ID, err)
+		}
+	}()
 }
 
 // GetImportTaskStatus 查询导入任务状态与逐条结果。

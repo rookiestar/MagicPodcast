@@ -165,6 +165,8 @@ export interface ImportRetryResponse {
   success: boolean;
   task_id?: number;
   parent_task_id: number;
+  status?: ImportTaskStatus;
+  task?: ImportTask;
   message: string;
   total_podcasts: number;
   success_count: number;
