@@ -240,12 +240,12 @@ export default function CollectionDetailContent({
       className="collection-page"
       toolbar={{
         title: data.title,
-        description: `作者：${data.author || "未提供"} · ${
+        description: `${
           data.total_known
             ? `共 ${data.item_count} 集`
             : `已读取 ${data.item_count} 集`
         } · 已收录 ${data.adopted_count} 集`,
-        mobileDescription: `作者：${data.author || "未提供"} · 已收录 ${data.adopted_count} 集`,
+        mobileDescription: `已收录 ${data.adopted_count} 集`,
         rightContent: (
           <div className="collection-toolbar-actions">
             <Link href="/collections" className="collection-btn-secondary">
