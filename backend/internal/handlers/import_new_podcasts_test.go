@@ -169,6 +169,28 @@ func TestImportTaskNewPodcastsLegacyTaskUsesExactEvidence(t *testing.T) {
 	assert.Equal(t, legacyNew.ID, payload.Podcasts[0].ID)
 }
 
+// TestImportTaskNewPodcastsReturnsEmptyWorkflowArray 保证未被工作流覆盖的节目
+// 也返回 JSON 数组，避免前端把合法的「无覆盖」状态当成 null 处理。
+func TestImportTaskNewPodcastsReturnsEmptyWorkflowArray(t *testing.T) {
+	router, db := newNewPodcastsRouter(t)
+	podcast := models.Podcast{
+		XYZID: "no-workflow", Title: "未加入工作流", FeedURL: "https://f/no-workflow.xml",
+		FeedURLValid: true, IsSubscribed: false,
+	}
+	require.NoError(t, db.Create(&podcast).Error)
+
+	task, err := syncpkg.CreateImportTask(db, "no-workflow.opml", 1)
+	require.NoError(t, err)
+	task.ResultJSON = `[{"title":"未加入工作流","feed_url":"https://f/no-workflow.xml","outcome":"new","podcast_id":` + uintString(podcast.ID) + `,"created":true}]`
+	require.NoError(t, db.Model(&models.ImportTask{}).Where("id = ?", task.ID).Update("result_json", task.ResultJSON).Error)
+
+	code, payload := getNewPodcasts(t, router, strconv.FormatUint(uint64(task.ID), 10))
+	require.Equal(t, http.StatusOK, code)
+	require.Len(t, payload.Podcasts, 1)
+	assert.NotNil(t, payload.Podcasts[0].Workflows)
+	assert.Empty(t, payload.Podcasts[0].Workflows)
+}
+
 // TestImportTaskNewPodcastsEmptyAndMissing 验证空清单与不存在任务的响应。
 func TestImportTaskNewPodcastsEmptyAndMissing(t *testing.T) {
 	router, db := newNewPodcastsRouter(t)

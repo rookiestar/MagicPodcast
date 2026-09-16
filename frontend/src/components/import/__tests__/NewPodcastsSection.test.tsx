@@ -119,6 +119,21 @@ describe("NewPodcastsSection", () => {
     expect(screen.getByText("节目2")).toBeDefined();
   });
 
+  it("keeps rendering when a legacy response uses null for workflow coverage", async () => {
+    const item = podcast({ id: 1 });
+    fetchTaskNewPodcasts.mockResolvedValue({
+      success: true,
+      task_id: 7,
+      total: 1,
+      podcasts: [{ ...item, workflows: null as unknown as ImportNewPodcast["workflows"] }],
+    });
+
+    await renderSection();
+
+    expect(screen.getByText("节目1")).toBeDefined();
+    expect(screen.getByText("—")).toBeDefined();
+  });
+
   it("shows a short empty result when the batch created nothing", async () => {
     await renderSection();
     expect(screen.getByText("本批没有新增节目")).toBeDefined();

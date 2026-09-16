@@ -35,7 +35,15 @@ export default function NewPodcastsSection({ taskId }: NewPodcastsSectionProps) 
       .fetchTaskNewPodcasts(taskId)
       .then((payload) => {
         if (version !== requestVersion.current) return;
-        setPodcasts(payload.podcasts ?? []);
+        // Older/partially upgraded API responses may encode no coverage as
+        // null. Normalize it at the boundary so a single malformed item does
+        // not crash the entire import page while the backend rolls forward.
+        setPodcasts(
+          (payload.podcasts ?? []).map((podcast) => ({
+            ...podcast,
+            workflows: podcast.workflows ?? [],
+          })),
+        );
       })
       .catch(() => {
         if (version !== requestVersion.current) return;
