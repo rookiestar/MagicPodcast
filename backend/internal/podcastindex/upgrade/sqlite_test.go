@@ -87,6 +87,27 @@ func TestValidateCandidateCreatesStableIdentityIndexes(t *testing.T) {
 	if !strings.Contains(plan, "idx_podcasts_itunes_id") || !strings.Contains(plan, "idx_podcasts_podcast_guid_nocase") {
 		t.Fatalf("stable identity lookup is not index-backed: %s", plan)
 	}
+
+	urlRows, err := db.Query(`EXPLAIN QUERY PLAN SELECT id FROM podcasts WHERE url = ?`, "https://example.com/empty.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer urlRows.Close()
+	var urlPlan []string
+	for urlRows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := urlRows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		urlPlan = append(urlPlan, detail)
+	}
+	if err := urlRows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(urlPlan, " | "), "idx_podcasts_url") {
+		t.Fatalf("URL lookup is not index-backed: %s", strings.Join(urlPlan, " | "))
+	}
 }
 
 func TestValidateCandidateRejectsMissingRequiredColumn(t *testing.T) {

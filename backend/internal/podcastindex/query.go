@@ -346,26 +346,11 @@ func scanPodcastInfo(scanner rowScanner) (*PodcastInfo, error) {
 	return &info, nil
 }
 
-// FindByFeedURL 根据Feed URL查找播客。导入链路保留去重视图语义；批次
-// 失败窗口使用下面的 FindByFeedURLContext 原始表快路径。
+// FindByFeedURL 根据 Feed URL 查找播客。URL 是导入的首要查找键，必须直接
+// 使用原始表的 URL 索引；如果把它套在按标题分组的去重视图上，SQLite 会
+// 为每个导入条目重新扫描和排序整个 PodcastIndex 数据集。
 func (q *Query) FindByFeedURL(feedURL string) (*PodcastInfo, error) {
-	source, err := q.sourceForLookup()
-	if err != nil {
-		return nil, err
-	}
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s.url = ? LIMIT 1", podcastInfoSelect(source), source.from, source.alias)
-	logger.Infof("  💾 查询 PodcastIndex: %s", feedURL)
-	info, err := scanPodcastInfo(q.db.QueryRow(query, feedURL))
-	if err == sql.ErrNoRows {
-		logger.Infof("  📭 PodcastIndex: 未找到")
-		return nil, nil
-	}
-	if err != nil {
-		logger.Infof("  ❌ PodcastIndex查询错误: %v", err)
-		return nil, fmt.Errorf("failed to scan row: %w", err)
-	}
-	logger.Infof("  ✅ PodcastIndex: 找到 - %s", info.Title)
-	return info, nil
+	return q.FindByFeedURLContext(context.Background(), feedURL)
 }
 
 // FindByFeedURLContext is the cancellable, index-friendly URL lookup used by

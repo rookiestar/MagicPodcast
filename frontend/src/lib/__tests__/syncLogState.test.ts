@@ -157,5 +157,17 @@ describe("syncLogState", () => {
       mode: "sync",
       logs: [{ message: "页面已刷新，上次同步状态已丢失" }],
     });
+
+    expect(
+      restoreSyncLogSession({
+        savedLogs: null,
+        savedLogMode: null,
+        wasSyncing: false,
+        wasImporting: true,
+      }),
+    ).toMatchObject({
+      mode: "import",
+      logs: [{ message: "页面已刷新，正在恢复导入状态" }],
+    });
   });
 });

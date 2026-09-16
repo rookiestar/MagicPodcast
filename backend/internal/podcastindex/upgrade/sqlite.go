@@ -129,19 +129,20 @@ func ValidateCandidate(path, viewSQL string, fullIntegrityCheck bool) (Validatio
 	return result, nil
 }
 
-// ensureStableIdentityIndexes prepares the candidate dataset for the exact
-// identity lookup used during alternative-feed verification. The downloaded
-// PodcastIndex file is an external SQLite artifact and may not ship with the
-// indexes the application needs, so validation makes the staging candidate
-// self-contained before query-plan checks and cutover.
+// ensureStableIdentityIndexes prepares the candidate dataset for the URL and
+// stable-identity lookups used by import and alternative-feed verification.
+// The downloaded PodcastIndex file is an external SQLite artifact and may not
+// ship with the indexes the application needs, so validation makes the staging
+// candidate self-contained before query-plan checks and cutover.
 func ensureStableIdentityIndexes(db *sql.DB) error {
 	statements := []string{
+		`CREATE INDEX IF NOT EXISTS idx_podcasts_url ON podcasts(url)`,
 		`CREATE INDEX IF NOT EXISTS idx_podcasts_itunes_id ON podcasts(itunesId)`,
 		`CREATE INDEX IF NOT EXISTS idx_podcasts_podcast_guid_nocase ON podcasts(podcastGuid COLLATE NOCASE)`,
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
-			return fmt.Errorf("create PodcastIndex identity index: %w", err)
+			return fmt.Errorf("create PodcastIndex lookup index: %w", err)
 		}
 	}
 	return nil
