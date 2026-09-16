@@ -69,13 +69,17 @@ func (h *SyncHandler) GetImportTaskNewPodcasts(c *gin.Context) {
 		}
 		for _, id := range existingIDs {
 			record := byID[id]
+			workflows := coverage[id]
+			if workflows == nil {
+				workflows = make([]workflow.WorkflowRef, 0)
+			}
 			podcasts = append(podcasts, importNewPodcastItem{
 				ID:           record.ID,
 				Title:        record.Title,
 				FeedURL:      record.FeedURL,
 				Ready:        record.FeedURLValid,
 				IsSubscribed: record.IsSubscribed,
-				Workflows:    coverage[id],
+				Workflows:    workflows,
 			})
 		}
 	}
