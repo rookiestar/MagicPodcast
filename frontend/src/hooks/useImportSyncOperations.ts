@@ -110,6 +110,7 @@ export function useImportSyncOperations({
     (taskId: number) => {
       stopTaskPolling();
       const requestId = taskRequestRef.current;
+      let lastLoggedProgress = -1;
       const tick = async () => {
         pollAttemptsRef.current += 1;
         try {
@@ -152,6 +153,11 @@ export function useImportSyncOperations({
           }
           if (payload.task) {
             setLastTask(payload.task);
+            if (payload.task.processed !== lastLoggedProgress) {
+              lastLoggedProgress = payload.task.processed;
+              addLog("progress", `已处理 ${payload.task.processed}/${payload.task.total} 条`,
+                payload.task.processed, payload.task.total);
+            }
           }
         } catch {
           if (requestId !== taskRequestRef.current) return;

@@ -230,3 +230,18 @@ it("counts retryable entries for a failed task so the banner can offer retry (#4
   await act(async () => { await Promise.resolve(); });
   expect(hook.result.current.countRetryableEntries(hook.result.current.lastTask!, hook.result.current.taskEntries)).toBe(3);
 });
+
+it("updates the log while a restored import is running, without repeating unchanged progress", async () => {
+  vi.useFakeTimers();
+  vi.spyOn(importTasksApi, "fetchLatestImportTask").mockResolvedValue({success:true,task:reviewTask,entries:[]});
+  vi.spyOn(importTasksApi, "fetchImportTask")
+    .mockResolvedValueOnce({success:true,task:{...reviewTask,processed:2},entries:[]})
+    .mockResolvedValueOnce({success:true,task:{...reviewTask,processed:2},entries:[]});
+  const {hook,addLog}=setup();
+  await act(async()=>{ await Promise.resolve(); });
+  await act(async()=>{ await vi.advanceTimersByTimeAsync(4000); });
+  expect(addLog).toHaveBeenCalledWith("progress",expect.any(String),2,3);
+  await act(async()=>{ await vi.advanceTimersByTimeAsync(4000); });
+  expect(addLog.mock.calls.filter(call=>call[0]==="progress")).toHaveLength(1);
+  hook.unmount();
+});
