@@ -1,17 +1,24 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { singleParam, updateQuery, useLocationHref } from "@/lib/navigation";
 import PageLayout from "@/components/layout/PageLayout";
 import ImportOpmlPanel from "@/components/import/ImportOpmlPanel";
 import ImportPageTabs, { type ImportTab } from "@/components/import/ImportPageTabs";
 import SyncLogPanel from "@/components/import/SyncLogPanel";
 import SyncMetadataPanel from "@/components/import/SyncMetadataPanel";
+import ImportRetryConfirmationDialog from "@/components/import/ImportRetryConfirmationDialog";
+import type { ImportEntryResult } from "@/lib/api/importTasks";
+import { RETRY_CONFIRMATION_TEXT } from "@/lib/api/importTasks";
 import { useImportSyncOperations } from "@/hooks/useImportSyncOperations";
 import { useStableLogScroll } from "@/hooks/useStableLogScroll";
 import { useSyncLogSession } from "@/hooks/useSyncLogSession";
 
 function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
+  const [retryConfirmation, setRetryConfirmation] = useState<{
+    entry?: ImportEntryResult;
+    count: number;
+  } | null>(null);
   const href = useLocationHref();
   const query = useMemo(() => new URL(href || `/import?tab=${initialTab}`, "http://navigation.local").searchParams, [href, initialTab]);
   const activeTab: ImportTab = singleParam(query, "tab") === "sync" ? "sync" : "import";
@@ -71,6 +78,18 @@ function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
   });
 
   const operationRunning = importing || syncing;
+  const requestRetryConfirmation = (entry?: ImportEntryResult) => {
+    if (!lastTask) return;
+    const count = entry ? 1 : countRetryableEntries(lastTask, taskEntries);
+    if (count <= 0) return;
+    setRetryConfirmation({ entry, count });
+  };
+  const confirmRetry = async (confirmationText: string) => {
+    const pending = retryConfirmation;
+    if (!pending) return;
+    setRetryConfirmation(null);
+    await handleRetry(pending.entry, confirmationText);
+  };
   const liveProgress = importing && logMode === "import"
     ? [...logs].reverse().find((log) => typeof log.current === "number" && typeof log.total === "number" && log.total > 0)
     : undefined;
@@ -124,7 +143,7 @@ function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
                 onImport={handleImport}
                 onToggleConfirmed={toggleConfirmed}
                 onConfirmAllPending={confirmAllPending}
-                onRetry={handleRetry}
+                onRetry={requestRetryConfirmation}
                 onRetryPreview={retryPreview}
                 onRetryLatestTask={() => {
                   void refreshLatestTask();
@@ -167,6 +186,17 @@ function ImportPageContent({ initialTab }: { initialTab: ImportTab }) {
           </details>
         </aside>
       </div>
+      {retryConfirmation && lastTask && (
+        <ImportRetryConfirmationDialog
+          task={lastTask}
+          retryableCount={retryConfirmation.count}
+          conflictEntry={retryConfirmation.entry}
+          disabled={operationRunning}
+          confirmationText={RETRY_CONFIRMATION_TEXT}
+          onCancel={() => setRetryConfirmation(null)}
+          onConfirm={confirmRetry}
+        />
+      )}
     </main>
   );
 }

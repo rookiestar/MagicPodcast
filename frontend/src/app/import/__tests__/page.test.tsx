@@ -26,6 +26,7 @@ vi.mock("@/lib/api", () => ({
 
 vi.mock("@/lib/api/importTasks", () => ({
   CONFIRMABLE_KINDS: new Set(["collection", "deleted"]),
+  RETRY_CONFIRMATION_TEXT: "RETRY IMPORT",
   importTasksApi: {
     previewImportOPML: vi.fn(),
     fetchLatestImportTask: vi.fn(),
@@ -48,6 +49,7 @@ const toastWarning = vi.mocked(toast.warning);
 const previewImportOPML = vi.mocked(importTasksApi.previewImportOPML);
 const fetchLatestImportTask = vi.mocked(importTasksApi.fetchLatestImportTask);
 const fetchTaskNewPodcasts = vi.mocked(importTasksApi.fetchTaskNewPodcasts);
+const retryImportTask = vi.mocked(importTasksApi.retryImportTask);
 
 function successfulPreview(): ImportPreview {
   return {
@@ -141,6 +143,52 @@ describe("ImportPage", () => {
     expect(screen.getByRole("tab", { name: "同步已关注节目" })).toHaveAttribute("aria-selected", "true");
     expect(importOPMLSSE).not.toHaveBeenCalled();
     expect(syncPodcastsMetadataSSE).not.toHaveBeenCalled();
+  });
+
+  it("confirms interrupted-task retry in the page instead of using window.prompt", async () => {
+    fetchLatestImportTask.mockResolvedValue({
+      success: true,
+      task: {
+        id: 1,
+        status: "interrupted",
+        file_name: "cosmos.opml",
+        total: 2,
+        processed: 1,
+        success_count: 1,
+        pending_count: 0,
+        conflict_count: 0,
+        merged_count: 0,
+        unchanged_count: 0,
+        skipped_count: 0,
+        failed_count: 0,
+        error_message: "",
+        started_at: "2026-09-16T00:00:00Z",
+      },
+      entries: [{ title: "未完成节目", feed_url: "https://example.com/unprocessed.xml", outcome: "unprocessed" }],
+    });
+    retryImportTask.mockResolvedValue({
+      success: true,
+      task_id: 2,
+      parent_task_id: 1,
+      message: "重试完成",
+      total_podcasts: 1,
+      success_count: 1,
+      failed_count: 0,
+      stub_podcasts: 0,
+      entries: [],
+    });
+
+    render(<ImportPage />);
+    const retry = await screen.findByRole("button", { name: "继续未完成条目（1 条）" });
+    fireEvent.click(retry);
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    const confirmationInput = screen.getByLabelText(/输入确认文字/);
+    fireEvent.change(confirmationInput, { target: { value: "RETRY IMPORT" } });
+    fireEvent.click(screen.getByRole("button", { name: "确认重试" }));
+
+    await waitFor(() => expect(retryImportTask).toHaveBeenCalledWith(1, undefined));
+    expect(window.prompt).not.toHaveBeenCalled();
   });
 
   it("uses preview consumption rather than server time and keeps sync layout independent", async () => {
