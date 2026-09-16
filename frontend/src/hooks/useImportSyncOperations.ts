@@ -4,6 +4,7 @@ import { syncApi } from "@/lib/api";
 import {
   CONFIRMABLE_KINDS,
   importTasksApi,
+  RETRY_CONFIRMATION_TEXT,
   type ImportPreview,
   type ImportPreviewEntry,
   type ImportTask,
@@ -379,19 +380,14 @@ export function useImportSyncOperations({
     pollTaskUntilSettled,
   ]);
 
-  const handleRetry = useCallback(async (conflictEntry?: ImportEntryResult) => {
+  const handleRetry = useCallback(async (conflictEntry: ImportEntryResult | undefined, confirmedText: string) => {
     if (!lastTask || lastTask.status === "running") return;
     const retryable = conflictEntry ? 1 : countRetryableEntries(lastTask, taskEntries);
     if (retryable <= 0) {
       toast.info("没有失败或待同步的条目，无需重试");
       return;
     }
-    const confirmationText = requestTypedConfirmation({
-      action: `重试任务 #${lastTask.id} 中的失败/待同步条目`,
-      impact: conflictEntry ? `${conflictEntry.title}：${conflictEntry.detail}。确认后将复用已有节目并绑定本次地址，同时重试失败或待同步条目。` : `重新核对并处理 ${retryable} 条失败、待同步或未完成条目。`,
-      phrase: "RETRY IMPORT",
-    });
-    if (!confirmationText) return;
+    if (confirmedText !== RETRY_CONFIRMATION_TEXT) return;
 
     await runExclusiveOperation(async () => {
     setImporting(true);

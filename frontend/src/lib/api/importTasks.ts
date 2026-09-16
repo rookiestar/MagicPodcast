@@ -39,6 +39,8 @@ export const CONFIRMABLE_KINDS: ReadonlySet<ImportEntryKind> = new Set([
   "deleted",
 ]);
 
+export const RETRY_CONFIRMATION_TEXT = "RETRY IMPORT";
+
 export type ImportTaskStatus =
   | "running"
   | "completed"
@@ -149,7 +151,7 @@ export const importTasksApi = {
     if (decisions && Object.keys(decisions).length > 0) {
       formData.append("decisions", JSON.stringify(decisions));
     }
-    formData.append("confirmation_text", "RETRY IMPORT");
+    formData.append("confirmation_text", RETRY_CONFIRMATION_TEXT);
     const response = await api.post<ImportRetryResponse>(
       `/api/v1/sync/import/tasks/${taskId}/retry`,
       formData,
