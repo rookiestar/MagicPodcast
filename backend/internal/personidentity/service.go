@@ -52,18 +52,25 @@ func (s *Service) Prepare(ctx context.Context, sources EpisodeSources) (EpisodeP
 	if s.suggester == nil {
 		return EpisodePeople{}, ErrIdentityUnavailable
 	}
+	observation := ObservationFrom(ctx)
+	if observation != nil {
+		observation.currentPhase = "metadata"
+		observation.recordSourceVersion(sources.SourceVersion)
+	}
 	var revision uint
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var err error
 		revision, err = reservePreparation(tx, sources.EpisodeID)
 		return err
 	}); err != nil {
-		return EpisodePeople{}, err
+		observation.recordErrorClass(FailureSaveFailed)
+		return EpisodePeople{}, &SaveError{Err: err}
 	}
 	metadata, err := readPreparationMetadata(s.db.WithContext(ctx), sources.EpisodeID)
 	if err != nil {
 		return EpisodePeople{}, err
 	}
+	observation.recordReservation()
 	sources.PodcastTitle = metadata.PodcastTitle
 	sources.PodcastAuthor = metadata.PodcastAuthor
 	sources.PodcastDescription = metadata.PodcastDescription
@@ -84,6 +91,7 @@ func (s *Service) Prepare(ctx context.Context, sources EpisodeSources) (EpisodeP
 		reportPreparation(ctx, "identify", sources.SourceVersion)
 		suggested, err := s.suggester.Suggest(ctx, sources)
 		if err != nil {
+			observation.recordErrorClass(ClassifyFailure(err).Code)
 			return EpisodePeople{}, err
 		}
 		assignments := map[int][]string{}
@@ -110,8 +118,21 @@ func (s *Service) Prepare(ctx context.Context, sources EpisodeSources) (EpisodeP
 			}
 		}
 	}
+	observation.recordSaveStart()
 	reportPreparation(ctx, "save", sources.SourceVersion)
-	return s.saveSuggestion(ctx, sources, metadata, revision, candidates, fragments, reviewMatches)
+	result, err := s.saveSuggestion(ctx, sources, metadata, revision, candidates, fragments, reviewMatches)
+	if err != nil {
+		// Source races keep their own classification; every other persistence
+		// failure is reported as a save failure, not a generic runtime error.
+		if !errors.Is(err, ErrSourcesChanged) {
+			err = &SaveError{Err: err}
+		}
+		observation.recordSaveEnd()
+		observation.recordErrorClass(ClassifyFailure(err).Code)
+		return EpisodePeople{}, err
+	}
+	observation.recordSaveEnd()
+	return result, nil
 }
 
 func (s *Service) ListEpisodePeople(ctx context.Context, episodeID uint) (EpisodePeople, error) {
@@ -1350,6 +1371,7 @@ func (s *Service) currentSources(ctx context.Context, episodeID uint) (EpisodeSo
 func (s *Service) PrepareCurrent(ctx context.Context, episodeID uint) (EpisodePeople, error) {
 	reportPreparation(ctx, "read", "")
 	sources, err := s.currentSources(ctx, episodeID)
+	ObservationFrom(ctx).recordSourceRead()
 	if err != nil {
 		return EpisodePeople{}, err
 	}

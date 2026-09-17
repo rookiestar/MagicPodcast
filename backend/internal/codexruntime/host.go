@@ -243,7 +243,8 @@ func (a *executionActivities) accept(progress *Progress) bool {
 	}
 	switch progress.Category {
 	case CategoryWebSearch, CategoryReasoning, CategoryPlan,
-		CategoryAgentMsg, CategoryTurn, CategoryGenericItem:
+		CategoryAgentMsg, CategoryTurn, CategoryGenericItem,
+		CategoryConnection:
 	default:
 		return false
 	}

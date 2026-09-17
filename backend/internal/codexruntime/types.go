@@ -8,10 +8,13 @@ import (
 
 // ProtocolVersion is the stdio JSONL contract between the Go parent and the
 // Python host. Version 2 carried the resolved model profile on execute
-// frames. Version 3 adds structured provider-neutral progress frames; hosts
-// and parents of different versions must fail explicitly instead of guessing
-// model configuration or silently dropping activity payloads.
-const ProtocolVersion = 3
+// frames. Version 3 adds structured provider-neutral progress frames. Version
+// 4 adds the connection progress category so structured upstream
+// reconnect/authorization signals survive as observable activity instead of
+// being silently dropped; hosts and parents of different versions must fail
+// explicitly instead of guessing model configuration or silently dropping
+// activity payloads.
+const ProtocolVersion = 4
 
 type ExecutionID string
 
@@ -100,6 +103,11 @@ const (
 	CategoryAgentMsg    ProgressCategory = "agent_message"
 	CategoryTurn        ProgressCategory = "turn"
 	CategoryGenericItem ProgressCategory = "item"
+	// CategoryConnection carries structured upstream connection signals:
+	// recoverable reconnects and non-recoverable stream errors. Metadata is
+	// limited to provider-confirmed facts (will_retry, a mapped error class,
+	// and an optional HTTP status); SDK message text is never forwarded.
+	CategoryConnection ProgressCategory = "connection"
 )
 
 // ProgressState is the lifecycle state of one activity. An activity moves

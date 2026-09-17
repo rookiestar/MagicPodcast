@@ -10,13 +10,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToString } from "react-dom/server";
 import { parseEpisodeRoute, useLocationHref } from "@/lib/navigation";
 import TranscriptAudioPlayer from "../TranscriptAudioPlayer";
-import { episodeCopilotApi } from "@/lib/api/episodeCopilot";
+import { episodeCopilotApi, PersonPreparationFailure } from "@/lib/api/episodeCopilot";
 import type {
   EpisodePeoplePayload,
   EpisodePersonCandidate,
 } from "@/types/episodeCopilot";
 
-vi.mock("@/lib/api/episodeCopilot", () => ({
+vi.mock("@/lib/api/episodeCopilot", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/episodeCopilot")>()),
   episodeCopilotApi: {
     getPeople: vi.fn(),
     preparePeople: vi.fn(),
@@ -421,15 +422,21 @@ describe("人物识别进度与恢复", () => {
     fireEvent.click(start); fireEvent.click(start);
     expect(episodeCopilotApi.preparePeople).toHaveBeenCalledTimes(1);
     act(() => report({ type: "stage", episode_id: 7, request_id: "a", source_version: "artifact-8", stage: "identify" }));
-    expect(screen.getByText("正在识别人物与 Speaker 对应")).toBeInTheDocument();
+    expect(screen.getByText("正在连接识别服务")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "人物识别进度" })).getAllByRole("listitem")).toHaveLength(3);
     expect(screen.queryByText("核对发言归属")).not.toBeInTheDocument();
+    act(() => report({ type: "runtime", episode_id: 7, request_id: "a", source_version: "artifact-8", runtime: { phase: "ready", last_activity_age_ms: 0 } }));
+    expect(screen.getByText("已提交，等待识别结果")).toBeInTheDocument();
     act(() => report({ type: "heartbeat", episode_id: 7, request_id: "a", source_version: "artifact-8" }));
-    expect(screen.getByText("正在识别人物与 Speaker 对应")).toBeInTheDocument();
+    expect(screen.getByText("已提交，等待识别结果")).toBeInTheDocument();
+    act(() => report({ type: "runtime", episode_id: 7, request_id: "a", source_version: "artifact-8", runtime: { phase: "reconnecting", will_retry: true } }));
+    expect(screen.getByText("连接暂时中断，正在重连")).toBeInTheDocument();
+    act(() => report({ type: "runtime", episode_id: 7, request_id: "a", source_version: "artifact-8", runtime: { phase: "generating" } }));
+    expect(screen.getByText("正在生成建议")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "关闭人物核对" }));
     expect(signal.aborted).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "查看进度" }));
-    expect(screen.getByText("正在识别人物与 Speaker 对应")).toBeInTheDocument();
+    expect(screen.getByText("正在生成建议")).toBeInTheDocument();
     vi.mocked(episodeCopilotApi.getPeople).mockResolvedValueOnce(empty);
     fireEvent.click(screen.getByRole("button", { name: "取消识别" }));
     expect(signal.aborted).toBe(true);
@@ -449,6 +456,62 @@ describe("人物识别进度与恢复", () => {
     expect(screen.getAllByRole("button", { name: "Speaker 1" })).toHaveLength(2);
     expect(episodeCopilotApi.reviewPeople).not.toHaveBeenCalled();
     expect(episodeCopilotApi.preparePeople).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the specific failure and its request id while the readback proves no new draft", async () => {
+    render(<Player />);
+    fireEvent.click(await screen.findByRole("button", { name: "识别人物" }));
+    vi.mocked(episodeCopilotApi.preparePeople).mockRejectedValueOnce(
+      new PersonPreparationFailure({
+        message: "识别服务暂时无法连接，已有结果保留，可稍后重试。",
+        code: "PERSON_RUNTIME_UNAVAILABLE",
+        classification: "runtime_unavailable",
+        retryable: true,
+        requestId: "abc123def4567890",
+      }),
+    );
+    vi.mocked(episodeCopilotApi.getPeople).mockResolvedValueOnce(empty);
+    fireEvent.click(screen.getByRole("button", { name: "开始识别" }));
+    await screen.findByText(/识别服务暂时无法连接，已有结果保留，可稍后重试。/);
+    expect(screen.getByText(/识别编号 abc123def4567890/)).toBeInTheDocument();
+    await screen.findByText("已核对：本次未生成新草稿，已有结果保留。");
+    expect(screen.queryByText("已核对：草稿已保存，等待你确认")).not.toBeInTheDocument();
+    expect(episodeCopilotApi.preparePeople).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports stale waiting honestly instead of fabricating progress", async () => {
+    let report!: NonNullable<Parameters<typeof episodeCopilotApi.preparePeople>[2]>;
+    vi.mocked(episodeCopilotApi.preparePeople).mockImplementation((_id, _signal, callback) => {
+      report = callback!;
+      return new Promise(() => {});
+    });
+    const view = render(<Player />);
+    fireEvent.click(await screen.findByRole("button", { name: "识别人物" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始识别" }));
+    await screen.findByText("正在连接识别服务");
+    // A controlled clock replaces sleeps: no fixed waits, no flaky timing.
+    const base = performance.now();
+    let clock = base;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => clock);
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      act(() => report({ type: "stage", episode_id: 7, request_id: "a", source_version: "artifact-8", stage: "identify" }));
+      act(() => report({ type: "runtime", episode_id: 7, request_id: "a", source_version: "artifact-8", runtime: { phase: "ready", last_activity_age_ms: 0 } }));
+      expect(screen.getByText("已提交，等待识别结果")).toBeInTheDocument();
+      expect(screen.getByText(/最近收到服务活动 0 秒前/)).toBeInTheDocument();
+      clock = base + 21_000;
+      act(() => { vi.advanceTimersByTime(1000); });
+      expect(screen.getByText(/最近收到服务活动 21 秒前/)).toBeInTheDocument();
+      act(() => report({ type: "heartbeat", episode_id: 7, request_id: "a", source_version: "artifact-8" }));
+      expect(screen.getByText(/最近收到服务活动 21 秒前/)).toBeInTheDocument();
+      act(() => report({ type: "runtime", episode_id: 7, request_id: "a", source_version: "artifact-8", runtime: {phase: "generating", last_activity_age_ms: 0} }));
+      expect(screen.getByText(/最近收到服务活动 0 秒前/)).toBeInTheDocument();
+      expect(screen.queryByText(/正在分析/)).not.toBeInTheDocument();
+    } finally {
+      view.unmount();
+      nowSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("blocks retry until uncertain persistence is read back successfully", async () => {
@@ -636,7 +699,8 @@ it("does not mistake the existing latest draft for a new result when reviewing h
   fireEvent.change(await screen.findByRole("combobox", { name: "选择识别记录" }), { target: { value: "1" } });
   expect(screen.getByRole("combobox", { name: "选择识别记录" })).toHaveValue("1");
   fireEvent.click(screen.getByRole("button", { name: "重新识别" }));
-  await screen.findByText("识别未完成或连接中断，已保存结果保留，可重试。");
+  await screen.findByText("识别连接中断，请核对已保存结果。");
+  await screen.findByText("已核对：本次未生成新草稿，已有结果保留。");
   expect(screen.queryByText("已核对：草稿已保存，等待你确认")).not.toBeInTheDocument();
   expect(screen.getByRole("combobox", { name: "选择识别记录" })).toHaveValue("2");
   expect(episodeCopilotApi.preparePeople).toHaveBeenCalledTimes(1);

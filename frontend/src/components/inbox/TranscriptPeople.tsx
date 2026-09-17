@@ -11,7 +11,12 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { IconInfoCircle, IconPencil, IconUsers, IconX } from "@tabler/icons-react";
-import { episodeCopilotApi, type PersonPreparationEvent } from "@/lib/api/episodeCopilot";
+import {
+  episodeCopilotApi,
+  PersonPreparationFailure,
+  type PersonPreparationEvent,
+  type PersonRuntimePhase,
+} from "@/lib/api/episodeCopilot";
 import type {
   EpisodePeoplePayload,
   PersonReviewDraft,
@@ -28,23 +33,62 @@ const preparationStages = [
   ["save", "保存待确认草稿"],
 ] as const;
 
-function PreparationStatus({ stage, started }: { stage: string; started: number }) {
-  const [elapsed, setElapsed] = useState(0);
+// Waiting states mirror provider-neutral runtime phases. Heartbeats never
+// advance them: only the ready, activity, output, and reconnect signals do.
+const waitingPhases: Record<string, string> = {
+  "": "正在连接识别服务",
+  ready: "已提交，等待识别结果",
+  active: "已提交，等待识别结果",
+  generating: "正在生成建议",
+  reconnecting: "连接暂时中断，正在重连",
+};
+
+type PreparationState = {
+  stage: string;
+  started: number;
+  phase: PersonRuntimePhase | "";
+  lastActivityAt: number | null;
+  willRetry?: boolean;
+};
+
+function beginPersonReadback(requestId: string | undefined, episodeId: number) {
+  const started = performance.now();
+  return (outcome: string) => console.info("person_identity_reconcile", {
+    request_id: requestId ?? "unknown", episode_id: episodeId,
+    reconcile_ms: Math.max(0, Math.round(performance.now() - started)), outcome,
+  });
+}
+
+function PreparationStatus({ preparation }: { preparation: PreparationState }) {
+  const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
-    const tick = () => setElapsed(Math.floor((performance.now() - started) / 1000));
-    tick();
-    const timer = setInterval(tick, 1000);
+    const update = () => setNow(performance.now());
+    update();
+    const timer = setInterval(update, 1000);
     return () => clearInterval(timer);
-  }, [started]);
-  const index = preparationStages.findIndex(([key]) => key === stage);
+  }, [preparation]);
+  const elapsed = now === null ? 0 : Math.max(0, Math.floor((now - preparation.started) / 1000));
+  const activityAge = now === null || preparation.lastActivityAt === null
+    ? null
+    : Math.max(0, Math.floor((now - preparation.lastActivityAt) / 1000));
+  const index = preparationStages.findIndex(([key]) => key === preparation.stage);
+  const identifying = index < 0 || preparation.stage === "identify";
+  const status = identifying
+    ? preparation.phase === "reconnecting" && preparation.willRetry === false ? "识别服务连接失败，正在核对结果" : waitingPhases[preparation.phase] ?? waitingPhases[""]
+    : `正在${preparationStages[index][1]}`;
   return <section className={styles.progress} aria-label="人物识别进度">
     <div className={styles.progressHeading}><span className={styles.spinner} aria-hidden="true" />
-      <div><strong role="status">{index < 0 ? "正在连接识别服务" : `正在${preparationStages[index][1]}`}</strong>
+      <div><strong role="status">{status}</strong>
         <p aria-live="off">已用时 {String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}</p></div></div>
     <ol>{preparationStages.map(([key, title], i) => <li key={key} data-state={i < index ? "done" : i === index ? "active" : "waiting"}>
       <span className={styles.stepDot} aria-hidden="true">{i < index ? "✓" : ""}</span>
       <div>{title}<small>{i < index ? "已完成" : i === index ? "正在处理" : "等待进行"}</small></div>
     </li>)}</ol>
+    {identifying && index === 1 && <p aria-live="off">
+      {activityAge === null
+        ? "尚未收到识别服务的活动记录。"
+        : `最近收到服务活动 ${activityAge} 秒前。`}
+    </p>}
   </section>;
 }
 
@@ -93,7 +137,7 @@ export function useTranscriptPeople(
   }, [routeState]);
   const [editingMatch, setEditingMatch] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
-  const [progress, setProgress] = useState<{ stage: string; started: number } | null>(null);
+  const [progress, setProgress] = useState<PreparationState | null>(null);
   const [hintOpen, setHintOpen] = useState(false);
   const hintOpenAtPointerDown = useRef<boolean | null>(null);
   const prepareDetailId = useId();
@@ -254,29 +298,37 @@ export function useTranscriptPeople(
       if (generation.current === version) setError("草稿读取失败，请重试。");
     }
   };
-  const reconcile = async (version: number, cancelled: boolean, previousDraft = people?.draft) => {
+  const recognitionRequestId = useRef<string | undefined>(undefined);
+  const reconcile = async (version: number, cancelled: boolean, previousDraft = people?.draft, failureText = "") => {
     if (!episodeId) return;
     operation.current = true;
     setBusy("正在核对已保存结果…");
     setProgress(null);
     const controller = new AbortController();
     request.current = controller;
+    const reportReadback = beginPersonReadback(recognitionRequestId.current, episodeId);
+    let readbackOutcome = "unknown";
     try {
       const value = await episodeCopilotApi.getPeople(episodeId, controller.signal);
       if (generation.current !== version) return;
       accept(value);
       setNeedsReadback(false);
       const newDraft = value.draft && (value.draft.id !== previousDraft?.id || value.draft.revision !== previousDraft?.revision);
-      setError(newDraft || cancelled ? "" : "识别未完成或连接中断，已保存结果保留，可重试。");
+      readbackOutcome = newDraft ? "new_draft" : "no_new_draft";
+      setError(newDraft || cancelled ? "" : failureText || "识别未完成或连接中断，已保存结果保留，可重试。");
       setSaved(newDraft ? "已核对：草稿已保存，等待你确认" : cancelled
-        ? "已请求取消；未发现新的已保存草稿。已有结果保留。" : "");
+        ? "已请求取消；未发现新的已保存草稿。已有结果保留。"
+        : "已核对：本次未生成新草稿，已有结果保留。");
       await loadHistory();
     } catch {
       if (generation.current === version) {
         setNeedsReadback(true);
-        setError("结果状态尚未确认，请重新读取后再决定是否重试。");
+        setError(`结果状态尚未确认，请重新读取后再决定是否重试。${recognitionRequestId.current ? `（识别编号 ${recognitionRequestId.current}）` : ""}`);
       }
-    } finally { if (generation.current === version) { setBusy(""); operation.current = false; } }
+    } finally {
+      reportReadback(generation.current === version ? readbackOutcome : "superseded");
+      if (generation.current === version) { setBusy(""); operation.current = false; }
+    }
   };
   const prepare = async (started: number) => {
     if (!episodeId || dirty || operation.current || needsReadback || readOnly) return;
@@ -285,6 +337,7 @@ export function useTranscriptPeople(
     request.current = controller;
     const version = ++generation.current;
     let streamID: string | undefined;
+    recognitionRequestId.current = undefined;
     setOpen(true);
     setBusy("正在识别人物…");
     setError("");
@@ -292,22 +345,37 @@ export function useTranscriptPeople(
     panelScroll.current = 0;
     if (panelBodyElement.current) panelBodyElement.current.scrollTop = 0;
     setHintOpen(false);
-    setProgress({stage: "", started});
+    setProgress({stage: "", started, phase: "", lastActivityAt: null});
     try {
       const value = await episodeCopilotApi.preparePeople(episodeId, controller.signal, (event: PersonPreparationEvent) => {
         if (generation.current !== version || controller.signal.aborted) return;
         if (streamID && streamID !== event.request_id) return;
         streamID = event.request_id;
+        recognitionRequestId.current = event.request_id;
         if (event.source_version && event.source_version !== sourceVersion) return;
-        if (event.type === "stage" && event.stage) setProgress((p) => p ? {...p, stage:event.stage!} : null);
+        // Heartbeats only prove the page-backend connection; they are not
+        // upstream activity and never advance the waiting phase.
+        if (event.type === "stage" && event.stage) {
+          setProgress((p) => p ? {...p, stage: event.stage!} : null);
+        }
+        if (event.type === "runtime" && event.runtime) {
+          setProgress((p) => p ? {...p, phase: event.runtime!.phase, willRetry: event.runtime!.will_retry,
+            lastActivityAt: event.runtime!.last_activity_age_ms === undefined ? p.lastActivityAt : performance.now() - event.runtime!.last_activity_age_ms} : null);
+        }
       });
       if (generation.current !== version || controller.signal.aborted) return;
-      if (value.source_version !== sourceVersion) throw new Error("逐字稿来源已变化");
+      if (value.source_version !== sourceVersion) throw new PersonPreparationFailure({ message: "逐字稿来源已变化", classification: "sources_changed", retryable: false });
       accept(value);
       setSaved("草稿已保存，等待你确认");
       await loadHistory();
-    } catch {
-      if (generation.current === version) await reconcile(version, controller.signal.aborted);
+    } catch (e) {
+      if (generation.current === version) {
+        if (e instanceof PersonPreparationFailure && e.requestId) recognitionRequestId.current = e.requestId;
+        const failureText = e instanceof PersonPreparationFailure
+          ? `${e.message}（识别编号 ${e.requestId ?? "未知"}）`
+          : "识别连接中断，请核对已保存结果。";
+        await reconcile(version, controller.signal.aborted, people?.draft, failureText);
+      }
     } finally {
       if (generation.current === version) { setBusy(""); setProgress(null); setHintOpen(false); operation.current = false; }
     }
@@ -560,7 +628,7 @@ export function useTranscriptPeople(
                 </button>
               </p>
             )}
-            {progress && <PreparationStatus stage={progress.stage} started={progress.started} />}
+            {progress && <PreparationStatus preparation={progress} />}
             <div hidden={!!progress}>
             <div className={styles.overview}>
               <span>{speakers.length} 位说话人</span>

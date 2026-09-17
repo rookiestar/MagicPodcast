@@ -327,3 +327,33 @@ describe("episodeCopilotApi.preparePeople", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe("person preparation failure boundaries", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+  it("keeps the stream request id and hides low-level transport messages", async () => {
+    const enc = new TextEncoder();
+    let pulls = 0;
+    const body = new ReadableStream({ pull(controller) {
+      if (pulls++ === 0) controller.enqueue(enc.encode('data: {"type":"stage","episode_id":7,"request_id":"safe-id","stage":"identify"}\n\n'));
+      else controller.error(new Error("secret-transport-path-or-token"));
+    }});
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body)));
+    await expect(episodeCopilotApi.preparePeople(7)).rejects.toMatchObject({
+      name: "PersonPreparationFailure", requestId: "safe-id", classification: "connection_interrupted",
+      message: "识别连接中断，请核对已保存结果。",
+    });
+  });
+  it("classifies the client deadline without exposing an AbortError", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn((_url, options: RequestInit) => new Promise((_resolve, reject) => {
+      options.signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+    })));
+    const failure = episodeCopilotApi.preparePeople(7).catch(error => error);
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(await failure).toMatchObject({name: "PersonPreparationFailure", classification: "deadline"});
+  });
+  it.each([[401, "authentication_failed"], [429, "quota_exceeded"]])("classifies HTTP %i", async (status, classification) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("", {status: Number(status)})));
+    await expect(episodeCopilotApi.preparePeople(7)).rejects.toMatchObject({classification});
+  });
+});

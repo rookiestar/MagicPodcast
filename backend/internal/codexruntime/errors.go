@@ -4,6 +4,9 @@ import "errors"
 
 const (
 	ErrorRuntimeUnavailable = "runtime_unavailable"
+	ErrorAuthentication     = "authentication_failed"
+	ErrorQuota              = "quota_exceeded"
+	ErrorConnection         = "upstream_connection_failed"
 	ErrorInvalidRequest     = "invalid_request"
 	ErrorExecutionNotFound  = "execution_not_found"
 	ErrorExecutionFailed    = "execution_failed"

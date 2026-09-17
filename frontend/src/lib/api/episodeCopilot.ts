@@ -45,16 +45,41 @@ function errorCode(error: unknown) {
   return undefined;
 }
 
+export type PersonRuntimePhase = "ready" | "active" | "generating" | "reconnecting";
+
 export type PersonPreparationEvent = {
-  type: "stage" | "heartbeat" | "complete" | "error";
+  type: "stage" | "heartbeat" | "runtime" | "complete" | "error";
   episode_id: number;
   request_id: string;
   source_version?: string;
   stage?: "read" | "identify" | "save";
+  runtime?: { phase: PersonRuntimePhase; will_retry?: boolean; classification?: string; last_activity_age_ms?: number };
   elapsed_ms?: number;
   message?: string;
+  code?: string;
+  classification?: string;
+  retryable?: boolean;
   data?: EpisodePeoplePayload;
 };
+
+// Structured preparation failure surfaced from the SSE terminal error, the
+// streaming proxy, or a lost completion. The component keeps the specific
+// reason and the short request id instead of a generic "connection lost".
+export class PersonPreparationFailure extends Error {
+  code: string;
+  classification: string;
+  retryable: boolean;
+  requestId: string | undefined;
+
+  constructor(init: { message: string; code?: string; classification?: string; retryable?: boolean; requestId?: string }) {
+    super(init.message);
+    this.name = "PersonPreparationFailure";
+    this.code = init.code ?? "PERSON_PREPARATION_FAILED";
+    this.classification = init.classification ?? "unknown";
+    this.retryable = init.retryable ?? true;
+    this.requestId = init.requestId;
+  }
+}
 
 export const episodeCopilotApi = {
  reviewPeople: async (episodeId: number, body: {draft_id: number; revision: number; source_version: string; matches: PersonReviewMatch[]}, apply: boolean): Promise<EpisodePeoplePayload> =>
@@ -70,20 +95,38 @@ export const episodeCopilotApi = {
     const abort = () => controller.abort();
     signal?.addEventListener("abort", abort, { once: true });
     if (signal?.aborted) controller.abort();
-    const timer = setTimeout(abort, 180_000);
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; abort(); }, 180_000);
     let result: EpisodePeoplePayload | undefined;
-    let failure: string | undefined;
+    let failure: PersonPreparationFailure | undefined;
     let requestID: string | undefined;
     let sourceVersion: string | undefined;
     let terminal = false;
+    const failureFrom = (message: string, extra?: Partial<ConstructorParameters<typeof PersonPreparationFailure>[0]>) =>
+      new PersonPreparationFailure({ message, requestId: requestID, ...extra });
     try {
-      const response = await fetch(`${apiBaseUrl}/api/v1/episodes/${episodeId}/people/prepare`, {
-        method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        body: "{}", signal: controller.signal,
-      });
-      if (!response.ok) throw new Error("识别服务暂时不可用，请核对已保存结果。");
+      let response: Response;
+      try {
+        response = await fetch(`${apiBaseUrl}/api/v1/episodes/${episodeId}/people/prepare`, {
+          method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+          body: "{}", signal: controller.signal,
+        });
+      } catch (fetchError) {
+        if (controller.signal.aborted) throw fetchError;
+        // A network-level failure never carries a confirmed execution result.
+        throw failureFrom("识别服务暂时不可用，请核对已保存结果。", {
+          code: "PERSON_PREPARATION_UNAVAILABLE", classification: "connection_interrupted",
+        });
+      }
+      if (!response.ok) {
+        const auth = response.status === 401 || response.status === 403;
+        const quota = response.status === 429;
+        throw failureFrom(auth ? "识别服务认证失效，请检查账号授权。" : quota ? "识别服务额度或请求频率受限，请稍后再试。" : "识别服务暂时不可用，请核对已保存结果。", {
+          code: "PERSON_PREPARATION_UNAVAILABLE", classification: auth ? "authentication_failed" : quota ? "quota_exceeded" : "connection_interrupted", retryable: !auth,
+        });
+      }
       const reader = response.body?.getReader();
-      if (!reader) throw new Error("识别响应为空，请核对已保存结果。");
+      if (!reader) throw failureFrom("识别响应为空，请核对已保存结果。", { code: "PERSON_PREPARATION_UNAVAILABLE" });
       try {
         await readSSEStream({ reader, decoder: new TextDecoder(), state: createSSEReadState(), startedAt: Date.now(),
           options: normalizeSSEOptions({ endpoint: "", requireCompletion: true, completeOnTypeComplete: false,
@@ -103,14 +146,28 @@ export const episodeCopilotApi = {
               result = event.data;
               terminal = true;
             }
-            if (event.type === "error") { failure = event.message || "识别未完成"; terminal = true; }
+            if (event.type === "error") {
+              failure = failureFrom(event.message || "识别未完成，请核对已保存结果后重试。", {
+                code: event.code, classification: event.classification, retryable: event.retryable,
+              });
+              terminal = true;
+            }
             onProgress?.(event);
           },
         });
+      } catch (streamError) {
+        if (controller.signal.aborted) throw streamError;
+        // The stream itself broke before any terminal event: a transport-level
+        // interruption, not a confirmed execution result.
+        throw failure instanceof PersonPreparationFailure ? failure
+          : failureFrom("识别连接中断，请核对已保存结果。", { classification: "connection_interrupted" });
       } finally { await reader.cancel().catch(() => {}); }
-      if (failure) throw new Error(failure);
-      if (!result) throw new Error("尚未收到草稿保存确认，请重新读取。");
+      if (failure) throw failure;
+      if (!result) throw failureFrom("尚未收到草稿保存确认，请重新读取。", { classification: "completion_lost" });
       return result;
+    } catch (error) {
+      if (timedOut && !signal?.aborted) throw failureFrom("识别等待超时，请核对已保存结果后重试。", { code: "PERSON_PREPARATION_TIMEOUT", classification: "deadline" });
+      throw error;
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener("abort", abort);
