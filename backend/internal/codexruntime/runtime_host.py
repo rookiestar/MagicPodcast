@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 EXPECTED_SDK_VERSION = "0.147.0"
 EXPECTED_RUNTIME_VERSION = "0.147.0"
 MAX_COMMAND_BYTES = 8 << 20
@@ -240,6 +240,50 @@ class ActivityTracker:
 
     def turn_started(self) -> None:
         self.ensure_started("turn", "turn", "执行已开始")
+
+    def connection_error(self, payload: Any) -> None:
+        """Map one structured SDK error notification to a connection frame.
+
+        Only provider-confirmed facts cross the boundary: whether the SDK will
+        retry, its structured error class, and an optional HTTP status. SDK
+        message text, stack details, and payloads never reach progress frames.
+        Errors observed after a non-recoverable failure are dropped; the
+        terminal notification follows immediately anyway.
+        """
+        will_retry = bool(getattr(payload, "will_retry", False))
+        record = self.activities.get("connection")
+        if record is not None and record["state"] in (
+            "completed",
+            "failed",
+        ):
+            return
+        metadata = {"will_retry": "true" if will_retry else "false"}
+        error_class, http_status = connection_error_facts(payload)
+        if error_class:
+            metadata["error_class"] = error_class
+        if http_status:
+            metadata["http_status"] = http_status
+        if record is None or not record["state"]:
+            record = self.register("connection", "connection")
+            if record is None:
+                return
+            record["state"] = "started"
+            self.emit(
+                record,
+                "started",
+                "上游连接暂时中断，正在重连" if will_retry else "上游连接失败",
+                metadata,
+            )
+            if will_retry:
+                return
+        if will_retry:
+            if record["updates"] >= MAX_ACTIVITY_UPDATES:
+                return
+            record["updates"] += 1
+            self.emit(record, "updated", "上游连接暂时中断，正在重连", metadata)
+        else:
+            record["state"] = "failed"
+            self.emit(record, "failed", "上游连接失败", metadata)
 
     @staticmethod
     def item_key(item: Any) -> str:
@@ -636,12 +680,12 @@ def source_auth_file() -> Path:
         auth_file = (source_home / "auth.json").resolve(strict=True)
     except OSError as exc:
         raise HostFailure(
-            "runtime_unavailable",
+            "authentication_failed",
             "runtime authentication is unavailable",
         ) from exc
     if not auth_file.is_file():
         raise HostFailure(
-            "runtime_unavailable",
+            "authentication_failed",
             "runtime authentication is unavailable",
         )
     return auth_file
@@ -834,7 +878,7 @@ def ensure_authenticated(account_response: Any) -> None:
     account = getattr(account_response, "account", None)
     if requires_auth and account is None:
         raise HostFailure(
-            "runtime_unavailable",
+            "authentication_failed",
             "runtime authentication is unavailable",
         )
 
@@ -850,6 +894,40 @@ def item_type(notification: Any) -> str:
     if isinstance(item, dict):
         return value_of(item.get("type", ""))
     return value_of(getattr(item, "type", ""))
+
+
+def connection_error_facts(payload: Any) -> tuple[str, str]:
+    """Extract the structured error class and HTTP status, when present.
+
+    The SDK exposes ``codex_error_info`` either as a string enum (for example
+    ``unauthorized``, ``usage_limit_exceeded``) or as a single-field variant
+    (for example ``responseStreamDisconnected`` with an HTTP status). Only the
+    stable class name and the numeric status are returned.
+    """
+    error = getattr(payload, "error", None)
+    info = getattr(error, "codex_error_info", None)
+    root = getattr(info, "root", None)
+    if root is None:
+        return "", ""
+    value = getattr(root, "value", None)
+    if isinstance(value, str) and value:
+        normalized = re.sub(r"(?<!^)(?=[A-Z])", "_", value).lower()
+        known = {"unauthorized", "usage_limit_exceeded", "rate_limit_exceeded", "server_overloaded", "context_window_exceeded", "session_budget_exceeded", "internal_server_error", "other", "bad_request"}
+        return (normalized if normalized in known else "unknown"), ""
+    name = type(root).__name__
+    if name.endswith("CodexErrorInfo"):
+        name = name[: -len("CodexErrorInfo")]
+    snake = re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+    if snake not in {"http_connection_failed", "response_stream_connection_failed", "response_stream_disconnected", "response_too_many_failed_attempts"}:
+        return "unknown", ""
+    status = ""
+    for field in ("http_connection_failed", "response_stream_connection_failed", "response_stream_disconnected", "response_too_many_failed_attempts"):
+        nested = getattr(root, field, None)
+        code = getattr(nested, "http_status_code", None)
+        if isinstance(code, int) and code > 0:
+            status = str(code)
+            break
+    return snake, status
 
 
 def enforce_tool_policy(notification: Any, request: Request) -> None:
@@ -915,16 +993,23 @@ def completed_outcome(
     streamed_text: str,
     request: Request,
     completed_items: list[Any] | None = None,
+    last_error: tuple[str, str] = ("", ""),
 ) -> Outcome:
     status = value_of(getattr(turn, "status", ""))
     if status == "interrupted":
         return Outcome(status="cancelled")
     if status != "completed":
-        return Outcome(
-            status="failed",
-            error_code="execution_failed",
-            safe_message="runtime turn failed",
-        )
+        error_class, http_status = connection_error_facts(turn)
+        if not error_class or error_class == "unknown":
+            error_class, http_status = last_error
+        code = "execution_failed"
+        if error_class == "unauthorized" or http_status in {"401", "403"}:
+            code = "authentication_failed"
+        elif error_class in {"usage_limit_exceeded", "rate_limit_exceeded"} or http_status == "429":
+            code = "quota_exceeded"
+        elif error_class in {"http_connection_failed", "response_stream_connection_failed", "response_stream_disconnected", "response_too_many_failed_attempts"}:
+            code = "upstream_connection_failed"
+        return Outcome(status="failed", error_code=code, safe_message="runtime turn failed")
     final_text = final_agent_text(turn, streamed_text, completed_items)
     if request.output_schema is None:
         if not final_text.strip():
@@ -958,6 +1043,7 @@ async def consume_turn(
     streamed_parts: list[str] = []
     completed_items: list[Any] = []
     tracker = ActivityTracker(emitter, request)
+    last_error = ("", "")
     async for notification in turn_handle.stream():
         if not sdk_started.is_set():
             sdk_started.set()
@@ -969,6 +1055,9 @@ async def consume_turn(
         # frames; unknown notifications are never forwarded.
         if method == "turn/started":
             tracker.turn_started()
+        elif method == "error":
+            last_error = connection_error_facts(payload)
+            tracker.connection_error(payload)
         elif method == "item/started":
             item = getattr(payload, "item", None)
             if item is not None:
@@ -976,6 +1065,7 @@ async def consume_turn(
         elif method == "item/agentMessage/delta":
             delta = getattr(payload, "delta", None)
             if isinstance(delta, str) and delta:
+                last_error = ("", "")
                 streamed_parts.append(delta)
                 emitter.emit("output_delta", text=delta)
         elif method == "item/reasoning/summaryTextDelta":
@@ -999,6 +1089,7 @@ async def consume_turn(
                 "".join(streamed_parts),
                 request,
                 completed_items,
+                last_error,
             )
     raise HostFailure(
         "runtime_protocol_error",

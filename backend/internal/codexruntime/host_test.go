@@ -1097,7 +1097,7 @@ func TestPythonSDKHostFailsPreflightWhenAuthenticationIsMissing(t *testing.T) {
 		},
 	)
 	require.Error(t, err)
-	require.Equal(t, ErrorRuntimeUnavailable, ErrorCode(err))
+	require.Equal(t, ErrorAuthentication, ErrorCode(err))
 	require.NoError(t, closeHost(t, host))
 }
 

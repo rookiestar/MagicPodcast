@@ -255,6 +255,38 @@ class FakeTurn:
             )
             await asyncio.Event().wait()
 
+        if "PROVIDER_TERMINAL_QUOTA" in self.prompt:
+            yield notification("turn/completed", turn=SimpleNamespace(
+                status="failed", items=[], error=SimpleNamespace(
+                    message="private quota diagnostic", codex_error_info=SimpleNamespace(
+                        root=SimpleNamespace(value="usageLimitExceeded")))))
+            return
+
+        if "CONNECTION_ERRORS" in self.prompt:
+            for note in connection_error_notifications():
+                yield note
+            if "NONRECOVERABLE" in self.prompt:
+                yield notification(
+                    "error",
+                    error=SimpleNamespace(
+                        message="final diagnostic that must not leak",
+                        codex_error_info=SimpleNamespace(
+                            root=SimpleNamespace(value="unauthorized"),
+                        ),
+                    ),
+                    thread_id="thread-1",
+                    turn_id="turn-1",
+                    will_retry=False,
+                )
+                yield terminal_notification("failed", "")
+                return
+            yield notification(
+                "item/agentMessage/delta",
+                delta="Recovered after reconnects.",
+            )
+            yield terminal_notification("completed", "Recovered after reconnects.")
+            return
+
         if "PROGRESS_FLOW" in self.prompt:
             for note in progress_flow_notifications(self):
                 yield note
@@ -328,6 +360,70 @@ class FakeTurn:
             delta=encoded[midpoint:],
         )
         yield terminal_notification("completed", encoded)
+
+
+def _codex_error_info_variant(variant_name, **fields):
+    """A CodexErrorInfo model variant with the SDK's real class name."""
+    variant = type(variant_name, (), {})()
+    for key, value in fields.items():
+        setattr(variant, key, value)
+    return variant
+
+
+def connection_error_notifications():
+    """Structured SDK error notifications, shaped like ErrorNotification.
+
+    The payload carries ``error`` (a TurnError with the structured
+    ``codex_error_info``), ``thread_id``, ``turn_id``, and the
+    provider-confirmed ``will_retry`` flag.
+    """
+
+    def error_notification(will_retry, info=None):
+        return notification(
+            "error",
+            error=SimpleNamespace(
+                message="internal diagnostic that must not leak",
+                codex_error_info=info,
+            ),
+            thread_id="thread-1",
+            turn_id="turn-1",
+            will_retry=will_retry,
+        )
+
+    return [
+        # Recoverable stream disconnects with an HTTP status.
+        error_notification(
+            True,
+            SimpleNamespace(
+                root=_codex_error_info_variant(
+                    "ResponseStreamDisconnectedCodexErrorInfo",
+                    response_stream_disconnected=SimpleNamespace(
+                        http_status_code=502,
+                    ),
+                ),
+            ),
+        ),
+        error_notification(
+            True,
+            SimpleNamespace(
+                root=_codex_error_info_variant(
+                    "ResponseStreamConnectionFailedCodexErrorInfo",
+                    response_stream_connection_failed=SimpleNamespace(
+                        http_status_code=None,
+                    ),
+                ),
+            ),
+        ),
+        # Enum variant without extra structure.
+        error_notification(
+            True,
+            SimpleNamespace(
+                root=SimpleNamespace(
+                    value="serverOverloaded",
+                ),
+            ),
+        ),
+    ]
 
 
 def progress_flow_notifications(self):
