@@ -1,4 +1,25 @@
+import {
+  closestCorners,
+  pointerWithin,
+  type CollisionDetection,
+} from "@dnd-kit/core";
 import type { ConsumptionItem, ConsumptionQueue } from "@/types/consumption";
+
+export const queueCollisionDetection: CollisionDetection = (args) => {
+  const droppableContainers = args.droppableContainers.filter(
+    (container) => container.id !== args.active.id,
+  );
+  const pointerCollisions = pointerWithin({ ...args, droppableContainers });
+  const itemCollision = pointerCollisions.find(
+    (collision) =>
+      collision.data?.droppableContainer.data.current?.kind === "item",
+  );
+  if (itemCollision) return [itemCollision];
+  if (pointerCollisions.length > 0) return pointerCollisions;
+  // A pointer outside every drop zone must not move an item to a nearby queue.
+  if (args.pointerCoordinates) return [];
+  return closestCorners({ ...args, droppableContainers });
+};
 
 export const queueDropId = (queue: ConsumptionQueue) => `queue:${queue}`;
 export const episodeDragId = (episodeId: number) => `episode:${episodeId}`;

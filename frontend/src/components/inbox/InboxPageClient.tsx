@@ -2,15 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  closestCorners,
   DndContext,
   DragOverlay,
   MouseSensor,
-  pointerWithin,
   TouchSensor,
   useSensor,
   useSensors,
-  type CollisionDetection,
   type DragCancelEvent,
   type DragEndEvent,
   type DragMoveEvent,
@@ -57,6 +54,7 @@ import ConsumptionDetailPanel from "./ConsumptionDetailPanel";
 import ConsumptionQueueColumn from "./ConsumptionQueueColumn";
 import FocusLimitDialog from "./FocusLimitDialog";
 import {
+  queueCollisionDetection,
   isNoOpQueuePlacement,
   resolveQueuePlacement,
   type QueueDragData,
@@ -121,20 +119,6 @@ interface CopilotListSnapshot {
   viewportScrollLeft: number;
   viewportScrollTop: number;
 }
-
-const queueCollisionDetection: CollisionDetection = (args) => {
-  const droppableContainers = args.droppableContainers.filter(
-    (container) => container.id !== args.active.id,
-  );
-  const pointerCollisions = pointerWithin({ ...args, droppableContainers });
-  const itemCollision = pointerCollisions.find(
-    (collision) =>
-      collision.data?.droppableContainer.data.current?.kind === "item",
-  );
-  if (itemCollision) return [itemCollision];
-  if (pointerCollisions.length > 0) return pointerCollisions;
-  return closestCorners({ ...args, droppableContainers });
-};
 
 function isSameQueuePlacement(
   left: QueuePlacementPreview | null,

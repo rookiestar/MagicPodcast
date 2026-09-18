@@ -80,6 +80,8 @@
 .queueColumn {
   --queue-accent: #70675d;
   position: relative;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 460px;
   padding: 16px 12px 14px;
@@ -220,6 +222,7 @@
 
 .queueItems {
   display: grid;
+  flex: 1;
   gap: 9px;
   min-height: 42px;
   transition:
