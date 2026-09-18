@@ -617,54 +617,6 @@ function QueueCards({
   );
 }
 
-function DroppableQueueItems({
-  queue,
-  isPreviewTarget,
-  children,
-}: {
-  queue: ConsumptionQueue;
-  isPreviewTarget: boolean;
-  children: ReactNode;
-}) {
-  const { isOver, setNodeRef } = useDroppable({
-    id: queueDropId(queue),
-    data: { kind: "queue", queue } satisfies QueueDragData,
-  });
-
-  return (
-    <div
-      ref={setNodeRef}
-      className={`${styles.queueItems}${
-        isOver || isPreviewTarget ? ` ${styles.queueItemsDropActive}` : ""
-      }`}
-      data-queue-drop={queue}
-    >
-      {children}
-    </div>
-  );
-}
-
-function QueueItemsContainer({
-  queue,
-  dragEnabled,
-  isPreviewTarget,
-  children,
-}: {
-  queue: ConsumptionQueue;
-  dragEnabled: boolean;
-  isPreviewTarget: boolean;
-  children: ReactNode;
-}) {
-  if (!dragEnabled) {
-    return <div className={styles.queueItems}>{children}</div>;
-  }
-  return (
-    <DroppableQueueItems queue={queue} isPreviewTarget={isPreviewTarget}>
-      {children}
-    </DroppableQueueItems>
-  );
-}
-
 export default function ConsumptionQueueColumn({
   queue,
   items,
@@ -683,9 +635,16 @@ export default function ConsumptionQueueColumn({
 }: ConsumptionQueueColumnProps) {
   const presentation = QUEUE_PRESENTATION[queue];
   const canDragInQueue = dragEnabled && !isLoading && !error;
+  const { isOver, setNodeRef } = useDroppable({
+    id: queueDropId(queue),
+    disabled: !canDragInQueue,
+    data: { kind: "queue", queue } satisfies QueueDragData,
+  });
 
   return (
     <section
+      ref={setNodeRef}
+      data-queue-drop={canDragInQueue ? queue : undefined}
       className={`${styles.queueColumn} ${styles[`queue_${queue}`]}`}
       aria-labelledby={`consumption-queue-${queue}`}
       data-queue={queue}
@@ -723,10 +682,12 @@ export default function ConsumptionQueueColumn({
         </div>
       )}
 
-      <QueueItemsContainer
-        queue={queue}
-        dragEnabled={canDragInQueue}
-        isPreviewTarget={dragPreview?.queue === queue}
+      <div
+        className={`${styles.queueItems}${
+          canDragInQueue && (isOver || dragPreview?.queue === queue)
+            ? ` ${styles.queueItemsDropActive}`
+            : ""
+        }`}
       >
         {error && (
           <div className={styles.queueError} role="alert">
@@ -762,7 +723,7 @@ export default function ConsumptionQueueColumn({
             dragPreview={dragPreview}
           />
         )}
-      </QueueItemsContainer>
+      </div>
       {queue === "done" && hasMore && !error && (
         <p className={styles.recentOverflow} role="status">
           最近 7 天还有未展示的完成记录。
