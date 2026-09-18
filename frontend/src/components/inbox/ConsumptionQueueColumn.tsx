@@ -643,8 +643,6 @@ export default function ConsumptionQueueColumn({
 
   return (
     <section
-      ref={setNodeRef}
-      data-queue-drop={canDragInQueue ? queue : undefined}
       className={`${styles.queueColumn} ${styles[`queue_${queue}`]}`}
       aria-labelledby={`consumption-queue-${queue}`}
       data-queue={queue}
@@ -682,37 +680,49 @@ export default function ConsumptionQueueColumn({
         </div>
       )}
 
-      <div
-        className={`${styles.queueItems}${
-          canDragInQueue && (isOver || dragPreview?.queue === queue)
-            ? ` ${styles.queueItemsDropActive}`
-            : ""
-        }`}
-      >
-        {error && (
-          <div className={styles.queueError} role="alert">
-            <p>{presentation.label} 加载失败，不影响其他队列。</p>
-            <button
-              type="button"
-              className={styles.iconButton}
-              onClick={onRetry}
-              aria-label={`重试加载 ${presentation.label}`}
-              title="重试"
-            >
-              <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
-            </button>
-          </div>
-        )}
-        {isLoading && items.length === 0 ? (
-          <div className={styles.queueLoading} role="status">
-            <span />
-            <span />
-            <span />
-            正在加载 {presentation.label}…
-          </div>
-        ) : items.length === 0 && !error ? (
+      {error && (
+        <div className={styles.queueError} role="alert">
+          <p>{presentation.label} 加载失败，不影响其他队列。</p>
+          <button
+            type="button"
+            className={styles.iconButton}
+            onClick={onRetry}
+            aria-label={`重试加载 ${presentation.label}`}
+            title="重试"
+          >
+            <IconRefresh size={18} stroke={1.8} aria-hidden="true" />
+          </button>
+        </div>
+      )}
+      {isLoading && items.length === 0 ? (
+        <div className={styles.queueLoading} role="status">
+          <span />
+          <span />
+          <span />
+          正在加载 {presentation.label}…
+        </div>
+      ) : items.length === 0 && !error ? (
+        <div
+          ref={setNodeRef}
+          data-queue-drop={canDragInQueue ? queue : undefined}
+          className={`${styles.queueItems}${
+            canDragInQueue && (isOver || dragPreview?.queue === queue)
+              ? ` ${styles.queueItemsDropActive}`
+              : ""
+          }`}
+        >
           <p className={styles.queueEmpty}>{presentation.empty}</p>
-        ) : (
+        </div>
+      ) : (
+        <div
+          ref={setNodeRef}
+          data-queue-drop={canDragInQueue ? queue : undefined}
+          className={`${styles.queueItems}${
+            canDragInQueue && (isOver || dragPreview?.queue === queue)
+              ? ` ${styles.queueItemsDropActive}`
+              : ""
+          }`}
+        >
           <QueueCards
             queue={queue}
             items={items}
@@ -722,8 +732,8 @@ export default function ConsumptionQueueColumn({
             dragEnabled={canDragInQueue}
             dragPreview={dragPreview}
           />
-        )}
-      </div>
+        </div>
+      )}
       {queue === "done" && hasMore && !error && (
         <p className={styles.recentOverflow} role="status">
           最近 7 天还有未展示的完成记录。
