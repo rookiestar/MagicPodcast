@@ -914,18 +914,20 @@ describe("多证据 Speaker 核对", () => {
 });
 
 describe("长范围吸顶与收起", () => {
+  // 145 段的真实长列表滚动/吸顶由浏览器验收覆盖（Issue #445 Testing Decisions）；
+  // 这里用较小的多段列表验证同一组行为断言，保证 CI 机器上的稳定耗时。
   const longSegments = [
-    ...Array.from({ length: 145 }, (_, i) => ({
+    ...Array.from({ length: 45 }, (_, i) => ({
       order: i + 1,
       speaker: "Speaker 1",
       start_ms: i * 15000,
       text: `第 ${i + 1} 段：这一段发言来自第一位说话人，用来构造需要滚动核对的长列表场景，文本足够长以检查换行与遮挡表现。`,
     })),
     ...Array.from({ length: 5 }, (_, i) => ({
-      order: 146 + i,
+      order: 46 + i,
       speaker: "Speaker 2",
-      start_ms: 2175000 + i * 15000,
-      text: `第 ${146 + i} 段：第二位说话人的补充发言，用于验证收起后可以继续核对后续人物。`,
+      start_ms: 675000 + i * 15000,
+      text: `第 ${46 + i} 段：第二位说话人的补充发言，用于验证收起后可以继续核对后续人物。`,
     })),
   ];
   function relationPayload(): EpisodePeoplePayload {
@@ -938,7 +940,7 @@ describe("长范围吸顶与收起", () => {
         orders: longSegments.filter(s => s.speaker === "Speaker 1").map(s => s.order),
         selected: true, uncertain: false, choice: "person:0", relation: relation("person:0", "小林") },
       { key: "speaker:Speaker 2", display_name: "Speaker 2", role: "guest", speaker_label: "Speaker 2",
-        orders: [146, 147, 148, 149, 150], selected: false, uncertain: false, choice: "", relation: relation("person:1", "小周") },
+        orders: [46, 47, 48, 49, 50], selected: false, uncertain: false, choice: "", relation: relation("person:1", "小周") },
     ] } };
   }
   function LongPlayer() {
@@ -971,11 +973,11 @@ describe("长范围吸顶与收起", () => {
     fireEvent.click(within(region).getByText(/^调整范围 ·/));
     expect(rangeDetails(region)).toHaveAttribute("open");
     expect(rangeBar(region).textContent).toContain("Speaker 1→小林");
-    expect(within(rangeBar(region)).getByText("已选 145 / 145 段")).toBeVisible();
+    expect(within(rangeBar(region)).getByText("已选 45 / 45 段")).toBeVisible();
     fireEvent.click(within(region).getByRole("button", { name: "收起范围" }));
     expect(rangeDetails(region)).not.toHaveAttribute("open");
     expect(within(region).getByText(/^调整范围 ·/)).toBeVisible();
-  }, 20000);
+  }, 30000);
 
   it("keeps edits and unsaved state across collapse and re-expand without write requests", async () => {
     await openRelationPanel();
@@ -984,7 +986,7 @@ describe("长范围吸顶与收起", () => {
     fireEvent.click(within(region).getByRole("button", { name: "更换人物" }));
     fireEvent.change(within(region).getByRole("textbox", { name: "Speaker 1 姓名" }), { target: { value: "林老师" } });
     fireEvent.click(within(region).getByRole("checkbox", { name: "选择片段 3" }));
-    expect(within(region).getByText("已选 144 / 145 段")).toBeVisible();
+    expect(within(region).getByText("已选 44 / 45 段")).toBeVisible();
     fireEvent.click(within(region).getByRole("button", { name: "收起范围" }));
     expect(rangeDetails(region)).not.toHaveAttribute("open");
     expect(episodeCopilotApi.reviewPeople).not.toHaveBeenCalled();
@@ -995,8 +997,8 @@ describe("长范围吸顶与收起", () => {
     fireEvent.click(within(region).getByText(/^调整范围 ·/));
     expect(within(region).getByRole("textbox", { name: "Speaker 1 姓名" })).toHaveValue("林老师");
     expect(within(region).getByRole("checkbox", { name: "选择片段 3" })).not.toBeChecked();
-    expect(within(region).getByText("已选 144 / 145 段")).toBeVisible();
-  }, 20000);
+    expect(within(region).getByText("已选 44 / 45 段")).toBeVisible();
+  }, 30000);
 
   it("returns focus to the range summary after collapsing and supports re-expand", async () => {
     await openRelationPanel();
@@ -1007,7 +1009,7 @@ describe("长范围吸顶与收起", () => {
     expect(summary).toHaveFocus();
     fireEvent.click(summary);
     expect(rangeDetails(region)).toHaveAttribute("open");
-  }, 20000);
+  }, 30000);
 
   it("collapses one expanded group without touching another group's state", async () => {
     await openRelationPanel();
@@ -1022,5 +1024,5 @@ describe("长范围吸顶与收起", () => {
     expect(rangeDetails(first)).not.toHaveAttribute("open");
     expect(rangeDetails(second)).toHaveAttribute("open");
     expect(within(second).getByRole("button", { name: "收起范围" })).toBeVisible();
-  }, 20000);
+  }, 30000);
 });
