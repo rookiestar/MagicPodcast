@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { PersonReviewMatch, SpeakerRelationCandidate } from "@/types/episodeCopilot";
 import type { TranscriptSegment } from "@/types/processing";
 import styles from "./TranscriptPeople.module.css";
@@ -10,24 +10,49 @@ const states: Record<string, string> = {
   insufficient: "姓名待确认", not_assessed: "本次未给出判断", invalid_evidence: "证据待核对",
 };
 
-export default function SpeakerRelationReview({ match, candidates, group, disabled, adjusted, currentName, onChange, onLocate }: {
+export default function SpeakerRelationReview({ match, candidates, group, disabled, adjusted, currentName, panelBodyRef, onChange, onLocate }: {
   match: PersonReviewMatch;
   candidates: SpeakerRelationCandidate[];
   group: TranscriptSegment[];
   disabled: boolean;
   adjusted: boolean;
   currentName: (segment: TranscriptSegment) => string;
+  panelBodyRef: RefObject<HTMLDivElement>;
   onChange: (patch: Partial<PersonReviewMatch>) => void;
   onLocate: (order: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  // 范围展开只是界面状态，与人物识别草稿数据分离；收起不重置任何修改。
+  const [rangeOpen, setRangeOpen] = useState(false);
+  const cardRef = useRef<HTMLElement>(null);
+  const rangeSummaryRef = useRef<HTMLElement>(null);
+  const pendingCollapse = useRef(false);
   const relation = match.relation!;
   const evidenceCandidates = relation.candidates;
   const hasChoice = !!match.choice && !!match.display_name.trim();
   const chosenSuggestion = evidenceCandidates.find(candidate => candidate.id === match.choice);
   const manualChoice = hasChoice && (!chosenSuggestion || chosenSuggestion.display_name !== match.display_name.trim());
   const changed = group.some(segment => match.orders.includes(segment.order) && currentName(segment) !== segment.speaker && currentName(segment) !== match.display_name);
-  return <section className={styles.match} aria-label={`核对 ${match.speaker_label}`}>
+  const collapseRange = () => {
+    if (!rangeOpen) return;
+    pendingCollapse.current = true;
+    setRangeOpen(false);
+  };
+  // 收起后先在弹窗内容区内把当前卡片定位回可见顶部，再把焦点交回范围展开入口；
+  // focus({ preventScroll }) 避免浏览器焦点滚动与显式定位互相拉扯。
+  useLayoutEffect(() => {
+    if (!pendingCollapse.current) return;
+    pendingCollapse.current = false;
+    const card = cardRef.current;
+    const summary = rangeSummaryRef.current;
+    const container = panelBodyRef.current;
+    if (card && container) {
+      const offset = card.getBoundingClientRect().top - container.getBoundingClientRect().top;
+      container.scrollTop += offset;
+    }
+    summary?.focus({ preventScroll: true });
+  }, [rangeOpen, panelBodyRef]);
+  return <section ref={cardRef} className={styles.match} aria-label={`核对 ${match.speaker_label}`}>
     <div className={styles.matchHeader}>
       <label className={styles.matchTitle}>
         <input type="checkbox" aria-label={`应用 ${match.speaker_label}`} checked={match.selected}
@@ -76,8 +101,18 @@ export default function SpeakerRelationReview({ match, candidates, group, disabl
       </div>)}
     </details>
     {changed && <p className={styles.exception}>应用将覆盖所选片段的现有姓名；可展开范围保留人工例外。</p>}
-    <details>
-      <summary>调整范围 · {match.orders.length} / {group.length} 段</summary>
+    <details open={rangeOpen}>
+      <summary ref={rangeSummaryRef} onClick={event => {
+        // 受控 details：接管原生切换，保证 open 属性与界面状态一致。
+        event.preventDefault();
+        if (rangeOpen) collapseRange();
+        else setRangeOpen(true);
+      }}>调整范围 · {match.orders.length} / {group.length} 段</summary>
+      <div className={styles.rangeBar}>
+        <span className={styles.rangeIdentity}>{match.speaker_label}<span aria-hidden="true">→</span>{hasChoice ? match.display_name : "未匹配"}</span>
+        <span className={styles.rangeCount}>已选 {match.orders.length} / {group.length} 段</span>
+        <button type="button" onClick={collapseRange}>收起范围</button>
+      </div>
       {group.map(segment => <div className={styles.fragment} key={segment.order}>
         <label><input type="checkbox" aria-label={`选择片段 ${segment.order}`} disabled={disabled} checked={match.orders.includes(segment.order)}
           onChange={event => onChange({ orders: event.target.checked ? [...match.orders, segment.order].sort((a,b) => a-b) : match.orders.filter(order => order !== segment.order) })} />{segment.text}</label>

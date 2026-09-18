@@ -710,6 +710,7 @@ export function useTranscriptPeople(
                 group={segments.filter(segment => segment.speaker === match.speaker_label)}
                 disabled={!!busy || draftOutdated || readOnly}
                 currentName={nameFor} onLocate={locateFromPanel}
+                panelBodyRef={panelBodyElement}
                 onChange={patch => editMatch(match.key, patch)} />;
               const group = segments.filter(
                 (s) => s.speaker === match.speaker_label,
