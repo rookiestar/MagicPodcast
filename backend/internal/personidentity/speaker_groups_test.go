@@ -47,6 +47,19 @@ func (r *speakerGroupRuntime) CancelExecution(_ context.Context, id codexruntime
 }
 func (r *speakerGroupRuntime) Close(context.Context) error { return nil }
 
+func TestRuntimePromptRequestsSplitSpeakerReviewAndSeparateParticipants(t *testing.T) {
+	runtime := &speakerGroupRuntime{}
+	suggester := NewRuntimeSuggester(runtime, t.TempDir())
+	_, err := suggester.Suggest(context.Background(), EpisodeSources{
+		ShowNotes: "本集主播林言。",
+		Segments:  []Segment{{Order: 1, SpeakerLabel: "A", Text: "我是林言。"}},
+	})
+	require.NoError(t, err)
+	require.Len(t, runtime.requests, 1)
+	require.Contains(t, runtime.requests[0].Prompt, "已知人物同人误拆")
+	require.Contains(t, runtime.requests[0].Prompt, "明确的制作/剪辑等独立身份")
+}
+
 func TestSpeakerGroupsUseOneIdentityCallAndPublishOnlyAfterConfirmation(t *testing.T) {
 	db := openPersonIdentityDB(t)
 	pod := models.Podcast{XYZID: "speaker-groups", Title: "访谈", FeedURL: "https://example.test/groups"}
@@ -71,6 +84,8 @@ func TestSpeakerGroupsUseOneIdentityCallAndPublishOnlyAfterConfirmation(t *testi
 	require.NotContains(t, draft.Draft.Matches[0].Orders, 3)
 	require.Len(t, runtime.requests, 1)
 	require.NotContains(t, runtime.requests[0].Prompt, ep.Notes)
+	require.Contains(t, runtime.requests[0].Prompt, "已知人物同人误拆")
+	require.Contains(t, runtime.requests[0].Prompt, "明确的制作/剪辑等独立身份")
 	require.Empty(t, runtime.requests[0].ToolRestriction.Allowed)
 	require.NotContains(t, string(runtime.requests[0].OutputSchema), "excluded_orders")
 	applied, err := service.Review(context.Background(), ep.ID, draftRequest(draft), true)

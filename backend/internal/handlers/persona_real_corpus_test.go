@@ -66,6 +66,7 @@ func TestPersonaRealCorpus(t *testing.T) {
 	}
 	people, err := personidentity.NewService(db, suggester, search)
 	require.NoError(t, err)
+	speakerRegressionSeen := map[uint]bool{}
 	for _, source := range sources {
 		t.Run(fmt.Sprint(source.EpisodeID), func(t *testing.T) {
 			pod := models.Podcast{XYZID: fmt.Sprint(source.EpisodeID), Title: source.PodcastTitle, Author: source.PodcastAuthor, Description: source.PodcastDescription, FeedURL: fmt.Sprintf("https://example.test/%d", source.EpisodeID)}
@@ -85,7 +86,15 @@ func TestPersonaRealCorpus(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, os.WriteFile(filepath.Join(output, fmt.Sprintf("real-%d.json", ep.ID)), raw, 0600))
 			t.Logf("episode=%d people=%d fragments=%d seconds=%.1f", ep.ID, len(listed.People), len(listed.Attributions), report.Seconds)
+			if source.EpisodeID == 63021 || source.EpisodeID == 66224 {
+				speakerRegressionSeen[source.EpisodeID] = true
+				assertSpeakerRegression(t, source.EpisodeID, listed)
+			}
 		})
+	}
+	if os.Getenv("PERSONA_SPEAKER_REGRESSION") == "1" {
+		require.True(t, speakerRegressionSeen[63021], "external corpus must include episode 63021")
+		require.True(t, speakerRegressionSeen[66224], "external corpus must include episode 66224")
 	}
 	if t.Failed() || os.Getenv("PERSONA_REAL_ASK") != "1" {
 		return
@@ -125,6 +134,31 @@ func TestPersonaRealCorpus(t *testing.T) {
 		require.Contains(t, answer, episodecopilotDisclaimer())
 		require.Contains(t, answer, "库内 S")
 		require.NotContains(t, answer, `"type":"error"`)
+	}
+}
+
+func assertSpeakerRegression(t *testing.T, episodeID uint, listed personidentity.EpisodePeople) {
+	t.Helper()
+	require.NotNil(t, listed.Draft)
+	var match *personidentity.ReviewMatch
+	for i := range listed.Draft.Matches {
+		candidate := &listed.Draft.Matches[i]
+		if (episodeID == 63021 && candidate.SpeakerLabel == "Speaker 3") ||
+			(episodeID == 66224 && candidate.SpeakerLabel == "Speaker 4") {
+			match = candidate
+			break
+		}
+	}
+	require.NotNil(t, match, "expected regression Speaker group is missing")
+	switch episodeID {
+	case 63021:
+		require.Equal(t, "曲凯", match.DisplayName)
+		require.NotNil(t, match.Relation)
+		require.Equal(t, "inferred", match.Relation.State)
+		require.False(t, match.Selected)
+	case 66224:
+		require.Equal(t, "陈皮", match.DisplayName)
+		require.NotEqual(t, "曲凯", match.DisplayName)
 	}
 }
 

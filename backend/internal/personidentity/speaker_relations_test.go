@@ -28,6 +28,78 @@ func relationPayload() map[string]any {
 		map[string]any{"speaker_label": "intro", "reason": "片头，无法确定姓名", "candidates": []any{}},
 	}}
 }
+
+func splitSpeakerSource() EpisodeSources {
+	return EpisodeSources{ShowNotes: "导游：曲凯，42章经创始人；六号珍藏：Albert，AI 创业者。", Segments: []Segment{
+		{Order: 1, SpeakerLabel: "Speaker 2", Text: "今天我们继续聊这个问题。"},
+		{Order: 2, SpeakerLabel: "Speaker 1", Text: "我觉得还有一个方向。"},
+		{Order: 3, SpeakerLabel: "Speaker 2", Text: "那我们进入最后一个问题。"},
+		{Order: 4, SpeakerLabel: "Speaker 3", Text: "你觉得这个能力是怎么形成的？"},
+		{Order: 5, SpeakerLabel: "Speaker 1", Text: "我觉得主要还是长期训练。"},
+		{Order: 6, SpeakerLabel: "Speaker 3", Text: "如果技术成熟了，你最想做什么产品？"},
+	}}
+}
+
+func splitSpeakerPayload() map[string]any {
+	person := func(name, role, quote string) map[string]any {
+		return map[string]any{
+			"name": name, "kind": "participant", "status": "confirmed", "role": role,
+			"presence_basis":    "introduced_participant",
+			"name_evidence":     identityEvidence{Source: SourceShowNotes, Quote: quote},
+			"presence_evidence": identityEvidence{Source: SourceShowNotes, Quote: quote},
+			"role_evidence":     identityEvidence{Source: SourceShowNotes, Quote: quote},
+		}
+	}
+	return map[string]any{
+		"people": []any{
+			person("曲凯", RoleHost, "导游：曲凯，42章经创始人"),
+			person("Albert", RoleGuest, "六号珍藏：Albert，AI 创业者"),
+		},
+		"speakers": []any{
+			map[string]any{
+				"speaker_label": "Speaker 3", "reason": "疑似已知主持人被妙记拆成另一组标签",
+				"candidates": []any{map[string]any{
+					"person_index": 0, "level": "inferred", "basis": "contextual",
+					"reason": "该组在访谈后段连续追问，且没有新的参与者身份依据，可能仍是曲凯。",
+					"evidence": []identityEvidence{
+						{Source: SourceShowNotes, Quote: "导游：曲凯，42章经创始人"},
+						{Source: SourceTranscript, Fragment: 4, Quote: "你觉得这个能力是怎么形成的？"},
+						{Source: SourceTranscript, Fragment: 6, Quote: "如果技术成熟了，你最想做什么产品？"},
+					},
+					"counter_evidence": []identityEvidence{},
+				}},
+			},
+		},
+	}
+}
+
+func producerSource() EpisodeSources {
+	return EpisodeSources{ShowNotes: "导游：曲凯。制作人：陈皮。", Segments: []Segment{
+		{Order: 1, SpeakerLabel: "Speaker 2", Text: "好，今天先聊到这里。"},
+		{Order: 2, SpeakerLabel: "Speaker 4", Text: "不好意思，我想再补一个问题。大家好，我是陈皮，在节目组做内容。"},
+		{Order: 3, SpeakerLabel: "Speaker 3", Text: "这个问题很好。"},
+	}}
+}
+
+func producerPayload() map[string]any {
+	return map[string]any{
+		"people": []any{
+			map[string]any{"name": "陈皮", "kind": "participant", "status": "confirmed", "role": "unknown", "presence_basis": "self_introduction",
+				"name_evidence":     identityEvidence{Source: SourceShowNotes, Quote: "制作人：陈皮。"},
+				"presence_evidence": identityEvidence{Source: SourceTranscript, Fragment: 2, Quote: "大家好，我是陈皮，在节目组做内容。"},
+				"source_names":      []any{map[string]any{"name": "陈皮", "evidence": identityEvidence{Source: SourceTranscript, Fragment: 2, Quote: "我是陈皮"}}}},
+		},
+		"speakers": []any{
+			map[string]any{"speaker_label": "Speaker 4", "reason": "明确自我介绍为制作人", "candidates": []any{map[string]any{
+				"person_index": 0, "level": "direct", "basis": "self_introduction",
+				"reason":           "该 Speaker 在补问前明确自报姓名陈皮。",
+				"evidence":         []identityEvidence{{Source: SourceTranscript, Fragment: 2, Quote: "不好意思，我想再补一个问题。大家好，我是陈皮，在节目组做内容。"}},
+				"counter_evidence": []identityEvidence{},
+			}}},
+		},
+	}
+}
+
 func decodeRelations(t *testing.T, p map[string]any, src EpisodeSources) Suggestions {
 	t.Helper()
 	b, err := json.Marshal(p)
@@ -35,6 +107,47 @@ func decodeRelations(t *testing.T, p map[string]any, src EpisodeSources) Suggest
 	result, err := decodeSpeakerSuggestions(b, src)
 	require.NoError(t, err)
 	return result
+}
+
+func TestSpeakerRelationSuggestsKnownHostForASecondUnmatchedLabel(t *testing.T) {
+	got := decodeRelations(t, splitSpeakerPayload(), splitSpeakerSource())
+	var match ReviewMatch
+	found := false
+	for _, candidate := range got.Matches {
+		if candidate.SpeakerLabel == "Speaker 3" {
+			match = candidate
+			found = true
+			break
+		}
+	}
+	require.True(t, found)
+	require.Equal(t, "Speaker 3", match.SpeakerLabel)
+	require.Equal(t, "inferred", match.Relation.State)
+	require.Equal(t, "曲凯", match.DisplayName)
+	require.Equal(t, "person:0", match.Choice)
+	require.Equal(t, []int{4, 6}, match.Orders)
+	require.False(t, match.Selected, "same-person suggestions remain user-confirmed")
+	require.True(t, match.Uncertain)
+}
+
+func TestSpeakerRelationKeepsExplicitProducerSeparateFromKnownHost(t *testing.T) {
+	got := decodeRelations(t, producerPayload(), producerSource())
+	var match ReviewMatch
+	found := false
+	for _, candidate := range got.Matches {
+		if candidate.SpeakerLabel == "Speaker 4" {
+			match = candidate
+			found = true
+			break
+		}
+	}
+	require.True(t, found)
+	require.Equal(t, "Speaker 4", match.SpeakerLabel)
+	require.Equal(t, "direct", match.Relation.State)
+	require.Equal(t, "陈皮", match.DisplayName)
+	require.Equal(t, "person:0", match.Choice)
+	require.True(t, match.Selected)
+	require.Equal(t, []int{2}, match.Orders)
 }
 func TestSpeakerRelationProposalsPreserveInferredGroupsAndUnknowns(t *testing.T) {
 	got := decodeRelations(t, relationPayload(), relationSource())
