@@ -243,6 +243,7 @@ export default function CompletionHistoryPageClient() {
   const [initialError, setInitialError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [pageCursorInvalid, setPageCursorInvalid] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [busyEpisodes, setBusyEpisodes] = useState<Set<number>>(
@@ -290,6 +291,7 @@ export default function CompletionHistoryPageClient() {
     setInitialError(null);
     setRefreshError(null);
     setPageError(null);
+    setPageCursorInvalid(false);
     try {
       const payload = await consumptionApi.listCompletionHistory({ query });
       if (version !== requestVersion.current) return;
@@ -336,6 +338,7 @@ export default function CompletionHistoryPageClient() {
     const version = ++requestVersion.current;
     setIsLoadingMore(true);
     setPageError(null);
+    setPageCursorInvalid(false);
     try {
       const payload = await consumptionApi.listCompletionHistory({
         query: activeQuery,
@@ -349,7 +352,9 @@ export default function CompletionHistoryPageClient() {
       setNextCursor(payload.next_cursor ?? null);
     } catch (error) {
       if (version !== requestVersion.current) return;
-      setPageError(getConsumptionErrorDetails(error).message);
+      const details = getConsumptionErrorDetails(error);
+      setPageError(details.message);
+      setPageCursorInvalid(details.code === "INVALID_CURSOR");
     } finally {
       if (version === requestVersion.current) {
         setIsLoadingMore(false);
@@ -424,6 +429,13 @@ export default function CompletionHistoryPageClient() {
     [busyEpisodes],
   );
 
+  const groups = new Map<number, { title: string; items: CompletionHistoryItem[] }>();
+  for (const item of items) {
+    const group = groups.get(item.podcast_id);
+    if (group) group.items.push(item);
+    else groups.set(item.podcast_id, { title: item.podcast_title, items: [item] });
+  }
+
   const showInitialLoading = isInitialLoading && items.length === 0;
   const showInitialError = Boolean(initialError) && items.length === 0;
   const showEmpty =
@@ -491,7 +503,7 @@ export default function CompletionHistoryPageClient() {
               ? `“${activeQuery}”找到 ${matchCount ?? 0} 个单集`
               : matchCount === null
                 ? "正在读取完成事实"
-                : "按最近完成时间排列"}
+                : "按节目分组，最近完成优先"}
           </p>
           {isRefreshing && (
             <span role="status">
@@ -561,68 +573,72 @@ export default function CompletionHistoryPageClient() {
 
         {items.length > 0 && (
           <section className={styles.historyList} aria-label="完成历史记录">
-            {items.map((item) => {
-              const isActionQueue = ACTION_QUEUES.includes(
-                item.current_status as ConsumptionQueue,
-              );
-              const hint = statusHint(item.current_status);
-              return (
-                <article
-                  key={item.episode_id}
-                  className={styles.historyRow}
-                  data-episode-id={item.episode_id}
-                >
-                  <p className={styles.podcastCell}>{item.podcast_title}</p>
-                  <h2 className={styles.titleCell}>
-                    <EpisodeLink
-                      episodeID={item.episode_id}
-                      source="history"
-                      href={`/episodes/${item.episode_id}?from=history`}
-                      data-editorial-display-text="true"
+            {Array.from(groups, ([podcastID, group]) => (
+              <section key={podcastID} className={styles.podcastGroup} aria-labelledby={`history-podcast-${podcastID}`}>
+                <h2 id={`history-podcast-${podcastID}`} className={styles.groupTitle}>{group.title}</h2>
+                {group.items.map((item) => {
+                  const isActionQueue = ACTION_QUEUES.includes(
+                    item.current_status as ConsumptionQueue,
+                  );
+                  const hint = statusHint(item.current_status);
+                  return (
+                    <article
+                      key={item.episode_id}
+                      className={styles.historyRow}
+                      data-episode-id={item.episode_id}
                     >
-                      {item.episode_title}
-                    </EpisodeLink>
-                  </h2>
-                  <span className={styles.dateCell}>
-                    <IconCircleCheck size={14} stroke={1.8} aria-hidden="true" />
-                    <span className={styles.srOnly}>最近完成于 </span>
-                    {formatCompletedDate(item.completed_at)}
-                  </span>
-                  <div className={styles.actionCell} ref={(node) => {
-                    if (node) actionCells.current.set(item.episode_id, node);
-                    else actionCells.current.delete(item.episode_id);
-                  }}>
-                    {isActionQueue ? (
-                      <Link
-                        className={styles.locateLink}
-                        href={`/inbox?queue=${item.current_status}&episode=${item.episode_id}`}
-                        prefetch={false}
-                      >
-                        {locateLabel(item.current_status)}
-                        <IconArrowRight
-                          size={14}
-                          stroke={1.8}
-                          aria-hidden="true"
-                        />
-                      </Link>
-                    ) : (
-                      <>
-                        {hint && (
-                          <span className={styles.statusHint}>{hint}</span>
+                      <h3 className={styles.titleCell}>
+                        <EpisodeLink
+                          episodeID={item.episode_id}
+                          source="history"
+                          href={`/episodes/${item.episode_id}?from=history`}
+                          data-editorial-display-text="true"
+                        >
+                          {item.episode_title}
+                        </EpisodeLink>
+                      </h3>
+                      <span className={styles.dateCell}>
+                        <IconCircleCheck size={14} stroke={1.8} aria-hidden="true" />
+                        <span className={styles.srOnly}>最近完成于 </span>
+                        {formatCompletedDate(item.completed_at)}
+                      </span>
+                      <div className={styles.actionCell} ref={(node) => {
+                        if (node) actionCells.current.set(item.episode_id, node);
+                        else actionCells.current.delete(item.episode_id);
+                      }}>
+                        {isActionQueue ? (
+                          <Link
+                            className={styles.locateLink}
+                            href={`/inbox?queue=${item.current_status}&episode=${item.episode_id}`}
+                            prefetch={false}
+                          >
+                            {locateLabel(item.current_status)}
+                            <IconArrowRight
+                              size={14}
+                              stroke={1.8}
+                              aria-hidden="true"
+                            />
+                          </Link>
+                        ) : (
+                          <>
+                            {hint && (
+                              <span className={styles.statusHint}>{hint}</span>
+                            )}
+                            <ReprocessMenu
+                              item={item}
+                              busy={busyEpisodes.has(item.episode_id)}
+                              onSelect={(menuItem, queue) =>
+                                void performReprocess(menuItem, queue)
+                              }
+                            />
+                          </>
                         )}
-                        <ReprocessMenu
-                          item={item}
-                          busy={busyEpisodes.has(item.episode_id)}
-                          onSelect={(menuItem, queue) =>
-                            void performReprocess(menuItem, queue)
-                          }
-                        />
-                      </>
-                    )}
-                  </div>
-                </article>
-              );
-            })}
+                      </div>
+                    </article>
+                  );
+                })}
+              </section>
+            ))}
           </section>
         )}
 
@@ -636,14 +652,18 @@ export default function CompletionHistoryPageClient() {
             )}
             <button
               type="button"
-              disabled={isLoadingMore}
-              onClick={() => void loadNextPage()}
+              disabled={isLoadingMore || isRefreshing}
+              onClick={() => pageCursorInvalid
+                ? void loadFirstPage(activeQuery)
+                : void loadNextPage()}
             >
               {isLoadingMore
                 ? "正在加载下一页…"
-                : pageError
-                  ? "重试加载下一页"
-                  : "继续加载"}
+                : pageCursorInvalid
+                  ? "重新加载历史"
+                  : pageError
+                    ? "重试加载下一页"
+                    : "继续加载"}
               {!isLoadingMore && (
                 <IconArrowRight size={17} stroke={1.8} aria-hidden="true" />
               )}

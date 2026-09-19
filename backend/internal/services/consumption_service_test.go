@@ -756,7 +756,7 @@ func TestConsumptionService_CompletionHistorySearchesAndPaginatesStableUniqueFac
 		observedPages++
 		for index := range page.Items {
 			item := page.Items[index]
-			if previousItem != nil {
+			if previousItem != nil && previousItem.PodcastID == item.PodcastID {
 				require.True(t,
 					previousItem.CompletedAt.After(item.CompletedAt) ||
 						(previousItem.CompletedAt.Equal(item.CompletedAt) &&
@@ -776,6 +776,13 @@ func TestConsumptionService_CompletionHistorySearchesAndPaginatesStableUniqueFac
 	}
 	require.Equal(t, 6, observedPages)
 	require.Len(t, allItems, 55)
+	var expectedIDs []uint
+	for _, parity := range []int{1, 0} {
+		for i := parity; i < len(episodes); i += 2 {
+			expectedIDs = append(expectedIDs, episodes[i].ID)
+		}
+	}
+	require.Equal(t, expectedIDs, completionHistoryItemIDs(allItems))
 	seen := make(map[uint]struct{}, len(allItems))
 	for _, item := range allItems {
 		_, duplicate := seen[item.EpisodeID]
