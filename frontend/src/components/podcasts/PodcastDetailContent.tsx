@@ -16,6 +16,7 @@ interface PodcastDetailContentProps {
   isEditingNotes: boolean;
   isSavingNotes?: boolean;
   isUpdatingTags?: boolean;
+  onQueueChange?: (episodeId: number, queue: Episode["queue_state"]) => void;
   episodes: Episode[];
   episodesLoading: boolean;
   isLoadingMore: boolean;
@@ -52,6 +53,7 @@ export default function PodcastDetailContent({
   isEditingNotes,
   isSavingNotes,
   isUpdatingTags,
+  onQueueChange,
   episodes,
   episodesLoading,
   isLoadingMore,
@@ -105,6 +107,7 @@ export default function PodcastDetailContent({
         onTagsChange={onTagsChange}
       />
       <EpisodeListSection
+        onQueueChange={onQueueChange}
         episodes={episodes}
         episodesLoading={episodesLoading}
         isLoadingMore={isLoadingMore}

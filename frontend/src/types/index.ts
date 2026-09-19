@@ -44,6 +44,7 @@ export interface ApiResponse<T> {
 
 // Episode 类型定义
 export interface Episode {
+  queue_state?: import("./consumption").ConsumptionQueue | null;
   id: number;
   guid: string;
   podcast_id: number;

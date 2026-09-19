@@ -40,7 +40,7 @@ func setupEpisodeTestDB(t *testing.T) *gorm.DB {
 	dbName := fmt.Sprintf("file:episode_handler_%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.Podcast{}, &models.Episode{}))
+	require.NoError(t, db.AutoMigrate(&models.Podcast{}, &models.Episode{}, &models.EpisodeTriageDecision{}))
 
 	database.SetTestDB(db)
 	t.Cleanup(func() {
@@ -375,4 +375,62 @@ func mapKeys(values map[string]json.RawMessage) []string {
 		keys = append(keys, key)
 	}
 	return keys
+}
+
+func TestEpisodeHandler_ListByPodcast_LiveQueueStateOnCachedPages(t *testing.T) {
+	db := setupEpisodeTestDB(t)
+	podcast := createEpisodeHandlerPodcast(t, db)
+	now := time.Now()
+	first := createEpisodeHandlerEpisode(t, db, podcast.ID, 1, now)
+	second := createEpisodeHandlerEpisode(t, db, podcast.ID, 2, now.Add(-time.Hour))
+	router := setupEpisodeTestRouter()
+
+	readPage := func(page int) episodeListTestResponse {
+		t.Helper()
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet,
+			fmt.Sprintf("/api/v1/podcasts/%d/episodes?page=%d&page_size=1&view=summary", podcast.ID, page), nil))
+		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+		assert.Equal(t, "private, no-store", response.Header().Get("Cache-Control"))
+		var payload episodeListTestResponse
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &payload))
+		return payload
+	}
+
+	initial := readPage(1)
+	require.Len(t, initial.Data, 1)
+	require.Contains(t, initial.Data[0], "queue_state")
+	assert.Nil(t, initial.Data[0]["queue_state"])
+	var count int64
+	require.NoError(t, db.Model(&models.EpisodeTriageDecision{}).Count(&count).Error)
+	assert.Zero(t, count, "reading an uncollected episode must not create personal state")
+
+	for _, queue := range []string{"inbox", "focus", "someday", "done"} {
+		require.NoError(t, db.Unscoped().Where("episode_id = ?", first.ID).Delete(&models.EpisodeTriageDecision{}).Error)
+		require.NoError(t, db.Create(&models.EpisodeTriageDecision{EpisodeID: first.ID, QueueState: &queue}).Error)
+		assert.Equal(t, queue, readPage(1).Data[0]["queue_state"], "cached content must include live queue state")
+	}
+	someday := "someday"
+	require.NoError(t, db.Create(&models.EpisodeTriageDecision{EpisodeID: second.ID, QueueState: &someday}).Error)
+	assert.Equal(t, someday, readPage(2).Data[0]["queue_state"])
+	require.NoError(t, db.Unscoped().Where("episode_id = ?", first.ID).Delete(&models.EpisodeTriageDecision{}).Error)
+	assert.Nil(t, readPage(1).Data[0]["queue_state"], "cleared state must not survive in the content cache")
+}
+
+func TestEpisodeHandler_ListByPodcast_QueueReadFailureIsNotUncollected(t *testing.T) {
+	db := setupEpisodeTestDB(t)
+	podcast := createEpisodeHandlerPodcast(t, db)
+	createEpisodeHandlerEpisode(t, db, podcast.ID, 1, time.Now())
+	router := setupEpisodeTestRouter()
+	url := fmt.Sprintf("/api/v1/podcasts/%d/episodes", podcast.ID)
+	warm := httptest.NewRecorder()
+	router.ServeHTTP(warm, httptest.NewRequest(http.MethodGet, url, nil))
+	require.Equal(t, http.StatusOK, warm.Code)
+	require.NoError(t, db.Migrator().DropTable(&models.EpisodeTriageDecision{}))
+	for _, path := range []string{url, url + "?view=summary"} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		assert.Equal(t, http.StatusInternalServerError, response.Code)
+		assert.Contains(t, response.Body.String(), "DATABASE_ERROR")
+	}
 }

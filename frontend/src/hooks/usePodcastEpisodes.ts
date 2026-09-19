@@ -164,7 +164,19 @@ export function usePodcastEpisodes({
     fetchEpisodes(1, false);
   }, [enabled, fetchEpisodes, podcastId, pageSize, resetEpisodes]);
 
+  const updateEpisodeQueue = useCallback(
+    (episodeId: number, queue: Episode["queue_state"]) => {
+      setEpisodes((previous) =>
+        previous.map((episode) =>
+          episode.id === episodeId ? { ...episode, queue_state: queue } : episode,
+        ),
+      );
+    },
+    [],
+  );
+
   return {
+    updateEpisodeQueue,
     episodes,
     episodesLoading,
     isLoadingMore,

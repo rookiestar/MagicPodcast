@@ -1,5 +1,6 @@
 "use client";
 
+import EpisodeQueueMenu from "./EpisodeQueueMenu";
 import EpisodeLink from "./EpisodeLink";
 import { IconPlayerPlay } from "@tabler/icons-react";
 import { memo } from "react";
@@ -28,6 +29,9 @@ import type { Episode } from "@/types";
 
 interface EpisodeCardProps {
   episode: Episode;
+  onQueueChange?: (episodeId: number, queue: Episode["queue_state"]) => void;
+  activeFocusEpisodeId?: number | null;
+  onFocusPromptChange?: (episodeId: number, open: boolean) => void;
   podcastCover?: string;
   index?: number;
   priority?: EpisodeImagePriority;
@@ -37,6 +41,9 @@ interface EpisodeCardProps {
 
 function EpisodeCard({
   episode,
+  onQueueChange,
+  activeFocusEpisodeId,
+  onFocusPromptChange,
   podcastCover,
   index = 0,
   priority = "medium",
@@ -107,35 +114,40 @@ function EpisodeCard({
                 </span>
               )}
 
-              {(showPlayButton || videoAction.show) && (
-                <div className="podcast-episode-actions">
-                  {showPlayButton && (
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        window.open(episode.medium_url, "_blank");
-                      }}
-                      className="podcast-episode-play"
-                      aria-label="播放"
-                    >
-                      <IconPlayerPlay aria-hidden="true" stroke={1.8} />
-                    </button>
-                  )}
-                  {videoAction.show && (
-                    <a
-                      href={videoAction.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="podcast-episode-video"
-                      aria-label="看视频"
-                      onClick={handleOriginalOpen}
-                    >
-                      看视频
-                    </a>
-                  )}
-                </div>
-              )}
+              <div className="podcast-episode-actions">
+                <EpisodeQueueMenu
+                  key={episode.id}
+                  episode={episode}
+                  onQueueChange={onQueueChange}
+                  activeFocusEpisodeId={activeFocusEpisodeId}
+                  onFocusPromptChange={onFocusPromptChange}
+                />
+                {showPlayButton && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      window.open(episode.medium_url, "_blank");
+                    }}
+                    className="podcast-episode-play"
+                    aria-label="播放"
+                  >
+                    <IconPlayerPlay aria-hidden="true" stroke={1.8} />
+                  </button>
+                )}
+                {videoAction.show && (
+                  <a
+                    href={videoAction.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="podcast-episode-video"
+                    aria-label="看视频"
+                    onClick={handleOriginalOpen}
+                  >
+                    看视频
+                  </a>
+                )}
+              </div>
             </div>
 
             {/* Meta Info */}
@@ -215,6 +227,10 @@ function arePropsEqual(
 
   return (
     prevProps.episode.id === nextProps.episode.id &&
+    prevProps.episode.queue_state === nextProps.episode.queue_state &&
+    prevProps.onQueueChange === nextProps.onQueueChange &&
+    prevProps.activeFocusEpisodeId === nextProps.activeFocusEpisodeId &&
+    prevProps.onFocusPromptChange === nextProps.onFocusPromptChange &&
     prevProps.episode.title === nextProps.episode.title &&
     prevProps.episode.image_url === nextProps.episode.image_url &&
     prevProps.episode.medium_url === nextProps.episode.medium_url &&

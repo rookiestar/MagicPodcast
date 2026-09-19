@@ -13,6 +13,7 @@ import (
 	episodelabel "magicpodcast/internal/episode"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/services"
 	"magicpodcast/internal/utils"
 
 	"github.com/gin-gonic/gin"
@@ -46,6 +47,34 @@ type EpisodeResponse struct {
 	MyRate            int    `json:"my_rate"`
 	Notes             string `json:"notes"`
 	VideoAvailability string `json:"video_availability"`
+}
+
+// EpisodeListItem adds live personal state without putting it in the content cache.
+type EpisodeListItem struct {
+	EpisodeResponse
+	QueueState *string `json:"queue_state"`
+}
+
+func writeEpisodeList(c *gin.Context, db *gorm.DB, response gin.H) {
+	episodes := response["data"].([]EpisodeResponse)
+	ids := make([]uint, len(episodes))
+	for i, episode := range episodes {
+		ids[i] = episode.ID
+	}
+	states, err := services.NewConsumptionService(db).StatesForEpisodes(ids)
+	if err != nil {
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to fetch episode queue states")
+		return
+	}
+	items := make([]EpisodeListItem, len(episodes))
+	for i, episode := range episodes {
+		items[i] = EpisodeListItem{EpisodeResponse: episode, QueueState: states[episode.ID].QueueState}
+	}
+	// Copy the envelope: cached episode content must never retain personal state.
+	result := copyGinH(response)
+	result["data"] = items
+	c.Header("Cache-Control", "private, no-store")
+	c.JSON(200, result)
 }
 
 // EpisodeShowNotesResponse exposes only the public display document and the
@@ -211,8 +240,7 @@ func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 		cache.RecordHit()
 		cachedResp := copyGinH(cached.(gin.H))
 		cachedResp["cached"] = true
-		setPrivateCache(c, 60)
-		c.JSON(200, cachedResp)
+		writeEpisodeList(c, db, cachedResp)
 		return
 	}
 	cache.RecordMiss()
@@ -239,8 +267,7 @@ func (h *EpisodeHandler) ListByPodcast(c *gin.Context) {
 	}
 
 	memCache.SetWithTTL(cacheKey, resp, 2*time.Minute)
-	setPrivateCache(c, 60)
-	c.JSON(200, resp)
+	writeEpisodeList(c, db, resp)
 }
 
 // GetShowNotes returns the complete read-time display document for one episode.
