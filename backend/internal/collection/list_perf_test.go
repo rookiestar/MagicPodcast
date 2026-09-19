@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"magicpodcast/internal/database"
 	"magicpodcast/internal/models"
 
 	"github.com/stretchr/testify/require"
@@ -37,18 +38,20 @@ func TestListCollectionsPerfScale(t *testing.T) {
 		t.Skip("性能采样需显式设置 MAGICPODCAST_COLLECTIONS_PERF=1")
 	}
 
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "collections-perf.db")), &gorm.Config{})
+	dbFile := filepath.Join(t.TempDir(), "collections-perf.db")
+	// 显式指定 DB 路径时保留文件，供真实页面验收复用同一份等量级数据。
+	if persistent := strings.TrimSpace(os.Getenv("MAGICPODCAST_COLLECTIONS_PERF_DB")); persistent != "" {
+		dbFile = persistent
+		require.NoError(t, os.MkdirAll(filepath.Dir(dbFile), 0o755))
+		if err := os.Remove(dbFile); err != nil && !os.IsNotExist(err) {
+			require.NoError(t, err)
+		}
+	}
+	db, err := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(
-		&models.Podcast{},
-		&models.Episode{},
-		&models.EpisodeTriageDecision{},
-		&models.ConsumptionQueueOrder{},
-		&models.EpisodeCollection{},
-		&models.EpisodeCollectionItem{},
-		&models.EpisodeExternalRef{},
-		&models.EpisodeCollectionAdoption{},
-	))
+	// 用项目版本化迁移引导 schema（版本 35），与生产结构一致，
+	// 也让 API 进程可以直接打开该文件做页面验收。
+	require.NoError(t, database.ApplyMigrations(db))
 
 	seedStart := time.Now()
 	expectedAdopted := seedPerfData(t, db)
