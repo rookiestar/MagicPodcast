@@ -756,7 +756,7 @@ func TestConsumptionService_CompletionHistorySearchesAndPaginatesStableUniqueFac
 		observedPages++
 		for index := range page.Items {
 			item := page.Items[index]
-			if previousItem != nil {
+			if previousItem != nil && previousItem.PodcastID == item.PodcastID {
 				require.True(t,
 					previousItem.CompletedAt.After(item.CompletedAt) ||
 						(previousItem.CompletedAt.Equal(item.CompletedAt) &&
@@ -776,6 +776,13 @@ func TestConsumptionService_CompletionHistorySearchesAndPaginatesStableUniqueFac
 	}
 	require.Equal(t, 6, observedPages)
 	require.Len(t, allItems, 55)
+	var expectedIDs []uint
+	for _, parity := range []int{1, 0} {
+		for i := parity; i < len(episodes); i += 2 {
+			expectedIDs = append(expectedIDs, episodes[i].ID)
+		}
+	}
+	require.Equal(t, expectedIDs, completionHistoryItemIDs(allItems))
 	seen := make(map[uint]struct{}, len(allItems))
 	for _, item := range allItems {
 		_, duplicate := seen[item.EpisodeID]
@@ -839,6 +846,31 @@ func TestConsumptionService_CompletionHistorySearchesAndPaginatesStableUniqueFac
 	require.Len(t, reprocessed.Items, 1)
 	require.Equal(t, models.QueueStateInbox, reprocessed.Items[0].CurrentStatus)
 	require.False(t, reprocessed.Items[0].CompletedAt.IsZero())
+}
+
+func TestConsumptionService_RejectsCompletionHistoryCursorAfterCompletionChanges(t *testing.T) {
+	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	service, podcast := setupConsumptionService(t, now)
+	first := createDiscoveryEpisode(t, service.db, podcast.ID, "首条完成历史", now.Add(-2*time.Hour), nil)
+	second := createDiscoveryEpisode(t, service.db, podcast.ID, "后续完成历史", now.Add(-time.Hour), nil)
+	service.now = func() time.Time { return now }
+	_, err := service.SetQueue(first.ID, models.QueueStateDone, QueueWriteOptions{})
+	require.NoError(t, err)
+	_, err = service.SetQueue(second.ID, models.QueueStateDone, QueueWriteOptions{})
+	require.NoError(t, err)
+
+	page, err := service.ListCompletionHistory(CompletionHistoryOptions{Limit: 1})
+	require.NoError(t, err)
+	require.True(t, page.HasMore)
+
+	service.now = func() time.Time { return now.Add(time.Minute) }
+	_, err = service.SetQueue(second.ID, models.QueueStateDone, QueueWriteOptions{})
+	require.NoError(t, err)
+	_, err = service.ListCompletionHistory(CompletionHistoryOptions{
+		Cursor: page.NextCursor,
+		Limit:  1,
+	})
+	require.ErrorIs(t, err, ErrInvalidCompletionHistoryCursor)
 }
 
 func consumptionItemIDs(items []ConsumptionItem) []uint {

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { navigate } from "@/lib/navigation";
 import CompletionHistoryPageClient from "../CompletionHistoryPageClient";
 import type {
+  ConsumptionErrorDetails,
   CompletionHistoryItem,
   CompletionHistoryPayload,
   ConsumptionQueue,
@@ -11,8 +12,9 @@ import type {
 const apiMocks = vi.hoisted(() => ({
   listCompletionHistory: vi.fn(),
   setQueue: vi.fn(),
-  getConsumptionErrorDetails: vi.fn((error: unknown) => ({
+  getConsumptionErrorDetails: vi.fn((error: unknown): ConsumptionErrorDetails => ({
     message: error instanceof Error ? error.message : "请求失败",
+    code: undefined as string | undefined,
     currentCount: undefined as number | undefined,
     focusLimit: undefined as number | undefined,
   })),
@@ -94,6 +96,45 @@ describe("CompletionHistoryPageClient", () => {
         queue_state: queue,
       }),
     );
+  });
+
+  it("keeps same-name podcasts separate and merges a group across pages", async () => {
+    const a = historyItem(1, "done", "A 最新");
+    const aOld = historyItem(2, "done", "A 较早");
+    const b = { ...historyItem(3, "done", "B 单集"), podcast_id: 20 };
+    apiMocks.listCompletionHistory
+      .mockResolvedValueOnce(payload([a], { has_more: true, next_cursor: "page2", total_count: 3 }))
+      .mockResolvedValueOnce(payload([aOld, b], { total_count: 3 }));
+    render(<CompletionHistoryPageClient />);
+    await screen.findByRole("heading", { name: "A 最新" });
+    expect(screen.getAllByRole("heading", { level: 2, name: "历史节目" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "继续加载" }));
+    await screen.findByRole("heading", { name: "B 单集" });
+    const groups = screen.getAllByRole("region", { name: "历史节目" });
+    expect(groups).toHaveLength(2);
+    expect(within(groups[0]).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["A 最新", "A 较早"]);
+    expect(within(groups[1]).getByRole("heading", { level: 3 })).toHaveTextContent("B 单集");
+    expect(screen.getByText("按节目分组，最近完成优先")).toBeInTheDocument();
+    expect(screen.getAllByText("历史节目")).toHaveLength(2);
+  });
+
+  it("reloads the first page after an invalid cursor while retaining visible records", async () => {
+    apiMocks.listCompletionHistory
+      .mockResolvedValueOnce(payload([historyItem(1, "done")], { has_more: true, next_cursor: "old" }))
+      .mockRejectedValueOnce(new Error("游标已失效"))
+      .mockResolvedValueOnce(payload([historyItem(2, "done")]));
+    apiMocks.getConsumptionErrorDetails.mockReturnValueOnce({
+      message: "游标已失效", code: "INVALID_CURSOR", currentCount: undefined, focusLimit: undefined,
+    });
+    render(<CompletionHistoryPageClient />);
+    await screen.findByRole("heading", { name: "历史单集 1" });
+    fireEvent.click(screen.getByRole("button", { name: "继续加载" }));
+    const reload = await screen.findByRole("button", { name: "重新加载历史" });
+    expect(screen.getByRole("heading", { name: "历史单集 1" })).toBeInTheDocument();
+    fireEvent.click(reload);
+    await screen.findByRole("heading", { name: "历史单集 2" });
+    expect(apiMocks.listCompletionHistory).toHaveBeenLastCalledWith({ query: "" });
+    expect(screen.queryByRole("heading", { name: "历史单集 1" })).toBeNull();
   });
 
   it("restores committed URL searches and never queries unsubmitted text", async () => {

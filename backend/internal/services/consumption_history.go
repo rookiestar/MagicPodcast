@@ -10,6 +10,7 @@ import (
 
 	episodelabel "magicpodcast/internal/episode"
 
+	"github.com/mattn/go-sqlite3"
 	"gorm.io/gorm"
 )
 
@@ -51,22 +52,27 @@ type CompletionHistorySnapshot struct {
 }
 
 type completionHistoryCursor struct {
-	CompletedAt time.Time `json:"completed_at"`
-	EpisodeID   uint      `json:"episode_id"`
-	Query       string    `json:"query"`
+	// Preserve SQLite MAX text exactly for the cursor comparison.
+	GroupCompletedAt string    `json:"group_completed_at"`
+	PodcastID        uint      `json:"podcast_id"`
+	CompletedAt      time.Time `json:"completed_at"`
+	EpisodeID        uint      `json:"episode_id"`
+	SnapshotAt       time.Time `json:"snapshot_at"`
+	Query            string    `json:"query"`
 }
 
 type completionHistoryRow struct {
-	EpisodeID       uint
-	PodcastID       uint
-	PodcastTitle    string
-	PodcastCoverURL string
-	EpisodeTitle    string
-	EpisodeNo       string
-	ImageURL        string
-	CompletedAt     time.Time
-	QueueState      *string
-	DismissedAt     *time.Time
+	GroupCompletedAt string
+	EpisodeID        uint
+	PodcastID        uint
+	PodcastTitle     string
+	PodcastCoverURL  string
+	EpisodeTitle     string
+	EpisodeNo        string
+	ImageURL         string
+	CompletedAt      time.Time
+	QueueState       *string
+	DismissedAt      *time.Time
 }
 
 func (s *ConsumptionService) ListCompletionHistory(
@@ -80,6 +86,7 @@ func (s *ConsumptionService) ListCompletionHistory(
 		limit = CompletionHistoryMaxLimit
 	}
 	query := normalizeCompletionHistoryQuery(options.Query)
+	snapshotAt := s.now().UTC()
 
 	var cursor *completionHistoryCursor
 	if options.Cursor != "" {
@@ -92,6 +99,17 @@ func (s *ConsumptionService) ListCompletionHistory(
 
 	var snapshot CompletionHistorySnapshot
 	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if cursor != nil {
+			var changedCompletions int64
+			if err := tx.Table("episode_completions").
+				Where("completed_at > ?", cursor.SnapshotAt).
+				Count(&changedCompletions).Error; err != nil {
+				return fmt.Errorf("check completion history cursor freshness: %w", err)
+			}
+			if changedCompletions > 0 {
+				return ErrInvalidCompletionHistoryCursor
+			}
+		}
 		if err := completionHistoryBaseQuery(tx, "").
 			Count(&snapshot.TotalCount).Error; err != nil {
 			return fmt.Errorf("count completion history: %w", err)
@@ -101,8 +119,14 @@ func (s *ConsumptionService) ListCompletionHistory(
 			return fmt.Errorf("count matching completion history: %w", err)
 		}
 
+		// Rank matching facts before applying the page boundary.
+		groups := completionHistoryBaseQuery(tx, query).
+			Select("episodes.podcast_id, MAX(episode_completions.completed_at) AS group_completed_at").
+			Group("episodes.podcast_id")
 		pageQuery := completionHistoryBaseQuery(tx, query).
+			Joins("JOIN (?) AS completion_groups ON completion_groups.podcast_id = episodes.podcast_id", groups).
 			Select(`
+				completion_groups.group_completed_at,
 				episode_completions.episode_id,
 				episode_completions.completed_at,
 				episodes.podcast_id,
@@ -119,19 +143,16 @@ func (s *ConsumptionService) ListCompletionHistory(
 			`)
 		if cursor != nil {
 			pageQuery = pageQuery.Where(
-				`episode_completions.completed_at < ?
-				 OR (
-					episode_completions.completed_at = ?
-					AND episode_completions.episode_id < ?
-				 )`,
-				cursor.CompletedAt,
-				cursor.CompletedAt,
-				cursor.EpisodeID,
+				`(completion_groups.group_completed_at, episodes.podcast_id,
+				 episode_completions.completed_at, episode_completions.episode_id) < (?, ?, ?, ?)`,
+				cursor.GroupCompletedAt, cursor.PodcastID, cursor.CompletedAt, cursor.EpisodeID,
 			)
 		}
 
 		var rows []completionHistoryRow
 		if err := pageQuery.
+			Order("completion_groups.group_completed_at DESC").
+			Order("episodes.podcast_id DESC").
 			Order("episode_completions.completed_at DESC").
 			Order("episode_completions.episode_id DESC").
 			Limit(limit + 1).
@@ -160,9 +181,12 @@ func (s *ConsumptionService) ListCompletionHistory(
 		if snapshot.HasMore && len(rows) > 0 {
 			last := rows[len(rows)-1]
 			encoded, err := encodeCompletionHistoryCursor(completionHistoryCursor{
-				CompletedAt: last.CompletedAt,
-				EpisodeID:   last.EpisodeID,
-				Query:       query,
+				GroupCompletedAt: last.GroupCompletedAt,
+				PodcastID:        last.PodcastID,
+				CompletedAt:      last.CompletedAt,
+				EpisodeID:        last.EpisodeID,
+				SnapshotAt:       snapshotAt,
+				Query:            query,
 			})
 			if err != nil {
 				return err
@@ -244,9 +268,17 @@ func decodeCompletionHistoryCursor(value string) (completionHistoryCursor, error
 	if err := json.Unmarshal(payload, &cursor); err != nil {
 		return completionHistoryCursor{}, ErrInvalidCompletionHistoryCursor
 	}
-	if cursor.EpisodeID == 0 || cursor.CompletedAt.IsZero() {
+	if cursor.EpisodeID == 0 || cursor.CompletedAt.IsZero() || cursor.PodcastID == 0 || cursor.GroupCompletedAt == "" || cursor.SnapshotAt.IsZero() {
 		return completionHistoryCursor{}, ErrInvalidCompletionHistoryCursor
 	}
-	cursor.Query = normalizeCompletionHistoryQuery(cursor.Query)
-	return cursor, nil
+	// The group timestamp comes from SQLite MAX, which returns text rather
+	// than a typed timestamp. Use the driver's existing formats at this API boundary.
+	for _, format := range sqlite3.SQLiteTimestampFormats {
+		parsed, err := time.Parse(format, strings.TrimSuffix(cursor.GroupCompletedAt, "Z"))
+		if err == nil && !parsed.IsZero() {
+			cursor.Query = normalizeCompletionHistoryQuery(cursor.Query)
+			return cursor, nil
+		}
+	}
+	return completionHistoryCursor{}, ErrInvalidCompletionHistoryCursor
 }
