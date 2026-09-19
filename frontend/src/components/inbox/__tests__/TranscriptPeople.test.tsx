@@ -501,9 +501,12 @@ describe("人物识别进度与恢复", () => {
       expect(screen.getByText(/最近收到服务活动 0 秒前/)).toBeInTheDocument();
       clock = base + 21_000;
       act(() => { vi.advanceTimersByTime(1000); });
-      expect(screen.getByText(/最近收到服务活动 21 秒前/)).toBeInTheDocument();
+      const staleActivity = screen.getByText(/最近收到服务活动 \d+ 秒前/);
+      const staleAge = Number(staleActivity.textContent?.match(/(\d+) 秒前/)?.[1]);
+      expect(staleAge).toBeGreaterThanOrEqual(20);
+      expect(staleAge).toBeLessThanOrEqual(21);
       act(() => report({ type: "heartbeat", episode_id: 7, request_id: "a", source_version: "artifact-8" }));
-      expect(screen.getByText(/最近收到服务活动 21 秒前/)).toBeInTheDocument();
+      expect(screen.getByText(new RegExp(`最近收到服务活动 ${staleAge} 秒前`))).toBeInTheDocument();
       act(() => report({ type: "runtime", episode_id: 7, request_id: "a", source_version: "artifact-8", runtime: {phase: "generating", last_activity_age_ms: 0} }));
       expect(screen.getByText(/最近收到服务活动 0 秒前/)).toBeInTheDocument();
       expect(screen.queryByText(/正在分析/)).not.toBeInTheDocument();

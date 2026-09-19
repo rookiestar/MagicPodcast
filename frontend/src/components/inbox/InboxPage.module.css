@@ -224,6 +224,7 @@
 .queueItems {
   display: grid;
   flex: 1;
+  align-content: start;
   gap: 9px;
   min-height: 42px;
   transition:
