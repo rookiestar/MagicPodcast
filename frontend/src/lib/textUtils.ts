@@ -6,9 +6,14 @@
  * 从 HTML 文本中提取纯文本（用于列表预览）
  * @param html - HTML 字符串
  * @param maxLength - 最大长度（默认 100）
+ * @param preserveWhitespace - 保留命中片段中的内部空白（默认 false）
  * @returns 纯文本，超过长度会截断并添加省略号
  */
-export function stripHtml(html: string, maxLength: number = 100): string {
+export function stripHtml(
+  html: string,
+  maxLength: number = 100,
+  preserveWhitespace: boolean = false,
+): string {
   if (!html) return "";
 
   let text = "";
@@ -32,9 +37,10 @@ export function stripHtml(html: string, maxLength: number = 100): string {
   }
 
   // 清理多余的空白字符
-  text = text
-    .replace(/\s+/g, " ") // 多个空白字符替换为单个空格
-    .trim();
+  if (!preserveWhitespace) {
+    text = text.replace(/\s+/g, " ");
+  }
+  text = text.trim();
 
   // 截断文本
   if (text.length > maxLength) {

@@ -189,3 +189,51 @@ describe("searchResultDisplay", () => {
     );
   });
 });
+
+describe("search whitespace tolerance", () => {
+  it.each([
+    ["42章经", "42 章经"],
+    ["42 章经", "42章经"],
+    ["聊聊AI创业", "聊聊 AI 创业"],
+    ["AI\t\n\u00a0创业", "AI创业"],
+    ["42　章经", "42章经"],
+  ])("highlights original text %s for %s", (text, query) => {
+    const parts = getSearchTextHighlightParts(`前😀${text}后`, query);
+    expect(parts.filter((part) => part.highlighted).map((part) => part.text)).toEqual([text]);
+    expect(parts.map((part) => part.text).join("")).toBe(`前😀${text}后`);
+  });
+
+  it.each([["abowl", "a bowl"], ["42章经", "4 2章经"], ["章经", "章 经"], ["OpenAI投资", "OpenAI 创业"]])(
+    "preserves meaningful spaces and complete query", (text, query) => {
+      expect(getSearchTextHighlightParts(text, query)).toEqual([{ text, highlighted: false }]);
+    },
+  );
+
+  it("highlights multiple matches without changing intervening text", () => {
+    expect(getSearchTextHighlightParts("42章经与42 章经", "42 章经")).toEqual([
+      { text: "42章经", highlighted: true }, { text: "与", highlighted: false }, { text: "42 章经", highlighted: true },
+    ]);
+  });
+});
+
+describe("matched snippet contract", () => {
+  it.each([
+    ["汉\n字AI", "汉\n字 AI"],
+    ["a  bowl中", "a  bowl 中"],
+    ["42" + "章".repeat(180), "42 " + "章".repeat(180)],
+  ])("preserves a complete backend match for %s", (matched, query) => {
+    const snippet = `...前文${matched}后文...`;
+    const displayed = getEpisodeSearchSnippet(makeEpisode({
+      matched_fields: [{field: "show_notes", score: 1, snippet}],
+    }));
+    expect(displayed).toBe(snippet);
+    expect(getSearchTextHighlightParts(displayed, query).filter(part => part.highlighted).map(part => part.text)).toEqual([matched]);
+  });
+});
+
+ it("keeps entity decoding and HTML cleanup for matched snippets", () => {
+   const displayed = getEpisodeSearchSnippet(makeEpisode({
+     matched_fields: [{field: "show_notes", score: 1, snippet: "<p>42章经 &amp; a  bowl中</p>"}],
+   }));
+   expect(displayed).toBe("42章经 & a  bowl中");
+ });

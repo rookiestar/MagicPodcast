@@ -22,11 +22,18 @@ type SearchService struct {
 
 // NewSearchService 创建搜索服务
 func NewSearchService() *SearchService {
-	var searchConfig config.SearchConfig
+	searchConfig := defaultSearchConfig()
 	if cfg := config.Get(); cfg != nil {
 		searchConfig = cfg.Search
-	} else {
-		searchConfig = defaultSearchConfig()
+		defaults := defaultSearchConfig()
+		// Profile configurations may only specify pagination. Missing scoring
+		// sections must not silently disable exact-title and body matches.
+		if searchConfig.Weights == (config.SearchWeights{}) {
+			searchConfig.Weights = defaults.Weights
+		}
+		if searchConfig.MatchMultipliers == (config.SearchMatchMultipliers{}) {
+			searchConfig.MatchMultipliers = defaults.MatchMultipliers
+		}
 	}
 
 	return NewSearchServiceWithDB(database.GetDB(), searchConfig)
@@ -80,7 +87,7 @@ type SearchResponse struct {
 }
 
 // Search 执行搜索
-func (s *SearchService) Search(req SearchRequest) (*SearchResponse, error) {
+func (s *SearchService) search(req SearchRequest) (*SearchResponse, error) {
 	var (
 		podcasts []models.PodcastSearchResult
 		episodes []models.EpisodeSearchResult
@@ -219,7 +226,7 @@ func (s *SearchService) searchPodcasts(req SearchRequest) ([]models.PodcastSearc
 	}
 
 	// 按相关性得分排序
-	sort.Slice(results, func(i, j int) bool {
+	sort.SliceStable(results, func(i, j int) bool {
 		return results[i].RelevanceScore > results[j].RelevanceScore
 	})
 
@@ -320,7 +327,7 @@ func (s *SearchService) searchEpisodes(req SearchRequest) ([]models.EpisodeSearc
 	}
 
 	// 按相关性得分排序
-	sort.Slice(results, func(i, j int) bool {
+	sort.SliceStable(results, func(i, j int) bool {
 		return results[i].RelevanceScore > results[j].RelevanceScore
 	})
 
