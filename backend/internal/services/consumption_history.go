@@ -57,6 +57,7 @@ type completionHistoryCursor struct {
 	PodcastID        uint      `json:"podcast_id"`
 	CompletedAt      time.Time `json:"completed_at"`
 	EpisodeID        uint      `json:"episode_id"`
+	SnapshotAt       time.Time `json:"snapshot_at"`
 	Query            string    `json:"query"`
 }
 
@@ -85,6 +86,7 @@ func (s *ConsumptionService) ListCompletionHistory(
 		limit = CompletionHistoryMaxLimit
 	}
 	query := normalizeCompletionHistoryQuery(options.Query)
+	snapshotAt := s.now().UTC()
 
 	var cursor *completionHistoryCursor
 	if options.Cursor != "" {
@@ -97,6 +99,17 @@ func (s *ConsumptionService) ListCompletionHistory(
 
 	var snapshot CompletionHistorySnapshot
 	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if cursor != nil {
+			var changedCompletions int64
+			if err := tx.Table("episode_completions").
+				Where("completed_at > ?", cursor.SnapshotAt).
+				Count(&changedCompletions).Error; err != nil {
+				return fmt.Errorf("check completion history cursor freshness: %w", err)
+			}
+			if changedCompletions > 0 {
+				return ErrInvalidCompletionHistoryCursor
+			}
+		}
 		if err := completionHistoryBaseQuery(tx, "").
 			Count(&snapshot.TotalCount).Error; err != nil {
 			return fmt.Errorf("count completion history: %w", err)
@@ -172,6 +185,7 @@ func (s *ConsumptionService) ListCompletionHistory(
 				PodcastID:        last.PodcastID,
 				CompletedAt:      last.CompletedAt,
 				EpisodeID:        last.EpisodeID,
+				SnapshotAt:       snapshotAt,
 				Query:            query,
 			})
 			if err != nil {
@@ -254,7 +268,7 @@ func decodeCompletionHistoryCursor(value string) (completionHistoryCursor, error
 	if err := json.Unmarshal(payload, &cursor); err != nil {
 		return completionHistoryCursor{}, ErrInvalidCompletionHistoryCursor
 	}
-	if cursor.EpisodeID == 0 || cursor.CompletedAt.IsZero() || cursor.PodcastID == 0 || cursor.GroupCompletedAt == "" {
+	if cursor.EpisodeID == 0 || cursor.CompletedAt.IsZero() || cursor.PodcastID == 0 || cursor.GroupCompletedAt == "" || cursor.SnapshotAt.IsZero() {
 		return completionHistoryCursor{}, ErrInvalidCompletionHistoryCursor
 	}
 	// The group timestamp comes from SQLite MAX, which returns text rather
