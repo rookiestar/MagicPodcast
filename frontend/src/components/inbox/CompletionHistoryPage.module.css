@@ -243,6 +243,7 @@
 /* 按节目分组，组内保持紧凑历史行 */
 .historyList {
   display: grid;
+  padding-top: 16px;
   grid-template-columns: minmax(0, 1fr) auto auto;
   column-gap: 18px;
 }
@@ -270,24 +271,32 @@
   grid-template-columns: subgrid;
 }
 
+.podcastGroup + .podcastGroup {
+  margin-top: 24px;
+}
+
 .groupTitle {
   grid-column: 1 / -1;
-  margin: 0;
-  padding: 18px 0 8px;
-  color: var(--ink-soft);
-  font-size: 13px;
-  font-weight: 650;
+  margin: 0 0 8px;
+  padding: 0 0 8px;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: var(--type-card-title-size);
+  font-weight: var(--font-display-weight);
+  line-height: var(--type-card-title-leading);
+  letter-spacing: 0;
   overflow-wrap: anywhere;
-  border-bottom: 1px solid var(--rule);
+  border-bottom: 2px solid var(--ink);
 }
 
 .titleCell {
   margin: 0;
   min-width: 0;
-  font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: var(--font-display-weight);
-  line-height: 1.4;
+  padding-left: 16px;
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
+  font-weight: 400;
+  line-height: var(--type-body-leading);
 }
 
 .titleCell a {
@@ -558,6 +567,7 @@
 }
 
 .contextNav a:focus-visible,
+.titleCell a:focus-visible,
 .clearSearch:focus-visible,
 .searchButton:focus-visible,
 .searchControl:focus-within,
@@ -620,6 +630,7 @@
 
   .titleCell {
     grid-area: title;
+    padding-left: 8px;
   }
 
   .titleCell a {
@@ -631,6 +642,7 @@
 
   .dateCell {
     grid-area: date;
+    padding-left: 8px;
   }
 
   .actionCell {
