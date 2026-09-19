@@ -533,7 +533,13 @@ type CollectionSummary struct {
 	LastRefreshedAt *time.Time `json:"last_refreshed_at"`
 }
 
+// listSummaryItemColumns 列表摘要读取的最小列：收录判定与封面所需字段，
+// 不读取 Show Notes 等与列表无关的大字段。
+const listSummaryItemColumns = "collection_id, position, episode_id, external_episode_id, external_podcast_id, episode_url, image_url, podcast_cover_url"
+
 // ListCollections 列出已保存清单；search 非空时按清单标题过滤。
+// 条目与收录判定跨清单批量读取：先取符合搜索的清单，再一次载入全部条目的
+// 摘要字段并统一解析本地单集，避免按清单重复扫描个人单集库。
 func (s *Service) ListCollections(search string) ([]CollectionSummary, error) {
 	var collections []models.EpisodeCollection
 	query := s.db.Order("created_at DESC, id DESC")
@@ -544,23 +550,21 @@ func (s *Service) ListCollections(search string) ([]CollectionSummary, error) {
 		return nil, err
 	}
 
+	itemsByCollection, err := s.listSummaryItems(collectionIDs(collections))
+	if err != nil {
+		return nil, err
+	}
+
 	summaries := make([]CollectionSummary, 0, len(collections))
 	for _, collection := range collections {
-		itemCount, adoptedCount, err := s.collectionCounts(s.db, collection.ID)
-		if err != nil {
-			return nil, err
-		}
-		var coverItems []models.EpisodeCollectionItem
-		if err := s.db.Select("image_url", "podcast_cover_url").Where("collection_id = ?", collection.ID).Order("position ASC, id ASC").Limit(4).Find(&coverItems).Error; err != nil {
-			return nil, err
-		}
-		covers := make([]string, 0, len(coverItems))
-		for _, item := range coverItems {
-			if cover := firstNonEmpty(item.ImageURL, item.PodcastCoverURL); cover != "" {
-				covers = append(covers, cover)
+		items := itemsByCollection[collection.ID]
+		var adoptedCount int64
+		for _, item := range items {
+			if item.EpisodeID != nil {
+				adoptedCount++
 			}
 		}
-		summaries = append(summaries, CollectionSummary{Covers: covers,
+		summaries = append(summaries, CollectionSummary{Covers: summaryCovers(items),
 			ID:              collection.ID,
 			Title:           collection.Title,
 			Description:     collection.Description,
@@ -569,13 +573,57 @@ func (s *Service) ListCollections(search string) ([]CollectionSummary, error) {
 			ExternalID:      collection.ExternalID,
 			SourceURL:       collection.SourceURL,
 			TotalKnown:      collection.TotalKnown,
-			ItemCount:       itemCount,
+			ItemCount:       int64(len(items)),
 			AdoptedCount:    adoptedCount,
 			CreatedAt:       collection.CreatedAt,
 			LastRefreshedAt: collection.LastRefreshedAt,
 		})
 	}
 	return summaries, nil
+}
+
+func collectionIDs(collections []models.EpisodeCollection) []uint {
+	ids := make([]uint, 0, len(collections))
+	for _, collection := range collections {
+		ids = append(ids, collection.ID)
+	}
+	return ids
+}
+
+// listSummaryItems 一次性载入清单条目的摘要字段并解析收录状态，
+// 按清单分组返回；组内保持 position ASC, id ASC 顺序。
+func (s *Service) listSummaryItems(collectionIDs []uint) (map[uint][]models.EpisodeCollectionItem, error) {
+	byCollection := make(map[uint][]models.EpisodeCollectionItem)
+	if len(collectionIDs) == 0 {
+		return byCollection, nil
+	}
+	var items []models.EpisodeCollectionItem
+	if err := s.db.Select(listSummaryItemColumns).
+		Where("collection_id IN ?", collectionIDs).
+		Order("position ASC, id ASC").
+		Find(&items).Error; err != nil {
+		return nil, err
+	}
+	if err := resolveItemEpisodes(s.db, items); err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		byCollection[item.CollectionID] = append(byCollection[item.CollectionID], item)
+	}
+	return byCollection, nil
+}
+
+// summaryCovers 保持原行为：取顺序前四条目再过滤空封面，
+// 不改成“前四个非空封面”。
+func summaryCovers(items []models.EpisodeCollectionItem) []string {
+	limit := min(len(items), 4)
+	covers := make([]string, 0, limit)
+	for _, item := range items[:limit] {
+		if cover := firstNonEmpty(item.ImageURL, item.PodcastCoverURL); cover != "" {
+			covers = append(covers, cover)
+		}
+	}
+	return covers
 }
 
 // CollectionItemDetail 清单详情条目，含真实收录状态。
@@ -710,29 +758,6 @@ func (s *Service) GetCollection(id uint) (*CollectionDetail, error) {
 	return detail, nil
 }
 
-func (s *Service) collectionCounts(db *gorm.DB, collectionID uint) (int64, int64, error) {
-	var itemCount, adoptedCount int64
-	if err := db.Model(&models.EpisodeCollectionItem{}).
-		Where("collection_id = ?", collectionID).
-		Count(&itemCount).Error; err != nil {
-		return 0, 0, err
-	}
-	var items []models.EpisodeCollectionItem
-	if err := db.Where("collection_id = ?", collectionID).Find(&items).Error; err != nil {
-		return 0, 0, err
-	}
-	if err := resolveItemEpisodes(db, items); err != nil {
-		return 0, 0, err
-	}
-	for _, item := range items {
-		if item.EpisodeID != nil {
-			adoptedCount++
-		}
-	}
-
-	return itemCount, adoptedCount, nil
-}
-
 func (s *Service) adoptedEpisodeFacts(db *gorm.DB, episodeIDs []uint) (map[uint]models.EpisodeTriageDecision, map[uint]models.Episode, error) {
 	queueByEpisode := make(map[uint]models.EpisodeTriageDecision, len(episodeIDs))
 	titleByEpisode := make(map[uint]models.Episode, len(episodeIDs))
@@ -774,40 +799,77 @@ func itemRecord(collectionID uint, position int, item ItemDraft) models.EpisodeC
 	}
 }
 
+// identityQueryBatchSize 单条身份查询的主机参数上限：远低于 SQLite 当前限制，
+// 超出时分批查询。候选按条目自身身份独立判定，分批合并的结果与单次查询一致。
+const identityQueryBatchSize = 500
+
 // Discovery readback resolves the personal library rather than treating an item FK
 // as a second adoption ledger. This covers a second collection and soft deletion.
 func resolveItemEpisodes(db *gorm.DB, items []models.EpisodeCollectionItem) error {
 	if len(items) == 0 {
 		return nil
 	}
-	var ids []uint
-	var eids, links []string
+	// 身份值去重：只消除重复查询和重复候选，不改变候选判定本身。
+	ids := make([]uint, 0, len(items))
+	seenIDs := make(map[uint]bool, len(items))
+	eids := make([]string, 0, len(items))
+	seenEIDs := make(map[string]bool, len(items))
+	links := make([]string, 0, len(items))
+	seenLinks := make(map[string]bool, len(items))
 	for _, item := range items {
-		eids = append(eids, item.ExternalEpisodeID)
-		links = append(links, item.EpisodeURL)
-		if item.EpisodeID != nil {
+		if !seenEIDs[item.ExternalEpisodeID] {
+			seenEIDs[item.ExternalEpisodeID] = true
+			eids = append(eids, item.ExternalEpisodeID)
+		}
+		if !seenLinks[item.EpisodeURL] {
+			seenLinks[item.EpisodeURL] = true
+			links = append(links, item.EpisodeURL)
+		}
+		if item.EpisodeID != nil && !seenIDs[*item.EpisodeID] {
+			seenIDs[*item.EpisodeID] = true
 			ids = append(ids, *item.EpisodeID)
 		}
 	}
-	var refs []models.EpisodeExternalRef
-	if err := db.Where("source_platform = ? AND external_episode_id IN ?", PlatformXiaoyuzhoufm, eids).Find(&refs).Error; err != nil {
-		return err
-	}
+
 	refIDs := map[string][]uint{}
-	for _, ref := range refs {
-		ids = append(ids, ref.EpisodeID)
-		refIDs[ref.ExternalEpisodeID] = append(refIDs[ref.ExternalEpisodeID], ref.EpisodeID)
+	for start := 0; start < len(eids); start += identityQueryBatchSize {
+		var refs []models.EpisodeExternalRef
+		if err := db.Where("source_platform = ? AND external_episode_id IN ?", PlatformXiaoyuzhoufm,
+			eids[start:min(start+identityQueryBatchSize, len(eids))]).Find(&refs).Error; err != nil {
+			return err
+		}
+		for _, ref := range refs {
+			refIDs[ref.ExternalEpisodeID] = append(refIDs[ref.ExternalEpisodeID], ref.EpisodeID)
+			// 映射目标单集也要进入身份池，供后续单集查询按 ID 取回。
+			if !seenIDs[ref.EpisodeID] {
+				seenIDs[ref.EpisodeID] = true
+				ids = append(ids, ref.EpisodeID)
+			}
+		}
 	}
+
 	var episodes []struct {
 		ID    uint
 		Link  string
 		GUID  string
 		XYZID string
 	}
-	if err := db.Model(&models.Episode{}).Select("episodes.id, episodes.link, episodes.guid, podcasts.xyz_id").
-		Joins("JOIN podcasts ON podcasts.id = episodes.podcast_id AND podcasts.deleted_at IS NULL").
-		Where("episodes.id IN ? OR episodes.link IN ? OR episodes.guid IN ?", ids, links, eids).Find(&episodes).Error; err != nil {
-		return err
+	// 三个身份列合并为一次 OR 查询；任一列超出批次大小则按各自分批续查，
+	// 各批结果合并后与单次大查询等价。
+	for start := 0; start < len(ids) || start < len(links) || start < len(eids); start += identityQueryBatchSize {
+		var batch []struct {
+			ID    uint
+			Link  string
+			GUID  string
+			XYZID string
+		}
+		if err := db.Model(&models.Episode{}).Select("episodes.id, episodes.link, episodes.guid, podcasts.xyz_id").
+			Joins("JOIN podcasts ON podcasts.id = episodes.podcast_id AND podcasts.deleted_at IS NULL").
+			Where("episodes.id IN ? OR episodes.link IN ? OR episodes.guid IN ?",
+				chunkBy(ids, start), chunkBy(links, start), chunkBy(eids, start)).Find(&batch).Error; err != nil {
+			return err
+		}
+		episodes = append(episodes, batch...)
 	}
 	for i := range items {
 		item := &items[i]
@@ -835,4 +897,14 @@ func resolveItemEpisodes(db *gorm.DB, items []models.EpisodeCollectionItem) erro
 		}
 	}
 	return nil
+}
+
+// chunkBy 返回切片从 start 起的一个批次；越界时返回空切片，
+// 对应 IN 条件匹配不到任何行。
+func chunkBy[T any](values []T, start int) []T {
+	if start >= len(values) {
+		return nil
+	}
+	end := min(start+identityQueryBatchSize, len(values))
+	return values[start:end]
 }
