@@ -1125,6 +1125,7 @@
 
   .podcast-episode-card-heading {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-start;
     justify-content: space-between;
     gap: 12px;
@@ -1133,7 +1134,7 @@
 
   .podcast-episode-title {
     min-height: 44px;
-    flex: 1;
+    flex: 1 1 180px;
     display: flex;
     align-items: center;
     color: #171717;
@@ -1148,9 +1149,40 @@
     color: #1768d0;
   }
 
+  /* An open menu must escape the per-card paint containment used by long lists. */
+  .podcast-episode-list > div:has([aria-expanded="true"]) {
+    content-visibility: visible !important;
+    position: relative;
+    z-index: 10;
+  }
+
+  .podcast-episode-queue-error {
+    max-width: 180px;
+    color: #9f2d20;
+    font-size: 12px;
+  }
+
+  .podcast-episode-queue-error button {
+    min-height: 44px;
+    padding: 0 8px;
+    text-decoration: underline;
+  }
+
+  @media (max-width: 639px) {
+    .podcast-episode-card-heading {
+      flex-wrap: wrap;
+    }
+
+    .podcast-episode-card-heading > .podcast-episode-title {
+      flex-basis: 100%;
+    }
+  }
+
   .podcast-episode-actions {
     display: flex;
-    flex: 0 0 auto;
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    max-width: 100%;
     align-items: flex-start;
     gap: 8px;
   }

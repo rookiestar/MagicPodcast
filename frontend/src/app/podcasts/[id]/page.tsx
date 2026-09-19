@@ -48,6 +48,7 @@ export default function PodcastDetailPage() {
   const { notes: swrNotes, mutate: mutateNotes } = usePodcastNotes(podcastId);
 
   const {
+    updateEpisodeQueue,
     episodes,
     episodesLoading,
     isLoadingMore,
@@ -121,6 +122,7 @@ export default function PodcastDetailPage() {
       <div className="podcast-detail-content py-6">
         {searchParams.has("episode_id") && !positiveID(targetEpisodeId) && <p role="alert">单集卡片地址无效，无法定位。</p>}
         <PodcastDetailContent
+          onQueueChange={updateEpisodeQueue}
           error={error}
           podcast={podcast}
           tags={tags}

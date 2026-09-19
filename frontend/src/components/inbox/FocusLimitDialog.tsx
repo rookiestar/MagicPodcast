@@ -6,7 +6,7 @@ import type { ConsumptionItem } from "@/types/consumption";
 import styles from "./InboxPage.module.css";
 
 interface FocusLimitDialogProps {
-  item: ConsumptionItem;
+  item: Pick<ConsumptionItem, "episode_title">;
   currentCount: number;
   limit: number;
   isSaving: boolean;
@@ -36,6 +36,18 @@ export default function FocusLimitDialog({
       }}
       onKeyDown={(event) => {
         if (event.key === "Escape" && !isSaving) onCancel();
+        if (event.key === "Tab") {
+          const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
+          const first = buttons[0];
+          const last = buttons[buttons.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last?.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first?.focus();
+          }
+        }
       }}
     >
       <div

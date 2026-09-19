@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type CSSProperties } from "react";
+import { useCallback, useMemo, useState, type CSSProperties } from "react";
 import { useOriginalEpisodeRecovery } from "@/hooks/useOriginalEpisodeRecovery";
 import {
   getEpisodeListDisplayTotal,
@@ -16,6 +16,7 @@ import type { Episode } from "@/types";
 import EpisodeCard from "./EpisodeCard";
 
 interface EpisodeListSectionProps {
+  onQueueChange?: (episodeId: number, queue: Episode["queue_state"]) => void;
   episodes: Episode[];
   episodesLoading: boolean;
   isLoadingMore: boolean;
@@ -125,6 +126,7 @@ function EpisodeListFooter({
 }
 
 export default function EpisodeListSection({
+  onQueueChange,
   episodes,
   episodesLoading,
   isLoadingMore,
@@ -135,6 +137,17 @@ export default function EpisodeListSection({
   loadMoreRef,
   onRetry,
 }: EpisodeListSectionProps) {
+  // Independent writes may reach the Focus limit together. Present their
+  // confirmations one at a time instead of stacking modal dialogs.
+  const [focusPromptIds, setFocusPromptIds] = useState<number[]>([]);
+  const onFocusPromptChange = useCallback((episodeId: number, open: boolean) => {
+    setFocusPromptIds((previous) => {
+      if (open) return previous.includes(episodeId) ? previous : [...previous, episodeId];
+      return previous.includes(episodeId)
+        ? previous.filter((id) => id !== episodeId)
+        : previous;
+    });
+  }, []);
   const originalRecovery = useOriginalEpisodeRecovery();
   const showNotesStore = useMemo(() => createEpisodeShowNotesStore(), []);
   const episodeListStatus = getEpisodeListStatus({
@@ -184,6 +197,9 @@ export default function EpisodeListSection({
               >
                 <EpisodeCard
                   episode={episode}
+                  onQueueChange={onQueueChange}
+                  activeFocusEpisodeId={focusPromptIds[0] ?? null}
+                  onFocusPromptChange={onFocusPromptChange}
                   podcastCover={podcastCover}
                   index={index}
                   priority={getEpisodeImagePriority(index)}
