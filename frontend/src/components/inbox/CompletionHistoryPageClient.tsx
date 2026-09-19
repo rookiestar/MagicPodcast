@@ -592,7 +592,6 @@ export default function CompletionHistoryPageClient() {
                           episodeID={item.episode_id}
                           source="history"
                           href={`/episodes/${item.episode_id}?from=history`}
-                          data-editorial-display-text="true"
                         >
                           {item.episode_title}
                         </EpisodeLink>
