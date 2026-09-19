@@ -9,6 +9,14 @@ import (
 
 // calculatePodcastRelevance 计算播客相关性得分
 func calculatePodcastRelevance(title, author, description, keyword string, cfg config.SearchConfig) float64 {
+	if hasSearchHan(keyword) {
+		score := calculatePodcastRelevanceRaw(normalizeSearchText(title), normalizeSearchText(author), normalizeSearchText(description), normalizeSearchText(keyword), cfg)
+		return searchTitlePriority(title, keyword, score, strings.Contains(strings.ToLower(author), strings.ToLower(keyword)) || strings.Contains(strings.ToLower(description), strings.ToLower(keyword)))
+	}
+	return calculatePodcastRelevanceRaw(title, author, description, keyword, cfg)
+}
+
+func calculatePodcastRelevanceRaw(title, author, description, keyword string, cfg config.SearchConfig) float64 {
 	// 优化：缓存ToLower结果，避免重复调用
 	keywordLower := strings.ToLower(keyword)
 	titleLower := strings.ToLower(title)
@@ -92,6 +100,14 @@ func calculatePodcastRelevance(title, author, description, keyword string, cfg c
 
 // calculateEpisodeRelevance 计算单集相关性得分
 func calculateEpisodeRelevance(title, showNotes, keyword string, cfg config.SearchConfig) float64 {
+	if hasSearchHan(keyword) {
+		score := calculateEpisodeRelevanceRaw(normalizeSearchText(title), normalizeSearchText(showNotes), normalizeSearchText(keyword), cfg)
+		return searchTitlePriority(title, keyword, score, strings.Contains(strings.ToLower(showNotes), strings.ToLower(keyword)))
+	}
+	return calculateEpisodeRelevanceRaw(title, showNotes, keyword, cfg)
+}
+
+func calculateEpisodeRelevanceRaw(title, showNotes, keyword string, cfg config.SearchConfig) float64 {
 	// 优化：缓存ToLower结果
 	keywordLower := strings.ToLower(keyword)
 	titleLower := strings.ToLower(title)
@@ -155,9 +171,8 @@ func calculateEpisodeRelevance(title, showNotes, keyword string, cfg config.Sear
 // extractMatchedFields 提取匹配字段（播客）
 func extractMatchedFields(title, author, description, keyword string, cfg config.SearchConfig) []models.MatchedField {
 	var fields []models.MatchedField
-	keywordLower := strings.ToLower(keyword)
 
-	if strings.Contains(strings.ToLower(title), keywordLower) {
+	if searchContains(title, keyword) {
 		fields = append(fields, models.MatchedField{
 			Field:   "title",
 			Score:   cfg.Weights.PodcastTitle,
@@ -165,7 +180,7 @@ func extractMatchedFields(title, author, description, keyword string, cfg config
 		})
 	}
 
-	if strings.Contains(strings.ToLower(author), keywordLower) {
+	if searchContains(author, keyword) {
 		fields = append(fields, models.MatchedField{
 			Field:   "author",
 			Score:   cfg.Weights.Author,
@@ -173,7 +188,7 @@ func extractMatchedFields(title, author, description, keyword string, cfg config
 		})
 	}
 
-	if strings.Contains(strings.ToLower(description), keywordLower) {
+	if searchContains(description, keyword) {
 		fields = append(fields, models.MatchedField{
 			Field:   "description",
 			Score:   cfg.Weights.PodcastDesc,
@@ -187,11 +202,8 @@ func extractMatchedFields(title, author, description, keyword string, cfg config
 // extractMatchedFieldsFromEpisode 提取匹配字段（单集）
 func extractMatchedFieldsFromEpisode(title, showNotes, keyword string, cfg config.SearchConfig) []models.MatchedField {
 	var fields []models.MatchedField
-	keywordLower := strings.ToLower(keyword)
-	titleLower := strings.ToLower(title)
-	showNotesLower := strings.ToLower(showNotes)
 
-	if strings.Contains(titleLower, keywordLower) {
+	if searchContains(title, keyword) {
 		fields = append(fields, models.MatchedField{
 			Field:   "title",
 			Score:   cfg.Weights.EpisodeTitle,
@@ -199,7 +211,7 @@ func extractMatchedFieldsFromEpisode(title, showNotes, keyword string, cfg confi
 		})
 	}
 
-	if strings.Contains(showNotesLower, keywordLower) {
+	if searchContains(showNotes, keyword) {
 		fields = append(fields, models.MatchedField{
 			Field:   "show_notes",
 			Score:   cfg.Weights.EpisodeContent,

@@ -19,6 +19,9 @@ const (
 var searchFTSTokenPattern = regexp.MustCompile(`[A-Za-z0-9]+`)
 
 func canUseSearchFTS(db *gorm.DB, tableName string, keyword string) bool {
+	if hasSearchHan(keyword) {
+		return false
+	}
 	if utf8.RuneCountInString(strings.TrimSpace(keyword)) < minFTSSearchRunes {
 		return false
 	}
@@ -30,6 +33,9 @@ func canUseSearchFTS(db *gorm.DB, tableName string, keyword string) bool {
 }
 
 func (s *SearchService) canUseFTS(tableName string, keyword string) bool {
+	if hasSearchHan(keyword) {
+		return false
+	}
 	if utf8.RuneCountInString(strings.TrimSpace(keyword)) < minFTSSearchRunes {
 		return false
 	}

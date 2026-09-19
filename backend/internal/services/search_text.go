@@ -80,10 +80,12 @@ func stripHTML(text string) string {
 
 // generateSnippet 生成匹配片段（用于高亮显示）
 func generateSnippet(text, keyword string) string {
-	// 清理文本：先移除 HTML 标签，再清理换行符
+	// Preserve significant whitespace for normalized matching and its source offsets.
 	text = stripHTML(text)
-	text = strings.ReplaceAll(text, "\n", " ")
-	text = strings.ReplaceAll(text, "\r", " ")
+	if !hasSearchHan(keyword) {
+		text = strings.ReplaceAll(text, "\n", " ")
+		text = strings.ReplaceAll(text, "\r", " ")
+	}
 	text = strings.TrimSpace(text)
 
 	textRunes := []rune(text)
@@ -99,6 +101,16 @@ func generateSnippet(text, keyword string) string {
 
 	// 查找关键词第一次出现的位置
 	idx := indexRunes(textLowerRunes, keywordLowerRunes)
+	matchEnd := idx + len(keywordLowerRunes)
+	if hasSearchHan(keyword) {
+		normalized, positions := normalizedSearchRunes(text)
+		normalizedKeyword, _ := normalizedSearchRunes(keyword)
+		match := indexRunes(normalized, normalizedKeyword)
+		if match >= 0 {
+			idx = positions[match]
+			matchEnd = positions[match+len(normalizedKeyword)-1] + 1
+		}
+	}
 	if idx == -1 {
 		return string(textRunes[:searchSnippetLength]) + "..."
 	}
@@ -111,18 +123,23 @@ func generateSnippet(text, keyword string) string {
 	}
 
 	end := start + searchSnippetLength
+	if hasSearchHan(keyword) && matchEnd > end {
+		end = matchEnd
+	}
 	if end > len(textRunes) {
 		end = len(textRunes)
 		// 如果接近文本末尾，调整 start 以保持 snippet 长度
-		start = end - searchSnippetLength
-		if start < 0 {
-			start = 0
+		if !hasSearchHan(keyword) {
+			start = end - searchSnippetLength
+			if start < 0 {
+				start = 0
+			}
 		}
 	}
 
 	// 最终验证：确保 snippet 包含完整的关键词
 	snippet := string(textRunes[start:end])
-	if !containsRunes(textLowerRunes[start:end], keywordLowerRunes) {
+	if !hasSearchHan(keyword) && !containsRunes(textLowerRunes[start:end], keywordLowerRunes) {
 		// 如果因为某种原因 snippet 不包含关键词，使用最简单的策略
 		start = idx - 20
 		if start < 0 {
