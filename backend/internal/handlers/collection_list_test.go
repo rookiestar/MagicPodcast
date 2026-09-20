@@ -301,6 +301,14 @@ func TestCollectionHandler_ListIdentityBatchBoundary(t *testing.T) {
 			item.ExternalEpisodeID = "ref-high"
 		case 0:
 			item.EpisodeURL = epLinkLow.Link
+		case 516:
+			// 引用和链接的不同候选分处两个查询批次，仍须判为歧义。
+			item.EpisodeID = &epFK.ID
+			item.EpisodeURL = epLinkHigh.Link
+		case 518:
+			// 同一候选分别由首批 ID 和后批链接取回，不应误判为歧义。
+			item.EpisodeID = &epLinkHigh.ID
+			item.EpisodeURL = epLinkHigh.Link
 		case 519:
 			item.EpisodeURL = epLinkHigh.Link
 		}
@@ -311,17 +319,17 @@ func TestCollectionHandler_ListIdentityBatchBoundary(t *testing.T) {
 	list := listCollections(t, router, "")
 	require.Len(t, list, 1)
 	assert.Equal(t, int64(totalItems), list[0].ItemCount)
-	assert.Equal(t, int64(5), list[0].AdoptedCount, "分批边界两侧的引用/映射/链接命中全部识别")
+	assert.Equal(t, int64(6), list[0].AdoptedCount, "分批边界两侧的引用/映射/链接命中全部识别")
 
 	_, adoptedCount, detailItems := getCollectionDetailCounts(t, router, collection.ID)
-	assert.Equal(t, int64(5), adoptedCount)
+	assert.Equal(t, int64(6), adoptedCount)
 	adopted := map[int]bool{}
 	for _, item := range detailItems {
 		if item.AdoptedEpisodeID != nil {
 			adopted[item.Position] = true
 		}
 	}
-	assert.Equal(t, map[int]bool{0: true, 250: true, 499: true, 510: true, 519: true}, adopted)
+	assert.Equal(t, map[int]bool{0: true, 250: true, 499: true, 510: true, 518: true, 519: true}, adopted)
 }
 
 func TestCollectionHandler_ListEmptySet(t *testing.T) {

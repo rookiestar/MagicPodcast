@@ -43,30 +43,33 @@ func TestListCollectionsPerfScale(t *testing.T) {
 	if persistent := strings.TrimSpace(os.Getenv("MAGICPODCAST_COLLECTIONS_PERF_DB")); persistent != "" {
 		dbFile = persistent
 		require.NoError(t, os.MkdirAll(filepath.Dir(dbFile), 0o755))
-		if err := os.Remove(dbFile); err != nil && !os.IsNotExist(err) {
-			require.NoError(t, err)
-		}
+		require.NoError(t, reservePerfDBFile(dbFile), "性能采样只允许新建数据库，请使用未占用的路径")
 	}
 	db, err := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
 	require.NoError(t, err)
-	// 用项目版本化迁移引导 schema（版本 35），与生产结构一致，
+	// 用项目版本化迁移引导当前 schema，
 	// 也让 API 进程可以直接打开该文件做页面验收。
 	require.NoError(t, database.ApplyMigrations(db))
 
 	seedStart := time.Now()
 	expectedAdopted := seedPerfData(t, db)
 	var liveEpisodes int64
-	require.NoError(t, db.Model(&models.Episode{}).Count(&liveEpisodes).Error)
+	require.NoError(t, db.Model(&models.Episode{}).
+		Joins("JOIN podcasts ON podcasts.id = episodes.podcast_id AND podcasts.deleted_at IS NULL").
+		Count(&liveEpisodes).Error)
+	require.Equal(t, int64(66404), liveEpisodes)
 	t.Logf("种子数据构建耗时 %s（%d 份清单 / %d 条目 / %d 有效单集 / 预期收录条目 %d）",
 		time.Since(seedStart).Round(time.Millisecond), perfCollections, perfItems, liveEpisodes, expectedAdopted)
 
 	service := NewService(db)
-	counter := newSQLCounter(db, "`episodes`")
-	logQueryPlan(t, db)
+	counter := newSQLCounter(db, "FROM `episodes`")
 
 	summaries, first := runList(t, service)
 	t.Logf("首轮耗时 %s，命中 %q 的 SQL %d 条（进程内首个请求；数据库文件为本进程新建，不代表操作系统磁盘冷缓存）",
 		first.Round(time.Millisecond), counter.fragment, counter.reset())
+	query := counter.firstQuery.Load()
+	require.NotNil(t, query, "应采集实际执行的身份匹配 SQL")
+	logQueryPlan(t, db, *query)
 
 	subsequent := make([]time.Duration, 0, 12)
 	lastScans := int64(0)
@@ -95,6 +98,56 @@ func TestListCollectionsPerfScale(t *testing.T) {
 		require.Equal(t, summary.AdoptedCount, detail.AdoptedCount, "清单 %d 收录数列表与详情不一致", summary.ID)
 	}
 	t.Logf("92 份清单详情对照总耗时 %s", time.Since(detailStart).Round(time.Millisecond))
+}
+
+// reservePerfDBFile 拒绝覆盖已有文件（含符号链接），由文件系统原子地占用新路径。
+func reservePerfDBFile(path string) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	return file.Close()
+}
+
+func TestReservePerfDBFilePreservesExistingData(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "existing.db")
+	original := []byte("existing database must survive")
+	require.NoError(t, os.WriteFile(path, original, 0o600))
+	require.ErrorIs(t, reservePerfDBFile(path), os.ErrExist)
+	actual, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, original, actual)
+
+	link := filepath.Join(t.TempDir(), "linked.db")
+	require.NoError(t, os.Symlink(path, link))
+	require.ErrorIs(t, reservePerfDBFile(link), os.ErrExist)
+	actual, err = os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, original, actual)
+
+	fresh := filepath.Join(t.TempDir(), "new.db")
+	require.NoError(t, reservePerfDBFile(fresh))
+	require.ErrorIs(t, reservePerfDBFile(fresh), os.ErrExist)
+}
+
+func TestListPerfPlanUsesExecutedIdentityQuery(t *testing.T) {
+	db := newTestDB(t)
+	podcast := models.Podcast{Title: "plan", FeedURL: "https://example.com/plan.xml", XYZID: "plan-podcast"}
+	require.NoError(t, db.Create(&podcast).Error)
+	episode := models.Episode{PodcastID: podcast.ID, GUID: "plan-guid", Link: "https://example.com/plan"}
+	require.NoError(t, db.Create(&episode).Error)
+	items := []models.EpisodeCollectionItem{{ExternalEpisodeID: "plan-guid", ExternalPodcastID: "plan-podcast", EpisodeURL: episode.Link}}
+	counter := newSQLCounter(db, "FROM `episodes`")
+	require.NoError(t, resolveItemEpisodes(db, items))
+	require.NotNil(t, items[0].EpisodeID)
+	query := counter.firstQuery.Load()
+	require.NotNil(t, query)
+	// 这里验证诊断工具捕获了实际 SQL，而非约束业务实现的查询形态。
+	require.Contains(t, *query, "`episodes`.`deleted_at` IS NULL")
+	require.Contains(t, *query, episode.Link)
+	count := counter.load()
+	logQueryPlan(t, db, *query)
+	require.Equal(t, count, counter.load(), "EXPLAIN 不计入业务扫描次数")
 }
 
 func runList(t *testing.T, service *Service) ([]CollectionSummary, time.Duration) {
@@ -129,8 +182,9 @@ func logDurations(t *testing.T, label string, durations []time.Duration) {
 
 // sqlCounter 统计包含目标片段的已执行 SQL 条数，仅用于诊断证据。
 type sqlCounter struct {
-	count    int64
-	fragment string
+	count      int64
+	fragment   string
+	firstQuery atomic.Pointer[string]
 }
 
 func newSQLCounter(db *gorm.DB, fragment string) *sqlCounter {
@@ -152,17 +206,18 @@ func (l *countingLogger) Trace(ctx context.Context, begin time.Time, fc func() (
 	sql, _ := fc()
 	if strings.Contains(sql, l.counter.fragment) {
 		atomic.AddInt64(&l.counter.count, 1)
+		l.counter.firstQuery.CompareAndSwap(nil, &sql)
 	}
 	l.Interface.Trace(ctx, begin, func() (string, int64) { return sql, 0 }, err)
 }
 
 // logQueryPlan 打印身份匹配查询在当前数据形态下的查询计划（诊断证据）。
-func logQueryPlan(t *testing.T, db *gorm.DB) {
+func logQueryPlan(t *testing.T, db *gorm.DB, query string) {
 	t.Helper()
-	query := `SELECT episodes.id, episodes.link, episodes.guid, podcasts.xyz_id
-		FROM "episodes" JOIN podcasts ON podcasts.id = episodes.podcast_id AND podcasts.deleted_at IS NULL
-		WHERE episodes.id IN (1,2,3) OR episodes.link IN ('https://example.com/e1') OR episodes.guid IN ('guid-1')`
-	rows, err := db.Raw("EXPLAIN QUERY PLAN " + query).Rows()
+	// 对首轮真实查询做 EXPLAIN，保留 GORM 软删除条件与实际身份参数。
+	// 使用独立 logger，避免诊断查询被误计入业务扫描次数。
+	rows, err := db.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)}).
+		Raw("EXPLAIN QUERY PLAN " + query).Rows()
 	require.NoError(t, err)
 	defer rows.Close()
 	values := make([]any, 4)
@@ -187,6 +242,7 @@ func logQueryPlan(t *testing.T, db *gorm.DB) {
 		}
 		t.Logf("查询计划: %s", strings.Join(parts, " | "))
 	}
+	require.NoError(t, rows.Err())
 }
 
 // seedPerfData 构建等量级临时数据，返回预期已收录条目数。
@@ -203,6 +259,9 @@ func seedPerfData(t *testing.T, db *gorm.DB) int {
 			XYZID:        fmt.Sprintf("xyz%04d", i),
 			IsSubscribed: true,
 		})
+	}
+	for i := livePodcasts; i < len(podcasts); i++ {
+		podcasts[i].DeletedAt = gorm.DeletedAt{Time: time.Now(), Valid: true}
 	}
 	require.NoError(t, db.CreateInBatches(&podcasts, 200).Error)
 
@@ -223,7 +282,7 @@ func seedPerfData(t *testing.T, db *gorm.DB) int {
 		case i < liveCount+perfSoftDeletedEpisodes:
 			identities[i] = identity{podcastIndex: i % livePodcasts, episodeIndex: i, deleted: true}
 		default:
-			identities[i] = identity{podcastIndex: livePodcasts + (i-liveCount-perfSoftDeletedEpisodes)/perfEpisodesPerPodcast, episodeIndex: i, deleted: true}
+			identities[i] = identity{podcastIndex: livePodcasts + (i-liveCount-perfSoftDeletedEpisodes)/perfEpisodesPerPodcast, episodeIndex: i}
 		}
 	}
 	deletedAt := gorm.DeletedAt{Time: time.Now(), Valid: true}
