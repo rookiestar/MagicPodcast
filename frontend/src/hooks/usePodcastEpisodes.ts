@@ -175,6 +175,11 @@ export function usePodcastEpisodes({
     [],
   );
 
+  // refreshEpisodes 从第一页重新拉取（历史同步完成后刷新入库结果，#465）。
+  const refreshEpisodes = useCallback(() => {
+    return fetchEpisodes(1, false);
+  }, [fetchEpisodes]);
+
   return {
     updateEpisodeQueue,
     episodes,
@@ -185,5 +190,6 @@ export function usePodcastEpisodes({
     episodesError,
     loadMoreEpisodes,
     retryEpisodes,
+    refreshEpisodes,
   };
 }

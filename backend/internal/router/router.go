@@ -18,6 +18,8 @@ import (
 	"magicpodcast/internal/processing"
 	"magicpodcast/internal/repository"
 	"magicpodcast/internal/scheduler"
+
+	"gorm.io/gorm"
 	"magicpodcast/internal/services"
 	syncsvc "magicpodcast/internal/sync"
 	"magicpodcast/internal/workflow"
@@ -330,7 +332,8 @@ func SetupRouter(options ...Option) *gin.Engine {
 		}
 
 		// Episode Sync 路由（单个podcast的episode同步）
-		v1.POST("/podcasts/:id/episodes/sync", syncOperation, syncHandler.SyncPodcastEpisodes) // 同步指定podcast的episodes
+		v1.POST("/podcasts/:id/episodes/sync", syncOperation, syncHandler.SyncPodcastEpisodes) // 启动/复用/重试指定podcast的历史同步任务
+		v1.GET("/podcasts/:id/episodes/sync", syncHandler.GetPodcastSyncTask)                  // 查询指定podcast最新历史同步任务
 
 		// Workflow 路由
 		// 创建workflow执行器
@@ -469,6 +472,15 @@ func SetupRouter(options ...Option) *gin.Engine {
 		if os.Getenv("MAGICPODCAST_DISABLE_SCHEDULER") == "1" {
 			logger.Info("ℹ️  工作流调度器已由托管数据 Profile 禁用")
 		} else {
+			// 历史同步管理器（#462）：注入启用覆盖守卫后启动，恢复中断任务
+			// 并以有界并发执行。守卫复用 workflow 包的共享覆盖解析。
+			if syncService != nil {
+				syncsvc.SetHistoryCoverageGuard(func(gdb *gorm.DB, podcastID uint) bool {
+					enabled, err := workflow.EnabledCoverageForPodcasts(gdb, []uint{podcastID})
+					return err == nil && enabled[podcastID]
+				})
+				syncsvc.StartHistorySyncManager(db, syncService)
+			}
 			go func() {
 				if err := globalScheduler.Start(); err != nil {
 					logger.Infof("❌ 启动调度器失败: %v", err)

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { Episode, Podcast, Tag } from "@/types";
 import EpisodeListSection from "@/components/episodes/EpisodeListSection";
+import type { PodcastSyncControl } from "@/lib/podcastSyncControl";
 import {
   DesktopPodcastDetailInfo,
   MobilePodcastDetailInfo,
@@ -31,6 +32,7 @@ interface PodcastDetailContentProps {
   onCancelNotesEdit: () => void;
   onTagsChange: (tags: Tag[]) => void;
   onRetryEpisodes: () => void;
+  syncControl?: PodcastSyncControl | null;
 }
 
 function PodcastDetailError({ message }: { message: string }) {
@@ -68,6 +70,7 @@ export default function PodcastDetailContent({
   onCancelNotesEdit,
   onTagsChange,
   onRetryEpisodes,
+  syncControl,
 }: PodcastDetailContentProps) {
   if (error) {
     return <PodcastDetailError message={error} />;
@@ -117,6 +120,7 @@ export default function PodcastDetailContent({
         podcastCover={podcastCover}
         loadMoreRef={loadMoreRef}
         onRetry={onRetryEpisodes}
+        syncControl={syncControl}
       />
     </>
   );

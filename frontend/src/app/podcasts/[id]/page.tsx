@@ -2,6 +2,7 @@
 
 import { positiveID, singleParam } from "@/lib/navigation";
 import { useParams, useSearchParams } from "next/navigation";
+import { useCallback } from "react";
 import {
   buildPodcastListBackUrl,
   useTargetEpisodeNavigation,
@@ -12,8 +13,10 @@ import {
   usePodcastTags,
 } from "@/hooks/usePodcastSWR";
 import { usePodcastEpisodes } from "@/hooks/usePodcastEpisodes";
+import { usePodcastHistorySync } from "@/hooks/usePodcastHistorySync";
 import { usePodcastMetadataEditing } from "@/hooks/usePodcastMetadataEditing";
 import { useInfiniteScrollTrigger } from "@/hooks/usePagination";
+import { getPodcastSyncControl } from "@/lib/podcastSyncControl";
 import {
   canAutoLoadMorePodcastEpisodes,
   getPodcastDetailCoverUrl,
@@ -43,6 +46,7 @@ export default function PodcastDetailPage() {
     podcast,
     isLoading: podcastLoading,
     isError: podcastError,
+    mutate: mutatePodcast,
   } = usePodcast(podcastId);
   const { tags, mutate: mutateTags } = usePodcastTags(podcastId);
   const { notes: swrNotes, mutate: mutateNotes } = usePodcastNotes(podcastId);
@@ -57,11 +61,40 @@ export default function PodcastDetailPage() {
     episodesError,
     loadMoreEpisodes,
     retryEpisodes,
+    refreshEpisodes,
   } = usePodcastEpisodes({
     podcastId: podcastId ?? 0,
     enabled: Boolean(podcastId && !podcastLoading),
     pageSize: PAGE_SIZE,
   });
+
+  // 历史同步任务到达终态后刷新节目详情与单集列表，保持列表/详情与入库
+  // 结果一致（#465）。
+  const refreshAfterSyncSettled = useCallback(() => {
+    mutatePodcast();
+    refreshEpisodes();
+  }, [mutatePodcast, refreshEpisodes]);
+
+  const {
+    task: historySyncTask,
+    starting: historySyncStarting,
+    actionError: historySyncActionError,
+    start: startHistorySync,
+  } = usePodcastHistorySync({
+    podcastId: podcastId ?? 0,
+    enabled: Boolean(podcastId && podcast),
+    onSettled: refreshAfterSyncSettled,
+  });
+
+  const syncControl = podcast
+    ? getPodcastSyncControl({
+        podcast,
+        task: historySyncTask,
+        starting: historySyncStarting,
+        startError: historySyncActionError,
+        onStart: startHistorySync,
+      })
+    : null;
 
   const {
     notes,
@@ -144,6 +177,7 @@ export default function PodcastDetailPage() {
           onCancelNotesEdit={cancelNotesEdit}
           onTagsChange={handleTagsChange}
           onRetryEpisodes={retryEpisodes}
+          syncControl={syncControl}
         />
       </div>
     </PageLayout>

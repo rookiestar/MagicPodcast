@@ -202,7 +202,7 @@ func (s *Service) syncPodcastMetadataWithUpdateCheck(podcast *models.Podcast) (e
 			MaxEpisodesPerPodcast: 1000, // 限制每个podcast最多1000个单集
 		}
 
-		episodeResult, err = s.syncPodcastEpisodeItemsWithContext(ctx, podcast, gofeed.Items, config, true)
+		episodeResult, err = s.syncPodcastEpisodeItemsWithContext(ctx, podcast, gofeed.Items, config, true, nil)
 		if err != nil {
 			return fmt.Errorf("同步单集并写回播客汇总失败: %w", err), false, episodeResult
 		}

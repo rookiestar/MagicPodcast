@@ -153,3 +153,65 @@ func CoveredPodcastIDs(db *gorm.DB) (map[uint]struct{}, error) {
 	}
 	return covered, nil
 }
+
+// EnabledCoverageForPodcasts 返回每个节目 ID 是否被任一「启用的」未删除
+// 工作流覆盖。历史同步的自动触发只认启用覆盖（停用工作流的成员保持待
+// 同步，启用后再触发，#462）；覆盖索引本身仍沿用共享契约（含停用）。
+func EnabledCoverageForPodcasts(db *gorm.DB, podcastIDs []uint) (map[uint]bool, error) {
+	result := make(map[uint]bool, len(podcastIDs))
+	if len(podcastIDs) == 0 {
+		return result, nil
+	}
+	coverage, err := CoverageForPodcasts(db, podcastIDs)
+	if err != nil {
+		return nil, err
+	}
+	for id, refs := range coverage {
+		for _, ref := range refs {
+			if ref.IsEnabled {
+				result[id] = true
+				break
+			}
+		}
+	}
+	return result, nil
+}
+
+// ResolvedCoveragePodcastIDs 解析单个工作流当前范围覆盖的节目 ID 集合（与
+// executor.getTargetPodcasts 同一口径）。供覆盖入口在登记历史同步任务前
+// 计算本次变化实际新增覆盖了哪些节目（#462）。
+func ResolvedCoveragePodcastIDs(db *gorm.DB, wf *models.Workflow) (map[uint]struct{}, error) {
+	result := map[uint]struct{}{}
+	switch wf.ScopeType {
+	case models.ScopeTypeSpecificPodcasts:
+		for _, id := range wf.ScopeConfig.PodcastIDs {
+			if id > 0 {
+				result[uint(id)] = struct{}{}
+			}
+		}
+	case models.ScopeTypeAllSubscribed:
+		var ids []uint
+		if err := db.Model(&models.Podcast{}).Where("is_subscribed = ?", true).Pluck("id", &ids).Error; err != nil {
+			return nil, err
+		}
+		for _, id := range ids {
+			result[id] = struct{}{}
+		}
+	case models.ScopeTypeCustomSources:
+		if len(wf.ScopeConfig.CustomURLs) == 0 {
+			return result, nil
+		}
+		var keys []string
+		for _, rawURL := range wf.ScopeConfig.CustomURLs {
+			keys = append(keys, coverageFeedURLKeys(rawURL)...)
+		}
+		var ids []uint
+		if err := db.Model(&models.Podcast{}).Where("feed_url IN ?", keys).Pluck("id", &ids).Error; err != nil {
+			return nil, err
+		}
+		for _, id := range ids {
+			result[id] = struct{}{}
+		}
+	}
+	return result, nil
+}

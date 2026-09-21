@@ -146,6 +146,7 @@ export const workflowApi = {
 };
 
 // 成员追加结果：实际新增数量以服务端成功结果为准（#418 AC13）。
+// history_sync 区分「成员已保存」与「历史同步状态」，提供可查询任务标识（#462）。
 export interface WorkflowAppendResponse {
   success: boolean;
   workflow_id: number;
@@ -153,4 +154,9 @@ export interface WorkflowAppendResponse {
   added: number;
   already_member: number;
   podcast_count: number;
+  history_sync?: Array<{
+    podcast_id: number;
+    task_id: number | null;
+    status: string | null;
+  }>;
 }

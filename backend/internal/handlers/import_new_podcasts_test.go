@@ -27,7 +27,7 @@ func newNewPodcastsRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	require.NoError(t, db.AutoMigrate(&models.Podcast{}, &models.ImportTask{}, &models.Workflow{}))
+	require.NoError(t, db.AutoMigrate(&models.Podcast{}, &models.ImportTask{}, &models.Workflow{}, &models.PodcastHistorySyncTask{}))
 	service, err := syncpkg.NewService(db, "")
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, service.Close()) })

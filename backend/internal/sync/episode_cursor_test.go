@@ -136,7 +136,7 @@ func TestEpisodeWriteFailureKeepsCursorAndRetriesWithoutDuplicates(t *testing.T)
 	require.NoError(t, db.Create(&other).Error)
 	require.NoError(t, db.Create(&models.Episode{PodcastID: other.ID, Title: "占用", GUID: "cursor-ep-1"}).Error)
 
-	result, err := service.syncPodcastEpisodeItemsWithContext(t.Context(), podcast, items, DefaultEpisodeSyncConfig, true)
+	result, err := service.syncPodcastEpisodeItemsWithContext(t.Context(), podcast, items, DefaultEpisodeSyncConfig, true, nil)
 	require.Error(t, err)
 	assert.True(t, result.Incomplete)
 	assert.Equal(t, 1, result.Created, "同批未受影响的单集仍应写入")
@@ -146,7 +146,7 @@ func TestEpisodeWriteFailureKeepsCursorAndRetriesWithoutDuplicates(t *testing.T)
 	assert.Nil(t, refreshed.LastEpisodeSyncAt, "部分失败不得推进单集游标")
 
 	// 重试：不重复创建已写入的单集，游标仍未推进（冲突条目仍失败）。
-	result2, err := service.syncPodcastEpisodeItemsWithContext(t.Context(), podcast, items, DefaultEpisodeSyncConfig, true)
+	result2, err := service.syncPodcastEpisodeItemsWithContext(t.Context(), podcast, items, DefaultEpisodeSyncConfig, true, nil)
 	require.Error(t, err)
 	assert.Equal(t, 0, result2.Created)
 	var count int64

@@ -30,7 +30,7 @@ func newAppendRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	require.NoError(t, db.AutoMigrate(&models.Podcast{}, &models.Workflow{}, &models.Job{}))
+	require.NoError(t, db.AutoMigrate(&models.Podcast{}, &models.Workflow{}, &models.Job{}, &models.PodcastHistorySyncTask{}))
 	database.SetTestDB(db)
 	t.Cleanup(database.ResetDB)
 	handler := &WorkflowHandler{}

@@ -10,6 +10,7 @@ import (
 	"magicpodcast/internal/database"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
+	syncsvc "magicpodcast/internal/sync"
 	"magicpodcast/internal/workflow"
 
 	"github.com/gin-gonic/gin"
@@ -24,6 +25,54 @@ func NewPodcastHandler() *PodcastHandler {
 	return &PodcastHandler{}
 }
 
+// HistorySyncSummaryResponse 嵌入节目响应的历史同步状态摘要（#462/#465）。
+// 卡片与详情据此区分待同步、同步中、同步未完成与暂无可获取单集。
+type HistorySyncSummaryResponse struct {
+	TaskID         uint   `json:"task_id"`
+	Status         string `json:"status"`
+	Trigger        string `json:"trigger"`
+	ProcessedCount int    `json:"processed_count"`
+	// TotalKnown 为来源条目总数；null 表示总量未知，此时只展示已处理数量。
+	TotalKnown   *int       `json:"total_known"`
+	CreatedCount int        `json:"created_count"`
+	UpdatedCount int        `json:"updated_count"`
+	FailedCount  int        `json:"failed_count"`
+	ErrorMessage string     `json:"error_message,omitempty"`
+	SourceNote   string     `json:"source_note,omitempty"`
+	StartedAt    *time.Time `json:"started_at,omitempty"`
+	FinishedAt   *time.Time `json:"finished_at,omitempty"`
+}
+
+// newestEpisodeDatePtr 规范化空最新单集日期（#463）：零值序列化为 null，
+// 不再产生 0001-01-01 这类会被前端解释成「125 年前」的日期。
+func newestEpisodeDatePtr(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	normalized := t
+	return &normalized
+}
+
+func historySyncSummaryFromTask(task *models.PodcastHistorySyncTask) *HistorySyncSummaryResponse {
+	if task == nil {
+		return nil
+	}
+	return &HistorySyncSummaryResponse{
+		TaskID:         task.ID,
+		Status:         task.Status,
+		Trigger:        task.Trigger,
+		ProcessedCount: task.ProcessedCount,
+		TotalKnown:     task.TotalKnown,
+		CreatedCount:   task.CreatedCount,
+		UpdatedCount:   task.UpdatedCount,
+		FailedCount:    task.FailedCount,
+		ErrorMessage:   task.ErrorMessage,
+		SourceNote:     task.SourceNote,
+		StartedAt:      task.StartedAt,
+		FinishedAt:     task.FinishedAt,
+	}
+}
+
 // PodcastResponse Podcast 响应结构
 type PodcastResponse struct {
 	ID                   uint      `json:"id"`
@@ -35,7 +84,7 @@ type PodcastResponse struct {
 	CustomCoverURL       string    `json:"custom_cover_url,omitempty"` // 自定义封面URL（优先使用）
 	FeedURL              string    `json:"feed_url,omitempty"`
 	EpisodeCount         int       `json:"episode_count"`
-	NewestEpisodeDate    time.Time `json:"newest_episode_date"`
+	NewestEpisodeDate    *time.Time `json:"newest_episode_date"`
 	CreatedAt            time.Time `json:"created_at"`
 	AddedDate            time.Time `json:"added_date,omitempty"`
 	IsSubscribed         bool      `json:"is_subscribed"`
@@ -44,6 +93,9 @@ type PodcastResponse struct {
 	MyRate               int       `json:"my_rate,omitempty"`
 	Notes                string    `json:"notes,omitempty"`
 	DataSource           string    `json:"data_source,omitempty"`
+
+	// HistorySync 为节目最新历史同步任务摘要；从未同步时为 null。
+	HistorySync *HistorySyncSummaryResponse `json:"history_sync"`
 
 	// 🆕 PodcastIndex 新增字段（可选，使用 omitempty 保持向后兼容）
 	Link                    string     `json:"link,omitempty"`                      // 播客网站链接
@@ -66,12 +118,14 @@ type PodcastSummaryResponse struct {
 	CoverURL             string        `json:"cover_url"`
 	CustomCoverURL       string        `json:"custom_cover_url,omitempty"`
 	EpisodeCount         int           `json:"episode_count"`
-	NewestEpisodeDate    time.Time     `json:"newest_episode_date"`
+	NewestEpisodeDate    *time.Time    `json:"newest_episode_date"`
 	AddedDate            time.Time     `json:"added_date,omitempty"`
 	IsSubscribed         bool          `json:"is_subscribed"`
 	IsDead               bool          `json:"is_dead"`
 	ExternalEpisodeCount int           `json:"external_episode_count"`
-	Tags                 []TagResponse `json:"tags,omitempty"`
+	// HistorySync 为节目最新历史同步任务摘要；从未同步时为 null。
+	HistorySync *HistorySyncSummaryResponse `json:"history_sync"`
+	Tags        []TagResponse               `json:"tags,omitempty"`
 }
 
 const podcastSummaryView = "summary"
@@ -151,7 +205,8 @@ func (h *PodcastHandler) List(c *gin.Context) {
 			if excludeCovered {
 				c.Header("Cache-Control", "private, no-store")
 			} else {
-				setPrivateCache(c, 60)
+				// 列表载荷嵌入历史同步状态，浏览器侧不得复用旧响应（#462）。
+				c.Header("Cache-Control", "private, no-cache")
 			}
 			c.JSON(200, cachedResp)
 			return
@@ -213,8 +268,9 @@ func (h *PodcastHandler) List(c *gin.Context) {
 	// 排序逻辑（默认：综合时间倒序）
 	switch sortBy {
 	case "recent_update":
-		// 综合排序：优先使用最新单集时间，否则用创建时间
-		query = query.Order("CASE WHEN newest_episode_date IS NOT NULL THEN newest_episode_date ELSE created_at END DESC")
+		// 综合排序：优先使用最新单集时间；缺失（NULL 或零值/1970 前）
+		// 时回退创建时间，id 兜底保证分页顺序稳定（#463）。
+		query = query.Order("CASE WHEN newest_episode_date IS NULL OR newest_episode_date < '1970-01-01' THEN created_at ELSE newest_episode_date END DESC, podcasts.id DESC")
 	case "newest_added":
 		// 按添加时间倒序
 		query = query.Order("added_date DESC")
@@ -226,7 +282,7 @@ func (h *PodcastHandler) List(c *gin.Context) {
 		query = query.Order("title COLLATE NOCASE ASC")
 	default:
 		// 默认按最近更新排序
-		query = query.Order("CASE WHEN newest_episode_date IS NOT NULL THEN newest_episode_date ELSE created_at END DESC")
+		query = query.Order("CASE WHEN newest_episode_date IS NULL OR newest_episode_date < '1970-01-01' THEN created_at ELSE newest_episode_date END DESC, podcasts.id DESC")
 	}
 
 	// 获取总数
@@ -246,12 +302,17 @@ func (h *PodcastHandler) List(c *gin.Context) {
 
 	// 转换为响应格式
 	var data interface{}
+	historySyncByPodcast, err := syncsvc.HistorySyncTasksByPodcast(db, podcastIDsFromModels(podcasts))
+	if err != nil {
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to load history sync status")
+		return
+	}
 	if summaryView {
-		data = h.modelsToSummaryResponses(podcasts)
+		data = h.modelsToSummaryResponses(podcasts, historySyncByPodcast)
 	} else {
 		response := make([]PodcastResponse, len(podcasts))
 		for i, podcast := range podcasts {
-			response[i] = h.modelToResponse(&podcast)
+			response[i] = h.modelToResponse(&podcast, historySyncByPodcast[podcast.ID])
 		}
 		data = response
 	}
@@ -282,7 +343,8 @@ func (h *PodcastHandler) List(c *gin.Context) {
 	if excludeCovered {
 		c.Header("Cache-Control", "private, no-store")
 	} else {
-		setPrivateCache(c, 60)
+		// 列表载荷嵌入历史同步状态，浏览器侧不得复用旧响应（#462）。
+		c.Header("Cache-Control", "private, no-cache")
 	}
 
 	c.JSON(200, resp)
@@ -308,10 +370,16 @@ func (h *PodcastHandler) Get(c *gin.Context) {
 		return
 	}
 
-	// 设置浏览器缓存头（播客详情缓存5分钟）
-	c.Header("Cache-Control", "private, max-age=300")
+	// 详情载荷嵌入历史同步状态等可变信息，必须允许每次重验（#462）；
+	// no-cache 保留存储但要求重验，无验证器时等价于每次回源。
+	c.Header("Cache-Control", "private, no-cache")
 
-	middleware.SuccessResponse(c, h.modelToResponse(&podcast))
+	historySync, err := syncsvc.LatestHistoryTaskForPodcast(db, podcast.ID)
+	if err != nil {
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to load history sync status")
+		return
+	}
+	middleware.SuccessResponse(c, h.modelToResponse(&podcast, historySync))
 }
 
 // @Summary 批量获取播客
@@ -351,14 +419,19 @@ func (h *PodcastHandler) BatchGet(c *gin.Context) {
 	}
 
 	// 转换为响应格式
+	historySyncByPodcast, err := syncsvc.HistorySyncTasksByPodcast(db, podcastIDsFromModels(podcasts))
+	if err != nil {
+		middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "Failed to load history sync status")
+		return
+	}
 	if request.View == podcastSummaryView {
-		middleware.SuccessResponse(c, h.modelsToSummaryResponses(podcasts))
+		middleware.SuccessResponse(c, h.modelsToSummaryResponses(podcasts, historySyncByPodcast))
 		return
 	}
 
 	responses := make([]PodcastResponse, len(podcasts))
 	for i, podcast := range podcasts {
-		responses[i] = h.modelToResponse(&podcast)
+		responses[i] = h.modelToResponse(&podcast, historySyncByPodcast[podcast.ID])
 	}
 	middleware.SuccessResponse(c, responses)
 }
@@ -376,15 +449,15 @@ func truncatePodcastDescription(description string) string {
 	return strings.TrimSpace(string(runes[:podcastListDescriptionLimit])) + "..."
 }
 
-func (h *PodcastHandler) modelsToSummaryResponses(podcasts []models.Podcast) []PodcastSummaryResponse {
+func (h *PodcastHandler) modelsToSummaryResponses(podcasts []models.Podcast, historySyncByPodcast map[uint]*models.PodcastHistorySyncTask) []PodcastSummaryResponse {
 	response := make([]PodcastSummaryResponse, len(podcasts))
 	for i := range podcasts {
-		response[i] = h.modelToSummaryResponse(&podcasts[i])
+		response[i] = h.modelToSummaryResponse(&podcasts[i], historySyncByPodcast[podcasts[i].ID])
 	}
 	return response
 }
 
-func (h *PodcastHandler) modelToSummaryResponse(podcast *models.Podcast) PodcastSummaryResponse {
+func (h *PodcastHandler) modelToSummaryResponse(podcast *models.Podcast, historySync *models.PodcastHistorySyncTask) PodcastSummaryResponse {
 	tags := make([]TagResponse, len(podcast.Tags))
 	for i, tag := range podcast.Tags {
 		tags[i] = TagResponse{
@@ -402,17 +475,27 @@ func (h *PodcastHandler) modelToSummaryResponse(podcast *models.Podcast) Podcast
 		CoverURL:             podcast.CoverURL,
 		CustomCoverURL:       podcast.CustomCoverURL,
 		EpisodeCount:         podcast.EpisodeCount,
-		NewestEpisodeDate:    podcast.NewestEpisodeDate,
+		NewestEpisodeDate:    newestEpisodeDatePtr(podcast.NewestEpisodeDate),
 		ExternalEpisodeCount: podcast.ExternalEpisodeCount,
 		AddedDate:            podcast.AddedDate,
 		IsSubscribed:         podcast.IsSubscribed,
 		IsDead:               podcast.IsDead,
+		HistorySync:          historySyncSummaryFromTask(historySync),
 		Tags:                 tags,
 	}
 }
 
+// podcastIDsFromModels 提取节目 ID 列表，供批量查询历史同步状态。
+func podcastIDsFromModels(podcasts []models.Podcast) []uint {
+	ids := make([]uint, 0, len(podcasts))
+	for i := range podcasts {
+		ids = append(ids, podcasts[i].ID)
+	}
+	return ids
+}
+
 // modelToResponse 将模型转换为响应格式
-func (h *PodcastHandler) modelToResponse(podcast *models.Podcast) PodcastResponse {
+func (h *PodcastHandler) modelToResponse(podcast *models.Podcast, historySync *models.PodcastHistorySyncTask) PodcastResponse {
 	// 转换标签
 	tags := make([]TagResponse, len(podcast.Tags))
 	for i, tag := range podcast.Tags {
@@ -433,7 +516,7 @@ func (h *PodcastHandler) modelToResponse(podcast *models.Podcast) PodcastRespons
 		CustomCoverURL:       podcast.CustomCoverURL,
 		FeedURL:              podcast.FeedURL,
 		EpisodeCount:         podcast.EpisodeCount,
-		NewestEpisodeDate:    podcast.NewestEpisodeDate,
+		NewestEpisodeDate:    newestEpisodeDatePtr(podcast.NewestEpisodeDate),
 		ExternalEpisodeCount: podcast.ExternalEpisodeCount,
 		CreatedAt:            podcast.CreatedAt,
 		AddedDate:            podcast.AddedDate,
@@ -442,6 +525,7 @@ func (h *PodcastHandler) modelToResponse(podcast *models.Podcast) PodcastRespons
 		MyRate:               podcast.MyRate,
 		Notes:                podcast.Notes,
 		DataSource:           podcast.DataSource,
+		HistorySync:          historySyncSummaryFromTask(historySync),
 
 		// 🆕 PodcastIndex 新增字段
 		Link:                    podcast.Link,

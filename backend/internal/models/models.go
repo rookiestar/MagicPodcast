@@ -33,4 +33,5 @@ var AllModels = []interface{}{
 	SchedulerRun{},
 	Report{},
 	ImportTask{},
+	PodcastHistorySyncTask{},
 }

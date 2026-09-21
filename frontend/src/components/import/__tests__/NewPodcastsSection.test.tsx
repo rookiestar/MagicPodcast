@@ -223,6 +223,51 @@ describe("NewPodcastsSection", () => {
     });
   });
 
+  // #465：追加反馈区分「成员已保存」与「历史同步已排队」，行内展示同步状态。
+  it("reports queued history sync in feedback and shows per-podcast sync status", async () => {
+    appendPodcasts.mockResolvedValue({
+      success: true,
+      workflow_id: 11,
+      workflow_name: "科技周报",
+      added: 1,
+      already_member: 0,
+      podcast_count: 1,
+      history_sync: [{ podcast_id: 1, task_id: 33, status: "pending" }],
+    });
+    fetchTaskNewPodcasts.mockResolvedValue({
+      success: true,
+      task_id: 7,
+      total: 1,
+      podcasts: [
+        podcast({
+          id: 1,
+          history_sync: {
+            task_id: 33,
+            status: "running",
+            trigger: "workflow",
+            processed_count: 320,
+            total_known: 1200,
+          },
+        }),
+      ],
+    });
+    await renderSection();
+
+    expect(screen.getByText(/历史同步：同步中/)).toBeDefined();
+    expect(screen.getByText(/已处理 320 \/ 1200/)).toBeDefined();
+
+    fireEvent.click(screen.getByLabelText("选择「节目1」"));
+    fireEvent.click(screen.getByRole("button", { name: "添加到工作流" }));
+    // 等待对话框完成目标加载并得出候选数量，再点击保存。
+    await waitFor(() => expectCounterText("新增 1 档"));
+    const saveButton = screen.getByRole("button", { name: "添加 1 档" });
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(appendPodcasts).toHaveBeenCalledTimes(1));
+    expect(toastSuccess).toHaveBeenCalledWith(
+      "已添加 1 档节目到工作流；1 档节目历史同步已排队",
+    );
+  });
+
   it("includes pending items only after the explicit checkbox", async () => {
     fetchTaskNewPodcasts.mockResolvedValue({
       success: true,

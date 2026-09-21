@@ -10,14 +10,16 @@ import (
 )
 
 // importNewPodcastItem 是导入批次新建节目的响应条目：资料状态取节目当前
-// 记录（重试成功后待同步转为就绪），工作流归属来自共享覆盖查询。
+// 记录（重试成功后待同步转为就绪），工作流归属来自共享覆盖查询，
+// history_sync 为节目历史同步状态摘要（#462/#465）。
 type importNewPodcastItem struct {
-	ID           uint                   `json:"id"`
-	Title        string                 `json:"title"`
-	FeedURL      string                 `json:"feed_url"`
-	Ready        bool                   `json:"ready"`
-	IsSubscribed bool                   `json:"is_subscribed"`
-	Workflows    []workflow.WorkflowRef `json:"workflows"`
+	ID           uint                        `json:"id"`
+	Title        string                      `json:"title"`
+	FeedURL      string                      `json:"feed_url"`
+	Ready        bool                        `json:"ready"`
+	IsSubscribed bool                        `json:"is_subscribed"`
+	Workflows    []workflow.WorkflowRef      `json:"workflows"`
+	HistorySync  *HistorySyncSummaryResponse `json:"history_sync"`
 }
 
 // GetImportTaskNewPodcasts 返回一次导入任务及其重试链实际新建的节目清单，
@@ -67,6 +69,11 @@ func (h *SyncHandler) GetImportTaskNewPodcasts(c *gin.Context) {
 			middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "读取工作流归属失败")
 			return
 		}
+		historySyncByPodcast, err := sync.HistorySyncTasksByPodcast(h.db, existingIDs)
+		if err != nil {
+			middleware.InternalErrorResponseWithCode(c, "DATABASE_ERROR", "读取历史同步状态失败")
+			return
+		}
 		for _, id := range existingIDs {
 			record := byID[id]
 			workflows := coverage[id]
@@ -80,6 +87,7 @@ func (h *SyncHandler) GetImportTaskNewPodcasts(c *gin.Context) {
 				Ready:        record.FeedURLValid,
 				IsSubscribed: record.IsSubscribed,
 				Workflows:    workflows,
+				HistorySync:  historySyncSummaryFromTask(historySyncByPodcast[id]),
 			})
 		}
 	}

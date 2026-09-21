@@ -80,11 +80,33 @@ describe("EpisodeListSection", () => {
     );
   });
 
-  it("shows the empty state when the podcast has no episodes", () => {
-    render(<EpisodeListSection {...baseProps} />);
+  it("shows the empty state with a real sync button when the podcast has no episodes", () => {
+    const onStart = vi.fn();
+    const syncControl = {
+      status: "idle" as const,
+      label: "同步历史单集",
+      disabled: false,
+      inFlight: false,
+      progressText: null,
+      errorMessage: null,
+      sourceNote: null,
+      onStart,
+    };
+    render(<EpisodeListSection {...baseProps} syncControl={syncControl} />);
 
     expect(screen.getByText("暂无单集")).toBeInTheDocument();
-    expect(screen.getByText("点击下方按钮同步单集数据")).toBeInTheDocument();
+    // 空态提供直接可见的同步按钮，替换原先指向不存在按钮的提示文案（#465）。
+    expect(
+      screen.queryByText("点击下方按钮同步单集数据"),
+    ).not.toBeInTheDocument();
+    // 标题行常驻入口与空态按钮共享同一动作，两处同时可见。
+    const syncButtons = screen.getAllByRole("button", {
+      name: "同步历史单集",
+    });
+    expect(syncButtons).toHaveLength(2);
+    syncButtons.forEach((button) => expect(button).toBeEnabled());
+    fireEvent.click(syncButtons[syncButtons.length - 1]);
+    expect(onStart).toHaveBeenCalledTimes(1);
   });
 
   it("renders episode cards and the total count", () => {
@@ -176,5 +198,60 @@ describe("EpisodeListSection", () => {
     expect(screen.getByText("Episode 1")).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("page 2 failed");
     expect(screen.queryByText("已加载全部 1 集单集")).not.toBeInTheDocument();
+  });
+
+  // #465：标题行常驻同步入口——运行中禁用并展示真实进度。
+  it("keeps the persistent sync entry disabled with progress while running", () => {
+    const onStart = vi.fn();
+    render(
+      <EpisodeListSection
+        {...baseProps}
+        episodes={[makeEpisode(1)]}
+        syncControl={{
+          status: "running",
+          label: "同步中…",
+          disabled: true,
+          inFlight: true,
+          progressText: "已处理 320 / 1200",
+          errorMessage: null,
+          sourceNote: null,
+          onStart,
+        }}
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: "同步中…" });
+    expect(button).toBeDisabled();
+    expect(screen.getByText("已处理 320 / 1200")).toBeInTheDocument();
+    expect(onStart).not.toHaveBeenCalled();
+  });
+
+  // #465：失败后展示原因并提供「重试同步」；列表读取失败的「重试」与
+  // 同步操作是两个互不替代的入口。
+  it("shows the failure reason with a retry sync action when the task failed", () => {
+    const onStart = vi.fn();
+    const onRetry = vi.fn();
+    render(
+      <EpisodeListSection
+        {...baseProps}
+        episodes={[makeEpisode(1)]}
+        syncControl={{
+          status: "failed",
+          label: "重试同步",
+          disabled: false,
+          inFlight: false,
+          progressText: null,
+          errorMessage: "upstream timeout",
+          sourceNote: null,
+          onStart,
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("upstream timeout");
+    const retryButton = screen.getByRole("button", { name: "重试同步" });
+    fireEvent.click(retryButton);
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(onRetry).not.toHaveBeenCalled();
   });
 });

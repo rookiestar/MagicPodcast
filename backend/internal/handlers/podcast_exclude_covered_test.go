@@ -30,7 +30,7 @@ func setupExcludeCoveredRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	require.NoError(t, db.AutoMigrate(&models.Podcast{}, &models.Tag{}, &models.Workflow{}))
+	require.NoError(t, db.AutoMigrate(&models.Podcast{}, &models.Tag{}, &models.Workflow{}, &models.PodcastHistorySyncTask{}))
 	database.SetTestDB(db)
 	t.Cleanup(database.ResetDB)
 	cache.GetCache().Clear()
@@ -117,14 +117,15 @@ func TestPodcastListExcludeCoveredAppliesBeforePagination(t *testing.T) {
 	assert.ElementsMatch(t, []string{"贝塔", "艾普西隆", "泽塔"}, titles)
 	assert.Equal(t, int64(3), total)
 
-	// 分页一致：page_size=2 两页取全。
+	// 分页一致：page_size=2 两页取全。缺失日期回退创建时间倒序 + id 兜底，
+	// 同批种子按稳定顺序返回：泽塔(6) → 艾普西隆(5) → 贝塔(2)（#463）。
 	page1, total := listPodcastTitles(t, router, "?exclude_covered=1&page=1&page_size=2")
 	page2, _ := listPodcastTitles(t, router, "?exclude_covered=1&page=2&page_size=2")
 	assert.Len(t, page1, 2)
 	assert.Len(t, page2, 1)
 	assert.Equal(t, int64(3), total)
 	assert.NotEmpty(t, page1)
-	assert.Equal(t, append(page1, page2...), []string{"贝塔", "艾普西隆", "泽塔"})
+	assert.Equal(t, append(page1, page2...), []string{"泽塔", "艾普西隆", "贝塔"})
 
 	// 与搜索组合。
 	titles, total = listPodcastTitles(t, router, "?exclude_covered=1&search=艾普西隆")

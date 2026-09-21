@@ -1,3 +1,5 @@
+import { api, handleResponse } from "./client";
+import type { ApiResponse, PodcastHistorySyncTask } from "@/types";
 import { isOperationCompletionEvent } from "@/lib/syncOperationMessages";
 import { sseFormDataRequest, sseRequest } from "@/lib/sseClient";
 
@@ -94,5 +96,31 @@ export const syncApi = {
         onProgress(type, message, current, total, dataToPass);
       },
     );
+  },
+
+  // 启动（或复用/重试）指定节目的持久历史同步任务。任务在后台执行，
+  // 页面关闭不影响同步；活动任务重复调用返回同一任务（#462）。
+  startPodcastEpisodeSync: async (
+    podcastId: number,
+  ): Promise<{ created: boolean; task: PodcastHistorySyncTask }> => {
+    const response = await api.post<
+      ApiResponse<{ created: boolean; task: PodcastHistorySyncTask }>
+    >(`/api/v1/podcasts/${podcastId}/episodes/sync`);
+    const data = handleResponse(response);
+    return {
+      created: Boolean(data?.created),
+      task: data.task,
+    };
+  },
+
+  // 查询指定节目最新一条历史同步任务；从未同步时返回 null。
+  fetchPodcastSyncTask: async (
+    podcastId: number,
+  ): Promise<PodcastHistorySyncTask | null> => {
+    const response = await api.get<
+      ApiResponse<PodcastHistorySyncTask | null>
+    >(`/api/v1/podcasts/${podcastId}/episodes/sync`);
+    const data = handleResponse(response);
+    return data ?? null;
   },
 };

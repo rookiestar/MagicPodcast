@@ -28,12 +28,12 @@ const SanitizerVersion = "v12"
 // snapshot columns on episode_collection_items — reviewed in the same class.
 // 迁移 v34（import_tasks，#398/#403）新增任务表后按当前 schema 重新计算的
 // sanitizer 契约指纹。
-// 指纹随 #417/#418 的 import_tasks.parent_task_id（重试父链，任务元数据，
+// 指纹随 #462 的 podcast_history_sync_tasks（节目历史同步任务：运行元数据，
 // 不含用户内容）刷新。
-const sanitizerSchemaFingerprint = "f9fabb114fd4e6e49f4bc69508c4fc8799e384617bb76d02d76d5b502fde1bbf"
-// 迁移 v34（import_tasks，#398/#403）新增任务表后按当前 schema 重新计算的
-// sanitizer schema-object 契约指纹。
-const sanitizerSchemaObjectsFingerprint = "da97c8edd7fc59cba931bee8bfaccfcf304e05af2dee2ebbbd2215fedf12c356"
+const sanitizerSchemaFingerprint = "9dc041379745ffa97b02f42ff37a5d19c8b26cb24861129662c16366aba26225"
+// 迁移 v36（podcast_history_sync_tasks，#462）新增任务表后按当前 schema 重新
+// 计算的 sanitizer schema-object 契约指纹。
+const sanitizerSchemaObjectsFingerprint = "b81b813135a3004c9bdfdb575f222cafe7fe5e0b7c49b978ad5d5268dd69de93"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 

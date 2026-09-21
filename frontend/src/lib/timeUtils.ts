@@ -3,11 +3,32 @@
  */
 
 /**
+ * 判断日期字符串是否为可用于展示的有效日期。
+ * 缺失（null/undefined/空串）、不可解析以及零值占位（如 0001-01-01，Go
+ * time.Time 零值）一律视为无效，避免出现「125 年前」这类年代差展示（#463）。
+ */
+export function isValidDisplayDate(
+  dateString: string | null | undefined,
+): dateString is string {
+  if (!dateString) {
+    return false;
+  }
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) {
+    return false;
+  }
+  return date.getFullYear() >= 1970;
+}
+
+/**
  * 获取相对时间字符串
  * @param dateString ISO日期字符串
- * @returns 相对时间字符串（如"昨天"、"3天前"）
+ * @returns 相对时间字符串（如"昨天"、"3天前"）；日期缺失或无效时返回空串
  */
-export function getRelativeTime(dateString: string): string {
+export function getRelativeTime(dateString: string | null | undefined): string {
+  if (!isValidDisplayDate(dateString)) {
+    return "";
+  }
   const now = new Date();
   const past = new Date(dateString);
 

@@ -60,6 +60,7 @@ func TestSchema24FixtureIsHistoricalSanitizedAndComplete(t *testing.T) {
 		"33:podcast-episode-sync-cursor",
 		"34:import-task-state",
 		"35:import-task-retry-parent",
+		"36:podcast-history-sync-task",
 	}, migrationNames(status.Pending))
 
 	for table, want := range map[string]int64{

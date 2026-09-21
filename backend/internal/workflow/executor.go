@@ -214,6 +214,18 @@ func (e *Executor) Execute(ctx context.Context, workflow *models.Workflow, trigg
 		return job, nil
 	}
 
+	// 周期执行前的有界补偿检查（#462）：为本次范围内缺失历史同步任务的
+	// 节目补登记（含自定义源本次落地的节目）。旧库节目受水位线保护，不
+	// 因周期运行被无差别回填；任务行是唯一事实来源，避免只依赖内存回调。
+	targetIDs := make([]uint, 0, len(podcasts))
+	for i := range podcasts {
+		targetIDs = append(targetIDs, podcasts[i].ID)
+	}
+	if _, err := syncsvc.EnsureHistoryTasks(e.db, targetIDs, models.HistorySyncTriggerWorkflow, true); err != nil {
+		logger.Warnf("周期补偿登记历史同步任务失败 [workflow=%d]: %v", workflow.ID, err)
+	}
+	syncsvc.NotifyHistoryTasksEnqueued(targetIDs)
+
 	// 3. 并发执行同步
 	results := e.executeSync(ctx, workflow, job, podcasts)
 
