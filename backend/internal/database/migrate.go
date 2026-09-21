@@ -1362,12 +1362,18 @@ func (importTaskSchemaV34) TableName() string { return "import_tasks" }
 
 // applyPodcastHistorySyncTaskMigration 创建节目历史同步任务表。活动态任务的
 // 部分唯一索引在数据库层保证同一节目同一时刻最多一个待执行/执行中任务，
-// 重复触发、跨工作流覆盖与并发重试据此天然去重（#462）。
+// 重复触发、跨工作流覆盖与并发重试据此天然去重（#462）。索引全部用显式
+// 定序 DDL 创建：Migration Report 按 DDL 执行顺序记录证据，AutoMigrate 的
+// 多索引创建顺序不定，会造成 preflight 与 apply 重放不一致。
 func applyPodcastHistorySyncTaskMigration(db *gorm.DB) error {
 	if err := db.AutoMigrate(&models.PodcastHistorySyncTask{}); err != nil {
 		return fmt.Errorf("create podcast_history_sync_tasks: %w", err)
 	}
 	indexes := []struct{ name, ddl string }{
+		{
+			name: "idx_history_sync_tasks_podcast",
+			ddl:  "CREATE INDEX IF NOT EXISTS idx_history_sync_tasks_podcast ON podcast_history_sync_tasks(podcast_id)",
+		},
 		{
 			name: "idx_history_sync_tasks_one_active_per_podcast",
 			ddl: "CREATE UNIQUE INDEX IF NOT EXISTS idx_history_sync_tasks_one_active_per_podcast " +

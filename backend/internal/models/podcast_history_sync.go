@@ -41,7 +41,9 @@ func IsHistorySyncActiveStatus(status string) bool {
 type PodcastHistorySyncTask struct {
 	BaseModel
 
-	PodcastID uint   `gorm:"not null;index:idx_history_sync_tasks_podcast" json:"podcast_id"`
+	// PodcastID 的索引由迁移显式创建（固定顺序的 DDL 证据必须与 preflight
+	// 重放一致；AutoMigrate 的多索引创建顺序不定，不能依赖 gorm tag）。
+	PodcastID uint   `gorm:"not null" json:"podcast_id"`
 	Trigger   string `gorm:"size:20;not null" json:"trigger"`
 	Status    string `gorm:"size:20;not null;default:'pending'" json:"status"`
 
