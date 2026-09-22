@@ -32,8 +32,9 @@ const SanitizerVersion = "v12"
 // 不含用户内容）刷新。
 const sanitizerSchemaFingerprint = "9dc041379745ffa97b02f42ff37a5d19c8b26cb24861129662c16366aba26225"
 // 迁移 v36（podcast_history_sync_tasks，#462）新增任务表后按当前 schema 重新
-// 计算的 sanitizer schema-object 契约指纹。
-const sanitizerSchemaObjectsFingerprint = "b81b813135a3004c9bdfdb575f222cafe7fe5e0b7c49b978ad5d5268dd69de93"
+// 计算的 sanitizer schema-object 契约指纹（v36 的三个显式索引为迁移自有
+// DDL，与 v26 恢复表索引同样不在 baseline 对象集合内）。
+const sanitizerSchemaObjectsFingerprint = "a606e57d5150a28d01b35073a3d1aa8dede1b2b39de47f9b9f6ff977c959e96b"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 
