@@ -51,7 +51,49 @@ type Service struct {
 	alternativePrewarmWG     sync.WaitGroup
 	alternativePrewarmClosed bool
 
+	// episodeSyncSlots 是进程内按节目互斥的单集同步槽（容量 1 的 channel）：
+	// 周期工作流与历史同步任务共享同一并发边界，避免同节目并发写单集在
+	// GUID 唯一索引上互相造成虚假失败（#462）。条目数以节目库为上界。
+	episodeSyncSlots sync.Map
+
 	videoProber *xyzvideo.Prober
+}
+
+func (s *Service) podcastEpisodeSyncSlot(podcastID uint) chan struct{} {
+	if slot, ok := s.episodeSyncSlots.Load(podcastID); ok {
+		return slot.(chan struct{})
+	}
+	slot := make(chan struct{}, 1)
+	actual, _ := s.episodeSyncSlots.LoadOrStore(podcastID, slot)
+	return actual.(chan struct{})
+}
+
+// TryAcquirePodcastEpisodeSync 尝试占用节目的单集同步互斥槽；被占用时立即
+// 返回 false，不等待。
+func (s *Service) TryAcquirePodcastEpisodeSync(podcastID uint) bool {
+	select {
+	case s.podcastEpisodeSyncSlot(podcastID) <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+// ReleasePodcastEpisodeSync 释放节目单集同步互斥槽。
+func (s *Service) ReleasePodcastEpisodeSync(podcastID uint) {
+	<-s.podcastEpisodeSyncSlot(podcastID)
+}
+
+// AcquirePodcastEpisodeSync 阻塞占用节目的单集同步互斥槽；ctx 取消时返回
+// 错误。调用方必须在完成后调用返回的 release。
+func (s *Service) AcquirePodcastEpisodeSync(ctx context.Context, podcastID uint) (func(), error) {
+	slot := s.podcastEpisodeSyncSlot(podcastID)
+	select {
+	case slot <- struct{}{}:
+		return func() { <-slot }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // SyncResult 同步结果

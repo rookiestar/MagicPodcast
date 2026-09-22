@@ -740,7 +740,17 @@ func (e *Executor) syncPodcastWithAttempts(
 		logger.Infof("⏱️  时间范围: 全部历史数据")
 	}
 
-	// 执行同步
+	// 执行同步。同节目并发边界（#462）：等待历史同步任务释放该节目的
+	// 单集同步槽后再执行，避免并发写单集在 GUID 唯一索引上互相造成虚假
+	// 失败；等待受 30 分钟执行 ctx 约束。
+	releaseEpisodeSync, err := e.syncSvc.AcquirePodcastEpisodeSync(ctx, podcast.ID)
+	if err != nil {
+		execution.Status = models.ExecutionStatusFailed
+		execution.ErrorMessage = fmt.Sprintf("等待节目同步槽失败: %v", err)
+		return &execution, nil
+	}
+	defer releaseEpisodeSync()
+
 	result, err := e.syncSvc.SyncPodcastEpisodesWithContext(
 		ctx,
 		podcast.ID,

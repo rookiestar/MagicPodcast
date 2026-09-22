@@ -122,6 +122,9 @@ func SanitizeSnapshot(db *sql.DB) error {
 		"DELETE FROM episode_artifact_sets",
 		"DELETE FROM episode_processing_runs",
 		"DELETE FROM processing_schedule_runs",
+		// 历史同步任务的错误信息可能携带私有 Feed 主机与路径，与
+		// job_executions.error_message 同等脱敏（#462）。
+		"UPDATE podcast_history_sync_tasks SET error_message = ''",
 	} {
 		if _, err := transaction.Exec(statement); err != nil {
 			return fmt.Errorf("apply snapshot redaction: %w", err)
@@ -213,6 +216,7 @@ func VerifySanitizedSnapshot(db *sql.DB) error {
 		{"SELECT COUNT(*) FROM episode_artifact_sets", "local processing artifact paths"},
 		{"SELECT COUNT(*) FROM episode_processing_runs", "processing run metadata"},
 		{"SELECT COUNT(*) FROM processing_schedule_runs", "processing schedule trigger history"},
+		{"SELECT COUNT(*) FROM podcast_history_sync_tasks WHERE error_message <> ''", "history sync task errors"},
 	} {
 		if err := db.QueryRow(check.query).Scan(&count); err != nil {
 			return fmt.Errorf("verify %s redaction: %w", check.label, err)

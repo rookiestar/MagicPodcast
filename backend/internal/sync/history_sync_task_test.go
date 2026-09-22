@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -461,6 +462,88 @@ func TestHistorySyncManagerSweepRetriesDueFailedTask(t *testing.T) {
 	task := waitForHistoryTaskStatus(t, db, created[0].ID, models.HistorySyncStatusCompleted)
 	assert.Equal(t, int64(2), countEpisodesForPodcast(t, db, podcast.ID))
 	assert.Nil(t, task.NextRetryAt)
+}
+
+func TestHistorySyncManagerSweepRetriesDuePartialTask(t *testing.T) {
+	server := newCursorFeedServer(t, cursorFeedXML(2))
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, service.Close()) })
+
+	podcast := importCursorPodcast(t, service, server.URL)
+	m := newTestHistoryManager(t, db, service)
+
+	created, err := EnsureHistoryTasks(db, []uint{podcast.ID}, models.HistorySyncTriggerManual, false)
+	require.NoError(t, err)
+	require.Len(t, created, 1)
+
+	// 续批预算耗尽的 partial 任务带 next_retry_at：周期扫描同样复位执行。
+	require.NoError(t, db.Model(&models.PodcastHistorySyncTask{}).Where("id = ?", created[0].ID).
+		Updates(map[string]interface{}{
+			"status":        models.HistorySyncStatusPartial,
+			"next_retry_at": time.Now().Add(-time.Minute),
+			"finished_at":   time.Now(),
+		}).Error)
+	m.sweepRetryDue()
+	waitForHistoryTaskStatus(t, db, created[0].ID, models.HistorySyncStatusCompleted)
+	assert.Equal(t, int64(2), countEpisodesForPodcast(t, db, podcast.ID))
+}
+
+func TestHistorySyncManagerDefersWhileWorkflowSyncHoldsSlot(t *testing.T) {
+	server := newCursorFeedServer(t, cursorFeedXML(2))
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, service.Close()) })
+
+	podcast := importCursorPodcast(t, service, server.URL)
+	allowAllCoverage(t)
+	m := newTestHistoryManager(t, db, service)
+
+	// 模拟周期工作流正在同步同一节目：历史任务领取后立即归还，保持待同步。
+	require.True(t, service.TryAcquirePodcastEpisodeSync(podcast.ID))
+	created, err := EnsureHistoryTasks(db, []uint{podcast.ID}, models.HistorySyncTriggerWorkflow, false)
+	require.NoError(t, err)
+	require.Len(t, created, 1)
+	m.enqueue(podcast.ID)
+
+	time.Sleep(300 * time.Millisecond)
+	var deferred models.PodcastHistorySyncTask
+	require.NoError(t, db.First(&deferred, created[0].ID).Error)
+	assert.Equal(t, models.HistorySyncStatusPending, deferred.Status, "工作流持有同步槽时历史任务不得执行")
+	assert.Equal(t, 0, deferred.Attempts, "归还领取时应退还尝试计数")
+	assert.Equal(t, int64(0), countEpisodesForPodcast(t, db, podcast.ID))
+
+	// 工作流释放后任务正常执行。
+	service.ReleasePodcastEpisodeSync(podcast.ID)
+	m.enqueue(podcast.ID)
+	waitForHistoryTaskStatus(t, db, created[0].ID, models.HistorySyncStatusCompleted)
+	assert.Equal(t, int64(2), countEpisodesForPodcast(t, db, podcast.ID))
+}
+
+func TestPodcastEpisodeSyncSlotMutualExclusion(t *testing.T) {
+	db := setupTestDB(t)
+	service, err := NewService(db, "")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, service.Close()) })
+
+	require.True(t, service.TryAcquirePodcastEpisodeSync(42))
+	require.False(t, service.TryAcquirePodcastEpisodeSync(42), "占用中不得重复获取")
+
+	// 阻塞获取在 ctx 取消时返回错误。
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, acquireErr := service.AcquirePodcastEpisodeSync(ctx, 42)
+	require.Error(t, acquireErr)
+
+	service.ReleasePodcastEpisodeSync(42)
+	require.True(t, service.TryAcquirePodcastEpisodeSync(42))
+	service.ReleasePodcastEpisodeSync(42)
+	release, acquireErr := service.AcquirePodcastEpisodeSync(context.Background(), 42)
+	require.NoError(t, acquireErr)
+	release()
+	require.True(t, service.TryAcquirePodcastEpisodeSync(42), "释放后可重新占用")
 }
 
 func seedSyncPodcast(t *testing.T, db *gorm.DB) *models.Podcast {

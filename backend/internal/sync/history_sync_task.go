@@ -444,8 +444,8 @@ func (m *HistorySyncManager) sweepRetryDue() {
 	now := time.Now()
 	var due []models.PodcastHistorySyncTask
 	if err := m.db.
-		Where("status = ? AND next_retry_at IS NOT NULL AND next_retry_at <= ? AND attempts < ?",
-			models.HistorySyncStatusFailed, now, maxHistoryTaskAttempts).
+		Where("status IN ? AND next_retry_at IS NOT NULL AND next_retry_at <= ? AND attempts < ?",
+			[]string{models.HistorySyncStatusFailed, models.HistorySyncStatusPartial}, now, maxHistoryTaskAttempts).
 		Limit(50).Find(&due).Error; err != nil {
 		logger.Warnf("扫描待重试历史同步任务失败: %v", err)
 		return
@@ -500,19 +500,23 @@ func (m *HistorySyncManager) claimHistoryTask(task *models.PodcastHistorySyncTas
 		return false
 	}
 	if !coverageAllowsHistorySync(m.db, task.PodcastID, task.Trigger) {
-		// 回退为待同步并归还本次领取：停用覆盖下的任务保持等待。
-		m.db.Model(&models.PodcastHistorySyncTask{}).Where("id = ?", task.ID).
-			Updates(map[string]interface{}{
-				"status":     models.HistorySyncStatusPending,
-				"attempts":   gorm.Expr("attempts - 1"),
-				"started_at": nil,
-				"updated_at": time.Now(),
-			})
+		m.revertClaim(task)
 		return false
 	}
 	task.Status = models.HistorySyncStatusRunning
 	task.Attempts++
 	return true
+}
+
+// revertClaim 归还一次领取：回退为待同步并退还尝试计数。
+func (m *HistorySyncManager) revertClaim(task *models.PodcastHistorySyncTask) {
+	m.db.Model(&models.PodcastHistorySyncTask{}).Where("id = ?", task.ID).
+		Updates(map[string]interface{}{
+			"status":     models.HistorySyncStatusPending,
+			"attempts":   gorm.Expr("attempts - 1"),
+			"started_at": nil,
+			"updated_at": time.Now(),
+		})
 }
 
 func (m *HistorySyncManager) processPodcast(podcastID uint) {
@@ -530,6 +534,14 @@ func (m *HistorySyncManager) processPodcast(podcastID uint) {
 	cache.InvalidatePodcastDetail(podcastID)
 	cache.InvalidatePodcastList()
 	cache.InvalidateEpisodeList(podcastID)
+
+	// 同节目并发边界（#462）：周期工作流正在同步该节目时，历史任务先回到
+	// 队列，由周期扫描兜底重入队（约一分钟），不与工作流并发写单集。
+	if !m.svc.TryAcquirePodcastEpisodeSync(podcastID) {
+		m.revertClaim(&task)
+		return
+	}
+	defer m.svc.ReleasePodcastEpisodeSync(podcastID)
 
 	// ctx 只绑定管理器生命周期：进程停止时取消执行且不写终态，任务行由
 	// 下一次启动恢复；页面关闭不影响后台同步。
@@ -627,6 +639,13 @@ func (m *HistorySyncManager) executeTask(ctx context.Context, task *models.Podca
 
 	for pass := 0; pass < maxHistorySyncPasses; pass++ {
 		if ctx.Err() != nil {
+			// 管理器停止导致的取消发生在续批之间：不写终态，任务行保持
+			// running，由下一次启动恢复续批。
+			if m.stopped() {
+				logger.Infof("历史同步因进程停止暂停 [podcast=%d task=%d]，已核对 %d 条保留",
+					task.PodcastID, task.ID, frontier)
+				return
+			}
 			break
 		}
 		passesUsed = pass + 1
