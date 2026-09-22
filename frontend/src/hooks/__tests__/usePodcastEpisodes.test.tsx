@@ -303,3 +303,56 @@ describe("usePodcastEpisodes", () => {
     consoleSpy.mockRestore();
   });
 });
+
+describe("sync completion refresh", () => {
+  beforeEach(() => vi.resetAllMocks());
+  it("keeps loaded episodes and totals when refresh fails, then allows retry", async () => {
+    listByPodcast
+      .mockResolvedValueOnce(makePage([makeEpisode(1)], 1, true))
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(
+        makePage([makeEpisode(2), makeEpisode(1)], 1, false),
+      );
+    const { result } = renderHook(() =>
+      usePodcastEpisodes({ podcastId: 1, enabled: true, pageSize: 2 }),
+    );
+    await waitFor(() => expect(result.current.episodes).toHaveLength(1));
+    await act(async () => {
+      await result.current.refreshEpisodes();
+    });
+    expect(result.current.episodes.map((e) => e.id)).toEqual([1]);
+    expect(result.current.totalEpisodes).toBe(3);
+    expect(result.current.episodesError).toBe("offline");
+    await act(async () => {
+      await result.current.retryEpisodes();
+    });
+    expect(result.current.episodes.map((e) => e.id)).toEqual([2, 1]);
+  });
+  it("runs a deferred refresh after an in-flight pagination request", async () => {
+    const pending = deferredPage();
+    listByPodcast
+      .mockResolvedValueOnce(makePage([makeEpisode(1)], 1, true))
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce(
+        makePage([makeEpisode(3), makeEpisode(1)], 1, true),
+      );
+    const { result } = renderHook(() =>
+      usePodcastEpisodes({ podcastId: 1, enabled: true, pageSize: 2 }),
+    );
+    await waitFor(() => expect(result.current.episodes).toHaveLength(1));
+    await act(async () => {
+      void result.current.loadMoreEpisodes();
+    });
+    await act(async () => {
+      await result.current.refreshEpisodes();
+    });
+    await act(async () => {
+      pending.resolve(makePage([makeEpisode(2)], 2, false));
+      await pending.promise;
+    });
+    await waitFor(() =>
+      expect(result.current.episodes.map((e) => e.id)).toEqual([3, 1]),
+    );
+    expect(listByPodcast).toHaveBeenLastCalledWith(1, 1, 2);
+  });
+});

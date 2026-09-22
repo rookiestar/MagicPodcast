@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { getPodcastSyncControl } from "../podcastSyncControl";
+import {
+  getPodcastSyncControl,
+  shouldPollPodcastSync,
+} from "../podcastSyncControl";
 import type { PodcastHistorySyncTask } from "@/types";
 
 function makeTask(overrides: Partial<PodcastHistorySyncTask>) {
@@ -69,7 +72,11 @@ describe("getPodcastSyncControl", () => {
 
     const unknownTotal = getPodcastSyncControl({
       podcast: { episode_count: 0 },
-      task: makeTask({ status: "running", processed_count: 45, total_known: null }),
+      task: makeTask({
+        status: "running",
+        processed_count: 45,
+        total_known: null,
+      }),
       onStart,
     });
     // 总量未知只展示已处理数量，不伪造百分比。
@@ -111,3 +118,27 @@ describe("getPodcastSyncControl", () => {
     expect(completedEmpty.sourceNote).toBe("源当前未提供可获取单集");
   });
 });
+
+it("allows manual takeover of a pending automatic task", () => {
+  const control = getPodcastSyncControl({
+    podcast: { episode_count: 0 },
+    task: makeTask({ status: "pending", trigger: "workflow" }),
+    onStart,
+  });
+  expect(control.disabled).toBe(false);
+  control.onStart();
+  expect(onStart).toHaveBeenCalled();
+});
+it.each(["failed", "partial"] as const)(
+  "continues polling %s tasks with scheduled retries",
+  (status) => {
+    expect(
+      shouldPollPodcastSync(
+        makeTask({ status, next_retry_at: "2026-09-22T01:00:00Z" }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldPollPodcastSync(makeTask({ status, next_retry_at: null })),
+    ).toBe(false);
+  },
+);

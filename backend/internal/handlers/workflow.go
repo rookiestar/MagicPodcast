@@ -265,20 +265,15 @@ func (h *WorkflowHandler) Create(c *gin.Context) {
 		}
 	}
 
-	if err := db.Omit("LastJob", "Jobs").Create(&workflow).Error; err != nil {
+	if err := saveWorkflowWithHistory(db, nil, &workflow, func(tx *gorm.DB) error {
+		return tx.Omit("LastJob", "Jobs").Create(&workflow).Error
+	}); err != nil {
 		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to create workflow")
 		return
 	}
 	cache.InvalidateWorkflowList()
 	// 工作流范围变化影响节目覆盖筛选结果（#419），需同步失效列表缓存。
 	cache.InvalidatePodcastList()
-
-	// 覆盖入口（#462）：新建即启用的工作流为其覆盖成员登记历史同步任务；
-	// 指定节目范围按显式选择登记，全部订阅/自定义源范围受水位线过滤。
-	if workflow.IsEnabled {
-		coverage := resolveWorkflowCoverage(db, &workflow, true)
-		registerHistorySyncForCoverageChange(db, map[uint]struct{}{}, coverage, workflow.ScopeType)
-	}
 
 	// 如果工作流启用且配置了 schedule,注册到调度器
 	if workflow.IsEnabled && workflow.Schedule != "" {
@@ -330,10 +325,10 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 	// 覆盖入口（#462）：记录编辑前的范围与启用状态，用于计算本次变化
 	// 新增覆盖了哪些节目。
 	oldWorkflow := models.Workflow{
+		IsEnabled:   workflow.IsEnabled,
 		ScopeType:   workflow.ScopeType,
 		ScopeConfig: workflow.ScopeConfig,
 	}
-	oldEnabled := workflow.IsEnabled
 
 	// 验证cron表达式
 	if err := models.ValidateCron(req.Schedule); err != nil {
@@ -416,19 +411,15 @@ func (h *WorkflowHandler) Update(c *gin.Context) {
 		updates["next_run_at"] = workflow.NextRunAt
 	}
 
-	if err := db.Model(&models.Workflow{}).Where("id = ?", workflow.ID).Updates(updates).Error; err != nil {
+	if err := saveWorkflowWithHistory(db, &oldWorkflow, &workflow, func(tx *gorm.DB) error {
+		return tx.Model(&models.Workflow{}).Where("id = ?", workflow.ID).Updates(updates).Error
+	}); err != nil {
 		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to update workflow")
 		return
 	}
 	cache.InvalidateWorkflowDetail(workflow.ID)
 	// 范围配置变化影响节目覆盖筛选结果（#419）。
 	cache.InvalidatePodcastList()
-
-	// 覆盖入口（#462）：编辑后的新增覆盖登记历史同步任务。
-	registerHistorySyncForCoverageChange(db,
-		resolveWorkflowCoverage(db, &oldWorkflow, oldEnabled),
-		resolveWorkflowCoverage(db, &workflow, workflow.IsEnabled),
-		workflow.ScopeType)
 
 	// 重新加载调度器以应用更新
 	if err := h.scheduler.Reload(); err != nil {
@@ -499,6 +490,7 @@ func (h *WorkflowHandler) Toggle(c *gin.Context) {
 		return
 	}
 
+	oldWorkflow := workflow
 	workflow.IsEnabled = !workflow.IsEnabled
 
 	// 如果启用工作流且配置了schedule，计算并更新下次执行时间
@@ -512,20 +504,13 @@ func (h *WorkflowHandler) Toggle(c *gin.Context) {
 		}
 	}
 
-	if err := db.Save(&workflow).Error; err != nil {
+	if err := saveWorkflowWithHistory(db, &oldWorkflow, &workflow, func(tx *gorm.DB) error {
+		return tx.Save(&workflow).Error
+	}); err != nil {
 		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "Failed to toggle workflow")
 		return
 	}
 	cache.InvalidateWorkflowDetail(workflow.ID)
-
-	// 覆盖入口（#462）：启用后其覆盖成员获得（或恢复）历史同步；停用不
-	// 回滚已写入结果，仅由领取守卫停止后续自动调度。
-	if workflow.IsEnabled {
-		registerHistorySyncForCoverageChange(db,
-			map[uint]struct{}{},
-			resolveWorkflowCoverage(db, &workflow, true),
-			workflow.ScopeType)
-	}
 
 	// 重新加载调度器以应用更新
 	if err := h.scheduler.Reload(); err != nil {

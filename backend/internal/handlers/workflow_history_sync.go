@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"magicpodcast/internal/logger"
 	"magicpodcast/internal/models"
 	syncsvc "magicpodcast/internal/sync"
 	"magicpodcast/internal/workflow"
@@ -11,16 +10,11 @@ import (
 
 // resolveWorkflowCoverage 解析工作流在给定启用状态下的覆盖节目集合；停用
 // 状态覆盖为空集（历史同步的自动触发只认启用覆盖，#462）。
-func resolveWorkflowCoverage(db *gorm.DB, wf *models.Workflow, enabled bool) map[uint]struct{} {
+func resolveWorkflowCoverage(db *gorm.DB, wf *models.Workflow, enabled bool) (map[uint]struct{}, error) {
 	if !enabled {
-		return map[uint]struct{}{}
+		return map[uint]struct{}{}, nil
 	}
-	resolved, err := workflow.ResolvedCoveragePodcastIDs(db, wf)
-	if err != nil {
-		logger.Warnf("解析工作流覆盖失败 [ID=%d scope=%s]: %v", wf.ID, wf.ScopeType, err)
-		return map[uint]struct{}{}
-	}
-	return resolved
+	return workflow.ResolvedCoveragePodcastIDs(db, wf)
 }
 
 // registerHistorySyncForCoverageChange 在工作流覆盖入口（新建/编辑/启用）变化
@@ -28,9 +22,9 @@ func resolveWorkflowCoverage(db *gorm.DB, wf *models.Workflow, enabled bool) map
 // 显式选择，不受水位线限制；全部订阅/自定义源范围受水位线过滤，避免发版后
 // 把旧库节目全部卷入回填（#462）。登记后通知管理器入队（无管理器时由恢复
 // /补偿扫描兜底）。
-func registerHistorySyncForCoverageChange(db *gorm.DB, oldCoverage, newCoverage map[uint]struct{}, newScopeType models.WorkflowScopeType) {
+func registerHistorySyncForCoverageChange(db *gorm.DB, oldCoverage, newCoverage map[uint]struct{}, newScopeType models.WorkflowScopeType) ([]uint, error) {
 	if len(newCoverage) == 0 {
-		return
+		return nil, nil
 	}
 	newlyEntered := make([]uint, 0, len(newCoverage))
 	for id := range newCoverage {
@@ -39,18 +33,39 @@ func registerHistorySyncForCoverageChange(db *gorm.DB, oldCoverage, newCoverage 
 		}
 	}
 	if len(newlyEntered) == 0 {
-		return
+		return nil, nil
 	}
 
 	watermarkFilter := newScopeType != models.ScopeTypeSpecificPodcasts
-	created, err := syncsvc.EnsureHistoryTasks(db, newlyEntered, models.HistorySyncTriggerWorkflow, watermarkFilter)
-	if err != nil {
-		logger.Warnf("登记覆盖入口历史同步任务失败: %v", err)
-		return
+	_, err := syncsvc.EnsureHistoryTasks(db, newlyEntered, models.HistorySyncTriggerWorkflow, watermarkFilter)
+	return newlyEntered, err
+}
+
+// saveWorkflowWithHistory atomically persists a scope change and its initial tasks.
+// Notify only after commit: workers cannot observe an uncommitted membership.
+func saveWorkflowWithHistory(db *gorm.DB, oldWorkflow, newWorkflow *models.Workflow, save func(*gorm.DB) error) error {
+	var ids []uint
+	err := db.Transaction(func(tx *gorm.DB) error {
+		oldCoverage := map[uint]struct{}{}
+		if oldWorkflow != nil {
+			var err error
+			oldCoverage, err = resolveWorkflowCoverage(tx, oldWorkflow, oldWorkflow.IsEnabled)
+			if err != nil {
+				return err
+			}
+		}
+		if err := save(tx); err != nil {
+			return err
+		}
+		newCoverage, err := resolveWorkflowCoverage(tx, newWorkflow, newWorkflow.IsEnabled)
+		if err != nil {
+			return err
+		}
+		ids, err = registerHistorySyncForCoverageChange(tx, oldCoverage, newCoverage, newWorkflow.ScopeType)
+		return err
+	})
+	if err == nil {
+		syncsvc.NotifyHistoryTasksEnqueued(ids)
 	}
-	// 新覆盖的节目全部通知入队：既有待同步任务借此在启用后开始执行。
-	syncsvc.NotifyHistoryTasksEnqueued(newlyEntered)
-	if len(created) > 0 {
-		logger.Infof("覆盖变化登记历史同步任务 %d 个（范围=%s 水位线过滤=%v）", len(created), newScopeType, watermarkFilter)
-	}
+	return err
 }
