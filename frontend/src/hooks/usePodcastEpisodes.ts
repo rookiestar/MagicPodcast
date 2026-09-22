@@ -26,10 +26,12 @@ export function usePodcastEpisodes({
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [episodesError, setEpisodesError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
+  const refreshPendingRef = useRef(false);
   const inFlightRequestIdRef = useRef<number | null>(null);
   const failedRequestRef = useRef<{
     page: number;
     append: boolean;
+    preserveContent: boolean;
   } | null>(null);
 
   const resetEpisodes = useCallback(() => {
@@ -42,12 +44,20 @@ export function usePodcastEpisodes({
     setEpisodesError(null);
     inFlightRequestIdRef.current = null;
     failedRequestRef.current = null;
+    refreshPendingRef.current = false;
   }, []);
 
   const fetchEpisodes = useCallback(
-    async (page: number = 1, append: boolean = false) => {
+    async function fetchPage(
+      page: number = 1,
+      append: boolean = false,
+      preserveContent: boolean = false,
+    ): Promise<void> {
       if (!enabled || !podcastId) return;
-      if (inFlightRequestIdRef.current !== null) return;
+      if (inFlightRequestIdRef.current !== null) {
+        if (preserveContent) refreshPendingRef.current = true;
+        return;
+      }
 
       const requestId = requestIdRef.current + 1;
       requestIdRef.current = requestId;
@@ -58,7 +68,7 @@ export function usePodcastEpisodes({
         failedRequestRef.current = null;
 
         if (page === 1) {
-          setEpisodesLoading(true);
+          if (!preserveContent) setEpisodesLoading(true);
         } else {
           setIsLoadingMore(true);
         }
@@ -88,13 +98,13 @@ export function usePodcastEpisodes({
 
         console.error("Failed to fetch episodes:", err);
         setEpisodesError(getErrorMessage(err));
-        failedRequestRef.current = { page, append };
-        if (!append) {
+        failedRequestRef.current = { page, append, preserveContent };
+        if (!append && !preserveContent) {
           setEpisodes([]);
           setCurrentPage(1);
           setTotalEpisodes(0);
           setHasMoreEpisodes(false);
-        } else {
+        } else if (!preserveContent) {
           setHasMoreEpisodes(false);
         }
       } finally {
@@ -104,6 +114,10 @@ export function usePodcastEpisodes({
         }
         if (inFlightRequestIdRef.current === requestId) {
           inFlightRequestIdRef.current = null;
+          if (refreshPendingRef.current && requestId === requestIdRef.current) {
+            refreshPendingRef.current = false;
+            await fetchPage(1, false, true);
+          }
         }
       }
     },
@@ -117,7 +131,11 @@ export function usePodcastEpisodes({
 
     const failedRequest = failedRequestRef.current;
     if (failedRequest) {
-      await fetchEpisodes(failedRequest.page, failedRequest.append);
+      await fetchEpisodes(
+        failedRequest.page,
+        failedRequest.append,
+        failedRequest.preserveContent,
+      );
       return;
     }
 
@@ -148,6 +166,7 @@ export function usePodcastEpisodes({
 
   useEffect(() => {
     requestIdRef.current += 1;
+    refreshPendingRef.current = false;
 
     if (!enabled || !podcastId) {
       resetEpisodes();
@@ -177,7 +196,7 @@ export function usePodcastEpisodes({
 
   // refreshEpisodes 从第一页重新拉取（历史同步完成后刷新入库结果，#465）。
   const refreshEpisodes = useCallback(() => {
-    return fetchEpisodes(1, false);
+    return fetchEpisodes(1, false, true);
   }, [fetchEpisodes]);
 
   return {

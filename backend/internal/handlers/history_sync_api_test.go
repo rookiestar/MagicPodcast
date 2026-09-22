@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"magicpodcast/internal/models"
+	"magicpodcast/internal/scheduler"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -186,4 +187,56 @@ func TestAppendPodcastsWithoutCompletionDoesNotDuplicate(t *testing.T) {
 	require.NoError(t, db.Model(&models.PodcastHistorySyncTask{}).
 		Where("podcast_id = ?", 9).Count(&count).Error)
 	assert.Equal(t, int64(1), count, "历史已完成节目重复加入不新建任务")
+}
+
+func TestWorkflowHistoryRegistrationRollsBackMembershipOnFailure(t *testing.T) {
+	for _, operation := range []string{"create", "edit", "enable"} {
+		t.Run(operation, func(t *testing.T) {
+			_, db := newHistorySyncAPIRouter(t)
+			podcast := seedHistorySyncPodcast(t, db, "atomic")
+			before := models.Workflow{Name: "Atomic", ScopeType: models.ScopeTypeSpecificPodcasts, ScopeConfig: models.ScopeConfig{}, IsEnabled: operation != "enable"}
+			if operation != "create" {
+				require.NoError(t, db.Create(&before).Error)
+				require.NoError(t, db.Model(&before).Update("is_enabled", operation != "enable").Error)
+			}
+			after := before
+			after.IsEnabled = true
+			after.ScopeConfig = models.ScopeConfig{PodcastIDs: []int{int(podcast.ID)}}
+			require.NoError(t, db.Exec(`CREATE TRIGGER reject_history_task BEFORE INSERT ON podcast_history_sync_tasks BEGIN SELECT RAISE(ABORT, 'test task persistence failure'); END`).Error)
+			var old *models.Workflow
+			if operation != "create" {
+				old = &before
+			}
+			err := saveWorkflowWithHistory(db, old, &after, func(tx *gorm.DB) error { return tx.Save(&after).Error })
+			require.Error(t, err)
+			if operation == "create" {
+				var count int64
+				require.NoError(t, db.Model(&models.Workflow{}).Count(&count).Error)
+				require.Zero(t, count)
+			} else {
+				var persisted models.Workflow
+				require.NoError(t, db.First(&persisted, before.ID).Error)
+				require.Equal(t, before.IsEnabled, persisted.IsEnabled)
+				require.Empty(t, persisted.ScopeConfig.PodcastIDs)
+			}
+		})
+	}
+}
+
+func TestWorkflowEditWithoutCoverageChangeDoesNotBackfillOldMembers(t *testing.T) {
+	router, db := newAppendRouter(t)
+	p := seedAppendPodcast(t, db, 1)
+	wf := models.Workflow{Name: "Existing", Schedule: "0 0 6 * * *", ScopeType: models.ScopeTypeSpecificPodcasts, ScopeConfig: models.ScopeConfig{PodcastIDs: []int{int(p.ID)}}, IsEnabled: true}
+	require.NoError(t, db.Create(&wf).Error)
+	h := &WorkflowHandler{scheduler: scheduler.NewScheduler(db, nil)}
+	router.PUT("/workflows/:id", h.Update)
+	body := fmt.Sprintf(`{"name":"Renamed","schedule":"0 0 6 * * *","scope_type":"specific_podcasts","scope_config":{"podcast_ids":[1]},"rules_config":{"time_range":1},"is_enabled":true,"confirmation_text":"UPDATE WORKFLOW %d"}`, wf.ID)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/workflows/%d", wf.ID), bytes.NewBufferString(body))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(response, request)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var tasks int64
+	require.NoError(t, db.Model(&models.PodcastHistorySyncTask{}).Count(&tasks).Error)
+	require.Zero(t, tasks, "renaming must not enqueue old members")
 }

@@ -129,7 +129,7 @@ func EnsureHistoryTasks(db *gorm.DB, podcastIDs []uint, trigger string, watermar
 }
 
 // StartManualHistoryTask 手动同步入口（启动与重试共用）：活动态任务直接复用
-// （重复点击/刷新不重复建任务）；最新终态为 failed 的任务原样复位重试，任务
+// （重复点击/刷新不重复建任务）；最新终态为 failed/partial 的任务复位并重置本轮重试预算，任务
 // 标识保持稳定；其余情况创建新任务（已完成节目再次手动检查来源）。
 func StartManualHistoryTask(db *gorm.DB, podcastID uint) (*models.PodcastHistorySyncTask, bool, error) {
 	var task models.PodcastHistorySyncTask
@@ -139,6 +139,10 @@ func StartManualHistoryTask(db *gorm.DB, podcastID uint) (*models.PodcastHistory
 		err := tx.Where("podcast_id = ? AND status IN ?", podcastID, models.HistorySyncActiveStatuses()).
 			Order("id DESC").First(&active).Error
 		if err == nil {
+			if err := tx.Model(&active).Update("trigger", models.HistorySyncTriggerManual).Error; err != nil {
+				return err
+			}
+			active.Trigger = models.HistorySyncTriggerManual
 			task = active
 			return nil
 		}
@@ -154,9 +158,11 @@ func StartManualHistoryTask(db *gorm.DB, podcastID uint) (*models.PodcastHistory
 			return err
 		}
 
-		if latest.ID != 0 && latest.Status == models.HistorySyncStatusFailed {
+		if latest.ID != 0 && (latest.Status == models.HistorySyncStatusFailed || latest.Status == models.HistorySyncStatusPartial) {
 			updates := map[string]interface{}{
 				"status":        models.HistorySyncStatusQueued,
+				"trigger":       models.HistorySyncTriggerManual,
+				"attempts":      0,
 				"next_retry_at": nil,
 				"finished_at":   nil,
 				"error_message": "",
@@ -166,6 +172,8 @@ func StartManualHistoryTask(db *gorm.DB, podcastID uint) (*models.PodcastHistory
 				Updates(updates).Error; err != nil {
 				return err
 			}
+			latest.Trigger = models.HistorySyncTriggerManual
+			latest.Attempts = 0
 			latest.Status = models.HistorySyncStatusQueued
 			latest.NextRetryAt = nil
 			latest.FinishedAt = nil
@@ -301,8 +309,9 @@ type HistorySyncManager struct {
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 
-	stopOnce  sync.Once
-	startOnce sync.Once
+	stopOnce     sync.Once
+	startOnce    sync.Once
+	sweepAfterID uint
 
 	// sleep 可注入；为 nil 时等待真实退避时长并响应停止/取消。
 	sleep func(d time.Duration)
@@ -425,7 +434,7 @@ func (m *HistorySyncManager) sweepLoop() {
 }
 
 // resumeInterrupted 启动恢复：上个进程遗留的 running 行回退为 queued，并把
-// 全部活动任务入队（有界：一次恢复至多 1000 条，其余随周期扫描继续）。
+// 全部活动任务入队（有界：一次恢复至多 200 条，其余随周期扫描继续）。
 func (m *HistorySyncManager) resumeInterrupted() {
 	if _, err := HistorySyncWatermark(m.db); err != nil {
 		logger.Warnf("初始化历史同步水位线失败: %v", err)
@@ -435,7 +444,7 @@ func (m *HistorySyncManager) resumeInterrupted() {
 		Updates(map[string]interface{}{"status": models.HistorySyncStatusQueued, "updated_at": time.Now()}).Error; err != nil {
 		logger.Warnf("恢复中断的历史同步任务失败: %v", err)
 	}
-	m.enqueueActiveTasks(1000)
+	m.enqueueActiveTasks(200)
 }
 
 // sweepRetryDue 周期扫描：把到达重试时间且仍有自动重试预算的失败任务重新
@@ -472,12 +481,16 @@ func (m *HistorySyncManager) enqueueActiveTasks(limit int) {
 	var tasks []models.PodcastHistorySyncTask
 	if err := m.db.Where("status IN ?", []string{
 		models.HistorySyncStatusPending, models.HistorySyncStatusQueued,
-	}).Order("id ASC").Limit(limit).Find(&tasks).Error; err != nil {
+	}).Where("id > ?", m.sweepAfterID).Order("id ASC").Limit(limit).Find(&tasks).Error; err != nil {
 		logger.Warnf("加载活动历史同步任务失败: %v", err)
 		return
 	}
 	for _, task := range tasks {
+		m.sweepAfterID = task.ID
 		m.enqueue(task.PodcastID)
+	}
+	if len(tasks) < limit {
+		m.sweepAfterID = 0
 	}
 }
 
@@ -628,13 +641,14 @@ func (m *HistorySyncManager) executeTask(ctx context.Context, task *models.Podca
 	config.UpdateExisting = true
 
 	var (
-		frontier   int
-		created    int
-		updated    int
-		failed     int
-		lastErr    error
-		lastResult *EpisodeSyncResult
-		passesUsed int
+		frontier    int
+		created     int
+		updated     int
+		failed      int
+		lastErr     error
+		lastResult  *EpisodeSyncResult
+		passesUsed  int
+		retriesUsed int
 	)
 
 	for pass := 0; pass < maxHistorySyncPasses; pass++ {
@@ -648,8 +662,39 @@ func (m *HistorySyncManager) executeTask(ctx context.Context, task *models.Podca
 			}
 			break
 		}
+		// Re-read manual takeover and enabled coverage between batches.
+		var current models.PodcastHistorySyncTask
+		if err := m.db.First(&current, task.ID).Error; err != nil {
+			lastErr = err
+			break
+		}
+		task.Trigger = current.Trigger
+		if !coverageAllowsHistorySync(m.db, task.PodcastID, task.Trigger) {
+			m.revertClaim(task)
+			cache.InvalidatePodcastDetail(task.PodcastID)
+			cache.InvalidatePodcastList()
+			return
+		}
 		passesUsed = pass + 1
+		release := func() {}
+		if lastErr != nil {
+			var podcast models.Podcast
+			if err := m.db.Select("feed_url").First(&podcast, task.PodcastID).Error; err != nil {
+				lastErr = err
+				break
+			}
+			var admitted bool
+			release, admitted = m.policy.AcquireRetry(ctx, feed.TargetDomain(podcast.FeedURL))
+			if !admitted {
+				if m.stopped() {
+					return
+				}
+				break // Preserve the fetch error and schedule a bounded retry.
+			}
+		}
 		result, err := m.svc.SyncPodcastEpisodesWithContext(ctx, task.PodcastID, reporter, config)
+		release()
+		lastErr = err
 		if result != nil {
 			if frontierSum := result.Created + result.Updated + result.Skipped; frontierSum > frontier {
 				frontier = frontierSum
@@ -664,11 +709,11 @@ func (m *HistorySyncManager) executeTask(ctx context.Context, task *models.Podca
 		progress.persist(true)
 
 		if err != nil {
-			lastErr = err
 			// 执行内有限退避：复用既有重试策略（Retry-After 优先），仅对
 			// 可重试错误继续，非可重试错误（403/404/解析失败）立即停止。
-			if m.policy.ShouldRetry(err) && pass+1 < maxHistorySyncPasses {
-				if delay, ok := m.policy.NextDelay(err, pass); ok {
+			if m.policy.ShouldRetry(err) && retriesUsed < m.policy.Budget && pass+1 < maxHistorySyncPasses {
+				if delay, ok := m.policy.NextDelay(err, retriesUsed); ok {
+					retriesUsed++
 					if !m.wait(ctx, delay) {
 						return // 进程停止：不写终态，保持 running 由启动恢复
 					}

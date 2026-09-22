@@ -41,6 +41,7 @@ type HistorySyncSummaryResponse struct {
 	SourceNote   string     `json:"source_note,omitempty"`
 	StartedAt    *time.Time `json:"started_at,omitempty"`
 	FinishedAt   *time.Time `json:"finished_at,omitempty"`
+	NextRetryAt  *time.Time `json:"next_retry_at,omitempty"`
 }
 
 // newestEpisodeDatePtr 规范化空最新单集日期（#463）：零值序列化为 null，
@@ -70,29 +71,30 @@ func historySyncSummaryFromTask(task *models.PodcastHistorySyncTask) *HistorySyn
 		SourceNote:     task.SourceNote,
 		StartedAt:      task.StartedAt,
 		FinishedAt:     task.FinishedAt,
+		NextRetryAt:    task.NextRetryAt,
 	}
 }
 
 // PodcastResponse Podcast 响应结构
 type PodcastResponse struct {
-	ID                   uint      `json:"id"`
-	XYZID                string    `json:"xyz_id"`
-	Title                string    `json:"title"`
-	Description          string    `json:"description"`
-	Author               string    `json:"author"`
-	CoverURL             string    `json:"cover_url"`
-	CustomCoverURL       string    `json:"custom_cover_url,omitempty"` // 自定义封面URL（优先使用）
-	FeedURL              string    `json:"feed_url,omitempty"`
-	EpisodeCount         int       `json:"episode_count"`
+	ID                   uint       `json:"id"`
+	XYZID                string     `json:"xyz_id"`
+	Title                string     `json:"title"`
+	Description          string     `json:"description"`
+	Author               string     `json:"author"`
+	CoverURL             string     `json:"cover_url"`
+	CustomCoverURL       string     `json:"custom_cover_url,omitempty"` // 自定义封面URL（优先使用）
+	FeedURL              string     `json:"feed_url,omitempty"`
+	EpisodeCount         int        `json:"episode_count"`
 	NewestEpisodeDate    *time.Time `json:"newest_episode_date"`
-	CreatedAt            time.Time `json:"created_at"`
-	AddedDate            time.Time `json:"added_date,omitempty"`
-	IsSubscribed         bool      `json:"is_subscribed"`
-	ExternalEpisodeCount int       `json:"external_episode_count"`
-	IsDead               bool      `json:"is_dead"`
-	MyRate               int       `json:"my_rate,omitempty"`
-	Notes                string    `json:"notes,omitempty"`
-	DataSource           string    `json:"data_source,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	AddedDate            time.Time  `json:"added_date,omitempty"`
+	IsSubscribed         bool       `json:"is_subscribed"`
+	ExternalEpisodeCount int        `json:"external_episode_count"`
+	IsDead               bool       `json:"is_dead"`
+	MyRate               int        `json:"my_rate,omitempty"`
+	Notes                string     `json:"notes,omitempty"`
+	DataSource           string     `json:"data_source,omitempty"`
 
 	// HistorySync 为节目最新历史同步任务摘要；从未同步时为 null。
 	HistorySync *HistorySyncSummaryResponse `json:"history_sync"`
@@ -111,18 +113,18 @@ type PodcastResponse struct {
 }
 
 type PodcastSummaryResponse struct {
-	ID                   uint          `json:"id"`
-	Title                string        `json:"title"`
-	Description          string        `json:"description"`
-	Author               string        `json:"author"`
-	CoverURL             string        `json:"cover_url"`
-	CustomCoverURL       string        `json:"custom_cover_url,omitempty"`
-	EpisodeCount         int           `json:"episode_count"`
-	NewestEpisodeDate    *time.Time    `json:"newest_episode_date"`
-	AddedDate            time.Time     `json:"added_date,omitempty"`
-	IsSubscribed         bool          `json:"is_subscribed"`
-	IsDead               bool          `json:"is_dead"`
-	ExternalEpisodeCount int           `json:"external_episode_count"`
+	ID                   uint       `json:"id"`
+	Title                string     `json:"title"`
+	Description          string     `json:"description"`
+	Author               string     `json:"author"`
+	CoverURL             string     `json:"cover_url"`
+	CustomCoverURL       string     `json:"custom_cover_url,omitempty"`
+	EpisodeCount         int        `json:"episode_count"`
+	NewestEpisodeDate    *time.Time `json:"newest_episode_date"`
+	AddedDate            time.Time  `json:"added_date,omitempty"`
+	IsSubscribed         bool       `json:"is_subscribed"`
+	IsDead               bool       `json:"is_dead"`
+	ExternalEpisodeCount int        `json:"external_episode_count"`
 	// HistorySync 为节目最新历史同步任务摘要；从未同步时为 null。
 	HistorySync *HistorySyncSummaryResponse `json:"history_sync"`
 	Tags        []TagResponse               `json:"tags,omitempty"`

@@ -562,3 +562,140 @@ func seedSyncPodcastWithName(t *testing.T, db *gorm.DB, title string) *models.Po
 	return &podcast
 }
 
+// A failed outer fetch must be observed by the manager, not consumed during import.
+func TestHistorySyncOuterRetryClearsRecoveredError(t *testing.T) {
+	var healthy atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
+		if !healthy.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(historyFeedXML(2)))
+	}))
+	defer server.Close()
+	db := setupTestDB(t)
+	svc, err := NewService(db, "")
+	require.NoError(t, err)
+	defer svc.Close()
+	p := seedSyncPodcast(t, db)
+	require.NoError(t, db.Model(&p).Update("feed_url", server.URL+"/feed.xml").Error)
+	task, _, err := StartManualHistoryTask(db, p.ID)
+	require.NoError(t, err)
+	m := newHistorySyncManager(db, svc)
+	m.sleep = func(time.Duration) { healthy.Store(true) }
+	m.processPodcast(p.ID)
+	require.NoError(t, db.First(task, task.ID).Error)
+	require.Equal(t, models.HistorySyncStatusCompleted, task.Status, task.ErrorMessage)
+	require.Empty(t, task.ErrorMessage)
+	require.Nil(t, task.NextRetryAt)
+	require.EqualValues(t, 2, countEpisodesForPodcast(t, db, p.ID))
+}
+
+func TestManualHistorySyncTakesOverPausedWorkflowTask(t *testing.T) {
+	for _, status := range []string{models.HistorySyncStatusPending, models.HistorySyncStatusFailed, models.HistorySyncStatusPartial} {
+		t.Run(status, func(t *testing.T) {
+			SetHistoryCoverageGuard(func(*gorm.DB, uint) bool { return false })
+			defer SetHistoryCoverageGuard(nil)
+			server := newCursorFeedServer(t, historyFeedXML(2))
+			db := setupTestDB(t)
+			svc, err := NewService(db, "")
+			require.NoError(t, err)
+			defer svc.Close()
+			p := seedSyncPodcast(t, db)
+			require.NoError(t, db.Model(&p).Update("feed_url", server.URL+"/feed.xml").Error)
+			task := models.PodcastHistorySyncTask{PodcastID: p.ID, Trigger: models.HistorySyncTriggerWorkflow, Status: status, Attempts: 3}
+			require.NoError(t, db.Create(&task).Error)
+			manual, _, err := StartManualHistoryTask(db, p.ID)
+			require.NoError(t, err)
+			m := newHistorySyncManager(db, svc)
+			m.processPodcast(p.ID)
+			require.NoError(t, db.First(manual, manual.ID).Error)
+			require.Equal(t, models.HistorySyncStatusCompleted, manual.Status)
+			require.EqualValues(t, 2, countEpisodesForPodcast(t, db, p.ID))
+		})
+	}
+}
+
+func TestHistorySyncStopsBetweenBatchesWhenCoverageDisabled(t *testing.T) {
+	var enabled atomic.Bool
+	enabled.Store(true)
+	SetHistoryCoverageGuard(func(*gorm.DB, uint) bool { return enabled.Load() })
+	defer SetHistoryCoverageGuard(nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
+		enabled.Store(false)
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(historyFeedXML(1200)))
+	}))
+	defer server.Close()
+	db := setupTestDB(t)
+	svc, err := NewService(db, "")
+	require.NoError(t, err)
+	defer svc.Close()
+	p := seedSyncPodcast(t, db)
+	require.NoError(t, db.Model(&p).Update("feed_url", server.URL+"/feed.xml").Error)
+	tasks, err := EnsureHistoryTasks(db, []uint{p.ID}, models.HistorySyncTriggerWorkflow, false)
+	require.NoError(t, err)
+	m := newHistorySyncManager(db, svc)
+	m.processPodcast(p.ID)
+	require.NoError(t, db.First(&tasks[0], tasks[0].ID).Error)
+	require.Equal(t, models.HistorySyncStatusPending, tasks[0].Status)
+	require.EqualValues(t, 1000, countEpisodesForPodcast(t, db, p.ID))
+	enabled.Store(true)
+	// Already cached RSS can be read safely; if source is fetched again it still pauses
+	// only after its final batch, which is enough to complete the remaining 200.
+	m.processPodcast(p.ID)
+	require.NoError(t, db.First(&tasks[0], tasks[0].ID).Error)
+	require.Equal(t, models.HistorySyncStatusCompleted, tasks[0].Status)
+	require.EqualValues(t, 1200, countEpisodesForPodcast(t, db, p.ID))
+}
+
+func TestHistorySyncSweepAdvancesPastPausedTasks(t *testing.T) {
+	db := setupTestDB(t)
+	for i := 0; i < 205; i++ {
+		require.NoError(t, db.Create(&models.PodcastHistorySyncTask{PodcastID: uint(i + 1), Trigger: models.HistorySyncTriggerWorkflow, Status: models.HistorySyncStatusPending}).Error)
+	}
+	m := newHistorySyncManager(db, nil)
+	m.enqueueActiveTasks(200)
+	for len(m.queue) > 0 {
+		<-m.queue
+	}
+	m.enqueueActiveTasks(200)
+	require.Equal(t, 5, len(m.queue), "later tasks must not be starved by the first 200 paused tasks")
+	require.EqualValues(t, 201, <-m.queue)
+}
+
+func TestHistorySyncUsesSharedRetryBudget(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveRobotsNotFoundSync(w, r) {
+			return
+		}
+		calls.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	db := setupTestDB(t)
+	svc, err := NewService(db, "")
+	require.NoError(t, err)
+	defer svc.Close()
+	p := seedSyncPodcast(t, db)
+	require.NoError(t, db.Model(&p).Update("feed_url", server.URL+"/feed.xml").Error)
+	task, _, err := StartManualHistoryTask(db, p.ID)
+	require.NoError(t, err)
+	m := newHistorySyncManager(db, svc)
+	m.policy.Budget = 1
+	sleeps := 0
+	m.sleep = func(time.Duration) { sleeps++ }
+	m.processPodcast(p.ID)
+	require.Equal(t, 1, sleeps, "one outer retry, not forty history passes")
+	require.NoError(t, db.First(task, task.ID).Error)
+	require.Equal(t, models.HistorySyncStatusFailed, task.Status)
+	require.NotNil(t, task.NextRetryAt)
+}

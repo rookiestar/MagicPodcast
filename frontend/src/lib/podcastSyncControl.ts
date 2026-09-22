@@ -23,6 +23,20 @@ export interface PodcastSyncControl {
   onStart: () => void;
 }
 
+export function shouldPollPodcastSync(
+  task:
+    | Pick<PodcastHistorySyncTask, "status" | "next_retry_at">
+    | null
+    | undefined,
+): boolean {
+  return (
+    !!task &&
+    (isActiveStatus(task.status) ||
+      ((task.status === "failed" || task.status === "partial") &&
+        task.next_retry_at != null))
+  );
+}
+
 function isActiveStatus(status: PodcastHistorySyncStatus): boolean {
   return status === "pending" || status === "queued" || status === "running";
 }
@@ -64,9 +78,9 @@ export function getPodcastSyncControl(options: {
 
   const progressText = buildProgressText(task);
 
-  if (isActiveStatus(task.status)) {
+  if (isActiveStatus(task.status) && task.status !== "pending") {
     const label =
-      task.status === "running" || (task.status === "pending" && starting)
+      task.status === "running"
         ? "同步中…"
         : task.status === "queued"
           ? "排队中…"
@@ -84,6 +98,17 @@ export function getPodcastSyncControl(options: {
   }
 
   switch (task.status) {
+    case "pending":
+      return {
+        status: "pending",
+        label: starting ? "同步中…" : hasEpisodes ? "同步单集" : "同步历史单集",
+        disabled: starting,
+        inFlight: false,
+        progressText,
+        errorMessage: startError ?? null,
+        sourceNote: "等待自动同步，也可立即手动同步",
+        onStart,
+      };
     case "failed":
       return {
         status: "failed",

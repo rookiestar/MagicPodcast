@@ -7,6 +7,8 @@ import { toast } from "@/lib/toast";
 import type { WorkflowAppendResponse } from "@/lib/api/workflow";
 import AppendToWorkflowDialog from "./AppendToWorkflowDialog";
 
+import { shouldPollPodcastSync } from "@/lib/podcastSyncControl";
+
 const PAGE_SIZE = 20;
 const HISTORY_SYNC_POLL_INTERVAL_MS = 4000;
 
@@ -35,12 +37,8 @@ export function getHistorySyncStatusLabel(
 function hasActiveHistorySync(
   podcasts: ImportNewPodcast[] | null,
 ): boolean {
-  return (podcasts ?? []).some(
-    (podcast) =>
-      podcast.history_sync != null &&
-      (podcast.history_sync.status === "pending" ||
-        podcast.history_sync.status === "queued" ||
-        podcast.history_sync.status === "running"),
+  return (podcasts ?? []).some((podcast) =>
+    shouldPollPodcastSync(podcast.history_sync),
   );
 }
 

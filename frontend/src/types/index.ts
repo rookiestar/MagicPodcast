@@ -30,6 +30,7 @@ export interface PodcastHistorySyncTask {
 
 // 嵌入节目响应的历史同步状态摘要
 export interface PodcastHistorySyncSummary {
+  next_retry_at?: string | null;
   task_id: number;
   status: PodcastHistorySyncStatus;
   trigger: "workflow" | "manual";

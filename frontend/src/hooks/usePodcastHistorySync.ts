@@ -2,27 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import useSWR from "swr";
+import { shouldPollPodcastSync as isActiveTask } from "@/lib/podcastSyncControl";
 import { syncApi } from "@/lib/api/sync";
 import { getErrorMessage } from "@/lib/errorMessage";
 import type { PodcastHistorySyncTask } from "@/types";
 
 const SYNC_TASK_POLL_INTERVAL_MS = 3000;
-
-function isActiveTask(task: PodcastHistorySyncTask | null | undefined) {
-  if (task == null) {
-    return false;
-  }
-  if (
-    task.status === "pending" ||
-    task.status === "queued" ||
-    task.status === "running"
-  ) {
-    return true;
-  }
-  // 失败但已安排自动退避重试：任务随后会被扫回 queued 并继续，页面保持
-  // 轮询以便重试成功后立即反映最新状态（#462）。
-  return task.status === "failed" && task.next_retry_at != null;
-}
 
 interface UsePodcastHistorySyncOptions {
   podcastId: number;
