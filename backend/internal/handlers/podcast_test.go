@@ -28,7 +28,7 @@ func setupPodcastTestDB(t *testing.T) *gorm.DB {
 	}
 
 	// 自动迁移
-	err = db.AutoMigrate(&models.Podcast{}, &models.Tag{}, &models.Episode{})
+	err = db.AutoMigrate(&models.Podcast{}, &models.Tag{}, &models.Episode{}, &models.PodcastHistorySyncTask{})
 	if err != nil {
 		t.Fatalf("Failed to migrate database: %v", err)
 	}

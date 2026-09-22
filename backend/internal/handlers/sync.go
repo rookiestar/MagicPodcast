@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"magicpodcast/internal/models"
 	"magicpodcast/internal/opml"
 	"magicpodcast/internal/sync"
+	"magicpodcast/internal/workflow"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -241,7 +243,45 @@ func (h *SyncHandler) runImport(outlines []opml.Outline, reporter sync.ProgressR
 	if runErr == nil {
 		sync.PublishImportSummary(reporter)
 	}
+	h.registerHistorySyncForImportedPodcasts(task.ID)
 	return result, runErr
+}
+
+// registerHistorySyncForImportedPodcasts 导入入口（#462）：本次导入新建的
+// 节目若已被任一「启用的」工作流覆盖，登记并立即入队历史同步；未被启用
+// 覆盖的节目不自动全量抓取。发现候选与清单收录不经过此路径。
+func (h *SyncHandler) registerHistorySyncForImportedPodcasts(taskID uint) {
+	if h.db == nil || taskID == 0 {
+		return
+	}
+	ids, err := sync.CollectImportBatchCreatedPodcastIDs(h.db, taskID)
+	if err != nil {
+		logger.Warnf("汇总导入新建节目失败 [task=%d]: %v", taskID, err)
+		return
+	}
+	if len(ids) == 0 {
+		return
+	}
+	enabled, err := workflow.EnabledCoverageForPodcasts(h.db, ids)
+	if err != nil {
+		logger.Warnf("核对导入节目的启用覆盖失败 [task=%d]: %v", taskID, err)
+		return
+	}
+	covered := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if enabled[id] {
+			covered = append(covered, id)
+		}
+	}
+	if len(covered) == 0 {
+		return
+	}
+	if _, err := sync.EnsureHistoryTasks(h.db, covered, models.HistorySyncTriggerWorkflow, false); err != nil {
+		logger.Warnf("登记导入节目历史同步任务失败 [task=%d]: %v", taskID, err)
+		return
+	}
+	sync.NotifyHistoryTasksEnqueued(covered)
+	logger.Infof("导入节目登记历史同步任务 %d 个 [task=%d]", len(covered), taskID)
 }
 
 // runImportInBackground executes a persisted import task after the HTTP
@@ -411,14 +451,19 @@ func (h *SyncHandler) Close() error {
 	return nil
 }
 
-// SyncPodcastEpisodesRequest 同步单个podcast的episodes请求
+// SyncPodcastEpisodesRequest 同步单个podcast的episodes请求。
+// 历史 SSE 同步语义已由节目级持久历史同步任务取代（#462）：mode/update/
+// confirmation_text 字段仅为兼容旧客户端保留，不再影响行为。
 type SyncPodcastEpisodesRequest struct {
-	Mode             string `json:"mode"`   // 同步模式: incremental, full, smart
-	Update           bool   `json:"update"` // 是否更新已存在的episode
+	Mode             string `json:"mode"`
+	Update           bool   `json:"update"`
 	ConfirmationText string `json:"confirmation_text,omitempty"`
 }
 
-// SyncPodcastEpisodes 同步指定podcast的episodes
+// SyncPodcastEpisodes 启动（或复用/重试）指定节目的持久历史同步任务。
+// 手动启动与自动触发、重试共享同一任务与互斥边界：活动任务直接复用，
+// 失败任务复位重试，已完成节目创建新检查任务。任务在后台执行，页面关闭
+// 不影响同步。
 // POST /api/v1/podcasts/:id/episodes/sync
 func (h *SyncHandler) SyncPodcastEpisodes(c *gin.Context) {
 	// 获取podcast ID（使用辅助函数）
@@ -427,51 +472,57 @@ func (h *SyncHandler) SyncPodcastEpisodes(c *gin.Context) {
 		return
 	}
 
-	// 解析请求参数
+	// 兼容旧请求体；字段不再影响行为。
 	var req SyncPodcastEpisodesRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		// 使用默认配置
-		req = SyncPodcastEpisodesRequest{
-			Mode:   "smart",
-			Update: true,
+	_ = c.ShouldBindJSON(&req)
+
+	var podcast models.Podcast
+	if err := h.db.First(&podcast, podcastID).Error; err != nil {
+		middleware.NotFoundResponse(c, "NOT_FOUND", "Podcast not found")
+		return
+	}
+
+	task, created, err := sync.StartManualHistoryTask(h.db, uint(podcastID))
+	if err != nil {
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "启动历史同步失败")
+		return
+	}
+	sync.NotifyHistoryTasksEnqueued([]uint{uint(podcastID)})
+
+	status := http.StatusOK
+	message := "已有同步任务进行中，未重复创建"
+	if created {
+		status = http.StatusAccepted
+		if task.Status == models.HistorySyncStatusQueued && task.Attempts > 0 {
+			message = "同步已重新排队"
+		} else {
+			message = "历史同步已排队"
 		}
 	}
-	if !middleware.RequireConfirmationText(
-		c,
-		req.ConfirmationText,
-		fmt.Sprintf("SYNC EPISODES %d", podcastID),
-		fmt.Sprintf("同步播客 %d 的全部单集并可能覆盖已有元数据", podcastID),
-	) {
-		return
-	}
 
-	// 构建同步配置
-	config := sync.DefaultEpisodeSyncConfig
-	config.Mode = sync.ParseEpisodeSyncMode(req.Mode)
-	config.UpdateExisting = req.Update
-
-	// 使用SSE流式报告进度
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-
-	reporter := sync.NewSSEProgressReporter(c.Writer)
-	defer reporter.Close() // ✅ 确保 reporter 被关闭
-
-	// 执行同步
-	result, err := h.syncService.SyncPodcastEpisodes(uint(podcastID), reporter, config)
-	if err != nil {
-		reporter.ReportError(fmt.Sprintf("同步失败: %v", err))
-		return
-	}
-
-	// 发送最终结果
-	c.JSON(200, gin.H{
+	c.JSON(status, gin.H{
 		"success": true,
-		"message": fmt.Sprintf("同步完成: 新增 %d, 更新 %d, 跳过 %d",
-			result.Created, result.Updated, result.Skipped),
-		"result": result,
+		"message": message,
+		"data": gin.H{
+			"created": created,
+			"task":    task,
+		},
 	})
+}
+
+// GetPodcastSyncTask 查询指定节目最新一条历史同步任务；从未同步时 task 为 null。
+// GET /api/v1/podcasts/:id/episodes/sync
+func (h *SyncHandler) GetPodcastSyncTask(c *gin.Context) {
+	podcastID, ok := ParseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	task, err := sync.LatestHistoryTaskForPodcast(h.db, uint(podcastID))
+	if err != nil {
+		middleware.InternalErrorResponseWithCode(c, "INTERNAL_ERROR", "查询历史同步任务失败")
+		return
+	}
+	middleware.SuccessResponse(c, task)
 }
 
 // SyncAllEpisodesRequest 同步所有episodes请求

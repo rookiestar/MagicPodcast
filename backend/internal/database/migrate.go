@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion = 35
+const CurrentSchemaVersion = 36
 
 var ErrSchemaNotReady = errors.New("database schema is not ready")
 
@@ -356,6 +356,19 @@ func migrationRegistry() []Migration {
 				{Operation: SchemaChangeCreateIndex, Table: models.ImportTask{}.TableName(), Object: "idx_import_tasks_parent_task_id"},
 			}},
 		},
+		{
+			Version:     36,
+			Name:        "podcast-history-sync-task",
+			Description: "Persist per-podcast recoverable history sync tasks so entering an enabled workflow coverage enqueues a bounded, resumable full-range episode sync (#462).",
+			Apply:       applyPodcastHistorySyncTaskMigration,
+			Contract: MigrationContract{SchemaChanges: []SchemaChangeRule{
+				{Operation: SchemaChangeCreateTable, Table: models.PodcastHistorySyncTask{}.TableName()},
+				{Operation: SchemaChangeCreateIndex, Table: models.PodcastHistorySyncTask{}.TableName(), Object: "idx_podcast_history_sync_tasks_deleted_at"},
+				{Operation: SchemaChangeCreateIndex, Table: models.PodcastHistorySyncTask{}.TableName(), Object: "idx_history_sync_tasks_podcast"},
+				{Operation: SchemaChangeCreateIndex, Table: models.PodcastHistorySyncTask{}.TableName(), Object: "idx_history_sync_tasks_one_active_per_podcast"},
+				{Operation: SchemaChangeCreateIndex, Table: models.PodcastHistorySyncTask{}.TableName(), Object: "idx_history_sync_tasks_retry"},
+			}},
+		},
 	}
 }
 
@@ -372,7 +385,7 @@ var baselineRequiredTables = []string{
 	"episodes_tags",
 }
 
-var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions", "episode_processing_runs", "processing_checkpoints", "episode_artifact_sets", "knowledge_deliveries", "episode_audio_assets", "processing_schedule_runs", "processing_schedule_items", models.EpisodeArtifactAudioRecovery{}.TableName(), models.Person{}.TableName(), models.PersonAlias{}.TableName(), models.EpisodeAppearance{}.TableName(), models.SpeechAttribution{}.TableName(), models.PersonUserConfirmation{}.TableName(), models.ContentSearchFragment{}.TableName(), models.ContentSearchCoverage{}.TableName(), models.PersonPreparation{}.TableName(), models.PersonAppearanceOverride{}.TableName(), models.PersonDraft{}.TableName(), models.EpisodeCollection{}.TableName(), models.EpisodeCollectionItem{}.TableName(), models.EpisodeExternalRef{}.TableName(), models.EpisodeCollectionAdoption{}.TableName())
+var requiredTables = append(append([]string(nil), baselineRequiredTables...), feed.FeedSnapshotsTableName, "podcast_alternative_feeds", "job_feed_attempts", feed.FeedUserAgentGatesTableName, feed.FeedUserAgentGateAuditsTableName, feed.FeedUserAgentGateRecoveryFeedsTableName, "episode_triage_decisions", "consumption_queue_orders", "episode_completions", "episode_processing_runs", "processing_checkpoints", "episode_artifact_sets", "knowledge_deliveries", "episode_audio_assets", "processing_schedule_runs", "processing_schedule_items", models.EpisodeArtifactAudioRecovery{}.TableName(), models.Person{}.TableName(), models.PersonAlias{}.TableName(), models.EpisodeAppearance{}.TableName(), models.SpeechAttribution{}.TableName(), models.PersonUserConfirmation{}.TableName(), models.ContentSearchFragment{}.TableName(), models.ContentSearchCoverage{}.TableName(), models.PersonPreparation{}.TableName(), models.PersonAppearanceOverride{}.TableName(), models.PersonDraft{}.TableName(), models.EpisodeCollection{}.TableName(), models.EpisodeCollectionItem{}.TableName(), models.EpisodeExternalRef{}.TableName(), models.EpisodeCollectionAdoption{}.TableName(), models.PodcastHistorySyncTask{}.TableName())
 
 func InspectSchema(db *gorm.DB) (SchemaStatus, error) {
 	if db == nil {
@@ -1346,6 +1359,40 @@ type importTaskSchemaV34 struct {
 }
 
 func (importTaskSchemaV34) TableName() string { return "import_tasks" }
+
+// applyPodcastHistorySyncTaskMigration 创建节目历史同步任务表。活动态任务的
+// 部分唯一索引在数据库层保证同一节目同一时刻最多一个待执行/执行中任务，
+// 重复触发、跨工作流覆盖与并发重试据此天然去重（#462）。索引全部用显式
+// 定序 DDL 创建：Migration Report 按 DDL 执行顺序记录证据，AutoMigrate 的
+// 多索引创建顺序不定，会造成 preflight 与 apply 重放不一致。
+func applyPodcastHistorySyncTaskMigration(db *gorm.DB) error {
+	if err := db.AutoMigrate(&models.PodcastHistorySyncTask{}); err != nil {
+		return fmt.Errorf("create podcast_history_sync_tasks: %w", err)
+	}
+	indexes := []struct{ name, ddl string }{
+		{
+			name: "idx_history_sync_tasks_podcast",
+			ddl:  "CREATE INDEX IF NOT EXISTS idx_history_sync_tasks_podcast ON podcast_history_sync_tasks(podcast_id)",
+		},
+		{
+			name: "idx_history_sync_tasks_one_active_per_podcast",
+			ddl: "CREATE UNIQUE INDEX IF NOT EXISTS idx_history_sync_tasks_one_active_per_podcast " +
+				"ON podcast_history_sync_tasks(podcast_id) WHERE status IN ('pending','queued','running')",
+		},
+		{
+			name: "idx_history_sync_tasks_retry",
+			ddl:  "CREATE INDEX IF NOT EXISTS idx_history_sync_tasks_retry ON podcast_history_sync_tasks(status, next_retry_at)",
+		},
+	}
+	for _, idx := range indexes {
+		if !db.Migrator().HasIndex(models.PodcastHistorySyncTask{}.TableName(), idx.name) {
+			if err := db.Exec(idx.ddl).Error; err != nil {
+				return fmt.Errorf("create %s: %w", idx.name, err)
+			}
+		}
+	}
+	return nil
+}
 
 // applyImportTaskRetryParentMigration 以守卫式 DDL 添加重试父链列与索引；
 // 全新安装由 baseline 直接创建当前模型，此处自然幂等（#417/#418）。

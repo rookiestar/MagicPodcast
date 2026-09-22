@@ -82,7 +82,8 @@ export interface WorkflowRef {
   is_enabled: boolean;
 }
 
-// 本批实际新建的节目条目；ready/is_subscribed 取节目当前记录。
+// 本批实际新建的节目条目；ready/is_subscribed 取节目当前记录，
+// history_sync 为节目历史同步状态摘要（#462/#465）。
 export interface ImportNewPodcast {
   id: number;
   title: string;
@@ -90,6 +91,15 @@ export interface ImportNewPodcast {
   ready: boolean;
   is_subscribed: boolean;
   workflows: WorkflowRef[];
+  history_sync?: {
+    task_id: number;
+    status: "pending" | "queued" | "running" | "completed" | "partial" | "failed";
+    trigger: string;
+    processed_count: number;
+    total_known?: number | null;
+    error_message?: string;
+    source_note?: string;
+  } | null;
 }
 
 export interface ImportNewPodcastsPayload {

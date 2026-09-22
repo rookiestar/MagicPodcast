@@ -628,6 +628,13 @@
     font: 600 var(--type-meta-size)/1 var(--font-mono);
   }
 
+  /* 卡片日期槽：缺失有效日期时展示同步状态（待同步/同步中/暂无可获取单集）。 */
+  .podcast-library-card-date-status {
+    margin-top: 4px;
+    color: #6f685e;
+    font: 600 var(--type-meta-size)/1.2 var(--font-mono);
+  }
+
   /* Podcast detail: reading plane plus adjacent personal management. */
   .podcast-detail-content {
     padding-top: 24px;
@@ -1089,7 +1096,8 @@
     border-top: 3px solid #171717;
   }
 
-  .podcast-episode-ledger > h2 {
+  .podcast-episode-ledger > h2,
+  .podcast-episode-ledger-header > h2 {
     margin: 0;
     padding: 16px 0 13px;
     border-bottom: 1px solid #171717;
@@ -1097,6 +1105,47 @@
     font-size: 28px;
     font-weight: var(--font-display-weight);
     letter-spacing: 0;
+  }
+
+  /* 历史同步入口：标题行右侧常驻按钮 + 进度/失败说明（#465）。 */
+  .podcast-episode-ledger-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 16px;
+    border-bottom: 1px solid #171717;
+  }
+
+  .podcast-episode-ledger-header > h2 {
+    border-bottom: 0;
+    padding-bottom: 13px;
+  }
+
+  .podcast-episode-sync {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px 12px;
+    padding: 8px 0;
+  }
+
+  .podcast-episode-sync-progress {
+    color: #514a42;
+    font: 600 var(--type-meta-size)/1 var(--font-mono);
+  }
+
+  .podcast-episode-sync-error {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    color: #b3261e;
+    font: 600 var(--type-meta-size)/1.4 var(--font-mono);
+  }
+
+  .podcast-episode-sync-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
   }
 
   .podcast-episode-list {
@@ -1978,7 +2027,8 @@
       margin-top: 22px;
     }
 
-    .podcast-episode-ledger > h2 {
+    .podcast-episode-ledger > h2,
+    .podcast-episode-ledger-header > h2 {
       font-size: 24px;
     }
 

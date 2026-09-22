@@ -1,3 +1,49 @@
+// 节目历史同步任务状态（与后端 podcast_history_sync_tasks 契约一致）
+export type PodcastHistorySyncStatus =
+  | "pending"
+  | "queued"
+  | "running"
+  | "completed"
+  | "partial"
+  | "failed";
+
+// 节目历史同步任务（完整契约，任务查询端点返回）
+export interface PodcastHistorySyncTask {
+  id: number;
+  podcast_id: number;
+  trigger: "workflow" | "manual";
+  status: PodcastHistorySyncStatus;
+  attempts: number;
+  next_retry_at?: string | null;
+  total_known?: number | null;
+  processed_count: number;
+  created_count: number;
+  updated_count: number;
+  failed_count: number;
+  error_message?: string;
+  source_note?: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// 嵌入节目响应的历史同步状态摘要
+export interface PodcastHistorySyncSummary {
+  task_id: number;
+  status: PodcastHistorySyncStatus;
+  trigger: "workflow" | "manual";
+  processed_count: number;
+  total_known?: number | null;
+  created_count: number;
+  updated_count: number;
+  failed_count: number;
+  error_message?: string;
+  source_note?: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
 // Podcast 类型定义
 export interface Podcast {
   id: number;
@@ -9,7 +55,7 @@ export interface Podcast {
   custom_cover_url?: string; // 自定义封面URL（优先使用，不会被同步覆盖）
   feed_url?: string;
   episode_count: number;
-  newest_episode_date: string;
+  newest_episode_date: string | null;
   created_at: string;
   added_date?: string;
   is_subscribed: boolean;
@@ -18,6 +64,7 @@ export interface Podcast {
   my_rate?: number;
   notes?: string;
   data_source?: string;
+  history_sync?: PodcastHistorySyncSummary | null;
 
   // 🆕 PodcastIndex 新增字段（可选）
   link?: string; // 播客网站链接

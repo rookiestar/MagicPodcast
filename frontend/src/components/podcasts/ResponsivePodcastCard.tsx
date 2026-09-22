@@ -5,9 +5,9 @@ import PodcastCover from "@/components/podcasts/PodcastCover";
 import TagList from "@/components/ui/TagList";
 import {
   getPodcastCardCoverUrl,
+  getPodcastCardDateStatusText,
   getPodcastCardDescription,
   getPodcastCardEpisodeCountText,
-  getPodcastCardRelativeTime,
   getPodcastCardTagLimit,
   isPodcastRecentlyUpdated,
 } from "@/lib/podcastCardDisplay";
@@ -39,7 +39,7 @@ export default function ResponsivePodcastCard({
     isMobile,
   );
   const displayTagCount = getPodcastCardTagLimit(isMobile);
-  const relativeTime = getPodcastCardRelativeTime(podcast);
+  const dateStatusText = getPodcastCardDateStatusText(podcast);
   const episodeCountText = getPodcastCardEpisodeCountText(podcast);
   const effectiveCoverUrl = getPodcastCardCoverUrl(podcast);
   const isNew = isPodcastRecentlyUpdated(podcast.newest_episode_date);
@@ -76,6 +76,10 @@ export default function ResponsivePodcastCard({
             </h3>
 
             <p className="podcast-library-card-author">{podcast.author}</p>
+
+            <p className="podcast-library-card-date-status">
+              {dateStatusText}
+            </p>
 
             {displayedDescription && (
               <p className="podcast-library-card-description line-clamp-2">
@@ -145,7 +149,7 @@ export default function ResponsivePodcastCard({
 
           <div className="podcast-library-card-footer">
             <span>{episodeCountText}</span>
-            <span>{relativeTime}</span>
+            <span>{dateStatusText}</span>
           </div>
         </div>
       </article>

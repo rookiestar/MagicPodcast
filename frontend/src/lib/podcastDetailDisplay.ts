@@ -1,4 +1,6 @@
 import { getEffectiveCoverUrl } from "@/lib/imageProxy";
+import { getPodcastSyncStateText } from "@/lib/podcastCardDisplay";
+import { isValidDisplayDate } from "@/lib/timeUtils";
 import type { Podcast } from "@/types";
 
 export function getPodcastDetailInfoCoverUrl(
@@ -14,7 +16,7 @@ function padDatePart(value: number) {
 export function formatPodcastNewestEpisodeDate(value?: string | null) {
   try {
     const date = value ? new Date(value) : null;
-    if (!date || isNaN(date.getTime())) {
+    if (!date || isNaN(date.getTime()) || date.getFullYear() < 1970) {
       return "未知";
     }
 
@@ -24,11 +26,23 @@ export function formatPodcastNewestEpisodeDate(value?: string | null) {
   }
 }
 
+// getPodcastDetailUpdateText 详情页「更新于」槽位的统一展示：有有效日期
+// 展示格式化时间；缺失或无效日期展示同步状态，不再显示 0001/01/01（#463）。
+export function getPodcastDetailUpdateText(
+  podcast: Pick<Podcast, "newest_episode_date" | "history_sync" | "episode_count">,
+) {
+  if (isValidDisplayDate(podcast.newest_episode_date)) {
+    return `更新于 ${formatPodcastNewestEpisodeDate(podcast.newest_episode_date)}`;
+  }
+  return getPodcastSyncStateText(podcast);
+}
+
 export function formatPodcastDetailMetaLine(
   author?: string | null,
   episodeCount?: number | null,
   newestEpisodeDate?: string | null,
   episodeCountLabel?: string,
+  updateText?: string,
 ) {
   const parts: string[] = [];
   const host = author?.trim();
@@ -38,7 +52,7 @@ export function formatPodcastDetailMetaLine(
   }
 
   parts.push(episodeCountLabel ?? `${episodeCount || 0} 集`);
-  parts.push(`更新于 ${formatPodcastNewestEpisodeDate(newestEpisodeDate)}`);
+  parts.push(updateText ?? `更新于 ${formatPodcastNewestEpisodeDate(newestEpisodeDate)}`);
   return parts.join(" · ");
 }
 

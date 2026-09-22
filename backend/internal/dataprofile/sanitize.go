@@ -28,12 +28,13 @@ const SanitizerVersion = "v12"
 // snapshot columns on episode_collection_items — reviewed in the same class.
 // 迁移 v34（import_tasks，#398/#403）新增任务表后按当前 schema 重新计算的
 // sanitizer 契约指纹。
-// 指纹随 #417/#418 的 import_tasks.parent_task_id（重试父链，任务元数据，
+// 指纹随 #462 的 podcast_history_sync_tasks（节目历史同步任务：运行元数据，
 // 不含用户内容）刷新。
-const sanitizerSchemaFingerprint = "f9fabb114fd4e6e49f4bc69508c4fc8799e384617bb76d02d76d5b502fde1bbf"
-// 迁移 v34（import_tasks，#398/#403）新增任务表后按当前 schema 重新计算的
-// sanitizer schema-object 契约指纹。
-const sanitizerSchemaObjectsFingerprint = "da97c8edd7fc59cba931bee8bfaccfcf304e05af2dee2ebbbd2215fedf12c356"
+const sanitizerSchemaFingerprint = "9dc041379745ffa97b02f42ff37a5d19c8b26cb24861129662c16366aba26225"
+// 迁移 v36（podcast_history_sync_tasks，#462）新增任务表后按当前 schema 重新
+// 计算的 sanitizer schema-object 契约指纹（v36 的三个显式索引为迁移自有
+// DDL，与 v26 恢复表索引同样不在 baseline 对象集合内）。
+const sanitizerSchemaObjectsFingerprint = "a606e57d5150a28d01b35073a3d1aa8dede1b2b39de47f9b9f6ff977c959e96b"
 
 var richTextURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 
@@ -121,6 +122,9 @@ func SanitizeSnapshot(db *sql.DB) error {
 		"DELETE FROM episode_artifact_sets",
 		"DELETE FROM episode_processing_runs",
 		"DELETE FROM processing_schedule_runs",
+		// 历史同步任务的错误信息可能携带私有 Feed 主机与路径，与
+		// job_executions.error_message 同等脱敏（#462）。
+		"UPDATE podcast_history_sync_tasks SET error_message = ''",
 	} {
 		if _, err := transaction.Exec(statement); err != nil {
 			return fmt.Errorf("apply snapshot redaction: %w", err)
@@ -212,6 +216,7 @@ func VerifySanitizedSnapshot(db *sql.DB) error {
 		{"SELECT COUNT(*) FROM episode_artifact_sets", "local processing artifact paths"},
 		{"SELECT COUNT(*) FROM episode_processing_runs", "processing run metadata"},
 		{"SELECT COUNT(*) FROM processing_schedule_runs", "processing schedule trigger history"},
+		{"SELECT COUNT(*) FROM podcast_history_sync_tasks WHERE error_message <> ''", "history sync task errors"},
 	} {
 		if err := db.QueryRow(check.query).Scan(&count); err != nil {
 			return fmt.Errorf("verify %s redaction: %w", check.label, err)

@@ -140,7 +140,7 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 
 	updateLastFetchedAt := result.FeedAccess == nil ||
 		(result.FeedAccess.SourceType != feed.AccessSourceLastGood && result.FeedAccess.SourceType != feed.AccessSourceLocalCache)
-	episodeResult, err := s.syncPodcastEpisodeItemsWithContext(ctx, &podcast, items, config, updateLastFetchedAt)
+	episodeResult, err := s.syncPodcastEpisodeItemsWithContext(ctx, &podcast, items, config, updateLastFetchedAt, reporter)
 	episodeResult.FeedAccess = result.FeedAccess
 	result = episodeResult
 	if err != nil {
@@ -154,7 +154,7 @@ func (s *Service) SyncPodcastEpisodesWithContext(ctx context.Context, podcastID 
 }
 
 func (s *Service) syncPodcastEpisodeItems(podcast *models.Podcast, items []*gofeed.Item, config EpisodeSyncConfig) (*EpisodeSyncResult, error) {
-	return s.syncPodcastEpisodeItemsWithContext(context.Background(), podcast, items, config, true)
+	return s.syncPodcastEpisodeItemsWithContext(context.Background(), podcast, items, config, true, nil)
 }
 
 // incrementalEpisodeBaseline 返回增量单集同步的时间基准。「自上次更新」
@@ -173,7 +173,9 @@ func incrementalEpisodeBaseline(podcast *models.Podcast, config EpisodeSyncConfi
 // syncPodcastEpisodeItemsWithContext 同步单集并在全部所选条目成功提交后推进
 // 单集同步游标。单集写入失败、上下文取消或分批截断时游标保持不变，下一次
 // 同步重新覆盖未处理范围，保证重试不漏项、不越界（#399）。
-func (s *Service) syncPodcastEpisodeItemsWithContext(ctx context.Context, podcast *models.Podcast, items []*gofeed.Item, config EpisodeSyncConfig, updateLastFetchedAt bool) (*EpisodeSyncResult, error) {
+// reporter 可为 nil；非 nil 时按窗口上报已按序核对的前缀长度与来源条目总数，
+// 供持久任务展示真实处理数量（#462）。
+func (s *Service) syncPodcastEpisodeItemsWithContext(ctx context.Context, podcast *models.Podcast, items []*gofeed.Item, config EpisodeSyncConfig, updateLastFetchedAt bool, reporter ProgressReporter) (*EpisodeSyncResult, error) {
 	result := &EpisodeSyncResult{
 		PodcastID:    podcast.ID,
 		PodcastTitle: podcast.Title,
@@ -219,6 +221,11 @@ func (s *Service) syncPodcastEpisodeItemsWithContext(ctx context.Context, podcas
 		windowErr := s.syncEpisodeWindow(ctx, podcast, window, config, result)
 		if firstWriteErr == nil {
 			firstWriteErr = windowErr
+		}
+		if reporter != nil {
+			processed := result.Created + result.Updated + result.Skipped
+			reporter.ReportProgress(processed, len(items),
+				fmt.Sprintf("已核对 %d/%d 个条目", processed, len(items)))
 		}
 		if windowErr != nil {
 			result.Incomplete = true

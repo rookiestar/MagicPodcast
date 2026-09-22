@@ -4,6 +4,7 @@ import { IconExternalLink, IconFlame } from "@tabler/icons-react";
 import {
   formatPodcastDetailMetaLine,
   getPodcastDetailInfoCoverUrl,
+  getPodcastDetailUpdateText,
   shouldShowPodcastPopularityBadge,
   shouldShowPodcastWebsiteLink,
 } from "@/lib/podcastDetailDisplay";
@@ -146,6 +147,7 @@ export function MobilePodcastDetailInfo({
               podcast.episode_count,
               podcast.newest_episode_date,
                 getPodcastCardEpisodeCountText(podcast),
+                getPodcastDetailUpdateText(podcast),
             )}
           </p>
         </div>
@@ -216,6 +218,7 @@ export function DesktopPodcastDetailInfo({
                 podcast.episode_count,
                 podcast.newest_episode_date,
                 getPodcastCardEpisodeCountText(podcast),
+                getPodcastDetailUpdateText(podcast),
               )}
             </p>
           </div>

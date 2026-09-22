@@ -12,6 +12,8 @@ import (
 	"magicpodcast/internal/logger"
 	"magicpodcast/internal/middleware"
 	"magicpodcast/internal/models"
+	syncsvc "magicpodcast/internal/sync"
+	"magicpodcast/internal/workflow"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -64,11 +66,12 @@ func (h *WorkflowHandler) AppendPodcasts(c *gin.Context) {
 	defer workflowScopeMutationMu.Unlock()
 
 	var (
-		added        int
-		alreadyCount int
-		podcastCount int
-		workflowName string
-		scopeChanged bool
+		added           int
+		alreadyCount    int
+		podcastCount    int
+		workflowName    string
+		scopeChanged    bool
+		newlyRegistered []models.PodcastHistorySyncTask
 	)
 	err := database.GetDB().Transaction(func(tx *gorm.DB) error {
 		var wf models.Workflow
@@ -133,6 +136,20 @@ func (h *WorkflowHandler) AppendPodcasts(c *gin.Context) {
 			}).Error; err != nil {
 			return err
 		}
+
+		// 历史同步任务与成员保存同事务落库（#462）：新追加成员登记待同步
+		// 任务；已有终态记录（历史已完成）或已有活动任务的节目不重复登记。
+		// 停用工作流的成员保持待同步，由领取时的启用覆盖守卫与启用入口触发。
+		appendedIDs := make([]uint, 0, len(appended))
+		for _, id := range appended {
+			appendedIDs = append(appendedIDs, uint(id))
+		}
+		createdTasks, err := syncsvc.EnsureHistoryTasks(tx, appendedIDs, models.HistorySyncTriggerWorkflow, false)
+		if err != nil {
+			return err
+		}
+		newlyRegistered = append(newlyRegistered, createdTasks...)
+
 		added = len(appended)
 		podcastCount = len(merged)
 		return nil
@@ -165,6 +182,48 @@ func (h *WorkflowHandler) AppendPodcasts(c *gin.Context) {
 		cache.InvalidatePodcastList()
 	}
 
+	// 有启用覆盖的新登记任务立即入队；仅有停用覆盖的保持待同步。
+	if len(newlyRegistered) > 0 {
+		registeredIDs := make([]uint, 0, len(newlyRegistered))
+		for _, task := range newlyRegistered {
+			registeredIDs = append(registeredIDs, task.PodcastID)
+		}
+		enabled, err := workflow.EnabledCoverageForPodcasts(database.GetDB(), registeredIDs)
+		if err != nil {
+			logger.Warnf("核对追加成员的启用覆盖失败: %v", err)
+			enabled = map[uint]bool{}
+		}
+		enqueueIDs := make([]uint, 0, len(registeredIDs))
+		for _, id := range registeredIDs {
+			if enabled[id] {
+				enqueueIDs = append(enqueueIDs, id)
+			}
+		}
+		if len(enqueueIDs) > 0 {
+			syncsvc.NotifyHistoryTasksEnqueued(enqueueIDs)
+		}
+	}
+
+	// 响应区分「成员已保存」与「历史同步状态」，并提供可查询的任务标识。
+	requestedIDs := make([]uint, 0, len(requested))
+	for _, id := range requested {
+		requestedIDs = append(requestedIDs, uint(id))
+	}
+	latestTasks, err := syncsvc.HistorySyncTasksByPodcast(database.GetDB(), requestedIDs)
+	if err != nil {
+		logger.Warnf("查询追加成员历史同步状态失败: %v", err)
+		latestTasks = map[uint]*models.PodcastHistorySyncTask{}
+	}
+	historyEntries := make([]gin.H, 0, len(requestedIDs))
+	for _, id := range requestedIDs {
+		entry := gin.H{"podcast_id": id, "task_id": nil, "status": nil}
+		if task := latestTasks[id]; task != nil {
+			entry["task_id"] = task.ID
+			entry["status"] = task.Status
+		}
+		historyEntries = append(historyEntries, entry)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success":        true,
 		"workflow_id":    workflowID,
@@ -172,6 +231,7 @@ func (h *WorkflowHandler) AppendPodcasts(c *gin.Context) {
 		"added":          added,
 		"already_member": alreadyCount,
 		"podcast_count":  podcastCount,
+		"history_sync":   historyEntries,
 	})
 }
 

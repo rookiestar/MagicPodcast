@@ -12,6 +12,7 @@ import {
 } from "@/lib/episodeListState";
 import { getEpisodeImagePriority } from "@/lib/episodeDisplay";
 import { createEpisodeShowNotesStore } from "@/lib/episodeShowNotesStore";
+import type { PodcastSyncControl } from "@/lib/podcastSyncControl";
 import type { Episode } from "@/types";
 import EpisodeCard from "./EpisodeCard";
 
@@ -26,6 +27,8 @@ interface EpisodeListSectionProps {
   podcastCover?: string;
   loadMoreRef: (element: HTMLDivElement | null) => void;
   onRetry?: () => void;
+  /** 节目历史同步控件：标题行常驻同步入口与空态按钮共享同一动作（#465） */
+  syncControl?: PodcastSyncControl | null;
 }
 
 const EPISODE_CARD_VISIBILITY_STYLE: CSSProperties = {
@@ -54,11 +57,62 @@ function EpisodeListSkeleton() {
   );
 }
 
-function EmptyEpisodeList() {
+// EmptyEpisodeList 空态：提供直接可见的「同步历史单集」按钮（与标题行常驻
+// 入口共享同一动作）。合法空源的来源说明在按钮上方如实展示（#465）。
+function EmptyEpisodeList({
+  syncControl,
+}: {
+  syncControl?: PodcastSyncControl | null;
+}) {
   return (
     <div className="bg-white rounded-lg p-12 text-center shadow-sm">
       <p className="text-slate-600 text-lg">暂无单集</p>
-      <p className="text-slate-500 text-sm mt-2">点击下方按钮同步单集数据</p>
+      {syncControl?.sourceNote && (
+        <p className="text-slate-500 text-sm mt-2" role="status">
+          {syncControl.sourceNote}
+        </p>
+      )}
+      {syncControl && (
+        <button
+          type="button"
+          onClick={syncControl.onStart}
+          disabled={syncControl.disabled}
+          className="podcast-management-secondary podcast-episode-sync-button mt-4"
+        >
+          {syncControl.label}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// PodcastSyncControlView 标题行的常驻同步入口：排队/运行中禁用并展示进度，
+// 失败展示原因。读取失败的「重试加载」是另一个操作，二者不混用。
+function PodcastSyncControlView({
+  control,
+}: {
+  control: PodcastSyncControl;
+}) {
+  return (
+    <div className="podcast-episode-sync">
+      {control.progressText && (
+        <span className="podcast-episode-sync-progress" role="status">
+          {control.progressText}
+        </span>
+      )}
+      {control.errorMessage && (
+        <span className="podcast-episode-sync-error" role="alert">
+          {control.errorMessage}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={control.onStart}
+        disabled={control.disabled}
+        className="podcast-management-secondary podcast-episode-sync-button"
+      >
+        {control.label}
+      </button>
     </div>
   );
 }
@@ -136,6 +190,7 @@ export default function EpisodeListSection({
   podcastCover,
   loadMoreRef,
   onRetry,
+  syncControl,
 }: EpisodeListSectionProps) {
   // Independent writes may reach the Focus limit together. Present their
   // confirmations one at a time instead of stacking modal dialogs.
@@ -172,9 +227,12 @@ export default function EpisodeListSection({
   return (
     <section className="podcast-episode-ledger">
       {showHeading ? (
-        <h2>
-          单集列表 ({displayTotal} 集)
-        </h2>
+        <div className="podcast-episode-ledger-header">
+          <h2>
+            单集列表 ({displayTotal} 集)
+          </h2>
+          {syncControl && <PodcastSyncControlView control={syncControl} />}
+        </div>
       ) : (
         <div className="mb-6 h-8 w-40 bg-slate-200 rounded animate-pulse"></div>
       )}
@@ -184,7 +242,7 @@ export default function EpisodeListSection({
       ) : episodeListStatus === "initial-error" ? (
         <EpisodeErrorState message={episodesError} onRetry={onRetry} />
       ) : episodeListStatus === "empty" ? (
-        <EmptyEpisodeList />
+        <EmptyEpisodeList syncControl={syncControl} />
       ) : (
         <>
           <div className="podcast-episode-list">

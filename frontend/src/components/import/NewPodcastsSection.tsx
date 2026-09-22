@@ -4,9 +4,45 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ImportNewPodcast } from "@/lib/api/importTasks";
 import { importTasksApi } from "@/lib/api/importTasks";
 import { toast } from "@/lib/toast";
+import type { WorkflowAppendResponse } from "@/lib/api/workflow";
 import AppendToWorkflowDialog from "./AppendToWorkflowDialog";
 
 const PAGE_SIZE = 20;
+const HISTORY_SYNC_POLL_INTERVAL_MS = 4000;
+
+// getHistorySyncStatusLabel 导入结果行的历史同步状态文案（#462/#465）。
+export function getHistorySyncStatusLabel(
+  status: NonNullable<ImportNewPodcast["history_sync"]>["status"],
+): string {
+  switch (status) {
+    case "pending":
+      return "待同步";
+    case "queued":
+      return "排队中";
+    case "running":
+      return "同步中";
+    case "completed":
+      return "已同步";
+    case "partial":
+      return "部分同步";
+    case "failed":
+      return "同步失败";
+    default:
+      return "待同步";
+  }
+}
+
+function hasActiveHistorySync(
+  podcasts: ImportNewPodcast[] | null,
+): boolean {
+  return (podcasts ?? []).some(
+    (podcast) =>
+      podcast.history_sync != null &&
+      (podcast.history_sync.status === "pending" ||
+        podcast.history_sync.status === "queued" ||
+        podcast.history_sync.status === "running"),
+  );
+}
 
 interface NewPodcastsSectionProps {
   taskId: number;
@@ -67,6 +103,16 @@ export default function NewPodcastsSection({ taskId }: NewPodcastsSectionProps) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId]);
 
+  // 有节目处于排队/同步中时轻量轮询，刷新进度；全部终态后停止（#465）。
+  useEffect(() => {
+    if (!hasActiveHistorySync(podcasts)) {
+      return;
+    }
+    const timer = setInterval(load, HISTORY_SYNC_POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [podcasts]);
+
   const filtered = useMemo(() => {
     const keyword = search.trim().toLowerCase();
     return (podcasts ?? []).filter((podcast) => {
@@ -114,10 +160,19 @@ export default function NewPodcastsSection({ taskId }: NewPodcastsSectionProps) 
     });
   };
 
-  const handleAppended = (result: { added: number }) => {
+  // 追加成功反馈区分「成员已保存」与「历史同步状态」：新覆盖成员的历史
+  // 同步已排队，进度在本清单行内展示（#465）。
+  const handleAppended = (result: WorkflowAppendResponse) => {
     setDialogOpen(false);
     setSelectedIds([]);
-    toast.success(`已添加 ${result.added} 档节目到工作流`);
+    const queuedCount = (result.history_sync ?? []).filter(
+      (entry) => entry.status === "pending" || entry.status === "queued",
+    ).length;
+    toast.success(
+      queuedCount > 0
+        ? `已添加 ${result.added} 档节目到工作流；${queuedCount} 档节目历史同步已排队`
+        : `已添加 ${result.added} 档节目到工作流`,
+    );
     load();
   };
 
@@ -228,6 +283,21 @@ export default function NewPodcastsSection({ taskId }: NewPodcastsSectionProps) 
                       ) : (
                         <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
                           待同步
+                        </span>
+                      )}
+                      {podcast.history_sync && (
+                        <span
+                          className="mt-1 block text-slate-400 dark:text-slate-500"
+                          role="status"
+                        >
+                          历史同步：
+                          {getHistorySyncStatusLabel(podcast.history_sync.status)}
+                          {podcast.history_sync.status === "running" &&
+                            podcast.history_sync.processed_count > 0 &&
+                            `（已处理 ${podcast.history_sync.processed_count}${podcast.history_sync.total_known != null ? ` / ${podcast.history_sync.total_known}` : ""}）`}
+                          {podcast.history_sync.status === "failed" &&
+                            podcast.history_sync.error_message &&
+                            `（${podcast.history_sync.error_message}）`}
                         </span>
                       )}
                     </span>

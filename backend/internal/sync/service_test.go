@@ -71,9 +71,10 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		_ = sqlDB.Close()
 	})
 
-	// 自动迁移（含清单外部身份映射，供同步去重复用）
+	// 自动迁移（含清单外部身份映射，供同步去重复用；历史同步任务表与水位线 KV 供 #462 用例）
 	err = db.AutoMigrate(&models.Podcast{}, &models.Episode{}, &models.PodcastAlternativeFeed{},
-		&models.EpisodeExternalRef{}, &models.EpisodeTriageDecision{})
+		&models.EpisodeExternalRef{}, &models.EpisodeTriageDecision{}, &models.PodcastHistorySyncTask{},
+		&models.SyncConfig{})
 	assert.NoError(t, err)
 
 	return db

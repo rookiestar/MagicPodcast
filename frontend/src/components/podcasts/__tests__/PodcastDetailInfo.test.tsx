@@ -110,7 +110,7 @@ describe("PodcastDetailInfo", () => {
       />,
     );
 
-    expect(screen.getByText("作者 · 12 集 · 更新于 未知")).toBeInTheDocument();
+    expect(screen.getByText("作者 · 12 集 · 待同步")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "播放最新一集" }),
     ).not.toBeInTheDocument();

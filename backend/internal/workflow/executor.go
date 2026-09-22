@@ -214,6 +214,18 @@ func (e *Executor) Execute(ctx context.Context, workflow *models.Workflow, trigg
 		return job, nil
 	}
 
+	// 周期执行前的有界补偿检查（#462）：为本次范围内缺失历史同步任务的
+	// 节目补登记（含自定义源本次落地的节目）。旧库节目受水位线保护，不
+	// 因周期运行被无差别回填；任务行是唯一事实来源，避免只依赖内存回调。
+	targetIDs := make([]uint, 0, len(podcasts))
+	for i := range podcasts {
+		targetIDs = append(targetIDs, podcasts[i].ID)
+	}
+	if _, err := syncsvc.EnsureHistoryTasks(e.db, targetIDs, models.HistorySyncTriggerWorkflow, true); err != nil {
+		logger.Warnf("周期补偿登记历史同步任务失败 [workflow=%d]: %v", workflow.ID, err)
+	}
+	syncsvc.NotifyHistoryTasksEnqueued(targetIDs)
+
 	// 3. 并发执行同步
 	results := e.executeSync(ctx, workflow, job, podcasts)
 
@@ -728,7 +740,17 @@ func (e *Executor) syncPodcastWithAttempts(
 		logger.Infof("⏱️  时间范围: 全部历史数据")
 	}
 
-	// 执行同步
+	// 执行同步。同节目并发边界（#462）：等待历史同步任务释放该节目的
+	// 单集同步槽后再执行，避免并发写单集在 GUID 唯一索引上互相造成虚假
+	// 失败；等待受 30 分钟执行 ctx 约束。
+	releaseEpisodeSync, err := e.syncSvc.AcquirePodcastEpisodeSync(ctx, podcast.ID)
+	if err != nil {
+		execution.Status = models.ExecutionStatusFailed
+		execution.ErrorMessage = fmt.Sprintf("等待节目同步槽失败: %v", err)
+		return &execution, nil
+	}
+	defer releaseEpisodeSync()
+
 	result, err := e.syncSvc.SyncPodcastEpisodesWithContext(
 		ctx,
 		podcast.ID,
