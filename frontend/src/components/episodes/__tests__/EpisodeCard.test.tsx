@@ -154,7 +154,7 @@ describe("EpisodeCard", () => {
       "async",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "播放" }));
+    fireEvent.click(screen.getByRole("button", { name: "听音频" }));
 
     expect(openSpy).toHaveBeenCalledWith(
       "https://example.com/audio.mp3",
@@ -178,10 +178,18 @@ describe("EpisodeCard", () => {
     );
 
     const videoLink = screen.getByRole("link", { name: "看视频" });
+    expect(videoLink).toHaveAttribute("title", "看视频");
+    expect(videoLink).toHaveAttribute("target", "_blank");
+    expect(videoLink).toHaveAttribute("rel", "noopener noreferrer");
+    expect(videoLink).not.toHaveTextContent("看视频");
+    expect(screen.getByRole("button", { name: "听音频" })).toHaveAttribute(
+      "title",
+      "听音频",
+    );
     expect(videoLink).toHaveAttribute("href", xyz);
     expect(videoLink.getAttribute("href")).not.toContain("m3u8");
 
-    fireEvent.click(screen.getByRole("button", { name: "播放" }));
+    fireEvent.click(screen.getByRole("button", { name: "听音频" }));
     expect(openSpy).toHaveBeenCalledWith(
       "https://example.com/audio.mp3",
       "_blank",
