@@ -2,7 +2,7 @@
 
 import EpisodeQueueMenu from "./EpisodeQueueMenu";
 import EpisodeLink from "./EpisodeLink";
-import { IconPlayerPlay } from "@tabler/icons-react";
+import { IconBrandYoutube, IconPlayerPlay } from "@tabler/icons-react";
 import { memo } from "react";
 import { OriginalEpisodeRecovery } from "@/components/common/OriginalEpisodeRecovery";
 import { EpisodeShowNotes } from "@/components/episodes/EpisodeShowNotes";
@@ -130,7 +130,8 @@ function EpisodeCard({
                       window.open(episode.medium_url, "_blank");
                     }}
                     className="podcast-episode-play"
-                    aria-label="播放"
+                    aria-label="听音频"
+                    title="听音频"
                   >
                     <IconPlayerPlay aria-hidden="true" stroke={1.8} />
                   </button>
@@ -142,9 +143,10 @@ function EpisodeCard({
                     rel="noopener noreferrer"
                     className="podcast-episode-video"
                     aria-label="看视频"
+                    title="看视频"
                     onClick={handleOriginalOpen}
                   >
-                    看视频
+                    <IconBrandYoutube aria-hidden="true" stroke={1.8} />
                   </a>
                 )}
               </div>
