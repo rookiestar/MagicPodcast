@@ -5,7 +5,7 @@ import { EpisodeShowNotes } from "../EpisodeShowNotes";
 
 function Reader({ status = "success" }: { status?: "success" | "loading" | "error" }) {
   const [open, setOpen] = useState(false);
-  return <EpisodeShowNotes title="测试单集" summary="三行摘要" link="" isExpanded={open}
+  return <EpisodeShowNotes title="测试单集" summary="三行摘要" isExpanded={open}
     status={status} document={{content:"<h2>正文标题</h2><p>全文末段</p>",format:"html"}}
     onToggle={() => setOpen(v => !v)} onRetry={() => {}} />;
 }
@@ -39,10 +39,10 @@ describe("EpisodeShowNotes reader", () => {
   });
   it("preserves readable summary during loading and failure and retries", () => {
     const retry = vi.fn();
-    const {rerender} = render(<EpisodeShowNotes title="慢单集" summary="摘要" link="" isExpanded status="loading" onToggle={() => {}} onRetry={retry}/>);
+    const {rerender} = render(<EpisodeShowNotes title="慢单集" summary="摘要" isExpanded status="loading" onToggle={() => {}} onRetry={retry}/>);
     expect(within(screen.getByRole("dialog")).getByText("摘要")).toBeVisible();
     expect(screen.getByRole("status")).toBeVisible();
-    rerender(<EpisodeShowNotes title="慢单集" summary="摘要" link="" isExpanded status="error" onToggle={() => {}} onRetry={retry}/>);
+    rerender(<EpisodeShowNotes title="慢单集" summary="摘要" isExpanded status="error" onToggle={() => {}} onRetry={retry}/>);
     expect(within(screen.getByRole("dialog")).getByText("摘要")).toBeVisible();
     fireEvent.click(screen.getByRole("button", {name:"重试全文"}));
     expect(retry).toHaveBeenCalledTimes(1);

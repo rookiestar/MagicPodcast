@@ -284,7 +284,7 @@ export default function RefreshCollectionModal({
           )}
         </div>
 
-        <div className="editorial-modal-footer">
+        <div className="editorial-modal-footer editorial-modal-actions">
           <button
             type="button"
             className="collection-btn-secondary"

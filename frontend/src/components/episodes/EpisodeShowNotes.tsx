@@ -8,18 +8,16 @@ import type { ShowNotesDocument } from "@/types/showNotes";
 interface EpisodeShowNotesProps {
   title?: string;
   summary: string;
-  link: string;
   isExpanded: boolean;
   status: "idle" | "loading" | "success" | "error";
   document?: ShowNotesDocument;
   onToggle: () => void;
   onRetry: () => void;
-  onOriginalOpen?: () => void;
 }
 
 export function EpisodeShowNotes({
-  title = "单集简介", summary, link, isExpanded, status,
-  document: notesDocument, onToggle, onRetry, onOriginalOpen,
+  title = "单集简介", summary, isExpanded, status,
+  document: notesDocument, onToggle, onRetry,
 }: EpisodeShowNotesProps) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -116,12 +114,7 @@ export function EpisodeShowNotes({
           </div>
         </dialog>
       )}
-      {link && (
-        <a href={link} target="_blank" rel="noopener noreferrer"
-          className="podcast-episode-show-notes-link md:hidden" onClick={onOriginalOpen}>
-          查看详情 →
-        </a>
-      )}
+
     </div>
   );
 }

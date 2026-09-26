@@ -1,0 +1,48 @@
+[
+  {
+    "navVisible": [
+      "主导航"
+    ],
+    "queues": [
+      "inbox",
+      "focus",
+      "someday",
+      "done"
+    ],
+    "scrollWidth": 768,
+    "width": 768
+  },
+  {
+    "navVisible": [
+      "行动队列切换",
+      "移动导航"
+    ],
+    "queues": [
+      "focus"
+    ],
+    "scrollWidth": 767,
+    "width": 767
+  },
+  {
+    "navVisible": [
+      "行动队列切换",
+      "移动导航"
+    ],
+    "queues": [
+      "focus"
+    ],
+    "scrollWidth": 320,
+    "width": 320
+  },
+  {
+    "navVisible": [
+      "行动队列切换",
+      "移动导航"
+    ],
+    "queues": [
+      "focus"
+    ],
+    "scrollWidth": 390,
+    "width": 390
+  }
+]

@@ -32,6 +32,7 @@ import {
   positiveID,
   singleParam,
   useLocationHref,
+  updateQuery,
 } from "@/lib/navigation";
 import PageLayout from "@/components/layout/PageLayout";
 import {
@@ -60,6 +61,7 @@ import {
   type QueueDragData,
   type QueuePlacementPreview,
 } from "./drag";
+import { QUEUE_PRESENTATION } from "./presentation";
 import styles from "./InboxPage.module.css";
 
 interface QueueViewState {
@@ -354,6 +356,7 @@ export default function InboxPageClient() {
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeRetry, setRouteRetry] = useState(0);
   const [queues, setQueues] = useState<QueueViewStateMap>(makeInitialQueues);
+  const [mobileQueue, setMobileQueue] = useState<ConsumptionQueue>("inbox");
   const [summary, setSummary] = useState<ConsumptionSummary | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [busyEpisodes, setBusyEpisodes] = useState<Set<number>>(
@@ -411,6 +414,18 @@ export default function InboxPageClient() {
   const boardViewportRef = useRef<HTMLElement | null>(null);
   const copilotListSnapshotRef = useRef<CopilotListSnapshot | null>(null);
   const locatedEpisodeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const location = new URL(href || "/inbox", "http://navigation.local");
+    if (location.pathname !== "/inbox") return;
+    const queue = singleParam(location.searchParams, "queue");
+    setMobileQueue(CONSUMPTION_QUEUES.find((candidate) => candidate === queue) ?? "inbox");
+  }, [href]);
+
+  const selectMobileQueue = (queue: ConsumptionQueue) => {
+    setMobileQueue(queue);
+    updateQuery({ queue, episode: null }, true);
+  };
 
   useEffect(() => {
     queuesRef.current = queues;
@@ -503,7 +518,7 @@ export default function InboxPageClient() {
   }, [route.id, routeRetry]);
 
   useEffect(() => {
-    if (!locateTarget || locatedEpisodeRef.current === locateTarget.episodeId) {
+    if (!locateTarget || mobileQueue !== locateTarget.queue || locatedEpisodeRef.current === locateTarget.episodeId) {
       return;
     }
     const queueState = queues[locateTarget.queue];
@@ -537,7 +552,7 @@ export default function InboxPageClient() {
     setAnnouncement(
       `已定位《${item.episode_title}》到 ${locateTarget.queue} 队列。`,
     );
-  }, [locateTarget, queues]);
+  }, [locateTarget, queues, mobileQueue]);
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
@@ -1300,7 +1315,7 @@ export default function InboxPageClient() {
       ? failedAction
       : null;
   const board = (
-    <div className={styles.board}>
+    <div className={styles.board} data-active-queue={mobileQueue}>
       {CONSUMPTION_QUEUES.map((queue) => (
         <ConsumptionQueueColumn
           key={queue}
@@ -1336,6 +1351,20 @@ export default function InboxPageClient() {
     >
       <main className={styles.page}>
         <h1 className={styles.srOnly}>Inbox</h1>
+        <nav className={styles.mobileQueueNav} aria-label="行动队列切换">
+          {CONSUMPTION_QUEUES.map((queue) => (
+            <button
+              key={queue}
+              type="button"
+              aria-pressed={mobileQueue === queue}
+              aria-controls={`queue-panel-${queue}`}
+              onClick={() => selectMobileQueue(queue)}
+            >
+              <span>{QUEUE_PRESENTATION[queue].label}</span>
+              <small>{queue === "done" ? queues.done.items.length : (summary?.counts[queue] ?? queues[queue].items.length)}</small>
+            </button>
+          ))}
+        </nav>
 
         {completionUndos.length > 0 && (
           <div className={styles.undoStack} aria-label="可撤销的完成操作">
@@ -1414,7 +1443,7 @@ export default function InboxPageClient() {
         <section
           ref={boardViewportRef}
           className={styles.boardViewport}
-          aria-label="消费队列横向总览"
+          aria-label="行动工作台"
           tabIndex={0}
         >
           {dragEnabled ? (

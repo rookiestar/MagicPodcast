@@ -659,14 +659,13 @@ export default function WorkflowReportWorkbench({
                   key={`${activeReport.id}-${episode.episode_id}-${episode.order}`}
                   className={`workflow-report-episode ${expanded ? "is-expanded" : ""}`}
                 >
-                  {/* #94: expand control and bookmark are siblings — never nested. */}
+                  {/* Navigation, expansion and collection are independent controls. */}
                   <div className="workflow-report-episode-row">
-                    <button
-                      type="button"
-                      className="workflow-report-episode-toggle"
-                      aria-expanded={expanded}
-                      aria-controls={`report-ep-detail-${activeReport.id}-${episode.episode_id}`}
-                      onClick={() => toggleExpand(episode.episode_id)}
+                    <EpisodeLink
+                      className="workflow-report-episode-main"
+                      episodeID={episode.episode_id}
+                      source={`report-${activeReport.job_id}`}
+                      href={`/episodes/${episode.episode_id}?from=discovery`}
                     >
                       <EpisodeCover
                         episode={episode}
@@ -685,6 +684,15 @@ export default function WorkflowReportWorkbench({
                           </p>
                         )}
                       </div>
+                    </EpisodeLink>
+                    <button
+                      type="button"
+                      className="workflow-report-episode-toggle"
+                      aria-label={`${expanded ? "收起" : "展开"}单集详情：${episode.episode_title}`}
+                      aria-expanded={expanded}
+                      aria-controls={`report-ep-detail-${activeReport.id}-${episode.episode_id}`}
+                      onClick={() => toggleExpand(episode.episode_id)}
+                    >
                       <IconChevronDown
                         size={18}
                         aria-hidden
@@ -715,7 +723,6 @@ export default function WorkflowReportWorkbench({
                       )}
                     </button>
                   </div>
-                  <EpisodeLink className="workflow-report-episode-entry" episodeID={episode.episode_id} source={`report-${activeReport.job_id}`} href={`/episodes/${episode.episode_id}?from=discovery`}>打开单集工作台</EpisodeLink>
                   {expanded && (
                     <div
                       id={`report-ep-detail-${activeReport.id}-${episode.episode_id}`}

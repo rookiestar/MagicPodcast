@@ -196,4 +196,37 @@ describe("SearchSidebar", () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+  it("contains keyboard focus in the overlay and restores the opener and scroll on unmount", () => {
+    mockSearchSidebarState();
+    const onClose = vi.fn();
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    opener.focus();
+    const oldOverflow = document.body.style.overflow;
+    const { unmount } = render(<SearchSidebar isOpen onClose={onClose} />);
+    const first = screen.getByRole("button", { name: "关闭搜索" });
+    const last = screen.getByRole("button", { name: "展开全部 11 个单集" });
+    first.focus();
+    fireEvent.keyDown(first, { key: "Tab", shiftKey: true });
+    expect(last).toHaveFocus();
+    fireEvent.keyDown(last, { key: "Tab" });
+    expect(first).toHaveFocus();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(document.body.style.overflow).toBe("hidden");
+    unmount();
+    expect(opener).toHaveFocus();
+    expect(document.body.style.overflow).toBe(oldOverflow);
+    opener.remove();
+  });
+
+  it("does not trap focus or lock body scrolling on the standalone search page", () => {
+    mockSearchSidebarState();
+    const oldOverflow = document.body.style.overflow;
+    render(<SearchSidebar isOpen standalone onClose={vi.fn()} />);
+    const first = screen.getByRole("button", { name: "关闭搜索" });
+    first.focus();
+    expect(fireEvent.keyDown(first, { key: "Tab", shiftKey: true })).toBe(true);
+    expect(document.body.style.overflow).toBe(oldOverflow);
+  });
+
 });

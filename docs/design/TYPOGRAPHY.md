@@ -120,7 +120,7 @@ Tailwind Typography 的 `prose` 比例。
 - 文楷只加载简体中文 Screen 分片，使用 `unicode-range` 按页面字符请求。
 - Newsreader 与 IBM Plex Sans 使用只含 `wght` 轴的可变 WOFF2；IBM Plex Mono 只加载 500 / 600。
 - 所有字体使用 `font-display: swap`，缺失字形回退到系统字体。
-- 字体 CSS 在根布局静态导入，路径可分析；不在组件渲染期间动态加载。
+- 字体 CSS 在根布局静态导入，路径可分析；首屏先使用系统字体。`DeferredEditorialAssets` 在关键封面稳定后启用 UI 字体与纸纹，并按页面标题字符等待编辑字体就绪后切换；失败保留系统回退，不让正文等待字体。
 - 字体包由前端依赖锁定并随构建产物发布。
 - `/podcasts` 列表标题不得触发 LXGW 文楷分片；其冷载页面总编码传输预算见
   [性能测试指南](../PERFORMANCE_TESTING_GUIDE.md)。

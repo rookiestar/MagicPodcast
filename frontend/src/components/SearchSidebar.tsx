@@ -37,8 +37,6 @@ export default function SearchSidebar({ isOpen, onClose, standalone = false }: S
   }, [isOpen, href, params, committedQuery, rawType]);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-  const [isFocused, setIsFocused] = useState(false);
   const [expandedPodcasts, setExpandedPodcasts] = useState(false);
   const [expandedEpisodes, setExpandedEpisodes] = useState(false);
   const {
@@ -58,25 +56,23 @@ export default function SearchSidebar({ isOpen, onClose, standalone = false }: S
   useEffect(() => { if (isOpen) setQuery(committedQuery); }, [committedQuery, isOpen, setQuery]);
   const submitQuery = () => updateSearchQuery({ q: query.trim() || null });
 
-  // 自动聚焦
   useEffect(() => {
-    if (isOpen && searchInputRef.current) {
-      previousFocusRef.current = document.activeElement as HTMLElement | null;
-      searchInputRef.current.focus();
-      setIsFocused(true); // 打开时设置焦点状态
-      return;
-    }
-
-    previousFocusRef.current?.focus();
-    previousFocusRef.current = null;
-  }, [isOpen]);
+    if (!isOpen) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    if (!standalone) document.body.style.overflow = "hidden";
+    searchInputRef.current?.focus();
+    return () => {
+      if (!standalone) document.body.style.overflow = previousOverflow;
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
+    };
+  }, [isOpen, standalone]);
 
   // 重置状态当关闭时
   useEffect(() => {
     if (!isOpen) {
       setExpandedPodcasts(false);
       setExpandedEpisodes(false);
-      setIsFocused(false);
     }
   }, [isOpen]);
 
@@ -85,36 +81,33 @@ export default function SearchSidebar({ isOpen, onClose, standalone = false }: S
     setExpandedEpisodes(false);
   }, [query, searchType]);
 
-  // 焦点管理：当焦点移出侧边栏时自动关闭
-  useEffect(() => {
-    if (!isOpen || isFocused) return;
-
-    // 延迟关闭，避免在点击侧边栏内部元素时误触发
-    const timer = setTimeout(() => {
-      // 检查当前焦点元素是否在侧边栏内
-      if (
-        sidebarRef.current &&
-        !sidebarRef.current.contains(document.activeElement)
-      ) {
-        onClose();
-      }
-    }, 100);
-
-    return () => clearTimeout(timer);
-  }, [isFocused, isOpen, onClose]);
-
   useEffect(() => {
     if (!isOpen) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        event.preventDefault();
         onClose();
+        return;
+      }
+      if (event.key !== "Tab" || standalone || !sidebarRef.current) return;
+      const controls = Array.from(sidebarRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), a[href], [tabindex="0"]',
+      )).filter((element) => !element.closest('[hidden], [inert]'));
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, standalone]);
 
   const handleClose = () => {
     onClose();
@@ -158,8 +151,6 @@ export default function SearchSidebar({ isOpen, onClose, standalone = false }: S
         aria-labelledby="search-workbench-title"
         style={standalone ? { width: "100%", maxWidth: "var(--page-max-width)", left: 0, marginInline: "auto" } : undefined}
         tabIndex={-1}
-        onFocus={() => setIsFocused(true)}
-        onBlur={() => setIsFocused(false)}
         className={`search-workbench fixed right-0 top-0 z-[60] flex h-full w-full flex-col ${
           isOpen
             ? "translate-x-0 opacity-100"

@@ -29,7 +29,7 @@ describe("editorial asset critical path", () => {
     expect(eagerTextureDeclarations).toHaveLength(0);
     expect(globalsCss).not.toContain("warm-paper-grid-texture-v1.jpg");
     expect(globalsCss).toContain(
-      "background-image: var(--editorial-paper-texture)",
+      "background-image: var(--editorial-paper-wash), var(--editorial-paper-texture)",
     );
   });
 

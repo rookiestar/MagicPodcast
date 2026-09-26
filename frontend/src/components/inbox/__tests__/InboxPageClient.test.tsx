@@ -1306,7 +1306,7 @@ describe("InboxPageClient", () => {
       name: "打开 可处理单集 明细",
     });
     const boardViewport = screen.getByRole("region", {
-      name: "消费队列横向总览",
+      name: "行动工作台",
     });
     boardViewport.scrollLeft = 137;
 
@@ -1863,7 +1863,7 @@ describe("InboxPageClient", () => {
       { timeout: 5000 },
     );
     const boardViewport = screen.getByRole("region", {
-      name: "消费队列横向总览",
+      name: "行动工作台",
     });
     const detailScroll = within(dialog).getByRole("tablist", {
       name: "单集详情内容",
@@ -3619,4 +3619,35 @@ describe("InboxPageClient", () => {
       within(queueSection("someday")).getByText("可处理单集"),
     ).toBeInTheDocument();
   });
+  it("selects a linked mobile queue and preserves each mounted queue's scroll position", async () => {
+    window.history.replaceState({}, "", "/inbox?queue=focus");
+    render(<InboxPageClient />);
+    await screen.findByText("可处理单集");
+    // happy-dom does not apply viewport media queries; real phone visibility is browser-verified.
+    const navigation = document.querySelector('nav[aria-label="行动队列切换"]') as HTMLElement;
+    const focus = within(navigation).getByText("Focus").closest("button")!;
+    await waitFor(() => expect(focus).toHaveAttribute("aria-pressed", "true"));
+    const column = queueSection("focus");
+    column.scrollTop = 180;
+    const callCount = apiMocks.listQueue.mock.calls.length;
+    fireEvent.click(within(navigation).getByText("Someday").closest("button")!);
+    expect(window.location.search).toBe("?queue=someday");
+    fireEvent.click(focus);
+    expect(column).toBe(queueSection("focus"));
+    expect(column.scrollTop).toBe(180);
+    expect(window.location.search).toBe("?queue=focus");
+    expect(apiMocks.listQueue).toHaveBeenCalledTimes(callCount);
+  });
+
+  it("keeps the selected queue and originating item when returning from detail", async () => {
+    window.history.replaceState({}, "", "/inbox?queue=inbox");
+    render(<InboxPageClient />);
+    const trigger = await screen.findByRole("button", { name: "打开 可处理单集 明细" });
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole("button", { name: "关闭单集明细" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/inbox"));
+    expect(window.location.search).toBe("?queue=inbox");
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
 });

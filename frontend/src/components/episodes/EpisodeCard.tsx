@@ -16,7 +16,6 @@ import {
   planEpisodeVideoAction,
   shouldShowEpisodePlayButton,
   shouldShowEpisodeShowNotes,
-  shouldShowEpisodeTitleLink,
   type EpisodeImagePriority,
 } from "@/lib/episodeDisplay";
 import {
@@ -56,7 +55,6 @@ function EpisodeCard({
   const originalAccess = planOriginalEpisodeAccess(episode.link);
   const originalOpenUrl =
     originalAccess.state === "openable" ? originalAccess.openUrl : null;
-  const showTitleLink = shouldShowEpisodeTitleLink(originalOpenUrl);
   const showPlayButton = shouldShowEpisodePlayButton(episode.medium_url);
   const videoAction = planEpisodeVideoAction(
     episode.video_availability,
@@ -94,25 +92,15 @@ function EpisodeCard({
           <div className="flex-1 min-w-0">
             {/* Title with Play Button */}
             <div className="podcast-episode-card-heading">
-              {showTitleLink && originalOpenUrl ? (
-                <a
-                  href={originalOpenUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="podcast-episode-title line-clamp-2"
-                  data-editorial-display-text="true"
-                  onClick={handleOriginalOpen}
-                >
-                  {episode.title}
-                </a>
-              ) : (
-                <span
-                  className="podcast-episode-title line-clamp-2"
-                  data-editorial-display-text="true"
-                >
-                  {episode.title}
-                </span>
-              )}
+              <EpisodeLink
+                episodeID={episode.id}
+                source="podcast"
+                href={`/episodes/${episode.id}?from=podcast`}
+                className="podcast-episode-title line-clamp-2"
+                data-editorial-display-text="true"
+              >
+                {episode.title}
+              </EpisodeLink>
 
               <div className="podcast-episode-actions">
                 <EpisodeQueueMenu
@@ -187,20 +175,23 @@ function EpisodeCard({
           </div>
         </div>
 
-        <EpisodeLink episodeID={episode.id} source="podcast" href={`/episodes/${episode.id}?from=podcast`}>打开单集工作台 →</EpisodeLink>
         {/* Show Notes */}
         {showNotes && (
           <EpisodeShowNotes
             title={episode.title}
             summary={episode.show_notes}
-            link={originalOpenUrl ?? ""}
             isExpanded={showNotesState.isExpanded}
             status={showNotesState.status}
             document={showNotesState.document}
             onToggle={showNotesState.toggle}
             onRetry={() => void showNotesState.retry()}
-            onOriginalOpen={handleOriginalOpen}
           />
+        )}
+        {originalOpenUrl && (
+          <a href={originalOpenUrl} target="_blank" rel="noopener noreferrer"
+            className="podcast-episode-original-link" onClick={handleOriginalOpen}>
+            原节目 ↗
+          </a>
         )}
         {originalRecovery.plan &&
           originalRecovery.activeKey === episode.id && (
