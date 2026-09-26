@@ -316,7 +316,7 @@ describe("WorkflowReportWorkbench", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("早报单集"));
+    fireEvent.click(screen.getByRole("button", { name: "展开单集详情：早报单集" }));
     expect(screen.getByText("Show Notes")).toBeInTheDocument();
 
     expect(
@@ -389,6 +389,10 @@ describe("WorkflowReportWorkbench", () => {
       />,
     );
 
+    const titleLink = screen.getByRole("link", { name: /第一集/ });
+    expect(titleLink).toHaveAttribute("href", "/episodes/31?from=discovery");
+    expect(titleLink.querySelector("button")).toBeNull();
+    expect(screen.queryByRole("link", { name: "打开单集工作台" })).not.toBeInTheDocument();
     const expandFirst = screen.getByRole("button", {
       name: /第一集/,
     });

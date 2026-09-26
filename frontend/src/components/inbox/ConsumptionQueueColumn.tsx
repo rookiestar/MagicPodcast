@@ -646,6 +646,7 @@ export default function ConsumptionQueueColumn({
       className={`${styles.queueColumn} ${styles[`queue_${queue}`]}`}
       aria-labelledby={`consumption-queue-${queue}`}
       data-queue={queue}
+      id={`queue-panel-${queue}`}
     >
       <header className={styles.queueHeader}>
         <div className={styles.queueHeading}>

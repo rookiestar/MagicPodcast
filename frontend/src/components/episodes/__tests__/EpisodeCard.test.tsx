@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useMemo, type ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useOriginalEpisodeRecovery } from "@/hooks/useOriginalEpisodeRecovery";
@@ -140,7 +140,7 @@ describe("EpisodeCard", () => {
 
     expect(screen.getByRole("link", { name: "单集标题" })).toHaveAttribute(
       "href",
-      "https://example.com/episode",
+      "/episodes/1?from=podcast",
     );
     expect(screen.getByRole("link", { name: "单集标题" })).toHaveAttribute(
       "data-editorial-display-text",
@@ -241,8 +241,9 @@ describe("EpisodeCard", () => {
       "missing",
     );
     expect(
-      screen.queryByRole("link", { name: "单集标题" }),
+      screen.queryByRole("link", { name: /原节目/ }),
     ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "单集标题" })).toHaveAttribute("href", "/episodes/1?from=podcast");
     missing.unmount();
 
     const rejected = render(
@@ -253,8 +254,9 @@ describe("EpisodeCard", () => {
       "rejected",
     );
     expect(
-      screen.queryByRole("link", { name: "单集标题" }),
+      screen.queryByRole("link", { name: /原节目/ }),
     ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "单集标题" })).toHaveAttribute("href", "/episodes/1?from=podcast");
     rejected.unmount();
 
     render(
@@ -266,7 +268,7 @@ describe("EpisodeCard", () => {
     );
     expect(screen.queryByText("原节目链接暂缺")).not.toBeInTheDocument();
     expect(screen.queryByText("原节目链接不可安全打开")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "单集标题" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /原节目/ })).toHaveAttribute(
       "href",
       "https://hosting.wavpub.cn/pie/ep229/",
     );
@@ -288,7 +290,7 @@ describe("EpisodeCard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("link", { name: "单集标题" }));
+    fireEvent.click(screen.getByRole("link", { name: /原节目/ }));
     expect(
       screen.getByRole("region", { name: "原节目页恢复" }),
     ).toBeInTheDocument();
@@ -311,12 +313,12 @@ describe("EpisodeCard", () => {
   it("keeps only the latest episode recovery in a shared list", () => {
     render(<EpisodeCardPairHarness />);
 
-    fireEvent.click(screen.getByRole("link", { name: "单集 A" }));
+    fireEvent.click(within(screen.getByRole("link", { name: "单集 A" }).closest(".podcast-episode-card") as HTMLElement).getByRole("link", { name: /原节目/ }));
     expect(screen.getAllByRole("region", { name: "原节目页恢复" })).toHaveLength(
       1,
     );
 
-    fireEvent.click(screen.getByRole("link", { name: "单集 B" }));
+    fireEvent.click(within(screen.getByRole("link", { name: "单集 B" }).closest(".podcast-episode-card") as HTMLElement).getByRole("link", { name: /原节目/ }));
     expect(screen.getAllByRole("region", { name: "原节目页恢复" })).toHaveLength(
       1,
     );
@@ -341,9 +343,9 @@ describe("EpisodeCard", () => {
     });
     render(<EpisodeCardPairHarness />);
 
-    fireEvent.click(screen.getByRole("link", { name: "单集 A" }));
+    fireEvent.click(within(screen.getByRole("link", { name: "单集 A" }).closest(".podcast-episode-card") as HTMLElement).getByRole("link", { name: /原节目/ }));
     fireEvent.click(screen.getByRole("button", { name: "复制页面链接" }));
-    fireEvent.click(screen.getByRole("link", { name: "单集 B" }));
+    fireEvent.click(within(screen.getByRole("link", { name: "单集 B" }).closest(".podcast-episode-card") as HTMLElement).getByRole("link", { name: /原节目/ }));
 
     await act(async () => {
       rejectFirstCopy(new Error("denied"));
@@ -362,7 +364,7 @@ describe("EpisodeCard", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("offers recovery from the mobile Show Notes detail link", () => {
+  it("offers recovery from the explicit original episode link", () => {
     render(
       <TestEpisodeCard
         episode={makeEpisode({
@@ -371,7 +373,7 @@ describe("EpisodeCard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("link", { name: /查看详情/ }));
+    fireEvent.click(screen.getByRole("link", { name: /原节目/ }));
     expect(
       screen.getByRole("region", { name: "原节目页恢复" }),
     ).toBeInTheDocument();
@@ -508,7 +510,7 @@ describe("EpisodeCard", () => {
     expect(screen.getAllByText("旧简介")[0]).toBeVisible();
     expect(screen.getByRole("link", { name: "单集标题" })).toHaveAttribute(
       "href",
-      "https://example.com/episode",
+      "/episodes/1?from=podcast",
     );
 
     fireEvent.click(screen.getByRole("button", { name: "重试全文" }));
@@ -586,7 +588,7 @@ describe("EpisodeCard", () => {
     fireEvent.focus(title);
 
     expect(screen.getAllByText("旧简介")[0]).toBeVisible();
-    expect(screen.getByRole("link", { name: /查看详情/ })).toBeVisible();
+    expect(screen.getByRole("link", { name: /原节目/ })).toBeVisible();
     expect(getShowNotesMock).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "阅读简介" }));

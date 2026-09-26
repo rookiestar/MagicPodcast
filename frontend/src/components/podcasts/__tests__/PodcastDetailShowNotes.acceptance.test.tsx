@@ -259,7 +259,7 @@ describe("podcast detail Show Notes user flow", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("预览仍可查看");
     expect(screen.getByRole("link", { name: "单集 A" })).toHaveAttribute(
       "href",
-      "https://example.com/episodes/1",
+      "/episodes/1?from=podcast",
     );
 
     fireEvent.click(screen.getByRole("button", { name: "重试全文" }));
@@ -328,6 +328,6 @@ describe("podcast detail Show Notes user flow", () => {
     expect(await screen.findByRole("heading", { name: "完整 A" })).toBeVisible();
     expect(apiMocks.getShowNotes).toHaveBeenCalledTimes(1);
     expect(apiMocks.getShowNotes).toHaveBeenCalledWith(1);
-    expect(screen.getAllByRole("link", { name: /查看详情/ })).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: /原节目/ })).toHaveLength(2);
   });
 });

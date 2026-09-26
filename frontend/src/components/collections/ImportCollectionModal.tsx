@@ -311,7 +311,7 @@ export default function ImportCollectionModal({
           )}
         </div>
 
-        <div className="editorial-modal-footer">
+        <div className="editorial-modal-footer editorial-modal-actions">
           {preview ? (
             <>
               <button

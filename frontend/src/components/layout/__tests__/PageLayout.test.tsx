@@ -49,7 +49,7 @@ describe("PageLayout background", () => {
       "style[data-editorial-page-fallback]",
     );
     expect(fallback).toBeTruthy();
-    expect(fallback?.textContent).toContain("background-color: #f7f1e5");
+    expect(fallback?.textContent).toContain("background-color: #f8f5ed");
     expect(fallback?.textContent).toContain("min-height: 100vh");
   });
 

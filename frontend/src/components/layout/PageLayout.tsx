@@ -71,7 +71,7 @@ export default function PageLayout({
   };
 
   // 计算顶部的padding
-  const paddingTop = showNavbar ? "64px" : "0px";
+  const paddingTop = showNavbar ? "var(--app-navbar-offset)" : "0px";
   // 移动端底部padding（为底部导航栏留空间）
   const paddingBottom = showBottomNav ? "60px" : "0px";
   const defaultRootBackground = rootClassName ? "" : "bg-slate-50";
