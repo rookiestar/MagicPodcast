@@ -4,23 +4,54 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, appendFileSync } from 'node:fs';
 
 const ageLimit = 75 * 60_000;
-function api(endpoint) {
+const errorCategories = ['authentication_failed', 'permission_denied', 'not_found', 'rate_limited', 'server_error', 'http_error', 'timeout', 'command_failed', 'invalid_response'];
+function httpStatus(output) {
+  const match = String(output ?? '').match(/^HTTP\/\S+\s+(\d{3})\b/m);
+  return match ? Number(match[1]) : null;
+}
+function rateLimited(output) {
+  const response = String(output ?? ''), separator = response.match(/\r?\n\r?\n/);
+  const headers = separator ? response.slice(0, separator.index) : response;
+  if (/^x-ratelimit-remaining:[ \t]*0[ \t]*\r?$/im.test(headers) || /^retry-after:[ \t]*\d+[ \t]*\r?$/im.test(headers)) return true;
   try {
-    return JSON.parse(execFileSync('gh', ['api', endpoint], {
+    const message = separator && JSON.parse(response.slice(separator.index + separator[0].length)).message;
+    return typeof message === 'string' && /\b(?:secondary rate limit|API rate limit exceeded)\b/i.test(message);
+  } catch { return false; }
+}
+function api(endpoint, token) {
+  let response;
+  try {
+    response = execFileSync('gh', ['api', '--include', endpoint], {
       encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL', maxBuffer: 2 * 1024 * 1024,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }));
-  } catch { return null; } // Never print API errors that may contain credentials.
+      stdio: ['ignore', 'pipe', 'pipe'], env: token ? { ...process.env, GH_TOKEN: token } : process.env,
+    });
+  } catch (error) {
+    // Retain only status and category; headers, body and stderr may contain credentials.
+    const status = httpStatus(error.stdout);
+    const category = status === 401 ? 'authentication_failed' : status === 403 ? (rateLimited(error.stdout) ? 'rate_limited' : 'permission_denied') :
+      status === 404 ? 'not_found' : status === 429 ? 'rate_limited' : status >= 500 ? 'server_error' :
+      status ? 'http_error' : error.code === 'ETIMEDOUT' ? 'timeout' : 'command_failed';
+    return { data: null, error: { category, http_status: status } };
+  }
+  try {
+    const separator = response.match(/\r?\n\r?\n/);
+    if (!separator) throw new Error();
+    return { data: JSON.parse(response.slice(separator.index + separator[0].length)), error: null };
+  } catch {
+    return { data: null, error: { category: 'invalid_response', http_status: httpStatus(response) } };
+  }
 }
 function collect() {
   const repo = process.env.GITHUB_REPOSITORY;
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo ?? '')) return {};
   const base = `repos/${repo}/actions`;
   const runs = api(`${base}/workflows/production-runner-heartbeat.yml/runs?per_page=50`);
-  const ordered = [...(runs?.workflow_runs ?? [])].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  const ordered = [...(runs.data?.workflow_runs ?? [])].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   const success = ordered.find(r => r.conclusion === 'success');
   const jobs = success && Number.isSafeInteger(success.id) ? api(`${base}/runs/${success.id}/jobs`) : null;
-  return { runs, jobs, runners: api(`${base}/runners?per_page=100`) };
+  const runners = api(`${base}/runners?per_page=100`, process.env.RUNNER_STATUS_READ_TOKEN);
+  return { runs: runs.data, jobs: jobs?.data ?? null, runners: runners.data,
+    api_errors: { runs: runs.error, jobs: jobs?.error ?? null, runners: runners.error } };
 }
 function classify(data, now) {
   const unknown = reason => ({ classification: 'unknown', reason, exit: 1 });
@@ -69,9 +100,18 @@ try {
   const result = classify(data, now);
   const latest = data.runs?.workflow_runs?.reduce((a, b) => Date.parse(a.created_at) > Date.parse(b.created_at) ? a : b, {}) ?? {};
   const safeDate = value => Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
+  const apiErrors = Object.fromEntries(['runs', 'jobs', 'runners'].map(name => {
+    const error = data.api_errors?.[name];
+    return [name, error ? {
+      category: errorCategories.includes(error.category) ? error.category : 'command_failed',
+      http_status: Number.isInteger(error.http_status) && error.http_status >= 100 && error.http_status <= 599 ? error.http_status : null,
+    } : null];
+  }));
   const evidence = {
     ...result, observed_at: new Date(now).toISOString(), latest_created_at: safeDate(latest.created_at),
     latest_updated_at: safeDate(latest.updated_at), heartbeat_limit_minutes: 75,
+    latest_age_minutes: safeDate(latest.created_at) && Date.parse(latest.created_at) <= now ? Math.floor((now - Date.parse(latest.created_at)) / 60_000) : null,
+    api_errors: apiErrors,
     runner_status_available: Array.isArray(data.runners?.runners), service_health: 'not_checked',
   };
   console.log(JSON.stringify(evidence));

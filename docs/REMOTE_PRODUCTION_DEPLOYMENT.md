@@ -163,4 +163,8 @@ Actions 的部署／回退任务先将诊断 JSON 写入生产目录的 `.magicp
 - `heartbeat_failed`：最新心跳明确失败。
 - `unknown`：API 不可用、权限不足且缺少新鲜执行证据、身份冲突或时间数据无效。
 
-查询 Runner API 不额外申请管理员权限；读不到时保留未知。所有分类都将应用健康标记为 `not_checked`，不得替代 `/health`、`/ready` 或生产验收。离线、失败、过期排队或未知返回非零退出码；可解释的短期排队、执行及调度证据在摘要中展示。原有 Actions 通知渠道不变，不自动重启服务或重发工作流。
+默认身份仅使用 `actions: read` / `contents: read`，读不到 Runner API 时保留未知。摘要的 `latest_age_minutes` 展示最新任务创建至检查的分钟数；`api_errors` 分别保留心跳列表、任务和 Runner 查询的安全错误类别及 HTTP 状态码，区分权限不足、认证失败、限流、服务端错误、超时及无效响应，不输出原始响应、请求头或凭据。
+
+Runner 列表接口要求仓库 `Administration: read`，workflow 自带的 `GITHUB_TOKEN` 无法提供该权限。若维护者明确批准独立的只读凭据，可在仓库 Actions secret `PRODUCTION_RUNNER_READ_TOKEN` 中配置仅限本仓库、仅含 `Administration: read`（及 GitHub 自动授予的 Metadata 读取）的 fine-grained PAT。此凭据只供 Runner 状态查询；心跳列表、任务查询及 checkout 继续使用默认身份。不配置时沿用默认身份，权限不足且没有新鲜证据仍报告未知并失败；增加 secret 是独立授权操作，本地代码或测试通过不代表已配置。接口权限要求见 [GitHub 官方文档](https://docs.github.com/en/rest/actions/self-hosted-runners#list-self-hosted-runners-for-a-repository)。
+
+心跳每小时第 17、47 分钟触发，检查在第 27、57 分钟触发，避开整点并留出 10 分钟间隔；这是降低碰撞和延迟的安排，不保证 GitHub 定时任务准时创建。75 分钟阈值保持不变。所有分类都将应用健康标记为 `not_checked`，不得替代 `/health`、`/ready` 或生产验收。离线、失败、过期排队或未知返回非零退出码；可解释的短期排队、执行及调度证据在摘要中展示。原有 Actions 通知渠道不变，不自动重启服务或重发工作流。

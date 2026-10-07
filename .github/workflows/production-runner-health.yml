@@ -2,7 +2,7 @@ name: Production runner health
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "27,57 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -26,4 +26,5 @@ jobs:
       - name: Check runner evidence
         env:
           GH_TOKEN: ${{ github.token }}
+          RUNNER_STATUS_READ_TOKEN: ${{ secrets.PRODUCTION_RUNNER_READ_TOKEN }}
         run: node scripts/production-runner-health.mjs
