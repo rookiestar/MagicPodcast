@@ -51,6 +51,94 @@ for (const [name, change, classification, code] of [
   });
 }
 
+async function runnerApiFixture(t, { failedEndpoint = 'runners', status = 200, invalidResponse = false, timeout = false, runnerStatus = 'online', dedicatedToken = true } = {}) {
+  const dir = await temp(t), data = heartbeat();
+  data.runners.runners[0].status = runnerStatus;
+  const calls = path.join(dir, 'calls.jsonl'), summary = path.join(dir, 'summary.md');
+  const fixture = { data, failedEndpoint, status, invalidResponse, timeout, calls };
+  await writeFile(path.join(dir, 'gh'), `#!${process.execPath}
+const fs = require('node:fs');
+const fixture = ${JSON.stringify(fixture)};
+const endpoint = process.argv.at(-1);
+const kind = endpoint.includes('/runners?') ? 'runners' : endpoint.includes('/jobs') ? 'jobs' : 'runs';
+fs.appendFileSync(fixture.calls, JSON.stringify({ kind, actionsToken: process.env.GH_TOKEN === 'test-actions-token', runnerToken: process.env.GH_TOKEN === 'test-runner-token' }) + '\\n');
+if (kind === fixture.failedEndpoint && fixture.timeout) {
+  setTimeout(() => process.exit(1), 10000);
+} else {
+  const status = kind === fixture.failedEndpoint ? fixture.status : 200;
+  const body = status === 200 ? JSON.stringify(fixture.data[kind]) : JSON.stringify({ message: 'test-secret-in-API-body' });
+  if (process.argv.includes('--include')) process.stdout.write('HTTP/2.0 ' + status + ' Response\\r\\nX-Test: test-secret-in-header\\r\\n\\r\\n');
+  process.stdout.write(kind === fixture.failedEndpoint && fixture.invalidResponse ? 'test-secret-invalid-JSON' : body);
+  if (status !== 200) { process.stderr.write('test-secret-in-stderr'); process.exitCode = 1; }
+}
+`);
+  await chmod(path.join(dir, 'gh'), 0o755);
+  const env = { ...process.env, PATH: `${dir}:${process.env.PATH}`, GITHUB_REPOSITORY: 'rookiestar/MagicPodcast',
+    GH_TOKEN: 'test-actions-token', RUNNER_STATUS_READ_TOKEN: dedicatedToken ? 'test-runner-token' : '', GITHUB_STEP_SUMMARY: summary };
+  const result = await run(process.execPath, [path.join(scripts, 'production-runner-health.mjs')], { env });
+  const contents = await readFile(summary, 'utf8');
+  assert.doesNotMatch(result.stdout + result.stderr + contents, /test-secret|test-actions-token|test-runner-token/);
+  return { ...result, evidence: JSON.parse(result.stdout), summary: contents,
+    calls: (await readFile(calls, 'utf8')).trim().split('\n').map(line => JSON.parse(line)) };
+}
+
+for (const [status, category] of [[401, 'authentication_failed'], [403, 'permission_denied'], [404, 'not_found'], [429, 'rate_limited'], [503, 'server_error']]) {
+  test(`runner API ${status} retains safe failure evidence and fails stale monitoring`, async t => {
+    const r = await runnerApiFixture(t, { status });
+    assert.equal(r.code, 1, r.stderr);
+    assert.equal(r.evidence.classification, 'unknown');
+    assert.equal(r.evidence.reason, 'stale_heartbeat_runner_status_unavailable');
+    assert.deepEqual(r.evidence.api_errors.runners, { category, http_status: status });
+    assert.equal(r.evidence.runner_status_available, false);
+    assert.equal(r.evidence.service_health, 'not_checked');
+    assert.ok(r.evidence.latest_age_minutes > 75);
+    assert.match(r.summary, new RegExp(category));
+  });
+}
+
+test('dedicated read token is used only for runner status, and online evidence explains stale scheduling', async t => {
+  const r = await runnerApiFixture(t);
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.evidence.classification, 'scheduling_delay');
+  assert.equal(r.evidence.service_health, 'not_checked');
+  assert.deepEqual(r.evidence.api_errors, { runs: null, jobs: null, runners: null });
+  assert.deepEqual(r.calls, [{ kind: 'runs', actionsToken: true, runnerToken: false },
+    { kind: 'jobs', actionsToken: true, runnerToken: false }, { kind: 'runners', actionsToken: false, runnerToken: true }]);
+});
+
+test('runner API keeps the default identity when no dedicated token is configured', async t => {
+  const r = await runnerApiFixture(t, { dedicatedToken: false });
+  assert.equal(r.code, 0, r.stderr);
+  assert.ok(r.calls.every(call => call.actionsToken && !call.runnerToken));
+});
+
+test('direct offline status still fails when a dedicated read token is used', async t => {
+  const r = await runnerApiFixture(t, { runnerStatus: 'offline' });
+  assert.equal(r.code, 1, r.stderr);
+  assert.equal(r.evidence.classification, 'offline');
+});
+
+test('invalid runner API JSON remains unknown without exposing response content', async t => {
+  const r = await runnerApiFixture(t, { invalidResponse: true });
+  assert.equal(r.code, 1, r.stderr);
+  assert.deepEqual(r.evidence.api_errors.runners, { category: 'invalid_response', http_status: 200 });
+});
+
+test('runner API timeout is bounded and distinct from permission denial', async t => {
+  const r = await runnerApiFixture(t, { timeout: true });
+  assert.equal(r.code, 1, r.stderr);
+  assert.deepEqual(r.evidence.api_errors.runners, { category: 'timeout', http_status: null });
+});
+
+for (const failedEndpoint of ['runs', 'jobs']) {
+  test(`${failedEndpoint} API failure is visible even when runner status is readable`, async t => {
+    const r = await runnerApiFixture(t, { failedEndpoint, status: 503 });
+    assert.equal(r.code, 1, r.stderr);
+    assert.equal(r.evidence.classification, 'unknown');
+    assert.deepEqual(r.evidence.api_errors[failedEndpoint], { category: 'server_error', http_status: 503 });
+  });
+}
+
 test('SQLite read-only preserves stopped WAL, special paths, errors and write rejection', async t => {
   const dir = await temp(t), db = path.join(dir, 'db ?#% space.db');
   const python = spawn('python3', ['-c', `import sqlite3,sys,time\nc=sqlite3.connect(sys.argv[1]);c.execute('PRAGMA journal_mode=WAL');c.execute('PRAGMA wal_autocheckpoint=0');c.execute('CREATE TABLE facts(value)');c.execute('INSERT INTO facts VALUES(42)');c.commit();print('ready',flush=True);time.sleep(60)`, db], { stdio: ['ignore', 'pipe', 'pipe'] });
