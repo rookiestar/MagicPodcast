@@ -51,11 +51,11 @@ for (const [name, change, classification, code] of [
   });
 }
 
-async function runnerApiFixture(t, { failedEndpoint = 'runners', status = 200, invalidResponse = false, timeout = false, runnerStatus = 'online', dedicatedToken = true } = {}) {
+async function runnerApiFixture(t, { failedEndpoint = 'runners', status = 200, invalidResponse = false, timeout = false, runnerStatus = 'online', dedicatedToken = true, headers = [], message = 'test-secret-in-API-body' } = {}) {
   const dir = await temp(t), data = heartbeat();
   data.runners.runners[0].status = runnerStatus;
   const calls = path.join(dir, 'calls.jsonl'), summary = path.join(dir, 'summary.md');
-  const fixture = { data, failedEndpoint, status, invalidResponse, timeout, calls };
+  const fixture = { data, failedEndpoint, status, invalidResponse, timeout, calls, headers, message };
   await writeFile(path.join(dir, 'gh'), `#!${process.execPath}
 const fs = require('node:fs');
 const fixture = ${JSON.stringify(fixture)};
@@ -66,8 +66,9 @@ if (kind === fixture.failedEndpoint && fixture.timeout) {
   setTimeout(() => process.exit(1), 10000);
 } else {
   const status = kind === fixture.failedEndpoint ? fixture.status : 200;
-  const body = status === 200 ? JSON.stringify(fixture.data[kind]) : JSON.stringify({ message: 'test-secret-in-API-body' });
-  if (process.argv.includes('--include')) process.stdout.write('HTTP/2.0 ' + status + ' Response\\r\\nX-Test: test-secret-in-header\\r\\n\\r\\n');
+  const body = status === 200 ? JSON.stringify(fixture.data[kind]) : JSON.stringify({ message: fixture.message });
+  const headers = kind === fixture.failedEndpoint ? fixture.headers : [];
+  if (process.argv.includes('--include')) process.stdout.write(['HTTP/2.0 ' + status + ' Response', 'X-Test: test-secret-in-header', ...headers].join('\\r\\n') + '\\r\\n\\r\\n');
   process.stdout.write(kind === fixture.failedEndpoint && fixture.invalidResponse ? 'test-secret-invalid-JSON' : body);
   if (status !== 200) { process.stderr.write('test-secret-in-stderr'); process.exitCode = 1; }
 }
@@ -93,6 +94,20 @@ for (const [status, category] of [[401, 'authentication_failed'], [403, 'permiss
     assert.equal(r.evidence.service_health, 'not_checked');
     assert.ok(r.evidence.latest_age_minutes > 75);
     assert.match(r.summary, new RegExp(category));
+  });
+}
+
+for (const [name, options] of [
+  ['primary limit with exhausted remaining header', { headers: ['x-ratelimit-remaining: 0'] }],
+  ['secondary limit with Retry-After and remaining budget', { headers: ['X-RateLimit-Remaining: 32', 'Retry-After: 60'] }],
+  ['secondary limit message without Retry-After', { message: 'You have exceeded a secondary rate limit. test-secret-in-API-body' }],
+]) {
+  test(`runner API 403 rate limit: ${name}`, async t => {
+    const r = await runnerApiFixture(t, { status: 403, ...options });
+    assert.equal(r.code, 1, r.stderr);
+    assert.equal(r.evidence.classification, 'unknown');
+    assert.deepEqual(r.evidence.api_errors.runners, { category: 'rate_limited', http_status: 403 });
+    assert.match(r.summary, /rate_limited/);
   });
 }
 

@@ -9,6 +9,15 @@ function httpStatus(output) {
   const match = String(output ?? '').match(/^HTTP\/\S+\s+(\d{3})\b/m);
   return match ? Number(match[1]) : null;
 }
+function rateLimited(output) {
+  const response = String(output ?? ''), separator = response.match(/\r?\n\r?\n/);
+  const headers = separator ? response.slice(0, separator.index) : response;
+  if (/^x-ratelimit-remaining:[ \t]*0[ \t]*\r?$/im.test(headers) || /^retry-after:[ \t]*\d+[ \t]*\r?$/im.test(headers)) return true;
+  try {
+    const message = separator && JSON.parse(response.slice(separator.index + separator[0].length)).message;
+    return typeof message === 'string' && /\b(?:secondary rate limit|API rate limit exceeded)\b/i.test(message);
+  } catch { return false; }
+}
 function api(endpoint, token) {
   let response;
   try {
@@ -19,7 +28,7 @@ function api(endpoint, token) {
   } catch (error) {
     // Retain only status and category; headers, body and stderr may contain credentials.
     const status = httpStatus(error.stdout);
-    const category = status === 401 ? 'authentication_failed' : status === 403 ? 'permission_denied' :
+    const category = status === 401 ? 'authentication_failed' : status === 403 ? (rateLimited(error.stdout) ? 'rate_limited' : 'permission_denied') :
       status === 404 ? 'not_found' : status === 429 ? 'rate_limited' : status >= 500 ? 'server_error' :
       status ? 'http_error' : error.code === 'ETIMEDOUT' ? 'timeout' : 'command_failed';
     return { data: null, error: { category, http_status: status } };
